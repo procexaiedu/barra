@@ -1,0 +1,21 @@
+* text=auto eol=lf
+
+# Binários comuns
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.gz binary
+*.mp3 binary
+*.mp4 binary
+*.wav binary
+*.ogg binary
+
+# Lockfiles — preservar EOL original
+*.lock -text
+uv.lock -text
+pnpm-lock.yaml -text
+package-lock.json -text
