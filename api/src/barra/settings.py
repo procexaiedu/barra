@@ -70,6 +70,7 @@ class Settings(BaseSettings):
     evolution_grupo_coordenacao_jid: str | None = None
     evolution_fernando_jids: list[str] = Field(default_factory=list)
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    cors_origin_regex: str | None = None
 
     jid_permitido: str | None = Field(
         default=None,
