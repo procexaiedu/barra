@@ -1,0 +1,142 @@
+export type EstadoAtendimento =
+  | "Novo"
+  | "Triagem"
+  | "Qualificado"
+  | "Aguardando_confirmacao"
+  | "Confirmado"
+  | "Em_execucao"
+  | "Fechado"
+  | "Perdido"
+
+export type TipoAtendimento = "interno" | "externo"
+export type Urgencia = "imediato" | "agendado" | "indefinido" | "estimado"
+export type IaPausadaMotivo = "pix_em_revisao" | "modelo_em_atendimento" | "handoff_ia"
+export type ResponsavelAtual = "IA" | "Fernando" | "modelo"
+export type MotivoPerda = "preco" | "sumiu" | "risco" | "indisponibilidade" | "fora_de_area" | "outro"
+export type DirecaoMensagem = "cliente" | "ia" | "modelo_manual"
+export type TipoMensagem = "texto" | "audio" | "imagem"
+export type PixStatus = "nao_solicitado" | "aguardando" | "enviado" | "em_revisao" | "validado" | "invalido"
+
+export interface AtendimentoListaItem {
+  id: string
+  numero_curto: number
+  cliente: {
+    id: string
+    nome: string | null
+    telefone: string
+  }
+  modelo: {
+    id: string
+    nome: string
+  }
+  estado: EstadoAtendimento
+  tipo_atendimento: TipoAtendimento | null
+  urgencia: Urgencia | null
+  ia_pausada: boolean
+  ia_pausada_motivo: IaPausadaMotivo | null
+  responsavel_atual: ResponsavelAtual
+  motivo_escalada: string | null
+  proxima_acao_esperada: string | null
+  updated_at: string
+}
+
+export interface AtendimentosListaResponse {
+  items: AtendimentoListaItem[]
+  next_cursor: string | null
+}
+
+export interface MensagemAtendimento {
+  id: string
+  direcao: DirecaoMensagem
+  tipo: TipoMensagem
+  conteudo: string
+  media_object_key: string | null
+  media_url?: string | null
+  created_at: string
+}
+
+export interface EventoAtendimento {
+  id: string
+  tipo: string
+  origem: string
+  autor: string
+  payload: Record<string, unknown>
+  created_at: string
+}
+
+export interface ComprovantePixResumo {
+  id: string
+  valor_extraido: number | null
+  chave_extraida: string | null
+  titular_extraido: string | null
+  decisao_pipeline: "validado" | "em_revisao"
+  decisao_final: "validado" | "invalido" | null
+  motivo_em_revisao: string | null
+  created_at: string
+}
+
+export interface AtendimentoOperacional {
+  id: string
+  numero_curto: number
+  estado: EstadoAtendimento
+  tipo_atendimento: TipoAtendimento | null
+  urgencia: Urgencia | null
+  data_desejada: string | null
+  horario_desejado: string | null
+  duracao_horas: number | string | null
+  endereco: string | null
+  bairro: string | null
+  tipo_local: string | null
+  forma_pagamento: string | null
+  valor_acordado: number | string | null
+  valor_final: number | string | null
+  motivo_perda: MotivoPerda | null
+  motivo_perda_obs: string | null
+  pix_status: PixStatus | null
+  ia_pausada: boolean
+  ia_pausada_motivo: IaPausadaMotivo | null
+  responsavel_atual: ResponsavelAtual
+  proxima_acao_esperada: string | null
+  motivo_escalada: string | null
+  resumo_operacional: string | null
+  sinais_qualificacao: Record<string, unknown> | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BloqueioResumo {
+  id: string
+  inicio: string
+  fim: string
+  estado: string
+}
+
+export interface AtendimentoDetalheResponse {
+  atendimento: AtendimentoOperacional
+  cliente: {
+    id: string
+    nome: string | null
+    telefone: string
+  }
+  modelo: {
+    id: string
+    nome: string
+  }
+  bloqueio: BloqueioResumo | null
+  mensagens: MensagemAtendimento[]
+  eventos: EventoAtendimento[]
+  comprovantes_pix: ComprovantePixResumo[]
+}
+
+export type EstadoFiltro = "abertos" | EstadoAtendimento
+export type TipoFiltro = "todos" | TipoAtendimento
+export type UrgenciaFiltro = "todas" | Urgencia
+export type IaFiltro = "todos" | "ativa" | "pausada"
+
+export interface FiltrosAtendimentos {
+  busca: string
+  estado: EstadoFiltro
+  tipo: TipoFiltro
+  urgencia: UrgenciaFiltro
+  ia: IaFiltro
+}

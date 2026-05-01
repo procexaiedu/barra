@@ -22,4 +22,5 @@ typecheck:
 	uv run mypy src
 
 migrate:
-	uv run alembic upgrade head
+	@if [ -z "$$DATABASE_URL" ]; then echo "DATABASE_URL obrigatorio"; exit 1; fi
+	@for f in ../infra/sql/*.sql; do psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$$f"; done

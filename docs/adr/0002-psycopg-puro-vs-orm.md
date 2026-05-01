@@ -11,7 +11,7 @@ Stack já decidiu psycopg3 + AsyncConnectionPool contra Supavisor (porta 6543, t
 
 ## Decisão
 
-Cada bounded context tem `repo.py` com SQL puro psycopg3 (`AsyncConnection`/`AsyncCursor`). Sem SQLModel, sem SQLAlchemy. Migrações via Alembic com revisões SQL escritas à mão.
+Cada bounded context tem `repo.py` com SQL puro psycopg3 (`AsyncConnection`/`AsyncCursor`). Sem SQLModel, sem SQLAlchemy. Migrações como SQL puro sequencial em `infra/sql/NNNN_nome.sql`, sem migration framework.
 
 ## Consequências
 

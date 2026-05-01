@@ -1,0 +1,55 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]: Barra Vips
+      - navigation "Navegação principal" [ref=e5]:
+        - generic [ref=e6]:
+          - heading "OPERAÇÃO" [level=3] [ref=e7]
+          - link "Painel" [ref=e8] [cursor=pointer]:
+            - /url: /
+            - img [ref=e9]
+            - generic [ref=e14]: Painel
+          - link "Atendimentos" [ref=e15] [cursor=pointer]:
+            - /url: /atendimentos
+            - img [ref=e16]
+            - generic [ref=e19]: Atendimentos
+          - link "Agenda" [ref=e20] [cursor=pointer]:
+            - /url: /agenda
+            - img [ref=e21]
+            - generic [ref=e23]: Agenda
+          - link "Pix" [ref=e24] [cursor=pointer]:
+            - /url: /pix
+            - img [ref=e25]
+            - generic [ref=e28]: Pix
+        - generic [ref=e29]:
+          - heading "CADASTROS" [level=3] [ref=e30]
+          - link "CRM" [ref=e31] [cursor=pointer]:
+            - /url: /crm
+            - img [ref=e32]
+            - generic [ref=e37]: CRM
+          - link "Modelos" [ref=e38] [cursor=pointer]:
+            - /url: /modelos
+            - img [ref=e39]
+            - generic [ref=e43]: Modelos
+        - generic [ref=e44]:
+          - heading "ANÁLISE" [level=3] [ref=e45]
+          - link "Dashboard" [ref=e46] [cursor=pointer]:
+            - /url: /dashboard
+            - img [ref=e47]
+            - generic [ref=e50]: Dashboard
+      - generic [ref=e51]:
+        - paragraph [ref=e52]: Sessão ativa
+        - button "Sair" [ref=e53]:
+          - img [ref=e54]
+          - generic [ref=e57]: Sair
+    - main [ref=e58]:
+      - generic [ref=e59]:
+        - generic [ref=e60]:
+          - heading "CRM" [level=1] [ref=e61]
+          - paragraph [ref=e62]: Conversas por par cliente e modelo. Histórico, recorrência e observações.
+        - generic [ref=e69]:
+          - region "Lista de conversas" [ref=e70]
+          - region "Detalhe da conversa" [ref=e81]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e93] [cursor=pointer]:
+    - img [ref=e94]

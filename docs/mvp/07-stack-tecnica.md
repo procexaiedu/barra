@@ -1,66 +1,34 @@
----
-name: 07 — Stack Técnica e Infraestrutura
-description: Stack escolhida para o MVP (linguagens, frameworks, hospedagem, observabilidade). Convergência das menções dispersas nos documentos atuais do MVP com a decisão do grilling 29/04 sobre LangGraph como orquestrador da IA, atualizada em 2026-04-29 com pesquisa de versões e boas práticas atuais, decisão de hospedar backend + agente em VPS gerenciada por Portainer e decisão explícita de manter MinIO (com tag pinada) e Redis 8 apesar das alternativas modernas avaliadas.
-type: especificacao
----
-
 # 07 — Stack Técnica e Infraestrutura
-
-> **Por que este documento:** os documentos de produto, dados e regras definem o comportamento do MVP, mas a stack precisa ficar consolidada em um único lugar — Postgres como fonte de verdade (`03 §7.4`), storage S3-compatível para mídia (`03 §5.6`), Evolution API (`03 §5.1`) e LangGraph como orquestrador. Este arquivo fecha a lacuna e registra os trade-offs.
-
-> **Como usar:**
->
-> - Antes de iniciar uma nova peça de infra, leia §1 (visão consolidada) e §2 (justificativas).
-> - Mudança de stack não trivial (trocar provedor de Postgres, mudar framework) deve ser registrada neste documento ou em um ADR quando a pasta de ADRs existir.
-> - Custos e SLAs entram em §4.
-> - Boas práticas operacionais por peça da stack ficam em §7.
-
-> **Atualizações 2026-04-29 (revisão de versões e best practices):**
->
-> - **MinIO mantido por decisão explícita** apesar do arquivamento do CE em 2026-04-25 (sem novos binários). Mitigação: pinar tag Docker estável (`RELEASE.2025-12-13T...` ou anterior conhecida boa), monitorar CVEs e ter SeaweedFS como plano B documentado caso surja vulnerabilidade crítica sem patch.
-> - **Redis 8.x mantido por decisão explícita** (Valkey 8.1 era a alternativa BSD-3 mais limpa, mas usar Redis "unmodified como backend" não dispara cláusulas AGPLv3/SSPL — caso compatível com nosso uso). Imagem oficial `redis:8-alpine`.
-> - **uv** adotado como package manager Python (10–100× mais rápido que pip, padrão da comunidade em 2026).
-> - **Anthropic SDK 0.42+** com `cache_control` nativo — prompt caching reduz custo de input em até 90% e latência em ~85ms no prefixo cacheado.
-> - Bumps de versão: Next.js 16.2, Tailwind v4.2, FastAPI 0.136.x, Python 3.12, Traefik v3.6, Portainer **2.39 LTS**, Evolution API v2.3.7, LangGraph 0.4.x, Anthropic SDK 0.42, Redis 8, MinIO (tag pinada).
-> - **Pydantic Logfire** registrado como alternativa moderna a Sentry para observabilidade full-stack com foco em LLM (decisão de troca fica para fase 2).
-
----
 
 ## 1. Visão consolidada
 
 
-| Camada | Escolha (versão alvo) | Alternativa rejeitada |
-| --- | --- | --- |
-| **Linguagem do orquestrador** | **Python 3.12** | Python 3.13 (+20% memória sem ganho real de performance), Node/TS (LangGraph JS menos maduro) |
-| **Package/Env manager Python** | **uv ≥ 0.5** (gerencia Python, venv e lockfile) | pip + venv (10–100× mais lento), Poetry (perdeu tração frente a uv em 2026) |
-| **Framework web** | **FastAPI 0.136.x** (lifespan async + Pydantic v2) | Flask (síncrono), NestJS (não compatível com LangGraph nativo) |
-| **Orquestrador de agentes** | **LangGraph 0.4.x** + `AsyncPostgresSaver` (checkpointer) + `interrupt()`/`Command(resume=...)` para handoff | Orquestração ad-hoc, CrewAI |
-| **LLM provider** | **Anthropic Claude** Sonnet 4.6 + Haiku 4.5 via SDK Python **anthropic ≥ 0.42** com `cache_control` nativo | OpenAI, modelos locais |
-| **Banco de dados** | **Postgres 17** via **Supabase managed** (conexão por **Supavisor**, transaction mode) | Self-hosted Postgres, Neon, RDS, Supabase self-host |
-| **Storage S3-compatível (mídia)** | **MinIO** self-hosted em Docker, **tag pinada** (CE arquivado 2026-04-25 — sem novos binários) | SeaweedFS (Apache 2.0, plano B se surgir CVE crítico), Garage (AGPL v3), Supabase Storage |
-| **Auth do painel** | **Supabase Auth** (RLS + JWT, opt-out by default desde maio/2026) | Auth.js + provider próprio |
-| **Realtime no painel** | **Supabase Realtime** (Postgres Changes com RLS) | WebSocket próprio, polling |
-| **Cache + fila de jobs** | **Redis 8.x** self-hosted em Docker (`redis:8-alpine`) + **ARQ** (worker async Python) | Valkey 8.1 (BSD-3, alternativa OSI pura), Upstash HTTP (quebra ARQ TCP), RabbitMQ, Celery+RabbitMQ |
-| **Frontend (painel)** | **Next.js 16.2** (App Router, Turbopack default) + **React 19** + TypeScript + **shadcn/ui** (data-slot pattern) + **Tailwind CSS v4.2** | Remix, SvelteKit |
-| **Canal WhatsApp** | **Evolution API v2.3.7** self-hosted (Baileys 7.0.0-rc.6) no mesmo Portainer stack | WhatsApp Cloud API oficial (não atende caso de uso de número pessoal da modelo) |
-| **Orquestração de containers** | **Portainer CE 2.39 LTS** (Server + Agent), deploy via Stacks com Git + webhook | Portainer 2.40+ STS (atualizações mais frequentes — preferimos LTS), docker compose puro via SSH, Kubernetes (overkill) |
-| **Reverse proxy + TLS** | **Traefik v3.6** (auto-discovery por labels, Let's Encrypt HTTP-01 ou DNS-01) + **docker-socket-proxy** lendo o socket | Nginx manual, Caddy, Traefik com `/var/run/docker.sock` montado direto |
-| **Observabilidade IA** | **LangSmith** (managed) — Plus $39/seat/mês, projeto por ambiente, tags por `conversa_id`/`modelo_id` | Langfuse self-host (futuro), Pydantic Logfire (full-stack OTel-nativo, considerado para fase 2) |
-| **Erros de aplicação** | **Sentry** (Python + Next.js SDKs) | DataDog APM, Pydantic Logfire (registrado como sucessor natural quando virar prioridade) |
-| **Logs estruturados** | stdout JSON com Docker `json-file` driver (`max-size: 10m`, `max-file: 3`) + Loki (futuro) | ELK self-host |
-| **Hospedagem backend + agente + Redis + MinIO + Evolution** | **VPS dedicada Hetzner CPX31** (4 vCPU/8 GB) com Docker + Portainer | Railway/Render (custo cresce rápido), Kubernetes próprio (overkill MVP), VPS Evolution separada |
-| **Hospedagem frontend** | **Vercel** | Cloudflare Pages |
+| Camada | Escolha (versão alvo) |
+| --- | --- |
+| **Linguagem do orquestrador** | **Python 3.12** |
+| **Package/Env manager Python** | **uv ≥ 0.5** (gerencia Python, venv e lockfile) |
+| **Framework web** | **FastAPI 0.136.x** (lifespan async + Pydantic v2) |
+| **Orquestrador de agentes** | **LangGraph 0.4.x** + `AsyncPostgresSaver` (checkpointer) + `interrupt()`/`Command(resume=...)` para handoff |
+| **LLM provider** | **Anthropic Claude** Sonnet 4.6 + Haiku 4.5 via SDK Python **anthropic ≥ 0.42** com `cache_control` nativo |
+| **Banco de dados** | **Postgres 17** via **Supabase managed** (conexão por **Supavisor**, transaction mode) |
+| **Storage S3-compatível (mídia)** | **MinIO** self-hosted em Docker, **tag pinada** (CE arquivado 2026-04-25 — sem novos binários; plano B: SeaweedFS via `mc mirror`) |
+| **Auth do painel** | **Supabase Auth** (RLS + JWT) |
+| **Realtime no painel** | **Supabase Realtime** (Postgres Changes com RLS) |
+| **Cache + fila de jobs** | **Redis 8.x** self-hosted em Docker (`redis:8-alpine`) + **ARQ** (worker async Python) |
+| **Frontend (painel)** | **Next.js 16.2** (App Router, Turbopack default) + **React 19** + TypeScript + **shadcn/ui** (data-slot pattern) + **Tailwind CSS v4.2** |
+| **Canal WhatsApp** | **Evolution API v2.3.7** self-hosted (Baileys 7.0.0-rc.6) no mesmo Portainer stack |
+| **Orquestração de containers** | **Portainer CE 2.39 LTS** (Server + Agent), deploy via Stacks com Git + webhook |
+| **Reverse proxy + TLS** | **Traefik v3.6** (auto-discovery por labels, Let's Encrypt HTTP-01 ou DNS-01) + **docker-socket-proxy** lendo o socket |
+| **Observabilidade IA** | **LangSmith** (managed) — Plus US$ 39/seat/mês, projeto por ambiente, tags por `conversa_id`/`modelo_id` |
+| **Erros de aplicação** | **Sentry** (Python + Next.js SDKs) |
+| **Logs estruturados** | stdout JSON com Docker `json-file` driver (`max-size: 10m`, `max-file: 3`) |
+| **Hospedagem backend + agente + Redis + MinIO + Evolution** | **VPS dedicada Hetzner CPX31** (4 vCPU/8 GB) com Docker + Portainer |
+| **Hospedagem frontend** | **Vercel** |
 
 
 ---
 
 ## 2. Justificativas e trade-offs
-
-### 2.1 Python + FastAPI + LangGraph
-
-**Por quê:** LangGraph é Python-first. O port em JS existe mas a documentação, exemplos de produção e o ecossistema (LangSmith, checkpointers, middleware) estão muito mais maduros em Python. FastAPI é o padrão da comunidade LangGraph para webhooks e API HTTP — usa lifespan para gerenciar `AsyncPostgresSaver` com pool de conexões compartilhado.
-
-**Trade-off:** o painel é Next.js (TypeScript), então o time mantém duas linguagens. Não dá pra evitar — mesmo se o orquestrador fosse Node, painel ainda seria React.
 
 ### 2.2 LangGraph como orquestrador
 
@@ -106,6 +74,8 @@ type: especificacao
 
 **Por que Redis e não Valkey:** decisão do projeto é manter **Redis 8.x** (`redis:8-alpine`). Valkey 8.1 é a alternativa OSI pura (BSD-3, governance Linux Foundation) e foi avaliada — vale considerar em uma fase futura se a licença AGPLv3/SSPL do Redis virar problema (não é o caso usando Redis "unmodified" como backend).
 
+**Lock de conversa no webhook:** o Evolution pode disparar dois eventos de mensagem do mesmo `conversation_id` em sequência antes de o primeiro ser processado. O Coordenador de Turno usa **Redis SETNX** (`lock:conv:{conversation_id}`, TTL ≈ 15s) para serializar o processamento: se o lock estiver ocupado, o evento novo entra numa lista Redis `pending:conv:{conversation_id}` e é processado quando o lock for liberado. Sem isso, dois turnos do LangGraph correm em paralelo no mesmo thread e corrompem o checkpoint. Isso é separado do `dedupe_key` de envio — que evita reenvio de chunk; o lock de conversa evita execução concorrente do grafo.
+
 **Trade-off:** Redis self-host vira responsabilidade nossa (persistência AOF, backup, monitoramento). Mitigação: volume nomeado Docker, snapshot RDB diário copiado para bucket MinIO, e healthcheck no compose.
 
 ### 2.5 LangSmith para observabilidade da IA
@@ -118,50 +88,14 @@ type: especificacao
 
 **Trade-off:** custo cresce com volume. Mitigação documentada: **Langfuse self-host** (MIT, sobe no mesmo Portainer) ou **Pydantic Logfire** (OTel-nativo, melhor visão full-stack incluindo FastAPI, Postgres e LLM no mesmo lugar) ficam como sucessores quando virar prioridade. No MVP, mantemos LangSmith por simplicidade e integração nativa com LangGraph.
 
-### 2.6 Evolution API self-hosted no mesmo stack Portainer
+### 2.6 Cuidados com Evolution/Baileys
 
-Já decidido em `03 §5.1`. Caso de uso (número pessoal da modelo, conexão via QR code, controle total) exige self-host. **Atualização 2026-04-29:** com Portainer gerenciando a VPS, Evolution roda como mais um serviço do mesmo Docker Compose stack (não exige VPS separada para o MVP).
+- Sessão Baileys é **state file persistente** — montar volume nomeado, nunca recriar o contêiner sem backup.
+- Reinício pode forçar relogin via QR; usar `restart: unless-stopped` e evitar updates durante atendimento.
+- Webhook → backend via rede Docker interna (não exposto ao público).
+- Evolution roda Postgres próprio interno — não confundir com o Supabase, que é a fonte de verdade do domínio.
 
-**Cuidados específicos do Evolution/Baileys:**
-
-- Sessão Baileys é **state file persistente** — montar volume nomeado e nunca recriar o contêiner sem backup.
-- Reinício do contêiner pode forçar relogin via QR; usar `restart: unless-stopped` e evitar updates automáticos durante atendimento.
-- Webhook do Evolution → backend FastAPI fica na rede Docker interna (não exposto ao público).
-- Evolution API roda Postgres próprio interno (cache de mensagens, sessões); não confundir com o Supabase, que é a fonte de verdade do domínio.
-
-### 2.7 Portainer CE para orquestrar a VPS
-
-**Por quê (mudança em relação à versão anterior do doc):** a versão anterior previa Railway/Render para o backend. Em revisão (`2026-04-29`), decidimos consolidar **backend + agente + Redis + MinIO + Evolution** numa única VPS gerenciada por Portainer:
-
-- **Custo previsível**: VPS Hetzner CPX31 (~R$ 90/mês) cobre todo o MVP, contra ~R$ 200/mês de Railway + Upstash + VPS Evolution somados.
-- **Latência interna**: backend ↔ Redis ↔ MinIO ↔ Evolution todos na mesma rede Docker — webhook → resposta cai para milissegundos sem hop público.
-- **Single pane of glass**: Portainer UI dá deploy, logs, exec, console e métricas básicas sem ter que montar dashboard próprio. Fernando ou Lucas podem reiniciar serviço ou inspecionar log sem CLI.
-- **Stacks via Git**: o `docker-compose.yml` mora num repo (idealmente o mesmo do backend); Portainer faz pull e deploy via webhook, então mudança de infra é PR no Git.
-
-**Modelo de deploy escolhido:** Portainer **CE** (free) com **Server + Agent** numa única VPS. HA (3 réplicas, BoltDB compartilhado) é overkill para MVP — registramos como opção quando crescer.
-
-**Trade-off:**
-
-- Self-host significa que a VPS é SPOF. Mitigação: snapshot diário Hetzner + runbook de restauração.
-- Update de Portainer/Docker exige janela de manutenção. Mitigação: avisos no grupo IA Admin.
-- Sem auto-scaling. Aceitável: 1 modelo piloto não justifica.
-
-**Quando reabrir a decisão:** a partir de ~5 modelas em produção, ou quando latência da VPS começar a ser gargalo, considerar mover backend stateless para Railway/Fly e manter só Evolution + Redis + MinIO no Portainer.
-
-### 2.8 uv como package/env manager Python
-
-**Por quê:** em 2026 o consenso da comunidade Python é claro — **uv** (Astral) substitui pip, virtualenv, pyenv e tem resolver compatível com Poetry. Instalações 10–100× mais rápidas, lockfile universal, gerenciamento de versão de Python embutido (`.python-version` automatizado). Migração custa minutos: `uv pip install` é drop-in replacement de `pip install`.
-
-**Como aplicamos:**
-
-- `pyproject.toml` + `uv.lock` versionados; `uv sync` em CI e build Docker.
-- Image base do backend: `python:3.12-slim` + `uv` instalado no estágio de build, pinando interpreter via `.python-version`.
-- Multi-stage Dockerfile: `uv sync --frozen --no-dev` no build, copia o `.venv` para a imagem final sem o uv.
-- Sem Poetry, sem `requirements.txt` à mão, sem `pip-tools`.
-
-**Trade-off:** uv ainda é projeto novo (lançado 2024, maduro em 2026); risco residual de bug na resolução. Mitigação: `uv.lock` no Git congela tudo — qualquer surpresa é reproduzível.
-
-### 2.9 Prompt caching da Anthropic (SDK 0.42+)
+### 2.7 Prompt caching da Anthropic (SDK 0.42+)
 
 **Por quê:** o sistema-prompt da IA Atendimento é grande (persona, FAQ da modelo, regras de domínio do `04`) e se repete a cada turno. Sem caching, paga input tokens completo em cada chamada. Com `cache_control` ativo, hit cacheado custa **~10% do preço de input** e remove ~85ms de latência do prefixo cacheado.
 

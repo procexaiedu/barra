@@ -12,16 +12,20 @@ _Avoid_: chat da modelo, atendimento humano
 Grupo persistente com **2 participantes** — o número da modelo (operado pela IA) e Fernando. A IA envia cards/resumos acionáveis no grupo a partir do número da modelo; a modelo lê os cards no próprio celular porque o número dela está no grupo, sem ter identidade separada. Mensagens manuais da modelo no grupo entram como `fromMe` do mesmo número que a IA opera, e o sistema distingue IA de modelo pelo originador real do envio.
 _Avoid_: grupo por atendimento, grupo de acompanhamento, identidade separada da modelo no grupo, grupo com IA + modelo + Fernando como três identidades
 
-**IA Admin**:
-Grupo persistente entre IA e Fernando para alertas de exceção e comandos internos permitidos.
-_Avoid_: grupo da modelo, handoff do vendedor
+**IA Admin (P1)**:
+Grupo persistente entre IA e Fernando para alertas de exceção e comandos internos por áudio/texto permitidos. Disponível apenas no P1; no P0, decisões sensíveis chegam a Fernando pelo painel e/ou pela **Coordenação por modelo**.
+_Avoid_: grupo da modelo, handoff do vendedor, tratar como infraestrutura P0
+
+**IA por modelo**:
+Cada modelo opera no próprio número de WhatsApp e tem uma instância de IA dedicada com persona, FAQ e histórico próprios. Quando um mesmo cliente conversa com modelos diferentes, são instâncias completamente independentes — a IA da modelo A não enxerga, cita ou se apoia em qualquer dado do cliente com a modelo B. A unidade que carrega histórico, recorrência e observações é a **Conversa cliente** (par cliente, modelo), e a recorrência também é avaliada por par.
+_Avoid_: perfil único do cliente compartilhado entre IAs, IA citando última profissional contratada por outra modelo, fundir histórico cross-modelo no contexto de uma conversa
 
 **Handoff**:
 Pausa da IA para que Fernando decida ou para que a modelo assuma a conversa no mesmo número, sempre com resumo e próxima ação esperada; a IA só retoma por devolução explícita.
 _Avoid_: humano genérico
 
 **Devolução para IA**:
-Comando explícito que reativa a IA após handoff, via botão `Devolver para IA` no painel ou `IA assume` / `IA assume #N` no grupo.
+Comando explícito que reativa a IA após handoff. Formas válidas: botão `Devolver para IA` no painel (Fernando); `IA assume` / `IA assume #N` no grupo (Fernando ou modelo); `finalizado [valor]` no grupo respondendo ao card, usado pela modelo ao encerrar o atendimento físico — se valor informado, registra `fechado valor` simultaneamente.
 _Avoid_: retomada automática
 
 **Registro de resultado**:
@@ -40,12 +44,21 @@ _Avoid_: taxonomia aberta
 Pagamento antecipado do deslocamento de saída, validado automaticamente quando todas as checagens passam e escalado para Fernando quando houver falha ou dúvida.
 _Avoid_: sinal, pagamento do atendimento
 
+**Aviso de saída**:
+Mensagem do cliente em atendimento interno (cliente vai à modelo) avisando que saiu de casa em direção ao endereço combinado. Primeiro aviso operacional da sequência de confirmação interna; prepara a modelo, mas não confirma o atendimento sozinho.
+_Avoid_: equiparar a confirmação automática, equiparar a comprovante financeiro
+
+**Foto de portaria**:
+Imagem da portaria (ou local de encontro) do endereço combinado, enviada pelo cliente em atendimento interno. Comprova que o cliente realmente chegou ao local indicado e mitiga clientes que "zoam" sem aparecer; o recebimento da imagem dispara handoff implícito para a modelo: card "cliente chegou" no grupo de Coordenação por modelo com a imagem anexada, IA pausa (`ia_pausada=true`, motivo `modelo_em_atendimento`) e atendimento vai de `Aguardando_confirmacao` direto para `Em_execucao`, sem condicionar a transição a aprovação humana e sem vision automática.
+_Avoid_: equiparar a Pix de deslocamento, equiparar a comprovante financeiro, validar por vision automática no P0, condicionar transição de estado a decisão da modelo ou de Fernando, manter IA respondendo o cliente após a chegada
+
 ## Relationships
 
 - A **Conversa cliente** pertence a um par cliente-modelo e é conduzida pela IA até o handoff.
+- A **IA por modelo** isola persona, histórico, recorrência e observações pelo par cliente-modelo: cada modelo tem IA própria, e a IA de uma modelo não acessa dados do mesmo cliente com outra modelo.
 - A **Coordenação por modelo** recebe ações para exatamente uma modelo e inclui Fernando.
-- O **IA Admin** recebe decisões sensíveis para Fernando.
-- Um **Handoff** pode acionar a **Coordenação por modelo**, o **IA Admin**, ou ambos.
+- O **IA Admin** (P1) recebe decisões sensíveis para Fernando; no P0 essas decisões chegam pelo painel e/ou pela **Coordenação por modelo**.
+- Um **Handoff** aciona a **Coordenação por modelo** no P0; no P1 pode acionar também o **IA Admin**.
 - Um **Handoff** deixa a IA pausada até Fernando ou a modelo devolver explicitamente a conversa.
 - A **Devolução para IA** muda a responsabilidade de volta para a IA e precisa registrar autor, canal e horário.
 - A **Conversa cliente** continua sendo gravada mesmo quando a IA está pausada, sem alertar grupos e sem criar indicador no painel por novas mensagens do cliente.
@@ -65,7 +78,11 @@ _Avoid_: sinal, pagamento do atendimento
 - Comando `fechado` sem valor final não encerra o atendimento; o sistema pede complemento.
 - Quando um **Registro de resultado** fechado é aceito, o bloqueio de agenda vinculado ao atendimento vira `concluido`.
 - Quando um **Registro de resultado** perdido é aceito, o bloqueio vinculado vira `cancelado` somente se ainda não estiver `em_atendimento` nem `concluido`.
-- Um **Pix de deslocamento** aprovado pode confirmar uma saída; um Pix duvidoso gera handoff para o **IA Admin**.
+- Um **Pix de deslocamento** aprovado dispara handoff implícito para a modelo: card "saída confirmada" no grupo de **Coordenação por modelo**, `ia_pausada=true` com motivo `modelo_em_atendimento` e atendimento → `Confirmado`. Um Pix duvidoso gera handoff para Fernando pelo painel e pela **Coordenação por modelo** no P0 (e adicionalmente para o **IA Admin** no P1).
+- O **Aviso de saída** prepara a modelo no atendimento interno via card simples, mas a IA continua respondendo o cliente normalmente — o estado segue em `Aguardando_confirmacao`.
+- O recebimento da **Foto de portaria** dispara handoff implícito no fluxo interno: card "cliente chegou" no grupo de **Coordenação por modelo**, `ia_pausada=true` com motivo `modelo_em_atendimento` e transição automática de `Aguardando_confirmacao` para `Em_execucao`, sem condicionar a transição a aprovação humana. A inspeção visual da modelo é proteção operacional (antes de abrir a porta) e não gatilha nem bloqueia transição de estado.
+- Quando o cliente do fluxo interno enviou **Aviso de saída** mas não enviou **Foto de portaria** dentro de 30 minutos do horário combinado, o atendimento entra em timeout determinístico e é marcado `Perdido` com `motivo_perda=sumiu`, sem mensagem ao cliente; a IA permanece ativa para futuras conversas.
+- No P0, a IA não roda vision automática sobre a **Foto de portaria** recebida do cliente; qualquer imagem recebida em `Aguardando_confirmacao` interno é tratada como Foto de portaria sem inspeção de conteúdo.
 
 ## Example dialogue
 

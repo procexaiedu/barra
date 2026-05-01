@@ -1,0 +1,242 @@
+"""Endpoint agregado GET /painel/resumo para o Painel Geral."""
+
+from datetime import datetime, time, timedelta, timezone
+from typing import Any
+
+from fastapi import APIRouter, Depends
+from psycopg import AsyncConnection
+
+from barra.api.deps import get_conn, get_user
+
+router = APIRouter(dependencies=[Depends(get_user)])
+
+BRT = timezone(timedelta(hours=-3))
+
+
+def _hoje_brt() -> tuple[datetime, datetime]:
+    agora = datetime.now(BRT)
+    inicio = datetime.combine(agora.date(), time.min, tzinfo=BRT)
+    fim = datetime.combine(agora.date(), time.max, tzinfo=BRT)
+    return inicio, fim
+
+
+def _formatar_telefone(telefone: str | None) -> str:
+    if not telefone:
+        return ""
+    digitos = telefone.replace("+", "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
+    if digitos.startswith("55") and len(digitos) >= 12:
+        digitos = digitos[2:]
+    if len(digitos) == 11:
+        return f"({digitos[:2]}) {digitos[2:7]}-{digitos[7:]}"
+    if len(digitos) == 10:
+        return f"({digitos[:2]}) {digitos[2:6]}-{digitos[6:]}"
+    return telefone
+
+
+@router.get("/resumo")
+async def painel_resumo(
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    agora = datetime.now(BRT)
+    inicio_dia, fim_dia = _hoje_brt()
+
+    modelo_result = await conn.execute(
+        """
+        SELECT id, nome, evolution_instance_id
+          FROM barravips.modelos
+         WHERE status = 'ativa'
+         ORDER BY created_at ASC
+        """
+    )
+    modelos_ativas = list(await modelo_result.fetchall())
+
+    modelo_ativa = None
+    if modelos_ativas:
+        m = modelos_ativas[0]
+        modelo_ativa = {
+            "id": str(m["id"]),
+            "nome": m["nome"],
+            "evolution_instance_id": m["evolution_instance_id"],
+        }
+
+    cards_result = await conn.execute(
+        """
+        SELECT
+          a.id AS atendimento_id,
+          a.numero_curto,
+          c.nome AS cliente_nome,
+          c.telefone AS cliente_telefone,
+          a.ia_pausada_motivo::text AS ia_pausada_motivo,
+          a.motivo_escalada,
+          a.proxima_acao_esperada,
+          a.responsavel_atual::text AS responsavel_atual,
+          a.updated_at AS ia_pausada_em,
+          a.tipo_atendimento::text AS tipo_atendimento,
+          a.foto_portaria_em,
+          a.duracao_horas,
+          a.data_desejada,
+          a.horario_desejado
+        FROM barravips.atendimentos a
+        JOIN barravips.clientes c ON c.id = a.cliente_id
+        WHERE a.ia_pausada = true
+          AND a.ia_pausada_motivo IN ('pix_em_revisao', 'modelo_em_atendimento', 'handoff_ia')
+        ORDER BY a.updated_at ASC NULLS LAST
+        """
+    )
+    cards_rows = list(await cards_result.fetchall())
+
+    cards_destaque: list[dict[str, Any]] = []
+    for row in cards_rows:
+        previsao = _calcular_previsao(row)
+        expirado = previsao is not None and agora > previsao
+
+        if row["ia_pausada_motivo"] == "modelo_em_atendimento" and not expirado:
+            continue
+
+        cards_destaque.append({
+            "atendimento_id": str(row["atendimento_id"]),
+            "numero_curto": row["numero_curto"],
+            "cliente_nome": row["cliente_nome"],
+            "cliente_telefone_formatado": _formatar_telefone(row["cliente_telefone"]),
+            "ia_pausada_motivo": row["ia_pausada_motivo"],
+            "motivo_escalada": row["motivo_escalada"],
+            "proxima_acao_esperada": row["proxima_acao_esperada"],
+            "responsavel_atual": row["responsavel_atual"],
+            "ia_pausada_em": row["ia_pausada_em"].isoformat() if row["ia_pausada_em"] else None,
+            "previsao_termino": previsao.isoformat() if previsao else None,
+            "expirado": expirado,
+        })
+
+    ordem_motivo = {"pix_em_revisao": 0, "handoff_ia": 1, "modelo_em_atendimento": 2}
+    cards_destaque.sort(key=lambda c: (ordem_motivo.get(c["ia_pausada_motivo"], 9), c["ia_pausada_em"] or ""))
+
+    abertos_result = await conn.execute(
+        """
+        SELECT COUNT(*) AS n
+          FROM barravips.atendimentos
+         WHERE estado NOT IN ('Fechado', 'Perdido')
+        """
+    )
+    abertos_row = await abertos_result.fetchone()
+    abertos = abertos_row["n"] if abertos_row else 0
+
+    fechamentos_result = await conn.execute(
+        """
+        SELECT COUNT(DISTINCT a.id) AS n
+          FROM barravips.atendimentos a
+          JOIN barravips.eventos e ON e.atendimento_id = a.id
+         WHERE a.estado = 'Fechado'
+           AND e.tipo = 'fechado_registrado'
+           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
+           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+        """,
+        (inicio_dia, fim_dia),
+    )
+    fechamentos_row = await fechamentos_result.fetchone()
+    fechamentos_hoje = fechamentos_row["n"] if fechamentos_row else 0
+
+    perdas_result = await conn.execute(
+        """
+        SELECT COUNT(DISTINCT a.id) AS n
+          FROM barravips.atendimentos a
+          JOIN barravips.eventos e ON e.atendimento_id = a.id
+         WHERE a.estado = 'Perdido'
+           AND e.tipo = 'perdido_registrado'
+           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
+           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+        """,
+        (inicio_dia, fim_dia),
+    )
+    perdas_row = await perdas_result.fetchone()
+    perdas_hoje = perdas_row["n"] if perdas_row else 0
+
+    valor_result = await conn.execute(
+        """
+        SELECT COALESCE(SUM(a.valor_final), 0) AS total
+          FROM barravips.atendimentos a
+          JOIN barravips.eventos e ON e.atendimento_id = a.id
+         WHERE a.estado = 'Fechado'
+           AND e.tipo = 'fechado_registrado'
+           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
+           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+        """,
+        (inicio_dia, fim_dia),
+    )
+    valor_row = await valor_result.fetchone()
+    valor_bruto = float(valor_row["total"]) if valor_row else 0.0
+
+    pix_result = await conn.execute(
+        """
+        SELECT COUNT(*) AS n
+          FROM barravips.comprovantes_pix
+         WHERE decisao_pipeline = 'em_revisao'
+           AND decisao_final IS NULL
+        """
+    )
+    pix_row = await pix_result.fetchone()
+    pix_pendentes = pix_row["n"] if pix_row else 0
+
+    agenda_result = await conn.execute(
+        """
+        SELECT
+          b.id, b.inicio, b.fim,
+          b.estado::text AS estado,
+          b.origem::text AS origem,
+          c.nome AS cliente_nome,
+          b.observacao,
+          b.atendimento_id
+        FROM barravips.bloqueios b
+        LEFT JOIN barravips.atendimentos a ON a.id = b.atendimento_id
+        LEFT JOIN barravips.clientes c ON c.id = a.cliente_id
+        WHERE b.inicio AT TIME ZONE 'America/Sao_Paulo' <= %s
+          AND b.fim AT TIME ZONE 'America/Sao_Paulo' >= %s
+        ORDER BY b.inicio ASC
+        """,
+        (fim_dia, inicio_dia),
+    )
+    agenda_rows = list(await agenda_result.fetchall())
+
+    agenda_dia = [
+        {
+            "id": str(row["id"]),
+            "inicio": row["inicio"].isoformat(),
+            "fim": row["fim"].isoformat(),
+            "estado": row["estado"],
+            "origem": row["origem"],
+            "cliente_nome": row["cliente_nome"],
+            "observacao": row["observacao"],
+            "atendimento_id": str(row["atendimento_id"]) if row["atendimento_id"] else None,
+        }
+        for row in agenda_rows
+    ]
+
+    return {
+        "modelo_ativa": modelo_ativa,
+        "modelos_ativas_count": len(modelos_ativas),
+        "cards_destaque": cards_destaque,
+        "metricas_dia": {
+            "abertos": abertos,
+            "fechamentos_hoje": fechamentos_hoje,
+            "perdas_hoje": perdas_hoje,
+            "valor_bruto_hoje_brl": valor_bruto,
+            "pix_em_revisao_pendentes": pix_pendentes,
+        },
+        "agenda_dia": agenda_dia,
+        "servidor_em": agora.isoformat(),
+    }
+
+
+def _calcular_previsao(row: dict[str, Any]) -> datetime | None:
+    tipo = row.get("tipo_atendimento")
+    duracao = row.get("duracao_horas")
+    if duracao is None:
+        return None
+
+    if tipo == "interno" and row.get("foto_portaria_em"):
+        return row["foto_portaria_em"] + timedelta(hours=float(duracao))
+
+    if tipo == "externo" and row.get("data_desejada") and row.get("horario_desejado"):
+        dt = datetime.combine(row["data_desejada"], row["horario_desejado"], tzinfo=BRT)
+        return dt + timedelta(hours=float(duracao))
+
+    return None

@@ -66,31 +66,6 @@ A tecnologia é vista como o caminho para reduzir o gargalo operacional, preserv
 
 ---
 
-## 4. Enquadramento do projeto
-
-O projeto deve ser entendido como um **Sistema de Gestão de Atendimento com IA para a operação Barra Vips**, e não apenas como um chatbot.
-
-A IA é uma camada importante, mas o produto real é uma central operacional para Fernando gerenciar e escalar a operação. O sistema deve ser capaz de:
-
-- organizar atendimentos hoje espalhados em vários telefones físicos;
-- controlar disponibilidade e agenda das modelos;
-- registrar e qualificar clientes que chegam pelo BarraVips;
-- estruturar o funil comercial;
-- apoiar decisões com dados;
-- escalar decisões sensíveis para Fernando/equipe e acionar a modelo apenas quando houver ação operacional dela, como preparo, confirmação de disponibilidade ou assunção da conversa;
-- gerar métricas sobre sazonalidade, conversão e gargalos;
-- reduzir trabalho manual sem perda de controle de qualidade.
-
-### Definição curta
-
-> Uma central inteligente que usa IA para conduzir atendimentos previsíveis no WhatsApp, organizar a agenda das modelos, registrar dados comerciais dos clientes e apoiar a operação humana em tempo real.
-
-### Definição estratégica
-
-> O sistema transforma a operação atual da Barra Vips — manual, dependente de múltiplos telefones físicos e do conhecimento tácito de Fernando — em um processo estruturado, mensurável, escalável e supervisionado.
-
----
-
 ## 5. Perfil obrigatório da IA de atendimento
 
 A IA de atendimento **simula a comunicação da própria modelo** durante a conversa. Fernando definiu quatro atributos inegociáveis:
@@ -110,7 +85,7 @@ Credibilidade é crítica: contradições, mensagens apagadas, correções brusc
 |------|-------|-------------------------|
 | **Fernando** | Operador principal, dono da agência e decisor único no MVP | Painel no MVP; IA Administrativa por áudio em P1 |
 | **Vendedores** | Observam conversas em modo **read-only** no MVP | Chatwoot, como “câmera de segurança” |
-| **Modelos / profissionais** | Profissionais cadastradas, cada uma com agenda própria e acesso ao próprio WhatsApp; não acompanham todas as mensagens da IA, mas assumem a conversa no mesmo número quando houver handoff | Cadastro + Agenda + grupo de coordenação com IA + modelo + Fernando |
+| **Modelos / profissionais** | Profissionais cadastradas, cada uma com agenda própria e acesso ao próprio WhatsApp; não acompanham todas as mensagens da IA, mas assumem a conversa no mesmo número quando houver handoff | Cadastro + Agenda + grupo de Coordenação por modelo com **2 participantes** (número da modelo operado pela IA + Fernando) |
 | **Clientes finais** | Homens classe A/B+, executivos e clientes premium desconfiados | WhatsApp, interagindo com a IA como se falassem com a modelo |
 | **IA de Atendimento** | Persona pública, opera no número de WhatsApp da modelo e conduz a conversa até fechar ou escalar | WhatsApp da modelo |
 | **IA Administrativa (P1)** | Recebe comandos por áudio de Fernando para editar agenda, consultar comprovantes e executar ações administrativas internas | Grupo interno para Fernando falar com a IA Admin |
@@ -124,19 +99,6 @@ O foco inicial **não é** criar uma IA totalmente autônoma nem uma plataforma 
 
 - conduzir conversas de clientes premium que chegam pelo BarraVips, respeitando a persona e as restrições do canal;
 - consultar agenda da modelo piloto e permitir bloqueios pelo painel;
-- escalar decisões sensíveis para Fernando/equipe e acionar a modelo apenas quando ela precisar agir operacionalmente;
-- registrar dados mínimos para substituir decisões puramente baseadas em feeling por decisões apoiadas em dados.
+- escalar decisões sensíveis para Fernando e acionar a modelo apenas quando ela precisar agir operacionalmente;
+- registrar dados operacionais conforme inventário do MVP ([02-mvp-escopo.md](02-mvp-escopo.md), §2.2 — ficha de atendimento), em substituição progressiva a decisões só baseadas em feeling.
 
-### Ordem recomendada de execução
-
-1. Mapear fluxos internos e fluxos de saída, com regras específicas da operação.
-2. Definir regras da IA com persona objetiva, exclusiva, extrovertida e inocente/estrangeira.
-3. Criar central operacional com Fernando no loop.
-4. Integrar agenda no painel.
-5. Adicionar IA de atendimento na operação piloto.
-6. Validar com uma modelo piloto.
-7. Medir resultados: conversão, escalada e motivos de perda.
-8. Escalar gradualmente para outras modelos.
-9. Avaliar, em etapas posteriores, IA Administrativa por áudio, vendedores, remarketing dos 15 mil contatos e eventual plataforma mais ampla.
-
-Esse caminho reduz risco, evita escopo excessivo, respeita a restrição crítica do WhatsApp e transforma a ata em execução real sem comprometer o padrão premium da Barra Vips.

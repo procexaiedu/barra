@@ -1,4 +1,32 @@
-"""AsyncConnectionPool psycopg3 contra Supavisor (porta 6543, transaction mode).
+"""Pool psycopg3 compartilhado pela aplicacao."""
 
-Pool criado uma vez no lifespan; nunca usar from_conn_string em produção.
-"""
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from typing import Any
+
+from psycopg import AsyncConnection
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
+
+
+async def criar_pool(database_url: str) -> AsyncConnectionPool[Any] | None:
+    if not database_url:
+        return None
+    pool: AsyncConnectionPool[Any] = AsyncConnectionPool(
+        database_url,
+        open=False,
+        kwargs={"row_factory": dict_row, "autocommit": False},
+    )
+    await pool.open()
+    return pool
+
+
+async def fechar_pool(pool: AsyncConnectionPool[Any] | None) -> None:
+    if pool is not None:
+        await pool.close()
+
+
+@asynccontextmanager
+async def conexao(pool: AsyncConnectionPool[Any]) -> AsyncIterator[AsyncConnection[Any]]:
+    async with pool.connection() as conn:
+        yield conn

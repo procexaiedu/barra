@@ -16,6 +16,9 @@ dependencies = [
     "httpx>=0.28",
     "minio>=7.2",
     "python-multipart>=0.0.18",
+    "PyJWT[crypto]>=2.10",
+    "prometheus-client>=0.21",
+    "sentry-sdk[fastapi]>=2.19",
     "structlog>=24.4",
     "supabase>=2.10",
 ]
@@ -44,7 +47,13 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "ASYNC", "S", "RUF"]
-ignore = ["S101"]  # assert ok em testes
+ignore = [
+    "B008",  # FastAPI Depends em defaults e padrao aceito pelo framework
+    "E501",  # SQL multiline e tipos longos ficam mais legiveis sem quebra artificial
+    "RUF005",
+    "S101",  # assert ok em testes
+    "S608",  # SQL parametrizado com clausulas controladas
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S"]

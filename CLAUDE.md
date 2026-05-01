@@ -71,3 +71,136 @@ Antes de considerar uma tarefa concluída:
 - Quando houver um skill apropriado, use-o para revisar, simplificar ou validar a solução.
 
 Regra prática: toda tarefa não trivial deve terminar com uma verificação objetiva. Uma conclusão sem teste, execução ou inspeção concreta ainda é uma hipótese.
+
+---
+
+## Contexto do projeto
+
+Central inteligente de atendimento da agência Barra Vips. Cada modelo opera em seu próprio WhatsApp; uma IA dedicada (LangGraph) atende clientes em nome dela, pausa para handoff e escala decisões para Fernando ou para a modelo via grupo de **Coordenação por modelo**. Estamos no P0 (MVP).
+
+Decisões arquiteturais registradas em `docs/adr/` (numeradas; nunca apagar — substituir com `status: superseded`). Contexto de produto em `docs/mvp/`.
+
+## Mapa do repositório
+
+Monorepo plano (motivo: `docs/adr/0001-estrutura-monorepo.md`). Backend sem ORM (`docs/adr/0002-psycopg-puro-vs-orm.md`). Árvore orientativa — pastas novas podem existir sem estar listadas.
+
+```
+barra/
+├── AGENTS.md
+├── CLAUDE.md
+├── CONTEXT.md
+├── docs/
+│   ├── mvp/                    # produto e domínio (00-indice …)
+│   └── adr/
+├── api/                        # backend — FastAPI, LangGraph, ARQ
+│   ├── pyproject.toml, uv.lock, Makefile, Dockerfile, .env.example
+│   ├── src/barra/
+│   │   ├── main.py             # FastAPI app + lifespan
+│   │   ├── settings.py
+│   │   ├── core/               # cross-cutting (sem regra de negócio)
+│   │   │   ├── db.py, redis.py, storage.py, llm.py, evolution.py
+│   │   │   ├── errors.py, auth.py, metrics.py, logging.py, tracing.py
+│   │   ├── agente/             # LangGraph
+│   │   │   ├── graph.py, estado.py, humanizacao.py, classificador.py
+│   │   │   ├── prompts/       # persona.md, faq.md, regras.md
+│   │   │   ├── nos/, ferramentas/
+│   │   ├── dominio/            # bounded contexts — cada pasta: routes, service, repo, modelos, schemas
+│   │   │   ├── conversas/
+│   │   │   ├── atendimentos/
+│   │   │   ├── clientes/
+│   │   │   ├── modelos/
+│   │   │   ├── agenda/
+│   │   │   ├── pix/
+│   │   │   ├── escaladas/
+│   │   │   ├── eventos/
+│   │   │   └── dashboard/
+│   │   ├── webhook/            # Evolution — token, allowlist, debounce; não é REST público
+│   │   │   ├── routes.py, parser.py, filtro.py, debounce.py, despacho.py
+│   │   ├── workers/            # ARQ
+│   │   │   ├── settings.py, envio.py, timeouts.py, media.py, pix.py
+│   │   └── api/                # deps.py, v1.py
+│   ├── tests/
+│   └── evals/
+├── interface/                  # Next.js 16 — App Router
+│   ├── src/app/
+│   │   ├── layout.tsx, page.tsx, globals.css
+│   │   ├── (auth)/login/
+│   │   └── (interface)/        # interface, atendimentos, agenda, crm, modelos, pix, dashboard
+│   ├── src/components/ui/
+│   ├── src/lib/
+│   └── src/tipos/              # gerado a partir do OpenAPI (script planejado)
+├── infra/
+│   ├── compose/stack.barra.yml
+│   ├── compose/env/
+│   ├── sql/                    # NNNN_*.sql sequencial
+│   └── runbooks/
+├── scripts/
+└── .agents/, .claude/
+```
+
+### Git worktree
+
+Útil para evals longos, baterias de conversa ou features paralelas. Limite prático: 2–4 worktrees ativos.
+
+Worktrees fora da pasta do app (ex.: `C:\barra-trees\<branch>`) evitam conflito com o file watcher do Next.js. Alternativa dentro do repo: `.trees/` (no `.gitignore`).
+
+```bash
+mkdir C:\barra-trees
+git -C C:\barra worktree add C:\barra-trees\pix-ocr feat/pix-validacao-ocr
+git -C C:\barra worktree list
+git -C C:\barra worktree remove C:\barra-trees\pix-ocr
+```
+
+Em cada worktree: executar `uv sync` em `api/`, `pnpm install` em `interface/`, e `.env` próprios a partir de `.env.example`. Não compartilhar estado de banco/Redis entre worktrees (prefixos de schema ou branch do Supabase).
+
+Nomes de branch: seção **Convenção de branches** abaixo.
+
+## Stack
+
+- `api/` — Python 3.12 + uv, FastAPI 0.136, LangGraph 0.4 (`AsyncPostgresSaver`), ARQ workers, psycopg3 puro (sem ORM — ver ADR 0002), Anthropic SDK 0.42 com prompt caching.
+- `interface/` — Next.js 16.2 (App Router), Tailwind v4, shadcn/ui (data-slot pattern), pnpm.
+- Infra — Supabase managed (Postgres + Auth), MinIO + Redis + Evolution API self-host via Portainer 2.39, Traefik.
+
+Migrations são SQL sequencial em `infra/sql/NNNN_*.sql`, aplicado via `psql` ou Supabase Studio. **Sem migration framework.**
+
+## Comandos comuns
+
+Backend (a partir de `api/`):
+- `make dev` — FastAPI com reload
+- `make worker` — ARQ worker
+- `make test` — pytest
+- `make lint` / `make format` — ruff
+- `make migrate` — aplica `infra/sql/`
+- `uv sync` — instala/atualiza deps
+
+Frontend (a partir de `interface/`):
+- `pnpm dev` / `pnpm build` / `pnpm lint`
+
+Tipos do FastAPI → frontend: `scripts/gera_tipos_openapi.sh` (planejado).
+
+## Convenções não óbvias
+
+- **Idioma**: domínio em PT-BR (`dominio/conversas/`, `Conversa`, `DirecaoMensagem`); infra em EN (`build_app`, `lifespan`, `router`). No frontend, `src/lib/` em EN (convenção da comunidade), `src/tipos/` em PT-BR.
+- **Backend src layout**: pacote em `api/src/barra/`. Sempre importar `from barra.x import y`.
+- **Feature-first em `dominio/`**: cada bounded context tem seu próprio `{routes,service,repo,modelos,schemas}.py`. **Não existem `models/` ou `services/` globais.**
+- **Colisão de nomes a evitar**: `dominio/modelos/` (entidade "Modelo da agência") ≠ `modelos.py` (Pydantic v2 dentro de cada contexto). Nunca importar `modelos.py` entre contextos.
+- **Camadas internas de cada contexto**:
+  - `routes.py` — só HTTP (Pydantic in/out, status codes, `Depends()`).
+  - `service.py` — orquestra repo + agente + redis. Recebe/retorna entidades, não DTOs.
+  - `repo.py` — SQL puro psycopg3.
+  - `modelos.py` — entidades + value objects (Pydantic v2).
+  - `schemas.py` — DTOs HTTP.
+- **Direção das dependências**: `agente/` chama `dominio/*/service.py`, **nunca o inverso**. `webhook/` ≠ `api/` — webhook tem token + JID allowlist + debounce, não é REST público.
+- **Frontend route groups**: `(auth)/` e `(interface)/` separam contextos sem aparecer na URL.
+
+
+### Convenção de branches
+
+| Prefixo | Uso |
+|---|---|
+| `feat/<contexto>-<verbo>` | nova feature: `feat/pix-validacao-ocr`, `feat/agente-no-triagem` |
+| `fix/<area>-<descricao>` | correção: `fix/webhook-debounce-multi-device` |
+| `chore/...` | manutenção sem efeito em produção |
+| `docs/...` | só documentação |
+| `infra/...` | mudanças em `infra/` |
+| `spike/<tema>` | exploratório, deletável; nunca vai para `main` |

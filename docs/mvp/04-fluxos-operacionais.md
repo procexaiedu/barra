@@ -1,320 +1,298 @@
-# 04 — Fluxos Operacionais e Máquina de Estados
+# 04 — Fluxos Operacionais
 
-## 1. Fluxo Geral de Atendimento
+Este documento descreve os fluxos de conversa, agenda e Pix do MVP. Não duplica modelagem de banco (`06-dados-interfaces.md`) nem regras de escalada/handoff em si (`05-escalada-regras-ia.md`); concentra a sequência operacional que a IA, o coordenador (5.2) e os humanos seguem em cada cenário.
 
-```text
-Cliente inicia contato
-↓
-Sistema cria ou atualiza registro no CRM
-↓
-IA faz saudação e triagem
-↓
-IA identifica intenção
-↓
-Sistema consulta agenda e contexto
-↓
-IA identifica tipo de atendimento e urgência
-↓
-Sistema decide próximo passo:
-  ├── IA responde automaticamente
-  ├── IA coleta mais informação
-  ├── IA registra sinalização de interesse
-  ├── IA faz handoff para Coordenação por modelo ou sinaliza Fernando/equipe no painel
-  └── atendimento pode ser marcado como perdido por timeout determinístico antes da confirmação
-```
+## 1. Fluxo geral de atendimento
 
----
+Aplica-se a todo cliente que chega pelo BarraVips, antes de o tipo de atendimento (interno ou saída) estar definido.
 
-## 2. Fluxo Interno — Cliente vai até a modelo (apartamento, flat, hotel)
+### 1.1 Sequência canônica
 
-Neste fluxo, o cliente se desloca até onde a modelo está. **Não há cobrança antecipada de Pix** — pedir Pix antes do encontro, neste cenário, parece golpe ("por que pagaria se vou te encontrar?") e queima o cliente. O pagamento acontece presencialmente no momento do encontro.
+1. **Primeira mensagem do cliente** — Evolution dispara webhook → Coordenador (5.2) persiste mensagem bruta, aplica debounce (~3–5s) e adquire lock da conversa.
+2. **Resolução determinística** — Coordenador identifica `cliente_id` por telefone; reusa atendimento aberto para `(cliente_id, modelo_id)` se houver um em estado ∉ {`Fechado`, `Perdido`}, senão cria novo em `Novo`.
+3. **Triagem pela IA** — IA de Atendimento (5.3) chama `consultar_cliente`, `consultar_agenda` e demais tools de leitura conforme necessário; resposta segue para Humanização (5.5).
+4. **Identificação de intenção** — IA classifica intenção (curiosidade/cotação/agendamento) e tipo de atendimento (interno ou externo). Quando o sinal é ambíguo, a IA pergunta naturalmente (sem pergunta de triagem rígida).
+5. **Coleta de dados mínimos** — horário desejado, urgência, profissional de interesse, local do atendimento. Coleta via conversa, não formulário.
+6. **Qualificação** — quando intenção real está clara e os dados mínimos foram capturados, IA registra extração via `registrar_extracao`; coordenador aplica transição → `Qualificado`.
+7. **Bifurcação por tipo** — fluxo segue para §2 (interno) ou §3 (externo), conforme a decisão da IA.
+8. **Confirmação** — saída do estado `Aguardando_confirmacao` por evento próprio do tipo: Pix validado no externo move para `Confirmado` (com IA pausada, modelo conduz); foto de portaria no interno move direto para `Em_execucao` (com IA pausada, modelo já está com o cliente).
+9. **Registro de resultado** — Fernando ou modelo registram `fechado valor` ou `perdido motivo` pelos comandos canônicos do grupo de Coordenação por modelo, ou Fernando pelo painel.
 
-```text
-Cliente demonstra interesse via WhatsApp (chegou pelo BarraVips)
-↓
-IA identifica horário desejado e tipo (imediato, agendado, indefinido, estimado)
-↓
-Sistema consulta agenda da modelo
-↓
-IA informa disponibilidade de forma velada
-↓
-Cliente confirma que vai
-↓
-IA pede: "me avisa quando você sair, pra eu me preparar pra te receber"
-↓
-Sistema marca como "aguardando confirmação"
-↓
-Cliente avisa que saiu de casa
-  → Gatilho 1: notificar a modelo para se arrumar e ficar pronta
-  → IA continua a conversa de forma calorosa enquanto cliente está a caminho
-↓
-Cliente avisa que chegou
-↓
-IA pede foto da portaria/fachada para confirmar endereço
-↓
-Cliente envia foto (qualquer imagem recebida em `Aguardando_confirmacao` interno é tratada como foto da portaria — sem validação por vision)
-  → Gatilho 2: confirmação operacional do encontro real
-↓
-Atendimento entra em handoff: IA pausa, envia resumo + foto no grupo de coordenação. A modelo valida visualmente a foto no grupo e assume a conversa no mesmo WhatsApp.
-↓
-modelo assume e finaliza presencialmente
-↓
-Resultado é registrado explicitamente no CRM pela modelo/Fernando (`fechado valor` ou `perdido motivo`)
-↓
-Se `fechado valor`, bloqueio de agenda vinculado ao atendimento vira `concluido`
-Se `perdido motivo`, bloqueio vinculado vira `cancelado` apenas se ainda não estiver `em_atendimento` nem `concluido`
-```
+### 1.2 Princípios do fluxo geral
 
-### Por que a foto da portaria
-
-Protege contra clientes que fingem estar chegando mas não estão (perda de tempo da modelo) e contra clientes que dão endereço falso. É um **filtro de comprometimento** com baixo custo para o cliente real e alto custo para o oportunista.
-
-### Dados capturados nesse fluxo
-
-- horário desejado;
-- profissional de interesse;
-- status de confirmação (intencionou, saiu, chegou);
-- timestamp em que cliente disse que saiu;
-- timestamp em que cliente chegou + foto da portaria;
-- responsável (Fernando/equipe ou modelo) que assumiu;
-- resultado final e motivo (se perdido).
+- A IA conduz sozinha até a confirmação ou até bater num gatilho de escalada de `05-escalada-regras-ia.md`.
+- Toda transição de estado é registrada com `fonte_decisao` (extração da IA, evento de pipeline, comando humano ou timeout determinístico).
+- `ia_pausada=true` só é ativada por `escalar` da IA ou por `pix_em_revisao` do pipeline; mensagens entrantes durante pausa são gravadas em 5.1 sem indicador no painel.
+- A IA nunca decide risco/local; quando sinal sensível aparece, escala para Fernando (ver `05 §1`).
 
 ---
 
-## 3. Fluxo Externo (Saída) — Modelo se desloca até o cliente
+## 2. Fluxo interno (cliente vai à modelo)
 
-Este fluxo cobre quando o cliente pede que a modelo vá até ele: residência, motel, festa, restaurante, hotel. **Toda saída envolve risco operacional e logístico** que pode exigir julgamento de Fernando/equipe quando o pipeline de Pix não confirmar automaticamente.
+Aplica-se quando a IA classifica o atendimento como interno: cliente se desloca até o endereço da modelo.
 
-Para saídas, a Barra Vips cobra **antecipadamente o valor do Uber** (ida e volta) via Pix. Isso protege a modelo contra cliente que chama Uber e cancela.
+### 2.1 Sequência canônica
 
-> **Decisão operacional — handoff após Pix confirmado.** Não há lista de bairros nem perguntas estruturadas ("você mora em comunidade?"). A IA coleta o Pix do Uber; quando o comprovante é confirmado, o horário é bloqueado e a IA envia resumo no grupo de coordenação por modelo (IA + modelo + Fernando). Se houver dúvida ou decisão sensível, o resumo decisório fica disponível no painel para Fernando.
+1. **Acordo do horário e local** — IA confirma horário e endereço acordado.
+2. **Bloqueio prévio da agenda** — quando a IA registra extração com `tipo_atendimento=interno` e horário definido, coordenador cria bloqueio em `bloqueado` vinculado ao atendimento e move para `Aguardando_confirmacao`.
+3. **Aviso de saída** — cliente avisa que saiu de casa em direção ao endereço. Coordenador grava `aviso_saida_em` e envia card simples no grupo de Coordenação por modelo para preparar a modelo. **A IA continua respondendo o cliente normalmente** e o estado permanece em `Aguardando_confirmacao`.
+4. **Foto de portaria — cliente chegou** — cliente envia imagem da portaria/local de encontro. Webhook detecta imagem em `Aguardando_confirmacao` interno e dispara três efeitos atômicos:
+   - card "cliente chegou — `#N`, [endereço], horário X" no grupo de Coordenação por modelo, com a imagem anexada;
+   - `ia_pausada=true` com motivo `modelo_em_atendimento` (a IA para de responder o cliente);
+   - atendimento vai direto de `Aguardando_confirmacao` para `Em_execucao` e o bloqueio vai a `em_atendimento`.
 
-```text
-Cliente solicita que a modelo vá até ele (saída)
-↓
-IA identifica que é fluxo externo
-↓
-IA explica que precisa do Uber antecipado (ida e volta) — R$ 100 padrão — e envia chave Pix
-↓
-IA aguarda comprovante de Pix
-↓
-Pipeline de validação (ver §3.2 abaixo)
-  → tudo OK → `status=Confirmado`, `pix_status=validado`, agenda bloqueada, handoff/resumo no grupo de coordenação
-  → qualquer falha → mantém `status=Aguardando_confirmacao`, `pix_status=em_revisao`, IA pausa cordialmente, alerta Fernando/equipe no painel
-↓
-Modelo ou Fernando/equipe assumem conforme o resumo enviado no canal persistente correto
-↓
-Atendimento entra em `Em_execucao` ao bater o `horario_desejado`
-↓
-Resultado é registrado explicitamente durante handoff (`fechado valor` / `perdido motivo`). Classificação automática de resultado fica fora do P0.
-↓
-Se `fechado valor`, bloqueio de agenda vinculado ao atendimento vira `concluido`
-Se `perdido motivo`, bloqueio vinculado vira `cancelado` apenas se ainda não estiver `em_atendimento` nem `concluido`
-```
+   Sem vision automática sobre a foto (`02 §3.2`, decisão grilling 29/04). A inspeção visual da modelo no grupo é proteção operacional antes de abrir a porta e não condiciona a transição.
+5. **Encerramento** — modelo registra `finalizado [valor]` no grupo respondendo ao card. Coordenador encerra como `Fechado`, libera `ia_pausada=false`, marca o bloqueio como `concluido` e registra financeiro. Fernando pode corrigir depois pelo painel.
 
-### 3.1 Política do Pix
+### 2.2 Perda no fluxo interno
 
+- **Antes do aviso de saída** — cliente para de responder e bate o timeout determinístico longo de §5.1 (24 h sem mensagem em estados pré-confirmação) → `Perdido` com `motivo_perda=sumiu`.
+- **Após aviso de saída, sem foto de portaria** — quando passa o timeout interno curto de §5.2 (30 min do horário combinado), coordenador marca `Perdido` com `motivo_perda=sumiu`, cancela o bloqueio vinculado e **não envia mensagem ao cliente**. A IA permanece ativa (`ia_pausada=false`); se o cliente voltar a falar depois, a próxima mensagem dispara um novo atendimento na regra de resolução determinística do coordenador (`03 §5.2`).
+- **Cliente desistiu na portaria** — modelo registra `perdido [motivo]` no grupo respondendo ao card.
 
-| Item                                 | Decisão (grilling §6)                                                                         |
-| ------------------------------------ | --------------------------------------------------------------------------------------------- |
-| Beneficiário                         | **A modelo recebe.** Chave Pix obrigatoriamente associada a nome operacional ou nome ambíguo. |
-| Cadastro obrigatório                 | `chave_pix` e `nome_titular_chave` no `modelo_perfil.comercial`.                              |
-| Valor padrão                         | **R$ 100** fixo no MVP. Sem tabela por bairro.                                                |
-| Cliente pede valor diferente / acima | Escala Fernando/equipe manualmente.                                                           |
+### 2.3 O que a IA não faz no fluxo interno
 
-
-### 3.2 Pipeline de validação do Pix
-
-
-| Checagem                                   | Como                           | Falha resulta em |
-| ------------------------------------------ | ------------------------------ | ---------------- |
-| OCR consegue ler o comprovante             | OCR + vision                   | Pede outra foto  |
-| Beneficiário bate com `nome_titular_chave` | Match fuzzy                    | Escala Fernando/equipe |
-| Chave Pix bate com cadastro                | Match exato                    | Escala Fernando/equipe |
-| Valor exato                                | Tolerância R$ 0                | Escala Fernando/equipe |
-| Timestamp ≤ 30 min do pedido               | Comparação direta              | Escala Fernando/equipe |
-| Comprovante visualmente plausível          | LLM vision (score < 0.7 falha) | Escala Fernando/equipe |
-
-
-- Tudo passa → `status=Confirmado`, `pix_status=validado`, agenda bloqueada, handoff/resumo no grupo de coordenação.
-- Qualquer falha → atendimento permanece em `Aguardando_confirmacao`, `pix_status=em_revisao`. IA cordialmente pausa o cliente: *"deixa eu confirmar pra você"*. Alerta no painel com a imagem + motivo + última mensagem do cliente. Fernando/equipe decide pelo painel; em P1, Fernando pode responder por áudio via IA Admin.
-
-> Como o Pix só é cobrado dentro de uma janela de atendimento ativo da modelo, **não existe o caso "Pix recebido fora do horário"**.
+- Não pede Pix antecipado (Pix interno fica fora do MVP — `02 §3.2`).
+- Não interpreta conteúdo da foto de portaria por vision automática.
+- Não responde o cliente após a foto de portaria — quem assume é a modelo, manualmente no mesmo número.
+- Não decide se o cliente é seguro com base no endereço dele.
 
 ---
 
-## 4. Fluxo de Agenda por Comando Interno (P1 — IA Admin)
+## 3. Fluxo externo (saída) — cliente recebe a modelo
 
-```text
-Fernando manda áudio no grupo da IA Administrativa
-↓
-IA transcreve o áudio
-↓
-IA interpreta a intenção (bloqueio, liberação, consulta)
-↓
-Sistema identifica profissional, data e horário
-↓
-Sistema verifica conflito
-↓
-Se ambíguo → IA pede confirmação no grupo antes de executar
-↓
-Se não houver conflito, confirma bloqueio e responde no grupo
-↓
-Agenda é atualizada
-↓
-Atendimentos futuros passam a considerar o bloqueio
-```
+Aplica-se quando a IA classifica o atendimento como externo: a modelo se desloca até o cliente.
 
----
+### 3.1 Sequência canônica
 
-## 5. Tipologia de Cliente por Urgência
+1. **Acordo do horário e endereço** — IA confirma horário, endereço de destino e bairro/região. Endereço é dado obrigatório no fluxo externo.
+2. **Bloqueio prévio da agenda** — coordenador cria bloqueio em `bloqueado` vinculado ao atendimento e move para `Aguardando_confirmacao`. Apenas Pix validado libera a saída efetiva.
+3. **Pedido de Pix de deslocamento** — IA chama `pedir_pix_deslocamento(valor=R$ 100, chave_pix, titular)`. Coordenador atualiza `pix_status=aguardando` e envia mensagem com chave/titular para o cliente. Valor único de R$ 100 no MVP (`02 §3.2` — sem tabela de Uber por bairro).
+4. **Recebimento do comprovante** — cliente envia imagem do comprovante. Coordenador aciona pipeline OCR/vision do módulo Pix (4.6/5.6) com `pix_status=enviado`.
+5. **Validação automática** — pipeline checa beneficiário, chave Pix, valor, timestamp e plausibilidade visual. Todas as checagens passam → `pix_status=validado`; falha ou dúvida → `pix_status=em_revisao`.
+6. **Caminho A — Pix validado** — coordenador dispara três efeitos atômicos:
+   - card "saída confirmada — `#N`, [endereço], horário X, valor combinado Y" no grupo de Coordenação por modelo;
+   - `ia_pausada=true` com motivo `modelo_em_atendimento` (a IA não responde mais o cliente desse atendimento);
+   - atendimento → `Confirmado` e bloqueio segue ativo aguardando o horário.
 
-Fernando identificou quatro perfis distintos de cliente baseados na disponibilidade e urgência. **Cada perfil exige uma cadência de conversa diferente** e a IA precisa classificar o cliente o mais cedo possível.
+   A IA não envia mensagem confirmando o Pix ao cliente — quem assume a conversa daí em diante é a modelo, manualmente no mesmo número.
+7. **Caminho B — Pix em revisão** — coordenador define `ia_pausada=true` com motivo `pix_em_revisao`, mantém atendimento em `Aguardando_confirmacao` e envia card para Fernando no grupo de Coordenação por modelo (e no painel, em `Pix e Comprovantes`). Fernando valida ou recusa; `atualizar_pix(validado)` cai no caminho A acima, `atualizar_pix(recusado)` segue para §3.2.
+8. **Saída e atendimento físico** — modelo se desloca; bloqueio vai para `em_atendimento` quando o horário chega.
+9. **Encerramento** — modelo registra `finalizado [valor]` no grupo respondendo ao card. Coordenador encerra como `Fechado`, libera `ia_pausada=false`, marca o bloqueio como `concluido` e registra financeiro. Fernando corrige depois pelo painel se necessário.
 
+### 3.2 Pix recusado por Fernando
 
-| Tipo                             | Perfil                                                                                              | Comportamento esperado da IA                                                                                       |
-| -------------------------------- | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| **1. Imediato**                  | Quer agora. Está disponível, mora perto, pode chegar em 10–15 min.                                  | Para internos, dispensa o Pix; confirma disponibilidade, pede aviso quando sair, notifica modelo.                  |
-| **2. Agendado com antecedência** | Combina serviço para outro dia ou horário futuro. Ex.: contato na terça, atendimento quarta às 16h. | Para saídas, cobra Pix do Uber; bloqueia agenda após Pix validado; confirmação 1–2h antes fica para P1/manual.      |
-| **3. Horário indefinido**        | "Quando eu sair do trabalho eu te aviso." Pode aparecer a qualquer momento.                         | Mantém conversa quente com toques leves; não bloqueia agenda firme; pronta para reagir quando o cliente sinalizar. |
-| **4. Horário estimado**          | "Saio do trabalho às 6." Sabe aproximadamente quando estará disponível.                             | Mantém conversa natural quando o cliente responde; automação de reativação no horário esperado fica fora do P0.     |
+Fernando recusa pelo painel → `pix_status=invalido`. Atendimento continua em `Aguardando_confirmacao` com `ia_pausada=false` (Fernando pode escalar verbalmente para a IA pedir novo Pix ou para a modelo decidir descartar). No P0, a IA não pede automaticamente um segundo Pix; Fernando decide o próximo passo.
 
+### 3.3 Perda no fluxo externo
 
-### Filtro comportamental "fecha vs não fecha"
+- Cliente não envia Pix dentro do timeout determinístico de §5 → `Perdido` com `motivo_perda=sumiu`.
+- Cliente envia Pix divergente e Fernando recusa → Fernando registra `perdido [motivo]` pelo painel.
+- Cliente cancela após Pix validado → modelo ou Fernando registram `perdido [motivo]`; bloqueio vinculado é cancelado se ainda não estiver `em_atendimento` nem `concluido`.
 
-> **Removido pelo grilling 29/04.** Sem score contínuo, sem cooling gradual. A IA trata todos os clientes com o mesmo comportamento (calor, mídia, fechamento ativo).
+### 3.4 O que a IA não faz no fluxo externo
 
-Mantidas **apenas** as escaladas pontuais já existentes em `05-escalada-regras-ia.md`:
-
-- ameaça/agressividade → escalada imediata;
-- pedido fora do padrão (ex.: desconto além de 10%) → escalada.
-
-Essas escaladas são proteções de canal e segurança, não classificação de cliente. Vulgaridade do cliente não é gatilho especial: a IA trata cliente vulgar como cliente comum, sem mudança especial de tratamento nem escalada por vulgaridade.
+- Não confirma saída ao cliente sem Pix validado pelo pipeline ou por Fernando.
+- Não envia mensagem confirmando o Pix validado — o handoff para a modelo é silencioso do ponto de vista da IA (§3.1, caminho A).
+- Não interpreta conteúdo do comprovante por conta própria — pipeline OCR/vision é a porta única de validação automática.
+- Não negocia valor de deslocamento (R$ 100 fixo no MVP).
+- Não avalia segurança do bairro ou local — gatilho de risco escala para Fernando (`05 §1`).
 
 ---
 
-## 6. Indisponibilidade Contextual da Modelo
+## 4. Tipologia de cliente e ajustes na conversa
 
-Quando uma modelo está em atendimento (agenda bloqueada), a IA **não para de responder** outros clientes que chegam pelo mesmo número. Ela informa indisponibilidade com **desculpas contextuais** consistentes com a persona e com o horário, e tenta reagendar.
+A IA trata todos os clientes com o mesmo comportamento comercial. Não há score contínuo "fecha vs não fecha" no MVP (`02 §3.2`). O que muda é o tom, baseado em sinais objetivos do histórico **daquele par (cliente, modelo)**.
 
+### 4.1 Histórico isolado por modelo
 
-| Horário do bloqueio           | Desculpa típica                                     |
-| ----------------------------- | --------------------------------------------------- |
-| Manhã / início da tarde       | "Estou no salão agora, te respondo em breve."       |
-| Fim de tarde / antes de saída | "Estou me arrumando, posso te ver mais tarde?"      |
-| Noite                         | "Estou na balada, amanhã consigo te receber?"       |
-| Madrugada                     | "Já estou recolhida hoje, vamos marcar pra amanhã?" |
+Cada modelo opera no próprio número de WhatsApp e tem **uma IA dedicada**, com persona e histórico próprios. Quando um mesmo cliente conversa com modelos diferentes (números diferentes), são instâncias completamente independentes:
 
+- a IA da modelo A nunca acessa, cita ou se apoia no histórico do cliente com a modelo B;
+- não existe "perfil único do cliente" usado por múltiplas IAs no MVP;
+- cada conversa cliente↔modelo (`06 §2.6`) é a unidade que carrega histórico, recorrência e observações;
+- recorrência é por par: cliente que voltou a falar com a modelo A é "recorrente" do ponto de vista de A, mesmo que nunca tenha falado com B.
 
-Essas desculpas precisam ser **coerentes com o que a modelo "diria"** — quebra de persona aqui também queima o cliente. O sistema seleciona a desculpa baseado no horário do bloqueio.
+Esta regra vale para todos os documentos do MVP que mencionarem "cliente recorrente", "histórico do cliente" ou "perfil do cliente".
 
----
+### 4.2 Cliente novo
 
-## 7. Gestão de Mídia no Atendimento
+- Não há atendimento anterior **com esta modelo** registrado para o telefone do cliente (a conversa cliente↔modelo é nova ou nunca passou de `Triagem`).
+- IA conduz triagem completa (saudação, qualificação, coleta de dados).
+- Não assume histórico ou preferências.
 
-O envio de fotos e vídeos é parte central do fechamento. A estratégia é progressiva:
+### 4.3 Cliente recorrente (com a mesma modelo)
 
-1. **Foto primeiro** — IA envia foto pré-aprovada da modelo quando o cliente pede.
-2. **Se cliente quer mais prova** — IA envia **vídeo curto em modo "visualização única"**, com narrativa de "estou gravando agora pra você" (mesmo sendo pré-gravado). A visualização única protege o conteúdo de circulação indevida.
-3. **Foto da portaria** — em fluxo interno, **o cliente envia uma foto** quando chega, e a IA precisa receber e processar a imagem.
+- Já houve atendimento(s) anterior(es) entre **este cliente e esta modelo**, registrados na mesma conversa.
+- IA usa tom de retomada: saudação curta, evita repetir dados que já constam na conversa.
+- IA não funde atendimento atual com atendimentos antigos no mesmo registro — cada atendimento é entidade separada na mesma conversa.
+- IA nunca menciona, infere ou compara com atendimentos do cliente com outras modelos.
 
-Requisitos do sistema:
+### 4.4 Sinais de cliente qualificado
 
-- biblioteca de mídias **pré-aprovadas por modelo**, com tags (foto rosto, foto corpo, vídeo curto, etc.);
-- biblioteca mínima P0 em MinIO, com pelo menos 10 mídias pré-aprovadas por modelo;
-- envio em modo de visualização única quando o canal suportar;
-- se o canal não suportar visualização única, vídeo não é enviado automaticamente e o caso escala para Fernando/equipe;
-- recebimento de imagens enviadas pelo cliente e armazenamento associado ao atendimento por 30 dias, salvo disputa ou auditoria.
+A IA registra na extração os sinais objetivos definidos em `02 §2.2`:
+- informa horário;
+- informa local;
+- aceita valor;
+- envia Pix de deslocamento (saída);
+- responde objetivamente.
 
----
-
-## 8. Máquina de Estados do Atendimento
-
-> P0 usa estados canônicos simples e auditáveis. Estados inferidos ficam para P1; detalhes de Pix ficam em `pix_status`, não em `status`.
-
-```text
-Novo → Triagem → Qualificado → Aguardando_confirmacao
-      ↓                                ↓
-   Perdido                         Confirmado (Pix OK | imagem recebida)
-                                       ↓
-                          Em_execucao (a partir do horario_desejado)
-                                       ↓
-                              Fechado | Perdido
-```
-
-### 8.1 Estados e disparadores
-
-
-| Transição                                | Disparador                                                                 |
-| ---------------------------------------- | -------------------------------------------------------------------------- |
-| `Novo` → `Triagem`                       | Primeira mensagem do cliente                                               |
-| `Triagem` → `Qualificado`                | IA extrai intenção real da conversa                                        |
-| `Qualificado` → `Aguardando_confirmacao` | IA pediu Pix, aviso de saída ou imagem de portaria                         |
-| `Aguardando_confirmacao` → `Confirmado`  | OCR/vision valida Pix ou imagem é recebida no fluxo interno                |
-| `Confirmado` → `Em_execucao`             | Relógio bate `horario_desejado`                                            |
-| `Aguardando_confirmacao` → `Perdido`     | Timeout determinístico antes da confirmação, com `motivo_perda=sumiu`      |
-| `Em_execucao` → `Fechado`                | Registro explícito por Fernando ou modelo                                  |
-| `Em_execucao` → `Perdido`                | Registro explícito por Fernando ou modelo                                  |
-
-
-> No fluxo interno, quando o cliente avisa que saiu de casa, o sistema notifica a modelo para se arrumar e ficar pronta. A modelo não precisa mandar "voltei". Durante handoff, a conversa continua alimentando histórico e resumo, mas não muda estado automaticamente.
-
-### 8.2 Auditabilidade e reversibilidade
-
-- Cada atendimento tem `fonte_decisao` P0 em `{modelo, fernando, sistema, auto_timeout, fernando_revisado}`. Valores de classificador (`classificador_alta`, `classificador_media`) só entram em P1.
-- Dashboard avançado em P1 começa filtrando decisões automáticas para Fernando revisar amostras.
-- Fernando pode reverter pelo painel. Em P1, pode reverter por áudio: *"abre o atendimento do João de ontem"* → o sistema volta para `Em_execucao` ou `Qualificado` e marca `fonte_decisao = "fernando_revisado"`.
+Esses sinais alimentam o dashboard e podem orientar regras P1, mas no P0 não disparam comportamento diferenciado da IA.
 
 ---
 
-## 9. Concorrência — múltiplos clientes, uma modelo
+## 5. Perda por timeout determinístico
 
-Decisão do grilling 29/04 (§9):
+Únicos caminhos de fechamento automático no P0. Cobrem cliente que para de responder e cliente do fluxo interno que avisou saída mas não chegou.
 
-- A IA atende clientes B/C/D em paralelo enquanto cliente A está em encontro.
-- Usa **desculpas contextuais** (tabela do §6 deste arquivo).
-- **Não bloqueia agenda firme** para B/C/D durante o encontro de A.
-- Quando A fecha → notifica B/C/D que estavam em espera (*"agora consigo, ainda tá de pé?"*).
-- Cliente B "imediato" insistindo → vira `Perdido` com motivo adequado (`sumiu` ou `indisponibilidade`). **No MVP com 1 modelo, não há redirecionamento para outra.**
+### 5.1 Timeout longo — silêncio pré-confirmação
 
----
+- Cron worker (ARQ) percorre atendimentos em estados pré-confirmação (`Novo`, `Triagem`, `Qualificado`, `Aguardando_confirmacao`) sem mensagem do cliente há mais de **24 horas**.
+- Marca como `Perdido` com `motivo_perda=sumiu` e `fonte_decisao=auto_timeout`.
+- Cancela bloqueio de agenda vinculado se ainda não estiver `em_atendimento` nem `concluido`.
+- Não envia mensagem para o cliente — apenas registra.
 
-## 10. Conflito CRM/agenda vs cliente
+### 5.2 Timeout interno curto — saída sem chegada
 
-Quando cliente alega acordo prévio que não bate com CRM:
+- Aplica-se ao atendimento interno em `Aguardando_confirmacao` que tem `aviso_saida_em` registrado e ainda não recebeu foto de portaria.
+- Quando passa **30 minutos do horário combinado** sem foto recebida, coordenador marca `Perdido` com `motivo_perda=sumiu` e `fonte_decisao=auto_timeout_interno`.
+- Cancela o bloqueio vinculado.
+- **Não envia mensagem ao cliente** e **não pausa a IA** — `ia_pausada` continua `false`. Se o cliente voltar a falar depois, a próxima mensagem dispara um novo atendimento na regra de resolução determinística do coordenador (`03 §5.2`).
 
-- IA **não confronta** (*"você está enganado"*) nem **concorda** (*"ah é, lembrei"*).
-- Resposta de stall: *"deixa eu confirmar uma coisa aqui, te respondo já já"*.
-- Em paralelo, alerta no painel com transcrição da reivindicação + registro relevante do CRM (último atendimento, valor padrão, observações).
-- Fernando/equipe decide pelo painel. Em P1, Fernando pode decidir por áudio via IA Admin.
+### 5.3 Exclusões
 
-**Trigger:** extração/alerta por IA detecta padrão *"você disse / marcamos / combinamos / tinha falado"* + tool de busca no CRM cruza com histórico. No P0 isso gera alerta; não muda estado sensível sozinho.
+- Atendimentos com `ia_pausada=true` por escalada ou Pix em revisão **não** são afetados pelo timeout — Fernando ou modelo precisam agir manualmente.
+- Atendimentos em `Confirmado` ou `Em_execucao` não entram no timeout (já houve confirmação ou modelo já está engajada; perda exige registro explícito).
+- Atendimentos em `Fechado` ou `Perdido` ficam fora por estar fora dos estados-alvo.
 
----
+### 5.4 Cadência do worker
 
-## 11. Cliente envia áudio
-
-Decisão do grilling 29/04 (§13):
-
-- **Transcrever sempre.** Transcrição entra no contexto como `[áudio do cliente]: "<transcrição>"`.
-- IA **responde em texto**, sem citar a transcrição literal.
-- **Áudio gerado por IA (TTS) NÃO no MVP** — TTS é detectável e quebra persona pior. Voice cloning fica para fase pós-piloto.
-- Áudio impossível de transcrever → IA pede texto cordialmente.
-- Áudio com conteúdo explícito → mesmas regras textuais e de escalada, sem mudança especial de tratamento. **Áudio bruto não preservado >24h** pós-transcrição.
-
-**Caso de borda:** quando a única evidência de número/horário vem de transcrição, a IA confirma com o cliente parafraseando (*"entendi 200 pelo Uber, certo?"*) para mitigar erro de transcrição.
+Sugestão inicial: rodar a cada **5 minutos** para dar granularidade ao timeout curto de §5.2; o timeout longo de §5.1 é avaliado na mesma passada.
 
 ---
 
-## 12. Ambiente de teste pré-piloto (Fase 1.5)
+## 6. Mídia da modelo
 
-A Fase 1.5 não usa conversa cliente real. O time tech provisiona um número de WhatsApp de teste (chamado aqui de "número X") e o conecta ao Evolution. Lucas e o número X formam um **grupo de teste** — apenas dois participantes — cujo `JID` fica configurado no sistema.
+Cobre como a IA decide enviar fotos/vídeos pré-aprovados durante a conversa.
 
-Regras do ambiente de teste:
+### 6.1 Catálogo
 
-- a IA só responde dentro do `JID` do grupo de teste durante a Fase 1.5;
-- mensagens vindas de qualquer outra origem são ignoradas até a Fase 2;
-- Lucas digita no grupo simulando o cliente; a IA responde como se ele fosse cliente real;
-- não há flag `is_test` em cliente ou atendimento — o isolamento vem do `JID` configurado, não de marcação por entidade.
+- Mídia armazenada em MinIO no bucket `media`, vinculada à `modelo_id`.
+- Mínimo de 10 mídias pré-aprovadas por modelo antes do piloto (`03 §4.5`).
+- Cada mídia tem tipo (`foto`, `video`) e tag simples (`apresentacao`, `corpo`, `lifestyle`, `evento`).
 
-Quando a Fase 2 começar, a modelo piloto escaneia um QR code gerado no painel para vincular o número dela ao Evolution e a IA passa a operar conversas cliente reais. O grupo de teste continua existindo apenas se o time precisar recalibrar.
+### 6.2 Seleção pela IA
+
+- IA chama `consultar_midia(tag)` para listar mídias disponíveis para uma tag.
+- IA escolhe uma e chama `enviar_midia(midia_id, legenda?)` no turno corrente; pode chamar múltiplas vezes.
+- Coordenador anexa as mídias à resposta do turno e Humanização (5.5) envia após o texto.
+
+### 6.3 Limites no P0
+
+- Sem ranking por contexto (P1).
+- Sem métricas de uso/resposta por mídia (P1).
+- Sem geração de mídia por IA (fora do MVP — `02 §3.2`).
+- IA não envia mídia não cadastrada no MinIO; nunca encaminha foto recebida do cliente.
+
+### 6.4 Mídia recebida do cliente
+
+Comprovantes, foto de portaria e demais imagens entram em 5.1 vinculadas ao atendimento. No P0 a IA não interpreta conteúdo visual (`03 §5.3`); o pipeline OCR/vision do Pix é a única exceção, e roda fora da IA, em ARQ.
+
+---
+
+## 7. Agenda por áudio (P1)
+
+Reservado para a IA Administrativa (`03 §5.6`). Fora do P0.
+
+### 7.1 Comandos previstos em P1
+
+- Bloquear horário: "bloqueia das 14 às 18 amanhã para Bia".
+- Liberar horário: "libera o bloqueio das 20 de hoje".
+- Consultar agenda: "como está a agenda da Bia hoje".
+- Consultar comprovantes: "tem Pix pendente?".
+- Registrar observação curta: "anota que a Bia avisou que não atende quarta-feira de manhã".
+
+### 7.2 Princípios em P1
+
+- IA Admin pede confirmação quando o comando for ambíguo.
+- Não edita perfil, FAQ, política comercial ou mídia (essas operações ficam no painel, mesmo em P1 — `02 §3.2`).
+- Toda ação registra autor, canal e horário.
+
+### 7.3 Fora do escopo P0
+
+No P0, qualquer bloqueio/liberação/consulta administrativa é feito pelo painel em `Agenda Operacional` (`03 §4.3`). A IA Admin não opera; o grupo IA Admin descrito em `CONTEXT.md` só é instanciado em P1.
+
+---
+
+## 8. Máquina de estados do atendimento
+
+Estado canônico do atendimento no P0. Detalhamento dos estados em `03 §4.2`; este §8 documenta apenas as **transições** e suas fontes.
+
+### 8.1 Estados
+
+`Novo` → `Triagem` → `Qualificado` → `Aguardando_confirmacao` → `Confirmado` → `Em_execucao` → `Fechado` (sucesso) **ou** `Perdido` (em qualquer ponto até `Em_execucao`).
+
+### 8.2 Tabela de transições
+
+| De | Para | Disparo | Fonte |
+|----|------|---------|-------|
+| (criação) | `Novo` | Primeira mensagem do cliente, sem atendimento aberto reusável | Coordenador (5.2), determinístico |
+| `Novo` | `Triagem` | IA registra extração com sinais mínimos de intenção | IA (5.3) via `registrar_extracao` |
+| `Triagem` | `Qualificado` | IA registra extração com intenção real e dados mínimos | IA via `registrar_extracao` |
+| `Qualificado` | `Aguardando_confirmacao` | IA define horário e tipo (interno cria bloqueio; externo dispara `pedir_pix_deslocamento`) | IA via tool |
+| `Aguardando_confirmacao` | `Em_execucao` (interno) | Webhook recebe imagem em `Aguardando_confirmacao` interno → IA pausa (`modelo_em_atendimento`), card "cliente chegou" no grupo, bloqueio vai a `em_atendimento` | Coordenador (5.2), determinístico |
+| `Aguardando_confirmacao` | `Confirmado` (externo) | Pipeline OCR valida Pix → `pix_status=validado` → IA pausa (`modelo_em_atendimento`), card "saída confirmada" no grupo | Pipeline (5.4 via `atualizar_pix`) |
+| `Confirmado` | `Em_execucao` (externo) | Horário previsto chega e bloqueio vai a `em_atendimento` | Cron/coordenador, determinístico |
+| `Em_execucao` | `Fechado` | Comando `fechado valor` ou `finalizado valor` | Modelo/Fernando via grupo ou painel |
+| qualquer | `Perdido` | Comando `perdido motivo` | Modelo/Fernando via grupo ou painel |
+| pré-confirmação | `Perdido` | Timeout determinístico longo de §5.1 (24 h sem mensagem do cliente) | Cron worker, `fonte_decisao=auto_timeout` |
+| `Aguardando_confirmacao` (interno) | `Perdido` | Timeout interno curto de §5.2 (30 min após horário sem foto) | Cron worker, `fonte_decisao=auto_timeout_interno` |
+| `Aguardando_confirmacao` | (sem mudança) | Pix em revisão, aviso de saída, imagem fora do interno | Eventos colaterais; estado preserva |
+
+### 8.3 Pix como sub-estado, não estado do atendimento
+
+`pix_status` é campo do atendimento, não estado. Atendimento permanece em `Aguardando_confirmacao` enquanto `pix_status ∈ {aguardando, enviado, em_revisao}` (`03 §4.2`). Apenas `pix_status=validado` move para `Confirmado` no fluxo externo.
+
+### 8.4 Bloqueio de agenda acompanha resultado
+
+| Resultado do atendimento | Bloqueio vinculado |
+|--------------------------|--------------------|
+| `Fechado` | → `concluido` automaticamente |
+| `Perdido` (antes de `em_atendimento`) | → `cancelado` automaticamente |
+| `Perdido` (já em `em_atendimento` ou `concluido`) | preserva estado; correção exige confirmação manual de Fernando (`CONTEXT.md`) |
+
+### 8.5 `ia_pausada` é flag, não estado
+
+`ia_pausada=true` é flag ortogonal ao estado do atendimento. Pode coexistir com qualquer estado pré-fechamento. Casos canônicos no P0:
+- `pix_em_revisao` (atendimento em `Aguardando_confirmacao`);
+- `modelo_em_atendimento` (atendimento em `Em_execucao`);
+- handoff explícito da IA para Fernando.
+
+Devolução para IA libera `ia_pausada=false` e **não dispara turno automático**: a IA aguarda a próxima mensagem do cliente para responder (`05 §4`). Pix validado (§3.1) e foto de portaria (§2.1) **não devolvem para a IA** — escalam para a modelo e a IA permanece pausada com motivo `modelo_em_atendimento` até `finalizado` da modelo no grupo (encerra como `Fechado`) ou devolução manual de Fernando pelo painel.
+
+---
+
+## 9. Sinais transversais
+
+### 9.1 `fonte_decisao`
+
+Toda transição persistida grava `fonte_decisao` para auditoria. Valores no P0:
+
+- `extracao_ia` — IA registrou extração e isso disparou transição (Novo→Triagem, Triagem→Qualificado, Qualificado→Aguardando_confirmacao);
+- `webhook_imagem` — recebimento de imagem em `Aguardando_confirmacao` interno (foto de portaria → `Em_execucao`);
+- `pipeline_pix` — pipeline OCR validou Pix (`Aguardando_confirmacao` → `Confirmado`);
+- `comando_grupo` — comando da modelo ou Fernando no grupo de Coordenação por modelo;
+- `painel_fernando` — ação de Fernando pelo painel;
+- `auto_timeout` — timeout determinístico longo, §5.1 (24 h sem mensagem);
+- `auto_timeout_interno` — timeout interno curto, §5.2 (30 min após horário sem foto);
+- `cron_em_execucao` — horário previsto disparou `Em_execucao` no fluxo externo.
+
+P1 introduz `classificador_p1` para transições inferidas por LLM (`03 §5.7`) — não usado no P0.
+
+### 9.2 Audit log
+
+Cada transição relevante gera entrada na tabela `eventos` (ver `06-dados-interfaces.md` e `07 §2.2`). Checkpointer LangGraph não substitui este log — é registro humano-legível separado.
+
+### 9.3 Mensagens durante `ia_pausada=true`
+
+Persistidas em 5.1 sem indicador no painel, badge ou contador de não lidas. Servem apenas para histórico, resumo automático do próximo turno e auditoria. Não disparam transição.

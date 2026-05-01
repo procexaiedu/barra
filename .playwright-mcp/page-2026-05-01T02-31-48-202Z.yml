@@ -1,0 +1,257 @@
+- generic [ref=e1]:
+  - generic [ref=e2]:
+    - complementary [ref=e3]:
+      - generic [ref=e4]: Barra Vips
+      - navigation "Navegação principal" [ref=e5]:
+        - generic [ref=e6]:
+          - heading "OPERAÇÃO" [level=3] [ref=e7]
+          - link "Painel" [ref=e8] [cursor=pointer]:
+            - /url: /
+            - img [ref=e9]
+            - generic [ref=e14]: Painel
+          - link "Atendimentos" [ref=e15] [cursor=pointer]:
+            - /url: /atendimentos
+            - img [ref=e16]
+            - generic [ref=e19]: Atendimentos
+          - link "Agenda" [ref=e20] [cursor=pointer]:
+            - /url: /agenda
+            - img [ref=e21]
+            - generic [ref=e23]: Agenda
+          - link "Pix" [ref=e24] [cursor=pointer]:
+            - /url: /pix
+            - img [ref=e25]
+            - generic [ref=e28]: Pix
+        - generic [ref=e29]:
+          - heading "CADASTROS" [level=3] [ref=e30]
+          - link "CRM" [ref=e31] [cursor=pointer]:
+            - /url: /crm
+            - img [ref=e32]
+            - generic [ref=e37]: CRM
+          - link "Modelos" [ref=e38] [cursor=pointer]:
+            - /url: /modelos
+            - img [ref=e39]
+            - generic [ref=e43]: Modelos
+        - generic [ref=e44]:
+          - heading "ANÁLISE" [level=3] [ref=e45]
+          - link "Dashboard" [ref=e46] [cursor=pointer]:
+            - /url: /dashboard
+            - img [ref=e47]
+            - generic [ref=e50]: Dashboard
+      - generic [ref=e51]:
+        - paragraph [ref=e52]: contato@procexai.tech
+        - button "Sair" [ref=e53]:
+          - img [ref=e54]
+          - generic [ref=e57]: Sair
+    - main [ref=e58]:
+      - generic [ref=e131]:
+        - generic [ref=e132]:
+          - generic [ref=e133]:
+            - heading "Agenda" [level=1] [ref=e134]
+            - paragraph [ref=e135]: Nenhuma modelo ativa
+          - generic [ref=e136]:
+            - generic [ref=e137]:
+              - term [ref=e138]: Bloqueios ativos
+              - definition [ref=e139]: "0"
+            - generic [ref=e140]:
+              - term [ref=e141]: Em atendimento
+              - definition [ref=e142]: "0"
+            - generic [ref=e143]:
+              - term [ref=e144]: Cancelados
+              - definition [ref=e145]: "0"
+        - generic [ref=e146]:
+          - generic "Visão da agenda" [ref=e147]:
+            - button "Dia" [ref=e148]
+            - button "Semana" [ref=e149]
+            - button "Mês" [active] [ref=e150]
+          - generic [ref=e151]:
+            - button "Período anterior" [ref=e152]:
+              - img
+            - generic [ref=e153]: abril de 2026
+            - button "Próximo período" [ref=e154]:
+              - img
+            - button "Hoje" [ref=e155]
+          - button "Bloquear janela" [disabled]:
+            - img
+            - text: Bloquear janela
+        - generic [ref=e156]:
+          - region "Calendário mensal" [ref=e157]:
+            - generic [ref=e158]:
+              - generic [ref=e159]: Seg
+              - generic [ref=e160]: Ter
+              - generic [ref=e161]: Qua
+              - generic [ref=e162]: Qui
+              - generic [ref=e163]: Sex
+              - generic [ref=e164]: Sáb
+              - generic [ref=e165]: Dom
+            - generic [ref=e166]:
+              - button "30" [ref=e425]:
+                - generic [ref=e427]: "30"
+              - button "31" [ref=e428]:
+                - generic [ref=e430]: "31"
+              - button "1" [ref=e431]:
+                - generic [ref=e433]: "1"
+              - button "2" [ref=e434]:
+                - generic [ref=e436]: "2"
+              - button "3" [ref=e437]:
+                - generic [ref=e439]: "3"
+              - button "4" [ref=e440]:
+                - generic [ref=e442]: "4"
+              - button "5" [ref=e443]:
+                - generic [ref=e445]: "5"
+              - button "6" [ref=e446]:
+                - generic [ref=e448]: "6"
+              - button "7" [ref=e449]:
+                - generic [ref=e451]: "7"
+              - button "8" [ref=e452]:
+                - generic [ref=e454]: "8"
+              - button "9" [ref=e455]:
+                - generic [ref=e457]: "9"
+              - button "10" [ref=e458]:
+                - generic [ref=e460]: "10"
+              - button "11" [ref=e461]:
+                - generic [ref=e463]: "11"
+              - button "12" [ref=e464]:
+                - generic [ref=e466]: "12"
+              - button "13" [ref=e467]:
+                - generic [ref=e469]: "13"
+              - button "14" [ref=e470]:
+                - generic [ref=e472]: "14"
+              - button "15" [ref=e473]:
+                - generic [ref=e475]: "15"
+              - button "16" [ref=e476]:
+                - generic [ref=e478]: "16"
+              - button "17" [ref=e479]:
+                - generic [ref=e481]: "17"
+              - button "18" [ref=e482]:
+                - generic [ref=e484]: "18"
+              - button "19" [ref=e485]:
+                - generic [ref=e487]: "19"
+              - button "20" [ref=e488]:
+                - generic [ref=e490]: "20"
+              - button "21" [ref=e491]:
+                - generic [ref=e493]: "21"
+              - button "22" [ref=e494]:
+                - generic [ref=e496]: "22"
+              - button "23" [ref=e497]:
+                - generic [ref=e499]: "23"
+              - button "24" [ref=e500]:
+                - generic [ref=e502]: "24"
+              - button "25" [ref=e503]:
+                - generic [ref=e505]: "25"
+              - button "26" [ref=e506]:
+                - generic [ref=e508]: "26"
+              - button "27" [ref=e509]:
+                - generic [ref=e511]: "27"
+              - button "28" [ref=e512]:
+                - generic [ref=e514]: "28"
+              - button "29" [ref=e515]:
+                - generic [ref=e517]: "29"
+              - button "30" [ref=e408]:
+                - generic [ref=e410]: "30"
+              - button "1" [ref=e518]:
+                - generic [ref=e520]: "1"
+              - button "2" [ref=e521]:
+                - generic [ref=e523]: "2"
+              - button "3" [ref=e524]:
+                - generic [ref=e526]: "3"
+              - button "4" [ref=e527]:
+                - generic [ref=e529]: "4"
+              - button "5" [ref=e530]:
+                - generic [ref=e532]: "5"
+              - button "6" [ref=e533]:
+                - generic [ref=e535]: "6"
+              - button "7" [ref=e536]:
+                - generic [ref=e538]: "7"
+              - button "8" [ref=e539]:
+                - generic [ref=e541]: "8"
+              - button "9" [ref=e542]:
+                - generic [ref=e544]: "9"
+              - button "10" [ref=e545]:
+                - generic [ref=e547]: "10"
+            - generic [ref=e293]:
+              - paragraph [ref=e294]: Nenhum bloqueio neste mês.
+              - paragraph [ref=e295]: Crie um bloqueio manual quando precisar reservar a agenda.
+          - region "Dia selecionado" [ref=e296]:
+            - generic [ref=e297]:
+              - heading "30 de abr. de 2026" [level=2] [ref=e420]
+              - paragraph [ref=e299]: 0 bloqueios
+            - generic [ref=e300]:
+              - paragraph [ref=e301]: Dia livre.
+              - paragraph [ref=e302]: Clique em um horário para bloquear uma janela.
+            - generic [ref=e303]:
+              - button "00:00" [ref=e304]:
+                - generic [ref=e305]: 00:00
+                - img [ref=e306]
+              - button "01:00" [ref=e307]:
+                - generic [ref=e308]: 01:00
+                - img [ref=e309]
+              - button "02:00" [ref=e310]:
+                - generic [ref=e311]: 02:00
+                - img [ref=e312]
+              - button "03:00" [ref=e313]:
+                - generic [ref=e314]: 03:00
+                - img [ref=e315]
+              - button "04:00" [ref=e316]:
+                - generic [ref=e317]: 04:00
+                - img [ref=e318]
+              - button "05:00" [ref=e319]:
+                - generic [ref=e320]: 05:00
+                - img [ref=e321]
+              - button "06:00" [ref=e322]:
+                - generic [ref=e323]: 06:00
+                - img [ref=e324]
+              - button "07:00" [ref=e325]:
+                - generic [ref=e326]: 07:00
+                - img [ref=e327]
+              - button "08:00" [ref=e328]:
+                - generic [ref=e329]: 08:00
+                - img [ref=e330]
+              - button "09:00" [ref=e331]:
+                - generic [ref=e332]: 09:00
+                - img [ref=e333]
+              - button "10:00" [ref=e334]:
+                - generic [ref=e335]: 10:00
+                - img [ref=e336]
+              - button "11:00" [ref=e337]:
+                - generic [ref=e338]: 11:00
+                - img [ref=e339]
+              - button "12:00" [ref=e340]:
+                - generic [ref=e341]: 12:00
+                - img [ref=e342]
+              - button "13:00" [ref=e343]:
+                - generic [ref=e344]: 13:00
+                - img [ref=e345]
+              - button "14:00" [ref=e346]:
+                - generic [ref=e347]: 14:00
+                - img [ref=e348]
+              - button "15:00" [ref=e349]:
+                - generic [ref=e350]: 15:00
+                - img [ref=e351]
+              - button "16:00" [ref=e352]:
+                - generic [ref=e353]: 16:00
+                - img [ref=e354]
+              - button "17:00" [ref=e355]:
+                - generic [ref=e356]: 17:00
+                - img [ref=e357]
+              - button "18:00" [ref=e358]:
+                - generic [ref=e359]: 18:00
+                - img [ref=e360]
+              - button "19:00" [ref=e361]:
+                - generic [ref=e362]: 19:00
+                - img [ref=e363]
+              - button "20:00" [ref=e364]:
+                - generic [ref=e365]: 20:00
+                - img [ref=e366]
+              - button "21:00" [ref=e367]:
+                - generic [ref=e368]: 21:00
+                - img [ref=e369]
+              - button "22:00" [ref=e370]:
+                - generic [ref=e371]: 22:00
+                - img [ref=e372]
+              - button "23:00" [ref=e373]:
+                - generic [ref=e374]: 23:00
+                - img [ref=e375]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e127] [cursor=pointer]:
+    - img [ref=e128]
+  - alert [ref=e376]
