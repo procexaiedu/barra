@@ -488,7 +488,8 @@ Não substituem contrato OpenAPI; descrevem o que existe para o painel consumir.
 - `POST /api/modelos/:id/conectar-whatsapp` — dispara QR code Evolution.
 - CRUD em `/api/modelos/:id/faq` e `/api/modelos/:id/midia`.
 - `GET /api/pix/em-revisao` / `POST /api/pix/:id/validar` / `POST /api/pix/:id/recusar`.
-- `GET /api/dashboard?periodo=`.
+- `GET /api/dashboard?periodo=` (com `de=&ate=` quando `periodo=custom`, e `modelo_id=` opcional).
+- `GET /api/dashboard/escaladas?periodo=` — lista completa de motivos de escalada agregados (lazy fetch do dialog "Ver todos" da Tela 07).
 
 ### 5.2 Webhook
 
@@ -502,6 +503,9 @@ Subscrições do painel respeitam RLS (`07 §7.8`). Tabelas expostas via Realtim
 - `bloqueios`
 - `comprovantes_pix`
 - `eventos`
+- `conversas`
+- `clientes`
+- `escaladas`
 
 ---
 

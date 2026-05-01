@@ -49,7 +49,7 @@ export function AtalhoContextual({
     {
       key: "bloquear",
       visible: true,
-      text: "Bloquear janela",
+      text: "Bloquear horário",
       icon: CalendarPlus,
       variant: "secondary",
       href: "/agenda?action=bloquear",

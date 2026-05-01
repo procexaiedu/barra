@@ -109,7 +109,7 @@ export default function CRM() {
           CRM
         </h1>
         <p className="mt-1 text-[13px] text-text-muted">
-          Conversas por par cliente e modelo. Histórico, recorrência e observações.
+          Histórico, recorrência e observações de cada cliente, por modelo.
         </p>
       </header>
 

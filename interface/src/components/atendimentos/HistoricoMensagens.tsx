@@ -27,7 +27,7 @@ export function HistoricoMensagens({ mensagens }: { mensagens: MensagemAtendimen
           <MessageSquareOff size={20} strokeWidth={1.5} className="mt-0.5 text-text-muted" />
           <div>
             <p className="text-sm text-text-primary">Nenhuma mensagem vinculada a este atendimento.</p>
-            <p className="mt-1 text-[13px] text-text-muted">O histórico aparece conforme a Conversa cliente é persistida.</p>
+            <p className="mt-1 text-[13px] text-text-muted">O histórico aparece conforme as mensagens chegam.</p>
           </div>
         </div>
       ) : (

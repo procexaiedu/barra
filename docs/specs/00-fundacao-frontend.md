@@ -499,7 +499,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 ```ts
 import { supabase } from './supabase';
 
-export type RealtimeTabela = 'atendimentos' | 'comprovantes_pix' | 'bloqueios' | 'eventos' | 'mensagens';
+export type RealtimeTabela =
+  | 'atendimentos'
+  | 'comprovantes_pix'
+  | 'bloqueios'
+  | 'eventos'
+  | 'mensagens'
+  | 'conversas'
+  | 'clientes'
+  | 'escaladas';
 
 export function subscribeTabelas(canalNome: string, tabelas: RealtimeTabela[], onEvent: () => void) {
   const channels = tabelas.map((t) =>
@@ -754,7 +762,10 @@ pnpm dlx shadcn@latest add card badge alert-dialog tooltip skeleton sonner separ
 
 - Schema `barravips` aplicado conforme `infra/sql/0001_schema_inicial.sql`.
 - RLS `FORCE` em todas as tabelas; policy `fernando_full_access` ativa para usuários com papel `fernando`.
-- Tabelas listadas em §8.1 estão na publicação `supabase_realtime`.
+- Tabelas listadas em §8.1 estão na publicação `supabase_realtime`. Migrations sequenciais que ampliam a publicação:
+  - `0001_schema_inicial.sql` — `atendimentos`, `mensagens`, `bloqueios`, `comprovantes_pix`, `eventos`.
+  - `0003_realtime_crm.sql` — `conversas`, `clientes` (Tela 04).
+  - `0005_realtime_escaladas.sql` — `escaladas` (Tela 07).
 
 ---
 
@@ -795,5 +806,6 @@ Sem esses 3 itens, o agente codificador segue a fundação literalmente.
 | Data | Mudança | Origem |
 |---|---|---|
 | 2026-04-30 | Versão alpha extraída da spec da Tela 01 (Painel Geral). | Conversa de QA Tela 01. |
+| 2026-05-01 | `RealtimeTabela` em §8.2 ganha `conversas`, `clientes`, `escaladas` (já existiam em `interface/src/lib/realtime.ts`). §13.4 lista as migrations que ampliam a publicação `supabase_realtime`. | Conversa de QA Tela 07 (Dashboard). |
 
 — FIM —

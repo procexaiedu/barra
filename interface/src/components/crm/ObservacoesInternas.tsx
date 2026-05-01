@@ -76,7 +76,7 @@ export function ObservacoesInternas({
       />
       <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
         <p className="text-[13px] text-text-muted">
-          Visíveis apenas para Fernando e a modelo. A IA não consulta este campo.
+          Visíveis apenas para você e a modelo. A IA não usa estas anotações.
         </p>
         {mostrarContador && (
           <span

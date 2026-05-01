@@ -79,7 +79,7 @@ function EmptyLista({ filtrosAplicados }: { filtrosAplicados: boolean }) {
         </p>
         <p className="mt-1 text-[13px] text-text-muted">
           {filtrosAplicados
-            ? "Ajuste busca, recorrência, motivo de perda, período ou modelo."
+            ? "Ajuste os filtros para ampliar a busca."
             : "Conversas aparecem aqui assim que clientes chamarem no WhatsApp da modelo."}
         </p>
       </div>

@@ -29,7 +29,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
     <Card className="rounded-lg p-6">
       <div className="mb-5 flex items-center gap-2">
         <ReceiptText size={18} strokeWidth={1.5} className="text-text-muted" />
-        <h2 className="text-base font-semibold text-text-primary">Resumo operacional</h2>
+        <h2 className="text-base font-semibold text-text-primary">Resumo do atendimento</h2>
       </div>
       <div className="grid gap-5 xl:grid-cols-2">
         <ResumoGrupo
@@ -54,12 +54,12 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
           ]}
         />
         <ResumoGrupo
-          titulo="IA/handoff"
+          titulo="IA"
           itens={[
-            ["Responsável atual", atendimento.responsavel_atual],
-            ["Motivo de escalada", valorAusente(atendimento.motivo_escalada)],
-            ["Próxima ação esperada", valorAusente(atendimento.proxima_acao_esperada)],
-            ["Resumo operacional", valorAusente(atendimento.resumo_operacional)],
+            ["Responsável", atendimento.responsavel_atual],
+            ["Por que pausou", valorAusente(atendimento.motivo_escalada)],
+            ["Próxima ação", valorAusente(atendimento.proxima_acao_esperada)],
+            ["Resumo", valorAusente(atendimento.resumo_operacional)],
           ]}
         />
         <ResumoGrupo

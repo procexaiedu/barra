@@ -71,7 +71,7 @@ export function AcoesPix({
   const handleRejeitar = async () => {
     const obs = observacao.trim()
     if (motivo === "outro" && !obs) {
-      setErro("Informe a observação para motivo outro.")
+      setErro("Descreva o motivo na observação.")
       return
     }
     if (obs.length > 500) {
@@ -143,9 +143,7 @@ export function AcoesPix({
               Validar Pix manualmente?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">
-              A IA será reativada para a modelo: card &quot;saída confirmada&quot; será enviado no
-              grupo de Coordenação por modelo, a IA pausa por modelo_em_atendimento e o
-              atendimento avança para Confirmado. Esta decisão é definitiva.
+              A modelo recebe a saída confirmada no grupo de Coordenação e o atendimento avança para Confirmado. Esta decisão é definitiva.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -164,9 +162,8 @@ export function AcoesPix({
               Rejeitar Pix?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">
-              Selecionando o motivo abaixo, a IA enviará a mensagem padrão correspondente
-              ao cliente pedindo um novo comprovante. O atendimento permanece no estado
-              atual e a IA continua pausada por pix_em_revisao até receber novo Pix.
+              A IA envia a mensagem correspondente ao motivo escolhido pedindo um novo
+              comprovante. O atendimento continua aguardando o Pix.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-3">
@@ -233,7 +230,7 @@ export function AcoesPix({
               Reabrir Pix?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">
-              O Pix volta para a fila de revisão. O atendimento não é alterado.
+              O Pix volta para revisão. O atendimento não é alterado.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

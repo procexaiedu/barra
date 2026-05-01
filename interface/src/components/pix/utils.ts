@@ -22,22 +22,22 @@ export interface BadgePix {
 }
 
 export const motivoRevisaoLabel: Record<MotivoRevisao, string> = {
-  valor_divergente: "valor_divergente",
-  fora_da_janela: "fora_da_janela",
-  conta_destino_invalida: "conta_destino_invalida",
-  duplicado: "duplicado",
-  ocr_falhou: "ocr_falhou",
-  outro: "outro",
+  valor_divergente: "Valor divergente",
+  fora_da_janela: "Fora da janela",
+  conta_destino_invalida: "Conta destino inválida",
+  duplicado: "Comprovante duplicado",
+  ocr_falhou: "Não conseguimos ler",
+  outro: "Outro",
 }
 
 export const motivoRevisaoFiltroOptions: { value: MotivoRevisao | "todos"; label: string }[] = [
   { value: "todos", label: "Todos" },
-  { value: "valor_divergente", label: "valor_divergente" },
-  { value: "fora_da_janela", label: "fora_da_janela" },
-  { value: "conta_destino_invalida", label: "conta_destino_invalida" },
-  { value: "duplicado", label: "duplicado" },
-  { value: "ocr_falhou", label: "ocr_falhou" },
-  { value: "outro", label: "outro" },
+  { value: "valor_divergente", label: "Valor divergente" },
+  { value: "fora_da_janela", label: "Fora da janela" },
+  { value: "conta_destino_invalida", label: "Conta destino inválida" },
+  { value: "duplicado", label: "Comprovante duplicado" },
+  { value: "ocr_falhou", label: "Não conseguimos ler" },
+  { value: "outro", label: "Outro" },
 ]
 
 export const motivoRejeicaoOptions: { value: MotivoRejeicao; label: string }[] = [
@@ -50,9 +50,9 @@ export const motivoRejeicaoOptions: { value: MotivoRejeicao; label: string }[] =
 ]
 
 export const statusFiltroOptions: { value: FiltroStatusPix; label: string }[] = [
-  { value: "pendentes", label: "Pendentes" },
+  { value: "pendentes", label: "Aguardando você" },
   { value: "validado_auto", label: "Validado automaticamente" },
-  { value: "validado_manual", label: "Validado por Fernando" },
+  { value: "validado_manual", label: "Validado por você" },
   { value: "rejeitado", label: "Rejeitado" },
   { value: "todos", label: "Todos" },
 ]
@@ -85,11 +85,11 @@ export function statusItemPix(
 export function badgeForStatusPix(status: StatusItemPix): BadgePix {
   switch (status) {
     case "em_revisao":
-      return { variant: "revisao", label: "Em revisão" }
+      return { variant: "revisao", label: "Aguardando você" }
     case "validado_auto":
       return { variant: "closed", label: "Validado auto" }
     case "validado_manual":
-      return { variant: "closed", label: "Validado por Fernando" }
+      return { variant: "closed", label: "Validado por você" }
     case "rejeitado":
       return { variant: "lost", label: "Rejeitado" }
   }
@@ -143,11 +143,11 @@ export interface EventoVisual {
 
 export const eventoVisualMap: Record<string, EventoVisual> = {
   comprovante_recebido: { label: "Comprovante recebido", icone: "Inbox", cor: "muted" },
-  pipeline_validado: { label: "Pipeline validou automaticamente", icone: "CheckCircle2", cor: "success" },
-  pipeline_em_revisao: { label: "Pipeline marcou em revisão", icone: "AlertCircle", cor: "warn" },
-  pix_validado_manual: { label: "Validado por Fernando", icone: "CheckCircle2", cor: "success" },
-  pix_rejeitado: { label: "Rejeitado por Fernando", icone: "XCircle", cor: "danger" },
-  pix_reaberto: { label: "Reaberto por Fernando", icone: "RefreshCw", cor: "warn" },
+  pipeline_validado: { label: "Validado automaticamente", icone: "CheckCircle2", cor: "success" },
+  pipeline_em_revisao: { label: "Marcado para revisão", icone: "AlertCircle", cor: "warn" },
+  pix_validado_manual: { label: "Validado por você", icone: "CheckCircle2", cor: "success" },
+  pix_rejeitado: { label: "Rejeitado por você", icone: "XCircle", cor: "danger" },
+  pix_reaberto: { label: "Reaberto por você", icone: "RefreshCw", cor: "warn" },
 }
 
 export function eventoVisual(evt: EventoPix): EventoVisual {

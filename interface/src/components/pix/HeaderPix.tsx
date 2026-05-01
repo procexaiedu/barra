@@ -5,7 +5,7 @@ export function HeaderPix() {
         Pix de deslocamento
       </h1>
       <p className="mt-1 text-[13px] text-text-muted">
-        Decisão humana sobre Pix duvidosos e auditoria de Pix aprovados automaticamente.
+        Aprove Pix duvidosos e revise os já validados.
       </p>
     </header>
   )

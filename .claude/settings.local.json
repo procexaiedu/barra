@@ -6,7 +6,12 @@
       "WebFetch(domain:raw.githubusercontent.com)",
       "mcp__playwright__browser_resize",
       "mcp__playwright__browser_navigate",
-      "mcp__playwright__browser_take_screenshot"
+      "mcp__playwright__browser_take_screenshot",
+      "Bash(taskkill //F //IM node.exe)",
+      "Bash(taskkill //F //IM uv.exe)",
+      "Bash(taskkill //F //IM python.exe)",
+      "Bash(uv run *)",
+      "Bash(git *)"
     ]
   }
 }

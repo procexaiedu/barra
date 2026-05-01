@@ -28,16 +28,16 @@ const estados: { value: EstadoFiltro; label: string }[] = [
 
 const tipos: { value: TipoFiltro; label: string }[] = [
   { value: "todos", label: "Todos" },
-  { value: "interno", label: "interno" },
-  { value: "externo", label: "externo" },
+  { value: "interno", label: "Interno" },
+  { value: "externo", label: "Externo" },
 ]
 
 const urgencias: { value: UrgenciaFiltro; label: string }[] = [
   { value: "todas", label: "Todas" },
-  { value: "imediato", label: "imediato" },
-  { value: "agendado", label: "agendado" },
-  { value: "indefinido", label: "indefinido" },
-  { value: "estimado", label: "estimado" },
+  { value: "imediato", label: "Imediato" },
+  { value: "agendado", label: "Agendado" },
+  { value: "indefinido", label: "Indefinido" },
+  { value: "estimado", label: "Estimado" },
 ]
 
 const ia: { value: IaFiltro; label: string }[] = [
@@ -56,7 +56,7 @@ export default function CentralAtendimentos() {
           Atendimentos
         </h1>
         <p className="mt-1 text-[13px] text-text-muted">
-          Ciclos comerciais e handoffs da IA por modelo.
+          Acompanhe e encerre os atendimentos das modelos.
         </p>
       </header>
 

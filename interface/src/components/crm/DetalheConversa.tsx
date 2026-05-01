@@ -92,7 +92,7 @@ function EmptyDetalhe() {
     <section aria-label="Detalhe da conversa" className="rounded-lg border border-border bg-card p-6">
       <p className="text-sm text-text-primary">Nenhuma conversa selecionada.</p>
       <p className="mt-1 text-[13px] text-text-muted">
-        Selecione um item da lista para ver o histórico do par cliente e modelo.
+        Selecione um item da lista para ver o histórico do cliente com a modelo.
       </p>
     </section>
   )

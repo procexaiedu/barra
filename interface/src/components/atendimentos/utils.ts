@@ -19,21 +19,21 @@ export const estadoLabel: Record<EstadoAtendimento, string> = {
 }
 
 export const tipoLabel: Record<TipoAtendimento, string> = {
-  interno: "interno",
-  externo: "externo",
+  interno: "Interno",
+  externo: "Externo",
 }
 
 export const urgenciaLabel: Record<Urgencia, string> = {
-  imediato: "imediato",
-  agendado: "agendado",
-  indefinido: "indefinido",
-  estimado: "estimado",
+  imediato: "Imediato",
+  agendado: "Agendado",
+  indefinido: "Indefinido",
+  estimado: "Estimado",
 }
 
 export const motivoIaLabel: Record<IaPausadaMotivo, string> = {
-  pix_em_revisao: "Em revisão",
-  handoff_ia: "Em handoff",
-  modelo_em_atendimento: "Pausada",
+  pix_em_revisao: "Pix em revisão",
+  handoff_ia: "Aguardando você",
+  modelo_em_atendimento: "Modelo em atendimento",
 }
 
 export function badgeForEstado(estado: EstadoAtendimento): BadgeVariant {
@@ -55,6 +55,6 @@ export function valorAusente<T>(valor: T | null | undefined, format?: (v: T) => 
 
 export function resumoPayload(payload: Record<string, unknown>) {
   const entries = Object.entries(payload).filter(([, value]) => value !== null && value !== undefined)
-  if (entries.length === 0) return "Sem payload"
-  return entries.slice(0, 3).map(([key, value]) => `${key}: ${String(value)}`).join(" · ")
+  if (entries.length === 0) return "Sem detalhes"
+  return entries.slice(0, 3).map(([key, value]) => `${key.replaceAll("_", " ")}: ${String(value)}`).join(" · ")
 }

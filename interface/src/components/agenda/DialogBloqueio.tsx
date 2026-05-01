@@ -83,8 +83,8 @@ export function DialogBloqueio({
     ? "Cancelar bloqueio em atendimento?"
     : "Cancelar bloqueio?"
   const textoCancelamento = bloqueio?.estado === "em_atendimento"
-    ? "Este bloqueio já está marcado como Em atendimento. A ação pode deixar o histórico operacional inconsistente se o atendimento ainda estiver acontecendo."
-    : "Este horário ficará liberado na agenda. Se houver atendimento vinculado, confira se a operação também precisa ser ajustada na Central de Atendimentos."
+    ? "Este bloqueio já está marcado como Em atendimento. Confirme apenas se o atendimento já terminou."
+    : "Este horário ficará liberado na agenda. Se houver atendimento vinculado, confira se ele também precisa ser ajustado nos Atendimentos."
 
   const submit = async () => {
     if (!podeSalvar) return
@@ -188,7 +188,7 @@ export function DialogBloqueio({
         )}
         {conflito && (
           <p className="mt-3 text-sm text-state-handoff">
-            Este intervalo cruza um bloqueio ativo carregado.
+            Este horário se sobrepõe a outro bloqueio ativo.
           </p>
         )}
 

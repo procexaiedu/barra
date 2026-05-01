@@ -19,12 +19,12 @@ import type { AtendimentoOperacional, MotivoPerda } from "@/tipos/atendimentos"
 type Dialog = "devolver" | "fechar" | "perder" | null
 
 const motivos: { value: MotivoPerda; label: string }[] = [
-  { value: "preco", label: "preço" },
-  { value: "sumiu", label: "sumiu" },
-  { value: "risco", label: "risco" },
-  { value: "indisponibilidade", label: "indisponibilidade" },
-  { value: "fora_de_area", label: "fora de área" },
-  { value: "outro", label: "outro" },
+  { value: "preco", label: "Preço" },
+  { value: "sumiu", label: "Sumiu" },
+  { value: "risco", label: "Risco" },
+  { value: "indisponibilidade", label: "Indisponibilidade" },
+  { value: "fora_de_area", label: "Fora de área" },
+  { value: "outro", label: "Outro" },
 ]
 
 function parseValorFinal(input: string) {
@@ -78,7 +78,7 @@ export function AcoesAtendimento({
   const handleFechar = async () => {
     const valor = parseValorFinal(valorFinal)
     if (valor === null || valor < 0) {
-      setErro("Informe um Valor final válido.")
+      setErro("Informe um valor final válido.")
       return
     }
     setSubmitting(true)
@@ -97,7 +97,7 @@ export function AcoesAtendimento({
   const handlePerder = async () => {
     const obs = observacao.trim()
     if (motivo === "outro" && !obs) {
-      setErro("Informe a observação para motivo outro.")
+      setErro("Descreva o motivo na observação.")
       return
     }
     setSubmitting(true)
@@ -140,7 +140,7 @@ export function AcoesAtendimento({
               Devolver #{atendimento.numero_curto} para a IA?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">
-              A IA voltará a responder o cliente apenas na próxima mensagem recebida. O histórico da pausa continuará registrado.
+              A IA volta a responder o cliente na próxima mensagem.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -159,7 +159,7 @@ export function AcoesAtendimento({
               Fechar #{atendimento.numero_curto}?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">
-              Informe o Valor final bruto pago pelo cliente. O atendimento será encerrado como Registro de resultado fechado.
+              Informe o valor final bruto pago pelo cliente. O atendimento será encerrado como fechado.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div>
@@ -194,13 +194,13 @@ export function AcoesAtendimento({
               Marcar #{atendimento.numero_curto} como perdido?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">
-              Escolha o Motivo de perda. Este Registro de resultado encerra o atendimento.
+              Escolha o motivo da perda. O atendimento será encerrado.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-3">
             <div>
               <label className="mb-2 block text-sm font-medium text-text-primary" htmlFor="motivo-perda">
-                Motivo de perda
+                Motivo da perda
               </label>
               <select
                 id="motivo-perda"

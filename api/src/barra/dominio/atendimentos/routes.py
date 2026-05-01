@@ -26,6 +26,8 @@ async def listar_atendimentos(
     urgencia: str | None = None,
     ia_pausada: bool | None = None,
     modelo_id: UUID | None = None,
+    motivo_perda: str | None = None,
+    motivo_escalada: str | None = None,
     q: str | None = None,
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = None,
@@ -49,6 +51,17 @@ async def listar_atendimentos(
     if modelo_id:
         filtros.append("a.modelo_id = %s")
         params.append(modelo_id)
+    if motivo_perda and estado == "Perdido":
+        filtros.append("a.motivo_perda = %s")
+        params.append(motivo_perda)
+    if motivo_escalada and ia_pausada is True:
+        filtros.append(
+            "EXISTS (SELECT 1 FROM barravips.escaladas e2 "
+            "WHERE e2.atendimento_id = a.id "
+            "AND e2.aberta_em = (SELECT MAX(e3.aberta_em) FROM barravips.escaladas e3 WHERE e3.atendimento_id = a.id) "
+            "AND e2.motivo = %s)"
+        )
+        params.append(motivo_escalada)
     if q:
         filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s OR a.numero_curto::text = %s)")
         params.extend([f"%{q}%", f"%{q}%", q])

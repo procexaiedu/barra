@@ -40,9 +40,9 @@ export default function PainelGeral() {
         modelosAtivasCount={data.modelos_ativas_count}
       />
 
-      <section aria-label="Pendências humanas" className="px-8 py-5">
+      <section aria-label="Aguardando você" className="px-8 py-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-text-primary">Pendências humanas</h2>
+          <h2 className="text-base font-semibold text-text-primary">Aguardando você</h2>
           {data.cards_destaque.length > 0 && (
             <span className="text-xs font-medium text-text-muted">
               {data.cards_destaque.length} aguardando ação
@@ -56,11 +56,10 @@ export default function PainelGeral() {
               <CheckCircle2 size={20} className="mt-0.5 text-success-500" />
               <div>
                 <p className="text-sm text-text-primary">
-                  Sem pendências humanas no momento.
+                  Nada precisa de você agora.
                 </p>
                 <p className="mt-1 text-[13px] text-text-muted">
-                  Os cards aparecem quando a IA pausar (Pix em revisão, escalada ou tempo
-                  previsto da modelo expirado).
+                  Atendimentos que precisarem da sua decisão aparecem aqui.
                 </p>
               </div>
             </div>
@@ -114,7 +113,7 @@ export default function PainelGeral() {
                   Nenhum horário reservado hoje.
                 </p>
                 <Button variant="ghost" size="sm" className="mt-2" nativeButton={false} render={<Link href="/agenda?action=bloquear" />}>
-                  Bloquear janela manualmente
+                  Bloquear horário
                 </Button>
               </div>
             </div>

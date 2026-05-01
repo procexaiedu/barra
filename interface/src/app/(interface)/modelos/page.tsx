@@ -1,9 +1,9 @@
 export default function Modelos() {
   return (
     <section className="space-y-2">
-      <h1 className="text-2xl font-semibold">Modelos & Base de Conhecimento</h1>
+      <h1 className="text-2xl font-semibold">Modelos</h1>
       <p className="text-muted-foreground">
-        Perfil, FAQ, mídia mínima e botão para conectar WhatsApp via QR code.
+        Cadastro das modelos, perfil de atendimento e conexão do WhatsApp.
       </p>
     </section>
   );

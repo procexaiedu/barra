@@ -19,9 +19,11 @@ export function ItemAtendimento({
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
   const meta = [
     item.modelo.nome,
-    item.tipo_atendimento ? tipoLabel[item.tipo_atendimento] : "tipo não informado",
-    item.urgencia ? urgenciaLabel[item.urgencia] : "urgência não informada",
-  ].join(" · ")
+    item.tipo_atendimento ? tipoLabel[item.tipo_atendimento] : null,
+    item.urgencia ? urgenciaLabel[item.urgencia] : null,
+  ]
+    .filter(Boolean)
+    .join(" · ")
   const border = selected
     ? "border-l-state-active"
     : item.ia_pausada

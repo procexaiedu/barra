@@ -394,6 +394,10 @@ Roles:
 - Estados fechados/perdidos só aparecem quando o filtro de estado pedir explicitamente.
 - Ordenação: `updated_at DESC`.
 - Busca aceita nome, telefone e `numero_curto`.
+- Filtros via deep link sem controle visível na toolbar (§14.2):
+  - `motivo_perda` aplicável apenas a `estado=Perdido`; backend ignora silenciosamente em outros estados.
+  - `motivo_escalada` aplicável apenas a `ia_pausada=true`; match exato server-side em `escaladas.motivo` da escalada **mais recente** (`MAX(aberta_em)`) por atendimento. Backend ignora silenciosamente quando `ia_pausada=false`.
+  - Ambos preservados ao trocar busca/tipo/urgência; descartados quando o usuário troca o filtro de estado (no caso de `motivo_perda`) ou o filtro de IA (no caso de `motivo_escalada`).
 
 ### 9.2 Devolução para IA
 
@@ -556,6 +560,8 @@ Query:
 | `urgencia` | string opcional | urgência específica |
 | `ia_pausada` | boolean opcional | true/false |
 | `modelo_id` | uuid opcional | reservado para P1/múltiplas modelos |
+| `motivo_perda` | string opcional | enum `MotivoPerda`; só faz sentido com `estado=Perdido`. Aceito via deep link da Tela 07 §14.1; sem controle visível na toolbar do P0. |
+| `motivo_escalada` | string opcional | match exato do texto livre de `escaladas.motivo`; só faz sentido combinado a `ia_pausada=true`. Aceito via deep link da Tela 07 §14.1; sem controle visível na toolbar do P0. |
 | `q` | string opcional | nome, telefone ou `#N` |
 | `limit` | number | default 50, máximo 100 |
 | `cursor` | string opcional | cursor por `updated_at` |
@@ -690,6 +696,14 @@ const cleanup = subscribeTabelas(
 | Link de bloqueio no resumo | `/agenda?bloqueio={id}` |
 | Pix em revisão citado no detalhe | `/pix?atendimento={id}` |
 
+### 14.2 Deep links recebidos por esta tela
+
+| Origem | Query string aceita | Comportamento |
+|---|---|---|
+| Tela 07 (Dashboard) — barra do funil | `?estado={Estado}` | hook aplica `estado` na lista; toolbar reflete o select. |
+| Tela 07 — linha "Perdas por motivo" | `?estado=Perdido&motivo_perda={MotivoPerda}` | hook aplica ambos os filtros server-side. **`motivo_perda` não tem controle visível na toolbar do P0** — entra apenas via deep link; quando o usuário troca outro filtro, `motivo_perda` é preservado até remoção explícita (ex.: limpar busca, voltar para `Abertos`). |
+| Tela 07 — linha "Motivos de escalada" / dialog "Todas escaladas" | `?ia_pausada=true&motivo_escalada={texto-encoded}` | hook aplica match exato server-side em `escaladas.motivo`. Mesma regra de visibilidade do `motivo_perda`: sem controle na toolbar; preservado até troca explícita. |
+
 ---
 
 ## 15. Critérios de aceite específicos
@@ -721,6 +735,8 @@ const cleanup = subscribeTabelas(
 - [ ] AC-23 - Lista vazia no filtro padrão mostra empty state "Nenhum atendimento aberto."
 - [ ] AC-24 - Lista vazia com filtros mostra empty state específico de filtros.
 - [ ] AC-25 - Telefone aparece formatado e sem mascaramento.
+- [ ] AC-26 - Deep link `?estado=Perdido&motivo_perda=preco` filtra a lista server-side; toolbar reflete `Perdido` no select de estado; `motivo_perda` não aparece como controle mas continua aplicado até troca explícita do filtro de estado.
+- [ ] AC-27 - Deep link `?ia_pausada=true&motivo_escalada=Risco%20%E2%80%94%20local%20n%C3%A3o%20conhecido` filtra a lista server-side por match exato de `escaladas.motivo`; toolbar reflete `IA pausada`; `motivo_escalada` aplicado até troca explícita do filtro `IA`.
 
 ---
 

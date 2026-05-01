@@ -7,15 +7,15 @@ import { checagemLabel } from "./utils"
 export function ChecagensPix({ checagens }: { checagens: ChecagemPix[] }) {
   return (
     <section
-      aria-label="Checagens automáticas"
+      aria-label="Verificações automáticas"
       className="rounded-lg border border-border bg-card p-5"
     >
       <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-        Checagens automáticas
+        Verificações automáticas
       </h3>
       {checagens.length === 0 ? (
         <p className="mt-3 text-[13px] text-text-muted">
-          Nenhuma checagem registrada para este Pix.
+          Nenhuma verificação registrada para este Pix.
         </p>
       ) : (
         <ul className="mt-4 space-y-3">

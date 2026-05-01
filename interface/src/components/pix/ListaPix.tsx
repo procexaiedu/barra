@@ -79,8 +79,8 @@ function EmptyLista({ filtrosAplicados }: { filtrosAplicados: boolean }) {
         </p>
         <p className="mt-1 text-[13px] text-text-muted">
           {filtrosAplicados
-            ? "Ajuste status, modelo, motivo de revisão ou período."
-            : "Pix duvidosos aparecem aqui automaticamente quando a IA pausar por pix_em_revisao."}
+            ? "Ajuste os filtros para ampliar a busca."
+            : "Pix duvidosos aparecem aqui assim que precisarem da sua decisão."}
         </p>
       </div>
     </div>

@@ -8,7 +8,7 @@ export function MobileBlocker() {
           Barra Vips
         </h1>
         <p className="text-sm text-text-primary">
-          Painel operacional disponível apenas em desktop.
+          O painel está disponível apenas em desktop.
           <br />
           Use o grupo de Coordenação por modelo no celular.
         </p>

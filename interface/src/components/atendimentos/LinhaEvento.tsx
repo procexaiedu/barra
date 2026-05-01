@@ -17,7 +17,7 @@ export function LinhaEvento({ evento }: { evento: EventoAtendimento }) {
         <Button
           variant="ghost"
           size="icon-xs"
-          aria-label={aberto ? "Recolher payload" : "Expandir payload"}
+          aria-label={aberto ? "Recolher detalhes" : "Expandir detalhes"}
           onClick={() => setAberto((value) => !value)}
         >
           {aberto ? <ChevronDown size={14} strokeWidth={1.5} /> : <ChevronRight size={14} strokeWidth={1.5} />}

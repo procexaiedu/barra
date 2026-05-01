@@ -77,7 +77,7 @@ function EmptyLista({ filtrosAplicados }: { filtrosAplicados: boolean }) {
         </p>
         <p className="mt-1 text-[13px] text-text-muted">
           {filtrosAplicados
-            ? "Ajuste busca, estado, tipo, urgência ou pausa da IA."
+            ? "Ajuste os filtros para ampliar a busca."
             : "Novos atendimentos aparecem quando clientes chamarem no WhatsApp da modelo."}
         </p>
       </div>

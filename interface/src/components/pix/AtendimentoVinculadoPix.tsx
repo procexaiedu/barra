@@ -34,8 +34,8 @@ export function AtendimentoVinculadoPix({
 
   const terminal = isAtendimentoTerminal(atendimento.estado)
   const meta = [
-    atendimento.tipo_atendimento ?? "tipo não informado",
-    atendimento.urgencia ?? "urgência não informada",
+    atendimento.tipo_atendimento,
+    atendimento.urgencia,
     atendimento.valor_acordado !== null ? formatBRL(atendimento.valor_acordado) : null,
   ]
     .filter(Boolean)

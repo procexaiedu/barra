@@ -21,15 +21,15 @@ import { api } from "@/lib/api"
 import type { CardDestaque as CardDestaqueType, IaPausadaMotivo } from "@/tipos/painel"
 
 const BADGE_MAP: Record<IaPausadaMotivo, { variant: "revisao" | "handoff" | "paused"; label: string }> = {
-  pix_em_revisao: { variant: "revisao", label: "Em revisão" },
-  handoff_ia: { variant: "handoff", label: "Em handoff" },
-  modelo_em_atendimento: { variant: "paused", label: "Pausada" },
+  pix_em_revisao: { variant: "revisao", label: "Pix em revisão" },
+  handoff_ia: { variant: "handoff", label: "Aguardando você" },
+  modelo_em_atendimento: { variant: "paused", label: "Modelo em atendimento" },
 }
 
 const MOTIVO_LABEL: Record<IaPausadaMotivo, string> = {
-  pix_em_revisao: "Pix em revisão",
-  handoff_ia: "Escalada da IA",
-  modelo_em_atendimento: "Tempo previsto expirado",
+  pix_em_revisao: "Pix duvidoso, precisa da sua decisão",
+  handoff_ia: "IA escalou para você",
+  modelo_em_atendimento: "Modelo passou do tempo previsto",
 }
 
 export function CardDestaque({ card }: { card: CardDestaqueType }) {
@@ -120,8 +120,7 @@ export function CardDestaque({ card }: { card: CardDestaqueType }) {
 
         <div className="mt-3 border-t border-border pt-3">
           <p className="text-xs font-medium text-text-muted">
-            Em handoff {formatTempoRelativo(card.ia_pausada_em)} · Responsável:{" "}
-            {card.responsavel_atual === "IA" ? "IA" : card.responsavel_atual}
+            Pausada {formatTempoRelativo(card.ia_pausada_em)} · Com {card.responsavel_atual === "IA" ? "IA" : card.responsavel_atual}
           </p>
         </div>
       </article>
@@ -133,8 +132,7 @@ export function CardDestaque({ card }: { card: CardDestaqueType }) {
               Devolver #{card.numero_curto} para a IA?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">
-              A IA voltará a responder o cliente assim que ele enviar a próxima mensagem.
-              O motivo desta pausa ficará registrado no histórico de eventos.
+              A IA volta a responder o cliente na próxima mensagem.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

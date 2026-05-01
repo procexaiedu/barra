@@ -1,324 +1,3 @@
-2026-05-01T05:05:55.965614337Z Get:17 http://deb.debian.org/debian bookworm/main amd64 git amd64 1:2.39.5-0+deb12u3 [7264 kB]
-2026-05-01T05:05:56.298963592Z debconf: delaying package configuration, since apt-utils is not installed
-2026-05-01T05:05:56.371206015Z Fetched 18.0 MB in 0s (70.5 MB/s)
-2026-05-01T05:05:56.405149860Z Selecting previously unselected package perl-modules-5.36.
-2026-05-01T05:05:56.415618584Z (Reading database ... 
-(Reading database ... 5%
-(Reading database ... 10%
-(Reading database ... 15%
-(Reading database ... 20%
-(Reading database ... 25%
-(Reading database ... 30%
-(Reading database ... 35%
-(Reading database ... 40%
-(Reading database ... 45%
-(Reading database ... 50%
-(Reading database ... 55%
-(Reading database ... 60%
-(Reading database ... 65%
-(Reading database ... 70%
-(Reading database ... 75%
-(Reading database ... 80%
-(Reading database ... 85%
-(Reading database ... 90%
-(Reading database ... 95%
-(Reading database ... 100%
-(Reading database ... 6695 files and directories currently installed.)
-2026-05-01T05:05:56.418648403Z Preparing to unpack .../00-perl-modules-5.36_5.36.0-7+deb12u3_all.deb ...
-2026-05-01T05:05:56.422121393Z Unpacking perl-modules-5.36 (5.36.0-7+deb12u3) ...
-2026-05-01T05:05:57.157557788Z Selecting previously unselected package libgdbm-compat4:amd64.
-2026-05-01T05:05:57.159361024Z Preparing to unpack .../01-libgdbm-compat4_1.23-3_amd64.deb ...
-2026-05-01T05:05:57.173844289Z Unpacking libgdbm-compat4:amd64 (1.23-3) ...
-2026-05-01T05:05:57.250976319Z Selecting previously unselected package libperl5.36:amd64.
-2026-05-01T05:05:57.252216723Z Preparing to unpack .../02-libperl5.36_5.36.0-7+deb12u3_amd64.deb ...
-2026-05-01T05:05:57.257081148Z Unpacking libperl5.36:amd64 (5.36.0-7+deb12u3) ...
-2026-05-01T05:05:57.764696966Z Selecting previously unselected package perl.
-2026-05-01T05:05:57.764908347Z Preparing to unpack .../03-perl_5.36.0-7+deb12u3_amd64.deb ...
-2026-05-01T05:05:57.781091128Z Unpacking perl (5.36.0-7+deb12u3) ...
-2026-05-01T05:05:57.858791499Z Selecting previously unselected package libbrotli1:amd64.
-2026-05-01T05:05:57.862087809Z Preparing to unpack .../04-libbrotli1_1.0.9-2+b6_amd64.deb ...
-2026-05-01T05:05:57.868876470Z Unpacking libbrotli1:amd64 (1.0.9-2+b6) ...
-2026-05-01T05:05:57.924714694Z Selecting previously unselected package libsasl2-modules-db:amd64.
-2026-05-01T05:05:57.926413820Z Preparing to unpack .../05-libsasl2-modules-db_2.1.28+dfsg-10_amd64.deb ...
-2026-05-01T05:05:57.929865120Z Unpacking libsasl2-modules-db:amd64 (2.1.28+dfsg-10) ...
-2026-05-01T05:05:57.965797222Z Selecting previously unselected package libsasl2-2:amd64.
-2026-05-01T05:05:57.967441267Z Preparing to unpack .../06-libsasl2-2_2.1.28+dfsg-10_amd64.deb ...
-2026-05-01T05:05:57.969756734Z Unpacking libsasl2-2:amd64 (2.1.28+dfsg-10) ...
-2026-05-01T05:05:58.008703045Z Selecting previously unselected package libldap-2.5-0:amd64.
-2026-05-01T05:05:58.010397130Z Preparing to unpack .../07-libldap-2.5-0_2.5.13+dfsg-5_amd64.deb ...
-2026-05-01T05:05:58.014047172Z Unpacking libldap-2.5-0:amd64 (2.5.13+dfsg-5) ...
-2026-05-01T05:05:58.053444415Z Selecting previously unselected package libnghttp2-14:amd64.
-2026-05-01T05:05:58.053614755Z Preparing to unpack .../08-libnghttp2-14_1.52.0-1+deb12u2_amd64.deb ...
-2026-05-01T05:05:58.057095226Z Unpacking libnghttp2-14:amd64 (1.52.0-1+deb12u2) ...
-2026-05-01T05:05:58.090288980Z Selecting previously unselected package libpsl5:amd64.
-2026-05-01T05:05:58.092472966Z Preparing to unpack .../09-libpsl5_0.21.2-1_amd64.deb ...
-2026-05-01T05:05:58.096899220Z Unpacking libpsl5:amd64 (0.21.2-1) ...
-2026-05-01T05:05:58.133391803Z Selecting previously unselected package librtmp1:amd64.
-2026-05-01T05:05:58.135344810Z Preparing to unpack .../10-librtmp1_2.4+20151223.gitfa8646d.1-2+b2_amd64.deb ...
-2026-05-01T05:05:58.138567100Z Unpacking librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b2) ...
-2026-05-01T05:05:58.199761520Z Selecting previously unselected package libssh2-1:amd64.
-2026-05-01T05:05:58.203569272Z Preparing to unpack .../11-libssh2-1_1.10.0-3+b1_amd64.deb ...
-2026-05-01T05:05:58.211116256Z Unpacking libssh2-1:amd64 (1.10.0-3+b1) ...
-2026-05-01T05:05:58.287525023Z Selecting previously unselected package libcurl3-gnutls:amd64.
-2026-05-01T05:05:58.289059358Z Preparing to unpack .../12-libcurl3-gnutls_7.88.1-10+deb12u14_amd64.deb ...
-2026-05-01T05:05:58.293080731Z Unpacking libcurl3-gnutls:amd64 (7.88.1-10+deb12u14) ...
-2026-05-01T05:05:58.352707456Z Selecting previously unselected package libexpat1:amd64.
-2026-05-01T05:05:58.353757940Z Preparing to unpack .../13-libexpat1_2.5.0-1+deb12u2_amd64.deb ...
-2026-05-01T05:05:58.358651245Z Unpacking libexpat1:amd64 (2.5.0-1+deb12u2) ...
-2026-05-01T05:05:58.417510178Z Selecting previously unselected package liberror-perl.
-2026-05-01T05:05:58.417823739Z Preparing to unpack .../14-liberror-perl_0.17029-2_all.deb ...
-2026-05-01T05:05:58.430117597Z Unpacking liberror-perl (0.17029-2) ...
-2026-05-01T05:05:58.494752838Z Selecting previously unselected package git-man.
-2026-05-01T05:05:58.494917669Z Preparing to unpack .../15-git-man_1%3a2.39.5-0+deb12u3_all.deb ...
-2026-05-01T05:05:58.504356998Z Unpacking git-man (1:2.39.5-0+deb12u3) ...
-2026-05-01T05:05:58.615353233Z Selecting previously unselected package git.
-2026-05-01T05:05:58.617589801Z Preparing to unpack .../16-git_1%3a2.39.5-0+deb12u3_amd64.deb ...
-2026-05-01T05:05:58.627732912Z Unpacking git (1:2.39.5-0+deb12u3) ...
-2026-05-01T05:05:59.111727460Z Setting up libexpat1:amd64 (2.5.0-1+deb12u2) ...
-2026-05-01T05:05:59.125133791Z Setting up libpsl5:amd64 (0.21.2-1) ...
-2026-05-01T05:05:59.133784708Z Setting up libbrotli1:amd64 (1.0.9-2+b6) ...
-2026-05-01T05:05:59.138629894Z Setting up libnghttp2-14:amd64 (1.52.0-1+deb12u2) ...
-2026-05-01T05:05:59.149651008Z Setting up libsasl2-modules-db:amd64 (2.1.28+dfsg-10) ...
-2026-05-01T05:05:59.154316652Z Setting up perl-modules-5.36 (5.36.0-7+deb12u3) ...
-2026-05-01T05:05:59.158854327Z Setting up librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b2) ...
-2026-05-01T05:05:59.167170753Z Setting up libgdbm-compat4:amd64 (1.23-3) ...
-2026-05-01T05:05:59.172521600Z Setting up libsasl2-2:amd64 (2.1.28+dfsg-10) ...
-2026-05-01T05:05:59.188343569Z Setting up git-man (1:2.39.5-0+deb12u3) ...
-2026-05-01T05:05:59.208346331Z Setting up libssh2-1:amd64 (1.10.0-3+b1) ...
-2026-05-01T05:05:59.221816643Z Setting up libperl5.36:amd64 (5.36.0-7+deb12u3) ...
-2026-05-01T05:05:59.236462289Z Setting up libldap-2.5-0:amd64 (2.5.13+dfsg-5) ...
-2026-05-01T05:05:59.244058362Z Setting up perl (5.36.0-7+deb12u3) ...
-2026-05-01T05:05:59.278895191Z Setting up libcurl3-gnutls:amd64 (7.88.1-10+deb12u14) ...
-2026-05-01T05:05:59.293246425Z Setting up liberror-perl (0.17029-2) ...
-2026-05-01T05:05:59.310627899Z Setting up git (1:2.39.5-0+deb12u3) ...
-2026-05-01T05:05:59.341126785Z Processing triggers for libc-bin (2.36-9+deb12u13) ...
-2026-05-01T05:05:59.432037708Z Cloning into '/app/repo'...
-2026-05-01T05:06:00.528132757Z Using CPython 3.12.12 interpreter at: /usr/local/bin/python3.12
-2026-05-01T05:06:00.530481635Z Creating virtual environment at: .venv
-2026-05-01T05:06:00.574706302Z    Building barra @ file:///app/repo/api
-2026-05-01T05:06:00.632218482Z Downloading pygments (1.2MiB)
-2026-05-01T05:06:00.662524287Z Downloading pydantic-core (2.0MiB)
-2026-05-01T05:06:00.669221958Z Downloading psycopg-binary (4.9MiB)
-2026-05-01T05:06:00.671959946Z Downloading cryptography (4.5MiB)
-2026-05-01T05:06:00.671980126Z Downloading zstandard (5.3MiB)
-2026-05-01T05:06:00.673243990Z Downloading pyroaring (2.1MiB)
-2026-05-01T05:06:00.673820412Z Downloading pycryptodome (2.2MiB)
-2026-05-01T05:06:00.674616314Z Downloading uvloop (4.2MiB)
-2026-05-01T05:06:02.895273367Z  Downloaded pyroaring
-2026-05-01T05:06:02.896670792Z  Downloaded pydantic-core
-2026-05-01T05:06:03.229905225Z  Downloaded zstandard
-2026-05-01T05:06:03.250825680Z  Downloaded psycopg-binary
-2026-05-01T05:06:03.295061899Z  Downloaded uvloop
-2026-05-01T05:06:03.388908793Z  Downloaded cryptography
-2026-05-01T05:06:03.506596892Z  Downloaded pygments
-2026-05-01T05:06:03.540334468Z  Downloaded pycryptodome
-2026-05-01T05:06:04.357233399Z       Built barra @ file:///app/repo/api
-2026-05-01T05:06:04.361065450Z Prepared 95 packages in 3.81s
-2026-05-01T05:06:04.537258253Z Installed 95 packages in 175ms
-2026-05-01T05:06:04.537288833Z  + annotated-doc==0.0.4
-2026-05-01T05:06:04.537300753Z  + annotated-types==0.7.0
-2026-05-01T05:06:04.539891221Z  + anthropic==0.97.0
-2026-05-01T05:06:04.539912881Z  + anyio==4.13.0
-2026-05-01T05:06:04.539916151Z  + argon2-cffi==25.1.0
-2026-05-01T05:06:04.539919982Z  + argon2-cffi-bindings==25.1.0
-2026-05-01T05:06:04.539922681Z  + arq==0.28.0
-2026-05-01T05:06:04.539925591Z  + barra==0.1.0 (from file:///app/repo/api)
-2026-05-01T05:06:04.539928251Z  + cachetools==6.2.6
-2026-05-01T05:06:04.539931342Z  + certifi==2026.4.22
-2026-05-01T05:06:04.539934182Z  + cffi==2.0.0
-2026-05-01T05:06:04.539937081Z  + charset-normalizer==3.4.7
-2026-05-01T05:06:04.539939931Z  + click==8.3.3
-2026-05-01T05:06:04.539943131Z  + cryptography==47.0.0
-2026-05-01T05:06:04.539946211Z  + deprecation==2.1.0
-2026-05-01T05:06:04.539949291Z  + distro==1.9.0
-2026-05-01T05:06:04.539952182Z  + docstring-parser==0.18.0
-2026-05-01T05:06:04.539955072Z  + fastapi==0.136.1
-2026-05-01T05:06:04.539957982Z  + fsspec==2026.4.0
-2026-05-01T05:06:04.539960851Z  + h11==0.16.0
-2026-05-01T05:06:04.539977992Z  + h2==4.3.0
-2026-05-01T05:06:04.539983502Z  + hiredis==3.3.1
-2026-05-01T05:06:04.539986872Z  + hpack==4.1.0
-2026-05-01T05:06:04.539989932Z  + httpcore==1.0.9
-2026-05-01T05:06:04.539992942Z  + httptools==0.7.1
-2026-05-01T05:06:04.539995942Z  + httpx==0.28.1
-2026-05-01T05:06:04.540018502Z  + hyperframe==6.1.0
-2026-05-01T05:06:04.540024922Z  + idna==3.13
-2026-05-01T05:06:04.540027832Z  + jiter==0.14.0
-2026-05-01T05:06:04.540031072Z  + jsonpatch==1.33
-2026-05-01T05:06:04.540034172Z  + jsonpointer==3.1.1
-2026-05-01T05:06:04.540037122Z  + langchain-core==1.3.2
-2026-05-01T05:06:04.540040142Z  + langchain-protocol==0.0.14
-2026-05-01T05:06:04.540043122Z  + langgraph==1.1.10
-2026-05-01T05:06:04.540046142Z  + langgraph-checkpoint==4.0.3
-2026-05-01T05:06:04.540049082Z  + langgraph-checkpoint-postgres==3.0.5
-2026-05-01T05:06:04.540052102Z  + langgraph-prebuilt==1.0.12
-2026-05-01T05:06:04.540055022Z  + langgraph-sdk==0.3.13
-2026-05-01T05:06:04.540057922Z  + langsmith==0.7.38
-2026-05-01T05:06:04.540062852Z  + markdown-it-py==4.0.0
-2026-05-01T05:06:04.540068223Z  + mdurl==0.1.2
-2026-05-01T05:06:04.540071503Z  + minio==7.2.20
-2026-05-01T05:06:04.540074232Z  + mmh3==5.2.1
-2026-05-01T05:06:04.540076972Z  + multidict==6.7.1
-2026-05-01T05:06:04.540080272Z  + orjson==3.11.8
-2026-05-01T05:06:04.540083583Z  + ormsgpack==1.12.2
-2026-05-01T05:06:04.540086583Z  + packaging==26.2
-2026-05-01T05:06:04.540089663Z  + postgrest==2.29.0
-2026-05-01T05:06:04.540092682Z  + prometheus-client==0.25.0
-2026-05-01T05:06:04.540095732Z  + propcache==0.4.1
-2026-05-01T05:06:04.540098442Z  + psycopg==3.3.3
-2026-05-01T05:06:04.540101042Z  + psycopg-binary==3.3.3
-2026-05-01T05:06:04.540103642Z  + psycopg-pool==3.3.0
-2026-05-01T05:06:04.540106233Z  + pycparser==3.0
-2026-05-01T05:06:04.540108932Z  + pycryptodome==3.23.0
-2026-05-01T05:06:04.540111823Z  + pydantic==2.13.3
-2026-05-01T05:06:04.540114692Z  + pydantic-core==2.46.3
-2026-05-01T05:06:04.540117623Z  + pydantic-settings==2.14.0
-2026-05-01T05:06:04.540121012Z  + pygments==2.20.0
-2026-05-01T05:06:04.540124051Z  + pyiceberg==0.11.1
-2026-05-01T05:06:04.540128731Z  + pyjwt==2.12.1
-2026-05-01T05:06:04.540133902Z  + pyparsing==3.3.2
-2026-05-01T05:06:04.540137012Z  + pyroaring==1.1.0
-2026-05-01T05:06:04.540305383Z  + python-dateutil==2.9.0.post0
-2026-05-01T05:06:04.540319273Z  + python-dotenv==1.2.2
-2026-05-01T05:06:04.540323023Z  + python-multipart==0.0.27
-2026-05-01T05:06:04.540325883Z  + pyyaml==6.0.3
-2026-05-01T05:06:04.540328743Z  + realtime==2.29.0
-2026-05-01T05:06:04.540331533Z  + redis==5.3.1
-2026-05-01T05:06:04.540334093Z  + requests==2.33.1
-2026-05-01T05:06:04.540336623Z  + requests-toolbelt==1.0.0
-2026-05-01T05:06:04.540339193Z  + rich==14.3.4
-2026-05-01T05:06:04.540341863Z  + sentry-sdk==2.58.0
-2026-05-01T05:06:04.540344743Z  + six==1.17.0
-2026-05-01T05:06:04.540347333Z  + sniffio==1.3.1
-2026-05-01T05:06:04.540349933Z  + starlette==1.0.0
-2026-05-01T05:06:04.540352573Z  + storage3==2.29.0
-2026-05-01T05:06:04.540355203Z  + strenum==0.4.15
-2026-05-01T05:06:04.540357783Z  + strictyaml==1.7.3
-2026-05-01T05:06:04.540360363Z  + structlog==25.5.0
-2026-05-01T05:06:04.540868475Z  + supabase==2.29.0
-2026-05-01T05:06:04.540884694Z  + supabase-auth==2.29.0
-2026-05-01T05:06:04.540887645Z  + supabase-functions==2.29.0
-2026-05-01T05:06:04.540890075Z  + tenacity==9.1.4
-2026-05-01T05:06:04.540892254Z  + typing-extensions==4.15.0
-2026-05-01T05:06:04.540894405Z  + typing-inspection==0.4.2
-2026-05-01T05:06:04.540896545Z  + urllib3==2.6.3
-2026-05-01T05:06:04.540898645Z  + uuid-utils==0.14.1
-2026-05-01T05:06:04.540900835Z  + uvicorn==0.46.0
-2026-05-01T05:06:04.540902965Z  + uvloop==0.22.1
-2026-05-01T05:06:04.540905065Z  + watchfiles==1.1.1
-2026-05-01T05:06:04.540907155Z  + websockets==15.0.1
-2026-05-01T05:06:04.540909245Z  + xxhash==3.7.0
-2026-05-01T05:06:04.540911375Z  + yarl==1.23.0
-2026-05-01T05:06:04.540913495Z  + zstandard==0.25.0
-2026-05-01T05:06:04.694096076Z Downloading ruff (10.8MiB)
-2026-05-01T05:06:04.695461649Z Downloading mypy (14.1MiB)
-2026-05-01T05:06:05.100710411Z  Downloaded ruff
-2026-05-01T05:06:05.740072401Z  Downloaded mypy
-2026-05-01T05:06:05.805169235Z Installed 12 packages in 64ms
-2026-05-01T05:06:09.092733385Z INFO:     Started server process [441]
-2026-05-01T05:06:09.093590057Z INFO:     Waiting for application startup.
-2026-05-01T05:06:09.103589900Z INFO:     Application startup complete.
-2026-05-01T05:06:09.104681672Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-2026-05-01T04:59:45.733363109Z Selecting previously unselected package libssh2-1:amd64.
-2026-05-01T04:59:45.734935471Z Preparing to unpack .../11-libssh2-1_1.10.0-3+b1_amd64.deb ...
-2026-05-01T04:59:45.737642953Z Unpacking libssh2-1:amd64 (1.10.0-3+b1) ...
-2026-05-01T04:59:45.774861750Z Selecting previously unselected package libcurl3-gnutls:amd64.
-2026-05-01T04:59:45.776440961Z Preparing to unpack .../12-libcurl3-gnutls_7.88.1-10+deb12u14_amd64.deb ...
-2026-05-01T04:59:45.778501303Z Unpacking libcurl3-gnutls:amd64 (7.88.1-10+deb12u14) ...
-2026-05-01T04:59:45.821485035Z Selecting previously unselected package libexpat1:amd64.
-2026-05-01T04:59:45.822840437Z Preparing to unpack .../13-libexpat1_2.5.0-1+deb12u2_amd64.deb ...
-2026-05-01T04:59:45.824831178Z Unpacking libexpat1:amd64 (2.5.0-1+deb12u2) ...
-2026-05-01T04:59:45.851034044Z Selecting previously unselected package liberror-perl.
-2026-05-01T04:59:45.852919976Z Preparing to unpack .../14-liberror-perl_0.17029-2_all.deb ...
-2026-05-01T04:59:45.854130387Z Unpacking liberror-perl (0.17029-2) ...
-2026-05-01T04:59:45.880274773Z Selecting previously unselected package git-man.
-2026-05-01T04:59:45.882214764Z Preparing to unpack .../15-git-man_1%3a2.39.5-0+deb12u3_all.deb ...
-2026-05-01T04:59:45.884543096Z Unpacking git-man (1:2.39.5-0+deb12u3) ...
-2026-05-01T04:59:45.974159083Z Selecting previously unselected package git.
-2026-05-01T04:59:45.975786106Z Preparing to unpack .../16-git_1%3a2.39.5-0+deb12u3_amd64.deb ...
-2026-05-01T04:59:45.983659433Z Unpacking git (1:2.39.5-0+deb12u3) ...
-2026-05-01T04:59:46.424919347Z Setting up libexpat1:amd64 (2.5.0-1+deb12u2) ...
-2026-05-01T04:59:46.433117005Z Setting up libpsl5:amd64 (0.21.2-1) ...
-2026-05-01T04:59:46.440346662Z Setting up libbrotli1:amd64 (1.0.9-2+b6) ...
-2026-05-01T04:59:46.452856284Z Setting up libnghttp2-14:amd64 (1.52.0-1+deb12u2) ...
-2026-05-01T04:59:46.459230440Z Setting up libsasl2-modules-db:amd64 (2.1.28+dfsg-10) ...
-2026-05-01T04:59:46.465836337Z Setting up perl-modules-5.36 (5.36.0-7+deb12u3) ...
-2026-05-01T04:59:46.471849163Z Setting up librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b2) ...
-2026-05-01T04:59:46.480189922Z Setting up libgdbm-compat4:amd64 (1.23-3) ...
-2026-05-01T04:59:46.489524670Z Setting up libsasl2-2:amd64 (2.1.28+dfsg-10) ...
-2026-05-01T04:59:46.496570458Z Setting up git-man (1:2.39.5-0+deb12u3) ...
-2026-05-01T04:59:46.503492674Z Setting up libssh2-1:amd64 (1.10.0-3+b1) ...
-2026-05-01T04:59:46.514041195Z Setting up libperl5.36:amd64 (5.36.0-7+deb12u3) ...
-2026-05-01T04:59:46.523411374Z Setting up libldap-2.5-0:amd64 (2.5.13+dfsg-5) ...
-2026-05-01T04:59:46.533953474Z Setting up perl (5.36.0-7+deb12u3) ...
-2026-05-01T04:59:46.555213024Z Setting up libcurl3-gnutls:amd64 (7.88.1-10+deb12u14) ...
-2026-05-01T04:59:46.566325446Z Setting up liberror-perl (0.17029-2) ...
-2026-05-01T04:59:46.579835759Z Setting up git (1:2.39.5-0+deb12u3) ...
-2026-05-01T04:59:46.619196788Z Processing triggers for libc-bin (2.36-9+deb12u13) ...
-2026-05-01T04:59:46.693466311Z Cloning into '/app/repo'...
-2026-05-01T04:59:48.085475890Z Using CPython 3.12.12 interpreter at: /usr/local/bin/python3.12
-2026-05-01T04:59:48.085499009Z Creating virtual environment at: .venv
-2026-05-01T04:59:48.102100516Z    Building barra @ file:///app/repo/api
-2026-05-01T04:59:48.190838305Z Downloading pygments (1.2MiB)
-2026-05-01T04:59:48.199925883Z Downloading zstandard (5.3MiB)
-2026-05-01T04:59:48.203460877Z Downloading cryptography (4.5MiB)
-2026-05-01T04:59:48.213409307Z Downloading pycryptodome (2.2MiB)
-2026-05-01T04:59:48.215573499Z Downloading psycopg-binary (4.9MiB)
-2026-05-01T04:59:48.217307981Z Downloading pyroaring (2.1MiB)
-2026-05-01T04:59:48.231125715Z Downloading uvloop (4.2MiB)
-2026-05-01T04:59:48.232258426Z Downloading pydantic-core (2.0MiB)
-2026-05-01T04:59:50.399042206Z  Downloaded pydantic-core
-2026-05-01T04:59:50.466662674Z  Downloaded pyroaring
-2026-05-01T04:59:51.113677083Z  Downloaded psycopg-binary
-2026-05-01T04:59:51.226674128Z  Downloaded uvloop
-2026-05-01T04:59:51.273378755Z  Downloaded zstandard
-2026-05-01T04:59:51.458132046Z  Downloaded cryptography
-2026-05-01T04:59:51.931066479Z  Downloaded pygments
-2026-05-01T04:59:52.016053696Z  Downloaded pycryptodome
-2026-05-01T04:59:53.079151163Z       Built barra @ file:///app/repo/api
-2026-05-01T04:59:53.086718731Z Prepared 95 packages in 4.98s
-2026-05-01T04:59:53.330766675Z Installed 95 packages in 243ms
-2026-05-01T04:59:53.331112775Z  + annotated-doc==0.0.4
-2026-05-01T04:59:53.331529676Z  + annotated-types==0.7.0
-2026-05-01T04:59:53.331801687Z  + anthropic==0.97.0
-2026-05-01T04:59:53.332072567Z  + anyio==4.13.0
-2026-05-01T04:59:53.332083946Z  + argon2-cffi==25.1.0
-2026-05-01T04:59:53.332352147Z  + argon2-cffi-bindings==25.1.0
-2026-05-01T04:59:53.332495197Z  + arq==0.28.0
-2026-05-01T04:59:53.332745118Z  + barra==0.1.0 (from file:///app/repo/api)
-2026-05-01T04:59:53.332982867Z  + cachetools==6.2.6
-2026-05-01T04:59:53.332985648Z  + certifi==2026.4.22
-2026-05-01T04:59:53.334073908Z  + cffi==2.0.0
-2026-05-01T04:59:53.334162969Z  + charset-normalizer==3.4.7
-2026-05-01T04:59:53.334166679Z  + click==8.3.3
-2026-05-01T04:59:53.334169049Z  + cryptography==47.0.0
-2026-05-01T04:59:53.334171259Z  + deprecation==2.1.0
-2026-05-01T04:59:53.334173639Z  + distro==1.9.0
-2026-05-01T04:59:53.334175809Z  + docstring-parser==0.18.0
-2026-05-01T04:59:53.334178019Z  + fastapi==0.136.1
-2026-05-01T04:59:53.334180189Z  + fsspec==2026.4.0
-2026-05-01T04:59:53.334182419Z  + h11==0.16.0
-2026-05-01T04:59:53.334326769Z  + h2==4.3.0
-2026-05-01T04:59:53.334333309Z  + hiredis==3.3.1
-2026-05-01T04:59:53.334344359Z  + hpack==4.1.0
-2026-05-01T04:59:53.334347659Z  + httpcore==1.0.9
-2026-05-01T04:59:53.334350669Z  + httptools==0.7.1
-2026-05-01T04:59:53.334353459Z  + httpx==0.28.1
-2026-05-01T04:59:53.334356329Z  + hyperframe==6.1.0
-2026-05-01T04:59:53.334359289Z  + idna==3.13
-2026-05-01T04:59:53.334362239Z  + jiter==0.14.0
-2026-05-01T04:59:53.334365199Z  + jsonpatch==1.33
-2026-05-01T04:59:53.334368369Z  + jsonpointer==3.1.1
-2026-05-01T04:59:53.334371359Z  + langchain-core==1.3.2
-2026-05-01T04:59:53.334374309Z  + langchain-protocol==0.0.14
-2026-05-01T04:59:53.334377530Z  + langgraph==1.1.10
-2026-05-01T04:59:53.334380639Z  + langgraph-checkpoint==4.0.3
-2026-05-01T04:59:53.334383869Z  + langgraph-checkpoint-postgres==3.0.5
-2026-05-01T04:59:53.334386930Z  + langgraph-prebuilt==1.0.12
-2026-05-01T04:59:53.334390050Z  + langgraph-sdk==0.3.13
-2026-05-01T04:59:53.334392890Z  + langsmith==0.7.38
-2026-05-01T04:59:53.334634169Z  + markdown-it-py==4.0.0
-2026-05-01T04:59:53.334737959Z  + mdurl==0.1.2
 2026-05-01T04:59:53.336082121Z  + minio==7.2.20
 2026-05-01T04:59:53.336094771Z  + mmh3==5.2.1
 2026-05-01T04:59:53.336098461Z  + multidict==6.7.1
@@ -379,6 +58,10 @@
 2026-05-01T04:59:55.190795589Z  Downloaded mypy
 2026-05-01T04:59:55.309932276Z Installed 12 packages in 118ms
 2026-05-01T04:59:59.241941930Z INFO:     Started server process [440]
+2026-05-01T15:33:29.596620817Z  + arq==0.28.0
+2026-05-01T15:33:29.596699087Z  + barra==0.1.0 (from file:///app/repo/api)
+2026-05-01T15:33:29.596707707Z  + cachetools==6.2.6
+2026-05-01T15:33:29.596711898Z  + certifi==2026.4.22
 2026-05-01T04:59:59.241991020Z INFO:     Waiting for application startup.
 2026-05-01T04:59:59.244828453Z ERROR:    Traceback (most recent call last):
 2026-05-01T04:59:59.244847743Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 638, in lifespan
@@ -405,6 +88,202 @@
 2026-05-01T04:59:59.244945993Z   File "/app/repo/api/src/barra/core/storage.py", line 16, in criar_minio
 2026-05-01T04:59:59.244949223Z     return Minio(
 2026-05-01T04:59:59.244951693Z            ^^^^^^
+2026-05-01T15:33:29.596715338Z  + cffi==2.0.0
+2026-05-01T15:33:29.596718458Z  + charset-normalizer==3.4.7
+2026-05-01T15:33:29.596721717Z  + click==8.3.3
+2026-05-01T15:33:29.596757278Z  + cryptography==47.0.0
+2026-05-01T15:33:29.596773498Z  + deprecation==2.1.0
+2026-05-01T15:33:29.596811428Z  + distro==1.9.0
+2026-05-01T15:33:29.597140669Z  + docstring-parser==0.18.0
+2026-05-01T15:33:29.597152579Z  + fastapi==0.136.1
+2026-05-01T15:33:29.597156009Z  + fsspec==2026.4.0
+2026-05-01T15:33:29.597158759Z  + h11==0.16.0
+2026-05-01T15:33:29.597172109Z  + h2==4.3.0
+2026-05-01T15:33:29.597175229Z  + hiredis==3.3.1
+2026-05-01T15:33:29.597178169Z  + hpack==4.1.0
+2026-05-01T15:33:29.597205390Z  + httpcore==1.0.9
+2026-05-01T15:33:29.597208929Z  + httptools==0.7.1
+2026-05-01T15:33:29.597246490Z  + httpx==0.28.1
+2026-05-01T15:33:29.597308770Z  + hyperframe==6.1.0
+2026-05-01T15:33:29.597329661Z  + idna==3.13
+2026-05-01T15:33:29.597345520Z  + jiter==0.14.0
+2026-05-01T15:33:29.597378170Z  + jsonpatch==1.33
+2026-05-01T15:33:29.597407491Z  + jsonpointer==3.1.1
+2026-05-01T15:33:29.597464091Z  + langchain-core==1.3.2
+2026-05-01T15:33:29.597497041Z  + langchain-protocol==0.0.14
+2026-05-01T15:33:29.597549922Z  + langgraph==1.1.10
+2026-05-01T15:33:29.597591241Z  + langgraph-checkpoint==4.0.3
+2026-05-01T15:33:29.597644831Z  + langgraph-checkpoint-postgres==3.0.5
+2026-05-01T15:33:29.597658721Z  + langgraph-prebuilt==1.0.12
+2026-05-01T15:33:29.597724542Z  + langgraph-sdk==0.3.13
+2026-05-01T15:33:29.597737152Z  + langsmith==0.7.38
+2026-05-01T15:33:29.597771772Z  + markdown-it-py==4.0.0
+2026-05-01T15:33:29.597823953Z  + mdurl==0.1.2
+2026-05-01T15:33:29.597848883Z  + minio==7.2.20
+2026-05-01T15:33:29.597895923Z  + mmh3==5.2.1
+2026-05-01T15:33:29.597930333Z  + multidict==6.7.1
+2026-05-01T15:33:29.597985514Z  + orjson==3.11.8
+2026-05-01T15:33:29.598063724Z  + ormsgpack==1.12.2
+2026-05-01T15:33:29.598356955Z  + packaging==26.2
+2026-05-01T15:33:29.598365845Z  + postgrest==2.29.0
+2026-05-01T15:33:29.598369715Z  + prometheus-client==0.25.0
+2026-05-01T15:33:29.598373095Z  + propcache==0.4.1
+2026-05-01T15:33:29.598376015Z  + psycopg==3.3.3
+2026-05-01T15:33:29.598379135Z  + psycopg-binary==3.3.3
+2026-05-01T15:33:29.598382185Z  + psycopg-pool==3.3.0
+2026-05-01T15:33:29.598385515Z  + pycparser==3.0
+2026-05-01T15:33:29.598389705Z  + pycryptodome==3.23.0
+2026-05-01T15:33:29.598449125Z  + pydantic==2.13.3
+2026-05-01T15:33:29.598458916Z  + pydantic-core==2.46.3
+2026-05-01T15:33:29.599051279Z  + pydantic-settings==2.14.0
+2026-05-01T15:33:29.599063618Z  + pygments==2.20.0
+2026-05-01T15:33:29.599067069Z  + pyiceberg==0.11.1
+2026-05-01T15:33:29.599070119Z  + pyjwt==2.12.1
+2026-05-01T15:33:29.599073138Z  + pyparsing==3.3.2
+2026-05-01T15:33:29.599076018Z  + pyroaring==1.1.0
+2026-05-01T15:33:29.599078949Z  + python-dateutil==2.9.0.post0
+2026-05-01T15:33:29.599092949Z  + python-dotenv==1.2.2
+2026-05-01T15:33:29.599096018Z  + python-multipart==0.0.27
+2026-05-01T15:33:29.599504480Z  + pyyaml==6.0.3
+2026-05-01T15:33:29.599512690Z  + realtime==2.29.0
+2026-05-01T15:33:29.599516121Z  + redis==5.3.1
+2026-05-01T15:33:29.599519201Z  + requests==2.33.1
+2026-05-01T15:33:29.599522271Z  + requests-toolbelt==1.0.0
+2026-05-01T15:33:29.599525410Z  + rich==14.3.4
+2026-05-01T15:33:29.599528121Z  + sentry-sdk==2.58.0
+2026-05-01T15:33:29.605455899Z  + six==1.17.0
+2026-05-01T15:33:29.605468239Z  + sniffio==1.3.1
+2026-05-01T15:33:29.605563719Z  + starlette==1.0.0
+2026-05-01T15:33:29.605572399Z  + storage3==2.29.0
+2026-05-01T15:33:29.605583420Z  + strenum==0.4.15
+2026-05-01T15:33:29.605642270Z  + strictyaml==1.7.3
+2026-05-01T15:33:29.605656680Z  + structlog==25.5.0
+2026-05-01T15:33:29.605737809Z  + supabase==2.29.0
+2026-05-01T15:33:29.605750190Z  + supabase-auth==2.29.0
+2026-05-01T15:33:29.605819830Z  + supabase-functions==2.29.0
+2026-05-01T15:33:29.605850790Z  + tenacity==9.1.4
+2026-05-01T15:33:29.605904311Z  + typing-extensions==4.15.0
+2026-05-01T15:33:29.606089802Z  + typing-inspection==0.4.2
+2026-05-01T15:33:29.606122192Z  + urllib3==2.6.3
+2026-05-01T15:33:29.606261862Z  + uuid-utils==0.14.1
+2026-05-01T15:33:29.606280472Z  + uvicorn==0.46.0
+2026-05-01T15:33:29.606344983Z  + uvloop==0.22.1
+2026-05-01T15:33:29.606394663Z  + watchfiles==1.1.1
+2026-05-01T15:33:29.606406103Z  + websockets==15.0.1
+2026-05-01T15:33:29.606455123Z  + xxhash==3.7.0
+2026-05-01T15:33:29.606643164Z  + yarl==1.23.0
+2026-05-01T15:33:29.606662014Z  + zstandard==0.25.0
+2026-05-01T15:33:29.812868190Z Downloading ruff (10.8MiB)
+2026-05-01T15:33:29.813491793Z Downloading mypy (14.1MiB)
+2026-05-01T15:33:30.071882645Z  Downloaded ruff
+2026-05-01T15:33:30.488324556Z  Downloaded mypy
+2026-05-01T15:33:30.547569207Z Installed 12 packages in 58ms
+2026-05-01T15:33:33.708624684Z INFO:     Started server process [430]
+2026-05-01T15:33:33.708650094Z INFO:     Waiting for application startup.
+2026-05-01T15:33:33.722627281Z INFO:     Application startup complete.
+2026-05-01T15:33:33.734104535Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-05-01T15:33:37.862880890Z INFO:     10.0.2.42:56268 - "OPTIONS /v1/painel/resumo HTTP/1.1" 400 Bad Request
+2026-05-01T15:34:29.344897752Z INFO:     10.0.2.42:35476 - "OPTIONS /v1/painel/resumo HTTP/1.1" 400 Bad Request
+2026-05-01T05:06:04.540111823Z  + pydantic==2.13.3
+2026-05-01T05:06:04.540114692Z  + pydantic-core==2.46.3
+2026-05-01T05:06:04.540117623Z  + pydantic-settings==2.14.0
+2026-05-01T05:06:04.540121012Z  + pygments==2.20.0
+2026-05-01T05:06:04.540124051Z  + pyiceberg==0.11.1
+2026-05-01T05:06:04.540128731Z  + pyjwt==2.12.1
+2026-05-01T05:06:04.540133902Z  + pyparsing==3.3.2
+2026-05-01T05:06:04.540137012Z  + pyroaring==1.1.0
+2026-05-01T05:06:04.540305383Z  + python-dateutil==2.9.0.post0
+2026-05-01T05:06:04.540319273Z  + python-dotenv==1.2.2
+2026-05-01T05:06:04.540323023Z  + python-multipart==0.0.27
+2026-05-01T05:06:04.540325883Z  + pyyaml==6.0.3
+2026-05-01T05:06:04.540328743Z  + realtime==2.29.0
+2026-05-01T05:06:04.540331533Z  + redis==5.3.1
+2026-05-01T05:06:04.540334093Z  + requests==2.33.1
+2026-05-01T05:06:04.540336623Z  + requests-toolbelt==1.0.0
+2026-05-01T05:06:04.540339193Z  + rich==14.3.4
+2026-05-01T05:06:04.540341863Z  + sentry-sdk==2.58.0
+2026-05-01T05:06:04.540344743Z  + six==1.17.0
+2026-05-01T05:06:04.540347333Z  + sniffio==1.3.1
+2026-05-01T05:06:04.540349933Z  + starlette==1.0.0
+2026-05-01T05:06:04.540352573Z  + storage3==2.29.0
+2026-05-01T05:06:04.540355203Z  + strenum==0.4.15
+2026-05-01T05:06:04.540357783Z  + strictyaml==1.7.3
+2026-05-01T05:06:04.540360363Z  + structlog==25.5.0
+2026-05-01T05:06:04.540868475Z  + supabase==2.29.0
+2026-05-01T05:06:04.540884694Z  + supabase-auth==2.29.0
+2026-05-01T05:06:04.540887645Z  + supabase-functions==2.29.0
+2026-05-01T05:06:04.540890075Z  + tenacity==9.1.4
+2026-05-01T05:06:04.540892254Z  + typing-extensions==4.15.0
+2026-05-01T05:06:04.540894405Z  + typing-inspection==0.4.2
+2026-05-01T05:06:04.540896545Z  + urllib3==2.6.3
+2026-05-01T05:06:04.540898645Z  + uuid-utils==0.14.1
+2026-05-01T05:06:04.540900835Z  + uvicorn==0.46.0
+2026-05-01T05:06:04.540902965Z  + uvloop==0.22.1
+2026-05-01T05:06:04.540905065Z  + watchfiles==1.1.1
+2026-05-01T05:06:04.540907155Z  + websockets==15.0.1
+2026-05-01T05:06:04.540909245Z  + xxhash==3.7.0
+2026-05-01T05:06:04.540911375Z  + yarl==1.23.0
+2026-05-01T05:06:04.540913495Z  + zstandard==0.25.0
+2026-05-01T05:06:04.694096076Z Downloading ruff (10.8MiB)
+2026-05-01T05:06:04.695461649Z Downloading mypy (14.1MiB)
+2026-05-01T05:06:05.100710411Z  Downloaded ruff
+2026-05-01T05:06:05.740072401Z  Downloaded mypy
+2026-05-01T05:06:05.805169235Z Installed 12 packages in 64ms
+2026-05-01T05:06:09.092733385Z INFO:     Started server process [441]
+2026-05-01T05:06:09.093590057Z INFO:     Waiting for application startup.
+2026-05-01T05:06:09.103589900Z INFO:     Application startup complete.
+2026-05-01T05:06:09.104681672Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-05-01T05:08:36.371063470Z INFO:     10.0.2.42:57752 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:18:49.028968975Z INFO:     10.0.2.42:37378 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:18:49.629078505Z INFO:     10.0.2.42:37378 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:18:50.102466023Z INFO:     10.0.2.42:37378 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:18:50.759325096Z INFO:     10.0.2.42:37378 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:18:50.759872909Z INFO:     10.0.2.42:37380 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:18:58.253311991Z INFO:     10.0.2.42:56904 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:22:43.030319503Z INFO:     10.0.2.42:54388 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:29:31.257187753Z INFO:     10.0.2.42:49256 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:29:40.141089056Z INFO:     10.0.2.42:45580 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:29:52.641803745Z INFO:     10.0.2.42:53362 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T05:34:50.704284501Z INFO:     10.0.2.42:46044 - "GET /robots.txt HTTP/1.1" 404 Not Found
+2026-05-01T05:35:52.777413100Z INFO:     10.0.2.42:45212 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:03:17.540557364Z INFO:     10.0.2.42:52102 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:03:18.287204775Z INFO:     10.0.2.42:52102 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:06:35.735075698Z INFO:     10.0.2.42:49536 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:12:41.903733082Z INFO:     10.0.2.42:45842 - "GET /robots.txt HTTP/1.1" 404 Not Found
+2026-05-01T06:12:42.068079102Z INFO:     10.0.2.42:45842 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:20:07.735243675Z INFO:     10.0.2.42:49822 - "HEAD / HTTP/1.1" 404 Not Found
+2026-05-01T06:49:21.320099892Z INFO:     10.0.2.42:58222 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:16.557842669Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:16.569138474Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:17.157253952Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:17.202482464Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:18.174742988Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:18.220079271Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:18.802932363Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:18.857863512Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:19.814629500Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:19.828238476Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:20.402913307Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:20.471146063Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:21.376485676Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:21.455635215Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:21.969604518Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:22.054308413Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:22.954434721Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:23.093181041Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:23.546247695Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T06:55:23.696819484Z INFO:     10.0.2.42:54524 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T07:42:15.490663308Z INFO:     10.0.2.42:47608 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T07:50:17.400472606Z INFO:     10.0.2.42:49766 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T07:50:18.480559511Z INFO:     10.0.2.42:49766 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T08:03:59.054644404Z INFO:     10.0.2.42:45474 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T08:03:59.758113485Z INFO:     10.0.2.42:45474 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T10:05:31.906549956Z INFO:     10.0.2.42:40846 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T10:12:07.476689589Z INFO:     10.0.2.42:41552 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T11:05:04.964850334Z INFO:     10.0.2.42:58944 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T11:05:05.665672846Z INFO:     10.0.2.42:58944 - "GET / HTTP/1.1" 404 Not Found
+2026-05-01T15:29:09.189016512Z INFO:     10.0.2.42:40560 - "OPTIONS /v1/painel/resumo HTTP/1.1" 400 Bad Request
+2026-05-01T15:29:19.910888233Z INFO:     10.0.2.42:36478 - "OPTIONS /v1/painel/resumo HTTP/1.1" 400 Bad Request
 2026-05-01T04:59:59.244953853Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 156, in __init__
 2026-05-01T04:59:59.244956133Z     self._base_url = BaseURL(
 2026-05-01T04:59:59.244958303Z                      ^^^^^^^^

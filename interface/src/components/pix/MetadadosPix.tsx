@@ -17,17 +17,17 @@ export function MetadadosPix({ pix }: { pix: PixDetalhe }) {
 
   return (
     <section
-      aria-label="Metadados extraídos"
+      aria-label="Dados do comprovante"
       className="rounded-lg border border-border bg-card p-5"
     >
       <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-        Metadados extraídos
+        Dados do comprovante
       </h3>
       <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[180px_1fr]">
         <Linha label="Valor">
           {valor ?? <NaoExtraido />}
         </Linha>
-        <Linha label="Data/hora da transação">
+        <Linha label="Data e hora">
           {horario ?? <NaoExtraido />}
         </Linha>
         <Linha label="Remetente">
@@ -42,7 +42,7 @@ export function MetadadosPix({ pix }: { pix: PixDetalhe }) {
             <NaoExtraido />
           )}
         </Linha>
-        <Linha label="Chave/conta destino">
+        <Linha label="Chave de destino">
           {chave ? (
             <span className="flex flex-wrap items-baseline gap-2">
               <span className="font-mono text-[13px] text-text-primary">{chave}</span>
@@ -54,8 +54,8 @@ export function MetadadosPix({ pix }: { pix: PixDetalhe }) {
             <NaoExtraido />
           )}
         </Linha>
-        <Linha label="Hash de duplicidade">
-          {hash ? (
+        {hash && (
+          <Linha label="Identificador">
             <Tooltip>
               <TooltipTrigger render={<span className="font-mono text-xs text-text-muted" />}>
                 {hash.length > 12 ? `${hash.slice(0, 12)}…` : hash}
@@ -64,10 +64,8 @@ export function MetadadosPix({ pix }: { pix: PixDetalhe }) {
                 <span className="font-mono text-xs">{hash}</span>
               </TooltipContent>
             </Tooltip>
-          ) : (
-            <NaoExtraido />
-          )}
-        </Linha>
+          </Linha>
+        )}
       </dl>
     </section>
   )
@@ -83,5 +81,5 @@ function Linha({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function NaoExtraido() {
-  return <span className="text-text-muted">Não extraído</span>
+  return <span className="text-text-muted">Não identificado</span>
 }
