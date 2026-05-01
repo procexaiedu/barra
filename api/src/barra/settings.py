@@ -1,7 +1,8 @@
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlparse
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +25,27 @@ class Settings(BaseSettings):
     minio_secret_key: str = ""
     minio_bucket_media: str = "media"
     minio_use_ssl: bool = False
+
+    @field_validator("minio_endpoint", mode="before")
+    @classmethod
+    def normalizar_minio_endpoint(cls, v: object) -> str:
+        """MinIO exige host[:porta] sem esquema e sem path (evita ValueError no client)."""
+        if v is None:
+            return "localhost:9000"
+        s = str(v).strip()
+        if not s:
+            return "localhost:9000"
+        if "://" in s:
+            parsed = urlparse(s)
+            host = parsed.hostname or ""
+            if not host:
+                return "localhost:9000"
+            if parsed.port:
+                return f"{host}:{parsed.port}"
+            return host
+        if "/" in s:
+            s = s.split("/", 1)[0].strip()
+        return s
 
     llm_chat_provider: Literal["openrouter", "anthropic"] = "openrouter"
     llm_vision_provider: Literal["openrouter"] = "openrouter"

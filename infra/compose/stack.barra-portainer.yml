@@ -1,0 +1,141 @@
+# BARRA VIPS - Docker Compose para Portainer
+version: '3.8'
+
+services:
+  barra-api:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /app
+    environment:
+      - AMBIENTE=producao
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=https://zinrqzsxvpqfoogohrwg.supabase.co
+      - SUPABASE_ANON_KEY=sb_publishable_Wnf-V2dnSmpEhx5QTXtxNw_SH6BT0M_
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-barra:6379
+      # Apenas host ou host:porta — sem https:// e sem path (SDK MinIO)
+      - MINIO_ENDPOINT=minioback.procexai.tech
+      - MINIO_ACCESS_KEY=
+      - MINIO_SECRET_KEY=
+      - MINIO_BUCKET_MEDIA=barra-media
+      - MINIO_USE_SSL=true
+      - LLM_CHAT_PROVIDER=openrouter
+      - LLM_VISION_PROVIDER=openrouter
+      - LLM_AUDIO_PROVIDER=openrouter
+      - OPENROUTER_API_KEY=
+      - OPENROUTER_MODEL_CHAT=
+      - OPENROUTER_MODEL_VISION_PIX=
+      - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=
+      - ANTHROPIC_API_KEY=
+      - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
+      - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_API_KEY=
+      - LANGCHAIN_PROJECT=barra-vips-prod
+      - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+      - EVOLUTION_INSTANCIA=lucia
+      - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
+      - EVOLUTION_GRUPO_COORDENACAO_JID=120363423572479616@g.us
+      - EVOLUTION_FERNANDO_JIDS=[]
+      - 'CORS_ORIGINS=["https://barravips.procexai.tech","https://barra-vips.vercel.app"]'
+      - JID_PERMITIDO=120363423572479616@g.us
+      - SENTRY_DSN=
+    command: >
+      sh -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates &&
+      rm -rf /app/repo &&
+      git clone -b main https://${GITHUB_PAT}@github.com/procexaiedu/barra.git /app/repo &&
+      cd /app/repo/api &&
+      uv sync --frozen --no-dev &&
+      uv run uvicorn barra.main:app --host 0.0.0.0 --port 8000"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.barra-api.rule=Host(`api-barra.procexai.tech`)"
+        - "traefik.http.routers.barra-api.entrypoints=websecure"
+        - "traefik.http.routers.barra-api.tls=true"
+        - "traefik.http.routers.barra-api.tls.certresolver=le"
+        - "traefik.http.services.barra-api.loadbalancer.server.port=8000"
+        - "traefik.docker.network=traefik_public"
+    depends_on:
+      - redis-barra
+    networks:
+      - traefik_public
+
+  barra-worker:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /app
+    environment:
+      - AMBIENTE=producao
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=https://zinrqzsxvpqfoogohrwg.supabase.co
+      - SUPABASE_ANON_KEY=sb_publishable_Wnf-V2dnSmpEhx5QTXtxNw_SH6BT0M_
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
+      - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-barra:6379
+      # Apenas host ou host:porta — sem https:// e sem path (SDK MinIO)
+      - MINIO_ENDPOINT=minioback.procexai.tech
+      - MINIO_ACCESS_KEY=
+      - MINIO_SECRET_KEY=
+      - MINIO_BUCKET_MEDIA=barra-media
+      - MINIO_USE_SSL=true
+      - LLM_CHAT_PROVIDER=openrouter
+      - LLM_VISION_PROVIDER=openrouter
+      - LLM_AUDIO_PROVIDER=openrouter
+      - OPENROUTER_API_KEY=
+      - OPENROUTER_MODEL_CHAT=
+      - OPENROUTER_MODEL_VISION_PIX=
+      - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=
+      - ANTHROPIC_API_KEY=
+      - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
+      - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
+      - LANGCHAIN_TRACING_V2=true
+      - LANGCHAIN_API_KEY=
+      - LANGCHAIN_PROJECT=barra-vips-prod
+      - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
+      - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+      - EVOLUTION_INSTANCIA=lucia
+      - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
+      - EVOLUTION_GRUPO_COORDENACAO_JID=120363423572479616@g.us
+      - EVOLUTION_FERNANDO_JIDS=[]
+      - JID_PERMITIDO=120363423572479616@g.us
+      - SENTRY_DSN=
+    command: >
+      sh -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates &&
+      rm -rf /app/repo &&
+      git clone -b main https://${GITHUB_PAT}@github.com/procexaiedu/barra.git /app/repo &&
+      cd /app/repo/api &&
+      uv sync --frozen --no-dev &&
+      uv run arq barra.workers.settings.WorkerSettings"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    depends_on:
+      - redis-barra
+    networks:
+      - traefik_public
+
+  redis-barra:
+    image: redis:7.0-alpine
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - redis-barra-data:/data
+    networks:
+      - traefik_public
+
+volumes:
+  redis-barra-data:
+
+networks:
+  traefik_public:
+    external: true
