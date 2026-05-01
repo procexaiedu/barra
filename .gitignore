@@ -71,3 +71,7 @@ temp/
 
 # --- Docker ---
 .docker/
+
+# --- Playwright MCP snapshots ---
+# Capturam DOM acessível, incluindo valores digitados em campos de senha. Nunca commitar.
+.playwright-mcp/

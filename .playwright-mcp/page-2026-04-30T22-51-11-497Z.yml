@@ -1,6 +1,0 @@
-- main [ref=e2]:
-  - generic [ref=e3]:
-    - heading "Barra Vips" [level=1] [ref=e4]
-    - paragraph [ref=e5]: Central inteligente de atendimento.
-    - link "Entrar" [ref=e6] [cursor=pointer]:
-      - /url: /login
