@@ -29,6 +29,7 @@ class ModeloPatch(BaseModel):
     localizacao_operacional: str | None = None
     tipo_atendimento_aceito: list[str] | None = None
     status: str | None = None
+    coordenacao_chat_id: str | None = None
 
 
 class ConectarWhatsappRequest(BaseModel):
@@ -39,6 +40,14 @@ class FaqBody(BaseModel):
     pergunta: str
     resposta: str
     tags: list[str] = Field(default_factory=list)
+
+
+class ServicoBody(BaseModel):
+    nome: str = Field(min_length=1, max_length=100)
+    duracao_horas: Decimal = Field(gt=0)
+    preco: Decimal = Field(ge=0)
+    ativo: bool = True
+    ordem: int = 0
 
 
 class MidiaUploadUrlRequest(BaseModel):
@@ -59,5 +68,39 @@ class MidiaPatch(BaseModel):
     aprovada: bool | None = None
 
 
+class FotoPerfilPatch(BaseModel):
+    object_key: str
+
+
 class ModeloId(BaseModel):
     modelo_id: UUID
+
+
+class ProgramaCreate(BaseModel):
+    nome: str = Field(min_length=1, max_length=100)
+    categoria: str | None = Field(default=None, max_length=100)
+
+
+class ProgramaPatch(BaseModel):
+    nome: str | None = Field(default=None, min_length=1, max_length=100)
+    categoria: str | None = Field(default=None, max_length=100)
+
+
+class DuracaoCreate(BaseModel):
+    nome: str = Field(min_length=1, max_length=50)
+    ordem: int = 0
+
+
+class DuracaoPatch(BaseModel):
+    nome: str | None = Field(default=None, min_length=1, max_length=50)
+    ordem: int | None = None
+
+
+class VincularProgramaBody(BaseModel):
+    programa_id: UUID
+    duracao_id: UUID
+    preco: Decimal = Field(ge=0)
+
+
+class AtualizarPrecoProgramaBody(BaseModel):
+    preco: Decimal = Field(ge=0)

@@ -1,12 +1,12 @@
 import { BloqueioAgenda } from "@/components/agenda/BloqueioAgenda"
-import { dataDeInput, dataInput } from "@/hooks/useAgenda"
+import { dataBrt, dataDeInput, dataInput } from "@/hooks/useAgenda"
 import { cn } from "@/lib/utils"
 import type { BloqueioAgenda as BloqueioAgendaTipo, VisaoAgenda } from "@/tipos/agenda"
 
 const diasSemana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
 function mesmoDia(iso: string, data: string) {
-  return iso.slice(0, 10) === data
+  return dataBrt(iso) === data
 }
 
 function diasParaVisao(visao: VisaoAgenda, dataSelecionada: string) {

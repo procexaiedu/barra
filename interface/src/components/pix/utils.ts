@@ -120,7 +120,7 @@ export const estadoAtendimentoLabel: Record<string, string> = {
   Aguardando_pix: "Aguardando Pix",
   Aguardando_confirmacao: "Aguardando confirmação",
   Confirmado: "Confirmado",
-  Em_execucao: "Em execução",
+  Em_execucao: "Em atendimento",
   Fechado: "Fechado",
   Perdido: "Perdido",
 }

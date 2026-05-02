@@ -18,21 +18,16 @@ import {
 } from "@/components/ui/alert-dialog"
 import { formatTempoRelativo } from "@/lib/formatters"
 import { api } from "@/lib/api"
+import { motivoExibido } from "@/components/atendimentos/utils"
 import type { CardDestaque as CardDestaqueType, IaPausadaMotivo } from "@/tipos/painel"
 
 const BADGE_MAP: Record<IaPausadaMotivo, { variant: "revisao" | "handoff" | "paused"; label: string }> = {
   pix_em_revisao: { variant: "revisao", label: "Pix em revisão" },
   handoff_ia: { variant: "handoff", label: "Aguardando você" },
-  modelo_em_atendimento: { variant: "paused", label: "Modelo em atendimento" },
+  modelo_em_atendimento: { variant: "paused", label: "Modelo atendendo" },
 }
 
-const MOTIVO_LABEL: Record<IaPausadaMotivo, string> = {
-  pix_em_revisao: "Pix duvidoso, precisa da sua decisão",
-  handoff_ia: "IA escalou para você",
-  modelo_em_atendimento: "Modelo passou do tempo previsto",
-}
-
-export function CardDestaque({ card }: { card: CardDestaqueType }) {
+export function CardDestaque({ card, mostrarModelo = false }: { card: CardDestaqueType; mostrarModelo?: boolean }) {
   const router = useRouter()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -40,7 +35,7 @@ export function CardDestaque({ card }: { card: CardDestaqueType }) {
   const nomeCliente = card.cliente_nome ?? card.cliente_telefone_formatado
 
   const handleCardClick = () => {
-    router.push(`/atendimentos/${card.atendimento_id}`)
+    router.push(`/atendimentos?id=${card.atendimento_id}`)
   }
 
   const handleCardKeyDown = (e: React.KeyboardEvent) => {
@@ -90,7 +85,7 @@ export function CardDestaque({ card }: { card: CardDestaqueType }) {
               MOTIVO{" "}
             </span>
             <span className="text-[13px] text-text-primary">
-              {card.motivo_escalada ?? MOTIVO_LABEL[card.ia_pausada_motivo]}
+              {motivoExibido(card.motivo_escalada, card.ia_pausada_motivo)}
             </span>
           </div>
           {card.proxima_acao_esperada && (
@@ -118,10 +113,13 @@ export function CardDestaque({ card }: { card: CardDestaqueType }) {
           </div>
         )}
 
-        <div className="mt-3 border-t border-border pt-3">
+        <div className="mt-3 border-t border-border pt-3 flex items-center justify-between">
           <p className="text-xs font-medium text-text-muted">
             Pausada {formatTempoRelativo(card.ia_pausada_em)} · Com {card.responsavel_atual === "IA" ? "IA" : card.responsavel_atual}
           </p>
+          {mostrarModelo && (
+            <span className="text-xs font-medium text-text-muted">{card.modelo_nome}</span>
+          )}
         </div>
       </article>
 

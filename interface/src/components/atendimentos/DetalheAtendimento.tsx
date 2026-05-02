@@ -2,7 +2,8 @@
 
 import { useMemo, useState } from "react"
 import Image from "next/image"
-import { FileText, ImageOff } from "lucide-react"
+import { ChevronDown, FileText, ImageOff } from "lucide-react"
+import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
@@ -11,13 +12,14 @@ import {
   AlertDialogContent,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { cn } from "@/lib/utils"
 import { formatDataHora, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse, MotivoPerda } from "@/tipos/atendimentos"
 import { AcoesAtendimento } from "@/components/atendimentos/AcoesAtendimento"
 import { HistoricoMensagens } from "@/components/atendimentos/HistoricoMensagens"
 import { LinhaEvento } from "@/components/atendimentos/LinhaEvento"
 import { ResumoAtendimento } from "@/components/atendimentos/ResumoAtendimento"
-import { badgeForEstado, badgeForIa, estadoLabel, motivoIaLabel } from "@/components/atendimentos/utils"
+import { badgeForEstado, estadoLabel } from "@/components/atendimentos/utils"
 
 interface MidiaItem {
   id: string
@@ -49,29 +51,27 @@ export function DetalheAtendimento({
 
   const atendimento = detalhe.atendimento
   const cliente = detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)
-  const indicadorIa = atendimento.ia_pausada
-    ? motivoIaLabel[atendimento.ia_pausada_motivo ?? "modelo_em_atendimento"]
-    : "Ativa"
+  const estadoBorder =
+    atendimento.estado === "Fechado" ? "border-l-state-closed" :
+    atendimento.estado === "Perdido" ? "border-l-state-lost" :
+    atendimento.ia_pausada ? "border-l-state-handoff" :
+    "border-l-state-active"
 
   return (
-    <section aria-label="Detalhe do atendimento" className="min-w-0 space-y-5">
-      <div className="rounded-lg border border-border bg-card p-6">
-        <div className="flex flex-wrap items-center gap-3">
+    <section aria-label="Detalhe do atendimento" className="min-w-0 space-y-3">
+      <div className={cn("rounded-lg border border-border bg-card p-4 border-l-3", estadoBorder)}>
+        <div className="flex flex-wrap items-center gap-2">
           <Badge variant={badgeForEstado(atendimento.estado)}>{estadoLabel[atendimento.estado]}</Badge>
-          <span className="font-mono text-xs text-text-muted">#{atendimento.numero_curto}</span>
-          <h2 className="text-xl font-semibold text-text-primary">{cliente}</h2>
+          <h2 className="text-base font-semibold text-text-primary">{cliente}</h2>
           <span className="text-sm text-text-muted">· {detalhe.modelo.nome}</span>
           <span className="ml-auto text-xs font-medium text-text-muted">
-            Atualizado {formatTempoRelativo(atendimento.updated_at)}
+            #{atendimento.numero_curto} · {formatTempoRelativo(atendimento.updated_at)}
           </span>
         </div>
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <Badge variant={atendimento.ia_pausada ? badgeForIa(atendimento.ia_pausada_motivo) : "active"}>
-            {indicadorIa}
-          </Badge>
+        <div className="mt-2">
           <span className="font-mono text-xs text-text-muted">{detalhe.cliente.telefone}</span>
         </div>
-        <div className="mt-5">
+        <div className="mt-3">
           <AcoesAtendimento
             atendimento={atendimento}
             onDevolver={onDevolver}
@@ -82,10 +82,44 @@ export function DetalheAtendimento({
       </div>
 
       <ResumoAtendimento detalhe={detalhe} />
-      <HistoricoMensagens mensagens={detalhe.mensagens} />
-      <MidiasRecebidas detalhe={detalhe} />
-      <Eventos eventos={detalhe.eventos} />
+
+      <SecaoColapsavel titulo="Histórico de mensagens">
+        <HistoricoMensagens mensagens={detalhe.mensagens} />
+      </SecaoColapsavel>
+
+      <SecaoColapsavel titulo="Mídias recebidas">
+        <MidiasRecebidas detalhe={detalhe} />
+      </SecaoColapsavel>
+
+      <SecaoColapsavel titulo="Histórico do atendimento">
+        <Eventos eventos={detalhe.eventos} />
+      </SecaoColapsavel>
     </section>
+  )
+}
+
+function SecaoColapsavel({ titulo, children }: { titulo: string; children: ReactNode }) {
+  const [aberto, setAberto] = useState(false)
+  return (
+    <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <button
+        type="button"
+        onClick={() => setAberto((a) => !a)}
+        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-surface-hover"
+      >
+        <span className="flex-1 text-sm font-semibold text-text-primary">{titulo}</span>
+        <ChevronDown
+          size={16}
+          strokeWidth={1.5}
+          className={cn("text-text-muted transition-transform duration-150", aberto && "rotate-180")}
+        />
+      </button>
+      {aberto && (
+        <div className="border-t border-border p-4">
+          {children}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -110,8 +144,7 @@ function MidiasRecebidas({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
   }, [detalhe])
 
   return (
-    <section aria-label="Mídias recebidas" className="rounded-lg border border-border bg-card p-6">
-      <h2 className="mb-4 text-base font-semibold text-text-primary">Mídias recebidas</h2>
+    <>
       {midias.length === 0 ? (
         <div className="flex items-start gap-3">
           <ImageOff size={20} strokeWidth={1.5} className="mt-0.5 text-text-muted" />
@@ -134,7 +167,6 @@ function MidiasRecebidas({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
           ))}
         </div>
       )}
-
       <AlertDialog open={!!midiaAberta} onOpenChange={(open) => !open && setMidiaAberta(null)}>
         <AlertDialogContent className="max-w-4xl rounded-none bg-ink-0 p-0">
           <AlertDialogTitle className="sr-only">{midiaAberta?.nome ?? "Mídia"}</AlertDialogTitle>
@@ -150,7 +182,7 @@ function MidiasRecebidas({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
           )}
         </AlertDialogContent>
       </AlertDialog>
-    </section>
+    </>
   )
 }
 
@@ -160,19 +192,16 @@ function Eventos({ eventos }: { eventos: AtendimentoDetalheResponse["eventos"] }
     [eventos]
   )
 
+  if (ordenados.length === 0) {
+    return <p className="text-sm text-text-primary">Nenhum evento registrado neste atendimento.</p>
+  }
+
   return (
-    <section aria-label="Linha do tempo de eventos" className="rounded-lg border border-border bg-card p-6">
-      <h2 className="mb-4 text-base font-semibold text-text-primary">Linha do tempo de eventos</h2>
-      {ordenados.length === 0 ? (
-        <p className="text-sm text-text-primary">Nenhum evento registrado neste atendimento.</p>
-      ) : (
-        <div>
-          {ordenados.map((evento) => (
-            <LinhaEvento key={evento.id} evento={evento} />
-          ))}
-        </div>
-      )}
-    </section>
+    <div>
+      {ordenados.map((evento) => (
+        <LinhaEvento key={evento.id} evento={evento} />
+      ))}
+    </div>
   )
 }
 

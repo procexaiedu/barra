@@ -1,5 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { FiltroModelo } from "@/components/dashboard/FiltroModelo"
 import { cn } from "@/lib/utils"
 import type { VisaoAgenda } from "@/tipos/agenda"
 
@@ -12,17 +13,21 @@ const visoes: Array<{ value: VisaoAgenda; label: string }> = [
 export function ToolbarAgenda({
   visao,
   periodoLabel,
+  modeloId,
   onVisaoChange,
   onAnterior,
   onProximo,
   onHoje,
+  onModeloChange,
 }: {
   visao: VisaoAgenda
   periodoLabel: string
+  modeloId: string | null
   onVisaoChange: (visao: VisaoAgenda) => void
   onAnterior: () => void
   onProximo: () => void
   onHoje: () => void
+  onModeloChange: (modeloId: string | null) => void
 }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-card p-3">
@@ -45,6 +50,8 @@ export function ToolbarAgenda({
       </div>
 
       <div className="flex items-center gap-2">
+        <FiltroModelo modeloId={modeloId} onChange={onModeloChange} />
+        <div className="mx-2 h-6 w-[1px] bg-border" />
         <Button variant="ghost" size="icon" onClick={onAnterior} aria-label="Período anterior">
           <ChevronLeft />
         </Button>

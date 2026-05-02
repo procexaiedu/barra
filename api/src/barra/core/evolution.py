@@ -68,6 +68,16 @@ class EvolutionClient:
             response.raise_for_status()
             return cast(dict[str, Any], response.json())
 
+    async def buscar_grupo_info(self, instance_id: str, group_jid: str) -> dict[str, Any]:
+        if not self.settings.evolution_base_url:
+            return {"status": "not_configured", "participants": []}
+        url = f"{self.settings.evolution_base_url.rstrip('/')}/group/findGroupInfos/{instance_id}"
+        headers = {"apikey": self.settings.evolution_api_key}
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(url, json={"groupJid": group_jid}, headers=headers)
+            response.raise_for_status()
+            return cast(dict[str, Any], response.json())
+
 
 async def registrar_envio(
     conn: AsyncConnection[Any],

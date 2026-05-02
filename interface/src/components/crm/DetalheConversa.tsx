@@ -9,36 +9,17 @@ import { AtendimentoAberto } from "@/components/crm/AtendimentoAberto"
 import { DadosCliente } from "@/components/crm/DadosCliente"
 import { DadosConversa } from "@/components/crm/DadosConversa"
 import { HistoricoAtendimentosConversa } from "@/components/crm/HistoricoAtendimentosConversa"
-import { ObservacoesInternas } from "@/components/crm/ObservacoesInternas"
 
 export function DetalheConversa({
   detalhe,
   status,
   error,
-  nomeInput,
-  observacoesInput,
-  observacoesDirty,
-  nomeDirty,
   onRetry,
-  onAlterarNome,
-  onSalvarNome,
-  onAlterarObservacoes,
-  onSalvarObservacoes,
-  onDescartarObservacoes,
 }: {
   detalhe: ConversaDetalheResponse | null
   status: "loading" | "success" | "error"
   error: string | null
-  nomeInput: string
-  observacoesInput: string
-  observacoesDirty: boolean
-  nomeDirty: boolean
   onRetry: () => void
-  onAlterarNome: (valor: string) => void
-  onSalvarNome: () => Promise<void>
-  onAlterarObservacoes: (valor: string) => void
-  onSalvarObservacoes: () => Promise<void>
-  onDescartarObservacoes: () => void
 }) {
   if (status === "loading") return <DetalheSkeleton />
   if (status === "error") return <BannerErro mensagem={error ?? undefined} onRetry={onRetry} />
@@ -50,39 +31,30 @@ export function DetalheConversa({
     : "Sem mensagens ainda"
 
   return (
-    <section aria-label="Detalhe da conversa" className="min-w-0 space-y-5">
-      <header className="rounded-lg border border-border bg-card p-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-xl font-semibold text-text-primary">{cliente}</h1>
+    <section aria-label="Detalhe da conversa" className="min-w-0 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-y-auto scroll-thin space-y-4 pr-1">
+        <header className="flex flex-wrap items-baseline gap-x-3 gap-y-1 pt-0.5">
+          <h1 className="text-lg font-semibold text-text-primary">{cliente}</h1>
           {detalhe.conversa.recorrente && <Badge variant="paused">Recorrente</Badge>}
+          <span className="ml-auto text-xs text-text-muted">{ultima}</span>
+          <p className="w-full text-[13px] text-text-muted">
+            Conversa com <span className="font-medium text-text-primary">{detalhe.modelo.nome}</span>
+          </p>
+        </header>
+
+        <div className="grid grid-cols-2 gap-4">
+          <DadosCliente
+            cliente={detalhe.cliente}
+            historico={detalhe.historico_atendimentos}
+          />
+
+          <DadosConversa conversa={detalhe.conversa} />
         </div>
-        <p className="mt-1 text-[13px] text-text-muted">
-          Conversa com <span className="text-text-primary">{detalhe.modelo.nome}</span>
-        </p>
-        <p className="mt-2 text-xs font-medium text-text-muted">{ultima}</p>
-      </header>
 
-      <DadosCliente
-        cliente={detalhe.cliente}
-        valor={nomeInput}
-        dirty={nomeDirty}
-        onChange={onAlterarNome}
-        onSave={onSalvarNome}
-      />
+        <AtendimentoAberto atendimento={detalhe.atendimento_aberto} />
 
-      <DadosConversa conversa={detalhe.conversa} />
-
-      <ObservacoesInternas
-        valor={observacoesInput}
-        dirty={observacoesDirty}
-        onChange={onAlterarObservacoes}
-        onSave={onSalvarObservacoes}
-        onDescartar={onDescartarObservacoes}
-      />
-
-      <AtendimentoAberto atendimento={detalhe.atendimento_aberto} />
-
-      <HistoricoAtendimentosConversa itens={detalhe.historico_atendimentos} />
+        <HistoricoAtendimentosConversa itens={detalhe.historico_atendimentos} />
+      </div>
     </section>
   )
 }

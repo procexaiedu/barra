@@ -1,54 +1,26 @@
 "use client"
 
-import { useState } from "react"
-import { Loader2 } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import { formatData, formatTelefone } from "@/lib/formatters"
-import type { ClienteDetalhe } from "@/tipos/crm"
+import { formatData, formatTelefone, formatBRL } from "@/lib/formatters"
+import type { ClienteDetalhe, AtendimentoHistoricoItem } from "@/tipos/crm"
 
 export function DadosCliente({
   cliente,
-  valor,
-  dirty,
-  onChange,
-  onSave,
+  historico,
 }: {
   cliente: ClienteDetalhe
-  valor: string
-  dirty: boolean
-  onChange: (valor: string) => void
-  onSave: () => Promise<void>
+  historico: AtendimentoHistoricoItem[]
 }) {
-  const [submitting, setSubmitting] = useState(false)
-  const [erro, setErro] = useState<string | null>(null)
-
-  const tooLong = valor.trim().length > 200
-
-  const handleChange = (proximo: string) => {
-    if (erro) setErro(null)
-    onChange(proximo)
-  }
-
-  const handleSave = async () => {
-    if (tooLong || submitting || !dirty) return
-    setSubmitting(true)
-    setErro(null)
-    try {
-      await onSave()
-    } catch (err) {
-      setErro(err instanceof Error ? err.message : "Erro desconhecido")
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  const fechados = historico.filter((h) => h.estado === "Fechado")
+  const perdidos = historico.filter((h) => h.estado === "Perdido")
+  const receita = fechados.reduce((acc, curr) => acc + (curr.valor_final || 0), 0)
+  const ticketMedio = fechados.length > 0 ? receita / fechados.length : 0
 
   return (
     <section
       aria-label="Dados do cliente"
-      className="rounded-lg border border-border bg-card p-6"
+      className="rounded-lg border border-border bg-card p-4"
     >
-      <h2 className="mb-4 text-base font-semibold text-text-primary">Dados do cliente</h2>
+      <h2 className="mb-3 text-sm font-semibold text-text-primary">Dados do cliente</h2>
       <dl className="space-y-4">
         <Linha rotulo="Telefone">
           <span className="font-mono text-xs text-text-muted">
@@ -56,33 +28,11 @@ export function DadosCliente({
           </span>
         </Linha>
 
-        <div>
-          <dt className="text-xs font-medium text-text-muted">Nome</dt>
-          <dd className="mt-1 flex flex-wrap items-center gap-2">
-            <Input
-              value={valor}
-              onChange={(event) => handleChange(event.target.value)}
-              disabled={submitting}
-              maxLength={220}
-              placeholder="Nome do cliente"
-              aria-invalid={tooLong || undefined}
-              className="h-9 max-w-[280px]"
-            />
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={!dirty || submitting || tooLong}
-              onClick={handleSave}
-            >
-              {submitting && <Loader2 size={14} strokeWidth={1.5} className="animate-spin" />}
-              Salvar nome
-            </Button>
-          </dd>
-          {tooLong && (
-            <p className="mt-1 text-[13px] text-state-lost">Máximo 200 caracteres.</p>
-          )}
-          {erro && <p className="mt-1 text-[13px] text-state-lost">{erro}</p>}
-        </div>
+        <Linha rotulo="Nome">
+          <span className="text-sm text-text-primary">
+            {cliente.nome || "Não informado"}
+          </span>
+        </Linha>
 
         <Linha rotulo="Primeiro contato">
           <span className="text-sm text-text-primary">
@@ -93,6 +43,32 @@ export function DadosCliente({
         <Linha rotulo="Cliente desde">
           <span className="text-sm text-text-primary">{formatData(cliente.created_at)}</span>
         </Linha>
+
+        <div className="pt-2 mt-2 border-t border-border">
+          <h3 className="mb-3 text-[13px] font-medium text-text-muted">Estatísticas do Cliente</h3>
+          <div className="space-y-2">
+            <Linha rotulo="Atendimentos Fechados">
+              <span className="text-sm font-medium text-text-primary">{fechados.length}</span>
+            </Linha>
+            <Linha rotulo="Atendimentos Perdidos">
+              <span className="text-sm text-text-primary">{perdidos.length}</span>
+            </Linha>
+            {fechados.length > 0 && (
+              <>
+                <Linha rotulo="Receita Total">
+                  <span className="text-sm font-medium text-state-won">
+                    {formatBRL(receita)}
+                  </span>
+                </Linha>
+                <Linha rotulo="Ticket Médio">
+                  <span className="text-sm text-text-primary">
+                    {formatBRL(ticketMedio)}
+                  </span>
+                </Linha>
+              </>
+            )}
+          </div>
+        </div>
       </dl>
     </section>
   )

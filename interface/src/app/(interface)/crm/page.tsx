@@ -50,56 +50,10 @@ const periodos: { value: FiltroPeriodo; label: string }[] = [
 
 export default function CRM() {
   const crm = useCrm()
-  const [trocarPara, setTrocarPara] = useState<string | null>(null)
-
-  const dirty = crm.observacoesDirty || crm.nomeDirty
 
   const handleSelecionar = (id: string) => {
     if (id === crm.selectedId) return
-    if (dirty) {
-      setTrocarPara(id)
-      return
-    }
     crm.selecionarConversa(id)
-  }
-
-  const confirmarTroca = () => {
-    if (trocarPara) {
-      crm.selecionarConversa(trocarPara)
-      setTrocarPara(null)
-    }
-  }
-
-  const cancelarTroca = () => setTrocarPara(null)
-
-  const salvarObservacoes = async () => {
-    try {
-      await crm.salvarObservacoes()
-      toast.success("Observações atualizadas")
-    } catch (err) {
-      const mensagem = err instanceof ApiError
-        ? err.detail
-        : err instanceof Error
-          ? err.message
-          : "Erro do servidor. Tente novamente."
-      toast.error(mensagem)
-      throw err
-    }
-  }
-
-  const salvarNome = async () => {
-    try {
-      await crm.salvarNomeCliente()
-      toast.success("Nome do cliente atualizado")
-    } catch (err) {
-      const mensagem = err instanceof ApiError
-        ? err.detail
-        : err instanceof Error
-          ? err.message
-          : "Erro do servidor. Tente novamente."
-      toast.error(mensagem)
-      throw err
-    }
   }
 
   return (
@@ -132,7 +86,7 @@ export default function CRM() {
         onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
       />
 
-      <div className="grid min-h-[calc(100vh-260px)] grid-cols-[360px_minmax(0,1fr)] gap-5">
+      <div className="grid h-[calc(100vh-220px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
         <ListaConversas
           items={crm.items}
           selectedId={crm.selectedId}
@@ -148,37 +102,11 @@ export default function CRM() {
           detalhe={crm.detalhe}
           status={crm.detalheStatus}
           error={crm.detalheError}
-          nomeInput={crm.nomeInput}
-          observacoesInput={crm.observacoesInput}
-          observacoesDirty={crm.observacoesDirty}
-          nomeDirty={crm.nomeDirty}
           onRetry={crm.refetch}
-          onAlterarNome={crm.alterarNome}
-          onSalvarNome={salvarNome}
-          onAlterarObservacoes={crm.alterarObservacoes}
-          onSalvarObservacoes={salvarObservacoes}
-          onDescartarObservacoes={crm.descartarObservacoes}
         />
       </div>
 
-      <AlertDialog open={trocarPara !== null} onOpenChange={(open) => !open && cancelarTroca()}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Descartar alterações não salvas?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Há edições pendentes nesta conversa. Trocar agora descarta o que ainda não foi salvo.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <Button variant="ghost" onClick={cancelarTroca}>
-              Cancelar
-            </Button>
-            <Button variant="danger" onClick={confirmarTroca}>
-              Descartar
-            </Button>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+
     </div>
   )
 }

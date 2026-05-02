@@ -4,6 +4,7 @@ from typing import Any
 
 from psycopg import AsyncConnection
 
+from barra.core.errors import ErroDominio
 from barra.core.evolution import EvolutionClient
 
 
@@ -18,6 +19,8 @@ async def enviar_texto_job(
     tipo: str,
     payload: dict[str, Any] | None = None,
 ) -> str:
+    if not instance_id:
+        raise ErroDominio("EVOLUTION_NAO_PAREADA", "Evolution nao pareada.", status_code=409)
     return await client.enviar_texto(
         conn=conn,
         instance_id=instance_id,

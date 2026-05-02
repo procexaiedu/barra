@@ -9,18 +9,24 @@ import type { PainelResumo } from "@/tipos/painel"
 
 type Status = "loading" | "success" | "error"
 
-export function usePainelResumo() {
+export function usePainelResumo(modeloId: string | null) {
   const [data, setData] = useState<PainelResumo | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const firstLoadDone = useRef(false)
+  const modeloIdRef = useRef(modeloId)
+
+  useEffect(() => {
+    modeloIdRef.current = modeloId
+  }, [modeloId])
 
   const fetchResumo = useCallback(async () => {
     if (!firstLoadDone.current) setStatus("loading")
     try {
-      const res = await api<PainelResumo>("/v1/painel/resumo")
+      const params = modeloIdRef.current ? `?modelo_id=${modeloIdRef.current}` : ""
+      const res = await api<PainelResumo>(`/v1/painel/resumo${params}`)
       setData(res)
       setStatus("success")
       setError(null)
@@ -38,14 +44,13 @@ export function usePainelResumo() {
     }, 250)
   }, [fetchResumo])
 
+  // Refetch imediato quando o filtro de modelo muda
   useEffect(() => {
-    const controller = new AbortController()
+    firstLoadDone.current = false
+    fetchResumo()
+  }, [modeloId, fetchResumo])
 
-    const init = async () => {
-      await fetchResumo()
-    }
-    init()
-
+  useEffect(() => {
     const cleanupRealtime = subscribeTabelas(
       "painel",
       ["atendimentos", "comprovantes_pix", "bloqueios", "eventos"],
@@ -60,12 +65,11 @@ export function usePainelResumo() {
     })
 
     return () => {
-      controller.abort()
       cleanupRealtime()
       authSub.subscription.unsubscribe()
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [fetchResumo, debouncedRefetch, router])
+  }, [debouncedRefetch, router])
 
   return { data, status, error, refetch: fetchResumo }
 }

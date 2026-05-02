@@ -49,11 +49,18 @@ export function BloqueioAgenda({
         bloqueio.estado === "cancelado" && "opacity-60"
       )}
     >
-      <div className="flex items-center gap-2">
-        <span className="font-mono text-xs font-medium text-text-muted">
-          {formatHorario(bloqueio.inicio)}-{formatHorario(bloqueio.fim)}
-        </span>
-        {!compacto && <Badge variant={estado.variant}>{estado.label}</Badge>}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-xs font-medium text-text-muted">
+            {formatHorario(bloqueio.inicio)}-{formatHorario(bloqueio.fim)}
+          </span>
+          {!compacto && <Badge variant={estado.variant}>{estado.label}</Badge>}
+        </div>
+        {bloqueio.modelo_nome && (
+          <span className="truncate text-[10px] font-medium uppercase tracking-wider text-text-muted">
+            {bloqueio.modelo_nome.split(" ")[0]}
+          </span>
+        )}
       </div>
       <p
         className={cn(

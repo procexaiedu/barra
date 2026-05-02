@@ -19,6 +19,7 @@ export function ItemAtendimento({
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
   const meta = [
     item.modelo.nome,
+    `#${item.numero_curto}`,
     item.tipo_atendimento ? tipoLabel[item.tipo_atendimento] : null,
     item.urgencia ? urgenciaLabel[item.urgencia] : null,
   ]
@@ -45,26 +46,20 @@ export function ItemAtendimento({
       onClick={() => onSelect(item.id)}
       onKeyDown={handleKeyDown}
       className={cn(
-        "min-h-[88px] cursor-pointer border-l-3 bg-card px-4 py-3 transition-colors hover:bg-ink-200",
+        "cursor-pointer border-l-3 bg-card px-4 py-3 transition-colors hover:bg-ink-200",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
         selected ? "bg-ink-200" : "",
         border
       )}
     >
-      <div className="flex items-center gap-2">
-        <Badge variant={badgeForEstado(item.estado)}>{estadoLabel[item.estado]}</Badge>
-        <span className="font-mono text-xs text-text-muted">#{item.numero_curto}</span>
-        <span className="ml-auto text-xs font-medium text-text-muted">
+      <div className="flex min-w-0 items-center gap-2">
+        <p className="flex-1 truncate text-sm font-semibold text-text-primary">{cliente}</p>
+        <Badge variant={badgeForEstado(item.estado)} className="shrink-0">{estadoLabel[item.estado]}</Badge>
+        <span className="shrink-0 text-xs font-medium text-text-muted">
           {formatTempoRelativo(item.updated_at)}
         </span>
       </div>
-      <p className="mt-2 truncate text-sm font-semibold text-text-primary">{cliente}</p>
-      <p className="truncate text-[13px] text-text-muted">{meta}</p>
-      {item.ia_pausada && (item.proxima_acao_esperada || item.motivo_escalada) && (
-        <p className="mt-1 line-clamp-1 text-[13px] text-state-handoff">
-          {item.proxima_acao_esperada ?? item.motivo_escalada}
-        </p>
-      )}
+      <p className="mt-0.5 truncate text-[11px] text-text-muted">{meta}</p>
     </article>
   )
 }

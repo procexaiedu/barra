@@ -9,6 +9,12 @@ export type RealtimeTabela =
   | 'conversas'
   | 'clientes'
   | 'escaladas'
+  | 'modelos'
+  | 'modelo_faq'
+  | 'modelo_midia'
+  | 'modelo_servicos'
+  | 'programas'
+  | 'modelo_programas'
 
 export function subscribeTabelas(canalNome: string, tabelas: RealtimeTabela[], onEvent: () => void) {
   const channels = tabelas.map((t) =>

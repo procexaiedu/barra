@@ -28,7 +28,7 @@ export function AtalhoContextual({
       text: "Conectar WhatsApp da modelo",
       icon: QrCode,
       variant: "default",
-      href: modeloAtiva ? `/modelos/${modeloAtiva.id}?aba=perfil` : "#",
+      href: modeloAtiva ? `/modelos?modelo=${modeloAtiva.id}&aba=perfil` : "#",
     },
     {
       key: "pix",

@@ -9,6 +9,18 @@ function dataIso(data: string) {
   return `${data}T12:00:00-03:00`
 }
 
+function horaBrt(iso: string): string {
+  const partes = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(iso))
+  const h = partes.find((p) => p.type === "hour")?.value ?? "00"
+  const m = partes.find((p) => p.type === "minute")?.value ?? "00"
+  return `${h.padStart(2, "0")}:${m.padStart(2, "0")}`
+}
+
 export function PainelDia({
   dataSelecionada,
   bloqueios,
@@ -20,7 +32,7 @@ export function PainelDia({
   onCriarSlot: (horario: string) => void
   onEditarBloqueio: (bloqueio: BloqueioAgendaTipo) => void
 }) {
-  const porHora = new Map(bloqueios.map((b) => [b.inicio.slice(11, 16), b]))
+  const porHora = new Map(bloqueios.map((b) => [horaBrt(b.inicio), b]))
   const vazio = bloqueios.length === 0
 
   return (
@@ -36,7 +48,7 @@ export function PainelDia({
       {vazio && (
         <div className="mb-3 rounded-lg border border-border bg-background p-3">
           <p className="text-sm font-medium text-text-primary">Dia livre.</p>
-          <p className="text-sm text-text-muted">Clique em um horário para bloquear uma janela.</p>
+          <p className="text-sm text-text-muted">Clique em um horário para bloqueá-lo.</p>
         </div>
       )}
       <div className="max-h-[calc(100vh-280px)] space-y-2 overflow-y-auto pr-1">

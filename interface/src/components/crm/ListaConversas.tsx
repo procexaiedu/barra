@@ -29,12 +29,12 @@ export function ListaConversas({
   onCarregarMais: () => void
 }) {
   return (
-    <section aria-label="Lista de conversas" className="min-w-0">
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <section aria-label="Lista de conversas" className="min-w-0 flex flex-col overflow-hidden">
+      <div className="flex-1 min-h-0 overflow-y-auto scroll-thin rounded-lg border border-border bg-card">
         {status === "loading" ? (
           <div aria-busy="true" className="space-y-px">
-            {Array.from({ length: 8 }).map((_, index) => (
-              <Skeleton key={index} className="h-[88px] rounded-none" />
+            {Array.from({ length: 12 }).map((_, index) => (
+              <Skeleton key={index} className="h-[60px] rounded-none" />
             ))}
           </div>
         ) : status === "error" ? (

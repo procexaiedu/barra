@@ -1,5 +1,7 @@
 """Envelope de erro HTTP e excecoes previsiveis do dominio."""
 
+import logging
+import traceback
 from typing import Any
 
 from fastapi import FastAPI, Request
@@ -8,6 +10,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette import status
 from starlette.exceptions import HTTPException as StarletteHTTPException
+
+logger = logging.getLogger(__name__)
 
 
 class ErroDominio(Exception):
@@ -110,9 +114,22 @@ def instalar_handlers(app: FastAPI) -> None:
         return erro_response(exc.status_code, code, str(exc.detail))
 
     @app.exception_handler(Exception)
-    async def inesperado_handler(_: Request, __: Exception) -> JSONResponse:
-        return erro_response(
+    async def inesperado_handler(request: Request, exc: Exception) -> JSONResponse:
+        tb = "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+        logger.error("Erro inesperado em %s %s: %s\n%s", request.method, request.url, exc, tb)
+        ambiente = getattr(request.app.state.settings, "ambiente", "producao")
+        details = {"trace": tb, "exc": f"{type(exc).__name__}: {exc}"} if ambiente == "desenvolvimento" else None
+        response = erro_response(
             status.HTTP_500_INTERNAL_SERVER_ERROR,
             "ERRO_INTERNO",
             "Erro inesperado.",
+            details,
         )
+        # CORSMiddleware do Starlette não intercepta respostas geradas neste handler;
+        # ecoamos os headers manualmente para o navegador não bloquear o erro.
+        origin = request.headers.get("origin")
+        if origin:
+            response.headers["access-control-allow-origin"] = origin
+            response.headers["access-control-allow-credentials"] = "true"
+            response.headers["vary"] = "Origin"
+        return response

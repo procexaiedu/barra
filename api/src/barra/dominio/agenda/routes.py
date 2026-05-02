@@ -21,11 +21,24 @@ async def listar_bloqueios(
     estado: str | None = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
-    modelo = await _modelo_ativa(conn, modelo_id)
-    if modelo is None:
-        return {"modelo": None, "inicio": inicio, "fim": fim, "bloqueios": []}
+    if modelo_id:
+        result = await conn.execute(
+            "SELECT id, nome FROM barravips.modelos WHERE id = %s",
+            (modelo_id,),
+        )
+        row = await result.fetchone()
+        if not row:
+            return {"modelo": None, "inicio": inicio, "fim": fim, "bloqueios": []}
+        modelo = {"id": str(row["id"]), "nome": row["nome"]}
+    else:
+        modelo = None
 
-    params: list[Any] = [modelo["id"], inicio, fim]
+    params: list[Any] = [fim, inicio]
+    filtro_modelo = ""
+    if modelo_id:
+        filtro_modelo = "AND b.modelo_id = %s"
+        params.append(modelo_id)
+        
     filtro_estado = ""
     if estado:
         filtro_estado = "AND b.estado = %s"
@@ -40,13 +53,15 @@ async def listar_bloqueios(
           a.numero_curto,
           a.estado::text AS atendimento_estado,
           c.nome AS cliente_nome,
-          c.telefone AS cliente_telefone
+          c.telefone AS cliente_telefone,
+          m.nome AS modelo_nome
           FROM barravips.bloqueios b
           LEFT JOIN barravips.atendimentos a ON a.id = b.atendimento_id
           LEFT JOIN barravips.clientes c ON c.id = a.cliente_id
-         WHERE b.modelo_id = %s
-           AND b.inicio < %s
+          LEFT JOIN barravips.modelos m ON m.id = b.modelo_id
+         WHERE b.inicio < %s
            AND b.fim > %s
+           {filtro_modelo}
            {filtro_estado}
          ORDER BY b.inicio ASC
         """,
@@ -149,20 +164,11 @@ async def _bloqueio(conn: AsyncConnection[Any], bloqueio_id: UUID) -> dict[str, 
 
 async def _modelo_ativa(conn: AsyncConnection[Any], modelo_id: UUID | None) -> dict[str, str] | None:
     if modelo_id is None:
-        result = await conn.execute(
-            """
-            SELECT id, nome
-              FROM barravips.modelos
-             WHERE status = 'ativa'
-             ORDER BY created_at ASC
-             LIMIT 1
-            """
-        )
-    else:
-        result = await conn.execute(
-            "SELECT id, nome FROM barravips.modelos WHERE id = %s",
-            (modelo_id,),
-        )
+        return None
+    result = await conn.execute(
+        "SELECT id, nome FROM barravips.modelos WHERE id = %s",
+        (modelo_id,),
+    )
     row = await result.fetchone()
     if row is None:
         return None
@@ -182,6 +188,7 @@ def _formatar_bloqueio(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": str(row["id"]),
         "modelo_id": str(row["modelo_id"]),
+        "modelo_nome": row.get("modelo_nome"),
         "inicio": row["inicio"],
         "fim": row["fim"],
         "estado": row["estado"],

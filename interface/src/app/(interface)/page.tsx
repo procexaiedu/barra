@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import { CheckCircle2, CalendarOff } from "lucide-react"
 import Link from "next/link"
 import { usePainelResumo } from "@/hooks/usePainelResumo"
@@ -15,7 +16,8 @@ import { Button } from "@/components/ui/button"
 import { formatBRL, formatDiaSemana, formatData } from "@/lib/formatters"
 
 export default function PainelGeral() {
-  const { data, status, error, refetch } = usePainelResumo()
+  const [modeloId, setModeloId] = useState<string | null>(null)
+  const { data, status, error, refetch } = usePainelResumo(modeloId)
 
   if (status === "loading") {
     return <PainelSkeleton />
@@ -32,12 +34,18 @@ export default function PainelGeral() {
   const agora = new Date()
   const diaSemana = formatDiaSemana(agora)
   const dataFormatada = formatData(agora.toISOString())
+  const mostrarModelo = modeloId === null && data.modelos_ativas.length > 1
+
+  const modeloAtiva = modeloId
+    ? (data.modelos_ativas.find((m) => m.id === modeloId) ?? null)
+    : (data.modelos_ativas[0] ?? null)
 
   return (
     <div>
       <HeaderPainel
-        modeloAtiva={data.modelo_ativa}
-        modelosAtivasCount={data.modelos_ativas_count}
+        modelos={data.modelos_ativas}
+        modeloId={modeloId}
+        onModeloChange={setModeloId}
       />
 
       <section aria-label="Aguardando você" className="px-8 py-5">
@@ -67,7 +75,7 @@ export default function PainelGeral() {
         ) : (
           <div className="grid gap-4 xl:grid-cols-2">
             {data.cards_destaque.map((card) => (
-              <CardDestaque key={card.atendimento_id} card={card} />
+              <CardDestaque key={card.atendimento_id} card={card} mostrarModelo={mostrarModelo} />
             ))}
           </div>
         )}
@@ -121,7 +129,7 @@ export default function PainelGeral() {
         ) : (
           <Card className="overflow-hidden rounded-lg bg-card">
             {data.agenda_dia.map((linha) => (
-              <LinhaAgenda key={linha.id} linha={linha} />
+              <LinhaAgenda key={linha.id} linha={linha} mostrarModelo={mostrarModelo} />
             ))}
           </Card>
         )}
@@ -129,7 +137,7 @@ export default function PainelGeral() {
 
       <AtalhoContextual
         metricas={data.metricas_dia}
-        modeloAtiva={data.modelo_ativa}
+        modeloAtiva={modeloAtiva}
       />
     </div>
   )

@@ -127,7 +127,7 @@ export function AcoesAtendimento({
         variant={devolverVisivel ? "secondary" : "primary"}
         onClick={() => abrirDialog("fechar")}
       >
-        Fechar
+        Converter
       </Button>
       <Button variant="danger" onClick={() => abrirDialog("perder")}>
         Perder
@@ -156,10 +156,10 @@ export function AcoesAtendimento({
         <AlertDialogContent className="max-w-md bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-lg font-semibold text-text-primary">
-              Fechar #{atendimento.numero_curto}?
+              Converter #{atendimento.numero_curto}?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">
-              Informe o valor final bruto pago pelo cliente. O atendimento será encerrado como fechado.
+              Informe o valor final bruto pago pelo cliente.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div>

@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 import type { LinhaAgenda as LinhaAgendaType, EstadoBloqueio, OrigemBloqueio } from "@/tipos/painel"
 
 const BADGE_MAP: Record<EstadoBloqueio, { variant: "paused" | "active" | "closed"; label: string }> = {
-  bloqueado: { variant: "paused", label: "Bloqueado" },
+  bloqueado: { variant: "paused", label: "Agendado" },
   em_atendimento: { variant: "active", label: "Em atendimento" },
   concluido: { variant: "closed", label: "Concluído" },
   cancelado: { variant: "paused", label: "Cancelado" },
@@ -21,7 +21,7 @@ const ORIGEM_ICON: Record<OrigemBloqueio, { icon: typeof Bot; tooltip: string }>
   manual: { icon: Hand, tooltip: "Manual" },
 }
 
-export function LinhaAgenda({ linha }: { linha: LinhaAgendaType }) {
+export function LinhaAgenda({ linha, mostrarModelo = false }: { linha: LinhaAgendaType; mostrarModelo?: boolean }) {
   const router = useRouter()
   const badge = BADGE_MAP[linha.estado]
   const origem = ORIGEM_ICON[linha.origem]
@@ -61,6 +61,9 @@ export function LinhaAgenda({ linha }: { linha: LinhaAgendaType }) {
       </span>
       <Badge variant={badge.variant}>{badge.label}</Badge>
       <span className="flex-1 truncate text-[13px] text-text-primary">{nomeCliente}</span>
+      {mostrarModelo && (
+        <span className="text-xs text-text-muted">{linha.modelo_nome}</span>
+      )}
       <Tooltip>
         <TooltipTrigger render={<span />} className="inline-flex">
           <OrigemIcon size={16} strokeWidth={1.5} className="text-text-muted" />

@@ -13,11 +13,23 @@
       "skillPath": "skills/engineering/grill-with-docs/SKILL.md",
       "computedHash": "9af5586344afb431269b49915947218c06852781ddaa4f6d65f746240f645703"
     },
+    "impeccable": {
+      "source": "pbakaus/impeccable",
+      "sourceType": "github",
+      "skillPath": ".agents/skills/impeccable/SKILL.md",
+      "computedHash": "e2dba713f87180d0a8cf982d4f1664fadc155a13e1e5aa3d79c48f44b0f9c3a9"
+    },
     "supabase-postgres-best-practices": {
       "source": "supabase/agent-skills",
       "sourceType": "github",
       "skillPath": "skills/supabase-postgres-best-practices/SKILL.md",
       "computedHash": "8e41c7417894e6f394614ee7ca3ee5322b1e58d890255d441f42dea98732597f"
+    },
+    "ui-ux-pro-max": {
+      "source": "nextlevelbuilder/ui-ux-pro-max-skill",
+      "sourceType": "github",
+      "skillPath": ".claude/skills/ui-ux-pro-max/SKILL.md",
+      "computedHash": "6337038fe1fe6bbe1b9f252ab678ee575859190bab6f0f246f4061824eb40875"
     },
     "vercel-composition-patterns": {
       "source": "vercel-labs/agent-skills",

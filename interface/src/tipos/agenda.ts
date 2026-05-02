@@ -18,6 +18,7 @@ export interface AtendimentoAgendaResumo {
 export interface BloqueioAgenda {
   id: string
   modelo_id: string
+  modelo_nome?: string
   inicio: string
   fim: string
   estado: EstadoBloqueio
@@ -48,6 +49,7 @@ export interface AtualizarBloqueioInput {
 }
 
 export interface BloqueioFormState {
+  modelo_id?: string
   data: string
   inicio: string
   fim: string

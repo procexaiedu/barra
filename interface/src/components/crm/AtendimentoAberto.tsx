@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { formatBRL } from "@/lib/formatters"
 import type { AtendimentoAberto as AtendimentoAbertoTipo } from "@/tipos/crm"
 import { badgeForEstado, estadoAtendimentoLabel } from "@/components/crm/utils"
+import { tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 
 export function AtendimentoAberto({ atendimento }: { atendimento: AtendimentoAbertoTipo | null }) {
   const router = useRouter()
@@ -34,8 +35,8 @@ export function AtendimentoAberto({ atendimento }: { atendimento: AtendimentoAbe
           {(atendimento.tipo_atendimento || atendimento.urgencia || atendimento.valor_acordado !== null) && (
             <p className="mt-2 text-[13px] text-text-muted">
               {[
-                atendimento.tipo_atendimento,
-                atendimento.urgencia,
+                atendimento.tipo_atendimento ? tipoLabel[atendimento.tipo_atendimento] : null,
+                atendimento.urgencia ? urgenciaLabel[atendimento.urgencia] : null,
                 atendimento.valor_acordado !== null
                   ? formatBRL(Number(atendimento.valor_acordado))
                   : null,

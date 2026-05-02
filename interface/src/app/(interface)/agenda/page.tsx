@@ -9,7 +9,7 @@ import { PainelDia } from "@/components/agenda/PainelDia"
 import { ToolbarAgenda } from "@/components/agenda/ToolbarAgenda"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
-import { isoAgenda, useAgenda } from "@/hooks/useAgenda"
+import { dataBrt, isoAgenda, useAgenda } from "@/hooks/useAgenda"
 import type { BloqueioAgenda, BloqueioFormState } from "@/tipos/agenda"
 
 function proximoFim(inicio: string) {
@@ -44,7 +44,7 @@ export default function Agenda() {
     [agenda.agenda?.bloqueios]
   )
   const bloqueiosDia = useMemo(
-    () => bloqueios.filter((b) => b.inicio.slice(0, 10) === agenda.dataSelecionada),
+    () => bloqueios.filter((b) => dataBrt(b.inicio) === agenda.dataSelecionada),
     [agenda.dataSelecionada, bloqueios]
   )
 
@@ -55,9 +55,9 @@ export default function Agenda() {
   }
 
   const criar = async (form: BloqueioFormState) => {
-    const modeloId = agenda.agenda?.modelo?.id
+    const modeloId = form.modelo_id ?? agenda.agenda?.modelo?.id
     if (!modeloId) {
-      toast.error("Nenhuma modelo ativa.")
+      toast.error("Selecione uma modelo.")
       return
     }
     try {
@@ -105,7 +105,7 @@ export default function Agenda() {
   if (agenda.status === "error") {
     return (
       <section className="space-y-6">
-        <HeaderAgenda modelo={null} bloqueios={[]} />
+        <HeaderAgenda modelo={agenda.modeloId ? (agenda.agenda?.modelo ?? null) : null} bloqueios={[]} />
         <BannerErro mensagem={agenda.error ?? undefined} onRetry={agenda.refetch} />
       </section>
     )
@@ -113,14 +113,16 @@ export default function Agenda() {
 
   return (
     <section className="space-y-6">
-      <HeaderAgenda modelo={agenda.agenda?.modelo ?? null} bloqueios={bloqueios} />
+      <HeaderAgenda modelo={agenda.modeloId ? (agenda.agenda?.modelo ?? null) : null} bloqueios={bloqueios} />
       <ToolbarAgenda
         visao={agenda.visao}
         periodoLabel={agenda.periodo.label}
+        modeloId={agenda.modeloId}
         onVisaoChange={agenda.setVisao}
         onAnterior={agenda.anterior}
         onProximo={agenda.proximo}
         onHoje={agenda.hoje}
+        onModeloChange={agenda.setModeloId}
       />
       <div className="grid grid-cols-[minmax(0,1fr)_minmax(360px,420px)] items-start gap-6">
         <CalendarioMes

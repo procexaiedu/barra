@@ -21,7 +21,7 @@ export const estadoAtendimentoLabel: Record<EstadoAtendimento, string> = {
   Qualificado: "Qualificado",
   Aguardando_confirmacao: "Aguardando confirmação",
   Confirmado: "Confirmado",
-  Em_execucao: "Em execução",
+  Em_execucao: "Em atendimento",
   Fechado: "Fechado",
   Perdido: "Perdido",
 }

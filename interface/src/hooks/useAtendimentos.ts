@@ -23,7 +23,16 @@ const filtrosIniciais: FiltrosAtendimentos = {
   ia: "todos",
 }
 
-function buildListaPath(filtros: FiltrosAtendimentos, cursor?: string | null) {
+export interface FiltrosUrlAtendimentos {
+  motivoPerda?: string | null
+  motivoEscalada?: string | null
+}
+
+function buildListaPath(
+  filtros: FiltrosAtendimentos,
+  filtrosUrl: FiltrosUrlAtendimentos,
+  cursor?: string | null
+) {
   const params = new URLSearchParams({ limit: "50" })
   const busca = filtros.busca.trim()
   if (busca) params.set("q", busca.startsWith("#") ? busca.slice(1) : busca)
@@ -31,12 +40,25 @@ function buildListaPath(filtros: FiltrosAtendimentos, cursor?: string | null) {
   if (filtros.tipo !== "todos") params.set("tipo_atendimento", filtros.tipo)
   if (filtros.urgencia !== "todas") params.set("urgencia", filtros.urgencia)
   if (filtros.ia !== "todos") params.set("ia_pausada", filtros.ia === "pausada" ? "true" : "false")
+  if (filtrosUrl.motivoPerda && filtros.estado === "Perdido") {
+    params.set("motivo_perda", filtrosUrl.motivoPerda)
+  }
+  if (filtrosUrl.motivoEscalada && filtros.ia === "pausada") {
+    params.set("motivo_escalada", filtrosUrl.motivoEscalada)
+  }
   if (cursor) params.set("cursor", cursor)
   return `/v1/atendimentos?${params.toString()}`
 }
 
-export function useAtendimentos() {
-  const [filtros, setFiltros] = useState<FiltrosAtendimentos>(filtrosIniciais)
+export function useAtendimentos(
+  initialId?: string | null,
+  filtrosIniciaisOverride?: Partial<FiltrosAtendimentos>,
+  filtrosUrl: FiltrosUrlAtendimentos = {}
+) {
+  const [filtros, setFiltros] = useState<FiltrosAtendimentos>(() => ({
+    ...filtrosIniciais,
+    ...filtrosIniciaisOverride,
+  }))
   const [debouncedBusca, setDebouncedBusca] = useState("")
   const [items, setItems] = useState<AtendimentoListaItem[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -51,11 +73,13 @@ export function useAtendimentos() {
   const nextCursorRef = useRef<string | null>(null)
   const detalheRef = useRef<AtendimentoDetalheResponse | null>(null)
   const selectedIdRef = useRef<string | null>(null)
+  const pendingInitialId = useRef<string | null>(initialId ?? null)
   const firstListaDone = useRef(false)
   const firstDetalheDone = useRef(false)
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const buscaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeEvents = useRef(0)
+  const filtrosUrlRef = useRef<FiltrosUrlAtendimentos>(filtrosUrl)
 
   const filtrosEfetivos = useMemo(
     () => ({ ...filtros, busca: debouncedBusca }),
@@ -107,7 +131,7 @@ export function useAtendimentos() {
     if (!firstListaDone.current && mode === "replace") setListaStatus("loading")
     try {
       const cursor = mode === "append" ? nextCursorRef.current : null
-      const res = await api<AtendimentosListaResponse>(buildListaPath(filtrosEfetivos, cursor))
+      const res = await api<AtendimentosListaResponse>(buildListaPath(filtrosEfetivos, filtrosUrlRef.current, cursor))
       const novosItems = mode === "append" ? [...itemsRef.current, ...res.items] : res.items
       itemsRef.current = novosItems
       nextCursorRef.current = res.next_cursor
@@ -119,7 +143,10 @@ export function useAtendimentos() {
 
       const atual = selectedIdRef.current
       const deveManter = manterSelecao && atual && novosItems.some((item) => item.id === atual)
-      const proximoId = deveManter ? atual : novosItems[0]?.id ?? null
+      const pendingId = pendingInitialId.current
+      const initialMatch = pendingId && novosItems.some((item) => item.id === pendingId) ? pendingId : null
+      if (initialMatch) pendingInitialId.current = null
+      const proximoId = deveManter ? atual : (initialMatch ?? novosItems[0]?.id ?? null)
       if (proximoId) {
         if (proximoId !== atual || !detalheRef.current || atualizarDetalhe) selectAtendimento(proximoId)
       } else {
@@ -178,6 +205,10 @@ export function useAtendimentos() {
       loadLista("replace", true, true)
     }, 250)
   }, [loadLista])
+
+  useEffect(() => {
+    filtrosUrlRef.current = filtrosUrl
+  }, [filtrosUrl])
 
   useEffect(() => {
     if (buscaTimer.current) clearTimeout(buscaTimer.current)

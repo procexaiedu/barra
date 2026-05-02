@@ -2,8 +2,9 @@
 
 from datetime import datetime, time, timedelta, timezone
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from psycopg import AsyncConnection
 
 from barra.api.deps import get_conn, get_user
@@ -35,6 +36,7 @@ def _formatar_telefone(telefone: str | None) -> str:
 
 @router.get("/resumo")
 async def painel_resumo(
+    modelo_id: UUID | None = Query(None),
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     agora = datetime.now(BRT)
@@ -48,19 +50,21 @@ async def painel_resumo(
          ORDER BY created_at ASC
         """
     )
-    modelos_ativas = list(await modelo_result.fetchall())
-
-    modelo_ativa = None
-    if modelos_ativas:
-        m = modelos_ativas[0]
-        modelo_ativa = {
+    modelos_ativas = [
+        {
             "id": str(m["id"]),
             "nome": m["nome"],
             "evolution_instance_id": m["evolution_instance_id"],
         }
+        for m in await modelo_result.fetchall()
+    ]
+
+    # Filtro de modelo para as queries abaixo
+    filtro_modelo_sql = "AND a.modelo_id = %s" if modelo_id else ""
+    filtro_modelo_params: tuple[Any, ...] = (modelo_id,) if modelo_id else ()
 
     cards_result = await conn.execute(
-        """
+        f"""
         SELECT
           a.id AS atendimento_id,
           a.numero_curto,
@@ -75,13 +79,17 @@ async def painel_resumo(
           a.foto_portaria_em,
           a.duracao_horas,
           a.data_desejada,
-          a.horario_desejado
+          a.horario_desejado,
+          m.nome AS modelo_nome
         FROM barravips.atendimentos a
         JOIN barravips.clientes c ON c.id = a.cliente_id
+        JOIN barravips.modelos m ON m.id = a.modelo_id
         WHERE a.ia_pausada = true
           AND a.ia_pausada_motivo IN ('pix_em_revisao', 'modelo_em_atendimento', 'handoff_ia')
+          {filtro_modelo_sql}
         ORDER BY a.updated_at ASC NULLS LAST
-        """
+        """,
+        filtro_modelo_params,
     )
     cards_rows = list(await cards_result.fetchall())
 
@@ -105,23 +113,30 @@ async def painel_resumo(
             "ia_pausada_em": row["ia_pausada_em"].isoformat() if row["ia_pausada_em"] else None,
             "previsao_termino": previsao.isoformat() if previsao else None,
             "expirado": expirado,
+            "modelo_nome": row["modelo_nome"],
         })
 
     ordem_motivo = {"pix_em_revisao": 0, "handoff_ia": 1, "modelo_em_atendimento": 2}
     cards_destaque.sort(key=lambda c: (ordem_motivo.get(c["ia_pausada_motivo"], 9), c["ia_pausada_em"] or ""))
 
+    filtro_modelo_aten = "AND modelo_id = %s" if modelo_id else ""
+
     abertos_result = await conn.execute(
-        """
+        f"""
         SELECT COUNT(*) AS n
           FROM barravips.atendimentos
          WHERE estado NOT IN ('Fechado', 'Perdido')
-        """
+           {filtro_modelo_aten}
+        """,
+        filtro_modelo_params,
     )
     abertos_row = await abertos_result.fetchone()
     abertos = abertos_row["n"] if abertos_row else 0
 
+    filtro_modelo_eventos = "AND a.modelo_id = %s" if modelo_id else ""
+
     fechamentos_result = await conn.execute(
-        """
+        f"""
         SELECT COUNT(DISTINCT a.id) AS n
           FROM barravips.atendimentos a
           JOIN barravips.eventos e ON e.atendimento_id = a.id
@@ -129,14 +144,15 @@ async def painel_resumo(
            AND e.tipo = 'fechado_registrado'
            AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
            AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           {filtro_modelo_eventos}
         """,
-        (inicio_dia, fim_dia),
+        (inicio_dia, fim_dia, *filtro_modelo_params),
     )
     fechamentos_row = await fechamentos_result.fetchone()
     fechamentos_hoje = fechamentos_row["n"] if fechamentos_row else 0
 
     perdas_result = await conn.execute(
-        """
+        f"""
         SELECT COUNT(DISTINCT a.id) AS n
           FROM barravips.atendimentos a
           JOIN barravips.eventos e ON e.atendimento_id = a.id
@@ -144,14 +160,15 @@ async def painel_resumo(
            AND e.tipo = 'perdido_registrado'
            AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
            AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           {filtro_modelo_eventos}
         """,
-        (inicio_dia, fim_dia),
+        (inicio_dia, fim_dia, *filtro_modelo_params),
     )
     perdas_row = await perdas_result.fetchone()
     perdas_hoje = perdas_row["n"] if perdas_row else 0
 
     valor_result = await conn.execute(
-        """
+        f"""
         SELECT COALESCE(SUM(a.valor_final), 0) AS total
           FROM barravips.atendimentos a
           JOIN barravips.eventos e ON e.atendimento_id = a.id
@@ -159,40 +176,49 @@ async def painel_resumo(
            AND e.tipo = 'fechado_registrado'
            AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
            AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           {filtro_modelo_eventos}
         """,
-        (inicio_dia, fim_dia),
+        (inicio_dia, fim_dia, *filtro_modelo_params),
     )
     valor_row = await valor_result.fetchone()
     valor_bruto = float(valor_row["total"]) if valor_row else 0.0
 
+    pix_filtro = "AND a.modelo_id = %s" if modelo_id else ""
     pix_result = await conn.execute(
-        """
+        f"""
         SELECT COUNT(*) AS n
-          FROM barravips.comprovantes_pix
-         WHERE decisao_pipeline = 'em_revisao'
-           AND decisao_final IS NULL
-        """
+          FROM barravips.comprovantes_pix p
+          JOIN barravips.atendimentos a ON a.id = p.atendimento_id
+         WHERE p.decisao_pipeline = 'em_revisao'
+           AND p.decisao_final IS NULL
+           {pix_filtro}
+        """,
+        filtro_modelo_params,
     )
     pix_row = await pix_result.fetchone()
     pix_pendentes = pix_row["n"] if pix_row else 0
 
+    filtro_bloqueio = "AND b.modelo_id = %s" if modelo_id else ""
     agenda_result = await conn.execute(
-        """
+        f"""
         SELECT
           b.id, b.inicio, b.fim,
           b.estado::text AS estado,
           b.origem::text AS origem,
           c.nome AS cliente_nome,
           b.observacao,
-          b.atendimento_id
+          b.atendimento_id,
+          m.nome AS modelo_nome
         FROM barravips.bloqueios b
+        JOIN barravips.modelos m ON m.id = b.modelo_id
         LEFT JOIN barravips.atendimentos a ON a.id = b.atendimento_id
         LEFT JOIN barravips.clientes c ON c.id = a.cliente_id
         WHERE b.inicio AT TIME ZONE 'America/Sao_Paulo' <= %s
           AND b.fim AT TIME ZONE 'America/Sao_Paulo' >= %s
+          {filtro_bloqueio}
         ORDER BY b.inicio ASC
         """,
-        (fim_dia, inicio_dia),
+        (fim_dia, inicio_dia, *filtro_modelo_params),
     )
     agenda_rows = list(await agenda_result.fetchall())
 
@@ -206,13 +232,13 @@ async def painel_resumo(
             "cliente_nome": row["cliente_nome"],
             "observacao": row["observacao"],
             "atendimento_id": str(row["atendimento_id"]) if row["atendimento_id"] else None,
+            "modelo_nome": row["modelo_nome"],
         }
         for row in agenda_rows
     ]
 
     return {
-        "modelo_ativa": modelo_ativa,
-        "modelos_ativas_count": len(modelos_ativas),
+        "modelos_ativas": modelos_ativas,
         "cards_destaque": cards_destaque,
         "metricas_dia": {
             "abertos": abertos,

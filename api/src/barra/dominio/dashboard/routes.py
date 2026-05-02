@@ -41,14 +41,15 @@ class Janela:
 
 @router.get("")
 async def dashboard(
-    periodo: Literal["hoje", "7d", "30d", "custom"] = "7d",
+    periodo: Literal["hoje", "7d", "30d", "tudo", "custom"] = "7d",
     de: date | None = None,
     ate: date | None = None,
     modelo_id: UUID | None = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     janela = _resolver_janela(periodo, de, ate)
-    janela_anterior = _janela_anterior(janela)
+    # "tudo" abrange toda a operação — comparação com período anterior não faz sentido.
+    janela_anterior = _janela_anterior(janela) if periodo != "tudo" else None
 
     pix_pendentes = await _pix_pendentes_total(conn, modelo_id)
     kpis_periodo = await _kpis(conn, janela, modelo_id)
@@ -80,7 +81,7 @@ async def dashboard(
 
 @router.get("/escaladas")
 async def dashboard_escaladas(
-    periodo: Literal["hoje", "7d", "30d", "custom"] = "7d",
+    periodo: Literal["hoje", "7d", "30d", "tudo", "custom"] = "7d",
     de: date | None = None,
     ate: date | None = None,
     modelo_id: UUID | None = None,
@@ -146,6 +147,8 @@ def _resolver_janela(periodo: str, de: date | None, ate: date | None) -> Janela:
         return _janela_de_datas(hoje - timedelta(days=6), hoje)
     if periodo == "30d":
         return _janela_de_datas(hoje - timedelta(days=29), hoje)
+    if periodo == "tudo":
+        return _janela_de_datas(date(2020, 1, 1), hoje)
 
     raise EntradaInvalida("PERIODO_INVALIDO", f"periodo desconhecido: {periodo}")
 
@@ -398,17 +401,30 @@ async def _profissionais(
     janela: Janela,
     modelo_id: UUID | None,
 ) -> list[dict[str, Any]]:
-    params: list[Any] = [janela.inicio, janela.fim, janela.inicio, janela.fim, janela.inicio, janela.fim]
     filtro_modelo_volume = ""
     filtro_modelo_fech = ""
     filtro_modelo_perd = ""
     filtro_modelo_join = ""
+    params: list[Any] = []
+    # volume CTE
+    params.extend([janela.inicio, janela.fim])
     if modelo_id:
         filtro_modelo_volume = "AND a.modelo_id = %s"
+        params.append(modelo_id)
+    # fech CTE
+    params.extend([janela.inicio, janela.fim])
+    if modelo_id:
         filtro_modelo_fech = "AND a.modelo_id = %s"
+        params.append(modelo_id)
+    # perd CTE
+    params.extend([janela.inicio, janela.fim])
+    if modelo_id:
         filtro_modelo_perd = "AND a.modelo_id = %s"
+        params.append(modelo_id)
+    # SELECT final
+    if modelo_id:
         filtro_modelo_join = "WHERE m.id = %s"
-        params.extend([modelo_id, modelo_id, modelo_id, modelo_id])
+        params.append(modelo_id)
 
     result = await conn.execute(
         f"""

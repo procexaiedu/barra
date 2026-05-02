@@ -20,6 +20,7 @@ export interface CardDestaque {
   ia_pausada_em: string
   previsao_termino: string | null
   expirado: boolean
+  modelo_nome: string
 }
 
 export interface MetricasDia {
@@ -39,11 +40,11 @@ export interface LinhaAgenda {
   cliente_nome: string | null
   observacao: string | null
   atendimento_id: string | null
+  modelo_nome: string
 }
 
 export interface PainelResumo {
-  modelo_ativa: ModeloAtiva | null
-  modelos_ativas_count: number
+  modelos_ativas: ModeloAtiva[]
   cards_destaque: CardDestaque[]
   metricas_dia: MetricasDia
   agenda_dia: LinhaAgenda[]

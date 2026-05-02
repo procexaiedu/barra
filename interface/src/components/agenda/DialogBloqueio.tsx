@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label"
 import { isoAgenda } from "@/hooks/useAgenda"
 import { cn } from "@/lib/utils"
 import type { BloqueioAgenda, BloqueioFormState } from "@/tipos/agenda"
+import { FiltroModelo } from "@/components/dashboard/FiltroModelo"
 
 const horarios = Array.from({ length: 25 }, (_, h) => `${String(h).padStart(2, "0")}:00`)
 
@@ -77,7 +78,8 @@ export function DialogBloqueio({
     [bloqueio?.id, bloqueios, fimIso, inicioIso]
   )
 
-  const podeSalvar = !readOnly && !intervaloInvalido && !observacaoInvalida && Boolean(modeloId)
+  const temModelo = Boolean(modeloId) || Boolean(form.modelo_id)
+  const podeSalvar = !readOnly && !intervaloInvalido && !observacaoInvalida && temModelo
   const podeCancelar = bloqueio && bloqueio.estado !== "concluido" && bloqueio.estado !== "cancelado"
   const tituloCancelamento = bloqueio?.estado === "em_atendimento"
     ? "Cancelar bloqueio em atendimento?"
@@ -142,6 +144,18 @@ export function DialogBloqueio({
         </div>
 
         <div className="grid grid-cols-3 gap-3">
+          {!editando && !modeloId && (
+            <div className="col-span-3 pb-3">
+              <Label htmlFor="agenda-modelo">Modelo</Label>
+              <div className="mt-2 w-full max-w-xs">
+                <FiltroModelo 
+                  modeloId={form.modelo_id ?? null} 
+                  onChange={(val) => setForm(f => ({ ...f, modelo_id: val ?? undefined }))} 
+                  hideTodas
+                />
+              </div>
+            </div>
+          )}
           <div className="col-span-3">
             <Label htmlFor="agenda-data">Data</Label>
             <Input

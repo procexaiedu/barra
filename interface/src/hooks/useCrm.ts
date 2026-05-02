@@ -57,17 +57,11 @@ export function useCrm() {
   const [listaError, setListaError] = useState<string | null>(null)
   const [detalheError, setDetalheError] = useState<string | null>(null)
   const [modelos, setModelos] = useState<ModeloResumo[]>([])
-  const [nomeInput, setNomeInput] = useState("")
-  const [observacoesInput, setObservacoesInput] = useState("")
   const router = useRouter()
   const itemsRef = useRef<ConversaListaItem[]>([])
   const nextCursorRef = useRef<string | null>(null)
   const detalheRef = useRef<ConversaDetalheResponse | null>(null)
   const selectedIdRef = useRef<string | null>(null)
-  const nomeInputRef = useRef("")
-  const observacoesInputRef = useRef("")
-  const nomeDirtyRef = useRef(false)
-  const observacoesDirtyRef = useRef(false)
   const firstListaDone = useRef(false)
   const firstDetalheDone = useRef(false)
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -86,42 +80,20 @@ export function useCrm() {
     filtrosEfetivos.periodo !== "todos" ||
     filtrosEfetivos.modeloId !== "todas"
 
-  const nomeServer = detalhe?.cliente.nome ?? ""
-  const observacoesServer = detalhe?.conversa.observacoes_internas ?? ""
-  const nomeDirty = normalizar(nomeInput) !== normalizar(nomeServer)
-  const observacoesDirty = normalizar(observacoesInput) !== normalizar(observacoesServer)
-
-  useEffect(() => {
-    nomeDirtyRef.current = nomeDirty
-  }, [nomeDirty])
-  useEffect(() => {
-    observacoesDirtyRef.current = observacoesDirty
-  }, [observacoesDirty])
-
   const aplicarDetalhe = useCallback(
-    (res: ConversaDetalheResponse, sincronizarInputs: boolean) => {
+    (res: ConversaDetalheResponse) => {
       detalheRef.current = res
       setDetalhe(res)
-      if (sincronizarInputs || !nomeDirtyRef.current) {
-        const novo = res.cliente.nome ?? ""
-        nomeInputRef.current = novo
-        setNomeInput(novo)
-      }
-      if (sincronizarInputs || !observacoesDirtyRef.current) {
-        const novo = res.conversa.observacoes_internas ?? ""
-        observacoesInputRef.current = novo
-        setObservacoesInput(novo)
-      }
     },
     []
   )
 
   const loadDetalhe = useCallback(
-    async (id: string, opts: { sincronizar: boolean } = { sincronizar: true }) => {
+    async (id: string) => {
       if (!firstDetalheDone.current) setDetalheStatus("loading")
       try {
         const res = await api<ConversaDetalheResponse>(`/v1/crm/conversas/${id}`)
-        aplicarDetalhe(res, opts.sincronizar)
+        aplicarDetalhe(res)
         setDetalheStatus("success")
         setDetalheError(null)
         firstDetalheDone.current = true
@@ -137,14 +109,10 @@ export function useCrm() {
     (id: string) => {
       selectedIdRef.current = id
       setSelectedId(id)
-      nomeInputRef.current = ""
-      observacoesInputRef.current = ""
-      setNomeInput("")
-      setObservacoesInput("")
       firstDetalheDone.current = false
       detalheRef.current = null
       setDetalhe(null)
-      loadDetalhe(id, { sincronizar: true })
+      loadDetalhe(id)
     },
     [loadDetalhe]
   )
@@ -157,10 +125,6 @@ export function useCrm() {
         setSelectedId(null)
         setDetalhe(null)
         setDetalheStatus("loading")
-        nomeInputRef.current = ""
-        observacoesInputRef.current = ""
-        setNomeInput("")
-        setObservacoesInput("")
       }
       if (!firstListaDone.current && mode === "replace") setListaStatus("loading")
       try {
@@ -177,13 +141,9 @@ export function useCrm() {
 
         const atual = selectedIdRef.current
         const aindaPresente = atual && novosItems.some((item) => item.id === atual)
-        const dirtyAtivo = nomeDirtyRef.current || observacoesDirtyRef.current
 
         if (manterSelecao && atual && aindaPresente) {
-          await loadDetalhe(atual, { sincronizar: false })
-          return
-        }
-        if (manterSelecao && atual && !aindaPresente && dirtyAtivo) {
+          await loadDetalhe(atual)
           return
         }
         const proximoId = novosItems[0]?.id ?? null
@@ -196,10 +156,6 @@ export function useCrm() {
           setDetalhe(null)
           setDetalheStatus("success")
           firstDetalheDone.current = true
-          nomeInputRef.current = ""
-          observacoesInputRef.current = ""
-          setNomeInput("")
-          setObservacoesInput("")
         }
       } catch (e) {
         if (!firstListaDone.current) setListaStatus("error")
@@ -229,78 +185,7 @@ export function useCrm() {
     }, 250)
   }, [loadLista])
 
-  const alterarNome = useCallback((valor: string) => {
-    nomeInputRef.current = valor
-    setNomeInput(valor)
-  }, [])
 
-  const alterarObservacoes = useCallback((valor: string) => {
-    observacoesInputRef.current = valor
-    setObservacoesInput(valor)
-  }, [])
-
-  const descartarNome = useCallback(() => {
-    const restaurado = detalheRef.current?.cliente.nome ?? ""
-    nomeInputRef.current = restaurado
-    setNomeInput(restaurado)
-  }, [])
-
-  const descartarObservacoes = useCallback(() => {
-    const restaurado = detalheRef.current?.conversa.observacoes_internas ?? ""
-    observacoesInputRef.current = restaurado
-    setObservacoesInput(restaurado)
-  }, [])
-
-  const salvarNomeCliente = useCallback(async () => {
-    const detalheAtual = detalheRef.current
-    if (!detalheAtual) return
-    const enviar = nomeInputRef.current.trim() || null
-    await api<{ id: string; nome: string | null; telefone: string }>(
-      `/v1/crm/clientes/${detalheAtual.cliente.id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ nome: enviar }),
-      }
-    )
-    if (detalheRef.current) {
-      const proximo: ConversaDetalheResponse = {
-        ...detalheRef.current,
-        cliente: { ...detalheRef.current.cliente, nome: enviar },
-      }
-      detalheRef.current = proximo
-      setDetalhe(proximo)
-      const sincronizado = enviar ?? ""
-      nomeInputRef.current = sincronizado
-      setNomeInput(sincronizado)
-    }
-    const idAtual = selectedIdRef.current
-    if (idAtual) await loadDetalhe(idAtual, { sincronizar: false })
-  }, [loadDetalhe])
-
-  const salvarObservacoes = useCallback(async () => {
-    const id = selectedIdRef.current
-    if (!id) return
-    const enviar = observacoesInputRef.current.trim() || null
-    await api<{ id: string; observacoes_internas: string | null }>(
-      `/v1/crm/conversas/${id}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({ observacoes_internas: enviar }),
-      }
-    )
-    if (detalheRef.current) {
-      const proximo: ConversaDetalheResponse = {
-        ...detalheRef.current,
-        conversa: { ...detalheRef.current.conversa, observacoes_internas: enviar },
-      }
-      detalheRef.current = proximo
-      setDetalhe(proximo)
-      const sincronizado = enviar ?? ""
-      observacoesInputRef.current = sincronizado
-      setObservacoesInput(sincronizado)
-    }
-    await loadDetalhe(id, { sincronizar: false })
-  }, [loadDetalhe])
 
   useEffect(() => {
     if (buscaTimer.current) clearTimeout(buscaTimer.current)
@@ -361,18 +246,8 @@ export function useCrm() {
     listaError,
     detalheError,
     modelos,
-    nomeInput,
-    observacoesInput,
-    nomeDirty,
-    observacoesDirty,
     refetch,
     carregarMais,
     selecionarConversa,
-    alterarNome,
-    alterarObservacoes,
-    descartarNome,
-    descartarObservacoes,
-    salvarNomeCliente,
-    salvarObservacoes,
   }
 }

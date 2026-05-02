@@ -33,6 +33,11 @@ export function dataInputSaoPaulo(date = new Date()) {
   return `${p.ano}-${p.mes}-${p.dia}`
 }
 
+export function dataBrt(iso: string): string {
+  const p = partsEmSaoPaulo(new Date(iso))
+  return `${p.ano}-${p.mes}-${p.dia}`
+}
+
 export function isoAgenda(data: string, horario: string) {
   if (horario === "24:00") {
     const d = dataDeInput(data)
@@ -119,6 +124,7 @@ export function useAgenda() {
   const hoje = useMemo(() => dataInputSaoPaulo(), [])
   const [visao, setVisao] = useState<VisaoAgenda>("mes")
   const [dataSelecionada, setDataSelecionada] = useState(hoje)
+  const [modeloId, setModeloId] = useState<string | null>(null)
   const [agenda, setAgenda] = useState<AgendaResponse | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [error, setError] = useState<string | null>(null)
@@ -136,6 +142,7 @@ export function useAgenda() {
     if (!firstDone.current) setStatus("loading")
     try {
       const params = new URLSearchParams({ inicio: periodo.inicio, fim: periodo.fim })
+      if (modeloId) params.append("modelo_id", modeloId)
       const res = await api<AgendaResponse>(`/v1/agenda/bloqueios?${params.toString()}`)
       setAgenda(res)
       setStatus("success")
@@ -145,7 +152,7 @@ export function useAgenda() {
       if (!firstDone.current) setStatus("error")
       setError(e instanceof Error ? e.message : "Erro desconhecido")
     }
-  }, [periodo.fim, periodo.inicio])
+  }, [periodo.fim, periodo.inicio, modeloId])
 
   const debouncedRefetch = useCallback(() => {
     realtimeEvents.current += 1
@@ -213,6 +220,8 @@ export function useAgenda() {
     setVisao,
     dataSelecionada,
     setDataSelecionada,
+    modeloId,
+    setModeloId,
     periodo,
     hoje: () => setDataSelecionada(dataInputSaoPaulo()),
     anterior: () => setDataSelecionada((atual) => deslocar(atual, visao, -1)),

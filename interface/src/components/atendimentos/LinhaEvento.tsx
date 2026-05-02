@@ -1,42 +1,39 @@
 "use client"
 
-import { useState } from "react"
-import { ChevronDown, ChevronRight } from "lucide-react"
-import { Button } from "@/components/ui/button"
 import { formatDataHora } from "@/lib/formatters"
 import type { EventoAtendimento } from "@/tipos/atendimentos"
-import { resumoPayload } from "@/components/atendimentos/utils"
+import {
+  autorEventoLabel,
+  origemEventoLabel,
+  resumoPayload,
+  tipoEventoLabel,
+} from "@/components/atendimentos/utils"
 
 export function LinhaEvento({ evento }: { evento: EventoAtendimento }) {
-  const [aberto, setAberto] = useState(false)
-  const payload = resumoPayload(evento.payload)
+  const resumo = resumoPayload(evento.payload)
+  const origem = origemEventoLabel(evento.origem)
+  const autor = autorEventoLabel(evento.autor)
+  const mostraAutor = autor && autor !== origem
 
   return (
-    <article className="border-b border-border py-3 last:border-b-0">
-      <div className="flex items-start gap-3">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={aberto ? "Recolher detalhes" : "Expandir detalhes"}
-          onClick={() => setAberto((value) => !value)}
-        >
-          {aberto ? <ChevronDown size={14} strokeWidth={1.5} /> : <ChevronRight size={14} strokeWidth={1.5} />}
-        </Button>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-sm font-medium text-text-primary">{evento.tipo.replaceAll("_", " ")}</span>
-            <span className="text-xs text-text-muted">{evento.origem}</span>
-            <span className="text-xs text-text-muted">·</span>
-            <span className="text-xs text-text-muted">{evento.autor}</span>
-            <span className="ml-auto text-xs text-text-muted">{formatDataHora(evento.created_at)}</span>
-          </div>
-          <p className="mt-1 line-clamp-1 text-[13px] text-text-secondary">{payload}</p>
-          {aberto && (
-            <pre className="mt-2 max-h-52 overflow-auto rounded-md bg-ink-200 p-3 font-mono text-xs text-text-muted">
-              {JSON.stringify(evento.payload, null, 2)}
-            </pre>
+    <article className="border-b border-border py-2 last:border-b-0">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <span className="text-sm font-medium text-text-primary">
+            {tipoEventoLabel(evento.tipo)}
+          </span>
+          <span className="text-xs text-text-muted">{origem}</span>
+          {mostraAutor && (
+            <>
+              <span className="text-xs text-text-muted">·</span>
+              <span className="text-xs text-text-muted">{autor}</span>
+            </>
           )}
+          <span className="ml-auto text-xs text-text-muted">{formatDataHora(evento.created_at)}</span>
         </div>
+        {resumo && (
+          <p className="mt-1 line-clamp-2 text-[13px] text-text-secondary">{resumo}</p>
+        )}
       </div>
     </article>
   )

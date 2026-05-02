@@ -9,9 +9,9 @@ export function DadosConversa({ conversa }: { conversa: ConversaResumo }) {
   return (
     <section
       aria-label="Dados da conversa"
-      className="rounded-lg border border-border bg-card p-6"
+      className="rounded-lg border border-border bg-card p-4"
     >
-      <h2 className="mb-4 text-base font-semibold text-text-primary">Dados da conversa</h2>
+      <h2 className="mb-3 text-sm font-semibold text-text-primary">Dados da conversa</h2>
       <dl className="space-y-3">
         <Linha rotulo="Recorrência">
           <span className="inline-flex items-center gap-2 text-sm text-text-primary">

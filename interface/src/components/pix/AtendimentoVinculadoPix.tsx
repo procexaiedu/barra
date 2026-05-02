@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatBRL } from "@/lib/formatters"
+import { tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 import { cn } from "@/lib/utils"
 import type { AtendimentoResumoPix } from "@/tipos/pix"
 import {
@@ -34,8 +35,8 @@ export function AtendimentoVinculadoPix({
 
   const terminal = isAtendimentoTerminal(atendimento.estado)
   const meta = [
-    atendimento.tipo_atendimento,
-    atendimento.urgencia,
+    atendimento.tipo_atendimento ? tipoLabel[atendimento.tipo_atendimento] : null,
+    atendimento.urgencia ? urgenciaLabel[atendimento.urgencia] : null,
     atendimento.valor_acordado !== null ? formatBRL(atendimento.valor_acordado) : null,
   ]
     .filter(Boolean)

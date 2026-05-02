@@ -19,25 +19,24 @@ export function HistoricoMensagens({ mensagens }: { mensagens: MensagemAtendimen
     [mensagens]
   )
 
+  if (ordenadas.length === 0) {
+    return (
+      <div className="flex items-start gap-3">
+        <MessageSquareOff size={20} strokeWidth={1.5} className="mt-0.5 text-text-muted" />
+        <div>
+          <p className="text-sm text-text-primary">Nenhuma mensagem vinculada a este atendimento.</p>
+          <p className="mt-1 text-[13px] text-text-muted">O histórico aparece conforme as mensagens chegam.</p>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <section aria-label="Histórico de mensagens" className="rounded-lg border border-border bg-card p-6">
-      <h2 className="mb-4 text-base font-semibold text-text-primary">Histórico de mensagens</h2>
-      {ordenadas.length === 0 ? (
-        <div className="flex items-start gap-3">
-          <MessageSquareOff size={20} strokeWidth={1.5} className="mt-0.5 text-text-muted" />
-          <div>
-            <p className="text-sm text-text-primary">Nenhuma mensagem vinculada a este atendimento.</p>
-            <p className="mt-1 text-[13px] text-text-muted">O histórico aparece conforme as mensagens chegam.</p>
-          </div>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {ordenadas.map((mensagem) => (
-            <MensagemLinha key={mensagem.id} mensagem={mensagem} />
-          ))}
-        </div>
-      )}
-    </section>
+    <div className="space-y-3">
+      {ordenadas.map((mensagem) => (
+        <MensagemLinha key={mensagem.id} mensagem={mensagem} />
+      ))}
+    </div>
   )
 }
 

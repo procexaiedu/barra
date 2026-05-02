@@ -46,3 +46,10 @@ export function formatDiaSemana(date: Date): string {
     weekday: 'long', timeZone: 'America/Sao_Paulo',
   }).format(date)
 }
+
+export function formatRotulo(valor: string | null | undefined): string | null {
+  if (!valor) return null
+  const limpo = valor.replaceAll('_', ' ').trim()
+  if (!limpo) return null
+  return limpo.charAt(0).toUpperCase() + limpo.slice(1)
+}

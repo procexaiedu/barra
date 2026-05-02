@@ -9,9 +9,10 @@ import {
   XCircle,
   type LucideIcon,
 } from "lucide-react"
-import { formatDataHora } from "@/lib/formatters"
+import { formatDataHora, formatRotulo } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { EventoPix } from "@/tipos/pix"
+import { autorEventoLabel } from "@/components/atendimentos/utils"
 import { eventoVisual } from "./utils"
 
 const ICONS: Record<string, LucideIcon> = {
@@ -33,11 +34,11 @@ const COR_CLASS: Record<string, string> = {
 export function LinhaTempoPix({ eventos }: { eventos: EventoPix[] }) {
   return (
     <section
-      aria-label="Linha do tempo do Pix"
+      aria-label="Histórico do Pix"
       className="rounded-lg border border-border bg-card"
     >
       <h3 className="px-5 pt-5 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-        Linha do tempo
+        Histórico
       </h3>
       {eventos.length === 0 ? (
         <p className="px-5 py-5 text-[13px] text-text-muted">
@@ -68,7 +69,7 @@ export function LinhaTempoPix({ eventos }: { eventos: EventoPix[] }) {
                     <p className="text-sm font-medium text-text-primary">
                       {visual.label}
                     </p>
-                    <span className="text-xs text-text-muted">· {evt.autor}</span>
+                    <span className="text-xs text-text-muted">· {autorEventoLabel(evt.autor)}</span>
                     <span className="ml-auto text-xs text-text-muted">
                       {formatDataHora(evt.created_at)}
                     </span>
@@ -91,7 +92,7 @@ export function LinhaTempoPix({ eventos }: { eventos: EventoPix[] }) {
 function formatRejeicao(evt: EventoPix): string | null {
   const motivo = evt.payload?.motivo
   const observacao = evt.payload?.observacao
-  const motivoStr = typeof motivo === "string" ? motivo : null
+  const motivoStr = typeof motivo === "string" ? formatRotulo(motivo) ?? motivo : null
   const obsStr = typeof observacao === "string" ? observacao : null
   if (!motivoStr && !obsStr) return evt.resumo
   const parts: string[] = []
