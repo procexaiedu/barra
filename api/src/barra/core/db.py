@@ -9,6 +9,12 @@ from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 
 
+async def _configurar_conexao(conn: AsyncConnection[Any]) -> None:
+    # PgBouncer em transaction mode (Supabase pooler) reusa conexoes fisicas
+    # entre clientes e nao suporta prepared statements nomeados — desabilita.
+    conn.prepare_threshold = None
+
+
 async def criar_pool(database_url: str) -> AsyncConnectionPool[Any] | None:
     if not database_url:
         return None
@@ -16,6 +22,7 @@ async def criar_pool(database_url: str) -> AsyncConnectionPool[Any] | None:
         database_url,
         open=False,
         kwargs={"row_factory": dict_row, "autocommit": False},
+        configure=_configurar_conexao,
     )
     await pool.open()
     return pool
