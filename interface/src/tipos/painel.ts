@@ -41,7 +41,7 @@ export interface MetricasDia {
   ticket_medio_brl: number | null
   taxa_conversao_pct: number | null
   pix_em_revisao_pendentes: number
-  tendencia: TendenciaDia
+  tendencia?: TendenciaDia
 }
 
 export interface ItemAberto {

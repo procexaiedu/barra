@@ -323,7 +323,7 @@ export default function PainelGeral() {
             colorClass="text-success-500"
             tooltip="Atendimentos pagos e encerrados hoje"
             isZero={data.metricas_dia.fechamentos_hoje === 0}
-            tendencia={{ delta: data.metricas_dia.tendencia.fechamentos_delta, label: "vs ontem" }}
+            tendencia={data.metricas_dia.tendencia && { delta: data.metricas_dia.tendencia.fechamentos_delta, label: "vs ontem" }}
             flashing={flashFechamentos}
             onClick={() => detalhe.abrir("fechamentos")}
           />
@@ -333,7 +333,7 @@ export default function PainelGeral() {
             colorClass="text-danger-500"
             tooltip="Atendimentos que não se converteram hoje"
             isZero={data.metricas_dia.perdas_hoje === 0}
-            tendencia={{ delta: data.metricas_dia.tendencia.perdas_delta, label: "vs ontem", inverso: true }}
+            tendencia={data.metricas_dia.tendencia && { delta: data.metricas_dia.tendencia.perdas_delta, label: "vs ontem", inverso: true }}
             flashing={flashPerdas}
             onClick={() => detalhe.abrir("perdas")}
           />
@@ -342,7 +342,7 @@ export default function PainelGeral() {
             valor={formatBRL(data.metricas_dia.valor_bruto_hoje_brl)}
             tooltip="Soma dos valores finais dos fechamentos"
             isZero={data.metricas_dia.valor_bruto_hoje_brl === 0}
-            tendencia={{ delta: data.metricas_dia.tendencia.valor_bruto_delta_brl, label: "vs ontem", formatDelta: formatBRL }}
+            tendencia={data.metricas_dia.tendencia && { delta: data.metricas_dia.tendencia.valor_bruto_delta_brl, label: "vs ontem", formatDelta: formatBRL }}
             flashing={flashValorBruto}
             onClick={() => detalhe.abrir("fechamentos")}
           />
