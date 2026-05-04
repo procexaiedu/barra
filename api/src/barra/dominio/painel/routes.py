@@ -21,6 +21,14 @@ def _hoje_brt() -> tuple[datetime, datetime]:
     return inicio, fim
 
 
+def _ontem_brt() -> tuple[datetime, datetime]:
+    agora = datetime.now(BRT)
+    ontem = agora.date() - timedelta(days=1)
+    inicio = datetime.combine(ontem, time.min, tzinfo=BRT)
+    fim = datetime.combine(ontem, time.max, tzinfo=BRT)
+    return inicio, fim
+
+
 def _formatar_telefone(telefone: str | None) -> str:
     if not telefone:
         return ""
@@ -171,17 +179,80 @@ async def painel_resumo(
         f"""
         SELECT COALESCE(SUM(a.valor_final), 0) AS total
           FROM barravips.atendimentos a
-          JOIN barravips.eventos e ON e.atendimento_id = a.id
          WHERE a.estado = 'Fechado'
-           AND e.tipo = 'fechado_registrado'
-           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
-           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           AND EXISTS (
+             SELECT 1 FROM barravips.eventos e
+              WHERE e.atendimento_id = a.id
+                AND e.tipo = 'fechado_registrado'
+                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
+                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           )
            {filtro_modelo_eventos}
         """,
         (inicio_dia, fim_dia, *filtro_modelo_params),
     )
     valor_row = await valor_result.fetchone()
     valor_bruto = float(valor_row["total"]) if valor_row else 0.0
+
+    lucro_result = await conn.execute(
+        f"""
+        SELECT COALESCE(SUM(
+          a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+        ), 0) AS lucro
+          FROM barravips.atendimentos a
+         WHERE a.estado = 'Fechado'
+           AND EXISTS (
+             SELECT 1 FROM barravips.eventos e
+              WHERE e.atendimento_id = a.id
+                AND e.tipo = 'fechado_registrado'
+                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
+                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           )
+           {filtro_modelo_eventos}
+        """,
+        (inicio_dia, fim_dia, *filtro_modelo_params),
+    )
+    lucro_row = await lucro_result.fetchone()
+    lucro_hoje = float(lucro_row["lucro"]) if lucro_row else 0.0
+
+    ticket_medio = (valor_bruto / fechamentos_hoje) if fechamentos_hoje > 0 else None
+    total_conversao = fechamentos_hoje + perdas_hoje
+    taxa_conversao = (fechamentos_hoje / total_conversao * 100) if total_conversao > 0 else None
+
+    inicio_ontem, fim_ontem = _ontem_brt()
+    ontem_result = await conn.execute(
+        f"""
+        SELECT
+          COUNT(DISTINCT a.id) FILTER (WHERE a.estado = 'Fechado') AS fechamentos,
+          COUNT(DISTINCT a.id) FILTER (WHERE a.estado = 'Perdido') AS perdas,
+          COALESCE(SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0) AS valor_bruto
+          FROM barravips.atendimentos a
+         WHERE a.estado IN ('Fechado', 'Perdido')
+           AND (
+             (a.estado = 'Fechado' AND EXISTS (
+               SELECT 1 FROM barravips.eventos e
+                WHERE e.atendimento_id = a.id
+                  AND e.tipo = 'fechado_registrado'
+                  AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
+                  AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+             ))
+             OR
+             (a.estado = 'Perdido' AND EXISTS (
+               SELECT 1 FROM barravips.eventos e
+                WHERE e.atendimento_id = a.id
+                  AND e.tipo = 'perdido_registrado'
+                  AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
+                  AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+             ))
+           )
+           {filtro_modelo_eventos}
+        """,
+        (inicio_ontem, fim_ontem, inicio_ontem, fim_ontem, *filtro_modelo_params),
+    )
+    ontem_row = await ontem_result.fetchone()
+    fechamentos_ontem = int(ontem_row["fechamentos"]) if ontem_row else 0
+    perdas_ontem = int(ontem_row["perdas"]) if ontem_row else 0
+    valor_ontem = float(ontem_row["valor_bruto"]) if ontem_row else 0.0
 
     pix_filtro = "AND a.modelo_id = %s" if modelo_id else ""
     pix_result = await conn.execute(
@@ -245,9 +316,154 @@ async def painel_resumo(
             "fechamentos_hoje": fechamentos_hoje,
             "perdas_hoje": perdas_hoje,
             "valor_bruto_hoje_brl": valor_bruto,
+            "lucro_hoje_brl": lucro_hoje,
+            "ticket_medio_brl": ticket_medio,
+            "taxa_conversao_pct": taxa_conversao,
             "pix_em_revisao_pendentes": pix_pendentes,
+            "tendencia": {
+                "fechamentos_delta": fechamentos_hoje - fechamentos_ontem,
+                "fechamentos_ontem": fechamentos_ontem,
+                "perdas_delta": perdas_hoje - perdas_ontem,
+                "perdas_ontem": perdas_ontem,
+                "valor_bruto_delta_brl": valor_bruto - valor_ontem,
+                "valor_bruto_ontem_brl": valor_ontem,
+            },
         },
         "agenda_dia": agenda_dia,
+        "servidor_em": agora.isoformat(),
+    }
+
+
+@router.get("/detalhe/abertos")
+async def painel_detalhe_abertos(
+    modelo_id: UUID | None = Query(None),
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    filtro = "AND a.modelo_id = %s" if modelo_id else ""
+    params: tuple[Any, ...] = (modelo_id,) if modelo_id else ()
+
+    result = await conn.execute(
+        f"""
+        SELECT a.id, a.numero_curto, c.nome AS cliente_nome,
+               a.estado::text AS estado, m.nome AS modelo_nome
+          FROM barravips.atendimentos a
+          JOIN barravips.clientes c ON c.id = a.cliente_id
+          JOIN barravips.modelos m ON m.id = a.modelo_id
+         WHERE a.estado NOT IN ('Fechado', 'Perdido')
+           {filtro}
+         ORDER BY a.created_at ASC
+         LIMIT 50
+        """,
+        params,
+    )
+    rows = await result.fetchall()
+    agora = datetime.now(BRT)
+    return {
+        "itens": [
+            {
+                "atendimento_id": str(row["id"]),
+                "numero_curto": row["numero_curto"],
+                "cliente_nome": row["cliente_nome"],
+                "estado": row["estado"],
+                "modelo_nome": row["modelo_nome"],
+            }
+            for row in rows
+        ],
+        "servidor_em": agora.isoformat(),
+    }
+
+
+@router.get("/detalhe/fechamentos-hoje")
+async def painel_detalhe_fechamentos(
+    modelo_id: UUID | None = Query(None),
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    inicio_dia, fim_dia = _hoje_brt()
+    filtro = "AND a.modelo_id = %s" if modelo_id else ""
+    params: tuple[Any, ...] = (inicio_dia, fim_dia, *((modelo_id,) if modelo_id else ()))
+
+    result = await conn.execute(
+        f"""
+        SELECT a.id, a.numero_curto, c.nome AS cliente_nome,
+               a.valor_final, a.percentual_repasse_snapshot, m.nome AS modelo_nome
+          FROM barravips.atendimentos a
+          JOIN barravips.clientes c ON c.id = a.cliente_id
+          JOIN barravips.modelos m ON m.id = a.modelo_id
+         WHERE a.estado = 'Fechado'
+           AND EXISTS (
+             SELECT 1 FROM barravips.eventos e
+              WHERE e.atendimento_id = a.id
+                AND e.tipo = 'fechado_registrado'
+                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
+                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           )
+           {filtro}
+         ORDER BY a.updated_at DESC
+         LIMIT 50
+        """,
+        params,
+    )
+    rows = await result.fetchall()
+    agora = datetime.now(BRT)
+    itens = []
+    for row in rows:
+        vf = float(row["valor_final"]) if row["valor_final"] is not None else None
+        pct = float(row["percentual_repasse_snapshot"]) if row["percentual_repasse_snapshot"] is not None else None
+        lucro = (vf * (1 - pct / 100)) if vf is not None and pct is not None else vf
+        itens.append({
+            "atendimento_id": str(row["id"]),
+            "numero_curto": row["numero_curto"],
+            "cliente_nome": row["cliente_nome"],
+            "valor_final": vf,
+            "lucro": lucro,
+            "modelo_nome": row["modelo_nome"],
+        })
+    return {"itens": itens, "servidor_em": agora.isoformat()}
+
+
+@router.get("/detalhe/perdas-hoje")
+async def painel_detalhe_perdas(
+    modelo_id: UUID | None = Query(None),
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    inicio_dia, fim_dia = _hoje_brt()
+    filtro = "AND a.modelo_id = %s" if modelo_id else ""
+    params: tuple[Any, ...] = (inicio_dia, fim_dia, *((modelo_id,) if modelo_id else ()))
+
+    result = await conn.execute(
+        f"""
+        SELECT a.id, a.numero_curto, c.nome AS cliente_nome,
+               a.motivo_perda::text AS motivo_perda, m.nome AS modelo_nome
+          FROM barravips.atendimentos a
+          JOIN barravips.clientes c ON c.id = a.cliente_id
+          JOIN barravips.modelos m ON m.id = a.modelo_id
+         WHERE a.estado = 'Perdido'
+           AND EXISTS (
+             SELECT 1 FROM barravips.eventos e
+              WHERE e.atendimento_id = a.id
+                AND e.tipo = 'perdido_registrado'
+                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
+                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           )
+           {filtro}
+         ORDER BY a.updated_at DESC
+         LIMIT 50
+        """,
+        params,
+    )
+    rows = await result.fetchall()
+    agora = datetime.now(BRT)
+    return {
+        "itens": [
+            {
+                "atendimento_id": str(row["id"]),
+                "numero_curto": row["numero_curto"],
+                "cliente_nome": row["cliente_nome"],
+                "motivo_perda": row["motivo_perda"],
+                "modelo_nome": row["modelo_nome"],
+            }
+            for row in rows
+        ],
         "servidor_em": agora.isoformat(),
     }
 

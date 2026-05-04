@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { Loader2 } from "lucide-react"
+import { Loader2, UserPlus } from "lucide-react"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -14,7 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { HeaderModelos } from "@/components/modelos/HeaderModelos"
+import { Button } from "@/components/ui/button"
 import { ToolbarModelos } from "@/components/modelos/ToolbarModelos"
 import { ListaModelos } from "@/components/modelos/ListaModelos"
 import { DetalheModelo } from "@/components/modelos/DetalheModelo"
@@ -150,22 +150,35 @@ function ModelosConteudo() {
   }
 
   return (
-    <div className="mx-auto max-w-[1280px] space-y-6">
-      <HeaderModelos esconderAdicionar={esconderAdicionar} onAdicionar={() => setCriarOpen(true)} />
-
-      <div className="flex gap-2 border-b border-border pb-0">
-        <TabBtn active={view === "lista"} onClick={() => protegerDirty(() => setView("lista"))}>
-          Modelos
-        </TabBtn>
-        <TabBtn active={view === "programas"} onClick={() => protegerDirty(() => setView("programas"))}>
-          Programas
-        </TabBtn>
-      </div>
+    <div className="mx-auto max-w-[1280px] space-y-4">
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border">
+        <div className="flex items-end gap-8">
+          <h1 className="font-serif text-[28px] font-medium leading-none text-text-primary pb-3">
+            Modelos
+          </h1>
+          <div role="tablist" aria-label="Visão" className="flex">
+            <TabBtn active={view === "lista"} onClick={() => protegerDirty(() => setView("lista"))}>
+              Modelos
+            </TabBtn>
+            <TabBtn active={view === "programas"} onClick={() => protegerDirty(() => setView("programas"))}>
+              Programas
+            </TabBtn>
+          </div>
+        </div>
+        {!esconderAdicionar && (
+          <div className="pb-2">
+            <Button variant="primary" size="sm" onClick={() => setCriarOpen(true)}>
+              <UserPlus size={14} strokeWidth={1.5} />
+              Adicionar modelo
+            </Button>
+          </div>
+        )}
+      </header>
 
       {view === "lista" && (
         <>
           <ToolbarModelos filtros={modelos.filtros} onChange={(filtros) => modelos.setFiltros(filtros)} />
-          <div className="grid gap-6 xl:grid-cols-[360px_1fr]">
+          <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
             <ListaModelos
               items={modelos.items}
               selectedId={modelos.selectedId}
@@ -280,10 +293,12 @@ function ModelosConteudo() {
 function TabBtn({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
   return (
     <button
+      role="tab"
+      aria-selected={active}
       onClick={onClick}
-      className={`px-4 py-2 text-sm font-medium transition-colors ${
+      className={`relative px-3 pb-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
         active
-          ? "border-b-2 border-primary text-text-primary"
+          ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gold-500"
           : "text-text-muted hover:text-text-secondary"
       }`}
     >

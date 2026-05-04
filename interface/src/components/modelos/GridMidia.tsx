@@ -30,7 +30,7 @@ export function GridMidia({
   }
 
   return (
-    <section aria-label="Midia da modelo" className="grid grid-cols-2 gap-4 xl:grid-cols-3">
+    <section aria-label="Midia da modelo" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
       {items.map((item) => (
         <ItemMidia
           key={item.id}

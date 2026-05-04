@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ChevronDown } from "lucide-react"
-import { formatData, formatHorario } from "@/lib/formatters"
 import type { ModeloAtiva } from "@/tipos/painel"
 
 function SeletorModelo({
@@ -79,14 +78,6 @@ export function HeaderPainel({
   modeloId: string | null
   onModeloChange: (id: string | null) => void
 }) {
-  const [agora, setAgora] = useState(new Date())
-
-  useEffect(() => {
-    const interval = setInterval(() => setAgora(new Date()), 60_000)
-    return () => clearInterval(interval)
-  }, [])
-
-  const isoAgora = agora.toISOString()
   const multiplas = modelos.length > 1
 
   return (
@@ -110,14 +101,6 @@ export function HeaderPainel({
           ) : (
             <p className="text-base font-semibold text-text-muted">Nenhuma modelo ativa</p>
           )}
-        </div>
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-            AGORA
-          </p>
-          <p className="font-mono text-base font-semibold text-text-primary">
-            {formatData(isoAgora)} · {formatHorario(isoAgora)}
-          </p>
         </div>
       </div>
     </div>

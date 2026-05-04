@@ -35,19 +35,24 @@ export function ListaModelos({
   if (items.length === 0) return <EmptyLista filtrosAplicados={filtrosAplicados} onAdicionar={onAdicionar} />
 
   return (
-    <section aria-label="Lista de modelos" className="space-y-3">
-      {items.map((item) => (
-        <ItemModelo
-          key={item.id}
-          item={item}
-          selected={item.id === selectedId}
-          onSelect={() => onSelect(item.id)}
-        />
-      ))}
+    <section aria-label="Lista de modelos" className="overflow-hidden rounded-lg border border-border bg-card">
+      <ul className="divide-y divide-border">
+        {items.map((item) => (
+          <li key={item.id}>
+            <ItemModelo
+              item={item}
+              selected={item.id === selectedId}
+              onSelect={() => onSelect(item.id)}
+            />
+          </li>
+        ))}
+      </ul>
       {nextCursor && (
-        <Button variant="ghost" onClick={onCarregarMais} className="w-full">
-          Carregar mais
-        </Button>
+        <div className="border-t border-border">
+          <Button variant="ghost" onClick={onCarregarMais} className="w-full rounded-none">
+            Carregar mais
+          </Button>
+        </div>
       )}
     </section>
   )

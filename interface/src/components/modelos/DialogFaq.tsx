@@ -22,9 +22,11 @@ export function DialogFaq({
   const [resposta, setResposta] = useState(faq?.resposta ?? "")
   const [tags, setTags] = useState((faq?.tags ?? []).join(", "))
   const [submitting, setSubmitting] = useState(false)
+  const [tentou, setTentou] = useState(false)
   const valido = pergunta.trim().length > 0 && pergunta.length <= 300 && resposta.trim().length > 0 && resposta.length <= 2000
 
   const submit = async () => {
+    setTentou(true)
     if (!valido) return
     setSubmitting(true)
     try {
@@ -64,10 +66,10 @@ export function DialogFaq({
             />
           </label>
         </div>
-        {!valido && <p className="mt-4 text-sm text-state-lost">Pergunta e resposta são obrigatórias e precisam respeitar o limite.</p>}
+        {tentou && !valido && <p className="mt-4 text-sm text-state-lost">Pergunta e resposta são obrigatórias e precisam respeitar o limite.</p>}
         <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Cancelar</Button>
-          <Button variant="primary" onClick={submit} disabled={!valido || submitting}>
+          <Button variant="primary" onClick={submit} disabled={submitting}>
             {submitting && <Loader2 className="animate-spin" />}
             Salvar resposta
           </Button>

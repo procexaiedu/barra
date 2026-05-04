@@ -652,7 +652,7 @@ Padrão da fundação §§6.3, 8.3, 8.4. Sem comportamento adicional específico
 │   — fundação    │ Pendências humanas                              3 aguardando  │
 │   §5.4)         │ ┌──────────────────────────┐ ┌──────────────────────────────┐ │
 │                 │ │┃ [Em revisão] #142 Carlos M. │┃ [Em handoff] #138 Bruno  │ │
-│                 │ │┃ MOTIVO Pipeline OCR falhou  │┃ MOTIVO risco — local X   │ │
+│                 │ │┃ MOTIVO Pipeline OCR falhou  │┃ MOTIVO fora_de_oferta    │ │
 │                 │ │┃ PRÓXIMA AÇÃO Validar Pix    │┃ PRÓXIMA AÇÃO decidir     │ │
 │                 │ │┃ Em handoff há 12 min · Fer. │┃ Em handoff há 4 min · Fer│ │
 │                 │ └──────────────────────────┘ └──────────────────────────────┘ │

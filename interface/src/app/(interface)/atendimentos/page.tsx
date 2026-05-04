@@ -175,7 +175,7 @@ function Toolbar({
     return (
       <div aria-busy="true" className="grid grid-cols-[minmax(160px,1fr)_140px_110px_120px_100px] gap-2">
         {Array.from({ length: 5 }).map((_, index) => (
-          <Skeleton key={index} className="h-9 rounded-lg" />
+          <Skeleton key={index} className="h-[52px] rounded-lg" />
         ))}
       </div>
     )
@@ -183,20 +183,22 @@ function Toolbar({
 
   return (
     <div className="grid grid-cols-[minmax(160px,1fr)_140px_110px_120px_100px] gap-2">
-      <label className="relative">
-        <span className="sr-only">Busca</span>
-        <Search size={16} strokeWidth={1.5} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
-        <Input
-          value={busca}
-          onChange={(event) => onBuscaChange(event.target.value)}
-          placeholder="Buscar cliente, telefone ou #N"
-          className="pl-9"
-        />
+      <label className="flex flex-col gap-0.5">
+        <span className="text-xs text-text-muted">Buscar</span>
+        <div className="relative">
+          <Search size={16} strokeWidth={1.5} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+          <Input
+            value={busca}
+            onChange={(event) => onBuscaChange(event.target.value)}
+            placeholder="cliente, telefone ou #N"
+            className="pl-9"
+          />
+        </div>
       </label>
-      <SelectFiltro label="Estado" value={estado} onChange={(value) => onEstadoChange(value as EstadoFiltro)}>
+      <SelectFiltro label="Estágio" value={estado} onChange={(value) => onEstadoChange(value as EstadoFiltro)}>
         {estados.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
       </SelectFiltro>
-      <SelectFiltro label="Tipo" value={tipo} onChange={(value) => onTipoChange(value as TipoFiltro)}>
+      <SelectFiltro label="Local" value={tipo} onChange={(value) => onTipoChange(value as TipoFiltro)}>
         {tipos.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
       </SelectFiltro>
       <SelectFiltro label="Quando" value={urgencia} onChange={(value) => onUrgenciaChange(value as UrgenciaFiltro)}>
@@ -221,8 +223,8 @@ function SelectFiltro({
   children: ReactNode
 }) {
   return (
-    <label>
-      <span className="sr-only">{label}</span>
+    <label className="flex flex-col gap-0.5">
+      <span className="text-xs text-text-muted">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}

@@ -27,6 +27,7 @@ export function DialogMidiaUpload({
   const [tag, setTag] = useState("")
   const [aprovada, setAprovada] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [tentou, setTentou] = useState(false)
   const tipo = useMemo<TipoMidia>(() => file?.type.startsWith("video/") ? "video" : "foto", [file])
   const limite = modo === "perfil" ? 5 * 1024 * 1024 : 50 * 1024 * 1024
   const mimeOk = modo === "perfil"
@@ -35,6 +36,7 @@ export function DialogMidiaUpload({
   const valido = Boolean(file) && mimeOk && (file?.size ?? 0) <= limite && (modo === "perfil" || tag.trim().length > 0 && tag.length <= 50)
 
   const submit = async () => {
+    setTentou(true)
     if (!file || !valido) return
     setSubmitting(true)
     try {
@@ -95,7 +97,7 @@ export function DialogMidiaUpload({
             </label>
           </div>
         )}
-        {file && !valido && <p className="mt-4 text-sm text-state-lost">Arquivo, tamanho ou tag invalidos.</p>}
+        {tentou && !valido && <p className="mt-4 text-sm text-state-lost">Arquivo, tamanho ou tag inválidos.</p>}
         <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Cancelar</Button>
           <Button variant="primary" onClick={submit} disabled={!valido || submitting}>

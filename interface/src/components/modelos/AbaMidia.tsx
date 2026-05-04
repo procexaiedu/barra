@@ -33,12 +33,14 @@ export function AbaMidia({
   }), [aprovacao, midia, tag, tipo])
 
   return (
-    <div className="space-y-5">
-      <section aria-label="Filtros de midia" className="flex flex-wrap items-end gap-3">
-        <Select label="Tipo" value={tipo} onChange={(value) => setTipo(value as "todos" | TipoMidia)} options={[["todos", "Todos"], ["foto", "Foto"], ["video", "Video"]]} />
-        <Select label="Tag" value={tag} onChange={setTag} options={[["todas", "Todas"], ...tags.map((t): [string, string] => [t, t])]} />
-        <Select label="Uso" value={aprovacao} onChange={(value) => setAprovacao(value as FiltroAprovacao)} options={[["aprovadas", "Prontas"], ["nao_aprovadas", "Ocultas"], ["todas", "Todas"]]} />
-        <Button variant="primary" onClick={onAdicionar}>Adicionar midia</Button>
+    <div className="space-y-3">
+      <section aria-label="Filtros de midia" className="flex flex-wrap items-center gap-2">
+        <Select label="Tipo" value={tipo} onChange={(value) => setTipo(value as "todos" | TipoMidia)} options={[["todos", "Todos os tipos"], ["foto", "Fotos"], ["video", "Vídeos"]]} />
+        <Select label="Tag" value={tag} onChange={setTag} options={[["todas", "Todas as tags"], ...tags.map((t): [string, string] => [t, t])]} />
+        <Select label="Uso" value={aprovacao} onChange={(value) => setAprovacao(value as FiltroAprovacao)} options={[["aprovadas", "Prontas no atendimento"], ["nao_aprovadas", "Ocultas"], ["todas", "Todas"]]} />
+        <div className="ml-auto">
+          <Button variant="primary" size="sm" onClick={onAdicionar}>Adicionar mídia</Button>
+        </div>
       </section>
       <GridMidia items={items} onOpen={onOpen} onToggleAprovada={onToggleAprovada} onDelete={onDelete} />
     </div>
@@ -57,11 +59,8 @@ function Select({
   onChange: (value: string) => void
 }) {
   return (
-    <label className="grid gap-1 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-      {label}
-      <select value={value} onChange={(event) => onChange(event.target.value)} className="h-10 min-w-40 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
-        {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-      </select>
-    </label>
+    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="h-9 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+      {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+    </select>
   )
 }

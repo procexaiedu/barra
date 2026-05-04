@@ -11,7 +11,6 @@ A IA não toma decisão sensível sozinha. Toda escalada usa a tool `escalar(res
 A IA escala para Fernando quando há **decisão sensível** que ela não pode resolver dentro do prompt autorizado:
 
 - **Pix em revisão** — pipeline OCR/vision falha em qualquer checagem (beneficiário, chave, valor, timestamp, plausibilidade). Disparo automático pelo pipeline (5.4 via `atualizar_pix(em_revisao)`); a IA não chama `escalar` neste caso, mas o efeito de pausa é o mesmo.
-- **Sinal de risco** — cliente menciona local notoriamente perigoso, comportamento agressivo, ameaça, suspeita de golpe ou pedido de prática que viola política da modelo. IA chama `escalar(responsavel='Fernando', motivo='risco', ...)`.
 - **Pedido fora da política comercial** — desconto não autorizado, valor abaixo do mínimo cadastrado, serviço não previsto na FAQ, troca de modelo sem motivo claro. IA escala em vez de negociar.
 - **Conflito de agenda** — cliente insiste em horário já bloqueado e IA não consegue redirecionar para janela livre. IA escala antes de prometer algo que a agenda contradiz.
 - **Dúvida operacional não coberta pela FAQ** — qualquer pedido cuja resposta exija decisão que não está na base de conhecimento da modelo (ex: nova localidade, nova forma de pagamento). IA escala em vez de improvisar.
@@ -27,7 +26,7 @@ Foto de portaria e Pix validado são **handoffs implícitos** disparados pelo co
 ### 1.3 O que **não** dispara escalada no P0
 
 - **Silêncio do cliente** — timeouts determinísticos de `04 §5` cuidam sozinhos.
-- **Cliente fora de área genérico** — sem lista de bairros formal no MVP (`02 §3.2`); a IA segue tentando conduzir e só escala se houver sinal de risco.
+- **Cliente fora de área genérico** — sem lista de bairros formal no MVP (`02 §3.2`); a IA segue tentando conduzir.
 - **Mensagens picotadas/áudios curtos** — debounce e transcrição não são gatilhos.
 - **Erro de digitação ou linguagem confusa** — IA tenta interpretar normalmente; só escala se for impossível identificar intenção depois de pergunta de esclarecimento.
 
@@ -47,7 +46,7 @@ Quando a IA chama `escalar`, o módulo 5.4 envia um card no grupo. Estrutura mí
 - **Cliente** — nome quando disponível, senão telefone mascarado.
 - **Tipo de atendimento** — `interno` ou `externo`, quando já definido.
 - **Estado atual** — estado do atendimento e `pix_status` se aplicável.
-- **Motivo da escalada** — texto curto da IA (ex: `risco — cliente mencionou bairro X`).
+- **Motivo da escalada** — texto curto da IA (ex: `fora_de_oferta — cliente pediu desconto abaixo da tabela`).
 - **Resumo operacional** — 1–3 frases com o que aconteceu na conversa (gerado pela IA na chamada de `escalar`).
 - **Próxima ação esperada** — o que Fernando ou a modelo devem decidir/fazer.
 - **Responsável atual** — `Fernando` ou `modelo`, conforme parâmetro da escalada.

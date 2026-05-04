@@ -12,12 +12,12 @@ export function HeaderModelos({
 }) {
   return (
     <header className="flex items-center justify-between gap-4">
-      <h1 className="font-serif text-[40px] font-medium leading-[48px] text-text-primary">
+      <h1 className="font-serif text-[28px] font-medium leading-none text-text-primary">
         Modelos
       </h1>
       {!esconderAdicionar && (
-        <Button variant="primary" onClick={onAdicionar}>
-          <UserPlus size={16} strokeWidth={1.5} />
+        <Button variant="primary" size="sm" onClick={onAdicionar}>
+          <UserPlus size={14} strokeWidth={1.5} />
           Adicionar modelo
         </Button>
       )}

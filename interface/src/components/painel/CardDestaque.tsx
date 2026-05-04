@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { ClockAlert } from "lucide-react"
+import { AlertCircle, Clock, ClockAlert, ScanSearch, type LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -18,16 +18,34 @@ import {
 } from "@/components/ui/alert-dialog"
 import { formatTempoRelativo } from "@/lib/formatters"
 import { api } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { motivoExibido } from "@/components/atendimentos/utils"
 import type { CardDestaque as CardDestaqueType, IaPausadaMotivo } from "@/tipos/painel"
 
-const BADGE_MAP: Record<IaPausadaMotivo, { variant: "revisao" | "handoff" | "paused"; label: string }> = {
-  pix_em_revisao: { variant: "revisao", label: "Pix em revisão" },
-  handoff_ia: { variant: "handoff", label: "Aguardando você" },
-  modelo_em_atendimento: { variant: "paused", label: "Modelo atendendo" },
+const BADGE_MAP: Record<IaPausadaMotivo, { variant: "revisao" | "handoff" | "paused"; label: string; borderClass: string; Icon: LucideIcon }> = {
+  pix_em_revisao:        { variant: "revisao", label: "Pix em revisão",   borderClass: "border-l-danger-500", Icon: AlertCircle },
+  handoff_ia:            { variant: "handoff", label: "Aguardando você",  borderClass: "border-l-warn-500",   Icon: Clock       },
+  modelo_em_atendimento: { variant: "paused",  label: "Modelo atendendo", borderClass: "border-l-info-500",   Icon: ClockAlert  },
 }
 
-export function CardDestaque({ card, mostrarModelo = false }: { card: CardDestaqueType; mostrarModelo?: boolean }) {
+function urgenciaClasse(iaEmAt: string): string {
+  const mins = (Date.now() - new Date(iaEmAt).getTime()) / 60_000
+  if (mins > 120) return "text-danger-500"
+  if (mins > 30) return "text-warn-500"
+  return "text-text-muted"
+}
+
+export function CardDestaque({
+  card,
+  compacto = false,
+  flashing = false,
+  onAbrirContexto,
+}: {
+  card: CardDestaqueType
+  compacto?: boolean
+  flashing?: boolean
+  onAbrirContexto?: () => void
+}) {
   const router = useRouter()
   const [dialogOpen, setDialogOpen] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -61,6 +79,60 @@ export function CardDestaque({ card, mostrarModelo = false }: { card: CardDestaq
     }
   }
 
+  if (compacto) {
+    return (
+      <>
+        <article
+          role="link"
+          tabIndex={0}
+          onClick={handleCardClick}
+          onKeyDown={handleCardKeyDown}
+          className={cn(
+            "flex cursor-pointer items-center gap-3 border-l-3 bg-card px-4 py-2.5",
+            "transition-colors hover:bg-ink-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            badge.borderClass,
+          )}
+        >
+          <Badge variant={badge.variant} className="shrink-0">{badge.label}</Badge>
+          <span className="min-w-0 truncate text-sm font-semibold text-text-primary">{nomeCliente}</span>
+          {card.proxima_acao_esperada && (
+            <span className="min-w-0 flex-1 truncate text-xs text-text-muted">{card.proxima_acao_esperada}</span>
+          )}
+          <span className="shrink-0 text-xs text-text-muted">{card.modelo_nome} #{card.numero_curto}</span>
+          {card.ia_pausada_motivo === "modelo_em_atendimento" && (
+            <Button
+              variant="default"
+              size="sm"
+              className="shrink-0"
+              onClick={(e) => { e.stopPropagation(); setDialogOpen(true) }}
+            >
+              Devolver para IA
+            </Button>
+          )}
+        </article>
+
+        <AlertDialog open={dialogOpen} onOpenChange={setDialogOpen}>
+          <AlertDialogContent className="max-w-md bg-card">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="text-lg font-semibold text-text-primary">
+                Devolver #{card.numero_curto} para a IA?
+              </AlertDialogTitle>
+              <AlertDialogDescription className="text-sm text-text-secondary">
+                A IA volta a responder o cliente na próxima mensagem.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={loading}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDevolver} disabled={loading}>
+                {loading ? "Devolvendo…" : "Confirmar devolução"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      </>
+    )
+  }
+
   return (
     <>
       <article
@@ -68,15 +140,22 @@ export function CardDestaque({ card, mostrarModelo = false }: { card: CardDestaq
         tabIndex={0}
         onClick={handleCardClick}
         onKeyDown={handleCardKeyDown}
-        className="cursor-pointer rounded-lg border-l-3 border-l-warn-500 bg-card p-6 transition-colors hover:bg-ink-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+        className={cn("cursor-pointer rounded-lg border-l-3 bg-card p-6 transition-colors hover:bg-ink-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none", badge.borderClass, flashing && "tile-update-flash")}
       >
         <div className="flex items-center gap-3">
           <Badge variant={badge.variant}>{badge.label}</Badge>
-          {card.ia_pausada_motivo === "modelo_em_atendimento" && (
-            <ClockAlert size={16} className="text-warn-500" />
-          )}
-          <span className="font-mono text-xs text-text-muted">#{card.numero_curto}</span>
+          <badge.Icon size={14} className="shrink-0 text-text-muted" aria-hidden />
           <span className="text-base font-semibold text-text-primary">{nomeCliente}</span>
+          {onAbrirContexto && (
+            <button
+              type="button"
+              aria-label="Ver contexto e decidir"
+              onClick={(e) => { e.stopPropagation(); onAbrirContexto() }}
+              className="ml-auto rounded p-1 text-text-muted hover:bg-ink-300 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <ScanSearch size={15} />
+            </button>
+          )}
         </div>
 
         <div className="mt-3 space-y-1">
@@ -93,7 +172,7 @@ export function CardDestaque({ card, mostrarModelo = false }: { card: CardDestaq
               <span className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
                 PRÓXIMA AÇÃO{" "}
               </span>
-              <span className="text-[13px] text-text-muted">{card.proxima_acao_esperada}</span>
+              <span className="text-[13px] font-medium text-text-primary">{card.proxima_acao_esperada}</span>
             </div>
           )}
         </div>
@@ -114,12 +193,10 @@ export function CardDestaque({ card, mostrarModelo = false }: { card: CardDestaq
         )}
 
         <div className="mt-3 border-t border-border pt-3 flex items-center justify-between">
-          <p className="text-xs font-medium text-text-muted">
+          <p className={cn("text-xs font-medium", urgenciaClasse(card.ia_pausada_em))}>
             Pausada {formatTempoRelativo(card.ia_pausada_em)} · Com {card.responsavel_atual === "IA" ? "IA" : card.responsavel_atual}
           </p>
-          {mostrarModelo && (
-            <span className="text-xs font-medium text-text-muted">{card.modelo_nome}</span>
-          )}
+          <span className="text-xs font-medium text-text-muted">{card.modelo_nome} #{card.numero_curto}</span>
         </div>
       </article>
 

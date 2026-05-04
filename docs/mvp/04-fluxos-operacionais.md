@@ -23,7 +23,7 @@ Aplica-se a todo cliente que chega pelo BarraVips, antes de o tipo de atendiment
 - A IA conduz sozinha até a confirmação ou até bater num gatilho de escalada de `05-escalada-regras-ia.md`.
 - Toda transição de estado é registrada com `fonte_decisao` (extração da IA, evento de pipeline, comando humano ou timeout determinístico).
 - `ia_pausada=true` só é ativada por `escalar` da IA ou por `pix_em_revisao` do pipeline; mensagens entrantes durante pausa são gravadas em 5.1 sem indicador no painel.
-- A IA nunca decide risco/local; quando sinal sensível aparece, escala para Fernando (ver `05 §1`).
+- Avaliação de local de saída é responsabilidade da modelo e de Fernando, fora do escopo da IA.
 
 ---
 
@@ -96,7 +96,7 @@ Fernando recusa pelo painel → `pix_status=invalido`. Atendimento continua em `
 - Não envia mensagem confirmando o Pix validado — o handoff para a modelo é silencioso do ponto de vista da IA (§3.1, caminho A).
 - Não interpreta conteúdo do comprovante por conta própria — pipeline OCR/vision é a porta única de validação automática.
 - Não negocia valor de deslocamento (R$ 100 fixo no MVP).
-- Não avalia segurança do bairro ou local — gatilho de risco escala para Fernando (`05 §1`).
+- Não avalia segurança do bairro ou local — essa verificação é responsabilidade da modelo e de Fernando.
 
 ---
 

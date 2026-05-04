@@ -22,8 +22,9 @@ export function ItemModelo({
 }) {
   const badge = statusBadge[item.status]
   const handoff = item.indicadores.ultimo_handoff_em
-    ? `ultima ajuda ${formatTempoRelativo(item.indicadores.ultimo_handoff_em)}`
+    ? `ajuda ${formatTempoRelativo(item.indicadores.ultimo_handoff_em)}`
     : "sem ajuda recente"
+  const wppPendente = !item.evolution_instance_id
 
   return (
     <button
@@ -35,26 +36,40 @@ export function ItemModelo({
         if (event.key === "Enter" || event.key === " ") onSelect()
       }}
       className={cn(
-        "w-full rounded-lg border border-border bg-card p-4 text-left transition-colors hover:bg-ink-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
-        selected && "border-l-3 border-l-gold-500",
-        !selected && item.status === "pausada" && "border-l-3 border-l-ink-400",
+        "group relative w-full px-3 py-2.5 text-left transition-colors hover:bg-ink-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "border-l-[3px] border-l-transparent",
+        selected && "bg-ink-100 border-l-gold-500",
         item.status === "inativa" && "opacity-60"
       )}
     >
-      <div className="mb-3 flex flex-wrap items-center gap-2">
-        <Badge variant={badge.variant}>{badge.label}</Badge>
+      <div className="flex items-center justify-between gap-2">
         <span className={cn(
-          "rounded-full bg-ink-300 px-3 py-1 text-xs font-medium",
-          item.evolution_instance_id ? "text-text-muted" : "text-state-handoff"
+          "truncate text-sm font-semibold",
+          selected ? "text-text-primary" : "text-text-primary"
         )}>
-          {item.evolution_instance_id ? "WhatsApp pronto" : "WhatsApp pendente"}
+          {item.nome}
         </span>
+        <Badge variant={badge.variant} className="shrink-0 px-2 py-0.5 text-[11px]">
+          {badge.label}
+        </Badge>
       </div>
-      <p className="text-base font-semibold text-text-primary">{item.nome}</p>
-      <p className="mt-1 font-mono text-xs text-text-muted">{formatTelefone(item.numero_whatsapp)}</p>
-      <p className="mt-3 text-xs font-medium text-text-muted">
-        {item.indicadores.atendimentos_abertos} abertos - {item.indicadores.conversas_ia_pausada} pausados - {handoff}
-      </p>
+      <div className="mt-1 flex items-center justify-between gap-2 text-xs text-text-muted">
+        <span className="font-mono">{formatTelefone(item.numero_whatsapp)}</span>
+        {wppPendente && <span className="text-state-handoff">WhatsApp pendente</span>}
+      </div>
+      <div className="mt-1 text-[11px] text-text-muted">
+        {item.indicadores.atendimentos_abertos > 0 && (
+          <span className="text-text-secondary">{item.indicadores.atendimentos_abertos} aberto{item.indicadores.atendimentos_abertos > 1 ? "s" : ""}</span>
+        )}
+        {item.indicadores.atendimentos_abertos > 0 && " · "}
+        {item.indicadores.conversas_ia_pausada > 0 && (
+          <>
+            <span className="text-state-handoff">{item.indicadores.conversas_ia_pausada} pausado{item.indicadores.conversas_ia_pausada > 1 ? "s" : ""}</span>
+            {" · "}
+          </>
+        )}
+        <span>{handoff}</span>
+      </div>
     </button>
   )
 }

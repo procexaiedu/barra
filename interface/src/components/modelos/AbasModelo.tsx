@@ -1,13 +1,12 @@
 "use client"
 
-import { FileQuestion, Images, UserRound } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { AbaModelo } from "@/tipos/modelos"
 
 const abas = [
-  { slug: "perfil" as const, label: "Perfil", icon: UserRound },
-  { slug: "faq" as const, label: "Duvidas", icon: FileQuestion },
-  { slug: "midia" as const, label: "Fotos e videos", icon: Images },
+  { slug: "perfil" as const, label: "Perfil" },
+  { slug: "faq" as const, label: "Dúvidas" },
+  { slug: "midia" as const, label: "Fotos e vídeos" },
 ]
 
 export function AbasModelo({
@@ -18,9 +17,8 @@ export function AbasModelo({
   onChange: (aba: AbaModelo) => void
 }) {
   return (
-    <div role="tablist" aria-label="Abas da modelo" className="flex flex-wrap gap-2 border-b border-border pb-3">
+    <div role="tablist" aria-label="Abas da modelo" className="flex gap-1 border-b border-border">
       {abas.map((item) => {
-        const Icon = item.icon
         const active = item.slug === aba
         return (
           <button
@@ -30,13 +28,12 @@ export function AbasModelo({
             aria-selected={active}
             onClick={() => onChange(item.slug)}
             className={cn(
-              "inline-flex h-10 items-center gap-2 rounded-md px-3 text-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
+              "relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               active
-                ? "bg-ink-200 text-gold-500"
-                : "text-text-secondary hover:bg-ink-200 hover:text-text-primary"
+                ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gold-500"
+                : "text-text-muted hover:text-text-secondary"
             )}
           >
-            <Icon size={16} strokeWidth={1.5} />
             {item.label}
           </button>
         )

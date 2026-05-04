@@ -257,3 +257,13 @@
     background-color: var(--ink-500);
   }
 }
+
+@keyframes tile-update-flash {
+  0%   { background-color: var(--card); }
+  20%  { background-color: var(--ink-200); }
+  100% { background-color: var(--card); }
+}
+
+.tile-update-flash {
+  animation: tile-update-flash 0.7s ease-out;
+}

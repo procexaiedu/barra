@@ -29,6 +29,7 @@ export function DialogCriarModelo({
   const [form, setForm] = useState<CriarModeloInput>(inicial)
   const [idiomasInput, setIdiomasInput] = useState("pt-BR")
   const [submitting, setSubmitting] = useState(false)
+  const [tentou, setTentou] = useState(false)
   const valido =
     form.nome.trim().length > 0 &&
     form.nome.length <= 100 &&
@@ -38,6 +39,7 @@ export function DialogCriarModelo({
     idiomasInput.split(",").map((i) => i.trim()).filter(Boolean).length > 0
 
   const submit = async () => {
+    setTentou(true)
     if (!valido) return
     setSubmitting(true)
     try {
@@ -68,7 +70,7 @@ export function DialogCriarModelo({
           </div>
           <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fechar"><X size={18} strokeWidth={1.5} /></Button>} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <Campo label="Nome" className="col-span-2">
             <Input value={form.nome} maxLength={100} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="h-10 bg-input" />
           </Campo>
@@ -78,10 +80,10 @@ export function DialogCriarModelo({
           <Campo label="Número de WhatsApp" className="col-span-2">
             <Input value={form.numero_whatsapp} placeholder="+5521987654321" onChange={(e) => setForm({ ...form, numero_whatsapp: e.target.value })} className="h-10 bg-input" />
           </Campo>
-          <Campo label="Idiomas" className="col-span-2">
-            <Input value={idiomasInput} onChange={(e) => setIdiomasInput(e.target.value)} className="h-10 bg-input" />
+          <Campo label="Idiomas">
+            <Input value={idiomasInput} placeholder="pt-BR, en-US" onChange={(e) => setIdiomasInput(e.target.value)} className="h-10 bg-input" />
           </Campo>
-          <div className="col-span-2">
+          <div className="col-span-3">
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">Atende em</p>
             <TipoChecks
               value={form.tipo_atendimento_aceito}
@@ -89,12 +91,12 @@ export function DialogCriarModelo({
             />
           </div>
         </div>
-        {!valido && (
+        {tentou && !valido && (
           <p className="mt-4 text-sm text-state-lost">Preencha nome, idade, número no formato +55, idioma e pelo menos uma opção de atendimento.</p>
         )}
         <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Cancelar</Button>
-          <Button variant="primary" onClick={submit} disabled={!valido || submitting}>
+          <Button variant="primary" onClick={submit} disabled={submitting}>
             {submitting && <Loader2 className="animate-spin" />}
             Criar modelo
           </Button>

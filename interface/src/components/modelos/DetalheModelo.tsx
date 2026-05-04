@@ -93,34 +93,34 @@ export function DetalheModelo({
   const badge = statusBadge[modelo.status]
 
   return (
-    <section aria-label="Detalhe da modelo" className="min-w-0 space-y-5">
-      <header className="rounded-lg border border-border bg-card p-6">
-        <div className="flex items-start justify-between gap-5">
-          <div className="flex min-w-0 gap-4">
-            <FotoPerfil url={modelo.foto_perfil_url} nome={modelo.nome} />
+    <section aria-label="Detalhe da modelo" className="min-w-0 space-y-4">
+      <header className="rounded-lg border border-border bg-card px-4 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <FotoPerfil url={modelo.foto_perfil_url} nome={modelo.nome} size="sm" />
             <div className="min-w-0">
-              <h2 className="text-[22px] font-semibold leading-[30px] text-text-primary">{modelo.nome}</h2>
-              <div className="mt-2 flex flex-wrap items-center gap-2">
-                <Badge variant={badge.variant}>{badge.label}</Badge>
-                <Chip warn={!modelo.evolution_instance_id}>{modelo.evolution_instance_id ? "WhatsApp pronto" : "WhatsApp pendente"}</Chip>
+              <div className="flex items-center gap-2">
+                <h2 className="truncate text-base font-semibold text-text-primary">{modelo.nome}</h2>
+                <Badge variant={badge.variant} className="shrink-0 px-2 py-0.5 text-[11px]">{badge.label}</Badge>
               </div>
-              <p className="mt-2 text-sm text-text-muted">
-                {modelo.nome} — {modelo.idade} anos — {modelo.idiomas.join(", ")} — {modelo.localizacao_operacional ?? "sem região"}
+              <p className="truncate text-xs text-text-muted">
+                {modelo.idade} anos · {modelo.idiomas.join(", ")} · {modelo.localizacao_operacional ?? "sem região"}
+                {!modelo.evolution_instance_id && <span className="ml-2 text-state-handoff">WhatsApp pendente</span>}
               </p>
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-2">
             {!modelo.evolution_instance_id && (
-              <Button variant="primary" onClick={onConectar} disabled={actionLoading}>
+              <Button variant="primary" size="sm" onClick={onConectar} disabled={actionLoading}>
                 {actionLoading && <Loader2 className="animate-spin" />}
                 Conectar WhatsApp
               </Button>
             )}
             {modelo.status === "ativa" && modelo.evolution_instance_id && (
-              <Button variant="secondary" onClick={onPausar} disabled={actionLoading}>Pausar atendimentos</Button>
+              <Button variant="secondary" size="sm" onClick={onPausar} disabled={actionLoading}>Pausar atendimentos</Button>
             )}
             {modelo.status === "pausada" && (
-              <Button variant="primary" onClick={onAtivar} disabled={actionLoading}>
+              <Button variant="primary" size="sm" onClick={onAtivar} disabled={actionLoading}>
                 {actionLoading && <Loader2 className="animate-spin" />}
                 Reativar atendimentos
               </Button>
@@ -168,14 +168,6 @@ export function DetalheModelo({
         />
       )}
     </section>
-  )
-}
-
-function Chip({ warn, children }: { warn?: boolean; children: React.ReactNode }) {
-  return (
-    <span className={`rounded-full bg-ink-300 px-3 py-1 text-xs font-medium ${warn ? "text-state-handoff" : "text-text-muted"}`}>
-      {children}
-    </span>
   )
 }
 

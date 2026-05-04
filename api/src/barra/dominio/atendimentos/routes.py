@@ -129,11 +129,15 @@ async def obter_atendimento(
         """
         SELECT a.*, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
                m.nome AS modelo_nome, m.percentual_repasse, b.inicio AS bloqueio_inicio,
-               b.fim AS bloqueio_fim, b.estado::text AS bloqueio_estado
+               b.fim AS bloqueio_fim, b.estado::text AS bloqueio_estado,
+               cv.recorrente AS conversa_recorrente,
+               cv.observacoes_internas AS conversa_observacoes,
+               cv.ultimo_motivo_perda::text AS conversa_ultimo_motivo_perda
           FROM barravips.atendimentos a
           JOIN barravips.clientes c ON c.id = a.cliente_id
           JOIN barravips.modelos m ON m.id = a.modelo_id
           LEFT JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+          LEFT JOIN barravips.conversas cv ON cv.id = a.conversa_id
          WHERE a.id = %s
         """,
         (atendimento_id,),
@@ -173,7 +177,12 @@ async def obter_atendimento(
             "nome": atendimento["cliente_nome"],
             "telefone": atendimento["cliente_telefone"],
         },
-        "conversa": {"id": atendimento["conversa_id"]},
+        "conversa": {
+            "id": atendimento["conversa_id"],
+            "recorrente": atendimento["conversa_recorrente"],
+            "observacoes_internas": atendimento["conversa_observacoes"],
+            "ultimo_motivo_perda": atendimento["conversa_ultimo_motivo_perda"],
+        },
         "modelo": {"id": atendimento["modelo_id"], "nome": atendimento["modelo_nome"]},
         "bloqueio": None
         if atendimento["bloqueio_id"] is None

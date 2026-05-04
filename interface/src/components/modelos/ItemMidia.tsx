@@ -1,6 +1,6 @@
 "use client"
 
-import { ImageIcon, Video, Trash2 } from "lucide-react"
+import { Eye, EyeOff, ImageIcon, Trash2, Video } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { MidiaItem } from "@/tipos/modelos"
 
@@ -17,35 +17,35 @@ export function ItemMidia({
 }) {
   const Icon = item.tipo === "video" ? Video : ImageIcon
   return (
-    <article className="overflow-hidden rounded-lg border border-border bg-card">
+    <article className="group relative overflow-hidden rounded-lg border border-border bg-card">
       <button
         type="button"
         onClick={onOpen}
-        className="flex aspect-square w-full items-center justify-center bg-ink-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
+        aria-label={`Abrir ${item.tag}`}
+        className="relative flex aspect-square w-full items-center justify-center bg-ink-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       >
         {item.tipo === "foto" ? (
           <img src={item.url_assinada} alt={item.tag} className="h-full w-full object-cover" />
         ) : (
-          <div className="flex flex-col items-center gap-2 text-text-muted">
-            <Icon size={28} strokeWidth={1.5} />
-            <span className="text-xs">Video</span>
+          <div className="flex flex-col items-center gap-1.5 text-text-muted">
+            <Icon size={24} strokeWidth={1.5} />
+            <span className="text-[11px] uppercase tracking-wider">Vídeo</span>
           </div>
         )}
-      </button>
-      <div className="space-y-3 p-3">
-        <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium text-text-primary">{item.tag}</span>
-          <span className="rounded-full bg-ink-300 px-2 py-1 text-xs text-text-muted">
-            {item.aprovada ? "pronta" : "oculta"}
+        {!item.aprovada && (
+          <span className="absolute left-2 top-2 rounded bg-ink-0/80 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-text-muted backdrop-blur-sm">
+            Oculta
           </span>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="sm" onClick={onToggleAprovada}>
-            {item.aprovada ? "Ocultar" : "Liberar"}
+        )}
+      </button>
+      <div className="flex items-center justify-between gap-2 px-2.5 py-2">
+        <span className="truncate text-xs font-medium text-text-secondary">{item.tag}</span>
+        <div className="flex shrink-0 gap-0.5">
+          <Button variant="ghost" size="icon-xs" onClick={onToggleAprovada} aria-label={item.aprovada ? "Ocultar" : "Liberar"}>
+            {item.aprovada ? <EyeOff size={12} strokeWidth={1.5} /> : <Eye size={12} strokeWidth={1.5} />}
           </Button>
-          <Button variant="ghost" size="sm" onClick={onDelete}>
-            <Trash2 size={14} strokeWidth={1.5} />
-            Remover
+          <Button variant="ghost" size="icon-xs" onClick={onDelete} aria-label="Remover" className="text-text-muted hover:text-state-lost">
+            <Trash2 size={12} strokeWidth={1.5} />
           </Button>
         </div>
       </div>

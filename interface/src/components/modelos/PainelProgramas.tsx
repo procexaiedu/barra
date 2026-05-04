@@ -44,8 +44,7 @@ export function PainelProgramas({
   }
 
   return (
-    <div className="space-y-6">
-      {/* Programas */}
+    <div className="grid gap-4 xl:grid-cols-2">
       <SecaoCatalogo
         programas={programas}
         categorias={categorias}
@@ -54,8 +53,6 @@ export function PainelProgramas({
         onAtualizar={onAtualizarPrograma}
         onExcluir={onExcluirPrograma}
       />
-
-      {/* Durações */}
       <SecaoDuracoes
         duracoes={duracoes}
         onCriar={onCriarDuracao}
@@ -103,26 +100,29 @@ function SecaoCatalogo({
   const grupos = agrupar(programas)
 
   return (
-    <section className="rounded-lg border border-border bg-card p-6">
-      <h2 className="mb-1 text-base font-semibold text-text-primary">Programas</h2>
-      <p className="mb-5 text-sm text-text-muted">
-        Serviços oferecidos pela agência. Os preços são definidos por modelo.
-      </p>
+    <section className="overflow-hidden rounded-lg border border-border bg-card">
+      <header className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3">
+        <div>
+          <h2 className="text-sm font-semibold text-text-primary">Programas</h2>
+          <p className="text-xs text-text-muted">Serviços oferecidos pela agência. Preços por modelo.</p>
+        </div>
+        <span className="text-xs text-text-muted">{programas.length}</span>
+      </header>
 
       {programas.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border p-4 text-sm text-text-muted mb-4">
+        <p className="px-4 py-8 text-center text-sm text-text-muted">
           Nenhum programa cadastrado.
         </p>
       ) : (
-        <div className="space-y-4 mb-4">
+        <div className="divide-y divide-border">
           {grupos.map(({ titulo, items }) => (
             <div key={titulo ?? "__geral__"}>
               {titulo && (
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+                <p className="bg-ink-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
                   {titulo}
                 </p>
               )}
-              <div className="space-y-1.5">
+              <ul className="divide-y divide-border">
                 {items.map((p) => (
                   <ItemPrograma
                     key={p.id}
@@ -133,7 +133,7 @@ function SecaoCatalogo({
                     onExcluir={onExcluir}
                   />
                 ))}
-              </div>
+              </ul>
             </div>
           ))}
         </div>
@@ -142,36 +142,30 @@ function SecaoCatalogo({
       <datalist id={categoriasListId}>
         {categorias.map((c) => <option key={c} value={c} />)}
       </datalist>
-      <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] border-t border-border pt-4">
-        <Campo label="Nome">
-          <Input
-            value={form.nome}
-            onChange={(e) => setForm({ ...form, nome: e.target.value })}
-            placeholder="Ex.: Casal"
-            className="h-9 bg-input"
-            onKeyDown={(e) => { if (e.key === "Enter") salvar() }}
-          />
-        </Campo>
-        <Campo label="Tipo (opcional)">
-          <Input
-            list={categoriasListId}
-            value={form.categoria}
-            onChange={(e) => setForm({ ...form, categoria: e.target.value })}
-            placeholder="Ex.: Especial"
-            className="h-9 bg-input"
-          />
-        </Campo>
-        <div className="flex items-end">
-          <Button
-            variant="primary"
-            onClick={salvar}
-            disabled={!form.nome.trim() || submitting}
-            className="h-9 w-full sm:w-auto"
-          >
-            {submitting ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} strokeWidth={1.5} />}
-            Adicionar
-          </Button>
-        </div>
+      <div className="flex items-center gap-2 border-t border-border bg-ink-50 px-3 py-2.5">
+        <Input
+          value={form.nome}
+          onChange={(e) => setForm({ ...form, nome: e.target.value })}
+          placeholder="Nome do programa"
+          className="h-8 flex-1 bg-input text-sm"
+          onKeyDown={(e) => { if (e.key === "Enter") salvar() }}
+        />
+        <Input
+          list={categoriasListId}
+          value={form.categoria}
+          onChange={(e) => setForm({ ...form, categoria: e.target.value })}
+          placeholder="Tipo (opcional)"
+          className="h-8 w-36 bg-input text-sm"
+        />
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={salvar}
+          disabled={!form.nome.trim() || submitting}
+        >
+          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} strokeWidth={1.5} />}
+          Adicionar
+        </Button>
       </div>
     </section>
   )
@@ -221,49 +215,43 @@ function ItemPrograma({
 
   if (editando) {
     return (
-      <article className="rounded-lg border border-border bg-ink-100 px-3 py-2.5">
-        <div className="grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
-          <Campo label="Nome">
-            <Input
-              value={form.nome}
-              onChange={(e) => setForm({ ...form, nome: e.target.value })}
-              className="h-8 bg-input text-sm"
-              onKeyDown={(e) => { if (e.key === "Enter") salvar() }}
-            />
-          </Campo>
-          <Campo label="Tipo">
-            <Input
-              list={listId}
-              value={form.categoria}
-              onChange={(e) => setForm({ ...form, categoria: e.target.value })}
-              className="h-8 bg-input text-sm"
-            />
-          </Campo>
-          <div className="flex items-end gap-1.5">
-            <Button variant="primary" size="sm" onClick={salvar} disabled={!form.nome.trim() || submitting}>
-              {submitting ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} strokeWidth={2} />}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setForm({ nome: programa.nome, categoria: programa.categoria ?? "" }); setEditando(false) }} disabled={submitting}>
-              <X size={13} strokeWidth={1.5} />
-            </Button>
-          </div>
-        </div>
-      </article>
+      <li className="flex items-center gap-2 px-3 py-2">
+        <Input
+          value={form.nome}
+          onChange={(e) => setForm({ ...form, nome: e.target.value })}
+          className="h-8 flex-1 bg-input text-sm"
+          onKeyDown={(e) => { if (e.key === "Enter") salvar() }}
+          autoFocus
+        />
+        <Input
+          list={listId}
+          value={form.categoria}
+          onChange={(e) => setForm({ ...form, categoria: e.target.value })}
+          placeholder="Tipo"
+          className="h-8 w-32 bg-input text-sm"
+        />
+        <Button variant="primary" size="icon-sm" onClick={salvar} disabled={!form.nome.trim() || submitting} aria-label="Salvar">
+          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} strokeWidth={2} />}
+        </Button>
+        <Button variant="ghost" size="icon-sm" onClick={() => { setForm({ nome: programa.nome, categoria: programa.categoria ?? "" }); setEditando(false) }} disabled={submitting} aria-label="Cancelar">
+          <X size={13} strokeWidth={1.5} />
+        </Button>
+      </li>
     )
   }
 
   return (
-    <article className="flex items-center justify-between gap-3 rounded-lg border border-border bg-ink-100 px-3 py-2.5">
-      <span className="text-sm font-medium text-text-primary">{programa.nome}</span>
-      <div className="flex gap-1">
-        <Button variant="ghost" size="sm" onClick={() => setEditando(true)} disabled={submitting}>
+    <li className="group flex items-center justify-between gap-3 px-4 py-2 hover:bg-ink-100">
+      <span className="text-sm text-text-primary">{programa.nome}</span>
+      <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <Button variant="ghost" size="icon-sm" onClick={() => setEditando(true)} disabled={submitting} aria-label="Editar">
           <Pencil size={13} strokeWidth={1.5} />
         </Button>
-        <Button variant="ghost" size="sm" onClick={excluir} disabled={submitting}>
+        <Button variant="ghost" size="icon-sm" onClick={excluir} disabled={submitting} aria-label="Remover" className="hover:text-state-lost">
           {submitting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} strokeWidth={1.5} />}
         </Button>
       </div>
-    </article>
+    </li>
   )
 }
 
@@ -298,45 +286,44 @@ function SecaoDuracoes({
   }
 
   return (
-    <section className="rounded-lg border border-border bg-card p-6">
-      <h2 className="mb-1 text-base font-semibold text-text-primary">Durações</h2>
-      <p className="mb-5 text-sm text-text-muted">
-        Opções de duração disponíveis para todos os programas.
-      </p>
+    <section className="overflow-hidden rounded-lg border border-border bg-card">
+      <header className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3">
+        <div>
+          <h2 className="text-sm font-semibold text-text-primary">Durações</h2>
+          <p className="text-xs text-text-muted">Opções disponíveis para todos os programas.</p>
+        </div>
+        <span className="text-xs text-text-muted">{duracoes.length}</span>
+      </header>
 
       {duracoes.length === 0 ? (
-        <p className="rounded-lg border border-dashed border-border p-4 text-sm text-text-muted mb-4">
+        <p className="px-4 py-8 text-center text-sm text-text-muted">
           Nenhuma duração cadastrada.
         </p>
       ) : (
-        <div className="space-y-1.5 mb-4">
+        <ul className="divide-y divide-border">
           {duracoes.map((d) => (
             <ItemDuracao key={d.id} duracao={d} onAtualizar={onAtualizar} onExcluir={onExcluir} />
           ))}
-        </div>
+        </ul>
       )}
 
-      <div className="flex gap-3 border-t border-border pt-4">
-        <Campo label="Nome" className="flex-1">
-          <Input
-            value={form.nome}
-            onChange={(e) => setForm({ nome: e.target.value })}
-            placeholder="Ex.: 4 horas"
-            className="h-9 bg-input"
-            onKeyDown={(e) => { if (e.key === "Enter") salvar() }}
-          />
-        </Campo>
-        <div className="flex items-end">
-          <Button
-            variant="primary"
-            onClick={salvar}
-            disabled={!form.nome.trim() || submitting}
-            className="h-9"
-          >
-            {submitting ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} strokeWidth={1.5} />}
-            Adicionar
-          </Button>
-        </div>
+      <div className="flex items-center gap-2 border-t border-border bg-ink-50 px-3 py-2.5">
+        <Input
+          value={form.nome}
+          onChange={(e) => setForm({ nome: e.target.value })}
+          placeholder="Ex.: 4 horas"
+          className="h-8 flex-1 bg-input text-sm"
+          onKeyDown={(e) => { if (e.key === "Enter") salvar() }}
+        />
+        <Button
+          variant="primary"
+          size="sm"
+          onClick={salvar}
+          disabled={!form.nome.trim() || submitting}
+        >
+          {submitting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} strokeWidth={1.5} />}
+          Adicionar
+        </Button>
       </div>
     </section>
   )
@@ -382,7 +369,7 @@ function ItemDuracao({
 
   if (editando) {
     return (
-      <div className="flex items-center gap-2 rounded-lg border border-border bg-ink-100 px-3 py-2">
+      <li className="flex items-center gap-2 px-3 py-2">
         <Input
           value={nome}
           onChange={(e) => setNome(e.target.value)}
@@ -393,41 +380,32 @@ function ItemDuracao({
             if (e.key === "Escape") { setNome(duracao.nome); setEditando(false) }
           }}
         />
-        <Button variant="primary" size="sm" onClick={salvar} disabled={!nome.trim() || submitting}>
+        <Button variant="primary" size="icon-sm" onClick={salvar} disabled={!nome.trim() || submitting} aria-label="Salvar">
           {submitting ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} strokeWidth={2} />}
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => { setNome(duracao.nome); setEditando(false) }} disabled={submitting}>
+        <Button variant="ghost" size="icon-sm" onClick={() => { setNome(duracao.nome); setEditando(false) }} disabled={submitting} aria-label="Cancelar">
           <X size={13} strokeWidth={1.5} />
         </Button>
-      </div>
+      </li>
     )
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-border bg-ink-100 px-3 py-2.5">
+    <li className="group flex items-center justify-between gap-3 px-4 py-2 hover:bg-ink-100">
       <span className="text-sm text-text-primary">{duracao.nome}</span>
-      <div className="flex gap-1">
-        <Button variant="ghost" size="sm" onClick={() => setEditando(true)} disabled={submitting}>
+      <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <Button variant="ghost" size="icon-sm" onClick={() => setEditando(true)} disabled={submitting} aria-label="Editar">
           <Pencil size={13} strokeWidth={1.5} />
         </Button>
-        <Button variant="ghost" size="sm" onClick={excluir} disabled={submitting}>
+        <Button variant="ghost" size="icon-sm" onClick={excluir} disabled={submitting} aria-label="Remover" className="hover:text-state-lost">
           {submitting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} strokeWidth={1.5} />}
         </Button>
       </div>
-    </div>
+    </li>
   )
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function Campo({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
-  return (
-    <label className={`grid gap-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted ${className ?? ""}`}>
-      {label}
-      {children}
-    </label>
-  )
-}
 
 function agrupar(programas: Programa[]): { titulo: string | null; items: Programa[] }[] {
   const geral: Programa[] = []

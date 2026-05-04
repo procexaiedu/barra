@@ -166,7 +166,7 @@ Migrations são SQL sequencial em `infra/sql/NNNN_*.sql`, aplicado via `psql` ou
 ## Comandos comuns
 
 Backend (a partir de `api/`):
-- `make dev` — FastAPI com reload
+- `uv run uvicorn barra.main:app --reload --host 0.0.0.0 --port 8000` — FastAPI com reload
 - `make worker` — ARQ worker
 - `make test` — pytest
 - `make lint` / `make format` — ruff

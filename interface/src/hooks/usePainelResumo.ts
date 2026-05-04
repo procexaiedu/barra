@@ -44,9 +44,8 @@ export function usePainelResumo(modeloId: string | null) {
     }, 250)
   }, [fetchResumo])
 
-  // Refetch imediato quando o filtro de modelo muda
+  // Refetch imediato quando o filtro de modelo muda (sem resetar firstLoadDone — evita flash de skeleton)
   useEffect(() => {
-    firstLoadDone.current = false
     fetchResumo()
   }, [modeloId, fetchResumo])
 
