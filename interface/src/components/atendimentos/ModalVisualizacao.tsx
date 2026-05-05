@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from "react"
 import { X } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
-import { api } from "@/lib/api"
+import { api, apiFormData } from "@/lib/api"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
-import type { AtendimentoDetalheResponse, MotivoPerda } from "@/tipos/atendimentos"
+import type { AtendimentoDetalheResponse, MensagemAtendimento, MotivoPerda } from "@/tipos/atendimentos"
 
 export function ModalVisualizacao({
   atendimentoId,
@@ -59,6 +59,32 @@ export function ModalVisualizacao({
     onClose()
   }, [onPerder, onClose])
 
+  const handleAdicionarPrograma = useCallback(async (atendimentoId: string, programaId: string, duracaoId: string) => {
+    await api(`/v1/atendimentos/${atendimentoId}/servicos`, {
+      method: "POST",
+      body: JSON.stringify({ programa_id: programaId, duracao_id: duracaoId }),
+    })
+    await carregar(atendimentoId)
+  }, [carregar])
+
+  const handleRemoverPrograma = useCallback(async (atendimentoId: string, servicoId: string) => {
+    await api(`/v1/atendimentos/${atendimentoId}/servicos/${servicoId}`, { method: "DELETE" })
+    await carregar(atendimentoId)
+  }, [carregar])
+
+  const handleUploadMidia = useCallback(async (atendimentoId: string, file: File, tipo: string) => {
+    const form = new FormData()
+    form.append("arquivo", file)
+    form.append("tipo", tipo)
+    const nova = await apiFormData<MensagemAtendimento>(`/v1/atendimentos/${atendimentoId}/midias`, form)
+    setDetalhe((prev) => prev ? { ...prev, mensagens: [...prev.mensagens, nova] } : prev)
+  }, [])
+
+  const handleDeletarMidia = useCallback(async (atendimentoId: string, mensagemId: string) => {
+    await api(`/v1/atendimentos/${atendimentoId}/midias/${mensagemId}`, { method: "DELETE" })
+    setDetalhe((prev) => prev ? { ...prev, mensagens: prev.mensagens.filter((m) => m.id !== mensagemId) } : prev)
+  }, [])
+
   return (
     <Dialog open={!!atendimentoId} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto bg-surface p-0">
@@ -98,6 +124,10 @@ export function ModalVisualizacao({
             onDevolver={handleDevolver}
             onFechar={handleFechar}
             onPerder={handlePerder}
+            onAdicionarPrograma={handleAdicionarPrograma}
+            onRemoverPrograma={handleRemoverPrograma}
+            onUploadMidia={handleUploadMidia}
+            onDeletarMidia={handleDeletarMidia}
           />
         </div>
       </DialogContent>

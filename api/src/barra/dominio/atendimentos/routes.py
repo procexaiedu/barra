@@ -1,14 +1,19 @@
+import asyncio
+import io
 import json
+import logging
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request, UploadFile
 from psycopg import AsyncConnection
 
 from barra.api.deps import get_conn, get_user
 from barra.core.auth import UsuarioAtual
 from barra.core.errors import NaoEncontrado
+from barra.core.storage import presigned_get
 from barra.dominio.atendimentos.schemas import (
+    AdicionarServicoRequest,
     AlterarEstadoRequest,
     CorrigirRegistroRequest,
     DevolverRequest,
@@ -17,6 +22,11 @@ from barra.dominio.atendimentos.schemas import (
     PerderRequest,
 )
 from barra.dominio.escaladas.service import aplicar_comando
+
+_logger = logging.getLogger(__name__)
+
+_TIPOS_VALIDOS_UPLOAD = {"imagem", "audio", "documento"}
+_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
@@ -156,6 +166,7 @@ async def listar_atendimentos(
 @router.get("/{atendimento_id}")
 async def obter_atendimento(
     atendimento_id: UUID,
+    request: Request,
     conn: AsyncConnection[Any] = Depends(get_conn),
     mensagens_limit: int = Query(50, ge=1, le=100),
 ) -> dict[str, Any]:
@@ -205,6 +216,19 @@ async def obter_atendimento(
         "SELECT * FROM barravips.escaladas WHERE atendimento_id = %s ORDER BY aberta_em DESC",
         (atendimento_id,),
     )
+    servicos = await _fetch_all(
+        conn,
+        """
+        SELECT ats.id, ats.programa_id, ats.duracao_id,
+               p.nome, d.nome AS duracao_nome, ats.preco_snapshot, ats.created_at
+          FROM barravips.atendimento_servicos ats
+          JOIN barravips.programas p ON p.id = ats.programa_id
+          JOIN barravips.duracoes d ON d.id = ats.duracao_id
+         WHERE ats.atendimento_id = %s
+         ORDER BY ats.created_at
+        """,
+        (atendimento_id,),
+    )
     return {
         "atendimento": atendimento,
         "cliente": {
@@ -227,10 +251,11 @@ async def obter_atendimento(
             "fim": atendimento["bloqueio_fim"],
             "estado": atendimento["bloqueio_estado"],
         },
-        "mensagens": mensagens,
+        "mensagens": _enriquecer_midias(mensagens, request),
         "eventos": eventos,
         "comprovantes_pix": pix,
         "escaladas": escaladas,
+        "servicos": servicos,
     }
 
 
@@ -361,6 +386,175 @@ async def corrigir_registro(
         payload=body.model_dump(),
     )
     return {"id": result.atendimento_id, "estado": result.estado}
+
+
+@router.get("/{atendimento_id}/servicos")
+async def listar_servicos(
+    atendimento_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    return await _fetch_all(
+        conn,
+        """
+        SELECT ats.id, ats.programa_id, ats.duracao_id,
+               p.nome, d.nome AS duracao_nome, ats.preco_snapshot, ats.created_at
+          FROM barravips.atendimento_servicos ats
+          JOIN barravips.programas p ON p.id = ats.programa_id
+          JOIN barravips.duracoes d ON d.id = ats.duracao_id
+         WHERE ats.atendimento_id = %s
+         ORDER BY ats.created_at
+        """,
+        (atendimento_id,),
+    )
+
+
+@router.post("/{atendimento_id}/servicos", status_code=201)
+async def adicionar_servico(
+    atendimento_id: UUID,
+    body: AdicionarServicoRequest,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    at = await _fetch_one(
+        conn, "SELECT modelo_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    if at is None:
+        raise NaoEncontrado("Atendimento")
+    mp = await _fetch_one(
+        conn,
+        "SELECT preco FROM barravips.modelo_programas WHERE modelo_id=%s AND programa_id=%s AND duracao_id=%s",
+        (at["modelo_id"], body.programa_id, body.duracao_id),
+    )
+    if mp is None:
+        raise NaoEncontrado("Programa não vinculado à modelo")
+    row = await _fetch_one(
+        conn,
+        """
+        INSERT INTO barravips.atendimento_servicos (atendimento_id, programa_id, duracao_id, preco_snapshot)
+        VALUES (%s, %s, %s, %s)
+        RETURNING id, programa_id, duracao_id, preco_snapshot, created_at
+        """,
+        (atendimento_id, body.programa_id, body.duracao_id, mp["preco"]),
+    )
+    assert row is not None
+    return row
+
+
+@router.delete("/{atendimento_id}/servicos/{servico_id}", status_code=204)
+async def remover_servico(
+    atendimento_id: UUID,
+    servico_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> None:
+    result = await conn.execute(
+        "DELETE FROM barravips.atendimento_servicos WHERE id = %s AND atendimento_id = %s",
+        (servico_id, atendimento_id),
+    )
+    if result.rowcount == 0:
+        raise NaoEncontrado("Serviço")
+
+
+@router.post("/{atendimento_id}/midias", status_code=201)
+async def upload_midia(
+    atendimento_id: UUID,
+    request: Request,
+    arquivo: UploadFile,
+    tipo: str = Form(...),
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    if tipo not in _TIPOS_VALIDOS_UPLOAD:
+        raise HTTPException(400, f"tipo inválido: {tipo!r}. Use 'imagem', 'audio' ou 'documento'.")
+    ct = (arquivo.content_type or "").lower()
+    if not (ct.startswith("image/") or ct.startswith("audio/") or ct == "application/pdf"):
+        raise HTTPException(415, "tipo de arquivo não permitido (aceitos: image/*, audio/*, application/pdf)")
+
+    data = await arquivo.read(_MAX_UPLOAD_BYTES + 1)
+    if len(data) > _MAX_UPLOAD_BYTES:
+        raise HTTPException(413, "arquivo muito grande (máximo 20 MB)")
+
+    row = await _fetch_one(
+        conn,
+        "SELECT conversa_id FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    if row is None:
+        raise NaoEncontrado("Atendimento")
+    conversa_id = row["conversa_id"]
+
+    minio = getattr(request.app.state, "minio", None)
+    if minio is None:
+        raise HTTPException(503, "MinIO não configurado")
+    bucket = request.app.state.settings.minio_bucket_media
+
+    file_uuid = uuid4()
+    filename = arquivo.filename or f"midia.{ct.split('/')[-1]}"
+    key = f"atendimentos/{atendimento_id}/midias/{file_uuid}/{filename}"
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: minio.put_object(bucket, key, io.BytesIO(data), len(data), content_type=ct),
+    )
+
+    tipo_db = "imagem" if tipo == "documento" else tipo
+    evolution_id = f"manual-{uuid4()}"
+
+    msg = await _fetch_one(
+        conn,
+        """
+        INSERT INTO barravips.mensagens
+          (conversa_id, atendimento_id, direcao, tipo, conteudo, media_object_key, evolution_message_id)
+        VALUES (%s, %s, 'modelo_manual', %s, %s, %s, %s)
+        RETURNING id, direcao, tipo, conteudo, media_object_key, evolution_message_id, created_at
+        """,
+        (conversa_id, atendimento_id, tipo_db, filename, key, evolution_id),
+    )
+    assert msg is not None
+    return {**msg, "media_url": presigned_get(minio, bucket, key)}
+
+
+@router.delete("/{atendimento_id}/midias/{mensagem_id}", status_code=204)
+async def deletar_midia(
+    atendimento_id: UUID,
+    mensagem_id: UUID,
+    request: Request,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> None:
+    row = await _fetch_one(
+        conn,
+        "SELECT media_object_key FROM barravips.mensagens WHERE id = %s AND atendimento_id = %s",
+        (mensagem_id, atendimento_id),
+    )
+    if row is None:
+        raise NaoEncontrado("Mídia")
+
+    await conn.execute("DELETE FROM barravips.mensagens WHERE id = %s", (mensagem_id,))
+
+    key = row.get("media_object_key")
+    if key:
+        minio = getattr(request.app.state, "minio", None)
+        if minio is not None:
+            bucket = request.app.state.settings.minio_bucket_media
+            try:
+                loop = asyncio.get_running_loop()
+                await loop.run_in_executor(None, lambda: minio.remove_object(bucket, key))
+            except Exception as exc:
+                _logger.warning("falha_remover_minio key=%s erro=%s", key, exc)
+
+
+def _enriquecer_midias(mensagens: list[dict[str, Any]], request: Request) -> list[dict[str, Any]]:
+    minio = getattr(request.app.state, "minio", None)
+    bucket = request.app.state.settings.minio_bucket_media
+    result = []
+    for m in mensagens:
+        key = m.get("media_object_key")
+        url: str | None = None
+        if key:
+            try:
+                url = presigned_get(minio, bucket, key)
+            except Exception as exc:
+                _logger.warning("falha_presigned_get key=%s erro=%s", key, exc)
+        result.append({**m, "media_url": url})
+    return result
 
 
 async def _fetch_one(

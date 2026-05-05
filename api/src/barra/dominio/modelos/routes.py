@@ -521,6 +521,15 @@ async def deletar_servico(
     )
 
 
+@router.get("/{modelo_id}/programas")
+async def listar_programas_modelo(
+    modelo_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    await _ensure_modelo(conn, modelo_id)
+    return await _programas(conn, modelo_id)
+
+
 @router.post("/{modelo_id}/programas", status_code=201)
 async def vincular_programa(
     modelo_id: UUID,

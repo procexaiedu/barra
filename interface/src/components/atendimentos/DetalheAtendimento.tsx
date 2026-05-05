@@ -1,16 +1,21 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useRef, useMemo, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { ChevronDown, FileText, ImageOff } from "lucide-react"
+import { ChevronDown, FileText, ImageOff, Plus, Trash2 } from "lucide-react"
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import {
   AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
   AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
@@ -24,9 +29,17 @@ import { badgeForEstado, estadoLabel } from "@/components/atendimentos/utils"
 
 interface MidiaItem {
   id: string
+  tipo: "imagem" | "audio" | "texto"
   nome: string
   subtitulo: string
   url: string | null
+  pode_deletar: boolean
+}
+
+function getTipoDoArquivo(file: File): string {
+  if (file.type.startsWith("image/")) return "imagem"
+  if (file.type.startsWith("audio/")) return "audio"
+  return "documento"
 }
 
 export function DetalheAtendimento({
@@ -37,6 +50,10 @@ export function DetalheAtendimento({
   onDevolver,
   onFechar,
   onPerder,
+  onAdicionarPrograma,
+  onRemoverPrograma,
+  onUploadMidia,
+  onDeletarMidia,
 }: {
   detalhe: AtendimentoDetalheResponse | null
   status: "loading" | "success" | "error"
@@ -45,6 +62,10 @@ export function DetalheAtendimento({
   onDevolver: (id: string) => Promise<void>
   onFechar: (id: string, valorFinal: number) => Promise<void>
   onPerder: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
+  onAdicionarPrograma: (atendimentoId: string, programaId: string, duracaoId: string) => Promise<void>
+  onRemoverPrograma: (atendimentoId: string, servicoId: string) => Promise<void>
+  onUploadMidia: (atendimentoId: string, file: File, tipo: string) => Promise<void>
+  onDeletarMidia: (atendimentoId: string, mensagemId: string) => Promise<void>
 }) {
   if (status === "loading") return <DetalheSkeleton />
   if (status === "error") return <BannerErro mensagem={error ?? undefined} onRetry={onRetry} />
@@ -88,14 +109,22 @@ export function DetalheAtendimento({
         </div>
       </div>
 
-      <ResumoAtendimento detalhe={detalhe} />
+      <ResumoAtendimento
+        detalhe={detalhe}
+        onAdicionarPrograma={onAdicionarPrograma}
+        onRemoverPrograma={onRemoverPrograma}
+      />
 
       <SecaoColapsavel titulo="Histórico de mensagens" count={detalhe.mensagens.length} defaultOpen={atendimento.ia_pausada}>
         <HistoricoMensagens mensagens={detalhe.mensagens} />
       </SecaoColapsavel>
 
       <SecaoColapsavel titulo="Mídias recebidas" count={detalhe.mensagens.filter(m => m.tipo !== "texto" || m.media_object_key).length + detalhe.comprovantes_pix.length}>
-        <MidiasRecebidas detalhe={detalhe} />
+        <MidiasRecebidas
+          detalhe={detalhe}
+          onUploadMidia={onUploadMidia}
+          onDeletarMidia={onDeletarMidia}
+        />
       </SecaoColapsavel>
 
       <SecaoColapsavel titulo="Histórico do atendimento" count={detalhe.eventos.length}>
@@ -133,25 +162,65 @@ function SecaoColapsavel({ titulo, count, defaultOpen, children }: { titulo: str
   )
 }
 
-function MidiasRecebidas({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
+function MidiasRecebidas({
+  detalhe,
+  onUploadMidia,
+  onDeletarMidia,
+}: {
+  detalhe: AtendimentoDetalheResponse
+  onUploadMidia: (atendimentoId: string, file: File, tipo: string) => Promise<void>
+  onDeletarMidia: (atendimentoId: string, mensagemId: string) => Promise<void>
+}) {
   const [midiaAberta, setMidiaAberta] = useState<MidiaItem | null>(null)
+  const [midiaParaDeletar, setMidiaParaDeletar] = useState<MidiaItem | null>(null)
+  const [uploadLoading, setUploadLoading] = useState(false)
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
   const midias = useMemo<MidiaItem[]>(() => {
     const mensagens = detalhe.mensagens
       .filter((mensagem) => mensagem.tipo !== "texto" || mensagem.media_object_key)
       .map((mensagem) => ({
         id: mensagem.id,
-        nome: mensagem.media_object_key ?? mensagem.tipo,
+        tipo: mensagem.tipo as "imagem" | "audio" | "texto",
+        nome: mensagem.media_object_key?.split("/").pop() ?? mensagem.tipo,
         subtitulo: `${mensagem.tipo} · ${formatDataHora(mensagem.created_at)}`,
         url: mensagem.media_url ?? null,
+        pode_deletar: true,
       }))
     const pix = detalhe.comprovantes_pix.map((comprovante) => ({
       id: comprovante.id,
+      tipo: "imagem" as const,
       nome: "comprovante Pix",
       subtitulo: `${comprovante.decisao_pipeline} · ${formatDataHora(comprovante.created_at)}`,
       url: null,
+      pode_deletar: false,
     }))
     return [...pix, ...mensagens]
   }, [detalhe])
+
+  async function handleArquivoSelecionado(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ""
+    setUploadLoading(true)
+    try {
+      await onUploadMidia(detalhe.atendimento.id, file, getTipoDoArquivo(file))
+    } finally {
+      setUploadLoading(false)
+    }
+  }
+
+  async function handleConfirmarDelete() {
+    if (!midiaParaDeletar) return
+    setDeleteLoading(true)
+    try {
+      await onDeletarMidia(detalhe.atendimento.id, midiaParaDeletar.id)
+      setMidiaParaDeletar(null)
+    } finally {
+      setDeleteLoading(false)
+    }
+  }
 
   return (
     <>
@@ -163,7 +232,7 @@ function MidiasRecebidas({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
       ) : (
         <div className="flex flex-wrap gap-2">
           {midias.map((midia) => {
-            if (midia.nome === "comprovante Pix" && midia.url === null) {
+            if (!midia.pode_deletar && midia.url === null) {
               return (
                 <Link
                   key={midia.id}
@@ -177,34 +246,84 @@ function MidiasRecebidas({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
               )
             }
             return (
-              <button
-                key={midia.id}
-                type="button"
-                onClick={() => midia.url && setMidiaAberta(midia)}
-                disabled={!midia.url}
-                className="inline-flex max-w-full items-center gap-2 rounded-md bg-ink-300 px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors enabled:hover:bg-ink-200 enabled:hover:text-text-primary disabled:cursor-default focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
-              >
-                <FileText size={14} strokeWidth={1.5} />
-                <span className="truncate">{midia.nome}</span>
-                <span className="font-sans text-text-disabled">{midia.subtitulo}</span>
-              </button>
+              <div key={midia.id} className="group relative inline-flex">
+                <button
+                  type="button"
+                  onClick={() => midia.url && setMidiaAberta(midia)}
+                  disabled={!midia.url}
+                  className="inline-flex max-w-full items-center gap-2 rounded-md bg-ink-300 px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors enabled:hover:bg-ink-200 enabled:hover:text-text-primary disabled:cursor-default focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+                >
+                  <FileText size={14} strokeWidth={1.5} />
+                  <span className="truncate">{midia.nome}</span>
+                  <span className="font-sans text-text-disabled">{midia.subtitulo}</span>
+                </button>
+                {midia.pode_deletar && (
+                  <button
+                    type="button"
+                    onClick={() => setMidiaParaDeletar(midia)}
+                    aria-label="Remover mídia"
+                    className="absolute -right-2 -top-2 hidden rounded-full bg-ink-400 p-0.5 text-text-muted transition-colors hover:bg-red-500 hover:text-white group-hover:flex"
+                  >
+                    <Trash2 size={11} strokeWidth={2} />
+                  </button>
+                )}
+              </div>
             )
           })}
         </div>
       )}
+
+      <div className="mt-3">
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*,audio/*,application/pdf"
+          className="hidden"
+          onChange={handleArquivoSelecionado}
+        />
+        <button
+          type="button"
+          onClick={() => inputRef.current?.click()}
+          disabled={uploadLoading}
+          className="inline-flex items-center gap-1.5 rounded-md border border-ink-300 bg-ink-100 px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-ink-200 hover:text-text-primary disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+        >
+          <Plus size={13} strokeWidth={2} />
+          {uploadLoading ? "Enviando..." : "Adicionar mídia"}
+        </button>
+      </div>
+
+      {/* Viewer */}
       <AlertDialog open={!!midiaAberta} onOpenChange={(open) => !open && setMidiaAberta(null)}>
         <AlertDialogContent className="max-w-4xl rounded-none bg-ink-0 p-0">
           <AlertDialogTitle className="sr-only">{midiaAberta?.nome ?? "Mídia"}</AlertDialogTitle>
           {midiaAberta?.url && (
-            <Image
-              src={midiaAberta.url}
-              alt={midiaAberta.nome}
-              width={1200}
-              height={800}
-              unoptimized
-              className="max-h-[82vh] w-full object-contain"
-            />
+            midiaAberta.tipo === "audio"
+              ? <audio controls src={midiaAberta.url} className="w-full p-4" />
+              : <Image
+                  src={midiaAberta.url}
+                  alt={midiaAberta.nome}
+                  width={1200}
+                  height={800}
+                  unoptimized
+                  className="max-h-[82vh] w-full object-contain"
+                />
           )}
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Confirmação de deleção */}
+      <AlertDialog open={!!midiaParaDeletar} onOpenChange={(open) => !open && !deleteLoading && setMidiaParaDeletar(null)}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remover mídia?</AlertDialogTitle>
+            <AlertDialogDescription>Esta ação não pode ser desfeita.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteLoading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmarDelete} disabled={deleteLoading}>
+              {deleteLoading ? "Removendo..." : "Remover"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </>

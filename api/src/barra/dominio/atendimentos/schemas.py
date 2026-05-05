@@ -1,6 +1,7 @@
 from datetime import date, time
 from decimal import Decimal
 from typing import Literal
+from uuid import UUID
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -47,3 +48,8 @@ class EditarDadosRequest(BaseModel):
     tipo_local: str | None = None
     forma_pagamento: str | None = None
     valor_acordado: Decimal | None = Field(default=None, ge=0)
+
+
+class AdicionarServicoRequest(BaseModel):
+    programa_id: UUID
+    duracao_id: UUID

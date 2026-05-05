@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { api } from "@/lib/api"
+import { api, apiFormData } from "@/lib/api"
 import { subscribeTabelas } from "@/lib/realtime"
 import { supabase } from "@/lib/supabase"
 import type {
@@ -13,6 +13,7 @@ import type {
   EstadoAtendimento,
   EstadoKanbanDestino,
   FiltrosAtendimentos,
+  MensagemAtendimento,
   MotivoPerda,
 } from "@/tipos/atendimentos"
 
@@ -224,6 +225,38 @@ export function useAtendimentos(
     await loadLista("replace", true)
   }, [loadDetalhe, loadLista])
 
+  const adicionarPrograma = useCallback(async (atendimentoId: string, programaId: string, duracaoId: string) => {
+    await api(`/v1/atendimentos/${atendimentoId}/servicos`, {
+      method: "POST",
+      body: JSON.stringify({ programa_id: programaId, duracao_id: duracaoId }),
+    })
+    if (selectedIdRef.current === atendimentoId) await loadDetalhe(atendimentoId)
+  }, [loadDetalhe])
+
+  const removerPrograma = useCallback(async (atendimentoId: string, servicoId: string) => {
+    await api(`/v1/atendimentos/${atendimentoId}/servicos/${servicoId}`, { method: "DELETE" })
+    if (selectedIdRef.current === atendimentoId) await loadDetalhe(atendimentoId)
+  }, [loadDetalhe])
+
+  const uploadMidia = useCallback(async (atendimentoId: string, file: File, tipo: string): Promise<void> => {
+    const form = new FormData()
+    form.append("arquivo", file)
+    form.append("tipo", tipo)
+    const nova = await apiFormData<MensagemAtendimento>(`/v1/atendimentos/${atendimentoId}/midias`, form)
+    setDetalhe((prev) => prev ? { ...prev, mensagens: [...prev.mensagens, nova] } : prev)
+    if (detalheRef.current) {
+      detalheRef.current = { ...detalheRef.current, mensagens: [...detalheRef.current.mensagens, nova] }
+    }
+  }, [])
+
+  const deletarMidia = useCallback(async (atendimentoId: string, mensagemId: string): Promise<void> => {
+    await api(`/v1/atendimentos/${atendimentoId}/midias/${mensagemId}`, { method: "DELETE" })
+    setDetalhe((prev) => prev ? { ...prev, mensagens: prev.mensagens.filter((m) => m.id !== mensagemId) } : prev)
+    if (detalheRef.current) {
+      detalheRef.current = { ...detalheRef.current, mensagens: detalheRef.current.mensagens.filter((m) => m.id !== mensagemId) }
+    }
+  }, [])
+
   const debouncedRealtimeRefetch = useCallback(() => {
     realtimeEvents.current += 1
     if (refetchTimer.current) clearTimeout(refetchTimer.current)
@@ -300,6 +333,10 @@ export function useAtendimentos(
     perder,
     moverEstado,
     editarDados,
+    adicionarPrograma,
+    removerPrograma,
     loadDetalhe,
+    uploadMidia,
+    deletarMidia,
   }
 }

@@ -113,6 +113,16 @@ export interface BloqueioResumo {
   estado: string
 }
 
+export interface ServicoFechado {
+  id: string
+  programa_id: string
+  duracao_id: string
+  nome: string
+  duracao_nome: string
+  preco_snapshot: number
+  created_at: string
+}
+
 export interface AtendimentoDetalheResponse {
   atendimento: AtendimentoOperacional
   cliente: {
@@ -128,6 +138,7 @@ export interface AtendimentoDetalheResponse {
   mensagens: MensagemAtendimento[]
   eventos: EventoAtendimento[]
   comprovantes_pix: ComprovantePixResumo[]
+  servicos: ServicoFechado[]
 }
 
 export type EstadoGrupo = "Qualificando" | "Aguardando"
