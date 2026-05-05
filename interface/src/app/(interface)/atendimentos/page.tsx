@@ -82,12 +82,11 @@ function CentralAtendimentosInner() {
   const searchParams = useSearchParams()
   const initialId = searchParams.get("id")
 
-  const [view, setView] = useState<ViewMode>("lista")
-
-  useEffect(() => {
-    const salvo = localStorage.getItem("atendimentos-view")
-    if (salvo === "lista" || salvo === "kanban") setView(salvo)
-  }, [])
+  const [view, setView] = useState<ViewMode>(() => {
+    if (typeof window === "undefined") return "lista"
+    const salvo = window.localStorage.getItem("atendimentos-view")
+    return salvo === "lista" || salvo === "kanban" ? salvo : "lista"
+  })
 
   const handleViewChange = (v: ViewMode) => {
     setView(v)
@@ -124,7 +123,6 @@ function CentralAtendimentosInner() {
 
   useEffect(() => {
     if (!mostrarEncerrados || view !== "kanban") {
-      setItemsEncerrados([])
       return
     }
     let cancelado = false
@@ -132,7 +130,12 @@ function CentralAtendimentosInner() {
       api<AtendimentosListaResponse>("/v1/atendimentos?estado=Fechado&limit=50"),
       api<AtendimentosListaResponse>("/v1/atendimentos?estado=Perdido&limit=50"),
     ]).then(([fechados, perdidos]) => {
-      if (!cancelado) setItemsEncerrados([...fechados.items, ...perdidos.items])
+      if (!cancelado) {
+        setItemsEncerrados([
+          ...(Array.isArray(fechados.items) ? fechados.items : []),
+          ...(Array.isArray(perdidos.items) ? perdidos.items : []),
+        ])
+      }
     }).catch(() => {})
     return () => { cancelado = true }
   }, [mostrarEncerrados, view])
@@ -206,7 +209,7 @@ function CentralAtendimentosInner() {
         <div className="flex-1 min-h-0">
           <KanbanBoard
             items={atendimentos.items}
-            itemsEncerrados={itemsEncerrados}
+            itemsEncerrados={mostrarEncerrados && view === "kanban" ? itemsEncerrados : []}
             mostrarEncerrados={mostrarEncerrados}
             onToggleEncerrados={() => setMostrarEncerrados((v) => !v)}
             onCardClick={setModalId}

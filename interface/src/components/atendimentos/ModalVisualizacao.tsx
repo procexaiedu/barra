@@ -7,6 +7,16 @@ import { api, apiFormData } from "@/lib/api"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
 import type { AtendimentoDetalheResponse, MensagemAtendimento, MotivoPerda } from "@/tipos/atendimentos"
 
+function normalizarDetalheResponse(res: AtendimentoDetalheResponse): AtendimentoDetalheResponse {
+  return {
+    ...res,
+    mensagens: Array.isArray(res.mensagens) ? res.mensagens : [],
+    eventos: Array.isArray(res.eventos) ? res.eventos : [],
+    comprovantes_pix: Array.isArray(res.comprovantes_pix) ? res.comprovantes_pix : [],
+    servicos: Array.isArray(res.servicos) ? res.servicos : [],
+  }
+}
+
 export function ModalVisualizacao({
   atendimentoId,
   onClose,
@@ -30,7 +40,7 @@ export function ModalVisualizacao({
     setStatus("loading")
     setDetalhe(null)
     try {
-      const res = await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`)
+      const res = normalizarDetalheResponse(await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`))
       setDetalhe(res)
       setStatus("success")
       setError(null)
@@ -41,7 +51,8 @@ export function ModalVisualizacao({
   }, [])
 
   useEffect(() => {
-    if (atendimentoId) carregar(atendimentoId)
+    if (!atendimentoId) return
+    void Promise.resolve().then(() => carregar(atendimentoId))
   }, [atendimentoId, carregar])
 
   const handleDevolver = useCallback(async (id: string) => {

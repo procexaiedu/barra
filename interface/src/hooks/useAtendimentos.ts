@@ -28,6 +28,23 @@ const filtrosIniciais: FiltrosAtendimentos = {
   qualificacao: "todos",
 }
 
+function normalizarListaResponse(res: AtendimentosListaResponse): AtendimentosListaResponse {
+  return {
+    items: Array.isArray(res.items) ? res.items : [],
+    next_cursor: res.next_cursor ?? null,
+  }
+}
+
+function normalizarDetalheResponse(res: AtendimentoDetalheResponse): AtendimentoDetalheResponse {
+  return {
+    ...res,
+    mensagens: Array.isArray(res.mensagens) ? res.mensagens : [],
+    eventos: Array.isArray(res.eventos) ? res.eventos : [],
+    comprovantes_pix: Array.isArray(res.comprovantes_pix) ? res.comprovantes_pix : [],
+    servicos: Array.isArray(res.servicos) ? res.servicos : [],
+  }
+}
+
 export interface FiltrosUrlAtendimentos {
   motivoPerda?: string | null
   motivoEscalada?: string | null
@@ -102,7 +119,7 @@ export function useAtendimentos(
   const loadDetalhe = useCallback(async (id: string) => {
     if (!firstDetalheDone.current) setDetalheStatus("loading")
     try {
-      const res = await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`)
+      const res = normalizarDetalheResponse(await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`))
       detalheRef.current = res
       setDetalhe(res)
       setDetalheStatus("success")
@@ -138,7 +155,7 @@ export function useAtendimentos(
     if (!firstListaDone.current && mode === "replace") setListaStatus("loading")
     try {
       const cursor = mode === "append" ? nextCursorRef.current : null
-      const res = await api<AtendimentosListaResponse>(buildListaPath(filtrosEfetivos, filtrosUrlRef.current, cursor))
+      const res = normalizarListaResponse(await api<AtendimentosListaResponse>(buildListaPath(filtrosEfetivos, filtrosUrlRef.current, cursor)))
       const novosItems = mode === "append" ? [...itemsRef.current, ...res.items] : res.items
       itemsRef.current = novosItems
       nextCursorRef.current = res.next_cursor
