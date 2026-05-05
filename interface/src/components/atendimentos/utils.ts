@@ -206,10 +206,10 @@ export function autorEventoLabel(autor: string): string {
 }
 
 export const SINAIS_CANONICOS: { chave: string; rotulo: string }[] = [
-  { chave: "envia_pix", rotulo: "Envia Pix" },
   { chave: "aceita_valor", rotulo: "Aceita valor" },
   { chave: "informa_local", rotulo: "Informa local" },
   { chave: "informa_horario", rotulo: "Informa horário" },
+  { chave: "envia_pix", rotulo: "Envia Pix" },
 ]
 
 export function formatEnum(valor: string | null | undefined): string | null {

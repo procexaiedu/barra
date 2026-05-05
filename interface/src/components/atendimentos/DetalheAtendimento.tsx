@@ -50,8 +50,6 @@ export function DetalheAtendimento({
   onDevolver,
   onFechar,
   onPerder,
-  onAdicionarPrograma,
-  onRemoverPrograma,
   onUploadMidia,
   onDeletarMidia,
 }: {
@@ -62,8 +60,6 @@ export function DetalheAtendimento({
   onDevolver: (id: string) => Promise<void>
   onFechar: (id: string, valorFinal: number) => Promise<void>
   onPerder: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
-  onAdicionarPrograma: (atendimentoId: string, programaId: string, duracaoId: string) => Promise<void>
-  onRemoverPrograma: (atendimentoId: string, servicoId: string) => Promise<void>
   onUploadMidia: (atendimentoId: string, file: File, tipo: string) => Promise<void>
   onDeletarMidia: (atendimentoId: string, mensagemId: string) => Promise<void>
 }) {
@@ -109,11 +105,7 @@ export function DetalheAtendimento({
         </div>
       </div>
 
-      <ResumoAtendimento
-        detalhe={detalhe}
-        onAdicionarPrograma={onAdicionarPrograma}
-        onRemoverPrograma={onRemoverPrograma}
-      />
+      <ResumoAtendimento detalhe={detalhe} />
 
       <SecaoColapsavel titulo="Histórico de mensagens" count={detalhe.mensagens.length} defaultOpen={atendimento.ia_pausada}>
         <HistoricoMensagens mensagens={detalhe.mensagens} />

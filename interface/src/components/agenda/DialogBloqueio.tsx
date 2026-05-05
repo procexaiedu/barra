@@ -14,12 +14,31 @@ import {
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { isoAgenda } from "@/hooks/useAgenda"
+import { dataDeInput, dataInput, isoAgenda } from "@/hooks/useAgenda"
 import { cn } from "@/lib/utils"
 import type { BloqueioAgenda, BloqueioFormState } from "@/tipos/agenda"
 import { FiltroModelo } from "@/components/dashboard/FiltroModelo"
 
-const horarios = Array.from({ length: 25 }, (_, h) => `${String(h).padStart(2, "0")}:00`)
+const horarios = [
+  ...Array.from({ length: 48 }, (_, i) => {
+    const h = Math.floor(i / 2)
+    const m = i % 2 === 0 ? "00" : "30"
+    return `${String(h).padStart(2, "0")}:${m}`
+  }),
+  "24:00",
+]
+
+function calcDuracao(inicio: string, fim: string): string | null {
+  const [h1, m1] = inicio.split(":").map(Number)
+  const [h2, m2] = fim === "24:00" ? [24, 0] : fim.split(":").map(Number)
+  let totalMin = h2 * 60 + m2 - (h1 * 60 + m1)
+  if (totalMin === 0) return null
+  if (totalMin < 0) totalMin += 24 * 60
+  const horas = Math.floor(totalMin / 60)
+  const mins = totalMin % 60
+  if (mins === 0) return `${horas}h`
+  return `${horas}h${String(mins).padStart(2, "0")}`
+}
 
 function formFromBloqueio(bloqueio: BloqueioAgenda): BloqueioFormState {
   const inicioData = bloqueio.inicio.slice(0, 10)
@@ -65,10 +84,16 @@ export function DialogBloqueio({
 
   const readOnly = bloqueio?.estado === "concluido" || bloqueio?.estado === "cancelado"
   const editando = Boolean(bloqueio)
-  const intervaloInvalido = form.fim <= form.inicio
+  const intervaloInvalido = form.fim === form.inicio
   const observacaoInvalida = form.observacao.length > 160
   const inicioIso = isoAgenda(form.data, form.inicio)
-  const fimIso = isoAgenda(form.data, form.fim)
+  const overnight = form.fim !== "24:00" && form.fim < form.inicio
+  const fimIso = (() => {
+    if (!overnight) return isoAgenda(form.data, form.fim)
+    const d = dataDeInput(form.data)
+    d.setDate(d.getDate() + 1)
+    return isoAgenda(dataInput(d), form.fim)
+  })()
   const conflito = useMemo(
     () => bloqueios.some((item) => {
       if (item.id === bloqueio?.id) return false
@@ -181,6 +206,12 @@ export function DialogBloqueio({
             disabled={readOnly}
             onChange={(fim) => setForm((atual) => ({ ...atual, fim }))}
           />
+          <div>
+            <Label>Duração</Label>
+            <div className="mt-2 flex h-10 items-center text-sm text-text-muted">
+              {calcDuracao(form.inicio, form.fim) ?? "—"}
+            </div>
+          </div>
           <div className="col-span-3">
             <Label htmlFor="agenda-observacao">Observação</Label>
             <textarea

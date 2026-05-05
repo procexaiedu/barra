@@ -16,6 +16,13 @@ const estadoConfig: Record<EstadoBloqueio, { label: string; variant: "active" | 
   cancelado: { label: "Cancelado", variant: "paused" },
 }
 
+const estadoBordaCompacto: Record<EstadoBloqueio, string> = {
+  bloqueado: "border-l-[3px] border-l-sky-500",
+  em_atendimento: "border-l-[3px] border-l-emerald-500",
+  concluido: "border-l-[3px] border-l-zinc-500/50",
+  cancelado: "border-l-[3px] border-l-zinc-500/30",
+}
+
 const origemConfig: Record<OrigemBloqueio, { label: string; Icon: typeof Bot }> = {
   ia: { label: "IA", Icon: Bot },
   painel_fernando: { label: "Fernando", Icon: User },
@@ -46,6 +53,7 @@ export function BloqueioAgenda({
       className={cn(
         "w-full rounded-lg border border-border bg-card text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
         compacto ? "p-2" : "p-3",
+        compacto && estadoBordaCompacto[bloqueio.estado],
         bloqueio.estado === "cancelado" && "opacity-60"
       )}
     >

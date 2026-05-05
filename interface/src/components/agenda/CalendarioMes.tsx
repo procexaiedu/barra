@@ -77,9 +77,7 @@ export function CalendarioMes({
               role="button"
               tabIndex={0}
               onClick={() => onSelecionarDia(data)}
-              onDoubleClick={() => {
-                if (bloqueiosDia.length === 0) onCriarNoDia(data)
-              }}
+              onDoubleClick={() => onCriarNoDia(data)}
               onKeyDown={(event) => {
                 if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault()

@@ -242,19 +242,6 @@ export function useAtendimentos(
     await loadLista("replace", true)
   }, [loadDetalhe, loadLista])
 
-  const adicionarPrograma = useCallback(async (atendimentoId: string, programaId: string, duracaoId: string) => {
-    await api(`/v1/atendimentos/${atendimentoId}/servicos`, {
-      method: "POST",
-      body: JSON.stringify({ programa_id: programaId, duracao_id: duracaoId }),
-    })
-    if (selectedIdRef.current === atendimentoId) await loadDetalhe(atendimentoId)
-  }, [loadDetalhe])
-
-  const removerPrograma = useCallback(async (atendimentoId: string, servicoId: string) => {
-    await api(`/v1/atendimentos/${atendimentoId}/servicos/${servicoId}`, { method: "DELETE" })
-    if (selectedIdRef.current === atendimentoId) await loadDetalhe(atendimentoId)
-  }, [loadDetalhe])
-
   const uploadMidia = useCallback(async (atendimentoId: string, file: File, tipo: string): Promise<void> => {
     const form = new FormData()
     form.append("arquivo", file)
@@ -350,8 +337,6 @@ export function useAtendimentos(
     perder,
     moverEstado,
     editarDados,
-    adicionarPrograma,
-    removerPrograma,
     loadDetalhe,
     uploadMidia,
     deletarMidia,

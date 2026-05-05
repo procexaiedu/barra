@@ -198,8 +198,6 @@ function CentralAtendimentosInner() {
               onDevolver={atendimentos.devolver}
               onFechar={atendimentos.fechar}
               onPerder={atendimentos.perder}
-              onAdicionarPrograma={atendimentos.adicionarPrograma}
-              onRemoverPrograma={atendimentos.removerPrograma}
               onUploadMidia={atendimentos.uploadMidia}
               onDeletarMidia={atendimentos.deletarMidia}
             />

@@ -120,10 +120,10 @@ function deslocar(data: string, visao: VisaoAgenda, direcao: -1 | 1) {
   return dataInput(d)
 }
 
-export function useAgenda() {
+export function useAgenda(opts?: { data?: string }) {
   const hoje = useMemo(() => dataInputSaoPaulo(), [])
-  const [visao, setVisao] = useState<VisaoAgenda>("mes")
-  const [dataSelecionada, setDataSelecionada] = useState(hoje)
+  const [visao, setVisao] = useState<VisaoAgenda>("semana")
+  const [dataSelecionada, setDataSelecionada] = useState(opts?.data ?? hoje)
   const [modeloId, setModeloId] = useState<string | null>(null)
   const [agenda, setAgenda] = useState<AgendaResponse | null>(null)
   const [status, setStatus] = useState<Status>("loading")

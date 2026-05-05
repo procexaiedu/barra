@@ -1,15 +1,10 @@
 "use client"
 
-import { useEffect, useState } from "react"
 import Link from "next/link"
-import { ReceiptText, CheckCircle2, XCircle, Circle, X } from "lucide-react"
-import { toast } from "sonner"
+import { ReceiptText, CheckCircle2, XCircle, Circle } from "lucide-react"
 import { Card } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { formatBRL, formatData, formatDataHora, formatRotulo } from "@/lib/formatters"
-import { api } from "@/lib/api"
 import type { AtendimentoDetalheResponse, ServicoFechado } from "@/tipos/atendimentos"
-import type { ProgramaModeloVinculo } from "@/tipos/modelos"
 import { estadoLabel, formatEnum, motivoExibido, SINAIS_CANONICOS, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 
 function asNumber(valor: number | string | null) {
@@ -20,12 +15,8 @@ function asNumber(valor: number | string | null) {
 
 export function ResumoAtendimento({
   detalhe,
-  onAdicionarPrograma,
-  onRemoverPrograma,
 }: {
   detalhe: AtendimentoDetalheResponse
-  onAdicionarPrograma?: (atendimentoId: string, programaId: string, duracaoId: string) => Promise<void>
-  onRemoverPrograma?: (atendimentoId: string, servicoId: string) => Promise<void>
 }) {
   const atendimento = detalhe.atendimento
   const valorAcordado = asNumber(atendimento.valor_acordado)
@@ -97,13 +88,7 @@ export function ResumoAtendimento({
         />
       </div>
 
-      <SecaoProgramas
-        atendimentoId={atendimento.id}
-        modeloId={detalhe.modelo.id}
-        programas={detalhe.servicos}
-        onAdicionar={onAdicionarPrograma}
-        onRemover={onRemoverPrograma}
-      />
+      <SecaoProgramas programas={detalhe.servicos} />
 
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <div>
@@ -154,61 +139,7 @@ export function ResumoAtendimento({
   )
 }
 
-function SecaoProgramas({
-  atendimentoId,
-  modeloId,
-  programas,
-  onAdicionar,
-  onRemover,
-}: {
-  atendimentoId: string
-  modeloId: string
-  programas: ServicoFechado[]
-  onAdicionar?: (atendimentoId: string, programaId: string, duracaoId: string) => Promise<void>
-  onRemover?: (atendimentoId: string, servicoId: string) => Promise<void>
-}) {
-  const [disponiveis, setDisponiveis] = useState<ProgramaModeloVinculo[]>([])
-  const [selecionado, setSelecionado] = useState("")
-  const [adicionando, setAdicionando] = useState(false)
-  const [removendo, setRemovendo] = useState<string | null>(null)
-
-  useEffect(() => {
-    if (!onAdicionar) return
-    api<ProgramaModeloVinculo[]>(`/v1/modelos/${modeloId}/programas`)
-      .then(setDisponiveis)
-      .catch(() => {})
-  }, [modeloId, onAdicionar])
-
-  const opcoesAdd = disponiveis.filter(
-    (p) => !programas.some((s) => s.programa_id === p.programa_id && s.duracao_id === p.duracao_id)
-  )
-
-  const handleAdicionar = async () => {
-    if (!selecionado || !onAdicionar) return
-    const [programaId, duracaoId] = selecionado.split("|")
-    setAdicionando(true)
-    try {
-      await onAdicionar(atendimentoId, programaId, duracaoId)
-      setSelecionado("")
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao adicionar programa")
-    } finally {
-      setAdicionando(false)
-    }
-  }
-
-  const handleRemover = async (servicoId: string) => {
-    if (!onRemover) return
-    setRemovendo(servicoId)
-    try {
-      await onRemover(atendimentoId, servicoId)
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Erro ao remover programa")
-    } finally {
-      setRemovendo(null)
-    }
-  }
-
+function SecaoProgramas({ programas }: { programas: ServicoFechado[] }) {
   return (
     <div className="mt-4">
       <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
@@ -216,48 +147,15 @@ function SecaoProgramas({
       </h3>
 
       {programas.length === 0 ? (
-        <p className="text-[13px] text-text-muted">Nenhum programa selecionado.</p>
+        <p className="text-[13px] text-text-muted">Nenhum programa fechado.</p>
       ) : (
         <div className="space-y-1">
           {programas.map((s) => (
             <div key={s.id} className="flex items-center justify-between text-[13px]">
               <span className="text-text-primary">{s.nome} · {s.duracao_nome}</span>
-              <div className="flex items-center gap-3">
-                <span className="font-medium text-text-primary">{formatBRL(s.preco_snapshot)}</span>
-                {onRemover && (
-                  <button
-                    type="button"
-                    onClick={() => handleRemover(s.id)}
-                    disabled={removendo === s.id}
-                    className="text-text-muted transition-colors hover:text-danger-500 disabled:opacity-40"
-                    aria-label="Remover programa"
-                  >
-                    <X size={12} strokeWidth={2} />
-                  </button>
-                )}
-              </div>
+              <span className="font-medium text-text-primary">{formatBRL(s.preco_snapshot)}</span>
             </div>
           ))}
-        </div>
-      )}
-
-      {onAdicionar && opcoesAdd.length > 0 && (
-        <div className="mt-2 flex gap-2">
-          <select
-            value={selecionado}
-            onChange={(e) => setSelecionado(e.target.value)}
-            className="h-8 flex-1 rounded-lg border border-input bg-ink-100 px-2 text-xs text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <option value="">Adicionar programa…</option>
-            {opcoesAdd.map((p) => (
-              <option key={`${p.programa_id}|${p.duracao_id}`} value={`${p.programa_id}|${p.duracao_id}`}>
-                {p.nome} · {p.duracao_nome} — {formatBRL(p.preco)}
-              </option>
-            ))}
-          </select>
-          <Button variant="secondary" size="sm" onClick={handleAdicionar} disabled={!selecionado || adicionando}>
-            {adicionando ? "…" : "Adicionar"}
-          </Button>
         </div>
       )}
     </div>

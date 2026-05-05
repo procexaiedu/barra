@@ -70,19 +70,6 @@ export function ModalVisualizacao({
     onClose()
   }, [onPerder, onClose])
 
-  const handleAdicionarPrograma = useCallback(async (atendimentoId: string, programaId: string, duracaoId: string) => {
-    await api(`/v1/atendimentos/${atendimentoId}/servicos`, {
-      method: "POST",
-      body: JSON.stringify({ programa_id: programaId, duracao_id: duracaoId }),
-    })
-    await carregar(atendimentoId)
-  }, [carregar])
-
-  const handleRemoverPrograma = useCallback(async (atendimentoId: string, servicoId: string) => {
-    await api(`/v1/atendimentos/${atendimentoId}/servicos/${servicoId}`, { method: "DELETE" })
-    await carregar(atendimentoId)
-  }, [carregar])
-
   const handleUploadMidia = useCallback(async (atendimentoId: string, file: File, tipo: string) => {
     const form = new FormData()
     form.append("arquivo", file)
@@ -135,8 +122,6 @@ export function ModalVisualizacao({
             onDevolver={handleDevolver}
             onFechar={handleFechar}
             onPerder={handlePerder}
-            onAdicionarPrograma={handleAdicionarPrograma}
-            onRemoverPrograma={handleRemoverPrograma}
             onUploadMidia={handleUploadMidia}
             onDeletarMidia={handleDeletarMidia}
           />
