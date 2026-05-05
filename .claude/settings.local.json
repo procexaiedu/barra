@@ -23,7 +23,8 @@
       "Bash(Get-ChildItem -Path \"C:\\\\barra\\\\infra\\\\sql\" -File)",
       "Bash(Sort-Object LastWriteTime -Descending)",
       "Bash(Select-Object Name, LastWriteTime)",
-      "mcp__playwright__browser_network_request"
+      "mcp__playwright__browser_network_request",
+      "mcp__claude_ai_supabase__execute_sql"
     ]
   }
 }

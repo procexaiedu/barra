@@ -37,3 +37,32 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (r.status === 204) return undefined as T
   return r.json() as Promise<T>
 }
+
+export async function apiFormData<T>(path: string, formData: FormData): Promise<T> {
+  const { data: { session } } = await supabase.auth.getSession()
+  const r = await fetch(`${baseURL}${path}`, {
+    method: "POST",
+    body: formData,
+    headers: {
+      ...(session ? { authorization: `Bearer ${session.access_token}` } : {}),
+    },
+  })
+
+  if (r.status === 401) {
+    await supabase.auth.signOut()
+    if (typeof window !== 'undefined') window.location.assign('/login')
+    throw new ApiError(401, 'Sessão expirada')
+  }
+
+  if (!r.ok) {
+    let detail = `Erro ${r.status}`
+    try {
+      const body = await r.json()
+      detail = body.detail ?? body.error?.message ?? detail
+    } catch {}
+    throw new ApiError(r.status, detail)
+  }
+
+  if (r.status === 204) return undefined as T
+  return r.json() as Promise<T>
+}

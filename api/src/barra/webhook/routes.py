@@ -1,5 +1,9 @@
+import asyncio
+import io
+import logging
 from typing import Any, cast
 
+import httpx
 from fastapi import APIRouter, Header, Request
 
 from barra.core.errors import ErroDominio, JidNaoPermitido
@@ -9,6 +13,37 @@ from barra.dominio.escaladas.service import Autor, aplicar_comando
 from barra.webhook.parser import MensagemEvolution, extrair_mensagem, parse_comando_grupo
 
 router = APIRouter()
+
+_logger = logging.getLogger(__name__)
+
+_MIME_EXT: dict[str, str] = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "audio/ogg": ".ogg",
+    "audio/mpeg": ".mp3",
+    "audio/mp4": ".m4a",
+}
+
+
+async def _baixar_midia(url: str) -> tuple[bytes, str] | None:
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.get(url, follow_redirects=True)
+            resp.raise_for_status()
+        ct = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+        return resp.content, ct
+    except Exception as exc:
+        _logger.warning("falha_download_midia url=%s erro=%s", url, exc)
+        return None
+
+
+async def _upload_minio(minio: Any, bucket: str, key: str, data: bytes, content_type: str) -> None:
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(
+        None,
+        lambda: minio.put_object(bucket, key, io.BytesIO(data), len(data), content_type=content_type),
+    )
 
 
 @router.post("/evolution")
@@ -37,12 +72,19 @@ async def evolution_webhook(
     if pool is None:
         raise ErroDominio("BANCO_INDISPONIVEL", "Banco indisponivel.", status_code=503)
 
+    minio = getattr(request.app.state, "minio", None)
+
+    # Baixar mídia antes de abrir conexão, para não segurar o pool durante I/O de rede.
+    midia: tuple[bytes, str] | None = None
+    if msg.tipo != "texto" and msg.media_url and minio is not None:
+        midia = await _baixar_midia(msg.media_url)
+
     async with pool.connection() as conn:
         if await _mensagem_ja_persistida(conn, msg.evolution_message_id):
             return {"status": "duplicate"}
         if settings.evolution_grupo_coordenacao_jid and msg.remote_jid == settings.evolution_grupo_coordenacao_jid:
             return await _processar_grupo(conn, request, msg)
-        await _persistir_cliente(conn, msg)
+        await _persistir_cliente(conn, msg, minio, settings.minio_bucket_media, midia)
     return {"status": "received"}
 
 
@@ -77,7 +119,13 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
     return {"status": "processed" if comando.erro is None else "invalid"}
 
 
-async def _persistir_cliente(conn: Any, msg: MensagemEvolution) -> None:
+async def _persistir_cliente(
+    conn: Any,
+    msg: MensagemEvolution,
+    minio: Any,
+    bucket: str,
+    midia: tuple[bytes, str] | None,
+) -> None:
     async with conn.transaction():
         modelo = await _one(
             conn,
@@ -129,6 +177,30 @@ async def _persistir_cliente(conn: Any, msg: MensagemEvolution) -> None:
                 (cliente["id"], modelo["id"], conversa["id"]),
             )
         assert atendimento is not None
+
+        # Fazer upload da mídia para MinIO e obter a key permanente.
+        # Se falhar, gravar como tipo='texto' para satisfazer a constraint de DB.
+        media_key: str | None = None
+        tipo_db = msg.tipo
+        if msg.tipo != "texto" and midia is not None and minio is not None:
+            data, ct = midia
+            ext = _MIME_EXT.get(ct, ".jpg" if msg.tipo == "imagem" else ".ogg")
+            key = f"atendimentos/{atendimento['id']}/mensagens/{msg.evolution_message_id}{ext}"
+            try:
+                await _upload_minio(minio, bucket, key, data, ct or "application/octet-stream")
+                media_key = key
+            except Exception as exc:
+                _logger.warning("falha_upload_minio key=%s erro=%s", key, exc)
+
+        # Constraint: tipo != 'texto' requer media_object_key NOT NULL.
+        if msg.tipo != "texto" and media_key is None:
+            tipo_db = "texto"
+            _logger.warning(
+                "midia_sem_upload_salva_como_texto evolution_id=%s tipo_original=%s",
+                msg.evolution_message_id,
+                msg.tipo,
+            )
+
         await conn.execute(
             """
             INSERT INTO barravips.mensagens (
@@ -140,9 +212,9 @@ async def _persistir_cliente(conn: Any, msg: MensagemEvolution) -> None:
             (
                 conversa["id"],
                 atendimento["id"],
-                msg.tipo,
+                tipo_db,
                 msg.texto,
-                msg.media_url,
+                media_key,
                 msg.evolution_message_id,
             ),
         )

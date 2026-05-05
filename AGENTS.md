@@ -1,6 +1,6 @@
-# AGENTS.md
+# CLAUDE.md
 
-**Fonte principal de informação:** @CONTEXT.md (vocabulário de domínio, termos da operação Barra Vips e o que evitar). Consulte esse arquivo antes de decisões de produto, nomenclatura ou comportamento da IA.
+**Fonte principal de informação:** @CONTEXT.md (vocabulário de domínio, termos da operação Barra Vips e o que evitar). Consulte esse arquivo antes de qualquer mudança.
 
 ## 1. Pense Antes de Codificar
 
@@ -82,7 +82,7 @@ Decisões arquiteturais registradas em `docs/adr/` (numeradas; nunca apagar — 
 
 ## Mapa do repositório
 
-Monorepo plano (motivo: `docs/adr/0001-estrutura-monorepo.md`). Backend sem ORM (`docs/adr/0002-psycopg-puro-vs-orm.md`). Árvore orientativa — pastas novas podem existir sem estar listadas.
+Monorepo plano. Árvore orientativa — pastas novas podem existir sem estar listadas.
 
 ```
 barra/
@@ -137,23 +137,6 @@ barra/
 ├── scripts/
 └── .agents/, .claude/
 ```
-
-### Git worktree
-
-Útil para evals longos, baterias de conversa ou features paralelas. Limite prático: 2–4 worktrees ativos.
-
-Worktrees fora da pasta do app (ex.: `C:\barra-trees\<branch>`) evitam conflito com o file watcher do Next.js. Alternativa dentro do repo: `.trees/` (no `.gitignore`).
-
-```bash
-mkdir C:\barra-trees
-git -C C:\barra worktree add C:\barra-trees\pix-ocr feat/pix-validacao-ocr
-git -C C:\barra worktree list
-git -C C:\barra worktree remove C:\barra-trees\pix-ocr
-```
-
-Em cada worktree: executar `uv sync` em `api/`, `pnpm install` em `interface/`, e `.env` próprios a partir de `.env.example`. Não compartilhar estado de banco/Redis entre worktrees (prefixos de schema ou branch do Supabase).
-
-Nomes de branch: seção **Convenção de branches** abaixo.
 
 ## Stack
 
