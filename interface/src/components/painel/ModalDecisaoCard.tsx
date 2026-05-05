@@ -2,7 +2,7 @@
 
 import { useState, useEffect, type ReactNode } from "react"
 import Link from "next/link"
-import { ExternalLink, Clock, AlertTriangle, CheckCircle2, XCircle } from "lucide-react"
+import { ExternalLink, Clock, AlertTriangle, CheckCircle2, XCircle, Circle } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 import { formatTempoRelativo, formatBRL, formatData, formatHorario, formatRotulo } from "@/lib/formatters"
-import { motivoExibido } from "@/components/atendimentos/utils"
+import { motivoExibido, SINAIS_CANONICOS } from "@/components/atendimentos/utils"
 import { cn } from "@/lib/utils"
 import type { CardDestaque, IaPausadaMotivo } from "@/tipos/painel"
 
@@ -73,7 +73,6 @@ type SinaisQualificacao = {
   informa_local?: boolean
   aceita_valor?: boolean
   envia_pix?: boolean
-  responde_objetivamente?: boolean
 }
 
 type ContextoData = {
@@ -829,36 +828,44 @@ function SecaoDadosComerciais({
 
 // ── Sinais de qualificação ────────────────────────────────────────────────────
 
-const SINAIS_LABEL: Record<keyof SinaisQualificacao, string> = {
-  informa_horario: "Horário",
-  informa_local: "Local",
-  aceita_valor: "Valor",
-  envia_pix: "Pix",
-  responde_objetivamente: "Objetivo",
-}
-
-function SecaoSinaisQualificacao({ sinais }: { sinais: SinaisQualificacao }) {
-  const entradas = Object.entries(sinais) as [keyof SinaisQualificacao, boolean][]
-  if (entradas.length === 0) return null
+function SecaoSinaisQualificacao({ sinais }: { sinais: SinaisQualificacao | null }) {
+  const sq = sinais as Record<string, unknown> | null
+  const total = SINAIS_CANONICOS.length
+  const progresso = SINAIS_CANONICOS.filter(({ chave }) => { const v = sq?.[chave]; return v === true || v === false }).length
 
   return (
     <div className="rounded-md border border-border p-3">
       <SecaoLabel>Qualificação</SecaoLabel>
-      <div className="mt-2 flex flex-wrap gap-1.5">
-        {entradas.map(([chave, valor]) => (
-          <span
-            key={chave}
-            className={cn(
-              "flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium",
-              valor
-                ? "bg-success-500/10 text-success-500"
-                : "bg-danger-500/10 text-danger-500",
-            )}
-          >
-            {valor ? <CheckCircle2 size={11} /> : <XCircle size={11} />}
-            {SINAIS_LABEL[chave] ?? chave}
-          </span>
-        ))}
+      <div className="my-2 h-1.5 w-full rounded-full bg-ink-300">
+        <div
+          className="h-1.5 rounded-full bg-success-500 transition-all"
+          style={{ width: `${(progresso / total) * 100}%` }}
+        />
+      </div>
+      <p className="mb-2 text-xs text-text-muted">
+        {progresso === 0 ? "Nenhum item qualificado" : progresso === total ? "Totalmente qualificado" : `${progresso} de ${total} qualificados`}
+      </p>
+      <div className="flex flex-wrap gap-1.5">
+        {SINAIS_CANONICOS.map(({ chave, rotulo }) => {
+          const v = sq?.[chave]
+          const estado = v === true ? "sim" : v === false ? "nao" : "pendente"
+          return (
+            <span
+              key={chave}
+              className={cn(
+                "flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium",
+                estado === "sim"
+                  ? "bg-success-500/10 text-success-500"
+                  : estado === "nao"
+                    ? "bg-danger-500/10 text-danger-500"
+                    : "bg-ink-300 text-text-muted",
+              )}
+            >
+              {estado === "sim" ? <CheckCircle2 size={11} /> : estado === "nao" ? <XCircle size={11} /> : <Circle size={11} />}
+              {rotulo}
+            </span>
+          )
+        })}
       </div>
     </div>
   )

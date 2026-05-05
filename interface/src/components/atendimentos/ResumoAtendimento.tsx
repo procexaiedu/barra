@@ -1,11 +1,11 @@
 "use client"
 
 import Link from "next/link"
-import { ReceiptText } from "lucide-react"
+import { ReceiptText, CheckCircle2, XCircle, Circle } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import { formatBRL, formatData, formatDataHora, formatRotulo } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse } from "@/tipos/atendimentos"
-import { estadoLabel, formatEnum, motivoExibido, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
+import { estadoLabel, formatEnum, motivoExibido, SINAIS_CANONICOS, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 
 function asNumber(valor: number | string | null) {
   if (valor === null) return null
@@ -16,9 +16,9 @@ function asNumber(valor: number | string | null) {
 export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
   const atendimento = detalhe.atendimento
   const valorAcordado = asNumber(atendimento.valor_acordado)
-  const sinais = atendimento.sinais_qualificacao
-    ? Object.entries(atendimento.sinais_qualificacao).filter(([, value]) => typeof value === "boolean")
-    : []
+  const sq = atendimento.sinais_qualificacao as Record<string, unknown> | null
+  const total = SINAIS_CANONICOS.length
+  const progresso = SINAIS_CANONICOS.filter(({ chave }) => { const v = sq?.[chave]; return v === true || v === false }).length
 
   const itensPausada: [string, string | null][] = atendimento.ia_pausada
     ? [["Por que pausou", motivoExibido(atendimento.motivo_escalada, atendimento.ia_pausada_motivo) ?? "Não informado ainda"]]
@@ -30,6 +30,19 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
         <ReceiptText size={16} strokeWidth={1.5} className="text-text-muted" />
         <h2 className="text-sm font-semibold text-text-primary">Resumo do atendimento</h2>
       </div>
+      {atendimento.ia_pausada && (
+        <div className="mb-4 rounded-md bg-state-handoff/5 p-2.5 ring-1 ring-state-handoff/20">
+          <ResumoGrupo
+            titulo="IA"
+            itens={[
+              ["Responsável", formatRotulo(atendimento.responsavel_atual) ?? atendimento.responsavel_atual],
+              ...itensPausada,
+              ["Próxima ação", atendimento.proxima_acao_esperada ?? "Não informado ainda"],
+              ["Resumo", atendimento.resumo_operacional ?? "Não informado ainda"],
+            ]}
+          />
+        </div>
+      )}
       <div className="grid gap-4 xl:grid-cols-2">
         <ResumoGrupo
           titulo="Comercial"
@@ -52,15 +65,16 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
             ["Tipo local", atendimento.tipo_local ? (formatRotulo(atendimento.tipo_local) ?? atendimento.tipo_local) : null],
           ]}
         />
-        <ResumoGrupo
-          titulo="IA"
-          itens={[
-            ["Responsável", formatRotulo(atendimento.responsavel_atual) ?? atendimento.responsavel_atual],
-            ...itensPausada,
-            ["Próxima ação", atendimento.proxima_acao_esperada ?? "Não informado ainda"],
-            ["Resumo", atendimento.resumo_operacional ?? "Não informado ainda"],
-          ]}
-        />
+        {!atendimento.ia_pausada && (
+          <ResumoGrupo
+            titulo="IA"
+            itens={[
+              ["Responsável", formatRotulo(atendimento.responsavel_atual) ?? atendimento.responsavel_atual],
+              ["Próxima ação", atendimento.proxima_acao_esperada ?? "Não informado ainda"],
+              ["Resumo", atendimento.resumo_operacional ?? "Não informado ainda"],
+            ]}
+          />
+        )}
         <ResumoGrupo
           titulo="Pix"
           itens={[
@@ -70,41 +84,51 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
         />
       </div>
 
-      {(sinais.length > 0 || detalhe.bloqueio) && (
-        <div className="mt-4 grid gap-4 xl:grid-cols-2">
-          {sinais.length > 0 && (
-            <div>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-                Qualificação
-              </h3>
-              <div className="flex flex-wrap gap-2">
-                {sinais.map(([key, value]) => (
-                  <span key={key} className="rounded-full bg-ink-300 px-3 py-1 text-xs text-text-secondary">
-                    {key.replaceAll("_", " ")}: {value ? "sim" : "não"}
-                  </span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {detalhe.bloqueio && (
-            <div>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-                Bloqueio
-              </h3>
-              <div className="space-y-1 text-[13px] text-text-secondary">
-                <p>{formatDataHora(detalhe.bloqueio.inicio)} · {formatRotulo(detalhe.bloqueio.estado) ?? detalhe.bloqueio.estado}</p>
-                <Link
-                  href={`/agenda?bloqueio=${detalhe.bloqueio.id}`}
-                  className="text-text-link focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
-                >
-                  Abrir na agenda
-                </Link>
-              </div>
-            </div>
-          )}
+      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+        <div>
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+            Qualificação
+          </h3>
+          <div className="mb-1 h-1.5 w-full rounded-full bg-ink-300">
+            <div
+              className="h-1.5 rounded-full bg-success-500 transition-all"
+              style={{ width: `${(progresso / total) * 100}%` }}
+            />
+          </div>
+          <p className="mb-2 text-xs text-text-muted">
+            {progresso === 0 ? "Nenhum item qualificado" : progresso === total ? "Totalmente qualificado" : `${progresso} de ${total} qualificados`}
+          </p>
+          <div className="flex flex-col gap-1.5">
+            {SINAIS_CANONICOS.map(({ chave, rotulo }) => {
+              const v = sq?.[chave]
+              const estado = v === true ? "sim" : v === false ? "nao" : "pendente"
+              return (
+                <span key={chave} className={`flex items-center gap-1.5 text-xs ${estado === "sim" ? "text-success-500" : estado === "nao" ? "text-danger-500" : "text-text-muted"}`}>
+                  {estado === "sim" ? <CheckCircle2 size={13} /> : estado === "nao" ? <XCircle size={13} /> : <Circle size={13} />}
+                  {rotulo}
+                </span>
+              )
+            })}
+          </div>
         </div>
-      )}
+
+        {detalhe.bloqueio && (
+          <div>
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+              Bloqueio
+            </h3>
+            <div className="space-y-1 text-[13px] text-text-secondary">
+              <p>{formatDataHora(detalhe.bloqueio.inicio)} · {formatRotulo(detalhe.bloqueio.estado) ?? detalhe.bloqueio.estado}</p>
+              <Link
+                href={`/agenda?bloqueio=${detalhe.bloqueio.id}`}
+                className="text-text-link focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2 focus-visible:outline-none"
+              >
+                Abrir na agenda
+              </Link>
+            </div>
+          </div>
+        )}
+      </div>
     </Card>
   )
 }

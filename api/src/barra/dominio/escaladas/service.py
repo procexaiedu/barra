@@ -1,5 +1,6 @@
 """Porta unica para comandos operacionais sensiveis."""
 
+import json
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
@@ -342,9 +343,9 @@ async def _evento(
     await conn.execute(
         """
         INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
-        VALUES (%s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s::jsonb)
         """,
-        (atendimento_id, tipo, _origem_evento(origem), autor, payload),
+        (atendimento_id, tipo, _origem_evento(origem), autor, json.dumps(payload, default=str)),
     )
 
 

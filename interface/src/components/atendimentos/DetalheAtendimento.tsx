@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from "react"
 import Image from "next/image"
+import Link from "next/link"
 import { ChevronDown, FileText, ImageOff } from "lucide-react"
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
@@ -13,7 +14,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
-import { formatDataHora, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
+import { formatBRL, formatDataHora, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse, MotivoPerda } from "@/tipos/atendimentos"
 import { AcoesAtendimento } from "@/components/atendimentos/AcoesAtendimento"
 import { HistoricoMensagens } from "@/components/atendimentos/HistoricoMensagens"
@@ -59,7 +60,7 @@ export function DetalheAtendimento({
 
   return (
     <section aria-label="Detalhe do atendimento" className="min-w-0 space-y-3">
-      <div className={cn("rounded-lg border border-border bg-card p-4 border-l-3", estadoBorder)}>
+      <div className={cn("rounded-lg border border-ink-300 bg-ink-100 p-4 border-l-3", estadoBorder)}>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={badgeForEstado(atendimento.estado)}>{estadoLabel[atendimento.estado]}</Badge>
           <h2 className="text-base font-semibold text-text-primary">{cliente}</h2>
@@ -68,6 +69,12 @@ export function DetalheAtendimento({
             #{atendimento.numero_curto} · {formatTempoRelativo(atendimento.updated_at)}
           </span>
         </div>
+        {atendimento.estado === "Fechado" && atendimento.valor_final !== null && (
+          <div className="mt-1 flex items-center gap-1">
+            <span className="text-xs text-text-muted">Valor final</span>
+            <span className="ml-2 text-sm font-semibold text-success-500">{formatBRL(Number(atendimento.valor_final))}</span>
+          </div>
+        )}
         <div className="mt-2">
           <span className="font-mono text-xs text-text-muted">{detalhe.cliente.telefone}</span>
         </div>
@@ -83,31 +90,34 @@ export function DetalheAtendimento({
 
       <ResumoAtendimento detalhe={detalhe} />
 
-      <SecaoColapsavel titulo="Histórico de mensagens">
+      <SecaoColapsavel titulo="Histórico de mensagens" count={detalhe.mensagens.length} defaultOpen={atendimento.ia_pausada}>
         <HistoricoMensagens mensagens={detalhe.mensagens} />
       </SecaoColapsavel>
 
-      <SecaoColapsavel titulo="Mídias recebidas">
+      <SecaoColapsavel titulo="Mídias recebidas" count={detalhe.mensagens.filter(m => m.tipo !== "texto" || m.media_object_key).length + detalhe.comprovantes_pix.length}>
         <MidiasRecebidas detalhe={detalhe} />
       </SecaoColapsavel>
 
-      <SecaoColapsavel titulo="Histórico do atendimento">
+      <SecaoColapsavel titulo="Histórico do atendimento" count={detalhe.eventos.length}>
         <Eventos eventos={detalhe.eventos} />
       </SecaoColapsavel>
     </section>
   )
 }
 
-function SecaoColapsavel({ titulo, children }: { titulo: string; children: ReactNode }) {
-  const [aberto, setAberto] = useState(false)
+function SecaoColapsavel({ titulo, count, defaultOpen, children }: { titulo: string; count?: number; defaultOpen?: boolean; children: ReactNode }) {
+  const [aberto, setAberto] = useState(defaultOpen ?? false)
   return (
-    <div className="overflow-hidden rounded-lg border border-border bg-card">
+    <div className="overflow-hidden rounded-lg border border-ink-300 bg-ink-100">
       <button
         type="button"
         onClick={() => setAberto((a) => !a)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-surface-hover"
+        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-ink-200"
       >
         <span className="flex-1 text-sm font-semibold text-text-primary">{titulo}</span>
+        {count !== undefined && count > 0 && (
+          <span className="text-xs text-text-muted">({count})</span>
+        )}
         <ChevronDown
           size={16}
           strokeWidth={1.5}
@@ -115,7 +125,7 @@ function SecaoColapsavel({ titulo, children }: { titulo: string; children: React
         />
       </button>
       {aberto && (
-        <div className="border-t border-border p-4">
+        <div className="border-t border-ink-300 p-4">
           {children}
         </div>
       )}
@@ -152,19 +162,34 @@ function MidiasRecebidas({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
-          {midias.map((midia) => (
-            <button
-              key={midia.id}
-              type="button"
-              onClick={() => midia.url && setMidiaAberta(midia)}
-              disabled={!midia.url}
-              className="inline-flex max-w-full items-center gap-2 rounded-md bg-ink-300 px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors enabled:hover:bg-ink-200 enabled:hover:text-text-primary disabled:cursor-default focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              <FileText size={14} strokeWidth={1.5} />
-              <span className="truncate">{midia.nome}</span>
-              <span className="font-sans text-text-disabled">{midia.subtitulo}</span>
-            </button>
-          ))}
+          {midias.map((midia) => {
+            if (midia.nome === "comprovante Pix" && midia.url === null) {
+              return (
+                <Link
+                  key={midia.id}
+                  href="/pix"
+                  className="inline-flex max-w-full items-center gap-2 rounded-md bg-ink-300 px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors hover:bg-ink-200 hover:text-text-primary focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+                >
+                  <FileText size={14} strokeWidth={1.5} />
+                  <span className="truncate">{midia.nome}</span>
+                  <span className="font-sans text-text-disabled">{midia.subtitulo}</span>
+                </Link>
+              )
+            }
+            return (
+              <button
+                key={midia.id}
+                type="button"
+                onClick={() => midia.url && setMidiaAberta(midia)}
+                disabled={!midia.url}
+                className="inline-flex max-w-full items-center gap-2 rounded-md bg-ink-300 px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors enabled:hover:bg-ink-200 enabled:hover:text-text-primary disabled:cursor-default focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+              >
+                <FileText size={14} strokeWidth={1.5} />
+                <span className="truncate">{midia.nome}</span>
+                <span className="font-sans text-text-disabled">{midia.subtitulo}</span>
+              </button>
+            )
+          })}
         </div>
       )}
       <AlertDialog open={!!midiaAberta} onOpenChange={(open) => !open && setMidiaAberta(null)}>
@@ -207,7 +232,7 @@ function Eventos({ eventos }: { eventos: AtendimentoDetalheResponse["eventos"] }
 
 function EmptyDetalhe() {
   return (
-    <section aria-label="Detalhe do atendimento" className="rounded-lg border border-border bg-card p-6">
+    <section aria-label="Detalhe do atendimento" className="rounded-lg border border-ink-300 bg-ink-100 p-6">
       <p className="text-sm text-text-primary">Nenhum atendimento selecionado.</p>
       <p className="mt-1 text-[13px] text-text-muted">Selecione um item da lista para ver o contexto completo.</p>
     </section>
@@ -219,13 +244,13 @@ function DetalheSkeleton() {
     <section aria-label="Detalhe do atendimento" aria-busy="true" className="space-y-5">
       <Skeleton className="h-24 rounded-lg" />
       <Skeleton className="h-72 rounded-lg" />
-      <div className="rounded-lg border border-border bg-card p-6">
+      <div className="rounded-lg border border-ink-300 bg-ink-100 p-6">
         <Skeleton className="mb-4 h-6 w-48" />
         {Array.from({ length: 6 }).map((_, index) => (
           <Skeleton key={index} className="mb-3 h-16 rounded-lg" />
         ))}
       </div>
-      <div className="rounded-lg border border-border bg-card p-6">
+      <div className="rounded-lg border border-ink-300 bg-ink-100 p-6">
         <Skeleton className="mb-4 h-6 w-40" />
         {Array.from({ length: 4 }).map((_, index) => (
           <Skeleton key={index} className="mb-3 h-12 rounded-lg" />

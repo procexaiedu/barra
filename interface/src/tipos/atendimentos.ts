@@ -37,6 +37,8 @@ export interface AtendimentoListaItem {
   responsavel_atual: ResponsavelAtual
   motivo_escalada: string | null
   proxima_acao_esperada: string | null
+  sinais_qualificacao?: Record<string, unknown> | null
+  valor_acordado: number | string | null
   updated_at: string
 }
 
@@ -128,10 +130,12 @@ export interface AtendimentoDetalheResponse {
   comprovantes_pix: ComprovantePixResumo[]
 }
 
-export type EstadoFiltro = "abertos" | EstadoAtendimento
+export type EstadoGrupo = "Qualificando" | "Aguardando"
+export type EstadoFiltro = "abertos" | EstadoGrupo | EstadoAtendimento
 export type TipoFiltro = "todos" | TipoAtendimento
 export type UrgenciaFiltro = "todas" | Urgencia
 export type IaFiltro = "todos" | "ativa" | "pausada"
+export type QualificacaoFiltro = "todos" | "completa" | "incompleta"
 
 export interface FiltrosAtendimentos {
   busca: string
@@ -139,4 +143,20 @@ export interface FiltrosAtendimentos {
   tipo: TipoFiltro
   urgencia: UrgenciaFiltro
   ia: IaFiltro
+  qualificacao: QualificacaoFiltro
+}
+
+export type EstadoKanbanDestino = "Qualificado" | "Aguardando_confirmacao" | "Em_execucao"
+
+export interface EditarDadosPayload {
+  tipo_atendimento?: TipoAtendimento | null
+  urgencia?: Urgencia | null
+  data_desejada?: string | null
+  horario_desejado?: string | null
+  duracao_horas?: number | null
+  endereco?: string | null
+  bairro?: string | null
+  tipo_local?: string | null
+  forma_pagamento?: string | null
+  valor_acordado?: number | null
 }

@@ -1,3 +1,4 @@
+from datetime import date, time
 from decimal import Decimal
 from typing import Literal
 
@@ -29,3 +30,20 @@ class CorrigirRegistroRequest(BaseModel):
     motivo: Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None = None
     observacao: str | None = None
     confirmar_alteracao_bloqueio_finalizado: bool = False
+
+
+class AlterarEstadoRequest(BaseModel):
+    estado: Literal["Qualificado", "Aguardando_confirmacao", "Em_execucao"]
+
+
+class EditarDadosRequest(BaseModel):
+    tipo_atendimento: Literal["interno", "externo"] | None = None
+    urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None
+    data_desejada: date | None = None
+    horario_desejado: time | None = None
+    duracao_horas: Decimal | None = Field(default=None, ge=0)
+    endereco: str | None = None
+    bairro: str | None = None
+    tipo_local: str | None = None
+    forma_pagamento: str | None = None
+    valor_acordado: Decimal | None = Field(default=None, ge=0)

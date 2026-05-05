@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**Fonte principal de informação:** @CONTEXT.md (vocabulário de domínio, termos da operação Barra Vips e o que evitar). Consulte esse arquivo antes de decisões de produto, nomenclatura ou comportamento da IA.
+**Fonte principal de informação:** @CONTEXT.md (vocabulário de domínio, termos da operação Barra Vips e o que evitar). Consulte esse arquivo antes de qualquer mudança.
 
 ## 1. Pense Antes de Codificar
 

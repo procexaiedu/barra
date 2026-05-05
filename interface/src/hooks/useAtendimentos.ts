@@ -9,6 +9,9 @@ import type {
   AtendimentoDetalheResponse,
   AtendimentoListaItem,
   AtendimentosListaResponse,
+  EditarDadosPayload,
+  EstadoAtendimento,
+  EstadoKanbanDestino,
   FiltrosAtendimentos,
   MotivoPerda,
 } from "@/tipos/atendimentos"
@@ -21,6 +24,7 @@ const filtrosIniciais: FiltrosAtendimentos = {
   tipo: "todos",
   urgencia: "todas",
   ia: "todos",
+  qualificacao: "todos",
 }
 
 export interface FiltrosUrlAtendimentos {
@@ -40,6 +44,7 @@ function buildListaPath(
   if (filtros.tipo !== "todos") params.set("tipo_atendimento", filtros.tipo)
   if (filtros.urgencia !== "todas") params.set("urgencia", filtros.urgencia)
   if (filtros.ia !== "todos") params.set("ia_pausada", filtros.ia === "pausada" ? "true" : "false")
+  if (filtros.qualificacao !== "todos") params.set("qualificacao_completa", filtros.qualificacao === "completa" ? "true" : "false")
   if (filtrosUrl.motivoPerda && filtros.estado === "Perdido") {
     params.set("motivo_perda", filtrosUrl.motivoPerda)
   }
@@ -91,6 +96,7 @@ export function useAtendimentos(
     || filtrosEfetivos.tipo !== "todos"
     || filtrosEfetivos.urgencia !== "todas"
     || filtrosEfetivos.ia !== "todos"
+    || filtrosEfetivos.qualificacao !== "todos"
 
   const loadDetalhe = useCallback(async (id: string) => {
     if (!firstDetalheDone.current) setDetalheStatus("loading")
@@ -194,6 +200,30 @@ export function useAtendimentos(
     await loadLista("replace", false)
   }, [loadLista])
 
+  const moverEstado = useCallback(async (id: string, estado: EstadoKanbanDestino) => {
+    setItems((current) =>
+      current.map((item) => item.id === id ? { ...item, estado: estado as EstadoAtendimento } : item)
+    )
+    try {
+      await api(`/v1/atendimentos/${id}/estado`, {
+        method: "PATCH",
+        body: JSON.stringify({ estado }),
+      })
+    } catch (e) {
+      await loadLista("replace", true)
+      throw e
+    }
+  }, [loadLista])
+
+  const editarDados = useCallback(async (id: string, dados: EditarDadosPayload) => {
+    await api(`/v1/atendimentos/${id}/dados`, {
+      method: "PATCH",
+      body: JSON.stringify(dados),
+    })
+    if (selectedIdRef.current === id) await loadDetalhe(id)
+    await loadLista("replace", true)
+  }, [loadDetalhe, loadLista])
+
   const debouncedRealtimeRefetch = useCallback(() => {
     realtimeEvents.current += 1
     if (refetchTimer.current) clearTimeout(refetchTimer.current)
@@ -268,5 +298,8 @@ export function useAtendimentos(
     devolver,
     fechar,
     perder,
+    moverEstado,
+    editarDados,
+    loadDetalhe,
   }
 }

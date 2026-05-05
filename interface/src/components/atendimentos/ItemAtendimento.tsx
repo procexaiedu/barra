@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { formatTelefone, formatTempoRelativo } from "@/lib/formatters"
 import type { AtendimentoListaItem } from "@/tipos/atendimentos"
-import { badgeForEstado, estadoLabel, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
+import { badgeForEstado, estadoLabel, SINAIS_CANONICOS, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 
 export function ItemAtendimento({
   item,
@@ -17,11 +17,16 @@ export function ItemAtendimento({
   onSelect: (id: string) => void
 }) {
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
+  const sq = item.sinais_qualificacao as Record<string, unknown> | null | undefined
+  const progresso = sq
+    ? SINAIS_CANONICOS.filter(({ chave }) => { const v = sq[chave]; return v === true || v === false }).length
+    : null
   const meta = [
     item.modelo.nome,
     `#${item.numero_curto}`,
     item.tipo_atendimento ? tipoLabel[item.tipo_atendimento] : null,
     item.urgencia ? urgenciaLabel[item.urgencia] : null,
+    progresso !== null ? `${progresso}/${SINAIS_CANONICOS.length}` : null,
   ]
     .filter(Boolean)
     .join(" · ")
@@ -46,8 +51,8 @@ export function ItemAtendimento({
       onClick={() => onSelect(item.id)}
       onKeyDown={handleKeyDown}
       className={cn(
-        "cursor-pointer border-l-3 bg-card px-4 py-3 transition-colors hover:bg-ink-200",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
+        "cursor-pointer border-l-3 bg-ink-100 px-4 py-3 transition-colors hover:bg-ink-200",
+        "focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2 focus-visible:outline-none",
         selected ? "bg-ink-200" : "",
         border
       )}

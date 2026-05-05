@@ -1,33 +1,46 @@
 "use client"
 
 import { useRouter } from "next/navigation"
-import type { EstadoAtendimento } from "@/tipos/atendimentos"
+import type { EstadoAtendimento, EstadoFiltro } from "@/tipos/atendimentos"
 import type { FunilEstadoLinha } from "@/tipos/dashboard"
 
-const ROTULOS_FUNIL: Record<Exclude<EstadoAtendimento, "Perdido">, string> = {
-  Novo: "Novo",
-  Triagem: "Triagem",
-  Qualificado: "Qualificado",
-  Aguardando_confirmacao: "Aguardando",
-  Confirmado: "Confirmado",
-  Em_execucao: "Em atendimento",
-  Fechado: "Fechado",
-}
-
 interface Etapa {
-  estado: Exclude<EstadoAtendimento, "Perdido">
+  rotulo: string
+  estados: EstadoAtendimento[]
+  linkEstado: EstadoFiltro
   largura: number
   cor: string
 }
 
 const CAMINHO: Etapa[] = [
-  { estado: "Novo", largura: 260, cor: "var(--seq-2)" },
-  { estado: "Triagem", largura: 240, cor: "var(--seq-2)" },
-  { estado: "Qualificado", largura: 220, cor: "var(--seq-3)" },
-  { estado: "Aguardando_confirmacao", largura: 200, cor: "var(--seq-3)" },
-  { estado: "Confirmado", largura: 180, cor: "var(--seq-4)" },
-  { estado: "Em_execucao", largura: 160, cor: "var(--seq-5)" },
-  { estado: "Fechado", largura: 140, cor: "var(--success-500)" },
+  {
+    rotulo: "Qualificando",
+    estados: ["Novo", "Triagem", "Qualificado"],
+    linkEstado: "Qualificando",
+    largura: 280,
+    cor: "var(--seq-2)",
+  },
+  {
+    rotulo: "Aguardando",
+    estados: ["Aguardando_confirmacao", "Confirmado"],
+    linkEstado: "Aguardando",
+    largura: 220,
+    cor: "var(--seq-3)",
+  },
+  {
+    rotulo: "Em atendimento",
+    estados: ["Em_execucao"],
+    linkEstado: "Em_execucao",
+    largura: 160,
+    cor: "var(--seq-5)",
+  },
+  {
+    rotulo: "Fechado",
+    estados: ["Fechado"],
+    linkEstado: "Fechado",
+    largura: 120,
+    cor: "var(--success-500)",
+  },
 ]
 
 const VBW = 480
@@ -61,24 +74,23 @@ export function FunilPipeline({ linhas, total }: Props) {
         const xBotLeft = CX - proxLargura / 2
         const xBotRight = CX + proxLargura / 2
         const path = `M${xTopLeft},${yTop} L${xTopRight},${yTop} L${xBotRight},${yBot - 1} L${xBotLeft},${yBot - 1} Z`
-        const contagem = mapa.get(etapa.estado) ?? 0
+        const contagem = etapa.estados.reduce((soma, e) => soma + (mapa.get(e) ?? 0), 0)
         const pct = total > 0 ? (contagem / total) * 100 : 0
         const yMid = yTop + ETAPA_H / 2
-        const rotulo = ROTULOS_FUNIL[etapa.estado]
 
         return (
           <g
-            key={etapa.estado}
+            key={etapa.rotulo}
             role="button"
             tabIndex={0}
-            aria-label={`${rotulo}: ${contagem} atendimentos`}
+            aria-label={`${etapa.rotulo}: ${contagem} atendimentos`}
             onClick={() =>
-              router.push(`/atendimentos?estado=${encodeURIComponent(etapa.estado)}`)
+              router.push(`/atendimentos?estado=${encodeURIComponent(etapa.linkEstado)}`)
             }
             onKeyDown={(event) => {
               if (event.key === "Enter" || event.key === " ") {
                 event.preventDefault()
-                router.push(`/atendimentos?estado=${encodeURIComponent(etapa.estado)}`)
+                router.push(`/atendimentos?estado=${encodeURIComponent(etapa.linkEstado)}`)
               }
             }}
             className="cursor-pointer outline-none focus-visible:[&_path]:stroke-ring focus-visible:[&_path]:stroke-2 [&_path]:transition-opacity hover:[&_path]:opacity-90"
@@ -92,7 +104,7 @@ export function FunilPipeline({ linhas, total }: Props) {
               className="fill-text-primary"
               style={{ font: "500 12px var(--font-sans)" }}
             >
-              {rotulo}
+              {etapa.rotulo}
             </text>
             <text
               x={372}

@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from uuid import UUID
 
@@ -8,14 +9,21 @@ from barra.api.deps import get_conn, get_user
 from barra.core.auth import UsuarioAtual
 from barra.core.errors import NaoEncontrado
 from barra.dominio.atendimentos.schemas import (
+    AlterarEstadoRequest,
     CorrigirRegistroRequest,
     DevolverRequest,
+    EditarDadosRequest,
     FecharRequest,
     PerderRequest,
 )
 from barra.dominio.escaladas.service import aplicar_comando
 
 router = APIRouter(dependencies=[Depends(get_user)])
+
+_GRUPOS_ESTADO: dict[str, tuple[str, ...]] = {
+    "Qualificando": ("Novo", "Triagem", "Qualificado"),
+    "Aguardando": ("Aguardando_confirmacao", "Confirmado"),
+}
 
 
 @router.get("")
@@ -29,14 +37,21 @@ async def listar_atendimentos(
     motivo_perda: str | None = None,
     motivo_escalada: str | None = None,
     q: str | None = None,
+    qualificacao_completa: bool | None = None,
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = None,
 ) -> dict[str, Any]:
     params: list[Any] = []
     filtros = ["1=1"]
     if estado:
-        filtros.append("a.estado = %s")
-        params.append(estado)
+        grupo = _GRUPOS_ESTADO.get(estado)
+        if grupo:
+            placeholders = ", ".join(["%s"] * len(grupo))
+            filtros.append(f"a.estado IN ({placeholders})")
+            params.extend(grupo)
+        else:
+            filtros.append("a.estado = %s")
+            params.append(estado)
     else:
         filtros.append("a.estado NOT IN ('Fechado', 'Perdido')")
     if tipo_atendimento:
@@ -65,6 +80,24 @@ async def listar_atendimentos(
     if q:
         filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s OR a.numero_curto::text = %s)")
         params.extend([f"%{q}%", f"%{q}%", q])
+    if qualificacao_completa is True:
+        filtros.append(
+            "a.sinais_qualificacao IS NOT NULL"
+            " AND jsonb_typeof(a.sinais_qualificacao->'envia_pix') = 'boolean'"
+            " AND jsonb_typeof(a.sinais_qualificacao->'aceita_valor') = 'boolean'"
+            " AND jsonb_typeof(a.sinais_qualificacao->'informa_local') = 'boolean'"
+            " AND jsonb_typeof(a.sinais_qualificacao->'informa_horario') = 'boolean'"
+        )
+    elif qualificacao_completa is False:
+        filtros.append(
+            "NOT ("
+            "a.sinais_qualificacao IS NOT NULL"
+            " AND jsonb_typeof(a.sinais_qualificacao->'envia_pix') = 'boolean'"
+            " AND jsonb_typeof(a.sinais_qualificacao->'aceita_valor') = 'boolean'"
+            " AND jsonb_typeof(a.sinais_qualificacao->'informa_local') = 'boolean'"
+            " AND jsonb_typeof(a.sinais_qualificacao->'informa_horario') = 'boolean'"
+            ")"
+        )
     if cursor:
         filtros.append("a.updated_at < %s::timestamptz")
         params.append(cursor)
@@ -76,7 +109,7 @@ async def listar_atendimentos(
           a.tipo_atendimento::text AS tipo_atendimento, a.urgencia::text AS urgencia,
           a.ia_pausada, a.ia_pausada_motivo::text AS ia_pausada_motivo,
           a.responsavel_atual::text AS responsavel_atual, a.motivo_escalada,
-          a.proxima_acao_esperada, a.updated_at,
+          a.proxima_acao_esperada, a.sinais_qualificacao, a.valor_acordado, a.updated_at,
           c.id AS cliente_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
           m.id AS modelo_id, m.nome AS modelo_nome
         FROM barravips.atendimentos a
@@ -110,6 +143,8 @@ async def listar_atendimentos(
                 "responsavel_atual": row["responsavel_atual"],
                 "motivo_escalada": row["motivo_escalada"],
                 "proxima_acao_esperada": row["proxima_acao_esperada"],
+                "sinais_qualificacao": row["sinais_qualificacao"],
+                "valor_acordado": row["valor_acordado"],
                 "updated_at": row["updated_at"],
             }
             for row in rows
@@ -249,6 +284,66 @@ async def perder_atendimento(
         payload=body.model_dump(),
     )
     return {"id": result.atendimento_id, "estado": result.estado}
+
+
+@router.patch("/{atendimento_id}/estado")
+async def alterar_estado(
+    atendimento_id: UUID,
+    body: AlterarEstadoRequest,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    row = await _fetch_one(
+        conn,
+        "SELECT id, estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    if row is None:
+        raise NaoEncontrado("Atendimento")
+    estado_anterior = row["estado"]
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET estado = %s WHERE id = %s",
+        (body.estado, atendimento_id),
+    )
+    await conn.execute(
+        "INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)"
+        " VALUES (%s, 'transicao_estado', 'painel', 'Fernando', %s::jsonb)",
+        (
+            atendimento_id,
+            json.dumps({"estado_anterior": estado_anterior, "estado_novo": body.estado, "via": "kanban"}),
+        ),
+    )
+    return {"id": str(atendimento_id), "estado": body.estado}
+
+
+@router.patch("/{atendimento_id}/dados")
+async def editar_dados(
+    atendimento_id: UUID,
+    body: EditarDadosRequest,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    row = await _fetch_one(
+        conn,
+        "SELECT id FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    if row is None:
+        raise NaoEncontrado("Atendimento")
+    campos = body.model_dump(exclude_none=True)
+    if campos:
+        set_clausulas = ", ".join(f"{campo} = %s" for campo in campos)
+        valores: list[Any] = [str(v) if hasattr(v, "isoformat") else v for v in campos.values()]
+        valores.append(atendimento_id)
+        await conn.execute(
+            f"UPDATE barravips.atendimentos SET {set_clausulas} WHERE id = %s",
+            valores,
+        )
+        payload_log = {k: str(v) for k, v in campos.items()}
+        await conn.execute(
+            "INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)"
+            " VALUES (%s, 'dados_editados', 'painel', 'Fernando', %s::jsonb)",
+            (atendimento_id, json.dumps(payload_log, ensure_ascii=False)),
+        )
+    return {"id": str(atendimento_id)}
 
 
 @router.post("/{atendimento_id}/corrigir-registro")

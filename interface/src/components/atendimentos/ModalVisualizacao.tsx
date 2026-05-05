@@ -1,0 +1,106 @@
+"use client"
+
+import { useCallback, useEffect, useState } from "react"
+import { X } from "lucide-react"
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { api } from "@/lib/api"
+import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
+import type { AtendimentoDetalheResponse, MotivoPerda } from "@/tipos/atendimentos"
+
+export function ModalVisualizacao({
+  atendimentoId,
+  onClose,
+  onDevolver,
+  onFechar,
+  onPerder,
+  onAbrirEdicao,
+}: {
+  atendimentoId: string | null
+  onClose: () => void
+  onDevolver: (id: string) => Promise<void>
+  onFechar: (id: string, valorFinal: number) => Promise<void>
+  onPerder: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
+  onAbrirEdicao: (detalhe: AtendimentoDetalheResponse) => void
+}) {
+  const [detalhe, setDetalhe] = useState<AtendimentoDetalheResponse | null>(null)
+  const [status, setStatus] = useState<"loading" | "success" | "error">("loading")
+  const [error, setError] = useState<string | null>(null)
+
+  const carregar = useCallback(async (id: string) => {
+    setStatus("loading")
+    setDetalhe(null)
+    try {
+      const res = await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`)
+      setDetalhe(res)
+      setStatus("success")
+      setError(null)
+    } catch (e) {
+      setStatus("error")
+      setError(e instanceof Error ? e.message : "Erro ao carregar")
+    }
+  }, [])
+
+  useEffect(() => {
+    if (atendimentoId) carregar(atendimentoId)
+  }, [atendimentoId, carregar])
+
+  const handleDevolver = useCallback(async (id: string) => {
+    await onDevolver(id)
+    onClose()
+  }, [onDevolver, onClose])
+
+  const handleFechar = useCallback(async (id: string, valorFinal: number) => {
+    await onFechar(id, valorFinal)
+    onClose()
+  }, [onFechar, onClose])
+
+  const handlePerder = useCallback(async (id: string, motivo: MotivoPerda, observacao: string | null) => {
+    await onPerder(id, motivo, observacao)
+    onClose()
+  }, [onPerder, onClose])
+
+  return (
+    <Dialog open={!!atendimentoId} onOpenChange={(open) => { if (!open) onClose() }}>
+      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto bg-surface p-0">
+        <DialogTitle className="sr-only">Detalhe do atendimento</DialogTitle>
+
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface px-5 py-3">
+          <span className="text-sm font-semibold text-text-primary">
+            {detalhe ? `${detalhe.cliente.nome ?? detalhe.cliente.telefone} · #${detalhe.atendimento.numero_curto}` : "Atendimento"}
+          </span>
+          <div className="flex items-center gap-2">
+            {detalhe && (
+              <button
+                type="button"
+                onClick={() => onAbrirEdicao(detalhe)}
+                className="rounded-md px-3 py-1 text-xs font-medium text-text-secondary hover:bg-ink-200 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                Editar
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Fechar"
+              className="rounded-md p-1 text-text-muted hover:bg-ink-200 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <X size={16} strokeWidth={1.5} />
+            </button>
+          </div>
+        </div>
+
+        <div className="p-5">
+          <DetalheAtendimento
+            detalhe={detalhe}
+            status={status}
+            error={error}
+            onRetry={() => atendimentoId && carregar(atendimentoId)}
+            onDevolver={handleDevolver}
+            onFechar={handleFechar}
+            onPerder={handlePerder}
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
