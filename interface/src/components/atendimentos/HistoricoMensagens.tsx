@@ -87,7 +87,7 @@ function MensagemLinha({
   onAbrirImagem: (m: MensagemAtendimento) => void
 }) {
   const [expandida, setExpandida] = useState(false)
-  const longa = mensagem.conteudo.length > 140
+  const longa = (mensagem.conteudo?.length ?? 0) > 140
   const isModelo = mensagem.direcao === "ia" || mensagem.direcao === "modelo_manual"
   const hasMedia = mensagem.tipo !== "texto" || mensagem.media_object_key
 
