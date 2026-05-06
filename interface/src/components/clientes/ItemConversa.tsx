@@ -4,8 +4,8 @@ import type { KeyboardEvent } from "react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { formatTelefone, formatTempoRelativo } from "@/lib/formatters"
-import type { ConversaListaItem } from "@/tipos/crm"
-import { estadoAtendimentoLabel, motivoPerdaLabel } from "@/components/crm/utils"
+import type { ConversaListaItem } from "@/tipos/clientes"
+import { estadoAtendimentoLabel, motivoPerdaLabel } from "@/components/clientes/utils"
 
 export function ItemConversa({
   item,
@@ -58,7 +58,7 @@ export function ItemConversa({
       )}
     >
       <div className="flex items-baseline gap-2">
-        <p className="truncate text-sm font-semibold text-text-primary">{cliente}</p>
+        <p className="truncate text-base font-semibold text-text-primary">{cliente}</p>
         <span className="ml-auto shrink-0 text-xs text-text-muted">
           {formatTempoRelativo(refTempo)}
         </span>

@@ -191,7 +191,7 @@ export function AcoesPix({
               <p className="text-sm text-text-primary">{detalhe.modelo.nome}</p>
             </div>
             <a
-              href="/crm"
+              href="/clientes"
               className="inline-flex items-center gap-1.5 text-sm text-text-link underline-offset-4 hover:underline"
             >
               <ExternalLink className="h-3.5 w-3.5" />

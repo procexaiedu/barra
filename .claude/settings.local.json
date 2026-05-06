@@ -25,7 +25,11 @@
       "Bash(Select-Object Name, LastWriteTime)",
       "mcp__playwright__browser_network_request",
       "mcp__claude_ai_supabase__execute_sql",
-      "Bash(Select-Object Name, FullName)"
+      "Bash(Select-Object Name, FullName)",
+      "Skill(shadcn)",
+      "Bash(Get-ChildItem -Recurse \"C:\\\\barra\\\\interface\\\\src\\\\app\" -Filter \"layout.tsx\")",
+      "Bash(Select-Object FullName)",
+      "Bash(pnpm next *)"
     ]
   }
 }

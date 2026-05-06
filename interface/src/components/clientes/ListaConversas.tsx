@@ -4,8 +4,8 @@ import { Inbox } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
-import { ItemConversa } from "@/components/crm/ItemConversa"
-import type { ConversaListaItem } from "@/tipos/crm"
+import { ItemConversa } from "@/components/clientes/ItemConversa"
+import type { ConversaListaItem } from "@/tipos/clientes"
 
 export function ListaConversas({
   items,

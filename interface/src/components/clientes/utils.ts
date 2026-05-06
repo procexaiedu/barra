@@ -2,7 +2,7 @@ import type {
   DirecaoMensagem,
   EstadoAtendimento,
   MotivoPerda,
-} from "@/tipos/crm"
+} from "@/tipos/clientes"
 
 type BadgeVariant = "active" | "paused" | "handoff" | "revisao" | "closed" | "lost"
 

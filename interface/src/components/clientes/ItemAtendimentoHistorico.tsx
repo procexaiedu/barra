@@ -2,8 +2,8 @@
 
 import { Badge } from "@/components/ui/badge"
 import { formatBRL, formatData } from "@/lib/formatters"
-import type { AtendimentoHistoricoItem } from "@/tipos/crm"
-import { badgeForEstado, estadoAtendimentoLabel, motivoPerdaLabel, truncar } from "@/components/crm/utils"
+import type { AtendimentoHistoricoItem } from "@/tipos/clientes"
+import { badgeForEstado, estadoAtendimentoLabel, motivoPerdaLabel, truncar } from "@/components/clientes/utils"
 
 export function ItemAtendimentoHistorico({ item }: { item: AtendimentoHistoricoItem }) {
   const detalheFinal =
@@ -19,11 +19,13 @@ export function ItemAtendimentoHistorico({ item }: { item: AtendimentoHistoricoI
     <div className="flex h-14 items-center gap-3 px-4">
       <span className="font-mono text-xs text-text-muted">#{item.numero_curto}</span>
       <Badge variant={badgeForEstado(item.estado)}>{estadoAtendimentoLabel[item.estado]}</Badge>
-      <span className="text-sm text-text-primary">{formatData(item.created_at)}</span>
+      <span className="text-xs text-text-muted">{formatData(item.created_at)}</span>
       {detalheFinal && (
         <>
           <span className="text-text-muted">·</span>
-          <span className="text-sm text-text-primary">{detalheFinal}</span>
+          <span className={item.estado === "Fechado" ? "text-sm font-medium text-state-won" : "text-xs text-text-muted"}>
+            {detalheFinal}
+          </span>
         </>
       )}
     </div>

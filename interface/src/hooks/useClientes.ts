@@ -9,13 +9,13 @@ import type {
   ConversaDetalheResponse,
   ConversaListaItem,
   ConversasListaResponse,
-  FiltrosCrm,
+  FiltrosClientes,
   ModeloResumo,
-} from "@/tipos/crm"
+} from "@/tipos/clientes"
 
 type Status = "loading" | "success" | "error"
 
-const filtrosIniciais: FiltrosCrm = {
+const filtrosIniciais: FiltrosClientes = {
   busca: "",
   recorrencia: "todas",
   motivoPerda: "todos",
@@ -23,7 +23,7 @@ const filtrosIniciais: FiltrosCrm = {
   modeloId: "todas",
 }
 
-function buildListaPath(filtros: FiltrosCrm, cursor?: string | null) {
+function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   const params = new URLSearchParams({ limit: "50" })
   const busca = filtros.busca.trim()
   if (busca) params.set("q", busca)
@@ -45,8 +45,8 @@ interface ModelosResponse {
   nome: string
 }
 
-export function useCrm() {
-  const [filtros, setFiltros] = useState<FiltrosCrm>(filtrosIniciais)
+export function useClientes() {
+  const [filtros, setFiltros] = useState<FiltrosClientes>(filtrosIniciais)
   const [debouncedBusca, setDebouncedBusca] = useState("")
   const [items, setItems] = useState<ConversaListaItem[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -178,7 +178,7 @@ export function useCrm() {
     if (refetchTimer.current) clearTimeout(refetchTimer.current)
     refetchTimer.current = setTimeout(() => {
       if (process.env.NODE_ENV !== "production" && realtimeEvents.current > 1) {
-        console.debug(`[crm] refetch coalescido por ${realtimeEvents.current} eventos`)
+        console.debug(`[clientes] refetch coalescido por ${realtimeEvents.current} eventos`)
       }
       realtimeEvents.current = 0
       loadLista("replace", true)

@@ -6,8 +6,8 @@ import { formatHorario } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { BloqueioAgenda as BloqueioTipo, EstadoBloqueio } from "@/tipos/agenda"
 
-const HORA_INICIO = 10
-const HORA_FIM = 23
+const HORA_INICIO = 0
+const HORA_FIM = 24
 const HORA_HEIGHT = 80
 const TOTAL_HORAS = HORA_FIM - HORA_INICIO
 const TOTAL_HEIGHT = TOTAL_HORAS * HORA_HEIGHT

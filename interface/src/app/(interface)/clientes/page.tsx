@@ -15,10 +15,10 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { DetalheConversa } from "@/components/crm/DetalheConversa"
-import { ListaConversas } from "@/components/crm/ListaConversas"
-import { motivoPerdaLabel } from "@/components/crm/utils"
-import { useCrm } from "@/hooks/useCrm"
+import { DetalheConversa } from "@/components/clientes/DetalheConversa"
+import { ListaConversas } from "@/components/clientes/ListaConversas"
+import { motivoPerdaLabel } from "@/components/clientes/utils"
+import { useClientes } from "@/hooks/useClientes"
 import { ApiError } from "@/lib/api"
 import type {
   FiltroMotivoPerda,
@@ -26,7 +26,7 @@ import type {
   FiltroRecorrencia,
   ModeloResumo,
   MotivoPerda,
-} from "@/tipos/crm"
+} from "@/tipos/clientes"
 
 const recorrencias: { value: FiltroRecorrencia; label: string }[] = [
   { value: "todas", label: "Todas" },
@@ -48,8 +48,8 @@ const periodos: { value: FiltroPeriodo; label: string }[] = [
   { value: "90d", label: "90 dias" },
 ]
 
-export default function CRM() {
-  const crm = useCrm()
+export default function Clientes() {
+  const crm = useClientes()
 
   const handleSelecionar = (id: string) => {
     if (id === crm.selectedId) return
@@ -60,7 +60,7 @@ export default function CRM() {
     <div className="space-y-6">
       <header>
         <h1 className="font-serif text-[40px] font-medium leading-[48px] text-text-primary">
-          CRM
+          Clientes
         </h1>
         <p className="mt-1 text-[13px] text-text-muted">
           Histórico, recorrência e observações de cada cliente, por modelo.
@@ -86,7 +86,7 @@ export default function CRM() {
         onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
       />
 
-      <div className="grid h-[calc(100vh-220px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
+      <div className="grid h-[calc(100vh-240px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
         <ListaConversas
           items={crm.items}
           selectedId={crm.selectedId}
@@ -142,27 +142,30 @@ function Toolbar({
     return (
       <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_180px_140px_180px] gap-3">
         {Array.from({ length: 5 }).map((_, index) => (
-          <Skeleton key={index} className="h-9 rounded-lg" />
+          <Skeleton key={index} className="h-14 rounded-lg" />
         ))}
       </div>
     )
   }
   return (
     <div className="grid grid-cols-[minmax(260px,1fr)_140px_180px_140px_180px] gap-3">
-      <label className="relative">
-        <span className="sr-only">Buscar nome ou telefone</span>
-        <Search
-          size={16}
-          strokeWidth={1.5}
-          className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-        />
-        <Input
-          value={busca}
-          onChange={(event) => onBuscaChange(event.target.value)}
-          placeholder="Buscar nome ou telefone"
-          className="pl-9"
-        />
-      </label>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">Buscar</span>
+        <label className="relative">
+          <span className="sr-only">Buscar nome ou telefone</span>
+          <Search
+            size={16}
+            strokeWidth={1.5}
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
+          />
+          <Input
+            value={busca}
+            onChange={(event) => onBuscaChange(event.target.value)}
+            placeholder="Buscar nome ou telefone"
+            className="pl-9"
+          />
+        </label>
+      </div>
       <SelectFiltro
         label="Recorrência"
         value={recorrencia}
@@ -175,7 +178,7 @@ function Toolbar({
         ))}
       </SelectFiltro>
       <SelectFiltro
-        label="Motivo da última perda"
+        label="Última perda"
         value={motivoPerda}
         onChange={(value) => onMotivoPerdaChange(value as FiltroMotivoPerda)}
       >
@@ -186,7 +189,7 @@ function Toolbar({
         ))}
       </SelectFiltro>
       <SelectFiltro
-        label="Período do último atendimento"
+        label="Período"
         value={periodo}
         onChange={(value) => onPeriodoChange(value as FiltroPeriodo)}
       >
@@ -224,8 +227,8 @@ function SelectFiltro({
   children: ReactNode
 }) {
   return (
-    <label>
-      <span className="sr-only">{label}</span>
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}

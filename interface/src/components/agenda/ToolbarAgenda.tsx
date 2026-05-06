@@ -39,7 +39,7 @@ export function ToolbarAgenda({
   onCriar?: () => void
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border bg-card p-3">
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-2">
       <div className="flex items-center gap-3">
         <div className="flex rounded-lg bg-muted p-1" aria-label="Visão da agenda">
           {visoes.map((item) => (

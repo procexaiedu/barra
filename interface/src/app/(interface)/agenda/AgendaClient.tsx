@@ -153,7 +153,7 @@ export function AgendaClient() {
 
   if (agenda.status === "error") {
     return (
-      <section className="space-y-6">
+      <section className="space-y-3">
         <HeaderAgenda modelo={agenda.modeloId ? (agenda.agenda?.modelo ?? null) : null} bloqueios={[]} />
         <BannerErro mensagem={agenda.error ?? undefined} onRetry={agenda.refetch} />
       </section>
@@ -163,7 +163,7 @@ export function AgendaClient() {
   const hojeStr = dataInputSaoPaulo()
 
   return (
-    <section className="space-y-6">
+    <section className="space-y-3">
       <HeaderAgenda modelo={agenda.modeloId ? (agenda.agenda?.modelo ?? null) : null} bloqueios={bloqueios} />
       <ToolbarAgenda
         visao={agenda.visao}

@@ -117,11 +117,11 @@ function CentralAtendimentosInner() {
 
   // Estado do kanban
   const [modalId, setModalId] = useState<string | null>(null)
-  const initialIdKanbanConsumed = useRef(false)
+  const lastOpenedInitialId = useRef<string | null>(null)
 
   useEffect(() => {
-    if (initialId && view === "kanban" && !initialIdKanbanConsumed.current) {
-      initialIdKanbanConsumed.current = true
+    if (initialId && view === "kanban" && lastOpenedInitialId.current !== initialId) {
+      lastOpenedInitialId.current = initialId
       setModalId(initialId)
     }
   }, [initialId, view])

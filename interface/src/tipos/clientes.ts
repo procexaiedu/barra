@@ -109,7 +109,7 @@ export interface ConversaDetalheResponse {
   historico_atendimentos: AtendimentoHistoricoItem[]
 }
 
-export interface FiltrosCrm {
+export interface FiltrosClientes {
   busca: string
   recorrencia: FiltroRecorrencia
   motivoPerda: FiltroMotivoPerda
