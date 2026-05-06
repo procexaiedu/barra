@@ -1,10 +1,3 @@
-[mcp_servers.devcontext]
-args = ['C:\Users\rfarj\AppData\Roaming\npm\node_modules\devcontext-mcp\dist\index.js']
-command = 'C:\Program Files\nodejs\node.exe'
-
-[mcp_servers.devcontext.tools.get_context]
-approval_mode = "approve"
-
 [mcp_servers.playwright]
 args = [
     "-y",

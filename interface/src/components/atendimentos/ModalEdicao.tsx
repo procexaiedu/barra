@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,6 +13,9 @@ function parseDecimal(input: string): number | null {
   const valor = Number(normalizado)
   return Number.isFinite(valor) && valor >= 0 ? valor : null
 }
+
+const controlClassName =
+  "h-10 w-full rounded-lg border border-border-strong bg-surface-hover px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted hover:bg-surface-pressed focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
 
 export function ModalEdicao({
   detalhe,
@@ -86,18 +89,23 @@ export function ModalEdicao({
 
   return (
     <Dialog open={!!detalhe} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto bg-surface">
-        <DialogTitle className="text-base font-semibold text-text-primary">
-          Editar #{at.numero_curto}
-        </DialogTitle>
+      <DialogContent className="flex max-h-[90vh] w-[min(calc(100vw-32px),640px)] max-w-none flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-0 shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
+        <div className="border-b border-border-subtle px-5 py-4">
+          <DialogTitle className="text-base font-semibold leading-6 text-text-primary">
+            Editar #{at.numero_curto}
+          </DialogTitle>
+          <DialogDescription className="mt-1 text-xs text-text-muted">
+            Ajuste os dados operacionais do atendimento.
+          </DialogDescription>
+        </div>
 
-        <div className="grid gap-4 py-2">
-          <div className="grid grid-cols-2 gap-3">
+        <div className="scroll-thin grid gap-4 overflow-y-auto px-5 py-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Campo label="Tipo de atendimento">
               <select
                 value={tipo}
                 onChange={(e) => setTipo(e.target.value)}
-                className="h-9 w-full rounded-lg border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={controlClassName}
               >
                 <option value="">—</option>
                 <option value="interno">No local da modelo</option>
@@ -109,7 +117,7 @@ export function ModalEdicao({
               <select
                 value={urgencia}
                 onChange={(e) => setUrgencia(e.target.value)}
-                className="h-9 w-full rounded-lg border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={controlClassName}
               >
                 <option value="">—</option>
                 <option value="imediato">Agora</option>
@@ -120,42 +128,42 @@ export function ModalEdicao({
             </Campo>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Campo label="Data desejada">
-              <Input type="date" value={dataDesejada} onChange={(e) => setDataDesejada(e.target.value)} />
+              <Input className={controlClassName} type="date" value={dataDesejada} onChange={(e) => setDataDesejada(e.target.value)} />
             </Campo>
             <Campo label="Horário">
-              <Input type="time" value={horario} onChange={(e) => setHorario(e.target.value)} />
+              <Input className={controlClassName} type="time" value={horario} onChange={(e) => setHorario(e.target.value)} />
             </Campo>
             <Campo label="Duração (h)">
-              <Input inputMode="decimal" placeholder="2" value={duracao} onChange={(e) => setDuracao(e.target.value)} />
+              <Input className={controlClassName} inputMode="decimal" placeholder="2" value={duracao} onChange={(e) => setDuracao(e.target.value)} />
             </Campo>
           </div>
 
           <Campo label="Endereço">
-            <Input placeholder="Rua, número" value={endereco} onChange={(e) => setEndereco(e.target.value)} />
+            <Input className={controlClassName} placeholder="Rua, número" value={endereco} onChange={(e) => setEndereco(e.target.value)} />
           </Campo>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Campo label="Bairro">
-              <Input placeholder="Bairro" value={bairro} onChange={(e) => setBairro(e.target.value)} />
+              <Input className={controlClassName} placeholder="Bairro" value={bairro} onChange={(e) => setBairro(e.target.value)} />
             </Campo>
             <Campo label="Tipo de local">
-              <Input placeholder="apartamento, casa…" value={tipoLocal} onChange={(e) => setTipoLocal(e.target.value)} />
+              <Input className={controlClassName} placeholder="apartamento, casa…" value={tipoLocal} onChange={(e) => setTipoLocal(e.target.value)} />
             </Campo>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Campo label="Forma de pagamento">
-              <Input placeholder="pix, dinheiro…" value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)} />
+              <Input className={controlClassName} placeholder="pix, dinheiro…" value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)} />
             </Campo>
             <Campo label="Valor acordado (R$)">
-              <Input inputMode="decimal" placeholder="1.200,00" value={valorAcordado} onChange={(e) => setValorAcordado(e.target.value)} />
+              <Input className={controlClassName} inputMode="decimal" placeholder="1.200,00" value={valorAcordado} onChange={(e) => setValorAcordado(e.target.value)} />
             </Campo>
           </div>
         </div>
 
-        <div className="flex justify-end gap-2 pt-2">
+        <div className="flex justify-end gap-2 border-t border-border-subtle bg-surface px-5 py-3">
           <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancelar</Button>
           <Button variant="primary" onClick={handleSalvar} disabled={submitting}>
             {submitting ? "Salvando…" : "Salvar"}
@@ -168,8 +176,8 @@ export function ModalEdicao({
 
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex flex-col gap-1">
-      <Label className="text-xs text-text-muted">{label}</Label>
+    <div className="flex min-w-0 flex-col gap-1.5">
+      <Label className="text-[11px] font-medium leading-4 text-text-muted">{label}</Label>
       {children}
     </div>
   )
