@@ -5,7 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { formatTelefone, formatTempoRelativo } from "@/lib/formatters"
 import type { AtendimentoListaItem } from "@/tipos/atendimentos"
-import { badgeForEstado, estadoLabel, SINAIS_CANONICOS, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
+import { badgeForEstado, estadoLabel, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 
 export function ItemAtendimento({
   item,
@@ -18,15 +18,17 @@ export function ItemAtendimento({
 }) {
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
   const sq = item.sinais_qualificacao as Record<string, unknown> | null | undefined
+  const sinais = sinaisParaTipo(item.tipo_atendimento)
   const progresso = sq
-    ? SINAIS_CANONICOS.filter(({ chave }) => { const v = sq[chave]; return v === true || v === false }).length
+    ? sinais.filter(({ chave }) => sq[chave] === true).length
     : null
+  const pct = progresso !== null && sinais.length > 0 ? Math.round((progresso / sinais.length) * 100) : null
   const meta = [
     item.modelo.nome,
     `#${item.numero_curto}`,
     item.tipo_atendimento ? tipoLabel[item.tipo_atendimento] : null,
     item.urgencia ? urgenciaLabel[item.urgencia] : null,
-    progresso !== null ? `${progresso}/${SINAIS_CANONICOS.length}` : null,
+    pct !== null ? `${pct}%` : null,
   ]
     .filter(Boolean)
     .join(" · ")

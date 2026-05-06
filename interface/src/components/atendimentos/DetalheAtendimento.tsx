@@ -3,7 +3,7 @@
 import { useRef, useMemo, useState } from "react"
 import Image from "next/image"
 import Link from "next/link"
-import { ChevronDown, FileText, ImageOff, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, FileText, ImageOff, Pencil, Plus, Trash2 } from "lucide-react"
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -52,6 +52,7 @@ export function DetalheAtendimento({
   onPerder,
   onUploadMidia,
   onDeletarMidia,
+  onEditar,
 }: {
   detalhe: AtendimentoDetalheResponse | null
   status: "loading" | "success" | "error"
@@ -62,6 +63,7 @@ export function DetalheAtendimento({
   onPerder: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
   onUploadMidia: (atendimentoId: string, file: File, tipo: string) => Promise<void>
   onDeletarMidia: (atendimentoId: string, mensagemId: string) => Promise<void>
+  onEditar?: () => void
 }) {
   if (status === "loading") return <DetalheSkeleton />
   if (status === "error") return <BannerErro mensagem={error ?? undefined} onRetry={onRetry} />
@@ -82,8 +84,20 @@ export function DetalheAtendimento({
           <Badge variant={badgeForEstado(atendimento.estado)}>{estadoLabel[atendimento.estado]}</Badge>
           <h2 className="text-base font-semibold text-text-primary">{cliente}</h2>
           <span className="text-sm text-text-muted">· {detalhe.modelo.nome}</span>
-          <span className="ml-auto text-xs font-medium text-text-muted">
-            #{atendimento.numero_curto} · {formatTempoRelativo(atendimento.updated_at)}
+          <span className="ml-auto flex items-center gap-2">
+            <span className="text-xs font-medium text-text-muted">
+              #{atendimento.numero_curto} · {formatTempoRelativo(atendimento.updated_at)}
+            </span>
+            {onEditar && (
+              <button
+                type="button"
+                onClick={onEditar}
+                title="Editar atendimento"
+                className="rounded p-1 text-text-muted transition-colors hover:bg-ink-300 hover:text-text-primary"
+              >
+                <Pencil size={14} strokeWidth={1.5} />
+              </button>
+            )}
           </span>
         </div>
         {atendimento.estado === "Fechado" && atendimento.valor_final !== null && (
@@ -352,21 +366,48 @@ function EmptyDetalhe() {
 
 function DetalheSkeleton() {
   return (
-    <section aria-label="Detalhe do atendimento" aria-busy="true" className="space-y-5">
-      <Skeleton className="h-24 rounded-lg" />
-      <Skeleton className="h-72 rounded-lg" />
-      <div className="rounded-lg border border-ink-300 bg-ink-100 p-6">
-        <Skeleton className="mb-4 h-6 w-48" />
-        {Array.from({ length: 6 }).map((_, index) => (
-          <Skeleton key={index} className="mb-3 h-16 rounded-lg" />
-        ))}
+    <section aria-label="Detalhe do atendimento" aria-busy="true" className="space-y-3">
+      {/* Card header: badge + nome + telefone + botões */}
+      <div className="rounded-lg border border-ink-300 bg-ink-100 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Skeleton className="h-5 w-28 rounded-full" />
+          <Skeleton className="h-5 w-40 rounded" />
+          <Skeleton className="ml-auto h-4 w-24 rounded" />
+        </div>
+        <Skeleton className="mt-2 h-4 w-36 rounded" />
+        <div className="mt-3 flex gap-2">
+          <Skeleton className="h-8 w-36 rounded-lg" />
+          <Skeleton className="h-8 w-24 rounded-lg" />
+          <Skeleton className="h-8 w-20 rounded-lg" />
+        </div>
       </div>
-      <div className="rounded-lg border border-ink-300 bg-ink-100 p-6">
-        <Skeleton className="mb-4 h-6 w-40" />
-        {Array.from({ length: 4 }).map((_, index) => (
-          <Skeleton key={index} className="mb-3 h-12 rounded-lg" />
-        ))}
+      {/* Resumo */}
+      <div className="rounded-lg border border-ink-300 bg-ink-100 p-4">
+        <Skeleton className="mb-4 h-4 w-44 rounded" />
+        <div className="grid grid-cols-2 gap-6">
+          <div className="space-y-2">
+            <Skeleton className="mb-3 h-3 w-20 rounded" />
+            {[72, 90, 60, 80, 100].map((w, i) => (
+              <Skeleton key={i} className="h-3 rounded" style={{ width: w }} />
+            ))}
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="mb-3 h-3 w-24 rounded" />
+            {[80, 96, 64, 80, 112, 72].map((w, i) => (
+              <Skeleton key={i} className="h-3 rounded" style={{ width: w }} />
+            ))}
+          </div>
+        </div>
       </div>
+      {/* Seções colapsadas */}
+      {["Histórico de mensagens", "Mídias recebidas", "Histórico do atendimento"].map((titulo) => (
+        <div key={titulo} className="overflow-hidden rounded-lg border border-ink-300 bg-ink-100">
+          <div className="flex items-center justify-between px-4 py-3">
+            <Skeleton className="h-4 w-44 rounded" />
+            <Skeleton className="h-4 w-4 rounded" />
+          </div>
+        </div>
+      ))}
     </section>
   )
 }

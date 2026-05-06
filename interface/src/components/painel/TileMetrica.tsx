@@ -43,6 +43,7 @@ export function TileMetrica({
   isZero,
   tendencia,
   flashing,
+  metricaSecundaria,
 }: {
   label: string
   valor: string
@@ -52,12 +53,13 @@ export function TileMetrica({
   isZero?: boolean
   tendencia?: Tendencia
   flashing?: boolean
+  metricaSecundaria?: { label: string; valor: string }
 }) {
   return (
     <Card
       className={cn(
-        "rounded-lg bg-card p-6",
-        onClick && "cursor-pointer transition-all hover:opacity-80 active:scale-[0.98]",
+        "relative rounded-lg bg-card p-5",
+        onClick && "cursor-pointer transition-colors hover:bg-surface-hover active:bg-surface-pressed",
         flashing && "tile-update-flash"
       )}
       onClick={onClick}
@@ -65,7 +67,7 @@ export function TileMetrica({
       tabIndex={onClick ? 0 : undefined}
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick() } } : undefined}
     >
-      <dl>
+      <dl className="flex h-full flex-col">
         <dt className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
           {label}
           {tooltip ? (
@@ -86,13 +88,19 @@ export function TileMetrica({
         </dt>
         <dd
           className={cn(
-            "mt-2 font-sans text-[40px] font-medium leading-[48px] tracking-[-0.02em]",
+            "mt-2 font-sans text-[36px] font-medium leading-[44px] tracking-[-0.02em]",
             isZero ? "text-text-muted" : (colorClass ?? "text-text-primary")
           )}
         >
           {valor}
         </dd>
         {tendencia ? <TendenciaTag {...tendencia} /> : null}
+        {metricaSecundaria && (
+          <div className="mt-auto flex items-center justify-between border-t border-border-subtle pt-2.5 pb-0.5">
+            <span className="text-[11px] text-text-muted">{metricaSecundaria.label}</span>
+            <span className="font-mono text-[11px] font-medium text-text-secondary">{metricaSecundaria.valor}</span>
+          </div>
+        )}
       </dl>
     </Card>
   )

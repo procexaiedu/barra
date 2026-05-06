@@ -24,7 +24,8 @@
       "Bash(Sort-Object LastWriteTime -Descending)",
       "Bash(Select-Object Name, LastWriteTime)",
       "mcp__playwright__browser_network_request",
-      "mcp__claude_ai_supabase__execute_sql"
+      "mcp__claude_ai_supabase__execute_sql",
+      "Bash(Select-Object Name, FullName)"
     ]
   }
 }

@@ -205,12 +205,17 @@ export function autorEventoLabel(autor: string): string {
   return AUTOR_LABEL[autor] ?? autor
 }
 
-export const SINAIS_CANONICOS: { chave: string; rotulo: string }[] = [
+const TODOS_SINAIS: { chave: string; rotulo: string }[] = [
   { chave: "aceita_valor", rotulo: "Aceita valor" },
   { chave: "informa_local", rotulo: "Informa local" },
   { chave: "informa_horario", rotulo: "Informa horário" },
   { chave: "envia_pix", rotulo: "Envia Pix" },
 ]
+
+export function sinaisParaTipo(tipo: string | null | undefined): { chave: string; rotulo: string }[] {
+  if (tipo === "interno") return TODOS_SINAIS.filter((s) => s.chave !== "envia_pix")
+  return TODOS_SINAIS
+}
 
 export function formatEnum(valor: string | null | undefined): string | null {
   if (!valor) return null

@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useRef, useState } from "react"
 import { LayoutList, Columns, Search } from "lucide-react"
 import { useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
@@ -117,6 +117,14 @@ function CentralAtendimentosInner() {
 
   // Estado do kanban
   const [modalId, setModalId] = useState<string | null>(null)
+  const initialIdKanbanConsumed = useRef(false)
+
+  useEffect(() => {
+    if (initialId && view === "kanban" && !initialIdKanbanConsumed.current) {
+      initialIdKanbanConsumed.current = true
+      setModalId(initialId)
+    }
+  }, [initialId, view])
   const [modalEdicao, setModalEdicao] = useState<AtendimentoDetalheResponse | null>(null)
   const [mostrarEncerrados, setMostrarEncerrados] = useState(false)
   const [itemsEncerrados, setItemsEncerrados] = useState<AtendimentoListaItem[]>([])
@@ -200,6 +208,7 @@ function CentralAtendimentosInner() {
               onPerder={atendimentos.perder}
               onUploadMidia={atendimentos.uploadMidia}
               onDeletarMidia={atendimentos.deletarMidia}
+              onEditar={() => setModalEdicao(atendimentos.detalhe)}
             />
           </div>
         </div>
@@ -221,13 +230,13 @@ function CentralAtendimentosInner() {
             onPerder={atendimentos.perder}
             onAbrirEdicao={(detalhe) => { setModalEdicao(detalhe); setModalId(null) }}
           />
-          <ModalEdicao
-            detalhe={modalEdicao}
-            onClose={() => setModalEdicao(null)}
-            onSalvar={atendimentos.editarDados}
-          />
         </div>
       )}
+      <ModalEdicao
+        detalhe={modalEdicao}
+        onClose={() => setModalEdicao(null)}
+        onSalvar={atendimentos.editarDados}
+      />
     </div>
   )
 }
@@ -287,9 +296,9 @@ function Toolbar({
   if (loading) {
     return (
       <div aria-busy="true" className="grid grid-cols-[minmax(160px,1fr)_140px_110px_120px_100px_110px] gap-2">
-        <Skeleton className="h-9 rounded-lg" />
+        <Skeleton className="h-[54px] rounded-lg" />
         {Array.from({ length: 5 }).map((_, index) => (
-          <Skeleton key={index} className="h-9 rounded-lg" />
+          <Skeleton key={index} className="h-[54px] rounded-lg" />
         ))}
       </div>
     )
@@ -297,9 +306,10 @@ function Toolbar({
 
   return (
     <div className="grid grid-cols-[minmax(160px,1fr)_140px_110px_120px_100px_110px] gap-2">
-      <label className="relative">
+      <label className="relative flex flex-col gap-0.5">
+        <span className="text-xs block" aria-hidden="true">&nbsp;</span>
         <span className="sr-only">Busca</span>
-        <Search size={16} strokeWidth={1.5} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+        <Search size={16} strokeWidth={1.5} className="pointer-events-none absolute left-3 bottom-2.5 text-text-muted" />
         <Input
           value={busca}
           onChange={(event) => onBuscaChange(event.target.value)}
@@ -338,8 +348,8 @@ function SelectFiltro({
   children: ReactNode
 }) {
   return (
-    <label>
-      <span className="sr-only">{label}</span>
+    <label className="flex flex-col gap-0.5">
+      <span className="text-xs font-medium text-text-muted">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}

@@ -15,12 +15,13 @@ const ENDPOINT: Record<TipoModal, string> = {
 export interface DetalheMetricaState {
   modalAberto: TipoModal | null
   mostrarLucro: boolean
+  tituloCustom: string | null
   detalheAbertos: ItemAberto[]
   detalheFechamentos: ItemFechamento[]
   detalhePerdas: ItemPerda[]
   loading: boolean
   error: string | null
-  abrir: (tipo: TipoModal, lucro?: boolean) => void
+  abrir: (tipo: TipoModal, lucro?: boolean, titulo?: string) => void
   fechar: () => void
   retry: () => void
 }
@@ -28,6 +29,7 @@ export interface DetalheMetricaState {
 export function useDetalheMetrica(modeloId: string | null): DetalheMetricaState {
   const [modalAberto, setModalAberto] = useState<TipoModal | null>(null)
   const [mostrarLucro, setMostrarLucro] = useState(false)
+  const [tituloCustom, setTituloCustom] = useState<string | null>(null)
   const [detalheAbertos, setDetalheAbertos] = useState<ItemAberto[]>([])
   const [detalheFechamentos, setDetalheFechamentos] = useState<ItemFechamento[]>([])
   const [detalhePerdas, setDetalhePerdas] = useState<ItemPerda[]>([])
@@ -64,11 +66,12 @@ export function useDetalheMetrica(modeloId: string | null): DetalheMetricaState 
     return () => { active = false }
   }, [modalAberto, modeloId, tentativa])
 
-  const abrir = useCallback((tipo: TipoModal, lucro = false) => {
+  const abrir = useCallback((tipo: TipoModal, lucro = false, titulo?: string) => {
     setDetalheAbertos([])
     setDetalheFechamentos([])
     setDetalhePerdas([])
     setMostrarLucro(lucro)
+    setTituloCustom(titulo ?? null)
     setError(null)
     setLoading(true)
     setModalAberto(tipo)
@@ -83,7 +86,7 @@ export function useDetalheMetrica(modeloId: string | null): DetalheMetricaState 
   }, [])
 
   return {
-    modalAberto, mostrarLucro,
+    modalAberto, mostrarLucro, tituloCustom,
     detalheAbertos, detalheFechamentos, detalhePerdas,
     loading, error,
     abrir, fechar, retry,

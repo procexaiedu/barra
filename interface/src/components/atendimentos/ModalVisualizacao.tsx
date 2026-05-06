@@ -85,10 +85,10 @@ export function ModalVisualizacao({
 
   return (
     <Dialog open={!!atendimentoId} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="max-h-[90vh] max-w-2xl overflow-y-auto bg-surface p-0">
+      <DialogContent className="flex h-[88vh] max-w-2xl flex-col overflow-hidden bg-surface p-0">
         <DialogTitle className="sr-only">Detalhe do atendimento</DialogTitle>
 
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-surface px-5 py-3">
+        <div className="flex flex-none items-center justify-between border-b border-border bg-surface px-5 py-3">
           <span className="text-sm font-semibold text-text-primary">
             {detalhe ? `${detalhe.cliente.nome ?? detalhe.cliente.telefone} · #${detalhe.atendimento.numero_curto}` : "Atendimento"}
           </span>
@@ -113,7 +113,7 @@ export function ModalVisualizacao({
           </div>
         </div>
 
-        <div className="p-5">
+        <div className="flex-1 overflow-y-auto p-5">
           <DetalheAtendimento
             detalhe={detalhe}
             status={status}

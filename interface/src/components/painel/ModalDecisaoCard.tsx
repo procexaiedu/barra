@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 import { formatTempoRelativo, formatBRL, formatData, formatHorario, formatRotulo } from "@/lib/formatters"
-import { motivoExibido, SINAIS_CANONICOS } from "@/components/atendimentos/utils"
+import { motivoExibido, sinaisParaTipo } from "@/components/atendimentos/utils"
 import { cn } from "@/lib/utils"
 import type { CardDestaque, IaPausadaMotivo } from "@/tipos/painel"
 
@@ -386,7 +386,7 @@ export function ModalDecisaoCard({
                     <SecaoFichaCliente conversa={contexto.conversa} />
                     <SecaoDadosComerciais atendimento={contexto.atendimento} />
                     {contexto.atendimento.sinais_qualificacao && (
-                      <SecaoSinaisQualificacao sinais={contexto.atendimento.sinais_qualificacao} />
+                      <SecaoSinaisQualificacao sinais={contexto.atendimento.sinais_qualificacao} tipo={contexto.atendimento.tipo_atendimento} />
                     )}
                     {mensagensOrdenadas.length > 0 && (
                       <SecaoMensagens mensagens={mensagensOrdenadas} />
@@ -828,25 +828,30 @@ function SecaoDadosComerciais({
 
 // ── Sinais de qualificação ────────────────────────────────────────────────────
 
-function SecaoSinaisQualificacao({ sinais }: { sinais: SinaisQualificacao | null }) {
+function SecaoSinaisQualificacao({ sinais, tipo }: { sinais: SinaisQualificacao | null; tipo: string | null }) {
   const sq = sinais as Record<string, unknown> | null
-  const total = SINAIS_CANONICOS.length
-  const progresso = SINAIS_CANONICOS.filter(({ chave }) => { const v = sq?.[chave]; return v === true || v === false }).length
+  const sinaisAplicaveis = sinaisParaTipo(tipo)
+  const total = sinaisAplicaveis.length
+  const progresso = sinaisAplicaveis.filter(({ chave }) => sq?.[chave] === true).length
+  const pct = total > 0 ? Math.round((progresso / total) * 100) : 0
 
   return (
     <div className="rounded-md border border-border p-3">
       <SecaoLabel>Qualificação</SecaoLabel>
-      <div className="my-2 h-1.5 w-full rounded-full bg-ink-300">
-        <div
-          className="h-1.5 rounded-full bg-success-500 transition-all"
-          style={{ width: `${(progresso / total) * 100}%` }}
-        />
+      <div className="my-2 flex items-center gap-2">
+        <div className="h-1.5 flex-1 rounded-full bg-ink-300">
+          <div
+            className="h-1.5 rounded-full bg-success-500 transition-all"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span className="text-xs tabular-nums text-text-muted">{pct}%</span>
       </div>
       <p className="mb-2 text-xs text-text-muted">
         {progresso === 0 ? "Nenhum item qualificado" : progresso === total ? "Totalmente qualificado" : `${progresso} de ${total} qualificados`}
       </p>
       <div className="flex flex-wrap gap-1.5">
-        {SINAIS_CANONICOS.map(({ chave, rotulo }) => {
+        {sinaisAplicaveis.map(({ chave, rotulo }) => {
           const v = sq?.[chave]
           const estado = v === true ? "sim" : v === false ? "nao" : "pendente"
           return (

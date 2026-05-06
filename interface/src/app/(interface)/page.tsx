@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { CheckCircle2, CalendarOff, LayoutList, LayoutGrid } from "lucide-react"
+import { CheckCircle2, CalendarOff, LayoutList, LayoutGrid, Eye } from "lucide-react"
 import Link from "next/link"
 import { usePainelResumo } from "@/hooks/usePainelResumo"
 import { useTileFlash } from "@/hooks/useTileFlash"
@@ -48,7 +48,7 @@ function ListaAbertos({
       {itens.map((item) => (
         <li key={item.atendimento_id}>
           <button type="button" onClick={() => onNavegar(item.atendimento_id)}
-            className={cn(ROW_CLS, "grid-cols-[1fr_auto]")}>
+            className={cn(ROW_CLS, "group grid-cols-[1fr_auto_auto]")}>
             <span className="truncate text-text-primary">
               {item.cliente_nome ?? "—"}
               {mostrarModelo
@@ -56,10 +56,38 @@ function ListaAbertos({
                 : <span className="ml-1 text-text-muted">#{item.numero_curto}</span>}
             </span>
             <span className="text-xs text-text-muted">{item.estado.replace(/_/g, " ")}</span>
+            <Eye size={13} strokeWidth={1.75} aria-hidden className="text-text-muted/30 transition-colors group-hover:text-text-muted" />
           </button>
         </li>
       ))}
     </ul>
+  )
+}
+
+function ResumoModelosFechamentos({ itens }: { itens: ItemFechamento[] }) {
+  const por_modelo = Object.values(
+    itens.reduce<Record<string, { nome: string; bruto: number; lucro: number }>>((acc, item) => {
+      const key = item.modelo_nome
+      if (!acc[key]) acc[key] = { nome: item.modelo_nome, bruto: 0, lucro: 0 }
+      acc[key].bruto += item.valor_final ?? 0
+      acc[key].lucro += item.lucro ?? 0
+      return acc
+    }, {})
+  ).sort((a, b) => b.bruto - a.bruto)
+
+  return (
+    <div className="mb-3 rounded-md bg-ink-200 px-3 py-2">
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">Por modelo</p>
+      <div className="flex flex-col gap-1">
+        {por_modelo.map((m) => (
+          <div key={m.nome} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 text-[13px]">
+            <span className="truncate text-text-primary">{m.nome}</span>
+            <span className="font-mono text-xs text-text-muted">{formatBRL(m.bruto)}</span>
+            <span className="font-mono text-xs text-success-500">{formatBRL(m.lucro)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -76,31 +104,35 @@ function ListaFechamentos({
 }) {
   if (itens.length === 0) return <p className="text-sm text-text-muted">Nenhum fechamento hoje.</p>
   return (
-    <ul className="flex flex-col">
-      {itens.map((item) => (
-        <li key={item.atendimento_id}>
-          <button type="button" onClick={() => onNavegar(item.atendimento_id)}
-            className={cn(ROW_CLS, mostrarLucro ? "grid-cols-[1fr_auto_auto]" : "grid-cols-[1fr_auto]")}>
-            <span className="truncate text-text-primary">
-              {item.cliente_nome ?? "—"}
-              {mostrarModelo
-                ? <span className="ml-1 text-text-muted">({item.modelo_nome} #{item.numero_curto})</span>
-                : <span className="ml-1 text-text-muted">#{item.numero_curto}</span>}
-            </span>
-            {mostrarLucro && (
-              <span className="font-mono text-xs text-text-muted line-through">
-                {item.valor_final != null ? formatBRL(item.valor_final) : "—"}
+    <div className="flex flex-col">
+      {mostrarModelo && <ResumoModelosFechamentos itens={itens} />}
+      <ul className="flex flex-col">
+        {itens.map((item) => (
+          <li key={item.atendimento_id}>
+            <button type="button" onClick={() => onNavegar(item.atendimento_id)}
+              className={cn(ROW_CLS, "group", mostrarLucro ? "grid-cols-[1fr_auto_auto_auto]" : "grid-cols-[1fr_auto_auto]")}>
+              <span className="truncate text-text-primary">
+                {item.cliente_nome ?? "—"}
+                {mostrarModelo
+                  ? <span className="ml-1 text-text-muted">({item.modelo_nome} #{item.numero_curto})</span>
+                  : <span className="ml-1 text-text-muted">#{item.numero_curto}</span>}
               </span>
-            )}
-            <span className="font-mono text-xs text-text-primary">
-              {mostrarLucro
-                ? (item.lucro != null ? formatBRL(item.lucro) : "—")
-                : (item.valor_final != null ? formatBRL(item.valor_final) : "—")}
-            </span>
-          </button>
-        </li>
-      ))}
-    </ul>
+              {mostrarLucro && (
+                <span className="font-mono text-xs text-text-muted line-through">
+                  {item.valor_final != null ? formatBRL(item.valor_final) : "—"}
+                </span>
+              )}
+              <span className="font-mono text-xs text-text-primary">
+                {mostrarLucro
+                  ? (item.lucro != null ? formatBRL(item.lucro) : "—")
+                  : (item.valor_final != null ? formatBRL(item.valor_final) : "—")}
+              </span>
+              <Eye size={13} strokeWidth={1.75} aria-hidden className="text-text-muted/30 transition-colors group-hover:text-text-muted" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -119,7 +151,7 @@ function ListaPerdas({
       {itens.map((item) => (
         <li key={item.atendimento_id}>
           <button type="button" onClick={() => onNavegar(item.atendimento_id)}
-            className={cn(ROW_CLS, "grid-cols-[1fr_auto]")}>
+            className={cn(ROW_CLS, "group grid-cols-[1fr_auto_auto]")}>
             <span className="truncate text-text-primary">
               {item.cliente_nome ?? "—"}
               {mostrarModelo
@@ -127,6 +159,7 @@ function ListaPerdas({
                 : <span className="ml-1 text-text-muted">#{item.numero_curto}</span>}
             </span>
             <span className="text-xs text-text-muted">{item.motivo_perda ?? "—"}</span>
+            <Eye size={13} strokeWidth={1.75} aria-hidden className="text-text-muted/30 transition-colors group-hover:text-text-muted" />
           </button>
         </li>
       ))}
@@ -134,7 +167,7 @@ function ListaPerdas({
   )
 }
 
-const CARDS_POR_PAGINA = 8
+const CARDS_POR_PAGINA = 4
 
 export default function PainelGeral() {
   const router = useRouter()
@@ -183,9 +216,10 @@ export default function PainelGeral() {
     router.push(`/atendimentos?id=${atendimentoId}`)
   }
 
-  const tituloModal = detalhe.modalAberto === "fechamentos" && detalhe.mostrarLucro
-    ? "Lucro de hoje"
-    : TITULO_MODAL[detalhe.modalAberto ?? "abertos"]
+  const tituloModal = detalhe.tituloCustom
+    ?? (detalhe.modalAberto === "fechamentos" && detalhe.mostrarLucro
+      ? "Lucro de hoje"
+      : TITULO_MODAL[detalhe.modalAberto ?? "abertos"])
 
   const countModal = !detalhe.loading
     ? detalhe.modalAberto === "abertos" ? detalhe.detalheAbertos.length
@@ -252,7 +286,7 @@ export default function PainelGeral() {
             </div>
           </Card>
         ) : compacto ? (
-          <Card className="overflow-hidden rounded-lg bg-card">
+          <Card className="max-h-44 overflow-y-auto rounded-lg bg-card">
             {data.cards_destaque.map((card) => (
               <CardDestaque
                 key={card.atendimento_id}
@@ -316,6 +350,7 @@ export default function PainelGeral() {
             isZero={data.metricas_dia.abertos === 0}
             flashing={flashAbertos}
             onClick={() => detalhe.abrir("abertos")}
+            metricaSecundaria={{ label: "Em handoff", valor: String(data.cards_destaque.length) }}
           />
           <TileMetrica
             label="FECHAMENTOS HOJE"
@@ -326,6 +361,7 @@ export default function PainelGeral() {
             tendencia={data.metricas_dia.tendencia && { delta: data.metricas_dia.tendencia.fechamentos_delta, label: "vs ontem" }}
             flashing={flashFechamentos}
             onClick={() => detalhe.abrir("fechamentos")}
+            metricaSecundaria={{ label: "Ticket médio", valor: data.metricas_dia.ticket_medio_brl != null ? formatBRL(data.metricas_dia.ticket_medio_brl) : "—" }}
           />
           <TileMetrica
             label="PERDAS HOJE"
@@ -336,6 +372,7 @@ export default function PainelGeral() {
             tendencia={data.metricas_dia.tendencia && { delta: data.metricas_dia.tendencia.perdas_delta, label: "vs ontem", inverso: true }}
             flashing={flashPerdas}
             onClick={() => detalhe.abrir("perdas")}
+            metricaSecundaria={{ label: "Conversão", valor: data.metricas_dia.taxa_conversao_pct != null ? `${data.metricas_dia.taxa_conversao_pct.toFixed(0)}%` : "—" }}
           />
           <TileMetrica
             label="VALOR BRUTO HOJE"
@@ -344,7 +381,8 @@ export default function PainelGeral() {
             isZero={data.metricas_dia.valor_bruto_hoje_brl === 0}
             tendencia={data.metricas_dia.tendencia && { delta: data.metricas_dia.tendencia.valor_bruto_delta_brl, label: "vs ontem", formatDelta: formatBRL }}
             flashing={flashValorBruto}
-            onClick={() => detalhe.abrir("fechamentos")}
+            onClick={() => detalhe.abrir("fechamentos", false, "Valor bruto de hoje")}
+            metricaSecundaria={{ label: "Fechamentos", valor: String(data.metricas_dia.fechamentos_hoje) }}
           />
           <TileMetrica
             label="LUCRO HOJE"
@@ -354,6 +392,7 @@ export default function PainelGeral() {
             isZero={data.metricas_dia.lucro_hoje_brl === 0}
             flashing={flashLucro}
             onClick={() => detalhe.abrir("fechamentos", true)}
+            metricaSecundaria={{ label: "Margem", valor: data.metricas_dia.valor_bruto_hoje_brl > 0 ? `${Math.round(data.metricas_dia.lucro_hoje_brl / data.metricas_dia.valor_bruto_hoje_brl * 100)}%` : "—" }}
           />
         </div>
       </section>
@@ -427,7 +466,7 @@ function PainelSkeleton() {
       <div className="px-8 py-5">
         <Skeleton className="mb-4 h-6 w-48" />
         <div className="grid gap-4 xl:grid-cols-2">
-          {[0, 1].map((i) => (
+          {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-[120px] rounded-lg" />
           ))}
         </div>
