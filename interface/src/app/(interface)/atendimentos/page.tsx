@@ -233,6 +233,7 @@ function CentralAtendimentosInner() {
         </div>
       )}
       <ModalEdicao
+        key={modalEdicao?.atendimento?.id ?? ""}
         detalhe={modalEdicao}
         onClose={() => setModalEdicao(null)}
         onSalvar={atendimentos.editarDados}

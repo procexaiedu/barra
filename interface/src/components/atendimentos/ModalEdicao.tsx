@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -39,20 +39,6 @@ export function ModalEdicao({
   const [tipoLocal, setTipoLocal] = useState(at?.tipo_local ?? "")
   const [formaPagamento, setFormaPagamento] = useState(at?.forma_pagamento ?? "")
   const [valorAcordado, setValorAcordado] = useState(at?.valor_acordado != null ? String(at.valor_acordado) : "")
-
-  useEffect(() => {
-    const a = detalhe?.atendimento
-    setTipo(a?.tipo_atendimento ?? "")
-    setUrgencia(a?.urgencia ?? "")
-    setDataDesejada(a?.data_desejada ?? "")
-    setHorario(a?.horario_desejado ? String(a.horario_desejado).slice(0, 5) : "")
-    setDuracao(a?.duracao_horas != null ? String(a.duracao_horas) : "")
-    setEndereco(a?.endereco ?? "")
-    setBairro(a?.bairro ?? "")
-    setTipoLocal(a?.tipo_local ?? "")
-    setFormaPagamento(a?.forma_pagamento ?? "")
-    setValorAcordado(a?.valor_acordado != null ? String(a.valor_acordado) : "")
-  }, [detalhe])
 
   if (!detalhe || !at) return null
 
