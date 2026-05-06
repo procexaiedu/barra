@@ -86,7 +86,7 @@ export function DetalhePix({
   const cliente = detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)
 
   return (
-    <section aria-label="Detalhe do Pix" className="space-y-4">
+    <section aria-label="Detalhe do Pix" className="space-y-3">
       <header className="rounded-lg border border-border bg-card p-5">
         <div className="flex flex-wrap items-center gap-3">
           <Badge variant={badge.variant}>{badge.label}</Badge>
@@ -116,8 +116,10 @@ export function DetalhePix({
         onTentarNovamente={onRecarregarComprovante}
       />
 
-      <MetadadosPix pix={detalhe.pix} />
-      <ChecagensPix checagens={detalhe.checagens} />
+      <div className="grid grid-cols-2 gap-3">
+        <MetadadosPix pix={detalhe.pix} />
+        <ChecagensPix checagens={detalhe.checagens} />
+      </div>
       <AtendimentoVinculadoPix atendimento={detalhe.atendimento} />
       <LinhaTempoPix eventos={detalhe.eventos} />
 
@@ -128,6 +130,8 @@ export function DetalhePix({
         comprovante={comprovante}
         comprovanteStatus={comprovanteStatus}
         onTentarNovamente={onRecarregarComprovante}
+        onAprovar={() => onAprovar(detalhe.pix.id)}
+        onRejeitar={(motivo, obs) => onRejeitar(detalhe.pix.id, motivo, obs)}
       />
     </section>
   )

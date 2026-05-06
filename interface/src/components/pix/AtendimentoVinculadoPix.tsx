@@ -22,11 +22,11 @@ export function AtendimentoVinculadoPix({
 
   if (atendimento === null) {
     return (
-      <section className="rounded-lg border border-border bg-card p-5">
+      <section className="rounded-lg border border-border bg-card p-3">
         <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
           Atendimento vinculado
         </h3>
-        <p className="mt-3 text-[13px] text-text-muted">
+        <p className="mt-2 text-[13px] text-text-muted">
           Pix sem atendimento vinculado.
         </p>
       </section>
@@ -45,14 +45,14 @@ export function AtendimentoVinculadoPix({
   return (
     <section
       className={cn(
-        "rounded-lg border border-border border-l-3 bg-card p-5",
+        "rounded-lg border border-border border-l-3 bg-card p-3",
         terminal ? "border-l-border-strong" : "border-l-state-handoff"
       )}
     >
       <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
         Atendimento vinculado
       </h3>
-      <div className="mt-3 flex items-center gap-2">
+      <div className="mt-2 flex items-center gap-2">
         <Badge variant={badgeForEstadoAtendimento(atendimento.estado)}>
           {estadoAtendimentoLabel[atendimento.estado] ?? atendimento.estado}
         </Badge>
@@ -66,7 +66,7 @@ export function AtendimentoVinculadoPix({
           {atendimento.proxima_acao_esperada}
         </p>
       )}
-      <div className="mt-4">
+      <div className="mt-2">
         <Button variant="ghost" size="sm" onClick={() => router.push("/atendimentos")}>
           Abrir na Central
         </Button>

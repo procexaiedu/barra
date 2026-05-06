@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useRouter } from "next/navigation"
+import { ExternalLink, MessageSquare } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -15,11 +15,20 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { formatBRL } from "@/lib/formatters"
+import {
+  Sheet,
+  SheetBody,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet"
+import { formatBRL, formatTelefone } from "@/lib/formatters"
 import type { MotivoRejeicao, PixDetalheResponse } from "@/tipos/pix"
+import { AtendimentoVinculadoPix } from "./AtendimentoVinculadoPix"
 import { isPendente, isRejeitado, motivoRejeicaoOptions } from "./utils"
 
 type DialogAtivo = "validar" | "rejeitar" | "reabrir" | null
+type SheetAtivo = "atendimento" | "conversa" | null
 
 export function AcoesPix({
   detalhe,
@@ -32,8 +41,8 @@ export function AcoesPix({
   onRejeitar: (id: string, motivo: MotivoRejeicao, observacao: string | null) => Promise<void>
   onReabrir: (id: string) => Promise<void>
 }) {
-  const router = useRouter()
   const [dialog, setDialog] = useState<DialogAtivo>(null)
+  const [sheet, setSheet] = useState<SheetAtivo>(null)
   const [submitting, setSubmitting] = useState(false)
   const [motivo, setMotivo] = useState<MotivoRejeicao>("valor_incorreto")
   const [observacao, setObservacao] = useState("")
@@ -108,33 +117,89 @@ export function AcoesPix({
   const podeAbrirAtendimento = detalhe.atendimento !== null
   const podeAbrirConversa = detalhe.conversa !== null
 
+  const nomeCliente =
+    detalhe.conversa !== null
+      ? (detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone))
+      : null
+
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="space-y-2">
       {pendente && (
-        <Button variant="primary" onClick={() => abrir("validar")}>
-          Validar Pix
-        </Button>
+        <div className="grid grid-cols-2 gap-2">
+          <Button
+            className="h-12 bg-emerald-600 text-white hover:bg-emerald-700"
+            onClick={() => abrir("validar")}
+          >
+            Validar Pix
+          </Button>
+          <Button
+            variant="destructive"
+            className="h-12"
+            onClick={() => abrir("rejeitar")}
+          >
+            Rejeitar Pix
+          </Button>
+        </div>
       )}
-      {pendente && (
-        <Button variant="danger" onClick={() => abrir("rejeitar")}>
-          Rejeitar Pix
-        </Button>
+      {(rejeitado || podeAbrirAtendimento || podeAbrirConversa) && (
+        <div className="flex flex-wrap gap-2">
+          {rejeitado && (
+            <Button variant="secondary" onClick={() => abrir("reabrir")}>
+              Reabrir Pix
+            </Button>
+          )}
+          {podeAbrirAtendimento && (
+            <Button variant="ghost" size="sm" onClick={() => setSheet("atendimento")}>
+              <ExternalLink className="h-3.5 w-3.5" />
+              Atendimento #{detalhe.atendimento?.numero_curto}
+            </Button>
+          )}
+          {podeAbrirConversa && (
+            <Button variant="ghost" size="sm" onClick={() => setSheet("conversa")}>
+              <MessageSquare className="h-3.5 w-3.5" />
+              Conversa
+            </Button>
+          )}
+        </div>
       )}
-      {rejeitado && (
-        <Button variant="secondary" onClick={() => abrir("reabrir")}>
-          Reabrir Pix
-        </Button>
-      )}
-      {podeAbrirAtendimento && (
-        <Button variant="ghost" onClick={() => router.push("/atendimentos")}>
-          Abrir atendimento
-        </Button>
-      )}
-      {podeAbrirConversa && (
-        <Button variant="ghost" onClick={() => router.push("/crm")}>
-          Abrir conversa
-        </Button>
-      )}
+
+      <Sheet open={sheet === "atendimento"} onOpenChange={(o) => setSheet(o ? "atendimento" : null)}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Atendimento #{detalhe.atendimento?.numero_curto}</SheetTitle>
+          </SheetHeader>
+          <SheetBody>
+            <AtendimentoVinculadoPix atendimento={detalhe.atendimento} />
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
+
+      <Sheet open={sheet === "conversa"} onOpenChange={(o) => setSheet(o ? "conversa" : null)}>
+        <SheetContent>
+          <SheetHeader>
+            <SheetTitle>Conversa com {detalhe.modelo.nome}</SheetTitle>
+          </SheetHeader>
+          <SheetBody className="space-y-3">
+            {nomeCliente && (
+              <div>
+                <p className="text-xs text-text-muted">Cliente</p>
+                <p className="text-sm text-text-primary">{nomeCliente}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-xs text-text-muted">Modelo</p>
+              <p className="text-sm text-text-primary">{detalhe.modelo.nome}</p>
+            </div>
+            <a
+              href="/crm"
+              className="inline-flex items-center gap-1.5 text-sm text-text-link underline-offset-4 hover:underline"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Abrir conversa completa →
+            </a>
+          </SheetBody>
+        </SheetContent>
+      </Sheet>
 
       <AlertDialog open={dialog === "validar"} onOpenChange={(o) => !submitting && setDialog(o ? "validar" : null)}>
         <AlertDialogContent className="max-w-md bg-card">

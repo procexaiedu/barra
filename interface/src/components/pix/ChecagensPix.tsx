@@ -8,17 +8,17 @@ export function ChecagensPix({ checagens }: { checagens: ChecagemPix[] }) {
   return (
     <section
       aria-label="Verificações automáticas"
-      className="rounded-lg border border-border bg-card p-5"
+      className="rounded-lg border border-border bg-card p-3"
     >
       <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
         Verificações automáticas
       </h3>
       {checagens.length === 0 ? (
-        <p className="mt-3 text-[13px] text-text-muted">
+        <p className="mt-2 text-[13px] text-text-muted">
           Nenhuma verificação registrada para este Pix.
         </p>
       ) : (
-        <ul className="mt-4 space-y-3">
+        <ul className="mt-2 space-y-2">
           {checagens.map((c) => (
             <li key={c.chave} className="flex items-start gap-3">
               {c.passou ? (

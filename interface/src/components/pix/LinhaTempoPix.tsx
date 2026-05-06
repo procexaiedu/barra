@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import {
   AlertCircle,
   CheckCircle2,
@@ -13,6 +14,7 @@ import { formatDataHora, formatRotulo } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { EventoPix } from "@/tipos/pix"
 import { autorEventoLabel } from "@/components/atendimentos/utils"
+import { Button } from "@/components/ui/button"
 import { eventoVisual } from "./utils"
 
 const ICONS: Record<string, LucideIcon> = {
@@ -31,59 +33,80 @@ const COR_CLASS: Record<string, string> = {
   danger: "text-state-lost",
 }
 
+const LIMITE = 3
+
 export function LinhaTempoPix({ eventos }: { eventos: EventoPix[] }) {
+  const [expandido, setExpandido] = useState(false)
+
+  const visiveis = expandido ? eventos : eventos.slice(0, LIMITE)
+  const temMais = eventos.length > LIMITE
+
   return (
     <section
       aria-label="Histórico do Pix"
       className="rounded-lg border border-border bg-card"
     >
-      <h3 className="px-5 pt-5 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <h3 className="px-3 pt-3 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
         Histórico
       </h3>
       {eventos.length === 0 ? (
-        <p className="px-5 py-5 text-[13px] text-text-muted">
+        <p className="px-3 py-3 text-[13px] text-text-muted">
           Nenhum evento registrado.
         </p>
       ) : (
-        <ul className="mt-3 divide-y divide-border">
-          {eventos.map((evt) => {
-            const visual = eventoVisual(evt)
-            const Icon = ICONS[visual.icone] ?? Dot
-            const resumo =
-              evt.tipo === "pix_rejeitado"
-                ? formatRejeicao(evt)
-                : evt.resumo
+        <>
+          <ul className="mt-2 divide-y divide-border">
+            {visiveis.map((evt) => {
+              const visual = eventoVisual(evt)
+              const Icon = ICONS[visual.icone] ?? Dot
+              const resumo =
+                evt.tipo === "pix_rejeitado"
+                  ? formatRejeicao(evt)
+                  : evt.resumo
 
-            return (
-              <li
-                key={evt.id}
-                className="flex items-start gap-3 px-5 py-3"
-              >
-                <Icon
-                  size={16}
-                  strokeWidth={1.5}
-                  className={cn("mt-0.5 shrink-0", COR_CLASS[visual.cor] ?? COR_CLASS.muted)}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-baseline gap-2">
-                    <p className="text-sm font-medium text-text-primary">
-                      {visual.label}
-                    </p>
-                    <span className="text-xs text-text-muted">· {autorEventoLabel(evt.autor)}</span>
-                    <span className="ml-auto text-xs text-text-muted">
-                      {formatDataHora(evt.created_at)}
-                    </span>
+              return (
+                <li
+                  key={evt.id}
+                  className="flex items-start gap-3 px-3 py-2"
+                >
+                  <Icon
+                    size={16}
+                    strokeWidth={1.5}
+                    className={cn("mt-0.5 shrink-0", COR_CLASS[visual.cor] ?? COR_CLASS.muted)}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <p className="text-sm font-medium text-text-primary">
+                        {visual.label}
+                      </p>
+                      <span className="text-xs text-text-muted">· {autorEventoLabel(evt.autor)}</span>
+                      <span className="ml-auto text-xs text-text-muted">
+                        {formatDataHora(evt.created_at)}
+                      </span>
+                    </div>
+                    {resumo && (
+                      <p className="mt-1 truncate text-[13px] text-text-muted">
+                        {resumo}
+                      </p>
+                    )}
                   </div>
-                  {resumo && (
-                    <p className="mt-1 truncate text-[13px] text-text-muted">
-                      {resumo}
-                    </p>
-                  )}
-                </div>
-              </li>
-            )
-          })}
-        </ul>
+                </li>
+              )
+            })}
+          </ul>
+          {temMais && (
+            <div className="border-t border-border px-3 py-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={() => setExpandido((v) => !v)}
+              >
+                {expandido ? "Recolher" : `Ver todos (${eventos.length})`}
+              </Button>
+            </div>
+          )}
+        </>
       )}
     </section>
   )

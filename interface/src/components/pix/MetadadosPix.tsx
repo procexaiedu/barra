@@ -18,12 +18,12 @@ export function MetadadosPix({ pix }: { pix: PixDetalhe }) {
   return (
     <section
       aria-label="Dados do comprovante"
-      className="rounded-lg border border-border bg-card p-5"
+      className="rounded-lg border border-border bg-card p-3"
     >
       <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
         Dados do comprovante
       </h3>
-      <dl className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-[180px_1fr]">
+      <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[180px_1fr]">
         <Linha label="Valor">
           {valor ?? <NaoExtraido />}
         </Linha>
