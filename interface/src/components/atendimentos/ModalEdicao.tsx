@@ -1,12 +1,23 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { toast } from "sonner"
+import { X } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import type { AtendimentoDetalheResponse, EditarDadosPayload } from "@/tipos/atendimentos"
+import { api } from "@/lib/api"
+import type { AtendimentoDetalheResponse, EditarDadosPayload, ServicoFechado } from "@/tipos/atendimentos"
+
+interface ProgramaModelo {
+  programa_id: string
+  duracao_id: string
+  nome: string
+  categoria: string | null
+  duracao_nome: string
+  preco: number
+}
 
 function parseDecimal(input: string): number | null {
   const normalizado = input.replace(/\s/g, "").replace(/\./g, "").replace(",", ".")
@@ -40,7 +51,36 @@ export function ModalEdicao({
   const [formaPagamento, setFormaPagamento] = useState(at?.forma_pagamento ?? "")
   const [valorAcordado, setValorAcordado] = useState(at?.valor_acordado != null ? String(at.valor_acordado) : "")
 
+  const [programasModelo, setProgramasModelo] = useState<ProgramaModelo[]>([])
+  const [removidos, setRemovidos] = useState<Set<string>>(new Set())
+  const [adicionados, setAdicionados] = useState<{ programa_id: string; duracao_id: string; label: string }[]>([])
+  const [selecionado, setSelecionado] = useState("")
+
+  useEffect(() => {
+    if (!detalhe) return
+    api<ProgramaModelo[]>(`/v1/modelos/${detalhe.modelo.id}/programas`)
+      .then(setProgramasModelo)
+      .catch(() => {})
+  }, [detalhe?.modelo.id])
+
   if (!detalhe || !at) return null
+
+  const servicosVisiveis = detalhe.servicos.filter((s) => !removidos.has(s.id))
+
+  const activePairs = new Set([
+    ...servicosVisiveis.map((s: ServicoFechado) => `${s.programa_id}|${s.duracao_id}`),
+    ...adicionados.map((a) => `${a.programa_id}|${a.duracao_id}`),
+  ])
+  const disponiveis = programasModelo.filter((p) => !activePairs.has(`${p.programa_id}|${p.duracao_id}`))
+
+  const handleAdicionarPrograma = () => {
+    if (!selecionado) return
+    const [progId, durId] = selecionado.split("|")
+    const prog = programasModelo.find((p) => p.programa_id === progId && p.duracao_id === durId)
+    if (!prog) return
+    setAdicionados((prev) => [...prev, { programa_id: progId, duracao_id: durId, label: `${prog.nome} – ${prog.duracao_nome}` }])
+    setSelecionado("")
+  }
 
   const handleSalvar = async () => {
     const dados: EditarDadosPayload = {}
@@ -63,6 +103,15 @@ export function ModalEdicao({
 
     setSubmitting(true)
     try {
+      for (const servicoId of removidos) {
+        await api(`/v1/atendimentos/${at.id}/servicos/${servicoId}`, { method: "DELETE" })
+      }
+      for (const a of adicionados) {
+        await api(`/v1/atendimentos/${at.id}/servicos`, {
+          method: "POST",
+          body: JSON.stringify({ programa_id: a.programa_id, duracao_id: a.duracao_id }),
+        })
+      }
       await onSalvar(at.id, dados)
       toast.success(`Atendimento #${at.numero_curto} atualizado`)
       onClose()
@@ -157,19 +206,63 @@ export function ModalEdicao({
             </Campo>
           </div>
 
-          {detalhe.servicos.length > 0 && (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium leading-4 text-text-muted">Programas</span>
-              <div className="flex flex-col gap-1">
-                {detalhe.servicos.map((s) => (
-                  <div key={s.id} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-hover px-3 py-2 text-sm">
-                    <span className="text-text-primary">{s.nome}</span>
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-medium leading-4 text-text-muted">Programas</span>
+            <div className="flex flex-col gap-1">
+              {servicosVisiveis.map((s) => (
+                <div key={s.id} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-hover px-3 py-2 text-sm">
+                  <span className="text-text-primary">{s.nome}</span>
+                  <div className="flex items-center gap-2">
                     <span className="text-text-muted">{s.duracao_nome}</span>
+                    <button
+                      type="button"
+                      onClick={() => setRemovidos((prev) => new Set([...prev, s.id]))}
+                      className="text-text-muted transition-colors hover:text-text-primary"
+                      disabled={submitting}
+                    >
+                      <X size={14} />
+                    </button>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
+              {adicionados.map((a, i) => (
+                <div key={i} className="flex items-center justify-between rounded-lg border border-dashed border-border-subtle bg-surface px-3 py-2 text-sm">
+                  <span className="text-text-primary">{a.label}</span>
+                  <button
+                    type="button"
+                    onClick={() => setAdicionados((prev) => prev.filter((_, j) => j !== i))}
+                    className="text-text-muted transition-colors hover:text-text-primary"
+                    disabled={submitting}
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+              {disponiveis.length > 0 && (
+                <div className="mt-1 flex gap-2">
+                  <select
+                    value={selecionado}
+                    onChange={(e) => setSelecionado(e.target.value)}
+                    className={controlClassName}
+                    disabled={submitting}
+                  >
+                    <option value="">Adicionar programa…</option>
+                    {disponiveis.map((p) => (
+                      <option key={`${p.programa_id}|${p.duracao_id}`} value={`${p.programa_id}|${p.duracao_id}`}>
+                        {p.nome} – {p.duracao_nome}
+                      </option>
+                    ))}
+                  </select>
+                  <Button variant="secondary" onClick={handleAdicionarPrograma} disabled={!selecionado || submitting}>
+                    Adicionar
+                  </Button>
+                </div>
+              )}
+              {servicosVisiveis.length === 0 && adicionados.length === 0 && disponiveis.length === 0 && (
+                <span className="text-xs text-text-muted">Nenhum programa disponível para esta modelo.</span>
+              )}
             </div>
-          )}
+          </div>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border-subtle bg-surface px-5 py-3">
