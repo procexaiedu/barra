@@ -112,6 +112,7 @@ export function AgendaClient() {
         inicio: isoAgenda(form.data, form.inicio),
         fim: fimIsoOvernight(form.data, form.inicio, form.fim),
         observacao: form.observacao.trim() || null,
+        ...(form.atendimento_id ? { atendimento_id: form.atendimento_id } : {}),
       })
       toast.success("Bloqueio criado")
       setDialog({ aberto: false, bloqueio: null })

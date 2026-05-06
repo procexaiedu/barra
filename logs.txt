@@ -1,400 +1,500 @@
-2026-05-01T15:39:19.310401046Z  + arq==0.28.0
-2026-05-01T15:39:19.310404246Z  + barra==0.1.0 (from file:///app/repo/api)
-2026-05-01T15:39:19.310462866Z  + cachetools==6.2.6
-2026-05-01T15:39:19.310529856Z  + certifi==2026.4.22
-2026-05-01T15:39:19.310533425Z  + cffi==2.0.0
-2026-05-01T15:39:19.310601146Z  + charset-normalizer==3.4.7
-2026-05-01T15:39:19.310604516Z  + click==8.3.3
-2026-05-01T15:39:19.310636126Z  + cryptography==47.0.0
-2026-05-01T15:39:19.310730817Z  + deprecation==2.1.0
-2026-05-01T15:39:19.310734177Z  + distro==1.9.0
-2026-05-01T15:39:19.310771147Z  + docstring-parser==0.18.0
-2026-05-01T15:39:19.310894538Z  + fastapi==0.136.1
-2026-05-01T15:39:19.310898058Z  + fsspec==2026.4.0
-2026-05-01T15:39:19.310901228Z  + h11==0.16.0
-2026-05-01T15:39:19.310955628Z  + h2==4.3.0
-2026-05-01T15:39:19.310958738Z  + hiredis==3.3.1
-2026-05-01T15:39:19.310977838Z  + hpack==4.1.0
-2026-05-01T15:39:19.311519501Z  + httpcore==1.0.9
-2026-05-01T15:39:19.311524241Z  + httptools==0.7.1
-2026-05-01T15:39:19.311527181Z  + httpx==0.28.1
-2026-05-01T15:39:19.311530041Z  + hyperframe==6.1.0
-2026-05-01T15:39:19.311532951Z  + idna==3.13
-2026-05-01T15:39:19.311536031Z  + jiter==0.14.0
-2026-05-01T15:39:19.311538871Z  + jsonpatch==1.33
-2026-05-01T15:39:19.311541741Z  + jsonpointer==3.1.1
-2026-05-01T15:39:19.311544601Z  + langchain-core==1.3.2
-2026-05-01T15:39:19.311547581Z  + langchain-protocol==0.0.14
-2026-05-01T15:39:19.311580621Z  + langgraph==1.1.10
-2026-05-01T15:39:19.311583981Z  + langgraph-checkpoint==4.0.3
-2026-05-01T15:39:19.311587361Z  + langgraph-checkpoint-postgres==3.0.5
-2026-05-01T15:39:19.311590341Z  + langgraph-prebuilt==1.0.12
-2026-05-01T15:39:19.311593201Z  + langgraph-sdk==0.3.13
-2026-05-01T15:39:19.311596201Z  + langsmith==0.7.38
-2026-05-01T15:39:19.311619281Z  + markdown-it-py==4.0.0
-2026-05-01T15:39:19.311622382Z  + mdurl==0.1.2
-2026-05-01T15:39:19.311667062Z  + minio==7.2.20
-2026-05-01T15:39:19.311685692Z  + mmh3==5.2.1
-2026-05-01T15:39:19.311736941Z  + multidict==6.7.1
-2026-05-01T15:39:19.311780351Z  + orjson==3.11.8
-2026-05-01T15:39:19.311798662Z  + ormsgpack==1.12.2
-2026-05-01T15:39:19.311852592Z  + packaging==26.2
-2026-05-01T15:39:19.311855582Z  + postgrest==2.29.0
-2026-05-01T15:39:19.311898672Z  + prometheus-client==0.25.0
-2026-05-01T15:39:19.311917112Z  + propcache==0.4.1
-2026-05-01T15:39:19.312111914Z  + psycopg==3.3.3
-2026-05-01T15:39:19.312141894Z  + psycopg-binary==3.3.3
-2026-05-01T15:39:19.312242444Z  + psycopg-pool==3.3.0
-2026-05-01T15:39:19.312262564Z  + pycparser==3.0
-2026-05-01T15:39:19.312443195Z  + pycryptodome==3.23.0
-2026-05-01T15:39:19.312447025Z  + pydantic==2.13.3
-2026-05-01T15:39:19.312809317Z  + pydantic-core==2.46.3
-2026-05-01T15:39:19.312913807Z  + pydantic-settings==2.14.0
-2026-05-01T15:39:19.312917377Z  + pygments==2.20.0
-2026-05-01T15:39:19.312941117Z  + pyiceberg==0.11.1
-2026-05-01T15:39:19.313024188Z  + pyjwt==2.12.1
-2026-05-01T15:39:19.313030988Z  + pyparsing==3.3.2
-2026-05-01T15:39:19.313105488Z  + pyroaring==1.1.0
-2026-05-01T15:39:19.313109078Z  + python-dateutil==2.9.0.post0
-2026-05-01T15:39:19.313141388Z  + python-dotenv==1.2.2
-2026-05-01T15:39:19.313197959Z  + python-multipart==0.0.27
-2026-05-01T15:39:19.313201749Z  + pyyaml==6.0.3
-2026-05-03T21:56:09.253147760Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
-2026-05-03T21:56:09.253150829Z     response = await f(request)
-2026-05-03T21:56:09.253153760Z                ^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.253156709Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 457, in app
-2026-05-03T21:56:09.253159800Z     solved_result = await solve_dependencies(
-2026-05-03T21:56:09.253162789Z                     ^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-01T15:53:23.405040656Z  + argon2-cffi==25.1.0
-2026-05-01T15:53:23.405045306Z  + argon2-cffi-bindings==25.1.0
-2026-05-01T15:53:23.405049786Z  + arq==0.28.0
-2026-05-01T15:53:23.405054656Z  + barra==0.1.0 (from file:///app/repo/api)
-2026-05-01T15:53:23.405059476Z  + cachetools==6.2.6
-2026-05-01T15:53:23.405064336Z  + certifi==2026.4.22
-2026-05-01T15:53:23.405068906Z  + cffi==2.0.0
-2026-05-01T15:53:23.405079866Z  + charset-normalizer==3.4.7
-2026-05-01T15:53:23.405420527Z  + click==8.3.3
-2026-05-01T15:53:23.407620789Z  + cryptography==47.0.0
-2026-05-01T15:53:23.407680399Z  + deprecation==2.1.0
-2026-05-01T15:53:23.407690919Z  + distro==1.9.0
-2026-05-01T15:53:23.407697019Z  + docstring-parser==0.18.0
-2026-05-01T15:53:23.407701939Z  + fastapi==0.136.1
-2026-05-01T15:53:23.407706769Z  + fsspec==2026.4.0
-2026-05-01T15:53:23.407711439Z  + h11==0.16.0
-2026-05-01T15:53:23.407729879Z  + h2==4.3.0
-2026-05-01T15:53:23.407735150Z  + hiredis==3.3.1
-2026-05-01T15:53:23.407738359Z  + hpack==4.1.0
-2026-05-01T15:53:23.407741409Z  + httpcore==1.0.9
-2026-05-01T15:53:23.407744280Z  + httptools==0.7.1
-2026-05-01T15:53:23.407747430Z  + httpx==0.28.1
-2026-05-01T15:53:23.407750470Z  + hyperframe==6.1.0
-2026-05-01T15:53:23.407753280Z  + idna==3.13
-2026-05-01T15:53:23.407756099Z  + jiter==0.14.0
-2026-05-01T15:53:23.407758960Z  + jsonpatch==1.33
-2026-05-01T15:53:23.407761720Z  + jsonpointer==3.1.1
-2026-05-01T15:53:23.407764539Z  + langchain-core==1.3.2
-2026-05-01T15:53:23.407767330Z  + langchain-protocol==0.0.14
-2026-05-01T15:53:23.407770480Z  + langgraph==1.1.10
-2026-05-01T15:53:23.407773710Z  + langgraph-checkpoint==4.0.3
-2026-05-01T15:53:23.407777819Z  + langgraph-checkpoint-postgres==3.0.5
-2026-05-01T15:53:23.407784050Z  + langgraph-prebuilt==1.0.12
-2026-05-01T15:53:23.407787770Z  + langgraph-sdk==0.3.13
-2026-05-01T15:53:23.407791210Z  + langsmith==0.7.38
-2026-05-01T15:53:23.407794570Z  + markdown-it-py==4.0.0
-2026-05-01T15:53:23.407797590Z  + mdurl==0.1.2
-2026-05-01T15:53:23.407800750Z  + minio==7.2.20
-2026-05-01T15:53:23.407803770Z  + mmh3==5.2.1
-2026-05-01T15:53:23.407814550Z  + multidict==6.7.1
-2026-05-01T15:53:23.407817670Z  + orjson==3.11.8
-2026-05-01T15:53:23.407824360Z  + ormsgpack==1.12.2
-2026-05-01T15:53:23.407828230Z  + packaging==26.2
-2026-05-01T15:53:23.407831210Z  + postgrest==2.29.0
-2026-05-01T15:53:23.407833990Z  + prometheus-client==0.25.0
-2026-05-01T15:53:23.407836850Z  + propcache==0.4.1
-2026-05-01T15:53:23.407839630Z  + psycopg==3.3.3
-2026-05-01T15:53:23.407842490Z  + psycopg-binary==3.3.3
-2026-05-01T15:53:23.409229317Z  + psycopg-pool==3.3.0
-2026-05-01T15:53:23.409241157Z  + pycparser==3.0
-2026-05-01T15:53:23.409244577Z  + pycryptodome==3.23.0
-2026-05-01T15:53:23.409247687Z  + pydantic==2.13.3
-2026-05-01T15:53:23.409250657Z  + pydantic-core==2.46.3
-2026-05-01T15:53:23.409253707Z  + pydantic-settings==2.14.0
-2026-05-01T15:53:23.409256817Z  + pygments==2.20.0
-2026-05-01T15:53:23.409259797Z  + pyiceberg==0.11.1
-2026-05-01T15:53:23.409262887Z  + pyjwt==2.12.1
-2026-05-01T15:53:23.409265767Z  + pyparsing==3.3.2
-2026-05-01T15:53:23.409268967Z  + pyroaring==1.1.0
-2026-05-01T15:53:23.409272127Z  + python-dateutil==2.9.0.post0
-2026-05-01T15:53:23.409275307Z  + python-dotenv==1.2.2
-2026-05-01T15:53:23.409288667Z  + python-multipart==0.0.27
-2026-05-01T15:53:23.409291667Z  + pyyaml==6.0.3
-2026-05-01T15:53:23.409294808Z  + realtime==2.29.0
-2026-05-01T15:53:23.409297928Z  + redis==5.3.1
-2026-05-01T15:53:23.409300918Z  + requests==2.33.1
-2026-05-01T15:53:23.409304238Z  + requests-toolbelt==1.0.0
-2026-05-01T15:53:23.409307198Z  + rich==14.3.4
-2026-05-01T15:53:23.409310187Z  + sentry-sdk==2.58.0
-2026-05-01T15:53:23.414000681Z  + six==1.17.0
-2026-05-01T15:53:23.414026341Z  + sniffio==1.3.1
-2026-05-01T15:53:23.414030401Z  + starlette==1.0.0
-2026-05-01T15:53:23.414035921Z  + storage3==2.29.0
-2026-05-01T15:53:23.414040991Z  + strenum==0.4.15
-2026-05-01T15:53:23.414044571Z  + strictyaml==1.7.3
-2026-05-01T15:53:23.414047631Z  + structlog==25.5.0
-2026-05-01T15:53:23.414052891Z  + supabase==2.29.0
-2026-05-01T15:53:23.414057801Z  + supabase-auth==2.29.0
-2026-05-01T15:53:23.414060861Z  + supabase-functions==2.29.0
-2026-05-01T15:53:23.414063801Z  + tenacity==9.1.4
-2026-05-01T15:53:23.414067051Z  + typing-extensions==4.15.0
-2026-05-01T15:53:23.414070151Z  + typing-inspection==0.4.2
-2026-05-01T15:53:23.414076801Z  + urllib3==2.6.3
-2026-05-01T15:53:23.414080711Z  + uuid-utils==0.14.1
-2026-05-01T15:53:23.414084041Z  + uvicorn==0.46.0
-2026-05-01T15:53:23.414087262Z  + uvloop==0.22.1
-2026-05-01T15:53:23.414090462Z  + watchfiles==1.1.1
-2026-05-01T15:53:23.414094662Z  + websockets==15.0.1
-2026-05-01T15:53:23.414100841Z  + xxhash==3.7.0
-2026-05-01T15:53:23.414104422Z  + yarl==1.23.0
-2026-05-01T15:53:23.414107771Z  + zstandard==0.25.0
-2026-05-01T15:53:23.699340988Z Downloading mypy (14.1MiB)
-2026-05-01T15:53:23.699368767Z Downloading ruff (10.8MiB)
-2026-05-01T15:53:24.046205904Z  Downloaded ruff
-2026-05-01T15:53:25.186715415Z  Downloaded mypy
-2026-05-01T15:53:25.259561061Z Installed 12 packages in 72ms
-2026-05-01T15:53:28.997271931Z INFO:     Started server process [409]
-2026-05-01T15:53:28.997316371Z INFO:     Waiting for application startup.
-2026-05-01T15:53:29.006994530Z INFO:     Application startup complete.
-2026-05-01T15:53:29.020438727Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-2026-05-03T21:56:09.253165949Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 649, in solve_dependencies
-2026-05-03T21:56:09.253169349Z     solved_result = await solve_dependencies(
-2026-05-03T21:56:09.253172469Z                     ^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.253175690Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 678, in solve_dependencies
-2026-05-03T21:56:09.253183259Z     solved = await call(**solved_result.values)
-2026-05-03T21:56:09.253186250Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.253189209Z   File "/app/repo/api/src/barra/core/auth.py", line 115, in usuario_atual
-2026-05-03T21:56:09.253192239Z     return await usuario_por_token(credentials, settings, conn)
-2026-05-03T21:56:09.253195209Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.253198239Z   File "/app/repo/api/src/barra/core/auth.py", line 83, in usuario_por_token
-2026-05-03T21:56:09.253201289Z     row = await conn.execute(
-2026-05-03T21:56:09.253204219Z           ^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.253207089Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/psycopg/connection_async.py", line 327, in execute
-2026-05-03T21:56:09.253210199Z     raise ex.with_traceback(None)
-2026-05-03T21:56:09.253213129Z psycopg.errors.DuplicatePreparedStatement: prepared statement "_pg3_1" already exists
-2026-05-03T21:56:09.405955707Z ERROR:    Exception in ASGI application
-2026-05-03T21:56:09.405991137Z Traceback (most recent call last):
-2026-05-03T21:56:09.405995267Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/protocols/http/httptools_impl.py", line 421, in run_asgi
-2026-05-03T21:56:09.405998147Z     result = await app(  # type: ignore[func-returns-value]
-2026-05-03T21:56:09.406019827Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.406023297Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 56, in __call__
-2026-05-03T21:56:09.406026657Z     return await self.app(scope, receive, send)
-2026-05-03T21:56:09.406029567Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.406032647Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/applications.py", line 1159, in __call__
-2026-05-03T21:56:09.406035787Z     await super().__call__(scope, receive, send)
-2026-05-03T21:56:09.406038857Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/applications.py", line 90, in __call__
-2026-05-03T21:56:09.406042197Z     await self.middleware_stack(scope, receive, send)
-2026-05-03T21:56:09.406045357Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
-2026-05-03T21:56:09.406048177Z     raise exc
-2026-05-03T21:56:09.406050387Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
-2026-05-03T21:56:09.406052677Z     await self.app(scope, receive, _send)
-2026-05-03T21:56:09.406054837Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
-2026-05-03T21:56:09.406057087Z     with recv_stream, send_stream, collapse_excgroups():
-2026-05-03T21:56:09.406059247Z                                    ^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.406075767Z   File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
-2026-05-03T21:56:09.406078157Z     self.gen.throw(value)
-2026-05-03T21:56:09.406080367Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
-2026-05-03T21:56:09.406083487Z     raise exc
-2026-05-03T21:56:09.406086377Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
-2026-05-03T21:56:09.406089188Z     response = await self.dispatch_func(request, call_next)
-2026-05-03T21:56:09.406092198Z                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.406095398Z   File "/app/repo/api/src/barra/core/metrics.py", line 53, in dispatch
-2026-05-03T21:56:09.406098617Z     response = await call_next(request)
-2026-05-03T21:56:09.406101678Z                ^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.406106128Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
-2026-05-03T21:56:09.406109278Z     raise app_exc from app_exc.__cause__ or app_exc.__context__
-2026-05-03T21:56:09.406112217Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
-2026-05-03T21:56:09.406115408Z     await self.app(scope, receive_or_disconnect, send_no_error)
-2026-05-03T21:56:09.406119017Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 96, in __call__
-2026-05-03T21:56:09.406122377Z     await self.simple_response(scope, receive, send, request_headers=headers)
-2026-05-03T21:56:09.406125508Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 154, in simple_response
-2026-05-03T21:56:09.406128648Z     await self.app(scope, receive, send)
-2026-05-03T21:56:09.406131778Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
-2026-05-03T21:56:09.406134938Z     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-2026-05-03T21:56:09.406138288Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-2026-05-03T21:56:09.406141518Z     raise exc
-2026-05-03T21:56:09.406144498Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-2026-05-03T21:56:09.406147638Z     await app(scope, receive, sender)
-2026-05-03T21:56:09.406150788Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
-2026-05-03T21:56:09.406154048Z     await self.app(scope, receive, send)
-2026-05-03T21:56:09.406157248Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 660, in __call__
-2026-05-03T21:56:09.406160698Z     await self.middleware_stack(scope, receive, send)
-2026-05-03T21:56:09.406168688Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
-2026-05-03T21:56:09.406171838Z     await route.handle(scope, receive, send)
-2026-05-03T21:56:09.406174898Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
-2026-05-03T21:56:09.406178148Z     await self.app(scope, receive, send)
-2026-05-03T21:56:09.406181178Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
-2026-05-03T21:56:09.406184298Z     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-2026-05-03T21:56:09.406192968Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-2026-05-03T21:56:09.406196628Z     raise exc
-2026-05-03T21:56:09.406200248Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-2026-05-03T21:56:09.406203598Z     await app(scope, receive, sender)
-2026-05-03T21:56:09.406209128Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
-2026-05-03T21:56:09.406214598Z     response = await f(request)
-2026-05-03T21:56:09.406217528Z                ^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.406220189Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 457, in app
-2026-05-03T21:56:09.406223018Z     solved_result = await solve_dependencies(
-2026-05-03T21:56:09.406225648Z                     ^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.406228309Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 649, in solve_dependencies
-2026-05-03T21:56:09.406231098Z     solved_result = await solve_dependencies(
-2026-05-03T21:56:09.406233678Z                     ^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-01T15:39:19.313271119Z  + realtime==2.29.0
-2026-05-03T21:56:09.406236288Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 678, in solve_dependencies
-2026-05-03T21:56:09.406239079Z     solved = await call(**solved_result.values)
-2026-05-03T21:56:09.406241778Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-03T21:56:09.406244439Z   File "/app/repo/api/src/barra/core/auth.py", line 115, in usuario_atual
-2026-05-03T21:56:09.406247319Z     return await usuario_por_token(credentials, settings, conn)
-2026-05-03T21:56:09.406250328Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-01T15:39:19.313359580Z  + redis==5.3.1
-2026-05-03T21:56:09.406253549Z   File "/app/repo/api/src/barra/core/auth.py", line 83, in usuario_por_token
-2026-05-03T21:56:09.406256599Z     row = await conn.execute(
-2026-05-03T21:56:09.406259688Z           ^^^^^^^^^^^^^^^^^^^
-2026-05-01T15:39:19.313384730Z  + requests==2.33.1
-2026-05-03T21:56:09.406262919Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/psycopg/connection_async.py", line 327, in execute
-2026-05-01T15:39:19.313419659Z  + requests-toolbelt==1.0.0
-2026-05-03T21:56:09.406265929Z     raise ex.with_traceback(None)
-2026-05-01T15:39:19.313479159Z  + rich==14.3.4
-2026-05-03T21:56:09.406275418Z psycopg.errors.InvalidSqlStatementName: prepared statement "_pg3_1" does not exist
-2026-05-01T15:39:19.313614471Z  + sentry-sdk==2.58.0
-2026-05-01T15:39:19.313619370Z  + six==1.17.0
-2026-05-01T15:39:19.313622461Z  + sniffio==1.3.1
-2026-05-03T21:56:10.357491433Z INFO:     10.0.2.42:37638 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-01T15:39:19.313625311Z  + starlette==1.0.0
-2026-05-01T15:39:19.313967112Z  + storage3==2.29.0
-2026-05-01T15:39:19.313975302Z  + strenum==0.4.15
-2026-05-01T15:39:19.313978522Z  + strictyaml==1.7.3
-2026-05-01T15:39:19.313981402Z  + structlog==25.5.0
-2026-05-01T15:39:19.313984302Z  + supabase==2.29.0
-2026-05-01T15:39:19.313986982Z  + supabase-auth==2.29.0
-2026-05-01T15:39:19.313989772Z  + supabase-functions==2.29.0
-2026-05-01T15:39:19.313992722Z  + tenacity==9.1.4
-2026-05-01T15:39:19.313995472Z  + typing-extensions==4.15.0
-2026-05-01T15:39:19.313998242Z  + typing-inspection==0.4.2
-2026-05-01T15:39:19.314128233Z  + urllib3==2.6.3
-2026-05-01T15:39:19.314132183Z  + uuid-utils==0.14.1
-2026-05-01T15:39:19.314134833Z  + uvicorn==0.46.0
-2026-05-01T15:39:19.314137433Z  + uvloop==0.22.1
-2026-05-01T15:39:19.314171263Z  + watchfiles==1.1.1
-2026-05-01T15:39:19.314256893Z  + websockets==15.0.1
-2026-05-01T15:39:19.314260813Z  + xxhash==3.7.0
-2026-05-01T15:39:19.314287504Z  + yarl==1.23.0
-2026-05-01T15:39:19.314324704Z  + zstandard==0.25.0
-2026-05-01T15:39:19.460132380Z Downloading mypy (14.1MiB)
-2026-05-01T15:39:19.461138846Z Downloading ruff (10.8MiB)
-2026-05-01T15:39:19.728361233Z  Downloaded ruff
-2026-05-01T15:39:20.179581519Z  Downloaded mypy
-2026-05-01T15:39:20.246388814Z Installed 12 packages in 65ms
-2026-05-01T15:39:23.382945313Z INFO:     Started server process [417]
-2026-05-01T15:39:23.382986314Z INFO:     Waiting for application startup.
-2026-05-01T15:39:23.395681752Z INFO:     Application startup complete.
-2026-05-01T15:39:23.402399205Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-2026-05-01T15:42:48.194019174Z INFO:     10.0.2.42:50410 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-01T15:42:50.043132527Z INFO:     10.0.2.42:50410 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T16:26:07.789096562Z INFO:     10.0.2.42:58966 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:26:22.406646493Z INFO:     10.0.2.42:46942 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:26:23.006314457Z INFO:     10.0.2.42:46942 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:26:23.478454853Z INFO:     10.0.2.42:46948 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:26:23.611789018Z INFO:     10.0.2.42:46942 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:26:24.214695624Z INFO:     10.0.2.42:46942 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:26:24.551560421Z INFO:     10.0.2.42:46948 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:26:24.815954697Z INFO:     10.0.2.42:46942 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:26:25.420075158Z INFO:     10.0.2.42:46942 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:26:25.625648987Z INFO:     10.0.2.42:46948 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:26:26.718711113Z INFO:     10.0.2.42:46948 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:26:27.805139929Z INFO:     10.0.2.42:46948 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:26:28.881193052Z INFO:     10.0.2.42:46948 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:27:18.233787961Z INFO:     10.0.2.42:37860 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:27:18.882470312Z INFO:     10.0.2.42:37860 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:27:19.356428799Z INFO:     10.0.2.42:45764 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:27:20.425689985Z INFO:     10.0.2.42:45764 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:27:41.830560680Z INFO:     10.0.2.42:42132 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:27:42.440509703Z INFO:     10.0.2.42:42132 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:27:42.908477801Z INFO:     10.0.2.42:42134 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:27:43.981054671Z INFO:     10.0.2.42:42134 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:28:18.536816526Z INFO:     10.0.2.42:52908 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:28:19.157870943Z INFO:     10.0.2.42:52908 - "GET /v1/modelos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T16:28:19.635705164Z INFO:     10.0.2.42:48560 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:28:20.702496763Z INFO:     10.0.2.42:48560 - "GET /v1/modelos/0e7e1000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T16:31:25.598214029Z INFO:     10.0.2.42:49604 - "OPTIONS /v1/dashboard?periodo=7d HTTP/1.1" 200 OK
-2026-05-04T16:31:25.599419982Z INFO:     10.0.2.42:49590 - "OPTIONS /v1/modelos?limit=100 HTTP/1.1" 200 OK
-2026-05-04T16:31:26.264886430Z INFO:     10.0.2.42:49604 - "GET /v1/modelos?limit=100 HTTP/1.1" 200 OK
-2026-05-04T16:31:27.523599853Z INFO:     10.0.2.42:49590 - "GET /v1/dashboard?periodo=7d HTTP/1.1" 200 OK
-2026-05-04T16:34:02.402096280Z INFO:     10.0.2.42:49900 - "OPTIONS /v1/atendimentos?limit=50&ia_pausada=true&motivo_escalada=Atendimento+conclu%C3%ADdo+pela+modelo+via+comando HTTP/1.1" 200 OK
-2026-05-04T16:34:03.109170453Z INFO:     10.0.2.42:49900 - "GET /v1/atendimentos?limit=50&ia_pausada=true&motivo_escalada=Atendimento+conclu%C3%ADdo+pela+modelo+via+comando HTTP/1.1" 200 OK
-2026-05-04T16:34:04.915430722Z INFO:     10.0.2.42:49900 - "GET /v1/modelos?limit=100 HTTP/1.1" 200 OK
-2026-05-04T16:34:06.106561690Z INFO:     10.0.2.42:49904 - "GET /v1/dashboard?periodo=7d HTTP/1.1" 200 OK
-2026-05-04T16:34:33.538836604Z INFO:     10.0.2.42:46032 - "OPTIONS /v1/dashboard?periodo=30d HTTP/1.1" 200 OK
-2026-05-04T16:34:35.413682383Z INFO:     10.0.2.42:46032 - "GET /v1/dashboard?periodo=30d HTTP/1.1" 200 OK
-2026-05-04T16:34:38.623813642Z INFO:     10.0.2.42:46038 - "GET /v1/dashboard?periodo=30d HTTP/1.1" 200 OK
-2026-05-04T16:34:39.340692790Z INFO:     10.0.2.42:46038 - "OPTIONS /v1/dashboard?periodo=tudo HTTP/1.1" 200 OK
-2026-05-04T16:34:42.359648282Z INFO:     10.0.2.42:40290 - "GET /v1/dashboard?periodo=tudo HTTP/1.1" 200 OK
-2026-05-04T16:34:45.145156043Z INFO:     10.0.2.42:40320 - "GET /v1/dashboard?periodo=tudo HTTP/1.1" 200 OK
-2026-05-04T16:36:42.480855788Z INFO:     10.0.2.42:36540 - "OPTIONS /v1/dashboard/escaladas?periodo=tudo HTTP/1.1" 200 OK
-2026-05-04T16:36:43.101809937Z INFO:     10.0.2.42:36540 - "GET /v1/dashboard/escaladas?periodo=tudo HTTP/1.1" 200 OK
-2026-05-04T18:07:58.015974499Z INFO:     10.0.2.42:58716 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T18:07:59.848497258Z INFO:     10.0.2.42:58716 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T18:09:06.658659688Z INFO:     10.0.2.42:56836 - "OPTIONS /v1/atendimentos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T18:09:07.432039627Z INFO:     10.0.2.42:56836 - "GET /v1/atendimentos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T18:09:07.463108639Z INFO:     10.0.2.42:56836 - "OPTIONS /v1/atendimentos/a7e0d000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T18:09:08.686588609Z INFO:     10.0.2.42:56836 - "GET /v1/atendimentos/a7e0d000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T18:11:39.059582474Z INFO:     10.0.2.42:42934 - "OPTIONS /v1/agenda/bloqueios?inicio=2026-05-01T00%3A00%3A00-03%3A00&fim=2026-05-31T23%3A59%3A59-03%3A00 HTTP/1.1" 200 OK
-2026-05-04T18:11:39.924211150Z INFO:     10.0.2.42:42934 - "GET /v1/agenda/bloqueios?inicio=2026-05-01T00%3A00%3A00-03%3A00&fim=2026-05-31T23%3A59%3A59-03%3A00 HTTP/1.1" 200 OK
-2026-05-04T18:11:39.984200700Z INFO:     10.0.2.42:42934 - "OPTIONS /v1/modelos?limit=100 HTTP/1.1" 200 OK
-2026-05-04T18:11:40.641895130Z INFO:     10.0.2.42:42934 - "GET /v1/modelos?limit=100 HTTP/1.1" 200 OK
-2026-05-04T18:12:06.782983912Z INFO:     10.0.2.42:43122 - "GET /v1/atendimentos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T18:12:07.913725237Z INFO:     10.0.2.42:43122 - "GET /v1/atendimentos/a7e0d000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T18:12:09.504581128Z INFO:     10.0.2.42:43122 - "GET /v1/agenda/bloqueios?inicio=2026-05-01T00%3A00%3A00-03%3A00&fim=2026-05-31T23%3A59%3A59-03%3A00 HTTP/1.1" 200 OK
-2026-05-04T18:12:10.205443471Z INFO:     10.0.2.42:43122 - "GET /v1/modelos?limit=100 HTTP/1.1" 200 OK
-2026-05-04T18:12:20.760139476Z INFO:     10.0.2.42:54714 - "OPTIONS /v1/pix?limit=50&status=pendentes HTTP/1.1" 200 OK
-2026-05-04T18:12:21.499441940Z INFO:     10.0.2.42:54714 - "GET /v1/pix?limit=50&status=pendentes HTTP/1.1" 200 OK
-2026-05-04T18:12:21.516203583Z INFO:     10.0.2.42:54714 - "OPTIONS /v1/pix/c0517000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T18:12:22.149316600Z INFO:     10.0.2.42:54724 - "GET /v1/agenda/bloqueios?inicio=2026-05-01T00%3A00%3A00-03%3A00&fim=2026-05-31T23%3A59%3A59-03%3A00 HTTP/1.1" 200 OK
-2026-05-04T18:12:22.444268620Z INFO:     10.0.2.42:54714 - "GET /v1/pix/c0517000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T18:12:22.475783861Z INFO:     10.0.2.42:54714 - "OPTIONS /v1/pix/c0517000-0001-7000-8000-000000000002/comprovante-url HTTP/1.1" 200 OK
-2026-05-04T18:12:22.851136477Z INFO:     10.0.2.42:54724 - "GET /v1/modelos?limit=100 HTTP/1.1" 200 OK
-2026-05-04T18:12:23.219575080Z INFO:     10.0.2.42:54714 - "GET /v1/pix/c0517000-0001-7000-8000-000000000002/comprovante-url HTTP/1.1" 200 OK
-2026-05-04T18:12:23.523721666Z INFO:     10.0.2.42:54724 - "GET /v1/pix?limit=50&status=pendentes HTTP/1.1" 200 OK
-2026-05-04T18:12:24.327919894Z INFO:     10.0.2.42:54724 - "GET /v1/pix/c0517000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T18:12:25.197918347Z INFO:     10.0.2.42:54724 - "GET /v1/pix/c0517000-0001-7000-8000-000000000002/comprovante-url HTTP/1.1" 200 OK
-2026-05-04T18:12:55.977765416Z INFO:     10.0.2.42:36158 - "OPTIONS /v1/modelos HTTP/1.1" 200 OK
-2026-05-04T18:12:55.990426656Z INFO:     10.0.2.42:36158 - "OPTIONS /v1/crm/conversas?limit=50 HTTP/1.1" 200 OK
-2026-05-04T18:12:56.921620968Z INFO:     10.0.2.42:36158 - "GET /v1/modelos HTTP/1.1" 200 OK
-2026-05-04T18:12:56.976053567Z INFO:     10.0.2.42:36166 - "GET /v1/crm/conversas?limit=50 HTTP/1.1" 200 OK
-2026-05-04T18:12:57.004831302Z INFO:     10.0.2.42:36166 - "OPTIONS /v1/crm/conversas/c01f0000-0001-7000-8000-000000000007 HTTP/1.1" 200 OK
-2026-05-04T18:12:58.041137610Z INFO:     10.0.2.42:36166 - "GET /v1/crm/conversas/c01f0000-0001-7000-8000-000000000007 HTTP/1.1" 200 OK
-2026-05-04T18:13:31.184079800Z INFO:     10.0.2.42:45236 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T18:53:22.636462477Z INFO:     10.0.2.42:47816 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T18:53:22.687662063Z INFO:     10.0.2.42:47816 - "GET /v1/painel/resumo HTTP/1.1" 401 Unauthorized
-2026-05-04T18:54:07.182392523Z INFO:     10.0.2.42:51312 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T19:19:31.007438646Z INFO:     10.0.2.42:58160 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T19:19:32.539123917Z INFO:     10.0.2.42:58160 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T19:23:11.318714091Z INFO:     10.0.2.42:50996 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T19:43:13.179917974Z INFO:     10.0.2.42:50652 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T19:43:13.238529981Z INFO:     10.0.2.42:50652 - "GET /v1/painel/resumo HTTP/1.1" 401 Unauthorized
-2026-05-04T21:37:09.850950085Z INFO:     10.0.2.42:43176 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T21:37:11.767083973Z INFO:     10.0.2.42:43176 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T21:37:16.498553512Z INFO:     10.0.2.42:43176 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T22:02:12.963394128Z INFO:     10.0.2.42:49108 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T22:02:14.474380589Z INFO:     10.0.2.42:49108 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T22:02:15.815713221Z INFO:     10.0.2.42:49124 - "OPTIONS /v1/atendimentos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T22:02:16.522301313Z INFO:     10.0.2.42:49124 - "GET /v1/atendimentos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T22:02:16.553121716Z INFO:     10.0.2.42:49124 - "OPTIONS /v1/atendimentos/a7e0d000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T22:02:17.034283010Z INFO:     10.0.2.42:49108 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T22:02:17.740676661Z INFO:     10.0.2.42:49124 - "GET /v1/atendimentos/a7e0d000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T22:02:18.793287583Z INFO:     10.0.2.42:49108 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T22:02:19.265697259Z INFO:     10.0.2.42:49108 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T22:02:20.697307154Z INFO:     10.0.2.42:49108 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T22:02:32.563095468Z INFO:     10.0.2.42:42616 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-04T22:02:32.591095521Z INFO:     10.0.2.42:42616 - "OPTIONS /v1/atendimentos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T22:02:33.197131337Z INFO:     10.0.2.42:42616 - "GET /v1/atendimentos?limit=50 HTTP/1.1" 200 OK
-2026-05-04T22:02:33.225838493Z INFO:     10.0.2.42:42616 - "OPTIONS /v1/atendimentos/a7e0d000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T22:02:34.352962728Z INFO:     10.0.2.42:42616 - "GET /v1/atendimentos/a7e0d000-0001-7000-8000-000000000002 HTTP/1.1" 200 OK
-2026-05-04T22:02:35.949731729Z INFO:     10.0.2.42:42616 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
+2026-05-06T17:46:38.737755585Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 2542, in presigned_get_object
+2026-05-06T17:46:38.737759055Z     return self.get_presigned_url(
+2026-05-06T17:46:38.737762354Z            ^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.737765625Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 2476, in get_presigned_url
+2026-05-06T17:46:38.737778924Z     region = self._get_region(bucket_name)
+2026-05-06T17:46:38.737784224Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.737787774Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 498, in _get_region
+2026-05-06T17:46:38.737791194Z     response = self._url_open(
+2026-05-06T17:46:38.737794264Z                ^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.737797494Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 427, in _url_open
+2026-05-06T17:46:38.737800844Z     raise response_error
+2026-05-06T17:46:38.737807544Z minio.error.S3Error: S3 operation failed; code: NoSuchBucket, message: The specified bucket does not exist, resource: /media, request_id: 18AD0B11B6B78504, host_id: dd9025bab4ad464b049177c95eb6ebf374d3b3fd1af9251148b658df7ac2e3e8, bucket_name: media
+2026-05-06T17:46:38.737813104Z 
+2026-05-06T17:46:38.739473833Z ERROR:    Exception in ASGI application
+2026-05-06T16:02:13.803144582Z  + arq==0.28.0
+2026-05-06T16:02:13.803146742Z  + barra==0.1.0 (from file:///app/repo/api)
+2026-05-06T16:02:13.803653236Z  + cachetools==6.2.6
+2026-05-06T16:02:13.803682135Z  + certifi==2026.4.22
+2026-05-06T16:02:13.803721515Z  + cffi==2.0.0
+2026-05-06T16:02:13.803725425Z  + charset-normalizer==3.4.7
+2026-05-06T16:02:13.803728785Z  + click==8.3.3
+2026-05-06T16:02:13.803732095Z  + cryptography==47.0.0
+2026-05-06T16:02:13.803735135Z  + deprecation==2.1.0
+2026-05-06T16:02:13.803738475Z  + distro==1.9.0
+2026-05-06T16:02:13.803741785Z  + docstring-parser==0.18.0
+2026-05-06T16:02:13.804857261Z  + fastapi==0.136.1
+2026-05-06T16:02:13.804880461Z  + fsspec==2026.4.0
+2026-05-06T16:02:13.804883931Z  + h11==0.16.0
+2026-05-06T16:02:13.804970331Z  + h2==4.3.0
+2026-05-06T16:02:13.804976501Z  + hiredis==3.3.1
+2026-05-06T16:02:13.804979911Z  + hpack==4.1.0
+2026-05-06T16:02:13.804983181Z  + httpcore==1.0.9
+2026-05-06T16:02:13.804986031Z  + httptools==0.7.1
+2026-05-06T16:02:13.804988851Z  + httpx==0.28.1
+2026-05-06T16:02:13.804991791Z  + hyperframe==6.1.0
+2026-05-06T16:02:13.805340563Z  + idna==3.13
+2026-05-06T16:02:13.805354063Z  + jiter==0.14.0
+2026-05-06T16:02:13.805357383Z  + jsonpatch==1.33
+2026-05-06T16:02:13.805360554Z  + jsonpointer==3.1.1
+2026-05-06T16:02:13.805368914Z  + langchain-core==1.3.2
+2026-05-06T16:02:13.805372034Z  + langchain-protocol==0.0.14
+2026-05-06T16:02:13.805375074Z  + langgraph==1.1.10
+2026-05-06T16:02:13.805378044Z  + langgraph-checkpoint==4.0.3
+2026-05-06T16:02:13.805381204Z  + langgraph-checkpoint-postgres==3.0.5
+2026-05-06T16:02:13.805384223Z  + langgraph-prebuilt==1.0.12
+2026-05-06T16:02:13.805387263Z  + langgraph-sdk==0.3.13
+2026-05-06T16:02:13.805390143Z  + langsmith==0.7.38
+2026-05-06T16:02:13.805393014Z  + markdown-it-py==4.0.0
+2026-05-06T16:02:13.805395943Z  + mdurl==0.1.2
+2026-05-06T16:02:13.805399004Z  + minio==7.2.20
+2026-05-06T16:02:13.805401954Z  + mmh3==5.2.1
+2026-05-06T16:02:13.805404944Z  + multidict==6.7.1
+2026-05-06T16:02:13.805407924Z  + orjson==3.11.8
+2026-05-06T16:02:13.805411544Z  + ormsgpack==1.12.2
+2026-05-06T16:02:13.805455174Z  + packaging==26.2
+2026-05-06T16:02:13.805463374Z  + postgrest==2.29.0
+2026-05-06T16:02:13.805799125Z  + prometheus-client==0.25.0
+2026-05-06T16:02:13.805806836Z  + propcache==0.4.1
+2026-05-06T16:02:13.805810055Z  + psycopg==3.3.3
+2026-05-06T16:02:13.805812676Z  + psycopg-binary==3.3.3
+2026-05-06T16:02:13.805815405Z  + psycopg-pool==3.3.0
+2026-05-06T16:02:13.805818156Z  + pycparser==3.0
+2026-05-06T16:02:13.805820935Z  + pycryptodome==3.23.0
+2026-05-06T16:02:13.805936396Z  + pydantic==2.13.3
+2026-05-06T16:02:13.806939661Z  + pydantic-core==2.46.3
+2026-05-06T16:02:13.806960231Z  + pydantic-settings==2.14.0
+2026-05-06T16:02:13.806965311Z  + pygments==2.20.0
+2026-05-06T16:02:13.806968621Z  + pyiceberg==0.11.1
+2026-05-06T16:02:13.806971651Z  + pyjwt==2.12.1
+2026-05-06T16:02:13.806974611Z  + pyparsing==3.3.2
+2026-05-06T16:02:13.806977741Z  + pyroaring==1.1.0
+2026-05-06T16:02:13.806980771Z  + python-dateutil==2.9.0.post0
+2026-05-06T16:02:13.806995461Z  + python-dotenv==1.2.2
+2026-05-06T16:02:13.807347912Z  + python-multipart==0.0.27
+2026-05-06T16:02:13.807359472Z  + pyyaml==6.0.3
+2026-05-06T16:02:13.807362822Z  + realtime==2.29.0
+2026-05-06T16:02:13.807365843Z  + redis==5.3.1
+2026-05-06T16:02:13.807368862Z  + requests==2.33.1
+2026-05-06T16:02:13.807371853Z  + requests-toolbelt==1.0.0
+2026-05-06T16:02:13.807374893Z  + rich==14.3.4
+2026-05-06T16:02:13.807377843Z  + sentry-sdk==2.58.0
+2026-05-06T16:02:13.807380742Z  + six==1.17.0
+2026-05-06T16:02:13.807383773Z  + sniffio==1.3.1
+2026-05-06T16:02:13.807386702Z  + starlette==1.0.0
+2026-05-06T16:02:13.807389693Z  + storage3==2.29.0
+2026-05-06T16:02:13.809426143Z  + strenum==0.4.15
+2026-05-06T16:02:13.809439473Z  + strictyaml==1.7.3
+2026-05-06T16:02:13.809442973Z  + structlog==25.5.0
+2026-05-06T16:02:13.809446183Z  + supabase==2.29.0
+2026-05-06T16:02:13.809449163Z  + supabase-auth==2.29.0
+2026-05-06T16:02:13.809452093Z  + supabase-functions==2.29.0
+2026-05-06T16:02:13.809455273Z  + tenacity==9.1.4
+2026-05-06T16:02:13.809458313Z  + typing-extensions==4.15.0
+2026-05-06T16:02:13.809461393Z  + typing-inspection==0.4.2
+2026-05-06T16:02:13.809464363Z  + urllib3==2.6.3
+2026-05-06T16:02:13.809467343Z  + uuid-utils==0.14.1
+2026-05-06T16:02:13.809473943Z  + uvicorn==0.46.0
+2026-05-06T16:02:13.809477093Z  + uvloop==0.22.1
+2026-05-06T16:02:13.809480323Z  + watchfiles==1.1.1
+2026-05-06T16:02:13.809483313Z  + websockets==15.0.1
+2026-05-06T16:02:13.809486313Z  + xxhash==3.7.0
+2026-05-06T16:02:13.809489463Z  + yarl==1.23.0
+2026-05-06T16:02:13.809492633Z  + zstandard==0.25.0
+2026-05-06T16:02:14.041838827Z Downloading ruff (10.8MiB)
+2026-05-06T16:02:14.054746239Z Downloading mypy (14.1MiB)
+2026-05-06T16:02:14.429856657Z  Downloaded ruff
+2026-05-06T16:02:15.972229833Z  Downloaded mypy
+2026-05-06T16:02:16.093218873Z Installed 12 packages in 119ms
+2026-05-06T16:02:20.364972776Z INFO:     Started server process [416]
+2026-05-06T16:02:20.365029416Z INFO:     Waiting for application startup.
+2026-05-06T16:02:20.371635168Z INFO:     Application startup complete.
+2026-05-06T16:02:20.397774164Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-05-06T17:21:41.401660648Z INFO:     10.0.2.42:50262 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
+2026-05-06T17:21:43.664087641Z INFO:     10.0.2.42:50262 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
+2026-05-06T17:36:27.612597997Z  + arq==0.28.0
+2026-05-06T17:36:27.612602507Z  + barra==0.1.0 (from file:///app/repo/api)
+2026-05-06T17:36:27.612607127Z  + cachetools==6.2.6
+2026-05-06T17:36:27.612611727Z  + certifi==2026.4.22
+2026-05-06T17:36:27.612616207Z  + cffi==2.0.0
+2026-05-06T17:36:27.612620687Z  + charset-normalizer==3.4.7
+2026-05-06T17:36:27.612625587Z  + click==8.3.3
+2026-05-06T17:36:27.612630807Z  + cryptography==47.0.0
+2026-05-06T17:36:27.612635457Z  + deprecation==2.1.0
+2026-05-06T17:36:27.612639977Z  + distro==1.9.0
+2026-05-06T17:36:27.612644567Z  + docstring-parser==0.18.0
+2026-05-06T17:36:27.612649197Z  + fastapi==0.136.1
+2026-05-06T17:36:27.612653767Z  + fsspec==2026.4.0
+2026-05-06T17:36:27.612658447Z  + h11==0.16.0
+2026-05-06T17:36:27.612683098Z  + h2==4.3.0
+2026-05-06T17:36:27.612686268Z  + hiredis==3.3.1
+2026-05-06T17:36:27.612689298Z  + hpack==4.1.0
+2026-05-06T17:36:27.612692477Z  + httpcore==1.0.9
+2026-05-06T17:36:27.612695687Z  + httptools==0.7.1
+2026-05-06T17:36:27.612698818Z  + httpx==0.28.1
+2026-05-06T17:36:27.612702007Z  + hyperframe==6.1.0
+2026-05-06T17:36:27.612705188Z  + idna==3.13
+2026-05-06T17:36:27.612708438Z  + jiter==0.14.0
+2026-05-06T17:36:27.612711518Z  + jsonpatch==1.33
+2026-05-06T17:36:27.612714527Z  + jsonpointer==3.1.1
+2026-05-06T17:36:27.612717458Z  + langchain-core==1.3.2
+2026-05-06T17:36:27.612720538Z  + langchain-protocol==0.0.14
+2026-05-06T17:36:27.612723728Z  + langgraph==1.1.10
+2026-05-06T17:36:27.612726768Z  + langgraph-checkpoint==4.0.3
+2026-05-06T17:36:27.612729818Z  + langgraph-checkpoint-postgres==3.0.5
+2026-05-06T17:36:27.612732848Z  + langgraph-prebuilt==1.0.12
+2026-05-06T17:36:27.612735908Z  + langgraph-sdk==0.3.13
+2026-05-06T17:36:27.612738878Z  + langsmith==0.7.38
+2026-05-06T17:36:27.612741908Z  + markdown-it-py==4.0.0
+2026-05-06T17:36:27.612744918Z  + mdurl==0.1.2
+2026-05-06T17:36:27.612748078Z  + minio==7.2.20
+2026-05-06T17:36:27.612751388Z  + mmh3==5.2.1
+2026-05-06T17:36:27.612754468Z  + multidict==6.7.1
+2026-05-06T17:36:27.617660200Z  + orjson==3.11.8
+2026-05-06T17:36:27.617717750Z  + ormsgpack==1.12.2
+2026-05-06T17:36:27.617722180Z  + packaging==26.2
+2026-05-06T17:36:27.617725440Z  + postgrest==2.29.0
+2026-05-06T17:36:27.617728470Z  + prometheus-client==0.25.0
+2026-05-06T17:36:27.617731540Z  + propcache==0.4.1
+2026-05-06T17:36:27.617734930Z  + psycopg==3.3.3
+2026-05-06T17:36:27.617737860Z  + psycopg-binary==3.3.3
+2026-05-06T17:36:27.617741070Z  + psycopg-pool==3.3.0
+2026-05-06T17:36:27.617744110Z  + pycparser==3.0
+2026-05-06T17:36:27.617747200Z  + pycryptodome==3.23.0
+2026-05-06T17:36:27.617750260Z  + pydantic==2.13.3
+2026-05-06T17:36:27.617753340Z  + pydantic-core==2.46.3
+2026-05-06T17:36:27.617756400Z  + pydantic-settings==2.14.0
+2026-05-06T17:36:27.617759441Z  + pygments==2.20.0
+2026-05-06T17:36:27.617762530Z  + pyiceberg==0.11.1
+2026-05-06T17:36:27.617765590Z  + pyjwt==2.12.1
+2026-05-06T17:36:27.617779750Z  + pyparsing==3.3.2
+2026-05-06T17:36:27.617782931Z  + pyroaring==1.1.0
+2026-05-06T17:36:27.617785950Z  + python-dateutil==2.9.0.post0
+2026-05-06T17:36:27.617789001Z  + python-dotenv==1.2.2
+2026-05-06T17:36:27.617806070Z  + python-multipart==0.0.27
+2026-05-06T17:36:27.617809381Z  + pyyaml==6.0.3
+2026-05-06T17:36:27.617812721Z  + realtime==2.29.0
+2026-05-06T17:36:27.617815961Z  + redis==5.3.1
+2026-05-06T17:36:27.617819091Z  + requests==2.33.1
+2026-05-06T17:36:27.617822211Z  + requests-toolbelt==1.0.0
+2026-05-06T17:36:27.617825171Z  + rich==14.3.4
+2026-05-06T17:36:27.617828270Z  + sentry-sdk==2.58.0
+2026-05-06T17:36:27.617831481Z  + six==1.17.0
+2026-05-06T17:36:27.617834531Z  + sniffio==1.3.1
+2026-05-06T17:36:27.617837611Z  + starlette==1.0.0
+2026-05-06T17:36:27.617840821Z  + storage3==2.29.0
+2026-05-06T17:36:27.617843881Z  + strenum==0.4.15
+2026-05-06T17:36:27.617846921Z  + strictyaml==1.7.3
+2026-05-06T17:36:27.617849931Z  + structlog==25.5.0
+2026-05-06T17:36:27.617852931Z  + supabase==2.29.0
+2026-05-06T17:36:27.617855961Z  + supabase-auth==2.29.0
+2026-05-06T17:36:27.617859081Z  + supabase-functions==2.29.0
+2026-05-06T17:36:27.617862151Z  + tenacity==9.1.4
+2026-05-06T17:36:27.617865141Z  + typing-extensions==4.15.0
+2026-05-06T17:36:27.617868041Z  + typing-inspection==0.4.2
+2026-05-06T17:36:27.617871031Z  + urllib3==2.6.3
+2026-05-06T17:36:27.617873651Z  + uuid-utils==0.14.1
+2026-05-06T17:36:27.617876251Z  + uvicorn==0.46.0
+2026-05-06T17:36:27.617878901Z  + uvloop==0.22.1
+2026-05-06T17:36:27.617881580Z  + watchfiles==1.1.1
+2026-05-06T17:36:27.617884710Z  + websockets==15.0.1
+2026-05-06T17:36:27.617887850Z  + xxhash==3.7.0
+2026-05-06T17:36:27.617890970Z  + yarl==1.23.0
+2026-05-06T17:36:27.617894080Z  + zstandard==0.25.0
+2026-05-06T17:36:28.123577431Z Downloading ruff (10.8MiB)
+2026-05-06T17:36:28.140771727Z Downloading mypy (14.1MiB)
+2026-05-06T17:36:28.684597708Z  Downloaded ruff
+2026-05-06T17:36:31.271158924Z  Downloaded mypy
+2026-05-06T17:36:31.394166555Z Installed 12 packages in 123ms
+2026-05-06T17:36:37.652927698Z INFO:     Started server process [427]
+2026-05-06T17:36:37.652969998Z INFO:     Waiting for application startup.
+2026-05-06T17:36:37.687542942Z INFO:     Application startup complete.
+2026-05-06T17:36:37.703198293Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-05-06T17:37:15.663416471Z INFO:     10.0.2.42:49938 - "OPTIONS /v1/atendimentos?limit=50 HTTP/1.1" 400 Bad Request
+2026-05-06T17:37:36.725546664Z INFO:     10.0.2.42:39984 - "OPTIONS /v1/painel/resumo HTTP/1.1" 400 Bad Request
+2026-05-06T17:42:19.873487270Z  + arq==0.28.0
+2026-05-06T17:42:19.873489919Z  + barra==0.1.0 (from file:///app/repo/api)
+2026-05-06T17:42:19.873492719Z  + cachetools==6.2.6
+2026-05-06T17:42:19.873495460Z  + certifi==2026.4.22
+2026-05-06T17:42:19.873498310Z  + cffi==2.0.0
+2026-05-06T17:42:19.873500950Z  + charset-normalizer==3.4.7
+2026-05-06T17:42:19.873503800Z  + click==8.3.3
+2026-05-06T17:42:19.873506730Z  + cryptography==47.0.0
+2026-05-06T17:42:19.873513200Z  + deprecation==2.1.0
+2026-05-06T17:42:19.873516090Z  + distro==1.9.0
+2026-05-06T17:42:19.873518950Z  + docstring-parser==0.18.0
+2026-05-06T17:42:19.873521780Z  + fastapi==0.136.1
+2026-05-06T17:42:19.873524670Z  + fsspec==2026.4.0
+2026-05-06T17:42:19.873527400Z  + h11==0.16.0
+2026-05-06T17:42:19.873542150Z  + h2==4.3.0
+2026-05-06T17:42:19.873545030Z  + hiredis==3.3.1
+2026-05-06T17:42:19.873547700Z  + hpack==4.1.0
+2026-05-06T17:42:19.873550470Z  + httpcore==1.0.9
+2026-05-06T17:42:19.873553460Z  + httptools==0.7.1
+2026-05-06T17:42:19.873556270Z  + httpx==0.28.1
+2026-05-06T17:42:19.873558980Z  + hyperframe==6.1.0
+2026-05-06T17:42:19.873561650Z  + idna==3.13
+2026-05-06T17:42:19.873564320Z  + jiter==0.14.0
+2026-05-06T17:42:19.873566910Z  + jsonpatch==1.33
+2026-05-06T17:42:19.873569529Z  + jsonpointer==3.1.1
+2026-05-06T17:42:19.873572099Z  + langchain-core==1.3.2
+2026-05-06T17:42:19.873574839Z  + langchain-protocol==0.0.14
+2026-05-06T17:42:19.873577409Z  + langgraph==1.1.10
+2026-05-06T17:42:19.873580099Z  + langgraph-checkpoint==4.0.3
+2026-05-06T17:42:19.873582879Z  + langgraph-checkpoint-postgres==3.0.5
+2026-05-06T17:42:19.873585749Z  + langgraph-prebuilt==1.0.12
+2026-05-06T17:42:19.873588639Z  + langgraph-sdk==0.3.13
+2026-05-06T17:42:19.873591339Z  + langsmith==0.7.38
+2026-05-06T17:42:19.873594059Z  + markdown-it-py==4.0.0
+2026-05-06T17:42:19.873596799Z  + mdurl==0.1.2
+2026-05-06T17:42:19.873599530Z  + minio==7.2.20
+2026-05-06T17:42:19.873602330Z  + mmh3==5.2.1
+2026-05-06T17:42:19.873605039Z  + multidict==6.7.1
+2026-05-06T17:42:19.873607719Z  + orjson==3.11.8
+2026-05-06T17:42:19.873610410Z  + ormsgpack==1.12.2
+2026-05-06T17:42:19.873613100Z  + packaging==26.2
+2026-05-06T17:42:19.873615730Z  + postgrest==2.29.0
+2026-05-06T17:42:19.873618530Z  + prometheus-client==0.25.0
+2026-05-06T17:42:19.873621279Z  + propcache==0.4.1
+2026-05-06T17:42:19.873624180Z  + psycopg==3.3.3
+2026-05-06T17:42:19.873626900Z  + psycopg-binary==3.3.3
+2026-05-06T17:42:19.873629610Z  + psycopg-pool==3.3.0
+2026-05-06T17:42:19.873632430Z  + pycparser==3.0
+2026-05-06T17:42:19.873635180Z  + pycryptodome==3.23.0
+2026-05-06T17:42:19.873637850Z  + pydantic==2.13.3
+2026-05-06T17:42:19.873640780Z  + pydantic-core==2.46.3
+2026-05-06T17:42:19.873643550Z  + pydantic-settings==2.14.0
+2026-05-06T17:42:19.873646340Z  + pygments==2.20.0
+2026-05-06T17:42:19.873649490Z  + pyiceberg==0.11.1
+2026-05-06T17:42:19.873652230Z  + pyjwt==2.12.1
+2026-05-06T17:42:19.873654999Z  + pyparsing==3.3.2
+2026-05-06T17:42:19.873657730Z  + pyroaring==1.1.0
+2026-05-06T17:42:19.873660510Z  + python-dateutil==2.9.0.post0
+2026-05-06T17:42:19.873663290Z  + python-dotenv==1.2.2
+2026-05-06T17:42:19.873670530Z  + python-multipart==0.0.27
+2026-05-06T17:42:19.873673450Z  + pyyaml==6.0.3
+2026-05-06T17:42:19.873676120Z  + realtime==2.29.0
+2026-05-06T17:42:19.873678880Z  + redis==5.3.1
+2026-05-06T17:42:19.873681690Z  + requests==2.33.1
+2026-05-06T17:42:19.873684450Z  + requests-toolbelt==1.0.0
+2026-05-06T17:42:19.873687180Z  + rich==14.3.4
+2026-05-06T17:42:19.873690090Z  + sentry-sdk==2.58.0
+2026-05-06T17:42:19.873692850Z  + six==1.17.0
+2026-05-06T17:42:19.873695630Z  + sniffio==1.3.1
+2026-05-06T17:42:19.873698590Z  + starlette==1.0.0
+2026-05-06T17:42:19.873701420Z  + storage3==2.29.0
+2026-05-06T17:42:19.873704360Z  + strenum==0.4.15
+2026-05-06T17:42:19.873707290Z  + strictyaml==1.7.3
+2026-05-06T17:42:19.873710090Z  + structlog==25.5.0
+2026-05-06T17:42:19.873713050Z  + supabase==2.29.0
+2026-05-06T17:42:19.874522204Z  + supabase-auth==2.29.0
+2026-05-06T17:42:19.874559194Z  + supabase-functions==2.29.0
+2026-05-06T17:42:19.874563555Z  + tenacity==9.1.4
+2026-05-06T17:42:19.874566985Z  + typing-extensions==4.15.0
+2026-05-06T17:42:19.874570475Z  + typing-inspection==0.4.2
+2026-05-06T17:42:19.874573905Z  + urllib3==2.6.3
+2026-05-06T17:42:19.874577905Z  + uuid-utils==0.14.1
+2026-05-06T17:42:19.874581415Z  + uvicorn==0.46.0
+2026-05-06T17:42:19.874584665Z  + uvloop==0.22.1
+2026-05-06T17:42:19.874587835Z  + watchfiles==1.1.1
+2026-05-06T17:42:19.874591215Z  + websockets==15.0.1
+2026-05-06T17:42:19.874594305Z  + xxhash==3.7.0
+2026-05-06T17:42:19.874597305Z  + yarl==1.23.0
+2026-05-06T17:42:19.874600555Z  + zstandard==0.25.0
+2026-05-06T17:42:20.045286668Z Downloading ruff (10.8MiB)
+2026-05-06T17:42:20.077599268Z Downloading mypy (14.1MiB)
+2026-05-06T17:42:20.423391066Z  Downloaded ruff
+2026-05-06T17:42:21.740978210Z  Downloaded mypy
+2026-05-06T17:42:21.833262009Z Installed 12 packages in 91ms
+2026-05-06T17:42:25.998068834Z INFO:     Started server process [414]
+2026-05-06T17:42:25.998108514Z INFO:     Waiting for application startup.
+2026-05-06T17:42:26.022548998Z INFO:     Application startup complete.
+2026-05-06T17:42:26.030441025Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-05-06T17:43:28.990922523Z INFO:     10.0.2.42:41966 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
+2026-05-06T17:43:31.166305675Z INFO:     10.0.2.42:41966 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
+2026-05-06T17:33:20.822161570Z  + charset-normalizer==3.4.7
+2026-05-06T17:33:20.822164420Z  + click==8.3.3
+2026-05-06T17:33:20.822241929Z  + cryptography==47.0.0
+2026-05-06T17:33:20.822247989Z  + deprecation==2.1.0
+2026-05-06T17:33:20.822300930Z  + distro==1.9.0
+2026-05-06T17:33:20.822319430Z  + docstring-parser==0.18.0
+2026-05-06T17:33:20.822404620Z  + fastapi==0.136.1
+2026-05-06T17:33:20.824143138Z  + fsspec==2026.4.0
+2026-05-06T17:33:20.824196378Z  + h11==0.16.0
+2026-05-06T17:33:20.824214208Z  + h2==4.3.0
+2026-05-06T17:33:20.824250268Z  + hiredis==3.3.1
+2026-05-06T17:33:20.824410659Z  + hpack==4.1.0
+2026-05-06T17:33:20.824417269Z  + httpcore==1.0.9
+2026-05-06T17:33:20.824420429Z  + httptools==0.7.1
+2026-05-06T17:33:20.824423010Z  + httpx==0.28.1
+2026-05-06T17:33:20.824528809Z  + hyperframe==6.1.0
+2026-05-06T17:33:20.824538389Z  + idna==3.13
+2026-05-06T17:33:20.824541859Z  + jiter==0.14.0
+2026-05-06T17:33:20.824544949Z  + jsonpatch==1.33
+2026-05-06T17:33:20.824694050Z  + jsonpointer==3.1.1
+2026-05-06T17:33:20.824699720Z  + langchain-core==1.3.2
+2026-05-06T17:33:20.824702390Z  + langchain-protocol==0.0.14
+2026-05-06T17:33:20.824704600Z  + langgraph==1.1.10
+2026-05-06T17:33:20.824706850Z  + langgraph-checkpoint==4.0.3
+2026-05-06T17:33:20.824731220Z  + langgraph-checkpoint-postgres==3.0.5
+2026-05-06T17:33:20.824823831Z  + langgraph-prebuilt==1.0.12
+2026-05-06T17:33:20.824826251Z  + langgraph-sdk==0.3.13
+2026-05-06T17:33:20.824828421Z  + langsmith==0.7.38
+2026-05-06T17:33:20.824996341Z  + markdown-it-py==4.0.0
+2026-05-06T17:33:20.825035141Z  + mdurl==0.1.2
+2026-05-06T17:33:20.825174722Z  + minio==7.2.20
+2026-05-06T17:33:20.825180933Z  + mmh3==5.2.1
+2026-05-06T17:33:20.825208162Z  + multidict==6.7.1
+2026-05-06T17:33:20.825269363Z  + orjson==3.11.8
+2026-05-06T17:33:20.825329703Z  + ormsgpack==1.12.2
+2026-05-06T17:33:20.825574714Z  + packaging==26.2
+2026-05-06T17:33:20.825662074Z  + postgrest==2.29.0
+2026-05-06T17:33:20.825667794Z  + prometheus-client==0.25.0
+2026-05-06T17:33:20.825670834Z  + propcache==0.4.1
+2026-05-06T17:33:20.825673745Z  + psycopg==3.3.3
+2026-05-06T17:33:20.825753555Z  + psycopg-binary==3.3.3
+2026-05-06T17:33:20.825831195Z  + psycopg-pool==3.3.0
+2026-05-06T17:33:20.825834565Z  + pycparser==3.0
+2026-05-06T17:33:20.825875376Z  + pycryptodome==3.23.0
+2026-05-06T17:33:20.825978115Z  + pydantic==2.13.3
+2026-05-06T17:33:20.826015976Z  + pydantic-core==2.46.3
+2026-05-06T17:33:20.826104156Z  + pydantic-settings==2.14.0
+2026-05-06T17:33:20.826163107Z  + pygments==2.20.0
+2026-05-06T17:33:20.826371958Z  + pyiceberg==0.11.1
+2026-05-06T17:33:20.826378248Z  + pyjwt==2.12.1
+2026-05-06T17:33:20.826380927Z  + pyparsing==3.3.2
+2026-05-06T17:33:20.826383187Z  + pyroaring==1.1.0
+2026-05-06T17:33:20.826438378Z  + python-dateutil==2.9.0.post0
+2026-05-06T17:33:20.826461858Z  + python-dotenv==1.2.2
+2026-05-06T17:33:20.826530248Z  + python-multipart==0.0.27
+2026-05-06T17:33:20.826641239Z  + pyyaml==6.0.3
+2026-05-06T17:33:20.826647399Z  + realtime==2.29.0
+2026-05-06T17:33:20.826783400Z  + redis==5.3.1
+2026-05-06T17:33:20.826786830Z  + requests==2.33.1
+2026-05-06T17:33:20.826810440Z  + requests-toolbelt==1.0.0
+2026-05-06T17:33:20.826953230Z  + rich==14.3.4
+2026-05-06T17:33:20.827135231Z  + sentry-sdk==2.58.0
+2026-05-06T17:33:20.827144751Z  + six==1.17.0
+2026-05-06T17:33:20.827466302Z  + sniffio==1.3.1
+2026-05-06T17:33:20.827500362Z  + starlette==1.0.0
+2026-05-06T17:33:20.827503743Z  + storage3==2.29.0
+2026-05-06T17:33:20.827535273Z  + strenum==0.4.15
+2026-05-06T17:33:20.827657723Z  + strictyaml==1.7.3
+2026-05-06T17:33:20.827721464Z  + structlog==25.5.0
+2026-05-06T17:33:20.827729774Z  + supabase==2.29.0
+2026-05-06T17:33:20.827863924Z  + supabase-auth==2.29.0
+2026-05-06T17:33:20.827867644Z  + supabase-functions==2.29.0
+2026-05-06T17:33:20.827869914Z  + tenacity==9.1.4
+2026-05-06T17:33:20.827896264Z  + typing-extensions==4.15.0
+2026-05-06T17:33:20.827925414Z  + typing-inspection==0.4.2
+2026-05-06T17:33:20.827983854Z  + urllib3==2.6.3
+2026-05-06T17:33:20.828046265Z  + uuid-utils==0.14.1
+2026-05-06T17:33:20.828101105Z  + uvicorn==0.46.0
+2026-05-06T17:33:20.828178356Z  + uvloop==0.22.1
+2026-05-06T17:33:20.828181556Z  + watchfiles==1.1.1
+2026-05-06T17:33:20.828260325Z  + websockets==15.0.1
+2026-05-06T17:33:20.828263485Z  + xxhash==3.7.0
+2026-05-06T17:33:20.828300466Z  + yarl==1.23.0
+2026-05-06T17:33:20.828377536Z  + zstandard==0.25.0
+2026-05-06T17:33:21.027277054Z Downloading mypy (14.1MiB)
+2026-05-06T17:33:21.033377801Z Downloading ruff (10.8MiB)
+2026-05-06T17:33:21.875711145Z  Downloaded ruff
+2026-05-06T17:33:23.934758582Z  Downloaded mypy
+2026-05-06T17:33:24.082740461Z Installed 12 packages in 147ms
+2026-05-06T17:33:29.658633078Z INFO:     Started server process [432]
+2026-05-06T17:33:29.658671348Z INFO:     Waiting for application startup.
+2026-05-06T17:33:29.693321829Z INFO:     Application startup complete.
+2026-05-06T17:33:29.711236326Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-05-06T17:34:51.200449645Z INFO:     10.0.2.42:41222 - "OPTIONS /v1/atendimentos/a7e0d000-0014-7000-8000-000000000006 HTTP/1.1" 400 Bad Request
+2026-05-06T17:34:56.762066537Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/atendimentos/a7e0d000-0014-7000-8000-000000000006 HTTP/1.1" 400 Bad Request
+2026-05-06T17:34:58.200596628Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/painel/detalhe/fechamentos-hoje HTTP/1.1" 400 Bad Request
+2026-05-06T17:35:00.807854580Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/painel/detalhe/abertos HTTP/1.1" 400 Bad Request
+2026-05-06T17:35:03.046565953Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/atendimentos/a7e0d000-0014-7000-8000-000000000006 HTTP/1.1" 400 Bad Request
+2026-05-06T17:35:05.447105094Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/atendimentos/a7e0d000-0014-7000-8000-000000000006 HTTP/1.1" 400 Bad Request
+2026-05-06T17:35:33.407292394Z INFO:     10.0.2.42:40894 - "OPTIONS /v1/painel/resumo HTTP/1.1" 400 Bad Request
+2026-05-06T17:46:38.739500283Z Traceback (most recent call last):
+2026-05-06T17:46:38.739504252Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/protocols/http/httptools_impl.py", line 421, in run_asgi
+2026-05-06T17:46:38.739508162Z     result = await app(  # type: ignore[func-returns-value]
+2026-05-06T17:46:38.739511372Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.739514702Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 56, in __call__
+2026-05-06T17:46:38.739518182Z     return await self.app(scope, receive, send)
+2026-05-06T17:46:38.739521402Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.739524452Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/applications.py", line 1159, in __call__
+2026-05-06T17:46:38.739527712Z     await super().__call__(scope, receive, send)
+2026-05-06T17:46:38.739530822Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/applications.py", line 90, in __call__
+2026-05-06T17:46:38.739534232Z     await self.middleware_stack(scope, receive, send)
+2026-05-06T17:46:38.739537332Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
+2026-05-06T17:46:38.739540612Z     raise exc
+2026-05-06T17:46:38.739543732Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+2026-05-06T17:46:38.739547022Z     await self.app(scope, receive, _send)
+2026-05-06T17:46:38.739550182Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+2026-05-06T17:46:38.739553492Z     with recv_stream, send_stream, collapse_excgroups():
+2026-05-06T17:46:38.739556572Z                                    ^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.739559762Z   File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+2026-05-06T17:46:38.740715718Z     self.gen.throw(value)
+2026-05-06T17:46:38.740736318Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
+2026-05-06T17:46:38.740740408Z     raise exc
+2026-05-06T17:46:38.740743798Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+2026-05-06T17:46:38.740747188Z     response = await self.dispatch_func(request, call_next)
+2026-05-06T17:46:38.740750348Z                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740753568Z   File "/app/repo/api/src/barra/core/metrics.py", line 53, in dispatch
+2026-05-06T17:46:38.740756798Z     response = await call_next(request)
+2026-05-06T17:46:38.740759888Z                ^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740766708Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+2026-05-06T17:46:38.740770088Z     raise app_exc from app_exc.__cause__ or app_exc.__context__
+2026-05-06T17:46:38.740773268Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+2026-05-06T17:46:38.740776528Z     await self.app(scope, receive_or_disconnect, send_no_error)
+2026-05-06T17:46:38.740779728Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 96, in __call__
+2026-05-06T17:46:38.740783048Z     await self.simple_response(scope, receive, send, request_headers=headers)
+2026-05-06T17:46:38.740786258Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 154, in simple_response
+2026-05-06T17:46:38.740789558Z     await self.app(scope, receive, send)
+2026-05-06T17:46:38.740792678Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+2026-05-06T17:46:38.740796008Z     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+2026-05-06T17:46:38.740799328Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+2026-05-06T17:46:38.740802899Z     raise exc
+2026-05-06T17:46:38.740806028Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+2026-05-06T17:46:38.740809348Z     await app(scope, receive, sender)
+2026-05-06T17:46:38.740812419Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+2026-05-06T17:46:38.740815699Z     await self.app(scope, receive, send)
+2026-05-06T17:46:38.740818868Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 660, in __call__
+2026-05-06T17:46:38.740822118Z     await self.middleware_stack(scope, receive, send)
+2026-05-06T17:46:38.740825248Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
+2026-05-06T17:46:38.740833699Z     await route.handle(scope, receive, send)
+2026-05-06T17:46:38.740836899Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+2026-05-06T17:46:38.740840158Z     await self.app(scope, receive, send)
+2026-05-06T17:46:38.740843288Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
+2026-05-06T17:46:38.740846459Z     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+2026-05-06T17:46:38.740849719Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+2026-05-06T17:46:38.740853059Z     raise exc
+2026-05-06T17:46:38.740856559Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+2026-05-06T17:46:38.740859888Z     await app(scope, receive, sender)
+2026-05-06T17:46:38.740862909Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
+2026-05-06T17:46:38.740866168Z     response = await f(request)
+2026-05-06T17:46:38.740869279Z                ^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740872369Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 674, in app
+2026-05-06T17:46:38.740875639Z     raw_response = await run_endpoint_function(
+2026-05-06T17:46:38.740878809Z                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740881909Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 328, in run_endpoint_function
+2026-05-06T17:46:38.740885189Z     return await dependant.call(**values)
+2026-05-06T17:46:38.740888359Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740891399Z   File "/app/repo/api/src/barra/dominio/modelos/routes.py", line 159, in obter_modelo
+2026-05-06T17:46:38.740894689Z     midia = await _midia(conn, request, modelo_id)
+2026-05-06T17:46:38.740897879Z             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740901119Z   File "/app/repo/api/src/barra/dominio/modelos/routes.py", line 816, in _midia
+2026-05-06T17:46:38.740904369Z     row["url_assinada"] = presigned_get(
+2026-05-06T17:46:38.740907699Z                           ^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740910939Z   File "/app/repo/api/src/barra/core/storage.py", line 33, in presigned_get
+2026-05-06T17:46:38.740914289Z     return client.presigned_get_object(bucket, object_key, expires=timedelta(seconds=expires))
+2026-05-06T17:46:38.740917539Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740920829Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 2542, in presigned_get_object
+2026-05-06T17:46:38.740924169Z     return self.get_presigned_url(
+2026-05-06T17:46:38.740927199Z            ^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740934339Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 2476, in get_presigned_url
+2026-05-06T17:46:38.740937719Z     region = self._get_region(bucket_name)
+2026-05-06T17:46:38.740940899Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740943979Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 498, in _get_region
+2026-05-06T17:46:38.740947359Z     response = self._url_open(
+2026-05-06T17:46:38.740950479Z                ^^^^^^^^^^^^^^^
+2026-05-06T17:46:38.740953569Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 427, in _url_open
+2026-05-06T17:46:38.740956900Z     raise response_error
+2026-05-06T17:46:38.740960900Z minio.error.S3Error: S3 operation failed; code: NoSuchBucket, message: The specified bucket does not exist, resource: /media, request_id: 18AD0B11B6B78504, host_id: dd9025bab4ad464b049177c95eb6ebf374d3b3fd1af9251148b658df7ac2e3e8, bucket_name: media

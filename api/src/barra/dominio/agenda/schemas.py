@@ -9,6 +9,7 @@ class BloqueioCreate(BaseModel):
     inicio: datetime
     fim: datetime
     observacao: str | None = None
+    atendimento_id: UUID | None = None
 
     @model_validator(mode="after")
     def intervalo_valido(self) -> "BloqueioCreate":

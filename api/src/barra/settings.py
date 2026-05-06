@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     minio_endpoint: str = "localhost:9000"
     minio_access_key: str = ""
     minio_secret_key: str = ""
-    minio_bucket_media: str = "media"
+    minio_bucket_media: str = "barra-media"
     minio_use_ssl: bool = False
 
     @field_validator("minio_endpoint", mode="before")

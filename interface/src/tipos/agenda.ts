@@ -13,6 +13,11 @@ export interface AtendimentoAgendaResumo {
   cliente_nome: string | null
   cliente_telefone_formatado: string
   estado: string
+  valor_acordado: string | null
+  endereco: string | null
+  bairro: string | null
+  data_desejada: string | null
+  horario_desejado: string | null
 }
 
 export interface BloqueioAgenda {
@@ -40,6 +45,7 @@ export interface CriarBloqueioInput {
   inicio: string
   fim: string
   observacao: string | null
+  atendimento_id?: string
 }
 
 export interface AtualizarBloqueioInput {
@@ -54,4 +60,5 @@ export interface BloqueioFormState {
   inicio: string
   fim: string
   observacao: string
+  atendimento_id?: string
 }

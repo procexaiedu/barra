@@ -400,37 +400,30 @@ export default function PainelGeral() {
       </section>
 
       <section aria-label="Agenda de hoje" className="px-8 py-5">
-        <h2 className="mb-4 text-base font-semibold text-text-primary">Agenda de hoje</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-text-primary">Agenda de hoje</h2>
+          <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/agenda?action=bloquear" />}>
+            Bloquear horário
+          </Button>
+        </div>
         {data.agenda_dia.length === 0 ? (
           <Card className="rounded-lg bg-card p-6">
             <div className="flex items-start gap-3">
               <CalendarOff size={20} className="mt-0.5 text-text-muted" />
-              <div>
-                <p className="text-sm text-text-primary">Nenhum horário reservado hoje.</p>
-                <Button variant="ghost" size="sm" className="mt-2" nativeButton={false} render={<Link href="/agenda?action=bloquear" />}>
-                  Bloquear horário
-                </Button>
-              </div>
+              <p className="text-sm text-text-primary">Nenhum horário reservado hoje.</p>
             </div>
           </Card>
         ) : (
-          <>
-            <Card className="overflow-hidden rounded-lg bg-card">
-              {data.agenda_dia.map((linha) => (
-                <LinhaAgenda
-                  key={linha.id}
-                  linha={linha}
-                  mostrarModelo={mostrarModelo}
-                  onAbrirDetalhes={() => setAgendaModal(linha)}
-                />
-              ))}
-            </Card>
-            <div className="mt-3 flex justify-center">
-              <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/agenda?action=bloquear" />}>
-                Bloquear horário
-              </Button>
-            </div>
-          </>
+          <Card className="overflow-hidden rounded-lg bg-card">
+            {data.agenda_dia.map((linha) => (
+              <LinhaAgenda
+                key={linha.id}
+                linha={linha}
+                mostrarModelo={mostrarModelo}
+                onAbrirDetalhes={() => setAgendaModal(linha)}
+              />
+            ))}
+          </Card>
         )}
       </section>
 

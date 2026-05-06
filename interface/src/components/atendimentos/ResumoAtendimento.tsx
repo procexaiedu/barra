@@ -158,30 +158,20 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
           </div>
         </div>
 
-        <div className="shrink-0 space-y-2 xl:text-right">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">Pagamento</p>
-            <p className="mt-0.5 text-[13px] font-medium text-text-primary">
-              {atendimento.forma_pagamento
-                ? (formatRotulo(atendimento.forma_pagamento) ?? atendimento.forma_pagamento)
-                : <span className="font-normal text-text-disabled">Não informado</span>
-              }
+        <div className="shrink-0 xl:text-right">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">Pagamento</p>
+          <p className="mt-0.5 text-[13px] font-medium text-text-primary">
+            {atendimento.forma_pagamento
+              ? atendimento.forma_pagamento === "pix" ? "PIX" : (formatRotulo(atendimento.forma_pagamento) ?? atendimento.forma_pagamento)
+              : <span className="font-normal text-text-disabled">Não informado</span>
+            }
+          </p>
+          {atendimento.pix_status && atendimento.pix_status !== "nao_solicitado" && (
+            <p className="mt-0.5 text-[11px] text-text-muted">
+              {formatEnum(String(atendimento.pix_status)) ?? String(atendimento.pix_status)}
+              {detalhe.comprovantes_pix[0] && <> · {formatDataHora(detalhe.comprovantes_pix[0].created_at)}</>}
             </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">Pix</p>
-            <p className="mt-0.5 text-[13px] font-medium text-text-primary">
-              {atendimento.pix_status
-                ? (formatEnum(String(atendimento.pix_status)) ?? String(atendimento.pix_status))
-                : <span className="font-normal text-text-disabled">Nenhum</span>
-              }
-            </p>
-            {detalhe.comprovantes_pix[0] && (
-              <p className="mt-0.5 text-[11px] text-text-muted">
-                {formatDataHora(detalhe.comprovantes_pix[0].created_at)}
-              </p>
-            )}
-          </div>
+          )}
         </div>
       </div>
 

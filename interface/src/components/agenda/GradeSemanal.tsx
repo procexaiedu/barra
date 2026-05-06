@@ -8,7 +8,7 @@ import type { BloqueioAgenda as BloqueioTipo, EstadoBloqueio } from "@/tipos/age
 
 const HORA_INICIO = 10
 const HORA_FIM = 23
-const HORA_HEIGHT = 64
+const HORA_HEIGHT = 80
 const TOTAL_HORAS = HORA_FIM - HORA_INICIO
 const TOTAL_HEIGHT = TOTAL_HORAS * HORA_HEIGHT
 const GUTTER = 52
@@ -28,19 +28,29 @@ const dotEstilo: Partial<Record<EstadoBloqueio, string>> = {
   concluido: "bg-zinc-500/50",
 }
 
+function horaMinBrt(iso: string): { h: number; m: number } {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(iso))
+  return {
+    h: parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10),
+    m: parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10),
+  }
+}
+
 function horaParaY(iso: string): number {
-  const h = parseInt(iso.slice(11, 13), 10)
-  const m = parseInt(iso.slice(14, 16), 10)
+  const { h, m } = horaMinBrt(iso)
   return Math.max(0, (h - HORA_INICIO + m / 60) * HORA_HEIGHT)
 }
 
 function alturaEvento(inicioIso: string, fimIso: string): number {
-  const h1 = parseInt(inicioIso.slice(11, 13), 10)
-  const m1 = parseInt(inicioIso.slice(14, 16), 10)
-  let h2 = parseInt(fimIso.slice(11, 13), 10)
-  const m2 = parseInt(fimIso.slice(14, 16), 10)
-  // "24:00" edge case: fim no dia seguinte às 00:00
-  if (fimIso.slice(0, 10) > inicioIso.slice(0, 10) && h2 === 0 && m2 === 0) h2 = 24
+  const { h: h1, m: m1 } = horaMinBrt(inicioIso)
+  let { h: h2, m: m2 } = horaMinBrt(fimIso)
+  // fim meia-noite BRT do dia seguinte → trata como 24:00
+  if (dataBrt(fimIso) > dataBrt(inicioIso) && h2 === 0 && m2 === 0) h2 = 24
   return Math.max(((h2 + m2 / 60) - (h1 + m1 / 60)) * HORA_HEIGHT, 20)
 }
 
@@ -102,9 +112,7 @@ function CardGrade({
 
 function LinhaHoraAtual({ diaIndex, totalDias }: { diaIndex: number; totalDias: number }) {
   const calcTop = () => {
-    const now = new Date()
-    const h = now.getHours()
-    const m = now.getMinutes()
+    const { h, m } = horaMinBrt(new Date().toISOString())
     if (h < HORA_INICIO || h >= HORA_FIM) return null
     return (h - HORA_INICIO + m / 60) * HORA_HEIGHT
   }
@@ -278,7 +286,7 @@ export function GradeSemanal({
       </div>
 
       {/* Corpo com scroll */}
-      <div ref={scrollRef} className="overflow-y-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
+      <div ref={scrollRef} className="overflow-y-auto" style={{ height: "calc(100vh - 360px)", minHeight: "400px", overflowX: "hidden" }}>
         <div className="relative" style={{ height: TOTAL_HEIGHT }}>
 
           {/* Coluna de horários (gutter) */}

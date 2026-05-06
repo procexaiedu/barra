@@ -141,12 +141,35 @@ export function ModalEdicao({
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Campo label="Forma de pagamento">
-              <Input className={controlClassName} placeholder="pix, dinheiro…" value={formaPagamento} onChange={(e) => setFormaPagamento(e.target.value)} />
+              <select
+                value={formaPagamento}
+                onChange={(e) => setFormaPagamento(e.target.value)}
+                className={controlClassName}
+              >
+                <option value="">—</option>
+                <option value="pix">PIX</option>
+                <option value="dinheiro">Dinheiro</option>
+                <option value="cartão">Cartão</option>
+              </select>
             </Campo>
             <Campo label="Valor acordado (R$)">
               <Input className={controlClassName} inputMode="decimal" placeholder="1.200,00" value={valorAcordado} onChange={(e) => setValorAcordado(e.target.value)} />
             </Campo>
           </div>
+
+          {detalhe.servicos.length > 0 && (
+            <div className="flex flex-col gap-1.5">
+              <span className="text-[11px] font-medium leading-4 text-text-muted">Programas</span>
+              <div className="flex flex-col gap-1">
+                {detalhe.servicos.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-hover px-3 py-2 text-sm">
+                    <span className="text-text-primary">{s.nome}</span>
+                    <span className="text-text-muted">{s.duracao_nome}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border-subtle bg-surface px-5 py-3">

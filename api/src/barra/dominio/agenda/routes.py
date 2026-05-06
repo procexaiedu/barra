@@ -52,6 +52,11 @@ async def listar_bloqueios(
           a.id AS atendimento_id,
           a.numero_curto,
           a.estado::text AS atendimento_estado,
+          a.valor_acordado,
+          a.endereco,
+          a.bairro,
+          a.data_desejada,
+          a.horario_desejado,
           c.nome AS cliente_nome,
           c.telefone AS cliente_telefone,
           m.nome AS modelo_nome
@@ -76,15 +81,25 @@ async def criar_bloqueio(
     body: BloqueioCreate,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
+    if body.atendimento_id:
+        res = await conn.execute(
+            "SELECT modelo_id FROM barravips.atendimentos WHERE id = %s",
+            (body.atendimento_id,),
+        )
+        at_row = await res.fetchone()
+        if at_row is None:
+            raise NaoEncontrado("Atendimento")
+        if at_row["modelo_id"] != body.modelo_id:
+            raise ConflitoEstado("atendimento_nao_pertence_ao_modelo")
     try:
         async with conn.transaction():
             result = await conn.execute(
                 """
-                INSERT INTO barravips.bloqueios (modelo_id, inicio, fim, origem, observacao)
-                VALUES (%s, %s, %s, 'painel_fernando', %s)
+                INSERT INTO barravips.bloqueios (modelo_id, inicio, fim, origem, observacao, atendimento_id)
+                VALUES (%s, %s, %s, 'painel_fernando', %s, %s)
                 RETURNING *
                 """,
-                (body.modelo_id, body.inicio, body.fim, body.observacao),
+                (body.modelo_id, body.inicio, body.fim, body.observacao, body.atendimento_id),
             )
             row = await result.fetchone()
             assert row is not None
@@ -178,12 +193,20 @@ async def _modelo_ativa(conn: AsyncConnection[Any], modelo_id: UUID | None) -> d
 def _formatar_bloqueio(row: dict[str, Any]) -> dict[str, Any]:
     atendimento = None
     if row["atendimento_id"]:
+        data_desejada = row.get("data_desejada")
+        horario_desejado = row.get("horario_desejado")
+        valor_acordado = row.get("valor_acordado")
         atendimento = {
             "id": str(row["atendimento_id"]),
             "numero_curto": row["numero_curto"],
             "cliente_nome": row["cliente_nome"],
             "cliente_telefone_formatado": _formatar_telefone(row["cliente_telefone"]),
             "estado": row["atendimento_estado"],
+            "valor_acordado": str(valor_acordado) if valor_acordado is not None else None,
+            "endereco": row.get("endereco"),
+            "bairro": row.get("bairro"),
+            "data_desejada": data_desejada.isoformat() if data_desejada is not None else None,
+            "horario_desejado": str(horario_desejado) if horario_desejado is not None else None,
         }
     return {
         "id": str(row["id"]),
