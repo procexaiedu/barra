@@ -21,7 +21,15 @@ const ORIGEM_ICON: Record<OrigemBloqueio, { icon: typeof Bot; tooltip: string }>
   manual: { icon: Hand, tooltip: "Manual" },
 }
 
-export function LinhaAgenda({ linha, mostrarModelo = false }: { linha: LinhaAgendaType; mostrarModelo?: boolean }) {
+export function LinhaAgenda({
+  linha,
+  mostrarModelo = false,
+  onAbrirDetalhes,
+}: {
+  linha: LinhaAgendaType
+  mostrarModelo?: boolean
+  onAbrirDetalhes?: () => void
+}) {
   const router = useRouter()
   const badge = BADGE_MAP[linha.estado]
   const origem = ORIGEM_ICON[linha.origem]
@@ -29,6 +37,10 @@ export function LinhaAgenda({ linha, mostrarModelo = false }: { linha: LinhaAgen
   const isCancelado = linha.estado === "cancelado"
 
   const handleClick = () => {
+    if (onAbrirDetalhes) {
+      onAbrirDetalhes()
+      return
+    }
     const data = linha.inicio.split("T")[0]
     router.push(`/agenda?data=${data}&bloqueio=${linha.id}`)
   }
@@ -46,7 +58,7 @@ export function LinhaAgenda({ linha, mostrarModelo = false }: { linha: LinhaAgen
 
   return (
     <div
-      role="link"
+      role="button"
       tabIndex={0}
       onClick={handleClick}
       onKeyDown={handleKeyDown}

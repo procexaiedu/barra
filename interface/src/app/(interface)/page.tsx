@@ -14,13 +14,14 @@ import { TileMetrica } from "@/components/painel/TileMetrica"
 import { LinhaAgenda } from "@/components/painel/LinhaAgenda"
 import { ModalDetalheMetrica } from "@/components/painel/ModalDetalheMetrica"
 import { ModalDecisaoCard } from "@/components/painel/ModalDecisaoCard"
+import { ModalDetalheAgenda } from "@/components/painel/ModalDetalheAgenda"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { formatBRL, formatDiaSemana, formatData } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import type { ItemAberto, ItemFechamento, ItemPerda, CardDestaque as CardDestaqueType } from "@/tipos/painel"
+import type { ItemAberto, ItemFechamento, ItemPerda, CardDestaque as CardDestaqueType, LinhaAgenda as LinhaAgendaType } from "@/tipos/painel"
 
 const TITULO_MODAL = {
   abertos: "Atendimentos em aberto",
@@ -175,6 +176,7 @@ export default function PainelGeral() {
   const [paginaCards, setPaginaCards] = useState(0)
   const [compacto, setCompacto] = useState(false)
   const [cardContexto, setCardContexto] = useState<CardDestaqueType | null>(null)
+  const [agendaModal, setAgendaModal] = useState<LinhaAgendaType | null>(null)
   const { data, status, error, refetch } = usePainelResumo(modeloId)
 
   function handleModeloChange(id: string | null) {
@@ -412,17 +414,35 @@ export default function PainelGeral() {
             </div>
           </Card>
         ) : (
-          <Card className="overflow-hidden rounded-lg bg-card">
-            {data.agenda_dia.map((linha) => (
-              <LinhaAgenda key={linha.id} linha={linha} mostrarModelo={mostrarModelo} />
-            ))}
-          </Card>
+          <>
+            <Card className="overflow-hidden rounded-lg bg-card">
+              {data.agenda_dia.map((linha) => (
+                <LinhaAgenda
+                  key={linha.id}
+                  linha={linha}
+                  mostrarModelo={mostrarModelo}
+                  onAbrirDetalhes={() => setAgendaModal(linha)}
+                />
+              ))}
+            </Card>
+            <div className="mt-3 flex justify-center">
+              <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/agenda?action=bloquear" />}>
+                Bloquear horário
+              </Button>
+            </div>
+          </>
         )}
       </section>
 
       <ModalDecisaoCard
         card={cardContexto}
         onClose={() => setCardContexto(null)}
+      />
+
+      <ModalDetalheAgenda
+        linha={agendaModal}
+        onFechar={() => setAgendaModal(null)}
+        onBloqueioAlterado={refetch}
       />
 
       <ModalDetalheMetrica

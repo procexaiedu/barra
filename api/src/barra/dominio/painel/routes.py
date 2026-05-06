@@ -273,7 +273,7 @@ async def painel_resumo(
     agenda_result = await conn.execute(
         f"""
         SELECT
-          b.id, b.inicio, b.fim,
+          b.id, b.modelo_id, b.inicio, b.fim,
           b.estado::text AS estado,
           b.origem::text AS origem,
           c.nome AS cliente_nome,
@@ -296,6 +296,7 @@ async def painel_resumo(
     agenda_dia = [
         {
             "id": str(row["id"]),
+            "modelo_id": str(row["modelo_id"]),
             "inicio": row["inicio"].isoformat(),
             "fim": row["fim"].isoformat(),
             "estado": row["estado"],

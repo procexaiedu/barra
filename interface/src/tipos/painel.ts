@@ -71,6 +71,7 @@ export interface ItemPerda {
 
 export interface LinhaAgenda {
   id: string
+  modelo_id: string
   inicio: string
   fim: string
   estado: EstadoBloqueio
