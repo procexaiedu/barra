@@ -13,6 +13,7 @@ export interface AtendimentoAgendaResumo {
   cliente_nome: string | null
   cliente_telefone_formatado: string
   estado: string
+  tipo_atendimento: string | null
   valor_acordado: string | null
   endereco: string | null
   bairro: string | null

@@ -57,6 +57,7 @@ async def listar_bloqueios(
           a.bairro,
           a.data_desejada,
           a.horario_desejado,
+          a.tipo_atendimento::text AS tipo_atendimento,
           c.nome AS cliente_nome,
           c.telefone AS cliente_telefone,
           m.nome AS modelo_nome
@@ -202,6 +203,7 @@ def _formatar_bloqueio(row: dict[str, Any]) -> dict[str, Any]:
             "cliente_nome": row["cliente_nome"],
             "cliente_telefone_formatado": _formatar_telefone(row["cliente_telefone"]),
             "estado": row["atendimento_estado"],
+            "tipo_atendimento": row.get("tipo_atendimento"),
             "valor_acordado": str(valor_acordado) if valor_acordado is not None else None,
             "endereco": row.get("endereco"),
             "bairro": row.get("bairro"),

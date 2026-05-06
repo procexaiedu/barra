@@ -10,25 +10,32 @@ const visoes: Array<{ value: VisaoAgenda; label: string }> = [
   { value: "mes", label: "Mês" },
 ]
 
+const selectClassName =
+  "h-9 rounded-md border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+
 export function ToolbarAgenda({
   visao,
   periodoLabel,
   modeloId,
+  tipoAtendimento,
   onVisaoChange,
   onAnterior,
   onProximo,
   onHoje,
   onModeloChange,
+  onTipoAtendimentoChange,
   onCriar,
 }: {
   visao: VisaoAgenda
   periodoLabel: string
   modeloId: string | null
+  tipoAtendimento: "" | "interno" | "externo"
   onVisaoChange: (visao: VisaoAgenda) => void
   onAnterior: () => void
   onProximo: () => void
   onHoje: () => void
   onModeloChange: (modeloId: string | null) => void
+  onTipoAtendimentoChange: (tipo: "" | "interno" | "externo") => void
   onCriar?: () => void
 }) {
   return (
@@ -60,10 +67,22 @@ export function ToolbarAgenda({
       </div>
 
       <div className="flex items-center gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-text-muted">Modelo</span>
+        <label className="flex items-center gap-2">
+          <span className="text-sm text-text-secondary">Modelo</span>
           <FiltroModelo modeloId={modeloId} onChange={onModeloChange} />
-        </div>
+        </label>
+        <label className="flex items-center gap-2">
+          <span className="text-sm text-text-secondary">Tipo</span>
+          <select
+            value={tipoAtendimento}
+            onChange={(e) => onTipoAtendimentoChange(e.target.value as "" | "interno" | "externo")}
+            className={selectClassName}
+          >
+            <option value="">Todos</option>
+            <option value="interno">Interno</option>
+            <option value="externo">Externo</option>
+          </select>
+        </label>
         <div className="mx-2 h-6 w-[1px] bg-border" />
         <Button variant="ghost" size="icon" onClick={onAnterior} aria-label="Período anterior">
           <ChevronLeft />

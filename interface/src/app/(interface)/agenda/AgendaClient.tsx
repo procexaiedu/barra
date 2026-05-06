@@ -76,11 +76,15 @@ export function AgendaClient() {
     observacao: "",
   })
   const bloqueioInicialHandled = useRef(false)
+  const [tipoAtendimento, setTipoAtendimento] = useState<"" | "interno" | "externo">("")
 
-  const bloqueios = useMemo(
-    () => [...(agenda.agenda?.bloqueios ?? [])].sort((a, b) => a.inicio.localeCompare(b.inicio)),
-    [agenda.agenda?.bloqueios]
-  )
+  const bloqueios = useMemo(() => {
+    let items = [...(agenda.agenda?.bloqueios ?? [])]
+    if (tipoAtendimento) {
+      items = items.filter((b) => b.atendimento?.tipo_atendimento === tipoAtendimento)
+    }
+    return items.sort((a, b) => a.inicio.localeCompare(b.inicio))
+  }, [agenda.agenda?.bloqueios, tipoAtendimento])
 
   // Abre dialog para deep link ?bloqueio= após primeiro carregamento
   useEffect(() => {
@@ -165,11 +169,13 @@ export function AgendaClient() {
         visao={agenda.visao}
         periodoLabel={agenda.periodo.label}
         modeloId={agenda.modeloId}
+        tipoAtendimento={tipoAtendimento}
         onVisaoChange={agenda.setVisao}
         onAnterior={agenda.anterior}
         onProximo={agenda.proximo}
         onHoje={agenda.hoje}
         onModeloChange={agenda.setModeloId}
+        onTipoAtendimentoChange={setTipoAtendimento}
         onCriar={() => abrirCriacao(proximoSlotLivre(agenda.dataSelecionada, bloqueios))}
       />
 
