@@ -1,7 +1,6 @@
 "use client"
 
 import { useRef, useMemo, useState } from "react"
-import Image from "next/image"
 import Link from "next/link"
 import { ChevronDown, FileText, ImageOff, Pencil, Plus, Trash2 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -26,6 +25,7 @@ import { HistoricoMensagens } from "@/components/atendimentos/HistoricoMensagens
 import { LinhaEvento } from "@/components/atendimentos/LinhaEvento"
 import { ResumoAtendimento } from "@/components/atendimentos/ResumoAtendimento"
 import { badgeForEstado, estadoLabel } from "@/components/atendimentos/utils"
+import { ImageLightbox } from "@/components/ui/image-lightbox"
 
 interface MidiaItem {
   id: string
@@ -299,23 +299,20 @@ function MidiasRecebidas({
       </div>
 
       {/* Viewer */}
-      <AlertDialog open={!!midiaAberta} onOpenChange={(open) => !open && setMidiaAberta(null)}>
-        <AlertDialogContent className="max-w-4xl rounded-none bg-ink-0 p-0">
-          <AlertDialogTitle className="sr-only">{midiaAberta?.nome ?? "Mídia"}</AlertDialogTitle>
-          {midiaAberta?.url && (
-            midiaAberta.tipo === "audio"
-              ? <audio controls src={midiaAberta.url} className="w-full p-4" />
-              : <Image
-                  src={midiaAberta.url}
-                  alt={midiaAberta.nome}
-                  width={1200}
-                  height={800}
-                  unoptimized
-                  className="max-h-[82vh] w-full object-contain"
-                />
-          )}
-        </AlertDialogContent>
-      </AlertDialog>
+      {midiaAberta?.url && midiaAberta.tipo === "audio" && (
+        <AlertDialog open={!!midiaAberta} onOpenChange={(open) => !open && setMidiaAberta(null)}>
+          <AlertDialogContent className="max-w-4xl rounded-none bg-ink-0 p-0">
+            <AlertDialogTitle className="sr-only">{midiaAberta.nome}</AlertDialogTitle>
+            <audio controls src={midiaAberta.url} className="w-full p-4" />
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
+      <ImageLightbox
+        open={!!midiaAberta && midiaAberta.tipo !== "audio"}
+        src={midiaAberta?.url ?? ""}
+        alt={midiaAberta?.nome ?? "Imagem"}
+        onClose={() => setMidiaAberta(null)}
+      />
 
       {/* Confirmação de deleção */}
       <AlertDialog open={!!midiaParaDeletar} onOpenChange={(open) => !open && !deleteLoading && setMidiaParaDeletar(null)}>

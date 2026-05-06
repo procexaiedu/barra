@@ -4,14 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import Image from "next/image"
 import { FileText, MessageSquareOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import {
-  AlertDialog,
-  AlertDialogContent,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { formatHorario } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { MensagemAtendimento } from "@/tipos/atendimentos"
+import { ImageLightbox } from "@/components/ui/image-lightbox"
 
 const direcaoLabel: Record<MensagemAtendimento["direcao"], string> = {
   cliente: "Cliente",
@@ -58,23 +54,12 @@ export function HistoricoMensagens({ mensagens }: { mensagens: MensagemAtendimen
         ))}
       </div>
 
-      <AlertDialog open={!!midiaAberta} onOpenChange={(open) => !open && setMidiaAberta(null)}>
-        <AlertDialogContent className="max-w-4xl rounded-none bg-ink-0 p-0">
-          <AlertDialogTitle className="sr-only">
-            {midiaAberta?.media_object_key?.split("/").pop() ?? "Imagem"}
-          </AlertDialogTitle>
-          {midiaAberta?.media_url && (
-            <Image
-              src={midiaAberta.media_url}
-              alt={midiaAberta.media_object_key ?? "imagem"}
-              width={1200}
-              height={800}
-              unoptimized
-              className="max-h-[82vh] w-full object-contain"
-            />
-          )}
-        </AlertDialogContent>
-      </AlertDialog>
+      <ImageLightbox
+        open={!!midiaAberta && !!midiaAberta.media_url}
+        src={midiaAberta?.media_url ?? ""}
+        alt={midiaAberta?.media_object_key?.split("/").pop() ?? "Imagem"}
+        onClose={() => setMidiaAberta(null)}
+      />
     </>
   )
 }
