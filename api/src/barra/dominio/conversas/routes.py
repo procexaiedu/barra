@@ -1,4 +1,5 @@
-from typing import Any
+import json
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -21,6 +22,7 @@ async def listar_conversas(
     motivo_perda: str | None = None,
     periodo: str | None = None,
     q: str | None = None,
+    ordenar_por: Literal["recente", "inatividade"] = "recente",
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = None,
 ) -> dict[str, Any]:
@@ -45,9 +47,26 @@ async def listar_conversas(
         filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
     if cursor:
-        filtros.append("cv.ultima_mensagem_em < %s::timestamptz")
-        params.append(cursor)
+        if ordenar_por == "inatividade":
+            c = json.loads(cursor)
+            cursor_id, cursor_ts = c["id"], c["ts"]
+            if cursor_ts is None:
+                filtros.append("(ufem.ts IS NULL AND cv.id > %s::uuid OR ufem.ts IS NOT NULL)")
+                params.append(cursor_id)
+            else:
+                filtros.append(
+                    "(ufem.ts > %s::timestamptz OR (ufem.ts = %s::timestamptz AND cv.id > %s::uuid))"
+                )
+                params.extend([cursor_ts, cursor_ts, cursor_id])
+        else:
+            filtros.append("cv.ultima_mensagem_em < %s::timestamptz")
+            params.append(cursor)
     params.append(limit + 1)
+    order_clause = (
+        "ufem.ts ASC NULLS FIRST, cv.id ASC"
+        if ordenar_por == "inatividade"
+        else "cv.ultima_mensagem_em DESC NULLS LAST, cv.created_at DESC"
+    )
     result = await conn.execute(
         f"""
         SELECT
@@ -63,7 +82,8 @@ async def listar_conversas(
             SELECT 1 FROM barravips.atendimentos ab
              WHERE ab.conversa_id = cv.id
                AND ab.estado NOT IN ('Fechado', 'Perdido')
-          ) AS tem_atendimento_aberto
+          ) AS tem_atendimento_aberto,
+          ufem.ts AS ultimo_fechamento_em
         FROM barravips.conversas cv
         JOIN barravips.clientes c ON c.id = cv.cliente_id
         JOIN barravips.modelos m ON m.id = cv.modelo_id
@@ -75,18 +95,30 @@ async def listar_conversas(
            ORDER BY a.created_at DESC
            LIMIT 1
         ) ult ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT MAX(a.updated_at) AS ts
+          FROM barravips.atendimentos a
+          WHERE a.conversa_id = cv.id AND a.estado = 'Fechado'
+        ) ufem ON TRUE
         WHERE {" AND ".join(filtros)}
-        ORDER BY cv.ultima_mensagem_em DESC NULLS LAST, cv.created_at DESC
+        ORDER BY {order_clause}
         LIMIT %s
         """,
         params,
     )
     rows = list(await result.fetchall())
-    next_cursor = (
-        rows[limit - 1]["ultima_mensagem_em"].isoformat()
-        if len(rows) > limit and rows[limit - 1]["ultima_mensagem_em"] is not None
-        else None
-    )
+    if len(rows) > limit:
+        last = rows[limit - 1]
+        if ordenar_por == "inatividade":
+            ts = last["ultimo_fechamento_em"]
+            next_cursor: str | None = json.dumps(
+                {"ts": ts.isoformat() if ts else None, "id": str(last["id"])}
+            )
+        else:
+            ts = last["ultima_mensagem_em"]
+            next_cursor = ts.isoformat() if ts is not None else None
+    else:
+        next_cursor = None
     rows = rows[:limit]
     items = [
         {
@@ -111,6 +143,7 @@ async def listar_conversas(
                 "motivo_perda": row["ult_motivo_perda"],
             },
             "tem_atendimento_aberto": row["tem_atendimento_aberto"],
+            "ultimo_fechamento_em": row["ultimo_fechamento_em"],
             "created_at": row["created_at"],
         }
         for row in rows
@@ -175,6 +208,85 @@ async def obter_conversa(
         (conversa_id,),
     )
 
+    modelo_preferida = await _one(
+        conn,
+        """
+        SELECT m.id, m.nome
+        FROM barravips.atendimentos a
+        JOIN barravips.conversas cv ON cv.id = a.conversa_id
+        JOIN barravips.modelos m ON m.id = cv.modelo_id
+        WHERE cv.cliente_id = %s AND a.estado = 'Fechado'
+        GROUP BY m.id, m.nome
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
+        """,
+        (conversa["cliente_id"],),
+    )
+
+    tipo_atendimento_row = await _one(
+        conn,
+        """
+        SELECT a.tipo_atendimento::text AS tipo_atendimento
+        FROM barravips.atendimentos a
+        JOIN barravips.conversas cv ON cv.id = a.conversa_id
+        WHERE cv.cliente_id = %s
+          AND a.estado = 'Fechado'
+          AND a.tipo_atendimento IS NOT NULL
+        GROUP BY a.tipo_atendimento
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
+        """,
+        (conversa["cliente_id"],),
+    )
+
+    programa_preferido = await _one(
+        conn,
+        """
+        SELECT p.id, p.nome
+        FROM barravips.atendimento_servicos ats
+        JOIN barravips.atendimentos a ON a.id = ats.atendimento_id
+        JOIN barravips.conversas cv ON cv.id = a.conversa_id
+        JOIN barravips.programas p ON p.id = ats.programa_id
+        WHERE cv.cliente_id = %s AND a.estado = 'Fechado'
+        GROUP BY p.id, p.nome
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
+        """,
+        (conversa["cliente_id"],),
+    )
+
+    duracao_preferida = await _one(
+        conn,
+        """
+        SELECT d.id, d.nome
+        FROM barravips.atendimento_servicos ats
+        JOIN barravips.atendimentos a ON a.id = ats.atendimento_id
+        JOIN barravips.conversas cv ON cv.id = a.conversa_id
+        JOIN barravips.duracoes d ON d.id = ats.duracao_id
+        WHERE cv.cliente_id = %s AND a.estado = 'Fechado'
+        GROUP BY d.id, d.nome
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
+        """,
+        (conversa["cliente_id"],),
+    )
+
+    forma_pagamento_row = await _one(
+        conn,
+        """
+        SELECT a.forma_pagamento::text AS forma_pagamento
+        FROM barravips.atendimentos a
+        JOIN barravips.conversas cv ON cv.id = a.conversa_id
+        WHERE cv.cliente_id = %s
+          AND a.estado = 'Fechado'
+          AND a.forma_pagamento IS NOT NULL
+        GROUP BY a.forma_pagamento
+        ORDER BY COUNT(*) DESC
+        LIMIT 1
+        """,
+        (conversa["cliente_id"],),
+    )
+
     return {
         "conversa": {
             "id": conversa["id"],
@@ -191,6 +303,21 @@ async def obter_conversa(
             "telefone": conversa["cliente_telefone"],
             "primeiro_contato_modelo_nome": conversa["primeiro_contato_modelo_nome"],
             "created_at": conversa["cliente_created_at"],
+            "modelo_preferida": None
+            if modelo_preferida is None
+            else {"id": modelo_preferida["id"], "nome": modelo_preferida["nome"]},
+            "tipo_atendimento_mais_frequente": tipo_atendimento_row["tipo_atendimento"]
+            if tipo_atendimento_row
+            else None,
+            "programa_preferido": None
+            if programa_preferido is None
+            else {"id": programa_preferido["id"], "nome": programa_preferido["nome"]},
+            "duracao_preferida": None
+            if duracao_preferida is None
+            else {"id": duracao_preferida["id"], "nome": duracao_preferida["nome"]},
+            "forma_pagamento_preferida": forma_pagamento_row["forma_pagamento"]
+            if forma_pagamento_row
+            else None,
         },
         "modelo": {"id": conversa["modelo_id"], "nome": conversa["modelo_nome"]},
         "atendimento_aberto": None if aberto is None else aberto,

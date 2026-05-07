@@ -22,6 +22,7 @@ import { useClientes } from "@/hooks/useClientes"
 import { ApiError } from "@/lib/api"
 import type {
   FiltroMotivoPerda,
+  FiltroOrdem,
   FiltroPeriodo,
   FiltroRecorrencia,
   ModeloResumo,
@@ -73,6 +74,7 @@ export default function Clientes() {
         motivoPerda={crm.filtros.motivoPerda}
         periodo={crm.filtros.periodo}
         modeloId={crm.filtros.modeloId}
+        ordenarPor={crm.filtros.ordenarPor}
         modelos={crm.modelos}
         loading={crm.listaStatus === "loading"}
         onBuscaChange={(busca) => crm.setFiltros((current) => ({ ...current, busca }))}
@@ -84,6 +86,7 @@ export default function Clientes() {
         }
         onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
         onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
+        onOrdemChange={(ordenarPor) => crm.setFiltros((current) => ({ ...current, ordenarPor }))}
       />
 
       <div className="grid h-[calc(100vh-240px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
@@ -94,6 +97,7 @@ export default function Clientes() {
           error={crm.listaError}
           filtrosAplicados={crm.filtrosAplicados}
           nextCursor={crm.nextCursor}
+          ordenarPor={crm.filtros.ordenarPor}
           onSelect={handleSelecionar}
           onRetry={crm.refetch}
           onCarregarMais={crm.carregarMais}
@@ -117,6 +121,7 @@ function Toolbar({
   motivoPerda,
   periodo,
   modeloId,
+  ordenarPor,
   modelos,
   loading,
   onBuscaChange,
@@ -124,12 +129,14 @@ function Toolbar({
   onMotivoPerdaChange,
   onPeriodoChange,
   onModeloChange,
+  onOrdemChange,
 }: {
   busca: string
   recorrencia: FiltroRecorrencia
   motivoPerda: FiltroMotivoPerda
   periodo: FiltroPeriodo
   modeloId: string
+  ordenarPor: FiltroOrdem
   modelos: ModeloResumo[]
   loading: boolean
   onBuscaChange: (value: string) => void
@@ -137,18 +144,19 @@ function Toolbar({
   onMotivoPerdaChange: (value: FiltroMotivoPerda) => void
   onPeriodoChange: (value: FiltroPeriodo) => void
   onModeloChange: (value: string) => void
+  onOrdemChange: (value: FiltroOrdem) => void
 }) {
   if (loading) {
     return (
-      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_180px_140px_180px] gap-3">
-        {Array.from({ length: 5 }).map((_, index) => (
+      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_180px_140px_180px_160px] gap-3">
+        {Array.from({ length: 6 }).map((_, index) => (
           <Skeleton key={index} className="h-14 rounded-lg" />
         ))}
       </div>
     )
   }
   return (
-    <div className="grid grid-cols-[minmax(260px,1fr)_140px_180px_140px_180px] gap-3">
+    <div className="grid grid-cols-[minmax(260px,1fr)_140px_180px_140px_180px_160px] gap-3">
       <div className="flex flex-col gap-1">
         <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">Buscar</span>
         <label className="relative">
@@ -210,6 +218,14 @@ function Toolbar({
             {modelo.nome}
           </option>
         ))}
+      </SelectFiltro>
+      <SelectFiltro
+        label="Ordenar por"
+        value={ordenarPor}
+        onChange={(value) => onOrdemChange(value as FiltroOrdem)}
+      >
+        <option value="recente">Mais recente</option>
+        <option value="inatividade">Sem fechar há mais tempo</option>
       </SelectFiltro>
     </div>
   )

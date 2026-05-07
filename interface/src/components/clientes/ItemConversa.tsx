@@ -4,21 +4,35 @@ import type { KeyboardEvent } from "react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { formatTelefone, formatTempoRelativo } from "@/lib/formatters"
-import type { ConversaListaItem } from "@/tipos/clientes"
+import type { ConversaListaItem, EstadoAtendimento, FiltroOrdem } from "@/tipos/clientes"
 import { estadoAtendimentoLabel, motivoPerdaLabel } from "@/components/clientes/utils"
+
+const ESTADOS_ATIVOS = new Set<EstadoAtendimento>([
+  "Novo", "Triagem", "Qualificado", "Aguardando_confirmacao", "Confirmado", "Em_execucao",
+])
 
 export function ItemConversa({
   item,
   selected,
+  ordenarPor,
   onSelect,
 }: {
   item: ConversaListaItem
   selected: boolean
+  ordenarPor: FiltroOrdem
   onSelect: (id: string) => void
 }) {
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
   const refTempo = item.ultima_mensagem_em ?? item.created_at
   const ultimo = item.ultimo_atendimento
+
+  const diasSemFechar = item.ultimo_fechamento_em
+    ? Math.floor((Date.now() - new Date(item.ultimo_fechamento_em).getTime()) / 86_400_000)
+    : null
+  const ultimoAtivo = ultimo ? ESTADOS_ATIVOS.has(ultimo.estado) : false
+  const mostrarInatividade =
+    diasSemFechar !== null && diasSemFechar >= 30 && !item.tem_atendimento_aberto && !ultimoAtivo
+  const mostrarNuncaFechou = item.ultimo_fechamento_em === null && ordenarPor === "inatividade"
 
   const linhaModelo = [
     item.modelo.nome,
@@ -66,6 +80,12 @@ export function ItemConversa({
       <div className="mt-1 flex items-center gap-2">
         {item.recorrente && (
           <Badge variant="paused" className="shrink-0">Recorrente</Badge>
+        )}
+        {mostrarInatividade && (
+          <span className="shrink-0 text-xs text-amber-400">há {diasSemFechar}d sem fechar</span>
+        )}
+        {mostrarNuncaFechou && (
+          <span className="shrink-0 text-xs text-text-muted">nunca fechou</span>
         )}
         {linhaModelo && (
           <p className="truncate text-xs text-text-muted">{linhaModelo}</p>

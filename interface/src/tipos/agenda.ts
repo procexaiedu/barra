@@ -53,6 +53,7 @@ export interface AtualizarBloqueioInput {
   inicio: string
   fim: string
   observacao: string | null
+  atendimento_id?: string | null
 }
 
 export interface BloqueioFormState {

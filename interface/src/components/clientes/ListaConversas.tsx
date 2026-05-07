@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { ItemConversa } from "@/components/clientes/ItemConversa"
-import type { ConversaListaItem } from "@/tipos/clientes"
+import type { ConversaListaItem, FiltroOrdem } from "@/tipos/clientes"
 
 export function ListaConversas({
   items,
@@ -14,6 +14,7 @@ export function ListaConversas({
   error,
   filtrosAplicados,
   nextCursor,
+  ordenarPor,
   onSelect,
   onRetry,
   onCarregarMais,
@@ -24,6 +25,7 @@ export function ListaConversas({
   error: string | null
   filtrosAplicados: boolean
   nextCursor: string | null
+  ordenarPor: FiltroOrdem
   onSelect: (id: string) => void
   onRetry: () => void
   onCarregarMais: () => void
@@ -50,6 +52,7 @@ export function ListaConversas({
                 key={item.id}
                 item={item}
                 selected={item.id === selectedId}
+                ordenarPor={ordenarPor}
                 onSelect={onSelect}
               />
             ))}

@@ -9,6 +9,7 @@ import type {
   ConversaDetalheResponse,
   ConversaListaItem,
   ConversasListaResponse,
+  FiltroOrdem,
   FiltrosClientes,
   ModeloResumo,
 } from "@/tipos/clientes"
@@ -21,6 +22,7 @@ const filtrosIniciais: FiltrosClientes = {
   motivoPerda: "todos",
   periodo: "todos",
   modeloId: "todas",
+  ordenarPor: "recente",
 }
 
 function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
@@ -32,6 +34,7 @@ function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   if (filtros.motivoPerda !== "todos") params.set("motivo_perda", filtros.motivoPerda)
   if (filtros.periodo !== "todos") params.set("periodo", filtros.periodo)
   if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
+  if (filtros.ordenarPor === "inatividade") params.set("ordenar_por", "inatividade")
   if (cursor) params.set("cursor", cursor)
   return `/v1/crm/conversas?${params.toString()}`
 }
@@ -78,7 +81,8 @@ export function useClientes() {
     filtrosEfetivos.recorrencia !== "todas" ||
     filtrosEfetivos.motivoPerda !== "todos" ||
     filtrosEfetivos.periodo !== "todos" ||
-    filtrosEfetivos.modeloId !== "todas"
+    filtrosEfetivos.modeloId !== "todas" ||
+    filtrosEfetivos.ordenarPor !== "recente"
 
   const aplicarDetalhe = useCallback(
     (res: ConversaDetalheResponse) => {

@@ -42,6 +42,45 @@ const estadoLabel: Record<EstadoBloqueio, string> = {
   cancelado: "Cancelado",
 }
 
+const DURACOES = [
+  { min: 30, label: "30min" },
+  { min: 60, label: "1h" },
+  { min: 90, label: "1h30" },
+  { min: 120, label: "2h" },
+  { min: 150, label: "2h30" },
+  { min: 180, label: "3h" },
+  { min: 210, label: "3h30" },
+  { min: 240, label: "4h" },
+  { min: 270, label: "4h30" },
+  { min: 300, label: "5h" },
+  { min: 360, label: "6h" },
+]
+
+function duracaoLabel(min: number): string {
+  const h = Math.floor(min / 60)
+  const m = min % 60
+  return m === 0 ? `${h}h` : `${h}h${String(m).padStart(2, "0")}`
+}
+
+function calcDuracaoMin(inicio: string, fim: string): number {
+  const [h1, m1] = inicio.split(":").map(Number)
+  const [h2, m2] = fim === "24:00" ? [24, 0] : fim.split(":").map(Number)
+  let total = h2 * 60 + m2 - (h1 * 60 + m1)
+  if (total <= 0) total += 24 * 60
+  return total
+}
+
+function calcFimDeDuracao(inicio: string, min: number): string {
+  const [h, m] = inicio.split(":").map(Number)
+  const totalMin = h * 60 + m + min
+  if (totalMin >= 24 * 60) {
+    const over = totalMin - 24 * 60
+    if (over === 0) return "24:00"
+    return `${String(Math.floor(over / 60)).padStart(2, "0")}:${String(over % 60).padStart(2, "0")}`
+  }
+  return `${String(Math.floor(totalMin / 60)).padStart(2, "0")}:${String(totalMin % 60).padStart(2, "0")}`
+}
+
 function parseDecimal(input: string): number | null {
   const normalizado = input.replace(/\s/g, "").replace(/\./g, "").replace(",", ".")
   const valor = Number(normalizado)
@@ -63,18 +102,6 @@ const horarios = [
   "24:00",
 ]
 
-function calcDuracao(inicio: string, fim: string): string | null {
-  const [h1, m1] = inicio.split(":").map(Number)
-  const [h2, m2] = fim === "24:00" ? [24, 0] : fim.split(":").map(Number)
-  let totalMin = h2 * 60 + m2 - (h1 * 60 + m1)
-  if (totalMin === 0) return null
-  if (totalMin < 0) totalMin += 24 * 60
-  const horas = Math.floor(totalMin / 60)
-  const mins = totalMin % 60
-  if (mins === 0) return `${horas}h`
-  return `${horas}h${String(mins).padStart(2, "0")}`
-}
-
 function formFromBloqueio(bloqueio: BloqueioAgenda): BloqueioFormState {
   const inicioData = bloqueio.inicio.slice(0, 10)
   const fimData = bloqueio.fim.slice(0, 10)
@@ -82,6 +109,7 @@ function formFromBloqueio(bloqueio: BloqueioAgenda): BloqueioFormState {
     ? "24:00"
     : bloqueio.fim.slice(11, 16)
   return {
+    modelo_id: bloqueio.modelo_id,
     data: inicioData,
     inicio: bloqueio.inicio.slice(11, 16),
     fim: fimHorario,
@@ -110,7 +138,7 @@ export function DialogBloqueio({
   bloqueios: BloqueioAgenda[]
   onClose: () => void
   onCriar: (form: BloqueioFormState) => Promise<void>
-  onAtualizar: (id: string, form: BloqueioFormState) => Promise<void>
+  onAtualizar: (id: string, form: BloqueioFormState, atendimentoId?: string | null) => Promise<void>
   onCancelar: (id: string, confirmar: boolean) => Promise<void>
 }) {
   const [form, setForm] = useState(() => bloqueio ? formFromBloqueio(bloqueio) : initial)
@@ -121,14 +149,20 @@ export function DialogBloqueio({
     bloqueio?.atendimento_id ? "agendamento" : "bloqueio"
   )
 
+  const [duracaoMin, setDuracaoMin] = useState(() => {
+    const f = bloqueio ? formFromBloqueio(bloqueio) : initial
+    return calcDuracaoMin(f.inicio, f.fim)
+  })
+
+  // null = sem mudança, { id: string } = novo, { id: null } = desvinculado
+  const [atendimentoEdit, setAtendimentoEdit] = useState<{ id: string | null } | null>(null)
+
   const [busca, setBusca] = useState("")
   const [resultadosBusca, setResultadosBusca] = useState<AtendimentoListaItem[]>([])
   const [buscaAberta, setBuscaAberta] = useState(false)
   const [buscando, setBuscando] = useState(false)
   const [atendimentoSelecionado, setAtendimentoSelecionado] = useState<AtendimentoListaItem | null>(null)
   const buscaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const formRef = useRef(form)
-  formRef.current = form
 
   const [confirmConverterOpen, setConfirmConverterOpen] = useState(false)
   const [confirmPerderOpen, setConfirmPerderOpen] = useState(false)
@@ -174,23 +208,41 @@ export function DialogBloqueio({
     Boolean(bloqueio?.atendimento_id) &&
     bloqueio?.estado === "em_atendimento"
 
-  const atendimentoDisplay = editando
-    ? bloqueio?.atendimento
-    : atendimentoSelecionado
-      ? {
-          numero_curto: atendimentoSelecionado.numero_curto,
-          cliente_nome: atendimentoSelecionado.cliente.nome,
-          cliente_telefone_formatado: atendimentoSelecionado.cliente.telefone,
-          estado: atendimentoSelecionado.estado,
-          tipo_atendimento: atendimentoSelecionado.tipo_atendimento as string | null,
-          valor_acordado: atendimentoSelecionado.valor_acordado as string | number | null,
-          endereco: null as string | null,
-          bairro: null as string | null,
-          data_desejada: null as string | null,
-          horario_desejado: null as string | null,
-        }
-      : null
+  // Resolve o atendimento a exibir no card
+  const atendimentoDisplay = (() => {
+    if (editando) {
+      if (atendimentoEdit === null) return bloqueio?.atendimento ?? null
+      if (atendimentoEdit.id === null) return null
+      if (!atendimentoSelecionado) return null
+      return {
+        numero_curto: atendimentoSelecionado.numero_curto,
+        cliente_nome: atendimentoSelecionado.cliente.nome,
+        cliente_telefone_formatado: atendimentoSelecionado.cliente.telefone,
+        estado: atendimentoSelecionado.estado,
+        tipo_atendimento: atendimentoSelecionado.tipo_atendimento as string | null,
+        valor_acordado: atendimentoSelecionado.valor_acordado as string | number | null,
+        endereco: null as string | null,
+        bairro: null as string | null,
+        data_desejada: null as string | null,
+        horario_desejado: null as string | null,
+      }
+    }
+    if (!atendimentoSelecionado) return null
+    return {
+      numero_curto: atendimentoSelecionado.numero_curto,
+      cliente_nome: atendimentoSelecionado.cliente.nome,
+      cliente_telefone_formatado: atendimentoSelecionado.cliente.telefone,
+      estado: atendimentoSelecionado.estado,
+      tipo_atendimento: atendimentoSelecionado.tipo_atendimento as string | null,
+      valor_acordado: atendimentoSelecionado.valor_acordado as string | number | null,
+      endereco: null as string | null,
+      bairro: null as string | null,
+      data_desejada: null as string | null,
+      horario_desejado: null as string | null,
+    }
+  })()
 
+  const modeloIdForm = form.modelo_id
   const buscarAtendimentos = useCallback(async (texto: string) => {
     if (!texto.trim()) {
       setResultadosBusca([])
@@ -199,7 +251,7 @@ export function DialogBloqueio({
     }
     setBuscando(true)
     try {
-      const modeloIdBusca = modeloId ?? formRef.current.modelo_id
+      const modeloIdBusca = modeloId ?? modeloIdForm
       const searchParams: Record<string, string> = { q: texto }
       if (modeloIdBusca) searchParams.modelo_id = modeloIdBusca
       const params = new URLSearchParams(searchParams)
@@ -212,7 +264,7 @@ export function DialogBloqueio({
     } finally {
       setBuscando(false)
     }
-  }, [modeloId])
+  }, [modeloId, modeloIdForm])
 
   const handleBuscaChange = (texto: string) => {
     setBusca(texto)
@@ -226,6 +278,7 @@ export function DialogBloqueio({
     setResultadosBusca([])
     setBuscaAberta(false)
     setForm((f) => ({ ...f, atendimento_id: item.id }))
+    if (editando) setAtendimentoEdit({ id: item.id })
   }
 
   const limparAtendimento = () => {
@@ -236,12 +289,41 @@ export function DialogBloqueio({
     setForm((f) => ({ ...f, atendimento_id: undefined }))
   }
 
+  const limparBusca = () => {
+    setBusca("")
+    setResultadosBusca([])
+    setBuscaAberta(false)
+  }
+
+  const desvincularAtendimento = () => {
+    setAtendimentoSelecionado(null)
+    setBusca("")
+    setResultadosBusca([])
+    setBuscaAberta(false)
+    setForm((f) => ({ ...f, atendimento_id: undefined }))
+    setAtendimentoEdit({ id: null })
+  }
+
+  const handleInicioChange = (inicio: string) => {
+    const novoFim = calcFimDeDuracao(inicio, duracaoMin)
+    setForm((atual) => ({ ...atual, inicio, fim: novoFim }))
+  }
+
+  const handleDuracaoChange = (min: number) => {
+    setDuracaoMin(min)
+    setForm((atual) => ({ ...atual, fim: calcFimDeDuracao(atual.inicio, min) }))
+  }
+
   const submit = async () => {
     if (!podeSalvar) return
     setSubmitting(true)
     try {
-      if (bloqueio) await onAtualizar(bloqueio.id, form)
-      else await onCriar(form)
+      if (bloqueio) {
+        const atId = atendimentoEdit !== null ? atendimentoEdit.id : undefined
+        await onAtualizar(bloqueio.id, form, atId)
+      } else {
+        await onCriar(form)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -299,6 +381,11 @@ export function DialogBloqueio({
   const titulo = editando
     ? bloqueio?.atendimento_id ? "Editar agendamento" : "Editar bloqueio"
     : tipo === "agendamento" ? "Criar agendamento" : "Criar bloqueio"
+
+  // Duração atual pode não estar na lista predefinida (ex.: bloqueio de 45min)
+  const opcoesDuracao = DURACOES.some((d) => d.min === duracaoMin)
+    ? DURACOES
+    : [{ min: duracaoMin, label: duracaoLabel(duracaoMin) }, ...DURACOES]
 
   return (
     <>
@@ -397,60 +484,64 @@ export function DialogBloqueio({
               </div>
             )}
 
-            {/* Busca de atendimento: só na criação de agendamento */}
-            {!editando && tipo === "agendamento" && (
+            {/* Busca de atendimento: criação (agendamento) ou edição (qualquer estado editável) */}
+            {((!editando && tipo === "agendamento") || (editando && !readOnly)) && (
               <div className="relative col-span-3">
-                <Label htmlFor="busca-atendimento">Atendimento</Label>
-                <div className="relative mt-2">
-                  <Input
-                    id="busca-atendimento"
-                    value={busca}
-                    onChange={(e) => handleBuscaChange(e.target.value)}
-                    placeholder="Nome, número ou #ID do atendimento..."
-                    className="h-10 border-ink-400 pr-8"
-                    autoComplete="off"
-                  />
-                  {buscando && (
-                    <Loader2 size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-text-muted" />
-                  )}
-                  {busca && !buscando && (
-                    <button
-                      type="button"
-                      onClick={limparAtendimento}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
-                      aria-label="Limpar seleção"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
-                </div>
-                {buscaAberta && resultadosBusca.length > 0 && (
-                  <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-ink-400 bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
-                    {resultadosBusca.map((item) => (
-                      <button
-                        key={item.id}
-                        type="button"
-                        onClick={() => selecionarAtendimento(item)}
-                        className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-ink-200 border-b border-border last:border-0"
-                      >
-                        <span className="font-mono text-xs text-text-muted">#{item.numero_curto}</span>
-                        <span className="flex-1 truncate font-medium text-text-primary">
-                          {item.cliente.nome ?? item.cliente.telefone}
-                        </span>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {item.tipo_atendimento && (
-                            <span className="rounded-full bg-ink-300 px-1.5 py-0.5 text-xs text-text-muted">
-                              {item.tipo_atendimento === "interno" ? "Int" : "Ext"}
-                            </span>
-                          )}
-                          <span className="text-xs text-text-muted">{formatRotulo(item.estado)}</span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+                {(!editando || atendimentoDisplay === null) && (
+                  <Label htmlFor="busca-atendimento">Atendimento</Label>
                 )}
-                {buscaAberta && resultadosBusca.length === 0 && !buscando && busca.trim() && (
-                  <p className="mt-1 text-xs text-text-muted">Nenhum atendimento encontrado.</p>
+                {atendimentoDisplay === null && (
+                  <div className="relative mt-2">
+                    <Input
+                      id="busca-atendimento"
+                      value={busca}
+                      onChange={(e) => handleBuscaChange(e.target.value)}
+                      placeholder="Nome, número ou #ID do atendimento..."
+                      className="h-10 border-ink-400 pr-8"
+                      autoComplete="off"
+                    />
+                    {buscando && (
+                      <Loader2 size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-text-muted" />
+                    )}
+                    {busca && !buscando && (
+                      <button
+                        type="button"
+                        onClick={editando ? limparBusca : limparAtendimento}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-primary"
+                        aria-label="Limpar busca"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                    {buscaAberta && resultadosBusca.length > 0 && (
+                      <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-ink-400 bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
+                        {resultadosBusca.map((item) => (
+                          <button
+                            key={item.id}
+                            type="button"
+                            onClick={() => selecionarAtendimento(item)}
+                            className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-ink-200 border-b border-border last:border-0"
+                          >
+                            <span className="font-mono text-xs text-text-muted">#{item.numero_curto}</span>
+                            <span className="flex-1 truncate font-medium text-text-primary">
+                              {item.cliente.nome ?? item.cliente.telefone}
+                            </span>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {item.tipo_atendimento && (
+                                <span className="rounded-full bg-ink-300 px-1.5 py-0.5 text-xs text-text-muted">
+                                  {item.tipo_atendimento === "interno" ? "Int" : "Ext"}
+                                </span>
+                              )}
+                              <span className="text-xs text-text-muted">{formatRotulo(item.estado)}</span>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {buscaAberta && resultadosBusca.length === 0 && !buscando && busca.trim() && (
+                      <p className="mt-1 text-xs text-text-muted">Nenhum atendimento encontrado.</p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -472,6 +563,16 @@ export function DialogBloqueio({
                       </span>
                     )}
                     <span className="text-xs text-text-muted">{formatRotulo(atendimentoDisplay.estado)}</span>
+                    {editando && !readOnly && (
+                      <button
+                        type="button"
+                        onClick={desvincularAtendimento}
+                        className="ml-1 rounded-md p-1 text-text-muted hover:bg-muted hover:text-text-primary"
+                        title="Desvincular atendimento"
+                      >
+                        <X size={13} strokeWidth={1.5} />
+                      </button>
+                    )}
                   </div>
                 </div>
                 <div className="space-y-1.5 px-3 py-3 text-sm">
@@ -496,6 +597,18 @@ export function DialogBloqueio({
                     </span>
                   </div>
                 </div>
+                {/* Botão alterar atendimento em edit mode */}
+                {editando && !readOnly && (
+                  <div className="border-t border-border px-3 py-2">
+                    <button
+                      type="button"
+                      onClick={() => { desvincularAtendimento() }}
+                      className="text-xs text-text-muted hover:text-text-primary underline-offset-2 hover:underline"
+                    >
+                      Alterar atendimento
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
@@ -522,19 +635,22 @@ export function DialogBloqueio({
               label="Início"
               value={form.inicio}
               disabled={readOnly}
-              onChange={(inicio) => setForm((atual) => ({ ...atual, inicio }))}
+              onChange={handleInicioChange}
             />
-            <CampoHorario
-              id="agenda-fim"
-              label="Fim"
-              value={form.fim}
+            <CampoDuracao
+              id="agenda-duracao"
+              value={duracaoMin}
+              opcoes={opcoesDuracao}
               disabled={readOnly}
-              onChange={(fim) => setForm((atual) => ({ ...atual, fim }))}
+              onChange={handleDuracaoChange}
             />
             <div>
-              <Label>Duração</Label>
-              <div className="mt-2 flex h-10 items-center text-sm text-text-muted">
-                {calcDuracao(form.inicio, form.fim) ?? "—"}
+              <Label>Fim</Label>
+              <div className="mt-2 flex h-10 items-center gap-1.5 text-sm text-text-primary">
+                {form.fim}
+                {overnight && (
+                  <span className="text-xs text-text-muted">(próx. dia)</span>
+                )}
               </div>
             </div>
 
@@ -739,6 +855,39 @@ function CampoHorario({
         {horarios.map((hora) => (
           <option key={hora} value={hora}>
             {hora}
+          </option>
+        ))}
+      </select>
+    </div>
+  )
+}
+
+function CampoDuracao({
+  id,
+  value,
+  opcoes,
+  disabled,
+  onChange,
+}: {
+  id: string
+  value: number
+  opcoes: { min: number; label: string }[]
+  disabled: boolean
+  onChange: (min: number) => void
+}) {
+  return (
+    <div>
+      <Label htmlFor={id}>Duração</Label>
+      <select
+        id={id}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(Number(event.target.value))}
+        className="mt-2 h-10 w-full rounded-lg border border-ink-400 bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+      >
+        {opcoes.map((d) => (
+          <option key={d.min} value={d.min}>
+            {d.label}
           </option>
         ))}
       </select>

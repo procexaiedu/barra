@@ -25,6 +25,7 @@ export type FiltroRecorrencia = "todas" | "novas" | "recorrentes"
 export type FiltroPeriodo = "todos" | "7d" | "30d" | "90d"
 export type FiltroMotivoPerda = "todos" | MotivoPerda
 export type FiltroModelo = "todas" | string
+export type FiltroOrdem = "recente" | "inatividade"
 
 export interface ClienteResumo {
   id: string
@@ -55,6 +56,7 @@ export interface ConversaListaItem {
   ultimo_motivo_perda: MotivoPerda | null
   ultimo_atendimento: UltimoAtendimentoResumo | null
   tem_atendimento_aberto: boolean
+  ultimo_fechamento_em: string | null
   created_at: string
 }
 
@@ -63,12 +65,19 @@ export interface ConversasListaResponse {
   next_cursor: string | null
 }
 
+export type FormaPagamento = "pix" | "dinheiro" | "outro"
+
 export interface ClienteDetalhe {
   id: string
   nome: string | null
   telefone: string
   primeiro_contato_modelo_nome: string | null
   created_at: string
+  modelo_preferida: ModeloResumo | null
+  tipo_atendimento_mais_frequente: "interno" | "externo" | null
+  programa_preferido: { id: string; nome: string } | null
+  duracao_preferida: { id: string; nome: string } | null
+  forma_pagamento_preferida: FormaPagamento | null
 }
 
 export interface AtendimentoAberto {
@@ -115,4 +124,5 @@ export interface FiltrosClientes {
   motivoPerda: FiltroMotivoPerda
   periodo: FiltroPeriodo
   modeloId: FiltroModelo
+  ordenarPor: FiltroOrdem
 }

@@ -11,7 +11,7 @@ import { ToolbarAgenda } from "@/components/agenda/ToolbarAgenda"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
 import { dataDeInput, dataInput, dataInputSaoPaulo, isoAgenda, useAgenda } from "@/hooks/useAgenda"
-import type { BloqueioAgenda, BloqueioFormState } from "@/tipos/agenda"
+import type { AtualizarBloqueioInput, BloqueioAgenda, BloqueioFormState } from "@/tipos/agenda"
 
 function fimIsoOvernight(data: string, inicio: string, fim: string): string {
   if (fim !== "24:00" && fim < inicio) {
@@ -125,13 +125,15 @@ export function AgendaClient() {
     }
   }
 
-  const atualizar = async (id: string, form: BloqueioFormState) => {
+  const atualizar = async (id: string, form: BloqueioFormState, atendimentoId?: string | null) => {
     try {
-      await agenda.atualizarBloqueio(id, {
+      const payload: AtualizarBloqueioInput = {
         inicio: isoAgenda(form.data, form.inicio),
         fim: fimIsoOvernight(form.data, form.inicio, form.fim),
         observacao: form.observacao.trim() || null,
-      })
+      }
+      if (atendimentoId !== undefined) payload.atendimento_id = atendimentoId
+      await agenda.atualizarBloqueio(id, payload)
       toast.success("Bloqueio atualizado")
       setDialog({ aberto: false, bloqueio: null })
     } catch (e) {

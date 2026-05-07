@@ -22,6 +22,7 @@ class BloqueioPatch(BaseModel):
     inicio: datetime | None = None
     fim: datetime | None = None
     observacao: str | None = None
+    atendimento_id: UUID | None = None
     confirmar_edicao_vinculada: bool = False
 
 

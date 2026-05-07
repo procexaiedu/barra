@@ -122,16 +122,30 @@ async def editar_bloqueio(
     fim = body.fim or atual["fim"]
     if inicio >= fim:
         raise EntradaInvalida("INTERVALO_INVALIDO", "Inicio deve ser anterior ao fim.")
+
+    sets = ["inicio = %s", "fim = %s", "observacao = COALESCE(%s, observacao)"]
+    params: list[Any] = [inicio, fim, body.observacao]
+
+    if "atendimento_id" in body.model_fields_set:
+        if body.atendimento_id is not None:
+            res = await conn.execute(
+                "SELECT modelo_id FROM barravips.atendimentos WHERE id = %s",
+                (body.atendimento_id,),
+            )
+            at_row = await res.fetchone()
+            if at_row is None:
+                raise NaoEncontrado("Atendimento")
+            if str(at_row["modelo_id"]) != str(atual["modelo_id"]):
+                raise ConflitoEstado("atendimento_nao_pertence_ao_modelo")
+        sets.append("atendimento_id = %s")
+        params.append(body.atendimento_id)
+
+    params.append(bloqueio_id)
     try:
         async with conn.transaction():
             result = await conn.execute(
-                """
-                UPDATE barravips.bloqueios
-                   SET inicio = %s, fim = %s, observacao = COALESCE(%s, observacao)
-                 WHERE id = %s
-                RETURNING *
-                """,
-                (inicio, fim, body.observacao, bloqueio_id),
+                f"UPDATE barravips.bloqueios SET {', '.join(sets)} WHERE id = %s RETURNING *",
+                params,
             )
             row = await result.fetchone()
             assert row is not None
