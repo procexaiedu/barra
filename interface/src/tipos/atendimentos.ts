@@ -205,3 +205,7 @@ export interface AtendimentoCriadoResponse {
 export type CriarAtendimentoResultado =
   | { tipo: "criado"; atendimento: AtendimentoCriadoResponse }
   | { tipo: "existente"; atendimento_id: string }
+
+export interface TiposLocalResponse {
+  items: string[]
+}

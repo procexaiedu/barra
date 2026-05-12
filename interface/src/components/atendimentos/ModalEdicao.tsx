@@ -1,14 +1,20 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { toast } from "sonner"
 import { X } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { Combobox } from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
-import type { AtendimentoDetalheResponse, EditarDadosPayload, ServicoFechado } from "@/tipos/atendimentos"
+import type {
+  AtendimentoDetalheResponse,
+  EditarDadosPayload,
+  ServicoFechado,
+  TiposLocalResponse,
+} from "@/tipos/atendimentos"
 
 interface ProgramaModelo {
   programa_id: string
@@ -56,6 +62,13 @@ export function ModalEdicao({
   const [adicionados, setAdicionados] = useState<{ programa_id: string; duracao_id: string; label: string }[]>([])
   const [selecionado, setSelecionado] = useState("")
 
+  const [tiposBackend, setTiposBackend] = useState<string[]>([])
+  const [tiposCriadosSessao, setTiposCriadosSessao] = useState<string[]>([])
+  const tiposCombinados = useMemo(
+    () => Array.from(new Set([...tiposBackend, ...tiposCriadosSessao])).sort(),
+    [tiposBackend, tiposCriadosSessao],
+  )
+
   const modeloId = detalhe?.modelo.id
   useEffect(() => {
     if (!modeloId) return
@@ -63,6 +76,12 @@ export function ModalEdicao({
       .then(setProgramasModelo)
       .catch(() => {})
   }, [modeloId])
+
+  useEffect(() => {
+    api<TiposLocalResponse>("/v1/atendimentos/tipos-local")
+      .then((r) => setTiposBackend(r.items))
+      .catch(() => {})
+  }, [])
 
   if (!detalhe || !at) return null
 
@@ -185,7 +204,14 @@ export function ModalEdicao({
               <Input className={controlClassName} placeholder="Bairro" value={bairro} onChange={(e) => setBairro(e.target.value)} />
             </Campo>
             <Campo label="Tipo de local">
-              <Input className={controlClassName} placeholder="apartamento, casa…" value={tipoLocal} onChange={(e) => setTipoLocal(e.target.value)} />
+              <Combobox
+                value={tipoLocal}
+                onChange={setTipoLocal}
+                options={tiposCombinados}
+                placeholder="apartamento, casa…"
+                onCreate={(novo) => setTiposCriadosSessao((prev) => [...prev, novo])}
+                disabled={submitting}
+              />
             </Campo>
           </div>
 
