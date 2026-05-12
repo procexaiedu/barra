@@ -33,6 +33,40 @@ export interface ClienteResumo {
   telefone: string
 }
 
+export interface Cliente {
+  id: string
+  nome: string | null
+  telefone: string
+  arquivado_em: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ClienteListItem {
+  id: string
+  nome: string | null
+  telefone_mascarado: string | null
+  primeiro_contato_modelo_id: string | null
+  arquivado_em: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface ClientesListaResponse {
+  items: ClienteListItem[]
+  next_cursor: string | null
+}
+
+export interface CriarClienteRequest {
+  nome?: string | null
+  telefone: string
+}
+
+export interface EditarClienteRequest {
+  nome?: string | null
+  telefone?: string
+}
+
 export interface ModeloResumo {
   id: string
   nome: string
@@ -73,6 +107,7 @@ export interface ClienteDetalhe {
   telefone: string
   primeiro_contato_modelo_nome: string | null
   created_at: string
+  arquivado_em?: string | null
   modelo_preferida: ModeloResumo | null
   tipo_atendimento_mais_frequente: "interno" | "externo" | null
   programa_preferido: { id: string; nome: string } | null

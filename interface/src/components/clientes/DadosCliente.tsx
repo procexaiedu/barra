@@ -1,9 +1,29 @@
 "use client"
 
-import { Info } from "lucide-react"
+import { useState } from "react"
+import { Archive, ArchiveRestore, Info, Loader2, Pencil } from "lucide-react"
+import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { ModalEditarCliente } from "@/components/clientes/ModalEditarCliente"
 import { formatBRL, formatData, formatTempoRelativo } from "@/lib/formatters"
-import type { AtendimentoHistoricoItem, ClienteDetalhe } from "@/tipos/clientes"
+import type {
+  AtendimentoHistoricoItem,
+  Cliente,
+  ClienteDetalhe,
+  EditarClienteRequest,
+} from "@/tipos/clientes"
 
 const TIPO_LABEL: Record<"interno" | "externo", string> = {
   interno: "Interno (vai à modelo)",
@@ -19,21 +39,94 @@ const FORMA_PAGAMENTO_LABEL: Record<"pix" | "dinheiro" | "outro", string> = {
 export function DadosCliente({
   cliente,
   historico,
+  arquivado = false,
+  onEditarCliente,
+  onArquivarCliente,
+  onDesarquivarCliente,
 }: {
   cliente: ClienteDetalhe
   historico: AtendimentoHistoricoItem[]
+  arquivado?: boolean
+  onEditarCliente?: (id: string, payload: EditarClienteRequest) => Promise<Cliente>
+  onArquivarCliente?: (id: string) => Promise<void>
+  onDesarquivarCliente?: (id: string) => Promise<void>
 }) {
+  const [modalEditarAberto, setModalEditarAberto] = useState(false)
+  const [confirmArquivarAberto, setConfirmArquivarAberto] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+
   const fechados = historico.filter((h) => h.estado === "Fechado")
   const perdidos = historico.filter((h) => h.estado === "Perdido")
   const receita = fechados.reduce((acc, curr) => acc + (Number(curr.valor_final) || 0), 0)
   const ticketMedio = fechados.length > 0 ? receita / fechados.length : 0
   const ultimoFechamentoEm = fechados[0]?.created_at ?? null
+  const podeArquivar = Boolean(onArquivarCliente && onDesarquivarCliente)
+
+  const handleArquivarOuDesarquivar = async () => {
+    if (!onArquivarCliente || !onDesarquivarCliente) return
+    setSubmitting(true)
+    try {
+      if (arquivado) {
+        await onDesarquivarCliente(cliente.id)
+        toast.success("Cliente desarquivado")
+      } else {
+        await onArquivarCliente(cliente.id)
+        toast.success("Cliente arquivado")
+      }
+      setConfirmArquivarAberto(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao atualizar cliente")
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   return (
     <div
       aria-label="Dados do cliente"
       className="rounded-lg border border-border bg-card"
     >
+      {(onEditarCliente || podeArquivar) && (
+        <div className="flex items-center justify-between gap-2 border-b border-border px-5 py-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+              Cliente
+            </span>
+            {arquivado && <Badge variant="paused">Arquivado</Badge>}
+          </div>
+          <div className="flex items-center gap-1">
+            {onEditarCliente && (
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Editar cliente"
+                onClick={() => setModalEditarAberto(true)}
+              >
+                <Pencil size={14} strokeWidth={1.5} />
+              </Button>
+            )}
+            {podeArquivar && (
+              <Button
+                variant={arquivado ? "ghost" : "danger"}
+                size="sm"
+                onClick={() => setConfirmArquivarAberto(true)}
+              >
+                {arquivado ? (
+                  <>
+                    <ArchiveRestore size={14} strokeWidth={1.5} />
+                    Desarquivar
+                  </>
+                ) : (
+                  <>
+                    <Archive size={14} strokeWidth={1.5} />
+                    Arquivar cliente
+                  </>
+                )}
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-4 divide-x divide-border">
         <Metrica label="Fechados">
           <span className="text-2xl font-semibold text-text-primary">
@@ -112,6 +205,46 @@ export function DadosCliente({
           </div>
         </div>
       </div>
+
+      {onEditarCliente && modalEditarAberto && (
+        <ModalEditarCliente
+          key={`${cliente.id}:${cliente.telefone}:${cliente.nome ?? ""}`}
+          open={modalEditarAberto}
+          clienteId={cliente.id}
+          nomeAtual={cliente.nome}
+          telefoneAtual={cliente.telefone}
+          onClose={() => setModalEditarAberto(false)}
+          onSalvar={onEditarCliente}
+        />
+      )}
+
+      {podeArquivar && (
+        <AlertDialog open={confirmArquivarAberto} onOpenChange={setConfirmArquivarAberto}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                {arquivado ? "Desarquivar cliente?" : "Arquivar cliente?"}
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                {arquivado
+                  ? "O cliente voltará a aparecer nas listagens padrão."
+                  : "Cliente sumirá das listagens; histórico preservado."}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={submitting}>Cancelar</AlertDialogCancel>
+              <AlertDialogAction
+                variant={arquivado ? "primary" : "danger"}
+                onClick={handleArquivarOuDesarquivar}
+                disabled={submitting}
+              >
+                {submitting && <Loader2 className="animate-spin" />}
+                {arquivado ? "Desarquivar" : "Arquivar"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </div>
   )
 }

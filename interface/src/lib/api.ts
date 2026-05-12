@@ -3,7 +3,12 @@ import { supabase } from './supabase'
 const baseURL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'
 
 export class ApiError extends Error {
-  constructor(public status: number, public detail: string) {
+  constructor(
+    public status: number,
+    public detail: string,
+    public code: string | null = null,
+    public details: Record<string, unknown> | null = null,
+  ) {
     super(detail)
   }
 }
@@ -27,11 +32,15 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!r.ok) {
     let detail = `Erro ${r.status}`
+    let code: string | null = null
+    let details: Record<string, unknown> | null = null
     try {
       const body = await r.json()
       detail = body.detail ?? body.error?.message ?? detail
+      code = body.error?.code ?? null
+      details = body.error?.details ?? null
     } catch {}
-    throw new ApiError(r.status, detail)
+    throw new ApiError(r.status, detail, code, details)
   }
 
   if (r.status === 204) return undefined as T

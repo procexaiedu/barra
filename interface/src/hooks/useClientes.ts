@@ -6,9 +6,13 @@ import { api } from "@/lib/api"
 import { subscribeTabelas } from "@/lib/realtime"
 import { supabase } from "@/lib/supabase"
 import type {
+  Cliente,
+  ClientesListaResponse,
   ConversaDetalheResponse,
   ConversaListaItem,
   ConversasListaResponse,
+  CriarClienteRequest,
+  EditarClienteRequest,
   FiltrosClientes,
   ModeloResumo,
 } from "@/tipos/clientes"
@@ -45,6 +49,7 @@ interface ModelosResponse {
 
 export function useClientes() {
   const [filtros, setFiltros] = useState<FiltrosClientes>(filtrosIniciais)
+  const [incluirArquivados, setIncluirArquivados] = useState(false)
   const [debouncedBusca, setDebouncedBusca] = useState("")
   const [items, setItems] = useState<ConversaListaItem[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -55,6 +60,8 @@ export function useClientes() {
   const [listaError, setListaError] = useState<string | null>(null)
   const [detalheError, setDetalheError] = useState<string | null>(null)
   const [modelos, setModelos] = useState<ModeloResumo[]>([])
+  const [idsArquivados, setIdsArquivados] = useState<Set<string>>(() => new Set())
+  const idsArquivadosRef = useRef<Set<string>>(new Set())
   const router = useRouter()
   const itemsRef = useRef<ConversaListaItem[]>([])
   const nextCursorRef = useRef<string | null>(null)
@@ -211,6 +218,81 @@ export function useClientes() {
       .catch(() => setModelos([]))
   }, [])
 
+  const carregarIdsArquivados = useCallback((): Promise<void> => {
+    return api<ClientesListaResponse>(
+      "/v1/crm/clientes?incluir_arquivados=true&limit=100"
+    )
+      .then((res) => {
+        const arquivados = new Set(
+          res.items.filter((c) => c.arquivado_em !== null).map((c) => c.id)
+        )
+        idsArquivadosRef.current = arquivados
+        setIdsArquivados(arquivados)
+      })
+      .catch(() => {
+        // silencia: filtro client-side é otimização, não bloqueante
+      })
+  }, [])
+
+  useEffect(() => {
+    carregarIdsArquivados()
+  }, [carregarIdsArquivados])
+
+  const itemsFiltrados = useMemo(() => {
+    if (incluirArquivados) return items
+    if (idsArquivados.size === 0) return items
+    return items.filter((item) => !idsArquivados.has(item.cliente.id))
+  }, [items, incluirArquivados, idsArquivados])
+
+  const criarCliente = useCallback(
+    async (payload: CriarClienteRequest): Promise<Cliente> => {
+      const res = await api<Cliente>("/v1/crm/clientes", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      })
+      await carregarIdsArquivados()
+      await loadLista("replace", true)
+      return res
+    },
+    [carregarIdsArquivados, loadLista]
+  )
+
+  const editarCliente = useCallback(
+    async (clienteId: string, payload: EditarClienteRequest): Promise<Cliente> => {
+      const res = await api<Cliente>(`/v1/crm/clientes/${clienteId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      })
+      await loadLista("replace", true)
+      return res
+    },
+    [loadLista]
+  )
+
+  const arquivarCliente = useCallback(
+    async (clienteId: string): Promise<void> => {
+      await api(`/v1/crm/clientes/${clienteId}/arquivar`, { method: "POST" })
+      const novo = new Set(idsArquivadosRef.current)
+      novo.add(clienteId)
+      idsArquivadosRef.current = novo
+      setIdsArquivados(novo)
+      await loadLista("replace", true)
+    },
+    [loadLista]
+  )
+
+  const desarquivarCliente = useCallback(
+    async (clienteId: string): Promise<void> => {
+      await api(`/v1/crm/clientes/${clienteId}/desarquivar`, { method: "POST" })
+      const novo = new Set(idsArquivadosRef.current)
+      novo.delete(clienteId)
+      idsArquivadosRef.current = novo
+      setIdsArquivados(novo)
+      await loadLista("replace", true)
+    },
+    [loadLista]
+  )
+
   useEffect(() => {
     const cleanupRealtime = subscribeTabelas(
       "crm",
@@ -236,7 +318,10 @@ export function useClientes() {
     filtros,
     setFiltros,
     filtrosAplicados,
-    items,
+    incluirArquivados,
+    setIncluirArquivados,
+    items: itemsFiltrados,
+    idsArquivados,
     nextCursor,
     selectedId,
     detalhe,
@@ -248,5 +333,9 @@ export function useClientes() {
     refetch,
     carregarMais,
     selecionarConversa,
+    criarCliente,
+    editarCliente,
+    arquivarCliente,
+    desarquivarCliente,
   }
 }

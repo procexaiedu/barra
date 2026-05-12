@@ -4,7 +4,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { formatData, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
-import type { ConversaDetalheResponse } from "@/tipos/clientes"
+import type { Cliente, ConversaDetalheResponse, EditarClienteRequest } from "@/tipos/clientes"
 import { AtendimentoAberto } from "@/components/clientes/AtendimentoAberto"
 import { DadosCliente } from "@/components/clientes/DadosCliente"
 import { DadosConversa } from "@/components/clientes/DadosConversa"
@@ -16,12 +16,20 @@ export function DetalheConversa({
   detalhe,
   status,
   error,
+  arquivado,
   onRetry,
+  onEditarCliente,
+  onArquivarCliente,
+  onDesarquivarCliente,
 }: {
   detalhe: ConversaDetalheResponse | null
   status: "loading" | "success" | "error"
   error: string | null
+  arquivado?: boolean
   onRetry: () => void
+  onEditarCliente?: (id: string, payload: EditarClienteRequest) => Promise<Cliente>
+  onArquivarCliente?: (id: string) => Promise<void>
+  onDesarquivarCliente?: (id: string) => Promise<void>
 }) {
   if (status === "loading") return <DetalheSkeleton />
   if (status === "error") return <BannerErro mensagem={error ?? undefined} onRetry={onRetry} />
@@ -68,6 +76,10 @@ export function DetalheConversa({
         <DadosCliente
           cliente={detalhe.cliente}
           historico={detalhe.historico_atendimentos}
+          arquivado={Boolean(arquivado)}
+          onEditarCliente={onEditarCliente}
+          onArquivarCliente={onArquivarCliente}
+          onDesarquivarCliente={onDesarquivarCliente}
         />
 
         <DadosConversa conversa={detalhe.conversa} />
