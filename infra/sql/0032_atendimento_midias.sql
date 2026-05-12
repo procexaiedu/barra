@@ -1,5 +1,5 @@
 -- =============================================================================
--- 0031_atendimento_midias.sql
+-- 0032_atendimento_midias.sql
 -- Anexos internos do atendimento subidos pelo operador no painel.
 -- NÃO é Conversa cliente — não vai para Evolution.
 -- Distinto de barravips.mensagens (histórico cru WhatsApp) e de
