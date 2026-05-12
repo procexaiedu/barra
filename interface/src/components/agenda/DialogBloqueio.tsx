@@ -19,7 +19,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { dataDeInput, dataInput, isoAgenda } from "@/hooks/useAgenda"
 import { api } from "@/lib/api"
-import { formatBRL, formatData, formatRotulo } from "@/lib/formatters"
+import { formatBRL, formatData, formatRotulo, formatTelefone } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { AtendimentoListaItem, AtendimentosListaResponse } from "@/tipos/atendimentos"
 import type { BloqueioAgenda, BloqueioFormState, EstadoBloqueio } from "@/tipos/agenda"
@@ -274,7 +274,7 @@ export function DialogBloqueio({
 
   const selecionarAtendimento = (item: AtendimentoListaItem) => {
     setAtendimentoSelecionado(item)
-    setBusca(`#${item.numero_curto} · ${item.cliente.nome ?? item.cliente.telefone}`)
+    setBusca(`#${item.numero_curto} · ${item.cliente.nome ?? formatTelefone(item.cliente.telefone)}`)
     setResultadosBusca([])
     setBuscaAberta(false)
     setForm((f) => ({ ...f, atendimento_id: item.id }))
@@ -524,7 +524,7 @@ export function DialogBloqueio({
                           >
                             <span className="font-mono text-xs text-text-muted">#{item.numero_curto}</span>
                             <span className="flex-1 truncate font-medium text-text-primary">
-                              {item.cliente.nome ?? item.cliente.telefone}
+                              {item.cliente.nome ?? formatTelefone(item.cliente.telefone)}
                             </span>
                             <div className="flex items-center gap-1.5 shrink-0">
                               {item.tipo_atendimento && (

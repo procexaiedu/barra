@@ -5,6 +5,7 @@ import { X } from "lucide-react"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { api, apiFormData } from "@/lib/api"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
+import { formatTelefone } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse, MensagemAtendimento, MotivoPerda } from "@/tipos/atendimentos"
 
 function normalizarDetalheResponse(res: AtendimentoDetalheResponse): AtendimentoDetalheResponse {
@@ -90,7 +91,7 @@ export function ModalVisualizacao({
 
         <div className="flex flex-none items-center justify-between border-b border-border bg-surface px-5 py-3">
           <span className="text-sm font-semibold text-text-primary">
-            {detalhe ? `${detalhe.cliente.nome ?? detalhe.cliente.telefone} · #${detalhe.atendimento.numero_curto}` : "Atendimento"}
+            {detalhe ? `${detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)} · #${detalhe.atendimento.numero_curto}` : "Atendimento"}
           </span>
           <div className="flex items-center gap-2">
             {detalhe && (

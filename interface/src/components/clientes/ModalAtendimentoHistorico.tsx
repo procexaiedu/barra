@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
-import { formatBRL, formatData, formatRotulo } from "@/lib/formatters"
+import { formatBRL, formatData, formatRotulo, formatTelefone } from "@/lib/formatters"
 import { badgeForEstado, estadoAtendimentoLabel, motivoPerdaLabel } from "@/components/clientes/utils"
 import type { AtendimentoDetalheResponse } from "@/tipos/atendimentos"
 
@@ -81,7 +81,7 @@ export function ModalAtendimentoHistorico({
         <div className="flex flex-none items-center justify-between border-b border-border bg-surface px-5 py-3">
           <span className="text-sm font-semibold text-text-primary">
             {detalhe
-              ? `${detalhe.cliente.nome ?? detalhe.cliente.telefone} · #${at?.numero_curto}`
+              ? `${detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)} · #${at?.numero_curto}`
               : "Atendimento"}
           </span>
           <div className="flex items-center gap-2">

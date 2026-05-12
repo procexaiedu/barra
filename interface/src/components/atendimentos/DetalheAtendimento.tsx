@@ -107,7 +107,7 @@ export function DetalheAtendimento({
           </div>
         )}
         <div className="mt-2">
-          <span className="font-mono text-xs text-text-muted">{detalhe.cliente.telefone}</span>
+          <span className="font-mono text-xs text-text-muted">{formatTelefone(detalhe.cliente.telefone)}</span>
         </div>
         <div className="mt-3">
           <AcoesAtendimento
