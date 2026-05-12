@@ -1,5 +1,7 @@
 "use client"
 
+import { Info } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatBRL, formatData, formatTempoRelativo } from "@/lib/formatters"
 import type { AtendimentoHistoricoItem, ClienteDetalhe } from "@/tipos/clientes"
 
@@ -78,7 +80,10 @@ export function DadosCliente({
                 {cliente.modelo_preferida?.nome ?? "—"}
               </span>
             </Metrica>
-            <Metrica label="Tipo preferido">
+            <Metrica
+              label="Tipo preferido"
+              tooltip="Interno: cliente vai à modelo. Externo: modelo vai ao cliente."
+            >
               <span className="text-sm text-text-primary">
                 {cliente.tipo_atendimento_mais_frequente
                   ? TIPO_LABEL[cliente.tipo_atendimento_mais_frequente]
@@ -111,11 +116,33 @@ export function DadosCliente({
   )
 }
 
-function Metrica({ label, children }: { label: string; children: React.ReactNode }) {
+function Metrica({
+  label,
+  tooltip,
+  children,
+}: {
+  label: string
+  tooltip?: string
+  children: React.ReactNode
+}) {
   return (
     <div className="flex flex-col gap-1.5 px-5 py-4">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
         {label}
+        {tooltip ? (
+          <Tooltip>
+            <TooltipTrigger
+              type="button"
+              aria-label={`Sobre ${label}`}
+              className="inline-flex items-center text-text-muted/60 transition-colors hover:text-text-primary focus-visible:text-text-primary focus-visible:outline-none"
+            >
+              <Info size={12} strokeWidth={1.75} aria-hidden />
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[260px] text-left leading-snug normal-case tracking-normal">
+              {tooltip}
+            </TooltipContent>
+          </Tooltip>
+        ) : null}
       </span>
       {children}
     </div>

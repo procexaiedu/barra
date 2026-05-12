@@ -25,7 +25,28 @@ export function GraficoReceita({ historico }: { historico: AtendimentoHistoricoI
     )
     .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime())
 
-  if (fechados.length < 2) return null
+  if (fechados.length < 2) {
+    return (
+      <section
+        aria-label="Gráfico de receita acumulada"
+        className="rounded-lg border border-border bg-card p-5"
+      >
+        <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          Receita acumulada
+        </p>
+        <div className="flex h-[140px] flex-col items-center justify-center gap-1.5 text-center">
+          <p className="text-sm text-text-primary">
+            Receita acumulada disponível a partir de 2 fechamentos.
+          </p>
+          <p className="text-xs text-text-muted">
+            {fechados.length === 0
+              ? "Nenhum fechamento até o momento."
+              : "1 fechamento registrado até o momento."}
+          </p>
+        </div>
+      </section>
+    )
+  }
 
   const pontos = fechados.reduce<{ data: Date; valor: number; individual: number }[]>(
     (acc, h) => {
