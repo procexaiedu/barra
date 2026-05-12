@@ -62,3 +62,8 @@ class MidiaInternaResponse(BaseModel):
     media_object_key: str
     media_url: str | None = None
     created_at: datetime
+
+
+class CriarAtendimentoRequest(BaseModel):
+    cliente_id: UUID
+    modelo_id: UUID

@@ -11,18 +11,20 @@ from psycopg import AsyncConnection
 
 from barra.api.deps import get_conn, get_user
 from barra.core.auth import UsuarioAtual
-from barra.core.errors import NaoEncontrado
+from barra.core.errors import ConflitoEstado, NaoEncontrado
 from barra.core.storage import presigned_get
 from barra.dominio.atendimentos.schemas import (
     AdicionarServicoRequest,
     AlterarEstadoRequest,
     CorrigirRegistroRequest,
+    CriarAtendimentoRequest,
     DevolverRequest,
     EditarDadosRequest,
     FecharRequest,
     MidiaInternaResponse,
     PerderRequest,
 )
+from barra.dominio.atendimentos.service import garantir_atendimento_aberto
 from barra.dominio.escaladas.service import aplicar_comando
 
 _logger = logging.getLogger(__name__)
@@ -170,6 +172,52 @@ async def listar_atendimentos(
             for row in rows
         ],
         "next_cursor": next_cursor,
+    }
+
+
+@router.post("", status_code=201)
+async def criar_atendimento(
+    body: CriarAtendimentoRequest,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    async with conn.transaction():
+        cliente = await _fetch_one(
+            conn,
+            "SELECT id, arquivado_em FROM barravips.clientes WHERE id = %s",
+            (body.cliente_id,),
+        )
+        if cliente is None:
+            raise NaoEncontrado("Cliente")
+        if cliente["arquivado_em"] is not None:
+            raise ConflitoEstado(
+                "cliente_arquivado",
+                details={"cliente_id": str(body.cliente_id)},
+            )
+        modelo = await _fetch_one(
+            conn,
+            "SELECT id FROM barravips.modelos WHERE id = %s",
+            (body.modelo_id,),
+        )
+        if modelo is None:
+            raise NaoEncontrado("Modelo")
+        atendimento = await garantir_atendimento_aberto(
+            conn,
+            cliente_id=body.cliente_id,
+            modelo_id=body.modelo_id,
+            origem="painel_fernando",
+        )
+        if atendimento.ja_existia:
+            raise ConflitoEstado(
+                "atendimento_aberto_existente",
+                details={"atendimento_id": str(atendimento.id)},
+            )
+    return {
+        "id": str(atendimento.id),
+        "numero_curto": atendimento.numero_curto,
+        "estado": atendimento.estado,
+        "cliente_id": str(atendimento.cliente_id),
+        "modelo_id": str(atendimento.modelo_id),
+        "conversa_id": str(atendimento.conversa_id),
     }
 
 
