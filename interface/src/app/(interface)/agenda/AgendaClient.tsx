@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
 import { CalendarioMes } from "@/components/agenda/CalendarioMes"
 import { DialogBloqueio } from "@/components/agenda/DialogBloqueio"
+import { DialogVisualizarBloqueio } from "@/components/agenda/DialogVisualizarBloqueio"
 import { GradeSemanal } from "@/components/agenda/GradeSemanal"
 import { HeaderAgenda } from "@/components/agenda/HeaderAgenda"
 import { ToolbarAgenda } from "@/components/agenda/ToolbarAgenda"
@@ -67,8 +68,9 @@ export function AgendaClient() {
 
   const agenda = useAgenda({ data: dataParam })
 
-  type DialogState = { aberto: boolean; bloqueio: BloqueioAgenda | null }
-  const [dialog, setDialog] = useState<DialogState>({ aberto: false, bloqueio: null })
+  type DialogModo = "fechado" | "visualizar" | "editar" | "criar"
+  type DialogState = { modo: DialogModo; bloqueio: BloqueioAgenda | null }
+  const [dialog, setDialog] = useState<DialogState>({ modo: "fechado", bloqueio: null })
   const [initialForm, setInitialForm] = useState<BloqueioFormState>({
     data: dataParam ?? agenda.dataSelecionada,
     inicio: "10:00",
@@ -94,13 +96,13 @@ export function AgendaClient() {
       const b = bloqueios.find((x) => x.id === bloqueioParam)
       if (!b) return
       bloqueioInicialHandled.current = true
-      setDialog({ aberto: true, bloqueio: b })
+      setDialog({ modo: "visualizar", bloqueio: b })
     }
     void abrirBloqueioInicial()
   }, [agenda.status, bloqueioParam, bloqueios])
 
   const abrirCriacao = (form: BloqueioFormState) => {
-    setDialog({ aberto: true, bloqueio: null })
+    setDialog({ modo: "criar", bloqueio: null })
     setInitialForm(form)
   }
 
@@ -119,7 +121,7 @@ export function AgendaClient() {
         ...(form.atendimento_id ? { atendimento_id: form.atendimento_id } : {}),
       })
       toast.success("Bloqueio criado")
-      setDialog({ aberto: false, bloqueio: null })
+      setDialog({ modo: "fechado", bloqueio: null })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
     }
@@ -135,7 +137,7 @@ export function AgendaClient() {
       if (atendimentoId !== undefined) payload.atendimento_id = atendimentoId
       await agenda.atualizarBloqueio(id, payload)
       toast.success("Bloqueio atualizado")
-      setDialog({ aberto: false, bloqueio: null })
+      setDialog({ modo: "fechado", bloqueio: null })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
     }
@@ -145,7 +147,7 @@ export function AgendaClient() {
     try {
       await agenda.cancelarBloqueio(id, confirmar)
       toast.success("Bloqueio cancelado")
-      setDialog({ aberto: false, bloqueio: null })
+      setDialog({ modo: "fechado", bloqueio: null })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
     }
@@ -188,7 +190,7 @@ export function AgendaClient() {
           bloqueios={bloqueios}
           onSelecionarDia={agenda.setDataSelecionada}
           onCriarNoDia={(data) => abrirCriacao(proximoSlotLivre(data, bloqueios))}
-          onEditarBloqueio={(b) => setDialog({ aberto: true, bloqueio: b })}
+          onEditarBloqueio={(b) => setDialog({ modo: "visualizar", bloqueio: b })}
         />
       ) : (
         <GradeSemanal
@@ -198,17 +200,28 @@ export function AgendaClient() {
           onCriar={(data, inicio) =>
             abrirCriacao({ data, inicio, fim: fimParaGrade(inicio), observacao: "" })
           }
-          onEditar={(b) => setDialog({ aberto: true, bloqueio: b })}
+          onEditar={(b) => setDialog({ modo: "visualizar", bloqueio: b })}
         />
       )}
 
-      {dialog.aberto && (
+      {dialog.modo === "visualizar" && dialog.bloqueio && (
+        <DialogVisualizarBloqueio
+          bloqueio={dialog.bloqueio}
+          open
+          onOpenChange={(v) => {
+            if (!v) setDialog({ modo: "fechado", bloqueio: null })
+          }}
+          onEditar={() => setDialog({ modo: "editar", bloqueio: dialog.bloqueio })}
+        />
+      )}
+
+      {(dialog.modo === "criar" || dialog.modo === "editar") && (
         <DialogBloqueio
           bloqueio={dialog.bloqueio}
           modeloId={agenda.agenda?.modelo?.id ?? null}
           initial={initialForm}
           bloqueios={bloqueios}
-          onClose={() => setDialog({ aberto: false, bloqueio: null })}
+          onClose={() => setDialog({ modo: "fechado", bloqueio: null })}
           onCriar={criar}
           onAtualizar={atualizar}
           onCancelar={cancelar}
