@@ -7,6 +7,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
+import { RangeCalendar } from "@/components/ui/range-calendar"
 import { diffDiasInclusivo, hojeBrtIso } from "./utils"
 
 interface Props {
@@ -69,31 +70,15 @@ function FormConteudo({ deInicial, ateInicial, onAplicar, onCancelar }: FormProp
 
   return (
     <>
-      <div className="mt-5 grid grid-cols-2 gap-4">
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-            Início
-          </span>
-          <input
-            type="date"
-            value={de}
-            max={hoje}
-            onChange={(event) => setDe(event.target.value)}
-            className="h-10 rounded-md border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          />
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-            Fim
-          </span>
-          <input
-            type="date"
-            value={ate}
-            max={hoje}
-            onChange={(event) => setAte(event.target.value)}
-            className="h-10 rounded-md border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          />
-        </label>
+      <div className="mt-5 flex justify-center">
+        <RangeCalendar
+          value={{ de: de || null, ate: ate || null }}
+          onChange={(range) => {
+            setDe(range.de ?? "")
+            setAte(range.ate ?? "")
+          }}
+          maxIso={hoje}
+        />
       </div>
 
       {erro ? (
