@@ -61,6 +61,10 @@ desktop.ini
 
 # --- Worktrees externos ---
 .trees/
+# Worktrees criados por subagentes do Claude Code
+.claude/worktrees/
+# Estado runtime do pipeline (marker files etc.)
+.claude/state/
 
 # --- Banco local / temp ---
 *.sqlite
