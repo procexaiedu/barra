@@ -26,8 +26,19 @@ const ANO_FMT = new Intl.DateTimeFormat("pt-BR", {
   timeZone: "America/Sao_Paulo",
 })
 
-function dataDeIsoYmd(iso: string): Date {
+export function dataDeIsoYmd(iso: string): Date {
   return new Date(`${iso}T12:00:00-03:00`)
+}
+
+const YMD_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Sao_Paulo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+})
+
+export function isoYmdDeData(data: Date): string {
+  return YMD_FMT.format(data)
 }
 
 function formatarTrechoCurto(iso: string): string {
