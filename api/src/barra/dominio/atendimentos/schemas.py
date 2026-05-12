@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time
 from decimal import Decimal
 from typing import Literal
 from uuid import UUID
@@ -53,3 +53,12 @@ class EditarDadosRequest(BaseModel):
 class AdicionarServicoRequest(BaseModel):
     programa_id: UUID
     duracao_id: UUID
+
+
+class MidiaInternaResponse(BaseModel):
+    id: UUID
+    tipo: Literal["imagem", "audio", "documento"]
+    nome_arquivo: str
+    media_object_key: str
+    media_url: str | None = None
+    created_at: datetime

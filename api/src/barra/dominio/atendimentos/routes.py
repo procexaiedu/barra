@@ -20,6 +20,7 @@ from barra.dominio.atendimentos.schemas import (
     DevolverRequest,
     EditarDadosRequest,
     FecharRequest,
+    MidiaInternaResponse,
     PerderRequest,
 )
 from barra.dominio.escaladas.service import aplicar_comando
@@ -238,6 +239,16 @@ async def obter_atendimento(
         """,
         (atendimento_id,),
     )
+    midias_internas = await _fetch_all(
+        conn,
+        """
+        SELECT id, tipo, nome_arquivo, media_object_key, created_at
+          FROM barravips.atendimento_midias
+         WHERE atendimento_id = %s
+         ORDER BY created_at DESC
+        """,
+        (atendimento_id,),
+    )
     return {
         "atendimento": atendimento,
         "cliente": {
@@ -265,6 +276,7 @@ async def obter_atendimento(
         "comprovantes_pix": pix,
         "escaladas": escaladas,
         "servicos": servicos,
+        "midias_internas": _enriquecer_midias(midias_internas, request),
     }
 
 
@@ -468,8 +480,11 @@ async def upload_midia(
     request: Request,
     arquivo: UploadFile,
     tipo: str = Form(...),
+    user: UsuarioAtual = Depends(get_user),
     conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
+) -> MidiaInternaResponse:
+    # Anexo interno do atendimento. NÃO vai para `mensagens` nem para Evolution.
+    # Ver CONTEXT.md (Conversa cliente) e docs/mvp/06-dados-interfaces.md §4.2.
     if tipo not in _TIPOS_VALIDOS_UPLOAD:
         raise HTTPException(400, f"tipo inválido: {tipo!r}. Use 'imagem', 'audio' ou 'documento'.")
     ct = (arquivo.content_type or "").lower()
@@ -482,12 +497,11 @@ async def upload_midia(
 
     row = await _fetch_one(
         conn,
-        "SELECT conversa_id FROM barravips.atendimentos WHERE id = %s",
+        "SELECT id FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
     if row is None:
         raise NaoEncontrado("Atendimento")
-    conversa_id = row["conversa_id"]
 
     minio = getattr(request.app.state, "minio", None)
     if minio is None:
@@ -504,39 +518,44 @@ async def upload_midia(
         lambda: minio.put_object(bucket, key, io.BytesIO(data), len(data), content_type=ct),
     )
 
-    tipo_db = "imagem" if tipo == "documento" else tipo
-    evolution_id = f"manual-{uuid4()}"
-
-    msg = await _fetch_one(
+    midia = await _fetch_one(
         conn,
         """
-        INSERT INTO barravips.mensagens
-          (conversa_id, atendimento_id, direcao, tipo, conteudo, media_object_key, evolution_message_id)
-        VALUES (%s, %s, 'modelo_manual', %s, %s, %s, %s)
-        RETURNING id, direcao, tipo, conteudo, media_object_key, evolution_message_id, created_at
+        INSERT INTO barravips.atendimento_midias
+          (atendimento_id, tipo, nome_arquivo, media_object_key, created_by)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id, tipo, nome_arquivo, media_object_key, created_at
         """,
-        (conversa_id, atendimento_id, tipo_db, filename, key, evolution_id),
+        (atendimento_id, tipo, filename, key, user.id),
     )
-    assert msg is not None
-    return {**msg, "media_url": presigned_get(minio, bucket, key)}
+    assert midia is not None
+    return MidiaInternaResponse(
+        id=midia["id"],
+        tipo=midia["tipo"],
+        nome_arquivo=midia["nome_arquivo"],
+        media_object_key=midia["media_object_key"],
+        media_url=presigned_get(minio, bucket, key),
+        created_at=midia["created_at"],
+    )
 
 
-@router.delete("/{atendimento_id}/midias/{mensagem_id}", status_code=204)
+@router.delete("/{atendimento_id}/midias/{midia_id}", status_code=204)
 async def deletar_midia(
     atendimento_id: UUID,
-    mensagem_id: UUID,
+    midia_id: UUID,
     request: Request,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> None:
     row = await _fetch_one(
         conn,
-        "SELECT media_object_key FROM barravips.mensagens WHERE id = %s AND atendimento_id = %s",
-        (mensagem_id, atendimento_id),
+        "SELECT media_object_key FROM barravips.atendimento_midias"
+        " WHERE id = %s AND atendimento_id = %s",
+        (midia_id, atendimento_id),
     )
     if row is None:
         raise NaoEncontrado("Mídia")
 
-    await conn.execute("DELETE FROM barravips.mensagens WHERE id = %s", (mensagem_id,))
+    await conn.execute("DELETE FROM barravips.atendimento_midias WHERE id = %s", (midia_id,))
 
     key = row.get("media_object_key")
     if key:
