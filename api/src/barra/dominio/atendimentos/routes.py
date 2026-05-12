@@ -2,6 +2,7 @@ import asyncio
 import io
 import json
 import logging
+from datetime import date
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -48,6 +49,8 @@ async def listar_atendimentos(
     motivo_escalada: str | None = None,
     q: str | None = None,
     qualificacao_completa: bool | None = None,
+    data_inicio: date | None = Query(None),
+    data_fim: date | None = Query(None),
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = None,
 ) -> dict[str, Any]:
@@ -108,6 +111,12 @@ async def listar_atendimentos(
             " AND jsonb_typeof(a.sinais_qualificacao->'informa_horario') = 'boolean'"
             ")"
         )
+    if data_inicio:
+        filtros.append("(a.created_at AT TIME ZONE 'America/Sao_Paulo')::date >= %s")
+        params.append(data_inicio)
+    if data_fim:
+        filtros.append("(a.created_at AT TIME ZONE 'America/Sao_Paulo')::date <= %s")
+        params.append(data_fim)
     if cursor:
         filtros.append("a.updated_at < %s::timestamptz")
         params.append(cursor)
