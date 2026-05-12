@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { api, apiFormData } from "@/lib/api"
+import { hojeBrtIso } from "@/lib/datas"
 import { subscribeTabelas } from "@/lib/realtime"
 import { supabase } from "@/lib/supabase"
 import type {
@@ -19,13 +20,17 @@ import type {
 
 type Status = "loading" | "success" | "error"
 
-const filtrosIniciais: FiltrosAtendimentos = {
-  busca: "",
-  estado: "abertos",
-  tipo: "todos",
-  urgencia: "todas",
-  ia: "todos",
-  qualificacao: "todos",
+function montarFiltrosIniciais(): FiltrosAtendimentos {
+  const hoje = hojeBrtIso()
+  return {
+    busca: "",
+    estado: "abertos",
+    tipo: "todos",
+    urgencia: "todas",
+    ia: "todos",
+    qualificacao: "todos",
+    periodo: { de: hoje, ate: hoje },
+  }
 }
 
 function normalizarListaResponse(res: AtendimentosListaResponse): AtendimentosListaResponse {
@@ -69,6 +74,8 @@ function buildListaPath(
   if (filtrosUrl.motivoEscalada && filtros.ia === "pausada") {
     params.set("motivo_escalada", filtrosUrl.motivoEscalada)
   }
+  if (filtros.periodo.de) params.set("data_inicio", filtros.periodo.de)
+  if (filtros.periodo.ate) params.set("data_fim", filtros.periodo.ate)
   if (cursor) params.set("cursor", cursor)
   return `/v1/atendimentos?${params.toString()}`
 }
@@ -79,7 +86,7 @@ export function useAtendimentos(
   filtrosUrl: FiltrosUrlAtendimentos = {}
 ) {
   const [filtros, setFiltros] = useState<FiltrosAtendimentos>(() => ({
-    ...filtrosIniciais,
+    ...montarFiltrosIniciais(),
     ...filtrosIniciaisOverride,
   }))
   const [debouncedBusca, setDebouncedBusca] = useState("")
@@ -109,12 +116,15 @@ export function useAtendimentos(
     [filtros, debouncedBusca]
   )
 
+  const hojeIso = hojeBrtIso()
+  const periodoAplicado = filtrosEfetivos.periodo.de !== hojeIso || filtrosEfetivos.periodo.ate !== hojeIso
   const filtrosAplicados = filtrosEfetivos.busca.trim() !== ""
     || filtrosEfetivos.estado !== "abertos"
     || filtrosEfetivos.tipo !== "todos"
     || filtrosEfetivos.urgencia !== "todas"
     || filtrosEfetivos.ia !== "todos"
     || filtrosEfetivos.qualificacao !== "todos"
+    || periodoAplicado
 
   const loadDetalhe = useCallback(async (id: string) => {
     if (!firstDetalheDone.current) setDetalheStatus("loading")

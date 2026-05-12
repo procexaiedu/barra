@@ -148,6 +148,11 @@ export type UrgenciaFiltro = "todas" | Urgencia
 export type IaFiltro = "todos" | "ativa" | "pausada"
 export type QualificacaoFiltro = "todos" | "completa" | "incompleta"
 
+export interface PeriodoFiltro {
+  de: string | null
+  ate: string | null
+}
+
 export interface FiltrosAtendimentos {
   busca: string
   estado: EstadoFiltro
@@ -155,6 +160,7 @@ export interface FiltrosAtendimentos {
   urgencia: UrgenciaFiltro
   ia: IaFiltro
   qualificacao: QualificacaoFiltro
+  periodo: PeriodoFiltro
 }
 
 export type EstadoKanbanDestino = "Qualificado" | "Aguardando_confirmacao" | "Em_execucao"
