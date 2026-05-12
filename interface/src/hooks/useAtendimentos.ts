@@ -2,14 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
-import { api, apiFormData } from "@/lib/api"
+import { ApiError, api, apiFormData } from "@/lib/api"
 import { hojeBrtIso } from "@/lib/datas"
 import { subscribeTabelas } from "@/lib/realtime"
 import { supabase } from "@/lib/supabase"
 import type {
+  AtendimentoCriadoResponse,
   AtendimentoDetalheResponse,
   AtendimentoListaItem,
   AtendimentosListaResponse,
+  CriarAtendimentoRequest,
+  CriarAtendimentoResultado,
   EditarDadosPayload,
   EstadoAtendimento,
   EstadoKanbanDestino,
@@ -253,6 +256,30 @@ export function useAtendimentos(
     await loadLista("replace", true)
   }, [loadDetalhe, loadLista])
 
+  const criarAtendimento = useCallback(
+    async (payload: CriarAtendimentoRequest): Promise<CriarAtendimentoResultado> => {
+      try {
+        const res = await api<AtendimentoCriadoResponse>("/v1/atendimentos", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        })
+        await loadLista("replace", true)
+        return { tipo: "criado", atendimento: res }
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          if (e.detail === "atendimento_aberto_existente") {
+            const atendimentoId = (e.details?.atendimento_id as string | undefined) ?? null
+            if (atendimentoId) {
+              return { tipo: "existente", atendimento_id: atendimentoId }
+            }
+          }
+        }
+        throw e
+      }
+    },
+    [loadLista]
+  )
+
   const uploadMidia = useCallback(async (atendimentoId: string, file: File, tipo: string): Promise<void> => {
     const form = new FormData()
     form.append("arquivo", file)
@@ -348,6 +375,7 @@ export function useAtendimentos(
     perder,
     moverEstado,
     editarDados,
+    criarAtendimento,
     loadDetalhe,
     uploadMidia,
     deletarMidia,

@@ -12,7 +12,9 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core"
+import { Plus } from "lucide-react"
 import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
 import { KanbanCard } from "@/components/atendimentos/KanbanCard"
 import type { AtendimentoListaItem, EstadoAtendimento, EstadoKanbanDestino } from "@/tipos/atendimentos"
 
@@ -109,6 +111,7 @@ export function KanbanBoard({
   onToggleEncerrados,
   onCardClick,
   onMoverEstado,
+  onNovoAtendimento,
 }: {
   items: AtendimentoListaItem[]
   itemsEncerrados: AtendimentoListaItem[]
@@ -116,6 +119,7 @@ export function KanbanBoard({
   onToggleEncerrados: () => void
   onCardClick: (id: string) => void
   onMoverEstado: (id: string, estado: EstadoKanbanDestino) => Promise<void>
+  onNovoAtendimento?: () => void
 }) {
   const [draggingItem, setDraggingItem] = useState<AtendimentoListaItem | null>(null)
 
@@ -175,7 +179,7 @@ export function KanbanBoard({
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
       <div className="flex h-full flex-col gap-3">
-        <div className="flex-none">
+        <div className="flex-none flex items-center justify-between gap-3">
           <button
             type="button"
             onClick={onToggleEncerrados}
@@ -183,6 +187,12 @@ export function KanbanBoard({
           >
             {mostrarEncerrados ? "Ocultar encerrados" : "Mostrar encerrados"}
           </button>
+          {onNovoAtendimento && (
+            <Button variant="primary" size="sm" onClick={onNovoAtendimento}>
+              <Plus size={14} strokeWidth={1.5} />
+              Novo atendimento
+            </Button>
+          )}
         </div>
         <div className="flex min-h-0 flex-1 gap-3 overflow-x-auto pb-2">
           {colunas.map((coluna) => (

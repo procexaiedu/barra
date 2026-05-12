@@ -7,6 +7,7 @@ import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento
 import { FiltroPeriodo } from "@/components/atendimentos/FiltroPeriodo"
 import { ListaAtendimentos } from "@/components/atendimentos/ListaAtendimentos"
 import { KanbanBoard } from "@/components/atendimentos/KanbanBoard"
+import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { ModalVisualizacao } from "@/components/atendimentos/ModalVisualizacao"
 import { ModalEdicao } from "@/components/atendimentos/ModalEdicao"
 import { Input } from "@/components/ui/input"
@@ -159,6 +160,7 @@ function CentralAtendimentosInner() {
     }
   }, [initialId, view])
   const [modalEdicao, setModalEdicao] = useState<AtendimentoDetalheResponse | null>(null)
+  const [modalNovoAberto, setModalNovoAberto] = useState(false)
   const [mostrarEncerrados, setMostrarEncerrados] = useState(false)
   const [itemsEncerrados, setItemsEncerrados] = useState<AtendimentoListaItem[]>([])
 
@@ -256,6 +258,7 @@ function CentralAtendimentosInner() {
             onToggleEncerrados={() => setMostrarEncerrados((v) => !v)}
             onCardClick={setModalId}
             onMoverEstado={atendimentos.moverEstado}
+            onNovoAtendimento={() => setModalNovoAberto(true)}
           />
           <ModalVisualizacao
             atendimentoId={modalId}
@@ -273,6 +276,14 @@ function CentralAtendimentosInner() {
         onClose={() => setModalEdicao(null)}
         onSalvar={atendimentos.editarDados}
       />
+      {modalNovoAberto && (
+        <ModalNovoAtendimento
+          open
+          onClose={() => setModalNovoAberto(false)}
+          onCriar={atendimentos.criarAtendimento}
+          onCriado={(id) => setModalId(id)}
+        />
+      )}
     </div>
   )
 }

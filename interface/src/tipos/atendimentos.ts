@@ -187,3 +187,21 @@ export interface EditarDadosPayload {
   forma_pagamento?: string | null
   valor_acordado?: number | null
 }
+
+export interface CriarAtendimentoRequest {
+  cliente_id: string
+  modelo_id: string
+}
+
+export interface AtendimentoCriadoResponse {
+  id: string
+  numero_curto: number
+  estado: EstadoAtendimento
+  cliente_id: string
+  modelo_id: string
+  conversa_id: string
+}
+
+export type CriarAtendimentoResultado =
+  | { tipo: "criado"; atendimento: AtendimentoCriadoResponse }
+  | { tipo: "existente"; atendimento_id: string }
