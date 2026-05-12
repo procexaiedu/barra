@@ -68,10 +68,6 @@ function montarQueryString(filtros: FiltrosDashboard): string {
   return s ? `?${s}` : ""
 }
 
-function eqFiltros(a: FiltrosDashboard, b: FiltrosDashboard): boolean {
-  return a.periodo === b.periodo && a.de === b.de && a.ate === b.ate && a.modelo_id === b.modelo_id
-}
-
 export function useDashboard() {
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -81,23 +77,17 @@ export function useDashboard() {
     [searchParams]
   )
 
-  const [filtros, setFiltrosState] = useState<FiltrosDashboard>(filtrosFromUrl)
   const [data, setData] = useState<DashboardResumo | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [error, setError] = useState<string | null>(null)
+
+  const filtros = filtrosFromUrl
 
   const filtrosRef = useRef(filtros)
   const firstLoadDone = useRef(false)
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeEvents = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
-
-  useEffect(() => {
-    if (!eqFiltros(filtrosFromUrl, filtrosRef.current)) {
-      filtrosRef.current = filtrosFromUrl
-      setFiltrosState(filtrosFromUrl)
-    }
-  }, [filtrosFromUrl])
 
   const fetchResumo = useCallback(async () => {
     const filtrosAtuais = filtrosRef.current
@@ -125,8 +115,6 @@ export function useDashboard() {
 
   const aplicarFiltros = useCallback(
     (proximo: FiltrosDashboard) => {
-      filtrosRef.current = proximo
-      setFiltrosState(proximo)
       router.replace(`/dashboard${montarQueryString(proximo)}`, { scroll: false })
     },
     [router]
@@ -166,6 +154,7 @@ export function useDashboard() {
   }, [fetchResumo])
 
   useEffect(() => {
+    filtrosRef.current = filtros
     fetchResumo()
   }, [filtros, fetchResumo])
 
@@ -204,7 +193,7 @@ export function useDashboard() {
     setEscaladasError(null)
     try {
       const res = await api<DashboardEscaladasResponse>(
-        montarPath(filtrosRef.current, "/escaladas"),
+        montarPath(filtros, "/escaladas"),
         { signal: controller.signal }
       )
       if (controller.signal.aborted) return
@@ -217,7 +206,7 @@ export function useDashboard() {
       const detail = e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "Erro desconhecido"
       setEscaladasError(detail)
     }
-  }, [])
+  }, [filtros])
 
   const resetEscaladas = useCallback(() => {
     if (escaladasAbortRef.current) escaladasAbortRef.current.abort()
