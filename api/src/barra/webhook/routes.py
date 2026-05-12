@@ -9,6 +9,7 @@ from fastapi import APIRouter, Header, Request
 from barra.core.errors import ErroDominio, JidNaoPermitido
 from barra.core.evolution import envio_existe
 from barra.core.metrics import COMANDOS_GRUPO, WEBHOOK_ERRORS
+from barra.dominio.atendimentos.service import garantir_atendimento_aberto
 from barra.dominio.escaladas.service import Autor, aplicar_comando
 from barra.webhook.parser import MensagemEvolution, extrair_mensagem, parse_comando_grupo
 
@@ -261,37 +262,13 @@ async def _persistir_cliente(
             (telefone, modelo["id"]),
         )
         assert cliente is not None
-        conversa = await _one(
+        atendimento = await garantir_atendimento_aberto(
             conn,
-            """
-            INSERT INTO barravips.conversas (cliente_id, modelo_id, evolution_chat_id)
-            VALUES (%s, %s, %s)
-            ON CONFLICT (cliente_id, modelo_id)
-            DO UPDATE SET evolution_chat_id = EXCLUDED.evolution_chat_id
-            RETURNING *
-            """,
-            (cliente["id"], modelo["id"], msg.remote_jid),
+            cliente_id=cliente["id"],
+            modelo_id=modelo["id"],
+            origem="webhook",
+            evolution_chat_id=msg.remote_jid,
         )
-        assert conversa is not None
-        atendimento = await _one(
-            conn,
-            """
-            SELECT * FROM barravips.atendimentos
-             WHERE cliente_id = %s AND modelo_id = %s AND estado NOT IN ('Fechado', 'Perdido')
-            """,
-            (cliente["id"], modelo["id"]),
-        )
-        if atendimento is None:
-            atendimento = await _one(
-                conn,
-                """
-                INSERT INTO barravips.atendimentos (cliente_id, modelo_id, conversa_id)
-                VALUES (%s, %s, %s)
-                RETURNING *
-                """,
-                (cliente["id"], modelo["id"], conversa["id"]),
-            )
-        assert atendimento is not None
 
         # Fazer upload da mídia para MinIO e obter a key permanente.
         # Se falhar, gravar como tipo='texto' para satisfazer a constraint de DB.
@@ -300,7 +277,7 @@ async def _persistir_cliente(
         if msg.tipo != "texto" and midia is not None and minio is not None:
             data, ct = midia
             ext = _MIME_EXT.get(ct, ".jpg" if msg.tipo == "imagem" else ".ogg")
-            key = f"atendimentos/{atendimento['id']}/mensagens/{msg.evolution_message_id}{ext}"
+            key = f"atendimentos/{atendimento.id}/mensagens/{msg.evolution_message_id}{ext}"
             try:
                 await _upload_minio(minio, bucket, key, data, ct or "application/octet-stream")
                 media_key = key
@@ -325,8 +302,8 @@ async def _persistir_cliente(
             ON CONFLICT (evolution_message_id) DO NOTHING
             """,
             (
-                conversa["id"],
-                atendimento["id"],
+                atendimento.conversa_id,
+                atendimento.id,
                 tipo_db,
                 msg.texto,
                 media_key,
