@@ -255,7 +255,7 @@ export function DialogBloqueio({
       const searchParams: Record<string, string> = { q: texto }
       if (modeloIdBusca) searchParams.modelo_id = modeloIdBusca
       const params = new URLSearchParams(searchParams)
-      const res = await api<AtendimentosListaResponse>(`/v1/atendimentos/?${params}`)
+      const res = await api<AtendimentosListaResponse>(`/v1/atendimentos?${params}`)
       setResultadosBusca(res.items.slice(0, 5))
       setBuscaAberta(true)
     } catch (e) {
