@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { api, apiFormData } from "@/lib/api"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
 import { formatTelefone } from "@/lib/formatters"
-import type { AtendimentoDetalheResponse, MensagemAtendimento, MotivoPerda } from "@/tipos/atendimentos"
+import type { AtendimentoDetalheResponse, MidiaInternaAtendimento, MotivoPerda } from "@/tipos/atendimentos"
 
 function normalizarDetalheResponse(res: AtendimentoDetalheResponse): AtendimentoDetalheResponse {
   return {
@@ -15,6 +15,7 @@ function normalizarDetalheResponse(res: AtendimentoDetalheResponse): Atendimento
     eventos: Array.isArray(res.eventos) ? res.eventos : [],
     comprovantes_pix: Array.isArray(res.comprovantes_pix) ? res.comprovantes_pix : [],
     servicos: Array.isArray(res.servicos) ? res.servicos : [],
+    midias_internas: Array.isArray(res.midias_internas) ? res.midias_internas : [],
   }
 }
 
@@ -75,13 +76,13 @@ export function ModalVisualizacao({
     const form = new FormData()
     form.append("arquivo", file)
     form.append("tipo", tipo)
-    const nova = await apiFormData<MensagemAtendimento>(`/v1/atendimentos/${atendimentoId}/midias`, form)
-    setDetalhe((prev) => prev ? { ...prev, mensagens: [...prev.mensagens, nova] } : prev)
+    const nova = await apiFormData<MidiaInternaAtendimento>(`/v1/atendimentos/${atendimentoId}/midias`, form)
+    setDetalhe((prev) => prev ? { ...prev, midias_internas: [nova, ...prev.midias_internas] } : prev)
   }, [])
 
-  const handleDeletarMidia = useCallback(async (atendimentoId: string, mensagemId: string) => {
-    await api(`/v1/atendimentos/${atendimentoId}/midias/${mensagemId}`, { method: "DELETE" })
-    setDetalhe((prev) => prev ? { ...prev, mensagens: prev.mensagens.filter((m) => m.id !== mensagemId) } : prev)
+  const handleDeletarMidia = useCallback(async (atendimentoId: string, midiaId: string) => {
+    await api(`/v1/atendimentos/${atendimentoId}/midias/${midiaId}`, { method: "DELETE" })
+    setDetalhe((prev) => prev ? { ...prev, midias_internas: prev.midias_internas.filter((m) => m.id !== midiaId) } : prev)
   }, [])
 
   return (

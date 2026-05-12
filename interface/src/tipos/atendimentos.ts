@@ -77,6 +77,15 @@ export interface ComprovantePixResumo {
   created_at: string
 }
 
+export interface MidiaInternaAtendimento {
+  id: string
+  tipo: "imagem" | "audio" | "documento"
+  nome_arquivo: string
+  media_object_key: string
+  media_url: string | null
+  created_at: string
+}
+
 export interface AtendimentoOperacional {
   id: string
   numero_curto: number
@@ -139,6 +148,7 @@ export interface AtendimentoDetalheResponse {
   eventos: EventoAtendimento[]
   comprovantes_pix: ComprovantePixResumo[]
   servicos: ServicoFechado[]
+  midias_internas: MidiaInternaAtendimento[]
 }
 
 export type EstadoGrupo = "Qualificando" | "Aguardando"

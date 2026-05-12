@@ -125,7 +125,7 @@ export function DetalheAtendimento({
         <HistoricoMensagens mensagens={detalhe.mensagens} />
       </SecaoColapsavel>
 
-      <SecaoColapsavel titulo="Mídias recebidas" count={detalhe.mensagens.filter(m => m.tipo !== "texto" || m.media_object_key).length + detalhe.comprovantes_pix.length}>
+      <SecaoColapsavel titulo="Mídias recebidas" count={detalhe.midias_internas.length + detalhe.comprovantes_pix.length + detalhe.mensagens.filter(m => m.media_object_key).length}>
         <MidiasRecebidas
           detalhe={detalhe}
           onUploadMidia={onUploadMidia}
@@ -184,16 +184,14 @@ function MidiasRecebidas({
   const inputRef = useRef<HTMLInputElement>(null)
 
   const midias = useMemo<MidiaItem[]>(() => {
-    const mensagens = detalhe.mensagens
-      .filter((mensagem) => mensagem.tipo !== "texto" || mensagem.media_object_key)
-      .map((mensagem) => ({
-        id: mensagem.id,
-        tipo: mensagem.tipo as "imagem" | "audio" | "texto",
-        nome: mensagem.media_object_key?.split("/").pop() ?? mensagem.tipo,
-        subtitulo: `${mensagem.tipo} · ${formatDataHora(mensagem.created_at)}`,
-        url: mensagem.media_url ?? null,
-        pode_deletar: true,
-      }))
+    const internas = detalhe.midias_internas.map((midia) => ({
+      id: midia.id,
+      tipo: (midia.tipo === "documento" ? "texto" : midia.tipo) as "imagem" | "audio" | "texto",
+      nome: midia.nome_arquivo,
+      subtitulo: `${midia.tipo} · ${formatDataHora(midia.created_at)}`,
+      url: midia.media_url ?? null,
+      pode_deletar: true,
+    }))
     const pix = detalhe.comprovantes_pix.map((comprovante) => ({
       id: comprovante.id,
       tipo: "imagem" as const,
@@ -202,7 +200,17 @@ function MidiasRecebidas({
       url: null,
       pode_deletar: false,
     }))
-    return [...pix, ...mensagens]
+    const recebidas = detalhe.mensagens
+      .filter((mensagem) => mensagem.media_object_key)
+      .map((mensagem) => ({
+        id: mensagem.id,
+        tipo: mensagem.tipo as "imagem" | "audio" | "texto",
+        nome: mensagem.media_object_key?.split("/").pop() ?? mensagem.tipo,
+        subtitulo: `${mensagem.tipo} · ${formatDataHora(mensagem.created_at)}`,
+        url: mensagem.media_url ?? null,
+        pode_deletar: false,
+      }))
+    return [...internas, ...pix, ...recebidas]
   }, [detalhe])
 
   async function handleArquivoSelecionado(e: React.ChangeEvent<HTMLInputElement>) {
