@@ -355,15 +355,13 @@ export function ModalDecisaoCard({
 
             {!loading && !erro && contexto && card && (
               <>
-                {/* motivo + próxima ação + tempo — sempre visible */}
+                {/* motivo + tempo — sempre visible */}
                 <div className="space-y-1.5">
                   <InfoRow
                     label="MOTIVO"
                     value={motivoExibido(card.motivo_escalada, card.ia_pausada_motivo) ?? "—"}
                   />
-                  {card.proxima_acao_esperada && (
-                    <InfoRow label="PRÓXIMA AÇÃO" value={card.proxima_acao_esperada} destaque />
-                  )}
+                  {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
                   <p className="text-xs text-text-muted">
                     Pausada {formatTempoRelativo(card.ia_pausada_em)}
                   </p>

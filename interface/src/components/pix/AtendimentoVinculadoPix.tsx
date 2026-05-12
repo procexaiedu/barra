@@ -61,11 +61,7 @@ export function AtendimentoVinculadoPix({
         </span>
       </div>
       <p className="mt-2 text-[13px] text-text-muted">{meta}</p>
-      {atendimento.proxima_acao_esperada && (
-        <p className="mt-1 text-[13px] text-state-handoff">
-          {atendimento.proxima_acao_esperada}
-        </p>
-      )}
+      {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
       <div className="mt-2">
         <Button variant="ghost" size="sm" onClick={() => router.push("/atendimentos")}>
           Abrir na Central

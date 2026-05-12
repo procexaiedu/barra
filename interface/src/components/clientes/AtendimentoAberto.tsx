@@ -48,14 +48,7 @@ export function AtendimentoAberto({ atendimento }: { atendimento: AtendimentoAbe
               </span>
             )}
           </div>
-          {atendimento.proxima_acao_esperada && (
-            <div>
-              <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-                Próxima ação
-              </p>
-              <p className="text-sm text-text-primary">{atendimento.proxima_acao_esperada}</p>
-            </div>
-          )}
+          {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
           <div>
             <Button variant="secondary" size="sm" onClick={() => router.push("/atendimentos")}>
               Abrir na Central

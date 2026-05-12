@@ -273,26 +273,16 @@ export function ModalAtendimentoHistorico({
                 </section>
               )}
 
-              {/* Próxima ação / Resumo */}
-              {(at.proxima_acao_esperada || at.resumo_operacional) && (
+              {/* Resumo (campo 'Próxima Ação' obsoleto no MVP — task 0855ee14) */}
+              {at.resumo_operacional && (
                 <section className="rounded-lg border border-border bg-card p-4">
                   <SecaoHeader>Contexto operacional</SecaoHeader>
-                  {at.proxima_acao_esperada && (
-                    <div className={at.resumo_operacional ? "mb-4" : undefined}>
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-                        Próxima ação
-                      </p>
-                      <p className="text-sm text-text-secondary">{at.proxima_acao_esperada}</p>
-                    </div>
-                  )}
-                  {at.resumo_operacional && (
-                    <div>
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-                        Resumo
-                      </p>
-                      <p className="text-sm text-text-secondary">{at.resumo_operacional}</p>
-                    </div>
-                  )}
+                  <div>
+                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                      Resumo
+                    </p>
+                    <p className="text-sm text-text-secondary">{at.resumo_operacional}</p>
+                  </div>
                 </section>
               )}
             </>

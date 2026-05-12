@@ -90,23 +90,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
         </div>
       )}
 
-      {/* Próxima ação — callout dedicado; Responsável como metadado no header */}
-      <div className="mb-3 rounded-md bg-ink-200 px-3 py-2.5">
-        <div className="mb-1 flex items-center justify-between gap-2">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-            Próxima ação
-          </p>
-          {atendimento.responsavel_atual && (
-            <span className="text-[11px] text-text-muted">
-              {formatRotulo(atendimento.responsavel_atual) ?? atendimento.responsavel_atual}
-            </span>
-          )}
-        </div>
-        {atendimento.proxima_acao_esperada
-          ? <p className="text-[14px] font-semibold leading-snug text-text-primary">{atendimento.proxima_acao_esperada}</p>
-          : <p className="text-[13px] text-text-disabled">Não definida</p>
-        }
-      </div>
+      {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
 
       {/* Resumo da IA — prosa, não linha de tabela */}
       {atendimento.resumo_operacional && (

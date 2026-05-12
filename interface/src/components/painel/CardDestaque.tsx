@@ -95,9 +95,7 @@ export function CardDestaque({
         >
           <Badge variant={badge.variant} className="shrink-0">{badge.label}</Badge>
           <span className="min-w-0 truncate text-sm font-semibold text-text-primary">{nomeCliente}</span>
-          {card.proxima_acao_esperada && (
-            <span className="min-w-0 flex-1 truncate text-xs text-text-muted">{card.proxima_acao_esperada}</span>
-          )}
+          {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
           <span className="shrink-0 text-xs text-text-muted">{card.modelo_nome} #{card.numero_curto}</span>
           {card.ia_pausada_motivo === "modelo_em_atendimento" && (
             <Button
@@ -167,14 +165,7 @@ export function CardDestaque({
               {motivoExibido(card.motivo_escalada, card.ia_pausada_motivo)}
             </span>
           </div>
-          {card.proxima_acao_esperada && (
-            <div>
-              <span className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
-                PRÓXIMA AÇÃO{" "}
-              </span>
-              <span className="text-[13px] font-medium text-text-primary">{card.proxima_acao_esperada}</span>
-            </div>
-          )}
+          {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
         </div>
 
         {card.ia_pausada_motivo === "modelo_em_atendimento" && (
