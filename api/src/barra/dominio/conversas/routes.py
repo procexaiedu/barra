@@ -215,12 +215,12 @@ async def obter_conversa(
         FROM barravips.atendimentos a
         JOIN barravips.conversas cv ON cv.id = a.conversa_id
         JOIN barravips.modelos m ON m.id = cv.modelo_id
-        WHERE cv.cliente_id = %s AND a.estado = 'Fechado'
+        WHERE cv.cliente_id = %s AND cv.modelo_id = %s AND a.estado = 'Fechado'
         GROUP BY m.id, m.nome
         ORDER BY COUNT(*) DESC
         LIMIT 1
         """,
-        (conversa["cliente_id"],),
+        (conversa["cliente_id"], conversa["modelo_id"]),
     )
 
     tipo_atendimento_row = await _one(
@@ -230,13 +230,14 @@ async def obter_conversa(
         FROM barravips.atendimentos a
         JOIN barravips.conversas cv ON cv.id = a.conversa_id
         WHERE cv.cliente_id = %s
+          AND cv.modelo_id = %s
           AND a.estado = 'Fechado'
           AND a.tipo_atendimento IS NOT NULL
         GROUP BY a.tipo_atendimento
         ORDER BY COUNT(*) DESC
         LIMIT 1
         """,
-        (conversa["cliente_id"],),
+        (conversa["cliente_id"], conversa["modelo_id"]),
     )
 
     programa_preferido = await _one(
@@ -247,12 +248,12 @@ async def obter_conversa(
         JOIN barravips.atendimentos a ON a.id = ats.atendimento_id
         JOIN barravips.conversas cv ON cv.id = a.conversa_id
         JOIN barravips.programas p ON p.id = ats.programa_id
-        WHERE cv.cliente_id = %s AND a.estado = 'Fechado'
+        WHERE cv.cliente_id = %s AND cv.modelo_id = %s AND a.estado = 'Fechado'
         GROUP BY p.id, p.nome
         ORDER BY COUNT(*) DESC
         LIMIT 1
         """,
-        (conversa["cliente_id"],),
+        (conversa["cliente_id"], conversa["modelo_id"]),
     )
 
     duracao_preferida = await _one(
@@ -263,12 +264,12 @@ async def obter_conversa(
         JOIN barravips.atendimentos a ON a.id = ats.atendimento_id
         JOIN barravips.conversas cv ON cv.id = a.conversa_id
         JOIN barravips.duracoes d ON d.id = ats.duracao_id
-        WHERE cv.cliente_id = %s AND a.estado = 'Fechado'
+        WHERE cv.cliente_id = %s AND cv.modelo_id = %s AND a.estado = 'Fechado'
         GROUP BY d.id, d.nome
         ORDER BY COUNT(*) DESC
         LIMIT 1
         """,
-        (conversa["cliente_id"],),
+        (conversa["cliente_id"], conversa["modelo_id"]),
     )
 
     forma_pagamento_row = await _one(
@@ -278,13 +279,14 @@ async def obter_conversa(
         FROM barravips.atendimentos a
         JOIN barravips.conversas cv ON cv.id = a.conversa_id
         WHERE cv.cliente_id = %s
+          AND cv.modelo_id = %s
           AND a.estado = 'Fechado'
           AND a.forma_pagamento IS NOT NULL
         GROUP BY a.forma_pagamento
         ORDER BY COUNT(*) DESC
         LIMIT 1
         """,
-        (conversa["cliente_id"],),
+        (conversa["cliente_id"], conversa["modelo_id"]),
     )
 
     return {
