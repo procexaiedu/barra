@@ -63,7 +63,6 @@
 | `responsavel_atual_enum` | `IA`, `Fernando`, `modelo` |
 | `tipo_atendimento_enum` | `interno`, `externo` |
 | `tipo_evento_enum` | `transicao_estado`, `extracao_registrada`, `pix_solicitado`, `pix_status_mudado`, `handoff_aberto`, `devolucao_para_ia`, `fechado_registrado`, `perdido_registrado`, `correcao_registro`, `bloqueio_criado`, `bloqueio_estado_mudado`, `comando_invalido`, `modelo_pausada`, `modelo_reativada` |
-| `tipo_local_enum` | `hotel`, `casa`, `apartamento`, `outro` |
 | `tipo_mensagem_enum` | `texto`, `audio`, `imagem` |
 | `urgencia_enum` | `imediato`, `agendado`, `indefinido`, `estimado` |
 
@@ -205,7 +204,7 @@
 | `duracao_horas` | `numeric` | NULL | — | CHECK `> 0` |
 | `endereco` | `text` | NULL | — | |
 | `bairro` | `text` | NULL | — | |
-| `tipo_local` | `tipo_local_enum` | NULL | — | |
+| `tipo_local` | `text` | NULL | — | |
 | `referencia_local` | `text` | NULL | — | |
 | `forma_pagamento` | `forma_pagamento_enum` | NULL | — | |
 | `valor_acordado` | `numeric` | NULL | — | CHECK `>= 0` |
