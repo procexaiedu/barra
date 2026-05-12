@@ -1,9 +1,10 @@
 "use client"
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { LayoutList, Columns, Search } from "lucide-react"
-import { useSearchParams } from "next/navigation"
+import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
+import { FiltroPeriodo } from "@/components/atendimentos/FiltroPeriodo"
 import { ListaAtendimentos } from "@/components/atendimentos/ListaAtendimentos"
 import { KanbanBoard } from "@/components/atendimentos/KanbanBoard"
 import { ModalVisualizacao } from "@/components/atendimentos/ModalVisualizacao"
@@ -12,6 +13,7 @@ import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAtendimentos } from "@/hooks/useAtendimentos"
 import { api } from "@/lib/api"
+import { hojeBrtIso } from "@/lib/datas"
 import type {
   AtendimentoDetalheResponse,
   AtendimentoListaItem,
@@ -19,11 +21,14 @@ import type {
   EstadoFiltro,
   FiltrosAtendimentos,
   IaFiltro,
+  PeriodoFiltro,
   QualificacaoFiltro,
   TipoFiltro,
   UrgenciaFiltro,
 } from "@/tipos/atendimentos"
 import type { ReactNode } from "react"
+
+const DATA_ISO_RE = /^\d{4}-\d{2}-\d{2}$/
 
 type ViewMode = "lista" | "kanban"
 
@@ -80,6 +85,8 @@ export default function CentralAtendimentos() {
 
 function CentralAtendimentosInner() {
   const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
   const initialId = searchParams.get("id")
 
   const [view, setView] = useState<ViewMode>(() => {
@@ -102,6 +109,14 @@ function CentralAtendimentosInner() {
     const iaPausada = searchParams.get("ia_pausada")
     if (iaPausada === "true") override.ia = "pausada"
     else if (iaPausada === "false") override.ia = "ativa"
+    const de = searchParams.get("de")
+    const ate = searchParams.get("ate")
+    if ((de && DATA_ISO_RE.test(de)) || (ate && DATA_ISO_RE.test(ate))) {
+      override.periodo = {
+        de: de && DATA_ISO_RE.test(de) ? de : null,
+        ate: ate && DATA_ISO_RE.test(ate) ? ate : null,
+      }
+    }
     return override
   }, [searchParams])
 
@@ -114,6 +129,24 @@ function CentralAtendimentosInner() {
   )
 
   const atendimentos = useAtendimentos(initialId, filtrosOverride, filtrosUrl)
+
+  const aplicarPeriodo = useCallback((proximo: PeriodoFiltro) => {
+    atendimentos.setFiltros((current) => ({ ...current, periodo: proximo }))
+    const params = new URLSearchParams(searchParams.toString())
+    const hoje = hojeBrtIso()
+    const ehDefault = proximo.de === hoje && proximo.ate === hoje
+    if (ehDefault) {
+      params.delete("de")
+      params.delete("ate")
+    } else {
+      if (proximo.de) params.set("de", proximo.de)
+      else params.delete("de")
+      if (proximo.ate) params.set("ate", proximo.ate)
+      else params.delete("ate")
+    }
+    const qs = params.toString()
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
+  }, [atendimentos, pathname, router, searchParams])
 
   // Estado do kanban
   const [modalId, setModalId] = useState<string | null>(null)
@@ -172,6 +205,7 @@ function CentralAtendimentosInner() {
           urgencia={atendimentos.filtros.urgencia}
           iaFiltro={atendimentos.filtros.ia}
           qualificacaoFiltro={atendimentos.filtros.qualificacao}
+          periodo={atendimentos.filtros.periodo}
           loading={atendimentos.listaStatus === "loading"}
           onBuscaChange={(busca) => atendimentos.setFiltros((current) => ({ ...current, busca }))}
           onEstadoChange={(estado) => atendimentos.setFiltros((current) => ({ ...current, estado }))}
@@ -179,6 +213,7 @@ function CentralAtendimentosInner() {
           onUrgenciaChange={(urgencia) => atendimentos.setFiltros((current) => ({ ...current, urgencia }))}
           onIaChange={(value) => atendimentos.setFiltros((current) => ({ ...current, ia: value }))}
           onQualificacaoChange={(value) => atendimentos.setFiltros((current) => ({ ...current, qualificacao: value }))}
+          onPeriodoChange={aplicarPeriodo}
         />
       </div>
 
@@ -272,6 +307,7 @@ function Toolbar({
   urgencia,
   iaFiltro,
   qualificacaoFiltro,
+  periodo,
   loading,
   onBuscaChange,
   onEstadoChange,
@@ -279,6 +315,7 @@ function Toolbar({
   onUrgenciaChange,
   onIaChange,
   onQualificacaoChange,
+  onPeriodoChange,
 }: {
   busca: string
   estado: EstadoFiltro
@@ -286,6 +323,7 @@ function Toolbar({
   urgencia: UrgenciaFiltro
   iaFiltro: IaFiltro
   qualificacaoFiltro: QualificacaoFiltro
+  periodo: PeriodoFiltro
   loading: boolean
   onBuscaChange: (value: string) => void
   onEstadoChange: (value: EstadoFiltro) => void
@@ -293,12 +331,13 @@ function Toolbar({
   onUrgenciaChange: (value: UrgenciaFiltro) => void
   onIaChange: (value: IaFiltro) => void
   onQualificacaoChange: (value: QualificacaoFiltro) => void
+  onPeriodoChange: (value: PeriodoFiltro) => void
 }) {
   if (loading) {
     return (
-      <div aria-busy="true" className="grid grid-cols-[minmax(160px,1fr)_140px_110px_120px_100px_110px] gap-2">
+      <div aria-busy="true" className="grid grid-cols-[minmax(140px,1fr)_140px_110px_120px_100px_110px_150px] gap-2">
         <Skeleton className="h-[54px] rounded-lg" />
-        {Array.from({ length: 5 }).map((_, index) => (
+        {Array.from({ length: 6 }).map((_, index) => (
           <Skeleton key={index} className="h-[54px] rounded-lg" />
         ))}
       </div>
@@ -306,7 +345,7 @@ function Toolbar({
   }
 
   return (
-    <div className="grid grid-cols-[minmax(160px,1fr)_140px_110px_120px_100px_110px] gap-2">
+    <div className="grid grid-cols-[minmax(140px,1fr)_140px_110px_120px_100px_110px_150px] gap-2">
       <label className="relative flex flex-col gap-0.5">
         <span className="text-xs block" aria-hidden="true">&nbsp;</span>
         <span className="sr-only">Busca</span>
@@ -333,6 +372,7 @@ function Toolbar({
       <SelectFiltro label="Qualificação" value={qualificacaoFiltro} onChange={(value) => onQualificacaoChange(value as QualificacaoFiltro)}>
         {qualificacoes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
       </SelectFiltro>
+      <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
     </div>
   )
 }
