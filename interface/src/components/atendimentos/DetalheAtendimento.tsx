@@ -62,7 +62,7 @@ export function DetalheAtendimento({
   onFechar: (id: string, valorFinal: number) => Promise<void>
   onPerder: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
   onUploadMidia: (atendimentoId: string, file: File, tipo: string) => Promise<void>
-  onDeletarMidia: (atendimentoId: string, mensagemId: string) => Promise<void>
+  onDeletarMidia: (atendimentoId: string, midiaId: string) => Promise<void>
   onEditar?: () => void
 }) {
   if (status === "loading") return <DetalheSkeleton />
@@ -175,7 +175,7 @@ function MidiasRecebidas({
 }: {
   detalhe: AtendimentoDetalheResponse
   onUploadMidia: (atendimentoId: string, file: File, tipo: string) => Promise<void>
-  onDeletarMidia: (atendimentoId: string, mensagemId: string) => Promise<void>
+  onDeletarMidia: (atendimentoId: string, midiaId: string) => Promise<void>
 }) {
   const [midiaAberta, setMidiaAberta] = useState<MidiaItem | null>(null)
   const [midiaParaDeletar, setMidiaParaDeletar] = useState<MidiaItem | null>(null)

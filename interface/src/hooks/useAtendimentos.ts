@@ -14,7 +14,7 @@ import type {
   EstadoAtendimento,
   EstadoKanbanDestino,
   FiltrosAtendimentos,
-  MensagemAtendimento,
+  MidiaInternaAtendimento,
   MotivoPerda,
 } from "@/tipos/atendimentos"
 
@@ -47,6 +47,7 @@ function normalizarDetalheResponse(res: AtendimentoDetalheResponse): Atendimento
     eventos: Array.isArray(res.eventos) ? res.eventos : [],
     comprovantes_pix: Array.isArray(res.comprovantes_pix) ? res.comprovantes_pix : [],
     servicos: Array.isArray(res.servicos) ? res.servicos : [],
+    midias_internas: Array.isArray(res.midias_internas) ? res.midias_internas : [],
   }
 }
 
@@ -256,18 +257,18 @@ export function useAtendimentos(
     const form = new FormData()
     form.append("arquivo", file)
     form.append("tipo", tipo)
-    const nova = await apiFormData<MensagemAtendimento>(`/v1/atendimentos/${atendimentoId}/midias`, form)
-    setDetalhe((prev) => prev ? { ...prev, mensagens: [...prev.mensagens, nova] } : prev)
+    const nova = await apiFormData<MidiaInternaAtendimento>(`/v1/atendimentos/${atendimentoId}/midias`, form)
+    setDetalhe((prev) => prev ? { ...prev, midias_internas: [...prev.midias_internas, nova] } : prev)
     if (detalheRef.current) {
-      detalheRef.current = { ...detalheRef.current, mensagens: [...detalheRef.current.mensagens, nova] }
+      detalheRef.current = { ...detalheRef.current, midias_internas: [...detalheRef.current.midias_internas, nova] }
     }
   }, [])
 
-  const deletarMidia = useCallback(async (atendimentoId: string, mensagemId: string): Promise<void> => {
-    await api(`/v1/atendimentos/${atendimentoId}/midias/${mensagemId}`, { method: "DELETE" })
-    setDetalhe((prev) => prev ? { ...prev, mensagens: prev.mensagens.filter((m) => m.id !== mensagemId) } : prev)
+  const deletarMidia = useCallback(async (atendimentoId: string, midiaId: string): Promise<void> => {
+    await api(`/v1/atendimentos/${atendimentoId}/midias/${midiaId}`, { method: "DELETE" })
+    setDetalhe((prev) => prev ? { ...prev, midias_internas: prev.midias_internas.filter((m) => m.id !== midiaId) } : prev)
     if (detalheRef.current) {
-      detalheRef.current = { ...detalheRef.current, mensagens: detalheRef.current.mensagens.filter((m) => m.id !== mensagemId) }
+      detalheRef.current = { ...detalheRef.current, midias_internas: detalheRef.current.midias_internas.filter((m) => m.id !== midiaId) }
     }
   }, [])
 
