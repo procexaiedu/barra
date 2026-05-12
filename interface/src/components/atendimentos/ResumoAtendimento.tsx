@@ -15,6 +15,10 @@ function asNumber(valor: number | string | null) {
   return Number.isFinite(n) ? n : null
 }
 
+function NaoInformado() {
+  return <span className="text-text-disabled">Não informado</span>
+}
+
 export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
   const atendimento = detalhe.atendimento
   const valorAcordado = asNumber(atendimento.valor_acordado)
@@ -29,6 +33,23 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
     atendimento.estado === "Perdido" ? "text-danger-500" :
     atendimento.ia_pausada ? "text-state-handoff" :
     "text-gold-500"
+
+  const formaPagamentoLabel = atendimento.forma_pagamento
+    ? atendimento.forma_pagamento === "pix"
+      ? "PIX"
+      : (formatRotulo(atendimento.forma_pagamento) ?? atendimento.forma_pagamento)
+    : null
+
+  const linhasLocal = [
+    atendimento.bairro,
+    atendimento.tipo_local ? (formatRotulo(atendimento.tipo_local) ?? atendimento.tipo_local) : null,
+    atendimento.duracao_horas ? `${atendimento.duracao_horas} h` : null,
+  ].filter(Boolean) as string[]
+
+  const linhaQuando = [
+    atendimento.data_desejada ? formatData(atendimento.data_desejada) : null,
+    atendimento.horario_desejado ? atendimento.horario_desejado.slice(0, 5) : null,
+  ].filter(Boolean) as string[]
 
   return (
     <Card className="rounded-lg p-4">
@@ -46,7 +67,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
         </StatTile>
         <StatTile label="Valor acordado">
           {valorAcordado !== null
-            ? <span className="text-[16px] font-bold leading-none tabular-nums text-text-primary">{formatBRL(valorAcordado)}</span>
+            ? <span className="text-[16px] font-semibold leading-none tabular-nums text-text-primary">{formatBRL(valorAcordado)}</span>
             : <span className="text-[13px] text-text-disabled">—</span>
           }
         </StatTile>
@@ -90,138 +111,151 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
         </div>
       )}
 
-      {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
-
-      {/* Resumo da IA — prosa, não linha de tabela */}
-      {atendimento.resumo_operacional && (
-        <div className="mb-3">
-          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-            {atendimento.ia_pausada ? "Contexto" : "Resumo da IA"}
-          </p>
+      {/* Seção: IA */}
+      <Secao titulo="IA" semDivisor={!atendimento.ia_pausada}>
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          {atendimento.ia_pausada ? "Contexto" : "Resumo da IA"}
+        </p>
+        {atendimento.resumo_operacional ? (
           <p className="text-[13px] leading-relaxed text-text-secondary">
             {atendimento.resumo_operacional}
           </p>
-        </div>
-      )}
-
-      {/* Logística + Pagamento — bloco de endereço à esquerda, pgto à direita */}
-      <div className="mb-3 grid gap-3 xl:grid-cols-[1fr_auto]">
-        <div>
-          <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-            Agenda / Local
+        ) : (
+          <p className="text-[13px] leading-relaxed text-text-disabled">
+            Aguardando primeira interação da IA
           </p>
-          <div className="flex items-start gap-1.5">
-            <MapPin
-              size={13}
-              strokeWidth={1.5}
-              className={cn("mt-0.5 shrink-0", atendimento.endereco ? "text-text-muted" : "text-text-disabled")}
-            />
-            <div className="min-w-0">
-              {atendimento.endereco
-                ? <p className="text-[13px] font-medium leading-snug text-text-primary">{atendimento.endereco}</p>
-                : <p className="text-[13px] text-text-disabled">Endereço não informado</p>
-              }
-              {(atendimento.bairro || atendimento.tipo_local || atendimento.duracao_horas) && (
-                <p className="mt-0.5 text-[12px] text-text-muted">
-                  {[
-                    atendimento.bairro,
-                    atendimento.tipo_local ? (formatRotulo(atendimento.tipo_local) ?? atendimento.tipo_local) : null,
-                    atendimento.duracao_horas ? `${atendimento.duracao_horas} h` : null,
-                  ].filter(Boolean).join(" · ")}
-                </p>
-              )}
-              {(atendimento.data_desejada || atendimento.horario_desejado) && (
-                <p className="mt-0.5 text-[12px] text-text-muted">
-                  {[
-                    atendimento.data_desejada ? formatData(atendimento.data_desejada) : null,
-                    atendimento.horario_desejado ? atendimento.horario_desejado.slice(0, 5) : null,
-                  ].filter(Boolean).join(" às ")}
-                </p>
-              )}
-            </div>
-          </div>
-        </div>
+        )}
+      </Secao>
 
-        <div className="shrink-0 xl:text-right">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">Pagamento</p>
-          <p className="mt-0.5 text-[13px] font-medium text-text-primary">
-            {atendimento.forma_pagamento
-              ? atendimento.forma_pagamento === "pix" ? "PIX" : (formatRotulo(atendimento.forma_pagamento) ?? atendimento.forma_pagamento)
-              : <span className="font-normal text-text-disabled">Não informado</span>
-            }
+      {/* Seção: Comercial — pagamento + programas */}
+      <Secao titulo="Comercial">
+        <div className="mb-3">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">Pagamento</p>
+          <p className="text-[13px] font-medium text-text-primary">
+            {formaPagamentoLabel ?? <NaoInformado />}
           </p>
           {atendimento.pix_status && atendimento.pix_status !== "nao_solicitado" && (
-            <p className="mt-0.5 text-[11px] text-text-muted">
+            <p className="mt-0.5 text-[12px] text-text-muted">
               {formatEnum(String(atendimento.pix_status)) ?? String(atendimento.pix_status)}
               {detalhe.comprovantes_pix[0] && <> · {formatDataHora(detalhe.comprovantes_pix[0].created_at)}</>}
             </p>
           )}
         </div>
-      </div>
+        <SecaoProgramas programas={detalhe.servicos} />
+      </Secao>
 
-      <SecaoProgramas programas={detalhe.servicos} />
-
-      <div className="mt-3 grid gap-4 border-t border-ink-300 pt-3 xl:grid-cols-2">
-        <div>
-          <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-            Qualificação
-          </h3>
-          <div className="mb-1.5 flex items-center gap-2">
-            <div className="h-1.5 flex-1 rounded-full bg-ink-300">
-              <div
-                className="h-1.5 rounded-full bg-success-500 transition-all"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <span className="text-xs font-semibold tabular-nums text-text-primary">{pct}%</span>
-          </div>
-          <p className="mb-2 text-[12px] text-text-muted">
-            {progresso === 0
-              ? "Nenhum item qualificado"
-              : progresso === total
-                ? "Totalmente qualificado"
-                : `${progresso} de ${total} qualificados`}
-          </p>
-          <div className="flex flex-col gap-1">
-            {sinais.map(({ chave, rotulo }) => {
-              const v = sq?.[chave]
-              const estado = v === true ? "sim" : v === false ? "nao" : "pendente"
-              return (
-                <span
-                  key={chave}
-                  className={cn(
-                    "flex items-center gap-1.5 text-[12px]",
-                    estado === "sim" ? "text-success-500"
-                      : estado === "nao" ? "text-danger-500"
-                      : "text-text-disabled"
-                  )}
-                >
-                  {estado === "sim" ? <CheckCircle2 size={13} />
-                    : estado === "nao" ? <XCircle size={13} />
-                    : <Circle size={13} />}
-                  {rotulo}
-                </span>
-              )
-            })}
+      {/* Seção: Agenda / Local */}
+      <Secao titulo="Agenda / Local">
+        <div className="flex items-start gap-1.5">
+          <MapPin
+            size={13}
+            strokeWidth={1.5}
+            className={cn("mt-0.5 shrink-0", atendimento.endereco ? "text-text-muted" : "text-text-disabled")}
+          />
+          <div className="min-w-0">
+            {atendimento.endereco
+              ? <p className="text-[13px] font-medium leading-snug text-text-primary">{atendimento.endereco}</p>
+              : <p className="text-[13px] text-text-disabled">Endereço não informado</p>
+            }
+            <p className="mt-0.5 text-[12px] text-text-muted">
+              {linhasLocal.length > 0 ? linhasLocal.join(" · ") : <NaoInformado />}
+            </p>
+            <p className="mt-0.5 text-[12px] text-text-muted">
+              {linhaQuando.length > 0 ? linhaQuando.join(" às ") : <NaoInformado />}
+            </p>
           </div>
         </div>
+      </Secao>
 
-        {detalhe.bloqueio && (
+      {/* Seção: Qualificação + Bloqueio (lado a lado em xl) */}
+      <Secao>
+        <div className="grid gap-4 xl:grid-cols-2">
+          <div>
+            <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+              Qualificação
+            </h3>
+            <div className="mb-1.5 flex items-center gap-2">
+              <div className="h-1.5 flex-1 rounded-full bg-ink-300">
+                <div
+                  className="h-1.5 rounded-full bg-success-500 transition-all"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+              <span className="text-xs font-semibold tabular-nums text-text-primary">{pct}%</span>
+            </div>
+            <p className="mb-2 text-[12px] text-text-muted">
+              {progresso === 0
+                ? "Nenhum item qualificado"
+                : progresso === total
+                  ? "Totalmente qualificado"
+                  : `${progresso} de ${total} qualificados`}
+            </p>
+            <div className="flex flex-col gap-1">
+              {sinais.map(({ chave, rotulo }) => {
+                const v = sq?.[chave]
+                const estado = v === true ? "sim" : v === false ? "nao" : "pendente"
+                return (
+                  <span
+                    key={chave}
+                    className={cn(
+                      "flex items-center gap-1.5 text-[12px]",
+                      estado === "sim" ? "text-success-500"
+                        : estado === "nao" ? "text-danger-500"
+                        : "text-text-disabled"
+                    )}
+                  >
+                    {estado === "sim" ? <CheckCircle2 size={13} />
+                      : estado === "nao" ? <XCircle size={13} />
+                      : <Circle size={13} />}
+                    {rotulo}
+                  </span>
+                )
+              })}
+            </div>
+          </div>
+
           <div>
             <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">Bloqueio</h3>
-            <p className="text-[13px] text-text-secondary">
-              {formatDataHora(detalhe.bloqueio.inicio)} · {formatRotulo(detalhe.bloqueio.estado) ?? detalhe.bloqueio.estado}
-            </p>
-            <Link
-              href={`/agenda?bloqueio=${detalhe.bloqueio.id}`}
-              className="mt-1 inline-block text-[13px] text-text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
-            >
-              Abrir na agenda
-            </Link>
+            {detalhe.bloqueio ? (
+              <>
+                <p className="text-[13px] text-text-secondary">
+                  {formatDataHora(detalhe.bloqueio.inicio)} · {formatRotulo(detalhe.bloqueio.estado) ?? detalhe.bloqueio.estado}
+                </p>
+                <Link
+                  href={`/agenda?bloqueio=${detalhe.bloqueio.id}`}
+                  className="mt-1 inline-block text-[13px] text-text-link focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+                >
+                  Abrir na agenda
+                </Link>
+              </>
+            ) : (
+              <p className="text-[13px] text-text-disabled">Sem bloqueio vinculado</p>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      </Secao>
     </Card>
+  )
+}
+
+function Secao({
+  titulo,
+  semDivisor,
+  children,
+}: {
+  titulo?: string
+  semDivisor?: boolean
+  children: ReactNode
+}) {
+  return (
+    <div className={cn("mt-3", !semDivisor && "border-t border-ink-300 pt-3")}>
+      {titulo && (
+        <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          {titulo}
+        </h3>
+      )}
+      {children}
+    </div>
   )
 }
 
@@ -239,10 +273,10 @@ function StatTile({ label, children }: { label: string; children: ReactNode }) {
 function SecaoProgramas({ programas }: { programas: ServicoFechado[] }) {
   const totalProgramas = programas.reduce((sum, p) => sum + p.preco_snapshot, 0)
   return (
-    <div className="border-t border-ink-300 pt-3">
-      <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+    <div>
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
         Programas
-      </h3>
+      </p>
       {programas.length === 0 ? (
         <p className="text-[13px] text-text-disabled">Nenhum programa fechado.</p>
       ) : (
@@ -260,7 +294,7 @@ function SecaoProgramas({ programas }: { programas: ServicoFechado[] }) {
           {programas.length > 1 && (
             <div className="mt-1 flex items-center justify-between border-t border-ink-300 pt-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">Total</span>
-              <span className="tabular-nums text-[14px] font-bold text-text-primary">
+              <span className="tabular-nums text-[14px] font-semibold text-text-primary">
                 {formatBRL(totalProgramas)}
               </span>
             </div>

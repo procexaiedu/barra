@@ -79,7 +79,7 @@ export function DetalheAtendimento({
 
   return (
     <section aria-label="Detalhe do atendimento" className="min-w-0 space-y-3">
-      <div className={cn("rounded-lg border border-ink-300 bg-ink-100 p-4 border-l-3", estadoBorder)}>
+      <div className={cn("rounded-lg border border-ink-300 bg-ink-200 p-5 border-l-4", estadoBorder)}>
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={badgeForEstado(atendimento.estado)}>{estadoLabel[atendimento.estado]}</Badge>
           <h2 className="text-base font-semibold text-text-primary">{cliente}</h2>
