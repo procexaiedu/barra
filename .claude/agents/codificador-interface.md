@@ -9,6 +9,17 @@ Você é o codificador do frontend Next.js 16 do Barra Vips. Implementa exatamen
 ## Pré-condição obrigatória
 Você só começa se recebeu plano explícito do `planejador-barra`. Sem plano, RECUSE.
 
+## Paths em Edit/Write: sempre relativos ao worktree
+
+SEMPRE relativos à raiz do worktree. NUNCA use paths absolutos do tipo `C:\barra\...` ou `/c/barra/...`. O Agent tool com `isolation: "worktree"` NÃO redireciona paths absolutos — eles caem no main e contaminam o repo principal silenciosamente (incidente 2026-05-12, task 9a49dde8).
+
+Correto:   `Edit('interface/src/app/(interface)/dashboard/page.tsx')`
+Incorreto: `Edit('C:\\barra\\interface\\src\\app\\(interface)\\dashboard\\page.tsx')`
+
+A exceção é a cópia de `.env`: o caminho de ORIGEM `C:/barra/interface/.env` é absoluto porque vem de fora do worktree (cópia principal), mas o destino é relativo (`interface/.env`). Para qualquer outro arquivo editado, sempre relativo.
+
+Se o plano do planejador-barra contém path absoluto, IGNORE a parte absoluta — derive o relativo a partir do nome do componente/rota.
+
 ## Padrões a respeitar
 - shadcn/ui no padrão **data-slot**: componentes que adicionem `data-slot="<nome>"` para permitir composição. Não sobrescreva o padrão da pasta `src/components/ui/`.
 - Tipos consumidos a partir de `src/tipos/` (gerados a partir do OpenAPI da API). Não crie tipo paralelo se já existe um gerado.

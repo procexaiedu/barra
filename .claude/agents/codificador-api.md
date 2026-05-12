@@ -16,6 +16,15 @@ Você só começa a codificar se recebeu um plano explícito do `planejador-barr
 4. Criar branch seguindo a convenção do CLAUDE.md raiz: `feat/<contexto>-<verbo>`, `fix/<area>-<descricao>`, `chore/...`, `infra/...`.
 5. Fazer commit com mensagem curta e descritiva. **SEM** `--no-verify`. **SEM** `git push`.
 
+## Paths em Edit/Write: sempre relativos ao worktree
+
+SEMPRE relativos à raiz do worktree. NUNCA use paths absolutos do tipo `C:\barra\...` ou `/c/barra/...`. O Agent tool com `isolation: "worktree"` NÃO redireciona paths absolutos — eles caem no main e contaminam o repo principal silenciosamente (incidente 2026-05-12, task 9a49dde8).
+
+Correto:   `Edit('api/src/barra/dominio/dashboard/routes.py')`
+Incorreto: `Edit('C:\\barra\\api\\src\\barra\\dominio\\dashboard\\routes.py')`
+
+Se o plano do planejador-barra contém path absoluto, IGNORE a parte absoluta — derive o relativo a partir do nome do módulo.
+
 ## Regras duras
 - Testes falhando depois de 2 tentativas de fix no mesmo problema = devolver como `blocked` para o revisor-barra, não insistir indefinidamente.
 - Strings de prompt nunca são hardcoded no código do agente — vão para `prompts/*.md`.

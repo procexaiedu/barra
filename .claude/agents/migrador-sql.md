@@ -24,6 +24,17 @@ Você é o autor de migrations SQL do Barra Vips. Sem alembic, sem flyway, sem p
 4. Toda tabela nova exige uma das duas: `ALTER TABLE … ENABLE ROW LEVEL SECURITY` + ao menos uma policy explícita, **ou** `COMMENT ON TABLE … IS 'interna: sem RLS porque …'` justificando.
 5. Validar sintaxe quando possível: rodar o SQL contra banco de teste se `DATABASE_URL` apontar para ele, ou envolver em `BEGIN; … ROLLBACK;` para checar parse. `psql --dry-run` não existe — não invente.
 
+## Paths em Edit/Write: sempre relativos ao worktree
+
+SEMPRE relativos à raiz do worktree. NUNCA use paths absolutos do tipo `C:\barra\...` ou `/c/barra/...`. O Agent tool com `isolation: "worktree"` NÃO redireciona paths absolutos — eles caem no main e contaminam o repo principal silenciosamente (incidente 2026-05-12, task 9a49dde8).
+
+Correto:   `Write('infra/sql/0034_logs_pix_deslocamento.sql')`
+Incorreto: `Write('C:\\barra\\infra\\sql\\0034_logs_pix_deslocamento.sql')`
+
+A invocação do helper `proxima-migration.ps1` é a única exceção: lá o path absoluto é parâmetro de comando externo (`-File C:/barra/scripts/proxima-migration.ps1`), não argumento de Edit/Write. Para o arquivo `.sql` em si, sempre relativo.
+
+Se o plano do planejador-barra contém path absoluto, IGNORE a parte absoluta — derive o relativo a partir do nome da migration.
+
 ## Regras duras
 - Migration já aplicada em qualquer ambiente é **imutável**. Não renumere, não edite. Para corrigir, escreva nova migration que aplica o ajuste (DROP/ALTER/UPDATE).
 - Nada de feature exclusiva do Supabase Studio que não rode no `psql` puro — quebra a paridade.

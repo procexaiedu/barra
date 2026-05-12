@@ -9,6 +9,15 @@
             "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:/barra/scripts/hooks/block_destructive_git.ps1\""
           }
         ]
+      },
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"C:/barra/scripts/hooks/block_absolute_path_writes.ps1\""
+          }
+        ]
       }
     ],
     "Stop": [
