@@ -4,6 +4,7 @@ import { Suspense, useState } from "react"
 import { AlertTriangle, CheckCircle2, TrendingUp, XCircle } from "lucide-react"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
+import { BlocoFinanceiro } from "@/components/dashboard/BlocoFinanceiro"
 import { BlocoMotivosEscalada } from "@/components/dashboard/BlocoMotivosEscalada"
 import { BlocoPerdasPorMotivo } from "@/components/dashboard/BlocoPerdasPorMotivo"
 import { DialogRangeCustom } from "@/components/dashboard/DialogRangeCustom"
@@ -232,6 +233,13 @@ function DashboardConteudo({ data, onAbrirEscaladas }: ConteudoProps) {
           />
         </div>
       </section>
+
+      <BlocoFinanceiro
+        financeiro={data.financeiro}
+        anterior={data.financeiro_periodo_anterior}
+        rangeComparacao={rangeComparacao}
+        fechamentos={kpis.fechamentos}
+      />
 
       <FunilEstados linhas={linhasFunil} />
 
