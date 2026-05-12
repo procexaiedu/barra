@@ -358,8 +358,7 @@ function Toolbar({
   return (
     <div className="grid grid-cols-[minmax(140px,1fr)_140px_110px_120px_100px_110px_150px] gap-2">
       <label className="relative flex flex-col gap-0.5">
-        <span className="text-xs block" aria-hidden="true">&nbsp;</span>
-        <span className="sr-only">Busca</span>
+        <span className="text-xs font-medium text-text-muted">Buscar</span>
         <Search size={16} strokeWidth={1.5} className="pointer-events-none absolute left-3 bottom-2.5 text-text-muted" />
         <Input
           value={busca}

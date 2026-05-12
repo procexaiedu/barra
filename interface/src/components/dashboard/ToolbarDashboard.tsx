@@ -26,16 +26,22 @@ export function ToolbarDashboard({
   return (
     <section
       aria-label="Filtros do dashboard"
-      className="flex flex-wrap items-center justify-between gap-3"
+      className="flex flex-wrap items-end justify-between gap-3"
     >
-      <FiltroPeriodo
-        periodo={periodo}
-        de={de}
-        ate={ate}
-        onPreset={onPreset}
-        onAbrirCustom={onAbrirCustom}
-      />
-      <FiltroModelo modeloId={modeloId} onChange={onModeloChange} />
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-text-muted">Período</span>
+        <FiltroPeriodo
+          periodo={periodo}
+          de={de}
+          ate={ate}
+          onPreset={onPreset}
+          onAbrirCustom={onAbrirCustom}
+        />
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-text-muted">Modelo</span>
+        <FiltroModelo modeloId={modeloId} onChange={onModeloChange} />
+      </div>
     </section>
   )
 }

@@ -144,6 +144,40 @@ Regras:
 - Botão de ação tem estado de loading com texto trocado (`"Devolvendo…"`), não spinner ao lado.
 - Disabilitar ambos botões durante loading.
 
+## Filtros de toolbar
+
+Todo filtro em barra de toolbar (`Toolbar*.tsx` ou inline na página) segue o mesmo padrão visual: rótulo curto **visível** acima do controle, empilhado.
+
+```tsx
+<label className="flex flex-col gap-1">
+  <span className="text-xs font-medium text-text-muted">{rotulo}</span>
+  <Select ... />
+  // ou <Input ... />
+</label>
+```
+
+Regras:
+- Rótulo sempre **visível** — nunca `sr-only`, inclusive sobre o campo de busca (use `"Buscar"`).
+- Classe canônica do rótulo: `text-xs font-medium text-text-muted`. **Não** usar `uppercase`, `tracking-[0.08em]`, `font-semibold`, `text-[11px]` nem `text-sm`.
+- `flex flex-col gap-1` para empilhar rótulo + controle.
+- `<label>` envolve o controle (semântica nativa) ou usa `<label htmlFor>`.
+- `aria-label` no select pode ser dispensado quando o `<label>` já cobre.
+
+Exceção — grupo de botões-preset (`role="group"`):
+
+Quando o controle é um conjunto de botões (`FiltroPeriodo` do dashboard), o group em si carrega `role="group" aria-label="Período"`; quando posto numa toolbar com outros filtros rotulados, envolva em wrapper para alinhar visualmente:
+
+```tsx
+<div className="flex flex-col gap-1">
+  <span className="text-xs font-medium text-text-muted">Período</span>
+  <FiltroPeriodo ... />
+</div>
+```
+
+Nomenclatura cross-módulo:
+- Filtro por modelo da agência sempre se chama **"Modelo"**.
+- Filtro de janela de tempo sempre se chama **"Período"**. Exceção semântica: em Atendimentos, o filtro de urgência se chama **"Quando"** (não é janela de tempo).
+
 ## Acessibilidade
 
 **Mínimos:**

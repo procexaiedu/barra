@@ -58,7 +58,7 @@ export function ToolbarPix({
   return (
     <div className="grid grid-cols-[minmax(260px,1fr)_180px_160px_180px_140px] gap-3">
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] font-medium text-text-muted">Buscar</span>
+        <span className="text-xs font-medium text-text-muted">Buscar</span>
         <div className="relative">
           <Search
             size={16}

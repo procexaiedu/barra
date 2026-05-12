@@ -12,16 +12,17 @@ export function ToolbarModelos({
   onChange: (filtros: FiltrosModelos) => void
 }) {
   return (
-    <section aria-label="Filtros de modelos" className="flex flex-wrap items-center gap-2">
-      <div className="relative min-w-72 flex-1">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" size={14} strokeWidth={1.5} />
+    <section aria-label="Filtros de modelos" className="flex flex-wrap items-end gap-2">
+      <label className="relative flex min-w-72 flex-1 flex-col gap-1">
+        <span className="text-xs font-medium text-text-muted">Buscar</span>
+        <Search className="pointer-events-none absolute left-3 bottom-2.5 text-text-muted" size={14} strokeWidth={1.5} />
         <Input
           value={filtros.busca}
           onChange={(event) => onChange({ ...filtros, busca: event.target.value })}
           placeholder="Buscar nome, número ou bairro"
           className="h-9 bg-input pl-9"
         />
-      </div>
+      </label>
       <SelectFiltro
         label="Situação"
         value={filtros.status}
@@ -69,17 +70,19 @@ function SelectFiltro({
   onChange: (value: string) => void
 }) {
   return (
-    <select
-      aria-label={label}
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="h-9 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-    >
-      {options.map(([optionValue, optionLabel]) => (
-        <option key={optionValue} value={optionValue}>
-          {optionLabel}
-        </option>
-      ))}
-    </select>
+    <label className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-text-muted">{label}</span>
+      <select
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-9 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        {options.map(([optionValue, optionLabel]) => (
+          <option key={optionValue} value={optionValue}>
+            {optionLabel}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }

@@ -172,7 +172,7 @@ function Toolbar({
     <div className="space-y-2">
       <div className="grid grid-cols-[minmax(260px,1fr)_140px_180px_140px_180px_160px] gap-3">
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">Buscar</span>
+        <span className="text-xs font-medium text-text-muted">Buscar</span>
         <label className="relative">
           <span className="sr-only">Buscar nome ou telefone</span>
           <Search
@@ -268,7 +268,7 @@ function SelectFiltro({
 }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">{label}</span>
+      <span className="text-xs font-medium text-text-muted">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}

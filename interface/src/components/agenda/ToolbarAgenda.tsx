@@ -67,12 +67,12 @@ export function ToolbarAgenda({
       </div>
 
       <div className="flex items-center gap-2">
-        <label className="flex items-center gap-2">
-          <span className="text-sm text-text-secondary">Modelo</span>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-text-muted">Modelo</span>
           <FiltroModelo modeloId={modeloId} onChange={onModeloChange} />
-        </label>
-        <label className="flex items-center gap-2">
-          <span className="text-sm text-text-secondary">Tipo</span>
+        </div>
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-text-muted">Tipo</span>
           <select
             value={tipoAtendimento}
             onChange={(e) => onTipoAtendimentoChange(e.target.value as "" | "interno" | "externo")}
