@@ -196,12 +196,16 @@ export function DialogBloqueio({
   const temModelo = Boolean(modeloId) || Boolean(form.modelo_id)
   const podeSalvar = !readOnly && !intervaloInvalido && !observacaoInvalida && temModelo
   const podeCancelar = bloqueio && bloqueio.estado !== "concluido" && bloqueio.estado !== "cancelado"
+  const ehAgendamento = Boolean(bloqueio?.atendimento_id)
+  const acaoLabel = ehAgendamento ? "Deletar agendamento" : "Cancelar bloqueio"
   const tituloCancelamento = bloqueio?.estado === "em_atendimento"
-    ? "Cancelar bloqueio em atendimento?"
-    : "Cancelar bloqueio?"
+    ? `${acaoLabel} em atendimento?`
+    : `${acaoLabel}?`
   const textoCancelamento = bloqueio?.estado === "em_atendimento"
-    ? "Este bloqueio já está marcado como Em atendimento. Confirme apenas se o atendimento já terminou."
-    : "Este horário ficará liberado na agenda. Se houver atendimento vinculado, confira se ele também precisa ser ajustado nos Atendimentos."
+    ? `Este ${ehAgendamento ? "agendamento" : "bloqueio"} já está marcado como Em atendimento. Confirme apenas se o atendimento já terminou.`
+    : ehAgendamento
+      ? "Este agendamento ficará marcado como cancelado e liberará o horário."
+      : "Este horário ficará liberado na agenda. Se houver atendimento vinculado, confira se ele também precisa ser ajustado nos Atendimentos."
 
   const mostraAcoesAtendimento =
     editando &&
@@ -706,7 +710,7 @@ export function DialogBloqueio({
           <div className="flex items-center gap-2">
             {podeCancelar && (
               <Button variant="danger" onClick={() => setConfirmOpen(true)} disabled={submitting}>
-                Cancelar bloqueio
+                {acaoLabel}
               </Button>
             )}
             {!readOnly && (
@@ -735,7 +739,7 @@ export function DialogBloqueio({
               disabled={submitting}
             >
               {submitting && <Loader2 className="animate-spin" />}
-              {bloqueio?.estado === "em_atendimento" ? "Confirmar cancelamento" : "Cancelar bloqueio"}
+              {bloqueio?.estado === "em_atendimento" ? "Confirmar cancelamento" : acaoLabel}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
