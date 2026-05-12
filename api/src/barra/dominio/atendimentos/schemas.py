@@ -3,7 +3,14 @@ from decimal import Decimal
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+def _normalizar_tipo_local(v: str | None) -> str | None:
+    if v is None:
+        return None
+    limpo = v.strip().lower()
+    return limpo or None
 
 
 class DevolverRequest(BaseModel):
@@ -48,6 +55,11 @@ class EditarDadosRequest(BaseModel):
     tipo_local: str | None = None
     forma_pagamento: str | None = None
     valor_acordado: Decimal | None = Field(default=None, ge=0)
+
+    @field_validator("tipo_local")
+    @classmethod
+    def _norm_tipo_local(cls, v: str | None) -> str | None:
+        return _normalizar_tipo_local(v)
 
 
 class AdicionarServicoRequest(BaseModel):
