@@ -1,8 +1,12 @@
 -- =============================================================================
--- 0021_remove_modelo_faq.sql
+-- 0030_remove_modelo_faq.sql
 -- Remove a tabela modelo_faq. A seção de Dúvidas/FAQ foi descontinuada no
 -- painel: conhecimento da IA passa a ser gerido pela equipe via prompts
 -- versionados (api/src/barra/agente/prompts/faq.md).
+--
+-- Roda DEPOIS dos seeds 0013-0027 (que ainda fazem INSERT em modelo_faq) e
+-- depois das migrations de schema 0028/0029, para preservar a ordem de
+-- install limpo. Conflito anterior em 0025 colidia com 0025_seed_caio.sql.
 -- =============================================================================
 
 -- 1) Sair da publication antes do DROP (idempotente).
