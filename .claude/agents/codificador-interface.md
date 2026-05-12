@@ -45,11 +45,28 @@ Você só começa se recebeu plano explícito do `planejador-barra`. Sem plano, 
 - Console messages relevantes capturadas no Playwright (com nível).
 - Sinalização explícita de `blocked` com tentativa feita e erro residual, se for o caso.
 
+## Setup do worktree antes de Playwright
+
+**Obrigatório quando a validação envolve rota autenticada** (qualquer coisa dentro de `(interface)/`, ou seja, todo o painel do Fernando). Sem `.env`, o Next.js sobe sem chaves do Supabase e o middleware redireciona pra `/login` — Playwright nunca chega na rota, screenshots ficam todas iguais ("login page") e o codificador acha que travou no auth quando na verdade falta config.
+
+Antes de `pnpm dev` no worktree:
+
+```bash
+# A partir da raiz do worktree (ex: C:/barra/.claude/worktrees/agent-xxx/)
+cp C:/barra/interface/.env interface/.env
+```
+
+- `.env` é gitignored (segredos do Supabase, anon key local). Existe APENAS na cópia principal `C:/barra/interface/` — worktrees nascem sem ele.
+- **Nunca commitar `.env`**: o hook não bloqueia file path, então confira que `git status` não mostra `interface/.env` antes de qualquer `git add`.
+- **Não criar `.env` à mão**: se `C:/barra/interface/.env` não existir (rodando em máquina nova), reportar `blocked` com motivo "interface/.env ausente na origem — humano precisa cadastrar segredos antes do pipeline".
+
 ## Fluxo de validação no navegador
-1. Subir `pnpm dev` em background; aguardar `Ready in …` no log antes de navegar.
-2. `mcp__playwright__browser_navigate` para a rota afetada; URL local padrão é `http://localhost:3000`.
-3. `mcp__playwright__browser_snapshot` para checar accessibility tree — atributos `aria-*` corretos importam mais que pixel.
-4. `mcp__playwright__browser_console_messages` — qualquer `error` ou `warning` de hidratação é bloqueante.
-5. `mcp__playwright__browser_network_requests` — verificar que chamadas para `/api/*` retornaram 2xx.
-6. `mcp__playwright__browser_take_screenshot` no estado final; anexar caminho ao output.
-7. Encerrar o dev server (kill do processo background) — não deixe processo solto.
+1. **Copiar `.env`** para o worktree (ver seção acima) se a rota é autenticada.
+2. Salvar screenshots em `<worktree>/.playwright-evidence/<task-id>/<nome>.png` — **nunca no root do repo**. A pasta `.playwright-evidence/` é gitignored. Crie-a com `mkdir -p` se não existir.
+3. Subir `pnpm dev` em background; aguardar `Ready in …` no log antes de navegar.
+4. `mcp__playwright__browser_navigate` para a rota afetada; URL local padrão é `http://localhost:3000`.
+5. `mcp__playwright__browser_snapshot` para checar accessibility tree — atributos `aria-*` corretos importam mais que pixel.
+6. `mcp__playwright__browser_console_messages` — qualquer `error` ou `warning` de hidratação é bloqueante.
+7. `mcp__playwright__browser_network_requests` — verificar que chamadas para `/api/*` retornaram 2xx. Se vier 401/redirect pra `/login`, releia a seção de Setup: o `.env` provavelmente está faltando.
+8. `mcp__playwright__browser_take_screenshot` no estado final; passar o caminho dentro de `.playwright-evidence/<task-id>/`. Anexar caminho ao output.
+9. Encerrar o dev server (kill do processo background) — não deixe processo solto.

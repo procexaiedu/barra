@@ -1,0 +1,370 @@
+"""Integração do Dashboard — métricas financeiras (bruto, líquido, repasses)."""
+
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
+from uuid import UUID, uuid4
+
+from fastapi.testclient import TestClient
+
+from barra.api.deps import get_conn
+from barra.main import app
+
+# ---------------------------------------------------------------------------
+# Fake connection
+# ---------------------------------------------------------------------------
+
+
+class _Result:
+    def __init__(self, rows: list[dict[str, Any]] | None = None) -> None:
+        self.rows = rows or []
+
+    async def fetchone(self) -> dict[str, Any] | None:
+        return self.rows[0] if self.rows else None
+
+    async def fetchall(self) -> list[dict[str, Any]]:
+        return self.rows
+
+
+class FakeConn:
+    """Conexão fake que devolve respostas determinísticas por padrão de query."""
+
+    def __init__(
+        self,
+        atendimentos: list[dict[str, Any]] | None = None,
+        modelos: list[dict[str, Any]] | None = None,
+    ) -> None:
+        self.atendimentos = atendimentos or []
+        self.modelos = modelos or []
+        self.last_queries: list[str] = []
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
+
+    async def execute(self, query: str, params: object = None) -> _Result:
+        self.last_queries.append(query)
+        params_seq: tuple[Any, ...]
+        if params is None:
+            params_seq = ()
+        elif isinstance(params, (list, tuple)):
+            params_seq = tuple(params)
+        else:
+            params_seq = (params,)
+        modelo_filtro = self._extrair_modelo_filtro(query, params_seq)
+
+        # _profissionais — CTE composta (precisa vir antes do match de _fechamentos
+        # porque a CTE também contém "fechado_registrado" / "valor_liquido").
+        if "WITH volume AS" in query:
+            return _Result(self._linhas_profissionais(modelo_filtro))
+
+        # Pix pendentes
+        if "FROM barravips.comprovantes_pix" in query:
+            return _Result([{"n": 0}])
+
+        # _fechamentos
+        if (
+            "FROM barravips.atendimentos a" in query
+            and "JOIN barravips.eventos e" in query
+            and "fechado_registrado" in query
+            and "valor_liquido" in query
+        ):
+            return _Result([self._agregar_fechamentos(modelo_filtro)])
+
+        # _perdas (count puro)
+        if (
+            "FROM barravips.atendimentos a" in query
+            and "JOIN barravips.eventos e" in query
+            and "perdido_registrado" in query
+            and "motivo_perda" not in query
+            and "GROUP BY" not in query
+        ):
+            return _Result([{"contagem": self._contar_perdas(modelo_filtro)}])
+
+        # _escaladas_contagem
+        if "FROM barravips.escaladas e" in query and "GROUP BY" not in query:
+            return _Result([{"n": 0}])
+
+        # _funil_estados
+        if "FROM barravips.atendimentos" in query and "GROUP BY estado" in query:
+            return _Result([])
+
+        # _perdas_por_motivo
+        if "motivo_perda" in query and "GROUP BY a.motivo_perda" in query:
+            return _Result([])
+
+        # _motivos_escalada_top
+        if "FROM barravips.escaladas e" in query and "GROUP BY e.motivo" in query:
+            return _Result([])
+
+        return _Result([])
+
+    # -----------------------------------------------------------------------
+    # Helpers de agregação em memória (espelham o SQL)
+    # -----------------------------------------------------------------------
+
+    @staticmethod
+    def _extrair_modelo_filtro(query: str, params: tuple[Any, ...]) -> UUID | None:
+        # Heurística: se o SQL filtra por modelo_id, o último parâmetro UUID é o filtro.
+        if "modelo_id = %s" not in query:
+            return None
+        for p in reversed(params):
+            if isinstance(p, UUID):
+                return p
+        return None
+
+    def _fechados(self, modelo_filtro: UUID | None) -> list[dict[str, Any]]:
+        return [
+            a
+            for a in self.atendimentos
+            if a["estado"] == "Fechado"
+            and (modelo_filtro is None or a["modelo_id"] == modelo_filtro)
+        ]
+
+    def _perdidos(self, modelo_filtro: UUID | None) -> list[dict[str, Any]]:
+        return [
+            a
+            for a in self.atendimentos
+            if a["estado"] == "Perdido"
+            and (modelo_filtro is None or a["modelo_id"] == modelo_filtro)
+        ]
+
+    def _agregar_fechamentos(self, modelo_filtro: UUID | None) -> dict[str, Any]:
+        fechados = self._fechados(modelo_filtro)
+        contagem = len(fechados)
+        valor_bruto = Decimal("0")
+        valor_liquido = Decimal("0")
+        valor_repasse = Decimal("0")
+        valor_sem_snapshot = Decimal("0")
+        contagem_sem_snapshot = 0
+        for a in fechados:
+            valor = Decimal(str(a["valor_final"]))
+            pct = a.get("percentual_repasse_snapshot")
+            pct_dec = Decimal(str(pct)) if pct is not None else Decimal("0")
+            valor_bruto += valor
+            valor_liquido += valor * (Decimal("1") - pct_dec / Decimal("100"))
+            valor_repasse += valor * pct_dec / Decimal("100")
+            if pct is None:
+                valor_sem_snapshot += valor
+                contagem_sem_snapshot += 1
+        return {
+            "contagem": contagem,
+            "valor_bruto": valor_bruto,
+            "valor_liquido": valor_liquido,
+            "valor_repasse_modelo": valor_repasse,
+            "valor_sem_repasse_definido": valor_sem_snapshot,
+            "contagem_sem_snapshot": contagem_sem_snapshot,
+        }
+
+    def _contar_perdas(self, modelo_filtro: UUID | None) -> int:
+        return len(self._perdidos(modelo_filtro))
+
+    def _linhas_profissionais(self, modelo_filtro: UUID | None) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for m in self.modelos:
+            if modelo_filtro is not None and m["id"] != modelo_filtro:
+                continue
+            atendimentos_m = [a for a in self.atendimentos if a["modelo_id"] == m["id"]]
+            fechados_m = [a for a in atendimentos_m if a["estado"] == "Fechado"]
+            perdidos_m = [a for a in atendimentos_m if a["estado"] == "Perdido"]
+            valor_bruto = Decimal("0")
+            valor_liquido = Decimal("0")
+            valor_repasse = Decimal("0")
+            for a in fechados_m:
+                valor = Decimal(str(a["valor_final"]))
+                pct = a.get("percentual_repasse_snapshot")
+                pct_dec = Decimal(str(pct)) if pct is not None else Decimal("0")
+                valor_bruto += valor
+                valor_liquido += valor * (Decimal("1") - pct_dec / Decimal("100"))
+                valor_repasse += valor * pct_dec / Decimal("100")
+            rows.append(
+                {
+                    "modelo_id": m["id"],
+                    "modelo_nome": m["nome"],
+                    "volume": len(atendimentos_m),
+                    "fechamentos": len(fechados_m),
+                    "valor_bruto": valor_bruto,
+                    "valor_liquido": valor_liquido,
+                    "valor_repasse_modelo": valor_repasse,
+                    "perdas": len(perdidos_m),
+                }
+            )
+        # Ordenação espelhada do SQL: volume DESC, valor_bruto DESC, nome ASC
+        rows.sort(key=lambda r: (-r["volume"], -float(r["valor_bruto"]), r["modelo_nome"]))
+        return rows
+
+
+# ---------------------------------------------------------------------------
+# Helpers de auth + override
+# ---------------------------------------------------------------------------
+
+
+def _token() -> dict[str, str]:
+    return {"Authorization": f"Bearer test:{uuid4()}:fernando:true"}
+
+
+def _instalar_override(conn: FakeConn) -> None:
+    async def _override():
+        yield conn
+
+    app.dependency_overrides[get_conn] = _override
+
+
+def _fechado(
+    modelo_id: UUID,
+    valor: str,
+    pct: str | None,
+) -> dict[str, Any]:
+    return {
+        "id": uuid4(),
+        "modelo_id": modelo_id,
+        "estado": "Fechado",
+        "valor_final": Decimal(valor),
+        "percentual_repasse_snapshot": Decimal(pct) if pct is not None else None,
+        "created_at": datetime.now(UTC),
+    }
+
+
+def _perdido(modelo_id: UUID) -> dict[str, Any]:
+    return {
+        "id": uuid4(),
+        "modelo_id": modelo_id,
+        "estado": "Perdido",
+        "valor_final": None,
+        "percentual_repasse_snapshot": None,
+        "created_at": datetime.now(UTC),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Testes
+# ---------------------------------------------------------------------------
+
+
+def test_fechamentos_calcula_liquido_e_repasse() -> None:
+    """fechado com snapshot 40% + fechado com NULL + perdido (não entra)."""
+    modelo_id = uuid4()
+    conn = FakeConn(
+        atendimentos=[
+            _fechado(modelo_id, "1000.00", "40"),
+            _fechado(modelo_id, "500.00", None),
+            _perdido(modelo_id),
+        ],
+        modelos=[{"id": modelo_id, "nome": "Alice"}],
+    )
+
+    _instalar_override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/dashboard", params={"periodo": "7d"}, headers=_token())
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+    assert response.status_code == 200
+    fech = response.json()["kpis_periodo"]["fechamentos"]
+
+    # 1000 + 500 = 1500
+    assert fech["valor_bruto_brl"] == 1500.00
+    # 1000 * 0.6 + 500 * 1.0 = 600 + 500 = 1100
+    assert fech["valor_liquido_brl"] == 1100.00
+    # 1000 * 0.4 + 500 * 0.0 = 400
+    assert fech["valor_repasse_modelo_brl"] == 400.00
+    # Apenas o fechado com pct NULL: 500
+    assert fech["valor_sem_repasse_definido_brl"] == 500.00
+    # Invariante: bruto == liquido + repasse_modelo
+    assert (
+        fech["valor_bruto_brl"]
+        == round(fech["valor_liquido_brl"] + fech["valor_repasse_modelo_brl"], 2)
+    )
+    assert fech["contagem"] == 2
+    assert fech["contagem_sem_snapshot"] == 1
+
+
+def test_profissionais_inclui_liquido_e_repasse() -> None:
+    """Duas modelos com snapshots diferentes (50% e 30%) e fechados distintos."""
+    alice = uuid4()
+    bia = uuid4()
+    conn = FakeConn(
+        atendimentos=[
+            _fechado(alice, "1000", "50"),
+            _fechado(alice, "200", "50"),
+            _fechado(bia, "800", "30"),
+        ],
+        modelos=[
+            {"id": alice, "nome": "Alice"},
+            {"id": bia, "nome": "Bia"},
+        ],
+    )
+
+    _instalar_override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/dashboard", params={"periodo": "7d"}, headers=_token())
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+    assert response.status_code == 200
+    profissionais = response.json()["profissionais"]
+    por_nome = {p["modelo"]["nome"]: p for p in profissionais}
+
+    alice_row = por_nome["Alice"]
+    assert alice_row["valor_bruto_brl"] == 1200.00
+    # 1200 * 0.5
+    assert alice_row["valor_liquido_brl"] == 600.00
+    assert alice_row["valor_repasse_modelo_brl"] == 600.00
+
+    bia_row = por_nome["Bia"]
+    assert bia_row["valor_bruto_brl"] == 800.00
+    # 800 * 0.7
+    assert bia_row["valor_liquido_brl"] == 560.00
+    # 800 * 0.3
+    assert bia_row["valor_repasse_modelo_brl"] == 240.00
+
+
+def test_dashboard_bloco_financeiro_top_level() -> None:
+    """O payload deve conter `financeiro` top-level com somatórios e contagens."""
+    modelo_id = uuid4()
+    conn = FakeConn(
+        atendimentos=[
+            _fechado(modelo_id, "1000", "40"),
+            _fechado(modelo_id, "500", None),
+        ],
+        modelos=[{"id": modelo_id, "nome": "Alice"}],
+    )
+
+    _instalar_override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/dashboard", params={"periodo": "7d"}, headers=_token())
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "financeiro" in body
+    financeiro = body["financeiro"]
+
+    chaves = {
+        "valor_bruto_brl",
+        "valor_liquido_brl",
+        "valor_repasse_modelo_brl",
+        "valor_sem_repasse_definido_brl",
+        "fechamentos_total",
+        "fechamentos_sem_snapshot",
+    }
+    assert chaves <= set(financeiro.keys())
+
+    assert financeiro["valor_bruto_brl"] == 1500.00
+    # 1000 * 0.6 + 500 * 1.0 = 1100
+    assert financeiro["valor_liquido_brl"] == 1100.00
+    # 1000 * 0.4
+    assert financeiro["valor_repasse_modelo_brl"] == 400.00
+    assert financeiro["valor_sem_repasse_definido_brl"] == 500.00
+    assert financeiro["fechamentos_total"] == 2
+    assert financeiro["fechamentos_sem_snapshot"] == 1
+
+    # Período anterior também deve carregar bloco financeiro (mesmo zerado).
+    assert "financeiro_periodo_anterior" in body
+    assert body["financeiro_periodo_anterior"] is not None
+    assert set(body["financeiro_periodo_anterior"].keys()) == chaves

@@ -4,7 +4,24 @@ Escopo: migrations SQL puras. Sem alembic, sem flyway, sem prisma migrate — ve
 
 ## Formato e numeração
 
-Nome obrigatório: `NNNN_descricao_curta.sql`, sequencial de 4 dígitos. Antes de criar uma nova, liste o diretório e pegue `max(NNNN) + 1`. Não pule números, não preencha "buracos" antigos.
+Nome obrigatório: `NNNN_descricao_curta.sql`, sequencial de 4 dígitos. Para escolher o NNNN:
+
+**Modo manual (humano):** liste o diretório e pegue `max(NNNN) + 1`.
+
+**Modo pipeline (worktrees paralelas):** use o helper `scripts/proxima-migration.ps1`. Listar o diretório à mão dentro de uma worktree não enxerga migrations criadas em outras worktrees ativas — overnight 2026-05-12 produziu duas migrations `0031` distintas pelo mesmo overnight (colidiriam no merge). O helper considera main + todas as worktrees + reservas vivas com lock por arquivo:
+
+```bash
+# Reservar próximo NNNN (TTL 30min)
+powershell -NoProfile -File scripts/proxima-migration.ps1 -Reserve '<slug>'
+# stdout: 4 dígitos (ex: 0031)
+
+# Após commitar o .sql, liberar:
+powershell -NoProfile -File scripts/proxima-migration.ps1 -Release '<slug>'
+```
+
+Não pule números, não preencha "buracos" antigos.
+
+> **Roadmap (Opção B)**: migrar para timestamp UTC `YYYYMMDDHHMMSS_*.sql` resolve colisão sem helper, ao custo de migrar todas as migrations existentes e atualizar `make migrate`. Não fazer no MVP — a operação só executa um overnight por vez e o helper já resolve o problema imediato.
 
 ## Migrations aplicadas são imutáveis
 

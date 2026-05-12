@@ -71,11 +71,28 @@ async def dashboard(
         "pix_em_revisao_pendentes_total": pix_pendentes,
         "kpis_periodo": kpis_periodo,
         "kpis_periodo_anterior": kpis_anterior,
+        "financeiro": _financeiro_bloco(kpis_periodo),
+        "financeiro_periodo_anterior": (
+            _financeiro_bloco(kpis_anterior) if kpis_anterior else None
+        ),
         "funil_estados": funil,
         "perdas_por_motivo": perdas,
         "motivos_escalada": escalada_top,
         "profissionais": profissionais,
         "servidor_em": agora.isoformat(),
+    }
+
+
+def _financeiro_bloco(kpis: dict[str, Any]) -> dict[str, Any]:
+    """Bloco financeiro top-level — reutiliza o dict ``fechamentos`` já calculado em ``_kpis``."""
+    f = kpis["fechamentos"]
+    return {
+        "valor_bruto_brl": f["valor_bruto_brl"],
+        "valor_liquido_brl": f["valor_liquido_brl"],
+        "valor_repasse_modelo_brl": f["valor_repasse_modelo_brl"],
+        "valor_sem_repasse_definido_brl": f["valor_sem_repasse_definido_brl"],
+        "fechamentos_total": f["contagem"],
+        "fechamentos_sem_snapshot": f["contagem_sem_snapshot"],
     }
 
 
@@ -234,11 +251,29 @@ async def _fechamentos(
         filtro_modelo = "AND a.modelo_id = %s"
         params.append(modelo_id)
 
+    # Fórmula espelhada em barra/dominio/painel/routes.py:198-217
+    # Líquido (parcela da agência) = valor_final * (1 - COALESCE(pct, 0) / 100)
+    # Repasse modelo             = valor_final *      COALESCE(pct, 0) / 100
+    # Invariante: bruto == liquido + repasse_modelo. Quando pct IS NULL, o COALESCE
+    # tratará como 0, então o valor inteiro vira líquido. `valor_sem_repasse_definido`
+    # é informativo (soma dos fechados com pct NULL) para transparência no painel.
     result = await conn.execute(
         f"""
         SELECT
           COUNT(DISTINCT a.id)::int AS contagem,
-          COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto
+          COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto,
+          COALESCE(SUM(
+            a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+          ), 0)::numeric AS valor_liquido,
+          COALESCE(SUM(
+            a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+          ), 0)::numeric AS valor_repasse_modelo,
+          COALESCE(SUM(a.valor_final) FILTER (
+            WHERE a.percentual_repasse_snapshot IS NULL
+          ), 0)::numeric AS valor_sem_repasse_definido,
+          COUNT(DISTINCT a.id) FILTER (
+            WHERE a.percentual_repasse_snapshot IS NULL
+          )::int AS contagem_sem_snapshot
           FROM barravips.atendimentos a
           JOIN barravips.eventos e ON e.atendimento_id = a.id
          WHERE a.estado = 'Fechado'
@@ -251,11 +286,19 @@ async def _fechamentos(
     row = await result.fetchone()
     contagem = int(row["contagem"]) if row else 0
     valor_bruto = float(row["valor_bruto"]) if row else 0.0
+    valor_liquido = float(row["valor_liquido"]) if row else 0.0
+    valor_repasse_modelo = float(row["valor_repasse_modelo"]) if row else 0.0
+    valor_sem_repasse_definido = float(row["valor_sem_repasse_definido"]) if row else 0.0
+    contagem_sem_snapshot = int(row["contagem_sem_snapshot"]) if row else 0
     valor_medio = (valor_bruto / contagem) if contagem > 0 else 0.0
     return {
         "contagem": contagem,
         "valor_bruto_brl": round(valor_bruto, 2),
         "valor_medio_brl": round(valor_medio, 2),
+        "valor_liquido_brl": round(valor_liquido, 2),
+        "valor_repasse_modelo_brl": round(valor_repasse_modelo, 2),
+        "valor_sem_repasse_definido_brl": round(valor_sem_repasse_definido, 2),
+        "contagem_sem_snapshot": contagem_sem_snapshot,
     }
 
 
@@ -435,9 +478,17 @@ async def _profissionais(
            GROUP BY a.modelo_id
         ),
         fech AS (
+          -- Fórmula espelhada em barra/dominio/painel/routes.py:198-217
+          -- (mesma decomposição de bruto/líquido/repasse usada em _fechamentos).
           SELECT a.modelo_id,
                  COUNT(DISTINCT a.id)::int AS contagem,
-                 COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto
+                 COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto,
+                 COALESCE(SUM(
+                   a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+                 ), 0)::numeric AS valor_liquido,
+                 COALESCE(SUM(
+                   a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+                 ), 0)::numeric AS valor_repasse_modelo
             FROM barravips.atendimentos a
             JOIN barravips.eventos e ON e.atendimento_id = a.id
            WHERE a.estado = 'Fechado'
@@ -458,6 +509,8 @@ async def _profissionais(
                COALESCE(v.volume, 0)::int AS volume,
                COALESCE(f.contagem, 0)::int AS fechamentos,
                COALESCE(f.valor_bruto, 0)::numeric AS valor_bruto,
+               COALESCE(f.valor_liquido, 0)::numeric AS valor_liquido,
+               COALESCE(f.valor_repasse_modelo, 0)::numeric AS valor_repasse_modelo,
                COALESCE(p.contagem, 0)::int AS perdas
           FROM barravips.modelos m
           LEFT JOIN volume v ON v.modelo_id = m.id
@@ -480,6 +533,8 @@ async def _profissionais(
                 "volume": int(row["volume"]),
                 "fechamentos": int(row["fechamentos"]),
                 "valor_bruto_brl": round(float(row["valor_bruto"]), 2),
+                "valor_liquido_brl": round(float(row["valor_liquido"]), 2),
+                "valor_repasse_modelo_brl": round(float(row["valor_repasse_modelo"]), 2),
                 "taxa_conversao_pct": round(taxa, 1) if taxa is not None else None,
             }
         )

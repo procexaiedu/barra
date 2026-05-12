@@ -63,7 +63,7 @@ desktop.ini
 .trees/
 # Worktrees criados por subagentes do Claude Code
 .claude/worktrees/
-# Estado runtime do pipeline (marker files etc.)
+# Estado runtime do pipeline (marker files, locks de migration, JSON de reservas etc.)
 .claude/state/
 
 # --- Banco local / temp ---
@@ -79,5 +79,16 @@ temp/
 # --- Playwright MCP snapshots ---
 # Capturam DOM acessível, incluindo valores digitados em campos de senha. Nunca commitar.
 .playwright-mcp/
+
+# --- Evidências do Playwright (screenshots dos codificadores) ---
+# PNGs gerados por mcp__playwright__browser_take_screenshot vazavam pro
+# root do repo durante o overnight de 2026-05-12. Convenção atual: salvar
+# em <worktree>/.playwright-evidence/<task-id>/<nome>.png. Exceções:
+# screenshots permanentes em docs/ e assets em interface/public/.
+*.png
+!docs/**/*.png
+!interface/public/**/*.png
+.playwright-evidence/
+
 # DevContext
 .devcontext
