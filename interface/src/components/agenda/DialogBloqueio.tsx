@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useRef, useState } from "react"
 import Link from "next/link"
-import { Loader2, X } from "lucide-react"
+import { ArrowLeft, Loader2, Plus, X } from "lucide-react"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,10 +18,16 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { dataDeInput, dataInput, isoAgenda } from "@/hooks/useAgenda"
-import { api } from "@/lib/api"
+import { ApiError, api } from "@/lib/api"
 import { formatBRL, formatData, formatRotulo, formatTelefone } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import type { AtendimentoListaItem, AtendimentosListaResponse } from "@/tipos/atendimentos"
+import { aplicarMascaraTelefone, normalizarTelefoneE164 } from "@/components/clientes/utils"
+import type {
+  AtendimentoCriadoResponse,
+  AtendimentoListaItem,
+  AtendimentosListaResponse,
+} from "@/tipos/atendimentos"
+import type { Cliente, ClienteListItem, ClientesListaResponse } from "@/tipos/clientes"
 import type { BloqueioAgenda, BloqueioFormState, EstadoBloqueio } from "@/tipos/agenda"
 import { FiltroModelo } from "@/components/dashboard/FiltroModelo"
 import { toast } from "sonner"
@@ -163,6 +169,19 @@ export function DialogBloqueio({
   const [buscando, setBuscando] = useState(false)
   const [atendimentoSelecionado, setAtendimentoSelecionado] = useState<AtendimentoListaItem | null>(null)
   const buscaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Criação rápida de atendimento dentro do dialog
+  const [criandoAtendimento, setCriandoAtendimento] = useState(false)
+  const [buscaCliente, setBuscaCliente] = useState("")
+  const [resultadosCliente, setResultadosCliente] = useState<ClienteListItem[]>([])
+  const [buscandoCliente, setBuscandoCliente] = useState(false)
+  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteListItem | Cliente | null>(null)
+  const buscaClienteTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [criandoClienteRapido, setCriandoClienteRapido] = useState(false)
+  const [novoClienteNome, setNovoClienteNome] = useState("")
+  const [novoClienteTelefone, setNovoClienteTelefone] = useState("")
+  const [submittingCliente, setSubmittingCliente] = useState(false)
+  const [submittingNovoAtendimento, setSubmittingNovoAtendimento] = useState(false)
 
   const [confirmConverterOpen, setConfirmConverterOpen] = useState(false)
   const [confirmPerderOpen, setConfirmPerderOpen] = useState(false)
@@ -306,6 +325,139 @@ export function DialogBloqueio({
     setBuscaAberta(false)
     setForm((f) => ({ ...f, atendimento_id: undefined }))
     setAtendimentoEdit({ id: null })
+  }
+
+  const buscarClientes = useCallback(async (texto: string) => {
+    if (!texto.trim()) {
+      setResultadosCliente([])
+      return
+    }
+    setBuscandoCliente(true)
+    try {
+      const params = new URLSearchParams({ q: texto.trim(), limit: "8" })
+      const res = await api<ClientesListaResponse>(`/v1/crm/clientes?${params}`)
+      setResultadosCliente(res.items)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao buscar clientes")
+    } finally {
+      setBuscandoCliente(false)
+    }
+  }, [])
+
+  const handleBuscaClienteChange = (texto: string) => {
+    setBuscaCliente(texto)
+    setClienteSelecionado(null)
+    setCriandoClienteRapido(false)
+    if (buscaClienteTimer.current) clearTimeout(buscaClienteTimer.current)
+    buscaClienteTimer.current = setTimeout(() => buscarClientes(texto), 400)
+  }
+
+  const abrirCriarAtendimento = () => {
+    setCriandoAtendimento(true)
+    // Reaproveita o texto digitado na busca de atendimento como busca de cliente.
+    setBuscaCliente(busca)
+    if (busca.trim()) {
+      if (buscaClienteTimer.current) clearTimeout(buscaClienteTimer.current)
+      buscaClienteTimer.current = setTimeout(() => buscarClientes(busca), 400)
+    }
+  }
+
+  const voltarParaBusca = () => {
+    setCriandoAtendimento(false)
+    setClienteSelecionado(null)
+    setResultadosCliente([])
+    setCriandoClienteRapido(false)
+    setNovoClienteNome("")
+    setNovoClienteTelefone("")
+  }
+
+  const selecionarCliente = (cliente: ClienteListItem) => {
+    setClienteSelecionado(cliente)
+    setResultadosCliente([])
+    setBuscaCliente(cliente.nome ?? cliente.telefone_mascarado ?? "")
+  }
+
+  const criarClienteRapido = async () => {
+    const telefoneNormalizado = normalizarTelefoneE164(novoClienteTelefone)
+    if (!telefoneNormalizado) return
+    setSubmittingCliente(true)
+    try {
+      const cliente = await api<Cliente>("/v1/crm/clientes", {
+        method: "POST",
+        body: JSON.stringify({
+          telefone: telefoneNormalizado,
+          nome: novoClienteNome.trim() || null,
+        }),
+      })
+      setClienteSelecionado(cliente)
+      setCriandoClienteRapido(false)
+      setBuscaCliente(cliente.nome ?? formatTelefone(cliente.telefone))
+      toast.success("Cliente criado")
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && e.detail === "telefone_duplicado") {
+        toast.error("Telefone já cadastrado")
+      } else {
+        toast.error(e instanceof Error ? e.message : "Erro ao criar cliente")
+      }
+    } finally {
+      setSubmittingCliente(false)
+    }
+  }
+
+  const criarAtendimentoEVincular = async () => {
+    if (!clienteSelecionado) return
+    const modeloIdEfetivo = form.modelo_id ?? modeloId
+    if (!modeloIdEfetivo) {
+      toast.error("Selecione uma modelo antes de criar o atendimento")
+      return
+    }
+    setSubmittingNovoAtendimento(true)
+    try {
+      const res = await api<AtendimentoCriadoResponse>("/v1/atendimentos", {
+        method: "POST",
+        body: JSON.stringify({
+          cliente_id: clienteSelecionado.id,
+          modelo_id: modeloIdEfetivo,
+        }),
+      })
+      const telefone =
+        "telefone" in clienteSelecionado
+          ? clienteSelecionado.telefone
+          : clienteSelecionado.telefone_mascarado ?? ""
+      const item: AtendimentoListaItem = {
+        id: res.id,
+        numero_curto: res.numero_curto,
+        cliente: {
+          id: clienteSelecionado.id,
+          nome: clienteSelecionado.nome,
+          telefone,
+        },
+        modelo: { id: modeloIdEfetivo, nome: "" },
+        estado: res.estado,
+        tipo_atendimento: null,
+        urgencia: null,
+        ia_pausada: false,
+        ia_pausada_motivo: null,
+        responsavel_atual: "IA",
+        motivo_escalada: null,
+        proxima_acao_esperada: null,
+        valor_acordado: null,
+        updated_at: new Date().toISOString(),
+      }
+      selecionarAtendimento(item)
+      voltarParaBusca()
+      toast.success(`Atendimento #${res.numero_curto} criado`)
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409 && e.detail === "atendimento_aberto_existente") {
+        toast.error("Cliente já tem atendimento em aberto com esta modelo — selecione o existente.")
+      } else if (e instanceof ApiError && e.status === 409 && e.detail === "cliente_arquivado") {
+        toast.error("Cliente está arquivado. Desarquive antes de criar atendimento.")
+      } else {
+        toast.error(e instanceof Error ? e.message : "Erro ao criar atendimento")
+      }
+    } finally {
+      setSubmittingNovoAtendimento(false)
+    }
   }
 
   const handleInicioChange = (inicio: string) => {
@@ -489,7 +641,7 @@ export function DialogBloqueio({
             )}
 
             {/* Busca de atendimento: criação (agendamento) ou edição (qualquer estado editável) */}
-            {((!editando && tipo === "agendamento") || (editando && !readOnly)) && (
+            {((!editando && tipo === "agendamento") || (editando && !readOnly)) && !criandoAtendimento && (
               <div className="relative col-span-3">
                 {(!editando || atendimentoDisplay === null) && (
                   <Label htmlFor="busca-atendimento">Atendimento</Label>
@@ -540,13 +692,209 @@ export function DialogBloqueio({
                             </div>
                           </button>
                         ))}
+                        <button
+                          type="button"
+                          onClick={abrirCriarAtendimento}
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-ink-200"
+                        >
+                          <Plus size={14} strokeWidth={1.5} />
+                          <span>Criar novo atendimento</span>
+                        </button>
                       </div>
                     )}
                     {buscaAberta && resultadosBusca.length === 0 && !buscando && busca.trim() && (
-                      <p className="mt-1 text-xs text-text-muted">Nenhum atendimento encontrado.</p>
+                      <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-ink-400 bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
+                        <p className="px-3 py-2.5 text-xs text-text-muted">Nenhum atendimento encontrado.</p>
+                        <button
+                          type="button"
+                          onClick={abrirCriarAtendimento}
+                          className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-left text-sm text-text-primary hover:bg-ink-200"
+                        >
+                          <Plus size={14} strokeWidth={1.5} />
+                          <span>Criar novo atendimento</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Seção expansível: criação rápida de atendimento */}
+            {criandoAtendimento && (
+              <div className="col-span-3 space-y-3 rounded-lg border border-ink-400 bg-surface-raised p-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-semibold text-text-primary">Novo atendimento</p>
+                  <button
+                    type="button"
+                    onClick={voltarParaBusca}
+                    disabled={submittingNovoAtendimento || submittingCliente}
+                    className="flex items-center gap-1 text-xs text-text-muted hover:text-text-primary disabled:opacity-60"
+                  >
+                    <ArrowLeft size={12} strokeWidth={1.5} />
+                    Voltar
+                  </button>
+                </div>
+
+                {!criandoClienteRapido && (
+                  <div className="relative">
+                    <Label htmlFor="busca-cliente-rapido">Cliente</Label>
+                    <div className="relative mt-2">
+                      <Input
+                        id="busca-cliente-rapido"
+                        value={buscaCliente}
+                        onChange={(e) => handleBuscaClienteChange(e.target.value)}
+                        placeholder="Nome ou telefone..."
+                        className="h-10 border-ink-400 pr-8"
+                        autoComplete="off"
+                        disabled={submittingNovoAtendimento}
+                      />
+                      {buscandoCliente && (
+                        <Loader2 size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-text-muted" />
+                      )}
+                      {resultadosCliente.length > 0 && !clienteSelecionado && (
+                        <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-ink-400 bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
+                          {resultadosCliente.map((cliente) => (
+                            <button
+                              key={cliente.id}
+                              type="button"
+                              onClick={() => selecionarCliente(cliente)}
+                              className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-left text-sm hover:bg-ink-200 last:border-0"
+                            >
+                              <span className="flex-1 truncate font-medium text-text-primary">
+                                {cliente.nome ?? "Sem nome"}
+                              </span>
+                              <span className="font-mono text-xs text-text-muted">
+                                {cliente.telefone_mascarado ? formatTelefone(cliente.telefone_mascarado) : ""}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    {!buscandoCliente && resultadosCliente.length === 0 && buscaCliente.trim() && !clienteSelecionado && (
+                      <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-dashed border-ink-400 px-3 py-2 text-xs text-text-muted">
+                        <span>Nenhum cliente encontrado.</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCriandoClienteRapido(true)
+                            setNovoClienteNome(buscaCliente)
+                          }}
+                          className="flex items-center gap-1 text-text-primary hover:underline"
+                        >
+                          <Plus size={12} strokeWidth={1.5} />
+                          Criar cliente
+                        </button>
+                      </div>
+                    )}
+                    {clienteSelecionado && (
+                      <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-ink-400 bg-ink-200 px-3 py-2 text-sm">
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-text-primary">
+                            {clienteSelecionado.nome ?? "Sem nome"}
+                          </p>
+                          <p className="font-mono text-xs text-text-muted">
+                            {"telefone" in clienteSelecionado
+                              ? formatTelefone(clienteSelecionado.telefone)
+                              : clienteSelecionado.telefone_mascarado
+                                ? formatTelefone(clienteSelecionado.telefone_mascarado)
+                                : ""}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setClienteSelecionado(null)
+                            setBuscaCliente("")
+                          }}
+                          disabled={submittingNovoAtendimento}
+                          className="rounded-md p-1 text-text-muted hover:bg-muted hover:text-text-primary disabled:opacity-60"
+                          aria-label="Trocar cliente"
+                        >
+                          <X size={13} strokeWidth={1.5} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {criandoClienteRapido && (
+                  <div className="space-y-2 rounded-md border border-ink-400 bg-ink-200 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                        Cliente novo
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCriandoClienteRapido(false)
+                          setNovoClienteNome("")
+                          setNovoClienteTelefone("")
+                        }}
+                        disabled={submittingCliente}
+                        className="text-xs text-text-muted hover:text-text-primary disabled:opacity-60"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                    <div>
+                      <Label htmlFor="novo-cliente-rapido-nome">Nome</Label>
+                      <Input
+                        id="novo-cliente-rapido-nome"
+                        value={novoClienteNome}
+                        onChange={(e) => setNovoClienteNome(e.target.value)}
+                        placeholder="Opcional"
+                        className="mt-1.5 h-9 border-ink-400"
+                        disabled={submittingCliente}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="novo-cliente-rapido-telefone">Telefone</Label>
+                      <Input
+                        id="novo-cliente-rapido-telefone"
+                        value={novoClienteTelefone}
+                        onChange={(e) => setNovoClienteTelefone(aplicarMascaraTelefone(e.target.value))}
+                        placeholder="(11) 99999-9999"
+                        className="mt-1.5 h-9 border-ink-400"
+                        disabled={submittingCliente}
+                        autoComplete="off"
+                        inputMode="numeric"
+                      />
+                      {novoClienteTelefone.length > 0 && normalizarTelefoneE164(novoClienteTelefone) === null && (
+                        <p className="mt-1 text-xs text-state-lost">
+                          Telefone incompleto. Use 10 ou 11 dígitos.
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex justify-end">
+                      <Button
+                        variant="primary"
+                        onClick={criarClienteRapido}
+                        disabled={submittingCliente || normalizarTelefoneE164(novoClienteTelefone) === null}
+                      >
+                        {submittingCliente && <Loader2 className="animate-spin" />}
+                        Criar
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                <p className="text-xs text-text-muted">
+                  Programa, valor e horário podem ser editados em &quot;Ver atendimento&quot; depois.
+                </p>
+
+                <div className="flex justify-end">
+                  <Button
+                    variant="primary"
+                    onClick={criarAtendimentoEVincular}
+                    disabled={!clienteSelecionado || submittingNovoAtendimento}
+                  >
+                    {submittingNovoAtendimento && <Loader2 className="animate-spin" />}
+                    Criar atendimento e vincular
+                  </Button>
+                </div>
               </div>
             )}
 
