@@ -1,6 +1,6 @@
 "use client"
 
-import { useRouter } from "next/navigation"
+import { Eye } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatBRL } from "@/lib/formatters"
@@ -15,11 +15,11 @@ import {
 
 export function AtendimentoVinculadoPix({
   atendimento,
+  onVisualizar,
 }: {
   atendimento: AtendimentoResumoPix | null
+  onVisualizar?: () => void
 }) {
-  const router = useRouter()
-
   if (atendimento === null) {
     return (
       <section className="rounded-lg border border-border bg-card p-3">
@@ -49,24 +49,27 @@ export function AtendimentoVinculadoPix({
         terminal ? "border-l-border-strong" : "border-l-state-handoff"
       )}
     >
-      <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-        Atendimento vinculado
-      </h3>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+          Atendimento vinculado
+        </h3>
+        {onVisualizar && (
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Ver atendimento"
+            onClick={onVisualizar}
+          >
+            <Eye className="h-4 w-4" />
+          </Button>
+        )}
+      </div>
       <div className="mt-2 flex items-center gap-2">
         <Badge variant={badgeForEstadoAtendimento(atendimento.estado)}>
           {estadoAtendimentoLabel[atendimento.estado] ?? atendimento.estado}
         </Badge>
-        <span className="font-mono text-xs text-text-muted">
-          #{atendimento.numero_curto}
-        </span>
       </div>
       <p className="mt-2 text-[13px] text-text-muted">{meta}</p>
-      {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
-      <div className="mt-2">
-        <Button variant="ghost" size="sm" onClick={() => router.push("/atendimentos")}>
-          Abrir na Central
-        </Button>
-      </div>
     </section>
   )
 }

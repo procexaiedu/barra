@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { ExternalLink, MessageSquare } from "lucide-react"
+import { Eye, ExternalLink, MessageSquare } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
@@ -24,22 +24,23 @@ import {
 } from "@/components/ui/sheet"
 import { formatBRL, formatTelefone } from "@/lib/formatters"
 import type { MotivoRejeicao, PixDetalheResponse } from "@/tipos/pix"
-import { AtendimentoVinculadoPix } from "./AtendimentoVinculadoPix"
 import { isPendente, isRejeitado, motivoRejeicaoOptions } from "./utils"
 
 type DialogAtivo = "validar" | "rejeitar" | "reabrir" | null
-type SheetAtivo = "atendimento" | "conversa" | null
+type SheetAtivo = "conversa" | null
 
 export function AcoesPix({
   detalhe,
   onAprovar,
   onRejeitar,
   onReabrir,
+  onAbrirAtendimento,
 }: {
   detalhe: PixDetalheResponse
   onAprovar: (id: string) => Promise<void>
   onRejeitar: (id: string, motivo: MotivoRejeicao, observacao: string | null) => Promise<void>
   onReabrir: (id: string) => Promise<void>
+  onAbrirAtendimento?: () => void
 }) {
   const [dialog, setDialog] = useState<DialogAtivo>(null)
   const [sheet, setSheet] = useState<SheetAtivo>(null)
@@ -148,10 +149,10 @@ export function AcoesPix({
               Reabrir Pix
             </Button>
           )}
-          {podeAbrirAtendimento && (
-            <Button variant="ghost" size="sm" onClick={() => setSheet("atendimento")}>
-              <ExternalLink className="h-3.5 w-3.5" />
-              Atendimento #{detalhe.atendimento?.numero_curto}
+          {podeAbrirAtendimento && onAbrirAtendimento && (
+            <Button variant="ghost" size="sm" onClick={onAbrirAtendimento}>
+              <Eye className="h-3.5 w-3.5" />
+              Ver atendimento
             </Button>
           )}
           {podeAbrirConversa && (
@@ -162,17 +163,6 @@ export function AcoesPix({
           )}
         </div>
       )}
-
-      <Sheet open={sheet === "atendimento"} onOpenChange={(o) => setSheet(o ? "atendimento" : null)}>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle>Atendimento #{detalhe.atendimento?.numero_curto}</SheetTitle>
-          </SheetHeader>
-          <SheetBody>
-            <AtendimentoVinculadoPix atendimento={detalhe.atendimento} />
-          </SheetBody>
-        </SheetContent>
-      </Sheet>
 
       <Sheet open={sheet === "conversa"} onOpenChange={(o) => setSheet(o ? "conversa" : null)}>
         <SheetContent>

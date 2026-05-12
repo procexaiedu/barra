@@ -17,6 +17,7 @@ import { ComprovantePix } from "./ComprovantePix"
 import { DialogVisualizarComprovante } from "./DialogVisualizarComprovante"
 import { LinhaTempoPix } from "./LinhaTempoPix"
 import { MetadadosPix } from "./MetadadosPix"
+import { ModalAtendimentoPix } from "./ModalAtendimentoPix"
 import { badgeForStatusPix, statusItemPix } from "./utils"
 
 export function DetalhePix({
@@ -43,6 +44,7 @@ export function DetalhePix({
   onRecarregarComprovante: () => void
 }) {
   const [modalAberto, setModalAberto] = useState(false)
+  const [modalAtendimentoAberto, setModalAtendimentoAberto] = useState(false)
 
   if (status === "loading") {
     return (
@@ -107,6 +109,7 @@ export function DetalhePix({
         onAprovar={onAprovar}
         onRejeitar={onRejeitar}
         onReabrir={onReabrir}
+        onAbrirAtendimento={() => setModalAtendimentoAberto(true)}
       />
 
       <ComprovantePix
@@ -120,8 +123,21 @@ export function DetalhePix({
         <MetadadosPix pix={detalhe.pix} />
         <ChecagensPix checagens={detalhe.checagens} />
       </div>
-      <AtendimentoVinculadoPix atendimento={detalhe.atendimento} />
+      <AtendimentoVinculadoPix
+        atendimento={detalhe.atendimento}
+        onVisualizar={
+          detalhe.atendimento !== null
+            ? () => setModalAtendimentoAberto(true)
+            : undefined
+        }
+      />
       <LinhaTempoPix eventos={detalhe.eventos} />
+
+      <ModalAtendimentoPix
+        open={modalAtendimentoAberto}
+        onOpenChange={setModalAtendimentoAberto}
+        atendimento={detalhe.atendimento}
+      />
 
       <DialogVisualizarComprovante
         open={modalAberto}
