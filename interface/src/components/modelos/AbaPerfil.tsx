@@ -131,7 +131,7 @@ export function AbaPerfil({
             )}
           </div>
         </div>
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-5 sm:grid-cols-2">
           <Campo label="Nome">
             <Input value={identidade.nome} onChange={(e) => setIdentidade({ ...identidade, nome: e.target.value })} className="h-10 bg-input" />
           </Campo>
@@ -139,7 +139,7 @@ export function AbaPerfil({
             <Input type="number" value={identidade.idade || ""} onChange={(e) => setIdentidade({ ...identidade, idade: Number(e.target.value) })} className="h-10 bg-input" />
           </Campo>
           <Campo label="Situação">
-            <select disabled value={modelo.status} className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-muted">
+            <select disabled value={modelo.status} className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-muted disabled:cursor-not-allowed disabled:opacity-70">
               <option value="ativa">Ativa</option>
               <option value="pausada">Pausada</option>
               <option value="inativa">Inativa</option>
@@ -213,7 +213,7 @@ export function AbaPerfil({
       />
 
       <Card title="Repasse e Pix">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-5 sm:grid-cols-2">
           <Campo label="Comissão da agência (%)">
             <Input type="number" min={0} max={100} value={repasse.percentual_repasse} onChange={(e) => setRepasse({ ...repasse, percentual_repasse: e.target.value })} className="h-10 bg-input" />
           </Campo>
@@ -238,7 +238,7 @@ export function AbaPerfil({
       </Card>
 
       <Card title="Atendimento">
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-5 sm:grid-cols-2">
           <Campo label="Endereço de atendimento">
             <CampoLocalAutocomplete
               valorInicial={atendimento.localizacao_operacional}
@@ -269,7 +269,7 @@ export function AbaPerfil({
             <Input value={atendimento.idiomas} onChange={(e) => setAtendimento({ ...atendimento, idiomas: e.target.value })} className="h-10 bg-input" />
           </Campo>
           <div className="sm:col-span-2">
-            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">Atende em</p>
+            <p className="mb-3 text-[11px] font-semibold uppercase tracking-[0.1em] text-text-secondary">Atende em</p>
             <TipoChecks value={atendimento.tipo_atendimento_aceito} onChange={(tipo_atendimento_aceito) => setAtendimento({ ...atendimento, tipo_atendimento_aceito })} />
           </div>
         </div>
@@ -296,7 +296,7 @@ export function AbaPerfil({
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="rounded-lg border border-border bg-card p-6">
-      <h2 className="mb-4 text-base font-semibold text-text-primary">{title}</h2>
+      <h2 className="mb-5 text-base font-semibold text-text-primary">{title}</h2>
       {children}
     </section>
   )
@@ -304,8 +304,8 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
 
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="grid gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-      {label}
+    <label className="grid gap-2.5 text-[11px] font-semibold uppercase tracking-[0.1em] text-text-secondary">
+      <span className="leading-none">{label}</span>
       {children}
     </label>
   )
