@@ -1,7 +1,9 @@
+import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from psycopg import AsyncConnection
 
@@ -17,6 +19,8 @@ from barra.dominio.pix.schemas import (
     ReabrirPixRequest,
     RejeitarPixRequest,
 )
+
+_logger = logging.getLogger(__name__)
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
@@ -270,11 +274,17 @@ async def aprovar_pix(
             comando="atualizar_pix",
             payload={"decisao": "validado", "pix_id": str(pix_id)},
         )
-        if (
-            request.app.state.settings.evolution_grupo_coordenacao_jid
-            and pix["evolution_instance_id"]
-        ):
-            client = EvolutionClient(request.app.state.settings)
+
+    # Notificação ao grupo de coordenação é best-effort: a aprovação já foi
+    # persistida acima. Se a instância Evolution estiver desconectada/inválida,
+    # logamos e seguimos — não faz sentido reverter decisão de negócio porque
+    # o envio do card falhou.
+    if (
+        request.app.state.settings.evolution_grupo_coordenacao_jid
+        and pix["evolution_instance_id"]
+    ):
+        client = EvolutionClient(request.app.state.settings)
+        try:
             await client.enviar_texto(
                 conn=conn,
                 instance_id=pix["evolution_instance_id"],
@@ -285,6 +295,13 @@ async def aprovar_pix(
                 atendimento_id=pix["atendimento_id"],
                 conversa_id=pix["conversa_id"],
                 payload={"pix_id": str(pix_id)},
+            )
+        except httpx.HTTPError as exc:
+            _logger.warning(
+                "pix_aprovar_notificacao_falhou pix=%s instance=%s erro=%s",
+                pix_id,
+                pix["evolution_instance_id"],
+                exc,
             )
     PIX.labels("validado").inc()
     return {"id": pix_id, "decisao_final": "validado"}
