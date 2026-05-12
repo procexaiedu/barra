@@ -55,6 +55,8 @@ export function ProfissionaisRanking({ profissionais }: Props) {
               <th className="w-44 px-4 py-3 text-right">Volume</th>
               <th className="w-32 px-4 py-3 text-right">Fechamentos</th>
               <th className="w-40 px-4 py-3 text-right">Valor bruto</th>
+              <th className="w-40 px-4 py-3 text-right">Líquido</th>
+              <th className="w-40 px-4 py-3 text-right">Repasse</th>
               <th className="w-24 px-4 py-3 text-right">Conversão</th>
               <th className="w-6 px-2 py-3" aria-hidden />
             </tr>
@@ -82,6 +84,11 @@ export function ProfissionaisRanking({ profissionais }: Props) {
                       <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-primary">
                         {p.modelo.nome}
                       </span>
+                      {idx === 0 ? (
+                        <span className="rounded-sm bg-gold-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-gold-500">
+                          Top
+                        </span>
+                      ) : null}
                     </div>
                   </td>
                   <td className="px-4 py-4 align-middle">
@@ -105,6 +112,12 @@ export function ProfissionaisRanking({ profissionais }: Props) {
                   </td>
                   <td className="px-4 py-4 text-right align-middle font-mono text-xs text-text-primary tabular-nums">
                     {formatBRL(p.valor_bruto_brl)}
+                  </td>
+                  <td className="px-4 py-4 text-right align-middle font-mono text-xs text-success-500 tabular-nums">
+                    {formatBRL(p.valor_liquido_brl)}
+                  </td>
+                  <td className="px-4 py-4 text-right align-middle font-mono text-xs text-text-muted tabular-nums">
+                    {formatBRL(p.valor_repasse_modelo_brl)}
                   </td>
                   <td className="px-4 py-4 text-right align-middle font-mono text-xs text-text-primary tabular-nums">
                     {formatPercent(p.taxa_conversao_pct)}
