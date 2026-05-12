@@ -2,7 +2,8 @@
 <#
 .SYNOPSIS
   Remove worktrees do pipeline (`.claude/worktrees/agent-*`) cuja branch
-  já foi mergeada em main.
+  já foi mergeada em main. Com -IncludeOrphans, também alvo worktrees
+  órfãs do harness (sem branch nomeada do pipeline ou sem commit próprio).
 .DESCRIPTION
   Após cada overnight, dezenas de worktrees ficam no disco mesmo quando
   o trabalho já entrou em main. `git worktree remove` falha em PS quando
@@ -14,6 +15,12 @@
     4. Se ainda restar pasta órfã: `taskkill node.exe` direcionado e
        retry. -Force adicional permite `Remove-Item -Recurse -Force`
        na pasta órfã.
+
+  Com -IncludeOrphans, também entra como alvo qualquer worktree do
+  pipeline cuja branch case o padrão harness `worktree-agent-<hash>`
+  ou cuja HEAD == HEAD de main (sem commit próprio) — abortos onde o
+  codificador caiu cedo. Sem essa flag, comportamento é idêntico ao
+  anterior (apenas mergeadas).
 
   Por padrão roda em -DryRun: lista o que faria, não toca em nada.
 .PARAMETER DryRun
@@ -28,6 +35,11 @@
 .PARAMETER ForceYes
   Bypass do prompt interativo do -Force. NÃO usar em automação noturna
   sem revisão humana.
+.PARAMETER IncludeOrphans
+  Alem das mergeadas, inclui worktrees orfas do harness: nome de branch
+  no padrao `worktree-agent-<hash>` ou HEAD igual ao HEAD de main (=
+  sem commit proprio). Util para limpar abortos onde o codificador caiu
+  cedo. Sem essa flag, comportamento e identico ao anterior.
 .PARAMETER RepoRoot
   Raiz do repo. Default C:\barra.
 .EXAMPLE
@@ -39,8 +51,13 @@
 .EXAMPLE
   # Limpa com força total para pastas presas por file lock
   powershell -NoProfile -File scripts\cleanup-merged-worktrees.ps1 -Execute -Force
+.EXAMPLE
+  # Inclui worktrees orfas do harness (dry-run primeiro!)
+  powershell -NoProfile -File scripts\cleanup-merged-worktrees.ps1 -IncludeOrphans
+  powershell -NoProfile -File scripts\cleanup-merged-worktrees.ps1 -IncludeOrphans -Execute
 .NOTES
-  NÃO toca em worktrees cuja branch NÃO está mergeada — humano decide.
+  NÃO toca em worktrees cuja branch NÃO está mergeada (a menos que
+  -IncludeOrphans pegue como órfã) — humano decide.
   NÃO faz `git push`, `git branch -D` nem rebase. Apenas remove worktree
   e (opcional) força pasta órfã.
 #>
@@ -50,6 +67,7 @@ param(
     [switch]$Execute,
     [switch]$Force,
     [switch]$ForceYes,
+    [switch]$IncludeOrphans,
     [string]$RepoRoot = 'C:\barra'
 )
 
@@ -102,6 +120,39 @@ function Get-WorktreeList {
     return $wts
 }
 
+function Get-OrphanWorktrees([array]$allWts) {
+    # Orfa = worktree do pipeline cuja branch:
+    #   (a) casa o padrao `worktree-agent-<hash>` (criada pelo harness sem nome de branch do pipeline)
+    #   OU
+    #   (b) HEAD do worktree == HEAD do main (= nada commitado proprio)
+    $mainHead = (& git rev-parse main 2>$null).Trim()
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($mainHead)) {
+        throw "Nao consegui resolver HEAD de main."
+    }
+
+    $agentWtPrefix = ($RepoRoot -replace '\\','/') + '/.claude/worktrees/'
+    $orphans = @()
+    foreach ($wt in $allWts) {
+        $normPath = ($wt.path -replace '\\','/').ToLower()
+        if (-not $normPath.StartsWith($agentWtPrefix.ToLower())) { continue }
+
+        # criterio (a): nome de branch padrao harness
+        $isHarnessNamed = $wt.branch -and $wt.branch -match '^worktree-agent-[0-9a-f]+$'
+
+        # criterio (b): HEAD == main HEAD (sem commit proprio)
+        $wtHead = ''
+        try {
+            $wtHead = (& git -C $wt.path rev-parse HEAD 2>$null).Trim()
+        } catch {}
+        $isMainBased = ($wtHead -and $wtHead -eq $mainHead)
+
+        if ($isHarnessNamed -or $isMainBased) {
+            $orphans += $wt
+        }
+    }
+    return $orphans
+}
+
 function Kill-NodeProcessesUnder($path) {
     # Mata node.exe cujo cwd ou caminho do executável referencia o worktree.
     $norm = ($path -replace '/', '\').TrimEnd('\').ToLower()
@@ -126,11 +177,27 @@ $allWts = Get-WorktreeList
 # Filtra: somente worktrees sob .claude/worktrees/ E cuja branch está mergeada
 $agentWtPrefix = ($RepoRoot -replace '\\', '/') + '/.claude/worktrees/'
 $targets = @()
+$targetKind = @{}   # path -> 'mergeada' | 'orfa'
 foreach ($wt in $allWts) {
     $normPath = ($wt.path -replace '\\', '/').ToLower()
     if (-not $normPath.StartsWith($agentWtPrefix.ToLower())) { continue }
     if ($wt.branch -and $merged -contains $wt.branch) {
         $targets += $wt
+        $targetKind[$wt.path] = 'mergeada'
+    }
+}
+$mergedTargets = $targets.Count
+
+$orphanTargets = 0
+if ($IncludeOrphans) {
+    $orphans = Get-OrphanWorktrees $allWts
+    # Dedup contra $targets (caso uma branch mergeada ja entre)
+    foreach ($o in $orphans) {
+        if (-not ($targets | Where-Object { $_.path -eq $o.path })) {
+            $targets += $o
+            $targetKind[$o.path] = 'orfa'
+            $orphanTargets++
+        }
     }
 }
 
@@ -139,7 +206,10 @@ Write-Host "=== cleanup-merged-worktrees ==="
 Write-Host "repo:                $RepoRoot"
 Write-Host "worktrees totais:    $($allWts.Count)"
 Write-Host "branches mergeadas:  $($merged.Count)"
-Write-Host "alvos (mergeados):   $($targets.Count)"
+Write-Host "alvos (mergeados):   $mergedTargets"
+if ($IncludeOrphans) {
+    Write-Host "alvos (orfaos):      $orphanTargets"
+}
 Write-Host "modo:                $(if ($DryRun) { 'DRY-RUN (use -Execute para remover)' } else { 'EXECUTE' })"
 Write-Host ""
 
@@ -149,7 +219,8 @@ if ($targets.Count -eq 0) {
 }
 
 foreach ($t in $targets) {
-    Write-Host "--- $($t.path)"
+    $kind = $targetKind[$t.path]
+    Write-Host "--- [$kind] $($t.path)"
     Write-Host "    branch:  $($t.branch)"
     Write-Host "    locked:  $($t.locked)"
 

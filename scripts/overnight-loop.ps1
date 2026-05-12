@@ -13,18 +13,31 @@
   Use -MaxTasks <N> para impor um teto adicional de tasks totais (o
   loop encerra ao atingir N, mesmo que -MaxInvocations ainda permita
   mais).
+
+  Use -MaxWallMinutes <N> para um teto de tempo de parede: o loop
+  encerra antes de iniciar a proxima invocacao se ja decorreu mais que
+  N minutos desde o inicio. Alem disso, 2 invocacoes consecutivas que
+  nao produziram nenhum LOG_ITER (provavel quota/auth falhou) abortam
+  o loop para nao desperdicar as restantes.
 .PARAMETER MaxInvocations
   Maximo de invocacoes de `claude -p`. Default 30. Cada invocacao pode
   drenar ate 20 tasks. Alias: -MaxRuns (compatibilidade).
 .PARAMETER MaxTasks
   Teto adicional de tasks totais processadas (PASS + rework + blocked +
   timeout + exception + trunc). 0 = sem teto. Default 0.
+.PARAMETER MaxWallMinutes
+  Teto de tempo de parede em minutos. Antes de iniciar cada nova
+  invocacao, se o tempo decorrido desde o inicio do loop for >= a este
+  valor, o loop encerra. 0 = sem teto. Default 0.
 .EXAMPLE
   powershell -NoProfile -File C:\barra\scripts\overnight-loop.ps1 -MaxInvocations 1
   # Roda 1 invocacao, drena ate 20 tasks dentro dela.
 .EXAMPLE
   powershell -NoProfile -File C:\barra\scripts\overnight-loop.ps1 -MaxInvocations 30 -MaxTasks 5
   # Roda ate 30 invocacoes, mas para no momento em que 5 tasks foram processadas.
+.EXAMPLE
+  powershell -NoProfile -File C:\barra\scripts\overnight-loop.ps1 -MaxInvocations 30 -MaxWallMinutes 240
+  # Roda ate 30 invocacoes OU 4 horas de wall-clock, o que vier primeiro.
 .NOTES
   Sem push, sem merge, sem PR. Status terminal de cada task e "Review".
 #>
@@ -33,7 +46,9 @@ param(
     [Alias('MaxRuns')]
     [int]$MaxInvocations = 30,
 
-    [int]$MaxTasks = 0
+    [int]$MaxTasks = 0,
+
+    [int]$MaxWallMinutes = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -71,6 +86,11 @@ $welcome = @"
 if ($MaxTasks -gt 0) {
     $welcome += "`n  Teto adicional: parar ao atingir $MaxTasks task(s) processada(s)."
 }
+if ($MaxWallMinutes -gt 0) {
+    $welcome += "`n  Teto wall-clock: parar apos $MaxWallMinutes minuto(s) decorrido(s)."
+} else {
+    $welcome += "`n  Teto wall-clock: sem teto."
+}
 $welcome += @"
 
   Logs:    $logPath
@@ -86,6 +106,7 @@ $header = @"
 ts:              $(Get-Date -Format o)
 maxInvocations:  $MaxInvocations
 maxTasks:        $(if ($MaxTasks -gt 0) { $MaxTasks } else { 'sem teto' })
+maxWallMinutes:  $(if ($MaxWallMinutes -gt 0) { $MaxWallMinutes } else { 'sem teto' })
 log:             $logPath
 repo:            $repoRoot
 PID:             $PID
@@ -102,10 +123,24 @@ $totalTrunc     = 0
 $totalNothing   = 0
 $totalHumanOnly = 0
 $runsExecuted   = 0
-$drained        = $false
-$hitMaxTasks    = $false
+$drained         = $false
+$hitMaxTasks     = $false
+$hitMaxWall      = $false
+$hitEmptyStreak  = $false
+$emptyRunsStreak = 0
 
 for ($i = 1; $i -le $MaxInvocations; $i++) {
+    # Wall-clock budget: corta o loop antes de gastar a proxima invocacao
+    # se ja excedeu o teto de minutos definido por -MaxWallMinutes.
+    $elapsedMin = ((Get-Date) - $started).TotalMinutes
+    if ($MaxWallMinutes -gt 0 -and $elapsedMin -ge $MaxWallMinutes) {
+        $msg = "MAX_WALL_MINUTES atingido ($([int]$elapsedMin)/$MaxWallMinutes), encerrando loop"
+        Add-Content -Path $logPath -Encoding utf8 -Value $msg
+        Write-Host $msg
+        $hitMaxWall = $true
+        break
+    }
+
     $runStart = Get-Date
     $banner   = "[run $i/$MaxInvocations] $($runStart.ToString('HH:mm:ss')) - starting headless /processa-fila-barra"
     Add-Content -Path $logPath -Encoding utf8 -Value "`n--- $banner ---"
@@ -146,6 +181,9 @@ for ($i = 1; $i -le $MaxInvocations; $i++) {
     $humanOnlyCount  = ([regex]::Matches($runSlice, '(?:"|\\")review_status(?:"|\\"):(?:"|\\")human-validation-only(?:"|\\")')).Count
     $tasksDone       = $passCount + $reworkCount + $blockedCount + $timeoutCount + $exceptionCount + $truncCount + $nothingCount + $humanOnlyCount
 
+    # Streak de invocacoes sem LOG_ITER algum (provavel quota/auth falhou).
+    if ($tasksDone -eq 0) { $emptyRunsStreak++ } else { $emptyRunsStreak = 0 }
+
     $totalPass      += $passCount
     $totalRework    += $reworkCount
     $totalBlocked   += $blockedCount
@@ -183,6 +221,14 @@ for ($i = 1; $i -le $MaxInvocations; $i++) {
         break
     }
 
+    if ($emptyRunsStreak -ge 2) {
+        $msg = "[run $i/$MaxInvocations] 2 invocacoes consecutivas sem LOG_ITER - provavelmente quota/auth falhou, encerrando loop"
+        Add-Content -Path $logPath -Encoding utf8 -Value $msg
+        Write-Host $msg
+        $hitEmptyStreak = $true
+        break
+    }
+
     if ($limitSignal) {
         Add-Content -Path $logPath -Encoding utf8 -Value "LIMITE_ATINGIDO run $i - sessao parou em 20 iteracoes; proximo run continua a fila"
     }
@@ -206,6 +252,8 @@ $footer = @"
 invocacoes executadas:  $runsExecuted / $MaxInvocations
 fila esvaziada:         $drained
 parou por MaxTasks:     $hitMaxTasks
+parou por MaxWall:      $hitMaxWall
+parou por empty-streak: $hitEmptyStreak
 tasks Review (PASS):    $totalPass
 tasks needs-rework:     $totalRework
 tasks blocked:          $totalBlocked
