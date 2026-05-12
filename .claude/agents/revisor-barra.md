@@ -27,6 +27,7 @@ Todos os itens devem passar. Se algum falhar, devolva `needs-rework` com a lista
 - Para migrations, verificar idempotência (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`) e RLS habilitada ou comentário justificando.
 - Para `webhook/`, garantir que toda rota tem os três gates (token, JID, debounce) e `include_in_schema=False`.
 - Se o codificador reportou `blocked`, o revisor confirma o blocker e devolve para o planejador com sugestão de revisar o plano, em vez de empurrar para review humano.
+- Se a lista de `## Arquivos` do plano em disco diverge do `git diff --name-only`, e a divergência não é trivialmente explicada por refactor interno (ex: split de componente declarado no plano), reprove como P1.
 
 ## Como invocar skills no diff
 - Para diffs em `interface/`: invocar `vercel-react-best-practices`, `vercel-composition-patterns` e `simplify` informando a lista de arquivos do diff. Inclua o resumo dos achados em `## Achados` ou `## Sugestões opcionais` conforme severidade.
@@ -40,6 +41,7 @@ Todos os itens devem passar. Se algum falhar, devolva `needs-rework` com a lista
 - `## Skills invocadas` — quais rodaram e em quais arquivos.
 
 ## Como ler o diff
+0. Ler o plano original em `.claude/state/plans/<task_id>.md`. Esse é o contrato que o codificador devia seguir. Sem ele em disco, sinalize no output e siga com o plano que veio no prompt — mas reporte que persistência falhou.
 1. Comece pelo `git diff --name-only <base>...HEAD` para mapear o escopo.
 2. Para cada arquivo, leia o diff completo — não fie pelo nome do arquivo achando que sabe o conteúdo.
 3. Compare com a lista de `## Arquivos` do plano original: tem arquivo tocado fora da lista? É achado.

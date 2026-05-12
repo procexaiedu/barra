@@ -64,7 +64,10 @@ desktop.ini
 # Worktrees criados por subagentes do Claude Code
 .claude/worktrees/
 # Estado runtime do pipeline (marker files, locks de migration, JSON de reservas etc.)
-.claude/state/
+.claude/state/*
+!.claude/state/plans/
+.claude/state/plans/*.md
+!.claude/state/plans/.gitkeep
 
 # --- Banco local / temp ---
 *.sqlite

@@ -13,6 +13,7 @@ Loop autônomo que drena a fila do projeto `barravips` no devcontext. Para cada 
 
 - `MAX_ITERATIONS_POR_SESSAO = 20` — número máximo de tasks processadas por execução do skill. Conta cada iteração concluída (review PASS, FAIL/needs-rework ou blocked). Ao atingir 20, encerre limpo (sem reagendar) e relate `limite de iterações atingido`.
 - `TIMEOUT_POR_TASK_SEGUNDOS = 2700` (45min). Registre `task_started_at = now()` no início do Passo 1. Antes de cada handoff entre passos (Plan→Code, Code→Review), compare `now() - task_started_at`. Se ultrapassar 2700s: interrompa o subagente em execução com mensagem clara, chame `update_task({ status: <coluna_origem>, is_blocked: true, blocked_reason: "timeout_overnight" })`, remova o marker, emita `LOG_ITER` com `review_status: "timeout"` e siga para a próxima iteração.
+- `RETENCAO_PLANOS_DIAS = 7` — `.claude/state/plans/*.md` com mtime > 7 dias são removidos no Passo 0 (cleanup inicial).
 
 ## Schema do devcontext (descoberto em smoke)
 
@@ -20,6 +21,20 @@ Loop autônomo que drena a fila do projeto `barravips` no devcontext. Para cada 
 - `mcp__devcontext__get_tasks` filtra pela coluna passada em `status` (nome exato da coluna). **Truncamento conhecido**: o campo de descrição volta cortado com `…` (~150 chars). **Contexto completo (incluindo `implementation_plan`) vem por HTTP direto** — `scripts/get-task.ps1 -TaskId <id> -OutFile <path>` consulta `{url}/api/mcp/tasks?mine=false&limit=500` e devolve JSON com todos os campos (smoke 2026-05-12: o MCP `devcontext-mcp` v1.0.7 descarta `implementation_plan` no formatter — bug conhecido — mas a API HTTP retorna inteiro). O pipeline usa o helper no Passo 1.4.
 - **`mine=true` é o padrão e mascara a fila inteira.** Tasks do BarraVIPs ficam atribuídas a Rafael (e outros responsáveis), não ao usuário autenticado deste pipeline (`ProcexAI`) — sem `mine=false` explícito, `get_tasks` devolve zero tasks e o loop encerra como falsa "fila vazia".
 - **`In Progress` é PROIBIDA como fonte.** Essa coluna é trabalho humano manual do Rafael — o pipeline nunca pega tasks dali, mesmo que o discovery a retorne. Filtre-a explicitamente do conjunto elegível.
+
+## Passo 0 — Cleanup de estado stale (idempotente, fail-safe)
+
+Executar **antes** de qualquer outra ação. Qualquer falha aqui é logada como warning e NÃO derruba a sessão.
+
+1. **Marker zumbi**: se `.claude/state/awaiting-verification` existe E mtime > 1h atrás, remover e logar `WARN: marker awaiting-verification zumbi removido (task <id_lido_do_marker>, mtime <ts>)`. O `<id_lido_do_marker>` vem do conteúdo do arquivo. Mtime < 1h: deixar quieto (pode ser sessão paralela legítima).
+
+2. **Lock de migrations preso**: se `.claude/state/migrations.lock` existe E mtime > 5min, remover e logar `WARN: migrations.lock preso removido (mtime <ts>)`. Mtime < 5min: deixar quieto.
+
+3. **Reservas expiradas**: ler `.claude/state/migrations-reserved.json`, filtrar entradas com `expires_at` no passado, gravar de volta. Se arquivo malformado, sobrescrever com `[]`. Logar quantas foram limpas.
+
+4. **Planos antigos**: listar `.claude/state/plans/*.md` com mtime > `RETENCAO_PLANOS_DIAS` dias atrás, remover. Logar quantos. **Não tocar** em `.gitkeep`.
+
+Implementação via Bash inline na sessão (preferir Python ou PowerShell direto via Bash tool). Não criar script externo — esse passo é responsabilidade do skill, não tem reuso.
 
 ## Contexto inicial (uma vez por sessão)
 
@@ -86,7 +101,15 @@ Antes de iniciar cada iteração: se `iteracoes_concluidas >= MAX_ITERATIONS_POR
     > Plano ausente ou muito curto. Produza o plano com confiança baixa, marque ambiguidades explícitas, prefira `blocked-clarification` sobre chutar requisito não declarado.
   - Anexar ao prompt: título, `description` completa do `task_full`, e o que houver de `implementation_plan` (mesmo curto, pra contexto).
 
-- Receber plano em markdown. O planejador pode devolver **três saídas terminais distintas** (antes mesmo de chegar no codificador):
+- Receber plano em markdown.
+
+  **Persistir plano em disco antes de seguir:**
+  - Path: `C:/barra/.claude/state/plans/<task_id>.md` (criar diretório se não existir).
+  - Conteúdo: o markdown literal devolvido pelo planejador, sem alteração.
+  - Em caso de `## Aprovação: blocked-clarification`, `nothing-to-do` ou `human-validation-only`, **também persistir** — vira evidência da decisão. Para `nothing-to-do`/`human-validation-only`, o plano vai pro disco e o caminho aparece no `LOG_ITER` (campo `plano_path`).
+  - Falha ao escrever (disco cheio, permissão): emitir warning no log, seguir o fluxo normal — persistência é defesa, não pré-requisito.
+
+- O planejador pode devolver **três saídas terminais distintas** (antes mesmo de chegar no codificador):
 
   | Saída do planejador | Status emitido | Ação no devcontext |
   |---|---|---|
@@ -172,13 +195,13 @@ Caminhos terminais cobertos (emit obrigatório em cada um):
 Formato:
 
 ```json
-{"ts":"<ISO-8601 UTC>","task_id":"<uuid>","titulo":"<até 80 chars>","codificador_usado":"<api|interface|sql|none>","branch":"<nome ou null>","hash":"<curto ou null>","review_status":"PASS|needs-rework|blocked-clarification|nothing-to-do|human-validation-only|timeout|descricao-truncada|exception","duracao_seg":<int>,"erro":"<opcional, só em exception>"}
+{"ts":"<ISO-8601 UTC>","task_id":"<uuid>","titulo":"<até 80 chars>","codificador_usado":"<api|interface|sql|none>","branch":"<nome ou null>","hash":"<curto ou null>","review_status":"PASS|needs-rework|blocked-clarification|nothing-to-do|human-validation-only|timeout|descricao-truncada|exception","duracao_seg":<int>,"plano_path":"<caminho relativo do plano em .claude/state/plans/ ou null>","erro":"<opcional, só em exception>"}
 ```
 
 A linha deve ser autocontida (parseável com `ConvertFrom-Json` por linha) e prefixada com `LOG_ITER ` para ser extraível por `Select-String -Pattern '^LOG_ITER '`. Exemplo:
 
 ```
-LOG_ITER {"ts":"2026-05-13T03:14:08Z","task_id":"26aae67b-...","titulo":"Modelos: integrar Evolution","codificador_usado":"interface","branch":"feat/modelos-evolution-conexao","hash":"a1b2c3d","review_status":"PASS","duracao_seg":612}
+LOG_ITER {"ts":"2026-05-13T03:14:08Z","task_id":"26aae67b-...","titulo":"Modelos: integrar Evolution","codificador_usado":"interface","branch":"feat/modelos-evolution-conexao","hash":"a1b2c3d","review_status":"PASS","duracao_seg":612,"plano_path":".claude/state/plans/26aae67b-....md"}
 ```
 
 **Padrão de tratamento de exceção** (envolve Passos 1-5):
@@ -196,6 +219,7 @@ LOG_ITER {"ts":"2026-05-13T03:14:08Z","task_id":"26aae67b-...","titulo":"Modelos
 - **Coluna `In Progress` é intocável.** Tasks ali pertencem ao Rafael; o pipeline nunca seleciona, atualiza ou comenta nelas.
 - **Fail loud**: ambiguidade de requisito → devolver task para coluna de origem com `is_blocked: true` + `blocked_reason`, **nunca** chutar interpretação. Plano `blocked-clarification` segue a mesma regra.
 - **Sem editar `CLAUDE.md`, `CONTEXT.md`, `.claude/agents/*`** dentro do loop — esses arquivos são governados pelo humano.
+- **Paths relativos sempre.** Todos os subagentes do pipeline DEVEM operar com paths relativos à raiz do worktree em Edit/Write. Path absoluto (`C:\barra\...`, `/c/barra/...`) em argumento de Edit/Write = bug arquitetural — `isolation: "worktree"` NÃO redireciona absolutos, e o trabalho vaza pra `main` em silêncio (incidente 2026-05-12, task 9a49dde8). O hook `block_absolute_path_writes.ps1` é a defesa em profundidade; a regra primária vive nos prompts dos subagentes.
 
 ## Relatório por iteração (no chat principal, 4 linhas + 1 log)
 
