@@ -9,7 +9,6 @@ import type {
   ConversaDetalheResponse,
   ConversaListaItem,
   ConversasListaResponse,
-  FiltroOrdem,
   FiltrosClientes,
   ModeloResumo,
 } from "@/tipos/clientes"
@@ -37,10 +36,6 @@ function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   if (filtros.ordenarPor === "inatividade") params.set("ordenar_por", "inatividade")
   if (cursor) params.set("cursor", cursor)
   return `/v1/crm/conversas?${params.toString()}`
-}
-
-function normalizar(valor: string | null | undefined): string {
-  return (valor ?? "").trim()
 }
 
 interface ModelosResponse {

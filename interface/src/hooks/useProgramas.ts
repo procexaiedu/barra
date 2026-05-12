@@ -35,8 +35,9 @@ export function useProgramas() {
 
   // Programas
   const criarPrograma = useCallback(async (input: ProgramaInput) => {
-    await api("/v1/programas", { method: "POST", body: JSON.stringify(input) })
+    const novo = await api<Programa>("/v1/programas", { method: "POST", body: JSON.stringify(input) })
     await carregar()
+    return novo
   }, [carregar])
 
   const atualizarPrograma = useCallback(async (id: string, input: Partial<ProgramaInput>) => {
@@ -51,8 +52,9 @@ export function useProgramas() {
 
   // Durações
   const criarDuracao = useCallback(async (input: DuracaoInput) => {
-    await api("/v1/duracoes", { method: "POST", body: JSON.stringify(input) })
+    const nova = await api<Duracao>("/v1/duracoes", { method: "POST", body: JSON.stringify(input) })
     await carregar()
+    return nova
   }, [carregar])
 
   const atualizarDuracao = useCallback(async (id: string, input: Partial<DuracaoInput>) => {

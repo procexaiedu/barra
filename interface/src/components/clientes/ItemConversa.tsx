@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import type { KeyboardEvent } from "react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -26,8 +27,9 @@ export function ItemConversa({
   const refTempo = item.ultima_mensagem_em ?? item.created_at
   const ultimo = item.ultimo_atendimento
 
+  const [agora] = useState(() => Date.now())
   const diasSemFechar = item.ultimo_fechamento_em
-    ? Math.floor((Date.now() - new Date(item.ultimo_fechamento_em).getTime()) / 86_400_000)
+    ? Math.floor((agora - new Date(item.ultimo_fechamento_em).getTime()) / 86_400_000)
     : null
   const ultimoAtivo = ultimo ? ESTADOS_ATIVOS.has(ultimo.estado) : false
   const mostrarInatividade =

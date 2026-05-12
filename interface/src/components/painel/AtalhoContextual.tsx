@@ -24,7 +24,7 @@ export function AtalhoContextual({
   const atalhos: Atalho[] = [
     {
       key: "conectar",
-      visible: modeloAtiva !== null && modeloAtiva.evolution_instance_id === null,
+      visible: modeloAtiva !== null && modeloAtiva.evolution_status !== "conectado",
       text: "Conectar WhatsApp da modelo",
       icon: QrCode,
       variant: "default",

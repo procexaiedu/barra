@@ -28,6 +28,8 @@ export function DialogVisualizarMidia({
           {midia?.tipo === "video" ? (
             <video src={midia.url_assinada} controls className="max-h-[90vh] max-w-[90vw]" />
           ) : midia ? (
+            // URL assinada do MinIO com expiry; next/image precisaria de loader customizado.
+            // eslint-disable-next-line @next/next/no-img-element
             <img src={midia.url_assinada} alt={midia.tag} className="max-h-[90vh] max-w-[90vw] object-contain" />
           ) : null}
           {midia && (

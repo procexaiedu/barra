@@ -24,7 +24,8 @@ export function ItemModelo({
   const handoff = item.indicadores.ultimo_handoff_em
     ? `ajuda ${formatTempoRelativo(item.indicadores.ultimo_handoff_em)}`
     : "sem ajuda recente"
-  const wppPendente = !item.evolution_instance_id
+  const wppPendente = item.evolution_status !== "conectado"
+  const wppPareando = item.evolution_status === "pareando"
 
   return (
     <button
@@ -55,7 +56,11 @@ export function ItemModelo({
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 text-xs text-text-muted">
         <span className="font-mono">{formatTelefone(item.numero_whatsapp)}</span>
-        {wppPendente && <span className="text-state-handoff">WhatsApp pendente</span>}
+        {wppPendente && (
+          <span className={wppPareando ? "text-state-info" : "text-state-handoff"}>
+            {wppPareando ? "Pareando…" : "WhatsApp pendente"}
+          </span>
+        )}
       </div>
       <div className="mt-1 text-[11px] text-text-muted">
         {item.indicadores.atendimentos_abertos > 0 && (

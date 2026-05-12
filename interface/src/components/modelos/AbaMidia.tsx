@@ -37,7 +37,7 @@ export function AbaMidia({
       <section aria-label="Filtros de midia" className="flex flex-wrap items-center gap-2">
         <Select label="Tipo" value={tipo} onChange={(value) => setTipo(value as "todos" | TipoMidia)} options={[["todos", "Todos os tipos"], ["foto", "Fotos"], ["video", "Vídeos"]]} />
         <Select label="Tag" value={tag} onChange={setTag} options={[["todas", "Todas as tags"], ...tags.map((t): [string, string] => [t, t])]} />
-        <Select label="Uso" value={aprovacao} onChange={(value) => setAprovacao(value as FiltroAprovacao)} options={[["aprovadas", "Prontas no atendimento"], ["nao_aprovadas", "Ocultas"], ["todas", "Todas"]]} />
+        <Select label="Status" value={aprovacao} onChange={(value) => setAprovacao(value as FiltroAprovacao)} options={[["aprovadas", "Ativas"], ["nao_aprovadas", "Inativas"], ["todas", "Todas"]]} />
         <div className="ml-auto">
           <Button variant="primary" size="sm" onClick={onAdicionar}>Adicionar mídia</Button>
         </div>

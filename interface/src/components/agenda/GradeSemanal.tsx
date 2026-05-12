@@ -48,9 +48,10 @@ function horaParaY(iso: string): number {
 
 function alturaEvento(inicioIso: string, fimIso: string): number {
   const { h: h1, m: m1 } = horaMinBrt(inicioIso)
-  let { h: h2, m: m2 } = horaMinBrt(fimIso)
+  const fim = horaMinBrt(fimIso)
+  const m2 = fim.m
   // fim meia-noite BRT do dia seguinte → trata como 24:00
-  if (dataBrt(fimIso) > dataBrt(inicioIso) && h2 === 0 && m2 === 0) h2 = 24
+  const h2 = dataBrt(fimIso) > dataBrt(inicioIso) && fim.h === 0 && m2 === 0 ? 24 : fim.h
   return Math.max(((h2 + m2 / 60) - (h1 + m1 / 60)) * HORA_HEIGHT, 20)
 }
 

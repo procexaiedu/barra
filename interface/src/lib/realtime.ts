@@ -10,7 +10,6 @@ export type RealtimeTabela =
   | 'clientes'
   | 'escaladas'
   | 'modelos'
-  | 'modelo_faq'
   | 'modelo_midia'
   | 'modelo_servicos'
   | 'programas'

@@ -20,20 +20,18 @@ import { ListaModelos } from "@/components/modelos/ListaModelos"
 import { DetalheModelo } from "@/components/modelos/DetalheModelo"
 import { PainelProgramas } from "@/components/modelos/PainelProgramas"
 import { DialogCriarModelo } from "@/components/modelos/DialogCriarModelo"
-import { DialogConectarWhatsapp } from "@/components/modelos/DialogConectarWhatsapp"
-import { DialogFaq } from "@/components/modelos/DialogFaq"
+import { DialogConectarWhatsapp, type QrModalStatus } from "@/components/modelos/DialogConectarWhatsapp"
 import { DialogMidiaUpload } from "@/components/modelos/DialogMidiaUpload"
 import { DialogVisualizarMidia } from "@/components/modelos/DialogVisualizarMidia"
 import { useModelos } from "@/hooks/useModelos"
 import { useProgramas } from "@/hooks/useProgramas"
-import type { AbaModelo, ConectarWhatsappResponse, FaqItem, MidiaItem } from "@/tipos/modelos"
+import type { AbaModelo, ConectarWhatsappResponse, MidiaItem } from "@/tipos/modelos"
 
 type Confirmacao =
   | { tipo: "pausar" }
   | { tipo: "ativar" }
   | { tipo: "desparear" }
   | { tipo: "trocar-numero"; numero: string }
-  | { tipo: "excluir-faq"; faq: FaqItem }
   | { tipo: "excluir-midia"; midia: MidiaItem }
   | { tipo: "descartar"; action: () => void }
   | null
@@ -54,31 +52,55 @@ function ModelosConteudo() {
   const programas = useProgramas()
   const [view, setView] = useState<ViewModelos>("lista")
   const [criarOpen, setCriarOpen] = useState(false)
-  const [faqDialog, setFaqDialog] = useState<{ open: boolean; faq: FaqItem | null }>({ open: false, faq: null })
   const [uploadDialog, setUploadDialog] = useState<"midia" | "perfil" | null>(null)
   const [midiaAberta, setMidiaAberta] = useState<MidiaItem | null>(null)
   const [confirmacao, setConfirmacao] = useState<Confirmacao>(null)
   const [qrOpen, setQrOpen] = useState(false)
   const [qr, setQr] = useState<ConectarWhatsappResponse | null>(null)
-  const [qrStatus, setQrStatus] = useState<"idle" | "loading" | "success" | "error">("idle")
+  const [qrStatus, setQrStatus] = useState<QrModalStatus>("loading")
   const [qrError, setQrError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   const detalhe = modelos.detalhe
   const modelo = detalhe?.modelo ?? null
+  const conectado = modelo?.evolution_status === "conectado"
   const esconderAdicionar =
     view === "programas" ||
-    modelo?.evolution_instance_id === null ||
+    !conectado ||
     modelo?.status === "pausada" ||
     modelos.aba === "midia"
 
+  // Status efetivo passado ao modal: deriva 'conectado' do detalhe quando o
+  // modal já está aguardando o scan. Evita setState dentro de useEffect.
+  const qrStatusEfetivo: QrModalStatus =
+    qrStatus === "aguardando_scan" && conectado ? "conectado" : qrStatus
+
+  // Auto-fecha o modal ~800ms após o pareamento convergir.
   useEffect(() => {
-    if (qrOpen && modelo?.evolution_instance_id) {
-      toast.success("WhatsApp conectado")
-      const timer = setTimeout(() => setQrOpen(false), 0)
-      return () => clearTimeout(timer)
-    }
-  }, [modelo?.evolution_instance_id, qrOpen])
+    if (!qrOpen || qrStatusEfetivo !== "conectado") return
+    toast.success("WhatsApp conectado")
+    const timer = setTimeout(() => setQrOpen(false), 800)
+    return () => clearTimeout(timer)
+  }, [qrOpen, qrStatusEfetivo])
+
+  // Polling defensivo: enquanto o modal aguarda o scan, batemos no
+  // GET /whatsapp/status, que faz auto-cure consultando connectionState
+  // na Evolution. Cobre dev sem tunnel (webhook não chega).
+  useEffect(() => {
+    if (!qrOpen || qrStatus !== "aguardando_scan" || !modelo?.id) return
+    const id = modelo.id
+    const intervalo = setInterval(async () => {
+      try {
+        const status = await modelos.whatsappStatus(id)
+        if (status.status === "conectado") {
+          await modelos.recarregarDetalhe()
+        }
+      } catch {
+        // silencioso: pequenas falhas de polling não devem travar o modal
+      }
+    }, 3000)
+    return () => clearInterval(intervalo)
+  }, [qrOpen, qrStatus, modelo?.id, modelos])
 
   const protegerDirty = (action: () => void) => {
     if (modelos.dirty) setConfirmacao({ tipo: "descartar", action })
@@ -92,9 +114,12 @@ function ModelosConteudo() {
     try {
       const res = await modelos.conectarWhatsapp(confirmarRotacao)
       setQr(res)
-      setQrStatus("success")
+      setQrStatus(res?.status === "conectado" ? "conectado" : "aguardando_scan")
+      // Recarregar detalhe para refletir evolution_status='pareando' no badge
+      // antes do scan acontecer.
+      await modelos.recarregarDetalhe()
     } catch (e) {
-      setQrStatus("error")
+      setQrStatus("erro")
       setQrError(e instanceof Error ? e.message : "Erro ao conectar WhatsApp")
     }
   }
@@ -128,10 +153,6 @@ function ModelosConteudo() {
         await modelos.patchModelo({ numero_whatsapp: confirmacao.numero })
         toast.success("WhatsApp atualizado")
         await conectar(true)
-      }
-      if (confirmacao.tipo === "excluir-faq") {
-        await modelos.deletarFaq(confirmacao.faq.id)
-        toast.success("Resposta removida")
       }
       if (confirmacao.tipo === "excluir-midia") {
         await modelos.deletarMidia(confirmacao.midia.id)
@@ -208,6 +229,8 @@ function ModelosConteudo() {
               onVincularPrograma={modelos.vincularProgramaModelo}
               onAtualizarPrecoPrograma={modelos.atualizarPrecoProgramaModelo}
               onDesvincularPrograma={modelos.desvincularProgramaModelo}
+              onCriarPrograma={programas.criarPrograma}
+              onCriarDuracao={programas.criarDuracao}
               onTrocarNumero={(numero) => setConfirmacao({ tipo: "trocar-numero", numero })}
               onConectar={() => conectar(false)}
               onPausar={() => setConfirmacao({ tipo: "pausar" })}
@@ -215,9 +238,6 @@ function ModelosConteudo() {
               onDesparear={() => setConfirmacao({ tipo: "desparear" })}
               onUploadPerfil={() => setUploadDialog("perfil")}
               onRemoverFoto={() => modelos.atualizarFotoPerfil(null)}
-              onAdicionarFaq={() => setFaqDialog({ open: true, faq: null })}
-              onEditarFaq={(faq) => setFaqDialog({ open: true, faq })}
-              onExcluirFaq={(faq) => setConfirmacao({ tipo: "excluir-faq", faq })}
               onAdicionarMidia={() => setUploadDialog("midia")}
               onOpenMidia={setMidiaAberta}
               onToggleAprovadaMidia={(midia) => modelos.atualizarMidia(midia.id, { aprovada: !midia.aprovada })}
@@ -254,20 +274,11 @@ function ModelosConteudo() {
         open={qrOpen}
         modelo={modelo}
         qr={qr}
-        status={qrStatus}
+        status={qrStatusEfetivo}
         error={qrError}
         onOpenChange={setQrOpen}
         onAtualizar={() => conectar(true)}
       />
-      {faqDialog.open && (
-        <DialogFaq
-          key={faqDialog.faq?.id ?? "nova"}
-          open={faqDialog.open}
-          faq={faqDialog.faq}
-          onOpenChange={(open) => setFaqDialog((atual) => ({ ...atual, open }))}
-          onSalvar={modelos.salvarFaq}
-        />
-      )}
       <DialogMidiaUpload
         open={uploadDialog !== null}
         modo={uploadDialog ?? "midia"}
@@ -380,14 +391,6 @@ function getTextos(
       descricao: "A conexão atual será removida. Depois disso, escaneie um novo QR code para ativar o número.",
       confirmar: "Confirmar troca",
       variant: "primary" as const,
-    }
-  }
-  if (confirmacao?.tipo === "excluir-faq") {
-    return {
-      titulo: "Remover esta resposta?",
-      descricao: "Esta orientação deixa de aparecer nos atendimentos.",
-      confirmar: "Remover",
-      variant: "danger" as const,
     }
   }
   if (confirmacao?.tipo === "excluir-midia") {

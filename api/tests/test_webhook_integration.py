@@ -69,7 +69,6 @@ def _payload_grupo(message_id: str = "MSG-1", from_me: bool = True) -> dict[str,
 def _configurar_grupo() -> None:
     settings = app.state.settings
     settings.evolution_grupo_coordenacao_jid = "120363000000000000@g.us"
-    settings.evolution_instancia = "barra"
     settings.evolution_webhook_token = ""
     settings.jid_permitido = None
 

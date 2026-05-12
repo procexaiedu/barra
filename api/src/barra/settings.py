@@ -65,8 +65,11 @@ class Settings(BaseSettings):
 
     evolution_base_url: str = ""
     evolution_api_key: str = ""
-    evolution_instancia: str = "barra"
     evolution_webhook_token: str = ""
+    evolution_webhook_callback_url: str | None = Field(
+        default=None,
+        description="URL pública do nosso /webhook/evolution. Quando definida, é passada à Evolution no POST /instance/create.",
+    )
     evolution_grupo_coordenacao_jid: str | None = None
     evolution_fernando_jids: list[str] = Field(default_factory=list)
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])

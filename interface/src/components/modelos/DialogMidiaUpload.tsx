@@ -42,11 +42,14 @@ export function DialogMidiaUpload({
     try {
       const upload = await onCriarUploadUrl(file.name, file.type, modo === "perfil")
       if (!upload) return
-      await fetch(upload.upload_url, {
+      const putRes = await fetch(upload.upload_url, {
         method: "PUT",
         headers: { "content-type": file.type },
         body: file,
       })
+      if (!putRes.ok) {
+        throw new Error(`Falha no upload ao MinIO (HTTP ${putRes.status}).`)
+      }
       if (modo === "perfil") {
         await onConfirmarPerfil(upload.object_key)
         toast.success("Foto de perfil atualizada")

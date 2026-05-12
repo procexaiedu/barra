@@ -26,10 +26,10 @@ export function PainelProgramas({
   status: "loading" | "success" | "error"
   error: string | null
   onRetry: () => void
-  onCriarPrograma: (input: ProgramaInput) => Promise<void>
+  onCriarPrograma: (input: ProgramaInput) => Promise<Programa>
   onAtualizarPrograma: (id: string, input: Partial<ProgramaInput>) => Promise<void>
   onExcluirPrograma: (id: string) => Promise<void>
-  onCriarDuracao: (input: DuracaoInput) => Promise<void>
+  onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
   onAtualizarDuracao: (id: string, input: Partial<DuracaoInput>) => Promise<void>
   onExcluirDuracao: (id: string) => Promise<void>
 }) {
@@ -76,7 +76,7 @@ function SecaoCatalogo({
   programas: Programa[]
   categorias: string[]
   categoriasListId: string
-  onCriar: (input: ProgramaInput) => Promise<void>
+  onCriar: (input: ProgramaInput) => Promise<Programa>
   onAtualizar: (id: string, input: Partial<ProgramaInput>) => Promise<void>
   onExcluir: (id: string) => Promise<void>
 }) {
@@ -104,7 +104,9 @@ function SecaoCatalogo({
       <header className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-text-primary">Programas</h2>
-          <p className="text-xs text-text-muted">Serviços oferecidos pela agência. Preços por modelo.</p>
+          <p className="text-xs text-text-muted">
+            Catálogo da agência. Também é possível criar serviços direto no perfil de cada modelo.
+          </p>
         </div>
         <span className="text-xs text-text-muted">{programas.length}</span>
       </header>
@@ -127,7 +129,6 @@ function SecaoCatalogo({
                   <ItemPrograma
                     key={p.id}
                     programa={p}
-                    categorias={categorias}
                     listId={categoriasListId}
                     onAtualizar={onAtualizar}
                     onExcluir={onExcluir}
@@ -173,13 +174,11 @@ function SecaoCatalogo({
 
 function ItemPrograma({
   programa,
-  categorias,
   listId,
   onAtualizar,
   onExcluir,
 }: {
   programa: Programa
-  categorias: string[]
   listId: string
   onAtualizar: (id: string, input: Partial<ProgramaInput>) => Promise<void>
   onExcluir: (id: string) => Promise<void>
@@ -264,7 +263,7 @@ function SecaoDuracoes({
   onExcluir,
 }: {
   duracoes: Duracao[]
-  onCriar: (input: DuracaoInput) => Promise<void>
+  onCriar: (input: DuracaoInput) => Promise<Duracao>
   onAtualizar: (id: string, input: Partial<DuracaoInput>) => Promise<void>
   onExcluir: (id: string) => Promise<void>
 }) {
@@ -290,7 +289,9 @@ function SecaoDuracoes({
       <header className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-text-primary">Durações</h2>
-          <p className="text-xs text-text-muted">Opções disponíveis para todos os programas.</p>
+          <p className="text-xs text-text-muted">
+            Catálogo de durações. Também é possível criar durações direto no perfil.
+          </p>
         </div>
         <span className="text-xs text-text-muted">{duracoes.length}</span>
       </header>

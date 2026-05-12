@@ -59,18 +59,21 @@ async def evolution_webhook(
         raise ErroDominio("WEBHOOK_NAO_AUTORIZADO", "Webhook nao autorizado.", status_code=401)
 
     payload = await request.json()
+
+    pool = getattr(request.app.state, "db_pool", None)
+    if pool is None:
+        raise ErroDominio("BANCO_INDISPONIVEL", "Banco indisponivel.", status_code=503)
+
+    evento = _evento_normalizado(payload)
+    if evento in {"connection.update", "qrcode.updated", "application.startup"}:
+        async with pool.connection() as conn:
+            return await _processar_evento_instancia(conn, payload, evento)
+
     msg = extrair_mensagem(payload)
     if msg is None:
         return {"status": "ignored"}
     if settings.jid_permitido and msg.remote_jid != settings.jid_permitido:
         raise JidNaoPermitido()
-    if settings.evolution_instancia and msg.instance_id and msg.instance_id != settings.evolution_instancia:
-        WEBHOOK_ERRORS.labels("instance").inc()
-        raise ErroDominio("INSTANCE_NAO_PERMITIDA", "Instance nao permitida.", status_code=403)
-
-    pool = getattr(request.app.state, "db_pool", None)
-    if pool is None:
-        raise ErroDominio("BANCO_INDISPONIVEL", "Banco indisponivel.", status_code=503)
 
     minio = getattr(request.app.state, "minio", None)
 
@@ -84,8 +87,120 @@ async def evolution_webhook(
             return {"status": "duplicate"}
         if settings.evolution_grupo_coordenacao_jid and msg.remote_jid == settings.evolution_grupo_coordenacao_jid:
             return await _processar_grupo(conn, request, msg)
+        # Defesa em profundidade para mensagens de cliente: a instance precisa
+        # estar cadastrada em barravips.modelos.evolution_instance_id, já que
+        # o desenho do produto é 'uma instância Evolution por modelo'. Grupos
+        # de coordenação usam a instance da modelo dona do grupo e já têm
+        # filtragem própria por JID.
+        if not await _instance_cadastrada(conn, msg.instance_id):
+            WEBHOOK_ERRORS.labels("instance").inc()
+            _logger.warning(
+                "webhook_instance_desconhecida instance=%s remote=%s",
+                msg.instance_id,
+                msg.remote_jid,
+            )
+            return {"status": "unknown_instance"}
         await _persistir_cliente(conn, msg, minio, settings.minio_bucket_media, midia)
     return {"status": "received"}
+
+
+def _evento_normalizado(payload: dict[str, Any]) -> str | None:
+    """Normaliza CONNECTION_UPDATE/connection.update etc para a forma com
+    pontos em minúsculas."""
+    raw = payload.get("event")
+    if not isinstance(raw, str) or not raw:
+        return None
+    return raw.replace("_", ".").lower()
+
+
+def _extrair_state(payload: dict[str, Any]) -> str | None:
+    data = payload.get("data")
+    if isinstance(data, dict):
+        state = data.get("state")
+        if isinstance(state, str):
+            return state
+    return None
+
+
+def _extrair_instance_id(payload: dict[str, Any]) -> str | None:
+    for chave in ("instance", "instanceName"):
+        valor = payload.get(chave)
+        if isinstance(valor, str) and valor:
+            return valor
+    data = payload.get("data")
+    if isinstance(data, dict):
+        for chave in ("instance", "instanceName"):
+            valor = data.get(chave)
+            if isinstance(valor, str) and valor:
+                return valor
+    return None
+
+
+async def _processar_evento_instancia(
+    conn: Any, payload: dict[str, Any], evento: str | None
+) -> dict[str, str]:
+    instance_id = _extrair_instance_id(payload)
+    if not instance_id:
+        return {"status": "ignored"}
+
+    if evento == "qrcode.updated":
+        # QR já é entregue ao painel via REST (POST /conectar-whatsapp).
+        # Este evento serve apenas para auditoria leve.
+        _logger.info("evolution_qrcode_updated instance=%s", instance_id)
+        return {"status": "qrcode_logged"}
+
+    if evento == "application.startup":
+        _logger.info("evolution_application_startup instance=%s", instance_id)
+        return {"status": "startup_logged"}
+
+    # evento == 'connection.update'
+    state = _extrair_state(payload)
+    if state == "open":
+        await conn.execute(
+            """
+            UPDATE barravips.modelos
+               SET evolution_status = 'conectado',
+                   evolution_pareado_em = now()
+             WHERE evolution_instance_id = %s
+            """,
+            (instance_id,),
+        )
+        return {"status": "connection_open"}
+    if state == "close":
+        # Não zeramos evolution_instance_id — apenas marcamos desconectado.
+        # Limpeza completa só acontece em /desparear-whatsapp.
+        await conn.execute(
+            """
+            UPDATE barravips.modelos
+               SET evolution_status = 'desconectado'
+             WHERE evolution_instance_id = %s
+            """,
+            (instance_id,),
+        )
+        return {"status": "connection_close"}
+    if state == "connecting":
+        await conn.execute(
+            """
+            UPDATE barravips.modelos
+               SET evolution_status = 'pareando'
+             WHERE evolution_instance_id = %s
+               AND evolution_status <> 'conectado'
+            """,
+            (instance_id,),
+        )
+        return {"status": "connection_connecting"}
+    return {"status": "ignored"}
+
+
+async def _instance_cadastrada(conn: Any, instance_id: str | None) -> bool:
+    if not instance_id:
+        return False
+    row = await _one(
+        conn,
+        "SELECT 1 FROM barravips.modelos WHERE evolution_instance_id = %s LIMIT 1",
+        (instance_id,),
+    )
+    return row is not None
 
 
 async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) -> dict[str, str]:

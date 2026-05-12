@@ -56,12 +56,13 @@ export function ModalEdicao({
   const [adicionados, setAdicionados] = useState<{ programa_id: string; duracao_id: string; label: string }[]>([])
   const [selecionado, setSelecionado] = useState("")
 
+  const modeloId = detalhe?.modelo.id
   useEffect(() => {
-    if (!detalhe) return
-    api<ProgramaModelo[]>(`/v1/modelos/${detalhe.modelo.id}/programas`)
+    if (!modeloId) return
+    api<ProgramaModelo[]>(`/v1/modelos/${modeloId}/programas`)
       .then(setProgramasModelo)
       .catch(() => {})
-  }, [detalhe?.modelo.id])
+  }, [modeloId])
 
   if (!detalhe || !at) return null
 

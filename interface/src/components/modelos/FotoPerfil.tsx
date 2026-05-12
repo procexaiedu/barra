@@ -14,6 +14,8 @@ export function FotoPerfil({
   return (
     <div className={`${classe} shrink-0 overflow-hidden rounded-full border border-border bg-ink-200`}>
       {url ? (
+        // URL assinada do MinIO com expiry; next/image precisaria de loader customizado.
+        // eslint-disable-next-line @next/next/no-img-element
         <img src={url} alt={`Foto de perfil de ${nome}`} className="h-full w-full object-cover" />
       ) : (
         <div className="flex h-full w-full items-center justify-center text-text-muted">

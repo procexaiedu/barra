@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Playwright artefatos: .playwright-artifacts-* travam o scan no Windows.
+    "test-results/**",
+    "playwright-report/**",
   ]),
 ]);
 

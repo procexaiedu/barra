@@ -38,7 +38,7 @@ async def listar_bloqueios(
     if modelo_id:
         filtro_modelo = "AND b.modelo_id = %s"
         params.append(modelo_id)
-        
+
     filtro_estado = ""
     if estado:
         filtro_estado = "AND b.estado = %s"

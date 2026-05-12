@@ -152,8 +152,9 @@ export function ModalDecisaoCard({
   const [motivoPerda, setMotivoPerda] = useState<MotivoPerda>("preco")
   const [observacaoPerda, setObservacaoPerda] = useState("")
 
+  const atendimentoId = card?.atendimento_id
   useEffect(() => {
-    if (!card) return
+    if (!atendimentoId) return
     let active = true
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true)
@@ -162,7 +163,7 @@ export function ModalDecisaoCard({
     setPixUrl(null)
 
     api<{ atendimento: ContextoData["atendimento"]; conversa: ContextoData["conversa"]; bloqueio: ContextoData["bloqueio"]; mensagens: Mensagem[]; comprovantes_pix: ComprovantePix[] }>(
-      `/v1/atendimentos/${card.atendimento_id}`,
+      `/v1/atendimentos/${atendimentoId}`,
     )
       .then(async (data) => {
         if (!active) return
@@ -192,7 +193,7 @@ export function ModalDecisaoCard({
       })
 
     return () => { active = false }
-  }, [card?.atendimento_id])
+  }, [atendimentoId])
 
   async function handleDevolver() {
     if (!card) return

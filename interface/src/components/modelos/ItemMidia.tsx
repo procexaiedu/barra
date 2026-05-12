@@ -25,6 +25,8 @@ export function ItemMidia({
         className="relative flex aspect-square w-full items-center justify-center bg-ink-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       >
         {item.tipo === "foto" ? (
+          // URL assinada do MinIO com expiry; next/image precisaria de loader customizado.
+          // eslint-disable-next-line @next/next/no-img-element
           <img src={item.url_assinada} alt={item.tag} className="h-full w-full object-cover" />
         ) : (
           <div className="flex flex-col items-center gap-1.5 text-text-muted">
@@ -34,14 +36,14 @@ export function ItemMidia({
         )}
         {!item.aprovada && (
           <span className="absolute left-2 top-2 rounded bg-ink-0/80 px-1.5 py-0.5 text-[10px] uppercase tracking-wider text-text-muted backdrop-blur-sm">
-            Oculta
+            Inativa
           </span>
         )}
       </button>
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">
         <span className="truncate text-xs font-medium text-text-secondary">{item.tag}</span>
         <div className="flex shrink-0 gap-0.5">
-          <Button variant="ghost" size="icon-xs" onClick={onToggleAprovada} aria-label={item.aprovada ? "Ocultar" : "Liberar"}>
+          <Button variant="ghost" size="icon-xs" onClick={onToggleAprovada} aria-label={item.aprovada ? "Inativar" : "Ativar"}>
             {item.aprovada ? <EyeOff size={12} strokeWidth={1.5} /> : <Eye size={12} strokeWidth={1.5} />}
           </Button>
           <Button variant="ghost" size="icon-xs" onClick={onDelete} aria-label="Remover" className="text-text-muted hover:text-state-lost">

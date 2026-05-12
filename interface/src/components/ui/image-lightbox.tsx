@@ -12,11 +12,13 @@ interface ImageLightboxProps {
 
 export function ImageLightbox({ src, alt, open, onClose }: ImageLightboxProps) {
   const [zoom, setZoom] = useState(1)
+  const [openAnterior, setOpenAnterior] = useState(open)
   const containerRef = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
+  if (open !== openAnterior) {
+    setOpenAnterior(open)
     if (!open) setZoom(1)
-  }, [open])
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {

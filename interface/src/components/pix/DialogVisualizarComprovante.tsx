@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { ExternalLink, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -40,15 +40,17 @@ export function DialogVisualizarComprovante({
   const [observacao, setObservacao] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [openAnterior, setOpenAnterior] = useState(open)
 
-  useEffect(() => {
+  if (open !== openAnterior) {
+    setOpenAnterior(open)
     if (!open) {
       setFase("view")
       setMotivo("valor_incorreto")
       setObservacao("")
       setErro(null)
     }
-  }, [open])
+  }
 
   const isPdf = pix?.mime_type === "application/pdf"
   const isImage = pix?.mime_type?.startsWith("image/")
@@ -128,6 +130,8 @@ export function DialogVisualizarComprovante({
                 Comprovante não disponível em ambiente de desenvolvimento
               </p>
             ) : isImage ? (
+              // URL assinada do MinIO com expiry; next/image precisaria de loader customizado.
+              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={comprovante.url}
                 alt={pix?.nome_arquivo ?? "Comprovante"}

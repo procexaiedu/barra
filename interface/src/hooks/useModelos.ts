@@ -10,9 +10,6 @@ import type {
   AtivarModeloResponse,
   ConectarWhatsappResponse,
   CriarModeloInput,
-  EscopoFaq,
-  FaqInput,
-  FaqItem,
   FiltrosModelos,
   MidiaInput,
   MidiaItem,
@@ -22,11 +19,12 @@ import type {
   PatchModeloInput,
   PausarModeloResponse,
   UploadUrlResponse,
+  WhatsappStatusResponse,
 } from "@/tipos/modelos"
 
 type Status = "loading" | "success" | "error"
 
-const abasValidas: AbaModelo[] = ["perfil", "faq", "midia"]
+const abasValidas: AbaModelo[] = ["perfil", "midia"]
 
 const filtrosIniciais: FiltrosModelos = {
   busca: "",
@@ -249,6 +247,16 @@ export function useModelos() {
     await loadDetalhe(id, false)
   }, [loadDetalhe])
 
+  const whatsappStatus = useCallback(async (modeloId: string) => {
+    return api<WhatsappStatusResponse>(`/v1/modelos/${modeloId}/whatsapp/status`)
+  }, [])
+
+  const recarregarDetalhe = useCallback(async () => {
+    const id = selectedIdRef.current
+    if (!id) return
+    await loadDetalhe(id, false)
+  }, [loadDetalhe])
+
   const pausarModelo = useCallback(async () => {
     const id = selectedIdRef.current
     if (!id) return null
@@ -269,29 +277,6 @@ export function useModelos() {
     })
     await loadDetalhe(id, false)
     return res
-  }, [loadDetalhe])
-
-  const listarFaq = useCallback(async (escopo: EscopoFaq) => {
-    const id = selectedIdRef.current
-    if (!id) return []
-    return api<FaqItem[]>(`/v1/modelos/${id}/faq?escopo=${escopo}`)
-  }, [])
-
-  const salvarFaq = useCallback(async (input: FaqInput, faqId?: string) => {
-    const id = selectedIdRef.current
-    if (!id) return
-    await api(`/v1/modelos/${id}/faq${faqId ? `/${faqId}` : ""}`, {
-      method: faqId ? "PATCH" : "POST",
-      body: JSON.stringify(input),
-    })
-    await loadDetalhe(id, false)
-  }, [loadDetalhe])
-
-  const deletarFaq = useCallback(async (faqId: string) => {
-    const id = selectedIdRef.current
-    if (!id) return
-    await api(`/v1/modelos/${id}/faq/${faqId}`, { method: "DELETE" })
-    await loadDetalhe(id, false)
   }, [loadDetalhe])
 
   const vincularProgramaModelo = useCallback(
@@ -411,7 +396,7 @@ export function useModelos() {
   useEffect(() => {
     const cleanupRealtime = subscribeTabelas(
       "modelos",
-      ["modelos", "modelo_faq", "modelo_midia", "programas", "modelo_programas"],
+      ["modelos", "modelo_midia", "programas", "modelo_programas"],
       debouncedRealtimeRefetch
     )
     const { data: authSub } = supabase.auth.onAuthStateChange((evt, session) => {
@@ -450,11 +435,10 @@ export function useModelos() {
     criarModelo,
     conectarWhatsapp,
     desparearWhatsapp,
+    whatsappStatus,
+    recarregarDetalhe,
     pausarModelo,
     ativarModelo,
-    listarFaq,
-    salvarFaq,
-    deletarFaq,
     vincularProgramaModelo,
     atualizarPrecoProgramaModelo,
     desvincularProgramaModelo,

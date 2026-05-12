@@ -6,6 +6,7 @@ export interface ModeloAtiva {
   id: string
   nome: string
   evolution_instance_id: string | null
+  evolution_status: "desconectado" | "pareando" | "conectado"
 }
 
 export interface CardDestaque {

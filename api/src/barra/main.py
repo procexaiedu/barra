@@ -13,7 +13,7 @@ from barra.api.v1 import router as api_v1_router
 from barra.core.db import criar_pool, fechar_pool
 from barra.core.errors import instalar_handlers
 from barra.core.metrics import MetricsMiddleware, prometheus_response
-from barra.core.storage import criar_minio
+from barra.core.storage import criar_minio, ensure_bucket
 from barra.settings import get_settings
 from barra.webhook.routes import router as webhook_router
 
@@ -33,6 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = app.state.settings
     app.state.db_pool = await criar_pool(settings.database_url)
     app.state.minio = criar_minio(settings)
+    ensure_bucket(app.state.minio, settings.minio_bucket_media)
     yield
     await fechar_pool(app.state.db_pool)
 

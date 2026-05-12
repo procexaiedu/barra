@@ -1,11 +1,11 @@
 export type StatusModelo = "ativa" | "pausada" | "inativa"
 export type TipoAtendimento = "interno" | "externo"
 export type TipoMidia = "foto" | "video"
-export type AbaModelo = "perfil" | "faq" | "midia"
+export type AbaModelo = "perfil" | "midia"
 export type FiltroStatusModelo = "todos" | StatusModelo
 export type FiltroEvolution = "todos" | "pareada" | "nao_pareada"
 export type FiltroTipoAtendimento = "todos" | TipoAtendimento
-export type EscopoFaq = "especificas" | "globais" | "todas"
+export type EvolutionStatus = "desconectado" | "pareando" | "conectado"
 
 export interface ModeloIndicadores {
   atendimentos_abertos: number
@@ -19,6 +19,8 @@ export interface ModeloListaItem {
   numero_whatsapp: string
   status: StatusModelo
   evolution_instance_id: string | null
+  evolution_status: EvolutionStatus
+  evolution_pareado_em: string | null
   coordenacao_chat_id: string | null
   foto_perfil_url: string | null
   indicadores: ModeloIndicadores
@@ -36,6 +38,8 @@ export interface ModeloDetalhe {
   numero_whatsapp: string
   status: StatusModelo
   evolution_instance_id: string | null
+  evolution_status: EvolutionStatus
+  evolution_pareado_em: string | null
   coordenacao_chat_id: string | null
   coordenacao_verificada_em: string | null
   valor_padrao: number
@@ -44,19 +48,13 @@ export interface ModeloDetalhe {
   titular_chave: string | null
   idiomas: string[]
   localizacao_operacional: string | null
+  endereco_formatado: string | null
+  latitude: number | null
+  longitude: number | null
+  place_id: string | null
   tipo_atendimento_aceito: TipoAtendimento[]
   foto_perfil_object_key: string | null
   foto_perfil_url: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface FaqItem {
-  id: string
-  modelo_id: string | null
-  pergunta: string
-  resposta: string
-  tags: string[]
   created_at: string
   updated_at: string
 }
@@ -107,12 +105,17 @@ export interface ProgramaModeloVinculo {
   preco: number
 }
 
+export interface WhatsappStatusResponse {
+  instance_id: string | null
+  status: EvolutionStatus
+  pareado_em: string | null
+}
+
 export interface ModeloDetalheResponse {
   modelo: ModeloDetalhe
-  faq: FaqItem[]
   midia: MidiaItem[]
   programas: ProgramaModeloVinculo[]
-  evolution_status: { instance_id: string | null }
+  evolution: WhatsappStatusResponse
   indicadores: ModeloIndicadores
 }
 
@@ -126,6 +129,10 @@ export interface CriarModeloInput {
   titular_chave?: string | null
   idiomas: string[]
   localizacao_operacional?: string | null
+  endereco_formatado?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  place_id?: string | null
   tipo_atendimento_aceito: TipoAtendimento[]
 }
 
@@ -139,6 +146,10 @@ export interface PatchModeloInput {
   titular_chave?: string | null
   idiomas?: string[]
   localizacao_operacional?: string | null
+  endereco_formatado?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  place_id?: string | null
   tipo_atendimento_aceito?: TipoAtendimento[]
   status?: StatusModelo
   coordenacao_chat_id?: string | null
@@ -149,12 +160,6 @@ export interface FiltrosModelos {
   status: FiltroStatusModelo
   evolution: FiltroEvolution
   tipo: FiltroTipoAtendimento
-}
-
-export interface FaqInput {
-  pergunta: string
-  resposta: string
-  tags: string[]
 }
 
 export interface MidiaInput {
@@ -171,7 +176,7 @@ export interface UploadUrlResponse {
 }
 
 export interface ConectarWhatsappResponse {
-  status: "pending" | "connected" | string
+  status: EvolutionStatus | string
   instance_id: string
   qr_code: string | null
 }

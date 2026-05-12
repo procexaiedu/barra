@@ -27,11 +27,14 @@ export function GraficoReceita({ historico }: { historico: AtendimentoHistoricoI
 
   if (fechados.length < 2) return null
 
-  let cumsum = 0
-  const pontos = fechados.map((h) => {
-    cumsum += Number(h.valor_final)
-    return { data: new Date(h.created_at), valor: cumsum, individual: Number(h.valor_final) }
-  })
+  const pontos = fechados.reduce<{ data: Date; valor: number; individual: number }[]>(
+    (acc, h) => {
+      const individual = Number(h.valor_final)
+      const valor = (acc.at(-1)?.valor ?? 0) + individual
+      return [...acc, { data: new Date(h.created_at), valor, individual }]
+    },
+    [],
+  )
 
   const maxY = pontos[pontos.length - 1].valor
   if (maxY <= 0 || !isFinite(maxY)) return null

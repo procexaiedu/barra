@@ -8,7 +8,16 @@ import { Input } from "@/components/ui/input"
 import { FotoPerfil } from "@/components/modelos/FotoPerfil"
 import { ProgramasModelo } from "@/components/modelos/ProgramasModelo"
 import { TipoChecks } from "@/components/modelos/DialogCriarModelo"
-import type { Duracao, ModeloDetalhe, PatchModeloInput, Programa, ProgramaModeloVinculo } from "@/tipos/modelos"
+import { CampoLocalAutocomplete } from "@/components/modelos/CampoLocalAutocomplete"
+import type {
+  Duracao,
+  DuracaoInput,
+  ModeloDetalhe,
+  PatchModeloInput,
+  Programa,
+  ProgramaInput,
+  ProgramaModeloVinculo,
+} from "@/tipos/modelos"
 
 export function AbaPerfil({
   modelo,
@@ -20,6 +29,8 @@ export function AbaPerfil({
   onVincularPrograma,
   onAtualizarPrecoPrograma,
   onDesvincularPrograma,
+  onCriarPrograma,
+  onCriarDuracao,
   onTrocarNumero,
   onConectar,
   onDesparear,
@@ -35,6 +46,8 @@ export function AbaPerfil({
   onVincularPrograma: (programaId: string, duracaoId: string, preco: number) => Promise<void>
   onAtualizarPrecoPrograma: (programaId: string, duracaoId: string, preco: number) => Promise<void>
   onDesvincularPrograma: (programaId: string, duracaoId: string) => Promise<void>
+  onCriarPrograma: (input: ProgramaInput) => Promise<Programa>
+  onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
   onTrocarNumero: (numero: string) => void
   onConectar: () => void
   onDesparear: () => void
@@ -50,6 +63,10 @@ export function AbaPerfil({
   })
   const [atendimento, setAtendimento] = useState({
     localizacao_operacional: modelo.localizacao_operacional ?? "",
+    endereco_formatado: modelo.endereco_formatado,
+    latitude: modelo.latitude,
+    longitude: modelo.longitude,
+    place_id: modelo.place_id,
     idiomas: modelo.idiomas.join(", "),
     tipo_atendimento_aceito: modelo.tipo_atendimento_aceito,
   })
@@ -65,6 +82,8 @@ export function AbaPerfil({
   const idiomasArray = useMemo(() => atendimento.idiomas.split(",").map((i) => i.trim()).filter(Boolean), [atendimento.idiomas])
   const dirtyAtendimento =
     atendimento.localizacao_operacional !== (modelo.localizacao_operacional ?? "") ||
+    atendimento.endereco_formatado !== modelo.endereco_formatado ||
+    atendimento.place_id !== modelo.place_id ||
     atendimento.idiomas !== modelo.idiomas.join(", ") ||
     atendimento.tipo_atendimento_aceito.join("|") !== modelo.tipo_atendimento_aceito.join("|")
   const anyDirty = dirtyIdentidade || dirtyWhats || dirtyRepasse || dirtyAtendimento
@@ -141,13 +160,30 @@ export function AbaPerfil({
           <Input value={whats.numero_whatsapp} onChange={(e) => setWhats({ numero_whatsapp: e.target.value })} className="h-10 bg-input" />
         </Campo>
         <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-text-secondary">
-          <span className={modelo.evolution_instance_id ? "text-text-muted" : "text-state-handoff"}>
-            {modelo.evolution_instance_id ? "WhatsApp pronto" : "WhatsApp pendente"}
+          <span
+            className={
+              modelo.evolution_status === "conectado"
+                ? "text-text-muted"
+                : modelo.evolution_status === "pareando"
+                  ? "text-state-info"
+                  : "text-state-handoff"
+            }
+          >
+            {modelo.evolution_status === "conectado"
+              ? "WhatsApp pronto"
+              : modelo.evolution_status === "pareando"
+                ? "Aguardando pareamento"
+                : "WhatsApp pendente"}
           </span>
-          {modelo.evolution_instance_id ? (
+          {modelo.evolution_status === "conectado" ? (
             <>
               <Button variant="secondary" size="sm" onClick={onConectar}>Trocar conexão</Button>
               <Button variant="danger" size="sm" onClick={onDesparear}>Remover conexão</Button>
+            </>
+          ) : modelo.evolution_status === "pareando" ? (
+            <>
+              <Button variant="secondary" size="sm" onClick={onConectar}>Reabrir QR</Button>
+              <Button variant="danger" size="sm" onClick={onDesparear}>Cancelar</Button>
             </>
           ) : (
             <Button variant="primary" size="sm" onClick={onConectar}>Conectar WhatsApp</Button>
@@ -159,7 +195,7 @@ export function AbaPerfil({
           submitting={submitting === "whatsapp"}
           label="Salvar WhatsApp"
           onClick={() => {
-            if (modelo.evolution_instance_id) onTrocarNumero(whats.numero_whatsapp)
+            if (modelo.evolution_status === "conectado") onTrocarNumero(whats.numero_whatsapp)
             else salvar("whatsapp", { numero_whatsapp: whats.numero_whatsapp }, "WhatsApp atualizado")
           }}
         />
@@ -172,6 +208,8 @@ export function AbaPerfil({
         onVincular={onVincularPrograma}
         onAtualizarPreco={onAtualizarPrecoPrograma}
         onDesvincular={onDesvincularPrograma}
+        onCriarPrograma={onCriarPrograma}
+        onCriarDuracao={onCriarDuracao}
       />
 
       <Card title="Repasse e Pix">
@@ -201,8 +239,31 @@ export function AbaPerfil({
 
       <Card title="Atendimento">
         <div className="grid gap-4 sm:grid-cols-2">
-          <Campo label="Bairro ou região">
-            <Input value={atendimento.localizacao_operacional} onChange={(e) => setAtendimento({ ...atendimento, localizacao_operacional: e.target.value })} className="h-10 bg-input" />
+          <Campo label="Endereço de atendimento">
+            <CampoLocalAutocomplete
+              valorInicial={atendimento.localizacao_operacional}
+              enderecoFormatadoAtual={atendimento.endereco_formatado}
+              onSelecionar={(local) =>
+                setAtendimento((a) => ({
+                  ...a,
+                  localizacao_operacional: local.localizacao_curta,
+                  endereco_formatado: local.endereco_formatado,
+                  latitude: local.latitude,
+                  longitude: local.longitude,
+                  place_id: local.place_id,
+                }))
+              }
+              onLimpar={() =>
+                setAtendimento((a) => ({
+                  ...a,
+                  localizacao_operacional: "",
+                  endereco_formatado: null,
+                  latitude: null,
+                  longitude: null,
+                  place_id: null,
+                }))
+              }
+            />
           </Campo>
           <Campo label="Idiomas">
             <Input value={atendimento.idiomas} onChange={(e) => setAtendimento({ ...atendimento, idiomas: e.target.value })} className="h-10 bg-input" />
@@ -219,6 +280,10 @@ export function AbaPerfil({
           label="Salvar atendimento"
           onClick={() => salvar("atendimento", {
             localizacao_operacional: atendimento.localizacao_operacional.trim() || null,
+            endereco_formatado: atendimento.endereco_formatado,
+            latitude: atendimento.latitude,
+            longitude: atendimento.longitude,
+            place_id: atendimento.place_id,
             idiomas: idiomasArray,
             tipo_atendimento_aceito: atendimento.tipo_atendimento_aceito,
           }, "Atendimento atualizado")}

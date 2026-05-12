@@ -4,7 +4,7 @@ import { PauseCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { formatBRL, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
 import type { AtendimentoListaItem } from "@/tipos/atendimentos"
-import { badgeForEstado, badgeForIa, urgenciaLabel } from "@/components/atendimentos/utils"
+import { badgeForEstado, urgenciaLabel } from "@/components/atendimentos/utils"
 
 export function KanbanCard({
   item,

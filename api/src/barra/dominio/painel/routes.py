@@ -52,7 +52,7 @@ async def painel_resumo(
 
     modelo_result = await conn.execute(
         """
-        SELECT id, nome, evolution_instance_id
+        SELECT id, nome, evolution_instance_id, evolution_status
           FROM barravips.modelos
          WHERE status = 'ativa'
          ORDER BY created_at ASC
@@ -63,6 +63,7 @@ async def painel_resumo(
             "id": str(m["id"]),
             "nome": m["nome"],
             "evolution_instance_id": m["evolution_instance_id"],
+            "evolution_status": m["evolution_status"] or "desconectado",
         }
         for m in await modelo_result.fetchall()
     ]

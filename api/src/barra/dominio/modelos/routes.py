@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
@@ -11,11 +12,10 @@ from psycopg import AsyncConnection
 from barra.api.deps import get_conn, get_user
 from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
 from barra.core.evolution import EvolutionClient
-from barra.core.storage import presigned_get, presigned_put
+from barra.core.storage import presigned_get, presigned_put, remove_object
 from barra.dominio.modelos.schemas import (
     AtualizarPrecoProgramaBody,
     ConectarWhatsappRequest,
-    FaqBody,
     FotoPerfilPatch,
     MidiaCreate,
     MidiaPatch,
@@ -28,6 +28,7 @@ from barra.dominio.modelos.schemas import (
 
 router = APIRouter(dependencies=[Depends(get_user)])
 PERSONA_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "agente" / "prompts" / "persona.md"
+_logger = logging.getLogger(__name__)
 
 
 @router.get("")
@@ -117,9 +118,11 @@ async def criar_modelo(
         """
         INSERT INTO barravips.modelos (
           nome, idade, numero_whatsapp, valor_padrao, percentual_repasse, chave_pix,
-          titular_chave, idiomas, localizacao_operacional, tipo_atendimento_aceito
+          titular_chave, idiomas, localizacao_operacional,
+          endereco_formatado, latitude, longitude, place_id,
+          tipo_atendimento_aceito
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING *
         """,
         (
@@ -132,6 +135,10 @@ async def criar_modelo(
             body.titular_chave,
             body.idiomas,
             body.localizacao_operacional,
+            body.endereco_formatado,
+            body.latitude,
+            body.longitude,
+            body.place_id,
             body.tipo_atendimento_aceito,
         ),
     )
@@ -147,24 +154,14 @@ async def obter_modelo(
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     modelo = await _modelo(conn, modelo_id)
-    faq = await _all(
-        conn,
-        """
-        SELECT * FROM barravips.modelo_faq
-         WHERE modelo_id = %s OR modelo_id IS NULL
-         ORDER BY modelo_id IS NULL, created_at DESC
-        """,
-        (modelo_id,),
-    )
     midia = await _midia(conn, request, modelo_id)
     programas = await _programas(conn, modelo_id)
     indicadores = await _indicadores(conn, modelo_id)
     return {
         "modelo": _modelo_com_foto(request, modelo),
-        "faq": faq,
         "midia": midia,
         "programas": programas,
-        "evolution_status": {"instance_id": modelo["evolution_instance_id"]},
+        "evolution": _evolution_payload(modelo),
         "indicadores": indicadores,
     }
 
@@ -187,6 +184,8 @@ async def editar_modelo(
 
     if "numero_whatsapp" in updates and updates["numero_whatsapp"] != atual["numero_whatsapp"]:
         updates["evolution_instance_id"] = None
+        updates["evolution_status"] = "desconectado"
+        updates["evolution_pareado_em"] = None
 
     set_sql = ", ".join([f"{key} = %s" for key in updates])
     params = list(updates.values()) + [modelo_id]
@@ -208,29 +207,101 @@ async def conectar_whatsapp(
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     modelo = await _modelo(conn, modelo_id)
-    if modelo["evolution_instance_id"] and not body.confirmar_rotacao:
-        return {"status": "connected", "instance_id": modelo["evolution_instance_id"], "qr_code": None}
+    if (
+        modelo["evolution_instance_id"]
+        and modelo["evolution_status"] == "conectado"
+        and not body.confirmar_rotacao
+    ):
+        return {
+            "status": "conectado",
+            "instance_id": modelo["evolution_instance_id"],
+            "qr_code": None,
+        }
+
     instance_id = modelo["evolution_instance_id"] or f"modelo-{modelo_id}"
     client = EvolutionClient(request.app.state.settings)
-    status = await client.conectar_instancia(instance_id)
+    # Idempotente: se a instância ainda não existe na Evolution, criamos com o
+    # webhook já apontado para nosso backend. Se já existir, segue direto.
+    await client.criar_instancia(instance_id, numero=modelo.get("numero_whatsapp"))
+    resposta = await client.conectar_instancia(instance_id)
+    qr_code = _extrair_qr_code(resposta)
     await conn.execute(
-        "UPDATE barravips.modelos SET evolution_instance_id = %s WHERE id = %s",
+        """
+        UPDATE barravips.modelos
+           SET evolution_instance_id = %s,
+               evolution_status = 'pareando',
+               evolution_pareado_em = NULL
+         WHERE id = %s
+        """,
         (instance_id, modelo_id),
     )
-    return {"status": status.get("status", "pending"), "instance_id": instance_id, "qr_code": status.get("qrcode")}
+    return {"status": "pareando", "instance_id": instance_id, "qr_code": qr_code}
 
 
 @router.post("/{modelo_id}/desparear-whatsapp")
 async def desparear_whatsapp(
     modelo_id: UUID,
+    request: Request,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
-    await _modelo(conn, modelo_id)
+    modelo = await _modelo(conn, modelo_id)
+    instance_id = modelo["evolution_instance_id"]
+    if instance_id:
+        client = EvolutionClient(request.app.state.settings)
+        # Best-effort: se a Evolution recusar o logout, ainda zeramos o estado
+        # local. O ghost de sessão fica para o operador resolver via painel da
+        # Evolution; a próxima conexão por aqui faz POST /instance/create de
+        # novo e sobrescreve o estado remoto.
+        await client.logout_instancia(instance_id)
     await conn.execute(
-        "UPDATE barravips.modelos SET evolution_instance_id = NULL WHERE id = %s",
+        """
+        UPDATE barravips.modelos
+           SET evolution_instance_id = NULL,
+               evolution_status = 'desconectado',
+               evolution_pareado_em = NULL
+         WHERE id = %s
+        """,
         (modelo_id,),
     )
-    return {"modelo_id": str(modelo_id), "evolution_instance_id": None}
+    return {
+        "modelo_id": str(modelo_id),
+        "evolution_instance_id": None,
+        "evolution_status": "desconectado",
+    }
+
+
+@router.get("/{modelo_id}/whatsapp/status")
+async def whatsapp_status(
+    modelo_id: UUID,
+    request: Request,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    """Status de pareamento. Faz auto-cure: se o DB diz 'pareando' mas a
+    Evolution já reporta 'open', promove para 'conectado' aqui (cobre o caso
+    em que o webhook CONNECTION_UPDATE não chegou — ex: dev sem tunnel)."""
+    modelo = await _modelo(conn, modelo_id)
+    instance_id = modelo["evolution_instance_id"]
+    status_atual = modelo["evolution_status"]
+
+    if status_atual == "pareando" and instance_id:
+        client = EvolutionClient(request.app.state.settings)
+        try:
+            estado = await client.estado_conexao(instance_id)
+        except httpx.HTTPError:
+            estado = "unknown"
+        if estado == "open":
+            await conn.execute(
+                """
+                UPDATE barravips.modelos
+                   SET evolution_status = 'conectado',
+                       evolution_pareado_em = now()
+                 WHERE id = %s
+                """,
+                (modelo_id,),
+            )
+            modelo = await _modelo(conn, modelo_id)
+
+    return _evolution_payload(modelo)
 
 
 @router.post("/{modelo_id}/pausar")
@@ -437,6 +508,13 @@ async def prompt_preview(
     template = await asyncio.to_thread(_ler_persona_template)
     idiomas = _array_text(modelo["idiomas"])
     tipos = _array_text(modelo["tipo_atendimento_aceito"])
+    # Campos geocodificados (endereco_formatado/latitude/longitude/place_id) já são
+    # persistidos pelo Places Autocomplete na UI mas ainda NÃO entram no prompt.
+    # Ao implementar a ferramenta `enviar_localizacao` do agente, expor:
+    #   - endereco_formatado: descrição completa que a IA cita no texto.
+    #   - latitude/longitude: payload do envio de localização via Evolution
+    #     (`/message/sendLocation`) no fluxo INTERNO de `Aguardando_confirmacao`.
+    # `localizacao_operacional` segue como "bairro, cidade" curto p/ fluxo EXTERNO.
     texto = "\n".join(
         [
             template.rstrip(),
@@ -597,85 +675,6 @@ async def desvincular_programa(
     )
 
 
-@router.get("/{modelo_id}/faq")
-async def listar_faq(
-    modelo_id: UUID,
-    escopo: str = "especificas",
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> list[dict[str, Any]]:
-    await _ensure_modelo(conn, modelo_id)
-    if escopo == "globais":
-        where_sql = "modelo_id IS NULL"
-        params: tuple[Any, ...] = ()
-    elif escopo == "todas":
-        where_sql = "modelo_id = %s OR modelo_id IS NULL"
-        params = (modelo_id,)
-    else:
-        where_sql = "modelo_id = %s"
-        params = (modelo_id,)
-    return await _all(
-        conn,
-        f"SELECT * FROM barravips.modelo_faq WHERE {where_sql} ORDER BY created_at DESC",
-        params,
-    )
-
-
-@router.post("/{modelo_id}/faq", status_code=201)
-async def criar_faq(
-    modelo_id: UUID,
-    body: FaqBody,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
-    await _ensure_modelo(conn, modelo_id)
-    result = await conn.execute(
-        """
-        INSERT INTO barravips.modelo_faq (modelo_id, pergunta, resposta, tags)
-        VALUES (%s, %s, %s, %s)
-        RETURNING *
-        """,
-        (modelo_id, body.pergunta, body.resposta, body.tags),
-    )
-    row = await result.fetchone()
-    assert row is not None
-    return cast(dict[str, Any], row)
-
-
-@router.patch("/{modelo_id}/faq/{faq_id}")
-async def editar_faq(
-    modelo_id: UUID,
-    faq_id: UUID,
-    body: FaqBody,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
-    await _ensure_modelo(conn, modelo_id)
-    result = await conn.execute(
-        """
-        UPDATE barravips.modelo_faq
-           SET pergunta = %s, resposta = %s, tags = %s
-         WHERE id = %s AND (modelo_id = %s OR modelo_id IS NULL)
-        RETURNING *
-        """,
-        (body.pergunta, body.resposta, body.tags, faq_id, modelo_id),
-    )
-    row = await result.fetchone()
-    if row is None:
-        raise NaoEncontrado("FAQ")
-    return cast(dict[str, Any], row)
-
-
-@router.delete("/{modelo_id}/faq/{faq_id}", status_code=204)
-async def deletar_faq(
-    modelo_id: UUID,
-    faq_id: UUID,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> None:
-    await _ensure_modelo(conn, modelo_id)
-    await conn.execute(
-        "DELETE FROM barravips.modelo_faq WHERE id = %s AND (modelo_id = %s OR modelo_id IS NULL)",
-        (faq_id, modelo_id),
-    )
-
-
 @router.post("/{modelo_id}/midia/upload-url")
 async def criar_upload_url(
     modelo_id: UUID,
@@ -758,12 +757,33 @@ async def editar_midia(
 async def deletar_midia(
     modelo_id: UUID,
     midia_id: UUID,
+    request: Request,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> None:
-    await conn.execute(
-        "DELETE FROM barravips.modelo_midia WHERE id = %s AND modelo_id = %s",
+    result = await conn.execute(
+        """
+        DELETE FROM barravips.modelo_midia
+         WHERE id = %s AND modelo_id = %s
+        RETURNING bucket, object_key
+        """,
         (midia_id, modelo_id),
     )
+    row = await result.fetchone()
+    if row is None:
+        raise NaoEncontrado("Midia")
+
+    minio = getattr(request.app.state, "minio", None)
+    if minio is not None:
+        try:
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(
+                None, lambda: remove_object(minio, row["bucket"], row["object_key"])
+            )
+        except Exception as exc:
+            _logger.warning(
+                "falha_remover_minio bucket=%s key=%s erro=%s",
+                row["bucket"], row["object_key"], exc,
+            )
 
 
 async def _modelo(
@@ -976,6 +996,8 @@ def _modelo_lista_item(request: Request, row: dict[str, Any]) -> dict[str, Any]:
         "numero_whatsapp": item["numero_whatsapp"],
         "status": item["status"],
         "evolution_instance_id": item["evolution_instance_id"],
+        "evolution_status": item.get("evolution_status") or "desconectado",
+        "evolution_pareado_em": _isoformat(item.get("evolution_pareado_em")),
         "coordenacao_chat_id": item.get("coordenacao_chat_id"),
         "foto_perfil_url": item["foto_perfil_url"],
         "indicadores": {
@@ -986,10 +1008,48 @@ def _modelo_lista_item(request: Request, row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _evolution_payload(modelo: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "instance_id": modelo.get("evolution_instance_id"),
+        "status": modelo.get("evolution_status") or "desconectado",
+        "pareado_em": _isoformat(modelo.get("evolution_pareado_em")),
+    }
+
+
+def _extrair_qr_code(resposta: dict[str, Any]) -> str | None:
+    """A doc oficial da Evolution v2 lista `pairingCode`/`code`, mas na prática
+    a instância retorna o QR em `qrcode` (data URI ou base64 puro) e às vezes
+    em `base64`. Aceitamos qualquer variante — o frontend prefixa o data URI
+    quando precisa."""
+    for chave in ("qrcode", "base64", "code"):
+        valor = resposta.get(chave)
+        if isinstance(valor, str) and valor:
+            return valor
+        if isinstance(valor, dict):
+            # qrcode pode vir aninhado: {"qrcode": {"base64": "..."}}
+            aninhado = valor.get("base64") or valor.get("code")
+            if isinstance(aninhado, str) and aninhado:
+                return aninhado
+    return None
+
+
+def _isoformat(value: Any) -> str | None:
+    if value is None:
+        return None
+    isoformat = getattr(value, "isoformat", None)
+    if callable(isoformat):
+        return cast(str, isoformat())
+    return str(value)
+
+
 def _modelo_com_foto(request: Request, row: dict[str, Any]) -> dict[str, Any]:
     item = dict(row)
     item["idiomas"] = _array_text(item.get("idiomas"))
     item["tipo_atendimento_aceito"] = _array_text(item.get("tipo_atendimento_aceito"))
+    if "evolution_status" in item and item["evolution_status"] is None:
+        item["evolution_status"] = "desconectado"
+    if "evolution_pareado_em" in item:
+        item["evolution_pareado_em"] = _isoformat(item["evolution_pareado_em"])
     object_key = item.get("foto_perfil_object_key")
     item["foto_perfil_url"] = (
         presigned_get(

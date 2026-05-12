@@ -24,7 +24,7 @@ export async function loginAction(formData: FormData) {
             toSet.forEach(({ name, value, options }) =>
               cookieStore.set(name, value, options)
             )
-          } catch (_error) {
+          } catch {
             // Ignorado em Server Components
           }
         },

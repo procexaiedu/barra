@@ -6,18 +6,18 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { AbasModelo } from "@/components/modelos/AbasModelo"
-import { AbaFaq } from "@/components/modelos/AbaFaq"
 import { AbaMidia } from "@/components/modelos/AbaMidia"
 import { AbaPerfil } from "@/components/modelos/AbaPerfil"
 import { FotoPerfil } from "@/components/modelos/FotoPerfil"
 import type {
   AbaModelo,
   Duracao,
-  FaqItem,
+  DuracaoInput,
   MidiaItem,
   ModeloDetalheResponse,
   PatchModeloInput,
   Programa,
+  ProgramaInput,
 } from "@/tipos/modelos"
 
 const statusBadge = {
@@ -41,6 +41,8 @@ export function DetalheModelo({
   onVincularPrograma,
   onAtualizarPrecoPrograma,
   onDesvincularPrograma,
+  onCriarPrograma,
+  onCriarDuracao,
   onTrocarNumero,
   onConectar,
   onPausar,
@@ -48,9 +50,6 @@ export function DetalheModelo({
   onDesparear,
   onUploadPerfil,
   onRemoverFoto,
-  onAdicionarFaq,
-  onEditarFaq,
-  onExcluirFaq,
   onAdicionarMidia,
   onOpenMidia,
   onToggleAprovadaMidia,
@@ -70,6 +69,8 @@ export function DetalheModelo({
   onVincularPrograma: (programaId: string, duracaoId: string, preco: number) => Promise<void>
   onAtualizarPrecoPrograma: (programaId: string, duracaoId: string, preco: number) => Promise<void>
   onDesvincularPrograma: (programaId: string, duracaoId: string) => Promise<void>
+  onCriarPrograma: (input: ProgramaInput) => Promise<Programa>
+  onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
   onTrocarNumero: (numero: string) => void
   onConectar: () => void
   onPausar: () => void
@@ -77,9 +78,6 @@ export function DetalheModelo({
   onDesparear: () => void
   onUploadPerfil: () => void
   onRemoverFoto: () => Promise<void>
-  onAdicionarFaq: () => void
-  onEditarFaq: (faq: FaqItem) => void
-  onExcluirFaq: (faq: FaqItem) => void
   onAdicionarMidia: () => void
   onOpenMidia: (item: MidiaItem) => void
   onToggleAprovadaMidia: (item: MidiaItem) => void
@@ -105,18 +103,26 @@ export function DetalheModelo({
               </div>
               <p className="truncate text-xs text-text-muted">
                 {modelo.idade} anos · {modelo.idiomas.join(", ")} · {modelo.localizacao_operacional ?? "sem região"}
-                {!modelo.evolution_instance_id && <span className="ml-2 text-state-handoff">WhatsApp pendente</span>}
+                {modelo.evolution_status !== "conectado" && (
+                  <span
+                    className={
+                      modelo.evolution_status === "pareando" ? "ml-2 text-state-info" : "ml-2 text-state-handoff"
+                    }
+                  >
+                    {modelo.evolution_status === "pareando" ? "Pareando…" : "WhatsApp pendente"}
+                  </span>
+                )}
               </p>
             </div>
           </div>
           <div className="flex shrink-0 flex-wrap justify-end gap-2">
-            {!modelo.evolution_instance_id && (
+            {modelo.evolution_status !== "conectado" && (
               <Button variant="primary" size="sm" onClick={onConectar} disabled={actionLoading}>
                 {actionLoading && <Loader2 className="animate-spin" />}
-                Conectar WhatsApp
+                {modelo.evolution_status === "pareando" ? "Reabrir QR" : "Conectar WhatsApp"}
               </Button>
             )}
-            {modelo.status === "ativa" && modelo.evolution_instance_id && (
+            {modelo.status === "ativa" && modelo.evolution_status === "conectado" && (
               <Button variant="secondary" size="sm" onClick={onPausar} disabled={actionLoading}>Pausar atendimentos</Button>
             )}
             {modelo.status === "pausada" && (
@@ -143,19 +149,13 @@ export function DetalheModelo({
           onVincularPrograma={onVincularPrograma}
           onAtualizarPrecoPrograma={onAtualizarPrecoPrograma}
           onDesvincularPrograma={onDesvincularPrograma}
+          onCriarPrograma={onCriarPrograma}
+          onCriarDuracao={onCriarDuracao}
           onTrocarNumero={onTrocarNumero}
           onConectar={onConectar}
           onDesparear={onDesparear}
           onUploadPerfil={onUploadPerfil}
           onRemoverFoto={onRemoverFoto}
-        />
-      )}
-      {aba === "faq" && (
-        <AbaFaq
-          faq={detalhe.faq}
-          onAdicionar={onAdicionarFaq}
-          onEditar={onEditarFaq}
-          onExcluir={onExcluirFaq}
         />
       )}
       {aba === "midia" && (
