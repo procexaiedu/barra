@@ -23,6 +23,19 @@ export interface KpisFechamentos {
   contagem: number
   valor_bruto_brl: number
   valor_medio_brl: number
+  valor_liquido_brl: number
+  valor_repasse_modelo_brl: number
+  valor_sem_repasse_definido_brl: number
+  contagem_sem_snapshot: number
+}
+
+export interface FinanceiroBloco {
+  valor_bruto_brl: number
+  valor_liquido_brl: number
+  valor_repasse_modelo_brl: number
+  valor_sem_repasse_definido_brl: number
+  fechamentos_total: number
+  fechamentos_sem_snapshot: number
 }
 
 export interface KpisPeriodo {
@@ -58,6 +71,8 @@ export interface ProfissionalRanking {
   volume: number
   fechamentos: number
   valor_bruto_brl: number
+  valor_liquido_brl: number
+  valor_repasse_modelo_brl: number
   taxa_conversao_pct: number | null
 }
 
@@ -67,6 +82,8 @@ export interface DashboardResumo {
   pix_em_revisao_pendentes_total: number
   kpis_periodo: KpisPeriodo
   kpis_periodo_anterior: KpisPeriodo | null
+  financeiro: FinanceiroBloco
+  financeiro_periodo_anterior: FinanceiroBloco | null
   funil_estados: FunilEstadoLinha[]
   perdas_por_motivo: PerdaPorMotivoLinha[]
   motivos_escalada: MotivosEscalada
