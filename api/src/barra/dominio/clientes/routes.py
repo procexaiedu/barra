@@ -1,14 +1,18 @@
+import re
 from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 from psycopg import AsyncConnection
+from psycopg.errors import UniqueViolation
 
 from barra.api.deps import get_conn, get_user
-from barra.core.errors import NaoEncontrado
-from barra.dominio.clientes.schemas import ClientePatch
+from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
+from barra.dominio.clientes.schemas import ClienteCreate, ClientePatch
 
 router = APIRouter(dependencies=[Depends(get_user)])
+
+_TELEFONE_BR_RE = re.compile(r"^55\d{10,11}$")
 
 
 @router.get("/clientes")
@@ -16,6 +20,7 @@ async def listar_clientes(
     conn: AsyncConnection[Any] = Depends(get_conn),
     modelo_id: UUID | None = None,
     q: str | None = None,
+    incluir_arquivados: bool = False,
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = None,
 ) -> dict[str, Any]:
@@ -29,6 +34,8 @@ async def listar_clientes(
     if q:
         filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
+    if not incluir_arquivados:
+        filtros.append("c.arquivado_em IS NULL")
     if cursor:
         filtros.append("c.updated_at < %s::timestamptz")
         params.append(cursor)
@@ -36,7 +43,7 @@ async def listar_clientes(
     result = await conn.execute(
         f"""
         SELECT DISTINCT c.id, c.nome, c.telefone, c.primeiro_contato_modelo_id,
-                        c.created_at, c.updated_at
+                        c.arquivado_em, c.created_at, c.updated_at
           FROM barravips.clientes c
           {joins}
          WHERE {" AND ".join(filtros)}
@@ -55,12 +62,48 @@ async def listar_clientes(
                 "nome": row["nome"],
                 "telefone_mascarado": _mascarar_telefone(row["telefone"]),
                 "primeiro_contato_modelo_id": row["primeiro_contato_modelo_id"],
+                "arquivado_em": row["arquivado_em"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
             }
             for row in rows
         ],
         "next_cursor": next_cursor,
+    }
+
+
+@router.post("/clientes", status_code=201)
+async def criar_cliente(
+    body: ClienteCreate,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    telefone = _normalizar_telefone_br(body.telefone)
+    nome = body.nome.strip() if isinstance(body.nome, str) else None
+    if nome == "":
+        nome = None
+    try:
+        row = await _one(
+            conn,
+            """
+            INSERT INTO barravips.clientes (nome, telefone)
+            VALUES (%s, %s)
+            RETURNING id, nome, telefone, primeiro_contato_modelo_id,
+                      arquivado_em, created_at, updated_at
+            """,
+            (nome, telefone),
+        )
+    except UniqueViolation as exc:
+        raise ConflitoEstado("telefone_duplicado") from exc
+    assert row is not None
+    return {
+        "id": row["id"],
+        "nome": row["nome"],
+        "telefone": row["telefone"],
+        "telefone_mascarado": _mascarar_telefone(row["telefone"]),
+        "primeiro_contato_modelo_id": row["primeiro_contato_modelo_id"],
+        "arquivado_em": row["arquivado_em"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
     }
 
 
@@ -95,6 +138,7 @@ async def obter_cliente(
             "nome": cliente["nome"],
             "telefone_mascarado": _mascarar_telefone(cliente["telefone"]),
             "primeiro_contato_modelo_id": cliente["primeiro_contato_modelo_id"],
+            "arquivado_em": cliente["arquivado_em"],
             "created_at": cliente["created_at"],
             "updated_at": cliente["updated_at"],
         },
@@ -112,23 +156,83 @@ async def editar_cliente(
         cliente = await _one(conn, "SELECT id FROM barravips.clientes WHERE id = %s", (cliente_id,))
         if cliente is None:
             raise NaoEncontrado("Cliente")
-        nome = body.nome
-        if isinstance(nome, str):
-            nome = nome.strip() or None
-        await conn.execute(
-            "UPDATE barravips.clientes SET nome = %s WHERE id = %s",
-            (nome, cliente_id),
-        )
+        sets: list[str] = []
+        valores: list[Any] = []
+        if body.nome is not None or "nome" in body.model_fields_set:
+            nome = body.nome.strip() if isinstance(body.nome, str) else None
+            if nome == "":
+                nome = None
+            sets.append("nome = %s")
+            valores.append(nome)
+        if body.telefone is not None:
+            telefone = _normalizar_telefone_br(body.telefone)
+            sets.append("telefone = %s")
+            valores.append(telefone)
+        if sets:
+            valores.append(cliente_id)
+            try:
+                await conn.execute(
+                    f"UPDATE barravips.clientes SET {', '.join(sets)} WHERE id = %s",
+                    valores,
+                )
+            except UniqueViolation as exc:
+                raise ConflitoEstado("telefone_duplicado") from exc
         atualizado = await _one(
             conn,
-            "SELECT id, nome, telefone FROM barravips.clientes WHERE id = %s",
+            "SELECT id, nome, telefone, arquivado_em FROM barravips.clientes WHERE id = %s",
             (cliente_id,),
         )
+    assert atualizado is not None
     return {
         "id": atualizado["id"],
         "nome": atualizado["nome"],
         "telefone": atualizado["telefone"],
+        "arquivado_em": atualizado["arquivado_em"],
     }
+
+
+@router.post("/clientes/{cliente_id}/arquivar")
+async def arquivar_cliente(
+    cliente_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    cliente = await _one(
+        conn,
+        "SELECT id, arquivado_em FROM barravips.clientes WHERE id = %s",
+        (cliente_id,),
+    )
+    if cliente is None:
+        raise NaoEncontrado("Cliente")
+    if cliente["arquivado_em"] is None:
+        atualizado = await _one(
+            conn,
+            "UPDATE barravips.clientes SET arquivado_em = NOW() WHERE id = %s "
+            "RETURNING id, arquivado_em",
+            (cliente_id,),
+        )
+        assert atualizado is not None
+        return {"id": atualizado["id"], "arquivado_em": atualizado["arquivado_em"]}
+    return {"id": cliente["id"], "arquivado_em": cliente["arquivado_em"]}
+
+
+@router.post("/clientes/{cliente_id}/desarquivar")
+async def desarquivar_cliente(
+    cliente_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    cliente = await _one(
+        conn,
+        "SELECT id, arquivado_em FROM barravips.clientes WHERE id = %s",
+        (cliente_id,),
+    )
+    if cliente is None:
+        raise NaoEncontrado("Cliente")
+    if cliente["arquivado_em"] is not None:
+        await conn.execute(
+            "UPDATE barravips.clientes SET arquivado_em = NULL WHERE id = %s",
+            (cliente_id,),
+        )
+    return {"id": cliente["id"], "arquivado_em": None}
 
 
 async def _one(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
@@ -145,3 +249,13 @@ def _mascarar_telefone(telefone: str | None) -> str | None:
     if not telefone:
         return None
     return telefone[:3] + "*****" + telefone[-4:]
+
+
+def _normalizar_telefone_br(telefone: str) -> str:
+    digitos = re.sub(r"\D+", "", telefone or "")
+    if not _TELEFONE_BR_RE.match(digitos):
+        raise EntradaInvalida(
+            code="TELEFONE_INVALIDO",
+            message="Telefone invalido. Use formato E.164 BR (55 + DDD + numero).",
+        )
+    return digitos

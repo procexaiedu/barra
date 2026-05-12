@@ -41,6 +41,7 @@ class FakeConnComCliente:
                         "nome": "Joao",
                         "telefone": "5521999998888",
                         "primeiro_contato_modelo_id": uuid4(),
+                        "arquivado_em": None,
                         "created_at": datetime.now(UTC),
                         "updated_at": datetime.now(UTC),
                     }
@@ -56,6 +57,7 @@ class FakeConnComCliente:
                         "nome": "Joao",
                         "telefone": "5521999998888",
                         "primeiro_contato_modelo_id": uuid4(),
+                        "arquivado_em": None,
                         "created_at": datetime.now(UTC),
                         "updated_at": datetime.now(UTC),
                     }
