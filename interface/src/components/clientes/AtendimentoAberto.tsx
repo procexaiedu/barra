@@ -42,7 +42,7 @@ export function AtendimentoAberto({ atendimento }: { atendimento: AtendimentoAbe
                 ·{" "}
                 {[
                   atendimento.tipo_atendimento ? tipoLabel[atendimento.tipo_atendimento] : null,
-                  atendimento.urgencia ? urgenciaLabel[atendimento.urgencia] : null,
+                  atendimento.urgencia ? `Urgência: ${urgenciaLabel[atendimento.urgencia]}` : null,
                   atendimento.valor_acordado !== null
                     ? formatBRL(Number(atendimento.valor_acordado))
                     : null,

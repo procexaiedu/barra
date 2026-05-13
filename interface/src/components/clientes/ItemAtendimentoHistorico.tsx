@@ -1,5 +1,6 @@
 "use client"
 
+import { Eye } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { formatBRL, formatData } from "@/lib/formatters"
 import type { AtendimentoHistoricoItem } from "@/tipos/clientes"
@@ -41,33 +42,36 @@ export function ItemAtendimentoHistorico({
     <button
       type="button"
       onClick={onClick}
-      className="flex min-h-14 w-full flex-col items-start gap-1 px-4 py-3 text-left
+      className="flex min-h-14 w-full items-start gap-3 px-4 py-3 text-left
                  hover:bg-surface-hover focus-visible:outline-none
                  focus-visible:ring-inset focus-visible:ring-2 focus-visible:ring-ring
                  transition-colors"
     >
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="font-mono text-xs text-text-muted">#{item.numero_curto}</span>
-        <Badge variant={badgeForEstado(item.estado)}>{estadoAtendimentoLabel[item.estado]}</Badge>
-        <span className="text-xs text-text-muted">{formatData(item.created_at)}</span>
-        {detalheFinal && (
-          <>
-            <span className="text-text-muted">·</span>
-            <span
-              className={
-                item.estado === "Fechado"
-                  ? "text-sm font-medium text-state-won"
-                  : "text-xs text-text-muted"
-              }
-            >
-              {detalheFinal}
-            </span>
-          </>
+      <div className="flex flex-1 flex-col items-start gap-1">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-mono text-xs text-text-muted">#{item.numero_curto}</span>
+          <Badge variant={badgeForEstado(item.estado)}>{estadoAtendimentoLabel[item.estado]}</Badge>
+          <span className="text-xs text-text-muted">{formatData(item.created_at)}</span>
+          {detalheFinal && (
+            <>
+              <span className="text-text-muted">·</span>
+              <span
+                className={
+                  item.estado === "Fechado"
+                    ? "text-sm font-medium text-state-won"
+                    : "text-xs text-text-muted"
+                }
+              >
+                {detalheFinal}
+              </span>
+            </>
+          )}
+        </div>
+        {contexto.length > 0 && (
+          <div className="text-[12px] text-text-secondary">{contexto.join(" · ")}</div>
         )}
       </div>
-      {contexto.length > 0 && (
-        <div className="text-[12px] text-text-secondary">{contexto.join(" · ")}</div>
-      )}
+      <Eye size={14} strokeWidth={1.5} aria-hidden className="mt-1 shrink-0 text-text-muted" />
     </button>
   )
 }

@@ -47,7 +47,10 @@ export function DetalheConversa({
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-center gap-2">
               {detalhe.conversa.recorrente && <Badge variant="paused">Recorrente</Badge>}
-              <h1 className="truncate text-xl font-semibold text-text-primary">{cliente}</h1>
+              <h1 className="truncate text-xl font-semibold">
+                <span className="text-text-muted">Cliente:</span>{" "}
+                <span className="text-text-primary">{cliente}</span>
+              </h1>
             </div>
             <span className="shrink-0 text-xs text-text-muted">{ultima}</span>
           </div>
@@ -58,7 +61,10 @@ export function DetalheConversa({
                 <span>·</span>
               </>
             )}
-            <span>{detalhe.modelo.nome}</span>
+            <span>
+              <span className="text-text-muted">Modelo:</span>{" "}
+              <span className="text-text-primary">{detalhe.modelo.nome}</span>
+            </span>
             {detalhe.cliente.primeiro_contato_modelo_nome && (
               <>
                 <span>·</span>

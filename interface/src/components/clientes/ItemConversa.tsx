@@ -37,7 +37,7 @@ export function ItemConversa({
   const mostrarNuncaFechou = item.ultimo_fechamento_em === null && ordenarPor === "inatividade"
 
   const linhaModelo = [
-    item.modelo.nome,
+    `Modelo: ${item.modelo.nome}`,
     ultimo ? `#${ultimo.numero_curto}` : null,
     item.ultimo_motivo_perda
       ? `perda: ${motivoPerdaLabel[item.ultimo_motivo_perda].toLowerCase()}`
@@ -74,7 +74,10 @@ export function ItemConversa({
       )}
     >
       <div className="flex items-baseline gap-2">
-        <p className="truncate text-base font-semibold text-text-primary">{cliente}</p>
+        <p className="truncate text-base font-semibold">
+          <span className="font-semibold text-text-muted">Cliente:</span>{" "}
+          <span className="text-text-primary">{cliente}</span>
+        </p>
         <span className="ml-auto shrink-0 text-xs text-text-muted">
           {formatTempoRelativo(refTempo)}
         </span>

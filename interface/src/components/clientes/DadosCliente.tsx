@@ -1,7 +1,22 @@
 "use client"
 
 import { useState } from "react"
-import { Archive, ArchiveRestore, Info, Loader2, Pencil } from "lucide-react"
+import {
+  Archive,
+  ArchiveRestore,
+  CheckCircle2,
+  Clock,
+  Info,
+  Loader2,
+  MapPin,
+  Package,
+  Pencil,
+  TrendingUp,
+  User,
+  Wallet,
+  XCircle,
+  type LucideIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 import {
   AlertDialog,
@@ -128,22 +143,22 @@ export function DadosCliente({
         </div>
       )}
       <div className="grid grid-cols-4 divide-x divide-border">
-        <Metrica label="Fechados">
+        <Metrica label="Fechados" icon={CheckCircle2}>
           <span className="text-2xl font-semibold text-text-primary">
             {fechados.length > 0 ? fechados.length : "—"}
           </span>
         </Metrica>
-        <Metrica label="Perdidos">
+        <Metrica label="Perdidos" icon={XCircle}>
           <span className={`text-2xl font-semibold ${perdidos.length > 0 ? "text-state-lost" : "text-text-primary"}`}>
             {perdidos.length > 0 ? perdidos.length : "—"}
           </span>
         </Metrica>
-        <Metrica label="Receita Total">
+        <Metrica label="Receita Total" icon={Wallet}>
           <span className={`text-lg font-semibold ${receita > 0 ? "text-state-closed" : "text-text-primary"}`}>
             {receita > 0 ? formatBRL(receita) : "—"}
           </span>
         </Metrica>
-        <Metrica label="Ticket Médio">
+        <Metrica label="Ticket Médio" icon={TrendingUp}>
           <span className="text-lg font-semibold text-text-primary">
             {ticketMedio > 0 ? formatBRL(ticketMedio) : "—"}
           </span>
@@ -158,7 +173,7 @@ export function DadosCliente({
         </div>
         <div className="divide-y divide-border">
           <div className="grid grid-cols-3 divide-x divide-border">
-            <Metrica label="Último fechamento">
+            <Metrica label="Último fechamento" icon={Clock}>
               {ultimoFechamentoEm ? (
                 <span className="text-sm text-text-primary">
                   {formatData(ultimoFechamentoEm)}{" "}
@@ -168,13 +183,14 @@ export function DadosCliente({
                 <span className="text-sm text-text-primary">Nenhum</span>
               )}
             </Metrica>
-            <Metrica label="Modelo preferida">
+            <Metrica label="Modelo preferida" icon={User}>
               <span className="text-sm text-text-primary">
                 {cliente.modelo_preferida?.nome ?? "—"}
               </span>
             </Metrica>
             <Metrica
-              label="Tipo preferido"
+              label="Preferência de Local"
+              icon={MapPin}
               tooltip="Interno: cliente vai à modelo. Externo: modelo vai ao cliente."
             >
               <span className="text-sm text-text-primary">
@@ -185,17 +201,17 @@ export function DadosCliente({
             </Metrica>
           </div>
           <div className="grid grid-cols-3 divide-x divide-border">
-            <Metrica label="Programa preferido">
+            <Metrica label="Programa preferido" icon={Package}>
               <span className="text-sm text-text-primary">
                 {cliente.programa_preferido?.nome ?? "—"}
               </span>
             </Metrica>
-            <Metrica label="Duração preferida">
+            <Metrica label="Duração preferida" icon={Clock}>
               <span className="text-sm text-text-primary">
                 {cliente.duracao_preferida?.nome ?? "—"}
               </span>
             </Metrica>
-            <Metrica label="Pagamento preferido">
+            <Metrica label="Pagamento preferido" icon={Wallet}>
               <span className="text-sm text-text-primary">
                 {cliente.forma_pagamento_preferida
                   ? FORMA_PAGAMENTO_LABEL[cliente.forma_pagamento_preferida]
@@ -252,15 +268,18 @@ export function DadosCliente({
 function Metrica({
   label,
   tooltip,
+  icon: Icon,
   children,
 }: {
   label: string
   tooltip?: string
+  icon?: LucideIcon
   children: React.ReactNode
 }) {
   return (
     <div className="flex flex-col gap-1.5 px-5 py-4">
-      <span className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        {Icon ? <Icon size={12} strokeWidth={1.75} aria-hidden className="text-text-muted" /> : null}
         {label}
         {tooltip ? (
           <Tooltip>
