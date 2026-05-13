@@ -42,6 +42,33 @@ ENVIOS_EVOLUTION = Counter("barra_envios_evolution_total", "Envios Evolution", [
 WEBHOOK_ERRORS = Counter("barra_webhook_errors_total", "Erros de webhook", ["tipo"])
 TIMEOUTS = Counter("barra_timeouts_total", "Timeouts aplicados", ["tipo"])
 
+# Metricas do agente LangGraph (ver docs/agente/08-evals.md, 09-roteiro.md)
+AGENTE_TURNO_DURACAO = Histogram(
+    "agente_turno_duracao_seconds",
+    "Duracao por turno do agente (p50/p95/p99)",
+    ["modelo"],
+)
+AGENTE_TURNO_RESULTADO = Counter(
+    "agente_turno_resultado_total",
+    "Resultado do turno: ok|escalado|exaustao|ia_pausada_skip|lock_busy|transcricao_timeout",
+    ["resultado"],
+)
+AGENTE_TURNO_TOKENS = Counter(
+    "agente_turno_tokens_total",
+    "Tokens consumidos por turno por tipo: input|output|cache_read|cache_write",
+    ["tipo"],
+)
+AGENTE_EVAL_PASS_RATE = Histogram(
+    "agente_eval_pass_rate",
+    "Pass-rate de eval suite (ultimas execucoes em CI/pipeline)",
+    ["suite"],
+)
+AGENTE_CUSTO_TURNO_BRL = Histogram(
+    "agente_custo_turno_brl",
+    "Custo estimado por turno em BRL (Sonnet 4.6 com cache; meta <=0.12 BRL)",
+    ["modelo"],
+)
+
 
 class MetricsMiddleware(BaseHTTPMiddleware):
     async def dispatch(
