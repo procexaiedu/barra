@@ -5,21 +5,34 @@ import { Receipt, MessagesSquare, QrCode, CalendarPlus } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import type { MetricasDia, ModeloAtiva } from "@/tipos/painel"
 
-interface Atalho {
-  key: string
-  visible: boolean
-  text: string
-  icon: typeof Receipt
-  variant: "default" | "secondary"
-  href: string
-}
+type Atalho =
+  | {
+      key: string
+      visible: boolean
+      text: string
+      icon: typeof Receipt
+      variant: "default" | "secondary"
+      kind: "link"
+      href: string
+    }
+  | {
+      key: string
+      visible: boolean
+      text: string
+      icon: typeof Receipt
+      variant: "default" | "secondary"
+      kind: "action"
+      onClick: () => void
+    }
 
 export function AtalhoContextual({
   metricas,
   modeloAtiva,
+  onBloquear,
 }: {
   metricas: MetricasDia
   modeloAtiva: ModeloAtiva | null
+  onBloquear?: () => void
 }) {
   const atalhos: Atalho[] = [
     {
@@ -28,6 +41,7 @@ export function AtalhoContextual({
       text: "Conectar WhatsApp da modelo",
       icon: QrCode,
       variant: "default",
+      kind: "link",
       href: modeloAtiva ? `/modelos?modelo=${modeloAtiva.id}&aba=perfil` : "#",
     },
     {
@@ -36,6 +50,7 @@ export function AtalhoContextual({
       text: `Ver ${metricas.pix_em_revisao_pendentes} Pix em revisão`,
       icon: Receipt,
       variant: "secondary",
+      kind: "link",
       href: "/pix?status=em_revisao",
     },
     {
@@ -44,15 +59,17 @@ export function AtalhoContextual({
       text: `Ver ${metricas.abertos} atendimentos abertos`,
       icon: MessagesSquare,
       variant: "secondary",
+      kind: "link",
       href: "/atendimentos",
     },
     {
       key: "bloquear",
-      visible: true,
+      visible: Boolean(onBloquear),
       text: "Bloquear horário",
       icon: CalendarPlus,
       variant: "secondary",
-      href: "/agenda?action=bloquear",
+      kind: "action",
+      onClick: onBloquear ?? (() => {}),
     },
   ]
 
@@ -64,13 +81,22 @@ export function AtalhoContextual({
       <div className="flex flex-wrap gap-3">
         {visibleAtalhos.map((atalho) => {
           const Icon = atalho.icon
+          const variant = atalho.variant === "default" ? "default" : "secondary"
+          if (atalho.kind === "link") {
+            return (
+              <Button
+                key={atalho.key}
+                variant={variant}
+                nativeButton={false}
+                render={<Link href={atalho.href} />}
+              >
+                <Icon size={16} strokeWidth={1.5} />
+                {atalho.text}
+              </Button>
+            )
+          }
           return (
-            <Button
-              key={atalho.key}
-              variant={atalho.variant === "default" ? "default" : "secondary"}
-              nativeButton={false}
-              render={<Link href={atalho.href} />}
-            >
+            <Button key={atalho.key} variant={variant} onClick={atalho.onClick}>
               <Icon size={16} strokeWidth={1.5} />
               {atalho.text}
             </Button>

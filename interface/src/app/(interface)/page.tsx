@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { CheckCircle2, CalendarOff, LayoutList, LayoutGrid, Eye } from "lucide-react"
-import Link from "next/link"
 import { usePainelResumo } from "@/hooks/usePainelResumo"
 import { useTileFlash } from "@/hooks/useTileFlash"
 import { useCardEntrada } from "@/hooks/useCardEntrada"
 import { useDetalheMetrica } from "@/hooks/useDetalheMetrica"
+import { dataDeInput, dataInput, dataInputSaoPaulo, isoAgenda } from "@/hooks/useAgenda"
 import { HeaderPainel } from "@/components/painel/HeaderPainel"
 import { CardDestaque } from "@/components/painel/CardDestaque"
 import { TileMetrica } from "@/components/painel/TileMetrica"
@@ -15,13 +16,16 @@ import { LinhaAgenda } from "@/components/painel/LinhaAgenda"
 import { ModalDetalheMetrica } from "@/components/painel/ModalDetalheMetrica"
 import { ModalDecisaoCard } from "@/components/painel/ModalDecisaoCard"
 import { ModalDetalheAgenda } from "@/components/painel/ModalDetalheAgenda"
+import { DialogBloqueio } from "@/components/agenda/DialogBloqueio"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { api } from "@/lib/api"
 import { formatBRL, formatDiaSemana, formatData } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { ItemAberto, ItemFechamento, ItemPerda, CardDestaque as CardDestaqueType, LinhaAgenda as LinhaAgendaType } from "@/tipos/painel"
+import type { AgendaResponse, AtualizarBloqueioInput, BloqueioAgenda, BloqueioFormState } from "@/tipos/agenda"
 
 const TITULO_MODAL = {
   abertos: "Atendimentos em aberto",
@@ -170,6 +174,15 @@ function ListaPerdas({
 
 const CARDS_POR_PAGINA = 4
 
+function fimIsoOvernight(data: string, inicio: string, fim: string): string {
+  if (fim !== "24:00" && fim < inicio) {
+    const d = dataDeInput(data)
+    d.setDate(d.getDate() + 1)
+    return isoAgenda(dataInput(d), fim)
+  }
+  return isoAgenda(data, fim)
+}
+
 export default function PainelGeral() {
   const router = useRouter()
   const [modeloId, setModeloId] = useState<string | null>(null)
@@ -177,7 +190,98 @@ export default function PainelGeral() {
   const [compacto, setCompacto] = useState(false)
   const [cardContexto, setCardContexto] = useState<CardDestaqueType | null>(null)
   const [agendaModal, setAgendaModal] = useState<LinhaAgendaType | null>(null)
+  const [bloquearOpen, setBloquearOpen] = useState(false)
+  const [bloqueiosMes, setBloqueiosMes] = useState<BloqueioAgenda[]>([])
+  const [bloquearInitial, setBloquearInitial] = useState<BloqueioFormState>(() => ({
+    data: dataInputSaoPaulo(),
+    inicio: "10:00",
+    fim: "11:00",
+    observacao: "",
+  }))
   const { data, status, error, refetch } = usePainelResumo(modeloId)
+
+  async function abrirBloquear() {
+    const hoje = dataInputSaoPaulo()
+    setBloquearInitial({ data: hoje, inicio: "10:00", fim: "11:00", observacao: "" })
+    setBloquearOpen(true)
+    try {
+      const base = dataDeInput(hoje)
+      const inicioMes = dataInput(new Date(base.getFullYear(), base.getMonth(), 1))
+      const fimMes = dataInput(new Date(base.getFullYear(), base.getMonth() + 1, 0))
+      const params = new URLSearchParams({
+        inicio: `${inicioMes}T00:00:00-03:00`,
+        fim: `${fimMes}T23:59:59-03:00`,
+      })
+      if (modeloId) params.append("modelo_id", modeloId)
+      const res = await api<AgendaResponse>(`/v1/agenda/bloqueios?${params.toString()}`)
+      setBloqueiosMes(res.bloqueios)
+    } catch {
+      setBloqueiosMes([])
+    }
+  }
+
+  const criarBloqueio = async (form: BloqueioFormState) => {
+    const mId = form.modelo_id ?? modeloId
+    if (!mId) {
+      toast.error("Selecione uma modelo.")
+      return
+    }
+    try {
+      await api<BloqueioAgenda>("/v1/agenda/bloqueios", {
+        method: "POST",
+        body: JSON.stringify({
+          modelo_id: mId,
+          inicio: isoAgenda(form.data, form.inicio),
+          fim: fimIsoOvernight(form.data, form.inicio, form.fim),
+          observacao: form.observacao.trim() || null,
+          ...(form.atendimento_id ? { atendimento_id: form.atendimento_id } : {}),
+        }),
+      })
+      toast.success("Bloqueio criado")
+      setBloquearOpen(false)
+      refetch()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
+    }
+  }
+
+  const atualizarBloqueio = async (
+    id: string,
+    form: BloqueioFormState,
+    atendimentoId?: string | null,
+  ) => {
+    try {
+      const payload: AtualizarBloqueioInput = {
+        inicio: isoAgenda(form.data, form.inicio),
+        fim: fimIsoOvernight(form.data, form.inicio, form.fim),
+        observacao: form.observacao.trim() || null,
+      }
+      if (atendimentoId !== undefined) payload.atendimento_id = atendimentoId
+      await api<BloqueioAgenda>(`/v1/agenda/bloqueios/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      })
+      toast.success("Bloqueio atualizado")
+      setBloquearOpen(false)
+      refetch()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
+    }
+  }
+
+  const cancelarBloqueio = async (id: string, confirmar: boolean) => {
+    try {
+      await api<{ ok: boolean }>(`/v1/agenda/bloqueios/${id}/cancelar`, {
+        method: "POST",
+        body: JSON.stringify({ confirmar }),
+      })
+      toast.success("Bloqueio cancelado")
+      setBloquearOpen(false)
+      refetch()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
+    }
+  }
 
   function handleModeloChange(id: string | null) {
     setPaginaCards(0)
@@ -402,7 +506,7 @@ export default function PainelGeral() {
       <section aria-label="Agenda de hoje" className="px-8 py-5">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold text-text-primary">Agenda de hoje</h2>
-          <Button variant="ghost" size="sm" nativeButton={false} render={<Link href="/agenda?action=bloquear" />}>
+          <Button variant="ghost" size="sm" onClick={abrirBloquear}>
             Bloquear horário
           </Button>
         </div>
@@ -437,6 +541,19 @@ export default function PainelGeral() {
         onFechar={() => setAgendaModal(null)}
         onBloqueioAlterado={refetch}
       />
+
+      {bloquearOpen && (
+        <DialogBloqueio
+          bloqueio={null}
+          modeloId={modeloId}
+          initial={bloquearInitial}
+          bloqueios={bloqueiosMes}
+          onClose={() => setBloquearOpen(false)}
+          onCriar={criarBloqueio}
+          onAtualizar={atualizarBloqueio}
+          onCancelar={cancelarBloqueio}
+        />
+      )}
 
       <ModalDetalheMetrica
         titulo={tituloModal}

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -42,9 +42,25 @@ export function ModalEditarCliente({
     aplicarMascaraTelefone(formatTelefone(telefoneAtual))
   )
   const [submitting, setSubmitting] = useState(false)
+  const nomeInputRef = useRef<HTMLInputElement>(null)
 
   const telefoneNormalizado = normalizarTelefoneE164(telefone)
-  const podeSalvar = telefoneNormalizado !== null && !submitting
+  const nomeOriginal = (nomeAtual ?? "").trim()
+  const houveMudanca =
+    nome.trim() !== nomeOriginal || telefoneNormalizado !== telefoneAtual
+  const podeSalvar =
+    telefoneNormalizado !== null && !submitting && houveMudanca
+
+  useEffect(() => {
+    if (!open) return
+    const handle = requestAnimationFrame(() => {
+      const input = nomeInputRef.current
+      if (!input) return
+      input.focus()
+      if (input.value.length > 0) input.select()
+    })
+    return () => cancelAnimationFrame(handle)
+  }, [open])
 
   const handleClose = () => {
     if (submitting) return
@@ -79,16 +95,17 @@ export function ModalEditarCliente({
         if (!o) handleClose()
       }}
     >
-      <DialogContent className="w-full max-w-md rounded-lg border border-border bg-popover p-6 text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
+      <DialogContent className="w-full max-w-lg rounded-lg border border-border bg-popover p-6 text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
         <DialogTitle>Editar cliente</DialogTitle>
         <DialogDescription className="mt-1">
-          Atualize nome ou telefone do cliente.
+          Os valores atuais estão pré-carregados — apague e digite para alterar.
         </DialogDescription>
 
         <div className="mt-5 space-y-4">
           <div>
             <Label htmlFor="editar-cliente-nome">Nome</Label>
             <Input
+              ref={nomeInputRef}
               id="editar-cliente-nome"
               value={nome}
               onChange={(e) => setNome(e.target.value)}
@@ -97,6 +114,9 @@ export function ModalEditarCliente({
               disabled={submitting}
               autoComplete="off"
             />
+            <p className="mt-1 text-xs text-text-muted">
+              Atual: {nomeOriginal.length > 0 ? nomeOriginal : "sem nome"}.
+            </p>
           </div>
           <div>
             <Label htmlFor="editar-cliente-telefone">Telefone</Label>
@@ -110,9 +130,13 @@ export function ModalEditarCliente({
               autoComplete="off"
               inputMode="numeric"
             />
-            {telefone.length > 0 && telefoneNormalizado === null && (
+            {telefone.length > 0 && telefoneNormalizado === null ? (
               <p className="mt-1 text-xs text-state-lost">
                 Telefone incompleto. Use 10 ou 11 dígitos.
+              </p>
+            ) : (
+              <p className="mt-1 text-xs text-text-muted">
+                Atual: {formatTelefone(telefoneAtual)}.
               </p>
             )}
           </div>
