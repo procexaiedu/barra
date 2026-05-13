@@ -1,6 +1,7 @@
 import type {
   DirecaoMensagem,
   EstadoAtendimento,
+  FormaPagamento,
   MotivoPerda,
 } from "@/tipos/clientes"
 
@@ -30,6 +31,12 @@ export const direcaoLabel: Record<DirecaoMensagem, string> = {
   cliente: "cliente",
   ia: "IA",
   modelo_manual: "modelo",
+}
+
+export const formaPagamentoLabel: Record<FormaPagamento, string> = {
+  pix: "Pix",
+  dinheiro: "Dinheiro",
+  outro: "Outro",
 }
 
 export function badgeForEstado(estado: EstadoAtendimento): BadgeVariant {

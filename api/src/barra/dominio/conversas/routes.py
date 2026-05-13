@@ -180,33 +180,62 @@ async def obter_conversa(
     if conversa is None:
         raise NaoEncontrado("Conversa")
 
-    aberto = await _one(
+    aberto_row = await _one(
         conn,
         """
-        SELECT id, numero_curto, estado::text AS estado,
-               tipo_atendimento::text AS tipo_atendimento,
-               urgencia::text AS urgencia,
-               valor_acordado, proxima_acao_esperada
-          FROM barravips.atendimentos
-         WHERE conversa_id = %s
-           AND estado NOT IN ('Fechado', 'Perdido')
+        SELECT a.id, a.numero_curto, a.estado::text AS estado,
+               a.tipo_atendimento::text AS tipo_atendimento,
+               a.urgencia::text AS urgencia,
+               a.valor_acordado, a.proxima_acao_esperada,
+               a.forma_pagamento::text AS forma_pagamento,
+               s.programa_id, s.programa_nome,
+               s.duracao_id, s.duracao_nome
+          FROM barravips.atendimentos a
+          LEFT JOIN LATERAL (
+            SELECT p.id AS programa_id, p.nome AS programa_nome,
+                   d.id AS duracao_id, d.nome AS duracao_nome
+              FROM barravips.atendimento_servicos ats
+              JOIN barravips.programas p ON p.id = ats.programa_id
+              JOIN barravips.duracoes d ON d.id = ats.duracao_id
+             WHERE ats.atendimento_id = a.id
+             ORDER BY ats.created_at
+             LIMIT 1
+          ) s ON TRUE
+         WHERE a.conversa_id = %s
+           AND a.estado NOT IN ('Fechado', 'Perdido')
          LIMIT 1
         """,
         (conversa_id,),
     )
+    aberto = _montar_atendimento(aberto_row, incluir_aberto=True)
 
-    historico = await _all(
+    historico_rows = await _all(
         conn,
         """
-        SELECT id, numero_curto, estado::text AS estado, valor_final,
-               motivo_perda::text AS motivo_perda, motivo_perda_obs, created_at
-          FROM barravips.atendimentos
-         WHERE conversa_id = %s
-           AND estado IN ('Fechado', 'Perdido')
-         ORDER BY created_at DESC
+        SELECT a.id, a.numero_curto, a.estado::text AS estado, a.valor_final,
+               a.motivo_perda::text AS motivo_perda, a.motivo_perda_obs, a.created_at,
+               a.tipo_atendimento::text AS tipo_atendimento,
+               a.forma_pagamento::text AS forma_pagamento,
+               s.programa_id, s.programa_nome,
+               s.duracao_id, s.duracao_nome
+          FROM barravips.atendimentos a
+          LEFT JOIN LATERAL (
+            SELECT p.id AS programa_id, p.nome AS programa_nome,
+                   d.id AS duracao_id, d.nome AS duracao_nome
+              FROM barravips.atendimento_servicos ats
+              JOIN barravips.programas p ON p.id = ats.programa_id
+              JOIN barravips.duracoes d ON d.id = ats.duracao_id
+             WHERE ats.atendimento_id = a.id
+             ORDER BY ats.created_at
+             LIMIT 1
+          ) s ON TRUE
+         WHERE a.conversa_id = %s
+           AND a.estado IN ('Fechado', 'Perdido')
+         ORDER BY a.created_at DESC
         """,
         (conversa_id,),
     )
+    historico = [_montar_atendimento(row, incluir_aberto=False) for row in historico_rows]
 
     modelo_preferida = await _one(
         conn,
@@ -357,3 +386,43 @@ async def _one(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]) 
 async def _all(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
     result = await conn.execute(query, params)
     return list(await result.fetchall())
+
+
+def _montar_atendimento(
+    row: dict[str, Any] | None, *, incluir_aberto: bool
+) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    programa = (
+        {"id": row["programa_id"], "nome": row["programa_nome"]}
+        if row.get("programa_id") is not None
+        else None
+    )
+    duracao = (
+        {"id": row["duracao_id"], "nome": row["duracao_nome"]}
+        if row.get("duracao_id") is not None
+        else None
+    )
+    base: dict[str, Any] = {
+        "id": row["id"],
+        "numero_curto": row["numero_curto"],
+        "estado": row["estado"],
+        "tipo_atendimento": row.get("tipo_atendimento"),
+        "forma_pagamento": row.get("forma_pagamento"),
+        "programa": programa,
+        "duracao": duracao,
+    }
+    if incluir_aberto:
+        base.update(
+            urgencia=row.get("urgencia"),
+            valor_acordado=row.get("valor_acordado"),
+            proxima_acao_esperada=row.get("proxima_acao_esperada"),
+        )
+    else:
+        base.update(
+            valor_final=row.get("valor_final"),
+            motivo_perda=row.get("motivo_perda"),
+            motivo_perda_obs=row.get("motivo_perda_obs"),
+            created_at=row.get("created_at"),
+        )
+    return base

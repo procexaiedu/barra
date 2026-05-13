@@ -5,7 +5,11 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { formatBRL } from "@/lib/formatters"
 import type { AtendimentoAberto as AtendimentoAbertoTipo } from "@/tipos/clientes"
-import { badgeForEstado, estadoAtendimentoLabel } from "@/components/clientes/utils"
+import {
+  badgeForEstado,
+  estadoAtendimentoLabel,
+  formaPagamentoLabel,
+} from "@/components/clientes/utils"
 import { tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 
 export function AtendimentoAberto({ atendimento }: { atendimento: AtendimentoAbertoTipo | null }) {
@@ -48,7 +52,19 @@ export function AtendimentoAberto({ atendimento }: { atendimento: AtendimentoAbe
               </span>
             )}
           </div>
-          {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
+          {(atendimento.programa || atendimento.duracao || atendimento.forma_pagamento) && (
+            <div className="flex flex-wrap items-center gap-2 text-[13px] text-text-secondary">
+              {[
+                atendimento.programa ? atendimento.programa.nome : null,
+                atendimento.duracao ? atendimento.duracao.nome : null,
+                atendimento.forma_pagamento
+                  ? formaPagamentoLabel[atendimento.forma_pagamento]
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </div>
+          )}
           <div>
             <Button variant="secondary" size="sm" onClick={() => router.push("/atendimentos")}>
               Abrir na Central

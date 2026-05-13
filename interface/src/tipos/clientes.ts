@@ -123,6 +123,9 @@ export interface AtendimentoAberto {
   urgencia: Urgencia | null
   valor_acordado: number | null
   proxima_acao_esperada: string | null
+  forma_pagamento: FormaPagamento | null
+  programa: { id: string; nome: string } | null
+  duracao: { id: string; nome: string } | null
 }
 
 export interface AtendimentoHistoricoItem {
@@ -133,6 +136,10 @@ export interface AtendimentoHistoricoItem {
   motivo_perda: MotivoPerda | null
   motivo_perda_obs: string | null
   created_at: string
+  tipo_atendimento: TipoAtendimento | null
+  forma_pagamento: FormaPagamento | null
+  programa: { id: string; nome: string } | null
+  duracao: { id: string; nome: string } | null
 }
 
 export interface ConversaResumo {
