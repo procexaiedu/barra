@@ -143,6 +143,21 @@ export function AgendaClient() {
     }
   }
 
+  const moverBloqueio = async (id: string, novoInicio: string, novoFim: string) => {
+    try {
+      await agenda.atualizarBloqueio(id, { inicio: novoInicio, fim: novoFim, observacao: null })
+      toast.success("Bloqueio movido")
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : ""
+      if (msg.toLowerCase().includes("sobrepos")) {
+        toast.error("Conflito com outro bloqueio neste horário.")
+      } else {
+        toast.error(msg || "Erro ao mover.")
+      }
+      await agenda.refetch()
+    }
+  }
+
   const cancelar = async (id: string, confirmar: boolean) => {
     try {
       await agenda.cancelarBloqueio(id, confirmar)
@@ -191,6 +206,7 @@ export function AgendaClient() {
           onSelecionarDia={agenda.setDataSelecionada}
           onCriarNoDia={(data) => abrirCriacao(proximoSlotLivre(data, bloqueios))}
           onEditarBloqueio={(b) => setDialog({ modo: "visualizar", bloqueio: b })}
+          onMover={moverBloqueio}
         />
       ) : (
         <GradeSemanal
@@ -201,6 +217,7 @@ export function AgendaClient() {
             abrirCriacao({ data, inicio, fim: fimParaGrade(inicio), observacao: "" })
           }
           onEditar={(b) => setDialog({ modo: "visualizar", bloqueio: b })}
+          onMover={moverBloqueio}
         />
       )}
 
