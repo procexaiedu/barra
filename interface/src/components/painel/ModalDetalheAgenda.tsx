@@ -87,10 +87,12 @@ export function ModalDetalheAgenda({
   linha,
   onFechar,
   onBloqueioAlterado,
+  onAbrirHistorico,
 }: {
   linha: LinhaAgenda | null
   onFechar: () => void
   onBloqueioAlterado: () => void
+  onAbrirHistorico?: (atendimentoId: string) => void
 }) {
   const [cancelando, setCancelando] = useState(false)
   const [confirmCancel, setConfirmCancel] = useState(false)
@@ -238,14 +240,12 @@ export function ModalDetalheAgenda({
                         <Button
                           variant="ghost"
                           size="sm"
-                          nativeButton={false}
                           className="shrink-0 gap-1 text-text-muted"
-                          render={
-                            <Link
-                              href={`/atendimentos?id=${linha.atendimento_id}`}
-                              onClick={onFechar}
-                            />
-                          }
+                          onClick={() => {
+                            const id = linha.atendimento_id
+                            onFechar()
+                            if (id) onAbrirHistorico?.(id)
+                          }}
                         >
                           <ExternalLink size={12} />
                           Ver atendimento

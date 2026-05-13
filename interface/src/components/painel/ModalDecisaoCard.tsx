@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect, type ReactNode } from "react"
-import Link from "next/link"
 import {
   ExternalLink,
   Clock,
@@ -146,9 +145,11 @@ const BADGE_LABEL: Record<IaPausadaMotivo, string> = {
 export function ModalDecisaoCard({
   card,
   onClose,
+  onAbrirHistorico,
 }: {
   card: CardDestaque | null
   onClose: () => void
+  onAbrirHistorico?: (atendimentoId: string) => void
 }) {
   const [contexto, setContexto] = useState<ContextoData | null>(null)
   const [pixUrl, setPixUrl] = useState<string | null>(null)
@@ -342,15 +343,13 @@ export function ModalDecisaoCard({
                 <Button
                   variant="ghost"
                   size="sm"
-                  nativeButton={false}
                   className="ml-auto shrink-0 gap-1 px-2 text-xs text-text-muted"
-                  render={
-                    <Link
-                      href={`/atendimentos?id=${card.atendimento_id}`}
-                      onClick={onClose}
-                      aria-label="Ver atendimento completo"
-                    />
-                  }
+                  aria-label="Ver atendimento completo"
+                  onClick={() => {
+                    const id = card.atendimento_id
+                    onClose()
+                    onAbrirHistorico?.(id)
+                  }}
                 >
                   <ExternalLink size={13} />
                   Ver completo

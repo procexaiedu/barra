@@ -16,6 +16,7 @@ import { LinhaAgenda } from "@/components/painel/LinhaAgenda"
 import { ModalDetalheMetrica } from "@/components/painel/ModalDetalheMetrica"
 import { ModalDecisaoCard } from "@/components/painel/ModalDecisaoCard"
 import { ModalDetalheAgenda } from "@/components/painel/ModalDetalheAgenda"
+import { ModalAtendimentoHistorico } from "@/components/clientes/ModalAtendimentoHistorico"
 import { DialogBloqueio } from "@/components/agenda/DialogBloqueio"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -190,6 +191,7 @@ export default function PainelGeral() {
   const [compacto, setCompacto] = useState(false)
   const [cardContexto, setCardContexto] = useState<CardDestaqueType | null>(null)
   const [agendaModal, setAgendaModal] = useState<LinhaAgendaType | null>(null)
+  const [atendimentoHistoricoId, setAtendimentoHistoricoId] = useState<string | null>(null)
   const [bloquearOpen, setBloquearOpen] = useState(false)
   const [bloqueiosMes, setBloqueiosMes] = useState<BloqueioAgenda[]>([])
   const [bloquearInitial, setBloquearInitial] = useState<BloqueioFormState>(() => ({
@@ -534,12 +536,19 @@ export default function PainelGeral() {
       <ModalDecisaoCard
         card={cardContexto}
         onClose={() => setCardContexto(null)}
+        onAbrirHistorico={setAtendimentoHistoricoId}
       />
 
       <ModalDetalheAgenda
         linha={agendaModal}
         onFechar={() => setAgendaModal(null)}
         onBloqueioAlterado={refetch}
+        onAbrirHistorico={setAtendimentoHistoricoId}
+      />
+
+      <ModalAtendimentoHistorico
+        atendimentoId={atendimentoHistoricoId}
+        onClose={() => setAtendimentoHistoricoId(null)}
       />
 
       {bloquearOpen && (
