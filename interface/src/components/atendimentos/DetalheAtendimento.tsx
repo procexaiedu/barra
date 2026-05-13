@@ -2,7 +2,7 @@
 
 import { useRef, useMemo, useState } from "react"
 import Link from "next/link"
-import { ChevronDown, Clock, FileText, ImageOff, MessageSquare, Paperclip, Pencil, Plus, Trash2 } from "lucide-react"
+import { Clock, FileText, ImageOff, MessageSquare, Paperclip, Pencil, Plus, Trash2 } from "lucide-react"
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -86,9 +86,14 @@ export function DetalheAtendimento({
     atendimento.ia_pausada ? "border-l-state-handoff" :
     "border-l-state-active"
 
+  const totalMidias =
+    detalhe.midias_internas.length +
+    detalhe.comprovantes_pix.length +
+    detalhe.mensagens.filter((m) => m.media_object_key).length
+
   return (
-    <section aria-label="Detalhe do atendimento" className="min-w-0 space-y-3">
-      <div className={cn("rounded-lg border border-ink-300 bg-ink-200 p-5 border-l-4", estadoBorder)}>
+    <section aria-label="Detalhe do atendimento" className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+      <div className={cn("shrink-0 rounded-lg border border-ink-300 bg-ink-200 p-5 border-l-4", estadoBorder)}>
         <div className="flex items-start gap-3">
           <Badge variant={badgeForEstado(atendimento.estado)} className="px-2.5 py-1 text-[12px]">
             {estadoLabel[atendimento.estado]}
@@ -141,62 +146,57 @@ export function DetalheAtendimento({
         </div>
       </div>
 
-      <ResumoAtendimento detalhe={detalhe} />
-
-      <SecaoColapsavel
-        titulo="Histórico de mensagens"
-        count={detalhe.mensagens.length}
-        defaultOpen={atendimento.ia_pausada}
-        icone={<MessageSquare size={16} strokeWidth={1.75} className="text-info-500" />}
-      >
-        <HistoricoMensagens mensagens={detalhe.mensagens} />
-      </SecaoColapsavel>
-
-      <SecaoColapsavel
-        titulo="Mídias recebidas"
-        count={detalhe.midias_internas.length + detalhe.comprovantes_pix.length + detalhe.mensagens.filter(m => m.media_object_key).length}
-        icone={<Paperclip size={16} strokeWidth={1.75} className="text-gold-500" />}
-      >
-        <MidiasRecebidas
-          detalhe={detalhe}
-          onUploadMidia={onUploadMidia}
-          onDeletarMidia={onDeletarMidia}
-        />
-      </SecaoColapsavel>
-
-      <SecaoColapsavel
-        titulo="Histórico do atendimento"
-        count={detalhe.eventos.length}
-        icone={<Clock size={16} strokeWidth={1.75} className="text-text-muted" />}
-      >
-        <Eventos eventos={detalhe.eventos} />
-      </SecaoColapsavel>
+      <div className="grid min-h-0 flex-1 grid-cols-[1.4fr_1fr] gap-3">
+        <div className="scroll-thin flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+          <ResumoAtendimento detalhe={detalhe} />
+          <SecaoFixa
+            titulo="Histórico de mensagens"
+            count={detalhe.mensagens.length}
+            icone={<MessageSquare size={16} strokeWidth={1.75} className="text-info-500" />}
+          >
+            <HistoricoMensagens mensagens={detalhe.mensagens} />
+          </SecaoFixa>
+        </div>
+        <div className="scroll-thin flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
+          <SecaoFixa
+            titulo="Mídias recebidas"
+            count={totalMidias}
+            icone={<Paperclip size={16} strokeWidth={1.75} className="text-gold-500" />}
+          >
+            <MidiasRecebidas
+              detalhe={detalhe}
+              onUploadMidia={onUploadMidia}
+              onDeletarMidia={onDeletarMidia}
+            />
+          </SecaoFixa>
+          <SecaoFixa
+            titulo="Histórico do atendimento"
+            count={detalhe.eventos.length}
+            icone={<Clock size={16} strokeWidth={1.75} className="text-text-muted" />}
+          >
+            <Eventos eventos={detalhe.eventos} />
+          </SecaoFixa>
+        </div>
+      </div>
     </section>
   )
 }
 
-function SecaoColapsavel({
+function SecaoFixa({
   titulo,
   count,
-  defaultOpen,
   icone,
   children,
 }: {
   titulo: string
   count?: number
-  defaultOpen?: boolean
   icone?: ReactNode
   children: ReactNode
 }) {
-  const [aberto, setAberto] = useState(defaultOpen ?? false)
   const temContagem = count !== undefined && count > 0
   return (
-    <div className="overflow-hidden rounded-lg border border-ink-300 bg-ink-100">
-      <button
-        type="button"
-        onClick={() => setAberto((a) => !a)}
-        className="flex w-full items-center gap-2.5 px-4 py-3.5 text-left transition-colors hover:bg-ink-200"
-      >
+    <div className="flex flex-col overflow-hidden rounded-lg border border-ink-300 bg-ink-100">
+      <div className="flex shrink-0 items-center gap-2.5 px-4 py-3">
         {icone && <span className="shrink-0">{icone}</span>}
         <span className="flex-1 text-[15px] font-semibold text-text-primary">{titulo}</span>
         {temContagem && (
@@ -204,17 +204,10 @@ function SecaoColapsavel({
             {count}
           </span>
         )}
-        <ChevronDown
-          size={18}
-          strokeWidth={1.75}
-          className={cn("text-text-muted transition-transform duration-150", aberto && "rotate-180")}
-        />
-      </button>
-      {aberto && (
-        <div className="border-t border-ink-300 p-4">
-          {children}
-        </div>
-      )}
+      </div>
+      <div className="border-t border-ink-300 p-4">
+        {children}
+      </div>
     </div>
   )
 }

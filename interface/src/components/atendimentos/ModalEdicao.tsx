@@ -9,12 +9,20 @@ import { Combobox } from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
+import { formatBRL, formatTelefone } from "@/lib/formatters"
 import type {
   AtendimentoDetalheResponse,
   EditarDadosPayload,
   ServicoFechado,
   TiposLocalResponse,
 } from "@/tipos/atendimentos"
+import { estadoLabel } from "./utils"
+
+const RESPONSAVEL_LABEL: Record<string, string> = {
+  IA: "IA",
+  Fernando: "Você",
+  modelo: "Modelo",
+}
 
 interface ProgramaModelo {
   programa_id: string
@@ -144,7 +152,7 @@ export function ModalEdicao({
 
   return (
     <Dialog open={!!detalhe} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="flex max-h-[90vh] w-[min(calc(100vw-32px),640px)] max-w-none flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-0 shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
+      <DialogContent className="flex max-h-[90vh] w-[min(94vw,72rem)] max-w-none flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-0 shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
         <div className="border-b border-border-subtle px-5 py-4">
           <DialogTitle className="text-base font-semibold leading-6 text-text-primary">
             Editar #{at.numero_curto}
@@ -154,8 +162,28 @@ export function ModalEdicao({
           </DialogDescription>
         </div>
 
-        <div className="scroll-thin grid gap-4 overflow-y-auto px-5 py-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border-subtle bg-surface px-5 py-3 text-xs sm:grid-cols-4">
+          <ItemContexto label="Cliente">
+            <span className="text-text-primary">{detalhe.cliente.nome ?? "Sem nome"}</span>
+            <span className="text-text-muted">{formatTelefone(detalhe.cliente.telefone)}</span>
+          </ItemContexto>
+          <ItemContexto label="Modelo">
+            <span className="text-text-primary">{detalhe.modelo.nome}</span>
+          </ItemContexto>
+          <ItemContexto label="Estado">
+            <span className="text-text-primary">{estadoLabel[at.estado]}</span>
+            {at.ia_pausada && <span className="text-text-muted">IA pausada</span>}
+          </ItemContexto>
+          <ItemContexto label="Responsável">
+            <span className="text-text-primary">{RESPONSAVEL_LABEL[at.responsavel_atual] ?? at.responsavel_atual}</span>
+            {at.estado === "Fechado" && at.valor_final != null && (
+              <span className="text-text-muted">{formatBRL(Number(at.valor_final))}</span>
+            )}
+          </ItemContexto>
+        </div>
+
+        <div className="grid min-h-0 flex-1 grid-cols-3 divide-x divide-border-subtle overflow-hidden">
+          <ColunaSecao titulo="Atendimento">
             <Campo label="Tipo de atendimento">
               <select
                 value={tipo}
@@ -181,9 +209,7 @@ export function ModalEdicao({
                 <option value="estimado">Estimado</option>
               </select>
             </Campo>
-          </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <Campo label="Data desejada">
               <Input className={controlClassName} type="date" value={dataDesejada} onChange={(e) => setDataDesejada(e.target.value)} />
             </Campo>
@@ -193,13 +219,12 @@ export function ModalEdicao({
             <Campo label="Duração (h)">
               <Input className={controlClassName} inputMode="decimal" placeholder="2" value={duracao} onChange={(e) => setDuracao(e.target.value)} />
             </Campo>
-          </div>
+          </ColunaSecao>
 
-          <Campo label="Endereço">
-            <Input className={controlClassName} placeholder="Rua, número" value={endereco} onChange={(e) => setEndereco(e.target.value)} />
-          </Campo>
-
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <ColunaSecao titulo="Local">
+            <Campo label="Endereço">
+              <Input className={controlClassName} placeholder="Rua, número" value={endereco} onChange={(e) => setEndereco(e.target.value)} />
+            </Campo>
             <Campo label="Bairro">
               <Input className={controlClassName} placeholder="Bairro" value={bairro} onChange={(e) => setBairro(e.target.value)} />
             </Campo>
@@ -213,58 +238,63 @@ export function ModalEdicao({
                 disabled={submitting}
               />
             </Campo>
-          </div>
+          </ColunaSecao>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Campo label="Forma de pagamento">
-              <select
-                value={formaPagamento}
-                onChange={(e) => setFormaPagamento(e.target.value)}
-                className={controlClassName}
-              >
-                <option value="">—</option>
-                <option value="pix">PIX</option>
-                <option value="dinheiro">Dinheiro</option>
-                <option value="cartão">Cartão</option>
-              </select>
-            </Campo>
-            <Campo label="Valor acordado (R$)">
-              <Input className={controlClassName} inputMode="decimal" placeholder="1.200,00" value={valorAcordado} onChange={(e) => setValorAcordado(e.target.value)} />
-            </Campo>
-          </div>
+          <ColunaSecao titulo="Pagamento & programas">
+            <div className="grid grid-cols-2 gap-3">
+              <Campo label="Forma de pagamento">
+                <select
+                  value={formaPagamento}
+                  onChange={(e) => setFormaPagamento(e.target.value)}
+                  className={controlClassName}
+                >
+                  <option value="">—</option>
+                  <option value="pix">PIX</option>
+                  <option value="dinheiro">Dinheiro</option>
+                  <option value="cartão">Cartão</option>
+                </select>
+              </Campo>
+              <Campo label="Valor acordado (R$)">
+                <Input className={controlClassName} inputMode="decimal" placeholder="1.200,00" value={valorAcordado} onChange={(e) => setValorAcordado(e.target.value)} />
+              </Campo>
+            </div>
 
-          <div className="flex flex-col gap-1.5">
-            <span className="text-[11px] font-medium leading-4 text-text-muted">Programas</span>
-            <div className="flex flex-col gap-1">
-              {servicosVisiveis.map((s) => (
-                <div key={s.id} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-hover px-3 py-2 text-sm">
-                  <span className="text-text-primary">{s.nome}</span>
-                  <div className="flex items-center gap-2">
-                    <span className="text-text-muted">{s.duracao_nome}</span>
+            <div className="mt-1 flex min-h-0 flex-1 flex-col gap-1.5">
+              <span className="text-[11px] font-medium leading-4 text-text-muted">Programas</span>
+              <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
+                {servicosVisiveis.map((s) => (
+                  <div key={s.id} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-hover px-3 py-2 text-sm">
+                    <span className="text-text-primary">{s.nome}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-text-muted">{s.duracao_nome}</span>
+                      <button
+                        type="button"
+                        onClick={() => setRemovidos((prev) => new Set([...prev, s.id]))}
+                        className="text-text-muted transition-colors hover:text-text-primary"
+                        disabled={submitting}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {adicionados.map((a, i) => (
+                  <div key={i} className="flex items-center justify-between rounded-lg border border-dashed border-border-subtle bg-surface px-3 py-2 text-sm">
+                    <span className="text-text-primary">{a.label}</span>
                     <button
                       type="button"
-                      onClick={() => setRemovidos((prev) => new Set([...prev, s.id]))}
+                      onClick={() => setAdicionados((prev) => prev.filter((_, j) => j !== i))}
                       className="text-text-muted transition-colors hover:text-text-primary"
                       disabled={submitting}
                     >
                       <X size={14} />
                     </button>
                   </div>
-                </div>
-              ))}
-              {adicionados.map((a, i) => (
-                <div key={i} className="flex items-center justify-between rounded-lg border border-dashed border-border-subtle bg-surface px-3 py-2 text-sm">
-                  <span className="text-text-primary">{a.label}</span>
-                  <button
-                    type="button"
-                    onClick={() => setAdicionados((prev) => prev.filter((_, j) => j !== i))}
-                    className="text-text-muted transition-colors hover:text-text-primary"
-                    disabled={submitting}
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ))}
+                ))}
+                {servicosVisiveis.length === 0 && adicionados.length === 0 && disponiveis.length === 0 && (
+                  <span className="text-xs text-text-muted">Nenhum programa disponível para esta modelo.</span>
+                )}
+              </div>
               {disponiveis.length > 0 && (
                 <div className="mt-1 flex gap-2">
                   <select
@@ -285,11 +315,8 @@ export function ModalEdicao({
                   </Button>
                 </div>
               )}
-              {servicosVisiveis.length === 0 && adicionados.length === 0 && disponiveis.length === 0 && (
-                <span className="text-xs text-text-muted">Nenhum programa disponível para esta modelo.</span>
-              )}
             </div>
-          </div>
+          </ColunaSecao>
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border-subtle bg-surface px-5 py-3">
@@ -308,6 +335,26 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
     <div className="flex min-w-0 flex-col gap-1.5">
       <Label className="text-[11px] font-medium leading-4 text-text-muted">{label}</Label>
       {children}
+    </div>
+  )
+}
+
+function ColunaSecao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-0 min-w-0 flex-col gap-3 px-5 py-4">
+      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        {titulo}
+      </span>
+      <div className="flex min-h-0 flex-1 flex-col gap-3">{children}</div>
+    </div>
+  )
+}
+
+function ItemContexto({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-0.5">
+      <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">{label}</span>
+      <div className="flex min-w-0 flex-col leading-tight [&>span]:break-words">{children}</div>
     </div>
   )
 }

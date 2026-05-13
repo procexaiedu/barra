@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { LayoutList, Columns, Search } from "lucide-react"
+import { LayoutList, Columns, Search, Plus } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
 import { FiltroPeriodo } from "@/components/atendimentos/FiltroPeriodo"
@@ -10,6 +10,7 @@ import { KanbanBoard } from "@/components/atendimentos/KanbanBoard"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { ModalVisualizacao } from "@/components/atendimentos/ModalVisualizacao"
 import { ModalEdicao } from "@/components/atendimentos/ModalEdicao"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAtendimentos } from "@/hooks/useAtendimentos"
@@ -27,6 +28,7 @@ import type {
   TipoFiltro,
   UrgenciaFiltro,
 } from "@/tipos/atendimentos"
+import type { Cliente, CriarClienteRequest } from "@/tipos/clientes"
 import type { ReactNode } from "react"
 
 const DATA_ISO_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -90,16 +92,28 @@ function CentralAtendimentosInner() {
   const pathname = usePathname()
   const initialId = searchParams.get("id")
 
-  const [view, setView] = useState<ViewMode>(() => {
-    if (typeof window === "undefined") return "lista"
+  const [view, setView] = useState<ViewMode>("lista")
+
+  useEffect(() => {
     const salvo = window.localStorage.getItem("atendimentos-view")
-    return salvo === "lista" || salvo === "kanban" ? salvo : "lista"
-  })
+    if (salvo === "lista" || salvo === "kanban") {
+      setView(salvo)
+    }
+  }, [])
 
   const handleViewChange = (v: ViewMode) => {
     setView(v)
     localStorage.setItem("atendimentos-view", v)
   }
+
+  const criarCliente = useCallback(
+    async (payload: CriarClienteRequest): Promise<Cliente> =>
+      api<Cliente>("/v1/crm/clientes", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      }),
+    []
+  )
 
   const filtrosOverride = useMemo<Partial<FiltrosAtendimentos>>(() => {
     const override: Partial<FiltrosAtendimentos> = {}
@@ -189,13 +203,19 @@ function CentralAtendimentosInner() {
         <h1 className="font-serif text-2xl font-medium leading-none text-text-primary">
           Atendimentos
         </h1>
-        <div className="flex items-center gap-1 rounded-lg border border-ink-300 bg-ink-100 p-0.5">
-          <ViewButton active={view === "lista"} onClick={() => handleViewChange("lista")} title="Lista">
-            <LayoutList size={15} strokeWidth={1.5} />
-          </ViewButton>
-          <ViewButton active={view === "kanban"} onClick={() => handleViewChange("kanban")} title="Kanban">
-            <Columns size={15} strokeWidth={1.5} />
-          </ViewButton>
+        <div className="flex items-center gap-2">
+          <Button variant="primary" size="sm" onClick={() => setModalNovoAberto(true)}>
+            <Plus size={14} strokeWidth={1.5} />
+            Novo atendimento
+          </Button>
+          <div className="flex items-center gap-1 rounded-lg border border-ink-300 bg-ink-100 p-0.5">
+            <ViewButton active={view === "lista"} onClick={() => handleViewChange("lista")} title="Lista">
+              <LayoutList size={15} strokeWidth={1.5} />
+            </ViewButton>
+            <ViewButton active={view === "kanban"} onClick={() => handleViewChange("kanban")} title="Kanban">
+              <Columns size={15} strokeWidth={1.5} />
+            </ViewButton>
+          </div>
         </div>
       </div>
 
@@ -258,7 +278,6 @@ function CentralAtendimentosInner() {
             onToggleEncerrados={() => setMostrarEncerrados((v) => !v)}
             onCardClick={setModalId}
             onMoverEstado={atendimentos.moverEstado}
-            onNovoAtendimento={() => setModalNovoAberto(true)}
           />
           <ModalVisualizacao
             atendimentoId={modalId}
@@ -281,7 +300,15 @@ function CentralAtendimentosInner() {
           open
           onClose={() => setModalNovoAberto(false)}
           onCriar={atendimentos.criarAtendimento}
-          onCriado={(id) => setModalId(id)}
+          onCriarCliente={criarCliente}
+          onCriado={async (id) => {
+            try {
+              const detalhe = await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`)
+              setModalEdicao(detalhe)
+            } catch {
+              // Falhou: usuário pode abrir manualmente via lista.
+            }
+          }}
         />
       )}
     </div>

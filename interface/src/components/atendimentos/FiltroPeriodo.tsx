@@ -35,11 +35,13 @@ function presetAtual(value: PeriodoFiltro): Preset {
   return "custom"
 }
 
-function rotulo(value: PeriodoFiltro): string {
-  const preset = presetAtual(value)
-  if (preset === "hoje") return "Hoje"
-  if (preset === "semana") return "Esta semana"
-  if (preset === "mes") return "Este mês"
+function rotulo(value: PeriodoFiltro, modoCustom: boolean): string {
+  if (!modoCustom) {
+    const preset = presetAtual(value)
+    if (preset === "hoje") return "Hoje"
+    if (preset === "semana") return "Esta semana"
+    if (preset === "mes") return "Este mês"
+  }
   if (value.de && value.ate) return `${formatarDiaMes(value.de)} – ${formatarDiaMes(value.ate)}`
   if (value.de) return `Desde ${formatarDiaMes(value.de)}`
   if (value.ate) return `Até ${formatarDiaMes(value.ate)}`
@@ -48,31 +50,26 @@ function rotulo(value: PeriodoFiltro): string {
 
 export function FiltroPeriodo({ value, onChange }: Props) {
   const [open, setOpen] = useState(false)
-  const preset = useMemo(() => presetAtual(value), [value])
-  const label = useMemo(() => rotulo(value), [value])
+  const [modoCustom, setModoCustom] = useState(false)
+  const presetDetectado = useMemo(() => presetAtual(value), [value])
+  const presetEfetivo: Preset = modoCustom ? "custom" : presetDetectado
+  const label = useMemo(() => rotulo(value, modoCustom), [value, modoCustom])
 
   const aplicarPreset = (proximo: Preset) => {
+    if (proximo === "custom") {
+      setModoCustom(true)
+      return
+    }
+    setModoCustom(false)
     if (proximo === "hoje") {
       const hoje = hojeBrtIso()
       onChange({ de: hoje, ate: hoje })
-      setOpen(false)
-      return
-    }
-    if (proximo === "semana") {
+    } else if (proximo === "semana") {
       onChange({ de: inicioSemanaBrtIso(), ate: fimSemanaBrtIso() })
-      setOpen(false)
-      return
-    }
-    if (proximo === "mes") {
+    } else if (proximo === "mes") {
       onChange({ de: inicioMesBrtIso(), ate: fimMesBrtIso() })
-      setOpen(false)
-      return
     }
-    // custom: mantém intervalo atual ou inicia em hoje
-    if (preset !== "custom") {
-      const hoje = hojeBrtIso()
-      onChange({ de: hoje, ate: hoje })
-    }
+    setOpen(false)
   }
 
   return (
@@ -93,20 +90,20 @@ export function FiltroPeriodo({ value, onChange }: Props) {
         className="flex w-[320px] flex-col gap-3 sm:w-[360px]"
       >
         <div className="flex flex-wrap gap-1.5">
-          <PresetBotao ativo={preset === "hoje"} onClick={() => aplicarPreset("hoje")}>
+          <PresetBotao ativo={presetEfetivo === "hoje"} onClick={() => aplicarPreset("hoje")}>
             Hoje
           </PresetBotao>
-          <PresetBotao ativo={preset === "semana"} onClick={() => aplicarPreset("semana")}>
+          <PresetBotao ativo={presetEfetivo === "semana"} onClick={() => aplicarPreset("semana")}>
             Esta semana
           </PresetBotao>
-          <PresetBotao ativo={preset === "mes"} onClick={() => aplicarPreset("mes")}>
+          <PresetBotao ativo={presetEfetivo === "mes"} onClick={() => aplicarPreset("mes")}>
             Este mês
           </PresetBotao>
-          <PresetBotao ativo={preset === "custom"} onClick={() => aplicarPreset("custom")}>
+          <PresetBotao ativo={presetEfetivo === "custom"} onClick={() => aplicarPreset("custom")}>
             Personalizado
           </PresetBotao>
         </div>
-        {preset === "custom" ? (
+        {presetEfetivo === "custom" ? (
           <div className="flex justify-center">
             <RangeCalendar
               value={value}

@@ -14,6 +14,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { cn } from "@/lib/utils"
+import { formatBRL } from "@/lib/formatters"
 import type { AtendimentoOperacional, MotivoPerda } from "@/tipos/atendimentos"
 
 type Dialog = "devolver" | "fechar" | "perder" | null
@@ -34,6 +36,13 @@ function parseValorFinal(input: string) {
     .replace(",", ".")
   const valor = Number(normalizado)
   return Number.isFinite(valor) ? valor : null
+}
+
+function motivoPausaLabel(motivo: AtendimentoOperacional["ia_pausada_motivo"]): string {
+  if (motivo === "pix_em_revisao") return "Pix em revisão"
+  if (motivo === "handoff_ia") return "Aguardando você"
+  if (motivo === "modelo_em_atendimento") return "Modelo atendendo"
+  return "—"
 }
 
 export function AcoesAtendimento({
@@ -134,7 +143,7 @@ export function AcoesAtendimento({
       </Button>
 
       <AlertDialog open={dialog === "devolver"} onOpenChange={(open) => !submitting && setDialog(open ? "devolver" : null)}>
-        <AlertDialogContent className="max-w-md bg-card">
+        <AlertDialogContent className="w-[min(94vw,28rem)] max-w-none bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-lg font-semibold text-text-primary">
               Devolver #{atendimento.numero_curto} para a IA?
@@ -143,6 +152,12 @@ export function AcoesAtendimento({
               A IA volta a responder o cliente na próxima mensagem.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {atendimento.ia_pausada && (
+            <div className="flex items-center gap-3 rounded-md border border-border-subtle bg-surface px-3 py-2 text-xs">
+              <span className="text-text-muted">IA pausada</span>
+              <span className="text-text-primary">{motivoPausaLabel(atendimento.ia_pausada_motivo)}</span>
+            </div>
+          )}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={submitting}>Cancelar</AlertDialogCancel>
             <AlertDialogAction variant="primary" onClick={handleDevolver} disabled={submitting}>
@@ -153,7 +168,7 @@ export function AcoesAtendimento({
       </AlertDialog>
 
       <AlertDialog open={dialog === "fechar"} onOpenChange={(open) => !submitting && setDialog(open ? "fechar" : null)}>
-        <AlertDialogContent className="max-w-md bg-card">
+        <AlertDialogContent className="w-[min(94vw,40rem)] max-w-none bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-lg font-semibold text-text-primary">
               Converter #{atendimento.numero_curto}?
@@ -162,22 +177,36 @@ export function AcoesAtendimento({
               Informe o valor final bruto pago pelo cliente.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div>
-            <label className="mb-2 block text-sm font-medium text-text-primary" htmlFor="valor-final">
-              Valor final
-            </label>
-            <Input
-              id="valor-final"
-              inputMode="decimal"
-              value={valorFinal}
-              onChange={(event) => {
-                setValorFinal(event.target.value)
-                setErro(null)
-              }}
-              placeholder="1200,00"
-            />
-            {erro && <p className="mt-2 text-[13px] text-danger-500">{erro}</p>}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-border-subtle bg-surface px-3 py-2.5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                Valor acordado
+              </p>
+              <p className="mt-1 font-serif text-[22px] font-medium leading-none tabular-nums text-gold-500">
+                {atendimento.valor_acordado != null
+                  ? formatBRL(Number(atendimento.valor_acordado))
+                  : "—"}
+              </p>
+            </div>
+            <div>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted" htmlFor="valor-final">
+                Valor final
+              </label>
+              <Input
+                id="valor-final"
+                inputMode="decimal"
+                value={valorFinal}
+                onChange={(event) => {
+                  setValorFinal(event.target.value)
+                  setErro(null)
+                }}
+                placeholder="1200,00"
+                className="h-11 text-base"
+                autoFocus
+              />
+            </div>
           </div>
+          {erro && <p className="text-[13px] text-danger-500">{erro}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={submitting}>Cancelar</AlertDialogCancel>
             <AlertDialogAction variant="primary" onClick={handleFechar} disabled={submitting}>
@@ -188,7 +217,7 @@ export function AcoesAtendimento({
       </AlertDialog>
 
       <AlertDialog open={dialog === "perder"} onOpenChange={(open) => !submitting && setDialog(open ? "perder" : null)}>
-        <AlertDialogContent className="max-w-md bg-card">
+        <AlertDialogContent className="w-[min(94vw,48rem)] max-w-none bg-card">
           <AlertDialogHeader>
             <AlertDialogTitle className="text-lg font-semibold text-text-primary">
               Marcar #{atendimento.numero_curto} como perdido?
@@ -197,41 +226,55 @@ export function AcoesAtendimento({
               Escolha o motivo da perda. O atendimento será encerrado.
             </AlertDialogDescription>
           </AlertDialogHeader>
-          <div className="space-y-3">
+          <div className="flex items-center gap-3 text-xs text-text-muted">
+            <span>#{atendimento.numero_curto}</span>
+            {atendimento.valor_acordado != null && (
+              <>
+                <span aria-hidden>·</span>
+                <span>valor acordado {formatBRL(Number(atendimento.valor_acordado))}</span>
+              </>
+            )}
+          </div>
+          <div className="flex flex-col gap-3">
             <div>
-              <label className="mb-2 block text-sm font-medium text-text-primary" htmlFor="motivo-perda">
+              <span className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
                 Motivo da perda
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                {motivos.map((item) => (
+                  <button
+                    key={item.value}
+                    type="button"
+                    onClick={() => {
+                      setMotivo(item.value)
+                      setErro(null)
+                    }}
+                    className={cn(
+                      "rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
+                      motivo === item.value
+                        ? "border-ring bg-surface-pressed text-text-primary"
+                        : "border-border-subtle bg-surface-hover text-text-secondary hover:bg-surface-pressed"
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted" htmlFor="observacao-perda">
+                Observação {motivo === "outro" ? "(obrigatória)" : "(opcional)"}
               </label>
-              <select
-                id="motivo-perda"
-                value={motivo}
+              <Input
+                id="observacao-perda"
+                value={observacao}
                 onChange={(event) => {
-                  setMotivo(event.target.value as MotivoPerda)
+                  setObservacao(event.target.value)
                   setErro(null)
                 }}
-                className="h-9 w-full rounded-lg border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                {motivos.map((item) => (
-                  <option key={item.value} value={item.value}>{item.label}</option>
-                ))}
-              </select>
+                placeholder="Descreva o motivo"
+              />
             </div>
-            {motivo === "outro" && (
-              <div>
-                <label className="mb-2 block text-sm font-medium text-text-primary" htmlFor="observacao-perda">
-                  Observação
-                </label>
-                <Input
-                  id="observacao-perda"
-                  value={observacao}
-                  onChange={(event) => {
-                    setObservacao(event.target.value)
-                    setErro(null)
-                  }}
-                  placeholder="Descreva o motivo"
-                />
-              </div>
-            )}
             {erro && <p className="text-[13px] text-danger-500">{erro}</p>}
           </div>
           <AlertDialogFooter>

@@ -196,7 +196,7 @@ async def criar_atendimento(
     async with conn.transaction():
         cliente = await _fetch_one(
             conn,
-            "SELECT id, arquivado_em FROM barravips.clientes WHERE id = %s",
+            "SELECT id, telefone, arquivado_em FROM barravips.clientes WHERE id = %s",
             (body.cliente_id,),
         )
         if cliente is None:
@@ -218,6 +218,7 @@ async def criar_atendimento(
             cliente_id=body.cliente_id,
             modelo_id=body.modelo_id,
             origem="painel_fernando",
+            evolution_chat_id=f"{cliente['telefone']}@s.whatsapp.net",
         )
         if atendimento.ja_existia:
             raise ConflitoEstado(

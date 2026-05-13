@@ -14,11 +14,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ApiError, api } from "@/lib/api"
 import { formatTelefone } from "@/lib/formatters"
+import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
 import type {
+  Cliente,
   ClienteListItem,
   ClientesListaResponse,
-  ModeloResumo,
+  CriarClienteRequest,
 } from "@/tipos/clientes"
+import type { ModelosListaResponse } from "@/tipos/modelos"
 import type {
   CriarAtendimentoRequest,
   CriarAtendimentoResultado,
@@ -33,6 +36,7 @@ interface ModalNovoAtendimentoProps {
   open: boolean
   onClose: () => void
   onCriar: (payload: CriarAtendimentoRequest) => Promise<CriarAtendimentoResultado>
+  onCriarCliente: (payload: CriarClienteRequest) => Promise<Cliente>
   onCriado: (atendimentoId: string) => void
 }
 
@@ -40,6 +44,7 @@ export function ModalNovoAtendimento({
   open,
   onClose,
   onCriar,
+  onCriarCliente,
   onCriado,
 }: ModalNovoAtendimentoProps) {
   const [busca, setBusca] = useState("")
@@ -48,19 +53,25 @@ export function ModalNovoAtendimento({
   const [clienteSelecionado, setClienteSelecionado] = useState<ClienteListItem | null>(null)
   const [modelos, setModelos] = useState<ModeloOpcao[]>([])
   const [modeloId, setModeloId] = useState<string>("")
+  const [carregandoModelos, setCarregandoModelos] = useState(true)
+  const [erroModelos, setErroModelos] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const [modalClienteAberto, setModalClienteAberto] = useState(false)
   const buscaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     let cancelado = false
-    api<ModeloResumo[]>("/v1/modelos")
-      .then((rows) => {
+    api<ModelosListaResponse>("/v1/modelos?status=ativa&limit=100")
+      .then((res) => {
         if (cancelado) return
-        setModelos(rows.map((r) => ({ id: r.id, nome: r.nome })))
+        setModelos(res.items.map((r) => ({ id: r.id, nome: r.nome })))
+        setCarregandoModelos(false)
       })
       .catch(() => {
         if (cancelado) return
         setModelos([])
+        setErroModelos(true)
+        setCarregandoModelos(false)
       })
     return () => {
       cancelado = true
@@ -147,14 +158,29 @@ export function ModalNovoAtendimento({
 
   const podeSalvar = Boolean(clienteSelecionado && modeloId) && !submitting
 
+  const aoCriarCliente = (cliente: Cliente) => {
+    const item: ClienteListItem = {
+      id: cliente.id,
+      nome: cliente.nome,
+      telefone_mascarado: cliente.telefone,
+      primeiro_contato_modelo_id: null,
+      arquivado_em: cliente.arquivado_em,
+      created_at: cliente.created_at,
+      updated_at: cliente.updated_at,
+    }
+    selecionarCliente(item)
+    setModalClienteAberto(false)
+  }
+
   return (
+    <>
     <Dialog
       open={open}
       onOpenChange={(o) => {
         if (!o) handleClose()
       }}
     >
-      <DialogContent className="w-full max-w-lg rounded-lg border border-border bg-popover p-6 text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
+      <DialogContent className="w-[min(94vw,40rem)] max-w-none rounded-lg border border-border bg-popover p-6 text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
         <DialogTitle>Novo atendimento</DialogTitle>
         <DialogDescription className="mt-1">
           Selecione o cliente e a modelo para abrir um atendimento.
@@ -162,7 +188,18 @@ export function ModalNovoAtendimento({
 
         <div className="mt-5 space-y-4">
           <div className="relative">
-            <Label htmlFor="novo-atend-cliente">Cliente</Label>
+            <div className="flex items-center justify-between">
+              <Label htmlFor="novo-atend-cliente">Cliente</Label>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setModalClienteAberto(true)}
+                disabled={submitting}
+              >
+                + Novo cliente
+              </Button>
+            </div>
             <div className="relative mt-2">
               <Search
                 size={14}
@@ -236,7 +273,13 @@ export function ModalNovoAtendimento({
               className="mt-2 h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
             >
               <option value="" disabled>
-                {modelos.length === 0 ? "Carregando…" : "Selecione…"}
+                {carregandoModelos
+                  ? "Carregando…"
+                  : erroModelos
+                    ? "Erro ao carregar modelos"
+                    : modelos.length === 0
+                      ? "Nenhuma modelo ativa"
+                      : "Selecione…"}
               </option>
               {modelos.map((m) => (
                 <option key={m.id} value={m.id}>
@@ -258,5 +301,12 @@ export function ModalNovoAtendimento({
         </div>
       </DialogContent>
     </Dialog>
+    <ModalCriarCliente
+      open={modalClienteAberto}
+      onClose={() => setModalClienteAberto(false)}
+      onCriar={onCriarCliente}
+      onCriado={aoCriarCliente}
+    />
+    </>
   )
 }
