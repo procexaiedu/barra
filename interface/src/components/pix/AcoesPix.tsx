@@ -1,19 +1,24 @@
 "use client"
 
 import { useState } from "react"
-import { Eye, ExternalLink, MessageSquare } from "lucide-react"
+import {
+  CheckCircle2,
+  Eye,
+  ExternalLink,
+  MessageSquare,
+  RotateCcw,
+  XCircle,
+} from "lucide-react"
 import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import {
   Sheet,
@@ -23,8 +28,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet"
 import { formatBRL, formatTelefone } from "@/lib/formatters"
+import { cn } from "@/lib/utils"
 import type { MotivoRejeicao, PixDetalheResponse } from "@/tipos/pix"
-import { isPendente, isRejeitado, motivoRejeicaoOptions } from "./utils"
+import {
+  badgeForStatusPix,
+  isPendente,
+  isRejeitado,
+  motivoRejeicaoOptions,
+  motivoRevisaoLabel,
+  statusItemPix,
+} from "./utils"
 
 type DialogAtivo = "validar" | "rejeitar" | "reabrir" | null
 type SheetAtivo = "conversa" | null
@@ -51,6 +64,20 @@ export function AcoesPix({
 
   const pendente = isPendente(detalhe.pix)
   const rejeitado = isRejeitado(detalhe.pix)
+  const status = statusItemPix(detalhe.pix.decisao_pipeline, detalhe.pix.decisao_final)
+  const statusBadge = badgeForStatusPix(status)
+
+  const valorLabel =
+    detalhe.pix.valor_extraido !== null
+      ? formatBRL(detalhe.pix.valor_extraido)
+      : null
+  const clienteLabel =
+    detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)
+  const titularLabel = detalhe.pix.titular_extraido
+  const motivoRevisao =
+    detalhe.pix.motivo_em_revisao && detalhe.pix.motivo_em_revisao in motivoRevisaoLabel
+      ? motivoRevisaoLabel[detalhe.pix.motivo_em_revisao]
+      : null
 
   const abrir = (proximo: DialogAtivo) => {
     setErro(null)
@@ -66,10 +93,7 @@ export function AcoesPix({
     setSubmitting(true)
     try {
       await onAprovar(detalhe.pix.id)
-      const valor = detalhe.pix.valor_extraido !== null
-        ? formatBRL(detalhe.pix.valor_extraido)
-        : "comprovante"
-      toast.success(`Pix de ${valor} validado`)
+      toast.success(`Pix de ${valorLabel ?? "comprovante"} validado`)
       setDialog(null)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao validar Pix")
@@ -118,10 +142,8 @@ export function AcoesPix({
   const podeAbrirAtendimento = detalhe.atendimento !== null
   const podeAbrirConversa = detalhe.conversa !== null
 
-  const nomeCliente =
-    detalhe.conversa !== null
-      ? (detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone))
-      : null
+  const nomeClienteParaConversa =
+    detalhe.conversa !== null ? clienteLabel : null
 
   return (
     <div className="space-y-2">
@@ -170,10 +192,10 @@ export function AcoesPix({
             <SheetTitle>Conversa com {detalhe.modelo.nome}</SheetTitle>
           </SheetHeader>
           <SheetBody className="space-y-3">
-            {nomeCliente && (
+            {nomeClienteParaConversa && (
               <div>
                 <p className="text-xs text-text-muted">Cliente</p>
-                <p className="text-sm text-text-primary">{nomeCliente}</p>
+                <p className="text-sm text-text-primary">{nomeClienteParaConversa}</p>
               </div>
             )}
             <div>
@@ -191,111 +213,267 @@ export function AcoesPix({
         </SheetContent>
       </Sheet>
 
-      <AlertDialog open={dialog === "validar"} onOpenChange={(o) => !submitting && setDialog(o ? "validar" : null)}>
-        <AlertDialogContent className="max-w-md bg-card">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-lg font-semibold text-text-primary">
-              Validar Pix manualmente?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm text-text-secondary">
-              A modelo recebe a saída confirmada no grupo de Coordenação e o atendimento avança para Confirmado. Esta decisão é definitiva.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={submitting} onClick={fechar}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction variant="primary" onClick={handleAprovar} disabled={submitting}>
+      {/* ═══════════════════════ VALIDAR ═══════════════════════ */}
+      <AlertDialog
+        open={dialog === "validar"}
+        onOpenChange={(o) => !submitting && setDialog(o ? "validar" : null)}
+      >
+        <AlertDialogContent className="flex w-[min(96vw,44rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0">
+          {/* Header */}
+          <div className="flex items-start gap-3 border-b border-border px-7 py-5">
+            <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
+              <CheckCircle2 size={22} strokeWidth={1.8} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-lg font-semibold text-text-primary">
+                Validar Pix manualmente?
+              </h2>
+              <p className="mt-1 text-sm text-text-secondary">
+                A modelo recebe a saída confirmada no grupo de Coordenação e o atendimento avança para Confirmado.
+                Esta decisão é definitiva.
+              </p>
+            </div>
+          </div>
+
+          {/* Hero */}
+          <div className="grid grid-cols-3 gap-3 px-7 py-5">
+            <HeroBlock label="Valor">
+              {valorLabel ? (
+                <span className="text-2xl font-semibold leading-none text-text-primary">
+                  {valorLabel}
+                </span>
+              ) : (
+                <span className="text-base text-text-muted">Não identificado</span>
+              )}
+            </HeroBlock>
+            <HeroBlock label="Cliente">
+              <span className="text-sm text-text-primary">{clienteLabel}</span>
+            </HeroBlock>
+            <HeroBlock label="Remetente do comprovante">
+              {titularLabel ? (
+                <span className="text-sm text-text-primary">{titularLabel}</span>
+              ) : (
+                <span className="text-sm text-text-muted">Não identificado</span>
+              )}
+            </HeroBlock>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/40 px-7 py-4">
+            <AlertDialogCancel disabled={submitting} onClick={fechar}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="primary"
+              className="bg-emerald-600 text-white hover:bg-emerald-500"
+              onClick={handleAprovar}
+              disabled={submitting}
+            >
               {submitting ? "Validando…" : "Confirmar validação"}
             </AlertDialogAction>
-          </AlertDialogFooter>
+          </div>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={dialog === "rejeitar"} onOpenChange={(o) => !submitting && setDialog(o ? "rejeitar" : null)}>
-        <AlertDialogContent className="max-w-md bg-card">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-lg font-semibold text-text-primary">
-              Rejeitar Pix?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm text-text-secondary">
-              A IA envia a mensagem correspondente ao motivo escolhido pedindo um novo
-              comprovante. O atendimento continua aguardando o Pix.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <div className="space-y-3">
-            <div>
-              <label
-                className="mb-2 block text-sm font-medium text-text-primary"
-                htmlFor="motivo-rejeicao"
-              >
-                Motivo
-              </label>
-              <select
-                id="motivo-rejeicao"
-                value={motivo}
-                onChange={(event) => {
-                  setMotivo(event.target.value as MotivoRejeicao)
-                  setErro(null)
-                }}
-                className="h-9 w-full rounded-lg border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              >
-                {motivoRejeicaoOptions.map((item) => (
-                  <option key={item.value} value={item.value}>{item.label}</option>
-                ))}
-              </select>
+      {/* ═══════════════════════ REJEITAR ═══════════════════════ */}
+      <AlertDialog
+        open={dialog === "rejeitar"}
+        onOpenChange={(o) => !submitting && setDialog(o ? "rejeitar" : null)}
+      >
+        <AlertDialogContent className="flex w-[min(96vw,68rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0">
+          {/* Header */}
+          <div className="flex items-start gap-3 border-b border-border px-8 py-5">
+            <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-500">
+              <XCircle size={22} strokeWidth={1.8} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-lg font-semibold text-text-primary">
+                Rejeitar Pix?
+              </h2>
+              <p className="mt-1 text-sm text-text-secondary">
+                A IA envia a mensagem correspondente ao motivo escolhido pedindo um novo
+                comprovante. O atendimento continua aguardando o Pix.
+              </p>
             </div>
+            <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
+          </div>
+
+          {/* Hero strip */}
+          <div className="grid grid-cols-3 gap-3 border-b border-border px-8 py-4">
+            <HeroBlock label="Valor">
+              {valorLabel ? (
+                <span className="text-xl font-semibold leading-none text-text-primary">
+                  {valorLabel}
+                </span>
+              ) : (
+                <span className="text-sm text-text-muted">Não identificado</span>
+              )}
+            </HeroBlock>
+            <HeroBlock label="Cliente">
+              <span className="text-sm text-text-primary">{clienteLabel}</span>
+            </HeroBlock>
+            <HeroBlock label={motivoRevisao ? "Motivo da revisão" : "Modelo"}>
+              {motivoRevisao ? (
+                <span className="inline-flex items-center gap-1.5 text-sm text-state-handoff">
+                  <RotateCcw size={13} strokeWidth={1.8} />
+                  {motivoRevisao}
+                </span>
+              ) : (
+                <span className="text-sm text-text-primary">{detalhe.modelo.nome}</span>
+              )}
+            </HeroBlock>
+          </div>
+
+          {/* Body 2-col */}
+          <div className="grid flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-8 gap-y-4 px-8 py-6">
+            {/* Coluna esquerda: motivos */}
             <div>
-              <label
-                className="mb-2 block text-sm font-medium text-text-primary"
-                htmlFor="observacao-rejeicao"
-              >
-                Observação interna {motivo === "outro" ? "" : "(opcional)"}
-              </label>
+              <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                Motivo da rejeição
+              </p>
+              <div className="mt-3 grid grid-cols-1 gap-1.5">
+                {motivoRejeicaoOptions.map((o) => (
+                  <button
+                    key={o.value}
+                    type="button"
+                    onClick={() => {
+                      setMotivo(o.value)
+                      setErro(null)
+                    }}
+                    className={cn(
+                      "flex items-center justify-between rounded-md border px-3.5 py-2.5 text-left text-sm transition-colors",
+                      motivo === o.value
+                        ? "border-red-500/70 bg-red-500/10 text-text-primary"
+                        : "border-ink-400 bg-ink-100 text-text-secondary hover:border-ink-500 hover:text-text-primary",
+                    )}
+                  >
+                    <span>{o.label}</span>
+                    {motivo === o.value && (
+                      <span aria-hidden className="size-2 rounded-full bg-red-500" />
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Coluna direita: observação */}
+            <div className="flex flex-col">
+              <div className="flex items-baseline justify-between">
+                <Label
+                  htmlFor="rej-obs"
+                  className="text-xs font-semibold uppercase tracking-wider text-text-muted"
+                >
+                  Observação interna{" "}
+                  <span className="text-text-muted normal-case tracking-normal">
+                    {motivo === "outro" ? "(obrigatória)" : "(opcional)"}
+                  </span>
+                </Label>
+                <span className="text-xs text-text-muted">{observacao.length}/500</span>
+              </div>
               <Textarea
-                id="observacao-rejeicao"
+                id="rej-obs"
                 value={observacao}
                 onChange={(event) => {
                   setObservacao(event.target.value)
                   setErro(null)
                 }}
                 placeholder="Não exibida ao cliente"
-                rows={3}
+                rows={8}
                 maxLength={500}
+                className="mt-3 min-h-[180px] flex-1 resize-none"
               />
-              {observacao.length >= 400 && (
-                <p className="mt-1 text-right text-xs text-text-muted">
-                  {observacao.length}/500
-                </p>
-              )}
+              <p className="mt-2 text-xs text-text-muted">
+                Aparece apenas no histórico interno e no card de Coordenação por modelo.
+              </p>
+              {erro && <p className="mt-2 text-[13px] text-danger-500">{erro}</p>}
             </div>
-            {erro && <p className="text-[13px] text-danger-500">{erro}</p>}
           </div>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={submitting} onClick={fechar}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction variant="danger" onClick={handleRejeitar} disabled={submitting}>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/40 px-8 py-4">
+            <AlertDialogCancel disabled={submitting} onClick={fechar}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="danger"
+              onClick={handleRejeitar}
+              disabled={submitting}
+            >
               {submitting ? "Rejeitando…" : "Confirmar rejeição"}
             </AlertDialogAction>
-          </AlertDialogFooter>
+          </div>
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={dialog === "reabrir"} onOpenChange={(o) => !submitting && setDialog(o ? "reabrir" : null)}>
-        <AlertDialogContent className="max-w-md bg-card">
-          <AlertDialogHeader>
-            <AlertDialogTitle className="text-lg font-semibold text-text-primary">
-              Reabrir Pix?
-            </AlertDialogTitle>
-            <AlertDialogDescription className="text-sm text-text-secondary">
-              O Pix volta para revisão. O atendimento não é alterado.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={submitting} onClick={fechar}>Cancelar</AlertDialogCancel>
-            <AlertDialogAction variant="primary" onClick={handleReabrir} disabled={submitting}>
+      {/* ═══════════════════════ REABRIR ═══════════════════════ */}
+      <AlertDialog
+        open={dialog === "reabrir"}
+        onOpenChange={(o) => !submitting && setDialog(o ? "reabrir" : null)}
+      >
+        <AlertDialogContent className="flex w-[min(96vw,40rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0">
+          {/* Header */}
+          <div className="flex items-start gap-3 border-b border-border px-7 py-5">
+            <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-state-handoff/15 text-state-handoff">
+              <RotateCcw size={20} strokeWidth={1.8} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <h2 className="text-lg font-semibold text-text-primary">
+                Reabrir Pix?
+              </h2>
+              <p className="mt-1 text-sm text-text-secondary">
+                O Pix volta para revisão. O atendimento não é alterado e nenhuma mensagem é enviada ao cliente.
+              </p>
+            </div>
+          </div>
+
+          {/* Hero */}
+          <div className="grid grid-cols-2 gap-3 px-7 py-5">
+            <HeroBlock label="Valor">
+              {valorLabel ? (
+                <span className="text-xl font-semibold leading-none text-text-primary">
+                  {valorLabel}
+                </span>
+              ) : (
+                <span className="text-base text-text-muted">Não identificado</span>
+              )}
+            </HeroBlock>
+            <HeroBlock label="Cliente">
+              <span className="text-sm text-text-primary">{clienteLabel}</span>
+            </HeroBlock>
+          </div>
+
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/40 px-7 py-4">
+            <AlertDialogCancel disabled={submitting} onClick={fechar}>
+              Cancelar
+            </AlertDialogCancel>
+            <AlertDialogAction
+              variant="primary"
+              onClick={handleReabrir}
+              disabled={submitting}
+            >
               {submitting ? "Reabrindo…" : "Confirmar reabertura"}
             </AlertDialogAction>
-          </AlertDialogFooter>
+          </div>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  )
+}
+
+function HeroBlock({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="rounded-lg border border-border bg-card px-3.5 py-2.5">
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+        {label}
+      </p>
+      <div className="mt-1.5">{children}</div>
     </div>
   )
 }

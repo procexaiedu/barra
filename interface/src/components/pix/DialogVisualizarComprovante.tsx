@@ -1,18 +1,44 @@
 "use client"
 
 import { useState } from "react"
-import { ExternalLink, X } from "lucide-react"
+import {
+  CheckCircle2,
+  ExternalLink,
+  FileText,
+  RotateCcw,
+  X,
+  XCircle,
+} from "lucide-react"
 import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
   DialogClose,
   DialogContent,
+  DialogTitle,
 } from "@/components/ui/dialog"
 import { BannerErro } from "@/components/layout/BannerErro"
-import type { ComprovanteUrlResponse, MotivoRejeicao, PixDetalhe } from "@/tipos/pix"
-import { motivoRejeicaoOptions } from "./utils"
+import { formatBRL, formatDataHora, formatTelefone } from "@/lib/formatters"
+import { cn } from "@/lib/utils"
+import type {
+  ChecagemPix,
+  ClienteResumoPix,
+  ComprovanteUrlResponse,
+  ModeloResumoPix,
+  MotivoRejeicao,
+  PixDetalhe,
+} from "@/tipos/pix"
+import {
+  badgeForStatusPix,
+  checagemLabel,
+  motivoRejeicaoOptions,
+  motivoRevisaoLabel,
+  statusItemPix,
+  tipoChaveLabel,
+} from "./utils"
 
 type Fase = "view" | "rejecting"
 
@@ -20,6 +46,9 @@ export function DialogVisualizarComprovante({
   open,
   onOpenChange,
   pix,
+  cliente,
+  modelo,
+  checagens,
   comprovante,
   comprovanteStatus,
   onTentarNovamente,
@@ -29,6 +58,9 @@ export function DialogVisualizarComprovante({
   open: boolean
   onOpenChange: (open: boolean) => void
   pix: PixDetalhe | null
+  cliente: ClienteResumoPix | null
+  modelo: ModeloResumoPix | null
+  checagens: ChecagemPix[]
   comprovante: ComprovanteUrlResponse | null
   comprovanteStatus: "idle" | "loading" | "success" | "error"
   onTentarNovamente: () => void
@@ -93,155 +125,350 @@ export function DialogVisualizarComprovante({
     }
   }
 
+  const status = pix ? statusItemPix(pix.decisao_pipeline, pix.decisao_final) : null
+  const badge = status ? badgeForStatusPix(status) : null
+  const valor = pix?.valor_extraido !== null && pix?.valor_extraido !== undefined
+    ? formatBRL(pix.valor_extraido)
+    : null
+  const horario = pix?.horario_transacao ? formatDataHora(pix.horario_transacao) : null
+  const clienteLabel = cliente
+    ? cliente.nome ?? formatTelefone(cliente.telefone)
+    : null
+  const motivoRevisao =
+    pix?.motivo_em_revisao && pix.motivo_em_revisao in motivoRevisaoLabel
+      ? motivoRevisaoLabel[pix.motivo_em_revisao]
+      : null
+
+  const totalChecagens = checagens.length
+  const passaram = checagens.filter((c) => c.passou).length
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[100vh] w-[100vw] flex-col bg-ink-0 p-0">
-        {/* Header com botão fechar */}
-        <div className="flex flex-none items-center justify-end p-2">
+      <DialogContent
+        className={cn(
+          "flex w-[min(98vw,108rem)] h-[min(96vh,68rem)] flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]",
+        )}
+      >
+        {/* Header */}
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-6 py-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <DialogTitle className="text-lg font-semibold text-text-primary">
+              Comprovante Pix
+            </DialogTitle>
+            {badge && <Badge variant={badge.variant}>{badge.label}</Badge>}
+            {clienteLabel && (
+              <span className="truncate text-sm text-text-secondary">
+                · {clienteLabel}
+              </span>
+            )}
+            {modelo && (
+              <span className="hidden truncate text-xs text-text-muted md:inline">
+                em conversa com {modelo.nome}
+              </span>
+            )}
+          </div>
           <DialogClose
             render={
               <Button variant="ghost" size="icon" aria-label="Fechar">
-                <X size={20} strokeWidth={1.5} />
+                <X size={18} strokeWidth={1.5} />
               </Button>
             }
           />
         </div>
 
-        {/* Área do comprovante — clicar no fundo escuro fecha o dialog */}
-        <div
-          className="flex flex-1 items-center justify-center overflow-hidden"
-          onClick={() => !submitting && onOpenChange(false)}
-        >
+        {/* Body: viewer + sidebar */}
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_440px]">
+          {/* Viewer */}
           <div
-            className="flex max-h-full max-w-full flex-col items-center"
-            onClick={(e) => e.stopPropagation()}
+            className="relative flex min-h-0 items-center justify-center overflow-hidden bg-ink-0"
+            onClick={() => !submitting && onOpenChange(false)}
           >
-            {comprovanteStatus === "error" ? (
-              <div className="w-full max-w-md">
-                <BannerErro
-                  mensagem="Não foi possível carregar o comprovante."
-                  onRetry={onTentarNovamente}
-                />
-              </div>
-            ) : comprovanteStatus === "loading" || comprovante === null ? (
-              <p className="text-sm text-text-muted">Carregando…</p>
-            ) : isMinioUrl ? (
-              <p className="text-sm text-text-muted">
-                Comprovante não disponível em ambiente de desenvolvimento
-              </p>
-            ) : isImage ? (
-              // URL assinada do MinIO com expiry; next/image precisaria de loader customizado.
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={comprovante.url}
-                alt={pix?.nome_arquivo ?? "Comprovante"}
-                className="max-h-full max-w-full object-contain"
-              />
-            ) : isPdf ? (
-              <div className="flex h-full flex-col items-center gap-4" style={{ width: "90vw" }}>
-                <iframe
+            <div
+              className="flex max-h-full max-w-full flex-col items-center justify-center px-6 py-6"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {comprovanteStatus === "error" ? (
+                <div className="w-full max-w-md">
+                  <BannerErro
+                    mensagem="Não foi possível carregar o comprovante."
+                    onRetry={onTentarNovamente}
+                  />
+                </div>
+              ) : comprovanteStatus === "loading" || comprovante === null ? (
+                <p className="text-sm text-text-muted">Carregando…</p>
+              ) : isMinioUrl ? (
+                <p className="text-sm text-text-muted">
+                  Comprovante não disponível em ambiente de desenvolvimento
+                </p>
+              ) : isImage ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
                   src={comprovante.url}
-                  title={pix?.nome_arquivo ?? "Comprovante"}
-                  className="h-full w-full"
+                  alt={pix?.nome_arquivo ?? "Comprovante"}
+                  className="max-h-full max-w-full rounded-md object-contain shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
                 />
+              ) : isPdf ? (
+                <div className="flex h-full w-full flex-col items-center gap-3">
+                  <iframe
+                    src={comprovante.url}
+                    title={pix?.nome_arquivo ?? "Comprovante"}
+                    className="h-full w-full rounded-md bg-white"
+                  />
+                  <a
+                    href={comprovante.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 text-xs text-text-link underline-offset-4 hover:underline"
+                  >
+                    <ExternalLink size={14} strokeWidth={1.5} />
+                    Abrir em nova aba
+                  </a>
+                </div>
+              ) : (
                 <a
                   href={comprovante.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 text-sm text-text-link underline-offset-4 hover:underline"
                 >
-                  <ExternalLink size={16} strokeWidth={1.5} />
-                  Abrir em nova aba
+                  <FileText size={16} strokeWidth={1.5} />
+                  Abrir comprovante em nova aba
                 </a>
-              </div>
-            ) : (
-              <a
-                href={comprovante.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 text-sm text-text-link underline-offset-4 hover:underline"
-              >
-                <ExternalLink size={16} strokeWidth={1.5} />
-                Abrir em nova aba
-              </a>
-            )}
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Barra de ações — só para Pix pendente */}
-        {hasActions && (
-          <div className="flex-none border-t border-border bg-ink-0/95">
-            {fase === "view" ? (
-              <div className="flex gap-3 p-4">
-                <Button
-                  className="h-12 flex-1 bg-green-600 text-white hover:bg-green-500"
-                  onClick={handleAprovar}
-                  disabled={submitting}
-                >
-                  {submitting ? "Validando…" : "Validar Pix"}
-                </Button>
-                <Button
-                  className="h-12 flex-1 bg-red-700 text-white hover:bg-red-600"
-                  onClick={() => setFase("rejecting")}
-                  disabled={submitting}
-                >
-                  Rejeitar Pix
-                </Button>
-              </div>
-            ) : (
-              <div className="space-y-3 p-4">
-                <select
-                  value={motivo}
-                  onChange={(e) => {
-                    setMotivo(e.target.value as MotivoRejeicao)
-                    setErro(null)
-                  }}
-                  className="h-9 w-full rounded-lg border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                >
-                  {motivoRejeicaoOptions.map((o) => (
-                    <option key={o.value} value={o.value}>
-                      {o.label}
-                    </option>
-                  ))}
-                </select>
-                {motivo === "outro" && (
-                  <Textarea
-                    value={observacao}
-                    onChange={(e) => {
-                      setObservacao(e.target.value)
-                      setErro(null)
-                    }}
-                    placeholder="Motivo interno (não exibido ao cliente)"
-                    rows={2}
-                    maxLength={500}
-                  />
+          {/* Sidebar */}
+          <aside className="flex min-h-0 flex-col overflow-y-auto border-l border-border bg-card">
+            {/* Hero: valor */}
+            <div className="border-b border-border px-6 py-5">
+              <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                Valor extraído
+              </p>
+              <p
+                className={cn(
+                  "mt-1 font-semibold leading-none",
+                  valor ? "text-[40px] text-text-primary" : "text-2xl text-text-muted",
                 )}
-                {erro && <p className="text-[13px] text-danger-500">{erro}</p>}
-                <div className="flex gap-3">
-                  <Button
-                    variant="secondary"
-                    className="flex-1"
-                    onClick={() => {
-                      setFase("view")
-                      setErro(null)
-                    }}
-                    disabled={submitting}
-                  >
-                    Cancelar
-                  </Button>
-                  <Button
-                    className="h-10 flex-1 bg-red-700 text-white hover:bg-red-600"
-                    onClick={handleRejeitar}
-                    disabled={submitting}
-                  >
-                    {submitting ? "Rejeitando…" : "Confirmar rejeição"}
-                  </Button>
+              >
+                {valor ?? "Não identificado"}
+              </p>
+              {motivoRevisao && (
+                <p className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-state-handoff/15 px-2.5 py-1 text-xs font-medium text-state-handoff">
+                  <RotateCcw size={12} strokeWidth={1.8} />
+                  {motivoRevisao}
+                </p>
+              )}
+            </div>
+
+            {/* Dados do comprovante */}
+            <section className="border-b border-border px-6 py-4">
+              <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                Dados do comprovante
+              </p>
+              <dl className="mt-3 space-y-2.5 text-sm">
+                <Linha label="Remetente">
+                  {pix?.titular_extraido ? (
+                    <div className="space-y-0.5">
+                      <p className="text-text-primary">{pix.titular_extraido}</p>
+                      {pix.documento_extraido && (
+                        <p className="font-mono text-xs text-text-muted">
+                          {pix.documento_extraido}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <NaoExtraido />
+                  )}
+                </Linha>
+                <Linha label="Chave destino">
+                  {pix?.chave_extraida ? (
+                    <div className="space-y-0.5">
+                      <p className="font-mono text-[13px] text-text-primary">
+                        {pix.chave_extraida}
+                      </p>
+                      {pix.tipo_chave && (
+                        <p className="text-xs text-text-muted">
+                          {tipoChaveLabel[pix.tipo_chave]}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <NaoExtraido />
+                  )}
+                </Linha>
+                <Linha label="Data e hora">
+                  {horario ? (
+                    <span className="text-text-primary">{horario}</span>
+                  ) : (
+                    <NaoExtraido />
+                  )}
+                </Linha>
+              </dl>
+            </section>
+
+            {/* Verificações */}
+            {totalChecagens > 0 && (
+              <section className="border-b border-border px-6 py-4">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                    Verificações automáticas
+                  </p>
+                  <span className="text-xs text-text-muted">
+                    {passaram}/{totalChecagens} passaram
+                  </span>
                 </div>
+                <ul className="mt-3 space-y-2">
+                  {checagens.map((c) => (
+                    <li key={c.chave} className="flex items-start gap-2.5">
+                      {c.passou ? (
+                        <CheckCircle2
+                          size={16}
+                          strokeWidth={1.5}
+                          className="mt-0.5 shrink-0 text-state-closed"
+                          aria-label="passou"
+                        />
+                      ) : (
+                        <XCircle
+                          size={16}
+                          strokeWidth={1.5}
+                          className="mt-0.5 shrink-0 text-state-lost"
+                          aria-label="falhou"
+                        />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p
+                          className={cn(
+                            "text-[13px] leading-tight",
+                            c.passou ? "text-text-secondary" : "text-text-primary",
+                          )}
+                        >
+                          {checagemLabel(c)}
+                        </p>
+                        {!c.passou && c.motivo && (
+                          <p className="mt-0.5 text-xs text-text-muted">{c.motivo}</p>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+
+            {/* Spacer push actions to bottom */}
+            <div className="flex-1" />
+
+            {/* Action area (sticky bottom) */}
+            {hasActions && (
+              <div className="flex-shrink-0 border-t border-border bg-card">
+                {fase === "view" ? (
+                  <div className="grid grid-cols-2 gap-3 p-5">
+                    <Button
+                      className="h-12 bg-emerald-600 text-white hover:bg-emerald-500"
+                      onClick={handleAprovar}
+                      disabled={submitting}
+                    >
+                      {submitting ? "Validando…" : "Validar Pix"}
+                    </Button>
+                    <Button
+                      className="h-12 bg-red-700 text-white hover:bg-red-600"
+                      onClick={() => setFase("rejecting")}
+                      disabled={submitting}
+                    >
+                      Rejeitar Pix
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-3 p-5">
+                    <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                      Por que rejeitar?
+                    </p>
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {motivoRejeicaoOptions.map((o) => (
+                        <button
+                          key={o.value}
+                          type="button"
+                          onClick={() => {
+                            setMotivo(o.value)
+                            setErro(null)
+                          }}
+                          className={cn(
+                            "flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                            motivo === o.value
+                              ? "border-red-500/70 bg-red-500/10 text-text-primary"
+                              : "border-ink-400 bg-ink-100 text-text-secondary hover:border-ink-500 hover:text-text-primary",
+                          )}
+                        >
+                          <span>{o.label}</span>
+                          {motivo === o.value && (
+                            <span
+                              aria-hidden
+                              className="size-2 rounded-full bg-red-500"
+                            />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                    {motivo === "outro" && (
+                      <div>
+                        <Label htmlFor="dlg-comp-obs" className="text-xs text-text-muted">
+                          Observação interna
+                        </Label>
+                        <Textarea
+                          id="dlg-comp-obs"
+                          value={observacao}
+                          onChange={(e) => {
+                            setObservacao(e.target.value)
+                            setErro(null)
+                          }}
+                          placeholder="Motivo interno (não exibido ao cliente)"
+                          rows={2}
+                          maxLength={500}
+                          className="mt-1.5"
+                        />
+                      </div>
+                    )}
+                    {erro && <p className="text-[13px] text-danger-500">{erro}</p>}
+                    <div className="flex gap-3 pt-1">
+                      <Button
+                        variant="secondary"
+                        className="flex-1"
+                        onClick={() => {
+                          setFase("view")
+                          setErro(null)
+                        }}
+                        disabled={submitting}
+                      >
+                        Voltar
+                      </Button>
+                      <Button
+                        className="h-10 flex-1 bg-red-700 text-white hover:bg-red-600"
+                        onClick={handleRejeitar}
+                        disabled={submitting}
+                      >
+                        {submitting ? "Rejeitando…" : "Confirmar rejeição"}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
-          </div>
-        )}
+          </aside>
+        </div>
       </DialogContent>
     </Dialog>
   )
+}
+
+function Linha({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="grid grid-cols-[110px_1fr] items-start gap-3">
+      <dt className="pt-0.5 text-xs uppercase tracking-wide text-text-muted">{label}</dt>
+      <dd className="text-sm">{children}</dd>
+    </div>
+  )
+}
+
+function NaoExtraido() {
+  return <span className="text-text-muted">Não identificado</span>
 }

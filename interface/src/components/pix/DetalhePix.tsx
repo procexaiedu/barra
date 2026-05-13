@@ -137,12 +137,17 @@ export function DetalhePix({
         open={modalAtendimentoAberto}
         onOpenChange={setModalAtendimentoAberto}
         atendimento={detalhe.atendimento}
+        cliente={detalhe.cliente}
+        modelo={detalhe.modelo}
       />
 
       <DialogVisualizarComprovante
         open={modalAberto}
         onOpenChange={setModalAberto}
         pix={detalhe.pix}
+        cliente={detalhe.cliente}
+        modelo={detalhe.modelo}
+        checagens={detalhe.checagens}
         comprovante={comprovante}
         comprovanteStatus={comprovanteStatus}
         onTentarNovamente={onRecarregarComprovante}
