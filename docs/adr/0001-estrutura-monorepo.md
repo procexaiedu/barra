@@ -3,7 +3,9 @@ data: 2026-04-29
 status: aceito
 ---
 
-# ADR-0001 — Estrutura monorepo plana com `api/` e `painel/`
+# ADR-0001 — Estrutura monorepo plana com `api/` e `interface/`
+
+> **Nota 2026-05-13**: pasta originalmente nomeada `painel/` foi renomeada para `interface/` durante o P0 sem mudança arquitetural. Conteúdo do ADR mantido com o nome atual.
 
 ## Contexto
 
@@ -11,7 +13,7 @@ MVP da Central Inteligente de Atendimento Barra Vips precisa hospedar dois deplo
 
 ## Decisão
 
-Adotar monorepo **plano** com pastas raiz `api/`, `painel/`, `infra/`, `docs/`, `scripts/`. Não usar Turborepo, pnpm workspace, nem `apps/` + `packages/`. Backend Python segue **src layout** (`api/src/barra/`) com organização **feature-first** por bounded context (`dominio/<contexto>/`), agente LangGraph isolado em `agente/`, webhook em `webhook/`, workers ARQ em `workers/`.
+Adotar monorepo **plano** com pastas raiz `api/`, `interface/`, `infra/`, `docs/`, `scripts/`. Não usar Turborepo, pnpm workspace, nem `apps/` + `packages/`. Backend Python segue **src layout** (`api/src/barra/`) com organização **feature-first** por bounded context (`dominio/<contexto>/`), agente LangGraph isolado em `agente/`, webhook em `webhook/`, workers ARQ em `workers/`.
 
 ## Consequências
 
