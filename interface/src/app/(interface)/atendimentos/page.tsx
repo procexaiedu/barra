@@ -8,6 +8,7 @@ import { FiltroPeriodo } from "@/components/atendimentos/FiltroPeriodo"
 import { ListaAtendimentos } from "@/components/atendimentos/ListaAtendimentos"
 import { KanbanBoard } from "@/components/atendimentos/KanbanBoard"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
+import { ModalReatribuir } from "@/components/atendimentos/ModalReatribuir"
 import { ModalVisualizacao } from "@/components/atendimentos/ModalVisualizacao"
 import { ModalEdicao } from "@/components/atendimentos/ModalEdicao"
 import { Button } from "@/components/ui/button"
@@ -174,6 +175,7 @@ function CentralAtendimentosInner() {
     }
   }, [initialId, view])
   const [modalEdicao, setModalEdicao] = useState<AtendimentoDetalheResponse | null>(null)
+  const [modalReatribuir, setModalReatribuir] = useState<AtendimentoDetalheResponse | null>(null)
   const [modalNovoAberto, setModalNovoAberto] = useState(false)
   const [mostrarEncerrados, setMostrarEncerrados] = useState(false)
   const [itemsEncerrados, setItemsEncerrados] = useState<AtendimentoListaItem[]>([])
@@ -294,6 +296,25 @@ function CentralAtendimentosInner() {
         detalhe={modalEdicao}
         onClose={() => setModalEdicao(null)}
         onSalvar={atendimentos.editarDados}
+        onReatribuir={(detalhe) => {
+          setModalEdicao(null)
+          setModalReatribuir(detalhe)
+        }}
+      />
+      <ModalReatribuir
+        detalhe={modalReatribuir}
+        onClose={() => setModalReatribuir(null)}
+        onCriarCliente={criarCliente}
+        onConcluido={async (novoId) => {
+          setModalReatribuir(null)
+          try {
+            const detalhe = await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${novoId}`)
+            setModalEdicao(detalhe)
+          } catch {
+            // Falhou: usuário pode abrir manualmente via lista.
+          }
+          atendimentos.refetch()
+        }}
       />
       {modalNovoAberto && (
         <ModalNovoAtendimento

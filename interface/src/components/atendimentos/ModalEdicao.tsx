@@ -46,10 +46,12 @@ export function ModalEdicao({
   detalhe,
   onClose,
   onSalvar,
+  onReatribuir,
 }: {
   detalhe: AtendimentoDetalheResponse | null
   onClose: () => void
   onSalvar: (id: string, dados: EditarDadosPayload) => Promise<void>
+  onReatribuir?: (detalhe: AtendimentoDetalheResponse) => void
 }) {
   const at = detalhe?.atendimento
   const [submitting, setSubmitting] = useState(false)
@@ -165,11 +167,11 @@ export function ModalEdicao({
         </div>
 
         <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border-subtle bg-surface px-5 py-3 text-xs sm:grid-cols-4">
-          <ItemContexto label="Cliente">
+          <ItemContexto label="Cliente" title="Para alterar Cliente ou Modelo, use Reatribuir atendimento">
             <span className="text-text-primary">{detalhe.cliente.nome ?? "Sem nome"}</span>
             <span className="text-text-muted">{formatTelefone(detalhe.cliente.telefone)}</span>
           </ItemContexto>
-          <ItemContexto label="Modelo">
+          <ItemContexto label="Modelo" title="Para alterar Cliente ou Modelo, use Reatribuir atendimento">
             <span className="text-text-primary">{detalhe.modelo.nome}</span>
           </ItemContexto>
           <ItemContexto label="Estado">
@@ -321,11 +323,24 @@ export function ModalEdicao({
           </ColunaSecao>
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-border-subtle bg-surface px-5 py-3">
-          <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancelar</Button>
-          <Button variant="primary" onClick={handleSalvar} disabled={submitting}>
-            {submitting ? "Salvando…" : "Salvar"}
-          </Button>
+        <div className="flex items-center justify-between gap-2 border-t border-border-subtle bg-surface px-5 py-3">
+          <div>
+            {onReatribuir && (
+              <Button
+                variant="ghost"
+                onClick={() => onReatribuir(detalhe)}
+                disabled={submitting}
+              >
+                Reatribuir atendimento
+              </Button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancelar</Button>
+            <Button variant="primary" onClick={handleSalvar} disabled={submitting}>
+              {submitting ? "Salvando…" : "Salvar"}
+            </Button>
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -352,9 +367,9 @@ function ColunaSecao({ titulo, children }: { titulo: string; children: React.Rea
   )
 }
 
-function ItemContexto({ label, children }: { label: string; children: React.ReactNode }) {
+function ItemContexto({ label, children, title }: { label: string; children: React.ReactNode; title?: string }) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
+    <div className="flex min-w-0 flex-col gap-0.5" title={title}>
       <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">{label}</span>
       <div className="flex min-w-0 flex-col leading-tight [&>span]:break-words">{children}</div>
     </div>
