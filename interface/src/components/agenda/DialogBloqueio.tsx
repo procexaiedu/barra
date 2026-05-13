@@ -460,9 +460,21 @@ export function DialogBloqueio({
     }
   }
 
+  const modoBloqueio =
+    (!editando && tipo === "bloqueio") ||
+    (editando && !bloqueio?.atendimento_id && atendimentoEdit?.id == null)
+
   const handleInicioChange = (inicio: string) => {
+    if (modoBloqueio) {
+      setForm((atual) => ({ ...atual, inicio }))
+      return
+    }
     const novoFim = calcFimDeDuracao(inicio, duracaoMin)
     setForm((atual) => ({ ...atual, inicio, fim: novoFim }))
+  }
+
+  const handleFimChange = (fim: string) => {
+    setForm((atual) => ({ ...atual, fim }))
   }
 
   const handleDuracaoChange = (min: number) => {
@@ -989,22 +1001,34 @@ export function DialogBloqueio({
               disabled={readOnly}
               onChange={handleInicioChange}
             />
-            <CampoDuracao
-              id="agenda-duracao"
-              value={duracaoMin}
-              opcoes={opcoesDuracao}
-              disabled={readOnly}
-              onChange={handleDuracaoChange}
-            />
-            <div>
-              <Label>Fim</Label>
-              <div className="mt-2 flex h-10 items-center gap-1.5 text-sm text-text-primary">
-                {form.fim}
-                {overnight && (
-                  <span className="text-xs text-text-muted">(próx. dia)</span>
-                )}
-              </div>
-            </div>
+            {modoBloqueio ? (
+              <CampoHorario
+                id="agenda-fim"
+                label="Fim"
+                value={form.fim}
+                disabled={readOnly}
+                onChange={handleFimChange}
+              />
+            ) : (
+              <>
+                <CampoDuracao
+                  id="agenda-duracao"
+                  value={duracaoMin}
+                  opcoes={opcoesDuracao}
+                  disabled={readOnly}
+                  onChange={handleDuracaoChange}
+                />
+                <div>
+                  <Label>Fim</Label>
+                  <div className="mt-2 flex h-10 items-center gap-1.5 text-sm text-text-primary">
+                    {form.fim}
+                    {overnight && (
+                      <span className="text-xs text-text-muted">(próx. dia)</span>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
 
             {/* Seção: Observação */}
             <div className="col-span-3 border-t border-border pt-4">
