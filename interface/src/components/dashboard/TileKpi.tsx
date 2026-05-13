@@ -88,7 +88,7 @@ export function TileKpi({
         <footer className="mt-auto flex items-center justify-between gap-2 pt-1">
           <span className="inline-flex">{tendencia}</span>
           {rangeComparacao ? (
-            <span className="font-mono text-[11px] text-text-muted">vs {rangeComparacao}</span>
+            <span className="font-mono text-[11px] text-text-muted">Comparado com: {rangeComparacao}</span>
           ) : null}
         </footer>
       ) : null}

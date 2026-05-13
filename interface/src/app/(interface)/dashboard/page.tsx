@@ -52,7 +52,6 @@ function DashboardInner() {
 
   const filtros = dashboard.filtros
   const data = dashboard.data
-  const filtroAplicado = data?.filtro_aplicado ?? null
 
   const nomeModeloFiltrada = filtros.modelo_id
     ? data?.profissionais.find((p) => p.modelo.id === filtros.modelo_id)?.modelo.nome ?? null
@@ -60,7 +59,7 @@ function DashboardInner() {
 
   return (
     <div className="flex flex-col gap-6">
-      <HeaderDashboard de={filtroAplicado?.de ?? null} ate={filtroAplicado?.ate ?? null} />
+      <HeaderDashboard />
 
       <ToolbarDashboard
         periodo={filtros.periodo}
