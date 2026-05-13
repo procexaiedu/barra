@@ -9,6 +9,7 @@ import { DialogVisualizarBloqueio } from "@/components/agenda/DialogVisualizarBl
 import { GradeSemanal } from "@/components/agenda/GradeSemanal"
 import { HeaderAgenda } from "@/components/agenda/HeaderAgenda"
 import { ToolbarAgenda } from "@/components/agenda/ToolbarAgenda"
+import { ModalAtendimentoHistorico } from "@/components/clientes/ModalAtendimentoHistorico"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
 import { dataDeInput, dataInput, dataInputSaoPaulo, isoAgenda, useAgenda } from "@/hooks/useAgenda"
@@ -79,6 +80,7 @@ export function AgendaClient() {
   })
   const bloqueioInicialHandled = useRef(false)
   const [tipoAtendimento, setTipoAtendimento] = useState<"" | "interno" | "externo">("")
+  const [atendimentoVisualizandoId, setAtendimentoVisualizandoId] = useState<string | null>(null)
 
   const bloqueios = useMemo(() => {
     let items = [...(agenda.agenda?.bloqueios ?? [])]
@@ -242,8 +244,17 @@ export function AgendaClient() {
           onCriar={criar}
           onAtualizar={atualizar}
           onCancelar={cancelar}
+          onVerAtendimento={(id) => {
+            setDialog({ modo: "fechado", bloqueio: null })
+            setAtendimentoVisualizandoId(id)
+          }}
         />
       )}
+
+      <ModalAtendimentoHistorico
+        atendimentoId={atendimentoVisualizandoId}
+        onClose={() => setAtendimentoVisualizandoId(null)}
+      />
     </section>
   )
 }
