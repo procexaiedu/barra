@@ -2,7 +2,7 @@
 
 import { useRef, useMemo, useState } from "react"
 import Link from "next/link"
-import { ChevronDown, FileText, ImageOff, Pencil, Plus, Trash2 } from "lucide-react"
+import { ChevronDown, Clock, FileText, ImageOff, MessageSquare, Paperclip, Pencil, Plus, Trash2 } from "lucide-react"
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -71,6 +71,15 @@ export function DetalheAtendimento({
 
   const atendimento = detalhe.atendimento
   const cliente = detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)
+  const valorAcordado = atendimento.valor_acordado !== null && atendimento.valor_acordado !== undefined
+    ? Number(atendimento.valor_acordado)
+    : null
+  const valorFinal = atendimento.estado === "Fechado" && atendimento.valor_final !== null
+    ? Number(atendimento.valor_final)
+    : null
+  const valorExibido = valorFinal ?? (Number.isFinite(valorAcordado as number) ? valorAcordado : null)
+  const valorLabel = valorFinal !== null ? "Valor final" : "Valor acordado"
+  const valorColor = valorFinal !== null ? "text-success-500" : "text-gold-500"
   const estadoBorder =
     atendimento.estado === "Fechado" ? "border-l-state-closed" :
     atendimento.estado === "Perdido" ? "border-l-state-lost" :
@@ -80,36 +89,49 @@ export function DetalheAtendimento({
   return (
     <section aria-label="Detalhe do atendimento" className="min-w-0 space-y-3">
       <div className={cn("rounded-lg border border-ink-300 bg-ink-200 p-5 border-l-4", estadoBorder)}>
-        <div className="flex flex-wrap items-center gap-2">
-          <Badge variant={badgeForEstado(atendimento.estado)}>{estadoLabel[atendimento.estado]}</Badge>
-          <h2 className="text-base font-semibold text-text-primary">{cliente}</h2>
-          <span className="text-sm text-text-muted">· {detalhe.modelo.nome}</span>
-          <span className="ml-auto flex items-center gap-2">
-            <span className="text-xs font-medium text-text-muted">
-              #{atendimento.numero_curto} · {formatTempoRelativo(atendimento.updated_at)}
-            </span>
+        <div className="flex items-start gap-3">
+          <Badge variant={badgeForEstado(atendimento.estado)} className="px-2.5 py-1 text-[12px]">
+            {estadoLabel[atendimento.estado]}
+          </Badge>
+          <span className="ml-auto flex shrink-0 items-center gap-2 text-[12px] font-medium text-text-muted">
+            <span>#{atendimento.numero_curto}</span>
+            <span aria-hidden>·</span>
+            <span>{formatTempoRelativo(atendimento.updated_at)}</span>
             {onEditar && (
               <button
                 type="button"
                 onClick={onEditar}
                 title="Editar atendimento"
-                className="rounded p-1 text-text-muted transition-colors hover:bg-ink-300 hover:text-text-primary"
+                className="ml-1 rounded p-1 text-text-muted transition-colors hover:bg-ink-300 hover:text-text-primary"
               >
                 <Pencil size={14} strokeWidth={1.5} />
               </button>
             )}
           </span>
         </div>
-        {atendimento.estado === "Fechado" && atendimento.valor_final !== null && (
-          <div className="mt-1 flex items-center gap-1">
-            <span className="text-xs text-text-muted">Valor final</span>
-            <span className="ml-2 text-sm font-semibold text-success-500">{formatBRL(Number(atendimento.valor_final))}</span>
+
+        <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
+          <div className="min-w-0 flex-1">
+            <h2 className="font-serif text-[28px] font-medium leading-tight tracking-tight text-text-primary">
+              {cliente}
+            </h2>
+            <p className="mt-1 text-[13px] text-text-muted">
+              Atendimento de <span className="font-medium text-text-secondary">{detalhe.modelo.nome}</span>
+              <span aria-hidden> · </span>
+              <span className="font-mono text-text-muted">{formatTelefone(detalhe.cliente.telefone)}</span>
+            </p>
           </div>
-        )}
-        <div className="mt-2">
-          <span className="font-mono text-xs text-text-muted">{formatTelefone(detalhe.cliente.telefone)}</span>
+          {valorExibido !== null && (
+            <div className="text-right">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">{valorLabel}</p>
+              <p className={cn("font-serif text-[28px] font-medium leading-none tabular-nums", valorColor)}>
+                {formatBRL(valorExibido)}
+              </p>
+            </div>
+          )}
         </div>
-        <div className="mt-3">
+
+        <div className="mt-4">
           <AcoesAtendimento
             atendimento={atendimento}
             onDevolver={onDevolver}
@@ -121,11 +143,20 @@ export function DetalheAtendimento({
 
       <ResumoAtendimento detalhe={detalhe} />
 
-      <SecaoColapsavel titulo="Histórico de mensagens" count={detalhe.mensagens.length} defaultOpen={atendimento.ia_pausada}>
+      <SecaoColapsavel
+        titulo="Histórico de mensagens"
+        count={detalhe.mensagens.length}
+        defaultOpen={atendimento.ia_pausada}
+        icone={<MessageSquare size={16} strokeWidth={1.75} className="text-info-500" />}
+      >
         <HistoricoMensagens mensagens={detalhe.mensagens} />
       </SecaoColapsavel>
 
-      <SecaoColapsavel titulo="Mídias recebidas" count={detalhe.midias_internas.length + detalhe.comprovantes_pix.length + detalhe.mensagens.filter(m => m.media_object_key).length}>
+      <SecaoColapsavel
+        titulo="Mídias recebidas"
+        count={detalhe.midias_internas.length + detalhe.comprovantes_pix.length + detalhe.mensagens.filter(m => m.media_object_key).length}
+        icone={<Paperclip size={16} strokeWidth={1.75} className="text-gold-500" />}
+      >
         <MidiasRecebidas
           detalhe={detalhe}
           onUploadMidia={onUploadMidia}
@@ -133,29 +164,49 @@ export function DetalheAtendimento({
         />
       </SecaoColapsavel>
 
-      <SecaoColapsavel titulo="Histórico do atendimento" count={detalhe.eventos.length}>
+      <SecaoColapsavel
+        titulo="Histórico do atendimento"
+        count={detalhe.eventos.length}
+        icone={<Clock size={16} strokeWidth={1.75} className="text-text-muted" />}
+      >
         <Eventos eventos={detalhe.eventos} />
       </SecaoColapsavel>
     </section>
   )
 }
 
-function SecaoColapsavel({ titulo, count, defaultOpen, children }: { titulo: string; count?: number; defaultOpen?: boolean; children: ReactNode }) {
+function SecaoColapsavel({
+  titulo,
+  count,
+  defaultOpen,
+  icone,
+  children,
+}: {
+  titulo: string
+  count?: number
+  defaultOpen?: boolean
+  icone?: ReactNode
+  children: ReactNode
+}) {
   const [aberto, setAberto] = useState(defaultOpen ?? false)
+  const temContagem = count !== undefined && count > 0
   return (
     <div className="overflow-hidden rounded-lg border border-ink-300 bg-ink-100">
       <button
         type="button"
         onClick={() => setAberto((a) => !a)}
-        className="flex w-full items-center gap-2 px-4 py-3 text-left transition-colors hover:bg-ink-200"
+        className="flex w-full items-center gap-2.5 px-4 py-3.5 text-left transition-colors hover:bg-ink-200"
       >
-        <span className="flex-1 text-sm font-semibold text-text-primary">{titulo}</span>
-        {count !== undefined && count > 0 && (
-          <span className="text-xs text-text-muted">({count})</span>
+        {icone && <span className="shrink-0">{icone}</span>}
+        <span className="flex-1 text-[15px] font-semibold text-text-primary">{titulo}</span>
+        {temContagem && (
+          <span className="inline-flex min-w-[22px] items-center justify-center rounded-full bg-ink-300 px-2 py-0.5 text-[12px] font-semibold tabular-nums text-text-secondary">
+            {count}
+          </span>
         )}
         <ChevronDown
-          size={16}
-          strokeWidth={1.5}
+          size={18}
+          strokeWidth={1.75}
           className={cn("text-text-muted transition-transform duration-150", aberto && "rotate-180")}
         />
       </button>
