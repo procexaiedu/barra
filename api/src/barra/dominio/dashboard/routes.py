@@ -10,6 +10,7 @@ from psycopg import AsyncConnection
 
 from barra.api.deps import get_conn, get_user
 from barra.core.errors import EntradaInvalida
+from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
@@ -104,32 +105,84 @@ async def dashboard_escaladas(
     modelo_id: UUID | None = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
+    """Lista completa de escaladas (para dialog "ver todas")."""
     janela = _resolver_janela(periodo, de, ate)
 
     params: list[Any] = [janela.inicio, janela.fim]
-    join = ""
     filtro_modelo = ""
     if modelo_id:
-        join = "JOIN barravips.atendimentos a ON a.id = e.atendimento_id"
         filtro_modelo = "AND a.modelo_id = %s"
         params.append(modelo_id)
 
     result = await conn.execute(
         f"""
-        SELECT e.motivo AS motivo, COUNT(*)::int AS contagem
+        SELECT e.tipo::text AS tipo,
+               e.observacao AS observacao,
+               e.motivo AS motivo,
+               m.nome AS modelo_nome,
+               COUNT(*)::int AS contagem
           FROM barravips.escaladas e
-          {join}
+          JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+          JOIN barravips.modelos m ON m.id = a.modelo_id
          WHERE e.aberta_em >= %s AND e.aberta_em <= %s {filtro_modelo}
-         GROUP BY e.motivo
-         ORDER BY contagem DESC, motivo ASC
+         GROUP BY e.tipo, e.observacao, e.motivo, m.nome
+         ORDER BY contagem DESC, tipo ASC
         """,
         params,
     )
-    motivos = [dict(row) for row in await result.fetchall()]
+    linhas: list[dict[str, Any]] = []
+    for row in await result.fetchall():
+        tipo_str = str(row["tipo"])
+        rotulo = rotulo_tipo_escalada(TipoEscalada(tipo_str))
+        linhas.append(
+            {
+                "tipo": tipo_str,
+                "rotulo": rotulo,
+                "observacao": row["observacao"],
+                "motivo": row["motivo"],
+                "modelo_nome": row["modelo_nome"],
+                "contagem": int(row["contagem"]),
+            }
+        )
 
     return {
         "filtro_aplicado": _filtro_aplicado_dict(periodo, janela, modelo_id),
-        "motivos": motivos,
+        "motivos": linhas,
+    }
+
+
+SERIE_METRICAS = ("conversao", "fechamentos", "perdas", "escaladas", "liquido", "bruto")
+SERIE_UNIDADES = ("dia", "semana")
+SERIE_N_MAX = 26
+SERIE_N_MIN = 4
+
+
+@router.get("/serie")
+async def dashboard_serie(
+    metrica: Literal["conversao", "fechamentos", "perdas", "escaladas", "liquido", "bruto"] = "conversao",
+    unidade: Literal["dia", "semana"] = "semana",
+    n: int = 12,
+    modelo_id: UUID | None = None,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    """Série temporal de uma métrica agregada por dia/semana — alimenta sparklines."""
+    if metrica not in SERIE_METRICAS:
+        raise EntradaInvalida("METRICA_INVALIDA", f"metrica desconhecida: {metrica}")
+    if unidade not in SERIE_UNIDADES:
+        raise EntradaInvalida("UNIDADE_INVALIDA", f"unidade desconhecida: {unidade}")
+    if n < SERIE_N_MIN or n > SERIE_N_MAX:
+        raise EntradaInvalida(
+            "N_INVALIDO",
+            f"n deve estar entre {SERIE_N_MIN} e {SERIE_N_MAX}",
+        )
+
+    pontos = await _serie(conn, metrica, unidade, n, modelo_id)
+    return {
+        "metrica": metrica,
+        "unidade": unidade,
+        "n": n,
+        "modelo_id": str(modelo_id) if modelo_id else None,
+        "pontos": pontos,
     }
 
 
@@ -228,16 +281,42 @@ async def _kpis(
     fechamentos = await _fechamentos(conn, janela, modelo_id)
     perdas = await _perdas(conn, janela, modelo_id)
     escaladas = await _escaladas_contagem(conn, janela, modelo_id)
+    volume_periodo = await _volume_periodo(conn, janela, modelo_id)
 
     decididos = fechamentos["contagem"] + perdas["contagem"]
     taxa = (fechamentos["contagem"] / decididos * 100) if decididos > 0 else None
 
     return {
         "taxa_conversao_pct": round(taxa, 1) if taxa is not None else None,
-        "fechamentos": fechamentos,
-        "perdas": {"contagem": perdas["contagem"]},
-        "escaladas": {"contagem": escaladas},
+        "n_decididos": decididos,
+        "volume_periodo": volume_periodo,
+        "fechamentos": {**fechamentos, "n_referencia": decididos},
+        "perdas": {"contagem": perdas["contagem"], "n_referencia": decididos},
+        "escaladas": {"contagem": escaladas, "n_referencia": volume_periodo},
     }
+
+
+async def _volume_periodo(
+    conn: AsyncConnection[Any],
+    janela: Janela,
+    modelo_id: UUID | None,
+) -> int:
+    """Total de atendimentos criados na janela — denominador natural para % escalada."""
+    params: list[Any] = [janela.inicio, janela.fim]
+    filtro_modelo = ""
+    if modelo_id:
+        filtro_modelo = "AND modelo_id = %s"
+        params.append(modelo_id)
+    result = await conn.execute(
+        f"""
+        SELECT COUNT(*)::int AS n
+          FROM barravips.atendimentos
+         WHERE created_at >= %s AND created_at <= %s {filtro_modelo}
+        """,
+        params,
+    )
+    row = await result.fetchone()
+    return int(row["n"]) if row else 0
 
 
 async def _fechamentos(
@@ -413,30 +492,75 @@ async def _motivos_escalada_top(
     janela: Janela,
     modelo_id: UUID | None,
 ) -> dict[str, Any]:
+    """Agrega escaladas por ``tipo`` (enum) + breakdown por modelo.
+
+    Retorna todos os tipos canônicos (mesmo com contagem zero) ordenados desc.
+    Mantém ``top5/outros_total/total`` para retrocompatibilidade enquanto o
+    frontend novo não estabiliza — esses derivados usam o rótulo humano.
+    """
     params: list[Any] = [janela.inicio, janela.fim]
-    join = ""
     filtro_modelo = ""
     if modelo_id:
-        join = "JOIN barravips.atendimentos a ON a.id = e.atendimento_id"
         filtro_modelo = "AND a.modelo_id = %s"
         params.append(modelo_id)
 
     result = await conn.execute(
         f"""
-        SELECT e.motivo AS motivo, COUNT(*)::int AS contagem
+        SELECT e.tipo::text AS tipo,
+               a.modelo_id AS modelo_id,
+               m.nome AS modelo_nome,
+               COUNT(*)::int AS contagem
           FROM barravips.escaladas e
-          {join}
+          JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+          JOIN barravips.modelos m ON m.id = a.modelo_id
          WHERE e.aberta_em >= %s AND e.aberta_em <= %s {filtro_modelo}
-         GROUP BY e.motivo
-         ORDER BY contagem DESC, motivo ASC
+         GROUP BY e.tipo, a.modelo_id, m.nome
         """,
         params,
     )
-    todos = [dict(row) for row in await result.fetchall()]
-    top5 = todos[:5]
-    outros_total = sum(item["contagem"] for item in todos[5:])
-    total = sum(item["contagem"] for item in todos)
-    return {"top5": top5, "outros_total": outros_total, "total": total}
+    linhas = list(await result.fetchall())
+
+    agrupado: dict[str, dict[str, Any]] = {}
+    for row in linhas:
+        tipo = str(row["tipo"])
+        bucket = agrupado.setdefault(tipo, {"contagem": 0, "por_modelo": []})
+        bucket["contagem"] += int(row["contagem"])
+        bucket["por_modelo"].append(
+            {
+                "modelo_id": str(row["modelo_id"]),
+                "nome": row["modelo_nome"],
+                "contagem": int(row["contagem"]),
+            }
+        )
+
+    por_tipo: list[dict[str, Any]] = []
+    for tipo_enum in TipoEscalada:
+        bucket = agrupado.get(tipo_enum.value, {"contagem": 0, "por_modelo": []})
+        bucket["por_modelo"].sort(key=lambda r: (-r["contagem"], r["nome"]))
+        por_tipo.append(
+            {
+                "tipo": tipo_enum.value,
+                "rotulo": rotulo_tipo_escalada(tipo_enum),
+                "contagem": bucket["contagem"],
+                "por_modelo": bucket["por_modelo"],
+            }
+        )
+    por_tipo.sort(key=lambda r: (-r["contagem"], r["rotulo"]))
+
+    total = sum(item["contagem"] for item in por_tipo)
+    top5 = [
+        {"motivo": item["rotulo"], "tipo": item["tipo"], "contagem": item["contagem"]}
+        for item in por_tipo
+        if item["contagem"] > 0
+    ][:5]
+    outros_total = max(total - sum(item["contagem"] for item in top5), 0)
+
+    return {
+        "por_tipo": por_tipo,
+        "top5": top5,
+        "outros_total": outros_total,
+        "total": total,
+    }
 
 
 async def _profissionais(
@@ -532,10 +656,258 @@ async def _profissionais(
                 "modelo": {"id": str(row["modelo_id"]), "nome": row["modelo_nome"]},
                 "volume": int(row["volume"]),
                 "fechamentos": int(row["fechamentos"]),
+                "perdas": int(row["perdas"]),
                 "valor_bruto_brl": round(float(row["valor_bruto"]), 2),
                 "valor_liquido_brl": round(float(row["valor_liquido"]), 2),
                 "valor_repasse_modelo_brl": round(float(row["valor_repasse_modelo"]), 2),
                 "taxa_conversao_pct": round(taxa, 1) if taxa is not None else None,
+                "n_referencia": decididos,
             }
         )
     return profissionais
+
+
+# -----------------------------------------------------------------------------
+# Série temporal — sparklines
+# -----------------------------------------------------------------------------
+
+
+async def _serie(
+    conn: AsyncConnection[Any],
+    metrica: str,
+    unidade: str,
+    n: int,
+    modelo_id: UUID | None,
+) -> list[dict[str, Any]]:
+    """Roda a query de série apropriada para a métrica solicitada.
+
+    Garante ``n`` pontos no retorno (preenche com zero quando não há dado),
+    ordenados do mais antigo para o mais recente.
+    """
+    if metrica == "conversao":
+        return await _serie_conversao(conn, unidade, n, modelo_id)
+    if metrica == "fechamentos":
+        return await _serie_contagem_evento(conn, unidade, n, modelo_id, "fechado_registrado")
+    if metrica == "perdas":
+        return await _serie_contagem_evento(conn, unidade, n, modelo_id, "perdido_registrado")
+    if metrica == "escaladas":
+        return await _serie_escaladas(conn, unidade, n, modelo_id)
+    if metrica == "liquido":
+        return await _serie_financeiro(conn, unidade, n, modelo_id, "liquido")
+    if metrica == "bruto":
+        return await _serie_financeiro(conn, unidade, n, modelo_id, "bruto")
+    return []
+
+
+def _trunc(unidade: str) -> str:
+    # Mapeado de SERIE_UNIDADES — funcao chamada so apos validacao do enum.
+    return {"dia": "day", "semana": "week"}[unidade]
+
+
+def _intervalo(unidade: str) -> str:
+    return {"dia": "1 day", "semana": "1 week"}[unidade]
+
+
+async def _serie_contagem_evento(
+    conn: AsyncConnection[Any],
+    unidade: str,
+    n: int,
+    modelo_id: UUID | None,
+    tipo_evento: str,
+) -> list[dict[str, Any]]:
+    trunc = _trunc(unidade)
+    intervalo = _intervalo(unidade)
+    filtro_modelo = ""
+    params: list[Any] = [trunc, n - 1, intervalo, trunc, intervalo, trunc, tipo_evento]
+    if modelo_id:
+        filtro_modelo = "AND a.modelo_id = %s"
+        params.append(modelo_id)
+
+    result = await conn.execute(
+        f"""
+        WITH buckets AS (
+          SELECT generate_series(
+                   date_trunc(%s, now()) - (%s * %s::interval),
+                   date_trunc(%s, now()),
+                   %s::interval
+                 ) AS bucket
+        ),
+        dados AS (
+          SELECT date_trunc(%s, e.created_at) AS bucket,
+                 COUNT(DISTINCT a.id)::int AS valor
+            FROM barravips.eventos e
+            JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+           WHERE e.tipo = %s
+             {filtro_modelo}
+           GROUP BY 1
+        )
+        SELECT b.bucket::timestamptz AS bucket,
+               COALESCE(d.valor, 0)::int AS valor
+          FROM buckets b
+          LEFT JOIN dados d ON d.bucket = b.bucket
+         ORDER BY b.bucket
+        """,
+        params,
+    )
+    return [
+        {"data": row["bucket"].date().isoformat(), "valor": int(row["valor"])}
+        for row in await result.fetchall()
+    ]
+
+
+async def _serie_escaladas(
+    conn: AsyncConnection[Any],
+    unidade: str,
+    n: int,
+    modelo_id: UUID | None,
+) -> list[dict[str, Any]]:
+    trunc = _trunc(unidade)
+    intervalo = _intervalo(unidade)
+    filtro_modelo = ""
+    base_params: list[Any] = [trunc, n - 1, intervalo, trunc, intervalo, trunc]
+    if modelo_id:
+        filtro_modelo = "AND a.modelo_id = %s"
+        base_params.append(modelo_id)
+
+    result = await conn.execute(
+        f"""
+        WITH buckets AS (
+          SELECT generate_series(
+                   date_trunc(%s, now()) - (%s * %s::interval),
+                   date_trunc(%s, now()),
+                   %s::interval
+                 ) AS bucket
+        ),
+        dados AS (
+          SELECT date_trunc(%s, e.aberta_em) AS bucket,
+                 COUNT(*)::int AS valor
+            FROM barravips.escaladas e
+            JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+           WHERE TRUE {filtro_modelo}
+           GROUP BY 1
+        )
+        SELECT b.bucket::timestamptz AS bucket,
+               COALESCE(d.valor, 0)::int AS valor
+          FROM buckets b
+          LEFT JOIN dados d ON d.bucket = b.bucket
+         ORDER BY b.bucket
+        """,
+        base_params,
+    )
+    return [
+        {"data": row["bucket"].date().isoformat(), "valor": int(row["valor"])}
+        for row in await result.fetchall()
+    ]
+
+
+async def _serie_conversao(
+    conn: AsyncConnection[Any],
+    unidade: str,
+    n: int,
+    modelo_id: UUID | None,
+) -> list[dict[str, Any]]:
+    """Taxa de conversão por bucket = fechados / (fechados + perdidos) * 100."""
+    trunc = _trunc(unidade)
+    intervalo = _intervalo(unidade)
+    filtro_modelo = ""
+    params: list[Any] = [trunc, n - 1, intervalo, trunc, intervalo, trunc]
+    if modelo_id:
+        filtro_modelo = "AND a.modelo_id = %s"
+        params.append(modelo_id)
+
+    result = await conn.execute(
+        f"""
+        WITH buckets AS (
+          SELECT generate_series(
+                   date_trunc(%s, now()) - (%s * %s::interval),
+                   date_trunc(%s, now()),
+                   %s::interval
+                 ) AS bucket
+        ),
+        dados AS (
+          SELECT date_trunc(%s, e.created_at) AS bucket,
+                 COUNT(DISTINCT a.id) FILTER (WHERE e.tipo = 'fechado_registrado') AS fechados,
+                 COUNT(DISTINCT a.id) FILTER (WHERE e.tipo = 'perdido_registrado') AS perdidos
+            FROM barravips.eventos e
+            JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+           WHERE e.tipo IN ('fechado_registrado', 'perdido_registrado') {filtro_modelo}
+           GROUP BY 1
+        )
+        SELECT b.bucket::timestamptz AS bucket,
+               COALESCE(d.fechados, 0)::int AS fechados,
+               COALESCE(d.perdidos, 0)::int AS perdidos
+          FROM buckets b
+          LEFT JOIN dados d ON d.bucket = b.bucket
+         ORDER BY b.bucket
+        """,
+        params,
+    )
+    pontos: list[dict[str, Any]] = []
+    for row in await result.fetchall():
+        fechados = int(row["fechados"])
+        perdidos = int(row["perdidos"])
+        decididos = fechados + perdidos
+        valor = (fechados / decididos * 100) if decididos > 0 else None
+        pontos.append(
+            {
+                "data": row["bucket"].date().isoformat(),
+                "valor": round(valor, 1) if valor is not None else None,
+                "n_referencia": decididos,
+            }
+        )
+    return pontos
+
+
+async def _serie_financeiro(
+    conn: AsyncConnection[Any],
+    unidade: str,
+    n: int,
+    modelo_id: UUID | None,
+    componente: str,
+) -> list[dict[str, Any]]:
+    trunc = _trunc(unidade)
+    intervalo = _intervalo(unidade)
+    filtro_modelo = ""
+    params: list[Any] = [trunc, n - 1, intervalo, trunc, intervalo, trunc]
+    if modelo_id:
+        filtro_modelo = "AND a.modelo_id = %s"
+        params.append(modelo_id)
+
+    if componente == "liquido":
+        expressao = "a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)"
+    elif componente == "bruto":
+        expressao = "a.valor_final"
+    else:
+        return []
+
+    result = await conn.execute(
+        f"""
+        WITH buckets AS (
+          SELECT generate_series(
+                   date_trunc(%s, now()) - (%s * %s::interval),
+                   date_trunc(%s, now()),
+                   %s::interval
+                 ) AS bucket
+        ),
+        dados AS (
+          SELECT date_trunc(%s, e.created_at) AS bucket,
+                 COALESCE(SUM({expressao}), 0)::numeric AS valor
+            FROM barravips.eventos e
+            JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+           WHERE e.tipo = 'fechado_registrado'
+             AND a.estado = 'Fechado'
+             {filtro_modelo}
+           GROUP BY 1
+        )
+        SELECT b.bucket::timestamptz AS bucket,
+               COALESCE(d.valor, 0)::numeric AS valor
+          FROM buckets b
+          LEFT JOIN dados d ON d.bucket = b.bucket
+         ORDER BY b.bucket
+        """,
+        params,
+    )
+    return [
+        {"data": row["bucket"].date().isoformat(), "valor": round(float(row["valor"]), 2)}
+        for row in await result.fetchall()
+    ]

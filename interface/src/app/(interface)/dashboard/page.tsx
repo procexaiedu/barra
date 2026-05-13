@@ -1,15 +1,16 @@
 "use client"
 
 import { Suspense, useState } from "react"
-import { AlertTriangle, CheckCircle2, TrendingUp, XCircle } from "lucide-react"
+import { CheckCircle2, TrendingUp, XCircle } from "lucide-react"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BlocoFinanceiro } from "@/components/dashboard/BlocoFinanceiro"
 import { BlocoMotivosEscalada } from "@/components/dashboard/BlocoMotivosEscalada"
 import { BlocoPerdasPorMotivo } from "@/components/dashboard/BlocoPerdasPorMotivo"
+import { BulletEscaladas } from "@/components/dashboard/BulletEscaladas"
+import { CarteiraEstados } from "@/components/dashboard/CarteiraEstados"
 import { DialogRangeCustom } from "@/components/dashboard/DialogRangeCustom"
 import { DialogTodasEscaladas } from "@/components/dashboard/DialogTodasEscaladas"
-import { FunilEstados } from "@/components/dashboard/FunilEstados"
 import { HeaderDashboard } from "@/components/dashboard/HeaderDashboard"
 import { IndicadorTendencia } from "@/components/dashboard/IndicadorTendencia"
 import {
@@ -23,7 +24,7 @@ import { formatPercent, formatRangeAbsoluto } from "@/components/dashboard/utils
 import { formatBRL } from "@/lib/formatters"
 import { useDashboard } from "@/hooks/useDashboard"
 import type { EstadoAtendimento } from "@/tipos/atendimentos"
-import type { DashboardResumo } from "@/tipos/dashboard"
+import type { DashboardResumo, SerieMetrica, SerieResposta } from "@/tipos/dashboard"
 
 const ESTADOS_CANONICOS: EstadoAtendimento[] = [
   "Novo",
@@ -57,6 +58,10 @@ function DashboardInner() {
     ? data?.profissionais.find((p) => p.modelo.id === filtros.modelo_id)?.modelo.nome ?? null
     : null
 
+  const rangeComparacao = data?.janela_comparacao
+    ? formatRangeAbsoluto(data.janela_comparacao.de, data.janela_comparacao.ate)
+    : null
+
   return (
     <div className="flex flex-col gap-6">
       <HeaderDashboard />
@@ -66,6 +71,7 @@ function DashboardInner() {
         de={filtros.de}
         ate={filtros.ate}
         modeloId={filtros.modelo_id}
+        rangeComparacao={rangeComparacao}
         onPreset={dashboard.setPeriodoPreset}
         onAbrirCustom={() => setRangeOpen(true)}
         onModeloChange={dashboard.setModeloId}
@@ -78,6 +84,7 @@ function DashboardInner() {
       ) : data ? (
         <DashboardConteudo
           data={data}
+          series={dashboard.series}
           onAbrirEscaladas={() => setEscaladasOpen(true)}
           onAbrirMetrica={setMetricaAberta}
         />
@@ -116,11 +123,12 @@ function DashboardInner() {
 
 interface ConteudoProps {
   data: DashboardResumo
+  series: Partial<Record<SerieMetrica, SerieResposta>>
   onAbrirEscaladas: () => void
   onAbrirMetrica: (tipo: TipoMetricaModal) => void
 }
 
-function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoProps) {
+function DashboardConteudo({ data, series, onAbrirEscaladas, onAbrirMetrica }: ConteudoProps) {
   const kpis = data.kpis_periodo
   const anterior = data.kpis_periodo_anterior
 
@@ -131,30 +139,21 @@ function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoP
 
   const ticketBruto = formatBRL(kpis.fechamentos.valor_bruto_brl)
   const ticketMedio = formatBRL(kpis.fechamentos.valor_medio_brl)
-  const denominadorConversao = kpis.fechamentos.contagem + kpis.perdas.contagem
-
-  const totalAtendimentos = data.funil_estados.reduce((soma, l) => soma + l.contagem, 0)
-  const pctPerdasVolume =
-    totalAtendimentos > 0 ? (kpis.perdas.contagem / totalAtendimentos) * 100 : null
-  const pctEscaladasVolume =
-    totalAtendimentos > 0 ? (kpis.escaladas.contagem / totalAtendimentos) * 100 : null
-
-  const rangeComparacao = data.janela_comparacao
-    ? formatRangeAbsoluto(data.janela_comparacao.de, data.janela_comparacao.ate)
-    : null
+  const decididos = kpis.fechamentos.contagem + kpis.perdas.contagem
 
   return (
     <>
-      <section aria-label="KPIs do período" className="flex flex-col gap-3">
+      {/* Seção 1 — Resultado (NSM) */}
+      <section aria-label="Resultado" className="flex flex-col gap-3">
         <header>
-          <h2 className="text-base font-semibold text-text-primary">No período</h2>
+          <h2 className="text-base font-semibold text-text-primary">Resultado</h2>
         </header>
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4">
           <TileKpi
             label="Taxa de conversão"
             icone={TrendingUp}
             iconeClassName="text-gold-500"
-            tooltip="Fechamentos dividido pelo total de atendimentos decididos no período (fechados + perdidos). Atendimentos ainda em aberto não entram na conta."
+            tooltip="Fechamentos ÷ atendimentos decididos (fechados + perdidos). Atendimentos em aberto não entram."
             valor={
               kpis.taxa_conversao_pct === null ? (
                 <span className="text-text-muted">—</span>
@@ -163,11 +162,12 @@ function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoP
               )
             }
             linhaAuxiliar={
-              <span>
-                {`${kpis.fechamentos.contagem} fechado / ${denominadorConversao} decididos`}
-              </span>
+              <span>{`${kpis.fechamentos.contagem} fechado / ${decididos} decididos`}</span>
             }
-            rangeComparacao={anterior ? rangeComparacao : null}
+            destaque
+            serie={series.conversao?.pontos}
+            corSparkline="var(--gold-500)"
+            nReferencia={decididos}
             tendencia={
               kpis.taxa_conversao_pct !== null && anterior !== null ? (
                 <IndicadorTendencia
@@ -179,11 +179,20 @@ function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoP
               ) : null
             }
           />
+        </div>
+      </section>
+
+      {/* Seção 2 — Operação */}
+      <section aria-label="Operação" className="flex flex-col gap-3">
+        <header>
+          <h2 className="text-base font-semibold text-text-primary">Operação</h2>
+        </header>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <TileKpi
             label="Fechamentos"
             icone={CheckCircle2}
             iconeClassName="text-success-500"
-            tooltip="Atendimentos encerrados como Fechado por registro explícito (comando ou painel). O valor bruto soma o valor final pago em cada um."
+            tooltip="Atendimentos encerrados como Fechado por registro explícito (comando ou painel)."
             valor={kpis.fechamentos.contagem}
             valorClassName="text-success-500"
             linhaAuxiliar={
@@ -191,7 +200,9 @@ function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoP
                 {ticketBruto} bruto · ticket médio {ticketMedio}
               </span>
             }
-            rangeComparacao={anterior ? rangeComparacao : null}
+            serie={series.fechamentos?.pontos}
+            corSparkline="var(--success-500)"
+            nReferencia={decididos}
             tendencia={
               anterior ? (
                 <IndicadorTendencia
@@ -199,6 +210,8 @@ function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoP
                   anterior={anterior.fechamentos.contagem}
                   unidade="%"
                   polaridade="direta"
+                  baseAtual={kpis.fechamentos.contagem}
+                  baseAnterior={anterior.fechamentos.contagem}
                 />
               ) : null
             }
@@ -209,17 +222,19 @@ function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoP
             label="Perdas"
             icone={XCircle}
             iconeClassName="text-danger-500"
-            tooltip="Atendimentos encerrados como Perdido — por registro explícito ou timeout determinístico (cliente sumiu antes de confirmar)."
+            tooltip="Atendimentos encerrados como Perdido — por registro explícito ou timeout determinístico."
             valor={kpis.perdas.contagem}
             valorClassName="text-danger-500"
             linhaAuxiliar={
-              pctPerdasVolume !== null ? (
-                <span>{`${formatPercent(pctPerdasVolume)} do volume`}</span>
+              decididos > 0 ? (
+                <span>{`${formatPercent((kpis.perdas.contagem / decididos) * 100)} dos decididos`}</span>
               ) : (
                 <span className="text-text-muted">—</span>
               )
             }
-            rangeComparacao={anterior ? rangeComparacao : null}
+            serie={series.perdas?.pontos}
+            corSparkline="var(--danger-500)"
+            nReferencia={decididos}
             tendencia={
               anterior ? (
                 <IndicadorTendencia
@@ -227,57 +242,46 @@ function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoP
                   anterior={anterior.perdas.contagem}
                   unidade="%"
                   polaridade="invertida"
+                  baseAtual={kpis.perdas.contagem}
+                  baseAnterior={anterior.perdas.contagem}
                 />
               ) : null
             }
             onClick={() => onAbrirMetrica("perdas")}
             ariaLabel="Abrir lista de perdas do período"
           />
-          <TileKpi
-            label="Atendimentos escalados"
-            icone={AlertTriangle}
-            iconeClassName="text-warn-500"
-            tooltip="Atendimentos em que a IA pausou e escalou para Fernando ou para a modelo (handoff). Mede onde a IA pediu ajuda."
-            valor={kpis.escaladas.contagem}
-            linhaAuxiliar={
-              pctEscaladasVolume !== null ? (
-                <span>{`${formatPercent(pctEscaladasVolume)} do volume`}</span>
-              ) : (
-                <span className="text-text-muted">—</span>
-              )
-            }
-            rangeComparacao={anterior ? rangeComparacao : null}
-            tendencia={
-              anterior ? (
-                <IndicadorTendencia
-                  atual={kpis.escaladas.contagem}
-                  anterior={anterior.escaladas.contagem}
-                  unidade="%"
-                  polaridade="invertida"
-                />
-              ) : null
-            }
+          <BulletEscaladas
+            contagem={kpis.escaladas.contagem}
+            nReferencia={kpis.escaladas.n_referencia ?? kpis.volume_periodo ?? null}
             onClick={() => onAbrirMetrica("escaladas")}
-            ariaLabel="Abrir lista de atendimentos escalados do período"
           />
         </div>
       </section>
 
+      {/* Seção 3 — Financeiro (waterfall + sparkline) */}
       <BlocoFinanceiro
         financeiro={data.financeiro}
         anterior={data.financeiro_periodo_anterior}
-        rangeComparacao={rangeComparacao}
+        rangeComparacao={null}
         fechamentos={kpis.fechamentos}
         onAbrirLista={onAbrirMetrica}
+        serieLiquido={series.liquido?.pontos}
       />
 
-      <FunilEstados linhas={linhasFunil} />
+      {/* Seção 4 — Carteira por estado */}
+      <CarteiraEstados linhas={linhasFunil} />
 
+      {/* Seção 5 — Diagnóstico (perdas + escaladas) */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-        <BlocoPerdasPorMotivo linhas={data.perdas_por_motivo} totalPerdas={kpis.perdas.contagem} />
+        <BlocoPerdasPorMotivo
+          linhas={data.perdas_por_motivo}
+          totalPerdas={kpis.perdas.contagem}
+          totalDecididos={decididos}
+        />
         <BlocoMotivosEscalada data={data.motivos_escalada} onAbrirTodas={onAbrirEscaladas} />
       </div>
 
+      {/* Seção 6 — Modelos */}
       <ProfissionaisRanking profissionais={data.profissionais} />
     </>
   )
@@ -286,30 +290,18 @@ function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoP
 function DashboardSkeletons() {
   return (
     <div aria-busy="true" className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, idx) => (
-          <Skeleton key={idx} className="h-[116px] w-full rounded-lg" />
+      <Skeleton className="h-[180px] w-full rounded-lg" />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {Array.from({ length: 3 }).map((_, idx) => (
+          <Skeleton key={idx} className="h-[160px] w-full rounded-lg" />
         ))}
       </div>
-
-      <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
-        <ul className="flex flex-col gap-2">
-          {Array.from({ length: 8 }).map((_, idx) => (
-            <li key={idx} className="grid h-8 grid-cols-[200px_1fr_60px_56px] items-center gap-3">
-              <Skeleton className="h-4 w-32 rounded-md" />
-              <Skeleton className="h-4 w-full rounded-md" />
-              <Skeleton className="h-4 w-10 justify-self-end rounded-md" />
-              <Skeleton className="h-4 w-10 justify-self-end rounded-md" />
-            </li>
-          ))}
-        </ul>
-      </div>
-
+      <Skeleton className="h-[260px] w-full rounded-lg" />
+      <Skeleton className="h-[180px] w-full rounded-lg" />
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
         <Skeleton className="h-[260px] w-full rounded-lg" />
         <Skeleton className="h-[260px] w-full rounded-lg" />
       </div>
-
       <Skeleton className="h-[120px] w-full rounded-lg" />
     </div>
   )

@@ -5,7 +5,8 @@ import { ChevronRight } from "lucide-react"
 import type { ProfissionalRanking } from "@/tipos/dashboard"
 import { Button } from "@/components/ui/button"
 import { formatBRL } from "@/lib/formatters"
-import { formatPercent } from "./utils"
+import { N_MINIMO_PARA_DELTA_PCT, formatPercent } from "./utils"
+import { cn } from "@/lib/utils"
 
 interface Props {
   profissionais: ProfissionalRanking[]
@@ -119,8 +120,26 @@ export function ProfissionaisRanking({ profissionais }: Props) {
                   <td className="px-4 py-4 text-right align-middle font-mono text-xs text-text-muted tabular-nums">
                     {formatBRL(p.valor_repasse_modelo_brl)}
                   </td>
-                  <td className="px-4 py-4 text-right align-middle font-mono text-xs text-text-primary tabular-nums">
-                    {formatPercent(p.taxa_conversao_pct)}
+                  <td className="px-4 py-4 text-right align-middle font-mono text-xs tabular-nums">
+                    {(() => {
+                      const n = p.n_referencia ?? p.fechamentos + (p.perdas ?? 0)
+                      const amostraPequena = n > 0 && n < N_MINIMO_PARA_DELTA_PCT
+                      const titulo = amostraPequena
+                        ? `Amostra pequena (n=${n}). Conversão tem alta variância.`
+                        : `n=${n}`
+                      return (
+                        <span
+                          title={titulo}
+                          className={cn(
+                            "inline-flex flex-col items-end leading-tight",
+                            amostraPequena ? "text-text-muted" : "text-text-primary"
+                          )}
+                        >
+                          <span>{formatPercent(p.taxa_conversao_pct)}</span>
+                          <span className="text-[10px] text-text-muted">n={n}</span>
+                        </span>
+                      )
+                    })()}
                   </td>
                   <td className="px-2 py-4 text-right align-middle">
                     <ChevronRight size={16} strokeWidth={1.5} className="text-text-muted" aria-hidden />

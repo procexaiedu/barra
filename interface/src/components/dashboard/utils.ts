@@ -1,4 +1,38 @@
 import type { FiltrosDashboard } from "@/hooks/useDashboard"
+import type { TipoEscalada } from "@/tipos/dashboard"
+
+export const ESCALADA_FAIXAS = { bom: 25, atencao: 40 } as const
+export const N_MINIMO_PARA_DELTA_PCT = 10
+
+const DELTA_ABS_INT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 })
+
+export function formatDeltaAbsoluto(atual: number, anterior: number | null | undefined): string {
+  if (anterior === null || anterior === undefined) return "—"
+  const delta = atual - anterior
+  if (delta === 0) return "0"
+  const sinal = delta > 0 ? "+" : "−"
+  return `${sinal}${DELTA_ABS_INT.format(Math.abs(delta))}`
+}
+
+export function deveSuprimirDeltaPct(base: number | null | undefined): boolean {
+  if (base === null || base === undefined) return true
+  return base < N_MINIMO_PARA_DELTA_PCT
+}
+
+const ROTULOS_TIPO_ESCALADA: Record<TipoEscalada, string> = {
+  pix_validado: "Pix de deslocamento validado",
+  pix_duvidoso: "Pix duvidoso aguardando decisão",
+  foto_portaria: "Cliente chegou (foto de portaria)",
+  aviso_saida: "Cliente avisou que saiu de casa",
+  fora_de_oferta: "Cliente pediu valor fora da tabela",
+  comportamento_atipico: "Comportamento atípico antes de confirmar",
+  indisponibilidade: "Sem agenda disponível",
+  outro: "Outro",
+}
+
+export function rotuloTipoEscalada(tipo: TipoEscalada): string {
+  return ROTULOS_TIPO_ESCALADA[tipo] ?? tipo
+}
 
 const PCT_FMT_INT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 })
 const PCT_FMT_DEC = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })

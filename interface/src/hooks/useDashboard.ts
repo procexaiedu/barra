@@ -9,6 +9,8 @@ import type {
   DashboardEscaladasResponse,
   DashboardResumo,
   FiltroPeriodo,
+  SerieMetrica,
+  SerieResposta,
 } from "@/tipos/dashboard"
 
 type Status = "loading" | "success" | "error"
@@ -56,6 +58,24 @@ function montarPath(filtros: FiltrosDashboard, recurso: "" | "/escaladas"): stri
   return `/v1/dashboard${recurso}?${params.toString()}`
 }
 
+function montarPathSerie(metrica: SerieMetrica, modeloId: string | null): string {
+  const params = new URLSearchParams()
+  params.set("metrica", metrica)
+  params.set("unidade", "semana")
+  params.set("n", "12")
+  if (modeloId) params.set("modelo_id", modeloId)
+  return `/v1/dashboard/serie?${params.toString()}`
+}
+
+// Sparklines exibidos hoje na tela. Mudar aqui se quiser adicionar/remover.
+const METRICAS_SPARKLINE: SerieMetrica[] = [
+  "conversao",
+  "liquido",
+  "fechamentos",
+  "perdas",
+  "escaladas",
+]
+
 function montarQueryString(filtros: FiltrosDashboard): string {
   const params = new URLSearchParams()
   if (filtros.periodo !== "7d") params.set("periodo", filtros.periodo)
@@ -80,6 +100,7 @@ export function useDashboard() {
   const [data, setData] = useState<DashboardResumo | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [error, setError] = useState<string | null>(null)
+  const [series, setSeries] = useState<Partial<Record<SerieMetrica, SerieResposta>>>({})
 
   const filtros = filtrosFromUrl
 
@@ -88,6 +109,7 @@ export function useDashboard() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeEvents = useRef(0)
   const abortRef = useRef<AbortController | null>(null)
+  const seriesAbortRef = useRef<AbortController | null>(null)
 
   const fetchResumo = useCallback(async () => {
     const filtrosAtuais = filtrosRef.current
@@ -110,6 +132,37 @@ export function useDashboard() {
       if (!firstLoadDone.current) setStatus("error")
       const detail = e instanceof ApiError ? e.detail : e instanceof Error ? e.message : "Erro desconhecido"
       setError(detail)
+    }
+  }, [])
+
+  const fetchSeries = useCallback(async () => {
+    const filtrosAtuais = filtrosRef.current
+    if (seriesAbortRef.current) seriesAbortRef.current.abort()
+    const controller = new AbortController()
+    seriesAbortRef.current = controller
+    try {
+      const resultados = await Promise.all(
+        METRICAS_SPARKLINE.map((metrica) =>
+          api<SerieResposta>(montarPathSerie(metrica, filtrosAtuais.modelo_id), {
+            signal: controller.signal,
+          }).catch((e: unknown) => {
+            // Falha individual de série não derruba a tela — apenas omitimos.
+            if (process.env.NODE_ENV !== "production") {
+              console.debug(`[dashboard] série ${metrica} falhou`, e)
+            }
+            return null
+          })
+        )
+      )
+      if (controller.signal.aborted) return
+      const proximo: Partial<Record<SerieMetrica, SerieResposta>> = {}
+      METRICAS_SPARKLINE.forEach((metrica, idx) => {
+        const res = resultados[idx]
+        if (res) proximo[metrica] = res
+      })
+      setSeries(proximo)
+    } catch {
+      // Best-effort — sparkline ausente não bloqueia a UI.
     }
   }, [])
 
@@ -150,13 +203,15 @@ export function useDashboard() {
       }
       realtimeEvents.current = 0
       fetchResumo()
+      fetchSeries()
     }, 250)
-  }, [fetchResumo])
+  }, [fetchResumo, fetchSeries])
 
   useEffect(() => {
     filtrosRef.current = filtros
     fetchResumo()
-  }, [filtros, fetchResumo])
+    fetchSeries()
+  }, [filtros, fetchResumo, fetchSeries])
 
   useEffect(() => {
     const cleanupRealtime = subscribeTabelas(
@@ -177,6 +232,7 @@ export function useDashboard() {
       authSub.subscription.unsubscribe()
       if (debounceRef.current) clearTimeout(debounceRef.current)
       if (abortRef.current) abortRef.current.abort()
+      if (seriesAbortRef.current) seriesAbortRef.current.abort()
     }
   }, [debouncedRefetch, router])
 
@@ -220,7 +276,9 @@ export function useDashboard() {
     data,
     status,
     error,
+    series,
     refetch: fetchResumo,
+    refetchSeries: fetchSeries,
     setPeriodoPreset,
     setPeriodoCustom,
     setModeloId,

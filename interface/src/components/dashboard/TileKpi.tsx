@@ -4,6 +4,8 @@ import type { ReactNode } from "react"
 import { Info, type LucideIcon } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Sparkline } from "./Sparkline"
+import type { SerieTemporalPonto } from "@/tipos/dashboard"
 
 interface Props {
   label: string
@@ -17,6 +19,10 @@ interface Props {
   tooltip?: ReactNode
   onClick?: () => void
   ariaLabel?: string
+  serie?: SerieTemporalPonto[]
+  corSparkline?: string
+  nReferencia?: number | null
+  destaque?: boolean
 }
 
 export function TileKpi({
@@ -31,9 +37,18 @@ export function TileKpi({
   tooltip,
   onClick,
   ariaLabel,
+  serie,
+  corSparkline,
+  nReferencia,
+  destaque = false,
 }: Props) {
-  const mostrarFooter = Boolean(tendencia || rangeComparacao)
+  const mostrarFooter = Boolean(tendencia || rangeComparacao || nReferencia !== undefined)
   const interativo = Boolean(onClick)
+  const mostrarSparkline = Array.isArray(serie) && serie.length > 0
+
+  const valorClasses = destaque
+    ? "font-sans text-[56px] font-medium leading-[60px] text-text-primary tabular-nums"
+    : "font-sans text-[40px] font-medium leading-[48px] text-text-primary tabular-nums"
 
   const conteudo = (
     <>
@@ -71,22 +86,29 @@ export function TileKpi({
         ) : null}
       </header>
 
-      <p
-        className={cn(
-          "font-sans text-[40px] font-medium leading-[48px] text-text-primary tabular-nums",
-          valorClassName
-        )}
-      >
-        {valor}
-      </p>
+      <p className={cn(valorClasses, valorClassName)}>{valor}</p>
 
       {linhaAuxiliar ? (
         <p className="text-[13px] text-text-muted">{linhaAuxiliar}</p>
       ) : null}
 
+      {mostrarSparkline ? (
+        <Sparkline
+          pontos={serie!}
+          cor={corSparkline}
+          altura={destaque ? 48 : 36}
+          ariaLabel={`Tendência de ${label}`}
+        />
+      ) : null}
+
       {mostrarFooter ? (
         <footer className="mt-auto flex items-center justify-between gap-2 pt-1">
-          <span className="inline-flex">{tendencia}</span>
+          <span className="inline-flex items-center gap-2">
+            {tendencia}
+            {nReferencia !== undefined && nReferencia !== null ? (
+              <span className="font-mono text-[11px] text-text-muted">n={nReferencia}</span>
+            ) : null}
+          </span>
           {rangeComparacao ? (
             <span className="font-mono text-[11px] text-text-muted">Comparado com: {rangeComparacao}</span>
           ) : null}

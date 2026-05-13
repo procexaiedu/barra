@@ -5,7 +5,7 @@ import { CheckCircle2 } from "lucide-react"
 import type { MotivoPerda } from "@/tipos/atendimentos"
 import type { PerdaPorMotivoLinha } from "@/tipos/dashboard"
 import { cn } from "@/lib/utils"
-import { DonutPerdas, obterOpacidadeMotivo } from "./DonutPerdas"
+import { N_MINIMO_PARA_DELTA_PCT } from "./utils"
 
 const ROTULOS: Record<MotivoPerda, string> = {
   preco: "Preço",
@@ -16,7 +16,7 @@ const ROTULOS: Record<MotivoPerda, string> = {
   outro: "Outro",
 }
 
-const ORDEM: MotivoPerda[] = [
+const ORDEM_CANONICA: MotivoPerda[] = [
   "sumiu",
   "preco",
   "risco",
@@ -30,22 +30,55 @@ const PCT_FMT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 })
 interface Props {
   linhas: PerdaPorMotivoLinha[]
   totalPerdas: number
+  totalDecididos?: number
 }
 
-export function BlocoPerdasPorMotivo({ linhas, totalPerdas }: Props) {
+export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Props) {
   const router = useRouter()
-  const visiveis = ORDEM.map((motivo) => linhas.find((l) => l.motivo === motivo)).filter(
-    (l): l is PerdaPorMotivoLinha => Boolean(l && l.contagem > 0)
-  )
+  const mapa = new Map(linhas.map((l) => [l.motivo, l.contagem]))
+
+  const dados = ORDEM_CANONICA.map((motivo) => ({
+    motivo,
+    contagem: mapa.get(motivo) ?? 0,
+    pct: totalPerdas > 0 ? ((mapa.get(motivo) ?? 0) / totalPerdas) * 100 : 0,
+  })).sort((a, b) => b.contagem - a.contagem)
+
+  const maximo = Math.max(...dados.map((d) => d.contagem), 1)
+  const amostraPequena = totalPerdas > 0 && totalPerdas < N_MINIMO_PARA_DELTA_PCT
+  const pctDecididos =
+    totalDecididos !== undefined && totalDecididos > 0 ? (totalPerdas / totalDecididos) * 100 : null
+
+  // Pareto: marca dos 80% acumulados (referência clássica).
+  let acumulado = 0
+  const ate80 = new Set<MotivoPerda>()
+  for (const linha of dados) {
+    if (totalPerdas === 0) break
+    if (acumulado < 80) ate80.add(linha.motivo)
+    acumulado += linha.pct
+  }
 
   return (
-    <section
-      aria-label="Perdas por motivo"
-      className="flex flex-col gap-3"
-    >
-      <header>
+    <section aria-label="Perdas por motivo" className="flex flex-col gap-3">
+      <header className="flex items-baseline justify-between">
         <h2 className="text-base font-semibold text-text-primary">Perdas por motivo</h2>
+        <span className="text-xs font-medium text-text-muted">
+          {totalPerdas} perdas
+          {pctDecididos !== null ? (
+            <>
+              {" · "}
+              <span className="font-mono tabular-nums">
+                {totalPerdas}/{totalDecididos} dos decididos ({PCT_FMT.format(pctDecididos)}%)
+              </span>
+            </>
+          ) : null}
+          {amostraPequena ? (
+            <span className="ml-2 inline-flex items-center rounded-full bg-ink-100 px-2 py-0.5 font-mono text-[10px] text-text-muted">
+              amostra pequena
+            </span>
+          ) : null}
+        </span>
       </header>
+
       <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
         {totalPerdas === 0 ? (
           <div className="flex items-center gap-2">
@@ -53,50 +86,64 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas }: Props) {
             <span className="text-sm text-text-primary">Sem perdas no período.</span>
           </div>
         ) : (
-          <div className="flex flex-col items-stretch gap-6 sm:flex-row sm:items-center">
-            <div className="flex justify-center sm:justify-start">
-              <DonutPerdas linhas={visiveis} total={totalPerdas} />
-            </div>
-            <ul className="flex w-full flex-col">
-              {visiveis.map((linha) => {
-                const pct = totalPerdas > 0 ? (linha.contagem / totalPerdas) * 100 : 0
-                const opacidade = obterOpacidadeMotivo(visiveis, linha.motivo)
-                const handleClick = () =>
-                  router.push(
-                    `/atendimentos?estado=Perdido&motivo_perda=${encodeURIComponent(linha.motivo)}`
-                  )
-                return (
-                  <li key={linha.motivo}>
-                    <button
-                      type="button"
-                      onClick={handleClick}
+          <ul className="flex flex-col gap-1">
+            {dados.map((linha) => {
+              const pctBarra = (linha.contagem / maximo) * 100
+              const inativo = linha.contagem === 0
+              const noTopo = ate80.has(linha.motivo) && linha.contagem > 0
+              const handleClick = inativo
+                ? undefined
+                : () =>
+                    router.push(
+                      `/atendimentos?estado=Perdido&motivo_perda=${encodeURIComponent(linha.motivo)}`
+                    )
+              return (
+                <li key={linha.motivo}>
+                  <button
+                    type="button"
+                    onClick={handleClick}
+                    disabled={inativo}
+                    className={cn(
+                      "grid w-full grid-cols-[140px_1fr_40px_56px] items-center gap-3 rounded-md py-1.5 pl-2 pr-3 text-left",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                      inativo ? "opacity-50" : "transition-colors hover:bg-ink-200"
+                    )}
+                    aria-label={`${ROTULOS[linha.motivo]}: ${linha.contagem} perdas`}
+                  >
+                    <span
                       className={cn(
-                        "grid h-8 w-full grid-cols-[14px_1fr_40px_56px] items-center gap-3 rounded-md text-left",
-                        "transition-colors hover:bg-ink-200",
-                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                        "truncate text-[13px]",
+                        inativo ? "text-text-muted" : "text-text-primary"
                       )}
-                      aria-label={`${ROTULOS[linha.motivo]}: ${linha.contagem} perdas`}
                     >
-                      <span
-                        aria-hidden
-                        className="ml-1 block h-2.5 w-2.5 rounded-sm bg-danger-500"
-                        style={{ opacity: opacidade }}
+                      {ROTULOS[linha.motivo]}
+                    </span>
+                    <div className="relative h-2.5 overflow-hidden rounded-full bg-ink-100">
+                      <div
+                        className="h-full rounded-full transition-[width] duration-300"
+                        style={{
+                          width: `${pctBarra}%`,
+                          background: noTopo ? "var(--danger-500)" : "var(--text-muted)",
+                          opacity: noTopo ? 1 : 0.55,
+                        }}
                       />
-                      <span className="truncate text-[13px] text-text-primary">
-                        {ROTULOS[linha.motivo]}
-                      </span>
-                      <span className="text-right font-mono text-xs font-medium text-text-primary tabular-nums">
-                        {linha.contagem}
-                      </span>
-                      <span className="text-right text-xs font-medium text-text-muted tabular-nums">
-                        {`${PCT_FMT.format(pct)}%`}
-                      </span>
-                    </button>
-                  </li>
-                )
-              })}
-            </ul>
-          </div>
+                    </div>
+                    <span
+                      className={cn(
+                        "text-right font-mono text-xs font-medium tabular-nums",
+                        inativo ? "text-text-muted" : "text-text-primary"
+                      )}
+                    >
+                      {linha.contagem}
+                    </span>
+                    <span className="text-right text-xs font-medium text-text-muted tabular-nums">
+                      {`${PCT_FMT.format(linha.pct)}%`}
+                    </span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
         )}
       </div>
     </section>

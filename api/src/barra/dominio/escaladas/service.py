@@ -9,6 +9,7 @@ from uuid import UUID
 from psycopg import AsyncConnection
 
 from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
+from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 
 Origem = Literal["painel", "grupo_coordenacao", "pipeline_pix", "cron", "agente"]
 Autor = Literal["IA", "Fernando", "modelo", "sistema"]
@@ -293,22 +294,34 @@ async def abrir_handoff(
     *,
     atendimento_id: UUID,
     responsavel: str,
-    motivo: str,
+    tipo: TipoEscalada,
     resumo_operacional: str,
     acao_esperada: str,
     origem: Origem,
     autor: Autor,
+    observacao: str | None = None,
     card_message_id: str | None = None,
 ) -> None:
+    motivo_texto = observacao or rotulo_tipo_escalada(tipo)
     async with conn.transaction():
         await conn.execute(
             """
             INSERT INTO barravips.escaladas (
-              atendimento_id, responsavel, motivo, resumo_operacional, acao_esperada, card_message_id
+              atendimento_id, responsavel, tipo, motivo, observacao,
+              resumo_operacional, acao_esperada, card_message_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            (atendimento_id, responsavel, motivo, resumo_operacional, acao_esperada, card_message_id),
+            (
+                atendimento_id,
+                responsavel,
+                tipo.value,
+                motivo_texto,
+                observacao,
+                resumo_operacional,
+                acao_esperada,
+                card_message_id,
+            ),
         )
         await conn.execute(
             """
@@ -320,7 +333,7 @@ async def abrir_handoff(
                    proxima_acao_esperada = %s
              WHERE id = %s
             """,
-            (responsavel, motivo, acao_esperada, atendimento_id),
+            (responsavel, motivo_texto, acao_esperada, atendimento_id),
         )
         await _evento(
             conn,
@@ -328,7 +341,13 @@ async def abrir_handoff(
             "handoff_aberto",
             origem,
             autor,
-            {"responsavel": responsavel, "motivo": motivo, "acao_esperada": acao_esperada},
+            {
+                "responsavel": responsavel,
+                "tipo": tipo.value,
+                "motivo": motivo_texto,
+                "observacao": observacao,
+                "acao_esperada": acao_esperada,
+            },
         )
 
 
