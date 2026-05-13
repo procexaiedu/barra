@@ -181,7 +181,7 @@ async def listar_tipos_local(
 ) -> dict[str, list[str]]:
     result = await conn.execute(
         "SELECT DISTINCT tipo_local FROM barravips.atendimentos "
-        "WHERE tipo_local IS NOT NULL AND length(trim(tipo_local)) > 0 "
+        "WHERE tipo_local IS NOT NULL "
         "ORDER BY tipo_local"
     )
     rows = await result.fetchall()

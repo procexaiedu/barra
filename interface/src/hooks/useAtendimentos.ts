@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ApiError, api, apiFormData } from "@/lib/api"
-import { hojeBrtIso } from "@/lib/datas"
+import { fimMesBrtIso, inicioMesBrtIso } from "@/lib/datas"
 import { subscribeTabelas } from "@/lib/realtime"
 import { supabase } from "@/lib/supabase"
 import type {
@@ -24,7 +24,6 @@ import type {
 type Status = "loading" | "success" | "error"
 
 function montarFiltrosIniciais(): FiltrosAtendimentos {
-  const hoje = hojeBrtIso()
   return {
     busca: "",
     estado: "abertos",
@@ -32,7 +31,7 @@ function montarFiltrosIniciais(): FiltrosAtendimentos {
     urgencia: "todas",
     ia: "todos",
     qualificacao: "todos",
-    periodo: { de: hoje, ate: hoje },
+    periodo: { de: inicioMesBrtIso(), ate: fimMesBrtIso() },
   }
 }
 
@@ -120,8 +119,10 @@ export function useAtendimentos(
     [filtros, debouncedBusca]
   )
 
-  const hojeIso = hojeBrtIso()
-  const periodoAplicado = filtrosEfetivos.periodo.de !== hojeIso || filtrosEfetivos.periodo.ate !== hojeIso
+  const inicioMes = inicioMesBrtIso()
+  const fimMes = fimMesBrtIso()
+  const periodoAplicado =
+    filtrosEfetivos.periodo.de !== inicioMes || filtrosEfetivos.periodo.ate !== fimMes
   const filtrosAplicados = filtrosEfetivos.busca.trim() !== ""
     || filtrosEfetivos.estado !== "abertos"
     || filtrosEfetivos.tipo !== "todos"
