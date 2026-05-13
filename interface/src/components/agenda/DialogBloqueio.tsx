@@ -645,7 +645,17 @@ export function DialogBloqueio({
                 <div className="mt-2 w-full max-w-xs">
                   <FiltroModelo
                     modeloId={form.modelo_id ?? null}
-                    onChange={(val) => setForm(f => ({ ...f, modelo_id: val ?? undefined }))}
+                    onChange={(val) => {
+                      if (form.modelo_id && form.modelo_id !== val) {
+                        setAtendimentoSelecionado(null)
+                        setBusca("")
+                        setResultadosBusca([])
+                        setBuscaAberta(false)
+                        setForm((f) => ({ ...f, modelo_id: val ?? undefined, atendimento_id: undefined }))
+                      } else {
+                        setForm((f) => ({ ...f, modelo_id: val ?? undefined }))
+                      }
+                    }}
                     hideTodas
                   />
                 </div>
