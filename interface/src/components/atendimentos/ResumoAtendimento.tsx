@@ -1,7 +1,7 @@
 "use client"
 
-import type { ReactNode } from "react"
-import Link from "next/link"
+import { useState, type ReactNode } from "react"
+import { useRouter } from "next/navigation"
 import {
   AlertTriangle,
   CalendarClock,
@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils"
 import { formatBRL, formatData, formatDataHora, formatRotulo } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse, ServicoFechado } from "@/tipos/atendimentos"
 import { estadoLabel, formatEnum, motivoExibido, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
+import { DialogVisualizarBloqueio } from "@/components/agenda/DialogVisualizarBloqueio"
 
 function asNumber(valor: number | string | null) {
   if (valor === null) return null
@@ -31,6 +32,8 @@ function NaoInformado() {
 }
 
 export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
+  const router = useRouter()
+  const [modalBloqueioAberto, setModalBloqueioAberto] = useState(false)
   const atendimento = detalhe.atendimento
   const valorAcordado = asNumber(atendimento.valor_acordado)
   const sq = atendimento.sinais_qualificacao as Record<string, unknown> | null
@@ -283,12 +286,13 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
                 <p className="mt-0.5 text-[12px] text-text-muted">
                   {formatRotulo(detalhe.bloqueio.estado) ?? detalhe.bloqueio.estado}
                 </p>
-                <Link
-                  href={`/agenda?bloqueio=${detalhe.bloqueio.id}`}
+                <button
+                  type="button"
+                  onClick={() => setModalBloqueioAberto(true)}
                   className="mt-1.5 inline-block text-[13px] font-medium text-text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
                 >
-                  Abrir na agenda →
-                </Link>
+                  Ver bloqueio
+                </button>
               </>
             ) : (
               <p className="text-[14px] text-text-disabled">Sem bloqueio vinculado</p>
@@ -296,6 +300,18 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
           </div>
         </div>
       </Secao>
+
+      {detalhe.bloqueio && (
+        <DialogVisualizarBloqueio
+          bloqueio={detalhe.bloqueio}
+          open={modalBloqueioAberto}
+          onOpenChange={setModalBloqueioAberto}
+          onEditar={() => {
+            setModalBloqueioAberto(false)
+            router.push(`/agenda?bloqueio=${detalhe.bloqueio!.id}`)
+          }}
+        />
+      )}
     </Card>
   )
 }

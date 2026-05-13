@@ -1,3 +1,5 @@
+import type { BloqueioAgenda } from "./agenda"
+
 export type EstadoAtendimento =
   | "Novo"
   | "Triagem"
@@ -115,13 +117,6 @@ export interface AtendimentoOperacional {
   updated_at: string
 }
 
-export interface BloqueioResumo {
-  id: string
-  inicio: string
-  fim: string
-  estado: string
-}
-
 export interface ServicoFechado {
   id: string
   programa_id: string
@@ -143,7 +138,7 @@ export interface AtendimentoDetalheResponse {
     id: string
     nome: string
   }
-  bloqueio: BloqueioResumo | null
+  bloqueio: BloqueioAgenda | null
   mensagens: MensagemAtendimento[]
   eventos: EventoAtendimento[]
   comprovantes_pix: ComprovantePixResumo[]
