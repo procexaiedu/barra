@@ -2,7 +2,22 @@
 
 import { useState, useEffect, type ReactNode } from "react"
 import Link from "next/link"
-import { ExternalLink, Clock, AlertTriangle, CheckCircle2, XCircle, Circle } from "lucide-react"
+import {
+  ExternalLink,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  Circle,
+  ReceiptText,
+  Sparkles,
+  User,
+  MessageSquare,
+  CreditCard,
+  Target,
+  CalendarClock,
+  MapPin,
+  Image as ImageIcon,
+} from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -81,7 +96,6 @@ type ContextoData = {
     proxima_acao_esperada: string | null
     valor_acordado: number | null
     ia_pausada_em: string
-    // campos expandidos
     estado: string | null
     tipo_atendimento: string | null
     data_desejada: string | null
@@ -297,19 +311,23 @@ export function ModalDecisaoCard({
 
   const nomeCliente = card ? (card.cliente_nome ?? card.cliente_telefone_formatado) : ""
   const comprovante = contexto?.comprovantes_pix[0] ?? null
-  const mensagensOrdenadas = contexto ? [...contexto.mensagens.slice(0, 6)].reverse() : []
+  const mensagensOrdenadas = contexto ? [...contexto.mensagens.slice(0, 10)].reverse() : []
   const isPix = card?.ia_pausada_motivo === "pix_em_revisao"
   const isHandoff = card?.ia_pausada_motivo === "handoff_ia"
   const isModeloAtendendo = card?.ia_pausada_motivo === "modelo_em_atendimento"
   const isEmExecucao = isModeloAtendendo && contexto?.atendimento.estado === "Em_execucao"
   const isConfirmado = isModeloAtendendo && contexto?.atendimento.estado === "Confirmado"
 
+  const motivoTexto = card
+    ? motivoExibido(card.motivo_escalada, card.ia_pausada_motivo) ?? "Aguardando decisão"
+    : ""
+
   return (
     <>
       <Dialog open={card !== null} onOpenChange={(v) => { if (!v) onClose() }}>
-        <DialogContent className="w-full max-w-lg rounded-xl bg-card p-0 shadow-xl ring-1 ring-border">
+        <DialogContent className="flex w-[min(96vw,88rem)] max-h-[92vh] min-h-[70vh] flex-col rounded-xl bg-card p-0 shadow-xl ring-1 ring-border">
           {/* ── header ──────────────────────────────────────────── */}
-          <div className="flex items-center gap-2 border-b border-border px-5 py-4">
+          <header className="flex items-center gap-3 border-b border-border px-8 py-4">
             {card && (
               <>
                 <Badge variant={BADGE_VARIANT[card.ia_pausada_motivo]}>
@@ -318,7 +336,9 @@ export function ModalDecisaoCard({
                 <DialogTitle className="text-base font-semibold text-text-primary">
                   {nomeCliente}
                 </DialogTitle>
-                <span className="shrink-0 text-xs text-text-muted">{card.modelo_nome} #{card.numero_curto}</span>
+                <span className="shrink-0 text-xs text-text-muted">
+                  {card.modelo_nome} · #{card.numero_curto}
+                </span>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -337,15 +357,17 @@ export function ModalDecisaoCard({
                 </Button>
               </>
             )}
-          </div>
+          </header>
 
           {/* ── corpo ───────────────────────────────────────────── */}
-          <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
+          <div className="flex-1 overflow-y-auto px-8 py-6">
             {loading && (
-              <div className="space-y-2">
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-1/2" />
-                <Skeleton className="h-24 w-full" />
+              <div className="space-y-4">
+                <Skeleton className="h-32 w-full rounded-md" />
+                <div className="grid gap-4 lg:grid-cols-2">
+                  <Skeleton className="h-44 w-full rounded-md" />
+                  <Skeleton className="h-44 w-full rounded-md" />
+                </div>
               </div>
             )}
 
@@ -355,88 +377,114 @@ export function ModalDecisaoCard({
 
             {!loading && !erro && contexto && card && (
               <>
-                {/* motivo + tempo — sempre visible */}
-                <div className="space-y-1.5">
-                  <InfoRow
-                    label="MOTIVO"
-                    value={motivoExibido(card.motivo_escalada, card.ia_pausada_motivo) ?? "—"}
-                  />
-                  {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
-                  <p className="text-xs text-text-muted">
-                    Pausada {formatTempoRelativo(card.ia_pausada_em)}
-                  </p>
-                </div>
+                {/* ── HERO KPI ──────────────────────────────────── */}
+                <HeroKPI
+                  card={card}
+                  motivoTexto={motivoTexto}
+                  contexto={contexto}
+                  isPix={isPix}
+                  isEmExecucao={isEmExecucao}
+                />
 
-                {/* ── PIX EM REVISÃO ─────────────────────────────── */}
-                {isPix && comprovante && (
-                  <SecaoPix
-                    comprovante={comprovante}
-                    pixUrl={pixUrl}
-                    valorAcordado={contexto.atendimento.valor_acordado}
-                  />
-                )}
+                {/* ── GRID ───────────────────────────────────────── */}
+                {/* Pix: 2 col (info + imagem grande). Outros casos: 3 col em xl */}
+                <div className={cn(
+                  "mt-6 grid gap-6",
+                  isPix ? "lg:grid-cols-2" : "lg:grid-cols-2 xl:grid-cols-3"
+                )}>
+                  {/* PIX EM REVISÃO */}
+                  {isPix && comprovante && (
+                    <>
+                      <SecaoPix
+                        comprovante={comprovante}
+                        valorAcordado={contexto.atendimento.valor_acordado}
+                      />
+                      <SecaoComprovanteImagem pixUrl={pixUrl} />
+                    </>
+                  )}
 
-                {/* ── HANDOFF IA ─────────────────────────────────── */}
-                {isHandoff && (
-                  <>
-                    {contexto.atendimento.resumo_operacional && (
-                      <SecaoResumoOperacional resumo={contexto.atendimento.resumo_operacional} />
-                    )}
-                    <SecaoFichaCliente conversa={contexto.conversa} />
-                    <SecaoDadosComerciais atendimento={contexto.atendimento} />
-                    {contexto.atendimento.sinais_qualificacao && (
-                      <SecaoSinaisQualificacao sinais={contexto.atendimento.sinais_qualificacao} tipo={contexto.atendimento.tipo_atendimento} />
-                    )}
-                    {mensagensOrdenadas.length > 0 && (
-                      <SecaoMensagens mensagens={mensagensOrdenadas} />
-                    )}
-                  </>
-                )}
-
-                {/* ── MODELO EM EXECUÇÃO (cliente chegou) ─────────── */}
-                {isEmExecucao && (
-                  <>
-                    <SecaoTimerEmCampo
-                      fotoPortariaEm={contexto.atendimento.foto_portaria_em}
-                      previsaoTermino={card.previsao_termino ?? null}
-                      expirado={card.expirado}
-                    />
-                    <SecaoDadosAtendimento
-                      atendimento={contexto.atendimento}
-                      bloqueio={contexto.bloqueio}
-                    />
-                    {contexto.atendimento.resumo_operacional && (
-                      <SecaoResumoOperacional resumo={contexto.atendimento.resumo_operacional} />
-                    )}
-                  </>
-                )}
-
-                {/* ── MODELO CONFIRMADO (aguardando horário) ───────── */}
-                {isConfirmado && (
-                  <>
-                    <SecaoDadosAtendimento
-                      atendimento={contexto.atendimento}
-                      bloqueio={contexto.bloqueio}
-                    />
-                    {comprovante?.valor_extraido != null && (
-                      <div className="rounded-md border border-border p-3">
-                        <p className="mb-1.5 text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
-                          Pix de deslocamento
-                        </p>
-                        <p className="text-[13px] font-medium text-success-500">
-                          {formatBRL(comprovante.valor_extraido)} validado
-                        </p>
+                  {/* HANDOFF IA — 3 colunas em xl: cliente | comercial+sinais | resumo+mensagens */}
+                  {isHandoff && (
+                    <>
+                      <div className="space-y-4">
+                        <SecaoFichaCliente conversa={contexto.conversa} />
+                        {contexto.atendimento.sinais_qualificacao && (
+                          <SecaoSinaisQualificacao
+                            sinais={contexto.atendimento.sinais_qualificacao}
+                            tipo={contexto.atendimento.tipo_atendimento}
+                          />
+                        )}
                       </div>
-                    )}
-                  </>
-                )}
+                      <div className="space-y-4">
+                        <SecaoDadosComerciais atendimento={contexto.atendimento} />
+                        {contexto.atendimento.resumo_operacional && (
+                          <SecaoResumoOperacional resumo={contexto.atendimento.resumo_operacional} />
+                        )}
+                      </div>
+                      <div className="space-y-4">
+                        {mensagensOrdenadas.length > 0 && (
+                          <SecaoMensagens mensagens={mensagensOrdenadas} />
+                        )}
+                      </div>
+                    </>
+                  )}
+
+                  {/* MODELO EM EXECUÇÃO */}
+                  {isEmExecucao && (
+                    <>
+                      <SecaoDadosAtendimento
+                        atendimento={contexto.atendimento}
+                        bloqueio={contexto.bloqueio}
+                      />
+                      {contexto.atendimento.resumo_operacional ? (
+                        <SecaoResumoOperacional resumo={contexto.atendimento.resumo_operacional} />
+                      ) : (
+                        <SecaoBloco
+                          titulo="Análise da IA"
+                          icone={<Sparkles size={14} strokeWidth={1.75} className="text-gold-500" />}
+                        >
+                          <p className="text-[13px] text-text-disabled">
+                            Sem análise registrada para esta etapa.
+                          </p>
+                        </SecaoBloco>
+                      )}
+                    </>
+                  )}
+
+                  {/* MODELO CONFIRMADO */}
+                  {isConfirmado && (
+                    <>
+                      <SecaoDadosAtendimento
+                        atendimento={contexto.atendimento}
+                        bloqueio={contexto.bloqueio}
+                      />
+                      <SecaoBloco
+                        titulo="Pix de deslocamento"
+                        icone={<CreditCard size={14} strokeWidth={1.75} className="text-success-500" />}
+                      >
+                        {comprovante?.valor_extraido != null ? (
+                          <div className="flex items-center gap-2">
+                            <CheckCircle2 size={16} className="text-success-500" />
+                            <span className="text-[14px] font-medium text-success-500">
+                              {formatBRL(comprovante.valor_extraido)} validado
+                            </span>
+                          </div>
+                        ) : (
+                          <p className="text-[13px] text-text-disabled">
+                            Sem comprovante de Pix vinculado.
+                          </p>
+                        )}
+                      </SecaoBloco>
+                    </>
+                  )}
+                </div>
               </>
             )}
           </div>
 
           {/* ── footer com ações ────────────────────────────────── */}
           {!loading && !erro && contexto && (
-            <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+            <footer className="flex justify-end gap-2 border-t border-border px-8 py-3">
               <Button variant="ghost" size="sm" onClick={onClose} disabled={loadingAcao}>
                 Cancelar
               </Button>
@@ -487,7 +535,7 @@ export function ModalDecisaoCard({
                   {loadingAcao ? "Devolvendo…" : "Devolver para IA"}
                 </Button>
               )}
-            </div>
+            </footer>
           )}
         </DialogContent>
       </Dialog>
@@ -622,26 +670,125 @@ export function ModalDecisaoCard({
   )
 }
 
-// ── sub-componentes utilitários ───────────────────────────────────────────────
+// ── Hero KPI ──────────────────────────────────────────────────────────────────
 
-function InfoRow({
-  label,
-  value,
-  destaque = false,
+function HeroKPI({
+  card,
+  motivoTexto,
+  contexto,
+  isPix,
+  isEmExecucao,
 }: {
-  label: string
-  value: string
-  destaque?: boolean
+  card: CardDestaque
+  motivoTexto: string
+  contexto: ContextoData
+  isPix: boolean
+  isEmExecucao: boolean
 }) {
+  // Para Pix em revisão, o KPI principal é o valor recebido.
+  // Para Em execução, é o tempo desde a chegada.
+  // Para os demais, é o motivo + tempo pausada.
+  const comprovante = contexto.comprovantes_pix[0] ?? null
+  const valorAcordado = contexto.atendimento.valor_acordado
+  const tempoEmCampo = contexto.atendimento.foto_portaria_em
+    ? formatTempoRelativo(contexto.atendimento.foto_portaria_em)
+    : null
+
+  let kpiLabel: string
+  let kpiValor: ReactNode
+  let kpiColor = "text-gold-500"
+
+  if (isPix && comprovante) {
+    const valorRecebido = comprovante.valor_extraido
+    const valorAbaixo =
+      valorAcordado != null && valorRecebido != null && valorRecebido < valorAcordado
+    kpiLabel = "Valor recebido"
+    kpiValor = valorRecebido != null ? formatBRL(valorRecebido) : "Não extraído"
+    kpiColor = valorAbaixo ? "text-warn-500" : "text-gold-500"
+  } else if (isEmExecucao && tempoEmCampo) {
+    kpiLabel = card.expirado ? "Tempo em campo (excedido)" : "Tempo em campo"
+    kpiValor = tempoEmCampo
+    kpiColor = card.expirado ? "text-warn-500" : "text-gold-500"
+  } else {
+    kpiLabel = "Motivo"
+    kpiValor = motivoTexto
+    kpiColor = "text-gold-500"
+  }
+
   return (
-    <div>
-      <span className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">{label} </span>
-      <span className={cn("text-[13px] text-text-primary", destaque && "font-medium")}>
-        {value}
-      </span>
+    <div className="overflow-hidden rounded-md border border-ink-300 bg-ink-200">
+      <div className="flex flex-wrap items-end justify-between gap-3 px-6 py-5">
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+            {kpiLabel}
+          </p>
+          <p
+            className={cn(
+              "mt-1 font-serif text-[34px] font-medium leading-tight tabular-nums",
+              kpiColor,
+            )}
+          >
+            {kpiValor}
+          </p>
+        </div>
+        {isPix && valorAcordado != null && (
+          <div className="text-right">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+              Esperado
+            </p>
+            <p className="mt-1 font-serif text-[26px] font-medium leading-tight tabular-nums text-text-primary">
+              {formatBRL(valorAcordado)}
+            </p>
+          </div>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-px border-t border-ink-300 bg-ink-300 sm:grid-cols-4 xl:grid-cols-5">
+        <StatTile
+          label="Pausada"
+          icone={<Clock size={11} strokeWidth={1.75} className="text-text-muted" />}
+        >
+          {formatTempoRelativo(card.ia_pausada_em)}
+        </StatTile>
+        <StatTile
+          label="Cliente"
+          icone={<User size={11} strokeWidth={1.75} className="text-text-muted" />}
+        >
+          <span className="truncate">{card.cliente_nome ?? card.cliente_telefone_formatado}</span>
+        </StatTile>
+        <StatTile
+          label="Modelo"
+          icone={<Sparkles size={11} strokeWidth={1.75} className="text-text-muted" />}
+        >
+          <span className="truncate">{card.modelo_nome}</span>
+        </StatTile>
+        {isEmExecucao && card.previsao_termino ? (
+          <StatTile
+            label="Previsão término"
+            icone={<CalendarClock size={11} strokeWidth={1.75} className="text-info-500" />}
+          >
+            {formatHorario(card.previsao_termino)}
+          </StatTile>
+        ) : valorAcordado != null && !isPix ? (
+          <StatTile
+            label="Valor acordado"
+            icone={<ReceiptText size={11} strokeWidth={1.75} className="text-gold-500" />}
+          >
+            {formatBRL(valorAcordado)}
+          </StatTile>
+        ) : (
+          <StatTile
+            label="Atendimento"
+            icone={<Target size={11} strokeWidth={1.75} className="text-text-muted" />}
+          >
+            #{card.numero_curto}
+          </StatTile>
+        )}
+      </div>
     </div>
   )
 }
+
+// ── sub-componentes utilitários ───────────────────────────────────────────────
 
 function FormField({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -654,9 +801,79 @@ function FormField({ label, children }: { label: string; children: ReactNode }) 
   )
 }
 
-function SecaoLabel({ children }: { children: ReactNode }) {
+function StatTile({ label, icone, children }: { label: string; icone?: ReactNode; children: ReactNode }) {
   return (
-    <p className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">{children}</p>
+    <div className="bg-ink-200 px-4 py-3">
+      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] leading-none text-text-muted">
+        {icone}
+        <span>{label}</span>
+      </p>
+      <div className="text-[14px] leading-tight text-text-primary">{children}</div>
+    </div>
+  )
+}
+
+function SecaoBloco({
+  titulo,
+  icone,
+  children,
+  highlight = false,
+}: {
+  titulo: string
+  icone: ReactNode
+  children: ReactNode
+  highlight?: boolean
+}) {
+  return (
+    <section
+      className={cn(
+        "rounded-md border p-4",
+        highlight ? "border-warn-500/40 bg-warn-500/5" : "border-border bg-card",
+      )}
+    >
+      <header className="mb-3 flex items-center gap-2">
+        {icone}
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          {titulo}
+        </h3>
+      </header>
+      {children}
+    </section>
+  )
+}
+
+function DefinitionList({ children }: { children: ReactNode }) {
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-[13px]">
+      {children}
+    </dl>
+  )
+}
+
+function DefRow({
+  label,
+  value,
+  destaque = false,
+  warn = false,
+}: {
+  label: string
+  value: ReactNode
+  destaque?: boolean
+  warn?: boolean
+}) {
+  return (
+    <>
+      <dt className="text-text-muted">{label}</dt>
+      <dd
+        className={cn(
+          "text-text-primary",
+          destaque && "font-medium",
+          warn && "text-warn-500",
+        )}
+      >
+        {value}
+      </dd>
+    </>
   )
 }
 
@@ -664,11 +881,9 @@ function SecaoLabel({ children }: { children: ReactNode }) {
 
 function SecaoPix({
   comprovante,
-  pixUrl,
   valorAcordado,
 }: {
   comprovante: ComprovantePix
-  pixUrl: string | null
   valorAcordado: number | null
 }) {
   const valorAbaixo =
@@ -677,43 +892,62 @@ function SecaoPix({
     comprovante.valor_extraido < valorAcordado
 
   return (
-    <div className="space-y-2 rounded-md border border-border p-3">
-      <SecaoLabel>Comprovante</SecaoLabel>
-      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[13px]">
+    <SecaoBloco
+      titulo="Comprovante Pix"
+      icone={<CreditCard size={14} strokeWidth={1.75} className="text-text-muted" />}
+    >
+      <DefinitionList>
         {valorAcordado != null && (
-          <>
-            <span className="text-text-muted">Esperado</span>
-            <span className="font-medium text-text-primary">{formatBRL(valorAcordado)}</span>
-          </>
+          <DefRow
+            label="Esperado"
+            value={formatBRL(valorAcordado)}
+            destaque
+          />
         )}
-        <span className="text-text-muted">Recebido</span>
-        <span className={cn("font-medium", valorAbaixo ? "text-warn-500" : "text-text-primary")}>
-          {comprovante.valor_extraido != null
-            ? formatBRL(comprovante.valor_extraido)
-            : "Não extraído"}
-        </span>
+        <DefRow
+          label="Recebido"
+          value={
+            comprovante.valor_extraido != null
+              ? formatBRL(comprovante.valor_extraido)
+              : "Não extraído"
+          }
+          destaque
+          warn={valorAbaixo}
+        />
         {comprovante.titular_extraido && (
-          <>
-            <span className="text-text-muted">Titular</span>
-            <span className="text-text-primary">{comprovante.titular_extraido}</span>
-          </>
+          <DefRow label="Titular" value={comprovante.titular_extraido} />
         )}
         {comprovante.motivo_em_revisao && (
-          <>
-            <span className="text-text-muted">Motivo</span>
-            <span className="text-warn-500">{comprovante.motivo_em_revisao}</span>
-          </>
+          <DefRow
+            label="Motivo em revisão"
+            value={comprovante.motivo_em_revisao}
+            warn
+          />
         )}
-      </div>
+      </DefinitionList>
+    </SecaoBloco>
+  )
+}
+
+function SecaoComprovanteImagem({ pixUrl }: { pixUrl: string | null }) {
+  return (
+    <SecaoBloco
+      titulo="Imagem do comprovante"
+      icone={<ImageIcon size={14} strokeWidth={1.75} className="text-text-muted" />}
+    >
       {pixUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={pixUrl} alt="Comprovante Pix" className="mt-1 max-h-48 w-full rounded object-contain" />
+        <img
+          src={pixUrl}
+          alt="Comprovante Pix"
+          className="max-h-[420px] w-full rounded-md border border-border bg-ink-200 object-contain"
+        />
       ) : (
-        <div className="mt-1 flex h-16 items-center justify-center rounded border border-border-subtle text-xs text-text-muted">
+        <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-border-subtle text-xs text-text-muted">
           Imagem indisponível
         </div>
       )}
-    </div>
+    </SecaoBloco>
   )
 }
 
@@ -721,10 +955,12 @@ function SecaoPix({
 
 function SecaoResumoOperacional({ resumo }: { resumo: string }) {
   return (
-    <div className="rounded-md border border-border p-3">
-      <SecaoLabel>Análise da IA</SecaoLabel>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-text-secondary">{resumo}</p>
-    </div>
+    <SecaoBloco
+      titulo="Análise da IA"
+      icone={<Sparkles size={14} strokeWidth={1.75} className="text-gold-500" />}
+    >
+      <p className="text-[14px] leading-relaxed text-text-secondary">{resumo}</p>
+    </SecaoBloco>
   )
 }
 
@@ -744,32 +980,38 @@ function SecaoFichaCliente({
   if (!temDados) return null
 
   return (
-    <div className="rounded-md border border-border p-3">
-      <div className="mb-2 flex items-center gap-2">
-        <SecaoLabel>Cliente</SecaoLabel>
+    <SecaoBloco
+      titulo="Cliente"
+      icone={<User size={14} strokeWidth={1.75} className="text-text-muted" />}
+    >
+      <div className="mb-3 flex items-center gap-2">
         {conversa?.recorrente && (
-          <span className="rounded-full bg-success-500/10 px-2 py-0.5 text-[11px] font-medium text-success-500">
+          <span className="rounded-full bg-success-500/10 px-2.5 py-0.5 text-[12px] font-medium text-success-500">
             Recorrente
           </span>
         )}
         {conversa?.recorrente === false && (
-          <span className="rounded-full bg-ink-200 px-2 py-0.5 text-[11px] font-medium text-text-muted">
+          <span className="rounded-full bg-ink-200 px-2.5 py-0.5 text-[12px] font-medium text-text-muted">
             Novo
           </span>
         )}
       </div>
-      <div className="space-y-1.5 text-[13px]">
+      <div className="space-y-2 text-[13px]">
         {conversa?.ultimo_motivo_perda && (
           <div>
             <span className="text-text-muted">Última perda: </span>
-            <span className="text-warn-500">{formatRotulo(conversa.ultimo_motivo_perda)}</span>
+            <span className="font-medium text-warn-500">
+              {formatRotulo(conversa.ultimo_motivo_perda)}
+            </span>
           </div>
         )}
         {conversa?.observacoes_internas && (
-          <p className="italic text-text-secondary">{conversa.observacoes_internas}</p>
+          <p className="rounded-md bg-ink-200 px-3 py-2 italic text-text-secondary">
+            {conversa.observacoes_internas}
+          </p>
         )}
       </div>
-    </div>
+    </SecaoBloco>
   )
 }
 
@@ -789,39 +1031,45 @@ function SecaoDadosComerciais({
   if (!temDados) return null
 
   return (
-    <div className="rounded-md border border-border p-3">
-      <SecaoLabel>Dados comerciais</SecaoLabel>
-      <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 text-[13px]">
+    <SecaoBloco
+      titulo="Dados comerciais"
+      icone={<ReceiptText size={14} strokeWidth={1.75} className="text-gold-500" />}
+    >
+      <DefinitionList>
         {atendimento.tipo_atendimento && (
-          <>
-            <span className="text-text-muted">Tipo</span>
-            <span className="capitalize text-text-primary">{atendimento.tipo_atendimento}</span>
-          </>
+          <DefRow
+            label="Tipo"
+            value={<span className="capitalize">{atendimento.tipo_atendimento}</span>}
+          />
         )}
         {atendimento.valor_acordado != null && (
-          <>
-            <span className="text-text-muted">Valor</span>
-            <span className="font-medium text-text-primary">
-              {formatBRL(atendimento.valor_acordado)}
-              {atendimento.forma_pagamento && (
-                <span className="ml-1 font-normal text-text-muted capitalize">
-                  • {atendimento.forma_pagamento}
-                </span>
-              )}
-            </span>
-          </>
+          <DefRow
+            label="Valor"
+            value={
+              <>
+                <span className="font-medium">{formatBRL(atendimento.valor_acordado)}</span>
+                {atendimento.forma_pagamento && (
+                  <span className="ml-1 capitalize text-text-muted">
+                    · {atendimento.forma_pagamento}
+                  </span>
+                )}
+              </>
+            }
+          />
         )}
         {(atendimento.data_desejada || atendimento.horario_desejado) && (
-          <>
-            <span className="text-text-muted">Horário</span>
-            <span className="text-text-primary">
-              {atendimento.data_desejada && formatData(atendimento.data_desejada)}
-              {atendimento.horario_desejado && ` às ${atendimento.horario_desejado.slice(0, 5)}`}
-            </span>
-          </>
+          <DefRow
+            label="Quando"
+            value={
+              <>
+                {atendimento.data_desejada && formatData(atendimento.data_desejada)}
+                {atendimento.horario_desejado && ` às ${atendimento.horario_desejado.slice(0, 5)}`}
+              </>
+            }
+          />
         )}
-      </div>
-    </div>
+      </DefinitionList>
+    </SecaoBloco>
   )
 }
 
@@ -835,19 +1083,25 @@ function SecaoSinaisQualificacao({ sinais, tipo }: { sinais: SinaisQualificacao 
   const pct = total > 0 ? Math.round((progresso / total) * 100) : 0
 
   return (
-    <div className="rounded-md border border-border p-3">
-      <SecaoLabel>Qualificação</SecaoLabel>
-      <div className="my-2 flex items-center gap-2">
-        <div className="h-1.5 flex-1 rounded-full bg-ink-300">
+    <SecaoBloco
+      titulo="Qualificação"
+      icone={<CheckCircle2 size={14} strokeWidth={1.75} className="text-success-500" />}
+    >
+      <div className="mb-3 flex items-center gap-3">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-ink-300">
           <div
-            className="h-1.5 rounded-full bg-success-500 transition-all"
+            className="h-full rounded-full bg-success-500 transition-all"
             style={{ width: `${pct}%` }}
           />
         </div>
-        <span className="text-xs tabular-nums text-text-muted">{pct}%</span>
+        <span className="text-[13px] font-medium tabular-nums text-text-primary">{pct}%</span>
       </div>
-      <p className="mb-2 text-xs text-text-muted">
-        {progresso === 0 ? "Nenhum item qualificado" : progresso === total ? "Totalmente qualificado" : `${progresso} de ${total} qualificados`}
+      <p className="mb-3 text-xs text-text-muted">
+        {progresso === 0
+          ? "Nenhum item qualificado"
+          : progresso === total
+            ? "Totalmente qualificado"
+            : `${progresso} de ${total} qualificados`}
       </p>
       <div className="flex flex-wrap gap-1.5">
         {sinaisAplicaveis.map(({ chave, rotulo }) => {
@@ -857,7 +1111,7 @@ function SecaoSinaisQualificacao({ sinais, tipo }: { sinais: SinaisQualificacao 
             <span
               key={chave}
               className={cn(
-                "flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-medium",
+                "flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium",
                 estado === "sim"
                   ? "bg-success-500/10 text-success-500"
                   : estado === "nao"
@@ -871,55 +1125,7 @@ function SecaoSinaisQualificacao({ sinais, tipo }: { sinais: SinaisQualificacao 
           )
         })}
       </div>
-    </div>
-  )
-}
-
-// ── Timer em campo (Em_execucao) ──────────────────────────────────────────────
-
-function SecaoTimerEmCampo({
-  fotoPortariaEm,
-  previsaoTermino,
-  expirado,
-}: {
-  fotoPortariaEm: string | null
-  previsaoTermino: string | null
-  expirado: boolean
-}) {
-  const tempoEmCampo = fotoPortariaEm ? formatTempoRelativo(fotoPortariaEm) : null
-
-  return (
-    <div
-      className={cn(
-        "rounded-md border p-3",
-        expirado ? "border-warn-500/40 bg-warn-500/5" : "border-border",
-      )}
-    >
-      <div className="flex items-center gap-2">
-        {expirado ? (
-          <AlertTriangle size={14} className="shrink-0 text-warn-500" />
-        ) : (
-          <Clock size={14} className="shrink-0 text-text-muted" />
-        )}
-        <SecaoLabel>{expirado ? "Passou do horário previsto" : "Em campo"}</SecaoLabel>
-      </div>
-      <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 text-[13px]">
-        {tempoEmCampo && (
-          <>
-            <span className="text-text-muted">Desde chegada</span>
-            <span className={cn("font-medium", expirado ? "text-warn-500" : "text-text-primary")}>
-              {tempoEmCampo}
-            </span>
-          </>
-        )}
-        {previsaoTermino && (
-          <>
-            <span className="text-text-muted">Previsão término</span>
-            <span className="text-text-primary">{formatHorario(previsaoTermino)}</span>
-          </>
-        )}
-      </div>
-    </div>
+    </SecaoBloco>
   )
 }
 
@@ -951,53 +1157,56 @@ function SecaoDadosAtendimento({
     .join(" — ")
 
   return (
-    <div className="rounded-md border border-border p-3">
-      <SecaoLabel>Atendimento</SecaoLabel>
-      <div className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-1 text-[13px]">
+    <SecaoBloco
+      titulo="Atendimento"
+      icone={<MapPin size={14} strokeWidth={1.75} className="text-info-500" />}
+    >
+      <DefinitionList>
         {atendimento.tipo_atendimento && (
-          <>
-            <span className="text-text-muted">Tipo</span>
-            <span className="capitalize text-text-primary">
-              {atendimento.tipo_atendimento}
-              {atendimento.tipo_local && (
-                <span className="ml-1 text-text-muted capitalize">• {atendimento.tipo_local}</span>
-              )}
-            </span>
-          </>
+          <DefRow
+            label="Tipo"
+            value={
+              <>
+                <span className="capitalize">{atendimento.tipo_atendimento}</span>
+                {atendimento.tipo_local && (
+                  <span className="ml-1 capitalize text-text-muted">
+                    · {atendimento.tipo_local}
+                  </span>
+                )}
+              </>
+            }
+          />
         )}
         {atendimento.valor_acordado != null && (
-          <>
-            <span className="text-text-muted">Valor</span>
-            <span className="font-medium text-text-primary">{formatBRL(atendimento.valor_acordado)}</span>
-          </>
+          <DefRow
+            label="Valor"
+            value={<span className="font-medium">{formatBRL(atendimento.valor_acordado)}</span>}
+          />
         )}
         {enderecoCompleto && (
-          <>
-            <span className="text-text-muted">Endereço</span>
-            <span className="text-text-primary">{enderecoCompleto}</span>
-          </>
+          <DefRow label="Endereço" value={enderecoCompleto} />
         )}
         {(atendimento.horario_desejado || atendimento.duracao_horas != null) && (
-          <>
-            <span className="text-text-muted">Horário</span>
-            <span className="text-text-primary">
-              {atendimento.horario_desejado && atendimento.horario_desejado.slice(0, 5)}
-              {atendimento.duracao_horas != null && (
-                <span className="ml-1 text-text-muted">• {atendimento.duracao_horas}h</span>
-              )}
-            </span>
-          </>
+          <DefRow
+            label="Horário"
+            value={
+              <>
+                {atendimento.horario_desejado && atendimento.horario_desejado.slice(0, 5)}
+                {atendimento.duracao_horas != null && (
+                  <span className="ml-1 text-text-muted">· {atendimento.duracao_horas}h</span>
+                )}
+              </>
+            }
+          />
         )}
         {bloqueio && (
-          <>
-            <span className="text-text-muted">Agenda</span>
-            <span className="text-text-primary">
-              {formatHorario(bloqueio.inicio)} – {formatHorario(bloqueio.fim)}
-            </span>
-          </>
+          <DefRow
+            label="Agenda"
+            value={`${formatHorario(bloqueio.inicio)} – ${formatHorario(bloqueio.fim)}`}
+          />
         )}
-      </div>
-    </div>
+      </DefinitionList>
+    </SecaoBloco>
   )
 }
 
@@ -1005,14 +1214,16 @@ function SecaoDadosAtendimento({
 
 function SecaoMensagens({ mensagens }: { mensagens: Mensagem[] }) {
   return (
-    <div className="space-y-1.5">
-      <SecaoLabel>Últimas mensagens</SecaoLabel>
-      <div className="max-h-44 space-y-1.5 overflow-y-auto rounded-md border border-border p-2">
+    <SecaoBloco
+      titulo="Últimas mensagens"
+      icone={<MessageSquare size={14} strokeWidth={1.75} className="text-text-muted" />}
+    >
+      <div className="max-h-[320px] space-y-2 overflow-y-auto pr-1">
         {mensagens.map((msg) => (
           <div
             key={msg.id}
             className={cn(
-              "max-w-[80%] rounded-md px-2.5 py-1.5 text-[13px]",
+              "max-w-[85%] rounded-md px-3 py-2 text-[13px] leading-snug",
               msg.direcao === "cliente"
                 ? "ml-auto bg-ink-200 text-text-primary"
                 : "mr-auto bg-ink-100 text-text-secondary",
@@ -1026,6 +1237,7 @@ function SecaoMensagens({ mensagens }: { mensagens: Mensagem[] }) {
           </div>
         ))}
       </div>
-    </div>
+    </SecaoBloco>
   )
 }
+

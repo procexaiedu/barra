@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { formatBRL, formatData } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse } from "@/tipos/atendimentos"
 import type { BloqueioAgenda, EstadoBloqueio } from "@/tipos/agenda"
@@ -120,11 +121,11 @@ export function DialogVisualizarBloqueio({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[88vh] max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
+      <DialogContent className="flex w-[min(96vw,80rem)] max-h-[92vh] min-h-[60vh] flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
         <DialogTitle className="sr-only">{titulo}</DialogTitle>
 
         {/* Header */}
-        <div className="flex flex-none items-start justify-between gap-4 border-b border-border px-5 py-4">
+        <div className="flex flex-none items-start justify-between gap-4 border-b border-border px-8 py-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5">
               <h2 className="text-lg font-semibold leading-tight text-text-primary">
@@ -156,121 +157,157 @@ export function DialogVisualizarBloqueio({
         </div>
 
         {/* Body */}
-        <div className="scroll-thin flex-1 space-y-5 overflow-y-auto p-5">
-          {/* Horário */}
-          <section className="rounded-lg border border-border bg-card p-4">
-            <SecaoHeader>Horário</SecaoHeader>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-              <Campo label="Data" value={formatData(bloqueio.inicio)} />
-              <Campo
-                label="Início e fim"
-                value={overnight
-                  ? `${inicioHora} – ${fimHora} (próx. dia)`
-                  : `${inicioHora} – ${fimHora}`}
-              />
-              <Campo label="Duração" value={duracaoLabel(duracaoMin)} />
-              <Campo label="Observação" value={bloqueio.observacao ?? "—"} />
-            </div>
-          </section>
-
-          {/* Modelo */}
-          <section className="rounded-lg border border-border bg-card p-4">
-            <SecaoHeader>Modelo</SecaoHeader>
-            <Campo label="Nome" value={bloqueio.modelo_nome ?? "—"} />
-          </section>
-
-          {/* Atendimento vinculado */}
-          {atendimento && (
-            <section className="rounded-lg border border-border bg-card p-4">
-              <SecaoHeader>Atendimento vinculado</SecaoHeader>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-4">
-                <Campo label="Número" value={`#${atendimento.numero_curto}`} />
-                <Campo
-                  label="Cliente"
-                  value={atendimento.cliente_nome ?? atendimento.cliente_telefone_formatado}
-                />
-                <Campo label="Telefone" value={atendimento.cliente_telefone_formatado} />
-                <Campo
-                  label="Tipo"
-                  value={atendimento.tipo_atendimento
-                    ? (tipoLabel[atendimento.tipo_atendimento] ?? atendimento.tipo_atendimento)
-                    : "—"}
-                />
-                <Campo
-                  label="Valor acordado"
-                  value={formatValor(atendimento.valor_acordado)}
-                />
-                <Campo
-                  label="Endereço"
-                  value={[atendimento.endereco, atendimento.bairro].filter(Boolean).join(", ") || "—"}
-                />
-                <Campo
-                  label="Data desejada"
-                  value={atendimento.data_desejada
-                    ? formatData(atendimento.data_desejada)
-                    : "—"}
-                />
-                <Campo
-                  label="Horário desejado"
-                  value={atendimento.horario_desejado
-                    ? String(atendimento.horario_desejado).slice(0, 5)
-                    : "—"}
-                />
-              </div>
-            </section>
-          )}
-
-          {/* Programa & Resumo (lazy) */}
-          {atendimentoId && (
-            <section className="rounded-lg border border-border bg-card p-4">
-              <SecaoHeader>Programa & Resumo</SecaoHeader>
-              {statusDetalhe === "loading" && (
-                <div className="space-y-3">
-                  <Skeleton className="h-4 w-40" />
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-3/4" />
-                </div>
-              )}
-              {statusDetalhe === "success" && (
-                <div className="space-y-4">
-                  <div>
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-                      Programa
-                    </p>
-                    <p className="text-sm text-text-primary">{programa ?? "—"}</p>
-                  </div>
-                  {resumo && (
-                    <div>
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-                        Resumo operacional
-                      </p>
-                      <p className="text-sm text-text-secondary">{resumo}</p>
-                    </div>
-                  )}
-                  {proximaAcao && (
-                    <div>
-                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-                        Próxima ação esperada
-                      </p>
-                      <p className="text-sm text-text-secondary">{proximaAcao}</p>
-                    </div>
-                  )}
-                  {!resumo && !proximaAcao && !programa && (
-                    <p className="text-sm text-text-muted">Sem informações registradas.</p>
-                  )}
-                </div>
-              )}
-              {statusDetalhe === "error" && (
-                <p className="text-sm text-text-muted">
-                  Não foi possível carregar programa e resumo.
+        <div className="scroll-thin flex-1 overflow-y-auto px-8 py-6">
+          {/* Hero: data + horário + duração + modelo (full-width) */}
+          <section className="mb-6 overflow-hidden rounded-lg border border-ink-300 bg-ink-200">
+            <div className="grid grid-cols-1 gap-px bg-ink-300 md:grid-cols-4">
+              <div className="bg-ink-200 px-5 py-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                  Data
                 </p>
+                <p className="mt-1 text-base font-medium text-text-primary">
+                  {formatData(bloqueio.inicio)}
+                </p>
+              </div>
+              <div className="bg-ink-200 px-5 py-4 md:col-span-2">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                  Horário
+                </p>
+                <p className="mt-1 font-serif text-[36px] font-medium leading-none tabular-nums text-gold-500">
+                  {inicioHora}<span className="px-1 text-text-muted">–</span>{fimHora}
+                  {overnight && (
+                    <span className="ml-2 align-middle text-xs font-normal text-text-muted">(próx. dia)</span>
+                  )}
+                </p>
+              </div>
+              <div className="bg-ink-200 px-5 py-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                  Duração
+                </p>
+                <p className="mt-1 text-base font-medium text-text-primary">
+                  {duracaoLabel(duracaoMin)}
+                </p>
+              </div>
+            </div>
+            {bloqueio.modelo_nome && (
+              <div className="border-t border-ink-300 bg-ink-200 px-5 py-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                  Modelo
+                </p>
+                <p className="mt-0.5 text-sm font-medium text-text-primary">
+                  {bloqueio.modelo_nome}
+                </p>
+              </div>
+            )}
+          </section>
+
+          {/* Grid principal */}
+          <div className={cn(
+            "grid gap-6",
+            atendimento ? "lg:grid-cols-2" : "grid-cols-1"
+          )}>
+            {/* Coluna esquerda: Atendimento vinculado */}
+            {atendimento && (
+              <section className="rounded-lg border border-border bg-card p-5">
+                <SecaoHeader>Atendimento vinculado</SecaoHeader>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4">
+                  <Campo label="Número" value={`#${atendimento.numero_curto}`} />
+                  <Campo
+                    label="Cliente"
+                    value={atendimento.cliente_nome ?? atendimento.cliente_telefone_formatado}
+                  />
+                  <Campo label="Telefone" value={atendimento.cliente_telefone_formatado} />
+                  <Campo
+                    label="Tipo"
+                    value={atendimento.tipo_atendimento
+                      ? (tipoLabel[atendimento.tipo_atendimento] ?? atendimento.tipo_atendimento)
+                      : "—"}
+                  />
+                  <Campo
+                    label="Valor acordado"
+                    value={formatValor(atendimento.valor_acordado)}
+                  />
+                  <Campo
+                    label="Endereço"
+                    value={[atendimento.endereco, atendimento.bairro].filter(Boolean).join(", ") || "—"}
+                  />
+                  <Campo
+                    label="Data desejada"
+                    value={atendimento.data_desejada
+                      ? formatData(atendimento.data_desejada)
+                      : "—"}
+                  />
+                  <Campo
+                    label="Horário desejado"
+                    value={atendimento.horario_desejado
+                      ? String(atendimento.horario_desejado).slice(0, 5)
+                      : "—"}
+                  />
+                </div>
+              </section>
+            )}
+
+            {/* Coluna direita: Programa & Resumo + Observação */}
+            <div className="space-y-6">
+              {atendimentoId && (
+                <section className="rounded-lg border border-border bg-card p-5">
+                  <SecaoHeader>Programa & Resumo</SecaoHeader>
+                  {statusDetalhe === "loading" && (
+                    <div className="space-y-3">
+                      <Skeleton className="h-4 w-40" />
+                      <Skeleton className="h-4 w-full" />
+                      <Skeleton className="h-4 w-3/4" />
+                    </div>
+                  )}
+                  {statusDetalhe === "success" && (
+                    <div className="space-y-4">
+                      <div>
+                        <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                          Programa
+                        </p>
+                        <p className="text-sm text-text-primary">{programa ?? "—"}</p>
+                      </div>
+                      {resumo && (
+                        <div>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                            Resumo operacional
+                          </p>
+                          <p className="text-sm leading-relaxed text-text-secondary">{resumo}</p>
+                        </div>
+                      )}
+                      {proximaAcao && (
+                        <div>
+                          <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                            Próxima ação esperada
+                          </p>
+                          <p className="text-sm leading-relaxed text-text-secondary">{proximaAcao}</p>
+                        </div>
+                      )}
+                      {!resumo && !proximaAcao && !programa && (
+                        <p className="text-sm text-text-muted">Sem informações registradas.</p>
+                      )}
+                    </div>
+                  )}
+                  {statusDetalhe === "error" && (
+                    <p className="text-sm text-text-muted">
+                      Não foi possível carregar programa e resumo.
+                    </p>
+                  )}
+                </section>
               )}
-            </section>
-          )}
+
+              <section className="rounded-lg border border-border bg-card p-5">
+                <SecaoHeader>Observação</SecaoHeader>
+                <p className="text-sm leading-relaxed text-text-primary">
+                  {bloqueio.observacao ?? "—"}
+                </p>
+              </section>
+            </div>
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="flex flex-none items-center justify-end gap-2 border-t border-border px-5 py-4">
+        <div className="flex flex-none items-center justify-end gap-2 border-t border-border px-8 py-4">
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Fechar
           </Button>

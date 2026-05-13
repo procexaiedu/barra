@@ -1,8 +1,8 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, type ReactNode } from "react"
 import Link from "next/link"
-import { Bot, User, Hand, ExternalLink, X } from "lucide-react"
+import { Bot, User, Hand, ExternalLink, X, Clock, Calendar, Timer, Users, FileText } from "lucide-react"
 import { toast } from "sonner"
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import {
@@ -18,6 +18,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { api } from "@/lib/api"
+import { cn } from "@/lib/utils"
 import { formatHorario, formatData, formatDiaSemana } from "@/lib/formatters"
 import type { LinhaAgenda, EstadoBloqueio, OrigemBloqueio } from "@/tipos/painel"
 
@@ -44,18 +45,39 @@ function formatDuracao(inicio: string, fim: string): string {
   return m === 0 ? `${h}h` : `${h}h${m}min`
 }
 
-function capitalizar(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1)
-}
-
 // ── sub-componentes ───────────────────────────────────────────────────────────
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function StatTile({ label, icone, children }: { label: string; icone?: ReactNode; children: ReactNode }) {
   return (
-    <div>
-      <span className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">{label} </span>
-      <span className="text-[13px] text-text-primary">{value}</span>
+    <div className="bg-ink-200 px-4 py-3">
+      <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] leading-none text-text-muted">
+        {icone}
+        <span>{label}</span>
+      </p>
+      <div className="text-[14px] leading-tight text-text-primary">{children}</div>
     </div>
+  )
+}
+
+function SecaoBloco({
+  titulo,
+  icone,
+  children,
+}: {
+  titulo: string
+  icone: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <section className="rounded-md border border-border bg-card p-4">
+      <header className="mb-3 flex items-center gap-2">
+        {icone}
+        <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          {titulo}
+        </h3>
+      </header>
+      {children}
+    </section>
   )
 }
 
@@ -112,19 +134,22 @@ export function ModalDetalheAgenda({
       : (linha.observacao ?? "Bloqueio manual")
     : ""
 
+  const temCliente = linha?.atendimento_id != null
+  const temObservacao = linha != null && !linha.atendimento_id && !!linha.observacao
+
   return (
     <>
       <Dialog open={linha !== null} onOpenChange={(v) => { if (!v) onFechar() }}>
-        <DialogContent className="w-full max-w-lg rounded-xl bg-card p-0 shadow-xl ring-1 ring-border">
+        <DialogContent className="flex w-[min(96vw,80rem)] max-h-[92vh] min-h-[60vh] flex-col rounded-xl bg-card p-0 shadow-xl ring-1 ring-border">
           {/* ── header ──────────────────────────────────────────── */}
-          <div className="flex items-start justify-between border-b border-border px-5 py-4">
+          <header className="flex items-start justify-between gap-3 border-b border-border px-8 py-4">
             <div className="flex flex-col gap-1.5">
               {linha && badge && (
                 <>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2.5">
                     <Badge variant={badge.variant}>{badge.label}</Badge>
-                    <DialogTitle className="text-sm font-semibold text-text-primary">
-                      {formatHorario(linha.inicio)}–{formatHorario(linha.fim)}
+                    <DialogTitle className="text-base font-semibold text-text-primary">
+                      Bloqueio de agenda
                     </DialogTitle>
                   </div>
                   <span className="text-xs text-text-muted">{linha.modelo_nome}</span>
@@ -139,79 +164,125 @@ export function ModalDetalheAgenda({
             >
               <X size={14} />
             </Button>
-          </div>
+          </header>
 
           {/* ── corpo ───────────────────────────────────────────── */}
           {linha && (
-            <div className="max-h-[60vh] space-y-4 overflow-y-auto px-5 py-4">
-              {/* Informações do bloqueio */}
-              <div className="space-y-1.5">
-                <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-                  Informações
-                </p>
-                <div className="space-y-1">
-                  <InfoRow
-                    label="Data"
-                    value={`${capitalizar(formatDiaSemana(new Date(linha.inicio)))}, ${formatData(linha.inicio)}`}
-                  />
-                  <InfoRow label="Duração" value={formatDuracao(linha.inicio, linha.fim)} />
-                  {OrigemIcon && origem && (
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
-                        Origem{" "}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-[13px] text-text-primary">
-                        <OrigemIcon size={13} strokeWidth={1.5} className="text-text-muted" />
-                        {origem.label}
-                      </span>
+            <div className="flex-1 px-8 py-6">
+              {/* Hero KPI: horário em destaque */}
+              <div className="mb-6 overflow-hidden rounded-md border border-ink-300 bg-ink-200">
+                <div className="flex flex-wrap items-end justify-between gap-3 px-6 py-5">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                      Horário
+                    </p>
+                    <p className="mt-1 font-serif text-[40px] font-medium leading-none tabular-nums text-gold-500">
+                      {formatHorario(linha.inicio)}<span className="px-1 text-text-muted">–</span>{formatHorario(linha.fim)}
+                    </p>
+                  </div>
+                  {nomeExibido && (
+                    <div className="text-right">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                        {temCliente ? "Cliente" : "Bloqueio"}
+                      </p>
+                      <p className="mt-1 max-w-[360px] truncate text-[18px] font-medium text-text-primary">
+                        {nomeExibido}
+                      </p>
                     </div>
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-px border-t border-ink-300 bg-ink-300 sm:grid-cols-4">
+                  <StatTile
+                    label="Data"
+                    icone={<Calendar size={11} strokeWidth={1.75} className="text-info-500" />}
+                  >
+                    <span className="capitalize">{formatDiaSemana(new Date(linha.inicio))}</span>
+                    <span className="ml-1 text-text-muted">· {formatData(linha.inicio)}</span>
+                  </StatTile>
+                  <StatTile
+                    label="Duração"
+                    icone={<Timer size={11} strokeWidth={1.75} className="text-text-muted" />}
+                  >
+                    {formatDuracao(linha.inicio, linha.fim)}
+                  </StatTile>
+                  <StatTile
+                    label="Modelo"
+                    icone={<Users size={11} strokeWidth={1.75} className="text-text-muted" />}
+                  >
+                    <span className="truncate">{linha.modelo_nome}</span>
+                  </StatTile>
+                  {OrigemIcon && origem && (
+                    <StatTile
+                      label="Origem"
+                      icone={<OrigemIcon size={11} strokeWidth={1.75} className="text-text-muted" />}
+                    >
+                      {origem.label}
+                    </StatTile>
                   )}
                 </div>
               </div>
 
-              {/* Cliente (se há atendimento vinculado) */}
-              {linha.atendimento_id && (
-                <div className="space-y-1.5">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-                    Cliente
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[13px] text-text-primary">{nomeExibido}</span>
-                    <Button
-                      variant="ghost"
-                      size="xs"
-                      nativeButton={false}
-                      className="gap-1 text-text-muted"
-                      render={
-                        <Link
-                          href={`/atendimentos?id=${linha.atendimento_id}`}
-                          onClick={onFechar}
-                        />
-                      }
+              {/* Blocos de contexto */}
+              {(temCliente || temObservacao) && (
+                <div className={cn(
+                  "grid gap-6",
+                  temCliente && temObservacao ? "lg:grid-cols-2" : "grid-cols-1"
+                )}>
+                  {temCliente && (
+                    <SecaoBloco
+                      titulo="Cliente vinculado"
+                      icone={<User size={14} strokeWidth={1.75} className="text-text-muted" />}
                     >
-                      <ExternalLink size={12} />
-                      Ver atendimento
-                    </Button>
-                  </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-[14px] text-text-primary">{nomeExibido}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          nativeButton={false}
+                          className="shrink-0 gap-1 text-text-muted"
+                          render={
+                            <Link
+                              href={`/atendimentos?id=${linha.atendimento_id}`}
+                              onClick={onFechar}
+                            />
+                          }
+                        >
+                          <ExternalLink size={12} />
+                          Ver atendimento
+                        </Button>
+                      </div>
+                    </SecaoBloco>
+                  )}
+
+                  {temObservacao && (
+                    <SecaoBloco
+                      titulo="Observação"
+                      icone={<FileText size={14} strokeWidth={1.75} className="text-text-muted" />}
+                    >
+                      <p className="text-[14px] leading-relaxed text-text-secondary">
+                        {linha.observacao}
+                      </p>
+                    </SecaoBloco>
+                  )}
                 </div>
               )}
 
-              {/* Observação (bloqueios manuais sem atendimento) */}
-              {!linha.atendimento_id && linha.observacao && (
-                <div className="space-y-1.5">
-                  <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-                    Observação
+              {!temCliente && !temObservacao && (
+                <SecaoBloco
+                  titulo="Sobre este bloqueio"
+                  icone={<Clock size={14} strokeWidth={1.75} className="text-text-muted" />}
+                >
+                  <p className="text-[14px] text-text-disabled">
+                    Sem cliente vinculado e sem observação. Tudo o que precisa saber está no resumo acima.
                   </p>
-                  <p className="text-[13px] text-text-primary">{linha.observacao}</p>
-                </div>
+                </SecaoBloco>
               )}
-
             </div>
           )}
 
           {/* ── footer ──────────────────────────────────────────── */}
           {linha && (
-            <div className="flex items-center justify-between border-t border-border px-5 py-3">
+            <footer className="flex items-center justify-between border-t border-border px-8 py-3">
               <div>
                 {podeCancel && (
                   <Button
@@ -239,7 +310,7 @@ export function ModalDetalheAgenda({
                 <ExternalLink size={13} />
                 Ver na agenda
               </Button>
-            </div>
+            </footer>
           )}
         </DialogContent>
       </Dialog>

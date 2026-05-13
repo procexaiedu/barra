@@ -565,10 +565,10 @@ export function DialogBloqueio({
         onKeyDown={(event) => {
           if (event.key === "Escape") onClose()
         }}
-        className="fixed top-1/2 left-1/2 z-50 flex w-full max-w-2xl -translate-x-1/2 -translate-y-1/2 flex-col max-h-[90vh] rounded-lg border border-border bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]"
+        className="fixed top-1/2 left-1/2 z-50 flex w-[min(96vw,88rem)] -translate-x-1/2 -translate-y-1/2 flex-col max-h-[92vh] min-h-[70vh] rounded-lg border border-border bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]"
       >
         {/* Header */}
-        <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-border px-5 py-4">
+        <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-border px-8 py-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5">
               <h2 id="dialog-bloqueio-title" className="text-lg font-semibold leading-tight text-text-primary">
@@ -602,12 +602,21 @@ export function DialogBloqueio({
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-5 py-4">
-          <div className="grid grid-cols-3 gap-3">
+        <div className="flex-1 overflow-y-auto px-8 py-6">
+          <div className={cn(
+            "grid gap-x-8 gap-y-5",
+            // Modo "criar bloqueio puro" (sem atendimento) colapsa para 1 coluna estreita centralizada
+            (!editando && tipo === "bloqueio")
+              ? "max-w-2xl mx-auto grid-cols-1"
+              : "lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]"
+          )}>
+
+            {/* ═══════════════ COLUNA ESQUERDA: contexto/atendimento ═══════════════ */}
+            <div className="space-y-5">
 
             {/* Tipo: só na criação */}
             {!editando && (
-              <div className="col-span-3">
+              <div>
                 <Label>Tipo</Label>
                 <div className="mt-2 flex gap-2">
                   <button
@@ -640,7 +649,7 @@ export function DialogBloqueio({
 
             {/* Seleção de modelo: só na criação sem modeloId fixo */}
             {!editando && !modeloId && (
-              <div className="col-span-3 pb-1">
+              <div className="pb-1">
                 <Label htmlFor="agenda-modelo">Modelo</Label>
                 <div className="mt-2 w-full max-w-xs">
                   <FiltroModelo
@@ -664,7 +673,7 @@ export function DialogBloqueio({
 
             {/* Busca de atendimento: criação (agendamento) ou edição (qualquer estado editável) */}
             {((!editando && tipo === "agendamento") || (editando && !readOnly)) && !criandoAtendimento && (
-              <div className="relative col-span-3">
+              <div className="relative">
                 {(!editando || atendimentoDisplay === null) && (
                   <Label htmlFor="busca-atendimento">Atendimento</Label>
                 )}
@@ -744,7 +753,7 @@ export function DialogBloqueio({
 
             {/* Seção expansível: criação rápida de atendimento */}
             {criandoAtendimento && (
-              <div className="col-span-3 space-y-3 rounded-lg border border-ink-400 bg-surface-raised p-3">
+              <div className="space-y-3 rounded-lg border border-ink-400 bg-surface-raised p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-text-primary">Novo atendimento</p>
                   <button
@@ -922,7 +931,7 @@ export function DialogBloqueio({
 
             {/* Card de info do atendimento vinculado */}
             {atendimentoDisplay && (
-              <div className="col-span-3 overflow-hidden rounded-lg border border-border bg-surface-raised">
+              <div className="overflow-hidden rounded-lg border border-border bg-surface-raised">
                 <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
                   <span className="font-mono text-xs text-text-muted">
                     #{atendimentoDisplay.numero_curto}
@@ -986,89 +995,100 @@ export function DialogBloqueio({
               </div>
             )}
 
+            </div>{/* ═══════════════ FIM COLUNA ESQUERDA ═══════════════ */}
+
+            {/* ═══════════════ COLUNA DIREITA: horário + observação ═══════════════ */}
+            <div className="space-y-5">
+
             {/* Seção: Horário */}
-            <div className="col-span-3 border-t border-border pt-4">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-text-muted">
+            <section className="rounded-lg border border-border bg-card p-4">
+              <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-text-muted">
                 Horário
               </p>
-            </div>
-
-            <div className="col-span-3">
-              <Label htmlFor="agenda-data">Data</Label>
-              <Input
-                id="agenda-data"
-                type="date"
-                value={form.data}
-                disabled={readOnly}
-                onChange={(event) => setForm((atual) => ({ ...atual, data: event.target.value }))}
-                className="mt-2 h-10 border-ink-400"
-              />
-            </div>
-            <CampoHorario
-              id="agenda-inicio"
-              label="Início"
-              value={form.inicio}
-              disabled={readOnly}
-              onChange={handleInicioChange}
-            />
-            {modoBloqueio ? (
-              <CampoHorario
-                id="agenda-fim"
-                label="Fim"
-                value={form.fim}
-                disabled={readOnly}
-                onChange={handleFimChange}
-              />
-            ) : (
-              <>
-                <CampoDuracao
-                  id="agenda-duracao"
-                  value={duracaoMin}
-                  opcoes={opcoesDuracao}
-                  disabled={readOnly}
-                  onChange={handleDuracaoChange}
-                />
+              <div className="space-y-3">
                 <div>
-                  <Label>Fim</Label>
-                  <div className="mt-2 flex h-10 items-center gap-1.5 text-sm text-text-primary">
-                    {form.fim}
-                    {overnight && (
-                      <span className="text-xs text-text-muted">(próx. dia)</span>
-                    )}
-                  </div>
+                  <Label htmlFor="agenda-data">Data</Label>
+                  <Input
+                    id="agenda-data"
+                    type="date"
+                    value={form.data}
+                    disabled={readOnly}
+                    onChange={(event) => setForm((atual) => ({ ...atual, data: event.target.value }))}
+                    className="mt-2 h-10 border-ink-400"
+                  />
                 </div>
-              </>
-            )}
+                <div className="grid grid-cols-2 gap-3">
+                  <CampoHorario
+                    id="agenda-inicio"
+                    label="Início"
+                    value={form.inicio}
+                    disabled={readOnly}
+                    onChange={handleInicioChange}
+                  />
+                  {modoBloqueio ? (
+                    <CampoHorario
+                      id="agenda-fim"
+                      label="Fim"
+                      value={form.fim}
+                      disabled={readOnly}
+                      onChange={handleFimChange}
+                    />
+                  ) : (
+                    <CampoDuracao
+                      id="agenda-duracao"
+                      value={duracaoMin}
+                      opcoes={opcoesDuracao}
+                      disabled={readOnly}
+                      onChange={handleDuracaoChange}
+                    />
+                  )}
+                </div>
+                {!modoBloqueio && (
+                  <div>
+                    <Label>Fim</Label>
+                    <div className="mt-2 flex h-10 items-center gap-1.5 text-sm text-text-primary">
+                      {form.fim}
+                      {overnight && (
+                        <span className="text-xs text-text-muted">(próx. dia)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {intervaloInvalido && (
+                <p className="mt-3 text-sm text-state-lost">Fim precisa ser maior que início.</p>
+              )}
+              {conflito && (
+                <p className="mt-3 text-sm text-state-handoff">
+                  Este horário se sobrepõe a outro bloqueio ativo.
+                </p>
+              )}
+            </section>
 
             {/* Seção: Observação */}
-            <div className="col-span-3 border-t border-border pt-4">
-              <Label htmlFor="agenda-observacao">Observação</Label>
+            <section className="rounded-lg border border-border bg-card p-4">
+              <Label htmlFor="agenda-observacao" className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                Observação
+              </Label>
               <textarea
                 id="agenda-observacao"
                 value={form.observacao}
                 maxLength={180}
                 disabled={readOnly}
                 onChange={(event) => setForm((atual) => ({ ...atual, observacao: event.target.value }))}
-                className="mt-2 min-h-20 w-full rounded-lg border border-ink-400 bg-input px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+                className="mt-2 min-h-24 w-full rounded-lg border border-ink-400 bg-input px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
               />
               <p className={cn("mt-1 text-xs", observacaoInvalida ? "text-state-lost" : "text-text-muted")}>
                 {form.observacao.length}/160
               </p>
-            </div>
-          </div>
+            </section>
 
-          {intervaloInvalido && (
-            <p className="mt-3 text-sm text-state-lost">Fim precisa ser maior que início.</p>
-          )}
-          {conflito && (
-            <p className="mt-3 text-sm text-state-handoff">
-              Este horário se sobrepõe a outro bloqueio ativo.
-            </p>
-          )}
+            </div>{/* ═══════════════ FIM COLUNA DIREITA ═══════════════ */}
+          </div>
         </div>
 
         {/* Footer */}
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-border px-5 py-4">
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-border px-8 py-4">
           <div className="flex items-center gap-2">
             {bloqueio?.atendimento_id && (
               <Link

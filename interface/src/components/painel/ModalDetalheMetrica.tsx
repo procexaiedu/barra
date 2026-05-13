@@ -32,17 +32,19 @@ export function ModalDetalheMetrica({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex w-full max-w-lg flex-col gap-5 rounded-lg bg-card p-6 ring-1 ring-foreground/10">
-        <DialogTitle className="text-lg font-semibold text-text-primary">
-          {tituloCompleto}
-        </DialogTitle>
+      <DialogContent className="flex w-[min(96vw,80rem)] max-h-[92vh] min-h-[60vh] flex-col rounded-xl bg-card p-0 shadow-xl ring-1 ring-border">
+        <header className="border-b border-border px-8 py-4">
+          <DialogTitle className="text-2xl font-semibold text-text-primary">
+            {tituloCompleto}
+          </DialogTitle>
+        </header>
 
-        <div className="max-h-[60vh] min-h-[80px] overflow-y-auto pr-1">
+        <div className="flex-1 min-h-[120px] overflow-y-auto px-8 py-6">
           {loading ? (
             <ul className="flex flex-col gap-2">
-              {Array.from({ length: 6 }).map((_, idx) => (
+              {Array.from({ length: 8 }).map((_, idx) => (
                 <li key={idx}>
-                  <Skeleton className="h-7 w-full rounded-md" />
+                  <Skeleton className="h-8 w-full rounded-md" />
                 </li>
               ))}
             </ul>
@@ -53,11 +55,11 @@ export function ModalDetalheMetrica({
           )}
         </div>
 
-        <div className="flex justify-end">
+        <footer className="flex justify-end border-t border-border px-8 py-3">
           <Button variant="ghost" size="lg" onClick={() => onOpenChange(false)}>
             Fechar
           </Button>
-        </div>
+        </footer>
       </DialogContent>
     </Dialog>
   )
