@@ -68,6 +68,12 @@ desktop.ini
 !.claude/state/plans/
 .claude/state/plans/*.md
 !.claude/state/plans/.gitkeep
+# Lock do agendador (ScheduleWakeup) — runtime do harness, não config do projeto
+.claude/scheduled_tasks.lock
+
+# --- Config local de MCP servers ---
+# Cada dev/ambiente aponta para project_ref próprio do Supabase; não deve entrar no repo
+.mcp.json
 
 # --- Banco local / temp ---
 *.sqlite
