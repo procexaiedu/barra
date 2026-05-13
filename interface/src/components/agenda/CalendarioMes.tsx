@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import {
   DndContext,
   DragOverlay,
@@ -14,11 +14,19 @@ import {
 } from "@dnd-kit/core"
 import { X } from "lucide-react"
 import { BloqueioAgenda } from "@/components/agenda/BloqueioAgenda"
-import { dataBrt, dataDeInput, dataInput } from "@/hooks/useAgenda"
+import { dataBrt, dataDeInput, dataInput, dataInputSaoPaulo } from "@/hooks/useAgenda"
+import { formatHorario } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import type { BloqueioAgenda as BloqueioAgendaTipo, VisaoAgenda } from "@/tipos/agenda"
+import type { BloqueioAgenda as BloqueioAgendaTipo, EstadoBloqueio, VisaoAgenda } from "@/tipos/agenda"
 
 const diasSemana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
+
+const estadoCorBullet: Record<EstadoBloqueio, string> = {
+  bloqueado: "bg-sky-500",
+  em_atendimento: "bg-emerald-500",
+  concluido: "bg-zinc-500/50",
+  cancelado: "bg-zinc-500/30",
+}
 
 function mesmoDia(iso: string, data: string) {
   return dataBrt(iso) === data
@@ -69,14 +77,58 @@ function diffDias(de: string, para: string): number {
   return Math.round((b - a) / (24 * 60 * 60 * 1000))
 }
 
+function BloqueioLinha({
+  bloqueio,
+  onClick,
+}: {
+  bloqueio: BloqueioAgendaTipo
+  onClick: () => void
+}) {
+  const titulo = bloqueio.atendimento?.cliente_nome
+    ?? bloqueio.observacao
+    ?? "Bloqueio manual"
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation()
+        onClick()
+      }}
+      className={cn(
+        "flex w-full items-center gap-1.5 truncate rounded px-1 py-0.5 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        bloqueio.estado === "cancelado" && "opacity-60",
+      )}
+    >
+      <span
+        className={cn("size-1.5 shrink-0 rounded-full", estadoCorBullet[bloqueio.estado])}
+        aria-hidden
+      />
+      <span className="shrink-0 font-mono text-text-muted">
+        {formatHorario(bloqueio.inicio)}
+      </span>
+      <span
+        className={cn(
+          "truncate text-text-primary",
+          bloqueio.estado === "cancelado" && "line-through",
+        )}
+      >
+        {titulo}
+      </span>
+    </button>
+  )
+}
+
 function BloqueioDraggable({
   bloqueio,
   onClick,
   disabled,
+  linha,
 }: {
   bloqueio: BloqueioAgendaTipo
   onClick: () => void
   disabled: boolean
+  linha?: boolean
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: bloqueio.id,
@@ -92,7 +144,11 @@ function BloqueioDraggable({
       {...(disabled ? {} : attributes)}
       {...(disabled ? {} : listeners)}
     >
-      <BloqueioAgenda bloqueio={bloqueio} compacto onClick={onClick} />
+      {linha ? (
+        <BloqueioLinha bloqueio={bloqueio} onClick={onClick} />
+      ) : (
+        <BloqueioAgenda bloqueio={bloqueio} compacto onClick={onClick} />
+      )}
     </div>
   )
 }
@@ -102,7 +158,8 @@ function CelulaDroppable({
   selecionado,
   painelAberto,
   foraDoMes,
-  visaoDia,
+  visao,
+  hoje,
   visiveis,
   overflow,
   diaNumero,
@@ -115,7 +172,8 @@ function CelulaDroppable({
   selecionado: boolean
   painelAberto: boolean
   foraDoMes: boolean
-  visaoDia: boolean
+  visao: VisaoAgenda
+  hoje: boolean
   visiveis: BloqueioAgendaTipo[]
   overflow: number
   diaNumero: number
@@ -125,6 +183,8 @@ function CelulaDroppable({
   onEditarBloqueio: (b: BloqueioAgendaTipo) => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: data })
+  const visaoMes = visao === "mes"
+  const visaoDia = visao === "dia"
 
   return (
     <div
@@ -140,19 +200,41 @@ function CelulaDroppable({
         }
       }}
       className={cn(
-        "min-h-[clamp(6rem,9vw,8rem)] rounded-lg border border-border bg-background p-2 text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
-        selecionado && "border-ring",
-        painelAberto && !selecionado && "border-ring/50",
-        foraDoMes && "opacity-45",
+        "text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+        visaoMes
+          ? "min-h-[clamp(6rem,10vw,8.5rem)] border-b border-r border-border bg-background p-1.5 hover:bg-muted/40"
+          : "min-h-[clamp(6rem,9vw,8rem)] rounded-lg border border-border bg-background p-2 hover:bg-muted focus-visible:ring-offset-2",
+        !visaoMes && selecionado && "border-ring",
+        !visaoMes && painelAberto && !selecionado && "border-ring/50",
+        visaoMes && selecionado && "bg-muted/60",
+        foraDoMes && "bg-muted/20 text-text-muted",
         visaoDia && "min-h-[420px]",
-        isOver && "ring-2 ring-ring/40",
+        isOver && (visaoMes ? "bg-muted/60 ring-1 ring-inset ring-ring/40" : "ring-2 ring-ring/40"),
       )}
     >
-      <div className="mb-1 flex items-center justify-between gap-1">
-        <span className={cn("text-sm font-semibold", selecionado ? "text-text-brand" : "text-text-primary")}>
-          {diaNumero}
-        </span>
-        {overflow > 0 && (
+      <div
+        className={cn(
+          "mb-0.5 flex items-center gap-1",
+          visaoMes ? "justify-center" : "justify-between",
+        )}
+      >
+        {visaoMes ? (
+          <span
+            className={cn(
+              "flex h-6 min-w-6 items-center justify-center rounded-full px-1.5 text-xs font-medium tabular-nums",
+              hoje && "bg-text-brand text-background",
+              !hoje && foraDoMes && "text-text-muted",
+              !hoje && !foraDoMes && "text-text-primary",
+            )}
+          >
+            {diaNumero}
+          </span>
+        ) : (
+          <span className={cn("text-sm font-semibold", selecionado ? "text-text-brand" : "text-text-primary")}>
+            {diaNumero}
+          </span>
+        )}
+        {!visaoMes && overflow > 0 && (
           <button
             type="button"
             onClick={(e) => {
@@ -165,7 +247,7 @@ function CelulaDroppable({
           </button>
         )}
       </div>
-      <div className="space-y-1">
+      <div className={cn(visaoMes ? "space-y-0.5" : "space-y-1")}>
         {visiveis.map((bloqueio) => {
           const draggable = bloqueio.estado !== "concluido" && bloqueio.estado !== "cancelado"
           return (
@@ -173,10 +255,23 @@ function CelulaDroppable({
               key={bloqueio.id}
               bloqueio={bloqueio}
               disabled={!draggable}
+              linha={visaoMes}
               onClick={() => onEditarBloqueio(bloqueio)}
             />
           )
         })}
+        {visaoMes && overflow > 0 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onTogglePainel()
+            }}
+            className="block w-full rounded px-1 py-0.5 text-left text-[11px] font-medium text-text-muted hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          >
+            Mais {overflow}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -210,6 +305,9 @@ export function CalendarioMes({
   const dias = diasParaVisao(visao, dataSelecionada)
   const mesBase = dataDeInput(dataSelecionada).getMonth()
   const mesAtual = dataSelecionada.slice(0, 7)
+  const hojeIso = useMemo(() => dataInputSaoPaulo(), [])
+  const visaoMes = visao === "mes"
+  const maxVisiveis = visaoMes ? 3 : 2
 
   // Painel só é válido enquanto o usuário está no mesmo mês em que foi aberto
   const diaPainel = painelState?.mes === mesAtual ? painelState.data : null
@@ -247,23 +345,37 @@ export function CalendarioMes({
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <section aria-label="Calendário mensal" className="flex min-w-0 gap-3 rounded-lg border border-border bg-card p-4">
+      <section aria-label="Calendário mensal" className={cn("flex min-w-0 gap-3 rounded-lg border border-border bg-card", visaoMes ? "p-3" : "p-4")}>
         <div className="min-w-0 flex-1">
-          <div className="grid grid-cols-7 gap-2 pb-2">
+          <div className={cn("grid grid-cols-7", visaoMes ? "border-b border-border" : "gap-2 pb-2")}>
             {diasSemana.map((dia) => (
-              <div key={dia} className="px-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+              <div
+                key={dia}
+                className={cn(
+                  "text-xs font-semibold uppercase tracking-[0.08em] text-text-muted",
+                  visaoMes ? "px-1.5 py-1.5 text-center" : "px-2",
+                )}
+              >
                 {dia}
               </div>
             ))}
           </div>
-          <div className={cn("grid grid-cols-7 gap-2", visao === "dia" && "grid-cols-1", visao === "semana" && "grid-cols-7")}>
+          <div
+            className={cn(
+              "grid grid-cols-7",
+              visao === "dia" && "grid-cols-1 gap-2",
+              visao === "semana" && "grid-cols-7 gap-2",
+              visaoMes && "overflow-hidden rounded-md border-l border-t border-border",
+            )}
+          >
             {dias.map((dia) => {
               const data = dataInput(dia)
               const selecionado = data === dataSelecionada
               const painelAberto = data === diaPainel
               const foraDoMes = visao === "mes" && dia.getMonth() !== mesBase
+              const ehHoje = data === hojeIso
               const bloqueiosDia = bloqueios.filter((b) => mesmoDia(b.inicio, data))
-              const visiveis = bloqueiosDia.slice(0, 2)
+              const visiveis = bloqueiosDia.slice(0, maxVisiveis)
               const overflow = bloqueiosDia.length - visiveis.length
               return (
                 <CelulaDroppable
@@ -272,7 +384,8 @@ export function CalendarioMes({
                   selecionado={selecionado}
                   painelAberto={painelAberto}
                   foraDoMes={foraDoMes}
-                  visaoDia={visao === "dia"}
+                  visao={visao}
+                  hoje={ehHoje}
                   visiveis={visiveis}
                   overflow={overflow}
                   diaNumero={dia.getDate()}
