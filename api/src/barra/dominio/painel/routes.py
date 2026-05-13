@@ -54,8 +54,8 @@ async def painel_resumo(
         """
         SELECT id, nome, evolution_instance_id, evolution_status
           FROM barravips.modelos
-         WHERE status = 'ativa'
-         ORDER BY created_at ASC
+         WHERE status IN ('ativa', 'pausada')
+         ORDER BY CASE status WHEN 'ativa' THEN 0 ELSE 1 END, created_at ASC
         """
     )
     modelos_ativas = [
