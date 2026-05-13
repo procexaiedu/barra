@@ -12,6 +12,10 @@ import { DialogTodasEscaladas } from "@/components/dashboard/DialogTodasEscalada
 import { FunilEstados } from "@/components/dashboard/FunilEstados"
 import { HeaderDashboard } from "@/components/dashboard/HeaderDashboard"
 import { IndicadorTendencia } from "@/components/dashboard/IndicadorTendencia"
+import {
+  ModalListaAtendimentos,
+  type TipoMetricaModal,
+} from "@/components/dashboard/ModalListaAtendimentos"
 import { ProfissionaisRanking } from "@/components/dashboard/ProfissionaisRanking"
 import { TileKpi } from "@/components/dashboard/TileKpi"
 import { ToolbarDashboard } from "@/components/dashboard/ToolbarDashboard"
@@ -44,10 +48,15 @@ function DashboardInner() {
   const dashboard = useDashboard()
   const [rangeOpen, setRangeOpen] = useState(false)
   const [escaladasOpen, setEscaladasOpen] = useState(false)
+  const [metricaAberta, setMetricaAberta] = useState<TipoMetricaModal | null>(null)
 
   const filtros = dashboard.filtros
   const data = dashboard.data
   const filtroAplicado = data?.filtro_aplicado ?? null
+
+  const nomeModeloFiltrada = filtros.modelo_id
+    ? data?.profissionais.find((p) => p.modelo.id === filtros.modelo_id)?.modelo.nome ?? null
+    : null
 
   return (
     <div className="flex flex-col gap-6">
@@ -68,7 +77,11 @@ function DashboardInner() {
       ) : dashboard.status === "error" && !data ? (
         <BannerErro mensagem={dashboard.error ?? undefined} onRetry={dashboard.refetch} />
       ) : data ? (
-        <DashboardConteudo data={data} onAbrirEscaladas={() => setEscaladasOpen(true)} />
+        <DashboardConteudo
+          data={data}
+          onAbrirEscaladas={() => setEscaladasOpen(true)}
+          onAbrirMetrica={setMetricaAberta}
+        />
       ) : null}
 
       <DialogRangeCustom
@@ -88,6 +101,16 @@ function DashboardInner() {
         onLoad={dashboard.escaladas.load}
         onReset={dashboard.escaladas.reset}
       />
+
+      <ModalListaAtendimentos
+        open={metricaAberta !== null}
+        onOpenChange={(v) => {
+          if (!v) setMetricaAberta(null)
+        }}
+        tipo={metricaAberta}
+        filtrosDashboard={filtros}
+        nomeModelo={nomeModeloFiltrada}
+      />
     </div>
   )
 }
@@ -95,9 +118,10 @@ function DashboardInner() {
 interface ConteudoProps {
   data: DashboardResumo
   onAbrirEscaladas: () => void
+  onAbrirMetrica: (tipo: TipoMetricaModal) => void
 }
 
-function DashboardConteudo({ data, onAbrirEscaladas }: ConteudoProps) {
+function DashboardConteudo({ data, onAbrirEscaladas, onAbrirMetrica }: ConteudoProps) {
   const kpis = data.kpis_periodo
   const anterior = data.kpis_periodo_anterior
 
@@ -179,6 +203,8 @@ function DashboardConteudo({ data, onAbrirEscaladas }: ConteudoProps) {
                 />
               ) : null
             }
+            onClick={() => onAbrirMetrica("fechamentos")}
+            ariaLabel="Abrir lista de fechamentos do período"
           />
           <TileKpi
             label="Perdas"
@@ -205,6 +231,8 @@ function DashboardConteudo({ data, onAbrirEscaladas }: ConteudoProps) {
                 />
               ) : null
             }
+            onClick={() => onAbrirMetrica("perdas")}
+            ariaLabel="Abrir lista de perdas do período"
           />
           <TileKpi
             label="Atendimentos escalados"
@@ -230,6 +258,8 @@ function DashboardConteudo({ data, onAbrirEscaladas }: ConteudoProps) {
                 />
               ) : null
             }
+            onClick={() => onAbrirMetrica("escaladas")}
+            ariaLabel="Abrir lista de atendimentos escalados do período"
           />
         </div>
       </section>
@@ -239,6 +269,7 @@ function DashboardConteudo({ data, onAbrirEscaladas }: ConteudoProps) {
         anterior={data.financeiro_periodo_anterior}
         rangeComparacao={rangeComparacao}
         fechamentos={kpis.fechamentos}
+        onAbrirLista={onAbrirMetrica}
       />
 
       <FunilEstados linhas={linhasFunil} />

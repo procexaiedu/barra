@@ -1,3 +1,5 @@
+import type { FiltrosDashboard } from "@/hooks/useDashboard"
+
 const PCT_FMT_INT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 })
 const PCT_FMT_DEC = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 
@@ -74,4 +76,24 @@ export function diffDiasInclusivo(deIso: string, ateIso: string): number {
 export function calcularDeltaPercentual(atual: number, anterior: number): number {
   if (anterior === 0) return 0
   return ((atual - anterior) / anterior) * 100
+}
+
+export function janelaDoPeriodo(filtros: FiltrosDashboard): { de: string; ate: string } | null {
+  if (filtros.periodo === "tudo") return null
+  const hoje = hojeBrtIso()
+  if (filtros.periodo === "hoje") return { de: hoje, ate: hoje }
+  if (filtros.periodo === "7d") {
+    const base = dataDeIsoYmd(hoje)
+    base.setUTCDate(base.getUTCDate() - 6)
+    return { de: isoYmdDeData(base), ate: hoje }
+  }
+  if (filtros.periodo === "30d") {
+    const base = dataDeIsoYmd(hoje)
+    base.setUTCDate(base.getUTCDate() - 29)
+    return { de: isoYmdDeData(base), ate: hoje }
+  }
+  if (filtros.periodo === "custom" && filtros.de && filtros.ate) {
+    return { de: filtros.de, ate: filtros.ate }
+  }
+  return null
 }

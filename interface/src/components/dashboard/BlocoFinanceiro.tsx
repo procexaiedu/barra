@@ -4,6 +4,7 @@ import { Banknote, HandCoins, Receipt, Wallet } from "lucide-react"
 import type { FinanceiroBloco, KpisFechamentos } from "@/tipos/dashboard"
 import { formatBRL } from "@/lib/formatters"
 import { IndicadorTendencia } from "./IndicadorTendencia"
+import type { TipoMetricaModal } from "./ModalListaAtendimentos"
 import { TileKpi } from "./TileKpi"
 
 interface Props {
@@ -11,9 +12,16 @@ interface Props {
   anterior: FinanceiroBloco | null
   rangeComparacao: string | null
   fechamentos: KpisFechamentos
+  onAbrirLista?: (tipo: TipoMetricaModal) => void
 }
 
-export function BlocoFinanceiro({ financeiro, anterior, rangeComparacao, fechamentos }: Props) {
+export function BlocoFinanceiro({
+  financeiro,
+  anterior,
+  rangeComparacao,
+  fechamentos,
+  onAbrirLista,
+}: Props) {
   return (
     <section aria-label="Resumo financeiro do período" className="flex flex-col gap-3">
       <header>
@@ -37,6 +45,8 @@ export function BlocoFinanceiro({ financeiro, anterior, rangeComparacao, fechame
               />
             ) : null
           }
+          onClick={onAbrirLista ? () => onAbrirLista("faturamento_bruto") : undefined}
+          ariaLabel="Abrir lista de fechamentos com faturamento bruto do período"
         />
         <TileKpi
           label="Faturamento líquido (agência)"
@@ -56,6 +66,8 @@ export function BlocoFinanceiro({ financeiro, anterior, rangeComparacao, fechame
               />
             ) : null
           }
+          onClick={onAbrirLista ? () => onAbrirLista("faturamento_liquido") : undefined}
+          ariaLabel="Abrir lista de fechamentos com faturamento líquido do período"
         />
         <TileKpi
           label="Repasse às modelos"
@@ -63,6 +75,8 @@ export function BlocoFinanceiro({ financeiro, anterior, rangeComparacao, fechame
           iconeClassName="text-text-muted"
           tooltip="Parcela da modelo conforme percentual do acordo no momento do fechamento."
           valor={formatBRL(financeiro.valor_repasse_modelo_brl)}
+          onClick={onAbrirLista ? () => onAbrirLista("repasse") : undefined}
+          ariaLabel="Abrir lista de fechamentos com repasse às modelos do período"
         />
         <TileKpi
           label="Ticket médio"

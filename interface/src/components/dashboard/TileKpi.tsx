@@ -15,6 +15,8 @@ interface Props {
   icone?: LucideIcon
   iconeClassName?: string
   tooltip?: ReactNode
+  onClick?: () => void
+  ariaLabel?: string
 }
 
 export function TileKpi({
@@ -27,11 +29,14 @@ export function TileKpi({
   icone: Icone,
   iconeClassName,
   tooltip,
+  onClick,
+  ariaLabel,
 }: Props) {
   const mostrarFooter = Boolean(tendencia || rangeComparacao)
+  const interativo = Boolean(onClick)
 
-  return (
-    <div className="flex flex-col gap-3 rounded-lg bg-card p-6 ring-1 ring-foreground/10">
+  const conteudo = (
+    <>
       <header className="flex items-center gap-2">
         {Icone ? (
           <Icone
@@ -49,6 +54,12 @@ export function TileKpi({
             <TooltipTrigger
               type="button"
               aria-label={`Sobre ${label}`}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.stopPropagation()
+                }
+              }}
               className="inline-flex items-center text-text-muted/60 transition-colors hover:text-text-primary focus-visible:text-text-primary focus-visible:outline-none"
             >
               <Info size={12} strokeWidth={1.75} aria-hidden />
@@ -81,6 +92,34 @@ export function TileKpi({
           ) : null}
         </footer>
       ) : null}
-    </div>
+    </>
   )
+
+  const baseClass =
+    "flex flex-col gap-3 rounded-lg bg-card p-6 ring-1 ring-foreground/10 text-left"
+
+  if (interativo) {
+    return (
+      <div
+        role="button"
+        tabIndex={0}
+        aria-label={ariaLabel}
+        onClick={onClick}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault()
+            onClick?.()
+          }
+        }}
+        className={cn(
+          baseClass,
+          "cursor-pointer transition-colors hover:bg-ink-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        )}
+      >
+        {conteudo}
+      </div>
+    )
+  }
+
+  return <div className={baseClass}>{conteudo}</div>
 }
