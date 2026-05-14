@@ -35,6 +35,11 @@ export function KanbanCard({
       </div>
 
       <p className="mt-0.5 truncate text-[11px] text-text-muted">{item.modelo.nome}</p>
+      {item.programa_principal_nome && (
+        <p className="mt-0.5 truncate text-[11px] text-text-secondary">
+          {item.programa_principal_nome}
+        </p>
+      )}
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {item.urgencia === "imediato" && (

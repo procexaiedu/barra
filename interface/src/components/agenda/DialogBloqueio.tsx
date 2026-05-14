@@ -477,6 +477,7 @@ export function DialogBloqueio({
         proxima_acao_esperada: null,
         valor_acordado: payload.valor_acordado ?? null,
         updated_at: new Date().toISOString(),
+        programa_principal_nome: null,
       }
       selecionarAtendimento(item)
       voltarParaBusca()

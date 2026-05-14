@@ -40,6 +40,7 @@ export interface AtendimentoListaItem {
   sinais_qualificacao?: Record<string, unknown> | null
   valor_acordado: number | string | null
   updated_at: string
+  programa_principal_nome: string | null
 }
 
 export interface AtendimentosListaResponse {

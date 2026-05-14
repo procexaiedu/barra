@@ -133,10 +133,19 @@ async def listar_atendimentos(
           a.responsavel_atual::text AS responsavel_atual, a.motivo_escalada,
           a.proxima_acao_esperada, a.sinais_qualificacao, a.valor_acordado, a.updated_at,
           c.id AS cliente_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
-          m.id AS modelo_id, m.nome AS modelo_nome
+          m.id AS modelo_id, m.nome AS modelo_nome,
+          prog.nome AS programa_principal_nome
         FROM barravips.atendimentos a
         JOIN barravips.clientes c ON c.id = a.cliente_id
         JOIN barravips.modelos m ON m.id = a.modelo_id
+        LEFT JOIN LATERAL (
+          SELECT p.nome
+            FROM barravips.atendimento_servicos ats
+            JOIN barravips.programas p ON p.id = ats.programa_id
+           WHERE ats.atendimento_id = a.id
+           ORDER BY ats.created_at ASC
+           LIMIT 1
+        ) AS prog ON true
         WHERE {" AND ".join(filtros)}
         ORDER BY a.updated_at DESC
         LIMIT %s
@@ -168,6 +177,7 @@ async def listar_atendimentos(
                 "sinais_qualificacao": row["sinais_qualificacao"],
                 "valor_acordado": row["valor_acordado"],
                 "updated_at": row["updated_at"],
+                "programa_principal_nome": row["programa_principal_nome"],
             }
             for row in rows
         ],
