@@ -28,6 +28,7 @@ export function ItemAtendimento({
     `#${item.numero_curto}`,
     item.tipo_atendimento ? tipoLabel[item.tipo_atendimento] : null,
     item.urgencia ? urgenciaLabel[item.urgencia] : null,
+    item.programa_principal_nome,
     pct !== null ? `${pct}%` : null,
   ]
     .filter(Boolean)
