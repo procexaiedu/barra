@@ -95,9 +95,23 @@ export function usePix() {
   const buscaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeEvents = useRef(0)
 
-  const filtrosEfetivos = useMemo(
-    () => ({ ...filtros, busca: debouncedBusca }),
-    [filtros, debouncedBusca]
+  const filtrosEfetivos = useMemo<FiltrosPix>(
+    () => ({
+      busca: debouncedBusca,
+      status: filtros.status,
+      modelo_id: filtros.modelo_id,
+      motivo_em_revisao: filtros.motivo_em_revisao,
+      periodo: filtros.periodo,
+      atendimento_id: filtros.atendimento_id,
+    }),
+    [
+      debouncedBusca,
+      filtros.status,
+      filtros.modelo_id,
+      filtros.motivo_em_revisao,
+      filtros.periodo,
+      filtros.atendimento_id,
+    ]
   )
 
   const filtrosAplicados =

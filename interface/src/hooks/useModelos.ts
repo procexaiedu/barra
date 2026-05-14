@@ -88,7 +88,15 @@ export function useModelos() {
   const [listaError, setListaError] = useState<string | null>(null)
   const [detalheError, setDetalheError] = useState<string | null>(null)
   const [dirty, setDirty] = useState(false)
-  const filtrosEfetivos = useMemo(() => ({ ...filtros, busca: debouncedBusca }), [filtros, debouncedBusca])
+  const filtrosEfetivos = useMemo<FiltrosModelos>(
+    () => ({
+      busca: debouncedBusca,
+      status: filtros.status,
+      evolution: filtros.evolution,
+      tipo: filtros.tipo,
+    }),
+    [debouncedBusca, filtros.status, filtros.evolution, filtros.tipo]
+  )
   const itemsRef = useRef<ModeloListaItem[]>([])
   const selectedIdRef = useRef<string | null>(selectedId)
   const detalheRef = useRef<ModeloDetalheResponse | null>(null)

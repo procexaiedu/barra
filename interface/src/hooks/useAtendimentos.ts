@@ -114,9 +114,25 @@ export function useAtendimentos(
   const realtimeEvents = useRef(0)
   const filtrosUrlRef = useRef<FiltrosUrlAtendimentos>(filtrosUrl)
 
-  const filtrosEfetivos = useMemo(
-    () => ({ ...filtros, busca: debouncedBusca }),
-    [filtros, debouncedBusca]
+  const filtrosEfetivos = useMemo<FiltrosAtendimentos>(
+    () => ({
+      busca: debouncedBusca,
+      estado: filtros.estado,
+      tipo: filtros.tipo,
+      urgencia: filtros.urgencia,
+      ia: filtros.ia,
+      qualificacao: filtros.qualificacao,
+      periodo: filtros.periodo,
+    }),
+    [
+      debouncedBusca,
+      filtros.estado,
+      filtros.tipo,
+      filtros.urgencia,
+      filtros.ia,
+      filtros.qualificacao,
+      filtros.periodo,
+    ]
   )
 
   const inicioMes = inicioMesBrtIso()

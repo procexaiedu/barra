@@ -73,9 +73,23 @@ export function useClientes() {
   const buscaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeEvents = useRef(0)
 
-  const filtrosEfetivos = useMemo(
-    () => ({ ...filtros, busca: debouncedBusca }),
-    [filtros, debouncedBusca]
+  const filtrosEfetivos = useMemo<FiltrosClientes>(
+    () => ({
+      busca: debouncedBusca,
+      recorrencia: filtros.recorrencia,
+      motivoPerda: filtros.motivoPerda,
+      periodo: filtros.periodo,
+      modeloId: filtros.modeloId,
+      ordenarPor: filtros.ordenarPor,
+    }),
+    [
+      debouncedBusca,
+      filtros.recorrencia,
+      filtros.motivoPerda,
+      filtros.periodo,
+      filtros.modeloId,
+      filtros.ordenarPor,
+    ]
   )
 
   const filtrosAplicados =

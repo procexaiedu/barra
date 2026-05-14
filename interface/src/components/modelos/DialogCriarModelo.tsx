@@ -116,21 +116,21 @@ export function DialogCriarModelo({
                 <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-text-brand">Dados básicos</h3>
                 <div className="grid grid-cols-3 gap-5">
                   <Campo label="Nome" className="col-span-2">
-                    <Input value={form.nome} maxLength={100} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="h-10 bg-input" />
+                    <Input value={form.nome} maxLength={100} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="h-10 bg-input border-border-strong" />
                   </Campo>
                   <Campo label="Idade">
-                    <Input type="number" value={form.idade || ""} onChange={(e) => setForm({ ...form, idade: Number(e.target.value) })} className="h-10 bg-input" />
+                    <Input type="number" value={form.idade || ""} onChange={(e) => setForm({ ...form, idade: Number(e.target.value) })} className="h-10 bg-input border-border-strong" />
                   </Campo>
                   <Campo label="Número de WhatsApp" className="col-span-2">
                     <Input
                       value={formatarTelefoneBR(numeroDigitos)}
                       placeholder="(21) 98765-4321"
                       onChange={(e) => setNumeroDigitos(extrairDigitosTelefone(e.target.value))}
-                      className="h-10 bg-input"
+                      className="h-10 bg-input border-border-strong"
                     />
                   </Campo>
                   <Campo label="Idiomas">
-                    <Input value={idiomasInput} placeholder="pt-BR, en-US" onChange={(e) => setIdiomasInput(e.target.value)} className="h-10 bg-input" />
+                    <Input value={idiomasInput} placeholder="pt-BR, en-US" onChange={(e) => setIdiomasInput(e.target.value)} className="h-10 bg-input border-border-strong" />
                   </Campo>
                 </div>
               </section>
