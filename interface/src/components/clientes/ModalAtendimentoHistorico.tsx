@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 import { formatBRL, formatData, formatRotulo, formatTelefone } from "@/lib/formatters"
 import { badgeForEstado, estadoAtendimentoLabel, motivoPerdaLabel } from "@/components/clientes/utils"
+import { HistoricoMensagens } from "@/components/atendimentos/HistoricoMensagens"
 import type { AtendimentoDetalheResponse } from "@/tipos/atendimentos"
 
 const tipoLabel: Record<string, string> = { interno: "Interno", externo: "Externo" }
@@ -53,7 +54,11 @@ export function ModalAtendimentoHistorico({
     setDetalhe(null)
     setErro(null)
     try {
-      setDetalhe(await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`))
+      const res = await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`)
+      setDetalhe({
+        ...res,
+        mensagens: Array.isArray(res.mensagens) ? res.mensagens : [],
+      })
       setStatus("success")
     } catch (e) {
       setErro(e instanceof Error ? e.message : "Erro ao carregar")
@@ -285,6 +290,12 @@ export function ModalAtendimentoHistorico({
                   </div>
                 </section>
               )}
+
+              {/* Conversa */}
+              <section className="rounded-lg border border-border bg-card p-4">
+                <SecaoHeader>Conversa</SecaoHeader>
+                <HistoricoMensagens mensagens={detalhe.mensagens} />
+              </section>
             </>
           )}
         </div>

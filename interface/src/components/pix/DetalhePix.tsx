@@ -10,6 +10,7 @@ import type {
   MotivoRejeicao,
   PixDetalheResponse,
 } from "@/tipos/pix"
+import { ModalAtendimentoHistorico } from "@/components/clientes/ModalAtendimentoHistorico"
 import { AcoesPix } from "./AcoesPix"
 import { AtendimentoVinculadoPix } from "./AtendimentoVinculadoPix"
 import { ChecagensPix } from "./ChecagensPix"
@@ -17,7 +18,6 @@ import { ComprovantePix } from "./ComprovantePix"
 import { DialogVisualizarComprovante } from "./DialogVisualizarComprovante"
 import { LinhaTempoPix } from "./LinhaTempoPix"
 import { MetadadosPix } from "./MetadadosPix"
-import { ModalAtendimentoPix } from "./ModalAtendimentoPix"
 import { badgeForStatusPix, statusItemPix } from "./utils"
 
 export function DetalhePix({
@@ -44,7 +44,7 @@ export function DetalhePix({
   onRecarregarComprovante: () => void
 }) {
   const [modalAberto, setModalAberto] = useState(false)
-  const [modalAtendimentoAberto, setModalAtendimentoAberto] = useState(false)
+  const [atendimentoModalId, setAtendimentoModalId] = useState<string | null>(null)
 
   if (status === "loading") {
     return (
@@ -109,7 +109,11 @@ export function DetalhePix({
         onAprovar={onAprovar}
         onRejeitar={onRejeitar}
         onReabrir={onReabrir}
-        onAbrirAtendimento={() => setModalAtendimentoAberto(true)}
+        onAbrirAtendimento={
+          detalhe.atendimento !== null
+            ? () => setAtendimentoModalId(detalhe.atendimento!.id)
+            : undefined
+        }
       />
 
       <ComprovantePix
@@ -127,18 +131,15 @@ export function DetalhePix({
         atendimento={detalhe.atendimento}
         onVisualizar={
           detalhe.atendimento !== null
-            ? () => setModalAtendimentoAberto(true)
+            ? () => setAtendimentoModalId(detalhe.atendimento!.id)
             : undefined
         }
       />
       <LinhaTempoPix eventos={detalhe.eventos} />
 
-      <ModalAtendimentoPix
-        open={modalAtendimentoAberto}
-        onOpenChange={setModalAtendimentoAberto}
-        atendimento={detalhe.atendimento}
-        cliente={detalhe.cliente}
-        modelo={detalhe.modelo}
+      <ModalAtendimentoHistorico
+        atendimentoId={atendimentoModalId}
+        onClose={() => setAtendimentoModalId(null)}
       />
 
       <DialogVisualizarComprovante
