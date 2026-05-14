@@ -223,7 +223,7 @@ function CentralAtendimentosInner() {
             <Plus size={14} strokeWidth={1.5} />
             Novo atendimento
           </Button>
-          <div className="flex items-center gap-1 rounded-lg border border-ink-300 bg-ink-100 p-0.5">
+          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted p-0.5">
             <ViewButton active={view === "lista"} onClick={() => handleViewChange("lista")} title="Lista">
               <LayoutList size={15} strokeWidth={1.5} />
             </ViewButton>
@@ -365,7 +365,7 @@ function ViewButton({
       type="button"
       title={title}
       onClick={onClick}
-      className={`flex items-center justify-center rounded-md p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-700 ${active ? "bg-ink-100 text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+      className={`flex items-center justify-center rounded-md p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${active ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
     >
       {children}
     </button>
@@ -465,7 +465,7 @@ function SelectFiltro({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         {children}
       </select>

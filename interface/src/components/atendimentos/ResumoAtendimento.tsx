@@ -85,7 +85,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
       </div>
 
       {/* Hero KPI: valor acordado em destaque, linha de baixo com estado + tipo + quando */}
-      <div className="mb-4 overflow-hidden rounded-md border border-ink-300 bg-ink-200">
+      <div className="mb-4 overflow-hidden rounded-md border border-border bg-muted">
         <div className="flex flex-wrap items-end justify-between gap-2 px-4 py-3">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">Valor acordado</p>
@@ -97,12 +97,12 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
               <p className="mt-1 text-[15px] font-medium text-text-disabled">A combinar</p>
             )}
           </div>
-          <span className={cn("inline-flex items-center gap-1.5 rounded-full bg-ink-300 px-3 py-1 text-[12px] font-semibold", estadoColorClass)}>
+          <span className={cn("inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[12px] font-semibold", estadoColorClass)}>
             <span className={cn("inline-block h-1.5 w-1.5 rounded-full", estadoDotClass)} />
             {estadoLabel[atendimento.estado]}
           </span>
         </div>
-        <div className="grid grid-cols-2 gap-px border-t border-ink-300 bg-ink-300">
+        <div className="grid grid-cols-2 gap-px border-t border-border bg-border">
           <StatTile label="Tipo" icone={<Target size={13} strokeWidth={1.75} className="text-info-500" />}>
             <span className="text-[13px] leading-tight text-text-primary">
               {atendimento.tipo_atendimento
@@ -179,7 +179,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
                       ? "bg-success-500/10 text-success-500"
                       : pixEmRevisao
                         ? "bg-warn-500/10 text-warn-500"
-                        : "bg-ink-300 text-text-secondary"
+                        : "bg-accent text-text-secondary"
                   )}
                 >
                   {pixValidado && <CheckCircle2 size={11} strokeWidth={2.25} />}
@@ -228,11 +228,11 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
         <div className="grid gap-4 xl:grid-cols-2">
           <div>
             <div className="mb-2 flex items-center gap-2">
-              <div className="h-2 flex-1 overflow-hidden rounded-full bg-ink-300">
+              <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
                   className={cn(
                     "h-2 rounded-full transition-all",
-                    pct === 100 ? "bg-success-500" : pct > 0 ? "bg-gold-500" : "bg-ink-400"
+                    pct === 100 ? "bg-success-500" : pct > 0 ? "bg-primary" : "bg-border-strong"
                   )}
                   style={{ width: `${pct}%` }}
                 />
@@ -289,7 +289,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
                 <button
                   type="button"
                   onClick={() => setModalBloqueioAberto(true)}
-                  className="mt-1.5 inline-block text-[13px] font-medium text-text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+                  className="mt-1.5 inline-block text-[13px] font-medium text-text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   Ver bloqueio
                 </button>
@@ -328,7 +328,7 @@ function Secao({
   children: ReactNode
 }) {
   return (
-    <div className={cn("mt-4", !semDivisor && "border-t border-ink-300 pt-4")}>
+    <div className={cn("mt-4", !semDivisor && "border-t border-border pt-4")}>
       {titulo && (
         <h3 className="mb-2.5 flex items-center gap-1.5 text-[13px] font-semibold text-text-primary">
           {icone}
@@ -342,7 +342,7 @@ function Secao({
 
 function StatTile({ label, icone, children }: { label: string; icone?: ReactNode; children: ReactNode }) {
   return (
-    <div className="bg-ink-200 px-3 py-2.5">
+    <div className="bg-muted px-3 py-2.5">
       <p className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] leading-none text-text-muted">
         {icone}
         <span>{label}</span>
@@ -374,7 +374,7 @@ function SecaoProgramas({ programas }: { programas: ServicoFechado[] }) {
             </div>
           ))}
           {programas.length > 1 && (
-            <div className="mt-1 flex items-center justify-between border-t border-ink-300 pt-1.5">
+            <div className="mt-1 flex items-center justify-between border-t border-border pt-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted">Total</span>
               <span className="tabular-nums text-[14px] font-semibold text-text-primary">
                 {formatBRL(totalProgramas)}

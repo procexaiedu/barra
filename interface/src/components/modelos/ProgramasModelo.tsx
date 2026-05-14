@@ -54,7 +54,7 @@ export function ProgramasModelo({
       </header>
 
       {vinculados.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-border bg-ink-50 px-4 py-10 text-center">
+        <div className="rounded-lg border border-dashed border-border bg-muted px-4 py-10 text-center">
           <p className="text-sm text-text-secondary">Nenhum serviço cadastrado ainda.</p>
           <p className="mt-1 text-xs text-text-muted">
             Use{" "}
@@ -130,7 +130,7 @@ function GrupoPrograma({
   onDesvincular: (programaId: string, duracaoId: string) => Promise<void>
 }) {
   return (
-    <div className="rounded-lg border border-border bg-ink-100">
+    <div className="rounded-lg border border-border bg-card">
       <div className="border-b border-border px-4 py-2.5">
         <h3 className="text-sm font-semibold text-text-primary">{grupo.nome}</h3>
       </div>

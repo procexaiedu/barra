@@ -29,7 +29,7 @@ export function DadosConversa({ conversa }: { conversa: ConversaResumo }) {
               {formatDataHora(conversa.ultima_mensagem_em)}
             </span>
             {conversa.ultima_mensagem_direcao && (
-              <span className="rounded-full bg-ink-300 px-2 py-0.5 font-mono text-[11px] text-text-muted">
+              <span className="rounded-full bg-accent px-2 py-0.5 font-mono text-[11px] text-text-muted">
                 {direcaoLabel[conversa.ultima_mensagem_direcao]}
               </span>
             )}

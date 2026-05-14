@@ -93,7 +93,7 @@ export function DetalheAtendimento({
 
   return (
     <section aria-label="Detalhe do atendimento" className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-      <div className={cn("shrink-0 rounded-lg border border-ink-300 bg-ink-200 p-5 border-l-4", estadoBorder)}>
+      <div className={cn("shrink-0 rounded-lg border border-border bg-muted p-5 border-l-4", estadoBorder)}>
         <div className="flex items-start gap-3">
           <Badge variant={badgeForEstado(atendimento.estado)} className="px-2.5 py-1 text-[12px]">
             {estadoLabel[atendimento.estado]}
@@ -107,7 +107,7 @@ export function DetalheAtendimento({
                 type="button"
                 onClick={onEditar}
                 title="Editar atendimento"
-                className="ml-1 rounded p-1 text-text-muted transition-colors hover:bg-ink-300 hover:text-text-primary"
+                className="ml-1 rounded p-1 text-text-muted transition-colors hover:bg-accent hover:text-text-primary"
               >
                 <Pencil size={14} strokeWidth={1.5} />
               </button>
@@ -195,17 +195,17 @@ function SecaoFixa({
 }) {
   const temContagem = count !== undefined && count > 0
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-ink-300 bg-ink-100">
+    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-card">
       <div className="flex shrink-0 items-center gap-2.5 px-4 py-3">
         {icone && <span className="shrink-0">{icone}</span>}
         <span className="flex-1 text-[15px] font-semibold text-text-primary">{titulo}</span>
         {temContagem && (
-          <span className="inline-flex min-w-[22px] items-center justify-center rounded-full bg-ink-300 px-2 py-0.5 text-[12px] font-semibold tabular-nums text-text-secondary">
+          <span className="inline-flex min-w-[22px] items-center justify-center rounded-full bg-accent px-2 py-0.5 text-[12px] font-semibold tabular-nums text-text-secondary">
             {count}
           </span>
         )}
       </div>
-      <div className="border-t border-ink-300 p-4">
+      <div className="border-t border-border p-4">
         {children}
       </div>
     </div>
@@ -295,7 +295,7 @@ function MidiasRecebidas({
                 <Link
                   key={midia.id}
                   href="/pix"
-                  className="inline-flex max-w-full items-center gap-2 rounded-md bg-ink-300 px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors hover:bg-ink-200 hover:text-text-primary focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+                  className="inline-flex max-w-full items-center gap-2 rounded-md bg-accent px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors hover:bg-muted hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   <FileText size={14} strokeWidth={1.5} />
                   <span className="truncate">{midia.nome}</span>
@@ -309,7 +309,7 @@ function MidiasRecebidas({
                   type="button"
                   onClick={() => midia.url && setMidiaAberta(midia)}
                   disabled={!midia.url}
-                  className="inline-flex max-w-full items-center gap-2 rounded-md bg-ink-300 px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors enabled:hover:bg-ink-200 enabled:hover:text-text-primary disabled:cursor-default focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+                  className="inline-flex max-w-full items-center gap-2 rounded-md bg-accent px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors enabled:hover:bg-muted enabled:hover:text-text-primary disabled:cursor-default focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                 >
                   <FileText size={14} strokeWidth={1.5} />
                   <span className="truncate">{midia.nome}</span>
@@ -320,7 +320,7 @@ function MidiasRecebidas({
                     type="button"
                     onClick={() => setMidiaParaDeletar(midia)}
                     aria-label="Remover mídia"
-                    className="absolute -right-2 -top-2 hidden rounded-full bg-ink-400 p-0.5 text-text-muted transition-colors hover:bg-red-500 hover:text-white group-hover:flex"
+                    className="absolute -right-2 -top-2 hidden rounded-full bg-border-strong p-0.5 text-text-muted transition-colors hover:bg-destructive hover:text-text-inverse group-hover:flex"
                   >
                     <Trash2 size={11} strokeWidth={2} />
                   </button>
@@ -343,7 +343,7 @@ function MidiasRecebidas({
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploadLoading}
-          className="inline-flex items-center gap-1.5 rounded-md border border-ink-300 bg-ink-100 px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-ink-200 hover:text-text-primary disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-accent hover:text-text-primary disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <Plus size={13} strokeWidth={2} />
           {uploadLoading ? "Enviando..." : "Adicionar mídia"}
@@ -353,7 +353,7 @@ function MidiasRecebidas({
       {/* Viewer */}
       {midiaAberta?.url && midiaAberta.tipo === "audio" && (
         <AlertDialog open={!!midiaAberta} onOpenChange={(open) => !open && setMidiaAberta(null)}>
-          <AlertDialogContent className="max-w-4xl rounded-none bg-ink-0 p-0">
+          <AlertDialogContent className="max-w-4xl rounded-none bg-popover p-0">
             <AlertDialogTitle className="sr-only">{midiaAberta.nome}</AlertDialogTitle>
             <audio controls src={midiaAberta.url} className="w-full p-4" />
           </AlertDialogContent>
@@ -406,7 +406,7 @@ function Eventos({ eventos }: { eventos: AtendimentoDetalheResponse["eventos"] }
 
 function EmptyDetalhe() {
   return (
-    <section aria-label="Detalhe do atendimento" className="rounded-lg border border-ink-300 bg-ink-100 p-6">
+    <section aria-label="Detalhe do atendimento" className="rounded-lg border border-border bg-card p-6">
       <p className="text-sm text-text-primary">Nenhum atendimento selecionado.</p>
       <p className="mt-1 text-[13px] text-text-muted">Selecione um item da lista para ver o contexto completo.</p>
     </section>
@@ -417,7 +417,7 @@ function DetalheSkeleton() {
   return (
     <section aria-label="Detalhe do atendimento" aria-busy="true" className="space-y-3">
       {/* Card header: badge + nome + telefone + botões */}
-      <div className="rounded-lg border border-ink-300 bg-ink-100 p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <div className="flex flex-wrap items-center gap-2">
           <Skeleton className="h-5 w-28 rounded-full" />
           <Skeleton className="h-5 w-40 rounded" />
@@ -431,7 +431,7 @@ function DetalheSkeleton() {
         </div>
       </div>
       {/* Resumo */}
-      <div className="rounded-lg border border-ink-300 bg-ink-100 p-4">
+      <div className="rounded-lg border border-border bg-card p-4">
         <Skeleton className="mb-4 h-4 w-44 rounded" />
         <div className="grid grid-cols-2 gap-6">
           <div className="space-y-2">
@@ -450,7 +450,7 @@ function DetalheSkeleton() {
       </div>
       {/* Seções colapsadas */}
       {["Histórico de mensagens", "Mídias recebidas", "Histórico do atendimento"].map((titulo) => (
-        <div key={titulo} className="overflow-hidden rounded-lg border border-ink-300 bg-ink-100">
+        <div key={titulo} className="overflow-hidden rounded-lg border border-border bg-card">
           <div className="flex items-center justify-between px-4 py-3">
             <Skeleton className="h-4 w-44 rounded" />
             <Skeleton className="h-4 w-4 rounded" />

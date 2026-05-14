@@ -48,9 +48,9 @@ export function ItemPix({
       onClick={() => onSelect(item.id)}
       onKeyDown={handleKeyDown}
       className={cn(
-        "min-h-[88px] cursor-pointer border-l-3 bg-card px-4 py-3 transition-colors hover:bg-ink-200",
+        "min-h-[88px] cursor-pointer border-l-3 bg-card px-4 py-3 transition-colors hover:bg-accent",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
-        selected ? "bg-ink-200" : "",
+        selected ? "bg-accent" : "",
         border
       )}
     >

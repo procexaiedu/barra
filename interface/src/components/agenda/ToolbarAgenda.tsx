@@ -11,7 +11,7 @@ const visoes: Array<{ value: VisaoAgenda; label: string }> = [
 ]
 
 const selectClassName =
-  "h-9 rounded-md border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+  "h-9 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
 
 export function ToolbarAgenda({
   visao,

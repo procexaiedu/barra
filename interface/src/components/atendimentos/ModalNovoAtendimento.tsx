@@ -284,7 +284,7 @@ export function ModalNovoAtendimento({
                         key={cliente.id}
                         type="button"
                         onClick={() => selecionarCliente(cliente)}
-                        className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-left text-sm last:border-0 hover:bg-ink-200"
+                        className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-left text-sm last:border-0 hover:bg-accent"
                       >
                         <span className="flex-1 truncate font-medium text-text-primary">
                           {cliente.nome ?? "Sem nome"}

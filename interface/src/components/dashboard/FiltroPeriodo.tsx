@@ -37,8 +37,8 @@ export function FiltroPeriodo({ periodo, de, ate, onPreset, onAbrirCustom }: Pro
               "h-9 rounded-md px-3 text-sm font-medium transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               ativo
-                ? "bg-ink-300 text-gold-500"
-                : "bg-ink-200 text-text-secondary hover:bg-ink-300 hover:text-text-primary"
+                ? "bg-accent text-text-brand"
+                : "bg-muted text-text-secondary hover:bg-accent hover:text-text-primary"
             )}
           >
             {p.label}
@@ -53,12 +53,12 @@ export function FiltroPeriodo({ periodo, de, ate, onPreset, onAbrirCustom }: Pro
           "h-9 rounded-md px-3 text-sm font-medium transition-colors",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
           customAtivo
-            ? "bg-ink-300 text-gold-500"
-            : "bg-ink-200 text-text-secondary hover:bg-ink-300 hover:text-text-primary"
+            ? "bg-accent text-text-brand"
+            : "bg-muted text-text-secondary hover:bg-accent hover:text-text-primary"
         )}
       >
         {customAtivo && de && ate ? (
-          <span className="font-mono text-[12px] text-gold-500">
+          <span className="font-mono text-[12px] text-text-brand">
             {formatRangeAbsoluto(de, ate)}
           </span>
         ) : (

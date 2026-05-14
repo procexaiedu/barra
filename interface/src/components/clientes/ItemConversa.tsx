@@ -67,9 +67,9 @@ export function ItemConversa({
       onClick={() => onSelect(item.id)}
       onKeyDown={handleKeyDown}
       className={cn(
-        "cursor-pointer border-l-3 bg-card px-4 py-2.5 transition-colors hover:bg-ink-200",
+        "cursor-pointer border-l-3 bg-card px-4 py-2.5 transition-colors hover:bg-accent",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
-        selected ? "bg-ink-200" : "",
+        selected ? "bg-accent" : "",
         border
       )}
     >

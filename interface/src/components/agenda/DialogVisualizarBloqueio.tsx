@@ -159,9 +159,9 @@ export function DialogVisualizarBloqueio({
         {/* Body */}
         <div className="scroll-thin flex-1 overflow-y-auto px-8 py-6">
           {/* Hero: data + horário + duração + modelo (full-width) */}
-          <section className="mb-6 overflow-hidden rounded-lg border border-ink-300 bg-ink-200">
-            <div className="grid grid-cols-1 gap-px bg-ink-300 md:grid-cols-4">
-              <div className="bg-ink-200 px-5 py-4">
+          <section className="mb-6 overflow-hidden rounded-lg border border-border bg-muted">
+            <div className="grid grid-cols-1 gap-px bg-border md:grid-cols-4">
+              <div className="bg-muted px-5 py-4">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
                   Data
                 </p>
@@ -169,7 +169,7 @@ export function DialogVisualizarBloqueio({
                   {formatData(bloqueio.inicio)}
                 </p>
               </div>
-              <div className="bg-ink-200 px-5 py-4 md:col-span-2">
+              <div className="bg-muted px-5 py-4 md:col-span-2">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
                   Horário
                 </p>
@@ -180,7 +180,7 @@ export function DialogVisualizarBloqueio({
                   )}
                 </p>
               </div>
-              <div className="bg-ink-200 px-5 py-4">
+              <div className="bg-muted px-5 py-4">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
                   Duração
                 </p>
@@ -190,7 +190,7 @@ export function DialogVisualizarBloqueio({
               </div>
             </div>
             {bloqueio.modelo_nome && (
-              <div className="border-t border-ink-300 bg-ink-200 px-5 py-3">
+              <div className="border-t border-border bg-muted px-5 py-3">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
                   Modelo
                 </p>

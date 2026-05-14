@@ -211,7 +211,7 @@ export function ModalListaAtendimentos({
                       onClick={() => navegarParaAtendimento(item.id)}
                       className={cn(
                         "grid w-full grid-cols-[64px_1fr_auto_100px] items-center gap-3 rounded-md px-2 py-2 text-left",
-                        "transition-colors hover:bg-ink-200",
+                        "transition-colors hover:bg-accent",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
                       )}
                     >

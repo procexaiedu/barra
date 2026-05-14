@@ -22,7 +22,7 @@ export function ItemMidia({
         type="button"
         onClick={onOpen}
         aria-label={`Abrir ${item.tag}`}
-        className="relative flex aspect-square w-full items-center justify-center bg-ink-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        className="relative flex aspect-square w-full items-center justify-center bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
       >
         {item.tipo === "foto" ? (
           // URL assinada do MinIO com expiry; next/image precisaria de loader customizado.

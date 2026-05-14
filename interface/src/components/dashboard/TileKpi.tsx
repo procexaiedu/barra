@@ -135,7 +135,7 @@ export function TileKpi({
         }}
         className={cn(
           baseClass,
-          "cursor-pointer transition-colors hover:bg-ink-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          "cursor-pointer transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         )}
       >
         {conteudo}

@@ -84,7 +84,7 @@ export function CarteiraEstados({ linhas }: Props) {
 
       <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
         {total === 0 ? (
-          <div className="flex flex-col gap-1 rounded-md bg-ink-200 p-4">
+          <div className="flex flex-col gap-1 rounded-md bg-muted p-4">
             <span className="text-sm text-text-primary">Nenhum atendimento no período selecionado.</span>
             <span className="text-[13px] text-text-muted">Ajuste o período no topo da página.</span>
           </div>
@@ -108,7 +108,7 @@ export function CarteiraEstados({ linhas }: Props) {
                     className={cn(
                       "grid w-full grid-cols-[140px_1fr_56px_72px] items-center gap-3 rounded-md py-1.5 pl-2 pr-3 text-left",
                       "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                      inativo ? "opacity-50" : "transition-colors hover:bg-ink-200"
+                      inativo ? "opacity-50" : "transition-colors hover:bg-accent"
                     )}
                     aria-label={`${etapa.rotulo}: ${etapa.contagem} atendimentos`}
                   >
@@ -120,7 +120,7 @@ export function CarteiraEstados({ linhas }: Props) {
                     >
                       {etapa.rotulo}
                     </span>
-                    <div className="relative h-3 overflow-hidden rounded-full bg-ink-100">
+                    <div className="relative h-3 overflow-hidden rounded-full bg-muted">
                       <div
                         className="h-full rounded-full transition-[width] duration-300"
                         style={{ width: `${pctMax}%`, background: etapa.cor }}
