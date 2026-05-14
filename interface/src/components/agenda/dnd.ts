@@ -70,3 +70,38 @@ export function detectarSobreposicao(
     return b.inicio < novoFim && novoInicio < b.fim
   })
 }
+
+function diffDias(de: string, para: string): number {
+  // Strings YYYY-MM-DD em BRT — diff em dias inteiros.
+  const a = new Date(`${de}T12:00:00-03:00`).getTime()
+  const b = new Date(`${para}T12:00:00-03:00`).getTime()
+  return Math.round((b - a) / (24 * 60 * 60 * 1000))
+}
+
+/**
+ * Calcula novo (inicio, fim) ISO a partir de delta Y em pixels + droppable alvo.
+ * Consolida a lógica antes duplicada entre onDragMove/handleDragEnd da GradeSemanal:
+ *  - aplica deltaTempoIso em ambos os limites (snap de horário);
+ *  - se mudou de coluna (overId difere de dataOriginal), soma a diferença em dias.
+ * Pura — testável isoladamente.
+ */
+export function calcularDestino(
+  bloqueio: { inicio: string; fim: string },
+  deltaY: number,
+  overId: string | null,
+  dataOriginal: string,
+  horaHeight = 80,
+  snapMin = 15,
+): { inicioIso: string; fimIso: string } {
+  const inicioComDelta = deltaTempoIso(bloqueio.inicio, deltaY, horaHeight, snapMin)
+  const fimComDelta = deltaTempoIso(bloqueio.fim, deltaY, horaHeight, snapMin)
+  if (!overId || overId === dataOriginal) {
+    return { inicioIso: inicioComDelta, fimIso: fimComDelta }
+  }
+  const diasDelta = diffDias(dataOriginal, overId)
+  const msDia = 24 * 60 * 60 * 1000
+  return {
+    inicioIso: new Date(new Date(inicioComDelta).getTime() + diasDelta * msDia).toISOString(),
+    fimIso: new Date(new Date(fimComDelta).getTime() + diasDelta * msDia).toISOString(),
+  }
+}

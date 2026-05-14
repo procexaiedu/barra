@@ -11,13 +11,15 @@ import {
   useSensors,
   type DragEndEvent,
   type DragMoveEvent,
+  type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core"
+import { AlertTriangle } from "lucide-react"
 import { dataBrt, dataInput } from "@/hooks/useAgenda"
 import { formatHorario } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { BloqueioAgenda as BloqueioTipo } from "@/tipos/agenda"
-import { deltaTempoIso, horarioDeIso } from "@/components/agenda/dnd"
+import { calcularDestino, deltaTempoIso, horarioDeIso } from "@/components/agenda/dnd"
 import { dotEstado, estiloCardCompleto } from "@/components/agenda/cores"
 
 const HORA_INICIO = 0
@@ -413,6 +415,10 @@ export function GradeSemanal({
   const [fimPreviewPorId, setFimPreviewPorId] = useState<Map<string, string>>(new Map())
   // Preview de horário em tempo real durante drag — atualizado em onDragMove.
   const [dragHorarioPreview, setDragHorarioPreview] = useState<{ inicio: string; fim: string } | null>(null)
+  // Conflito detectado em tempo real durante drag — mostrado no DragOverlay.
+  // Anti-thrash via ref: setState só roda na transição (entra/sai/troca de conflitante).
+  const [conflitoAtivo, setConflitoAtivo] = useState<{ id: string; titulo: string } | null>(null)
+  const ultimoConflitoRef = useRef<string | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -434,6 +440,8 @@ export function GradeSemanal({
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDraggingId(event.active.id as string)
+    ultimoConflitoRef.current = null
+    setConflitoAtivo(null)
     const bloqueio = event.active.data.current?.bloqueio as BloqueioTipo | undefined
     if (bloqueio) {
       setDragHorarioPreview({
@@ -454,32 +462,76 @@ export function GradeSemanal({
     })
   }, [])
 
+  // NB: `bloqueios` aqui já vem filtrado pelo tipo_atendimento do AgendaClient.
+  // Se o filtro estiver ativo, conflitos em bloqueios filtrados-fora não aparecem
+  // visualmente — servidor ainda recusa via 409 (toast trata).
+  const handleDragOver = useCallback((event: DragOverEvent) => {
+    const bloqueio = event.active.data.current?.bloqueio as BloqueioTipo | undefined
+    if (!bloqueio || !event.over) {
+      if (ultimoConflitoRef.current !== null) {
+        ultimoConflitoRef.current = null
+        setConflitoAtivo(null)
+      }
+      return
+    }
+    const dataOriginal = dataBrt(bloqueio.inicio)
+    const { inicioIso, fimIso } = calcularDestino(
+      bloqueio,
+      event.delta.y,
+      event.over.id as string,
+      dataOriginal,
+      HORA_HEIGHT,
+      SNAP_MIN,
+    )
+    const conflitante = bloqueios.find(
+      (b) =>
+        b.id !== bloqueio.id &&
+        b.estado !== "cancelado" &&
+        b.inicio < fimIso &&
+        inicioIso < b.fim,
+    )
+    const chave = conflitante?.id ?? ""
+    if (ultimoConflitoRef.current === chave) return
+    ultimoConflitoRef.current = chave
+    setConflitoAtivo(
+      conflitante
+        ? {
+            id: conflitante.id,
+            titulo:
+              conflitante.atendimento?.cliente_nome ??
+              conflitante.observacao ??
+              conflitante.modelo_nome?.split(" ")[0] ??
+              "outro bloqueio",
+          }
+        : null,
+    )
+  }, [bloqueios])
+
+  // Soft-warn: drop continua acionando onMover mesmo sob conflito visual.
+  // Servidor (AgendaClient.moverBloqueio) é a única autoridade: retorna 409 e
+  // refetch faz rollback. Bloquear no cliente arrisca falso-positivo (filtro
+  // ativo, race com realtime, cancelados/concluídos).
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       setDraggingId(null)
       setDragHorarioPreview(null)
+      ultimoConflitoRef.current = null
+      setConflitoAtivo(null)
       const { active, over, delta } = event
       if (!over) return
 
       const bloqueio = active.data.current?.bloqueio as BloqueioTipo | undefined
       if (!bloqueio) return
 
-      const novaData = over.id as string
       const dataOriginal = dataBrt(bloqueio.inicio)
-
-      // Calcula novo inicio: muda parte de data (se mudou de coluna) + delta vertical.
-      const inicioComDelta = deltaTempoIso(bloqueio.inicio, delta.y, HORA_HEIGHT, SNAP_MIN)
-      const fimComDelta = deltaTempoIso(bloqueio.fim, delta.y, HORA_HEIGHT, SNAP_MIN)
-
-      let novoInicio = inicioComDelta
-      let novoFim = fimComDelta
-      if (novaData !== dataOriginal) {
-        // Move dias inteiros preservando hora resultante do delta vertical.
-        const diasDelta = diffDias(dataOriginal, novaData)
-        const msDia = 24 * 60 * 60 * 1000
-        novoInicio = new Date(new Date(inicioComDelta).getTime() + diasDelta * msDia).toISOString()
-        novoFim = new Date(new Date(fimComDelta).getTime() + diasDelta * msDia).toISOString()
-      }
+      const { inicioIso: novoInicio, fimIso: novoFim } = calcularDestino(
+        bloqueio,
+        delta.y,
+        over.id as string,
+        dataOriginal,
+        HORA_HEIGHT,
+        SNAP_MIN,
+      )
 
       // No-op se nada mudou
       if (novoInicio === bloqueio.inicio && novoFim === bloqueio.fim) return
@@ -527,7 +579,28 @@ export function GradeSemanal({
   }, [draggingId])
 
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
+    <DndContext
+      sensors={sensors}
+      onDragStart={handleDragStart}
+      onDragMove={handleDragMove}
+      onDragOver={handleDragOver}
+      onDragEnd={handleDragEnd}
+      autoScroll={{ threshold: { y: 0.15, x: 0 }, acceleration: 8 }}
+      accessibility={{
+        announcements: {
+          onDragStart: ({ active }) => `Movendo bloqueio ${active.id}`,
+          onDragOver: ({ over }) => {
+            if (!over) return undefined
+            return ultimoConflitoRef.current
+              ? `Conflito detectado em ${over.id}`
+              : `Sobre ${over.id}`
+          },
+          onDragEnd: ({ active, over }) =>
+            over ? `Bloqueio ${active.id} solto em ${over.id}` : "Movimento cancelado",
+          onDragCancel: ({ active }) => `Movimento de ${active.id} cancelado`,
+        },
+      }}
+    >
       <section aria-label="Grade de horários" className="overflow-hidden rounded-lg border border-border bg-card">
         {/* Header: nomes dos dias + datas */}
         <div
@@ -636,22 +709,28 @@ export function GradeSemanal({
       </section>
       <DragOverlay>
         {bloqueioArrastando ? (
-          <div className={cn("rounded px-1.5 py-0.5 shadow-md", estiloCardCompleto(bloqueioArrastando))}>
+          <div
+            data-slot="drag-overlay"
+            className={cn(
+              "rounded px-1.5 py-0.5 shadow-md transition-colors",
+              estiloCardCompleto(bloqueioArrastando),
+              conflitoAtivo && "motion-safe:animate-pulse ring-2 ring-danger-500 bg-danger-500/10",
+            )}
+          >
             <p className="truncate text-[10px] font-semibold leading-tight text-text-primary tabular-nums">
               {dragHorarioPreview
                 ? `${dragHorarioPreview.inicio}–${dragHorarioPreview.fim}`
                 : `${formatHorario(bloqueioArrastando.inicio)}–${formatHorario(bloqueioArrastando.fim)}`}
             </p>
+            {conflitoAtivo && (
+              <p className="mt-0.5 flex items-center gap-1 truncate text-[10px] leading-tight text-danger-500">
+                <AlertTriangle className="h-3 w-3 flex-shrink-0" aria-hidden="true" />
+                <span className="truncate">Conflito: {conflitoAtivo.titulo}</span>
+              </p>
+            )}
           </div>
         ) : null}
       </DragOverlay>
     </DndContext>
   )
-}
-
-function diffDias(de: string, para: string): number {
-  // Strings YYYY-MM-DD em BRT — diff em dias inteiros.
-  const a = new Date(`${de}T12:00:00-03:00`).getTime()
-  const b = new Date(`${para}T12:00:00-03:00`).getTime()
-  return Math.round((b - a) / (24 * 60 * 60 * 1000))
 }
