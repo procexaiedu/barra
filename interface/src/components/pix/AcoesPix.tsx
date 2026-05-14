@@ -4,8 +4,6 @@ import { useState } from "react"
 import {
   CheckCircle2,
   Eye,
-  ExternalLink,
-  MessageSquare,
   RotateCcw,
   XCircle,
 } from "lucide-react"
@@ -20,13 +18,6 @@ import {
   AlertDialogCancel,
   AlertDialogContent,
 } from "@/components/ui/alert-dialog"
-import {
-  Sheet,
-  SheetBody,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet"
 import { formatBRL, formatTelefone } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { MotivoRejeicao, PixDetalheResponse } from "@/tipos/pix"
@@ -40,7 +31,6 @@ import {
 } from "./utils"
 
 type DialogAtivo = "validar" | "rejeitar" | "reabrir" | null
-type SheetAtivo = "conversa" | null
 
 export function AcoesPix({
   detalhe,
@@ -56,7 +46,6 @@ export function AcoesPix({
   onAbrirAtendimento?: () => void
 }) {
   const [dialog, setDialog] = useState<DialogAtivo>(null)
-  const [sheet, setSheet] = useState<SheetAtivo>(null)
   const [submitting, setSubmitting] = useState(false)
   const [motivo, setMotivo] = useState<MotivoRejeicao>("valor_incorreto")
   const [observacao, setObservacao] = useState("")
@@ -140,10 +129,6 @@ export function AcoesPix({
   }
 
   const podeAbrirAtendimento = detalhe.atendimento !== null
-  const podeAbrirConversa = detalhe.conversa !== null
-
-  const nomeClienteParaConversa =
-    detalhe.conversa !== null ? clienteLabel : null
 
   return (
     <div className="space-y-2">
@@ -164,7 +149,7 @@ export function AcoesPix({
           </Button>
         </div>
       )}
-      {(rejeitado || podeAbrirAtendimento || podeAbrirConversa) && (
+      {(rejeitado || podeAbrirAtendimento) && (
         <div className="flex flex-wrap gap-2">
           {rejeitado && (
             <Button variant="secondary" onClick={() => abrir("reabrir")}>
@@ -177,41 +162,8 @@ export function AcoesPix({
               Ver atendimento
             </Button>
           )}
-          {podeAbrirConversa && (
-            <Button variant="ghost" size="sm" onClick={() => setSheet("conversa")}>
-              <MessageSquare className="h-3.5 w-3.5" />
-              Conversa
-            </Button>
-          )}
         </div>
       )}
-
-      <Sheet open={sheet === "conversa"} onOpenChange={(o) => setSheet(o ? "conversa" : null)}>
-        <SheetContent>
-          <SheetHeader>
-            <SheetTitle>Conversa com {detalhe.modelo.nome}</SheetTitle>
-          </SheetHeader>
-          <SheetBody className="space-y-3">
-            {nomeClienteParaConversa && (
-              <div>
-                <p className="text-xs text-text-muted">Cliente</p>
-                <p className="text-sm text-text-primary">{nomeClienteParaConversa}</p>
-              </div>
-            )}
-            <div>
-              <p className="text-xs text-text-muted">Modelo</p>
-              <p className="text-sm text-text-primary">{detalhe.modelo.nome}</p>
-            </div>
-            <a
-              href="/clientes"
-              className="inline-flex items-center gap-1.5 text-sm text-text-link underline-offset-4 hover:underline"
-            >
-              <ExternalLink className="h-3.5 w-3.5" />
-              Abrir conversa completa →
-            </a>
-          </SheetBody>
-        </SheetContent>
-      </Sheet>
 
       {/* ═══════════════════════ VALIDAR ═══════════════════════ */}
       <AlertDialog
@@ -220,7 +172,7 @@ export function AcoesPix({
       >
         <AlertDialogContent className="flex w-[min(96vw,44rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0">
           {/* Header */}
-          <div className="flex items-start gap-3 border-b border-border px-7 py-5">
+          <div className="flex items-start gap-3 border-b border-border px-8 py-4">
             <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
               <CheckCircle2 size={22} strokeWidth={1.8} />
             </span>
@@ -236,7 +188,7 @@ export function AcoesPix({
           </div>
 
           {/* Hero */}
-          <div className="grid grid-cols-3 gap-3 px-7 py-5">
+          <div className="grid grid-cols-3 gap-3 px-8 py-4">
             <HeroBlock label="Valor">
               {valorLabel ? (
                 <span className="text-2xl font-semibold leading-none text-text-primary">
@@ -259,7 +211,7 @@ export function AcoesPix({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/40 px-7 py-4">
+          <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/40 px-8 py-4">
             <AlertDialogCancel disabled={submitting} onClick={fechar}>
               Cancelar
             </AlertDialogCancel>
@@ -282,7 +234,7 @@ export function AcoesPix({
       >
         <AlertDialogContent className="flex w-[min(96vw,68rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0">
           {/* Header */}
-          <div className="flex items-start gap-3 border-b border-border px-8 py-5">
+          <div className="flex items-start gap-3 border-b border-border px-8 py-4">
             <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-500">
               <XCircle size={22} strokeWidth={1.8} />
             </span>
@@ -412,7 +364,7 @@ export function AcoesPix({
       >
         <AlertDialogContent className="flex w-[min(96vw,40rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0">
           {/* Header */}
-          <div className="flex items-start gap-3 border-b border-border px-7 py-5">
+          <div className="flex items-start gap-3 border-b border-border px-8 py-4">
             <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-state-handoff/15 text-state-handoff">
               <RotateCcw size={20} strokeWidth={1.8} />
             </span>
@@ -427,7 +379,7 @@ export function AcoesPix({
           </div>
 
           {/* Hero */}
-          <div className="grid grid-cols-2 gap-3 px-7 py-5">
+          <div className="grid grid-cols-2 gap-3 px-8 py-4">
             <HeroBlock label="Valor">
               {valorLabel ? (
                 <span className="text-xl font-semibold leading-none text-text-primary">
@@ -443,7 +395,7 @@ export function AcoesPix({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/40 px-7 py-4">
+          <div className="flex items-center justify-end gap-2 border-t border-border bg-muted/40 px-8 py-4">
             <AlertDialogCancel disabled={submitting} onClick={fechar}>
               Cancelar
             </AlertDialogCancel>
