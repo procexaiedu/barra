@@ -1,7 +1,9 @@
 "use client"
 
+import { useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { CheckCircle2 } from "lucide-react"
+import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts"
 import type { MotivoPerda } from "@/tipos/atendimentos"
 import type { PerdaPorMotivoLinha } from "@/tipos/dashboard"
 import { cn } from "@/lib/utils"
@@ -33,29 +35,43 @@ interface Props {
   totalDecididos?: number
 }
 
+interface DadoDonut {
+  motivo: MotivoPerda
+  rotulo: string
+  contagem: number
+  pct: number
+  noTopo: boolean
+}
+
 export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Props) {
   const router = useRouter()
-  const mapa = new Map(linhas.map((l) => [l.motivo, l.contagem]))
 
-  const dados = ORDEM_CANONICA.map((motivo) => ({
-    motivo,
-    contagem: mapa.get(motivo) ?? 0,
-    pct: totalPerdas > 0 ? ((mapa.get(motivo) ?? 0) / totalPerdas) * 100 : 0,
-  })).sort((a, b) => b.contagem - a.contagem)
+  const dados = useMemo<DadoDonut[]>(() => {
+    const mapa = new Map(linhas.map((l) => [l.motivo, l.contagem]))
+    const ordenado = ORDEM_CANONICA.map((motivo) => ({
+      motivo,
+      rotulo: ROTULOS[motivo],
+      contagem: mapa.get(motivo) ?? 0,
+      pct: totalPerdas > 0 ? ((mapa.get(motivo) ?? 0) / totalPerdas) * 100 : 0,
+    })).sort((a, b) => b.contagem - a.contagem)
 
-  const maximo = Math.max(...dados.map((d) => d.contagem), 1)
+    // Pareto: marca dos 80% acumulados.
+    let acumulado = 0
+    const ate80 = new Set<MotivoPerda>()
+    for (const linha of ordenado) {
+      if (totalPerdas === 0) break
+      if (acumulado < 80) ate80.add(linha.motivo)
+      acumulado += linha.pct
+    }
+
+    return ordenado.map((l) => ({ ...l, noTopo: ate80.has(l.motivo) }))
+  }, [linhas, totalPerdas])
+
   const amostraPequena = totalPerdas > 0 && totalPerdas < N_MINIMO_PARA_DELTA_PCT
   const pctDecididos =
     totalDecididos !== undefined && totalDecididos > 0 ? (totalPerdas / totalDecididos) * 100 : null
 
-  // Pareto: marca dos 80% acumulados (referência clássica).
-  let acumulado = 0
-  const ate80 = new Set<MotivoPerda>()
-  for (const linha of dados) {
-    if (totalPerdas === 0) break
-    if (acumulado < 80) ate80.add(linha.motivo)
-    acumulado += linha.pct
-  }
+  const dadosVisiveis = dados.filter((d) => d.contagem > 0)
 
   return (
     <section aria-label="Perdas por motivo" className="flex flex-col gap-3">
@@ -86,64 +102,115 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
             <span className="text-sm text-text-primary">Sem perdas no período.</span>
           </div>
         ) : (
-          <ul className="flex flex-col gap-1">
-            {dados.map((linha) => {
-              const pctBarra = (linha.contagem / maximo) * 100
-              const inativo = linha.contagem === 0
-              const noTopo = ate80.has(linha.motivo) && linha.contagem > 0
-              const handleClick = inativo
-                ? undefined
-                : () =>
-                    router.push(
-                      `/atendimentos?estado=Perdido&motivo_perda=${encodeURIComponent(linha.motivo)}`
-                    )
-              return (
-                <li key={linha.motivo}>
-                  <button
-                    type="button"
-                    onClick={handleClick}
-                    disabled={inativo}
-                    className={cn(
-                      "grid w-full grid-cols-[140px_1fr_40px_56px] items-center gap-3 rounded-md py-1.5 pl-2 pr-3 text-left",
-                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                      inativo ? "opacity-50" : "transition-colors hover:bg-ink-200"
-                    )}
-                    aria-label={`${ROTULOS[linha.motivo]}: ${linha.contagem} perdas`}
+          <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[200px_1fr] lg:grid-cols-[240px_1fr]">
+            <div className="relative mx-auto h-[200px] w-[200px] lg:h-[240px] lg:w-[240px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={dadosVisiveis}
+                    dataKey="contagem"
+                    nameKey="rotulo"
+                    innerRadius="62%"
+                    outerRadius="100%"
+                    paddingAngle={dadosVisiveis.length > 1 ? 2 : 0}
+                    stroke="var(--card)"
+                    strokeWidth={2}
+                    isAnimationActive={false}
                   >
-                    <span
+                    {dadosVisiveis.map((d) => (
+                      <Cell
+                        key={d.motivo}
+                        fill={d.noTopo ? "var(--danger-500)" : "var(--text-muted)"}
+                        fillOpacity={d.noTopo ? 1 : 0.5}
+                        style={{ cursor: "pointer", outline: "none" }}
+                        onClick={() =>
+                          router.push(
+                            `/atendimentos?estado=Perdido&motivo_perda=${encodeURIComponent(d.motivo)}`
+                          )
+                        }
+                      />
+                    ))}
+                  </Pie>
+                  <RechartsTooltip
+                    wrapperStyle={{ outline: "none" }}
+                    contentStyle={{
+                      background: "var(--card)",
+                      border: "1px solid var(--border)",
+                      borderRadius: 6,
+                      padding: "4px 8px",
+                      fontSize: 12,
+                    }}
+                    formatter={(value, _name, item) => {
+                      const p = (item as { payload?: DadoDonut })?.payload
+                      const pct = p ? PCT_FMT.format(p.pct) : "0"
+                      return [`${value} (${pct}%)`, p?.rotulo ?? ""]
+                    }}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                <span className="font-mono text-2xl font-semibold tabular-nums text-text-primary">
+                  {totalPerdas}
+                </span>
+                <span className="text-[11px] text-text-muted">perdas</span>
+              </div>
+            </div>
+
+            <ul className="flex flex-col gap-1">
+              {dados.map((d) => {
+                const inativo = d.contagem === 0
+                const handleClick = inativo
+                  ? undefined
+                  : () =>
+                      router.push(
+                        `/atendimentos?estado=Perdido&motivo_perda=${encodeURIComponent(d.motivo)}`
+                      )
+                return (
+                  <li key={d.motivo}>
+                    <button
+                      type="button"
+                      onClick={handleClick}
+                      disabled={inativo}
                       className={cn(
-                        "truncate text-[13px]",
-                        inativo ? "text-text-muted" : "text-text-primary"
+                        "grid w-full grid-cols-[14px_1fr_36px_52px] items-center gap-2 rounded-md py-1 pl-1 pr-2 text-left",
+                        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                        inativo ? "opacity-50" : "transition-colors hover:bg-ink-200"
                       )}
+                      aria-label={`${d.rotulo}: ${d.contagem} perdas`}
                     >
-                      {ROTULOS[linha.motivo]}
-                    </span>
-                    <div className="relative h-2.5 overflow-hidden rounded-full bg-ink-100">
-                      <div
-                        className="h-full rounded-full transition-[width] duration-300"
+                      <span
+                        aria-hidden
+                        className="inline-block h-2.5 w-2.5 rounded-sm"
                         style={{
-                          width: `${pctBarra}%`,
-                          background: noTopo ? "var(--danger-500)" : "var(--text-muted)",
-                          opacity: noTopo ? 1 : 0.55,
+                          background: d.noTopo ? "var(--danger-500)" : "var(--text-muted)",
+                          opacity: d.noTopo ? 1 : 0.55,
                         }}
                       />
-                    </div>
-                    <span
-                      className={cn(
-                        "text-right font-mono text-xs font-medium tabular-nums",
-                        inativo ? "text-text-muted" : "text-text-primary"
-                      )}
-                    >
-                      {linha.contagem}
-                    </span>
-                    <span className="text-right text-xs font-medium text-text-muted tabular-nums">
-                      {`${PCT_FMT.format(linha.pct)}%`}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+                      <span
+                        className={cn(
+                          "truncate text-[13px]",
+                          inativo ? "text-text-muted" : "text-text-primary"
+                        )}
+                      >
+                        {d.rotulo}
+                      </span>
+                      <span
+                        className={cn(
+                          "text-right font-mono text-xs font-medium tabular-nums",
+                          inativo ? "text-text-muted" : "text-text-primary"
+                        )}
+                      >
+                        {d.contagem}
+                      </span>
+                      <span className="text-right text-xs text-text-muted tabular-nums">
+                        {PCT_FMT.format(d.pct)}%
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
         )}
       </div>
     </section>

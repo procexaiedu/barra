@@ -22,20 +22,9 @@ import { TileKpi } from "@/components/dashboard/TileKpi"
 import { ToolbarDashboard } from "@/components/dashboard/ToolbarDashboard"
 import { formatPercent, formatRangeAbsoluto } from "@/components/dashboard/utils"
 import { formatBRL } from "@/lib/formatters"
+import { cn } from "@/lib/utils"
 import { useDashboard } from "@/hooks/useDashboard"
-import type { EstadoAtendimento } from "@/tipos/atendimentos"
 import type { DashboardResumo, SerieMetrica, SerieResposta } from "@/tipos/dashboard"
-
-const ESTADOS_CANONICOS: EstadoAtendimento[] = [
-  "Novo",
-  "Triagem",
-  "Qualificado",
-  "Aguardando_confirmacao",
-  "Confirmado",
-  "Em_execucao",
-  "Fechado",
-  "Perdido",
-]
 
 export default function DashboardPage() {
   return (
@@ -82,12 +71,20 @@ function DashboardInner() {
       ) : dashboard.status === "error" && !data ? (
         <BannerErro mensagem={dashboard.error ?? undefined} onRetry={dashboard.refetch} />
       ) : data ? (
-        <DashboardConteudo
-          data={data}
-          series={dashboard.series}
-          onAbrirEscaladas={() => setEscaladasOpen(true)}
-          onAbrirMetrica={setMetricaAberta}
-        />
+        <div
+          aria-busy={dashboard.isRefreshing}
+          className={cn(
+            "flex flex-col gap-6 transition-opacity duration-150",
+            dashboard.isRefreshing ? "pointer-events-none opacity-60" : ""
+          )}
+        >
+          <DashboardConteudo
+            data={data}
+            series={dashboard.series}
+            onAbrirEscaladas={() => setEscaladasOpen(true)}
+            onAbrirMetrica={setMetricaAberta}
+          />
+        </div>
       ) : null}
 
       <DialogRangeCustom
@@ -131,11 +128,6 @@ interface ConteudoProps {
 function DashboardConteudo({ data, series, onAbrirEscaladas, onAbrirMetrica }: ConteudoProps) {
   const kpis = data.kpis_periodo
   const anterior = data.kpis_periodo_anterior
-
-  const linhasFunil = ESTADOS_CANONICOS.map((estado) => {
-    const linha = data.funil_estados.find((l) => l.estado === estado)
-    return { estado, contagem: linha?.contagem ?? 0 }
-  })
 
   const ticketBruto = formatBRL(kpis.fechamentos.valor_bruto_brl)
   const ticketMedio = formatBRL(kpis.fechamentos.valor_medio_brl)
@@ -268,8 +260,8 @@ function DashboardConteudo({ data, series, onAbrirEscaladas, onAbrirMetrica }: C
         serieLiquido={series.liquido?.pontos}
       />
 
-      {/* Seção 4 — Carteira por estado */}
-      <CarteiraEstados linhas={linhasFunil} />
+      {/* Seção 4 — Funil top 5 (5 etapas do kanban) */}
+      <CarteiraEstados linhas={data.funil_estados} />
 
       {/* Seção 5 — Diagnóstico (perdas + escaladas) */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { CheckCircle2, CalendarOff, LayoutList, LayoutGrid, Eye } from "lucide-react"
 import { usePainelResumo } from "@/hooks/usePainelResumo"
@@ -42,18 +41,18 @@ const ROW_CLS = cn(
 function ListaAbertos({
   itens,
   mostrarModelo,
-  onNavegar,
+  onVisualizar,
 }: {
   itens: ItemAberto[]
   mostrarModelo: boolean
-  onNavegar: (id: string) => void
+  onVisualizar: (id: string) => void
 }) {
   if (itens.length === 0) return <p className="text-sm text-text-muted">Nenhum atendimento em aberto.</p>
   return (
     <ul className="flex flex-col">
       {itens.map((item) => (
         <li key={item.atendimento_id}>
-          <button type="button" onClick={() => onNavegar(item.atendimento_id)}
+          <button type="button" onClick={() => onVisualizar(item.atendimento_id)}
             className={cn(ROW_CLS, "group grid-cols-[1fr_auto_auto]")}>
             <span className="truncate text-text-primary">
               {item.cliente_nome ?? "—"}
@@ -101,12 +100,12 @@ function ListaFechamentos({
   itens,
   mostrarModelo,
   mostrarLucro,
-  onNavegar,
+  onVisualizar,
 }: {
   itens: ItemFechamento[]
   mostrarModelo: boolean
   mostrarLucro: boolean
-  onNavegar: (id: string) => void
+  onVisualizar: (id: string) => void
 }) {
   if (itens.length === 0) return <p className="text-sm text-text-muted">Nenhum fechamento hoje.</p>
   return (
@@ -115,7 +114,7 @@ function ListaFechamentos({
       <ul className="flex flex-col">
         {itens.map((item) => (
           <li key={item.atendimento_id}>
-            <button type="button" onClick={() => onNavegar(item.atendimento_id)}
+            <button type="button" onClick={() => onVisualizar(item.atendimento_id)}
               className={cn(ROW_CLS, "group", mostrarLucro ? "grid-cols-[1fr_auto_auto_auto]" : "grid-cols-[1fr_auto_auto]")}>
               <span className="truncate text-text-primary">
                 {item.cliente_nome ?? "—"}
@@ -145,18 +144,18 @@ function ListaFechamentos({
 function ListaPerdas({
   itens,
   mostrarModelo,
-  onNavegar,
+  onVisualizar,
 }: {
   itens: ItemPerda[]
   mostrarModelo: boolean
-  onNavegar: (id: string) => void
+  onVisualizar: (id: string) => void
 }) {
   if (itens.length === 0) return <p className="text-sm text-text-muted">Nenhuma perda hoje.</p>
   return (
     <ul className="flex flex-col">
       {itens.map((item) => (
         <li key={item.atendimento_id}>
-          <button type="button" onClick={() => onNavegar(item.atendimento_id)}
+          <button type="button" onClick={() => onVisualizar(item.atendimento_id)}
             className={cn(ROW_CLS, "group grid-cols-[1fr_auto_auto]")}>
             <span className="truncate text-text-primary">
               {item.cliente_nome ?? "—"}
@@ -185,7 +184,6 @@ function fimIsoOvernight(data: string, inicio: string, fim: string): string {
 }
 
 export default function PainelGeral() {
-  const router = useRouter()
   const [modeloId, setModeloId] = useState<string | null>(null)
   const [paginaCards, setPaginaCards] = useState(0)
   const [compacto, setCompacto] = useState(false)
@@ -318,11 +316,6 @@ export default function PainelGeral() {
   }
 
   const mostrarModelo = modeloId === null && data.modelos_ativas.length > 1
-
-  const navegar = (atendimentoId: string) => {
-    detalhe.fechar()
-    router.push(`/atendimentos?id=${atendimentoId}`)
-  }
 
   const tituloModal = detalhe.tituloCustom
     ?? (detalhe.modalAberto === "fechamentos" && detalhe.mostrarLucro
@@ -574,18 +567,18 @@ export default function PainelGeral() {
         onRetry={detalhe.retry}
       >
         {detalhe.modalAberto === "abertos" && (
-          <ListaAbertos itens={detalhe.detalheAbertos} mostrarModelo={mostrarModelo} onNavegar={navegar} />
+          <ListaAbertos itens={detalhe.detalheAbertos} mostrarModelo={mostrarModelo} onVisualizar={setAtendimentoHistoricoId} />
         )}
         {detalhe.modalAberto === "fechamentos" && (
           <ListaFechamentos
             itens={detalhe.detalheFechamentos}
             mostrarModelo={mostrarModelo}
             mostrarLucro={detalhe.mostrarLucro}
-            onNavegar={navegar}
+            onVisualizar={setAtendimentoHistoricoId}
           />
         )}
         {detalhe.modalAberto === "perdas" && (
-          <ListaPerdas itens={detalhe.detalhePerdas} mostrarModelo={mostrarModelo} onNavegar={navegar} />
+          <ListaPerdas itens={detalhe.detalhePerdas} mostrarModelo={mostrarModelo} onVisualizar={setAtendimentoHistoricoId} />
         )}
       </ModalDetalheMetrica>
     </div>

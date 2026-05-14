@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { LayoutList, Columns, Search, Plus } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
@@ -35,6 +35,22 @@ import type { ReactNode } from "react"
 const DATA_ISO_RE = /^\d{4}-\d{2}-\d{2}$/
 
 type ViewMode = "lista" | "kanban"
+
+const VIEW_STORAGE_KEY = "atendimentos-view"
+
+function subscribeViewStorage(callback: () => void): () => void {
+  window.addEventListener("storage", callback)
+  return () => window.removeEventListener("storage", callback)
+}
+
+function getViewSnapshot(): ViewMode {
+  const salvo = window.localStorage.getItem(VIEW_STORAGE_KEY)
+  return salvo === "lista" || salvo === "kanban" ? salvo : "lista"
+}
+
+function getViewServerSnapshot(): ViewMode {
+  return "lista"
+}
 
 const ESTADOS_VALIDOS: ReadonlySet<string> = new Set([
   "Qualificando",
@@ -93,18 +109,15 @@ function CentralAtendimentosInner() {
   const pathname = usePathname()
   const initialId = searchParams.get("id")
 
-  const [view, setView] = useState<ViewMode>("lista")
-
-  useEffect(() => {
-    const salvo = window.localStorage.getItem("atendimentos-view")
-    if (salvo === "lista" || salvo === "kanban") {
-      setView(salvo)
-    }
-  }, [])
+  const view = useSyncExternalStore<ViewMode>(
+    subscribeViewStorage,
+    getViewSnapshot,
+    getViewServerSnapshot,
+  )
 
   const handleViewChange = (v: ViewMode) => {
-    setView(v)
-    localStorage.setItem("atendimentos-view", v)
+    localStorage.setItem(VIEW_STORAGE_KEY, v)
+    window.dispatchEvent(new StorageEvent("storage", { key: VIEW_STORAGE_KEY, newValue: v }))
   }
 
   const criarCliente = useCallback(
