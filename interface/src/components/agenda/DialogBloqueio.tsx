@@ -4,6 +4,10 @@ import { useCallback, useMemo, useRef, useState } from "react"
 import Link from "next/link"
 import { ArrowLeft, Loader2, Plus, X } from "lucide-react"
 import {
+  FormularioCamposAtendimento,
+  type FormularioCamposAtendimentoRef,
+} from "@/components/atendimentos/FormularioCamposAtendimento"
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -182,6 +186,7 @@ export function DialogBloqueio({
   const [novoClienteTelefone, setNovoClienteTelefone] = useState("")
   const [submittingCliente, setSubmittingCliente] = useState(false)
   const [submittingNovoAtendimento, setSubmittingNovoAtendimento] = useState(false)
+  const camposAtendRef = useRef<FormularioCamposAtendimentoRef>(null)
 
   const [confirmConverterOpen, setConfirmConverterOpen] = useState(false)
   const [confirmPerderOpen, setConfirmPerderOpen] = useState(false)
@@ -248,6 +253,7 @@ export function DialogBloqueio({
         bairro: null as string | null,
         data_desejada: null as string | null,
         horario_desejado: null as string | null,
+        programa_principal_nome: null as string | null,
       }
     }
     if (!atendimentoSelecionado) return null
@@ -262,6 +268,7 @@ export function DialogBloqueio({
       bairro: null as string | null,
       data_desejada: null as string | null,
       horario_desejado: null as string | null,
+      programa_principal_nome: null as string | null,
     }
   })()
 
@@ -412,6 +419,7 @@ export function DialogBloqueio({
       return
     }
     setSubmittingNovoAtendimento(true)
+    let dadosParciaisFalharam = false
     try {
       const res = await api<AtendimentoCriadoResponse>("/v1/atendimentos", {
         method: "POST",
@@ -420,6 +428,32 @@ export function DialogBloqueio({
           modelo_id: modeloIdEfetivo,
         }),
       })
+
+      const coletado = camposAtendRef.current?.coletarDados()
+      const payload = coletado?.payload ?? {}
+      const programas = coletado?.programas ?? []
+
+      if (Object.keys(payload).length > 0) {
+        try {
+          await api(`/v1/atendimentos/${res.id}/dados`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          })
+        } catch {
+          dadosParciaisFalharam = true
+        }
+      }
+      for (const p of programas) {
+        try {
+          await api(`/v1/atendimentos/${res.id}/servicos`, {
+            method: "POST",
+            body: JSON.stringify(p),
+          })
+        } catch {
+          dadosParciaisFalharam = true
+        }
+      }
+
       const telefone =
         "telefone" in clienteSelecionado
           ? clienteSelecionado.telefone
@@ -434,19 +468,25 @@ export function DialogBloqueio({
         },
         modelo: { id: modeloIdEfetivo, nome: "" },
         estado: res.estado,
-        tipo_atendimento: null,
-        urgencia: null,
+        tipo_atendimento: (payload.tipo_atendimento as AtendimentoListaItem["tipo_atendimento"]) ?? null,
+        urgencia: (payload.urgencia as AtendimentoListaItem["urgencia"]) ?? null,
         ia_pausada: false,
         ia_pausada_motivo: null,
         responsavel_atual: "IA",
         motivo_escalada: null,
         proxima_acao_esperada: null,
-        valor_acordado: null,
+        valor_acordado: payload.valor_acordado ?? null,
         updated_at: new Date().toISOString(),
       }
       selecionarAtendimento(item)
       voltarParaBusca()
-      toast.success(`Atendimento #${res.numero_curto} criado`)
+      if (dadosParciaisFalharam) {
+        toast.warning(
+          `Atendimento #${res.numero_curto} criado, mas alguns dados não puderam ser salvos. Edite para completar.`,
+        )
+      } else {
+        toast.success(`Atendimento #${res.numero_curto} criado`)
+      }
     } catch (e) {
       if (e instanceof ApiError && e.status === 409 && e.detail === "atendimento_aberto_existente") {
         toast.error("Cliente já tem atendimento em aberto com esta modelo — selecione o existente.")
@@ -912,9 +952,12 @@ export function DialogBloqueio({
                   </div>
                 )}
 
-                <p className="text-xs text-text-muted">
-                  Programa, valor e horário podem ser editados em &quot;Ver atendimento&quot; depois.
-                </p>
+                <FormularioCamposAtendimento
+                  ref={camposAtendRef}
+                  modeloId={form.modelo_id ?? modeloId ?? null}
+                  disabled={submittingNovoAtendimento}
+                  variant="stack"
+                />
 
                 <div className="flex justify-end">
                   <Button

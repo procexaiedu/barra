@@ -222,8 +222,14 @@ async def conectar_whatsapp(
     client = EvolutionClient(request.app.state.settings)
     # Idempotente: se a instância ainda não existe na Evolution, criamos com o
     # webhook já apontado para nosso backend. Se já existir, segue direto.
-    await client.criar_instancia(instance_id, numero=modelo.get("numero_whatsapp"))
-    resposta = await client.conectar_instancia(instance_id)
+    try:
+        await client.criar_instancia(instance_id, numero=modelo.get("numero_whatsapp"))
+        resposta = await client.conectar_instancia(instance_id)
+    except httpx.HTTPStatusError as exc:
+        raise ConflitoEstado(
+            f"Evolution recusou a conexão (HTTP {exc.response.status_code}). "
+            "Verifique a chave da Evolution e o status da instância."
+        ) from exc
     qr_code = _extrair_qr_code(resposta)
     await conn.execute(
         """

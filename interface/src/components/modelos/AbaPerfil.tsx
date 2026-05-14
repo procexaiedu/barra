@@ -9,6 +9,7 @@ import { FotoPerfil } from "@/components/modelos/FotoPerfil"
 import { ProgramasModelo } from "@/components/modelos/ProgramasModelo"
 import { TipoChecks } from "@/components/modelos/DialogCriarModelo"
 import { CampoLocalAutocomplete } from "@/components/modelos/CampoLocalAutocomplete"
+import { deE164BR, extrairDigitosTelefone, formatarTelefoneBR, paraE164BR } from "@/lib/telefone"
 import type {
   Duracao,
   DuracaoInput,
@@ -55,7 +56,7 @@ export function AbaPerfil({
   onRemoverFoto: () => Promise<void>
 }) {
   const [identidade, setIdentidade] = useState({ nome: modelo.nome, idade: modelo.idade })
-  const [whats, setWhats] = useState({ numero_whatsapp: modelo.numero_whatsapp })
+  const [numeroDigitos, setNumeroDigitos] = useState(() => deE164BR(modelo.numero_whatsapp))
   const [repasse, setRepasse] = useState({
     percentual_repasse: modelo.percentual_repasse === null ? "" : String(modelo.percentual_repasse),
     chave_pix: modelo.chave_pix ?? "",
@@ -73,7 +74,7 @@ export function AbaPerfil({
   const [submitting, setSubmitting] = useState<string | null>(null)
 
   const dirtyIdentidade = identidade.nome !== modelo.nome || identidade.idade !== modelo.idade
-  const dirtyWhats = whats.numero_whatsapp !== modelo.numero_whatsapp
+  const dirtyWhats = paraE164BR(numeroDigitos) !== modelo.numero_whatsapp
   const percentual = repasse.percentual_repasse === "" ? null : Number(repasse.percentual_repasse)
   const dirtyRepasse =
     percentual !== modelo.percentual_repasse ||
@@ -106,7 +107,7 @@ export function AbaPerfil({
   }
 
   const identidadeValida = identidade.nome.trim().length > 0 && identidade.nome.length <= 100 && identidade.idade > 0
-  const whatsappValido = /^\+55\d{10,11}$/.test(whats.numero_whatsapp)
+  const whatsappValido = /^\d{10,11}$/.test(numeroDigitos)
   const repasseValido = percentual === null || (percentual >= 0 && percentual <= 100)
   const atendimentoValido = idiomasArray.length > 0 && atendimento.tipo_atendimento_aceito.length > 0
 
@@ -157,7 +158,12 @@ export function AbaPerfil({
 
       <Card title="Contato">
         <Campo label="Número de WhatsApp">
-          <Input value={whats.numero_whatsapp} onChange={(e) => setWhats({ numero_whatsapp: e.target.value })} className="h-10 bg-input" />
+          <Input
+            value={formatarTelefoneBR(numeroDigitos)}
+            placeholder="(21) 98765-4321"
+            onChange={(e) => setNumeroDigitos(extrairDigitosTelefone(e.target.value))}
+            className="h-10 bg-input"
+          />
         </Campo>
         <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-text-secondary">
           <span
@@ -195,8 +201,9 @@ export function AbaPerfil({
           submitting={submitting === "whatsapp"}
           label="Salvar WhatsApp"
           onClick={() => {
-            if (modelo.evolution_status === "conectado") onTrocarNumero(whats.numero_whatsapp)
-            else salvar("whatsapp", { numero_whatsapp: whats.numero_whatsapp }, "WhatsApp atualizado")
+            const numeroE164 = paraE164BR(numeroDigitos)
+            if (modelo.evolution_status === "conectado") onTrocarNumero(numeroE164)
+            else salvar("whatsapp", { numero_whatsapp: numeroE164 }, "WhatsApp atualizado")
           }}
         />
       </Card>

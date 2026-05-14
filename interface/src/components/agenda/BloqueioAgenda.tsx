@@ -5,6 +5,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { bordaCompacto } from "@/components/agenda/cores"
 import { formatHorario } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { BloqueioAgenda as BloqueioAgendaTipo, EstadoBloqueio, OrigemBloqueio } from "@/tipos/agenda"
@@ -14,13 +15,6 @@ const estadoConfig: Record<EstadoBloqueio, { label: string; variant: "active" | 
   em_atendimento: { label: "Em atendimento", variant: "active" },
   concluido: { label: "Concluído", variant: "closed" },
   cancelado: { label: "Cancelado", variant: "paused" },
-}
-
-const estadoBordaCompacto: Record<EstadoBloqueio, string> = {
-  bloqueado: "border-l-[3px] border-l-sky-500",
-  em_atendimento: "border-l-[3px] border-l-emerald-500",
-  concluido: "border-l-[3px] border-l-zinc-500/50",
-  cancelado: "border-l-[3px] border-l-zinc-500/30",
 }
 
 const origemConfig: Record<OrigemBloqueio, { label: string; Icon: typeof Bot }> = {
@@ -53,7 +47,7 @@ export function BloqueioAgenda({
       className={cn(
         "w-full rounded-lg border border-border bg-card text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
         compacto ? "p-2" : "p-3",
-        compacto && estadoBordaCompacto[bloqueio.estado],
+        compacto && bordaCompacto(bloqueio),
         bloqueio.estado === "cancelado" && "opacity-60"
       )}
     >

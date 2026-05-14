@@ -35,8 +35,8 @@ export function ListaModelos({
   if (items.length === 0) return <EmptyLista filtrosAplicados={filtrosAplicados} onAdicionar={onAdicionar} />
 
   return (
-    <section aria-label="Lista de modelos" className="overflow-hidden rounded-lg border border-border bg-card">
-      <ul className="divide-y divide-border">
+    <section aria-label="Lista de modelos">
+      <ul className="space-y-2">
         {items.map((item) => (
           <li key={item.id}>
             <ItemModelo
@@ -48,8 +48,8 @@ export function ListaModelos({
         ))}
       </ul>
       {nextCursor && (
-        <div className="border-t border-border">
-          <Button variant="ghost" onClick={onCarregarMais} className="w-full rounded-none">
+        <div className="pt-2">
+          <Button variant="ghost" onClick={onCarregarMais} className="w-full">
             Carregar mais
           </Button>
         </div>

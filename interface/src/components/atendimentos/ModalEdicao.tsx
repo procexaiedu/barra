@@ -58,12 +58,14 @@ export function ModalEdicao({
   const [urgencia, setUrgencia] = useState(at?.urgencia ?? "")
   const [dataDesejada, setDataDesejada] = useState(at?.data_desejada ?? "")
   const [horario, setHorario] = useState(at?.horario_desejado ? String(at.horario_desejado).slice(0, 5) : "")
-  const [duracao, setDuracao] = useState(at?.duracao_horas != null ? String(at.duracao_horas) : "")
+  // O backend serializa Decimal como string com ponto ("3.00", "2500.00") e o parseDecimal
+  // trata ponto como separador de milhar BR — sem Number() aqui o valor é multiplicado por 100 ao reabrir.
+  const [duracao, setDuracao] = useState(at?.duracao_horas != null ? String(Number(at.duracao_horas)) : "")
   const [endereco, setEndereco] = useState(at?.endereco ?? "")
   const [bairro, setBairro] = useState(at?.bairro ?? "")
   const [tipoLocal, setTipoLocal] = useState(at?.tipo_local ?? "")
   const [formaPagamento, setFormaPagamento] = useState(at?.forma_pagamento ?? "")
-  const [valorAcordado, setValorAcordado] = useState(at?.valor_acordado != null ? String(at.valor_acordado) : "")
+  const [valorAcordado, setValorAcordado] = useState(at?.valor_acordado != null ? String(Number(at.valor_acordado)) : "")
 
   const [programasModelo, setProgramasModelo] = useState<ProgramaModelo[]>([])
   const [removidos, setRemovidos] = useState<Set<string>>(new Set())

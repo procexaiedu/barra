@@ -24,11 +24,13 @@ $ErrorActionPreference = 'Stop'
 $logsDir = 'C:\barra\.claude\logs'
 
 if (-not $LogPath) {
-    $latest = Get-ChildItem -Path $logsDir -Filter 'overnight-*.log' -ErrorAction SilentlyContinue |
+    # Busca recursiva: layout antigo ($logsDir\overnight-*.log) e novo
+    # ($logsDir\overnight\<data>\overnight-*.log).
+    $latest = Get-ChildItem -Path $logsDir -Filter 'overnight-*.log' -Recurse -ErrorAction SilentlyContinue |
               Sort-Object LastWriteTime -Descending |
               Select-Object -First 1
     if (-not $latest) {
-        Write-Warning "Nenhum overnight-*.log encontrado em $logsDir"
+        Write-Warning "Nenhum overnight-*.log encontrado em $logsDir (incluindo subpastas)"
         return
     }
     $LogPath = $latest.FullName

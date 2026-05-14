@@ -28,10 +28,15 @@
 .PARAMETER Release
   Slug de uma reserva para liberar imediatamente (após criar o arquivo
   .sql ou ao abortar). Não devolve número novo — só libera.
+.PARAMETER Timestamp
+  Em vez de NNNN sequencial, devolve `yyyyMMddHHmmss` UTC. Não usa lock
+  nem reservas — colisão por segundo entre worktrees é praticamente
+  impossível, e o ordering lexicográfico continua funcionando misturado
+  com migrations NNNN_ legacy (4 chars de prefixo < 14 chars sempre).
 .PARAMETER RepoRoot
   Raiz do repo. Default C:\barra.
 .EXAMPLE
-  # Dry-run: só pergunta qual seria o próximo livre
+  # Dry-run: só pergunta qual seria o próximo NNNN livre
   powershell -NoProfile -File scripts\proxima-migration.ps1
 .EXAMPLE
   # Reserva 0031 para a feature `clientes_arquivamento` por 30min
@@ -39,18 +44,30 @@
 .EXAMPLE
   # Libera reserva após criar o arquivo
   powershell -NoProfile -File scripts\proxima-migration.ps1 -Release 'clientes_arquivamento'
+.EXAMPLE
+  # Timestamp UTC (recomendado para overnight/worktrees paralelas)
+  powershell -NoProfile -File scripts\proxima-migration.ps1 -Timestamp
+  # stdout: 20260513212347
 .NOTES
-  Mantém `infra/sql/CLAUDE.md` (numeração 4 dígitos sequencial imutável).
+  Compatível com ambos os formatos descritos em `infra/sql/CLAUDE.md`:
+  `NNNN_slug.sql` (legacy) e `yyyyMMddHHmmss_slug.sql` (UTC).
   Não chama git — apenas lê o sistema de arquivos. Falha loud se não
-  conseguir adquirir lock após retries.
+  conseguir adquirir lock após retries (modo NNNN).
 #>
 [CmdletBinding()]
 param(
     [string]$Reserve,
     [int]$TtlMinutes = 30,
     [string]$Release,
+    [switch]$Timestamp,
     [string]$RepoRoot = 'C:\barra'
 )
+
+# Modo Timestamp: bypass total — não precisa lock nem reserva.
+if ($Timestamp) {
+    Write-Output ([DateTime]::UtcNow.ToString('yyyyMMddHHmmss'))
+    exit 0
+}
 
 $ErrorActionPreference = 'Stop'
 

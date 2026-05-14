@@ -6,6 +6,7 @@ from barra.dominio.atendimentos.routes import router as atendimentos_router
 from barra.dominio.clientes.routes import router as clientes_router
 from barra.dominio.conversas.routes import router as crm_router
 from barra.dominio.dashboard.routes import router as dashboard_router
+from barra.dominio.dev.routes import router as dev_router
 from barra.dominio.eventos.routes import router as eventos_router
 from barra.dominio.modelos.programas_routes import duracoes_router
 from barra.dominio.modelos.programas_routes import router as programas_router
@@ -25,6 +26,7 @@ router.include_router(pix_router, prefix="/pix", tags=["pix"])
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(eventos_router, prefix="/eventos", tags=["eventos"])
 router.include_router(painel_router, prefix="/painel", tags=["painel"])
+router.include_router(dev_router, prefix="/dev", tags=["dev"])
 
 
 @router.get("/saude", include_in_schema=False)

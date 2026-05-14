@@ -4,16 +4,18 @@ Escopo: migrations SQL puras. Sem alembic, sem flyway, sem prisma migrate — ve
 
 ## Formato e numeração
 
-Nome obrigatório: `NNNN_descricao_curta.sql`, sequencial de 4 dígitos. Para escolher o NNNN:
+Dois formatos aceitos. Ambos ordenam corretamente em `ls infra/sql/*.sql`:
 
-**Modo manual (humano):** liste o diretório e pegue `max(NNNN) + 1`.
+### A) Sequencial 4 dígitos (legacy)
 
-**Modo pipeline (worktrees paralelas):** use o helper `scripts/proxima-migration.ps1`. Listar o diretório à mão dentro de uma worktree não enxerga migrations criadas em outras worktrees ativas — overnight 2026-05-12 produziu duas migrations `0031` distintas pelo mesmo overnight (colidiriam no merge). O helper considera main + todas as worktrees + reservas vivas com lock por arquivo:
+`NNNN_descricao_curta.sql`. Migrations existentes (0001..00NN) seguem nesse formato — não renumere (são imutáveis, ver seção abaixo).
+
+Para escolher o próximo NNNN em uma sessão **manual humana**: liste o diretório e pegue `max(NNNN) + 1`. Para **pipeline com worktrees paralelas**, use o helper com reserva:
 
 ```bash
 # Reservar próximo NNNN (TTL 30min)
 powershell -NoProfile -File scripts/proxima-migration.ps1 -Reserve '<slug>'
-# stdout: 4 dígitos (ex: 0031)
+# stdout: 4 dígitos (ex: 0034)
 
 # Após commitar o .sql, liberar:
 powershell -NoProfile -File scripts/proxima-migration.ps1 -Release '<slug>'
@@ -21,7 +23,18 @@ powershell -NoProfile -File scripts/proxima-migration.ps1 -Release '<slug>'
 
 Não pule números, não preencha "buracos" antigos.
 
-> **Roadmap (Opção B)**: migrar para timestamp UTC `YYYYMMDDHHMMSS_*.sql` resolve colisão sem helper, ao custo de migrar todas as migrations existentes e atualizar `make migrate`. Não fazer no MVP — a operação só executa um overnight por vez e o helper já resolve o problema imediato.
+### B) Timestamp UTC (recomendado para mudanças novas)
+
+`YYYYMMDDHHMMSS_descricao_curta.sql` (14 dígitos). Vantagem: **elimina a categoria inteira de colisão NNNN** em worktrees paralelas — overnight 2026-05-12 produziu duas migrations `0031` distintas pelo mesmo loop, problema que reserva com TTL só mitiga, não previne. Timestamps são únicos por segundo, e o helper devolve um sem precisar de lock:
+
+```bash
+powershell -NoProfile -File scripts/proxima-migration.ps1 -Timestamp
+# stdout: 20260513212347
+```
+
+Ordering lexicográfico: como `NNNN_` tem 4 dígitos e `YYYYMMDD…_` tem 14, no `ls`/glob do shell todas as legacy `00NN_*` aparecem antes de qualquer timestamp `2026…_*` (char-by-char `'0' < '2'`). `make migrate` aplica em ordem correta automaticamente.
+
+**Recomendação prática:** novas migrations escritas pelo pipeline overnight ou em qualquer worktree usam timestamp UTC. NNNN só para hotfix manual em sessão única quando o autor confere o número à mão.
 
 ## Migrations aplicadas são imutáveis
 

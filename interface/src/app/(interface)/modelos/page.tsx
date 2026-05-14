@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useEffect, useState } from "react"
+import { Suspense, useCallback, useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { Loader2, UserPlus } from "lucide-react"
 import { toast } from "sonner"
@@ -56,6 +56,7 @@ function ModelosConteudo() {
   const [midiaAberta, setMidiaAberta] = useState<MidiaItem | null>(null)
   const [confirmacao, setConfirmacao] = useState<Confirmacao>(null)
   const [qrOpen, setQrOpen] = useState(false)
+  const [criarQrAtivo, setCriarQrAtivo] = useState(false)
   const [qr, setQr] = useState<ConectarWhatsappResponse | null>(null)
   const [qrStatus, setQrStatus] = useState<QrModalStatus>("loading")
   const [qrError, setQrError] = useState<string | null>(null)
@@ -75,19 +76,27 @@ function ModelosConteudo() {
   const qrStatusEfetivo: QrModalStatus =
     qrStatus === "aguardando_scan" && conectado ? "conectado" : qrStatus
 
-  // Auto-fecha o modal ~800ms após o pareamento convergir.
+  // Auto-fecha o modal ~800ms após o pareamento convergir (tanto o modal
+  // dedicado quanto o fluxo embutido no DialogCriarModelo).
   useEffect(() => {
-    if (!qrOpen || qrStatusEfetivo !== "conectado") return
+    if (!(qrOpen || criarQrAtivo) || qrStatusEfetivo !== "conectado") return
     toast.success("WhatsApp conectado")
-    const timer = setTimeout(() => setQrOpen(false), 800)
+    const timer = setTimeout(() => {
+      if (qrOpen) setQrOpen(false)
+      if (criarQrAtivo) {
+        setCriarOpen(false)
+        setCriarQrAtivo(false)
+      }
+    }, 800)
     return () => clearTimeout(timer)
-  }, [qrOpen, qrStatusEfetivo])
+  }, [qrOpen, criarQrAtivo, qrStatusEfetivo])
 
   // Polling defensivo: enquanto o modal aguarda o scan, batemos no
   // GET /whatsapp/status, que faz auto-cure consultando connectionState
-  // na Evolution. Cobre dev sem tunnel (webhook não chega).
+  // na Evolution. Cobre dev sem tunnel (webhook não chega). Vale para o
+  // modal dedicado e para a etapa de QR embutida no DialogCriarModelo.
   useEffect(() => {
-    if (!qrOpen || qrStatus !== "aguardando_scan" || !modelo?.id) return
+    if ((!qrOpen && !criarQrAtivo) || qrStatus !== "aguardando_scan" || !modelo?.id) return
     const id = modelo.id
     const intervalo = setInterval(async () => {
       try {
@@ -100,29 +109,44 @@ function ModelosConteudo() {
       }
     }, 3000)
     return () => clearInterval(intervalo)
-  }, [qrOpen, qrStatus, modelo?.id, modelos])
+  }, [qrOpen, criarQrAtivo, qrStatus, modelo?.id, modelos])
 
   const protegerDirty = (action: () => void) => {
     if (modelos.dirty) setConfirmacao({ tipo: "descartar", action })
     else action()
   }
 
-  const conectar = async (confirmarRotacao = false) => {
-    setQrOpen(true)
-    setQrStatus("loading")
-    setQrError(null)
-    try {
-      const res = await modelos.conectarWhatsapp(confirmarRotacao)
-      setQr(res)
-      setQrStatus(res?.status === "conectado" ? "conectado" : "aguardando_scan")
-      // Recarregar detalhe para refletir evolution_status='pareando' no badge
-      // antes do scan acontecer.
-      await modelos.recarregarDetalhe()
-    } catch (e) {
-      setQrStatus("erro")
-      setQrError(e instanceof Error ? e.message : "Erro ao conectar WhatsApp")
-    }
-  }
+  const conectar = useCallback(
+    async (confirmarRotacao = false) => {
+      setQrOpen(true)
+      setQrStatus("loading")
+      setQrError(null)
+      try {
+        const res = await modelos.conectarWhatsapp(confirmarRotacao)
+        setQr(res)
+        setQrStatus(res?.status === "conectado" ? "conectado" : "aguardando_scan")
+        // Recarregar detalhe para refletir evolution_status='pareando' no badge
+        // antes do scan acontecer.
+        await modelos.recarregarDetalhe()
+      } catch (e) {
+        setQrStatus("erro")
+        setQrError(e instanceof Error ? e.message : "Erro ao conectar WhatsApp")
+      }
+    },
+    [modelos],
+  )
+
+  // QR da Evolution expira em ~20-30s; enquanto o modal aguarda scan,
+  // regeneramos o QR a cada 20s para o usuário nunca cair num código
+  // expirado. POST /conectar-whatsapp é idempotente (instância já criada
+  // → 403/401 tratados em criar_instancia).
+  useEffect(() => {
+    if ((!qrOpen && !criarQrAtivo) || qrStatus !== "aguardando_scan") return
+    const intervalo = setInterval(() => {
+      void conectar(true)
+    }, 20000)
+    return () => clearInterval(intervalo)
+  }, [qrOpen, criarQrAtivo, qrStatus, conectar])
 
   const executarConfirmacao = async () => {
     if (!confirmacao || !modelo) return
@@ -265,10 +289,26 @@ function ModelosConteudo() {
 
       <DialogCriarModelo
         open={criarOpen}
-        onOpenChange={setCriarOpen}
+        onOpenChange={(value) => {
+          setCriarOpen(value)
+          if (!value && criarQrAtivo) {
+            setCriarQrAtivo(false)
+            setQr(null)
+            setQrStatus("loading")
+            setQrError(null)
+          }
+        }}
         onCriar={async (input) => {
           await modelos.criarModelo(input)
         }}
+        onConectar={async () => {
+          setCriarQrAtivo(true)
+          await conectar(false)
+        }}
+        qr={qr}
+        qrStatus={qrStatusEfetivo}
+        qrError={qrError}
+        onAtualizar={() => conectar(true)}
       />
       <DialogConectarWhatsapp
         open={qrOpen}

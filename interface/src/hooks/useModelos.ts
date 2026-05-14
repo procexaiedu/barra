@@ -374,8 +374,12 @@ export function useModelos() {
       }
       realtimeEvents.current = 0
       loadLista("replace", true)
+      // CONNECTION_UPDATE atualiza barravips.modelos no DB; sem refetch do
+      // detalhe, o badge "WhatsApp pronto" no perfil dependeria do polling.
+      const id = selectedIdRef.current
+      if (id) loadDetalhe(id, false)
     }, 250)
-  }, [loadLista])
+  }, [loadLista, loadDetalhe])
 
   useEffect(() => {
     if (buscaTimer.current) clearTimeout(buscaTimer.current)

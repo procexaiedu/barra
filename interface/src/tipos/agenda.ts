@@ -19,6 +19,7 @@ export interface AtendimentoAgendaResumo {
   bairro: string | null
   data_desejada: string | null
   horario_desejado: string | null
+  programa_principal_nome: string | null
 }
 
 export interface BloqueioAgenda {

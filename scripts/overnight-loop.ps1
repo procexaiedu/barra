@@ -29,9 +29,17 @@
   Teto de tempo de parede em minutos. Antes de iniciar cada nova
   invocacao, se o tempo decorrido desde o inicio do loop for >= a este
   valor, o loop encerra. 0 = sem teto. Default 0.
+.PARAMETER DryRun
+  Modo ensaio. Skill roda Plan+Code+Review normalmente mas NAO chama
+  update_task no devcontext. Tasks da fila ficam intactas. Util para
+  testar mudancas em prompts/agentes sem queimar fila real. Sinalizado
+  via env var BARRA_PIPELINE_DRY_RUN=1 ao subprocesso claude.
 .EXAMPLE
   powershell -NoProfile -File C:\barra\scripts\overnight-loop.ps1 -MaxInvocations 1
   # Roda 1 invocacao, drena ate 20 tasks dentro dela.
+.EXAMPLE
+  powershell -NoProfile -File C:\barra\scripts\overnight-loop.ps1 -MaxInvocations 1 -MaxTasks 2 -DryRun
+  # Dry-run: 2 tasks processadas em Plan+Code+Review, sem mover devcontext.
 .EXAMPLE
   powershell -NoProfile -File C:\barra\scripts\overnight-loop.ps1 -MaxInvocations 30 -MaxTasks 5
   # Roda ate 30 invocacoes, mas para no momento em que 5 tasks foram processadas.
@@ -48,7 +56,13 @@ param(
 
     [int]$MaxTasks = 0,
 
-    [int]$MaxWallMinutes = 0
+    [int]$MaxWallMinutes = 0,
+
+    # Modo ensaio: o skill roda Plan+Code+Review normalmente mas NAO chama
+    # update_task no devcontext. Tasks ficam intactas, mas LOG_ITER, plano e
+    # diff sao gerados para revisao. Util para testar mudancas em prompts
+    # sem queimar a fila real.
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
@@ -63,15 +77,45 @@ $logsDir  = Join-Path $repoRoot '.claude\logs'
 if (-not (Test-Path $logsDir)) {
     New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
 }
+# Subpasta por data agrupa loop + agente + auto-revisar da mesma noite.
+# Layout antigo em $logsDir continua funcionando — leitores fazem busca recursiva.
+$today   = Get-Date -Format 'yyyy-MM-dd'
+$dayDir  = Join-Path $logsDir "overnight\$today"
+if (-not (Test-Path $dayDir)) {
+    New-Item -ItemType Directory -Path $dayDir -Force | Out-Null
+}
+$histDir = Join-Path $repoRoot '.claude\state\overnight'
+if (-not (Test-Path $histDir)) {
+    New-Item -ItemType Directory -Path $histDir -Force | Out-Null
+}
+$histPath = Join-Path $histDir 'runs.jsonl'
 
 $stamp   = Get-Date -Format 'yyyyMMdd-HHmmss'
-$logPath = Join-Path $logsDir "overnight-$stamp.log"
+$logPath  = Join-Path $dayDir "overnight-$stamp.log"
+$jsonlPath = Join-Path $dayDir "overnight-$stamp.jsonl"
+
+# Helper: append uma linha JSON ao .jsonl (formato enxuto, 1 evento por linha).
+# Tipos: 'start', 'run', 'event', 'end'. Sempre carrega 'ts' ISO 8601.
+function Write-Jsonl([hashtable]$obj) {
+    $obj['ts'] = (Get-Date -Format 'o')
+    $json = $obj | ConvertTo-Json -Compress -Depth 5
+    Add-Content -Path $jsonlPath -Encoding utf8 -Value $json
+}
 
 # Expoe teto via env var para o skill ler (futuro hook em SKILL.md).
+# Convencao: BARRA_PIPELINE_<fila>_<unidade>, alinhado com overnight-agente.ps1.
 if ($MaxTasks -gt 0) {
-    $env:BARRA_OVERNIGHT_MAX_TASKS = "$MaxTasks"
+    $env:BARRA_PIPELINE_FILA_MAX_TASKS = "$MaxTasks"
 } else {
-    Remove-Item Env:BARRA_OVERNIGHT_MAX_TASKS -ErrorAction SilentlyContinue
+    Remove-Item Env:BARRA_PIPELINE_FILA_MAX_TASKS -ErrorAction SilentlyContinue
+}
+
+# Sinaliza dry-run para o skill via env var. Quando '1', SKILL.md pula
+# update_task() no devcontext mas mantem Plan/Code/Review normais.
+if ($DryRun) {
+    $env:BARRA_PIPELINE_DRY_RUN = '1'
+} else {
+    Remove-Item Env:BARRA_PIPELINE_DRY_RUN -ErrorAction SilentlyContinue
 }
 
 $welcome = @"
@@ -90,6 +134,9 @@ if ($MaxWallMinutes -gt 0) {
     $welcome += "`n  Teto wall-clock: parar apos $MaxWallMinutes minuto(s) decorrido(s)."
 } else {
     $welcome += "`n  Teto wall-clock: sem teto."
+}
+if ($DryRun) {
+    $welcome += "`n  MODO DRY-RUN: BARRA_PIPELINE_DRY_RUN=1 -- devcontext fica intacto."
 }
 $welcome += @"
 
@@ -112,6 +159,29 @@ repo:            $repoRoot
 PID:             $PID
 "@
 $header | Out-File -FilePath $logPath -Encoding utf8 -Append
+
+# Avisa sobre rebase-blocked pendentes do overnight anterior (registrados pelo
+# revisor em .claude/state/overnight/rebase-blocked.yml — formato YAML simples).
+$rbPath = Join-Path $repoRoot '.claude\state\overnight\rebase-blocked.yml'
+if (Test-Path $rbPath) {
+    $rbCount = ([regex]::Matches((Get-Content -Raw $rbPath), '(?m)^- branch:')).Count
+    if ($rbCount -gt 0) {
+        $rbMsg = ">>> AVISO: $rbCount branch(es) em rebase-blocked desde overnight anterior. Veja $rbPath"
+        Write-Host $rbMsg -ForegroundColor Yellow
+        Add-Content -Path $logPath -Encoding utf8 -Value $rbMsg
+    }
+}
+
+Write-Jsonl @{
+    type = 'start'
+    fila = 'barra'
+    maxInvocations = $MaxInvocations
+    maxTasks = $MaxTasks
+    maxWallMinutes = $MaxWallMinutes
+    dryRun = [bool]$DryRun
+    pid = $PID
+    log = $logPath
+}
 
 $started        = Get-Date
 $totalPass      = 0
@@ -137,6 +207,7 @@ for ($i = 1; $i -le $MaxInvocations; $i++) {
         $msg = "MAX_WALL_MINUTES atingido ($([int]$elapsedMin)/$MaxWallMinutes), encerrando loop"
         Add-Content -Path $logPath -Encoding utf8 -Value $msg
         Write-Host $msg
+        Write-Jsonl @{ type='event'; event='max_wall'; elapsedMin=[int]$elapsedMin; cap=$MaxWallMinutes }
         $hitMaxWall = $true
         break
     }
@@ -202,6 +273,23 @@ for ($i = 1; $i -le $MaxInvocations; $i++) {
     Add-Content -Path $logPath -Encoding utf8 -Value $summary
     Write-Host $summary
 
+    Write-Jsonl @{
+        type = 'run'
+        run = $i
+        durationSec = $runDuration
+        exitCode = $exitCode
+        tasksDone = $tasksDone
+        pass = $passCount
+        rework = $reworkCount
+        blocked = $blockedCount
+        timeout = $timeoutCount
+        exception = $exceptionCount
+        trunc = $truncCount
+        nothing = $nothingCount
+        humanOnly = $humanOnlyCount
+        cumulative = $totalTasksSoFar
+    }
+
     if ($exitCode -ne 0 -and $exitCode -ne -1) {
         Add-Content -Path $logPath -Encoding utf8 -Value "ERROR run $i (exit $exitCode)"
         Write-Warning "ERROR run $i (exit $exitCode) - continuando ate MaxInvocations"
@@ -210,6 +298,7 @@ for ($i = 1; $i -le $MaxInvocations; $i++) {
     if ($emptySignal) {
         Add-Content -Path $logPath -Encoding utf8 -Value 'DRAINED - fila vazia detectada, encerrando loop overnight'
         Write-Host 'DRAINED - fila vazia detectada, encerrando loop overnight'
+        Write-Jsonl @{ type='event'; event='drained' }
         $drained = $true
         break
     }
@@ -217,6 +306,7 @@ for ($i = 1; $i -le $MaxInvocations; $i++) {
     if ($MaxTasks -gt 0 -and $totalTasksSoFar -ge $MaxTasks) {
         Add-Content -Path $logPath -Encoding utf8 -Value "MAX_TASKS atingido ($totalTasksSoFar/$MaxTasks), encerrando loop"
         Write-Host "MAX_TASKS atingido ($totalTasksSoFar/$MaxTasks), encerrando loop"
+        Write-Jsonl @{ type='event'; event='max_tasks'; total=$totalTasksSoFar; cap=$MaxTasks }
         $hitMaxTasks = $true
         break
     }
@@ -225,6 +315,33 @@ for ($i = 1; $i -le $MaxInvocations; $i++) {
         $msg = "[run $i/$MaxInvocations] 2 invocacoes consecutivas sem LOG_ITER - provavelmente quota/auth falhou, encerrando loop"
         Add-Content -Path $logPath -Encoding utf8 -Value $msg
         Write-Host $msg
+        Write-Jsonl @{ type='event'; event='empty_streak'; streak=$emptyRunsStreak }
+        $hitEmptyStreak = $true
+        break
+    }
+
+    # Deteccao precoce: padroes inequivocos de quota/auth no proprio output da invocacao.
+    # Aborta sem esperar streak (que custa mais uma invocacao perdida ~5-60 min).
+    # Os padroes aceitam stream-json escapado (\") tambem.
+    $authPatterns = @(
+        'authentication[_ ]?required',
+        'invalid[_ ]?api[_ ]?key',
+        '\bunauthorized\b',
+        '\b401\b.*(auth|unauth)',
+        'rate[_ ]?limit',
+        'quota[_ ]?exceeded',
+        'usage limit reached',
+        '\b429\b'
+    )
+    $authHit = $null
+    foreach ($pat in $authPatterns) {
+        if ($runSlice -imatch $pat) { $authHit = $pat; break }
+    }
+    if ($authHit) {
+        $msg = "[run $i/$MaxInvocations] sinal quota/auth detectado ('$authHit'), encerrando loop imediatamente"
+        Add-Content -Path $logPath -Encoding utf8 -Value $msg
+        Write-Host $msg
+        Write-Jsonl @{ type='event'; event='auth_quota'; pattern=$authHit }
         $hitEmptyStreak = $true
         break
     }
@@ -239,8 +356,9 @@ for ($i = 1; $i -le $MaxInvocations; $i++) {
     }
 }
 
-# Limpa env var de teto para nao vazar pra sessoes subsequentes.
-Remove-Item Env:BARRA_OVERNIGHT_MAX_TASKS -ErrorAction SilentlyContinue
+# Limpa env vars para nao vazar pra sessoes subsequentes.
+Remove-Item Env:BARRA_PIPELINE_FILA_MAX_TASKS -ErrorAction SilentlyContinue
+Remove-Item Env:BARRA_PIPELINE_DRY_RUN -ErrorAction SilentlyContinue
 
 $ended      = Get-Date
 $totalSecs  = [int]($ended - $started).TotalSeconds
@@ -267,3 +385,67 @@ log:                    $logPath
 "@
 Add-Content -Path $logPath -Encoding utf8 -Value $footer
 Write-Host $footer
+
+Write-Jsonl @{
+    type = 'end'
+    runsExecuted = $runsExecuted
+    drained = $drained
+    hitMaxTasks = $hitMaxTasks
+    hitMaxWall = $hitMaxWall
+    hitEmptyStreak = $hitEmptyStreak
+    totalPass = $totalPass
+    totalRework = $totalRework
+    totalBlocked = $totalBlocked
+    totalTimeout = $totalTimeout
+    totalException = $totalException
+    totalTrunc = $totalTrunc
+    totalNothing = $totalNothing
+    totalHumanOnly = $totalHumanOnly
+    totalSec = $totalSecs
+}
+
+# Alerta: main local a frente de origin/main. Sem fetch (offline-safe);
+# usa apenas o snapshot local do remote.
+$commitsAhead = $null
+try {
+    $out = & git rev-list --count origin/main..main 2>$null
+    if ($LASTEXITCODE -eq 0 -and $out -match '^\d+$') { $commitsAhead = [int]$out.Trim() }
+} catch {}
+if ($commitsAhead -ne $null -and $commitsAhead -gt 0) {
+    $alerta = @"
+
+>>> ATENCAO: main local esta $commitsAhead commit(s) a frente de origin/main.
+>>>          Revise e rode 'git push origin main' quando pronto.
+"@
+    Add-Content -Path $logPath -Encoding utf8 -Value $alerta
+    Write-Host $alerta -ForegroundColor Yellow
+    Write-Jsonl @{ type='event'; event='push_pendente'; commitsAhead=$commitsAhead }
+}
+
+# Histórico append-only para tendência ao longo do tempo (sem precisar reparsear logs).
+$stopReason = if ($drained) { 'drained' }
+              elseif ($hitMaxTasks) { 'max_tasks' }
+              elseif ($hitMaxWall) { 'max_wall' }
+              elseif ($hitEmptyStreak) { 'empty_streak_or_auth' }
+              else { 'exhausted' }
+$histRecord = [ordered]@{
+    ts = (Get-Date -Format 'o')
+    fila = 'barra'
+    stampLog = $stamp
+    duracaoSec = $totalSecs
+    runsExecuted = $runsExecuted
+    runsCap = $MaxInvocations
+    tasksTotal = ($totalPass + $totalRework + $totalBlocked + $totalTimeout + $totalException + $totalTrunc + $totalNothing + $totalHumanOnly)
+    pass = $totalPass
+    rework = $totalRework
+    blocked = $totalBlocked
+    timeout = $totalTimeout
+    exception = $totalException
+    trunc = $totalTrunc
+    nothing = $totalNothing
+    humanOnly = $totalHumanOnly
+    stopReason = $stopReason
+    commitsAheadOrigin = $commitsAhead
+    log = $logPath
+}
+Add-Content -Path $histPath -Encoding utf8 -Value ($histRecord | ConvertTo-Json -Compress -Depth 5)

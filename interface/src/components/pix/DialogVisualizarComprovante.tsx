@@ -150,7 +150,7 @@ export function DialogVisualizarComprovante({
         )}
       >
         {/* Header */}
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-6 py-3">
+        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-8 py-4">
           <div className="flex min-w-0 items-center gap-3">
             <DialogTitle className="text-lg font-semibold text-text-primary">
               Comprovante Pix
@@ -261,200 +261,204 @@ export function DialogVisualizarComprovante({
               )}
             </div>
 
-            {/* Dados do comprovante */}
-            <section className="border-b border-border px-6 py-4">
-              <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                Dados do comprovante
-              </p>
-              <dl className="mt-3 space-y-2.5 text-sm">
-                <Linha label="Remetente">
-                  {pix?.titular_extraido ? (
-                    <div className="space-y-0.5">
-                      <p className="text-text-primary">{pix.titular_extraido}</p>
-                      {pix.documento_extraido && (
-                        <p className="font-mono text-xs text-text-muted">
-                          {pix.documento_extraido}
-                        </p>
+            {fase === "view" ? (
+              <>
+                {/* Dados do comprovante */}
+                <section className="border-b border-border px-6 py-4">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                    Dados do comprovante
+                  </p>
+                  <dl className="mt-3 space-y-2.5 text-sm">
+                    <Linha label="Remetente">
+                      {pix?.titular_extraido ? (
+                        <div className="space-y-0.5">
+                          <p className="text-text-primary">{pix.titular_extraido}</p>
+                          {pix.documento_extraido && (
+                            <p className="font-mono text-xs text-text-muted">
+                              {pix.documento_extraido}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <NaoExtraido />
                       )}
-                    </div>
-                  ) : (
-                    <NaoExtraido />
-                  )}
-                </Linha>
-                <Linha label="Chave destino">
-                  {pix?.chave_extraida ? (
-                    <div className="space-y-0.5">
-                      <p className="font-mono text-[13px] text-text-primary">
-                        {pix.chave_extraida}
-                      </p>
-                      {pix.tipo_chave && (
-                        <p className="text-xs text-text-muted">
-                          {tipoChaveLabel[pix.tipo_chave]}
-                        </p>
+                    </Linha>
+                    <Linha label="Chave destino">
+                      {pix?.chave_extraida ? (
+                        <div className="space-y-0.5">
+                          <p className="font-mono text-[13px] text-text-primary">
+                            {pix.chave_extraida}
+                          </p>
+                          {pix.tipo_chave && (
+                            <p className="text-xs text-text-muted">
+                              {tipoChaveLabel[pix.tipo_chave]}
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        <NaoExtraido />
                       )}
-                    </div>
-                  ) : (
-                    <NaoExtraido />
-                  )}
-                </Linha>
-                <Linha label="Data e hora">
-                  {horario ? (
-                    <span className="text-text-primary">{horario}</span>
-                  ) : (
-                    <NaoExtraido />
-                  )}
-                </Linha>
-              </dl>
-            </section>
+                    </Linha>
+                    <Linha label="Data e hora">
+                      {horario ? (
+                        <span className="text-text-primary">{horario}</span>
+                      ) : (
+                        <NaoExtraido />
+                      )}
+                    </Linha>
+                  </dl>
+                </section>
 
-            {/* Verificações */}
-            {totalChecagens > 0 && (
+                {/* Verificações */}
+                {totalChecagens > 0 && (
+                  <section className="border-b border-border px-6 py-4">
+                    <div className="flex items-baseline justify-between">
+                      <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                        Verificações automáticas
+                      </p>
+                      <span className="text-xs text-text-muted">
+                        {passaram}/{totalChecagens} passaram
+                      </span>
+                    </div>
+                    <ul className="mt-3 space-y-2">
+                      {checagens.map((c) => (
+                        <li key={c.chave} className="flex items-start gap-2.5">
+                          {c.passou ? (
+                            <CheckCircle2
+                              size={16}
+                              strokeWidth={1.5}
+                              className="mt-0.5 shrink-0 text-state-closed"
+                              aria-label="passou"
+                            />
+                          ) : (
+                            <XCircle
+                              size={16}
+                              strokeWidth={1.5}
+                              className="mt-0.5 shrink-0 text-state-lost"
+                              aria-label="falhou"
+                            />
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <p
+                              className={cn(
+                                "text-[13px] leading-tight",
+                                c.passou ? "text-text-secondary" : "text-text-primary",
+                              )}
+                            >
+                              {checagemLabel(c)}
+                            </p>
+                            {!c.passou && c.motivo && (
+                              <p className="mt-0.5 text-xs text-text-muted">{c.motivo}</p>
+                            )}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                )}
+              </>
+            ) : (
               <section className="border-b border-border px-6 py-4">
                 <div className="flex items-baseline justify-between">
                   <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                    Verificações automáticas
+                    Por que rejeitar?
                   </p>
-                  <span className="text-xs text-text-muted">
-                    {passaram}/{totalChecagens} passaram
-                  </span>
+                  <span className="text-xs text-text-muted">{observacao.length}/500</span>
                 </div>
-                <ul className="mt-3 space-y-2">
-                  {checagens.map((c) => (
-                    <li key={c.chave} className="flex items-start gap-2.5">
-                      {c.passou ? (
-                        <CheckCircle2
-                          size={16}
-                          strokeWidth={1.5}
-                          className="mt-0.5 shrink-0 text-state-closed"
-                          aria-label="passou"
-                        />
-                      ) : (
-                        <XCircle
-                          size={16}
-                          strokeWidth={1.5}
-                          className="mt-0.5 shrink-0 text-state-lost"
-                          aria-label="falhou"
+                <div className="mt-3 grid grid-cols-1 gap-1.5">
+                  {motivoRejeicaoOptions.map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => {
+                        setMotivo(o.value)
+                        setErro(null)
+                      }}
+                      className={cn(
+                        "flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                        motivo === o.value
+                          ? "border-red-500/70 bg-red-500/10 text-text-primary"
+                          : "border-ink-400 bg-ink-100 text-text-secondary hover:border-ink-500 hover:text-text-primary",
+                      )}
+                    >
+                      <span>{o.label}</span>
+                      {motivo === o.value && (
+                        <span
+                          aria-hidden
+                          className="size-2 rounded-full bg-red-500"
                         />
                       )}
-                      <div className="min-w-0 flex-1">
-                        <p
-                          className={cn(
-                            "text-[13px] leading-tight",
-                            c.passou ? "text-text-secondary" : "text-text-primary",
-                          )}
-                        >
-                          {checagemLabel(c)}
-                        </p>
-                        {!c.passou && c.motivo && (
-                          <p className="mt-0.5 text-xs text-text-muted">{c.motivo}</p>
-                        )}
-                      </div>
-                    </li>
+                    </button>
                   ))}
-                </ul>
-              </section>
-            )}
-
-            {/* Spacer push actions to bottom */}
-            <div className="flex-1" />
-
-            {/* Action area (sticky bottom) */}
-            {hasActions && (
-              <div className="flex-shrink-0 border-t border-border bg-card">
-                {fase === "view" ? (
-                  <div className="grid grid-cols-2 gap-3 p-5">
-                    <Button
-                      className="h-12 bg-emerald-600 text-white hover:bg-emerald-500"
-                      onClick={handleAprovar}
-                      disabled={submitting}
-                    >
-                      {submitting ? "Validando…" : "Validar Pix"}
-                    </Button>
-                    <Button
-                      className="h-12 bg-red-700 text-white hover:bg-red-600"
-                      onClick={() => setFase("rejecting")}
-                      disabled={submitting}
-                    >
-                      Rejeitar Pix
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-3 p-5">
-                    <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                      Por que rejeitar?
-                    </p>
-                    <div className="grid grid-cols-1 gap-1.5">
-                      {motivoRejeicaoOptions.map((o) => (
-                        <button
-                          key={o.value}
-                          type="button"
-                          onClick={() => {
-                            setMotivo(o.value)
-                            setErro(null)
-                          }}
-                          className={cn(
-                            "flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors",
-                            motivo === o.value
-                              ? "border-red-500/70 bg-red-500/10 text-text-primary"
-                              : "border-ink-400 bg-ink-100 text-text-secondary hover:border-ink-500 hover:text-text-primary",
-                          )}
-                        >
-                          <span>{o.label}</span>
-                          {motivo === o.value && (
-                            <span
-                              aria-hidden
-                              className="size-2 rounded-full bg-red-500"
-                            />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                    {motivo === "outro" && (
-                      <div>
-                        <Label htmlFor="dlg-comp-obs" className="text-xs text-text-muted">
-                          Observação interna
-                        </Label>
-                        <Textarea
-                          id="dlg-comp-obs"
-                          value={observacao}
-                          onChange={(e) => {
-                            setObservacao(e.target.value)
-                            setErro(null)
-                          }}
-                          placeholder="Motivo interno (não exibido ao cliente)"
-                          rows={2}
-                          maxLength={500}
-                          className="mt-1.5"
-                        />
-                      </div>
-                    )}
-                    {erro && <p className="text-[13px] text-danger-500">{erro}</p>}
-                    <div className="flex gap-3 pt-1">
-                      <Button
-                        variant="secondary"
-                        className="flex-1"
-                        onClick={() => {
-                          setFase("view")
-                          setErro(null)
-                        }}
-                        disabled={submitting}
-                      >
-                        Voltar
-                      </Button>
-                      <Button
-                        className="h-10 flex-1 bg-red-700 text-white hover:bg-red-600"
-                        onClick={handleRejeitar}
-                        disabled={submitting}
-                      >
-                        {submitting ? "Rejeitando…" : "Confirmar rejeição"}
-                      </Button>
-                    </div>
+                </div>
+                {motivo === "outro" && (
+                  <div className="mt-3">
+                    <Label htmlFor="dlg-comp-obs" className="text-xs text-text-muted">
+                      Observação interna
+                    </Label>
+                    <Textarea
+                      id="dlg-comp-obs"
+                      value={observacao}
+                      onChange={(e) => {
+                        setObservacao(e.target.value)
+                        setErro(null)
+                      }}
+                      placeholder="Motivo interno (não exibido ao cliente)"
+                      rows={3}
+                      maxLength={500}
+                      className="mt-1.5"
+                    />
                   </div>
                 )}
-              </div>
+                {erro && <p className="mt-2 text-[13px] text-danger-500">{erro}</p>}
+              </section>
             )}
           </aside>
         </div>
+
+        {/* Footer */}
+        {hasActions && (
+          <div className="flex flex-shrink-0 items-center justify-end gap-2 border-t border-border px-8 py-4">
+            {fase === "view" ? (
+              <>
+                <Button
+                  variant="destructive"
+                  onClick={() => setFase("rejecting")}
+                  disabled={submitting}
+                >
+                  Rejeitar Pix
+                </Button>
+                <Button
+                  className="bg-emerald-600 text-white hover:bg-emerald-500"
+                  onClick={handleAprovar}
+                  disabled={submitting}
+                >
+                  {submitting ? "Validando…" : "Validar Pix"}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setFase("view")
+                    setErro(null)
+                  }}
+                  disabled={submitting}
+                >
+                  Voltar
+                </Button>
+                <Button
+                  className="bg-red-700 text-white hover:bg-red-600"
+                  onClick={handleRejeitar}
+                  disabled={submitting}
+                >
+                  {submitting ? "Rejeitando…" : "Confirmar rejeição"}
+                </Button>
+              </>
+            )}
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )
