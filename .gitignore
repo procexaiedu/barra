@@ -73,6 +73,8 @@ desktop.ini
 # Permissões locais do Claude Code; algum hook/skill registra durante overnight
 # e poluía 8/14 PRs do batch de 2026-05-12. É config por máquina, não vai pro repo.
 .claude/settings.local.json
+# Logs de execução de agentes/skills (overnight, auto-revisao, build, health) — só local
+.claude/logs/
 
 # --- Config local de MCP servers ---
 # Cada dev/ambiente aponta para project_ref próprio do Supabase; não deve entrar no repo
