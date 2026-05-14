@@ -75,8 +75,8 @@ class FakeConnTelefoneDuplicado:
         yield
 
     async def execute(self, query: str, params: object = None) -> _Result:
-        if self.cliente_id is not None and "SELECT id FROM barravips.clientes" in query:
-            return _Result([{"id": self.cliente_id}])
+        if self.cliente_id is not None and "SELECT id, telefone FROM barravips.clientes" in query:
+            return _Result([{"id": self.cliente_id, "telefone": "5521900000000"}])
         if "INSERT INTO barravips.clientes" in query or "UPDATE barravips.clientes SET" in query:
             raise UniqueViolation("clientes_telefone_key")
         return _Result([])
@@ -143,8 +143,8 @@ class FakeConnPatchSucesso:
 
     async def execute(self, query: str, params: object = None) -> _Result:
         self.executes.append((query, params))
-        if "SELECT id FROM barravips.clientes" in query:
-            return _Result([{"id": self.cliente_id}])
+        if "SELECT id, telefone FROM barravips.clientes" in query:
+            return _Result([{"id": self.cliente_id, "telefone": "5521900000000"}])
         if "SELECT id, nome, telefone, arquivado_em FROM barravips.clientes" in query:
             return _Result([
                 {

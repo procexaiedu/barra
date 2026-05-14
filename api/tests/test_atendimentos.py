@@ -63,6 +63,7 @@ class FakeConn:
                 [
                     {
                         "id": self.cliente_id,
+                        "telefone": "5521900000000",
                         "arquivado_em": datetime.now(UTC) if self.cliente_arquivado else None,
                     }
                 ]
