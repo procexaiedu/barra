@@ -1,7 +1,6 @@
 "use client"
 
 import { useCallback, useMemo, useRef, useState } from "react"
-import Link from "next/link"
 import { ArrowLeft, Loader2, Plus, X } from "lucide-react"
 import {
   FormularioCamposAtendimento,
@@ -18,7 +17,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
-import { Button, buttonVariants } from "@/components/ui/button"
+import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { dataDeInput, dataInput, isoAgenda } from "@/hooks/useAgenda"
@@ -141,6 +140,7 @@ export function DialogBloqueio({
   onCriar,
   onAtualizar,
   onCancelar,
+  onVerAtendimento,
 }: {
   bloqueio: BloqueioAgenda | null
   modeloId: string | null
@@ -150,6 +150,7 @@ export function DialogBloqueio({
   onCriar: (form: BloqueioFormState) => Promise<void>
   onAtualizar: (id: string, form: BloqueioFormState, atendimentoId?: string | null) => Promise<void>
   onCancelar: (id: string, confirmar: boolean) => Promise<void>
+  onVerAtendimento: (atendimentoId: string) => void
 }) {
   const [form, setForm] = useState(() => bloqueio ? formFromBloqueio(bloqueio) : initial)
   const [submitting, setSubmitting] = useState(false)
@@ -1135,12 +1136,9 @@ export function DialogBloqueio({
         <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-border px-8 py-4">
           <div className="flex items-center gap-2">
             {bloqueio?.atendimento_id && (
-              <Link
-                href={`/atendimentos?id=${bloqueio.atendimento_id}`}
-                className={buttonVariants({ variant: "ghost" })}
-              >
+              <Button variant="ghost" onClick={() => onVerAtendimento(bloqueio.atendimento_id!)}>
                 Ver atendimento
-              </Link>
+              </Button>
             )}
             {mostraAcoesAtendimento && (
               <>

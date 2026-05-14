@@ -554,6 +554,7 @@ export default function PainelGeral() {
           onCriar={criarBloqueio}
           onAtualizar={atualizarBloqueio}
           onCancelar={cancelarBloqueio}
+          onVerAtendimento={() => {}}
         />
       )}
 
