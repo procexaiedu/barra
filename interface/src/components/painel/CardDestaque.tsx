@@ -89,7 +89,7 @@ export function CardDestaque({
           onKeyDown={handleCardKeyDown}
           className={cn(
             "flex cursor-pointer items-center gap-3 border-l-3 bg-card px-4 py-2.5",
-            "transition-colors hover:bg-ink-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            "transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
             badge.borderClass,
           )}
         >
@@ -138,7 +138,7 @@ export function CardDestaque({
         tabIndex={0}
         onClick={handleCardClick}
         onKeyDown={handleCardKeyDown}
-        className={cn("cursor-pointer rounded-lg border-l-3 bg-card p-6 transition-colors hover:bg-ink-200 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none", badge.borderClass, flashing && "tile-update-flash")}
+        className={cn("cursor-pointer rounded-lg border-l-3 bg-card p-6 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none", badge.borderClass, flashing && "tile-update-flash")}
       >
         <div className="flex items-center gap-3">
           <Badge variant={badge.variant}>{badge.label}</Badge>
@@ -149,7 +149,7 @@ export function CardDestaque({
               type="button"
               aria-label="Ver contexto e decidir"
               onClick={(e) => { e.stopPropagation(); onAbrirContexto() }}
-              className="ml-auto rounded p-1 text-text-muted hover:bg-ink-300 hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="ml-auto rounded p-1 text-text-muted hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <ScanSearch size={15} />
             </button>

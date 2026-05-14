@@ -88,7 +88,7 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
             </>
           ) : null}
           {amostraPequena ? (
-            <span className="ml-2 inline-flex items-center rounded-full bg-ink-100 px-2 py-0.5 font-mono text-[10px] text-text-muted">
+            <span className="ml-2 inline-flex items-center rounded-full bg-muted px-2 py-0.5 font-mono text-[10px] text-text-muted">
               amostra pequena
             </span>
           ) : null}
@@ -174,7 +174,7 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
                       className={cn(
                         "grid w-full grid-cols-[14px_1fr_36px_52px] items-center gap-2 rounded-md py-1 pl-1 pr-2 text-left",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                        inativo ? "opacity-50" : "transition-colors hover:bg-ink-200"
+                        inativo ? "opacity-50" : "transition-colors hover:bg-accent"
                       )}
                       aria-label={`${d.rotulo}: ${d.contagem} perdas`}
                     >

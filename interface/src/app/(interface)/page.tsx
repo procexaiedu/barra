@@ -35,7 +35,7 @@ const TITULO_MODAL = {
 
 const ROW_CLS = cn(
   "grid w-full items-center gap-3 rounded-md px-1 py-1.5 text-left text-[13px]",
-  "transition-colors hover:bg-ink-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  "transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 )
 
 function ListaAbertos({
@@ -81,7 +81,7 @@ function ResumoModelosFechamentos({ itens }: { itens: ItemFechamento[] }) {
   ).sort((a, b) => b.bruto - a.bruto)
 
   return (
-    <div className="mb-3 rounded-md bg-ink-200 px-3 py-2">
+    <div className="mb-3 rounded-md bg-muted px-3 py-2">
       <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">Por modelo</p>
       <div className="flex flex-col gap-1">
         {por_modelo.map((m) => (
@@ -349,7 +349,7 @@ export default function PainelGeral() {
                 type="button"
                 onClick={() => setCompacto((c) => !c)}
                 title={compacto ? "Modo grade" : "Modo compacto"}
-                className="rounded p-1 text-text-muted transition-colors hover:bg-ink-200 hover:text-text-primary"
+                className="rounded p-1 text-text-muted transition-colors hover:bg-accent hover:text-text-primary"
               >
                 {compacto ? <LayoutGrid size={16} /> : <LayoutList size={16} />}
               </button>

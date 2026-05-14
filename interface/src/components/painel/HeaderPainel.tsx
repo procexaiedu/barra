@@ -54,7 +54,7 @@ function SeletorModelo({
                 onModeloChange(op.id)
                 setAberto(false)
               }}
-              className={`w-full px-4 py-2 text-left text-sm hover:bg-ink-200 ${
+              className={`w-full px-4 py-2 text-left text-sm hover:bg-accent ${
                 op.id === modeloId
                   ? "font-semibold text-text-primary"
                   : "text-text-secondary"

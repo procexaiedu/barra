@@ -174,7 +174,7 @@ export function BulletEscaladas({ contagem, nReferencia, onClick }: Props) {
         aria-label="Atendimentos escalados — abrir lista detalhada"
         className={cn(
           baseClass,
-          "cursor-pointer transition-colors hover:bg-ink-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          "cursor-pointer transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         )}
       >
         {conteudo}

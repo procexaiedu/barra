@@ -667,8 +667,8 @@ export function DialogBloqueio({
                     className={cn(
                       "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
                       tipo === "bloqueio"
-                        ? "border-gold-500 bg-ink-200 text-text-primary"
-                        : "border-ink-400 text-text-muted hover:border-ink-500 hover:text-text-secondary"
+                        ? "border-primary bg-accent text-text-primary"
+                        : "border-border text-text-muted hover:border-border-strong hover:text-text-secondary"
                     )}
                   >
                     Bloqueio
@@ -679,8 +679,8 @@ export function DialogBloqueio({
                     className={cn(
                       "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
                       tipo === "agendamento"
-                        ? "border-gold-500 bg-ink-200 text-text-primary"
-                        : "border-ink-400 text-text-muted hover:border-ink-500 hover:text-text-secondary"
+                        ? "border-primary bg-accent text-text-primary"
+                        : "border-border text-text-muted hover:border-border-strong hover:text-text-secondary"
                     )}
                   >
                     Agendamento
@@ -726,7 +726,7 @@ export function DialogBloqueio({
                       value={busca}
                       onChange={(e) => handleBuscaChange(e.target.value)}
                       placeholder="Nome, número ou #ID do atendimento..."
-                      className="h-10 border-ink-400 pr-8"
+                      className="h-10 border-border pr-8"
                       autoComplete="off"
                     />
                     {buscando && (
@@ -743,13 +743,13 @@ export function DialogBloqueio({
                       </button>
                     )}
                     {buscaAberta && resultadosBusca.length > 0 && (
-                      <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-ink-400 bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
+                      <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-border bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
                         {resultadosBusca.map((item) => (
                           <button
                             key={item.id}
                             type="button"
                             onClick={() => selecionarAtendimento(item)}
-                            className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-ink-200 border-b border-border last:border-0"
+                            className="flex w-full items-center gap-3 px-3 py-2.5 text-left text-sm hover:bg-accent border-b border-border last:border-0"
                           >
                             <span className="font-mono text-xs text-text-muted">#{item.numero_curto}</span>
                             <span className="flex-1 truncate font-medium text-text-primary">
@@ -757,7 +757,7 @@ export function DialogBloqueio({
                             </span>
                             <div className="flex items-center gap-1.5 shrink-0">
                               {item.tipo_atendimento && (
-                                <span className="rounded-full bg-ink-300 px-1.5 py-0.5 text-xs text-text-muted">
+                                <span className="rounded-full bg-accent px-1.5 py-0.5 text-xs text-text-muted">
                                   {item.tipo_atendimento === "interno" ? "Int" : "Ext"}
                                 </span>
                               )}
@@ -768,7 +768,7 @@ export function DialogBloqueio({
                         <button
                           type="button"
                           onClick={abrirCriarAtendimento}
-                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-ink-200"
+                          className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-text-primary hover:bg-accent"
                         >
                           <Plus size={14} strokeWidth={1.5} />
                           <span>Criar novo atendimento</span>
@@ -776,12 +776,12 @@ export function DialogBloqueio({
                       </div>
                     )}
                     {buscaAberta && resultadosBusca.length === 0 && !buscando && busca.trim() && (
-                      <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-ink-400 bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
+                      <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-border bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
                         <p className="px-3 py-2.5 text-xs text-text-muted">Nenhum atendimento encontrado.</p>
                         <button
                           type="button"
                           onClick={abrirCriarAtendimento}
-                          className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-left text-sm text-text-primary hover:bg-ink-200"
+                          className="flex w-full items-center gap-2 border-t border-border px-3 py-2.5 text-left text-sm text-text-primary hover:bg-accent"
                         >
                           <Plus size={14} strokeWidth={1.5} />
                           <span>Criar novo atendimento</span>
@@ -795,7 +795,7 @@ export function DialogBloqueio({
 
             {/* Seção expansível: criação rápida de atendimento */}
             {criandoAtendimento && (
-              <div className="space-y-3 rounded-lg border border-ink-400 bg-surface-raised p-3">
+              <div className="space-y-3 rounded-lg border border-border bg-surface-raised p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-text-primary">Novo atendimento</p>
                   <button
@@ -818,7 +818,7 @@ export function DialogBloqueio({
                         value={buscaCliente}
                         onChange={(e) => handleBuscaClienteChange(e.target.value)}
                         placeholder="Nome ou telefone..."
-                        className="h-10 border-ink-400 pr-8"
+                        className="h-10 border-border pr-8"
                         autoComplete="off"
                         disabled={submittingNovoAtendimento}
                       />
@@ -826,13 +826,13 @@ export function DialogBloqueio({
                         <Loader2 size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 animate-spin text-text-muted" />
                       )}
                       {resultadosCliente.length > 0 && !clienteSelecionado && (
-                        <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-ink-400 bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
+                        <div className="absolute z-[60] mt-1 w-full overflow-hidden rounded-lg border border-border bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
                           {resultadosCliente.map((cliente) => (
                             <button
                               key={cliente.id}
                               type="button"
                               onClick={() => selecionarCliente(cliente)}
-                              className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-left text-sm hover:bg-ink-200 last:border-0"
+                              className="flex w-full items-center justify-between gap-3 border-b border-border px-3 py-2.5 text-left text-sm hover:bg-accent last:border-0"
                             >
                               <span className="flex-1 truncate font-medium text-text-primary">
                                 {cliente.nome ?? "Sem nome"}
@@ -846,7 +846,7 @@ export function DialogBloqueio({
                       )}
                     </div>
                     {!buscandoCliente && resultadosCliente.length === 0 && buscaCliente.trim() && !clienteSelecionado && (
-                      <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-dashed border-ink-400 px-3 py-2 text-xs text-text-muted">
+                      <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-dashed border-border px-3 py-2 text-xs text-text-muted">
                         <span>Nenhum cliente encontrado.</span>
                         <button
                           type="button"
@@ -862,7 +862,7 @@ export function DialogBloqueio({
                       </div>
                     )}
                     {clienteSelecionado && (
-                      <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-ink-400 bg-ink-200 px-3 py-2 text-sm">
+                      <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2 text-sm">
                         <div className="min-w-0">
                           <p className="truncate font-medium text-text-primary">
                             {clienteSelecionado.nome ?? "Sem nome"}
@@ -893,7 +893,7 @@ export function DialogBloqueio({
                 )}
 
                 {criandoClienteRapido && (
-                  <div className="space-y-2 rounded-md border border-ink-400 bg-ink-200 p-3">
+                  <div className="space-y-2 rounded-md border border-border bg-muted p-3">
                     <div className="flex items-center justify-between">
                       <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
                         Cliente novo
@@ -918,7 +918,7 @@ export function DialogBloqueio({
                         value={novoClienteNome}
                         onChange={(e) => setNovoClienteNome(e.target.value)}
                         placeholder="Opcional"
-                        className="mt-1.5 h-9 border-ink-400"
+                        className="mt-1.5 h-9 border-border"
                         disabled={submittingCliente}
                         autoComplete="off"
                       />
@@ -930,7 +930,7 @@ export function DialogBloqueio({
                         value={novoClienteTelefone}
                         onChange={(e) => setNovoClienteTelefone(aplicarMascaraTelefone(e.target.value))}
                         placeholder="(11) 99999-9999"
-                        className="mt-1.5 h-9 border-ink-400"
+                        className="mt-1.5 h-9 border-border"
                         disabled={submittingCliente}
                         autoComplete="off"
                         inputMode="numeric"
@@ -986,7 +986,7 @@ export function DialogBloqueio({
                   </span>
                   <div className="ml-auto flex items-center gap-2 shrink-0">
                     {atendimentoDisplay.tipo_atendimento && (
-                      <span className="rounded-full bg-ink-300 px-2 py-0.5 text-xs font-medium text-text-secondary">
+                      <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-text-secondary">
                         {atendimentoDisplay.tipo_atendimento === "interno" ? "Interno" : "Externo"}
                       </span>
                     )}
@@ -1059,7 +1059,7 @@ export function DialogBloqueio({
                     value={form.data}
                     disabled={readOnly}
                     onChange={(event) => setForm((atual) => ({ ...atual, data: event.target.value }))}
-                    className="mt-2 h-10 border-ink-400"
+                    className="mt-2 h-10 border-border"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
@@ -1121,7 +1121,7 @@ export function DialogBloqueio({
                 maxLength={180}
                 disabled={readOnly}
                 onChange={(event) => setForm((atual) => ({ ...atual, observacao: event.target.value }))}
-                className="mt-2 min-h-24 w-full rounded-lg border border-ink-400 bg-input px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+                className="mt-2 min-h-24 w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-text-primary outline-none placeholder:text-text-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
               />
               <p className={cn("mt-1 text-xs", observacaoInvalida ? "text-state-lost" : "text-text-muted")}>
                 {form.observacao.length}/160
@@ -1237,7 +1237,7 @@ export function DialogBloqueio({
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
                 disabled={submittingPerder}
-                className="mt-2 h-10 w-full rounded-lg border border-ink-400 bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+                className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
               >
                 {MOTIVOS_PERDA.map((m) => (
                   <option key={m} value={m}>{formatRotulo(m)}</option>
@@ -1298,7 +1298,7 @@ function CampoHorario({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 h-10 w-full rounded-lg border border-ink-400 bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+        className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
       >
         {horarios.map((hora) => (
           <option key={hora} value={hora}>
@@ -1331,7 +1331,7 @@ function CampoDuracao({
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="mt-2 h-10 w-full rounded-lg border border-ink-400 bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+        className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
       >
         {opcoes.map((d) => (
           <option key={d.min} value={d.min}>

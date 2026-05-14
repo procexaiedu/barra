@@ -39,7 +39,7 @@ function LinhaWaterfall({
   const interativo = Boolean(onClick)
   const baseClass = "grid grid-cols-[140px_1fr_140px] items-center gap-3 rounded-md px-2 py-2"
   const interactiveClass = interativo
-    ? "cursor-pointer transition-colors hover:bg-ink-200 focus-visible:bg-ink-200 focus-visible:outline-none"
+    ? "cursor-pointer transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
     : ""
   return (
     <div
@@ -58,7 +58,7 @@ function LinhaWaterfall({
       <span className={`text-sm ${highlight ? "font-semibold text-text-primary" : "text-text-muted"}`}>
         {rotulo}
       </span>
-      <div className="relative h-3 overflow-hidden rounded-full bg-ink-100">
+      <div className="relative h-3 overflow-hidden rounded-full bg-muted">
         <div
           className="h-full rounded-full transition-[width] duration-300"
           style={{ width: `${pct}%`, background: cor }}

@@ -99,7 +99,7 @@ export function ModalVisualizacao({
               <button
                 type="button"
                 onClick={() => onAbrirEdicao(detalhe)}
-                className="rounded-md px-3 py-1 text-xs font-medium text-text-secondary hover:bg-ink-200 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="rounded-md px-3 py-1 text-xs font-medium text-text-secondary hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 Editar
               </button>
@@ -108,7 +108,7 @@ export function ModalVisualizacao({
               type="button"
               onClick={onClose}
               aria-label="Fechar"
-              className="rounded-md p-1 text-text-muted hover:bg-ink-200 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="rounded-md p-1 text-text-muted hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <X size={16} strokeWidth={1.5} />
             </button>

@@ -41,7 +41,7 @@ export function ConectarWhatsappConteudo({
             : "Escaneie o QR code no WhatsApp da modelo para ativar o número no painel."}
         </DialogDescription>
       </div>
-      <div className="flex min-h-72 items-center justify-center rounded-lg border border-border bg-ink-100">
+      <div className="flex min-h-72 items-center justify-center rounded-lg border border-border bg-muted">
         {status === "loading" ? (
           <Loader2 className="animate-spin text-text-muted" size={28} strokeWidth={1.5} />
         ) : status === "erro" ? (

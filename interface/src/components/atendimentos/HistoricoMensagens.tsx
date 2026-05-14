@@ -88,9 +88,9 @@ function MensagemLinha({
         <div
           className={cn(
             "rounded-lg px-4 py-3 text-sm text-text-primary",
-            mensagem.direcao === "ia" ? "border-l-2 border-l-border-brand bg-ink-200" : "",
-            mensagem.direcao === "modelo_manual" ? "bg-ink-200" : "",
-            mensagem.direcao === "cliente" ? "bg-ink-100" : ""
+            mensagem.direcao === "ia" ? "border-l-2 border-l-border-brand bg-muted" : "",
+            mensagem.direcao === "modelo_manual" ? "bg-muted" : "",
+            mensagem.direcao === "cliente" ? "bg-card border border-border" : ""
           )}
         >
           {hasMedia && (
@@ -98,7 +98,7 @@ function MensagemLinha({
               <button
                 type="button"
                 onClick={() => onAbrirImagem(mensagem)}
-                className="mb-2 block overflow-hidden rounded-md outline-none focus-visible:ring-2 focus-visible:ring-gold-700"
+                className="mb-2 block overflow-hidden rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <Image
                   src={mensagem.media_url}
@@ -112,7 +112,7 @@ function MensagemLinha({
             ) : mensagem.tipo === "audio" && mensagem.media_url ? (
               <audio controls src={mensagem.media_url} className="mb-2 w-full max-w-[260px]" />
             ) : (
-              <div className="mb-2 inline-flex items-center gap-2 rounded-md bg-ink-300 px-2 py-1 font-mono text-xs text-text-muted">
+              <div className="mb-2 inline-flex items-center gap-2 rounded-md bg-accent px-2 py-1 font-mono text-xs text-text-muted">
                 <FileText size={14} strokeWidth={1.5} />
                 {mensagem.media_object_key?.split("/").pop() ?? mensagem.tipo}
               </div>

@@ -2,6 +2,7 @@ import type { Metadata } from "next"
 import { Inter, JetBrains_Mono, Cormorant_Garamond } from "next/font/google"
 import { Toaster } from "sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { ThemeProvider } from "@/components/theme-provider"
 import "./globals.css"
 
 const inter = Inter({
@@ -36,13 +37,21 @@ export default function RootLayout({
   return (
     <html
       lang="pt-BR"
-      className={`dark ${inter.variable} ${jetbrainsMono.variable} ${cormorant.variable}`}
+      suppressHydrationWarning
+      className={`${inter.variable} ${jetbrainsMono.variable} ${cormorant.variable}`}
     >
       <body className="min-h-screen bg-background text-foreground font-sans antialiased">
-        <TooltipProvider>
-          {children}
-        </TooltipProvider>
-        <Toaster position="bottom-right" theme="dark" richColors closeButton />
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <TooltipProvider>
+            {children}
+          </TooltipProvider>
+          <Toaster position="bottom-right" theme="system" richColors closeButton />
+        </ThemeProvider>
       </body>
     </html>
   )

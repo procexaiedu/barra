@@ -78,7 +78,7 @@ export function DialogMidiaUpload({
           </div>
           <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fechar"><X size={18} strokeWidth={1.5} /></Button>} />
         </div>
-        <label className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-border bg-ink-100 p-6 text-center text-sm text-text-muted focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
+        <label className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted p-6 text-center text-sm text-text-muted focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
           <Upload className="mb-2" size={24} strokeWidth={1.5} />
           {file ? file.name : "Selecionar arquivo"}
           <input

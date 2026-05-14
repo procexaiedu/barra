@@ -120,7 +120,7 @@ function SecaoCatalogo({
           {grupos.map(({ titulo, items }) => (
             <div key={titulo ?? "__geral__"}>
               {titulo && (
-                <p className="bg-ink-50 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                <p className="bg-muted px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
                   {titulo}
                 </p>
               )}
@@ -143,7 +143,7 @@ function SecaoCatalogo({
       <datalist id={categoriasListId}>
         {categorias.map((c) => <option key={c} value={c} />)}
       </datalist>
-      <div className="flex items-center gap-2 border-t border-border bg-ink-50 px-3 py-2.5">
+      <div className="flex items-center gap-2 border-t border-border bg-muted px-3 py-2.5">
         <Input
           value={form.nome}
           onChange={(e) => setForm({ ...form, nome: e.target.value })}
@@ -240,7 +240,7 @@ function ItemPrograma({
   }
 
   return (
-    <li className="group flex items-center justify-between gap-3 px-4 py-2 hover:bg-ink-100">
+    <li className="group flex items-center justify-between gap-3 px-4 py-2 hover:bg-accent">
       <span className="text-sm text-text-primary">{programa.nome}</span>
       <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <Button variant="ghost" size="icon-sm" onClick={() => setEditando(true)} disabled={submitting} aria-label="Editar">
@@ -308,7 +308,7 @@ function SecaoDuracoes({
         </ul>
       )}
 
-      <div className="flex items-center gap-2 border-t border-border bg-ink-50 px-3 py-2.5">
+      <div className="flex items-center gap-2 border-t border-border bg-muted px-3 py-2.5">
         <Input
           value={form.nome}
           onChange={(e) => setForm({ nome: e.target.value })}
@@ -392,7 +392,7 @@ function ItemDuracao({
   }
 
   return (
-    <li className="group flex items-center justify-between gap-3 px-4 py-2 hover:bg-ink-100">
+    <li className="group flex items-center justify-between gap-3 px-4 py-2 hover:bg-accent">
       <span className="text-sm text-text-primary">{duracao.nome}</span>
       <div className="flex shrink-0 gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
         <Button variant="ghost" size="icon-sm" onClick={() => setEditando(true)} disabled={submitting} aria-label="Editar">

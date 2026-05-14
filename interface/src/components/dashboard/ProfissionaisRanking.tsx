@@ -77,7 +77,7 @@ export function ProfissionaisRanking({ profissionais }: Props) {
                       router.push(`/modelos?modelo=${p.modelo.id}&aba=perfil`)
                     }
                   }}
-                  className="cursor-pointer border-t border-border/60 transition-colors hover:bg-ink-200 focus:bg-ink-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  className="cursor-pointer border-t border-border/60 transition-colors hover:bg-accent focus:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
                 >
                   <td className="px-4 py-4 align-middle">
                     <div className="flex items-baseline gap-3">
@@ -96,7 +96,7 @@ export function ProfissionaisRanking({ profissionais }: Props) {
                     <div className="flex items-center justify-end gap-2">
                       <span
                         aria-hidden
-                        className="block h-1.5 w-20 overflow-hidden rounded-sm bg-ink-300"
+                        className="block h-1.5 w-20 overflow-hidden rounded-sm bg-muted"
                       >
                         <span
                           className="block h-full rounded-sm bg-gold-500 transition-[width]"

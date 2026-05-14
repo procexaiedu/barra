@@ -49,7 +49,7 @@ function formatDuracao(inicio: string, fim: string): string {
 
 function StatTile({ label, icone, children }: { label: string; icone?: ReactNode; children: ReactNode }) {
   return (
-    <div className="bg-ink-200 px-4 py-3">
+    <div className="bg-muted px-4 py-3">
       <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] leading-none text-text-muted">
         {icone}
         <span>{label}</span>
@@ -172,7 +172,7 @@ export function ModalDetalheAgenda({
           {linha && (
             <div className="flex-1 px-8 py-6">
               {/* Hero KPI: horário em destaque */}
-              <div className="mb-6 overflow-hidden rounded-md border border-ink-300 bg-ink-200">
+              <div className="mb-6 overflow-hidden rounded-md border border-border bg-muted">
                 <div className="flex flex-wrap items-end justify-between gap-3 px-6 py-5">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
@@ -193,7 +193,7 @@ export function ModalDetalheAgenda({
                     </div>
                   )}
                 </div>
-                <div className="grid grid-cols-2 gap-px border-t border-ink-300 bg-ink-300 sm:grid-cols-4">
+                <div className="grid grid-cols-2 gap-px border-t border-border bg-border sm:grid-cols-4">
                   <StatTile
                     label="Data"
                     icone={<Calendar size={11} strokeWidth={1.75} className="text-info-500" />}

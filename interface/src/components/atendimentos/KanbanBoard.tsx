@@ -58,11 +58,11 @@ function ColunaDroppable({
     <div className="flex min-w-[220px] flex-1 flex-col gap-2">
       <div className="flex items-center justify-between px-1">
         <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">{coluna.titulo}</h3>
-        <span className="rounded-full bg-ink-300 px-2 py-0.5 text-[10px] font-medium text-text-muted">{items.length}</span>
+        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-text-muted">{items.length}</span>
       </div>
       <div
         ref={setNodeRef}
-        className={`flex min-h-[120px] flex-col gap-2 rounded-lg border p-2 transition-colors ${isOver && !coluna.terminal ? "border-ring/60 bg-ink-200" : "border-border bg-ink-100"}`}
+        className={`flex min-h-[120px] flex-col gap-2 rounded-lg border p-2 transition-colors ${isOver && !coluna.terminal ? "border-ring/60 bg-accent" : "border-border bg-muted"}`}
       >
         {items.map((item) => (
           <DraggableCard key={item.id} item={item} onCardClick={onCardClick} isTerminal={coluna.terminal} />

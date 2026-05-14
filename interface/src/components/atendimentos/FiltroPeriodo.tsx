@@ -78,7 +78,7 @@ export function FiltroPeriodo({ value, onChange }: Props) {
         <span className="text-xs font-medium text-text-muted">Período</span>
         <PopoverTrigger
           data-slot="filtro-periodo-trigger"
-          className="inline-flex h-9 w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-ink-100 px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-gold-700 focus-visible:ring-offset-2"
+          className="inline-flex h-9 w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <span className="truncate">{label}</span>
           <CalendarIcon size={14} strokeWidth={1.5} className="shrink-0 text-text-muted" />
@@ -132,10 +132,10 @@ function PresetBotao({
       data-slot="filtro-periodo-preset"
       data-ativo={ativo ? "true" : undefined}
       className={cn(
-        "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gold-700",
+        "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         ativo
-          ? "border-gold-500 bg-gold-500/10 text-text-primary"
-          : "border-ink-300 bg-ink-100 text-text-secondary hover:border-ink-200 hover:text-text-primary"
+          ? "border-primary bg-primary/10 text-text-primary"
+          : "border-border bg-muted text-text-secondary hover:border-border-strong hover:text-text-primary"
       )}
     >
       {children}

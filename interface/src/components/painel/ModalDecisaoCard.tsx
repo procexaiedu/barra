@@ -715,7 +715,7 @@ function HeroKPI({
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-ink-300 bg-ink-200">
+    <div className="overflow-hidden rounded-md border border-border bg-muted">
       <div className="flex flex-wrap items-end justify-between gap-3 px-6 py-5">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
@@ -741,7 +741,7 @@ function HeroKPI({
           </div>
         )}
       </div>
-      <div className="grid grid-cols-2 gap-px border-t border-ink-300 bg-ink-300 sm:grid-cols-4 xl:grid-cols-5">
+      <div className="grid grid-cols-2 gap-px border-t border-border bg-border sm:grid-cols-4 xl:grid-cols-5">
         <StatTile
           label="Pausada"
           icone={<Clock size={11} strokeWidth={1.75} className="text-text-muted" />}
@@ -802,7 +802,7 @@ function FormField({ label, children }: { label: string; children: ReactNode }) 
 
 function StatTile({ label, icone, children }: { label: string; icone?: ReactNode; children: ReactNode }) {
   return (
-    <div className="bg-ink-200 px-4 py-3">
+    <div className="bg-muted px-4 py-3">
       <p className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] leading-none text-text-muted">
         {icone}
         <span>{label}</span>
@@ -939,7 +939,7 @@ function SecaoComprovanteImagem({ pixUrl }: { pixUrl: string | null }) {
         <img
           src={pixUrl}
           alt="Comprovante Pix"
-          className="max-h-[420px] w-full rounded-md border border-border bg-ink-200 object-contain"
+          className="max-h-[420px] w-full rounded-md border border-border bg-muted object-contain"
         />
       ) : (
         <div className="flex h-48 items-center justify-center rounded-md border border-dashed border-border-subtle text-xs text-text-muted">
@@ -990,7 +990,7 @@ function SecaoFichaCliente({
           </span>
         )}
         {conversa?.recorrente === false && (
-          <span className="rounded-full bg-ink-200 px-2.5 py-0.5 text-[12px] font-medium text-text-muted">
+          <span className="rounded-full bg-muted px-2.5 py-0.5 text-[12px] font-medium text-text-muted">
             Novo
           </span>
         )}
@@ -1005,7 +1005,7 @@ function SecaoFichaCliente({
           </div>
         )}
         {conversa?.observacoes_internas && (
-          <p className="rounded-md bg-ink-200 px-3 py-2 italic text-text-secondary">
+          <p className="rounded-md bg-muted px-3 py-2 italic text-text-secondary">
             {conversa.observacoes_internas}
           </p>
         )}
@@ -1087,7 +1087,7 @@ function SecaoSinaisQualificacao({ sinais, tipo }: { sinais: SinaisQualificacao 
       icone={<CheckCircle2 size={14} strokeWidth={1.75} className="text-success-500" />}
     >
       <div className="mb-3 flex items-center gap-3">
-        <div className="h-2 flex-1 overflow-hidden rounded-full bg-ink-300">
+        <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
           <div
             className="h-full rounded-full bg-success-500 transition-all"
             style={{ width: `${pct}%` }}
@@ -1115,7 +1115,7 @@ function SecaoSinaisQualificacao({ sinais, tipo }: { sinais: SinaisQualificacao 
                   ? "bg-success-500/10 text-success-500"
                   : estado === "nao"
                     ? "bg-danger-500/10 text-danger-500"
-                    : "bg-ink-300 text-text-muted",
+                    : "bg-accent text-text-muted",
               )}
             >
               {estado === "sim" ? <CheckCircle2 size={11} /> : estado === "nao" ? <XCircle size={11} /> : <Circle size={11} />}
@@ -1224,8 +1224,8 @@ function SecaoMensagens({ mensagens }: { mensagens: Mensagem[] }) {
             className={cn(
               "max-w-[85%] rounded-md px-3 py-2 text-[13px] leading-snug",
               msg.direcao === "cliente"
-                ? "ml-auto bg-ink-200 text-text-primary"
-                : "mr-auto bg-ink-100 text-text-secondary",
+                ? "ml-auto bg-accent text-text-primary"
+                : "mr-auto bg-muted text-text-secondary",
             )}
           >
             {msg.conteudo ?? (

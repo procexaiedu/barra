@@ -241,7 +241,7 @@ export function DialogAdicionarServicoModelo({
             </div>
 
             {catalogo.length === 0 && !criandoPrograma ? (
-              <p className="rounded-lg border border-dashed border-border bg-ink-50 px-4 py-6 text-center text-sm text-text-muted">
+              <p className="rounded-lg border border-dashed border-border bg-muted px-4 py-6 text-center text-sm text-text-muted">
                 Nenhum serviço cadastrado. Crie o primeiro.
               </p>
             ) : (
@@ -260,7 +260,7 @@ export function DialogAdicionarServicoModelo({
             )}
 
             {criandoPrograma && (
-              <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-ink-50 p-2">
+              <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-muted p-2">
                 <Input
                   value={nomeProgramaNovo}
                   onChange={(e) => setNomeProgramaNovo(e.target.value)}
@@ -315,7 +315,7 @@ export function DialogAdicionarServicoModelo({
                 const editandoDuracao = criandoDuracaoPara === pid
 
                 return (
-                  <div key={pid} className="rounded-lg border border-border bg-ink-100">
+                  <div key={pid} className="rounded-lg border border-border bg-card">
                     <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
                       <h4 className="text-sm font-semibold text-text-primary">{programa.nome}</h4>
                       <Button
@@ -359,7 +359,7 @@ export function DialogAdicionarServicoModelo({
                       </div>
 
                       {editandoDuracao && (
-                        <div className="flex items-center gap-2 rounded-lg border border-border bg-ink-50 p-2">
+                        <div className="flex items-center gap-2 rounded-lg border border-border bg-muted p-2">
                           <Input
                             value={nomeDuracaoNova}
                             onChange={(e) => setNomeDuracaoNova(e.target.value)}
@@ -434,7 +434,7 @@ export function DialogAdicionarServicoModelo({
           )}
         </div>
 
-        <footer className="flex items-center justify-between gap-3 border-t border-border bg-ink-50 px-6 py-4">
+        <footer className="flex items-center justify-between gap-3 border-t border-border bg-muted px-6 py-4">
           <span className="text-xs text-text-muted">
             {totalPares === 0
               ? "Selecione ao menos um serviço e duração."

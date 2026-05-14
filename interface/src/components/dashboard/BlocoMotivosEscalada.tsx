@@ -164,7 +164,7 @@ export function BlocoMotivosEscalada({ data, onAbrirTodas }: Props) {
                       className={cn(
                         "grid w-full grid-cols-[14px_1fr_36px_52px] items-center gap-2 rounded-md py-1 pl-1 pr-2 text-left",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                        inativo ? "opacity-50" : "transition-colors hover:bg-ink-200"
+                        inativo ? "opacity-50" : "transition-colors hover:bg-accent"
                       )}
                       aria-label={`${d.rotulo}: ${d.contagem} escalas`}
                     >

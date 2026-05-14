@@ -150,7 +150,7 @@ export function ModalAtendimentoHistorico({
               <button
                 type="button"
                 onClick={() => atendimentoId && carregar(atendimentoId)}
-                className="rounded-md bg-surface-hover px-4 py-2 text-sm font-medium text-text-primary hover:bg-ink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
+                className="rounded-md bg-surface-hover px-4 py-2 text-sm font-medium text-text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
               >
                 Tentar novamente
               </button>

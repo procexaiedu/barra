@@ -63,7 +63,7 @@ export function LinhaAgenda({
       onClick={handleClick}
       onKeyDown={handleKeyDown}
       className={cn(
-        "flex h-14 cursor-pointer items-center gap-4 border-b border-border px-4 transition-colors hover:bg-ink-200",
+        "flex h-14 cursor-pointer items-center gap-4 border-b border-border px-4 transition-colors hover:bg-accent",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
         isCancelado && "line-through opacity-60"
       )}

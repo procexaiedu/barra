@@ -378,7 +378,7 @@ export function DialogVisualizarComprovante({
                         "flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors",
                         motivo === o.value
                           ? "border-red-500/70 bg-red-500/10 text-text-primary"
-                          : "border-ink-400 bg-ink-100 text-text-secondary hover:border-ink-500 hover:text-text-primary",
+                          : "border-border bg-muted text-text-secondary hover:border-border-strong hover:text-text-primary",
                       )}
                     >
                       <span>{o.label}</span>
