@@ -25,6 +25,12 @@
 .PARAMETER MaxWallMinutes
   Teto wall-clock em minutos. 0 = sem teto. Default 0.
 
+.PARAMETER DryRun
+  Modo ensaio. Skill roda Plan+Code+Eval normalmente mas NAO atualiza
+  fila-agente.yml (status do marco preservado). Util para validar
+  mudancas em prompts sem queimar marcos reais. Sinalizado via env var
+  BARRA_PIPELINE_DRY_RUN=1.
+
 .EXAMPLE
   powershell -NoProfile -File C:\barra\scripts\overnight-agente.ps1 -MaxInvocations 1
   # Drena ate 7 marcos em uma invocacao.
@@ -33,6 +39,10 @@
   powershell -NoProfile -File C:\barra\scripts\overnight-agente.ps1 -MaxInvocations 3 -MaxMarcos 2
   # Ate 3 invocacoes, mas para apos 2 marcos processados.
 
+.EXAMPLE
+  powershell -NoProfile -File C:\barra\scripts\overnight-agente.ps1 -MaxInvocations 1 -DryRun
+  # Dry-run: marcos sao planejados/codificados, mas YAML nao muda.
+
 .NOTES
   Sem push, sem merge, sem PR. Status terminal de cada marco eh "Review" no YAML.
 #>
@@ -40,7 +50,10 @@
 param(
     [int]$MaxInvocations = 5,
     [int]$MaxMarcos = 0,
-    [int]$MaxWallMinutes = 0
+    [int]$MaxWallMinutes = 0,
+
+    # Modo ensaio (ver Description). Sinaliza skill via env BARRA_PIPELINE_DRY_RUN=1.
+    [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
@@ -55,15 +68,41 @@ $logsDir = Join-Path $repoRoot '.claude\logs'
 if (-not (Test-Path $logsDir)) {
     New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
 }
+$today  = Get-Date -Format 'yyyy-MM-dd'
+$dayDir = Join-Path $logsDir "overnight\$today"
+if (-not (Test-Path $dayDir)) {
+    New-Item -ItemType Directory -Path $dayDir -Force | Out-Null
+}
+$histDir = Join-Path $repoRoot '.claude\state\overnight'
+if (-not (Test-Path $histDir)) {
+    New-Item -ItemType Directory -Path $histDir -Force | Out-Null
+}
+$histPath = Join-Path $histDir 'runs.jsonl'
 
 $stamp   = Get-Date -Format 'yyyyMMdd-HHmmss'
-$logPath = Join-Path $logsDir "overnight-agente-$stamp.log"
+$logPath  = Join-Path $dayDir "overnight-agente-$stamp.log"
+$jsonlPath = Join-Path $dayDir "overnight-agente-$stamp.jsonl"
 
-# Expoe teto via env var para o skill (lera em iteracoes futuras)
+# Helper: append 1 linha JSON ao .jsonl (1 evento por linha).
+function Write-Jsonl([hashtable]$obj) {
+    $obj['ts'] = (Get-Date -Format 'o')
+    $json = $obj | ConvertTo-Json -Compress -Depth 5
+    Add-Content -Path $jsonlPath -Encoding utf8 -Value $json
+}
+
+# Expoe teto via env var para o skill (lera em iteracoes futuras).
+# Convencao: BARRA_PIPELINE_<fila>_<unidade>, alinhado com overnight-loop.ps1.
 if ($MaxMarcos -gt 0) {
-    $env:BARRA_AGENTE_OVERNIGHT_MAX_MARCOS = "$MaxMarcos"
+    $env:BARRA_PIPELINE_AGENTE_MAX_MARCOS = "$MaxMarcos"
 } else {
-    Remove-Item Env:BARRA_AGENTE_OVERNIGHT_MAX_MARCOS -ErrorAction SilentlyContinue
+    Remove-Item Env:BARRA_PIPELINE_AGENTE_MAX_MARCOS -ErrorAction SilentlyContinue
+}
+
+# Sinaliza dry-run: skill nao atualiza fila-agente.yml; Plan/Code/Eval rodam normais.
+if ($DryRun) {
+    $env:BARRA_PIPELINE_DRY_RUN = '1'
+} else {
+    Remove-Item Env:BARRA_PIPELINE_DRY_RUN -ErrorAction SilentlyContinue
 }
 
 $welcome = @"
@@ -83,6 +122,9 @@ if ($MaxWallMinutes -gt 0) {
 } else {
     $welcome += "`n  Teto wall-clock: sem teto."
 }
+if ($DryRun) {
+    $welcome += "`n  MODO DRY-RUN: BARRA_PIPELINE_DRY_RUN=1 -- fila-agente.yml fica intacto."
+}
 $welcome += @"
 
   Logs:    $logPath
@@ -92,6 +134,28 @@ $welcome += @"
 "@
 Write-Output $welcome
 Add-Content -Path $logPath -Value $welcome
+
+# Avisa sobre rebase-blocked pendentes (mesma fonte que overnight-loop).
+$rbPath = Join-Path $repoRoot '.claude\state\overnight\rebase-blocked.yml'
+if (Test-Path $rbPath) {
+    $rbCount = ([regex]::Matches((Get-Content -Raw $rbPath), '(?m)^- branch:')).Count
+    if ($rbCount -gt 0) {
+        $rbMsg = ">>> AVISO: $rbCount branch(es) em rebase-blocked desde overnight anterior. Veja $rbPath"
+        Write-Output $rbMsg
+        Add-Content -Path $logPath -Value $rbMsg
+    }
+}
+
+Write-Jsonl @{
+    type = 'start'
+    fila = 'agente'
+    maxInvocations = $MaxInvocations
+    maxMarcos = $MaxMarcos
+    maxWallMinutes = $MaxWallMinutes
+    dryRun = [bool]$DryRun
+    pid = $PID
+    log = $logPath
+}
 
 $inicio = Get-Date
 $invocacao = 0
@@ -106,6 +170,7 @@ while ($invocacao -lt $MaxInvocations) {
             $msg = "[$([DateTime]::Now.ToString('s'))] wall-clock teto $MaxWallMinutes min atingido, abortando."
             Write-Output $msg
             Add-Content -Path $logPath -Value $msg
+            Write-Jsonl @{ type='event'; event='max_wall'; elapsedMin=[int]$decorrido.TotalMinutes; cap=$MaxWallMinutes }
             break
         }
     }
@@ -115,6 +180,7 @@ while ($invocacao -lt $MaxInvocations) {
         $msg = "[$([DateTime]::Now.ToString('s'))] teto de $MaxMarcos marco(s) atingido, abortando."
         Write-Output $msg
         Add-Content -Path $logPath -Value $msg
+        Write-Jsonl @{ type='event'; event='max_marcos'; total=$marcosProcessados; cap=$MaxMarcos }
         break
     }
 
@@ -153,6 +219,13 @@ while ($invocacao -lt $MaxInvocations) {
         $vaziasConsecutivas = 0
     }
 
+    Write-Jsonl @{
+        type = 'run'
+        run = $invocacao
+        marcosDone = $logIters
+        cumulative = $marcosProcessados
+    }
+
     # Sinais terminais
     if ($invocOutput -match 'fila vazia, encerrando' -or `
         $invocOutput -match 'limite atingido' -or `
@@ -160,6 +233,7 @@ while ($invocacao -lt $MaxInvocations) {
         $msg = "[$([DateTime]::Now.ToString('s'))] sinal terminal detectado, encerrando loop."
         Write-Output $msg
         Add-Content -Path $logPath -Value $msg
+        Write-Jsonl @{ type='event'; event='drained' }
         break
     }
 
@@ -167,6 +241,31 @@ while ($invocacao -lt $MaxInvocations) {
         $msg = "[$([DateTime]::Now.ToString('s'))] 2 invocacoes vazias consecutivas, abortando (provavel quota/auth)."
         Write-Output $msg
         Add-Content -Path $logPath -Value $msg
+        Write-Jsonl @{ type='event'; event='empty_streak'; streak=$vaziasConsecutivas }
+        break
+    }
+
+    # Deteccao precoce: padroes inequivocos de quota/auth no output da invocacao.
+    # Aborta sem esperar 2 vazios consecutivos (cada vazio custa 5-60 min).
+    $authPatterns = @(
+        'authentication[_ ]?required',
+        'invalid[_ ]?api[_ ]?key',
+        '\bunauthorized\b',
+        '\b401\b.*(auth|unauth)',
+        'rate[_ ]?limit',
+        'quota[_ ]?exceeded',
+        'usage limit reached',
+        '\b429\b'
+    )
+    $authHit = $null
+    foreach ($pat in $authPatterns) {
+        if ($invocOutput -imatch $pat) { $authHit = $pat; break }
+    }
+    if ($authHit) {
+        $msg = "[$([DateTime]::Now.ToString('s'))] sinal quota/auth detectado ('$authHit'), encerrando loop imediatamente."
+        Write-Output $msg
+        Add-Content -Path $logPath -Value $msg
+        Write-Jsonl @{ type='event'; event='auth_quota'; pattern=$authHit }
         break
     }
 
@@ -188,5 +287,44 @@ $relatorio = @"
 "@
 Write-Output $relatorio
 Add-Content -Path $logPath -Value $relatorio
+
+Write-Jsonl @{
+    type = 'end'
+    invocacoes = $invocacao
+    marcosProcessados = $marcosProcessados
+    duracaoMin = [Math]::Round($duracao.TotalMinutes, 1)
+}
+
+# Alerta: main local a frente de origin/main (snapshot local, sem fetch).
+$commitsAhead = $null
+try {
+    $out = & git rev-list --count origin/main..main 2>$null
+    if ($LASTEXITCODE -eq 0 -and $out -match '^\d+$') { $commitsAhead = [int]$out.Trim() }
+} catch {}
+if ($commitsAhead -ne $null -and $commitsAhead -gt 0) {
+    $alerta = @"
+
+>>> ATENCAO: main local esta $commitsAhead commit(s) a frente de origin/main.
+>>>          Revise e rode 'git push origin main' quando pronto.
+"@
+    Add-Content -Path $logPath -Value $alerta
+    Write-Output $alerta
+    Write-Jsonl @{ type='event'; event='push_pendente'; commitsAhead=$commitsAhead }
+}
+
+# Histórico append-only para tendência ao longo do tempo.
+$histRecord = [ordered]@{
+    ts = (Get-Date -Format 'o')
+    fila = 'agente'
+    stampLog = $stamp
+    duracaoSec = [int]$duracao.TotalSeconds
+    invocacoes = $invocacao
+    invocacoesCap = $MaxInvocations
+    marcosTotal = $marcosProcessados
+    marcosCap = $MaxMarcos
+    commitsAheadOrigin = $commitsAhead
+    log = $logPath
+}
+Add-Content -Path $histPath -Encoding utf8 -Value ($histRecord | ConvertTo-Json -Compress -Depth 5)
 
 exit 0

@@ -15,6 +15,18 @@ Loop autônomo que drena a fila do projeto `barravips` no devcontext. Para cada 
 - `TIMEOUT_POR_TASK_SEGUNDOS = 2700` (45min). Registre `task_started_at = now()` no início do Passo 1. Antes de cada handoff entre passos (Plan→Code, Code→Review), compare `now() - task_started_at`. Se ultrapassar 2700s: interrompa o subagente em execução com mensagem clara, chame `update_task({ status: <coluna_origem>, is_blocked: true, blocked_reason: "timeout_overnight" })`, remova o marker, emita `LOG_ITER` com `review_status: "timeout"` e siga para a próxima iteração.
 - `RETENCAO_PLANOS_DIAS = 7` — `.claude/state/plans/*.md` com mtime > 7 dias são removidos no Passo 0 (cleanup inicial).
 
+### Modo dry-run (`BARRA_PIPELINE_DRY_RUN=1`)
+
+Setada pelo orquestrador `scripts/overnight-loop.ps1 -DryRun`. Comportamento:
+
+- **Plan, Code e Review rodam normalmente** (mesmo Plano de execução, mesma worktree, mesmos subagentes, mesmos testes/lint/build).
+- **Pular toda chamada a `mcp__devcontext__update_task`**: a task NÃO entra em `In Progress`, NÃO vai para `Review`, NÃO recebe `is_blocked`. Pular também `start_time`/`stop_time` do devcontext.
+- **`LOG_ITER` é emitido normalmente**, com campo extra `"dry_run": true` e `review_status` que **seria** aplicado. Branch e hash continuam reais (codificador comitou na worktree, só não comunicou ao devcontext).
+- **Plano e diff continuam persistidos** em `.claude/state/plans/<task_id>.md` e na worktree — o objetivo é justamente revisar o que o pipeline produziria.
+- O contador `iteracoes_concluidas` segue. O marker `awaiting-verification` é criado/removido normalmente (o hook continua valendo localmente).
+
+Leia o env var **uma vez no início da sessão** e propague como flag interna (`dry_run = (env BARRA_PIPELINE_DRY_RUN == "1")`). Não consulte o env var em cada passo — pode mudar entre invocações do mesmo overnight.
+
 ## Schema do devcontext (descoberto em smoke)
 
 - Colunas reais do projeto `BarraVIPs` (case-sensitive, com espaços): `Backlog`, `To Do`, `In Progress`, `Review`, `Done`.

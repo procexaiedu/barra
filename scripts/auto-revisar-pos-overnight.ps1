@@ -41,7 +41,9 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $logsDir = 'C:\barra\.claude\logs'
 if (-not $LogPath) {
-    $latest = Get-ChildItem -Path $logsDir -Filter 'overnight-*.log' -ErrorAction SilentlyContinue |
+    # Busca recursiva para cobrir layout antigo ($logsDir\overnight-*.log) e
+    # novo ($logsDir\overnight\<data>\overnight-*.log).
+    $latest = Get-ChildItem -Path $logsDir -Filter 'overnight-*.log' -Recurse -ErrorAction SilentlyContinue |
               Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (-not $latest) {
         Write-Output "ABORT: nenhum log overnight-*.log em $logsDir"
@@ -49,6 +51,8 @@ if (-not $LogPath) {
     }
     $LogPath = $latest.FullName
 }
+# auto-revisar grava na mesma pasta do log overnight detectado.
+$autoLogDir = Split-Path -Parent $LogPath
 
 if (-not (Test-Path $PromptPath)) {
     Write-Output "ABORT: prompt nao encontrado em $PromptPath"
@@ -65,7 +69,7 @@ $signals = @(
 
 $start  = Get-Date
 $stamp  = Get-Date -Format 'yyyyMMdd-HHmmss'
-$autoLog = Join-Path $logsDir "auto-revisao-$stamp.log"
+$autoLog = Join-Path $autoLogDir "auto-revisao-$stamp.log"
 
 $header = @"
 === auto-revisar-pos-overnight inicio ===
@@ -121,7 +125,7 @@ Write-Output $msg
 # Dispara claude -p headless. Em vez de tentar passar o prompt inteiro inline
 # (~8KB, risco de estourar limite de comando do Windows), passamos uma instrucao
 # minima que manda o claude ler e seguir o arquivo de prompt literal.
-$claudeLog = Join-Path $logsDir "auto-revisao-claude-$stamp.log"
+$claudeLog = Join-Path $autoLogDir "auto-revisao-claude-$stamp.log"
 Add-Content -Path $autoLog -Encoding utf8 -Value "claude log: $claudeLog"
 
 $inlineInstrucao = "Leia o arquivo $PromptPath na integra e siga exatamente as instrucoes literais dele. Esse arquivo eh seu briefing completo. Nao pergunte confirmacoes - execute ate o relatorio final."
@@ -145,5 +149,42 @@ claude log:           $claudeLog
 "@
 $footer | Out-File -FilePath $autoLog -Encoding utf8 -Append
 Write-Output $footer
+
+# Cleanup de worktrees mergeadas. Conservador: SEM -IncludeOrphans, SEM -Force.
+# Reduz acumulo natural pos-overnight; humano resolve manualmente o que travar.
+$cleanupScript = 'C:\barra\scripts\cleanup-merged-worktrees.ps1'
+if (Test-Path $cleanupScript) {
+    $cleanupMsg = "=== cleanup-merged-worktrees (auto pos-revisao) ==="
+    Add-Content -Path $autoLog -Encoding utf8 -Value $cleanupMsg
+    Write-Output $cleanupMsg
+    try {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $cleanupScript -Execute 2>&1 |
+            Tee-Object -FilePath $autoLog -Append | Out-Host
+    } catch {
+        Add-Content -Path $autoLog -Encoding utf8 -Value "WARN cleanup falhou: $($_.Exception.Message)"
+    }
+}
+
+# Alerta: main local a frente de origin/main (a revisao batch mergeia em main local;
+# push fica a cargo do humano). Snapshot local, sem fetch.
+Push-Location 'C:\barra'
+try {
+    $commitsAhead = $null
+    try {
+        $rev = & git rev-list --count origin/main..main 2>$null
+        if ($LASTEXITCODE -eq 0 -and $rev -match '^\d+$') { $commitsAhead = [int]$rev.Trim() }
+    } catch {}
+    if ($commitsAhead -ne $null -and $commitsAhead -gt 0) {
+        $alerta = @"
+
+>>> ATENCAO: main local esta $commitsAhead commit(s) a frente de origin/main.
+>>>          A revisao batch mergeou localmente; rode 'git push origin main' quando pronto.
+"@
+        Add-Content -Path $autoLog -Encoding utf8 -Value $alerta
+        Write-Output $alerta
+    }
+} finally {
+    Pop-Location
+}
 
 exit $exitCode

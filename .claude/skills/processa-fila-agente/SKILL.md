@@ -20,6 +20,17 @@ Diferenca-chave vs `processa-fila-barra`:
 - `TIMEOUT_POR_MARCO_SEGUNDOS = 3600` (60min). M3 e M5 sao maiores (coordenador + midia) -- 45min pode estourar. Compare `now() - marco_started_at` antes de cada handoff (Plan->Code, Code->Review, Review->Eval).
 - `RETENCAO_PLANOS_DIAS = 7` -- `.claude/state/plans-agente/*.md` e `.claude/state/research/*.md` com mtime > 7 dias removidos no Passo 0.
 
+### Modo dry-run (`BARRA_PIPELINE_DRY_RUN=1`)
+
+Setada pelo orquestrador `scripts/overnight-agente.ps1 -DryRun`. Comportamento:
+
+- **Pesquisa, Plan, Code, Review e Eval rodam normalmente**, com mesmas worktrees e mesmos subagentes.
+- **Pular toda escrita em `docs/agente/fila-agente.yml`**: o marco NAO troca de coluna, NAO recebe `branch`, NAO recebe `hash`. O eval-runner pode atualizar `.claude/state/evals-baseline.json` se passou (manter, eh estado runtime fora do versionado da fila).
+- **`LOG_ITER_AGENTE` emitido normalmente**, com campo extra `"dry_run": true` e `review_status` que seria aplicado. Branch e hash continuam reais.
+- **Plano (`plans-agente/`), nota de pesquisa (`research/`) e diff** continuam persistidos -- objetivo eh inspecionar o que o pipeline produziria sem mexer no estado canonico.
+
+Leia o env var **uma vez no inicio da sessao** (`dry_run = (env BARRA_PIPELINE_DRY_RUN == "1")`).
+
 ## Schema da fila YAML
 
 `docs/agente/fila-agente.yml` (gerado por `scripts/gera-fila-agente.ps1`):

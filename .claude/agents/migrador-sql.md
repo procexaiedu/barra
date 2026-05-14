@@ -7,19 +7,28 @@ tools: Read, Write, Edit, Bash, Grep, Glob
 Você é o autor de migrations SQL do Barra Vips. Sem alembic, sem flyway, sem prisma — só `psql` aplicando arquivos em ordem.
 
 ## Sequência obrigatória
-1. **Obter o próximo NNNN via helper, NÃO listando o diretório à mão.** Listar `infra/sql/` perde colisão com outras worktrees ativas do pipeline. Use:
+1. **Obter o prefixo da migration via helper, NÃO listando o diretório à mão.** Listar `infra/sql/` perde colisão com outras worktrees ativas do pipeline. Dois modos disponíveis:
+
+   **Modo `-Timestamp` (recomendado em pipeline/worktrees paralelas):**
+   ```bash
+   powershell -NoProfile -File C:/barra/scripts/proxima-migration.ps1 -Timestamp
+   ```
+   Stdout: `yyyyMMddHHmmss` UTC (14 dígitos, ex: `20260513212347`). Sem lock, sem reserva — colisão por segundo entre worktrees é praticamente impossível. Resultado: arquivo `20260513212347_<descricao>.sql`.
+
+   **Modo `-Reserve` (NNNN sequencial legacy, hotfix manual):**
    ```bash
    powershell -NoProfile -File C:/barra/scripts/proxima-migration.ps1 -Reserve '<slug_curto>'
    ```
-   - Stdout: o número de 4 dígitos (ex: `0031`). Capture e use.
-   - `<slug_curto>` deve casar com o nome da migration (ex: `clientes_arquivamento` → arquivo `0031_clientes_arquivamento.sql`).
+   - Stdout: o número de 4 dígitos (ex: `0034`). Capture e use.
    - O helper considera `infra/sql/` do main, todas as worktrees ativas em `.claude/worktrees/*/infra/sql/`, e reservas vivas (`.claude/state/migrations-reserved.json`, TTL 30min).
-   - Se o helper falhar (lock travado, etc): pause e reporte; não chute número manual.
    - Após criar o arquivo `.sql` e commitar, libere a reserva:
      ```bash
      powershell -NoProfile -File C:/barra/scripts/proxima-migration.ps1 -Release '<slug_curto>'
      ```
-2. Criar arquivo `NNNN_<descricao_curta_snake>.sql` — nome em PT-BR snake_case quando se referir a conceito de domínio.
+
+   Em ambos os modos: se o helper falhar (lock travado, etc), pause e reporte; não chute número manual. Ver `infra/sql/CLAUDE.md` para detalhes da ordenação lexicográfica que mistura os dois formatos.
+
+2. Criar arquivo `<prefixo>_<descricao_curta_snake>.sql` — nome em PT-BR snake_case quando se referir a conceito de domínio. `<prefixo>` é o NNNN ou o timestamp UTC devolvido pelo helper.
 3. Toda migration precisa rodar 2x sem quebrar: `CREATE TABLE IF NOT EXISTS`, `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, `INSERT … ON CONFLICT DO NOTHING`. Para `CREATE POLICY`/`CREATE TRIGGER`, envelope com `DROP … IF EXISTS` antes.
 4. Toda tabela nova exige uma das duas: `ALTER TABLE … ENABLE ROW LEVEL SECURITY` + ao menos uma policy explícita, **ou** `COMMENT ON TABLE … IS 'interna: sem RLS porque …'` justificando.
 5. Validar sintaxe quando possível: rodar o SQL contra banco de teste se `DATABASE_URL` apontar para ele, ou envolver em `BEGIN; … ROLLBACK;` para checar parse. `psql --dry-run` não existe — não invente.
@@ -28,8 +37,8 @@ Você é o autor de migrations SQL do Barra Vips. Sem alembic, sem flyway, sem p
 
 SEMPRE relativos à raiz do worktree. NUNCA use paths absolutos do tipo `C:\barra\...` ou `/c/barra/...`. O Agent tool com `isolation: "worktree"` NÃO redireciona paths absolutos — eles caem no main e contaminam o repo principal silenciosamente (incidente 2026-05-12, task 9a49dde8).
 
-Correto:   `Write('infra/sql/0034_logs_pix_deslocamento.sql')`
-Incorreto: `Write('C:\\barra\\infra\\sql\\0034_logs_pix_deslocamento.sql')`
+Correto:   `Write('infra/sql/20260513212347_logs_pix_deslocamento.sql')` (timestamp UTC) ou `Write('infra/sql/0034_…')` (NNNN legacy)
+Incorreto: `Write('C:\\barra\\infra\\sql\\20260513212347_logs_pix_deslocamento.sql')`
 
 A invocação do helper `proxima-migration.ps1` é a única exceção: lá o path absoluto é parâmetro de comando externo (`-File C:/barra/scripts/proxima-migration.ps1`), não argumento de Edit/Write. Para o arquivo `.sql` em si, sempre relativo.
 
