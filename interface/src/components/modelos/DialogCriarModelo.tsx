@@ -7,7 +7,9 @@ import { Button } from "@/components/ui/button"
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
-import type { CriarModeloInput, TipoAtendimento } from "@/tipos/modelos"
+import { ConectarWhatsappConteudo, type QrModalStatus } from "@/components/modelos/ConectarWhatsappConteudo"
+import { extrairDigitosTelefone, formatarTelefoneBR, paraE164BR } from "@/lib/telefone"
+import type { ConectarWhatsappResponse, CriarModeloInput, TipoAtendimento } from "@/tipos/modelos"
 
 const inicial: CriarModeloInput = {
   nome: "",
@@ -22,38 +24,74 @@ export function DialogCriarModelo({
   open,
   onOpenChange,
   onCriar,
+  onConectar,
+  qr,
+  qrStatus,
+  qrError,
+  onAtualizar,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
   onCriar: (input: CriarModeloInput) => Promise<void>
+  onConectar?: () => Promise<void>
+  qr?: ConectarWhatsappResponse | null
+  qrStatus?: QrModalStatus
+  qrError?: string | null
+  onAtualizar?: () => void
 }) {
   const [form, setForm] = useState<CriarModeloInput>(inicial)
+  const [numeroDigitos, setNumeroDigitos] = useState("")
   const [idiomasInput, setIdiomasInput] = useState("pt-BR")
   const [submitting, setSubmitting] = useState(false)
   const [tentou, setTentou] = useState(false)
+  const [etapa, setEtapa] = useState<"form" | "qr">("form")
+  const [nomeCriado, setNomeCriado] = useState("")
+
   const valido =
     form.nome.trim().length > 0 &&
     form.nome.length <= 100 &&
     form.idade > 0 &&
-    /^\+55\d{10,11}$/.test(form.numero_whatsapp) &&
+    /^\d{10,11}$/.test(numeroDigitos) &&
     form.tipo_atendimento_aceito.length > 0 &&
     idiomasInput.split(",").map((i) => i.trim()).filter(Boolean).length > 0
+
+  const resetar = () => {
+    setForm(inicial)
+    setNumeroDigitos("")
+    setIdiomasInput("pt-BR")
+    setTentou(false)
+    setEtapa("form")
+    setNomeCriado("")
+  }
+
+  const handleOpenChange = (value: boolean) => {
+    if (submitting) return
+    if (!value) resetar()
+    onOpenChange(value)
+  }
 
   const submit = async () => {
     setTentou(true)
     if (!valido) return
     setSubmitting(true)
     try {
+      const nomeTrim = form.nome.trim()
       await onCriar({
         ...form,
-        nome: form.nome.trim(),
+        nome: nomeTrim,
+        numero_whatsapp: paraE164BR(numeroDigitos),
         valor_padrao: 0,
         idiomas: idiomasInput.split(",").map((i) => i.trim()).filter(Boolean),
       })
-      toast.success(`Modelo ${form.nome.trim()} criada`)
-      setForm(inicial)
-      setIdiomasInput("pt-BR")
-      onOpenChange(false)
+      toast.success(`Modelo ${nomeTrim} criada`)
+      if (onConectar) {
+        setNomeCriado(nomeTrim)
+        setEtapa("qr")
+        await onConectar()
+      } else {
+        resetar()
+        onOpenChange(false)
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao criar modelo")
     } finally {
@@ -62,52 +100,76 @@ export function DialogCriarModelo({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(value) => !submitting && onOpenChange(value)}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-full max-w-xl rounded-lg border border-border bg-popover p-6">
-        <div className="mb-5 flex items-start justify-between gap-4">
-          <div>
-            <DialogTitle className="text-lg font-semibold">Adicionar modelo</DialogTitle>
-            <DialogDescription>Cadastre o mínimo para operar; os programas e valores ficam no Perfil.</DialogDescription>
-          </div>
-          <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fechar"><X size={18} strokeWidth={1.5} /></Button>} />
-        </div>
-        <div className="space-y-6">
-          <section className="space-y-4">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-text-brand">Dados básicos</h3>
-            <div className="grid grid-cols-3 gap-5">
-              <Campo label="Nome" className="col-span-2">
-                <Input value={form.nome} maxLength={100} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="h-10 bg-input" />
-              </Campo>
-              <Campo label="Idade">
-                <Input type="number" value={form.idade || ""} onChange={(e) => setForm({ ...form, idade: Number(e.target.value) })} className="h-10 bg-input" />
-              </Campo>
-              <Campo label="Número de WhatsApp" className="col-span-2">
-                <Input value={form.numero_whatsapp} placeholder="+5521987654321" onChange={(e) => setForm({ ...form, numero_whatsapp: e.target.value })} className="h-10 bg-input" />
-              </Campo>
-              <Campo label="Idiomas">
-                <Input value={idiomasInput} placeholder="pt-BR, en-US" onChange={(e) => setIdiomasInput(e.target.value)} className="h-10 bg-input" />
-              </Campo>
+        {etapa === "form" ? (
+          <>
+            <div className="mb-5 flex items-start justify-between gap-4">
+              <div>
+                <DialogTitle className="text-lg font-semibold">Adicionar modelo</DialogTitle>
+                <DialogDescription>Cadastre o mínimo para operar; os programas e valores ficam no Perfil.</DialogDescription>
+              </div>
+              <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fechar"><X size={18} strokeWidth={1.5} /></Button>} />
             </div>
-          </section>
-          <Separator />
-          <section className="space-y-3">
-            <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-text-brand">Atende em</h3>
-            <TipoChecks
-              value={form.tipo_atendimento_aceito}
-              onChange={(tipo_atendimento_aceito) => setForm({ ...form, tipo_atendimento_aceito })}
+            <div className="space-y-6">
+              <section className="space-y-4">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-text-brand">Dados básicos</h3>
+                <div className="grid grid-cols-3 gap-5">
+                  <Campo label="Nome" className="col-span-2">
+                    <Input value={form.nome} maxLength={100} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="h-10 bg-input" />
+                  </Campo>
+                  <Campo label="Idade">
+                    <Input type="number" value={form.idade || ""} onChange={(e) => setForm({ ...form, idade: Number(e.target.value) })} className="h-10 bg-input" />
+                  </Campo>
+                  <Campo label="Número de WhatsApp" className="col-span-2">
+                    <Input
+                      value={formatarTelefoneBR(numeroDigitos)}
+                      placeholder="(21) 98765-4321"
+                      onChange={(e) => setNumeroDigitos(extrairDigitosTelefone(e.target.value))}
+                      className="h-10 bg-input"
+                    />
+                  </Campo>
+                  <Campo label="Idiomas">
+                    <Input value={idiomasInput} placeholder="pt-BR, en-US" onChange={(e) => setIdiomasInput(e.target.value)} className="h-10 bg-input" />
+                  </Campo>
+                </div>
+              </section>
+              <Separator />
+              <section className="space-y-3">
+                <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-text-brand">Atende em</h3>
+                <TipoChecks
+                  value={form.tipo_atendimento_aceito}
+                  onChange={(tipo_atendimento_aceito) => setForm({ ...form, tipo_atendimento_aceito })}
+                />
+              </section>
+            </div>
+            {tentou && !valido && (
+              <p className="mt-4 text-sm text-state-lost">Preencha nome, idade, número com DDD, idioma e pelo menos uma opção de atendimento.</p>
+            )}
+            <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
+              <Button variant="ghost" onClick={() => handleOpenChange(false)} disabled={submitting}>Cancelar</Button>
+              <Button variant="primary" onClick={submit} disabled={submitting}>
+                {submitting && <Loader2 className="animate-spin" />}
+                Criar modelo
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="absolute right-4 top-4">
+              <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fechar"><X size={18} strokeWidth={1.5} /></Button>} />
+            </div>
+            <ConectarWhatsappConteudo
+              nome={nomeCriado}
+              qr={qr ?? null}
+              status={qrStatus ?? "loading"}
+              error={qrError ?? null}
+              onAtualizar={() => onAtualizar?.()}
+              onFechar={() => handleOpenChange(false)}
+              textoFechar="Concluir"
             />
-          </section>
-        </div>
-        {tentou && !valido && (
-          <p className="mt-4 text-sm text-state-lost">Preencha nome, idade, número no formato +55, idioma e pelo menos uma opção de atendimento.</p>
+          </>
         )}
-        <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
-          <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Cancelar</Button>
-          <Button variant="primary" onClick={submit} disabled={submitting}>
-            {submitting && <Loader2 className="animate-spin" />}
-            Criar modelo
-          </Button>
-        </div>
       </DialogContent>
     </Dialog>
   )

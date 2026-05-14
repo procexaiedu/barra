@@ -71,8 +71,25 @@ class EvolutionClient:
         headers = {"apikey": self.settings.evolution_api_key}
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            return cast(dict[str, Any], response.json())
+        if response.status_code == 404:
+            # A instância não existe e o create não pôde criá-la (chave sem
+            # permissão de admin na Evolution). Caller transforma em
+            # ErroDominio amigável.
+            raise ErroDominio(
+                "EVOLUTION_INSTANCIA_NAO_EXISTE",
+                "A instância da Evolution não existe e não pôde ser criada automaticamente. "
+                "Verifique se a chave da Evolution permite criar instâncias.",
+                status_code=502,
+            )
+        response.raise_for_status()
+        data = cast(dict[str, Any], response.json())
+        if _logger.isEnabledFor(logging.DEBUG):
+            _logger.debug(
+                "evolution_connect_response instance=%s keys=%s",
+                instance_id,
+                sorted(data.keys()),
+            )
+        return data
 
     async def criar_instancia(
         self,
@@ -80,10 +97,13 @@ class EvolutionClient:
         *,
         numero: str | None = None,
     ) -> dict[str, Any]:
-        """POST /instance/create — idempotente: se a instância já existe (403),
-        segue como se tivesse sido criada agora. Inclui o webhook no body para
-        que a Evolution já comece a postar CONNECTION_UPDATE/QRCODE_UPDATED para
-        nós sem necessidade de POST /webhook/instance separado."""
+        """POST /instance/create — idempotente: se a instância já existe (403)
+        ou se a apikey atual só tem permissão para listar/conectar mas não para
+        criar (401 em Evolution v3 com chave per-instance), segue assumindo que
+        a instância existe; o connect/connectionState seguinte confirma. Inclui
+        o webhook no body para que a Evolution já comece a postar
+        CONNECTION_UPDATE/QRCODE_UPDATED para nós sem POST /webhook/instance
+        separado."""
         if not self.settings.evolution_base_url:
             return {"status": "not_configured", "instance_id": instance_id}
         url = f"{self.settings.evolution_base_url.rstrip('/')}/instance/create"
@@ -102,9 +122,17 @@ class EvolutionClient:
             body["webhook"] = webhook
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(url, json=body, headers=headers)
-        if response.status_code == 403:
-            # "instance already in use" — segue idempotente
-            _logger.info("evolution_instance_ja_existe instance=%s", instance_id)
+        if response.status_code in {401, 403}:
+            # 403 = "instance already in use"; 401 = chave sem permissão de
+            # create (Evolution v3 segrega global/per-instance keys). Em ambos
+            # os casos, deixamos o connect seguinte decidir se a instância
+            # realmente existe — se não existir, ele devolve 404 e o caller
+            # transforma em erro de domínio amigável.
+            _logger.info(
+                "evolution_instance_create_idempotente instance=%s status=%s",
+                instance_id,
+                response.status_code,
+            )
             return {"status": "exists", "instance_id": instance_id}
         response.raise_for_status()
         return cast(dict[str, Any], response.json())

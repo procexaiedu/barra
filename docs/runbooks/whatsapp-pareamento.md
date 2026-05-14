@@ -31,7 +31,9 @@ desconectado ─(POST /conectar-whatsapp)─▶ pareando ─(webhook CONNECTION_
 5. Evolution publica `CONNECTION_UPDATE` no nosso webhook
    (`POST /webhook/evolution`).
 6. Handler atualiza `evolution_status='conectado'` e `evolution_pareado_em=now()`.
-7. Supabase Realtime notifica o painel; modal fecha sozinho.
+7. Supabase Realtime notifica o painel; o hook `useModelos`
+   re-fetcha lista **e detalhe** da modelo selecionada — modal fecha
+   sozinho assim que o status converge.
 
 ## Fallback sem webhook (dev local sem tunnel)
 
@@ -81,6 +83,23 @@ modelo — esse é o caminho idempotente; nenhuma instância nova é criada.
 
 **`POST /conectar-whatsapp` retorna 503 EVOLUTION_INDISPONIVEL.**
 `EVOLUTION_BASE_URL` está vazio. Veja `api/.env.example`.
+
+**`POST /conectar-whatsapp` retorna 502 EVOLUTION_INSTANCIA_NAO_EXISTE.**
+A apikey configurada lista/conecta instâncias mas não tem permissão de
+criar (Evolution v3 separa global key admin × per-instance key). Soluções:
+- Trocar `EVOLUTION_API_KEY` pela chave global da Evolution
+  (`AUTHENTICATION_API_KEY` no servidor Evolution), ou
+- Criar a instância manualmente no painel da Evolution com nome
+  `modelo-<uuid-da-modelo>` e tentar conectar novamente. O backend trata
+  401/403 do `/instance/create` como idempotente, então uma vez que a
+  instância existe, `GET /instance/connect` segue normalmente.
+
+## Refresh automático do QR no painel
+
+O QR da Evolution expira em ~20–30s. Enquanto o modal está aberto e o
+status é `aguardando_scan`, o painel regenera o QR a cada 20s chamando
+`POST /conectar-whatsapp` (que é idempotente). Combinado com o polling de
+status a cada 3s, o usuário nunca cai num QR expirado.
 
 **Mensagens de uma instância antiga (ex: `lucia`) param de chegar após o
 deploy.** O webhook agora exige que `instance_id` esteja cadastrado em
