@@ -153,7 +153,11 @@ async def editar_cliente(
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     async with conn.transaction():
-        cliente = await _one(conn, "SELECT id FROM barravips.clientes WHERE id = %s", (cliente_id,))
+        cliente = await _one(
+            conn,
+            "SELECT id, telefone FROM barravips.clientes WHERE id = %s",
+            (cliente_id,),
+        )
         if cliente is None:
             raise NaoEncontrado("Cliente")
         sets: list[str] = []
@@ -166,8 +170,12 @@ async def editar_cliente(
             valores.append(nome)
         if body.telefone is not None:
             telefone = _normalizar_telefone_br(body.telefone)
-            sets.append("telefone = %s")
-            valores.append(telefone)
+            # Seeds antigos têm '+5521...' e a normalização tira o '+'; comparamos só dígitos
+            # para evitar UPDATE no-op que dispara UNIQUE contra outro cliente que já tem o normalizado.
+            atual_digitos = re.sub(r"\D+", "", cliente["telefone"] or "")
+            if telefone != atual_digitos:
+                sets.append("telefone = %s")
+                valores.append(telefone)
         if sets:
             valores.append(cliente_id)
             try:

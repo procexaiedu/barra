@@ -509,11 +509,16 @@ async def adicionar_servico(
     )
     if mp is None:
         raise NaoEncontrado("Programa não vinculado à modelo")
+    # ON CONFLICT idempotente: o ModalEdicao pode tentar re-adicionar o mesmo (programa, duracao)
+    # quando o usuário clica Salvar duas vezes, e a constraint atendimento_servicos_unico
+    # quebraria com 500. Retornamos o existente sem mudar preço.
     row = await _fetch_one(
         conn,
         """
         INSERT INTO barravips.atendimento_servicos (atendimento_id, programa_id, duracao_id, preco_snapshot)
         VALUES (%s, %s, %s, %s)
+        ON CONFLICT (atendimento_id, programa_id, duracao_id) DO UPDATE
+          SET atendimento_id = EXCLUDED.atendimento_id
         RETURNING id, programa_id, duracao_id, preco_snapshot, created_at
         """,
         (atendimento_id, body.programa_id, body.duracao_id, mp["preco"]),
