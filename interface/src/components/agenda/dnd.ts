@@ -1,6 +1,22 @@
 import type { BloqueioAgenda } from "@/tipos/agenda"
 
 /**
+ * Retorna "HH:MM" em BRT a partir de um ISO. Usado em previews de drag para
+ * mostrar o horário-alvo enquanto o usuário arrasta um bloqueio.
+ */
+export function horarioDeIso(iso: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(iso))
+  const h = parts.find((p) => p.type === "hour")?.value ?? "00"
+  const m = parts.find((p) => p.type === "minute")?.value ?? "00"
+  return `${h}:${m}`
+}
+
+/**
  * Converte uma posição vertical em pixels para hora/minuto, aplicando snap.
  * Inverso conceitual de `horaParaY` da GradeSemanal.
  */

@@ -14,19 +14,13 @@ import {
 } from "@dnd-kit/core"
 import { X } from "lucide-react"
 import { BloqueioAgenda } from "@/components/agenda/BloqueioAgenda"
+import { dotEstado } from "@/components/agenda/cores"
 import { dataBrt, dataDeInput, dataInput, dataInputSaoPaulo } from "@/hooks/useAgenda"
 import { formatHorario } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import type { BloqueioAgenda as BloqueioAgendaTipo, EstadoBloqueio, VisaoAgenda } from "@/tipos/agenda"
+import type { BloqueioAgenda as BloqueioAgendaTipo, VisaoAgenda } from "@/tipos/agenda"
 
 const diasSemana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
-
-const estadoCorBullet: Record<EstadoBloqueio, string> = {
-  bloqueado: "bg-sky-500",
-  em_atendimento: "bg-emerald-500",
-  concluido: "bg-zinc-500/50",
-  cancelado: "bg-zinc-500/30",
-}
 
 function mesmoDia(iso: string, data: string) {
   return dataBrt(iso) === data
@@ -101,7 +95,7 @@ function BloqueioLinha({
       )}
     >
       <span
-        className={cn("size-1.5 shrink-0 rounded-full", estadoCorBullet[bloqueio.estado])}
+        className={cn("size-1.5 shrink-0 rounded-full", dotEstado(bloqueio))}
         aria-hidden
       />
       <span className="shrink-0 font-mono text-text-muted">
@@ -209,7 +203,9 @@ function CelulaDroppable({
         visaoMes && selecionado && "bg-muted/60",
         foraDoMes && "bg-muted/20 text-text-muted",
         visaoDia && "min-h-[420px]",
-        isOver && (visaoMes ? "bg-muted/60 ring-1 ring-inset ring-ring/40" : "ring-2 ring-ring/40"),
+        isOver && (visaoMes
+          ? "bg-success-500/10 ring-1 ring-inset ring-success-500/40"
+          : "bg-success-500/10 ring-2 ring-success-500/40"),
       )}
     >
       <div

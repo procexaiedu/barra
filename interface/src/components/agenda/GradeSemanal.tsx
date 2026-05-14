@@ -10,13 +10,15 @@ import {
   useSensor,
   useSensors,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragStartEvent,
 } from "@dnd-kit/core"
 import { dataBrt, dataInput } from "@/hooks/useAgenda"
 import { formatHorario } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import type { BloqueioAgenda as BloqueioTipo, EstadoBloqueio } from "@/tipos/agenda"
-import { deltaTempoIso } from "@/components/agenda/dnd"
+import type { BloqueioAgenda as BloqueioTipo } from "@/tipos/agenda"
+import { deltaTempoIso, horarioDeIso } from "@/components/agenda/dnd"
+import { dotEstado, estiloCardCompleto } from "@/components/agenda/cores"
 
 const HORA_INICIO = 0
 const HORA_FIM = 24
@@ -29,19 +31,6 @@ const SNAP_PX = (SNAP_MIN / 60) * HORA_HEIGHT
 const ALTURA_MINIMA_PX = (SNAP_MIN / 60) * HORA_HEIGHT
 
 const diasSemana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
-
-const estadoEstilo: Record<EstadoBloqueio, string> = {
-  bloqueado: "border-l-[3px] border-l-sky-500 bg-sky-500/10",
-  em_atendimento: "border-l-[3px] border-l-emerald-500 bg-emerald-500/10",
-  concluido: "border-l-[3px] border-l-zinc-500 bg-zinc-500/10",
-  cancelado: "border-l-[3px] border-l-zinc-500/40 bg-zinc-500/5 opacity-50",
-}
-
-const dotEstilo: Partial<Record<EstadoBloqueio, string>> = {
-  bloqueado: "bg-sky-500",
-  em_atendimento: "bg-emerald-500",
-  concluido: "bg-zinc-500/50",
-}
 
 function horaMinBrt(iso: string): { h: number; m: number } {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -184,12 +173,12 @@ function CardGrade({
         onDoubleClick={(e) => e.stopPropagation()}
         className={cn(
           "h-full w-full overflow-hidden rounded text-left px-1.5 py-0.5 transition-[filter] hover:brightness-110",
-          estadoEstilo[bloqueio.estado],
+          estiloCardCompleto(bloqueio),
         )}
       >
         <div className="flex min-w-0 items-center gap-1">
           {isEmAtendimento && (
-            <span className="inline-block h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-emerald-500" />
+            <span className="inline-block h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-success-500" />
           )}
           <p className="truncate text-[10px] font-semibold leading-tight text-text-primary">
             {formatHorario(bloqueio.inicio)}–{formatHorario(fimLabel)}
@@ -269,6 +258,44 @@ function DiaColuna({
   const layout = useMemo(() => layoutDia(bloqueios), [bloqueios])
   const { setNodeRef, isOver } = useDroppable({ id: data })
 
+  // Guia visual do slot-alvo durante drag (Y snapped por SNAP_PX).
+  // Usa ref para evitar setState em todo pointermove — só atualiza em mudança de slot.
+  const [slotAlvoY, setSlotAlvoY] = useState<number | null>(null)
+  const ultimoSlotRef = useRef<number | null>(null)
+
+  const handlePointerMoveOver = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isOver || draggingId === null) return
+      const rect = e.currentTarget.getBoundingClientRect()
+      const y = e.clientY - rect.top
+      const snapped = Math.round(y / SNAP_PX) * SNAP_PX
+      const clamped = Math.max(0, Math.min(TOTAL_HEIGHT - SNAP_PX, snapped))
+      if (ultimoSlotRef.current !== clamped) {
+        ultimoSlotRef.current = clamped
+        setSlotAlvoY(clamped)
+      }
+    },
+    [draggingId, isOver],
+  )
+
+  // Limpa guia quando o drag sai da coluna ou termina.
+  useEffect(() => {
+    if (!isOver || draggingId === null) {
+      if (ultimoSlotRef.current !== null || slotAlvoY !== null) {
+        ultimoSlotRef.current = null
+        setSlotAlvoY(null)
+      }
+    }
+  }, [draggingId, isOver, slotAlvoY])
+
+  const slotHorarioLabel = useMemo(() => {
+    if (slotAlvoY === null) return null
+    const totalMin = (slotAlvoY / HORA_HEIGHT) * 60
+    const h = Math.floor(totalMin / 60)
+    const m = Math.round(totalMin - h * 60)
+    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`
+  }, [slotAlvoY])
+
   const handleDoubleClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect()
     const y = e.clientY - rect.top
@@ -288,7 +315,24 @@ function DiaColuna({
         isOver && "ring-2 ring-ring/40 ring-inset",
       )}
       onDoubleClick={handleDoubleClick}
+      onPointerMove={handlePointerMoveOver}
     >
+      {isOver && draggingId !== null && slotAlvoY !== null && (
+        <>
+          <div
+            className="pointer-events-none absolute inset-x-0 h-px bg-ring/60"
+            style={{ top: slotAlvoY }}
+          />
+          {slotHorarioLabel && (
+            <span
+              className="pointer-events-none absolute -left-12 text-[10px] font-medium tabular-nums text-text-brand"
+              style={{ top: slotAlvoY - 5 }}
+            >
+              {slotHorarioLabel}
+            </span>
+          )}
+        </>
+      )}
       {bloqueios.map((b) => {
         const l = layout.get(b.id)!
         const top = horaParaY(b.inicio)
@@ -331,7 +375,7 @@ function DotsEvento({ bloqueiosDia }: { bloqueiosDia: BloqueioTipo[] }) {
   return (
     <div className="flex items-center gap-0.5 pb-1">
       {visiveis.map((b) => {
-        const cor = dotEstilo[b.estado]
+        const cor = dotEstado(b)
         if (!cor) return null
         return (
           <span
@@ -367,6 +411,8 @@ export function GradeSemanal({
   const [draggingId, setDraggingId] = useState<string | null>(null)
   // Preview local durante resize; commit em pointerup chama onMover.
   const [fimPreviewPorId, setFimPreviewPorId] = useState<Map<string, string>>(new Map())
+  // Preview de horário em tempo real durante drag — atualizado em onDragMove.
+  const [dragHorarioPreview, setDragHorarioPreview] = useState<{ inicio: string; fim: string } | null>(null)
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -388,11 +434,30 @@ export function GradeSemanal({
 
   const handleDragStart = useCallback((event: DragStartEvent) => {
     setDraggingId(event.active.id as string)
+    const bloqueio = event.active.data.current?.bloqueio as BloqueioTipo | undefined
+    if (bloqueio) {
+      setDragHorarioPreview({
+        inicio: horarioDeIso(bloqueio.inicio),
+        fim: horarioDeIso(bloqueio.fim),
+      })
+    }
+  }, [])
+
+  const handleDragMove = useCallback((event: DragMoveEvent) => {
+    const bloqueio = event.active.data.current?.bloqueio as BloqueioTipo | undefined
+    if (!bloqueio) return
+    const novoInicioIso = deltaTempoIso(bloqueio.inicio, event.delta.y, HORA_HEIGHT, SNAP_MIN)
+    const novoFimIso = deltaTempoIso(bloqueio.fim, event.delta.y, HORA_HEIGHT, SNAP_MIN)
+    setDragHorarioPreview({
+      inicio: horarioDeIso(novoInicioIso),
+      fim: horarioDeIso(novoFimIso),
+    })
   }, [])
 
   const handleDragEnd = useCallback(
     async (event: DragEndEvent) => {
       setDraggingId(null)
+      setDragHorarioPreview(null)
       const { active, over, delta } = event
       if (!over) return
 
@@ -450,8 +515,19 @@ export function GradeSemanal({
 
   const bloqueioArrastando = draggingId ? bloqueioPorId.get(draggingId) : null
 
+  // Cursor-grabbing global durante drag — flagado no body para sobrepor
+  // qualquer cursor de hover de elementos sob o overlay.
+  useEffect(() => {
+    if (draggingId !== null) {
+      document.body.classList.add("cursor-grabbing")
+      return () => {
+        document.body.classList.remove("cursor-grabbing")
+      }
+    }
+  }, [draggingId])
+
   return (
-    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragMove={handleDragMove} onDragEnd={handleDragEnd}>
       <section aria-label="Grade de horários" className="overflow-hidden rounded-lg border border-border bg-card">
         {/* Header: nomes dos dias + datas */}
         <div
@@ -560,9 +636,11 @@ export function GradeSemanal({
       </section>
       <DragOverlay>
         {bloqueioArrastando ? (
-          <div className={cn("rounded px-1.5 py-0.5 shadow-md", estadoEstilo[bloqueioArrastando.estado])}>
-            <p className="truncate text-[10px] font-semibold leading-tight text-text-primary">
-              {formatHorario(bloqueioArrastando.inicio)}–{formatHorario(bloqueioArrastando.fim)}
+          <div className={cn("rounded px-1.5 py-0.5 shadow-md", estiloCardCompleto(bloqueioArrastando))}>
+            <p className="truncate text-[10px] font-semibold leading-tight text-text-primary tabular-nums">
+              {dragHorarioPreview
+                ? `${dragHorarioPreview.inicio}–${dragHorarioPreview.fim}`
+                : `${formatHorario(bloqueioArrastando.inicio)}–${formatHorario(bloqueioArrastando.fim)}`}
             </p>
           </div>
         ) : null}
