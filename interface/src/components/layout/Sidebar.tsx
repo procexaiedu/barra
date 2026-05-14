@@ -23,6 +23,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { ThemeToggle } from "@/components/layout/ThemeToggle"
 
 const grupos = [
   {
@@ -96,7 +97,7 @@ export function Sidebar() {
           <button
             onClick={() => setCollapsed(!collapsed)}
             aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
-            className="flex size-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-ink-200 hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            className="flex size-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-accent hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             {collapsed ? (
               <PanelLeft size={16} strokeWidth={1.5} />
@@ -124,8 +125,8 @@ export function Sidebar() {
                   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
                   collapsed ? "w-full justify-center px-0" : "gap-3 px-3",
                   active
-                    ? "bg-ink-200 text-gold-500"
-                    : "text-text-secondary hover:bg-ink-200 hover:text-text-primary"
+                    ? "bg-accent text-text-brand"
+                    : "text-text-secondary hover:bg-accent hover:text-text-primary"
                 )
 
                 if (collapsed) {
@@ -156,6 +157,7 @@ export function Sidebar() {
               {email ?? "Sessão ativa"}
             </p>
           )}
+          <ThemeToggle collapsed={collapsed} />
           {collapsed ? (
             <Tooltip>
               <TooltipTrigger
@@ -164,7 +166,7 @@ export function Sidebar() {
                     onClick={handleLogout}
                     className={cn(
                       "flex h-10 w-full items-center justify-center rounded-md py-2 text-sm text-text-secondary transition-colors",
-                      "hover:bg-ink-200 hover:text-text-primary",
+                      "hover:bg-accent hover:text-text-primary",
                       "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
                     )}
                   />
@@ -179,7 +181,7 @@ export function Sidebar() {
               onClick={handleLogout}
               className={cn(
                 "flex h-10 w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-text-secondary transition-colors",
-                "hover:bg-ink-200 hover:text-text-primary",
+                "hover:bg-accent hover:text-text-primary",
                 "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none"
               )}
             >

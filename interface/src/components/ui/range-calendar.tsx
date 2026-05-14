@@ -59,26 +59,26 @@ export function RangeCalendar({ value, onChange, maxIso, className }: Props) {
         month_caption: "flex h-9 items-center justify-center px-9 text-sm font-semibold capitalize text-text-primary",
         nav: "absolute inset-x-0 top-0 flex h-9 items-center justify-between px-1",
         button_previous:
-          "inline-flex size-7 items-center justify-center rounded-md text-text-secondary hover:bg-ink-300 hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "inline-flex size-7 items-center justify-center rounded-md text-text-secondary hover:bg-accent hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         button_next:
-          "inline-flex size-7 items-center justify-center rounded-md text-text-secondary hover:bg-ink-300 hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+          "inline-flex size-7 items-center justify-center rounded-md text-text-secondary hover:bg-accent hover:text-text-primary disabled:pointer-events-none disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         month_grid: "w-full border-collapse",
         weekdays: "flex",
         weekday: "flex-1 text-center text-[11px] font-semibold uppercase tracking-[0.06em] text-text-muted",
         week: "mt-1 flex",
         day: "flex-1 p-0 text-center",
         day_button:
-          "inline-flex size-9 items-center justify-center rounded-md text-sm text-text-primary hover:bg-ink-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:text-text-muted disabled:opacity-50",
-        today: "font-semibold text-gold-500",
+          "inline-flex size-9 items-center justify-center rounded-md text-sm text-text-primary hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:text-text-muted disabled:opacity-50",
+        today: "font-semibold text-text-brand",
         outside: "text-text-muted opacity-50",
         disabled: "text-text-muted opacity-40",
         selected: "",
         range_start:
-          "[&>button]:bg-gold-500 [&>button]:text-ink-100 [&>button]:hover:bg-gold-500 rounded-l-md bg-ink-300",
+          "[&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:hover:bg-primary rounded-l-md bg-accent",
         range_end:
-          "[&>button]:bg-gold-500 [&>button]:text-ink-100 [&>button]:hover:bg-gold-500 rounded-r-md bg-ink-300",
+          "[&>button]:bg-primary [&>button]:text-primary-foreground [&>button]:hover:bg-primary rounded-r-md bg-accent",
         range_middle:
-          "[&>button]:bg-transparent [&>button]:text-text-primary [&>button]:hover:bg-ink-300/60 bg-ink-300",
+          "[&>button]:bg-transparent [&>button]:text-text-primary [&>button]:hover:bg-accent/60 bg-accent",
         root: "relative inline-block",
       }}
     />

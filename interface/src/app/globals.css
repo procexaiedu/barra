@@ -140,6 +140,90 @@
   --success-500:  #1FB07A;
   --info-500:     #4F8FE1;
 
+  --surface:           #FAFAF7;
+  --surface-raised:    #FFFFFF;
+  --surface-hover:     #F2F2EE;
+  --surface-pressed:   #E8E8E2;
+  --border-subtle:     #E1E1DB;
+  --border-strong:     #C9C9C2;
+  --border-brand:      var(--gold-300);
+
+  --text-primary:      var(--ink-100);
+  --text-secondary:    var(--ink-300);
+  --text-muted:        var(--ink-500);
+  --text-disabled:     var(--ink-600);
+  --text-inverse:      var(--ink-900);
+  --text-brand:        var(--gold-300);
+  --text-link:         #6B5A35;
+
+  --state-handoff:     var(--warn-500);
+  --state-lost:        var(--danger-500);
+  --state-closed:      var(--success-500);
+  --state-active:      var(--gold-300);
+  --state-paused:      var(--ink-500);
+  --state-info:        var(--info-500);
+
+  --on-surface:        var(--text-primary);
+  --on-surface-muted:  var(--text-muted);
+  --on-brand:          var(--ink-0);
+  --on-warn:           var(--ink-0);
+  --on-danger:         #FFFFFF;
+  --on-success:        #FFFFFF;
+  --on-info:           #FFFFFF;
+
+  --focus-ring:        var(--gold-300);
+
+  --chart-1:  var(--gold-300);
+  --chart-2:  var(--info-500);
+  --chart-3:  var(--success-500);
+  --chart-4:  #9F4DC7;
+  --chart-5:  #C95E40;
+  --chart-6:  #4FB8B0;
+  --chart-7:  #B88846;
+
+  --seq-1:    #E6CB7A;
+  --seq-2:    #C4A961;
+  --seq-3:    #8C7848;
+  --seq-4:    #4A3F25;
+  --seq-5:    #1A1606;
+
+  --div-low:    var(--danger-500);
+  --div-low-2:  #E0857A;
+  --div-mid:    var(--ink-500);
+  --div-high-2: #7DCFA8;
+  --div-high:   var(--success-500);
+
+  --background:           var(--surface);
+  --foreground:           var(--on-surface);
+  --card:                 var(--surface-raised);
+  --card-foreground:      var(--on-surface);
+  --popover:              var(--surface-raised);
+  --popover-foreground:   var(--on-surface);
+  --primary:              var(--gold-500);
+  --primary-foreground:   var(--on-brand);
+  --secondary:            var(--surface-hover);
+  --secondary-foreground: var(--on-surface);
+  --muted:                var(--surface-hover);
+  --muted-foreground:     var(--text-muted);
+  --accent:               var(--surface-pressed);
+  --accent-foreground:    var(--text-brand);
+  --destructive:          var(--danger-500);
+  --border:               var(--border-subtle);
+  --input:                var(--surface-raised);
+  --ring:                 var(--focus-ring);
+  --radius:               0.5rem;
+
+  --sidebar:                       var(--surface-raised);
+  --sidebar-foreground:            var(--text-secondary);
+  --sidebar-primary:               var(--gold-300);
+  --sidebar-primary-foreground:    var(--on-brand);
+  --sidebar-accent:                var(--surface-hover);
+  --sidebar-accent-foreground:     var(--text-brand);
+  --sidebar-border:                var(--border-subtle);
+  --sidebar-ring:                  var(--focus-ring);
+}
+
+.dark {
   --surface:           var(--ink-50);
   --surface-raised:    var(--ink-100);
   --surface-hover:     var(--ink-200);
@@ -211,7 +295,6 @@
   --border:               var(--border-subtle);
   --input:                var(--surface-raised);
   --ring:                 var(--focus-ring);
-  --radius:               0.5rem;
 
   --sidebar:                       var(--surface);
   --sidebar-foreground:            var(--text-secondary);
@@ -221,9 +304,6 @@
   --sidebar-accent-foreground:     var(--text-brand);
   --sidebar-border:                var(--border-subtle);
   --sidebar-ring:                  var(--focus-ring);
-}
-
-.dark {
 }
 
 @layer base {
@@ -241,7 +321,7 @@
 @layer utilities {
   .scroll-thin {
     scrollbar-width: thin;
-    scrollbar-color: var(--ink-400) transparent;
+    scrollbar-color: var(--border-strong) transparent;
   }
   .scroll-thin::-webkit-scrollbar {
     width: 4px;
@@ -250,17 +330,17 @@
     background: transparent;
   }
   .scroll-thin::-webkit-scrollbar-thumb {
-    background-color: var(--ink-400);
+    background-color: var(--border-strong);
     border-radius: 2px;
   }
   .scroll-thin::-webkit-scrollbar-thumb:hover {
-    background-color: var(--ink-500);
+    background-color: var(--text-muted);
   }
 }
 
 @keyframes tile-update-flash {
   0%   { background-color: var(--card); }
-  20%  { background-color: var(--ink-200); }
+  20%  { background-color: var(--accent); }
   100% { background-color: var(--card); }
 }
 
