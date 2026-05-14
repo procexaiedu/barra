@@ -3,45 +3,80 @@
 import { useRouter } from "next/navigation"
 import type { EstadoAtendimento } from "@/tipos/atendimentos"
 import type { FunilEstadoLinha } from "@/tipos/dashboard"
+import { cn } from "@/lib/utils"
 
 interface Props {
   linhas: FunilEstadoLinha[]
 }
 
-interface EstadoMeta {
-  estado: EstadoAtendimento
+interface EtapaFunil {
+  id: string // bate com o param ?estado= aceito por /atendimentos
   rotulo: string
+  estados: EstadoAtendimento[]
   cor: string
+  desfecho: boolean // Fechado e Perdido — mostram % dos decididos, não conversão entre etapas
 }
 
-// Ordem reflete o ciclo de vida do atendimento: pipeline → confirmado → execução → desfecho.
-const ESTADOS_VISIVEIS: EstadoMeta[] = [
-  { estado: "Novo", rotulo: "Novo", cor: "var(--seq-1)" },
-  { estado: "Triagem", rotulo: "Triagem", cor: "var(--seq-2)" },
-  { estado: "Qualificado", rotulo: "Qualificado", cor: "var(--seq-3)" },
-  { estado: "Aguardando_confirmacao", rotulo: "Aguardando", cor: "var(--seq-4)" },
-  { estado: "Confirmado", rotulo: "Confirmado", cor: "var(--seq-5)" },
-  { estado: "Em_execucao", rotulo: "Em atendimento", cor: "var(--seq-6)" },
-  { estado: "Fechado", rotulo: "Fechado", cor: "var(--success-500)" },
-  { estado: "Perdido", rotulo: "Perdido", cor: "var(--danger-500)" },
+// 5 etapas espelhando KanbanBoard.tsx (COLUNAS_ATIVAS + COLUNAS_TERMINAIS).
+const ETAPAS_FUNIL: EtapaFunil[] = [
+  {
+    id: "Qualificando",
+    rotulo: "Qualificando",
+    estados: ["Novo", "Triagem", "Qualificado"],
+    cor: "var(--seq-2)",
+    desfecho: false,
+  },
+  {
+    id: "Aguardando",
+    rotulo: "Aguardando",
+    estados: ["Aguardando_confirmacao", "Confirmado"],
+    cor: "var(--seq-4)",
+    desfecho: false,
+  },
+  {
+    id: "Em_execucao",
+    rotulo: "Em atendimento",
+    estados: ["Em_execucao"],
+    cor: "var(--seq-6)",
+    desfecho: false,
+  },
+  {
+    id: "Fechado",
+    rotulo: "Fechado",
+    estados: ["Fechado"],
+    cor: "var(--success-500)",
+    desfecho: true,
+  },
+  {
+    id: "Perdido",
+    rotulo: "Perdido",
+    estados: ["Perdido"],
+    cor: "var(--danger-500)",
+    desfecho: true,
+  },
 ]
 
 const PCT_FMT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 })
 
 export function CarteiraEstados({ linhas }: Props) {
   const router = useRouter()
-  const total = linhas.reduce((soma, linha) => soma + linha.contagem, 0)
   const mapa = new Map(linhas.map((l) => [l.estado, l.contagem]))
 
-  const segmentos = ESTADOS_VISIVEIS.map((meta) => {
-    const contagem = mapa.get(meta.estado) ?? 0
-    return { ...meta, contagem, pct: total > 0 ? (contagem / total) * 100 : 0 }
-  }).filter((s) => s.contagem > 0)
+  const etapas = ETAPAS_FUNIL.map((meta) => ({
+    ...meta,
+    contagem: meta.estados.reduce((soma, est) => soma + (mapa.get(est) ?? 0), 0),
+  }))
+
+  const total = etapas.reduce((soma, e) => soma + e.contagem, 0)
+  const maior = Math.max(...etapas.map((e) => e.contagem), 1)
+  const decididos =
+    (etapas.find((e) => e.id === "Fechado")?.contagem ?? 0) +
+    (etapas.find((e) => e.id === "Perdido")?.contagem ?? 0)
 
   return (
-    <section aria-label="Carteira de atendimentos por estado" className="flex flex-col gap-3">
+    <section aria-label="Funil de atendimentos por etapa" className="flex flex-col gap-3">
       <header className="flex items-baseline justify-between">
-        <h2 className="text-base font-semibold text-text-primary">Carteira por estado</h2>
+        <h2 className="text-base font-semibold text-text-primary">Funil por etapa</h2>
         <span className="text-xs font-medium text-text-muted">
           {total} atendimentos no período
         </span>
@@ -54,46 +89,68 @@ export function CarteiraEstados({ linhas }: Props) {
             <span className="text-[13px] text-text-muted">Ajuste o período no topo da página.</span>
           </div>
         ) : (
-          <div className="flex flex-col gap-4">
-            <div
-              role="group"
-              aria-label="Distribuição dos atendimentos por estado"
-              className="flex h-10 w-full overflow-hidden rounded-md ring-1 ring-foreground/10"
-            >
-              {segmentos.map((s) => (
-                <button
-                  key={s.estado}
-                  type="button"
-                  onClick={() => router.push(`/atendimentos?estado=${encodeURIComponent(s.estado)}`)}
-                  aria-label={`${s.rotulo}: ${s.contagem} atendimentos (${PCT_FMT.format(s.pct)}%)`}
-                  title={`${s.rotulo}: ${s.contagem} (${PCT_FMT.format(s.pct)}%)`}
-                  className="group relative flex items-center justify-center transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:z-10 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  style={{ width: `${s.pct}%`, background: s.cor }}
-                >
-                  <span className="font-mono text-[11px] font-medium tabular-nums text-ink-900/85 opacity-0 transition-opacity group-hover:opacity-100">
-                    {s.contagem}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            <ul className="grid grid-cols-2 gap-x-6 gap-y-2 lg:grid-cols-4">
-              {segmentos.map((s) => (
-                <li key={`legenda-${s.estado}`} className="flex items-center gap-2 text-sm">
-                  <span
-                    className="inline-block h-2.5 w-2.5 rounded-sm"
-                    style={{ background: s.cor }}
-                    aria-hidden
-                  />
-                  <span className="flex-1 text-text-muted">{s.rotulo}</span>
-                  <span className="font-mono tabular-nums text-text-primary">{s.contagem}</span>
-                  <span className="font-mono text-[11px] tabular-nums text-text-muted">
-                    {PCT_FMT.format(s.pct)}%
-                  </span>
+          <ul className="flex flex-col gap-1.5">
+            {etapas.map((etapa) => {
+              const pctMax = (etapa.contagem / maior) * 100
+              const pctTotal = total > 0 ? (etapa.contagem / total) * 100 : 0
+              const pctDecididos =
+                etapa.desfecho && decididos > 0 ? (etapa.contagem / decididos) * 100 : null
+              const inativo = etapa.contagem === 0
+              const handleClick = inativo
+                ? undefined
+                : () => router.push(`/atendimentos?estado=${encodeURIComponent(etapa.id)}`)
+              return (
+                <li key={etapa.id}>
+                  <button
+                    type="button"
+                    onClick={handleClick}
+                    disabled={inativo}
+                    className={cn(
+                      "grid w-full grid-cols-[140px_1fr_56px_72px] items-center gap-3 rounded-md py-1.5 pl-2 pr-3 text-left",
+                      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                      inativo ? "opacity-50" : "transition-colors hover:bg-ink-200"
+                    )}
+                    aria-label={`${etapa.rotulo}: ${etapa.contagem} atendimentos`}
+                  >
+                    <span
+                      className={cn(
+                        "truncate text-[13px]",
+                        inativo ? "text-text-muted" : "text-text-primary"
+                      )}
+                    >
+                      {etapa.rotulo}
+                    </span>
+                    <div className="relative h-3 overflow-hidden rounded-full bg-ink-100">
+                      <div
+                        className="h-full rounded-full transition-[width] duration-300"
+                        style={{ width: `${pctMax}%`, background: etapa.cor }}
+                      />
+                    </div>
+                    <span
+                      className={cn(
+                        "text-right font-mono text-xs font-medium tabular-nums",
+                        inativo ? "text-text-muted" : "text-text-primary"
+                      )}
+                    >
+                      {etapa.contagem}
+                    </span>
+                    <span
+                      className="text-right text-xs font-medium text-text-muted tabular-nums"
+                      title={
+                        pctDecididos !== null
+                          ? `${PCT_FMT.format(pctDecididos)}% dos decididos (${decididos})`
+                          : `${PCT_FMT.format(pctTotal)}% do total`
+                      }
+                    >
+                      {pctDecididos !== null
+                        ? `${PCT_FMT.format(pctDecididos)}% dec.`
+                        : `${PCT_FMT.format(pctTotal)}%`}
+                    </span>
+                  </button>
                 </li>
-              ))}
-            </ul>
-          </div>
+              )
+            })}
+          </ul>
         )}
       </div>
     </section>

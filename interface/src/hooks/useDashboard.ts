@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { api, ApiError } from "@/lib/api"
 import { subscribeTabelas } from "@/lib/realtime"
@@ -101,6 +101,7 @@ export function useDashboard() {
   const [status, setStatus] = useState<Status>("loading")
   const [error, setError] = useState<string | null>(null)
   const [series, setSeries] = useState<Partial<Record<SerieMetrica, SerieResposta>>>({})
+  const [isPending, startTransition] = useTransition()
 
   const filtros = filtrosFromUrl
 
@@ -168,7 +169,9 @@ export function useDashboard() {
 
   const aplicarFiltros = useCallback(
     (proximo: FiltrosDashboard) => {
-      router.replace(`/dashboard${montarQueryString(proximo)}`, { scroll: false })
+      startTransition(() => {
+        router.replace(`/dashboard${montarQueryString(proximo)}`, { scroll: false })
+      })
     },
     [router]
   )
@@ -271,12 +274,18 @@ export function useDashboard() {
     setEscaladasError(null)
   }, [])
 
+  // Verdadeiro enquanto a navegação por filtro estiver em transição OU enquanto
+  // o fetch dela ainda não tiver chegado — usado para o efeito de dimm na tela.
+  // Usa `data !== null` em vez de `firstLoadDone.current` (refs não podem ser lidos no render).
+  const isRefreshing = isPending || (status === "loading" && data !== null)
+
   return {
     filtros,
     data,
     status,
     error,
     series,
+    isRefreshing,
     refetch: fetchResumo,
     refetchSeries: fetchSeries,
     setPeriodoPreset,
