@@ -16,6 +16,7 @@ import { LinhaAgenda } from "@/components/painel/LinhaAgenda"
 import { ModalDetalheMetrica } from "@/components/painel/ModalDetalheMetrica"
 import { ModalDecisaoCard } from "@/components/painel/ModalDecisaoCard"
 import { ModalDetalheAgenda } from "@/components/painel/ModalDetalheAgenda"
+import { ModalVisualizacao } from "@/components/atendimentos/ModalVisualizacao"
 import { DialogBloqueio } from "@/components/agenda/DialogBloqueio"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -26,6 +27,7 @@ import { formatBRL, formatDiaSemana, formatData } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import type { ItemAberto, ItemFechamento, ItemPerda, CardDestaque as CardDestaqueType, LinhaAgenda as LinhaAgendaType } from "@/tipos/painel"
 import type { AgendaResponse, AtualizarBloqueioInput, BloqueioAgenda, BloqueioFormState } from "@/tipos/agenda"
+import type { MotivoPerda } from "@/tipos/atendimentos"
 
 const TITULO_MODAL = {
   abertos: "Atendimentos em aberto",
@@ -192,6 +194,7 @@ export default function PainelGeral() {
   const [agendaModal, setAgendaModal] = useState<LinhaAgendaType | null>(null)
   const [bloquearOpen, setBloquearOpen] = useState(false)
   const [bloqueiosMes, setBloqueiosMes] = useState<BloqueioAgenda[]>([])
+  const [atendimentoModalId, setAtendimentoModalId] = useState<string | null>(null)
   const [bloquearInitial, setBloquearInitial] = useState<BloqueioFormState>(() => ({
     data: dataInputSaoPaulo(),
     inicio: "10:00",
@@ -281,6 +284,30 @@ export default function PainelGeral() {
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
     }
+  }
+
+  const devolverAtendimento = async (id: string) => {
+    await api(`/v1/atendimentos/${id}/devolver`, {
+      method: "POST",
+      body: JSON.stringify({ observacao: null }),
+    })
+    refetch()
+  }
+
+  const fecharAtendimento = async (id: string, valorFinal: number) => {
+    await api(`/v1/atendimentos/${id}/fechar`, {
+      method: "POST",
+      body: JSON.stringify({ valor_final: valorFinal }),
+    })
+    refetch()
+  }
+
+  const perderAtendimento = async (id: string, motivo: MotivoPerda, observacao: string | null) => {
+    await api(`/v1/atendimentos/${id}/perder`, {
+      method: "POST",
+      body: JSON.stringify({ motivo, observacao }),
+    })
+    refetch()
   }
 
   function handleModeloChange(id: string | null) {
@@ -565,7 +592,7 @@ export default function PainelGeral() {
         onRetry={detalhe.retry}
       >
         {detalhe.modalAberto === "abertos" && (
-          <ListaAbertos itens={detalhe.detalheAbertos} mostrarModelo={mostrarModelo} onNavegar={navegar} />
+          <ListaAbertos itens={detalhe.detalheAbertos} mostrarModelo={mostrarModelo} onNavegar={(id) => setAtendimentoModalId(id)} />
         )}
         {detalhe.modalAberto === "fechamentos" && (
           <ListaFechamentos
@@ -579,6 +606,18 @@ export default function PainelGeral() {
           <ListaPerdas itens={detalhe.detalhePerdas} mostrarModelo={mostrarModelo} onNavegar={navegar} />
         )}
       </ModalDetalheMetrica>
+
+      <ModalVisualizacao
+        atendimentoId={atendimentoModalId}
+        onClose={() => setAtendimentoModalId(null)}
+        onDevolver={devolverAtendimento}
+        onFechar={fecharAtendimento}
+        onPerder={perderAtendimento}
+        onAbrirEdicao={(d) => {
+          setAtendimentoModalId(null)
+          router.push(`/atendimentos?id=${d.atendimento.id}`)
+        }}
+      />
     </div>
   )
 }
