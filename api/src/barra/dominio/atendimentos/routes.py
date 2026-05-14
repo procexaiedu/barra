@@ -258,6 +258,9 @@ async def obter_atendimento(
         SELECT a.*, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
                m.nome AS modelo_nome, m.percentual_repasse, b.inicio AS bloqueio_inicio,
                b.fim AS bloqueio_fim, b.estado::text AS bloqueio_estado,
+               b.modelo_id AS bloqueio_modelo_id,
+               b.origem::text AS bloqueio_origem,
+               b.observacao AS bloqueio_observacao,
                cv.recorrente AS conversa_recorrente,
                cv.observacoes_internas AS conversa_observacoes,
                cv.ultimo_motivo_perda::text AS conversa_ultimo_motivo_perda
@@ -338,10 +341,16 @@ async def obter_atendimento(
         "bloqueio": None
         if atendimento["bloqueio_id"] is None
         else {
-            "id": atendimento["bloqueio_id"],
+            "id": str(atendimento["bloqueio_id"]),
+            "modelo_id": str(atendimento["bloqueio_modelo_id"]),
+            "modelo_nome": atendimento["modelo_nome"],
             "inicio": atendimento["bloqueio_inicio"],
             "fim": atendimento["bloqueio_fim"],
             "estado": atendimento["bloqueio_estado"],
+            "origem": atendimento["bloqueio_origem"],
+            "observacao": atendimento["bloqueio_observacao"],
+            "atendimento_id": str(atendimento["id"]),
+            "atendimento": None,
         },
         "mensagens": _enriquecer_midias(mensagens, request),
         "eventos": eventos,
