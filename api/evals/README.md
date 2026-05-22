@@ -126,7 +126,7 @@ Mesma estrutura, com `expectativas` mais específicas:
    - `metricas.max_*` → leitura do `usage` da última chamada Anthropic.
 5. Rubricas com `judge: llm` → chamada a Haiku 4.5 com prompt em `runners/judge.md` (TODO M6); rubricas `deterministico` → função em `runners/checks.py`.
 6. Agrega: score = média ponderada das rubricas; pass = todas as rubricas `>= limiar_aceite`.
-7. Compara contra `.claude/state/evals-baseline.json` — qualquer regressão `> 5%` em uma rubrica reprova o gate.
+7. Compara contra um baseline de pass-rate persistido — qualquer regressão `> 5%` em uma rubrica reprova o gate.
 
 ## Datasets seed
 
@@ -142,7 +142,7 @@ Esta sessão criou apenas templates ilustrativos:
 
 ## Gate de regressão
 
-Baseline persistido em `.claude/state/evals-baseline.json`:
+Exemplo de baseline de pass-rate:
 
 ```json
 {
@@ -161,4 +161,4 @@ Baseline persistido em `.claude/state/evals-baseline.json`:
 }
 ```
 
-Cada execução do `eval-runner-agente` atualiza este arquivo apenas se TODAS as rubricas igualaram ou superaram o baseline. Regressão = task volta para `coluna_origem` com `is_blocked:true` e motivo "regression: rubrica X caiu de Y para Z em N fixtures".
+A cada execução, o baseline só é atualizado se TODAS as rubricas igualaram ou superaram o valor anterior. Qualquer regressão ("rubrica X caiu de Y para Z em N fixtures") reprova o gate.

@@ -63,17 +63,11 @@ desktop.ini
 .trees/
 # Worktrees criados por subagentes do Claude Code
 .claude/worktrees/
-# Estado runtime do pipeline (marker files, locks de migration, JSON de reservas etc.)
-.claude/state/*
-!.claude/state/plans/
-.claude/state/plans/*.md
-!.claude/state/plans/.gitkeep
 # Lock do agendador (ScheduleWakeup) — runtime do harness, não config do projeto
 .claude/scheduled_tasks.lock
-# Permissões locais do Claude Code; algum hook/skill registra durante overnight
-# e poluía 8/14 PRs do batch de 2026-05-12. É config por máquina, não vai pro repo.
+# Permissões locais do Claude Code — config por máquina, não vai pro repo.
 .claude/settings.local.json
-# Logs de execução de agentes/skills (overnight, auto-revisao, build, health) — só local
+# Logs locais de execução de agentes/skills — só local
 .claude/logs/
 
 # --- Config local de MCP servers ---
@@ -94,11 +88,9 @@ temp/
 # Capturam DOM acessível, incluindo valores digitados em campos de senha. Nunca commitar.
 .playwright-mcp/
 
-# --- Evidências do Playwright (screenshots dos codificadores) ---
-# PNGs gerados por mcp__playwright__browser_take_screenshot vazavam pro
-# root do repo durante o overnight de 2026-05-12. Convenção atual: salvar
-# em <worktree>/.playwright-evidence/<task-id>/<nome>.png. Exceções:
-# screenshots permanentes em docs/ e assets em interface/public/.
+# --- Evidências do Playwright (screenshots) ---
+# PNGs gerados por mcp__playwright__browser_take_screenshot não vão pro repo.
+# Exceções: screenshots permanentes em docs/ e assets em interface/public/.
 *.png
 !docs/**/*.png
 !interface/public/**/*.png

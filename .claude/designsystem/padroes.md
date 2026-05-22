@@ -1,6 +1,6 @@
 # Padrões de composição
 
-Como montar tela, página e componente respeitando tokens e primitivas. Este arquivo é o que `revisor-barra` lê quando reprova diff de UI.
+Como montar tela, página e componente respeitando tokens e primitivas. Referência para revisar diff de UI.
 
 ## Estrutura de página
 

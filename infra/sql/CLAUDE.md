@@ -10,31 +10,21 @@ Dois formatos aceitos. Ambos ordenam corretamente em `ls infra/sql/*.sql`:
 
 `NNNN_descricao_curta.sql`. Migrations existentes (0001..00NN) seguem nesse formato — não renumere (são imutáveis, ver seção abaixo).
 
-Para escolher o próximo NNNN em uma sessão **manual humana**: liste o diretório e pegue `max(NNNN) + 1`. Para **pipeline com worktrees paralelas**, use o helper com reserva:
-
-```bash
-# Reservar próximo NNNN (TTL 30min)
-powershell -NoProfile -File scripts/proxima-migration.ps1 -Reserve '<slug>'
-# stdout: 4 dígitos (ex: 0034)
-
-# Após commitar o .sql, liberar:
-powershell -NoProfile -File scripts/proxima-migration.ps1 -Release '<slug>'
-```
-
-Não pule números, não preencha "buracos" antigos.
+Para escolher o próximo NNNN: liste o diretório e pegue `max(NNNN) + 1`. Não pule números, não preencha "buracos" antigos.
 
 ### B) Timestamp UTC (recomendado para mudanças novas)
 
-`YYYYMMDDHHMMSS_descricao_curta.sql` (14 dígitos). Vantagem: **elimina a categoria inteira de colisão NNNN** em worktrees paralelas — overnight 2026-05-12 produziu duas migrations `0031` distintas pelo mesmo loop, problema que reserva com TTL só mitiga, não previne. Timestamps são únicos por segundo, e o helper devolve um sem precisar de lock:
+`YYYYMMDDHHMMSS_descricao_curta.sql` (14 dígitos). Vantagem: **elimina a categoria inteira de colisão NNNN** quando há trabalho em paralelo — timestamps são únicos por segundo e dispensam consultar o diretório. Gere com:
 
 ```bash
-powershell -NoProfile -File scripts/proxima-migration.ps1 -Timestamp
+# PowerShell
+[DateTime]::UtcNow.ToString('yyyyMMddHHmmss')
 # stdout: 20260513212347
 ```
 
 Ordering lexicográfico: como `NNNN_` tem 4 dígitos e `YYYYMMDD…_` tem 14, no `ls`/glob do shell todas as legacy `00NN_*` aparecem antes de qualquer timestamp `2026…_*` (char-by-char `'0' < '2'`). `make migrate` aplica em ordem correta automaticamente.
 
-**Recomendação prática:** novas migrations escritas pelo pipeline overnight ou em qualquer worktree usam timestamp UTC. NNNN só para hotfix manual em sessão única quando o autor confere o número à mão.
+**Recomendação prática:** novas migrations usam timestamp UTC. NNNN só para hotfix manual em sessão única quando o autor confere o número à mão.
 
 ## Migrations aplicadas são imutáveis
 

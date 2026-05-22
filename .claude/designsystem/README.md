@@ -4,9 +4,9 @@ Fonte canônica do visual da `interface/`. Tudo aqui reflete o estado real em `i
 
 ## Para quem é
 
-- `codificador-interface` consulta `padroes.md` e `componentes.md` antes de criar tela.
-- `planejador-barra` consulta `dominio.md` ao decidir variante/cor para estado de negócio.
-- `revisor-barra` checa `padroes.md` contra o diff para reprovar prop boolean proliferation, falta de `data-slot`, mistura de tokens.
+- Consulte `padroes.md` e `componentes.md` antes de criar tela.
+- Consulte `dominio.md` ao decidir variante/cor para estado de negócio.
+- Use `padroes.md` ao revisar diff de UI: prop boolean proliferation, falta de `data-slot`, mistura de tokens.
 
 ## Arquivos
 
