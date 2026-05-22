@@ -21,17 +21,8 @@ export type EstadoAtendimento =
 export type TipoAtendimento = "interno" | "externo"
 export type Urgencia = "imediato" | "agendado" | "indefinido" | "estimado"
 
-export type FiltroRecorrencia = "todas" | "novas" | "recorrentes"
 export type FiltroPeriodo = "todos" | "7d" | "30d" | "90d"
-export type FiltroMotivoPerda = "todos" | MotivoPerda
 export type FiltroModelo = "todas" | string
-export type FiltroOrdem = "recente" | "inatividade"
-
-export interface ClienteResumo {
-  id: string
-  nome: string | null
-  telefone: string
-}
 
 export interface Cliente {
   id: string
@@ -57,6 +48,45 @@ export interface ClientesListaResponse {
   next_cursor: string | null
 }
 
+/** Item da tela "Clientes": cliente + agregados por cliente (todas as modelos). */
+export interface ClienteListaItem extends ClienteListItem {
+  total_atendimentos: number
+  valor_total: number
+  ultima_atividade: string | null
+  modelos_distintas: number
+  modelo_predominante_nome: string | null
+  recorrente: boolean
+}
+
+export interface ClientesAgregadosResponse {
+  items: ClienteListaItem[]
+  next_cursor: string | null
+}
+
+/** Conversa (par cliente, modelo) listada no detalhe do cliente. */
+export interface ClienteConversaResumo {
+  id: string
+  modelo_id: string
+  modelo_nome: string
+  recorrente: boolean
+  ultimo_motivo_perda: MotivoPerda | null
+  ultima_mensagem_em: string | null
+  observacoes_internas: string | null
+}
+
+export interface ClienteDetalheResponse {
+  cliente: {
+    id: string
+    nome: string | null
+    telefone_mascarado: string | null
+    primeiro_contato_modelo_id: string | null
+    arquivado_em: string | null
+    created_at: string
+    updated_at: string
+  }
+  conversas: ClienteConversaResumo[]
+}
+
 export interface CriarClienteRequest {
   nome?: string | null
   telefone: string
@@ -72,32 +102,6 @@ export interface ModeloResumo {
   nome: string
 }
 
-export interface UltimoAtendimentoResumo {
-  numero_curto: number
-  estado: EstadoAtendimento
-  created_at: string
-  valor_final: number | null
-  motivo_perda: MotivoPerda | null
-}
-
-export interface ConversaListaItem {
-  id: string
-  cliente: ClienteResumo
-  modelo: ModeloResumo
-  recorrente: boolean
-  ultima_mensagem_em: string | null
-  ultima_mensagem_direcao: DirecaoMensagem | null
-  ultimo_motivo_perda: MotivoPerda | null
-  ultimo_atendimento: UltimoAtendimentoResumo | null
-  tem_atendimento_aberto: boolean
-  ultimo_fechamento_em: string | null
-  created_at: string
-}
-
-export interface ConversasListaResponse {
-  items: ConversaListaItem[]
-  next_cursor: string | null
-}
 
 export type FormaPagamento = "pix" | "dinheiro" | "outro"
 
@@ -162,9 +166,6 @@ export interface ConversaDetalheResponse {
 
 export interface FiltrosClientes {
   busca: string
-  recorrencia: FiltroRecorrencia
-  motivoPerda: FiltroMotivoPerda
   periodo: FiltroPeriodo
   modeloId: FiltroModelo
-  ordenarPor: FiltroOrdem
 }

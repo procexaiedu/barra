@@ -42,6 +42,12 @@ def _cliente_row(
         "arquivado_em": arquivado_em,
         "created_at": datetime.now(UTC),
         "updated_at": datetime.now(UTC),
+        "total_atendimentos": 0,
+        "total_fechados": 0,
+        "valor_total": 0,
+        "ultima_atividade": None,
+        "modelos_distintas": 0,
+        "modelo_predominante_nome": None,
     }
 
 
@@ -108,7 +114,7 @@ class FakeConnArquivar:
 
 
 class FakeConnListar:
-    """Fake conn que registra o SELECT DISTINCT executado para validar filtro."""
+    """Fake conn que registra o SELECT de listagem executado para validar filtro."""
 
     def __init__(self, incluir_arquivado_no_resultado: bool) -> None:
         self.incluir = incluir_arquivado_no_resultado
@@ -120,7 +126,7 @@ class FakeConnListar:
 
     async def execute(self, query: str, params: object = None) -> _Result:
         self.queries.append(query)
-        if "SELECT DISTINCT c.id" in query:
+        if "FROM barravips.clientes c" in query and "ag.total_atendimentos" in query:
             rows = [
                 _cliente_row(uuid4(), nome="Ativo"),
             ]
@@ -330,7 +336,7 @@ def test_listar_clientes_default_filtra_arquivados() -> None:
         with TestClient(app) as client:
             response = client.get("/v1/crm/clientes", headers=_token())
         assert response.status_code == 200
-        select_query = next((q for q in conn.queries if "SELECT DISTINCT c.id" in q), "")
+        select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
         assert "c.arquivado_em IS NULL" in select_query
         body = response.json()
         assert all(item["arquivado_em"] is None for item in body["items"])
@@ -348,9 +354,59 @@ def test_listar_clientes_incluir_arquivados_remove_filtro() -> None:
                 headers=_token(),
             )
         assert response.status_code == 200
-        select_query = next((q for q in conn.queries if "SELECT DISTINCT c.id" in q), "")
+        select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
         assert "c.arquivado_em IS NULL" not in select_query
         body = response.json()
         assert any(item["arquivado_em"] is not None for item in body["items"])
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_listar_clientes_retorna_agregados_por_cliente() -> None:
+    """Cada item da lista carrega os agregados por cliente (todas as modelos)."""
+    conn = FakeConnListar(incluir_arquivado_no_resultado=False)
+    app.dependency_overrides[get_conn] = _override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes", headers=_token())
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        # Cliente novo (sem atendimentos) aparece com agregados zerados e recorrente=false.
+        assert item["total_atendimentos"] == 0
+        assert item["valor_total"] == 0
+        assert item["modelos_distintas"] == 0
+        assert item["modelo_predominante_nome"] is None
+        assert item["recorrente"] is False
+        assert "telefone_mascarado" in item
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_listar_clientes_periodo_aplica_filtro_de_atendimento() -> None:
+    conn = FakeConnListar(incluir_arquivado_no_resultado=False)
+    app.dependency_overrides[get_conn] = _override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes?periodo=30d", headers=_token())
+        assert response.status_code == 200
+        select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
+        assert "a.cliente_id = c.id" in select_query
+        assert "INTERVAL '30 days'" in select_query
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_listar_clientes_modelo_id_filtra_por_conversa() -> None:
+    conn = FakeConnListar(incluir_arquivado_no_resultado=False)
+    app.dependency_overrides[get_conn] = _override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                f"/v1/crm/clientes?modelo_id={uuid4()}", headers=_token()
+            )
+        assert response.status_code == 200
+        select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
+        assert "FROM barravips.conversas cv" in select_query
+        assert "cv.modelo_id = %s" in select_query
     finally:
         app.dependency_overrides.pop(get_conn, None)
