@@ -11,6 +11,8 @@ import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendim
 import { ModalReatribuir } from "@/components/atendimentos/ModalReatribuir"
 import { ModalVisualizacao } from "@/components/atendimentos/ModalVisualizacao"
 import { ModalEdicao } from "@/components/atendimentos/ModalEdicao"
+import { ModalFecharAtendimento } from "@/components/atendimentos/ModalFecharAtendimento"
+import { ModalPerderAtendimento } from "@/components/atendimentos/ModalPerderAtendimento"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -192,25 +194,42 @@ function CentralAtendimentosInner() {
   const [modalNovoAberto, setModalNovoAberto] = useState(false)
   const [mostrarEncerrados, setMostrarEncerrados] = useState(true)
   const [itemsEncerrados, setItemsEncerrados] = useState<AtendimentoListaItem[]>([])
+  const [acaoTerminalPendente, setAcaoTerminalPendente] = useState<
+    { item: AtendimentoListaItem; destino: "Fechado" | "Perdido" } | null
+  >(null)
+
+  const buscarEncerrados = useCallback(async (): Promise<AtendimentoListaItem[]> => {
+    try {
+      const [fechados, perdidos] = await Promise.all([
+        api<AtendimentosListaResponse>("/v1/atendimentos?estado=Fechado&limit=50"),
+        api<AtendimentosListaResponse>("/v1/atendimentos?estado=Perdido&limit=50"),
+      ])
+      return [
+        ...(Array.isArray(fechados.items) ? fechados.items : []),
+        ...(Array.isArray(perdidos.items) ? perdidos.items : []),
+      ]
+    } catch {
+      // silencioso — colunas terminais ficam vazias se a busca falhar
+      return []
+    }
+  }, [])
+
+  const recarregarEncerrados = useCallback(async () => {
+    setItemsEncerrados(await buscarEncerrados())
+  }, [buscarEncerrados])
 
   useEffect(() => {
     if (!mostrarEncerrados || view !== "kanban") {
       return
     }
     let cancelado = false
-    Promise.all([
-      api<AtendimentosListaResponse>("/v1/atendimentos?estado=Fechado&limit=50"),
-      api<AtendimentosListaResponse>("/v1/atendimentos?estado=Perdido&limit=50"),
-    ]).then(([fechados, perdidos]) => {
-      if (!cancelado) {
-        setItemsEncerrados([
-          ...(Array.isArray(fechados.items) ? fechados.items : []),
-          ...(Array.isArray(perdidos.items) ? perdidos.items : []),
-        ])
-      }
-    }).catch(() => {})
-    return () => { cancelado = true }
-  }, [mostrarEncerrados, view])
+    buscarEncerrados().then((items) => {
+      if (!cancelado) setItemsEncerrados(items)
+    })
+    return () => {
+      cancelado = true
+    }
+  }, [mostrarEncerrados, view, buscarEncerrados])
 
   return (
     <div className="flex h-[calc(100vh-64px)] flex-col gap-2">
@@ -293,6 +312,31 @@ function CentralAtendimentosInner() {
             onToggleEncerrados={() => setMostrarEncerrados((v) => !v)}
             onCardClick={setModalId}
             onMoverEstado={atendimentos.moverEstado}
+            onSolicitarTerminal={(item, destino) => setAcaoTerminalPendente({ item, destino })}
+          />
+          <ModalFecharAtendimento
+            open={acaoTerminalPendente?.destino === "Fechado"}
+            numeroCurto={acaoTerminalPendente?.item.numero_curto ?? null}
+            valorAcordado={acaoTerminalPendente?.item.valor_acordado ?? null}
+            onFechar={async (valorFinal) => {
+              if (!acaoTerminalPendente) return
+              await atendimentos.fechar(acaoTerminalPendente.item.id, valorFinal)
+              setAcaoTerminalPendente(null)
+              if (mostrarEncerrados) await recarregarEncerrados()
+            }}
+            onCancelar={() => setAcaoTerminalPendente(null)}
+          />
+          <ModalPerderAtendimento
+            open={acaoTerminalPendente?.destino === "Perdido"}
+            numeroCurto={acaoTerminalPendente?.item.numero_curto ?? null}
+            valorAcordado={acaoTerminalPendente?.item.valor_acordado ?? null}
+            onPerder={async (motivo, observacao) => {
+              if (!acaoTerminalPendente) return
+              await atendimentos.perder(acaoTerminalPendente.item.id, motivo, observacao)
+              setAcaoTerminalPendente(null)
+              if (mostrarEncerrados) await recarregarEncerrados()
+            }}
+            onCancelar={() => setAcaoTerminalPendente(null)}
           />
           <ModalVisualizacao
             atendimentoId={modalId}
