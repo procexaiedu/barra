@@ -1,5 +1,5 @@
 -- =============================================================================
--- 0040_realtime_completar.sql
+-- 0042_realtime_completar.sql
 -- Auditoria de Supabase Realtime (task Sistema — auditar Supabase Realtime).
 --
 -- A publication supabase_realtime já cobre todas as tabelas assinadas pelo
@@ -20,7 +20,7 @@
 -- demais tabelas (fernando_full_access FOR ALL TO authenticated). Idempotente.
 --
 -- Aplicação:
---   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f 0040_realtime_completar.sql
+--   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f 0042_realtime_completar.sql
 -- =============================================================================
 
 SET search_path TO barravips, public;
