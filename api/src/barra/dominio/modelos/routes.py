@@ -975,23 +975,34 @@ async def _enviar_card_pausa(
     ):
         return False
     client = EvolutionClient(settings)
-    await client.enviar_texto(
-        conn=conn,
-        instance_id=modelo["evolution_instance_id"],
-        remote_jid=modelo["coordenacao_chat_id"],
-        texto=(
-            f"Modelo {modelo['nome']} pausada operacionalmente. "
-            f"{conversas_pausadas} conversa(s) pausada(s); "
-            f"{em_execucao} atendimento(s) em Em_execucao preservado(s)."
-        ),
-        contexto="grupo_coordenacao",
-        tipo="card",
-        payload={
-            "modelo_id": str(modelo["id"]),
-            "conversas_pausadas": conversas_pausadas,
-            "em_execucao_em_curso": em_execucao,
-        },
-    )
+    try:
+        await client.enviar_texto(
+            conn=conn,
+            instance_id=modelo["evolution_instance_id"],
+            remote_jid=modelo["coordenacao_chat_id"],
+            texto=(
+                f"Modelo {modelo['nome']} pausada operacionalmente. "
+                f"{conversas_pausadas} conversa(s) pausada(s); "
+                f"{em_execucao} atendimento(s) em Em_execucao preservado(s)."
+            ),
+            contexto="grupo_coordenacao",
+            tipo="card",
+            payload={
+                "modelo_id": str(modelo["id"]),
+                "conversas_pausadas": conversas_pausadas,
+                "em_execucao_em_curso": em_execucao,
+            },
+        )
+    except Exception:
+        # A pausa ja foi efetivada no banco; uma falha de envio do card (Evolution
+        # offline, timeout, instancia caida) nao pode derrubar a operacao nem rolar
+        # a transacao. Logamos para que a coordenacao saiba que nao foi notificada.
+        _logger.warning(
+            "Falha ao enviar card de pausa da modelo %s para a Coordenacao",
+            modelo["id"],
+            exc_info=True,
+        )
+        return False
     return True
 
 
