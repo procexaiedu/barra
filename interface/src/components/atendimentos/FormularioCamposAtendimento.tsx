@@ -9,6 +9,7 @@ import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useConflitoAgenda } from "@/hooks/useConflitoAgenda"
+import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
 import { AlertaConflito } from "./AlertaConflito"
 import type {
   EditarDadosPayload,
@@ -98,7 +99,14 @@ export const FormularioCamposAtendimento = forwardRef<
   const [horario, setHorario] = useState("")
   const [duracao, setDuracao] = useState("")
   const [endereco, setEndereco] = useState("")
+  const [enderecoFormatado, setEnderecoFormatado] = useState<string | null>(null)
+  const [latitude, setLatitude] = useState<number | null>(null)
+  const [longitude, setLongitude] = useState<number | null>(null)
+  const [placeId, setPlaceId] = useState<string | null>(null)
   const [bairro, setBairro] = useState("")
+  // Vira true quando o usuário edita o bairro à mão; impede que uma nova seleção
+  // de endereço sobrescreva a edição manual.
+  const [bairroEditadoManual, setBairroEditadoManual] = useState(false)
   const [tipoLocal, setTipoLocal] = useState("")
   const [formaPagamento, setFormaPagamento] = useState("")
   const [valorAcordado, setValorAcordado] = useState("")
@@ -215,6 +223,10 @@ export const FormularioCamposAtendimento = forwardRef<
           }
         }
         if (endereco) payload.endereco = endereco
+        if (enderecoFormatado) payload.endereco_formatado = enderecoFormatado
+        if (latitude !== null) payload.latitude = latitude
+        if (longitude !== null) payload.longitude = longitude
+        if (placeId) payload.place_id = placeId
         if (bairro) payload.bairro = bairro
         if (tipoLocal) payload.tipo_local = tipoLocal
         if (formaPagamento) payload.forma_pagamento = formaPagamento
@@ -238,6 +250,10 @@ export const FormularioCamposAtendimento = forwardRef<
       horario,
       duracao,
       endereco,
+      enderecoFormatado,
+      latitude,
+      longitude,
+      placeId,
       bairro,
       tipoLocal,
       formaPagamento,
@@ -343,12 +359,24 @@ export const FormularioCamposAtendimento = forwardRef<
   const colunaLocal = (
     <ColunaSecao titulo="Local">
       <Campo label="Endereço">
-        <Input
-          className={controlClassName}
-          placeholder="Rua, número"
-          value={endereco}
-          onChange={(e) => setEndereco(e.target.value)}
-          disabled={disabled}
+        <CampoLocalAutocomplete
+          valorInicial={endereco}
+          enderecoFormatadoAtual={enderecoFormatado}
+          onSelecionar={(local) => {
+            setEndereco(local.endereco_formatado)
+            setEnderecoFormatado(local.endereco_formatado)
+            setLatitude(local.latitude)
+            setLongitude(local.longitude)
+            setPlaceId(local.place_id)
+            if (!bairroEditadoManual) setBairro(local.localizacao_curta)
+          }}
+          onLimpar={() => {
+            setEndereco("")
+            setEnderecoFormatado(null)
+            setLatitude(null)
+            setLongitude(null)
+            setPlaceId(null)
+          }}
         />
       </Campo>
       <Campo label="Bairro">
@@ -356,7 +384,10 @@ export const FormularioCamposAtendimento = forwardRef<
           className={controlClassName}
           placeholder="Bairro"
           value={bairro}
-          onChange={(e) => setBairro(e.target.value)}
+          onChange={(e) => {
+            setBairroEditadoManual(true)
+            setBairro(e.target.value)
+          }}
           disabled={disabled}
         />
       </Campo>

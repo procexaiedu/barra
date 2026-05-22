@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
 import { formatBRL, formatTelefone } from "@/lib/formatters"
 import { useConflitoAgenda } from "@/hooks/useConflitoAgenda"
+import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
 import type {
   AtendimentoDetalheResponse,
   EditarDadosPayload,
@@ -72,7 +73,14 @@ export function ModalEdicao({
   // trata ponto como separador de milhar BR — sem Number() aqui o valor é multiplicado por 100 ao reabrir.
   const [duracao, setDuracao] = useState(at?.duracao_horas != null ? String(Number(at.duracao_horas)) : "")
   const [endereco, setEndereco] = useState(at?.endereco ?? "")
+  const [enderecoFormatado, setEnderecoFormatado] = useState<string | null>(at?.endereco_formatado ?? null)
+  const [latitude, setLatitude] = useState<number | null>(at?.latitude != null ? Number(at.latitude) : null)
+  const [longitude, setLongitude] = useState<number | null>(at?.longitude != null ? Number(at.longitude) : null)
+  const [placeId, setPlaceId] = useState<string | null>(at?.place_id ?? null)
   const [bairro, setBairro] = useState(at?.bairro ?? "")
+  // Vira true quando o usuário edita o bairro à mão; impede que uma nova seleção
+  // de endereço sobrescreva a edição manual.
+  const [bairroEditadoManual, setBairroEditadoManual] = useState(false)
   const [tipoLocal, setTipoLocal] = useState(at?.tipo_local ?? "")
   const [formaPagamento, setFormaPagamento] = useState(at?.forma_pagamento ?? "")
   const [valorAcordado, setValorAcordado] = useState(at?.valor_acordado != null ? String(Number(at.valor_acordado)) : "")
@@ -171,6 +179,10 @@ export function ModalEdicao({
       if (d !== null) dados.duracao_horas = d
     }
     if (endereco) dados.endereco = endereco
+    if (enderecoFormatado) dados.endereco_formatado = enderecoFormatado
+    if (latitude !== null) dados.latitude = latitude
+    if (longitude !== null) dados.longitude = longitude
+    if (placeId) dados.place_id = placeId
     if (bairro) dados.bairro = bairro
     if (tipoLocal) dados.tipo_local = tipoLocal
     if (formaPagamento) dados.forma_pagamento = formaPagamento
@@ -273,10 +285,36 @@ export function ModalEdicao({
 
           <ColunaSecao titulo="Local">
             <Campo label="Endereço">
-              <Input className={controlClassName} placeholder="Rua, número" value={endereco} onChange={(e) => setEndereco(e.target.value)} />
+              <CampoLocalAutocomplete
+                valorInicial={endereco}
+                enderecoFormatadoAtual={enderecoFormatado}
+                onSelecionar={(local) => {
+                  setEndereco(local.endereco_formatado)
+                  setEnderecoFormatado(local.endereco_formatado)
+                  setLatitude(local.latitude)
+                  setLongitude(local.longitude)
+                  setPlaceId(local.place_id)
+                  if (!bairroEditadoManual) setBairro(local.localizacao_curta)
+                }}
+                onLimpar={() => {
+                  setEndereco("")
+                  setEnderecoFormatado(null)
+                  setLatitude(null)
+                  setLongitude(null)
+                  setPlaceId(null)
+                }}
+              />
             </Campo>
             <Campo label="Bairro">
-              <Input className={controlClassName} placeholder="Bairro" value={bairro} onChange={(e) => setBairro(e.target.value)} />
+              <Input
+                className={controlClassName}
+                placeholder="Bairro"
+                value={bairro}
+                onChange={(e) => {
+                  setBairroEditadoManual(true)
+                  setBairro(e.target.value)
+                }}
+              />
             </Campo>
             <Campo label="Tipo de local">
               <Combobox

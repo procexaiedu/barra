@@ -55,6 +55,10 @@ class EditarDadosRequest(BaseModel):
     tipo_local: str | None = None
     forma_pagamento: str | None = None
     valor_acordado: Decimal | None = Field(default=None, ge=0)
+    endereco_formatado: str | None = None
+    latitude: Decimal | None = None
+    longitude: Decimal | None = None
+    place_id: str | None = None
 
     @field_validator("tipo_local")
     @classmethod

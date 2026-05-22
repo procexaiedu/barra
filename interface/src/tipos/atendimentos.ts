@@ -101,6 +101,10 @@ export interface AtendimentoOperacional {
   duracao_horas: number | string | null
   endereco: string | null
   bairro: string | null
+  endereco_formatado: string | null
+  latitude: number | string | null
+  longitude: number | string | null
+  place_id: string | null
   tipo_local: string | null
   forma_pagamento: string | null
   valor_acordado: number | string | null
@@ -183,6 +187,10 @@ export interface EditarDadosPayload {
   tipo_local?: string | null
   forma_pagamento?: string | null
   valor_acordado?: number | null
+  endereco_formatado?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  place_id?: string | null
 }
 
 export interface CriarAtendimentoRequest {
