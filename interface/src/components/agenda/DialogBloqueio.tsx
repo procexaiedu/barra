@@ -481,6 +481,7 @@ export function DialogBloqueio({
         motivo_escalada: null,
         proxima_acao_esperada: null,
         valor_acordado: payload.valor_acordado ?? null,
+        valor_final: null,
         updated_at: new Date().toISOString(),
         programa_principal_nome: null,
       }

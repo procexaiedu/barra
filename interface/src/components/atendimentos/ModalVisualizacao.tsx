@@ -87,7 +87,7 @@ export function ModalVisualizacao({
 
   return (
     <Dialog open={!!atendimentoId} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="flex h-[min(88vh,820px)] w-[min(96vw,1280px)] max-w-[1280px] flex-col overflow-hidden bg-surface p-0">
+      <DialogContent className="flex max-h-[92vh] min-h-[60vh] w-[min(96vw,88rem)] max-w-none flex-col overflow-hidden bg-surface p-0">
         <DialogTitle className="sr-only">Detalhe do atendimento</DialogTitle>
 
         <div className="flex flex-none items-center justify-between border-b border-border bg-surface px-5 py-3">
