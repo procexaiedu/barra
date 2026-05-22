@@ -131,7 +131,8 @@ async def listar_atendimentos(
           a.tipo_atendimento::text AS tipo_atendimento, a.urgencia::text AS urgencia,
           a.ia_pausada, a.ia_pausada_motivo::text AS ia_pausada_motivo,
           a.responsavel_atual::text AS responsavel_atual, a.motivo_escalada,
-          a.proxima_acao_esperada, a.sinais_qualificacao, a.valor_acordado, a.updated_at,
+          a.proxima_acao_esperada, a.sinais_qualificacao, a.valor_acordado,
+          a.valor_final, a.updated_at,
           c.id AS cliente_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
           m.id AS modelo_id, m.nome AS modelo_nome,
           prog.nome AS programa_principal_nome
@@ -176,6 +177,7 @@ async def listar_atendimentos(
                 "proxima_acao_esperada": row["proxima_acao_esperada"],
                 "sinais_qualificacao": row["sinais_qualificacao"],
                 "valor_acordado": row["valor_acordado"],
+                "valor_final": row["valor_final"],
                 "updated_at": row["updated_at"],
                 "programa_principal_nome": row["programa_principal_nome"],
             }

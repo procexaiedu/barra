@@ -41,6 +41,7 @@ export interface AtendimentoListaItem {
   proxima_acao_esperada: string | null
   sinais_qualificacao?: Record<string, unknown> | null
   valor_acordado: number | string | null
+  valor_final: number | string | null
   updated_at: string
   programa_principal_nome: string | null
 }
