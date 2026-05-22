@@ -190,7 +190,7 @@ function CentralAtendimentosInner() {
   const [modalEdicao, setModalEdicao] = useState<AtendimentoDetalheResponse | null>(null)
   const [modalReatribuir, setModalReatribuir] = useState<AtendimentoDetalheResponse | null>(null)
   const [modalNovoAberto, setModalNovoAberto] = useState(false)
-  const [mostrarEncerrados, setMostrarEncerrados] = useState(false)
+  const [mostrarEncerrados, setMostrarEncerrados] = useState(true)
   const [itemsEncerrados, setItemsEncerrados] = useState<AtendimentoListaItem[]>([])
 
   useEffect(() => {
