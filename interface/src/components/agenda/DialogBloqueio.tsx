@@ -963,6 +963,12 @@ export function DialogBloqueio({
                   modeloId={modeloIdEfetivo}
                   disabled={submittingNovoAtendimento}
                   variant="stack"
+                  herdarPeriodo={tipo === "agendamento"}
+                  periodoHerdado={{
+                    data: form.data,
+                    horario: form.inicio,
+                    duracaoHoras: duracaoMin / 60,
+                  }}
                 />
 
                 <div className="flex justify-end">

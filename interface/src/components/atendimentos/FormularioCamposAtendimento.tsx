@@ -46,17 +46,36 @@ export interface FormularioCamposAtendimentoRef {
   }
 }
 
+export interface PeriodoHerdado {
+  data: string
+  horario: string
+  duracaoHoras: number
+}
+
 export interface FormularioCamposAtendimentoProps {
   modeloId: string | null
   disabled?: boolean
   variant?: "horizontal" | "stack"
+  /**
+   * Quando true, os campos data/horário/duração ficam ocultos e os valores são
+   * herdados de `periodoHerdado` (caso do sub-form dentro do modal de
+   * agendamento, onde esses campos já existem no header do agendamento).
+   */
+  herdarPeriodo?: boolean
+  periodoHerdado?: PeriodoHerdado
 }
 
 export const FormularioCamposAtendimento = forwardRef<
   FormularioCamposAtendimentoRef,
   FormularioCamposAtendimentoProps
 >(function FormularioCamposAtendimento(
-  { modeloId, disabled = false, variant = "horizontal" },
+  {
+    modeloId,
+    disabled = false,
+    variant = "horizontal",
+    herdarPeriodo = false,
+    periodoHerdado,
+  },
   ref,
 ) {
   const [tipo, setTipo] = useState("")
@@ -122,11 +141,19 @@ export const FormularioCamposAtendimento = forwardRef<
         const payload: EditarDadosPayload = {}
         if (tipo) payload.tipo_atendimento = tipo as TipoAtendimento
         if (urgencia) payload.urgencia = urgencia as Urgencia
-        if (dataDesejada) payload.data_desejada = dataDesejada
-        if (horario) payload.horario_desejado = horario
-        if (duracao) {
-          const d = parseDecimal(duracao)
-          if (d !== null) payload.duracao_horas = d
+        if (herdarPeriodo && periodoHerdado) {
+          if (periodoHerdado.data) payload.data_desejada = periodoHerdado.data
+          if (periodoHerdado.horario) payload.horario_desejado = periodoHerdado.horario
+          if (Number.isFinite(periodoHerdado.duracaoHoras) && periodoHerdado.duracaoHoras > 0) {
+            payload.duracao_horas = periodoHerdado.duracaoHoras
+          }
+        } else {
+          if (dataDesejada) payload.data_desejada = dataDesejada
+          if (horario) payload.horario_desejado = horario
+          if (duracao) {
+            const d = parseDecimal(duracao)
+            if (d !== null) payload.duracao_horas = d
+          }
         }
         if (endereco) payload.endereco = endereco
         if (bairro) payload.bairro = bairro
@@ -157,6 +184,8 @@ export const FormularioCamposAtendimento = forwardRef<
       formaPagamento,
       valorAcordado,
       adicionados,
+      herdarPeriodo,
+      periodoHerdado,
     ],
   )
 
@@ -213,34 +242,42 @@ export const FormularioCamposAtendimento = forwardRef<
         </select>
       </Campo>
 
-      <Campo label="Data desejada">
-        <Input
-          className={controlClassName}
-          type="date"
-          value={dataDesejada}
-          onChange={(e) => setDataDesejada(e.target.value)}
-          disabled={disabled}
-        />
-      </Campo>
-      <Campo label="Horário">
-        <Input
-          className={controlClassName}
-          type="time"
-          value={horario}
-          onChange={(e) => setHorario(e.target.value)}
-          disabled={disabled}
-        />
-      </Campo>
-      <Campo label="Duração (h)">
-        <Input
-          className={cn(controlClassName, duracaoDecimalInvalida && "border-state-lost")}
-          inputMode="decimal"
-          placeholder="2"
-          value={duracao}
-          onChange={(e) => setDuracao(e.target.value)}
-          disabled={disabled}
-        />
-      </Campo>
+      {herdarPeriodo ? (
+        <p className="text-[11px] leading-4 text-text-muted">
+          Data, horário e duração são herdados do agendamento acima.
+        </p>
+      ) : (
+        <>
+          <Campo label="Data desejada">
+            <Input
+              className={controlClassName}
+              type="date"
+              value={dataDesejada}
+              onChange={(e) => setDataDesejada(e.target.value)}
+              disabled={disabled}
+            />
+          </Campo>
+          <Campo label="Horário">
+            <Input
+              className={controlClassName}
+              type="time"
+              value={horario}
+              onChange={(e) => setHorario(e.target.value)}
+              disabled={disabled}
+            />
+          </Campo>
+          <Campo label="Duração (h)">
+            <Input
+              className={cn(controlClassName, duracaoDecimalInvalida && "border-state-lost")}
+              inputMode="decimal"
+              placeholder="2"
+              value={duracao}
+              onChange={(e) => setDuracao(e.target.value)}
+              disabled={disabled}
+            />
+          </Campo>
+        </>
+      )}
     </ColunaSecao>
   )
 
