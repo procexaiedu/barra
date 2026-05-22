@@ -61,6 +61,7 @@ export function ModalNovoAtendimento({
   const [erroModelos, setErroModelos] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [modalClienteAberto, setModalClienteAberto] = useState(false)
+  const [temConflito, setTemConflito] = useState(false)
   const buscaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const camposRef = useRef<FormularioCamposAtendimentoRef>(null)
 
@@ -197,7 +198,7 @@ export function ModalNovoAtendimento({
     }
   }
 
-  const podeSalvar = Boolean(clienteSelecionado && modeloId) && !submitting
+  const podeSalvar = Boolean(clienteSelecionado && modeloId) && !submitting && !temConflito
 
   const aoCriarCliente = (cliente: Cliente) => {
     const item: ClienteListItem = {
@@ -342,6 +343,7 @@ export function ModalNovoAtendimento({
               modeloId={modeloId || null}
               disabled={submitting}
               variant="horizontal"
+              onConflitoChange={setTemConflito}
             />
           </div>
 

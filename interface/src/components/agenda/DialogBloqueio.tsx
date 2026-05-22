@@ -187,6 +187,7 @@ export function DialogBloqueio({
   const [novoClienteTelefone, setNovoClienteTelefone] = useState("")
   const [submittingCliente, setSubmittingCliente] = useState(false)
   const [submittingNovoAtendimento, setSubmittingNovoAtendimento] = useState(false)
+  const [temConflitoAtend, setTemConflitoAtend] = useState(false)
   const camposAtendRef = useRef<FormularioCamposAtendimentoRef>(null)
 
   const [confirmConverterOpen, setConfirmConverterOpen] = useState(false)
@@ -970,13 +971,14 @@ export function DialogBloqueio({
                     horario: form.inicio,
                     duracaoHoras: duracaoMin / 60,
                   }}
+                  onConflitoChange={setTemConflitoAtend}
                 />
 
                 <div className="flex justify-end">
                   <Button
                     variant="primary"
                     onClick={criarAtendimentoEVincular}
-                    disabled={!clienteSelecionado || submittingNovoAtendimento}
+                    disabled={!clienteSelecionado || submittingNovoAtendimento || temConflitoAtend}
                   >
                     {submittingNovoAtendimento && <Loader2 className="animate-spin" />}
                     Criar atendimento e vincular

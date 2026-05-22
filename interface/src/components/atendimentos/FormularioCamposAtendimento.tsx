@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useConflitoAgenda } from "@/hooks/useConflitoAgenda"
+import { AlertaConflito } from "./AlertaConflito"
 import type {
   EditarDadosPayload,
   TipoAtendimento,
@@ -63,6 +65,10 @@ export interface FormularioCamposAtendimentoProps {
    */
   herdarPeriodo?: boolean
   periodoHerdado?: PeriodoHerdado
+  /** bloqueio do próprio atendimento em edição — não conta como conflito de agenda */
+  excluirBloqueioId?: string | null
+  /** notifica o pai quando há conflito de agenda, para desabilitar o Salvar */
+  onConflitoChange?: (temConflito: boolean) => void
 }
 
 export const FormularioCamposAtendimento = forwardRef<
@@ -75,6 +81,8 @@ export const FormularioCamposAtendimento = forwardRef<
     variant = "horizontal",
     herdarPeriodo = false,
     periodoHerdado,
+    excluirBloqueioId,
+    onConflitoChange,
   },
   ref,
 ) {
@@ -133,6 +141,26 @@ export const FormularioCamposAtendimento = forwardRef<
 
   const valorDecimalInvalido = valorAcordado.trim().length > 0 && parseDecimal(valorAcordado) === null
   const duracaoDecimalInvalida = duracao.trim().length > 0 && parseDecimal(duracao) === null
+
+  // Período efetivo: herdado do agendamento (sub-form da agenda) ou dos campos locais.
+  const periodoData = herdarPeriodo ? periodoHerdado?.data ?? "" : dataDesejada
+  const periodoHorario = herdarPeriodo ? periodoHerdado?.horario ?? "" : horario
+  const periodoDuracaoHoras = herdarPeriodo
+    ? periodoHerdado?.duracaoHoras ?? 0
+    : parseDecimal(duracao) ?? 0
+
+  const { conflitos } = useConflitoAgenda({
+    modelo_id: modeloId,
+    data: periodoData,
+    horario: periodoHorario,
+    duracao_horas: periodoDuracaoHoras,
+    excluir_bloqueio_id: excluirBloqueioId ?? null,
+  })
+
+  const temConflito = conflitos.length > 0
+  useEffect(() => {
+    onConflitoChange?.(temConflito)
+  }, [temConflito, onConflitoChange])
 
   useImperativeHandle(
     ref,
@@ -405,19 +433,29 @@ export const FormularioCamposAtendimento = forwardRef<
 
   if (variant === "stack") {
     return (
-      <div className="flex flex-col divide-y divide-border-subtle rounded-lg border border-border-subtle bg-surface">
-        {colunaAtendimento}
-        {colunaLocal}
-        {colunaPagamento}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col divide-y divide-border-subtle rounded-lg border border-border-subtle bg-surface">
+          {colunaAtendimento}
+          {colunaLocal}
+          {colunaPagamento}
+        </div>
+        {temConflito && <AlertaConflito conflitos={conflitos} />}
       </div>
     )
   }
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-border-subtle overflow-hidden md:grid-cols-3 md:divide-x md:divide-y-0">
-      {colunaAtendimento}
-      {colunaLocal}
-      {colunaPagamento}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-border-subtle overflow-hidden md:grid-cols-3 md:divide-x md:divide-y-0">
+        {colunaAtendimento}
+        {colunaLocal}
+        {colunaPagamento}
+      </div>
+      {temConflito && (
+        <div className="border-t border-border-subtle px-5 py-3">
+          <AlertaConflito conflitos={conflitos} />
+        </div>
+      )}
     </div>
   )
 })

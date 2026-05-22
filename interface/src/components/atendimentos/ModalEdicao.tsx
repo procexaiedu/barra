@@ -10,12 +10,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
 import { formatBRL, formatTelefone } from "@/lib/formatters"
+import { useConflitoAgenda } from "@/hooks/useConflitoAgenda"
 import type {
   AtendimentoDetalheResponse,
   EditarDadosPayload,
   ServicoFechado,
   TiposLocalResponse,
 } from "@/tipos/atendimentos"
+import { AlertaConflito } from "./AlertaConflito"
 import { estadoLabel } from "./utils"
 
 const RESPONSAVEL_LABEL: Record<string, string> = {
@@ -94,6 +96,15 @@ export function ModalEdicao({
       .then((r) => setTiposBackend(r.items))
       .catch(() => {})
   }, [])
+
+  const duracaoHoras = parseDecimal(duracao) ?? 0
+  const { conflitos } = useConflitoAgenda({
+    modelo_id: modeloId ?? null,
+    data: dataDesejada,
+    horario,
+    duracao_horas: duracaoHoras,
+    excluir_bloqueio_id: detalhe?.bloqueio?.id ?? null,
+  })
 
   if (!detalhe || !at) return null
 
@@ -323,6 +334,12 @@ export function ModalEdicao({
           </ColunaSecao>
         </div>
 
+        {conflitos.length > 0 && (
+          <div className="border-t border-border-subtle bg-surface px-5 pt-3">
+            <AlertaConflito conflitos={conflitos} />
+          </div>
+        )}
+
         <div className="flex items-center justify-between gap-2 border-t border-border-subtle bg-surface px-5 py-3">
           <div>
             {onReatribuir && (
@@ -337,7 +354,7 @@ export function ModalEdicao({
           </div>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={onClose} disabled={submitting}>Cancelar</Button>
-            <Button variant="primary" onClick={handleSalvar} disabled={submitting}>
+            <Button variant="primary" onClick={handleSalvar} disabled={submitting || conflitos.length > 0}>
               {submitting ? "Salvando…" : "Salvar"}
             </Button>
           </div>
