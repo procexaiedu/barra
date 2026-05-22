@@ -214,3 +214,7 @@ export type CriarAtendimentoResultado =
 export interface TiposLocalResponse {
   items: string[]
 }
+
+export interface ContagemTipoLocalResponse {
+  contagem: number
+}

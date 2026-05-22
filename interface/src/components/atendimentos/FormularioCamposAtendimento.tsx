@@ -9,12 +9,13 @@ import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
 import { useConflitoAgenda } from "@/hooks/useConflitoAgenda"
+import { useTiposLocal } from "@/hooks/useTiposLocal"
 import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
 import { AlertaConflito } from "./AlertaConflito"
+import { ModalRemoverTipoLocal } from "./ModalRemoverTipoLocal"
 import type {
   EditarDadosPayload,
   TipoAtendimento,
-  TiposLocalResponse,
   Urgencia,
 } from "@/tipos/atendimentos"
 
@@ -118,12 +119,14 @@ export const FormularioCamposAtendimento = forwardRef<
   const [adicionados, setAdicionados] = useState<ProgramaAdicionado[]>([])
   const [selecionado, setSelecionado] = useState("")
 
-  const [tiposBackend, setTiposBackend] = useState<string[]>([])
-  const [tiposCriadosSessao, setTiposCriadosSessao] = useState<string[]>([])
-  const tiposCombinados = useMemo(
-    () => Array.from(new Set([...tiposBackend, ...tiposCriadosSessao])).sort(),
-    [tiposBackend, tiposCriadosSessao],
-  )
+  const {
+    tiposCombinados,
+    adicionarTipoSessao,
+    iniciarRemocao,
+    remocao,
+    cancelarRemocao,
+    aposRemover,
+  } = useTiposLocal()
 
   // Reset state quando modeloId muda — pattern oficial do React (state derivado de prop).
   // Ver https://react.dev/reference/react/useState#storing-information-from-previous-renders
@@ -170,12 +173,6 @@ export const FormularioCamposAtendimento = forwardRef<
       cancelado = true
     }
   }, [modeloId])
-
-  useEffect(() => {
-    api<TiposLocalResponse>("/v1/atendimentos/tipos-local")
-      .then((r) => setTiposBackend(r.items))
-      .catch(() => {})
-  }, [])
 
   const valorDecimalInvalido =
     valorAcordadoExibido.trim().length > 0 && parseDecimal(valorAcordadoExibido) === null
@@ -397,7 +394,8 @@ export const FormularioCamposAtendimento = forwardRef<
           onChange={setTipoLocal}
           options={tiposCombinados}
           placeholder="apartamento, casa…"
-          onCreate={(novo) => setTiposCriadosSessao((prev) => [...prev, novo])}
+          onCreate={adicionarTipoSessao}
+          onDeletarItem={iniciarRemocao}
           disabled={disabled}
         />
       </Campo>
@@ -501,6 +499,16 @@ export const FormularioCamposAtendimento = forwardRef<
     </ColunaSecao>
   )
 
+  const modalRemoverTipo = (
+    <ModalRemoverTipoLocal
+      nome={remocao?.nome ?? null}
+      contagem={remocao?.contagem ?? 0}
+      tiposExistentes={tiposCombinados}
+      onRemovido={aposRemover}
+      onCancelar={cancelarRemocao}
+    />
+  )
+
   if (variant === "stack") {
     return (
       <div className="flex flex-col gap-3">
@@ -510,6 +518,7 @@ export const FormularioCamposAtendimento = forwardRef<
           {colunaPagamento}
         </div>
         {temConflito && <AlertaConflito conflitos={conflitos} />}
+        {modalRemoverTipo}
       </div>
     )
   }
@@ -526,6 +535,7 @@ export const FormularioCamposAtendimento = forwardRef<
           <AlertaConflito conflitos={conflitos} />
         </div>
       )}
+      {modalRemoverTipo}
     </div>
   )
 })

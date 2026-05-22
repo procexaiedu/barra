@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { X } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
@@ -11,14 +11,15 @@ import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
 import { formatBRL, formatTelefone } from "@/lib/formatters"
 import { useConflitoAgenda } from "@/hooks/useConflitoAgenda"
+import { useTiposLocal } from "@/hooks/useTiposLocal"
 import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
 import type {
   AtendimentoDetalheResponse,
   EditarDadosPayload,
   ServicoFechado,
-  TiposLocalResponse,
 } from "@/tipos/atendimentos"
 import { AlertaConflito } from "./AlertaConflito"
+import { ModalRemoverTipoLocal } from "./ModalRemoverTipoLocal"
 import { estadoLabel } from "./utils"
 
 const RESPONSAVEL_LABEL: Record<string, string> = {
@@ -96,12 +97,14 @@ export function ModalEdicao({
   const [adicionados, setAdicionados] = useState<{ programa_id: string; duracao_id: string; label: string }[]>([])
   const [selecionado, setSelecionado] = useState("")
 
-  const [tiposBackend, setTiposBackend] = useState<string[]>([])
-  const [tiposCriadosSessao, setTiposCriadosSessao] = useState<string[]>([])
-  const tiposCombinados = useMemo(
-    () => Array.from(new Set([...tiposBackend, ...tiposCriadosSessao])).sort(),
-    [tiposBackend, tiposCriadosSessao],
-  )
+  const {
+    tiposCombinados,
+    adicionarTipoSessao,
+    iniciarRemocao,
+    remocao,
+    cancelarRemocao,
+    aposRemover,
+  } = useTiposLocal()
 
   const modeloId = detalhe?.modelo.id
   useEffect(() => {
@@ -110,12 +113,6 @@ export function ModalEdicao({
       .then(setProgramasModelo)
       .catch(() => {})
   }, [modeloId])
-
-  useEffect(() => {
-    api<TiposLocalResponse>("/v1/atendimentos/tipos-local")
-      .then((r) => setTiposBackend(r.items))
-      .catch(() => {})
-  }, [])
 
   const duracaoHoras = parseDecimal(duracao) ?? 0
   const { conflitos } = useConflitoAgenda({
@@ -322,7 +319,8 @@ export function ModalEdicao({
                 onChange={setTipoLocal}
                 options={tiposCombinados}
                 placeholder="apartamento, casa…"
-                onCreate={(novo) => setTiposCriadosSessao((prev) => [...prev, novo])}
+                onCreate={adicionarTipoSessao}
+                onDeletarItem={iniciarRemocao}
                 disabled={submitting}
               />
             </Campo>
@@ -453,6 +451,13 @@ export function ModalEdicao({
           </div>
         </div>
       </DialogContent>
+      <ModalRemoverTipoLocal
+        nome={remocao?.nome ?? null}
+        contagem={remocao?.contagem ?? 0}
+        tiposExistentes={tiposCombinados}
+        onRemovido={aposRemover}
+        onCancelar={cancelarRemocao}
+      />
     </Dialog>
   )
 }

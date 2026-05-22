@@ -200,6 +200,38 @@ async def listar_tipos_local(
     return {"items": [r["tipo_local"] for r in rows]}
 
 
+@router.get("/tipos-local/{nome}/contagem")
+async def contar_tipos_local(
+    nome: str,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, int]:
+    result = await conn.execute(
+        "SELECT COUNT(*) AS total FROM barravips.atendimentos WHERE tipo_local = %s",
+        (nome,),
+    )
+    row = await result.fetchone()
+    return {"contagem": row["total"] if row else 0}
+
+
+@router.delete("/tipos-local/{nome}")
+async def deletar_tipo_local(
+    nome: str,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+    substituto: str | None = None,
+) -> dict[str, int]:
+    if substituto:
+        result = await conn.execute(
+            "UPDATE barravips.atendimentos SET tipo_local = %s WHERE tipo_local = %s",
+            (substituto, nome),
+        )
+    else:
+        result = await conn.execute(
+            "UPDATE barravips.atendimentos SET tipo_local = NULL WHERE tipo_local = %s",
+            (nome,),
+        )
+    return {"afetados": result.rowcount}
+
+
 @router.post("", status_code=201)
 async def criar_atendimento(
     body: CriarAtendimentoRequest,
