@@ -41,6 +41,12 @@ function parseDecimal(input: string): number | null {
   return Number.isFinite(valor) && valor >= 0 ? valor : null
 }
 
+// Formata um número para o campo (vírgula decimal, sem separador de milhar),
+// compatível com parseDecimal na hora de enviar ao backend.
+function formatValorCampo(valor: number): string {
+  return valor.toFixed(2).replace(".", ",")
+}
+
 export interface FormularioCamposAtendimentoRef {
   coletarDados: () => {
     payload: EditarDadosPayload
@@ -96,6 +102,9 @@ export const FormularioCamposAtendimento = forwardRef<
   const [tipoLocal, setTipoLocal] = useState("")
   const [formaPagamento, setFormaPagamento] = useState("")
   const [valorAcordado, setValorAcordado] = useState("")
+  // Enquanto false, o valor acordado é recalculado a partir dos programas.
+  // Vira true assim que o usuário edita o campo manualmente.
+  const [valorEditadoManual, setValorEditadoManual] = useState(false)
 
   const [programasModelo, setProgramasModelo] = useState<ProgramaModelo[]>([])
   const [adicionados, setAdicionados] = useState<ProgramaAdicionado[]>([])
@@ -116,7 +125,28 @@ export const FormularioCamposAtendimento = forwardRef<
     setProgramasModelo([])
     setAdicionados([])
     setSelecionado("")
+    setValorAcordado("")
+    setValorEditadoManual(false)
   }
+
+  // Soma dos preços dos programas atualmente adicionados (ignora preco null/NaN).
+  const valorCalculado = useMemo(() => {
+    return adicionados.reduce((total, a) => {
+      const prog = programasModelo.find(
+        (p) => p.programa_id === a.programa_id && p.duracao_id === a.duracao_id,
+      )
+      const preco = prog?.preco
+      return Number.isFinite(preco) ? total + (preco as number) : total
+    }, 0)
+  }, [adicionados, programasModelo])
+
+  // Enquanto o usuário não editou manualmente e há programas, o campo espelha a
+  // soma dos programas (valor derivado, sem setState em efeito). Assim que ele
+  // edita, passa a valer o que está em valorAcordado e o hint some.
+  const recalculaAutomaticamente = !valorEditadoManual && adicionados.length > 0
+  const valorAcordadoExibido = recalculaAutomaticamente
+    ? formatValorCampo(valorCalculado)
+    : valorAcordado
 
   useEffect(() => {
     if (!modeloId) return
@@ -139,7 +169,8 @@ export const FormularioCamposAtendimento = forwardRef<
       .catch(() => {})
   }, [])
 
-  const valorDecimalInvalido = valorAcordado.trim().length > 0 && parseDecimal(valorAcordado) === null
+  const valorDecimalInvalido =
+    valorAcordadoExibido.trim().length > 0 && parseDecimal(valorAcordadoExibido) === null
   const duracaoDecimalInvalida = duracao.trim().length > 0 && parseDecimal(duracao) === null
 
   // Período efetivo: herdado do agendamento (sub-form da agenda) ou dos campos locais.
@@ -187,8 +218,8 @@ export const FormularioCamposAtendimento = forwardRef<
         if (bairro) payload.bairro = bairro
         if (tipoLocal) payload.tipo_local = tipoLocal
         if (formaPagamento) payload.forma_pagamento = formaPagamento
-        if (valorAcordado) {
-          const v = parseDecimal(valorAcordado)
+        if (valorAcordadoExibido) {
+          const v = parseDecimal(valorAcordadoExibido)
           if (v !== null) payload.valor_acordado = v
         }
         return {
@@ -210,7 +241,7 @@ export const FormularioCamposAtendimento = forwardRef<
       bairro,
       tipoLocal,
       formaPagamento,
-      valorAcordado,
+      valorAcordadoExibido,
       adicionados,
       herdarPeriodo,
       periodoHerdado,
@@ -363,10 +394,18 @@ export const FormularioCamposAtendimento = forwardRef<
             className={cn(controlClassName, valorDecimalInvalido && "border-state-lost")}
             inputMode="decimal"
             placeholder="1.200,00"
-            value={valorAcordado}
-            onChange={(e) => setValorAcordado(e.target.value)}
+            value={valorAcordadoExibido}
+            onChange={(e) => {
+              setValorEditadoManual(true)
+              setValorAcordado(e.target.value)
+            }}
             disabled={disabled}
           />
+          {recalculaAutomaticamente && (
+            <span className="text-[11px] leading-4 text-text-muted">
+              Recalculado a partir dos programas
+            </span>
+          )}
         </Campo>
       </div>
 

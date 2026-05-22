@@ -41,6 +41,12 @@ function parseDecimal(input: string): number | null {
   return Number.isFinite(valor) && valor >= 0 ? valor : null
 }
 
+// Formata um número para o campo (vírgula decimal, sem separador de milhar),
+// compatível com parseDecimal na hora de enviar ao backend.
+function formatValorCampo(valor: number): string {
+  return valor.toFixed(2).replace(".", ",")
+}
+
 const controlClassName =
   "h-10 w-full rounded-lg border border-border-strong bg-surface-hover px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted hover:bg-surface-pressed focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
 
@@ -70,6 +76,12 @@ export function ModalEdicao({
   const [tipoLocal, setTipoLocal] = useState(at?.tipo_local ?? "")
   const [formaPagamento, setFormaPagamento] = useState(at?.forma_pagamento ?? "")
   const [valorAcordado, setValorAcordado] = useState(at?.valor_acordado != null ? String(Number(at.valor_acordado)) : "")
+  // Enquanto false, o campo passa a refletir a soma dos programas assim que o
+  // usuário mexer na lista. Vira true se ele editar o valor manualmente.
+  const [valorEditadoManual, setValorEditadoManual] = useState(false)
+  // Só recalcula depois que a lista de programas é alterada nesta sessão; ao
+  // abrir, respeita o valor vindo do backend.
+  const [programasMexidos, setProgramasMexidos] = useState(false)
 
   const [programasModelo, setProgramasModelo] = useState<ProgramaModelo[]>([])
   const [removidos, setRemovidos] = useState<Set<string>>(new Set())
@@ -116,6 +128,28 @@ export function ModalEdicao({
   ])
   const disponiveis = programasModelo.filter((p) => !activePairs.has(`${p.programa_id}|${p.duracao_id}`))
 
+  // Soma dos preços dos programas atuais: serviços existentes (preco_snapshot)
+  // mais os adicionados nesta sessão (preco do catálogo). Ignora preço null/NaN.
+  const somaServicos = servicosVisiveis.reduce(
+    (total, s) => (Number.isFinite(s.preco_snapshot) ? total + s.preco_snapshot : total),
+    0,
+  )
+  const somaAdicionados = adicionados.reduce((total, a) => {
+    const prog = programasModelo.find(
+      (p) => p.programa_id === a.programa_id && p.duracao_id === a.duracao_id,
+    )
+    const preco = prog?.preco
+    return Number.isFinite(preco) ? total + (preco as number) : total
+  }, 0)
+  const valorCalculado = somaServicos + somaAdicionados
+
+  // Após mexer nos programas e enquanto não houver edição manual, o campo reflete
+  // a soma (valor derivado). Antes disso, respeita o valor vindo do backend.
+  const recalculaAutomaticamente = programasMexidos && !valorEditadoManual
+  const valorAcordadoExibido = recalculaAutomaticamente
+    ? formatValorCampo(valorCalculado)
+    : valorAcordado
+
   const handleAdicionarPrograma = () => {
     if (!selecionado) return
     const [progId, durId] = selecionado.split("|")
@@ -123,6 +157,7 @@ export function ModalEdicao({
     if (!prog) return
     setAdicionados((prev) => [...prev, { programa_id: progId, duracao_id: durId, label: `${prog.nome} – ${prog.duracao_nome}` }])
     setSelecionado("")
+    setProgramasMexidos(true)
   }
 
   const handleSalvar = async () => {
@@ -139,8 +174,8 @@ export function ModalEdicao({
     if (bairro) dados.bairro = bairro
     if (tipoLocal) dados.tipo_local = tipoLocal
     if (formaPagamento) dados.forma_pagamento = formaPagamento
-    if (valorAcordado) {
-      const v = parseDecimal(valorAcordado)
+    if (valorAcordadoExibido) {
+      const v = parseDecimal(valorAcordadoExibido)
       if (v !== null) dados.valor_acordado = v
     }
 
@@ -270,7 +305,21 @@ export function ModalEdicao({
                 </select>
               </Campo>
               <Campo label="Valor acordado (R$)">
-                <Input className={controlClassName} inputMode="decimal" placeholder="1.200,00" value={valorAcordado} onChange={(e) => setValorAcordado(e.target.value)} />
+                <Input
+                  className={controlClassName}
+                  inputMode="decimal"
+                  placeholder="1.200,00"
+                  value={valorAcordadoExibido}
+                  onChange={(e) => {
+                    setValorEditadoManual(true)
+                    setValorAcordado(e.target.value)
+                  }}
+                />
+                {recalculaAutomaticamente && (
+                  <span className="text-[11px] leading-4 text-text-muted">
+                    Recalculado a partir dos programas
+                  </span>
+                )}
               </Campo>
             </div>
 
@@ -284,7 +333,10 @@ export function ModalEdicao({
                       <span className="text-text-muted">{s.duracao_nome}</span>
                       <button
                         type="button"
-                        onClick={() => setRemovidos((prev) => new Set([...prev, s.id]))}
+                        onClick={() => {
+                          setRemovidos((prev) => new Set([...prev, s.id]))
+                          setProgramasMexidos(true)
+                        }}
                         className="text-text-muted transition-colors hover:text-text-primary"
                         disabled={submitting}
                       >
@@ -298,7 +350,10 @@ export function ModalEdicao({
                     <span className="text-text-primary">{a.label}</span>
                     <button
                       type="button"
-                      onClick={() => setAdicionados((prev) => prev.filter((_, j) => j !== i))}
+                      onClick={() => {
+                        setAdicionados((prev) => prev.filter((_, j) => j !== i))
+                        setProgramasMexidos(true)
+                      }}
                       className="text-text-muted transition-colors hover:text-text-primary"
                       disabled={submitting}
                     >
