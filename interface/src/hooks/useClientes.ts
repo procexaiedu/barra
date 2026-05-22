@@ -7,10 +7,11 @@ import { subscribeTabelas } from "@/lib/realtime"
 import { supabase } from "@/lib/supabase"
 import type {
   Cliente,
-  ClientesListaResponse,
+  ClienteConversaResumo,
+  ClienteDetalheResponse,
+  ClienteListaItem,
+  ClientesAgregadosResponse,
   ConversaDetalheResponse,
-  ConversaListaItem,
-  ConversasListaResponse,
   CriarClienteRequest,
   EditarClienteRequest,
   FiltrosClientes,
@@ -21,25 +22,18 @@ type Status = "loading" | "success" | "error"
 
 const filtrosIniciais: FiltrosClientes = {
   busca: "",
-  recorrencia: "todas",
-  motivoPerda: "todos",
   periodo: "todos",
   modeloId: "todas",
-  ordenarPor: "recente",
 }
 
 function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   const params = new URLSearchParams({ limit: "50" })
   const busca = filtros.busca.trim()
   if (busca) params.set("q", busca)
-  if (filtros.recorrencia === "novas") params.set("recorrente", "false")
-  if (filtros.recorrencia === "recorrentes") params.set("recorrente", "true")
-  if (filtros.motivoPerda !== "todos") params.set("motivo_perda", filtros.motivoPerda)
   if (filtros.periodo !== "todos") params.set("periodo", filtros.periodo)
   if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
-  if (filtros.ordenarPor === "inatividade") params.set("ordenar_por", "inatividade")
   if (cursor) params.set("cursor", cursor)
-  return `/v1/crm/conversas?${params.toString()}`
+  return `/v1/crm/clientes?${params.toString()}`
 }
 
 interface ModelosResponse {
@@ -51,21 +45,25 @@ export function useClientes() {
   const [filtros, setFiltros] = useState<FiltrosClientes>(filtrosIniciais)
   const [incluirArquivados, setIncluirArquivados] = useState(false)
   const [debouncedBusca, setDebouncedBusca] = useState("")
-  const [items, setItems] = useState<ConversaListaItem[]>([])
+  const [items, setItems] = useState<ClienteListaItem[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  // Conversas (pares cliente,modelo) do cliente selecionado — alimentam o seletor de modelo.
+  const [conversas, setConversas] = useState<ClienteConversaResumo[]>([])
+  const [conversaAtivaId, setConversaAtivaId] = useState<string | null>(null)
   const [detalhe, setDetalhe] = useState<ConversaDetalheResponse | null>(null)
+  // Cliente selecionado sem nenhuma conversa (recém-criado) → placeholder "sem histórico".
+  const [clienteSemHistorico, setClienteSemHistorico] = useState<
+    ClienteDetalheResponse["cliente"] | null
+  >(null)
   const [listaStatus, setListaStatus] = useState<Status>("loading")
   const [detalheStatus, setDetalheStatus] = useState<Status>("loading")
   const [listaError, setListaError] = useState<string | null>(null)
   const [detalheError, setDetalheError] = useState<string | null>(null)
   const [modelos, setModelos] = useState<ModeloResumo[]>([])
-  const [idsArquivados, setIdsArquivados] = useState<Set<string>>(() => new Set())
-  const idsArquivadosRef = useRef<Set<string>>(new Set())
   const router = useRouter()
-  const itemsRef = useRef<ConversaListaItem[]>([])
+  const itemsRef = useRef<ClienteListaItem[]>([])
   const nextCursorRef = useRef<string | null>(null)
-  const detalheRef = useRef<ConversaDetalheResponse | null>(null)
   const selectedIdRef = useRef<string | null>(null)
   const firstListaDone = useRef(false)
   const firstDetalheDone = useRef(false)
@@ -76,80 +74,97 @@ export function useClientes() {
   const filtrosEfetivos = useMemo<FiltrosClientes>(
     () => ({
       busca: debouncedBusca,
-      recorrencia: filtros.recorrencia,
-      motivoPerda: filtros.motivoPerda,
       periodo: filtros.periodo,
       modeloId: filtros.modeloId,
-      ordenarPor: filtros.ordenarPor,
     }),
-    [
-      debouncedBusca,
-      filtros.recorrencia,
-      filtros.motivoPerda,
-      filtros.periodo,
-      filtros.modeloId,
-      filtros.ordenarPor,
-    ]
+    [debouncedBusca, filtros.periodo, filtros.modeloId]
   )
 
   const filtrosAplicados =
     filtrosEfetivos.busca.trim() !== "" ||
-    filtrosEfetivos.recorrencia !== "todas" ||
-    filtrosEfetivos.motivoPerda !== "todos" ||
     filtrosEfetivos.periodo !== "todos" ||
-    filtrosEfetivos.modeloId !== "todas" ||
-    filtrosEfetivos.ordenarPor !== "recente"
+    filtrosEfetivos.modeloId !== "todas"
 
-  const aplicarDetalhe = useCallback(
-    (res: ConversaDetalheResponse) => {
-      detalheRef.current = res
+  // Carrega o detalhe rico de uma conversa específica (par cliente,modelo).
+  const carregarConversa = useCallback(async (conversaId: string) => {
+    if (!firstDetalheDone.current) setDetalheStatus("loading")
+    try {
+      const res = await api<ConversaDetalheResponse>(`/v1/crm/conversas/${conversaId}`)
       setDetalhe(res)
-    },
-    []
-  )
+      setConversaAtivaId(conversaId)
+      setClienteSemHistorico(null)
+      setDetalheStatus("success")
+      setDetalheError(null)
+      firstDetalheDone.current = true
+    } catch (e) {
+      if (!firstDetalheDone.current) setDetalheStatus("error")
+      setDetalheError(e instanceof Error ? e.message : "Erro desconhecido")
+    }
+  }, [])
 
+  // Carrega o cliente: resolve a lista de conversas e abre a mais recente.
   const loadDetalhe = useCallback(
-    async (id: string) => {
+    async (clienteId: string) => {
       if (!firstDetalheDone.current) setDetalheStatus("loading")
       try {
-        const res = await api<ConversaDetalheResponse>(`/v1/crm/conversas/${id}`)
-        aplicarDetalhe(res)
-        setDetalheStatus("success")
-        setDetalheError(null)
-        firstDetalheDone.current = true
+        const res = await api<ClienteDetalheResponse>(`/v1/crm/clientes/${clienteId}`)
+        setConversas(res.conversas)
+        if (res.conversas.length === 0) {
+          // Cliente novo sem atendimento → placeholder "sem histórico".
+          setDetalhe(null)
+          setConversaAtivaId(null)
+          setClienteSemHistorico(res.cliente)
+          setDetalheStatus("success")
+          setDetalheError(null)
+          firstDetalheDone.current = true
+          return
+        }
+        await carregarConversa(res.conversas[0].id)
       } catch (e) {
         if (!firstDetalheDone.current) setDetalheStatus("error")
         setDetalheError(e instanceof Error ? e.message : "Erro desconhecido")
       }
     },
-    [aplicarDetalhe]
+    [carregarConversa]
   )
 
-  const selecionarConversa = useCallback(
+  const selecionarCliente = useCallback(
     (id: string) => {
       selectedIdRef.current = id
       setSelectedId(id)
       firstDetalheDone.current = false
-      detalheRef.current = null
       setDetalhe(null)
+      setConversas([])
+      setConversaAtivaId(null)
+      setClienteSemHistorico(null)
       loadDetalhe(id)
     },
     [loadDetalhe]
   )
 
+  const limparSelecao = useCallback(() => {
+    selectedIdRef.current = null
+    setSelectedId(null)
+    setDetalhe(null)
+    setConversas([])
+    setConversaAtivaId(null)
+    setClienteSemHistorico(null)
+    setDetalheStatus("success")
+    firstDetalheDone.current = true
+  }, [])
+
   const loadLista = useCallback(
     async (mode: "replace" | "append" = "replace", manterSelecao = false) => {
       if (mode === "replace" && !manterSelecao) {
-        selectedIdRef.current = null
-        detalheRef.current = null
-        setSelectedId(null)
-        setDetalhe(null)
+        limparSelecao()
         setDetalheStatus("loading")
       }
       if (!firstListaDone.current && mode === "replace") setListaStatus("loading")
       try {
         const cursor = mode === "append" ? nextCursorRef.current : null
-        const res = await api<ConversasListaResponse>(buildListaPath(filtrosEfetivos, cursor))
+        const res = await api<ClientesAgregadosResponse>(
+          buildListaPath(filtrosEfetivos, cursor)
+        )
         const novosItems = mode === "append" ? [...itemsRef.current, ...res.items] : res.items
         itemsRef.current = novosItems
         nextCursorRef.current = res.next_cursor
@@ -168,21 +183,16 @@ export function useClientes() {
         }
         const proximoId = novosItems[0]?.id ?? null
         if (proximoId) {
-          selecionarConversa(proximoId)
+          selecionarCliente(proximoId)
         } else {
-          selectedIdRef.current = null
-          setSelectedId(null)
-          detalheRef.current = null
-          setDetalhe(null)
-          setDetalheStatus("success")
-          firstDetalheDone.current = true
+          limparSelecao()
         }
       } catch (e) {
         if (!firstListaDone.current) setListaStatus("error")
         setListaError(e instanceof Error ? e.message : "Erro desconhecido")
       }
     },
-    [filtrosEfetivos, loadDetalhe, selecionarConversa]
+    [filtrosEfetivos, loadDetalhe, selecionarCliente, limparSelecao]
   )
 
   const refetch = useCallback(() => {
@@ -205,8 +215,6 @@ export function useClientes() {
     }, 250)
   }, [loadLista])
 
-
-
   useEffect(() => {
     if (buscaTimer.current) clearTimeout(buscaTimer.current)
     buscaTimer.current = setTimeout(() => setDebouncedBusca(filtros.busca), 300)
@@ -224,7 +232,7 @@ export function useClientes() {
       loadLista("replace", false)
     }, 0)
     return () => clearTimeout(timer)
-  }, [filtrosEfetivos, loadLista])
+  }, [filtrosEfetivos, incluirArquivados, loadLista])
 
   useEffect(() => {
     api<ModelosResponse[]>("/v1/modelos")
@@ -232,43 +240,16 @@ export function useClientes() {
       .catch(() => setModelos([]))
   }, [])
 
-  const carregarIdsArquivados = useCallback((): Promise<void> => {
-    return api<ClientesListaResponse>(
-      "/v1/crm/clientes?incluir_arquivados=true&limit=100"
-    )
-      .then((res) => {
-        const arquivados = new Set(
-          res.items.filter((c) => c.arquivado_em !== null).map((c) => c.id)
-        )
-        idsArquivadosRef.current = arquivados
-        setIdsArquivados(arquivados)
-      })
-      .catch(() => {
-        // silencia: filtro client-side é otimização, não bloqueante
-      })
-  }, [])
-
-  useEffect(() => {
-    carregarIdsArquivados()
-  }, [carregarIdsArquivados])
-
-  const itemsFiltrados = useMemo(() => {
-    if (incluirArquivados) return items
-    if (idsArquivados.size === 0) return items
-    return items.filter((item) => !idsArquivados.has(item.cliente.id))
-  }, [items, incluirArquivados, idsArquivados])
-
   const criarCliente = useCallback(
     async (payload: CriarClienteRequest): Promise<Cliente> => {
       const res = await api<Cliente>("/v1/crm/clientes", {
         method: "POST",
         body: JSON.stringify(payload),
       })
-      await carregarIdsArquivados()
       await loadLista("replace", true)
       return res
     },
-    [carregarIdsArquivados, loadLista]
+    [loadLista]
   )
 
   const editarCliente = useCallback(
@@ -286,10 +267,6 @@ export function useClientes() {
   const arquivarCliente = useCallback(
     async (clienteId: string): Promise<void> => {
       await api(`/v1/crm/clientes/${clienteId}/arquivar`, { method: "POST" })
-      const novo = new Set(idsArquivadosRef.current)
-      novo.add(clienteId)
-      idsArquivadosRef.current = novo
-      setIdsArquivados(novo)
       await loadLista("replace", true)
     },
     [loadLista]
@@ -298,10 +275,6 @@ export function useClientes() {
   const desarquivarCliente = useCallback(
     async (clienteId: string): Promise<void> => {
       await api(`/v1/crm/clientes/${clienteId}/desarquivar`, { method: "POST" })
-      const novo = new Set(idsArquivadosRef.current)
-      novo.delete(clienteId)
-      idsArquivadosRef.current = novo
-      setIdsArquivados(novo)
       await loadLista("replace", true)
     },
     [loadLista]
@@ -328,17 +301,25 @@ export function useClientes() {
     }
   }, [debouncedRealtimeRefetch, router])
 
+  const clienteArquivado = useMemo(() => {
+    const atual = items.find((item) => item.id === selectedId)
+    return atual ? atual.arquivado_em !== null : false
+  }, [items, selectedId])
+
   return {
     filtros,
     setFiltros,
     filtrosAplicados,
     incluirArquivados,
     setIncluirArquivados,
-    items: itemsFiltrados,
-    idsArquivados,
+    items,
     nextCursor,
     selectedId,
+    conversas,
+    conversaAtivaId,
     detalhe,
+    clienteSemHistorico,
+    clienteArquivado,
     listaStatus,
     detalheStatus,
     listaError,
@@ -346,7 +327,8 @@ export function useClientes() {
     modelos,
     refetch,
     carregarMais,
-    selecionarConversa,
+    selecionarCliente,
+    selecionarConversa: carregarConversa,
     criarCliente,
     editarCliente,
     arquivarCliente,

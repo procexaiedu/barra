@@ -4,34 +4,32 @@ import { Inbox } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
-import { ItemConversa } from "@/components/clientes/ItemConversa"
-import type { ConversaListaItem, FiltroOrdem } from "@/tipos/clientes"
+import { ItemCliente } from "@/components/clientes/ItemCliente"
+import type { ClienteListaItem } from "@/tipos/clientes"
 
-export function ListaConversas({
+export function ListaClientes({
   items,
   selectedId,
   status,
   error,
   filtrosAplicados,
   nextCursor,
-  ordenarPor,
   onSelect,
   onRetry,
   onCarregarMais,
 }: {
-  items: ConversaListaItem[]
+  items: ClienteListaItem[]
   selectedId: string | null
   status: "loading" | "success" | "error"
   error: string | null
   filtrosAplicados: boolean
   nextCursor: string | null
-  ordenarPor: FiltroOrdem
   onSelect: (id: string) => void
   onRetry: () => void
   onCarregarMais: () => void
 }) {
   return (
-    <section aria-label="Lista de conversas" className="min-w-0 flex flex-col overflow-hidden">
+    <section aria-label="Lista de clientes" className="min-w-0 flex flex-col overflow-hidden">
       <div className="flex-1 min-h-0 overflow-y-auto scroll-thin rounded-lg border border-border bg-card">
         {status === "loading" ? (
           <div aria-busy="true" className="space-y-px">
@@ -48,11 +46,10 @@ export function ListaConversas({
         ) : (
           <div className="divide-y divide-border">
             {items.map((item) => (
-              <ItemConversa
+              <ItemCliente
                 key={item.id}
                 item={item}
                 selected={item.id === selectedId}
-                ordenarPor={ordenarPor}
                 onSelect={onSelect}
               />
             ))}
@@ -77,13 +74,13 @@ function EmptyLista({ filtrosAplicados }: { filtrosAplicados: boolean }) {
       <div>
         <p className="text-sm text-text-primary">
           {filtrosAplicados
-            ? "Nenhuma conversa encontrada para estes filtros."
-            : "Nenhuma conversa registrada ainda."}
+            ? "Nenhum cliente encontrado para estes filtros."
+            : "Nenhum cliente cadastrado ainda."}
         </p>
         <p className="mt-1 text-[13px] text-text-muted">
           {filtrosAplicados
             ? "Ajuste os filtros para ampliar a busca."
-            : "Conversas aparecem aqui assim que clientes chamarem no WhatsApp da modelo."}
+            : 'Cadastre um cliente em "Novo cliente" ou aguarde o primeiro contato no WhatsApp.'}
         </p>
       </div>
     </div>

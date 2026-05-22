@@ -49,7 +49,7 @@ class FakeConnComCliente:
             )
         if "FROM barravips.conversas cv" in query and "JOIN barravips.modelos" in query:
             return _Result([])
-        if "SELECT DISTINCT c.id" in query:
+        if "ag.total_atendimentos" in query:
             return _Result(
                 [
                     {
@@ -60,6 +60,12 @@ class FakeConnComCliente:
                         "arquivado_em": None,
                         "created_at": datetime.now(UTC),
                         "updated_at": datetime.now(UTC),
+                        "total_atendimentos": 0,
+                        "total_fechados": 0,
+                        "valor_total": 0,
+                        "ultima_atividade": None,
+                        "modelos_distintas": 0,
+                        "modelo_predominante_nome": None,
                     }
                 ]
             )
