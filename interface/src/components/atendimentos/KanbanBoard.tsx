@@ -47,12 +47,29 @@ function ColunaDroppable({
   coluna,
   items,
   onCardClick,
+  dragAtivo,
 }: {
   coluna: Coluna
   items: AtendimentoListaItem[]
   onCardClick: (id: string) => void
+  dragAtivo: boolean
 }) {
-  const { setNodeRef, isOver } = useDroppable({ id: coluna.id, disabled: coluna.terminal })
+  const { setNodeRef, isOver } = useDroppable({ id: coluna.id })
+
+  // Realce do alvo: terminais usam cor por estado (verde fechado / vermelho perdido);
+  // colunas ativas mantêm o realce neutro.
+  const terminalHighlight = coluna.id === "Fechado" ? "border-success-500/60 bg-success-500/10" : "border-danger-500/60 bg-danger-500/10"
+  const classeRealce = coluna.terminal
+    ? isOver
+      ? terminalHighlight
+      : dragAtivo
+        ? coluna.id === "Fechado"
+          ? "border-success-500/40 border-dashed bg-muted"
+          : "border-danger-500/40 border-dashed bg-muted"
+        : "border-border bg-muted"
+    : isOver
+      ? "border-ring/60 bg-accent"
+      : "border-border bg-muted"
 
   return (
     <div className="flex min-w-[220px] flex-1 flex-col gap-2">
@@ -62,7 +79,7 @@ function ColunaDroppable({
       </div>
       <div
         ref={setNodeRef}
-        className={`flex min-h-[120px] flex-col gap-2 rounded-lg border p-2 transition-colors ${isOver && !coluna.terminal ? "border-ring/60 bg-accent" : "border-border bg-muted"}`}
+        className={`flex min-h-[120px] flex-col gap-2 rounded-lg border p-2 transition-colors ${classeRealce}`}
       >
         {items.map((item) => (
           <DraggableCard key={item.id} item={item} onCardClick={onCardClick} isTerminal={coluna.terminal} />
@@ -109,6 +126,7 @@ export function KanbanBoard({
   onToggleEncerrados,
   onCardClick,
   onMoverEstado,
+  onSolicitarTerminal,
 }: {
   items: AtendimentoListaItem[]
   itemsEncerrados: AtendimentoListaItem[]
@@ -116,6 +134,7 @@ export function KanbanBoard({
   onToggleEncerrados: () => void
   onCardClick: (id: string) => void
   onMoverEstado: (id: string, estado: EstadoKanbanDestino) => Promise<void>
+  onSolicitarTerminal: (item: AtendimentoListaItem, destino: "Fechado" | "Perdido") => void
 }) {
   const [draggingItem, setDraggingItem] = useState<AtendimentoListaItem | null>(null)
 
@@ -156,11 +175,19 @@ export function KanbanBoard({
 
     if (origemId === destinoId) return
 
+    // Destino terminal (Fechado/Perdido): não move direto — solicita modal de
+    // valor_final / motivo. Cancelar no modal mantém o card no estado original.
+    const colunaTerminal = COLUNAS_TERMINAIS.find((c) => c.id === destinoId)
+    if (colunaTerminal) {
+      onSolicitarTerminal(item, colunaTerminal.id as "Fechado" | "Perdido")
+      return
+    }
+
     const colunaOrigem = COLUNAS_ATIVAS.find((c) => c.id === origemId)
     const colunaDestino = COLUNAS_ATIVAS.find((c) => c.id === destinoId)
     if (!colunaOrigem || !colunaDestino) return
 
-    // Só permite avanço
+    // Só permite avanço entre colunas ativas
     if (colunaDestino.indice <= colunaOrigem.indice) return
 
     try {
@@ -168,7 +195,7 @@ export function KanbanBoard({
     } catch {
       toast.error("Erro ao mover atendimento")
     }
-  }, [onMoverEstado])
+  }, [onMoverEstado, onSolicitarTerminal])
 
   const colunas = mostrarEncerrados ? [...COLUNAS_ATIVAS, ...COLUNAS_TERMINAIS] : COLUNAS_ATIVAS
 
@@ -191,6 +218,7 @@ export function KanbanBoard({
               coluna={coluna}
               items={itensPorColuna.get(coluna.id) ?? []}
               onCardClick={onCardClick}
+              dragAtivo={draggingItem !== null}
             />
           ))}
         </div>

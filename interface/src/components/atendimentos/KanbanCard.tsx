@@ -18,7 +18,7 @@ export function KanbanCard({
   isDragging?: boolean
 }) {
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
-  const valorAcordado = item.valor_acordado
+  const valorExibido = item.valor_final ?? item.valor_acordado
 
   return (
     <div
@@ -61,9 +61,9 @@ export function KanbanCard({
       </div>
 
       <div className="mt-2 flex items-center justify-between gap-2">
-        {valorAcordado != null ? (
+        {valorExibido != null ? (
           <span className="text-[11px] font-medium text-success-500">
-            {formatBRL(Number(valorAcordado))}
+            {formatBRL(Number(valorExibido))}
           </span>
         ) : (
           <span />

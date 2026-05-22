@@ -131,7 +131,8 @@ async def listar_atendimentos(
           a.tipo_atendimento::text AS tipo_atendimento, a.urgencia::text AS urgencia,
           a.ia_pausada, a.ia_pausada_motivo::text AS ia_pausada_motivo,
           a.responsavel_atual::text AS responsavel_atual, a.motivo_escalada,
-          a.proxima_acao_esperada, a.sinais_qualificacao, a.valor_acordado, a.updated_at,
+          a.proxima_acao_esperada, a.sinais_qualificacao, a.valor_acordado,
+          a.valor_final, a.updated_at,
           c.id AS cliente_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
           m.id AS modelo_id, m.nome AS modelo_nome,
           prog.nome AS programa_principal_nome
@@ -176,6 +177,7 @@ async def listar_atendimentos(
                 "proxima_acao_esperada": row["proxima_acao_esperada"],
                 "sinais_qualificacao": row["sinais_qualificacao"],
                 "valor_acordado": row["valor_acordado"],
+                "valor_final": row["valor_final"],
                 "updated_at": row["updated_at"],
                 "programa_principal_nome": row["programa_principal_nome"],
             }
@@ -196,6 +198,38 @@ async def listar_tipos_local(
     )
     rows = await result.fetchall()
     return {"items": [r["tipo_local"] for r in rows]}
+
+
+@router.get("/tipos-local/{nome}/contagem")
+async def contar_tipos_local(
+    nome: str,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, int]:
+    result = await conn.execute(
+        "SELECT COUNT(*) AS total FROM barravips.atendimentos WHERE tipo_local = %s",
+        (nome,),
+    )
+    row = await result.fetchone()
+    return {"contagem": row["total"] if row else 0}
+
+
+@router.delete("/tipos-local/{nome}")
+async def deletar_tipo_local(
+    nome: str,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+    substituto: str | None = None,
+) -> dict[str, int]:
+    if substituto:
+        result = await conn.execute(
+            "UPDATE barravips.atendimentos SET tipo_local = %s WHERE tipo_local = %s",
+            (substituto, nome),
+        )
+    else:
+        result = await conn.execute(
+            "UPDATE barravips.atendimentos SET tipo_local = NULL WHERE tipo_local = %s",
+            (nome,),
+        )
+    return {"afetados": result.rowcount}
 
 
 @router.post("", status_code=201)

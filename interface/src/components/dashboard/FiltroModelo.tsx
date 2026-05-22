@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { api, ApiError } from "@/lib/api"
 
 interface ModeloListaItem {
@@ -40,7 +40,18 @@ export function FiltroModelo({ modeloId, onChange, hideTodas }: Props) {
   }, [])
 
   const carregando = modelos === null
-  const opcoes = modelos ?? []
+  const opcoes = useMemo(() => modelos ?? [], [modelos])
+
+  // Com hideTodas não existe opção vazia, então um <select> sem value casado
+  // exibe o primeiro modelo da lista sem disparar onChange — a UI mostra um
+  // modelo "selecionado" enquanto o estado do pai segue null. Sincroniza o
+  // estado com o que está visível assim que a lista carrega.
+  useEffect(() => {
+    if (!hideTodas) return
+    if (modeloId != null) return
+    const primeiro = opcoes[0]
+    if (primeiro) onChange(primeiro.id)
+  }, [hideTodas, modeloId, opcoes, onChange])
 
   return (
     <label className="flex items-center gap-2">

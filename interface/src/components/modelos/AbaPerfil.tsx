@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { FotoPerfil } from "@/components/modelos/FotoPerfil"
 import { ProgramasModelo } from "@/components/modelos/ProgramasModelo"
 import { TipoChecks } from "@/components/modelos/DialogCriarModelo"
-import { CampoLocalAutocomplete } from "@/components/modelos/CampoLocalAutocomplete"
+import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
 import { deE164BR, extrairDigitosTelefone, formatarTelefoneBR, paraE164BR } from "@/lib/telefone"
 import type {
   Duracao,
