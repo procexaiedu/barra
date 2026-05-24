@@ -151,8 +151,8 @@ async def painel_resumo(
           JOIN barravips.eventos e ON e.atendimento_id = a.id
          WHERE a.estado = 'Fechado'
            AND e.tipo = 'fechado_registrado'
-           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
-           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           AND e.created_at >= %s
+           AND e.created_at <= %s
            {filtro_modelo_eventos}
         """,
         (inicio_dia, fim_dia, *filtro_modelo_params),
@@ -167,8 +167,8 @@ async def painel_resumo(
           JOIN barravips.eventos e ON e.atendimento_id = a.id
          WHERE a.estado = 'Perdido'
            AND e.tipo = 'perdido_registrado'
-           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
-           AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+           AND e.created_at >= %s
+           AND e.created_at <= %s
            {filtro_modelo_eventos}
         """,
         (inicio_dia, fim_dia, *filtro_modelo_params),
@@ -185,8 +185,8 @@ async def painel_resumo(
              SELECT 1 FROM barravips.eventos e
               WHERE e.atendimento_id = a.id
                 AND e.tipo = 'fechado_registrado'
-                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
-                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+                AND e.created_at >= %s
+                AND e.created_at <= %s
            )
            {filtro_modelo_eventos}
         """,
@@ -206,8 +206,8 @@ async def painel_resumo(
              SELECT 1 FROM barravips.eventos e
               WHERE e.atendimento_id = a.id
                 AND e.tipo = 'fechado_registrado'
-                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
-                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+                AND e.created_at >= %s
+                AND e.created_at <= %s
            )
            {filtro_modelo_eventos}
         """,
@@ -234,16 +234,16 @@ async def painel_resumo(
                SELECT 1 FROM barravips.eventos e
                 WHERE e.atendimento_id = a.id
                   AND e.tipo = 'fechado_registrado'
-                  AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
-                  AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+                  AND e.created_at >= %s
+                  AND e.created_at <= %s
              ))
              OR
              (a.estado = 'Perdido' AND EXISTS (
                SELECT 1 FROM barravips.eventos e
                 WHERE e.atendimento_id = a.id
                   AND e.tipo = 'perdido_registrado'
-                  AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
-                  AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+                  AND e.created_at >= %s
+                  AND e.created_at <= %s
              ))
            )
            {filtro_modelo_eventos}
@@ -285,8 +285,8 @@ async def painel_resumo(
         JOIN barravips.modelos m ON m.id = b.modelo_id
         LEFT JOIN barravips.atendimentos a ON a.id = b.atendimento_id
         LEFT JOIN barravips.clientes c ON c.id = a.cliente_id
-        WHERE b.inicio AT TIME ZONE 'America/Sao_Paulo' <= %s
-          AND b.fim AT TIME ZONE 'America/Sao_Paulo' >= %s
+        WHERE b.inicio <= %s
+          AND b.fim >= %s
           {filtro_bloqueio}
         ORDER BY b.inicio ASC
         """,
@@ -396,8 +396,8 @@ async def painel_detalhe_fechamentos(
              SELECT 1 FROM barravips.eventos e
               WHERE e.atendimento_id = a.id
                 AND e.tipo = 'fechado_registrado'
-                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
-                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+                AND e.created_at >= %s
+                AND e.created_at <= %s
            )
            {filtro}
          ORDER BY a.updated_at DESC
@@ -444,8 +444,8 @@ async def painel_detalhe_perdas(
              SELECT 1 FROM barravips.eventos e
               WHERE e.atendimento_id = a.id
                 AND e.tipo = 'perdido_registrado'
-                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' >= %s
-                AND e.created_at AT TIME ZONE 'America/Sao_Paulo' <= %s
+                AND e.created_at >= %s
+                AND e.created_at <= %s
            )
            {filtro}
          ORDER BY a.updated_at DESC
