@@ -4,7 +4,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends
 from psycopg import AsyncConnection
-from psycopg.errors import ExclusionViolation
+from psycopg.errors import ExclusionViolation, ForeignKeyViolation
 
 from barra.api.deps import get_conn, get_user
 from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
@@ -104,9 +104,19 @@ async def criar_bloqueio(
             )
             row = await result.fetchone()
             assert row is not None
+            if body.atendimento_id:
+                # Fecha a FK circular: sem o back-link, o trigger sync_bloqueio_estado
+                # e os crons de agenda (que leem atendimentos.bloqueio_id) nunca tocam
+                # neste bloqueio.
+                await conn.execute(
+                    "UPDATE barravips.atendimentos SET bloqueio_id = %s WHERE id = %s",
+                    (row["id"], body.atendimento_id),
+                )
             return cast(dict[str, Any], row)
     except ExclusionViolation as exc:
         raise ConflitoEstado("Bloqueio sobreposto.") from exc
+    except ForeignKeyViolation as exc:
+        raise NaoEncontrado("Modelo") from exc
 
 
 @router.patch("/bloqueios/{bloqueio_id}")
@@ -149,6 +159,20 @@ async def editar_bloqueio(
             )
             row = await result.fetchone()
             assert row is not None
+            if "atendimento_id" in body.model_fields_set:
+                # Mantem a FK circular em sincronia ao (des)vincular um atendimento.
+                anterior = atual["atendimento_id"]
+                if anterior is not None and anterior != body.atendimento_id:
+                    await conn.execute(
+                        "UPDATE barravips.atendimentos SET bloqueio_id = NULL"
+                        " WHERE id = %s AND bloqueio_id = %s",
+                        (anterior, bloqueio_id),
+                    )
+                if body.atendimento_id is not None:
+                    await conn.execute(
+                        "UPDATE barravips.atendimentos SET bloqueio_id = %s WHERE id = %s",
+                        (bloqueio_id, body.atendimento_id),
+                    )
             return cast(dict[str, Any], row)
     except ExclusionViolation as exc:
         raise ConflitoEstado("Bloqueio sobreposto.") from exc
@@ -170,17 +194,26 @@ async def cancelar_bloqueio(
             "Cancelamento em atendimento exige confirmacao.",
             {"campo": "confirmar"},
         )
-    result = await conn.execute(
-        """
-        UPDATE barravips.bloqueios
-           SET estado = 'cancelado'
-         WHERE id = %s
-        RETURNING *
-        """,
-        (bloqueio_id,),
-    )
-    row = await result.fetchone()
-    assert row is not None
+    async with conn.transaction():
+        result = await conn.execute(
+            """
+            UPDATE barravips.bloqueios
+               SET estado = 'cancelado'
+             WHERE id = %s
+            RETURNING *
+            """,
+            (bloqueio_id,),
+        )
+        row = await result.fetchone()
+        assert row is not None
+        if atual["atendimento_id"] is not None:
+            # Solta o back-link: o bloqueio cancelado nao deve ser revivido pelo
+            # trigger sync_bloqueio_estado quando o atendimento for fechado/perdido.
+            await conn.execute(
+                "UPDATE barravips.atendimentos SET bloqueio_id = NULL"
+                " WHERE id = %s AND bloqueio_id = %s",
+                (atual["atendimento_id"], bloqueio_id),
+            )
     return {"ok": True}
 
 

@@ -122,7 +122,7 @@ export function AgendaClient() {
         observacao: form.observacao.trim() || null,
         ...(form.atendimento_id ? { atendimento_id: form.atendimento_id } : {}),
       })
-      toast.success("Bloqueio criado")
+      toast.success(form.atendimento_id ? "Agendamento criado" : "Bloqueio criado")
       setDialog({ modo: "fechado", bloqueio: null })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
@@ -138,7 +138,9 @@ export function AgendaClient() {
       }
       if (atendimentoId !== undefined) payload.atendimento_id = atendimentoId
       await agenda.atualizarBloqueio(id, payload)
-      toast.success("Bloqueio atualizado")
+      const ehAgendamento =
+        atendimentoId !== undefined ? Boolean(atendimentoId) : Boolean(dialog.bloqueio?.atendimento_id)
+      toast.success(ehAgendamento ? "Agendamento atualizado" : "Bloqueio atualizado")
       setDialog({ modo: "fechado", bloqueio: null })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
@@ -148,7 +150,8 @@ export function AgendaClient() {
   const moverBloqueio = async (id: string, novoInicio: string, novoFim: string) => {
     try {
       await agenda.atualizarBloqueio(id, { inicio: novoInicio, fim: novoFim, observacao: null })
-      toast.success("Bloqueio movido")
+      const movido = bloqueios.find((b) => b.id === id)
+      toast.success(movido?.atendimento_id ? "Agendamento movido" : "Bloqueio movido")
     } catch (e) {
       const msg = e instanceof Error ? e.message : ""
       if (msg.toLowerCase().includes("sobrepos")) {
@@ -163,7 +166,7 @@ export function AgendaClient() {
   const cancelar = async (id: string, confirmar: boolean) => {
     try {
       await agenda.cancelarBloqueio(id, confirmar)
-      toast.success("Bloqueio cancelado")
+      toast.success(dialog.bloqueio?.atendimento_id ? "Agendamento cancelado" : "Bloqueio cancelado")
       setDialog({ modo: "fechado", bloqueio: null })
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")

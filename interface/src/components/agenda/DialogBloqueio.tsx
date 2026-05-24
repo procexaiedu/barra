@@ -225,7 +225,11 @@ export function DialogBloqueio({
   // POST) deve usar este valor para nunca divergir do que está visível na UI.
   const modeloIdEfetivo = form.modelo_id ?? modeloId ?? null
   const temModelo = Boolean(modeloIdEfetivo)
-  const podeSalvar = !readOnly && !intervaloInvalido && !observacaoInvalida && temModelo
+  // Aba "Agendamento" só produz agendamento se houver atendimento vinculado;
+  // sem ele o salvar fica travado para não nascer um bloqueio puro sob esse rótulo.
+  const faltaAtendimento = !editando && tipo === "agendamento" && !form.atendimento_id
+  const podeSalvar =
+    !readOnly && !intervaloInvalido && !observacaoInvalida && temModelo && !faltaAtendimento
   const podeCancelar = bloqueio && bloqueio.estado !== "concluido" && bloqueio.estado !== "cancelado"
   const ehAgendamento = Boolean(bloqueio?.atendimento_id)
   const acaoLabel = ehAgendamento ? "Deletar agendamento" : "Cancelar bloqueio"
@@ -795,6 +799,11 @@ export function DialogBloqueio({
                       </div>
                     )}
                   </div>
+                )}
+                {faltaAtendimento && (
+                  <p className="mt-1.5 text-xs text-state-lost">
+                    Selecione um atendimento para criar um agendamento.
+                  </p>
                 )}
               </div>
             )}
