@@ -88,7 +88,17 @@ export function TileMetrica({
         </dt>
         <dd
           className={cn(
-            "mt-2 font-sans text-[36px] font-medium leading-[44px] tracking-[-0.02em]",
+            "mt-2 min-w-0 font-sans font-medium tracking-[-0.02em] tabular-nums whitespace-nowrap",
+            // Tamanho adaptativo ao comprimento: contagens curtas ficam grandes;
+            // valores monetarios longos (R$ 10.000,00, R$ 100.000,00, milhoes) encolhem
+            // em degraus para nao vazar o card.
+            valor.length <= 8
+              ? "text-[36px] leading-[44px]"
+              : valor.length <= 11
+                ? "text-[28px] leading-[40px]"
+                : valor.length <= 14
+                  ? "text-[22px] leading-[40px]"
+                  : "text-[18px] leading-[44px]",
             isZero ? "text-text-muted" : (colorClass ?? "text-text-primary")
           )}
         >
