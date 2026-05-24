@@ -98,13 +98,15 @@ class EvolutionClient:
         *,
         numero: str | None = None,
     ) -> dict[str, Any]:
-        """POST /instance/create — idempotente: se a instância já existe (403)
-        ou se a apikey atual só tem permissão para listar/conectar mas não para
-        criar (401 em Evolution v3 com chave per-instance), segue assumindo que
-        a instância existe; o connect/connectionState seguinte confirma. Inclui
-        o webhook no body para que a Evolution já comece a postar
-        CONNECTION_UPDATE/QRCODE_UPDATED para nós sem POST /webhook/instance
-        separado."""
+        """POST /instance/create. Sucesso (2xx) já devolve o QR no corpo
+        (`qrcode.base64`). Só tratamos 403 ("This name is already in use") como
+        idempotente — a instância existe e o connect seguinte recupera o QR. Um
+        401 aqui NÃO é "já existe": significa que a EVOLUTION_API_KEY não tem
+        permissão de create (ex.: um token de instância no lugar da chave
+        global/admin). Nesse caso falhamos alto, com mensagem clara, em vez de
+        mascarar e deixar o connect seguinte estourar um 404 enganoso. O webhook
+        vai no body para a Evolution já começar a postar
+        CONNECTION_UPDATE/QRCODE_UPDATED sem POST /webhook/instance separado."""
         if not self.settings.evolution_base_url:
             return {"status": "not_configured", "instance_id": instance_id}
         url = f"{self.settings.evolution_base_url.rstrip('/')}/instance/create"
@@ -123,18 +125,24 @@ class EvolutionClient:
             body["webhook"] = webhook
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(url, json=body, headers=headers)
-        if response.status_code in {401, 403}:
-            # 403 = "instance already in use"; 401 = chave sem permissão de
-            # create (Evolution v3 segrega global/per-instance keys). Em ambos
-            # os casos, deixamos o connect seguinte decidir se a instância
-            # realmente existe — se não existir, ele devolve 404 e o caller
-            # transforma em erro de domínio amigável.
-            _logger.info(
-                "evolution_instance_create_idempotente instance=%s status=%s",
-                instance_id,
-                response.status_code,
-            )
+        if response.status_code == 403:
+            # "This name is already in use" — a instância já existe; o connect
+            # seguinte recupera o QR.
+            _logger.info("evolution_instance_create_ja_existe instance=%s", instance_id)
             return {"status": "exists", "instance_id": instance_id}
+        if response.status_code == 401:
+            _logger.error(
+                "evolution_instance_create_sem_permissao instance=%s body=%s",
+                instance_id,
+                response.text[:300],
+            )
+            raise ErroDominio(
+                "EVOLUTION_CHAVE_SEM_CREATE",
+                "A chave da Evolution não tem permissão para criar instâncias "
+                "(401). Confirme que EVOLUTION_API_KEY é a chave global/admin, "
+                "não um token de instância.",
+                status_code=502,
+            )
         response.raise_for_status()
         return cast(dict[str, Any], response.json())
 

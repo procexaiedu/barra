@@ -222,10 +222,12 @@ async def conectar_whatsapp(
     instance_id = modelo["evolution_instance_id"] or f"modelo-{modelo_id}"
     client = EvolutionClient(request.app.state.settings)
     # Idempotente: se a instância ainda não existe na Evolution, criamos com o
-    # webhook já apontado para nosso backend. Se já existir, segue direto.
+    # webhook já apontado para nosso backend. O POST /instance/create já devolve
+    # o QR quando cria — só recorremos ao connect quando a instância já existia
+    # (create respondeu 403 "name in use", sem QR no corpo).
     try:
-        await client.criar_instancia(instance_id, numero=modelo.get("numero_whatsapp"))
-        resposta = await client.conectar_instancia(instance_id)
+        criada = await client.criar_instancia(instance_id, numero=modelo.get("numero_whatsapp"))
+        resposta = criada if _extrair_qr_code(criada) else await client.conectar_instancia(instance_id)
     except httpx.HTTPStatusError as exc:
         raise ConflitoEstado(
             f"Evolution recusou a conexão (HTTP {exc.response.status_code}). "
