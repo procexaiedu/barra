@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -373,11 +374,11 @@ async def reabrir_pix(
         await conn.execute(
             """
             INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
-            VALUES (%s, 'pix_status_mudado', 'painel', 'Fernando', %s)
+            VALUES (%s, 'pix_status_mudado', 'painel', 'Fernando', %s::jsonb)
             """,
             (
                 pix["atendimento_id"],
-                {"pix_id": str(pix_id), "decisao": "reaberto", "usuario_id": str(user.id)},
+                json.dumps({"pix_id": str(pix_id), "decisao": "reaberto", "usuario_id": str(user.id)}),
             ),
         )
     return {"id": pix_id, "decisao_final": None}
