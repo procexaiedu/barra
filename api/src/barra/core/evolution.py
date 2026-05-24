@@ -1,5 +1,6 @@
 """Cliente HTTP Evolution e registro transacional de outbound."""
 
+import json
 import logging
 from typing import Any, cast
 from uuid import UUID
@@ -229,7 +230,7 @@ async def registrar_envio(
           evolution_message_id, instance_id, remote_jid, contexto, tipo,
           atendimento_id, conversa_id, payload
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s::jsonb)
         ON CONFLICT (evolution_message_id) DO NOTHING
         """,
         (
@@ -240,7 +241,7 @@ async def registrar_envio(
             tipo,
             atendimento_id,
             conversa_id,
-            payload,
+            json.dumps(payload, default=str),
         ),
     )
 

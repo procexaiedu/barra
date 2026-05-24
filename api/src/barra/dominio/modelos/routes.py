@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
@@ -953,9 +954,9 @@ async def _evento_modelo(conn: AsyncConnection[Any], tipo: str, payload: dict[st
     await conn.execute(
         """
         INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
-        VALUES (NULL, %s, 'painel', 'Fernando', %s)
+        VALUES (NULL, %s, 'painel', 'Fernando', %s::jsonb)
         """,
-        (tipo, payload),
+        (tipo, json.dumps(payload, default=str)),
     )
 
 
@@ -974,23 +975,31 @@ async def _enviar_card_pausa(
     ):
         return False
     client = EvolutionClient(settings)
-    await client.enviar_texto(
-        conn=conn,
-        instance_id=modelo["evolution_instance_id"],
-        remote_jid=modelo["coordenacao_chat_id"],
-        texto=(
-            f"Modelo {modelo['nome']} pausada operacionalmente. "
-            f"{conversas_pausadas} conversa(s) pausada(s); "
-            f"{em_execucao} atendimento(s) em Em_execucao preservado(s)."
-        ),
-        contexto="grupo_coordenacao",
-        tipo="card",
-        payload={
-            "modelo_id": str(modelo["id"]),
-            "conversas_pausadas": conversas_pausadas,
-            "em_execucao_em_curso": em_execucao,
-        },
-    )
+    # Card é side-effect best-effort: falha de envio (Evolution fora do ar,
+    # instância caída) nunca pode quebrar a pausa. Savepoint isola o erro do
+    # resto da transação (CONTEXT.md: o fluxo nunca trava por card).
+    try:
+        async with conn.transaction():
+            await client.enviar_texto(
+                conn=conn,
+                instance_id=modelo["evolution_instance_id"],
+                remote_jid=modelo["coordenacao_chat_id"],
+                texto=(
+                    f"Modelo {modelo['nome']} pausada operacionalmente. "
+                    f"{conversas_pausadas} conversa(s) pausada(s); "
+                    f"{em_execucao} atendimento(s) em Em_execucao preservado(s)."
+                ),
+                contexto="grupo_coordenacao",
+                tipo="card",
+                payload={
+                    "modelo_id": str(modelo["id"]),
+                    "conversas_pausadas": conversas_pausadas,
+                    "em_execucao_em_curso": em_execucao,
+                },
+            )
+    except Exception:
+        _logger.warning("card_pausa_falhou modelo_id=%s", modelo["id"], exc_info=True)
+        return False
     return True
 
 
