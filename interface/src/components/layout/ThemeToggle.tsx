@@ -27,6 +27,9 @@ export function ThemeToggle({ collapsed }: { collapsed: boolean }) {
   const [montado, setMontado] = useState(false)
 
   useEffect(() => {
+    // Hydration guard (padrão next-themes): só revela o tema real após montar no
+    // client. A regra abaixo é falso-positivo para este padrão de "montado".
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setMontado(true)
   }, [])
 

@@ -5,32 +5,11 @@ import { Plus, Search } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { DetalheConversa } from "@/components/clientes/DetalheConversa"
-import { ListaConversas } from "@/components/clientes/ListaConversas"
+import { DetalheCliente } from "@/components/clientes/DetalheCliente"
+import { ListaClientes } from "@/components/clientes/ListaClientes"
 import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
-import { motivoPerdaLabel } from "@/components/clientes/utils"
 import { useClientes } from "@/hooks/useClientes"
-import type {
-  FiltroMotivoPerda,
-  FiltroOrdem,
-  FiltroPeriodo,
-  FiltroRecorrencia,
-  ModeloResumo,
-  MotivoPerda,
-} from "@/tipos/clientes"
-
-const recorrencias: { value: FiltroRecorrencia; label: string }[] = [
-  { value: "todas", label: "Todas" },
-  { value: "novas", label: "Novas" },
-  { value: "recorrentes", label: "Recorrentes" },
-]
-
-const motivos: { value: FiltroMotivoPerda; label: string }[] = [
-  { value: "todos", label: "Todos" },
-  ...(["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] as MotivoPerda[]).map(
-    (motivo) => ({ value: motivo, label: motivoPerdaLabel[motivo] })
-  ),
-]
+import type { FiltroPeriodo, ModeloResumo } from "@/tipos/clientes"
 
 const periodos: { value: FiltroPeriodo; label: string }[] = [
   { value: "todos", label: "Todos" },
@@ -45,7 +24,7 @@ export default function Clientes() {
 
   const handleSelecionar = (id: string) => {
     if (id === crm.selectedId) return
-    crm.selecionarConversa(id)
+    crm.selecionarCliente(id)
   }
 
   return (
@@ -56,7 +35,7 @@ export default function Clientes() {
             Clientes
           </h1>
           <p className="mt-1 text-[13px] text-text-muted">
-            Histórico, recorrência e observações de cada cliente, por modelo.
+            Histórico, recorrência e observações de cada cliente, em todas as modelos.
           </p>
         </div>
         <Button variant="primary" onClick={() => setModalCriarAberto(true)}>
@@ -67,48 +46,39 @@ export default function Clientes() {
 
       <Toolbar
         busca={crm.filtros.busca}
-        recorrencia={crm.filtros.recorrencia}
-        motivoPerda={crm.filtros.motivoPerda}
         periodo={crm.filtros.periodo}
         modeloId={crm.filtros.modeloId}
-        ordenarPor={crm.filtros.ordenarPor}
         modelos={crm.modelos}
         loading={crm.listaStatus === "loading"}
         incluirArquivados={crm.incluirArquivados}
         onBuscaChange={(busca) => crm.setFiltros((current) => ({ ...current, busca }))}
-        onRecorrenciaChange={(recorrencia) =>
-          crm.setFiltros((current) => ({ ...current, recorrencia }))
-        }
-        onMotivoPerdaChange={(motivoPerda) =>
-          crm.setFiltros((current) => ({ ...current, motivoPerda }))
-        }
         onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
         onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
-        onOrdemChange={(ordenarPor) => crm.setFiltros((current) => ({ ...current, ordenarPor }))}
         onIncluirArquivadosChange={crm.setIncluirArquivados}
       />
 
       <div className="grid h-[calc(100vh-240px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
-        <ListaConversas
+        <ListaClientes
           items={crm.items}
           selectedId={crm.selectedId}
           status={crm.listaStatus}
           error={crm.listaError}
           filtrosAplicados={crm.filtrosAplicados}
           nextCursor={crm.nextCursor}
-          ordenarPor={crm.filtros.ordenarPor}
           onSelect={handleSelecionar}
           onRetry={crm.refetch}
           onCarregarMais={crm.carregarMais}
         />
-        <DetalheConversa
+        <DetalheCliente
           detalhe={crm.detalhe}
+          conversas={crm.conversas}
+          conversaAtivaId={crm.conversaAtivaId}
+          clienteSemHistorico={crm.clienteSemHistorico}
           status={crm.detalheStatus}
           error={crm.detalheError}
-          arquivado={
-            crm.detalhe ? crm.idsArquivados.has(crm.detalhe.cliente.id) : false
-          }
+          arquivado={crm.clienteArquivado}
           onRetry={crm.refetch}
+          onSelecionarConversa={crm.selecionarConversa}
           onEditarCliente={crm.editarCliente}
           onArquivarCliente={crm.arquivarCliente}
           onDesarquivarCliente={crm.desarquivarCliente}
@@ -126,43 +96,31 @@ export default function Clientes() {
 
 function Toolbar({
   busca,
-  recorrencia,
-  motivoPerda,
   periodo,
   modeloId,
-  ordenarPor,
   modelos,
   loading,
   incluirArquivados,
   onBuscaChange,
-  onRecorrenciaChange,
-  onMotivoPerdaChange,
   onPeriodoChange,
   onModeloChange,
-  onOrdemChange,
   onIncluirArquivadosChange,
 }: {
   busca: string
-  recorrencia: FiltroRecorrencia
-  motivoPerda: FiltroMotivoPerda
   periodo: FiltroPeriodo
   modeloId: string
-  ordenarPor: FiltroOrdem
   modelos: ModeloResumo[]
   loading: boolean
   incluirArquivados: boolean
   onBuscaChange: (value: string) => void
-  onRecorrenciaChange: (value: FiltroRecorrencia) => void
-  onMotivoPerdaChange: (value: FiltroMotivoPerda) => void
   onPeriodoChange: (value: FiltroPeriodo) => void
   onModeloChange: (value: string) => void
-  onOrdemChange: (value: FiltroOrdem) => void
   onIncluirArquivadosChange: (value: boolean) => void
 }) {
   if (loading) {
     return (
-      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_180px_140px_180px_160px] gap-3">
-        {Array.from({ length: 6 }).map((_, index) => (
+      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_180px] gap-3">
+        {Array.from({ length: 3 }).map((_, index) => (
           <Skeleton key={index} className="h-14 rounded-lg" />
         ))}
       </div>
@@ -170,77 +128,47 @@ function Toolbar({
   }
   return (
     <div className="space-y-2">
-      <div className="grid grid-cols-[minmax(260px,1fr)_140px_180px_140px_180px_160px] gap-3">
-      <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-text-muted">Buscar</span>
-        <label className="relative">
-          <span className="sr-only">Buscar nome ou telefone</span>
-          <Search
-            size={16}
-            strokeWidth={1.5}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-          />
-          <Input
-            value={busca}
-            onChange={(event) => onBuscaChange(event.target.value)}
-            placeholder="Buscar nome ou telefone"
-            className="pl-9"
-          />
-        </label>
-      </div>
-      <SelectFiltro
-        label="Recorrência"
-        value={recorrencia}
-        onChange={(value) => onRecorrenciaChange(value as FiltroRecorrencia)}
-      >
-        {recorrencias.map((item) => (
-          <option key={item.value} value={item.value}>
-            {item.label}
-          </option>
-        ))}
-      </SelectFiltro>
-      <SelectFiltro
-        label="Última perda"
-        value={motivoPerda}
-        onChange={(value) => onMotivoPerdaChange(value as FiltroMotivoPerda)}
-      >
-        {motivos.map((item) => (
-          <option key={item.value} value={item.value}>
-            {item.label}
-          </option>
-        ))}
-      </SelectFiltro>
-      <SelectFiltro
-        label="Período"
-        value={periodo}
-        onChange={(value) => onPeriodoChange(value as FiltroPeriodo)}
-      >
-        {periodos.map((item) => (
-          <option key={item.value} value={item.value}>
-            {item.label}
-          </option>
-        ))}
-      </SelectFiltro>
-      <SelectFiltro
-        label="Modelo"
-        value={modeloId}
-        onChange={(value) => onModeloChange(value)}
-      >
-        <option value="todas">Todas</option>
-        {modelos.map((modelo) => (
-          <option key={modelo.id} value={modelo.id}>
-            {modelo.nome}
-          </option>
-        ))}
-      </SelectFiltro>
-      <SelectFiltro
-        label="Ordenar por"
-        value={ordenarPor}
-        onChange={(value) => onOrdemChange(value as FiltroOrdem)}
-      >
-        <option value="recente">Mais recente</option>
-        <option value="inatividade">Sem fechar há mais tempo</option>
-      </SelectFiltro>
+      <div className="grid grid-cols-[minmax(260px,1fr)_140px_180px] gap-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-text-muted">Buscar</span>
+          <label className="relative">
+            <span className="sr-only">Buscar nome ou telefone</span>
+            <Search
+              size={16}
+              strokeWidth={1.5}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
+            />
+            <Input
+              value={busca}
+              onChange={(event) => onBuscaChange(event.target.value)}
+              placeholder="Buscar nome ou telefone"
+              className="pl-9"
+            />
+          </label>
+        </div>
+        <SelectFiltro
+          label="Período"
+          value={periodo}
+          onChange={(value) => onPeriodoChange(value as FiltroPeriodo)}
+        >
+          {periodos.map((item) => (
+            <option key={item.value} value={item.value}>
+              {item.label}
+            </option>
+          ))}
+        </SelectFiltro>
+        <SelectFiltro
+          label="Modelo"
+          value={modeloId}
+          onChange={(value) => onModeloChange(value)}
+        >
+          <option value="todas">Todas</option>
+          {modelos.map((modelo) => (
+            <option key={modelo.id} value={modelo.id}>
+              {modelo.nome}
+            </option>
+          ))}
+        </SelectFiltro>
       </div>
       <label className="flex w-fit cursor-pointer select-none items-center gap-2 text-xs text-text-muted">
         <input

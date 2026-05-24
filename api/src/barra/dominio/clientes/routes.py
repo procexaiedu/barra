@@ -14,26 +14,36 @@ router = APIRouter(dependencies=[Depends(get_user)])
 
 _TELEFONE_BR_RE = re.compile(r"^55\d{10,11}$")
 
+PERIODOS_DIAS = {"7d": 7, "30d": 30, "90d": 90}
+
 
 @router.get("/clientes")
 async def listar_clientes(
     conn: AsyncConnection[Any] = Depends(get_conn),
     modelo_id: UUID | None = None,
     q: str | None = None,
+    periodo: str | None = None,
     incluir_arquivados: bool = False,
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = None,
 ) -> dict[str, Any]:
     params: list[Any] = []
     filtros = ["1=1"]
-    joins = ""
     if modelo_id:
-        joins = "JOIN barravips.conversas cv ON cv.cliente_id = c.id"
-        filtros.append("cv.modelo_id = %s")
+        filtros.append(
+            "EXISTS (SELECT 1 FROM barravips.conversas cv "
+            "WHERE cv.cliente_id = c.id AND cv.modelo_id = %s)"
+        )
         params.append(modelo_id)
     if q:
         filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
+    if periodo in PERIODOS_DIAS:
+        filtros.append(
+            "EXISTS (SELECT 1 FROM barravips.atendimentos a "
+            "WHERE a.cliente_id = c.id "
+            f"AND a.created_at >= NOW() - INTERVAL '{PERIODOS_DIAS[periodo]} days')"
+        )
     if not incluir_arquivados:
         filtros.append("c.arquivado_em IS NULL")
     if cursor:
@@ -42,10 +52,29 @@ async def listar_clientes(
     params.append(limit + 1)
     result = await conn.execute(
         f"""
-        SELECT DISTINCT c.id, c.nome, c.telefone, c.primeiro_contato_modelo_id,
-                        c.arquivado_em, c.created_at, c.updated_at
+        SELECT c.id, c.nome, c.telefone, c.primeiro_contato_modelo_id,
+               c.arquivado_em, c.created_at, c.updated_at,
+               ag.total_atendimentos, ag.total_fechados,
+               ag.valor_total, ag.ultima_atividade,
+               ag.modelos_distintas, ag.modelo_predominante_nome
           FROM barravips.clientes c
-          {joins}
+          LEFT JOIN LATERAL (
+            SELECT
+              COUNT(*) AS total_atendimentos,
+              COUNT(*) FILTER (WHERE a.estado = 'Fechado') AS total_fechados,
+              COALESCE(SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0) AS valor_total,
+              MAX(a.updated_at) AS ultima_atividade,
+              COUNT(DISTINCT a.modelo_id) AS modelos_distintas,
+              (SELECT m.nome
+                 FROM barravips.atendimentos a2
+                 JOIN barravips.modelos m ON m.id = a2.modelo_id
+                WHERE a2.cliente_id = c.id
+                GROUP BY m.id, m.nome
+                ORDER BY COUNT(*) DESC, MAX(a2.updated_at) DESC
+                LIMIT 1) AS modelo_predominante_nome
+              FROM barravips.atendimentos a
+             WHERE a.cliente_id = c.id
+          ) ag ON TRUE
          WHERE {" AND ".join(filtros)}
          ORDER BY c.updated_at DESC
          LIMIT %s
@@ -65,6 +94,12 @@ async def listar_clientes(
                 "arquivado_em": row["arquivado_em"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
+                "total_atendimentos": row["total_atendimentos"] or 0,
+                "valor_total": row["valor_total"] or 0,
+                "ultima_atividade": row["ultima_atividade"],
+                "modelos_distintas": row["modelos_distintas"] or 0,
+                "modelo_predominante_nome": row["modelo_predominante_nome"],
+                "recorrente": (row["total_fechados"] or 0) >= 2,
             }
             for row in rows
         ],

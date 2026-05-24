@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { ChevronDown, Plus } from "lucide-react"
+import { ChevronDown, Plus, Trash2 } from "lucide-react"
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Input } from "@/components/ui/input"
@@ -15,6 +15,11 @@ export type ComboboxProps = {
   placeholder?: string
   displayFormat?: (v: string) => string
   onCreate?: (novo: string) => void
+  /**
+   * Opt-in: quando fornecido, cada item da lista ganha um botão de remover.
+   * Sem essa prop, o Combobox segue idêntico (não quebra outros usos).
+   */
+  onDeletarItem?: (item: string) => void
   disabled?: boolean
   id?: string
   className?: string
@@ -32,6 +37,7 @@ export function Combobox({
   placeholder,
   displayFormat,
   onCreate,
+  onDeletarItem,
   disabled,
   id,
   className,
@@ -112,16 +118,27 @@ export function Combobox({
               <li className="px-2 py-1.5 text-xs text-text-muted">Nenhuma opção</li>
             )}
             {filtradas.map((opt) => (
-              <li key={opt}>
+              <li key={opt} className="group/combobox-item flex items-center gap-1">
                 <button
                   type="button"
                   data-slot="combobox-item"
                   data-selected={value === opt ? "true" : undefined}
                   onClick={() => selecionar(opt)}
-                  className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm text-text-primary outline-none transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover data-[selected=true]:bg-surface-hover"
+                  className="flex flex-1 items-center justify-between rounded-md px-2 py-1.5 text-left text-sm text-text-primary outline-none transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover data-[selected=true]:bg-surface-hover"
                 >
                   <span className="truncate">{formatar(opt)}</span>
                 </button>
+                {onDeletarItem && (
+                  <button
+                    type="button"
+                    data-slot="combobox-delete"
+                    onClick={() => onDeletarItem(opt)}
+                    aria-label={`Remover ${formatar(opt)} das sugestões`}
+                    className="shrink-0 rounded-md p-1.5 text-text-muted opacity-60 outline-none transition-colors hover:bg-surface-hover hover:text-state-lost focus-visible:bg-surface-hover focus-visible:opacity-100 group-hover/combobox-item:opacity-100"
+                  >
+                    <Trash2 size={13} strokeWidth={1.5} />
+                  </button>
+                )}
               </li>
             ))}
             {mostrarCriar && (

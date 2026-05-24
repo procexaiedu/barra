@@ -187,6 +187,7 @@ export function DialogBloqueio({
   const [novoClienteTelefone, setNovoClienteTelefone] = useState("")
   const [submittingCliente, setSubmittingCliente] = useState(false)
   const [submittingNovoAtendimento, setSubmittingNovoAtendimento] = useState(false)
+  const [temConflitoAtend, setTemConflitoAtend] = useState(false)
   const camposAtendRef = useRef<FormularioCamposAtendimentoRef>(null)
 
   const [confirmConverterOpen, setConfirmConverterOpen] = useState(false)
@@ -218,7 +219,12 @@ export function DialogBloqueio({
     [bloqueio?.id, bloqueios, fimIso, inicioIso]
   )
 
-  const temModelo = Boolean(modeloId) || Boolean(form.modelo_id)
+  // Fonte única de verdade do modelo_id, na ordem de prioridade: modelo escolhida
+  // no form (seletor do dialog) > modelo herdada do contexto da agenda (prop).
+  // Tudo que depende do modelo (sub-form de programas, criação de atendimento,
+  // POST) deve usar este valor para nunca divergir do que está visível na UI.
+  const modeloIdEfetivo = form.modelo_id ?? modeloId ?? null
+  const temModelo = Boolean(modeloIdEfetivo)
   const podeSalvar = !readOnly && !intervaloInvalido && !observacaoInvalida && temModelo
   const podeCancelar = bloqueio && bloqueio.estado !== "concluido" && bloqueio.estado !== "cancelado"
   const ehAgendamento = Boolean(bloqueio?.atendimento_id)
@@ -282,7 +288,7 @@ export function DialogBloqueio({
     }
     setBuscando(true)
     try {
-      const modeloIdBusca = modeloId ?? modeloIdForm
+      const modeloIdBusca = modeloIdForm ?? modeloId
       const searchParams: Record<string, string> = { q: texto }
       if (modeloIdBusca) searchParams.modelo_id = modeloIdBusca
       const params = new URLSearchParams(searchParams)
@@ -414,7 +420,6 @@ export function DialogBloqueio({
 
   const criarAtendimentoEVincular = async () => {
     if (!clienteSelecionado) return
-    const modeloIdEfetivo = form.modelo_id ?? modeloId
     if (!modeloIdEfetivo) {
       toast.error("Selecione uma modelo antes de criar o atendimento")
       return
@@ -477,6 +482,7 @@ export function DialogBloqueio({
         motivo_escalada: null,
         proxima_acao_esperada: null,
         valor_acordado: payload.valor_acordado ?? null,
+        valor_final: null,
         updated_at: new Date().toISOString(),
         programa_principal_nome: null,
       }
@@ -956,16 +962,23 @@ export function DialogBloqueio({
 
                 <FormularioCamposAtendimento
                   ref={camposAtendRef}
-                  modeloId={form.modelo_id ?? modeloId ?? null}
+                  modeloId={modeloIdEfetivo}
                   disabled={submittingNovoAtendimento}
                   variant="stack"
+                  herdarPeriodo={tipo === "agendamento"}
+                  periodoHerdado={{
+                    data: form.data,
+                    horario: form.inicio,
+                    duracaoHoras: duracaoMin / 60,
+                  }}
+                  onConflitoChange={setTemConflitoAtend}
                 />
 
                 <div className="flex justify-end">
                   <Button
                     variant="primary"
                     onClick={criarAtendimentoEVincular}
-                    disabled={!clienteSelecionado || submittingNovoAtendimento}
+                    disabled={!clienteSelecionado || submittingNovoAtendimento || temConflitoAtend}
                   >
                     {submittingNovoAtendimento && <Loader2 className="animate-spin" />}
                     Criar atendimento e vincular

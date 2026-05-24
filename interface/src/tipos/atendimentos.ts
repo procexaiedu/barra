@@ -41,6 +41,7 @@ export interface AtendimentoListaItem {
   proxima_acao_esperada: string | null
   sinais_qualificacao?: Record<string, unknown> | null
   valor_acordado: number | string | null
+  valor_final: number | string | null
   updated_at: string
   programa_principal_nome: string | null
 }
@@ -100,6 +101,10 @@ export interface AtendimentoOperacional {
   duracao_horas: number | string | null
   endereco: string | null
   bairro: string | null
+  endereco_formatado: string | null
+  latitude: number | string | null
+  longitude: number | string | null
+  place_id: string | null
   tipo_local: string | null
   forma_pagamento: string | null
   valor_acordado: number | string | null
@@ -182,6 +187,10 @@ export interface EditarDadosPayload {
   tipo_local?: string | null
   forma_pagamento?: string | null
   valor_acordado?: number | null
+  endereco_formatado?: string | null
+  latitude?: number | null
+  longitude?: number | null
+  place_id?: string | null
 }
 
 export interface CriarAtendimentoRequest {
@@ -204,4 +213,8 @@ export type CriarAtendimentoResultado =
 
 export interface TiposLocalResponse {
   items: string[]
+}
+
+export interface ContagemTipoLocalResponse {
+  contagem: number
 }

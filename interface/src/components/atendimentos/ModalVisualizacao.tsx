@@ -26,13 +26,15 @@ export function ModalVisualizacao({
   onFechar,
   onPerder,
   onAbrirEdicao,
+  readOnly = false,
 }: {
   atendimentoId: string | null
   onClose: () => void
-  onDevolver: (id: string) => Promise<void>
-  onFechar: (id: string, valorFinal: number) => Promise<void>
-  onPerder: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
-  onAbrirEdicao: (detalhe: AtendimentoDetalheResponse) => void
+  onDevolver?: (id: string) => Promise<void>
+  onFechar?: (id: string, valorFinal: number) => Promise<void>
+  onPerder?: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
+  onAbrirEdicao?: (detalhe: AtendimentoDetalheResponse) => void
+  readOnly?: boolean
 }) {
   const [detalhe, setDetalhe] = useState<AtendimentoDetalheResponse | null>(null)
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading")
@@ -58,16 +60,19 @@ export function ModalVisualizacao({
   }, [atendimentoId, carregar])
 
   const handleDevolver = useCallback(async (id: string) => {
+    if (!onDevolver) return
     await onDevolver(id)
     onClose()
   }, [onDevolver, onClose])
 
   const handleFechar = useCallback(async (id: string, valorFinal: number) => {
+    if (!onFechar) return
     await onFechar(id, valorFinal)
     onClose()
   }, [onFechar, onClose])
 
   const handlePerder = useCallback(async (id: string, motivo: MotivoPerda, observacao: string | null) => {
+    if (!onPerder) return
     await onPerder(id, motivo, observacao)
     onClose()
   }, [onPerder, onClose])
@@ -87,7 +92,7 @@ export function ModalVisualizacao({
 
   return (
     <Dialog open={!!atendimentoId} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="flex h-[min(88vh,820px)] w-[min(96vw,1280px)] max-w-[1280px] flex-col overflow-hidden bg-surface p-0">
+      <DialogContent className="flex max-h-[92vh] min-h-[60vh] w-[min(96vw,88rem)] max-w-none flex-col overflow-hidden bg-surface p-0">
         <DialogTitle className="sr-only">Detalhe do atendimento</DialogTitle>
 
         <div className="flex flex-none items-center justify-between border-b border-border bg-surface px-5 py-3">
@@ -95,7 +100,7 @@ export function ModalVisualizacao({
             {detalhe ? `${detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)} · #${detalhe.atendimento.numero_curto}` : "Atendimento"}
           </span>
           <div className="flex items-center gap-2">
-            {detalhe && (
+            {detalhe && !readOnly && onAbrirEdicao && (
               <button
                 type="button"
                 onClick={() => onAbrirEdicao(detalhe)}
@@ -121,11 +126,12 @@ export function ModalVisualizacao({
             status={status}
             error={error}
             onRetry={() => atendimentoId && carregar(atendimentoId)}
-            onDevolver={handleDevolver}
-            onFechar={handleFechar}
-            onPerder={handlePerder}
-            onUploadMidia={handleUploadMidia}
-            onDeletarMidia={handleDeletarMidia}
+            onDevolver={readOnly ? undefined : handleDevolver}
+            onFechar={readOnly ? undefined : handleFechar}
+            onPerder={readOnly ? undefined : handlePerder}
+            onUploadMidia={readOnly ? undefined : handleUploadMidia}
+            onDeletarMidia={readOnly ? undefined : handleDeletarMidia}
+            readOnly={readOnly}
           />
         </div>
       </DialogContent>

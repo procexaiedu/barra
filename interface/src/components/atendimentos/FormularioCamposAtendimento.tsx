@@ -8,10 +8,14 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { api } from "@/lib/api"
 import { cn } from "@/lib/utils"
+import { useConflitoAgenda } from "@/hooks/useConflitoAgenda"
+import { useTiposLocal } from "@/hooks/useTiposLocal"
+import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
+import { AlertaConflito } from "./AlertaConflito"
+import { ModalRemoverTipoLocal } from "./ModalRemoverTipoLocal"
 import type {
   EditarDadosPayload,
   TipoAtendimento,
-  TiposLocalResponse,
   Urgencia,
 } from "@/tipos/atendimentos"
 
@@ -39,6 +43,12 @@ function parseDecimal(input: string): number | null {
   return Number.isFinite(valor) && valor >= 0 ? valor : null
 }
 
+// Formata um número para o campo (vírgula decimal, sem separador de milhar),
+// compatível com parseDecimal na hora de enviar ao backend.
+function formatValorCampo(valor: number): string {
+  return valor.toFixed(2).replace(".", ",")
+}
+
 export interface FormularioCamposAtendimentoRef {
   coletarDados: () => {
     payload: EditarDadosPayload
@@ -46,17 +56,42 @@ export interface FormularioCamposAtendimentoRef {
   }
 }
 
+export interface PeriodoHerdado {
+  data: string
+  horario: string
+  duracaoHoras: number
+}
+
 export interface FormularioCamposAtendimentoProps {
   modeloId: string | null
   disabled?: boolean
   variant?: "horizontal" | "stack"
+  /**
+   * Quando true, os campos data/horário/duração ficam ocultos e os valores são
+   * herdados de `periodoHerdado` (caso do sub-form dentro do modal de
+   * agendamento, onde esses campos já existem no header do agendamento).
+   */
+  herdarPeriodo?: boolean
+  periodoHerdado?: PeriodoHerdado
+  /** bloqueio do próprio atendimento em edição — não conta como conflito de agenda */
+  excluirBloqueioId?: string | null
+  /** notifica o pai quando há conflito de agenda, para desabilitar o Salvar */
+  onConflitoChange?: (temConflito: boolean) => void
 }
 
 export const FormularioCamposAtendimento = forwardRef<
   FormularioCamposAtendimentoRef,
   FormularioCamposAtendimentoProps
 >(function FormularioCamposAtendimento(
-  { modeloId, disabled = false, variant = "horizontal" },
+  {
+    modeloId,
+    disabled = false,
+    variant = "horizontal",
+    herdarPeriodo = false,
+    periodoHerdado,
+    excluirBloqueioId,
+    onConflitoChange,
+  },
   ref,
 ) {
   const [tipo, setTipo] = useState("")
@@ -65,21 +100,33 @@ export const FormularioCamposAtendimento = forwardRef<
   const [horario, setHorario] = useState("")
   const [duracao, setDuracao] = useState("")
   const [endereco, setEndereco] = useState("")
+  const [enderecoFormatado, setEnderecoFormatado] = useState<string | null>(null)
+  const [latitude, setLatitude] = useState<number | null>(null)
+  const [longitude, setLongitude] = useState<number | null>(null)
+  const [placeId, setPlaceId] = useState<string | null>(null)
   const [bairro, setBairro] = useState("")
+  // Vira true quando o usuário edita o bairro à mão; impede que uma nova seleção
+  // de endereço sobrescreva a edição manual.
+  const [bairroEditadoManual, setBairroEditadoManual] = useState(false)
   const [tipoLocal, setTipoLocal] = useState("")
   const [formaPagamento, setFormaPagamento] = useState("")
   const [valorAcordado, setValorAcordado] = useState("")
+  // Enquanto false, o valor acordado é recalculado a partir dos programas.
+  // Vira true assim que o usuário edita o campo manualmente.
+  const [valorEditadoManual, setValorEditadoManual] = useState(false)
 
   const [programasModelo, setProgramasModelo] = useState<ProgramaModelo[]>([])
   const [adicionados, setAdicionados] = useState<ProgramaAdicionado[]>([])
   const [selecionado, setSelecionado] = useState("")
 
-  const [tiposBackend, setTiposBackend] = useState<string[]>([])
-  const [tiposCriadosSessao, setTiposCriadosSessao] = useState<string[]>([])
-  const tiposCombinados = useMemo(
-    () => Array.from(new Set([...tiposBackend, ...tiposCriadosSessao])).sort(),
-    [tiposBackend, tiposCriadosSessao],
-  )
+  const {
+    tiposCombinados,
+    adicionarTipoSessao,
+    iniciarRemocao,
+    remocao,
+    cancelarRemocao,
+    aposRemover,
+  } = useTiposLocal()
 
   // Reset state quando modeloId muda — pattern oficial do React (state derivado de prop).
   // Ver https://react.dev/reference/react/useState#storing-information-from-previous-renders
@@ -89,7 +136,28 @@ export const FormularioCamposAtendimento = forwardRef<
     setProgramasModelo([])
     setAdicionados([])
     setSelecionado("")
+    setValorAcordado("")
+    setValorEditadoManual(false)
   }
+
+  // Soma dos preços dos programas atualmente adicionados (ignora preco null/NaN).
+  const valorCalculado = useMemo(() => {
+    return adicionados.reduce((total, a) => {
+      const prog = programasModelo.find(
+        (p) => p.programa_id === a.programa_id && p.duracao_id === a.duracao_id,
+      )
+      const preco = prog?.preco
+      return Number.isFinite(preco) ? total + (preco as number) : total
+    }, 0)
+  }, [adicionados, programasModelo])
+
+  // Enquanto o usuário não editou manualmente e há programas, o campo espelha a
+  // soma dos programas (valor derivado, sem setState em efeito). Assim que ele
+  // edita, passa a valer o que está em valorAcordado e o hint some.
+  const recalculaAutomaticamente = !valorEditadoManual && adicionados.length > 0
+  const valorAcordadoExibido = recalculaAutomaticamente
+    ? formatValorCampo(valorCalculado)
+    : valorAcordado
 
   useEffect(() => {
     if (!modeloId) return
@@ -106,14 +174,29 @@ export const FormularioCamposAtendimento = forwardRef<
     }
   }, [modeloId])
 
-  useEffect(() => {
-    api<TiposLocalResponse>("/v1/atendimentos/tipos-local")
-      .then((r) => setTiposBackend(r.items))
-      .catch(() => {})
-  }, [])
-
-  const valorDecimalInvalido = valorAcordado.trim().length > 0 && parseDecimal(valorAcordado) === null
+  const valorDecimalInvalido =
+    valorAcordadoExibido.trim().length > 0 && parseDecimal(valorAcordadoExibido) === null
   const duracaoDecimalInvalida = duracao.trim().length > 0 && parseDecimal(duracao) === null
+
+  // Período efetivo: herdado do agendamento (sub-form da agenda) ou dos campos locais.
+  const periodoData = herdarPeriodo ? periodoHerdado?.data ?? "" : dataDesejada
+  const periodoHorario = herdarPeriodo ? periodoHerdado?.horario ?? "" : horario
+  const periodoDuracaoHoras = herdarPeriodo
+    ? periodoHerdado?.duracaoHoras ?? 0
+    : parseDecimal(duracao) ?? 0
+
+  const { conflitos } = useConflitoAgenda({
+    modelo_id: modeloId,
+    data: periodoData,
+    horario: periodoHorario,
+    duracao_horas: periodoDuracaoHoras,
+    excluir_bloqueio_id: excluirBloqueioId ?? null,
+  })
+
+  const temConflito = conflitos.length > 0
+  useEffect(() => {
+    onConflitoChange?.(temConflito)
+  }, [temConflito, onConflitoChange])
 
   useImperativeHandle(
     ref,
@@ -122,18 +205,30 @@ export const FormularioCamposAtendimento = forwardRef<
         const payload: EditarDadosPayload = {}
         if (tipo) payload.tipo_atendimento = tipo as TipoAtendimento
         if (urgencia) payload.urgencia = urgencia as Urgencia
-        if (dataDesejada) payload.data_desejada = dataDesejada
-        if (horario) payload.horario_desejado = horario
-        if (duracao) {
-          const d = parseDecimal(duracao)
-          if (d !== null) payload.duracao_horas = d
+        if (herdarPeriodo && periodoHerdado) {
+          if (periodoHerdado.data) payload.data_desejada = periodoHerdado.data
+          if (periodoHerdado.horario) payload.horario_desejado = periodoHerdado.horario
+          if (Number.isFinite(periodoHerdado.duracaoHoras) && periodoHerdado.duracaoHoras > 0) {
+            payload.duracao_horas = periodoHerdado.duracaoHoras
+          }
+        } else {
+          if (dataDesejada) payload.data_desejada = dataDesejada
+          if (horario) payload.horario_desejado = horario
+          if (duracao) {
+            const d = parseDecimal(duracao)
+            if (d !== null) payload.duracao_horas = d
+          }
         }
         if (endereco) payload.endereco = endereco
+        if (enderecoFormatado) payload.endereco_formatado = enderecoFormatado
+        if (latitude !== null) payload.latitude = latitude
+        if (longitude !== null) payload.longitude = longitude
+        if (placeId) payload.place_id = placeId
         if (bairro) payload.bairro = bairro
         if (tipoLocal) payload.tipo_local = tipoLocal
         if (formaPagamento) payload.forma_pagamento = formaPagamento
-        if (valorAcordado) {
-          const v = parseDecimal(valorAcordado)
+        if (valorAcordadoExibido) {
+          const v = parseDecimal(valorAcordadoExibido)
           if (v !== null) payload.valor_acordado = v
         }
         return {
@@ -152,11 +247,17 @@ export const FormularioCamposAtendimento = forwardRef<
       horario,
       duracao,
       endereco,
+      enderecoFormatado,
+      latitude,
+      longitude,
+      placeId,
       bairro,
       tipoLocal,
       formaPagamento,
-      valorAcordado,
+      valorAcordadoExibido,
       adicionados,
+      herdarPeriodo,
+      periodoHerdado,
     ],
   )
 
@@ -213,46 +314,66 @@ export const FormularioCamposAtendimento = forwardRef<
         </select>
       </Campo>
 
-      <Campo label="Data desejada">
-        <Input
-          className={controlClassName}
-          type="date"
-          value={dataDesejada}
-          onChange={(e) => setDataDesejada(e.target.value)}
-          disabled={disabled}
-        />
-      </Campo>
-      <Campo label="Horário">
-        <Input
-          className={controlClassName}
-          type="time"
-          value={horario}
-          onChange={(e) => setHorario(e.target.value)}
-          disabled={disabled}
-        />
-      </Campo>
-      <Campo label="Duração (h)">
-        <Input
-          className={cn(controlClassName, duracaoDecimalInvalida && "border-state-lost")}
-          inputMode="decimal"
-          placeholder="2"
-          value={duracao}
-          onChange={(e) => setDuracao(e.target.value)}
-          disabled={disabled}
-        />
-      </Campo>
+      {herdarPeriodo ? (
+        <p className="text-[11px] leading-4 text-text-muted">
+          Data, horário e duração são herdados do agendamento acima.
+        </p>
+      ) : (
+        <>
+          <Campo label="Data desejada">
+            <Input
+              className={controlClassName}
+              type="date"
+              value={dataDesejada}
+              onChange={(e) => setDataDesejada(e.target.value)}
+              disabled={disabled}
+            />
+          </Campo>
+          <Campo label="Horário">
+            <Input
+              className={controlClassName}
+              type="time"
+              value={horario}
+              onChange={(e) => setHorario(e.target.value)}
+              disabled={disabled}
+            />
+          </Campo>
+          <Campo label="Duração (h)">
+            <Input
+              className={cn(controlClassName, duracaoDecimalInvalida && "border-state-lost")}
+              inputMode="decimal"
+              placeholder="2"
+              value={duracao}
+              onChange={(e) => setDuracao(e.target.value)}
+              disabled={disabled}
+            />
+          </Campo>
+        </>
+      )}
     </ColunaSecao>
   )
 
   const colunaLocal = (
     <ColunaSecao titulo="Local">
       <Campo label="Endereço">
-        <Input
-          className={controlClassName}
-          placeholder="Rua, número"
-          value={endereco}
-          onChange={(e) => setEndereco(e.target.value)}
-          disabled={disabled}
+        <CampoLocalAutocomplete
+          valorInicial={endereco}
+          enderecoFormatadoAtual={enderecoFormatado}
+          onSelecionar={(local) => {
+            setEndereco(local.endereco_formatado)
+            setEnderecoFormatado(local.endereco_formatado)
+            setLatitude(local.latitude)
+            setLongitude(local.longitude)
+            setPlaceId(local.place_id)
+            if (!bairroEditadoManual) setBairro(local.localizacao_curta)
+          }}
+          onLimpar={() => {
+            setEndereco("")
+            setEnderecoFormatado(null)
+            setLatitude(null)
+            setLongitude(null)
+            setPlaceId(null)
+          }}
         />
       </Campo>
       <Campo label="Bairro">
@@ -260,7 +381,10 @@ export const FormularioCamposAtendimento = forwardRef<
           className={controlClassName}
           placeholder="Bairro"
           value={bairro}
-          onChange={(e) => setBairro(e.target.value)}
+          onChange={(e) => {
+            setBairroEditadoManual(true)
+            setBairro(e.target.value)
+          }}
           disabled={disabled}
         />
       </Campo>
@@ -270,7 +394,8 @@ export const FormularioCamposAtendimento = forwardRef<
           onChange={setTipoLocal}
           options={tiposCombinados}
           placeholder="apartamento, casa…"
-          onCreate={(novo) => setTiposCriadosSessao((prev) => [...prev, novo])}
+          onCreate={adicionarTipoSessao}
+          onDeletarItem={iniciarRemocao}
           disabled={disabled}
         />
       </Campo>
@@ -298,10 +423,18 @@ export const FormularioCamposAtendimento = forwardRef<
             className={cn(controlClassName, valorDecimalInvalido && "border-state-lost")}
             inputMode="decimal"
             placeholder="1.200,00"
-            value={valorAcordado}
-            onChange={(e) => setValorAcordado(e.target.value)}
+            value={valorAcordadoExibido}
+            onChange={(e) => {
+              setValorEditadoManual(true)
+              setValorAcordado(e.target.value)
+            }}
             disabled={disabled}
           />
+          {recalculaAutomaticamente && (
+            <span className="text-[11px] leading-4 text-text-muted">
+              Recalculado a partir dos programas
+            </span>
+          )}
         </Campo>
       </div>
 
@@ -366,21 +499,43 @@ export const FormularioCamposAtendimento = forwardRef<
     </ColunaSecao>
   )
 
+  const modalRemoverTipo = (
+    <ModalRemoverTipoLocal
+      nome={remocao?.nome ?? null}
+      contagem={remocao?.contagem ?? 0}
+      tiposExistentes={tiposCombinados}
+      onRemovido={aposRemover}
+      onCancelar={cancelarRemocao}
+    />
+  )
+
   if (variant === "stack") {
     return (
-      <div className="flex flex-col divide-y divide-border-subtle rounded-lg border border-border-subtle bg-surface">
-        {colunaAtendimento}
-        {colunaLocal}
-        {colunaPagamento}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col divide-y divide-border-subtle rounded-lg border border-border-subtle bg-surface">
+          {colunaAtendimento}
+          {colunaLocal}
+          {colunaPagamento}
+        </div>
+        {temConflito && <AlertaConflito conflitos={conflitos} />}
+        {modalRemoverTipo}
       </div>
     )
   }
 
   return (
-    <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-border-subtle overflow-hidden md:grid-cols-3 md:divide-x md:divide-y-0">
-      {colunaAtendimento}
-      {colunaLocal}
-      {colunaPagamento}
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-border-subtle overflow-hidden md:grid-cols-3 md:divide-x md:divide-y-0">
+        {colunaAtendimento}
+        {colunaLocal}
+        {colunaPagamento}
+      </div>
+      {temConflito && (
+        <div className="border-t border-border-subtle px-5 py-3">
+          <AlertaConflito conflitos={conflitos} />
+        </div>
+      )}
+      {modalRemoverTipo}
     </div>
   )
 })

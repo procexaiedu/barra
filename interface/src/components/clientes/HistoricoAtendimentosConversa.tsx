@@ -3,7 +3,7 @@
 import { useState } from "react"
 import type { AtendimentoHistoricoItem } from "@/tipos/clientes"
 import { ItemAtendimentoHistorico } from "@/components/clientes/ItemAtendimentoHistorico"
-import { ModalAtendimentoHistorico } from "@/components/clientes/ModalAtendimentoHistorico"
+import { ModalVisualizacao } from "@/components/atendimentos/ModalVisualizacao"
 
 const ITENS_POR_PAGINA = 5
 
@@ -57,9 +57,10 @@ export function HistoricoAtendimentosConversa({
         )}
       </section>
 
-      <ModalAtendimentoHistorico
+      <ModalVisualizacao
         atendimentoId={atendimentoSelecionado}
         onClose={() => setAtendimentoSelecionado(null)}
+        readOnly
       />
     </>
   )

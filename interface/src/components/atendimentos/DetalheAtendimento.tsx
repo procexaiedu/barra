@@ -53,17 +53,19 @@ export function DetalheAtendimento({
   onUploadMidia,
   onDeletarMidia,
   onEditar,
+  readOnly = false,
 }: {
   detalhe: AtendimentoDetalheResponse | null
   status: "loading" | "success" | "error"
   error: string | null
   onRetry: () => void
-  onDevolver: (id: string) => Promise<void>
-  onFechar: (id: string, valorFinal: number) => Promise<void>
-  onPerder: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
-  onUploadMidia: (atendimentoId: string, file: File, tipo: string) => Promise<void>
-  onDeletarMidia: (atendimentoId: string, midiaId: string) => Promise<void>
+  onDevolver?: (id: string) => Promise<void>
+  onFechar?: (id: string, valorFinal: number) => Promise<void>
+  onPerder?: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
+  onUploadMidia?: (atendimentoId: string, file: File, tipo: string) => Promise<void>
+  onDeletarMidia?: (atendimentoId: string, midiaId: string) => Promise<void>
   onEditar?: () => void
+  readOnly?: boolean
 }) {
   if (status === "loading") return <DetalheSkeleton />
   if (status === "error") return <BannerErro mensagem={error ?? undefined} onRetry={onRetry} />
@@ -136,14 +138,16 @@ export function DetalheAtendimento({
           )}
         </div>
 
-        <div className="mt-4">
-          <AcoesAtendimento
-            atendimento={atendimento}
-            onDevolver={onDevolver}
-            onFechar={onFechar}
-            onPerder={onPerder}
-          />
-        </div>
+        {!readOnly && onDevolver && onFechar && onPerder && (
+          <div className="mt-4">
+            <AcoesAtendimento
+              atendimento={atendimento}
+              onDevolver={onDevolver}
+              onFechar={onFechar}
+              onPerder={onPerder}
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid min-h-0 flex-1 grid-cols-[1.4fr_1fr] gap-3">
@@ -167,6 +171,7 @@ export function DetalheAtendimento({
               detalhe={detalhe}
               onUploadMidia={onUploadMidia}
               onDeletarMidia={onDeletarMidia}
+              readOnly={readOnly}
             />
           </SecaoFixa>
           <SecaoFixa
@@ -216,10 +221,12 @@ function MidiasRecebidas({
   detalhe,
   onUploadMidia,
   onDeletarMidia,
+  readOnly = false,
 }: {
   detalhe: AtendimentoDetalheResponse
-  onUploadMidia: (atendimentoId: string, file: File, tipo: string) => Promise<void>
-  onDeletarMidia: (atendimentoId: string, midiaId: string) => Promise<void>
+  onUploadMidia?: (atendimentoId: string, file: File, tipo: string) => Promise<void>
+  onDeletarMidia?: (atendimentoId: string, midiaId: string) => Promise<void>
+  readOnly?: boolean
 }) {
   const [midiaAberta, setMidiaAberta] = useState<MidiaItem | null>(null)
   const [midiaParaDeletar, setMidiaParaDeletar] = useState<MidiaItem | null>(null)
@@ -259,7 +266,7 @@ function MidiasRecebidas({
 
   async function handleArquivoSelecionado(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (!file) return
+    if (!file || !onUploadMidia) return
     e.target.value = ""
     setUploadLoading(true)
     try {
@@ -270,7 +277,7 @@ function MidiasRecebidas({
   }
 
   async function handleConfirmarDelete() {
-    if (!midiaParaDeletar) return
+    if (!midiaParaDeletar || !onDeletarMidia) return
     setDeleteLoading(true)
     try {
       await onDeletarMidia(detalhe.atendimento.id, midiaParaDeletar.id)
@@ -315,7 +322,7 @@ function MidiasRecebidas({
                   <span className="truncate">{midia.nome}</span>
                   <span className="font-sans text-text-disabled">{midia.subtitulo}</span>
                 </button>
-                {midia.pode_deletar && (
+                {midia.pode_deletar && !readOnly && (
                   <button
                     type="button"
                     onClick={() => setMidiaParaDeletar(midia)}
@@ -331,24 +338,26 @@ function MidiasRecebidas({
         </div>
       )}
 
-      <div className="mt-3">
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*,audio/*,application/pdf"
-          className="hidden"
-          onChange={handleArquivoSelecionado}
-        />
-        <button
-          type="button"
-          onClick={() => inputRef.current?.click()}
-          disabled={uploadLoading}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-accent hover:text-text-primary disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-        >
-          <Plus size={13} strokeWidth={2} />
-          {uploadLoading ? "Enviando..." : "Adicionar mídia"}
-        </button>
-      </div>
+      {!readOnly && onUploadMidia && (
+        <div className="mt-3">
+          <input
+            ref={inputRef}
+            type="file"
+            accept="image/*,audio/*,application/pdf"
+            className="hidden"
+            onChange={handleArquivoSelecionado}
+          />
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={uploadLoading}
+            className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-text-muted transition-colors hover:bg-accent hover:text-text-primary disabled:opacity-50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          >
+            <Plus size={13} strokeWidth={2} />
+            {uploadLoading ? "Enviando..." : "Adicionar mídia"}
+          </button>
+        </div>
+      )}
 
       {/* Viewer */}
       {midiaAberta?.url && midiaAberta.tipo === "audio" && (

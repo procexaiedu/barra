@@ -36,6 +36,7 @@ def _linha(numero: int, created_at: datetime) -> dict[str, Any]:
         "proxima_acao_esperada": None,
         "sinais_qualificacao": None,
         "valor_acordado": None,
+        "valor_final": None,
         "updated_at": created_at,
         "cliente_id": uuid4(),
         "cliente_nome": f"Cliente {numero}",

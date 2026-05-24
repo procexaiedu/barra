@@ -113,6 +113,7 @@ async def listar_modelos(
 @router.post("", status_code=201)
 async def criar_modelo(
     body: ModeloCreate,
+    request: Request,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     result = await conn.execute(
@@ -145,7 +146,7 @@ async def criar_modelo(
     )
     row = await result.fetchone()
     assert row is not None
-    return _serializar_servico(cast(dict[str, Any], row))
+    return _modelo_com_foto(request, cast(dict[str, Any], row))
 
 
 @router.get("/{modelo_id}")
