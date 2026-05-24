@@ -2,10 +2,10 @@
 
 from contextlib import asynccontextmanager
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
-from psycopg.errors import ExclusionViolation
+from psycopg.errors import ExclusionViolation, ForeignKeyViolation
 
 from barra.api.deps import get_conn
 from barra.main import app
@@ -104,5 +104,128 @@ def test_bloqueio_intervalo_invalido_retorna_422() -> None:
         with TestClient(app) as client:
             response = client.post("/v1/agenda/bloqueios", json=body, headers=_token())
         assert response.status_code == 422
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+class FakeConnAgendamento:
+    """Grava as queries executadas para inspecionar o back-link da FK circular."""
+
+    def __init__(
+        self,
+        *,
+        atendimento_modelo_id: UUID | None = None,
+        atendimento_existe: bool = True,
+        fk_violation: bool = False,
+    ) -> None:
+        self.atendimento_modelo_id = atendimento_modelo_id
+        self.atendimento_existe = atendimento_existe
+        self.fk_violation = fk_violation
+        self.bloqueio_id = uuid4()
+        self.execucoes: list[tuple[str, object]] = []
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
+
+    async def execute(self, query: str, params: object = None) -> _Result:
+        self.execucoes.append((query, params))
+        if "SELECT modelo_id FROM barravips.atendimentos" in query:
+            if not self.atendimento_existe:
+                return _Result([])
+            return _Result([{"modelo_id": self.atendimento_modelo_id}])
+        if "INSERT INTO barravips.bloqueios" in query:
+            if self.fk_violation:
+                raise ForeignKeyViolation("modelo inexistente")
+            assert isinstance(params, (list, tuple))
+            return _Result(
+                [
+                    {
+                        "id": self.bloqueio_id,
+                        "modelo_id": params[0],
+                        "atendimento_id": params[4],
+                        "estado": "bloqueado",
+                    }
+                ]
+            )
+        return _Result([])
+
+
+def test_agendamento_preenche_back_link_no_atendimento() -> None:
+    modelo_id = uuid4()
+    atendimento_id = uuid4()
+    fake = FakeConnAgendamento(atendimento_modelo_id=modelo_id)
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        body = _body()
+        body["modelo_id"] = str(modelo_id)
+        body["atendimento_id"] = str(atendimento_id)
+        with TestClient(app) as client:
+            response = client.post("/v1/agenda/bloqueios", json=body, headers=_token())
+        assert response.status_code == 201
+        back_links = [
+            params
+            for query, params in fake.execucoes
+            if "UPDATE barravips.atendimentos SET bloqueio_id = %s" in query
+        ]
+        assert back_links == [(fake.bloqueio_id, atendimento_id)]
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_agendamento_atendimento_de_outra_modelo_retorna_409() -> None:
+    fake = FakeConnAgendamento(atendimento_modelo_id=uuid4())
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        body = _body()
+        body["modelo_id"] = str(uuid4())
+        body["atendimento_id"] = str(uuid4())
+        with TestClient(app) as client:
+            response = client.post("/v1/agenda/bloqueios", json=body, headers=_token())
+        assert response.status_code == 409
+        assert response.json()["error"]["code"] == "CONFLITO_ESTADO"
+        # Nao deve ter inserido nem mexido na FK quando a posse nao bate.
+        assert not any("INSERT INTO barravips.bloqueios" in q for q, _ in fake.execucoes)
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_agendamento_atendimento_inexistente_retorna_404() -> None:
+    fake = FakeConnAgendamento(atendimento_existe=False)
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        body = _body()
+        body["atendimento_id"] = str(uuid4())
+        with TestClient(app) as client:
+            response = client.post("/v1/agenda/bloqueios", json=body, headers=_token())
+        assert response.status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_bloqueio_modelo_inexistente_retorna_404() -> None:
+    fake = FakeConnAgendamento(fk_violation=True)
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.post("/v1/agenda/bloqueios", json=_body(), headers=_token())
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "RECURSO_NAO_ENCONTRADO"
     finally:
         app.dependency_overrides.pop(get_conn, None)
