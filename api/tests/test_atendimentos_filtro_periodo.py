@@ -42,6 +42,7 @@ def _linha(numero: int, created_at: datetime) -> dict[str, Any]:
         "cliente_telefone": "5521999998888",
         "modelo_id": uuid4(),
         "modelo_nome": "Modelo X",
+        "programa_principal_nome": None,
     }
 
 
