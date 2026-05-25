@@ -1,0 +1,60 @@
+"""M3f — mapping puro motivo -> (tipo, responsavel) + bucket (04 §3.4/§3.6, 09 §4.3).
+
+DB-free: as funcoes sao puras. Cobre TODOS os motivos do enum de `EscaladaPayload`
+(test_cobertura_enum_completa garante que a tabela ESPERADO nao fica defasada se o enum mudar)
+e o default seguro para um motivo desconhecido.
+"""
+
+from typing import get_args
+
+import pytest
+
+from barra.agente.ferramentas.escalada import EscaladaPayload
+from barra.dominio.escaladas.modelos import TipoEscalada
+from barra.dominio.escaladas.service import mapear_bucket, mapear_motivo
+
+# motivo -> (tipo esperado, responsavel esperado, bucket esperado)
+ESPERADO: dict[str, tuple[TipoEscalada, str, str]] = {
+    # Operacionais -> capacidade
+    "fora_de_oferta": (TipoEscalada.fora_de_oferta, "modelo", "capacidade"),
+    "horario_indisponivel": (TipoEscalada.indisponibilidade, "modelo", "capacidade"),
+    "reagendamento_pos_bloqueio": (TipoEscalada.indisponibilidade, "modelo", "capacidade"),
+    "politica_nova_necessaria": (TipoEscalada.outro, "Fernando", "capacidade"),
+    "exaustao_iteracoes": (TipoEscalada.outro, "Fernando", "capacidade"),
+    "timeout_grafo": (TipoEscalada.outro, "Fernando", "capacidade"),
+    # modelo_recusou: Fernando, mas bucket DEFESA (safety da API, nao falha de capacidade)
+    "modelo_recusou": (TipoEscalada.outro, "Fernando", "defesa"),
+    # AUP / persona / jailbreak -> comportamento_atipico, Fernando, defesa
+    "disclosure_insistente": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
+    "disclosure_explicito": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
+    "jailbreak_attempt": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
+    "pedido_explicito_repetido": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
+    "prova_humanidade_persistente": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
+    "cross_modelo_fishing": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
+    # Generico (default seguro)
+    "outro": (TipoEscalada.outro, "Fernando", "capacidade"),
+}
+
+
+@pytest.mark.parametrize("motivo", list(ESPERADO))
+def test_mapear_motivo(motivo: str) -> None:
+    esperado_tipo, esperado_resp, _ = ESPERADO[motivo]
+    assert mapear_motivo(motivo) == (esperado_tipo, esperado_resp)
+
+
+@pytest.mark.parametrize("motivo", list(ESPERADO))
+def test_mapear_bucket(motivo: str) -> None:
+    _, _, esperado_bucket = ESPERADO[motivo]
+    assert mapear_bucket(motivo) == esperado_bucket
+
+
+def test_cobertura_enum_completa() -> None:
+    """A tabela ESPERADO cobre exatamente o Literal de `motivo` de EscaladaPayload."""
+    motivos_enum = set(get_args(EscaladaPayload.model_fields["motivo"].annotation))
+    assert motivos_enum == set(ESPERADO)
+
+
+def test_default_seguro_motivo_desconhecido() -> None:
+    """Motivo fora do enum cai no default seguro: Fernando + outro + bucket capacidade."""
+    assert mapear_motivo("xpto_inexistente") == (TipoEscalada.outro, "Fernando")
+    assert mapear_bucket("xpto_inexistente") == "capacidade"
