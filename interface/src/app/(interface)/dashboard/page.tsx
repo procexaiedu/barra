@@ -8,7 +8,7 @@ import { BlocoFinanceiro } from "@/components/dashboard/BlocoFinanceiro"
 import { BlocoMotivosEscalada } from "@/components/dashboard/BlocoMotivosEscalada"
 import { BlocoPerdasPorMotivo } from "@/components/dashboard/BlocoPerdasPorMotivo"
 import { BulletEscaladas } from "@/components/dashboard/BulletEscaladas"
-import { CarteiraEstados } from "@/components/dashboard/CarteiraEstados"
+import { FunilVendas } from "@/components/dashboard/FunilVendas"
 import { DialogRangeCustom } from "@/components/dashboard/DialogRangeCustom"
 import { DialogTodasEscaladas } from "@/components/dashboard/DialogTodasEscaladas"
 import { HeaderDashboard } from "@/components/dashboard/HeaderDashboard"
@@ -260,8 +260,8 @@ function DashboardConteudo({ data, series, onAbrirEscaladas, onAbrirMetrica }: C
         serieLiquido={series.liquido?.pontos}
       />
 
-      {/* Seção 4 — Funil top 5 (5 etapas do kanban) */}
-      <CarteiraEstados linhas={data.funil_estados} />
+      {/* Seção 4 — Funil de vendas por coorte (4 etapas; perdas como saída lateral) */}
+      <FunilVendas funil={data.funil} />
 
       {/* Seção 5 — Diagnóstico (perdas + escaladas) */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

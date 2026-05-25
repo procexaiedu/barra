@@ -86,9 +86,9 @@ class FakeConn:
         if "FROM barravips.escaladas e" in query and "GROUP BY" not in query:
             return _Result([{"n": 0}])
 
-        # _funil_estados
-        if "FROM barravips.atendimentos" in query and "GROUP BY estado" in query:
-            return _Result([])
+        # _funil_coorte
+        if "FROM com_rank" in query:
+            return _Result([self._funil_coorte(modelo_filtro)])
 
         # _perdas_por_motivo
         if "motivo_perda" in query and "GROUP BY a.motivo_perda" in query:
@@ -160,6 +160,44 @@ class FakeConn:
     def _contar_perdas(self, modelo_filtro: UUID | None) -> int:
         return len(self._perdidos(modelo_filtro))
 
+    @staticmethod
+    def _rank(a: dict[str, Any]) -> int:
+        """Espelha o CASE de rank_max do SQL em _funil_coorte."""
+        estado = a["estado"]
+        if estado == "Perdido":
+            return {
+                "Aguardando_confirmacao": 2,
+                "Confirmado": 2,
+                "Em_execucao": 3,
+                "Fechado": 3,
+            }.get(a.get("de_estado"), 1)
+        return {
+            "Novo": 1,
+            "Triagem": 1,
+            "Qualificado": 1,
+            "Aguardando_confirmacao": 2,
+            "Confirmado": 2,
+            "Em_execucao": 3,
+            "Fechado": 4,
+        }.get(estado, 1)
+
+    def _funil_coorte(self, modelo_filtro: UUID | None) -> dict[str, Any]:
+        ats = [
+            a
+            for a in self.atendimentos
+            if modelo_filtro is None or a["modelo_id"] == modelo_filtro
+        ]
+        ranks = [(a["estado"], self._rank(a)) for a in ats]
+        return {
+            "topo": len(ats),
+            "coorte_aguardando": sum(1 for _, r in ranks if r >= 2),
+            "coorte_execucao": sum(1 for _, r in ranks if r >= 3),
+            "coorte_fechado": sum(1 for _, r in ranks if r >= 4),
+            "perda_qualificando": sum(1 for e, r in ranks if e == "Perdido" and r == 1),
+            "perda_aguardando": sum(1 for e, r in ranks if e == "Perdido" and r == 2),
+            "perda_execucao": sum(1 for e, r in ranks if e == "Perdido" and r == 3),
+        }
+
     def _linhas_profissionais(self, modelo_filtro: UUID | None) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for m in self.modelos:
@@ -226,11 +264,24 @@ def _fechado(
     }
 
 
-def _perdido(modelo_id: UUID) -> dict[str, Any]:
+def _perdido(modelo_id: UUID, de_estado: str | None = None) -> dict[str, Any]:
     return {
         "id": uuid4(),
         "modelo_id": modelo_id,
         "estado": "Perdido",
+        "de_estado": de_estado,  # estado de origem da transição → Perdido (None = origem ausente)
+        "valor_final": None,
+        "percentual_repasse_snapshot": None,
+        "created_at": datetime.now(UTC),
+    }
+
+
+def _atend(modelo_id: UUID, estado: str) -> dict[str, Any]:
+    """Atendimento em estado intermediário (não-terminal) para o funil de coorte."""
+    return {
+        "id": uuid4(),
+        "modelo_id": modelo_id,
+        "estado": estado,
         "valor_final": None,
         "percentual_repasse_snapshot": None,
         "created_at": datetime.now(UTC),
@@ -368,3 +419,58 @@ def test_dashboard_bloco_financeiro_top_level() -> None:
     assert "financeiro_periodo_anterior" in body
     assert body["financeiro_periodo_anterior"] is not None
     assert set(body["financeiro_periodo_anterior"].keys()) == chaves
+
+
+def test_funil_coorte_por_etapa() -> None:
+    """Coorte (rank ≥ K) por etapa + perda lateral (Perdido cujo rank = K)."""
+    m = uuid4()
+    conn = FakeConn(
+        atendimentos=[
+            _atend(m, "Novo"),
+            _atend(m, "Novo"),
+            _atend(m, "Qualificado"),  # 3 em rank 1 (Qualificando)
+            _atend(m, "Aguardando_confirmacao"),
+            _atend(m, "Aguardando_confirmacao"),  # 2 em rank 2 (Aguardando)
+            _atend(m, "Em_execucao"),  # 1 em rank 3 (Em atendimento)
+            _fechado(m, "1000", "40"),
+            _fechado(m, "1000", "40"),
+            _fechado(m, "1000", "40"),  # 3 em rank 4 (Fechado)
+            _perdido(m),  # origem ausente → rank 1
+            _perdido(m, "Confirmado"),  # rank 2
+            _perdido(m, "Em_execucao"),  # rank 3
+            _perdido(m, "Em_execucao"),  # rank 3
+        ],
+        modelos=[{"id": m, "nome": "Alice"}],
+    )
+
+    _instalar_override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/dashboard", params={"periodo": "7d"}, headers=_token())
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+    assert response.status_code == 200
+    funil = response.json()["funil"]
+
+    assert funil["topo"] == 13
+    assert funil["perdidos_total"] == 4
+
+    por_id = {e["id"]: e for e in funil["etapas"]}
+    # Ordem preservada e 4 etapas de progressão (Perdido não é barra).
+    assert [e["id"] for e in funil["etapas"]] == [
+        "Qualificando",
+        "Aguardando",
+        "Em_execucao",
+        "Fechado",
+    ]
+    # Coorte = quantos chegaram pelo menos até a etapa (inclui perdidos que passaram por ali).
+    assert por_id["Qualificando"]["coorte"] == 13  # topo
+    assert por_id["Aguardando"]["coorte"] == 9  # 2 ag + 1 exec + 3 fech + (1 perdido r2 + 2 r3)
+    assert por_id["Em_execucao"]["coorte"] == 6  # 1 exec + 3 fech + 2 perdidos r3
+    assert por_id["Fechado"]["coorte"] == 3  # só fechados; Perdido nunca chega a 4
+    # Perda lateral por etapa de origem.
+    assert por_id["Qualificando"]["perdas"] == 1
+    assert por_id["Aguardando"]["perdas"] == 1
+    assert por_id["Em_execucao"]["perdas"] == 2
+    assert por_id["Fechado"]["perdas"] == 0

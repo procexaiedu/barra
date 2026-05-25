@@ -17,17 +17,6 @@ router = APIRouter(dependencies=[Depends(get_user)])
 BRT = timezone(timedelta(hours=-3))
 JANELA_CUSTOM_MAXIMA_DIAS = 90
 
-ESTADOS_CANONICOS: tuple[str, ...] = (
-    "Novo",
-    "Triagem",
-    "Qualificado",
-    "Aguardando_confirmacao",
-    "Confirmado",
-    "Em_execucao",
-    "Fechado",
-    "Perdido",
-)
-
 
 @dataclass(frozen=True)
 class Janela:
@@ -55,7 +44,7 @@ async def dashboard(
     pix_pendentes = await _pix_pendentes_total(conn, modelo_id)
     kpis_periodo = await _kpis(conn, janela, modelo_id)
     kpis_anterior = await _kpis(conn, janela_anterior, modelo_id) if janela_anterior else None
-    funil = await _funil_estados(conn, janela, modelo_id)
+    funil = await _funil_coorte(conn, janela, modelo_id)
     perdas = await _perdas_por_motivo(conn, janela, modelo_id)
     escalada_top = await _motivos_escalada_top(conn, janela, modelo_id)
     profissionais = await _profissionais(conn, janela, modelo_id)
@@ -76,7 +65,7 @@ async def dashboard(
         "financeiro_periodo_anterior": (
             _financeiro_bloco(kpis_anterior) if kpis_anterior else None
         ),
-        "funil_estados": funil,
+        "funil": funil,
         "perdas_por_motivo": perdas,
         "motivos_escalada": escalada_top,
         "profissionais": profissionais,
@@ -434,28 +423,90 @@ async def _escaladas_contagem(
     return int(row["n"]) if row else 0
 
 
-async def _funil_estados(
+async def _funil_coorte(
     conn: AsyncConnection[Any],
     janela: Janela,
     modelo_id: UUID | None,
-) -> list[dict[str, Any]]:
+) -> dict[str, Any]:
+    """Funil de coorte: por atendimento criado na janela, conta até onde ele progrediu.
+
+    Como a IA não emite ``transicao_estado`` no avanço, o rank máximo atingido é
+    derivado do estado atual (não-Perdido) ou do estado de origem da transição
+    ``→ Perdido`` (Perdido). As duas convenções de payload coexistem no código
+    (``de``/``para`` e ``estado_anterior``/``estado_novo``), por isso o COALESCE.
+
+    Ranks: Qualificando=1, Aguardando=2, Em atendimento=3, Fechado=4. Um Perdido
+    nunca chega a 4 (perdeu antes de fechar); origem ausente cai em Qualificando.
+    ``coorte(K) = nº com rank ≥ K``; ``perda(K) = nº de Perdidos cujo rank = K``.
+    """
     params: list[Any] = [janela.inicio, janela.fim]
     filtro_modelo = ""
     if modelo_id:
-        filtro_modelo = "AND modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = %s"
         params.append(modelo_id)
 
     result = await conn.execute(
         f"""
-        SELECT estado::text AS estado, COUNT(*)::int AS contagem
-          FROM barravips.atendimentos
-         WHERE created_at >= %s AND created_at <= %s {filtro_modelo}
-         GROUP BY estado
+        WITH base AS (
+            SELECT a.id, a.estado::text AS estado
+              FROM barravips.atendimentos a
+             WHERE a.created_at >= %s AND a.created_at <= %s {filtro_modelo}
+        ),
+        origem_perda AS (
+            SELECT DISTINCT ON (e.atendimento_id)
+                   e.atendimento_id,
+                   COALESCE(e.payload->>'de', e.payload->>'estado_anterior') AS de_estado
+              FROM barravips.eventos e
+              JOIN base b ON b.id = e.atendimento_id
+             WHERE e.tipo = 'transicao_estado'
+               AND COALESCE(e.payload->>'para', e.payload->>'estado_novo') = 'Perdido'
+             ORDER BY e.atendimento_id, e.created_at DESC
+        ),
+        com_rank AS (
+            SELECT
+                b.estado,
+                CASE
+                    WHEN b.estado = 'Perdido' THEN
+                        CASE op.de_estado
+                            WHEN 'Aguardando_confirmacao' THEN 2
+                            WHEN 'Confirmado' THEN 2
+                            WHEN 'Em_execucao' THEN 3
+                            WHEN 'Fechado' THEN 3
+                            ELSE 1
+                        END
+                    WHEN b.estado IN ('Novo', 'Triagem', 'Qualificado') THEN 1
+                    WHEN b.estado IN ('Aguardando_confirmacao', 'Confirmado') THEN 2
+                    WHEN b.estado = 'Em_execucao' THEN 3
+                    WHEN b.estado = 'Fechado' THEN 4
+                    ELSE 1
+                END AS rank_max
+              FROM base b
+              LEFT JOIN origem_perda op ON op.atendimento_id = b.id
+        )
+        SELECT
+            COUNT(*)::int AS topo,
+            COUNT(*) FILTER (WHERE rank_max >= 2)::int AS coorte_aguardando,
+            COUNT(*) FILTER (WHERE rank_max >= 3)::int AS coorte_execucao,
+            COUNT(*) FILTER (WHERE rank_max >= 4)::int AS coorte_fechado,
+            COUNT(*) FILTER (WHERE estado = 'Perdido' AND rank_max = 1)::int AS perda_qualificando,
+            COUNT(*) FILTER (WHERE estado = 'Perdido' AND rank_max = 2)::int AS perda_aguardando,
+            COUNT(*) FILTER (WHERE estado = 'Perdido' AND rank_max = 3)::int AS perda_execucao
+          FROM com_rank
         """,
         params,
     )
-    contagens = {row["estado"]: int(row["contagem"]) for row in await result.fetchall()}
-    return [{"estado": e, "contagem": contagens.get(e, 0)} for e in ESTADOS_CANONICOS]
+    row = await result.fetchone() or {}
+    topo = int(row.get("topo", 0) or 0)
+    perda_q = int(row.get("perda_qualificando", 0) or 0)
+    perda_a = int(row.get("perda_aguardando", 0) or 0)
+    perda_e = int(row.get("perda_execucao", 0) or 0)
+    etapas = [
+        {"id": "Qualificando", "coorte": topo, "perdas": perda_q},
+        {"id": "Aguardando", "coorte": int(row.get("coorte_aguardando", 0) or 0), "perdas": perda_a},
+        {"id": "Em_execucao", "coorte": int(row.get("coorte_execucao", 0) or 0), "perdas": perda_e},
+        {"id": "Fechado", "coorte": int(row.get("coorte_fechado", 0) or 0), "perdas": 0},
+    ]
+    return {"topo": topo, "etapas": etapas, "perdidos_total": perda_q + perda_a + perda_e}
 
 
 async def _perdas_por_motivo(
