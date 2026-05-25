@@ -27,6 +27,17 @@ const ORDEM_CANONICA: MotivoPerda[] = [
   "outro",
 ]
 
+// Paleta categórica da marca (--chart-*): cor fixa e distinta por motivo.
+// Verde (--chart-3) fica de fora de propósito — "verde = bom" destoa de uma perda.
+const COR_POR_MOTIVO: Record<MotivoPerda, string> = {
+  sumiu: "var(--chart-2)",
+  preco: "var(--chart-1)",
+  risco: "var(--chart-5)",
+  indisponibilidade: "var(--chart-4)",
+  fora_de_area: "var(--chart-6)",
+  outro: "var(--text-muted)",
+}
+
 const PCT_FMT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 })
 
 interface Props {
@@ -40,7 +51,7 @@ interface DadoDonut {
   rotulo: string
   contagem: number
   pct: number
-  noTopo: boolean
+  cor: string
 }
 
 export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Props) {
@@ -48,23 +59,13 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
 
   const dados = useMemo<DadoDonut[]>(() => {
     const mapa = new Map(linhas.map((l) => [l.motivo, l.contagem]))
-    const ordenado = ORDEM_CANONICA.map((motivo) => ({
+    return ORDEM_CANONICA.map((motivo) => ({
       motivo,
       rotulo: ROTULOS[motivo],
       contagem: mapa.get(motivo) ?? 0,
       pct: totalPerdas > 0 ? ((mapa.get(motivo) ?? 0) / totalPerdas) * 100 : 0,
+      cor: COR_POR_MOTIVO[motivo],
     })).sort((a, b) => b.contagem - a.contagem)
-
-    // Pareto: marca dos 80% acumulados.
-    let acumulado = 0
-    const ate80 = new Set<MotivoPerda>()
-    for (const linha of ordenado) {
-      if (totalPerdas === 0) break
-      if (acumulado < 80) ate80.add(linha.motivo)
-      acumulado += linha.pct
-    }
-
-    return ordenado.map((l) => ({ ...l, noTopo: ate80.has(l.motivo) }))
   }, [linhas, totalPerdas])
 
   const amostraPequena = totalPerdas > 0 && totalPerdas < N_MINIMO_PARA_DELTA_PCT
@@ -120,8 +121,7 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
                     {dadosVisiveis.map((d) => (
                       <Cell
                         key={d.motivo}
-                        fill={d.noTopo ? "var(--danger-500)" : "var(--text-muted)"}
-                        fillOpacity={d.noTopo ? 1 : 0.5}
+                        fill={d.cor}
                         style={{ cursor: "pointer", outline: "none" }}
                         onClick={() =>
                           router.push(
@@ -181,10 +181,7 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
                       <span
                         aria-hidden
                         className="inline-block h-2.5 w-2.5 rounded-sm"
-                        style={{
-                          background: d.noTopo ? "var(--danger-500)" : "var(--text-muted)",
-                          opacity: d.noTopo ? 1 : 0.55,
-                        }}
+                        style={{ background: d.cor }}
                       />
                       <span
                         className={cn(
