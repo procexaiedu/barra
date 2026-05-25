@@ -11,9 +11,29 @@ import { HeaderAgenda } from "@/components/agenda/HeaderAgenda"
 import { ToolbarAgenda } from "@/components/agenda/ToolbarAgenda"
 import { ModalAtendimentoHistorico } from "@/components/clientes/ModalAtendimentoHistorico"
 import { BannerErro } from "@/components/layout/BannerErro"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
 import { dataDeInput, dataInput, dataInputSaoPaulo, isoAgenda, useAgenda } from "@/hooks/useAgenda"
+import { ApiError } from "@/lib/api"
 import type { AtualizarBloqueioInput, BloqueioAgenda, BloqueioFormState } from "@/tipos/agenda"
+
+// 409 do backend quando o início do bloqueio cai fora da disponibilidade da modelo (ADR 0005).
+function ehForaDisponibilidade(e: unknown): boolean {
+  return (
+    e instanceof ApiError &&
+    e.code === "CONFLITO_ESTADO" &&
+    (e.details as { campo?: string } | null)?.campo === "confirmar_fora_disponibilidade"
+  )
+}
 
 function fimIsoOvernight(data: string, inicio: string, fim: string): string {
   if (fim !== "24:00" && fim < inicio) {
@@ -81,6 +101,8 @@ export function AgendaClient() {
   const bloqueioInicialHandled = useRef(false)
   const [tipoAtendimento, setTipoAtendimento] = useState<"" | "interno" | "externo">("")
   const [atendimentoVisualizandoId, setAtendimentoVisualizandoId] = useState<string | null>(null)
+  // Override "fora da disponibilidade": guarda a confirmação a refazer com a flag (ADR 0005).
+  const [foraDisp, setForaDisp] = useState<{ confirmar: () => Promise<void> } | null>(null)
 
   const bloqueios = useMemo(() => {
     let items = [...(agenda.agenda?.bloqueios ?? [])]
@@ -108,7 +130,7 @@ export function AgendaClient() {
     setInitialForm(form)
   }
 
-  const criar = async (form: BloqueioFormState) => {
+  const criar = async (form: BloqueioFormState, forcar = false) => {
     const modeloId = form.modelo_id ?? agenda.agenda?.modelo?.id
     if (!modeloId) {
       toast.error("Selecione uma modelo.")
@@ -121,15 +143,26 @@ export function AgendaClient() {
         fim: fimIsoOvernight(form.data, form.inicio, form.fim),
         observacao: form.observacao.trim() || null,
         ...(form.atendimento_id ? { atendimento_id: form.atendimento_id } : {}),
+        ...(forcar ? { confirmar_fora_disponibilidade: true } : {}),
       })
       toast.success(form.atendimento_id ? "Agendamento criado" : "Bloqueio criado")
       setDialog({ modo: "fechado", bloqueio: null })
+      setForaDisp(null)
     } catch (e) {
+      if (ehForaDisponibilidade(e) && !forcar) {
+        setForaDisp({ confirmar: () => criar(form, true) })
+        return
+      }
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
     }
   }
 
-  const atualizar = async (id: string, form: BloqueioFormState, atendimentoId?: string | null) => {
+  const atualizar = async (
+    id: string,
+    form: BloqueioFormState,
+    atendimentoId?: string | null,
+    forcar = false,
+  ) => {
     try {
       const payload: AtualizarBloqueioInput = {
         inicio: isoAgenda(form.data, form.inicio),
@@ -137,12 +170,18 @@ export function AgendaClient() {
         observacao: form.observacao.trim() || null,
       }
       if (atendimentoId !== undefined) payload.atendimento_id = atendimentoId
+      if (forcar) payload.confirmar_fora_disponibilidade = true
       await agenda.atualizarBloqueio(id, payload)
       const ehAgendamento =
         atendimentoId !== undefined ? Boolean(atendimentoId) : Boolean(dialog.bloqueio?.atendimento_id)
       toast.success(ehAgendamento ? "Agendamento atualizado" : "Bloqueio atualizado")
       setDialog({ modo: "fechado", bloqueio: null })
+      setForaDisp(null)
     } catch (e) {
+      if (ehForaDisponibilidade(e) && !forcar) {
+        setForaDisp({ confirmar: () => atualizar(id, form, atendimentoId, true) })
+        return
+      }
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
     }
   }
@@ -258,6 +297,24 @@ export function AgendaClient() {
         atendimentoId={atendimentoVisualizandoId}
         onClose={() => setAtendimentoVisualizandoId(null)}
       />
+
+      <AlertDialog open={foraDisp !== null} onOpenChange={(aberto) => { if (!aberto) setForaDisp(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fora do período de trabalho</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este horário está fora da disponibilidade configurada da modelo (folga/viagem).
+              Quer criar mesmo assim? O período não será alterado.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { void foraDisp?.confirmar() }}>
+              Criar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   )
 }

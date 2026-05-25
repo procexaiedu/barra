@@ -45,10 +45,11 @@ const TIPO_LABEL: Record<"interno" | "externo", string> = {
   externo: "Externo (vai ao cliente)",
 }
 
-const FORMA_PAGAMENTO_LABEL: Record<"pix" | "dinheiro" | "outro", string> = {
+const FORMA_PAGAMENTO_LABEL: Record<"pix" | "dinheiro" | "outro" | "cartao", string> = {
   pix: "Pix",
   dinheiro: "Dinheiro",
   outro: "Outro",
+  cartao: "Cartão",
 }
 
 export function DadosCliente({

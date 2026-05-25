@@ -5,6 +5,7 @@ import type { AbaModelo } from "@/tipos/modelos"
 
 const abas = [
   { slug: "perfil" as const, label: "Perfil" },
+  { slug: "disponibilidade" as const, label: "Período de trabalho" },
   { slug: "midia" as const, label: "Fotos e vídeos" },
 ]
 

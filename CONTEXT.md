@@ -72,6 +72,10 @@ _Avoid_: tratar como reserva firme, confundir com horário combinado
 Horário efetivamente confirmado e reservado para o atendimento, distinto do horário apenas pedido pelo cliente.
 _Avoid_: confundir com horário desejado, tratar pedido não confirmado como combinado
 
+**Disponibilidade**:
+Conjunto de regras que define quando uma modelo aceita ser reservada — cada regra é um intervalo de datas (com fim opcional/aberto), um dia da semana e uma janela horária. A disponibilidade efetiva é a **união** das regras; um instante só é reservável se alguma regra o cobre. Modelo sem nenhuma regra é reservável sempre. Distinta do **status** da modelo (`ativa`/`pausada`/`inativa`, que liga/desliga a IA), do **bloqueio** (ocupação pontual *dentro* da disponibilidade) e do horário de operação global (quiet-hours do **Reengajamento**). Rótulo na UI: "Período de trabalho".
+_Avoid_: confundir com status da modelo, confundir com bloqueio, materializar folga como bloqueio, tratar como horário de operação global
+
 **Reengajamento**:
 Reabertura proativa e única de um cliente que recebeu a cotação e silenciou — a IA manda uma mensagem curta e calorosa (sem desconto) ~30 min depois, dentro do horário de operação, para retomar a conversa.
 _Avoid_: perseguir o cliente com múltiplos toques, reabrir quem não chegou à cotação, puxar desconto no toque de reabertura, confundir com o timeout de 24h (que encerra como Perdido)
@@ -119,6 +123,10 @@ _Avoid_: enviar vídeo antes de foto, expor que o vídeo "ao vivo" é pré-grava
 - No P0 o **Reengajamento** é desligável por configuração e começa o piloto desligado, ligando quando a persona e a reputação do número estiverem calibradas.
 - A **Mídia exclusiva** entrega a narrativa de exclusividade no P0; o view-once real depende de a plataforma de envio (Evolution) expor o campo na versão self-host — sem suporte, o vídeo vai normal e a proteção fica para o P1.
 - Quando o horário pedido cai num bloqueio da agenda, a IA recusa com uma desculpa pessoal coerente com o horário (salão, me arrumando, jantar, balada) e oferece outra janela; **nunca revela que está com outro cliente** (preserva a exclusividade percebida) e nunca para de responder.
+- A **Disponibilidade** é gate de criação de **bloqueio**: o sistema valida que o **início** do bloqueio cai numa janela disponível (data ∈ período ∧ dia-da-semana ∧ hora ∈ janela); o fim pode estender além (Pernoite dura 12h e estoura janelas menores).
+- Bloqueio fora da **Disponibilidade**: a IA nunca cria nem sugere (trava dura); Fernando vê aviso no painel e pode forçar mesmo assim (override explícito, igual ao confirmar de cancelar bloqueio `em_atendimento`).
+- Diferente do bloqueio (onde a IA mente com desculpa pessoal), quando o horário pedido cai **fora da Disponibilidade** (folga/viagem/ainda não começou) a IA **revela a volta e ancora**: assume que está fora, informa quando volta e oferece a primeira data disponível — não há outro cliente a esconder.
+- Configurar uma **Disponibilidade** que deixa bloqueios futuros já existentes fora dela salva normalmente e emite alerta não-bloqueante listando-os; nunca deleta nem cancela bloqueio automaticamente.
 
 ## Example dialogue
 

@@ -27,17 +27,17 @@ const TIPOS_CANONICOS: TipoEscalada[] = [
   "outro",
 ]
 
-// Paleta sequencial — 8 cores para os 8 tipos canônicos.
-const PALETA = [
-  "var(--seq-1)",
-  "var(--seq-2)",
-  "var(--seq-3)",
-  "var(--seq-4)",
-  "var(--seq-5)",
-  "var(--seq-6)",
-  "var(--warn-500)",
-  "var(--text-muted)",
-]
+// Paleta categórica da marca (--chart-*): cor fixa e distinta por tipo de escalada.
+const COR_POR_TIPO: Record<TipoEscalada, string> = {
+  pix_validado: "var(--chart-3)",
+  pix_duvidoso: "var(--chart-5)",
+  foto_portaria: "var(--chart-2)",
+  aviso_saida: "var(--chart-6)",
+  fora_de_oferta: "var(--chart-1)",
+  comportamento_atipico: "var(--chart-4)",
+  indisponibilidade: "var(--chart-7)",
+  outro: "var(--text-muted)",
+}
 
 const PCT_FMT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 })
 
@@ -78,12 +78,12 @@ export function BlocoMotivosEscalada({ data, onAbrirTodas }: Props) {
 
     const total = data.total > 0 ? data.total : 1
     return linhas
-      .map((l, idx) => ({
+      .map((l) => ({
         tipo: l.tipo,
         rotulo: l.rotulo,
         contagem: l.contagem,
         pct: (l.contagem / total) * 100,
-        cor: PALETA[idx % PALETA.length],
+        cor: COR_POR_TIPO[l.tipo] ?? "var(--text-muted)",
       }))
       .sort((a, b) => b.contagem - a.contagem)
   }, [data])

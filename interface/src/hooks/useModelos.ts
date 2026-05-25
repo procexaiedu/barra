@@ -24,7 +24,7 @@ import type {
 
 type Status = "loading" | "success" | "error"
 
-const abasValidas: AbaModelo[] = ["perfil", "midia"]
+const abasValidas: AbaModelo[] = ["perfil", "disponibilidade", "midia"]
 
 const filtrosIniciais: FiltrosModelos = {
   busca: "",

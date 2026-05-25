@@ -9,6 +9,7 @@ from psycopg.errors import ExclusionViolation, ForeignKeyViolation
 from barra.api.deps import get_conn, get_user
 from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
 from barra.dominio.agenda.schemas import BloqueioCreate, BloqueioPatch, CancelarBloqueio
+from barra.dominio.modelos.disponibilidade import modelo_disponivel_em
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
@@ -92,6 +93,13 @@ async def criar_bloqueio(
             raise NaoEncontrado("Atendimento")
         if at_row["modelo_id"] != body.modelo_id:
             raise ConflitoEstado("atendimento_nao_pertence_ao_modelo")
+    if not body.confirmar_fora_disponibilidade and not await modelo_disponivel_em(
+        conn, body.modelo_id, body.inicio
+    ):
+        raise ConflitoEstado(
+            "Horario fora da disponibilidade da modelo.",
+            {"campo": "confirmar_fora_disponibilidade"},
+        )
     try:
         async with conn.transaction():
             result = await conn.execute(
@@ -132,6 +140,16 @@ async def editar_bloqueio(
     fim = body.fim or atual["fim"]
     if inicio >= fim:
         raise EntradaInvalida("INTERVALO_INVALIDO", "Inicio deve ser anterior ao fim.")
+
+    if (
+        body.inicio is not None
+        and not body.confirmar_fora_disponibilidade
+        and not await modelo_disponivel_em(conn, atual["modelo_id"], inicio)
+    ):
+        raise ConflitoEstado(
+            "Horario fora da disponibilidade da modelo.",
+            {"campo": "confirmar_fora_disponibilidade"},
+        )
 
     sets = ["inicio = %s", "fim = %s", "observacao = COALESCE(%s, observacao)"]
     params: list[Any] = [inicio, fim, body.observacao]

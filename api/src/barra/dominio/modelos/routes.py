@@ -14,9 +14,11 @@ from barra.api.deps import get_conn, get_user
 from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
 from barra.core.evolution import EvolutionClient
 from barra.core.storage import presigned_get, presigned_put, remove_object
+from barra.dominio.modelos.disponibilidade import bloqueios_futuros_fora
 from barra.dominio.modelos.schemas import (
     AtualizarPrecoProgramaBody,
     ConectarWhatsappRequest,
+    DisponibilidadeReplace,
     FotoPerfilPatch,
     MidiaCreate,
     MidiaPatch,
@@ -235,6 +237,12 @@ async def conectar_whatsapp(
             "Verifique a chave da Evolution e o status da instância."
         ) from exc
     qr_code = _extrair_qr_code(resposta)
+    # Garante o webhook registrado mesmo para instâncias preexistentes: o
+    # /instance/create só grava o webhook ao CRIAR a instância; quando ela já
+    # existe (403 idempotente) o webhook nunca é reescrito e a Evolution para
+    # de postar CONNECTION_UPDATE/MESSAGES_UPSERT. Best-effort — não trava o
+    # pareamento se a Evolution recusar.
+    await client.definir_webhook(instance_id)
     await conn.execute(
         """
         UPDATE barravips.modelos
@@ -292,14 +300,15 @@ async def whatsapp_status(
     modelo = await _modelo(conn, modelo_id)
     instance_id = modelo["evolution_instance_id"]
     status_atual = modelo["evolution_status"]
+    conexao_estado: str | None = None
 
     if status_atual == "pareando" and instance_id:
         client = EvolutionClient(request.app.state.settings)
         try:
-            estado = await client.estado_conexao(instance_id)
+            conexao_estado = await client.estado_conexao(instance_id)
         except httpx.HTTPError:
-            estado = "unknown"
-        if estado == "open":
+            conexao_estado = "unknown"
+        if conexao_estado == "open":
             await conn.execute(
                 """
                 UPDATE barravips.modelos
@@ -311,7 +320,7 @@ async def whatsapp_status(
             )
             modelo = await _modelo(conn, modelo_id)
 
-    return _evolution_payload(modelo)
+    return _evolution_payload(modelo, conexao_estado=conexao_estado)
 
 
 @router.post("/{modelo_id}/pausar")
@@ -607,6 +616,52 @@ async def deletar_servico(
         "DELETE FROM barravips.modelo_servicos WHERE id = %s AND modelo_id = %s",
         (servico_id, modelo_id),
     )
+
+
+# ── Disponibilidade (período de trabalho — ADR 0005) ──────────────────────────
+
+@router.get("/{modelo_id}/disponibilidade")
+async def listar_disponibilidade(
+    modelo_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    await _ensure_modelo(conn, modelo_id)
+    return {"regras": await _disponibilidade(conn, modelo_id)}
+
+
+@router.put("/{modelo_id}/disponibilidade")
+async def substituir_disponibilidade(
+    modelo_id: UUID,
+    body: DisponibilidadeReplace,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    # Substitui o conjunto inteiro de regras da modelo (a UI envia o estado desejado).
+    # Não deleta/cancela bloqueios — apenas devolve os que ficaram fora como alerta.
+    await _ensure_modelo(conn, modelo_id)
+    async with conn.transaction():
+        await conn.execute(
+            "DELETE FROM barravips.modelo_disponibilidade WHERE modelo_id = %s",
+            (modelo_id,),
+        )
+        for regra in body.regras:
+            await conn.execute(
+                """
+                INSERT INTO barravips.modelo_disponibilidade
+                  (modelo_id, data_inicio, data_fim, dia_semana, hora_inicio, hora_fim)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    modelo_id,
+                    regra.data_inicio,
+                    regra.data_fim,
+                    regra.dia_semana,
+                    regra.hora_inicio,
+                    regra.hora_fim,
+                ),
+            )
+        regras = await _disponibilidade(conn, modelo_id)
+        bloqueios_fora = await bloqueios_futuros_fora(conn, modelo_id)
+    return {"regras": regras, "bloqueios_fora": bloqueios_fora}
 
 
 @router.get("/{modelo_id}/programas")
@@ -920,6 +975,30 @@ def _serializar_servico(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _disponibilidade(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[str, Any]]:
+    rows = await _all(
+        conn,
+        """
+        SELECT * FROM barravips.modelo_disponibilidade
+         WHERE modelo_id = %s
+         ORDER BY data_inicio ASC, dia_semana ASC, hora_inicio ASC
+        """,
+        (modelo_id,),
+    )
+    return [_serializar_disponibilidade(row) for row in rows]
+
+
+def _serializar_disponibilidade(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "data_inicio": row["data_inicio"].isoformat(),
+        "data_fim": row["data_fim"].isoformat() if row["data_fim"] else None,
+        "dia_semana": row["dia_semana"],
+        "hora_inicio": row["hora_inicio"].strftime("%H:%M"),
+        "hora_fim": row["hora_fim"].strftime("%H:%M"),
+    }
+
+
 async def _indicadores(conn: AsyncConnection[Any], modelo_id: UUID) -> dict[str, Any]:
     result = await conn.execute(
         """
@@ -1027,11 +1106,18 @@ def _modelo_lista_item(request: Request, row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _evolution_payload(modelo: dict[str, Any]) -> dict[str, Any]:
+def _evolution_payload(
+    modelo: dict[str, Any], conexao_estado: str | None = None
+) -> dict[str, Any]:
     return {
         "instance_id": modelo.get("evolution_instance_id"),
         "status": modelo.get("evolution_status") or "desconectado",
         "pareado_em": _isoformat(modelo.get("evolution_pareado_em")),
+        # Estado bruto da Evolution ('open'|'connecting'|'close'|'unknown'),
+        # populado só durante o pareamento. Permite ao painel distinguir
+        # "QR ainda não escaneado" de "já escaneou, conectando" e parar de
+        # regenerar o QR (o que reiniciaria o handshake do Baileys).
+        "conexao_estado": conexao_estado,
     }
 
 

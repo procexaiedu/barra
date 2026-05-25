@@ -1,7 +1,7 @@
 export type StatusModelo = "ativa" | "pausada" | "inativa"
 export type TipoAtendimento = "interno" | "externo"
 export type TipoMidia = "foto" | "video"
-export type AbaModelo = "perfil" | "midia"
+export type AbaModelo = "perfil" | "midia" | "disponibilidade"
 export type FiltroStatusModelo = "todos" | StatusModelo
 export type FiltroEvolution = "todos" | "pareada" | "nao_pareada"
 export type FiltroTipoAtendimento = "todos" | TipoAtendimento
@@ -109,6 +109,37 @@ export interface WhatsappStatusResponse {
   instance_id: string | null
   status: EvolutionStatus
   pareado_em: string | null
+  /** Estado bruto da Evolution durante o pareamento. null fora dele. */
+  conexao_estado?: "open" | "connecting" | "close" | "unknown" | null
+}
+
+/** Uma regra de disponibilidade (período de trabalho). dia_semana: 0=dom..6=sáb. */
+export interface RegraDisponibilidade {
+  id?: string
+  data_inicio: string // YYYY-MM-DD
+  data_fim: string | null // YYYY-MM-DD | null (null = sem fim)
+  dia_semana: number // 0=domingo .. 6=sábado
+  hora_inicio: string // "HH:MM"
+  hora_fim: string // "HH:MM" (pode ser <= início: cruza a meia-noite)
+}
+
+/** Bloqueio futuro que ficou fora do período ao salvar (alerta não-bloqueante). */
+export interface BloqueioForaAlerta {
+  id: string
+  inicio: string
+  fim: string
+  estado: string
+  numero_curto: number | null
+  cliente_nome: string | null
+}
+
+export interface DisponibilidadeResponse {
+  regras: RegraDisponibilidade[]
+}
+
+export interface DisponibilidadeSalvarResponse {
+  regras: RegraDisponibilidade[]
+  bloqueios_fora: BloqueioForaAlerta[]
 }
 
 export interface ModeloDetalheResponse {

@@ -1,6 +1,7 @@
 """Integração da rota /v1/agenda/bloqueios — sobreposição retorna 409."""
 
 from contextlib import asynccontextmanager
+from datetime import date, time
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -227,5 +228,75 @@ def test_bloqueio_modelo_inexistente_retorna_404() -> None:
             response = client.post("/v1/agenda/bloqueios", json=_body(), headers=_token())
         assert response.status_code == 404
         assert response.json()["error"]["code"] == "RECURSO_NAO_ENCONTRADO"
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+class FakeConnFora:
+    """Modelo com regra de disponibilidade que NÃO cobre o horário do _body() (fora do período)."""
+
+    def __init__(self) -> None:
+        self.bloqueio = {"id": uuid4(), "modelo_id": uuid4(), "estado": "bloqueado"}
+        self.execucoes: list[tuple[str, object]] = []
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
+
+    async def execute(self, query: str, params: object = None) -> _Result:
+        self.execucoes.append((query, params))
+        if "FROM barravips.modelo_disponibilidade" in query:
+            # Período só em junho/2026; o bloqueio do _body() é em 30/04 -> fora.
+            return _Result(
+                [
+                    {
+                        "data_inicio": date(2026, 6, 1),
+                        "data_fim": date(2026, 6, 30),
+                        "dia_semana": 0,
+                        "hora_inicio": time(0, 0),
+                        "hora_fim": time(23, 0),
+                    }
+                ]
+            )
+        if "INSERT INTO barravips.bloqueios" in query:
+            return _Result([self.bloqueio])
+        return _Result([])
+
+
+def test_bloqueio_fora_disponibilidade_retorna_409() -> None:
+    fake = FakeConnFora()
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.post("/v1/agenda/bloqueios", json=_body(), headers=_token())
+        assert response.status_code == 409
+        body = response.json()
+        assert body["error"]["code"] == "CONFLITO_ESTADO"
+        assert body["error"]["details"]["campo"] == "confirmar_fora_disponibilidade"
+        # Não inseriu: a trava barra antes do INSERT.
+        assert not any("INSERT INTO barravips.bloqueios" in q for q, _ in fake.execucoes)
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_bloqueio_fora_disponibilidade_com_confirmar_retorna_201() -> None:
+    fake = FakeConnFora()
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        body = _body()
+        body["confirmar_fora_disponibilidade"] = True
+        with TestClient(app) as client:
+            response = client.post("/v1/agenda/bloqueios", json=body, headers=_token())
+        assert response.status_code == 201
+        # Override: pula a trava e insere.
+        assert any("INSERT INTO barravips.bloqueios" in q for q, _ in fake.execucoes)
     finally:
         app.dependency_overrides.pop(get_conn, None)

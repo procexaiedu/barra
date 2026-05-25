@@ -146,6 +146,36 @@ class EvolutionClient:
         response.raise_for_status()
         return cast(dict[str, Any], response.json())
 
+    async def definir_webhook(self, instance_id: str) -> bool:
+        """POST /webhook/set/{id}. Registra/atualiza o webhook numa instância que
+        já existe. Necessário porque o POST /instance/create só grava o webhook
+        quando CRIA a instância — quando ela já existe (403 idempotente), o
+        webhook nunca é reescrito e a Evolution para de postar
+        CONNECTION_UPDATE/MESSAGES_UPSERT. Best-effort: loga e segue em falha; o
+        pareamento não deve travar por causa do webhook. Devolve False (sem
+        chamar a Evolution) quando não há callback configurado."""
+        webhook = self._webhook_config()
+        if not self.settings.evolution_base_url or webhook is None:
+            return False
+        url = f"{self.settings.evolution_base_url.rstrip('/')}/webhook/set/{instance_id}"
+        headers = {"apikey": self.settings.evolution_api_key}
+        body = {"webhook": {**webhook, "enabled": True}}
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                response = await client.post(url, json=body, headers=headers)
+            if response.status_code in {200, 201}:
+                return True
+            _logger.warning(
+                "evolution_webhook_set_inesperado instance=%s status=%s body=%s",
+                instance_id,
+                response.status_code,
+                response.text[:200],
+            )
+            return False
+        except httpx.HTTPError as exc:
+            _logger.warning("evolution_webhook_set_falhou instance=%s erro=%s", instance_id, exc)
+            return False
+
     async def estado_conexao(self, instance_id: str) -> str:
         """GET /instance/connectionState/{id}. Retorna 'open' | 'connecting' |
         'close' | 'unknown'. Idempotente: 404 vira 'unknown' para callers que

@@ -392,7 +392,7 @@ export function ModalEdicao({
                   <option value="">—</option>
                   <option value="pix">PIX</option>
                   <option value="dinheiro">Dinheiro</option>
-                  <option value="cartão">Cartão</option>
+                  <option value="cartao">Cartão</option>
                 </select>
               </Campo>
               <Campo label="Valor acordado (R$)">

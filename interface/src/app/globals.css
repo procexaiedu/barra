@@ -179,7 +179,7 @@
   --chart-4:  #9F4DC7;
   --chart-5:  #C95E40;
   --chart-6:  #4FB8B0;
-  --chart-7:  #B88846;
+  --chart-7:  #C77DA5;
 
   --seq-1:    #E6CB7A;
   --seq-2:    #C4A961;
@@ -263,7 +263,7 @@
   --chart-4:  #B66CD9;
   --chart-5:  #E07A5F;
   --chart-6:  #6FCFC9;
-  --chart-7:  #D4A574;
+  --chart-7:  #DB8EB8;
 
   --seq-1:    #1A1606;
   --seq-2:    #4A3F25;
@@ -346,4 +346,28 @@
 
 .tile-update-flash {
   animation: tile-update-flash 0.7s ease-out;
+}
+
+/* Google Places Autocomplete (CampoLocalAutocomplete): alinhar ao visual dos demais campos.
+   O widget usa Shadow DOM fechado; verificado que o host aceita background/border/radius (o
+   container interno é transparente) e que ::part(input) estiliza o campo de texto. color-scheme
+   mantém a lupa e o placeholder claros no tema escuro. */
+gmp-place-autocomplete {
+  width: 100%;
+  height: 2.5rem;
+  box-sizing: border-box;
+  border: 1px solid var(--border-strong);
+  border-radius: 0.5rem;
+  background-color: var(--surface-hover);
+  color-scheme: light;
+}
+.dark gmp-place-autocomplete {
+  color-scheme: dark;
+}
+gmp-place-autocomplete::part(input) {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-primary);
+  font-size: 0.875rem;
 }

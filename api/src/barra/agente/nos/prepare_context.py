@@ -354,6 +354,8 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     )
     bloqueios = await res.fetchall()
 
+    disponibilidade = await _resolver_disponibilidade(conn, ctx.modelo_id)
+
     historico = await _resumir_historico(conn, ctx.cliente_id, ctx.modelo_id)
 
     # data atual do banco (mesma conexão/relógio das janelas com now() acima): a IA escreve
@@ -379,7 +381,41 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
         "cliente_nome": cliente.get("nome"),
         "historico_anteriores": historico,
         "bloqueios": bloqueios,
+        "disponibilidade": disponibilidade,
     }
+
+
+# dia_semana segue EXTRACT(DOW): 0=domingo .. 6=sábado (ADR 0005).
+_DIAS_SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"]
+
+
+async def _resolver_disponibilidade(
+    conn: AsyncConnection[Any], modelo_id: str
+) -> list[dict[str, Any]]:
+    """Regras de disponibilidade da modelo, já legíveis, p/ a IA não sugerir fora (ADR 0005).
+
+    Texto volátil na cauda (não cacheável). `ORDER BY` determinístico só por higiene de render;
+    a cauda não entra no prefixo cacheável. Sem regra → lista vazia (template diz "sem restrição").
+    """
+    res = await conn.execute(
+        """
+        SELECT data_inicio, data_fim, dia_semana, hora_inicio, hora_fim
+          FROM barravips.modelo_disponibilidade
+         WHERE modelo_id = %s
+         ORDER BY data_inicio, dia_semana, hora_inicio
+        """,
+        (modelo_id,),
+    )
+    return [
+        {
+            "dia": _DIAS_SEMANA[r["dia_semana"]],
+            "hora_inicio": r["hora_inicio"].strftime("%H:%M"),
+            "hora_fim": r["hora_fim"].strftime("%H:%M"),
+            "data_inicio": r["data_inicio"].strftime("%d/%m/%Y"),
+            "data_fim": r["data_fim"].strftime("%d/%m/%Y") if r["data_fim"] else None,
+        }
+        for r in await res.fetchall()
+    ]
 
 
 async def _resumir_historico(
