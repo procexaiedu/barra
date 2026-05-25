@@ -103,7 +103,7 @@ export interface ModeloResumo {
 }
 
 
-export type FormaPagamento = "pix" | "dinheiro" | "outro"
+export type FormaPagamento = "pix" | "dinheiro" | "outro" | "cartao"
 
 export interface ClienteDetalhe {
   id: string

@@ -57,7 +57,9 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
   const formaPagamentoLabel = atendimento.forma_pagamento
     ? atendimento.forma_pagamento === "pix"
       ? "PIX"
-      : (formatRotulo(atendimento.forma_pagamento) ?? atendimento.forma_pagamento)
+      : atendimento.forma_pagamento === "cartao"
+        ? "Cartão"
+        : (formatRotulo(atendimento.forma_pagamento) ?? atendimento.forma_pagamento)
     : null
 
   const linhasLocal = [

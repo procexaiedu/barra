@@ -37,6 +37,7 @@ export const formaPagamentoLabel: Record<FormaPagamento, string> = {
   pix: "Pix",
   dinheiro: "Dinheiro",
   outro: "Outro",
+  cartao: "Cartão",
 }
 
 export function badgeForEstado(estado: EstadoAtendimento): BadgeVariant {
