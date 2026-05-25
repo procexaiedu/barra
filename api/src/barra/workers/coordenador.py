@@ -24,6 +24,7 @@ from psycopg_pool import AsyncConnectionPool
 
 from barra.agente.contexto import ContextAgente
 from barra.core.metrics import (
+    AGENTE_ESCALADA,
     AGENTE_TURNO_DURACAO,
     AGENTE_TURNO_RESULTADO,
     LOCK_OCUPADO,
@@ -306,20 +307,21 @@ async def escalar_por_exaustao(
 ) -> None:
     """Abre handoff para Fernando sem mensagem ao cliente (07 §3.3).
 
-    A `abrir_handoff` shipada NAO aceita `motivo=` (09 §4.3): mapeia-se o motivo de exaustao para
-    `tipo=TipoEscalada.outro` + `responsavel="Fernando"` e o motivo literal vai em `observacao`.
-    TODO(M3f): quando escaladas/service.py expuser o mapping motivo->(tipo,responsavel), adotar
-    aqui em vez do hardcode (motivos timeout_grafo/exaustao_iteracoes/modelo_recusou -> Fernando).
+    A `abrir_handoff` shipada NAO aceita `motivo=` (09 §4.3): o motivo passa pelo `mapear_motivo`
+    do servico de dominio (M3f) -> `(tipo, responsavel)` e o motivo literal vai em `observacao`.
+    Os motivos de exaustao (`timeout_grafo`/`exaustao_iteracoes`/`modelo_recusou`) caem em
+    `tipo=outro` + `responsavel="Fernando"` — comportamento identico ao hardcode anterior.
+    A metrica `agente_escalada_total` e emitida aqui (camada do agente), nao em `abrir_handoff`.
     """
-    from barra.dominio.escaladas.modelos import TipoEscalada
-    from barra.dominio.escaladas.service import abrir_handoff
+    from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket, mapear_motivo
 
+    tipo, responsavel = mapear_motivo(motivo)
     async with pool.connection() as conn:
         await abrir_handoff(
             conn,
             atendimento_id=atendimento_id,
-            responsavel="Fernando",
-            tipo=TipoEscalada.outro,
+            responsavel=responsavel,
+            tipo=tipo,
             resumo_operacional=(
                 f"Agente nao encerrou o turno: estourou recursion_limit "
                 f"({RECURSION_LIMIT} super-steps ~= {RECURSION_LIMIT // 2} round-trips) ou "
@@ -330,6 +332,7 @@ async def escalar_por_exaustao(
             autor="sistema",
             observacao=motivo,
         )
+    AGENTE_ESCALADA.labels(mapear_bucket(motivo), motivo).inc()
 
 
 async def despachar_humanizacao(

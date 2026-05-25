@@ -6,6 +6,8 @@ from types import ModuleType
 from typing import Any
 from urllib.parse import urlparse
 
+from arq import create_pool
+from arq.connections import RedisSettings
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -34,7 +36,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db_pool = await criar_pool(settings.database_url)
     app.state.minio = criar_minio(settings)
     ensure_bucket(app.state.minio, settings.minio_bucket_media)
+    # Pool ARQ p/ enfileirar o turno (01 §4.2) — a MESMA conexao Redis do coordenador.
+    # Sem redis_url (dev/teste) nao cria pool: o webhook so persiste a mensagem.
+    app.state.arq = (
+        await create_pool(RedisSettings.from_dsn(settings.redis_url))
+        if settings.redis_url
+        else None
+    )
     yield
+    if app.state.arq is not None:
+        await app.state.arq.aclose()
     await fechar_pool(app.state.db_pool)
 
 

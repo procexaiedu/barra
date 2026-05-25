@@ -312,6 +312,62 @@ async def _atualizar_pix(
     raise EntradaInvalida("DECISAO_PIX_INVALIDA", "Decisao Pix invalida.")
 
 
+# --- Camada de mapeamento motivo -> (tipo, responsavel) + bucket (M3f, 04 §3.4/§3.6, 09 §4.3) ---
+# A tool `escalar` (e `escalar_por_exaustao`) falam um enum RICO de motivos; `abrir_handoff`
+# fala os 8 valores de TipoEscalada. Estas funcoes puras adaptam um ao outro — o motivo LITERAL
+# nunca some: o chamador o passa em `observacao` do `abrir_handoff`.
+
+# Motivos cujo responsavel e a propria modelo (acao operacional dela). Todo o resto -> Fernando.
+_RESP_MODELO: frozenset[str] = frozenset(
+    {"fora_de_oferta", "horario_indisponivel", "reagendamento_pos_bloqueio"}
+)
+
+# Colapso do motivo nos 8 valores de TipoEscalada. O que nao consta cai em `outro`
+# (politica_nova_necessaria, exaustao_iteracoes, timeout_grafo, modelo_recusou, outro).
+_TIPO_POR_MOTIVO: dict[str, TipoEscalada] = {
+    "disclosure_insistente": TipoEscalada.comportamento_atipico,
+    "disclosure_explicito": TipoEscalada.comportamento_atipico,
+    "jailbreak_attempt": TipoEscalada.comportamento_atipico,
+    "pedido_explicito_repetido": TipoEscalada.comportamento_atipico,
+    "prova_humanidade_persistente": TipoEscalada.comportamento_atipico,
+    "cross_modelo_fishing": TipoEscalada.comportamento_atipico,
+    "fora_de_oferta": TipoEscalada.fora_de_oferta,
+    "horario_indisponivel": TipoEscalada.indisponibilidade,
+    "reagendamento_pos_bloqueio": TipoEscalada.indisponibilidade,
+}
+
+# Bucket da metrica agente_escalada_total (08 §3.2): familia AUP + modelo_recusou = defesa
+# (ataque/safety; spike -> alerta); todo o resto = capacidade.
+_BUCKET_DEFESA: frozenset[str] = frozenset(
+    {
+        "disclosure_insistente",
+        "disclosure_explicito",
+        "jailbreak_attempt",
+        "pedido_explicito_repetido",
+        "prova_humanidade_persistente",
+        "cross_modelo_fishing",
+        "modelo_recusou",
+    }
+)
+
+
+def mapear_motivo(motivo: str) -> tuple[TipoEscalada, str]:
+    """Adapta o motivo rico da tool `escalar` a `abrir_handoff` (09 §4.3).
+
+    Devolve `(tipo, responsavel)`: `tipo` colapsa o motivo nos 8 valores de ``TipoEscalada``
+    (chave de agregacao do dashboard) e `responsavel` decide o destino do handoff
+    (``Fernando`` por padrao seguro; ``modelo`` so para acoes operacionais dela).
+    """
+    tipo = _TIPO_POR_MOTIVO.get(motivo, TipoEscalada.outro)
+    responsavel = "modelo" if motivo in _RESP_MODELO else "Fernando"
+    return tipo, responsavel
+
+
+def mapear_bucket(motivo: str) -> str:
+    """Bucket da metrica `agente_escalada_total` (08 §3.2): ``defesa`` vs ``capacidade``."""
+    return "defesa" if motivo in _BUCKET_DEFESA else "capacidade"
+
+
 async def abrir_handoff(
     conn: AsyncConnection[Any],
     *,
