@@ -104,6 +104,12 @@ JAILBREAK_DETECTADO = Counter(
     "agente_jailbreak_attempt_total",
     "Tentativas de jailbreak detectadas",
 )
+# 05 §2: sentenca unica > 600 chars sai inteira no chunk; sinal de prompt que ignorou o
+# \n\n instruido (regressao de prompt), NAO erro de envio.
+CHUNK_OVERSIZE = Counter(
+    "agente_chunk_oversize_total",
+    "Chunks com sentenca unica acima de MAX_CHARS (05 §2)",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
