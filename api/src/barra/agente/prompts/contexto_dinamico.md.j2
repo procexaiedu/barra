@@ -25,3 +25,13 @@
 {% else %}
 - Sem bloqueios nas próximas 48h. Disponibilidade total.
 {% endif %}
+
+# Período de trabalho (dias/horários em que você aceita encontro)
+
+{% if disponibilidade %}
+{% for d in disponibilidade %}- {{ d.dia }} {{ d.hora_inicio }}–{{ d.hora_fim }} ({{ d.data_inicio }}{% if d.data_fim %} a {{ d.data_fim }}{% else %} em diante{% endif %})
+{% endfor %}
+Fora desses dias/horários você está de folga ou viajando — não marque encontro, diga quando volta e ofereça a data disponível mais próxima.
+{% else %}
+- Sem restrição de período: você atende qualquer dia (respeitando a agenda das próximas 48h acima).
+{% endif %}

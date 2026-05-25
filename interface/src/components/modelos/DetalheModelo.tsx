@@ -8,6 +8,7 @@ import { BannerErro } from "@/components/layout/BannerErro"
 import { AbasModelo } from "@/components/modelos/AbasModelo"
 import { AbaMidia } from "@/components/modelos/AbaMidia"
 import { AbaPerfil } from "@/components/modelos/AbaPerfil"
+import { DisponibilidadeModelo } from "@/components/modelos/DisponibilidadeModelo"
 import { FotoPerfil } from "@/components/modelos/FotoPerfil"
 import type {
   AbaModelo,
@@ -158,6 +159,7 @@ export function DetalheModelo({
           onRemoverFoto={onRemoverFoto}
         />
       )}
+      {aba === "disponibilidade" && <DisponibilidadeModelo key={modelo.id} modeloId={modelo.id} />}
       {aba === "midia" && (
         <AbaMidia
           midia={detalhe.midia}

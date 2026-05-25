@@ -14,9 +14,11 @@ from barra.api.deps import get_conn, get_user
 from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
 from barra.core.evolution import EvolutionClient
 from barra.core.storage import presigned_get, presigned_put, remove_object
+from barra.dominio.modelos.disponibilidade import bloqueios_futuros_fora
 from barra.dominio.modelos.schemas import (
     AtualizarPrecoProgramaBody,
     ConectarWhatsappRequest,
+    DisponibilidadeReplace,
     FotoPerfilPatch,
     MidiaCreate,
     MidiaPatch,
@@ -609,6 +611,52 @@ async def deletar_servico(
     )
 
 
+# ── Disponibilidade (período de trabalho — ADR 0005) ──────────────────────────
+
+@router.get("/{modelo_id}/disponibilidade")
+async def listar_disponibilidade(
+    modelo_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    await _ensure_modelo(conn, modelo_id)
+    return {"regras": await _disponibilidade(conn, modelo_id)}
+
+
+@router.put("/{modelo_id}/disponibilidade")
+async def substituir_disponibilidade(
+    modelo_id: UUID,
+    body: DisponibilidadeReplace,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    # Substitui o conjunto inteiro de regras da modelo (a UI envia o estado desejado).
+    # Não deleta/cancela bloqueios — apenas devolve os que ficaram fora como alerta.
+    await _ensure_modelo(conn, modelo_id)
+    async with conn.transaction():
+        await conn.execute(
+            "DELETE FROM barravips.modelo_disponibilidade WHERE modelo_id = %s",
+            (modelo_id,),
+        )
+        for regra in body.regras:
+            await conn.execute(
+                """
+                INSERT INTO barravips.modelo_disponibilidade
+                  (modelo_id, data_inicio, data_fim, dia_semana, hora_inicio, hora_fim)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    modelo_id,
+                    regra.data_inicio,
+                    regra.data_fim,
+                    regra.dia_semana,
+                    regra.hora_inicio,
+                    regra.hora_fim,
+                ),
+            )
+        regras = await _disponibilidade(conn, modelo_id)
+        bloqueios_fora = await bloqueios_futuros_fora(conn, modelo_id)
+    return {"regras": regras, "bloqueios_fora": bloqueios_fora}
+
+
 @router.get("/{modelo_id}/programas")
 async def listar_programas_modelo(
     modelo_id: UUID,
@@ -917,6 +965,30 @@ def _serializar_servico(row: dict[str, Any]) -> dict[str, Any]:
         "ordem": row["ordem"],
         "created_at": row["created_at"].isoformat(),
         "updated_at": row["updated_at"].isoformat(),
+    }
+
+
+async def _disponibilidade(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[str, Any]]:
+    rows = await _all(
+        conn,
+        """
+        SELECT * FROM barravips.modelo_disponibilidade
+         WHERE modelo_id = %s
+         ORDER BY data_inicio ASC, dia_semana ASC, hora_inicio ASC
+        """,
+        (modelo_id,),
+    )
+    return [_serializar_disponibilidade(row) for row in rows]
+
+
+def _serializar_disponibilidade(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": str(row["id"]),
+        "data_inicio": row["data_inicio"].isoformat(),
+        "data_fim": row["data_fim"].isoformat() if row["data_fim"] else None,
+        "dia_semana": row["dia_semana"],
+        "hora_inicio": row["hora_inicio"].strftime("%H:%M"),
+        "hora_fim": row["hora_fim"].strftime("%H:%M"),
     }
 
 

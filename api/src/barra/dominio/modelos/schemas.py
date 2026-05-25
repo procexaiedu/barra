@@ -1,7 +1,8 @@
+from datetime import date, time
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class ModeloCreate(BaseModel):
@@ -96,6 +97,25 @@ class DuracaoCreate(BaseModel):
 class DuracaoPatch(BaseModel):
     nome: str | None = Field(default=None, min_length=1, max_length=50)
     ordem: int | None = None
+
+
+class DisponibilidadeRegra(BaseModel):
+    data_inicio: date
+    data_fim: date | None = None  # None = período aberto/indefinido
+    dia_semana: int = Field(ge=0, le=6)  # 0=domingo .. 6=sábado (EXTRACT(DOW))
+    hora_inicio: time
+    hora_fim: time
+
+    @model_validator(mode="after")
+    def periodo_valido(self) -> "DisponibilidadeRegra":
+        if self.data_fim is not None and self.data_fim < self.data_inicio:
+            raise ValueError("data_fim deve ser maior ou igual a data_inicio")
+        # hora_fim <= hora_inicio é permitido: janela cruza a meia-noite (ADR 0005).
+        return self
+
+
+class DisponibilidadeReplace(BaseModel):
+    regras: list[DisponibilidadeRegra]
 
 
 class VincularProgramaBody(BaseModel):
