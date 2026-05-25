@@ -150,37 +150,39 @@ export function DetalheAtendimento({
         )}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[1.4fr_1fr] gap-3">
-        <div className="scroll-thin flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-          <ResumoAtendimento detalhe={detalhe} />
-          <SecaoFixa
-            titulo="Histórico de mensagens"
-            count={detalhe.mensagens.length}
-            icone={<MessageSquare size={16} strokeWidth={1.75} className="text-info-500" />}
-          >
-            <HistoricoMensagens mensagens={detalhe.mensagens} />
-          </SecaoFixa>
-        </div>
-        <div className="scroll-thin flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
-          <SecaoFixa
-            titulo="Mídias recebidas"
-            count={totalMidias}
-            icone={<Paperclip size={16} strokeWidth={1.75} className="text-gold-500" />}
-          >
-            <MidiasRecebidas
-              detalhe={detalhe}
-              onUploadMidia={onUploadMidia}
-              onDeletarMidia={onDeletarMidia}
-              readOnly={readOnly}
-            />
-          </SecaoFixa>
-          <SecaoFixa
-            titulo="Histórico do atendimento"
-            count={detalhe.eventos.length}
-            icone={<Clock size={16} strokeWidth={1.75} className="text-text-muted" />}
-          >
-            <Eventos eventos={detalhe.eventos} />
-          </SecaoFixa>
+      <div className="scroll-thin min-h-0 flex-1 overflow-y-auto pr-1">
+        <div className="grid grid-cols-[1.4fr_1fr] items-start gap-3">
+          <div className="flex min-w-0 flex-col gap-3">
+            <ResumoAtendimento detalhe={detalhe} />
+            <SecaoFixa
+              titulo="Histórico de mensagens"
+              count={detalhe.mensagens.length}
+              icone={<MessageSquare size={16} strokeWidth={1.75} className="text-info-500" />}
+            >
+              <HistoricoMensagens mensagens={detalhe.mensagens} />
+            </SecaoFixa>
+          </div>
+          <div className="flex min-w-0 flex-col gap-3">
+            <SecaoFixa
+              titulo="Mídias recebidas"
+              count={totalMidias}
+              icone={<Paperclip size={16} strokeWidth={1.75} className="text-gold-500" />}
+            >
+              <MidiasRecebidas
+                detalhe={detalhe}
+                onUploadMidia={onUploadMidia}
+                onDeletarMidia={onDeletarMidia}
+                readOnly={readOnly}
+              />
+            </SecaoFixa>
+            <SecaoFixa
+              titulo="Histórico do atendimento"
+              count={detalhe.eventos.length}
+              icone={<Clock size={16} strokeWidth={1.75} className="text-text-muted" />}
+            >
+              <Eventos eventos={detalhe.eventos} />
+            </SecaoFixa>
+          </div>
         </div>
       </div>
     </section>
