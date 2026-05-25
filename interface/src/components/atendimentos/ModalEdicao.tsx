@@ -351,6 +351,11 @@ export function ModalEdicao({
                   setPlaceId(null)
                 }}
               />
+              <span className="text-[11px] leading-4 text-text-muted">
+                {tipo === "interno"
+                  ? "No local da modelo — o ponto de encontro é o endereço dela. Registre aqui só o endereço do cliente, se precisar."
+                  : "Endereço do cliente (onde a modelo vai)."}
+              </span>
             </Campo>
             <Campo label="Bairro">
               <Input
