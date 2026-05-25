@@ -35,6 +35,11 @@ async def criar_pool(
         open=False,
         kwargs={"row_factory": dict_row, "autocommit": autocommit},
         configure=_configurar_conexao,
+        # O pooler (Supavisor) fecha conexoes fisicas ociosas do lado dele; sem `check`,
+        # a primeira request apos um periodo idle recebe uma conexao morta e estoura
+        # OperationalError ("server closed the connection unexpectedly"). `check_connection`
+        # faz um ping no checkout e descarta/recria a conexao quebrada de forma transparente.
+        check=AsyncConnectionPool.check_connection,
         **extra,
     )
     await pool.open()
