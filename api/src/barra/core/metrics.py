@@ -90,6 +90,10 @@ PERSONA_DRIFT_REMINDER = Counter(
     "Reminder anti-drift injetado no ultimo HumanMessage (>=8 turnos da IA; 03 §10). Regra "
     "proativa -> proxy de volume de conversas longas, nao de drift detectado",
 )
+LOCK_OCUPADO = Counter(
+    "agente_lock_ocupado_total",
+    "lock:conv estava ocupado quando processar_turno tentou adquirir (re-defer; 07 §3)",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
