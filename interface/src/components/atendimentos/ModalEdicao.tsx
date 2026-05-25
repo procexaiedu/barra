@@ -34,6 +34,7 @@ interface ProgramaModelo {
   nome: string
   categoria: string | null
   duracao_nome: string
+  horas: number | null
   preco: number
 }
 
@@ -47,6 +48,12 @@ function parseDecimal(input: string): number | null {
 // compatível com parseDecimal na hora de enviar ao backend.
 function formatValorCampo(valor: number): string {
   return valor.toFixed(2).replace(".", ",")
+}
+
+// Formata horas para o campo de duração: inteiro quando possível ("3"), senão
+// com vírgula decimal ("2,5"), compatível com parseDecimal ao enviar ao backend.
+function formatHorasCampo(horas: number): string {
+  return Number.isInteger(horas) ? String(horas) : horas.toFixed(2).replace(".", ",")
 }
 
 const controlClassName =
@@ -73,6 +80,9 @@ export function ModalEdicao({
   // O backend serializa Decimal como string com ponto ("3.00", "2500.00") e o parseDecimal
   // trata ponto como separador de milhar BR — sem Number() aqui o valor é multiplicado por 100 ao reabrir.
   const [duracao, setDuracao] = useState(at?.duracao_horas != null ? String(Number(at.duracao_horas)) : "")
+  // Enquanto false (ou enquanto os programas não forem mexidos), respeita a duração
+  // vinda do backend. Vira true se o usuário editar a duração à mão.
+  const [duracaoEditadaManual, setDuracaoEditadaManual] = useState(false)
   const [endereco, setEndereco] = useState(at?.endereco ?? "")
   const [enderecoFormatado, setEnderecoFormatado] = useState<string | null>(at?.endereco_formatado ?? null)
   const [latitude, setLatitude] = useState<number | null>(at?.latitude != null ? Number(at.latitude) : null)
@@ -114,7 +124,35 @@ export function ModalEdicao({
       .catch(() => {})
   }, [modeloId])
 
-  const duracaoHoras = parseDecimal(duracao) ?? 0
+  // Calculado antes do hook de conflito para que o alerta de agenda enxergue a
+  // duração efetiva (sugerida ou manual), e não a anterior.
+  const servicosVisiveis = (detalhe?.servicos ?? []).filter((s) => !removidos.has(s.id))
+  const horasPorDuracao = new Map(
+    programasModelo
+      .filter((p) => typeof p.horas === "number")
+      .map((p) => [p.duracao_id, p.horas as number]),
+  )
+  // Maior duração (em horas) entre serviços e adicionados — nunca a soma.
+  const duracaoCalculada = (() => {
+    let max: number | null = null
+    for (const id of [
+      ...servicosVisiveis.map((s) => s.duracao_id),
+      ...adicionados.map((a) => a.duracao_id),
+    ]) {
+      const h = horasPorDuracao.get(id)
+      if (typeof h === "number" && (max === null || h > max)) max = h
+    }
+    return max
+  })()
+  // Após mexer nos programas e enquanto não houver edição manual, o campo reflete o
+  // MAX. Antes disso, respeita a duração vinda do backend.
+  const recalculaDuracaoAutomaticamente = programasMexidos && !duracaoEditadaManual
+  const duracaoExibida =
+    recalculaDuracaoAutomaticamente && duracaoCalculada !== null
+      ? formatHorasCampo(duracaoCalculada)
+      : duracao
+
+  const duracaoHoras = parseDecimal(duracaoExibida) ?? 0
   const { conflitos } = useConflitoAgenda({
     modelo_id: modeloId ?? null,
     data: dataDesejada,
@@ -124,8 +162,6 @@ export function ModalEdicao({
   })
 
   if (!detalhe || !at) return null
-
-  const servicosVisiveis = detalhe.servicos.filter((s) => !removidos.has(s.id))
 
   const activePairs = new Set([
     ...servicosVisiveis.map((s: ServicoFechado) => `${s.programa_id}|${s.duracao_id}`),
@@ -171,8 +207,8 @@ export function ModalEdicao({
     if (urgencia) dados.urgencia = urgencia as EditarDadosPayload["urgencia"]
     if (dataDesejada) dados.data_desejada = dataDesejada
     if (horario) dados.horario_desejado = horario
-    if (duracao) {
-      const d = parseDecimal(duracao)
+    if (duracaoExibida) {
+      const d = parseDecimal(duracaoExibida)
       if (d !== null) dados.duracao_horas = d
     }
     if (endereco) dados.endereco = endereco
@@ -276,7 +312,21 @@ export function ModalEdicao({
               <Input className={controlClassName} type="time" value={horario} onChange={(e) => setHorario(e.target.value)} />
             </Campo>
             <Campo label="Duração (h)">
-              <Input className={controlClassName} inputMode="decimal" placeholder="2" value={duracao} onChange={(e) => setDuracao(e.target.value)} />
+              <Input
+                className={controlClassName}
+                inputMode="decimal"
+                placeholder="2"
+                value={duracaoExibida}
+                onChange={(e) => {
+                  setDuracaoEditadaManual(true)
+                  setDuracao(e.target.value)
+                }}
+              />
+              {recalculaDuracaoAutomaticamente && (
+                <span className="text-[11px] leading-4 text-text-muted">
+                  Sugerido a partir dos programas
+                </span>
+              )}
             </Campo>
           </ColunaSecao>
 
