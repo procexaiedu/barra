@@ -18,7 +18,7 @@ Estrutura confirmada: `barra/{core, agente, dominio, webhook, workers, api}` + `
 
 | Alvo | O que roda |
 |---|---|
-| `make dev` | `uvicorn barra.main:app --reload :8000` |
+| `make dev` | `python -m barra` (seta WindowsSelectorEventLoopPolicy antes do loop; reload off no Windows) |
 | `make worker` | `arq barra.workers.settings.WorkerSettings` |
 | `make test` | `pytest` |
 | `make lint` / `make format` | `ruff check` / `ruff format` |
