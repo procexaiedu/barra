@@ -20,6 +20,7 @@ class ModeloCreate(BaseModel):
     longitude: Decimal | None = Field(default=None, ge=-180, le=180)
     place_id: str | None = None
     tipo_atendimento_aceito: list[str]
+    tipo_fisico: str | None = None
 
 
 class ModeloPatch(BaseModel):
@@ -37,6 +38,7 @@ class ModeloPatch(BaseModel):
     longitude: Decimal | None = Field(default=None, ge=-180, le=180)
     place_id: str | None = None
     tipo_atendimento_aceito: list[str] | None = None
+    tipo_fisico: str | None = None
     status: str | None = None
     coordenacao_chat_id: str | None = None
 

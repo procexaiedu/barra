@@ -47,7 +47,7 @@ async def listar_atendimentos(
     tipo_atendimento: str | None = None,
     urgencia: str | None = None,
     ia_pausada: bool | None = None,
-    modelo_id: UUID | None = None,
+    modelo_id: list[UUID] | None = Query(None),
     motivo_perda: str | None = None,
     motivo_escalada: str | None = None,
     q: str | None = None,
@@ -80,7 +80,7 @@ async def listar_atendimentos(
         filtros.append("a.ia_pausada = %s")
         params.append(ia_pausada)
     if modelo_id:
-        filtros.append("a.modelo_id = %s")
+        filtros.append("a.modelo_id = ANY(%s)")
         params.append(modelo_id)
     if motivo_perda and estado == "Perdido":
         filtros.append("a.motivo_perda = %s")

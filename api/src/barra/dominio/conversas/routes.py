@@ -167,6 +167,7 @@ async def obter_conversa(
           cv.created_at,
           c.id AS cliente_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
           c.created_at AS cliente_created_at,
+          c.perfis_preferidos::text[] AS perfis_preferidos,
           mp.nome AS primeiro_contato_modelo_nome,
           m.id AS modelo_id, m.nome AS modelo_nome
         FROM barravips.conversas cv
@@ -318,6 +319,30 @@ async def obter_conversa(
         (conversa["cliente_id"], conversa["modelo_id"]),
     )
 
+    # Perfil físico CALCULADO: breakdown CROSS-MODELO dos fechados do cliente por
+    # tipo_fisico da modelo atendida (não filtra por modelo_id). É dado de painel
+    # (Fernando); a IA conversacional nunca consome esta rota HTTP. Modelos sem
+    # tipo_fisico caem no grupo NULL e viram "nao_classificadas", nunca somem (ADR 0006).
+    breakdown_rows = await _all(
+        conn,
+        """
+        SELECT m.tipo_fisico::text AS tipo, COUNT(*) AS qtd
+          FROM barravips.atendimentos a
+          JOIN barravips.modelos m ON m.id = a.modelo_id
+         WHERE a.cliente_id = %s AND a.estado = 'Fechado'
+         GROUP BY m.tipo_fisico
+         ORDER BY COUNT(*) DESC
+        """,
+        (conversa["cliente_id"],),
+    )
+    breakdown: list[dict[str, Any]] = []
+    nao_classificadas = 0
+    for r in breakdown_rows:
+        if r["tipo"] is None:
+            nao_classificadas = r["qtd"]
+        else:
+            breakdown.append({"tipo": r["tipo"], "qtd": r["qtd"]})
+
     return {
         "conversa": {
             "id": conversa["id"],
@@ -334,6 +359,11 @@ async def obter_conversa(
             "telefone": conversa["cliente_telefone"],
             "primeiro_contato_modelo_nome": conversa["primeiro_contato_modelo_nome"],
             "created_at": conversa["cliente_created_at"],
+            "perfis_preferidos": conversa["perfis_preferidos"] or [],
+            "perfil_calculado": {
+                "breakdown": breakdown,
+                "nao_classificadas": nao_classificadas,
+            },
             "modelo_preferida": None
             if modelo_preferida is None
             else {"id": modelo_preferida["id"], "nome": modelo_preferida["nome"]},

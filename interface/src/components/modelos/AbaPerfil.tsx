@@ -10,6 +10,7 @@ import { ProgramasModelo } from "@/components/modelos/ProgramasModelo"
 import { TipoChecks } from "@/components/modelos/DialogCriarModelo"
 import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
 import { deE164BR, extrairDigitosTelefone, formatarTelefoneBR, paraE164BR } from "@/lib/telefone"
+import { PERFIS_FISICOS, PERFIL_FISICO_LABEL } from "@/lib/perfilFisico"
 import type {
   Duracao,
   DuracaoInput,
@@ -55,7 +56,11 @@ export function AbaPerfil({
   onUploadPerfil: () => void
   onRemoverFoto: () => Promise<void>
 }) {
-  const [identidade, setIdentidade] = useState({ nome: modelo.nome, idade: modelo.idade })
+  const [identidade, setIdentidade] = useState({
+    nome: modelo.nome,
+    idade: modelo.idade,
+    tipo_fisico: modelo.tipo_fisico ?? "",
+  })
   const [numeroDigitos, setNumeroDigitos] = useState(() => deE164BR(modelo.numero_whatsapp))
   const [repasse, setRepasse] = useState({
     percentual_repasse: modelo.percentual_repasse === null ? "" : String(modelo.percentual_repasse),
@@ -73,7 +78,10 @@ export function AbaPerfil({
   })
   const [submitting, setSubmitting] = useState<string | null>(null)
 
-  const dirtyIdentidade = identidade.nome !== modelo.nome || identidade.idade !== modelo.idade
+  const dirtyIdentidade =
+    identidade.nome !== modelo.nome ||
+    identidade.idade !== modelo.idade ||
+    (identidade.tipo_fisico || null) !== modelo.tipo_fisico
   const dirtyWhats = paraE164BR(numeroDigitos) !== modelo.numero_whatsapp
   const percentual = repasse.percentual_repasse === "" ? null : Number(repasse.percentual_repasse)
   const dirtyRepasse =
@@ -146,13 +154,31 @@ export function AbaPerfil({
               <option value="inativa">Inativa</option>
             </select>
           </Campo>
+          <Campo label="Perfil físico">
+            <select
+              value={identidade.tipo_fisico}
+              onChange={(e) => setIdentidade({ ...identidade, tipo_fisico: e.target.value })}
+              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+            >
+              <option value="">Não classificada</option>
+              {PERFIS_FISICOS.map((slug) => (
+                <option key={slug} value={slug}>
+                  {PERFIL_FISICO_LABEL[slug]}
+                </option>
+              ))}
+            </select>
+          </Campo>
         </div>
         <Salvar
           dirty={dirtyIdentidade}
           disabled={!identidadeValida}
           submitting={submitting === "identidade"}
           label="Salvar identidade"
-          onClick={() => salvar("identidade", { nome: identidade.nome.trim(), idade: identidade.idade }, "Identidade atualizada")}
+          onClick={() => salvar("identidade", {
+            nome: identidade.nome.trim(),
+            idade: identidade.idade,
+            tipo_fisico: (identidade.tipo_fisico || null) as PatchModeloInput["tipo_fisico"],
+          }, "Identidade atualizada")}
         />
       </Card>
 

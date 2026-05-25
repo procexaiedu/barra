@@ -124,9 +124,9 @@ async def criar_modelo(
           nome, idade, numero_whatsapp, valor_padrao, percentual_repasse, chave_pix,
           titular_chave, idiomas, localizacao_operacional,
           endereco_formatado, latitude, longitude, place_id,
-          tipo_atendimento_aceito
+          tipo_atendimento_aceito, tipo_fisico
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING *
         """,
         (
@@ -144,6 +144,7 @@ async def criar_modelo(
             body.longitude,
             body.place_id,
             body.tipo_atendimento_aceito,
+            body.tipo_fisico,
         ),
     )
     row = await result.fetchone()
@@ -1093,6 +1094,7 @@ def _modelo_lista_item(request: Request, row: dict[str, Any]) -> dict[str, Any]:
         "nome": item["nome"],
         "numero_whatsapp": item["numero_whatsapp"],
         "status": item["status"],
+        "tipo_fisico": item.get("tipo_fisico"),
         "evolution_instance_id": item["evolution_instance_id"],
         "evolution_status": item.get("evolution_status") or "desconectado",
         "evolution_pareado_em": _isoformat(item.get("evolution_pareado_em")),

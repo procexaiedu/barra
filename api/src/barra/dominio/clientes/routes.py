@@ -23,12 +23,18 @@ async def listar_clientes(
     modelo_id: UUID | None = None,
     q: str | None = None,
     periodo: str | None = None,
+    perfis: list[str] | None = Query(default=None),
     incluir_arquivados: bool = False,
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = None,
 ) -> dict[str, Any]:
     params: list[Any] = []
     filtros = ["1=1"]
+    if perfis:
+        # Preferência DECLARADA, semântica OR: cliente cujo conjunto contém
+        # qualquer um dos selecionados (overlap). ADR 0006.
+        filtros.append("c.perfis_preferidos && %s::barravips.perfil_fisico_enum[]")
+        params.append(perfis)
     if modelo_id:
         filtros.append(
             "EXISTS (SELECT 1 FROM barravips.conversas cv "
@@ -120,12 +126,13 @@ async def criar_cliente(
         row = await _one(
             conn,
             """
-            INSERT INTO barravips.clientes (nome, telefone)
-            VALUES (%s, %s)
-            RETURNING id, nome, telefone, primeiro_contato_modelo_id,
+            INSERT INTO barravips.clientes (nome, telefone, perfis_preferidos)
+            VALUES (%s, %s, %s)
+            RETURNING id, nome, telefone, perfis_preferidos,
+                      primeiro_contato_modelo_id,
                       arquivado_em, created_at, updated_at
             """,
-            (nome, telefone),
+            (nome, telefone, body.perfis_preferidos),
         )
     except UniqueViolation as exc:
         raise ConflitoEstado("telefone_duplicado") from exc
@@ -135,6 +142,7 @@ async def criar_cliente(
         "nome": row["nome"],
         "telefone": row["telefone"],
         "telefone_mascarado": _mascarar_telefone(row["telefone"]),
+        "perfis_preferidos": _array_text(row["perfis_preferidos"]),
         "primeiro_contato_modelo_id": row["primeiro_contato_modelo_id"],
         "arquivado_em": row["arquivado_em"],
         "created_at": row["created_at"],
@@ -172,6 +180,7 @@ async def obter_cliente(
             "id": cliente["id"],
             "nome": cliente["nome"],
             "telefone_mascarado": _mascarar_telefone(cliente["telefone"]),
+            "perfis_preferidos": _array_text(cliente["perfis_preferidos"]),
             "primeiro_contato_modelo_id": cliente["primeiro_contato_modelo_id"],
             "arquivado_em": cliente["arquivado_em"],
             "created_at": cliente["created_at"],
@@ -211,6 +220,9 @@ async def editar_cliente(
             if telefone != atual_digitos:
                 sets.append("telefone = %s")
                 valores.append(telefone)
+        if body.perfis_preferidos is not None:
+            sets.append("perfis_preferidos = %s")
+            valores.append(body.perfis_preferidos)
         if sets:
             valores.append(cliente_id)
             try:
@@ -222,7 +234,8 @@ async def editar_cliente(
                 raise ConflitoEstado("telefone_duplicado") from exc
         atualizado = await _one(
             conn,
-            "SELECT id, nome, telefone, arquivado_em FROM barravips.clientes WHERE id = %s",
+            "SELECT id, nome, telefone, perfis_preferidos, arquivado_em "
+            "FROM barravips.clientes WHERE id = %s",
             (cliente_id,),
         )
     assert atualizado is not None
@@ -230,6 +243,7 @@ async def editar_cliente(
         "id": atualizado["id"],
         "nome": atualizado["nome"],
         "telefone": atualizado["telefone"],
+        "perfis_preferidos": _array_text(atualizado["perfis_preferidos"]),
         "arquivado_em": atualizado["arquivado_em"],
     }
 
@@ -292,6 +306,18 @@ def _mascarar_telefone(telefone: str | None) -> str | None:
     if not telefone:
         return None
     return telefone[:3] + "*****" + telefone[-4:]
+
+
+def _array_text(value: Any) -> list[str]:
+    # psycopg pode devolver enum[] como lista ou como literal '{a,b}'; cobrimos os dois.
+    if isinstance(value, (list, tuple)):
+        return [str(item) for item in value]
+    if not isinstance(value, str):
+        return []
+    cleaned = value.strip()
+    if cleaned.startswith("{") and cleaned.endswith("}"):
+        cleaned = cleaned[1:-1]
+    return [item.strip().strip('"') for item in cleaned.split(",") if item.strip()]
 
 
 def _normalizar_telefone_br(telefone: str) -> str:

@@ -17,14 +17,16 @@ import {
   aplicarMascaraTelefone,
   normalizarTelefoneE164,
 } from "@/components/clientes/utils"
+import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
 import { formatTelefone } from "@/lib/formatters"
-import type { Cliente, EditarClienteRequest } from "@/tipos/clientes"
+import type { Cliente, EditarClienteRequest, PerfilFisico } from "@/tipos/clientes"
 
 interface ModalEditarClienteProps {
   open: boolean
   clienteId: string
   nomeAtual: string | null
   telefoneAtual: string
+  perfisAtuais: PerfilFisico[]
   onClose: () => void
   onSalvar: (id: string, payload: EditarClienteRequest) => Promise<Cliente>
 }
@@ -34,6 +36,7 @@ export function ModalEditarCliente({
   clienteId,
   nomeAtual,
   telefoneAtual,
+  perfisAtuais,
   onClose,
   onSalvar,
 }: ModalEditarClienteProps) {
@@ -41,13 +44,16 @@ export function ModalEditarCliente({
   const [telefone, setTelefone] = useState(() =>
     aplicarMascaraTelefone(formatTelefone(telefoneAtual))
   )
+  const [perfis, setPerfis] = useState<PerfilFisico[]>(perfisAtuais)
   const [submitting, setSubmitting] = useState(false)
   const nomeInputRef = useRef<HTMLInputElement>(null)
 
   const telefoneNormalizado = normalizarTelefoneE164(telefone)
   const nomeOriginal = (nomeAtual ?? "").trim()
+  const perfisOriginais = [...perfisAtuais].sort().join(",")
+  const perfisMudaram = [...perfis].sort().join(",") !== perfisOriginais
   const houveMudanca =
-    nome.trim() !== nomeOriginal || telefoneNormalizado !== telefoneAtual
+    nome.trim() !== nomeOriginal || telefoneNormalizado !== telefoneAtual || perfisMudaram
   const podeSalvar =
     telefoneNormalizado !== null && !submitting && houveMudanca
 
@@ -74,6 +80,7 @@ export function ModalEditarCliente({
       const payload: EditarClienteRequest = {
         nome: nome.trim() || null,
         telefone: telefoneNormalizado,
+        perfis_preferidos: perfis,
       }
       await onSalvar(clienteId, payload)
       toast.success("Cliente atualizado")
@@ -139,6 +146,18 @@ export function ModalEditarCliente({
                 Atual: {formatTelefone(telefoneAtual)}.
               </p>
             )}
+          </div>
+          <div>
+            <Label>Perfil físico preferido</Label>
+            <p className="mt-1 mb-2 text-xs text-text-muted">
+              Pode marcar mais de um.
+            </p>
+            <SeletorPerfis
+              value={perfis}
+              onChange={setPerfis}
+              disabled={submitting}
+              idPrefix="editar-cliente-perfil"
+            />
           </div>
         </div>
 

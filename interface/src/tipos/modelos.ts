@@ -1,3 +1,5 @@
+import type { PerfilFisico } from "@/tipos/clientes"
+
 export type StatusModelo = "ativa" | "pausada" | "inativa"
 export type TipoAtendimento = "interno" | "externo"
 export type TipoMidia = "foto" | "video"
@@ -23,6 +25,7 @@ export interface ModeloListaItem {
   evolution_pareado_em: string | null
   coordenacao_chat_id: string | null
   foto_perfil_url: string | null
+  tipo_fisico: PerfilFisico | null
   indicadores: ModeloIndicadores
 }
 
@@ -53,6 +56,7 @@ export interface ModeloDetalhe {
   longitude: number | null
   place_id: string | null
   tipo_atendimento_aceito: TipoAtendimento[]
+  tipo_fisico: PerfilFisico | null
   foto_perfil_object_key: string | null
   foto_perfil_url: string | null
   created_at: string
@@ -165,6 +169,7 @@ export interface CriarModeloInput {
   longitude?: number | null
   place_id?: string | null
   tipo_atendimento_aceito: TipoAtendimento[]
+  tipo_fisico?: PerfilFisico | null
 }
 
 export interface PatchModeloInput {
@@ -182,6 +187,7 @@ export interface PatchModeloInput {
   longitude?: number | null
   place_id?: string | null
   tipo_atendimento_aceito?: TipoAtendimento[]
+  tipo_fisico?: PerfilFisico | null
   status?: StatusModelo
   coordenacao_chat_id?: string | null
 }

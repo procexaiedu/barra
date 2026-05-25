@@ -1,6 +1,6 @@
 "use client"
 
-import { FiltroModelo } from "./FiltroModelo"
+import { FiltroModeloMulti } from "./FiltroModeloMulti"
 import { FiltroPeriodo } from "./FiltroPeriodo"
 import type { FiltroPeriodo as FiltroPeriodoTipo } from "@/tipos/dashboard"
 
@@ -8,18 +8,18 @@ interface Props {
   periodo: FiltroPeriodoTipo
   de: string | null
   ate: string | null
-  modeloId: string | null
+  modeloIds: string[]
   rangeComparacao: string | null
   onPreset: (periodo: "hoje" | "7d" | "30d" | "tudo") => void
   onAbrirCustom: () => void
-  onModeloChange: (modeloId: string | null) => void
+  onModeloChange: (modeloIds: string[]) => void
 }
 
 export function ToolbarDashboard({
   periodo,
   de,
   ate,
-  modeloId,
+  modeloIds,
   rangeComparacao,
   onPreset,
   onAbrirCustom,
@@ -40,7 +40,7 @@ export function ToolbarDashboard({
         </div>
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-text-muted">Modelo</span>
-          <FiltroModelo modeloId={modeloId} onChange={onModeloChange} />
+          <FiltroModeloMulti modeloIds={modeloIds} onChange={onModeloChange} />
         </div>
       </div>
       {rangeComparacao ? (

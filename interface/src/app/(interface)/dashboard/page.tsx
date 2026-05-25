@@ -8,7 +8,7 @@ import { BlocoFinanceiro } from "@/components/dashboard/BlocoFinanceiro"
 import { BlocoMotivosEscalada } from "@/components/dashboard/BlocoMotivosEscalada"
 import { BlocoPerdasPorMotivo } from "@/components/dashboard/BlocoPerdasPorMotivo"
 import { BulletEscaladas } from "@/components/dashboard/BulletEscaladas"
-import { CarteiraEstados } from "@/components/dashboard/CarteiraEstados"
+import { FunilVendas } from "@/components/dashboard/FunilVendas"
 import { DialogRangeCustom } from "@/components/dashboard/DialogRangeCustom"
 import { DialogTodasEscaladas } from "@/components/dashboard/DialogTodasEscaladas"
 import { HeaderDashboard } from "@/components/dashboard/HeaderDashboard"
@@ -43,9 +43,12 @@ function DashboardInner() {
   const filtros = dashboard.filtros
   const data = dashboard.data
 
-  const nomeModeloFiltrada = filtros.modelo_id
-    ? data?.profissionais.find((p) => p.modelo.id === filtros.modelo_id)?.modelo.nome ?? null
-    : null
+  const rotuloModeloFiltrado =
+    filtros.modelo_ids.length === 0
+      ? null
+      : filtros.modelo_ids.length === 1
+        ? data?.profissionais.find((p) => p.modelo.id === filtros.modelo_ids[0])?.modelo.nome ?? null
+        : `${filtros.modelo_ids.length} modelos`
 
   const rangeComparacao = data?.janela_comparacao
     ? formatRangeAbsoluto(data.janela_comparacao.de, data.janela_comparacao.ate)
@@ -59,11 +62,11 @@ function DashboardInner() {
         periodo={filtros.periodo}
         de={filtros.de}
         ate={filtros.ate}
-        modeloId={filtros.modelo_id}
+        modeloIds={filtros.modelo_ids}
         rangeComparacao={rangeComparacao}
         onPreset={dashboard.setPeriodoPreset}
         onAbrirCustom={() => setRangeOpen(true)}
-        onModeloChange={dashboard.setModeloId}
+        onModeloChange={dashboard.setModeloIds}
       />
 
       {dashboard.status === "loading" && !data ? (
@@ -81,6 +84,7 @@ function DashboardInner() {
           <DashboardConteudo
             data={data}
             series={dashboard.series}
+            modeloIdsSelecionadas={filtros.modelo_ids}
             onAbrirEscaladas={() => setEscaladasOpen(true)}
             onAbrirMetrica={setMetricaAberta}
           />
@@ -112,7 +116,7 @@ function DashboardInner() {
         }}
         tipo={metricaAberta}
         filtrosDashboard={filtros}
-        nomeModelo={nomeModeloFiltrada}
+        nomeModelo={rotuloModeloFiltrado}
       />
     </div>
   )
@@ -121,11 +125,18 @@ function DashboardInner() {
 interface ConteudoProps {
   data: DashboardResumo
   series: Partial<Record<SerieMetrica, SerieResposta>>
+  modeloIdsSelecionadas: string[]
   onAbrirEscaladas: () => void
   onAbrirMetrica: (tipo: TipoMetricaModal) => void
 }
 
-function DashboardConteudo({ data, series, onAbrirEscaladas, onAbrirMetrica }: ConteudoProps) {
+function DashboardConteudo({
+  data,
+  series,
+  modeloIdsSelecionadas,
+  onAbrirEscaladas,
+  onAbrirMetrica,
+}: ConteudoProps) {
   const kpis = data.kpis_periodo
   const anterior = data.kpis_periodo_anterior
 
@@ -260,8 +271,8 @@ function DashboardConteudo({ data, series, onAbrirEscaladas, onAbrirMetrica }: C
         serieLiquido={series.liquido?.pontos}
       />
 
-      {/* Seção 4 — Funil top 5 (5 etapas do kanban) */}
-      <CarteiraEstados linhas={data.funil_estados} />
+      {/* Seção 4 — Funil de vendas por coorte (4 etapas; perdas como saída lateral) */}
+      <FunilVendas funil={data.funil} />
 
       {/* Seção 5 — Diagnóstico (perdas + escaladas) */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -274,7 +285,10 @@ function DashboardConteudo({ data, series, onAbrirEscaladas, onAbrirMetrica }: C
       </div>
 
       {/* Seção 6 — Modelos */}
-      <ProfissionaisRanking profissionais={data.profissionais} />
+      <ProfissionaisRanking
+        profissionais={data.profissionais}
+        modeloIdsSelecionadas={modeloIdsSelecionadas}
+      />
     </>
   )
 }

@@ -9,6 +9,8 @@ import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { ConectarWhatsappConteudo, type QrModalStatus } from "@/components/modelos/ConectarWhatsappConteudo"
 import { extrairDigitosTelefone, formatarTelefoneBR, paraE164BR } from "@/lib/telefone"
+import { PERFIS_FISICOS, PERFIL_FISICO_LABEL } from "@/lib/perfilFisico"
+import type { PerfilFisico } from "@/tipos/clientes"
 import type { ConectarWhatsappResponse, CriarModeloInput, TipoAtendimento } from "@/tipos/modelos"
 
 const inicial: CriarModeloInput = {
@@ -131,6 +133,20 @@ export function DialogCriarModelo({
                   </Campo>
                   <Campo label="Idiomas">
                     <Input value={idiomasInput} placeholder="pt-BR, en-US" onChange={(e) => setIdiomasInput(e.target.value)} className="h-10 bg-input border-border-strong" />
+                  </Campo>
+                  <Campo label="Perfil físico">
+                    <select
+                      value={form.tipo_fisico ?? ""}
+                      onChange={(e) => setForm({ ...form, tipo_fisico: (e.target.value as PerfilFisico) || null })}
+                      className="h-10 rounded-md border border-border-strong bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+                    >
+                      <option value="">Não classificada</option>
+                      {PERFIS_FISICOS.map((slug) => (
+                        <option key={slug} value={slug}>
+                          {PERFIL_FISICO_LABEL[slug]}
+                        </option>
+                      ))}
+                    </select>
                   </Campo>
                 </div>
               </section>

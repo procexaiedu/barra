@@ -17,7 +17,8 @@ import {
   aplicarMascaraTelefone,
   normalizarTelefoneE164,
 } from "@/components/clientes/utils"
-import type { Cliente, CriarClienteRequest } from "@/tipos/clientes"
+import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
+import type { Cliente, CriarClienteRequest, PerfilFisico } from "@/tipos/clientes"
 
 interface ModalCriarClienteProps {
   open: boolean
@@ -34,6 +35,7 @@ export function ModalCriarCliente({
 }: ModalCriarClienteProps) {
   const [nome, setNome] = useState("")
   const [telefone, setTelefone] = useState("")
+  const [perfis, setPerfis] = useState<PerfilFisico[]>([])
   const [submitting, setSubmitting] = useState(false)
 
   const telefoneNormalizado = normalizarTelefoneE164(telefone)
@@ -42,6 +44,7 @@ export function ModalCriarCliente({
   const reset = () => {
     setNome("")
     setTelefone("")
+    setPerfis([])
     setSubmitting(false)
   }
 
@@ -58,6 +61,7 @@ export function ModalCriarCliente({
       const payload: CriarClienteRequest = {
         telefone: telefoneNormalizado,
         nome: nome.trim() || null,
+        perfis_preferidos: perfis,
       }
       const cliente = await onCriar(payload)
       toast.success("Cliente criado")
@@ -117,6 +121,18 @@ export function ModalCriarCliente({
                 Telefone incompleto. Use 10 ou 11 dígitos.
               </p>
             )}
+          </div>
+          <div>
+            <Label>Perfil físico preferido</Label>
+            <p className="mt-1 mb-2 text-xs text-text-muted">
+              Opcional. Pode marcar mais de um.
+            </p>
+            <SeletorPerfis
+              value={perfis}
+              onChange={setPerfis}
+              disabled={submitting}
+              idPrefix="novo-cliente-perfil"
+            />
           </div>
         </div>
 

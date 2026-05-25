@@ -8,8 +8,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { DetalheCliente } from "@/components/clientes/DetalheCliente"
 import { ListaClientes } from "@/components/clientes/ListaClientes"
 import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
+import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
 import { useClientes } from "@/hooks/useClientes"
-import type { FiltroPeriodo, ModeloResumo } from "@/tipos/clientes"
+import type { FiltroPeriodo, ModeloResumo, PerfilFisico } from "@/tipos/clientes"
 
 const periodos: { value: FiltroPeriodo; label: string }[] = [
   { value: "todos", label: "Todos" },
@@ -48,12 +49,14 @@ export default function Clientes() {
         busca={crm.filtros.busca}
         periodo={crm.filtros.periodo}
         modeloId={crm.filtros.modeloId}
+        perfis={crm.filtros.perfis}
         modelos={crm.modelos}
         loading={crm.listaStatus === "loading"}
         incluirArquivados={crm.incluirArquivados}
         onBuscaChange={(busca) => crm.setFiltros((current) => ({ ...current, busca }))}
         onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
         onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
+        onPerfisChange={(perfis) => crm.setFiltros((current) => ({ ...current, perfis }))}
         onIncluirArquivadosChange={crm.setIncluirArquivados}
       />
 
@@ -98,23 +101,27 @@ function Toolbar({
   busca,
   periodo,
   modeloId,
+  perfis,
   modelos,
   loading,
   incluirArquivados,
   onBuscaChange,
   onPeriodoChange,
   onModeloChange,
+  onPerfisChange,
   onIncluirArquivadosChange,
 }: {
   busca: string
   periodo: FiltroPeriodo
   modeloId: string
+  perfis: PerfilFisico[]
   modelos: ModeloResumo[]
   loading: boolean
   incluirArquivados: boolean
   onBuscaChange: (value: string) => void
   onPeriodoChange: (value: FiltroPeriodo) => void
   onModeloChange: (value: string) => void
+  onPerfisChange: (value: PerfilFisico[]) => void
   onIncluirArquivadosChange: (value: boolean) => void
 }) {
   if (loading) {
@@ -169,6 +176,10 @@ function Toolbar({
             </option>
           ))}
         </SelectFiltro>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-xs font-medium text-text-muted">Perfil físico:</span>
+        <SeletorPerfis value={perfis} onChange={onPerfisChange} idPrefix="filtro-perfil" />
       </div>
       <label className="flex w-fit cursor-pointer select-none items-center gap-2 text-xs text-text-muted">
         <input

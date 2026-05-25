@@ -24,6 +24,7 @@ const filtrosIniciais: FiltrosClientes = {
   busca: "",
   periodo: "todos",
   modeloId: "todas",
+  perfis: [],
 }
 
 function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
@@ -32,6 +33,7 @@ function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   if (busca) params.set("q", busca)
   if (filtros.periodo !== "todos") params.set("periodo", filtros.periodo)
   if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
+  for (const perfil of filtros.perfis) params.append("perfis", perfil)
   if (cursor) params.set("cursor", cursor)
   return `/v1/crm/clientes?${params.toString()}`
 }
@@ -76,14 +78,16 @@ export function useClientes() {
       busca: debouncedBusca,
       periodo: filtros.periodo,
       modeloId: filtros.modeloId,
+      perfis: filtros.perfis,
     }),
-    [debouncedBusca, filtros.periodo, filtros.modeloId]
+    [debouncedBusca, filtros.periodo, filtros.modeloId, filtros.perfis]
   )
 
   const filtrosAplicados =
     filtrosEfetivos.busca.trim() !== "" ||
     filtrosEfetivos.periodo !== "todos" ||
-    filtrosEfetivos.modeloId !== "todas"
+    filtrosEfetivos.modeloId !== "todas" ||
+    filtrosEfetivos.perfis.length > 0
 
   // Carrega o detalhe rico de uma conversa específica (par cliente,modelo).
   const carregarConversa = useCallback(async (conversaId: string) => {

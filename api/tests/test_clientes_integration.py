@@ -40,6 +40,7 @@ class FakeConnComCliente:
                         "id": self.cliente_id,
                         "nome": "Joao",
                         "telefone": "5521999998888",
+                        "perfis_preferidos": [],
                         "primeiro_contato_modelo_id": uuid4(),
                         "arquivado_em": None,
                         "created_at": datetime.now(UTC),

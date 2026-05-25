@@ -84,6 +84,10 @@ _Avoid_: perseguir o cliente com múltiplos toques, reabrir quem não chegou à 
 Foto/vídeo da modelo enviado durante a venda com enquadramento de exclusividade — primeiro fotos, depois um vídeo apresentado como "gravado ao vivo só para o cliente"; quando a plataforma de envio permitir, o vídeo vai como visualização única (view-once) para proteger o conteúdo.
 _Avoid_: enviar vídeo antes de foto, expor que o vídeo "ao vivo" é pré-gravado, prometer view-once sem suporte da plataforma
 
+**Perfil físico preferido**:
+Tipo físico que o cliente prefere nas modelos (loira, morena, ruiva, negra, asiática, outra). Dado **global do cliente** (não por par cliente-modelo) e **exclusivo do painel/Fernando**. Tem duas leituras: a **declarada** (Fernando marca uma ou mais no cadastro do cliente) e a **calculada** (breakdown derivado dos atendimentos `Fechado`, agrupados pelo `tipo_fisico` das modelos atendidas — "consumiu 6 ruivas e 2 loiras"), que expõe também quantos fechados são de modelos ainda não classificadas. No P0 só Fernando lê/escreve no painel; a IA conversacional por modelo nunca lê o breakdown (seria agregação cross-modelo, fura o isolamento por par) nem escreve a preferência — a leitura/escrita por linguagem natural é da **IA Admin** (P1). Eixo único: não separa cabelo/etnia/biotipo, e biotipo (sarada/plus) fica de fora. Ver ADR 0006.
+_Avoid_: tratar como dado por par cliente-modelo, expor à IA conversacional por modelo, inferir um rótulo único ("prefere X") a partir do breakdown, materializar biotipo nesse eixo, customizar a persona da IA por preferência
+
 ## Relationships
 
 - A **Conversa cliente** pertence a um par cliente-modelo e é conduzida pela IA até o handoff.
@@ -127,6 +131,10 @@ _Avoid_: enviar vídeo antes de foto, expor que o vídeo "ao vivo" é pré-grava
 - Bloqueio fora da **Disponibilidade**: a IA nunca cria nem sugere (trava dura); Fernando vê aviso no painel e pode forçar mesmo assim (override explícito, igual ao confirmar de cancelar bloqueio `em_atendimento`).
 - Diferente do bloqueio (onde a IA mente com desculpa pessoal), quando o horário pedido cai **fora da Disponibilidade** (folga/viagem/ainda não começou) a IA **revela a volta e ancora**: assume que está fora, informa quando volta e oferece a primeira data disponível — não há outro cliente a esconder.
 - Configurar uma **Disponibilidade** que deixa bloqueios futuros já existentes fora dela salva normalmente e emite alerta não-bloqueante listando-os; nunca deleta nem cancela bloqueio automaticamente.
+- O **Perfil físico preferido** vive no nível do cliente (cross-modelo), diferente do histórico/recorrência/observações que são isolados por par cliente-modelo; por isso é exclusivo do painel/Fernando e a **IA por modelo** nunca o acessa (nem a declarada, nem o breakdown calculado).
+- A parte **calculada** do **Perfil físico preferido** conta só atendimentos `Fechado`, agrupando pelo `tipo_fisico` das modelos atendidas; modelos sem `tipo_fisico` aparecem como "não classificadas" no breakdown, nunca somem em silêncio, e nenhum rótulo único ("prefere X") é inferido.
+- Classificar a modelo por `tipo_fisico` é pré-condição da parte **calculada**: sem classificação o breakdown é parcial mas válido (a parte conhecida + a contagem de não classificadas); modelos existentes nascem sem `tipo_fisico` (sem backfill).
+- O filtro de clientes por **Perfil físico preferido** usa só a parte **declarada**, com semântica OR (cliente cujo conjunto declarado contém qualquer um dos selecionados).
 
 ## Example dialogue
 
@@ -140,3 +148,4 @@ _Avoid_: enviar vídeo antes de foto, expor que o vídeo "ao vivo" é pré-grava
 - "horário combinado" vs "horário desejado" eram usados como sinônimos; resolvido: **horário desejado** é o pedido não confirmado do cliente; **horário combinado** é o horário confirmado e reservado.
 - Referência do timeout interno: o prazo conta a partir do **envio do Aviso de saída** (`aviso_saida_em`), não do horário combinado nem do desejado.
 - "desconto" era sempre motivo de escalada ("a IA não negocia", `mvp/05 §14`); resolvido: a IA pode conceder **Desconto de fechamento** até o **Piso de desconto** numa única oferta, escalando só abaixo disso — a regra "escala em vez de negociar" passa a valer apenas para pedidos **abaixo do piso**.
+- O plano de reunião pedia "a IA lê/escreve o perfil físico do cliente em linguagem natural"; resolvido: no P0 é painel-only (Fernando), porque a parte calculada é cross-modelo e exporia dados de outras modelos à IA conversacional, furando o isolamento por par; a leitura/escrita por linguagem natural fica para a **IA Admin** (P1). "**Perfil físico preferido**" é global do cliente; não confundir com as **observações**, que são por par cliente-modelo.

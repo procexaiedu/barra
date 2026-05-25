@@ -22,14 +22,14 @@ export interface FiltrosDashboard {
   periodo: FiltroPeriodo
   de: string | null
   ate: string | null
-  modelo_id: string | null
+  modelo_ids: string[]
 }
 
 const filtrosDefault: FiltrosDashboard = {
   periodo: "7d",
   de: null,
   ate: null,
-  modelo_id: null,
+  modelo_ids: [],
 }
 
 function parseFiltrosFromSearch(params: URLSearchParams): FiltrosDashboard {
@@ -37,14 +37,14 @@ function parseFiltrosFromSearch(params: URLSearchParams): FiltrosDashboard {
   const periodo = (periodoRaw && PERIODOS_VALIDOS.has(periodoRaw) ? periodoRaw : "7d") as FiltroPeriodo
   const de = params.get("de")
   const ate = params.get("ate")
-  const modelo_id = params.get("modelo_id")
+  const modelo_ids = params.getAll("modelo_id")
   if (periodo === "custom") {
     if (!de || !ate || !/^\d{4}-\d{2}-\d{2}$/.test(de) || !/^\d{4}-\d{2}-\d{2}$/.test(ate)) {
-      return { ...filtrosDefault, modelo_id }
+      return { ...filtrosDefault, modelo_ids }
     }
-    return { periodo, de, ate, modelo_id }
+    return { periodo, de, ate, modelo_ids }
   }
-  return { periodo, de: null, ate: null, modelo_id }
+  return { periodo, de: null, ate: null, modelo_ids }
 }
 
 function montarPath(filtros: FiltrosDashboard, recurso: "" | "/escaladas"): string {
@@ -54,16 +54,16 @@ function montarPath(filtros: FiltrosDashboard, recurso: "" | "/escaladas"): stri
     params.set("de", filtros.de)
     params.set("ate", filtros.ate)
   }
-  if (filtros.modelo_id) params.set("modelo_id", filtros.modelo_id)
+  for (const id of filtros.modelo_ids) params.append("modelo_id", id)
   return `/v1/dashboard${recurso}?${params.toString()}`
 }
 
-function montarPathSerie(metrica: SerieMetrica, modeloId: string | null): string {
+function montarPathSerie(metrica: SerieMetrica, modeloIds: string[]): string {
   const params = new URLSearchParams()
   params.set("metrica", metrica)
   params.set("unidade", "semana")
   params.set("n", "12")
-  if (modeloId) params.set("modelo_id", modeloId)
+  for (const id of modeloIds) params.append("modelo_id", id)
   return `/v1/dashboard/serie?${params.toString()}`
 }
 
@@ -83,7 +83,7 @@ function montarQueryString(filtros: FiltrosDashboard): string {
     params.set("de", filtros.de)
     params.set("ate", filtros.ate)
   }
-  if (filtros.modelo_id) params.set("modelo_id", filtros.modelo_id)
+  for (const id of filtros.modelo_ids) params.append("modelo_id", id)
   const s = params.toString()
   return s ? `?${s}` : ""
 }
@@ -144,7 +144,7 @@ export function useDashboard() {
     try {
       const resultados = await Promise.all(
         METRICAS_SPARKLINE.map((metrica) =>
-          api<SerieResposta>(montarPathSerie(metrica, filtrosAtuais.modelo_id), {
+          api<SerieResposta>(montarPathSerie(metrica, filtrosAtuais.modelo_ids), {
             signal: controller.signal,
           }).catch((e: unknown) => {
             // Falha individual de série não derruba a tela — apenas omitimos.
@@ -190,9 +190,9 @@ export function useDashboard() {
     [aplicarFiltros]
   )
 
-  const setModeloId = useCallback(
-    (modelo_id: string | null) => {
-      aplicarFiltros({ ...filtrosRef.current, modelo_id })
+  const setModeloIds = useCallback(
+    (modelo_ids: string[]) => {
+      aplicarFiltros({ ...filtrosRef.current, modelo_ids })
     },
     [aplicarFiltros]
   )
@@ -290,7 +290,7 @@ export function useDashboard() {
     refetchSeries: fetchSeries,
     setPeriodoPreset,
     setPeriodoCustom,
-    setModeloId,
+    setModeloIds,
     escaladas: {
       data: escaladasResp,
       status: escaladasStatus,

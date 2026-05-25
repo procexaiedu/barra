@@ -33,11 +33,14 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { ModalEditarCliente } from "@/components/clientes/ModalEditarCliente"
 import { formatBRL, formatData, formatTempoRelativo } from "@/lib/formatters"
+import { rotuloPerfil } from "@/lib/perfilFisico"
 import type {
   AtendimentoHistoricoItem,
   Cliente,
   ClienteDetalhe,
   EditarClienteRequest,
+  PerfilCalculado,
+  PerfilFisico,
 } from "@/tipos/clientes"
 
 const TIPO_LABEL: Record<"interno" | "externo", string> = {
@@ -223,6 +226,11 @@ export function DadosCliente({
         </div>
       </div>
 
+      <PerfilFisicoSecao
+        declarados={cliente.perfis_preferidos}
+        calculado={cliente.perfil_calculado}
+      />
+
       {onEditarCliente && modalEditarAberto && (
         <ModalEditarCliente
           key={`${cliente.id}:${cliente.telefone}:${cliente.nome ?? ""}`}
@@ -230,6 +238,7 @@ export function DadosCliente({
           clienteId={cliente.id}
           nomeAtual={cliente.nome}
           telefoneAtual={cliente.telefone}
+          perfisAtuais={cliente.perfis_preferidos}
           onClose={() => setModalEditarAberto(false)}
           onSalvar={onEditarCliente}
         />
@@ -262,6 +271,79 @@ export function DadosCliente({
           </AlertDialogContent>
         </AlertDialog>
       )}
+    </div>
+  )
+}
+
+function PerfilFisicoSecao({
+  declarados,
+  calculado,
+}: {
+  declarados: PerfilFisico[]
+  calculado: PerfilCalculado
+}) {
+  const maxQtd = calculado.breakdown.reduce((acc, b) => Math.max(acc, b.qtd), 0)
+  const temCalculo = calculado.breakdown.length > 0 || calculado.nao_classificadas > 0
+  return (
+    <div className="border-t border-border">
+      <div className="px-5 pt-3 pb-1">
+        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          Perfil físico
+        </span>
+      </div>
+      <div className="grid grid-cols-2 divide-x divide-border">
+        <div className="flex flex-col gap-2 px-5 py-4">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+            Declarado
+          </span>
+          {declarados.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {declarados.map((p) => (
+                <span
+                  key={p}
+                  className="rounded-full border border-border px-2.5 py-0.5 text-xs text-text-primary"
+                >
+                  {rotuloPerfil(p)}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <span className="text-sm text-text-muted">Sem preferência declarada</span>
+          )}
+        </div>
+        <div className="flex flex-col gap-2 px-5 py-4">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+            Histórico por tipo · todas as modelos
+          </span>
+          {temCalculo ? (
+            <div className="flex flex-col gap-1.5">
+              {calculado.breakdown.map((b) => (
+                <BarraTipo key={b.tipo} label={rotuloPerfil(b.tipo)} qtd={b.qtd} max={maxQtd} />
+              ))}
+              {calculado.nao_classificadas > 0 && (
+                <span className="mt-0.5 text-xs text-text-muted">
+                  — não classificadas: {calculado.nao_classificadas}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-sm text-text-muted">Sem fechados ainda</span>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function BarraTipo({ label, qtd, max }: { label: string; qtd: number; max: number }) {
+  const pct = max > 0 ? Math.round((qtd / max) * 100) : 0
+  return (
+    <div className="flex items-center gap-2 text-xs">
+      <span className="w-16 shrink-0 text-text-primary">{label}</span>
+      <span className="h-2 flex-1 overflow-hidden rounded-full bg-accent">
+        <span className="block h-full rounded-full bg-state-active" style={{ width: `${pct}%` }} />
+      </span>
+      <span className="w-5 shrink-0 text-right tabular-nums text-text-primary">{qtd}</span>
     </div>
   )
 }

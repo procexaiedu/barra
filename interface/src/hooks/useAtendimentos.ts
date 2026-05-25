@@ -280,7 +280,8 @@ export function useAtendimentos(
           method: "POST",
           body: JSON.stringify(payload),
         })
-        await loadLista("replace", true)
+        // Não recarrega aqui: o modal ainda vai gravar dados/serviços via PATCH/POST.
+        // O refetch acontece em onCriado, depois que tudo foi salvo.
         return { tipo: "criado", atendimento: res }
       } catch (e) {
         if (e instanceof ApiError && e.status === 409) {
@@ -294,7 +295,7 @@ export function useAtendimentos(
         throw e
       }
     },
-    [loadLista]
+    []
   )
 
   const uploadMidia = useCallback(async (atendimentoId: string, file: File, tipo: string): Promise<void> => {

@@ -47,6 +47,7 @@ def _modelo_row(
         "longitude": None,
         "place_id": None,
         "tipo_atendimento_aceito": ["interno"],
+        "tipo_fisico": None,
         "status": status,
         "evolution_instance_id": evolution_instance_id,
         "evolution_status": "conectado" if evolution_instance_id else "desconectado",
@@ -133,6 +134,39 @@ def test_criar_modelo_retorna_201_com_modelo_serializado() -> None:
         assert body["numero_whatsapp"] == "5521999990000"
         assert body["tipo_atendimento_aceito"] == ["interno"]
         assert body["foto_perfil_url"] is None
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_criar_modelo_grava_tipo_fisico() -> None:
+    modelo_id = uuid4()
+    fake = FakeConnCriar(modelo_id)
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/modelos",
+                json={
+                    "nome": "Aurora",
+                    "idade": 26,
+                    "numero_whatsapp": "5521999990000",
+                    "valor_padrao": 0,
+                    "tipo_atendimento_aceito": ["interno"],
+                    "idiomas": ["pt-BR"],
+                    "tipo_fisico": "ruiva",
+                },
+                headers=_token(),
+            )
+        assert response.status_code == 201, response.text
+        insert_query, insert_params = next(
+            (q, p) for q, p in fake.executes if "INSERT INTO barravips.modelos" in q
+        )
+        assert "tipo_fisico" in insert_query
+        assert "ruiva" in tuple(insert_params)
     finally:
         app.dependency_overrides.pop(get_conn, None)
 

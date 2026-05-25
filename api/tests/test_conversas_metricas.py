@@ -72,6 +72,7 @@ class FakeConnConversaMetricas:
                         "cliente_nome": "Cliente C",
                         "cliente_telefone": "5521999998888",
                         "cliente_created_at": datetime.now(UTC),
+                        "perfis_preferidos": [],
                         "primeiro_contato_modelo_nome": None,
                         "modelo_id": self.modelo_id,
                         "modelo_nome": self.metricas_par["modelo_nome"],
@@ -185,6 +186,90 @@ def test_obter_conversa_metricas_isoladas_por_par_m1() -> None:
         assert body["cliente"]["programa_preferido"]["nome"] == "Programa m1"
         assert body["cliente"]["duracao_preferida"]["nome"] == "Duracao m1"
         assert body["cliente"]["forma_pagamento_preferida"] == "pix_m1"
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+class FakeConnBreakdown:
+    """Fake conn focado no perfil físico do cliente (declarado + breakdown calculado)."""
+
+    def __init__(
+        self,
+        conversa_id: UUID,
+        cliente_id: UUID,
+        modelo_id: UUID,
+        perfis: list[str],
+        breakdown_rows: list[dict[str, Any]],
+    ) -> None:
+        self.conversa_id = conversa_id
+        self.cliente_id = cliente_id
+        self.modelo_id = modelo_id
+        self.perfis = perfis
+        self.breakdown_rows = breakdown_rows
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
+
+    async def execute(self, query: str, params: object = None) -> _Result:
+        if "WHERE cv.id = %s" in query:
+            return _Result(
+                [
+                    {
+                        "id": self.conversa_id,
+                        "recorrente": False,
+                        "observacoes_internas": None,
+                        "ultimo_motivo_perda": None,
+                        "ultima_mensagem_em": datetime.now(UTC),
+                        "ultima_mensagem_direcao": "entrada",
+                        "created_at": datetime.now(UTC),
+                        "cliente_id": self.cliente_id,
+                        "cliente_nome": "Cliente C",
+                        "cliente_telefone": "5521999998888",
+                        "cliente_created_at": datetime.now(UTC),
+                        "perfis_preferidos": self.perfis,
+                        "primeiro_contato_modelo_nome": None,
+                        "modelo_id": self.modelo_id,
+                        "modelo_nome": "Modelo M1",
+                    }
+                ]
+            )
+        if "GROUP BY m.tipo_fisico" in query:
+            return _Result(self.breakdown_rows)
+        return _Result([])
+
+
+def test_obter_conversa_perfil_fisico_declarado_e_breakdown() -> None:
+    """cliente carrega perfis declarados e o breakdown cross-modelo separa NULL."""
+    conversa_id, cliente_id, modelo_id = uuid4(), uuid4(), uuid4()
+    fake = FakeConnBreakdown(
+        conversa_id,
+        cliente_id,
+        modelo_id,
+        perfis=["ruiva"],
+        breakdown_rows=[
+            {"tipo": "ruiva", "qtd": 6},
+            {"tipo": "loira", "qtd": 2},
+            {"tipo": None, "qtd": 10},
+        ],
+    )
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(f"/v1/crm/conversas/{conversa_id}", headers=_token())
+        assert response.status_code == 200
+        cliente = response.json()["cliente"]
+        assert cliente["perfis_preferidos"] == ["ruiva"]
+        calc = cliente["perfil_calculado"]
+        assert calc["breakdown"] == [
+            {"tipo": "ruiva", "qtd": 6},
+            {"tipo": "loira", "qtd": 2},
+        ]
+        assert calc["nao_classificadas"] == 10
     finally:
         app.dependency_overrides.pop(get_conn, None)
 

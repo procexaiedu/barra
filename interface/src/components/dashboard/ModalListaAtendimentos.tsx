@@ -66,7 +66,7 @@ function montarPath(
     params.set("data_inicio", janela.de)
     params.set("data_fim", janela.ate)
   }
-  if (filtros.modelo_id) params.set("modelo_id", filtros.modelo_id)
+  for (const id of filtros.modelo_ids) params.append("modelo_id", id)
   if (cursor) params.set("cursor", cursor)
   return `/v1/atendimentos?${params.toString()}`
 }
@@ -81,7 +81,7 @@ function montarHrefVerTodos(
     params.set("de", janela.de)
     params.set("ate", janela.ate)
   }
-  if (filtros.modelo_id) params.set("modelo_id", filtros.modelo_id)
+  for (const id of filtros.modelo_ids) params.append("modelo_id", id)
   return `/atendimentos?${params.toString()}`
 }
 

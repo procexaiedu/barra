@@ -10,11 +10,14 @@ import { cn } from "@/lib/utils"
 
 interface Props {
   profissionais: ProfissionalRanking[]
+  modeloIdsSelecionadas: string[]
 }
 
-export function ProfissionaisRanking({ profissionais }: Props) {
+export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: Props) {
   const router = useRouter()
   const volumeMaximo = Math.max(...profissionais.map((p) => p.volume), 0)
+  const selecionadas = new Set(modeloIdsSelecionadas)
+  const temSelecao = modeloIdsSelecionadas.length > 0
 
   if (profissionais.length === 0) {
     return (
@@ -65,6 +68,7 @@ export function ProfissionaisRanking({ profissionais }: Props) {
           <tbody>
             {profissionais.map((p, idx) => {
               const pctVolume = volumeMaximo > 0 ? (p.volume / volumeMaximo) * 100 : 0
+              const destacada = temSelecao && selecionadas.has(p.modelo.id)
               return (
                 <tr
                   key={p.modelo.id}
@@ -77,12 +81,21 @@ export function ProfissionaisRanking({ profissionais }: Props) {
                       router.push(`/modelos?modelo=${p.modelo.id}&aba=perfil`)
                     }
                   }}
-                  className="cursor-pointer border-t border-border/60 transition-colors hover:bg-accent focus:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                  className={cn(
+                    "cursor-pointer border-t border-border/60 transition-colors hover:bg-accent focus:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                    destacada && "bg-gold-500/[0.07]",
+                    temSelecao && !destacada && "opacity-55"
+                  )}
                 >
                   <td className="px-4 py-4 align-middle">
                     <div className="flex items-baseline gap-3">
                       <span className="font-mono text-xs text-text-muted">#{idx + 1}</span>
-                      <span className="text-xs font-semibold uppercase tracking-[0.08em] text-text-primary">
+                      <span
+                        className={cn(
+                          "text-xs font-semibold uppercase tracking-[0.08em]",
+                          destacada ? "text-gold-500" : "text-text-primary"
+                        )}
+                      >
                         {p.modelo.nome}
                       </span>
                       {idx === 0 ? (

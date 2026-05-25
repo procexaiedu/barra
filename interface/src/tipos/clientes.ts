@@ -6,6 +6,21 @@ export type MotivoPerda =
   | "fora_de_area"
   | "outro"
 
+/** Perfil físico (eixo único). Slug ASCII; rótulo acentuado em lib/perfilFisico. ADR 0006. */
+export type PerfilFisico =
+  | "loira"
+  | "morena"
+  | "ruiva"
+  | "negra"
+  | "asiatica"
+  | "outra"
+
+/** Preferência física CALCULADA do histórico (cross-modelo, painel-only). */
+export interface PerfilCalculado {
+  breakdown: { tipo: PerfilFisico; qtd: number }[]
+  nao_classificadas: number
+}
+
 export type DirecaoMensagem = "cliente" | "ia" | "modelo_manual"
 
 export type EstadoAtendimento =
@@ -28,6 +43,7 @@ export interface Cliente {
   id: string
   nome: string | null
   telefone: string
+  perfis_preferidos: PerfilFisico[]
   arquivado_em: string | null
   created_at: string
   updated_at: string
@@ -79,6 +95,7 @@ export interface ClienteDetalheResponse {
     id: string
     nome: string | null
     telefone_mascarado: string | null
+    perfis_preferidos: PerfilFisico[]
     primeiro_contato_modelo_id: string | null
     arquivado_em: string | null
     created_at: string
@@ -90,11 +107,13 @@ export interface ClienteDetalheResponse {
 export interface CriarClienteRequest {
   nome?: string | null
   telefone: string
+  perfis_preferidos?: PerfilFisico[]
 }
 
 export interface EditarClienteRequest {
   nome?: string | null
   telefone?: string
+  perfis_preferidos?: PerfilFisico[]
 }
 
 export interface ModeloResumo {
@@ -112,6 +131,8 @@ export interface ClienteDetalhe {
   primeiro_contato_modelo_nome: string | null
   created_at: string
   arquivado_em?: string | null
+  perfis_preferidos: PerfilFisico[]
+  perfil_calculado: PerfilCalculado
   modelo_preferida: ModeloResumo | null
   tipo_atendimento_mais_frequente: "interno" | "externo" | null
   programa_preferido: { id: string; nome: string } | null
@@ -168,4 +189,5 @@ export interface FiltrosClientes {
   busca: string
   periodo: FiltroPeriodo
   modeloId: FiltroModelo
+  perfis: PerfilFisico[]
 }

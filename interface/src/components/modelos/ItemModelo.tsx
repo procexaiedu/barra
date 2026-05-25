@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/badge"
 import { formatTelefone, formatTempoRelativo } from "@/lib/formatters"
+import { rotuloPerfil } from "@/lib/perfilFisico"
 import { cn } from "@/lib/utils"
 import type { ModeloListaItem } from "@/tipos/modelos"
 
@@ -55,7 +56,14 @@ export function ItemModelo({
         </Badge>
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 text-xs text-text-muted">
-        <span className="font-mono">{formatTelefone(item.numero_whatsapp)}</span>
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="font-mono">{formatTelefone(item.numero_whatsapp)}</span>
+          {item.tipo_fisico && (
+            <span className="shrink-0 rounded-full border border-border px-1.5 py-0.5 text-[10px] text-text-secondary">
+              {rotuloPerfil(item.tipo_fisico)}
+            </span>
+          )}
+        </span>
         {wppPendente && (
           <span className={wppPareando ? "text-state-info" : "text-state-handoff"}>
             {wppPareando ? "Pareando…" : "WhatsApp pendente"}

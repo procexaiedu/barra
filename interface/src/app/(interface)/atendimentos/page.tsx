@@ -380,12 +380,11 @@ function CentralAtendimentosInner() {
           onCriar={atendimentos.criarAtendimento}
           onCriarCliente={criarCliente}
           onCriado={async (id) => {
-            try {
-              const detalhe = await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`)
-              setModalEdicao(detalhe)
-            } catch {
-              // Falhou: usuário pode abrir manualmente via lista.
-            }
+            // Não abre o modal de edição: o próprio modal de criação já gravou
+            // todos os dados. Só recarrega a lista (agora com os dados salvos) e
+            // seleciona o novo atendimento.
+            await atendimentos.refetch()
+            atendimentos.selectAtendimento(id)
           }}
         />
       )}

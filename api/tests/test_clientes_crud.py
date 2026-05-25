@@ -38,6 +38,7 @@ def _cliente_row(
         "id": cliente_id,
         "nome": nome,
         "telefone": telefone,
+        "perfis_preferidos": [],
         "primeiro_contato_modelo_id": None,
         "arquivado_em": arquivado_em,
         "created_at": datetime.now(UTC),
@@ -139,8 +140,9 @@ class FakeConnListar:
 class FakeConnPatchSucesso:
     """Fake conn para PATCH com nome+telefone bem-sucedido."""
 
-    def __init__(self, cliente_id: UUID) -> None:
+    def __init__(self, cliente_id: UUID, perfis: list[str] | None = None) -> None:
         self.cliente_id = cliente_id
+        self.perfis = perfis or []
         self.executes: list[tuple[str, object]] = []
 
     @asynccontextmanager
@@ -151,12 +153,13 @@ class FakeConnPatchSucesso:
         self.executes.append((query, params))
         if "SELECT id, telefone FROM barravips.clientes" in query:
             return _Result([{"id": self.cliente_id, "telefone": "5521900000000"}])
-        if "SELECT id, nome, telefone, arquivado_em FROM barravips.clientes" in query:
+        if "SELECT id, nome, telefone, perfis_preferidos, arquivado_em FROM barravips.clientes" in query:
             return _Result([
                 {
                     "id": self.cliente_id,
                     "nome": "Novo Nome",
                     "telefone": "5521988887777",
+                    "perfis_preferidos": self.perfis,
                     "arquivado_em": None,
                 }
             ])
@@ -392,6 +395,63 @@ def test_listar_clientes_periodo_aplica_filtro_de_atendimento() -> None:
         select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
         assert "a.cliente_id = c.id" in select_query
         assert "INTERVAL '30 days'" in select_query
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_criar_cliente_com_perfis_preferidos_grava_array() -> None:
+    cliente_id = uuid4()
+    conn = FakeConnCriar(cliente_id, telefone="5521999998888")
+    app.dependency_overrides[get_conn] = _override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                "/v1/crm/clientes",
+                json={"telefone": "5521999998888", "perfis_preferidos": ["ruiva", "loira"]},
+                headers=_token(),
+            )
+        assert response.status_code == 201
+        insert_query, insert_params = next(
+            (q, p) for q, p in conn.executes if "INSERT INTO barravips.clientes" in q
+        )
+        assert "perfis_preferidos" in insert_query
+        assert insert_params[2] == ["ruiva", "loira"]
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_patch_cliente_atualiza_perfis_preferidos() -> None:
+    cliente_id = uuid4()
+    conn = FakeConnPatchSucesso(cliente_id, perfis=["ruiva"])
+    app.dependency_overrides[get_conn] = _override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.patch(
+                f"/v1/crm/clientes/{cliente_id}",
+                json={"perfis_preferidos": ["ruiva"]},
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        assert response.json()["perfis_preferidos"] == ["ruiva"]
+        update_query = next(
+            (q for q, _ in conn.executes if "UPDATE barravips.clientes SET" in q), ""
+        )
+        assert "perfis_preferidos = %s" in update_query
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_listar_clientes_filtra_por_perfis_com_overlap() -> None:
+    conn = FakeConnListar(incluir_arquivado_no_resultado=False)
+    app.dependency_overrides[get_conn] = _override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes?perfis=ruiva&perfis=loira", headers=_token()
+            )
+        assert response.status_code == 200
+        select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
+        assert "c.perfis_preferidos && %s::barravips.perfil_fisico_enum[]" in select_query
     finally:
         app.dependency_overrides.pop(get_conn, None)
 

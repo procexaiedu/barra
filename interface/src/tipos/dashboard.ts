@@ -1,4 +1,4 @@
-import type { EstadoAtendimento, MotivoPerda } from "./atendimentos"
+import type { MotivoPerda } from "./atendimentos"
 
 export type FiltroPeriodo = "hoje" | "7d" | "30d" | "tudo" | "custom"
 
@@ -19,7 +19,7 @@ export interface FiltroAplicado {
   periodo: FiltroPeriodo
   de: string
   ate: string
-  modelo_id: string | null
+  modelo_ids: string[]
 }
 
 export interface JanelaComparacao {
@@ -61,9 +61,20 @@ export interface KpisPeriodo {
   escaladas: { contagem: number; n_referencia?: number }
 }
 
-export interface FunilEstadoLinha {
-  estado: EstadoAtendimento
-  contagem: number
+// Etapas de progressão do funil (Perdido não é etapa — vira saída lateral).
+// O id casa com o param ?estado= aceito por /atendimentos.
+export type EtapaFunilId = "Qualificando" | "Aguardando" | "Em_execucao" | "Fechado"
+
+export interface FunilEtapa {
+  id: EtapaFunilId
+  coorte: number // quantos atendimentos chegaram pelo menos até esta etapa
+  perdas: number // Perdidos cuja etapa de origem é esta (saída lateral)
+}
+
+export interface FunilCoorte {
+  topo: number // total de atendimentos que entraram no período (= coorte de Qualificando)
+  etapas: FunilEtapa[]
+  perdidos_total: number
 }
 
 export interface PerdaPorMotivoLinha {
@@ -117,7 +128,7 @@ export interface DashboardResumo {
   kpis_periodo_anterior: KpisPeriodo | null
   financeiro: FinanceiroBloco
   financeiro_periodo_anterior: FinanceiroBloco | null
-  funil_estados: FunilEstadoLinha[]
+  funil: FunilCoorte
   perdas_por_motivo: PerdaPorMotivoLinha[]
   motivos_escalada: MotivosEscalada
   profissionais: ProfissionalRanking[]
@@ -151,6 +162,6 @@ export interface SerieResposta {
   metrica: SerieMetrica
   unidade: SerieUnidade
   n: number
-  modelo_id: string | null
+  modelo_ids: string[]
   pontos: SerieTemporalPonto[]
 }

@@ -2,10 +2,10 @@
 
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
-from typing import Any, Literal, cast
+from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from psycopg import AsyncConnection
 
 from barra.api.deps import get_conn, get_user
@@ -16,17 +16,6 @@ router = APIRouter(dependencies=[Depends(get_user)])
 
 BRT = timezone(timedelta(hours=-3))
 JANELA_CUSTOM_MAXIMA_DIAS = 90
-
-ESTADOS_CANONICOS: tuple[str, ...] = (
-    "Novo",
-    "Triagem",
-    "Qualificado",
-    "Aguardando_confirmacao",
-    "Confirmado",
-    "Em_execucao",
-    "Fechado",
-    "Perdido",
-)
 
 
 @dataclass(frozen=True)
@@ -45,7 +34,7 @@ async def dashboard(
     periodo: Literal["hoje", "7d", "30d", "tudo", "custom"] = "7d",
     de: date | None = None,
     ate: date | None = None,
-    modelo_id: UUID | None = None,
+    modelo_id: Annotated[list[UUID] | None, Query()] = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     janela = _resolver_janela(periodo, de, ate)
@@ -55,10 +44,10 @@ async def dashboard(
     pix_pendentes = await _pix_pendentes_total(conn, modelo_id)
     kpis_periodo = await _kpis(conn, janela, modelo_id)
     kpis_anterior = await _kpis(conn, janela_anterior, modelo_id) if janela_anterior else None
-    funil = await _funil_estados(conn, janela, modelo_id)
+    funil = await _funil_coorte(conn, janela, modelo_id)
     perdas = await _perdas_por_motivo(conn, janela, modelo_id)
     escalada_top = await _motivos_escalada_top(conn, janela, modelo_id)
-    profissionais = await _profissionais(conn, janela, modelo_id)
+    profissionais = await _profissionais(conn, janela)
 
     agora = datetime.now(BRT)
 
@@ -76,7 +65,7 @@ async def dashboard(
         "financeiro_periodo_anterior": (
             _financeiro_bloco(kpis_anterior) if kpis_anterior else None
         ),
-        "funil_estados": funil,
+        "funil": funil,
         "perdas_por_motivo": perdas,
         "motivos_escalada": escalada_top,
         "profissionais": profissionais,
@@ -102,7 +91,7 @@ async def dashboard_escaladas(
     periodo: Literal["hoje", "7d", "30d", "tudo", "custom"] = "7d",
     de: date | None = None,
     ate: date | None = None,
-    modelo_id: UUID | None = None,
+    modelo_id: Annotated[list[UUID] | None, Query()] = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     """Lista completa de escaladas (para dialog "ver todas")."""
@@ -111,7 +100,7 @@ async def dashboard_escaladas(
     params: list[Any] = [janela.inicio, janela.fim]
     filtro_modelo = ""
     if modelo_id:
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     result = await conn.execute(
@@ -162,7 +151,7 @@ async def dashboard_serie(
     metrica: Literal["conversao", "fechamentos", "perdas", "escaladas", "liquido", "bruto"] = "conversao",
     unidade: Literal["dia", "semana"] = "semana",
     n: int = 12,
-    modelo_id: UUID | None = None,
+    modelo_id: Annotated[list[UUID] | None, Query()] = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     """Série temporal de uma métrica agregada por dia/semana — alimenta sparklines."""
@@ -181,7 +170,7 @@ async def dashboard_serie(
         "metrica": metrica,
         "unidade": unidade,
         "n": n,
-        "modelo_id": str(modelo_id) if modelo_id else None,
+        "modelo_ids": [str(m) for m in modelo_id] if modelo_id else [],
         "pontos": pontos,
     }
 
@@ -236,12 +225,14 @@ def _janela_anterior(janela: Janela) -> Janela | None:
     return _janela_de_datas(de_anterior, ate_anterior)
 
 
-def _filtro_aplicado_dict(periodo: str, janela: Janela, modelo_id: UUID | None) -> dict[str, Any]:
+def _filtro_aplicado_dict(
+    periodo: str, janela: Janela, modelo_ids: list[UUID] | None
+) -> dict[str, Any]:
     return {
         "periodo": periodo,
         "de": janela.de.isoformat(),
         "ate": janela.ate.isoformat(),
-        "modelo_id": str(modelo_id) if modelo_id else None,
+        "modelo_ids": [str(m) for m in modelo_ids] if modelo_ids else [],
     }
 
 
@@ -250,13 +241,13 @@ def _filtro_aplicado_dict(periodo: str, janela: Janela, modelo_id: UUID | None) 
 # -----------------------------------------------------------------------------
 
 
-async def _pix_pendentes_total(conn: AsyncConnection[Any], modelo_id: UUID | None) -> int:
+async def _pix_pendentes_total(conn: AsyncConnection[Any], modelo_id: list[UUID] | None) -> int:
     params: list[Any] = []
     join = ""
     filtro_modelo = ""
     if modelo_id:
         join = "JOIN barravips.atendimentos a ON a.id = p.atendimento_id"
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     result = await conn.execute(
@@ -276,7 +267,7 @@ async def _pix_pendentes_total(conn: AsyncConnection[Any], modelo_id: UUID | Non
 async def _kpis(
     conn: AsyncConnection[Any],
     janela: Janela,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> dict[str, Any]:
     fechamentos = await _fechamentos(conn, janela, modelo_id)
     perdas = await _perdas(conn, janela, modelo_id)
@@ -299,13 +290,13 @@ async def _kpis(
 async def _volume_periodo(
     conn: AsyncConnection[Any],
     janela: Janela,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> int:
     """Total de atendimentos criados na janela — denominador natural para % escalada."""
     params: list[Any] = [janela.inicio, janela.fim]
     filtro_modelo = ""
     if modelo_id:
-        filtro_modelo = "AND modelo_id = %s"
+        filtro_modelo = "AND modelo_id = ANY(%s)"
         params.append(modelo_id)
     result = await conn.execute(
         f"""
@@ -322,12 +313,12 @@ async def _volume_periodo(
 async def _fechamentos(
     conn: AsyncConnection[Any],
     janela: Janela,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> dict[str, Any]:
     params: list[Any] = [janela.inicio, janela.fim]
     filtro_modelo = ""
     if modelo_id:
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     # Fórmula espelhada em barra/dominio/painel/routes.py:198-217
@@ -384,12 +375,12 @@ async def _fechamentos(
 async def _perdas(
     conn: AsyncConnection[Any],
     janela: Janela,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> dict[str, Any]:
     params: list[Any] = [janela.inicio, janela.fim]
     filtro_modelo = ""
     if modelo_id:
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     result = await conn.execute(
@@ -411,14 +402,14 @@ async def _perdas(
 async def _escaladas_contagem(
     conn: AsyncConnection[Any],
     janela: Janela,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> int:
     params: list[Any] = [janela.inicio, janela.fim]
     join = ""
     filtro_modelo = ""
     if modelo_id:
         join = "JOIN barravips.atendimentos a ON a.id = e.atendimento_id"
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     result = await conn.execute(
@@ -434,39 +425,101 @@ async def _escaladas_contagem(
     return int(row["n"]) if row else 0
 
 
-async def _funil_estados(
+async def _funil_coorte(
     conn: AsyncConnection[Any],
     janela: Janela,
-    modelo_id: UUID | None,
-) -> list[dict[str, Any]]:
+    modelo_id: list[UUID] | None,
+) -> dict[str, Any]:
+    """Funil de coorte: por atendimento criado na janela, conta até onde ele progrediu.
+
+    Como a IA não emite ``transicao_estado`` no avanço, o rank máximo atingido é
+    derivado do estado atual (não-Perdido) ou do estado de origem da transição
+    ``→ Perdido`` (Perdido). As duas convenções de payload coexistem no código
+    (``de``/``para`` e ``estado_anterior``/``estado_novo``), por isso o COALESCE.
+
+    Ranks: Qualificando=1, Aguardando=2, Em atendimento=3, Fechado=4. Um Perdido
+    nunca chega a 4 (perdeu antes de fechar); origem ausente cai em Qualificando.
+    ``coorte(K) = nº com rank ≥ K``; ``perda(K) = nº de Perdidos cujo rank = K``.
+    """
     params: list[Any] = [janela.inicio, janela.fim]
     filtro_modelo = ""
     if modelo_id:
-        filtro_modelo = "AND modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     result = await conn.execute(
         f"""
-        SELECT estado::text AS estado, COUNT(*)::int AS contagem
-          FROM barravips.atendimentos
-         WHERE created_at >= %s AND created_at <= %s {filtro_modelo}
-         GROUP BY estado
+        WITH base AS (
+            SELECT a.id, a.estado::text AS estado
+              FROM barravips.atendimentos a
+             WHERE a.created_at >= %s AND a.created_at <= %s {filtro_modelo}
+        ),
+        origem_perda AS (
+            SELECT DISTINCT ON (e.atendimento_id)
+                   e.atendimento_id,
+                   COALESCE(e.payload->>'de', e.payload->>'estado_anterior') AS de_estado
+              FROM barravips.eventos e
+              JOIN base b ON b.id = e.atendimento_id
+             WHERE e.tipo = 'transicao_estado'
+               AND COALESCE(e.payload->>'para', e.payload->>'estado_novo') = 'Perdido'
+             ORDER BY e.atendimento_id, e.created_at DESC
+        ),
+        com_rank AS (
+            SELECT
+                b.estado,
+                CASE
+                    WHEN b.estado = 'Perdido' THEN
+                        CASE op.de_estado
+                            WHEN 'Aguardando_confirmacao' THEN 2
+                            WHEN 'Confirmado' THEN 2
+                            WHEN 'Em_execucao' THEN 3
+                            WHEN 'Fechado' THEN 3
+                            ELSE 1
+                        END
+                    WHEN b.estado IN ('Novo', 'Triagem', 'Qualificado') THEN 1
+                    WHEN b.estado IN ('Aguardando_confirmacao', 'Confirmado') THEN 2
+                    WHEN b.estado = 'Em_execucao' THEN 3
+                    WHEN b.estado = 'Fechado' THEN 4
+                    ELSE 1
+                END AS rank_max
+              FROM base b
+              LEFT JOIN origem_perda op ON op.atendimento_id = b.id
+        )
+        SELECT
+            COUNT(*)::int AS topo,
+            COUNT(*) FILTER (WHERE rank_max >= 2)::int AS coorte_aguardando,
+            COUNT(*) FILTER (WHERE rank_max >= 3)::int AS coorte_execucao,
+            COUNT(*) FILTER (WHERE rank_max >= 4)::int AS coorte_fechado,
+            COUNT(*) FILTER (WHERE estado = 'Perdido' AND rank_max = 1)::int AS perda_qualificando,
+            COUNT(*) FILTER (WHERE estado = 'Perdido' AND rank_max = 2)::int AS perda_aguardando,
+            COUNT(*) FILTER (WHERE estado = 'Perdido' AND rank_max = 3)::int AS perda_execucao
+          FROM com_rank
         """,
         params,
     )
-    contagens = {row["estado"]: int(row["contagem"]) for row in await result.fetchall()}
-    return [{"estado": e, "contagem": contagens.get(e, 0)} for e in ESTADOS_CANONICOS]
+    row = await result.fetchone() or {}
+    topo = int(row.get("topo", 0) or 0)
+    perda_q = int(row.get("perda_qualificando", 0) or 0)
+    perda_a = int(row.get("perda_aguardando", 0) or 0)
+    perda_e = int(row.get("perda_execucao", 0) or 0)
+    etapas = [
+        {"id": "Qualificando", "coorte": topo, "perdas": perda_q},
+        {"id": "Aguardando", "coorte": int(row.get("coorte_aguardando", 0) or 0), "perdas": perda_a},
+        {"id": "Em_execucao", "coorte": int(row.get("coorte_execucao", 0) or 0), "perdas": perda_e},
+        {"id": "Fechado", "coorte": int(row.get("coorte_fechado", 0) or 0), "perdas": 0},
+    ]
+    return {"topo": topo, "etapas": etapas, "perdidos_total": perda_q + perda_a + perda_e}
 
 
 async def _perdas_por_motivo(
     conn: AsyncConnection[Any],
     janela: Janela,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> list[dict[str, Any]]:
     params: list[Any] = [janela.inicio, janela.fim]
     filtro_modelo = ""
     if modelo_id:
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     result = await conn.execute(
@@ -490,7 +543,7 @@ async def _perdas_por_motivo(
 async def _motivos_escalada_top(
     conn: AsyncConnection[Any],
     janela: Janela,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> dict[str, Any]:
     """Agrega escaladas por ``tipo`` (enum) + breakdown por modelo.
 
@@ -501,7 +554,7 @@ async def _motivos_escalada_top(
     params: list[Any] = [janela.inicio, janela.fim]
     filtro_modelo = ""
     if modelo_id:
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     result = await conn.execute(
@@ -566,32 +619,22 @@ async def _motivos_escalada_top(
 async def _profissionais(
     conn: AsyncConnection[Any],
     janela: Janela,
-    modelo_id: UUID | None,
 ) -> list[dict[str, Any]]:
+    # O ranking sempre lista TODAS as modelos; o multi-select do dashboard destaca
+    # as selecionadas no frontend, sem filtrar esta seção. Os placeholders de filtro
+    # ficam vazios para preservar o formato da query (CTEs por janela).
     filtro_modelo_volume = ""
     filtro_modelo_fech = ""
     filtro_modelo_perd = ""
     filtro_modelo_join = ""
-    params: list[Any] = []
-    # volume CTE
-    params.extend([janela.inicio, janela.fim])
-    if modelo_id:
-        filtro_modelo_volume = "AND a.modelo_id = %s"
-        params.append(modelo_id)
-    # fech CTE
-    params.extend([janela.inicio, janela.fim])
-    if modelo_id:
-        filtro_modelo_fech = "AND a.modelo_id = %s"
-        params.append(modelo_id)
-    # perd CTE
-    params.extend([janela.inicio, janela.fim])
-    if modelo_id:
-        filtro_modelo_perd = "AND a.modelo_id = %s"
-        params.append(modelo_id)
-    # SELECT final
-    if modelo_id:
-        filtro_modelo_join = "WHERE m.id = %s"
-        params.append(modelo_id)
+    params: list[Any] = [
+        janela.inicio,
+        janela.fim,  # volume CTE
+        janela.inicio,
+        janela.fim,  # fech CTE
+        janela.inicio,
+        janela.fim,  # perd CTE
+    ]
 
     result = await conn.execute(
         f"""
@@ -677,7 +720,7 @@ async def _serie(
     metrica: str,
     unidade: str,
     n: int,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> list[dict[str, Any]]:
     """Roda a query de série apropriada para a métrica solicitada.
 
@@ -712,7 +755,7 @@ async def _serie_contagem_evento(
     conn: AsyncConnection[Any],
     unidade: str,
     n: int,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
     tipo_evento: str,
 ) -> list[dict[str, Any]]:
     trunc = _trunc(unidade)
@@ -720,7 +763,7 @@ async def _serie_contagem_evento(
     filtro_modelo = ""
     params: list[Any] = [trunc, n - 1, intervalo, trunc, intervalo, trunc, tipo_evento]
     if modelo_id:
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     result = await conn.execute(
@@ -759,14 +802,14 @@ async def _serie_escaladas(
     conn: AsyncConnection[Any],
     unidade: str,
     n: int,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> list[dict[str, Any]]:
     trunc = _trunc(unidade)
     intervalo = _intervalo(unidade)
     filtro_modelo = ""
     base_params: list[Any] = [trunc, n - 1, intervalo, trunc, intervalo, trunc]
     if modelo_id:
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         base_params.append(modelo_id)
 
     result = await conn.execute(
@@ -804,7 +847,7 @@ async def _serie_conversao(
     conn: AsyncConnection[Any],
     unidade: str,
     n: int,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
 ) -> list[dict[str, Any]]:
     """Taxa de conversão por bucket = fechados / (fechados + perdidos) * 100."""
     trunc = _trunc(unidade)
@@ -812,7 +855,7 @@ async def _serie_conversao(
     filtro_modelo = ""
     params: list[Any] = [trunc, n - 1, intervalo, trunc, intervalo, trunc]
     if modelo_id:
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     result = await conn.execute(
@@ -862,7 +905,7 @@ async def _serie_financeiro(
     conn: AsyncConnection[Any],
     unidade: str,
     n: int,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
     componente: str,
 ) -> list[dict[str, Any]]:
     trunc = _trunc(unidade)
@@ -870,7 +913,7 @@ async def _serie_financeiro(
     filtro_modelo = ""
     params: list[Any] = [trunc, n - 1, intervalo, trunc, intervalo, trunc]
     if modelo_id:
-        filtro_modelo = "AND a.modelo_id = %s"
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
         params.append(modelo_id)
 
     if componente == "liquido":
