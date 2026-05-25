@@ -18,11 +18,12 @@ from langchain_core.tools import BaseTool
 
 from .extracao import registrar_extracao
 from .leitura import consultar_agenda
+from .pix import pedir_pix_deslocamento
 
 # Constante de modulo congelada, ordem fixa (invariante de prefixo -- agente/CLAUDE.md):
 # tools = posicao 0, byte-identico p/ TODAS as modelos. Proibido build_tools(modelo) ou
 # subsetting por modelo. M1 registra consultar_agenda (unica de leitura, 04 §2.2); M3 as
 # tools de escrita (registrar_extracao, pedir_pix_deslocamento, enviar_midia, escalar).
 # Ordem canonica de 04 §4: [consultar_agenda, registrar_extracao, pedir_pix_deslocamento,
-# enviar_midia, escalar] — M3e/M3f inserem as demais (o integrador resolve o merge).
-TOOLS: list[BaseTool] = [consultar_agenda, registrar_extracao]
+# enviar_midia, escalar]. enviar_midia nasce no M5e; escalar entra com o M3f.
+TOOLS: list[BaseTool] = [consultar_agenda, registrar_extracao, pedir_pix_deslocamento]
