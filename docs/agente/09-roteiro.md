@@ -24,7 +24,7 @@ Levantado a partir do **código real** em `api/src/barra/`, não do que o doc af
 - `agente/persona.py` (`render_persona` BP1=persona+regras GERAL + `carregar_faq` BP2, ambos `lru_cache` via Jinja; `IdentidadeModelo`/`render_identidade` + `render_programas`/`render_bp3` consumidos no BP3 ✓ [M2-T1]) + `prompts/regras.md.j2` (Jinja no `<desconto>` p/ `desconto_max_pct`, ADR-0004); dep `jinja2` adicionada ✓ [M0-T2]
 - `agente/llm.py` (`build_system_messages` BP1+BP2 + `_bloco_texto`; `cache_control` em content blocks 1.x; emite o 3º bloco BP3 quando `modelo_md` é passado, com guarda de ordenação de TTL) ✓ [M0-T3 + M2-T1]
 - `workers/timeouts.py` (`aplicar_timeout_longo/interno`, `confirmar_em_execucao`) + `workers/settings.py` (`WorkerSettings`, **só crons**, `functions=[]`) ✓.
-- `webhook/routes.py` — token + JID + persistência idempotente + comandos de grupo via `aplicar_comando` ✓. **Mas cria atendimento eager** (`garantir_atendimento_aberto`) — `06 §0.1` manda virar webhook fino (`atendimento_id=NULL`).
+- `webhook/routes.py` — token + JID + persistência idempotente + comandos de grupo via `aplicar_comando` ✓; **webhook fino** (persiste `atendimento_id=NULL` + `enfileirar_turno`; `garantir_conversa` faz upsert da conversa sem criar atendimento) ✓ [M3c].
 - `dominio/escaladas/service.py` — `aplicar_comando:25`, `_atualizar_pix:248` (já não trava o fluxo, `07 §5`), `abrir_handoff:315` ✓.
 - `dominio/atendimentos/service.py:23` — `garantir_atendimento_aberto` ✓.
 - Migrations presentes: `comprovantes_pix.card_message_id` (`20260523220842_comprovante_pix_card.sql`), `reengajado_em` (`20260523231500_reengajamento.sql`), `modelo_midia` (com `tag/tipo/aprovada/bucket/object_key`, `0001:375`), `atendimentos` (`ia_pausada/aviso_saida_em/foto_portaria_em/pix_status`, `0001:432`).
@@ -33,16 +33,16 @@ Levantado a partir do **código real** em `api/src/barra/`, não do que o doc af
 
 ### 1.2 Placeholder / docstring-only (a implementar)
 - `agente/nos/tools.py` → `ToolNode(TOOLS)` (loop ReAct ativo, executa tool_calls) ✓ [M1-T2]. `prepare_context` (gate `ia_pausada` → `Command(goto=END)`; BP1+BP2 + sliding window 20 traduzida; caminho normal → `intercept_disclosure` por Command, sem aresta estática) ✓ [M0-T4] + contexto dinâmico (`_anexar_contexto_dinamico`) no último HumanMessage ✓ [M1-T2]; `intercept_disclosure` (passthrough `Command(goto="llm")`), `llm` (factory `no_llm`, `Command` routing, check `stop_reason`) e `post_process` (refetch `ia_pausada`, zera texto se pausou) já reais ✓ [M0-T5].
-- `core/redis.py` (lock/dedupe), `webhook/{despacho,debounce,filtro}.py`, `workers/pix.py` → só docstring.
+- `core/redis.py` (`adquirir_lock`/`LockBusy`, heartbeat, release Lua) ✓ [M3b]; `webhook/{despacho,debounce}.py` (`enfileirar_turno` + helpers) ✓ [M3c]; `webhook/filtro.py` → docstring; `workers/pix.py` → docstring (M5c).
 - `workers/envio.py` → só `enviar_texto_job` (sem `enviar_turno`/`enviar_card`); `workers/media.py` → só `limpar_midias_vencidas` (sem `transcrever_audio`/`rotear_imagem`).
 - `agente/classificador.py` → docstring (classificador interno/externo **P1**, não confundir com `_classificador.py` do disclosure).
 
 ### 1.3 Não existe (a criar)
-- `agente/_classificador.py` (regex disclosure/jailbreak), `workers/coordenador.py` (`processar_turno`), `workers/_chunking.py`.
-- `dominio/atendimentos/service.py:registrar_extracao_ia` (transição + bloqueio + guarda do piso).
-- Tools: `ferramentas/__init__.py` exporta `TOOLS = [consultar_agenda]` ✓ [M1-T1]; `leitura.py` (`consultar_agenda`, query `bloqueios` + limite 14d) ✓ [M1-T1]; faltam `extracao.py`, `pix.py`, `midia.py`, `escalada.py`, `_idempotencia.py`.
+- `agente/_classificador.py` (regex disclosure/jailbreak) ✓ [M3g]; `workers/coordenador.py` (`processar_turno`) ✓ [M3b]; `workers/_chunking.py` (M4a).
+- `dominio/atendimentos/service.py:registrar_extracao_ia` (transição + bloqueio + guarda do piso) ✓ [M3d]; `dominio/agenda/service.py:criar_bloqueio_previo` (advisory lock + EXCLUDE → `ConflitoAgenda`) ✓ [M3d/M3e].
+- Tools: `TOOLS = [consultar_agenda, registrar_extracao, pedir_pix_deslocamento, escalar]` (ordem canônica `04 §4`; `enviar_midia` entra no M5e); `leitura.py` ✓ [M1-T1], `_idempotencia.py` ✓ [M3a], `extracao.py` ✓ [M3d], `pix.py` ✓ [M3e], `escalada.py` ✓ [M3f]; falta `midia.py` (M5e).
 - Templates: `prompts/` tem `persona.md`/`faq.md` **planos** + `regras.md.j2` (Jinja p/ `desconto_max_pct` ✓ [M0-T2]) + `contexto_dinamico.md.j2` ✓ [M1-T2] + `identidade.md.j2` + `programas.md.j2` (BP3 por-modelo) ✓ [M2-T1].
-- Migrations: **`tool_calls`** (`04 §5`), **`disclosure_tentativas`** (`10 §3.1`), **`modelo_midia.ultimo_envio_em`** (`04 §3.3`) — todas via **nome timestamp** (`§6`).
+- Migrations: **`tool_calls`** ✓ [M3a], **`disclosure_tentativas`** ✓ [M3g], **`atendimento.intencao`** (enum + coluna) ✓ [M3d]; falta **`modelo_midia.ultimo_envio_em`** (`04 §3.3`, M5e) — todas via **nome timestamp** (`§6`).
 - Dependência **`openai`** (Whisper STT + cliente OpenRouter-compat, M5) — ausente no `pyproject`.
 - Zero testes de agente/grafo/coordenador. Runners de eval ausentes (só READMEs "TODO").
 
@@ -262,61 +262,70 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 
 ### M3 — Coordenador + escrita + disclosure
 
-#### M3a — Migration `tool_calls` + helper de idempotência
+#### M3a — Migration `tool_calls` + helper de idempotência — ✅ FEITO (2026-05-25)
 - **Objetivo:** migration timestamp criando `barravips.tool_calls` (PK `(turno_id, tool_name, call_idx)`, `04 §5`, RLS+grants). `ferramentas/_idempotencia.py:_executar_idempotente` (`04 §3`).
 - **Carregar:** `04 §5`, `02 §8.2`, `§4.8`; `infra/sql/CLAUDE.md`.
 - **Tocar:** `infra/sql/<ts>_tool_calls.sql`, `ferramentas/_idempotencia.py` (criar).
 - **Aceite:** `make migrate` aplica 2× sem erro; `uv run pytest tests/integracao/test_tools_idempotencia.py::test_helper` (2ª chamada retorna resultado anterior, executor roda 1×).
 - **Depende de:** M0.
 - **Paralelizável com:** M3b, M3g.
+- **Nota (feito 2026-05-25):** migration `20260525170706_tool_calls.sql` (PK `(turno_id,tool_name,call_idx)` + RLS + grants). `_executar_idempotente` grava `payload`/`resultado` como `%s::jsonb` com `json.dumps` (psycopg3 não adapta dict cru — memória `jsonb_param_psycopg`). Integrado na `main`.
 
-#### M3b — `workers/coordenador.py` + `core/redis.py` (lock) + build_graph no worker
+#### M3b — `workers/coordenador.py` + `core/redis.py` (lock) + build_graph no worker — ✅ FEITO (2026-05-25)
 - **Objetivo:** `processar_turno` (`07 §3`): lock `adquirir_lock`/`LockBusy` (`core/redis.py`, heartbeat, release Lua), `resolver_atendimento`+`atualizar_orfaos`, gates, `turno_id=uuid5(NS_TURNO,f"{job_id}:{loop_idx}")`, drain bounded `MAX_DRAIN=5`, `asyncio.wait_for(graph,60)`, `GraphRecursionError`/timeout → `escalar_por_exaustao`, cinto-suspensório, extrair resposta + métricas tokens. `WorkerSettings.startup` constrói `ctx["graph"]=build_graph()` (+ `WindowsSelectorEventLoopPolicy`, `§4.10`); `processar_turno` com `keep_result=0` (`§4.9`). `escalar_por_exaustao` usa o mapping do M3f.
 - **Carregar:** `07 §2`, `07 §3`, `01 §4.3`, `02 §7`, `§4.6`/`§4.7`/`§4.9`/`§4.10`; `workers/settings.py`, `core/redis.py`, `dominio/{atendimentos,escaladas}/service.py`.
 - **Tocar:** `workers/coordenador.py` (criar), `core/redis.py`, `workers/settings.py`.
 - **Aceite:** `uv run pytest tests/integracao/test_coordenador_basico.py` (LLM mockado, Redis efêmero, Postgres): turno resolve atendimento, invoca grafo, despacha; `test_drain_excede_max` afirma re-enqueue ao estourar `MAX_DRAIN` (`§4.9`).
 - **Depende de:** M0.
 - **Paralelizável com:** M3a, M3g.
+- **Nota (feito 2026-05-25):** `processar_turno` shipado com lock/heartbeat, drain bounded e cinto-suspensório; `keep_result=0` + `WindowsSelectorEventLoopPolicy` no startup do worker. `escalar_por_exaustao` nasceu com mapping local hardcode (`tipo=outro`/Fernando) + `TODO(M3f)` — **substituído pelo `mapear_motivo` no M3f**. Integrado na `main`.
 
-#### M3c — Webhook fino + `despacho.py` + `debounce.py`
+#### M3c — Webhook fino + `despacho.py` + `debounce.py` — ✅ FEITO (2026-05-25)
 - **Objetivo:** remover criação eager (`garantir_atendimento_aberto`) do path de mensagem do cliente — persistir com `atendimento_id=NULL` (`06 §0.1`). `despacho.enfileirar_turno` (`pending`+`debounce`+`enqueue_job` first-wins, `01 §4.2`). `debounce.py` helpers. Roteamento de áudio/imagem (`enqueue transcrever_audio`/`rotear_imagem`) fica como stub a completar no M5 (deixar os branches com TODO(M5)).
 - **Carregar:** `01 §4.1`, `01 §4.2`, `06 §0.1`, `06 §6`; `webhook/{routes,despacho,debounce}.py`.
 - **Tocar:** `webhook/routes.py`, `webhook/despacho.py`, `webhook/debounce.py`.
 - **Aceite:** `uv run pytest tests/test_webhook_integration.py` (atualizado): mensagem texto persiste com `atendimento_id=NULL` e enfileira `processar_turno` (mock ARQ); comandos de grupo seguem funcionando.
 - **Depende de:** M3b.
 - **Paralelizável com:** M3d, M3e, M3f, M3g.
+- **Nota (feito 2026-05-25):** webhook fino; extraído `garantir_conversa` (upsert da conversa sem criar atendimento) de `garantir_atendimento_aberto`. `main.py` cria o pool ARQ no lifespan (`app.state.arq`, guardado p/ `redis_url` vazio em dev/teste). A object_key da mídia passou a `conversas/{conversa_id}/...` (não há mais `atendimento.id` no path). Branches de áudio/imagem com `# TODO(M5)`. Teste fake (mock ARQ em `app.state.arq`), não `needs_db`. Integrado na `main`.
 
-#### M3d — `registrar_extracao` + `registrar_extracao_ia` (domínio) + guarda do piso
+#### M3d — `registrar_extracao` + `registrar_extracao_ia` (domínio) + guarda do piso — ✅ FEITO (2026-05-25)
 - **Objetivo:** tool `registrar_extracao` (wrapper ~10 linhas, `04 §3.1`) delegando a `dominio/atendimentos/service.py:registrar_extracao_ia` (UPSERT COALESCE + `limpar` + `_decidir_transicao` + bloqueio prévio interno + flag `enviar_pin`). **Guarda do piso** (ADR-0004): `valor_acordado` abaixo de `preco_tabela×(1−desconto_max_pct)` não grava e escala `fora_de_oferta`. Pin via `enqueue_job("enviar_card", tipo="loc_pin")` após commit.
 - **Carregar:** `04 §3.1`, `02 §11`, ADR-0004, `01 §6.11`; `dominio/atendimentos/service.py`, `dominio/agenda/service.py`, `ferramentas/_idempotencia.py`.
 - **Tocar:** `ferramentas/extracao.py` (criar), `dominio/atendimentos/service.py`, `ferramentas/__init__.py`.
 - **Aceite:** `uv run pytest tests/integracao/test_registrar_extracao.py` — Novo→Triagem em extração; interno+horário→Aguardando_confirmacao+bloqueio; `valor_acordado` abaixo do piso escala (`fora_de_oferta`) e não grava.
 - **Depende de:** M3a.
 - **Paralelizável com:** M3c, M3e, M3f, M3g.
+- **Nota (feito 2026-05-25):** `registrar_extracao_ia` + helpers em `dominio/atendimentos/service.py`. **Migration nova `20260525192240_atendimento_intencao.sql`** (enum + coluna `atendimentos.intencao`) — `intencao` precisa ser persistida porque governa transições de turnos seguintes (`Novo→Triagem`, `Triagem→Qualificado`). `motivo_perda_candidato` do `04 §3.1` **não tem coluna** (só vai no evento `extracao_registrada`). Guarda do piso usa o **MENOR** preço de tabela na duração (`duracoes.horas`) como base (ADR-0004 §Decisão 5, minimiza falso-positivo). `criar_bloqueio_previo` em `dominio/agenda/service.py` (compartilhado com M3e). Escala via `abrir_handoff` direto com mapping LOCAL `_escalar_modelo` + `TODO(M3f)` (ver follow-up no fim de M3). Integrado na `main`.
 
-#### M3e — `pedir_pix_deslocamento` + bloqueio prévio externo
+#### M3e — `pedir_pix_deslocamento` + bloqueio prévio externo — ✅ FEITO (2026-05-25)
 - **Objetivo:** tool `pedir_pix_deslocamento()` (sem args, `04 §3.2`): lê chave/titular do modelo, UPSERT idempotente, `pix_status=aguardando`+`Aguardando_confirmacao`, `_criar_bloqueio_previo` (advisory lock + EXCLUDE, branch 13), retorno-guia (chave anexada pela humanização, não pelo LLM). `ConflitoAgenda`→erro recuperável.
 - **Carregar:** `04 §3.2`, `01 §6.1`, `02 §11`; `dominio/agenda/service.py`, `ferramentas/_idempotencia.py`.
 - **Tocar:** `ferramentas/pix.py` (criar), `ferramentas/__init__.py` (+ `dominio/agenda` se faltar `_criar_bloqueio_previo`).
 - **Aceite:** `uv run pytest tests/integracao/test_pedir_pix.py` — externo qualificado → `Aguardando_confirmacao`+`pix_status=aguardando`+bloqueio criado; 2ª chamada idempotente; chave **não** no retorno da tool.
 - **Depende de:** M3a.
 - **Paralelizável com:** M3c, M3d, M3f, M3g.
+- **Nota (feito 2026-05-25):** `pedir_pix_deslocamento` + `_aplicar_pedido_pix` (guard `WHERE pix_status='nao_solicitado'`), valor fixo R$100, chave Pix **fora** do retorno da tool (anexada pela humanização). `dominio/agenda/service.py` (`ConflitoAgenda` + `criar_bloqueio_previo`, advisory lock + EXCLUDE → `ConflitoAgenda` recuperável) foi criado em paralelo por M3d e M3e; o merge **deduplicou mantendo a versão M3d** (mais defensiva: `.get(data_desejada) or hoje BRT`). Integrado na `main`.
 
-#### M3f — `escalar` + mapping `motivo→(tipo,responsavel)`
+#### M3f — `escalar` + mapping `motivo→(tipo,responsavel)` — ✅ FEITO (2026-05-25)
 - **Objetivo:** tool `escalar(payload)` (`04 §3.4`) idempotente; **mapping** em `dominio/escaladas/service.py` (`motivo`→`TipoEscalada`+`responsavel`, `§4.3`) chamando a `abrir_handoff` existente; card via `enqueue_job("enviar_card", tipo="escalada")`. `escalar_por_exaustao` (usado por M3b) usa o mesmo mapping. Métrica `agente_escalada_total{bucket,motivo}` (`08 §3.2`).
 - **Carregar:** `04 §3.4`, `04 §3.5`, `04 §3.6`, `08 §3.2`, `§4.3`; `dominio/escaladas/{service,modelos}.py`, `infra/sql/0039_escalada_tipo_enum.sql`.
 - **Tocar:** `ferramentas/escalada.py` (criar), `dominio/escaladas/service.py`, `ferramentas/__init__.py`, `core/metrics.py`.
 - **Aceite:** `uv run pytest tests/integracao/test_handoff_via_escalar.py` — `escalar(disclosure_insistente)`→`ia_pausada=true`+responsavel Fernando; `fora_de_oferta`→modelo; `outro`→Fernando; coordenador descarta texto pós-escala.
 - **Depende de:** M3a.
 - **Paralelizável com:** M3c, M3d, M3e, M3g.
+- **Nota (feito 2026-05-25):** `escalar` + `mapear_motivo`/`mapear_bucket` em `dominio/escaladas/service.py`; refatorou `coordenador.py:escalar_por_exaustao` p/ usar `mapear_motivo`. `abrir_handoff` real **não tem `motivo=`** (o pseudocódigo de `04 §3.1/§3.4` estava desatualizado; `§4.3` é o árbitro): o mapping converte `motivo→(tipo,responsavel)` e o motivo literal vai em `observacao`. `AGENTE_ESCALADA` **já existia** em `core/metrics.py` (instrumentada, não recriada) e é emitida na **camada do agente** (tool + `escalar_por_exaustao`), NÃO dentro de `abrir_handoff` — divergência consciente do `04 §3.6` (ela é compartilhada com painel/comandos, que não têm o enum de motivos). Integrado na `main`.
 
-#### M3g — `intercept_disclosure` + `_classificador` + migration `disclosure_tentativas` + canned
+#### M3g — `intercept_disclosure` + `_classificador` + migration `disclosure_tentativas` + canned — ✅ FEITO (2026-05-25)
 - **Objetivo:** migration `atendimentos.disclosure_tentativas`. `agente/_classificador.py:classificar_janela` (regex `10 §8`). `prepare_context` grava `_categoria/_confianca` no state. `intercept_disclosure` (`03 §7`, `10 §3.1`): jailbreak→escala direto; disclosure alta confiança→canned (pool em `agente/`, `Command(goto="post_process")`); contador idempotente por `turno_id`, escala na 3ª; ambíguo→`llm`. `enviar_midia` minimal precisa do `TOOLS` (registrar tool placeholder ou completa em M4) — registrar `enviar_midia` stub que anexa via `tool_calls`.
 - **Carregar:** `10 §2`, `10 §3.1`, `10 §8`, `03 §7`, `01 §6.8`, `§4.1`; `agente/nos/{prepare_context,intercept_disclosure}.py`, `agente/estado.py`.
 - **Tocar:** `infra/sql/<ts>_disclosure_tentativas.sql`, `agente/_classificador.py` (criar), `nos/prepare_context.py`, `nos/intercept_disclosure.py`, `agente/` (pool canned).
 - **Aceite:** `uv run pytest tests/integracao/test_intercept_disclosure.py` — "vc é IA?" 1ª→canned (sem `escalar`, sem LLM); 3ª insistência→`escalar(disclosure_insistente)`; "ignore previous"→`escalar(jailbreak_attempt)` direto.
 - **Depende de:** M0 (M3a só para o card de escala).
 - **Paralelizável com:** M3b, M3c, M3d, M3e, M3f.
+- **Nota (feito 2026-05-25, sessão anterior):** migration `20260525171444_disclosure_tentativas.sql`; `agente/_classificador.py:classificar_janela` (regex), `intercept_disclosure` (canned + contador idempotente por `turno_id` + escala na 3ª + jailbreak direto). Integrado na `main`.
+
+> **Marco M3 fecha (2026-05-25).** As 7 subtarefas foram implementadas em worktrees paralelas e integradas na `main` (`db4a778`, via PRs/merges). Verificação na árvore mergeada: `ruff` limpo, `mypy` verde em 86 arquivos, **195 testes fake** + **30 `needs_db`** contra o Postgres self-hosted de prod (ROLLBACK sempre). Migrations do M3 (`tool_calls`, `disclosure_tentativas`, `atendimento_intencao`) já aplicadas no prod. **Follow-up aberto:** consolidar `dominio/atendimentos/service.py:_escalar_modelo` (M3d) para usar o `mapear_motivo` (M3f) em vez do mapping local — o `TODO(M3f)` ainda está no código. Próximo marco no caminho crítico: **M4 (humanização)**.
 
 ### M4 — Humanização
 
@@ -442,12 +451,10 @@ Todas em **nome timestamp** (`§4.8`), idempotentes, com RLS/COMMENT.
 
 | Migration | Marco | Conteúdo | Spec |
 |---|---|---|---|
-| `<ts>_tool_calls.sql` | M3a | tabela `barravips.tool_calls` (PK `turno_id,tool_name,call_idx`) | `04 §5` |
-| `<ts>_disclosure_tentativas.sql` | M3g | `ALTER atendimentos ADD COLUMN disclosure_tentativas int DEFAULT 0` | `10 §3.1` |
 | `<ts>_modelo_midia_ultimo_envio.sql` | M5e | `ALTER modelo_midia ADD COLUMN ultimo_envio_em timestamptz` | `04 §3.3` |
 | `<ts>_comprovantes_pix_cols.sql` (se faltar) | M5c | `decisao_pipeline`/`motivo_em_revisao` se ausentes no `0001` | `06 §2.2` |
 
-Já aplicadas (não recriar): `comprovantes_pix.card_message_id` (`20260523220842`), `reengajado_em` (`20260523231500`).
+Já aplicadas (não recriar): `comprovantes_pix.card_message_id` (`20260523220842`), `reengajado_em` (`20260523231500`), `tool_calls` (`20260525170706`, M3a), `disclosure_tentativas` (`20260525171444`, M3g), `duracoes.horas` (`20260525181816`), `atendimento.intencao` (`20260525192240`, M3d) — todas aplicadas no prod self-hosted.
 
 ## 7. Definição de "pronto-pra-piloto" (gate `08 §4`)
 
