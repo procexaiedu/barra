@@ -253,7 +253,12 @@ async def _atualizar_pix(
     payload: dict[str, Any],
 ) -> ResultadoComando:
     decisao = payload.get("decisao")
+    # Pix nunca trava (01 §6.1, 07 §5): validado E em_revisao avancam o atendimento para
+    # Confirmado + ia_pausada (modelo_em_atendimento) — a mesma transicao do handoff de saida.
+    # A duvidez de em_revisao e informativa: vai no card a modelo (sinaliza) e numa fila de
+    # revisao de Fernando no painel (comprovantes_pix.decisao_final), sem pausar esperando ele.
     if decisao == "validado":
+        # Guard defensivo: Pix de deslocamento so existe no fluxo externo.
         estado = "Confirmado" if atendimento["tipo_atendimento"] == "externo" else atendimento["estado"]
         await conn.execute(
             """
@@ -271,17 +276,35 @@ async def _atualizar_pix(
         await _evento(conn, atendimento["id"], "pix_status_mudado", origem, autor, payload)
         return ResultadoComando(atendimento["id"], estado, "validado")
 
-    if decisao == "invalido":
+    if decisao == "em_revisao":
+        estado = "Confirmado" if atendimento["tipo_atendimento"] == "externo" else atendimento["estado"]
         await conn.execute(
             """
             UPDATE barravips.atendimentos
-               SET pix_status = 'invalido',
-                   ia_pausada = false,
-                   ia_pausada_motivo = NULL,
+               SET pix_status = 'em_revisao',
+                   estado = %s,
+                   ia_pausada = true,
+                   ia_pausada_motivo = 'modelo_em_atendimento',
+                   responsavel_atual = 'modelo',
                    fonte_decisao_ultima_transicao = %s
              WHERE id = %s
             """,
-            (_fonte(origem), atendimento["id"]),
+            (estado, _fonte(origem), atendimento["id"]),
+        )
+        await _evento(conn, atendimento["id"], "pix_status_mudado", origem, autor, payload)
+        return ResultadoComando(atendimento["id"], estado, "em_revisao")
+
+    if decisao == "invalido":
+        # Veredito assincrono de Fernando no painel (/rejeitar). A modelo ja agiu sobre o card
+        # de em_revisao, entao 'invalido' e so registro financeiro/auditoria: NAO reverte estado
+        # nem despausa a IA (decisao grilling 2026-05-23). decisao_final ja foi gravado na rota.
+        await conn.execute(
+            """
+            UPDATE barravips.atendimentos
+               SET pix_status = 'invalido'
+             WHERE id = %s
+            """,
+            (atendimento["id"],),
         )
         await _evento(conn, atendimento["id"], "pix_status_mudado", origem, autor, payload)
         return ResultadoComando(atendimento["id"], atendimento["estado"], "invalido")

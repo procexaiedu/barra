@@ -1,19 +1,20 @@
 """Nos do grafo LangGraph do agente Barra Vips.
 
-Cada no e uma funcao async que recebe (state, config) e retorna dict parcial do state.
+Cada no e uma funcao async que recebe (state, runtime: Runtime[ContextAgente]) e retorna
+dict parcial do state. Deps de runtime/ids de escopo vem de `runtime.context` (01 §2.3).
 Skeleton M0: nos retornam {} (no-op). Implementacao real entra em M1+.
 """
 
-from .gate_pausa import gate_pausa
-from .llm import llm
+from .intercept_disclosure import intercept_disclosure
+from .llm import no_llm
 from .post_process import post_process
 from .prepare_context import prepare_context
 from .tools import tools_node
 
 __all__ = [
-    "prepare_context",
-    "gate_pausa",
-    "llm",
-    "tools_node",
+    "intercept_disclosure",
+    "no_llm",
     "post_process",
+    "prepare_context",
+    "tools_node",
 ]

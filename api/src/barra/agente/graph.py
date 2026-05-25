@@ -1,51 +1,68 @@
-"""build_graph() compoe os nos em StateGraph + AsyncPostgresSaver.
+"""build_graph() compoe os nos em StateGraph (sem checkpointer no P0).
 
-Skeleton M0: grafo compila com 5 nos placeholder, fluxo linear
-prepare_context -> gate_pausa -> llm -> tools -> post_process -> END.
+Grafo de 5 nos; o no llm e real (chama Sonnet 4.6) e o roteamento e por Command(goto=...) --
+nao por arestas condicionais nem flags de state (09 §4.1). Wiring:
+    START -(estatica)-> prepare_context -(Command)-> intercept_disclosure | END
+          intercept_disclosure -(Command)-> llm -(Command)-> tools | post_process
+          tools -(estatica)-> llm   (loop ReAct)   post_process -> END
+O loop ReAct esta ATIVO a partir do M1: o llm roteia p/ "tools" (Command) quando ha tool_calls,
+o ToolNode executa as tools de TOOLS e devolve ao llm pela aresta "tools" -> "llm"; o teto e o
+`recursion_limit` (config de invocacao, nao constante aqui -- 03 §8, 09 §4.7).
 
-Padrao alvo (entra em M2+):
-    pool = AsyncConnectionPool(DATABASE_URL, kwargs={"autocommit": True, "row_factory": dict_row})
-    checkpointer = AsyncPostgresSaver(pool)
-    await checkpointer.setup()
-    graph = build_graph(checkpointer=checkpointer, settings=settings)
+Decisao 01 §6.7 (grilling 2026-05-22): SEM checkpointer no P0. O grafo compila com
+`builder.compile()` (checkpointer=None); o prompt e montado do zero a cada turno a partir
+de `mensagens` (sliding window), nao de checkpoint. O parametro `checkpointer` segue
+opcional so para reintroducao futura (P1, se vier interrupt/time-travel) -- nao usar no P0.
 
 Handoff: nao usa interrupt(); ia_pausada=true em dominio/atendimentos e early exit no
-gate_pausa. Devolucao via Devolucao para IA (comando explicito, ver CONTEXT.md).
+prepare_context (Command(goto=END), 02 §1). Devolucao via Devolucao para IA (comando
+explicito, ver CONTEXT.md).
 """
 
 from typing import Any
 
 from langgraph.graph import END, START, StateGraph
 
+from barra.core.llm import criar_chat_anthropic
+from barra.settings import Settings, get_settings
+
+from .contexto import ContextAgente
 from .estado import EstadoAgente
-from .nos import gate_pausa, llm, post_process, prepare_context, tools_node
+from .ferramentas import TOOLS
+from .nos import intercept_disclosure, no_llm, post_process, prepare_context, tools_node
 
 
-def build_graph(checkpointer: Any | None = None) -> Any:
+def build_graph(settings: Settings | None = None, checkpointer: Any | None = None) -> Any:
     """Constroi o StateGraph do agente.
 
     Args:
-        checkpointer: AsyncPostgresSaver ja inicializado (via lifespan do FastAPI).
-            Skeleton M0 aceita None para testes locais sem Postgres.
+        settings: configuracao da app. None -> get_settings() (09 §4.5). Usada para construir
+            o ChatAnthropic (criar_chat_anthropic) injetado no no llm via factory no_llm.
+        checkpointer: AsyncPostgresSaver. None no P0 (01 §6.7); reservado p/ P1.
 
     Returns:
-        Grafo compilado, pronto para `await graph.ainvoke(state, config)`.
+        Grafo compilado, pronto para `await graph.ainvoke(state, context=ContextAgente(...))`.
     """
-    builder = StateGraph(EstadoAgente)
+    if settings is None:
+        settings = get_settings()
+    chat = criar_chat_anthropic(settings)
+
+    # context_schema: deps de runtime + ids de escopo via Runtime Context API (04 §1.1).
+    # Nao usar config["configurable"] p/ pool/redis (legado; quebra ao ligar checkpointer).
+    builder = StateGraph(EstadoAgente, context_schema=ContextAgente)
 
     builder.add_node("prepare_context", prepare_context)
-    builder.add_node("gate_pausa", gate_pausa)
-    builder.add_node("llm", llm)
+    builder.add_node("intercept_disclosure", intercept_disclosure)
+    builder.add_node("llm", no_llm(chat, TOOLS))
     builder.add_node("tools", tools_node)
     builder.add_node("post_process", post_process)
 
-    # Skeleton M0: fluxo linear. Em M1+ adicionar arestas condicionais
-    # (tools <-> llm loop ate o LLM nao pedir mais tool_call).
     builder.add_edge(START, "prepare_context")
-    builder.add_edge("prepare_context", "gate_pausa")
-    builder.add_edge("gate_pausa", "llm")
-    builder.add_edge("llm", "tools")
-    builder.add_edge("tools", "post_process")
+    # prepare_context, intercept_disclosure e llm roteiam SO por Command(goto=...) -- sem aresta
+    # estatica de saida. Uma aresta estatica em prepare_context faria fan-out com o Command(goto=END)
+    # da pausa (o turno chamaria o llm mesmo pausado), por isso o caminho normal tambem e Command
+    # (goto="intercept_disclosure"). Ver nos/prepare_context.py (M0-T4).
+    builder.add_edge("tools", "llm")  # loop ReAct: ToolNode executou as tool_calls -> volta ao llm
     builder.add_edge("post_process", END)
 
     return builder.compile(checkpointer=checkpointer)

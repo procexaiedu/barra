@@ -12,7 +12,7 @@ async def aplicar_timeout_longo(conn: AsyncConnection[Any]) -> int:
         result = await conn.execute(
             """
             WITH alvo AS (
-              SELECT a.id
+              SELECT a.id, a.bloqueio_id, a.estado AS estado_anterior
                 FROM barravips.atendimentos a
                 LEFT JOIN LATERAL (
                   SELECT max(created_at) AS ultima_cliente
@@ -31,7 +31,22 @@ async def aplicar_timeout_longo(conn: AsyncConnection[Any]) -> int:
                      fonte_decisao_ultima_transicao = 'auto_timeout'
                 FROM alvo
                WHERE a.id = alvo.id
-              RETURNING a.id
+              RETURNING a.id, alvo.estado_anterior
+            ),
+            cancel_bloqueio AS (
+              UPDATE barravips.bloqueios b
+                 SET estado = 'cancelado'
+                FROM alvo
+               WHERE b.id = alvo.bloqueio_id
+                 AND b.estado NOT IN ('em_atendimento', 'concluido')
+              RETURNING b.id
+            ),
+            evt_transicao AS (
+              INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
+              SELECT id, 'transicao_estado', 'cron', 'sistema',
+                     jsonb_build_object('de', estado_anterior, 'para', 'Perdido', 'fonte', 'auto_timeout')
+                FROM upd
+              RETURNING id
             )
             INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
             SELECT id, 'perdido_registrado', 'cron', 'sistema', '{"fonte":"auto_timeout"}'::jsonb
@@ -49,13 +64,13 @@ async def aplicar_timeout_interno(conn: AsyncConnection[Any]) -> int:
         result = await conn.execute(
             """
             WITH alvo AS (
-              SELECT id
+              SELECT id, bloqueio_id, estado AS estado_anterior
                 FROM barravips.atendimentos
                WHERE tipo_atendimento = 'interno'
                  AND estado = 'Aguardando_confirmacao'
                  AND aviso_saida_em IS NOT NULL
                  AND foto_portaria_em IS NULL
-                 AND aviso_saida_em < now() - interval '30 minutes'
+                 AND aviso_saida_em < now() - interval '45 minutes'
                FOR UPDATE SKIP LOCKED
             ),
             upd AS (
@@ -65,7 +80,22 @@ async def aplicar_timeout_interno(conn: AsyncConnection[Any]) -> int:
                      fonte_decisao_ultima_transicao = 'auto_timeout_interno'
                 FROM alvo
                WHERE a.id = alvo.id
-              RETURNING a.id
+              RETURNING a.id, alvo.estado_anterior
+            ),
+            cancel_bloqueio AS (
+              UPDATE barravips.bloqueios b
+                 SET estado = 'cancelado'
+                FROM alvo
+               WHERE b.id = alvo.bloqueio_id
+                 AND b.estado NOT IN ('em_atendimento', 'concluido')
+              RETURNING b.id
+            ),
+            evt_transicao AS (
+              INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
+              SELECT id, 'transicao_estado', 'cron', 'sistema',
+                     jsonb_build_object('de', estado_anterior, 'para', 'Perdido', 'fonte', 'auto_timeout_interno')
+                FROM upd
+              RETURNING id
             )
             INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
             SELECT id, 'perdido_registrado', 'cron', 'sistema', '{"fonte":"auto_timeout_interno"}'::jsonb

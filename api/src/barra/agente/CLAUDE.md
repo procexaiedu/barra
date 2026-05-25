@@ -6,21 +6,30 @@ Escopo: subsistema LangGraph que conduz a IA por modelo.
 
 `agente/` PODE importar `from barra.dominio.<x>.service import …`. `dominio/` **nunca** importa de `agente/`. Quebrar isso é bug arquitetural — corrija antes de seguir, não contorne com import tardio.
 
-## Prompts são markdown, não código
+## Prompts são markdown, com Jinja onde há variável
 
-`prompts/persona.md`, `prompts/faq.md` e `prompts/regras.md` são a fonte de verdade. Para mudar tom, FAQ ou regra de negócio do agente, edite o markdown — não cole string nova em `graph.py`, `classificador.py` nem em nenhum nó. Strings de prompt hardcoded no código são bug.
+`prompts/persona.md`, `prompts/faq.md` e `prompts/regras.md.j2` são a fonte de verdade. Os planos (`persona.md`, `faq.md`) são markdown puro; os que interpolam variável usam Jinja com sufixo `.md.j2` (ex.: `regras.md.j2` interpola `desconto_max_pct` no bloco `<desconto>` — ADR-0004; `docs/agente/09 §4.4`). Para mudar tom, FAQ ou regra de negócio do agente, edite o markdown — não cole string nova em `graph.py`, `classificador.py` nem em nenhum nó. Strings de prompt hardcoded no código são bug.
 
 ## Isolamento por par (cliente, modelo)
 
 Ver CONTEXT.md "IA por modelo". A IA da modelo A nunca enxerga histórico do mesmo cliente com a modelo B. Toda função que carrega contexto/histórico recebe `(cliente_id, modelo_id)` juntos; PR que carrega só por `cliente_id` está furando o isolamento — recuse.
 
-## Checkpoint do grafo
+## Sem checkpointer no P0
 
-LangGraph usa `AsyncPostgresSaver` (`langgraph-checkpoint-postgres`). Estado vive no Postgres. Não guarde estado de conversa em variáveis de módulo nem em dicionário em memória — some no próximo restart do worker.
+O grafo compila **sem** `checkpointer=` (`docs/agente/01 §6.7`). O prompt é montado do zero a cada turno a partir da tabela `mensagens` (sliding window, `01 §2.2`) — não há estado de conversa entre invocações. Estado vive no Postgres (`mensagens`/`eventos`), nunca em variável de módulo nem dicionário em memória. Continuidade/idempotência vêm de `tool_calls` + `turno_id` determinístico por `(job_id, loop_idx)` (`01 §6.7`), não de checkpoint. Reintrodução só em P1, se vier interrupt/time-travel.
 
-## Prompt caching (Anthropic SDK 0.42)
+## Prompt caching (chat via langchain-anthropic 1.x; raw SDK anthropic 0.97 no lock)
 
-Blocos estáveis (persona, FAQ, regras) entram com `cache_control: ephemeral` no início do prompt. Não recrie a árvore de mensagens do zero a cada turno — anexe só a nova mensagem do cliente; recriar perde o cache hit e fica caro.
+Blocos estáveis entram com `cache_control` no `system`, na ordem de render `tools → system → messages`. Sem checkpointer, a árvore é **re-renderizada todo turno** (`01 §6.7`) — o cache hit não depende de reusar o objeto, e sim de o **prefixo (`tools`+`system`) sair byte-idêntico** entre turnos. Recriar é correto; o que mata o cache é vazar variabilidade no prefixo. Detalhe completo em `docs/agente/03-prompts.md §4`.
+
+**Invariante de prefixo global (quebrar isto derruba o cache de TODAS as modelos):**
+- `tools` (posição 0) e os blocos GERAIS (BP1 persona+regras, BP2 FAQ) são **byte-idênticos entre todas as modelos**. Nenhuma descrição de tool nem BP1/BP2 interpola dado por-modelo (nome, idade, idiomas, tipos_aceitos) — o nome da modelo vive só no BP3. `TOOLS` é constante de módulo congelada, ordem fixa; **proibido** `build_tools(modelo)` ou subsetting de tools por modelo.
+- Dado por-modelo só no BP3 (identidade + programas). Dado por-turno (contexto dinâmico, reminder) vai no **último turno do usuário, SEM `cache_control`** — nunca em bloco `system`.
+- Listas/dicts no prefixo renderizam em ordem determinística (`ORDER BY` / `sorted`), senão os bytes variam e o cache mira a frio em silêncio.
+
+**Guard-rails (testes obrigatórios):** (1) BP1+BP2 e o bloco `tools` renderizam byte-idênticos para 2 modelos diferentes; (2) a mesma conversa renderiza byte-idêntica em 2 renders (cobre `traduz_mensagens`, pré-requisito do cache de cauda).
+
+**Validação em prod:** hit-rate e write-rate como métrica viva; write-rate alto em regime (>10-15% pós-warmup) = invalidador silencioso no prefixo → investigar antes de culpar custo.
 
 ## Organização
 

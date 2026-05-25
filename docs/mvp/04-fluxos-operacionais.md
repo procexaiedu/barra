@@ -47,7 +47,7 @@ Aplica-se quando a IA classifica o atendimento como interno: cliente se desloca 
 ### 2.2 Perda no fluxo interno
 
 - **Antes do aviso de saída** — cliente para de responder e bate o timeout determinístico longo de §5.1 (24 h sem mensagem em estados pré-confirmação) → `Perdido` com `motivo_perda=sumiu`.
-- **Após aviso de saída, sem foto de portaria** — quando passa o timeout interno curto de §5.2 (30 min do horário combinado), coordenador marca `Perdido` com `motivo_perda=sumiu`, cancela o bloqueio vinculado e **não envia mensagem ao cliente**. A IA permanece ativa (`ia_pausada=false`); se o cliente voltar a falar depois, a próxima mensagem dispara um novo atendimento na regra de resolução determinística do coordenador (`03 §5.2`).
+- **Após aviso de saída, sem foto de portaria** — quando passa o timeout interno curto de §5.2 (45 min do envio do Aviso de saída), coordenador marca `Perdido` com `motivo_perda=sumiu`, cancela o bloqueio vinculado e **não envia mensagem ao cliente**. A IA permanece ativa (`ia_pausada=false`); se o cliente voltar a falar depois, a próxima mensagem dispara um novo atendimento na regra de resolução determinística do coordenador (`03 §5.2`).
 - **Cliente desistiu na portaria** — modelo registra `perdido [motivo]` no grupo respondendo ao card.
 
 ### 2.3 O que a IA não faz no fluxo interno
@@ -155,7 +155,7 @@ Esses sinais alimentam o dashboard e podem orientar regras P1, mas no P0 não di
 ### 5.2 Timeout interno curto — saída sem chegada
 
 - Aplica-se ao atendimento interno em `Aguardando_confirmacao` que tem `aviso_saida_em` registrado e ainda não recebeu foto de portaria.
-- Quando passa **30 minutos do horário combinado** sem foto recebida, coordenador marca `Perdido` com `motivo_perda=sumiu` e `fonte_decisao=auto_timeout_interno`.
+- Quando passa **45 minutos do envio do Aviso de saída** sem foto recebida, coordenador marca `Perdido` com `motivo_perda=sumiu` e `fonte_decisao=auto_timeout_interno`.
 - Cancela o bloqueio vinculado.
 - **Não envia mensagem ao cliente** e **não pausa a IA** — `ia_pausada` continua `false`. Se o cliente voltar a falar depois, a próxima mensagem dispara um novo atendimento na regra de resolução determinística do coordenador (`03 §5.2`).
 

@@ -47,7 +47,7 @@ class Settings(BaseSettings):
             s = s.split("/", 1)[0].strip()
         return s
 
-    llm_chat_provider: Literal["openrouter", "anthropic"] = "openrouter"
+    llm_chat_provider: Literal["openrouter", "anthropic"] = "anthropic"
     llm_vision_provider: Literal["openrouter"] = "openrouter"
     llm_audio_provider: Literal["openrouter"] = "openrouter"
     openrouter_api_key: str | None = None
@@ -56,8 +56,41 @@ class Settings(BaseSettings):
     openrouter_model_audio_transcribe: str | None = None
     anthropic_api_key: str | None = None
     anthropic_modelo_principal: str = "claude-sonnet-4-6"
-    anthropic_modelo_rapido: str = "claude-haiku-4-5-20251001"
     anthropic_model_chat: str | None = None
+
+    # Chat Anthropic (grilling 2026-05-23; docs/agente/03 §6.1): TTL de cache por bloco +
+    # parâmetros do ChatAnthropic. cache_ttl_geral (BP1/BP2) não pode ser mais curto que
+    # cache_ttl_modelo (BP3) — a Anthropic exige o TTL mais longo antes do mais curto (03 §1/§5).
+    cache_ttl_geral: str = "1h"
+    cache_ttl_modelo: str = "1h"
+    anthropic_thinking: Literal["enabled", "disabled"] = "disabled"
+    anthropic_effort: Literal["low", "medium", "high"] = "low"
+    anthropic_max_tokens: int = 1024
+
+    # Comportamento comercial do agente (grilling 2026-05-23; docs/agente + ADR-0004)
+    desconto_max_pct: float = Field(
+        default=0.15,
+        ge=0.0,
+        le=1.0,
+        description="Teto do Desconto de fechamento sobre o Preço de tabela do programa (ADR-0004). 0 desliga o desconto (IA escala todo pedido abaixo da tabela).",
+    )
+    reengajamento_ativo: bool = Field(
+        default=False,
+        description="Liga a reabertura proativa de cliente que sumiu após a cotação. Default off no início do piloto (docs/agente/07 §4).",
+    )
+    reengajamento_delay_min: int = Field(
+        default=30,
+        ge=1,
+        description="Minutos de silêncio do cliente após a cotação antes do toque único de reengajamento.",
+    )
+    operacao_hora_inicio: int = Field(
+        default=10, ge=0, le=23,
+        description="Hora local de início da operação; reengajamento não dispara fora dela.",
+    )
+    operacao_hora_fim: int = Field(
+        default=2, ge=0, le=23,
+        description="Hora local de fim da operação (pode ser < início, ex.: 10-2h cruza a meia-noite).",
+    )
 
     langchain_tracing_v2: bool = True
     langchain_api_key: str | None = None

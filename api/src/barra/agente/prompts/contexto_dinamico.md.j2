@@ -1,0 +1,27 @@
+# Estado atual do atendimento
+
+- Atendimento: #{{ numero_curto }}
+- Estado: {{ estado }}
+- Tipo: {{ tipo_atendimento or "ainda não definido" }}
+- Urgência: {{ urgencia or "não capturada" }}
+- Pix de deslocamento: {{ pix_status }}
+{% if data_desejada %}- Data desejada: {{ data_desejada }} às {{ horario_desejado }}{% endif %}
+{% if endereco %}- Endereço/local: {{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}{% endif %}
+
+# Cliente
+
+- Nome: {{ cliente_nome or "ainda não informado" }}
+- Recorrente nesta conversa: {{ "sim" if recorrente else "não" }}
+{% if historico_anteriores %}- Histórico nesta conversa: {{ historico_anteriores }}{% endif %}
+{% if ultimo_motivo_perda %}- Último motivo de perda nesta conversa: {{ ultimo_motivo_perda }}{% endif %}
+{% if observacoes_internas %}- Observações operacionais: {{ observacoes_internas }}{% endif %}
+
+# Agenda da modelo (próximas 48h)
+
+- Hoje: {{ data_atual }}
+{% if bloqueios %}
+{% for b in bloqueios %}- {{ b.inicio.strftime("%a %d/%m %H:%M") }} – {{ b.fim.strftime("%H:%M") }} ({{ b.estado }})
+{% endfor %}
+{% else %}
+- Sem bloqueios nas próximas 48h. Disponibilidade total.
+{% endif %}

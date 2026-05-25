@@ -42,6 +42,9 @@ class FakeConn:
         if "pix_status = 'validado'" in query:
             self.atendimento["pix_status"] = "validado"
             self.atendimento["estado"] = "Confirmado"
+        if "pix_status = 'em_revisao'" in query:
+            self.atendimento["pix_status"] = "em_revisao"
+            self.atendimento["estado"] = "Confirmado"
         if "pix_status = 'invalido'" in query:
             self.atendimento["pix_status"] = "invalido"
         return _Result([])
@@ -138,17 +141,38 @@ def test_validar_pix_aplica_estado_correto() -> None:
     assert result.estado == "Confirmado"
 
 
-def test_recusar_pix_aplica_estado_correto() -> None:
+def test_em_revisao_pix_avanca_para_confirmado() -> None:
+    # Pix nunca trava: duvidoso (em_revisao) tambem avanca para Confirmado + pausa
+    # (modelo_em_atendimento), igual ao validado (decisao grilling 2026-05-23).
     conn = FakeConn(_atendimento())
     async def run():
         return await aplicar_comando(
             conn,
             origem="pipeline_pix",
+            autor="sistema",
+            atendimento_id=conn.atendimento["id"],
+            comando="atualizar_pix",
+            payload={"decisao": "em_revisao", "motivo": "valor 80 != esperado 100"},
+        )
+    result = asyncio.run(run())
+    assert result.pix_status == "em_revisao"
+    assert result.estado == "Confirmado"
+
+
+def test_recusar_pix_nao_reverte_estado() -> None:
+    # Veredito 'invalido' do painel e registro financeiro/auditoria: nao reverte estado
+    # nem despausa a IA (a modelo ja agiu sobre o card de em_revisao).
+    conn = FakeConn(_atendimento())
+    async def run():
+        return await aplicar_comando(
+            conn,
+            origem="painel",
             autor="Fernando",
             atendimento_id=conn.atendimento["id"],
             comando="atualizar_pix",
-            payload={"decisao": "invalido"},
+            payload={"decisao": "invalido", "motivo": "valor", "observacao": None},
         )
     result = asyncio.run(run())
     assert result.pix_status == "invalido"
     assert result.estado == "Aguardando_confirmacao"
+    assert not any("ia_pausada = false" in q for q, _ in conn.executed)

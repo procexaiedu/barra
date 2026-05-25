@@ -45,22 +45,34 @@ TIMEOUTS = Counter("barra_timeouts_total", "Timeouts aplicados", ["tipo"])
 # Metricas do agente LangGraph (ver docs/agente/08-evals.md, 09-roteiro.md)
 AGENTE_TURNO_DURACAO = Histogram(
     "agente_turno_duracao_seconds",
-    "Duracao por turno do agente (p50/p95/p99)",
-    ["modelo"],
+    "Duracao por turno (p50/p95/p99); split por tipo_turno p/ nao misturar texto e audio-Whisper (E5)",
+    ["modelo", "tipo_turno"],
 )
 AGENTE_TURNO_RESULTADO = Counter(
     "agente_turno_resultado_total",
     "Resultado do turno: ok|escalado|exaustao|ia_pausada_skip|lock_busy|transcricao_timeout",
     ["resultado"],
 )
+# E3 (grilling 2026-05-23): dashboard de tendencia, NAO gate de qualidade.
+# bucket=defesa (ataque ativo, desejavel; spike -> alerta) | capacidade (cego a
+# alucinacao-sem-escalada, por isso nao gateia o cutover). mapa motivo->bucket vive
+# em codigo (deterministico) e o enum de motivo aceito por `escalar` e restrito.
+AGENTE_ESCALADA = Counter(
+    "agente_escalada_total",
+    "Escaladas por bucket/motivo (ver docs/agente/08-evals.md 3.2)",
+    ["bucket", "motivo"],
+)
 AGENTE_TURNO_TOKENS = Counter(
     "agente_turno_tokens_total",
-    "Tokens consumidos por turno por tipo: input|output|cache_read|cache_write",
-    ["tipo"],
+    "Tokens por turno por tipo: input|output|cache_read|cache_write. Rotulado por "
+    "modelo p/ hit/write-rate por serie e tripwire de invalidador silencioso (03 §4.2)",
+    ["modelo", "tipo"],
 )
+# E1 (grilling 2026-05-23): adiada pro P1 -- era para o gate de regressao nightly,
+# que foi adiado (suite P0 = gate de cutover one-shot K=5, nao nightly com baseline).
 AGENTE_EVAL_PASS_RATE = Histogram(
     "agente_eval_pass_rate",
-    "Pass-rate de eval suite (ultimas execucoes em CI/pipeline)",
+    "Pass-rate de eval suite (P1; era pro nightly CI)",
     ["suite"],
 )
 AGENTE_CUSTO_TURNO_BRL = Histogram(

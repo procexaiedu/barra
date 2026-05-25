@@ -1,4 +1,41 @@
-"""Cliente Anthropic com cache_control nativo (SDK >= 0.42).
+"""Factories de cliente Anthropic do chat (docs/agente/03 §6.2).
 
-build_messages(state) monta os 4 breakpoints: persona, FAQ, regras, histórico.
+criar_chat_anthropic(): wrapper langchain-anthropic 1.x (ChatAnthropic) usado pelo nó llm —
+    thinking disabled + effort=low (suportado pelo Sonnet 4.6).
+criar_anthropic_client(): raw SDK anthropic 0.97 (dispensável no P0; vision do Pix vai por OpenRouter).
+
+A montagem dos 3 breakpoints de cache_control vive em agente/llm.py (build_system_messages),
+não aqui. BP4 (histórico) adiado pro P1.
 """
+
+from anthropic import AsyncAnthropic
+from langchain_anthropic import ChatAnthropic
+
+from barra.settings import Settings
+
+
+def criar_chat_anthropic(settings: Settings, *, modelo: str | None = None) -> ChatAnthropic:
+    """Wrapper LangChain do ChatAnthropic usado pelo grafo (nó llm).
+
+    Sonnet 4.6 com thinking desabilitado e effort=low (03 §6.1/§6.2): tom e tamanho da
+    resposta vêm da persona/few-shot, não do effort — cujo default no 4.6 é high (mais
+    latência/custo). max_tokens é guard-rail (~1024). Retry de 429/5xx/timeout fica a
+    cargo do SDK (max_retries), sem wrapper manual (decisão M0).
+    """
+    modelo = modelo or settings.anthropic_modelo_principal
+    return ChatAnthropic(
+        model=modelo,  # campo canônico no langchain-anthropic 1.x (alias model_name é só de escrita)
+        api_key=settings.anthropic_api_key,
+        max_tokens=settings.anthropic_max_tokens,
+        thinking={"type": settings.anthropic_thinking},
+        effort=settings.anthropic_effort,
+        max_retries=2,
+        timeout=60.0,
+    )
+
+
+def criar_anthropic_client(settings: Settings) -> AsyncAnthropic:
+    """Stub reservado p/ P1. Sem consumidor no P0: o chat usa criar_chat_anthropic e o
+    vision do Pix vai por OpenRouter (06 §2.3). Materializar quando houver vision
+    Anthropic-native (03 §6.2)."""
+    raise NotImplementedError("criar_anthropic_client é reservado p/ P1 (sem consumidor no P0)")

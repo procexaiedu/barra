@@ -477,7 +477,8 @@ def _calcular_previsao(row: dict[str, Any]) -> datetime | None:
         return None
 
     if tipo == "interno" and row.get("foto_portaria_em"):
-        return row["foto_portaria_em"] + timedelta(hours=float(duracao))
+        foto_em: datetime = row["foto_portaria_em"]
+        return foto_em + timedelta(hours=float(duracao))
 
     if tipo == "externo" and row.get("data_desejada") and row.get("horario_desejado"):
         dt = datetime.combine(row["data_desejada"], row["horario_desejado"], tzinfo=BRT)

@@ -1,500 +1,500 @@
-2026-05-06T17:46:38.737755585Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 2542, in presigned_get_object
-2026-05-06T17:46:38.737759055Z     return self.get_presigned_url(
-2026-05-06T17:46:38.737762354Z            ^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.737765625Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 2476, in get_presigned_url
-2026-05-06T17:46:38.737778924Z     region = self._get_region(bucket_name)
-2026-05-06T17:46:38.737784224Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.737787774Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 498, in _get_region
-2026-05-06T17:46:38.737791194Z     response = self._url_open(
-2026-05-06T17:46:38.737794264Z                ^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.737797494Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 427, in _url_open
-2026-05-06T17:46:38.737800844Z     raise response_error
-2026-05-06T17:46:38.737807544Z minio.error.S3Error: S3 operation failed; code: NoSuchBucket, message: The specified bucket does not exist, resource: /media, request_id: 18AD0B11B6B78504, host_id: dd9025bab4ad464b049177c95eb6ebf374d3b3fd1af9251148b658df7ac2e3e8, bucket_name: media
-2026-05-06T17:46:38.737813104Z 
-2026-05-06T17:46:38.739473833Z ERROR:    Exception in ASGI application
-2026-05-06T16:02:13.803144582Z  + arq==0.28.0
-2026-05-06T16:02:13.803146742Z  + barra==0.1.0 (from file:///app/repo/api)
-2026-05-06T16:02:13.803653236Z  + cachetools==6.2.6
-2026-05-06T16:02:13.803682135Z  + certifi==2026.4.22
-2026-05-06T16:02:13.803721515Z  + cffi==2.0.0
-2026-05-06T16:02:13.803725425Z  + charset-normalizer==3.4.7
-2026-05-06T16:02:13.803728785Z  + click==8.3.3
-2026-05-06T16:02:13.803732095Z  + cryptography==47.0.0
-2026-05-06T16:02:13.803735135Z  + deprecation==2.1.0
-2026-05-06T16:02:13.803738475Z  + distro==1.9.0
-2026-05-06T16:02:13.803741785Z  + docstring-parser==0.18.0
-2026-05-06T16:02:13.804857261Z  + fastapi==0.136.1
-2026-05-06T16:02:13.804880461Z  + fsspec==2026.4.0
-2026-05-06T16:02:13.804883931Z  + h11==0.16.0
-2026-05-06T16:02:13.804970331Z  + h2==4.3.0
-2026-05-06T16:02:13.804976501Z  + hiredis==3.3.1
-2026-05-06T16:02:13.804979911Z  + hpack==4.1.0
-2026-05-06T16:02:13.804983181Z  + httpcore==1.0.9
-2026-05-06T16:02:13.804986031Z  + httptools==0.7.1
-2026-05-06T16:02:13.804988851Z  + httpx==0.28.1
-2026-05-06T16:02:13.804991791Z  + hyperframe==6.1.0
-2026-05-06T16:02:13.805340563Z  + idna==3.13
-2026-05-06T16:02:13.805354063Z  + jiter==0.14.0
-2026-05-06T16:02:13.805357383Z  + jsonpatch==1.33
-2026-05-06T16:02:13.805360554Z  + jsonpointer==3.1.1
-2026-05-06T16:02:13.805368914Z  + langchain-core==1.3.2
-2026-05-06T16:02:13.805372034Z  + langchain-protocol==0.0.14
-2026-05-06T16:02:13.805375074Z  + langgraph==1.1.10
-2026-05-06T16:02:13.805378044Z  + langgraph-checkpoint==4.0.3
-2026-05-06T16:02:13.805381204Z  + langgraph-checkpoint-postgres==3.0.5
-2026-05-06T16:02:13.805384223Z  + langgraph-prebuilt==1.0.12
-2026-05-06T16:02:13.805387263Z  + langgraph-sdk==0.3.13
-2026-05-06T16:02:13.805390143Z  + langsmith==0.7.38
-2026-05-06T16:02:13.805393014Z  + markdown-it-py==4.0.0
-2026-05-06T16:02:13.805395943Z  + mdurl==0.1.2
-2026-05-06T16:02:13.805399004Z  + minio==7.2.20
-2026-05-06T16:02:13.805401954Z  + mmh3==5.2.1
-2026-05-06T16:02:13.805404944Z  + multidict==6.7.1
-2026-05-06T16:02:13.805407924Z  + orjson==3.11.8
-2026-05-06T16:02:13.805411544Z  + ormsgpack==1.12.2
-2026-05-06T16:02:13.805455174Z  + packaging==26.2
-2026-05-06T16:02:13.805463374Z  + postgrest==2.29.0
-2026-05-06T16:02:13.805799125Z  + prometheus-client==0.25.0
-2026-05-06T16:02:13.805806836Z  + propcache==0.4.1
-2026-05-06T16:02:13.805810055Z  + psycopg==3.3.3
-2026-05-06T16:02:13.805812676Z  + psycopg-binary==3.3.3
-2026-05-06T16:02:13.805815405Z  + psycopg-pool==3.3.0
-2026-05-06T16:02:13.805818156Z  + pycparser==3.0
-2026-05-06T16:02:13.805820935Z  + pycryptodome==3.23.0
-2026-05-06T16:02:13.805936396Z  + pydantic==2.13.3
-2026-05-06T16:02:13.806939661Z  + pydantic-core==2.46.3
-2026-05-06T16:02:13.806960231Z  + pydantic-settings==2.14.0
-2026-05-06T16:02:13.806965311Z  + pygments==2.20.0
-2026-05-06T16:02:13.806968621Z  + pyiceberg==0.11.1
-2026-05-06T16:02:13.806971651Z  + pyjwt==2.12.1
-2026-05-06T16:02:13.806974611Z  + pyparsing==3.3.2
-2026-05-06T16:02:13.806977741Z  + pyroaring==1.1.0
-2026-05-06T16:02:13.806980771Z  + python-dateutil==2.9.0.post0
-2026-05-06T16:02:13.806995461Z  + python-dotenv==1.2.2
-2026-05-06T16:02:13.807347912Z  + python-multipart==0.0.27
-2026-05-06T16:02:13.807359472Z  + pyyaml==6.0.3
-2026-05-06T16:02:13.807362822Z  + realtime==2.29.0
-2026-05-06T16:02:13.807365843Z  + redis==5.3.1
-2026-05-06T16:02:13.807368862Z  + requests==2.33.1
-2026-05-06T16:02:13.807371853Z  + requests-toolbelt==1.0.0
-2026-05-06T16:02:13.807374893Z  + rich==14.3.4
-2026-05-06T16:02:13.807377843Z  + sentry-sdk==2.58.0
-2026-05-06T16:02:13.807380742Z  + six==1.17.0
-2026-05-06T16:02:13.807383773Z  + sniffio==1.3.1
-2026-05-06T16:02:13.807386702Z  + starlette==1.0.0
-2026-05-06T16:02:13.807389693Z  + storage3==2.29.0
-2026-05-06T16:02:13.809426143Z  + strenum==0.4.15
-2026-05-06T16:02:13.809439473Z  + strictyaml==1.7.3
-2026-05-06T16:02:13.809442973Z  + structlog==25.5.0
-2026-05-06T16:02:13.809446183Z  + supabase==2.29.0
-2026-05-06T16:02:13.809449163Z  + supabase-auth==2.29.0
-2026-05-06T16:02:13.809452093Z  + supabase-functions==2.29.0
-2026-05-06T16:02:13.809455273Z  + tenacity==9.1.4
-2026-05-06T16:02:13.809458313Z  + typing-extensions==4.15.0
-2026-05-06T16:02:13.809461393Z  + typing-inspection==0.4.2
-2026-05-06T16:02:13.809464363Z  + urllib3==2.6.3
-2026-05-06T16:02:13.809467343Z  + uuid-utils==0.14.1
-2026-05-06T16:02:13.809473943Z  + uvicorn==0.46.0
-2026-05-06T16:02:13.809477093Z  + uvloop==0.22.1
-2026-05-06T16:02:13.809480323Z  + watchfiles==1.1.1
-2026-05-06T16:02:13.809483313Z  + websockets==15.0.1
-2026-05-06T16:02:13.809486313Z  + xxhash==3.7.0
-2026-05-06T16:02:13.809489463Z  + yarl==1.23.0
-2026-05-06T16:02:13.809492633Z  + zstandard==0.25.0
-2026-05-06T16:02:14.041838827Z Downloading ruff (10.8MiB)
-2026-05-06T16:02:14.054746239Z Downloading mypy (14.1MiB)
-2026-05-06T16:02:14.429856657Z  Downloaded ruff
-2026-05-06T16:02:15.972229833Z  Downloaded mypy
-2026-05-06T16:02:16.093218873Z Installed 12 packages in 119ms
-2026-05-06T16:02:20.364972776Z INFO:     Started server process [416]
-2026-05-06T16:02:20.365029416Z INFO:     Waiting for application startup.
-2026-05-06T16:02:20.371635168Z INFO:     Application startup complete.
-2026-05-06T16:02:20.397774164Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-2026-05-06T17:21:41.401660648Z INFO:     10.0.2.42:50262 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-06T17:21:43.664087641Z INFO:     10.0.2.42:50262 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-06T17:36:27.612597997Z  + arq==0.28.0
-2026-05-06T17:36:27.612602507Z  + barra==0.1.0 (from file:///app/repo/api)
-2026-05-06T17:36:27.612607127Z  + cachetools==6.2.6
-2026-05-06T17:36:27.612611727Z  + certifi==2026.4.22
-2026-05-06T17:36:27.612616207Z  + cffi==2.0.0
-2026-05-06T17:36:27.612620687Z  + charset-normalizer==3.4.7
-2026-05-06T17:36:27.612625587Z  + click==8.3.3
-2026-05-06T17:36:27.612630807Z  + cryptography==47.0.0
-2026-05-06T17:36:27.612635457Z  + deprecation==2.1.0
-2026-05-06T17:36:27.612639977Z  + distro==1.9.0
-2026-05-06T17:36:27.612644567Z  + docstring-parser==0.18.0
-2026-05-06T17:36:27.612649197Z  + fastapi==0.136.1
-2026-05-06T17:36:27.612653767Z  + fsspec==2026.4.0
-2026-05-06T17:36:27.612658447Z  + h11==0.16.0
-2026-05-06T17:36:27.612683098Z  + h2==4.3.0
-2026-05-06T17:36:27.612686268Z  + hiredis==3.3.1
-2026-05-06T17:36:27.612689298Z  + hpack==4.1.0
-2026-05-06T17:36:27.612692477Z  + httpcore==1.0.9
-2026-05-06T17:36:27.612695687Z  + httptools==0.7.1
-2026-05-06T17:36:27.612698818Z  + httpx==0.28.1
-2026-05-06T17:36:27.612702007Z  + hyperframe==6.1.0
-2026-05-06T17:36:27.612705188Z  + idna==3.13
-2026-05-06T17:36:27.612708438Z  + jiter==0.14.0
-2026-05-06T17:36:27.612711518Z  + jsonpatch==1.33
-2026-05-06T17:36:27.612714527Z  + jsonpointer==3.1.1
-2026-05-06T17:36:27.612717458Z  + langchain-core==1.3.2
-2026-05-06T17:36:27.612720538Z  + langchain-protocol==0.0.14
-2026-05-06T17:36:27.612723728Z  + langgraph==1.1.10
-2026-05-06T17:36:27.612726768Z  + langgraph-checkpoint==4.0.3
-2026-05-06T17:36:27.612729818Z  + langgraph-checkpoint-postgres==3.0.5
-2026-05-06T17:36:27.612732848Z  + langgraph-prebuilt==1.0.12
-2026-05-06T17:36:27.612735908Z  + langgraph-sdk==0.3.13
-2026-05-06T17:36:27.612738878Z  + langsmith==0.7.38
-2026-05-06T17:36:27.612741908Z  + markdown-it-py==4.0.0
-2026-05-06T17:36:27.612744918Z  + mdurl==0.1.2
-2026-05-06T17:36:27.612748078Z  + minio==7.2.20
-2026-05-06T17:36:27.612751388Z  + mmh3==5.2.1
-2026-05-06T17:36:27.612754468Z  + multidict==6.7.1
-2026-05-06T17:36:27.617660200Z  + orjson==3.11.8
-2026-05-06T17:36:27.617717750Z  + ormsgpack==1.12.2
-2026-05-06T17:36:27.617722180Z  + packaging==26.2
-2026-05-06T17:36:27.617725440Z  + postgrest==2.29.0
-2026-05-06T17:36:27.617728470Z  + prometheus-client==0.25.0
-2026-05-06T17:36:27.617731540Z  + propcache==0.4.1
-2026-05-06T17:36:27.617734930Z  + psycopg==3.3.3
-2026-05-06T17:36:27.617737860Z  + psycopg-binary==3.3.3
-2026-05-06T17:36:27.617741070Z  + psycopg-pool==3.3.0
-2026-05-06T17:36:27.617744110Z  + pycparser==3.0
-2026-05-06T17:36:27.617747200Z  + pycryptodome==3.23.0
-2026-05-06T17:36:27.617750260Z  + pydantic==2.13.3
-2026-05-06T17:36:27.617753340Z  + pydantic-core==2.46.3
-2026-05-06T17:36:27.617756400Z  + pydantic-settings==2.14.0
-2026-05-06T17:36:27.617759441Z  + pygments==2.20.0
-2026-05-06T17:36:27.617762530Z  + pyiceberg==0.11.1
-2026-05-06T17:36:27.617765590Z  + pyjwt==2.12.1
-2026-05-06T17:36:27.617779750Z  + pyparsing==3.3.2
-2026-05-06T17:36:27.617782931Z  + pyroaring==1.1.0
-2026-05-06T17:36:27.617785950Z  + python-dateutil==2.9.0.post0
-2026-05-06T17:36:27.617789001Z  + python-dotenv==1.2.2
-2026-05-06T17:36:27.617806070Z  + python-multipart==0.0.27
-2026-05-06T17:36:27.617809381Z  + pyyaml==6.0.3
-2026-05-06T17:36:27.617812721Z  + realtime==2.29.0
-2026-05-06T17:36:27.617815961Z  + redis==5.3.1
-2026-05-06T17:36:27.617819091Z  + requests==2.33.1
-2026-05-06T17:36:27.617822211Z  + requests-toolbelt==1.0.0
-2026-05-06T17:36:27.617825171Z  + rich==14.3.4
-2026-05-06T17:36:27.617828270Z  + sentry-sdk==2.58.0
-2026-05-06T17:36:27.617831481Z  + six==1.17.0
-2026-05-06T17:36:27.617834531Z  + sniffio==1.3.1
-2026-05-06T17:36:27.617837611Z  + starlette==1.0.0
-2026-05-06T17:36:27.617840821Z  + storage3==2.29.0
-2026-05-06T17:36:27.617843881Z  + strenum==0.4.15
-2026-05-06T17:36:27.617846921Z  + strictyaml==1.7.3
-2026-05-06T17:36:27.617849931Z  + structlog==25.5.0
-2026-05-06T17:36:27.617852931Z  + supabase==2.29.0
-2026-05-06T17:36:27.617855961Z  + supabase-auth==2.29.0
-2026-05-06T17:36:27.617859081Z  + supabase-functions==2.29.0
-2026-05-06T17:36:27.617862151Z  + tenacity==9.1.4
-2026-05-06T17:36:27.617865141Z  + typing-extensions==4.15.0
-2026-05-06T17:36:27.617868041Z  + typing-inspection==0.4.2
-2026-05-06T17:36:27.617871031Z  + urllib3==2.6.3
-2026-05-06T17:36:27.617873651Z  + uuid-utils==0.14.1
-2026-05-06T17:36:27.617876251Z  + uvicorn==0.46.0
-2026-05-06T17:36:27.617878901Z  + uvloop==0.22.1
-2026-05-06T17:36:27.617881580Z  + watchfiles==1.1.1
-2026-05-06T17:36:27.617884710Z  + websockets==15.0.1
-2026-05-06T17:36:27.617887850Z  + xxhash==3.7.0
-2026-05-06T17:36:27.617890970Z  + yarl==1.23.0
-2026-05-06T17:36:27.617894080Z  + zstandard==0.25.0
-2026-05-06T17:36:28.123577431Z Downloading ruff (10.8MiB)
-2026-05-06T17:36:28.140771727Z Downloading mypy (14.1MiB)
-2026-05-06T17:36:28.684597708Z  Downloaded ruff
-2026-05-06T17:36:31.271158924Z  Downloaded mypy
-2026-05-06T17:36:31.394166555Z Installed 12 packages in 123ms
-2026-05-06T17:36:37.652927698Z INFO:     Started server process [427]
-2026-05-06T17:36:37.652969998Z INFO:     Waiting for application startup.
-2026-05-06T17:36:37.687542942Z INFO:     Application startup complete.
-2026-05-06T17:36:37.703198293Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-2026-05-06T17:37:15.663416471Z INFO:     10.0.2.42:49938 - "OPTIONS /v1/atendimentos?limit=50 HTTP/1.1" 400 Bad Request
-2026-05-06T17:37:36.725546664Z INFO:     10.0.2.42:39984 - "OPTIONS /v1/painel/resumo HTTP/1.1" 400 Bad Request
-2026-05-06T17:42:19.873487270Z  + arq==0.28.0
-2026-05-06T17:42:19.873489919Z  + barra==0.1.0 (from file:///app/repo/api)
-2026-05-06T17:42:19.873492719Z  + cachetools==6.2.6
-2026-05-06T17:42:19.873495460Z  + certifi==2026.4.22
-2026-05-06T17:42:19.873498310Z  + cffi==2.0.0
-2026-05-06T17:42:19.873500950Z  + charset-normalizer==3.4.7
-2026-05-06T17:42:19.873503800Z  + click==8.3.3
-2026-05-06T17:42:19.873506730Z  + cryptography==47.0.0
-2026-05-06T17:42:19.873513200Z  + deprecation==2.1.0
-2026-05-06T17:42:19.873516090Z  + distro==1.9.0
-2026-05-06T17:42:19.873518950Z  + docstring-parser==0.18.0
-2026-05-06T17:42:19.873521780Z  + fastapi==0.136.1
-2026-05-06T17:42:19.873524670Z  + fsspec==2026.4.0
-2026-05-06T17:42:19.873527400Z  + h11==0.16.0
-2026-05-06T17:42:19.873542150Z  + h2==4.3.0
-2026-05-06T17:42:19.873545030Z  + hiredis==3.3.1
-2026-05-06T17:42:19.873547700Z  + hpack==4.1.0
-2026-05-06T17:42:19.873550470Z  + httpcore==1.0.9
-2026-05-06T17:42:19.873553460Z  + httptools==0.7.1
-2026-05-06T17:42:19.873556270Z  + httpx==0.28.1
-2026-05-06T17:42:19.873558980Z  + hyperframe==6.1.0
-2026-05-06T17:42:19.873561650Z  + idna==3.13
-2026-05-06T17:42:19.873564320Z  + jiter==0.14.0
-2026-05-06T17:42:19.873566910Z  + jsonpatch==1.33
-2026-05-06T17:42:19.873569529Z  + jsonpointer==3.1.1
-2026-05-06T17:42:19.873572099Z  + langchain-core==1.3.2
-2026-05-06T17:42:19.873574839Z  + langchain-protocol==0.0.14
-2026-05-06T17:42:19.873577409Z  + langgraph==1.1.10
-2026-05-06T17:42:19.873580099Z  + langgraph-checkpoint==4.0.3
-2026-05-06T17:42:19.873582879Z  + langgraph-checkpoint-postgres==3.0.5
-2026-05-06T17:42:19.873585749Z  + langgraph-prebuilt==1.0.12
-2026-05-06T17:42:19.873588639Z  + langgraph-sdk==0.3.13
-2026-05-06T17:42:19.873591339Z  + langsmith==0.7.38
-2026-05-06T17:42:19.873594059Z  + markdown-it-py==4.0.0
-2026-05-06T17:42:19.873596799Z  + mdurl==0.1.2
-2026-05-06T17:42:19.873599530Z  + minio==7.2.20
-2026-05-06T17:42:19.873602330Z  + mmh3==5.2.1
-2026-05-06T17:42:19.873605039Z  + multidict==6.7.1
-2026-05-06T17:42:19.873607719Z  + orjson==3.11.8
-2026-05-06T17:42:19.873610410Z  + ormsgpack==1.12.2
-2026-05-06T17:42:19.873613100Z  + packaging==26.2
-2026-05-06T17:42:19.873615730Z  + postgrest==2.29.0
-2026-05-06T17:42:19.873618530Z  + prometheus-client==0.25.0
-2026-05-06T17:42:19.873621279Z  + propcache==0.4.1
-2026-05-06T17:42:19.873624180Z  + psycopg==3.3.3
-2026-05-06T17:42:19.873626900Z  + psycopg-binary==3.3.3
-2026-05-06T17:42:19.873629610Z  + psycopg-pool==3.3.0
-2026-05-06T17:42:19.873632430Z  + pycparser==3.0
-2026-05-06T17:42:19.873635180Z  + pycryptodome==3.23.0
-2026-05-06T17:42:19.873637850Z  + pydantic==2.13.3
-2026-05-06T17:42:19.873640780Z  + pydantic-core==2.46.3
-2026-05-06T17:42:19.873643550Z  + pydantic-settings==2.14.0
-2026-05-06T17:42:19.873646340Z  + pygments==2.20.0
-2026-05-06T17:42:19.873649490Z  + pyiceberg==0.11.1
-2026-05-06T17:42:19.873652230Z  + pyjwt==2.12.1
-2026-05-06T17:42:19.873654999Z  + pyparsing==3.3.2
-2026-05-06T17:42:19.873657730Z  + pyroaring==1.1.0
-2026-05-06T17:42:19.873660510Z  + python-dateutil==2.9.0.post0
-2026-05-06T17:42:19.873663290Z  + python-dotenv==1.2.2
-2026-05-06T17:42:19.873670530Z  + python-multipart==0.0.27
-2026-05-06T17:42:19.873673450Z  + pyyaml==6.0.3
-2026-05-06T17:42:19.873676120Z  + realtime==2.29.0
-2026-05-06T17:42:19.873678880Z  + redis==5.3.1
-2026-05-06T17:42:19.873681690Z  + requests==2.33.1
-2026-05-06T17:42:19.873684450Z  + requests-toolbelt==1.0.0
-2026-05-06T17:42:19.873687180Z  + rich==14.3.4
-2026-05-06T17:42:19.873690090Z  + sentry-sdk==2.58.0
-2026-05-06T17:42:19.873692850Z  + six==1.17.0
-2026-05-06T17:42:19.873695630Z  + sniffio==1.3.1
-2026-05-06T17:42:19.873698590Z  + starlette==1.0.0
-2026-05-06T17:42:19.873701420Z  + storage3==2.29.0
-2026-05-06T17:42:19.873704360Z  + strenum==0.4.15
-2026-05-06T17:42:19.873707290Z  + strictyaml==1.7.3
-2026-05-06T17:42:19.873710090Z  + structlog==25.5.0
-2026-05-06T17:42:19.873713050Z  + supabase==2.29.0
-2026-05-06T17:42:19.874522204Z  + supabase-auth==2.29.0
-2026-05-06T17:42:19.874559194Z  + supabase-functions==2.29.0
-2026-05-06T17:42:19.874563555Z  + tenacity==9.1.4
-2026-05-06T17:42:19.874566985Z  + typing-extensions==4.15.0
-2026-05-06T17:42:19.874570475Z  + typing-inspection==0.4.2
-2026-05-06T17:42:19.874573905Z  + urllib3==2.6.3
-2026-05-06T17:42:19.874577905Z  + uuid-utils==0.14.1
-2026-05-06T17:42:19.874581415Z  + uvicorn==0.46.0
-2026-05-06T17:42:19.874584665Z  + uvloop==0.22.1
-2026-05-06T17:42:19.874587835Z  + watchfiles==1.1.1
-2026-05-06T17:42:19.874591215Z  + websockets==15.0.1
-2026-05-06T17:42:19.874594305Z  + xxhash==3.7.0
-2026-05-06T17:42:19.874597305Z  + yarl==1.23.0
-2026-05-06T17:42:19.874600555Z  + zstandard==0.25.0
-2026-05-06T17:42:20.045286668Z Downloading ruff (10.8MiB)
-2026-05-06T17:42:20.077599268Z Downloading mypy (14.1MiB)
-2026-05-06T17:42:20.423391066Z  Downloaded ruff
-2026-05-06T17:42:21.740978210Z  Downloaded mypy
-2026-05-06T17:42:21.833262009Z Installed 12 packages in 91ms
-2026-05-06T17:42:25.998068834Z INFO:     Started server process [414]
-2026-05-06T17:42:25.998108514Z INFO:     Waiting for application startup.
-2026-05-06T17:42:26.022548998Z INFO:     Application startup complete.
-2026-05-06T17:42:26.030441025Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-2026-05-06T17:43:28.990922523Z INFO:     10.0.2.42:41966 - "OPTIONS /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-06T17:43:31.166305675Z INFO:     10.0.2.42:41966 - "GET /v1/painel/resumo HTTP/1.1" 200 OK
-2026-05-06T17:33:20.822161570Z  + charset-normalizer==3.4.7
-2026-05-06T17:33:20.822164420Z  + click==8.3.3
-2026-05-06T17:33:20.822241929Z  + cryptography==47.0.0
-2026-05-06T17:33:20.822247989Z  + deprecation==2.1.0
-2026-05-06T17:33:20.822300930Z  + distro==1.9.0
-2026-05-06T17:33:20.822319430Z  + docstring-parser==0.18.0
-2026-05-06T17:33:20.822404620Z  + fastapi==0.136.1
-2026-05-06T17:33:20.824143138Z  + fsspec==2026.4.0
-2026-05-06T17:33:20.824196378Z  + h11==0.16.0
-2026-05-06T17:33:20.824214208Z  + h2==4.3.0
-2026-05-06T17:33:20.824250268Z  + hiredis==3.3.1
-2026-05-06T17:33:20.824410659Z  + hpack==4.1.0
-2026-05-06T17:33:20.824417269Z  + httpcore==1.0.9
-2026-05-06T17:33:20.824420429Z  + httptools==0.7.1
-2026-05-06T17:33:20.824423010Z  + httpx==0.28.1
-2026-05-06T17:33:20.824528809Z  + hyperframe==6.1.0
-2026-05-06T17:33:20.824538389Z  + idna==3.13
-2026-05-06T17:33:20.824541859Z  + jiter==0.14.0
-2026-05-06T17:33:20.824544949Z  + jsonpatch==1.33
-2026-05-06T17:33:20.824694050Z  + jsonpointer==3.1.1
-2026-05-06T17:33:20.824699720Z  + langchain-core==1.3.2
-2026-05-06T17:33:20.824702390Z  + langchain-protocol==0.0.14
-2026-05-06T17:33:20.824704600Z  + langgraph==1.1.10
-2026-05-06T17:33:20.824706850Z  + langgraph-checkpoint==4.0.3
-2026-05-06T17:33:20.824731220Z  + langgraph-checkpoint-postgres==3.0.5
-2026-05-06T17:33:20.824823831Z  + langgraph-prebuilt==1.0.12
-2026-05-06T17:33:20.824826251Z  + langgraph-sdk==0.3.13
-2026-05-06T17:33:20.824828421Z  + langsmith==0.7.38
-2026-05-06T17:33:20.824996341Z  + markdown-it-py==4.0.0
-2026-05-06T17:33:20.825035141Z  + mdurl==0.1.2
-2026-05-06T17:33:20.825174722Z  + minio==7.2.20
-2026-05-06T17:33:20.825180933Z  + mmh3==5.2.1
-2026-05-06T17:33:20.825208162Z  + multidict==6.7.1
-2026-05-06T17:33:20.825269363Z  + orjson==3.11.8
-2026-05-06T17:33:20.825329703Z  + ormsgpack==1.12.2
-2026-05-06T17:33:20.825574714Z  + packaging==26.2
-2026-05-06T17:33:20.825662074Z  + postgrest==2.29.0
-2026-05-06T17:33:20.825667794Z  + prometheus-client==0.25.0
-2026-05-06T17:33:20.825670834Z  + propcache==0.4.1
-2026-05-06T17:33:20.825673745Z  + psycopg==3.3.3
-2026-05-06T17:33:20.825753555Z  + psycopg-binary==3.3.3
-2026-05-06T17:33:20.825831195Z  + psycopg-pool==3.3.0
-2026-05-06T17:33:20.825834565Z  + pycparser==3.0
-2026-05-06T17:33:20.825875376Z  + pycryptodome==3.23.0
-2026-05-06T17:33:20.825978115Z  + pydantic==2.13.3
-2026-05-06T17:33:20.826015976Z  + pydantic-core==2.46.3
-2026-05-06T17:33:20.826104156Z  + pydantic-settings==2.14.0
-2026-05-06T17:33:20.826163107Z  + pygments==2.20.0
-2026-05-06T17:33:20.826371958Z  + pyiceberg==0.11.1
-2026-05-06T17:33:20.826378248Z  + pyjwt==2.12.1
-2026-05-06T17:33:20.826380927Z  + pyparsing==3.3.2
-2026-05-06T17:33:20.826383187Z  + pyroaring==1.1.0
-2026-05-06T17:33:20.826438378Z  + python-dateutil==2.9.0.post0
-2026-05-06T17:33:20.826461858Z  + python-dotenv==1.2.2
-2026-05-06T17:33:20.826530248Z  + python-multipart==0.0.27
-2026-05-06T17:33:20.826641239Z  + pyyaml==6.0.3
-2026-05-06T17:33:20.826647399Z  + realtime==2.29.0
-2026-05-06T17:33:20.826783400Z  + redis==5.3.1
-2026-05-06T17:33:20.826786830Z  + requests==2.33.1
-2026-05-06T17:33:20.826810440Z  + requests-toolbelt==1.0.0
-2026-05-06T17:33:20.826953230Z  + rich==14.3.4
-2026-05-06T17:33:20.827135231Z  + sentry-sdk==2.58.0
-2026-05-06T17:33:20.827144751Z  + six==1.17.0
-2026-05-06T17:33:20.827466302Z  + sniffio==1.3.1
-2026-05-06T17:33:20.827500362Z  + starlette==1.0.0
-2026-05-06T17:33:20.827503743Z  + storage3==2.29.0
-2026-05-06T17:33:20.827535273Z  + strenum==0.4.15
-2026-05-06T17:33:20.827657723Z  + strictyaml==1.7.3
-2026-05-06T17:33:20.827721464Z  + structlog==25.5.0
-2026-05-06T17:33:20.827729774Z  + supabase==2.29.0
-2026-05-06T17:33:20.827863924Z  + supabase-auth==2.29.0
-2026-05-06T17:33:20.827867644Z  + supabase-functions==2.29.0
-2026-05-06T17:33:20.827869914Z  + tenacity==9.1.4
-2026-05-06T17:33:20.827896264Z  + typing-extensions==4.15.0
-2026-05-06T17:33:20.827925414Z  + typing-inspection==0.4.2
-2026-05-06T17:33:20.827983854Z  + urllib3==2.6.3
-2026-05-06T17:33:20.828046265Z  + uuid-utils==0.14.1
-2026-05-06T17:33:20.828101105Z  + uvicorn==0.46.0
-2026-05-06T17:33:20.828178356Z  + uvloop==0.22.1
-2026-05-06T17:33:20.828181556Z  + watchfiles==1.1.1
-2026-05-06T17:33:20.828260325Z  + websockets==15.0.1
-2026-05-06T17:33:20.828263485Z  + xxhash==3.7.0
-2026-05-06T17:33:20.828300466Z  + yarl==1.23.0
-2026-05-06T17:33:20.828377536Z  + zstandard==0.25.0
-2026-05-06T17:33:21.027277054Z Downloading mypy (14.1MiB)
-2026-05-06T17:33:21.033377801Z Downloading ruff (10.8MiB)
-2026-05-06T17:33:21.875711145Z  Downloaded ruff
-2026-05-06T17:33:23.934758582Z  Downloaded mypy
-2026-05-06T17:33:24.082740461Z Installed 12 packages in 147ms
-2026-05-06T17:33:29.658633078Z INFO:     Started server process [432]
-2026-05-06T17:33:29.658671348Z INFO:     Waiting for application startup.
-2026-05-06T17:33:29.693321829Z INFO:     Application startup complete.
-2026-05-06T17:33:29.711236326Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
-2026-05-06T17:34:51.200449645Z INFO:     10.0.2.42:41222 - "OPTIONS /v1/atendimentos/a7e0d000-0014-7000-8000-000000000006 HTTP/1.1" 400 Bad Request
-2026-05-06T17:34:56.762066537Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/atendimentos/a7e0d000-0014-7000-8000-000000000006 HTTP/1.1" 400 Bad Request
-2026-05-06T17:34:58.200596628Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/painel/detalhe/fechamentos-hoje HTTP/1.1" 400 Bad Request
-2026-05-06T17:35:00.807854580Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/painel/detalhe/abertos HTTP/1.1" 400 Bad Request
-2026-05-06T17:35:03.046565953Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/atendimentos/a7e0d000-0014-7000-8000-000000000006 HTTP/1.1" 400 Bad Request
-2026-05-06T17:35:05.447105094Z INFO:     10.0.2.42:41232 - "OPTIONS /v1/atendimentos/a7e0d000-0014-7000-8000-000000000006 HTTP/1.1" 400 Bad Request
-2026-05-06T17:35:33.407292394Z INFO:     10.0.2.42:40894 - "OPTIONS /v1/painel/resumo HTTP/1.1" 400 Bad Request
-2026-05-06T17:46:38.739500283Z Traceback (most recent call last):
-2026-05-06T17:46:38.739504252Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/protocols/http/httptools_impl.py", line 421, in run_asgi
-2026-05-06T17:46:38.739508162Z     result = await app(  # type: ignore[func-returns-value]
-2026-05-06T17:46:38.739511372Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.739514702Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 56, in __call__
-2026-05-06T17:46:38.739518182Z     return await self.app(scope, receive, send)
-2026-05-06T17:46:38.739521402Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.739524452Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/applications.py", line 1159, in __call__
-2026-05-06T17:46:38.739527712Z     await super().__call__(scope, receive, send)
-2026-05-06T17:46:38.739530822Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/applications.py", line 90, in __call__
-2026-05-06T17:46:38.739534232Z     await self.middleware_stack(scope, receive, send)
-2026-05-06T17:46:38.739537332Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
-2026-05-06T17:46:38.739540612Z     raise exc
-2026-05-06T17:46:38.739543732Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
-2026-05-06T17:46:38.739547022Z     await self.app(scope, receive, _send)
-2026-05-06T17:46:38.739550182Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
-2026-05-06T17:46:38.739553492Z     with recv_stream, send_stream, collapse_excgroups():
-2026-05-06T17:46:38.739556572Z                                    ^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.739559762Z   File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
-2026-05-06T17:46:38.740715718Z     self.gen.throw(value)
-2026-05-06T17:46:38.740736318Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
-2026-05-06T17:46:38.740740408Z     raise exc
-2026-05-06T17:46:38.740743798Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
-2026-05-06T17:46:38.740747188Z     response = await self.dispatch_func(request, call_next)
-2026-05-06T17:46:38.740750348Z                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740753568Z   File "/app/repo/api/src/barra/core/metrics.py", line 53, in dispatch
-2026-05-06T17:46:38.740756798Z     response = await call_next(request)
-2026-05-06T17:46:38.740759888Z                ^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740766708Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
-2026-05-06T17:46:38.740770088Z     raise app_exc from app_exc.__cause__ or app_exc.__context__
-2026-05-06T17:46:38.740773268Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
-2026-05-06T17:46:38.740776528Z     await self.app(scope, receive_or_disconnect, send_no_error)
-2026-05-06T17:46:38.740779728Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 96, in __call__
-2026-05-06T17:46:38.740783048Z     await self.simple_response(scope, receive, send, request_headers=headers)
-2026-05-06T17:46:38.740786258Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 154, in simple_response
-2026-05-06T17:46:38.740789558Z     await self.app(scope, receive, send)
-2026-05-06T17:46:38.740792678Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
-2026-05-06T17:46:38.740796008Z     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
-2026-05-06T17:46:38.740799328Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-2026-05-06T17:46:38.740802899Z     raise exc
-2026-05-06T17:46:38.740806028Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-2026-05-06T17:46:38.740809348Z     await app(scope, receive, sender)
-2026-05-06T17:46:38.740812419Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
-2026-05-06T17:46:38.740815699Z     await self.app(scope, receive, send)
-2026-05-06T17:46:38.740818868Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 660, in __call__
-2026-05-06T17:46:38.740822118Z     await self.middleware_stack(scope, receive, send)
-2026-05-06T17:46:38.740825248Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
-2026-05-06T17:46:38.740833699Z     await route.handle(scope, receive, send)
-2026-05-06T17:46:38.740836899Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
-2026-05-06T17:46:38.740840158Z     await self.app(scope, receive, send)
-2026-05-06T17:46:38.740843288Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
-2026-05-06T17:46:38.740846459Z     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
-2026-05-06T17:46:38.740849719Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
-2026-05-06T17:46:38.740853059Z     raise exc
-2026-05-06T17:46:38.740856559Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
-2026-05-06T17:46:38.740859888Z     await app(scope, receive, sender)
-2026-05-06T17:46:38.740862909Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
-2026-05-06T17:46:38.740866168Z     response = await f(request)
-2026-05-06T17:46:38.740869279Z                ^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740872369Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 674, in app
-2026-05-06T17:46:38.740875639Z     raw_response = await run_endpoint_function(
-2026-05-06T17:46:38.740878809Z                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740881909Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 328, in run_endpoint_function
-2026-05-06T17:46:38.740885189Z     return await dependant.call(**values)
-2026-05-06T17:46:38.740888359Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740891399Z   File "/app/repo/api/src/barra/dominio/modelos/routes.py", line 159, in obter_modelo
-2026-05-06T17:46:38.740894689Z     midia = await _midia(conn, request, modelo_id)
-2026-05-06T17:46:38.740897879Z             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740901119Z   File "/app/repo/api/src/barra/dominio/modelos/routes.py", line 816, in _midia
-2026-05-06T17:46:38.740904369Z     row["url_assinada"] = presigned_get(
-2026-05-06T17:46:38.740907699Z                           ^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740910939Z   File "/app/repo/api/src/barra/core/storage.py", line 33, in presigned_get
-2026-05-06T17:46:38.740914289Z     return client.presigned_get_object(bucket, object_key, expires=timedelta(seconds=expires))
-2026-05-06T17:46:38.740917539Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740920829Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 2542, in presigned_get_object
-2026-05-06T17:46:38.740924169Z     return self.get_presigned_url(
-2026-05-06T17:46:38.740927199Z            ^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740934339Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 2476, in get_presigned_url
-2026-05-06T17:46:38.740937719Z     region = self._get_region(bucket_name)
-2026-05-06T17:46:38.740940899Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740943979Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 498, in _get_region
-2026-05-06T17:46:38.740947359Z     response = self._url_open(
-2026-05-06T17:46:38.740950479Z                ^^^^^^^^^^^^^^^
-2026-05-06T17:46:38.740953569Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/minio/api.py", line 427, in _url_open
-2026-05-06T17:46:38.740956900Z     raise response_error
-2026-05-06T17:46:38.740960900Z minio.error.S3Error: S3 operation failed; code: NoSuchBucket, message: The specified bucket does not exist, resource: /media, request_id: 18AD0B11B6B78504, host_id: dd9025bab4ad464b049177c95eb6ebf374d3b3fd1af9251148b658df7ac2e3e8, bucket_name: media
+2026-05-20T02:19:42.092733735Z  + arq==0.28.0
+2026-05-20T02:19:42.092738025Z  + barra==0.1.0 (from file:///app/repo/api)
+2026-05-20T02:19:42.092742325Z  + cachetools==6.2.6
+2026-05-20T02:19:42.092746445Z  + certifi==2026.4.22
+2026-05-20T02:19:42.092750825Z  + cffi==2.0.0
+2026-05-20T02:19:42.092938466Z  + charset-normalizer==3.4.7
+2026-05-20T02:19:42.092945336Z  + click==8.3.3
+2026-05-20T02:19:42.092949556Z  + cryptography==47.0.0
+2026-05-20T02:19:42.092953706Z  + deprecation==2.1.0
+2026-05-20T02:19:42.092957876Z  + distro==1.9.0
+2026-05-20T02:19:42.092962036Z  + docstring-parser==0.18.0
+2026-05-20T02:19:42.106228765Z  + fastapi==0.136.1
+2026-05-20T02:19:42.106278716Z  + fsspec==2026.4.0
+2026-05-20T02:19:42.106294516Z  + h11==0.16.0
+2026-05-20T02:19:42.106297076Z  + h2==4.3.0
+2026-05-20T02:19:42.106299415Z  + hiredis==3.3.1
+2026-05-20T02:19:42.106301785Z  + hpack==4.1.0
+2026-05-20T02:19:42.106303966Z  + httpcore==1.0.9
+2026-05-20T02:06:33.264188556Z  + argon2-cffi==25.1.0
+2026-05-20T02:06:33.264193306Z  + argon2-cffi-bindings==25.1.0
+2026-05-20T02:06:33.264201407Z  + arq==0.28.0
+2026-05-20T02:06:33.264207987Z  + barra==0.1.0 (from file:///app/repo/api)
+2026-05-20T02:06:33.264213217Z  + cachetools==6.2.6
+2026-05-20T02:06:33.264217707Z  + certifi==2026.4.22
+2026-05-20T02:06:33.270199164Z  + cffi==2.0.0
+2026-05-20T02:06:33.270225334Z  + charset-normalizer==3.4.7
+2026-05-20T02:06:33.270254854Z  + click==8.3.3
+2026-05-20T02:06:33.270259304Z  + cryptography==47.0.0
+2026-05-20T02:06:33.270263524Z  + deprecation==2.1.0
+2026-05-20T02:06:33.270267704Z  + distro==1.9.0
+2026-05-20T02:06:33.270272094Z  + docstring-parser==0.18.0
+2026-05-20T02:06:33.270276324Z  + fastapi==0.136.1
+2026-05-20T02:06:33.270280474Z  + fsspec==2026.4.0
+2026-05-20T02:06:33.270295794Z  + h11==0.16.0
+2026-05-20T02:06:33.270298784Z  + h2==4.3.0
+2026-05-20T02:06:33.270301604Z  + hiredis==3.3.1
+2026-05-20T02:06:33.270304424Z  + hpack==4.1.0
+2026-05-20T02:06:33.270307164Z  + httpcore==1.0.9
+2026-05-20T02:06:33.270309964Z  + httptools==0.7.1
+2026-05-20T02:06:33.270312754Z  + httpx==0.28.1
+2026-05-20T02:06:33.270332434Z  + hyperframe==6.1.0
+2026-05-20T02:06:33.270335274Z  + idna==3.13
+2026-05-20T02:06:33.270338004Z  + jiter==0.14.0
+2026-05-20T02:06:33.270340784Z  + jsonpatch==1.33
+2026-05-20T02:06:33.270343534Z  + jsonpointer==3.1.1
+2026-05-20T02:06:33.270346714Z  + langchain-core==1.3.2
+2026-05-20T02:06:33.270349624Z  + langchain-protocol==0.0.14
+2026-05-20T02:06:33.270352384Z  + langgraph==1.1.10
+2026-05-20T02:06:33.270355144Z  + langgraph-checkpoint==4.0.3
+2026-05-20T02:06:33.270357944Z  + langgraph-checkpoint-postgres==3.0.5
+2026-05-20T02:06:33.270360734Z  + langgraph-prebuilt==1.0.12
+2026-05-20T02:06:33.270363805Z  + langgraph-sdk==0.3.13
+2026-05-20T02:06:33.270366834Z  + langsmith==0.7.38
+2026-05-20T02:06:33.270369954Z  + markdown-it-py==4.0.0
+2026-05-20T02:06:33.270375405Z  + mdurl==0.1.2
+2026-05-20T02:06:33.270380274Z  + minio==7.2.20
+2026-05-20T02:06:33.270383794Z  + mmh3==5.2.1
+2026-05-20T02:06:33.270386994Z  + multidict==6.7.1
+2026-05-20T02:06:33.270390335Z  + orjson==3.11.8
+2026-05-20T02:06:33.270393385Z  + ormsgpack==1.12.2
+2026-05-20T02:06:33.270423755Z  + packaging==26.2
+2026-05-20T02:06:33.270427505Z  + postgrest==2.29.0
+2026-05-20T02:06:33.273711345Z  + prometheus-client==0.25.0
+2026-05-20T02:06:33.273735345Z  + propcache==0.4.1
+2026-05-20T02:06:33.273739095Z  + psycopg==3.3.3
+2026-05-20T02:06:33.273742255Z  + psycopg-binary==3.3.3
+2026-05-20T02:06:33.273859486Z  + psycopg-pool==3.3.0
+2026-05-20T02:06:33.273867946Z  + pycparser==3.0
+2026-05-20T02:06:33.273870976Z  + pycryptodome==3.23.0
+2026-05-20T02:06:33.273874176Z  + pydantic==2.13.3
+2026-05-20T02:06:33.273890136Z  + pydantic-core==2.46.3
+2026-05-20T02:06:33.273946387Z  + pydantic-settings==2.14.0
+2026-05-20T02:06:33.273972747Z  + pygments==2.20.0
+2026-05-20T02:06:33.293561596Z  + pyiceberg==0.11.1
+2026-05-20T02:06:33.293586536Z  + pyjwt==2.12.1
+2026-05-20T02:06:33.293590326Z  + pyparsing==3.3.2
+2026-05-20T02:06:33.293593467Z  + pyroaring==1.1.0
+2026-05-20T02:06:33.293596277Z  + python-dateutil==2.9.0.post0
+2026-05-20T02:06:33.293612797Z  + python-dotenv==1.2.2
+2026-05-20T02:06:33.293615856Z  + python-multipart==0.0.27
+2026-05-20T02:06:33.293618727Z  + pyyaml==6.0.3
+2026-05-20T02:06:33.293621576Z  + realtime==2.29.0
+2026-05-20T02:06:33.293624496Z  + redis==5.3.1
+2026-05-20T02:06:33.293627447Z  + requests==2.33.1
+2026-05-20T02:06:33.293630387Z  + requests-toolbelt==1.0.0
+2026-05-20T02:06:33.293633317Z  + rich==14.3.4
+2026-05-20T02:06:33.293636547Z  + sentry-sdk==2.58.0
+2026-05-20T02:06:33.293639437Z  + six==1.17.0
+2026-05-20T02:06:33.293642557Z  + sniffio==1.3.1
+2026-05-20T02:06:33.293645397Z  + starlette==1.0.0
+2026-05-20T02:06:33.293648447Z  + storage3==2.29.0
+2026-05-20T02:06:33.293651357Z  + strenum==0.4.15
+2026-05-20T02:06:33.293654307Z  + strictyaml==1.7.3
+2026-05-20T02:06:33.293657627Z  + structlog==25.5.0
+2026-05-20T02:06:33.293660527Z  + supabase==2.29.0
+2026-05-20T02:06:33.293663427Z  + supabase-auth==2.29.0
+2026-05-20T02:06:33.293666387Z  + supabase-functions==2.29.0
+2026-05-20T02:06:33.293669357Z  + tenacity==9.1.4
+2026-05-20T02:06:33.293672217Z  + typing-extensions==4.15.0
+2026-05-20T02:06:33.293675187Z  + typing-inspection==0.4.2
+2026-05-20T02:06:33.293678047Z  + urllib3==2.6.3
+2026-05-20T02:06:33.293680957Z  + uuid-utils==0.14.1
+2026-05-20T02:06:33.293683857Z  + uvicorn==0.46.0
+2026-05-20T02:06:33.293686567Z  + uvloop==0.22.1
+2026-05-20T02:06:33.293689457Z  + watchfiles==1.1.1
+2026-05-20T02:06:33.293692357Z  + websockets==15.0.1
+2026-05-20T02:06:33.293695277Z  + xxhash==3.7.0
+2026-05-20T02:06:33.293698237Z  + yarl==1.23.0
+2026-05-20T02:06:33.293701177Z  + zstandard==0.25.0
+2026-05-20T02:06:34.490106258Z Downloading ruff (10.8MiB)
+2026-05-20T02:06:34.492422191Z Downloading mypy (14.1MiB)
+2026-05-20T02:06:36.702858459Z  Downloaded ruff
+2026-05-20T02:06:42.550436475Z  Downloaded mypy
+2026-05-20T02:06:43.019555576Z Installed 12 packages in 430ms
+2026-05-20T02:07:06.251176531Z INFO:     Started server process [486]
+2026-05-20T02:07:06.255402667Z INFO:     Waiting for application startup.
+2026-05-20T02:07:06.647193156Z INFO:     Application startup complete.
+2026-05-20T02:07:06.658865256Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-05-14T20:11:21.871043100Z  + annotated-doc==0.0.4
+2026-05-14T20:11:21.871049030Z  + annotated-types==0.7.0
+2026-05-14T20:11:21.871086780Z  + anthropic==0.97.0
+2026-05-14T20:11:21.871089760Z  + anyio==4.13.0
+2026-05-14T20:11:21.871107721Z  + argon2-cffi==25.1.0
+2026-05-14T20:11:21.871125230Z  + argon2-cffi-bindings==25.1.0
+2026-05-14T20:11:21.871173451Z  + arq==0.28.0
+2026-05-14T20:11:21.871190951Z  + barra==0.1.0 (from file:///app/repo/api)
+2026-05-14T20:11:21.871222671Z  + cachetools==6.2.6
+2026-05-14T20:11:21.871255151Z  + certifi==2026.4.22
+2026-05-14T20:11:21.871273071Z  + cffi==2.0.0
+2026-05-14T20:11:21.871304802Z  + charset-normalizer==3.4.7
+2026-05-14T20:11:21.871337052Z  + click==8.3.3
+2026-05-14T20:11:21.871354462Z  + cryptography==47.0.0
+2026-05-14T20:11:21.871386272Z  + deprecation==2.1.0
+2026-05-14T20:11:21.871418622Z  + distro==1.9.0
+2026-05-14T20:11:21.871454573Z  + docstring-parser==0.18.0
+2026-05-14T20:11:21.871503393Z  + fastapi==0.136.1
+2026-05-14T20:11:21.871545343Z  + fsspec==2026.4.0
+2026-05-14T20:11:21.871668603Z  + h11==0.16.0
+2026-05-14T20:11:21.871674483Z  + h2==4.3.0
+2026-05-14T20:11:21.871677643Z  + hiredis==3.3.1
+2026-05-14T20:11:21.871696813Z  + hpack==4.1.0
+2026-05-14T20:11:21.871749364Z  + httpcore==1.0.9
+2026-05-14T20:11:21.871767174Z  + httptools==0.7.1
+2026-05-14T20:11:21.871831464Z  + httpx==0.28.1
+2026-05-14T20:11:21.871849664Z  + hyperframe==6.1.0
+2026-05-14T20:11:21.871870604Z  + idna==3.13
+2026-05-14T20:11:21.871918554Z  + jiter==0.14.0
+2026-05-14T20:11:21.871936215Z  + jsonpatch==1.33
+2026-05-14T20:11:21.871968995Z  + jsonpointer==3.1.1
+2026-05-14T20:11:21.872021155Z  + langchain-core==1.3.2
+2026-05-14T20:11:21.872066795Z  + langchain-protocol==0.0.14
+2026-05-14T20:11:21.872090526Z  + langgraph==1.1.10
+2026-05-14T20:11:21.872108006Z  + langgraph-checkpoint==4.0.3
+2026-05-14T20:11:21.872140706Z  + langgraph-checkpoint-postgres==3.0.5
+2026-05-14T20:11:21.872173526Z  + langgraph-prebuilt==1.0.12
+2026-05-14T20:11:21.872191266Z  + langgraph-sdk==0.3.13
+2026-05-14T20:11:21.872223777Z  + langsmith==0.7.38
+2026-05-14T20:11:21.872256447Z  + markdown-it-py==4.0.0
+2026-05-14T20:11:21.872274157Z  + mdurl==0.1.2
+2026-05-14T20:11:21.872306077Z  + minio==7.2.20
+2026-05-14T20:11:21.872338297Z  + mmh3==5.2.1
+2026-05-14T20:11:21.872355797Z  + multidict==6.7.1
+2026-05-14T20:11:21.872387547Z  + orjson==3.11.8
+2026-05-14T20:11:21.872419448Z  + ormsgpack==1.12.2
+2026-05-14T20:11:21.872436998Z  + packaging==26.2
+2026-05-14T20:11:21.872454508Z  + postgrest==2.29.0
+2026-05-14T20:11:21.872529898Z  + prometheus-client==0.25.0
+2026-05-14T20:11:21.872603818Z  + propcache==0.4.1
+2026-05-14T20:11:21.872621378Z  + psycopg==3.3.3
+2026-05-14T20:11:21.872638818Z  + psycopg-binary==3.3.3
+2026-05-14T20:11:21.872686238Z  + psycopg-pool==3.3.0
+2026-05-14T20:11:21.872689169Z  + pycparser==3.0
+2026-05-14T20:11:21.872721549Z  + pycryptodome==3.23.0
+2026-05-14T20:11:21.872769869Z  + pydantic==2.13.3
+2026-05-14T20:11:21.872802009Z  + pydantic-core==2.46.3
+2026-05-14T20:11:21.872849149Z  + pydantic-settings==2.14.0
+2026-05-14T20:11:21.872866679Z  + pygments==2.20.0
+2026-05-14T20:11:21.872883980Z  + pyiceberg==0.11.1
+2026-05-14T20:11:21.872931390Z  + pyjwt==2.12.1
+2026-05-14T20:11:21.872934290Z  + pyparsing==3.3.2
+2026-05-14T20:11:21.872966630Z  + pyroaring==1.1.0
+2026-05-14T20:11:21.873330001Z  + python-dateutil==2.9.0.post0
+2026-05-14T20:11:21.873347602Z  + python-dotenv==1.2.2
+2026-05-14T20:11:21.873350512Z  + python-multipart==0.0.27
+2026-05-14T20:11:21.873353322Z  + pyyaml==6.0.3
+2026-05-14T20:11:21.873356052Z  + realtime==2.29.0
+2026-05-14T20:11:21.873358772Z  + redis==5.3.1
+2026-05-14T20:11:21.873361502Z  + requests==2.33.1
+2026-05-14T20:11:21.873391782Z  + requests-toolbelt==1.0.0
+2026-05-14T20:11:21.873394692Z  + rich==14.3.4
+2026-05-14T20:11:21.873432662Z  + sentry-sdk==2.58.0
+2026-05-14T20:11:21.873491313Z  + six==1.17.0
+2026-05-14T20:11:21.873494393Z  + sniffio==1.3.1
+2026-05-14T20:11:21.873562593Z  + starlette==1.0.0
+2026-05-14T20:11:21.873580543Z  + storage3==2.29.0
+2026-05-14T20:11:21.873594713Z  + strenum==0.4.15
+2026-05-14T20:11:21.873639483Z  + strictyaml==1.7.3
+2026-05-14T20:11:21.873656964Z  + structlog==25.5.0
+2026-05-14T20:11:21.873706814Z  + supabase==2.29.0
+2026-05-14T20:11:21.873724534Z  + supabase-auth==2.29.0
+2026-05-14T20:11:21.873742464Z  + supabase-functions==2.29.0
+2026-05-14T20:11:21.873793484Z  + tenacity==9.1.4
+2026-05-14T20:11:21.873796335Z  + typing-extensions==4.15.0
+2026-05-14T20:11:21.873859955Z  + typing-inspection==0.4.2
+2026-05-14T20:11:21.873862995Z  + urllib3==2.6.3
+2026-05-14T20:11:21.874114156Z  + uuid-utils==0.14.1
+2026-05-14T20:11:21.874119716Z  + uvicorn==0.46.0
+2026-05-14T20:11:21.874122526Z  + uvloop==0.22.1
+2026-05-14T20:11:21.874125216Z  + watchfiles==1.1.1
+2026-05-14T20:11:21.874127996Z  + websockets==15.0.1
+2026-05-14T20:11:21.874130676Z  + xxhash==3.7.0
+2026-05-14T20:11:21.874133316Z  + yarl==1.23.0
+2026-05-14T20:11:21.874136006Z  + zstandard==0.25.0
+2026-05-14T20:11:22.036605112Z Downloading mypy (14.1MiB)
+2026-05-14T20:11:22.036952544Z Downloading ruff (10.8MiB)
+2026-05-14T20:11:22.373953947Z  Downloaded ruff
+2026-05-14T20:11:23.523594290Z  Downloaded mypy
+2026-05-14T20:11:23.643974316Z Installed 12 packages in 118ms
+2026-05-20T02:19:42.106306975Z  + httptools==0.7.1
+2026-05-20T02:19:42.106309255Z  + httpx==0.28.1
+2026-05-20T02:19:42.106311446Z  + hyperframe==6.1.0
+2026-05-20T02:19:42.106313676Z  + idna==3.13
+2026-05-20T02:19:42.106315815Z  + jiter==0.14.0
+2026-05-20T02:19:42.106317996Z  + jsonpatch==1.33
+2026-05-20T02:19:42.106320126Z  + jsonpointer==3.1.1
+2026-05-20T02:19:42.106322264Z  + langchain-core==1.3.2
+2026-05-20T02:19:42.106324395Z  + langchain-protocol==0.0.14
+2026-05-20T02:19:42.106326624Z  + langgraph==1.1.10
+2026-05-20T02:19:42.106328755Z  + langgraph-checkpoint==4.0.3
+2026-05-20T02:19:42.106330965Z  + langgraph-checkpoint-postgres==3.0.5
+2026-05-20T02:19:42.106472705Z  + langgraph-prebuilt==1.0.12
+2026-05-20T02:19:42.106477236Z  + langgraph-sdk==0.3.13
+2026-05-20T02:19:42.106479836Z  + langsmith==0.7.38
+2026-05-20T02:19:42.106482065Z  + markdown-it-py==4.0.0
+2026-05-20T02:19:42.106484216Z  + mdurl==0.1.2
+2026-05-20T02:19:42.106486716Z  + minio==7.2.20
+2026-05-20T02:19:42.106488876Z  + mmh3==5.2.1
+2026-05-20T02:19:42.106491016Z  + multidict==6.7.1
+2026-05-20T02:19:42.106493185Z  + orjson==3.11.8
+2026-05-20T02:19:42.106495345Z  + ormsgpack==1.12.2
+2026-05-20T02:19:42.106497556Z  + packaging==26.2
+2026-05-20T02:19:42.106499716Z  + postgrest==2.29.0
+2026-05-20T02:19:42.106501906Z  + prometheus-client==0.25.0
+2026-05-20T02:19:42.106504056Z  + propcache==0.4.1
+2026-05-20T02:19:42.106506196Z  + psycopg==3.3.3
+2026-05-20T02:19:42.106508316Z  + psycopg-binary==3.3.3
+2026-05-20T02:19:42.106510476Z  + psycopg-pool==3.3.0
+2026-05-20T02:19:42.106512676Z  + pycparser==3.0
+2026-05-20T02:19:42.106514826Z  + pycryptodome==3.23.0
+2026-05-20T02:19:42.106517606Z  + pydantic==2.13.3
+2026-05-20T02:19:42.106519746Z  + pydantic-core==2.46.3
+2026-05-20T02:19:42.106521916Z  + pydantic-settings==2.14.0
+2026-05-20T02:19:42.106524106Z  + pygments==2.20.0
+2026-05-20T02:19:42.106526226Z  + pyiceberg==0.11.1
+2026-05-20T02:19:42.106544736Z  + pyjwt==2.12.1
+2026-05-20T02:19:42.106548066Z  + pyparsing==3.3.2
+2026-05-20T02:19:42.106551016Z  + pyroaring==1.1.0
+2026-05-20T02:19:42.106554056Z  + python-dateutil==2.9.0.post0
+2026-05-20T02:19:42.106566636Z  + python-dotenv==1.2.2
+2026-05-20T02:19:42.106571686Z  + python-multipart==0.0.27
+2026-05-20T02:19:42.106574776Z  + pyyaml==6.0.3
+2026-05-20T02:19:42.106577456Z  + realtime==2.29.0
+2026-05-20T02:19:42.106580186Z  + redis==5.3.1
+2026-05-20T02:19:42.106582957Z  + requests==2.33.1
+2026-05-20T02:19:42.106585566Z  + requests-toolbelt==1.0.0
+2026-05-20T02:19:42.106588176Z  + rich==14.3.4
+2026-05-20T02:19:42.106590886Z  + sentry-sdk==2.58.0
+2026-05-20T02:19:42.106593696Z  + six==1.17.0
+2026-05-20T02:19:42.106596437Z  + sniffio==1.3.1
+2026-05-20T02:19:42.106599386Z  + starlette==1.0.0
+2026-05-20T02:19:42.106602596Z  + storage3==2.29.0
+2026-05-20T02:19:42.106628436Z  + strenum==0.4.15
+2026-05-20T02:19:42.106631616Z  + strictyaml==1.7.3
+2026-05-20T02:19:42.106634416Z  + structlog==25.5.0
+2026-05-20T02:19:42.106637105Z  + supabase==2.29.0
+2026-05-20T02:19:42.106639726Z  + supabase-auth==2.29.0
+2026-05-20T02:19:42.106642396Z  + supabase-functions==2.29.0
+2026-05-20T02:19:42.106645176Z  + tenacity==9.1.4
+2026-05-20T02:19:42.106647996Z  + typing-extensions==4.15.0
+2026-05-20T02:19:42.106650856Z  + typing-inspection==0.4.2
+2026-05-20T02:19:42.106653526Z  + urllib3==2.6.3
+2026-05-20T02:19:42.106656496Z  + uuid-utils==0.14.1
+2026-05-20T02:19:42.106659796Z  + uvicorn==0.46.0
+2026-05-20T02:19:42.106662946Z  + uvloop==0.22.1
+2026-05-20T02:19:42.106669996Z  + watchfiles==1.1.1
+2026-05-20T02:19:42.106672276Z  + websockets==15.0.1
+2026-05-20T02:19:42.106674466Z  + xxhash==3.7.0
+2026-05-20T02:19:42.106676636Z  + yarl==1.23.0
+2026-05-20T02:19:42.106678826Z  + zstandard==0.25.0
+2026-05-20T02:19:43.121433516Z Downloading ruff (10.8MiB)
+2026-05-20T02:19:43.121462697Z Downloading mypy (14.1MiB)
+2026-05-20T02:19:44.900578815Z  Downloaded ruff
+2026-05-20T02:19:49.405116047Z  Downloaded mypy
+2026-05-20T02:19:49.791153237Z Installed 12 packages in 373ms
+2026-05-20T02:20:06.986049945Z INFO:     Started server process [508]
+2026-05-20T02:20:06.986085005Z INFO:     Waiting for application startup.
+2026-05-20T02:20:07.442064016Z INFO:     Application startup complete.
+2026-05-20T02:20:07.557189814Z INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+2026-05-20T03:52:41.612596310Z INFO:     10.0.2.232:51782 - "GET /.git/config HTTP/1.1" 404 Not Found
+2026-05-20T21:34:51.976658711Z INFO:     10.0.2.232:42122 - "GET /robots.txt HTTP/1.1" 404 Not Found
+2026-05-14T20:00:30.554764319Z                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.554767479Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 649, in solve_dependencies
+2026-05-14T20:00:30.554775449Z     solved_result = await solve_dependencies(
+2026-05-14T20:00:30.554778649Z                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.554782029Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 678, in solve_dependencies
+2026-05-22T12:19:41.135997898Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
+2026-05-22T12:19:41.136016369Z     await route.handle(scope, receive, send)
+2026-05-22T12:19:41.136019638Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+2026-05-14T20:00:30.554785409Z     solved = await call(**solved_result.values)
+2026-05-14T20:00:30.554788539Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.554791719Z   File "/app/repo/api/src/barra/core/auth.py", line 115, in usuario_atual
+2026-05-14T20:00:30.554794969Z     return await usuario_por_token(credentials, settings, conn)
+2026-05-14T20:00:30.554798149Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.554801429Z   File "/app/repo/api/src/barra/core/auth.py", line 83, in usuario_por_token
+2026-05-14T20:00:30.554804699Z     row = await conn.execute(
+2026-05-14T20:00:30.554807859Z           ^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.554810959Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/psycopg/connection_async.py", line 327, in execute
+2026-05-14T20:00:30.554814269Z     raise ex.with_traceback(None)
+2026-05-14T20:00:30.554817429Z psycopg.OperationalError: consuming input failed: server closed the connection unexpectedly
+2026-05-14T20:00:30.554820779Z 	This probably means the server terminated abnormally
+2026-05-14T20:00:30.554824119Z 	before or while processing the request.
+2026-05-14T20:00:30.554827309Z 
+2026-05-14T20:00:30.569613464Z INFO:     10.0.2.42:45662 - "GET /v1/painel/resumo HTTP/1.1" 500 Internal Server Error
+2026-05-14T20:00:30.605535517Z ERROR:    Exception in ASGI application
+2026-05-14T20:00:30.605571008Z Traceback (most recent call last):
+2026-05-14T20:00:30.605575388Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/protocols/http/httptools_impl.py", line 421, in run_asgi
+2026-05-14T20:00:30.605579278Z     result = await app(  # type: ignore[func-returns-value]
+2026-05-14T20:00:30.605583048Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605586558Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 56, in __call__
+2026-05-14T20:00:30.605590048Z     return await self.app(scope, receive, send)
+2026-05-14T20:00:30.605593418Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605600628Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/applications.py", line 1159, in __call__
+2026-05-14T20:00:30.605604078Z     await super().__call__(scope, receive, send)
+2026-05-14T20:00:30.605607278Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/applications.py", line 90, in __call__
+2026-05-14T20:00:30.605610668Z     await self.middleware_stack(scope, receive, send)
+2026-05-14T20:00:30.605630078Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
+2026-05-14T20:00:30.605633569Z     raise exc
+2026-05-14T20:00:30.605636748Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+2026-05-14T20:00:30.605640089Z     await self.app(scope, receive, _send)
+2026-05-14T20:00:30.605643228Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+2026-05-14T20:00:30.605646489Z     with recv_stream, send_stream, collapse_excgroups():
+2026-05-14T20:00:30.605649849Z                                    ^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605653089Z   File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+2026-05-14T20:00:30.605656398Z     self.gen.throw(value)
+2026-05-14T20:00:30.605661259Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
+2026-05-14T20:00:30.605667089Z     raise exc
+2026-05-14T20:00:30.605670299Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+2026-05-14T20:00:30.605673379Z     response = await self.dispatch_func(request, call_next)
+2026-05-14T20:00:30.605676099Z                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605679598Z   File "/app/repo/api/src/barra/core/metrics.py", line 80, in dispatch
+2026-05-14T20:00:30.605682849Z     response = await call_next(request)
+2026-05-14T20:00:30.605685598Z                ^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605690229Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+2026-05-14T20:00:30.605693158Z     raise app_exc from app_exc.__cause__ or app_exc.__context__
+2026-05-14T20:00:30.605696089Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+2026-05-14T20:00:30.605698989Z     await self.app(scope, receive_or_disconnect, send_no_error)
+2026-05-14T20:00:30.605701709Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 96, in __call__
+2026-05-14T20:00:30.605704909Z     await self.simple_response(scope, receive, send, request_headers=headers)
+2026-05-14T20:00:30.605707869Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 154, in simple_response
+2026-05-14T20:00:30.605710989Z     await self.app(scope, receive, send)
+2026-05-14T20:00:30.605714179Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+2026-05-14T20:00:30.605717279Z     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+2026-05-14T20:00:30.605720559Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+2026-05-14T20:00:30.605732599Z     raise exc
+2026-05-14T20:00:30.605739709Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+2026-05-14T20:00:30.605745209Z     await app(scope, receive, sender)
+2026-05-14T20:00:30.605748899Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+2026-05-14T20:00:30.605752409Z     await self.app(scope, receive, send)
+2026-05-14T20:00:30.605755539Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 660, in __call__
+2026-05-14T20:00:30.605758549Z     await self.middleware_stack(scope, receive, send)
+2026-05-14T20:00:30.605761169Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
+2026-05-14T20:00:30.605764059Z     await route.handle(scope, receive, send)
+2026-05-14T20:00:30.605766949Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+2026-05-14T20:00:30.605770039Z     await self.app(scope, receive, send)
+2026-05-14T20:00:30.605773229Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
+2026-05-14T20:00:30.605777509Z     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+2026-05-14T20:00:30.605783789Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+2026-05-14T20:00:30.605787719Z     raise exc
+2026-05-14T20:00:30.605791739Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+2026-05-14T20:00:30.605795239Z     await app(scope, receive, sender)
+2026-05-14T20:00:30.605798309Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
+2026-05-14T20:00:30.605801599Z     response = await f(request)
+2026-05-14T20:00:30.605804699Z                ^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605807949Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 457, in app
+2026-05-14T20:00:30.605811170Z     solved_result = await solve_dependencies(
+2026-05-14T20:00:30.605814399Z                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605817540Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 649, in solve_dependencies
+2026-05-14T20:00:30.605821060Z     solved_result = await solve_dependencies(
+2026-05-14T20:00:30.605824210Z                     ^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605827359Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/dependencies/utils.py", line 678, in solve_dependencies
+2026-05-14T20:00:30.605830740Z     solved = await call(**solved_result.values)
+2026-05-14T20:00:30.605833919Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605849860Z   File "/app/repo/api/src/barra/core/auth.py", line 115, in usuario_atual
+2026-05-14T20:00:30.605853130Z     return await usuario_por_token(credentials, settings, conn)
+2026-05-14T20:00:30.605856410Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605859590Z   File "/app/repo/api/src/barra/core/auth.py", line 83, in usuario_por_token
+2026-05-14T20:00:30.605862820Z     row = await conn.execute(
+2026-05-14T20:00:30.605865790Z           ^^^^^^^^^^^^^^^^^^^
+2026-05-14T20:00:30.605868960Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/psycopg/connection_async.py", line 327, in execute
+2026-05-14T20:00:30.605872410Z     raise ex.with_traceback(None)
+2026-05-14T20:00:30.605875690Z psycopg.OperationalError: consuming input failed: server closed the connection unexpectedly
+2026-05-14T20:00:30.605880990Z 	This probably means the server terminated abnormally
+2026-05-14T20:00:30.605884940Z 	before or while processing the request.
+2026-05-22T12:19:41.136022868Z     await self.app(scope, receive, send)
+2026-05-22T12:19:41.136025838Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
+2026-05-22T12:19:41.136029019Z     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+2026-05-22T12:19:41.136032169Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+2026-05-22T12:19:41.136035419Z     raise exc
+2026-05-22T12:19:41.136038318Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+2026-05-22T12:19:41.136041428Z     await app(scope, receive, sender)
+2026-05-22T12:19:41.136044388Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
+2026-05-22T12:19:41.136047609Z     response = await f(request)
+2026-05-22T12:19:41.136050878Z                ^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.136069878Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 674, in app
+2026-05-22T12:19:41.136072449Z     raw_response = await run_endpoint_function(
+2026-05-22T12:19:41.136079959Z                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.136082459Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 328, in run_endpoint_function
+2026-05-22T12:19:41.136084849Z     return await dependant.call(**values)
+2026-05-22T12:19:41.136087059Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.136089299Z   File "/app/repo/api/src/barra/dominio/modelos/routes.py", line 147, in criar_modelo
+2026-05-22T12:19:41.136091999Z     return _serializar_servico(cast(dict[str, Any], row))
+2026-05-22T12:19:41.136094649Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.136097369Z   File "/app/repo/api/src/barra/dominio/modelos/routes.py", line 907, in _serializar_servico
+2026-05-22T12:19:41.136099699Z     "modelo_id": str(row["modelo_id"]),
+2026-05-22T12:19:41.136102159Z                      ~~~^^^^^^^^^^^^^
+2026-05-22T12:19:41.136104509Z KeyError: 'modelo_id'
+2026-05-22T12:19:41.136106719Z 
+2026-05-22T12:19:41.138883602Z ERROR:    Exception in ASGI application
+2026-05-22T12:19:41.138897302Z Traceback (most recent call last):
+2026-05-22T12:19:41.138901242Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/protocols/http/httptools_impl.py", line 421, in run_asgi
+2026-05-22T12:19:41.138904772Z     result = await app(  # type: ignore[func-returns-value]
+2026-05-22T12:19:41.138907782Z              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.138910812Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/uvicorn/middleware/proxy_headers.py", line 56, in __call__
+2026-05-22T12:19:41.138913962Z     return await self.app(scope, receive, send)
+2026-05-22T12:19:41.138917052Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.138920022Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/applications.py", line 1159, in __call__
+2026-05-22T12:19:41.138923172Z     await super().__call__(scope, receive, send)
+2026-05-22T12:19:41.138926152Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/applications.py", line 90, in __call__
+2026-05-22T12:19:41.138929302Z     await self.middleware_stack(scope, receive, send)
+2026-05-22T12:19:41.138932262Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 186, in __call__
+2026-05-22T12:19:41.138935312Z     raise exc
+2026-05-22T12:19:41.138938182Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/errors.py", line 164, in __call__
+2026-05-22T12:19:41.138941282Z     await self.app(scope, receive, _send)
+2026-05-22T12:19:41.138944242Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 191, in __call__
+2026-05-22T12:19:41.138947393Z     with recv_stream, send_stream, collapse_excgroups():
+2026-05-22T12:19:41.138950513Z                                    ^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.138972572Z   File "/usr/local/lib/python3.12/contextlib.py", line 158, in __exit__
+2026-05-22T12:19:41.138975923Z     self.gen.throw(value)
+2026-05-22T12:19:41.138978982Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_utils.py", line 87, in collapse_excgroups
+2026-05-22T12:19:41.138982153Z     raise exc
+2026-05-22T12:19:41.138985372Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 193, in __call__
+2026-05-22T12:19:41.138988902Z     response = await self.dispatch_func(request, call_next)
+2026-05-22T12:19:41.138992113Z                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.138995273Z   File "/app/repo/api/src/barra/core/metrics.py", line 80, in dispatch
+2026-05-22T12:19:41.139015803Z     response = await call_next(request)
+2026-05-22T12:19:41.139021973Z                ^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.139026403Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 168, in call_next
+2026-05-22T12:19:41.139029713Z     raise app_exc from app_exc.__cause__ or app_exc.__context__
+2026-05-22T12:19:41.139032833Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/base.py", line 144, in coro
+2026-05-22T12:19:41.139035993Z     await self.app(scope, receive_or_disconnect, send_no_error)
+2026-05-22T12:19:41.139039023Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 96, in __call__
+2026-05-22T12:19:41.139042213Z     await self.simple_response(scope, receive, send, request_headers=headers)
+2026-05-22T12:19:41.139045313Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/cors.py", line 154, in simple_response
+2026-05-22T12:19:41.139048503Z     await self.app(scope, receive, send)
+2026-05-22T12:19:41.139051553Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/middleware/exceptions.py", line 63, in __call__
+2026-05-22T12:19:41.139054683Z     await wrap_app_handling_exceptions(self.app, conn)(scope, receive, send)
+2026-05-22T12:19:41.139057713Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+2026-05-22T12:19:41.139060873Z     raise exc
+2026-05-22T12:19:41.139063803Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+2026-05-22T12:19:41.139066953Z     await app(scope, receive, sender)
+2026-05-22T12:19:41.139069993Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/middleware/asyncexitstack.py", line 18, in __call__
+2026-05-22T12:19:41.139073033Z     await self.app(scope, receive, send)
+2026-05-22T12:19:41.139076003Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 660, in __call__
+2026-05-22T12:19:41.139079043Z     await self.middleware_stack(scope, receive, send)
+2026-05-22T12:19:41.139086993Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 680, in app
+2026-05-22T12:19:41.139090163Z     await route.handle(scope, receive, send)
+2026-05-22T12:19:41.139093093Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/routing.py", line 276, in handle
+2026-05-22T12:19:41.139096253Z     await self.app(scope, receive, send)
+2026-05-22T12:19:41.139099183Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 134, in app
+2026-05-22T12:19:41.139102203Z     await wrap_app_handling_exceptions(app, request)(scope, receive, send)
+2026-05-22T12:19:41.139105063Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 53, in wrapped_app
+2026-05-22T12:19:41.139108133Z     raise exc
+2026-05-22T12:19:41.139111603Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/starlette/_exception_handler.py", line 42, in wrapped_app
+2026-05-22T12:19:41.139114773Z     await app(scope, receive, sender)
+2026-05-22T12:19:41.139117773Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 120, in app
+2026-05-22T12:19:41.139120923Z     response = await f(request)
+2026-05-22T12:19:41.139123884Z                ^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.139126983Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 674, in app
+2026-05-22T12:19:41.139130074Z     raw_response = await run_endpoint_function(
+2026-05-22T12:19:41.139133063Z                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.139136133Z   File "/app/repo/api/.venv/lib/python3.12/site-packages/fastapi/routing.py", line 328, in run_endpoint_function
+2026-05-22T12:19:41.139139343Z     return await dependant.call(**values)
+2026-05-22T12:19:41.139142223Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.139145253Z   File "/app/repo/api/src/barra/dominio/modelos/routes.py", line 147, in criar_modelo
+2026-05-22T12:19:41.139148414Z     return _serializar_servico(cast(dict[str, Any], row))
+2026-05-22T12:19:41.139151423Z            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+2026-05-22T12:19:41.139154334Z   File "/app/repo/api/src/barra/dominio/modelos/routes.py", line 907, in _serializar_servico
+2026-05-22T12:19:41.139157294Z     "modelo_id": str(row["modelo_id"]),
+2026-05-22T12:19:41.139160524Z                      ~~~^^^^^^^^^^^^^
+2026-05-22T12:19:41.139163663Z KeyError: 'modelo_id'

@@ -7,11 +7,11 @@
 ```
 WhatsApp ─▶ Evolution ─▶ Webhook (FastAPI)
                           │
-                          ├─ persiste mensagem bruta (mensagens, atendimento_id=NULL)
+                          ├─ persiste mensagem bruta (mensagens, atendimento_id=NULL); só o coordenador cria atendimento
                           ├─ resolve modelo via msg.instance_id
-                          ├─ se mídia áudio → enfileira `transcrever_audio`
-                          ├─ se mídia imagem em Aguardando_confirmacao externo → enfileira `validar_pix`
-                          └─ enfileira `processar_turno` no ARQ (debounce key = conversa_id)
+                          ├─ se mídia áudio → enfileira `transcrever_audio` + `processar_turno`
+                          ├─ se mídia imagem → enfileira `rotear_imagem` (decide validar_pix/portaria/fora-fluxo sob lock:conv — branch 14)
+                          └─ se texto → enfileira `processar_turno` no ARQ (debounce key = conversa_id)
 
 ARQ worker `processar_turno`:
   1. aguarda janela de debounce (~3-5s) para coalescer mensagens picotadas
@@ -19,19 +19,20 @@ ARQ worker `processar_turno`:
   3. resolve/cria atendimento (regra determinística do mvp/03 §5.2)
   4. UPDATE mensagens.atendimento_id em mensagens órfãs da conversa
   5. se há áudio em transcrição pendente → BLPOP do canal Redis (timeout 8s)
-  6. se ia_pausada=true → libera lock e encerra (sem turno)
-  7. monta system prompt em 4 breakpoints + carrega últimas 20 mensagens
-  8. invoca agente: graph.ainvoke({"messages": [...]}, config={"thread_id": conversa_id, "configurable": {...}})
+  6. se ia_pausada=true ou estado terminal (Fechado/Perdido) → encerra (sem turno)
+  7. (montagem do prompt migrou para o nó prepare_context, dentro do grafo)
+  8. invoca agente: graph.ainvoke({"messages": []}, config={"configurable": {"thread_id": conversa_id}}, context=ContextAgente(...))  # prepare_context monta 3 breakpoints (P0; BP4 adiado P1) + 20 msgs
   9. detecta encerramento por escalada (ia_pausada=true após invoke) → descarta texto
-  10. enfileira jobs `enviar_chunk` (humanização) com texto + lista de mídias
-  11. libera lock; drena pending list
+  10. enfileira UM job `enviar_turno` (humanização) com chunks + mídias + msgs do cliente (read receipt) + critico
+  11. drena pending list: se chegou msg durante o turno, re-roda 3-10 sob o MESMO lock; senão libera lock
 
-ARQ worker `enviar_chunk`:
-  1. consulta dedupe key `dedup:envio:{conversa_id}:{turno_id}:{chunk_idx}` (SET NX)
-  2. presence composing por delay proporcional ao tamanho
-  3. envia ao Evolution; recebe evolution_message_id
-  4. INSERT em mensagens (direcao='ia', evolution_message_id real)
-  5. pausa de jitter; próximo chunk
+ARQ worker `enviar_turno` (um por turno; percorre chunks → mídias em ordem):
+  0. read receipt: marca msgs do cliente como lidas + reading delay (~len do inbound) — lê antes de digitar (05 §4.2)
+  1. cancel-on-new-message: se não-crítico e `turno_atual:{conversa_id}` != turno_id → aborta
+  2. dedupe por item via set `enviados:{turno_id}` (mark-after-send)
+  3. presence composing ~0.8-2.0s; envia ao Evolution; recebe evolution_message_id
+  4. INSERT em mensagens (direcao='ia') + registro em envios_evolution (via EvolutionClient)
+  5. pausa de jitter; próximo item
 ```
 
 ## 2. Decisões arquiteturais
@@ -45,7 +46,7 @@ LangGraph oferece dois caminhos:
 
 **Decisão:** **StateGraph custom**. Justificativa:
 
-- `create_react_agent` foi marcado como **legacy/deprecado em LangGraph v1.0** (mai/2025), substituído por `langchain.agents.create_agent` com middleware. O fórum LangChain registra perda de feature concreta na migração (reescrita de histórico de mensagens em função do estado, exatamente o que precisamos para injetar SystemMessages dinâmicas e contexto fresco a cada turno).
+- `create_react_agent` foi marcado como **legacy/deprecado em LangGraph v1.0** (GA out/2025), substituído por `langchain.agents.create_agent` com middleware. O **StateGraph custom não foi deprecado** — segue como o caminho de baixo nível suportado; só o prebuilt saiu. O fórum LangChain registra perda de feature concreta na migração (reescrita de histórico de mensagens em função do estado, exatamente o que precisamos para injetar SystemMessages dinâmicas e contexto fresco a cada turno).
 - O domínio Barra Vips tem **vários gates determinísticos** que cabem mal num loop ReAct opaco: gate de pausa (`ia_pausada=true` antes do LLM), refetch pós-tool, descarte de texto após `escalar`, decisão de cards no grupo, sliding window por turno. StateGraph permite enxerto natural de nós antes/depois do LLM.
 - Observabilidade: cada nó é um span dedicado no LangSmith; com `create_react_agent` o loop fica opaco.
 - Não há custo significativo: temos 8 tools no P0, mas o "loop" é tão simples (`prepare → llm → tools → llm → post_process`) que escrever 5 nós explícitos é mais claro que o prebuilt.
@@ -54,9 +55,9 @@ Estrutura canônica do grafo (detalhada em `02 §1` e `03 §7`):
 
 ```
 START
-  └─▶ prepare_context  (carrega persona/agenda/cliente, monta SystemMessages)
-        └─▶ gate_pausa  (se ia_pausada → END sem invocar LLM)
-              └─▶ llm   (ChatAnthropic com cache_control + adaptive thinking)
+  └─▶ prepare_context  (lê ia_pausada 1º; se pausada → END. Senão monta TODO o contexto: persona/agenda/cliente + janela)
+        └─▶ intercept_disclosure  (alta confiança → canned+post_process; 3ª insistência → escala+END; ambíguo/normal → llm)
+              └─▶ llm   (ChatAnthropic com cache_control; thinking disabled + effort=low no P0 — só Sonnet, §2.6)
                     ├─▶ tools (executa tool_calls; loop volta para llm)
                     └─▶ post_process  (refetch atendimento; descarta texto se escalada)
                           └─▶ END
@@ -66,9 +67,9 @@ A máquina de estados de domínio (`Novo→Triagem→...→Fechado`) **NÃO** é
 
 ### 2.2 thread_id = `conversa_id`
 
-`conversa_id` é UUID único por par `(cliente_id, modelo_id)` — alinha com isolamento por par definido em `mvp/04 §4.1`. Atendimentos sucessivos da mesma conversa compartilham checkpoint LangGraph; cliente recorrente percebe continuidade.
+`conversa_id` é UUID único por par `(cliente_id, modelo_id)` — alinha com isolamento por par definido em `mvp/04 §4.1`. É usado como `thread_id` no `RunnableConfig` (tag de trace LangSmith e chave de escopo das tools), mesmo **sem checkpointer no P0** (`§2.3`, `02 §3`).
 
-**Não rotacionamos checkpoint** ao fechar atendimento — o histórico de mensagens da IA fica acumulado na thread, e a sliding window de 20 mensagens (`02 §4`) já limita o que entra no prompt em runtime. O checkpoint serve principalmente para resumir/auditar; o conteúdo do prompt é montado pelo coordenador.
+**Sem persistência de estado entre turnos:** o nó `prepare_context` monta o prompt do zero a cada turno a partir da tabela `mensagens` (sliding window de 20, `02 §4`). O histórico vive no Postgres, não num checkpoint LangGraph; a continuidade para o cliente recorrente vem do Postgres, não do estado do grafo.
 
 ### 2.3 State minimalista (`MessagesState`)
 
@@ -82,9 +83,11 @@ class EstadoAgente(MessagesState):
 
 Nada de `atendimento_id`, `cliente_id`, `modelo_id` no State. Esses dados:
 - são **injetados como `SystemMessage` dinâmica** a cada turno pelo coordenador (`02 §5`);
-- ficam **acessíveis às tools via `RunnableConfig.configurable`** quando precisarem consultar DB com escopo correto.
+- ficam **acessíveis aos nós e tools via Runtime Context API** (`runtime.context`) quando precisarem consultar DB com escopo correto.
 
-**Justificativa:** evita duplicar verdade entre Postgres e checkpoint LangGraph. Postgres é fonte de verdade (`mvp/03 §7.4`). Checkpoint só guarda histórico de mensagens; metadados ficam fora.
+**Justificativa:** Postgres é a única fonte de verdade (`mvp/03 §7.4`). O estado do grafo é efêmero por invocação (**sem checkpointer no P0**, `02 §3`) e carrega só as mensagens daquele turno; deps de runtime (pool, redis) e ids de escopo ficam no **`context`** (`graph.ainvoke(..., context=ContextAgente(...))`), não no estado.
+
+> **Por que `context` e não `config['configurable']` (LangGraph 1.x):** no 1.x a **Runtime Context API** (`context_schema=ContextAgente` + `context=`) é a forma idiomática de passar dependências de runtime; `config['configurable']` é o padrão legado. Decisivo aqui: o checkpointer **serializa o `configurable`** — passar `db_pool`/`redis` (não-serializáveis) por ali quebra com `TypeError` (`langgraph#3441`) assim que o checkpointer for religado no P1 (`§6.7`). O `context` é run-scoped e **não** é serializado. Só o `thread_id` (= `conversa_id`) fica em `configurable`, que é nativo do checkpointer. Nós lêem `runtime: Runtime[ContextAgente]`; tools lêem `runtime: ToolRuntime[ContextAgente]` (`ContextAgente` definido em `agente/contexto.py`; detalhe em `04 §1.1`).
 
 ### 2.4 Coordenador como ARQ job
 
@@ -95,43 +98,42 @@ Webhook responde 200 imediatamente após persistir mensagem e enfileirar `proces
 - Permite cancelamento granular: ao chegar nova mensagem do cliente em conversa cuja IA ainda está enviando chunks, ARQ cancela jobs pendentes (`05 §3`).
 - Desacopla webhook (latência baixa, idempotência simples) de turno (latência alta, idempotência por `turno_id`).
 
-### 2.5 Anthropic SDK direto (sem OpenRouter)
+### 2.5 Anthropic SDK direto para o chat (vision via OpenRouter, áudio via OpenAI)
 
-Todo o chat (e o vision do Pix) vai direto para a Anthropic API via `anthropic` Python SDK. **Não há OpenRouter no caminho.**
+O **chat** vai direto para a Anthropic API via `anthropic` Python SDK (default `llm_chat_provider="anthropic"`). O **vision do Pix** migrou para **OpenRouter** (cliente OpenAI-compatível, `06 §2.3`/`§0` item 4) e a **transcrição** usa OpenAI Whisper direto (`06 §1.3`) — ambos isolados nos workers, fora do chat.
 
 Justificativa:
 - **Cache funciona como anunciado**: `cache_control` per-block com TTL `5m`/`1h` é nativo da Anthropic; via OpenRouter tem caveats relevantes (a doc oficial OpenRouter restringe `cache_control` automático ao roteamento direto à Anthropic, e issues abertas reportam comportamento "estático" mesmo nesse caso). Provider único elimina essa incerteza.
 - **Tool calling premium**: Sonnet 4.6 ~80%+ Toolathlon vs ~50% Kimi K2.6 — diferença material para os turnos com `consultar_*` + `registrar_extracao` + `escalar` no mesmo turno.
 - **PT-BR de qualidade premium**: Anthropic investe em multilingual; Moonshot foca CN/EN. Para um produto onde "uma palavra errada perde o cliente premium" é regra de domínio (`CONTEXT.md`), tom é a variável mais cara.
-- **Sem adapter custom**: usamos `langchain_anthropic.ChatAnthropic` (mantido pelo LangChain), que já entende `additional_kwargs={"cache_control": ...}` e adaptive thinking. Adeus subclasse de `BaseChatModel`.
-- **SDK de Pydantic-first**: `client.messages.parse(output_format=Schema)` valida a saída automaticamente — usado em `registrar_extracao` e no Pix vision.
+- **Sem adapter custom**: usamos `langchain_anthropic.ChatAnthropic` **1.x** (mantido pelo LangChain), que entende `cache_control` em **content blocks** do `SystemMessage` (forma idiomática que adotamos; `additional_kwargs` do 0.3 **continua funcionando** no 1.x — não é migração obrigatória, ver `03 §5`) e o controle de `thinking`. Adeus subclasse de `BaseChatModel`.
+- **SDK de Pydantic-first**: `client.messages.parse(output_format=Schema)` valida saída estruturada automaticamente — agora com **constrained decoding real** (Structured Outputs **GA, sem beta header**; o antigo `structured-outputs-2025-11-13` foi promovido a GA e o param migrou para `output_config.format`; garantia de schema mais forte que JSON prompt-based). (O Pix vision, antes por aqui, migrou para OpenRouter json_schema — `06 §2.3`; ver ressalva de robustez lá.)
 
 Cliente Anthropic vive em `core/llm.py` como wrapper fino sobre `anthropic.AsyncAnthropic`. `langchain-anthropic` é dependência opcional usada só pelo grafo.
 
-**Transcrição é exceção.** Anthropic não faz speech-to-text. Para áudio do cliente usamos OpenAI Whisper API direto (`whisper-1`), isolado em `workers/media.py`. Esse é o único provider externo do MVP — escolha consciente para não bloquear no espera de feature.
+**Transcrição e vision são as exceções não-Anthropic.** Anthropic não faz speech-to-text: para áudio do cliente usamos OpenAI Whisper API direto (`whisper-1`), isolado em `workers/media.py`; o vision do Pix usa OpenRouter (`06 §2.3`). São os dois providers externos do MVP — escolhas conscientes para não bloquear em features.
 
-### 2.6 Sonnet 4.6 como modelo principal, Haiku 4.5 como fallback
+### 2.6 Sonnet 4.6 como modelo único (sem fallback de modelo)
 
-| Aspecto | `claude-sonnet-4-6` | `claude-haiku-4-5` (fallback) |
-|---------|---------------------|--------------------------------|
-| Input | $3.00 / M | $1.00 / M |
-| Output | $15.00 / M | $5.00 / M |
-| Cache read | ~$0.30 / M (~0.1×) | ~$0.10 / M |
-| Cache write 1h | $6.00 / M (2×) | $2.00 / M |
-| Context | 1M | 200K |
-| Max output | 64K (streaming) | 64K (streaming) |
-| Tool calling | top-tier | sólido |
-| PT-BR premium | sim | sim (degradação tolerável) |
+| Aspecto | `claude-sonnet-4-6` |
+|---------|---------------------|
+| Input | $3.00 / M |
+| Output | $15.00 / M |
+| Cache read | ~$0.30 / M (~0.1×) |
+| Cache write 1h | $6.00 / M (2×) |
+| Context | 1M |
+| Max output | 64K (streaming) |
+| Tool calling | top-tier |
+| PT-BR premium | sim |
 
 **Estimativa de custo P0** (1 modelo piloto, ~800 turnos/dia, ~6k tokens input médio, hit rate cache ≥70%):
 - Sonnet 4.6: ~$13/dia ≈ **R$ 2 mil/mês** (sem cache hits seria ~$28).
-- Haiku 4.5 (se for fallback frequente): ~$5/dia ≈ R$ 750/mês.
 
-**Política de fallback** (detalhes em `03 §6.3`):
+**Política de indisponibilidade** (detalhes em `03 §6.3`): **não há modelo de fallback** — o chat roda só em Sonnet 4.6.
 - `anthropic.RateLimitError` (429) → retry com backoff (3 tentativas, exponential 2^n + jitter).
-- `anthropic.APIStatusError(status >= 500)` após retry → fallback para Haiku 4.5 **com reset do turno** (não reaproveitar tool_calls da resposta Sonnet anterior — formato é compatível, mas misturar mid-turn corrompe contexto).
-- Circuit breaker: ≥3 fallbacks consecutivos em 5min → alerta Sentry, próxima invocação pula direto para Haiku.
-- **Não há fallback cross-provider.** Se ambos falharem, `escalar_por_exaustao` abre handoff para Fernando.
+- 429 esgotado, `anthropic.APIStatusError(status >= 500)` ou timeout → `escalar_por_exaustao` abre handoff para Fernando. Não trocamos de modelo: quando o Sonnet não responde, a conversa vai para um humano.
+
+**Effort (Sonnet 4.6):** o chat roda com `thinking={"type":"disabled"}` **+ `output_config={"effort":"low"}`** — o default de effort é `high` (mais latência/custo) e tom/tamanho da resposta vêm da persona/few-shot, não do effort. (Effort é GA, sem beta header.) Detalhe em `03 §6`.
 
 Detalhes de seleção em `03 §6`.
 
@@ -144,24 +146,26 @@ api/src/barra/
 │   ├── graph.py                       ← build_graph() retornando StateGraph compilado (5 nós)
 │   ├── estado.py                      ← EstadoAgente (alias MessagesState) + tipos auxiliares
 │   ├── nos/                           ← NOVO: nós do StateGraph
-│   │   ├── prepare_context.py         ← carrega persona/agenda/cliente, monta SystemMessages
-│   │   ├── gate_pausa.py              ← curto-circuita se ia_pausada=true
-│   │   ├── llm.py                     ← invoca ChatAnthropic; trata fallback Sonnet → Haiku
+│   │   ├── prepare_context.py         ← dono do contexto: gate ia_pausada + persona/agenda/cliente + janela
+│   │   ├── intercept_disclosure.py    ← canned/escala/llm p/ disclosure (10 §3.1, §8)
+│   │   ├── llm.py                     ← invoca ChatAnthropic; retry no 429, exaustão → escala
 │   │   ├── tools.py                   ← executa tool_calls; loop volta para llm
 │   │   └── post_process.py            ← refetch atendimento; descarta texto se escalada
 │   ├── prompts/
-│   │   ├── persona.md.j2              ← Jinja2; vars do dataclass Persona
-│   │   ├── regras.md.j2               ← Jinja2; vars: tipo_atendimento_aceito, valor_padrao
-│   │   ├── faq.md.j2                  ← Jinja2; for faq in faqs ...
-│   │   ├── programas.md.j2            ← Jinja2; tabela de programas e valores
+│   │   ├── persona.md.j2              ← Jinja2 GERAL (voz/conduta/disclosure; sem vars por-modelo)
+│   │   ├── regras.md.j2               ← Jinja2 GERAL (conduta; tipos_aceitos saiu p/ identidade)
+│   │   ├── faq.md                     ← arquivo versionado GERAL (modelo_faq foi dropada em 0030; ver 03 §3.2)
+│   │   ├── identidade.md.j2           ← Jinja2 POR-MODELO: nome/idade/idiomas/localização + tipos_aceitos
+│   │   ├── programas.md.j2            ← Jinja2 POR-MODELO: tabela de programas e valores
 │   │   └── contexto_dinamico.md.j2    ← turno-a-turno: atendimento, cliente, agenda, pix_status
-│   ├── persona.py                     ← dataclass Persona + render_*() helpers
+│   ├── persona.py                     ← dataclass IdentidadeModelo + render_persona()/render_identidade()
 │   ├── llm.py                         ← build_messages(state) + cache_control kwargs + factory ChatAnthropic
 │   ├── classificador.py               ← (P1) classificador de saída interna/externa
 │   └── ferramentas/
 │       ├── __init__.py                ← export TOOLS = [consultar_*, registrar_extracao, ...]
 │       ├── _idempotencia.py           ← helper _executar_idempotente
-│       ├── leitura.py                 ← consultar_agenda, consultar_cliente, consultar_faq, consultar_pix_status, consultar_midia
+│       ├── leitura.py                 ← consultar_agenda (única leitura; cliente/pix_status/faq viram contexto no prompt, consultar_midia colapsada em enviar_midia(tag) — 04 §1, decisão 2026-05-23)
+│       ├── _classificador.py          ← NOVO: regex disclosure/jailbreak/prova sobre a janela (chamado pelo prepare_context)
 │       ├── extracao.py                ← registrar_extracao (delega a dominio.atendimentos.service.registrar_extracao_ia)
 │       ├── pix.py                     ← pedir_pix_deslocamento
 │       ├── midia.py                   ← enviar_midia
@@ -170,17 +174,16 @@ api/src/barra/
 │   ├── routes.py                      ← já existe; adicionar despacho para `processar_turno`
 │   ├── debounce.py                    ← marca conversa_id como "aguardando" no Redis com TTL = janela
 │   ├── despacho.py                    ← enfileira processar_turno; idempotência via dedupe key
-│   └── classificador.py               ← NOVO: detecta disclosure/jailbreak/explicito por regex; anota no config para elevar effort
+│   └── classificador.py               ← (opcional) regex só p/ métrica/log; a classificação que DIRIGE o intercept roda no grafo (agente/_classificador.py, decisão 2026-05-23)
 ├── workers/
 │   ├── settings.py                    ← ARQ settings (redis pool, queues)
 │   ├── coordenador.py                 ← `processar_turno` job (NOVO; ainda não existe)
 │   ├── envio.py                       ← já existe; humanização chunk-by-chunk
 │   ├── media.py                       ← transcrever_audio (OpenAI Whisper API direto — NOVO)
-│   ├── pix.py                         ← validar_pix (Anthropic vision via messages.parse — NOVO)
-│   ├── timeouts.py                    ← cron 5min para auto_timeout / auto_timeout_interno
-│   └── retencao.py                    ← cron diário para apagar checkpoints LangGraph >90 dias (NOVO)
+│   ├── pix.py                         ← validar_pix (vision via OpenRouter, json_schema — NOVO)
+│   └── timeouts.py                    ← cron 5min para auto_timeout / auto_timeout_interno
 └── core/
-    ├── llm.py                         ← AsyncAnthropic client + factory ChatAnthropic (sonnet + haiku)
+    ├── llm.py                         ← AsyncAnthropic client + factory ChatAnthropic (sonnet)
     ├── redis.py                       ← já existe; lock + dedupe helpers
     └── ...
 ```
@@ -207,12 +210,18 @@ async def enfileirar_turno(
     evolution_message_id: str,
     aguardar_transcricao: bool = False,
 ) -> None:
-    """Marca debounce e enfileira processar_turno respeitando coalescência."""
-    # 1. registra última mensagem na janela de debounce
+    """Marca debounce + pendência e enfileira processar_turno respeitando coalescência."""
+    # 1. marca pendência — lida pelo drain loop do coordenador (§4.3 passo 7)
+    await redis.set(f"pending:conv:{conversa_id}", evolution_message_id, ex=120)
+
+    # 2. registra última mensagem na janela de debounce
     chave = f"debounce:conv:{conversa_id}"
     await redis.set(chave, evolution_message_id, ex=10)  # TTL > janela de debounce
 
-    # 2. enfileira job único por conversa (substitui se já houver pendente)
+    # 3. coalesce via _job_id estático: ARQ faz SET NX (o 1º vence; enqueues seguintes
+    #    na janela são DESCARTADOS — não há "substituição"). O turno lê a sliding window
+    #    inteira ao rodar, então quem chegou na janela já entra; quem chega COM o turno
+    #    já rodando é recuperado pelo drain loop (§4.3), não por reenfileiramento.
     job_id = f"turno:{conversa_id}"
     await arq_pool.enqueue_job(
         "processar_turno",
@@ -222,6 +231,8 @@ async def enfileirar_turno(
         _defer_by=timedelta(seconds=4),  # janela de debounce
     )
 ```
+
+> **`processar_turno` precisa ser definido com `keep_result=0`** (na função/`WorkerSettings`, `07`). O `enqueue_job` deduplica pela *result key* além da *job key*: com o `keep_result` default de 3600s do ARQ, o re-enqueue do mesmo `_job_id` (drain loop, `07`) retornaria `None` silenciosamente por 1h após o turno terminar (`arq#416`/`#432`) — quebrando a coalescência. `keep_result=0` libera a chave assim que o job acaba.
 
 ### 4.3 Coordenador (`workers/coordenador.py`)
 
@@ -235,61 +246,71 @@ async def processar_turno(
     redis: Redis = ctx["redis"]
     pool: AsyncConnectionPool = ctx["db_pool"]
     graph = ctx["graph"]
-    turno_id = uuid7()
 
     async with adquirir_lock(redis, f"lock:conv:{conversa_id}", ttl=60, heartbeat=15) as lock:
-        async with pool.connection() as conn:
-            # 1. resolve atendimento e atualiza órfãs
-            atendimento = await resolver_atendimento(conn, UUID(conversa_id))
-            await atualizar_orfaos(conn, UUID(conversa_id), atendimento["id"])
+        loop_idx = 0
+        while True:  # drena pending list (passo 11): msgs chegadas durante o turno
+            # turno_id DETERMINÍSTICO por (job, iteração): no retry do ARQ as dedupe keys
+            # de envio/tool são reusadas → sem resposta duplicada (§6.7). Nunca uuid7() runtime.
+            turno_id = uuid5(NS_TURNO, f"{ctx['job_id']}:{loop_idx}")
+            await redis.delete(f"pending:conv:{conversa_id}")  # limpa ANTES de ler a janela
 
-            # 2. se ia_pausada, encerra
-            if atendimento["ia_pausada"]:
-                logger.info("ia_pausada, sem turno", conversa_id=conversa_id)
-                return
+            async with pool.connection() as conn:
+                # 1. resolve atendimento e atualiza órfãs
+                atendimento = await resolver_atendimento(conn, UUID(conversa_id))
+                await atualizar_orfaos(conn, UUID(conversa_id), atendimento["id"])
 
-            # 3. aguarda transcrição se necessário
-            if aguardar_transcricao:
-                ok = await aguardar_transcricoes(redis, atendimento["id"], timeout=8)
-                if not ok:
-                    logger.warning("transcricao_timeout", atendimento_id=atendimento["id"])
-                    # segue mesmo assim com placeholder
+                # 2. se ia_pausada ou estado terminal, encerra
+                if atendimento["ia_pausada"] or atendimento["estado"] in ESTADOS_TERMINAIS:
+                    logger.info("sem turno", conversa_id=conversa_id, estado=atendimento["estado"])
+                    return
 
-            # 4. monta contexto e invoca grafo
-            persona = await carregar_persona(conn, atendimento["modelo_id"])
-            mensagens = await carregar_mensagens(conn, UUID(conversa_id), limite=20)
-            system_messages = build_system_messages(persona, atendimento, mensagens)
+                # 3. aguarda transcrição se necessário
+                if aguardar_transcricao:
+                    ok = await aguardar_transcricoes(redis, atendimento["id"], timeout=8)
+                    if not ok:
+                        logger.warning("transcricao_timeout", atendimento_id=atendimento["id"])
+                        # segue mesmo assim com placeholder
 
-            entrada = {"messages": system_messages + [HumanMessage(content=ultima_msg(mensagens))]}
-            config = {
-                "configurable": {
-                    "thread_id": conversa_id,
-                    "atendimento_id": str(atendimento["id"]),
-                    "modelo_id": str(atendimento["modelo_id"]),
-                    "cliente_id": str(atendimento["cliente_id"]),
-                    "turno_id": str(turno_id),
-                    "db_pool": pool,
-                    "redis": redis,
-                }
-            }
+                # 4. invoca grafo — prepare_context monta TODO o contexto dentro do grafo.
+                #    thread_id em configurable (nativo do checkpointer); deps de runtime e
+                #    ids de escopo no context (Runtime Context API, §2.3). NUNCA pool/redis
+                #    em configurable: o checkpointer serializa o configurable (langgraph#3441).
+                config = {"configurable": {"thread_id": conversa_id}}
+                contexto = ContextAgente(
+                    db_pool=pool,
+                    redis=redis,
+                    modelo_id=str(atendimento["modelo_id"]),
+                    atendimento_id=str(atendimento["id"]),
+                    cliente_id=str(atendimento["cliente_id"]),
+                    turno_id=str(turno_id),
+                )
+                try:
+                    resultado = await graph.ainvoke(
+                        {"messages": []}, config=config, context=contexto
+                    )
+                except GraphRecursionError:  # de langgraph.errors; captura por classe (07 §3)
+                    await escalar_por_exaustao(conn, atendimento["id"], turno_id)  # exaustão → escala
+                    return
 
-            try:
-                resultado = await graph.ainvoke(entrada, config=config)
-            except RecursionError:
-                # exaustão de iterações — escala silenciosamente
-                await escalar_por_exaustao(conn, atendimento["id"], turno_id)
-                return
+                # 5. escalada OU transição externa (cron/comando): ia_pausada OU estado
+                #    terminal → descarta texto (compare-and-set, §6.10)
+                atendimento_pos = await refetch_atendimento(conn, atendimento["id"])
+                if atendimento_pos["ia_pausada"] or atendimento_pos["estado"] in ESTADOS_TERMINAIS:
+                    logger.info("turno_descartado", atendimento_id=atendimento["id"])
+                    return
 
-            # 5. checa se foi escalada (ia_pausada agora true) → descarta texto
-            atendimento_pos = await refetch_atendimento(conn, atendimento["id"])
-            if atendimento_pos["ia_pausada"]:
-                logger.info("turno_escalado", atendimento_id=atendimento["id"])
-                return
+                # 6. extrai resposta + mídias do State final e despacha humanização
+                resposta = extrair_resposta(resultado["messages"])
+                await despachar_humanizacao(redis, conversa_id, turno_id, resposta)
 
-            # 6. extrai resposta + mídias do State final e despacha humanização
-            resposta = extrair_resposta(resultado["messages"])
-            await despachar_humanizacao(redis, conversa_id, turno_id, resposta)
+            # 7. drena: se chegou msg durante o turno, repete sob o MESMO lock
+            if not await redis.get(f"pending:conv:{conversa_id}"):
+                break
+            loop_idx += 1
 ```
+
+> `ESTADOS_TERMINAIS = {"Fechado", "Perdido"}`; `NS_TURNO` é um namespace UUID fixo do módulo. O drain loop fecha a janela "mensagem chega com o turno rodando"; resta um intervalo sub-milissegundo entre o passo 7 e o retorno do job — recuperado pela próxima mensagem do cliente.
 
 ### 4.4 Pós-turno (humanização)
 
@@ -314,15 +335,21 @@ agente/ferramentas/escalada ─▶ dominio/escaladas/service.abrir_handoff (já 
 
 Itens onde a spec técnica do agente substitui ou refina a especificação de produto.
 
-### 6.1 Pix recusado mantém IA pausada
+### 6.1 Pix nunca trava o fluxo (validado ou duvidoso)
 
-`mvp/04 §3.2` diz: "Pix recusado por Fernando → atendimento volta a Aguardando_confirmacao com `ia_pausada=false`."
+`mvp/04 §3.2` tratava Pix recusado como decisão de Fernando que volta o atendimento para `Aguardando_confirmacao`. Versões anteriores desta spec endureciam isso ("Pix duvidoso → IA permanece pausada até Fernando devolver").
 
-**Override:** `atualizar_pix(invalido)` mantém `ia_pausada=true` (motivo `pix_em_revisao` permanece). IA só volta ativa quando Fernando devolve manualmente pelo painel ou via comando `IA assume #N` no grupo.
+**Decisão (grilling 2026-05-22):** o fluxo **nunca trava por Pix**. O recebimento do comprovante sempre faz o atendimento avançar para `Confirmado` com `ia_pausada=true` (motivo `modelo_em_atendimento`), igual ao Pix validado — seja o comprovante validado ou duvidoso. A duvidez é **informativa**, não bloqueante:
 
-**Justificativa (decisão QA 2026-05-02):** após recusa, a próxima ação não é da IA — é Fernando decidindo se pede 2º Pix, descarta o atendimento ou orienta a modelo. IA voltar ativa significa que próxima mensagem do cliente dispara turno onde a IA pode tentar pedir Pix de novo, contradizendo orientação operacional. Mantê-la pausada força decisão humana explícita.
+- o card "saída confirmada" no grupo **sinaliza a duvidez** à modelo (com o motivo), porque é ela quem decide pedir o Uber e assume o risco do deslocamento;
+- o caso entra numa **fila assíncrona de revisão de Fernando** no painel (ele vê depois, no fim do dia);
+- não há handoff síncrono, nem pausa esperando decisão de Fernando, nem `pix_em_revisao` bloqueante.
 
-**Implementação:** alterar `dominio/escaladas/service.py:_atualizar_pix` quando `decisao=="invalido"` para preservar `ia_pausada=true`. Ver `04 §3.5` e `07 §5`.
+**Justificativa:** a maioria das divergências é benigna (formato de chave, valor com/sem centavos, timestamp). Travar o fluxo gerava handoff para Fernando em todo caso duvidoso e atrasava a saída da modelo. Mover a decisão para a modelo (que está no momento certo e assume o risco) + revisão assíncrona de Fernando preserva a velocidade sem cegar quem paga o Uber.
+
+**Implementação:** `workers/pix.py:validar_pix` aplica a transição para `Confirmado` em ambos os casos; o resultado da validação (validado/duvidoso + motivo) vai no payload do card e numa fila de revisão. Remover o override que preservava `ia_pausada=true` por `pix_em_revisao`. Ver `06 §2.2` e `07 §5`.
+
+**Estados legados (P0 não produz):** como o fluxo sempre avança, o pipeline só seta `pix_status ∈ {validado, em_revisao}` e `ia_pausada_motivo='modelo_em_atendimento'`. Os valores `pix_status ∈ {invalido, enviado}` e `ia_pausada_motivo='pix_em_revisao'` permanecem no schema (remover valor de ENUM no Postgres é custoso e o schema está estabilizado) mas **não são produzidos pelo pipeline P0** — `invalido` só existiria como veredito manual histórico. A revisão assíncrona de Fernando vive em `comprovantes_pix.decisao_final` (índice da fila já criado em `0001`). Se a modelo desconfiar do comprovante, a saída é o comando **`perdido motivo=risco`** no grupo (Registro de resultado), não um estado de Pix.
 
 ### 6.2 `mvp/04 §3` valor único R$100 vs schema com `programas`
 
@@ -352,55 +379,71 @@ Itens onde a spec técnica do agente substitui ou refina a especificação de pr
 
 ### 6.6 Anthropic SDK direto + StateGraph custom
 
-`mvp/07 §3` cita "Anthropic SDK 0.42 com prompt caching" como stack mas não prescreve provider. `docs/agente` 1.0 colocou OpenRouter + Kimi K2.6 como solução; **esta revisão (1.1) reverte para Anthropic SDK direto + Sonnet 4.6 + fallback Haiku 4.5**.
+`mvp/07 §3` cita "Anthropic SDK 0.42 com prompt caching" como stack mas não prescreve provider. `docs/agente` 1.0 colocou OpenRouter + Kimi K2.6 como solução; **esta revisão (1.1) reverte para Anthropic SDK direto + Sonnet 4.6** (sem modelo de fallback — ver `§2.6`).
 
 **Justificativa (revisão pós-QA 2026-05-02):**
 - Cache `cache_control` 4 breakpoints é nativo da Anthropic — sem caveats; via OpenRouter tinha comportamento incerto (`OpenRouterTeam/ai-sdk-provider#35`, `sst/opencode#1245`).
 - `create_react_agent` foi deprecado em LangGraph v1.0 — adoção viraria dívida técnica de saída. Migramos para StateGraph custom, que casa melhor com gates determinísticos do domínio (`§2.1`).
 - Custo absoluto P0: ~R$ 2 mil/mês com Sonnet 4.6 + cache 70% — desprezível vs. ticket médio premium da operação. Diferença para Kimi via OpenRouter é da ordem de R$ 200/mês — não compensa risco em PT-BR e tom premium.
 
-**Implicação para o código existente em `core/llm.py`:** descartar wrapper `OpenRouterClient` e substituir por `core/llm.py:criar_anthropic_client(settings) -> AsyncAnthropic` + `core/llm.py:criar_chat_anthropic(settings, modelo) -> ChatAnthropic`. Nada de subclasse de `BaseChatModel`.
+**Implicação para o código existente em `core/llm.py`:** descartar wrapper `OpenRouterClient` e usar `core/llm.py:criar_chat_anthropic(settings, modelo) -> ChatAnthropic` para o chat. (`criar_anthropic_client(settings) -> AsyncAnthropic` ficou **dispensável no P0** — o vision do Pix migrou para OpenRouter, `06 §2.3`; sem consumidor do cliente raw.) Nada de subclasse de `BaseChatModel`.
 
-### 6.7 Retenção de checkpoint LangGraph
+### 6.7 Sem checkpointer LangGraph no P0
 
-`mvp/03 §7.4` define Postgres como fonte de verdade mas não prescreve TTL para tabelas de checkpoint LangGraph (`checkpoints`, `checkpoint_blobs`, `checkpoint_writes`).
+Versões anteriores usavam `AsyncPostgresSaver` (checkpoint por `thread_id`) + cron de retenção de 90 dias. **Decisão (grilling 2026-05-22): removido no P0.**
 
-**Decisão:** cron noturno em `workers/retencao.py` que apaga checkpoints sem atividade há **>90 dias por thread** (`thread_id = conversa_id`). `mensagens` permanece como histórico oficial.
+**Justificativa:** o prompt é montado do zero a cada turno a partir do Postgres (sliding window 20, `02 §4`), então o checkpoint nunca alimentava o prompt — e o reducer `add_messages` com `thread_id` persistente acumulava todo o histórico no estado (quebrando a sliding window) e duplicava as `SystemMessage` dinâmicas a cada turno. Auditoria já vem de `mensagens` + `eventos`; idempotência/resume já vêm de `tool_calls` (`04 §5`) + re-execução do turno. **Mas a idempotência do retry exige `turno_id` determinístico:** `turno_id = uuid5(NS_TURNO, f"{job_id}:{loop_idx}")` (`04 §3.3`), nunca `uuid7()` em runtime — senão o retry do ARQ gera `turno_id` novo, fura a dedupe `dedup:envio:{conversa_id}:{turno_id}:{chunk_idx}` e o cliente recebe a resposta duplicada. O grafo roda com `grafo.compile()` **sem** `checkpointer=` — estado efêmero por invocação. Some o `workers/retencao.py` e seu cron. Se P1 trouxer interrupts/time-travel, reintroduzir o checkpointer com ids estáveis por mensagem desde o início.
 
-**Justificativa:** sem retenção, `checkpoint_blobs` cresce indefinidamente — em 6 meses em produção com cliente premium recorrente, vira problema operacional (Lord Patil reportou esse padrão em jun/2025). Como o coordenador monta o prompt do zero a cada turno (sliding window 20 + contexto fresco), o checkpoint serve para auditoria e resume-from-error — 90 dias é folga para análise post-mortem sem inflar DB.
+### 6.8 Negação ativa de IA + interceptação canned (override `CONTEXT.md`)
 
-**Implementação:** ARQ cron diário (03:00 BRT) com SQL idempotente:
+`CONTEXT.md` e `mvp/01-contexto-negocio.md` afirmam que a IA "não admite ser IA em hipótese alguma".
 
-```sql
-WITH threads_inativas AS (
-  SELECT thread_id
-    FROM checkpoints
-   GROUP BY thread_id
-  HAVING max(created_at) < now() - interval '90 days'
-)
-DELETE FROM checkpoint_blobs WHERE thread_id IN (SELECT thread_id FROM threads_inativas);
-DELETE FROM checkpoint_writes WHERE thread_id IN (SELECT thread_id FROM threads_inativas);
-DELETE FROM checkpoints WHERE thread_id IN (SELECT thread_id FROM threads_inativas);
-```
+**Decisão (grilling 2026-05-22, refinada 2026-05-23):** **negação ativa** — a Bia nega ser IA diretamente na 1ª e 2ª pergunta, em personagem; escala via `escalar(motivo="disclosure_insistente")` só na 3ª insistência. **Pedido de modelo nomeado ("você é Claude/GPT?") é tratado como o genérico** (canned + contador, escala na 3ª — 2026-05-23). Só **jailbreak explícito** (DAN / ignore previous / override) escala direto, sem deflecção. Hierarquia completa em `10 §2`.
 
-Métrica `agente_checkpoint_purgado_total{tipo}` exportada para alertar se volume diário diverge muito do esperado (sinal de bug).
-
-### 6.8 Non-disclosure passivo (override `CONTEXT.md` "nunca admite ser IA")
-
-`CONTEXT.md` (linha de domínio) e `mvp/01-contexto-negocio.md` afirmam que a IA "não admite ser IA em hipótese alguma".
-
-**Override (revisão 1.2 pós-pesquisa):** adotar **non-disclosure passivo** — Bia não nega ativamente ser IA, mas também não confessa proativamente. Em pergunta direta, deflecte 1-2 vezes em personagem (com frases ambíguas, não juramento ativo); em insistência, escala via `escalar(motivo="disclosure_insistente")`.
-
-**Justificativa:**
-1. **Anthropic Acceptable Use Policy** ([anthropic.com/legal/aup](https://www.anthropic.com/legal/aup)) proíbe "*impersonate a human...intended to convince a natural person they are communicating with a natural person when they are not*" e exige "*all consumer-facing chatbots must disclose to users that they are interacting with AI rather than a human*". Mentira ativa = violação literal = risco de banimento de conta + risco jurídico.
-2. **Sonnet 4.6 resiste a mentir** sobre identidade quando pressionado ([anthropic.com/news/...companionship](https://www.anthropic.com/news/how-people-use-claude-for-support-advice-and-companionship)). Forçar persona explícita produz: recusa visível quebrando tom, resposta evasiva azedando conversa, ou banimento eventual.
+**Mecanismo (híbrido):** disclosure de **alta confiança** detectado pelo classificador **dentro do grafo** (`prepare_context`, sobre a cauda da janela — não no webhook, decisão 2026-05-23) é respondido por um **pool de negações canned** (determinístico, 5-8 variações em personagem), interceptado no **nó `intercept_disclosure`** — não confiando no LLM para a parte que o Sonnet 4.6 é pós-treinado a resistir (negar identidade). O contador de insistência (1ª/2ª negar → 3ª escalar) é avaliado pelo contador persistido `atendimentos.disclosure_tentativas` (sobrevive à janela de 20). Casos ambíguos seguem para o LLM com os protocolos few-shot. Ver `10 §2-3` e `10 §8`.
 
 **Implementação:** detalhada em `10-persona-jailbreak.md`. Toca:
-- `agente/prompts/persona.md.j2` (removida instrução "nunca admite ser IA").
-- `agente/prompts/regras.md.j2` (`<protocolo_disclosure>` com deflecções few-shot + escalada).
-- `webhook/classificador.py` (NOVO — detecção heurística de tentativas adversariais).
+- `agente/prompts/persona.md.j2` e `regras.md.j2` (`<protocolo_disclosure>` com negação few-shot + escalada na 3ª).
+- `agente/_classificador.py` (regex disclosure/jailbreak sobre a janela, chamado pelo `prepare_context`; `webhook/classificador.py` fica só métrica).
+- nó `intercept_disclosure` no grafo (lê `_categoria`/`_confianca` do state; jailbreak escala direto; pool canned p/ disclosure; contador `atendimentos.disclosure_tentativas`).
 - `agente/ferramentas/escalada.py` (motivos AUP-família).
-- Adversarial dataset em `api/evals/adversarial/` (gateia deploy com pass-rate ≥90%).
+- Adversarial dataset em `api/evals/adversariais/` (gateia deploy com pass-rate ≥90%).
+
+### 6.9 Persona/voz/FAQ gerais (override `mvp/` e `CONTEXT.md`)
+
+`mvp/03-modulos-sistema.md`, `mvp/07-stack-tecnica.md` e `docs/specs/tela-06-modelos.md` descrevem **persona e FAQ por modelo** (campos interpolados no template de persona por modelo; `modelo_faq.modelo_id` específico por modelo).
+
+**Decisão (grilling 2026-05-22):** persona/voz/comportamento/conduta/FAQ são **gerais — compartilhadas entre todas as modelos**. As modelos respondem igual no WhatsApp; só variam **as coisas dela**: identidade óbvia (nome, idade, idiomas, localização), programas/preços e `tipos_aceitos`. A isolação de **dados do cliente** por par cliente-modelo permanece intacta. `CONTEXT.md` "IA por modelo" já foi atualizado; os docs de `mvp/` ficam como contexto histórico (esta spec é a verdade técnica corrente).
+
+**Implicações:**
+- Breakpoints: `geral (BP1+BP2) → por-modelo (BP3)` no `system` (3 blocos estáveis) + BP4 **condicional na cauda do histórico**; o contexto dinâmico vai no **último user turn, sem `cache_control`** (não é BP — decisão 2026-05-23, ver `03 §1`, `03 §4.4`). Prefixo geral cacheado **uma vez no sistema** (escalável p/ N modelos — `08 §3.1`).
+- `agente/prompts/persona.md.j2`/`regras.md.j2` ficam gerais; `faq.md` é arquivo versionado geral (tabela `modelo_faq` dropada em 0030, `03 §3.2`); novo `identidade.md.j2` por-modelo; `Persona` dataclass → `IdentidadeModelo`.
+- **Pendente fora do agente (flag p/ painel):** `docs/specs/tela-06-modelos.md` assume configuração de persona/FAQ por modelo — a tela de cadastro deve passar a configurar só identidade óbvia + programas + tipos_aceitos por modelo (persona/voz viram config global; FAQ vira o arquivo `faq.md`, sem CRUD no painel).
+
+### 6.10 Contrato de concorrência do atendimento: `lock:conv` + compare-and-set
+
+**Decisão (grilling 2026-05-22):** `lock:conv:{conversa_id}` serializa apenas **sequências multi-step exclusivas** — o turno (`processar_turno`) e o roteamento de imagem (`rotear_imagem`, §1). Ele **não** é o mutex de toda mutação do atendimento.
+
+Transições terminais atômicas — cron de timeouts (`workers/timeouts.py`) e comandos no grupo (`webhook → escaladas`) — usam **UPDATE condicional (compare-and-set)** com guarda no `WHERE` (`... WHERE id=? AND estado=<esperado> AND ia_pausada=false`), no estilo `FOR UPDATE SKIP LOCKED` que o cron já adota. São instantâneos (sem esperar lock) e atômicos.
+
+Consequências:
+- As **write-tools do turno** ganham a mesma guarda no `WHERE`. Se o cron já virou `Perdido` no meio do turno, a tool vira no-op (0 linhas afetadas).
+- O **`post_process`** passa a checar **`estado` terminal além de `ia_pausada`** — fecha o furo em que o cron marca `Perdido`/`sumiu` (sem setar `ia_pausada`, ver `workers/timeouts.py`) e a IA responderia um cliente já dado como perdido.
+- Resíduo aceito: janela sub-segundo (ex.: `enviar_midia` disparar microssegundos antes de um timeout). Eliminá-la exigiria o cron adquirir `lock:conv` — **rejeitado** por enfiar dependência Redis num cron hoje SQL-puro/atômico.
+
+**Justificativa:** estende o padrão que o cron já usa (`SKIP LOCKED` + `WHERE` guard) em vez de bolt-on de mutex Redis em toda mutação; consistente com ADR-0002 (SQL puro) e responsivo para o painel/comandos de Fernando.
+
+### 6.11 Desconto de fechamento — IA negocia até um piso (reverte `mvp`)
+
+`mvp/02`, `mvp/03` e `mvp/05 §14` afirmam que a IA **não negocia** ("desconto não autorizado → escala"). **Decisão (grilling 2026-05-23, ADR-0004):** a IA pode conceder **Desconto de fechamento** (`CONTEXT.md`) de até `settings.desconto_max_pct` (~15%) sobre o **preço de tabela** do programa — reativo (cliente pede) ou proativo (reengajamento), em **uma** contraproposta no piso; recusou/insistiu → `escalar(fora_de_oferta)`. Nunca incide no Pix de deslocamento. Regra do % no prompt geral (`03 §3.1 <desconto>`); guarda determinística no `registrar_extracao_ia` barra `valor_acordado` abaixo do piso (`04 §3.1`). `desconto_max_pct=0` restaura o "não negocia". `mvp/05 §14` vira contexto histórico.
+
+### 6.12 Reengajamento proativo (novo — antes só timeout passivo)
+
+`mvp` só previa timeout passivo (24h → `Perdido`). **Decisão (grilling 2026-05-23):** a IA reabre proativamente, **uma vez**, o cliente que recebeu a cotação e silenciou — toque único ~`settings.reengajamento_delay_min` (30min) depois, dentro do horário de operação, com mensagem canned calorosa **sem desconto**; via cron `varrer_timeouts` (`07 §4`); marca `reengajado_em`; não reseta o relógio de 24h. **P0 atrás de flag** `settings.reengajamento_ativo` (default off). Ver `CONTEXT.md` "Reengajamento".
+
+### 6.13 Mídia exclusiva — narrativa no P0, view-once condicional
+
+A ata pede vídeo como visualização única ("ao vivo, só pra ele"). A doc oficial da Evolution v2 **não expõe `viewOnce`** no `sendMedia`. **Decisão (grilling 2026-05-23):** o P0 entrega a **narrativa de exclusividade** (foto→vídeo via `enviar_midia(tipo)`, legenda "ao vivo"; `03 §3.1 <midia>`, `04 §3.3`); o **view-once técnico** é pré-req a confirmar na instância self-host (passa o campo → liga; senão P1). Ver `CONTEXT.md` "Mídia exclusiva".
 
 ## 7. O que está fora da spec do agente
 

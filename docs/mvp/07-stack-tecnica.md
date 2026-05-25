@@ -9,7 +9,7 @@
 | **Package/Env manager Python** | **uv ≥ 0.5** (gerencia Python, venv e lockfile) |
 | **Framework web** | **FastAPI 0.136.x** (lifespan async + Pydantic v2) |
 | **Orquestrador de agentes** | **LangGraph 0.4.x** + `AsyncPostgresSaver` (checkpointer) + `interrupt()`/`Command(resume=...)` para handoff |
-| **LLM provider** | **Anthropic Claude** Sonnet 4.6 + Haiku 4.5 via SDK Python **anthropic ≥ 0.42** com `cache_control` nativo |
+| **LLM provider** | **Anthropic Claude** Sonnet 4.6 (modelo único, sem fallback) via SDK Python **anthropic ≥ 0.42** com `cache_control` nativo |
 | **Banco de dados** | **Postgres 17** via **Supabase managed** (conexão por **Supavisor**, transaction mode) |
 | **Storage S3-compatível (mídia)** | **MinIO** self-hosted em Docker, **tag pinada** (CE arquivado 2026-04-25 — sem novos binários; plano B: SeaweedFS via `mc mirror`) |
 | **Auth do painel** | **Supabase Auth** (RLS + JWT) |
@@ -157,7 +157,7 @@
          ▼                                           ▼
    ┌──────────────┐                            ┌─────────────┐
    │ Claude       │                            │ LangSmith   │
-   │ Sonnet/Haiku │                            │ (managed)   │
+   │ Sonnet 4.6   │                            │ (managed)   │
    └──────────────┘                            └─────────────┘
                                                                 
          ▲ Supavisor :6543 (transaction mode) + Realtime (WS)
@@ -264,7 +264,7 @@ LangSmith e Sentry têm planos free que cobrem o início se quiser apertar. Quan
 - **Backup do Postgres**: Supabase faz daily snapshot no plano Pro. Confirmar retenção (default 7 dias) e configurar `pg_dump` diário extra para o bucket `backups/postgres/` do MinIO (off-site real).
 - **Disaster recovery do Evolution**: sessão Baileys é state file persistente no volume Docker. Definir cron de cópia do volume para MinIO `backups/evolution/` + procedimento de restore (relogin via QR é o último recurso).
 - **MinIO arquivado**: monitorar lista de CVEs. Tag pinada cobre o MVP, mas vulnerabilidade crítica sem patch dispara plano B (migração para SeaweedFS via `mc mirror`).
-- **Rate limit do Anthropic**: confirmar tier da conta e estratégia de fallback Sonnet → Haiku quando bater limite. Prompt caching reduz mas não elimina o problema.
+- **Rate limit do Anthropic**: confirmar tier da conta; sem modelo de fallback, o 429 esgotado leva a escalada para Fernando (`docs/agente/01 §2.6`). Prompt caching reduz mas não elimina o problema.
 - **Aquecimento do número da modelo piloto**: decisão consciente do operador foi não fazer aquecimento (`02 §3.2`). Vale revisar à luz do volume real esperado.
 - **Custos de LangSmith em escala**: monitorar; Langfuse self-hosted no mesmo Portainer ou Pydantic Logfire (full-stack OTel) são as mitigações previstas.
 - **VPS como SPOF**: snapshot diário Hetzner cobre, mas RTO real depende de runbook. Documentar.
@@ -387,7 +387,7 @@ LangSmith e Sentry têm planos free que cobrem o início se quiser apertar. Quan
   4. Histórico de mensagens da conversa atual (volátil, fora do cache).
 - Métricas a logar por turno: `usage.input_tokens`, `usage.cache_creation_input_tokens`, `usage.cache_read_input_tokens`, `usage.output_tokens`.
 - Alerta no LangSmith se hit rate cair abaixo de 60% por 24 h (provável regressão na ordem dos blocos).
-- Fallback Sonnet → Haiku quando rate limit aparecer; Haiku 4.5 também suporta `cache_control`.
+- Sem modelo de fallback: rate limit esgotado / 5xx / timeout escala para Fernando (`docs/agente/01 §2.6`, `03 §6.3`).
 
 ### 7.11 Frontend Next.js 16.2
 

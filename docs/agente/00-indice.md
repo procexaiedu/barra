@@ -1,4 +1,4 @@
-# 00 — Índice da Spec do Agente de Atendimento
+﻿# 00 — Índice da Spec do Agente de Atendimento
 
 > **Projeto:** Central Inteligente de Atendimento — Barra Vips
 > **Escopo:** especificação completa do agente LangGraph (módulo 5.3 + coordenador 5.2 + humanização 5.5 + pipelines de mídia) para o piloto P0.
@@ -12,24 +12,23 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 | Arquivo | Conteúdo | Carregar quando |
 |---------|----------|-----------------|
 | [01-arquitetura.md](01-arquitetura.md) | Decisões de arquitetura, mapa de módulos, divergências com `docs/mvp/`, fluxo end-to-end | Sempre, antes de qualquer mudança no agente |
-| [02-estado-fluxo.md](02-estado-fluxo.md) | State LangGraph (TypedDict), thread_id, checkpoint, política de hidratação, fluxo de turno | Implementando `agente/graph.py`, `agente/estado.py` ou coordenador |
+| [02-estado-fluxo.md](02-estado-fluxo.md) | State LangGraph (TypedDict), thread_id, política de hidratação, sliding window, **tabela de transições (§11)**, fluxo de turno | Implementando `agente/graph.py`, `agente/estado.py` ou coordenador |
 | [03-prompts.md](03-prompts.md) | Templates Jinja2, breakpoints `cache_control`, dataclass Persona, contexto dinâmico | Editando `agente/prompts/*.md` ou `agente/llm.py` |
 | [04-tools.md](04-tools.md) | Catálogo completo de tools, contratos Pydantic, idempotência, comportamento de escalada | Implementando `agente/ferramentas/*.py` |
 | [05-humanizacao.md](05-humanizacao.md) | Chunking, jitter/typing, dedupe, cancel-on-new-message, ordem texto/mídia, persistência saída | Implementando `agente/humanizacao.py` ou `workers/envio.py` |
 | [06-pipelines-midia.md](06-pipelines-midia.md) | Transcrição de áudio, OCR/vision para Pix, comportamento de imagem fora-fluxo | Implementando `workers/media.py` ou `workers/pix.py` |
 | [07-coordenador.md](07-coordenador.md) | Webhook → debounce → lock → resolução → invocação grafo → dispatch; cron de timeouts | Implementando `webhook/despacho.py`, `webhook/debounce.py`, `workers/timeouts.py` |
 | [08-evals.md](08-evals.md) | LangSmith datasets, cenários canônicos, métricas Prometheus, gate de pronto-pra-piloto | Escrevendo testes ou evals em `evals/` |
-| [09-roteiro.md](09-roteiro.md) | Marcos M0–M6, checklist executável por marco, comandos de verificação | Planejando ou executando uma sprint |
-| [10-persona-jailbreak.md](10-persona-jailbreak.md) | Política AUP, non-disclosure passivo, protocolos defensivos, reminder injection, adversarial dataset | Editando persona/regras/protocolos; antes de cada release de prompt |
+| [09-roteiro.md](09-roteiro.md) | Roadmap Claude Code first (M0→M6), estado atual reconciliado, grafo de dependências, tarefas coláveis, "Bugs e decisões", gate pronto-pra-piloto | Planejando ou executando a implementação do agente; escolhendo a próxima tarefa |
+| [10-persona-jailbreak.md](10-persona-jailbreak.md) | Política AUP, negação ativa de IA + canned, protocolos defensivos, reminder injection, adversarial dataset | Editando persona/regras/protocolos; antes de cada release de prompt |
 
 ## Stack do agente (resumo)
 
 - **Provider LLM:** Anthropic API direto via `anthropic` SDK (Python). Wrapper LangChain via `langchain-anthropic.ChatAnthropic` para integração com LangGraph.
-- **Modelo principal (chat):** `claude-sonnet-4-6` — $3/M input, $15/M output, cache read ~0.1×, cache write 1.25× (TTL 5m) ou 2× (TTL 1h).
-- **Modelo fallback (chat):** `claude-haiku-4-5` — mesma família, mesmo formato de tool calls, cache compatível. Acionado em `RateLimitError` ou `APIStatusError(status >= 500)`.
-- **Modelo vision (Pix):** `claude-sonnet-4-6` (vision nativo + `output_config.format` com Pydantic via `client.messages.parse()`).
-- **Modelo transcrição:** `whisper-1` direto na **OpenAI API** (exceção isolada — Anthropic não transcreve áudio). Único provider não-Anthropic do MVP, contido em `workers/media.py`.
-- **Orquestrador:** LangGraph 0.4 com **StateGraph custom** (decisão `01 §2.1` — `create_react_agent` foi deprecado na LangGraph v1.0) + `AsyncPostgresSaver` (Supavisor 6543, transaction mode).
+- **Modelo principal (chat):** `claude-sonnet-4-6` — $3/M input, $15/M output, cache read ~0.1×, cache write 1.25× (TTL 5m) ou 2× (TTL 1h). **Sem modelo de fallback:** `RateLimitError` faz retry com backoff e, na exaustão (ou `APIStatusError(status >= 500)`/timeout), o turno escala para Fernando via `escalar_por_exaustao` (`01 §2.6`).
+- **Modelo vision (Pix):** via **OpenRouter** (`llm_vision_provider="openrouter"`; cliente OpenAI-compatível + `response_format` json_schema, validação `ExtracaoPix` Pydantic manual — decisão grilling 2026-05-23, `06 §2.3`).
+- **Modelo transcrição:** `whisper-1` direto na **OpenAI API** (Anthropic não transcreve áudio), contido em `workers/media.py`. Junto do vision via OpenRouter, são os dois providers não-Anthropic do MVP.
+- **Orquestrador:** LangGraph **1.1.10** com **StateGraph custom** (decisão `01 §2.1` — `create_react_agent` foi deprecado na v1.0; rodamos v1.x). **Sem checkpointer no P0** — estado efêmero por turno, prompt montado do zero a partir do Postgres (decisão `02 §3`). SDK: `langchain-anthropic` **1.x** para o chat (sobre `anthropic` **0.97**); vision do Pix via OpenRouter e transcrição via OpenAI (`06`).
 - **Worker de turno:** ARQ + Redis (lock de conversa, dedupe, cancel-on-new-message).
 - **Tracing:** LangSmith desde o primeiro turno; metas em `08-evals.md §3`.
 
@@ -41,26 +40,40 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 | `thread_id = conversa_id` | `02 §2` |
 | State minimalista (`MessagesState`) | `02 §3` |
 | Coordenador como ARQ job (não inline no webhook) | `07 §1` |
-| Anthropic SDK direto + Sonnet 4.6 / fallback Haiku 4.5 (mesmo provider) | `01 §2.5`, `01 §2.6` |
-| Adaptive thinking + effort hibridizado (low default, medium em gatilhos) | `03 §6.2.1` |
-| Prompt em 4 breakpoints `cache_control` + estrutura XML semântica | `03 §2.2`, `03 §4` |
+| Anthropic SDK direto + Sonnet 4.6 (sem modelo de fallback; exaustão → escala) | `01 §2.5`, `01 §2.6` |
+| Thinking desabilitado no P0; effort fixo no default; `max_tokens` como guard-rail (reavaliar no piloto) | `03 §6` |
+| Prompt em **3 breakpoints fixos no P0** (BP4 condicional na cauda, adiado P1) (`cache_control`); contexto dinâmico no último user turn (sem cache) + estrutura XML semântica | `03 §1`, `03 §4` |
+| Coordenador **drain loop** + `turno_id = uuid5(job_id, loop_idx)` determinístico; debounce **first-wins**; LockBusy → re-defere curto | `07 §3`, `02 §7`, `01 §6.7` |
+| FAQ é **arquivo versionado `faq.md`** (`modelo_faq` dropada em 0030); catálogo enxugado para **5 tools** (só `consultar_agenda` de leitura) | `03 §3.2`, `04 §1` |
+| Classificação disclosure/jailbreak roda **dentro do grafo** (sobre a janela); modelo nomeado = canned+contador; jailbreak escala direto | `10 §8`, `10 §2.1`, `03 §7` |
+| Canal de transcrição keyed por **`conversa_id`** (não `atendimento_id`) | `06 §1.4` |
 | Few-shot examples > adjetivos descritivos para tom | `03 §2.2` |
 | Tell-what-to-do (sem CRITICAL/NUNCA/PARE em 4.6) | `03 §3.1`, `03 §9` |
-| **Non-disclosure passivo** (não nega ser IA ativamente; escala em insistência) | `10 §2` |
+| **Negação ativa de IA** (nega 1ª/2ª; escala na 3ª insistência) + interceptação canned em alta confiança | `10 §2` |
+| **Persona/voz/FAQ GERAIS** (compartilhadas); só identidade óbvia + programas + `tipos_aceitos` por-modelo. Breakpoints: geral→por-modelo (dinâmico vai no user turn, sem cache) | `03 §1`, `CONTEXT.md` |
+| Nó `intercept_disclosure` (canned/escala/llm) + contador persistido `atendimentos.disclosure_tentativas` | `03 §7`, `10 §3.1` |
+| `prepare_context` é dono único do contexto (coordenador invoca com `messages` vazio); `gate_pausa` dobrado nele | `03 §7`, `01 §2.3` |
+| Bloqueio prévio do externo nasce no `pedir_pix_deslocamento` (fecha double-booking) | `04 §3.2` |
+| Integridade de agenda: advisory lock `(modelo, slot)` + EXCLUDE constraint backstop (race entre conversas) | `04 §3.1`, `09` |
+| Sonnet sem modelo de fallback: retry no 429, exaustão/5xx/timeout → `escalar_por_exaustao` | `01 §2.6`, `03 §6.3` |
+| `stop_reason` em 200 OK tratado (cruzamento `stop.md`): `refusal` → escala (`modelo_recusou` → Fernando, bucket defesa); `max_tokens` → só métrica; `pause_turn` N/A (≠ `recursion_limit`) | `03 §6.3`, `03 §8`, `04` |
+| Turno com write tool não é cancelável por cancel-on-new-message | `05 §3`, `02 §8.1` |
 | Reminder injection no user turn (combate persona drift) | `03 §10` |
 | Classificador heurístico de jailbreak/disclosure no webhook | `10 §8` |
 | Adversarial dataset semanal (CI gate ≥90%) | `10 §7` |
-| `max_tokens=512` (não 1024) para disciplinar output curto | `03 §6.1` |
-| Retenção de checkpoint (90 dias por thread sem atividade) | `02 §3.2` |
+| `max_tokens` ~1024 como guard-rail (tom/tamanho vêm da persona, não do teto) | `03 §6.1` |
 | Tool `escalar` grava direto via `abrir_handoff` | `04 §3.5` |
 | `pedir_pix_deslocamento()` sem args (R$100 fixo) | `04 §3.6` |
-| Pix recusado: IA permanece pausada até Fernando devolver (override `mvp/04 §3.2`) | `01 §6.1` |
+| Pix nunca trava o fluxo: validado/duvidoso → `Confirmado`; card sinaliza modelo + fila de revisão de Fernando | `06 §2.2` |
 | Sliding window de 20 mensagens | `02 §4` |
 | Transcrição via OpenAI Whisper API direto (Anthropic não transcreve) | `06 §1` |
-| Pix vision via `client.messages.parse()` + Pydantic | `06 §2` |
+| Pix vision via **OpenRouter** (json_schema + Pydantic manual; `messages.parse()` Anthropic-native preterido por **escolha de provider**, não limitação — segue válido na GA) | `06 §2.3` |
 | Lock Redis TTL 60s + heartbeat do worker (15s) | `07 §3.2` |
 | Cron timeouts a cada 5min | `07 §4` |
 | LangSmith datasets como eval primário | `08 §1` |
+| **Desconto de fechamento** até `desconto_max_pct` (one-shot no piso; reativo+proativo); guarda no código; reverte "IA não negocia" | `01 §6.11`, ADR-0004 |
+| **Reengajamento** proativo (1 toque ~30min pós-cotação, canned, sem desconto) via cron; P0 atrás de flag `reengajamento_ativo` | `01 §6.12`, `07 §4.5` |
+| **Mídia exclusiva** (foto→vídeo + narrativa "ao vivo"); view-once condicional ao suporte da Evolution (pré-req) | `01 §6.13`, `05 §5` |
 
 ## Convenções de leitura
 
@@ -72,5 +85,6 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 
 ## Status
 
-- **Versão:** 1.2 (revisão pós-pesquisa 2026-05-02 — XML tags + few-shot persona + non-disclosure passivo + classificador adversarial)
-- **Próximo passo:** executar M0 do `09-roteiro.md` (skeleton do grafo).
+- **Versão:** 2.0 (revisão grilling 2026-05-23 comercial — **desconto + reengajamento + mídia exclusiva + indisponibilidade**, a partir do gap-check vs ata da reunião. **Desconto de fechamento** até `desconto_max_pct` (~15%), one-shot no piso, reativo+proativo, regra do % no prompt + guarda no código, reverte "IA não negocia" (ADR-0004, `01 §6.11`). **Reengajamento** proativo 1 toque ~30min pós-cotação via cron `reengajar_silenciosos`, canned sem desconto, **P0 atrás de flag `reengajamento_ativo`** default off (`01 §6.12`, `07 §4.5`, migration `reengajado_em`). **Mídia exclusiva** foto→vídeo + narrativa "ao vivo", `enviar_midia(tipo)`, view-once **condicional** ao suporte da Evolution self-host (`01 §6.13`, `05 §5`). **Indisponibilidade** com desculpa pessoal sem revelar outro cliente (`03 §3.1`). Settings novos `desconto_max_pct`/`reengajamento_*`/`operacao_hora_*`; `CONTEXT.md` +5 termos. Segurança de localização descartada no P0; Pix R$100 fixo mantido). 1.9 (revisão grilling 2026-05-23 humanização — **`05` reescrito + acoplados (`01`,`02`,`04`,`06`,`07`,`08`,`09`)**: **job ÚNICO `enviar_turno` por turno** (ordem/cadência que `max_jobs` quebrava no job-por-chunk); **turno inteiro crítico** não-cancelável e **falha de envio de crítico → escalar** (`critico` no payload, sem rollback); `chunk_texto` **preserva `\n` interno**, cap 600 **soft+`CHUNK_OVERSIZE`**, **cap ~6 bolhas**; envio **estende `EvolutionClient`** (`set_presence`+`enviar_midia`) + **dual-table** `envios_evolution` (obrigatório p/ desambiguar `fromMe`) **+** `mensagens`; idempotência **mark-after-send** (`enviados:{turno_id}`); **cards viram jobs ARQ `enviar_card`** — **descartado o stream `evolution:card`**; ordem **texto→mídia**; cancel via **`turno_atual`** (eliminado `chunks_pendentes`)). 1.8 (revisão grilling 2026-05-23 — **coordenador canônico = drain loop + `turno_id` uuid5 determinístico** (07/02 alinhados ao 01 §4.3/§6.7; uuid7 eliminado); **debounce first-wins**; **LockBusy → re-defere curto**; **contexto dinâmico no último user turn** (sai do `system`, 3 BP fixos + 1 condicional); **canal de transcrição por `conversa_id`** (corrige corrida com atendimento órfão); **classificação disclosure/jailbreak dentro do grafo** sobre a janela (webhook vira métrica); **modelo nomeado tratado como genérico** (canned+contador, `disclosure_explicito` legado); **jailbreak separado → escala direto**; **FAQ = arquivo `faq.md`** (tabela `modelo_faq` dropada em 0030), catálogo enxugado para **5 tools** (só `consultar_agenda` de leitura; `cliente`/`pix_status`/`faq` no prompt, `consultar_midia` colapsada em `enviar_midia(tag)`); limpezas: stream único `evolution:card`, código morto do passo 8, `arq_pool`→`ctx["redis"]`, docstring `consultar_pix_status`). 1.7 (revisão grilling 2026-05-22 — aura/sotaque/origem movida p/ BP3 por-modelo (BP1 fica voz pura); campo `limpar` no `registrar_extracao`; métrica de escalada por bucket defesa/capacidade (gate só capacidade); removido `escalar(cliente_chegou_interno)` morto — foto-portaria é determinística). 1.6 (revisão grilling 2026-05-22 — **persona/voz/FAQ GERAIS** compartilhadas entre todas as modelos; só identidade óbvia (nome/idade/idiomas/localização) + programas/preços + `tipos_aceitos` por-modelo; breakpoints reordenados geral→por-modelo→dinâmico (prefixo global, escalável); override de `CONTEXT.md` "IA por modelo"). 1.5 (revisão grilling 2026-05-22 — fallback de modelo por iteração sem reset; cancel-on-new-message exime turno com write tool; contador `disclosure_tentativas` idempotente por `turno_id`; reagendamento pós-bloqueio escala; integridade de agenda com advisory lock + EXCLUDE constraint; roteamento de imagem sob lock via `rotear_imagem`). 1.4 (revisão grilling 2026-05-22 — `prepare_context` é dono único do contexto; nó `intercept_disclosure` (canned/escala/llm) + contador persistido `disclosure_tentativas`; `gate_pausa` dobrado no `prepare_context`; bloqueio prévio do externo no `pedir_pix_deslocamento`; estados Pix `invalido`/`enviado`/`pix_em_revisao` são legado; webhook não cria atendimento). 1.3 (2026-05-22): negação ativa de IA + interceptação canned; sem checkpointer no P0; thinking off + `max_tokens` guard-rail; externo só promovido pelo Pix; Pix nunca trava o fluxo; mídia cega não responde. 1.2 (2026-05-02): XML tags + few-shot persona + classificador adversarial.
+- **Implementação:** M0 parcial (2026-05-22). O esqueleto do grafo compila com os 5 nós em fluxo linear (todos no-op) e o framework de evals está montado (estrutura + 5 fixtures seed). Pendente para fechar o M0: nó `llm` ainda é placeholder, `core/llm.py` é só docstring, `agente/llm.py` não existe, o `lifespan` não monta `app.state.graph` e não há `test_skeleton_responde`. Detalhe em `09-roteiro.md` (Estado atual).
+- **Próximo passo:** fechar o M0 — `core/llm.py` + `agente/llm.py` + nó `llm` chamando a Anthropic + `lifespan` montando `app.state.graph` + `test_skeleton_responde`.

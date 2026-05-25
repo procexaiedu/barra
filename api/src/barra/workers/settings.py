@@ -2,7 +2,7 @@
 
 Cron:
   - timeout_longo (24h sem cliente): a cada 5 min
-  - timeout_interno (30 min sem foto portaria): a cada minuto
+  - timeout_interno (45 min sem foto portaria, contado do aviso de saida): a cada minuto
   - confirmar_em_execucao (bloqueio.inicio <= now): a cada minuto
   - limpar_midias_vencidas (90d em estados terminais): diário 03:00
 

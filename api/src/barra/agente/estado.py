@@ -3,15 +3,35 @@
 Espelha a maquina de estados de docs/mvp/04 §8:
 Novo -> Triagem -> Qualificado -> Aguardando_confirmacao -> Em_atendimento -> Concluido/Perdido.
 
-State minimalista: so `messages`. IDs de escopo (atendimento_id, modelo_id, cliente_id,
-turno_id) vivem em `RunnableConfig.configurable`, nao no State -- evita duplicar verdade
-entre Postgres e checkpoint do grafo. Ver docs/agente/02-estado-fluxo.md §6.
+State minimalista: `messages` + campos transitorios por-invocacao. Deps de runtime
+(pool, redis) e IDs de escopo (atendimento_id, modelo_id, cliente_id, turno_id) vivem no
+`ContextAgente` (Runtime Context API, em `agente/contexto.py`), injetado via
+`graph.ainvoke(..., context=...)` -- nao no State nem em `config["configurable"]` (legado).
+Ver docs/agente/04-tools.md §1.1, 01-arquitetura.md §2.3/§4.3 e 02-estado-fluxo.md §6.
 """
 
 from langgraph.graph import MessagesState
 
 
 class EstadoAgente(MessagesState):
-    """Estado canonico do agente. So mensagens; tudo mais por RunnableConfig."""
+    """Estado canonico do agente: mensagens + campos efemeros por-invocacao.
 
-    pass
+    Sem checkpointer no P0 (01 §6.7): todos os campos abaixo nascem zerados/ausentes a
+    cada `ainvoke` e morrem com ele. Pausa (ia_pausada) NAO usa flag de State --
+    prepare_context faz early exit via Command(goto=END) (02 §1).
+
+    midia_idx: contador determinístico de chamadas a `enviar_midia` no turno corrente.
+        Nasce 0 a cada `ainvoke` (sem checkpointer o State e efemero) e e injetado como
+        `call_idx` (InjectedToolArg) pelo no `tools`. Garante a idempotencia de
+        `enviar_midia` no replay -- reinicia em 0, entao o `ON CONFLICT` deduplica e
+        nao reenvia (jamais usar `COUNT(*)` no DB para isso). NAO e verdade duplicada do
+        Postgres, e sim estado de controle do loop -- por isso vive aqui, nao no ContextAgente.
+        Lido com `state.get("midia_idx", 0)`. Ver docs/agente/04-tools.md §3.3.
+    _categoria / _confianca: classificacao de disclosure/jailbreak gravada pelo
+        prepare_context (regex sobre a cauda da janela), lida pelo intercept_disclosure
+        para rotear canned/escala/llm (10 §8). Ausentes => sem deteccao.
+    """
+
+    midia_idx: int
+    _categoria: str | None
+    _confianca: float | None
