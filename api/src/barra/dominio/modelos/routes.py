@@ -857,7 +857,7 @@ async def _programas(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[s
         """
         SELECT mp.programa_id, mp.duracao_id, mp.preco,
                p.nome, p.categoria,
-               d.nome AS duracao_nome, d.ordem AS duracao_ordem
+               d.nome AS duracao_nome, d.ordem AS duracao_ordem, d.horas AS horas
           FROM barravips.modelo_programas mp
           JOIN barravips.programas p ON p.id = mp.programa_id
           JOIN barravips.duracoes d ON d.id = mp.duracao_id
@@ -873,6 +873,7 @@ async def _programas(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[s
             "nome": row["nome"],
             "categoria": row["categoria"],
             "duracao_nome": row["duracao_nome"],
+            "horas": float(row["horas"]) if row["horas"] is not None else None,
             "preco": float(row["preco"]),
         }
         for row in rows

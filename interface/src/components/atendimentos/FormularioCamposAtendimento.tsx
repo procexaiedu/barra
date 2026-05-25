@@ -28,6 +28,7 @@ interface ProgramaModelo {
   nome: string
   categoria: string | null
   duracao_nome: string
+  horas: number | null
   preco: number
 }
 
@@ -47,6 +48,12 @@ function parseDecimal(input: string): number | null {
 // compatível com parseDecimal na hora de enviar ao backend.
 function formatValorCampo(valor: number): string {
   return valor.toFixed(2).replace(".", ",")
+}
+
+// Formata horas para o campo de duração: inteiro quando possível ("3"), senão
+// com vírgula decimal ("2,5"), compatível com parseDecimal ao enviar ao backend.
+function formatHorasCampo(horas: number): string {
+  return Number.isInteger(horas) ? String(horas) : horas.toFixed(2).replace(".", ",")
 }
 
 export interface FormularioCamposAtendimentoRef {
@@ -99,6 +106,9 @@ export const FormularioCamposAtendimento = forwardRef<
   const [dataDesejada, setDataDesejada] = useState("")
   const [horario, setHorario] = useState("")
   const [duracao, setDuracao] = useState("")
+  // Enquanto false, o campo de duração espelha o MAX das horas dos programas.
+  // Vira true assim que o usuário edita a duração à mão.
+  const [duracaoEditadaManual, setDuracaoEditadaManual] = useState(false)
   const [endereco, setEndereco] = useState("")
   const [enderecoFormatado, setEnderecoFormatado] = useState<string | null>(null)
   const [latitude, setLatitude] = useState<number | null>(null)
@@ -138,6 +148,8 @@ export const FormularioCamposAtendimento = forwardRef<
     setSelecionado("")
     setValorAcordado("")
     setValorEditadoManual(false)
+    setDuracao("")
+    setDuracaoEditadaManual(false)
   }
 
   // Soma dos preços dos programas atualmente adicionados (ignora preco null/NaN).
@@ -159,6 +171,26 @@ export const FormularioCamposAtendimento = forwardRef<
     ? formatValorCampo(valorCalculado)
     : valorAcordado
 
+  // Maior duração (em horas) entre os programas adicionados — nunca a soma. Itens
+  // que não alongam o atendimento simplesmente não elevam o MAX; horas null não contam.
+  const duracaoCalculada = useMemo(() => {
+    let max: number | null = null
+    for (const a of adicionados) {
+      const prog = programasModelo.find(
+        (p) => p.programa_id === a.programa_id && p.duracao_id === a.duracao_id,
+      )
+      const h = prog?.horas
+      if (typeof h === "number" && (max === null || h > max)) max = h
+    }
+    return max
+  }, [adicionados, programasModelo])
+
+  const recalculaDuracaoAutomaticamente =
+    !herdarPeriodo && !duracaoEditadaManual && duracaoCalculada !== null
+  const duracaoExibida = recalculaDuracaoAutomaticamente
+    ? formatHorasCampo(duracaoCalculada as number)
+    : duracao
+
   useEffect(() => {
     if (!modeloId) return
     let cancelado = false
@@ -176,14 +208,15 @@ export const FormularioCamposAtendimento = forwardRef<
 
   const valorDecimalInvalido =
     valorAcordadoExibido.trim().length > 0 && parseDecimal(valorAcordadoExibido) === null
-  const duracaoDecimalInvalida = duracao.trim().length > 0 && parseDecimal(duracao) === null
+  const duracaoDecimalInvalida =
+    duracaoExibida.trim().length > 0 && parseDecimal(duracaoExibida) === null
 
   // Período efetivo: herdado do agendamento (sub-form da agenda) ou dos campos locais.
   const periodoData = herdarPeriodo ? periodoHerdado?.data ?? "" : dataDesejada
   const periodoHorario = herdarPeriodo ? periodoHerdado?.horario ?? "" : horario
   const periodoDuracaoHoras = herdarPeriodo
     ? periodoHerdado?.duracaoHoras ?? 0
-    : parseDecimal(duracao) ?? 0
+    : parseDecimal(duracaoExibida) ?? 0
 
   const { conflitos } = useConflitoAgenda({
     modelo_id: modeloId,
@@ -214,8 +247,8 @@ export const FormularioCamposAtendimento = forwardRef<
         } else {
           if (dataDesejada) payload.data_desejada = dataDesejada
           if (horario) payload.horario_desejado = horario
-          if (duracao) {
-            const d = parseDecimal(duracao)
+          if (duracaoExibida) {
+            const d = parseDecimal(duracaoExibida)
             if (d !== null) payload.duracao_horas = d
           }
         }
@@ -245,7 +278,7 @@ export const FormularioCamposAtendimento = forwardRef<
       urgencia,
       dataDesejada,
       horario,
-      duracao,
+      duracaoExibida,
       endereco,
       enderecoFormatado,
       latitude,
@@ -343,10 +376,18 @@ export const FormularioCamposAtendimento = forwardRef<
               className={cn(controlClassName, duracaoDecimalInvalida && "border-state-lost")}
               inputMode="decimal"
               placeholder="2"
-              value={duracao}
-              onChange={(e) => setDuracao(e.target.value)}
+              value={duracaoExibida}
+              onChange={(e) => {
+                setDuracaoEditadaManual(true)
+                setDuracao(e.target.value)
+              }}
               disabled={disabled}
             />
+            {recalculaDuracaoAutomaticamente && (
+              <span className="text-[11px] leading-4 text-text-muted">
+                Sugerido a partir dos programas
+              </span>
+            )}
           </Campo>
         </>
       )}
