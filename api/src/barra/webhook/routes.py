@@ -2,6 +2,7 @@ import asyncio
 import io
 import logging
 from typing import Any, cast
+from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, Header, Request
@@ -9,8 +10,9 @@ from fastapi import APIRouter, Header, Request
 from barra.core.errors import ErroDominio, JidNaoPermitido
 from barra.core.evolution import envio_existe
 from barra.core.metrics import COMANDOS_GRUPO, WEBHOOK_ERRORS
-from barra.dominio.atendimentos.service import garantir_atendimento_aberto
+from barra.dominio.atendimentos.service import garantir_conversa
 from barra.dominio.escaladas.service import Autor, aplicar_comando
+from barra.webhook.despacho import enfileirar_turno
 from barra.webhook.parser import MensagemEvolution, extrair_mensagem, parse_comando_grupo
 
 router = APIRouter()
@@ -101,7 +103,17 @@ async def evolution_webhook(
                 msg.remote_jid,
             )
             return {"status": "unknown_instance"}
-        await _persistir_cliente(conn, msg, minio, settings.minio_bucket_media, midia)
+        conversa_id = await _persistir_cliente(conn, msg, minio, settings.minio_bucket_media, midia)
+
+    # Webhook fino (01 §4.1 / 06 §0.1): a mensagem foi persistida orfa (atendimento_id=NULL);
+    # quem resolve/cria o atendimento e roda o turno e o coordenador. So enfileira.
+    arq = getattr(request.app.state, "arq", None)
+    if arq is not None:
+        if msg.tipo == "texto":
+            await enfileirar_turno(arq, conversa_id, msg.evolution_message_id)
+        else:
+            # TODO(M5): enqueue transcrever_audio / rotear_imagem (06 §6)
+            pass
     return {"status": "received"}
 
 
@@ -241,7 +253,12 @@ async def _persistir_cliente(
     minio: Any,
     bucket: str,
     midia: tuple[bytes, str] | None,
-) -> None:
+) -> UUID:
+    """Persiste a mensagem do cliente como orfa (atendimento_id=NULL) e devolve o conversa_id.
+
+    Webhook fino (06 §0.1): faz upsert apenas da CONVERSA do par; quem resolve/cria o
+    atendimento e cobre as orfas e o coordenador (`processar_turno`), sob `lock:conv`.
+    """
     async with conn.transaction():
         modelo = await _one(
             conn,
@@ -262,22 +279,22 @@ async def _persistir_cliente(
             (telefone, modelo["id"]),
         )
         assert cliente is not None
-        atendimento = await garantir_atendimento_aberto(
+        conversa_id = await garantir_conversa(
             conn,
             cliente_id=cliente["id"],
             modelo_id=modelo["id"],
-            origem="webhook",
             evolution_chat_id=msg.remote_jid,
         )
 
-        # Fazer upload da mídia para MinIO e obter a key permanente.
-        # Se falhar, gravar como tipo='texto' para satisfazer a constraint de DB.
+        # Fazer upload da mídia para MinIO e obter a key permanente. Sem atendimento, a key
+        # deriva da conversa (06 §0.1 #2). Se falhar, gravar como tipo='texto' p/ satisfazer
+        # a constraint de DB.
         media_key: str | None = None
         tipo_db = msg.tipo
         if msg.tipo != "texto" and midia is not None and minio is not None:
             data, ct = midia
             ext = _MIME_EXT.get(ct, ".jpg" if msg.tipo == "imagem" else ".ogg")
-            key = f"atendimentos/{atendimento.id}/mensagens/{msg.evolution_message_id}{ext}"
+            key = f"conversas/{conversa_id}/mensagens/{msg.evolution_message_id}{ext}"
             try:
                 await _upload_minio(minio, bucket, key, data, ct or "application/octet-stream")
                 media_key = key
@@ -293,6 +310,7 @@ async def _persistir_cliente(
                 msg.tipo,
             )
 
+        # atendimento_id=NULL: orfa intencional, coberta depois pelo coordenador (07 §3.2).
         await conn.execute(
             """
             INSERT INTO barravips.mensagens (
@@ -302,14 +320,15 @@ async def _persistir_cliente(
             ON CONFLICT (evolution_message_id) DO NOTHING
             """,
             (
-                atendimento.conversa_id,
-                atendimento.id,
+                conversa_id,
+                None,
                 tipo_db,
                 msg.texto,
                 media_key,
                 msg.evolution_message_id,
             ),
         )
+    return conversa_id
 
 
 async def _mensagem_ja_persistida(conn: Any, evolution_message_id: str) -> bool:

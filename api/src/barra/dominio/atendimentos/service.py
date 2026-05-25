@@ -1,7 +1,7 @@
 """Orquestracao do ciclo de vida de um atendimento aberto por par (cliente, modelo)."""
 
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from psycopg import AsyncConnection
@@ -20,21 +20,19 @@ class Atendimento:
     ja_existia: bool
 
 
-async def garantir_atendimento_aberto(
+async def garantir_conversa(
     conn: AsyncConnection[Any],
     *,
     cliente_id: UUID,
     modelo_id: UUID,
-    origem: Origem,
     evolution_chat_id: str | None = None,
-) -> Atendimento:
-    """Garante exatamente um atendimento aberto no par (cliente_id, modelo_id).
+) -> UUID:
+    """Faz upsert da conversa do par (cliente_id, modelo_id) e devolve o conversa_id.
 
-    Faz upsert da conversa do par e devolve o atendimento aberto existente,
-    criando um novo apenas quando nao existe. `origem` registra quem disparou
-    a criacao (webhook ingerindo mensagem vs. POST manual no painel).
+    Caminho fino do webhook: persistir a mensagem do cliente precisa do conversa_id
+    (NOT NULL) sem criar atendimento — quem resolve/cria o atendimento e o coordenador
+    (`workers/coordenador.py`), sob `lock:conv`.
     """
-    del origem  # mantido na assinatura para auditoria futura, sem uso atual.
     if evolution_chat_id is None:
         conversa = await _one(
             conn,
@@ -60,6 +58,30 @@ async def garantir_atendimento_aberto(
             (cliente_id, modelo_id, evolution_chat_id),
         )
     assert conversa is not None
+    return cast(UUID, conversa["id"])
+
+
+async def garantir_atendimento_aberto(
+    conn: AsyncConnection[Any],
+    *,
+    cliente_id: UUID,
+    modelo_id: UUID,
+    origem: Origem,
+    evolution_chat_id: str | None = None,
+) -> Atendimento:
+    """Garante exatamente um atendimento aberto no par (cliente_id, modelo_id).
+
+    Faz upsert da conversa do par e devolve o atendimento aberto existente,
+    criando um novo apenas quando nao existe. `origem` registra quem disparou
+    a criacao (webhook ingerindo mensagem vs. POST manual no painel).
+    """
+    del origem  # mantido na assinatura para auditoria futura, sem uso atual.
+    conversa_id = await garantir_conversa(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        evolution_chat_id=evolution_chat_id,
+    )
 
     existente = await _one(
         conn,
@@ -89,7 +111,7 @@ async def garantir_atendimento_aberto(
         VALUES (%s, %s, %s)
         RETURNING id, numero_curto, estado::text AS estado, cliente_id, modelo_id, conversa_id
         """,
-        (cliente_id, modelo_id, conversa["id"]),
+        (cliente_id, modelo_id, conversa_id),
     )
     assert novo is not None
     return Atendimento(
