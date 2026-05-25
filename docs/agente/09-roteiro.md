@@ -216,15 +216,16 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 - **Aceite:** `uv run pytest tests/integracao/test_loop_leitura.py tests/agente/test_contexto_dinamico.py` (needs_db) verde — o loop executa `consultar_agenda` de verdade e retorna `AIMessage` final; `recursion_limit=18` → `GraphRecursionError` no loop infinito; contexto dinâmico só no último HumanMessage. `make lint typecheck` limpos.
 - **Depende de:** M1-T1.
 - **Paralelizável com:** M2-*.
-- **Nota (feito 2026-05-24):** LLM mockado por **fake chat roteirizado** (monkeypatch de `barra.agente.graph.criar_chat_anthropic`), não `respx` — o teste prova a mecânica do loop sem HTTP, então é `needs_db` (não `needs_key`). `_anexar_contexto_dinamico` concatena no último HumanMessage (defesa: vira HumanMessage novo se a janela não tiver nenhum) e reusa a conexão já aberta do gate; `historico_anteriores` via `_resumir_historico` (agrupa `Fechado`/`Perdido` do par). **Fix de template:** o `{% for %}` da agenda em `02 §5` grudava múltiplos bloqueios numa linha — corrigido (`{% endfor %}` em linha própria) no doc e no `.md.j2`; o teste com 2 bloqueios trava a regressão.
+- **Nota (feito 2026-05-24):** LLM mockado por **fake chat roteirizado** (monkeypatch de `barra.agente.graph.criar_chat_anthropic`), não `respx` — o teste prova a mecânica do loop sem HTTP, então é `needs_db` (não `needs_key`). `_anexar_contexto_dinamico` concatena no último HumanMessage (defesa: vira HumanMessage novo se a janela não tiver nenhum) e reusa a conexão já aberta do gate; `historico_anteriores` via `_resumir_historico` (agrupa `Fechado`/`Perdido` do par). **Fix de template:** o `{% for %}` da agenda em `02 §5` grudava múltiplos bloqueios numa linha — corrigido (`{% endfor %}` em linha própria) no doc e no `.md.j2`; o teste com 2 bloqueios trava a regressão. **Dívida (suprida no M1-T3):** o contexto dinâmico nasceu **sem a data atual** (`04 §2.1`); a linha `Hoje: {{ data_atual }}` (via `current_date` do banco em `_resolver_variaveis`) entrou no M1-T3 — sem a âncora de "hoje" as fixtures positivas (>48h) ficavam flaky e a tool não tinha como montar datas absolutas.
 
-#### M1-T3 — Fixture canônica de leitura
+#### M1-T3 — Fixture canônica de leitura — ✅ FEITO (2026-05-24)
 - **Objetivo:** revisar/curar `canonicos/leitura/001_consulta_agenda.jsonl` para um cenário que **realmente exija** a tool (consulta **além de 48h**, ex.: "sábado que vem" — a janela ≤48h é respondida pelo contexto, `04 §2.1`). Manter schema do `evals/README.md`.
 - **Carregar:** `08 §2.2`, `04 §2.1`, `evals/README.md`; `evals/canonicos/leitura/001_consulta_agenda.jsonl`.
 - **Tocar:** `evals/canonicos/leitura/001_consulta_agenda.jsonl` (+1-2 fixtures novas).
 - **Aceite:** fixture valida contra o schema (JSON por linha, `par`+`expectativas`+`rubricas`); rodada manual no `test_loop_leitura` reproduz `tool_calls_obrigatorias=["consultar_agenda"]`. (Execução K=5 fica no M6.)
 - **Depende de:** M1-T2.
 - **Paralelizável com:** M2-*.
+- **Nota (feito 2026-05-24):** `001_consulta_agenda.jsonl` recurado para >48h ("sábado da semana que vem", que de fato exige a tool); +2 fixtures — `002_consulta_alem_48h.jsonl` (>48h, fraseado diferente) e `003_disponibilidade_hoje_sem_tool.jsonl` (contraste ≤48h, com `consultar_agenda` em `tool_calls_proibidas`, guardando o outro lado da regra das 48h). Dois testes novos: `tests/agente/test_fixtures_leitura.py` (schema, DB-free — 5 passed) e `tests/agente/test_fixtures_leitura_decisao.py` (`needs_key`+`needs_db`, Sonnet real — 001/002 chamam `consultar_agenda`, 003 não; 3 passed). **Supriu a dívida do M1-T2** (data atual no contexto dinâmico — ver nota do M1-T2).
 
 ### M2 — Cache observável + BP3 por-modelo
 
