@@ -65,6 +65,105 @@ class EvolutionClient:
         ENVIOS_EVOLUTION.labels("sucesso").inc()
         return evolution_message_id
 
+    async def enviar_midia(
+        self,
+        *,
+        conn: AsyncConnection[Any],
+        instance_id: str,
+        remote_jid: str,
+        url: str,
+        caption: str | None,
+        media_type: str,
+        contexto: str,
+        tipo: str,
+        view_once: bool = False,
+        atendimento_id: UUID | None = None,
+        conversa_id: UUID | None = None,
+        payload: dict[str, Any] | None = None,
+    ) -> str:
+        """Espelha enviar_texto para mídia: POST /message/sendMedia → registra em
+        envios_evolution → devolve evolution_message_id. O kwarg `view_once` (Mídia
+        exclusiva, 01 §6.13) é ACEITO mas NÃO entra no body: a Evolution v2 self-host
+        ainda não expõe o campo no sendMedia — ignorado até o suporte chegar."""
+        if not self.settings.evolution_base_url:
+            raise ErroDominio("EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503)
+
+        body: dict[str, Any] = {"number": remote_jid, "mediatype": media_type, "media": url}
+        if caption:
+            body["caption"] = caption
+        endpoint = f"{self.settings.evolution_base_url.rstrip('/')}/message/sendMedia/{instance_id}"
+        headers = {"apikey": self.settings.evolution_api_key}
+        async with httpx.AsyncClient(timeout=30) as client:
+            response = await client.post(endpoint, json=body, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+
+        evolution_message_id = _extrair_message_id(data)
+        if not evolution_message_id:
+            ENVIOS_EVOLUTION.labels("falha").inc()
+            raise ErroDominio("EVOLUTION_RESPOSTA_INVALIDA", "Evolution nao retornou id.", status_code=502)
+
+        await registrar_envio(
+            conn,
+            evolution_message_id=evolution_message_id,
+            instance_id=instance_id,
+            remote_jid=remote_jid,
+            contexto=contexto,
+            tipo=tipo,
+            atendimento_id=atendimento_id,
+            conversa_id=conversa_id,
+            payload=payload or data,
+        )
+        ENVIOS_EVOLUTION.labels("sucesso").inc()
+        return evolution_message_id
+
+    async def marcar_lida(
+        self,
+        *,
+        instance_id: str,
+        remote_jid: str,
+        message_ids: list[str],
+    ) -> None:
+        """Read receipt das mensagens do cliente (humano lê antes de responder, 05 §4.2).
+        NÃO entra em envios_evolution — é recibo de leitura, não outbound de mensagem.
+        A confirmar na self-host: o casing do campo é `read_messages` vs `readMessages`
+        (a doc Evolution v2 usa snake_case)."""
+        if not self.settings.evolution_base_url:
+            raise ErroDominio("EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503)
+        body = {
+            "read_messages": [
+                {"remoteJid": remote_jid, "fromMe": False, "id": mid} for mid in message_ids
+            ]
+        }
+        url = f"{self.settings.evolution_base_url.rstrip('/')}/chat/markMessageAsRead/{instance_id}"
+        headers = {"apikey": self.settings.evolution_api_key}
+        async with httpx.AsyncClient(timeout=15) as client:
+            response = await client.post(url, json=body, headers=headers)
+            response.raise_for_status()
+
+    async def set_presence(
+        self,
+        *,
+        instance_id: str,
+        remote_jid: str,
+        presence: str,
+        delay_ms: int,
+    ) -> None:
+        """Indicador "digitando…"/"gravando…" antes do envio (05 §4). Best-effort: o
+        sendPresence do Baileys é notoriamente instável (05 §4.1) — falha de rede loga e
+        segue, nunca estoura o turno de envio. Não grava nada."""
+        if not self.settings.evolution_base_url:
+            return
+        body = {"number": remote_jid, "presence": presence, "delay": delay_ms}
+        url = f"{self.settings.evolution_base_url.rstrip('/')}/chat/sendPresence/{instance_id}"
+        headers = {"apikey": self.settings.evolution_api_key}
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                response = await client.post(url, json=body, headers=headers)
+                response.raise_for_status()
+        except httpx.HTTPError as exc:
+            _logger.warning("evolution_set_presence_falhou instance=%s erro=%s", instance_id, exc)
+
     async def conectar_instancia(self, instance_id: str) -> dict[str, Any]:
         if not self.settings.evolution_base_url:
             return {"status": "not_configured", "instance_id": instance_id}
