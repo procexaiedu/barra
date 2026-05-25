@@ -150,7 +150,7 @@ export function DetalheAtendimento({
         )}
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[1.4fr_1fr] gap-3">
+      <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)] grid-cols-[1.4fr_1fr] gap-3">
         <div className="scroll-thin flex min-h-0 flex-col gap-3 overflow-y-auto pr-1">
           <ResumoAtendimento detalhe={detalhe} />
           <SecaoFixa
