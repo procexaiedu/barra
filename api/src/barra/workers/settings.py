@@ -9,21 +9,32 @@ Cron:
 Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes do envio.
 """
 
+import asyncio
+import sys
 from typing import Any, ClassVar
 
-from arq import cron
+from arq import cron, func
 from arq.connections import RedisSettings
 from arq.cron import CronJob
 
+from barra.agente.graph import build_graph
 from barra.core.db import criar_pool, fechar_pool
+from barra.core.evolution import EvolutionClient
 from barra.core.storage import criar_minio
 from barra.settings import Settings, get_settings
+from barra.workers.coordenador import processar_turno
 from barra.workers.media import limpar_midias_vencidas
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
     confirmar_em_execucao,
 )
+
+# psycopg async no Windows (dev local) precisa do selector loop antes do loop do worker subir,
+# senao PoolTimeout (09 §4.10; main.py:20 faz o mesmo). Producao e Linux. Como o startup roda
+# JA dentro do loop, o guard tem que ficar no import do modulo.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 
 async def cron_timeout_longo(ctx: dict[str, Any]) -> int:
@@ -62,8 +73,12 @@ async def cron_limpar_midias(ctx: dict[str, Any]) -> int:
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     ctx["settings"] = settings
-    ctx["db_pool"] = await criar_pool(settings.database_url)
+    # max_size=20/autocommit=True para o turno (07 §2). NAO criar ctx["redis"]: o ARQ ja injeta
+    # a ArqRedis em ctx["redis"] antes do startup — sobrescrever mataria enqueue_job.
+    ctx["db_pool"] = await criar_pool(settings.database_url, max_size=20, autocommit=True)
     ctx["minio"] = criar_minio(settings)
+    ctx["evolution"] = EvolutionClient(settings)
+    ctx["graph"] = build_graph()  # SEM checkpointer no P0 (01 §6.7)
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
@@ -87,7 +102,9 @@ class WorkerSettings:
     redis_settings = _redis_settings(_settings)
     on_startup = startup
     on_shutdown = shutdown
-    functions: ClassVar[list[Any]] = []
+    # keep_result=0 SO p/ processar_turno (09 §4.9): o keep_result=3600 global quebra o
+    # re-enqueue do drain (_job_id estatico) por 1h apos o termino (arq#416/#432).
+    functions: ClassVar[list[Any]] = [func(processar_turno, keep_result=0)]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),
         cron(cron_confirmar_em_execucao, name="confirmar_em_execucao"),
@@ -98,5 +115,6 @@ class WorkerSettings:
         ),
         cron(cron_limpar_midias, name="limpar_midias", hour={3}, minute={0}),
     ]
-    keep_result = 3600
+    keep_result = 3600  # global; processar_turno sobrescreve p/ 0 via func(...) acima
     max_jobs = 10
+    job_timeout = 400  # so a rede externa: cobre MAX_DRAIN x (60s graph + overhead) (07 §2)

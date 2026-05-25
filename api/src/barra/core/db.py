@@ -15,14 +15,27 @@ async def _configurar_conexao(conn: AsyncConnection[Any]) -> None:
     conn.prepare_threshold = None
 
 
-async def criar_pool(database_url: str) -> AsyncConnectionPool[Any] | None:
+async def criar_pool(
+    database_url: str,
+    *,
+    max_size: int | None = None,
+    autocommit: bool = False,
+) -> AsyncConnectionPool[Any] | None:
+    # Defaults preservam o comportamento da API (chama sem kwargs): autocommit=False e
+    # tamanho de pool padrao do psycopg_pool. O worker ARQ passa max_size=20, autocommit=True
+    # (07 §2). `configure=_configurar_conexao` (prepare_threshold=None) e OBRIGATORIO no
+    # Supavisor transaction mode (ADR-0002) — nunca inlinar um AsyncConnectionPool sem ele.
     if not database_url:
         return None
+    extra: dict[str, Any] = {}
+    if max_size is not None:
+        extra["max_size"] = max_size
     pool: AsyncConnectionPool[Any] = AsyncConnectionPool(
         database_url,
         open=False,
-        kwargs={"row_factory": dict_row, "autocommit": False},
+        kwargs={"row_factory": dict_row, "autocommit": autocommit},
         configure=_configurar_conexao,
+        **extra,
     )
     await pool.open()
     return pool
