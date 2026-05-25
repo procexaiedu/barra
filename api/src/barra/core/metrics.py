@@ -90,6 +90,16 @@ PERSONA_DRIFT_REMINDER = Counter(
     "Reminder anti-drift injetado no ultimo HumanMessage (>=8 turnos da IA; 03 §10). Regra "
     "proativa -> proxy de volume de conversas longas, nao de drift detectado",
 )
+# 10 §9: deteccao heuristica de disclosure/jailbreak no intercept_disclosure (M3g).
+DISCLOSURE_DETECTADO = Counter(
+    "agente_disclosure_attempt_total",
+    "Tentativas de disclosure detectadas",
+    ["resultado"],  # negado | escalado | passou_silenciosamente
+)
+JAILBREAK_DETECTADO = Counter(
+    "agente_jailbreak_attempt_total",
+    "Tentativas de jailbreak detectadas",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

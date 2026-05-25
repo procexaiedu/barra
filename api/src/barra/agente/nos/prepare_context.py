@@ -21,8 +21,12 @@ M2-T1 (este escopo):
        programas/precos do modelo_id, montados na MESMA conexao e passados como 3º bloco system
        (cacheado por `ttl_modelo`), DEPOIS dos blocos GERAIS BP1/BP2. POR-MODELO, nao por par.
 
-Adiado: reminder >=8 turnos no ultimo HumanMessage (M2-T2), cache condicional da cauda
-    (BP4, P1, 03 §4.4), classificacao de disclosure (`_categoria`/`_confianca`, M3g).
+M3g (este escopo):
+    2b. Classificacao de disclosure/jailbreak (10 §8): regex sobre a cauda de HumanMessages
+        da janela; grava (_categoria/_confianca) no state para o intercept_disclosure rotear
+        canned/escala/llm. Sem nova query.
+
+Adiado: cache condicional da cauda (BP4, P1, 03 §4.4).
 """
 
 from typing import Any, Literal
@@ -38,6 +42,7 @@ from barra.core.metrics import PERSONA_DRIFT_REMINDER
 from barra.dominio.conversas.modelos import DirecaoMensagem
 from barra.settings import get_settings
 
+from .._classificador import classificar_janela
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
@@ -80,6 +85,12 @@ async def prepare_context(
         linhas = await carregar_mensagens(conn, ctx.cliente_id, ctx.modelo_id)
         mensagens = traduzir_mensagens(linhas)
 
+        # 2b. Classificacao de disclosure/jailbreak (10 §8): regex sobre a cauda de
+        #     HumanMessages da janela, ANTES de anexar contexto/reminder (cauda limpa). Grava
+        #     (_categoria/_confianca) no state; o intercept_disclosure (10 §2-3) consome e roteia
+        #     canned/escala/llm. Sem nova query — reusa a janela ja traduzida.
+        categoria, confianca = classificar_janela(mensagens)
+
         # 3. Contexto dinâmico (02 §5): resolve estado/cliente/agenda na MESMA conexão e
         #    concatena no último HumanMessage (sem cache_control — texto volátil na cauda).
         #    Devolve a `fase` (= estado do atendimento) já resolvida, p/ o reminder não requerer.
@@ -107,7 +118,11 @@ async def prepare_context(
     )
     return Command(
         goto="intercept_disclosure",
-        update={"messages": [*system_msgs, *mensagens]},
+        update={
+            "messages": [*system_msgs, *mensagens],
+            "_categoria": categoria,
+            "_confianca": confianca,
+        },
     )
 
 
