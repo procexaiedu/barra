@@ -23,6 +23,7 @@ from barra.core.evolution import EvolutionClient
 from barra.core.storage import criar_minio
 from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
+from barra.workers.envio import enviar_card
 from barra.workers.media import limpar_midias_vencidas
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
@@ -104,7 +105,10 @@ class WorkerSettings:
     on_shutdown = shutdown
     # keep_result=0 SO p/ processar_turno (09 §4.9): o keep_result=3600 global quebra o
     # re-enqueue do drain (_job_id estatico) por 1h apos o termino (arq#416/#432).
-    functions: ClassVar[list[Any]] = [func(processar_turno, keep_result=0)]
+    functions: ClassVar[list[Any]] = [
+        func(processar_turno, keep_result=0),
+        func(enviar_card),  # cards no grupo (05 §6); keep_result default (global 3600)
+    ]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),
         cron(cron_confirmar_em_execucao, name="confirmar_em_execucao"),
