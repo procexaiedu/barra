@@ -40,16 +40,30 @@ def test_bloco_texto_none_sem_cache_control() -> None:
     assert _bloco_texto("x", None) == {"type": "text", "text": "x"}
 
 
-def test_bp3_reservado_nao_emitido_no_m0() -> None:
-    # modelo_md/ttl_modelo são reservados; o 3º bloco entra no M2, não agora.
+def test_sem_modelo_md_emite_so_2_blocos() -> None:
+    # sem modelo_md (default None) → só BP1+BP2 (prefixo geral).
+    msgs = build_system_messages(geral_md=GERAL, faq_md=FAQ, ttl_geral="1h")
+    assert len(msgs) == 2
+
+
+def test_bp3_emitido_quando_modelo_md() -> None:
+    # com modelo_md → 3º bloco BP3 por-modelo, com cache_control de ttl_modelo (M2-T1).
+    modelo = "<modelo>identidade</modelo>"
     msgs = build_system_messages(
         geral_md=GERAL,
         faq_md=FAQ,
         ttl_geral="1h",
-        modelo_md="<identidade>nome</identidade>",
+        modelo_md=modelo,
         ttl_modelo="1h",
     )
-    assert len(msgs) == 2
+    assert len(msgs) == 3
+    assert msgs[2].content == [
+        {"type": "text", "text": modelo, "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    ]
+    # BP1+BP2 inalterados pelo BP3 (prefixo geral intacto).
+    assert msgs[0].content == [
+        {"type": "text", "text": GERAL, "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+    ]
 
 
 def test_ttl_geral_mais_curto_que_modelo_viola_ordenacao() -> None:

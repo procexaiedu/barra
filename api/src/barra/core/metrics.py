@@ -80,6 +80,16 @@ AGENTE_CUSTO_TURNO_BRL = Histogram(
     "Custo estimado por turno em BRL (Sonnet 4.6 com cache; meta <=0.12 BRL)",
     ["modelo"],
 )
+TURNO_TRUNCADO = Counter(
+    "agente_turno_truncado_total",
+    "Turnos com stop_reason=max_tokens (08 §3; valida a premissa de max_tokens~1024 nao "
+    "truncar). No P0 so observa, nao escala (09 §4.2 / 03 §6.3); spike = revisar teto / mid-tool_use",
+)
+PERSONA_DRIFT_REMINDER = Counter(
+    "agente_persona_reminder_injetado_total",
+    "Reminder anti-drift injetado no ultimo HumanMessage (>=8 turnos da IA; 03 §10). Regra "
+    "proativa -> proxy de volume de conversas longas, nao de drift detectado",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

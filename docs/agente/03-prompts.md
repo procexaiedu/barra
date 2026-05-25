@@ -361,6 +361,19 @@ SELECT p.nome, p.duracao_horas, mp.preco
  ORDER BY p.duracao_horas;
 ```
 
+> **⚠️ Drift de schema (anotado 2026-05-25, M2-T1).** A query e o template acima são **obsoletos**: `programas.duracao_horas` foi **removida** em `0009_programas_simplificar.sql`, e `0010_duracoes.sql` tornou a duração entidade própria (`duracoes`), recriando `modelo_programas` com chave `(modelo_id, programa_id, duracao_id, preco)`. O BP3 implementado usa o **schema real** (espelha o painel `dominio/modelos/routes.py`):
+>
+> ```sql
+> SELECT p.nome, d.nome AS duracao_nome, mp.preco
+>   FROM barravips.modelo_programas mp
+>   JOIN barravips.programas p ON p.id = mp.programa_id
+>   JOIN barravips.duracoes  d ON d.id = mp.duracao_id
+>  WHERE mp.modelo_id = %s
+>  ORDER BY p.categoria NULLS FIRST, p.nome ASC, d.ordem ASC;
+> ```
+>
+> O template `programas.md.j2` rende a coluna **Duração** a partir de `duracao_nome` (ex.: "1 hora"), não de `duracao_horas`. `ORDER BY` determinístico = pré-req do cache (`§4`). Tabela flat `Programa | Duração | Valor`.
+
 ### 3.4 Contexto dinâmico — `agente/prompts/contexto_dinamico.md.j2`
 
 Já apresentado em `02 §5`. Renderizado por turno; sem cache_control de longo TTL.

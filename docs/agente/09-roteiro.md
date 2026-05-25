@@ -1,4 +1,4 @@
-﻿# 09 — Roteiro de Implementação (Claude Code first)
+# 09 — Roteiro de Implementação (Claude Code first)
 
 > Roadmap executável por agentes Claude Code, do estado atual (**M0 parcial**) até **P0 pronto-pra-piloto** = passar o gate de evals do `08 §4`. **Não inclui P1.**
 >
@@ -21,8 +21,8 @@ Levantado a partir do **código real** em `api/src/barra/`, não do que o doc af
 - `agente/contexto.py` — `ContextAgente` completo (db_pool, redis, modelo_id, atendimento_id, cliente_id, turno_id) ✓.
 - `core/metrics.py` (métricas `AGENTE_TURNO_*`, `TIMEOUTS`, definidas, **não instrumentadas**), `core/evolution.py` (`EvolutionClient`: `enviar_texto`, `registrar_envio`, `envio_existe`, instâncias), `core/db.py` (`criar_pool`/`fechar_pool`/`conexao`, `prepare_threshold=None`), `core/storage.py` (MinIO) — reais ✓.
 - `core/llm.py` (`criar_chat_anthropic` real: Sonnet 4.6, `thinking=disabled`, `effort=low`, `max_tokens=1024`, `max_retries=2`, `timeout=60`; `criar_anthropic_client` stub P1) ✓ [M0-T1]
-- `agente/persona.py` (`render_persona` BP1=persona+regras GERAL + `carregar_faq` BP2, ambos `lru_cache` via Jinja; `IdentidadeModelo`/`render_identidade` declarados p/ M2) + `prompts/regras.md.j2` (Jinja no `<desconto>` p/ `desconto_max_pct`, ADR-0004); dep `jinja2` adicionada ✓ [M0-T2]
-- `agente/llm.py` (`build_system_messages` BP1+BP2 + `_bloco_texto`; `cache_control` em content blocks 1.x; `modelo_md`/`ttl_modelo` reservados p/ BP3, guarda de ordenação de TTL dormente até M2) ✓ [M0-T3]
+- `agente/persona.py` (`render_persona` BP1=persona+regras GERAL + `carregar_faq` BP2, ambos `lru_cache` via Jinja; `IdentidadeModelo`/`render_identidade` + `render_programas`/`render_bp3` consumidos no BP3 ✓ [M2-T1]) + `prompts/regras.md.j2` (Jinja no `<desconto>` p/ `desconto_max_pct`, ADR-0004); dep `jinja2` adicionada ✓ [M0-T2]
+- `agente/llm.py` (`build_system_messages` BP1+BP2 + `_bloco_texto`; `cache_control` em content blocks 1.x; emite o 3º bloco BP3 quando `modelo_md` é passado, com guarda de ordenação de TTL) ✓ [M0-T3 + M2-T1]
 - `workers/timeouts.py` (`aplicar_timeout_longo/interno`, `confirmar_em_execucao`) + `workers/settings.py` (`WorkerSettings`, **só crons**, `functions=[]`) ✓.
 - `webhook/routes.py` — token + JID + persistência idempotente + comandos de grupo via `aplicar_comando` ✓. **Mas cria atendimento eager** (`garantir_atendimento_aberto`) — `06 §0.1` manda virar webhook fino (`atendimento_id=NULL`).
 - `dominio/escaladas/service.py` — `aplicar_comando:25`, `_atualizar_pix:248` (já não trava o fluxo, `07 §5`), `abrir_handoff:315` ✓.
@@ -41,7 +41,7 @@ Levantado a partir do **código real** em `api/src/barra/`, não do que o doc af
 - `agente/_classificador.py` (regex disclosure/jailbreak), `workers/coordenador.py` (`processar_turno`), `workers/_chunking.py`.
 - `dominio/atendimentos/service.py:registrar_extracao_ia` (transição + bloqueio + guarda do piso).
 - Tools: `ferramentas/__init__.py` exporta `TOOLS = [consultar_agenda]` ✓ [M1-T1]; `leitura.py` (`consultar_agenda`, query `bloqueios` + limite 14d) ✓ [M1-T1]; faltam `extracao.py`, `pix.py`, `midia.py`, `escalada.py`, `_idempotencia.py`.
-- Templates: `prompts/` tem `persona.md`/`faq.md` **planos** + `regras.md.j2` (Jinja p/ `desconto_max_pct` ✓ [M0-T2]) + `contexto_dinamico.md.j2` ✓ [M1-T2]; faltam `identidade.md.j2`, `programas.md.j2`.
+- Templates: `prompts/` tem `persona.md`/`faq.md` **planos** + `regras.md.j2` (Jinja p/ `desconto_max_pct` ✓ [M0-T2]) + `contexto_dinamico.md.j2` ✓ [M1-T2] + `identidade.md.j2` + `programas.md.j2` (BP3 por-modelo) ✓ [M2-T1].
 - Migrations: **`tool_calls`** (`04 §5`), **`disclosure_tentativas`** (`10 §3.1`), **`modelo_midia.ultimo_envio_em`** (`04 §3.3`) — todas via **nome timestamp** (`§6`).
 - Dependência **`openai`** (Whisper STT + cliente OpenRouter-compat, M5) — ausente no `pyproject`.
 - Zero testes de agente/grafo/coordenador. Runners de eval ausentes (só READMEs "TODO").
@@ -229,29 +229,36 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 
 ### M2 — Cache observável + BP3 por-modelo
 
-#### M2-T1 — BP3 por-modelo (identidade + programas)
+#### M2-T1 — BP3 por-modelo (identidade + programas) — ✅ FEITO (2026-05-25)
 - **Objetivo:** `build_system_messages` passa a emitir o **3º bloco** (`modelo_md`, `ttl_modelo`); `agente/persona.py:render_identidade(IdentidadeModelo)` + template `identidade.md.j2`; `programas.md.j2` + query `modelo_programas` (`03 §3.3`). `prepare_context` carrega identidade/programas do `modelo_id` e concatena no BP3. Validar ordenação TTL (`03 §1`/`§5`).
 - **Carregar:** `03 §1`, `03 §2.1`, `03 §3.3`, `03 §5`, `01 §6.9`; `agente/{llm,persona}.py`, `agente/nos/prepare_context.py`.
 - **Tocar:** `agente/llm.py`, `agente/persona.py`, `prompts/{identidade,programas}.md.j2` (criar), `nos/prepare_context.py`.
 - **Aceite:** `uv run pytest tests/agente/test_bp3_render.py` — saída tem 3 blocos; BP3 contém nome/idade/programas do modelo de teste; BP1+BP2 seguem byte-idênticos entre 2 modelos (guard-rail #1).
 - **Depende de:** M0-T3.
 - **Paralelizável com:** M1-*.
+- **Drift de schema resolvido (2026-05-25):** a query do `03 §3.3` usa `programas.duracao_horas`, mas essa coluna foi **removida** em `0009_programas_simplificar.sql`; pós-`0010_duracoes.sql` a duração é entidade própria (`duracoes`) e `modelo_programas` tem chave `(modelo_id, programa_id, duracao_id, preco)`. O BP3 usa o **schema real** (JOIN `programas`/`duracoes`, `duracao_nome`, `ORDER BY p.categoria NULLS FIRST, p.nome, d.ordem` — espelha o painel `dominio/modelos/routes.py`). Tabela flat `Programa | Duração | Valor`. `03 §3.3` foi anotado com o drift.
+- **Colateral:** `build_system_messages` agora emite BP3 quando `modelo_md != None`; `_fakes.py:FakeConn` responde às queries de identidade/programas (default modelo pt-BR); `test_{prepare_context,build_system}.py` ajustados para 3 blocos system (eram 2 no M0).
 
-#### M2-T2 — Instrumentação de tokens/cache + reminder
+#### M2-T2 — Instrumentação de tokens/cache + reminder — ✅ FEITO (2026-05-25)
 - **Objetivo:** instrumentar `agente_turno_tokens_total{tipo}` lendo `usage_metadata["input_token_details"]` (read=`cache_read`; write=`ephemeral_5m+ephemeral_1h`, `03 §4.2`) — provisoriamente no nó `llm`/`post_process` (o coordenador reusa em M3). Adicionar `_injetar_reminder_se_necessario` (≥8 turnos da IA, `03 §10`) + `<instrucoes_meta>` em `regras.md.j2`. `TURNO_TRUNCADO` counter (`08 §3`).
 - **Carregar:** `03 §4.2`, `03 §10`, `02 §10`, `08 §3`; `core/metrics.py`, `agente/nos/{llm,prepare_context}.py`, `prompts/regras.md.j2`.
 - **Tocar:** `core/metrics.py`, `nos/llm.py`, `nos/prepare_context.py`, `prompts/regras.md.j2`.
 - **Aceite:** `uv run pytest tests/agente/test_metricas_cache.py` (mock `usage_metadata`): write lido de `ephemeral_*` (não de `cache_creation`); reminder injetado só com ≥8 AIMessages.
 - **Depende de:** M2-T1.
 - **Paralelizável com:** M1-*.
+- **Feito (2026-05-25):** `AGENTE_TURNO_TOKENS` instrumentada no nó `llm` (`_instrumentar_tokens`) nas 4 séries `{input,output,cache_read,cache_write}`; WRITE lido de `ephemeral_5m+ephemeral_1h` (NÃO de `cache_creation`, que vem 0 no langchain-anthropic 1.4.3 — spike 2026-05-24), label `modelo` = nome Anthropic via `chat.model`. `TURNO_TRUNCADO` (`agente_turno_truncado_total`, sem labels) criada em `metrics.py` e incrementada no ramo `stop_reason="max_tokens"` (substitui o `TODO(M2)`; P0 só observa, não escala — `§4.2`/`03 §6.3`). Reminder anti-drift (`_precisa_reminder`/`_injetar_reminder_se_necessario`) em `prepare_context`: PREPEND `<lembrete_silencioso>` no último HumanMessage com ≥8 AIMessages, DEPOIS do contexto dinâmico (ordem lembrete → msg → contexto, num único HumanMessage de cauda); `fase` reusa o `estado` resolvido — `_anexar_contexto_dinamico` agora retorna `(mensagens, fase)`, sem nova query. `<instrucoes_meta>` ensinado em `regras.md.j2` (edita BP1 → invalida o cache geral 1×, esperado/intencional). Counter opcional `agente_persona_reminder_injetado_total` incrementado ao injetar.
+- **Colateral:** `tests/agente/test_metricas_cache.py` criado (token/truncado via fake chat + `usage_metadata` mockado, sem HTTP; reminder testado direto). Sem regressão em `test_{prepare_context,contexto_dinamico}` — o reminder só dispara com ≥8 AIMessages, acima das janelas desses testes.
 
-#### M2-T3 — Fixture cache_hit
+#### M2-T3 — Fixture cache_hit — ✅ FEITO (2026-05-25)
 - **Objetivo:** curar `canonicos/cache_hit/001_segundo_turno_cache.jsonl` para validar `cache_read>0` no 2º turno (medido em burst, `08 §3.1`).
 - **Carregar:** `08 §3.1`, `08 §2.2`; `evals/canonicos/cache_hit/001_segundo_turno_cache.jsonl`.
 - **Tocar:** a fixture.
 - **Aceite:** fixture valida contra schema; `metricas` exige `cache_hit_rate>=0.70`. (Execução no M6.)
 - **Depende de:** M2-T2.
 - **Paralelizável com:** M1-*.
+- **Decisão da chave de cache (2026-05-25):** a fixture usava `expectativas.metricas.cache_hit_rate_minimo` + rubrica `cache_hit_rate`, **ausentes** da tabela `08 §2.4`/README. Resolvido pela **via (a)** ("o doc é a fonte de verdade do schema"): `metricas.cache_hit_rate_minimo` foi **documentada** na tabela `08 §2.4` e nos "Campos críticos" do `evals/README.md` como métrica válida de fixture — piso de hit-rate (`cache_read`/input total), lido do `usage` da Anthropic e comparado pela rubrica determinística `cache_hit_rate`. Fixture e doc ficam consistentes; a alternativa (b) (alinhar a fixture às chaves já documentadas) foi descartada por esvaziar a única fixture que mede cache.
+- **Feito (2026-05-25):** fixture recurada para 2 turnos no MESMO par `(cliente, modelo)` — turno 1 "Oi, tudo bem?", turno 2 "Adorei seu perfil…" (continuação conversacional **pura**: `tool_calls_proibidas` cobre `consultar_agenda`/`pedir_pix_deslocamento`/`registrar_extracao`/`escalar`, `estado_final=Triagem`, `ia_pausada_final=false`), de modo que o 2º turno reaproveite o prefixo inteiro (`tools` + BP1+BP2 GERAL + BP3 por-modelo). `descricao` corrigida de "4 breakpoints estaveis" → **3 blocos estáveis** (BP4/cache da cauda é P1, adiado) e marcada explicitamente como **smoke de BURST quente**, não o gate de produção (que é o **write-rate**, `08 §3.1`). `estado_inicial` completado (`pix_status`/`recorrente`) espelhando as fixtures de `leitura/`.
+- **Colateral:** `tests/agente/test_fixtures_cache_hit.py` criado (DB-free, espelha `test_fixtures_leitura.py`; valida JSON-por-linha sem BOM, campos obrigatórios incl. `estado_inicial`, listas `tool_calls_*` disjuntas, `id` únicos — **3 passed**). Suíte padrão intacta (`-m "not needs_db and not needs_key"` → **152 passed**); `make lint`/`make typecheck` limpos. Execução K=5 contra o Sonnet real fica no **M6** (`08 §4.1`). **Com M2-T3, o marco M2 fecha.**
 
 ### M3 — Coordenador + escrita + disclosure
 

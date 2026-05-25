@@ -126,6 +126,7 @@ Vive em `api/evals/runners/` (`judge.md` + `checks.py` — TODO M6). Avalia cada
 | `texto_resposta.max_chars` | teto de tamanho da resposta |
 | `metricas.max_turnos_internos` | teto de iterações do loop ReAct |
 | `metricas.max_custo_brl` | teto de custo do turno (regressão de cache) |
+| `metricas.cache_hit_rate_minimo` | piso de hit-rate (`cache_read`/input total) do turno — consumido pela rubrica determinística `cache_hit_rate`; é **smoke de burst quente** (`§3.1`), **não** o gate de produção (write-rate) |
 
 ### 2.5 Configuração LangSmith
 

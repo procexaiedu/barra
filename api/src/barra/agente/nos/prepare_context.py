@@ -10,15 +10,19 @@ M0-T4:
     3. Janela deslizante 20 (02 §4), traduzida para HumanMessage/AIMessage, em ordem
        cronologica, isolada pelo par (cliente_id, modelo_id) JUNTOS (agente/CLAUDE.md).
 
-M1-T2 (este escopo):
+M1-T2:
     4. Contexto dinamico (02 §5): estado do atendimento + cliente + agenda 48h resolvidos por
        queries (reusando a mesma conexao) e concatenados no ULTIMO HumanMessage da janela
        (a msg atual do cliente), DEPOIS do prefixo cacheavel ("stable first, volatile last").
        SEM `cache_control` -- texto volatil, fora do prefixo (03 §3.4/§4.4).
 
-Adiado: BP3 por-modelo (M2-T1), reminder >=8 turnos no ultimo HumanMessage (M2-T2),
-    cache condicional da cauda (BP3/BP4, M2-T1), classificacao de disclosure
-    (`_categoria`/`_confianca`, M3g).
+M2-T1 (este escopo):
+    5. BP3 por-modelo (03 §2/§3.3): identidade (nome/idade/idiomas/localizacao/tipos_aceitos) +
+       programas/precos do modelo_id, montados na MESMA conexao e passados como 3º bloco system
+       (cacheado por `ttl_modelo`), DEPOIS dos blocos GERAIS BP1/BP2. POR-MODELO, nao por par.
+
+Adiado: reminder >=8 turnos no ultimo HumanMessage (M2-T2), cache condicional da cauda
+    (BP4, P1, 03 §4.4), classificacao de disclosure (`_categoria`/`_confianca`, M3g).
 """
 
 from typing import Any, Literal
@@ -30,13 +34,20 @@ from langgraph.types import Command
 from psycopg import AsyncConnection
 
 from barra.core.db import conexao
+from barra.core.metrics import PERSONA_DRIFT_REMINDER
 from barra.dominio.conversas.modelos import DirecaoMensagem
 from barra.settings import get_settings
 
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
-from ..persona import carregar_faq, render_contexto_dinamico, render_persona
+from ..persona import (
+    IdentidadeModelo,
+    carregar_faq,
+    render_bp3,
+    render_contexto_dinamico,
+    render_persona,
+)
 
 
 async def prepare_context(
@@ -71,13 +82,28 @@ async def prepare_context(
 
         # 3. Contexto dinâmico (02 §5): resolve estado/cliente/agenda na MESMA conexão e
         #    concatena no último HumanMessage (sem cache_control — texto volátil na cauda).
-        mensagens = await _anexar_contexto_dinamico(conn, ctx, mensagens)
+        #    Devolve a `fase` (= estado do atendimento) já resolvida, p/ o reminder não requerer.
+        mensagens, fase = await _anexar_contexto_dinamico(conn, ctx, mensagens)
 
-    # 4. Prefixo system GERAL (BP1+BP2), byte-identico p/ todas as modelos (agente/CLAUDE.md).
+        # 3b. Reminder anti-drift (03 §10): PREPEND o <lembrete_silencioso> no MESMO último
+        #     HumanMessage, depois do contexto dinâmico (ordem final: lembrete → msg → contexto),
+        #     só com ≥8 AIMessages na janela. Volátil — fica na cauda, fora do prefixo cacheável.
+        mensagens = _injetar_reminder_se_necessario(mensagens, fase)
+
+        # 4. BP3 por-modelo (03 §2/§3.3): identidade + programas do modelo_id, reusando a
+        #    conexão. É POR-MODELO (filtra modelo_id), não fura o isolamento por par (que vale
+        #    para histórico do cliente, já filtrado por cliente+modelo na janela e no contexto).
+        modelo_md = await _carregar_bp3(conn, ctx.modelo_id)
+
+    # 5. Prefixo system: BP1+BP2 GERAIS (byte-identicos p/ todas — agente/CLAUDE.md) + BP3
+    #    por-modelo. Ordem estável: gerais antes do por-modelo (invariante de prefixo, §1).
+    settings = get_settings()
     system_msgs = build_system_messages(
         geral_md=render_persona(),
         faq_md=carregar_faq(),
-        ttl_geral=get_settings().cache_ttl_geral,
+        ttl_geral=settings.cache_ttl_geral,
+        modelo_md=modelo_md,
+        ttl_modelo=settings.cache_ttl_modelo,
     )
     return Command(
         goto="intercept_disclosure",
@@ -155,7 +181,7 @@ def traduzir_mensagens(linhas: list[dict[str, Any]]) -> list[BaseMessage]:
 
 async def _anexar_contexto_dinamico(
     conn: AsyncConnection[Any], ctx: ContextAgente, mensagens: list[BaseMessage]
-) -> list[BaseMessage]:
+) -> tuple[list[BaseMessage], str | None]:
     """Resolve o contexto dinâmico do turno e concatena no último HumanMessage (02 §5).
 
     O contexto dinâmico (estado do atendimento, cliente, agenda das próximas 48h, data atual)
@@ -164,18 +190,104 @@ async def _anexar_contexto_dinamico(
     JUNTOS (isolamento — agente/CLAUDE.md).
 
     Concatena no ÚLTIMO HumanMessage (a msg atual do cliente). Defesa: se a janela não tiver
-    nenhum HumanMessage, anexa o contexto como novo HumanMessage no fim.
+    nenhum HumanMessage, anexa o contexto como novo HumanMessage no fim. Devolve também a `fase`
+    (= `estado` do atendimento) já resolvida, p/ o reminder (03 §10) reusar sem nova query.
     """
     variaveis = await _resolver_variaveis(conn, ctx)
     texto = render_contexto_dinamico(**variaveis)
+    fase = variaveis["estado"]
 
     for i in range(len(mensagens) - 1, -1, -1):
         msg = mensagens[i]
         if isinstance(msg, HumanMessage):
             anexadas = list(mensagens)
             anexadas[i] = HumanMessage(content=f"{msg.content}\n\n{texto}", id=msg.id)
-            return anexadas
-    return [*mensagens, HumanMessage(content=texto)]
+            return anexadas, fase
+    return [*mensagens, HumanMessage(content=texto)], fase
+
+
+def _precisa_reminder(historico: list[BaseMessage]) -> bool:
+    """Proativo (decisão grilling 2026-05-23): injeta a partir de ≥8 turnos da IA, SEM esperar
+    sinal de drift (03 §10). Reagir só após o drift aparecer seria 1 turno atrasado — a mensagem
+    quebrada já foi ao cliente. Conta de turnos da IA = AIMessages na janela (inclui o
+    `modelo_manual`, já traduzido para AIMessage em traduzir_mensagens).
+    """
+    return sum(1 for m in historico if m.type == "ai") >= 8
+
+
+def _injetar_reminder_se_necessario(
+    historico: list[BaseMessage], fase: str | None
+) -> list[BaseMessage]:
+    """Prepende o <lembrete_silencioso> no último HumanMessage acima do limiar (03 §10).
+
+    Combate persona drift em conversas longas. Vai no último HumanMessage (cauda volátil, sem
+    cache_control); como roda DEPOIS de _anexar_contexto_dinamico, o conteúdo final fica
+    lembrete → msg do cliente → contexto dinâmico, num único HumanMessage de cauda. `fase` é o
+    estado do atendimento (reusado do contexto dinâmico). Sem HumanMessage na janela → no-op.
+    """
+    if not _precisa_reminder(historico):
+        return historico
+
+    ultima_user_idx = next(
+        (i for i in range(len(historico) - 1, -1, -1) if historico[i].type == "human"),
+        None,
+    )
+    if ultima_user_idx is None:
+        return historico
+
+    ultima = historico[ultima_user_idx]
+    novo_conteudo = (
+        f"<lembrete_silencioso>"
+        f"Persona ativa. Sem saudação formal. Fase: {fase}. "
+        f"Não use 'como posso ajudar', 'genuinamente', 'absolutamente'. Sem bullets."
+        f"</lembrete_silencioso>\n\n"
+        f"{ultima.content}"
+    )
+    historico = list(historico)
+    historico[ultima_user_idx] = HumanMessage(content=novo_conteudo, id=ultima.id)
+    PERSONA_DRIFT_REMINDER.inc()
+    return historico
+
+
+async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> str:
+    """Monta o BP3 por-modelo: identidade + programas do modelo_id (03 §2.1/§3.3).
+
+    A coluna `tipo_atendimento_aceito` (banco) é mapeada para `tipos_aceitos` (dataclass). Os
+    programas vêm do schema real (pós-0010): `modelo_programas`/`programas`/`duracoes` — a
+    duração é entidade própria (`duracao_nome`), NÃO `programas.duracao_horas` (removida em
+    0009; a query do §3.3 está desatualizada). O `ORDER BY` é determinístico (pré-req do cache:
+    bytes estáveis no prefixo — agente/CLAUDE.md), espelhando o painel (dominio/modelos/routes).
+    """
+    res = await conn.execute(
+        """
+        SELECT nome, idade, idiomas, localizacao_operacional, tipo_atendimento_aceito
+          FROM barravips.modelos
+         WHERE id = %s
+        """,
+        (modelo_id,),
+    )
+    m = await res.fetchone() or {}
+    identidade = IdentidadeModelo(
+        nome=m["nome"],
+        idade=m["idade"],
+        idiomas=m.get("idiomas") or [],
+        localizacao_operacional=m.get("localizacao_operacional"),
+        tipos_aceitos=m.get("tipo_atendimento_aceito") or [],
+    )
+
+    res = await conn.execute(
+        """
+        SELECT p.nome, d.nome AS duracao_nome, mp.preco
+          FROM barravips.modelo_programas mp
+          JOIN barravips.programas p ON p.id = mp.programa_id
+          JOIN barravips.duracoes d ON d.id = mp.duracao_id
+         WHERE mp.modelo_id = %s
+         ORDER BY p.categoria NULLS FIRST, p.nome ASC, d.ordem ASC
+        """,
+        (modelo_id,),
+    )
+    programas = await res.fetchall()
+    return render_bp3(identidade, programas)
 
 
 async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) -> dict[str, Any]:

@@ -44,27 +44,27 @@ def build_system_messages(
 ) -> list[SystemMessage]:
     """Blocos `system` cacheados, na ordem de render da Anthropic (§1, §4).
 
-    P0/M0: 2 blocos GERAIS — BP1 (persona+regras) e BP2 (FAQ), byte-idênticos entre todas
-    as modelos. O cache_control vai em content blocks (langchain-anthropic 1.x, decisão M0).
-
-    `modelo_md`/`ttl_modelo` ficam reservados para o BP3 por-modelo (identidade + programas);
-    o 3º bloco só é emitido a partir do M2 (M2-T1). A ordem é estável e CRÍTICA: gerais
-    (BP1-BP2) antes do por-modelo (BP3), senão o prefixo deixa de ser global (§1, §4.3).
+    BP1 (persona+regras) e BP2 (FAQ) são GERAIS — byte-idênticos entre todas as modelos. Quando
+    `modelo_md` é passado (M2-T1+), emite o 3º bloco BP3 por-modelo (identidade + programas). A
+    ordem é estável e CRÍTICA: gerais (BP1-BP2) antes do por-modelo (BP3), senão o prefixo deixa
+    de ser global (§1, §4.3). O cache_control vai em content blocks (langchain-anthropic 1.x).
 
     Função pura: recebe markdown já renderizado, sem I/O nem `render_persona`/DB — mesma
     entrada produz saída byte-idêntica (invariante de prefixo, agente/CLAUDE.md).
 
-    Validação de TTL (dispara quando o BP3 entrar): a Anthropic exige TTL mais longo ANTES
-    do mais curto no array; como o BP3 vem depois de BP1/BP2, `ttl_geral` não pode ser mais
-    curto que `ttl_modelo` (ex.: geral=5m + modelo=1h → 400). §1/§5.
+    Validação de TTL: a Anthropic exige TTL mais longo ANTES do mais curto no array; como o BP3
+    vem depois de BP1/BP2, `ttl_geral` não pode ser mais curto que `ttl_modelo` (ex.: geral=5m +
+    modelo=1h → 400). §1/§5.
     """
     if ttl_modelo is not None and _RANK[ttl_geral] < _RANK[ttl_modelo]:
         raise ValueError(
             f"ttl_geral ({ttl_geral}) não pode ser mais curto que ttl_modelo "
             f"({ttl_modelo}): viola a ordenação de TTL da Anthropic (03 §1/§5)"
         )
-    return [
+    mensagens = [
         SystemMessage(content=[_bloco_texto(geral_md, ttl_geral)]),  # BP1 — geral
         SystemMessage(content=[_bloco_texto(faq_md, ttl_geral)]),  # BP2 — geral
-        # BP3 (modelo_md, ttl_modelo) entra no M2 (M2-T1) — não emitido no M0.
     ]
+    if modelo_md is not None:
+        mensagens.append(SystemMessage(content=[_bloco_texto(modelo_md, ttl_modelo)]))  # BP3
+    return mensagens

@@ -65,26 +65,28 @@ def test_ia_pausada_retorna_command_end() -> None:
     assert res.goto == END
 
 
-def test_caminho_normal_2_system_mais_janela_cronologica() -> None:
+def test_caminho_normal_3_system_mais_janela_cronologica() -> None:
     res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_desc())))
     assert isinstance(res, Command)
     assert res.goto == "intercept_disclosure"
     msgs = res.update["messages"]
-    # 2 SystemMessage (BP1+BP2) + 3 da janela (contexto dinamico nao cria msg nova: ha HumanMessage)
+    # 3 SystemMessage (BP1+BP2 gerais + BP3 por-modelo) + 3 da janela (contexto dinamico nao
+    # cria msg nova: ha HumanMessage). BP3 emitido a partir do M2-T1.
     assert isinstance(msgs[0], SystemMessage)
     assert isinstance(msgs[1], SystemMessage)
-    assert len(msgs) == 5
+    assert isinstance(msgs[2], SystemMessage)
+    assert len(msgs) == 6
     # ordem cronologica: cliente -> ia -> modelo_manual
-    assert isinstance(msgs[2], HumanMessage)
+    assert isinstance(msgs[3], HumanMessage)
     # contexto dinamico (02 §5) e concatenado no ULTIMO HumanMessage, depois da msg do cliente
     # (a verificacao rigorosa de que o prefixo cacheavel fica intacto vive em test_contexto_dinamico)
-    assert msgs[2].content.startswith("ola")
-    assert "# Estado atual do atendimento" in msgs[2].content
-    assert isinstance(msgs[3], AIMessage)
-    assert msgs[3].content == "oi amor, tudo bem?"
-    # modelo_manual vira AIMessage COM PREFIXO
+    assert msgs[3].content.startswith("ola")
+    assert "# Estado atual do atendimento" in msgs[3].content
     assert isinstance(msgs[4], AIMessage)
-    assert msgs[4].content == "[mensagem manual da modelo]: deixa que eu respondo"
+    assert msgs[4].content == "oi amor, tudo bem?"
+    # modelo_manual vira AIMessage COM PREFIXO
+    assert isinstance(msgs[5], AIMessage)
+    assert msgs[5].content == "[mensagem manual da modelo]: deixa que eu respondo"
 
 
 def test_atendimento_id_none_pula_gate() -> None:
@@ -93,14 +95,16 @@ def test_atendimento_id_none_pula_gate() -> None:
     res = asyncio.run(prepare_context({"messages": []}, rt))
     assert isinstance(res, Command)
     assert res.goto == "intercept_disclosure"
-    # 2 system + 1 HumanMessage: janela vazia, entao o contexto dinamico (02 §5) e anexado como
-    # novo HumanMessage no fim (defesa do _anexar_contexto_dinamico). Gate pulado sem crashar.
+    # 3 system (BP1+BP2+BP3) + 1 HumanMessage: janela vazia, entao o contexto dinamico (02 §5) e
+    # anexado como novo HumanMessage no fim (defesa do _anexar_contexto_dinamico). BP3 carrega por
+    # modelo_id, que existe mesmo com atendimento_id None. Gate pulado sem crashar.
     msgs = res.update["messages"]
-    assert len(msgs) == 3
+    assert len(msgs) == 4
     assert isinstance(msgs[0], SystemMessage)
     assert isinstance(msgs[1], SystemMessage)
-    assert isinstance(msgs[2], HumanMessage)
-    assert "# Estado atual do atendimento" in msgs[2].content
+    assert isinstance(msgs[2], SystemMessage)
+    assert isinstance(msgs[3], HumanMessage)
+    assert "# Estado atual do atendimento" in msgs[3].content
 
 
 def test_traduzir_audio_sem_transcricao_vira_placeholder() -> None:

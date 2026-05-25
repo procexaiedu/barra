@@ -66,7 +66,7 @@ def render_contexto_dinamico(**variaveis: Any) -> str:
 
 
 def render_identidade(m: IdentidadeModelo) -> str:
-    """BP3 por-modelo — identidade óbvia + tipos_aceitos. Declarado; só usado no M2 (BP3)."""
+    """BP3 por-modelo — identidade óbvia + tipos_aceitos (programas concatenados à parte, §3.3)."""
     return _env.get_template("identidade.md.j2").render(
         nome=m.nome,
         idade=m.idade,
@@ -74,3 +74,18 @@ def render_identidade(m: IdentidadeModelo) -> str:
         localizacao_operacional=m.localizacao_operacional,
         tipos_aceitos=m.tipos_aceitos,
     )
+
+
+def render_programas(programas: list[dict[str, Any]]) -> str:
+    """BP3 por-modelo — tabela nome/duração/preço (03 §3.3).
+
+    Cada linha é uma combinação (programa/duração) da modelo. O schema real (pós-migrations
+    0009/0010) tem duração como entidade própria (`duracoes`): `duracao_nome` vem do JOIN, não
+    de `programas.duracao_horas` (coluna removida; a query do §3.3 está desatualizada). A lista
+    deve chegar já ordenada de forma determinística (pré-req do cache — agente/CLAUDE.md)."""
+    return _env.get_template("programas.md.j2").render(programas=programas)
+
+
+def render_bp3(identidade: IdentidadeModelo, programas: list[dict[str, Any]]) -> str:
+    """BP3 completo por-modelo: identidade + programas concatenados (03 §2.3)."""
+    return f"{render_identidade(identidade)}\n{render_programas(programas)}"
