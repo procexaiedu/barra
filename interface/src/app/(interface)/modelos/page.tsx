@@ -74,7 +74,9 @@ function ModelosConteudo() {
   // Status efetivo passado ao modal: deriva 'conectado' do detalhe quando o
   // modal já está aguardando o scan. Evita setState dentro de useEffect.
   const qrStatusEfetivo: QrModalStatus =
-    qrStatus === "aguardando_scan" && conectado ? "conectado" : qrStatus
+    (qrStatus === "aguardando_scan" || qrStatus === "conectando") && conectado
+      ? "conectado"
+      : qrStatus
 
   // Auto-fecha o modal ~800ms após o pareamento convergir (tanto o modal
   // dedicado quanto o fluxo embutido no DialogCriarModelo).
@@ -91,18 +93,27 @@ function ModelosConteudo() {
     return () => clearTimeout(timer)
   }, [qrOpen, criarQrAtivo, qrStatusEfetivo])
 
-  // Polling defensivo: enquanto o modal aguarda o scan, batemos no
-  // GET /whatsapp/status, que faz auto-cure consultando connectionState
-  // na Evolution. Cobre dev sem tunnel (webhook não chega). Vale para o
-  // modal dedicado e para a etapa de QR embutida no DialogCriarModelo.
+  // Polling defensivo: enquanto o modal aguarda o scan (ou já está conectando),
+  // batemos no GET /whatsapp/status, que faz auto-cure consultando
+  // connectionState na Evolution. Cobre dev sem tunnel (webhook não chega).
+  // Vale para o modal dedicado e para a etapa de QR embutida no
+  // DialogCriarModelo. Ao ver 'connecting' marcamos "conectando": isso para o
+  // refresh de QR (abaixo), que reiniciaria o handshake do Baileys.
   useEffect(() => {
-    if ((!qrOpen && !criarQrAtivo) || qrStatus !== "aguardando_scan" || !modelo?.id) return
+    if (
+      (!qrOpen && !criarQrAtivo) ||
+      (qrStatus !== "aguardando_scan" && qrStatus !== "conectando") ||
+      !modelo?.id
+    )
+      return
     const id = modelo.id
     const intervalo = setInterval(async () => {
       try {
         const status = await modelos.whatsappStatus(id)
         if (status.status === "conectado") {
           await modelos.recarregarDetalhe()
+        } else if (status.conexao_estado === "connecting") {
+          setQrStatus((s) => (s === "aguardando_scan" ? "conectando" : s))
         }
       } catch {
         // silencioso: pequenas falhas de polling não devem travar o modal

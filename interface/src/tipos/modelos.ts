@@ -109,6 +109,8 @@ export interface WhatsappStatusResponse {
   instance_id: string | null
   status: EvolutionStatus
   pareado_em: string | null
+  /** Estado bruto da Evolution durante o pareamento. null fora dele. */
+  conexao_estado?: "open" | "connecting" | "close" | "unknown" | null
 }
 
 /** Uma regra de disponibilidade (período de trabalho). dia_semana: 0=dom..6=sáb. */

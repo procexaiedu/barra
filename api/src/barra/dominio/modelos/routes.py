@@ -237,6 +237,12 @@ async def conectar_whatsapp(
             "Verifique a chave da Evolution e o status da instância."
         ) from exc
     qr_code = _extrair_qr_code(resposta)
+    # Garante o webhook registrado mesmo para instâncias preexistentes: o
+    # /instance/create só grava o webhook ao CRIAR a instância; quando ela já
+    # existe (403 idempotente) o webhook nunca é reescrito e a Evolution para
+    # de postar CONNECTION_UPDATE/MESSAGES_UPSERT. Best-effort — não trava o
+    # pareamento se a Evolution recusar.
+    await client.definir_webhook(instance_id)
     await conn.execute(
         """
         UPDATE barravips.modelos
@@ -294,14 +300,15 @@ async def whatsapp_status(
     modelo = await _modelo(conn, modelo_id)
     instance_id = modelo["evolution_instance_id"]
     status_atual = modelo["evolution_status"]
+    conexao_estado: str | None = None
 
     if status_atual == "pareando" and instance_id:
         client = EvolutionClient(request.app.state.settings)
         try:
-            estado = await client.estado_conexao(instance_id)
+            conexao_estado = await client.estado_conexao(instance_id)
         except httpx.HTTPError:
-            estado = "unknown"
-        if estado == "open":
+            conexao_estado = "unknown"
+        if conexao_estado == "open":
             await conn.execute(
                 """
                 UPDATE barravips.modelos
@@ -313,7 +320,7 @@ async def whatsapp_status(
             )
             modelo = await _modelo(conn, modelo_id)
 
-    return _evolution_payload(modelo)
+    return _evolution_payload(modelo, conexao_estado=conexao_estado)
 
 
 @router.post("/{modelo_id}/pausar")
@@ -1099,11 +1106,18 @@ def _modelo_lista_item(request: Request, row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _evolution_payload(modelo: dict[str, Any]) -> dict[str, Any]:
+def _evolution_payload(
+    modelo: dict[str, Any], conexao_estado: str | None = None
+) -> dict[str, Any]:
     return {
         "instance_id": modelo.get("evolution_instance_id"),
         "status": modelo.get("evolution_status") or "desconectado",
         "pareado_em": _isoformat(modelo.get("evolution_pareado_em")),
+        # Estado bruto da Evolution ('open'|'connecting'|'close'|'unknown'),
+        # populado só durante o pareamento. Permite ao painel distinguir
+        # "QR ainda não escaneado" de "já escaneou, conectando" e parar de
+        # regenerar o QR (o que reiniciaria o handshake do Baileys).
+        "conexao_estado": conexao_estado,
     }
 
 

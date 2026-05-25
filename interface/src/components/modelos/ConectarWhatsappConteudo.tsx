@@ -6,7 +6,7 @@ import { DialogDescription, DialogTitle } from "@/components/ui/dialog"
 import { BannerErro } from "@/components/layout/BannerErro"
 import type { ConectarWhatsappResponse } from "@/tipos/modelos"
 
-export type QrModalStatus = "loading" | "aguardando_scan" | "conectado" | "erro"
+export type QrModalStatus = "loading" | "aguardando_scan" | "conectando" | "conectado" | "erro"
 
 export function ConectarWhatsappConteudo({
   nome,
@@ -53,6 +53,11 @@ export function ConectarWhatsappConteudo({
             <Check className="text-state-closed" size={32} strokeWidth={1.5} />
             <span>WhatsApp conectado.</span>
           </div>
+        ) : status === "conectando" ? (
+          <div className="flex flex-col items-center gap-3 text-sm text-text-secondary">
+            <Loader2 className="animate-spin text-text-muted" size={28} strokeWidth={1.5} />
+            <span>Conectando… quase lá.</span>
+          </div>
         ) : src ? (
           // QR code é data URI base64; next/image não otimiza esse caso.
           // eslint-disable-next-line @next/next/no-img-element
@@ -64,16 +69,18 @@ export function ConectarWhatsappConteudo({
       <p className="mt-4 text-sm text-text-muted">
         {status === "aguardando_scan"
           ? "Aguardando você escanear no celular. A tela fecha sozinha quando o número estiver conectado."
-          : status === "conectado"
-            ? "Pronto. Esta janela fechará em instantes."
-            : "A tela fecha sozinha quando o número estiver conectado."}
+          : status === "conectando"
+            ? "Leitura confirmada. Estabelecendo a conexão — não feche a janela."
+            : status === "conectado"
+              ? "Pronto. Esta janela fechará em instantes."
+              : "A tela fecha sozinha quando o número estiver conectado."}
       </p>
       <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
         <Button variant="ghost" onClick={onFechar}>{textoFechar}</Button>
         <Button
           variant="secondary"
           onClick={onAtualizar}
-          disabled={status === "loading" || status === "conectado"}
+          disabled={status === "loading" || status === "conectando" || status === "conectado"}
         >
           <RefreshCw size={16} strokeWidth={1.5} />
           Atualizar QR
