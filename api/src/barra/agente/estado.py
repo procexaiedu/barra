@@ -29,9 +29,10 @@ class EstadoAgente(MessagesState):
         Lido com `state.get("midia_idx", 0)`. Ver docs/agente/04-tools.md §3.3.
     _categoria / _confianca: classificacao de disclosure/jailbreak gravada pelo
         prepare_context (regex sobre a cauda da janela), lida pelo intercept_disclosure
-        para rotear canned/escala/llm (10 §8). Ausentes => sem deteccao.
+        para rotear canned/escala/llm (10 §8). _confianca e a string "alta" (ou None) que
+        `classificar_janela` retorna -- nao um float. Ausentes => sem deteccao.
     """
 
     midia_idx: int
     _categoria: str | None
-    _confianca: float | None
+    _confianca: str | None

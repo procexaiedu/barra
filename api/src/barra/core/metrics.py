@@ -94,6 +94,16 @@ LOCK_OCUPADO = Counter(
     "agente_lock_ocupado_total",
     "lock:conv estava ocupado quando processar_turno tentou adquirir (re-defer; 07 §3)",
 )
+# 10 §9: deteccao heuristica de disclosure/jailbreak no intercept_disclosure (M3g).
+DISCLOSURE_DETECTADO = Counter(
+    "agente_disclosure_attempt_total",
+    "Tentativas de disclosure detectadas",
+    ["resultado"],  # negado | escalado | passou_silenciosamente
+)
+JAILBREAK_DETECTADO = Counter(
+    "agente_jailbreak_attempt_total",
+    "Tentativas de jailbreak detectadas",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
