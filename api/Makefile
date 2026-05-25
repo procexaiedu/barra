@@ -4,7 +4,7 @@ sync:
 	uv sync
 
 dev:
-	uv run uvicorn barra.main:app --reload --host 0.0.0.0 --port 8000
+	uv run python -m barra
 
 worker:
 	uv run arq barra.workers.settings.WorkerSettings
