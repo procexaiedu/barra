@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo, useState } from "react"
 import Image from "next/image"
 import { FileText, MessageSquareOff } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -17,18 +17,11 @@ const direcaoLabel: Record<MensagemAtendimento["direcao"], string> = {
 
 export function HistoricoMensagens({ mensagens }: { mensagens: MensagemAtendimento[] }) {
   const [midiaAberta, setMidiaAberta] = useState<MensagemAtendimento | null>(null)
-  const scrollRef = useRef<HTMLDivElement>(null)
 
   const ordenadas = useMemo(
     () => [...mensagens].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()),
     [mensagens]
   )
-
-  useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight
-    }
-  }, [ordenadas])
 
   if (ordenadas.length === 0) {
     return (
@@ -44,7 +37,7 @@ export function HistoricoMensagens({ mensagens }: { mensagens: MensagemAtendimen
 
   return (
     <>
-      <div ref={scrollRef} className="max-h-[400px] overflow-y-auto space-y-3 pr-1">
+      <div className="space-y-3">
         {ordenadas.map((mensagem) => (
           <MensagemLinha
             key={mensagem.id}
