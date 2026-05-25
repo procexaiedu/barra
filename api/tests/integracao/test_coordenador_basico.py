@@ -41,7 +41,9 @@ class _GrafoFake:
         self._texto = texto
         self.chamadas = 0
 
-    async def ainvoke(self, entrada: Any, *, config: Any = None, context: Any = None) -> dict[str, Any]:
+    async def ainvoke(
+        self, entrada: Any, *, config: Any = None, context: Any = None
+    ) -> dict[str, Any]:
         self.chamadas += 1
         return {"messages": [AIMessage(content=self._texto)]}
 
@@ -55,7 +57,9 @@ class _GrafoFakeDrena:
         self._texto = texto
         self.chamadas = 0
 
-    async def ainvoke(self, entrada: Any, *, config: Any = None, context: Any = None) -> dict[str, Any]:
+    async def ainvoke(
+        self, entrada: Any, *, config: Any = None, context: Any = None
+    ) -> dict[str, Any]:
         self.chamadas += 1
         await self._redis.set(f"pending:conv:{self._conversa_id}", "1")
         return {"messages": [AIMessage(content=self._texto)]}
@@ -135,7 +139,9 @@ async def _seed_cliente(c: AsyncConnection[dict[str, Any]]) -> UUID:
     return cliente_id
 
 
-async def _seed_conversa(c: AsyncConnection[dict[str, Any]], cliente_id: UUID, modelo_id: UUID) -> UUID:
+async def _seed_conversa(
+    c: AsyncConnection[dict[str, Any]], cliente_id: UUID, modelo_id: UUID
+) -> UUID:
     conversa_id = uuid4()
     await c.execute(
         """

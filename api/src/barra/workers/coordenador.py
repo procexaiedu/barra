@@ -59,9 +59,7 @@ async def processar_turno(
     # O lock contende SO com rotear_imagem (06 §2.1). Ocupado -> re-defere curto; o pending ja
     # foi setado por enfileirar_turno, entao ao re-disparar o turno le a janela inteira.
     try:
-        async with adquirir_lock(
-            redis, f"lock:conv:{conversa_id}", ttl=60, heartbeat_interval=15
-        ):
+        async with adquirir_lock(redis, f"lock:conv:{conversa_id}", ttl=60, heartbeat_interval=15):
             for loop_idx in range(MAX_DRAIN):  # DRAIN LOOP BOUNDED (01 §4.3)
                 turno_id = str(uuid5(NS_TURNO, f"{ctx['job_id']}:{loop_idx}"))
                 await redis.delete(f"pending:conv:{conversa_id}")  # limpa ANTES de ler a janela
@@ -86,7 +84,9 @@ async def processar_turno(
                 if aguardar_transcricao:
                     # TODO(M5): BLPOP do canal de transcricao (06 §1.4) antes de montar a janela;
                     # a porta de audio nasce no M5 (aguardar_transcricoes). Por ora segue direto.
-                    logger.info("aguardar_transcricao ignorado no M3b (M5) conversa_id=%s", conversa_id)
+                    logger.info(
+                        "aguardar_transcricao ignorado no M3b (M5) conversa_id=%s", conversa_id
+                    )
 
                 # 3. marca o turno atual — cancel-on-new-message (05 §3.1): o enviar_turno do turno
                 #    anterior compara turno_atual e aborta os chunks pendentes ao ser superado.
@@ -161,8 +161,12 @@ async def processar_turno(
                     texto = _extrair_texto(ai_final) if ai_final is not None else ""
                     # midias e critico dependem de barravips.tool_calls (M3a) + write tools
                     # (M3d/M3e): no M3b o grafo so produz texto, entao ambos sao vazios.
-                    midias: list[dict[str, Any]] = []  # TODO(M4d): coletar enviar_midia de tool_calls
-                    critico = False  # TODO(M3d/M3e): turno critico via tool_calls (pedir_pix/extracao)
+                    midias: list[
+                        dict[str, Any]
+                    ] = []  # TODO(M4d): coletar enviar_midia de tool_calls
+                    critico = (
+                        False  # TODO(M3d/M3e): turno critico via tool_calls (pedir_pix/extracao)
+                    )
 
                     async with pool.connection() as conn:
                         res = await conn.execute(
