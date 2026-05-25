@@ -35,6 +35,8 @@ class _FakeChat:
     """Chat roteirizado: bind_tools é no-op; ainvoke devolve o próximo AIMessage do script e
     grava as mensagens que recebeu (p/ provar que o ToolMessage chegou na 2ª chamada)."""
 
+    model = "claude-sonnet-4-6"  # no_llm le chat.model p/ o label das metricas de token (M2-T2)
+
     def __init__(self, scripts: list[AIMessage]) -> None:
         self._scripts = scripts
         self._i = 0
@@ -52,6 +54,8 @@ class _FakeChat:
 
 class _FakeChatLoopInfinito:
     """Chat que SEMPRE pede consultar_agenda (id novo a cada chamada) — loop sem fim."""
+
+    model = "claude-sonnet-4-6"  # no_llm le chat.model p/ o label das metricas de token (M2-T2)
 
     def __init__(self, data_inicio: str, data_fim: str) -> None:
         self._di = data_inicio
