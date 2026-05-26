@@ -1,5 +1,6 @@
 "use client"
 
+import { useState } from "react"
 import Link from "next/link"
 import { ArrowUpRight, X, AlertTriangle } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -238,43 +239,80 @@ function Row({
  * Sparkline 30d em mini-barras 1D — sem biblioteca de chart.
  *
  * Usa rampa sequencial dourada (--seq-1..5 do DESIGN.md). Cada barra é altura
- * proporcional ao bruto do dia; barras zeradas viram dots sutis. Hover mostra
- * dia + valor no title (acessibilidade básica).
+ * proporcional ao bruto do dia. Hover mostra dia + valor em tooltip flutuante,
+ * mantido por estado (substitui o `title` HTML nativo — lento e sem estilo).
  */
 function Sparkline({ serie }: { serie: ContextoModeloDia[] }) {
+  const [hovered, setHovered] = useState<number | null>(null)
   const max = Math.max(...serie.map((d) => d.bruto), 1)
+  const total = serie.length
+
+  const ativo = hovered !== null ? serie[hovered] : null
+  // Ancora o tooltip no centro da barra; nas bordas alinha pelo lado pra não
+  // sair do container do inspector.
+  const ancora =
+    hovered === null || total === 0
+      ? null
+      : hovered <= 2
+        ? { left: "0%", transform: "translateX(0)" }
+        : hovered >= total - 3
+          ? { right: "0%", transform: "translateX(0)" }
+          : {
+              left: `${((hovered + 0.5) / total) * 100}%`,
+              transform: "translateX(-50%)",
+            }
+
   return (
     <div
-      className="mt-2 flex h-10 items-end gap-px"
-      role="img"
-      aria-label={`Receita diária dos últimos ${serie.length} dias`}
+      className="relative mt-2"
+      onMouseLeave={() => setHovered(null)}
     >
-      {serie.map((d) => {
-        const ratio = d.bruto / max
-        const alturaPct = Math.max(ratio * 100, d.bruto > 0 ? 8 : 4)
-        const tonalidade =
-          d.bruto === 0
-            ? "var(--seq-5)"
-            : ratio > 0.75
-              ? "var(--seq-1)"
-              : ratio > 0.5
-                ? "var(--seq-2)"
-                : ratio > 0.25
-                  ? "var(--seq-3)"
-                  : "var(--seq-4)"
-        return (
-          <div
-            key={d.dia}
-            title={`${formatData(d.dia)} · ${formatBRL(d.bruto)}`}
-            className="flex-1"
-            style={{
-              height: `${alturaPct}%`,
-              backgroundColor: tonalidade,
-              borderRadius: "1px",
-            }}
-          />
-        )
-      })}
+      {ativo && ancora && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-full z-10 mb-1.5 whitespace-nowrap rounded-md border border-border bg-card px-2 py-1 text-[11px] shadow-[0_8px_24px_rgba(0,0,0,0.6)]"
+          style={ancora}
+        >
+          <div className="text-text-muted">{formatData(ativo.dia)}</div>
+          <div className="font-medium tabular-nums text-text-primary">
+            {ativo.bruto > 0 ? formatBRL(ativo.bruto) : "sem receita"}
+          </div>
+        </div>
+      )}
+      <div
+        className="flex h-10 items-end gap-px"
+        role="img"
+        aria-label={`Receita diária dos últimos ${total} dias`}
+      >
+        {serie.map((d, i) => {
+          const ratio = d.bruto / max
+          const alturaPct = Math.max(ratio * 100, d.bruto > 0 ? 8 : 4)
+          const tonalidade =
+            d.bruto === 0
+              ? "var(--seq-5)"
+              : ratio > 0.75
+                ? "var(--seq-1)"
+                : ratio > 0.5
+                  ? "var(--seq-2)"
+                  : ratio > 0.25
+                    ? "var(--seq-3)"
+                    : "var(--seq-4)"
+          const ativaEssa = hovered === i
+          return (
+            <div
+              key={d.dia}
+              onMouseEnter={() => setHovered(i)}
+              className="flex-1 cursor-default transition-opacity"
+              style={{
+                height: `${alturaPct}%`,
+                backgroundColor: tonalidade,
+                borderRadius: "1px",
+                opacity: hovered === null || ativaEssa ? 1 : 0.55,
+              }}
+            />
+          )
+        })}
+      </div>
     </div>
   )
 }
