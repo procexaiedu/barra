@@ -3,9 +3,15 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
+import { criarOverlayHexbin, type DeckOverlayHandle } from "@/lib/deckMap"
 import { formatBRL } from "@/lib/formatters"
 import type { MapaMetrica } from "@/lib/mapaMetrica"
-import { LegendaEscala, SeletorMetrica } from "@/components/clientes/MapaControles"
+import {
+  LegendaEscala,
+  SeletorCamada,
+  SeletorMetrica,
+  type MapaCamada,
+} from "@/components/clientes/MapaControles"
 import type { MapaClientePonto } from "@/tipos/clientes"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
@@ -31,13 +37,17 @@ export function MapaClientes({
   const infoRef = useRef<google.maps.InfoWindow | null>(null)
   const clustererRef = useRef<MarkerClusterer | null>(null)
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  const overlayRef = useRef<DeckOverlayHandle | null>(null)
   const [mapPronto, setMapPronto] = useState(false)
   // Métrica do mapa (MAPA-1, espinha dorsal). Default = R$ fechado, conforme spec.
   // Mora aqui porque o único consumidor hoje é o próprio desenho do mapa (e a legenda);
   // sobe para o page.tsx quando MAPA-4 (ranking sibling) chegar.
   const [metrica, setMetrica] = useState<MapaMetrica>("valor")
+  // Camada visual (MAPA-6). Pins = AdvancedMarker + cluster (padrão); Hexbin = overlay deck.gl.
+  const [camada, setCamada] = useState<MapaCamada>("pins")
 
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
+  // Em hexbin não desenha pins — o overlay deck.gl é gerenciado em outro effect.
   const desenharPontos = useCallback(() => {
     const map = mapRef.current
     if (!map) return
@@ -49,27 +59,31 @@ export function MapaClientes({
 
     const bounds = new google.maps.LatLngBounds()
     for (const ponto of pontos) {
-      const posicao = { lat: ponto.latitude, lng: ponto.longitude }
-      const marker = new google.maps.marker.AdvancedMarkerElement({
-        position: posicao,
-        title: ponto.nome ?? "Cliente",
-        gmpClickable: true,
-      })
-      // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
-      marker.addListener("gmp-click", () => {
-        const info = infoRef.current
-        if (!info) return
-        info.setContent(conteudoInfo(ponto))
-        info.open({ map, anchor: marker })
-      })
-      markersRef.current.push(marker)
-      bounds.extend(posicao)
+      bounds.extend({ lat: ponto.latitude, lng: ponto.longitude })
     }
 
-    if (!clustererRef.current) {
-      clustererRef.current = new MarkerClusterer({ map, markers: markersRef.current })
-    } else {
-      clustererRef.current.addMarkers(markersRef.current)
+    if (camada === "pins") {
+      for (const ponto of pontos) {
+        const marker = new google.maps.marker.AdvancedMarkerElement({
+          position: { lat: ponto.latitude, lng: ponto.longitude },
+          title: ponto.nome ?? "Cliente",
+          gmpClickable: true,
+        })
+        // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
+        marker.addListener("gmp-click", () => {
+          const info = infoRef.current
+          if (!info) return
+          info.setContent(conteudoInfo(ponto))
+          info.open({ map, anchor: marker })
+        })
+        markersRef.current.push(marker)
+      }
+
+      if (!clustererRef.current) {
+        clustererRef.current = new MarkerClusterer({ map, markers: markersRef.current })
+      } else {
+        clustererRef.current.addMarkers(markersRef.current)
+      }
     }
 
     if (pontos.length > 0) {
@@ -81,7 +95,7 @@ export function MapaClientes({
         })
       }
     }
-  }, [pontos])
+  }, [pontos, camada])
 
   // Inicializa o mapa uma vez (guardas cobrem o duplo-mount do StrictMode em dev).
   useEffect(() => {
@@ -119,6 +133,49 @@ export function MapaClientes({
     if (mapPronto) desenharPontos()
   }, [mapPronto, desenharPontos])
 
+  // Ciclo de vida do overlay deck.gl (MAPA-6). Cria quando entra em hexbin, atualiza
+  // (pontos/métrica) com o mesmo overlay, e destrói ao sair da camada ou desmontar.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!mapPronto || !map) return
+    if (camada !== "hexbin") {
+      overlayRef.current?.destruir()
+      overlayRef.current = null
+      return
+    }
+    if (overlayRef.current) {
+      overlayRef.current.atualizar({ pontos, metrica })
+      return
+    }
+    let ativo = true
+    criarOverlayHexbin({
+      map,
+      pontos,
+      metrica,
+      onClickCelula: ({ quantidade, somaMetrica, coordenada }) => {
+        const win = infoRef.current
+        if (!win) return
+        win.setContent(conteudoHexbin(quantidade, somaMetrica, metrica))
+        win.setPosition({ lat: coordenada[1], lng: coordenada[0] })
+        win.open({ map })
+      },
+    })
+      .then((handle) => {
+        if (!ativo) {
+          handle.destruir()
+          return
+        }
+        overlayRef.current = handle
+      })
+      .catch(() => {
+        // Falha de import dinâmico: a camada hexbin fica indisponível, mas o resto do
+        // mapa segue funcionando. Volte para Pins via toggle.
+      })
+    return () => {
+      ativo = false
+    }
+  }, [mapPronto, camada, pontos, metrica])
+
   if (!googleMapsApiKey) {
     return (
       <div className="grid place-items-center rounded-lg border border-border bg-card p-8 text-center text-sm text-text-muted">
@@ -140,7 +197,10 @@ export function MapaClientes({
             </span>
           )}
         </div>
-        <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        <div className="flex flex-wrap items-center gap-2">
+          <SeletorCamada camada={camada} onCamadaChange={setCamada} />
+          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        </div>
       </div>
       <div className="relative h-[calc(100vh-300px)] min-h-[420px] overflow-hidden rounded-lg border border-border">
         <div ref={containerRef} className="h-full w-full" />
@@ -190,4 +250,21 @@ function escaparHtml(texto: string): string {
     /[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
   )
+}
+
+// InfoWindow do clique numa célula hexbin: agregado da célula (count + soma da métrica).
+// Sem detalhe por cliente — é camada agregada.
+function conteudoHexbin(qtd: number, soma: number, metrica: MapaMetrica): string {
+  const plural = qtd === 1 ? "cliente" : "clientes"
+  const rotuloMetrica =
+    metrica === "valor"
+      ? `R$ fechado: ${formatBRL(soma)}`
+      : metrica === "atendimentos"
+        ? `Atendimentos: ${soma}`
+        : `Pontos: ${qtd}`
+  return `
+    <div style="font-family: inherit; min-width: 180px; color: #1a1a1a;">
+      <div style="font-weight: 600; margin-bottom: 2px;">${qtd} ${plural} nesta área</div>
+      <div style="color: #666; font-size: 12px;">${rotuloMetrica}</div>
+    </div>`
 }

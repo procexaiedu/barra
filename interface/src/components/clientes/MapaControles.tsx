@@ -16,6 +16,51 @@ import type { MapaClientePonto } from "@/tipos/clientes"
 
 const NUM_FMT = new Intl.NumberFormat("pt-BR")
 
+/** Camada visual do mapa. "pins" = AdvancedMarker + cluster; "hexbin" = overlay deck.gl. */
+export type MapaCamada = "pins" | "hexbin"
+
+const OPCOES_CAMADA: readonly { id: MapaCamada; label: string }[] = [
+  { id: "pins", label: "Pins" },
+  { id: "hexbin", label: "Hexbin" },
+] as const
+
+export function SeletorCamada({
+  camada,
+  onCamadaChange,
+}: {
+  camada: MapaCamada
+  onCamadaChange: (c: MapaCamada) => void
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Camada do mapa"
+      className="inline-flex rounded-lg border border-border bg-card p-0.5"
+    >
+      {OPCOES_CAMADA.map((opcao) => {
+        const ativo = opcao.id === camada
+        return (
+          <button
+            key={opcao.id}
+            type="button"
+            role="radio"
+            aria-checked={ativo}
+            onClick={() => onCamadaChange(opcao.id)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              ativo
+                ? "bg-accent text-text-primary"
+                : "text-text-muted hover:text-text-secondary",
+            )}
+          >
+            {opcao.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export function SeletorMetrica({
   metrica,
   onMetricaChange,
