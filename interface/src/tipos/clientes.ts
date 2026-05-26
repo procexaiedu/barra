@@ -89,6 +89,9 @@ export interface MapaClientePonto {
   endereco_formatado: string | null
   total_atendimentos: number
   valor_total: number
+  /** Perfil físico DECLARADO (ADR 0006). Array vazio = sem preferência declarada.
+   *  Nunca o breakdown calculado — esse é cross-modelo e fica fora do mapa (painel-only por par). */
+  perfis: PerfilFisico[]
 }
 
 export interface MapaClientesResponse {

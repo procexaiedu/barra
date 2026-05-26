@@ -152,7 +152,7 @@ async def mapa_clientes(
         filtros.append("c.arquivado_em IS NULL")
     result = await conn.execute(
         f"""
-        SELECT c.id, c.nome,
+        SELECT c.id, c.nome, c.perfis_preferidos,
                geo.latitude, geo.longitude, geo.bairro, geo.endereco_formatado,
                ag.total_atendimentos, ag.valor_total
           FROM barravips.clientes c
@@ -187,6 +187,9 @@ async def mapa_clientes(
             "endereco_formatado": row["endereco_formatado"],
             "total_atendimentos": row["total_atendimentos"] or 0,
             "valor_total": row["valor_total"] or 0,
+            # Só a parte DECLARADA do perfil físico (ADR 0006). Nunca o breakdown calculado:
+            # ele é cross-modelo e fura o isolamento por par cliente-modelo — fica para a IA Admin (P1).
+            "perfis": _array_text(row["perfis_preferidos"]),
         }
         for row in rows
         if row["latitude"] is not None

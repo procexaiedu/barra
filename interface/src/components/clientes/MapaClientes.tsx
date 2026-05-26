@@ -5,7 +5,16 @@ import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
 import type { MapaMetrica } from "@/lib/mapaMetrica"
-import { LegendaEscala, SeletorMetrica } from "@/components/clientes/MapaControles"
+import { PERFIL_FISICO_LABEL } from "@/lib/perfilFisico"
+import {
+  COR_PERFIL,
+  COR_PERFIL_SEM_DECLARACAO,
+  LegendaEscala,
+  LegendaPerfis,
+  SeletorMetrica,
+  SeletorModoCor,
+  type MapaModoCor,
+} from "@/components/clientes/MapaControles"
 import type { MapaClientePonto } from "@/tipos/clientes"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
@@ -36,6 +45,10 @@ export function MapaClientes({
   // Mora aqui porque o único consumidor hoje é o próprio desenho do mapa (e a legenda);
   // sobe para o page.tsx quando MAPA-4 (ranking sibling) chegar.
   const [metrica, setMetrica] = useState<MapaMetrica>("valor")
+  // Modo de cor (MAPA-10): "padrao" = pin default; "perfil" = cor pela parte
+  // DECLARADA do perfil físico (ADR 0006). O filtro OR de perfis vive na toolbar
+  // do page.tsx (SeletorPerfis) e flui pelo useClientesMapa — não duplicado aqui.
+  const [modoCor, setModoCor] = useState<MapaModoCor>("padrao")
 
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
   const desenharPontos = useCallback(() => {
@@ -54,6 +67,7 @@ export function MapaClientes({
         position: posicao,
         title: ponto.nome ?? "Cliente",
         gmpClickable: true,
+        content: modoCor === "perfil" ? pinPerfil(ponto) : undefined,
       })
       // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
       marker.addListener("gmp-click", () => {
@@ -81,7 +95,7 @@ export function MapaClientes({
         })
       }
     }
-  }, [pontos])
+  }, [pontos, modoCor])
 
   // Inicializa o mapa uma vez (guardas cobrem o duplo-mount do StrictMode em dev).
   useEffect(() => {
@@ -140,12 +154,19 @@ export function MapaClientes({
             </span>
           )}
         </div>
-        <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        <div className="flex flex-wrap items-center gap-2">
+          <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
+          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        </div>
       </div>
       <div className="relative h-[calc(100vh-300px)] min-h-[420px] overflow-hidden rounded-lg border border-border">
         <div ref={containerRef} className="h-full w-full" />
         <div className="absolute bottom-3 left-3">
-          <LegendaEscala metrica={metrica} pontos={pontos} />
+          {modoCor === "perfil" ? (
+            <LegendaPerfis pontos={pontos} />
+          ) : (
+            <LegendaEscala metrica={metrica} pontos={pontos} />
+          )}
         </div>
         {status === "loading" && pontos.length === 0 && (
           <div className="absolute inset-0 grid place-items-center text-sm text-text-muted">
@@ -177,12 +198,37 @@ function conteudoInfo(ponto: MapaClientePonto): string {
   const local = escaparHtml(ponto.bairro ?? ponto.endereco_formatado ?? "—")
   const valor = formatBRL(Number(ponto.valor_total))
   const plural = ponto.total_atendimentos === 1 ? "atendimento" : "atendimentos"
+  // Lista todos os perfis declarados — quando >1, a cor do pin é só o primeiro
+  // (decisão deste PR); mostrar os demais aqui evita esconder informação.
+  const perfis =
+    ponto.perfis.length > 0
+      ? `<div style="margin-top: 4px; font-size: 12px; color: #444;">Perfil: ${ponto.perfis
+          .map((p) => escaparHtml(PERFIL_FISICO_LABEL[p] ?? p))
+          .join(" · ")}</div>`
+      : ""
   return `
     <div style="font-family: inherit; min-width: 180px; color: #1a1a1a;">
       <div style="font-weight: 600; margin-bottom: 2px;">${nome}</div>
       <div style="color: #666; font-size: 12px;">${local}</div>
       <div style="margin-top: 6px; font-size: 12px;">${ponto.total_atendimentos} ${plural} · ${valor}</div>
+      ${perfis}
     </div>`
+}
+
+// Pin do modo "perfil": círculo simples colorido pela paleta categórica. Usa CSS var
+// (resolve no DOM) p/ respeitar o tema; PinElement do Google fixa cores num SVG e não
+// resolveria --chart-*.
+function pinPerfil(ponto: MapaClientePonto): HTMLElement {
+  const cor =
+    ponto.perfis.length > 0 ? COR_PERFIL[ponto.perfis[0]] : COR_PERFIL_SEM_DECLARACAO
+  const el = document.createElement("div")
+  el.style.cssText = `
+    width: 16px; height: 16px; border-radius: 9999px;
+    background: ${cor};
+    border: 2px solid #fff;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.25);
+  `
+  return el
 }
 
 function escaparHtml(texto: string): string {
