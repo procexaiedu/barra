@@ -20,9 +20,11 @@ import {
   type HexbinHandle,
 } from "@/lib/deckMap"
 import {
+  COR_OPORTUNIDADE,
   COR_PERFIL,
   COR_PERFIL_SEM,
   FiltroMotivoPerda,
+  LegendaDemandaNaoAtendida,
   LegendaDesfecho,
   LegendaEscala,
   LegendaPerfil,
@@ -30,6 +32,7 @@ import {
   SeletorDesfecho,
   SeletorMetrica,
   SeletorModoCor,
+  ToggleLenteDemanda,
   corPorDesfecho,
   type FiltroDesfecho,
   type ModoCor,
@@ -59,6 +62,8 @@ export function MapaClientes({
   motivosPerda,
   onDesfechoChange,
   onMotivosPerdaChange,
+  lenteDemanda,
+  onLenteDemandaChange,
 }: {
   pontos: MapaClientePonto[]
   totalSemLocalizacao: number
@@ -72,6 +77,10 @@ export function MapaClientes({
   motivosPerda: MotivoPerda[]
   onDesfechoChange: (d: FiltroDesfecho) => void
   onMotivosPerdaChange: (m: MotivoPerda[]) => void
+  /** MAPA-9: lente "Demanda não atendida". Quando ON, o fetch já vem reduzido aos
+   *  Perdidos por indisponibilidade/fora_de_area e os pontos recebem halo. */
+  lenteDemanda: boolean
+  onLenteDemandaChange: (v: boolean) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -133,7 +142,7 @@ export function MapaClientes({
     for (const ponto of pontos) {
       const posicao = { lat: ponto.latitude, lng: ponto.longitude }
       const peso = normalizarPeso(pesoPonto(ponto, metrica), limites)
-      const content = conteudoPorModo(modoCor, ponto, peso)
+      const content = conteudoPorModo(modoCor, ponto, peso, lenteDemanda)
       const marker = new google.maps.marker.AdvancedMarkerElement({
         position: posicao,
         title: ponto.nome ?? "Cliente",
@@ -166,7 +175,7 @@ export function MapaClientes({
     } else {
       clustererRef.current.addMarkers(markers)
     }
-  }, [pontos, onFiltrarBairro, modoCor, metrica, camada])
+  }, [pontos, onFiltrarBairro, modoCor, metrica, camada, lenteDemanda])
 
   // Fit nos pontos só quando o conjunto muda — trocar métrica/modo/cor redesenha
   // sem reposicionar o mapa (preserva pan/zoom do usuário). MAPA-2 depende disso
@@ -253,10 +262,11 @@ export function MapaClientes({
   // MAPA-4: destaque leve das bolhas do bairro selecionado. Roda depois de
   // `desenharPontos` (declarado abaixo) para reaplicar quando os pontos mudam.
   // Inclui `modoCor` nas deps para restaurar a aparência correta (cor por
-  // desfecho/perfil ou bolha sqrt-escalada) ao deselecionar.
+  // desfecho/perfil ou bolha sqrt-escalada) ao deselecionar. `lenteDemanda` entra
+  // nas deps para reaplicar o halo de oportunidade (MAPA-9) ao alternar a lente.
   useEffect(() => {
-    aplicarDestaque(markersRef.current, bairroSelecionado, modoCor)
-  }, [bairroSelecionado, mapPronto, pontos, modoCor])
+    aplicarDestaque(markersRef.current, bairroSelecionado, modoCor, lenteDemanda)
+  }, [bairroSelecionado, mapPronto, pontos, modoCor, lenteDemanda])
 
   // MAPA-6: ciclo de vida do overlay deck.gl. Cria ao entrar em "hexbin"
   // (import dinâmico), atualiza quando pontos/métrica mudam, descarta ao sair.
@@ -389,19 +399,27 @@ export function MapaClientes({
           {camada === "bolhas" && (
             <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
           )}
-          {/* MAPA-8: filtros reduzem os pontos antes de qualquer camada. */}
-          <SeletorDesfecho desfecho={desfecho} onDesfechoChange={onDesfechoChange} />
+          {/* MAPA-8: filtros reduzem os pontos antes de qualquer camada.
+              MAPA-9: quando a lente está ON, sobrescreve estes filtros no fetch e
+              os seletores ficam disabled (estado prévio preservado no pai). */}
+          <SeletorDesfecho
+            desfecho={desfecho}
+            onDesfechoChange={onDesfechoChange}
+            bloqueada={lenteDemanda}
+          />
           <FiltroMotivoPerda
             desfecho={desfecho}
             motivosPerda={motivosPerda}
             onMotivosPerdaChange={onMotivosPerdaChange}
+            bloqueada={lenteDemanda}
           />
+          <ToggleLenteDemanda ativa={lenteDemanda} onAtivaChange={onLenteDemandaChange} />
         </div>
       </div>
       <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">
         <div className="relative flex-1 overflow-hidden rounded-lg border border-border">
           <div ref={containerRef} className="h-full w-full" />
-          <div className="absolute bottom-3 left-3">
+          <div className="absolute bottom-3 left-3 flex flex-col gap-2">
             {/* Legenda contextual: só aparece o que realmente codifica algo no mapa.
                 - Hexbin/Calor e Pontos+Por métrica → rampa --seq-* (LegendaEscala).
                 - Pontos+Por desfecho → 3 baldes de cor (LegendaDesfecho).
@@ -414,6 +432,10 @@ export function MapaClientes({
             ) : (
               <LegendaEscala metrica={metrica} pontos={pontos} />
             )}
+            {/* MAPA-9: enquanto a lente está ON, explica o subset visualmente independente
+                da camada/modo de cor — em Hexbin/Calor essa é a ÚNICA pista visual da lente
+                (favos/heatmap renderizam sobre o subset reduzido, sem halo por-favo). */}
+            {lenteDemanda && <LegendaDemandaNaoAtendida />}
           </div>
           {status === "loading" && pontos.length === 0 && (
             <div className="absolute inset-0 grid place-items-center text-sm text-text-muted">
@@ -490,11 +512,65 @@ function conteudoPorModo(
   modoCor: ModoCor,
   ponto: MapaClientePonto,
   peso: number,
+  lenteDemanda: boolean,
 ): HTMLElement {
-  if (modoCor === "desfecho") return criarConteudoDesfecho(ponto.estado)
-  if (modoCor === "perfil") return criarConteudoPerfil(ponto.perfis)
-  // modoCor === "metrica": bolha sqrt-escalada (raio + cor pela rampa --seq-*).
-  return criarConteudoBolha(peso)
+  let base: HTMLElement
+  let kind: "bolha" | "pin"
+  if (modoCor === "desfecho") {
+    base = criarConteudoDesfecho(ponto.estado)
+    kind = "pin"
+  } else if (modoCor === "perfil") {
+    base = criarConteudoPerfil(ponto.perfis)
+    kind = "pin"
+  } else {
+    // modoCor === "metrica": bolha sqrt-escalada (raio + cor pela rampa --seq-*).
+    base = criarConteudoBolha(peso)
+    kind = "bolha"
+  }
+  return lenteDemanda ? envolverComHaloOportunidade(base, kind) : base
+}
+
+/** MAPA-9: aplica o halo de "oportunidade" ao content do AdvancedMarkerElement.
+ *  - "bolha"/"disco" (div circular): anel via box-shadow concêntrico — preserva
+ *    o transform/anchoring existente sem precisar de wrapper. O `border-radius:50%`
+ *    do próprio div faz o box-shadow ficar circular.
+ *  - "pin" (PinElement, SVG-gota): wrapper relative com SVG halo absoluto centrado
+ *    na cabeça do pin. `pointer-events: none` no wrapper+SVG garante que cliques
+ *    ainda cheguem ao content original (handler do bindClickAoContent). */
+function envolverComHaloOportunidade(
+  inner: HTMLElement,
+  kind: "bolha" | "pin",
+): HTMLElement {
+  if (kind === "bolha") {
+    const prev = inner.style.boxShadow
+    inner.style.boxShadow = `${prev ? prev + ", " : ""}0 0 0 2px ${COR_OPORTUNIDADE}`
+    return inner
+  }
+  const SVG_NS = "http://www.w3.org/2000/svg"
+  const wrap = document.createElement("div")
+  // pointer-events:none deixa cliques na área externa ao content passarem direto
+  // pro mapa (sem bloquear pan/zoom). O content filho herda `auto` por default.
+  wrap.style.cssText =
+    "position: relative; display: inline-block; pointer-events: none;"
+  const svg = document.createElementNS(SVG_NS, "svg")
+  svg.setAttribute("width", "34")
+  svg.setAttribute("height", "34")
+  svg.setAttribute("viewBox", "0 0 34 34")
+  // PinElement padrão ~27x40, cabeça arredondada centrada horizontalmente. Posicionamos
+  // o halo sobre a cabeça (não a ponta) — `top: -2px` cobre folga sutil.
+  svg.style.cssText =
+    "position: absolute; left: 50%; top: -2px; transform: translateX(-50%); pointer-events: none;"
+  const circle = document.createElementNS(SVG_NS, "circle")
+  circle.setAttribute("cx", "17")
+  circle.setAttribute("cy", "17")
+  circle.setAttribute("r", "16")
+  circle.setAttribute("fill", "none")
+  circle.setAttribute("stroke", COR_OPORTUNIDADE)
+  circle.setAttribute("stroke-width", "1.5")
+  svg.appendChild(circle)
+  wrap.appendChild(svg)
+  wrap.appendChild(inner)
+  return wrap
 }
 
 // Mutação imperativa de instâncias do Google Maps — isolada aqui (fora do hook)
@@ -510,21 +586,31 @@ function aplicarDestaque(
   }>,
   selecionado: string | null,
   modoCor: ModoCor,
+  lenteDemanda: boolean,
 ) {
   for (const { marker, chave, estado, perfis, peso, abrirInfo } of items) {
     let novo: HTMLElement
+    let kind: "bolha" | "pin"
     if (selecionado && chave === selecionado) {
+      // Disco dourado do MAPA-4 também é circular — mesmo trato da bolha.
       novo = criarConteudoDestaque()
+      kind = "bolha"
     } else if (modoCor === "desfecho") {
       novo = criarConteudoDesfecho(estado)
+      kind = "pin"
     } else if (modoCor === "perfil") {
       novo = criarConteudoPerfil(perfis)
+      kind = "pin"
     } else {
       novo = criarConteudoBolha(peso)
+      kind = "bolha"
     }
-    marker.content = novo
-    // Re-bind do click no novo content (`gmp-click` do AdvancedMarker está bugado
-    // em combinação com MarkerClusterer — usamos DOM click no próprio content).
+    // MAPA-9: halo de oportunidade convive com o destaque MAPA-4 (bairro selecionado
+    // continua sinalizado pela cor dourada; o halo magenta indica a lente).
+    const conteudo = lenteDemanda ? envolverComHaloOportunidade(novo, kind) : novo
+    marker.content = conteudo
+    // Re-bind do click no content original (não no wrapper) — handler segue no
+    // elemento alvo do clique; o wrapper tem pointer-events:none.
     bindClickAoContent(novo, abrirInfo)
   }
 }
