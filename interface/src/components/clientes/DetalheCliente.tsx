@@ -1,6 +1,5 @@
 "use client"
 
-import { useRouter } from "next/navigation"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -10,6 +9,7 @@ import type {
   Cliente,
   ClienteConversaResumo,
   ClienteDetalheResponse,
+  ClienteListItem,
   ConversaDetalheResponse,
   EditarClienteRequest,
 } from "@/tipos/clientes"
@@ -33,6 +33,7 @@ export function DetalheCliente({
   onEditarCliente,
   onArquivarCliente,
   onDesarquivarCliente,
+  onCriarAtendimento,
 }: {
   detalhe: ConversaDetalheResponse | null
   conversas: ClienteConversaResumo[]
@@ -46,6 +47,7 @@ export function DetalheCliente({
   onEditarCliente?: (id: string, payload: EditarClienteRequest) => Promise<Cliente>
   onArquivarCliente?: (id: string) => Promise<void>
   onDesarquivarCliente?: (id: string) => Promise<void>
+  onCriarAtendimento?: (cliente: ClienteListItem) => void
 }) {
   if (status === "loading") return <DetalheSkeleton />
   if (status === "error") return <BannerErro mensagem={error ?? undefined} onRetry={onRetry} />
@@ -53,7 +55,11 @@ export function DetalheCliente({
   // Cliente recém-criado, sem nenhuma conversa/atendimento.
   if (clienteSemHistorico) {
     return (
-      <SemHistorico cliente={clienteSemHistorico} arquivado={Boolean(arquivado)} />
+      <SemHistorico
+        cliente={clienteSemHistorico}
+        arquivado={Boolean(arquivado)}
+        onCriarAtendimento={onCriarAtendimento}
+      />
     )
   }
 
@@ -173,11 +179,12 @@ function SeletorConversa({
 function SemHistorico({
   cliente,
   arquivado,
+  onCriarAtendimento,
 }: {
   cliente: ClienteDetalheResponse["cliente"]
   arquivado: boolean
+  onCriarAtendimento?: (cliente: ClienteListItem) => void
 }) {
-  const router = useRouter()
   const nome = cliente.nome ?? cliente.telefone_mascarado ?? "Cliente"
   return (
     <section
@@ -199,7 +206,12 @@ function SemHistorico({
         Este cliente ainda não tem atendimentos. Crie um atendimento na Central para começar.
       </p>
       <div>
-        <Button variant="secondary" size="sm" onClick={() => router.push("/atendimentos")}>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => onCriarAtendimento?.(cliente)}
+          disabled={!onCriarAtendimento}
+        >
           Criar atendimento
         </Button>
       </div>

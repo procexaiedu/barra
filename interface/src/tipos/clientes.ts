@@ -79,6 +79,24 @@ export interface ClientesAgregadosResponse {
   next_cursor: string | null
 }
 
+/** Ponto do Mapa de clientes (ADR 0008): 1 por cliente, no externo mais recente com geo. */
+export interface MapaClientePonto {
+  cliente_id: string
+  nome: string | null
+  latitude: number
+  longitude: number
+  bairro: string | null
+  endereco_formatado: string | null
+  total_atendimentos: number
+  valor_total: number
+}
+
+export interface MapaClientesResponse {
+  pontos: MapaClientePonto[]
+  /** Clientes que batem nos filtros mas não têm externo geocodificado — não viram pin. */
+  total_sem_localizacao: number
+}
+
 /** Conversa (par cliente, modelo) listada no detalhe do cliente. */
 export interface ClienteConversaResumo {
   id: string

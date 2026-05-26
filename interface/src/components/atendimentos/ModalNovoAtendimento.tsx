@@ -42,6 +42,8 @@ interface ModalNovoAtendimentoProps {
   onCriar: (payload: CriarAtendimentoRequest) => Promise<CriarAtendimentoResultado>
   onCriarCliente: (payload: CriarClienteRequest) => Promise<Cliente>
   onCriado: (atendimentoId: string) => void
+  /** Cliente pré-selecionado ao abrir (ex.: vindo da tela de Clientes). */
+  clienteInicial?: ClienteListItem | null
 }
 
 export function ModalNovoAtendimento({
@@ -50,11 +52,18 @@ export function ModalNovoAtendimento({
   onCriar,
   onCriarCliente,
   onCriado,
+  clienteInicial,
 }: ModalNovoAtendimentoProps) {
-  const [busca, setBusca] = useState("")
+  // O modal é montado fresh a cada abertura, então basta inicializar o state com
+  // o cliente pré-selecionado; o usuário ainda pode trocar ou limpar.
+  const [busca, setBusca] = useState(
+    clienteInicial?.nome ?? clienteInicial?.telefone_mascarado ?? ""
+  )
   const [resultados, setResultados] = useState<ClienteListItem[]>([])
   const [buscando, setBuscando] = useState(false)
-  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteListItem | null>(null)
+  const [clienteSelecionado, setClienteSelecionado] = useState<ClienteListItem | null>(
+    clienteInicial ?? null
+  )
   const [modelos, setModelos] = useState<ModeloOpcao[]>([])
   const [modeloId, setModeloId] = useState<string>("")
   const [carregandoModelos, setCarregandoModelos] = useState(true)

@@ -1,16 +1,31 @@
 "use client"
 
-import { useState, type ReactNode } from "react"
+import { useCallback, useState, type ReactNode } from "react"
 import { Plus, Search } from "lucide-react"
+import { cn } from "@/lib/utils"
+import { ApiError, api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DetalheCliente } from "@/components/clientes/DetalheCliente"
 import { ListaClientes } from "@/components/clientes/ListaClientes"
+import { MapaClientes } from "@/components/clientes/MapaClientes"
 import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
+import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
 import { useClientes } from "@/hooks/useClientes"
-import type { FiltroPeriodo, ModeloResumo, PerfilFisico } from "@/tipos/clientes"
+import { useClientesMapa } from "@/hooks/useClientesMapa"
+import type {
+  ClienteListItem,
+  FiltroPeriodo,
+  ModeloResumo,
+  PerfilFisico,
+} from "@/tipos/clientes"
+import type {
+  AtendimentoCriadoResponse,
+  CriarAtendimentoRequest,
+  CriarAtendimentoResultado,
+} from "@/tipos/atendimentos"
 
 const periodos: { value: FiltroPeriodo; label: string }[] = [
   { value: "todos", label: "Todos" },
@@ -22,11 +37,38 @@ const periodos: { value: FiltroPeriodo; label: string }[] = [
 export default function Clientes() {
   const crm = useClientes()
   const [modalCriarAberto, setModalCriarAberto] = useState(false)
+  const [aba, setAba] = useState<"lista" | "mapa">("lista")
+  // Cliente para o qual abrir o modal "Novo atendimento" (pré-selecionado).
+  const [atendimentoParaCliente, setAtendimentoParaCliente] = useState<ClienteListItem | null>(null)
+  const mapa = useClientesMapa(crm.filtros, crm.incluirArquivados, aba === "mapa")
 
   const handleSelecionar = (id: string) => {
     if (id === crm.selectedId) return
     crm.selecionarCliente(id)
   }
+
+  const criarAtendimento = useCallback(
+    async (payload: CriarAtendimentoRequest): Promise<CriarAtendimentoResultado> => {
+      try {
+        const res = await api<AtendimentoCriadoResponse>("/v1/atendimentos", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        })
+        return { tipo: "criado", atendimento: res }
+      } catch (e) {
+        if (
+          e instanceof ApiError &&
+          e.status === 409 &&
+          e.detail === "atendimento_aberto_existente"
+        ) {
+          const atendimentoId = (e.details?.atendimento_id as string | undefined) ?? null
+          if (atendimentoId) return { tipo: "existente", atendimento_id: atendimentoId }
+        }
+        throw e
+      }
+    },
+    []
+  )
 
   return (
     <div className="space-y-6">
@@ -45,6 +87,15 @@ export default function Clientes() {
         </Button>
       </header>
 
+      <div role="tablist" aria-label="Visão de clientes" className="flex gap-1 border-b border-border">
+        <TabBtn active={aba === "lista"} onClick={() => setAba("lista")}>
+          Lista
+        </TabBtn>
+        <TabBtn active={aba === "mapa"} onClick={() => setAba("mapa")}>
+          Mapa
+        </TabBtn>
+      </div>
+
       <Toolbar
         busca={crm.filtros.busca}
         periodo={crm.filtros.periodo}
@@ -60,39 +111,65 @@ export default function Clientes() {
         onIncluirArquivadosChange={crm.setIncluirArquivados}
       />
 
-      <div className="grid h-[calc(100vh-240px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
-        <ListaClientes
-          items={crm.items}
-          selectedId={crm.selectedId}
-          status={crm.listaStatus}
-          error={crm.listaError}
-          filtrosAplicados={crm.filtrosAplicados}
-          nextCursor={crm.nextCursor}
-          onSelect={handleSelecionar}
-          onRetry={crm.refetch}
-          onCarregarMais={crm.carregarMais}
+      {aba === "lista" ? (
+        <div className="grid h-[calc(100vh-240px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
+          <ListaClientes
+            items={crm.items}
+            selectedId={crm.selectedId}
+            status={crm.listaStatus}
+            error={crm.listaError}
+            filtrosAplicados={crm.filtrosAplicados}
+            nextCursor={crm.nextCursor}
+            onSelect={handleSelecionar}
+            onRetry={crm.refetch}
+            onCarregarMais={crm.carregarMais}
+          />
+          <DetalheCliente
+            detalhe={crm.detalhe}
+            conversas={crm.conversas}
+            conversaAtivaId={crm.conversaAtivaId}
+            clienteSemHistorico={crm.clienteSemHistorico}
+            status={crm.detalheStatus}
+            error={crm.detalheError}
+            arquivado={crm.clienteArquivado}
+            onRetry={crm.refetch}
+            onSelecionarConversa={crm.selecionarConversa}
+            onEditarCliente={crm.editarCliente}
+            onArquivarCliente={crm.arquivarCliente}
+            onDesarquivarCliente={crm.desarquivarCliente}
+            onCriarAtendimento={setAtendimentoParaCliente}
+          />
+        </div>
+      ) : (
+        <MapaClientes
+          pontos={mapa.pontos}
+          totalSemLocalizacao={mapa.totalSemLocalizacao}
+          status={mapa.status}
+          error={mapa.error}
+          onRetry={mapa.refetch}
         />
-        <DetalheCliente
-          detalhe={crm.detalhe}
-          conversas={crm.conversas}
-          conversaAtivaId={crm.conversaAtivaId}
-          clienteSemHistorico={crm.clienteSemHistorico}
-          status={crm.detalheStatus}
-          error={crm.detalheError}
-          arquivado={crm.clienteArquivado}
-          onRetry={crm.refetch}
-          onSelecionarConversa={crm.selecionarConversa}
-          onEditarCliente={crm.editarCliente}
-          onArquivarCliente={crm.arquivarCliente}
-          onDesarquivarCliente={crm.desarquivarCliente}
-        />
-      </div>
+      )}
 
       <ModalCriarCliente
         open={modalCriarAberto}
         onClose={() => setModalCriarAberto(false)}
         onCriar={crm.criarCliente}
       />
+
+      {atendimentoParaCliente && (
+        <ModalNovoAtendimento
+          open
+          clienteInicial={atendimentoParaCliente}
+          onClose={() => setAtendimentoParaCliente(null)}
+          onCriar={criarAtendimento}
+          onCriarCliente={crm.criarCliente}
+          onCriado={() => {
+            // Recarrega o detalhe: o cliente deixa de ser "sem histórico" e passa
+            // a exibir o atendimento recém-criado.
+            crm.refetch()
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -216,5 +293,32 @@ function SelectFiltro({
         {children}
       </select>
     </label>
+  )
+}
+
+function TabBtn({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={cn(
+        "relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        active
+          ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gold-500"
+          : "text-text-muted hover:text-text-secondary"
+      )}
+    >
+      {children}
+    </button>
   )
 }
