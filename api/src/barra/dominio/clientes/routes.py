@@ -1,4 +1,5 @@
 import re
+from datetime import date
 from typing import Any, Literal
 from uuid import UUID
 
@@ -126,6 +127,11 @@ async def mapa_clientes(
     valor_min: float | None = None,
     valor_max: float | None = None,
     recencia: Literal["ativos", "dormentes"] | None = None,
+    comparar: bool = False,
+    a_inicio: str | None = None,
+    a_fim: str | None = None,
+    b_inicio: str | None = None,
+    b_fim: str | None = None,
 ) -> dict[str, Any]:
     """Pontos do **Mapa de clientes** (ADR 0008): 1 ponto por cliente na localização do
     atendimento **externo** mais recente com `lat/lng`. Interno fica de fora (lá o endereço é o
@@ -140,8 +146,34 @@ async def mapa_clientes(
 
     MAPA-11: aceita `valor_min`/`valor_max` (R$ fechado do cliente, incide em `ag.valor_total`
     — cross-modelo) e `recencia` ("ativos" = `geo.ultima_data >= NOW() - 90d`; "dormentes" = <).
-    Negativos viram NO-OP. Ortogonais aos filtros do MAPA-8 e à lente MAPA-9 (sempre aplicados)."""
+    Negativos viram NO-OP. Ortogonais aos filtros do MAPA-8 e à lente MAPA-9 (sempre aplicados).
+
+    MAPA-14: aceita `comparar=true` com dois recortes (`a_inicio`/`a_fim`, `b_inicio`/`b_fim`,
+    ISO `YYYY-MM-DD`). Quando ativo, ignora `periodo` e `recencia` (não fazem sentido) e
+    devolve um ponto por par (cliente, recorte) com `recorte: "A" | "B"` — cliente com externo
+    em A e B aparece duas vezes; `valor_total`/`total_atendimentos` são **do recorte**. Ranges
+    podem ou não se sobrepor; só bloqueia quando `fim < inicio` (422). `total_sem_localizacao`
+    devolve 0 no modo comparar (a noção 'cliente sem geo' fica ambígua entre recortes — o
+    contador é específico do modo agregado padrão)."""
     # Declarado ANTES de GET /clientes/{cliente_id} para "mapa" não cair no path param UUID.
+    if comparar:
+        a_ini, a_fi = _parse_recorte("a", a_inicio, a_fim)
+        b_ini, b_fi = _parse_recorte("b", b_inicio, b_fim)
+        return await _mapa_clientes_comparar(
+            conn,
+            modelo_id=modelo_id,
+            q=q,
+            perfis=perfis,
+            incluir_arquivados=incluir_arquivados,
+            desfecho=desfecho,
+            motivos_perda=motivos_perda,
+            valor_min=valor_min,
+            valor_max=valor_max,
+            a_inicio=a_ini,
+            a_fim=a_fi,
+            b_inicio=b_ini,
+            b_fim=b_fi,
+        )
     params: list[Any] = []
     filtros = ["1=1"]
     if perfis:
@@ -250,6 +282,193 @@ async def mapa_clientes(
     ]
     total_sem_localizacao = sum(1 for row in rows if row["latitude"] is None)
     return {"pontos": pontos, "total_sem_localizacao": total_sem_localizacao}
+
+
+# MAPA-14: parse + valida um recorte (inicio/fim) recebidos como YYYY-MM-DD.
+# Ambos são obrigatórios quando `comparar=true`; `fim < inicio` vira 422.
+def _parse_recorte(rotulo: str, inicio: str | None, fim: str | None) -> tuple[date, date]:
+    if inicio is None or fim is None:
+        raise EntradaInvalida(
+            code="COMPARAR_RECORTE_INCOMPLETO",
+            message=(
+                f"Comparar exige {rotulo}_inicio e {rotulo}_fim (YYYY-MM-DD)."
+            ),
+        )
+    try:
+        ini = date.fromisoformat(inicio)
+        fi = date.fromisoformat(fim)
+    except ValueError as exc:
+        raise EntradaInvalida(
+            code="COMPARAR_DATA_INVALIDA",
+            message=f"{rotulo}_inicio/{rotulo}_fim devem ser ISO YYYY-MM-DD.",
+        ) from exc
+    if fi < ini:
+        raise EntradaInvalida(
+            code="COMPARAR_RECORTE_VAZIO",
+            message=f"{rotulo}_fim ({fim}) é anterior a {rotulo}_inicio ({inicio}).",
+        )
+    return ini, fi
+
+
+async def _mapa_clientes_comparar(
+    conn: AsyncConnection[Any],
+    *,
+    modelo_id: UUID | None,
+    q: str | None,
+    perfis: list[str] | None,
+    incluir_arquivados: bool,
+    desfecho: str | None,
+    motivos_perda: list[str] | None,
+    valor_min: float | None,
+    valor_max: float | None,
+    a_inicio: date,
+    a_fim: date,
+    b_inicio: date,
+    b_fim: date,
+) -> dict[str, Any]:
+    """Modo comparar do MAPA-14: dois recortes temporais (A e B), 1 ponto por par
+    (cliente, recorte). Cliente que tem externo geocodificado em A e B vira 2 pontos.
+    Agregados (`valor_total`/`total_atendimentos`) são do recorte — clientes que existiam
+    antes mas não tiveram atividade no recorte ficam com 0 (ou não geram ponto).
+
+    Implementado como UNION ALL de duas seleções idênticas, cada uma com janelas
+    `[inicio, fim+1 day)` em `created_at`. Filtros base (perfis/modelo_id/q/arquivados/
+    desfecho/motivo_perda/valor_min/valor_max) replicados nos dois ramos."""
+    base_filtros, base_params = _filtros_base_comparar(
+        modelo_id=modelo_id,
+        q=q,
+        perfis=perfis,
+        incluir_arquivados=incluir_arquivados,
+        desfecho=desfecho,
+        motivos_perda=motivos_perda,
+        valor_min=valor_min,
+        valor_max=valor_max,
+    )
+    sql_a, params_a = _ramo_recorte("A", a_inicio, a_fim, base_filtros, base_params)
+    sql_b, params_b = _ramo_recorte("B", b_inicio, b_fim, base_filtros, base_params)
+    sql = f"{sql_a}\nUNION ALL\n{sql_b}"
+    result = await conn.execute(sql, params_a + params_b)
+    rows = list(await result.fetchall())
+    pontos = [
+        {
+            "cliente_id": row["id"],
+            "nome": row["nome"],
+            "latitude": float(row["latitude"]),
+            "longitude": float(row["longitude"]),
+            "bairro": row["bairro"],
+            "endereco_formatado": row["endereco_formatado"],
+            "estado": row["estado"],
+            "motivo_perda": row["motivo_perda"],
+            "perfis": _array_text(row["perfis_preferidos"]),
+            "total_atendimentos": row["total_atendimentos"] or 0,
+            "valor_total": row["valor_total"] or 0,
+            "ultima_data": row["ultima_data"],
+            "recorrente": (row["total_fechados"] or 0) >= 2,
+            # MAPA-14: 'A' = recorte base; 'B' = recorte de comparação.
+            "recorte": row["recorte"],
+        }
+        for row in rows
+        if row["latitude"] is not None
+    ]
+    # `total_sem_localizacao` não tem semântica clara no modo comparar (sem em A?
+    # em B? em ambos?). Zerado e documentado — o frontend não usa esse contador
+    # quando comparar=on.
+    return {"pontos": pontos, "total_sem_localizacao": 0}
+
+
+def _filtros_base_comparar(
+    *,
+    modelo_id: UUID | None,
+    q: str | None,
+    perfis: list[str] | None,
+    incluir_arquivados: bool,
+    desfecho: str | None,
+    motivos_perda: list[str] | None,
+    valor_min: float | None,
+    valor_max: float | None,
+) -> tuple[list[str], list[Any]]:
+    """Filtros ortogonais ao recorte (modelo/perfis/q/arquivados/desfecho/motivo/valor).
+    Recência e `periodo` ficam de fora — não fazem sentido junto do range explícito."""
+    filtros: list[str] = ["1=1"]
+    params: list[Any] = []
+    if perfis:
+        filtros.append("c.perfis_preferidos && %s::barravips.perfil_fisico_enum[]")
+        params.append(perfis)
+    if modelo_id:
+        filtros.append(
+            "EXISTS (SELECT 1 FROM barravips.conversas cv "
+            "WHERE cv.cliente_id = c.id AND cv.modelo_id = %s)"
+        )
+        params.append(modelo_id)
+    if q:
+        filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s)")
+        params.extend([f"%{q}%", f"%{q}%"])
+    if not incluir_arquivados:
+        filtros.append("c.arquivado_em IS NULL")
+    if desfecho == "Fechado":
+        filtros.append("geo.estado = 'Fechado'")
+    elif desfecho == "Perdido":
+        filtros.append("geo.estado = 'Perdido'")
+    elif desfecho == "andamento":
+        filtros.append("geo.estado NOT IN ('Fechado', 'Perdido')")
+    if motivos_perda:
+        filtros.append("geo.motivo_perda = ANY(%s::barravips.motivo_perda_enum[])")
+        params.append(motivos_perda)
+    if valor_min is not None and valor_min >= 0:
+        filtros.append("ag.valor_total >= %s")
+        params.append(valor_min)
+    if valor_max is not None and valor_max >= 0:
+        filtros.append("ag.valor_total <= %s")
+        params.append(valor_max)
+    return filtros, params
+
+
+def _ramo_recorte(
+    rotulo: str,
+    inicio: date,
+    fim: date,
+    base_filtros: list[str],
+    base_params: list[Any],
+) -> tuple[str, list[Any]]:
+    """Constrói o SELECT de um recorte (A ou B). `geo` é o externo mais recente
+    DENTRO da janela; `ag` agrega TODOS os atendimentos do cliente DENTRO da janela.
+    Limite superior usa `< fim+1 day` para incluir o dia inteiro do `fim`."""
+    # Params específicos do recorte: 2 pares (geo + ag), inicio e fim em cada par.
+    recorte_params: list[Any] = [inicio, fim, inicio, fim]
+    sql = f"""
+        SELECT %s::text AS recorte,
+               c.id, c.nome, c.perfis_preferidos,
+               geo.latitude, geo.longitude, geo.bairro, geo.endereco_formatado, geo.estado,
+               geo.motivo_perda, geo.ultima_data,
+               ag.total_atendimentos, ag.total_fechados, ag.valor_total
+          FROM barravips.clientes c
+          LEFT JOIN LATERAL (
+            SELECT a.latitude, a.longitude, a.bairro, a.endereco_formatado, a.estado,
+                   a.motivo_perda,
+                   a.created_at AS ultima_data
+              FROM barravips.atendimentos a
+             WHERE a.cliente_id = c.id
+               AND a.tipo_atendimento = 'externo'
+               AND a.latitude IS NOT NULL
+               AND a.created_at >= %s::date
+               AND a.created_at < (%s::date + INTERVAL '1 day')
+             ORDER BY a.created_at DESC
+             LIMIT 1
+          ) geo ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS total_atendimentos,
+                   COUNT(*) FILTER (WHERE a.estado = 'Fechado') AS total_fechados,
+                   COALESCE(SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0) AS valor_total
+              FROM barravips.atendimentos a
+             WHERE a.cliente_id = c.id
+               AND a.created_at >= %s::date
+               AND a.created_at < (%s::date + INTERVAL '1 day')
+          ) ag ON TRUE
+         WHERE {" AND ".join(base_filtros)}
+    """
+    # Ordem: %s do SELECT (rotulo) → 2x %s do geo → 2x %s do ag → ...base_params.
+    params = [rotulo, *recorte_params, *base_params]
+    return sql, params
 
 
 @router.post("/clientes", status_code=201)

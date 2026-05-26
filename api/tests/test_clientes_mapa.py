@@ -36,6 +36,8 @@ class FakeConnMapa:
         yield
 
     async def execute(self, query: str, params: object = None) -> _Result:
+        # Casa tanto a query "agregada" padrão quanto a do modo comparar (UNION ALL
+        # de dois SELECTs com o mesmo shape — só muda o `%s::text AS recorte`).
         if "FROM barravips.clientes" in query and "LATERAL" in query and "geo.estado" in query:
             self.last_query = query
             self.last_params = params
@@ -427,5 +429,179 @@ def test_mapa_clientes_valor_min_negativo_e_no_op() -> None:
         assert fake.last_query is not None
         assert "ag.valor_total >= %s" not in fake.last_query
         assert "ag.valor_total <= %s" not in fake.last_query
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+# ---------------------------------------------------------------------------
+# MAPA-14: comparar dois recortes (lift de campanha)
+# Cenários do briefing:
+#  (i) cliente só com externo em A → devolve só em A;
+#  (ii) cliente com externos em A e B → devolve nos dois (1 ponto por recorte,
+#       com `valor_total`/`total_atendimentos` daquele recorte);
+#  (iii) range vazio → resposta válida com 0 pontos no recorte.
+# O FakeConn não aplica o WHERE — os testes verificam que o SQL é UNION ALL,
+# que `recorte` chega ao payload e que agregados são preservados por recorte.
+
+
+def _ponto_recorte(
+    recorte: str,
+    cliente_id: UUID | None = None,
+    valor_total: int = 0,
+    total_atendimentos: int = 1,
+) -> dict[str, Any]:
+    """`_ponto` + campo `recorte`. cliente_id explícito quando o mesmo cliente
+    aparece em A e B (caso ii)."""
+    base = _ponto(
+        "Fechado",
+        cliente_id=cliente_id,
+        total_fechados=1 if valor_total > 0 else 0,
+    )
+    base["recorte"] = recorte
+    base["valor_total"] = valor_total
+    base["total_atendimentos"] = total_atendimentos
+    return base
+
+
+def test_mapa_clientes_comparar_cliente_so_em_a() -> None:
+    """(i): cliente só com externo no recorte A — devolve 1 ponto, recorte='A'."""
+    fake = FakeConnMapa([_ponto_recorte("A", valor_total=1500)])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa"
+                "?comparar=true"
+                "&a_inicio=2026-01-01&a_fim=2026-03-31"
+                "&b_inicio=2026-04-01&b_fim=2026-05-31",
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        # UNION ALL marca o modo comparar — duas SELECTs no SQL fundido.
+        assert "UNION ALL" in fake.last_query
+        pontos = response.json()["pontos"]
+        assert len(pontos) == 1
+        assert pontos[0]["recorte"] == "A"
+        assert pontos[0]["valor_total"] == 1500
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_comparar_cliente_em_a_e_b() -> None:
+    """(ii): cliente com externos em A e B — 2 pontos, agregados daquele recorte."""
+    cliente_id = uuid4()
+    fake = FakeConnMapa(
+        [
+            _ponto_recorte("A", cliente_id=cliente_id, valor_total=800, total_atendimentos=1),
+            _ponto_recorte("B", cliente_id=cliente_id, valor_total=2400, total_atendimentos=3),
+        ]
+    )
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa"
+                "?comparar=true"
+                "&a_inicio=2026-01-01&a_fim=2026-03-31"
+                "&b_inicio=2026-04-01&b_fim=2026-05-31",
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        pontos = response.json()["pontos"]
+        assert len(pontos) == 2
+        por_recorte = {p["recorte"]: p for p in pontos}
+        assert set(por_recorte) == {"A", "B"}
+        # Mesmo cliente_id nos dois pontos — par (cliente, recorte) é único.
+        assert por_recorte["A"]["cliente_id"] == por_recorte["B"]["cliente_id"]
+        # Agregados são do recorte (não cross-tempo).
+        assert por_recorte["A"]["valor_total"] == 800
+        assert por_recorte["A"]["total_atendimentos"] == 1
+        assert por_recorte["B"]["valor_total"] == 2400
+        assert por_recorte["B"]["total_atendimentos"] == 3
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_comparar_recorte_sem_atividade() -> None:
+    """(iii): ranges válidos, mas o mock devolve 0 rows — resposta válida com 0 pontos."""
+    fake = FakeConnMapa([])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa"
+                "?comparar=true"
+                "&a_inicio=2026-01-01&a_fim=2026-03-31"
+                "&b_inicio=2099-01-01&b_fim=2099-03-31",  # B no futuro = sem atividade
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        body = response.json()
+        assert body["pontos"] == []
+        # total_sem_localizacao zerado por design (semântica ambígua entre recortes).
+        assert body["total_sem_localizacao"] == 0
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_comparar_range_invertido_422() -> None:
+    """Validação: `fim < inicio` em A ou B → 422 EntradaInvalida (não chega na conn)."""
+    fake = FakeConnMapa([])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa"
+                "?comparar=true"
+                "&a_inicio=2026-03-31&a_fim=2026-01-01"
+                "&b_inicio=2026-04-01&b_fim=2026-05-31",
+                headers=_token(),
+            )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "COMPARAR_RECORTE_VAZIO"
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_comparar_ignora_periodo_e_recencia() -> None:
+    """`comparar=true` ignora `periodo`/`recencia` — não viram cláusula no SQL final."""
+    fake = FakeConnMapa([_ponto_recorte("A")])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa"
+                "?comparar=true&periodo=7d&recencia=ativos"
+                "&a_inicio=2026-01-01&a_fim=2026-03-31"
+                "&b_inicio=2026-04-01&b_fim=2026-05-31",
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        # `INTERVAL '7 days'`/`INTERVAL '90 days'` são marcas únicas das cláusulas
+        # de periodo/recencia — não devem aparecer no SQL do modo comparar.
+        assert "INTERVAL '7 days'" not in fake.last_query
+        assert "INTERVAL '90 days'" not in fake.last_query
     finally:
         app.dependency_overrides.pop(get_conn, None)
