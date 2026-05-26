@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
 export async function middleware(req: NextRequest) {
+  if (req.nextUrl.pathname.startsWith('/demo-mapa')) return NextResponse.next() // TEMP verificação MAPA-1
   const res = NextResponse.next()
   const url = req.nextUrl
   const isLogin = url.pathname.startsWith('/login')
