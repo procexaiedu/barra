@@ -71,12 +71,12 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 | MAPA-4 | Ranking lateral de bairros/cidades quentes | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #14) |
 | MAPA-5 | InfoWindow enriquecido | 1 | 🟡 | MAPA-5b | ✅ mergeado (PR #26) |
 | MAPA-5b | Suporte a `?cliente=<id>` em `/clientes` | 1 | ✅ | — | ✅ mergeado (PR #25) |
-| MAPA-6 | deck.gl: infraestrutura + camada Hexbin/H3 | 2 | ✅ | MAPA-1 | 🚧 em revisão — sequência manual pós-Fase 1 |
+| MAPA-6 | deck.gl: infraestrutura + camada Hexbin/H3 | 2 | ✅ | MAPA-1 | ✅ mergeado (PR #28) |
 | MAPA-7 | Camada Heatmap KDE (toggle) | 3 | ✅ | MAPA-6 | ✅ mergeado (PR #30) |
 | MAPA-8 | Filtro por desfecho + motivo de perda | extra | 🟡 | MAPA-3 | — (desbloqueado por MAPA-3 mergeado) |
 | MAPA-9 | Camada "demanda não atendida" | extra | 🟡 | MAPA-8 | — |
 | MAPA-10 | Cor/filtro por perfil físico preferido | extra | 🟡 | MAPA-1 | ✅ mergeado (PR #22) |
-| MAPA-11 | Faixa de R$ + recência (filtros) | extra | 🟡 | MAPA-1 | ⏸️ retry cancelado — replanejar pós-deploy |
+| MAPA-11 | Faixa de R$ + recência (filtros) | extra | 🟡 | MAPA-1 | ✅ shipado em sequência (pós-deploy MAPA-9) |
 | MAPA-12 | Mapa ↔ Lista linkados | extra | 🟡 | — | ✅ mergeado (PR #19) |
 | MAPA-13 | Lasso/raio → segmento de clientes | extra | 🟡 | — | — |
 | MAPA-14 | Comparar dois períodos (lift de campanha) | extra | 🟡 | MAPA-6 | — |
@@ -92,6 +92,7 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 - **Cancelados por conflito recorrente em `MapaClientes.tsx` / `MapaControles.tsx`**: MAPA-6, MAPA-11, MAPA-15. Causa raiz: routines paralelas tocam o mesmo arquivo. Próximo ciclo: rodar essas tarefas sequencialmente após o deploy atual estar validado.
 - **MAPA-2 (#12)** ficou como draft fora do auto-merge (já estava pronto antes do acordo). Retomado em 2026-05-26 em branch nova `feat/mapa-2-bolhas` (PR #12 fechado), porque a base ficou CONFLICTING contra MAPA-3/4/10/12 — a composição com `modoCor` (bolhas só quando "Por métrica"), o destaque do bairro (MAPA-4 vence), e o `peso` no `markersRef` foram redesenhados sobre a versão de main.
 - **MAPA-7 shipado em 2026-05-26** (PR #30) em branch `feat/mapa-7-calor-kde`: `GoogleMapsOverlay` + `HeatmapLayer` (deck.gl 9.3.2) como 3ª camada, sem picking (KDE é campo contínuo). **Guarda de honestidade:** toggle desabilitado quando `pontos.length < LIMIAR_CALOR_MIN_PONTOS` (30) — KDE com pouco dado hiperestima densidade nas pontas e engana visualmente. Infra de teste introduzida: Vitest minimal (só funções puras de `lib/`) para cobrir o limiar; spec Playwright novo (`mapa-clientes-calor.spec.ts`) com mock determinístico do endpoint cobre o estado desabilitado.
+- **MAPA-11 shipado em 2026-05-26** em branch `feat/clientes-mapa-11-faixa-recencia` (sequencial pós-MAPA-9, para resolver a causa raiz "routines paralelas tocam o mesmo arquivo"): faixa de R$ via Popover com dois `<input type="number">` (não há slider dual-handle no projeto; nada de dep nova) + recência radiogroup ativos×dormentes, cutoff fixo `RECENCIA_CUTOFF_DIAS=90`. Ortogonais ao MAPA-8 e à lente MAPA-9 (sempre aplicados no fetch, controles sempre habilitados). Backend: `valor_min`/`valor_max` em `ag.valor_total` (cross-modelo) + `recencia` em `geo.ultima_data`; negativos NO-OP. 5 testes pytest novos em `tests/test_clientes_mapa.py`; spec Playwright `mapa-clientes-faixa-recencia.spec.ts` (não rodado, validação manual pendente).
 
 ---
 
