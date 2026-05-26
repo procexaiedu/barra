@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useState, type ReactNode } from "react"
-import { Plus, Search } from "lucide-react"
+import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { Plus, Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ApiError, api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
@@ -40,7 +40,28 @@ export default function Clientes() {
   const [aba, setAba] = useState<"lista" | "mapa">("lista")
   // Cliente para o qual abrir o modal "Novo atendimento" (pré-selecionado).
   const [atendimentoParaCliente, setAtendimentoParaCliente] = useState<ClienteListItem | null>(null)
+  // MAPA-12: bairro selecionado no mapa filtra a aba Lista. Filtragem client-side
+  // por cliente_ids derivados dos pontos do mapa — o endpoint da Lista não tem
+  // filtro `bairro` e o `q` filtra nome/telefone, não bairro.
+  const [bairroFiltro, setBairroFiltro] = useState<string | null>(null)
   const mapa = useClientesMapa(crm.filtros, crm.incluirArquivados, aba === "mapa")
+
+  const clienteIdsDoBairro = useMemo(() => {
+    if (!bairroFiltro) return null
+    return new Set(
+      mapa.pontos.filter((p) => p.bairro === bairroFiltro).map((p) => p.cliente_id)
+    )
+  }, [bairroFiltro, mapa.pontos])
+
+  const itemsLista = useMemo(() => {
+    if (!clienteIdsDoBairro) return crm.items
+    return crm.items.filter((item) => clienteIdsDoBairro.has(item.id))
+  }, [crm.items, clienteIdsDoBairro])
+
+  const filtrarBairro = useCallback((bairro: string) => {
+    setBairroFiltro(bairro)
+    setAba("lista")
+  }, [])
 
   const handleSelecionar = (id: string) => {
     if (id === crm.selectedId) return
@@ -112,34 +133,58 @@ export default function Clientes() {
       />
 
       {aba === "lista" ? (
-        <div className="grid h-[calc(100vh-240px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
-          <ListaClientes
-            items={crm.items}
-            selectedId={crm.selectedId}
-            status={crm.listaStatus}
-            error={crm.listaError}
-            filtrosAplicados={crm.filtrosAplicados}
-            nextCursor={crm.nextCursor}
-            onSelect={handleSelecionar}
-            onRetry={crm.refetch}
-            onCarregarMais={crm.carregarMais}
-          />
-          <DetalheCliente
-            detalhe={crm.detalhe}
-            conversas={crm.conversas}
-            conversaAtivaId={crm.conversaAtivaId}
-            clienteSemHistorico={crm.clienteSemHistorico}
-            status={crm.detalheStatus}
-            error={crm.detalheError}
-            arquivado={crm.clienteArquivado}
-            onRetry={crm.refetch}
-            onSelecionarConversa={crm.selecionarConversa}
-            onEditarCliente={crm.editarCliente}
-            onArquivarCliente={crm.arquivarCliente}
-            onDesarquivarCliente={crm.desarquivarCliente}
-            onCriarAtendimento={setAtendimentoParaCliente}
-          />
-        </div>
+        <>
+          {bairroFiltro && (
+            <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-text-secondary">
+              <span>
+                Bairro:{" "}
+                <strong className="text-text-primary">{bairroFiltro}</strong>
+              </span>
+              <span className="text-text-muted">·</span>
+              <span>
+                {itemsLista.length} cliente{itemsLista.length === 1 ? "" : "s"}{" "}
+                visíve{itemsLista.length === 1 ? "l" : "is"}
+              </span>
+              <button
+                type="button"
+                onClick={() => setBairroFiltro(null)}
+                aria-label="Limpar filtro de bairro"
+                className="ml-auto inline-flex items-center gap-1 rounded text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <X size={14} strokeWidth={1.5} />
+                <span>Limpar</span>
+              </button>
+            </div>
+          )}
+          <div className="grid h-[calc(100vh-240px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
+            <ListaClientes
+              items={itemsLista}
+              selectedId={crm.selectedId}
+              status={crm.listaStatus}
+              error={crm.listaError}
+              filtrosAplicados={crm.filtrosAplicados || bairroFiltro !== null}
+              nextCursor={crm.nextCursor}
+              onSelect={handleSelecionar}
+              onRetry={crm.refetch}
+              onCarregarMais={crm.carregarMais}
+            />
+            <DetalheCliente
+              detalhe={crm.detalhe}
+              conversas={crm.conversas}
+              conversaAtivaId={crm.conversaAtivaId}
+              clienteSemHistorico={crm.clienteSemHistorico}
+              status={crm.detalheStatus}
+              error={crm.detalheError}
+              arquivado={crm.clienteArquivado}
+              onRetry={crm.refetch}
+              onSelecionarConversa={crm.selecionarConversa}
+              onEditarCliente={crm.editarCliente}
+              onArquivarCliente={crm.arquivarCliente}
+              onDesarquivarCliente={crm.desarquivarCliente}
+              onCriarAtendimento={setAtendimentoParaCliente}
+            />
+          </div>
+        </>
       ) : (
         <MapaClientes
           pontos={mapa.pontos}
@@ -147,6 +192,7 @@ export default function Clientes() {
           status={mapa.status}
           error={mapa.error}
           onRetry={mapa.refetch}
+          onFiltrarBairro={filtrarBairro}
         />
       )}
 

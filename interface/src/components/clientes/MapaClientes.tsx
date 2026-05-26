@@ -19,12 +19,15 @@ export function MapaClientes({
   status,
   error,
   onRetry,
+  onFiltrarBairro,
 }: {
   pontos: MapaClientePonto[]
   totalSemLocalizacao: number
   status: Status
   error: string | null
   onRetry: () => void
+  /** MAPA-12: liga o mapa à Lista — informa o bairro do ponto clicado ao pai. */
+  onFiltrarBairro?: (bairro: string) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -59,7 +62,7 @@ export function MapaClientes({
       marker.addListener("gmp-click", () => {
         const info = infoRef.current
         if (!info) return
-        info.setContent(conteudoInfo(ponto))
+        info.setContent(conteudoInfo(ponto, onFiltrarBairro))
         info.open({ map, anchor: marker })
       })
       markersRef.current.push(marker)
@@ -81,7 +84,7 @@ export function MapaClientes({
         })
       }
     }
-  }, [pontos])
+  }, [pontos, onFiltrarBairro])
 
   // Inicializa o mapa uma vez (guardas cobrem o duplo-mount do StrictMode em dev).
   useEffect(() => {
@@ -171,23 +174,41 @@ export function MapaClientes({
 }
 
 // InfoWindow é renderizada pelo Google num balão branco — cores fixas legíveis ali, não
-// as do tema escuro do painel. Conteúdo escapado por vir de dado livre (nome/bairro).
-function conteudoInfo(ponto: MapaClientePonto): string {
-  const nome = escaparHtml(ponto.nome ?? "Cliente")
-  const local = escaparHtml(ponto.bairro ?? ponto.endereco_formatado ?? "—")
+// as do tema escuro do painel. Construímos um HTMLElement para poder anexar o listener
+// do botão "Filtrar bairro" (MAPA-12) — textContent escapa dado livre automaticamente.
+function conteudoInfo(
+  ponto: MapaClientePonto,
+  onFiltrarBairro?: (bairro: string) => void,
+): HTMLElement {
+  const container = document.createElement("div")
+  container.style.cssText = "font-family: inherit; min-width: 180px; color: #1a1a1a;"
+
+  const nome = document.createElement("div")
+  nome.style.cssText = "font-weight: 600; margin-bottom: 2px;"
+  nome.textContent = ponto.nome ?? "Cliente"
+  container.appendChild(nome)
+
+  const local = document.createElement("div")
+  local.style.cssText = "color: #666; font-size: 12px;"
+  local.textContent = ponto.bairro ?? ponto.endereco_formatado ?? "—"
+  container.appendChild(local)
+
   const valor = formatBRL(Number(ponto.valor_total))
   const plural = ponto.total_atendimentos === 1 ? "atendimento" : "atendimentos"
-  return `
-    <div style="font-family: inherit; min-width: 180px; color: #1a1a1a;">
-      <div style="font-weight: 600; margin-bottom: 2px;">${nome}</div>
-      <div style="color: #666; font-size: 12px;">${local}</div>
-      <div style="margin-top: 6px; font-size: 12px;">${ponto.total_atendimentos} ${plural} · ${valor}</div>
-    </div>`
-}
+  const totais = document.createElement("div")
+  totais.style.cssText = "margin-top: 6px; font-size: 12px;"
+  totais.textContent = `${ponto.total_atendimentos} ${plural} · ${valor}`
+  container.appendChild(totais)
 
-function escaparHtml(texto: string): string {
-  return texto.replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
-  )
+  if (ponto.bairro && onFiltrarBairro) {
+    const botao = document.createElement("button")
+    botao.type = "button"
+    botao.textContent = "Filtrar bairro"
+    botao.style.cssText =
+      "margin-top: 8px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; background: #1a1a1a; color: #fff; border: 0; border-radius: 4px;"
+    botao.addEventListener("click", () => onFiltrarBairro(ponto.bairro!))
+    container.appendChild(botao)
+  }
+
+  return container
 }
