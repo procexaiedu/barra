@@ -21,14 +21,32 @@ export type MapaMetrica = "valor" | "atendimentos" | "clientes"
 export type MapaModoMarker = "pins" | "bolhas"
 
 /**
- * Camada do mapa (MAPA-6). Default na UI = "bolhas" (preserva a Fase 1).
+ * Camada do mapa (MAPA-6/MAPA-7). Default na UI = "bolhas" (preserva a Fase 1).
  *  - "bolhas": 1 marcador por cliente (modo `MapaModoMarker` + modo de cor).
  *  - "hexbin": GoogleMapsOverlay+HexagonLayer (deck.gl), favos coloridos pela
  *              rampa --seq-* SOMANDO a métrica selecionada. O seletor de cor
  *              (`ModoCor`) é ocultado nesta camada — favo agrega pontos de
  *              desfechos/perfis mistos, então só "Por métrica" faz sentido.
+ *  - "calor":  GoogleMapsOverlay+HeatmapLayer (deck.gl, KDE). Mesma rampa e
+ *              métrica do hexbin; sem picking (campo contínuo). Toggle fica
+ *              desabilitado quando há menos pontos que `LIMIAR_CALOR_MIN_PONTOS`
+ *              porque KDE com pouco dado engana visualmente (densidade
+ *              hiperestimada nas pontas).
  */
-export type MapaCamada = "bolhas" | "hexbin"
+export type MapaCamada = "bolhas" | "hexbin" | "calor"
+
+/**
+ * Nº mínimo de pontos para habilitar a camada Calor (MAPA-7). Heurística
+ * estatística clássica de bin mínimo — abaixo disso o KDE vira ilusão. Const
+ * porque promover a env (NEXT_PUBLIC_*) seria configuração para um número que
+ * muda raramente; converter quando houver razão real (§2 do CLAUDE.md).
+ */
+export const LIMIAR_CALOR_MIN_PONTOS = 30
+
+/** True quando o nº de pontos atinge o limiar para uma camada Calor honesta. */
+export function calorHabilitado(numPontos: number): boolean {
+  return numPontos >= LIMIAR_CALOR_MIN_PONTOS
+}
 
 export interface MapaMetricaOpcao {
   id: MapaMetrica

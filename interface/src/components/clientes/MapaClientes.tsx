@@ -14,7 +14,12 @@ import {
   type MapaMetrica,
   type MapaModoMarker,
 } from "@/lib/mapaMetrica"
-import { criarHexbinOverlay, type HexbinHandle } from "@/lib/deckMap"
+import {
+  criarCalorOverlay,
+  criarHexbinOverlay,
+  type CalorHandle,
+  type HexbinHandle,
+} from "@/lib/deckMap"
 import {
   LegendaEscala,
   SeletorCamada,
@@ -83,6 +88,11 @@ export function MapaClientes({
   // Sentinela para descartar overlays criados em vão (alterna rápido de
   // bolhas→hexbin→bolhas antes do import dinâmico resolver).
   const hexbinSeqRef = useRef(0)
+  // MAPA-7: handle do GoogleMapsOverlay+HeatmapLayer (KDE). Existe só enquanto
+  // camada==='calor'. Paralelo ao hexbin; mantemos refs separadas para que
+  // alternar entre as camadas descarte o overlay anterior sem ambiguidade.
+  const calorRef = useRef<CalorHandle | null>(null)
+  const calorSeqRef = useRef(0)
   // Marcadores guardam o bairro (destaque MAPA-4), o estado (cor MAPA-3), os perfis
   // declarados (cor MAPA-10) e o peso normalizado (tamanho/cor de bolha MAPA-2) para
   // que os efeitos re-renderizem sem refazer a varredura.
@@ -119,8 +129,9 @@ export function MapaClientes({
     })
     markersRef.current = []
 
-    // MAPA-6: em Hexbin, só o overlay deck.gl renderiza — markers/cluster ficam ocultos.
-    if (camada === "hexbin") return
+    // MAPA-6/MAPA-7: nas camadas de agregação (Hexbin/Calor) só o overlay
+    // deck.gl renderiza — markers/cluster ficam ocultos.
+    if (camada !== "bolhas") return
 
     const limites = limitesMetrica(pontos, metrica)
     const markers: google.maps.marker.AdvancedMarkerElement[] = []
@@ -177,13 +188,16 @@ export function MapaClientes({
     }
   }, [mapPronto, pontos])
 
-  // MAPA-6: dispose do overlay deck.gl no unmount do componente. O efeito principal
-  // só descarta quando `camada` muda; sem este cleanup, sair da aba Mapa enquanto
-  // a camada está em "hexbin" vazaria o overlay (e o WebGL context dele).
+  // MAPA-6/MAPA-7: dispose dos overlays deck.gl no unmount do componente. O
+  // efeito principal só descarta quando `camada` muda; sem este cleanup, sair
+  // da aba Mapa enquanto a camada está em Hexbin/Calor vazaria o overlay (e o
+  // WebGL context dele).
   useEffect(() => {
     return () => {
       hexbinRef.current?.dispose()
       hexbinRef.current = null
+      calorRef.current?.dispose()
+      calorRef.current = null
     }
   }, [])
 
@@ -278,6 +292,44 @@ export function MapaClientes({
     }
   }, [camada, pontos, metrica, mapPronto])
 
+  // MAPA-7: ciclo de vida do overlay deck.gl Calor (HeatmapLayer KDE). Espelha
+  // o do hexbin — diferença é que não há picking (campo contínuo). O guard de
+  // honestidade (limiar mínimo de pontos) vive no SeletorCamada, que desabilita
+  // o botão; se mesmo assim a camada for "calor" sem volume suficiente, o
+  // overlay sobe e renderiza um borrão fraco — não é erro, é só feio.
+  useEffect(() => {
+    if (!mapPronto) return
+    const map = mapRef.current
+    if (!map) return
+    if (camada !== "calor") {
+      calorRef.current?.dispose()
+      calorRef.current = null
+      return
+    }
+    const opts = { pontos, metrica }
+    if (calorRef.current) {
+      calorRef.current.atualizar(opts)
+      return
+    }
+    const seq = ++calorSeqRef.current
+    let cancelado = false
+    criarCalorOverlay(map, opts)
+      .then((handle) => {
+        if (cancelado || seq !== calorSeqRef.current) {
+          handle.dispose()
+          return
+        }
+        calorRef.current = handle
+      })
+      .catch(() => {
+        // Falha de import dinâmico: a camada Calor fica indisponível desta vez.
+        // A UI continua mostrando o mapa (bolhas/hexbin seguem funcionando).
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [camada, pontos, metrica, mapPronto])
+
   // MAPA-4: pan do mapa para o centroide das bolhas do bairro escolhido.
   const handleSelectBairro = useCallback(
     (chave: string) => {
@@ -326,7 +378,11 @@ export function MapaClientes({
           {camada === "bolhas" && (
             <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
           )}
-          <SeletorCamada camada={camada} onCamadaChange={setCamada} />
+          <SeletorCamada
+            camada={camada}
+            pontosCount={pontos.length}
+            onCamadaChange={setCamada}
+          />
         </div>
       </div>
       <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">
