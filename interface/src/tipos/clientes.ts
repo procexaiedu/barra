@@ -93,6 +93,10 @@ export interface MapaClientePonto {
   perfis: PerfilFisico[]
   total_atendimentos: number
   valor_total: number
+  /** Data ISO 8601 do atendimento externo que ancora o ponto (MAPA-5). */
+  ultima_data?: string | null
+  /** Recorrente cross-modelo (≥2 fechados) — mesma regra da Lista (MAPA-5). */
+  recorrente?: boolean
 }
 
 export interface MapaClientesResponse {

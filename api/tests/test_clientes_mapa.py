@@ -1,4 +1,5 @@
-"""Integração da rota /v1/crm/clientes/mapa — cor por desfecho (MAPA-3, ADR 0008)."""
+"""Integração da rota /v1/crm/clientes/mapa — cor por desfecho (MAPA-3) +
+última data / recorrência (MAPA-5), ADR 0008."""
 
 from contextlib import asynccontextmanager
 from typing import Any
@@ -41,7 +42,12 @@ def _token() -> dict[str, str]:
     return {"Authorization": f"Bearer test:{uuid4()}:fernando:true"}
 
 
-def _ponto(estado: str, cliente_id: UUID | None = None) -> dict[str, Any]:
+def _ponto(
+    estado: str,
+    cliente_id: UUID | None = None,
+    ultima_data: str = "2026-05-20T10:00:00",
+    total_fechados: int = 0,
+) -> dict[str, Any]:
     return {
         "id": cliente_id or uuid4(),
         "nome": f"Cliente {estado}",
@@ -51,7 +57,9 @@ def _ponto(estado: str, cliente_id: UUID | None = None) -> dict[str, Any]:
         "bairro": "Copacabana",
         "endereco_formatado": "Av. Atlântica, 1000",
         "estado": estado,
+        "ultima_data": ultima_data,
         "total_atendimentos": 1,
+        "total_fechados": total_fechados,
         "valor_total": 0,
     }
 
@@ -104,5 +112,53 @@ def test_mapa_clientes_propaga_estado_em_andamento() -> None:
         pontos = response.json()["pontos"]
         assert len(pontos) == 1
         assert pontos[0]["estado"] == "Em_execucao"
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_propaga_ultima_data() -> None:
+    async def _override():
+        yield FakeConnMapa([_ponto("Fechado", ultima_data="2026-04-15T08:30:00")])
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes/mapa", headers=_token())
+        assert response.status_code == 200
+        pontos = response.json()["pontos"]
+        assert len(pontos) == 1
+        assert pontos[0]["ultima_data"] == "2026-04-15T08:30:00"
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_recorrente_com_dois_ou_mais_fechados() -> None:
+    async def _override():
+        yield FakeConnMapa([_ponto("Fechado", total_fechados=3)])
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes/mapa", headers=_token())
+        assert response.status_code == 200
+        pontos = response.json()["pontos"]
+        assert len(pontos) == 1
+        assert pontos[0]["recorrente"] is True
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_nao_recorrente_com_um_fechado() -> None:
+    async def _override():
+        yield FakeConnMapa([_ponto("Fechado", total_fechados=1)])
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes/mapa", headers=_token())
+        assert response.status_code == 200
+        pontos = response.json()["pontos"]
+        assert len(pontos) == 1
+        assert pontos[0]["recorrente"] is False
     finally:
         app.dependency_overrides.pop(get_conn, None)

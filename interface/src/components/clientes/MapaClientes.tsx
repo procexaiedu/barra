@@ -400,6 +400,15 @@ function conteudoInfo(
   totais.textContent = `${ponto.total_atendimentos} ${plural} · ${valor}`
   container.appendChild(totais)
 
+  // Última data + recorrência (MAPA-5). Degradam para "—" quando ausentes.
+  const ultima = ponto.ultima_data ? formatarDataBR(ponto.ultima_data) : "—"
+  const recorrencia =
+    ponto.recorrente === undefined ? "—" : ponto.recorrente ? "Recorrente" : "Não recorrente"
+  const meta = document.createElement("div")
+  meta.style.cssText = "margin-top: 2px; font-size: 12px; color: #666;"
+  meta.textContent = `Última: ${ultima} · ${recorrencia}`
+  container.appendChild(meta)
+
   // Perfil físico DECLARADO (MAPA-10, ADR 0006). Lista todos quando >1 — o pin pega
   // só o primeiro como cor. Sem declaração, omite a linha (não confunde com "outra").
   if (ponto.perfis.length > 0) {
@@ -409,15 +418,34 @@ function conteudoInfo(
     container.appendChild(perfis)
   }
 
+  const acoes = document.createElement("div")
+  acoes.style.cssText = "margin-top: 8px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center;"
+
   if (ponto.bairro && onFiltrarBairro) {
     const botao = document.createElement("button")
     botao.type = "button"
     botao.textContent = "Filtrar bairro"
     botao.style.cssText =
-      "margin-top: 8px; padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; background: #1a1a1a; color: #fff; border: 0; border-radius: 4px;"
+      "padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; background: #1a1a1a; color: #fff; border: 0; border-radius: 4px;"
     botao.addEventListener("click", () => onFiltrarBairro(ponto.bairro!))
-    container.appendChild(botao)
+    acoes.appendChild(botao)
   }
 
+  // Link "Ver ficha" (MAPA-5): destino /clientes?cliente=<id> destravado pela MAPA-5b.
+  // cliente_id é UUID validado pelo backend; encodeURIComponent é defesa em profundidade.
+  const ficha = document.createElement("a")
+  ficha.href = `/clientes?cliente=${encodeURIComponent(ponto.cliente_id)}`
+  ficha.textContent = "Ver ficha"
+  ficha.style.cssText = "font-size: 12px; color: #1a1a1a; text-decoration: underline;"
+  acoes.appendChild(ficha)
+
+  container.appendChild(acoes)
+
   return container
+}
+
+function formatarDataBR(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return "—"
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
