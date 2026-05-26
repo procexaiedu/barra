@@ -4,8 +4,8 @@ import { useState } from "react"
 import { Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { DialogRangeCustom } from "@/components/dashboard/DialogRangeCustom"
+import { FiltroModeloMulti } from "@/components/dashboard/FiltroModeloMulti"
 import { formatRangeAbsoluto } from "@/components/dashboard/utils"
-import { CATEGORIAS_DESPESA, ROTULO_CATEGORIA, type CategoriaDespesa } from "@/tipos/financeiro"
 import type { FiltroPeriodo } from "@/tipos/dashboard"
 import type { useFinanceiro } from "@/hooks/useFinanceiro"
 
@@ -52,19 +52,20 @@ export function ToolbarFinanceiro({
           </Button>
         </div>
 
-        {view === "despesas" && (
-          <FiltroCategorias
-            selecionadas={filtros.categoria}
-            onChange={fin.setCategoria}
-          />
-        )}
-
         {view === "receitas" && (
           <FiltroForma
             valor={filtros.forma_pagamento}
             onChange={fin.setFormaPagamento}
           />
         )}
+
+        <div className="flex flex-wrap items-center gap-2 border-l border-border pl-2">
+          <span className="text-xs text-text-muted">Modelo:</span>
+          <FiltroModeloMulti
+            modeloIds={filtros.modelo_ids}
+            onChange={fin.setModeloIds}
+          />
+        </div>
       </div>
       <DialogRangeCustom
         open={rangeOpen}
@@ -77,39 +78,6 @@ export function ToolbarFinanceiro({
         }}
       />
     </>
-  )
-}
-
-function FiltroCategorias({
-  selecionadas,
-  onChange,
-}: {
-  selecionadas: CategoriaDespesa[]
-  onChange: (cats: CategoriaDespesa[]) => void
-}) {
-  const toggle = (c: CategoriaDespesa) => {
-    if (selecionadas.includes(c)) onChange(selecionadas.filter((x) => x !== c))
-    else onChange([...selecionadas, c])
-  }
-  return (
-    <div className="flex flex-wrap items-center gap-1 border-l border-border pl-2">
-      <span className="text-xs text-text-muted">Categoria:</span>
-      {CATEGORIAS_DESPESA.map((c) => (
-        <Button
-          key={c}
-          variant={selecionadas.includes(c) ? "primary" : "ghost"}
-          size="xs"
-          onClick={() => toggle(c)}
-        >
-          {ROTULO_CATEGORIA[c]}
-        </Button>
-      ))}
-      {selecionadas.length > 0 && (
-        <Button variant="ghost" size="xs" onClick={() => onChange([])}>
-          limpar
-        </Button>
-      )}
-    </div>
   )
 }
 
