@@ -385,7 +385,10 @@ export function MapaClientes({
     if (!mapPronto) return
     const map = mapRef.current
     if (!map) return
-    if (camadaEfetiva !== "calor") {
+    // SeletorCamada bloqueia *entrar* em "calor" com < LIMIAR_CALOR_MIN_PONTOS,
+    // mas filtros agressivos podem zerar `pontos` JÁ DENTRO da camada — sem
+    // este guard, paga import dinâmico + criação de overlay vazio em vão.
+    if (camadaEfetiva !== "calor" || pontos.length === 0) {
       calorRef.current?.dispose()
       calorRef.current = null
       return

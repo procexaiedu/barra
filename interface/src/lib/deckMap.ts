@@ -87,32 +87,16 @@ function somaDeltasPorCelula(
 // Workaround para deck.gl/google-maps v9.3.x: ao adicionar um GoogleMapsOverlay
 // a um Map já idle, o Maps NÃO dispara `_onDrawVector` automaticamente — o Deck
 // interno fica preso no `initialViewState` hardcoded (`lat:0/lng:0/zoom:1`, ver
-// `utils.js#createDeckInstance` no pacote). Consequências observadas no painel:
-//   1. HeatmapLayer (radiusPixels, screen-space): só renderiza após o primeiro
-//      pan manual do usuário.
-//   2. HexagonLayer (radiusCommon = unitsPerMeter * 3000m em world-space): a
-//      primeira `_updateBinOptions` baka o `radiusCommon` no `state` da layer
-//      contra o viewState inicial falso. `_updateBinOptions` só re-roda em
-//      `dataChanged`/`radius`-changed, nunca por mudança de viewport — então
-//      ao pan o sintoma é um bin único projetado como quad fullscreen na cor
-//      MAX/MIN da rampa (--seq-5/--seq-1).
-//
-// Sequência defensiva: criar com `layers: []`, `setMap`, forçar redraw via
-// `_overlay.requestRedraw()` (privado, mas estável no v9.3.x; é o método do
-// `WebGLOverlayView` que pede `onDraw` no próximo frame mesmo sem interação),
-// aguardar 2 rAF para o Maps processar o draw e propagar o viewState real ao
-// Deck, e só então aplicar as layers via `setProps`. Nesse ponto qualquer
-// `updateState` roda contra `context.viewport` real.
-async function aguardarPrimeiroDraw(
+// `utils.js#createDeckInstance` no pacote). `requestRedraw` (método privado mas
+// estável no v9.3.x do `WebGLOverlayView`) pede `onDraw` no próximo frame mesmo
+// sem interação — basta isso para o HeatmapLayer, que é screen-space.
+function pedirRedraw(
   overlay: import("@deck.gl/google-maps").GoogleMapsOverlay,
-): Promise<void> {
+): void {
   const inner = (
     overlay as unknown as { _overlay?: { requestRedraw?: () => void } }
   )._overlay
   inner?.requestRedraw?.()
-  await new Promise<void>((resolve) =>
-    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
-  )
 }
 
 export async function criarHexbinOverlay(
@@ -222,16 +206,25 @@ export async function criarHexbinOverlay(
   // default `true` compartilha o WebGL2 context com o Maps e quebra o
   // render-to-texture intermediário — o sintoma é o overlay renderizar num
   // viewport degenerado (ex.: borrão preso no canto superior-esquerdo) e o
-  // luma.gl emitir "Binding weightsTexture not set". Release notes do v9.3
-  // confirmam o caminho: usar canvas separado garante posição DOM correta.
+  // luma.gl emitir "Binding weightsTexture not set".
   //
-  // `layers: []` inicialmente — ver `aguardarPrimeiroDraw` acima para o motivo.
+  // Defesa em duas etapas (necessária só para HexagonLayer): o `radiusCommon`
+  // = unitsPerMeter * 3000m é bakado em world-space pelo `_updateBinOptions`
+  // contra o viewState do PRIMEIRO draw — se esse for o `initialViewState`
+  // falso (lat:0/lng:0/zoom:1), todos os pontos colapsam num bin único como
+  // quad fullscreen, e como `_updateBinOptions` só re-roda em mudança de
+  // `data`/`radius` (nunca em pan), o estado ruim fica fixo até unmount.
+  // Por isso: criar com `layers:[]`, pedir redraw, aguardar 2 rAF para o
+  // Maps propagar o viewState real, só então inserir a layer.
   const overlay = new GoogleMapsOverlay({
     interleaved: false,
     layers: [],
   })
   overlay.setMap(map)
-  await aguardarPrimeiroDraw(overlay)
+  pedirRedraw(overlay)
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  )
   overlay.setProps({ layers: [construirLayer(opts)] })
 
   return {
@@ -277,17 +270,16 @@ export async function criarCalorOverlay(
   // HeatmapLayer é o caso clássico do bug; o sintoma reportado em prod foi um
   // borrão fraco preso no canto superior-esquerdo do mapa).
   //
-  // `layers: []` + `aguardarPrimeiroDraw`: ver nota acima — HeatmapLayer não
-  // baka estado errado como o Hexbin (radiusPixels é screen-space), mas sofre
-  // do mesmo "só aparece após pan" quando o overlay é adicionado a um map já
-  // idle. Mesma sequência defensiva resolve.
+  // Diferente do Hexbin, criamos JÁ com a layer e só pedimos redraw: o
+  // HeatmapLayer usa `radiusPixels` (screen-space), não sofre do
+  // radiusCommon-baking que justifica o gate de 2 rAF do hexbin. Sem o
+  // redraw, o overlay só aparece após o primeiro pan manual.
   const overlay = new GoogleMapsOverlay({
     interleaved: false,
-    layers: [],
+    layers: [construirLayer(opts)],
   })
   overlay.setMap(map)
-  await aguardarPrimeiroDraw(overlay)
-  overlay.setProps({ layers: [construirLayer(opts)] })
+  pedirRedraw(overlay)
 
   return {
     atualizar(novoOpts) {
@@ -300,11 +292,26 @@ export async function criarCalorOverlay(
   }
 }
 
+// Funções de peso top-level → referência ESTÁVEL por metrica. Sem isso, cada
+// chamada de `construirLayer` cria um `getWeight` novo e o deck.gl considera
+// que a prop mudou, forçando re-agregação completa mesmo quando só `data` foi
+// atualizado (o `data` ref normalmente também muda, mas estabilizar o peso
+// elimina re-agregação espúria quando o componente repassa as mesmas opts).
+function pesoValor(p: MapaClientePonto): number {
+  return Number(p.valor_total)
+}
+function pesoAtendimentos(p: MapaClientePonto): number {
+  return p.total_atendimentos
+}
+// "clientes" → cada ponto vale 1 (com aggregation:'SUM' equivale a COUNT).
+function pesoUm(): number {
+  return 1
+}
+
 function pesoFn(metrica: MapaMetrica): (p: MapaClientePonto) => number {
-  if (metrica === "valor") return (p) => Number(p.valor_total)
-  if (metrica === "atendimentos") return (p) => p.total_atendimentos
-  // "clientes" → cada ponto vale 1 (com colorAggregation:'SUM' equivale a COUNT).
-  return () => 1
+  if (metrica === "valor") return pesoValor
+  if (metrica === "atendimentos") return pesoAtendimentos
+  return pesoUm
 }
 
 // Lê a rampa --seq-1..5 do tema (globals.css). HexagonLayer espera tuplas RGB
