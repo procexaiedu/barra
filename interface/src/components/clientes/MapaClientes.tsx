@@ -5,12 +5,29 @@ import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
 import type { MapaMetrica } from "@/lib/mapaMetrica"
-import { LegendaEscala, SeletorMetrica } from "@/components/clientes/MapaControles"
+import {
+  LegendaEscala,
+  SeletorMetrica,
+  SeletorModoCor,
+  type ModoCor,
+} from "@/components/clientes/MapaControles"
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
-import type { MapaClientePonto } from "@/tipos/clientes"
+import type { EstadoAtendimento, MapaClientePonto } from "@/tipos/clientes"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
 const CENTRO_BRASIL = { lat: -14.235, lng: -51.925 }
+
+// Cores do modo "Por desfecho" (MAPA-3). Hex literal porque PinElement não resolve
+// CSS vars; valores espelham --state-closed/--state-lost/--state-handoff do tema.
+const COR_FECHADO = "#1FB07A"
+const COR_PERDIDO = "#D62828"
+const COR_EM_ANDAMENTO = "#F4B81C"
+
+function corPorDesfecho(estado: EstadoAtendimento): string {
+  if (estado === "Fechado") return COR_FECHADO
+  if (estado === "Perdido") return COR_PERDIDO
+  return COR_EM_ANDAMENTO
+}
 
 type Status = "idle" | "loading" | "success" | "error"
 
@@ -34,14 +51,21 @@ export function MapaClientes({
   const mapRef = useRef<google.maps.Map | null>(null)
   const infoRef = useRef<google.maps.InfoWindow | null>(null)
   const clustererRef = useRef<MarkerClusterer | null>(null)
-  // Marcadores guardam a chave do bairro para que o efeito de destaque consiga
-  // selecionar quais re-renderizar sem refazer a varredura nos pontos.
+  // Marcadores guardam o bairro (destaque MAPA-4) e o estado (cor MAPA-3) para que
+  // os efeitos consigam re-renderizar sem refazer a varredura nos pontos.
   const markersRef = useRef<
-    Array<{ marker: google.maps.marker.AdvancedMarkerElement; chave: string }>
+    Array<{
+      marker: google.maps.marker.AdvancedMarkerElement
+      chave: string
+      estado: EstadoAtendimento
+    }>
   >([])
   const [mapPronto, setMapPronto] = useState(false)
   // Métrica do mapa (MAPA-1, espinha dorsal). Default = R$ fechado, conforme spec.
   const [metrica, setMetrica] = useState<MapaMetrica>("valor")
+  // MAPA-3: modo de cor dos pontos. Ortogonal à métrica (que rege o tamanho).
+  // Default "metrica" preserva o comportamento prévio.
+  const [modoCor, setModoCor] = useState<ModoCor>("metrica")
   // MAPA-4: bairro selecionado no ranking lateral; controla pan + destaque das bolhas.
   const [bairroSelecionado, setBairroSelecionado] = useState<string | null>(null)
 
@@ -63,6 +87,7 @@ export function MapaClientes({
         position: posicao,
         title: ponto.nome ?? "Cliente",
         gmpClickable: true,
+        content: modoCor === "desfecho" ? criarConteudoDesfecho(ponto.estado) : null,
       })
       // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
       marker.addListener("gmp-click", () => {
@@ -71,7 +96,11 @@ export function MapaClientes({
         info.setContent(conteudoInfo(ponto, onFiltrarBairro))
         info.open({ map, anchor: marker })
       })
-      markersRef.current.push({ marker, chave: chaveBairro(ponto) })
+      markersRef.current.push({
+        marker,
+        chave: chaveBairro(ponto),
+        estado: ponto.estado,
+      })
       markers.push(marker)
       bounds.extend(posicao)
     }
@@ -91,7 +120,7 @@ export function MapaClientes({
         })
       }
     }
-  }, [pontos, onFiltrarBairro])
+  }, [pontos, onFiltrarBairro, modoCor])
 
   // Inicializa o mapa uma vez (guardas cobrem o duplo-mount do StrictMode em dev).
   useEffect(() => {
@@ -131,9 +160,10 @@ export function MapaClientes({
 
   // MAPA-4: destaque leve das bolhas do bairro selecionado. Roda depois de
   // `desenharPontos` (declarado abaixo) para reaplicar quando os pontos mudam.
+  // Inclui `modoCor` nas deps para restaurar a cor por desfecho ao deselecionar.
   useEffect(() => {
-    aplicarDestaque(markersRef.current, bairroSelecionado)
-  }, [bairroSelecionado, mapPronto, pontos])
+    aplicarDestaque(markersRef.current, bairroSelecionado, modoCor)
+  }, [bairroSelecionado, mapPronto, pontos, modoCor])
 
   // MAPA-4: pan do mapa para o centroide das bolhas do bairro escolhido.
   const handleSelectBairro = useCallback(
@@ -171,7 +201,10 @@ export function MapaClientes({
             </span>
           )}
         </div>
-        <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        <div className="flex flex-wrap items-center gap-2">
+          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+          <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
+        </div>
       </div>
       <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">
         <div className="relative flex-1 overflow-hidden rounded-lg border border-border">
@@ -219,18 +252,35 @@ function criarConteudoDestaque(): HTMLElement {
   return el
 }
 
+// Pin colorido pelo desfecho do atendimento que ancora o ponto (MAPA-3).
+// PinElement é da própria lib `marker` que já carregamos.
+function criarConteudoDesfecho(estado: EstadoAtendimento): HTMLElement {
+  return new google.maps.marker.PinElement({
+    background: corPorDesfecho(estado),
+    borderColor: "#1a1a1a",
+    glyphColor: "#1a1a1a",
+  }).element
+}
+
 // Mutação imperativa de instâncias do Google Maps — isolada aqui (fora do hook)
 // porque o React Compiler trata refs como imutáveis no escopo de useEffect.
 function aplicarDestaque(
   items: ReadonlyArray<{
     marker: google.maps.marker.AdvancedMarkerElement
     chave: string
+    estado: EstadoAtendimento
   }>,
   selecionado: string | null,
+  modoCor: ModoCor,
 ) {
-  for (const { marker, chave } of items) {
-    marker.content =
-      selecionado && chave === selecionado ? criarConteudoDestaque() : null
+  for (const { marker, chave, estado } of items) {
+    if (selecionado && chave === selecionado) {
+      marker.content = criarConteudoDestaque()
+    } else if (modoCor === "desfecho") {
+      marker.content = criarConteudoDesfecho(estado)
+    } else {
+      marker.content = null
+    }
   }
 }
 
