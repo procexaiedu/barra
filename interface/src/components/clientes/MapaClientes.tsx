@@ -211,7 +211,7 @@ export function MapaClientes({
     ])
       .then(([{ Map, InfoWindow }]) => {
         if (cancelado || !containerRef.current || mapRef.current) return
-        mapRef.current = new Map(containerRef.current, {
+        const map = new Map(containerRef.current, {
           center: CENTRO_BRASIL,
           zoom: 4,
           mapId: googleMapsMapId,
@@ -220,8 +220,21 @@ export function MapaClientes({
           fullscreenControl: false,
           clickableIcons: false,
         })
+        mapRef.current = map
         infoRef.current = new InfoWindow()
-        setMapPronto(true)
+        // Espera o `idle` antes de liberar os overlays do deck.gl. Sem isso, o
+        // primeiro `onDraw` do GoogleMapsOverlay roda com viewport degenerado
+        // (zoom/center pré-layout), o que faz o HexagonLayer agregar `radius`
+        // em metros contra um `unitsPerMeter` zero → todos os pontos colapsam
+        // num bin único renderizado como fullscreen quad na cor MAX da rampa.
+        // HexagonLayer não re-agrega no pan (agregação é world-space), então o
+        // estado ruim fica fixo até unmount. HeatmapLayer não tem essa armadilha
+        // porque usa `radiusPixels` em screen-space (sobrevive ao primeiro
+        // viewport ruim sem precisar do gate).
+        google.maps.event.addListenerOnce(map, "idle", () => {
+          if (cancelado) return
+          setMapPronto(true)
+        })
       })
       .catch(() => {
         // Falha de carregamento da API: a UI segue mostrando o container vazio; o status
