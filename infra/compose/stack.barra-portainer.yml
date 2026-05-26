@@ -38,7 +38,7 @@ services:
       - EVOLUTION_WEBHOOK_CALLBACK_URL=https://api-barra.procexai.tech/webhook/evolution
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363423572479616@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
-      - 'CORS_ORIGINS=["https://barravips.procexai.tech","https://barra-vips.vercel.app"]'
+      - 'CORS_ORIGINS=["https://elitebaby.procexai.tech","https://barravips.procexai.tech","https://barra-vips.vercel.app"]'
       - JID_PERMITIDO=120363423572479616@g.us
       - SENTRY_DSN=
     command: >
