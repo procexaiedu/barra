@@ -28,6 +28,20 @@ export interface HexbinHandle {
   dispose: () => void
 }
 
+// MAPA-7: HeatmapLayer KDE. Não é um agregador discreto como o Hexbin — é um
+// campo contínuo, então não há "célula" para clicar e portanto sem onClick. A
+// honestidade do calor depende de volume: o componente esconde/desabilita o
+// toggle quando `pontos.length < LIMIAR_CALOR_MIN_PONTOS` (ver mapaMetrica.ts).
+export interface CalorOpts {
+  pontos: MapaClientePonto[]
+  metrica: MapaMetrica
+}
+
+export interface CalorHandle {
+  atualizar: (opts: CalorOpts) => void
+  dispose: () => void
+}
+
 // Raio do hexágono em metros (decisão MAPA-6: 3 km — meio-termo para dado
 // esparso do P0; calibrar quando volume crescer).
 const RADIUS_M = 3000
@@ -68,6 +82,48 @@ export async function criarHexbinOverlay(
         })
         return true
       },
+    })
+  }
+
+  const overlay = new GoogleMapsOverlay({ layers: [construirLayer(opts)] })
+  overlay.setMap(map)
+
+  return {
+    atualizar(novoOpts) {
+      overlay.setProps({ layers: [construirLayer(novoOpts)] })
+    },
+    dispose() {
+      overlay.setMap(null)
+      overlay.finalize()
+    },
+  }
+}
+
+// MAPA-7: cria o overlay deck.gl com HeatmapLayer KDE. Paralelo ao
+// `criarHexbinOverlay` (mesma forma de handle/opts, sem `onClick`). iOS Safari
+// tem limitação histórica de textura float que afeta o HeatmapLayer; painel é
+// desktop-only, então só registramos a limitação aqui — não tentamos workaround.
+export async function criarCalorOverlay(
+  map: google.maps.Map,
+  opts: CalorOpts,
+): Promise<CalorHandle> {
+  const [{ GoogleMapsOverlay }, { HeatmapLayer }] = await Promise.all([
+    import("@deck.gl/google-maps"),
+    import("@deck.gl/aggregation-layers"),
+  ])
+
+  const colorRange = lerRampaSeq()
+
+  function construirLayer(o: CalorOpts) {
+    return new HeatmapLayer<MapaClientePonto>({
+      id: "clientes-calor",
+      data: o.pontos,
+      getPosition: (p) => [p.longitude, p.latitude],
+      getWeight: pesoFn(o.metrica),
+      aggregation: "SUM",
+      colorRange,
+      // radiusPixels/intensity/threshold ficam nos defaults do deck.gl (60/1/0.05).
+      // Calibrar quando volume crescer — antes disso, ajustar fino é palpite.
     })
   }
 

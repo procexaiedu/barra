@@ -3,8 +3,10 @@
 import { cn } from "@/lib/utils"
 import { formatBRL } from "@/lib/formatters"
 import {
+  LIMIAR_CALOR_MIN_PONTOS,
   OPCOES_METRICA,
   RAMPA_SEQ,
+  calorHabilitado,
   limitesMetrica,
   type MapaCamada,
   type MapaMetrica,
@@ -92,16 +94,28 @@ const OPCOES_CAMADA: readonly { id: MapaCamada; label: string; tooltip: string }
     tooltip:
       "Favos somando a métrica selecionada. Cor da rampa --seq-*. Em Hexbin o modo de cor (Métrica/Desfecho/Perfil) é fixo em Métrica.",
   },
+  {
+    id: "calor",
+    label: "Calor",
+    tooltip:
+      "Heatmap KDE (deck.gl) ponderado pela métrica selecionada. Sem clique (campo contínuo).",
+  },
 ] as const
 
-/** Seletor de camada (MAPA-6). Default = "bolhas" (preserva a Fase 1). */
+/** Seletor de camada (MAPA-6/MAPA-7). Default = "bolhas" (preserva a Fase 1).
+ *  `pontosCount` é usado pela guarda de honestidade do MAPA-7: abaixo do limiar
+ *  o botão Calor fica desabilitado com tooltip explicativo (KDE com pouco dado
+ *  hiperestima densidade nas pontas). */
 export function SeletorCamada({
   camada,
+  pontosCount,
   onCamadaChange,
 }: {
   camada: MapaCamada
+  pontosCount: number
   onCamadaChange: (c: MapaCamada) => void
 }) {
+  const calorOk = calorHabilitado(pontosCount)
   return (
     <div
       role="radiogroup"
@@ -110,19 +124,26 @@ export function SeletorCamada({
     >
       {OPCOES_CAMADA.map((opcao) => {
         const ativo = opcao.id === camada
+        const desabilitado = opcao.id === "calor" && !calorOk
+        const title = desabilitado
+          ? `Poucos pontos para um calor confiável (mínimo ${LIMIAR_CALOR_MIN_PONTOS}; agora ${pontosCount}). Use Bolhas ou Hexbin.`
+          : opcao.tooltip
         return (
           <button
             key={opcao.id}
             type="button"
             role="radio"
             aria-checked={ativo}
-            title={opcao.tooltip}
+            aria-disabled={desabilitado || undefined}
+            disabled={desabilitado}
+            title={title}
             onClick={() => onCamadaChange(opcao.id)}
             className={cn(
               "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               ativo
                 ? "bg-accent text-text-primary"
                 : "text-text-muted hover:text-text-secondary",
+              desabilitado && "cursor-not-allowed opacity-50 hover:text-text-muted",
             )}
           >
             {opcao.label}
