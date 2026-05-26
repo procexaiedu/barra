@@ -231,6 +231,24 @@ export interface PatchModeloInput {
   tamanho_pe?: number | null
 }
 
+/** Ponto da camada Modelos do Mapa de clientes (ADR 0010): 1 por modelo na geo
+ * operacional (`modelos.lat/lng`). Não contém PII (ADR 0007). */
+export interface MapaModeloPonto {
+  id: string
+  nome: string
+  latitude: number
+  longitude: number
+  status: StatusModelo
+  tipo_fisico: PerfilFisico | null
+  tipo_atendimento_aceito: TipoAtendimento[]
+}
+
+export interface MapaModelosResponse {
+  pontos: MapaModeloPonto[]
+  /** Modelos sem geo operacional (texto-livre legado) — não viram pin. */
+  total_sem_localizacao_operacional: number
+}
+
 export interface FiltrosModelos {
   busca: string
   status: FiltroStatusModelo

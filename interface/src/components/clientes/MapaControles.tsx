@@ -114,3 +114,38 @@ function formatarValor(metrica: MapaMetrica, n: number): string {
   if (metrica === "valor") return formatBRL(n)
   return NUM_FMT.format(n)
 }
+
+// Toggle da camada **Modelos** sobre o Mapa de clientes (ADR 0010 / MAPA-15).
+// Default OFF — a camada principal continua sendo Clientes.
+export function ToggleCamadaModelos({
+  ativo,
+  onChange,
+}: {
+  ativo: boolean
+  onChange: (ativo: boolean) => void
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={ativo}
+      aria-label="Camada Modelos"
+      onClick={() => onChange(!ativo)}
+      className={cn(
+        "inline-flex items-center gap-2 rounded-lg border px-3 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        ativo
+          ? "border-accent bg-accent text-text-primary"
+          : "border-border bg-card text-text-muted hover:text-text-secondary",
+      )}
+    >
+      <span
+        aria-hidden
+        className={cn(
+          "h-2 w-2 rounded-full",
+          ativo ? "bg-state-active" : "bg-text-muted",
+        )}
+      />
+      Modelos
+    </button>
+  )
+}

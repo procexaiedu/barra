@@ -5,11 +5,40 @@ import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
 import type { MapaMetrica } from "@/lib/mapaMetrica"
-import { LegendaEscala, SeletorMetrica } from "@/components/clientes/MapaControles"
+import {
+  LegendaEscala,
+  SeletorMetrica,
+  ToggleCamadaModelos,
+} from "@/components/clientes/MapaControles"
+import { rotuloPerfil } from "@/lib/perfilFisico"
+import { useModelosMapa } from "@/hooks/useModelosMapa"
 import type { MapaClientePonto } from "@/tipos/clientes"
+import type { MapaModeloPonto, StatusModelo } from "@/tipos/modelos"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
 const CENTRO_BRASIL = { lat: -14.235, lng: -51.925 }
+
+// Camada **Modelos** (ADR 0010): cor do pin por status. Cores raw — o balão do
+// PinElement é desenhado pelo Google e não herda CSS vars do tema do painel.
+const COR_MARKER_MODELO: Record<
+  StatusModelo,
+  { background: string; borderColor: string; glyphColor: string }
+> = {
+  ativa:   { background: "#16a34a", borderColor: "#14532d", glyphColor: "#ffffff" },
+  pausada: { background: "#d97706", borderColor: "#92400e", glyphColor: "#ffffff" },
+  inativa: { background: "#94a3b8", borderColor: "#475569", glyphColor: "#ffffff" },
+}
+
+const LABEL_STATUS: Record<StatusModelo, string> = {
+  ativa: "Ativa",
+  pausada: "Pausada",
+  inativa: "Inativa",
+}
+
+const LABEL_TIPO_ATENDIMENTO: Record<string, string> = {
+  interno: "Interno",
+  externo: "Externo",
+}
 
 type Status = "idle" | "loading" | "success" | "error"
 
@@ -31,11 +60,18 @@ export function MapaClientes({
   const infoRef = useRef<google.maps.InfoWindow | null>(null)
   const clustererRef = useRef<MarkerClusterer | null>(null)
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  // Camada Modelos (ADR 0010): markers separados, sem cluster — poucas modelos.
+  const modelosMarkersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  const pinFactoryRef = useRef<typeof google.maps.marker.PinElement | null>(null)
   const [mapPronto, setMapPronto] = useState(false)
   // Métrica do mapa (MAPA-1, espinha dorsal). Default = R$ fechado, conforme spec.
   // Mora aqui porque o único consumidor hoje é o próprio desenho do mapa (e a legenda);
   // sobe para o page.tsx quando MAPA-4 (ranking sibling) chegar.
   const [metrica, setMetrica] = useState<MapaMetrica>("valor")
+  // Toggle da camada Modelos (MAPA-15). Default OFF — a camada principal continua
+  // sendo Clientes; modelos entra por opt-in para ler oferta × demanda.
+  const [mostrarModelos, setMostrarModelos] = useState(false)
+  const modelosMapa = useModelosMapa(true)
 
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
   const desenharPontos = useCallback(() => {
@@ -83,6 +119,39 @@ export function MapaClientes({
     }
   }, [pontos])
 
+  // Camada Modelos: desenha/limpa imperativamente conforme o toggle e os dados do hook.
+  // Não entra no cluster do clientes — são duas semânticas distintas (oferta × demanda).
+  const desenharModelos = useCallback(() => {
+    const map = mapRef.current
+    const PinElement = pinFactoryRef.current
+    if (!map) return
+    modelosMarkersRef.current.forEach((marker) => {
+      marker.map = null
+    })
+    modelosMarkersRef.current = []
+    if (!mostrarModelos) return
+    for (const modelo of modelosMapa.pontos) {
+      const posicao = { lat: modelo.latitude, lng: modelo.longitude }
+      const cor = COR_MARKER_MODELO[modelo.status]
+      // PinElement só existe quando a marker library carrega; sem ele cai no pin default
+      // (azulado), suficiente para não quebrar — mas o teste manual exige a cor por status.
+      const content = PinElement ? new PinElement(cor).element : undefined
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        position: posicao,
+        title: modelo.nome,
+        gmpClickable: true,
+        ...(content ? { content } : {}),
+      })
+      marker.addListener("gmp-click", () => {
+        const info = infoRef.current
+        if (!info) return
+        info.setContent(conteudoInfoModelo(modelo))
+        info.open({ map, anchor: marker })
+      })
+      modelosMarkersRef.current.push(marker)
+    }
+  }, [mostrarModelos, modelosMapa.pontos])
+
   // Inicializa o mapa uma vez (guardas cobrem o duplo-mount do StrictMode em dev).
   useEffect(() => {
     if (!googleMapsApiKey) return
@@ -91,7 +160,7 @@ export function MapaClientes({
       carregarBiblioteca<google.maps.MapsLibrary>("maps"),
       carregarBiblioteca<google.maps.MarkerLibrary>("marker"),
     ])
-      .then(([{ Map, InfoWindow }]) => {
+      .then(([{ Map, InfoWindow }, { PinElement }]) => {
         if (cancelado || !containerRef.current || mapRef.current) return
         mapRef.current = new Map(containerRef.current, {
           center: CENTRO_BRASIL,
@@ -103,6 +172,7 @@ export function MapaClientes({
           clickableIcons: false,
         })
         infoRef.current = new InfoWindow()
+        pinFactoryRef.current = PinElement
         setMapPronto(true)
       })
       .catch(() => {
@@ -118,6 +188,11 @@ export function MapaClientes({
   useEffect(() => {
     if (mapPronto) desenharPontos()
   }, [mapPronto, desenharPontos])
+
+  // Redesenha a camada Modelos quando o mapa fica pronto, o toggle muda ou os dados chegam.
+  useEffect(() => {
+    if (mapPronto) desenharModelos()
+  }, [mapPronto, desenharModelos])
 
   if (!googleMapsApiKey) {
     return (
@@ -139,8 +214,24 @@ export function MapaClientes({
               {totalSemLocalizacao} sem localização
             </span>
           )}
+          {mostrarModelos && (
+            <>
+              <span>
+                · {modelosMapa.pontos.length} modelo
+                {modelosMapa.pontos.length === 1 ? "" : "s"} no mapa
+              </span>
+              {modelosMapa.totalSemLocalizacaoOperacional > 0 && (
+                <span className="rounded-full border border-border bg-card px-3 py-1">
+                  {modelosMapa.totalSemLocalizacaoOperacional} sem localização operacional
+                </span>
+              )}
+            </>
+          )}
         </div>
-        <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        <div className="flex items-center gap-2">
+          <ToggleCamadaModelos ativo={mostrarModelos} onChange={setMostrarModelos} />
+          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        </div>
       </div>
       <div className="relative h-[calc(100vh-300px)] min-h-[420px] overflow-hidden rounded-lg border border-border">
         <div ref={containerRef} className="h-full w-full" />
@@ -190,4 +281,33 @@ function escaparHtml(texto: string): string {
     /[&<>"']/g,
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
   )
+}
+
+// InfoWindow da camada Modelos (ADR 0010): mostra **só** campos não-sensíveis.
+// Endereço, telefone, RG/CPF e dados da ficha cadastral (ADR 0007) ficam de fora
+// por design — esta visão é pública dentro do painel e não deve exibir PII.
+function conteudoInfoModelo(modelo: MapaModeloPonto): string {
+  const nome = escaparHtml(modelo.nome)
+  const status = LABEL_STATUS[modelo.status]
+  const corStatus = COR_MARKER_MODELO[modelo.status].background
+  const tipoFisico = modelo.tipo_fisico ? escaparHtml(rotuloPerfil(modelo.tipo_fisico)) : null
+  const tipos = modelo.tipo_atendimento_aceito
+    .map((t) => escaparHtml(LABEL_TIPO_ATENDIMENTO[t] ?? t))
+    .join(" · ")
+  const linhaTipoFisico = tipoFisico
+    ? `<div style="margin-top: 4px; font-size: 12px; color: #444;">Tipo físico: ${tipoFisico}</div>`
+    : ""
+  const linhaTipos = tipos
+    ? `<div style="margin-top: 4px; font-size: 12px; color: #444;">${tipos}</div>`
+    : ""
+  return `
+    <div style="font-family: inherit; min-width: 180px; color: #1a1a1a;">
+      <div style="font-weight: 600; margin-bottom: 2px;">${nome}</div>
+      <div style="display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #555;">
+        <span aria-hidden style="display:inline-block;width:8px;height:8px;border-radius:9999px;background:${corStatus};"></span>
+        ${status}
+      </div>
+      ${linhaTipoFisico}
+      ${linhaTipos}
+    </div>`
 }

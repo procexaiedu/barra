@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AfterValidator, BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 CorPele = Literal["branca", "parda", "negra", "asiatica", "indigena", "outra"]
 CorCabelo = Literal[
@@ -178,3 +178,25 @@ class VincularProgramaBody(BaseModel):
 
 class AtualizarPrecoProgramaBody(BaseModel):
     preco: Decimal = Field(ge=0)
+
+
+# Camada Modelos do Mapa de clientes (ADR 0010). NUNCA inclui PII (rg, cpf,
+# endereço residencial, percentual de repasse). Apenas a posição operacional
+# e atributos de venda/exibição.
+class MapaModeloPonto(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: UUID
+    nome: str
+    latitude: float
+    longitude: float
+    status: Literal["ativa", "pausada", "inativa"]
+    tipo_fisico: str | None = None
+    tipo_atendimento_aceito: list[str]
+
+
+class MapaModelosResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pontos: list[MapaModeloPonto]
+    total_sem_localizacao_operacional: int

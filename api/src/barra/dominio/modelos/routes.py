@@ -21,6 +21,7 @@ from barra.dominio.modelos.schemas import (
     ConectarWhatsappRequest,
     DisponibilidadeReplace,
     FotoPerfilPatch,
+    MapaModelosResponse,
     MidiaCreate,
     MidiaPatch,
     MidiaUploadUrlRequest,
@@ -110,6 +111,46 @@ async def listar_modelos(
     return {
         "items": [_modelo_lista_item(request, row) for row in page],
         "next_cursor": rows[limit]["created_at"].isoformat() if len(rows) > limit else None,
+    }
+
+
+@router.get("/mapa", response_model=MapaModelosResponse)
+async def mapa_modelos(
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    """Camada **Modelos** do Mapa de clientes (ADR 0010): 1 ponto por modelo na geo
+    **operacional** (`modelos.lat/lng`, migration 0028). Nunca usa o endereço residencial
+    (PII sensível, ADR 0007). Modelo com `lat/lng NULL` não vira pin e entra em
+    `total_sem_localizacao_operacional`. Painel-only; a IA por modelo não acessa.
+    Declarado antes de `GET /{modelo_id}` para `mapa` não ser confundido com path param."""
+    # SELECT explícito (não `*`): blindagem contra PII (ADR 0007). Acrescentar coluna
+    # aqui exige decisão consciente — `rg`, `cpf`, `endereco_residencial_*` ficam fora.
+    result = await conn.execute(
+        """
+        SELECT id, nome, latitude, longitude, status, tipo_fisico, tipo_atendimento_aceito
+          FROM barravips.modelos
+         ORDER BY nome ASC
+        """
+    )
+    rows = list(await result.fetchall())
+    pontos = [
+        {
+            "id": str(row["id"]),
+            "nome": row["nome"],
+            # numeric(10,7) vem como Decimal — converte p/ JSON number (mesmo padrão de clientes/mapa).
+            "latitude": float(row["latitude"]),
+            "longitude": float(row["longitude"]),
+            "status": row["status"],
+            "tipo_fisico": row["tipo_fisico"],
+            "tipo_atendimento_aceito": _array_text(row["tipo_atendimento_aceito"]),
+        }
+        for row in rows
+        if row["latitude"] is not None
+    ]
+    total_sem_localizacao_operacional = sum(1 for row in rows if row["latitude"] is None)
+    return {
+        "pontos": pontos,
+        "total_sem_localizacao_operacional": total_sem_localizacao_operacional,
     }
 
 
