@@ -329,37 +329,43 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 
 ### M4 — Humanização
 
-#### M4a — `workers/_chunking.py`
+#### M4a — `workers/_chunking.py` — ✅ FEITO (2026-05-25)
 - **Objetivo:** `chunk_texto` (`05 §2`): split por `\n\n`, preserva `\n` interno, cap 600 soft + `CHUNK_OVERSIZE`, cap 6 bolhas (funde excedente).
 - **Carregar:** `05 §2`; `core/metrics.py`.
 - **Tocar:** `workers/_chunking.py` (criar), `core/metrics.py` (`CHUNK_OVERSIZE`).
 - **Aceite:** `uv run pytest tests/unit/test_chunk_texto.py` — `\n\n`→N bolhas; `\n` interno preservado; sentença >600 sai inteira + incrementa `CHUNK_OVERSIZE`; >6 blocos→6.
 - **Depende de:** nenhuma (após M3).
 - **Paralelizável com:** M4b.
+- **Nota (feito 2026-05-25):** `chunk_texto` + helpers conforme `05 §2` (split `\n\n`, preserva `\n` interno, cap 600 soft → `CHUNK_OVERSIZE`, cap 6 bolhas fundindo o excedente no último). `CHUNK_OVERSIZE` (`agente_chunk_oversize_total`, sem labels) em `core/metrics.py`. Integrado na `main` (onda 1).
 
-#### M4b — `EvolutionClient` ext (presence, mídia, read receipt)
+#### M4b — `EvolutionClient` ext (presence, mídia, read receipt) — ✅ FEITO (2026-05-25)
 - **Objetivo:** `set_presence`, `enviar_midia` (espelha `enviar_texto`: POST→`envios_evolution`→`evolution_message_id`; kwarg `view_once` ignorado até suporte), `marcar_lida` (`05 §4.2`/`§5`).
 - **Carregar:** `05 §4`, `05 §5`, `01 §6.13`; `core/evolution.py`.
 - **Tocar:** `core/evolution.py`.
 - **Aceite:** `uv run pytest tests/test_evolution_ext.py` (respx) — métodos chamam os endpoints corretos; `enviar_midia` grava `envios_evolution`; `marcar_lida` **não** grava.
 - **Depende de:** nenhuma (após M3).
 - **Paralelizável com:** M4a.
+- **Nota (feito 2026-05-25):** `set_presence`/`enviar_midia`/`marcar_lida` em `core/evolution.py`. `enviar_midia` espelha `enviar_texto` (POST `sendMedia` → `registrar_envio` → `evolution_message_id`); `view_once` aceito mas **não** enviado no body (self-host ainda não expõe, `01 §6.13`). `marcar_lida` (`markMessageAsRead`, `read_messages=[{remoteJid,fromMe:false,id}]`) e `set_presence` (`sendPresence`) **não** gravam `envios_evolution`. Integrado na `main` (onda 1).
 
-#### M4c — `enviar_turno` + wiring no coordenador
+#### M4c — `enviar_turno` + wiring no coordenador — ✅ FEITO (2026-05-25)
 - **Objetivo:** `workers/envio.py:enviar_turno` (`05 §1`/`§4`): read receipt+reading delay, loop chunks (cancel não-crítico via `turno_atual`, dedupe `enviados:{turno_id}` mark-after-send, presence, POST, INSERT `mensagens`, jitter), depois mídias. Falha final + `critico`→`escalar_por_exaustao` (`05 §7`). Coordenador (M3b) chama `despachar_humanizacao` com `critico` derivado de `tool_calls`. Registrar em `WorkerSettings.functions`.
 - **Carregar:** `05 §1`, `05 §3`, `05 §4`, `05 §7`, `07 §3.4`; `workers/{envio,coordenador,settings}.py`.
 - **Tocar:** `workers/envio.py`, `workers/coordenador.py`, `workers/settings.py`, `core/metrics.py` (`ENVIO_*`).
 - **Aceite:** `uv run pytest tests/integracao/test_enviar_turno.py` (Evolution mockado) — ordem texto→mídia; nova msg cancela não-crítico; crítico entrega tudo; retry pula `enviados`.
 - **Depende de:** M4a, M4b, M3b.
 - **Paralelizável com:** M4d.
+- **Nota (feito 2026-05-25):** `enviar_turno` + `_enviar_midias` + helpers de timing (`calcular_typing_ms`/`calcular_pausa_ms`/`calcular_reading_delay_ms`) + `_carregar_destino` (JOIN `conversas`/`modelos` + LATERAL p/ atendimento aberto), conforme `05 §4/§5`; wiring `chunk_texto` no coordenador. Falha final detectada por `ctx['job_try'] >= ctx.get('max_tries',5)` no `except` → se `critico`, `escalar_por_exaustao(motivo="envio_exaurido_critico")` (import tardio do coordenador p/ evitar ciclo); `envio_exaurido_critico` fica fora de `_BUCKET_DEFESA` → bucket `capacidade` (aceito, `§4.3`). **Gotcha:** a `ArqRedis` em `ctx['redis']` não usa `decode_responses` → `redis.get` devolve **bytes**; helper `_redis_eq` decodifica antes de comparar com `turno_id` (espelha `core/redis.py`). `ENVIO_{DURACAO,RESULTADO,RETRIES}` em `core/metrics.py`. Integrado na `main` (onda 2).
 
-#### M4d — `enviar_card` (dispatch por tipo)
+#### M4d — `enviar_card` (dispatch por tipo) — ✅ FEITO (2026-05-25)
 - **Objetivo:** `enviar_card(ctx, *, tipo, **kw)` + `_RENDER_CARD` (`escalada/pix_validado/pix_em_revisao/chegada/aviso_saida/loc_pin`), Jinja, idempotência por owner (`card_message_id`/SETNX), via `EvolutionClient` (bypass humanização). Registrar em `WorkerSettings.functions`.
 - **Carregar:** `05 §6`, `06 §2.5`, `06 §9` (idempotência por owner); `workers/envio.py`, `dominio/escaladas/service.py`.
 - **Tocar:** `workers/envio.py`, `workers/settings.py`, templates de card.
 - **Aceite:** `uv run pytest tests/integracao/test_enviar_card.py` — card de escalada grava `escaladas.card_message_id`; 2ª execução não reenvia.
 - **Depende de:** M4b, M3f.
 - **Paralelizável com:** M4c.
+- **Nota (feito 2026-05-25):** `enviar_card` (dispatch) + `_RENDER_CARD` com todas as chaves; `_card_escalada` production-ready (idempotência por owner via `escaladas.card_message_id`, POST → `envios_evolution` + UPDATE na MESMA transação). Os demais renderers (`_card_pix`/`_card_chegada`/`_card_aviso_saida`/`_card_loc_pin`) levantam `NotImplementedError` com `TODO(M5c/M5d/M3d)` — falham alto se chamados antes do marco que os preenche, em vez de stub silencioso. `render_card` Jinja2 em `workers/_cards/__init__.py` + template `escalada.md.j2`. Integrado na `main` (onda 1).
+
+> **Marco M4 fecha (2026-05-25).** As 4 subtarefas foram implementadas em worktrees paralelos — **onda 1** (`M4a ∥ M4b ∥ M4d`, independentes) e **onda 2** (`M4c`, que depende das três) — e integradas na `main` local. Verificação na árvore mergeada: `ruff` limpo, `mypy` verde (90 arquivos), **236 testes** (`-m "not needs_db and not needs_key"`) verdes. Migrations: nenhuma no M4. Próximo marco no caminho crítico: **M5 (mídia + reengajamento)**.
 
 ### M5 — Mídia + reengajamento
 
