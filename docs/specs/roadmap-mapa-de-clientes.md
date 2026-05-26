@@ -72,7 +72,7 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 | MAPA-5 | InfoWindow enriquecido | 1 | 🟡 | MAPA-5b | ✅ mergeado (PR #26) |
 | MAPA-5b | Suporte a `?cliente=<id>` em `/clientes` | 1 | ✅ | — | ✅ mergeado (PR #25) |
 | MAPA-6 | deck.gl: infraestrutura + camada Hexbin/H3 | 2 | ✅ | MAPA-1 | 🚧 em revisão — sequência manual pós-Fase 1 |
-| MAPA-7 | Camada Heatmap KDE (toggle) | 3 | ✅ | MAPA-6 | — |
+| MAPA-7 | Camada Heatmap KDE (toggle) | 3 | ✅ | MAPA-6 | ✅ mergeado (PR #30) |
 | MAPA-8 | Filtro por desfecho + motivo de perda | extra | 🟡 | MAPA-3 | — (desbloqueado por MAPA-3 mergeado) |
 | MAPA-9 | Camada "demanda não atendida" | extra | 🟡 | MAPA-8 | — |
 | MAPA-10 | Cor/filtro por perfil físico preferido | extra | 🟡 | MAPA-1 | ✅ mergeado (PR #22) |
@@ -91,6 +91,7 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 - **`[FAIL]` em aberto por motivo de domínio**: MAPA-5 (#15) — `/clientes/{id}` não existe; criada sub-tarefa MAPA-5b para suportar `?cliente=<id>`.
 - **Cancelados por conflito recorrente em `MapaClientes.tsx` / `MapaControles.tsx`**: MAPA-6, MAPA-11, MAPA-15. Causa raiz: routines paralelas tocam o mesmo arquivo. Próximo ciclo: rodar essas tarefas sequencialmente após o deploy atual estar validado.
 - **MAPA-2 (#12)** ficou como draft fora do auto-merge (já estava pronto antes do acordo). Retomado em 2026-05-26 em branch nova `feat/mapa-2-bolhas` (PR #12 fechado), porque a base ficou CONFLICTING contra MAPA-3/4/10/12 — a composição com `modoCor` (bolhas só quando "Por métrica"), o destaque do bairro (MAPA-4 vence), e o `peso` no `markersRef` foram redesenhados sobre a versão de main.
+- **MAPA-7 shipado em 2026-05-26** (PR #30) em branch `feat/mapa-7-calor-kde`: `GoogleMapsOverlay` + `HeatmapLayer` (deck.gl 9.3.2) como 3ª camada, sem picking (KDE é campo contínuo). **Guarda de honestidade:** toggle desabilitado quando `pontos.length < LIMIAR_CALOR_MIN_PONTOS` (30) — KDE com pouco dado hiperestima densidade nas pontas e engana visualmente. Infra de teste introduzida: Vitest minimal (só funções puras de `lib/`) para cobrir o limiar; spec Playwright novo (`mapa-clientes-calor.spec.ts`) com mock determinístico do endpoint cobre o estado desabilitado.
 
 ---
 
