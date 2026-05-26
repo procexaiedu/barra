@@ -71,7 +71,7 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 | MAPA-4 | Ranking lateral de bairros/cidades quentes | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #14) |
 | MAPA-5 | InfoWindow enriquecido | 1 | 🟡 | MAPA-5b | ✅ mergeado (PR #26) |
 | MAPA-5b | Suporte a `?cliente=<id>` em `/clientes` | 1 | ✅ | — | ✅ mergeado (PR #25) |
-| MAPA-6 | deck.gl: infraestrutura + camada Hexbin/H3 | 2 | ✅ | MAPA-1 | 🚧 em revisão — sequência manual pós-Fase 1 |
+| MAPA-6 | deck.gl: infraestrutura + camada Hexbin/H3 | 2 | ✅ | MAPA-1 | ✅ mergeado (PR #28, PR #16 fechado por conflito) |
 | MAPA-7 | Camada Heatmap KDE (toggle) | 3 | ✅ | MAPA-6 | — |
 | MAPA-8 | Filtro por desfecho + motivo de perda | extra | 🟡 | MAPA-3 | — (desbloqueado por MAPA-3 mergeado) |
 | MAPA-9 | Camada "demanda não atendida" | extra | 🟡 | MAPA-8 | — |
@@ -90,6 +90,7 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 - **`[FAIL]` documentado** que viraram lixo: MAPA-3 (#13) e MAPA-10 (#17), substituídos pelos retries #21/#22 e fechados.
 - **`[FAIL]` em aberto por motivo de domínio**: MAPA-5 (#15) — `/clientes/{id}` não existe; criada sub-tarefa MAPA-5b para suportar `?cliente=<id>`.
 - **Cancelados por conflito recorrente em `MapaClientes.tsx` / `MapaControles.tsx`**: MAPA-6, MAPA-11, MAPA-15. Causa raiz: routines paralelas tocam o mesmo arquivo. Próximo ciclo: rodar essas tarefas sequencialmente após o deploy atual estar validado.
+- **MAPA-6 retomado em 2026-05-26** em branch nova `feat/clientes-mapa-6-hexbin` (PR #28, com Fase 1 inteira já em main): `GoogleMapsOverlay` + `HexagonLayer` (deck.gl 9.3.2), toggle Bolhas|Hexbin, default Bolhas. Em Hexbin o `SeletorModoCor` é ocultado (favo agrega desfechos/perfis mistos), markers/cluster ocultos. `pnpm build` confirma o runtime de deck.gl em chunks dinâmicos fora do bundle inicial de `/clientes`.
 - **MAPA-2 (#12)** ficou como draft fora do auto-merge (já estava pronto antes do acordo). Retomado em 2026-05-26 em branch nova `feat/mapa-2-bolhas` (PR #12 fechado), porque a base ficou CONFLICTING contra MAPA-3/4/10/12 — a composição com `modoCor` (bolhas só quando "Por métrica"), o destaque do bairro (MAPA-4 vence), e o `peso` no `markersRef` foram redesenhados sobre a versão de main.
 
 ---
