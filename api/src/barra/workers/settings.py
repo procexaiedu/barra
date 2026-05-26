@@ -4,6 +4,7 @@ Cron:
   - timeout_longo (24h sem cliente): a cada 5 min
   - timeout_interno (45 min sem foto portaria, contado do aviso de saida): a cada minuto
   - confirmar_em_execucao (bloqueio.inicio <= now): a cada minuto
+  - cobrar_valor_final (Lembrete de fechamento, ADR-0007; fim do atendimento): a cada minuto
   - limpar_midias_vencidas (90d em estados terminais): diário 03:00
 
 Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes do envio.
@@ -24,6 +25,7 @@ from barra.core.storage import criar_minio
 from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
 from barra.workers.envio import enviar_card, enviar_turno
+from barra.workers.lembrete_valor import cobrar_valor_final
 from barra.workers.media import limpar_midias_vencidas
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
@@ -60,6 +62,16 @@ async def cron_confirmar_em_execucao(ctx: dict[str, Any]) -> int:
         return 0
     async with pool.connection() as conn:
         return await confirmar_em_execucao(conn)
+
+
+async def cron_cobrar_valor_final(ctx: dict[str, Any]) -> int:
+    pool = ctx.get("db_pool")
+    evolution = ctx.get("evolution")
+    settings = ctx.get("settings")
+    if pool is None or evolution is None or settings is None:
+        return 0
+    async with pool.connection() as conn:
+        return await cobrar_valor_final(conn, evolution, settings)
 
 
 async def cron_limpar_midias(ctx: dict[str, Any]) -> int:
@@ -113,6 +125,7 @@ class WorkerSettings:
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),
         cron(cron_confirmar_em_execucao, name="confirmar_em_execucao"),
+        cron(cron_cobrar_valor_final, name="cobrar_valor_final"),
         cron(
             cron_timeout_longo,
             name="timeout_longo",

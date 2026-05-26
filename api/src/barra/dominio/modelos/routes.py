@@ -3,15 +3,16 @@ import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 from uuid import UUID, uuid4
 
 import httpx
 from fastapi import APIRouter, Depends, Query, Request
 from psycopg import AsyncConnection
+from psycopg.errors import UniqueViolation
 
 from barra.api.deps import get_conn, get_user
-from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
+from barra.core.errors import ConflitoEstado, EntradaInvalida, ErroDominio, NaoEncontrado
 from barra.core.evolution import EvolutionClient
 from barra.core.storage import presigned_get, presigned_put, remove_object
 from barra.dominio.modelos.disponibilidade import bloqueios_futuros_fora
@@ -112,41 +113,66 @@ async def listar_modelos(
     }
 
 
+def _traduzir_unique(exc: UniqueViolation) -> NoReturn:
+    """CPF duplicado vira 409 com code próprio; demais constraints sobem como estão."""
+    if (getattr(exc.diag, "constraint_name", None) or "") == "modelos_cpf_unique":
+        raise ErroDominio(
+            "CPF_DUPLICADO",
+            "Este CPF já está cadastrado para outra modelo.",
+            status_code=409,
+        ) from exc
+    raise exc
+
+
 @router.post("", status_code=201)
 async def criar_modelo(
     body: ModeloCreate,
     request: Request,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
-    result = await conn.execute(
-        """
-        INSERT INTO barravips.modelos (
-          nome, idade, numero_whatsapp, valor_padrao, percentual_repasse, chave_pix,
-          titular_chave, idiomas, localizacao_operacional,
-          endereco_formatado, latitude, longitude, place_id,
-          tipo_atendimento_aceito, tipo_fisico
+    try:
+        result = await conn.execute(
+            """
+            INSERT INTO barravips.modelos (
+              nome, idade, numero_whatsapp, valor_padrao, percentual_repasse, chave_pix,
+              titular_chave, idiomas, localizacao_operacional,
+              endereco_formatado, latitude, longitude, place_id,
+              tipo_atendimento_aceito, tipo_fisico,
+              rg, cpf, endereco_residencial_formatado, place_id_residencial,
+              cor_pele, cor_cabelo, altura_cm, tamanho_pe
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING *
+            """,
+            (
+                body.nome,
+                body.idade,
+                body.numero_whatsapp,
+                body.valor_padrao,
+                body.percentual_repasse,
+                body.chave_pix,
+                body.titular_chave,
+                body.idiomas,
+                body.localizacao_operacional,
+                body.endereco_formatado,
+                body.latitude,
+                body.longitude,
+                body.place_id,
+                body.tipo_atendimento_aceito,
+                body.tipo_fisico,
+                body.rg,
+                body.cpf,
+                body.endereco_residencial_formatado,
+                body.place_id_residencial,
+                body.cor_pele,
+                body.cor_cabelo,
+                body.altura_cm,
+                body.tamanho_pe,
+            ),
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING *
-        """,
-        (
-            body.nome,
-            body.idade,
-            body.numero_whatsapp,
-            body.valor_padrao,
-            body.percentual_repasse,
-            body.chave_pix,
-            body.titular_chave,
-            body.idiomas,
-            body.localizacao_operacional,
-            body.endereco_formatado,
-            body.latitude,
-            body.longitude,
-            body.place_id,
-            body.tipo_atendimento_aceito,
-            body.tipo_fisico,
-        ),
-    )
+    except UniqueViolation as exc:
+        _traduzir_unique(exc)
     row = await result.fetchone()
     assert row is not None
     return _modelo_com_foto(request, cast(dict[str, Any], row))
@@ -194,10 +220,13 @@ async def editar_modelo(
 
     set_sql = ", ".join([f"{key} = %s" for key in updates])
     params = list(updates.values()) + [modelo_id]
-    result = await conn.execute(
-        f"UPDATE barravips.modelos SET {set_sql} WHERE id = %s RETURNING *",
-        params,
-    )
+    try:
+        result = await conn.execute(
+            f"UPDATE barravips.modelos SET {set_sql} WHERE id = %s RETURNING *",
+            params,
+        )
+    except UniqueViolation as exc:
+        _traduzir_unique(exc)
     row = await result.fetchone()
     if row is None:
         raise NaoEncontrado("Modelo")

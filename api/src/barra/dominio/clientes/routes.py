@@ -113,6 +113,88 @@ async def listar_clientes(
     }
 
 
+@router.get("/clientes/mapa")
+async def mapa_clientes(
+    conn: AsyncConnection[Any] = Depends(get_conn),
+    modelo_id: UUID | None = None,
+    q: str | None = None,
+    periodo: str | None = None,
+    perfis: list[str] | None = Query(default=None),
+    incluir_arquivados: bool = False,
+) -> dict[str, Any]:
+    """Pontos do **Mapa de clientes** (ADR 0008): 1 ponto por cliente na localização do
+    atendimento **externo** mais recente com `lat/lng`. Interno fica de fora (lá o endereço é o
+    ponto de encontro na modelo, não onde o cliente mora). Cliente sem externo geocodificado não
+    vira ponto e entra em `total_sem_localizacao`. Sem paginação — o mapa é agregado. Filtros
+    espelham `listar_clientes` (menos cursor); os totais por ponto agregam todas as modelos."""
+    # Declarado ANTES de GET /clientes/{cliente_id} para "mapa" não cair no path param UUID.
+    params: list[Any] = []
+    filtros = ["1=1"]
+    if perfis:
+        filtros.append("c.perfis_preferidos && %s::barravips.perfil_fisico_enum[]")
+        params.append(perfis)
+    if modelo_id:
+        filtros.append(
+            "EXISTS (SELECT 1 FROM barravips.conversas cv "
+            "WHERE cv.cliente_id = c.id AND cv.modelo_id = %s)"
+        )
+        params.append(modelo_id)
+    if q:
+        filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s)")
+        params.extend([f"%{q}%", f"%{q}%"])
+    if periodo in PERIODOS_DIAS:
+        filtros.append(
+            "EXISTS (SELECT 1 FROM barravips.atendimentos a "
+            "WHERE a.cliente_id = c.id "
+            f"AND a.created_at >= NOW() - INTERVAL '{PERIODOS_DIAS[periodo]} days')"
+        )
+    if not incluir_arquivados:
+        filtros.append("c.arquivado_em IS NULL")
+    result = await conn.execute(
+        f"""
+        SELECT c.id, c.nome,
+               geo.latitude, geo.longitude, geo.bairro, geo.endereco_formatado,
+               ag.total_atendimentos, ag.valor_total
+          FROM barravips.clientes c
+          LEFT JOIN LATERAL (
+            SELECT a.latitude, a.longitude, a.bairro, a.endereco_formatado
+              FROM barravips.atendimentos a
+             WHERE a.cliente_id = c.id
+               AND a.tipo_atendimento = 'externo'
+               AND a.latitude IS NOT NULL
+             ORDER BY a.created_at DESC
+             LIMIT 1
+          ) geo ON TRUE
+          LEFT JOIN LATERAL (
+            SELECT COUNT(*) AS total_atendimentos,
+                   COALESCE(SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0) AS valor_total
+              FROM barravips.atendimentos a
+             WHERE a.cliente_id = c.id
+          ) ag ON TRUE
+         WHERE {" AND ".join(filtros)}
+        """,
+        params,
+    )
+    rows = list(await result.fetchall())
+    pontos = [
+        {
+            "cliente_id": row["id"],
+            "nome": row["nome"],
+            # numeric(10,7) chega como Decimal; converte p/ float (JSON number) ao front.
+            "latitude": float(row["latitude"]),
+            "longitude": float(row["longitude"]),
+            "bairro": row["bairro"],
+            "endereco_formatado": row["endereco_formatado"],
+            "total_atendimentos": row["total_atendimentos"] or 0,
+            "valor_total": row["valor_total"] or 0,
+        }
+        for row in rows
+        if row["latitude"] is not None
+    ]
+    total_sem_localizacao = sum(1 for row in rows if row["latitude"] is None)
+    return {"pontos": pontos, "total_sem_localizacao": total_sem_localizacao}
+
+
 @router.post("/clientes", status_code=201)
 async def criar_cliente(
     body: ClienteCreate,
