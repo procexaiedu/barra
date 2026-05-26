@@ -40,7 +40,7 @@ function FinanceiroInner() {
         <div>
           <h1 className="text-xl font-semibold">Financeiro</h1>
           <p className="text-sm text-text-muted">
-            Receitas, repasses por modelo e visão geral. Painel-only (ADR 0011).
+            Receitas, repasses por modelo e visão geral.
           </p>
         </div>
         <ExportarBotao fin={fin} view={view} />

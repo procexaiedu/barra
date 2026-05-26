@@ -7,7 +7,6 @@ import {
   Banknote,
   CheckCircle2,
   CircleAlert,
-  ExternalLink,
   Plus,
   Receipt,
   Trash2,
@@ -136,17 +135,6 @@ export function RepassesPorModelo({
                 <Plus className="size-4" />
                 Registrar pagamento
               </Button>
-            }
-            secundario={
-              <a
-                href="https://github.com/procexaiedu/barra/blob/main/docs/adr/0011-modulo-financeiro.md"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-text-link hover:underline"
-              >
-                ADR 0011 — Módulo Financeiro
-                <ExternalLink className="size-3" />
-              </a>
             }
           />
         )}
