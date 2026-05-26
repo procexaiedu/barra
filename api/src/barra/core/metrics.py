@@ -110,6 +110,20 @@ CHUNK_OVERSIZE = Counter(
     "agente_chunk_oversize_total",
     "Chunks com sentenca unica acima de MAX_CHARS (05 §2)",
 )
+# 05 §9: humanizacao de envio (job enviar_turno).
+ENVIO_DURACAO = Histogram(
+    "agente_envio_turno_duracao_seconds",
+    "Duracao do job enviar_turno inteiro (chunks + midias) (05 §9)",
+)
+ENVIO_RESULTADO = Counter(
+    "agente_envio_resultado_total",
+    "Resultado do envio do turno (05 §9): ok|cancelado|dedupe_skip|falha_evolution|exaustao_critico",
+    ["resultado"],
+)
+ENVIO_RETRIES = Counter(
+    "agente_envio_retries_total",
+    "Execucoes do job enviar_turno que sao retry do ARQ (ctx job_try>1) (05 §9)",
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

@@ -30,6 +30,7 @@ from barra.core.metrics import (
     LOCK_OCUPADO,
 )
 from barra.core.redis import LockBusy, adquirir_lock
+from barra.workers._chunking import chunk_texto
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,7 @@ async def processar_turno(
                     msg_ids_cliente: list[str] = [r["evolution_message_id"] for r in inbound]
                     chars_inbound = sum(len(r["conteudo"] or "") for r in inbound)
 
-                    chunks = _chunk_texto(texto)
+                    chunks = chunk_texto(texto)
                     if not chunks and not midias:
                         logger.warning("turno_sem_resposta turno_id=%s", turno_id)
                         AGENTE_TURNO_RESULTADO.labels("ok_sem_resposta").inc()
@@ -243,11 +244,6 @@ def _extrair_texto(msg: AIMessage) -> str:
         if isinstance(bloco, dict) and bloco.get("type") == "text"
     ]
     return "".join(partes)
-
-
-def _chunk_texto(texto: str) -> list[str]:
-    # TODO(M4a): trocar por workers._chunking.chunk_texto (split \n\n, cap 600 soft, cap 6 bolhas).
-    return [bloco.strip() for bloco in texto.split("\n\n") if bloco.strip()]
 
 
 async def resolver_atendimento(

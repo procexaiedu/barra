@@ -23,7 +23,7 @@ from barra.core.evolution import EvolutionClient
 from barra.core.storage import criar_minio
 from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
-from barra.workers.envio import enviar_card
+from barra.workers.envio import enviar_card, enviar_turno
 from barra.workers.media import limpar_midias_vencidas
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
@@ -108,6 +108,7 @@ class WorkerSettings:
     functions: ClassVar[list[Any]] = [
         func(processar_turno, keep_result=0),
         func(enviar_card),  # cards no grupo (05 §6); keep_result default (global 3600)
+        func(enviar_turno),  # humanização do turno (05 §1/§4); keep_result default (global 3600)
     ]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),
