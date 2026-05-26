@@ -154,10 +154,12 @@ async def mapa_clientes(
         f"""
         SELECT c.id, c.nome, c.perfis_preferidos,
                geo.latitude, geo.longitude, geo.bairro, geo.endereco_formatado, geo.estado,
-               ag.total_atendimentos, ag.valor_total
+               geo.ultima_data,
+               ag.total_atendimentos, ag.total_fechados, ag.valor_total
           FROM barravips.clientes c
           LEFT JOIN LATERAL (
-            SELECT a.latitude, a.longitude, a.bairro, a.endereco_formatado, a.estado
+            SELECT a.latitude, a.longitude, a.bairro, a.endereco_formatado, a.estado,
+                   a.created_at AS ultima_data
               FROM barravips.atendimentos a
              WHERE a.cliente_id = c.id
                AND a.tipo_atendimento = 'externo'
@@ -167,6 +169,7 @@ async def mapa_clientes(
           ) geo ON TRUE
           LEFT JOIN LATERAL (
             SELECT COUNT(*) AS total_atendimentos,
+                   COUNT(*) FILTER (WHERE a.estado = 'Fechado') AS total_fechados,
                    COALESCE(SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0) AS valor_total
               FROM barravips.atendimentos a
              WHERE a.cliente_id = c.id
@@ -192,6 +195,10 @@ async def mapa_clientes(
             "perfis": _array_text(row["perfis_preferidos"]),
             "total_atendimentos": row["total_atendimentos"] or 0,
             "valor_total": row["valor_total"] or 0,
+            # Data do atendimento externo que ancora o ponto (MAPA-5, ADR 0008).
+            "ultima_data": row["ultima_data"],
+            # Recorrente cross-modelo: ≥2 fechados, mesma regra de listar_clientes.
+            "recorrente": (row["total_fechados"] or 0) >= 2,
         }
         for row in rows
         if row["latitude"] is not None
