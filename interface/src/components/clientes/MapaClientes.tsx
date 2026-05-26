@@ -505,12 +505,12 @@ export function MapaClientes({
           </div>
           {status === "loading" && pontos.length === 0 && (
             <div className="absolute inset-0 grid place-items-center text-sm text-text-muted">
-              Carregando mapa…
+              Buscando clientes…
             </div>
           )}
           {status === "error" && (
             <div className="absolute inset-0 grid place-items-center gap-2 bg-card/80 text-sm text-state-lost">
-              <span>{error ?? "Erro ao carregar o mapa."}</span>
+              <span>{error ?? "Não foi possível carregar o mapa."}</span>
               <button type="button" onClick={onRetry} className="underline underline-offset-2">
                 Tentar de novo
               </button>
@@ -518,7 +518,8 @@ export function MapaClientes({
           )}
           {status === "success" && pontos.length === 0 && (
             <div className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-text-muted">
-              Nenhum cliente com localização (atendimento externo geocodificado) nos filtros atuais.
+              Nenhum cliente nos filtros atuais. O mapa só mostra clientes com endereço cadastrado
+              em algum atendimento externo.
             </div>
           )}
         </div>
@@ -730,10 +731,14 @@ function conteudoInfo(
   // Última data + recorrência (MAPA-5). Degradam para "—" quando ausentes.
   const ultima = ponto.ultima_data ? formatarDataBR(ponto.ultima_data) : "—"
   const recorrencia =
-    ponto.recorrente === undefined ? "—" : ponto.recorrente ? "Recorrente" : "Não recorrente"
+    ponto.recorrente === undefined
+      ? "—"
+      : ponto.recorrente
+        ? "Cliente recorrente"
+        : "Veio só uma vez"
   const meta = document.createElement("div")
   meta.style.cssText = "margin-top: 2px; font-size: 12px; color: #666;"
-  meta.textContent = `Última: ${ultima} · ${recorrencia}`
+  meta.textContent = `Atendido em ${ultima} · ${recorrencia}`
   container.appendChild(meta)
 
   // Perfil físico DECLARADO (MAPA-10, ADR 0006). Lista todos quando >1 — o pin pega
@@ -741,7 +746,7 @@ function conteudoInfo(
   if (ponto.perfis.length > 0) {
     const perfis = document.createElement("div")
     perfis.style.cssText = "margin-top: 4px; font-size: 12px; color: #666;"
-    perfis.textContent = `Perfil: ${ponto.perfis.map(rotuloPerfil).join(", ")}`
+    perfis.textContent = `Perfil físico: ${ponto.perfis.map(rotuloPerfil).join(", ")}`
     container.appendChild(perfis)
   }
 
@@ -751,7 +756,7 @@ function conteudoInfo(
   if (ponto.bairro && onFiltrarBairro) {
     const botao = document.createElement("button")
     botao.type = "button"
-    botao.textContent = "Filtrar bairro"
+    botao.textContent = "Ver só este bairro"
     botao.style.cssText =
       "padding: 4px 10px; font: inherit; font-size: 12px; cursor: pointer; background: #1a1a1a; color: #fff; border: 0; border-radius: 4px;"
     botao.addEventListener("click", () => onFiltrarBairro(ponto.bairro!))
@@ -762,7 +767,7 @@ function conteudoInfo(
   // cliente_id é UUID validado pelo backend; encodeURIComponent é defesa em profundidade.
   const ficha = document.createElement("a")
   ficha.href = `/clientes?cliente=${encodeURIComponent(ponto.cliente_id)}`
-  ficha.textContent = "Ver ficha"
+  ficha.textContent = "Abrir ficha"
   ficha.style.cssText = "font-size: 12px; color: #1a1a1a; text-decoration: underline;"
   acoes.appendChild(ficha)
 
@@ -801,18 +806,19 @@ function conteudoFavo(
     const fmt = (n: number) => formatarMetricaFavo(metrica, n)
     const linhaA = document.createElement("div")
     linhaA.style.cssText = "margin-top: 4px; font-size: 12px; color: #444;"
-    linhaA.textContent = `A: ${fmt(somaA)}`
+    linhaA.textContent = `Período A: ${fmt(somaA)}`
     container.appendChild(linhaA)
     const linhaB = document.createElement("div")
     linhaB.style.cssText = "font-size: 12px; color: #444;"
-    linhaB.textContent = `B: ${fmt(somaB)}`
+    linhaB.textContent = `Período B: ${fmt(somaB)}`
     container.appendChild(linhaB)
     const linhaDelta = document.createElement("div")
-    const sinal = delta > 0 ? "+" : delta < 0 ? "−" : ""
+    const rotulo = delta > 0 ? "Subiu" : delta < 0 ? "Caiu" : "Sem mudança"
     linhaDelta.style.cssText = `margin-top: 2px; font-size: 12px; font-weight: 600; color: ${
       delta > 0 ? "#01665E" : delta < 0 ? "#543005" : "#444"
     };`
-    linhaDelta.textContent = `Δ: ${sinal}${fmt(Math.abs(delta))}`
+    linhaDelta.textContent =
+      delta === 0 ? rotulo : `${rotulo}: ${fmt(Math.abs(delta))}`
     container.appendChild(linhaDelta)
   } else {
     const linha = document.createElement("div")

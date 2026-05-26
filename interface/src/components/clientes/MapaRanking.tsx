@@ -71,18 +71,18 @@ export function MapaRanking({
 
   return (
     <aside
-      aria-label="Ranking de bairros"
+      aria-label="Bairros que mais aparecem no mapa"
       className="flex h-full w-[240px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
     >
       <div className="border-b border-border px-3 py-2">
         <div className="text-[11px] font-medium uppercase tracking-wide text-text-secondary">
           Top {TOP_N} bairros
         </div>
-        <div className="text-[11px] text-text-muted">por {rotulo}</div>
+        <div className="text-[11px] text-text-muted">ordenado por {rotulo}</div>
       </div>
       {itens.length === 0 ? (
         <div className="px-3 py-4 text-[12px] text-text-muted">
-          Sem pontos no mapa.
+          Nenhum cliente nos filtros atuais.
         </div>
       ) : (
         <ol className="flex-1 divide-y divide-border overflow-y-auto">

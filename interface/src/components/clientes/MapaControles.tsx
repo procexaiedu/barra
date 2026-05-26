@@ -75,18 +75,19 @@ export type ModoCor = "metrica" | "desfecho" | "perfil"
 const OPCOES_MODO_COR: readonly { id: ModoCor; label: string; tooltip: string }[] = [
   {
     id: "metrica",
-    label: "Por métrica",
-    tooltip: "Cor segue a rampa da métrica selecionada.",
+    label: "Métrica",
+    tooltip: "Cor vai do claro (pouco) ao escuro (muito), seguindo a métrica.",
   },
   {
     id: "desfecho",
-    label: "Por desfecho",
-    tooltip: "Verde: Fechado · Vermelho: Perdido · Âmbar: em andamento.",
+    label: "Desfecho",
+    tooltip: "Verde: fechou · Vermelho: perdeu · Âmbar: em andamento.",
   },
   {
     id: "perfil",
-    label: "Por perfil físico",
-    tooltip: "Cor pelo perfil declarado (primeiro do array). Sem declaração: neutro.",
+    label: "Perfil físico",
+    tooltip:
+      "Cor pelo perfil declarado do cliente. Quem não tem perfil declarado: cinza.",
   },
 ] as const
 
@@ -100,7 +101,7 @@ export function SeletorModoCor({
   return (
     <div
       role="radiogroup"
-      aria-label="Modo de cor do mapa"
+      aria-label="Colorir os pontos por"
       className="inline-flex rounded-lg border border-border bg-card p-0.5"
     >
       {OPCOES_MODO_COR.map((opcao) => {
@@ -133,19 +134,19 @@ const OPCOES_CAMADA: readonly { id: MapaCamada; label: string; tooltip: string }
     id: "bolhas",
     label: "Pontos",
     tooltip:
-      "1 marcador por cliente. Em 'Por métrica' o ponto vira bolha sqrt-escalada; em 'Por desfecho/perfil' vira pin colorido.",
+      "Um ponto por cliente. No modo 'Métrica' o tamanho do ponto cresce com o valor; nos outros modos, é pin colorido.",
   },
   {
     id: "hexbin",
-    label: "Hexbin",
+    label: "Favos",
     tooltip:
-      "Favos somando a métrica selecionada. Cor da rampa --seq-*. Em Hexbin o modo de cor (Métrica/Desfecho/Perfil) é fixo em Métrica.",
+      "Agrupa clientes próximos em favos hexagonais. Mais escuro = mais movimento na região. Clique num favo para ver o total.",
   },
   {
     id: "calor",
     label: "Calor",
     tooltip:
-      "Heatmap KDE (deck.gl) ponderado pela métrica selecionada. Sem clique (campo contínuo).",
+      "Mapa de calor contínuo. Mostra de relance onde a região está mais quente; não tem clique.",
   },
 ] as const
 
@@ -172,7 +173,7 @@ export function SeletorCamada({
   return (
     <div
       role="radiogroup"
-      aria-label="Camada do mapa"
+      aria-label="Tipo de visualização do mapa"
       aria-disabled={bloqueada || undefined}
       className="inline-flex rounded-lg border border-border bg-card p-0.5"
     >
@@ -183,9 +184,9 @@ export function SeletorCamada({
         const compararDesab = bloqueada === true && !ativo
         const desabilitado = calorDesab || compararDesab
         const title = compararDesab
-          ? "Modo Comparar fixa a camada em Hexbin — desligue Comparar para alternar."
+          ? "Comparar fixa a visualização em Favos. Desligue Comparar para escolher outra."
           : calorDesab
-            ? `Poucos pontos para um calor confiável (mínimo ${LIMIAR_CALOR_MIN_PONTOS}; agora ${pontosCount}). Use Bolhas ou Hexbin.`
+            ? `Poucos clientes para um Calor confiável (mínimo ${LIMIAR_CALOR_MIN_PONTOS}; agora ${pontosCount}). Use Pontos ou Favos.`
             : opcao.tooltip
         return (
           <button
@@ -223,7 +224,7 @@ export function SeletorMetrica({
   return (
     <div
       role="radiogroup"
-      aria-label="Métrica do mapa"
+      aria-label="O que medir no mapa"
       className="inline-flex rounded-lg border border-border bg-card p-0.5"
     >
       {OPCOES_METRICA.map((opcao) => {
@@ -271,7 +272,7 @@ export function LegendaEscala({
   const conteudoLimites = mutedRampa ? (
     <span
       className="text-[11px] text-text-muted"
-      title="Nº de clientes só faz pleno sentido nas camadas de agregação (Hexbin/Calor)."
+      title="Contar clientes só faz sentido em Favos ou Calor. Em Pontos, todos ficam do mesmo tamanho."
     >
       1 cliente por ponto
     </span>
@@ -341,21 +342,21 @@ export function LegendaDesfecho() {
 export type FiltroDesfecho = "todos" | "Fechado" | "Perdido" | "andamento"
 
 const OPCOES_DESFECHO: readonly { id: FiltroDesfecho; label: string; tooltip: string }[] = [
-  { id: "todos", label: "Todos", tooltip: "Sem filtro de desfecho." },
+  { id: "todos", label: "Todos", tooltip: "Mostrar todos os clientes." },
   {
     id: "Fechado",
     label: "Fechado",
-    tooltip: "Só pontos cujo externo mais recente foi fechado.",
+    tooltip: "Só clientes cujo último atendimento fechou.",
   },
   {
     id: "Perdido",
     label: "Perdido",
-    tooltip: "Só pontos cujo externo mais recente foi perdido.",
+    tooltip: "Só clientes cujo último atendimento foi perdido.",
   },
   {
     id: "andamento",
     label: "Em andamento",
-    tooltip: "Só pontos cujo externo mais recente ainda não terminou.",
+    tooltip: "Só clientes com atendimento ainda em aberto.",
   },
 ] as const
 
@@ -371,11 +372,11 @@ export function SeletorDesfecho({
   bloqueada?: boolean
 }) {
   const tooltipBloqueada =
-    "Lente 'Demanda não atendida' sobrescreve estes filtros — desligue-a para editá-los."
+    "A lente 'Demanda não atendida' está ditando esses filtros. Desligue para mudar."
   return (
     <div
       role="radiogroup"
-      aria-label="Filtro por desfecho"
+      aria-label="Filtrar por desfecho do último atendimento"
       aria-disabled={bloqueada || undefined}
       className="inline-flex rounded-lg border border-border bg-card p-0.5"
     >
@@ -448,13 +449,13 @@ export function FiltroMotivoPerda({
       <PopoverTrigger
         disabled={desabilitado}
         aria-disabled={desabilitado || undefined}
-        aria-label="Filtrar por motivo de perda"
+        aria-label="Filtrar por motivo da perda"
         title={
           bloqueada
-            ? "Lente 'Demanda não atendida' sobrescreve estes filtros — desligue-a para editá-los."
+            ? "A lente 'Demanda não atendida' está ditando esses filtros. Desligue para mudar."
             : desabilitado
-              ? "Disponível quando o desfecho é Perdido."
-              : "Motivo do atendimento que ancora o ponto. Combina por OR."
+              ? "Disponível só quando o desfecho for 'Perdido'."
+              : "Por que o último atendimento foi perdido. Pode escolher vários."
         }
         className={cn(
           "flex h-9 min-w-[8.5rem] items-center justify-between gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -536,8 +537,8 @@ export function ToggleLenteDemanda({
   onAtivaChange: (v: boolean) => void
 }) {
   const tooltip = ativa
-    ? "Mostrando só clientes Perdidos por indisponibilidade ou fora da área. Clique para desligar."
-    : "Mostrar só Perdidos por indisponibilidade ou fora da área — onde você deixa dinheiro na mesa por não cobrir."
+    ? "Mostrando só onde você está perdendo demanda (sem cobrir ou ocupado). Clique para desligar."
+    : "Veja onde você está perdendo demanda. Só clientes perdidos por indisponibilidade ou fora da área."
   return (
     <button
       type="button"
@@ -588,8 +589,8 @@ export function LegendaDemandaNaoAtendida() {
         Demanda não atendida
       </div>
       <p className="text-[11px] leading-snug text-text-muted">
-        Perdidos por indisponibilidade ou fora da área — onde você deixa dinheiro na
-        mesa por não cobrir.
+        Clientes perdidos por indisponibilidade ou fora da área. Áreas onde você
+        está deixando dinheiro na mesa.
       </p>
     </div>
   )
@@ -648,17 +649,17 @@ export function FiltroValorRange({
   const rotulo =
     valorMin === null && valorMax === null
       ? "Todos"
-      : `${valorMin === null ? "—" : formatBRL(valorMin)} – ${valorMax === null ? "—" : formatBRL(valorMax)}`
+      : `${valorMin === null ? "qualquer" : formatBRL(valorMin)} a ${valorMax === null ? "qualquer" : formatBRL(valorMax)}`
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        aria-label="Filtrar por faixa de R$ fechado por cliente"
-        title="Soma do R$ fechado do cliente (todas as modelos). Cliente cujo total cai fora do intervalo não vira ponto."
+        aria-label="Filtrar por R$ já gasto pelo cliente"
+        title="Total que cada cliente já gastou (em todas as modelos). Quem fica fora da faixa não aparece no mapa."
         className="flex h-9 min-w-[8.5rem] items-center justify-between gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         <span className="flex items-center gap-2 truncate">
-          <span className="text-[11px] font-medium text-text-muted">Valor:</span>
+          <span className="text-[11px] font-medium text-text-muted">R$ gasto:</span>
           <span
             className={cn(
               "truncate",
@@ -673,7 +674,7 @@ export function FiltroValorRange({
       <PopoverContent align="end" className="min-w-[240px] p-3">
         <div className="flex flex-col gap-2">
           <label className="flex items-center justify-between gap-2 text-sm text-text-primary">
-            <span className="text-[12px] font-medium text-text-muted">Mín (R$)</span>
+            <span className="text-[12px] font-medium text-text-muted">Mínimo (R$)</span>
             <input
               type="number"
               min={0}
@@ -687,7 +688,7 @@ export function FiltroValorRange({
                   max: maxNum,
                 })
               }}
-              placeholder="—"
+              placeholder="sem limite"
               className={cn(
                 "h-8 w-24 rounded-md border border-input bg-input px-2 text-right text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 invalido && "border-state-lost",
@@ -695,7 +696,7 @@ export function FiltroValorRange({
             />
           </label>
           <label className="flex items-center justify-between gap-2 text-sm text-text-primary">
-            <span className="text-[12px] font-medium text-text-muted">Máx (R$)</span>
+            <span className="text-[12px] font-medium text-text-muted">Máximo (R$)</span>
             <input
               type="number"
               min={0}
@@ -709,7 +710,7 @@ export function FiltroValorRange({
                   max: e.target.value === "" ? null : Number(e.target.value),
                 })
               }}
-              placeholder="—"
+              placeholder="sem limite"
               className={cn(
                 "h-8 w-24 rounded-md border border-input bg-input px-2 text-right text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 invalido && "border-state-lost",
@@ -718,7 +719,7 @@ export function FiltroValorRange({
           </label>
           {invalido && (
             <span className="text-[11px] text-state-lost">
-              Mín maior que Máx — ajuste para aplicar.
+              Mínimo maior que máximo. Ajuste para aplicar.
             </span>
           )}
           <button
@@ -743,16 +744,16 @@ export function FiltroValorRange({
 export type FiltroRecencia = "todos" | "ativos" | "dormentes"
 
 const OPCOES_RECENCIA: readonly { id: FiltroRecencia; label: string; tooltip: string }[] = [
-  { id: "todos", label: "Todos", tooltip: "Sem filtro de recência." },
+  { id: "todos", label: "Todos", tooltip: "Mostrar clientes de qualquer época." },
   {
     id: "ativos",
-    label: `Ativos (≤${RECENCIA_CUTOFF_DIAS}d)`,
-    tooltip: `Externo mais recente do cliente nos últimos ${RECENCIA_CUTOFF_DIAS} dias.`,
+    label: `Ativos (últimos ${RECENCIA_CUTOFF_DIAS} dias)`,
+    tooltip: `Clientes com atendimento nos últimos ${RECENCIA_CUTOFF_DIAS} dias.`,
   },
   {
     id: "dormentes",
-    label: `Dormentes (>${RECENCIA_CUTOFF_DIAS}d)`,
-    tooltip: `Externo mais recente do cliente há mais de ${RECENCIA_CUTOFF_DIAS} dias.`,
+    label: `Dormentes (mais de ${RECENCIA_CUTOFF_DIAS} dias)`,
+    tooltip: `Clientes sem atendimento há mais de ${RECENCIA_CUTOFF_DIAS} dias.`,
   },
 ] as const
 
@@ -768,11 +769,11 @@ export function SeletorRecencia({
   bloqueada?: boolean
 }) {
   const tooltipBloqueada =
-    "Modo Comparar ignora Recência (use os recortes A e B)."
+    "Comparar usa os próprios períodos (A e B). Recência fica desligada."
   return (
     <div
       role="radiogroup"
-      aria-label="Filtro por recência"
+      aria-label="Filtrar por última visita"
       aria-disabled={bloqueada || undefined}
       className="inline-flex rounded-lg border border-border bg-card p-0.5"
     >
@@ -869,8 +870,8 @@ export function FiltroCompararPeriodos({
           aria-label="Comparar dois períodos"
           title={
             ativo
-              ? "Modo Comparar ativo. Em hexbin, os favos coloriem pelo delta B − A. Clique para desligar."
-              : "Comparar duas janelas de datas (lift de campanha). Quando ligado, força camada Hexbin e ignora Período/Recência."
+              ? "Comparando. Os favos mostram quanto subiu ou caiu de A para B. Clique para desligar."
+              : "Compare dois períodos. Veja onde a demanda subiu ou caiu (ex.: antes e depois de uma campanha)."
           }
           onClick={toggleAtivo}
           className={cn(
@@ -888,13 +889,13 @@ export function FiltroCompararPeriodos({
           Comparar
         </button>
         <PopoverTrigger
-          aria-label="Editar períodos de comparação"
+          aria-label="Editar datas dos períodos"
           disabled={!ativo}
           aria-disabled={!ativo || undefined}
           title={
             ativo
-              ? "Editar datas dos recortes A e B."
-              : "Ligue Comparar para editar os recortes."
+              ? "Editar as datas dos períodos A e B."
+              : "Ligue Comparar para escolher as datas."
           }
           className={cn(
             "flex h-7 items-center justify-between gap-1 border-l border-border px-2 text-[11px] tabular-nums text-text-muted outline-none transition-colors hover:bg-accent focus-visible:bg-accent",
@@ -903,11 +904,11 @@ export function FiltroCompararPeriodos({
         >
           {prontoA && prontoB ? (
             <span className="truncate">
-              A {curtaData(valor.aInicio!)}–{curtaData(valor.aFim!)} ·{" "}
-              B {curtaData(valor.bInicio!)}–{curtaData(valor.bFim!)}
+              A {curtaData(valor.aInicio!)} a {curtaData(valor.aFim!)} ·{" "}
+              B {curtaData(valor.bInicio!)} a {curtaData(valor.bFim!)}
             </span>
           ) : (
-            <span className="text-text-muted">definir datas</span>
+            <span className="text-text-muted">escolher datas</span>
           )}
           <ChevronDown size={12} strokeWidth={1.5} className="shrink-0 text-text-muted" />
         </PopoverTrigger>
@@ -916,11 +917,11 @@ export function FiltroCompararPeriodos({
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-              Recorte A (base)
+              Período base (A)
             </span>
             <div className="flex items-center gap-2">
               <input
-                aria-label="A — início"
+                aria-label="A, data inicial"
                 type="date"
                 value={valor.aInicio ?? ""}
                 aria-invalid={invalidoA || undefined}
@@ -935,9 +936,9 @@ export function FiltroCompararPeriodos({
                   invalidoA && "border-state-lost",
                 )}
               />
-              <span className="text-text-muted">—</span>
+              <span className="text-text-muted">a</span>
               <input
-                aria-label="A — fim"
+                aria-label="A, data final"
                 type="date"
                 value={valor.aFim ?? ""}
                 aria-invalid={invalidoA || undefined}
@@ -955,17 +956,17 @@ export function FiltroCompararPeriodos({
             </div>
             {invalidoA && (
               <span className="text-[11px] text-state-lost">
-                A — fim anterior ao início; ajuste para aplicar.
+                A: a data final está antes da inicial. Ajuste para aplicar.
               </span>
             )}
           </div>
           <div className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-              Recorte B (comparação)
+              Período a comparar (B)
             </span>
             <div className="flex items-center gap-2">
               <input
-                aria-label="B — início"
+                aria-label="B, data inicial"
                 type="date"
                 value={valor.bInicio ?? ""}
                 aria-invalid={invalidoB || undefined}
@@ -980,9 +981,9 @@ export function FiltroCompararPeriodos({
                   invalidoB && "border-state-lost",
                 )}
               />
-              <span className="text-text-muted">—</span>
+              <span className="text-text-muted">a</span>
               <input
-                aria-label="B — fim"
+                aria-label="B, data final"
                 type="date"
                 value={valor.bFim ?? ""}
                 aria-invalid={invalidoB || undefined}
@@ -1000,13 +1001,14 @@ export function FiltroCompararPeriodos({
             </div>
             {invalidoB && (
               <span className="text-[11px] text-state-lost">
-                B — fim anterior ao início; ajuste para aplicar.
+                B: a data final está antes da inicial. Ajuste para aplicar.
               </span>
             )}
           </div>
           <p className="text-[11px] leading-snug text-text-muted">
-            Modo Comparar força camada Hexbin (favos coloridos pelo delta B − A) e
-            ignora Período/Recência. Ranges podem ou não se sobrepor.
+            No modo Comparar, o mapa fica em Favos e cada favo é colorido pela diferença
+            entre B e A. Os filtros Período e Recência ficam desligados. Os dois períodos
+            podem se sobrepor ou não.
           </p>
         </div>
       </PopoverContent>
@@ -1028,17 +1030,17 @@ function curtaData(iso: string): string {
 export function LegendaDelta({ metrica }: { metrica: MapaMetrica }) {
   const rotuloMetrica =
     metrica === "valor"
-      ? "Δ R$ fechado"
+      ? "R$ fechado"
       : metrica === "atendimentos"
-        ? "Δ atendimentos"
-        : "Δ clientes"
+        ? "Atendimentos"
+        : "Clientes"
   return (
     <div
-      aria-label={`Legenda divergente: ${rotuloMetrica}`}
+      aria-label={`Legenda de variação: ${rotuloMetrica}`}
       className="w-[220px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
     >
       <div className="mb-1 text-[11px] font-medium text-text-secondary">
-        {rotuloMetrica} (B − A)
+        Variação de {rotuloMetrica} (B menos A)
       </div>
       <div
         aria-hidden
@@ -1049,7 +1051,7 @@ export function LegendaDelta({ metrica }: { metrica: MapaMetrica }) {
       />
       <div className="mt-1 flex items-center justify-between text-[11px] text-text-muted">
         <span>caiu</span>
-        <span>neutro</span>
+        <span>sem mudança</span>
         <span>subiu</span>
       </div>
     </div>

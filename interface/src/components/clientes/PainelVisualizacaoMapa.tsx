@@ -35,10 +35,10 @@ export function PainelVisualizacaoMapa({
 }) {
   return (
     <div
-      aria-label="Controles de visualização do mapa"
+      aria-label="Como mostrar o mapa"
       className="flex w-fit max-w-[280px] flex-col gap-2 rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
     >
-      <Linha label="Camada">
+      <Linha label="Visualização">
         <SeletorCamada
           camada={camada}
           pontosCount={pontosCount}
@@ -46,11 +46,11 @@ export function PainelVisualizacaoMapa({
           bloqueada={comparar}
         />
       </Linha>
-      <Linha label="Métrica">
+      <Linha label="Medir por">
         <SeletorMetrica metrica={metrica} onMetricaChange={onMetricaChange} />
       </Linha>
       {camada === "bolhas" && !comparar && (
-        <Linha label="Cor">
+        <Linha label="Colorir por">
           <SeletorModoCor modo={modoCor} onModoChange={onModoCorChange} />
         </Linha>
       )}

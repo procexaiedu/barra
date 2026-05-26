@@ -53,18 +53,18 @@ export const OPCOES_METRICA: readonly MapaMetricaOpcao[] = [
   {
     id: "valor",
     label: "R$ fechado",
-    tooltip: "Soma do valor final dos atendimentos fechados de cada cliente.",
+    tooltip: "Quanto cada cliente já gastou nos atendimentos fechados.",
   },
   {
     id: "atendimentos",
     label: "Atendimentos",
-    tooltip: "Número de atendimentos por cliente (todas as modelos).",
+    tooltip: "Quantas vezes cada cliente foi atendido (em todas as modelos).",
   },
   {
     id: "clientes",
     label: "Clientes",
     tooltip:
-      "Cada ponto é 1 cliente. Só faz pleno sentido nas camadas de agregação (Hexbin/Calor).",
+      "Contagem de clientes. Funciona melhor com Favos ou Calor — em Pontos, todos ficam iguais.",
   },
 ] as const
 

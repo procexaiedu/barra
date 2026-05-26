@@ -14,14 +14,14 @@ import { FILTROS_MAPA_PADRAO } from "@/hooks/useClientesMapa"
 import type { MotivoPerda, PerfilFisico } from "@/tipos/clientes"
 
 const ROTULO_DESFECHO: Record<Exclude<FiltroDesfecho, "todos">, string> = {
-  Fechado: "Fechado",
-  Perdido: "Perdido",
+  Fechado: "Fechou",
+  Perdido: "Perdeu",
   andamento: "Em andamento",
 }
 
 const ROTULO_RECENCIA: Record<Exclude<FiltroRecencia, "todos">, string> = {
-  ativos: "Ativos (≤90d)",
-  dormentes: "Dormentes (>90d)",
+  ativos: "Ativos (últimos 90 dias)",
+  dormentes: "Dormentes (mais de 90 dias)",
 }
 
 /** Linha de chips removíveis para os filtros do Mapa que não estão no default.
@@ -86,11 +86,14 @@ export function ChipsFiltrosAtivos({
   return (
     <div className="flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
       <span>
-        {totalNoMapa} cliente{totalNoMapa === 1 ? "" : "s"} no mapa
+        {totalNoMapa} cliente{totalNoMapa === 1 ? "" : "s"} localizado{totalNoMapa === 1 ? "" : "s"}
       </span>
       {totalSemLocalizacao > 0 && (
-        <span className="rounded-full border border-border bg-card px-3 py-0.5">
-          {totalSemLocalizacao} sem localização
+        <span
+          className="rounded-full border border-border bg-card px-3 py-0.5"
+          title="Clientes que existem nos filtros mas ainda não têm endereço cadastrado em nenhum atendimento externo."
+        >
+          {totalSemLocalizacao} sem endereço
         </span>
       )}
 
@@ -115,7 +118,7 @@ export function ChipsFiltrosAtivos({
       )}
       {temDesfecho && (
         <Chip
-          rotulo={`Desfecho: ${ROTULO_DESFECHO[desfecho as Exclude<FiltroDesfecho, "todos">]}`}
+          rotulo={`Último atendimento: ${ROTULO_DESFECHO[desfecho as Exclude<FiltroDesfecho, "todos">]}`}
           onRemove={onLimparDesfecho}
         />
       )}
@@ -123,15 +126,15 @@ export function ChipsFiltrosAtivos({
         <Chip
           rotulo={
             motivosPerda.length === 1
-              ? `Motivo: ${MOTIVO_PERDA_LABEL[motivosPerda[0]]}`
-              : `Motivos (${motivosPerda.length})`
+              ? `Motivo da perda: ${MOTIVO_PERDA_LABEL[motivosPerda[0]]}`
+              : `Motivos da perda (${motivosPerda.length})`
           }
           onRemove={onLimparMotivos}
         />
       )}
       {temValor && (
         <Chip
-          rotulo={`R$ ${valorMin === null ? "—" : formatBRL(valorMin)} – ${valorMax === null ? "—" : formatBRL(valorMax)}`}
+          rotulo={`Já gastou: ${valorMin === null ? "qualquer" : formatBRL(valorMin)} a ${valorMax === null ? "qualquer" : formatBRL(valorMax)}`}
           onRemove={onLimparValor}
         />
       )}
@@ -151,7 +154,7 @@ export function ChipsFiltrosAtivos({
           onClick={onLimparTudo}
           className="ml-auto rounded-md px-2 py-1 text-[12px] font-medium text-text-muted outline-none transition-colors hover:bg-accent hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring"
         >
-          Limpar tudo
+          Limpar todos os filtros
         </button>
       )}
     </div>

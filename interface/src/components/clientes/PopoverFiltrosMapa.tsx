@@ -83,7 +83,7 @@ export function PopoverFiltrosMapa({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
-        aria-label="Abrir filtros do mapa"
+        aria-label="Mais filtros do mapa"
         className={cn(
           "flex h-9 items-center gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         )}
@@ -107,19 +107,19 @@ export function PopoverFiltrosMapa({
                 onClick={limparTudo}
                 className="rounded-md px-2 py-1 text-[12px] font-medium text-text-muted outline-none transition-colors hover:bg-accent hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring"
               >
-                Limpar tudo
+                Limpar todos
               </button>
             )}
           </div>
           <div className="flex flex-col gap-4 overflow-y-auto px-4 py-3">
-            <Secao label="Perfil físico">
+            <Secao label="Perfil físico do cliente">
               <SeletorPerfis
                 value={perfis}
                 onChange={onPerfisChange}
                 idPrefix="filtro-mapa-perfil"
               />
             </Secao>
-            <Secao label="Desfecho">
+            <Secao label="Último atendimento">
               <SeletorDesfecho
                 desfecho={desfecho}
                 onDesfechoChange={onDesfechoChange}
@@ -127,7 +127,7 @@ export function PopoverFiltrosMapa({
               />
             </Secao>
             {desfecho === "Perdido" && (
-              <Secao label="Motivo de perda">
+              <Secao label="Por que perdeu">
                 <FiltroMotivoPerda
                   desfecho={desfecho}
                   motivosPerda={motivosPerda}
@@ -136,14 +136,14 @@ export function PopoverFiltrosMapa({
                 />
               </Secao>
             )}
-            <Secao label="Faixa de R$ fechado">
+            <Secao label="Quanto o cliente já gastou">
               <FiltroValorRange
                 valorMin={valorMin}
                 valorMax={valorMax}
                 onChange={onValorRangeChange}
               />
             </Secao>
-            <Secao label="Recência">
+            <Secao label="Última visita">
               <SeletorRecencia
                 recencia={recencia}
                 onRecenciaChange={onRecenciaChange}
@@ -157,7 +157,7 @@ export function PopoverFiltrosMapa({
                 onChange={(e) => onIncluirArquivadosChange(e.target.checked)}
                 className="h-3.5 w-3.5 rounded border-input bg-transparent accent-primary"
               />
-              Incluir clientes arquivados
+              Mostrar também clientes arquivados
             </label>
           </div>
         </div>
