@@ -89,6 +89,9 @@ export interface MapaClientePonto {
   endereco_formatado: string | null
   /** Desfecho do atendimento externo que ancora o ponto (MAPA-3). */
   estado: EstadoAtendimento
+  /** Motivo de perda do atendimento que ancora o ponto (MAPA-8). Só preenchido
+   *  quando `estado === "Perdido"` (CHECK constraint do schema). */
+  motivo_perda?: MotivoPerda | null
   /** Preferência DECLARADA do cliente (MAPA-10, ADR 0006). Nunca o breakdown calculado. */
   perfis: PerfilFisico[]
   total_atendimentos: number
