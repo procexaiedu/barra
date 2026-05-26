@@ -43,7 +43,7 @@ interface ModelosResponse {
   nome: string
 }
 
-export function useClientes() {
+export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
   const [filtros, setFiltros] = useState<FiltrosClientes>(filtrosIniciais)
   const [incluirArquivados, setIncluirArquivados] = useState(false)
   const [debouncedBusca, setDebouncedBusca] = useState("")
@@ -67,6 +67,9 @@ export function useClientes() {
   const itemsRef = useRef<ClienteListaItem[]>([])
   const nextCursorRef = useRef<string | null>(null)
   const selectedIdRef = useRef<string | null>(null)
+  // Deep-link via ?cliente=<id> (ex.: link da MAPA-5 vindo do InfoWindow do mapa).
+  // Consumido só no primeiro mount; cliques posteriores caem no fluxo normal.
+  const initialIdRef = useRef<string | null>(opts.selectedIdInicial ?? null)
   const firstListaDone = useRef(false)
   const firstDetalheDone = useRef(false)
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -232,11 +235,22 @@ export function useClientes() {
     firstDetalheDone.current = false
     itemsRef.current = []
     nextCursorRef.current = null
+    const idInicial = initialIdRef.current
+    initialIdRef.current = null
     const timer = setTimeout(() => {
-      loadLista("replace", false)
+      if (idInicial) {
+        // Pré-seleciona o id do deep-link e evita o flicker do primeiro item da lista
+        // sendo selecionado antes do correto.
+        selectedIdRef.current = idInicial
+        setSelectedId(idInicial)
+        loadDetalhe(idInicial)
+        loadLista("replace", true)
+      } else {
+        loadLista("replace", false)
+      }
     }, 0)
     return () => clearTimeout(timer)
-  }, [filtrosEfetivos, incluirArquivados, loadLista])
+  }, [filtrosEfetivos, incluirArquivados, loadLista, loadDetalhe])
 
   useEffect(() => {
     api<ModelosResponse[]>("/v1/modelos")
