@@ -121,12 +121,21 @@ async def mapa_clientes(
     periodo: str | None = None,
     perfis: list[str] | None = Query(default=None),
     incluir_arquivados: bool = False,
+    valor_min: float | None = Query(default=None, ge=0),
+    valor_max: float | None = Query(default=None, ge=0),
+    ativo_em_dias: int = Query(default=90, ge=1, le=3650),
+    recencia: str = Query(default="todos", pattern=r"^(ativo|dormente|todos)$"),
 ) -> dict[str, Any]:
     """Pontos do **Mapa de clientes** (ADR 0008): 1 ponto por cliente na localização do
     atendimento **externo** mais recente com `lat/lng`. Interno fica de fora (lá o endereço é o
     ponto de encontro na modelo, não onde o cliente mora). Cliente sem externo geocodificado não
     vira ponto e entra em `total_sem_localizacao`. Sem paginação — o mapa é agregado. Filtros
-    espelham `listar_clientes` (menos cursor); os totais por ponto agregam todas as modelos."""
+    espelham `listar_clientes` (menos cursor); os totais por ponto agregam todas as modelos.
+
+    MAPA-11: `valor_min/valor_max` recortam pelo `ag.valor_total` agregado; `recencia` com
+    `ativo_em_dias` (default 90) usa a data do MESMO atendimento externo que ancora o ponto
+    (`geo.data`) — ADR 0008. `recencia=ativo|dormente` exigem geo (cliente sem geo cai fora;
+    `total_sem_localizacao=0`). `recencia=todos` não filtra por data."""
     # Declarado ANTES de GET /clientes/{cliente_id} para "mapa" não cair no path param UUID.
     params: list[Any] = []
     filtros = ["1=1"]
@@ -150,6 +159,18 @@ async def mapa_clientes(
         )
     if not incluir_arquivados:
         filtros.append("c.arquivado_em IS NULL")
+    if valor_min is not None:
+        filtros.append("COALESCE(ag.valor_total, 0) >= %s")
+        params.append(valor_min)
+    if valor_max is not None:
+        filtros.append("COALESCE(ag.valor_total, 0) <= %s")
+        params.append(valor_max)
+    # Recência usa a data do externo que ancora o ponto (geo.data); NULL não satisfaz nem
+    # `>=` nem `<`, então cliente sem geo cai fora em ambos os lados — só "todos" o inclui.
+    if recencia == "ativo":
+        filtros.append(f"geo.data >= NOW() - INTERVAL '{ativo_em_dias} days'")
+    elif recencia == "dormente":
+        filtros.append(f"geo.data < NOW() - INTERVAL '{ativo_em_dias} days'")
     result = await conn.execute(
         f"""
         SELECT c.id, c.nome,
@@ -157,7 +178,8 @@ async def mapa_clientes(
                ag.total_atendimentos, ag.valor_total
           FROM barravips.clientes c
           LEFT JOIN LATERAL (
-            SELECT a.latitude, a.longitude, a.bairro, a.endereco_formatado
+            SELECT a.latitude, a.longitude, a.bairro, a.endereco_formatado,
+                   a.created_at AS data
               FROM barravips.atendimentos a
              WHERE a.cliente_id = c.id
                AND a.tipo_atendimento = 'externo'

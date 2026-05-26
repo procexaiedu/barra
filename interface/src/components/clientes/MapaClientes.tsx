@@ -5,7 +5,13 @@ import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
 import type { MapaMetrica } from "@/lib/mapaMetrica"
-import { LegendaEscala, SeletorMetrica } from "@/components/clientes/MapaControles"
+import {
+  FiltroFaixaValor,
+  LegendaEscala,
+  SeletorMetrica,
+  ToggleRecencia,
+} from "@/components/clientes/MapaControles"
+import type { FiltrosMapaExtras, RecenciaMapa } from "@/hooks/useClientesMapa"
 import type { MapaClientePonto } from "@/tipos/clientes"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
@@ -19,12 +25,20 @@ export function MapaClientes({
   status,
   error,
   onRetry,
+  extras,
+  ativoEmDias,
+  onFaixaValorChange,
+  onRecenciaChange,
 }: {
   pontos: MapaClientePonto[]
   totalSemLocalizacao: number
   status: Status
   error: string | null
   onRetry: () => void
+  extras: FiltrosMapaExtras
+  ativoEmDias: number
+  onFaixaValorChange: (valorMin: number | null, valorMax: number | null) => void
+  onRecenciaChange: (r: RecenciaMapa) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -129,7 +143,7 @@ export function MapaClientes({
 
   return (
     <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-text-muted">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-[13px] text-text-muted">
         <div className="flex flex-wrap items-center gap-2">
           <span>
             {pontos.length} cliente{pontos.length === 1 ? "" : "s"} no mapa
@@ -140,7 +154,21 @@ export function MapaClientes({
             </span>
           )}
         </div>
-        <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="w-[180px]">
+            <FiltroFaixaValor
+              valorMin={extras.valorMin}
+              valorMax={extras.valorMax}
+              onChange={onFaixaValorChange}
+            />
+          </div>
+          <ToggleRecencia
+            recencia={extras.recencia}
+            ativoEmDias={ativoEmDias}
+            onChange={onRecenciaChange}
+          />
+          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        </div>
       </div>
       <div className="relative h-[calc(100vh-300px)] min-h-[420px] overflow-hidden rounded-lg border border-border">
         <div ref={containerRef} className="h-full w-full" />

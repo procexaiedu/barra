@@ -147,6 +147,10 @@ export default function Clientes() {
           status={mapa.status}
           error={mapa.error}
           onRetry={mapa.refetch}
+          extras={mapa.extras}
+          ativoEmDias={mapa.ativoEmDias}
+          onFaixaValorChange={mapa.setFaixaValor}
+          onRecenciaChange={mapa.setRecencia}
         />
       )}
 

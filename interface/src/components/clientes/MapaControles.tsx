@@ -8,7 +8,13 @@ import {
   limitesMetrica,
   type MapaMetrica,
 } from "@/lib/mapaMetrica"
+import type { RecenciaMapa } from "@/hooks/useClientesMapa"
 import type { MapaClientePonto } from "@/tipos/clientes"
+
+// MAPA-11: teto fixo do slider de R$. Decisão arbitrária deste PR (cobre a faixa P0 de
+// programas — pernoite incluso); ajustável depois sem migrar dado.
+const VALOR_MAX_PADRAO = 3000
+const VALOR_PASSO = 50
 
 // Seletor + legenda do Mapa de clientes (MAPA-1, espinha dorsal). Os dois são
 // exportados separados para o pai posicionar cada um (seletor na barra do header,
@@ -113,4 +119,128 @@ export function LegendaEscala({
 function formatarValor(metrica: MapaMetrica, n: number): string {
   if (metrica === "valor") return formatBRL(n)
   return NUM_FMT.format(n)
+}
+
+// MAPA-11: faixa de R$ (min/max) sobre o `valor_total` agregado do cliente. Dois <input
+// type="range"> empilhados — controle nativo, sem dependência nova. Min/max do slider são
+// fixos (0 → VALOR_MAX_PADRAO); não derivam dos pontos para não encolher quando o filtro
+// reduz o conjunto (UX de loop).
+export function FiltroFaixaValor({
+  valorMin,
+  valorMax,
+  onChange,
+}: {
+  valorMin: number | null
+  valorMax: number | null
+  onChange: (valorMin: number | null, valorMax: number | null) => void
+}) {
+  const minAtual = valorMin ?? 0
+  const maxAtual = valorMax ?? VALOR_MAX_PADRAO
+  const ativo = valorMin !== null || valorMax !== null
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center justify-between text-[11px] font-medium text-text-muted">
+        <span>Faixa de R$</span>
+        {ativo && (
+          <button
+            type="button"
+            onClick={() => onChange(null, null)}
+            className="text-[10px] uppercase tracking-wide text-text-muted hover:text-text-secondary"
+          >
+            Limpar
+          </button>
+        )}
+      </div>
+      <div className="flex flex-col gap-1">
+        <input
+          aria-label="Valor mínimo"
+          type="range"
+          min={0}
+          max={VALOR_MAX_PADRAO}
+          step={VALOR_PASSO}
+          value={minAtual}
+          onChange={(e) => {
+            const novoMin = Number(e.target.value)
+            // Não passa do max atual.
+            const novoMax = novoMin > maxAtual ? novoMin : valorMax
+            onChange(novoMin === 0 ? null : novoMin, novoMax)
+          }}
+          className="w-full accent-primary"
+        />
+        <input
+          aria-label="Valor máximo"
+          type="range"
+          min={0}
+          max={VALOR_MAX_PADRAO}
+          step={VALOR_PASSO}
+          value={maxAtual}
+          onChange={(e) => {
+            const novoMax = Number(e.target.value)
+            const novoMin = novoMax < minAtual ? novoMax : valorMin
+            onChange(novoMin, novoMax === VALOR_MAX_PADRAO ? null : novoMax)
+          }}
+          className="w-full accent-primary"
+        />
+      </div>
+      <div className="flex items-center justify-between text-[11px] tabular-nums text-text-secondary">
+        <span>{formatBRL(minAtual)}</span>
+        <span>{formatBRL(maxAtual)}{valorMax === null ? "+" : ""}</span>
+      </div>
+    </div>
+  )
+}
+
+// MAPA-11: toggle de recência. 3 estados — Ativos (≤ N dias), Dormentes (> N dias), Todos.
+// N (limiar) chega como prop só para o tooltip; quem aplica é o backend via `ativo_em_dias`.
+const OPCOES_RECENCIA: readonly { id: RecenciaMapa; label: string }[] = [
+  { id: "ativo", label: "Ativos" },
+  { id: "dormente", label: "Dormentes" },
+  { id: "todos", label: "Todos" },
+] as const
+
+export function ToggleRecencia({
+  recencia,
+  ativoEmDias,
+  onChange,
+}: {
+  recencia: RecenciaMapa
+  ativoEmDias: number
+  onChange: (r: RecenciaMapa) => void
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span
+        className="text-[11px] font-medium text-text-muted"
+        title={`Ativos: última visita ≤ ${ativoEmDias} dias. Dormentes: > ${ativoEmDias} dias.`}
+      >
+        Recência
+      </span>
+      <div
+        role="radiogroup"
+        aria-label="Recência da última visita"
+        className="inline-flex rounded-lg border border-border bg-card p-0.5"
+      >
+        {OPCOES_RECENCIA.map((opcao) => {
+          const ativo = opcao.id === recencia
+          return (
+            <button
+              key={opcao.id}
+              type="button"
+              role="radio"
+              aria-checked={ativo}
+              onClick={() => onChange(opcao.id)}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                ativo
+                  ? "bg-accent text-text-primary"
+                  : "text-text-muted hover:text-text-secondary",
+              )}
+            >
+              {opcao.label}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
 }
