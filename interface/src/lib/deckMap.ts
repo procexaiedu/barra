@@ -67,6 +67,13 @@ export async function criarHexbinOverlay(
       colorRange,
       extruded: false,
       pickable: true,
+      // GPU aggregation desligado: complementa o `interleaved:false` do overlay.
+      // A textura intermediária da aggregation no v9.3.x dessincroniza com a
+      // projeção do Maps Vector durante o pan (fractional zoom), colapsando
+      // todos os pontos num bin único renderizado como quad fullscreen na cor
+      // mínima da rampa (--seq-1). CPU path (d3-hexbin) calcula os bins em JS
+      // sem depender dessa textura — sem perda perceptível com 30-100 pontos.
+      gpuAggregation: false,
       getColorWeight: pesoFn(o.metrica),
       onClick: (info) => {
         const obj = info.object as
