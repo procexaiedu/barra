@@ -258,6 +258,59 @@ def test_mapa_clientes_motivo_perda_no_payload() -> None:
         app.dependency_overrides.pop(get_conn, None)
 
 
+# ---------------------------------------------------------------------------
+# MAPA-9: lente "Demanda não atendida"
+# A lente é UI-only (no frontend, sobrescreve desfecho/motivo no fetch). No
+# backend ela vira a mesma querystring do MAPA-8 — este teste deixa explícito o
+# vínculo de aceite da lente ao endpoint: a querystring acordada retorna apenas
+# Perdidos com motivos `indisponibilidade` ou `fora_de_area`.
+
+
+def test_mapa_clientes_lente_demanda_nao_atendida() -> None:
+    """Cenário da lente MAPA-9: 5 rows variados; o FakeConn devolve só as 2 que
+    o WHERE da MAPA-8 deixaria passar (Perdido + indisp/fora_de_area). Verifica
+    que a querystring da lente bate no SQL e que motivos não-oportunidade não
+    vazam para o payload."""
+    fake = FakeConnMapa(
+        [
+            _ponto("Perdido", motivo_perda="indisponibilidade"),
+            _ponto("Perdido", motivo_perda="fora_de_area"),
+        ]
+    )
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa"
+                "?desfecho=Perdido"
+                "&motivo_perda=indisponibilidade"
+                "&motivo_perda=fora_de_area",
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        assert "geo.estado = 'Perdido'" in fake.last_query
+        assert (
+            "geo.motivo_perda = ANY(%s::barravips.motivo_perda_enum[])"
+            in fake.last_query
+        )
+        # OR via ANY: o array passa exatamente os 2 motivos da lente, na ordem da UI.
+        assert isinstance(fake.last_params, list)
+        assert ["indisponibilidade", "fora_de_area"] in fake.last_params
+        pontos = response.json()["pontos"]
+        assert len(pontos) == 2
+        motivos = {p["motivo_perda"] for p in pontos}
+        assert motivos == {"indisponibilidade", "fora_de_area"}
+        # Nenhum Fechado/em andamento/Perdido por outro motivo no payload.
+        assert all(p["estado"] == "Perdido" for p in pontos)
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
 def test_mapa_clientes_desfecho_andamento_exclui_perdido_e_fechado() -> None:
     fake = FakeConnMapa([_ponto("Em_execucao")])
 
