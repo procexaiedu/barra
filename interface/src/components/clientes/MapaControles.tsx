@@ -582,6 +582,205 @@ export function LegendaDemandaNaoAtendida() {
   )
 }
 
+// MAPA-11: cutoff fixo (não vira param de URL nem env var). Exportado para a UI
+// (tooltips/rótulos) e potencial reuso em testes — a regra equivalente vive no
+// backend como literal SQL `INTERVAL '90 days'`.
+export const RECENCIA_CUTOFF_DIAS = 90
+
+/** Filtro de faixa de R$ fechado por cliente (MAPA-11). Incide em `ag.valor_total`
+ *  (cross-modelo). Ortogonal ao MAPA-8 e à lente MAPA-9: sempre aplicado, controles
+ *  sempre habilitados. UI sinaliza min > max com `aria-invalid` e não chama
+ *  `onChange` até bater — defesa em profundidade, o backend também aceita range
+ *  degenerado (devolve zero pontos). Dois `<input type="number">` em Popover seguindo
+ *  o pattern do FiltroMotivoPerda (slider dual-handle não existe no projeto). */
+export function FiltroValorRange({
+  valorMin,
+  valorMax,
+  onChange,
+}: {
+  valorMin: number | null
+  valorMax: number | null
+  onChange: (range: { valorMin: number | null; valorMax: number | null }) => void
+}) {
+  const [open, setOpen] = useState(false)
+  // Buffers locais: o usuário digita aqui livremente; só commitamos no `onChange`
+  // quando o valor é válido (min <= max). Strings vazias mantêm `null` no estado pai.
+  const [minStr, setMinStr] = useState<string>(valorMin === null ? "" : String(valorMin))
+  const [maxStr, setMaxStr] = useState<string>(valorMax === null ? "" : String(valorMax))
+
+  const minNum = minStr === "" ? null : Number(minStr)
+  const maxNum = maxStr === "" ? null : Number(maxStr)
+  const invalido =
+    minNum !== null && maxNum !== null && minNum > maxNum && !Number.isNaN(minNum) && !Number.isNaN(maxNum)
+
+  const commit = (next: { min: number | null; max: number | null }) => {
+    // Bloqueio do submit em range degenerado: a UI marca os inputs como inválidos
+    // e não propaga até bater. Backend aceita igual (devolve zero pontos), mas
+    // evitamos uma querystring sem sentido.
+    if (
+      next.min !== null &&
+      next.max !== null &&
+      next.min > next.max &&
+      !Number.isNaN(next.min) &&
+      !Number.isNaN(next.max)
+    ) {
+      return
+    }
+    onChange({
+      valorMin: next.min !== null && !Number.isNaN(next.min) ? next.min : null,
+      valorMax: next.max !== null && !Number.isNaN(next.max) ? next.max : null,
+    })
+  }
+
+  const rotulo =
+    valorMin === null && valorMax === null
+      ? "Todos"
+      : `${valorMin === null ? "—" : formatBRL(valorMin)} – ${valorMax === null ? "—" : formatBRL(valorMax)}`
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        aria-label="Filtrar por faixa de R$ fechado por cliente"
+        title="Soma do R$ fechado do cliente (todas as modelos). Cliente cujo total cai fora do intervalo não vira ponto."
+        className="flex h-9 min-w-[8.5rem] items-center justify-between gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <span className="flex items-center gap-2 truncate">
+          <span className="text-[11px] font-medium text-text-muted">Valor:</span>
+          <span
+            className={cn(
+              "truncate",
+              valorMin === null && valorMax === null && "text-text-muted",
+            )}
+          >
+            {rotulo}
+          </span>
+        </span>
+        <ChevronDown size={14} strokeWidth={1.5} className="shrink-0 text-text-muted" />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="min-w-[240px] p-3">
+        <div className="flex flex-col gap-2">
+          <label className="flex items-center justify-between gap-2 text-sm text-text-primary">
+            <span className="text-[12px] font-medium text-text-muted">Mín (R$)</span>
+            <input
+              type="number"
+              min={0}
+              step={50}
+              value={minStr}
+              aria-invalid={invalido || undefined}
+              onChange={(e) => {
+                setMinStr(e.target.value)
+                commit({
+                  min: e.target.value === "" ? null : Number(e.target.value),
+                  max: maxNum,
+                })
+              }}
+              placeholder="—"
+              className={cn(
+                "h-8 w-24 rounded-md border border-input bg-input px-2 text-right text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                invalido && "border-state-lost",
+              )}
+            />
+          </label>
+          <label className="flex items-center justify-between gap-2 text-sm text-text-primary">
+            <span className="text-[12px] font-medium text-text-muted">Máx (R$)</span>
+            <input
+              type="number"
+              min={0}
+              step={50}
+              value={maxStr}
+              aria-invalid={invalido || undefined}
+              onChange={(e) => {
+                setMaxStr(e.target.value)
+                commit({
+                  min: minNum,
+                  max: e.target.value === "" ? null : Number(e.target.value),
+                })
+              }}
+              placeholder="—"
+              className={cn(
+                "h-8 w-24 rounded-md border border-input bg-input px-2 text-right text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                invalido && "border-state-lost",
+              )}
+            />
+          </label>
+          {invalido && (
+            <span className="text-[11px] text-state-lost">
+              Mín maior que Máx — ajuste para aplicar.
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={() => {
+              setMinStr("")
+              setMaxStr("")
+              onChange({ valorMin: null, valorMax: null })
+            }}
+            className="mt-1 self-end rounded-md px-2 py-1 text-[12px] font-medium text-text-muted outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Limpar
+          </button>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/** Filtro de recência sobre o externo que ancora o ponto (MAPA-11). Cutoff fixo
+ *  em `RECENCIA_CUTOFF_DIAS` (90d). Mutuamente exclusivo: "Todos" não filtra. */
+export type FiltroRecencia = "todos" | "ativos" | "dormentes"
+
+const OPCOES_RECENCIA: readonly { id: FiltroRecencia; label: string; tooltip: string }[] = [
+  { id: "todos", label: "Todos", tooltip: "Sem filtro de recência." },
+  {
+    id: "ativos",
+    label: `Ativos (≤${RECENCIA_CUTOFF_DIAS}d)`,
+    tooltip: `Externo mais recente do cliente nos últimos ${RECENCIA_CUTOFF_DIAS} dias.`,
+  },
+  {
+    id: "dormentes",
+    label: `Dormentes (>${RECENCIA_CUTOFF_DIAS}d)`,
+    tooltip: `Externo mais recente do cliente há mais de ${RECENCIA_CUTOFF_DIAS} dias.`,
+  },
+] as const
+
+export function SeletorRecencia({
+  recencia,
+  onRecenciaChange,
+}: {
+  recencia: FiltroRecencia
+  onRecenciaChange: (r: FiltroRecencia) => void
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Filtro por recência"
+      className="inline-flex rounded-lg border border-border bg-card p-0.5"
+    >
+      {OPCOES_RECENCIA.map((opcao) => {
+        const ativo = opcao.id === recencia
+        return (
+          <button
+            key={opcao.id}
+            type="button"
+            role="radio"
+            aria-checked={ativo}
+            title={opcao.tooltip}
+            onClick={() => onRecenciaChange(opcao.id)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              ativo
+                ? "bg-accent text-text-primary"
+                : "text-text-muted hover:text-text-secondary",
+            )}
+          >
+            {opcao.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 /** Legenda categórica do modo "Por perfil físico" — 6 perfis (ordem canônica ADR 0006)
  *  + "Sem declaração". A cor do pin segue o PRIMEIRO perfil quando o cliente tem >1. */
 export function LegendaPerfil() {
