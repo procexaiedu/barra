@@ -24,6 +24,7 @@ import {
   COR_PERFIL,
   COR_PERFIL_SEM,
   FiltroMotivoPerda,
+  FiltroValorRange,
   LegendaDemandaNaoAtendida,
   LegendaDesfecho,
   LegendaEscala,
@@ -32,9 +33,11 @@ import {
   SeletorDesfecho,
   SeletorMetrica,
   SeletorModoCor,
+  SeletorRecencia,
   ToggleLenteDemanda,
   corPorDesfecho,
   type FiltroDesfecho,
+  type FiltroRecencia,
   type ModoCor,
 } from "@/components/clientes/MapaControles"
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
@@ -64,6 +67,11 @@ export function MapaClientes({
   onMotivosPerdaChange,
   lenteDemanda,
   onLenteDemandaChange,
+  valorMin,
+  valorMax,
+  recencia,
+  onValorRangeChange,
+  onRecenciaChange,
 }: {
   pontos: MapaClientePonto[]
   totalSemLocalizacao: number
@@ -81,6 +89,12 @@ export function MapaClientes({
    *  Perdidos por indisponibilidade/fora_de_area e os pontos recebem halo. */
   lenteDemanda: boolean
   onLenteDemandaChange: (v: boolean) => void
+  /** MAPA-11: ortogonais ao MAPA-8 e à lente MAPA-9 (sempre aplicados no fetch). */
+  valorMin: number | null
+  valorMax: number | null
+  recencia: FiltroRecencia
+  onValorRangeChange: (range: { valorMin: number | null; valorMax: number | null }) => void
+  onRecenciaChange: (r: FiltroRecencia) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -414,6 +428,14 @@ export function MapaClientes({
             bloqueada={lenteDemanda}
           />
           <ToggleLenteDemanda ativa={lenteDemanda} onAtivaChange={onLenteDemandaChange} />
+          {/* MAPA-11: faixa de R$ + recência. Ortogonais ao MAPA-8 e à lente MAPA-9
+              (sempre aplicados, sempre habilitados). */}
+          <FiltroValorRange
+            valorMin={valorMin}
+            valorMax={valorMax}
+            onChange={onValorRangeChange}
+          />
+          <SeletorRecencia recencia={recencia} onRecenciaChange={onRecenciaChange} />
         </div>
       </div>
       <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">

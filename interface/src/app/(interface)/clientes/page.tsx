@@ -17,7 +17,7 @@ import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
 import { useClientes } from "@/hooks/useClientes"
 import { FILTROS_MAPA_PADRAO, useClientesMapa } from "@/hooks/useClientesMapa"
 import type { FiltrosMapa } from "@/hooks/useClientesMapa"
-import type { FiltroDesfecho } from "@/components/clientes/MapaControles"
+import type { FiltroDesfecho, FiltroRecencia } from "@/components/clientes/MapaControles"
 import type {
   ClienteListItem,
   FiltroPeriodo,
@@ -80,7 +80,9 @@ function ClientesInner() {
   const handleDesfechoChange = useCallback((desfecho: FiltroDesfecho) => {
     // Trocar para um desfecho que não é "Perdido" zera os motivos: querystring
     // limpa + sem estado órfão escondido atrás do dropdown desabilitado.
+    // MAPA-11 (valor/recência) preserva via spread — ortogonal ao desfecho.
     setMapaFiltros((current) => ({
+      ...current,
       desfecho,
       motivosPerda: desfecho === "Perdido" ? current.motivosPerda : [],
     }))
@@ -88,6 +90,19 @@ function ClientesInner() {
 
   const handleMotivosPerdaChange = useCallback((motivosPerda: MotivoPerda[]) => {
     setMapaFiltros((current) => ({ ...current, motivosPerda }))
+  }, [])
+
+  // MAPA-11: faixa de R$ + recência. Ortogonais ao MAPA-8 e à lente MAPA-9 — não
+  // são zeradas ao trocar de desfecho/lente.
+  const handleValorRangeChange = useCallback(
+    (range: { valorMin: number | null; valorMax: number | null }) => {
+      setMapaFiltros((current) => ({ ...current, ...range }))
+    },
+    [],
+  )
+
+  const handleRecenciaChange = useCallback((recencia: FiltroRecencia) => {
+    setMapaFiltros((current) => ({ ...current, recencia }))
   }, [])
 
   const clienteIdsDoBairro = useMemo(() => {
@@ -243,6 +258,11 @@ function ClientesInner() {
           onMotivosPerdaChange={handleMotivosPerdaChange}
           lenteDemanda={lenteDemanda}
           onLenteDemandaChange={setLenteDemanda}
+          valorMin={mapaFiltros.valorMin}
+          valorMax={mapaFiltros.valorMax}
+          recencia={mapaFiltros.recencia}
+          onValorRangeChange={handleValorRangeChange}
+          onRecenciaChange={handleRecenciaChange}
         />
       )}
 
