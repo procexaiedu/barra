@@ -89,6 +89,8 @@ export interface MapaClientePonto {
   endereco_formatado: string | null
   /** Desfecho do atendimento externo que ancora o ponto (MAPA-3). */
   estado: EstadoAtendimento
+  /** Preferência DECLARADA do cliente (MAPA-10, ADR 0006). Nunca o breakdown calculado. */
+  perfis: PerfilFisico[]
   total_atendimentos: number
   valor_total: number
 }

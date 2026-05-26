@@ -45,6 +45,7 @@ def _ponto(estado: str, cliente_id: UUID | None = None) -> dict[str, Any]:
     return {
         "id": cliente_id or uuid4(),
         "nome": f"Cliente {estado}",
+        "perfis_preferidos": [],
         "latitude": -22.97,
         "longitude": -43.18,
         "bairro": "Copacabana",
