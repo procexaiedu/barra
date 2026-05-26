@@ -8,16 +8,27 @@ import type {
   MotivoPerda,
 } from "@/tipos/clientes"
 
-/** Filtros que vivem só no Mapa (MAPA-8). Separados de `FiltrosClientes` (que é
- *  compartilhado com a Lista) para deixar claro o escopo Mapa-only. */
+/** Filtros que vivem só no Mapa (MAPA-8/MAPA-11). Separados de `FiltrosClientes`
+ *  (que é compartilhado com a Lista) para deixar claro o escopo Mapa-only.
+ *  MAPA-11 fica aqui ortogonal ao MAPA-8 e à lente MAPA-9 (sempre aplicados no fetch). */
 export interface FiltrosMapa {
   desfecho: "todos" | "Fechado" | "Perdido" | "andamento"
   motivosPerda: MotivoPerda[]
+  /** MAPA-11: faixa de R$ fechado por cliente (`ag.valor_total`, cross-modelo).
+   *  Em reais; `null` = sem limite. */
+  valorMin: number | null
+  valorMax: number | null
+  /** MAPA-11: recência sobre `geo.ultima_data` (externo que ancora o ponto).
+   *  Cutoff fixo `RECENCIA_CUTOFF_DIAS` (90 dias). */
+  recencia: "todos" | "ativos" | "dormentes"
 }
 
 export const FILTROS_MAPA_PADRAO: FiltrosMapa = {
   desfecho: "todos",
   motivosPerda: [],
+  valorMin: null,
+  valorMax: null,
+  recencia: "todos",
 }
 
 /** Motivos de perda que a lente "Demanda não atendida" (MAPA-9) considera
@@ -55,6 +66,16 @@ function buildMapaPath(
       for (const m of mapa.motivosPerda) params.append("motivo_perda", m)
     }
   }
+  // MAPA-11: faixa de R$ e recência. Omite quando null/"todos" para não poluir a URL.
+  // Negativos não chegam aqui (a UI bloqueia no input min={0}); o backend também trata
+  // como NO-OP — defesa em profundidade.
+  if (mapa.valorMin !== null && mapa.valorMin >= 0) {
+    params.set("valor_min", String(mapa.valorMin))
+  }
+  if (mapa.valorMax !== null && mapa.valorMax >= 0) {
+    params.set("valor_max", String(mapa.valorMax))
+  }
+  if (mapa.recencia !== "todos") params.set("recencia", mapa.recencia)
   const qs = params.toString()
   return `/v1/crm/clientes/mapa${qs ? `?${qs}` : ""}`
 }
