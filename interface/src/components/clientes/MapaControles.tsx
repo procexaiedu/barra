@@ -6,6 +6,7 @@ import {
   OPCOES_METRICA,
   RAMPA_SEQ,
   limitesMetrica,
+  type MapaCamada,
   type MapaMetrica,
   type MapaModoMarker,
 } from "@/lib/mapaMetrica"
@@ -64,6 +65,59 @@ export function SeletorModoCor({
             aria-checked={ativo}
             title={opcao.tooltip}
             onClick={() => onModoChange(opcao.id)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              ativo
+                ? "bg-accent text-text-primary"
+                : "text-text-muted hover:text-text-secondary",
+            )}
+          >
+            {opcao.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const OPCOES_CAMADA: readonly { id: MapaCamada; label: string; tooltip: string }[] = [
+  {
+    id: "bolhas",
+    label: "Bolhas",
+    tooltip: "1 marcador por cliente. Default — honesto com dado esparso.",
+  },
+  {
+    id: "hexbin",
+    label: "Hexbin",
+    tooltip:
+      "Favos somando a métrica selecionada. Cor da rampa --seq-*. Em Hexbin o modo de cor (Métrica/Desfecho/Perfil) é fixo em Métrica.",
+  },
+] as const
+
+/** Seletor de camada (MAPA-6). Default = "bolhas" (preserva a Fase 1). */
+export function SeletorCamada({
+  camada,
+  onCamadaChange,
+}: {
+  camada: MapaCamada
+  onCamadaChange: (c: MapaCamada) => void
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Camada do mapa"
+      className="inline-flex rounded-lg border border-border bg-card p-0.5"
+    >
+      {OPCOES_CAMADA.map((opcao) => {
+        const ativo = opcao.id === camada
+        return (
+          <button
+            key={opcao.id}
+            type="button"
+            role="radio"
+            aria-checked={ativo}
+            title={opcao.tooltip}
+            onClick={() => onCamadaChange(opcao.id)}
             className={cn(
               "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               ativo
