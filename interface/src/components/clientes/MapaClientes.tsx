@@ -103,6 +103,8 @@ export function MapaClientes({
       estado: EstadoAtendimento
       perfis: PerfilFisico[]
       peso: number
+      /** Handler de clique reusado quando aplicarDestaque troca o content. */
+      abrirInfo: () => void
     }>
   >([])
   const [mapPronto, setMapPronto] = useState(false)
@@ -138,25 +140,30 @@ export function MapaClientes({
     for (const ponto of pontos) {
       const posicao = { lat: ponto.latitude, lng: ponto.longitude }
       const peso = normalizarPeso(pesoPonto(ponto, metrica), limites)
+      const content = conteudoPorModo(modoCor, modoMarker, ponto, peso)
       const marker = new google.maps.marker.AdvancedMarkerElement({
         position: posicao,
         title: ponto.nome ?? "Cliente",
-        gmpClickable: true,
-        content: conteudoPorModo(modoCor, modoMarker, ponto, peso),
+        content,
       })
-      // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
-      marker.addListener("gmp-click", () => {
+      // Click via DOM no próprio `content`, não via `gmp-click` do AdvancedMarker.
+      // A combinação MarkerClusterer 2.x + AdvancedMarker v=weekly + gmpClickable
+      // estoura `TypeError: Cannot read properties of undefined (reading 'length')`
+      // no marker.js interno do Google ao despachar o evento.
+      const abrirInfo = () => {
         const info = infoRef.current
         if (!info) return
         info.setContent(conteudoInfo(ponto, onFiltrarBairro))
         info.open({ map, anchor: marker })
-      })
+      }
+      bindClickAoContent(content, abrirInfo)
       markersRef.current.push({
         marker,
         chave: chaveBairro(ponto),
         estado: ponto.estado,
         perfis: ponto.perfis,
         peso,
+        abrirInfo,
       })
       markers.push(marker)
     }
@@ -467,11 +474,14 @@ function conteudoPorModo(
   modoMarker: MapaModoMarker,
   ponto: MapaClientePonto,
   peso: number,
-): HTMLElement | null {
+): HTMLElement {
   if (modoCor === "desfecho") return criarConteudoDesfecho(ponto.estado)
   if (modoCor === "perfil") return criarConteudoPerfil(ponto.perfis)
   if (modoMarker === "bolhas") return criarConteudoBolha(peso)
-  return null
+  // modoMarker==='pins' + modoCor==='metrica': PinElement default (sem cor por
+  // métrica — só servia de modo "neutro"). Materializamos para conseguir anexar
+  // o click DOM uniformemente.
+  return new google.maps.marker.PinElement().element
 }
 
 // Mutação imperativa de instâncias do Google Maps — isolada aqui (fora do hook)
@@ -483,24 +493,49 @@ function aplicarDestaque(
     estado: EstadoAtendimento
     perfis: PerfilFisico[]
     peso: number
+    abrirInfo: () => void
   }>,
   selecionado: string | null,
   modoCor: ModoCor,
   modoMarker: MapaModoMarker,
 ) {
-  for (const { marker, chave, estado, perfis, peso } of items) {
+  for (const { marker, chave, estado, perfis, peso, abrirInfo } of items) {
+    let novo: HTMLElement
     if (selecionado && chave === selecionado) {
-      marker.content = criarConteudoDestaque()
+      novo = criarConteudoDestaque()
     } else if (modoCor === "desfecho") {
-      marker.content = criarConteudoDesfecho(estado)
+      novo = criarConteudoDesfecho(estado)
     } else if (modoCor === "perfil") {
-      marker.content = criarConteudoPerfil(perfis)
+      novo = criarConteudoPerfil(perfis)
     } else if (modoMarker === "bolhas") {
-      marker.content = criarConteudoBolha(peso)
+      novo = criarConteudoBolha(peso)
     } else {
-      marker.content = null
+      novo = new google.maps.marker.PinElement().element
     }
+    marker.content = novo
+    // Re-bind do click no novo content (`gmp-click` do AdvancedMarker está bugado
+    // em combinação com MarkerClusterer — usamos DOM click no próprio content).
+    bindClickAoContent(novo, abrirInfo)
   }
+}
+
+// Anexa um listener de click no `content` do AdvancedMarkerElement. Mantemos
+// referência do handler em uma prop não-enumerável para conseguir limpar antes
+// de reanexar quando `aplicarDestaque` troca o content. `cursor: pointer` é
+// reforçado aqui mesmo em PinElement (que já tem cursor próprio) para uniformizar.
+function bindClickAoContent(content: HTMLElement | null, handler: () => void): void {
+  if (!content) return
+  const prev = (content as HTMLElement & { __mapaClick?: (e: Event) => void })
+    .__mapaClick
+  if (prev) content.removeEventListener("click", prev)
+  const wrapped = (e: Event) => {
+    e.stopPropagation()
+    handler()
+  }
+  content.addEventListener("click", wrapped)
+  ;(content as HTMLElement & { __mapaClick?: (e: Event) => void }).__mapaClick =
+    wrapped
+  content.style.cursor = "pointer"
 }
 
 // InfoWindow é renderizada pelo Google num balão branco — cores fixas legíveis ali, não
