@@ -20,23 +20,40 @@ export const FILTROS_MAPA_PADRAO: FiltrosMapa = {
   motivosPerda: [],
 }
 
+/** Motivos de perda que a lente "Demanda não atendida" (MAPA-9) considera
+ *  oportunidade endereçável — preço/sumiu/risco/outro NÃO entram porque não são
+ *  acionáveis por marketing/expansão (são preço, comportamento ou risco). */
+export const MOTIVOS_DEMANDA_NAO_ATENDIDA: MotivoPerda[] = [
+  "indisponibilidade",
+  "fora_de_area",
+]
+
 // O mapa respeita os filtros discretos da toolbar (modelo, período, perfil, arquivados).
 // `busca` fica de fora de propósito — é busca textual da lista, não do mapa.
 function buildMapaPath(
   filtros: FiltrosClientes,
   mapa: FiltrosMapa,
   incluirArquivados: boolean,
+  lenteDemandaNaoAtendida: boolean,
 ) {
   const params = new URLSearchParams()
   if (filtros.periodo !== "todos") params.set("periodo", filtros.periodo)
   if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
   for (const perfil of filtros.perfis) params.append("perfis", perfil)
   if (incluirArquivados) params.set("incluir_arquivados", "true")
-  if (mapa.desfecho !== "todos") params.set("desfecho", mapa.desfecho)
-  // Motivos só fazem sentido quando o desfecho é Perdido — fora disso a UI
-  // desabilita o dropdown, mas a defesa em profundidade é não enviar.
-  if (mapa.desfecho === "Perdido") {
-    for (const m of mapa.motivosPerda) params.append("motivo_perda", m)
+  // MAPA-9: a lente SOBRESCREVE desfecho/motivo do MAPA-8 no fetch (não soma).
+  // O estado do MAPA-8 fica preservado no pai e volta intacto ao desligar — aqui
+  // apenas ignoramos `mapa.desfecho`/`mapa.motivosPerda` enquanto a lente está ON.
+  if (lenteDemandaNaoAtendida) {
+    params.set("desfecho", "Perdido")
+    for (const m of MOTIVOS_DEMANDA_NAO_ATENDIDA) params.append("motivo_perda", m)
+  } else {
+    if (mapa.desfecho !== "todos") params.set("desfecho", mapa.desfecho)
+    // Motivos só fazem sentido quando o desfecho é Perdido — fora disso a UI
+    // desabilita o dropdown, mas a defesa em profundidade é não enviar.
+    if (mapa.desfecho === "Perdido") {
+      for (const m of mapa.motivosPerda) params.append("motivo_perda", m)
+    }
   }
   const qs = params.toString()
   return `/v1/crm/clientes/mapa${qs ? `?${qs}` : ""}`
@@ -47,18 +64,22 @@ type Status = "idle" | "loading" | "success" | "error"
 /**
  * Carrega os pontos do Mapa de clientes. Só busca quando `enabled` (aba Mapa ativa) e
  * refaz quando os filtros mudam. Mantém os pontos atuais visíveis durante o refetch.
+ *
+ * MAPA-9: `lenteDemandaNaoAtendida` sobrescreve `mapa.desfecho`/`mapa.motivosPerda`
+ * na querystring quando ON (sem mutar o estado do MAPA-8 no pai).
  */
 export function useClientesMapa(
   filtros: FiltrosClientes,
   mapa: FiltrosMapa,
   incluirArquivados: boolean,
   enabled: boolean,
+  lenteDemandaNaoAtendida: boolean,
 ) {
   const [data, setData] = useState<MapaClientesResponse | null>(null)
   const [status, setStatus] = useState<Status>("idle")
   const [error, setError] = useState<string | null>(null)
 
-  const path = buildMapaPath(filtros, mapa, incluirArquivados)
+  const path = buildMapaPath(filtros, mapa, incluirArquivados, lenteDemandaNaoAtendida)
 
   const carregar = useCallback(async () => {
     setStatus("loading")

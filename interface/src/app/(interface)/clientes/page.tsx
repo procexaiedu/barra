@@ -66,11 +66,15 @@ function ClientesInner() {
   // pai porque o hook precisa deles na querystring e o `MapaClientes` precisa dos
   // setters para renderizar os controles.
   const [mapaFiltros, setMapaFiltros] = useState<FiltrosMapa>(FILTROS_MAPA_PADRAO)
+  // MAPA-9: lente "Demanda não atendida". Sobrescreve `mapaFiltros` no fetch (sem
+  // mutar) quando ON; desligar restaura os filtros prévios do MAPA-8 intactos.
+  const [lenteDemanda, setLenteDemanda] = useState(false)
   const mapa = useClientesMapa(
     crm.filtros,
     mapaFiltros,
     crm.incluirArquivados,
     aba === "mapa",
+    lenteDemanda,
   )
 
   const handleDesfechoChange = useCallback((desfecho: FiltroDesfecho) => {
@@ -237,6 +241,8 @@ function ClientesInner() {
           motivosPerda={mapaFiltros.motivosPerda}
           onDesfechoChange={handleDesfechoChange}
           onMotivosPerdaChange={handleMotivosPerdaChange}
+          lenteDemanda={lenteDemanda}
+          onLenteDemandaChange={setLenteDemanda}
         />
       )}
 
