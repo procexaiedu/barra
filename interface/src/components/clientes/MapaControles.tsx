@@ -42,6 +42,12 @@ const ROTULO_DESFECHO_LEGENDA: ReadonlyArray<{ label: string; cor: string }> = [
   { label: "Em andamento", cor: COR_EM_ANDAMENTO },
 ] as const
 
+/** Cor de "oportunidade" da lente "Demanda não atendida" (MAPA-9). Magenta/violeta
+ *  saturado fora das paletas em uso (COR_FECHADO/PERDIDO/EM_ANDAMENTO/COR_PERFIL.*)
+ *  para o halo não colidir com nenhum modo de cor. Hex literal aqui pelo mesmo motivo
+ *  do MAPA-3 (PinElement/SVG inline não resolvem CSS vars). */
+export const COR_OPORTUNIDADE = "#9B5DE5"
+
 export const COR_PERFIL: Record<PerfilFisico, string> = {
   loira: "#C4A961",
   morena: "#4F8FE1",
@@ -343,14 +349,21 @@ const OPCOES_DESFECHO: readonly { id: FiltroDesfecho; label: string; tooltip: st
 export function SeletorDesfecho({
   desfecho,
   onDesfechoChange,
+  bloqueada,
 }: {
   desfecho: FiltroDesfecho
   onDesfechoChange: (d: FiltroDesfecho) => void
+  /** MAPA-9: a lente "Demanda não atendida" sobrescreve estes filtros; quando ON,
+   *  o seletor fica desabilitado (mas o estado prévio é preservado no pai). */
+  bloqueada?: boolean
 }) {
+  const tooltipBloqueada =
+    "Lente 'Demanda não atendida' sobrescreve estes filtros — desligue-a para editá-los."
   return (
     <div
       role="radiogroup"
       aria-label="Filtro por desfecho"
+      aria-disabled={bloqueada || undefined}
       className="inline-flex rounded-lg border border-border bg-card p-0.5"
     >
       {OPCOES_DESFECHO.map((opcao) => {
@@ -361,13 +374,16 @@ export function SeletorDesfecho({
             type="button"
             role="radio"
             aria-checked={ativo}
-            title={opcao.tooltip}
+            aria-disabled={bloqueada || undefined}
+            disabled={bloqueada}
+            title={bloqueada ? tooltipBloqueada : opcao.tooltip}
             onClick={() => onDesfechoChange(opcao.id)}
             className={cn(
               "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               ativo
                 ? "bg-accent text-text-primary"
                 : "text-text-muted hover:text-text-secondary",
+              bloqueada && "cursor-not-allowed opacity-50 hover:text-text-muted",
             )}
           >
             {opcao.label}
@@ -386,13 +402,17 @@ export function FiltroMotivoPerda({
   motivosPerda,
   desfecho,
   onMotivosPerdaChange,
+  bloqueada,
 }: {
   motivosPerda: MotivoPerda[]
   desfecho: FiltroDesfecho
   onMotivosPerdaChange: (m: MotivoPerda[]) => void
+  /** MAPA-9: a lente "Demanda não atendida" sobrescreve este filtro; quando ON,
+   *  o dropdown fica desabilitado independentemente de `desfecho`. */
+  bloqueada?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const desabilitado = desfecho !== "Perdido"
+  const desabilitado = bloqueada || desfecho !== "Perdido"
   const selecionados = new Set(motivosPerda)
 
   const toggle = (m: MotivoPerda) => {
@@ -417,9 +437,11 @@ export function FiltroMotivoPerda({
         aria-disabled={desabilitado || undefined}
         aria-label="Filtrar por motivo de perda"
         title={
-          desabilitado
-            ? "Disponível quando o desfecho é Perdido."
-            : "Motivo do atendimento que ancora o ponto. Combina por OR."
+          bloqueada
+            ? "Lente 'Demanda não atendida' sobrescreve estes filtros — desligue-a para editá-los."
+            : desabilitado
+              ? "Disponível quando o desfecho é Perdido."
+              : "Motivo do atendimento que ancora o ponto. Combina por OR."
         }
         className={cn(
           "flex h-9 min-w-[8.5rem] items-center justify-between gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
@@ -487,6 +509,76 @@ export function FiltroMotivoPerda({
         </ul>
       </PopoverContent>
     </Popover>
+  )
+}
+
+/** Toggle da lente "Demanda não atendida" (MAPA-9). Ortogonal a `SeletorCamada` —
+ *  pode estar ON com qualquer camada. Quando ON, sobrescreve os filtros de desfecho
+ *  e motivo do MAPA-8 no fetch (sem mutar o estado prévio no pai). */
+export function ToggleLenteDemanda({
+  ativa,
+  onAtivaChange,
+}: {
+  ativa: boolean
+  onAtivaChange: (v: boolean) => void
+}) {
+  const tooltip = ativa
+    ? "Mostrando só clientes Perdidos por indisponibilidade ou fora da área. Clique para desligar."
+    : "Mostrar só Perdidos por indisponibilidade ou fora da área — onde você deixa dinheiro na mesa por não cobrir."
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={ativa}
+      aria-label="Lente Demanda não atendida"
+      title={tooltip}
+      onClick={() => onAtivaChange(!ativa)}
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        ativa
+          ? "border-transparent text-text-primary"
+          : "border-border bg-card text-text-muted hover:text-text-secondary",
+      )}
+      style={
+        ativa
+          ? { background: `${COR_OPORTUNIDADE}26`, borderColor: COR_OPORTUNIDADE }
+          : undefined
+      }
+    >
+      <span
+        aria-hidden
+        className="h-2 w-2 rounded-full border"
+        style={{
+          background: ativa ? COR_OPORTUNIDADE : "transparent",
+          borderColor: COR_OPORTUNIDADE,
+        }}
+      />
+      Demanda não atendida
+    </button>
+  )
+}
+
+/** Legenda da lente "Demanda não atendida" (MAPA-9) — uma linha explicando o subset.
+ *  Mesmo card-style das outras legendas; usada lado a lado com LegendaEscala/Desfecho/Perfil. */
+export function LegendaDemandaNaoAtendida() {
+  return (
+    <div
+      aria-label="Legenda Demanda não atendida"
+      className="w-[260px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+    >
+      <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-text-secondary">
+        <span
+          aria-hidden
+          className="h-2.5 w-2.5 rounded-full border"
+          style={{ borderColor: COR_OPORTUNIDADE, background: `${COR_OPORTUNIDADE}40` }}
+        />
+        Demanda não atendida
+      </div>
+      <p className="text-[11px] leading-snug text-text-muted">
+        Perdidos por indisponibilidade ou fora da área — onde você deixa dinheiro na
+        mesa por não cobrir.
+      </p>
+    </div>
   )
 }
 
