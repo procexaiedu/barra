@@ -85,7 +85,17 @@ export async function criarHexbinOverlay(
     })
   }
 
-  const overlay = new GoogleMapsOverlay({ layers: [construirLayer(opts)] })
+  // `interleaved:false` é OBRIGATÓRIO para aggregation layers (HexagonLayer/
+  // HeatmapLayer) sobre Google Maps Vector (qualquer mapa com `mapId`). O
+  // default `true` compartilha o WebGL2 context com o Maps e quebra o
+  // render-to-texture intermediário — o sintoma é o overlay renderizar num
+  // viewport degenerado (ex.: borrão preso no canto superior-esquerdo) e o
+  // luma.gl emitir "Binding weightsTexture not set". Release notes do v9.3
+  // confirmam o caminho: usar canvas separado garante posição DOM correta.
+  const overlay = new GoogleMapsOverlay({
+    interleaved: false,
+    layers: [construirLayer(opts)],
+  })
   overlay.setMap(map)
 
   return {
@@ -127,7 +137,13 @@ export async function criarCalorOverlay(
     })
   }
 
-  const overlay = new GoogleMapsOverlay({ layers: [construirLayer(opts)] })
+  // `interleaved:false`: ver nota no `criarHexbinOverlay` — mesmo motivo (o
+  // HeatmapLayer é o caso clássico do bug; o sintoma reportado em prod foi um
+  // borrão fraco preso no canto superior-esquerdo do mapa).
+  const overlay = new GoogleMapsOverlay({
+    interleaved: false,
+    layers: [construirLayer(opts)],
+  })
   overlay.setMap(map)
 
   return {
