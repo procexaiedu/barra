@@ -16,9 +16,11 @@ import type { MapaClientePonto } from "@/tipos/clientes"
 
 const NUM_FMT = new Intl.NumberFormat("pt-BR")
 
-/** Modo de cor dos pontos (MAPA-3). Ortogonal à métrica — métrica rege o tamanho,
- *  modo de cor rege a cor. Default "metrica" preserva o comportamento prévio. */
-export type ModoCor = "metrica" | "desfecho"
+/** Modo de cor dos pontos (MAPA-3, MAPA-10). Ortogonal à métrica — métrica rege o
+ *  tamanho, modo de cor rege a cor. Default "metrica" preserva o comportamento prévio.
+ *  "perfil" usa só a parte DECLARADA do cliente (ADR 0006); cliente com >1 perfil
+ *  recebe a cor do primeiro do array, demais aparecem no InfoWindow. */
+export type ModoCor = "metrica" | "desfecho" | "perfil"
 
 const OPCOES_MODO_COR: readonly { id: ModoCor; label: string; tooltip: string }[] = [
   {
@@ -30,6 +32,11 @@ const OPCOES_MODO_COR: readonly { id: ModoCor; label: string; tooltip: string }[
     id: "desfecho",
     label: "Por desfecho",
     tooltip: "Verde: Fechado · Vermelho: Perdido · Âmbar: em andamento.",
+  },
+  {
+    id: "perfil",
+    label: "Por perfil físico",
+    tooltip: "Cor pelo perfil declarado (primeiro do array). Sem declaração: neutro.",
   },
 ] as const
 

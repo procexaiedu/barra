@@ -152,7 +152,7 @@ async def mapa_clientes(
         filtros.append("c.arquivado_em IS NULL")
     result = await conn.execute(
         f"""
-        SELECT c.id, c.nome,
+        SELECT c.id, c.nome, c.perfis_preferidos,
                geo.latitude, geo.longitude, geo.bairro, geo.endereco_formatado, geo.estado,
                ag.total_atendimentos, ag.valor_total
           FROM barravips.clientes c
@@ -187,6 +187,9 @@ async def mapa_clientes(
             "endereco_formatado": row["endereco_formatado"],
             # Desfecho do mesmo atendimento que ancora o ponto (MAPA-3, ADR 0008).
             "estado": row["estado"],
+            # Perfil físico DECLARADO (ADR 0006). Nunca o breakdown calculado, que
+            # é cross-modelo e quebraria o isolamento por par cliente-modelo (MAPA-10).
+            "perfis": _array_text(row["perfis_preferidos"]),
             "total_atendimentos": row["total_atendimentos"] or 0,
             "valor_total": row["valor_total"] or 0,
         }

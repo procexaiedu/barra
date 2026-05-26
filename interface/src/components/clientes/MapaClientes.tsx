@@ -12,7 +12,8 @@ import {
   type ModoCor,
 } from "@/components/clientes/MapaControles"
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
-import type { EstadoAtendimento, MapaClientePonto } from "@/tipos/clientes"
+import { rotuloPerfil } from "@/lib/perfilFisico"
+import type { EstadoAtendimento, MapaClientePonto, PerfilFisico } from "@/tipos/clientes"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
 const CENTRO_BRASIL = { lat: -14.235, lng: -51.925 }
@@ -28,6 +29,19 @@ function corPorDesfecho(estado: EstadoAtendimento): string {
   if (estado === "Perdido") return COR_PERDIDO
   return COR_EM_ANDAMENTO
 }
+
+// Paleta categórica do modo "Por perfil físico" (MAPA-10). Hex literal porque
+// PinElement não resolve CSS vars; valores espelham --chart-1..6 do tema escuro.
+const COR_PERFIL: Record<PerfilFisico, string> = {
+  loira: "#C4A961",
+  morena: "#4F8FE1",
+  ruiva: "#1FB07A",
+  negra: "#B66CD9",
+  asiatica: "#E07A5F",
+  outra: "#6FCFC9",
+}
+// Sem perfil declarado: cinza neutro, distinto das categorias.
+const COR_PERFIL_SEM = "#7A7A7A"
 
 type Status = "idle" | "loading" | "success" | "error"
 
@@ -51,13 +65,14 @@ export function MapaClientes({
   const mapRef = useRef<google.maps.Map | null>(null)
   const infoRef = useRef<google.maps.InfoWindow | null>(null)
   const clustererRef = useRef<MarkerClusterer | null>(null)
-  // Marcadores guardam o bairro (destaque MAPA-4) e o estado (cor MAPA-3) para que
-  // os efeitos consigam re-renderizar sem refazer a varredura nos pontos.
+  // Marcadores guardam o bairro (destaque MAPA-4), o estado (cor MAPA-3) e os perfis
+  // declarados (cor MAPA-10) para que os efeitos re-renderizem sem refazer a varredura.
   const markersRef = useRef<
     Array<{
       marker: google.maps.marker.AdvancedMarkerElement
       chave: string
       estado: EstadoAtendimento
+      perfis: PerfilFisico[]
     }>
   >([])
   const [mapPronto, setMapPronto] = useState(false)
@@ -87,7 +102,7 @@ export function MapaClientes({
         position: posicao,
         title: ponto.nome ?? "Cliente",
         gmpClickable: true,
-        content: modoCor === "desfecho" ? criarConteudoDesfecho(ponto.estado) : null,
+        content: conteudoPorModo(modoCor, ponto),
       })
       // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
       marker.addListener("gmp-click", () => {
@@ -100,6 +115,7 @@ export function MapaClientes({
         marker,
         chave: chaveBairro(ponto),
         estado: ponto.estado,
+        perfis: ponto.perfis,
       })
       markers.push(marker)
       bounds.extend(posicao)
@@ -262,6 +278,26 @@ function criarConteudoDesfecho(estado: EstadoAtendimento): HTMLElement {
   }).element
 }
 
+// Pin colorido pelo PRIMEIRO perfil declarado do cliente (MAPA-10, ADR 0006).
+// Cliente sem declaração entra como cinza neutro — nunca usa o breakdown calculado.
+function criarConteudoPerfil(perfis: PerfilFisico[]): HTMLElement {
+  const cor = perfis.length > 0 ? COR_PERFIL[perfis[0]] : COR_PERFIL_SEM
+  return new google.maps.marker.PinElement({
+    background: cor,
+    borderColor: "#1a1a1a",
+    glyphColor: "#1a1a1a",
+  }).element
+}
+
+function conteudoPorModo(
+  modoCor: ModoCor,
+  ponto: MapaClientePonto,
+): HTMLElement | null {
+  if (modoCor === "desfecho") return criarConteudoDesfecho(ponto.estado)
+  if (modoCor === "perfil") return criarConteudoPerfil(ponto.perfis)
+  return null
+}
+
 // Mutação imperativa de instâncias do Google Maps — isolada aqui (fora do hook)
 // porque o React Compiler trata refs como imutáveis no escopo de useEffect.
 function aplicarDestaque(
@@ -269,15 +305,18 @@ function aplicarDestaque(
     marker: google.maps.marker.AdvancedMarkerElement
     chave: string
     estado: EstadoAtendimento
+    perfis: PerfilFisico[]
   }>,
   selecionado: string | null,
   modoCor: ModoCor,
 ) {
-  for (const { marker, chave, estado } of items) {
+  for (const { marker, chave, estado, perfis } of items) {
     if (selecionado && chave === selecionado) {
       marker.content = criarConteudoDestaque()
     } else if (modoCor === "desfecho") {
       marker.content = criarConteudoDesfecho(estado)
+    } else if (modoCor === "perfil") {
+      marker.content = criarConteudoPerfil(perfis)
     } else {
       marker.content = null
     }
@@ -310,6 +349,15 @@ function conteudoInfo(
   totais.style.cssText = "margin-top: 6px; font-size: 12px;"
   totais.textContent = `${ponto.total_atendimentos} ${plural} · ${valor}`
   container.appendChild(totais)
+
+  // Perfil físico DECLARADO (MAPA-10, ADR 0006). Lista todos quando >1 — o pin pega
+  // só o primeiro como cor. Sem declaração, omite a linha (não confunde com "outra").
+  if (ponto.perfis.length > 0) {
+    const perfis = document.createElement("div")
+    perfis.style.cssText = "margin-top: 4px; font-size: 12px; color: #666;"
+    perfis.textContent = `Perfil: ${ponto.perfis.map(rotuloPerfil).join(", ")}`
+    container.appendChild(perfis)
+  }
 
   if (ponto.bairro && onFiltrarBairro) {
     const botao = document.createElement("button")
