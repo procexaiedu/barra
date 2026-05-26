@@ -3,38 +3,6 @@
 
 import type { FiltroAplicado, JanelaComparacao } from "./dashboard"
 
-export type CategoriaDespesa =
-  | "anuncios"
-  | "software"
-  | "infraestrutura"
-  | "juridico"
-  | "taxas"
-  | "deslocamento"
-  | "pessoal"
-  | "outro"
-
-export const CATEGORIAS_DESPESA: CategoriaDespesa[] = [
-  "anuncios",
-  "software",
-  "infraestrutura",
-  "juridico",
-  "taxas",
-  "deslocamento",
-  "pessoal",
-  "outro",
-]
-
-export const ROTULO_CATEGORIA: Record<CategoriaDespesa, string> = {
-  anuncios: "Anúncios",
-  software: "Software",
-  infraestrutura: "Infraestrutura",
-  juridico: "Jurídico",
-  taxas: "Taxas",
-  deslocamento: "Deslocamento",
-  pessoal: "Pessoal",
-  outro: "Outro",
-}
-
 export type FormaPagamentoRepasse = "pix" | "dinheiro" | "outro"
 export type FormaPagamentoReceita = "pix" | "dinheiro" | "cartao" | "outro"
 
@@ -47,7 +15,6 @@ export interface FinanceiroResumo {
   valor_sem_repasse_definido_brl: number
   valor_repasse_pago_brl: number
   valor_saldo_repasse_brl: number
-  valor_despesas_brl: number
   fechamentos_total: number
   fechamentos_sem_snapshot: number
 }
@@ -81,70 +48,36 @@ export interface ReceitasListaResponse {
   next_cursor: string | null
 }
 
-// ---------- Despesas ----------
+// ---------- Inspector lateral (contexto da receita) ----------
 
-export type OrigemDespesa =
-  | "pontual"
-  | "recorrente_materializada"
-  | "recorrente_projetada"
-
-export interface DespesaLinha {
-  id: string | null
-  categoria: CategoriaDespesa
-  valor: number
-  data: string
-  descricao: string | null
-  recorrente_id: string | null
-  competencia_mes: string | null
-  origem: OrigemDespesa
-  valor_template: number | null
+export interface ContextoCliente {
+  cliente_id: string
+  nome: string
+  total_atendimentos: number
+  total_fechados: number
+  valor_total_brl: number
+  ultima_atividade_iso: string | null
+  modelos_distintas: number
 }
 
-export interface DespesasListaResponse {
-  filtro_aplicado: FiltroAplicado
-  items: DespesaLinha[]
-  next_cursor: string | null
+export interface ContextoModeloDia {
+  dia: string
+  bruto: number
 }
 
-export interface DespesaCriarInput {
-  categoria: CategoriaDespesa
-  valor: number
-  data: string
-  descricao?: string | null
+export interface ContextoModelo {
+  modelo_id: string
+  nome: string
+  fechamentos_periodo: number
+  valor_bruto_periodo: number
+  valor_repasse_periodo: number
+  serie_30d: ContextoModeloDia[]
 }
 
-export interface DespesaPatchInput {
-  categoria?: CategoriaDespesa
-  valor?: number
-  data?: string
-  descricao?: string | null
-}
-
-// ---------- Recorrentes ----------
-
-export interface DespesaRecorrente {
-  id: string
-  categoria: CategoriaDespesa
-  valor: number
-  descricao: string
-  dia_do_mes: number
-  ativo_desde: string
-  inativo_em: string | null
-  created_at: string
-  updated_at: string
-}
-
-export interface DespesaRecorrenteCriarInput {
-  categoria: CategoriaDespesa
-  valor: number
-  descricao: string
-  dia_do_mes: number
-  ativo_desde: string
-}
-
-export interface MaterializarRecorrenteInput {
-  recorrente_id: string
-  competencia_mes: string
+export interface ReceitaContextoResponse {
+  atendimento_id: string
+  cliente: ContextoCliente
+  modelo: ContextoModelo
 }
 
 // ---------- Repasses ----------

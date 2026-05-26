@@ -1,9 +1,9 @@
 """SQL puro psycopg3 do Módulo Financeiro (ADR 0011 / 0002).
 
 Receita = projeção sobre `barravips.atendimentos` JOIN `barravips.eventos`
-(tipo='fechado_registrado'). Despesas e repasses têm tabelas próprias.
-Fórmulas de líquido/repasse são as MESMAS do `dashboard/routes.py:_fechamentos`
-e `painel/routes.py:198-217` — manter sincronizadas, divergir = bug.
+(tipo='fechado_registrado'). Repasses pagos têm tabela própria. Fórmulas de
+líquido/repasse são as MESMAS do `dashboard/routes.py:_fechamentos` e
+`painel/routes.py:198-217` — manter sincronizadas, divergir = bug.
 """
 
 from __future__ import annotations
@@ -19,9 +19,11 @@ from psycopg import AsyncConnection
 from barra.core.janela import Janela
 from barra.dominio.financeiro.schemas import (
     AtendimentoSemSnapshotLinha,
-    DespesaLinha,
-    DespesaRecorrenteResponse,
+    ContextoCliente,
+    ContextoModelo,
+    ContextoModeloDia,
     FinanceiroResumo,
+    ReceitaContextoResponse,
     ReceitaLinha,
     RepassePagoResponse,
     SaldoModelo,
@@ -37,14 +39,10 @@ async def resumo_periodo(
     janela: Janela,
     modelo_ids: list[UUID] | None,
 ) -> FinanceiroResumo:
-    """Agregado da janela: bruto, líquido, repasse calc/pago/saldo, despesas.
+    """Agregado da janela: bruto, líquido, repasse calc/pago/saldo.
 
     Receita filtra por evento `fechado_registrado.created_at` (regime caixa,
-    ADR 0011). Despesa filtra por `COALESCE(competencia_mes, data)` cobrindo
-    pontuais + materializadas. Pagamentos filtram por `data_pagamento`.
-
-    NÃO inclui projeções de recorrentes (templates ainda não materializadas)
-    no agregado por design: agregar projeção mistura dado real com previsão.
+    ADR 0011). Pagamentos filtram por `data_pagamento`.
     """
     params_modelo: list[Any] = []
     filtro_modelo_receita = ""
@@ -80,12 +78,6 @@ async def resumo_periodo(
              AND e.created_at >= %s AND e.created_at <= %s
              {filtro_modelo_receita}
         ),
-        despesa AS (
-          SELECT COALESCE(SUM(valor), 0)::numeric AS total
-            FROM barravips.financeiro_despesas
-           WHERE COALESCE(competencia_mes, data) >= %s::date
-             AND COALESCE(competencia_mes, data) <= %s::date
-        ),
         pago AS (
           SELECT COALESCE(SUM(valor), 0)::numeric AS total
             FROM barravips.financeiro_repasses_pagos
@@ -93,14 +85,12 @@ async def resumo_periodo(
              AND data_pagamento <= %s::date
              {filtro_modelo_repasse}
         )
-        SELECT receita.*, despesa.total AS despesa_total, pago.total AS pago_total
-          FROM receita, despesa, pago
+        SELECT receita.*, pago.total AS pago_total
+          FROM receita, pago
     """
 
-    # Ordem dos placeholders: receita(2 datas + modelo?), despesa(2 datas),
-    # pago(2 datas + modelo?). Modelo no filtro_modelo_receita e _repasse.
+    # Ordem dos placeholders: receita(2 datas + modelo?), pago(2 datas + modelo?).
     params: list[Any] = [janela.inicio, janela.fim, *params_modelo,
-                         janela.de, janela.ate,
                          janela.de, janela.ate]
     if modelo_ids:
         params.append(modelo_ids)
@@ -113,16 +103,14 @@ async def resumo_periodo(
     liquido = float(row["valor_liquido"])
     repasse_calc = float(row["valor_repasse"])
     repasse_pago = float(row["pago_total"])
-    despesas = float(row["despesa_total"])
 
     return FinanceiroResumo(
         valor_bruto_brl=round(bruto, 2),
-        valor_liquido_brl=round(liquido - despesas, 2),  # liquido da agencia = bruto - repasse - despesa
+        valor_liquido_brl=round(liquido, 2),  # liquido da agencia = bruto - repasse
         valor_repasse_calculado_brl=round(repasse_calc, 2),
         valor_sem_repasse_definido_brl=round(float(row["valor_sem_repasse_definido"]), 2),
         valor_repasse_pago_brl=round(repasse_pago, 2),
         valor_saldo_repasse_brl=round(repasse_calc - repasse_pago, 2),
-        valor_despesas_brl=round(despesas, 2),
         fechamentos_total=int(row["contagem"]),
         fechamentos_sem_snapshot=int(row["contagem_sem_snapshot"]),
     )
@@ -217,323 +205,147 @@ async def listar_receitas(
 
 
 # =============================================================================
-# Despesas
+# Contexto da receita (inspector lateral)
 # =============================================================================
 
 
-async def listar_despesas(
+async def obter_contexto_receita(
     conn: AsyncConnection[Any],
+    atendimento_id: UUID,
     janela: Janela,
-    categorias: list[str] | None,
-) -> list[DespesaLinha]:
-    """UNION ALL: pontuais + materializadas + projeções de templates ativos.
+) -> ReceitaContextoResponse | None:
+    """Contexto agregado da linha de receita: cliente cross-modelo + modelo.
 
-    Projeções derivam de templates ativos no período, anti-join com instâncias
-    já materializadas. Sem cursor: lista de despesa por janela é pequena.
+    Cliente: agregados cross-modelo de todos os atendimentos `Fechado` (LTV).
+    Modelo: posição no período do filtro + série diária dos últimos 30 dias
+    absolutos (referência fixa, independente do filtro — sparkline estável).
     """
-    filtro_cat = ""
-    if categorias:
-        filtro_cat = "AND categoria = ANY(%s)"
-
-    params: list[Any] = [janela.de, janela.ate]
-    if categorias:
-        params.append(categorias)
-
-    sql_pontuais = f"""
-        SELECT
-          id, categoria::text AS categoria, valor, data, descricao,
-          recorrente_id, competencia_mes,
-          CASE WHEN recorrente_id IS NULL THEN 'pontual'
-               ELSE 'recorrente_materializada' END AS origem,
-          NULL::numeric AS valor_template
-          FROM barravips.financeiro_despesas
-         WHERE COALESCE(competencia_mes, data) >= %s::date
-           AND COALESCE(competencia_mes, data) <= %s::date
-           {filtro_cat}
-    """
-
-    # Projeções: para cada mês da janela, para cada template ativo nesse mês
-    # que não tem materialização, gerar uma linha sintética.
-    params_proj: list[Any] = [janela.de, janela.ate]
-    filtro_cat_proj = ""
-    if categorias:
-        filtro_cat_proj = "AND r.categoria = ANY(%s)"
-        params_proj.append(categorias)
-
-    sql_projetadas = f"""
-        SELECT
-          NULL::uuid AS id,
-          r.categoria::text AS categoria,
-          r.valor,
-          -- data sintética: 1º do mês (alinhado a competencia_mes)
-          (mes_ref::date + (LEAST(r.dia_do_mes, 28) - 1) * INTERVAL '1 day')::date AS data,
-          r.descricao,
-          r.id AS recorrente_id,
-          mes_ref::date AS competencia_mes,
-          'recorrente_projetada' AS origem,
-          r.valor AS valor_template
-          FROM generate_series(
-            date_trunc('month', %s::date),
-            date_trunc('month', %s::date),
-            INTERVAL '1 month'
-          ) AS mes_ref
-          JOIN barravips.financeiro_despesas_recorrentes r
-            ON r.ativo_desde <= mes_ref::date
-           AND (r.inativo_em IS NULL OR r.inativo_em > mes_ref::date)
-         WHERE NOT EXISTS (
-           SELECT 1 FROM barravips.financeiro_despesas d
-            WHERE d.recorrente_id = r.id
-              AND d.competencia_mes = mes_ref::date
-         )
-         {filtro_cat_proj}
-    """
-
-    sql = f"""
-        ({sql_pontuais})
-        UNION ALL
-        ({sql_projetadas})
-        ORDER BY data DESC
-    """
-
-    result = await conn.execute(sql, [*params, *params_proj])
-    rows = list(await result.fetchall())
-
-    items: list[DespesaLinha] = []
-    for row in rows:
-        items.append(
-            DespesaLinha(
-                id=row["id"],
-                categoria=row["categoria"],
-                valor=Decimal(str(row["valor"])),
-                data=row["data"],
-                descricao=row["descricao"],
-                recorrente_id=row["recorrente_id"],
-                competencia_mes=row["competencia_mes"],
-                origem=row["origem"],
-                valor_template=(Decimal(str(row["valor_template"]))
-                                if row["valor_template"] is not None else None),
-            )
-        )
-    return items
-
-
-async def criar_despesa_pontual(
-    conn: AsyncConnection[Any],
-    *,
-    categoria: str,
-    valor: Decimal,
-    data: date,
-    descricao: str | None,
-    user_id: UUID,
-) -> UUID:
+    # 1) Resolve cliente_id e modelo_id do atendimento.
     result = await conn.execute(
         """
-        INSERT INTO barravips.financeiro_despesas
-            (categoria, valor, data, descricao, created_by)
-        VALUES (%s, %s, %s, %s, %s)
-        RETURNING id
+        SELECT a.cliente_id, a.modelo_id, c.nome AS cliente_nome, m.nome AS modelo_nome
+          FROM barravips.atendimentos a
+          JOIN barravips.clientes c ON c.id = a.cliente_id
+          JOIN barravips.modelos m ON m.id = a.modelo_id
+         WHERE a.id = %s
         """,
-        (categoria, valor, data, descricao, user_id),
+        (atendimento_id,),
     )
-    row = await result.fetchone()
-    assert row is not None
-    return UUID(str(row["id"]))
+    head = await result.fetchone()
+    if head is None:
+        return None
 
+    cliente_id: UUID = head["cliente_id"]
+    modelo_id: UUID = head["modelo_id"]
 
-async def atualizar_despesa(
-    conn: AsyncConnection[Any],
-    despesa_id: UUID,
-    *,
-    categoria: str | None,
-    valor: Decimal | None,
-    data: date | None,
-    descricao: str | None,
-) -> bool:
-    sets: list[str] = []
-    params: list[Any] = []
-    if categoria is not None:
-        sets.append("categoria = %s")
-        params.append(categoria)
-    if valor is not None:
-        sets.append("valor = %s")
-        params.append(valor)
-    if data is not None:
-        sets.append("data = %s")
-        params.append(data)
-    if descricao is not None:
-        sets.append("descricao = %s")
-        params.append(descricao)
-    if not sets:
-        return True
-    params.append(despesa_id)
-    result = await conn.execute(
-        f"UPDATE barravips.financeiro_despesas SET {', '.join(sets)} WHERE id = %s",
-        params,
-    )
-    return result.rowcount > 0
-
-
-async def excluir_despesa(conn: AsyncConnection[Any], despesa_id: UUID) -> bool:
-    result = await conn.execute(
-        "DELETE FROM barravips.financeiro_despesas WHERE id = %s",
-        (despesa_id,),
-    )
-    return result.rowcount > 0
-
-
-async def materializar_recorrente(
-    conn: AsyncConnection[Any],
-    *,
-    recorrente_id: UUID,
-    competencia_mes: date,
-    user_id: UUID,
-) -> UUID:
-    """Copia categoria/valor/descrição do template e insere linha real.
-
-    UNIQUE parcial em `(recorrente_id, competencia_mes) WHERE recorrente_id IS NOT NULL`
-    impede duplicação — repetir a chamada retorna o id existente.
-    """
-    # Tenta inserir; se conflitar, retorna o id existente.
-    result = await conn.execute(
+    # 2) Cliente cross-modelo (mesma lógica de `dominio/clientes/routes.py:69-83`).
+    cli_result = await conn.execute(
         """
-        WITH tpl AS (
-          SELECT categoria, valor, descricao,
-                 (%s::date + (LEAST(dia_do_mes, 28) - 1) * INTERVAL '1 day')::date AS data_lancamento
-            FROM barravips.financeiro_despesas_recorrentes
-           WHERE id = %s
+        SELECT
+          COUNT(*)::int AS total_atendimentos,
+          COUNT(*) FILTER (WHERE a.estado = 'Fechado')::int AS total_fechados,
+          COALESCE(
+            SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0
+          )::numeric AS valor_total,
+          MAX(a.updated_at) AS ultima_atividade,
+          COUNT(DISTINCT a.modelo_id)::int AS modelos_distintas
+          FROM barravips.atendimentos a
+         WHERE a.cliente_id = %s
+        """,
+        (cliente_id,),
+    )
+    cli_row = await cli_result.fetchone()
+    assert cli_row is not None
+
+    cliente = ContextoCliente(
+        cliente_id=cliente_id,
+        nome=head["cliente_nome"],
+        total_atendimentos=int(cli_row["total_atendimentos"]),
+        total_fechados=int(cli_row["total_fechados"]),
+        valor_total_brl=round(float(cli_row["valor_total"]), 2),
+        ultima_atividade_iso=(
+            cli_row["ultima_atividade"].isoformat()
+            if cli_row["ultima_atividade"] is not None
+            else None
         ),
-        novo AS (
-          INSERT INTO barravips.financeiro_despesas
-            (categoria, valor, data, descricao, recorrente_id, competencia_mes, created_by)
-          SELECT categoria, valor, data_lancamento, descricao, %s, %s, %s
-            FROM tpl
-          ON CONFLICT (recorrente_id, competencia_mes)
-            WHERE recorrente_id IS NOT NULL DO NOTHING
-          RETURNING id
-        )
-        SELECT id FROM novo
-        UNION ALL
-        SELECT id FROM barravips.financeiro_despesas
-         WHERE recorrente_id = %s AND competencia_mes = %s
-        LIMIT 1
-        """,
-        (competencia_mes, recorrente_id, recorrente_id, competencia_mes, user_id,
-         recorrente_id, competencia_mes),
+        modelos_distintas=int(cli_row["modelos_distintas"]),
     )
-    row = await result.fetchone()
-    if row is None:
-        # Template não existe.
-        raise ValueError("recorrente nao encontrada")
-    return UUID(str(row["id"]))
 
-
-# =============================================================================
-# Despesas recorrentes (templates)
-# =============================================================================
-
-
-async def listar_recorrentes(
-    conn: AsyncConnection[Any],
-    incluir_inativas: bool,
-) -> list[DespesaRecorrenteResponse]:
-    filtro = "" if incluir_inativas else "WHERE inativo_em IS NULL"
-    result = await conn.execute(
-        f"""
-        SELECT id, categoria::text AS categoria, valor, descricao, dia_do_mes,
-               ativo_desde, inativo_em, created_at, updated_at
-          FROM barravips.financeiro_despesas_recorrentes
-          {filtro}
-         ORDER BY inativo_em IS NULL DESC, descricao ASC
+    # 3) Modelo no período (mesma fórmula do resumo) — agregado para a janela.
+    mod_periodo_result = await conn.execute(
         """
+        SELECT
+          COUNT(DISTINCT a.id)::int AS fechamentos,
+          COALESCE(SUM(a.valor_final), 0)::numeric AS bruto,
+          COALESCE(SUM(
+            a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+          ), 0)::numeric AS repasse
+          FROM barravips.atendimentos a
+          JOIN barravips.eventos e ON e.atendimento_id = a.id
+         WHERE a.estado = 'Fechado'
+           AND e.tipo = 'fechado_registrado'
+           AND e.created_at >= %s AND e.created_at <= %s
+           AND a.modelo_id = %s
+        """,
+        (janela.inicio, janela.fim, modelo_id),
     )
-    rows = list(await result.fetchall())
-    return [
-        DespesaRecorrenteResponse(
-            id=row["id"],
-            categoria=row["categoria"],
-            valor=Decimal(str(row["valor"])),
-            descricao=row["descricao"],
-            dia_do_mes=int(row["dia_do_mes"]),
-            ativo_desde=row["ativo_desde"],
-            inativo_em=row["inativo_em"],
-            created_at=row["created_at"].isoformat(),
-            updated_at=row["updated_at"].isoformat(),
+    mod_periodo = await mod_periodo_result.fetchone()
+    assert mod_periodo is not None
+
+    # 4) Série diária dos últimos 30 dias absolutos (sparkline estável).
+    # AT TIME ZONE 'America/Sao_Paulo' para alinhar agregação com BRT.
+    serie_result = await conn.execute(
+        """
+        WITH dias AS (
+          SELECT generate_series(
+            (CURRENT_DATE - INTERVAL '29 days')::date,
+            CURRENT_DATE::date,
+            INTERVAL '1 day'
+          )::date AS dia
+        ),
+        receitas_dia AS (
+          SELECT
+            (e.created_at AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
+            SUM(a.valor_final)::numeric AS bruto
+            FROM barravips.atendimentos a
+            JOIN barravips.eventos e ON e.atendimento_id = a.id
+           WHERE a.estado = 'Fechado'
+             AND e.tipo = 'fechado_registrado'
+             AND a.modelo_id = %s
+             AND e.created_at >= (CURRENT_DATE - INTERVAL '29 days')::timestamptz
+           GROUP BY 1
         )
-        for row in rows
+        SELECT dias.dia,
+               COALESCE(receitas_dia.bruto, 0)::numeric AS bruto
+          FROM dias
+          LEFT JOIN receitas_dia ON receitas_dia.dia = dias.dia
+         ORDER BY dias.dia ASC
+        """,
+        (modelo_id,),
+    )
+    serie_rows = list(await serie_result.fetchall())
+    serie = [
+        ContextoModeloDia(
+            dia=row["dia"].isoformat(),
+            bruto=round(float(row["bruto"]), 2),
+        )
+        for row in serie_rows
     ]
 
-
-async def criar_recorrente(
-    conn: AsyncConnection[Any],
-    *,
-    categoria: str,
-    valor: Decimal,
-    descricao: str,
-    dia_do_mes: int,
-    ativo_desde: date,
-    user_id: UUID,
-) -> UUID:
-    result = await conn.execute(
-        """
-        INSERT INTO barravips.financeiro_despesas_recorrentes
-            (categoria, valor, descricao, dia_do_mes, ativo_desde, created_by)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        RETURNING id
-        """,
-        (categoria, valor, descricao, dia_do_mes, ativo_desde, user_id),
+    modelo = ContextoModelo(
+        modelo_id=modelo_id,
+        nome=head["modelo_nome"],
+        fechamentos_periodo=int(mod_periodo["fechamentos"]),
+        valor_bruto_periodo=round(float(mod_periodo["bruto"]), 2),
+        valor_repasse_periodo=round(float(mod_periodo["repasse"]), 2),
+        serie_30d=serie,
     )
-    row = await result.fetchone()
-    assert row is not None
-    return UUID(str(row["id"]))
 
-
-async def atualizar_recorrente(
-    conn: AsyncConnection[Any],
-    recorrente_id: UUID,
-    *,
-    categoria: str | None,
-    valor: Decimal | None,
-    descricao: str | None,
-    dia_do_mes: int | None,
-) -> bool:
-    sets: list[str] = []
-    params: list[Any] = []
-    if categoria is not None:
-        sets.append("categoria = %s")
-        params.append(categoria)
-    if valor is not None:
-        sets.append("valor = %s")
-        params.append(valor)
-    if descricao is not None:
-        sets.append("descricao = %s")
-        params.append(descricao)
-    if dia_do_mes is not None:
-        sets.append("dia_do_mes = %s")
-        params.append(dia_do_mes)
-    if not sets:
-        return True
-    params.append(recorrente_id)
-    result = await conn.execute(
-        f"UPDATE barravips.financeiro_despesas_recorrentes SET {', '.join(sets)} WHERE id = %s",
-        params,
+    return ReceitaContextoResponse(
+        atendimento_id=atendimento_id,
+        cliente=cliente,
+        modelo=modelo,
     )
-    return result.rowcount > 0
-
-
-async def desativar_recorrente(
-    conn: AsyncConnection[Any],
-    recorrente_id: UUID,
-    inativo_em: date,
-) -> bool:
-    result = await conn.execute(
-        """
-        UPDATE barravips.financeiro_despesas_recorrentes
-           SET inativo_em = %s
-         WHERE id = %s
-        """,
-        (inativo_em, recorrente_id),
-    )
-    return result.rowcount > 0
 
 
 # =============================================================================

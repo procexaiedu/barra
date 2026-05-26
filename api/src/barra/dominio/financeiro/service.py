@@ -24,18 +24,12 @@ from barra.dominio.financeiro import repo
 from barra.dominio.financeiro.schemas import (
     AtendimentosSemSnapshotResponse,
     ComprovanteUploadResponse,
-    DespesaCriar,
-    DespesaPatch,
-    DespesaRecorrenteCriar,
-    DespesaRecorrentePatch,
-    DespesaRecorrenteResponse,
-    DespesasListaResponse,
     FinanceiroResumo,
     FinanceiroResumoResponse,
     JanelaComparacao,
-    MaterializarRecorrenteBody,
     PreencherRepasseRetroativoBody,
     PreencherRepasseRetroativoResponse,
+    ReceitaContextoResponse,
     ReceitasListaResponse,
     RepassePagoCriar,
     RepassePagoPatch,
@@ -104,6 +98,18 @@ async def montar_receitas(
     )
 
 
+async def montar_contexto_receita(
+    conn: AsyncConnection,
+    *,
+    atendimento_id: UUID,
+    janela: Janela,
+) -> ReceitaContextoResponse:
+    ctx = await repo.obter_contexto_receita(conn, atendimento_id, janela)
+    if ctx is None:
+        raise NaoEncontrado("Receita")
+    return ctx
+
+
 def _codificar_cursor_receita(cursor: tuple[datetime, UUID]) -> str:
     ts, aid = cursor
     return f"{ts.isoformat()}|{aid}"
@@ -115,141 +121,6 @@ def _decodificar_cursor_receita(raw: str) -> tuple[datetime, UUID]:
         return (datetime.fromisoformat(ts_str), UUID(aid_str))
     except (ValueError, TypeError) as exc:
         raise EntradaInvalida("CURSOR_INVALIDO", "cursor mal formado") from exc
-
-
-# =============================================================================
-# Despesas (pontuais + materializadas + projeções)
-# =============================================================================
-
-
-async def montar_despesas(
-    conn: AsyncConnection,
-    *,
-    periodo: str,
-    janela: Janela,
-    categorias: list[str] | None,
-) -> DespesasListaResponse:
-    items = await repo.listar_despesas(conn, janela, categorias)
-    return DespesasListaResponse(
-        filtro_aplicado=filtro_aplicado_dict(periodo, janela, None),
-        items=items,
-        next_cursor=None,  # sem paginação no P0
-    )
-
-
-async def criar_despesa(
-    conn: AsyncConnection,
-    body: DespesaCriar,
-    user_id: UUID,
-) -> UUID:
-    return await repo.criar_despesa_pontual(
-        conn,
-        categoria=body.categoria,
-        valor=body.valor,
-        data=body.data,
-        descricao=body.descricao,
-        user_id=user_id,
-    )
-
-
-async def materializar_recorrente(
-    conn: AsyncConnection,
-    body: MaterializarRecorrenteBody,
-    user_id: UUID,
-) -> UUID:
-    try:
-        return await repo.materializar_recorrente(
-            conn,
-            recorrente_id=body.recorrente_id,
-            competencia_mes=body.competencia_mes,
-            user_id=user_id,
-        )
-    except ValueError as exc:
-        raise NaoEncontrado("Template de despesa recorrente") from exc
-
-
-async def atualizar_despesa(
-    conn: AsyncConnection,
-    despesa_id: UUID,
-    body: DespesaPatch,
-) -> None:
-    ok = await repo.atualizar_despesa(
-        conn,
-        despesa_id,
-        categoria=body.categoria,
-        valor=body.valor,
-        data=body.data,
-        descricao=body.descricao,
-    )
-    if not ok:
-        raise NaoEncontrado("Despesa")
-
-
-async def excluir_despesa(conn: AsyncConnection, despesa_id: UUID) -> None:
-    ok = await repo.excluir_despesa(conn, despesa_id)
-    if not ok:
-        raise NaoEncontrado("Despesa")
-
-
-# =============================================================================
-# Despesas recorrentes (templates)
-# =============================================================================
-
-
-async def listar_recorrentes(
-    conn: AsyncConnection,
-    incluir_inativas: bool,
-) -> list[DespesaRecorrenteResponse]:
-    return await repo.listar_recorrentes(conn, incluir_inativas)
-
-
-async def criar_recorrente(
-    conn: AsyncConnection,
-    body: DespesaRecorrenteCriar,
-    user_id: UUID,
-) -> UUID:
-    return await repo.criar_recorrente(
-        conn,
-        categoria=body.categoria,
-        valor=body.valor,
-        descricao=body.descricao,
-        dia_do_mes=body.dia_do_mes,
-        ativo_desde=body.ativo_desde,
-        user_id=user_id,
-    )
-
-
-async def atualizar_recorrente(
-    conn: AsyncConnection,
-    recorrente_id: UUID,
-    body: DespesaRecorrentePatch,
-) -> None:
-    ok = await repo.atualizar_recorrente(
-        conn,
-        recorrente_id,
-        categoria=body.categoria,
-        valor=body.valor,
-        descricao=body.descricao,
-        dia_do_mes=body.dia_do_mes,
-    )
-    if not ok:
-        raise NaoEncontrado("Template de despesa recorrente")
-
-
-async def desativar_recorrente(
-    conn: AsyncConnection,
-    recorrente_id: UUID,
-    inativo_em: date,
-) -> None:
-    if inativo_em.day != 1:
-        raise EntradaInvalida(
-            "INATIVO_EM_INVALIDO",
-            "inativo_em deve ser o primeiro dia do mês",
-            {"campo": "inativo_em"},
-        )
-    ok = await repo.desativar_recorrente(conn, recorrente_id, inativo_em)
-    if not ok:
-        raise NaoEncontrado("Template de despesa recorrente")
 
 
 # =============================================================================

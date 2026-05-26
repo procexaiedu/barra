@@ -26,16 +26,10 @@ from barra.dominio.financeiro.schemas import (
     AtendimentosSemSnapshotResponse,
     ComprovanteUploadResponse,
     ComprovanteUrlResponse,
-    DespesaCriar,
-    DespesaPatch,
-    DespesaRecorrenteCriar,
-    DespesaRecorrentePatch,
-    DespesaRecorrenteResponse,
-    DespesasListaResponse,
     FinanceiroResumoResponse,
-    MaterializarRecorrenteBody,
     PreencherRepasseRetroativoBody,
     PreencherRepasseRetroativoResponse,
+    ReceitaContextoResponse,
     ReceitasListaResponse,
     RepassePagoCriar,
     RepassePagoPatch,
@@ -96,6 +90,20 @@ async def get_receitas(
     )
 
 
+@router.get("/receitas/{atendimento_id}/contexto")
+async def get_receita_contexto(
+    atendimento_id: UUID,
+    periodo: Periodo = "mes",
+    de: date | None = None,
+    ate: date | None = None,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> ReceitaContextoResponse:
+    janela = resolver_janela(periodo, de, ate)
+    return await service.montar_contexto_receita(
+        conn, atendimento_id=atendimento_id, janela=janela
+    )
+
+
 @router.get("/receitas/export")
 async def export_receitas(
     periodo: Periodo = "mes",
@@ -134,130 +142,6 @@ async def export_receitas(
         for it in resp.items
     ]
     return _csv_response(f"receitas_{_periodo_label(janela)}.csv", headers_csv, rows)
-
-
-# =============================================================================
-# Despesas (lançamentos + recorrentes)
-# =============================================================================
-
-
-@router.get("/despesas")
-async def get_despesas(
-    periodo: Periodo = "mes",
-    de: date | None = None,
-    ate: date | None = None,
-    categoria: Annotated[list[str] | None, Query()] = None,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> DespesasListaResponse:
-    janela = resolver_janela(periodo, de, ate)
-    return await service.montar_despesas(
-        conn, periodo=periodo, janela=janela, categorias=categoria
-    )
-
-
-@router.get("/despesas/export")
-async def export_despesas(
-    periodo: Periodo = "mes",
-    de: date | None = None,
-    ate: date | None = None,
-    categoria: Annotated[list[str] | None, Query()] = None,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> StreamingResponse:
-    janela = resolver_janela(periodo, de, ate)
-    resp = await service.montar_despesas(
-        conn, periodo=periodo, janela=janela, categorias=categoria
-    )
-    headers_csv = ["data", "categoria", "descricao", "valor", "origem"]
-    rows: list[list[Any]] = [
-        [
-            it.data.isoformat(),
-            it.categoria,
-            it.descricao or "",
-            _fmt_br(float(it.valor)),
-            it.origem,
-        ]
-        for it in resp.items
-    ]
-    return _csv_response(f"despesas_{_periodo_label(janela)}.csv", headers_csv, rows)
-
-
-@router.post("/despesas", status_code=201)
-async def post_despesa(
-    body: DespesaCriar,
-    user: UsuarioAtual = Depends(get_user),
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
-    despesa_id = await service.criar_despesa(conn, body, user.id)
-    return {"id": str(despesa_id)}
-
-
-@router.post("/despesas/materializar-recorrente", status_code=201)
-async def post_materializar_recorrente(
-    body: MaterializarRecorrenteBody,
-    user: UsuarioAtual = Depends(get_user),
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
-    despesa_id = await service.materializar_recorrente(conn, body, user.id)
-    return {"id": str(despesa_id)}
-
-
-@router.patch("/despesas/{despesa_id}")
-async def patch_despesa(
-    despesa_id: UUID,
-    body: DespesaPatch,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
-    await service.atualizar_despesa(conn, despesa_id, body)
-    return {"ok": True}
-
-
-@router.delete("/despesas/{despesa_id}", status_code=204)
-async def delete_despesa(
-    despesa_id: UUID,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> None:
-    await service.excluir_despesa(conn, despesa_id)
-
-
-# ---- recorrentes ------------------------------------------------------------
-
-
-@router.get("/despesas-recorrentes")
-async def get_recorrentes(
-    incluir_inativas: bool = False,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> list[DespesaRecorrenteResponse]:
-    return await service.listar_recorrentes(conn, incluir_inativas)
-
-
-@router.post("/despesas-recorrentes", status_code=201)
-async def post_recorrente(
-    body: DespesaRecorrenteCriar,
-    user: UsuarioAtual = Depends(get_user),
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
-    rec_id = await service.criar_recorrente(conn, body, user.id)
-    return {"id": str(rec_id)}
-
-
-@router.patch("/despesas-recorrentes/{recorrente_id}")
-async def patch_recorrente(
-    recorrente_id: UUID,
-    body: DespesaRecorrentePatch,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
-    await service.atualizar_recorrente(conn, recorrente_id, body)
-    return {"ok": True}
-
-
-@router.post("/despesas-recorrentes/{recorrente_id}/desativar")
-async def post_desativar_recorrente(
-    recorrente_id: UUID,
-    inativo_em: date,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
-    await service.desativar_recorrente(conn, recorrente_id, inativo_em)
-    return {"ok": True}
 
 
 # =============================================================================

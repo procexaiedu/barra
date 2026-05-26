@@ -5,8 +5,6 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { api, ApiError } from "@/lib/api"
 import type { FiltroPeriodo } from "@/tipos/dashboard"
 import type {
-  CategoriaDespesa,
-  DespesasListaResponse,
   FinanceiroResumoResponse,
   FormaPagamentoReceita,
   ReceitasListaResponse,
@@ -15,13 +13,13 @@ import type {
 } from "@/tipos/financeiro"
 
 type Status = "loading" | "success" | "error"
-type View = "geral" | "receitas" | "despesas" | "repasses"
+type View = "geral" | "receitas" | "repasses"
 
 const PERIODOS_VALIDOS: ReadonlySet<string> = new Set([
   "hoje", "7d", "30d", "mes", "tudo", "custom",
 ])
 const VIEWS_VALIDAS: ReadonlySet<string> = new Set([
-  "geral", "receitas", "despesas", "repasses",
+  "geral", "receitas", "repasses",
 ])
 
 export interface FiltrosFinanceiro {
@@ -29,7 +27,6 @@ export interface FiltrosFinanceiro {
   de: string | null
   ate: string | null
   modelo_ids: string[]
-  categoria: CategoriaDespesa[]
   forma_pagamento: FormaPagamentoReceita | null
   view: View
 }
@@ -52,7 +49,6 @@ function parseFiltros(params: URLSearchParams): FiltrosFinanceiro {
     de: periodoCustom ? de : null,
     ate: periodoCustom ? ate : null,
     modelo_ids: params.getAll("modelo_id"),
-    categoria: params.getAll("categoria") as CategoriaDespesa[],
     forma_pagamento: (params.get("forma_pagamento") as FormaPagamentoReceita | null) || null,
     view,
   }
@@ -66,9 +62,6 @@ function montarPath(filtros: FiltrosFinanceiro, recurso: string): string {
     params.set("ate", filtros.ate)
   }
   for (const id of filtros.modelo_ids) params.append("modelo_id", id)
-  if (recurso === "/despesas") {
-    for (const c of filtros.categoria) params.append("categoria", c)
-  }
   if (recurso === "/receitas" && filtros.forma_pagamento) {
     params.set("forma_pagamento", filtros.forma_pagamento)
   }
@@ -83,7 +76,6 @@ function montarQueryString(filtros: FiltrosFinanceiro): string {
     params.set("ate", filtros.ate)
   }
   for (const id of filtros.modelo_ids) params.append("modelo_id", id)
-  for (const c of filtros.categoria) params.append("categoria", c)
   if (filtros.forma_pagamento) params.set("forma_pagamento", filtros.forma_pagamento)
   if (filtros.view !== "geral") params.set("view", filtros.view)
   const s = params.toString()
@@ -101,7 +93,6 @@ export function useFinanceiro() {
 
   const [resumo, setResumo] = useState<FinanceiroResumoResponse | null>(null)
   const [receitas, setReceitas] = useState<ReceitasListaResponse | null>(null)
-  const [despesas, setDespesas] = useState<DespesasListaResponse | null>(null)
   const [repasses, setRepasses] = useState<RepassesPorModeloResponse | null>(null)
   const [pagamentos, setPagamentos] = useState<RepassesPagamentosListaResponse | null>(null)
   const [status, setStatus] = useState<Status>("loading")
@@ -129,12 +120,6 @@ export function useFinanceiro() {
         promises.push(
           api<ReceitasListaResponse>(montarPath(filtros, "/receitas"), { signal: ctrl.signal })
             .then(setReceitas)
-        )
-      }
-      if (filtros.view === "despesas") {
-        promises.push(
-          api<DespesasListaResponse>(montarPath(filtros, "/despesas"), { signal: ctrl.signal })
-            .then(setDespesas)
         )
       }
       if (filtros.view === "repasses") {
@@ -198,12 +183,6 @@ export function useFinanceiro() {
     [aplicarFiltros, filtros]
   )
 
-  const setCategoria = useCallback(
-    (categoria: CategoriaDespesa[]) =>
-      aplicarFiltros({ ...filtros, categoria }),
-    [aplicarFiltros, filtros]
-  )
-
   const setFormaPagamento = useCallback(
     (forma: FormaPagamentoReceita | null) =>
       aplicarFiltros({ ...filtros, forma_pagamento: forma }),
@@ -225,18 +204,16 @@ export function useFinanceiro() {
     error,
     resumo,
     receitas,
-    despesas,
     repasses,
     pagamentos,
     setPeriodoPreset,
     setPeriodoCustom,
     setModeloIds,
-    setCategoria,
     setFormaPagamento,
     setView,
     refetch,
     // helpers para o componente:
-    montarPathExport: (recurso: "/receitas/export" | "/despesas/export" | "/repasses/pagamentos/export") =>
+    montarPathExport: (recurso: "/receitas/export" | "/repasses/pagamentos/export") =>
       montarPath(filtros, recurso),
   }
 }

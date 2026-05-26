@@ -1,7 +1,8 @@
 """DTOs HTTP do Módulo Financeiro (ADR 0011).
 
-Receita é projeção de `atendimentos` (sem tabela própria). Despesas e repasses
-têm tabelas; ver `infra/sql/{ts}_financeiro.sql`.
+Receita é projeção de `atendimentos` (sem tabela própria). Repasses pagos têm
+tabela própria; ver `infra/sql/{ts}_financeiro.sql`. Despesas foram removidas
+do escopo do módulo (ver nota de Update no ADR 0011).
 """
 
 from datetime import date
@@ -9,18 +10,7 @@ from decimal import Decimal
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
-
-CategoriaDespesa = Literal[
-    "anuncios",
-    "software",
-    "infraestrutura",
-    "juridico",
-    "taxas",
-    "deslocamento",
-    "pessoal",
-    "outro",
-]
+from pydantic import BaseModel, Field
 
 # Repasse à modelo: enum SQL é forma_pagamento_enum (pix/dinheiro/cartao/outro);
 # para repasse restringimos cartão via Pydantic (ADR 0011).
@@ -38,7 +28,6 @@ class FinanceiroResumo(BaseModel):
     valor_sem_repasse_definido_brl: float
     valor_repasse_pago_brl: float
     valor_saldo_repasse_brl: float
-    valor_despesas_brl: float
     fechamentos_total: int
     fechamentos_sem_snapshot: int
 
@@ -78,91 +67,43 @@ class ReceitasListaResponse(BaseModel):
     next_cursor: str | None
 
 
-# ----------------------- Despesas (pontuais + recorrentes) ------------------
+# ----------------------- Contexto do inspector ------------------------------
 
 
-class DespesaCriar(BaseModel):
-    categoria: CategoriaDespesa
-    valor: Decimal = Field(gt=0)
-    data: date
-    descricao: str | None = None
+class ContextoCliente(BaseModel):
+    """Agregados cross-modelo do cliente — painel-only (ADR 0008)."""
+
+    cliente_id: UUID
+    nome: str
+    total_atendimentos: int
+    total_fechados: int
+    valor_total_brl: float
+    ultima_atividade_iso: str | None
+    modelos_distintas: int
 
 
-class DespesaPatch(BaseModel):
-    categoria: CategoriaDespesa | None = None
-    valor: Decimal | None = Field(default=None, gt=0)
-    data: date | None = None
-    descricao: str | None = None
+class ContextoModeloDia(BaseModel):
+    dia: str  # AAAA-MM-DD
+    bruto: float
 
 
-class DespesaLinha(BaseModel):
-    """Despesa exibida na lista. Pode ser:
-    - pontual: `recorrente_id`/`competencia_mes` NULL, `origem='pontual'`;
-    - materializada: ambos preenchidos, `origem='recorrente_materializada'`;
-    - projetada: linha sintetizada de template (sem id real), `origem='recorrente_projetada'`.
-    """
+class ContextoModelo(BaseModel):
+    """Agregados da modelo: posição no período + sparkline 30d (absolutos)."""
 
-    id: UUID | None  # NULL para linhas projetadas
-    categoria: CategoriaDespesa
-    valor: Decimal
-    data: date
-    descricao: str | None
-    recorrente_id: UUID | None
-    competencia_mes: date | None
-    origem: Literal["pontual", "recorrente_materializada", "recorrente_projetada"]
-    # quando projetada, valor pode divergir do template (não, mas inclui para futura mudança)
-    valor_template: Decimal | None = None
+    modelo_id: UUID
+    nome: str
+    fechamentos_periodo: int
+    valor_bruto_periodo: float
+    valor_repasse_periodo: float
+    serie_30d: list[ContextoModeloDia]
 
 
-class DespesasListaResponse(BaseModel):
-    filtro_aplicado: dict[str, Any]
-    items: list[DespesaLinha]
-    next_cursor: str | None
+class ReceitaContextoResponse(BaseModel):
+    """Contexto completo da linha de receita (inspector lateral)."""
 
-
-class DespesaRecorrenteCriar(BaseModel):
-    categoria: CategoriaDespesa
-    valor: Decimal = Field(gt=0)
-    descricao: str = Field(min_length=1)
-    dia_do_mes: int = Field(ge=1, le=28)
-    ativo_desde: date  # validamos 1º do mês no service para mensagem clara
-
-    @model_validator(mode="after")
-    def ativo_desde_no_primeiro_dia(self) -> "DespesaRecorrenteCriar":
-        if self.ativo_desde.day != 1:
-            raise ValueError("ativo_desde deve ser o primeiro dia do mês")
-        return self
-
-
-class DespesaRecorrentePatch(BaseModel):
-    categoria: CategoriaDespesa | None = None
-    valor: Decimal | None = Field(default=None, gt=0)
-    descricao: str | None = Field(default=None, min_length=1)
-    dia_do_mes: int | None = Field(default=None, ge=1, le=28)
-
-
-class DespesaRecorrenteResponse(BaseModel):
-    id: UUID
-    categoria: CategoriaDespesa
-    valor: Decimal
-    descricao: str
-    dia_do_mes: int
-    ativo_desde: date
-    inativo_em: date | None
-    created_at: str
-    updated_at: str
-
-
-# Materialização: Fernando edita uma projeção (template + mês) → criar pontual amarrada.
-class MaterializarRecorrenteBody(BaseModel):
-    recorrente_id: UUID
-    competencia_mes: date  # validamos 1º do mês no service
-
-    @model_validator(mode="after")
-    def competencia_no_primeiro_dia(self) -> "MaterializarRecorrenteBody":
-        if self.competencia_mes.day != 1:
-            raise ValueError("competencia_mes deve ser o primeiro dia do mês")
-        return self
+    atendimento_id: UUID
+    cliente: ContextoCliente
+    modelo: ContextoModelo
 
 
 # ----------------------- Repasses pagos -------------------------------------
