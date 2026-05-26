@@ -1,15 +1,24 @@
 """Job de envio Evolution com registro em envios_evolution."""
 
+import asyncio
+import logging
+import random
 from collections.abc import Awaitable, Callable
-from typing import Any
+from datetime import timedelta
+from time import perf_counter
+from typing import Any, cast
 from uuid import UUID
 
 from psycopg import AsyncConnection
+from psycopg_pool import AsyncConnectionPool
 
 from barra.core.errors import ErroDominio
 from barra.core.evolution import EvolutionClient
+from barra.core.metrics import ENVIO_DURACAO, ENVIO_RESULTADO, ENVIO_RETRIES
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.workers._cards import render_card
+
+logger = logging.getLogger(__name__)
 
 
 async def enviar_texto_job(
@@ -132,3 +141,271 @@ async def enviar_card(ctx: dict[str, Any], *, tipo: str, **kw: Any) -> None:
     humanização (05 §6). Dispatch por `tipo`; cada renderer é idempotente por owner."""
     render = _RENDER_CARD[tipo]
     await render(ctx, **kw)
+
+
+# --- Humanização: job único `enviar_turno` por turno (05 §1/§4) --------------
+# Read receipt + reading delay, chunks de texto e depois mídias, EM ORDEM, com cancel-on-
+# new-message (turno não-crítico) e dedupe mark-after-send. Um único job percorre o turno em
+# laço — jobs por chunk rodariam concorrentes (`max_jobs`) e não garantiriam ordem (05 §1).
+
+
+def calcular_typing_ms(_texto: str) -> int:
+    """Typing 0.8-2.0s, plano (05 §4.1). O que vende humanização é o 'digitando…' aparecer,
+    não a duração exata, então random plano em vez de proporcional ao tamanho."""
+    return random.randint(800, 2000)  # noqa: S311 -- jitter de humanização, nao cripto
+
+
+def calcular_pausa_ms() -> int:
+    """Pausa entre chunks: 400-1200ms uniform (05 §4.1)."""
+    return random.randint(400, 1200)  # noqa: S311 -- jitter de humanização, nao cripto
+
+
+def calcular_reading_delay_ms(chars_inbound: int) -> int:
+    """Reading delay antes do PRIMEIRO 'composing' (humano lê → digita → responde), proporcional
+    ao inbound do turno com piso e teto enxutos (05 §4.1)."""
+    return min(500 + chars_inbound * 12, 3000)
+
+
+def _redis_eq(valor: object, esperado: str) -> bool:
+    """Compara um valor lido do Redis com uma str. A ArqRedis injetada em `ctx['redis']` não usa
+    `decode_responses`, então `get` devolve bytes — decodifica antes (igual a core/redis.py:59)."""
+    if valor is None:
+        return False
+    if isinstance(valor, bytes):
+        valor = valor.decode()
+    return valor == esperado
+
+
+async def _carregar_destino(pool: AsyncConnectionPool[Any], conversa_id: str) -> dict[str, Any]:
+    """Destino do envio: instância da modelo, chat do cliente e o atendimento aberto da conversa.
+    `evolution_instance_id` vive em `modelos`; `evolution_chat_id` em `conversas`."""
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT mo.evolution_instance_id AS evolution_instance_id,
+                   c.evolution_chat_id      AS evolution_chat_id,
+                   a.id                      AS atendimento_id
+              FROM barravips.conversas c
+              JOIN barravips.modelos mo ON mo.id = c.modelo_id
+              LEFT JOIN LATERAL (
+                  SELECT id
+                    FROM barravips.atendimentos
+                   WHERE conversa_id = c.id AND estado NOT IN ('Fechado', 'Perdido')
+                   ORDER BY created_at DESC
+                   LIMIT 1
+              ) a ON true
+             WHERE c.id = %s
+            """,
+            (UUID(conversa_id),),
+        )
+        row = await res.fetchone()
+    if row is None:
+        raise ErroDominio("CONVERSA_NAO_ENCONTRADA", "Conversa nao encontrada.", status_code=404)
+    return cast(dict[str, Any], row)
+
+
+async def enviar_turno(
+    ctx: dict[str, Any],
+    *,
+    conversa_id: str,
+    turno_id: str,
+    chunks: list[str],
+    midias: list[dict[str, Any]],
+    msg_ids_cliente: list[str],
+    chars_inbound: int,
+    critico: bool = False,
+) -> None:
+    """Envia um turno chunk-by-chunk e depois as mídias (05 §4).
+
+    `critico` vem no PAYLOAD do job (não do Redis, cujo TTL pode expirar antes da última retry
+    com backoff): turno crítico (write tool com efeito) entrega tudo ignorando o cancel; falha
+    final do job + crítico → `escalar_por_exaustao` (05 §7).
+    """
+    redis = ctx["redis"]
+    pool = ctx["db_pool"]
+    evolution: EvolutionClient = ctx["evolution"]
+
+    if ctx.get("job_try", 1) > 1:
+        ENVIO_RETRIES.inc()
+
+    inicio = perf_counter()
+    conv: dict[str, Any] | None = None
+    try:
+        conv = await _carregar_destino(pool, conversa_id)
+        conversa_uuid = UUID(conversa_id)
+
+        # 0. read receipt + reading delay (lê antes de digitar, 05 §4.2). O membro "read" do set
+        #    evita re-dormir o delay no retry; markAsRead em si já é idempotente. Roda ANTES do
+        #    cancel: marcar lido é inócuo mesmo que o turno seja cancelado em seguida.
+        if msg_ids_cliente and not await redis.sismember(f"enviados:{turno_id}", "read"):
+            await evolution.marcar_lida(
+                instance_id=conv["evolution_instance_id"],
+                remote_jid=conv["evolution_chat_id"],
+                message_ids=msg_ids_cliente,
+            )
+            await asyncio.sleep(calcular_reading_delay_ms(chars_inbound) / 1000)
+            await redis.sadd(f"enviados:{turno_id}", "read")
+            await redis.expire(f"enviados:{turno_id}", 600)
+
+        for idx, conteudo in enumerate(chunks):
+            # 1. cancel-on-new-message (turno crítico ignora o check, 05 §3)
+            if not critico and not _redis_eq(
+                await redis.get(f"turno_atual:{conversa_id}"), turno_id
+            ):
+                logger.info("turno_cancelado turno_id=%s idx=%s", turno_id, idx)
+                ENVIO_RESULTADO.labels("cancelado").inc()
+                return
+            # 2. dedupe: retry do job re-percorre desde idx 0 e pula o que já entregou (05 §4.3)
+            if await redis.sismember(f"enviados:{turno_id}", f"chunk:{idx}"):
+                continue
+
+            # 3. presence composing
+            typing_ms = calcular_typing_ms(conteudo)
+            await evolution.set_presence(
+                instance_id=conv["evolution_instance_id"],
+                remote_jid=conv["evolution_chat_id"],
+                presence="composing",
+                delay_ms=typing_ms,
+            )
+            await asyncio.sleep(typing_ms / 1000)
+
+            # 4 + 5. POST (→ envios_evolution) e persistência em mensagens, na MESMA transação
+            async with pool.connection() as conn, conn.transaction():
+                mid = await evolution.enviar_texto(
+                    conn=conn,
+                    instance_id=conv["evolution_instance_id"],
+                    remote_jid=conv["evolution_chat_id"],
+                    texto=conteudo,
+                    contexto="conversa_cliente",
+                    tipo="texto",
+                    atendimento_id=conv["atendimento_id"],
+                    conversa_id=conversa_uuid,
+                )
+                await conn.execute(
+                    """
+                    INSERT INTO barravips.mensagens
+                      (conversa_id, atendimento_id, direcao, tipo, conteudo, evolution_message_id)
+                    VALUES (%s, %s, 'ia', 'texto', %s, %s)
+                    ON CONFLICT (evolution_message_id) DO NOTHING
+                    """,
+                    (conversa_uuid, conv["atendimento_id"], conteudo, mid),
+                )
+
+            # 6. MARK-AFTER-SEND: só agora idx conta como entregue (05 §4.3)
+            await redis.sadd(f"enviados:{turno_id}", f"chunk:{idx}")
+            await redis.expire(f"enviados:{turno_id}", 600)
+
+            # 7. jitter
+            await asyncio.sleep(calcular_pausa_ms() / 1000)
+
+        if await _enviar_midias(ctx, conversa_id, turno_id, midias, conv, critico):
+            ENVIO_RESULTADO.labels("ok").inc()
+    except Exception:
+        # Falha final do job (ARQ não vai retentar): job_try chegou ao teto de tentativas.
+        job_try = ctx.get("job_try", 1)
+        max_tries = ctx.get("max_tries", 5)
+        if job_try >= max_tries:
+            logger.exception("envio_falha_final turno_id=%s critico=%s", turno_id, critico)
+            if critico and conv is not None:
+                # Dead-end (05 §7): efeito já no banco, mensagem pode não ter chegado → escala.
+                from barra.workers.coordenador import escalar_por_exaustao
+
+                await escalar_por_exaustao(
+                    pool, conv["atendimento_id"], turno_id, motivo="envio_exaurido_critico"
+                )
+                ENVIO_RESULTADO.labels("exaustao_critico").inc()
+            else:
+                ENVIO_RESULTADO.labels("falha_evolution").inc()
+        raise
+    finally:
+        ENVIO_DURACAO.observe(perf_counter() - inicio)
+
+
+async def _enviar_midias(
+    ctx: dict[str, Any],
+    conversa_id: str,
+    turno_id: str,
+    midias: list[dict[str, Any]],
+    conv: dict[str, Any],
+    critico: bool,
+) -> bool:
+    """Fase de mídia do MESMO job, depois de todos os chunks de texto (05 §5). A ordem é sempre
+    texto→mídia; a legenda de cada mídia carrega o contexto dela. Devolve `False` se cancelou no
+    meio (não conta como envio 'ok')."""
+    redis = ctx["redis"]
+    pool = ctx["db_pool"]
+    minio = ctx["minio"]
+    evolution: EvolutionClient = ctx["evolution"]
+    conversa_uuid = UUID(conversa_id)
+
+    for idx, item in enumerate(midias):
+        if not critico and not _redis_eq(await redis.get(f"turno_atual:{conversa_id}"), turno_id):
+            logger.info("turno_cancelado_midia turno_id=%s idx=%s", turno_id, idx)
+            ENVIO_RESULTADO.labels("cancelado").inc()
+            return False
+        if await redis.sismember(f"enviados:{turno_id}", f"midia:{idx}"):
+            continue
+
+        async with pool.connection() as conn:
+            res = await conn.execute(
+                "SELECT tipo, bucket, object_key FROM barravips.modelo_midia WHERE id = %s",
+                (item["midia_id"],),
+            )
+            m = await res.fetchone()
+        if not m:
+            logger.error("midia_nao_encontrada midia_id=%s", item["midia_id"])
+            continue
+
+        # presence "recording" para vídeo, "composing" para foto
+        presence = "recording" if m["tipo"] == "video" else "composing"
+        await evolution.set_presence(
+            instance_id=conv["evolution_instance_id"],
+            remote_jid=conv["evolution_chat_id"],
+            presence=presence,
+            delay_ms=1500,
+        )
+        await asyncio.sleep(1.5)
+
+        # URL assinada regenerada NO job (TTL 30min) — nunca cachear no payload: os retries do
+        # ARQ (backoff exponencial) podem ocorrer >5min depois (05 §5).
+        url = minio.presigned_get_object(
+            m["bucket"], m["object_key"], expires=timedelta(minutes=30)
+        )
+        async with pool.connection() as conn, conn.transaction():
+            mid = await evolution.enviar_midia(
+                conn=conn,
+                instance_id=conv["evolution_instance_id"],
+                remote_jid=conv["evolution_chat_id"],
+                url=url,
+                caption=item.get("legenda") or None,
+                media_type=m["tipo"],
+                contexto="conversa_cliente",
+                tipo=m["tipo"],
+                # view-once p/ vídeo (Mídia exclusiva, 01 §6.13): efetivo só quando a Evolution
+                # self-host expuser o campo no sendMedia; ignorado até lá.
+                view_once=(m["tipo"] == "video"),
+                atendimento_id=conv["atendimento_id"],
+                conversa_id=conversa_uuid,
+            )
+            await conn.execute(
+                """
+                INSERT INTO barravips.mensagens
+                  (conversa_id, atendimento_id, direcao, tipo, conteudo,
+                   media_object_key, evolution_message_id)
+                VALUES (%s, %s, 'ia', %s, %s, %s, %s)
+                ON CONFLICT (evolution_message_id) DO NOTHING
+                """,
+                (
+                    conversa_uuid,
+                    conv["atendimento_id"],
+                    m["tipo"],
+                    item.get("legenda") or "",
+                    m["object_key"],
+                    mid,
+                ),
+            )
+
+        await redis.sadd(f"enviados:{turno_id}", f"midia:{idx}")
+        await redis.expire(f"enviados:{turno_id}", 600)
+        await asyncio.sleep(0.6)
+    return True
