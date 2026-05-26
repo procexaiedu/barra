@@ -177,12 +177,22 @@ function conteudoInfo(ponto: MapaClientePonto): string {
   const local = escaparHtml(ponto.bairro ?? ponto.endereco_formatado ?? "—")
   const valor = formatBRL(Number(ponto.valor_total))
   const plural = ponto.total_atendimentos === 1 ? "atendimento" : "atendimentos"
+  const ultima = ponto.ultima_data ? formatarDataBR(ponto.ultima_data) : "—"
+  const recorrencia =
+    ponto.recorrente === undefined ? "—" : ponto.recorrente ? "Recorrente" : "Não recorrente"
   return `
-    <div style="font-family: inherit; min-width: 180px; color: #1a1a1a;">
+    <div style="font-family: inherit; min-width: 200px; color: #1a1a1a;">
       <div style="font-weight: 600; margin-bottom: 2px;">${nome}</div>
       <div style="color: #666; font-size: 12px;">${local}</div>
       <div style="margin-top: 6px; font-size: 12px;">${ponto.total_atendimentos} ${plural} · ${valor}</div>
+      <div style="margin-top: 2px; font-size: 12px; color: #555;">Última: ${ultima} · ${recorrencia}</div>
     </div>`
+}
+
+function formatarDataBR(iso: string): string {
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return "—"
+  return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
 }
 
 function escaparHtml(texto: string): string {

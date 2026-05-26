@@ -89,6 +89,10 @@ export interface MapaClientePonto {
   endereco_formatado: string | null
   total_atendimentos: number
   valor_total: number
+  /** Data do mesmo atendimento externo que ancora o ponto (ISO). Opcional p/ retro-compat. */
+  ultima_data?: string | null
+  /** Cliente recorrente cross-modelo (≥2 fechados) — mesma regra da Lista. */
+  recorrente?: boolean
 }
 
 export interface MapaClientesResponse {
