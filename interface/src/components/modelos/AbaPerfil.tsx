@@ -11,6 +11,8 @@ import { TipoChecks } from "@/components/modelos/DialogCriarModelo"
 import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
 import { deE164BR, extrairDigitosTelefone, formatarTelefoneBR, paraE164BR } from "@/lib/telefone"
 import { PERFIS_FISICOS, PERFIL_FISICO_LABEL } from "@/lib/perfilFisico"
+import { CORES_CABELO, CORES_PELE, COR_CABELO_LABEL, COR_PELE_LABEL } from "@/lib/cadastroModelo"
+import { cpfValido, formatarCpf, normalizarCpf } from "@/lib/cpf"
 import type {
   Duracao,
   DuracaoInput,
@@ -76,6 +78,16 @@ export function AbaPerfil({
     idiomas: modelo.idiomas.join(", "),
     tipo_atendimento_aceito: modelo.tipo_atendimento_aceito,
   })
+  const [cadastro, setCadastro] = useState({
+    rg: modelo.rg ?? "",
+    cpf: formatarCpf(modelo.cpf ?? ""),
+    endereco_residencial_formatado: modelo.endereco_residencial_formatado,
+    place_id_residencial: modelo.place_id_residencial,
+    cor_pele: modelo.cor_pele ?? "",
+    cor_cabelo: modelo.cor_cabelo ?? "",
+    altura_cm: modelo.altura_cm as number | null,
+    tamanho_pe: modelo.tamanho_pe as number | null,
+  })
   const [submitting, setSubmitting] = useState<string | null>(null)
 
   const dirtyIdentidade =
@@ -95,7 +107,17 @@ export function AbaPerfil({
     atendimento.place_id !== modelo.place_id ||
     atendimento.idiomas !== modelo.idiomas.join(", ") ||
     atendimento.tipo_atendimento_aceito.join("|") !== modelo.tipo_atendimento_aceito.join("|")
-  const anyDirty = dirtyIdentidade || dirtyWhats || dirtyRepasse || dirtyAtendimento
+  const cpfDigitos = normalizarCpf(cadastro.cpf)
+  const dirtyCadastro =
+    cadastro.rg !== (modelo.rg ?? "") ||
+    cpfDigitos !== (modelo.cpf ?? "") ||
+    cadastro.endereco_residencial_formatado !== modelo.endereco_residencial_formatado ||
+    cadastro.place_id_residencial !== modelo.place_id_residencial ||
+    (cadastro.cor_pele || null) !== modelo.cor_pele ||
+    (cadastro.cor_cabelo || null) !== modelo.cor_cabelo ||
+    cadastro.altura_cm !== modelo.altura_cm ||
+    cadastro.tamanho_pe !== modelo.tamanho_pe
+  const anyDirty = dirtyIdentidade || dirtyWhats || dirtyRepasse || dirtyAtendimento || dirtyCadastro
 
   useEffect(() => {
     const timer = setTimeout(() => onDirtyChange(anyDirty), 0)
@@ -118,6 +140,12 @@ export function AbaPerfil({
   const whatsappValido = /^\d{10,11}$/.test(numeroDigitos)
   const repasseValido = percentual === null || (percentual >= 0 && percentual <= 100)
   const atendimentoValido = idiomasArray.length > 0 && atendimento.tipo_atendimento_aceito.length > 0
+  const cpfCadastroValido = cpfDigitos === "" || cpfValido(cadastro.cpf)
+  const alturaValida =
+    cadastro.altura_cm === null || (cadastro.altura_cm >= 100 && cadastro.altura_cm <= 230)
+  const peValido =
+    cadastro.tamanho_pe === null || (cadastro.tamanho_pe >= 28 && cadastro.tamanho_pe <= 50)
+  const cadastroValido = cpfCadastroValido && alturaValida && peValido
 
   return (
     <div className="space-y-5">
@@ -320,6 +348,116 @@ export function AbaPerfil({
             idiomas: idiomasArray,
             tipo_atendimento_aceito: atendimento.tipo_atendimento_aceito,
           }, "Atendimento atualizado")}
+        />
+      </Card>
+
+      <Card title="Dados cadastrais">
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Campo label="RG">
+            <Input value={cadastro.rg} onChange={(e) => setCadastro({ ...cadastro, rg: e.target.value })} className="h-10 bg-input" />
+          </Campo>
+          <Campo label="CPF">
+            <Input
+              value={cadastro.cpf}
+              placeholder="000.000.000-00"
+              inputMode="numeric"
+              onChange={(e) => setCadastro({ ...cadastro, cpf: formatarCpf(e.target.value) })}
+              className="h-10 bg-input"
+            />
+            {cpfDigitos !== "" && !cpfCadastroValido && (
+              <span className="text-[11px] normal-case tracking-normal text-state-lost">CPF inválido</span>
+            )}
+          </Campo>
+          <div className="sm:col-span-2">
+            <Campo label="Endereço residencial">
+              <CampoLocalAutocomplete
+                valorInicial={cadastro.endereco_residencial_formatado ?? ""}
+                enderecoFormatadoAtual={cadastro.endereco_residencial_formatado}
+                onSelecionar={(local) =>
+                  setCadastro((c) => ({
+                    ...c,
+                    endereco_residencial_formatado: local.endereco_formatado,
+                    place_id_residencial: local.place_id,
+                  }))
+                }
+                onLimpar={() =>
+                  setCadastro((c) => ({
+                    ...c,
+                    endereco_residencial_formatado: null,
+                    place_id_residencial: null,
+                  }))
+                }
+              />
+            </Campo>
+          </div>
+          <Campo label="Cor de pele">
+            <select
+              value={cadastro.cor_pele}
+              onChange={(e) => setCadastro({ ...cadastro, cor_pele: e.target.value })}
+              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+            >
+              <option value="">Não informada</option>
+              {CORES_PELE.map((slug) => (
+                <option key={slug} value={slug}>
+                  {COR_PELE_LABEL[slug]}
+                </option>
+              ))}
+            </select>
+          </Campo>
+          <Campo label="Cor de cabelo">
+            <select
+              value={cadastro.cor_cabelo}
+              onChange={(e) => setCadastro({ ...cadastro, cor_cabelo: e.target.value })}
+              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+            >
+              <option value="">Não informada</option>
+              {CORES_CABELO.map((slug) => (
+                <option key={slug} value={slug}>
+                  {COR_CABELO_LABEL[slug]}
+                </option>
+              ))}
+            </select>
+          </Campo>
+          <Campo label="Altura (cm)">
+            <Input
+              type="number"
+              min={100}
+              max={230}
+              value={cadastro.altura_cm ?? ""}
+              onChange={(e) =>
+                setCadastro({ ...cadastro, altura_cm: e.target.value === "" ? null : Number(e.target.value) })
+              }
+              className="h-10 bg-input"
+            />
+          </Campo>
+          <Campo label="Tamanho do pé">
+            <Input
+              type="number"
+              min={28}
+              max={50}
+              value={cadastro.tamanho_pe ?? ""}
+              onChange={(e) =>
+                setCadastro({ ...cadastro, tamanho_pe: e.target.value === "" ? null : Number(e.target.value) })
+              }
+              className="h-10 bg-input"
+            />
+          </Campo>
+        </div>
+        <Salvar
+          dirty={dirtyCadastro}
+          disabled={!cadastroValido}
+          submitting={submitting === "cadastro"}
+          label="Salvar dados cadastrais"
+          onClick={() => salvar("cadastro", {
+            rg: cadastro.rg.trim() || null,
+            cpf: cpfDigitos || null,
+            endereco_residencial_formatado: cadastro.endereco_residencial_formatado,
+            place_id_residencial: cadastro.place_id_residencial,
+            cor_pele: (cadastro.cor_pele || null) as PatchModeloInput["cor_pele"],
+            cor_cabelo: (cadastro.cor_cabelo || null) as PatchModeloInput["cor_cabelo"],
+            altura_cm: cadastro.altura_cm,
+            tamanho_pe: cadastro.tamanho_pe,
+          }, "Dados cadastrais atualizados")}
         />
       </Card>
     </div>

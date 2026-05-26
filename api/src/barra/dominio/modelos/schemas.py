@@ -1,8 +1,40 @@
 from datetime import date, time
 from decimal import Decimal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, model_validator
+
+CorPele = Literal["branca", "parda", "negra", "asiatica", "indigena", "outra"]
+CorCabelo = Literal[
+    "loiro", "castanho_claro", "castanho_escuro", "preto", "ruivo", "grisalho", "colorido", "outra"
+]
+
+
+def _validar_cpf(valor: str | None) -> str | None:
+    """Normaliza para 11 dígitos e valida os dígitos verificadores (ADR 0007)."""
+    if valor is None:
+        return None
+    digitos = "".join(ch for ch in valor if ch.isdigit())
+    if not digitos:
+        return None
+    if len(digitos) != 11:
+        raise ValueError("CPF deve ter 11 dígitos")
+    if digitos == digitos[0] * 11:
+        raise ValueError("CPF inválido")
+
+    def _dv(base: str) -> int:
+        peso = len(base) + 1
+        soma = sum(int(d) * (peso - i) for i, d in enumerate(base))
+        resto = soma % 11
+        return 0 if resto < 2 else 11 - resto
+
+    if _dv(digitos[:9]) != int(digitos[9]) or _dv(digitos[:10]) != int(digitos[10]):
+        raise ValueError("CPF inválido")
+    return digitos
+
+
+CpfField = Annotated[str | None, AfterValidator(_validar_cpf)]
 
 
 class ModeloCreate(BaseModel):
@@ -21,6 +53,15 @@ class ModeloCreate(BaseModel):
     place_id: str | None = None
     tipo_atendimento_aceito: list[str]
     tipo_fisico: str | None = None
+    # Ficha cadastral pessoal (ADR 0007) — painel-only, não alimenta breakdown/persona.
+    rg: str | None = None
+    cpf: CpfField = None
+    endereco_residencial_formatado: str | None = None
+    place_id_residencial: str | None = None
+    cor_pele: CorPele | None = None
+    cor_cabelo: CorCabelo | None = None
+    altura_cm: int | None = Field(default=None, ge=100, le=230)
+    tamanho_pe: int | None = Field(default=None, ge=28, le=50)
 
 
 class ModeloPatch(BaseModel):
@@ -41,6 +82,15 @@ class ModeloPatch(BaseModel):
     tipo_fisico: str | None = None
     status: str | None = None
     coordenacao_chat_id: str | None = None
+    # Ficha cadastral pessoal (ADR 0007).
+    rg: str | None = None
+    cpf: CpfField = None
+    endereco_residencial_formatado: str | None = None
+    place_id_residencial: str | None = None
+    cor_pele: CorPele | None = None
+    cor_cabelo: CorCabelo | None = None
+    altura_cm: int | None = Field(default=None, ge=100, le=230)
+    tamanho_pe: int | None = Field(default=None, ge=28, le=50)
 
 
 class ConectarWhatsappRequest(BaseModel):

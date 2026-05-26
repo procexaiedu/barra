@@ -9,6 +9,18 @@ export type FiltroEvolution = "todos" | "pareada" | "nao_pareada"
 export type FiltroTipoAtendimento = "todos" | TipoAtendimento
 export type EvolutionStatus = "desconectado" | "pareando" | "conectado"
 
+// Ficha cadastral da modelo (ADR 0007) — distinta do tipo_fisico (venda).
+export type CorPele = "branca" | "parda" | "negra" | "asiatica" | "indigena" | "outra"
+export type CorCabelo =
+  | "loiro"
+  | "castanho_claro"
+  | "castanho_escuro"
+  | "preto"
+  | "ruivo"
+  | "grisalho"
+  | "colorido"
+  | "outra"
+
 export interface ModeloIndicadores {
   atendimentos_abertos: number
   conversas_ia_pausada: number
@@ -57,6 +69,15 @@ export interface ModeloDetalhe {
   place_id: string | null
   tipo_atendimento_aceito: TipoAtendimento[]
   tipo_fisico: PerfilFisico | null
+  // Ficha cadastral (ADR 0007).
+  rg: string | null
+  cpf: string | null
+  endereco_residencial_formatado: string | null
+  place_id_residencial: string | null
+  cor_pele: CorPele | null
+  cor_cabelo: CorCabelo | null
+  altura_cm: number | null
+  tamanho_pe: number | null
   foto_perfil_object_key: string | null
   foto_perfil_url: string | null
   created_at: string
@@ -170,6 +191,15 @@ export interface CriarModeloInput {
   place_id?: string | null
   tipo_atendimento_aceito: TipoAtendimento[]
   tipo_fisico?: PerfilFisico | null
+  // Ficha cadastral (ADR 0007).
+  rg?: string | null
+  cpf?: string | null
+  endereco_residencial_formatado?: string | null
+  place_id_residencial?: string | null
+  cor_pele?: CorPele | null
+  cor_cabelo?: CorCabelo | null
+  altura_cm?: number | null
+  tamanho_pe?: number | null
 }
 
 export interface PatchModeloInput {
@@ -190,6 +220,15 @@ export interface PatchModeloInput {
   tipo_fisico?: PerfilFisico | null
   status?: StatusModelo
   coordenacao_chat_id?: string | null
+  // Ficha cadastral (ADR 0007).
+  rg?: string | null
+  cpf?: string | null
+  endereco_residencial_formatado?: string | null
+  place_id_residencial?: string | null
+  cor_pele?: CorPele | null
+  cor_cabelo?: CorCabelo | null
+  altura_cm?: number | null
+  tamanho_pe?: number | null
 }
 
 export interface FiltrosModelos {
