@@ -60,25 +60,37 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 
 ## Índice de tarefas
 
-| ID | Tarefa | Fase | Escopo | Depende de |
-|---|---|---|---|---|
-| MAPA-1 | Seletor de métrica + legenda (espinha dorsal) | 1 | ✅ | — |
-| MAPA-2 | Bolhas graduadas | 1 | ✅ | MAPA-1 |
-| MAPA-3 | Cor por desfecho do atendimento mais recente | 1 | 🟡 | MAPA-1 |
-| MAPA-4 | Ranking lateral de bairros/cidades quentes | 1 | 🟡 | MAPA-1 |
-| MAPA-5 | InfoWindow enriquecido | 1 | 🟡 | — |
-| MAPA-6 | deck.gl: infraestrutura + camada Hexbin/H3 | 2 | ✅ | MAPA-1 |
-| MAPA-7 | Camada Heatmap KDE (toggle) | 3 | ✅ | MAPA-6 |
-| MAPA-8 | Filtro por desfecho + motivo de perda | extra | 🟡 | MAPA-3 |
-| MAPA-9 | Camada "demanda não atendida" | extra | 🟡 | MAPA-8 |
-| MAPA-10 | Cor/filtro por perfil físico preferido | extra | 🟡 | MAPA-1 |
-| MAPA-11 | Faixa de R$ + recência (filtros) | extra | 🟡 | MAPA-1 |
-| MAPA-12 | Mapa ↔ Lista linkados | extra | 🟡 | — |
-| MAPA-13 | Lasso/raio → segmento de clientes | extra | 🟡 | — |
-| MAPA-14 | Comparar dois períodos (lift de campanha) | extra | 🟡 | MAPA-6 |
-| MAPA-15 | Camada "Modelos" (oferta × demanda) | extensão | 🟡 | ADR 0010 |
-| MAPA-16 | Choropleth por região (estado/cidade) | extensão | 🔴 | novo ADR |
-| MAPA-17 | Isócrona / drive-time a partir das modelos | extensão | 🔴 | novo ADR |
+> **Status atualizado em 2026-05-26** (após pipeline noturno de routines do Claude Code; ver
+> [[pipeline-autonomo-via-routines]] na memória do agente).
+
+| ID | Tarefa | Fase | Escopo | Depende de | Status |
+|---|---|---|---|---|---|
+| MAPA-1 | Seletor de métrica + legenda (espinha dorsal) | 1 | ✅ | — | ✅ shipado (pré-pipeline) |
+| MAPA-2 | Bolhas graduadas | 1 | ✅ | MAPA-1 | 🟡 PR #12 draft (review manual pendente) |
+| MAPA-3 | Cor por desfecho do atendimento mais recente | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #21) |
+| MAPA-4 | Ranking lateral de bairros/cidades quentes | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #14) |
+| MAPA-5 | InfoWindow enriquecido | 1 | 🟡 | MAPA-5b | ❌ bloqueado em PR #15 — falta MAPA-5b |
+| MAPA-5b | Suporte a `?cliente=<id>` em `/clientes` | 1 | ✅ | — | ⏸️ routine criada e cancelada — fazer manual |
+| MAPA-6 | deck.gl: infraestrutura + camada Hexbin/H3 | 2 | ✅ | MAPA-1 | ⏸️ retry cancelado — replanejar pós-deploy |
+| MAPA-7 | Camada Heatmap KDE (toggle) | 3 | ✅ | MAPA-6 | — |
+| MAPA-8 | Filtro por desfecho + motivo de perda | extra | 🟡 | MAPA-3 | — (desbloqueado por MAPA-3 mergeado) |
+| MAPA-9 | Camada "demanda não atendida" | extra | 🟡 | MAPA-8 | — |
+| MAPA-10 | Cor/filtro por perfil físico preferido | extra | 🟡 | MAPA-1 | ✅ mergeado (PR #22) |
+| MAPA-11 | Faixa de R$ + recência (filtros) | extra | 🟡 | MAPA-1 | ⏸️ retry cancelado — replanejar pós-deploy |
+| MAPA-12 | Mapa ↔ Lista linkados | extra | 🟡 | — | ✅ mergeado (PR #19) |
+| MAPA-13 | Lasso/raio → segmento de clientes | extra | 🟡 | — | — |
+| MAPA-14 | Comparar dois períodos (lift de campanha) | extra | 🟡 | MAPA-6 | — |
+| MAPA-15 | Camada "Modelos" (oferta × demanda) | extensão | 🟡 | ADR 0010 | ⏸️ retry cancelado — replanejar pós-deploy |
+| MAPA-16 | Choropleth por região (estado/cidade) | extensão | 🔴 | novo ADR | — |
+| MAPA-17 | Isócrona / drive-time a partir das modelos | extensão | 🔴 | novo ADR | — |
+
+### Snapshot do pipeline noturno (2026-05-26)
+
+- **Mergeados na feature branch** (ordem cronológica): MAPA-4 (#14), MAPA-12 (#19), MAPA-3 (#21, retry), MAPA-10 (#22, retry). Plus commit cirúrgico removendo `interface/src/app/demo-mapa/page.tsx` (rota temporária da MAPA-1 que bloqueava type-check em PRs que estendiam `MapaClientePonto`).
+- **`[FAIL]` documentado** que viraram lixo: MAPA-3 (#13) e MAPA-10 (#17), substituídos pelos retries #21/#22 e fechados.
+- **`[FAIL]` em aberto por motivo de domínio**: MAPA-5 (#15) — `/clientes/{id}` não existe; criada sub-tarefa MAPA-5b para suportar `?cliente=<id>`.
+- **Cancelados por conflito recorrente em `MapaClientes.tsx` / `MapaControles.tsx`**: MAPA-6, MAPA-11, MAPA-15. Causa raiz: routines paralelas tocam o mesmo arquivo. Próximo ciclo: rodar essas tarefas sequencialmente após o deploy atual estar validado.
+- **MAPA-2 (#12)** ficou como draft fora do auto-merge (já estava pronto antes do acordo).
 
 ---
 
