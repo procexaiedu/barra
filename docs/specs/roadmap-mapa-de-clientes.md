@@ -66,7 +66,7 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 | ID | Tarefa | Fase | Escopo | Depende de | Status |
 |---|---|---|---|---|---|
 | MAPA-1 | Seletor de métrica + legenda (espinha dorsal) | 1 | ✅ | — | ✅ shipado (pré-pipeline) |
-| MAPA-2 | Bolhas graduadas | 1 | ✅ | MAPA-1 | 🟡 PR #12 draft (review manual pendente) |
+| MAPA-2 | Bolhas graduadas | 1 | ✅ | MAPA-1 | 🟡 PR aberto em `feat/mapa-2-bolhas` (PR #12 fechado por DIRTY) |
 | MAPA-3 | Cor por desfecho do atendimento mais recente | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #21) |
 | MAPA-4 | Ranking lateral de bairros/cidades quentes | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #14) |
 | MAPA-5 | InfoWindow enriquecido | 1 | 🟡 | MAPA-5b | ❌ bloqueado em PR #15 — falta MAPA-5b |
@@ -90,7 +90,7 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 - **`[FAIL]` documentado** que viraram lixo: MAPA-3 (#13) e MAPA-10 (#17), substituídos pelos retries #21/#22 e fechados.
 - **`[FAIL]` em aberto por motivo de domínio**: MAPA-5 (#15) — `/clientes/{id}` não existe; criada sub-tarefa MAPA-5b para suportar `?cliente=<id>`.
 - **Cancelados por conflito recorrente em `MapaClientes.tsx` / `MapaControles.tsx`**: MAPA-6, MAPA-11, MAPA-15. Causa raiz: routines paralelas tocam o mesmo arquivo. Próximo ciclo: rodar essas tarefas sequencialmente após o deploy atual estar validado.
-- **MAPA-2 (#12)** ficou como draft fora do auto-merge (já estava pronto antes do acordo).
+- **MAPA-2 (#12)** ficou como draft fora do auto-merge (já estava pronto antes do acordo). Retomado em 2026-05-26 em branch nova `feat/mapa-2-bolhas` (PR #12 fechado), porque a base ficou CONFLICTING contra MAPA-3/4/10/12 — a composição com `modoCor` (bolhas só quando "Por métrica"), o destaque do bairro (MAPA-4 vence), e o `peso` no `markersRef` foram redesenhados sobre a versão de main.
 
 ---
 

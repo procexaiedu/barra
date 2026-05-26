@@ -7,6 +7,7 @@ import {
   RAMPA_SEQ,
   limitesMetrica,
   type MapaMetrica,
+  type MapaModoMarker,
 } from "@/lib/mapaMetrica"
 import type { MapaClientePonto } from "@/tipos/clientes"
 
@@ -62,6 +63,58 @@ export function SeletorModoCor({
             role="radio"
             aria-checked={ativo}
             title={opcao.tooltip}
+            onClick={() => onModoChange(opcao.id)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              ativo
+                ? "bg-accent text-text-primary"
+                : "text-text-muted hover:text-text-secondary",
+            )}
+          >
+            {opcao.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+const OPCOES_MODO_MARKER: readonly { id: MapaModoMarker; label: string }[] = [
+  { id: "bolhas", label: "Bolhas" },
+  { id: "pins", label: "Pins" },
+] as const
+
+/** Toggle Pins|Bolhas (MAPA-2). Renderizar SÓ quando modoCor==='metrica' —
+ *  em desfecho/perfil o marker é sempre PinElement colorido. */
+export function SeletorModoMarker({
+  modo,
+  metrica,
+  onModoChange,
+}: {
+  modo: MapaModoMarker
+  metrica: MapaMetrica
+  onModoChange: (m: MapaModoMarker) => void
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Estilo dos marcadores"
+      className="inline-flex rounded-lg border border-border bg-card p-0.5"
+    >
+      {OPCOES_MODO_MARKER.map((opcao) => {
+        const ativo = opcao.id === modo
+        // Caso degenerado MAPA-2: bolhas + métrica "clientes" → todas iguais.
+        const tooltip =
+          opcao.id === "bolhas" && metrica === "clientes"
+            ? 'Em "Clientes" todas as bolhas têm o mesmo tamanho (1 cliente = 1 ponto).'
+            : undefined
+        return (
+          <button
+            key={opcao.id}
+            type="button"
+            role="radio"
+            aria-checked={ativo}
+            title={tooltip}
             onClick={() => onModoChange(opcao.id)}
             className={cn(
               "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
