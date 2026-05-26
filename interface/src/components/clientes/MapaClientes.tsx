@@ -22,18 +22,26 @@ import {
 import {
   COR_PERFIL,
   COR_PERFIL_SEM,
+  FiltroMotivoPerda,
   LegendaDesfecho,
   LegendaEscala,
   LegendaPerfil,
   SeletorCamada,
+  SeletorDesfecho,
   SeletorMetrica,
   SeletorModoCor,
   corPorDesfecho,
+  type FiltroDesfecho,
   type ModoCor,
 } from "@/components/clientes/MapaControles"
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
 import { rotuloPerfil } from "@/lib/perfilFisico"
-import type { EstadoAtendimento, MapaClientePonto, PerfilFisico } from "@/tipos/clientes"
+import type {
+  EstadoAtendimento,
+  MapaClientePonto,
+  MotivoPerda,
+  PerfilFisico,
+} from "@/tipos/clientes"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
 const CENTRO_BRASIL = { lat: -14.235, lng: -51.925 }
@@ -47,6 +55,10 @@ export function MapaClientes({
   error,
   onRetry,
   onFiltrarBairro,
+  desfecho,
+  motivosPerda,
+  onDesfechoChange,
+  onMotivosPerdaChange,
 }: {
   pontos: MapaClientePonto[]
   totalSemLocalizacao: number
@@ -55,6 +67,11 @@ export function MapaClientes({
   onRetry: () => void
   /** MAPA-12: liga o mapa à Lista — informa o bairro do ponto clicado ao pai. */
   onFiltrarBairro?: (bairro: string) => void
+  /** MAPA-8: filtros do mapa (vivem no pai porque o hook precisa deles na querystring). */
+  desfecho: FiltroDesfecho
+  motivosPerda: MotivoPerda[]
+  onDesfechoChange: (d: FiltroDesfecho) => void
+  onMotivosPerdaChange: (m: MotivoPerda[]) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -359,6 +376,13 @@ export function MapaClientes({
           {camada === "bolhas" && (
             <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
           )}
+          {/* MAPA-8: filtros reduzem os pontos antes de qualquer camada. */}
+          <SeletorDesfecho desfecho={desfecho} onDesfechoChange={onDesfechoChange} />
+          <FiltroMotivoPerda
+            desfecho={desfecho}
+            motivosPerda={motivosPerda}
+            onMotivosPerdaChange={onMotivosPerdaChange}
+          />
         </div>
       </div>
       <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">

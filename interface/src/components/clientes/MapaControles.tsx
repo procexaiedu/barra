@@ -1,5 +1,8 @@
 "use client"
 
+import { Check, ChevronDown } from "lucide-react"
+import { useState } from "react"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { formatBRL } from "@/lib/formatters"
 import {
@@ -11,8 +14,14 @@ import {
   type MapaCamada,
   type MapaMetrica,
 } from "@/lib/mapaMetrica"
+import { MOTIVO_PERDA_LABEL, MOTIVOS_PERDA } from "@/lib/motivoPerda"
 import { PERFIS_FISICOS, PERFIL_FISICO_LABEL } from "@/lib/perfilFisico"
-import type { EstadoAtendimento, MapaClientePonto, PerfilFisico } from "@/tipos/clientes"
+import type {
+  EstadoAtendimento,
+  MapaClientePonto,
+  MotivoPerda,
+  PerfilFisico,
+} from "@/tipos/clientes"
 
 // Paletas categóricas reusadas pelo marker (PinElement) e pelas legendas. Hex literal
 // porque PinElement não resolve CSS vars; valores espelham --state-*/--chart-* do tema.
@@ -305,6 +314,179 @@ export function LegendaDesfecho() {
         ))}
       </ul>
     </div>
+  )
+}
+
+/** Filtro de desfecho (MAPA-8). Reduz os pontos do mapa — distinto do "modo de cor
+ *  por desfecho" (cosmético). Default "todos" preserva o comportamento atual. */
+export type FiltroDesfecho = "todos" | "Fechado" | "Perdido" | "andamento"
+
+const OPCOES_DESFECHO: readonly { id: FiltroDesfecho; label: string; tooltip: string }[] = [
+  { id: "todos", label: "Todos", tooltip: "Sem filtro de desfecho." },
+  {
+    id: "Fechado",
+    label: "Fechado",
+    tooltip: "Só pontos cujo externo mais recente foi fechado.",
+  },
+  {
+    id: "Perdido",
+    label: "Perdido",
+    tooltip: "Só pontos cujo externo mais recente foi perdido.",
+  },
+  {
+    id: "andamento",
+    label: "Em andamento",
+    tooltip: "Só pontos cujo externo mais recente ainda não terminou.",
+  },
+] as const
+
+export function SeletorDesfecho({
+  desfecho,
+  onDesfechoChange,
+}: {
+  desfecho: FiltroDesfecho
+  onDesfechoChange: (d: FiltroDesfecho) => void
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Filtro por desfecho"
+      className="inline-flex rounded-lg border border-border bg-card p-0.5"
+    >
+      {OPCOES_DESFECHO.map((opcao) => {
+        const ativo = opcao.id === desfecho
+        return (
+          <button
+            key={opcao.id}
+            type="button"
+            role="radio"
+            aria-checked={ativo}
+            title={opcao.tooltip}
+            onClick={() => onDesfechoChange(opcao.id)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              ativo
+                ? "bg-accent text-text-primary"
+                : "text-text-muted hover:text-text-secondary",
+            )}
+          >
+            {opcao.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** Filtro multi-select de motivos de perda (MAPA-8). Só faz sentido quando o
+ *  desfecho selecionado é "Perdido"; fora disso o trigger fica desabilitado com
+ *  tooltip — o estado `motivosPerda` é zerado no pai ao trocar de desfecho para
+ *  evitar querystring órfã, então `desabilitado` aqui é defesa em profundidade. */
+export function FiltroMotivoPerda({
+  motivosPerda,
+  desfecho,
+  onMotivosPerdaChange,
+}: {
+  motivosPerda: MotivoPerda[]
+  desfecho: FiltroDesfecho
+  onMotivosPerdaChange: (m: MotivoPerda[]) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const desabilitado = desfecho !== "Perdido"
+  const selecionados = new Set(motivosPerda)
+
+  const toggle = (m: MotivoPerda) => {
+    const prox = new Set(selecionados)
+    if (prox.has(m)) prox.delete(m)
+    else prox.add(m)
+    // Reordena pela canônica para serialização de URL estável.
+    onMotivosPerdaChange(MOTIVOS_PERDA.filter((slug) => prox.has(slug)))
+  }
+
+  const rotulo =
+    motivosPerda.length === 0
+      ? "Todos"
+      : motivosPerda.length === 1
+        ? MOTIVO_PERDA_LABEL[motivosPerda[0]]
+        : `${motivosPerda.length} motivos`
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger
+        disabled={desabilitado}
+        aria-disabled={desabilitado || undefined}
+        aria-label="Filtrar por motivo de perda"
+        title={
+          desabilitado
+            ? "Disponível quando o desfecho é Perdido."
+            : "Motivo do atendimento que ancora o ponto. Combina por OR."
+        }
+        className={cn(
+          "flex h-9 min-w-[8.5rem] items-center justify-between gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          desabilitado && "cursor-not-allowed opacity-50 hover:bg-input",
+        )}
+      >
+        <span className="flex items-center gap-2 truncate">
+          <span className="text-[11px] font-medium text-text-muted">Motivo:</span>
+          <span
+            className={cn(
+              "truncate",
+              motivosPerda.length === 0 && "text-text-muted",
+            )}
+          >
+            {rotulo}
+          </span>
+          {motivosPerda.length > 1 && (
+            <span className="shrink-0 rounded-full bg-gold-500/15 px-1.5 text-[10px] font-semibold text-gold-500 tabular-nums">
+              {motivosPerda.length}
+            </span>
+          )}
+        </span>
+        <ChevronDown size={14} strokeWidth={1.5} className="shrink-0 text-text-muted" />
+      </PopoverTrigger>
+      <PopoverContent align="end" className="min-w-[200px] p-2">
+        <ul className="max-h-60 overflow-y-auto">
+          <li>
+            <button
+              type="button"
+              onClick={() => onMotivosPerdaChange([])}
+              className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
+            >
+              <span
+                className={cn(
+                  motivosPerda.length === 0
+                    ? "font-medium text-gold-500"
+                    : "text-text-primary",
+                )}
+              >
+                Todos
+              </span>
+              {motivosPerda.length === 0 && (
+                <Check size={14} strokeWidth={2} className="text-gold-500" />
+              )}
+            </button>
+          </li>
+          {MOTIVOS_PERDA.map((m) => {
+            const ativo = selecionados.has(m)
+            return (
+              <li key={m}>
+                <button
+                  type="button"
+                  onClick={() => toggle(m)}
+                  aria-pressed={ativo}
+                  className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:bg-accent"
+                >
+                  <span className="truncate">{MOTIVO_PERDA_LABEL[m]}</span>
+                  {ativo && (
+                    <Check size={14} strokeWidth={2} className="shrink-0 text-gold-500" />
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      </PopoverContent>
+    </Popover>
   )
 }
 
