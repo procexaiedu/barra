@@ -1,5 +1,5 @@
 """Integração da rota /v1/crm/clientes/mapa — cor por desfecho (MAPA-3) +
-última data / recorrência (MAPA-5), ADR 0008."""
+última data / recorrência (MAPA-5) + filtro desfecho/motivo (MAPA-8), ADR 0008."""
 
 from contextlib import asynccontextmanager
 from typing import Any
@@ -23,10 +23,13 @@ class _Result:
 
 
 class FakeConnMapa:
-    """Mock do `mapa_clientes`: responde a query do endpoint com as linhas configuradas."""
+    """Mock do `mapa_clientes`: responde a query do endpoint com as linhas configuradas.
+    Guarda a última query/params para inspeção dos filtros aplicados (MAPA-8)."""
 
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self.rows = rows
+        self.last_query: str | None = None
+        self.last_params: object = None
 
     @asynccontextmanager
     async def transaction(self):
@@ -34,6 +37,8 @@ class FakeConnMapa:
 
     async def execute(self, query: str, params: object = None) -> _Result:
         if "FROM barravips.clientes" in query and "LATERAL" in query and "geo.estado" in query:
+            self.last_query = query
+            self.last_params = params
             return _Result(self.rows)
         return _Result([])
 
@@ -47,6 +52,7 @@ def _ponto(
     cliente_id: UUID | None = None,
     ultima_data: str = "2026-05-20T10:00:00",
     total_fechados: int = 0,
+    motivo_perda: str | None = None,
 ) -> dict[str, Any]:
     return {
         "id": cliente_id or uuid4(),
@@ -57,6 +63,7 @@ def _ponto(
         "bairro": "Copacabana",
         "endereco_formatado": "Av. Atlântica, 1000",
         "estado": estado,
+        "motivo_perda": motivo_perda,
         "ultima_data": ultima_data,
         "total_atendimentos": 1,
         "total_fechados": total_fechados,
@@ -160,5 +167,114 @@ def test_mapa_clientes_nao_recorrente_com_um_fechado() -> None:
         pontos = response.json()["pontos"]
         assert len(pontos) == 1
         assert pontos[0]["recorrente"] is False
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+# ---------------------------------------------------------------------------
+# MAPA-8: filtro por desfecho + motivo de perda
+# O FakeConn devolve as linhas configuradas sem aplicar o filtro do SQL — os
+# testes verificam (a) que o filtro foi inserido no WHERE corretamente e (b)
+# que `motivo_perda` chega ao payload.
+
+
+def test_mapa_clientes_filtra_por_desfecho_perdido() -> None:
+    fake = FakeConnMapa([_ponto("Perdido", motivo_perda="fora_de_area")])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa?desfecho=Perdido", headers=_token()
+            )
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        assert "geo.estado = 'Perdido'" in fake.last_query
+        pontos = response.json()["pontos"]
+        assert len(pontos) == 1
+        assert pontos[0]["estado"] == "Perdido"
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_filtra_por_motivo_perda_or() -> None:
+    fake = FakeConnMapa(
+        [
+            _ponto("Perdido", motivo_perda="fora_de_area"),
+            _ponto("Perdido", motivo_perda="indisponibilidade"),
+        ]
+    )
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa?desfecho=Perdido"
+                "&motivo_perda=fora_de_area&motivo_perda=indisponibilidade",
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        assert (
+            "geo.motivo_perda = ANY(%s::barravips.motivo_perda_enum[])"
+            in fake.last_query
+        )
+        # OR é representado pelo array passado como parâmetro do ANY.
+        assert isinstance(fake.last_params, list)
+        assert ["fora_de_area", "indisponibilidade"] in fake.last_params
+        pontos = response.json()["pontos"]
+        motivos = {p["motivo_perda"] for p in pontos}
+        assert motivos == {"fora_de_area", "indisponibilidade"}
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_motivo_perda_no_payload() -> None:
+    async def _override():
+        yield FakeConnMapa(
+            [
+                _ponto("Fechado", motivo_perda=None),
+                _ponto("Perdido", motivo_perda="preco"),
+            ]
+        )
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes/mapa", headers=_token())
+        assert response.status_code == 200
+        pontos = response.json()["pontos"]
+        assert len(pontos) == 2
+        # Ordem preservada do mock: Fechado primeiro, Perdido depois.
+        assert pontos[0]["motivo_perda"] is None
+        assert pontos[1]["motivo_perda"] == "preco"
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_desfecho_andamento_exclui_perdido_e_fechado() -> None:
+    fake = FakeConnMapa([_ponto("Em_execucao")])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa?desfecho=andamento", headers=_token()
+            )
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        assert "geo.estado NOT IN ('Fechado', 'Perdido')" in fake.last_query
+        pontos = response.json()["pontos"]
+        assert len(pontos) == 1
+        assert pontos[0]["estado"] == "Em_execucao"
     finally:
         app.dependency_overrides.pop(get_conn, None)

@@ -1,5 +1,5 @@
 import re
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
@@ -121,12 +121,19 @@ async def mapa_clientes(
     periodo: str | None = None,
     perfis: list[str] | None = Query(default=None),
     incluir_arquivados: bool = False,
+    desfecho: Literal["Fechado", "Perdido", "andamento"] | None = None,
+    motivos_perda: list[str] | None = Query(default=None, alias="motivo_perda"),
 ) -> dict[str, Any]:
     """Pontos do **Mapa de clientes** (ADR 0008): 1 ponto por cliente na localização do
     atendimento **externo** mais recente com `lat/lng`. Interno fica de fora (lá o endereço é o
     ponto de encontro na modelo, não onde o cliente mora). Cliente sem externo geocodificado não
     vira ponto e entra em `total_sem_localizacao`. Sem paginação — o mapa é agregado. Filtros
-    espelham `listar_clientes` (menos cursor); os totais por ponto agregam todas as modelos."""
+    espelham `listar_clientes` (menos cursor); os totais por ponto agregam todas as modelos.
+
+    MAPA-8: aceita `desfecho` (Fechado/Perdido/andamento) e `motivo_perda` (multi, OR) que
+    incidem sobre o **mesmo atendimento** que ancora o ponto (via o LATERAL `geo`). Cliente
+    cujo externo mais recente não bate no filtro simplesmente não vira ponto — não entra em
+    `total_sem_localizacao` (esse campo é reservado a clientes sem geo)."""
     # Declarado ANTES de GET /clientes/{cliente_id} para "mapa" não cair no path param UUID.
     params: list[Any] = []
     filtros = ["1=1"]
@@ -150,15 +157,29 @@ async def mapa_clientes(
         )
     if not incluir_arquivados:
         filtros.append("c.arquivado_em IS NULL")
+    # MAPA-8: filtros sobre o atendimento que ancora o ponto. Atuam DEPOIS do LATERAL,
+    # no mesmo WHERE — cliente cuja `geo.estado/motivo_perda` não bate fica fora dos
+    # pontos sem entrar em `total_sem_localizacao` (esse continua sendo "cliente sem
+    # externo geocodificado", coerente com o ADR 0008).
+    if desfecho == "Fechado":
+        filtros.append("geo.estado = 'Fechado'")
+    elif desfecho == "Perdido":
+        filtros.append("geo.estado = 'Perdido'")
+    elif desfecho == "andamento":
+        filtros.append("geo.estado NOT IN ('Fechado', 'Perdido')")
+    if motivos_perda:
+        filtros.append("geo.motivo_perda = ANY(%s::barravips.motivo_perda_enum[])")
+        params.append(motivos_perda)
     result = await conn.execute(
         f"""
         SELECT c.id, c.nome, c.perfis_preferidos,
                geo.latitude, geo.longitude, geo.bairro, geo.endereco_formatado, geo.estado,
-               geo.ultima_data,
+               geo.motivo_perda, geo.ultima_data,
                ag.total_atendimentos, ag.total_fechados, ag.valor_total
           FROM barravips.clientes c
           LEFT JOIN LATERAL (
             SELECT a.latitude, a.longitude, a.bairro, a.endereco_formatado, a.estado,
+                   a.motivo_perda,
                    a.created_at AS ultima_data
               FROM barravips.atendimentos a
              WHERE a.cliente_id = c.id
@@ -190,6 +211,9 @@ async def mapa_clientes(
             "endereco_formatado": row["endereco_formatado"],
             # Desfecho do mesmo atendimento que ancora o ponto (MAPA-3, ADR 0008).
             "estado": row["estado"],
+            # Motivo de perda do MESMO atendimento (MAPA-8). Só não-nulo quando
+            # estado == 'Perdido' (CHECK constraint do schema).
+            "motivo_perda": row["motivo_perda"],
             # Perfil físico DECLARADO (ADR 0006). Nunca o breakdown calculado, que
             # é cross-modelo e quebraria o isolamento por par cliente-modelo (MAPA-10).
             "perfis": _array_text(row["perfis_preferidos"]),
