@@ -4,11 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
-import type { MapaMetrica } from "@/lib/mapaMetrica"
+import {
+  corBolha,
+  limitesMetrica,
+  normalizarPeso,
+  pesoPonto,
+  raioBolha,
+  type MapaMetrica,
+  type MapaModoMarker,
+} from "@/lib/mapaMetrica"
 import {
   LegendaEscala,
   SeletorMetrica,
   SeletorModoCor,
+  SeletorModoMarker,
   type ModoCor,
 } from "@/components/clientes/MapaControles"
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
@@ -65,14 +74,16 @@ export function MapaClientes({
   const mapRef = useRef<google.maps.Map | null>(null)
   const infoRef = useRef<google.maps.InfoWindow | null>(null)
   const clustererRef = useRef<MarkerClusterer | null>(null)
-  // Marcadores guardam o bairro (destaque MAPA-4), o estado (cor MAPA-3) e os perfis
-  // declarados (cor MAPA-10) para que os efeitos re-renderizem sem refazer a varredura.
+  // Marcadores guardam o bairro (destaque MAPA-4), o estado (cor MAPA-3), os perfis
+  // declarados (cor MAPA-10) e o peso normalizado (tamanho/cor de bolha MAPA-2) para
+  // que os efeitos re-renderizem sem refazer a varredura.
   const markersRef = useRef<
     Array<{
       marker: google.maps.marker.AdvancedMarkerElement
       chave: string
       estado: EstadoAtendimento
       perfis: PerfilFisico[]
+      peso: number
     }>
   >([])
   const [mapPronto, setMapPronto] = useState(false)
@@ -81,6 +92,9 @@ export function MapaClientes({
   // MAPA-3: modo de cor dos pontos. Ortogonal à métrica (que rege o tamanho).
   // Default "metrica" preserva o comportamento prévio.
   const [modoCor, setModoCor] = useState<ModoCor>("metrica")
+  // MAPA-2: estilo do marcador quando modoCor==='metrica'. Default "bolhas" (spec).
+  // O toggle só é exibido em "metrica" — em desfecho/perfil o marker é sempre pin colorido.
+  const [modoMarker, setModoMarker] = useState<MapaModoMarker>("bolhas")
   // MAPA-4: bairro selecionado no ranking lateral; controla pan + destaque das bolhas.
   const [bairroSelecionado, setBairroSelecionado] = useState<string | null>(null)
 
@@ -94,15 +108,16 @@ export function MapaClientes({
     })
     markersRef.current = []
 
-    const bounds = new google.maps.LatLngBounds()
+    const limites = limitesMetrica(pontos, metrica)
     const markers: google.maps.marker.AdvancedMarkerElement[] = []
     for (const ponto of pontos) {
       const posicao = { lat: ponto.latitude, lng: ponto.longitude }
+      const peso = normalizarPeso(pesoPonto(ponto, metrica), limites)
       const marker = new google.maps.marker.AdvancedMarkerElement({
         position: posicao,
         title: ponto.nome ?? "Cliente",
         gmpClickable: true,
-        content: conteudoPorModo(modoCor, ponto),
+        content: conteudoPorModo(modoCor, modoMarker, ponto, peso),
       })
       // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
       marker.addListener("gmp-click", () => {
@@ -116,9 +131,9 @@ export function MapaClientes({
         chave: chaveBairro(ponto),
         estado: ponto.estado,
         perfis: ponto.perfis,
+        peso,
       })
       markers.push(marker)
-      bounds.extend(posicao)
     }
 
     if (!clustererRef.current) {
@@ -126,17 +141,27 @@ export function MapaClientes({
     } else {
       clustererRef.current.addMarkers(markers)
     }
+  }, [pontos, onFiltrarBairro, modoCor, modoMarker, metrica])
 
-    if (pontos.length > 0) {
-      map.fitBounds(bounds, 64)
-      // Um único ponto faz o fitBounds dar zoom máximo; limita para algo navegável.
-      if (pontos.length === 1) {
-        google.maps.event.addListenerOnce(map, "idle", () => {
-          if ((map.getZoom() ?? 0) > 14) map.setZoom(14)
-        })
-      }
+  // Fit nos pontos só quando o conjunto muda — trocar métrica/modo/cor redesenha
+  // sem reposicionar o mapa (preserva pan/zoom do usuário). MAPA-2 depende disso
+  // para alternar bolhas sem perder o lugar.
+  useEffect(() => {
+    if (!mapPronto) return
+    const map = mapRef.current
+    if (!map || pontos.length === 0) return
+    const bounds = new google.maps.LatLngBounds()
+    for (const ponto of pontos) {
+      bounds.extend({ lat: ponto.latitude, lng: ponto.longitude })
     }
-  }, [pontos, onFiltrarBairro, modoCor])
+    map.fitBounds(bounds, 64)
+    // Um único ponto faz o fitBounds dar zoom máximo; limita para algo navegável.
+    if (pontos.length === 1) {
+      google.maps.event.addListenerOnce(map, "idle", () => {
+        if ((map.getZoom() ?? 0) > 14) map.setZoom(14)
+      })
+    }
+  }, [mapPronto, pontos])
 
   // Inicializa o mapa uma vez (guardas cobrem o duplo-mount do StrictMode em dev).
   useEffect(() => {
@@ -176,10 +201,11 @@ export function MapaClientes({
 
   // MAPA-4: destaque leve das bolhas do bairro selecionado. Roda depois de
   // `desenharPontos` (declarado abaixo) para reaplicar quando os pontos mudam.
-  // Inclui `modoCor` nas deps para restaurar a cor por desfecho ao deselecionar.
+  // Inclui `modoCor` e `modoMarker` nas deps para restaurar a aparência correta
+  // (cor por desfecho/perfil ou bolha sqrt-escalada) ao deselecionar.
   useEffect(() => {
-    aplicarDestaque(markersRef.current, bairroSelecionado, modoCor)
-  }, [bairroSelecionado, mapPronto, pontos, modoCor])
+    aplicarDestaque(markersRef.current, bairroSelecionado, modoCor, modoMarker)
+  }, [bairroSelecionado, mapPronto, pontos, modoCor, modoMarker])
 
   // MAPA-4: pan do mapa para o centroide das bolhas do bairro escolhido.
   const handleSelectBairro = useCallback(
@@ -218,6 +244,13 @@ export function MapaClientes({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {modoCor === "metrica" && (
+            <SeletorModoMarker
+              modo={modoMarker}
+              metrica={metrica}
+              onModoChange={setModoMarker}
+            />
+          )}
           <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
           <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
         </div>
@@ -289,12 +322,25 @@ function criarConteudoPerfil(perfis: PerfilFisico[]): HTMLElement {
   }).element
 }
 
+// Bolha do MAPA-2. AdvancedMarker ancora pelo bottom-center do `content`;
+// `translateY(50%)` empurra o círculo para baixo de modo que seu centro caia
+// exatamente na coordenada geográfica.
+function criarConteudoBolha(peso: number): HTMLElement {
+  const el = document.createElement("div")
+  const diametro = 2 * raioBolha(peso)
+  el.style.cssText = `width:${diametro}px;height:${diametro}px;border-radius:50%;background:${corBolha(peso)};border:2px solid rgba(255,255,255,0.9);box-shadow:0 1px 3px rgba(0,0,0,0.35);cursor:pointer;transform:translateY(50%);`
+  return el
+}
+
 function conteudoPorModo(
   modoCor: ModoCor,
+  modoMarker: MapaModoMarker,
   ponto: MapaClientePonto,
+  peso: number,
 ): HTMLElement | null {
   if (modoCor === "desfecho") return criarConteudoDesfecho(ponto.estado)
   if (modoCor === "perfil") return criarConteudoPerfil(ponto.perfis)
+  if (modoMarker === "bolhas") return criarConteudoBolha(peso)
   return null
 }
 
@@ -306,17 +352,21 @@ function aplicarDestaque(
     chave: string
     estado: EstadoAtendimento
     perfis: PerfilFisico[]
+    peso: number
   }>,
   selecionado: string | null,
   modoCor: ModoCor,
+  modoMarker: MapaModoMarker,
 ) {
-  for (const { marker, chave, estado, perfis } of items) {
+  for (const { marker, chave, estado, perfis, peso } of items) {
     if (selecionado && chave === selecionado) {
       marker.content = criarConteudoDestaque()
     } else if (modoCor === "desfecho") {
       marker.content = criarConteudoDesfecho(estado)
     } else if (modoCor === "perfil") {
       marker.content = criarConteudoPerfil(perfis)
+    } else if (modoMarker === "bolhas") {
+      marker.content = criarConteudoBolha(peso)
     } else {
       marker.content = null
     }
