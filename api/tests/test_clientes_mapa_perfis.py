@@ -51,6 +51,9 @@ def _token() -> dict[str, str]:
 
 
 def _ponto(perfis: list[str], cliente_id: UUID | None = None) -> dict[str, Any]:
+    # Fixture inclui todas as chaves que `mapa_clientes` lê do row — `ultima_data` e
+    # `total_fechados` vêm do MAPA-5; `motivo_perda` do MAPA-8. Sem elas, o endpoint
+    # estoura KeyError antes de chegar aos asserts deste arquivo.
     return {
         "id": cliente_id or uuid4(),
         "nome": "Cliente",
@@ -60,7 +63,10 @@ def _ponto(perfis: list[str], cliente_id: UUID | None = None) -> dict[str, Any]:
         "bairro": "Copacabana",
         "endereco_formatado": "Av. Atlântica, 1000",
         "estado": "Fechado",
+        "motivo_perda": None,
+        "ultima_data": "2026-05-20T10:00:00",
         "total_atendimentos": 1,
+        "total_fechados": 0,
         "valor_total": 0,
     }
 

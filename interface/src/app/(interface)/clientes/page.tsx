@@ -15,11 +15,14 @@ import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
 import { useClientes } from "@/hooks/useClientes"
-import { useClientesMapa } from "@/hooks/useClientesMapa"
+import { FILTROS_MAPA_PADRAO, useClientesMapa } from "@/hooks/useClientesMapa"
+import type { FiltrosMapa } from "@/hooks/useClientesMapa"
+import type { FiltroDesfecho } from "@/components/clientes/MapaControles"
 import type {
   ClienteListItem,
   FiltroPeriodo,
   ModeloResumo,
+  MotivoPerda,
   PerfilFisico,
 } from "@/tipos/clientes"
 import type {
@@ -59,7 +62,29 @@ function ClientesInner() {
   // por cliente_ids derivados dos pontos do mapa — o endpoint da Lista não tem
   // filtro `bairro` e o `q` filtra nome/telefone, não bairro.
   const [bairroFiltro, setBairroFiltro] = useState<string | null>(null)
-  const mapa = useClientesMapa(crm.filtros, crm.incluirArquivados, aba === "mapa")
+  // MAPA-8: filtros que vivem só no Mapa (desfecho + motivos de perda). Ficam no
+  // pai porque o hook precisa deles na querystring e o `MapaClientes` precisa dos
+  // setters para renderizar os controles.
+  const [mapaFiltros, setMapaFiltros] = useState<FiltrosMapa>(FILTROS_MAPA_PADRAO)
+  const mapa = useClientesMapa(
+    crm.filtros,
+    mapaFiltros,
+    crm.incluirArquivados,
+    aba === "mapa",
+  )
+
+  const handleDesfechoChange = useCallback((desfecho: FiltroDesfecho) => {
+    // Trocar para um desfecho que não é "Perdido" zera os motivos: querystring
+    // limpa + sem estado órfão escondido atrás do dropdown desabilitado.
+    setMapaFiltros((current) => ({
+      desfecho,
+      motivosPerda: desfecho === "Perdido" ? current.motivosPerda : [],
+    }))
+  }, [])
+
+  const handleMotivosPerdaChange = useCallback((motivosPerda: MotivoPerda[]) => {
+    setMapaFiltros((current) => ({ ...current, motivosPerda }))
+  }, [])
 
   const clienteIdsDoBairro = useMemo(() => {
     if (!bairroFiltro) return null
@@ -208,6 +233,10 @@ function ClientesInner() {
           error={mapa.error}
           onRetry={mapa.refetch}
           onFiltrarBairro={filtrarBairro}
+          desfecho={mapaFiltros.desfecho}
+          motivosPerda={mapaFiltros.motivosPerda}
+          onDesfechoChange={handleDesfechoChange}
+          onMotivosPerdaChange={handleMotivosPerdaChange}
         />
       )}
 
