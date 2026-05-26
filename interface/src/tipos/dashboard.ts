@@ -1,6 +1,6 @@
 import type { MotivoPerda } from "./atendimentos"
 
-export type FiltroPeriodo = "hoje" | "7d" | "30d" | "tudo" | "custom"
+export type FiltroPeriodo = "hoje" | "7d" | "30d" | "mes" | "tudo" | "custom"
 
 export const TIPOS_ESCALADA = [
   "pix_validado",

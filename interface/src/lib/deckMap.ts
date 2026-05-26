@@ -84,6 +84,37 @@ function somaDeltasPorCelula(
   return Array.from(acc.values(), (s) => s.b - s.a)
 }
 
+// Workaround para deck.gl/google-maps v9.3.x: ao adicionar um GoogleMapsOverlay
+// a um Map já idle, o Maps NÃO dispara `_onDrawVector` automaticamente — o Deck
+// interno fica preso no `initialViewState` hardcoded (`lat:0/lng:0/zoom:1`, ver
+// `utils.js#createDeckInstance` no pacote). Consequências observadas no painel:
+//   1. HeatmapLayer (radiusPixels, screen-space): só renderiza após o primeiro
+//      pan manual do usuário.
+//   2. HexagonLayer (radiusCommon = unitsPerMeter * 3000m em world-space): a
+//      primeira `_updateBinOptions` baka o `radiusCommon` no `state` da layer
+//      contra o viewState inicial falso. `_updateBinOptions` só re-roda em
+//      `dataChanged`/`radius`-changed, nunca por mudança de viewport — então
+//      ao pan o sintoma é um bin único projetado como quad fullscreen na cor
+//      MAX/MIN da rampa (--seq-5/--seq-1).
+//
+// Sequência defensiva: criar com `layers: []`, `setMap`, forçar redraw via
+// `_overlay.requestRedraw()` (privado, mas estável no v9.3.x; é o método do
+// `WebGLOverlayView` que pede `onDraw` no próximo frame mesmo sem interação),
+// aguardar 2 rAF para o Maps processar o draw e propagar o viewState real ao
+// Deck, e só então aplicar as layers via `setProps`. Nesse ponto qualquer
+// `updateState` roda contra `context.viewport` real.
+async function aguardarPrimeiroDraw(
+  overlay: import("@deck.gl/google-maps").GoogleMapsOverlay,
+): Promise<void> {
+  const inner = (
+    overlay as unknown as { _overlay?: { requestRedraw?: () => void } }
+  )._overlay
+  inner?.requestRedraw?.()
+  await new Promise<void>((resolve) =>
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+  )
+}
+
 export async function criarHexbinOverlay(
   map: google.maps.Map,
   opts: HexbinOpts,
@@ -193,11 +224,15 @@ export async function criarHexbinOverlay(
   // viewport degenerado (ex.: borrão preso no canto superior-esquerdo) e o
   // luma.gl emitir "Binding weightsTexture not set". Release notes do v9.3
   // confirmam o caminho: usar canvas separado garante posição DOM correta.
+  //
+  // `layers: []` inicialmente — ver `aguardarPrimeiroDraw` acima para o motivo.
   const overlay = new GoogleMapsOverlay({
     interleaved: false,
-    layers: [construirLayer(opts)],
+    layers: [],
   })
   overlay.setMap(map)
+  await aguardarPrimeiroDraw(overlay)
+  overlay.setProps({ layers: [construirLayer(opts)] })
 
   return {
     atualizar(novoOpts) {
@@ -241,11 +276,18 @@ export async function criarCalorOverlay(
   // `interleaved:false`: ver nota no `criarHexbinOverlay` — mesmo motivo (o
   // HeatmapLayer é o caso clássico do bug; o sintoma reportado em prod foi um
   // borrão fraco preso no canto superior-esquerdo do mapa).
+  //
+  // `layers: []` + `aguardarPrimeiroDraw`: ver nota acima — HeatmapLayer não
+  // baka estado errado como o Hexbin (radiusPixels é screen-space), mas sofre
+  // do mesmo "só aparece após pan" quando o overlay é adicionado a um map já
+  // idle. Mesma sequência defensiva resolve.
   const overlay = new GoogleMapsOverlay({
     interleaved: false,
-    layers: [construirLayer(opts)],
+    layers: [],
   })
   overlay.setMap(map)
+  await aguardarPrimeiroDraw(overlay)
+  overlay.setProps({ layers: [construirLayer(opts)] })
 
   return {
     atualizar(novoOpts) {

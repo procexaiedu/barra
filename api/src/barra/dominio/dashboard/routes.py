@@ -1,7 +1,6 @@
 """Endpoints agregados para a Tela 07 (Dashboard)."""
 
-from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import date, datetime
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
@@ -10,28 +9,27 @@ from psycopg import AsyncConnection
 
 from barra.api.deps import get_conn, get_user
 from barra.core.errors import EntradaInvalida
+from barra.core.janela import (
+    BRT,
+    Janela,
+)
+from barra.core.janela import (
+    filtro_aplicado_dict as _filtro_aplicado_dict,
+)
+from barra.core.janela import (
+    janela_anterior as _janela_anterior,
+)
+from barra.core.janela import (
+    resolver_janela as _resolver_janela,
+)
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
-BRT = timezone(timedelta(hours=-3))
-JANELA_CUSTOM_MAXIMA_DIAS = 90
-
-
-@dataclass(frozen=True)
-class Janela:
-    de: date
-    ate: date
-    inicio: datetime
-    fim: datetime
-
-    def dias(self) -> int:
-        return (self.ate - self.de).days + 1
-
 
 @router.get("")
 async def dashboard(
-    periodo: Literal["hoje", "7d", "30d", "tudo", "custom"] = "7d",
+    periodo: Literal["hoje", "7d", "30d", "mes", "tudo", "custom"] = "7d",
     de: date | None = None,
     ate: date | None = None,
     modelo_id: Annotated[list[UUID] | None, Query()] = None,
@@ -88,7 +86,7 @@ def _financeiro_bloco(kpis: dict[str, Any]) -> dict[str, Any]:
 
 @router.get("/escaladas")
 async def dashboard_escaladas(
-    periodo: Literal["hoje", "7d", "30d", "tudo", "custom"] = "7d",
+    periodo: Literal["hoje", "7d", "30d", "mes", "tudo", "custom"] = "7d",
     de: date | None = None,
     ate: date | None = None,
     modelo_id: Annotated[list[UUID] | None, Query()] = None,
@@ -175,65 +173,10 @@ async def dashboard_serie(
     }
 
 
-# -----------------------------------------------------------------------------
-# Resolução de janela
-# -----------------------------------------------------------------------------
-
-
-def _resolver_janela(periodo: str, de: date | None, ate: date | None) -> Janela:
-    hoje = datetime.now(BRT).date()
-
-    if periodo == "custom":
-        if de is None or ate is None:
-            raise EntradaInvalida(
-                "PERIODO_CUSTOM_INVALIDO",
-                "Período custom exige 'de' e 'ate'.",
-            )
-        if de > ate:
-            raise EntradaInvalida("PERIODO_CUSTOM_INVALIDO", "'de' deve ser <= 'ate'.")
-        if ate > hoje:
-            raise EntradaInvalida("PERIODO_CUSTOM_INVALIDO", "'ate' não pode estar no futuro.")
-        if (ate - de).days + 1 > JANELA_CUSTOM_MAXIMA_DIAS:
-            raise EntradaInvalida(
-                "PERIODO_CUSTOM_INVALIDO",
-                f"Janela custom limitada a {JANELA_CUSTOM_MAXIMA_DIAS} dias.",
-            )
-        return _janela_de_datas(de, ate)
-
-    if periodo == "hoje":
-        return _janela_de_datas(hoje, hoje)
-    if periodo == "7d":
-        return _janela_de_datas(hoje - timedelta(days=6), hoje)
-    if periodo == "30d":
-        return _janela_de_datas(hoje - timedelta(days=29), hoje)
-    if periodo == "tudo":
-        return _janela_de_datas(date(2020, 1, 1), hoje)
-
-    raise EntradaInvalida("PERIODO_INVALIDO", f"periodo desconhecido: {periodo}")
-
-
-def _janela_de_datas(de: date, ate: date) -> Janela:
-    inicio = datetime.combine(de, time.min, tzinfo=BRT)
-    fim = datetime.combine(ate, time.max, tzinfo=BRT)
-    return Janela(de=de, ate=ate, inicio=inicio, fim=fim)
-
-
-def _janela_anterior(janela: Janela) -> Janela | None:
-    duracao_dias = janela.dias()
-    ate_anterior = janela.de - timedelta(days=1)
-    de_anterior = ate_anterior - timedelta(days=duracao_dias - 1)
-    return _janela_de_datas(de_anterior, ate_anterior)
-
-
-def _filtro_aplicado_dict(
-    periodo: str, janela: Janela, modelo_ids: list[UUID] | None
-) -> dict[str, Any]:
-    return {
-        "periodo": periodo,
-        "de": janela.de.isoformat(),
-        "ate": janela.ate.isoformat(),
-        "modelo_ids": [str(m) for m in modelo_ids] if modelo_ids else [],
-    }
+# Resolução de janela / filtro_aplicado vivem em barra.core.janela (compartilhado
+# com o módulo Financeiro — ADR 0011). Importados via alias no topo deste arquivo
+# para preservar os nomes _resolver_janela / _janela_anterior / _janela_de_datas /
+# _filtro_aplicado_dict usados ao longo destes endpoints.
 
 
 # -----------------------------------------------------------------------------

@@ -159,7 +159,9 @@ export function DetalheModelo({
           onRemoverFoto={onRemoverFoto}
         />
       )}
-      {aba === "disponibilidade" && <DisponibilidadeModelo key={modelo.id} modeloId={modelo.id} />}
+      {aba === "disponibilidade" && (
+        <DisponibilidadeModelo key={modelo.id} modeloId={modelo.id} statusModelo={modelo.status} />
+      )}
       {aba === "midia" && (
         <AbaMidia
           midia={detalhe.midia}

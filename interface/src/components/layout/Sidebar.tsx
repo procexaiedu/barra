@@ -11,6 +11,7 @@ import {
   Users,
   IdCard,
   ChartLine,
+  Wallet,
   LogOut,
   PanelLeft,
   PanelLeftClose,
@@ -46,6 +47,7 @@ const grupos = [
     label: "ANÁLISE",
     items: [
       { href: "/dashboard", label: "Dashboard", icon: ChartLine },
+      { href: "/financeiro", label: "Financeiro", icon: Wallet },
     ],
   },
 ]

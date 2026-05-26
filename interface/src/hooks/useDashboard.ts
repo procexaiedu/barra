@@ -16,7 +16,7 @@ import type {
 type Status = "loading" | "success" | "error"
 type EscaladasStatus = "idle" | "loading" | "success" | "error"
 
-const PERIODOS_VALIDOS: ReadonlySet<string> = new Set(["hoje", "7d", "30d", "tudo", "custom"])
+const PERIODOS_VALIDOS: ReadonlySet<string> = new Set(["hoje", "7d", "30d", "mes", "tudo", "custom"])
 
 export interface FiltrosDashboard {
   periodo: FiltroPeriodo

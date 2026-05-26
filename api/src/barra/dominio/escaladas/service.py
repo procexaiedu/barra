@@ -242,6 +242,29 @@ async def _corrigir_registro(
         ),
     )
     await _evento(conn, atendimento["id"], "correcao_registro", origem, autor, payload)
+    # Garante porta de entrada para o módulo Financeiro (ADR 0011): quando a
+    # correção promove o atendimento para Fechado a partir de outro estado,
+    # emite também `fechado_registrado` — caso contrário a receita ficaria
+    # invisível no módulo (que filtra por esse evento como data-âncora).
+    # Reciprocamente para Perdido, mantém simetria de auditoria.
+    if novo == "Fechado" and atendimento["estado"] != "Fechado":
+        await _evento(
+            conn,
+            atendimento["id"],
+            "fechado_registrado",
+            origem,
+            autor,
+            {"valor_final": str(payload.get("valor_final")), "via": "correcao_registro"},
+        )
+    elif novo == "Perdido" and atendimento["estado"] != "Perdido":
+        await _evento(
+            conn,
+            atendimento["id"],
+            "perdido_registrado",
+            origem,
+            autor,
+            {"motivo": payload.get("motivo"), "via": "correcao_registro"},
+        )
     return ResultadoComando(atendimento["id"], str(novo), atendimento["pix_status"])
 
 
