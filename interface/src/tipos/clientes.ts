@@ -87,6 +87,8 @@ export interface MapaClientePonto {
   longitude: number
   bairro: string | null
   endereco_formatado: string | null
+  /** Desfecho do atendimento externo que ancora o ponto (MAPA-3). */
+  estado: EstadoAtendimento
   total_atendimentos: number
   valor_total: number
 }

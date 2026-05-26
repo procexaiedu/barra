@@ -5,8 +5,25 @@ import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
 import type { MapaMetrica } from "@/lib/mapaMetrica"
-import { LegendaEscala, SeletorMetrica } from "@/components/clientes/MapaControles"
-import type { MapaClientePonto } from "@/tipos/clientes"
+import {
+  LegendaEscala,
+  SeletorMetrica,
+  SeletorModoCor,
+  type ModoCor,
+} from "@/components/clientes/MapaControles"
+import type { EstadoAtendimento, MapaClientePonto } from "@/tipos/clientes"
+
+// Cores do modo "por desfecho" (MAPA-3). Hex literal porque PinElement não resolve
+// CSS vars; valores espelham --state-closed/--state-lost/--state-handoff do tema.
+const COR_FECHADO = "#1FB07A"
+const COR_PERDIDO = "#D62828"
+const COR_EM_ANDAMENTO = "#F4B81C"
+
+function corPorDesfecho(estado: EstadoAtendimento): string {
+  if (estado === "Fechado") return COR_FECHADO
+  if (estado === "Perdido") return COR_PERDIDO
+  return COR_EM_ANDAMENTO
+}
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
 const CENTRO_BRASIL = { lat: -14.235, lng: -51.925 }
@@ -36,6 +53,8 @@ export function MapaClientes({
   // Mora aqui porque o único consumidor hoje é o próprio desenho do mapa (e a legenda);
   // sobe para o page.tsx quando MAPA-4 (ranking sibling) chegar.
   const [metrica, setMetrica] = useState<MapaMetrica>("valor")
+  // Modo de cor dos pontos (MAPA-3). Default = "metrica" (comportamento atual).
+  const [modoCor, setModoCor] = useState<ModoCor>("metrica")
 
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
   const desenharPontos = useCallback(() => {
@@ -50,10 +69,19 @@ export function MapaClientes({
     const bounds = new google.maps.LatLngBounds()
     for (const ponto of pontos) {
       const posicao = { lat: ponto.latitude, lng: ponto.longitude }
+      const content =
+        modoCor === "desfecho"
+          ? new google.maps.marker.PinElement({
+              background: corPorDesfecho(ponto.estado),
+              borderColor: "#1a1a1a",
+              glyphColor: "#1a1a1a",
+            }).element
+          : undefined
       const marker = new google.maps.marker.AdvancedMarkerElement({
         position: posicao,
         title: ponto.nome ?? "Cliente",
         gmpClickable: true,
+        content,
       })
       // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
       marker.addListener("gmp-click", () => {
@@ -81,7 +109,7 @@ export function MapaClientes({
         })
       }
     }
-  }, [pontos])
+  }, [pontos, modoCor])
 
   // Inicializa o mapa uma vez (guardas cobrem o duplo-mount do StrictMode em dev).
   useEffect(() => {
@@ -140,7 +168,10 @@ export function MapaClientes({
             </span>
           )}
         </div>
-        <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        <div className="flex flex-wrap items-center gap-2">
+          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+          <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
+        </div>
       </div>
       <div className="relative h-[calc(100vh-300px)] min-h-[420px] overflow-hidden rounded-lg border border-border">
         <div ref={containerRef} className="h-full w-full" />
