@@ -16,6 +16,68 @@ import type { MapaClientePonto } from "@/tipos/clientes"
 
 const NUM_FMT = new Intl.NumberFormat("pt-BR")
 
+/** Modo de cor dos pontos (MAPA-3, MAPA-10). Ortogonal à métrica — métrica rege o
+ *  tamanho, modo de cor rege a cor. Default "metrica" preserva o comportamento prévio.
+ *  "perfil" usa só a parte DECLARADA do cliente (ADR 0006); cliente com >1 perfil
+ *  recebe a cor do primeiro do array, demais aparecem no InfoWindow. */
+export type ModoCor = "metrica" | "desfecho" | "perfil"
+
+const OPCOES_MODO_COR: readonly { id: ModoCor; label: string; tooltip: string }[] = [
+  {
+    id: "metrica",
+    label: "Por métrica",
+    tooltip: "Cor segue a rampa da métrica selecionada.",
+  },
+  {
+    id: "desfecho",
+    label: "Por desfecho",
+    tooltip: "Verde: Fechado · Vermelho: Perdido · Âmbar: em andamento.",
+  },
+  {
+    id: "perfil",
+    label: "Por perfil físico",
+    tooltip: "Cor pelo perfil declarado (primeiro do array). Sem declaração: neutro.",
+  },
+] as const
+
+export function SeletorModoCor({
+  modo,
+  onModoChange,
+}: {
+  modo: ModoCor
+  onModoChange: (m: ModoCor) => void
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Modo de cor do mapa"
+      className="inline-flex rounded-lg border border-border bg-card p-0.5"
+    >
+      {OPCOES_MODO_COR.map((opcao) => {
+        const ativo = opcao.id === modo
+        return (
+          <button
+            key={opcao.id}
+            type="button"
+            role="radio"
+            aria-checked={ativo}
+            title={opcao.tooltip}
+            onClick={() => onModoChange(opcao.id)}
+            className={cn(
+              "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+              ativo
+                ? "bg-accent text-text-primary"
+                : "text-text-muted hover:text-text-secondary",
+            )}
+          >
+            {opcao.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export function SeletorMetrica({
   metrica,
   onMetricaChange,

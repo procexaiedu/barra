@@ -152,12 +152,12 @@ async def mapa_clientes(
         filtros.append("c.arquivado_em IS NULL")
     result = await conn.execute(
         f"""
-        SELECT c.id, c.nome,
-               geo.latitude, geo.longitude, geo.bairro, geo.endereco_formatado,
+        SELECT c.id, c.nome, c.perfis_preferidos,
+               geo.latitude, geo.longitude, geo.bairro, geo.endereco_formatado, geo.estado,
                ag.total_atendimentos, ag.valor_total
           FROM barravips.clientes c
           LEFT JOIN LATERAL (
-            SELECT a.latitude, a.longitude, a.bairro, a.endereco_formatado
+            SELECT a.latitude, a.longitude, a.bairro, a.endereco_formatado, a.estado
               FROM barravips.atendimentos a
              WHERE a.cliente_id = c.id
                AND a.tipo_atendimento = 'externo'
@@ -185,6 +185,11 @@ async def mapa_clientes(
             "longitude": float(row["longitude"]),
             "bairro": row["bairro"],
             "endereco_formatado": row["endereco_formatado"],
+            # Desfecho do mesmo atendimento que ancora o ponto (MAPA-3, ADR 0008).
+            "estado": row["estado"],
+            # Perfil físico DECLARADO (ADR 0006). Nunca o breakdown calculado, que
+            # é cross-modelo e quebraria o isolamento por par cliente-modelo (MAPA-10).
+            "perfis": _array_text(row["perfis_preferidos"]),
             "total_atendimentos": row["total_atendimentos"] or 0,
             "valor_total": row["valor_total"] or 0,
         }
