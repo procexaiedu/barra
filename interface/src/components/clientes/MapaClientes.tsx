@@ -4,8 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
-import type { MapaMetrica } from "@/lib/mapaMetrica"
-import { LegendaEscala, SeletorMetrica } from "@/components/clientes/MapaControles"
+import {
+  corBolha,
+  limitesMetrica,
+  normalizarPeso,
+  pesoPonto,
+  raioBolha,
+  type MapaMetrica,
+  type MapaModoMarker,
+} from "@/lib/mapaMetrica"
+import {
+  LegendaEscala,
+  SeletorMetrica,
+  SeletorModoMarker,
+} from "@/components/clientes/MapaControles"
 import type { MapaClientePonto } from "@/tipos/clientes"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
@@ -36,6 +48,8 @@ export function MapaClientes({
   // Mora aqui porque o único consumidor hoje é o próprio desenho do mapa (e a legenda);
   // sobe para o page.tsx quando MAPA-4 (ranking sibling) chegar.
   const [metrica, setMetrica] = useState<MapaMetrica>("valor")
+  // Modo de marcador (MAPA-2). Default = bolhas; "pins" preserva o estilo anterior.
+  const [modo, setModo] = useState<MapaModoMarker>("bolhas")
 
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
   const desenharPontos = useCallback(() => {
@@ -47,13 +61,15 @@ export function MapaClientes({
     })
     markersRef.current = []
 
-    const bounds = new google.maps.LatLngBounds()
+    const limites = limitesMetrica(pontos, metrica)
     for (const ponto of pontos) {
       const posicao = { lat: ponto.latitude, lng: ponto.longitude }
+      const t = normalizarPeso(pesoPonto(ponto, metrica), limites)
       const marker = new google.maps.marker.AdvancedMarkerElement({
         position: posicao,
         title: ponto.nome ?? "Cliente",
         gmpClickable: true,
+        ...(modo === "bolhas" ? { content: criarBolha(t) } : {}),
       })
       // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
       marker.addListener("gmp-click", () => {
@@ -63,7 +79,6 @@ export function MapaClientes({
         info.open({ map, anchor: marker })
       })
       markersRef.current.push(marker)
-      bounds.extend(posicao)
     }
 
     if (!clustererRef.current) {
@@ -71,17 +86,26 @@ export function MapaClientes({
     } else {
       clustererRef.current.addMarkers(markersRef.current)
     }
+  }, [pontos, metrica, modo])
 
-    if (pontos.length > 0) {
-      map.fitBounds(bounds, 64)
-      // Um único ponto faz o fitBounds dar zoom máximo; limita para algo navegável.
-      if (pontos.length === 1) {
-        google.maps.event.addListenerOnce(map, "idle", () => {
-          if ((map.getZoom() ?? 0) > 14) map.setZoom(14)
-        })
-      }
+  // Fit nos pontos só quando o conjunto muda — trocar métrica/modo redesenha sem
+  // reposicionar o mapa (preserva pan/zoom do usuário).
+  useEffect(() => {
+    if (!mapPronto) return
+    const map = mapRef.current
+    if (!map || pontos.length === 0) return
+    const bounds = new google.maps.LatLngBounds()
+    for (const ponto of pontos) {
+      bounds.extend({ lat: ponto.latitude, lng: ponto.longitude })
     }
-  }, [pontos])
+    map.fitBounds(bounds, 64)
+    // Um único ponto faz o fitBounds dar zoom máximo; limita para algo navegável.
+    if (pontos.length === 1) {
+      google.maps.event.addListenerOnce(map, "idle", () => {
+        if ((map.getZoom() ?? 0) > 14) map.setZoom(14)
+      })
+    }
+  }, [mapPronto, pontos])
 
   // Inicializa o mapa uma vez (guardas cobrem o duplo-mount do StrictMode em dev).
   useEffect(() => {
@@ -140,7 +164,10 @@ export function MapaClientes({
             </span>
           )}
         </div>
-        <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        <div className="flex flex-wrap items-center gap-2">
+          <SeletorModoMarker modo={modo} metrica={metrica} onModoChange={setModo} />
+          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+        </div>
       </div>
       <div className="relative h-[calc(100vh-300px)] min-h-[420px] overflow-hidden rounded-lg border border-border">
         <div ref={containerRef} className="h-full w-full" />
@@ -183,6 +210,23 @@ function conteudoInfo(ponto: MapaClientePonto): string {
       <div style="color: #666; font-size: 12px;">${local}</div>
       <div style="margin-top: 6px; font-size: 12px;">${ponto.total_atendimentos} ${plural} · ${valor}</div>
     </div>`
+}
+
+// Conteúdo HTML da bolha (MAPA-2). O AdvancedMarker ancora pelo bottom-center
+// do `content`; `translateY(50%)` empurra o círculo para baixo de modo que seu
+// centro caia exatamente na coordenada geográfica.
+function criarBolha(t: number): HTMLDivElement {
+  const el = document.createElement("div")
+  const diametro = 2 * raioBolha(t)
+  el.style.width = `${diametro}px`
+  el.style.height = `${diametro}px`
+  el.style.borderRadius = "50%"
+  el.style.background = corBolha(t)
+  el.style.border = "2px solid rgba(255, 255, 255, 0.9)"
+  el.style.boxShadow = "0 1px 3px rgba(0, 0, 0, 0.35)"
+  el.style.cursor = "pointer"
+  el.style.transform = "translateY(50%)"
+  return el
 }
 
 function escaparHtml(texto: string): string {

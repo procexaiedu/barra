@@ -11,6 +11,13 @@ import type { MapaClientePonto } from "@/tipos/clientes"
  */
 export type MapaMetrica = "valor" | "atendimentos" | "clientes"
 
+/**
+ * Modo de marcador do mapa de pontos (MAPA-2). Default na UI = "bolhas".
+ *  - "bolhas": círculo dimensionado (raio sqrt-escalado) e colorido pela métrica.
+ *  - "pins":   pin clássico do AdvancedMarker (sem peso visual da métrica).
+ */
+export type MapaModoMarker = "pins" | "bolhas"
+
 export interface MapaMetricaOpcao {
   id: MapaMetrica
   label: string
@@ -64,4 +71,40 @@ export function limitesMetrica(
     metrica === "valor" ? Number(p.valor_total) : p.total_atendimentos,
   )
   return { min: Math.min(...valores), max: Math.max(...valores) }
+}
+
+/** Peso do ponto na métrica (1 quando "clientes" — cada ponto vale um). */
+export function pesoPonto(ponto: MapaClientePonto, metrica: MapaMetrica): number {
+  if (metrica === "clientes") return 1
+  if (metrica === "valor") return Number(ponto.valor_total)
+  return ponto.total_atendimentos
+}
+
+/**
+ * Normalização [0..1] do peso dentro dos limites. Caso degenerado
+ * (sem limites úteis ou min==max) → 0.5: bolhas uniformes no tamanho/cor
+ * central, conforme nota do roadmap MAPA-2 sobre a métrica "clientes".
+ */
+export function normalizarPeso(
+  peso: number,
+  limites: { min: number; max: number } | null,
+): number {
+  if (!limites || limites.min === limites.max) return 0.5
+  const t = (peso - limites.min) / (limites.max - limites.min)
+  return Math.min(1, Math.max(0, t))
+}
+
+// Raio de bolha em px. Escala `sqrt` para que a ÁREA do círculo seja
+// proporcional ao valor (não o raio) — decisão fechada no roadmap MAPA-2.
+const RAIO_MIN_PX = 8
+const RAIO_MAX_PX = 28
+
+export function raioBolha(t: number): number {
+  return RAIO_MIN_PX + (RAIO_MAX_PX - RAIO_MIN_PX) * Math.sqrt(t)
+}
+
+/** Cor da bolha — discretiza t em 5 buckets da `RAMPA_SEQ` (CSS vars, respeita tema). */
+export function corBolha(t: number): string {
+  const idx = Math.min(4, Math.max(0, Math.floor(t * 5)))
+  return RAMPA_SEQ[idx]
 }
