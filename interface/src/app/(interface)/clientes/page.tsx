@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useMemo, useState, type ReactNode } from "react"
+import { Suspense, useCallback, useMemo, useState, type ReactNode } from "react"
+import { useSearchParams } from "next/navigation"
 import { Plus, Search, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ApiError, api } from "@/lib/api"
@@ -35,7 +36,21 @@ const periodos: { value: FiltroPeriodo; label: string }[] = [
 ]
 
 export default function Clientes() {
-  const crm = useClientes()
+  return (
+    <Suspense>
+      <ClientesInner />
+    </Suspense>
+  )
+}
+
+function ClientesInner() {
+  // Deep-link `?cliente=<id>` (MAPA-5b): vindo do InfoWindow do Mapa de clientes,
+  // pré-seleciona o cliente na aba Lista. Consumido só no primeiro mount.
+  const searchParams = useSearchParams()
+  const [clienteIdInicial] = useState<string | null>(
+    () => searchParams?.get("cliente") ?? null
+  )
+  const crm = useClientes({ selectedIdInicial: clienteIdInicial })
   const [modalCriarAberto, setModalCriarAberto] = useState(false)
   const [aba, setAba] = useState<"lista" | "mapa">("lista")
   // Cliente para o qual abrir o modal "Novo atendimento" (pré-selecionado).
