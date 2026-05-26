@@ -61,12 +61,28 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
     )
 
 
-def parse_comando_grupo(texto: str, quoted_numero_curto: int | None = None) -> ComandoGrupo | None:
+def parse_comando_grupo(
+    texto: str,
+    quoted_numero_curto: int | None = None,
+    *,
+    aguardando_valor: bool = False,
+) -> ComandoGrupo | None:
     raw = " ".join(texto.strip().split())
     if not raw:
         return None
     numero = _numero_curto(raw) or quoted_numero_curto
     lower = raw.lower()
+
+    # Resposta ao card de Lembrete de fechamento (ADR-0009): citando o card, um valor "pelado"
+    # (sem palavra-chave) fecha o atendimento. Prefixos conhecidos seguem o fluxo normal abaixo.
+    if (
+        aguardando_valor
+        and numero is not None
+        and not lower.startswith(("ia assume", "finalizado", "fechado", "perdido"))
+    ):
+        valor = _valor(raw)
+        if valor is not None:
+            return ComandoGrupo("registrar_fechado", numero, {"valor_final": valor})
 
     if lower.startswith("ia assume"):
         if numero is None:

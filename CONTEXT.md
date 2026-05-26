@@ -80,6 +80,10 @@ _Avoid_: confundir com status da modelo, confundir com bloqueio, materializar fo
 Reabertura proativa e única de um cliente que recebeu a cotação e silenciou — a IA manda uma mensagem curta e calorosa (sem desconto) ~30 min depois, dentro do horário de operação, para retomar a conversa.
 _Avoid_: perseguir o cliente com múltiplos toques, reabrir quem não chegou à cotação, puxar desconto no toque de reabertura, confundir com o timeout de 24h (que encerra como Perdido)
 
+**Lembrete de fechamento**:
+Cobrança proativa e determinística do **Valor final** à modelo, no grupo de **Coordenação por modelo**, disparada quando o atendimento passou do fim previsto (`bloqueios.fim`) e ainda está em `Em_execucao`; reenvia em intervalos fixos até um número máximo de toques e, sem resposta, abre **Handoff** para Fernando. A modelo fecha respondendo o card com o valor — mesma porta do `finalizado/fechado [valor]` do **Registro de resultado**.
+_Avoid_: cobrança do cliente, confundir com **Reengajamento** (que é voltado ao cliente), interpretar a resposta por IA (no P0 é regex determinístico; NLP de resposta livre é da **IA Admin** P1), confirmação dupla, criar estado novo, marcar `Perdido` automaticamente por silêncio
+
 **Mídia exclusiva**:
 Foto/vídeo da modelo enviado durante a venda com enquadramento de exclusividade — primeiro fotos, depois um vídeo apresentado como "gravado ao vivo só para o cliente"; quando a plataforma de envio permitir, o vídeo vai como visualização única (view-once) para proteger o conteúdo.
 _Avoid_: enviar vídeo antes de foto, expor que o vídeo "ao vivo" é pré-gravado, prometer view-once sem suporte da plataforma
@@ -135,6 +139,10 @@ _Avoid_: tratar como dado por par cliente-modelo, expor à IA conversacional por
 - A parte **calculada** do **Perfil físico preferido** conta só atendimentos `Fechado`, agrupando pelo `tipo_fisico` das modelos atendidas; modelos sem `tipo_fisico` aparecem como "não classificadas" no breakdown, nunca somem em silêncio, e nenhum rótulo único ("prefere X") é inferido.
 - Classificar a modelo por `tipo_fisico` é pré-condição da parte **calculada**: sem classificação o breakdown é parcial mas válido (a parte conhecida + a contagem de não classificadas); modelos existentes nascem sem `tipo_fisico` (sem backfill).
 - O filtro de clientes por **Perfil físico preferido** usa só a parte **declarada**, com semântica OR (cliente cujo conjunto declarado contém qualquer um dos selecionados).
+- O **Lembrete de fechamento** atua só sobre atendimentos em `Em_execucao` com `bloqueios.fim` no passado (mais a tolerância); reaproveita a porta de **Registro de resultado** (`finalizado/fechado [valor]`) e não cria estado nem transição própria.
+- O **Lembrete de fechamento** nunca marca o atendimento como **Perdido** por ausência de resposta: sem confirmação após o máximo de toques, abre **Handoff** para Fernando e o atendimento permanece em `Em_execucao` até fechamento manual.
+- Diferente do **Reengajamento** (cliente, toque único, dentro do horário de operação), o **Lembrete de fechamento** fala com a modelo no grupo interno, repete em toques fixos e não respeita quiet-hours.
+- A modelo confirma o **Valor final** respondendo (quote) o card do **Lembrete de fechamento** com o valor; é **efetivo imediatamente** (como todo **Registro de resultado** da modelo) e Fernando corrige depois no painel se necessário — não há confirmação dupla.
 
 ## Example dialogue
 
@@ -149,3 +157,4 @@ _Avoid_: tratar como dado por par cliente-modelo, expor à IA conversacional por
 - Referência do timeout interno: o prazo conta a partir do **envio do Aviso de saída** (`aviso_saida_em`), não do horário combinado nem do desejado.
 - "desconto" era sempre motivo de escalada ("a IA não negocia", `mvp/05 §14`); resolvido: a IA pode conceder **Desconto de fechamento** até o **Piso de desconto** numa única oferta, escalando só abaixo disso — a regra "escala em vez de negociar" passa a valer apenas para pedidos **abaixo do piso**.
 - O plano de reunião pedia "a IA lê/escreve o perfil físico do cliente em linguagem natural"; resolvido: no P0 é painel-only (Fernando), porque a parte calculada é cross-modelo e exporia dados de outras modelos à IA conversacional, furando o isolamento por par; a leitura/escrita por linguagem natural fica para a **IA Admin** (P1). "**Perfil físico preferido**" é global do cliente; não confundir com as **observações**, que são por par cliente-modelo.
+- A task de confirmação de valor pós-atendimento falava em "mensagem para a modelo via WhatsApp da modelo" e "IA administrativa processa a resposta"; resolvido: o canal é a **Coordenação por modelo** (a modelo não tem identidade/DM separada) e a interpretação é determinística (regex de `finalizado/fechado [valor]`), não IA — NLP de resposta livre fica para a **IA Admin** (P1). O gatilho é o fim previsto do atendimento (`bloqueios.fim` + tolerância), não a entrada em `Em_execucao`. Ver **Lembrete de fechamento**.

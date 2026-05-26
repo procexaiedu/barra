@@ -80,6 +80,30 @@ def test_texto_irrelevante_retorna_none() -> None:
     assert parse_comando_grupo("") is None
 
 
+def test_valor_pelado_citando_card_de_lembrete_fecha() -> None:
+    # ADR-0007: resposta ao card de Lembrete de fechamento aceita valor sem palavra-chave.
+    comando = parse_comando_grupo("1500", quoted_numero_curto=7, aguardando_valor=True)
+    assert comando is not None
+    assert comando.comando == "registrar_fechado"
+    assert comando.numero_curto == 7
+    assert comando.payload["valor_final"] == Decimal("1500")
+
+
+def test_valor_pelado_sem_aguardando_valor_e_ignorado() -> None:
+    assert parse_comando_grupo("1500", quoted_numero_curto=7) is None
+
+
+def test_perdido_citando_card_de_lembrete_ainda_funciona() -> None:
+    comando = parse_comando_grupo("perdido sumiu", quoted_numero_curto=7, aguardando_valor=True)
+    assert comando is not None
+    assert comando.comando == "registrar_perdido"
+    assert comando.payload["motivo"] == "sumiu"
+
+
+def test_aguardando_valor_texto_solto_sem_valor_ignorado() -> None:
+    assert parse_comando_grupo("ok obrigada", quoted_numero_curto=7, aguardando_valor=True) is None
+
+
 def test_envios_evolution_identifica_outbound_backend() -> None:
     assert asyncio.run(envio_existe(_Conn(), "backend-msg")) is True
 

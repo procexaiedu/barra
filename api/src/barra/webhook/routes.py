@@ -225,8 +225,11 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
         COMANDOS_GRUPO.labels("invalido").inc()
         return {"status": "ignored"}
 
-    quoted_numero = await _numero_por_card(conn, msg.quoted_message_id) if msg.quoted_message_id else None
-    comando = parse_comando_grupo(msg.texto, quoted_numero)
+    quoted_numero: int | None = None
+    aguardando_valor = False
+    if msg.quoted_message_id:
+        quoted_numero, aguardando_valor = await _resolver_card(conn, msg.quoted_message_id)
+    comando = parse_comando_grupo(msg.texto, quoted_numero, aguardando_valor=aguardando_valor)
     if comando is None:
         return {"status": "ignored"}
     atendimento_id = None
@@ -338,6 +341,26 @@ async def _mensagem_ja_persistida(conn: Any, evolution_message_id: str) -> bool:
         (evolution_message_id,),
     )
     return row is not None
+
+
+async def _resolver_card(conn: Any, card_message_id: str) -> tuple[int | None, bool]:
+    """Resolve um card citado -> (numero_curto, é_card_de_Lembrete_de_fechamento).
+
+    Olha primeiro `envios_evolution` (cobre o card do Lembrete de fechamento e qualquer outbound
+    backend ligado a atendimento; ADR-0009); cai para `escaladas.card_message_id` (handoffs)."""
+    row = await _one(
+        conn,
+        """
+        SELECT a.numero_curto, (e.payload->>'card_kind' = 'lembrete_valor') AS lembrete
+          FROM barravips.envios_evolution e
+          JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+         WHERE e.evolution_message_id = %s
+        """,
+        (card_message_id,),
+    )
+    if row is not None:
+        return row["numero_curto"], bool(row["lembrete"])
+    return await _numero_por_card(conn, card_message_id), False
 
 
 async def _numero_por_card(conn: Any, card_message_id: str | None) -> int | None:

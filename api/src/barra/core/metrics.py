@@ -41,6 +41,11 @@ PIX = Counter("barra_pix_total", "Decisoes Pix", ["resultado"])
 ENVIOS_EVOLUTION = Counter("barra_envios_evolution_total", "Envios Evolution", ["resultado"])
 WEBHOOK_ERRORS = Counter("barra_webhook_errors_total", "Erros de webhook", ["tipo"])
 TIMEOUTS = Counter("barra_timeouts_total", "Timeouts aplicados", ["tipo"])
+LEMBRETE_VALOR = Counter(
+    "barra_lembrete_valor_total",
+    "Lembrete de fechamento (ADR-0009): cobranca do valor_final",
+    ["acao"],  # enviado | reenviado | escalado | falha
+)
 
 # Metricas do agente LangGraph (ver docs/agente/08-evals.md, 09-roteiro.md)
 AGENTE_TURNO_DURACAO = Histogram(

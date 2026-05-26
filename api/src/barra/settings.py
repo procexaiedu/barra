@@ -91,6 +91,22 @@ class Settings(BaseSettings):
         default=2, ge=0, le=23,
         description="Hora local de fim da operação (pode ser < início, ex.: 10-2h cruza a meia-noite).",
     )
+    lembrete_valor_ativo: bool = Field(
+        default=True,
+        description="Liga o Lembrete de fechamento: cobra o valor_final da modelo no grupo após o fim previsto do atendimento (ADR-0009). Mensagem interna no grupo de 2 pessoas, baixo risco -> default on.",
+    )
+    lembrete_valor_tolerancia_min: int = Field(
+        default=15, ge=0,
+        description="Minutos após bloqueios.fim antes do 1º lembrete de valor (o atendimento pode esticar).",
+    )
+    lembrete_valor_intervalo_min: int = Field(
+        default=30, ge=1,
+        description="Minutos entre reenvios do lembrete de valor (e antes de escalar após o máximo de toques).",
+    )
+    lembrete_valor_max_toques: int = Field(
+        default=3, ge=1,
+        description="Máximo de cards de lembrete de valor antes de escalar para Fernando via handoff.",
+    )
 
     langchain_tracing_v2: bool = True
     langchain_api_key: str | None = None
