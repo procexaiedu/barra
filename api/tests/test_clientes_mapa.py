@@ -331,3 +331,101 @@ def test_mapa_clientes_desfecho_andamento_exclui_perdido_e_fechado() -> None:
         assert pontos[0]["estado"] == "Em_execucao"
     finally:
         app.dependency_overrides.pop(get_conn, None)
+
+
+# ---------------------------------------------------------------------------
+# MAPA-11: faixa de R$ fechado por cliente + recência (ativos vs dormentes)
+# Mesma estratégia dos testes do MAPA-8: o FakeConn não aplica o filtro, mas
+# guarda a query/params para inspeção. O fato do filtro entrar no WHERE é o
+# que importa — a semântica do SQL é responsabilidade do Postgres.
+
+
+def test_mapa_clientes_filtra_por_valor_min() -> None:
+    fake = FakeConnMapa([_ponto("Fechado", total_fechados=2)])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes/mapa?valor_min=500", headers=_token())
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        assert "ag.valor_total >= %s" in fake.last_query
+        assert isinstance(fake.last_params, list)
+        assert 500.0 in fake.last_params
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_filtra_por_valor_max() -> None:
+    fake = FakeConnMapa([_ponto("Fechado", total_fechados=1)])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes/mapa?valor_max=2000", headers=_token())
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        assert "ag.valor_total <= %s" in fake.last_query
+        assert isinstance(fake.last_params, list)
+        assert 2000.0 in fake.last_params
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_filtra_por_recencia_ativos() -> None:
+    fake = FakeConnMapa([_ponto("Fechado")])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes/mapa?recencia=ativos", headers=_token())
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        assert "geo.ultima_data >= NOW() - INTERVAL '90 days'" in fake.last_query
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_filtra_por_recencia_dormentes() -> None:
+    fake = FakeConnMapa([_ponto("Fechado")])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes/mapa?recencia=dormentes", headers=_token())
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        assert "geo.ultima_data < NOW() - INTERVAL '90 days'" in fake.last_query
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_valor_min_negativo_e_no_op() -> None:
+    # Defesa contra querystring adulterada: negativos não viram cláusula no SQL.
+    fake = FakeConnMapa([_ponto("Fechado")])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes/mapa?valor_min=-100", headers=_token())
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        assert "ag.valor_total >= %s" not in fake.last_query
+        assert "ag.valor_total <= %s" not in fake.last_query
+    finally:
+        app.dependency_overrides.pop(get_conn, None)

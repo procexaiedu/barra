@@ -123,6 +123,9 @@ async def mapa_clientes(
     incluir_arquivados: bool = False,
     desfecho: Literal["Fechado", "Perdido", "andamento"] | None = None,
     motivos_perda: list[str] | None = Query(default=None, alias="motivo_perda"),
+    valor_min: float | None = None,
+    valor_max: float | None = None,
+    recencia: Literal["ativos", "dormentes"] | None = None,
 ) -> dict[str, Any]:
     """Pontos do **Mapa de clientes** (ADR 0008): 1 ponto por cliente na localização do
     atendimento **externo** mais recente com `lat/lng`. Interno fica de fora (lá o endereço é o
@@ -133,7 +136,11 @@ async def mapa_clientes(
     MAPA-8: aceita `desfecho` (Fechado/Perdido/andamento) e `motivo_perda` (multi, OR) que
     incidem sobre o **mesmo atendimento** que ancora o ponto (via o LATERAL `geo`). Cliente
     cujo externo mais recente não bate no filtro simplesmente não vira ponto — não entra em
-    `total_sem_localizacao` (esse campo é reservado a clientes sem geo)."""
+    `total_sem_localizacao` (esse campo é reservado a clientes sem geo).
+
+    MAPA-11: aceita `valor_min`/`valor_max` (R$ fechado do cliente, incide em `ag.valor_total`
+    — cross-modelo) e `recencia` ("ativos" = `geo.ultima_data >= NOW() - 90d`; "dormentes" = <).
+    Negativos viram NO-OP. Ortogonais aos filtros do MAPA-8 e à lente MAPA-9 (sempre aplicados)."""
     # Declarado ANTES de GET /clientes/{cliente_id} para "mapa" não cair no path param UUID.
     params: list[Any] = []
     filtros = ["1=1"]
@@ -170,6 +177,20 @@ async def mapa_clientes(
     if motivos_perda:
         filtros.append("geo.motivo_perda = ANY(%s::barravips.motivo_perda_enum[])")
         params.append(motivos_perda)
+    # MAPA-11: faixa de R$ fechado do cliente (ag.valor_total — cross-modelo) e recência
+    # sobre `geo.ultima_data` (data do externo que ancora o ponto). Ortogonais ao MAPA-8 e
+    # à lente MAPA-9: aplicados sempre. Negativos viram NO-OP (defesa contra querystring
+    # adulterada; a UI já valida e bloqueia min > max no trigger).
+    if valor_min is not None and valor_min >= 0:
+        filtros.append("ag.valor_total >= %s")
+        params.append(valor_min)
+    if valor_max is not None and valor_max >= 0:
+        filtros.append("ag.valor_total <= %s")
+        params.append(valor_max)
+    if recencia == "ativos":
+        filtros.append("geo.ultima_data >= NOW() - INTERVAL '90 days'")
+    elif recencia == "dormentes":
+        filtros.append("geo.ultima_data < NOW() - INTERVAL '90 days'")
     result = await conn.execute(
         f"""
         SELECT c.id, c.nome, c.perfis_preferidos,
