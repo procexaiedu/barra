@@ -66,7 +66,7 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 | ID | Tarefa | Fase | Escopo | Depende de | Status |
 |---|---|---|---|---|---|
 | MAPA-1 | Seletor de métrica + legenda (espinha dorsal) | 1 | ✅ | — | ✅ shipado (pré-pipeline) |
-| MAPA-2 | Bolhas graduadas | 1 | ✅ | MAPA-1 | 🟡 PR aberto em `feat/mapa-2-bolhas` (PR #12 fechado por DIRTY) |
+| MAPA-2 | Bolhas graduadas | 1 | ✅ | MAPA-1 | ✅ mergeado (PR #23, PR #12 fechado por DIRTY) |
 | MAPA-3 | Cor por desfecho do atendimento mais recente | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #21) |
 | MAPA-4 | Ranking lateral de bairros/cidades quentes | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #14) |
 | MAPA-5 | InfoWindow enriquecido | 1 | 🟡 | MAPA-5b | ❌ bloqueado em PR #15 — falta MAPA-5b |
