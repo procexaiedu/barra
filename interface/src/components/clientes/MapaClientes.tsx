@@ -6,6 +6,7 @@ import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/goo
 import { formatBRL } from "@/lib/formatters"
 import type { MapaMetrica } from "@/lib/mapaMetrica"
 import { LegendaEscala, SeletorMetrica } from "@/components/clientes/MapaControles"
+import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
 import type { MapaClientePonto } from "@/tipos/clientes"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
@@ -30,24 +31,29 @@ export function MapaClientes({
   const mapRef = useRef<google.maps.Map | null>(null)
   const infoRef = useRef<google.maps.InfoWindow | null>(null)
   const clustererRef = useRef<MarkerClusterer | null>(null)
-  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
+  // Marcadores guardam a chave do bairro para que o efeito de destaque consiga
+  // selecionar quais re-renderizar sem refazer a varredura nos pontos.
+  const markersRef = useRef<
+    Array<{ marker: google.maps.marker.AdvancedMarkerElement; chave: string }>
+  >([])
   const [mapPronto, setMapPronto] = useState(false)
   // Métrica do mapa (MAPA-1, espinha dorsal). Default = R$ fechado, conforme spec.
-  // Mora aqui porque o único consumidor hoje é o próprio desenho do mapa (e a legenda);
-  // sobe para o page.tsx quando MAPA-4 (ranking sibling) chegar.
   const [metrica, setMetrica] = useState<MapaMetrica>("valor")
+  // MAPA-4: bairro selecionado no ranking lateral; controla pan + destaque das bolhas.
+  const [bairroSelecionado, setBairroSelecionado] = useState<string | null>(null)
 
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
   const desenharPontos = useCallback(() => {
     const map = mapRef.current
     if (!map) return
     clustererRef.current?.clearMarkers()
-    markersRef.current.forEach((marker) => {
+    markersRef.current.forEach(({ marker }) => {
       marker.map = null
     })
     markersRef.current = []
 
     const bounds = new google.maps.LatLngBounds()
+    const markers: google.maps.marker.AdvancedMarkerElement[] = []
     for (const ponto of pontos) {
       const posicao = { lat: ponto.latitude, lng: ponto.longitude }
       const marker = new google.maps.marker.AdvancedMarkerElement({
@@ -62,14 +68,15 @@ export function MapaClientes({
         info.setContent(conteudoInfo(ponto))
         info.open({ map, anchor: marker })
       })
-      markersRef.current.push(marker)
+      markersRef.current.push({ marker, chave: chaveBairro(ponto) })
+      markers.push(marker)
       bounds.extend(posicao)
     }
 
     if (!clustererRef.current) {
-      clustererRef.current = new MarkerClusterer({ map, markers: markersRef.current })
+      clustererRef.current = new MarkerClusterer({ map, markers })
     } else {
-      clustererRef.current.addMarkers(markersRef.current)
+      clustererRef.current.addMarkers(markers)
     }
 
     if (pontos.length > 0) {
@@ -119,6 +126,27 @@ export function MapaClientes({
     if (mapPronto) desenharPontos()
   }, [mapPronto, desenharPontos])
 
+  // MAPA-4: destaque leve das bolhas do bairro selecionado. Roda depois de
+  // `desenharPontos` (declarado abaixo) para reaplicar quando os pontos mudam.
+  useEffect(() => {
+    aplicarDestaque(markersRef.current, bairroSelecionado)
+  }, [bairroSelecionado, mapPronto, pontos])
+
+  // MAPA-4: pan do mapa para o centroide das bolhas do bairro escolhido.
+  const handleSelectBairro = useCallback(
+    (chave: string) => {
+      setBairroSelecionado(chave)
+      const map = mapRef.current
+      if (!map) return
+      const pts = pontos.filter((p) => chaveBairro(p) === chave)
+      if (pts.length === 0) return
+      const lat = pts.reduce((acc, p) => acc + p.latitude, 0) / pts.length
+      const lng = pts.reduce((acc, p) => acc + p.longitude, 0) / pts.length
+      map.panTo({ lat, lng })
+    },
+    [pontos],
+  )
+
   if (!googleMapsApiKey) {
     return (
       <div className="grid place-items-center rounded-lg border border-border bg-card p-8 text-center text-sm text-text-muted">
@@ -142,32 +170,65 @@ export function MapaClientes({
         </div>
         <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
       </div>
-      <div className="relative h-[calc(100vh-300px)] min-h-[420px] overflow-hidden rounded-lg border border-border">
-        <div ref={containerRef} className="h-full w-full" />
-        <div className="absolute bottom-3 left-3">
-          <LegendaEscala metrica={metrica} pontos={pontos} />
+      <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">
+        <div className="relative flex-1 overflow-hidden rounded-lg border border-border">
+          <div ref={containerRef} className="h-full w-full" />
+          <div className="absolute bottom-3 left-3">
+            <LegendaEscala metrica={metrica} pontos={pontos} />
+          </div>
+          {status === "loading" && pontos.length === 0 && (
+            <div className="absolute inset-0 grid place-items-center text-sm text-text-muted">
+              Carregando mapa…
+            </div>
+          )}
+          {status === "error" && (
+            <div className="absolute inset-0 grid place-items-center gap-2 bg-card/80 text-sm text-state-lost">
+              <span>{error ?? "Erro ao carregar o mapa."}</span>
+              <button type="button" onClick={onRetry} className="underline underline-offset-2">
+                Tentar de novo
+              </button>
+            </div>
+          )}
+          {status === "success" && pontos.length === 0 && (
+            <div className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-text-muted">
+              Nenhum cliente com localização (atendimento externo geocodificado) nos filtros atuais.
+            </div>
+          )}
         </div>
-        {status === "loading" && pontos.length === 0 && (
-          <div className="absolute inset-0 grid place-items-center text-sm text-text-muted">
-            Carregando mapa…
-          </div>
-        )}
-        {status === "error" && (
-          <div className="absolute inset-0 grid place-items-center gap-2 bg-card/80 text-sm text-state-lost">
-            <span>{error ?? "Erro ao carregar o mapa."}</span>
-            <button type="button" onClick={onRetry} className="underline underline-offset-2">
-              Tentar de novo
-            </button>
-          </div>
-        )}
-        {status === "success" && pontos.length === 0 && (
-          <div className="absolute inset-0 grid place-items-center px-6 text-center text-sm text-text-muted">
-            Nenhum cliente com localização (atendimento externo geocodificado) nos filtros atuais.
-          </div>
-        )}
+        <MapaRanking
+          pontos={pontos}
+          metrica={metrica}
+          onSelectBairro={handleSelectBairro}
+        />
       </div>
     </div>
   )
+}
+
+// Elemento DOM usado como `content` do AdvancedMarkerElement quando o bairro do
+// ponto é o selecionado no ranking — substitui o pin padrão por um disco dourado
+// com ring, suficiente para "destaque visual leve" sem reimplementar bolhas
+// (que é a MAPA-2).
+function criarConteudoDestaque(): HTMLElement {
+  const el = document.createElement("div")
+  el.style.cssText =
+    "width:18px;height:18px;border-radius:50%;background:#E6CB7A;border:2px solid #1a1a1a;box-shadow:0 0 0 4px rgba(230,203,122,0.35);"
+  return el
+}
+
+// Mutação imperativa de instâncias do Google Maps — isolada aqui (fora do hook)
+// porque o React Compiler trata refs como imutáveis no escopo de useEffect.
+function aplicarDestaque(
+  items: ReadonlyArray<{
+    marker: google.maps.marker.AdvancedMarkerElement
+    chave: string
+  }>,
+  selecionado: string | null,
+) {
+  for (const { marker, chave } of items) {
+    marker.content =
+      selecionado && chave === selecionado ? criarConteudoDestaque() : null
+  }
 }
 
 // InfoWindow é renderizada pelo Google num balão branco — cores fixas legíveis ali, não
