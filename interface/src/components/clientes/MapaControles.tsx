@@ -10,9 +10,39 @@ import {
   limitesMetrica,
   type MapaCamada,
   type MapaMetrica,
-  type MapaModoMarker,
 } from "@/lib/mapaMetrica"
-import type { MapaClientePonto } from "@/tipos/clientes"
+import { PERFIS_FISICOS, PERFIL_FISICO_LABEL } from "@/lib/perfilFisico"
+import type { EstadoAtendimento, MapaClientePonto, PerfilFisico } from "@/tipos/clientes"
+
+// Paletas categóricas reusadas pelo marker (PinElement) e pelas legendas. Hex literal
+// porque PinElement não resolve CSS vars; valores espelham --state-*/--chart-* do tema.
+// Vivem aqui porque é a fonte da verdade compartilhada entre marker e legenda — se
+// divergem, a legenda mente.
+const COR_FECHADO = "#1FB07A"
+const COR_PERDIDO = "#D62828"
+const COR_EM_ANDAMENTO = "#F4B81C"
+export function corPorDesfecho(estado: EstadoAtendimento): string {
+  if (estado === "Fechado") return COR_FECHADO
+  if (estado === "Perdido") return COR_PERDIDO
+  return COR_EM_ANDAMENTO
+}
+/** Rótulo agrupado por cor (3 baldes) para a legenda categórica. */
+const ROTULO_DESFECHO_LEGENDA: ReadonlyArray<{ label: string; cor: string }> = [
+  { label: "Fechado", cor: COR_FECHADO },
+  { label: "Perdido", cor: COR_PERDIDO },
+  { label: "Em andamento", cor: COR_EM_ANDAMENTO },
+] as const
+
+export const COR_PERFIL: Record<PerfilFisico, string> = {
+  loira: "#C4A961",
+  morena: "#4F8FE1",
+  ruiva: "#1FB07A",
+  negra: "#B66CD9",
+  asiatica: "#E07A5F",
+  outra: "#6FCFC9",
+}
+/** Sem perfil declarado: cinza neutro, distinto das categorias. */
+export const COR_PERFIL_SEM = "#7A7A7A"
 
 // Seletor + legenda do Mapa de clientes (MAPA-1, espinha dorsal). Os dois são
 // exportados separados para o pai posicionar cada um (seletor na barra do header,
@@ -85,8 +115,9 @@ export function SeletorModoCor({
 const OPCOES_CAMADA: readonly { id: MapaCamada; label: string; tooltip: string }[] = [
   {
     id: "bolhas",
-    label: "Bolhas",
-    tooltip: "1 marcador por cliente. Default — honesto com dado esparso.",
+    label: "Pontos",
+    tooltip:
+      "1 marcador por cliente. Em 'Por métrica' o ponto vira bolha sqrt-escalada; em 'Por desfecho/perfil' vira pin colorido.",
   },
   {
     id: "hexbin",
@@ -144,58 +175,6 @@ export function SeletorCamada({
                 ? "bg-accent text-text-primary"
                 : "text-text-muted hover:text-text-secondary",
               desabilitado && "cursor-not-allowed opacity-50 hover:text-text-muted",
-            )}
-          >
-            {opcao.label}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-const OPCOES_MODO_MARKER: readonly { id: MapaModoMarker; label: string }[] = [
-  { id: "bolhas", label: "Bolhas" },
-  { id: "pins", label: "Pins" },
-] as const
-
-/** Toggle Pins|Bolhas (MAPA-2). Renderizar SÓ quando modoCor==='metrica' —
- *  em desfecho/perfil o marker é sempre PinElement colorido. */
-export function SeletorModoMarker({
-  modo,
-  metrica,
-  onModoChange,
-}: {
-  modo: MapaModoMarker
-  metrica: MapaMetrica
-  onModoChange: (m: MapaModoMarker) => void
-}) {
-  return (
-    <div
-      role="radiogroup"
-      aria-label="Estilo dos marcadores"
-      className="inline-flex rounded-lg border border-border bg-card p-0.5"
-    >
-      {OPCOES_MODO_MARKER.map((opcao) => {
-        const ativo = opcao.id === modo
-        // Caso degenerado MAPA-2: bolhas + métrica "clientes" → todas iguais.
-        const tooltip =
-          opcao.id === "bolhas" && metrica === "clientes"
-            ? 'Em "Clientes" todas as bolhas têm o mesmo tamanho (1 cliente = 1 ponto).'
-            : undefined
-        return (
-          <button
-            key={opcao.id}
-            type="button"
-            role="radio"
-            aria-checked={ativo}
-            title={tooltip}
-            onClick={() => onModoChange(opcao.id)}
-            className={cn(
-              "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              ativo
-                ? "bg-accent text-text-primary"
-                : "text-text-muted hover:text-text-secondary",
             )}
           >
             {opcao.label}
@@ -303,4 +282,63 @@ export function LegendaEscala({
 function formatarValor(metrica: MapaMetrica, n: number): string {
   if (metrica === "valor") return formatBRL(n)
   return NUM_FMT.format(n)
+}
+
+/** Legenda categórica do modo "Por desfecho" (3 baldes de cor — espelham os pins). */
+export function LegendaDesfecho() {
+  return (
+    <div
+      aria-label="Legenda por desfecho"
+      className="w-[200px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+    >
+      <div className="mb-1 text-[11px] font-medium text-text-secondary">Desfecho</div>
+      <ul className="flex flex-col gap-1 text-[11px] text-text-muted">
+        {ROTULO_DESFECHO_LEGENDA.map((item) => (
+          <li key={item.label} className="flex items-center gap-1.5">
+            <span
+              aria-hidden
+              className="h-2.5 w-2.5 rounded-full border border-border"
+              style={{ background: item.cor }}
+            />
+            <span>{item.label}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
+/** Legenda categórica do modo "Por perfil físico" — 6 perfis (ordem canônica ADR 0006)
+ *  + "Sem declaração". A cor do pin segue o PRIMEIRO perfil quando o cliente tem >1. */
+export function LegendaPerfil() {
+  return (
+    <div
+      aria-label="Legenda por perfil físico"
+      className="w-[200px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+    >
+      <div className="mb-1 text-[11px] font-medium text-text-secondary">
+        Perfil físico
+      </div>
+      <ul className="grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-text-muted">
+        {PERFIS_FISICOS.map((slug) => (
+          <li key={slug} className="flex items-center gap-1.5">
+            <span
+              aria-hidden
+              className="h-2.5 w-2.5 rounded-full border border-border"
+              style={{ background: COR_PERFIL[slug] }}
+            />
+            <span>{PERFIL_FISICO_LABEL[slug]}</span>
+          </li>
+        ))}
+        <li className="col-span-2 flex items-center gap-1.5">
+          <span
+            aria-hidden
+            className="h-2.5 w-2.5 rounded-full border border-border"
+            style={{ background: COR_PERFIL_SEM }}
+          />
+          <span>Sem declaração</span>
+        </li>
+      </ul>
+    </div>
+  )
 }

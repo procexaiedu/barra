@@ -12,7 +12,6 @@ import {
   raioBolha,
   type MapaCamada,
   type MapaMetrica,
-  type MapaModoMarker,
 } from "@/lib/mapaMetrica"
 import {
   criarCalorOverlay,
@@ -21,11 +20,15 @@ import {
   type HexbinHandle,
 } from "@/lib/deckMap"
 import {
+  COR_PERFIL,
+  COR_PERFIL_SEM,
+  LegendaDesfecho,
   LegendaEscala,
+  LegendaPerfil,
   SeletorCamada,
   SeletorMetrica,
   SeletorModoCor,
-  SeletorModoMarker,
+  corPorDesfecho,
   type ModoCor,
 } from "@/components/clientes/MapaControles"
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
@@ -34,31 +37,6 @@ import type { EstadoAtendimento, MapaClientePonto, PerfilFisico } from "@/tipos/
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
 const CENTRO_BRASIL = { lat: -14.235, lng: -51.925 }
-
-// Cores do modo "Por desfecho" (MAPA-3). Hex literal porque PinElement não resolve
-// CSS vars; valores espelham --state-closed/--state-lost/--state-handoff do tema.
-const COR_FECHADO = "#1FB07A"
-const COR_PERDIDO = "#D62828"
-const COR_EM_ANDAMENTO = "#F4B81C"
-
-function corPorDesfecho(estado: EstadoAtendimento): string {
-  if (estado === "Fechado") return COR_FECHADO
-  if (estado === "Perdido") return COR_PERDIDO
-  return COR_EM_ANDAMENTO
-}
-
-// Paleta categórica do modo "Por perfil físico" (MAPA-10). Hex literal porque
-// PinElement não resolve CSS vars; valores espelham --chart-1..6 do tema escuro.
-const COR_PERFIL: Record<PerfilFisico, string> = {
-  loira: "#C4A961",
-  morena: "#4F8FE1",
-  ruiva: "#1FB07A",
-  negra: "#B66CD9",
-  asiatica: "#E07A5F",
-  outra: "#6FCFC9",
-}
-// Sem perfil declarado: cinza neutro, distinto das categorias.
-const COR_PERFIL_SEM = "#7A7A7A"
 
 type Status = "idle" | "loading" | "success" | "error"
 
@@ -111,11 +89,9 @@ export function MapaClientes({
   // Métrica do mapa (MAPA-1, espinha dorsal). Default = R$ fechado, conforme spec.
   const [metrica, setMetrica] = useState<MapaMetrica>("valor")
   // MAPA-3: modo de cor dos pontos. Ortogonal à métrica (que rege o tamanho).
-  // Default "metrica" preserva o comportamento prévio.
+  // Default "metrica" preserva o comportamento prévio. Em "metrica" o marker é
+  // sempre bolha sqrt-escalada; em "desfecho"/"perfil" é PinElement colorido.
   const [modoCor, setModoCor] = useState<ModoCor>("metrica")
-  // MAPA-2: estilo do marcador quando modoCor==='metrica'. Default "bolhas" (spec).
-  // O toggle só é exibido em "metrica" — em desfecho/perfil o marker é sempre pin colorido.
-  const [modoMarker, setModoMarker] = useState<MapaModoMarker>("bolhas")
   // MAPA-6: camada atual. Default "bolhas" — preserva a Fase 1.
   const [camada, setCamada] = useState<MapaCamada>("bolhas")
   // MAPA-4: bairro selecionado no ranking lateral; controla pan + destaque das bolhas.
@@ -140,7 +116,7 @@ export function MapaClientes({
     for (const ponto of pontos) {
       const posicao = { lat: ponto.latitude, lng: ponto.longitude }
       const peso = normalizarPeso(pesoPonto(ponto, metrica), limites)
-      const content = conteudoPorModo(modoCor, modoMarker, ponto, peso)
+      const content = conteudoPorModo(modoCor, ponto, peso)
       const marker = new google.maps.marker.AdvancedMarkerElement({
         position: posicao,
         title: ponto.nome ?? "Cliente",
@@ -173,7 +149,7 @@ export function MapaClientes({
     } else {
       clustererRef.current.addMarkers(markers)
     }
-  }, [pontos, onFiltrarBairro, modoCor, modoMarker, metrica, camada])
+  }, [pontos, onFiltrarBairro, modoCor, metrica, camada])
 
   // Fit nos pontos só quando o conjunto muda — trocar métrica/modo/cor redesenha
   // sem reposicionar o mapa (preserva pan/zoom do usuário). MAPA-2 depende disso
@@ -246,11 +222,11 @@ export function MapaClientes({
 
   // MAPA-4: destaque leve das bolhas do bairro selecionado. Roda depois de
   // `desenharPontos` (declarado abaixo) para reaplicar quando os pontos mudam.
-  // Inclui `modoCor` e `modoMarker` nas deps para restaurar a aparência correta
-  // (cor por desfecho/perfil ou bolha sqrt-escalada) ao deselecionar.
+  // Inclui `modoCor` nas deps para restaurar a aparência correta (cor por
+  // desfecho/perfil ou bolha sqrt-escalada) ao deselecionar.
   useEffect(() => {
-    aplicarDestaque(markersRef.current, bairroSelecionado, modoCor, modoMarker)
-  }, [bairroSelecionado, mapPronto, pontos, modoCor, modoMarker])
+    aplicarDestaque(markersRef.current, bairroSelecionado, modoCor)
+  }, [bairroSelecionado, mapPronto, pontos, modoCor])
 
   // MAPA-6: ciclo de vida do overlay deck.gl. Cria ao entrar em "hexbin"
   // (import dinâmico), atualiza quando pontos/métrica mudam, descarta ao sair.
@@ -374,29 +350,33 @@ export function MapaClientes({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {camada === "bolhas" && modoCor === "metrica" && (
-            <SeletorModoMarker
-              modo={modoMarker}
-              metrica={metrica}
-              onModoChange={setModoMarker}
-            />
-          )}
-          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
-          {camada === "bolhas" && (
-            <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
-          )}
           <SeletorCamada
             camada={camada}
             pontosCount={pontos.length}
             onCamadaChange={setCamada}
           />
+          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
+          {camada === "bolhas" && (
+            <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
+          )}
         </div>
       </div>
       <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">
         <div className="relative flex-1 overflow-hidden rounded-lg border border-border">
           <div ref={containerRef} className="h-full w-full" />
           <div className="absolute bottom-3 left-3">
-            <LegendaEscala metrica={metrica} pontos={pontos} />
+            {/* Legenda contextual: só aparece o que realmente codifica algo no mapa.
+                - Hexbin/Calor e Pontos+Por métrica → rampa --seq-* (LegendaEscala).
+                - Pontos+Por desfecho → 3 baldes de cor (LegendaDesfecho).
+                - Pontos+Por perfil → 6 categorias + Sem declaração (LegendaPerfil).
+                Em todos os outros (camada ≠ Pontos), a cor é sempre da métrica. */}
+            {camada === "bolhas" && modoCor === "desfecho" ? (
+              <LegendaDesfecho />
+            ) : camada === "bolhas" && modoCor === "perfil" ? (
+              <LegendaPerfil />
+            ) : (
+              <LegendaEscala metrica={metrica} pontos={pontos} />
+            )}
           </div>
           {status === "loading" && pontos.length === 0 && (
             <div className="absolute inset-0 grid place-items-center text-sm text-text-muted">
@@ -471,17 +451,13 @@ function criarConteudoBolha(peso: number): HTMLElement {
 
 function conteudoPorModo(
   modoCor: ModoCor,
-  modoMarker: MapaModoMarker,
   ponto: MapaClientePonto,
   peso: number,
 ): HTMLElement {
   if (modoCor === "desfecho") return criarConteudoDesfecho(ponto.estado)
   if (modoCor === "perfil") return criarConteudoPerfil(ponto.perfis)
-  if (modoMarker === "bolhas") return criarConteudoBolha(peso)
-  // modoMarker==='pins' + modoCor==='metrica': PinElement default (sem cor por
-  // métrica — só servia de modo "neutro"). Materializamos para conseguir anexar
-  // o click DOM uniformemente.
-  return new google.maps.marker.PinElement().element
+  // modoCor === "metrica": bolha sqrt-escalada (raio + cor pela rampa --seq-*).
+  return criarConteudoBolha(peso)
 }
 
 // Mutação imperativa de instâncias do Google Maps — isolada aqui (fora do hook)
@@ -497,7 +473,6 @@ function aplicarDestaque(
   }>,
   selecionado: string | null,
   modoCor: ModoCor,
-  modoMarker: MapaModoMarker,
 ) {
   for (const { marker, chave, estado, perfis, peso, abrirInfo } of items) {
     let novo: HTMLElement
@@ -507,10 +482,8 @@ function aplicarDestaque(
       novo = criarConteudoDesfecho(estado)
     } else if (modoCor === "perfil") {
       novo = criarConteudoPerfil(perfis)
-    } else if (modoMarker === "bolhas") {
-      novo = criarConteudoBolha(peso)
     } else {
-      novo = new google.maps.marker.PinElement().element
+      novo = criarConteudoBolha(peso)
     }
     marker.content = novo
     // Re-bind do click no novo content (`gmp-click` do AdvancedMarker está bugado

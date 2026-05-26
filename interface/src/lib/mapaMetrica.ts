@@ -12,17 +12,11 @@ import type { MapaClientePonto } from "@/tipos/clientes"
 export type MapaMetrica = "valor" | "atendimentos" | "clientes"
 
 /**
- * Modo de marcador do mapa de pontos (MAPA-2). Default na UI = "bolhas".
- * Só faz sentido quando modoCor==='metrica' — em "desfecho"/"perfil" o
- * marcador é sempre o PinElement colorido (MAPA-3/10).
- *  - "bolhas": círculo dimensionado (raio sqrt-escalado) e colorido pela métrica.
- *  - "pins":   AdvancedMarker default (sem peso visual da métrica).
- */
-export type MapaModoMarker = "pins" | "bolhas"
-
-/**
  * Camada do mapa (MAPA-6/MAPA-7). Default na UI = "bolhas" (preserva a Fase 1).
- *  - "bolhas": 1 marcador por cliente (modo `MapaModoMarker` + modo de cor).
+ * Rotulada na UI como "Visualização: Pontos · Hexbin · Calor".
+ *  - "bolhas": 1 marcador por cliente. A aparência segue `ModoCor`: em "metrica"
+ *              vira bolha sqrt-escalada (raio + cor da rampa); em "desfecho"/
+ *              "perfil" vira PinElement colorido pela categoria.
  *  - "hexbin": GoogleMapsOverlay+HexagonLayer (deck.gl), favos coloridos pela
  *              rampa --seq-* SOMANDO a métrica selecionada. O seletor de cor
  *              (`ModoCor`) é ocultado nesta camada — favo agrega pontos de
