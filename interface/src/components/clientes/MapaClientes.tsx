@@ -10,11 +10,14 @@ import {
   normalizarPeso,
   pesoPonto,
   raioBolha,
+  type MapaCamada,
   type MapaMetrica,
   type MapaModoMarker,
 } from "@/lib/mapaMetrica"
+import { criarHexbinOverlay, type HexbinHandle } from "@/lib/deckMap"
 import {
   LegendaEscala,
+  SeletorCamada,
   SeletorMetrica,
   SeletorModoCor,
   SeletorModoMarker,
@@ -74,6 +77,12 @@ export function MapaClientes({
   const mapRef = useRef<google.maps.Map | null>(null)
   const infoRef = useRef<google.maps.InfoWindow | null>(null)
   const clustererRef = useRef<MarkerClusterer | null>(null)
+  // MAPA-6: handle do GoogleMapsOverlay+HexagonLayer. Existe só enquanto
+  // camada==='hexbin' — criamos no efeito de entrada e descartamos ao sair.
+  const hexbinRef = useRef<HexbinHandle | null>(null)
+  // Sentinela para descartar overlays criados em vão (alterna rápido de
+  // bolhas→hexbin→bolhas antes do import dinâmico resolver).
+  const hexbinSeqRef = useRef(0)
   // Marcadores guardam o bairro (destaque MAPA-4), o estado (cor MAPA-3), os perfis
   // declarados (cor MAPA-10) e o peso normalizado (tamanho/cor de bolha MAPA-2) para
   // que os efeitos re-renderizem sem refazer a varredura.
@@ -95,6 +104,8 @@ export function MapaClientes({
   // MAPA-2: estilo do marcador quando modoCor==='metrica'. Default "bolhas" (spec).
   // O toggle só é exibido em "metrica" — em desfecho/perfil o marker é sempre pin colorido.
   const [modoMarker, setModoMarker] = useState<MapaModoMarker>("bolhas")
+  // MAPA-6: camada atual. Default "bolhas" — preserva a Fase 1.
+  const [camada, setCamada] = useState<MapaCamada>("bolhas")
   // MAPA-4: bairro selecionado no ranking lateral; controla pan + destaque das bolhas.
   const [bairroSelecionado, setBairroSelecionado] = useState<string | null>(null)
 
@@ -107,6 +118,9 @@ export function MapaClientes({
       marker.map = null
     })
     markersRef.current = []
+
+    // MAPA-6: em Hexbin, só o overlay deck.gl renderiza — markers/cluster ficam ocultos.
+    if (camada === "hexbin") return
 
     const limites = limitesMetrica(pontos, metrica)
     const markers: google.maps.marker.AdvancedMarkerElement[] = []
@@ -141,7 +155,7 @@ export function MapaClientes({
     } else {
       clustererRef.current.addMarkers(markers)
     }
-  }, [pontos, onFiltrarBairro, modoCor, modoMarker, metrica])
+  }, [pontos, onFiltrarBairro, modoCor, modoMarker, metrica, camada])
 
   // Fit nos pontos só quando o conjunto muda — trocar métrica/modo/cor redesenha
   // sem reposicionar o mapa (preserva pan/zoom do usuário). MAPA-2 depende disso
@@ -162,6 +176,16 @@ export function MapaClientes({
       })
     }
   }, [mapPronto, pontos])
+
+  // MAPA-6: dispose do overlay deck.gl no unmount do componente. O efeito principal
+  // só descarta quando `camada` muda; sem este cleanup, sair da aba Mapa enquanto
+  // a camada está em "hexbin" vazaria o overlay (e o WebGL context dele).
+  useEffect(() => {
+    return () => {
+      hexbinRef.current?.dispose()
+      hexbinRef.current = null
+    }
+  }, [])
 
   // Inicializa o mapa uma vez (guardas cobrem o duplo-mount do StrictMode em dev).
   useEffect(() => {
@@ -207,6 +231,53 @@ export function MapaClientes({
     aplicarDestaque(markersRef.current, bairroSelecionado, modoCor, modoMarker)
   }, [bairroSelecionado, mapPronto, pontos, modoCor, modoMarker])
 
+  // MAPA-6: ciclo de vida do overlay deck.gl. Cria ao entrar em "hexbin"
+  // (import dinâmico), atualiza quando pontos/métrica mudam, descarta ao sair.
+  // O sequencial evita aplicar um overlay obsoleto se a camada virar antes do
+  // import resolver (alternância rápida).
+  useEffect(() => {
+    if (!mapPronto) return
+    const map = mapRef.current
+    if (!map) return
+    if (camada !== "hexbin") {
+      hexbinRef.current?.dispose()
+      hexbinRef.current = null
+      return
+    }
+    const opts = {
+      pontos,
+      metrica,
+      onClickFavo: (info: import("@/lib/deckMap").HexbinPickedInfo) => {
+        const win = infoRef.current
+        if (!win) return
+        win.setContent(conteudoFavo(info, metrica))
+        win.setPosition(info.centroide)
+        win.open(map)
+      },
+    }
+    if (hexbinRef.current) {
+      hexbinRef.current.atualizar(opts)
+      return
+    }
+    const seq = ++hexbinSeqRef.current
+    let cancelado = false
+    criarHexbinOverlay(map, opts)
+      .then((handle) => {
+        if (cancelado || seq !== hexbinSeqRef.current) {
+          handle.dispose()
+          return
+        }
+        hexbinRef.current = handle
+      })
+      .catch(() => {
+        // Falha de import dinâmico: a camada Hexbin fica indisponível desta vez.
+        // A UI continua mostrando o mapa (bolhas seguem funcionando ao voltar).
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [camada, pontos, metrica, mapPronto])
+
   // MAPA-4: pan do mapa para o centroide das bolhas do bairro escolhido.
   const handleSelectBairro = useCallback(
     (chave: string) => {
@@ -244,7 +315,7 @@ export function MapaClientes({
           )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {modoCor === "metrica" && (
+          {camada === "bolhas" && modoCor === "metrica" && (
             <SeletorModoMarker
               modo={modoMarker}
               metrica={metrica}
@@ -252,7 +323,10 @@ export function MapaClientes({
             />
           )}
           <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
-          <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
+          {camada === "bolhas" && (
+            <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
+          )}
+          <SeletorCamada camada={camada} onCamadaChange={setCamada} />
         </div>
       </div>
       <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">
@@ -448,4 +522,40 @@ function formatarDataBR(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return "—"
   return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric" })
+}
+
+// InfoWindow do favo Hexbin (MAPA-6): só agregado da célula, sem link de ficha
+// (favo agrega N clientes — não há "o cliente" para apontar).
+function conteudoFavo(
+  info: import("@/lib/deckMap").HexbinPickedInfo,
+  metrica: MapaMetrica,
+): HTMLElement {
+  const container = document.createElement("div")
+  container.style.cssText = "font-family: inherit; min-width: 200px; color: #1a1a1a;"
+
+  const titulo = document.createElement("div")
+  titulo.style.cssText = "font-weight: 600; margin-bottom: 2px;"
+  titulo.textContent = `${info.count} cliente${info.count === 1 ? "" : "s"} nesta área`
+  container.appendChild(titulo)
+
+  const linha = document.createElement("div")
+  linha.style.cssText = "margin-top: 4px; font-size: 12px; color: #444;"
+  linha.textContent = resumoFavo(info, metrica)
+  container.appendChild(linha)
+
+  return container
+}
+
+function resumoFavo(
+  info: import("@/lib/deckMap").HexbinPickedInfo,
+  metrica: MapaMetrica,
+): string {
+  const plural = info.somaAtendimentos === 1 ? "atendimento" : "atendimentos"
+  if (metrica === "valor") {
+    return `${formatBRL(info.somaValor)} · ${info.somaAtendimentos} ${plural}`
+  }
+  if (metrica === "atendimentos") {
+    return `${info.somaAtendimentos} ${plural} · ${formatBRL(info.somaValor)}`
+  }
+  return `${info.count} cliente${info.count === 1 ? "" : "s"} · ${info.somaAtendimentos} ${plural}`
 }

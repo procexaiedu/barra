@@ -20,6 +20,16 @@ export type MapaMetrica = "valor" | "atendimentos" | "clientes"
  */
 export type MapaModoMarker = "pins" | "bolhas"
 
+/**
+ * Camada do mapa (MAPA-6). Default na UI = "bolhas" (preserva a Fase 1).
+ *  - "bolhas": 1 marcador por cliente (modo `MapaModoMarker` + modo de cor).
+ *  - "hexbin": GoogleMapsOverlay+HexagonLayer (deck.gl), favos coloridos pela
+ *              rampa --seq-* SOMANDO a métrica selecionada. O seletor de cor
+ *              (`ModoCor`) é ocultado nesta camada — favo agrega pontos de
+ *              desfechos/perfis mistos, então só "Por métrica" faz sentido.
+ */
+export type MapaCamada = "bolhas" | "hexbin"
+
 export interface MapaMetricaOpcao {
   id: MapaMetrica
   label: string
