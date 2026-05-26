@@ -69,7 +69,7 @@ oferta (modelos) cobre a demanda*. Nada que exponha agregação cross-modelo à 
 | MAPA-2 | Bolhas graduadas | 1 | ✅ | MAPA-1 | ✅ mergeado (PR #23, PR #12 fechado por DIRTY) |
 | MAPA-3 | Cor por desfecho do atendimento mais recente | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #21) |
 | MAPA-4 | Ranking lateral de bairros/cidades quentes | 1 | 🟡 | MAPA-1 | ✅ mergeado (PR #14) |
-| MAPA-5 | InfoWindow enriquecido | 1 | 🟡 | MAPA-5b | ✅ PR aberto em `feat/clientes-mapa-5` |
+| MAPA-5 | InfoWindow enriquecido | 1 | 🟡 | MAPA-5b | ✅ mergeado (PR #26) |
 | MAPA-5b | Suporte a `?cliente=<id>` em `/clientes` | 1 | ✅ | — | ✅ mergeado (PR #25) |
 | MAPA-6 | deck.gl: infraestrutura + camada Hexbin/H3 | 2 | ✅ | MAPA-1 | ⏸️ retry cancelado — replanejar pós-deploy |
 | MAPA-7 | Camada Heatmap KDE (toggle) | 3 | ✅ | MAPA-6 | — |
