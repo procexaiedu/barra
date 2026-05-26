@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react"
 import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
+import type { MapaMetrica } from "@/lib/mapaMetrica"
+import { LegendaEscala, SeletorMetrica } from "@/components/clientes/MapaControles"
 import type { MapaClientePonto } from "@/tipos/clientes"
 
 // Centro aproximado do Brasil para a abertura, antes do fit nos pins (ADR 0008).
@@ -30,6 +32,10 @@ export function MapaClientes({
   const clustererRef = useRef<MarkerClusterer | null>(null)
   const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
   const [mapPronto, setMapPronto] = useState(false)
+  // Métrica do mapa (MAPA-1, espinha dorsal). Default = R$ fechado, conforme spec.
+  // Mora aqui porque o único consumidor hoje é o próprio desenho do mapa (e a legenda);
+  // sobe para o page.tsx quando MAPA-4 (ranking sibling) chegar.
+  const [metrica, setMetrica] = useState<MapaMetrica>("valor")
 
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
   const desenharPontos = useCallback(() => {
@@ -124,17 +130,23 @@ export function MapaClientes({
   return (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-text-muted">
-        <span>
-          {pontos.length} cliente{pontos.length === 1 ? "" : "s"} no mapa
-        </span>
-        {totalSemLocalizacao > 0 && (
-          <span className="rounded-full border border-border bg-card px-3 py-1">
-            {totalSemLocalizacao} sem localização
+        <div className="flex flex-wrap items-center gap-2">
+          <span>
+            {pontos.length} cliente{pontos.length === 1 ? "" : "s"} no mapa
           </span>
-        )}
+          {totalSemLocalizacao > 0 && (
+            <span className="rounded-full border border-border bg-card px-3 py-1">
+              {totalSemLocalizacao} sem localização
+            </span>
+          )}
+        </div>
+        <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
       </div>
       <div className="relative h-[calc(100vh-300px)] min-h-[420px] overflow-hidden rounded-lg border border-border">
         <div ref={containerRef} className="h-full w-full" />
+        <div className="absolute bottom-3 left-3">
+          <LegendaEscala metrica={metrica} pontos={pontos} />
+        </div>
         {status === "loading" && pontos.length === 0 && (
           <div className="absolute inset-0 grid place-items-center text-sm text-text-muted">
             Carregando mapa…
