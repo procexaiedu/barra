@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react"
 import { MarkerClusterer } from "@googlemaps/markerclusterer"
-import { carregarBiblioteca, googleMapsApiKey } from "@/lib/googleMaps"
+import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
 import type { MapaClientePonto } from "@/tipos/clientes"
 
@@ -28,7 +28,7 @@ export function MapaClientes({
   const mapRef = useRef<google.maps.Map | null>(null)
   const infoRef = useRef<google.maps.InfoWindow | null>(null)
   const clustererRef = useRef<MarkerClusterer | null>(null)
-  const markersRef = useRef<google.maps.Marker[]>([])
+  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
   const [mapPronto, setMapPronto] = useState(false)
 
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
@@ -36,14 +36,21 @@ export function MapaClientes({
     const map = mapRef.current
     if (!map) return
     clustererRef.current?.clearMarkers()
-    markersRef.current.forEach((marker) => marker.setMap(null))
+    markersRef.current.forEach((marker) => {
+      marker.map = null
+    })
     markersRef.current = []
 
     const bounds = new google.maps.LatLngBounds()
     for (const ponto of pontos) {
       const posicao = { lat: ponto.latitude, lng: ponto.longitude }
-      const marker = new google.maps.Marker({ position: posicao, title: ponto.nome ?? "Cliente" })
-      marker.addListener("click", () => {
+      const marker = new google.maps.marker.AdvancedMarkerElement({
+        position: posicao,
+        title: ponto.nome ?? "Cliente",
+        gmpClickable: true,
+      })
+      // AdvancedMarkerElement usa "gmp-click" (o "click" do Marker legado foi aposentado aqui).
+      marker.addListener("gmp-click", () => {
         const info = infoRef.current
         if (!info) return
         info.setContent(conteudoInfo(ponto))
@@ -83,6 +90,7 @@ export function MapaClientes({
         mapRef.current = new Map(containerRef.current, {
           center: CENTRO_BRASIL,
           zoom: 4,
+          mapId: googleMapsMapId,
           mapTypeControl: false,
           streetViewControl: false,
           fullscreenControl: false,

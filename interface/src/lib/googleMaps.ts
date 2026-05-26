@@ -6,6 +6,12 @@ import { importLibrary, setOptions } from "@googlemaps/js-api-loader"
 // params são idênticos, então um segundo set é inofensivo — protegido por flag + try.
 export const googleMapsApiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? ""
 
+// Advanced Markers exigem um Map ID: sem ele o mapa não expõe `isAdvancedMarkersAvailable`
+// e tanto os pins quanto os clusters caem no `google.maps.Marker` legado (deprecado).
+// "DEMO_MAP_ID" é o id de testes do Google — funciona de imediato; em produção, crie um
+// Map ID próprio (Map Management no console) e defina NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID.
+export const googleMapsMapId = process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID"
+
 let configurado = false
 const bibliotecas = new Map<string, Promise<unknown>>()
 
