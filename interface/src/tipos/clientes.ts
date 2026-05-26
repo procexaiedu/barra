@@ -100,6 +100,10 @@ export interface MapaClientePonto {
   ultima_data?: string | null
   /** Recorrente cross-modelo (≥2 fechados) — mesma regra da Lista (MAPA-5). */
   recorrente?: boolean
+  /** Recorte temporal do ponto no modo Comparar (MAPA-14). 'A' = base,
+   *  'B' = comparação. Ausente no modo padrão; cliente com externos nos dois
+   *  recortes aparece duas vezes (1 ponto por par cliente-recorte). */
+  recorte?: "A" | "B"
 }
 
 export interface MapaClientesResponse {

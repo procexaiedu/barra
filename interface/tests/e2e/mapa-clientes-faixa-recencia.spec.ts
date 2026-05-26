@@ -72,6 +72,8 @@ test.describe("Mapa de clientes — MAPA-11 (faixa de R$ + recência)", () => {
     await page.goto("/clientes")
     await page.getByRole("tab", { name: /^mapa$/i }).click()
 
+    // Recência agora vive dentro do PopoverFiltrosMapa — abre antes.
+    await page.getByRole("button", { name: /abrir filtros do mapa/i }).click()
     const grupo = page.getByRole("radiogroup", { name: /filtro por recência/i })
     await expect(grupo).toBeVisible({ timeout: 30_000 })
 
@@ -86,6 +88,7 @@ test.describe("Mapa de clientes — MAPA-11 (faixa de R$ + recência)", () => {
     await page.goto("/clientes")
     await page.getByRole("tab", { name: /^mapa$/i }).click()
 
+    await page.getByRole("button", { name: /abrir filtros do mapa/i }).click()
     const grupo = page.getByRole("radiogroup", { name: /filtro por recência/i })
     await expect(grupo).toBeVisible({ timeout: 30_000 })
 
@@ -100,6 +103,8 @@ test.describe("Mapa de clientes — MAPA-11 (faixa de R$ + recência)", () => {
     await page.goto("/clientes")
     await page.getByRole("tab", { name: /^mapa$/i }).click()
 
+    // Faixa de R$ agora vive dentro do PopoverFiltrosMapa — abre antes.
+    await page.getByRole("button", { name: /abrir filtros do mapa/i }).click()
     const trigger = page.getByRole("button", { name: /filtrar por faixa de r\$/i })
     await expect(trigger).toBeVisible({ timeout: 30_000 })
     await trigger.click()

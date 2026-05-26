@@ -16,6 +16,7 @@ import {
 } from "@/lib/mapaMetrica"
 import { MOTIVO_PERDA_LABEL, MOTIVOS_PERDA } from "@/lib/motivoPerda"
 import { PERFIS_FISICOS, PERFIL_FISICO_LABEL } from "@/lib/perfilFisico"
+import { RAMPA_DIVERGENTE_CSS } from "@/lib/cores/divergente"
 import type {
   EstadoAtendimento,
   MapaClientePonto,
@@ -151,29 +152,41 @@ const OPCOES_CAMADA: readonly { id: MapaCamada; label: string; tooltip: string }
 /** Seletor de camada (MAPA-6/MAPA-7). Default = "bolhas" (preserva a Fase 1).
  *  `pontosCount` é usado pela guarda de honestidade do MAPA-7: abaixo do limiar
  *  o botão Calor fica desabilitado com tooltip explicativo (KDE com pouco dado
- *  hiperestima densidade nas pontas). */
+ *  hiperestima densidade nas pontas).
+ *
+ *  MAPA-14: `bloqueada` desabilita todos os botões diferentes do ativo (no modo
+ *  Comparar a camada é fixada em Hexbin — Bolhas/Calor não fazem sentido para
+ *  delta espacial). */
 export function SeletorCamada({
   camada,
   pontosCount,
   onCamadaChange,
+  bloqueada,
 }: {
   camada: MapaCamada
   pontosCount: number
   onCamadaChange: (c: MapaCamada) => void
+  bloqueada?: boolean
 }) {
   const calorOk = calorHabilitado(pontosCount)
   return (
     <div
       role="radiogroup"
       aria-label="Camada do mapa"
+      aria-disabled={bloqueada || undefined}
       className="inline-flex rounded-lg border border-border bg-card p-0.5"
     >
       {OPCOES_CAMADA.map((opcao) => {
         const ativo = opcao.id === camada
-        const desabilitado = opcao.id === "calor" && !calorOk
-        const title = desabilitado
-          ? `Poucos pontos para um calor confiável (mínimo ${LIMIAR_CALOR_MIN_PONTOS}; agora ${pontosCount}). Use Bolhas ou Hexbin.`
-          : opcao.tooltip
+        const calorDesab = opcao.id === "calor" && !calorOk
+        // MAPA-14: bloqueada impede troca — apenas o ativo fica clicável (NO-OP).
+        const compararDesab = bloqueada === true && !ativo
+        const desabilitado = calorDesab || compararDesab
+        const title = compararDesab
+          ? "Modo Comparar fixa a camada em Hexbin — desligue Comparar para alternar."
+          : calorDesab
+            ? `Poucos pontos para um calor confiável (mínimo ${LIMIAR_CALOR_MIN_PONTOS}; agora ${pontosCount}). Use Bolhas ou Hexbin.`
+            : opcao.tooltip
         return (
           <button
             key={opcao.id}
@@ -746,14 +759,21 @@ const OPCOES_RECENCIA: readonly { id: FiltroRecencia; label: string; tooltip: st
 export function SeletorRecencia({
   recencia,
   onRecenciaChange,
+  bloqueada,
 }: {
   recencia: FiltroRecencia
   onRecenciaChange: (r: FiltroRecencia) => void
+  /** MAPA-14: no modo Comparar a recência não faz sentido (ranges absolutos
+   *  substituem a noção de cutoff relativo) — backend já ignora o param. */
+  bloqueada?: boolean
 }) {
+  const tooltipBloqueada =
+    "Modo Comparar ignora Recência (use os recortes A e B)."
   return (
     <div
       role="radiogroup"
       aria-label="Filtro por recência"
+      aria-disabled={bloqueada || undefined}
       className="inline-flex rounded-lg border border-border bg-card p-0.5"
     >
       {OPCOES_RECENCIA.map((opcao) => {
@@ -764,19 +784,274 @@ export function SeletorRecencia({
             type="button"
             role="radio"
             aria-checked={ativo}
-            title={opcao.tooltip}
+            aria-disabled={bloqueada || undefined}
+            disabled={bloqueada}
+            title={bloqueada ? tooltipBloqueada : opcao.tooltip}
             onClick={() => onRecenciaChange(opcao.id)}
             className={cn(
               "rounded-md px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               ativo
                 ? "bg-accent text-text-primary"
                 : "text-text-muted hover:text-text-secondary",
+              bloqueada && "cursor-not-allowed opacity-50 hover:text-text-muted",
             )}
           >
             {opcao.label}
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/** Filtro "Comparar dois períodos" (MAPA-14, lift de campanha). Toggle + dois
+ *  pares de `<input type="date">`. Sobrescreve `periodo`/`recencia` no fetch
+ *  (UI também desabilita o seletor de recência durante o modo). Validação inline:
+ *  ranges com `fim < inicio` ficam `aria-invalid` e não disparam fetch (defesa
+ *  em profundidade — backend também valida com 422). Ranges podem ou não se
+ *  sobrepor; Fernando pode comparar "Q1 inteiro" com "março". */
+export interface CompararRecortes {
+  comparar: boolean
+  aInicio: string | null
+  aFim: string | null
+  bInicio: string | null
+  bFim: string | null
+}
+
+function rangeInvalido(inicio: string | null, fim: string | null): boolean {
+  return inicio !== null && fim !== null && fim < inicio
+}
+
+function rangePronto(inicio: string | null, fim: string | null): boolean {
+  return inicio !== null && fim !== null && fim >= inicio
+}
+
+export function FiltroCompararPeriodos({
+  valor,
+  onChange,
+}: {
+  valor: CompararRecortes
+  onChange: (next: CompararRecortes) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const invalidoA = rangeInvalido(valor.aInicio, valor.aFim)
+  const invalidoB = rangeInvalido(valor.bInicio, valor.bFim)
+  const prontoA = rangePronto(valor.aInicio, valor.aFim)
+  const prontoB = rangePronto(valor.bInicio, valor.bFim)
+  const ativo = valor.comparar
+
+  const toggleAtivo = () => {
+    // Liga o toggle abrindo o popover na primeira vez para o usuário preencher
+    // os recortes; desliga sem mexer nas datas (volta limpo ao religar).
+    if (!ativo) {
+      onChange({ ...valor, comparar: true })
+      setOpen(true)
+    } else {
+      onChange({ ...valor, comparar: false })
+      setOpen(false)
+    }
+  }
+
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <div
+        role="group"
+        aria-label="Comparar dois períodos"
+        className={cn(
+          "inline-flex items-center gap-0 overflow-hidden rounded-lg border bg-card",
+          ativo ? "border-gold-500" : "border-border",
+        )}
+      >
+        <button
+          type="button"
+          role="switch"
+          aria-checked={ativo}
+          aria-label="Comparar dois períodos"
+          title={
+            ativo
+              ? "Modo Comparar ativo. Em hexbin, os favos coloriem pelo delta B − A. Clique para desligar."
+              : "Comparar duas janelas de datas (lift de campanha). Quando ligado, força camada Hexbin e ignora Período/Recência."
+          }
+          onClick={toggleAtivo}
+          className={cn(
+            "inline-flex items-center gap-1.5 px-2.5 py-1 text-[12px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            ativo
+              ? "bg-gold-500/15 text-text-primary"
+              : "text-text-muted hover:text-text-secondary",
+          )}
+        >
+          <span
+            aria-hidden
+            className="h-2 w-2 rounded-full border border-gold-500"
+            style={{ background: ativo ? "var(--gold-500)" : "transparent" }}
+          />
+          Comparar
+        </button>
+        <PopoverTrigger
+          aria-label="Editar períodos de comparação"
+          disabled={!ativo}
+          aria-disabled={!ativo || undefined}
+          title={
+            ativo
+              ? "Editar datas dos recortes A e B."
+              : "Ligue Comparar para editar os recortes."
+          }
+          className={cn(
+            "flex h-7 items-center justify-between gap-1 border-l border-border px-2 text-[11px] tabular-nums text-text-muted outline-none transition-colors hover:bg-accent focus-visible:bg-accent",
+            !ativo && "cursor-not-allowed opacity-50 hover:bg-card",
+          )}
+        >
+          {prontoA && prontoB ? (
+            <span className="truncate">
+              A {curtaData(valor.aInicio!)}–{curtaData(valor.aFim!)} ·{" "}
+              B {curtaData(valor.bInicio!)}–{curtaData(valor.bFim!)}
+            </span>
+          ) : (
+            <span className="text-text-muted">definir datas</span>
+          )}
+          <ChevronDown size={12} strokeWidth={1.5} className="shrink-0 text-text-muted" />
+        </PopoverTrigger>
+      </div>
+      <PopoverContent align="end" className="min-w-[280px] p-3">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+              Recorte A (base)
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                aria-label="A — início"
+                type="date"
+                value={valor.aInicio ?? ""}
+                aria-invalid={invalidoA || undefined}
+                onChange={(e) =>
+                  onChange({
+                    ...valor,
+                    aInicio: e.target.value === "" ? null : e.target.value,
+                  })
+                }
+                className={cn(
+                  "h-8 flex-1 rounded-md border border-input bg-input px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  invalidoA && "border-state-lost",
+                )}
+              />
+              <span className="text-text-muted">—</span>
+              <input
+                aria-label="A — fim"
+                type="date"
+                value={valor.aFim ?? ""}
+                aria-invalid={invalidoA || undefined}
+                onChange={(e) =>
+                  onChange({
+                    ...valor,
+                    aFim: e.target.value === "" ? null : e.target.value,
+                  })
+                }
+                className={cn(
+                  "h-8 flex-1 rounded-md border border-input bg-input px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  invalidoA && "border-state-lost",
+                )}
+              />
+            </div>
+            {invalidoA && (
+              <span className="text-[11px] text-state-lost">
+                A — fim anterior ao início; ajuste para aplicar.
+              </span>
+            )}
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+              Recorte B (comparação)
+            </span>
+            <div className="flex items-center gap-2">
+              <input
+                aria-label="B — início"
+                type="date"
+                value={valor.bInicio ?? ""}
+                aria-invalid={invalidoB || undefined}
+                onChange={(e) =>
+                  onChange({
+                    ...valor,
+                    bInicio: e.target.value === "" ? null : e.target.value,
+                  })
+                }
+                className={cn(
+                  "h-8 flex-1 rounded-md border border-input bg-input px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  invalidoB && "border-state-lost",
+                )}
+              />
+              <span className="text-text-muted">—</span>
+              <input
+                aria-label="B — fim"
+                type="date"
+                value={valor.bFim ?? ""}
+                aria-invalid={invalidoB || undefined}
+                onChange={(e) =>
+                  onChange({
+                    ...valor,
+                    bFim: e.target.value === "" ? null : e.target.value,
+                  })
+                }
+                className={cn(
+                  "h-8 flex-1 rounded-md border border-input bg-input px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  invalidoB && "border-state-lost",
+                )}
+              />
+            </div>
+            {invalidoB && (
+              <span className="text-[11px] text-state-lost">
+                B — fim anterior ao início; ajuste para aplicar.
+              </span>
+            )}
+          </div>
+          <p className="text-[11px] leading-snug text-text-muted">
+            Modo Comparar força camada Hexbin (favos coloridos pelo delta B − A) e
+            ignora Período/Recência. Ranges podem ou não se sobrepor.
+          </p>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+function curtaData(iso: string): string {
+  // YYYY-MM-DD → DD/MM (mostrado no trigger compacto, para 4 datas caberem).
+  // Em formatos inesperados, devolve a string crua — input nativo já garante o
+  // shape, mas a defesa em profundidade evita NaN/exception na UI.
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  return m ? `${m[3]}/${m[2]}` : iso
+}
+
+/** Legenda divergente do modo Comparar (MAPA-14). Mostra a rampa BrBG invertida
+ *  com rótulos "caiu / neutro / subiu" para o delta da métrica corrente. Mesma
+ *  estética das outras legendas (LegendaEscala/LegendaDesfecho/LegendaPerfil). */
+export function LegendaDelta({ metrica }: { metrica: MapaMetrica }) {
+  const rotuloMetrica =
+    metrica === "valor"
+      ? "Δ R$ fechado"
+      : metrica === "atendimentos"
+        ? "Δ atendimentos"
+        : "Δ clientes"
+  return (
+    <div
+      aria-label={`Legenda divergente: ${rotuloMetrica}`}
+      className="w-[220px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+    >
+      <div className="mb-1 text-[11px] font-medium text-text-secondary">
+        {rotuloMetrica} (B − A)
+      </div>
+      <div
+        aria-hidden
+        className="h-2 w-full rounded-sm"
+        style={{
+          background: `linear-gradient(to right, ${RAMPA_DIVERGENTE_CSS.join(", ")})`,
+        }}
+      />
+      <div className="mt-1 flex items-center justify-between text-[11px] text-text-muted">
+        <span>caiu</span>
+        <span>neutro</span>
+        <span>subiu</span>
+      </div>
     </div>
   )
 }

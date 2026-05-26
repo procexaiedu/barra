@@ -23,28 +23,26 @@ import {
   COR_OPORTUNIDADE,
   COR_PERFIL,
   COR_PERFIL_SEM,
-  FiltroMotivoPerda,
-  FiltroValorRange,
+  LegendaDelta,
   LegendaDemandaNaoAtendida,
   LegendaDesfecho,
   LegendaEscala,
   LegendaPerfil,
-  SeletorCamada,
-  SeletorDesfecho,
-  SeletorMetrica,
-  SeletorModoCor,
-  SeletorRecencia,
-  ToggleLenteDemanda,
   corPorDesfecho,
+  type CompararRecortes,
   type FiltroDesfecho,
   type FiltroRecencia,
   type ModoCor,
 } from "@/components/clientes/MapaControles"
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
+import { MapaToolbar } from "@/components/clientes/MapaToolbar"
+import { PainelVisualizacaoMapa } from "@/components/clientes/PainelVisualizacaoMapa"
 import { rotuloPerfil } from "@/lib/perfilFisico"
 import type {
   EstadoAtendimento,
+  FiltroPeriodo,
   MapaClientePonto,
+  ModeloResumo,
   MotivoPerda,
   PerfilFisico,
 } from "@/tipos/clientes"
@@ -72,6 +70,17 @@ export function MapaClientes({
   recencia,
   onValorRangeChange,
   onRecenciaChange,
+  periodo,
+  modeloId,
+  modelos,
+  perfis,
+  incluirArquivados,
+  onPeriodoChange,
+  onModeloChange,
+  onPerfisChange,
+  onIncluirArquivadosChange,
+  comparar,
+  onCompararChange,
 }: {
   pontos: MapaClientePonto[]
   totalSemLocalizacao: number
@@ -95,6 +104,22 @@ export function MapaClientes({
   recencia: FiltroRecencia
   onValorRangeChange: (range: { valorMin: number | null; valorMax: number | null }) => void
   onRecenciaChange: (r: FiltroRecencia) => void
+  /** Filtros compartilhados (antes vinham do Toolbar superior). Toolbar some na aba
+   *  Mapa — os filtros agora vivem aqui dentro via MapaToolbar/PopoverFiltrosMapa. */
+  periodo: FiltroPeriodo
+  modeloId: string
+  modelos: ModeloResumo[]
+  perfis: PerfilFisico[]
+  incluirArquivados: boolean
+  onPeriodoChange: (v: FiltroPeriodo) => void
+  onModeloChange: (v: string) => void
+  onPerfisChange: (v: PerfilFisico[]) => void
+  onIncluirArquivadosChange: (v: boolean) => void
+  /** MAPA-14: modo Comparar dois períodos (lift de campanha). Quando ativo +
+   *  ranges válidos, força camada Hexbin com paleta divergente e InfoWindow
+   *  A/B/delta no clique do favo. */
+  comparar: CompararRecortes
+  onCompararChange: (next: CompararRecortes) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<google.maps.Map | null>(null)
@@ -137,6 +162,24 @@ export function MapaClientes({
   // MAPA-4: bairro selecionado no ranking lateral; controla pan + destaque das bolhas.
   const [bairroSelecionado, setBairroSelecionado] = useState<string | null>(null)
 
+  // MAPA-14: o modo Comparar está "ativo" quando o toggle está ON E os dois
+  // recortes têm fim >= início. Antes de a UI preencher as datas, o hook
+  // também segura o fetch — defesa em profundidade.
+  const compararAtivo =
+    comparar.comparar &&
+    comparar.aInicio !== null &&
+    comparar.aFim !== null &&
+    comparar.bInicio !== null &&
+    comparar.bFim !== null &&
+    comparar.aInicio <= comparar.aFim &&
+    comparar.bInicio <= comparar.bFim
+
+  // MAPA-14: no modo Comparar a camada efetiva é Hexbin (única honesta para
+  // delta espacial — bolhas é ponto-a-ponto, KDE com delta hiperestima). Não
+  // muta `camada` (estado do usuário): só sobrescreve aqui. Desligar Comparar
+  // devolve a escolha anterior naturalmente.
+  const camadaEfetiva: MapaCamada = compararAtivo ? "hexbin" : camada
+
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
   const desenharPontos = useCallback(() => {
     const map = mapRef.current
@@ -148,8 +191,9 @@ export function MapaClientes({
     markersRef.current = []
 
     // MAPA-6/MAPA-7: nas camadas de agregação (Hexbin/Calor) só o overlay
-    // deck.gl renderiza — markers/cluster ficam ocultos.
-    if (camada !== "bolhas") return
+    // deck.gl renderiza — markers/cluster ficam ocultos. `camadaEfetiva` força
+    // hexbin no modo Comparar mesmo se o estado do usuário for outro (MAPA-14).
+    if (camadaEfetiva !== "bolhas") return
 
     const limites = limitesMetrica(pontos, metrica)
     const markers: google.maps.marker.AdvancedMarkerElement[] = []
@@ -189,7 +233,7 @@ export function MapaClientes({
     } else {
       clustererRef.current.addMarkers(markers)
     }
-  }, [pontos, onFiltrarBairro, modoCor, metrica, camada, lenteDemanda])
+  }, [pontos, onFiltrarBairro, modoCor, metrica, camadaEfetiva, lenteDemanda])
 
   // Fit nos pontos só quando o conjunto muda — trocar métrica/modo/cor redesenha
   // sem reposicionar o mapa (preserva pan/zoom do usuário). MAPA-2 depende disso
@@ -290,7 +334,7 @@ export function MapaClientes({
     if (!mapPronto) return
     const map = mapRef.current
     if (!map) return
-    if (camada !== "hexbin") {
+    if (camadaEfetiva !== "hexbin") {
       hexbinRef.current?.dispose()
       hexbinRef.current = null
       return
@@ -298,10 +342,13 @@ export function MapaClientes({
     const opts = {
       pontos,
       metrica,
+      // MAPA-14: passa o flag ao overlay para alternar entre rampa sequencial
+      // (sum por célula) e rampa divergente (delta B − A).
+      comparar: compararAtivo,
       onClickFavo: (info: import("@/lib/deckMap").HexbinPickedInfo) => {
         const win = infoRef.current
         if (!win) return
-        win.setContent(conteudoFavo(info, metrica))
+        win.setContent(conteudoFavo(info, metrica, compararAtivo))
         win.setPosition(info.centroide)
         win.open(map)
       },
@@ -327,7 +374,7 @@ export function MapaClientes({
     return () => {
       cancelado = true
     }
-  }, [camada, pontos, metrica, mapPronto])
+  }, [camadaEfetiva, pontos, metrica, mapPronto, compararAtivo])
 
   // MAPA-7: ciclo de vida do overlay deck.gl Calor (HeatmapLayer KDE). Espelha
   // o do hexbin — diferença é que não há picking (campo contínuo). O guard de
@@ -338,7 +385,7 @@ export function MapaClientes({
     if (!mapPronto) return
     const map = mapRef.current
     if (!map) return
-    if (camada !== "calor") {
+    if (camadaEfetiva !== "calor") {
       calorRef.current?.dispose()
       calorRef.current = null
       return
@@ -365,7 +412,7 @@ export function MapaClientes({
     return () => {
       cancelado = true
     }
-  }, [camada, pontos, metrica, mapPronto])
+  }, [camadaEfetiva, pontos, metrica, mapPronto])
 
   // MAPA-4: pan do mapa para o centroide das bolhas do bairro escolhido.
   const handleSelectBairro = useCallback(
@@ -391,65 +438,62 @@ export function MapaClientes({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-text-muted">
-        <div className="flex flex-wrap items-center gap-2">
-          <span>
-            {pontos.length} cliente{pontos.length === 1 ? "" : "s"} no mapa
-          </span>
-          {totalSemLocalizacao > 0 && (
-            <span className="rounded-full border border-border bg-card px-3 py-1">
-              {totalSemLocalizacao} sem localização
-            </span>
-          )}
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <SeletorCamada
-            camada={camada}
-            pontosCount={pontos.length}
-            onCamadaChange={setCamada}
-          />
-          <SeletorMetrica metrica={metrica} onMetricaChange={setMetrica} />
-          {camada === "bolhas" && (
-            <SeletorModoCor modo={modoCor} onModoChange={setModoCor} />
-          )}
-          {/* MAPA-8: filtros reduzem os pontos antes de qualquer camada.
-              MAPA-9: quando a lente está ON, sobrescreve estes filtros no fetch e
-              os seletores ficam disabled (estado prévio preservado no pai). */}
-          <SeletorDesfecho
-            desfecho={desfecho}
-            onDesfechoChange={onDesfechoChange}
-            bloqueada={lenteDemanda}
-          />
-          <FiltroMotivoPerda
-            desfecho={desfecho}
-            motivosPerda={motivosPerda}
-            onMotivosPerdaChange={onMotivosPerdaChange}
-            bloqueada={lenteDemanda}
-          />
-          <ToggleLenteDemanda ativa={lenteDemanda} onAtivaChange={onLenteDemandaChange} />
-          {/* MAPA-11: faixa de R$ + recência. Ortogonais ao MAPA-8 e à lente MAPA-9
-              (sempre aplicados, sempre habilitados). */}
-          <FiltroValorRange
-            valorMin={valorMin}
-            valorMax={valorMax}
-            onChange={onValorRangeChange}
-          />
-          <SeletorRecencia recencia={recencia} onRecenciaChange={onRecenciaChange} />
-        </div>
-      </div>
+    <div className="space-y-3">
+      <MapaToolbar
+        periodo={periodo}
+        modeloId={modeloId}
+        modelos={modelos}
+        perfis={perfis}
+        desfecho={desfecho}
+        motivosPerda={motivosPerda}
+        valorMin={valorMin}
+        valorMax={valorMax}
+        recencia={recencia}
+        incluirArquivados={incluirArquivados}
+        lenteDemanda={lenteDemanda}
+        comparar={comparar}
+        totalNoMapa={pontos.length}
+        totalSemLocalizacao={totalSemLocalizacao}
+        onPeriodoChange={onPeriodoChange}
+        onModeloChange={onModeloChange}
+        onPerfisChange={onPerfisChange}
+        onDesfechoChange={onDesfechoChange}
+        onMotivosPerdaChange={onMotivosPerdaChange}
+        onValorRangeChange={onValorRangeChange}
+        onRecenciaChange={onRecenciaChange}
+        onIncluirArquivadosChange={onIncluirArquivadosChange}
+        onLenteDemandaChange={onLenteDemandaChange}
+        onCompararChange={onCompararChange}
+      />
       <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">
         <div className="relative flex-1 overflow-hidden rounded-lg border border-border">
           <div ref={containerRef} className="h-full w-full" />
+          {/* Painel de Visualização (Camada/Métrica/Cor) flutua dentro do mapa,
+              perto dos pontos que pinta — ortogonal aos filtros (que reduzem o conjunto). */}
+          <div className="absolute right-3 top-3">
+            <PainelVisualizacaoMapa
+              camada={camada}
+              pontosCount={pontos.length}
+              metrica={metrica}
+              modoCor={modoCor}
+              comparar={compararAtivo}
+              onCamadaChange={setCamada}
+              onMetricaChange={setMetrica}
+              onModoCorChange={setModoCor}
+            />
+          </div>
           <div className="absolute bottom-3 left-3 flex flex-col gap-2">
             {/* Legenda contextual: só aparece o que realmente codifica algo no mapa.
+                - MAPA-14 ON → rampa divergente (LegendaDelta), independente da camada.
                 - Hexbin/Calor e Pontos+Por métrica → rampa --seq-* (LegendaEscala).
                 - Pontos+Por desfecho → 3 baldes de cor (LegendaDesfecho).
                 - Pontos+Por perfil → 6 categorias + Sem declaração (LegendaPerfil).
                 Em todos os outros (camada ≠ Pontos), a cor é sempre da métrica. */}
-            {camada === "bolhas" && modoCor === "desfecho" ? (
+            {compararAtivo ? (
+              <LegendaDelta metrica={metrica} />
+            ) : camadaEfetiva === "bolhas" && modoCor === "desfecho" ? (
               <LegendaDesfecho />
-            ) : camada === "bolhas" && modoCor === "perfil" ? (
+            ) : camadaEfetiva === "bolhas" && modoCor === "perfil" ? (
               <LegendaPerfil />
             ) : (
               <LegendaEscala metrica={metrica} pontos={pontos} />
@@ -735,24 +779,57 @@ function formatarDataBR(iso: string): string {
 
 // InfoWindow do favo Hexbin (MAPA-6): só agregado da célula, sem link de ficha
 // (favo agrega N clientes — não há "o cliente" para apontar).
+// MAPA-14: quando `comparar=true` o card mostra `A`, `B` e `delta = B − A` da
+// métrica corrente — A/B já vêm calculados em `info.somaA`/`somaB`/`delta`.
 function conteudoFavo(
   info: import("@/lib/deckMap").HexbinPickedInfo,
   metrica: MapaMetrica,
+  comparar: boolean,
 ): HTMLElement {
   const container = document.createElement("div")
-  container.style.cssText = "font-family: inherit; min-width: 200px; color: #1a1a1a;"
+  container.style.cssText = "font-family: inherit; min-width: 220px; color: #1a1a1a;"
 
   const titulo = document.createElement("div")
   titulo.style.cssText = "font-weight: 600; margin-bottom: 2px;"
   titulo.textContent = `${info.count} cliente${info.count === 1 ? "" : "s"} nesta área`
   container.appendChild(titulo)
 
-  const linha = document.createElement("div")
-  linha.style.cssText = "margin-top: 4px; font-size: 12px; color: #444;"
-  linha.textContent = resumoFavo(info, metrica)
-  container.appendChild(linha)
+  if (comparar && info.delta !== undefined) {
+    const somaA = info.somaA ?? 0
+    const somaB = info.somaB ?? 0
+    const delta = info.delta
+    const fmt = (n: number) => formatarMetricaFavo(metrica, n)
+    const linhaA = document.createElement("div")
+    linhaA.style.cssText = "margin-top: 4px; font-size: 12px; color: #444;"
+    linhaA.textContent = `A: ${fmt(somaA)}`
+    container.appendChild(linhaA)
+    const linhaB = document.createElement("div")
+    linhaB.style.cssText = "font-size: 12px; color: #444;"
+    linhaB.textContent = `B: ${fmt(somaB)}`
+    container.appendChild(linhaB)
+    const linhaDelta = document.createElement("div")
+    const sinal = delta > 0 ? "+" : delta < 0 ? "−" : ""
+    linhaDelta.style.cssText = `margin-top: 2px; font-size: 12px; font-weight: 600; color: ${
+      delta > 0 ? "#01665E" : delta < 0 ? "#543005" : "#444"
+    };`
+    linhaDelta.textContent = `Δ: ${sinal}${fmt(Math.abs(delta))}`
+    container.appendChild(linhaDelta)
+  } else {
+    const linha = document.createElement("div")
+    linha.style.cssText = "margin-top: 4px; font-size: 12px; color: #444;"
+    linha.textContent = resumoFavo(info, metrica)
+    container.appendChild(linha)
+  }
 
   return container
+}
+
+function formatarMetricaFavo(metrica: MapaMetrica, n: number): string {
+  if (metrica === "valor") return formatBRL(n)
+  if (metrica === "atendimentos") {
+    return `${n} atendimento${n === 1 ? "" : "s"}`
+  }
+  return `${n} cliente${n === 1 ? "" : "s"}`
 }
 
 function resumoFavo(

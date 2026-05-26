@@ -17,7 +17,11 @@ import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
 import { useClientes } from "@/hooks/useClientes"
 import { FILTROS_MAPA_PADRAO, useClientesMapa } from "@/hooks/useClientesMapa"
 import type { FiltrosMapa } from "@/hooks/useClientesMapa"
-import type { FiltroDesfecho, FiltroRecencia } from "@/components/clientes/MapaControles"
+import type {
+  CompararRecortes,
+  FiltroDesfecho,
+  FiltroRecencia,
+} from "@/components/clientes/MapaControles"
 import type {
   ClienteListItem,
   FiltroPeriodo,
@@ -105,6 +109,27 @@ function ClientesInner() {
     setMapaFiltros((current) => ({ ...current, recencia }))
   }, [])
 
+  // MAPA-14: estado do modo Comparar é um CompararRecortes (toggle + 2 ranges)
+  // refletido nos 5 campos do FiltrosMapa. Setter consolidado evita 5 handlers.
+  const handleCompararChange = useCallback((next: CompararRecortes) => {
+    setMapaFiltros((current) => ({
+      ...current,
+      comparar: next.comparar,
+      aInicio: next.aInicio,
+      aFim: next.aFim,
+      bInicio: next.bInicio,
+      bFim: next.bFim,
+    }))
+  }, [])
+
+  const compararRecortes: CompararRecortes = {
+    comparar: mapaFiltros.comparar,
+    aInicio: mapaFiltros.aInicio,
+    aFim: mapaFiltros.aFim,
+    bInicio: mapaFiltros.bInicio,
+    bFim: mapaFiltros.bFim,
+  }
+
   const clienteIdsDoBairro = useMemo(() => {
     if (!bairroFiltro) return null
     return new Set(
@@ -176,23 +201,22 @@ function ClientesInner() {
         </TabBtn>
       </div>
 
-      <Toolbar
-        busca={crm.filtros.busca}
-        periodo={crm.filtros.periodo}
-        modeloId={crm.filtros.modeloId}
-        perfis={crm.filtros.perfis}
-        modelos={crm.modelos}
-        loading={crm.listaStatus === "loading"}
-        incluirArquivados={crm.incluirArquivados}
-        onBuscaChange={(busca) => crm.setFiltros((current) => ({ ...current, busca }))}
-        onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
-        onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
-        onPerfisChange={(perfis) => crm.setFiltros((current) => ({ ...current, perfis }))}
-        onIncluirArquivadosChange={crm.setIncluirArquivados}
-      />
-
       {aba === "lista" ? (
         <>
+          <Toolbar
+            busca={crm.filtros.busca}
+            periodo={crm.filtros.periodo}
+            modeloId={crm.filtros.modeloId}
+            perfis={crm.filtros.perfis}
+            modelos={crm.modelos}
+            loading={crm.listaStatus === "loading"}
+            incluirArquivados={crm.incluirArquivados}
+            onBuscaChange={(busca) => crm.setFiltros((current) => ({ ...current, busca }))}
+            onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
+            onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
+            onPerfisChange={(perfis) => crm.setFiltros((current) => ({ ...current, perfis }))}
+            onIncluirArquivadosChange={crm.setIncluirArquivados}
+          />
           {bairroFiltro && (
             <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-text-secondary">
               <span>
@@ -263,6 +287,17 @@ function ClientesInner() {
           recencia={mapaFiltros.recencia}
           onValorRangeChange={handleValorRangeChange}
           onRecenciaChange={handleRecenciaChange}
+          periodo={crm.filtros.periodo}
+          modeloId={crm.filtros.modeloId}
+          modelos={crm.modelos}
+          perfis={crm.filtros.perfis}
+          incluirArquivados={crm.incluirArquivados}
+          onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
+          onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
+          onPerfisChange={(perfis) => crm.setFiltros((current) => ({ ...current, perfis }))}
+          onIncluirArquivadosChange={crm.setIncluirArquivados}
+          comparar={compararRecortes}
+          onCompararChange={handleCompararChange}
         />
       )}
 

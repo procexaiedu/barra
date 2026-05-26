@@ -8,9 +8,10 @@ import type {
   MotivoPerda,
 } from "@/tipos/clientes"
 
-/** Filtros que vivem só no Mapa (MAPA-8/MAPA-11). Separados de `FiltrosClientes`
- *  (que é compartilhado com a Lista) para deixar claro o escopo Mapa-only.
- *  MAPA-11 fica aqui ortogonal ao MAPA-8 e à lente MAPA-9 (sempre aplicados no fetch). */
+/** Filtros que vivem só no Mapa (MAPA-8/MAPA-11/MAPA-14). Separados de
+ *  `FiltrosClientes` (que é compartilhado com a Lista) para deixar claro o escopo
+ *  Mapa-only. MAPA-11 fica aqui ortogonal ao MAPA-8 e à lente MAPA-9 (sempre
+ *  aplicados no fetch); MAPA-14 sobrescreve `periodo`/`recencia` quando ativo. */
 export interface FiltrosMapa {
   desfecho: "todos" | "Fechado" | "Perdido" | "andamento"
   motivosPerda: MotivoPerda[]
@@ -21,6 +22,14 @@ export interface FiltrosMapa {
   /** MAPA-11: recência sobre `geo.ultima_data` (externo que ancora o ponto).
    *  Cutoff fixo `RECENCIA_CUTOFF_DIAS` (90 dias). */
   recencia: "todos" | "ativos" | "dormentes"
+  /** MAPA-14: modo "comparar dois recortes" (lift de campanha). Quando true,
+   *  ignora `periodo`/`recencia` na querystring e o ponto vem rotulado
+   *  `recorte: A|B`. Datas ISO `YYYY-MM-DD` (input nativo date). */
+  comparar: boolean
+  aInicio: string | null
+  aFim: string | null
+  bInicio: string | null
+  bFim: string | null
 }
 
 export const FILTROS_MAPA_PADRAO: FiltrosMapa = {
@@ -29,6 +38,11 @@ export const FILTROS_MAPA_PADRAO: FiltrosMapa = {
   valorMin: null,
   valorMax: null,
   recencia: "todos",
+  comparar: false,
+  aInicio: null,
+  aFim: null,
+  bInicio: null,
+  bFim: null,
 }
 
 /** Motivos de perda que a lente "Demanda não atendida" (MAPA-9) considera
@@ -48,7 +62,27 @@ function buildMapaPath(
   lenteDemandaNaoAtendida: boolean,
 ) {
   const params = new URLSearchParams()
-  if (filtros.periodo !== "todos") params.set("periodo", filtros.periodo)
+  // MAPA-14: modo Comparar substitui `periodo`/`recencia` por dois recortes
+  // explícitos. O hook só envia `comparar=true` + as datas quando o range é
+  // válido nos dois lados — UI já bloqueia min > max (defesa em profundidade);
+  // backend valida `fim < inicio` com 422.
+  const compararPronto =
+    mapa.comparar &&
+    mapa.aInicio !== null &&
+    mapa.aFim !== null &&
+    mapa.bInicio !== null &&
+    mapa.bFim !== null &&
+    mapa.aInicio <= mapa.aFim &&
+    mapa.bInicio <= mapa.bFim
+  if (compararPronto) {
+    params.set("comparar", "true")
+    params.set("a_inicio", mapa.aInicio as string)
+    params.set("a_fim", mapa.aFim as string)
+    params.set("b_inicio", mapa.bInicio as string)
+    params.set("b_fim", mapa.bFim as string)
+  } else if (filtros.periodo !== "todos") {
+    params.set("periodo", filtros.periodo)
+  }
   if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
   for (const perfil of filtros.perfis) params.append("perfis", perfil)
   if (incluirArquivados) params.set("incluir_arquivados", "true")
@@ -75,7 +109,8 @@ function buildMapaPath(
   if (mapa.valorMax !== null && mapa.valorMax >= 0) {
     params.set("valor_max", String(mapa.valorMax))
   }
-  if (mapa.recencia !== "todos") params.set("recencia", mapa.recencia)
+  // Recência é ignorada no modo Comparar (não faz sentido junto dos recortes).
+  if (!compararPronto && mapa.recencia !== "todos") params.set("recencia", mapa.recencia)
   const qs = params.toString()
   return `/v1/crm/clientes/mapa${qs ? `?${qs}` : ""}`
 }
