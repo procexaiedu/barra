@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useMemo, useState } from "react"
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -331,10 +331,20 @@ function TabelaSaldo({
   // Saldo por modelo não tem cursor no backend (volume baixo). Paginação
   // client-side: mostra até `pageSize`, expande no clique. O total no rodapé
   // segue refletindo o conjunto inteiro do período.
+  //
+  // Reset quando muda período (items[]) ou pageSize segue o padrão React docs
+  // "adjusting state during render" — preferido a useEffect porque o reset é
+  // derivado de props, não sincroniza com sistema externo. Evita a regra
+  // react-hooks/set-state-in-effect.
   const [visiveis, setVisiveis] = useState(pageSize)
-  useEffect(() => {
+  const [propsAnteriores, setPropsAnteriores] = useState({ pageSize, items })
+  if (
+    propsAnteriores.pageSize !== pageSize ||
+    propsAnteriores.items !== items
+  ) {
+    setPropsAnteriores({ pageSize, items })
     setVisiveis(pageSize)
-  }, [pageSize, items])
+  }
 
   const total = useMemo(
     () =>
