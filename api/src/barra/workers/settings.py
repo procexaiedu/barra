@@ -107,11 +107,16 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["evolution"] = EvolutionClient(settings)
     ctx["graph"] = build_graph()  # SEM checkpointer no P0 (01 §6.7)
     # Cliente de vision para validar_pix (06 §0 item 4 + §2.3): OpenAI-compatível apontado para
-    # OpenRouter; instanciado uma vez e reutilizado entre invocações.
-    ctx["vision_client"] = AsyncOpenAI(
-        api_key=settings.openrouter_api_key or "",
-        base_url="https://openrouter.ai/api/v1",
-    )
+    # OpenRouter; instanciado uma vez e reutilizado entre invocações. Sem chave configurada,
+    # mantemos None — o openai SDK rejeita api_key vazia no construtor e derrubaria o worker;
+    # validar_pix lida com vision_client=None levantando ao ser chamado (nao deveria sem chave).
+    if settings.openrouter_api_key:
+        ctx["vision_client"] = AsyncOpenAI(
+            api_key=settings.openrouter_api_key,
+            base_url="https://openrouter.ai/api/v1",
+        )
+    else:
+        ctx["vision_client"] = None
     # Cliente OpenAI compartilhado entre invocacoes de transcrever_audio (06 §1.3): timeout 60s
     # + 3 retries automaticos no SDK; 5xx persistente sobe como APIError e o ARQ retenta o job.
     if settings.openai_api_key:
