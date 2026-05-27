@@ -111,10 +111,37 @@ async def evolution_webhook(
     if arq is not None:
         if msg.tipo == "texto":
             await enfileirar_turno(arq, conversa_id, msg.evolution_message_id)
+        elif msg.tipo == "audio":
+            # 06 §1.1: dispara transcricao em paralelo e ja enfileira o turno com
+            # aguardar_transcricao=True; o coordenador faz BLPOP no canal `transcricao:{conversa_id}`
+            # (06 §1.4) antes de montar a janela. O mensagem_id e o UUID interno (precisa ser
+            # consultado, ja que _persistir_cliente devolve apenas conversa_id).
+            mensagem_id = await _resolver_mensagem_id(pool, msg.evolution_message_id)
+            if mensagem_id is not None:
+                await arq.enqueue_job(
+                    "transcrever_audio",
+                    mensagem_id=str(mensagem_id),
+                    evolution_message_id=msg.evolution_message_id,
+                    _job_id=f"transcricao:{msg.evolution_message_id}",
+                )
+            await enfileirar_turno(
+                arq, conversa_id, msg.evolution_message_id, aguardar_transcricao=True
+            )
         else:
-            # TODO(M5): enqueue transcrever_audio / rotear_imagem (06 §6)
+            # TODO(M5b): enqueue rotear_imagem (06 §6 / §2.1).
             pass
     return {"status": "received"}
+
+
+async def _resolver_mensagem_id(pool: Any, evolution_message_id: str) -> UUID | None:
+    """Le `mensagens.id` (UUID interno) pelo `evolution_message_id` recem-persistido."""
+    async with pool.connection() as conn:
+        row = await _one(
+            conn,
+            "SELECT id FROM barravips.mensagens WHERE evolution_message_id = %s",
+            (evolution_message_id,),
+        )
+    return row["id"] if row else None
 
 
 def _evento_normalizado(payload: dict[str, Any]) -> str | None:

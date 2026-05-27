@@ -53,10 +53,18 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     openrouter_model_chat: str | None = None
     openrouter_model_vision_pix: str | None = None
+    # TODO(M5-final): aposentar (sabatina 2026-05-23 §1.3 — STT migrou para OpenAI direto).
     openrouter_model_audio_transcribe: str | None = None
     anthropic_api_key: str | None = None
     anthropic_modelo_principal: str = "claude-sonnet-4-6"
     anthropic_model_chat: str | None = None
+
+    # STT do agente (06 §1.3): Whisper direto da OpenAI. Sai do OpenRouter porque o hop
+    # extra nao compensa num STT critico de baixa latencia sob o orcamento de 8s (sabatina
+    # 2026-05-23 §1.3). Default whisper-1 porque a resposta verbose_json inclui .duration
+    # nativamente; gpt-4o-mini-transcribe exigiria calculo local de duracao.
+    openai_api_key: str | None = None
+    openai_model_audio_transcribe: str = "whisper-1"
 
     # Chat Anthropic (grilling 2026-05-23; docs/agente/03 §6.1): TTL de cache por bloco +
     # parâmetros do ChatAnthropic. cache_ttl_geral (BP1/BP2) não pode ser mais curto que

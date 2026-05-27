@@ -129,6 +129,16 @@ ENVIO_RETRIES = Counter(
     "agente_envio_retries_total",
     "Execucoes do job enviar_turno que sao retry do ARQ (ctx job_try>1) (05 §9)",
 )
+# 06 §1.3: pipeline de transcricao Whisper.
+TRANSCRICAO_DURACAO = Histogram(
+    "agente_transcricao_duracao_seconds",
+    "Duracao do job transcrever_audio (download MinIO + Whisper + UPDATE) (06 §1.3)",
+)
+TRANSCRICAO_RESULTADO = Counter(
+    "agente_transcricao_resultado_total",
+    "Resultado da transcricao (06 §1.3/§1.5): ok|erro_provider|timeout|sem_audio",
+    ["resultado"],
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

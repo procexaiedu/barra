@@ -11,6 +11,7 @@ a resposta (01 §6.7).
 """
 
 import asyncio
+import json
 import logging
 from datetime import timedelta
 from time import perf_counter
@@ -22,6 +23,7 @@ from langgraph.errors import GraphRecursionError
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
+from barra.agente._canned import escolher_canned_transcricao_falhou
 from barra.agente.contexto import ContextAgente
 from barra.core.metrics import (
     AGENTE_ESCALADA,
@@ -84,11 +86,33 @@ async def processar_turno(
                     break
 
                 if aguardar_transcricao:
-                    # TODO(M5): BLPOP do canal de transcricao (06 §1.4) antes de montar a janela;
-                    # a porta de audio nasce no M5 (aguardar_transcricoes). Por ora segue direto.
-                    logger.info(
-                        "aguardar_transcricao ignorado no M3b (M5) conversa_id=%s", conversa_id
-                    )
+                    # BLPOP do canal `transcricao:{conversa_id}` (06 §1.4): sinaliza ok=true do
+                    # worker (mensagens.conteudo ja preenchido) ou ok=false / timeout (resposta
+                    # canned, sem invocar LLM).
+                    ok = await aguardar_transcricoes(redis, conversa_id, orcamento_s=8)
+                    if not ok:
+                        logger.warning(
+                            "transcricao_falhou conversa_id=%s turno_id=%s", conversa_id, turno_id
+                        )
+                        AGENTE_TURNO_RESULTADO.labels("transcricao_timeout").inc()
+                        # Despacha canned via humanizacao (mantem read receipt / dedupe). Como
+                        # nao houve LLM, midias e critico ficam vazios; o `enviar_turno` recebe
+                        # so o chunk canned. msg_ids_cliente e chars_inbound zerados — o audio
+                        # nao gera read receipt aqui (a humanizacao continua mandando reads na
+                        # proxima mensagem do cliente).
+                        canned = escolher_canned_transcricao_falhou()
+                        await despachar_humanizacao(
+                            ctx,
+                            conversa_id,
+                            turno_id,
+                            chunks=[canned],
+                            midias=[],
+                            msg_ids_cliente=[],
+                            chars_inbound=0,
+                            critico=False,
+                        )
+                        # Encerra o turno atual; nao re-roda drain (canned ja respondeu).
+                        break
 
                 # 3. marca o turno atual — cancel-on-new-message (05 §3.1): o enviar_turno do turno
                 #    anterior compara turno_atual e aborta os chunks pendentes ao ser superado.
@@ -232,6 +256,49 @@ async def processar_turno(
             _defer_by=timedelta(seconds=2),
         )
         LOCK_OCUPADO.inc()
+
+
+async def aguardar_transcricoes(redis: Any, conversa_id: str, *, orcamento_s: int = 8) -> bool:
+    """BLPOP no canal `transcricao:{conversa_id}` (06 §1.4).
+
+    O worker `transcrever_audio` faz `LPUSH` com `{"ok": true|false}` ao terminar. Multiplos
+    audios consecutivos sao drenados (BLPOP em loop) ate esvaziar a fila no orcamento.
+    Retorna False se:
+      - estourou `orcamento_s` antes de ler qualquer sinal;
+      - algum dos sinais lidos veio com `ok=false` (worker reportou falha definitiva).
+    Retorna True quando todos os sinais lidos foram `ok=true`.
+
+    Sem `asyncio.timeout` aqui (06 §1.4): redis-py expoe `blpop(timeout=...)` nativamente e o
+    orcamento total e contado deduzindo o decorrido — assim varios audios curtos cabem nos 8s.
+    Renomeado para evitar ASYNC109 (regra do ruff: arg `timeout` em funcao async sugere
+    `asyncio.timeout` quando o que se quer e propagar pro syscall).
+    """
+    chave = f"transcricao:{conversa_id}"
+    deadline = asyncio.get_event_loop().time() + orcamento_s
+    leu_algum = False
+    todos_ok = True
+    while True:
+        restante = deadline - asyncio.get_event_loop().time()
+        if restante <= 0:
+            break
+        # blpop devolve None no timeout; lista de [chave, payload] caso contrario.
+        res = await redis.blpop(chave, timeout=max(1, int(restante)))
+        if res is None:
+            break
+        leu_algum = True
+        # redis-py sem decode_responses devolve bytes; em fakeredis pode vir str.
+        _, payload = res
+        if isinstance(payload, (bytes, bytearray)):
+            payload = payload.decode("utf-8")
+        try:
+            data = json.loads(payload)
+        except (TypeError, ValueError):
+            logger.warning("transcricao_payload_invalido conversa_id=%s payload=%r", conversa_id, payload)
+            todos_ok = False
+            continue
+        if not data.get("ok", False):
+            todos_ok = False
+    return leu_algum and todos_ok
 
 
 def _extrair_texto(msg: AIMessage) -> str:

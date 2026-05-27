@@ -26,12 +26,17 @@ from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
 from barra.workers.envio import enviar_card, enviar_turno
 from barra.workers.lembrete_valor import cobrar_valor_final
-from barra.workers.media import limpar_midias_vencidas
+from barra.workers.media import limpar_midias_vencidas, transcrever_audio
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
     confirmar_em_execucao,
 )
+
+try:
+    from openai import AsyncOpenAI
+except ModuleNotFoundError:  # pragma: no cover
+    AsyncOpenAI = None  # type: ignore[misc,assignment]
 
 # psycopg async no Windows (dev local) precisa do selector loop antes do loop do worker subir,
 # senao PoolTimeout (09 §4.10; main.py:20 faz o mesmo). Producao e Linux. Como o startup roda
@@ -92,6 +97,14 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["minio"] = criar_minio(settings)
     ctx["evolution"] = EvolutionClient(settings)
     ctx["graph"] = build_graph()  # SEM checkpointer no P0 (01 §6.7)
+    # Cliente OpenAI compartilhado entre invocacoes de transcrever_audio (06 §1.3): timeout 60s
+    # + 3 retries automaticos no SDK; 5xx persistente sobe como APIError e o ARQ retenta o job.
+    if AsyncOpenAI is not None and settings.openai_api_key:
+        ctx["openai_client"] = AsyncOpenAI(
+            api_key=settings.openai_api_key, timeout=60.0, max_retries=3
+        )
+    else:
+        ctx["openai_client"] = None
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
@@ -121,6 +134,10 @@ class WorkerSettings:
         func(processar_turno, keep_result=0),
         func(enviar_card),  # cards no grupo (05 §6); keep_result default (global 3600)
         func(enviar_turno),  # humanização do turno (05 §1/§4); keep_result default (global 3600)
+        # STT do agente (06 §1.3): fire-and-forget; sinalizacao via canal Redis (06 §1.4), nao
+        # via keep_result. Mas keep_result global=3600 + _job_id estatico (transcricao:{evolution_message_id})
+        # nao bloqueia retry — o evolution_message_id e unico por audio, entao nao ha re-enqueue.
+        func(transcrever_audio),
     ]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),
