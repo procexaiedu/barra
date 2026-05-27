@@ -153,17 +153,42 @@ async def _handoff_foto_portaria(
     atendimento_id: str,
     mensagem_id: str,
 ) -> None:
-    """Stub do handoff implicito de foto de portaria (M5d, 06 §4).
+    """Handoff implicito da foto de portaria (06 §4).
 
-    M5d implementa: UPDATE atomico (estado=Em_execucao, ia_pausada=true,
-    ia_pausada_motivo=modelo_em_atendimento, responsavel_atual=modelo, foto_portaria_em=now,
-    fonte_decisao=webhook_imagem) + bloqueio em_atendimento + evento transicao_estado +
-    enqueue_job("enviar_card", tipo="chegada", _job_id=f"card:chegada:{atendimento_id}").
+    Le `media_object_key` da mensagem entrante (usado pelo card 'chegada' para
+    anexar a imagem), delega o SQL atomico (UPDATE atendimento + bloqueio +
+    escalada owner + evento) a `dominio/atendimentos/service.py`, e enfileira
+    o card. Idempotencia do card: `_job_id=card:chegada:{atendimento_id}`
+    (SETNX nativo do ARQ); o renderer reverifica `escaladas.card_message_id`
+    antes de POSTar (06 §9).
     """
-    raise NotImplementedError(
-        "TODO(M5d): handoff implicito da foto de portaria (06 §4); "
-        f"conversa_id={conversa_id} atendimento_id={atendimento_id} mensagem_id={mensagem_id}"
+    pool = ctx["db_pool"]
+    redis = ctx["redis"]
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            "SELECT media_object_key FROM barravips.mensagens WHERE id = %s",
+            (UUID(mensagem_id),),
+        )
+        row = await res.fetchone()
+        media_object_key = row["media_object_key"] if row else None
+
+        from barra.dominio.atendimentos.service import handoff_foto_portaria_ia
+
+        await handoff_foto_portaria_ia(
+            conn,
+            atendimento_id=UUID(atendimento_id),
+            mensagem_id=UUID(mensagem_id),
+            media_object_key=media_object_key,
+        )
+
+    await redis.enqueue_job(
+        "enviar_card",
+        tipo="chegada",
+        atendimento_id=atendimento_id,
+        _job_id=f"card:chegada:{atendimento_id}",
     )
+    del conversa_id  # reservado para futuro logging; assinatura espelha o stub original
 
 
 async def transcrever_audio(
