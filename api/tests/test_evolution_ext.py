@@ -1,4 +1,9 @@
-"""M4b — extensões do EvolutionClient: enviar_midia, marcar_lida, set_presence (05 §4/§5)."""
+"""M4b — extensões do EvolutionClient: enviar_midia, marcar_lida, set_presence (05 §4/§5).
+
+Inclui o suporte a `quoted` em sendText/sendMedia (Evolution v2.3.6 / evolution_api_v3) —
+o agente humanizado passa o id da última msg do cliente quando uma bolha precisa sair
+com reply/citação (regras.md §<quote>).
+"""
 
 import json
 
@@ -82,6 +87,63 @@ async def test_enviar_midia_ignora_view_once_e_caption_none() -> None:
 
 
 @respx.mock
+async def test_enviar_texto_anexa_quoted_quando_recebe_id() -> None:
+    route = respx.post(f"{BASE}/message/sendText/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-Q"}})
+    )
+    await _client().enviar_texto(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        texto="não tenho costume amor 😊",
+        contexto="conversa_cliente",
+        tipo="texto",
+        quoted_message_id="ABCDEF1234",
+    )
+    body = json.loads(route.calls.last.request.content)
+    # Evolution v2.3.6: quoted.message.conversation precisa existir mesmo vazio.
+    assert body["quoted"] == {"key": {"id": "ABCDEF1234"}, "message": {"conversation": ""}}
+    assert body["text"] == "não tenho costume amor 😊"
+
+
+@respx.mock
+async def test_enviar_texto_sem_quoted_nao_inclui_chave() -> None:
+    route = respx.post(f"{BASE}/message/sendText/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-N"}})
+    )
+    await _client().enviar_texto(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        texto="oi amor",
+        contexto="conversa_cliente",
+        tipo="texto",
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert "quoted" not in body  # default não polui o payload
+
+
+@respx.mock
+async def test_enviar_midia_anexa_quoted_quando_recebe_id() -> None:
+    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-Q2"}})
+    )
+    await _client().enviar_midia(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        url="https://minio.test/foto.jpg",
+        caption="olha 😏",
+        media_type="image",
+        contexto="conversa_cliente",
+        tipo="image",
+        quoted_message_id="XYZ987",
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body["quoted"] == {"key": {"id": "XYZ987"}, "message": {"conversation": ""}}
+
+
+@respx.mock
 async def test_marcar_lida_chama_endpoint_sem_gravar() -> None:
     route = respx.post(f"{BASE}/chat/markMessageAsRead/inst-1").mock(
         return_value=httpx.Response(200, json={"status": "ok"})
@@ -93,8 +155,9 @@ async def test_marcar_lida_chama_endpoint_sem_gravar() -> None:
         message_ids=["A", "B"],
     )
     assert route.called
+    # Evolution v2.3.6 self-host exige `readMessages` em camelCase (fix em 6deb321).
     assert json.loads(route.calls.last.request.content) == {
-        "read_messages": [
+        "readMessages": [
             {"remoteJid": "5521@s.whatsapp.net", "fromMe": False, "id": "A"},
             {"remoteJid": "5521@s.whatsapp.net", "fromMe": False, "id": "B"},
         ]

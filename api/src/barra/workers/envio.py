@@ -410,12 +410,17 @@ async def enviar_turno(
     msg_ids_cliente: list[str],
     chars_inbound: int,
     critico: bool = False,
+    quote_msg_ids: list[str | None] | None = None,
 ) -> None:
     """Envia um turno chunk-by-chunk e depois as mídias (05 §4).
 
     `critico` vem no PAYLOAD do job (não do Redis, cujo TTL pode expirar antes da última retry
     com backoff): turno crítico (write tool com efeito) entrega tudo ignorando o cancel; falha
     final do job + crítico → `escalar_por_exaustao` (05 §7).
+
+    `quote_msg_ids` (opcional) tem o mesmo tamanho de `chunks`; cada posição não-None faz a
+    bolha sair com reply/quote àquela mensagem (Evolution v2.3.6 `quoted.key.id`). Default
+    None preserva o comportamento dos call sites canned/reengajamento.
     """
     redis = ctx["redis"]
     pool = ctx["db_pool"]
@@ -466,6 +471,7 @@ async def enviar_turno(
             await asyncio.sleep(typing_ms / 1000)
 
             # 4 + 5. POST (→ envios_evolution) e persistência em mensagens, na MESMA transação
+            quote_target = quote_msg_ids[idx] if quote_msg_ids and idx < len(quote_msg_ids) else None
             async with pool.connection() as conn, conn.transaction():
                 mid = await evolution.enviar_texto(
                     conn=conn,
@@ -476,6 +482,7 @@ async def enviar_turno(
                     tipo="texto",
                     atendimento_id=conv["atendimento_id"],
                     conversa_id=conversa_uuid,
+                    quoted_message_id=quote_target,
                 )
                 await conn.execute(
                     """

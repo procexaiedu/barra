@@ -34,11 +34,17 @@ class EvolutionClient:
         atendimento_id: UUID | None = None,
         conversa_id: UUID | None = None,
         payload: dict[str, Any] | None = None,
+        quoted_message_id: str | None = None,
     ) -> str:
         if not self.settings.evolution_base_url:
             raise ErroDominio("EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503)
 
-        body = {"number": remote_jid, "text": texto}
+        body: dict[str, Any] = {"number": remote_jid, "text": texto}
+        if quoted_message_id:
+            # Evolution v2.3.6 (cliente evolution_api_v3) repete o payload Baileys:
+            # `quoted.message.conversation` precisa existir mesmo vazio; o servidor
+            # casa o quote pelo `key.id` sem consultar o conteudo.
+            body["quoted"] = {"key": {"id": quoted_message_id}, "message": {"conversation": ""}}
         url = f"{self.settings.evolution_base_url.rstrip('/')}/message/sendText/{instance_id}"
         headers = {"apikey": self.settings.evolution_api_key}
         async with httpx.AsyncClient(timeout=20) as client:
@@ -80,6 +86,7 @@ class EvolutionClient:
         atendimento_id: UUID | None = None,
         conversa_id: UUID | None = None,
         payload: dict[str, Any] | None = None,
+        quoted_message_id: str | None = None,
     ) -> str:
         """Espelha enviar_texto para mídia: POST /message/sendMedia → registra em
         envios_evolution → devolve evolution_message_id. O kwarg `view_once` (Mídia
@@ -91,6 +98,8 @@ class EvolutionClient:
         body: dict[str, Any] = {"number": remote_jid, "mediatype": media_type, "media": url}
         if caption:
             body["caption"] = caption
+        if quoted_message_id:
+            body["quoted"] = {"key": {"id": quoted_message_id}, "message": {"conversation": ""}}
         endpoint = f"{self.settings.evolution_base_url.rstrip('/')}/message/sendMedia/{instance_id}"
         headers = {"apikey": self.settings.evolution_api_key}
         async with httpx.AsyncClient(timeout=30) as client:

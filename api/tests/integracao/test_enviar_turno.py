@@ -72,10 +72,12 @@ class _FakePool:
 
 
 class _FakeEvolution:
-    """Registra a ORDEM das chamadas em `ordem` como (tipo, detalhe)."""
+    """Registra a ORDEM das chamadas em `ordem` como (tipo, detalhe). Também guarda o
+    `quoted_message_id` recebido por bolha em `quotes` (paralelo aos textos)."""
 
     def __init__(self) -> None:
         self.ordem: list[tuple[str, Any]] = []
+        self.quotes: list[str | None] = []
         self._n = 0
 
     async def marcar_lida(self, *, instance_id: str, remote_jid: str, message_ids: list[str]) -> None:
@@ -86,9 +88,10 @@ class _FakeEvolution:
     ) -> None:
         self.ordem.append(("presence", presence))
 
-    async def enviar_texto(self, *, texto: str, **_: Any) -> str:
+    async def enviar_texto(self, *, texto: str, quoted_message_id: str | None = None, **_: Any) -> str:
         self._n += 1
         self.ordem.append(("texto", texto))
+        self.quotes.append(quoted_message_id)
         return f"mid-texto-{self._n}"
 
     async def enviar_midia(self, *, caption: str | None, **_: Any) -> str:
@@ -203,6 +206,52 @@ async def test_critico_entrega_tudo_mesmo_superado() -> None:
     assert _so(evolution, "texto") == ["a", "b"]
     assert await redis.sismember(f"enviados:{turno_id}", "chunk:0")
     assert await redis.sismember(f"enviados:{turno_id}", "chunk:1")
+
+
+async def test_quote_msg_ids_propaga_para_evolution_por_bolha() -> None:
+    """Bolha com flag de quote sai com `quoted_message_id`; sem flag, vai None."""
+    turno_id, conversa_id = "turno-Q", str(uuid4())
+    conn = _FakeConn(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["não tenho costume", "me conta de vc"],
+        midias=[],
+        msg_ids_cliente=["evo-cliente-1"],
+        chars_inbound=10,
+        critico=False,
+        quote_msg_ids=["evo-cliente-1", None],
+    )
+
+    assert _so(evolution, "texto") == ["não tenho costume", "me conta de vc"]
+    assert evolution.quotes == ["evo-cliente-1", None]
+
+
+async def test_sem_quote_msg_ids_mantem_compat() -> None:
+    """Call site canned/reengajamento não passa quote_msg_ids: tudo sai sem quote."""
+    turno_id, conversa_id = "turno-N", str(uuid4())
+    conn = _FakeConn(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["a", "b"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert evolution.quotes == [None, None]
 
 
 async def test_retry_pula_chunks_ja_enviados() -> None:

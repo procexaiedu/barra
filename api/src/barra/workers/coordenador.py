@@ -239,7 +239,14 @@ async def processar_turno(
                     msg_ids_cliente: list[str] = [r["evolution_message_id"] for r in inbound]
                     chars_inbound = sum(len(r["conteudo"] or "") for r in inbound)
 
-                    chunks = chunk_texto(texto)
+                    chunks, quote_flags = chunk_texto(texto)
+                    # `[quote]` na bolha → cita a ULTIMA mensagem do cliente no turno
+                    # (alvo natural de recusa/qualificacao/contraproposta). Sem inbound,
+                    # o flag e ignorado (None) — defesa para canned/reengajamento.
+                    alvo_quote = msg_ids_cliente[-1] if msg_ids_cliente else None
+                    quote_msg_ids: list[str | None] = [
+                        alvo_quote if flag else None for flag in quote_flags
+                    ]
                     if not chunks and not midias:
                         logger.warning("turno_sem_resposta turno_id=%s", turno_id)
                         AGENTE_TURNO_RESULTADO.labels("ok_sem_resposta").inc()
@@ -256,6 +263,7 @@ async def processar_turno(
                             msg_ids_cliente,
                             chars_inbound,
                             critico,
+                            quote_msg_ids=quote_msg_ids,
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
 
@@ -470,6 +478,7 @@ async def despachar_humanizacao(
     msg_ids_cliente: list[str],
     chars_inbound: int,
     critico: bool,
+    quote_msg_ids: list[str | None] | None = None,
 ) -> None:
     """Um unico job `enviar_turno` por turno (05 §1): percorre chunks e midias em ordem (07 §3.4).
 
@@ -485,5 +494,6 @@ async def despachar_humanizacao(
         msg_ids_cliente=msg_ids_cliente,
         chars_inbound=chars_inbound,
         critico=critico,
+        quote_msg_ids=quote_msg_ids,
         _job_id=f"turno_envio:{turno_id}",
     )
