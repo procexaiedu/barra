@@ -19,7 +19,15 @@ interface SeriesSpark {
   liquido: number[]
   fechamentos: number[]
   ticket: number[]
+  rotulos: string[]
 }
+
+const FMT_DIA_TOOLTIP = new Intl.DateTimeFormat("pt-BR", {
+  weekday: "short",
+  day: "2-digit",
+  month: "short",
+  timeZone: "America/Sao_Paulo",
+})
 
 function derivarSparklines(serie: FinanceiroSerieDia[]): SeriesSpark {
   // Serie pode chegar curta; o Sparkline trata <2 pontos sozinho.
@@ -29,9 +37,11 @@ function derivarSparklines(serie: FinanceiroSerieDia[]): SeriesSpark {
       acc.liquido.push(d.liquido)
       acc.fechamentos.push(d.fechamentos)
       acc.ticket.push(d.fechamentos > 0 ? d.bruto / d.fechamentos : 0)
+      // Ancora ao meio-dia BRT pra fugir do drift de fuso na borda do dia.
+      acc.rotulos.push(FMT_DIA_TOOLTIP.format(new Date(`${d.dia}T12:00:00-03:00`)))
       return acc
     },
-    { bruto: [], liquido: [], fechamentos: [], ticket: [] },
+    { bruto: [], liquido: [], fechamentos: [], ticket: [], rotulos: [] },
   )
 }
 
@@ -104,12 +114,14 @@ export function PainelFinanceiro({
           destaque
           hint="bruto − repasse calculado"
           sparkline={sparks.liquido}
+          rotulosSparkline={sparks.rotulos}
         />
         <KpiCard
           rotulo="Faturamento bruto"
           valor={r.valor_bruto_brl}
           anterior={ant?.valor_bruto_brl ?? null}
           sparkline={sparks.bruto}
+          rotulosSparkline={sparks.rotulos}
         />
         <KpiCard
           rotulo="Ticket médio"
@@ -121,6 +133,7 @@ export function PainelFinanceiro({
               : "sem fechamentos no período"
           }
           sparkline={sparks.ticket}
+          rotulosSparkline={sparks.rotulos}
         />
       </div>
 
@@ -149,6 +162,7 @@ export function PainelFinanceiro({
           anterior={ant?.fechamentos_total ?? null}
           formato="int"
           sparkline={sparks.fechamentos}
+          rotulosSparkline={sparks.rotulos}
         />
       </div>
 

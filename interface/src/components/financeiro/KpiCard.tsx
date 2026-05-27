@@ -34,6 +34,7 @@ interface KpiCardProps {
   okTexto?: string
   sparkline?: number[]
   corSparkline?: string
+  rotulosSparkline?: string[]
 }
 
 const TONS: Record<KpiTom, { valor: string; borda: string; chip: string }> = {
@@ -85,6 +86,7 @@ export function KpiCard({
   okTexto,
   sparkline,
   corSparkline,
+  rotulosSparkline,
 }: KpiCardProps) {
   const tons = TONS[tom]
   const formatado =
@@ -164,6 +166,8 @@ export function KpiCard({
           cor={corSpark}
           alturaPx={destaque ? 32 : 24}
           rotuloAcessivel={`Tendência de ${rotulo.toLowerCase()} no período`}
+          rotulos={rotulosSparkline}
+          formatador={formato === "brl" ? formatBRL : (n) => new Intl.NumberFormat("pt-BR").format(n)}
         />
       )}
 
