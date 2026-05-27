@@ -34,6 +34,11 @@ from barra.workers.coordenador import MAX_DRAIN, processar_turno
 # --- grafo mockado ---------------------------------------------------------------------------
 
 
+# `usage_metadata` simula uma AIMessage GERADA pelo LLM (criterio de filtro do
+# _extrair_texto_do_turno; sem ele a msg e tratada como historica re-injetada e ignorada).
+_USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+
+
 class _GrafoFake:
     """ainvoke devolve uma AIMessage fixa e conta as invocacoes."""
 
@@ -45,7 +50,7 @@ class _GrafoFake:
         self, entrada: Any, *, config: Any = None, context: Any = None
     ) -> dict[str, Any]:
         self.chamadas += 1
-        return {"messages": [AIMessage(content=self._texto)]}
+        return {"messages": [AIMessage(content=self._texto, usage_metadata=_USAGE)]}
 
 
 class _GrafoFakeDrena:
@@ -62,7 +67,7 @@ class _GrafoFakeDrena:
     ) -> dict[str, Any]:
         self.chamadas += 1
         await self._redis.set(f"pending:conv:{self._conversa_id}", "1")
-        return {"messages": [AIMessage(content=self._texto)]}
+        return {"messages": [AIMessage(content=self._texto, usage_metadata=_USAGE)]}
 
 
 # --- infra de DB real (ROLLBACK sempre) + Redis efemero --------------------------------------

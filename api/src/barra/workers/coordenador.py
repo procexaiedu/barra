@@ -349,14 +349,22 @@ def _extrair_texto(msg: AIMessage) -> str:
 
 
 def _extrair_texto_do_turno(messages: list[BaseMessage]) -> str:
-    """Agrega texto de TODAS as AIMessages do turno, separadas por \\n\\n.
+    """Agrega texto das AIMessages GERADAS pelo LLM neste turno, separadas por \\n\\n.
 
     No padrao ReAct, o LLM e chamado de novo depois de cada ToolMessage; quando ja respondeu
     o cliente na 1a passagem (texto + tool_call), a 2a passagem volta com `content=[]` —
-    pegar so a ultima AIMessage daria "" e disparava `turno_sem_resposta`. Sem checkpointer
-    no P0, `resultado["messages"]` so contem mensagens DESTE turno.
+    pegar so a ultima AIMessage daria "" e disparava `turno_sem_resposta`.
+
+    O `prepare_context` re-injeta AIMessages historicas (mensagens previas da IA do banco)
+    no input do LLM (`nos/prepare_context.py:188`); essas vem SEM `usage_metadata`. Filtrar
+    por `usage_metadata` mantem so o que o LLM gerou agora — agregar historicas duplicaria
+    a resposta anterior junto com a nova (bug observado em prod 2026-05-27).
     """
-    partes = [_extrair_texto(m) for m in messages if isinstance(m, AIMessage)]
+    partes = [
+        _extrair_texto(m)
+        for m in messages
+        if isinstance(m, AIMessage) and m.usage_metadata is not None
+    ]
     return "\n\n".join(p for p in partes if p)
 
 
