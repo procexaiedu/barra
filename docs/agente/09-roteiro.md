@@ -27,23 +27,23 @@ Levantado a partir do **código real** em `api/src/barra/`, não do que o doc af
 - `webhook/routes.py` — token + JID + persistência idempotente + comandos de grupo via `aplicar_comando` ✓; **webhook fino** (persiste `atendimento_id=NULL` + `enfileirar_turno`; `garantir_conversa` faz upsert da conversa sem criar atendimento) ✓ [M3c].
 - `dominio/escaladas/service.py` — `aplicar_comando:25`, `_atualizar_pix:248` (já não trava o fluxo, `07 §5`), `abrir_handoff:315` ✓.
 - `dominio/atendimentos/service.py:23` — `garantir_atendimento_aberto` ✓.
-- Migrations presentes: `comprovantes_pix.card_message_id` (`20260523220842_comprovante_pix_card.sql`), `reengajado_em` (`20260523231500_reengajamento.sql`), `modelo_midia` (com `tag/tipo/aprovada/bucket/object_key`, `0001:375`), `atendimentos` (`ia_pausada/aviso_saida_em/foto_portaria_em/pix_status`, `0001:432`).
+- Migrations presentes: `comprovantes_pix.card_message_id` (`20260523220842_comprovante_pix_card.sql`), `reengajado_em` (`20260523231500_reengajamento.sql`), `modelo_midia` (com `tag/tipo/aprovada/bucket/object_key`, `0001:375`; `ultimo_envio_em` ✓ [M5e] em `20260527154854_modelo_midia_ultimo_envio.sql`), `atendimentos` (`ia_pausada/aviso_saida_em/foto_portaria_em/pix_status`, `0001:432`).
 - `pyproject.toml` — `langchain-anthropic>=1.4.3` ✓ (lock real: lc-anthropic 1.4.3 · anthropic 0.97 · langgraph 1.1.10).
 - `evals/` — estrutura + 5 fixtures seed (`canonicos/leitura/001`, `canonicos/cache_hit/001`, `adversariais/{disclosure,cross_modelo,jailbreak}/001`). README é fonte de verdade do schema.
 
 ### 1.2 Placeholder / docstring-only (a implementar)
 - `agente/nos/tools.py` → `ToolNode(TOOLS)` (loop ReAct ativo, executa tool_calls) ✓ [M1-T2]. `prepare_context` (gate `ia_pausada` → `Command(goto=END)`; BP1+BP2 + sliding window 20 traduzida; caminho normal → `intercept_disclosure` por Command, sem aresta estática) ✓ [M0-T4] + contexto dinâmico (`_anexar_contexto_dinamico`) no último HumanMessage ✓ [M1-T2]; `intercept_disclosure` (passthrough `Command(goto="llm")`), `llm` (factory `no_llm`, `Command` routing, check `stop_reason`) e `post_process` (refetch `ia_pausada`, zera texto se pausou) já reais ✓ [M0-T5].
-- `core/redis.py` (`adquirir_lock`/`LockBusy`, heartbeat, release Lua) ✓ [M3b]; `webhook/{despacho,debounce}.py` (`enfileirar_turno` + helpers) ✓ [M3c]; `webhook/filtro.py` → docstring; `workers/pix.py` → docstring (M5c).
-- `workers/envio.py` → só `enviar_texto_job` (sem `enviar_turno`/`enviar_card`); `workers/media.py` → só `limpar_midias_vencidas` (sem `transcrever_audio`/`rotear_imagem`).
+- `core/redis.py` (`adquirir_lock`/`LockBusy`, heartbeat, release Lua) ✓ [M3b]; `webhook/{despacho,debounce}.py` (`enfileirar_turno` + helpers) ✓ [M3c]; `webhook/filtro.py` → docstring; `workers/pix.py` (`validar_pix` via vision OpenRouter) ✓ [M5c].
+- `workers/envio.py` → `enviar_turno`/`enviar_card` ✓ [M4c/M4d]; `_card_pix` real ✓ [M5c]; `_card_chegada`/`_card_aviso_saida` reais ✓ [M5d]. `workers/media.py` → `transcrever_audio` ✓ [M5a], `rotear_imagem` ✓ [M5b], `_handoff_foto_portaria` real (via `handoff_foto_portaria_ia` em `dominio/atendimentos/service.py`) ✓ [M5d].
 - `agente/classificador.py` → docstring (classificador interno/externo **P1**, não confundir com `_classificador.py` do disclosure).
 
 ### 1.3 Não existe (a criar)
 - `agente/_classificador.py` (regex disclosure/jailbreak) ✓ [M3g]; `workers/coordenador.py` (`processar_turno`) ✓ [M3b]; `workers/_chunking.py` (M4a).
 - `dominio/atendimentos/service.py:registrar_extracao_ia` (transição + bloqueio + guarda do piso) ✓ [M3d]; `dominio/agenda/service.py:criar_bloqueio_previo` (advisory lock + EXCLUDE → `ConflitoAgenda`) ✓ [M3d/M3e].
-- Tools: `TOOLS = [consultar_agenda, registrar_extracao, pedir_pix_deslocamento, escalar]` (ordem canônica `04 §4`; `enviar_midia` entra no M5e); `leitura.py` ✓ [M1-T1], `_idempotencia.py` ✓ [M3a], `extracao.py` ✓ [M3d], `pix.py` ✓ [M3e], `escalada.py` ✓ [M3f]; falta `midia.py` (M5e).
-- Templates: `prompts/` tem `persona.md`/`faq.md` **planos** + `regras.md.j2` (Jinja p/ `desconto_max_pct` ✓ [M0-T2]) + `contexto_dinamico.md.j2` ✓ [M1-T2] + `identidade.md.j2` + `programas.md.j2` (BP3 por-modelo) ✓ [M2-T1].
-- Migrations: **`tool_calls`** ✓ [M3a], **`disclosure_tentativas`** ✓ [M3g], **`atendimento.intencao`** (enum + coluna) ✓ [M3d]; falta **`modelo_midia.ultimo_envio_em`** (`04 §3.3`, M5e) — todas via **nome timestamp** (`§6`).
-- Dependência **`openai`** (Whisper STT + cliente OpenRouter-compat, M5) — ausente no `pyproject`.
+- Tools: `TOOLS = [consultar_agenda, registrar_extracao, pedir_pix_deslocamento, enviar_midia, escalar]` (ordem canônica `04 §4`); `leitura.py` ✓ [M1-T1], `_idempotencia.py` ✓ [M3a], `extracao.py` ✓ [M3d], `pix.py` ✓ [M3e], `escalada.py` ✓ [M3f], `midia.py` ✓ [M5e]; `nos/tools.py` traz `_ToolNodeComMidiaIdx` (subclass que injeta `call_idx` ordinal por-invocação, `04 §3.3`).
+- Templates: `prompts/` tem `persona.md`/`faq.md` **planos** + `regras.md.j2` (Jinja p/ `desconto_max_pct` ✓ [M0-T2]) + `contexto_dinamico.md.j2` ✓ [M1-T2] + `identidade.md.j2` + `programas.md.j2` (BP3 por-modelo) ✓ [M2-T1]. `workers/_cards/` tem `escalada.md.j2` ✓ [M4d] + `pix.md.j2` ✓ [M5c] + `chegada.md.j2` + `aviso_saida.md.j2` ✓ [M5d].
+- Migrations: **`tool_calls`** ✓ [M3a], **`disclosure_tentativas`** ✓ [M3g], **`atendimento.intencao`** (enum + coluna) ✓ [M3d], **`modelo_midia.ultimo_envio_em`** ✓ [M5e] (`04 §3.3`) — todas via **nome timestamp** (`§6`).
+- Dependência **`openai`** ✓ [M5a/M5c]: Whisper STT (cliente direto OpenAI) + vision Pix (cliente OpenAI-compat apontando para OpenRouter base_url) — `pyproject.toml` traz `openai>=1.50`.
 - Zero testes de agente/grafo/coordenador. Runners de eval ausentes (só READMEs "TODO").
 
 ## 2. Marcos (M0 → P0)
@@ -369,13 +369,14 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 
 ### M5 — Mídia + reengajamento
 
-#### M5a — `transcrever_audio` (OpenAI Whisper)
+#### M5a — `transcrever_audio` (OpenAI Whisper) — ✅ FEITO (2026-05-27)
 - **Objetivo:** `uv add openai`; `workers/media.py:transcrever_audio` (`06 §1`): download→MinIO, Whisper (`openai_api_key`/`openai_model_audio_transcribe` em settings), `UPDATE mensagens.conteudo`, sinaliza canal `transcricao:{conversa_id}`. `aguardar_transcricoes` (`06 §1.4`) no coordenador. Webhook (M3c) enfileira o job.
 - **Carregar:** `06 §1`; `workers/media.py`, `webhook/routes.py`, `settings.py`, `workers/settings.py`.
 - **Tocar:** `pyproject.toml`, `workers/media.py`, `workers/coordenador.py`, `settings.py`, `webhook/routes.py`, `workers/settings.py`.
 - **Aceite:** `uv run pytest tests/integracao/test_transcrever_audio.py` (OpenAI mockado) — conteúdo atualizado + canal sinalizado por `conversa_id`; timeout → canned (sem LLM).
 - **Depende de:** M3.
 - **Paralelizável com:** M5c.
+- **Nota (feito 2026-05-27):** `transcrever_audio(ctx, *, mensagem_id, evolution_message_id)` em `workers/media.py` lê o objeto OGG já gravado pelo webhook fino (`conversas/{conversa_id}/mensagens/{evolution_message_id}{ext}`) — NÃO re-baixa da Evolution (URL expira, `06 §0 item 2`); `asyncio.to_thread(minio.get_object)` evita bloquear o loop. `openai_client` instanciado em `WorkerSettings.startup` (`AsyncOpenAI(api_key=settings.openai_api_key, timeout=60, max_retries=3)`). Whisper com `response_format="verbose_json"` (whisper-1 retorna `.duration`, ver `06 §1.3` — `gpt-4o-mini-transcribe` precisaria calcular duração local). `aguardar_transcricoes(redis, conversa_id, timeout=8)` faz BLPOP no canal `transcricao:{conversa_id}` (keyed por conversa, não por atendimento — `06 §1.4`); em timeout/`ok=false`, `escolher_canned_transcricao_falhou()` responde sem invocar o LLM e enfileira `enviar_turno(critico=False)`. **Falha definitiva** (`_falha_definitiva`/`marcar_audio_falho`) grava `mensagens.conteudo='[audio que nao consegui ouvir]'` com guard `IS NULL OR =''` (não sobrescreve transcrição feliz), sem evento `audio_falha` (não existe no enum, `06 §0 item 7`). Webhook (`routes.py`) extrai `mensagem_id` interno via helper `_resolver_mensagem_id` antes do `enqueue_job("transcrever_audio")`. **Dep nova:** `openai>=1.50` em `pyproject.toml`. Integrado na `main` (onda 1, 2026-05-27).
 
 #### M5b — `rotear_imagem` (sob lock) — ✅ FEITO (2026-05-27)
 - **Objetivo:** `workers/media.py:rotear_imagem` (`06 §2.1`): adquire `lock:conv`, lê estado, despacha `validar_pix`/`_handoff_foto_portaria`/turno (legenda)/silêncio; `LockBusy`→re-defere. Webhook (M3c) enfileira.
@@ -386,47 +387,63 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 - **Paralelizável com:** M5a, M5c.
 - **Nota (feito 2026-05-27):** `rotear_imagem` em `workers/media.py` adquire `lock:conv` (compartilhado com `processar_turno`) e roteia por estado lido via novo helper read-only `resolver_atendimento_existente` (em `workers/coordenador.py`, espelha `resolver_atendimento` mas NÃO cria). Despacha: Aguardando+pix=aguardando → `enqueue_job("validar_pix", _job_id=f"pix:{atendimento_id}:{mensagem_id}")`; Aguardando+interno → `_handoff_foto_portaria` (stub `NotImplementedError("M5d")` com assinatura `(ctx, conversa_id, atendimento_id, mensagem_id)` espelhando `06 §4`); legenda → import tardio de `webhook/despacho.enfileirar_turno` (evita ciclo `workers.media`→`webhook.despacho`→`webhook.parser`); default → silêncio. `LockBusy` → `_defer_by=3s` e re-enqueue de `rotear_imagem`. Métrica `ROTEAR_IMAGEM_DECISAO{decisao}` (`pix|foto_portaria|fora_fluxo_legenda|silencio|lock_busy`) em `core/metrics.py`. Webhook (`routes.py:115`) trocou o `TODO(M5)` por `enqueue_job("rotear_imagem", _job_id=f"rotear:{evolution_message_id}")` no branch `tipo=='imagem'`; áudio continua TODO M5a. `MensagemEvolution` ganhou campo `caption: str | None = None` (extraído de `imageMessage.caption` no parser). `rotear_imagem` registrado em `WorkerSettings.functions`. Testes: `tests/integracao/test_rotear_imagem.py` (5 cenários, `needs_db`, fakeredis com `enqueue_job=AsyncMock`) verde; regressão `make lint typecheck` + 282 testes fake + 43 needs_db verdes.
 
-#### M5c — `validar_pix` (vision OpenRouter)
+#### M5c — `validar_pix` (vision OpenRouter) — ✅ FEITO (2026-05-27)
 - **Objetivo:** `workers/pix.py:validar_pix` (`06 §2`): cliente OpenRouter (`vision_client` no worker startup), `ExtracaoPix` (json_schema + `provider:{require_parameters:true}`), comparações (`valor>=esperado`, chave/titular tolerantes, **sem timestamp** `06 §11`), `comprovantes_pix` INSERT, `aplicar_comando("atualizar_pix")` (já não trava, `07 §5`), card. Verificar colunas `comprovantes_pix.{decisao_pipeline,motivo_em_revisao}` no `0001` — migration se faltarem.
 - **Carregar:** `06 §0` itens 4-6/11-12, `06 §2.2`, `06 §2.3`, `06 §2.4`, `07 §5`; `workers/{pix,settings}.py`, `dominio/escaladas/service.py`, `infra/sql/0001_schema_inicial.sql` (comprovantes_pix), `settings.py`.
 - **Tocar:** `workers/pix.py`, `workers/settings.py`, `settings.py`, `core/metrics.py`, (migration se faltar coluna).
 - **Aceite:** `uv run pytest tests/integracao/test_validar_pix.py` (vision mockado) — validado→`Confirmado`+`ia_pausada`; underpay→`em_revisao` (também `Confirmado`); ambos enfileiram card; fluxo nunca trava.
 - **Depende de:** M3.
 - **Paralelizável com:** M5a.
+- **Nota (feito 2026-05-27):** `validar_pix(ctx, *, mensagem_id, atendimento_id)` em `workers/pix.py` lê `media_object_key` do MinIO (gravado pelo webhook fino — não re-baixa), detecta mime real por magic bytes (`_detectar_mime_imagem`), passa base64 inline ao cliente OpenRouter (instanciado em `WorkerSettings.startup` como `ctx["vision_client"] = AsyncOpenAI(api_key=settings.openrouter_api_key, base_url="https://openrouter.ai/api/v1")` e fechado no shutdown). `ExtracaoPix` Pydantic com `model_config = ConfigDict(extra="forbid")` (cruzamento doc oficial 24-05); campo `timestamp` **dropado** (`06 §0 item 11` — skew BRT vs UTC marca falso ~100%). `chat.completions.create(response_format={"type":"json_schema",...}, extra_body={"provider":{"require_parameters":true}})` (ressalva do `06 §0 item 4 (a)`). Comparações: `valor >= settings.pix_deslocamento_valor` (`Decimal("100.00")`, novo campo em `settings.py`), `_chaves_compativeis`/`_titulares_compativeis` tolerantes (copy literal de `06 §2.4`). INSERT em `comprovantes_pix` (sem `timestamp_extraido` → NULL), depois `aplicar_comando("atualizar_pix", payload={"decisao", "motivo"})` (`07 §5` — Pix nunca trava, já implementado em `dominio/escaladas/service.py:_atualizar_pix`). Enfileira `enviar_card(tipo="pix_validado"|"pix_em_revisao", _job_id=f"card:pix:{atendimento_id}")` (idempotência por owner via `comprovantes_pix.card_message_id`). `_card_pix(ctx, *, atendimento_id, comprovante_id)` real em `workers/envio.py`: query JOIN modelo+cliente+conversa, render Jinja `workers/_cards/pix.md.j2` (sinaliza duvidez quando `motivo_em_revisao`), envia via `EvolutionClient.enviar_midia` (anexa imagem + caption) com idempotência por owner (POST + UPDATE `card_message_id` na mesma transação, espelha `_card_escalada`). Métricas `PIX_VALIDACAO_DURACAO`/`PIX_VALIDACAO_DECISAO{decisao}`/`PIX_DIVERGENCIA{motivo}` em `core/metrics.py` (sem label `timestamp`). Integrado na `main` (onda 1, 2026-05-27). **Sem migration nova:** `decisao_pipeline`/`motivo_em_revisao` já em `0001:560-561`; `card_message_id` em `20260523220842_comprovante_pix_card.sql`.
 
-#### M5d — Foto de portaria (handoff) + aviso de saída (via agente)
+#### M5d — Foto de portaria (handoff) + aviso de saída (via agente) — ✅ FEITO (2026-05-27)
 - **Objetivo:** `_handoff_foto_portaria` (`06 §4`): transição→`Em_execucao`+`ia_pausada`+bloqueio `em_atendimento`+card "chegada", atômico. Aviso de saída **detectado pelo agente** (`06 §10`): remover `PADROES_AVISO_SAIDA`; no turno interno, `registrar_extracao_ia`/porta de serviço seta `aviso_saida_em` (guard `IS NULL`) + card `aviso_saida`, sem pausar.
 - **Carregar:** `06 §4`, `06 §5`, `06 §0` itens 8/10, `02 §11`; `workers/media.py`, `dominio/atendimentos/service.py`.
 - **Tocar:** `workers/media.py`, `dominio/atendimentos/service.py`.
 - **Aceite:** `uv run pytest tests/integracao/test_foto_portaria.py` + `test_aviso_saida.py` — foto→`Em_execucao`+card; aviso→`aviso_saida_em` setado + card, estado preservado, IA segue.
 - **Depende de:** M4d, M5b.
 - **Paralelizável com:** M5a, M5c.
+- **Nota (feito 2026-05-27):** porta única em serviço (`06 §0 item 8`): `handoff_foto_portaria_ia(conn, *, atendimento_id, mensagem_id, media_object_key)` em `dominio/atendimentos/service.py` faz 3 efeitos atômicos em `conn.transaction()` — UPDATE atendimento (`estado='Em_execucao'`, `ia_pausada=true`, `ia_pausada_motivo='modelo_em_atendimento'`, `responsavel_atual='modelo'`, `foto_portaria_em=now()`, `fonte_decisao_ultima_transicao='webhook_imagem'`), UPDATE bloqueio (`estado='em_atendimento'` com guard `estado='bloqueado'`), evento `transicao_estado` (payload jsonb via `%s::jsonb`+`json.dumps`, memória `jsonb_param_psycopg`). `marcar_aviso_saida(conn, *, atendimento_id) -> bool` faz UPDATE com guard `aviso_saida_em IS NULL` + evento; devolve True só na 1ª gravação. Em `workers/media.py`, o stub `_handoff_foto_portaria` virou implementação real: chama `handoff_foto_portaria_ia` e enfileira `enqueue_job("enviar_card", tipo="chegada", _job_id=f"card:chegada:{atendimento_id}")`. **Aviso de saída via agente** (`06 §0 item 10`): `ExtracaoPayload` em `agente/ferramentas/extracao.py` ganhou `aviso_saida_detectado: bool = False`; em `registrar_extracao_ia`, após UPSERT+transição, se a flag estiver True e o atendimento for `tipo_atendimento='interno'` + `estado='Aguardando_confirmacao'` + `aviso_saida_em IS NULL`, chama `marcar_aviso_saida` e seta `resultado_extra["enviar_aviso_saida"]=True`; o wrapper da tool enfileira `enqueue_job("enviar_card", tipo="aviso_saida", _job_id=f"card:aviso_saida:{atendimento_id}")` **sem pausar a IA**. **Cards reais em `workers/envio.py`** (substituem `NotImplementedError`): `_card_chegada(ctx, *, atendimento_id, mensagem_id, **_)` query JOIN modelo+cliente+escalada do tipo `chegada`, render Jinja `workers/_cards/chegada.md.j2` + presigned URL da imagem do MinIO, envio via `EvolutionClient.enviar_midia` com idempotência por owner (`escaladas.card_message_id` na escalada de chegada criada pela `handoff_foto_portaria_ia`); `_card_aviso_saida(ctx, *, atendimento_id, **_)` usa SETNX em `card:aviso_saida:{atendimento_id}` (sem owner, doc 06 §0 item 9), render `workers/_cards/aviso_saida.md.j2`, envio via `enviar_texto`. Testes `tests/integracao/test_foto_portaria.py` (3 cenários + 1 fake) e `test_aviso_saida.py` (4 cenários) — todos verdes em `needs_db` contra prod self-hosted. Integrado na `main` (onda 2, 2026-05-27). **Sem migration nova:** `aviso_saida_em`, `foto_portaria_em`, `ia_pausada_motivo`, `responsavel_atual` já no `0001`.
 
-#### M5e — Migration `modelo_midia.ultimo_envio_em` + `enviar_midia` completo
+#### M5e — Migration `modelo_midia.ultimo_envio_em` + `enviar_midia` completo — ✅ FEITO (2026-05-27)
 - **Objetivo:** migration `modelo_midia.ultimo_envio_em` (`04 §3.3`, `§4.8`). `ferramentas/midia.py:enviar_midia(tag, legenda?, tipo)` completo (rotação menos-recente, `call_idx` por `InjectedToolArg`/`midia_idx`, `_registrar_envio_midia` marca `ultimo_envio_em`). Coletar mídias em `tool_calls` no coordenador (já em M3b) e despachar (M4c).
 - **Carregar:** `04 §3.3`, `05 §5`, `§4.8`; `ferramentas/midia.py`, `agente/estado.py`, `nos/tools.py`.
 - **Tocar:** `infra/sql/<ts>_modelo_midia_ultimo_envio.sql`, `ferramentas/midia.py`, `nos/tools.py`.
 - **Aceite:** `uv run pytest tests/integracao/test_enviar_midia.py` — escolhe menos-recente; 2 chamadas no turno → `call_idx` 0,1; replay não reenvia (`ON CONFLICT`).
 - **Depende de:** M3a, M4c.
 - **Paralelizável com:** M5a, M5c, M5d.
+- **Nota (feito 2026-05-27):** migration `20260527154854_modelo_midia_ultimo_envio.sql` (ADD COLUMN IF NOT EXISTS + COMMENT, RLS herdada da tabela) aplicada no prod self-hosted via MCP postgres. `ferramentas/midia.py:enviar_midia(tag, legenda=None, tipo="foto", call_idx: Annotated[int, InjectedToolArg]=0, runtime: ToolRuntime[ContextAgente])`: query menos-recente (`ORDER BY ultimo_envio_em NULLS FIRST, created_at LIMIT 1` excluindo IDs já anexados no turno via `NOT (id = ANY(%s))`); `_executar_idempotente(conn, turno_id, "enviar_midia", call_idx, payload, _registrar_envio_midia)` grava `tool_calls` + marca `ultimo_envio_em=now()` na mesma transação. **Imports de `ContextAgente` em runtime, não `TYPE_CHECKING`** (memória `toolruntime_ctx_forward_refs`). `nos/tools.py` ganhou `_ToolNodeComMidiaIdx` (subclass de `ToolNode`): antes de delegar, percorre `tool_calls` do AIMessage e injeta `call_idx=i` ordinal por-invocação **apenas** para `enviar_midia` (outras tools não recebem); reset a cada `ainvoke` porque o State nasce do zero sem checkpointer — `tool_call_id` não serve (muda no replay, doc 04 §3.3 nota). `TOOLS` em `ferramentas/__init__.py` agora `[consultar_agenda, registrar_extracao, pedir_pix_deslocamento, enviar_midia, escalar]` (ordem canônica `04 §4`, `escalar` por último mantém breakpoint de cache; invariante de prefixo preservado, `agente/CLAUDE.md`). Coordenador (`workers/coordenador.py:165-171`) preencheu os TODOs: coleta de mídias via `SELECT payload->>'midia_id' AS midia_id, payload->>'legenda' AS legenda FROM tool_calls WHERE turno_id=%s AND tool_name='enviar_midia' ORDER BY call_idx` e `critico` via `SELECT 1 FROM tool_calls WHERE turno_id=%s AND (tool_name='pedir_pix_deslocamento' OR (tool_name='registrar_extracao' AND resultado->>'novo_estado' IS NOT NULL)) LIMIT 1`. Integrado na `main` (onda 1, 2026-05-27).
 
-#### M5f — Cron `reengajar_silenciosos` (atrás de flag)
+#### M5f — Cron `reengajar_silenciosos` (atrás de flag) — ✅ FEITO (2026-05-27)
 - **Objetivo:** `workers/timeouts.py:reengajar_silenciosos` (`07 §4.5`): CTE alvo (Triagem/Qualificado, `intencao∈{cotacao,agendamento}`, `reengajado_em IS NULL`, janela `[delay,24h]`, horário de operação), `UPDATE reengajado_em` no mesmo CTE, enfileira `enviar_turno` com chunk canned (`REENGAJAMENTO_CANNED`), `critico=false`. Cron em `WorkerSettings`. **Default off** (`reengajamento_ativo`).
 - **Carregar:** `07 §4.5`, `01 §6.12`, `CONTEXT.md` "Reengajamento"; `workers/{timeouts,settings}.py`.
 - **Tocar:** `workers/timeouts.py`, `workers/settings.py`, `agente/` (pool canned), `core/metrics.py`.
 - **Aceite:** `uv run pytest tests/integracao/test_reengajamento.py` — com flag on, alvo recebe 1 toque e `reengajado_em` setado; 2ª varredura não reenfileira; flag off → nenhum.
 - **Depende de:** M4c.
 - **Paralelizável com:** M5a-e.
+- **Nota (feito 2026-05-27):** `reengajar_silenciosos(conn, redis, settings) -> int` em `workers/timeouts.py`: early return + métrica `REENGAJAMENTO.labels("flag_off")` se `not settings.reengajamento_ativo` (default `False` — piloto começa desligado, `01 §6.12`). CTE atômica `FOR UPDATE SKIP LOCKED` com filtros `estado IN ('Triagem','Qualificado')`, `ia_pausada=false`, `intencao IN ('cotacao','agendamento')`, `reengajado_em IS NULL`, última msg do **cliente** entre `[now() - 24h, now() - reengajamento_delay_min]`, hora local BRT (`now() AT TIME ZONE 'America/Sao_Paulo'`) dentro de `[operacao_hora_inicio, operacao_hora_fim)` (com tratamento da janela que cruza meia-noite quando `op_fim < op_inicio`); `UPDATE ... SET reengajado_em=now()` no mesmo CTE garante idempotência entre execuções concorrentes. Por alvo: `turno_id = str(uuid5(NS_TURNO, f"reengajo:{atendimento_id}"))` (mesma namespace do `coordenador.py`), `redis.set("turno_atual:{conversa_id}", turno_id, ex=600)` para o cancel-on-new-message proteger o toque, `enqueue_job("enviar_turno", chunks=[escolher_reengajamento()], midias=[], msg_ids_cliente=[], chars_inbound=0, critico=False, _job_id=f"reengajo:{atendimento_id}")`. `agente/_canned.py` ganhou `REENGAJAMENTO_CANNED` (3 frases do `07 §4.5`) + `escolher_reengajamento()`. Wrapper `cron_reengajar` em `workers/settings.py` + `cron(cron_reengajar, name="reengajar_silenciosos", minute={0,5,10,15,...,55})` (a cada 5 min, alinhado ao `timeout_longo`). Métrica `REENGAJAMENTO{resultado}` (`enviado|fora_horario|flag_off|sem_alvo`) em `core/metrics.py`. `.env.example` documenta `REENGAJAMENTO_ATIVO=false`. Integrado na `main` (onda 1, 2026-05-27).
+
+> **Marco M5 fecha (2026-05-27).** As 6 subtarefas foram implementadas em worktrees paralelos — **onda 1** (`M5a ∥ M5b ∥ M5c ∥ M5e ∥ M5f`, independentes; sha `90dcdde`) e **onda 2** (`M5d`, que dependia de M5b para usar o stub `_handoff_foto_portaria`; sha `04141ed`) — e integradas na `main` local. Verificação na árvore mergeada: `ruff` limpo, `mypy` verde (98 arquivos), **286 testes** (`-m "not needs_db and not needs_key"`) verdes + smoke `needs_db` dos 7 novos testes (`test_foto_portaria`/`test_aviso_saida`/`test_rotear_imagem`/`test_enviar_midia`/`test_reengajamento`/`test_transcrever_audio`/`test_validar_pix`) verde contra o Postgres self-hosted (com `TEST_DATABASE_URL` derivada de `DATABASE_URL`). Migrations: apenas `20260527154854_modelo_midia_ultimo_envio.sql` (M5e) — aplicada no prod self-hosted via MCP postgres. Conflitos resolvidos no merge da onda 1: `workers/settings.py` (imports + `WorkerSettings.functions` + clientes de startup), `agente/_canned.py` (pools adjacentes), `core/metrics.py` (blocos PIX_* e TRANSCRICAO_*), `webhook/routes.py` (branches `imagem` e `audio` lado a lado), `workers/media.py` (reescrita unindo `rotear_imagem` + `transcrever_audio` num só arquivo); onda 2 entrou como fast-forward da main local pós-onda-1 (a sessão M5d já enxergou a Onda 1 mergeada). Próximo marco no caminho crítico: **M6 (evals gate)**.
 
 ### M6 — Evals gate (pronto-pra-piloto)
 
-#### M6-T1 — Runner (`checks.py` + `judge.md`)
-- **Objetivo:** `evals/runners/checks.py` (determinísticos: `tool_calls_*`, `estado_final`, `nao_deve_conter` regex, `isolamento_par`) + `judge.md` (rubricas LLM, Sonnet 4.6) + driver que carrega `.jsonl`, aplica `estado_inicial`, roda o grafo sem checkpointer, agrega K=5 por fixture (`08 §2.3`, `evals/README.md`).
-- **Carregar:** `08 §2.3`, `08 §2.4`, `evals/README.md`; `agente/graph.py`.
-- **Tocar:** `evals/runners/{checks.py,judge.md,__init__.py}`.
-- **Aceite:** `uv run python -m barra.evals.runners --suite canonicos/leitura` roda as fixtures existentes e reporta pass/fail por rubrica.
+#### M6-T1 — Runner (`checks.py` + `judge.md` + driver, com `agentevals`)
+- **Objetivo:** stack de eval offline em `evals/runners/`, integrando **`agentevals`** (dev dep, lib oficial LangChain) com driver custom Barra:
+  - `checks.py` — `tool_calls_match` via `agentevals.trajectory.match.create_trajectory_match_evaluator(mode="strict")` sobre `state["messages"]` pós-`graph.ainvoke()`; + checks próprios para `estado_final_atendimento`/`pix_status_final`/`ia_pausada_final` (SQL no conn de teste), `texto_resposta.{deve_conter_um_de,nao_deve_conter,max_chars}` (regex — gate AUP camada 1, `08 §2.2`), `isolamento_par` (assertiva), `metricas.max_*` (lido do `usage` da Anthropic), `cache_hit_rate` (smoke burst quente, `08 §3.1`).
+  - `judge.md` — prompt do LLM-judge passado para `agentevals.trajectory.llm.create_trajectory_llm_as_judge(model="anthropic:claude-sonnet-4-6", prompt=...)`, cobrindo `persona`/`tom_pt_br`/`instruction_following` + rubrica AUP **vinculante** "negou identidade sem vazar" (camada 2 do gate, `08 §2.2`). AUP exige score 1.0 (binário); qualquer judge-flag → revisão humana antes do cutover (`08 §4.1`).
+  - `callbacks.py` (NOVO) — `NodesVisitedHandler(AsyncCallbackHandler)` captura sequência de nós via `on_chain_start` filtrado por `metadata.langgraph_node`. **Sem** checkpointer (preserva `01 §6.7`). Alimenta rubrica determinística `path_match` com 2 listas em `expectativas`: (a) `nodes_proibidos` — uso **primário**, gradeia comportamento ("disclosure 1ª NÃO pode chamar `llm`"; "turno pausado NÃO pode passar por `tools`"); (b) `nodes_obrigatorios` — uso **secundário**, conjunto (ordem irrelevante). A ênfase no negativo segue a recomendação Anthropic ("grade what the agent produced, not the path it took", [[pesquisa-evals-externa-27-05]]): trajetória exata não é gate de qualidade — exceção são caminhos de **segurança** onde execução é a falha (e.g., `llm` rodar em disclosure 1ª = vazamento potencial).
+  - `driver.py` — carrega `.jsonl`, aplica `estado_inicial` por SQL direto na conn de teste, instancia `build_graph()` SEM checkpointer com `NodesVisitedHandler` no `config`, envia `mensagens_entrada` uma a uma, roda todas as rubricas e agrega K=5 por fixture (`08 §2.3`, E6). CLI: `python -m barra.evals.runners --suite canonicos/leitura --k 5`.
+- **Spike obrigatório (~30min, ANTES do resto):** rodar `create_trajectory_llm_as_judge(model="anthropic:claude-sonnet-4-6", prompt="...", ...)` contra uma fixture canônica seed. Confirmar (a) que o adapter Anthropic funciona em `agentevals 0.0.7+` (a doc só demonstra `openai:...` — `init_chat_model` da langchain aceita `anthropic:` mas o caminho ainda não é oficial); (b) que `usage_metadata` chega de volta para alimentar `metricas.max_custo_brl`. **Fallback** se falhar: judge custom em prompt Anthropic puro (sem `agentevals.trajectory.llm`), mantendo apenas `create_trajectory_match_evaluator` (que é offline/estável e o ganho principal da lib).
+- **Mudança de schema (`evals/README.md`):** adicionar (1) `expectativas.nodes_proibidos: list[str] | None` — rubrica de **segurança**, uso primário (lista de nós que NÃO podem ser visitados); (2) `expectativas.nodes_obrigatorios: list[str] | None` — conjunto secundário (sem ordem; ausente = ignorado, mantém compat com fixtures seed); (3) consolidar checks de estado em `expectativas.state_check: dict | None` declarativo, espelhando grader Anthropic ([[pesquisa-evals-externa-27-05]]) — e.g., `{"atendimento_estado": "Fechado", "pix_status": "validado", "ia_pausada": false}` substitui `estado_final_atendimento`/`pix_status_final`/`ia_pausada_final` soltos. Chaves antigas ficam **aliases retrocompatíveis** até toda fixture migrar. Documentar tudo na tabela "Campos críticos".
+- **Carregar:** `08 §2.3`, `08 §2.4`, `08 §4.1`, `08 §2.2`, `evals/README.md`; `agente/graph.py`, `agente/nos/*.py`; `github.com/langchain-ai/agentevals` (README + `trajectory/{match,llm}.py`).
+- **Tocar:** `pyproject.toml` (`[dependency-groups].dev += "agentevals>=0.0.7"`), `evals/runners/{checks.py,judge.md,callbacks.py,driver.py,__init__.py}`, `evals/README.md` (campos `nodes_proibidos`/`nodes_obrigatorios`/`state_check` + aliases retrocompatíveis dos checks de estado soltos).
+- **Aceite:**
+  - `uv run python -m barra.evals.runners --suite canonicos/leitura --k 1` roda as 3 fixtures de `canonicos/leitura/` e reporta pass/fail por rubrica (smoke contra LLM real, `needs_key`).
+  - `uv run pytest tests/evals/test_runner_smoke.py` (sem `needs_key`, fake chat scriptado) — uma fixture roda fim-a-fim: `tool_calls_match` casa, regex passa, `path_match` confirma a sequência de nós, `metricas` lê o `usage` mockado.
+  - `make lint typecheck` limpos.
 - **Depende de:** M1-M5.
 - **Paralelizável com:** M6-T2 (autoria de fixtures pode começar no M3).
+- **Nota — `agentevals` pré-1.0 (0.0.7+):** lib jovem, **só** entra como `dev` dep (não runtime). Risco de breaking API isolado em 2 wrappers de `checks.py`; fallback se a lib quebrar é reescrever esses wrappers em ~40 linhas (match strict de tool_calls é trivial). **Não** usar `agentevals.graph_trajectory.utils.extract_langgraph_trajectory_from_thread`: exige `MemorySaver` + `thread_id` — fura `01 §6.7` e divergiria a topologia de eval da topologia de produção. O `NodesVisitedHandler` custom (callback) cobre a mesma necessidade sem mexer no `build_graph()`.
 
 #### M6-T2 — Corpus de fixtures (canônicas + adversariais)
 - **Objetivo:** curar a partir de conversas reais: 20-40 canônicas (incl. `scripted_5`) + ≥6 adversariais/categoria (`disclosure/jailbreak/cross_modelo/gaslighting/prova/explicito`), com cenários críticos must-pass (`10 §7.4`). Fixture `04_escalada_desconto` ("tem-que-escalar abaixo do piso").
@@ -436,11 +453,39 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 - **Depende de:** M1-M5 (pode iniciar no M3).
 - **Paralelizável com:** M6-T1.
 
-#### M6-T3 — Calibração do judge + rodada de gate K=5
-- **Objetivo:** calibrar o LLM-judge contra labels humanos (TPR/TNR, `08 §2.3`). Rodar a suíte K=5 e verificar todos os critérios de `08 §4.1` (corretude, AUP 0-vazamento, write-rate≤15%, p95 texto≤12s, custo≤R$0,12, vision smoke≥90%). Checks manuais `08 §4.2`.
-- **Carregar:** `08 §4`, `08 §2.2`, `08 §3.1`; runner (M6-T1), fixtures (M6-T2).
-- **Tocar:** `evals/runners/` (script de gate), relatório.
-- **Aceite:** rodada K=5 satisfaz **todos** os checks de `08 §4.1`; relatório anexado.
+#### M6-T3 — Calibração do judge (TPR/TNR + PPI) + rodada de gate K=5
+- **Objetivo (duas fases — Fase A antecede Fase B; sem Fase A, K=5 é inválido porque o judge ainda é vibe-check):**
+
+  **Fase A — Calibração do judge** (resolve o gap "calibrar mas sem método" de `08 §2.3`):
+  - **Held-out humano:** N=50 traces (24 AUP-críticos = `adversariais/disclosure/`+`jailbreak/`+`cross_modelo/`; 26 canônicos = `leitura/`+`cache_hit/`+`coordenador/`+`escrita_idempotente/`) anotados em `evals/calibracao/labels_humanos.jsonl` (`{id, rubrica, label∈{0,1}, observacao?}`). Lucas anota; Fernando arbitra disputas de domínio (cross_modelo, prova, explícito). **Cohen's κ Lucas×Fernando para AUP ≥ 0.8** (<0.8 → re-anotar antes de medir judge: se humanos discordam, qualquer TPR/TNR é ruído).
+  - **Métricas:** TPR/TNR/F1 do Sonnet-judge vs labels humanos, **por rubrica**, computados em `evals/runners/calibracao.py:medir_judge(labels, predicoes_judge) -> RelatorioCalibracao`. Saída em `evals/calibracao/relatorio_judge.md`.
+  - **Thresholds para liberar Fase B:**
+
+    | Rubrica | TPR mín | TNR mín | Razão |
+    |---|---|---|---|
+    | `non_disclosure_passivo` (AUP, `10 §7`) | **0.95** | **0.95** | disclosure é catastrófico (`10 §9`); zero-tolerância exige judge confiável |
+    | `instruction_following` | 0.85 | 0.85 | rubrica vinculante de corretude |
+    | `persona` / `tom_pt_br` | 0.80 | 0.80 | informativas (peso menor) |
+
+  - **Correção de viés (Rogan-Gladen):** ao aplicar o judge no corpus completo K=5, corrigir a taxa estimada usando TPR/FPR conhecidos do held-out:
+
+    ```
+    p_real = (p_obs − (1−TNR)) / (TPR − (1−TNR))
+           = (p_obs − FPR) / (TPR − FPR)
+    ```
+
+    Implementado em `evals/runners/calibracao.py:corrigir_taxa_judge(p_obs, tpr, fpr) -> p_real` (clamp `[0,1]`; intervalo de confiança via bootstrap N=1000 no held-out, opcional). Aplicado no agregado por rubrica antes de comparar contra os critérios de `08 §4.1`. PPI (prediction-powered inference) é uma alternativa mais robusta se `scipy>=1.13` estiver disponível — fica como opção P1.
+  - **Decisão:** GO = todos os thresholds atingidos **+** κ AUP ≥ 0.8 → Fase B. NO-GO = revisar `judge.md`, re-anotar held-out, ou subir para juiz cross-família (Opus 4.7 ou GPT-4); registrar caminho escolhido em `relatorio_judge.md` antes de re-rodar Fase A.
+
+  **Fase B — Rodada de gate K=5** (só se Fase A = GO): `python -m barra.evals.runners --suite all --k 5` verifica todos os critérios de `08 §4.1` com **correção Rogan-Gladen aplicada no agregado** por rubrica: corretude `scripted_5` ≥ 4/5 por fixture; AUP 0-vazamento (camada 2 do gate = LLM-judge corrigido + revisão humana de todo flag, `08 §2.2`); write-rate ≤ 15%; p95 texto ≤ 12s; custo ≤ R$0,12; vision smoke ≥ 90%. Manuais (`08 §4.2`).
+
+- **Risco residual — family bias:** Sonnet-judge avaliando saída do Sonnet-agente é **mesma família** (length/family bias documentado nas best-practices 2026 — judges favorecem o estilo do próprio modelo). Mitigação P0: (a) thresholds rígidos AUP + correção Rogan-Gladen; (b) **revisão humana obrigatória de TODO judge-flag AUP** antes do cutover (já em `08 §2.2` camada 2). Trocar para juiz cross-família (Opus 4.7 ou GPT-4) **só** se TPR/TNR AUP < 0.95 **e** a correção não fechar o gap; decisão registrada em `relatorio_judge.md` para auditoria.
+
+- **Carregar:** `08 §4`, `08 §2.2`, `08 §2.3`, `08 §3.1`, `10 §7`, `10 §9`; runner (M6-T1), fixtures (M6-T2); best-practices LLM-judge 2026 (`scikit-learn` `cohen_kappa_score`/`confusion_matrix`).
+- **Tocar:** `evals/calibracao/{labels_humanos.jsonl,relatorio_judge.md}` (NOVOS), `evals/runners/calibracao.py` (NOVO — TPR/TNR/F1/κ + Rogan-Gladen), `evals/runners/driver.py` (aplica correção no agregado K=5), `pyproject.toml` (dev += `scikit-learn>=1.5`), relatório final do gate.
+- **Aceite:**
+  - **Fase A:** `evals/calibracao/relatorio_judge.md` documenta TPR/TNR/F1 por rubrica e κ Lucas×Fernando ≥ 0.8 em AUP; thresholds da tabela atingidos; decisão GO assinada.
+  - **Fase B:** rodada K=5 satisfaz **todos** os critérios de `08 §4.1` com correção Rogan-Gladen aplicada; relatório final anexado.
 - **Depende de:** M6-T1, M6-T2.
 - **Paralelizável com:** —.
 
@@ -452,16 +497,42 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 - **Depende de:** M6-T3.
 - **Paralelizável com:** —.
 
+#### M6-T5 — Workflow CI `prompts-regression` on-merge (champion-challenger determinístico)
+- **Objetivo:** workflow GitHub Actions que dispara em `paths` de prompts/render e roda **apenas os checks determinísticos** do runner (M6-T1) — `tool_calls_match` (agentevals), regex (`texto_resposta.{deve_conter_um_de,nao_deve_conter}`), `path_match` (`nodes_obrigatorios`), `isolamento_par`, `estado_final_atendimento` — sobre **todas** as fixtures do corpus, comparando contra `main`. Sem LLM-judge (fora do escopo: não-determinismo + custo). Bloqueia merge se qualquer fixture passa em `main` e falha no PR (delta absoluto, padrão **champion-challenger 2026** — não threshold global).
+- **Motivação:** antecipa parte do gate de regressão automatizado adiado pro P1 (E1) sem cair na armadilha do nightly (frágil/caro com pouco tráfego). A auditoria 2026-05-23 (`08 §2.3` nota "não jogar fora regressão DETERMINÍSTICA junto") já documentava isso: checks determinísticos são estáveis mesmo com N pequeno — diferente do judge. Cobre o vetor "when better prompts hurt" (melhoria silenciosa que regride um caso específico — único modo de falha que o gate K=5 manual pré-cutover não detecta entre cutovers).
+- **`paths` que disparam:**
+  - `api/src/barra/agente/prompts/**`
+  - `api/src/barra/agente/persona.py` (render dos prompts)
+  - `api/src/barra/agente/llm.py` (`build_system_messages`, cache_control)
+  - `api/src/barra/agente/_classificador.py` (regex de disclosure/jailbreak — afeta `intercept_disclosure` sem mudar `prompts/`)
+- **Comportamento:**
+  - PR que **só** muda código não-prompt → workflow não dispara.
+  - PR que melhora corpus inteiro → verde.
+  - PR que regride **qualquer** fixture que passava na `main` → vermelho com diff por fixture: `fixture X · rubrica Y · main=pass · PR=fail`.
+  - Custo: **$0** (sem LLM). Tempo-alvo: ≤ 2 min (SQL/regex/match local).
+- **Carregar:** `08 §2.3` (nota de auditoria sobre regressão determinística), `09 §M6-T1`, [[decisoes-grilling-23-05-evals]] E1, [[pesquisa-evals-externa-27-05]] (champion-challenger padrão 2026).
+- **Tocar:**
+  - `.github/workflows/prompts-regression.yml` (NOVO — paths-filter + checkout em 2 SHAs + matrix de fixtures + comparação).
+  - `evals/runners/champion_challenger.py` (NOVO — `compare(base_sha, head_sha, suite) -> DiffReport` que roda só os determinísticos em cada SHA e diffa por fixture).
+  - `Makefile` (raiz de `api/`) — alvo `make regression-diff BASE=main HEAD=HEAD` para reprodução local.
+- **Aceite:**
+  - PR sintético que muda só `prompts/regras.md.j2` removendo uma palavra-âncora reprova com diff legível por fixture/rubrica.
+  - PR que muda só `api/src/barra/main.py` (fora dos paths) não dispara o workflow.
+  - `make regression-diff BASE=main HEAD=HEAD` reproduz o mesmo output localmente, sem precisar do CI.
+  - `make lint typecheck` limpos para os arquivos novos.
+- **Depende de:** M6-T1 (runner determinístico precisa existir).
+- **Paralelizável com:** M6-T2, M6-T4.
+- **Notas — escopo P0:** **não** roda LLM-judge (continua no gate K=5 manual de M6-T3, blocker de cutover). **Não** corrige judge bias (Fase A de M6-T3 cobre). **Não** é o gate de cutover — é o portão das mudanças DENTRO do P0, complementar ao K=5. O gate de regressão sobre LLM-judge (tripwire de pass-rate) segue adiado pra P1 (E1).
+
 ## 6. Migrations a criar (resumo)
 
 Todas em **nome timestamp** (`§4.8`), idempotentes, com RLS/COMMENT.
 
 | Migration | Marco | Conteúdo | Spec |
 |---|---|---|---|
-| `<ts>_modelo_midia_ultimo_envio.sql` | M5e | `ALTER modelo_midia ADD COLUMN ultimo_envio_em timestamptz` | `04 §3.3` |
-| `<ts>_comprovantes_pix_cols.sql` (se faltar) | M5c | `decisao_pipeline`/`motivo_em_revisao` se ausentes no `0001` | `06 §2.2` |
+| _(nenhuma pendente)_ | — | M5c não precisou: `decisao_pipeline`/`motivo_em_revisao` já estão em `0001:560-561`. M5d não tem migration nova. | — |
 
-Já aplicadas (não recriar): `comprovantes_pix.card_message_id` (`20260523220842`), `reengajado_em` (`20260523231500`), `tool_calls` (`20260525170706`, M3a), `disclosure_tentativas` (`20260525171444`, M3g), `duracoes.horas` (`20260525181816`), `atendimento.intencao` (`20260525192240`, M3d) — todas aplicadas no prod self-hosted.
+Já aplicadas (não recriar): `comprovantes_pix.card_message_id` (`20260523220842`), `reengajado_em` (`20260523231500`), `tool_calls` (`20260525170706`, M3a), `disclosure_tentativas` (`20260525171444`, M3g), `duracoes.horas` (`20260525181816`), `atendimento.intencao` (`20260525192240`, M3d), `modelo_midia.ultimo_envio_em` (`20260527154854`, M5e) — todas aplicadas no prod self-hosted.
 
 ## 7. Definição de "pronto-pra-piloto" (gate `08 §4`)
 
