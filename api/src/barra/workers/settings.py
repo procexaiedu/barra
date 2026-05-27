@@ -5,6 +5,7 @@ Cron:
   - timeout_interno (45 min sem foto portaria, contado do aviso de saida): a cada minuto
   - confirmar_em_execucao (bloqueio.inicio <= now): a cada minuto
   - cobrar_valor_final (Lembrete de fechamento, ADR-0007; fim do atendimento): a cada minuto
+  - reengajar_silenciosos (toque proativo apos cotacao; default off): a cada 5 min
   - limpar_midias_vencidas (90d em estados terminais): diário 03:00
 
 Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes do envio.
@@ -31,6 +32,7 @@ from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
     confirmar_em_execucao,
+    reengajar_silenciosos,
 )
 
 # psycopg async no Windows (dev local) precisa do selector loop antes do loop do worker subir,
@@ -72,6 +74,16 @@ async def cron_cobrar_valor_final(ctx: dict[str, Any]) -> int:
         return 0
     async with pool.connection() as conn:
         return await cobrar_valor_final(conn, evolution, settings)
+
+
+async def cron_reengajar(ctx: dict[str, Any]) -> int:
+    pool = ctx.get("db_pool")
+    redis = ctx.get("redis")
+    settings = ctx.get("settings")
+    if pool is None or redis is None or settings is None:
+        return 0
+    async with pool.connection() as conn:
+        return await reengajar_silenciosos(conn, redis, settings)
 
 
 async def cron_limpar_midias(ctx: dict[str, Any]) -> int:
@@ -129,6 +141,11 @@ class WorkerSettings:
         cron(
             cron_timeout_longo,
             name="timeout_longo",
+            minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
+        ),
+        cron(
+            cron_reengajar,
+            name="reengajar_silenciosos",
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
         ),
         cron(cron_limpar_midias, name="limpar_midias", hour={3}, minute={0}),

@@ -27,3 +27,18 @@ def escolher_negacao() -> str:
     Sorteio simples (nao-cripto); dedupe da ultima usada na conversa fica para o P1.
     """
     return random.choice(NEGACOES_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto
+
+
+# Reengajamento proativo (07 §4.5): toque unico ao cliente que sumiu apos a cotacao,
+# em persona, SEM desconto. O reativo de preco vem depois pelo Desconto de fechamento
+# (03 §3.1, ADR-0004). Sorteio simples evita o tell de mensagem fixa.
+REENGAJAMENTO_CANNED = [
+    "amor, vamos se ver hoje? to com a agenda boa hj",
+    "oi sumido, ainda quer marcar? consigo um horario gostoso pra gente",
+    "e ai amor, vamos marcar? to pensando em vc",
+]
+
+
+def escolher_reengajamento() -> str:
+    """Sorteia uma reabertura do pool (07 §4.5)."""
+    return random.choice(REENGAJAMENTO_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto
