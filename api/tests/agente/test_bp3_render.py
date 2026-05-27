@@ -61,10 +61,11 @@ def test_carioca_nativa_nao_finge_sotaque() -> None:
 
 def test_estrangeira_menciona_aura_e_sotaque() -> None:
     # idiomas != ["pt-BR"] → aura internacional + sotaque (03 §2.1).
+    # Idiomas são renderizados pelo filtro `idioma_humano` (persona.py): `en-US` -> `inglês`.
     txt = render_identidade(ESTRANGEIRA)
     assert "sotaque" in txt
     assert "internacional" in txt
-    assert "en-US" in txt
+    assert "inglês" in txt
 
 
 def test_atendimento_reflete_tipos_aceitos() -> None:

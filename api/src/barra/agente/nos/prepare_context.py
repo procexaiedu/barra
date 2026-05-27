@@ -371,7 +371,7 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
         "estado": atendimento.get("estado"),
         "tipo_atendimento": atendimento.get("tipo_atendimento"),
         "urgencia": atendimento.get("urgencia"),
-        "pix_status": atendimento.get("pix_status"),
+        "pix_status": _pix_status_humano(atendimento.get("pix_status")),
         "data_desejada": atendimento.get("data_desejada"),
         "horario_desejado": atendimento.get("horario_desejado"),
         "endereco": atendimento.get("endereco"),
@@ -388,6 +388,22 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
 
 # dia_semana segue EXTRACT(DOW): 0=domingo .. 6=sábado (ADR 0005).
 _DIAS_SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"]
+
+# Mapa enum pix_status -> texto p/ a IA. Expor enum cru ("em_revisao", "validado") faz a IA
+# adivinhar o significado; texto humano evita ruído na leitura da cauda volátil.
+_PIX_STATUS_HUMANO = {
+    "pendente": "ainda não pedido",
+    "aguardando": "aguardando comprovante",
+    "em_revisao": "comprovante em análise",
+    "validado": "confirmado",
+    "invalido": "comprovante recusado",
+}
+
+
+def _pix_status_humano(status: str | None) -> str:
+    if status is None:
+        return "não aplicável"
+    return _PIX_STATUS_HUMANO.get(status, status)
 
 
 async def _resolver_disponibilidade(

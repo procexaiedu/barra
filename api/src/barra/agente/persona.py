@@ -29,7 +29,23 @@ def _brl(valor: Any) -> str:
     return "R$" + f"{int(valor):,}".replace(",", ".")
 
 
+# Mapa BCP-47 → nome em português. Expor `pt-BR`/`en-US` cru ao LLM dilui o tom (a Bia não fala
+# "BCP-47") e gasta tokens com ruído técnico. Códigos desconhecidos viram o próprio código.
+_NOMES_IDIOMAS = {
+    "pt-BR": "português", "pt-PT": "português", "pt": "português",
+    "en-US": "inglês", "en-GB": "inglês", "en": "inglês",
+    "es": "espanhol", "es-ES": "espanhol", "es-AR": "espanhol",
+    "fr": "francês", "fr-FR": "francês",
+    "it": "italiano", "de": "alemão",
+}
+
+
+def _idioma_humano(codigo: str) -> str:
+    return _NOMES_IDIOMAS.get(codigo, codigo)
+
+
 _env.filters["brl"] = _brl
+_env.filters["idioma_humano"] = _idioma_humano
 
 
 @dataclass(frozen=True)

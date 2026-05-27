@@ -16,8 +16,8 @@ async def consultar_agenda(
 ) -> str:
     """Consulta os bloqueios (horários OCUPADOS) da modelo entre data_inicio e data_fim.
 
-    As próximas 48h já estão no contexto do turno (BP4, 02 §5) — use esta tool
-    APENAS para janelas além disso (ex.: "tem horário sábado que vem?").
+    As próximas 48h já estão no seu contexto — use esta tool APENAS para janelas além disso
+    (ex.: "tem horário sábado que vem?").
 
     Args:
         data_inicio: data inicial inclusiva, formato YYYY-MM-DD.
