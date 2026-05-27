@@ -81,7 +81,7 @@ def test_caminho_normal_3_system_mais_janela_cronologica() -> None:
     # contexto dinamico (02 §5) e concatenado no ULTIMO HumanMessage, depois da msg do cliente
     # (a verificacao rigorosa de que o prefixo cacheavel fica intacto vive em test_contexto_dinamico)
     assert msgs[3].content.startswith("ola")
-    assert "# Estado atual do atendimento" in msgs[3].content
+    assert "<estado_atual>" in msgs[3].content
     assert isinstance(msgs[4], AIMessage)
     assert msgs[4].content == "oi amor, tudo bem?"
     # modelo_manual vira AIMessage COM PREFIXO
@@ -104,7 +104,7 @@ def test_atendimento_id_none_pula_gate() -> None:
     assert isinstance(msgs[1], SystemMessage)
     assert isinstance(msgs[2], SystemMessage)
     assert isinstance(msgs[3], HumanMessage)
-    assert "# Estado atual do atendimento" in msgs[3].content
+    assert "<estado_atual>" in msgs[3].content
 
 
 def test_traduzir_audio_sem_transcricao_vira_placeholder() -> None:

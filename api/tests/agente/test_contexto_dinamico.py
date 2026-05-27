@@ -194,18 +194,19 @@ async def test_contexto_dinamico_no_ultimo_humanmessage(
     # em consultar_agenda. Vem do banco (current_date) -> assertar o formato YYYY-MM-DD, nao o
     # valor exato (depende do relogio/fuso do banco).
     assert re.search(r"Hoje: \d{4}-\d{2}-\d{2}", str(ultimo_human.content))
-    # as linhas dos bloqueios das 48h aparecem (sem assertar dia/HH:MM exatos — locale/timezone).
-    # Cada bloqueio em SUA PROPRIA linha (guarda contra a regressao do for-loop grudado, 02 §5).
+    # as linhas dos bloqueios das 48h aparecem como tags XML <bloqueio .../> (uma por linha),
+    # guarda contra a regressao do for-loop grudado (02 §5).
     linhas_bloqueio = [
         ln
         for ln in ultimo_human.content.splitlines()
-        if ln.startswith("- ") and ("(bloqueado)" in ln or "(em_atendimento)" in ln)
+        if ln.startswith("<bloqueio ")
+        and ('estado="bloqueado"' in ln or 'estado="em_atendimento"' in ln)
     ]
     assert len(linhas_bloqueio) == 2
-    assert "Disponibilidade total" not in ultimo_human.content
+    assert "disponibilidade total" not in ultimo_human.content.lower()
 
     # prefixo cacheavel INTACTO: nenhum SystemMessage recebeu o texto do contexto dinamico.
     systems = [m for m in msgs if isinstance(m, SystemMessage)]
     assert systems
     for s in systems:
-        assert "# Estado atual do atendimento" not in _texto_system(s)
+        assert "<estado_atual>" not in _texto_system(s)

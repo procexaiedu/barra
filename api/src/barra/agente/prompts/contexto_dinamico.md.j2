@@ -1,37 +1,23 @@
-# Estado atual do atendimento
+<estado_atual>
+<atendimento numero="#{{ numero_curto }}" estado="{{ estado }}" tipo="{{ tipo_atendimento or 'ainda não definido' }}" urgencia="{{ urgencia or 'não capturada' }}"/>
+<pix_deslocamento>{{ pix_status }}</pix_deslocamento>
+{% if data_desejada %}<horario_desejado>{{ data_desejada }} às {{ horario_desejado }}</horario_desejado>{% endif %}
+{% if endereco %}<endereco>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</endereco>{% endif %}
+</estado_atual>
 
-- Atendimento: #{{ numero_curto }}
-- Estado: {{ estado }}
-- Tipo: {{ tipo_atendimento or "ainda não definido" }}
-- Urgência: {{ urgencia or "não capturada" }}
-- Pix de deslocamento: {{ pix_status }}
-{% if data_desejada %}- Data desejada: {{ data_desejada }} às {{ horario_desejado }}{% endif %}
-{% if endereco %}- Endereço/local: {{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}{% endif %}
+<cliente nome="{{ cliente_nome or 'ainda não informado' }}" recorrente="{{ 'sim' if recorrente else 'não' }}">
+{% if historico_anteriores %}<historico>{{ historico_anteriores }}</historico>{% endif %}
+{% if ultimo_motivo_perda %}<ultimo_motivo_perda>{{ ultimo_motivo_perda }}</ultimo_motivo_perda>{% endif %}
+{% if observacoes_internas %}<observacoes_internas>{{ observacoes_internas }}</observacoes_internas>{% endif %}
+</cliente>
 
-# Cliente
+<agenda hoje="{{ data_atual }}" janela="próximas 48h">
+{% if bloqueios %}{% for b in bloqueios %}<bloqueio inicio="{{ b.inicio.strftime('%a %d/%m %H:%M') }}" fim="{{ b.fim.strftime('%H:%M') }}" estado="{{ b.estado }}"/>
+{% endfor %}{% else %}<livre>sem bloqueios nas próximas 48h, disponibilidade total</livre>
+{% endif %}</agenda>
 
-- Nome: {{ cliente_nome or "ainda não informado" }}
-- Recorrente nesta conversa: {{ "sim" if recorrente else "não" }}
-{% if historico_anteriores %}- Histórico nesta conversa: {{ historico_anteriores }}{% endif %}
-{% if ultimo_motivo_perda %}- Último motivo de perda nesta conversa: {{ ultimo_motivo_perda }}{% endif %}
-{% if observacoes_internas %}- Observações operacionais: {{ observacoes_internas }}{% endif %}
-
-# Agenda da modelo (próximas 48h)
-
-- Hoje: {{ data_atual }}
-{% if bloqueios %}
-{% for b in bloqueios %}- {{ b.inicio.strftime("%a %d/%m %H:%M") }} – {{ b.fim.strftime("%H:%M") }} ({{ b.estado }})
-{% endfor %}
-{% else %}
-- Sem bloqueios nas próximas 48h. Disponibilidade total.
-{% endif %}
-
-# Período de trabalho (dias/horários em que você aceita encontro)
-
-{% if disponibilidade %}
-{% for d in disponibilidade %}- {{ d.dia }} {{ d.hora_inicio }}–{{ d.hora_fim }} ({{ d.data_inicio }}{% if d.data_fim %} a {{ d.data_fim }}{% else %} em diante{% endif %})
-{% endfor %}
-Fora desses dias/horários você está de folga ou viajando — não marque encontro, diga quando volta e ofereça a data disponível mais próxima.
-{% else %}
-- Sem restrição de período: você atende qualquer dia (respeitando a agenda das próximas 48h acima).
-{% endif %}
+<periodo_de_trabalho>
+{% if disponibilidade %}{% for d in disponibilidade %}<regra dia="{{ d.dia }}" inicio="{{ d.hora_inicio }}" fim="{{ d.hora_fim }}" desde="{{ d.data_inicio }}"{% if d.data_fim %} ate="{{ d.data_fim }}"{% endif %}/>
+{% endfor %}<observacao>fora desses dias/horários você está de folga ou viajando — diga quando volta e ofereça a data disponível mais próxima</observacao>
+{% else %}<sem_restricao>você atende qualquer dia, respeitando só os bloqueios das próximas 48h</sem_restricao>
+{% endif %}</periodo_de_trabalho>
