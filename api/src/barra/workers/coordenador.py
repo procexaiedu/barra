@@ -18,7 +18,7 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.errors import GraphRecursionError
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
@@ -65,7 +65,11 @@ async def processar_turno(
     try:
         async with adquirir_lock(redis, f"lock:conv:{conversa_id}", ttl=60, heartbeat_interval=15):
             for loop_idx in range(MAX_DRAIN):  # DRAIN LOOP BOUNDED (01 §4.3)
-                turno_id = str(uuid5(NS_TURNO, f"{ctx['job_id']}:{loop_idx}"))
+                # `ctx['score']` (timestamp ms do enqueue) e estavel no retry do MESMO job
+                # (preserva dedupe de envio) e UNICO entre turnos distintos (cada webhook
+                # gera novo enqueue -> novo score -> novo turno_id). Sem ele, `_job_id`
+                # estatico por conversa colidia turnos diferentes no mesmo turno_id.
+                turno_id = str(uuid5(NS_TURNO, f"{ctx['job_id']}:{ctx['score']}:{loop_idx}"))
                 await redis.delete(f"pending:conv:{conversa_id}")  # limpa ANTES de ler a janela
 
                 # 1. resolver atendimento e cobrir orfas.
@@ -180,11 +184,7 @@ async def processar_turno(
                     AGENTE_TURNO_RESULTADO.labels("escalado").inc()
                 else:
                     # 7. extrai resposta + msgs do cliente do turno (read receipt, 05 §4.2).
-                    ai_final = next(
-                        (m for m in reversed(resultado["messages"]) if isinstance(m, AIMessage)),
-                        None,
-                    )
-                    texto = _extrair_texto(ai_final) if ai_final is not None else ""
+                    texto = _extrair_texto_do_turno(resultado["messages"])
 
                     async with pool.connection() as conn:
                         res = await conn.execute(
@@ -329,7 +329,7 @@ async def aguardar_transcricoes(redis: Any, conversa_id: str, *, orcamento_s: in
 
 
 def _extrair_texto(msg: AIMessage) -> str:
-    """Texto plano da AIMessage final. content pode ser str ou lista de blocos (1.x)."""
+    """Texto plano de uma AIMessage. content pode ser str ou lista de blocos (1.x)."""
     if isinstance(msg.content, str):
         return msg.content
     partes = [
@@ -338,6 +338,18 @@ def _extrair_texto(msg: AIMessage) -> str:
         if isinstance(bloco, dict) and bloco.get("type") == "text"
     ]
     return "".join(partes)
+
+
+def _extrair_texto_do_turno(messages: list[BaseMessage]) -> str:
+    """Agrega texto de TODAS as AIMessages do turno, separadas por \\n\\n.
+
+    No padrao ReAct, o LLM e chamado de novo depois de cada ToolMessage; quando ja respondeu
+    o cliente na 1a passagem (texto + tool_call), a 2a passagem volta com `content=[]` —
+    pegar so a ultima AIMessage daria "" e disparava `turno_sem_resposta`. Sem checkpointer
+    no P0, `resultado["messages"]` so contem mensagens DESTE turno.
+    """
+    partes = [_extrair_texto(m) for m in messages if isinstance(m, AIMessage)]
+    return "\n\n".join(p for p in partes if p)
 
 
 async def resolver_atendimento(

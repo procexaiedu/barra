@@ -111,6 +111,7 @@ def _ctx(pool: _PoolDeUmaConexao, redis: FakeRedis, graph: Any) -> dict[str, Any
         "graph": graph,
         "settings": get_settings(),
         "job_id": "job-test",
+        "score": 1_700_000_000_000,  # ms timestamp injetado pelo ARQ por job
     }
 
 
