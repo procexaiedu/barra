@@ -18,6 +18,8 @@
 
 ## 2. Eval primário: LangSmith datasets
 
+> **Origem das fixtures canônicas:** `docs/agente/conversas-reais/` (criado 2026-05-27, commit `b62cdb7`) — 4 transcrições anonimizadas de WhatsApp real + `padroes-conversas-reais.md` destilado em 20 seções temáticas. Ponto de partida obrigatório do M6-T2: cada padrão §1-§20 mapeia para 1+ fixture; cada anti-padrão §19 gera assert de `texto_resposta.nao_deve_conter`. Decisões de produto já aplicadas (videocall paga e cartão não entram — ver `faq.md` + `padroes-*.md` §6/§17). Detalhes em `09 §M6-T2 "Insumo já pronto"`.
+
 ### 2.1 Estrutura
 
 ```

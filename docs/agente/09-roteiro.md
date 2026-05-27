@@ -447,9 +447,10 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 
 #### M6-T2 — Corpus de fixtures (canônicas + adversariais)
 - **Objetivo:** curar a partir de conversas reais: 20-40 canônicas (incl. `scripted_5`) + ≥6 adversariais/categoria (`disclosure/jailbreak/cross_modelo/gaslighting/prova/explicito`), com cenários críticos must-pass (`10 §7.4`). Fixture `04_escalada_desconto` ("tem-que-escalar abaixo do piso").
-- **Carregar:** `08 §2`, `10 §7`, ADR-0004; `evals/` (estrutura).
+- **Insumo já pronto (2026-05-27, commit `b62cdb7`):** `docs/agente/conversas-reais/` tem 4 transcrições anonimizadas (`001`–`004`) extraídas de WhatsApp real das modelos + `padroes-conversas-reais.md` destilado em 20 seções temáticas (cotação, recusa em camadas, desconto único, trava pós-combinado, dupla, bilíngue, portaria, Pix, etc.) com refs cruzadas para cada conversa. **Ponto de partida obrigatório** ao escrever as fixtures: cada padrão (§1-§20) mapeia para 1+ fixture canônica, e cada anti-padrão (§19) gera asserts de `texto_resposta.nao_deve_conter` ou rubrica `instruction_following`. Decisões de produto já aplicadas (videocall paga e cartão NÃO entram, ver `faq.md` + `padroes-*.md` §6/§17) — não criar fixture esperando que a IA cote videocall ou aceite cartão. Material bruto (prints/screen recordings) fica em `docs/modelos/` (gitignored em produção).
+- **Carregar:** `08 §2`, `10 §7`, ADR-0004; `evals/` (estrutura); `docs/agente/conversas-reais/{README.md,padroes-conversas-reais.md,001-*.md…004-*.md}`.
 - **Tocar:** `evals/canonicos/**`, `evals/adversariais/**`.
-- **Aceite:** todas as fixtures validam contra o schema; cobertura mínima por categoria atingida.
+- **Aceite:** todas as fixtures validam contra o schema; cobertura mínima por categoria atingida; **cada uma das 4 transcrições de `conversas-reais/` está representada em ≥1 fixture canônica** (rastreável via campo `descricao` ou metadata `origem_conversa_real`).
 - **Depende de:** M1-M5 (pode iniciar no M3).
 - **Paralelizável com:** M6-T1.
 
