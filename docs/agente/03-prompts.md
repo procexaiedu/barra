@@ -1,28 +1,26 @@
 # 03 — Prompts, Cache e Persona
 
-> Templates Jinja2, dataclass `Persona`, estratégia de `cache_control` em **3 breakpoints fixos** (4º, cache de cauda, adiado P1) e seleção de modelo (chat via `langchain-anthropic` 1.x `ChatAnthropic`; vision do Pix via OpenRouter — `06 §2.3`; o raw `anthropic` SDK 0.97 fica reservado p/ P1).
+> Templates Jinja2, dataclass `Persona`, estratégia de `cache_control` em **4 breakpoints fixos** (BP_TOOLS + BP_GERAL fundido persona+regras+FAQ + BP_MODELO identidade+programas + BP_JANELA penúltima msg da janela) e seleção de modelo (chat via `langchain-anthropic` 1.x `ChatAnthropic`; vision do Pix via OpenRouter — `06 §2.3`; o raw `anthropic` SDK 0.97 fica reservado p/ P1).
 
 ## 1. Estrutura geral
 
 Todo turno envia ao LLM uma sequência de mensagens nesta ordem:
 
 ```
-tools                                                            ── posição 0; byte-idêntico p/ TODAS as modelos (invariante)
-1. SystemMessage  ── persona + regras (voz/conduta/disclosure)   ── cache_control TTL config.  ← GERAL (idêntico p/ TODAS)
-2. SystemMessage  ── FAQ                                          ── cache_control TTL config.  ← GERAL
-3. SystemMessage  ── identidade da modelo (nome/idade/idiomas/    ── cache_control TTL config.  ← POR-MODELO
+tools                                                            ── posição 0; cache_control na ÚLTIMA tool (BP_TOOLS); byte-idêntico p/ TODAS as modelos (invariante)
+1. SystemMessage  ── persona + regras + FAQ FUNDIDOS              ── cache_control TTL config.  ← BP_GERAL — idêntico p/ TODAS
+2. SystemMessage  ── identidade da modelo (nome/idade/idiomas/    ── cache_control TTL config.  ← BP_MODELO — por-modelo
                      localização) + programas/preços + tipos_aceitos
-4. mensagens (sliding window 20)                                 ── SEM cache no P0 (4º breakpoint adiado — §4.4)
-                                                                   (P1: cache_control 5m na penúltima msg só se append-only)
-5. último turno do usuário: msg cliente + contexto dinâmico      ── SEM cache_control (volátil)
-                            + reminder (§10)
+3. mensagens (sliding window 20):
+   - penúltima da janela                                          ── cache_control TTL config.  ← BP_JANELA (`marcar_cache_na_penultima`)
+   - última (msg cliente + contexto dinâmico + reminder)          ── SEM cache_control (volátil)
 ```
 
-Os blocos 1–2 são **gerais — idênticos para todas as modelos** (decisão grilling: persona/voz/FAQ não são por-modelo; ver `CONTEXT.md` "IA por modelo"). Eles formam um prefixo cacheado **uma vez no sistema inteiro**, sempre quente independentemente do tráfego de cada modelo. O bloco 3 estende com **o que é da modelo** (identidade óbvia + preços + tipos aceitos), cacheado por-modelo. O histórico (4) cacheia **condicionalmente** (só enquanto append-only); o contexto dinâmico e o reminder vão no **último turno do usuário** (5), **fora do prefixo cacheável** — assim o prefixo `system` fica 100% estável ("stable first, volatile last").
+O bloco 1 (BP_GERAL fundido) é **idêntico para todas as modelos** (decisão grilling: persona/voz/FAQ não são por-modelo; ver `CONTEXT.md` "IA por modelo"). Forma um prefixo cacheado **uma vez no sistema inteiro**, sempre quente independente do tráfego de cada modelo. Antes eram 2 blocos separados (persona+regras / FAQ); fundidos liberam 1 dos 4 breakpoints disponíveis para o BP_JANELA. O bloco 2 estende com **o que é da modelo** (identidade óbvia + preços + tipos aceitos), cacheado por-modelo. A janela (3) cacheia na **penúltima** mensagem (`marcar_cache_na_penultima`): o lookback de 20 blocos da Anthropic acha o write do turno anterior e o estende; a última mensagem fica volátil (contexto dinâmico + reminder), preservando "stable first, volatile last".
 
 **Por que esta alocação de breakpoints (máx. 4)?**
 
-- Anthropic API suporta até 4 breakpoints `cache_control`. No **P0 usamos 3 fixos** (persona/regras geral → FAQ geral → identidade+programas por-modelo); o **4º (condicional, na cauda do histórico) está adiado pro P1** (§4.4 — decisão grilling 2026-05-23: medir hit/write-rate reais antes de otimizar). O contexto dinâmico **não** leva breakpoint (muda todo turno → seria write-only: paga premium, nunca lê).
+- Anthropic API suporta até 4 breakpoints `cache_control`. **Usamos os 4** (BP_TOOLS → BP_GERAL → BP_MODELO → BP_JANELA). O contexto dinâmico **não** leva breakpoint (muda todo turno → seria write-only: paga premium, nunca lê). **Cache de tools é segmento independente** (doc oficial `tool-use-with-prompt-caching`): a marcação no último BP de `system` não retroage para `tools` — precisa de `cache_control` explícito na última tool, feito por `build_tools_para_bind` (`agente/llm.py`).
 - **Ordem importa:** `tools` (posição 0) e os blocos compartilhados ANTES do por-modelo — senão o prefixo deixa de ser global e o cache vira por-modelo. Caching da Anthropic é por prefixo: tools + blocos 1–2 byte-idênticos = um cache para o sistema todo. **Invariante dura (ver `agente/CLAUDE.md`): nada por-modelo em tools/BP1/BP2.**
 - Prefixo geral (1–2) cacheado globalmente → hit rate alto mesmo com muitas modelos esparsas (escalável; resolve a preocupação de `08 §3.1`).
 - **TTL configurável por bloco** (settings, não hardcoded): no piloto, **todos 1h** (esparso → cobre gaps sem repagar write; sem TTL misto, logo sem risco de ordenação). No scale, o ideal *seria* BP1/BP2 em **5m** (prefixo global sempre-quente → reads refrescam de graça, evitando o 2× de write do 1h) — **mas a Anthropic exige TTL mais longo ANTES do mais curto no array** (`1h` precede `5m`), e o BP3 (por-modelo) vem depois de BP1/BP2. Logo `BP1/BP2=5m + BP3=1h` é **inválido** (5m antes de 1h → 400). Combinações válidas: **tudo 5m**, **tudo 1h**, ou **BP1/BP2=1h + BP3=5m** (mais-longo-primeiro). Para ter o global quente em 5m no scale, o BP3 precisa ser **≤ 5m**. `build_system_messages` valida que `ttl_geral` não seja mais curto que `ttl_modelo` antes de montar (§5). Troca decidida pela métrica de write-rate (§4.2).
@@ -382,7 +380,7 @@ Já apresentado em `02 §5`. Renderizado por turno; sem cache_control de longo T
 
 ### 4.1 Marcação por bloco
 
-Anthropic API aceita `cache_control: {"type": "ephemeral", "ttl": "1h"}` (ou `"5m"` default) em qualquer bloco do array `system` (texto) ou em blocos de conteúdo de mensagens. Render order na Anthropic é `tools` → `system` → `messages` — uma marcação no último bloco `system` cobre `tools` + `system` juntos (até esse ponto).
+Anthropic API aceita `cache_control: {"type": "ephemeral", "ttl": "1h"}` (ou `"5m"` default) em qualquer bloco do array `system` (texto), em blocos de conteúdo de mensagens **e na última tool do array `tools`**. Render order é `tools` → `system` → `messages`, mas cada nível é um **segmento hierárquico independente** para fins de cache: uma marcação no último `system` cobre apenas o segmento de `system` (não retroage para `tools`). Para cachear o array de tools como um segmento próprio, marcar a **última tool** explicitamente — doc oficial Anthropic (`tool-use-with-prompt-caching`): *"Place cache_control on the last tool in your tools array. This caches the entire tool-definitions prefix."* É o que `build_tools_para_bind` faz no `agente/llm.py` (cobertura: `tests/agente/test_build_system.py`).
 
 Estrutura final enviada à Anthropic:
 
@@ -391,7 +389,14 @@ Estrutura final enviada à Anthropic:
   "model": "claude-sonnet-4-6",
   "max_tokens": 1024,
   "thinking": {"type": "disabled"},
-  "tools": [...],                                                  // posição 0 — byte-idêntico p/ TODAS as modelos
+  "tools": [
+    {"name": "consultar_agenda",      "input_schema": {...}},        // posição 0 — byte-idêntico p/ TODAS as modelos
+    {"name": "registrar_extracao",    "input_schema": {...}},
+    {"name": "pedir_pix_deslocamento","input_schema": {...}},
+    {"name": "enviar_midia",          "input_schema": {...}},
+    {"name": "escalar",               "input_schema": {...},
+     "cache_control": {"type": "ephemeral", "ttl": "<ttl_geral>"}}   // BP0 — segmento `tools` cacheado
+  ],
   "system": [
     {"type": "text", "text": "<persona + regras renderizadas>",
      "cache_control": {"type": "ephemeral", "ttl": "<ttl_geral>"}},   // BP1 geral

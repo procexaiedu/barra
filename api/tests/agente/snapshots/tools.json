@@ -1,0 +1,371 @@
+[
+  {
+    "description": "Consulta os bloqueios (horários OCUPADOS) da modelo entre data_inicio e data_fim.\n\n    As próximas 48h já estão no seu contexto — use esta tool APENAS para janelas além disso\n    (ex.: \"tem horário sábado que vem?\").\n\n    Args:\n        data_inicio: data inicial inclusiva, formato YYYY-MM-DD.\n        data_fim: data final inclusiva, formato YYYY-MM-DD. Máximo 14 dias após data_inicio.\n\n    Returns:\n        Markdown com os bloqueios ativos no período (o que NÃO está listado está livre).",
+    "input_schema": {
+      "properties": {
+        "data_fim": {
+          "type": "string"
+        },
+        "data_inicio": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "data_inicio",
+        "data_fim"
+      ],
+      "type": "object"
+    },
+    "name": "consultar_agenda"
+  },
+  {
+    "description": "Registre o snapshot do que aprendeu nesta conversa. Chame UMA vez por turno, perto do fim.\n\n    Esta tool dispara transicoes de estado:\n    - intencao=curiosidade/cotacao/agendamento + estado=Novo -> Triagem\n    - intencao=agendamento + dados minimos (horario_desejado, tipo_atendimento) + Triagem -> Qualificado\n    - tipo_atendimento=interno + horario_desejado + Qualificado -> Aguardando_confirmacao\n      (cria bloqueio previo E dispara o pin de endereco — side-effect, nao tool)\n    - externo NAO e promovido aqui: so pedir_pix_deslocamento leva externo a Aguardando_confirmacao\n\n    O campo proxima_acao_esperada (obrigatorio) e exibido no painel para Fernando.\n    Use `limpar` para ZERAR campos que o cliente retratou (ex.: desmarcou o horario) —\n    o snapshot e incremental (COALESCE), entao sem `limpar` um valor antigo nunca some.",
+    "input_schema": {
+      "properties": {
+        "payload": {
+          "additionalProperties": false,
+          "description": "Snapshot estruturado do que a IA aprendeu nesta conversa.\n\nTodos os campos opcionais — registre o que esta claro; deixe NULL o que ainda nao.\nO dominio faz UPSERT: campos nao-nulos sobrescrevem; campos nulos preservam o anterior.",
+          "properties": {
+            "aviso_saida_detectado": {
+              "default": false,
+              "description": "Cliente avisou que saiu de casa em direcao ao endereco combinado (texto livre tipo 'sai', 'tô indo', 'estou indo', 'sai agora'). Sinalize True SO em atendimento interno em Aguardando_confirmacao; ignore em outros contextos. NAO pausa a IA — segue a conversa normal.",
+              "type": "boolean"
+            },
+            "bairro": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "data_desejada": {
+              "anyOf": [
+                {
+                  "format": "date",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "duracao_horas": {
+              "anyOf": [
+                {
+                  "maximum": 48.0,
+                  "minimum": 0.0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "endereco": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "forma_pagamento": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "pix",
+                    "dinheiro",
+                    "outro"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "horario_desejado": {
+              "anyOf": [
+                {
+                  "format": "time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "intencao": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "curiosidade",
+                    "cotacao",
+                    "agendamento"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "limpar": {
+              "description": "Campos a ZERAR (NULL) quando o cliente RECUA/desmarca — ex.: disse um horario e depois 'nao sei o dia ainda'. Nomes dos campos acima (ex.: ['data_desejada','horario_desejado']). So o que o cliente retratou; tem precedencia sobre o payload.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "motivo_perda_candidato": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "preco",
+                    "sumiu",
+                    "risco",
+                    "indisponibilidade",
+                    "fora_de_area",
+                    "outro"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "proxima_acao_esperada": {
+              "maxLength": 240,
+              "minLength": 3,
+              "type": "string"
+            },
+            "sinais_qualificacao": {
+              "additionalProperties": false,
+              "description": "Passe so os True; defaults False sao excluidos do dump (nao sobrescrevem).",
+              "properties": {
+                "aceita_valor": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "envia_pix": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "informa_horario": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "informa_local": {
+                  "default": false,
+                  "type": "boolean"
+                },
+                "responde_objetivamente": {
+                  "default": false,
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "tipo_atendimento": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "interno",
+                    "externo"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "tipo_local": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "hotel",
+                    "casa",
+                    "apartamento",
+                    "outro"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "urgencia": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "imediato",
+                    "agendado",
+                    "indefinido",
+                    "estimado"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "valor_acordado": {
+              "anyOf": [
+                {
+                  "minimum": 0.0,
+                  "type": "number"
+                },
+                {
+                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "proxima_acao_esperada"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "type": "object"
+    },
+    "name": "registrar_extracao"
+  },
+  {
+    "description": "Solicita Pix de R$100 para deslocamento (saída externa).\n\n    Sem parâmetros — valor é fixo R$100 (MVP), chave/titular vêm do cadastro da modelo.\n    Após chamada: pix_status=aguardando, atendimento → Aguardando_confirmacao,\n    cria bloqueio prévio do horário (reserva o slot). A humanização ANEXA a\n    chave/titular/valor exatos à sua mensagem — você NÃO redigita a chave (string crítico).\n\n    Escreva só o pedido no seu tom (\"pra garantir teu horário, manda o pixzinho do deslocamento\").\n    Use APENAS para atendimento externo após acordar horário e endereço.\n    Use APENAS UMA vez por atendimento (segunda chamada é idempotente, não duplica mensagem).",
+    "input_schema": {
+      "properties": {},
+      "type": "object"
+    },
+    "name": "pedir_pix_deslocamento"
+  },
+  {
+    "description": "Anexa uma foto pre-aprovada da modelo (escolhida pelo sistema) a resposta do turno.\n\n    Args:\n        tag: categoria da foto. O sistema escolhe QUAL foto da tag (rotacao:\n             menos-recente-enviada), evitando repetir — voce nao escolhe foto especifica.\n        legenda: opcional, texto curto que aparece junto da midia no WhatsApp.\n        tipo: \"foto\" (default) ou \"video\". Mande fotos primeiro; use \"video\" depois,\n              apresentando-o como exclusivo/ao vivo na legenda (estrategia foto->video, 05 §5).\n              Video vai como visualizacao unica quando a plataforma suportar (pre-req, 05 §5).\n\n    Pode ser chamada varias vezes no mesmo turno (ex.: 2 fotos da mesma tag);\n    as midias sao enviadas apos o texto.",
+    "input_schema": {
+      "properties": {
+        "legenda": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tag": {
+          "enum": [
+            "apresentacao",
+            "corpo",
+            "lifestyle",
+            "evento"
+          ],
+          "type": "string"
+        },
+        "tipo": {
+          "default": "foto",
+          "enum": [
+            "foto",
+            "video"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag"
+      ],
+      "type": "object"
+    },
+    "name": "enviar_midia"
+  },
+  {
+    "cache_control": {
+      "ttl": "1h",
+      "type": "ephemeral"
+    },
+    "description": "Escale o atendimento. O destino (Fernando p/ decisao sensivel, ou modelo p/ acao\n    operacional) e decidido pelo `motivo` — voce nao escolhe o responsavel.\n\n    Apos chamar, sua proxima fala vira quando Fernando devolver para voce explicitamente, ou\n    quando a modelo registrar finalizado pelo grupo. Nao escreva mais texto nesse turno.\n\n    Args:\n        payload.motivo: enum fechado — operacionais (fora_de_oferta, horario_indisponivel, ...)\n          ou AUP/persona (disclosure_insistente, jailbreak_attempt, ...).\n        payload.resumo_operacional: 1-3 frases descrevendo o que aconteceu na conversa.\n                                    Para AUP, incluir TEXTO LITERAL da pergunta do cliente.\n        payload.acao_esperada: o que Fernando/modelo devem decidir/fazer.",
+    "input_schema": {
+      "properties": {
+        "payload": {
+          "additionalProperties": false,
+          "description": "Args de `escalar`. `responsavel` NAO entra — derivado de `motivo` no servico de dominio.\n\n`extra=\"forbid\"` -> additionalProperties:false em todo nivel, requisito do strict tool use\n(04 §7). O `motivo` e a chave de roteamento + metrica, entao o enum precisa bater exatamente;\nnenhum dado de cliente entra em nome de campo ou enum (guarda de privacidade, 04 §7).",
+          "properties": {
+            "acao_esperada": {
+              "maxLength": 400,
+              "minLength": 3,
+              "type": "string"
+            },
+            "motivo": {
+              "enum": [
+                "fora_de_oferta",
+                "horario_indisponivel",
+                "reagendamento_pos_bloqueio",
+                "politica_nova_necessaria",
+                "exaustao_iteracoes",
+                "timeout_grafo",
+                "modelo_recusou",
+                "disclosure_insistente",
+                "disclosure_explicito",
+                "jailbreak_attempt",
+                "pedido_explicito_repetido",
+                "prova_humanidade_persistente",
+                "cross_modelo_fishing",
+                "outro"
+              ],
+              "type": "string"
+            },
+            "resumo_operacional": {
+              "maxLength": 1000,
+              "minLength": 10,
+              "type": "string"
+            }
+          },
+          "required": [
+            "motivo",
+            "resumo_operacional",
+            "acao_esperada"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "payload"
+      ],
+      "type": "object"
+    },
+    "name": "escalar"
+  }
+]

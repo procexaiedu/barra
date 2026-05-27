@@ -6,9 +6,10 @@ turno (sem checkpointer, 01 §6.7) a partir do Postgres.
 M0-T4:
     1. Gate de pausa (02 §1): le `ia_pausada` do atendimento. Pausado -> Command(goto=END),
        sem montar contexto. Sem flag `_pausada` no state (roteamento por Command, 09 §4.1).
-    2. Prefixo system GERAL: BP1 (persona+regras) + BP2 (FAQ) via build_system_messages.
+    2. Prefixo system: BP_GERAL fundido (persona+regras+FAQ) via build_system_messages.
     3. Janela deslizante 20 (02 §4), traduzida para HumanMessage/AIMessage, em ordem
        cronologica, isolada pelo par (cliente_id, modelo_id) JUNTOS (agente/CLAUDE.md).
+       BP_JANELA: cache_control na penultima mensagem (`marcar_cache_na_penultima`).
 
 M1-T2:
     4. Contexto dinamico (02 §5): estado do atendimento + cliente + agenda 48h resolvidos por
@@ -45,13 +46,12 @@ from barra.settings import get_settings
 from .._classificador import classificar_janela
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
-from ..llm import build_system_messages
+from ..llm import build_system_messages, marcar_cache_na_penultima
 from ..persona import (
     IdentidadeModelo,
-    carregar_faq,
     render_bp3,
     render_contexto_dinamico,
-    render_persona,
+    render_prefixo_geral,
 )
 
 
@@ -101,17 +101,22 @@ async def prepare_context(
         #     só com ≥8 AIMessages na janela. Volátil — fica na cauda, fora do prefixo cacheável.
         mensagens = _injetar_reminder_se_necessario(mensagens, fase)
 
-        # 4. BP3 por-modelo (03 §2/§3.3): identidade + programas do modelo_id, reusando a
+        # 4. BP_MODELO por-modelo (03 §2/§3.3): identidade + programas do modelo_id, reusando a
         #    conexão. É POR-MODELO (filtra modelo_id), não fura o isolamento por par (que vale
         #    para histórico do cliente, já filtrado por cliente+modelo na janela e no contexto).
         modelo_md = await _carregar_bp3(conn, ctx.modelo_id)
 
-    # 5. Prefixo system: BP1+BP2 GERAIS (byte-identicos p/ todas — agente/CLAUDE.md) + BP3
-    #    por-modelo. Ordem estável: gerais antes do por-modelo (invariante de prefixo, §1).
+    # 5. BP_JANELA (cache na penúltima): aproveita o slot liberado pela fusão BP_GERAL (antes
+    #    era BP1+BP2 separados). Só efetivo com janela ≥ 2; a última msg fica volátil (contexto
+    #    dinâmico + reminder), penúltima entra no cache. TTL = `cache_ttl_modelo` (mesma cadência
+    #    do BP_MODELO que vem logo antes — respeita "TTL maior antes do menor" da Anthropic).
     settings = get_settings()
+    mensagens = marcar_cache_na_penultima(mensagens, ttl=settings.cache_ttl_modelo)
+
+    # 6. Prefixo system: BP_GERAL fundido (persona+regras+FAQ byte-idêntico p/ todas —
+    #    agente/CLAUDE.md) + BP_MODELO. Ordem estável: geral antes do por-modelo (invariante).
     system_msgs = build_system_messages(
-        geral_md=render_persona(),
-        faq_md=carregar_faq(),
+        geral_md=render_prefixo_geral(),
         ttl_geral=settings.cache_ttl_geral,
         modelo_md=modelo_md,
         ttl_modelo=settings.cache_ttl_modelo,

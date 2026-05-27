@@ -4,8 +4,11 @@ criar_chat_anthropic(): wrapper langchain-anthropic 1.x (ChatAnthropic) usado pe
     thinking disabled + effort=low (suportado pelo Sonnet 4.6).
 criar_anthropic_client(): raw SDK anthropic 0.97 (dispensável no P0; vision do Pix vai por OpenRouter).
 
-A montagem dos 3 breakpoints de cache_control vive em agente/llm.py (build_system_messages),
-não aqui. BP4 (histórico) adiado pro P1.
+A montagem dos 4 breakpoints de cache_control vive em agente/llm.py:
+    - BP_TOOLS: `build_tools_para_bind` (cache_control na ultima tool)
+    - BP_GERAL: `build_system_messages` (persona+regras+FAQ fundidos)
+    - BP_MODELO: `build_system_messages` (identidade+programas por-modelo, opcional)
+    - BP_JANELA: `marcar_cache_na_penultima` (cache na penultima msg da janela)
 """
 
 from anthropic import AsyncAnthropic

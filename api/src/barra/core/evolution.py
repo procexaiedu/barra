@@ -126,12 +126,12 @@ class EvolutionClient:
     ) -> None:
         """Read receipt das mensagens do cliente (humano lê antes de responder, 05 §4.2).
         NÃO entra em envios_evolution — é recibo de leitura, não outbound de mensagem.
-        A confirmar na self-host: o casing do campo é `read_messages` vs `readMessages`
-        (a doc Evolution v2 usa snake_case)."""
+        Evolution v2.3.6 self-host (verificado 2026-05-27) exige `readMessages` em camelCase;
+        snake_case retorna 400 Bad Request."""
         if not self.settings.evolution_base_url:
             raise ErroDominio("EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503)
         body = {
-            "read_messages": [
+            "readMessages": [
                 {"remoteJid": remote_jid, "fromMe": False, "id": mid} for mid in message_ids
             ]
         }

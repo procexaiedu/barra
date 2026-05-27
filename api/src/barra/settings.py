@@ -76,6 +76,28 @@ class Settings(BaseSettings):
     anthropic_effort: Literal["low", "medium", "high"] = "low"
     anthropic_max_tokens: int = 1024
 
+    # Cotacao USD->BRL p/ a metrica AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta <=0.12 BRL/turno).
+    # Reajustar por settings em vez de hardcoded p/ nao requerer deploy a cada flutuacao cambial.
+    usd_brl_cotacao: float = Field(
+        default=5.50,
+        gt=0.0,
+        description="Cotacao USD->BRL usada p/ converter o custo estimado do turno (Sonnet 4.6).",
+    )
+
+    # Strict mode em tools (doc oficial Anthropic `strict-tool-use`): grammar-constrained
+    # decoding + cache de grammar 24h. Default OFF — o limite atual do strict ("Schema is too
+    # complex" em ~8k chars total / ~3.4k chars no `registrar_extracao`) rejeita o agente mesmo
+    # apos: (1) refator de `SinaisQualificacao` p/ schema fechado, (2) `_desencapsular_anyof_null`
+    # que tira 12 anyOf opcionais do Pydantic, (3) `_sanitizar_para_strict` que tira minimum/
+    # maximum e regex avancada. O que ainda nos passa do limite e o COMPRIMENTO de descriptions
+    # (5 no registrar_extracao) + enums (escalar.motivo com 14 valores) — encurtar muda o
+    # comportamento do agente e fica fora do escopo da auditoria de caching. Ligar via env var
+    # ANTHROPIC_STRICT_TOOLS=true quando: encurtar descriptions OU a Anthropic aumentar o limite.
+    anthropic_strict_tools: bool = Field(
+        default=False,
+        description="Ativa strict mode nas tools. Requer compat de schema (ver _sanitizar_para_strict).",
+    )
+
     # Comportamento comercial do agente (grilling 2026-05-23; docs/agente + ADR-0004)
     desconto_max_pct: float = Field(
         default=0.15,

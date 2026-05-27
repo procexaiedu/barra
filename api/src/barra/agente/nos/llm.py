@@ -20,10 +20,13 @@ from langchain_core.tools import BaseTool
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
-from barra.core.metrics import AGENTE_TURNO_TOKENS, TURNO_TRUNCADO
+from barra.core.metrics import AGENTE_CUSTO_TURNO_BRL, AGENTE_TURNO_TOKENS, TURNO_TRUNCADO
+from barra.settings import get_settings
 
+from .._custo import calcular_custo_brl
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
+from ..llm import build_tools_para_bind
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +49,11 @@ def _instrumentar_tokens(resp: BaseMessage, modelo: str) -> None:
     AGENTE_TURNO_TOKENS.labels(modelo, "output").inc(um["output_tokens"])
     AGENTE_TURNO_TOKENS.labels(modelo, "cache_read").inc(read)
     AGENTE_TURNO_TOKENS.labels(modelo, "cache_write").inc(write)
+    # Custo BRL: tabela Sonnet 4.6 + cotacao USD/BRL (settings). Observado pelo Histogram
+    # AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta <=0.12 BRL/turno). Mesmo label `modelo` p/ correlato.
+    AGENTE_CUSTO_TURNO_BRL.labels(modelo).observe(
+        calcular_custo_brl(um, get_settings().usd_brl_cotacao)
+    )
 
 class _NoLLM(Protocol):
     """Forma do no llm aceita pelo StateGraph (runtime keyword-only, como langgraph espera)."""
@@ -59,10 +67,16 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
     """Factory: liga o ChatAnthropic + catalogo de tools ao no llm.
 
     O chat e injetado por build_graph (09 §4.5) para nao reconstruir o ChatAnthropic a cada
-    invocacao. bind_tools roda uma vez aqui; com TOOLS=[] (M0) o prefixo de tools sai vazio e
-    byte-identico p/ todas as modelos (invariante de cache -- agente/CLAUDE.md).
+    invocacao. bind_tools roda uma vez aqui com `cache_control` na ULTIMA tool (TTL = cache_ttl_geral,
+    pois tools sao GERAIS como BP1/BP2; doc oficial Anthropic tool-use-with-prompt-caching). Lista
+    vazia (P0 pre-M1) -> passa direto, prefixo de tools vazio e byte-identico (invariante de cache,
+    agente/CLAUDE.md). Mudanca em qualquer tool invalida tools+system+messages (hierarquia).
     """
-    chat_bound = chat.bind_tools(tools)
+    settings = get_settings()
+    tools_para_bind = build_tools_para_bind(
+        tools, ttl=settings.cache_ttl_geral, strict=settings.anthropic_strict_tools
+    )
+    chat_bound = chat.bind_tools(tools_para_bind)
     # nome Anthropic (claude-sonnet-4-6) p/ o label das metricas de token, nao o modelo_id da
     # agencia (03 §4.2). Lido via `.model`, nao `.model_name` (M0-T1; alias write-only no 1.4.3).
     modelo_anthropic = chat.model

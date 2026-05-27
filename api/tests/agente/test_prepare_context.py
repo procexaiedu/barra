@@ -65,28 +65,29 @@ def test_ia_pausada_retorna_command_end() -> None:
     assert res.goto == END
 
 
-def test_caminho_normal_3_system_mais_janela_cronologica() -> None:
+def test_caminho_normal_2_system_mais_janela_cronologica() -> None:
     res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_desc())))
     assert isinstance(res, Command)
     assert res.goto == "intercept_disclosure"
     msgs = res.update["messages"]
-    # 3 SystemMessage (BP1+BP2 gerais + BP3 por-modelo) + 3 da janela (contexto dinamico nao
-    # cria msg nova: ha HumanMessage). BP3 emitido a partir do M2-T1.
+    # 2 SystemMessage (BP_GERAL fundido + BP_MODELO por-modelo) + 3 da janela. BP_JANELA marca
+    # cache na PENULTIMA da janela: msgs[3] (AIMessage "oi amor") vira content blocks; msgs[4]
+    # (modelo_manual, ultima da janela) fica string volatil (sem cache).
     assert isinstance(msgs[0], SystemMessage)
     assert isinstance(msgs[1], SystemMessage)
-    assert isinstance(msgs[2], SystemMessage)
-    assert len(msgs) == 6
-    # ordem cronologica: cliente -> ia -> modelo_manual
-    assert isinstance(msgs[3], HumanMessage)
-    # contexto dinamico (02 §5) e concatenado no ULTIMO HumanMessage, depois da msg do cliente
-    # (a verificacao rigorosa de que o prefixo cacheavel fica intacto vive em test_contexto_dinamico)
-    assert msgs[3].content.startswith("ola")
-    assert "<estado_atual>" in msgs[3].content
+    assert len(msgs) == 5
+    # msgs[2] = HumanMessage do cliente + contexto dinamico (ultimo HumanMessage da janela)
+    assert isinstance(msgs[2], HumanMessage)
+    assert msgs[2].content.startswith("ola")
+    assert "<estado_atual>" in msgs[2].content
+    # msgs[3] = penultima da janela = AIMessage "oi amor", agora COM cache_control (lista)
+    assert isinstance(msgs[3], AIMessage)
+    assert isinstance(msgs[3].content, list)
+    assert msgs[3].content[0]["text"] == "oi amor, tudo bem?"  # type: ignore[index]
+    assert msgs[3].content[0]["cache_control"]["type"] == "ephemeral"  # type: ignore[index]
+    # msgs[4] = ultima da janela = modelo_manual, AIMessage com prefixo, content STRING (sem cache)
     assert isinstance(msgs[4], AIMessage)
-    assert msgs[4].content == "oi amor, tudo bem?"
-    # modelo_manual vira AIMessage COM PREFIXO
-    assert isinstance(msgs[5], AIMessage)
-    assert msgs[5].content == "[mensagem manual da modelo]: deixa que eu respondo"
+    assert msgs[4].content == "[mensagem manual da modelo]: deixa que eu respondo"
 
 
 def test_atendimento_id_none_pula_gate() -> None:
@@ -95,16 +96,15 @@ def test_atendimento_id_none_pula_gate() -> None:
     res = asyncio.run(prepare_context({"messages": []}, rt))
     assert isinstance(res, Command)
     assert res.goto == "intercept_disclosure"
-    # 3 system (BP1+BP2+BP3) + 1 HumanMessage: janela vazia, entao o contexto dinamico (02 §5) e
-    # anexado como novo HumanMessage no fim (defesa do _anexar_contexto_dinamico). BP3 carrega por
-    # modelo_id, que existe mesmo com atendimento_id None. Gate pulado sem crashar.
+    # 2 system (BP_GERAL + BP_MODELO) + 1 HumanMessage: janela vazia, contexto dinamico anexa
+    # novo HumanMessage no fim. BP_MODELO carrega por modelo_id mesmo com atendimento_id None.
+    # BP_JANELA no-op (janela so com 1 msg, sem penultima).
     msgs = res.update["messages"]
-    assert len(msgs) == 4
+    assert len(msgs) == 3
     assert isinstance(msgs[0], SystemMessage)
     assert isinstance(msgs[1], SystemMessage)
-    assert isinstance(msgs[2], SystemMessage)
-    assert isinstance(msgs[3], HumanMessage)
-    assert "<estado_atual>" in msgs[3].content
+    assert isinstance(msgs[2], HumanMessage)
+    assert "<estado_atual>" in msgs[2].content
 
 
 def test_traduzir_audio_sem_transcricao_vira_placeholder() -> None:

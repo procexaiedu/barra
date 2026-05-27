@@ -27,8 +27,8 @@ from .pix import pedir_pix_deslocamento
 # subsetting por modelo. M1 registra consultar_agenda (unica de leitura, 04 §2.2); M3 as
 # tools de escrita (registrar_extracao, pedir_pix_deslocamento, escalar); M5e entra com
 # enviar_midia ANTES de escalar.
-# Ordem canonica de 04 §4: leitura primeiro, escrita depois, `escalar` por ULTIMO (breakpoint
-# de cache na ultima tool).
+# Ordem canonica de 04 §4: leitura primeiro, escrita depois, `escalar` por ULTIMO. O
+# `cache_control` (BP0) e injetado na ULTIMA tool por `build_tools_para_bind` (agente/llm.py).
 TOOLS: list[BaseTool] = [
     consultar_agenda,
     registrar_extracao,

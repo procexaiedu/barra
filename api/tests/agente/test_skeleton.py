@@ -24,20 +24,19 @@ from langchain_core.messages import AIMessage
 from barra.agente.contexto import ContextAgente
 from barra.agente.graph import build_graph
 from barra.agente.llm import build_system_messages
-from barra.agente.persona import carregar_faq, render_persona
+from barra.agente.persona import render_prefixo_geral
 from barra.settings import get_settings
 
 
 def _prefixo_geral() -> list[Any]:
-    """Prefixo system GERAL (BP1 persona+regras, BP2 FAQ) como prepare_context o monta.
+    """Prefixo system GERAL (BP_GERAL fundido: persona+regras+FAQ) como prepare_context o monta.
 
-    So depende de render_persona() + carregar_faq() — nenhum dado por-modelo (BP3 entra no M2).
+    So depende de render_prefixo_geral() — nenhum dado por-modelo (BP_MODELO entra no M2).
     """
     return [
         msg.content
         for msg in build_system_messages(
-            geral_md=render_persona(),
-            faq_md=carregar_faq(),
+            geral_md=render_prefixo_geral(),
             ttl_geral=get_settings().cache_ttl_geral,
         )
     ]
@@ -102,11 +101,11 @@ def test_cache_write_read(monkeypatch: pytest.MonkeyPatch) -> None:
     # (test_skeleton_responde) ou uma rodada dentro do TTL de 1h ja teria aquecido o cache e a "1a"
     # chamada LERIA em vez de escrever. O nonce torna o prefixo COLD (nunca visto) garantindo a
     # escrita; os dois ainvokes seguem identicos ENTRE SI (ambos usam o mesmo nonce).
-    geral = f"{render_persona()}\n<!-- cache-cold {uuid4().hex} -->"
+    geral = f"{render_prefixo_geral()}\n<!-- cache-cold {uuid4().hex} -->"
     # importlib p/ pegar o MODULO (o pacote `nos` reexporta a funcao prepare_context com o mesmo
     # nome do submodulo, entao `import ...nos.prepare_context as m` resolveria p/ a funcao).
     prepare_context_mod = importlib.import_module("barra.agente.nos.prepare_context")
-    monkeypatch.setattr(prepare_context_mod, "render_persona", lambda: geral)
+    monkeypatch.setattr(prepare_context_mod, "render_prefixo_geral", lambda: geral)
 
     graph = build_graph()
     conn = FakeConn(ia_pausada=False, mensagens=[_msg_cliente("oi, tudo bem? vc ta livre hoje?")])

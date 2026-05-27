@@ -23,11 +23,12 @@ O grafo compila **sem** `checkpointer=` (`docs/agente/01 §6.7`). O prompt é mo
 Blocos estáveis entram com `cache_control` no `system`, na ordem de render `tools → system → messages`. Sem checkpointer, a árvore é **re-renderizada todo turno** (`01 §6.7`) — o cache hit não depende de reusar o objeto, e sim de o **prefixo (`tools`+`system`) sair byte-idêntico** entre turnos. Recriar é correto; o que mata o cache é vazar variabilidade no prefixo. Detalhe completo em `docs/agente/03-prompts.md §4`.
 
 **Invariante de prefixo global (quebrar isto derruba o cache de TODAS as modelos):**
-- `tools` (posição 0) e os blocos GERAIS (BP1 persona+regras, BP2 FAQ) são **byte-idênticos entre todas as modelos**. Nenhuma descrição de tool nem BP1/BP2 interpola dado por-modelo (nome, idade, idiomas, tipos_aceitos) — o nome da modelo vive só no BP3. `TOOLS` é constante de módulo congelada, ordem fixa; **proibido** `build_tools(modelo)` ou subsetting de tools por modelo.
-- Dado por-modelo só no BP3 (identidade + programas). Dado por-turno (contexto dinâmico, reminder) vai no **último turno do usuário, SEM `cache_control`** — nunca em bloco `system`.
+- 4 breakpoints fixos, na ordem do prefixo: **BP_TOOLS** (`cache_control` na última tool via `build_tools_para_bind`; cache de tools é segmento próprio — doc oficial `tool-use-with-prompt-caching` — não retroage de breakpoint no `system`) → **BP_GERAL** (persona+regras+FAQ FUNDIDOS num único SystemMessage; antes eram 2 separados, fusão libera 1 breakpoint pro BP_JANELA) → **BP_MODELO** (identidade + programas, por-modelo) → **BP_JANELA** (`marcar_cache_na_penultima` na janela deslizante; lookback de 20 blocos da Anthropic estende o cache entre turnos enquanto a janela for append-only).
+- `tools` e BP_GERAL são **byte-idênticos entre todas as modelos**. Nenhuma descrição de tool nem BP_GERAL interpola dado por-modelo — o nome da modelo vive só no BP_MODELO. `TOOLS` é constante de módulo congelada, ordem fixa; **proibido** `build_tools(modelo)` ou subsetting de tools por modelo.
+- Dado por-modelo só no BP_MODELO. Dado por-turno (contexto dinâmico, reminder) vai no **último turno do usuário, SEM `cache_control`** — nunca em bloco `system` nem na penúltima.
 - Listas/dicts no prefixo renderizam em ordem determinística (`ORDER BY` / `sorted`), senão os bytes variam e o cache mira a frio em silêncio.
 
-**Guard-rails (testes obrigatórios):** (1) BP1+BP2 e o bloco `tools` renderizam byte-idênticos para 2 modelos diferentes; (2) a mesma conversa renderiza byte-idêntica em 2 renders (cobre `traduz_mensagens`, pré-requisito do cache de cauda).
+**Guard-rails (testes obrigatórios):** (1) BP_GERAL e o bloco `tools` renderizam byte-idênticos para 2 modelos diferentes; (2) a mesma conversa renderiza byte-idêntica em 2 renders (cobre `traduz_mensagens`, pré-requisito do BP_JANELA — append-only invariant).
 
 **Validação em prod:** hit-rate e write-rate como métrica viva; write-rate alto em regime (>10-15% pós-warmup) = invalidador silencioso no prefixo → investigar antes de culpar custo.
 

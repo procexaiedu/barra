@@ -21,6 +21,18 @@ from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
 
 
+class SinaisQualificacao(BaseModel):
+    """Sinais booleanos detectados; inclua so os True."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    informa_horario: bool = False
+    informa_local: bool = False
+    aceita_valor: bool = False
+    envia_pix: bool = False
+    responde_objetivamente: bool = False
+
+
 class ExtracaoPayload(BaseModel):
     """Snapshot estruturado do que a IA aprendeu nesta conversa.
 
@@ -43,12 +55,9 @@ class ExtracaoPayload(BaseModel):
     tipo_local: Literal["hotel", "casa", "apartamento", "outro"] | None = None
     forma_pagamento: Literal["pix", "dinheiro", "outro"] | None = None
     valor_acordado: Decimal | None = Field(None, ge=0)
-    sinais_qualificacao: dict[str, bool] = Field(
-        default_factory=dict,
-        description=(
-            "Sinais bool {informa_horario, informa_local, aceita_valor, envia_pix, "
-            "responde_objetivamente}. Inclua so os True."
-        ),
+    sinais_qualificacao: SinaisQualificacao = Field(
+        default_factory=SinaisQualificacao,
+        description="Passe so os True; defaults False sao excluidos do dump (nao sobrescrevem).",
     )
     motivo_perda_candidato: (
         Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None
@@ -96,7 +105,11 @@ async def registrar_extracao(
     atendimento_id = runtime.context.atendimento_id
     turno_id = runtime.context.turno_id
 
-    dados = payload.model_dump(mode="json")
+    # exclude_defaults: campos nao explicitamente fornecidos pelo LLM ficam fora do dict. Critico
+    # pro `sinais_qualificacao` (schema fechado pos-refactor): garante que so chaves True sejam
+    # mergeadas no JSONB acumulado (`||` em service.py). Campos opcionais com default None ja
+    # sao omitidos. Strict mode pre-req — schema fechado libera `anthropic_strict_tools=True`.
+    dados = payload.model_dump(mode="json", exclude_defaults=True)
     async with pool.connection() as conn:
         try:
             resultado = await _executar_idempotente(

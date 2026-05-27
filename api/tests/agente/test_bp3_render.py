@@ -99,37 +99,34 @@ def test_render_bp3_concatena_identidade_e_programas() -> None:
     assert "Programa Completo" in bp3
 
 
-def test_build_system_messages_emite_3_blocos() -> None:
+def test_build_system_messages_emite_2_blocos() -> None:
+    # Pos-fusao BP_GERAL: 2 blocos system (geral fundido + por-modelo), antes eram 3.
     msgs = build_system_messages(
-        geral_md=GERAL,
-        faq_md=FAQ,
+        geral_md=f"{GERAL}\n\n{FAQ}",
         ttl_geral="1h",
         modelo_md=render_bp3(CARIOCA, PROGRAMAS),
         ttl_modelo="1h",
     )
-    assert len(msgs) == 3
-    bp3_texto = msgs[2].content[0]["text"]  # type: ignore[index]
-    assert "Bia" in bp3_texto
-    assert "26" in bp3_texto
-    assert "Programa Completo" in bp3_texto
+    assert len(msgs) == 2
+    modelo_texto = msgs[1].content[0]["text"]  # type: ignore[index]
+    assert "Bia" in modelo_texto
+    assert "26" in modelo_texto
+    assert "Programa Completo" in modelo_texto
 
 
-def test_guardrail_bp1_bp2_byte_identico_entre_modelos() -> None:
-    # Guard-rail #1: BP1+BP2 byte-idênticos p/ 2 modelos distintas; só o BP3 difere.
+def test_guardrail_bp_geral_byte_identico_entre_modelos() -> None:
+    # Guard-rail #1: BP_GERAL fundido byte-idêntico p/ 2 modelos distintas; só o BP_MODELO difere.
     a = build_system_messages(
-        geral_md=GERAL,
-        faq_md=FAQ,
+        geral_md=f"{GERAL}\n\n{FAQ}",
         ttl_geral="1h",
         modelo_md=render_bp3(CARIOCA, PROGRAMAS),
         ttl_modelo="1h",
     )
     b = build_system_messages(
-        geral_md=GERAL,
-        faq_md=FAQ,
+        geral_md=f"{GERAL}\n\n{FAQ}",
         ttl_geral="1h",
         modelo_md=render_bp3(ESTRANGEIRA, []),
         ttl_modelo="1h",
     )
-    assert a[0].content == b[0].content  # BP1 idêntico
-    assert a[1].content == b[1].content  # BP2 idêntico
-    assert a[2].content != b[2].content  # BP3 difere por-modelo
+    assert a[0].content == b[0].content  # BP_GERAL idêntico
+    assert a[1].content != b[1].content  # BP_MODELO difere por-modelo
