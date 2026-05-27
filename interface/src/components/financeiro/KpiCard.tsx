@@ -269,7 +269,7 @@ function DeltaChip({
     >
       <Icone className="size-3" aria-hidden />
       <span>{formatarDiffAbs(delta.diffAbs, delta.formato)}</span>
-      {delta.pct !== null && (
+      {delta.pct !== null && Math.abs(delta.pct) < 1000 && (
         <span className="opacity-70">({delta.pct >= 0 ? "+" : ""}{delta.pct.toFixed(1)}%)</span>
       )}
     </span>

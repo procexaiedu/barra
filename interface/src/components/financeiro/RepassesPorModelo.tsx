@@ -30,6 +30,9 @@ import type { useFinanceiro } from "@/hooks/useFinanceiro"
 import { FormRepasse } from "./FormRepasse"
 import { DialogPreencherRepasse } from "./DialogPreencherRepasse"
 import { KpiCard } from "./KpiCard"
+import { ChartComposicaoBruto } from "./charts/ChartComposicaoBruto"
+import { ChartDistribuicaoSaldo } from "./charts/ChartDistribuicaoSaldo"
+import { ChartRitmoPagamento } from "./charts/ChartRitmoPagamento"
 
 export function RepassesPorModelo({
   repasses,
@@ -53,6 +56,7 @@ export function RepassesPorModelo({
   const carregando = loading && !repasses
   const r = fin.resumo?.resumo ?? null
   const rAnt = fin.resumo?.resumo_anterior ?? null
+  const janelaCorrente = fin.repasses?.filtro_aplicado ?? fin.resumo?.filtro_aplicado ?? null
 
   return (
     <div className="space-y-5">
@@ -62,6 +66,33 @@ export function RepassesPorModelo({
         <div className="text-[11px] tabular-nums text-text-muted -mt-3">
           deltas vs {fin.resumo.janela_comparacao.de} → {fin.resumo.janela_comparacao.ate}
         </div>
+      )}
+
+      {carregando ? (
+        <>
+          <Skeleton className="h-[160px] rounded-md" />
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <Skeleton className="h-[280px] rounded-md" />
+            <Skeleton className="h-[280px] rounded-md" />
+          </div>
+        </>
+      ) : (
+        r && r.valor_bruto_brl > 0 && (
+          <>
+            <ChartComposicaoBruto resumo={r} />
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+              <ChartDistribuicaoSaldo
+                items={repasses?.items ?? []}
+                onSelecionarModelo={(id) => setFormAberto({ modelo_id: id })}
+              />
+              <ChartRitmoPagamento
+                pagamentos={pagamentos?.items ?? []}
+                janelaDe={janelaCorrente?.de ?? null}
+                janelaAte={janelaCorrente?.ate ?? null}
+              />
+            </div>
+          </>
+        )
       )}
 
       <section className="space-y-3">
@@ -188,6 +219,14 @@ function ResumoRepasses({
 
   const saldoNegativo = resumo.valor_saldo_repasse_brl < 0
   const saldoZero = Math.abs(resumo.valor_saldo_repasse_brl) < 0.005
+  const nadaPago = resumo.valor_repasse_pago_brl < 0.005
+  // Quando ninguém foi pago, "Calculado" = "Saldo": dois cards mostrando o
+  // mesmo número viram ruído. Suavizamos o tom e qualificamos o hint.
+  const calculadoIgualSaldo =
+    !saldoZero &&
+    !saldoNegativo &&
+    nadaPago &&
+    resumo.valor_repasse_calculado_brl > 0
   const pctPago =
     resumo.valor_repasse_calculado_brl > 0
       ? (resumo.valor_repasse_pago_brl / resumo.valor_repasse_calculado_brl) * 100
@@ -196,6 +235,9 @@ function ResumoRepasses({
     resumo.valor_bruto_brl > 0
       ? `${((resumo.valor_repasse_calculado_brl / resumo.valor_bruto_brl) * 100).toFixed(1)}% do bruto`
       : undefined
+  const hintCalculado = calculadoIgualSaldo
+    ? "= saldo a pagar (nada quitado ainda)"
+    : (pctRepasseDoBruto ?? "devido pelos fechamentos")
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -222,8 +264,9 @@ function ResumoRepasses({
         valor={resumo.valor_repasse_calculado_brl}
         anterior={anterior?.valor_repasse_calculado_brl ?? null}
         sentido="neutro"
+        tom={calculadoIgualSaldo ? "muted" : "default"}
         icone={<Banknote className="size-4" />}
-        hint={pctRepasseDoBruto ?? "devido pelos fechamentos"}
+        hint={hintCalculado}
       />
       <KpiCard
         rotulo="Pago"
