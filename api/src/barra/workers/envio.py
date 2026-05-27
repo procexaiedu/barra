@@ -103,10 +103,72 @@ async def _card_escalada(ctx: dict[str, Any], *, escalada_id: str, **_: Any) -> 
             )
 
 
-async def _card_pix(ctx: dict[str, Any], **_: Any) -> None:
-    # TODO(M5c): card "saída confirmada" (pix_validado / pix_em_revisao com sinalização da
-    # duvidez); idempotência por `comprovantes_pix.card_message_id` (06 §2.5, §9).
-    raise NotImplementedError("card de Pix será preenchido no M5c")
+async def _card_pix(
+    ctx: dict[str, Any],
+    *,
+    atendimento_id: str,
+    comprovante_id: str,
+    **_: Any,
+) -> None:
+    """Card "saída confirmada" no grupo de Coordenação (06 §2.5).
+
+    `tipo='pix_validado'` e `tipo='pix_em_revisao'` partilham o mesmo renderer: o atendimento
+    ja esta `Confirmado` em ambos (Pix nunca trava, 01 §6.1); o template diferencia pela
+    presenca de `motivo_em_revisao` (sinaliza a duvidez para a modelo decidir antes de pedir
+    o Uber). Idempotência por owner: so envia se `comprovantes_pix.card_message_id IS NULL`.
+    """
+    pool = ctx["db_pool"]
+    evolution: EvolutionClient = ctx["evolution"]
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT cp.card_message_id,
+                   cp.decisao_pipeline::text AS decisao_pipeline,
+                   cp.motivo_em_revisao,
+                   cp.valor_extraido,
+                   a.numero_curto, a.endereco, a.valor_acordado,
+                   b.inicio AS bloqueio_inicio,
+                   cl.nome AS cliente_nome,
+                   mo.coordenacao_chat_id, mo.evolution_instance_id
+              FROM barravips.comprovantes_pix cp
+              JOIN barravips.atendimentos a ON a.id = cp.atendimento_id
+              JOIN barravips.modelos      mo ON mo.id = a.modelo_id
+              JOIN barravips.clientes     cl ON cl.id = a.cliente_id
+              LEFT JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+             WHERE cp.id = %s
+            """,
+            (UUID(comprovante_id),),
+        )
+        cp = await res.fetchone()
+        if not cp or cp["card_message_id"]:
+            return  # idempotência por owner: card já enviado
+
+        texto = render_card(
+            "pix",
+            numero_curto=cp["numero_curto"],
+            cliente_nome=cp["cliente_nome"] or "cliente",
+            endereco=cp["endereco"],
+            horario=cp["bloqueio_inicio"],
+            valor_acordado=cp["valor_acordado"],
+            valor_extraido=cp["valor_extraido"],
+            decisao=cp["decisao_pipeline"],
+            motivo_em_revisao=cp["motivo_em_revisao"],
+        )
+        async with conn.transaction():
+            mid = await evolution.enviar_texto(
+                conn=conn,
+                instance_id=cp["evolution_instance_id"],
+                remote_jid=cp["coordenacao_chat_id"],
+                texto=texto,
+                contexto="coordenacao",
+                tipo="card_pix",
+            )
+            await conn.execute(
+                "UPDATE barravips.comprovantes_pix SET card_message_id = %s WHERE id = %s",
+                (mid, UUID(comprovante_id)),
+            )
+    del atendimento_id  # vem no payload do job p/ _job_id; renderer le tudo do comprovante
 
 
 async def _card_chegada(ctx: dict[str, Any], **_: Any) -> None:
