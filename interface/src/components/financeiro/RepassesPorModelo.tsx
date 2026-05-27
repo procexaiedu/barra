@@ -1,12 +1,13 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import {
   AlertTriangle,
   ArrowUpRight,
   Banknote,
   CheckCircle2,
   CircleAlert,
+  Loader2,
   Plus,
   Receipt,
   Trash2,
@@ -127,6 +128,7 @@ export function RepassesPorModelo({
             onPreencher={(id, nome) =>
               setDialogRetroAberto({ modelo_id: id, modelo_nome: nome })
             }
+            pageSize={fin.limitAtual === 25 ? 25 : 50}
           />
         ) : (
           <EstadoVazio
@@ -155,7 +157,13 @@ export function RepassesPorModelo({
         {carregando ? (
           <Skeleton className="h-32 rounded-md" />
         ) : pagamentos && pagamentos.items.length > 0 ? (
-          <TabelaPagamentos pagamentos={pagamentos} onMudou={fin.refetch} />
+          <TabelaPagamentos
+            pagamentos={pagamentos}
+            onMudou={fin.refetch}
+            onCarregarMais={fin.carregarMaisPagamentos}
+            carregandoMais={fin.carregandoMaisPagamentos}
+            proximoLote={fin.limitAtual}
+          />
         ) : (
           <EstadoVazio
             icone={<Receipt className="size-5" />}
@@ -313,11 +321,21 @@ function TabelaSaldo({
   items,
   onPagar,
   onPreencher,
+  pageSize = 50,
 }: {
   items: SaldoModelo[]
   onPagar: (modeloId: string) => void
   onPreencher: (modeloId: string, modeloNome: string) => void
+  pageSize?: number
 }) {
+  // Saldo por modelo não tem cursor no backend (volume baixo). Paginação
+  // client-side: mostra até `pageSize`, expande no clique. O total no rodapé
+  // segue refletindo o conjunto inteiro do período.
+  const [visiveis, setVisiveis] = useState(pageSize)
+  useEffect(() => {
+    setVisiveis(pageSize)
+  }, [pageSize, items])
+
   const total = useMemo(
     () =>
       items.reduce(
@@ -333,6 +351,10 @@ function TabelaSaldo({
       ),
     [items],
   )
+
+  const itemsExibidos = items.slice(0, visiveis)
+  const truncado = items.length > visiveis
+  const restantes = items.length - visiveis
 
   return (
     <div className="overflow-hidden rounded-md border border-border bg-card">
@@ -353,7 +375,7 @@ function TabelaSaldo({
             </tr>
           </thead>
           <tbody>
-            {items.map((s) => (
+            {itemsExibidos.map((s) => (
               <LinhaModelo
                 key={s.modelo_id}
                 saldo={s}
@@ -366,7 +388,8 @@ function TabelaSaldo({
             <tfoot>
               <tr className="border-t-2 border-border/80 bg-muted/20 text-[12.5px]">
                 <td className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-text-muted">
-                  Total
+                  Total · {items.length}{" "}
+                  {items.length === 1 ? "modelo" : "modelos"}
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">
                   {total.fech}
@@ -389,6 +412,22 @@ function TabelaSaldo({
           )}
         </table>
       </div>
+      {truncado && (
+        <div className="border-t border-border/60 bg-muted/20 px-4 py-2 text-center">
+          <button
+            type="button"
+            onClick={() =>
+              setVisiveis((v) => Math.min(items.length, v + pageSize))
+            }
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--gold-500)]/40"
+          >
+            Mostrar mais
+            <span className="tabular-nums text-text-muted">
+              · {Math.min(pageSize, restantes)} de {restantes} restantes
+            </span>
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -491,10 +530,17 @@ function LinhaModelo({
 function TabelaPagamentos({
   pagamentos,
   onMudou,
+  onCarregarMais,
+  carregandoMais,
+  proximoLote,
 }: {
   pagamentos: RepassesPagamentosListaResponse
   onMudou: () => void
+  onCarregarMais?: () => void
+  carregandoMais?: boolean
+  proximoLote?: number
 }) {
+  const truncado = Boolean(pagamentos.next_cursor)
   return (
     <div className="overflow-hidden rounded-md border border-border bg-card">
       <div className="overflow-x-auto">
@@ -516,6 +562,32 @@ function TabelaPagamentos({
           </tbody>
         </table>
       </div>
+      {truncado && onCarregarMais && (
+        <div className="border-t border-border/60 bg-muted/20 px-4 py-2 text-center">
+          <button
+            type="button"
+            onClick={onCarregarMais}
+            disabled={carregandoMais}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--gold-500)]/40 disabled:opacity-60"
+          >
+            {carregandoMais ? (
+              <>
+                <Loader2 className="size-3 animate-spin" />
+                Carregando…
+              </>
+            ) : (
+              <>
+                Carregar mais
+                {proximoLote ? (
+                  <span className="tabular-nums text-text-muted">
+                    · próximos {proximoLote}
+                  </span>
+                ) : null}
+              </>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   )
 }

@@ -1,7 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { api, ApiError } from "@/lib/api"
 import type { FiltroPeriodo } from "@/tipos/dashboard"
 import type {
@@ -22,6 +22,20 @@ const PERIODOS_VALIDOS: ReadonlySet<string> = new Set([
 const VIEWS_VALIDAS: ReadonlySet<string> = new Set([
   "geral", "receitas", "repasses",
 ])
+
+// Itens por página em cada visualização. Hoje carrega menos porque o dia
+// raramente tem >25 fechamentos — pegar 50 seria over-fetch. Os outros
+// períodos pegam 50 (padrão SaaS: Stripe/Linear), com "carregar mais" via
+// cursor para os volumes maiores. "Saldo por modelo" não usa esse limit
+// (backend retorna todas as modelos; a paginação dela é client-side).
+const LIMIT_POR_PERIODO: Record<FiltroPeriodo, number> = {
+  hoje: 25,
+  "7d": 50,
+  "30d": 50,
+  mes: 50,
+  tudo: 50,
+  custom: 50,
+}
 
 export interface FiltrosFinanceiro {
   periodo: FiltroPeriodo
@@ -55,7 +69,11 @@ function parseFiltros(params: URLSearchParams): FiltrosFinanceiro {
   }
 }
 
-function montarPath(filtros: FiltrosFinanceiro, recurso: string): string {
+function montarPath(
+  filtros: FiltrosFinanceiro,
+  recurso: string,
+  opcoes?: { limit?: number; cursor?: string | null },
+): string {
   const params = new URLSearchParams()
   params.set("periodo", filtros.periodo)
   if (filtros.periodo === "custom" && filtros.de && filtros.ate) {
@@ -66,6 +84,8 @@ function montarPath(filtros: FiltrosFinanceiro, recurso: string): string {
   if (recurso === "/receitas" && filtros.forma_pagamento) {
     params.set("forma_pagamento", filtros.forma_pagamento)
   }
+  if (opcoes?.limit) params.set("limit", String(opcoes.limit))
+  if (opcoes?.cursor) params.set("cursor", opcoes.cursor)
   return `/v1/financeiro${recurso}?${params.toString()}`
 }
 
@@ -84,7 +104,6 @@ function montarQueryString(filtros: FiltrosFinanceiro): string {
 }
 
 export function useFinanceiro() {
-  const router = useRouter()
   const searchParams = useSearchParams()
 
   const filtros = useMemo(
@@ -99,9 +118,12 @@ export function useFinanceiro() {
   const [pagamentos, setPagamentos] = useState<RepassesPagamentosListaResponse | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [error, setError] = useState<string | null>(null)
+  const [carregandoMaisReceitas, setCarregandoMaisReceitas] = useState(false)
+  const [carregandoMaisPagamentos, setCarregandoMaisPagamentos] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
   const firstLoadDone = useRef(false)
+  const limitAtual = LIMIT_POR_PERIODO[filtros.periodo]
 
   const fetchView = useCallback(async () => {
     if (abortRef.current) abortRef.current.abort()
@@ -114,6 +136,7 @@ export function useFinanceiro() {
     try {
       // Resumo sempre. Outras consultas só sob demanda da view.
       const promises: Promise<unknown>[] = []
+      const limit = LIMIT_POR_PERIODO[filtros.periodo]
       promises.push(
         api<FinanceiroResumoResponse>(montarPath(filtros, ""), { signal: ctrl.signal })
           .then(setResumo)
@@ -126,8 +149,10 @@ export function useFinanceiro() {
       }
       if (filtros.view === "receitas") {
         promises.push(
-          api<ReceitasListaResponse>(montarPath(filtros, "/receitas"), { signal: ctrl.signal })
-            .then(setReceitas)
+          api<ReceitasListaResponse>(
+            montarPath(filtros, "/receitas", { limit }),
+            { signal: ctrl.signal },
+          ).then(setReceitas),
         )
       }
       if (filtros.view === "repasses") {
@@ -136,8 +161,10 @@ export function useFinanceiro() {
             .then(setRepasses)
         )
         promises.push(
-          api<RepassesPagamentosListaResponse>(montarPath(filtros, "/repasses/pagamentos"), { signal: ctrl.signal })
-            .then(setPagamentos)
+          api<RepassesPagamentosListaResponse>(
+            montarPath(filtros, "/repasses/pagamentos", { limit }),
+            { signal: ctrl.signal },
+          ).then(setPagamentos),
         )
       }
       await Promise.all(promises)
@@ -155,6 +182,57 @@ export function useFinanceiro() {
     }
   }, [filtros])
 
+  // Paginação por cursor — anexa o próximo lote ao state atual mantendo a
+  // ordem. O backend devolve next_cursor=null quando esgota; a UI esconde o
+  // botão "carregar mais" nesse caso.
+  const carregarMaisReceitas = useCallback(async () => {
+    if (!receitas?.next_cursor || carregandoMaisReceitas) return
+    setCarregandoMaisReceitas(true)
+    try {
+      const proximo = await api<ReceitasListaResponse>(
+        montarPath(filtros, "/receitas", {
+          limit: limitAtual,
+          cursor: receitas.next_cursor,
+        }),
+      )
+      setReceitas({
+        filtro_aplicado: proximo.filtro_aplicado,
+        items: [...receitas.items, ...proximo.items],
+        next_cursor: proximo.next_cursor,
+      })
+    } catch (e) {
+      const detail = e instanceof ApiError ? e.detail
+        : e instanceof Error ? e.message : "Erro desconhecido"
+      setError(detail)
+    } finally {
+      setCarregandoMaisReceitas(false)
+    }
+  }, [receitas, filtros, limitAtual, carregandoMaisReceitas])
+
+  const carregarMaisPagamentos = useCallback(async () => {
+    if (!pagamentos?.next_cursor || carregandoMaisPagamentos) return
+    setCarregandoMaisPagamentos(true)
+    try {
+      const proximo = await api<RepassesPagamentosListaResponse>(
+        montarPath(filtros, "/repasses/pagamentos", {
+          limit: limitAtual,
+          cursor: pagamentos.next_cursor,
+        }),
+      )
+      setPagamentos({
+        filtro_aplicado: proximo.filtro_aplicado,
+        items: [...pagamentos.items, ...proximo.items],
+        next_cursor: proximo.next_cursor,
+      })
+    } catch (e) {
+      const detail = e instanceof ApiError ? e.detail
+        : e instanceof Error ? e.message : "Erro desconhecido"
+      setError(detail)
+    } finally {
+      setCarregandoMaisPagamentos(false)
+    }
+  }, [pagamentos, filtros, limitAtual, carregandoMaisPagamentos])
+
   useEffect(() => {
     // fetchView é async — setStates só rodam após o await; o lint detecta
     // a chamada como potencial setState síncrono, mas o caminho até lá passa
@@ -168,9 +246,16 @@ export function useFinanceiro() {
 
   const aplicarFiltros = useCallback(
     (proximo: FiltrosFinanceiro) => {
-      router.replace(`/financeiro${montarQueryString(proximo)}`, { scroll: false })
+      if (typeof window === "undefined") return
+      // Next 16: window.history.replaceState para mudancas de query string
+      // evita o round-trip de Server Components do router.replace e sincroniza
+      // com useSearchParams imediatamente. Corrige bug intermitente em que
+      // cliques rapidos nas abas (Visao geral / Receitas / Repasses) eram
+      // engolidos por uma transicao pendente. Doc: shallow routing em
+      // docs/01-app/01-getting-started/04-linking-and-navigating.md.
+      window.history.replaceState(null, "", `/financeiro${montarQueryString(proximo)}`)
     },
-    [router]
+    [],
   )
 
   const setPeriodoPreset = useCallback(
@@ -221,6 +306,12 @@ export function useFinanceiro() {
     setFormaPagamento,
     setView,
     refetch,
+    // Paginação por cursor — UI esconde "carregar mais" quando next_cursor=null.
+    carregarMaisReceitas,
+    carregarMaisPagamentos,
+    carregandoMaisReceitas,
+    carregandoMaisPagamentos,
+    limitAtual,
     // helpers para o componente:
     montarPathExport: (recurso: "/receitas/export" | "/repasses/pagamentos/export") =>
       montarPath(filtros, recurso),

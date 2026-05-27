@@ -164,6 +164,9 @@ function ViewReceitas({ fin }: { fin: ReturnType<typeof useFinanceiro> }) {
           loading={fin.status === "loading"}
           selectedId={selecionada?.atendimento_id ?? null}
           onSelect={setSelecionada}
+          onCarregarMais={fin.carregarMaisReceitas}
+          carregandoMais={fin.carregandoMaisReceitas}
+          proximoLote={fin.limitAtual}
         />
         <p className="mt-2 text-[11px] text-text-muted">
           <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">j</kbd>

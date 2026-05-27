@@ -1,8 +1,9 @@
 "use client"
 
 import { Fragment, useEffect, useRef } from "react"
-import { ChevronRight, AlertTriangle } from "lucide-react"
+import { ChevronRight, AlertTriangle, Loader2 } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatBRL, formatData, formatHorario } from "@/lib/formatters"
 import type {
   FormaPagamentoReceita,
@@ -15,6 +16,9 @@ interface ListaReceitasProps {
   loading: boolean
   selectedId: string | null
   onSelect: (linha: ReceitaLinha | null) => void
+  onCarregarMais?: () => void
+  carregandoMais?: boolean
+  proximoLote?: number
 }
 
 interface GrupoDia {
@@ -60,6 +64,9 @@ export function ListaReceitas({
   loading,
   selectedId,
   onSelect,
+  onCarregarMais,
+  carregandoMais = false,
+  proximoLote,
 }: ListaReceitasProps) {
   const selectedRowRef = useRef<HTMLDivElement | null>(null)
 
@@ -129,6 +136,9 @@ export function ListaReceitas({
         bruto={totais.bruto}
         repasse={totais.repasse}
         truncado={Boolean(lista.next_cursor)}
+        onCarregarMais={onCarregarMais}
+        carregandoMais={carregandoMais}
+        proximoLote={proximoLote}
       />
     </div>
   )
@@ -233,7 +243,7 @@ function LinhaReceita({
 
       {/* col 3: magnitude bar */}
       <div className="hidden sm:block">
-        <MagnitudeBar pct={magnitude} />
+        <MagnitudeBar pct={magnitude} bruto={linha.valor_bruto} maxBruto={maxBruto} />
       </div>
 
       {/* col 4: valor bruto + repasse */}
@@ -249,21 +259,53 @@ function LinhaReceita({
   )
 }
 
-function MagnitudeBar({ pct }: { pct: number }) {
+function MagnitudeBar({
+  pct,
+  bruto,
+  maxBruto,
+}: {
+  pct: number
+  bruto: number
+  maxBruto: number
+}) {
   // 2px de altura, dourado sólido. Sem track de fundo: o bar é apenas o sinal.
   // A largura é proporcional ao bruto vs o maior bruto da página visível —
   // isso transforma a coluna num "termômetro" relativo do recorte atual.
   const width = `${Math.max(pct * 100, 2)}%`
+  const pctTexto = (pct * 100).toFixed(pct >= 0.1 ? 0 : 1)
   return (
-    <div
-      aria-hidden="true"
-      className="relative h-[3px] w-full overflow-hidden rounded-full bg-border-subtle/40"
-    >
-      <div
-        className="absolute inset-y-0 left-0 rounded-full bg-[color:var(--gold-500)]"
-        style={{ width }}
-      />
-    </div>
+    <Tooltip>
+      <TooltipTrigger
+        type="button"
+        tabIndex={-1}
+        aria-label={`Magnitude: ${pctTexto}% do maior bruto da lista`}
+        className="block w-full cursor-default focus:outline-none"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <span
+          aria-hidden="true"
+          className="relative block h-[3px] w-full overflow-hidden rounded-full bg-border-subtle/40"
+        >
+          <span
+            className="absolute inset-y-0 left-0 rounded-full bg-[color:var(--gold-500)]"
+            style={{ width }}
+          />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="bg-card text-text-primary border border-border">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-[10.5px] font-semibold uppercase tracking-wide text-text-muted">
+            Magnitude relativa
+          </span>
+          <span className="tabular-nums">
+            <strong className="font-semibold">{pctTexto}%</strong> do maior bruto da lista atual
+          </span>
+          <span className="text-[10.5px] tabular-nums text-text-muted">
+            {formatBRL(bruto)} de {formatBRL(maxBruto)}
+          </span>
+        </div>
+      </TooltipContent>
+    </Tooltip>
   )
 }
 
@@ -334,18 +376,24 @@ function FooterTotal({
   bruto,
   repasse,
   truncado,
+  onCarregarMais,
+  carregandoMais,
+  proximoLote,
 }: {
   n: number
   bruto: number
   repasse: number
   truncado: boolean
+  onCarregarMais?: () => void
+  carregandoMais?: boolean
+  proximoLote?: number
 }) {
   const plural = n === 1 ? "linha" : "linhas"
   return (
     <div className="border-t border-border bg-muted/30">
       <div className="flex items-center justify-between gap-4 px-4 py-2.5">
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
-          Total · {n} {plural}
+          {truncado ? `Mostrando ${n} ${plural}` : `Total · ${n} ${plural}`}
         </span>
         <div className="flex items-baseline gap-3 text-xs tabular-nums">
           <span className="font-semibold text-text-primary">
@@ -356,7 +404,33 @@ function FooterTotal({
           </span>
         </div>
       </div>
-      {truncado && (
+      {truncado && onCarregarMais && (
+        <div className="border-t border-border/60 bg-muted/20 px-4 py-2 text-center">
+          <button
+            type="button"
+            onClick={onCarregarMais}
+            disabled={carregandoMais}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--gold-500)]/40 disabled:opacity-60"
+          >
+            {carregandoMais ? (
+              <>
+                <Loader2 className="size-3 animate-spin" />
+                Carregando…
+              </>
+            ) : (
+              <>
+                Carregar mais
+                {proximoLote ? (
+                  <span className="tabular-nums text-text-muted">
+                    · próximas {proximoLote}
+                  </span>
+                ) : null}
+              </>
+            )}
+          </button>
+        </div>
+      )}
+      {truncado && !onCarregarMais && (
         <div className="border-t border-border/60 bg-muted/20 px-4 py-1.5 text-center text-[11px] text-text-muted">
           Mais resultados disponíveis — refine o período ou modelo para ver tudo.
         </div>
