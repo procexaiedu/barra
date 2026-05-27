@@ -18,6 +18,7 @@ from typing import Any, ClassVar
 from arq import cron, func
 from arq.connections import RedisSettings
 from arq.cron import CronJob
+from openai import AsyncOpenAI
 
 from barra.agente.graph import build_graph
 from barra.core.db import criar_pool, fechar_pool
@@ -28,6 +29,7 @@ from barra.workers.coordenador import processar_turno
 from barra.workers.envio import enviar_card, enviar_turno
 from barra.workers.lembrete_valor import cobrar_valor_final
 from barra.workers.media import limpar_midias_vencidas, rotear_imagem
+from barra.workers.pix import validar_pix
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
@@ -104,12 +106,21 @@ async def startup(ctx: dict[str, Any]) -> None:
     ctx["minio"] = criar_minio(settings)
     ctx["evolution"] = EvolutionClient(settings)
     ctx["graph"] = build_graph()  # SEM checkpointer no P0 (01 §6.7)
+    # Cliente de vision para validar_pix (06 §0 item 4 + §2.3): OpenAI-compatível apontado para
+    # OpenRouter; instanciado uma vez e reutilizado entre invocações.
+    ctx["vision_client"] = AsyncOpenAI(
+        api_key=settings.openrouter_api_key or "",
+        base_url="https://openrouter.ai/api/v1",
+    )
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
     pool = ctx.get("db_pool")
     if pool is not None:
         await fechar_pool(pool)
+    vision_client = ctx.get("vision_client")
+    if vision_client is not None:
+        await vision_client.close()
 
 
 def _redis_settings(settings: Settings) -> RedisSettings:
@@ -134,6 +145,7 @@ class WorkerSettings:
         func(enviar_card),  # cards no grupo (05 §6); keep_result default (global 3600)
         func(enviar_turno),  # humanização do turno (05 §1/§4); keep_result default (global 3600)
         func(rotear_imagem),  # roteamento de imagem sob lock:conv (06 §2.1)
+        func(validar_pix),  # validação de comprovante (06 §2.2); keep_result default
     ]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),

@@ -1,3 +1,4 @@
+from decimal import Decimal
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import urlparse
@@ -106,6 +107,10 @@ class Settings(BaseSettings):
     lembrete_valor_max_toques: int = Field(
         default=3, ge=1,
         description="Máximo de cards de lembrete de valor antes de escalar para Fernando via handoff.",
+    )
+    pix_deslocamento_valor: Decimal = Field(
+        default=Decimal("100.00"),
+        description="Valor esperado do Pix de deslocamento, em BRL (06 §2.2/§0 item 6). Comparação é `valor >= esperado`: underpay → em_revisao; valor maior é aceito como validado.",
     )
 
     langchain_tracing_v2: bool = True

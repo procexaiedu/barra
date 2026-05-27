@@ -1,0 +1,12 @@
+{% if decisao == "validado" -%}
+✅ *Pix recebido #{{ numero_curto }}* — {{ cliente_nome }}
+Saída confirmada.
+{%- else -%}
+⚠️ *Pix recebido #{{ numero_curto }}* — {{ cliente_nome }}
+Confira antes de sair: {{ motivo_em_revisao }}
+{%- endif %}
+
+{% if endereco %}📍 {{ endereco }}{% endif %}
+{% if horario %}🕒 {{ horario.strftime('%H:%M') }}{% endif %}
+{% if valor_acordado %}💰 Combinado R$ {{ '%.2f' | format(valor_acordado) }}{% endif %}
+{% if valor_extraido %}💸 Deslocamento R$ {{ '%.2f' | format(valor_extraido) }}{% endif %}

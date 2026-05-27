@@ -146,6 +146,22 @@ ENVIO_RETRIES = Counter(
     "agente_envio_retries_total",
     "Execucoes do job enviar_turno que sao retry do ARQ (ctx job_try>1) (05 §9)",
 )
+# 06 §7: pipeline de validacao do Pix de deslocamento. timestamp foi dropado no MVP
+# (skew BRT vs UTC marca falso ~100% dos comprovantes) entao nao ha label timestamp.
+PIX_VALIDACAO_DURACAO = Histogram(
+    "agente_pix_validacao_duracao_seconds",
+    "Duracao do job validar_pix (download MinIO + vision OpenRouter + persistencia) (06 §7)",
+)
+PIX_VALIDACAO_DECISAO = Counter(
+    "agente_pix_validacao_decisao_total",
+    "Decisao do pipeline Pix; o fluxo nunca trava (01 §6.1) e ambas avancam o atendimento",
+    ["decisao"],  # validado | em_revisao
+)
+PIX_DIVERGENCIA = Counter(
+    "agente_pix_divergencia_total",
+    "Motivo que levou um comprovante a em_revisao (06 §7; sem timestamp por §0 item 11)",
+    ["motivo"],  # plausibilidade | valor | chave | titular
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):
