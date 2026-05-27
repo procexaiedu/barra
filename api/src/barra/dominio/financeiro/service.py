@@ -26,6 +26,7 @@ from barra.dominio.financeiro.schemas import (
     ComprovanteUploadResponse,
     FinanceiroResumo,
     FinanceiroResumoResponse,
+    FinanceiroSerieResponse,
     JanelaComparacao,
     PreencherRepasseRetroativoBody,
     PreencherRepasseRetroativoResponse,
@@ -69,6 +70,34 @@ async def montar_resumo(
         ),
         resumo=resumo,
         resumo_anterior=resumo_ant,
+    )
+
+
+# =============================================================================
+# Série / visão geral analítica
+# =============================================================================
+
+
+async def montar_serie(
+    conn: AsyncConnection,
+    *,
+    periodo: str,
+    janela: Janela,
+    modelo_ids: list[UUID] | None,
+    top_limite: int = 8,
+) -> FinanceiroSerieResponse:
+    """Série diária + mix forma de pagamento + top modelos do período.
+
+    Complemento analítico da visão geral (KPIs já vivem em /financeiro).
+    """
+    serie = await repo.serie_diaria(conn, janela, modelo_ids)
+    mix = await repo.mix_forma_pagamento(conn, janela, modelo_ids)
+    top = await repo.top_modelos(conn, janela, modelo_ids, top_limite)
+    return FinanceiroSerieResponse(
+        filtro_aplicado=filtro_aplicado_dict(periodo, janela, modelo_ids),
+        serie_diaria=serie,
+        mix_forma_pagamento=mix,
+        top_modelos=top,
     )
 
 

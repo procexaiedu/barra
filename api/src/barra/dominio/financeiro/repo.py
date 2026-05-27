@@ -22,7 +22,10 @@ from barra.dominio.financeiro.schemas import (
     ContextoCliente,
     ContextoModelo,
     ContextoModeloDia,
+    FinanceiroMixForma,
     FinanceiroResumo,
+    FinanceiroSerieDia,
+    FinanceiroTopModelo,
     ReceitaContextoResponse,
     ReceitaLinha,
     RepassePagoResponse,
@@ -669,6 +672,164 @@ async def listar_atendimentos_sem_snapshot(
             fechado_em=row["fechado_em"].isoformat(),
             cliente_nome=row["cliente_nome"],
             valor_bruto=round(float(row["valor_final"]), 2),
+        )
+        for row in rows
+    ]
+
+
+# =============================================================================
+# Série / visão geral analítica
+# =============================================================================
+
+
+async def serie_diaria(
+    conn: AsyncConnection[Any],
+    janela: Janela,
+    modelo_ids: list[UUID] | None,
+) -> list[FinanceiroSerieDia]:
+    """Agregado diário do período (gap-filled via generate_series).
+
+    Dia BRT = `e.created_at AT TIME ZONE 'America/Sao_Paulo'`. Receita filtra
+    pelo evento `fechado_registrado` (regime caixa, ADR 0011). Dias sem
+    fechamento retornam com zeros para não quebrar o eixo do chart.
+    """
+    params: list[Any] = [janela.de, janela.ate, janela.inicio, janela.fim]
+    filtro_modelo = ""
+    if modelo_ids:
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
+        params.append(modelo_ids)
+
+    sql = f"""
+        WITH dias AS (
+          SELECT generate_series(%s::date, %s::date, INTERVAL '1 day')::date AS dia
+        ),
+        agg AS (
+          SELECT
+            (e.created_at AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
+            COALESCE(SUM(a.valor_final), 0)::numeric AS bruto,
+            COALESCE(SUM(
+              a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+            ), 0)::numeric AS repasse_calc,
+            COALESCE(SUM(
+              a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+            ), 0)::numeric AS liquido,
+            COUNT(DISTINCT a.id)::int AS fechamentos
+            FROM barravips.atendimentos a
+            JOIN barravips.eventos e ON e.atendimento_id = a.id
+           WHERE a.estado = 'Fechado'
+             AND e.tipo = 'fechado_registrado'
+             AND e.created_at >= %s AND e.created_at <= %s
+             {filtro_modelo}
+           GROUP BY 1
+        )
+        SELECT dias.dia,
+               COALESCE(agg.bruto, 0)::numeric AS bruto,
+               COALESCE(agg.repasse_calc, 0)::numeric AS repasse_calc,
+               COALESCE(agg.liquido, 0)::numeric AS liquido,
+               COALESCE(agg.fechamentos, 0)::int AS fechamentos
+          FROM dias
+          LEFT JOIN agg ON agg.dia = dias.dia
+         ORDER BY dias.dia ASC
+    """
+    result = await conn.execute(sql, params)
+    rows = list(await result.fetchall())
+    return [
+        FinanceiroSerieDia(
+            dia=row["dia"].isoformat(),
+            bruto=round(float(row["bruto"]), 2),
+            repasse_calculado=round(float(row["repasse_calc"]), 2),
+            liquido=round(float(row["liquido"]), 2),
+            fechamentos=int(row["fechamentos"]),
+        )
+        for row in rows
+    ]
+
+
+async def mix_forma_pagamento(
+    conn: AsyncConnection[Any],
+    janela: Janela,
+    modelo_ids: list[UUID] | None,
+) -> list[FinanceiroMixForma]:
+    """Distribuição do bruto por forma_pagamento. NULL vira 'indefinido'."""
+    params: list[Any] = [janela.inicio, janela.fim]
+    filtro_modelo = ""
+    if modelo_ids:
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
+        params.append(modelo_ids)
+
+    sql = f"""
+        SELECT
+          COALESCE(a.forma_pagamento::text, 'indefinido') AS forma_pagamento,
+          COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto,
+          COUNT(DISTINCT a.id)::int AS fechamentos
+          FROM barravips.atendimentos a
+          JOIN barravips.eventos e ON e.atendimento_id = a.id
+         WHERE a.estado = 'Fechado'
+           AND e.tipo = 'fechado_registrado'
+           AND e.created_at >= %s AND e.created_at <= %s
+           {filtro_modelo}
+         GROUP BY 1
+         ORDER BY valor_bruto DESC, forma_pagamento ASC
+    """
+    result = await conn.execute(sql, params)
+    rows = list(await result.fetchall())
+    return [
+        FinanceiroMixForma(
+            forma_pagamento=row["forma_pagamento"],
+            valor_bruto=round(float(row["valor_bruto"]), 2),
+            fechamentos=int(row["fechamentos"]),
+        )
+        for row in rows
+    ]
+
+
+async def top_modelos(
+    conn: AsyncConnection[Any],
+    janela: Janela,
+    modelo_ids: list[UUID] | None,
+    limit: int,
+) -> list[FinanceiroTopModelo]:
+    """Top N modelos por bruto. Mesmas fórmulas do resumo (líquido = bruto - repasse)."""
+    params: list[Any] = [janela.inicio, janela.fim]
+    filtro_modelo = ""
+    if modelo_ids:
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
+        params.append(modelo_ids)
+    params.append(limit)
+
+    sql = f"""
+        SELECT
+          a.modelo_id,
+          m.nome AS modelo_nome,
+          COALESCE(SUM(a.valor_final), 0)::numeric AS bruto,
+          COALESCE(SUM(
+            a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+          ), 0)::numeric AS liquido,
+          COALESCE(SUM(
+            a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+          ), 0)::numeric AS repasse_calc,
+          COUNT(DISTINCT a.id)::int AS fechamentos
+          FROM barravips.atendimentos a
+          JOIN barravips.eventos e ON e.atendimento_id = a.id
+          JOIN barravips.modelos m ON m.id = a.modelo_id
+         WHERE a.estado = 'Fechado'
+           AND e.tipo = 'fechado_registrado'
+           AND e.created_at >= %s AND e.created_at <= %s
+           {filtro_modelo}
+         GROUP BY a.modelo_id, m.nome
+         ORDER BY bruto DESC, m.nome ASC
+         LIMIT %s
+    """
+    result = await conn.execute(sql, params)
+    rows = list(await result.fetchall())
+    return [
+        FinanceiroTopModelo(
+            modelo_id=row["modelo_id"],
+            modelo_nome=row["modelo_nome"],
+            bruto=round(float(row["bruto"]), 2),
+            liquido=round(float(row["liquido"]), 2),
+            repasse_calculado=round(float(row["repasse_calc"]), 2),
+            fechamentos=int(row["fechamentos"]),
         )
         for row in rows
     ]

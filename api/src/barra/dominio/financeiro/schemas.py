@@ -200,3 +200,42 @@ class ComprovanteUploadResponse(BaseModel):
 
 class ComprovanteUrlResponse(BaseModel):
     url: str  # presigned GET, expira
+
+
+# ----------------------- Série / visão geral analítica ----------------------
+
+
+class FinanceiroSerieDia(BaseModel):
+    """Agregado diário do período. Dias sem fechamento aparecem com zeros."""
+
+    dia: str  # AAAA-MM-DD (BRT)
+    bruto: float
+    repasse_calculado: float
+    liquido: float
+    fechamentos: int
+
+
+class FinanceiroMixForma(BaseModel):
+    """Distribuição da receita bruta por forma de pagamento (apenas Fechado)."""
+
+    forma_pagamento: str  # pix | dinheiro | cartao | outro | indefinido
+    valor_bruto: float
+    fechamentos: int
+
+
+class FinanceiroTopModelo(BaseModel):
+    """Top contribuintes do período, ordenado por bruto decrescente."""
+
+    modelo_id: UUID
+    modelo_nome: str
+    bruto: float
+    liquido: float
+    repasse_calculado: float
+    fechamentos: int
+
+
+class FinanceiroSerieResponse(BaseModel):
+    filtro_aplicado: dict[str, Any]
+    serie_diaria: list[FinanceiroSerieDia]
+    mix_forma_pagamento: list[FinanceiroMixForma]
+    top_modelos: list[FinanceiroTopModelo]

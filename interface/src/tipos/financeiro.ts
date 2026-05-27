@@ -146,3 +146,35 @@ export interface PreencherRepasseRetroativoInput {
   atendimento_ids: string[]
   percentual: number
 }
+
+// ---------- Série / visão geral analítica ----------
+
+export interface FinanceiroSerieDia {
+  dia: string // AAAA-MM-DD (BRT)
+  bruto: number
+  repasse_calculado: number
+  liquido: number
+  fechamentos: number
+}
+
+export interface FinanceiroMixForma {
+  forma_pagamento: string // pix | dinheiro | cartao | outro | indefinido
+  valor_bruto: number
+  fechamentos: number
+}
+
+export interface FinanceiroTopModelo {
+  modelo_id: string
+  modelo_nome: string
+  bruto: number
+  liquido: number
+  repasse_calculado: number
+  fechamentos: number
+}
+
+export interface FinanceiroSerieResponse {
+  filtro_aplicado: FiltroAplicado
+  serie_diaria: FinanceiroSerieDia[]
+  mix_forma_pagamento: FinanceiroMixForma[]
+  top_modelos: FinanceiroTopModelo[]
+}

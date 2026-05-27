@@ -6,6 +6,7 @@ import { api, ApiError } from "@/lib/api"
 import type { FiltroPeriodo } from "@/tipos/dashboard"
 import type {
   FinanceiroResumoResponse,
+  FinanceiroSerieResponse,
   FormaPagamentoReceita,
   ReceitasListaResponse,
   RepassesPagamentosListaResponse,
@@ -92,6 +93,7 @@ export function useFinanceiro() {
   )
 
   const [resumo, setResumo] = useState<FinanceiroResumoResponse | null>(null)
+  const [serie, setSerie] = useState<FinanceiroSerieResponse | null>(null)
   const [receitas, setReceitas] = useState<ReceitasListaResponse | null>(null)
   const [repasses, setRepasses] = useState<RepassesPorModeloResponse | null>(null)
   const [pagamentos, setPagamentos] = useState<RepassesPagamentosListaResponse | null>(null)
@@ -116,6 +118,12 @@ export function useFinanceiro() {
         api<FinanceiroResumoResponse>(montarPath(filtros, ""), { signal: ctrl.signal })
           .then(setResumo)
       )
+      if (filtros.view === "geral") {
+        promises.push(
+          api<FinanceiroSerieResponse>(montarPath(filtros, "/serie"), { signal: ctrl.signal })
+            .then(setSerie)
+        )
+      }
       if (filtros.view === "receitas") {
         promises.push(
           api<ReceitasListaResponse>(montarPath(filtros, "/receitas"), { signal: ctrl.signal })
@@ -203,6 +211,7 @@ export function useFinanceiro() {
     status,
     error,
     resumo,
+    serie,
     receitas,
     repasses,
     pagamentos,

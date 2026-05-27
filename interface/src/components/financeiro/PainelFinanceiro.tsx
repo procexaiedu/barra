@@ -1,15 +1,26 @@
 "use client"
 
 import { Skeleton } from "@/components/ui/skeleton"
-import type { FinanceiroResumo, FinanceiroResumoResponse } from "@/tipos/financeiro"
+import type {
+  FinanceiroResumo,
+  FinanceiroResumoResponse,
+  FinanceiroSerieResponse,
+} from "@/tipos/financeiro"
 import { KpiCard } from "./KpiCard"
+import { ChartReceitaDiaria } from "./charts/ChartReceitaDiaria"
+import { ChartTopModelos } from "./charts/ChartTopModelos"
+import { ChartMixForma } from "./charts/ChartMixForma"
 
 export function PainelFinanceiro({
   resumo,
+  serie,
   loading,
+  onSelecionarModelo,
 }: {
   resumo: FinanceiroResumoResponse | null
+  serie: FinanceiroSerieResponse | null
   loading: boolean
+  onSelecionarModelo?: (modeloId: string) => void
 }) {
   if (loading && !resumo) {
     return (
@@ -23,6 +34,11 @@ export function PainelFinanceiro({
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-[112px] rounded-md" />
           ))}
+        </div>
+        <Skeleton className="h-[260px] w-full rounded-md" />
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+          <Skeleton className="h-[260px] rounded-md lg:col-span-2" />
+          <Skeleton className="h-[260px] rounded-md" />
         </div>
       </div>
     )
@@ -51,10 +67,16 @@ export function PainelFinanceiro({
       ? "success"
       : "warning"
 
-  const semRepasseLimpo = r.fechamentos_sem_snapshot === 0
+  // Ticket médio = bruto / fechamentos. Útil contra outliers nos KPIs absolutos.
+  const ticketMedio =
+    r.fechamentos_total > 0 ? r.valor_bruto_brl / r.fechamentos_total : 0
+  const ticketMedioAnterior =
+    ant && ant.fechamentos_total > 0
+      ? ant.valor_bruto_brl / ant.fechamentos_total
+      : null
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {janela && (
         <div className="text-[11px] tabular-nums text-text-muted">
           deltas vs {janela.de} → {janela.ate}
@@ -123,20 +145,44 @@ export function PainelFinanceiro({
           }
         />
         <KpiCard
-          rotulo="Sem repasse definido"
-          valor={r.valor_sem_repasse_definido_brl}
-          anterior={ant?.valor_sem_repasse_definido_brl ?? null}
-          tom={semRepasseLimpo ? "muted" : "warning"}
-          sentido="maior_pior"
-          okQuando={semRepasseLimpo}
-          okTexto="todos com % definido"
+          rotulo="Ticket médio"
+          valor={ticketMedio}
+          anterior={ticketMedioAnterior}
           hint={
-            semRepasseLimpo
-              ? "atendimentos sem percentual aparecem aqui"
-              : `${r.fechamentos_sem_snapshot} atendimento${r.fechamentos_sem_snapshot > 1 ? "s" : ""} para revisar`
+            r.fechamentos_total > 0
+              ? `= bruto / ${r.fechamentos_total} fechamento${r.fechamentos_total === 1 ? "" : "s"}`
+              : "sem fechamentos no período"
           }
         />
       </div>
+
+      <ChartReceitaDiaria serie={serie?.serie_diaria ?? []} />
+
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          <ChartTopModelos
+            itens={serie?.top_modelos ?? []}
+            onSelecionarModelo={onSelecionarModelo}
+          />
+        </div>
+        <ChartMixForma itens={serie?.mix_forma_pagamento ?? []} />
+      </div>
+
+      {r.fechamentos_sem_snapshot > 0 && (
+        <div className="rounded-md border border-warn-500/30 bg-warn-500/[0.04] px-3 py-2 text-[12px] text-warn-500">
+          <span className="font-medium">{r.fechamentos_sem_snapshot}</span>{" "}
+          atendimento{r.fechamentos_sem_snapshot === 1 ? "" : "s"} sem % de
+          repasse definido (
+          <span className="tabular-nums">
+            {new Intl.NumberFormat("pt-BR", {
+              style: "currency",
+              currency: "BRL",
+            }).format(r.valor_sem_repasse_definido_brl)}
+          </span>
+          ). Acesse a aba Repasses para preencher retroativamente.
+        </div>
+      )}
+
     </div>
   )
 }

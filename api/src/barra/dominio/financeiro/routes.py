@@ -27,6 +27,7 @@ from barra.dominio.financeiro.schemas import (
     ComprovanteUploadResponse,
     ComprovanteUrlResponse,
     FinanceiroResumoResponse,
+    FinanceiroSerieResponse,
     PreencherRepasseRetroativoBody,
     PreencherRepasseRetroativoResponse,
     ReceitaContextoResponse,
@@ -58,6 +59,25 @@ async def get_resumo(
 ) -> FinanceiroResumoResponse:
     janela = resolver_janela(periodo, de, ate)
     return await service.montar_resumo(
+        conn, periodo=periodo, janela=janela, modelo_ids=modelo_id
+    )
+
+
+# =============================================================================
+# Série / visão geral analítica
+# =============================================================================
+
+
+@router.get("/serie")
+async def get_serie(
+    periodo: Periodo = "mes",
+    de: date | None = None,
+    ate: date | None = None,
+    modelo_id: Annotated[list[UUID] | None, Query()] = None,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> FinanceiroSerieResponse:
+    janela = resolver_janela(periodo, de, ate)
+    return await service.montar_serie(
         conn, periodo=periodo, janela=janela, modelo_ids=modelo_id
     )
 
