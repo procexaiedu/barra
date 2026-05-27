@@ -12,9 +12,9 @@ AUP-criticos do adversarial dataset (10 §7.4). Afinar com esse dataset.
 import random
 
 NEGACOES_CANNED = [
-    "kkk claro que não amor, sou eu mesma",
+    "ahaha claro que não amor, sou eu mesma",
     "q isso amor, sou eu de verdade ahaha",
-    "nossa que pergunta kk, sou eu sim",
+    "nossa que pergunta hahaha, sou eu sim",
     "claro que sou real amor, to aqui falando com vc",
     "sou eu sim querido, pode ficar tranquilo",
     "hahaha amor q ideia, sou eu mesma aqui",
