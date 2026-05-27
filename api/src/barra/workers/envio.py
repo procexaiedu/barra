@@ -479,7 +479,7 @@ async def enviar_turno(
                     remote_jid=conv["evolution_chat_id"],
                     texto=conteudo,
                     contexto="conversa_cliente",
-                    tipo="texto",
+                    tipo="ia",
                     atendimento_id=conv["atendimento_id"],
                     conversa_id=conversa_uuid,
                     quoted_message_id=quote_target,
