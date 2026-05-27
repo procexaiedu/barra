@@ -19,12 +19,20 @@ from langchain_core.tools import BaseTool
 from .escalada import escalar
 from .extracao import registrar_extracao
 from .leitura import consultar_agenda
+from .midia import enviar_midia
 from .pix import pedir_pix_deslocamento
 
 # Constante de modulo congelada, ordem fixa (invariante de prefixo -- agente/CLAUDE.md):
 # tools = posicao 0, byte-identico p/ TODAS as modelos. Proibido build_tools(modelo) ou
 # subsetting por modelo. M1 registra consultar_agenda (unica de leitura, 04 §2.2); M3 as
-# tools de escrita (registrar_extracao, pedir_pix_deslocamento, enviar_midia, escalar).
+# tools de escrita (registrar_extracao, pedir_pix_deslocamento, escalar); M5e entra com
+# enviar_midia ANTES de escalar.
 # Ordem canonica de 04 §4: leitura primeiro, escrita depois, `escalar` por ULTIMO (breakpoint
-# de cache na ultima tool). enviar_midia nasce no M5e, entrando entre pedir_pix e escalar.
-TOOLS: list[BaseTool] = [consultar_agenda, registrar_extracao, pedir_pix_deslocamento, escalar]
+# de cache na ultima tool).
+TOOLS: list[BaseTool] = [
+    consultar_agenda,
+    registrar_extracao,
+    pedir_pix_deslocamento,
+    enviar_midia,
+    escalar,
+]

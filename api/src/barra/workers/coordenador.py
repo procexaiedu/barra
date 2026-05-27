@@ -161,14 +161,6 @@ async def processar_turno(
                         None,
                     )
                     texto = _extrair_texto(ai_final) if ai_final is not None else ""
-                    # midias e critico dependem de barravips.tool_calls (M3a) + write tools
-                    # (M3d/M3e): no M3b o grafo so produz texto, entao ambos sao vazios.
-                    midias: list[
-                        dict[str, Any]
-                    ] = []  # TODO(M4d): coletar enviar_midia de tool_calls
-                    critico = (
-                        False  # TODO(M3d/M3e): turno critico via tool_calls (pedir_pix/extracao)
-                    )
 
                     async with pool.connection() as conn:
                         res = await conn.execute(
@@ -185,6 +177,41 @@ async def processar_turno(
                             (conv_uuid, conv_uuid),
                         )
                         inbound = await res.fetchall()
+
+                        # midias (04 §3.3 final): coleta as chamadas de `enviar_midia` deste
+                        # turno em ordem de `call_idx` (ordinal injetado pelo no `tools`), p/
+                        # o `enviar_turno` despachar apos os chunks de texto (05 §5).
+                        res = await conn.execute(
+                            """
+                            SELECT payload->>'midia_id' AS midia_id,
+                                   payload->>'legenda'  AS legenda
+                              FROM barravips.tool_calls
+                             WHERE turno_id = %s AND tool_name = 'enviar_midia'
+                             ORDER BY call_idx
+                            """,
+                            (turno_id,),
+                        )
+                        midias: list[dict[str, Any]] = [dict(r) for r in await res.fetchall()]
+
+                        # critico (07 §3 passo 8 / 05 §3): write tool COM EFEITO ja commitada --
+                        # a msg ao cliente (chave Pix, confirmacao) nao pode ser cancelada nem
+                        # perdida. pedir_pix SEMPRE conta; registrar_extracao so quando CAUSOU
+                        # transicao (marcar toda registrar_extracao mataria o cancel). O flag
+                        # vai no PAYLOAD do job (05 §7), nao no Redis -- TTL pode expirar antes
+                        # da ultima retry com backoff.
+                        res = await conn.execute(
+                            """
+                            SELECT 1 FROM barravips.tool_calls
+                             WHERE turno_id = %s
+                               AND ( tool_name = 'pedir_pix_deslocamento'
+                                  OR ( tool_name = 'registrar_extracao'
+                                       AND resultado->>'novo_estado' IS NOT NULL ) )
+                             LIMIT 1
+                            """,
+                            (turno_id,),
+                        )
+                        critico = await res.fetchone() is not None
+
                     msg_ids_cliente: list[str] = [r["evolution_message_id"] for r in inbound]
                     chars_inbound = sum(len(r["conteudo"] or "") for r in inbound)
 
