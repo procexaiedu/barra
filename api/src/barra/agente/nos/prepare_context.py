@@ -253,8 +253,9 @@ def _injetar_reminder_se_necessario(
     ultima = historico[ultima_user_idx]
     novo_conteudo = (
         f"<lembrete_silencioso>"
-        f"Persona ativa. Sem saudação formal. Fase: {fase}. "
-        f"Não use 'como posso ajudar', 'genuinamente', 'absolutamente'. Sem bullets."
+        f"Mantenha o tom WhatsApp informal e a persona. "
+        f"Fase do atendimento: {fase}. "
+        f"Responda direto, como amiga digitando no celular."
         f"</lembrete_silencioso>\n\n"
         f"{ultima.content}"
     )
