@@ -1,13 +1,7 @@
 "use client"
 
-import { useMemo } from "react"
-import {
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip as RechartsTooltip,
-} from "recharts"
+import { useMemo, useState } from "react"
+import { cn } from "@/lib/utils"
 import { formatBRL } from "@/lib/formatters"
 import type { FinanceiroMixForma } from "@/tipos/financeiro"
 import { ChartShell } from "./ChartReceitaDiaria"
@@ -25,8 +19,8 @@ interface Fatia {
   cor: string
 }
 
-// Ordem canônica do enum + 'indefinido'. Cor fixa por forma — não permutar para
-// que a mesma forma de pagamento mantenha o mesmo tom entre períodos/telas.
+// Ordem canônica do enum + 'indefinido'. Cor fixa por forma — não permutar
+// pra que a mesma forma mantenha o mesmo tom entre períodos/telas.
 const ORDEM: Array<{ id: string; rotulo: string; cor: string }> = [
   { id: "pix", rotulo: "Pix", cor: "var(--chart-1)" },
   { id: "dinheiro", rotulo: "Dinheiro", cor: "var(--chart-3)" },
@@ -36,12 +30,15 @@ const ORDEM: Array<{ id: string; rotulo: string; cor: string }> = [
 ]
 
 const PCT_FMT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 })
+const PCT_FINO = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 })
 
 export function ChartMixForma({ itens }: Props) {
-  const { fatias, total } = useMemo(() => {
+  const [hover, setHover] = useState<string | null>(null)
+
+  const { fatias, total, ativas } = useMemo(() => {
     const total = itens.reduce((acc, x) => acc + x.valor_bruto, 0)
     const mapa = new Map(itens.map((x) => [x.forma_pagamento, x]))
-    const fatias = ORDEM.map((o) => {
+    const fatias = ORDEM.map<Fatia>((o) => {
       const f = mapa.get(o.id)
       const valor = f?.valor_bruto ?? 0
       return {
@@ -53,15 +50,14 @@ export function ChartMixForma({ itens }: Props) {
         cor: o.cor,
       }
     })
-    return { fatias, total }
+    const ativas = fatias.filter((f) => f.valor > 0)
+    return { fatias, total, ativas }
   }, [itens])
-
-  const fatiasVisiveis = fatias.filter((f) => f.valor > 0)
 
   if (total === 0) {
     return (
       <ChartShell titulo="Mix forma de pagamento">
-        <div className="flex h-[220px] items-center justify-center text-sm text-text-muted">
+        <div className="flex h-[180px] items-center justify-center text-sm text-text-muted">
           Sem fechamentos no período.
         </div>
       </ChartShell>
@@ -71,73 +67,84 @@ export function ChartMixForma({ itens }: Props) {
   return (
     <ChartShell
       titulo="Mix forma de pagamento"
-      hint={`${fatiasVisiveis.length} formas registradas`}
+      hint={`${ativas.length} forma${ativas.length === 1 ? "" : "s"} registrada${ativas.length === 1 ? "" : "s"}`}
     >
-      <div className="grid grid-cols-[140px_1fr] items-center gap-3">
-        <div className="relative h-[140px] w-[140px]">
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={fatiasVisiveis}
-                dataKey="valor"
-                nameKey="rotulo"
-                innerRadius="62%"
-                outerRadius="100%"
-                paddingAngle={fatiasVisiveis.length > 1 ? 2 : 0}
-                stroke="var(--card)"
-                strokeWidth={2}
-                isAnimationActive={false}
-              >
-                {fatiasVisiveis.map((f) => (
-                  <Cell key={f.forma} fill={f.cor} style={{ outline: "none" }} />
-                ))}
-              </Pie>
-              <RechartsTooltip
-                wrapperStyle={{ outline: "none" }}
-                content={<TooltipMix />}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-[10px] uppercase tracking-[0.14em] text-text-muted">
-              Bruto
-            </span>
-            <span className="text-[13px] font-semibold tabular-nums text-text-primary">
-              {formatBRL(total)}
-            </span>
-          </div>
+      <div className="flex flex-col gap-3">
+        {/* Total como heading próprio — fora da área de hover, sem conflito. */}
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted">
+            Bruto recebido
+          </span>
+          <span className="text-[18px] font-semibold tabular-nums text-text-primary">
+            {formatBRL(total)}
+          </span>
         </div>
 
-        <ul className="flex flex-col gap-1">
+        {/* Barra horizontal 100% stacked. Segmentos clicáveis para destacar a
+            linha da legenda; legenda destaca a barra. Padrão GitHub/Stripe/
+            Linear quando uma fatia domina. */}
+        <BarraStacked
+          ativas={ativas}
+          hover={hover}
+          onHover={setHover}
+        />
+
+        <ul className="flex flex-col gap-0.5">
           {fatias.map((f) => {
             const inativo = f.valor === 0
+            const realcado = hover === f.forma
             return (
               <li
                 key={f.forma}
-                className="grid grid-cols-[10px_1fr_auto] items-baseline gap-2"
+                onMouseEnter={() => !inativo && setHover(f.forma)}
+                onMouseLeave={() => setHover(null)}
+                className={cn(
+                  "grid grid-cols-[10px_1fr_auto_44px] items-baseline gap-2 rounded-sm px-1 py-1 transition-colors",
+                  inativo ? "opacity-60" : "cursor-default",
+                  realcado && "bg-muted/40",
+                )}
               >
                 <span
                   aria-hidden
                   className="inline-block size-2 rounded-sm"
-                  style={{ background: f.cor, opacity: inativo ? 0.3 : 1 }}
+                  style={{ background: f.cor, opacity: inativo ? 0.35 : 1 }}
                 />
                 <span
-                  className={
-                    inativo
-                      ? "truncate text-[12px] text-text-muted"
-                      : "truncate text-[12px] text-text-primary"
-                  }
+                  className={cn(
+                    "truncate text-[12.5px]",
+                    inativo ? "text-text-muted" : "text-text-primary",
+                  )}
                 >
                   {f.rotulo}
+                  {f.fechamentos > 0 && (
+                    <span className="ml-1.5 text-[10.5px] text-text-disabled tabular-nums">
+                      · {f.fechamentos} fech.
+                    </span>
+                  )}
                 </span>
                 <span
-                  className={
-                    inativo
-                      ? "text-[11px] tabular-nums text-text-disabled"
-                      : "text-[11px] tabular-nums text-text-secondary"
-                  }
+                  className={cn(
+                    "text-right text-[12px] tabular-nums",
+                    inativo ? "text-text-disabled" : "text-text-secondary",
+                  )}
                 >
-                  {PCT_FMT.format(f.pct)}%
+                  {inativo ? "—" : formatBRL(f.valor)}
+                </span>
+                <span
+                  className={cn(
+                    "text-right text-[12px] font-medium tabular-nums",
+                    inativo
+                      ? "text-text-disabled"
+                      : realcado
+                        ? "text-text-primary"
+                        : "text-text-secondary",
+                  )}
+                >
+                  {inativo
+                    ? "0%"
+                    : f.pct < 1
+                      ? `${PCT_FINO.format(f.pct)}%`
+                      : `${PCT_FMT.format(f.pct)}%`}
                 </span>
               </li>
             )
@@ -148,26 +155,54 @@ export function ChartMixForma({ itens }: Props) {
   )
 }
 
-function TooltipMix({
-  active,
-  payload,
+// ---------- Barra empilhada 100% ----------
+
+function BarraStacked({
+  ativas,
+  hover,
+  onHover,
 }: {
-  active?: boolean
-  payload?: Array<{ payload: Fatia }>
+  ativas: Fatia[]
+  hover: string | null
+  onHover: (forma: string | null) => void
 }) {
-  if (!active || !payload?.length) return null
-  const p = payload[0].payload
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-lg shadow-black/40">
-      <div className="mb-1 font-medium text-text-primary">{p.rotulo}</div>
-      <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 tabular-nums">
-        <dt className="text-text-muted">Bruto</dt>
-        <dd className="text-right text-text-primary">{formatBRL(p.valor)}</dd>
-        <dt className="text-text-muted">Fechamentos</dt>
-        <dd className="text-right text-text-secondary">{p.fechamentos}</dd>
-        <dt className="text-text-muted">% do mix</dt>
-        <dd className="text-right text-text-secondary">{PCT_FMT.format(p.pct)}%</dd>
-      </dl>
+    <div
+      className="flex h-9 w-full overflow-hidden rounded-sm bg-muted/30 ring-1 ring-inset ring-border/50"
+      role="group"
+      aria-label="Distribuição da receita por forma de pagamento"
+    >
+      {ativas.map((f, i) => {
+        const dim = hover !== null && hover !== f.forma
+        return (
+          <button
+            key={f.forma}
+            type="button"
+            onMouseEnter={() => onHover(f.forma)}
+            onMouseLeave={() => onHover(null)}
+            onFocus={() => onHover(f.forma)}
+            onBlur={() => onHover(null)}
+            className={cn(
+              "group/seg relative h-full transition-opacity duration-150 focus:outline-none",
+              i > 0 && "border-l border-card",
+              dim && "opacity-35",
+            )}
+            style={{ width: `${f.pct}%`, background: f.cor }}
+            aria-label={`${f.rotulo}: ${formatBRL(f.valor)} (${PCT_FMT.format(f.pct)}%)`}
+            title={`${f.rotulo} — ${formatBRL(f.valor)} (${PCT_FMT.format(f.pct)}%)`}
+          >
+            {/* Rótulo inline só para fatias ≥ 15% (cabe sem amassar) */}
+            {f.pct >= 15 && (
+              <span
+                className="pointer-events-none absolute inset-0 flex items-center justify-center text-[10.5px] font-semibold uppercase tracking-[0.06em]"
+                style={{ color: "var(--on-brand)" }}
+              >
+                {PCT_FMT.format(f.pct)}%
+              </span>
+            )}
+          </button>
+        )
+      })}
     </div>
   )
 }
