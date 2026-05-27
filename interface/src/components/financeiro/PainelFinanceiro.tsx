@@ -1,15 +1,39 @@
 "use client"
 
+import { useMemo } from "react"
 import { Skeleton } from "@/components/ui/skeleton"
 import type {
   FinanceiroResumo,
   FinanceiroResumoResponse,
+  FinanceiroSerieDia,
   FinanceiroSerieResponse,
 } from "@/tipos/financeiro"
 import { KpiCard } from "./KpiCard"
+import { StatusRepasses } from "./StatusRepasses"
 import { ChartReceitaDiaria } from "./charts/ChartReceitaDiaria"
 import { ChartTopModelos } from "./charts/ChartTopModelos"
 import { ChartMixForma } from "./charts/ChartMixForma"
+
+interface SeriesSpark {
+  bruto: number[]
+  liquido: number[]
+  fechamentos: number[]
+  ticket: number[]
+}
+
+function derivarSparklines(serie: FinanceiroSerieDia[]): SeriesSpark {
+  // Serie pode chegar curta; o Sparkline trata <2 pontos sozinho.
+  return serie.reduce<SeriesSpark>(
+    (acc, d) => {
+      acc.bruto.push(d.bruto)
+      acc.liquido.push(d.liquido)
+      acc.fechamentos.push(d.fechamentos)
+      acc.ticket.push(d.fechamentos > 0 ? d.bruto / d.fechamentos : 0)
+      return acc
+    },
+    { bruto: [], liquido: [], fechamentos: [], ticket: [] },
+  )
+}
 
 export function PainelFinanceiro({
   resumo,
@@ -22,18 +46,22 @@ export function PainelFinanceiro({
   loading: boolean
   onSelecionarModelo?: (modeloId: string) => void
 }) {
+  const sparks = useMemo(
+    () => derivarSparklines(serie?.serie_diaria ?? []),
+    [serie?.serie_diaria],
+  )
+
   if (loading && !resumo) {
     return (
       <div className="space-y-3">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-[112px] rounded-md" />
+            <Skeleton key={i} className="h-[124px] rounded-md" />
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <Skeleton key={i} className="h-[112px] rounded-md" />
-          ))}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <Skeleton className="h-[148px] rounded-md sm:col-span-2" />
+          <Skeleton className="h-[148px] rounded-md" />
         </div>
         <Skeleton className="h-[260px] w-full rounded-md" />
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
@@ -48,24 +76,6 @@ export function PainelFinanceiro({
   const r: FinanceiroResumo = resumo.resumo
   const ant = resumo.resumo_anterior
   const janela = resumo.janela_comparacao
-
-  const pctRepasseDoBruto =
-    r.valor_bruto_brl > 0
-      ? `${((r.valor_repasse_calculado_brl / r.valor_bruto_brl) * 100).toFixed(1)}% do bruto`
-      : undefined
-
-  const pctPagoDoCalculado =
-    r.valor_repasse_calculado_brl > 0
-      ? (r.valor_repasse_pago_brl / r.valor_repasse_calculado_brl) * 100
-      : 0
-
-  const saldoZero = r.valor_saldo_repasse_brl === 0
-  const saldoNegativo = r.valor_saldo_repasse_brl < 0
-  const tomSaldo = saldoNegativo
-    ? "danger"
-    : saldoZero
-      ? "success"
-      : "warning"
 
   // Ticket médio = bruto / fechamentos. Útil contra outliers nos KPIs absolutos.
   const ticketMedio =
@@ -83,66 +93,23 @@ export function PainelFinanceiro({
         </div>
       )}
 
+      {/* Primários: 3 KPIs above-the-fold com sparkline.
+          Líquido em primeiro (hero gold) — é o resultado da agência. */}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-        <KpiCard
-          rotulo="Faturamento bruto"
-          valor={r.valor_bruto_brl}
-          anterior={ant?.valor_bruto_brl ?? null}
-        />
-        <KpiCard
-          rotulo="Repasses (calculado)"
-          valor={r.valor_repasse_calculado_brl}
-          anterior={ant?.valor_repasse_calculado_brl ?? null}
-          sentido="neutro"
-          hint={pctRepasseDoBruto}
-        />
         <KpiCard
           rotulo="Líquido da agência"
           valor={r.valor_liquido_brl}
           anterior={ant?.valor_liquido_brl ?? null}
           tom="brand"
           destaque
-          hint="= bruto − repasse"
-        />
-      </div>
-
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard
-          rotulo="Repasses pagos"
-          valor={r.valor_repasse_pago_brl}
-          anterior={ant?.valor_repasse_pago_brl ?? null}
-          sentido="neutro"
-          progresso={pctPagoDoCalculado}
-          trailing={
-            r.valor_repasse_calculado_brl > 0
-              ? `${pctPagoDoCalculado.toFixed(0)}%`
-              : undefined
-          }
+          hint="bruto − repasse calculado"
+          sparkline={sparks.liquido}
         />
         <KpiCard
-          rotulo="Saldo a pagar"
-          valor={r.valor_saldo_repasse_brl}
-          anterior={ant?.valor_saldo_repasse_brl ?? null}
-          tom={tomSaldo}
-          sentido="maior_pior"
-          hint={
-            saldoNegativo
-              ? "pago a mais (estorno?)"
-              : saldoZero
-                ? "tudo em dia"
-                : "= calculado − pagos"
-          }
-        />
-        <KpiCard
-          rotulo="Fechamentos"
-          valor={r.fechamentos_total}
-          anterior={ant?.fechamentos_total ?? null}
-          formato="int"
-          hint={
-            r.fechamentos_sem_snapshot > 0
-              ? `${r.fechamentos_sem_snapshot} sem % definido`
-              : undefined
-          }
+          rotulo="Faturamento bruto"
+          valor={r.valor_bruto_brl}
+          anterior={ant?.valor_bruto_brl ?? null}
+          sparkline={sparks.bruto}
         />
         <KpiCard
           rotulo="Ticket médio"
@@ -150,9 +117,38 @@ export function PainelFinanceiro({
           anterior={ticketMedioAnterior}
           hint={
             r.fechamentos_total > 0
-              ? `= bruto / ${r.fechamentos_total} fechamento${r.fechamentos_total === 1 ? "" : "s"}`
+              ? `${r.fechamentos_total} fechamento${r.fechamentos_total === 1 ? "" : "s"}`
               : "sem fechamentos no período"
           }
+          sparkline={sparks.ticket}
+        />
+      </div>
+
+      {/* Status (composto) + Fechamentos. O bloco composto conta a história
+          quanto deve / quanto pagou / quanto falta, com progresso visual. */}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        <div className="sm:col-span-2">
+          <StatusRepasses
+            calculado={r.valor_repasse_calculado_brl}
+            pago={r.valor_repasse_pago_brl}
+            saldo={r.valor_saldo_repasse_brl}
+            bruto={r.valor_bruto_brl}
+            semSnapshot={
+              r.fechamentos_sem_snapshot > 0
+                ? {
+                    qtd: r.fechamentos_sem_snapshot,
+                    valor: r.valor_sem_repasse_definido_brl,
+                  }
+                : undefined
+            }
+          />
+        </div>
+        <KpiCard
+          rotulo="Fechamentos"
+          valor={r.fechamentos_total}
+          anterior={ant?.fechamentos_total ?? null}
+          formato="int"
+          sparkline={sparks.fechamentos}
         />
       </div>
 
@@ -167,22 +163,6 @@ export function PainelFinanceiro({
         </div>
         <ChartMixForma itens={serie?.mix_forma_pagamento ?? []} />
       </div>
-
-      {r.fechamentos_sem_snapshot > 0 && (
-        <div className="rounded-md border border-warn-500/30 bg-warn-500/[0.04] px-3 py-2 text-[12px] text-warn-500">
-          <span className="font-medium">{r.fechamentos_sem_snapshot}</span>{" "}
-          atendimento{r.fechamentos_sem_snapshot === 1 ? "" : "s"} sem % de
-          repasse definido (
-          <span className="tabular-nums">
-            {new Intl.NumberFormat("pt-BR", {
-              style: "currency",
-              currency: "BRL",
-            }).format(r.valor_sem_repasse_definido_brl)}
-          </span>
-          ). Acesse a aba Repasses para preencher retroativamente.
-        </div>
-      )}
-
     </div>
   )
 }

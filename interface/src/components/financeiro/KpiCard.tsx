@@ -9,8 +9,14 @@ import {
 } from "lucide-react"
 import { formatBRL } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
+import { Sparkline } from "./charts/Sparkline"
 
 export type KpiTom = "default" | "brand" | "warning" | "success" | "danger" | "muted"
+
+// Acima desse percentual o delta vira ruidoso (baseline ~zero) — viz literatura
+// chama isso de "low base effect". Mostramos só a diferença absoluta + chip
+// neutro "vs ~zero" pra não pintar de verde uma variação que não tem escala.
+const PCT_EXPLOSAO = 500
 
 interface KpiCardProps {
   rotulo: string
@@ -26,6 +32,8 @@ interface KpiCardProps {
   progresso?: number
   okQuando?: boolean
   okTexto?: string
+  sparkline?: number[]
+  corSparkline?: string
 }
 
 const TONS: Record<KpiTom, { valor: string; borda: string; chip: string }> = {
@@ -75,6 +83,8 @@ export function KpiCard({
   progresso,
   okQuando,
   okTexto,
+  sparkline,
+  corSparkline,
 }: KpiCardProps) {
   const tons = TONS[tom]
   const formatado =
@@ -84,6 +94,18 @@ export function KpiCard({
 
   const delta = computarDelta(valor, anterior)
   const destaqueBorda = destaque ? "border-gold-500/50" : tons.borda
+  const temSparkline = Array.isArray(sparkline) && sparkline.length >= 2
+  const corSpark =
+    corSparkline ??
+    (tom === "brand"
+      ? "var(--gold-500)"
+      : tom === "danger"
+        ? "var(--danger-500)"
+        : tom === "warning"
+          ? "var(--warn-500)"
+          : tom === "success"
+            ? "var(--success-500)"
+            : "var(--text-secondary)")
 
   return (
     <div
@@ -136,6 +158,15 @@ export function KpiCard({
         </div>
       )}
 
+      {temSparkline && !okQuando && (
+        <Sparkline
+          valores={sparkline!}
+          cor={corSpark}
+          alturaPx={destaque ? 32 : 24}
+          rotuloAcessivel={`Tendência de ${rotulo.toLowerCase()} no período`}
+        />
+      )}
+
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         {delta && !okQuando && (
           <DeltaChip delta={delta} sentido={sentido} classe={tons.chip} />
@@ -159,19 +190,22 @@ function computarDelta(valor: number, anterior: number | null): Delta | null {
   if (anterior === null || anterior === undefined) return null
   if (anterior === 0 && valor === 0) return null
   const diffAbs = valor - anterior
+  const formato: "brl" | "int" =
+    Number.isInteger(valor) && Number.isInteger(anterior) ? "int" : "brl"
   if (Math.abs(anterior) < 0.005) {
-    return {
-      pct: null,
-      diffAbs,
-      formato: Number.isInteger(valor) && Number.isInteger(anterior) ? "int" : "brl",
-      direcao: "novo",
-    }
+    return { pct: null, diffAbs, formato, direcao: "novo" }
   }
   const pct = (diffAbs / Math.abs(anterior)) * 100
+  // Baseline ~zero relativo: anterior é tão pequeno que a % vira ruído (ver
+  // PCT_EXPLOSAO). Trata como "novo período" — mantém o abs (carrega a escala
+  // real) e descarta o percent enganoso.
+  if (Math.abs(pct) > PCT_EXPLOSAO) {
+    return { pct: null, diffAbs, formato, direcao: "novo" }
+  }
   return {
     pct,
     diffAbs,
-    formato: Number.isInteger(valor) && Number.isInteger(anterior) ? "int" : "brl",
+    formato,
     direcao: pct > 0.05 ? "subiu" : pct < -0.05 ? "desceu" : "igual",
   }
 }
