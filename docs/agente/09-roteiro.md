@@ -377,13 +377,14 @@ O `03 §6.2` mostra `ChatAnthropic(model_name=modelo, ...)` e o aceite do M0-T1 
 - **Depende de:** M3.
 - **Paralelizável com:** M5c.
 
-#### M5b — `rotear_imagem` (sob lock)
+#### M5b — `rotear_imagem` (sob lock) — ✅ FEITO (2026-05-27)
 - **Objetivo:** `workers/media.py:rotear_imagem` (`06 §2.1`): adquire `lock:conv`, lê estado, despacha `validar_pix`/`_handoff_foto_portaria`/turno (legenda)/silêncio; `LockBusy`→re-defere. Webhook (M3c) enfileira.
 - **Carregar:** `06 §2.1`, `06 §3`, `06 §6`; `workers/media.py`, `core/redis.py`, `webhook/routes.py`.
 - **Tocar:** `workers/media.py`, `webhook/routes.py`, `workers/settings.py`.
 - **Aceite:** `uv run pytest tests/integracao/test_rotear_imagem.py` — Aguardando+pix→`validar_pix`; Aguardando+interno→foto portaria; fora-fluxo c/ legenda→turno; pura→nada.
 - **Depende de:** M3b.
 - **Paralelizável com:** M5a, M5c.
+- **Nota (feito 2026-05-27):** `rotear_imagem` em `workers/media.py` adquire `lock:conv` (compartilhado com `processar_turno`) e roteia por estado lido via novo helper read-only `resolver_atendimento_existente` (em `workers/coordenador.py`, espelha `resolver_atendimento` mas NÃO cria). Despacha: Aguardando+pix=aguardando → `enqueue_job("validar_pix", _job_id=f"pix:{atendimento_id}:{mensagem_id}")`; Aguardando+interno → `_handoff_foto_portaria` (stub `NotImplementedError("M5d")` com assinatura `(ctx, conversa_id, atendimento_id, mensagem_id)` espelhando `06 §4`); legenda → import tardio de `webhook/despacho.enfileirar_turno` (evita ciclo `workers.media`→`webhook.despacho`→`webhook.parser`); default → silêncio. `LockBusy` → `_defer_by=3s` e re-enqueue de `rotear_imagem`. Métrica `ROTEAR_IMAGEM_DECISAO{decisao}` (`pix|foto_portaria|fora_fluxo_legenda|silencio|lock_busy`) em `core/metrics.py`. Webhook (`routes.py:115`) trocou o `TODO(M5)` por `enqueue_job("rotear_imagem", _job_id=f"rotear:{evolution_message_id}")` no branch `tipo=='imagem'`; áudio continua TODO M5a. `MensagemEvolution` ganhou campo `caption: str | None = None` (extraído de `imageMessage.caption` no parser). `rotear_imagem` registrado em `WorkerSettings.functions`. Testes: `tests/integracao/test_rotear_imagem.py` (5 cenários, `needs_db`, fakeredis com `enqueue_job=AsyncMock`) verde; regressão `make lint typecheck` + 282 testes fake + 43 needs_db verdes.
 
 #### M5c — `validar_pix` (vision OpenRouter)
 - **Objetivo:** `workers/pix.py:validar_pix` (`06 §2`): cliente OpenRouter (`vision_client` no worker startup), `ExtracaoPix` (json_schema + `provider:{require_parameters:true}`), comparações (`valor>=esperado`, chave/titular tolerantes, **sem timestamp** `06 §11`), `comprovantes_pix` INSERT, `aplicar_comando("atualizar_pix")` (já não trava, `07 §5`), card. Verificar colunas `comprovantes_pix.{decisao_pipeline,motivo_em_revisao}` no `0001` — migration se faltarem.

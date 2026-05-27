@@ -30,11 +30,17 @@ except ModuleNotFoundError:  # pragma: no cover
     def _generate_latest() -> bytes:
         return b""
 else:
+
     def _generate_latest() -> bytes:
         return _prometheus_generate_latest()
 
-HTTP_REQUESTS = Counter("barra_http_requests_total", "Total de requests", ["route", "method", "status"])
-HTTP_DURATION = Histogram("barra_http_request_duration_seconds", "Duracao por rota", ["route", "method"])
+
+HTTP_REQUESTS = Counter(
+    "barra_http_requests_total", "Total de requests", ["route", "method", "status"]
+)
+HTTP_DURATION = Histogram(
+    "barra_http_request_duration_seconds", "Duracao por rota", ["route", "method"]
+)
 JOBS = Counter("barra_jobs_total", "Jobs executados", ["tipo", "resultado"])
 COMANDOS_GRUPO = Counter("barra_comandos_grupo_total", "Comandos do grupo", ["resultado"])
 PIX = Counter("barra_pix_total", "Decisoes Pix", ["resultado"])
@@ -98,6 +104,12 @@ PERSONA_DRIFT_REMINDER = Counter(
 LOCK_OCUPADO = Counter(
     "agente_lock_ocupado_total",
     "lock:conv estava ocupado quando processar_turno tentou adquirir (re-defer; 07 §3)",
+)
+ROTEAR_IMAGEM_DECISAO = Counter(
+    "agente_rotear_imagem_decisao_total",
+    "Decisao de roteamento de imagem sob lock:conv (06 §2.1): "
+    "pix|foto_portaria|fora_fluxo_legenda|silencio|lock_busy",
+    ["decisao"],
 )
 # 10 §9: deteccao heuristica de disclosure/jailbreak no intercept_disclosure (M3g).
 DISCLOSURE_DETECTADO = Counter(

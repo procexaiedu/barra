@@ -17,6 +17,7 @@ class MensagemEvolution:
     tipo: Literal["texto", "audio", "imagem"]
     media_url: str | None
     quoted_message_id: str | None
+    caption: str | None = None
 
 
 @dataclass(frozen=True)
@@ -41,12 +42,15 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
     texto = _texto(message) or str(data.get("text") or data.get("body") or "")
     tipo = "texto"
     media_url = None
+    caption: str | None = None
     if "audioMessage" in message:
         tipo = "audio"
         media_url = message["audioMessage"].get("url")
     elif "imageMessage" in message:
         tipo = "imagem"
         media_url = message["imageMessage"].get("url")
+        raw_caption = message["imageMessage"].get("caption")
+        caption = str(raw_caption).strip() or None if raw_caption else None
     quoted = _quoted_id(message)
     return MensagemEvolution(
         evolution_message_id=str(message_id),
@@ -58,6 +62,7 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
         tipo=tipo,  # type: ignore[arg-type]
         media_url=media_url,
         quoted_message_id=quoted,
+        caption=caption,
     )
 
 

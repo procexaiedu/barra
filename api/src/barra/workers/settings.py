@@ -26,7 +26,7 @@ from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
 from barra.workers.envio import enviar_card, enviar_turno
 from barra.workers.lembrete_valor import cobrar_valor_final
-from barra.workers.media import limpar_midias_vencidas
+from barra.workers.media import limpar_midias_vencidas, rotear_imagem
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
@@ -121,6 +121,7 @@ class WorkerSettings:
         func(processar_turno, keep_result=0),
         func(enviar_card),  # cards no grupo (05 §6); keep_result default (global 3600)
         func(enviar_turno),  # humanização do turno (05 §1/§4); keep_result default (global 3600)
+        func(rotear_imagem),  # roteamento de imagem sob lock:conv (06 §2.1)
     ]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),
