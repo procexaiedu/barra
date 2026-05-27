@@ -111,8 +111,18 @@ async def evolution_webhook(
     if arq is not None:
         if msg.tipo == "texto":
             await enfileirar_turno(arq, conversa_id, msg.evolution_message_id)
+        elif msg.tipo == "imagem":
+            # 06 §2.1: nao roteia sincronamente — rotear_imagem decide sob lock:conv.
+            await arq.enqueue_job(
+                "rotear_imagem",
+                mensagem_id=msg.evolution_message_id,
+                conversa_id=str(conversa_id),
+                media_url=msg.media_url,
+                caption=msg.caption,
+                _job_id=f"rotear:{msg.evolution_message_id}",
+            )
         else:
-            # TODO(M5): enqueue transcrever_audio / rotear_imagem (06 §6)
+            # TODO(M5a): enqueue transcrever_audio (06 §1)
             pass
     return {"status": "received"}
 

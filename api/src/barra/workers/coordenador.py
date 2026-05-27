@@ -308,6 +308,30 @@ async def resolver_atendimento(
     return novo
 
 
+async def resolver_atendimento_existente(
+    conn: AsyncConnection[dict[str, Any]], conversa_id: UUID
+) -> dict[str, Any] | None:
+    """Le o atendimento aberto da conversa SEM criar (06 §2.1).
+
+    Espelha `resolver_atendimento` mas e read-only — usado pelo `rotear_imagem` sob `lock:conv`
+    para roteamento (sem efeito colateral): se a imagem chega numa conversa sem atendimento
+    aberto, o caminho normal e fora-fluxo (a IA cria atendimento pelo turno, nao por imagem).
+    """
+    res = await conn.execute(
+        """
+        SELECT a.*
+          FROM barravips.atendimentos a
+         WHERE a.conversa_id = %s
+           AND a.estado NOT IN ('Fechado', 'Perdido')
+         ORDER BY a.created_at DESC
+         LIMIT 1
+        """,
+        (conversa_id,),
+    )
+    row = await res.fetchone()
+    return row
+
+
 async def atualizar_orfaos(
     conn: AsyncConnection[Any], conversa_id: UUID, atendimento_id: UUID
 ) -> None:
