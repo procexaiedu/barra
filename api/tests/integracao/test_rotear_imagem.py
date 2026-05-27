@@ -192,11 +192,16 @@ async def test_pix_aguardando(conn: AsyncConnection[dict[str, Any]]) -> None:
 
 @pytest.mark.needs_db
 async def test_interno_aciona_foto_portaria(conn: AsyncConnection[dict[str, Any]]) -> None:
-    """Aguardando_confirmacao + interno (sem Pix em curso) -> chama _handoff_foto_portaria (stub M5d)."""
+    """Aguardando_confirmacao + interno (sem Pix em curso) -> handoff implicito de foto de
+    portaria (M5d, 06 §4): estado vira Em_execucao + card chegada enfileirado.
+
+    O detalhe dos 4 efeitos atomicos do handoff (UPDATE atendimento + bloqueio + escalada +
+    evento) vive em `test_foto_portaria.py`; aqui o foco e provar o DESPACHO do rotear_imagem.
+    """
     modelo_id = await _seed_modelo(conn)
     cliente_id = await _seed_cliente(conn)
     conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
-    await _seed_atendimento(
+    atendimento_id = await _seed_atendimento(
         conn,
         cliente_id=cliente_id,
         modelo_id=modelo_id,
@@ -210,17 +215,27 @@ async def test_interno_aciona_foto_portaria(conn: AsyncConnection[dict[str, Any]
     redis = _redis_fake()
     ctx = _ctx(_PoolDeUmaConexao(conn), redis)
 
-    with pytest.raises(NotImplementedError, match="M5d"):
-        await rotear_imagem(
-            ctx,
-            mensagem_id=str(mensagem_id),
-            conversa_id=str(conversa_id),
-            media_url="https://evolution.test/portaria.jpg",
-            caption=None,
-        )
+    await rotear_imagem(
+        ctx,
+        mensagem_id=str(mensagem_id),
+        conversa_id=str(conversa_id),
+        media_url="https://evolution.test/portaria.jpg",
+        caption=None,
+    )
 
-    # Stub falha antes de qualquer enqueue.
-    assert redis.enqueue_job.call_args_list == []
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Em_execucao"
+
+    calls = redis.enqueue_job.call_args_list
+    assert len(calls) == 1
+    assert calls[0].args == ("enviar_card",)
+    assert calls[0].kwargs["tipo"] == "chegada"
+    assert calls[0].kwargs["_job_id"] == f"card:chegada:{atendimento_id}"
 
 
 @pytest.mark.needs_db

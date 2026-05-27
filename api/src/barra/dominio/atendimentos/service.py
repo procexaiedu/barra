@@ -241,8 +241,36 @@ async def registrar_extracao_ia(
                 await criar_bloqueio_previo(conn, atendimento=atendimento)
                 resultado_extra["enviar_pin"] = True
 
+    # 3. Aviso de saida (06 §5 + emenda §0 item 10): detectado pelo agente, nao por regex.
+    #    So em interno em Aguardando_confirmacao e guardado por aviso_saida_em IS NULL
+    #    (segunda mensagem de "to indo" do mesmo cliente nao reenfileira card). NAO pausa
+    #    a IA — segue conduzindo a conversa textualmente.
+    if payload.get("aviso_saida_detectado"):
+        if await _aviso_saida_aplicavel(conn, aid):
+            if await marcar_aviso_saida(conn, aid):
+                resultado_extra["enviar_aviso_saida"] = True
+
     await _registrar_evento(conn, aid, "extracao_registrada", payload)
     return {"mensagem": "Extracao registrada.", "novo_estado": novo_estado, **resultado_extra}
+
+
+async def _aviso_saida_aplicavel(
+    conn: AsyncConnection[Any], atendimento_id: UUID
+) -> bool:
+    """True se o atendimento esta em interno + Aguardando_confirmacao (contexto onde aviso
+    de saida faz sentido, 06 §5). Refetch porque o UPSERT pode ter acabado de promover o
+    atendimento para Aguardando_confirmacao no MESMO turno."""
+    res = await conn.execute(
+        "SELECT estado::text AS estado, tipo_atendimento::text AS tipo_atendimento "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    if a is None:
+        return False
+    return bool(
+        a["estado"] == "Aguardando_confirmacao" and a["tipo_atendimento"] == "interno"
+    )
 
 
 def _montar_upsert(payload: dict[str, Any], limpar: set[str]) -> tuple[list[str], list[Any]]:
@@ -426,3 +454,111 @@ async def _registrar_evento(
         "VALUES (%s, %s, 'agente', 'IA', %s::jsonb)",
         (atendimento_id, tipo, json.dumps(payload, default=str)),
     )
+
+
+# -----------------------------------------------------------------------------
+# Handoff foto de portaria + aviso de saida (M5d, docs/agente/06 §4/§5)
+# -----------------------------------------------------------------------------
+
+
+async def handoff_foto_portaria_ia(
+    conn: AsyncConnection[Any],
+    *,
+    atendimento_id: UUID,
+    mensagem_id: UUID,
+    media_object_key: str | None,
+) -> None:
+    """Handoff implicito disparado por foto de portaria em interno (06 §4).
+
+    Quatro efeitos atomicos:
+      1. UPDATE atendimento: estado=Em_execucao, ia_pausada=true,
+         ia_pausada_motivo=modelo_em_atendimento, responsavel_atual=modelo,
+         foto_portaria_em=now(), fonte_decisao_ultima_transicao=webhook_imagem.
+      2. UPDATE bloqueio vinculado: estado='em_atendimento' (guard estado='bloqueado').
+      3. INSERT escalada (tipo=foto_portaria, responsavel=modelo) para hospedar o
+         card_message_id (idempotencia por owner do card 'chegada', 06 §9).
+      4. Evento `transicao_estado` com gatilho='foto_portaria'.
+
+    A transicao NAO depende de aprovacao humana — chegada da foto e o gatilho
+    (CONTEXT.md "Foto de portaria"). O chamador (workers/media.py) enfileira o
+    card 'chegada' depois do commit.
+
+    Ressalva: NAO usamos `escaladas.service.abrir_handoff` porque ela seta
+    ia_pausada_motivo='handoff_ia'; aqui o motivo correto e 'modelo_em_atendimento'
+    (a IA pausa porque a modelo entrou em atendimento fisico, nao porque pediu
+    decisao a Fernando).
+    """
+    async with conn.transaction():
+        await conn.execute(
+            """
+            UPDATE barravips.atendimentos
+               SET estado = 'Em_execucao',
+                   ia_pausada = true,
+                   ia_pausada_motivo = 'modelo_em_atendimento',
+                   responsavel_atual = 'modelo',
+                   foto_portaria_em = now(),
+                   fonte_decisao_ultima_transicao = 'webhook_imagem'
+             WHERE id = %s
+            """,
+            (atendimento_id,),
+        )
+        await conn.execute(
+            """
+            UPDATE barravips.bloqueios
+               SET estado = 'em_atendimento'
+             WHERE atendimento_id = %s AND estado = 'bloqueado'
+            """,
+            (atendimento_id,),
+        )
+        await conn.execute(
+            """
+            INSERT INTO barravips.escaladas (
+              atendimento_id, responsavel, tipo, motivo,
+              resumo_operacional, acao_esperada
+            )
+            VALUES (
+              %s, 'modelo', 'foto_portaria', 'Cliente chegou (foto de portaria)',
+              'Cliente chegou no endereco combinado.',
+              'Conferir a foto antes de abrir a porta.'
+            )
+            """,
+            (atendimento_id,),
+        )
+        await conn.execute(
+            "INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload) "
+            "VALUES (%s, 'transicao_estado', 'agente', 'sistema', %s::jsonb)",
+            (
+                atendimento_id,
+                json.dumps(
+                    {
+                        "de": "Aguardando_confirmacao",
+                        "para": "Em_execucao",
+                        "gatilho": "foto_portaria",
+                        "mensagem_id": str(mensagem_id),
+                        "media_object_key": media_object_key,
+                    }
+                ),
+            ),
+        )
+
+
+async def marcar_aviso_saida(
+    conn: AsyncConnection[Any], atendimento_id: UUID
+) -> bool:
+    """Marca `aviso_saida_em=now()` com guard IS NULL (helper leve, 06 §5 + emenda §0 item 8).
+
+    Diferente do handoff de foto de portaria, NAO ha transicao de estado nem pausa de IA:
+    o aviso de saida prepara a modelo via card simples (06 §5), mas a IA segue conduzindo
+    a conversa. Devolve True se setou (o chamador enfileira o card), False (no-op
+    silencioso) se ja estava setado — segunda mensagem de "to indo" do mesmo cliente
+    nao reenfileira card.
+    """
+    result = await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET aviso_saida_em = now()
+         WHERE id = %s AND aviso_saida_em IS NULL
+        """,
+        (atendimento_id,),
+    )
+    return result.rowcount > 0

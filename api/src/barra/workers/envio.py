@@ -171,16 +171,150 @@ async def _card_pix(
     del atendimento_id  # vem no payload do job p/ _job_id; renderer le tudo do comprovante
 
 
-async def _card_chegada(ctx: dict[str, Any], **_: Any) -> None:
-    # TODO(M5d): card "cliente chegou" (foto de portaria), imagem anexada; idempotência por
-    # `escaladas.card_message_id` (06 §4, §9).
-    raise NotImplementedError("card de chegada será preenchido no M5d")
+async def _card_chegada(
+    ctx: dict[str, Any], *, atendimento_id: str, **_: Any
+) -> None:
+    """Card "cliente chegou" no grupo de Coordenação (06 §4).
+
+    Anexa a foto de portaria do cliente (presigned URL do MinIO, TTL 30min) — a
+    modelo precisa conferir antes de abrir a porta (CONTEXT.md "Foto de portaria").
+    Idempotência por owner: `handoff_foto_portaria_ia` ja criou uma escalada
+    tipo='foto_portaria' responsavel='modelo' para hospedar o `card_message_id`;
+    o renderer le a foto da mensagem mais recente tipo='imagem' do atendimento
+    (a entrada que disparou o handoff, gravada pelo webhook). POST + UPDATE
+    na MESMA transacao (espelha _card_escalada/_card_pix).
+    """
+    pool = ctx["db_pool"]
+    minio = ctx["minio"]
+    evolution: EvolutionClient = ctx["evolution"]
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT e.id AS escalada_id, e.card_message_id,
+                   a.numero_curto, a.endereco,
+                   b.inicio AS bloqueio_inicio,
+                   cl.nome AS cliente_nome,
+                   mo.coordenacao_chat_id, mo.evolution_instance_id,
+                   foto.media_object_key AS foto_object_key
+              FROM barravips.escaladas e
+              JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+              JOIN barravips.modelos      mo ON mo.id = a.modelo_id
+              JOIN barravips.clientes     cl ON cl.id = a.cliente_id
+              LEFT JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+              LEFT JOIN LATERAL (
+                  SELECT media_object_key
+                    FROM barravips.mensagens
+                   WHERE conversa_id = a.conversa_id
+                     AND tipo = 'imagem'
+                     AND direcao = 'cliente'
+                     AND media_object_key IS NOT NULL
+                   ORDER BY created_at DESC
+                   LIMIT 1
+              ) foto ON true
+             WHERE e.atendimento_id = %s AND e.tipo = 'foto_portaria'
+             ORDER BY e.created_at DESC
+             LIMIT 1
+            """,
+            (UUID(atendimento_id),),
+        )
+        e = await res.fetchone()
+        if not e or e["card_message_id"]:
+            return  # idempotência por owner: card já enviado
+
+        texto = render_card(
+            "chegada",
+            numero_curto=e["numero_curto"],
+            cliente_nome=e["cliente_nome"] or "cliente",
+            endereco=e["endereco"],
+            horario=e["bloqueio_inicio"],
+        )
+
+        url = minio.presigned_get_object(
+            ctx["settings"].minio_bucket_media,
+            e["foto_object_key"],
+            expires=timedelta(minutes=30),
+        ) if e["foto_object_key"] else None
+
+        async with conn.transaction():
+            if url:
+                mid = await evolution.enviar_midia(
+                    conn=conn,
+                    instance_id=e["evolution_instance_id"],
+                    remote_jid=e["coordenacao_chat_id"],
+                    url=url,
+                    caption=texto,
+                    media_type="foto",
+                    contexto="coordenacao",
+                    tipo="card_chegada",
+                )
+            else:
+                # Defesa: foto nao foi gravada (caso raro); manda so o texto para a modelo
+                # nao perder o card "cliente chegou".
+                mid = await evolution.enviar_texto(
+                    conn=conn,
+                    instance_id=e["evolution_instance_id"],
+                    remote_jid=e["coordenacao_chat_id"],
+                    texto=texto,
+                    contexto="coordenacao",
+                    tipo="card_chegada",
+                )
+            await conn.execute(
+                "UPDATE barravips.escaladas SET card_message_id = %s WHERE id = %s",
+                (mid, e["escalada_id"]),
+            )
 
 
-async def _card_aviso_saida(ctx: dict[str, Any], **_: Any) -> None:
-    # TODO(M5d): card "cliente saiu de casa"; sem owner → idempotência por SETNX
-    # `card:aviso_saida:{atendimento_id}` (06 §5, §9).
-    raise NotImplementedError("card de aviso de saída será preenchido no M5d")
+async def _card_aviso_saida(
+    ctx: dict[str, Any], *, atendimento_id: str, **_: Any
+) -> None:
+    """Card "cliente saiu de casa" no grupo de Coordenação (06 §5).
+
+    Sem owner (aviso_saida nao tem escalada — emenda §0 item 8): idempotencia por
+    SETNX `card:aviso_saida:{atendimento_id}` com TTL 24h. Se a key ja existe,
+    retorna sem enviar (replay do ARQ ou segundo "to indo" do mesmo cliente).
+    """
+    pool = ctx["db_pool"]
+    redis = ctx["redis"]
+    evolution: EvolutionClient = ctx["evolution"]
+
+    chave = f"card:aviso_saida:{atendimento_id}"
+    if not await redis.set(chave, "1", ex=86400, nx=True):
+        return  # ja enviado: replay/segundo aviso do mesmo cliente
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT a.numero_curto,
+                   b.inicio AS bloqueio_inicio,
+                   cl.nome AS cliente_nome,
+                   mo.coordenacao_chat_id, mo.evolution_instance_id
+              FROM barravips.atendimentos a
+              JOIN barravips.modelos  mo ON mo.id = a.modelo_id
+              JOIN barravips.clientes cl ON cl.id = a.cliente_id
+              LEFT JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+             WHERE a.id = %s
+            """,
+            (UUID(atendimento_id),),
+        )
+        a = await res.fetchone()
+        if not a:
+            return
+
+        texto = render_card(
+            "aviso_saida",
+            numero_curto=a["numero_curto"],
+            cliente_nome=a["cliente_nome"] or "cliente",
+            horario=a["bloqueio_inicio"],
+        )
+        await evolution.enviar_texto(
+            conn=conn,
+            instance_id=a["evolution_instance_id"],
+            remote_jid=a["coordenacao_chat_id"],
+            texto=texto,
+            contexto="coordenacao",
+            tipo="card_aviso_saida",
+        )
 
 
 async def _card_loc_pin(ctx: dict[str, Any], **_: Any) -> None:

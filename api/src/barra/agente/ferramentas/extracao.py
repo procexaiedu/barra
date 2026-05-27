@@ -53,6 +53,15 @@ class ExtracaoPayload(BaseModel):
     motivo_perda_candidato: (
         Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None
     ) = None
+    aviso_saida_detectado: bool = Field(
+        default=False,
+        description=(
+            "Cliente avisou que saiu de casa em direcao ao endereco combinado "
+            "(texto livre tipo 'sai', 'tô indo', 'estou indo', 'sai agora'). "
+            "Sinalize True SO em atendimento interno em Aguardando_confirmacao; "
+            "ignore em outros contextos. NAO pausa a IA — segue a conversa normal."
+        ),
+    )
     limpar: list[str] = Field(
         default_factory=list,
         description=(
@@ -114,6 +123,15 @@ async def registrar_extracao(
             tipo="loc_pin",
             atendimento_id=atendimento_id,
             _job_id=f"card:loc_pin:{atendimento_id}",
+        )
+    # Aviso de saida (06 §5): card 'cliente saiu de casa' sem owner — SETNX no renderer
+    # garante idempotencia inter-turnos; o _job_id aqui evita re-enfileirar no mesmo ARQ.
+    if resultado.get("enviar_aviso_saida"):
+        await runtime.context.redis.enqueue_job(
+            "enviar_card",
+            tipo="aviso_saida",
+            atendimento_id=atendimento_id,
+            _job_id=f"card:aviso_saida:{atendimento_id}",
         )
     mensagem: str = resultado["mensagem"]
     return mensagem
