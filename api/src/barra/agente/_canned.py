@@ -21,6 +21,17 @@ NEGACOES_CANNED = [
 ]
 
 
+# 06 §1.4: respondidos pelo coordenador SEM invocar LLM quando a transcricao falha (timeout
+# OU {"ok": false} do worker) E o audio era a mensagem que disparou o turno. Tom da persona,
+# pede o cliente reformular por escrito sem expor o motivo tecnico.
+TRANSCRICAO_FALHOU_CANNED = [
+    "amor, nao consegui ouvir teu audio agora, me manda por escrito?",
+    "to com problema no audio aqui, tu consegue me escrever?",
+    "deu ruim pra ouvir teu audio amor, manda por texto?",
+    "aqui nao chegou direito o audio, escreve pra mim?",
+]
+
+
 def escolher_negacao() -> str:
     """Sorteia uma negacao do pool (10 §3.1).
 
@@ -42,3 +53,8 @@ REENGAJAMENTO_CANNED = [
 def escolher_reengajamento() -> str:
     """Sorteia uma reabertura do pool (07 §4.5)."""
     return random.choice(REENGAJAMENTO_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto
+
+
+def escolher_canned_transcricao_falhou() -> str:
+    """Sorteia uma frase do pool de fallback de transcricao (06 §1.4)."""
+    return random.choice(TRANSCRICAO_FALHOU_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto

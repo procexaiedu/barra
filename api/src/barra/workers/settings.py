@@ -28,7 +28,7 @@ from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
 from barra.workers.envio import enviar_card, enviar_turno
 from barra.workers.lembrete_valor import cobrar_valor_final
-from barra.workers.media import limpar_midias_vencidas, rotear_imagem
+from barra.workers.media import limpar_midias_vencidas, rotear_imagem, transcrever_audio
 from barra.workers.pix import validar_pix
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
@@ -112,6 +112,14 @@ async def startup(ctx: dict[str, Any]) -> None:
         api_key=settings.openrouter_api_key or "",
         base_url="https://openrouter.ai/api/v1",
     )
+    # Cliente OpenAI compartilhado entre invocacoes de transcrever_audio (06 §1.3): timeout 60s
+    # + 3 retries automaticos no SDK; 5xx persistente sobe como APIError e o ARQ retenta o job.
+    if settings.openai_api_key:
+        ctx["openai_client"] = AsyncOpenAI(
+            api_key=settings.openai_api_key, timeout=60.0, max_retries=3
+        )
+    else:
+        ctx["openai_client"] = None
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
@@ -146,6 +154,10 @@ class WorkerSettings:
         func(enviar_turno),  # humanização do turno (05 §1/§4); keep_result default (global 3600)
         func(rotear_imagem),  # roteamento de imagem sob lock:conv (06 §2.1)
         func(validar_pix),  # validação de comprovante (06 §2.2); keep_result default
+        # STT do agente (06 §1.3): fire-and-forget; sinalizacao via canal Redis (06 §1.4), nao
+        # via keep_result. Mas keep_result global=3600 + _job_id estatico (transcricao:{evolution_message_id})
+        # nao bloqueia retry — o evolution_message_id e unico por audio, entao nao ha re-enqueue.
+        func(transcrever_audio),
     ]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),
