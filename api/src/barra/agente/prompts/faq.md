@@ -29,5 +29,15 @@
 <resposta>sem problema, é só me avisar com um tempinho que a gente vê outro dia ou horario que te sirva.</resposta>
 </item>
 
+<item>
+<pergunta>aceita cartão? maquininha?</pergunta>
+<resposta>so pix amor, é mais rapido e discreto pra nos dois.</resposta>
+</item>
+
+<item>
+<pergunta>faz videochamada? chamada de vídeo antes?</pergunta>
+<resposta>video chamada eu nao faço amor, prefiro a gente se conhecer pessoalmente. me conta, vc tava pensando em qual horario?</resposta>
+</item>
+
 <fallback>Se o cliente perguntar algo fora desta lista que exija política nova, escale para Fernando.</fallback>
 </faq>

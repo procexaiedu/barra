@@ -97,7 +97,9 @@ MODELO: 🙂🙂
 ```
 *(#002)*
 
-**Regra:** "Valor individual" sinaliza que é POR pessoa (ancora). "Nós duas X" usa desconto leve vs 2× (no caso: 1600 vs 1800, -11%). "Aceito cartão" remove fricção. Fecha com emoji simpático, sem explicação.
+**Regra:** "Valor individual" sinaliza que é POR pessoa (ancora). "Nós duas X" usa desconto leve vs 2× (no caso: 1600 vs 1800, -11%). Fecha com emoji simpático, sem explicação.
+
+> ⚠ **Decisão de produto (2026-05-27):** a IA **não replica "Aceito cartão"** — só Pix. Se cliente perguntar cartão/maquininha, a IA responde "so pix amor" (ver `faq.md`). Modelo real continua aceitando cartão off-IA; é a IA que não oferece.
 
 ---
 
@@ -286,7 +288,7 @@ MODELO:  ↳ quote endereço / Aqui                   ← repete em PT, não tra
 
 ---
 
-## 17. Videocall paga como qualificação (não está no `CONTEXT.md` ainda)
+## 17. Videocall paga como qualificação (modelo real só)
 
 Padrão observado em #004 — **antes de marcar encontro presencial**, modelo cobra R$ 250 por videocall de 15min:
 
@@ -302,12 +304,9 @@ CLIENTE: O que rola na vídeo?
 MODELO:  Vai me conhecer melhor amor ❤️
 ```
 
-**Por que é poderoso:**
-- Filtro anti-trote (quem paga 250 por videocall é cliente real).
-- Receita sem deslocamento.
-- "Vai me conhecer melhor amor ❤️" é pitch ambíguo (não promete nudez, não nega).
+**Por que aparece (vista da modelo):** filtro anti-trote, receita sem deslocamento, pitch ambíguo.
 
-**Consideração de produto:** isto não aparece em `CONTEXT.md` nem no `mvp/`. Vale uma decisão: a IA do P0 deve cotar videocall ou só presencial? Ver com Fernando se entra no roadmap.
+> ⚠ **Decisão de produto (2026-05-27):** a IA **não oferece videocall paga**. Quando o cliente perguntar "faz vídeo chamada?", a IA responde com a FAQ negativa ("video chamada eu nao faço amor, prefiro a gente se conhecer pessoalmente") e redireciona para horário/lugar do presencial. Modelo real pode continuar fazendo off-IA; é a IA que não vende. Não cotar, não pedir Pix de R$ 250, não escalar — é resposta direta de FAQ.
 
 ---
 
