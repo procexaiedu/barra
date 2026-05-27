@@ -22,6 +22,16 @@ _env = Environment(
 )
 
 
+def _brl(valor: Any) -> str:
+    """Formata valor inteiro em BRL no padrão da persona: `R$1.500` (sem espaço, ponto como
+    separador de milhar). `persona.md` `<voz>` exige exatamente esse formato; o default Python
+    `{:,.0f}` usa locale americano (`R$ 1,500`) e contradiria a regra."""
+    return "R$" + f"{int(valor):,}".replace(",", ".")
+
+
+_env.filters["brl"] = _brl
+
+
 @dataclass(frozen=True)
 class IdentidadeModelo:
     """Variáveis por-modelo do BP3 (identidade óbvia + operacional).

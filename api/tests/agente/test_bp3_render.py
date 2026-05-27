@@ -82,14 +82,13 @@ def test_programas_tabela_uma_linha_por_combinacao() -> None:
     assert len(linhas_dados) == 3
     assert "Programa Completo" in txt
     assert "1 hora" in txt
-    assert "R$ 2,500" in txt  # "{:,.0f}" — separador de milhar (03 §3.3)
+    # filtro `brl` (persona.py): persona exige R$1.500 (sem espaço, ponto como separador).
+    assert "R$2.500" in txt
 
 
 def test_programas_vazio_orienta_escalar() -> None:
     txt = render_programas([])
     assert "ainda não tem programas" in txt
-    # a linha do Pix fixo aparece nos dois ramos.
-    assert "R$ 100 fixo" in txt
 
 
 def test_render_bp3_concatena_identidade_e_programas() -> None:

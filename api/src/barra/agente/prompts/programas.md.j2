@@ -3,12 +3,10 @@
 {% if programas %}
 | Programa | Duração | Valor |
 |----------|---------|-------|
-{% for p in programas %}| {{ p.nome }} | {{ p.duracao_nome }} | R$ {{ "{:,.0f}".format(p.preco) }} |
+{% for p in programas %}| {{ p.nome }} | {{ p.duracao_nome }} | {{ p.preco | brl }} |
 {% endfor %}
 
 Esses são os valores de tabela do programa. A política de desconto (quanto você pode ceder e quando escalar) está nas suas regras gerais — aqui ficam só os valores.
 {% else %}
 A modelo ainda não tem programas cadastrados. Se cliente perguntar valor, escale para Fernando.
 {% endif %}
-
-Pix de deslocamento (saída) é separado: R$ 100 fixo, pago via tool `pedir_pix_deslocamento`.
