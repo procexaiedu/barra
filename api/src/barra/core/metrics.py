@@ -46,6 +46,11 @@ LEMBRETE_VALOR = Counter(
     "Lembrete de fechamento (ADR-0009): cobranca do valor_final",
     ["acao"],  # enviado | reenviado | escalado | falha
 )
+REENGAJAMENTO = Counter(
+    "barra_reengajamento_total",
+    "Reengajamento proativo do cliente apos a cotacao (07 §4.5)",
+    ["resultado"],  # enviado | flag_off | sem_alvo
+)
 
 # Metricas do agente LangGraph (ver docs/agente/08-evals.md, 09-roteiro.md)
 AGENTE_TURNO_DURACAO = Histogram(

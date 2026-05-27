@@ -1,10 +1,15 @@
 """Workers deterministicos de timeout e transicao cron."""
 
 from typing import Any
+from uuid import uuid5
 
+from arq import ArqRedis
 from psycopg import AsyncConnection
 
-from barra.core.metrics import TIMEOUTS
+from barra.agente._canned import escolher_reengajamento
+from barra.core.metrics import REENGAJAMENTO, TIMEOUTS
+from barra.settings import Settings
+from barra.workers.coordenador import NS_TURNO
 
 
 async def aplicar_timeout_longo(conn: AsyncConnection[Any]) -> int:
@@ -106,6 +111,103 @@ async def aplicar_timeout_interno(conn: AsyncConnection[Any]) -> int:
         rows = await result.fetchall()
     TIMEOUTS.labels("interno").inc(len(rows))
     return len(rows)
+
+
+def _dentro_da_janela(hora: int, inicio: int, fim: int) -> bool:
+    """Hora atual cabe na janela [inicio, fim)? Quando fim < inicio, cruza meia-noite
+    (ex.: 10-2h -> 10..23 ou 0..1)."""
+    if fim > inicio:
+        return inicio <= hora < fim
+    if fim < inicio:
+        return hora >= inicio or hora < fim
+    return True  # inicio == fim: janela cobre 24h
+
+
+async def reengajar_silenciosos(
+    conn: AsyncConnection[Any],
+    redis: ArqRedis,
+    settings: Settings,
+) -> int:
+    """Reabre proativamente clientes que sumiram apos a cotacao (07 §4.5, ADR/CONTEXT.md).
+
+    Atomico: CTE com FOR UPDATE SKIP LOCKED + UPDATE reengajado_em=now() garante 1 toque por
+    atendimento entre execucoes concorrentes. Alvo: Triagem/Qualificado com intencao em
+    cotacao/agendamento, ia_pausada=false, reengajado_em IS NULL, ultima msg do CLIENTE entre
+    `reengajamento_delay_min` e 24h atras (acima de 24h o `timeout_longo` ja vai cobrir como
+    Perdido/sumiu). Hora local BRT dentro de [operacao_hora_inicio, operacao_hora_fim).
+
+    Para cada alvo, enfileira `enviar_turno` reusando a humanizacao (toque canned, sem desconto,
+    nao critico). O `turno_atual:{conversa_id}` aponta o turno do reengajo -> cancel-on-new-message
+    cancela o toque se o cliente responder antes do envio (05 §3.1).
+    """
+    if not settings.reengajamento_ativo:
+        REENGAJAMENTO.labels("flag_off").inc()
+        return 0
+
+    # Hora local BRT direto do banco (single clock entre instancias do cron).
+    res = await conn.execute(
+        "SELECT extract(hour FROM now() AT TIME ZONE 'America/Sao_Paulo')::int AS h"
+    )
+    row = await res.fetchone()
+    if not row or not _dentro_da_janela(
+        int(row["h"]), settings.operacao_hora_inicio, settings.operacao_hora_fim
+    ):
+        REENGAJAMENTO.labels("sem_alvo").inc()
+        return 0
+
+    async with conn.transaction():
+        result = await conn.execute(
+            """
+            WITH alvo AS (
+              SELECT a.id, a.conversa_id
+                FROM barravips.atendimentos a
+                LEFT JOIN LATERAL (
+                  SELECT max(created_at) AS ultima_cliente
+                    FROM barravips.mensagens m
+                   WHERE m.atendimento_id = a.id AND m.direcao = 'cliente'
+                ) msg ON true
+               WHERE a.estado IN ('Triagem', 'Qualificado')
+                 AND a.ia_pausada = false
+                 AND a.intencao IN ('cotacao', 'agendamento')
+                 AND a.reengajado_em IS NULL
+                 AND msg.ultima_cliente IS NOT NULL
+                 AND msg.ultima_cliente <= now() - make_interval(mins => %s)
+                 AND msg.ultima_cliente >= now() - interval '24 hours'
+                 FOR UPDATE OF a SKIP LOCKED
+            )
+            UPDATE barravips.atendimentos a
+               SET reengajado_em = now()
+              FROM alvo
+             WHERE a.id = alvo.id
+            RETURNING a.id, alvo.conversa_id
+            """,
+            (settings.reengajamento_delay_min,),
+        )
+        alvos = await result.fetchall()
+
+    if not alvos:
+        REENGAJAMENTO.labels("sem_alvo").inc()
+        return 0
+
+    for a in alvos:
+        atendimento_id = str(a["id"])
+        conversa_id = str(a["conversa_id"])
+        turno_id = str(uuid5(NS_TURNO, f"reengajo:{atendimento_id}"))
+        await redis.set(f"turno_atual:{conversa_id}", turno_id, ex=600)
+        await redis.enqueue_job(
+            "enviar_turno",
+            conversa_id=conversa_id,
+            turno_id=turno_id,
+            chunks=[escolher_reengajamento()],
+            midias=[],
+            msg_ids_cliente=[],
+            chars_inbound=0,
+            critico=False,
+            _job_id=f"reengajo:{atendimento_id}",
+        )
+        REENGAJAMENTO.labels("enviado").inc()
+
+    return len(alvos)
 
 
 async def confirmar_em_execucao(conn: AsyncConnection[Any]) -> int:
