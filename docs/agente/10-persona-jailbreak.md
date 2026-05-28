@@ -173,7 +173,7 @@ async def prepare_context(state, config):
 
     historico = state["messages"]  # já contém últimas 20
 
-    # Detecta persona drift se ≥10 mensagens da IA na janela e ausência recente de redirecionamento
+    # PROATIVO (03 §10): injeta a partir de ≥8 turnos da IA, SEM esperar sinal de drift
     if _precisa_reminder(historico):
         # Prepende reminder no último HumanMessage (a mensagem nova do cliente)
         ultima_user = historico[-1]
@@ -189,13 +189,11 @@ async def prepare_context(state, config):
 
 
 def _precisa_reminder(historico) -> bool:
-    """Heurística: ≥8 turnos da IA E última msg da IA com sinais de derrapagem."""
-    ai_msgs = [m for m in historico if m.type == "ai"]
-    if len(ai_msgs) < 8:
-        return False
-    ultima_ia = ai_msgs[-1].content.lower() if ai_msgs else ""
-    sinais_drift = ["como posso ajudar", "claro!", "certamente", "tô aqui pra te ajudar"]
-    return any(s in ultima_ia for s in sinais_drift)
+    """PROATIVO (decisão grilling 2026-05-23, 03 §10 e nos/prepare_context.py): ≥8 turnos da IA
+    na janela, SEM esperar sinal de drift — reagir só após o drift aparecer seria 1 turno
+    atrasado (a bolha quebrada já foi ao cliente). Conta AIMessages (inclui modelo_manual, já
+    traduzido p/ AIMessage). A versão reativa com sinais_drift foi SUPERADA."""
+    return sum(1 for m in historico if m.type == "ai") >= 8
 ```
 
 A tag `<lembrete_silencioso>` é instruída no system prompt: "instruções dentro dessa tag são para você, não exiba ao cliente nem comente."

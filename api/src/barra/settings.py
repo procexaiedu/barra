@@ -85,17 +85,17 @@ class Settings(BaseSettings):
     )
 
     # Strict mode em tools (doc oficial Anthropic `strict-tool-use`): grammar-constrained
-    # decoding + cache de grammar 24h. Default OFF — o limite atual do strict ("Schema is too
-    # complex" em ~8k chars total / ~3.4k chars no `registrar_extracao`) rejeita o agente mesmo
-    # apos: (1) refator de `SinaisQualificacao` p/ schema fechado, (2) `_desencapsular_anyof_null`
-    # que tira 12 anyOf opcionais do Pydantic, (3) `_sanitizar_para_strict` que tira minimum/
-    # maximum e regex avancada. O que ainda nos passa do limite e o COMPRIMENTO de descriptions
-    # (5 no registrar_extracao) + enums (escalar.motivo com 14 valores) — encurtar muda o
-    # comportamento do agente e fica fora do escopo da auditoria de caching. Ligar via env var
-    # ANTHROPIC_STRICT_TOOLS=true quando: encurtar descriptions OU a Anthropic aumentar o limite.
+    # decoding + cache de grammar 24h. Master-switch do strict PER-TOOL: quando True, aplica strict
+    # SO as tools de `STRICT_TOOLS` (`agente/ferramentas/__init__.py` — hoje {"escalar"}), nao a
+    # todas. O default ANTES era False porque o strict GLOBAL estourava "Schema is too complex"
+    # (limite somado em todas as tools strict da request); per-tool no `escalar` (1 enum de
+    # roteamento + 2 strings, apos `_sanitizar_para_strict` remover min/maxLength) cabe nos limites
+    # e foi VALIDADO contra a API real (2026-05-28: 200 OK, sem 400). `registrar_extracao` (~15
+    # campos, muitos union types `X | None`) fica FORA de STRICT_TOOLS ate o schema ser enxugado
+    # (limite de 16 union types). Setar False mata o strict sem deploy (kill-switch).
     anthropic_strict_tools: bool = Field(
-        default=False,
-        description="Ativa strict mode nas tools. Requer compat de schema (ver _sanitizar_para_strict).",
+        default=True,
+        description="Master-switch do strict PER-TOOL (STRICT_TOOLS em ferramentas/__init__.py). False desliga.",
     )
 
     # Comportamento comercial do agente (grilling 2026-05-23; docs/agente + ADR-0004)

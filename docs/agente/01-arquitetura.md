@@ -49,7 +49,7 @@ LangGraph oferece dois caminhos:
 - `create_react_agent` foi marcado como **legacy/deprecado em LangGraph v1.0** (GA out/2025), substituído por `langchain.agents.create_agent` com middleware. O **StateGraph custom não foi deprecado** — segue como o caminho de baixo nível suportado; só o prebuilt saiu. O fórum LangChain registra perda de feature concreta na migração (reescrita de histórico de mensagens em função do estado, exatamente o que precisamos para injetar SystemMessages dinâmicas e contexto fresco a cada turno).
 - O domínio Barra Vips tem **vários gates determinísticos** que cabem mal num loop ReAct opaco: gate de pausa (`ia_pausada=true` antes do LLM), refetch pós-tool, descarte de texto após `escalar`, decisão de cards no grupo, sliding window por turno. StateGraph permite enxerto natural de nós antes/depois do LLM.
 - Observabilidade: cada nó é um span dedicado no LangSmith; com `create_react_agent` o loop fica opaco.
-- Não há custo significativo: temos 8 tools no P0, mas o "loop" é tão simples (`prepare → llm → tools → llm → post_process`) que escrever 5 nós explícitos é mais claro que o prebuilt.
+- Não há custo significativo: temos 5 tools no P0, mas o "loop" é tão simples (`prepare → llm → tools → llm → post_process`) que escrever 5 nós explícitos é mais claro que o prebuilt.
 
 Estrutura canônica do grafo (detalhada em `02 §1` e `03 §7`):
 

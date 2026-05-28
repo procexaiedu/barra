@@ -26,6 +26,7 @@ from barra.settings import get_settings
 from .._custo import calcular_custo_brl
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
+from ..ferramentas import INPUT_EXAMPLES, STRICT_TOOLS
 from ..llm import build_tools_para_bind
 
 logger = logging.getLogger(__name__)
@@ -73,8 +74,14 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
     agente/CLAUDE.md). Mudanca em qualquer tool invalida tools+system+messages (hierarquia).
     """
     settings = get_settings()
+    # strict PER-TOOL (STRICT_TOOLS = {"escalar"}); master-switch anthropic_strict_tools desliga
+    # tudo sem deploy. input_examples sempre injetados (ajudam tool-calling, custo no cache de
+    # tools pago 1x). Ambos byte-identicos p/ todas as modelos (invariante de prefixo).
     tools_para_bind = build_tools_para_bind(
-        tools, ttl=settings.cache_ttl_geral, strict=settings.anthropic_strict_tools
+        tools,
+        ttl=settings.cache_ttl_geral,
+        strict_tools=STRICT_TOOLS if settings.anthropic_strict_tools else frozenset(),
+        exemplos=INPUT_EXAMPLES,
     )
     chat_bound = chat.bind_tools(tools_para_bind)
     # nome Anthropic (claude-sonnet-4-6) p/ o label das metricas de token, nao o modelo_id da
