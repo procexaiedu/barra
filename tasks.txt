@@ -1,0 +1,758 @@
+"BarraVIPs
+
+"
+BarraVIPs
+To Do
+
+
+Modelos: Implementar sistema de nível/categoria (A, B, C ou Premium, Plus, Básica)
+
+Alta
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+O cliente solicitou um sistema de classificação de modelos por nível de qualidade (A, B, C ou equivalente Premium/Plus/Básica). O nível é definido manualmente pela sócia do cliente e leva em conta múltiplos critérios: honestidade, responsividade, volume de atendimentos, capacidade de upsell e fidelização de clientes.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Atualmente a sócia do cliente organiza as modelos manualmente no Google Fotos, colocando a letra A no nome do álbum das melhores modelos para que apareçam em ordem alfabética. Isso é uma gambiarra de organização que precisa ser substituída por um sistema formal dentro do próprio sistema Elite Baby.
+
+O cliente explicou que o nível da modelo não é determinado apenas por volume financeiro — uma modelo pode fazer muito dinheiro mas ser desonesta (roubar clientes, não atender mensagens), o que a desqualifica do nível A. Os critérios discutidos foram: honestidade (não roubar clientes), responsividade (responder WhatsApp rapidamente), volume de atendimentos, capacidade de upsell (fechar mais horas do que o combinado), fidelização (clientes que voltam) e ausência de problemas operacionais.
+
+O cliente também mencionou que no futuro pode querer um sistema de metas com bonificação atrelado ao nível, mas por ora é apenas organizacional.
+
+O que precisa ser feito
+Implementar um campo de nível/categoria no cadastro da modelo com as opções definidas pelo cliente. O nível deve ser atribuído manualmente por quem tem permissão (sócia/admin). Deve aparecer visualmente no card da modelo e no perfil, e deve ser possível filtrar modelos por nível.
+
+As categorias sugeridas na reunião foram: A/B/C ou Premium/Plus/Básica — alinhar com o cliente qual nomenclatura usar. Critério de aceite: campo de nível aparece no cadastro, pode ser selecionado e salvo, aparece no card/perfil da modelo, e é possível filtrar por nível na listagem.
+
+Etapas sugeridas
+Confirmar com o cliente a nomenclatura final (A/B/C vs Premium/Plus/Básica)
+Adicionar coluna nivel (enum ou string) na tabela de modelos no banco
+Adicionar campo de seleção de nível no formulário de edição da modelo (não criação — o nível é atribuído após avaliação)
+Exibir o nível visualmente no card da modelo (badge colorido: A=ouro, B=prata, C=bronze ou similar)
+Exibir o nível no perfil completo da modelo
+Adicionar filtro por nível na listagem de modelos
+Implementar controle de permissão — apenas admin/sócia pode alterar o nível
+Adicionar histórico de mudança de nível (quando mudou, quem mudou) — opcional mas valioso
+Testar fluxo completo de atribuição e filtro
+Dependências
+Definição da nomenclatura final com o cliente
+Sistema de permissões do sistema (para restringir quem pode alterar o nível)
+Formulário de edição de modelo existente
+Pontos de atenção / Riscos
+O nível é subjetivo e manual — o sistema não deve tentar calculá-lo automaticamente por ora
+Definir claramente quem tem permissão para alterar o nível (apenas admin/sócia)
+O badge visual deve ser discreto mas visível — não poluir o card
+Futuramente o nível pode ser vinculado a sistema de metas e bonificação — projetar o campo pensando em extensibilidade
+Garantir que modelos sem nível atribuído apareçam corretamente (sem badge ou com badge 'Sem classificação')
+O filtro por nível no mapa de calor também pode ser interessante no futuro"
+
+"
+BarraVIPs
+To Do
+
+
+Sistema: Importar dados reais de modelos e clientes existentes do cliente
+
+Alta
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+Durante a reunião, o cliente perguntou como ficam seus clientes e modelos reais no sistema, já que todos os dados exibidos são de teste. A equipe confirmou que fará a importação quando o sistema estiver estável. Essa task cobre o processo de importação dos dados reais do cliente (modelos, clientes, histórico) para o ambiente de produção.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a demonstração, ao selecionar modelos no sistema, o cliente perguntou: 'ah, mas aprovei, aí como que fica meus clientes e meus modelos?' A equipe respondeu que fará a importação quando o sistema estiver pronto. Atualmente o sistema está populado com dados de teste (nomes fictícios, valores genéricos) para fins de demonstração.
+
+O cliente tem uma operação real em andamento com modelos ativas, clientes recorrentes e histórico de atendimentos. Para que o sistema seja útil desde o primeiro dia de produção, é necessário importar esses dados reais antes ou durante o go-live. Sem dados reais, o cliente precisaria reconstruir toda a base do zero, o que é inviável.
+
+A importação deve cobrir pelo menos: (1) modelos com seus dados cadastrais e serviços/preços, (2) clientes com nome e telefone, (3) histórico de atendimentos se disponível em formato exportável. O processo deve ser feito com cuidado para não corromper dados existentes de teste.
+
+O que precisa ser feito
+Definir e executar o processo de importação de dados reais do cliente para o sistema. Isso inclui: coletar os dados do cliente no formato atual (planilha, exportação de outro sistema, lista manual), mapear os campos para o schema do banco de dados, executar a importação em ambiente de staging para validação, e depois replicar em produção.
+
+Critério de aceite: após a importação, o cliente consegue logar no sistema e ver suas modelos reais com serviços e preços corretos, e seus clientes recorrentes com histórico básico disponível.
+
+Etapas sugeridas
+Reunião com o cliente para entender em qual formato os dados existem (planilha Excel, Google Sheets, outro sistema, memória)
+Coletar lista de modelos: nome, telefone/WhatsApp, serviços oferecidos, preços por serviço, comissão da agência
+Coletar lista de clientes: nome, telefone, modelo preferida (se souber), histórico básico
+Criar script de importação para modelos: mapear campos e inserir via API ou diretamente no banco
+Criar script de importação para clientes: validar duplicatas por telefone antes de inserir
+Criar script de importação para serviços/programas por modelo
+Executar importação em ambiente de staging e validar com o cliente
+Corrigir inconsistências identificadas na validação
+Executar importação em produção após aprovação do cliente
+Remover dados de teste do ambiente de produção após importação validada
+Documentar o processo para futuras importações ou adições de modelos
+Dependências
+Sistema deve estar estável o suficiente para receber dados reais (módulos de modelos e clientes funcionais)
+Cliente deve fornecer os dados em formato utilizável
+Ambiente de staging deve estar disponível para validação antes de produção
+Decisão sobre o que fazer com dados de teste existentes (limpar tudo ou manter separado)
+Pontos de atenção / Riscos
+Dados do cliente podem estar em formato não estruturado (memória, conversas de WhatsApp) — processo pode ser mais lento que o esperado
+Telefones duplicados ou mal formatados podem causar conflitos na importação
+Histórico de atendimentos pode não existir em formato digital — decidir se vale reconstruir ou começar do zero
+Dados sensíveis (nomes reais de clientes, valores) devem ser tratados com máxima confidencialidade durante a importação
+Após importação, o cliente precisa validar que os dados estão corretos — planejar sessão de validação
+Preços e comissões podem ter mudado — garantir que os dados importados são os valores atuais"
+
+"
+BarraVIPs
+To Do
+
+
+Modelos: Adicionar serviços/feitiços como campo estruturado no cadastro (o que faz / não faz)
+
+Alta
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+O cliente solicitou que os serviços oferecidos pela modelo (feitiços: beijo na boca, oral sem camisinha, beijo grego, dominação, etc.) sejam adicionados como campo estruturado no cadastro. Ao preencher o cadastro, o sistema deve gerar automaticamente a tabela de preços da modelo com base nos serviços selecionados.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a reunião, ao discutir o cadastro completo da modelo, o cliente mencionou que precisa registrar 'o que ela faz e o que ela não faz' — referindo-se aos serviços/feitiços (beijo na boca, oral sem camisinha, beijo grego, dominação, etc.). O cliente chamou isso de 'feitiços' no contexto do mercado.
+
+A ideia central é que ao preencher o cadastro da modelo e selecionar quais serviços ela oferece, o sistema automaticamente monta a lista de serviços disponíveis para ela, que por sua vez alimenta a tabela de preços. O cliente afirmou: 'o sistema já vai entender o que ela faz e o que ela não faz. E automaticamente ele já monta uma lista de serviço.'
+
+Isso é diferente dos programas/serviços gerais do sistema — são características específicas da modelo que definem o cardápio dela. O valor normalmente é padrão (igual para todas as modelos), mas pode variar.
+
+O que precisa ser feito
+Implementar uma seção no cadastro da modelo com checkboxes ou toggle para cada tipo de serviço/feitiço disponível. Os serviços marcados como 'sim' devem automaticamente aparecer na tabela de preços da modelo. Os serviços marcados como 'não' devem ser registrados como indisponíveis.
+
+O sistema deve ter uma lista global de serviços configurável (para o admin adicionar/remover tipos de serviço). Ao salvar o cadastro da modelo com os serviços selecionados, a tabela de preços deve ser gerada/atualizada automaticamente com os valores padrão.
+
+Critério de aceite: ao cadastrar uma modelo e selecionar seus serviços, a tabela de preços dela é criada automaticamente com os serviços marcados.
+
+Etapas sugeridas
+Criar tabela tipos_servico no banco com os serviços disponíveis (configurável pelo admin)
+Criar tabela de relacionamento modelo_servicos (modelo_id, servico_id, disponivel boolean, preco_customizado opcional)
+Adicionar seção 'Serviços' no formulário de cadastro/edição da modelo com checkboxes para cada serviço
+Implementar lógica de geração automática da tabela de preços ao salvar os serviços da modelo
+Usar o valor padrão do serviço como preço inicial, permitindo customização por modelo
+Exibir os serviços disponíveis no perfil da modelo de forma clara
+Garantir que os serviços da modelo apareçam ao criar um atendimento para ela (filtrar apenas serviços disponíveis)
+Criar interface de admin para gerenciar a lista global de tipos de serviço
+Testar fluxo completo: cadastrar modelo → selecionar serviços → verificar tabela de preços gerada
+Dependências
+Definição da lista inicial de serviços/feitiços com o cliente
+Sistema de programas/serviços já existente no sistema — verificar integração
+Tabela de preços existente — verificar estrutura atual
+Pontos de atenção / Riscos
+Verificar se já existe alguma estrutura de serviços por modelo no sistema para não duplicar
+A lista de serviços é sensível — garantir que não apareça em lugares públicos ou não autorizados
+O preço padrão vs preço customizado por modelo precisa de lógica clara
+Ao desmarcar um serviço de uma modelo, verificar se há atendimentos futuros que usam esse serviço
+A geração automática da tabela de preços deve ser idempotente (rodar múltiplas vezes sem duplicar)
+Considerar que novos serviços adicionados globalmente devem aparecer como 'não disponível' por padrão para modelos existentes"
+
+
+"
+BarraVIPs
+To Do
+
+
+Modelos: Adicionar campos de signo, Instagram e e-mail no cadastro
+
+Média
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+Na reunião, o cliente solicitou explicitamente a adição dos campos de signo, rede social (Instagram) e e-mail no cadastro da modelo. O signo é usado como critério de avaliação comportamental da modelo durante o processo de seleção. O Instagram e e-mail são dados de contato importantes para gestão.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a reunião, ao revisar o formulário de cadastro da modelo, o cliente (Rossi) pediu explicitamente: 'Eu precisava que tu colocasse o signo e a rede social também. E o Insta, beleza. E o e-mail.' O signo foi descrito como um dado importante no processo de avaliação das modelos — o cliente afirmou que a primeira coisa que pergunta para uma modelo é o signo, pois isso ajuda a prever comportamentos e atitudes.
+
+Esses campos complementam o cadastro já existente (RG, CPF, endereço, medidas físicas) e fazem parte do perfil completo da modelo no sistema. A task de expansão de dados cadastrais [4febe932] está em Done mas não incluiu esses campos específicos.
+
+O Instagram é relevante também para futuras integrações com o site Elite Baby e para gestão de presença digital das modelos. O e-mail pode ser usado para comunicações formais e contratos.
+
+O que precisa ser feito
+Adicionar três novos campos no formulário de cadastro e edição da modelo:
+
+Signo — campo de seleção (dropdown) com os 12 signos do zodíaco
+Instagram — campo de texto para o @ ou URL do perfil
+E-mail — campo de texto com validação de formato de e-mail
+Os campos devem ser salvos no banco de dados (tabela de modelos ou tabela de perfil estendido) e exibidos no perfil da modelo. Critério de aceite: os três campos aparecem no formulário, aceitam entrada, salvam e exibem corretamente.
+
+Etapas sugeridas
+Adicionar colunas signo, instagram e email na tabela de modelos no banco (migration Supabase)
+Atualizar o schema/tipo TypeScript da modelo para incluir os novos campos
+Adicionar campo de seleção de signo no formulário (lista: Áries, Touro, Gêmeos, Câncer, Leão, Virgem, Libra, Escorpião, Sagitário, Capricórnio, Aquário, Peixes)
+Adicionar campo de texto para Instagram com placeholder '@usuario'
+Adicionar campo de e-mail com validação de formato (regex ou biblioteca de validação)
+Atualizar as queries de criação e edição de modelo para incluir os novos campos
+Exibir os campos no modal/tela de visualização do perfil da modelo
+Testar criação e edição com os novos campos
+Verificar se há outros lugares no sistema que exibem dados da modelo e atualizar se necessário
+Dependências
+Acesso ao banco Supabase para migration
+Formulário de criação/edição de modelo existente
+Schema TypeScript da entidade modelo
+Pontos de atenção / Riscos
+O campo Instagram pode ser preenchido com @ ou URL completa — definir qual formato aceitar e normalizar
+O e-mail não é obrigatório (modelos podem não ter ou não querer fornecer) — garantir que seja opcional
+O signo pode ser derivado da data de nascimento se esse campo existir — avaliar se vale calcular automaticamente
+Garantir que campos existentes não sejam afetados pela migration
+Verificar se o e-mail da modelo conflita com e-mail de login do sistema"
+
+
+"
+BarraVIPs
+To Do
+
+
+Financeiro: Implementar comissões configuráveis por nível de vendedor/telefonista
+
+Média
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+O cliente quer configurar comissões diferentes por nível de vendedor: iniciante (4%), intermediário (5%) e avançado (6%). O sistema deve calcular automaticamente a comissão de cada vendedor/telefonista com base nos atendimentos que ele registrou, usando a porcentagem configurada para seu nível.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a reunião, o cliente explicou a estrutura de comissões dos vendedores/telefonistas: 'pro iniciante eu pago 4%, pro cara intermediário eu pago 5%, pro cara avançado eu pago de 6%'. Ele também mencionou que os vendedores atualmente fazem atendimento e venda, e que futuramente podem migrar para funções de prospecção (BDR), o que mudaria a base de cálculo da comissão.
+
+O módulo financeiro precisa contabilizar não apenas os repasses para as modelos, mas também as comissões dos vendedores. O cliente afirmou: 'tem a comissão de telefonista também que é dos agentes, normalmente a gente pode configurar né'.
+
+O dev confirmou que é possível implementar isso, e o cliente quer que o sistema calcule automaticamente quem deve receber quanto, baseado nos atendimentos registrados por cada vendedor.
+
+O que precisa ser feito
+Implementar sistema de comissões configuráveis por vendedor/telefonista:
+
+Cada usuário vendedor tem um nível (iniciante/intermediário/avançado) com porcentagem configurável
+Ao registrar um atendimento, o vendedor responsável é identificado
+O sistema calcula automaticamente a comissão do vendedor sobre o valor do atendimento
+O módulo financeiro exibe o total de comissões a pagar por vendedor no período
+Critério de aceite: o financeiro exibe corretamente quanto deve ser pago para cada vendedor, calculado automaticamente com base nos atendimentos registrados e na porcentagem configurada.
+
+Etapas sugeridas
+Adicionar campo de nível e porcentagem de comissão no perfil do usuário vendedor
+Criar tabela de configuração de comissões (nivel, porcentagem_padrao) editável pelo admin
+Garantir que cada atendimento registre qual vendedor foi responsável
+Implementar cálculo de comissão: valor_atendimento * porcentagem_vendedor
+Adicionar seção de 'Comissões de Vendedores' no módulo financeiro
+Implementar filtro por período e por vendedor
+Exibir: total de atendimentos, valor total, comissão calculada, status (pago/pendente)
+Implementar marcação de comissão como paga (com data e forma de pagamento)
+Garantir que a comissão seja calculada sobre o valor correto (líquido após taxa de cartão)
+Testar com múltiplos vendedores e diferentes níveis
+Dependências
+Módulo financeiro [de103861]
+Sistema de usuários com perfis de vendedor
+Atendimentos com campo de vendedor responsável
+Cálculo de taxa de cartão (task anterior) para base de cálculo correta
+Pontos de atenção / Riscos
+Definir se a comissão é sobre valor bruto ou líquido (após taxa de cartão)
+Atendimentos sem vendedor identificado precisam de tratamento (atribuir ao admin?)
+Futuramente a base de cálculo pode mudar (prospecção vs atendimento) — projetar com flexibilidade
+Garantir que a comissão do vendedor não seja confundida com o repasse da modelo
+Implementar histórico de comissões pagas para auditoria
+Considerar que o próprio cliente (Rossi) também é um 'vendedor' no sistema"
+
+
+"
+BarraVIPs
+To Do
+
+
+Financeiro: Implementar cálculo automático de taxa de cartão de crédito nas cobranças
+
+Média
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+O cliente cobra uma taxa de 10% sobre pagamentos realizados via cartão de crédito para cobrir os custos do gateway. O sistema deve calcular e exibir essa taxa automaticamente ao gerar uma cobrança por cartão, e registrar o valor líquido corretamente no financeiro.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a reunião, o cliente explicou: 'quando o cara vai passar no cartão, eu já cobro ele 10% que é a taxa'. Ele também mencionou que às vezes, para valores muito altos, pode optar por não cobrar a taxa dependendo do cliente. Isso indica que a taxa deve ser configurável e não obrigatória.
+
+O módulo financeiro precisa refletir corretamente: o valor bruto cobrado do cliente (com taxa), o valor da taxa (10%), e o valor líquido que entra para a empresa. Isso é importante para o cálculo correto de repasses para modelos e comissões de vendedores.
+
+Além disso, o parcelamento no cartão afeta o fluxo de caixa — se o cliente parcela em 12x, o dinheiro cai mensalmente, e o sistema precisa refletir isso.
+
+O que precisa ser feito
+Implementar lógica de cálculo de taxa de cartão no módulo financeiro:
+
+Ao selecionar cartão como método de pagamento, calcular e exibir a taxa (padrão 10%, configurável)
+Permitir que o operador opte por não cobrar a taxa (para clientes VIP ou valores altos)
+Registrar no financeiro: valor bruto, taxa, valor líquido
+Para parcelamento: registrar o cronograma de recebimento (quando cada parcela cai)
+Critério de aceite: ao gerar cobrança por cartão, o sistema calcula automaticamente a taxa, exibe o valor total para o cliente, e registra corretamente no financeiro.
+
+Etapas sugeridas
+Adicionar configuração de taxa de cartão (padrão 10%, editável pelo admin)
+Implementar cálculo automático: valor_com_taxa = valor_base * (1 + taxa/100)
+Exibir breakdown na interface: 'Valor do serviço: R$X + Taxa cartão (10%): R$Y = Total: R$Z'
+Adicionar toggle 'Isentar taxa' para casos especiais
+Registrar no banco: valor_bruto, valor_taxa, valor_liquido, metodo_pagamento
+Para parcelamento: adicionar campo de número de parcelas e calcular cronograma
+Exibir no dashboard financeiro o valor líquido (descontando taxas) vs bruto
+Garantir que o cálculo de repasse para modelos use o valor líquido correto
+Garantir que comissões de vendedores sejam calculadas sobre o valor correto
+Testar com diferentes valores e cenários (com taxa, sem taxa, parcelado)
+Dependências
+Módulo financeiro [de103861]
+Gateway de pagamento (task anterior)
+Sistema de repasses para modelos
+Sistema de comissões de vendedores
+Pontos de atenção / Riscos
+A taxa pode variar por gateway e por tipo de cartão — verificar se 10% é fixo ou variável
+O cálculo de repasse para a modelo deve ser sobre o valor líquido, não bruto
+Parcelamento: o gateway pode ter taxas adicionais por parcela — verificar
+Garantir que a taxa seja exibida de forma transparente antes da confirmação do pagamento
+Casos onde o cliente paga parte em cartão e parte em dinheiro precisam de tratamento especial
+Histórico de cobranças deve mostrar claramente qual foi a taxa aplicada"
+
+"
+BarraVIPs
+To Do
+
+
+Sistema: Implementar módulo de gestão de tarefas interno (estilo ClickUp)
+
+Média
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+O cliente quer ter um módulo de gestão de tarefas dentro do próprio sistema Elite Baby, eliminando a necessidade de usar ferramentas externas como ClickUp. O módulo deve permitir criar, atribuir e acompanhar tarefas da operação, com diferentes níveis de permissão por usuário.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a reunião, o cliente mencionou que estava estudando o ClickUp para organizar as tarefas da operação, mas o dev sugeriu que essa funcionalidade fosse construída dentro do próprio sistema: 'se a gente colocar essa ferramenta dentro do sistema, você vai ter acesso ao que a gente está fazendo todos os dias'. O cliente aprovou imediatamente, destacando que o ClickUp é público (vinculado ao e-mail) e ele prefere manter as informações da operação privadas.
+
+O cliente descreveu o caso de uso: diferentes pessoas que trabalham com ele terão acesso ao sistema com permissões diferentes, e cada um poderá ver e criar tarefas relevantes para sua função. Ele deu o exemplo de um operador que pode criar uma tarefa 'botar os telefones para carregar' para o próximo turno.
+
+A gestão de tarefas interna é um diferencial importante para manter toda a operação em um único lugar seguro e privado.
+
+O que precisa ser feito
+Implementar um módulo de gestão de tarefas dentro do sistema com funcionalidades básicas: criar tarefa, atribuir a um usuário, definir prazo, marcar como concluída, e visualizar tarefas do dia/semana. O módulo deve ter controle de permissões — cada usuário vê apenas as tarefas relevantes para seu perfil.
+
+Critério de aceite: qualquer usuário autorizado consegue criar uma tarefa, atribuir a outro usuário, e acompanhar o status. O módulo é acessível dentro do sistema sem precisar de ferramentas externas.
+
+Etapas sugeridas
+Definir o modelo de dados: tabela tarefas (id, titulo, descricao, criado_por, atribuido_para, prazo, status, prioridade, criado_em)
+Criar migration no Supabase para a tabela de tarefas
+Implementar API/endpoints de CRUD de tarefas
+Criar a tela/módulo de tarefas no frontend com listagem, criação e edição
+Implementar filtros: minhas tarefas, todas as tarefas, por status, por prazo
+Implementar controle de permissões — admin vê todas, operador vê apenas as suas
+Adicionar notificação quando uma tarefa é atribuída ao usuário
+Implementar visualização de tarefas do dia (integração com o Painel/Hoje)
+Adicionar o módulo na sidebar do sistema
+Testar fluxo completo de criação, atribuição e conclusão de tarefa
+Dependências
+Sistema de usuários e permissões existente no sistema
+Supabase para banco de dados
+Sidebar do sistema para adicionar o novo módulo
+Pontos de atenção / Riscos
+Não reinventar a roda — manter simples no MVP, sem Kanban complexo ou subtarefas
+O sistema de permissões precisa estar bem definido antes de implementar
+Notificações de tarefas podem ser via sistema ou via WhatsApp (integração futura)
+Garantir que tarefas sensíveis da operação não sejam visíveis para usuários sem permissão
+Avaliar se tarefas precisam de comentários/histórico no MVP
+A integração com IA via WhatsApp (para criar/consultar tarefas por áudio) é uma fase futura"
+
+"
+BarraVIPs
+To Do
+
+
+Modelos: Adicionar campos de peso, cintura e tamanho do pé no cadastro
+
+Média
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+Na reunião o cliente confirmou que quer adicionar campos de medidas físicas completas no cadastro da modelo: peso, tamanho da cintura, altura e tamanho do pé. Esses dados são usados para filtros no mapa e para análises de perfil das modelos mais bem-sucedidas.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a reunião, ao discutir o cadastro completo da modelo, o cliente listou as informações que precisam estar no perfil: 'peso, tamanho da cintura, altura, cor de cabelo, cor de pele, tamanho do pé'. O cliente também mencionou que o dev já havia colocado altura, mas peso, cintura e tamanho do pé precisam ser adicionados.
+
+Esses dados têm dupla utilidade: (1) filtros no mapa de calor geográfico — o cliente demonstrou que já existe filtro por perfil físico (loira, morena, etc.) e quer expandir para medidas; (2) análises de dashboard — identificar quais perfis físicos geram mais receita por região.
+
+A task existente [4febe932] de expansão de dados cadastrais está em Done mas pode não ter incluído todos esses campos de medidas físicas.
+
+O que precisa ser feito
+Adicionar os campos de medidas físicas no formulário de cadastro e edição da modelo:
+
+Peso — campo numérico em kg (ex: 58.5)
+Cintura — campo numérico em cm (ex: 62)
+Tamanho do pé — campo numérico (ex: 37)
+Altura — verificar se já existe; se não, adicionar em cm (ex: 168)
+Os campos devem ser numéricos com validação de range razoável. Devem ser salvos no banco e exibidos no perfil. Critério de aceite: todos os campos de medidas aparecem no formulário, aceitam valores numéricos e são salvos/exibidos corretamente.
+
+Etapas sugeridas
+Verificar quais campos de medidas já existem no banco e no formulário (altura pode já estar)
+Adicionar colunas faltantes na tabela de modelos: peso_kg, cintura_cm, tamanho_pe (migration Supabase)
+Atualizar o schema TypeScript da modelo
+Adicionar inputs numéricos no formulário com labels claros e unidades de medida visíveis
+Adicionar validações de range (ex: peso entre 30-200kg, pé entre 30-46, cintura entre 40-120cm)
+Atualizar queries de criação e edição
+Exibir as medidas no perfil da modelo de forma organizada (seção 'Medidas')
+Avaliar se esses campos devem alimentar filtros no mapa de calor
+Testar com dados reais
+Dependências
+Verificar o estado atual da task [4febe932] para não duplicar campos já implementados
+Banco Supabase para migration
+Mapa de calor [7fb66707] para futura integração de filtros
+Pontos de atenção / Riscos
+Verificar se altura já foi implementada para não criar campo duplicado
+Campos numéricos precisam de validação para evitar valores absurdos
+Definir se os campos são obrigatórios ou opcionais no cadastro
+Unidades de medida devem ser claras na interface (kg, cm, número do pé)
+Futuramente esses campos podem alimentar filtros — projetar o banco pensando nisso"
+
+"
+BarraVIPs
+To Do
+
+
+Mapa: Implementar filtro de período com seleção flexível de datas
+
+Média
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+O cliente pediu que o filtro de período do mapa de calor seja mais flexível, permitindo selecionar datas específicas além dos períodos pré-definidos (7 dias, 30 dias, mês). O objetivo é conseguir analisar concentrações geográficas de clientes em períodos customizados.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a demonstração do mapa de calor na reunião, o cliente viu os filtros disponíveis (por modelo, por período) e comentou: 'vou pedir pra ele colocar um período um pouco mais flexível, né, pra poder selecionar os dias'. Atualmente o filtro de período provavelmente tem opções fixas como 7 dias, 30 dias e mês atual.
+
+A flexibilidade de período é importante para análises específicas — por exemplo, ver onde estavam os clientes durante um evento específico, uma semana de alta demanda, ou comparar dois períodos distintos. O cliente usa o mapa para tomar decisões estratégicas sobre onde concentrar esforços de prospecção.
+
+O módulo financeiro já tem filtro de período personalizado (mencionado na reunião), então a mesma abordagem deve ser aplicada ao mapa.
+
+O que precisa ser feito
+Adicionar um seletor de período customizado no filtro do mapa de calor, permitindo que o usuário escolha uma data de início e uma data de fim além das opções pré-definidas. O mapa deve recarregar os pontos/calor com base no período selecionado.
+
+Critério de aceite: o usuário consegue selecionar qualquer intervalo de datas no filtro do mapa e os pontos exibidos refletem apenas os atendimentos/clientes daquele período.
+
+Etapas sugeridas
+Identificar o componente de filtro de período atual no mapa
+Adicionar opção 'Período personalizado' além das opções fixas existentes
+Implementar date range picker (componente de seleção de intervalo de datas) — verificar se já existe no projeto (shadcn/ui tem Calendar e DatePicker)
+Ao selecionar período personalizado, exibir dois campos: data início e data fim
+Atualizar a query de busca de pontos do mapa para aceitar parâmetros de data início e fim
+Garantir que o mapa recarregue automaticamente ao confirmar o período
+Exibir o período selecionado de forma clara na interface (ex: '15/01/2025 - 28/02/2025')
+Testar com diferentes intervalos, incluindo períodos longos e curtos
+Garantir que os outros filtros (modelo, perfil físico) continuem funcionando em conjunto com o período
+Dependências
+Mapa de calor existente [7fb66707]
+Componente de date range picker (verificar se já existe no projeto)
+Query de busca de pontos do mapa com suporte a filtro de data
+Pontos de atenção / Riscos
+Períodos muito longos podem retornar muitos pontos e deixar o mapa lento — considerar limite ou paginação
+O date range picker deve ser mobile-friendly
+Garantir que o período 'Todos' ainda seja uma opção válida
+Sincronizar o estado do filtro de período com os outros filtros (modelo, perfil)
+Validar que data fim não seja anterior à data início"
+
+"
+BarraVIPs
+To Do
+
+
+Modelos: Adicionar máscara de formatação no campo RG
+
+Baixa
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+Durante a reunião foi identificado que o campo CPF já possui máscara automática de pontuação, mas o campo RG está sem máscara. É necessário adicionar a máscara de formatação no campo RG para manter organização e padronização visual no cadastro da modelo.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a demonstração do sistema na reunião, o cliente (Rossi) e o dev perceberam que o campo CPF já estava com máscara automática aplicada corretamente, mas o campo RG estava sem qualquer formatação. O cliente explicitamente pediu que o RG também recebesse máscara para ficar 'organizadinho', seguindo o mesmo padrão do CPF.
+
+Essa é uma correção simples de UX que impacta diretamente a qualidade dos dados cadastrais das modelos. Sem máscara, o campo fica suscetível a entradas inconsistentes (com ou sem pontos, traços, espaços), dificultando buscas e exibições futuras.
+
+A task já existente de expansão de dados cadastrais está em Done, mas a máscara do RG ficou pendente e precisa ser endereçada separadamente.
+
+O que precisa ser feito
+Aplicar máscara de formatação no campo RG do formulário de cadastro/edição de modelos. O formato padrão do RG brasileiro é XX.XXX.XXX-X (podendo variar por estado), mas o mais comum e aceito é o formato com dois dígitos, três dígitos, três dígitos e um dígito verificador separados por pontos e traço.
+
+A máscara deve ser aplicada tanto no formulário de criação quanto no de edição da modelo. O valor salvo no banco pode ser com ou sem máscara (preferencialmente sem, apenas dígitos), mas a exibição e entrada devem ser formatadas.
+
+Critério de aceite: ao digitar no campo RG, a pontuação deve aparecer automaticamente, igual ao comportamento já existente no campo CPF.
+
+Etapas sugeridas
+Identificar o componente de input do campo RG no formulário de modelo (criação e edição)
+Verificar qual biblioteca ou abordagem está sendo usada para a máscara do CPF (ex: react-input-mask, imask, ou implementação manual)
+Definir o padrão de máscara do RG — sugestão: 99.999.999-9 ou 99.999.999-* para aceitar letra no dígito verificador
+Aplicar a mesma abordagem da máscara do CPF no campo RG
+Garantir que o valor armazenado no banco seja consistente (somente dígitos ou com máscara — alinhar com o padrão do CPF)
+Testar criação de nova modelo com RG digitado
+Testar edição de modelo existente com RG já salvo (verificar se exibe corretamente com máscara)
+Verificar se há exibição do RG em outros lugares do sistema (cards, modais) e aplicar formatação de exibição se necessário
+Dependências
+Acesso ao componente de formulário de modelo no frontend
+Saber qual biblioteca de máscara está sendo usada para o CPF
+Task [4febe932] de expansão de dados cadastrais já está em Done — este campo já existe, só falta a máscara
+Pontos de atenção / Riscos
+O RG brasileiro não tem formato único nacional — cada estado pode ter variações (SP tem 9 dígitos, RJ tem 7, etc.). Definir se vai aceitar múltiplos formatos ou padronizar em um.
+Se o banco já tem RGs salvos sem máscara, a edição deve exibir corretamente mesmo assim.
+Cuidado para não quebrar validações existentes ao aplicar a máscara.
+O dígito verificador do RG pode ser uma letra (X) em alguns estados — a máscara precisa aceitar isso.
+Verificar se há validação de unicidade do RG e se ela funciona corretamente com/sem máscara."
+
+"
+BarraVIPs
+To Do
+
+
+Modelos: Simplificar opções de cor de cabelo e cor de pele no cadastro
+
+Baixa
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+O cliente pediu para reduzir as opções de cor de cabelo e cor de pele no cadastro da modelo. As opções atuais foram consideradas excessivas. O cliente quer apenas as categorias mais relevantes para o negócio, alinhadas com os filtros do mapa de calor.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a revisão do cadastro da modelo na reunião, o cliente viu as opções de cor de pele (branca, parda, negra, asiática, indígena, outra) e cor de cabelo (loiro, castanho claro, castanho escuro, preto, ruivo, grisalho, colorido, outra) e disse 'não quero tantos, beleza, só fala que a gente altera'. Isso indica que as opções atuais são mais do que o necessário para o contexto do negócio.
+
+Os filtros do mapa de calor já usam categorias de perfil físico (loira, morena, ruiva, negra, asiática), então as opções do cadastro devem ser consistentes com esses filtros para que o sistema funcione de forma coesa.
+
+A simplificação melhora a UX do cadastro e garante consistência com os filtros existentes no sistema.
+
+O que precisa ser feito
+Reduzir as opções de cor de cabelo e cor de pele para um conjunto menor e mais relevante. As opções devem ser alinhadas com os filtros já existentes no mapa de calor. Sugestão a confirmar com o cliente:
+
+Cor de cabelo: Loiro, Castanho, Preto, Ruivo, Colorido, Outro
+Cor de pele: Branca, Parda, Negra, Asiática, Outra
+Critério de aceite: os dropdowns de cor de cabelo e cor de pele exibem apenas as opções aprovadas pelo cliente, e os filtros do mapa de calor continuam funcionando corretamente.
+
+Etapas sugeridas
+Confirmar com o cliente a lista final de opções para cor de cabelo e cor de pele
+Atualizar os enums/constantes no frontend com as novas opções
+Verificar se as opções são armazenadas como enum no banco ou como string livre
+Se enum no banco: criar migration para atualizar os valores permitidos
+Verificar modelos existentes que possam ter valores que serão removidos — tratar migração de dados
+Atualizar os filtros do mapa de calor para usar as mesmas opções
+Garantir consistência entre as opções do cadastro e os filtros do mapa
+Testar cadastro e edição de modelo com as novas opções
+Testar filtros do mapa com as novas opções
+Dependências
+Confirmação do cliente sobre quais opções manter
+Mapa de calor [7fb66707] — os filtros devem ser consistentes
+Dados existentes de modelos com valores que podem ser removidos
+Pontos de atenção / Riscos
+Modelos já cadastradas com opções que serão removidas precisam ter seus dados migrados ou o campo ficará inválido
+Os filtros do mapa de calor usam essas categorias — qualquer mudança deve ser refletida lá também
+Manter a opção 'Outro/Outra' como escape para casos não cobertos
+Não remover opções sem antes verificar se há dados existentes usando-as"
+
+"Mapa: Customizar marcador de ponto para formato de seta/pin estilizado
+
+Baixa
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+O cliente sugeriu que o marcador de ponto no mapa seja customizado para ter formato de seta (pin), diferente do marcador padrão atual. O marcador mais quente (maior concentração ou valor) deve ser vermelho, seguindo a lógica visual do mapa de calor.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a demonstração do mapa na reunião, ao ver os marcadores de ponto dos clientes, o cliente comentou: 'acho que ele poderia ficar assim, a moda ali, acho que fica melhor, como se fosse uma setinha, sabe?' e também 'o mais quente ser vermelho, né, também é interessante'.
+
+O marcador customizado melhora a experiência visual do mapa e pode carregar informações visuais adicionais — como a intensidade (cor) indicando o valor ou quantidade de atendimentos naquele ponto. Isso torna o mapa mais informativo e visualmente coerente com a identidade do sistema.
+
+A customização do marcador é relativamente simples na maioria das bibliotecas de mapas e tem alto impacto visual.
+
+O que precisa ser feito
+Substituir o marcador padrão do mapa por um marcador customizado em formato de pin/seta. O marcador deve ter cor variável baseada na intensidade do ponto (quantidade de atendimentos ou valor financeiro): vermelho para os mais quentes, gradiente para os menos intensos.
+
+Critério de aceite: os marcadores no mapa aparecem com formato de pin/seta customizado, e a cor varia de acordo com a intensidade do ponto.
+
+Etapas sugeridas
+Identificar como os marcadores são renderizados atualmente na biblioteca de mapas em uso
+Criar ou selecionar um ícone SVG de pin/seta customizado para o sistema
+Implementar lógica de cor do marcador baseada na intensidade (quantidade de atendimentos ou valor)
+Definir a escala de cores: ex. 1 atendimento = azul, 2-3 = amarelo, 4+ = vermelho
+Aplicar o marcador customizado em todos os pontos do mapa
+Garantir que o marcador seja visível em diferentes níveis de zoom
+Verificar se o marcador customizado funciona com o clustering (agrupamento de pontos próximos)
+Testar visualmente com os dados reais
+Ajustar tamanho e proporção do marcador para boa legibilidade
+Dependências
+Mapa de calor existente [7fb66707]
+Definição da escala de cores com o cliente
+Dados de quantidade de atendimentos por ponto
+Pontos de atenção / Riscos
+O marcador customizado pode conflitar com o clustering automático de pontos próximos
+Em zoom muito baixo, marcadores pequenos podem ser difíceis de ver
+A escala de cores deve ser consistente com a do mapa de calor para não confundir o usuário
+SVG customizado precisa ser otimizado para não impactar performance com muitos marcadores
+Garantir que o tooltip/popup ao clicar no marcador continue funcionando"
+
+"
+BarraVIPs
+To Do
+
+
+Financeiro: Remover nome 'Agência' da interface e substituir por nomenclatura correta
+
+Baixa
+
+Início
+
+Entrega
+Sem responsável
+Tempo Total
+
+0s
+
+Iniciar Trabalho
+Descrição
+O cliente pediu para remover o termo 'agência' da interface do módulo financeiro, pois o termo tem conotação negativa no mercado. O cliente se posiciona como 'Jobs e Parcerias', não como agência. Todos os textos que usam 'agência' devem ser substituídos.
+Plano de Implementação
+Editar
+Preview
+Contexto
+Durante a demonstração do módulo financeiro, o cliente viu o texto 'líquido da agência' e pediu: 'depois tu tira esse agência aí que eu disse o nome do ano'. O cliente explicou que o termo 'agência' é pejorativo no mercado de acompanhantes, pois remete a práticas de exploração ('agência é quando as pessoas escravizam as meninas, travam o dinheiro delas').
+
+O cliente se posiciona como 'Jobs e Parcerias' — um parceiro de negócios das modelos, não um agenciador. Essa distinção é importante para a identidade do negócio e para a relação com as modelos.
+
+Todos os textos no sistema que usam 'agência' devem ser revisados e substituídos por terminologia adequada (ex: 'empresa', 'Jobs e Parcerias', 'parceria', ou simplesmente o nome 'Elite Baby').
+
+O que precisa ser feito
+Fazer uma varredura completa no sistema (frontend e backend) para identificar e substituir todas as ocorrências do termo 'agência' por terminologia aprovada pelo cliente. No módulo financeiro especificamente, 'líquido da agência' deve ser substituído por 'líquido da empresa' ou 'faturamento líquido'.
+
+Critério de aceite: nenhuma ocorrência do termo 'agência' aparece na interface do sistema para o usuário final.
+
+Etapas sugeridas
+Fazer busca global no código por 'agência', 'agencia', 'agency' (case insensitive)
+Listar todas as ocorrências encontradas (frontend, backend, banco de dados)
+Confirmar com o cliente a terminologia substituta para cada contexto
+Substituir no módulo financeiro: 'líquido da agência' → 'faturamento líquido' ou 'líquido da empresa'
+Substituir em outros módulos onde o termo aparecer
+Verificar textos em emails, notificações e mensagens automáticas
+Verificar labels de filtros e campos de formulário
+Fazer deploy e validar visualmente
+Dependências
+Acesso ao código fonte completo (frontend e backend)
+Confirmação do cliente sobre terminologia substituta
+Pontos de atenção / Riscos
+Verificar se 'agência' aparece em variáveis de código ou apenas em textos de interface — substituir apenas textos visíveis ao usuário
+Garantir que a substituição não quebre nenhuma lógica de negócio
+Verificar banco de dados — se houver valores salvos com 'agência', avaliar se precisam ser migrados
+Manter consistência da terminologia em todo o sistema após a substituição"
+

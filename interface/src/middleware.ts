@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 
 export async function middleware(req: NextRequest) {
   if (req.nextUrl.pathname.startsWith('/demo-mapa')) return NextResponse.next() // TEMP verificação MAPA-1
+  if (req.nextUrl.pathname.startsWith('/painel-preview')) return NextResponse.next() // TEMP verificação visual Painel
   const res = NextResponse.next()
   const url = req.nextUrl
   const isLogin = url.pathname.startsWith('/login')
