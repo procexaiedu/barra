@@ -20,6 +20,14 @@ _Avoid_: grupo da modelo, handoff do vendedor, tratar como infraestrutura P0
 Cada modelo opera no próprio número de WhatsApp, atendida por uma IA cuja **persona (voz, jeito de falar, comportamento, conduta) e FAQ são gerais — compartilhadas entre todas as modelos**. O sistema não customiza a forma de responder por modelo: todas respondem igual no WhatsApp, mudando só **as coisas dela** — identidade óbvia (nome, idade, etc.), programas/preços, agenda e tipos de atendimento aceitos. O que é **isolado por par cliente-modelo** é o dado do cliente: histórico, recorrência e observações vivem na **Conversa cliente** (par cliente, modelo). Quando um mesmo cliente conversa com modelos diferentes, esses dados são completamente isolados — a IA na modelo A não enxerga, cita ou se apoia em qualquer dado do cliente com a modelo B.
 _Avoid_: perfil único do cliente compartilhado entre IAs, IA citando última profissional contratada por outra modelo, fundir histórico cross-modelo no contexto de uma conversa, customizar voz/persona/FAQ por modelo
 
+**Vendedor**:
+Pessoa que hoje opera o WhatsApp da modelo respondendo o cliente em nome dela (se passando pela modelo) — o **respondente humano** do número, papel que a **IA por modelo** está sendo construída para assumir aos poucos. Não tem login no painel (só Fernando e a sócia operam, com permissão idêntica); é um cadastro que eles gerenciam, com um **nível** (iniciante/intermediário/avançado) que define sua **Comissão de vendedor**. Cada modelo tem um vendedor responsável padrão; o atendimento herda esse vendedor e Fernando/sócia podem sobrescrever quando outro cobriu o turno. Atendimento conduzido pela IA (sem vendedor humano) não tem vendedor.
+_Avoid_: tratar como login/usuário do painel, confundir com a **modelo** (o vendedor se passa por ela, não é ela), confundir com o papel `vendedor_read_only` do P1, atribuir vendedor a atendimento conduzido pela IA
+
+**Comissão de vendedor**:
+Percentual que o **Vendedor** recebe sobre os atendimentos `Fechado` que conduziu, definido pelo seu **nível** (iniciante/intermediário/avançado, percentuais configuráveis — referência 4/5/6%). Incide sobre o **valor líquido de taxa de cartão** (mesma base do repasse da modelo), nunca sobre o bruto inflado pela taxa, e é um custo **independente** do repasse da modelo (ambos saem do mesmo valor, não um do outro).
+_Avoid_: confundir com o repasse da modelo, calcular sobre o **Valor final** bruto quando há taxa de cartão, comissionar atendimento `Perdido` ou conduzido pela IA
+
 **Handoff**:
 Pausa da IA para que Fernando decida ou para que a modelo assuma a conversa no mesmo número, sempre com resumo e próxima ação esperada; a IA só retoma por devolução explícita.
 _Avoid_: humano genérico
@@ -36,6 +44,10 @@ _Avoid_: inferência durante handoff
 Valor total bruto pago pelo cliente no atendimento fechado.
 _Avoid_: repasse da agência, comissão
 
+**Taxa de cartão**:
+Acréscimo percentual (referência 10%, configurável) cobrado **por cima** do valor do serviço quando o cliente paga no cartão, para cobrir o custo da maquininha; **isentável** por atendimento (cliente VIP, valor alto). O **Valor final** passa a incluir a taxa; o valor do serviço (base de repasse e de **Comissão de vendedor**) é o **Valor final** menos a taxa. O custo real do gateway vive fora do sistema no P0 — não se decide aqui se a taxa vira margem.
+_Avoid_: incidir sobre o **Pix de deslocamento** (valor fixo), entrar na base de repasse/comissão (essas usam o valor do serviço), tratar a taxa como receita garantida
+
 **Motivo de perda**:
 Razão padronizada para atendimento perdido: `preco`, `sumiu`, `risco`, `indisponibilidade`, `fora_de_area` ou `outro`.
 _Avoid_: taxonomia aberta
@@ -43,6 +55,10 @@ _Avoid_: taxonomia aberta
 **Preço de tabela**:
 Preço cheio cadastrado de um programa da modelo (por duração); é o valor anunciado ao cliente e o teto da negociação.
 _Avoid_: confundir com **Valor final**, tratar como valor inegociável
+
+**Fetiche**:
+Ato/serviço íntimo que o cliente pode pedir e que a modelo **realiza ou não** — cardápio binário (sim/não) da própria modelo. Catálogo **global** curado no painel + marcação por modelo; é uma das **"coisas dela"** que a **IA por modelo** usa na venda para responder "você faz X?" (e recusar o que ela não faz). Não tem preço próprio (o preço vive no **Preço de tabela**). Eixo distinto do tipo de atendimento (interno/externo) e da ficha cadastral.
+_Avoid_: "feitiço" (use **Fetiche**), confundir com tipo de atendimento (interno/externo), confundir com a ficha cadastral (que a IA não lê), precificar por fetiche, tratar como dado de cliente (é da modelo)
 
 **Desconto de fechamento**:
 Redução pontual sobre o **Preço de tabela** de um programa que a IA pode conceder para fechar a venda, até o **Piso de desconto** e em uma única contraproposta; cabe quando o cliente pede (reativo) ou no reengajamento (proativo).
@@ -153,6 +169,12 @@ _Avoid_: plotar atendimento interno como localização do cliente, mapa por clie
 - O **Lembrete de fechamento** nunca marca o atendimento como **Perdido** por ausência de resposta: sem confirmação após o máximo de toques, abre **Handoff** para Fernando e o atendimento permanece em `Em_execucao` até fechamento manual.
 - Diferente do **Reengajamento** (cliente, toque único, dentro do horário de operação), o **Lembrete de fechamento** fala com a modelo no grupo interno, repete em toques fixos e não respeita quiet-hours.
 - A modelo confirma o **Valor final** respondendo (quote) o card do **Lembrete de fechamento** com o valor; é **efetivo imediatamente** (como todo **Registro de resultado** da modelo) e Fernando corrige depois no painel se necessário — não há confirmação dupla.
+- O **Vendedor** é o respondente humano do número da modelo hoje; a **IA por modelo** assume esse papel à medida que entra em produção. Onde a IA conduz, o atendimento não tem **Vendedor**.
+- Cada **modelo** tem um **Vendedor** responsável padrão (`modelos.vendedor_id`); o atendimento herda-o na criação e Fernando/sócia podem sobrescrever por atendimento. Quando a IA assume uma modelo, o responsável padrão fica nulo e os atendimentos dela não geram **Comissão de vendedor**.
+- A **Comissão de vendedor** e o repasse da modelo são custos **independentes** sobre o mesmo **valor líquido de taxa de cartão** do atendimento `Fechado`; nenhum desconta o outro, e só os `Fechado` contam (igual à receita do **Módulo Financeiro**).
+- O **Vendedor** não acessa o painel (só Fernando e a sócia, permissão idêntica) e nunca é exposto à **IA por modelo**; é cadastro gerido por eles, distinto do login `vendedor_read_only` planejado para o P1.
+- A **Taxa de cartão** incide só sobre o valor do serviço quando o pagamento é no cartão e não foi isentada, nunca sobre o **Pix de deslocamento**; o **Valor final** inclui a taxa, mas repasse da modelo e **Comissão de vendedor** incidem sobre o valor do serviço (**Valor final** − taxa), não sobre o bruto. Ver ADR 0013.
+- O **Fetiche** é "coisa dela" (varia por modelo) e entra no contexto da **IA por modelo** como cardápio de venda — ao contrário do **nível**, da ficha cadastral (RG/medidas) e do **Perfil físico preferido**, que a IA nunca lê. É isolado por modelo (cardápio da própria), não cruza dado de cliente entre modelos. Ver ADR 0014.
 
 ## Example dialogue
 
@@ -168,3 +190,4 @@ _Avoid_: plotar atendimento interno como localização do cliente, mapa por clie
 - "desconto" era sempre motivo de escalada ("a IA não negocia", `mvp/05 §14`); resolvido: a IA pode conceder **Desconto de fechamento** até o **Piso de desconto** numa única oferta, escalando só abaixo disso — a regra "escala em vez de negociar" passa a valer apenas para pedidos **abaixo do piso**.
 - O plano de reunião pedia "a IA lê/escreve o perfil físico do cliente em linguagem natural"; resolvido: no P0 é painel-only (Fernando), porque a parte calculada é cross-modelo e exporia dados de outras modelos à IA conversacional, furando o isolamento por par; a leitura/escrita por linguagem natural fica para a **IA Admin** (P1). "**Perfil físico preferido**" é global do cliente; não confundir com as **observações**, que são por par cliente-modelo.
 - A task de confirmação de valor pós-atendimento falava em "mensagem para a modelo via WhatsApp da modelo" e "IA administrativa processa a resposta"; resolvido: o canal é a **Coordenação por modelo** (a modelo não tem identidade/DM separada) e a interpretação é determinística (regex de `finalizado/fechado [valor]`), não IA — NLP de resposta livre fica para a **IA Admin** (P1). O gatilho é o fim previsto do atendimento (`bloqueios.fim` + tolerância), não a entrada em `Em_execucao`. Ver **Lembrete de fechamento**.
+- O CONTEXT.md afirma que "a **IA por modelo** atende o cliente", mas na operação atual quem responde é um **Vendedor** humano se passando pela modelo; resolvido: "a IA atende" descreve o papel do agente (em construção, assumindo aos poucos), não nega o respondente humano de hoje — **Vendedor** e IA ocupam o mesmo assento (o respondente do número da modelo), um hoje e a outra no futuro. A **Comissão de vendedor** existe para a operação humana e desaparece no atendimento conduzido pela IA. Ver ADR 0012.
