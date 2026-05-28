@@ -31,6 +31,7 @@ const filtrosIniciais: FiltrosModelos = {
   status: "todos",
   evolution: "todos",
   tipo: "todos",
+  nivel: "todos",
 }
 
 function abaFromQuery(value: string | null): AbaModelo {
@@ -44,6 +45,7 @@ function buildListaPath(filtros: FiltrosModelos, cursor?: string | null) {
   if (filtros.status !== "todos") params.set("status", filtros.status)
   if (filtros.evolution !== "todos") params.set("evolution", filtros.evolution)
   if (filtros.tipo !== "todos") params.set("tipo", filtros.tipo)
+  if (filtros.nivel !== "todos") params.set("nivel", filtros.nivel)
   if (cursor) params.set("cursor", cursor)
   return `/v1/modelos?${params.toString()}`
 }
@@ -94,8 +96,9 @@ export function useModelos() {
       status: filtros.status,
       evolution: filtros.evolution,
       tipo: filtros.tipo,
+      nivel: filtros.nivel,
     }),
-    [debouncedBusca, filtros.status, filtros.evolution, filtros.tipo]
+    [debouncedBusca, filtros.status, filtros.evolution, filtros.tipo, filtros.nivel]
   )
   const itemsRef = useRef<ModeloListaItem[]>([])
   const selectedIdRef = useRef<string | null>(selectedId)
@@ -111,7 +114,8 @@ export function useModelos() {
     filtrosEfetivos.busca.trim() !== "" ||
     filtrosEfetivos.status !== "todos" ||
     filtrosEfetivos.evolution !== "todos" ||
-    filtrosEfetivos.tipo !== "todos"
+    filtrosEfetivos.tipo !== "todos" ||
+    filtrosEfetivos.nivel !== "todos"
 
   const replaceUrl = useCallback(
     (modeloId: string | null, proximaAba: AbaModelo = aba) => {

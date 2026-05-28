@@ -3,6 +3,7 @@
 import { Badge } from "@/components/ui/badge"
 import { formatTelefone, formatTempoRelativo } from "@/lib/formatters"
 import { rotuloPerfil } from "@/lib/perfilFisico"
+import { NIVEL_BADGE_CLASS, NIVEL_LABEL } from "@/lib/nivel"
 import { cn } from "@/lib/utils"
 import type { ModeloListaItem } from "@/tipos/modelos"
 
@@ -51,9 +52,22 @@ export function ItemModelo({
         )}>
           {item.nome}
         </span>
-        <Badge variant={badge.variant} className="shrink-0 px-2 py-0.5 text-[11px]">
-          {badge.label}
-        </Badge>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {item.nivel && (
+            <span
+              className={cn(
+                "inline-flex size-[18px] items-center justify-center rounded-full border text-[10px] font-semibold",
+                NIVEL_BADGE_CLASS[item.nivel]
+              )}
+              title={`Nível ${NIVEL_LABEL[item.nivel]}`}
+            >
+              {NIVEL_LABEL[item.nivel]}
+            </span>
+          )}
+          <Badge variant={badge.variant} className="px-2 py-0.5 text-[11px]">
+            {badge.label}
+          </Badge>
+        </span>
       </div>
       <div className="mt-1 flex items-center justify-between gap-2 text-xs text-text-muted">
         <span className="flex min-w-0 items-center gap-1.5">

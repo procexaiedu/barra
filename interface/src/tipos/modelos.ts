@@ -7,19 +7,28 @@ export type AbaModelo = "perfil" | "midia" | "disponibilidade"
 export type FiltroStatusModelo = "todos" | StatusModelo
 export type FiltroEvolution = "todos" | "pareada" | "nao_pareada"
 export type FiltroTipoAtendimento = "todos" | TipoAtendimento
+export type FiltroNivel = "todos" | NivelModelo | "sem_nivel"
 export type EvolutionStatus = "desconectado" | "pareando" | "conectado"
 
 // Ficha cadastral da modelo (ADR 0007) — distinta do tipo_fisico (venda).
-export type CorPele = "branca" | "parda" | "negra" | "asiatica" | "indigena" | "outra"
-export type CorCabelo =
-  | "loiro"
-  | "castanho_claro"
-  | "castanho_escuro"
-  | "preto"
-  | "ruivo"
-  | "grisalho"
-  | "colorido"
-  | "outra"
+export type CorPele = "branca" | "parda" | "negra" | "asiatica" | "outra"
+export type CorCabelo = "loiro" | "castanho" | "preto" | "ruivo" | "colorido" | "outro"
+export type Signo =
+  | "aries"
+  | "touro"
+  | "gemeos"
+  | "cancer"
+  | "leao"
+  | "virgem"
+  | "libra"
+  | "escorpiao"
+  | "sagitario"
+  | "capricornio"
+  | "aquario"
+  | "peixes"
+
+/** Nível/categoria interna (A/B/C). Painel-only — a IA conversacional nunca lê. */
+export type NivelModelo = "A" | "B" | "C"
 
 export interface ModeloIndicadores {
   atendimentos_abertos: number
@@ -38,6 +47,7 @@ export interface ModeloListaItem {
   coordenacao_chat_id: string | null
   foto_perfil_url: string | null
   tipo_fisico: PerfilFisico | null
+  nivel: NivelModelo | null
   indicadores: ModeloIndicadores
 }
 
@@ -78,6 +88,13 @@ export interface ModeloDetalhe {
   cor_cabelo: CorCabelo | null
   altura_cm: number | null
   tamanho_pe: number | null
+  peso_kg: number | null
+  cintura_cm: number | null
+  signo: Signo | null
+  instagram: string | null
+  email: string | null
+  // Nível A/B/C — atribuído na edição, painel-only. A IA conversacional nunca lê.
+  nivel: NivelModelo | null
   foto_perfil_object_key: string | null
   foto_perfil_url: string | null
   created_at: string
@@ -108,7 +125,7 @@ export interface DuracaoInput {
   ordem?: number
 }
 
-/** Programa do catálogo global da agência. */
+/** Programa do catálogo global da Elite Baby. */
 export interface Programa {
   id: string
   nome: string
@@ -200,6 +217,11 @@ export interface CriarModeloInput {
   cor_cabelo?: CorCabelo | null
   altura_cm?: number | null
   tamanho_pe?: number | null
+  peso_kg?: number | null
+  cintura_cm?: number | null
+  signo?: Signo | null
+  instagram?: string | null
+  email?: string | null
 }
 
 export interface PatchModeloInput {
@@ -229,6 +251,13 @@ export interface PatchModeloInput {
   cor_cabelo?: CorCabelo | null
   altura_cm?: number | null
   tamanho_pe?: number | null
+  peso_kg?: number | null
+  cintura_cm?: number | null
+  signo?: Signo | null
+  instagram?: string | null
+  email?: string | null
+  // Nível A/B/C — atribuído na edição, painel-only.
+  nivel?: NivelModelo | null
 }
 
 export interface FiltrosModelos {
@@ -236,6 +265,7 @@ export interface FiltrosModelos {
   status: FiltroStatusModelo
   evolution: FiltroEvolution
   tipo: FiltroTipoAtendimento
+  nivel: FiltroNivel
 }
 
 export interface MidiaInput {

@@ -105,7 +105,7 @@ function SecaoCatalogo({
         <div>
           <h2 className="text-sm font-semibold text-text-primary">Programas</h2>
           <p className="text-xs text-text-muted">
-            Catálogo da agência. Também é possível criar serviços direto no perfil de cada modelo.
+            Catálogo Elite Baby. Também é possível criar serviços direto no perfil de cada modelo.
           </p>
         </div>
         <span className="text-xs text-text-muted">{programas.length}</span>

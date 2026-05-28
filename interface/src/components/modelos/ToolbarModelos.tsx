@@ -54,6 +54,18 @@ export function ToolbarModelos({
           ["externo", "Atende no local do cliente"],
         ]}
       />
+      <SelectFiltro
+        label="Nível"
+        value={filtros.nivel}
+        onChange={(nivel) => onChange({ ...filtros, nivel: nivel as FiltrosModelos["nivel"] })}
+        options={[
+          ["todos", "Todos níveis"],
+          ["A", "Nível A"],
+          ["B", "Nível B"],
+          ["C", "Nível C"],
+          ["sem_nivel", "Sem classificação"],
+        ]}
+      />
     </section>
   )
 }

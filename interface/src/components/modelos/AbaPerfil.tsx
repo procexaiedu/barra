@@ -11,8 +11,17 @@ import { TipoChecks } from "@/components/modelos/DialogCriarModelo"
 import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
 import { deE164BR, extrairDigitosTelefone, formatarTelefoneBR, paraE164BR } from "@/lib/telefone"
 import { PERFIS_FISICOS, PERFIL_FISICO_LABEL } from "@/lib/perfilFisico"
-import { CORES_CABELO, CORES_PELE, COR_CABELO_LABEL, COR_PELE_LABEL } from "@/lib/cadastroModelo"
+import {
+  CORES_CABELO,
+  CORES_PELE,
+  COR_CABELO_LABEL,
+  COR_PELE_LABEL,
+  SIGNOS,
+  SIGNO_LABEL,
+} from "@/lib/cadastroModelo"
+import { NIVEIS, NIVEL_LABEL } from "@/lib/nivel"
 import { cpfValido, formatarCpf, normalizarCpf } from "@/lib/cpf"
+import { formatarRg, normalizarRg } from "@/lib/rg"
 import type {
   Duracao,
   DuracaoInput,
@@ -62,6 +71,7 @@ export function AbaPerfil({
     nome: modelo.nome,
     idade: modelo.idade,
     tipo_fisico: modelo.tipo_fisico ?? "",
+    nivel: modelo.nivel ?? "",
   })
   const [numeroDigitos, setNumeroDigitos] = useState(() => deE164BR(modelo.numero_whatsapp))
   const [repasse, setRepasse] = useState({
@@ -79,7 +89,7 @@ export function AbaPerfil({
     tipo_atendimento_aceito: modelo.tipo_atendimento_aceito,
   })
   const [cadastro, setCadastro] = useState({
-    rg: modelo.rg ?? "",
+    rg: formatarRg(modelo.rg ?? ""),
     cpf: formatarCpf(modelo.cpf ?? ""),
     endereco_residencial_formatado: modelo.endereco_residencial_formatado,
     place_id_residencial: modelo.place_id_residencial,
@@ -87,13 +97,19 @@ export function AbaPerfil({
     cor_cabelo: modelo.cor_cabelo ?? "",
     altura_cm: modelo.altura_cm as number | null,
     tamanho_pe: modelo.tamanho_pe as number | null,
+    peso_kg: modelo.peso_kg as number | null,
+    cintura_cm: modelo.cintura_cm as number | null,
+    signo: modelo.signo ?? "",
+    instagram: modelo.instagram ?? "",
+    email: modelo.email ?? "",
   })
   const [submitting, setSubmitting] = useState<string | null>(null)
 
   const dirtyIdentidade =
     identidade.nome !== modelo.nome ||
     identidade.idade !== modelo.idade ||
-    (identidade.tipo_fisico || null) !== modelo.tipo_fisico
+    (identidade.tipo_fisico || null) !== modelo.tipo_fisico ||
+    (identidade.nivel || null) !== modelo.nivel
   const dirtyWhats = paraE164BR(numeroDigitos) !== modelo.numero_whatsapp
   const percentual = repasse.percentual_repasse === "" ? null : Number(repasse.percentual_repasse)
   const dirtyRepasse =
@@ -108,15 +124,21 @@ export function AbaPerfil({
     atendimento.idiomas !== modelo.idiomas.join(", ") ||
     atendimento.tipo_atendimento_aceito.join("|") !== modelo.tipo_atendimento_aceito.join("|")
   const cpfDigitos = normalizarCpf(cadastro.cpf)
+  const rgNormalizado = normalizarRg(cadastro.rg)
   const dirtyCadastro =
-    cadastro.rg !== (modelo.rg ?? "") ||
+    rgNormalizado !== (modelo.rg ?? "") ||
     cpfDigitos !== (modelo.cpf ?? "") ||
     cadastro.endereco_residencial_formatado !== modelo.endereco_residencial_formatado ||
     cadastro.place_id_residencial !== modelo.place_id_residencial ||
     (cadastro.cor_pele || null) !== modelo.cor_pele ||
     (cadastro.cor_cabelo || null) !== modelo.cor_cabelo ||
     cadastro.altura_cm !== modelo.altura_cm ||
-    cadastro.tamanho_pe !== modelo.tamanho_pe
+    cadastro.tamanho_pe !== modelo.tamanho_pe ||
+    cadastro.peso_kg !== modelo.peso_kg ||
+    cadastro.cintura_cm !== modelo.cintura_cm ||
+    (cadastro.signo || null) !== modelo.signo ||
+    (cadastro.instagram.trim() || null) !== modelo.instagram ||
+    (cadastro.email.trim() || null) !== modelo.email
   const anyDirty = dirtyIdentidade || dirtyWhats || dirtyRepasse || dirtyAtendimento || dirtyCadastro
 
   useEffect(() => {
@@ -145,7 +167,14 @@ export function AbaPerfil({
     cadastro.altura_cm === null || (cadastro.altura_cm >= 100 && cadastro.altura_cm <= 230)
   const peValido =
     cadastro.tamanho_pe === null || (cadastro.tamanho_pe >= 28 && cadastro.tamanho_pe <= 50)
-  const cadastroValido = cpfCadastroValido && alturaValida && peValido
+  const pesoValido =
+    cadastro.peso_kg === null || (cadastro.peso_kg >= 30 && cadastro.peso_kg <= 200)
+  const cinturaValida =
+    cadastro.cintura_cm === null || (cadastro.cintura_cm >= 40 && cadastro.cintura_cm <= 120)
+  const emailTrim = cadastro.email.trim()
+  const emailValido = emailTrim === "" || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailTrim)
+  const cadastroValido =
+    cpfCadastroValido && alturaValida && peValido && pesoValido && cinturaValida && emailValido
 
   return (
     <div className="space-y-5">
@@ -196,6 +225,20 @@ export function AbaPerfil({
               ))}
             </select>
           </Campo>
+          <Campo label="Nível">
+            <select
+              value={identidade.nivel}
+              onChange={(e) => setIdentidade({ ...identidade, nivel: e.target.value })}
+              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+            >
+              <option value="">Sem classificação</option>
+              {NIVEIS.map((nivel) => (
+                <option key={nivel} value={nivel}>
+                  {NIVEL_LABEL[nivel]}
+                </option>
+              ))}
+            </select>
+          </Campo>
         </div>
         <Salvar
           dirty={dirtyIdentidade}
@@ -206,6 +249,7 @@ export function AbaPerfil({
             nome: identidade.nome.trim(),
             idade: identidade.idade,
             tipo_fisico: (identidade.tipo_fisico || null) as PatchModeloInput["tipo_fisico"],
+            nivel: (identidade.nivel || null) as PatchModeloInput["nivel"],
           }, "Identidade atualizada")}
         />
       </Card>
@@ -275,7 +319,7 @@ export function AbaPerfil({
 
       <Card title="Repasse e Pix">
         <div className="grid gap-5 sm:grid-cols-2">
-          <Campo label="Comissão da agência (%)">
+          <Campo label="Comissão Elite Baby (%)">
             <Input type="number" min={0} max={100} value={repasse.percentual_repasse} onChange={(e) => setRepasse({ ...repasse, percentual_repasse: e.target.value })} className="h-10 bg-input" />
           </Campo>
           <Campo label="Pix">
@@ -354,7 +398,12 @@ export function AbaPerfil({
       <Card title="Dados cadastrais">
         <div className="grid gap-5 sm:grid-cols-2">
           <Campo label="RG">
-            <Input value={cadastro.rg} onChange={(e) => setCadastro({ ...cadastro, rg: e.target.value })} className="h-10 bg-input" />
+            <Input
+              value={cadastro.rg}
+              placeholder="00.000.000-0"
+              onChange={(e) => setCadastro({ ...cadastro, rg: formatarRg(e.target.value) })}
+              className="h-10 bg-input"
+            />
           </Campo>
           <Campo label="CPF">
             <Input
@@ -442,6 +491,72 @@ export function AbaPerfil({
               className="h-10 bg-input"
             />
           </Campo>
+          <Campo label="Peso (kg)">
+            <Input
+              type="number"
+              min={30}
+              max={200}
+              step="0.1"
+              value={cadastro.peso_kg ?? ""}
+              onChange={(e) =>
+                setCadastro({ ...cadastro, peso_kg: e.target.value === "" ? null : Number(e.target.value) })
+              }
+              className="h-10 bg-input"
+            />
+            {cadastro.peso_kg !== null && !pesoValido && (
+              <span className="text-[11px] normal-case tracking-normal text-state-lost">Peso entre 30 e 200 kg</span>
+            )}
+          </Campo>
+          <Campo label="Cintura (cm)">
+            <Input
+              type="number"
+              min={40}
+              max={120}
+              value={cadastro.cintura_cm ?? ""}
+              onChange={(e) =>
+                setCadastro({ ...cadastro, cintura_cm: e.target.value === "" ? null : Number(e.target.value) })
+              }
+              className="h-10 bg-input"
+            />
+            {cadastro.cintura_cm !== null && !cinturaValida && (
+              <span className="text-[11px] normal-case tracking-normal text-state-lost">Cintura entre 40 e 120 cm</span>
+            )}
+          </Campo>
+          <Campo label="Signo">
+            <select
+              value={cadastro.signo}
+              onChange={(e) => setCadastro({ ...cadastro, signo: e.target.value })}
+              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+            >
+              <option value="">Não informado</option>
+              {SIGNOS.map((slug) => (
+                <option key={slug} value={slug}>
+                  {SIGNO_LABEL[slug]}
+                </option>
+              ))}
+            </select>
+          </Campo>
+          <Campo label="Instagram">
+            <Input
+              value={cadastro.instagram}
+              placeholder="@usuario"
+              onChange={(e) => setCadastro({ ...cadastro, instagram: e.target.value })}
+              className="h-10 bg-input"
+            />
+          </Campo>
+          <Campo label="E-mail">
+            <Input
+              type="email"
+              inputMode="email"
+              value={cadastro.email}
+              placeholder="contato@exemplo.com"
+              onChange={(e) => setCadastro({ ...cadastro, email: e.target.value })}
+              className="h-10 bg-input"
+            />
+            {emailTrim !== "" && !emailValido && (
+              <span className="text-[11px] normal-case tracking-normal text-state-lost">E-mail inválido</span>
+            )}
+          </Campo>
         </div>
         <Salvar
           dirty={dirtyCadastro}
@@ -449,7 +564,7 @@ export function AbaPerfil({
           submitting={submitting === "cadastro"}
           label="Salvar dados cadastrais"
           onClick={() => salvar("cadastro", {
-            rg: cadastro.rg.trim() || null,
+            rg: rgNormalizado || null,
             cpf: cpfDigitos || null,
             endereco_residencial_formatado: cadastro.endereco_residencial_formatado,
             place_id_residencial: cadastro.place_id_residencial,
@@ -457,6 +572,11 @@ export function AbaPerfil({
             cor_cabelo: (cadastro.cor_cabelo || null) as PatchModeloInput["cor_cabelo"],
             altura_cm: cadastro.altura_cm,
             tamanho_pe: cadastro.tamanho_pe,
+            peso_kg: cadastro.peso_kg,
+            cintura_cm: cadastro.cintura_cm,
+            signo: (cadastro.signo || null) as PatchModeloInput["signo"],
+            instagram: cadastro.instagram.trim() || null,
+            email: cadastro.email.trim() || null,
           }, "Dados cadastrais atualizados")}
         />
       </Card>
