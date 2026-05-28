@@ -14,7 +14,7 @@ interface Props {
 
 // Bloco composto que substitui três KPIs avulsos (Repasses calculado,
 // Repasses pagos, Saldo a pagar). Eles contam uma história só — quanto a
-// agência deve às modelos do período — e ficam mais claros juntos, com a
+// Elite Baby deve às modelos do período — e ficam mais claros juntos, com a
 // barra de progresso pago/calculado servindo de ancoragem visual.
 export function StatusRepasses({
   calculado,

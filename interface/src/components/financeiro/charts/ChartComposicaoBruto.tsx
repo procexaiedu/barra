@@ -25,7 +25,7 @@ const PCT_FMT = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 0 })
 const PCT_FINO = new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 1 })
 
 // Decompõe o bruto em fatias mutuamente exclusivas que somam 100% da receita:
-//   Líquido (agência)  +  Repasse pago  +  Saldo a pagar  =  Bruto
+//   Líquido (Elite Baby)  +  Repasse pago  +  Saldo a pagar  =  Bruto
 // Quando há estorno (pago > calculado), o excedente vira fatia em vermelho
 // que canibaliza visualmente o pago — a soma continua = bruto.
 export function ChartComposicaoBruto({ resumo }: Props) {
@@ -44,11 +44,11 @@ export function ChartComposicaoBruto({ resumo }: Props) {
     const lista: Seg[] = [
       {
         id: "liquido",
-        rotulo: "Líquido da agência",
+        rotulo: "Líquido Elite Baby",
         valor: liquido,
         pct: bruto > 0 ? (liquido / bruto) * 100 : 0,
         cor: "var(--gold-500)",
-        descricao: "fica com a agência",
+        descricao: "fica com a Elite Baby",
       },
       {
         id: "pago",
