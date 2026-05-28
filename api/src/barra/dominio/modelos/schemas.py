@@ -1,3 +1,4 @@
+import re
 from datetime import date, time
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -5,10 +6,55 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
-CorPele = Literal["branca", "parda", "negra", "asiatica", "indigena", "outra"]
-CorCabelo = Literal[
-    "loiro", "castanho_claro", "castanho_escuro", "preto", "ruivo", "grisalho", "colorido", "outra"
+CorPele = Literal["branca", "parda", "negra", "asiatica", "outra"]
+CorCabelo = Literal["loiro", "castanho", "preto", "ruivo", "colorido", "outro"]
+Signo = Literal[
+    "aries",
+    "touro",
+    "gemeos",
+    "cancer",
+    "leao",
+    "virgem",
+    "libra",
+    "escorpiao",
+    "sagitario",
+    "capricornio",
+    "aquario",
+    "peixes",
 ]
+NivelModelo = Literal["A", "B", "C"]
+
+
+def _normalizar_instagram(valor: str | None) -> str | None:
+    """Normaliza @/URL para o handle '@usuario'. None/vazio → None."""
+    if valor is None:
+        return None
+    bruto = valor.strip()
+    if not bruto:
+        return None
+    # Tira protocolo/domínio/caminho de URLs do Instagram, mantendo só o usuário.
+    bruto = re.sub(r"^https?://", "", bruto, flags=re.IGNORECASE)
+    bruto = re.sub(r"^(www\.)?instagram\.com/", "", bruto, flags=re.IGNORECASE)
+    handle = bruto.strip("/").split("/", 1)[0].split("?", 1)[0].lstrip("@").strip()
+    if not handle:
+        return None
+    return f"@{handle}"
+
+
+def _validar_email(valor: str | None) -> str | None:
+    """Validação leve de formato de e-mail. None/vazio → None."""
+    if valor is None:
+        return None
+    bruto = valor.strip()
+    if not bruto:
+        return None
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", bruto):
+        raise ValueError("E-mail inválido")
+    return bruto
+
+
+InstagramField = Annotated[str | None, AfterValidator(_normalizar_instagram)]
+EmailField = Annotated[str | None, AfterValidator(_validar_email)]
 
 
 def _validar_cpf(valor: str | None) -> str | None:
@@ -62,6 +108,11 @@ class ModeloCreate(BaseModel):
     cor_cabelo: CorCabelo | None = None
     altura_cm: int | None = Field(default=None, ge=100, le=230)
     tamanho_pe: int | None = Field(default=None, ge=28, le=50)
+    peso_kg: Decimal | None = Field(default=None, ge=30, le=200)
+    cintura_cm: int | None = Field(default=None, ge=40, le=120)
+    signo: Signo | None = None
+    instagram: InstagramField = None
+    email: EmailField = None
 
 
 class ModeloPatch(BaseModel):
@@ -91,6 +142,13 @@ class ModeloPatch(BaseModel):
     cor_cabelo: CorCabelo | None = None
     altura_cm: int | None = Field(default=None, ge=100, le=230)
     tamanho_pe: int | None = Field(default=None, ge=28, le=50)
+    peso_kg: Decimal | None = Field(default=None, ge=30, le=200)
+    cintura_cm: int | None = Field(default=None, ge=40, le=120)
+    signo: Signo | None = None
+    instagram: InstagramField = None
+    email: EmailField = None
+    # Nível A/B/C — atribuído na edição, painel-only. NUNCA entra na persona/contexto da IA.
+    nivel: NivelModelo | None = None
 
 
 class ConectarWhatsappRequest(BaseModel):

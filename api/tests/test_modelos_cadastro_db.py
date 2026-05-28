@@ -41,7 +41,7 @@ async def _inserir(
     cpf: str | None = None,
     altura_cm: int | None = 170,
     cor_pele: str | None = "parda",
-    cor_cabelo: str | None = "castanho_escuro",
+    cor_cabelo: str | None = "castanho",
 ) -> UUID:
     modelo_id = uuid4()
     await connection.execute(
@@ -91,7 +91,7 @@ async def test_insert_e_leitura_dados_cadastrais(conn: AsyncConnection[dict[str,
     assert row["endereco_residencial_formatado"] == "Rua X, 100 - Rio de Janeiro"
     assert row["place_id_residencial"] == "ChIJ_residencial"
     assert row["cor_pele"] == "parda"
-    assert row["cor_cabelo"] == "castanho_escuro"
+    assert row["cor_cabelo"] == "castanho"
     assert row["altura_cm"] == 170
     assert row["tamanho_pe"] == 37
 

@@ -41,6 +41,7 @@ async def listar_modelos(
     status: str | None = None,
     evolution: str | None = None,
     tipo: str | None = None,
+    nivel: str | None = None,
     q: str | None = None,
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
@@ -59,6 +60,11 @@ async def listar_modelos(
     if tipo:
         filtros.append("%s::barravips.tipo_atendimento_enum = ANY(m.tipo_atendimento_aceito)")
         params.append(tipo)
+    if nivel == "sem_nivel":
+        filtros.append("m.nivel IS NULL")
+    elif nivel:
+        filtros.append("m.nivel = %s")
+        params.append(nivel)
     if q:
         termo = q.strip().lower()
         digitos = "".join(ch for ch in termo if ch.isdigit())
@@ -139,10 +145,12 @@ async def criar_modelo(
               endereco_formatado, latitude, longitude, place_id,
               tipo_atendimento_aceito, tipo_fisico,
               rg, cpf, endereco_residencial_formatado, place_id_residencial,
-              cor_pele, cor_cabelo, altura_cm, tamanho_pe
+              cor_pele, cor_cabelo, altura_cm, tamanho_pe,
+              peso_kg, cintura_cm, signo, instagram, email
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s)
             RETURNING *
             """,
             (
@@ -169,6 +177,11 @@ async def criar_modelo(
                 body.cor_cabelo,
                 body.altura_cm,
                 body.tamanho_pe,
+                body.peso_kg,
+                body.cintura_cm,
+                body.signo,
+                body.instagram,
+                body.email,
             ),
         )
     except UniqueViolation as exc:
@@ -1124,6 +1137,7 @@ def _modelo_lista_item(request: Request, row: dict[str, Any]) -> dict[str, Any]:
         "numero_whatsapp": item["numero_whatsapp"],
         "status": item["status"],
         "tipo_fisico": item.get("tipo_fisico"),
+        "nivel": item.get("nivel"),
         "evolution_instance_id": item["evolution_instance_id"],
         "evolution_status": item.get("evolution_status") or "desconectado",
         "evolution_pareado_em": _isoformat(item.get("evolution_pareado_em")),
