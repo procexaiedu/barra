@@ -37,6 +37,7 @@ import {
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
 import { MapaToolbar } from "@/components/clientes/MapaToolbar"
 import { PainelVisualizacaoMapa } from "@/components/clientes/PainelVisualizacaoMapa"
+import { RAMPA_FAVO_CSS } from "@/lib/cores/favo"
 import { rotuloPerfil } from "@/lib/perfilFisico"
 import type {
   EstadoAtendimento,
@@ -513,13 +514,15 @@ export function MapaClientes({
               <LegendaEscala
                 metrica={metrica}
                 pontos={pontos}
-                // Task 12: no modo Pontos+Métrica a legenda usa a rampa de
-                // intensidade (→ vermelho no mais quente), casando com a cor do
-                // pin. Hexbin/Calor seguem na rampa --seq-* (default).
+                // Task 12: Pontos+Métrica usa a rampa de intensidade (→ vermelho no
+                // mais quente), casando com a cor do pin. Hexbin usa a rampa de favo
+                // (refino visual). Calor/default seguem na rampa --seq-*.
                 rampa={
                   camadaEfetiva === "bolhas" && modoCor === "metrica"
                     ? RAMPA_INTENSIDADE_CSS
-                    : undefined
+                    : camadaEfetiva === "hexbin"
+                      ? RAMPA_FAVO_CSS
+                      : undefined
                 }
               />
             )}

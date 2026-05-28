@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { X } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Combobox } from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
@@ -20,7 +21,7 @@ import type {
 } from "@/tipos/atendimentos"
 import { AlertaConflito } from "./AlertaConflito"
 import { ModalRemoverTipoLocal } from "./ModalRemoverTipoLocal"
-import { estadoLabel } from "./utils"
+import { badgeForEstado, estadoLabel } from "./utils"
 
 const RESPONSAVEL_LABEL: Record<string, string> = {
   IA: "IA",
@@ -249,7 +250,7 @@ export function ModalEdicao({
     <Dialog open={!!detalhe} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent className="flex max-h-[90vh] w-[min(94vw,72rem)] max-w-none flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-0 shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
         <div className="border-b border-border-subtle px-5 py-4">
-          <DialogTitle className="text-base font-semibold leading-6 text-text-primary">
+          <DialogTitle className="font-serif text-xl font-medium leading-tight text-text-primary">
             Editar #{at.numero_curto}
           </DialogTitle>
           <DialogDescription className="mt-1 text-xs text-text-muted">
@@ -266,8 +267,10 @@ export function ModalEdicao({
             <span className="text-text-primary">{detalhe.modelo.nome}</span>
           </ItemContexto>
           <ItemContexto label="Estado">
-            <span className="text-text-primary">{estadoLabel[at.estado]}</span>
-            {at.ia_pausada && <span className="text-text-muted">IA pausada</span>}
+            <Badge variant={badgeForEstado(at.estado)} className="w-fit px-2 py-0.5 text-[11px]">
+              {estadoLabel[at.estado]}
+            </Badge>
+            {at.ia_pausada && <span className="mt-1 text-text-muted">IA pausada</span>}
           </ItemContexto>
           <ItemContexto label="Responsável">
             <span className="text-text-primary">{RESPONSAVEL_LABEL[at.responsavel_atual] ?? at.responsavel_atual}</span>
@@ -529,7 +532,8 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
 function ColunaSecao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-col gap-3 px-5 py-4">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-2.5 w-0.5 rounded-full bg-gold-500" aria-hidden />
         {titulo}
       </span>
       <div className="flex min-h-0 flex-1 flex-col gap-3">{children}</div>

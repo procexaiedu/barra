@@ -13,7 +13,9 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core"
 import { toast } from "sonner"
+import { cn } from "@/lib/utils"
 import { KanbanCard } from "@/components/atendimentos/KanbanCard"
+import { corEstado } from "@/components/atendimentos/utils"
 import type { AtendimentoListaItem, EstadoAtendimento, EstadoKanbanDestino } from "@/tipos/atendimentos"
 
 interface Coluna {
@@ -74,8 +76,11 @@ function ColunaDroppable({
   return (
     <div className="flex min-w-[220px] flex-1 flex-col gap-2">
       <div className="flex items-center justify-between px-1">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-text-muted">{coluna.titulo}</h3>
-        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-text-muted">{items.length}</span>
+        <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
+          <span className={cn("h-1.5 w-1.5 rounded-full", corEstado(coluna.estados[0]).ponto)} aria-hidden />
+          {coluna.titulo}
+        </h3>
+        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium tabular-nums text-text-muted">{items.length}</span>
       </div>
       <div
         ref={setNodeRef}

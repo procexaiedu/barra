@@ -25,11 +25,13 @@ export function HistoricoMensagens({ mensagens }: { mensagens: MensagemAtendimen
 
   if (ordenadas.length === 0) {
     return (
-      <div className="flex items-start gap-3">
-        <MessageSquareOff size={20} strokeWidth={1.5} className="mt-0.5 text-text-muted" />
+      <div className="flex flex-col items-center justify-center gap-2.5 py-6 text-center">
+        <div className="flex size-10 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+          <MessageSquareOff size={18} strokeWidth={1.75} className="text-text-muted" />
+        </div>
         <div>
-          <p className="text-sm text-text-primary">Nenhuma mensagem vinculada a este atendimento.</p>
-          <p className="mt-1 text-[13px] text-text-muted">O histórico aparece conforme as mensagens chegam.</p>
+          <p className="text-[13px] text-text-secondary">Nenhuma mensagem vinculada a este atendimento.</p>
+          <p className="mt-0.5 text-[12px] text-text-muted">O histórico aparece conforme as mensagens chegam.</p>
         </div>
       </div>
     )

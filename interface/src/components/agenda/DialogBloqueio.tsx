@@ -1,7 +1,7 @@
 "use client"
 
-import { useCallback, useMemo, useRef, useState } from "react"
-import { ArrowLeft, Loader2, Plus, X } from "lucide-react"
+import { useCallback, useMemo, useRef, useState, type ComponentProps } from "react"
+import { ArrowLeft, ChevronDown, Loader2, Plus, X } from "lucide-react"
 import {
   FormularioCamposAtendimento,
   type FormularioCamposAtendimentoRef,
@@ -609,7 +609,10 @@ export function DialogBloqueio({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-background/80" onClick={onClose} />
+      <div
+        className="fixed inset-0 z-40 bg-ink-0/80 duration-100 motion-safe:animate-in motion-safe:fade-in-0"
+        onClick={onClose}
+      />
       <div
         role="dialog"
         aria-modal="true"
@@ -617,7 +620,7 @@ export function DialogBloqueio({
         onKeyDown={(event) => {
           if (event.key === "Escape") onClose()
         }}
-        className="fixed top-1/2 left-1/2 z-50 flex w-[min(96vw,88rem)] -translate-x-1/2 -translate-y-1/2 flex-col max-h-[92vh] min-h-[70vh] rounded-lg border border-border bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]"
+        className="fixed top-1/2 left-1/2 z-50 flex w-[min(96vw,64rem)] -translate-x-1/2 -translate-y-1/2 flex-col max-h-[92vh] rounded-lg border border-border-strong bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]"
       >
         {/* Header */}
         <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-border px-8 py-4">
@@ -654,7 +657,7 @@ export function DialogBloqueio({
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-8 py-6">
+        <div className="scroll-thin flex-1 overflow-y-auto px-8 py-6">
           <div className={cn(
             "grid gap-x-8 gap-y-5",
             // Modo "criar bloqueio puro" (sem atendimento) colapsa para 1 coluna estreita centralizada
@@ -677,7 +680,7 @@ export function DialogBloqueio({
                     className={cn(
                       "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
                       tipo === "bloqueio"
-                        ? "border-primary bg-accent text-text-primary"
+                        ? "border-border-brand bg-accent text-text-brand"
                         : "border-border text-text-muted hover:border-border-strong hover:text-text-secondary"
                     )}
                   >
@@ -689,7 +692,7 @@ export function DialogBloqueio({
                     className={cn(
                       "rounded-md border px-3 py-1.5 text-sm font-medium transition-colors",
                       tipo === "agendamento"
-                        ? "border-primary bg-accent text-text-primary"
+                        ? "border-border-brand bg-accent text-text-brand"
                         : "border-border text-text-muted hover:border-border-strong hover:text-text-secondary"
                     )}
                   >
@@ -810,7 +813,7 @@ export function DialogBloqueio({
 
             {/* Seção expansível: criação rápida de atendimento */}
             {criandoAtendimento && (
-              <div className="space-y-3 rounded-lg border border-border bg-surface-raised p-3">
+              <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
                 <div className="flex items-center justify-between">
                   <p className="text-sm font-semibold text-text-primary">Novo atendimento</p>
                   <button
@@ -998,7 +1001,7 @@ export function DialogBloqueio({
 
             {/* Card de info do atendimento vinculado */}
             {atendimentoDisplay && (
-              <div className="overflow-hidden rounded-lg border border-border bg-surface-raised">
+              <div className="overflow-hidden rounded-lg border border-border bg-surface">
                 <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
                   <span className="font-mono text-xs text-text-muted">
                     #{atendimentoDisplay.numero_curto}
@@ -1068,7 +1071,7 @@ export function DialogBloqueio({
             <div className="space-y-5">
 
             {/* Seção: Horário */}
-            <section className="rounded-lg border border-border bg-card p-4">
+            <section className="rounded-lg border border-border bg-surface p-4">
               <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-text-muted">
                 Horário
               </p>
@@ -1133,7 +1136,7 @@ export function DialogBloqueio({
             </section>
 
             {/* Seção: Observação */}
-            <section className="rounded-lg border border-border bg-card p-4">
+            <section className="rounded-lg border border-border bg-surface p-4">
               <Label htmlFor="agenda-observacao" className="text-xs font-semibold uppercase tracking-wider text-text-muted">
                 Observação
               </Label>
@@ -1254,17 +1257,17 @@ export function DialogBloqueio({
           <div className="space-y-3 px-6 pb-2">
             <div>
               <Label htmlFor="motivo-perda">Motivo</Label>
-              <select
+              <CampoSelect
                 id="motivo-perda"
                 value={motivo}
                 onChange={(e) => setMotivo(e.target.value)}
                 disabled={submittingPerder}
-                className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+                className="mt-2"
               >
                 {MOTIVOS_PERDA.map((m) => (
                   <option key={m} value={m}>{formatRotulo(m)}</option>
                 ))}
-              </select>
+              </CampoSelect>
             </div>
             {motivo === "outro" && (
               <div>
@@ -1299,6 +1302,27 @@ export function DialogBloqueio({
   )
 }
 
+const selectClass =
+  "h-10 w-full appearance-none rounded-lg border border-border bg-input pl-3 pr-9 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+
+// Select nativo estilizado com chevron — unifica a aparência de Início/Fim/Duração/Motivo,
+// que antes divergiam de chip/select para select. `className` recebe a margem do contexto.
+function CampoSelect({ className, children, ...props }: ComponentProps<"select">) {
+  return (
+    <div className={cn("relative", className)}>
+      <select className={selectClass} {...props}>
+        {children}
+      </select>
+      <ChevronDown
+        size={14}
+        strokeWidth={1.5}
+        aria-hidden
+        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-text-muted"
+      />
+    </div>
+  )
+}
+
 function CampoHorario({
   id,
   label,
@@ -1315,19 +1339,19 @@ function CampoHorario({
   return (
     <div>
       <Label htmlFor={id}>{label}</Label>
-      <select
+      <CampoSelect
         id={id}
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}
-        className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+        className="mt-2"
       >
         {horarios.map((hora) => (
           <option key={hora} value={hora}>
             {hora}
           </option>
         ))}
-      </select>
+      </CampoSelect>
     </div>
   )
 }
@@ -1348,19 +1372,19 @@ function CampoDuracao({
   return (
     <div>
       <Label htmlFor={id}>Duração</Label>
-      <select
+      <CampoSelect
         id={id}
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(Number(event.target.value))}
-        className="mt-2 h-10 w-full rounded-lg border border-border bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+        className="mt-2"
       >
         {opcoes.map((d) => (
           <option key={d.min} value={d.min}>
             {d.label}
           </option>
         ))}
-      </select>
+      </CampoSelect>
     </div>
   )
 }

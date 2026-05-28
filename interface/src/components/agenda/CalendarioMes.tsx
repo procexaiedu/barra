@@ -90,20 +90,20 @@ function BloqueioLinha({
         onClick()
       }}
       className={cn(
-        "flex w-full items-center gap-1.5 truncate rounded px-1 py-0.5 text-left text-xs transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        "flex w-full items-center gap-1.5 truncate rounded-md px-1.5 py-1 text-left text-[11px] transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
         bloqueio.estado === "cancelado" && "opacity-60",
       )}
     >
       <span
-        className={cn("size-1.5 shrink-0 rounded-full", dotEstado(bloqueio))}
+        className={cn("size-2 shrink-0 rounded-full", dotEstado(bloqueio))}
         aria-hidden
       />
-      <span className="shrink-0 font-mono text-text-muted">
+      <span className="shrink-0 font-mono tabular-nums text-text-muted">
         {formatHorario(bloqueio.inicio)}
       </span>
       <span
         className={cn(
-          "truncate text-text-primary",
+          "truncate font-medium text-text-primary",
           bloqueio.estado === "cancelado" && "line-through",
         )}
       >
@@ -237,7 +237,7 @@ function CelulaDroppable({
               e.stopPropagation()
               onTogglePainel()
             }}
-            className="rounded px-1 py-0.5 text-[10px] font-medium text-text-muted hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-md px-1.5 py-0.5 text-[11px] font-medium text-text-muted transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             +{overflow} mais
           </button>
@@ -263,7 +263,7 @@ function CelulaDroppable({
               e.stopPropagation()
               onTogglePainel()
             }}
-            className="block w-full rounded px-1 py-0.5 text-left text-[11px] font-medium text-text-muted hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className="block w-full rounded-md px-1.5 py-1 text-left text-[11px] font-semibold text-text-secondary transition-colors hover:bg-muted hover:text-text-brand focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             Mais {overflow}
           </button>
@@ -412,7 +412,7 @@ export function CalendarioMes({
                 <X size={13} />
               </button>
             </div>
-            <div className="max-h-[32rem] space-y-2 overflow-y-auto p-2">
+            <div className="scroll-thin max-h-[32rem] space-y-2 overflow-y-auto p-2">
               {bloqueiosPainel.length === 0 ? (
                 <p className="py-2 text-center text-xs text-text-muted">Nenhum bloqueio neste dia.</p>
               ) : (

@@ -24,7 +24,7 @@ import { AcoesAtendimento } from "@/components/atendimentos/AcoesAtendimento"
 import { HistoricoMensagens } from "@/components/atendimentos/HistoricoMensagens"
 import { LinhaEvento } from "@/components/atendimentos/LinhaEvento"
 import { ResumoAtendimento } from "@/components/atendimentos/ResumoAtendimento"
-import { badgeForEstado, estadoLabel } from "@/components/atendimentos/utils"
+import { badgeForEstado, corEstado, estadoLabel } from "@/components/atendimentos/utils"
 import { ImageLightbox } from "@/components/ui/image-lightbox"
 
 interface MidiaItem {
@@ -82,11 +82,9 @@ export function DetalheAtendimento({
   const valorExibido = valorFinal ?? (Number.isFinite(valorAcordado as number) ? valorAcordado : null)
   const valorLabel = valorFinal !== null ? "Valor final" : "Valor acordado"
   const valorColor = valorFinal !== null ? "text-success-500" : "text-gold-500"
-  const estadoBorder =
-    atendimento.estado === "Fechado" ? "border-l-state-closed" :
-    atendimento.estado === "Perdido" ? "border-l-state-lost" :
-    atendimento.ia_pausada ? "border-l-state-handoff" :
-    "border-l-state-active"
+  // Faixa de acento concorda com o badge de estado (mesma cor). A pausa da IA é
+  // sinalizada pelo banner de handoff no resumo, não pela faixa.
+  const estadoBorder = corEstado(atendimento.estado).faixa
 
   const totalMidias =
     detalhe.midias_internas.length +
@@ -292,9 +290,11 @@ function MidiasRecebidas({
   return (
     <>
       {midias.length === 0 ? (
-        <div className="flex items-start gap-3">
-          <ImageOff size={20} strokeWidth={1.5} className="mt-0.5 text-text-muted" />
-          <p className="text-sm text-text-primary">Nenhuma mídia recebida neste atendimento.</p>
+        <div className="flex flex-col items-center justify-center gap-2.5 py-6 text-center">
+          <div className="flex size-10 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+            <ImageOff size={18} strokeWidth={1.75} className="text-text-muted" />
+          </div>
+          <p className="text-[13px] text-text-secondary">Nenhuma mídia recebida neste atendimento.</p>
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
@@ -403,7 +403,14 @@ function Eventos({ eventos }: { eventos: AtendimentoDetalheResponse["eventos"] }
   )
 
   if (ordenados.length === 0) {
-    return <p className="text-sm text-text-primary">Nenhum evento registrado neste atendimento.</p>
+    return (
+      <div className="flex flex-col items-center justify-center gap-2.5 py-6 text-center">
+        <div className="flex size-10 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+          <Clock size={18} strokeWidth={1.75} className="text-text-muted" />
+        </div>
+        <p className="text-[13px] text-text-secondary">Nenhum evento registrado neste atendimento.</p>
+      </div>
+    )
   }
 
   return (
@@ -417,9 +424,17 @@ function Eventos({ eventos }: { eventos: AtendimentoDetalheResponse["eventos"] }
 
 function EmptyDetalhe() {
   return (
-    <section aria-label="Detalhe do atendimento" className="rounded-lg border border-border bg-card p-6">
-      <p className="text-sm text-text-primary">Nenhum atendimento selecionado.</p>
-      <p className="mt-1 text-[13px] text-text-muted">Selecione um item da lista para ver o contexto completo.</p>
+    <section
+      aria-label="Detalhe do atendimento"
+      className="flex min-h-[320px] flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-card p-6 text-center"
+    >
+      <div className="flex size-12 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+        <MessageSquare size={24} strokeWidth={1.5} className="text-text-muted" />
+      </div>
+      <div>
+        <p className="text-sm font-medium text-text-primary">Nenhum atendimento selecionado.</p>
+        <p className="mt-1 text-[13px] text-text-muted">Selecione um item da lista para ver o contexto completo.</p>
+      </div>
     </section>
   )
 }

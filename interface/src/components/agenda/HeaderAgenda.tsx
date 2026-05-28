@@ -21,8 +21,8 @@ export function HeaderAgenda({
     .sort((a, b) => a.inicio.localeCompare(b.inicio))[0] ?? null
 
   return (
-    <header className="flex items-center justify-between gap-6">
-      <div>
+    <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+      <div className="min-w-0">
         <h1 className="font-serif text-[26px] leading-8 font-medium text-text-primary">
           Agenda
         </h1>
@@ -30,34 +30,64 @@ export function HeaderAgenda({
           {modelo ? `Modelo ${modelo.nome}` : "Nenhuma modelo ativa"}
         </p>
         {proximo && (
-          <p className="mt-1.5 text-sm text-text-muted">
-            Próximo:{" "}
-            <span className="font-medium text-text-primary">{formatHorario(proximo.inicio)}</span>
+          <p className="mt-1.5 flex items-center gap-1.5 text-sm text-text-muted">
+            <span className="text-text-disabled">Próximo</span>
+            <span className="font-mono font-medium tabular-nums text-text-primary">
+              {formatHorario(proximo.inicio)}
+            </span>
             {proximo.modelo_nome && (
-              <span> · {proximo.modelo_nome.split(" ")[0]}</span>
+              <span className="text-text-secondary">· {proximo.modelo_nome.split(" ")[0]}</span>
             )}
             {proximo.atendimento && (
-              <span>
-                {" "}· {proximo.atendimento.cliente_nome ?? `#${proximo.atendimento.numero_curto}`}
+              <span className="text-text-secondary">
+                · {proximo.atendimento.cliente_nome ?? `#${proximo.atendimento.numero_curto}`}
               </span>
             )}
           </p>
         )}
       </div>
-      <dl className="grid grid-cols-3 gap-2">
-        <ResumoItem label="Bloqueios ativos" value={ativos} valueClass="text-sky-500" />
-        <ResumoItem label="Em atendimento" value={emAtendimento} valueClass="text-emerald-500" />
-        <ResumoItem label="Cancelados" value={cancelados} />
+
+      {/* Painel de stats segmentado: uma superfície ancorada, divisores internos,
+          cor reservada só ao número "ao vivo" (Em atendimento) — eco do ponto verde da grade. */}
+      <dl className="flex shrink-0 divide-x divide-border overflow-hidden rounded-lg border border-border-strong bg-card">
+        <ResumoItem label="Bloqueios ativos" value={ativos} />
+        <ResumoItem label="Em atendimento" value={emAtendimento} live={emAtendimento > 0} />
+        <ResumoItem label="Cancelados" value={cancelados} muted={cancelados === 0} />
       </dl>
     </header>
   )
 }
 
-function ResumoItem({ label, value, valueClass }: { label: string; value: number; valueClass?: string }) {
+function ResumoItem({
+  label,
+  value,
+  live = false,
+  muted = false,
+}: {
+  label: string
+  value: number
+  live?: boolean
+  muted?: boolean
+}) {
   return (
-    <div className="min-w-28 rounded-lg border border-border bg-card px-3 py-2">
-      <dt className="text-xs font-medium text-text-muted">{label}</dt>
-      <dd className={cn("mt-0.5 text-base font-semibold", valueClass ?? "text-text-primary")}>{value}</dd>
+    <div className="flex min-w-[6.5rem] flex-col gap-1 px-4 py-2.5">
+      <dt className="flex items-center gap-1.5 text-xs font-medium text-text-muted">
+        {live && (
+          <span
+            className="size-1.5 rounded-full bg-success-500 motion-safe:animate-pulse"
+            aria-hidden
+          />
+        )}
+        {label}
+      </dt>
+      <dd
+        className={cn(
+          "text-2xl font-semibold leading-none tabular-nums",
+          live ? "text-success-500" : muted ? "text-text-muted" : "text-text-primary",
+        )}
+      >
+        {value}
+      </dd>
     </div>
   )
 }

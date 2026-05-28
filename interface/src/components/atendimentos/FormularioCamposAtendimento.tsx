@@ -598,7 +598,8 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
 function ColunaSecao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
     <div className="flex min-h-0 min-w-0 flex-col gap-3 px-5 py-4">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-2.5 w-0.5 rounded-full bg-gold-500" aria-hidden />
         {titulo}
       </span>
       <div className="flex min-h-0 flex-1 flex-col gap-3">{children}</div>

@@ -259,9 +259,11 @@ export function LegendaEscala({
 }: {
   metrica: MapaMetrica
   pontos: MapaClientePonto[]
-  /** Stops CSS da rampa exibida. Default = `--seq-*` (Favos/Calor). No modo
-   *  Pontos+Métrica (Task 12) o pai passa `RAMPA_INTENSIDADE_CSS` (→ vermelho no
-   *  topo) para a legenda casar com a cor do pin — senão a legenda mente. */
+  /** Stops CSS da rampa, do menor (esquerda) ao maior (direita) valor. Default
+   *  `RAMPA_SEQ` (Calor). No modo Pontos+Métrica (Task 12) o pai passa
+   *  `RAMPA_INTENSIDADE_CSS` (→ vermelho no topo) para casar com a cor do pin; os
+   *  Favos (hexbin) passam `RAMPA_FAVO_CSS` (dourado pálido → âmbar). Senão a
+   *  legenda mente sobre a cor exibida. */
   rampa?: readonly string[]
 }) {
   const limites = limitesMetrica(pontos, metrica)

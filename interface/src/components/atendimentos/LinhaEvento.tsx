@@ -29,7 +29,7 @@ export function LinhaEvento({ evento }: { evento: EventoAtendimento }) {
               <span className="text-xs text-text-muted">{autor}</span>
             </>
           )}
-          <span className="ml-auto text-xs text-text-muted">{formatDataHora(evento.created_at)}</span>
+          <span className="ml-auto text-xs tabular-nums text-text-muted">{formatDataHora(evento.created_at)}</span>
         </div>
         {resumo && (
           <p className="mt-1 line-clamp-2 text-[13px] text-text-secondary">{resumo}</p>

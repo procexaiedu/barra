@@ -14,7 +14,7 @@ import {
   type DragOverEvent,
   type DragStartEvent,
 } from "@dnd-kit/core"
-import { AlertTriangle } from "lucide-react"
+import { AlertTriangle, CalendarPlus } from "lucide-react"
 import { dataBrt, dataInput } from "@/hooks/useAgenda"
 import { formatHorario } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
@@ -180,16 +180,16 @@ function CardGrade({
       >
         <div className="flex min-w-0 items-center gap-1">
           {isEmAtendimento && (
-            <span className="inline-block h-1.5 w-1.5 flex-shrink-0 animate-pulse rounded-full bg-success-500" />
+            <span className="inline-block size-1.5 flex-shrink-0 rounded-full bg-success-500 motion-safe:animate-pulse" />
           )}
-          <p className="truncate text-[10px] font-semibold leading-tight text-text-primary">
-            {formatHorario(bloqueio.inicio)}–{formatHorario(fimLabel)}
+          <p className="truncate text-[11px] font-semibold leading-tight text-text-primary">
+            <span className="font-mono tabular-nums">{formatHorario(bloqueio.inicio)}–{formatHorario(fimLabel)}</span>
             {nomeModelo && <span className="font-normal text-text-secondary"> · {nomeModelo}</span>}
             {numCurto && <span className="font-mono text-text-muted"> #{numCurto}</span>}
           </p>
         </div>
         {altura >= 48 && titulo && (
-          <p className="mt-0.5 truncate text-[10px] leading-tight text-text-secondary">{titulo}</p>
+          <p className="mt-0.5 truncate text-[11px] font-medium leading-tight text-text-secondary">{titulo}</p>
         )}
       </button>
       {podeMostrarHandle && (
@@ -228,8 +228,8 @@ function LinhaHoraAtual({ diaIndex, totalDias }: { diaIndex: number; totalDias: 
       className="pointer-events-none absolute z-20 flex items-center"
       style={{ top: top - 1, left: `${diaIndex * colW}%`, width: `${colW}%` }}
     >
-      <div className="-ml-1.5 h-3 w-3 flex-shrink-0 rounded-full bg-red-500" />
-      <div className="h-0.5 flex-1 bg-red-500" />
+      <div className="-ml-1.5 size-3 flex-shrink-0 rounded-full bg-text-brand ring-2 ring-card" />
+      <div className="h-0.5 flex-1 bg-text-brand" />
     </div>
   )
 }
@@ -566,6 +566,7 @@ export function GradeSemanal({
   )
 
   const bloqueioArrastando = draggingId ? bloqueioPorId.get(draggingId) : null
+  const vazio = bloqueios.length === 0
 
   // Cursor-grabbing global durante drag — flagado no body para sobrepor
   // qualquer cursor de hover de elementos sob o overlay.
@@ -601,7 +602,7 @@ export function GradeSemanal({
         },
       }}
     >
-      <section aria-label="Grade de horários" className="overflow-hidden rounded-lg border border-border bg-card">
+      <section aria-label="Grade de horários" className="relative overflow-hidden rounded-lg border border-border bg-card">
         {/* Header: nomes dos dias + datas */}
         <div
           className="grid border-b border-border bg-card"
@@ -620,7 +621,7 @@ export function GradeSemanal({
               >
                 <span
                   className={cn(
-                    "text-[10px] font-medium uppercase tracking-wider",
+                    "text-[11px] font-medium uppercase tracking-wider",
                     isHoje ? "text-text-brand" : "text-text-muted",
                   )}
                 >
@@ -628,8 +629,8 @@ export function GradeSemanal({
                 </span>
                 <span
                   className={cn(
-                    "flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold",
-                    isHoje ? "bg-text-brand text-white" : "text-text-primary",
+                    "flex size-7 items-center justify-center rounded-full text-sm font-semibold tabular-nums",
+                    isHoje ? "bg-text-brand text-background" : "text-text-primary",
                   )}
                 >
                   {dia.getDate()}
@@ -641,7 +642,7 @@ export function GradeSemanal({
         </div>
 
         {/* Corpo com scroll */}
-        <div ref={scrollRef} className="overflow-y-auto" style={{ height: "calc(100vh - 360px)", minHeight: "400px", overflowX: "hidden" }}>
+        <div ref={scrollRef} className="scroll-thin overflow-y-auto" style={{ height: "calc(100vh - 360px)", minHeight: "400px", overflowX: "hidden" }}>
           <div className="relative" style={{ height: TOTAL_HEIGHT }}>
 
             {/* Coluna de horários (gutter) */}
@@ -649,7 +650,7 @@ export function GradeSemanal({
               {Array.from({ length: TOTAL_HORAS + 1 }, (_, i) => (
                 <div
                   key={i}
-                  className="absolute right-2 text-[10px] leading-none text-text-muted"
+                  className="absolute right-2 font-mono text-[11px] leading-none tabular-nums text-text-muted"
                   style={{ top: i * HORA_HEIGHT - 4 }}
                 >
                   {`${String(HORA_INICIO + i).padStart(2, "0")}:00`}
@@ -662,14 +663,14 @@ export function GradeSemanal({
               {Array.from({ length: TOTAL_HORAS + 1 }, (_, i) => (
                 <div
                   key={i}
-                  className="absolute w-full border-t border-border/50"
+                  className="absolute w-full border-t border-border/70"
                   style={{ top: i * HORA_HEIGHT }}
                 />
               ))}
               {Array.from({ length: TOTAL_HORAS }, (_, i) => (
                 <div
                   key={`h${i}`}
-                  className="absolute w-full border-t border-border/20"
+                  className="absolute w-full border-t border-border/30"
                   style={{ top: i * HORA_HEIGHT + HORA_HEIGHT / 2 }}
                 />
               ))}
@@ -706,6 +707,17 @@ export function GradeSemanal({
             </div>
           </div>
         </div>
+        {vazio && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center px-6">
+            <div className="flex max-w-xs flex-col items-center gap-2 text-center">
+              <CalendarPlus size={28} strokeWidth={1.5} className="text-text-disabled" aria-hidden />
+              <p className="text-sm font-medium text-text-secondary">Nenhum bloqueio neste período</p>
+              <p className="text-xs leading-relaxed text-text-muted">
+                Dê um duplo-clique num horário para criar um bloqueio ou agendamento.
+              </p>
+            </div>
+          </div>
+        )}
       </section>
       <DragOverlay>
         {bloqueioArrastando ? (
@@ -717,7 +729,7 @@ export function GradeSemanal({
               conflitoAtivo && "motion-safe:animate-pulse ring-2 ring-danger-500 bg-danger-500/10",
             )}
           >
-            <p className="truncate text-[10px] font-semibold leading-tight text-text-primary tabular-nums">
+            <p className="truncate font-mono text-[11px] font-semibold leading-tight tabular-nums text-text-primary">
               {dragHorarioPreview
                 ? `${dragHorarioPreview.inicio}–${dragHorarioPreview.fim}`
                 : `${formatHorario(bloqueioArrastando.inicio)}–${formatHorario(bloqueioArrastando.fim)}`}

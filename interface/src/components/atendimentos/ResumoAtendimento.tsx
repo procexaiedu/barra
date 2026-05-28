@@ -18,7 +18,7 @@ import { Card } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
 import { formatBRL, formatData, formatDataHora, formatRotulo } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse, ServicoFechado } from "@/tipos/atendimentos"
-import { estadoLabel, formatEnum, motivoExibido, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
+import { corEstado, estadoLabel, formatEnum, motivoExibido, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 import { DialogVisualizarBloqueio } from "@/components/agenda/DialogVisualizarBloqueio"
 
 function asNumber(valor: number | string | null) {
@@ -42,17 +42,8 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
   const progresso = sinais.filter(({ chave }) => sq?.[chave] === true).length
   const pct = total > 0 ? Math.round((progresso / total) * 100) : 0
 
-  const estadoColorClass =
-    atendimento.estado === "Fechado" ? "text-success-500" :
-    atendimento.estado === "Perdido" ? "text-danger-500" :
-    atendimento.ia_pausada ? "text-state-handoff" :
-    "text-gold-500"
-
-  const estadoDotClass =
-    atendimento.estado === "Fechado" ? "bg-success-500" :
-    atendimento.estado === "Perdido" ? "bg-danger-500" :
-    atendimento.ia_pausada ? "bg-state-handoff" :
-    "bg-gold-500"
+  // Concorda com o badge do detalhe (mesma cor por estado).
+  const { texto: estadoColorClass, ponto: estadoDotClass } = corEstado(atendimento.estado)
 
   const formaPagamentoLabel = atendimento.forma_pagamento
     ? atendimento.forma_pagamento === "pix"
@@ -264,7 +255,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
                     className={cn(
                       "flex items-center gap-1.5 text-[13px]",
                       estado === "sim" ? "text-success-500"
-                        : estado === "nao" ? "text-danger-500"
+                        : estado === "nao" ? "text-text-secondary"
                         : "text-text-disabled"
                     )}
                   >
