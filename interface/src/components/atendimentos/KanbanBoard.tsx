@@ -16,6 +16,7 @@ import { toast } from "sonner"
 import { cn } from "@/lib/utils"
 import { KanbanCard } from "@/components/atendimentos/KanbanCard"
 import { corEstado } from "@/components/atendimentos/utils"
+import { emitirContrato } from "@/lib/verify/contract"
 import type { AtendimentoListaItem, EstadoAtendimento, EstadoKanbanDestino } from "@/tipos/atendimentos"
 
 interface Coluna {
@@ -204,9 +205,18 @@ export function KanbanBoard({
 
   const colunas = mostrarEncerrados ? [...COLUNAS_ATIVAS, ...COLUNAS_TERMINAIS] : COLUNAS_ATIVAS
 
+  // Contrato de verificação: contagem por coluna (todas as 5, independente das visíveis)
+  // + total. Invariante: Σ por coluna = items + encerrados (ninguém some no mapeamento).
+  const contratoEstado = {
+    total: items.length + itemsEncerrados.length,
+    porColuna: Object.fromEntries(
+      [...COLUNAS_ATIVAS, ...COLUNAS_TERMINAIS].map((c) => [c.id, (itensPorColuna.get(c.id) ?? []).length])
+    ),
+  }
+
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <div className="flex h-full flex-col gap-3">
+      <div {...emitirContrato("kanban", contratoEstado)} className="flex h-full flex-col gap-3">
         <div className="flex-none flex items-center justify-between gap-3">
           <button
             type="button"
