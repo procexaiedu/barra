@@ -104,10 +104,10 @@ export function PainelFinanceiro({
       )}
 
       {/* Primários: 3 KPIs above-the-fold com sparkline.
-          Líquido em primeiro (hero gold) — é o resultado da agência. */}
+          Líquido em primeiro (hero gold) — é o resultado da Elite Baby. */}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <KpiCard
-          rotulo="Líquido da agência"
+          rotulo="Líquido Elite Baby"
           valor={r.valor_liquido_brl}
           anterior={ant?.valor_liquido_brl ?? null}
           tom="brand"

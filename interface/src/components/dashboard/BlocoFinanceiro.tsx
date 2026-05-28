@@ -101,10 +101,10 @@ export function BlocoFinanceiro({
       </header>
 
       <TileKpi
-        label="Faturamento líquido (agência)"
+        label="Faturamento líquido (Elite Baby)"
         icone={Wallet}
         iconeClassName="text-success-500"
-        tooltip="Parcela da agência (bruto - repasse modelo). Sparkline mostra evolução por semana."
+        tooltip="Parcela da Elite Baby (bruto - repasse modelo). Sparkline mostra evolução por semana."
         valor={formatBRL(financeiro.valor_liquido_brl)}
         valorClassName="text-success-500"
         destaque
