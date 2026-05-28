@@ -78,7 +78,7 @@ export function AcoesAtendimento({
       <AlertDialog open={dialog === "devolver"} onOpenChange={(open) => !submitting && setDialog(open ? "devolver" : null)}>
         <AlertDialogContent className="w-[min(94vw,28rem)] max-w-none bg-card">
           <AlertDialogHeader>
-            <AlertDialogTitle className="text-lg font-semibold text-text-primary">
+            <AlertDialogTitle className="font-serif text-xl font-medium text-text-primary">
               Devolver #{atendimento.numero_curto} para a IA?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">

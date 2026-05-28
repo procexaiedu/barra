@@ -233,7 +233,7 @@ export function ModalNovoAtendimento({
       >
         <DialogContent className="flex max-h-[90vh] w-[min(94vw,72rem)] max-w-none flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-0 shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
           <div className="border-b border-border-subtle px-5 py-4">
-            <DialogTitle className="text-base font-semibold leading-6 text-text-primary">
+            <DialogTitle className="font-serif text-xl font-medium leading-tight text-text-primary">
               Novo atendimento
             </DialogTitle>
             <DialogDescription className="mt-1 text-xs text-text-muted">

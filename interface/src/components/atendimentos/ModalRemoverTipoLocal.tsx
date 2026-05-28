@@ -81,7 +81,7 @@ export function ModalRemoverTipoLocal({
     <AlertDialog open={aberto} onOpenChange={(o) => !submitting && !o && fechar()}>
       <AlertDialogContent className="w-[min(94vw,32rem)] max-w-none bg-card">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-base font-semibold text-text-primary">
+          <AlertDialogTitle className="font-serif text-lg font-medium text-text-primary">
             Remover &ldquo;{nome ? rotulo(nome) : ""}&rdquo;?
           </AlertDialogTitle>
           <AlertDialogDescription className="text-sm text-text-secondary">

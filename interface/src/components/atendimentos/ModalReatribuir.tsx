@@ -161,7 +161,7 @@ export function ModalReatribuir({
       }}
     >
       <DialogContent className="w-[min(94vw,32rem)] max-w-none rounded-lg border border-border bg-popover p-6 text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
-        <DialogTitle>Reatribuir atendimento #{at.numero_curto}</DialogTitle>
+        <DialogTitle className="font-serif text-lg font-medium text-text-primary">Reatribuir atendimento #{at.numero_curto}</DialogTitle>
         <DialogDescription className="mt-1">
           O atendimento atual será marcado como Perdido (motivo: reatribuição) e um novo
           atendimento será criado para o par escolhido.

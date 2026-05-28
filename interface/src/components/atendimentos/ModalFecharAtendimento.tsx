@@ -71,7 +71,7 @@ export function ModalFecharAtendimento({
     <AlertDialog open={open} onOpenChange={(o) => !submitting && !o && fechar()}>
       <AlertDialogContent className="w-[min(94vw,40rem)] max-w-none bg-card">
         <AlertDialogHeader>
-          <AlertDialogTitle className="text-lg font-semibold text-text-primary">
+          <AlertDialogTitle className="font-serif text-xl font-medium text-text-primary">
             Converter #{numeroCurto}?
           </AlertDialogTitle>
           <AlertDialogDescription className="text-sm text-text-secondary">
