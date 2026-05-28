@@ -1,6 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
+import { Calendar as CalendarIcon } from "lucide-react"
 import { ChipsFiltrosAtivos } from "@/components/clientes/ChipsFiltrosAtivos"
 import {
   FiltroCompararPeriodos,
@@ -10,6 +11,9 @@ import {
   type FiltroRecencia,
 } from "@/components/clientes/MapaControles"
 import { PopoverFiltrosMapa } from "@/components/clientes/PopoverFiltrosMapa"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { RangeCalendar } from "@/components/ui/range-calendar"
+import { formatarDiaMes } from "@/lib/datas"
 import { FILTROS_MAPA_PADRAO } from "@/hooks/useClientesMapa"
 import type {
   FiltroPeriodo,
@@ -23,6 +27,7 @@ const PERIODOS: { value: FiltroPeriodo; label: string }[] = [
   { value: "7d", label: "7 dias" },
   { value: "30d", label: "30 dias" },
   { value: "90d", label: "90 dias" },
+  { value: "custom", label: "Personalizado" },
 ]
 
 /** Toolbar específica da aba Mapa (substitui o Toolbar superior compartilhado).
@@ -33,6 +38,8 @@ const PERIODOS: { value: FiltroPeriodo; label: string }[] = [
  *  Busca não entra porque o endpoint do mapa ignora `q` (useClientesMapa). */
 export function MapaToolbar({
   periodo,
+  dataInicio,
+  dataFim,
   modeloId,
   modelos,
   perfis,
@@ -47,6 +54,7 @@ export function MapaToolbar({
   totalNoMapa,
   totalSemLocalizacao,
   onPeriodoChange,
+  onCustomPeriodoChange,
   onModeloChange,
   onPerfisChange,
   onDesfechoChange,
@@ -58,6 +66,9 @@ export function MapaToolbar({
   onCompararChange,
 }: {
   periodo: FiltroPeriodo
+  /** Task 9: janela do "Período personalizado" (ISO `YYYY-MM-DD`). */
+  dataInicio: string | null
+  dataFim: string | null
   modeloId: string
   modelos: ModeloResumo[]
   perfis: PerfilFisico[]
@@ -73,6 +84,8 @@ export function MapaToolbar({
   totalNoMapa: number
   totalSemLocalizacao: number
   onPeriodoChange: (v: FiltroPeriodo) => void
+  /** Task 9: aplica/zera a janela custom (datas ISO ou null para limpar). */
+  onCustomPeriodoChange: (range: { dataInicio: string | null; dataFim: string | null }) => void
   onModeloChange: (v: string) => void
   onPerfisChange: (v: PerfilFisico[]) => void
   onDesfechoChange: (v: FiltroDesfecho) => void
@@ -85,6 +98,7 @@ export function MapaToolbar({
 }) {
   const limparTudo = () => {
     onPeriodoChange("todos")
+    onCustomPeriodoChange({ dataInicio: null, dataFim: null })
     onModeloChange("todas")
     onPerfisChange([])
     onDesfechoChange(FILTROS_MAPA_PADRAO.desfecho)
@@ -101,13 +115,32 @@ export function MapaToolbar({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <SelectInline label="Período" value={periodo} onChange={(v) => onPeriodoChange(v as FiltroPeriodo)}>
+        <SelectInline
+          label="Período"
+          value={periodo}
+          onChange={(v) => {
+            const proximo = v as FiltroPeriodo
+            onPeriodoChange(proximo)
+            // Trocar de "custom" para um preset/"Todos" descarta as datas — sem
+            // estado órfão escondido atrás do dropdown.
+            if (proximo !== "custom") {
+              onCustomPeriodoChange({ dataInicio: null, dataFim: null })
+            }
+          }}
+        >
           {PERIODOS.map((p) => (
             <option key={p.value} value={p.value}>
               {p.label}
             </option>
           ))}
         </SelectInline>
+        {periodo === "custom" && (
+          <PeriodoCustom
+            dataInicio={dataInicio}
+            dataFim={dataFim}
+            onChange={onCustomPeriodoChange}
+          />
+        )}
         <SelectInline label="Modelo" value={modeloId} onChange={onModeloChange}>
           <option value="todas">Todas</option>
           {modelos.map((m) => (
@@ -192,5 +225,50 @@ function SelectInline({
         {children}
       </select>
     </label>
+  )
+}
+
+/** Task 9: seletor de janela do "Período personalizado". Reusa o RangeCalendar
+ *  (react-day-picker) já usado em FiltroPeriodo/DialogRangeCustom. O backend só
+ *  filtra quando os dois lados estão preenchidos; enquanto o usuário escolhe só o
+ *  início, o fetch ainda não envia o range (buildMapaPath exige inicio <= fim). */
+function PeriodoCustom({
+  dataInicio,
+  dataFim,
+  onChange,
+}: {
+  dataInicio: string | null
+  dataFim: string | null
+  onChange: (range: { dataInicio: string | null; dataFim: string | null }) => void
+}) {
+  const rotulo =
+    dataInicio && dataFim
+      ? `${formatarDiaMes(dataInicio)} – ${formatarDiaMes(dataFim)}`
+      : dataInicio
+        ? `Desde ${formatarDiaMes(dataInicio)}`
+        : "Escolher datas"
+
+  return (
+    <Popover>
+      <PopoverTrigger
+        data-slot="mapa-periodo-custom-trigger"
+        className="inline-flex h-9 items-center justify-between gap-1.5 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      >
+        <span className="truncate">{rotulo}</span>
+        <CalendarIcon size={14} strokeWidth={1.5} className="shrink-0 text-text-muted" />
+      </PopoverTrigger>
+      <PopoverContent
+        data-slot="mapa-periodo-custom-content"
+        align="start"
+        className="flex w-[320px] flex-col gap-2 sm:w-[360px]"
+      >
+        <div className="flex justify-center">
+          <RangeCalendar
+            value={{ de: dataInicio, ate: dataFim }}
+            onChange={(range) => onChange({ dataInicio: range.de, dataFim: range.ate })}
+          />
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }

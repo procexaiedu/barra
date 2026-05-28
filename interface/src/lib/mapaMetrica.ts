@@ -132,3 +132,52 @@ export function corBolha(t: number): string {
   const idx = Math.min(4, Math.max(0, Math.floor(t * 5)))
   return RAMPA_SEQ[idx]
 }
+
+/**
+ * Task 12 — marcador pin/seta colorido por intensidade. Decisão do cliente:
+ * "o mais quente = vermelho". Rampa SEQUENCIAL (intensidade, não categórica):
+ * dourado-frio (pouco) → âmbar → laranja → vermelho (muito). Vermelho no topo
+ * porque foi o pedido explícito; o gradiente abaixo é dourado/quente para casar
+ * com o tema (não é a rampa categórica `--chart-*`). Hex literal porque o SVG do
+ * pin é inline e não resolve CSS vars (mesma restrição de `COR_PERFIL`/desfecho).
+ *
+ * Diferente de `corBolha` (5 buckets discretos da `--seq-*`), aqui interpolamos
+ * continuamente entre stops para o pin "esquentar" suave conforme a métrica sobe.
+ */
+export const RAMPA_INTENSIDADE: ReadonlyArray<[number, number, number]> = [
+  [230, 203, 122], // 0.00 — dourado claro (frio / pouco)
+  [228, 164, 70], // 0.33 — âmbar
+  [224, 122, 60], // 0.66 — laranja queimado
+  [214, 40, 40], // 1.00 — vermelho (mais quente) — espelha --danger-500 (#D62828)
+] as const
+
+/** Mesmos stops em CSS hex — usados pela legenda (gradient). Espelha a `RAMPA_INTENSIDADE`. */
+export const RAMPA_INTENSIDADE_CSS: readonly string[] = [
+  "#E6CB7A",
+  "#E4A446",
+  "#E07A3C",
+  "#D62828",
+] as const
+
+function lerpCanal(a: number, b: number, t: number): number {
+  return Math.round(a + (b - a) * t)
+}
+
+/**
+ * Cor do pin para a intensidade normalizada `t` (0..1). Interpola dentro da
+ * `RAMPA_INTENSIDADE`. `t<=0` → frio (dourado), `t>=1` → quente (vermelho).
+ * Retorna `#RRGGBB` (PinElement/SVG inline não aceitam CSS vars).
+ */
+export function corPinIntensidade(t: number): string {
+  const stops = RAMPA_INTENSIDADE
+  const clamped = Math.min(1, Math.max(0, t))
+  const escala = clamped * (stops.length - 1)
+  const i = Math.min(stops.length - 2, Math.floor(escala))
+  const frac = escala - i
+  const [r1, g1, b1] = stops[i]
+  const [r2, g2, b2] = stops[i + 1]
+  const r = lerpCanal(r1, r2, frac)
+  const g = lerpCanal(g1, g2, frac)
+  const b = lerpCanal(b1, b2, frac)
+  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`
+}

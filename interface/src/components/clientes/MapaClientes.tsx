@@ -5,11 +5,11 @@ import { MarkerClusterer } from "@googlemaps/markerclusterer"
 import { carregarBiblioteca, googleMapsApiKey, googleMapsMapId } from "@/lib/googleMaps"
 import { formatBRL } from "@/lib/formatters"
 import {
-  corBolha,
+  RAMPA_INTENSIDADE_CSS,
+  corPinIntensidade,
   limitesMetrica,
   normalizarPeso,
   pesoPonto,
-  raioBolha,
   type MapaCamada,
   type MapaMetrica,
 } from "@/lib/mapaMetrica"
@@ -71,11 +71,14 @@ export function MapaClientes({
   onValorRangeChange,
   onRecenciaChange,
   periodo,
+  dataInicio,
+  dataFim,
   modeloId,
   modelos,
   perfis,
   incluirArquivados,
   onPeriodoChange,
+  onCustomPeriodoChange,
   onModeloChange,
   onPerfisChange,
   onIncluirArquivadosChange,
@@ -107,11 +110,15 @@ export function MapaClientes({
   /** Filtros compartilhados (antes vinham do Toolbar superior). Toolbar some na aba
    *  Mapa — os filtros agora vivem aqui dentro via MapaToolbar/PopoverFiltrosMapa. */
   periodo: FiltroPeriodo
+  /** Task 9: janela do "Período personalizado" (ISO `YYYY-MM-DD`). */
+  dataInicio: string | null
+  dataFim: string | null
   modeloId: string
   modelos: ModeloResumo[]
   perfis: PerfilFisico[]
   incluirArquivados: boolean
   onPeriodoChange: (v: FiltroPeriodo) => void
+  onCustomPeriodoChange: (range: { dataInicio: string | null; dataFim: string | null }) => void
   onModeloChange: (v: string) => void
   onPerfisChange: (v: PerfilFisico[]) => void
   onIncluirArquivadosChange: (v: boolean) => void
@@ -444,6 +451,8 @@ export function MapaClientes({
     <div className="space-y-3">
       <MapaToolbar
         periodo={periodo}
+        dataInicio={dataInicio}
+        dataFim={dataFim}
         modeloId={modeloId}
         modelos={modelos}
         perfis={perfis}
@@ -458,6 +467,7 @@ export function MapaClientes({
         totalNoMapa={pontos.length}
         totalSemLocalizacao={totalSemLocalizacao}
         onPeriodoChange={onPeriodoChange}
+        onCustomPeriodoChange={onCustomPeriodoChange}
         onModeloChange={onModeloChange}
         onPerfisChange={onPerfisChange}
         onDesfechoChange={onDesfechoChange}
@@ -488,7 +498,8 @@ export function MapaClientes({
           <div className="absolute bottom-3 left-3 flex flex-col gap-2">
             {/* Legenda contextual: só aparece o que realmente codifica algo no mapa.
                 - MAPA-14 ON → rampa divergente (LegendaDelta), independente da camada.
-                - Hexbin/Calor e Pontos+Por métrica → rampa --seq-* (LegendaEscala).
+                - Pontos+Por métrica → rampa de intensidade (→ vermelho), casa com o pin (Task 12).
+                - Hexbin/Calor → rampa --seq-* (LegendaEscala, default).
                 - Pontos+Por desfecho → 3 baldes de cor (LegendaDesfecho).
                 - Pontos+Por perfil → 6 categorias + Sem declaração (LegendaPerfil).
                 Em todos os outros (camada ≠ Pontos), a cor é sempre da métrica. */}
@@ -499,7 +510,18 @@ export function MapaClientes({
             ) : camadaEfetiva === "bolhas" && modoCor === "perfil" ? (
               <LegendaPerfil />
             ) : (
-              <LegendaEscala metrica={metrica} pontos={pontos} />
+              <LegendaEscala
+                metrica={metrica}
+                pontos={pontos}
+                // Task 12: no modo Pontos+Métrica a legenda usa a rampa de
+                // intensidade (→ vermelho no mais quente), casando com a cor do
+                // pin. Hexbin/Calor seguem na rampa --seq-* (default).
+                rampa={
+                  camadaEfetiva === "bolhas" && modoCor === "metrica"
+                    ? RAMPA_INTENSIDADE_CSS
+                    : undefined
+                }
+              />
             )}
             {/* MAPA-9: enquanto a lente está ON, explica o subset visualmente independente
                 da camada/modo de cor — em Hexbin/Calor essa é a ÚNICA pista visual da lente
@@ -568,13 +590,51 @@ function criarConteudoPerfil(perfis: PerfilFisico[]): HTMLElement {
   }).element
 }
 
-// Bolha do MAPA-2. AdvancedMarker ancora pelo bottom-center do `content`;
-// `translateY(50%)` empurra o círculo para baixo de modo que seu centro caia
-// exatamente na coordenada geográfica.
-function criarConteudoBolha(peso: number): HTMLElement {
+// Task 12 — marcador em formato de PIN/SETA (gota) colorido por INTENSIDADE da
+// métrica (cliente mais "quente" = vermelho, decisão do cliente). Substitui a
+// bolha circular do MAPA-2 no modo "Por métrica". O SVG é desenhado com a PONTA
+// no bottom-center do viewBox; como o AdvancedMarker ancora o `content` pelo
+// bottom-center, a ponta cai exatamente sobre a coordenada (sem `translateY`).
+//
+// Tamanho cresce levemente com a intensidade (sqrt → área proporcional, como a
+// bolha), mas em faixa mais estreita: pin grande demais polui o mapa e esconde
+// vizinhos. Cor vem de `corPinIntensidade` (rampa sequencial → vermelho no topo).
+const PIN_ALTURA_MIN_PX = 30
+const PIN_ALTURA_MAX_PX = 46
+
+function criarConteudoPin(peso: number): HTMLElement {
+  const altura = PIN_ALTURA_MIN_PX + (PIN_ALTURA_MAX_PX - PIN_ALTURA_MIN_PX) * Math.sqrt(peso)
+  // Proporção fixa da gota (largura ≈ 0.72 da altura) para a forma não distorcer.
+  const largura = altura * 0.72
+  const cor = corPinIntensidade(peso)
+  const SVG_NS = "http://www.w3.org/2000/svg"
+  const svg = document.createElementNS(SVG_NS, "svg")
+  svg.setAttribute("width", String(largura))
+  svg.setAttribute("height", String(altura))
+  svg.setAttribute("viewBox", "0 0 24 32")
+  svg.style.cssText = "display:block;cursor:pointer;filter:drop-shadow(0 1px 2px rgba(0,0,0,0.4));"
+  // Gota clássica: cabeça circular em cima, ponta no bottom-center (12,32).
+  const path = document.createElementNS(SVG_NS, "path")
+  path.setAttribute(
+    "d",
+    "M12 0C5.92 0 1 4.92 1 11c0 7.7 9.1 19.2 10.06 20.4a1.2 1.2 0 0 0 1.88 0C13.9 30.2 23 18.7 23 11 23 4.92 18.08 0 12 0z",
+  )
+  path.setAttribute("fill", cor)
+  path.setAttribute("stroke", "rgba(255,255,255,0.92)")
+  path.setAttribute("stroke-width", "1.5")
+  svg.appendChild(path)
+  // Furo branco no centro da cabeça — dá leitura de "pin" e contraste em qualquer cor.
+  const furo = document.createElementNS(SVG_NS, "circle")
+  furo.setAttribute("cx", "12")
+  furo.setAttribute("cy", "11")
+  furo.setAttribute("r", "3.6")
+  furo.setAttribute("fill", "rgba(255,255,255,0.92)")
+  svg.appendChild(furo)
+  // Wrapper para o AdvancedMarker (ancora o elemento, não o SVG raw) e para o
+  // bindClickAoContent anexar o handler no nó-content.
   const el = document.createElement("div")
-  const diametro = 2 * raioBolha(peso)
-  el.style.cssText = `width:${diametro}px;height:${diametro}px;border-radius:50%;background:${corBolha(peso)};border:2px solid rgba(255,255,255,0.9);box-shadow:0 1px 3px rgba(0,0,0,0.35);cursor:pointer;transform:translateY(50%);`
+  el.style.cssText = "display:block;line-height:0;cursor:pointer;"
+  el.appendChild(svg)
   return el
 }
 
@@ -593,9 +653,10 @@ function conteudoPorModo(
     base = criarConteudoPerfil(ponto.perfis)
     kind = "pin"
   } else {
-    // modoCor === "metrica": bolha sqrt-escalada (raio + cor pela rampa --seq-*).
-    base = criarConteudoBolha(peso)
-    kind = "bolha"
+    // modoCor === "metrica" (Task 12): pin/seta sqrt-escalado, cor por intensidade
+    // (rampa sequencial → vermelho no mais quente).
+    base = criarConteudoPin(peso)
+    kind = "pin"
   }
   return lenteDemanda ? envolverComHaloOportunidade(base, kind) : base
 }
@@ -672,8 +733,9 @@ function aplicarDestaque(
       novo = criarConteudoPerfil(perfis)
       kind = "pin"
     } else {
-      novo = criarConteudoBolha(peso)
-      kind = "bolha"
+      // modoCor === "metrica" (Task 12): pin/seta colorido por intensidade.
+      novo = criarConteudoPin(peso)
+      kind = "pin"
     }
     // MAPA-9: halo de oportunidade convive com o destaque MAPA-4 (bairro selecionado
     // continua sinalizado pela cor dourada; o halo magenta indica a lente).

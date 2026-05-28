@@ -288,11 +288,16 @@ function ClientesInner() {
           onValorRangeChange={handleValorRangeChange}
           onRecenciaChange={handleRecenciaChange}
           periodo={crm.filtros.periodo}
+          dataInicio={crm.filtros.dataInicio}
+          dataFim={crm.filtros.dataFim}
           modeloId={crm.filtros.modeloId}
           modelos={crm.modelos}
           perfis={crm.filtros.perfis}
           incluirArquivados={crm.incluirArquivados}
           onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
+          onCustomPeriodoChange={({ dataInicio, dataFim }) =>
+            crm.setFiltros((current) => ({ ...current, dataInicio, dataFim }))
+          }
           onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
           onPerfisChange={(perfis) => crm.setFiltros((current) => ({ ...current, perfis }))}
           onIncluirArquivadosChange={crm.setIncluirArquivados}

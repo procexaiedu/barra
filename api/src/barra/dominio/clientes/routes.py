@@ -127,6 +127,8 @@ async def mapa_clientes(
     valor_min: float | None = None,
     valor_max: float | None = None,
     recencia: Literal["ativos", "dormentes"] | None = None,
+    data_inicio: str | None = None,
+    data_fim: str | None = None,
     comparar: bool = False,
     a_inicio: str | None = None,
     a_fim: str | None = None,
@@ -147,6 +149,12 @@ async def mapa_clientes(
     MAPA-11: aceita `valor_min`/`valor_max` (R$ fechado do cliente, incide em `ag.valor_total`
     — cross-modelo) e `recencia` ("ativos" = `geo.ultima_data >= NOW() - 90d`; "dormentes" = <).
     Negativos viram NO-OP. Ortogonais aos filtros do MAPA-8 e à lente MAPA-9 (sempre aplicados).
+
+    Task 9: aceita `data_inicio`/`data_fim` (ISO `YYYY-MM-DD`) — o "Período personalizado" do
+    filtro simples. Quando ambos vêm, filtra clientes com algum atendimento em
+    `[data_inicio, data_fim+1 day)` (mesma forma do preset `periodo`, só que com janela
+    explícita) e tem precedência sobre `periodo`. `fim < inicio` → 422 (espelha o modo
+    Comparar). Combina com os filtros de modelo/perfil já existentes (mesmo WHERE).
 
     MAPA-14: aceita `comparar=true` com dois recortes (`a_inicio`/`a_fim`, `b_inicio`/`b_fim`,
     ISO `YYYY-MM-DD`). Quando ativo, ignora `periodo` e `recencia` (não fazem sentido) e
@@ -188,7 +196,19 @@ async def mapa_clientes(
     if q:
         filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
-    if periodo in PERIODOS_DIAS:
+    # Task 9: "Período personalizado" tem precedência sobre o preset `periodo`.
+    # Janela `[inicio, fim+1 day)` em `created_at` (inclui o dia inteiro do fim),
+    # mesma forma do recorte do modo Comparar. `fim < inicio` → 422.
+    if data_inicio is not None or data_fim is not None:
+        custom_ini, custom_fim = _parse_recorte("data", data_inicio, data_fim)
+        filtros.append(
+            "EXISTS (SELECT 1 FROM barravips.atendimentos a "
+            "WHERE a.cliente_id = c.id "
+            "AND a.created_at >= %s::date "
+            "AND a.created_at < (%s::date + INTERVAL '1 day'))"
+        )
+        params.extend([custom_ini, custom_fim])
+    elif periodo in PERIODOS_DIAS:
         filtros.append(
             "EXISTS (SELECT 1 FROM barravips.atendimentos a "
             "WHERE a.cliente_id = c.id "

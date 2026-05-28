@@ -80,7 +80,18 @@ function buildMapaPath(
     params.set("a_fim", mapa.aFim as string)
     params.set("b_inicio", mapa.bInicio as string)
     params.set("b_fim", mapa.bFim as string)
-  } else if (filtros.periodo !== "todos") {
+  } else if (
+    filtros.periodo === "custom" &&
+    filtros.dataInicio !== null &&
+    filtros.dataFim !== null &&
+    filtros.dataInicio <= filtros.dataFim
+  ) {
+    // Task 9: "Período personalizado" — janela explícita [inicio, fim]. Só envia
+    // quando os dois lados estão preenchidos e o range é válido (defesa em
+    // profundidade; backend valida `fim < inicio` com 422).
+    params.set("data_inicio", filtros.dataInicio)
+    params.set("data_fim", filtros.dataFim)
+  } else if (filtros.periodo !== "todos" && filtros.periodo !== "custom") {
     params.set("periodo", filtros.periodo)
   }
   if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
