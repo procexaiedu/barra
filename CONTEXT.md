@@ -1,6 +1,6 @@
-# Barra Vips MVP
+# Elite Baby MVP
 
-Linguagem de domínio para a central inteligente de atendimento da operação Barra Vips. Este contexto existe para manter consistentes os termos usados entre produto, operação e implementação.
+Linguagem de domínio para a central inteligente de atendimento da operação Elite Baby. Este contexto existe para manter consistentes os termos usados entre produto, operação e implementação.
 
 ## Language
 

@@ -1,6 +1,6 @@
-# Barra Vips
+# Elite Baby
 
-Monorepo do MVP Barra Vips.
+Monorepo do MVP Elite Baby.
 
 ## Estrutura
 

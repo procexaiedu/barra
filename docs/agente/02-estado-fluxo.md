@@ -9,7 +9,7 @@
 from langgraph.graph import MessagesState
 
 class EstadoAgente(MessagesState):
-    """State do agente Barra Vips.
+    """State do agente Elite Baby.
 
     Reduce: add_messages (default do MessagesState) para `messages`.
     Não carregamos atendimento_id, modelo_id ou cliente_id no State —

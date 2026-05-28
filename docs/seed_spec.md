@@ -1,4 +1,4 @@
-# Especificação de Seeds — Barra Vips
+# Especificação de Seeds — Elite Baby
 
 > Arquivo consumido por agente para gerar SQL de seeds completo.
 > Usar junto com `docs/schema_barravips.md` (estrutura das tabelas, constraints, ENUMs).

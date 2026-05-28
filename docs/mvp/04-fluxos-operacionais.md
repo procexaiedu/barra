@@ -4,7 +4,7 @@ Este documento descreve os fluxos de conversa, agenda e Pix do MVP. Não duplica
 
 ## 1. Fluxo geral de atendimento
 
-Aplica-se a todo cliente que chega pelo BarraVips, antes de o tipo de atendimento (interno ou saída) estar definido.
+Aplica-se a todo cliente que chega pelo Elite Baby, antes de o tipo de atendimento (interno ou saída) estar definido.
 
 ### 1.1 Sequência canônica
 

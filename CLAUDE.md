@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**Fonte principal de informação:** @CONTEXT.md (vocabulário de domínio, termos da operação Barra Vips e o que evitar). Consulte esse arquivo antes de qualquer mudança.
+**Fonte principal de informação:** @CONTEXT.md (vocabulário de domínio, termos da operação Elite Baby e o que evitar). Consulte esse arquivo antes de qualquer mudança.
 
 ## 1. Pense Antes de Codificar
 
@@ -76,7 +76,7 @@ Regra prática: toda tarefa não trivial deve terminar com uma verificação obj
 
 ## Contexto do projeto
 
-Central inteligente de atendimento da agência Barra Vips. Cada modelo opera em seu próprio WhatsApp; uma IA dedicada (LangGraph) atende clientes em nome dela, pausa para handoff e escala decisões para Fernando ou para a modelo via grupo de **Coordenação por modelo**. Estamos no P0 (MVP).
+Central inteligente de atendimento da agência Elite Baby. Cada modelo opera em seu próprio WhatsApp; uma IA dedicada (LangGraph) atende clientes em nome dela, pausa para handoff e escala decisões para Fernando ou para a modelo via grupo de **Coordenação por modelo**. Estamos no P0 (MVP).
 
 Decisões arquiteturais registradas em `docs/adr/` (numeradas; nunca apagar — substituir com `status: superseded`). Contexto de produto em `docs/mvp/`.
 

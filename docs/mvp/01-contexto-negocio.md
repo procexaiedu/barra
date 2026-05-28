@@ -1,15 +1,15 @@
 # 01 — Contexto do Negócio e Problema
 
-> **Projeto:** Sistema de Gestão de Atendimento com IA para a operação Barra Vips  
-> **Cliente / operador:** Fernando — proprietário da agência de acompanhantes de luxo Barra Vips, no Rio de Janeiro, com 10 anos de mercado.  
+> **Projeto:** Sistema de Gestão de Atendimento com IA para a operação Elite Baby  
+> **Cliente / operador:** Fernando — proprietário da agência de acompanhantes de luxo Elite Baby, no Rio de Janeiro, com 10 anos de mercado.  
 > **Time de tecnologia:** Lucas e sócio (Campinas), em modelo de participação percentual nas vendas geradas pelo sistema.  
-> **Base:** Ata de Reunião de Alinhamento Estratégico — Projeto Barra Vips.
+> **Base:** Ata de Reunião de Alinhamento Estratégico — Projeto Elite Baby.
 
 ---
 
 ## 1. O negócio que está sendo digitalizado
 
-Fernando opera a **Barra Vips**, uma agência de acompanhantes de luxo no Rio de Janeiro. Os perfis das modelos são publicados no site de anúncios BarraVips, por onde os clientes chegam organicamente. Hoje, a operação acontece quase inteiramente por WhatsApp, em telefones físicos gerenciados manualmente por vendedores.
+Fernando opera a **Elite Baby**, uma agência de acompanhantes de luxo no Rio de Janeiro. Os perfis das modelos são publicados no site de anúncios Elite Baby, por onde os clientes chegam organicamente. Hoje, a operação acontece quase inteiramente por WhatsApp, em telefones físicos gerenciados manualmente por vendedores.
 
 ### Posicionamento da agência
 
@@ -48,7 +48,7 @@ Esse conhecimento tácito precisa ser progressivamente convertido em regras, flu
 
 ## 3. Problema central
 
-A Barra Vips recebe oportunidades comerciais qualificadas pelo BarraVips, mas opera em uma estrutura artesanal: múltiplos telefones físicos, conhecimento concentrado em Fernando, ausência de dados estruturados e dependência da qualidade individual dos vendedores. Isso torna difícil escalar sem comprometer o padrão premium da agência.
+A Elite Baby recebe oportunidades comerciais qualificadas pelo Elite Baby, mas opera em uma estrutura artesanal: múltiplos telefones físicos, conhecimento concentrado em Fernando, ausência de dados estruturados e dependência da qualidade individual dos vendedores. Isso torna difícil escalar sem comprometer o padrão premium da agência.
 
 As principais dores são:
 
@@ -97,7 +97,7 @@ Credibilidade é crítica: contradições, mensagens apagadas, correções brusc
 
 O foco inicial **não é** criar uma IA totalmente autônoma nem uma plataforma completa de turismo de luxo. O foco é construir uma **central operacional com IA assistiva**, rodando no WhatsApp, capaz de:
 
-- conduzir conversas de clientes premium que chegam pelo BarraVips, respeitando a persona e as restrições do canal;
+- conduzir conversas de clientes premium que chegam pelo Elite Baby, respeitando a persona e as restrições do canal;
 - consultar agenda da modelo piloto e permitir bloqueios pelo painel;
 - escalar decisões sensíveis para Fernando e acionar a modelo apenas quando ela precisar agir operacionalmente;
 - registrar dados operacionais conforme inventário do MVP ([02-mvp-escopo.md](02-mvp-escopo.md), §2.2 — ficha de atendimento), em substituição progressiva a decisões só baseadas em feeling.

@@ -330,7 +330,7 @@ LLM-as-judge avalia cada output:
 
 ```python
 class AvaliadorAdversarial:
-    PROMPT_JUDGE = """Você é um auditor da Bia, persona da agência Barra Vips.
+    PROMPT_JUDGE = """Você é um auditor da Bia, persona da agência Elite Baby.
 
 Cenário: {categoria}
 Input do cliente: "{ultimo_input}"

@@ -25,8 +25,8 @@ const cormorant = Cormorant_Garamond({
 })
 
 export const metadata: Metadata = {
-  title: "Barra Vips Painel",
-  description: "Central inteligente de atendimento Barra Vips.",
+  title: "Elite Baby Painel",
+  description: "Central inteligente de atendimento Elite Baby.",
 }
 
 export default function RootLayout({

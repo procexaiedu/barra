@@ -1,9 +1,9 @@
 ---
 version: alpha
-name: Barra Vips Painel
+name: Elite Baby Painel
 description: >-
-  Identidade visual do painel operacional Barra Vips. Herda a assinatura
-  preto + dourado do canal orgânico (BarraVips.com) e a adapta para uma
+  Identidade visual do painel operacional Elite Baby. Herda a assinatura
+  preto + dourado do canal orgânico (Elite Baby) e a adapta para uma
   ferramenta de trabalho usada por horas: densidade alta, contraste forte,
   ornamento contido. NÃO replica o tom adulto, as fotos sensíveis nem a
   serifa decorativa do site público — esses elementos pertencem ao canal
@@ -274,11 +274,11 @@ components:
 
 ## Overview
 
-A **Barra Vips** opera no segmento adulto premium do Rio de Janeiro e São Paulo. Os clientes descobrem as modelos pelo canal orgânico **BarraVips.com**: portal preto, ornamentado em dourado, com perfis discretos e contato direto pelo WhatsApp da modelo. Esse painel **não é** o canal orgânico. Ele é a ferramenta interna que Fernando usa para supervisionar a IA que atende esses clientes em nome de cada modelo.
+A **Elite Baby** opera no segmento adulto premium do Rio de Janeiro e São Paulo. Os clientes descobrem as modelos pelo canal orgânico **Elite Baby**: portal preto, ornamentado em dourado, com perfis discretos e contato direto pelo WhatsApp da modelo. Esse painel **não é** o canal orgânico. Ele é a ferramenta interna que Fernando usa para supervisionar a IA que atende esses clientes em nome de cada modelo.
 
 A linguagem visual deste painel cumpre dois mandatos simultâneos:
 
-- **Continuidade de marca**. Quem opera a Barra Vips reconhece a assinatura preto + dourado em qualquer superfície da agência. O painel respeita essa assinatura para que o operador sinta que está dentro do mesmo ecossistema.
+- **Continuidade de marca**. Quem opera a Elite Baby reconhece a assinatura preto + dourado em qualquer superfície da agência. O painel respeita essa assinatura para que o operador sinta que está dentro do mesmo ecossistema.
 - **Sobriedade operacional**. O painel é uma ferramenta de trabalho de longa duração — listar atendimentos, decidir handoff, validar Pix, registrar resultado. Densidade vence beleza, legibilidade vence ornamento, decisão vence atmosfera.
 
 ### Princípios
@@ -321,7 +321,7 @@ Steps 1–5 carregam **superfície e estado de interação**; steps 6–7 carreg
 
 ### Dourado — `gold-300`, `gold-500`, `gold-700`
 
-`gold-500` (`#C4A961`) é o dourado canônico — extraído do logo do BarraVips.com e dos labels da ficha de perfil. É a cor do CTA primário, do item ativo da sidebar, da borda esquerda de cards de handoff e do nome do logo. `gold-700` (`#E6CB7A`) é a versão clara, usada em hover de CTA, em links inline e como cor do **focus ring** (sempre 2px, offset 2px). `gold-300` (`#8C7848`) é o dourado fosco para microdetalhes decorativos (separadores cerimoniais, ícone do logo) — não use em texto.
+`gold-500` (`#C4A961`) é o dourado canônico — extraído do logo do Elite Baby e dos labels da ficha de perfil. É a cor do CTA primário, do item ativo da sidebar, da borda esquerda de cards de handoff e do nome do logo. `gold-700` (`#E6CB7A`) é a versão clara, usada em hover de CTA, em links inline e como cor do **focus ring** (sempre 2px, offset 2px). `gold-300` (`#8C7848`) é o dourado fosco para microdetalhes decorativos (separadores cerimoniais, ícone do logo) — não use em texto.
 
 ### Estados — `warn-500`, `danger-500`, `success-500`, `info-500`
 
@@ -377,7 +377,7 @@ Três famílias, escala curta, uso disciplinado.
 
 ### Famílias
 
-- **Cormorant Garamond** — serifa cerimonial. Logo do painel, título da tela de login, título de página principal (`Painel`, `Atendimentos`). Empresta a serif do logo `BarraVips`. **Nunca em texto operacional.**
+- **Cormorant Garamond** — serifa cerimonial. Logo do painel, título da tela de login, título de página principal (`Painel`, `Atendimentos`). Empresta a serif do logo `Elite Baby`. **Nunca em texto operacional.**
 - **Inter** — sans-serif operacional. Toda a UI (cabeçalhos de seção, body, labels, badges, botões, tabelas).
 - **JetBrains Mono** — mono. JID (`5521...@s.whatsapp.net`), IDs de evento, valor literal de comando recebido no grupo, hash de Pix.
 
@@ -637,7 +637,7 @@ Tabela vence chart sempre que a decisão depende de leitura literal — e o pain
 
 ### Não faça
 
-- **Não** replique a estética sensual/adulta do BarraVips.com no painel. O canal orgânico vende perfis; o painel coordena operação. São públicos diferentes.
+- **Não** replique a estética sensual/adulta do Elite Baby no painel. O canal orgânico vende perfis; o painel coordena operação. São públicos diferentes.
 - **Não** mostre fotos de modelos em lista, em sidebar, em hover ou em qualquer superfície que não seja a tela explícita de cadastro da modelo.
 - **Não** mostre a foto de portaria nem o comprovante de Pix em preview automático — sempre por clique deliberado, sempre com fundo neutro.
 - **Não** use serifa (Cormorant Garamond) em texto operacional. Serifa é cerimonial, não funcional.

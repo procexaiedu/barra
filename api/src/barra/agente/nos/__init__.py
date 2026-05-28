@@ -1,4 +1,4 @@
-"""Nos do grafo LangGraph do agente Barra Vips.
+"""Nos do grafo LangGraph do agente Elite Baby.
 
 Cada no e uma funcao async que recebe (state, runtime: Runtime[ContextAgente]) e retorna
 dict parcial do state. Deps de runtime/ids de escopo vem de `runtime.context` (01 §2.3).

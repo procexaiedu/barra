@@ -1,6 +1,6 @@
 # Pesquisa — Best practices de prompt/context engineering e design de tools (Claude Sonnet 4.6)
 
-> **Data:** 2026-05-28 · **Escopo:** agente conversacional LangGraph do Barra Vips (`api/src/barra/agente/`), calibrado para **Claude Sonnet 4.6** via **API Anthropic** (chat) + `langchain-anthropic` 1.x.
+> **Data:** 2026-05-28 · **Escopo:** agente conversacional LangGraph do Elite Baby (`api/src/barra/agente/`), calibrado para **Claude Sonnet 4.6** via **API Anthropic** (chat) + `langchain-anthropic` 1.x.
 > **Natureza:** pesquisa e destilação — **não altera prompt, tool nem código**. Confronta as recomendações oficiais atuais da Anthropic com o estado real do agente e separa (a) o que já seguimos, citando arquivo, de (b) lacunas, cada uma com proposta concreta apontando arquivo/trecho.
 > **Como ler:** cada linha das tabelas termina em **"já fazemos — ver `<arquivo>`"** ou **"lacuna → `<mudança concreta>`"**. Status: ✅ já fazemos · 🟡 parcial · 🔴 lacuna.
 

@@ -2,11 +2,11 @@
 register: product
 ---
 
-# Barra Vips Painel
+# Elite Baby Painel
 
 ## Product Purpose
 
-Painel operacional interno da agência Barra Vips. Fernando gerencia atendimentos, agenda e clientes em nome de múltiplas modelos — cada uma com IA dedicada no próprio WhatsApp. O painel é onde decisões sensíveis chegam para Fernando, onde handoffs são gerenciados e onde a operação é monitorada em tempo real.
+Painel operacional interno da agência Elite Baby. Fernando gerencia atendimentos, agenda e clientes em nome de múltiplas modelos — cada uma com IA dedicada no próprio WhatsApp. O painel é onde decisões sensíveis chegam para Fernando, onde handoffs são gerenciados e onde a operação é monitorada em tempo real.
 
 ## Users
 
@@ -14,7 +14,7 @@ Painel operacional interno da agência Barra Vips. Fernando gerencia atendimento
 
 ## Tone
 
-Direto, denso, profissional. Sem decoração. Cada pixel serve a uma função operacional. A identidade preto + dourado da Barra Vips está presente mas nunca domina a função.
+Direto, denso, profissional. Sem decoração. Cada pixel serve a uma função operacional. A identidade preto + dourado da Elite Baby está presente mas nunca domina a função.
 
 ## Anti-references
 

@@ -9,7 +9,7 @@ status: aceito
 
 ## Contexto
 
-MVP da Central Inteligente de Atendimento Barra Vips precisa hospedar dois deployáveis: backend Python (FastAPI + LangGraph + ARQ) e painel Next.js. Equipe é Lucas + sócio + Fernando como cliente. Não há, no horizonte do MVP, pacote compartilhado entre frontend e backend (tipos OpenAPI são gerados, não compartilhados como pacote npm).
+MVP da Central Inteligente de Atendimento Elite Baby precisa hospedar dois deployáveis: backend Python (FastAPI + LangGraph + ARQ) e painel Next.js. Equipe é Lucas + sócio + Fernando como cliente. Não há, no horizonte do MVP, pacote compartilhado entre frontend e backend (tipos OpenAPI são gerados, não compartilhados como pacote npm).
 
 ## Decisão
 

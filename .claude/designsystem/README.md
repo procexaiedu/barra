@@ -1,4 +1,4 @@
-# Design System — Barra Vips
+# Design System — Elite Baby
 
 Fonte canônica do visual da `interface/`. Tudo aqui reflete o estado real em `interface/src/app/globals.css` e `interface/src/components/ui/`. Quando o código mudar, este diretório muda junto. Quando este diretório contradisser o código, **o código vence** — abra um issue ou atualize aqui antes de propagar.
 

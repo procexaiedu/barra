@@ -1,6 +1,6 @@
 # Especificação de Implementação Backend P0
 
-> Projeto: Barra Vips MVP  
+> Projeto: Elite Baby MVP  
 > Fase: Backend operacional para sustentar frontend/interface  
 > Status: especificação acionável para agente implementador  
 > Fonte de verdade de dados: `infra/sql/0001_schema_inicial.sql`

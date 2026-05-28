@@ -1,6 +1,6 @@
 # 00 — Índice da Spec do Agente de Atendimento
 
-> **Projeto:** Central Inteligente de Atendimento — Barra Vips
+> **Projeto:** Central Inteligente de Atendimento — Elite Baby
 > **Escopo:** especificação completa do agente LangGraph (módulo 5.3 + coordenador 5.2 + humanização 5.5 + pipelines de mídia) para o piloto P0.
 > **Audiência:** agentes de IA construindo o backend a partir da base de código existente em `api/src/barra/`.
 > **Pré-requisitos:** ler `CLAUDE.md`, `CONTEXT.md`, `docs/mvp/00-indice.md`, `docs/adr/0001-*.md` e `docs/adr/0002-*.md` antes de codar.

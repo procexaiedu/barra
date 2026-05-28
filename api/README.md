@@ -1,6 +1,6 @@
 # API
 
-Backend Python da Barra Vips.
+Backend Python da Elite Baby.
 
 ## Estrutura
 
