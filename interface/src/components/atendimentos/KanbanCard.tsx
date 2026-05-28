@@ -2,9 +2,10 @@
 
 import { PauseCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
+import { cn } from "@/lib/utils"
 import { formatBRL, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
 import type { AtendimentoListaItem } from "@/tipos/atendimentos"
-import { badgeForEstado, urgenciaLabel } from "@/components/atendimentos/utils"
+import { corEstado, urgenciaLabel } from "@/components/atendimentos/utils"
 
 export function KanbanCard({
   item,
@@ -18,11 +19,18 @@ export function KanbanCard({
   isDragging?: boolean
 }) {
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
-  const valorExibido = item.valor_final ?? item.valor_acordado
+  const valorFinal = item.valor_final
+  const valorExibido = valorFinal ?? item.valor_acordado
 
   return (
     <div
-      className={`rounded-lg border border-border bg-card p-3 transition-shadow ${isDragging ? "shadow-lg opacity-80 cursor-grabbing" : "cursor-pointer hover:border-ring/40 hover:shadow-sm"}`}
+      className={cn(
+        "rounded-lg border border-l-4 border-border bg-card p-3 transition-all",
+        corEstado(item.estado).faixa,
+        isDragging
+          ? "cursor-grabbing opacity-80 shadow-lg"
+          : "cursor-pointer hover:border-border-brand/50 hover:shadow-sm"
+      )}
       onClick={onClick}
       role="button"
       tabIndex={0}
@@ -31,7 +39,7 @@ export function KanbanCard({
     >
       <div className="flex min-w-0 items-start justify-between gap-2">
         <p className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{cliente}</p>
-        <span className="shrink-0 font-mono text-[11px] text-text-disabled">#{item.numero_curto}</span>
+        <span className="shrink-0 font-mono text-[11px] text-text-muted">#{item.numero_curto}</span>
       </div>
 
       <p className="mt-0.5 truncate text-[11px] text-text-muted">{item.modelo.nome}</p>
@@ -43,7 +51,7 @@ export function KanbanCard({
 
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
         {item.urgencia === "imediato" && (
-          <Badge variant={badgeForEstado(item.estado)} className="text-[10px]">
+          <Badge variant="active" className="text-[10px]">
             {urgenciaLabel.imediato}
           </Badge>
         )}
@@ -53,7 +61,7 @@ export function KanbanCard({
           </Badge>
         )}
         {item.ia_pausada && (
-          <span className="flex items-center gap-1 text-[10px] text-state-handoff">
+          <span className="flex items-center gap-1 text-[10px] font-medium text-text-secondary">
             <PauseCircle size={11} strokeWidth={1.5} />
             IA pausada
           </span>
@@ -62,13 +70,16 @@ export function KanbanCard({
 
       <div className="mt-2 flex items-center justify-between gap-2">
         {valorExibido != null ? (
-          <span className="text-[11px] font-medium text-success-500">
+          <span className={cn(
+            "text-[11px] font-medium tabular-nums",
+            valorFinal != null ? "text-success-500" : "text-gold-500"
+          )}>
             {formatBRL(Number(valorExibido))}
           </span>
         ) : (
           <span />
         )}
-        <span className="text-[10px] text-text-disabled">{formatTempoRelativo(item.updated_at)}</span>
+        <span className="text-[10px] tabular-nums text-text-disabled">{formatTempoRelativo(item.updated_at)}</span>
       </div>
     </div>
   )
