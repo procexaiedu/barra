@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { AlertCircle, Clock, ClockAlert, ScanSearch, type LucideIcon } from "lucide-react"
+import { Clock, ScanSearch } from "lucide-react"
 import { toast } from "sonner"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -22,10 +22,10 @@ import { cn } from "@/lib/utils"
 import { motivoExibido } from "@/components/atendimentos/utils"
 import type { CardDestaque as CardDestaqueType, IaPausadaMotivo } from "@/tipos/painel"
 
-const BADGE_MAP: Record<IaPausadaMotivo, { variant: "revisao" | "handoff" | "paused"; label: string; borderClass: string; Icon: LucideIcon }> = {
-  pix_em_revisao:        { variant: "revisao", label: "Pix em revisão",   borderClass: "border-l-danger-500", Icon: AlertCircle },
-  handoff_ia:            { variant: "handoff", label: "Aguardando você",  borderClass: "border-l-warn-500",   Icon: Clock       },
-  modelo_em_atendimento: { variant: "paused",  label: "Modelo atendendo", borderClass: "border-l-info-500",   Icon: ClockAlert  },
+const BADGE_MAP: Record<IaPausadaMotivo, { variant: "revisao" | "handoff" | "info"; label: string; borderClass: string }> = {
+  pix_em_revisao:        { variant: "revisao", label: "Pix em revisão",   borderClass: "border-l-danger-500" },
+  handoff_ia:            { variant: "handoff", label: "Aguardando você",  borderClass: "border-l-warn-500"   },
+  modelo_em_atendimento: { variant: "info",    label: "Modelo atendendo", borderClass: "border-l-info-500"   },
 }
 
 function urgenciaClasse(iaEmAt: string): string {
@@ -138,35 +138,32 @@ export function CardDestaque({
         tabIndex={0}
         onClick={handleCardClick}
         onKeyDown={handleCardKeyDown}
-        className={cn("cursor-pointer rounded-lg border-l-3 bg-card p-6 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none", badge.borderClass, flashing && "tile-update-flash")}
+        className={cn("group cursor-pointer rounded-lg border-l-4 bg-card p-5 ring-1 ring-foreground/10 transition-colors hover:bg-surface-hover hover:ring-border-brand/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none", badge.borderClass, flashing && "tile-update-flash")}
       >
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2.5">
           <Badge variant={badge.variant}>{badge.label}</Badge>
-          <badge.Icon size={14} className="shrink-0 text-text-muted" aria-hidden />
-          <span className="text-base font-semibold text-text-primary">{nomeCliente}</span>
+          <span className={cn("ml-auto flex items-center gap-1 text-xs font-medium tabular-nums", urgenciaClasse(card.ia_pausada_em))}>
+            <Clock size={12} strokeWidth={1.75} aria-hidden />
+            {formatTempoRelativo(card.ia_pausada_em)}
+          </span>
           {onAbrirContexto && (
             <button
               type="button"
               aria-label="Ver contexto e decidir"
               onClick={(e) => { e.stopPropagation(); onAbrirContexto() }}
-              className="ml-auto rounded p-1 text-text-muted hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              className="-mr-1 rounded p-1 text-text-muted transition-colors hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
               <ScanSearch size={15} />
             </button>
           )}
         </div>
 
-        <div className="mt-3 space-y-1">
-          <div>
-            <span className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
-              MOTIVO{" "}
-            </span>
-            <span className="text-[13px] text-text-primary">
-              {motivoExibido(card.motivo_escalada, card.ia_pausada_motivo)}
-            </span>
-          </div>
-          {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
-        </div>
+        <p className="mt-3 truncate text-base font-semibold text-text-primary">{nomeCliente}</p>
+        {/* Motivo da escalada é o conteúdo principal do card (sem rótulo 'MOTIVO') */}
+        <p className="mt-1 text-[13px] leading-snug text-text-secondary">
+          {motivoExibido(card.motivo_escalada, card.ia_pausada_motivo)}
+        </p>
+        {/* Campo 'Próxima Ação' obsoleto no MVP (task 0855ee14) */}
 
         {card.ia_pausada_motivo === "modelo_em_atendimento" && (
           <div className="mt-3">
@@ -183,11 +180,9 @@ export function CardDestaque({
           </div>
         )}
 
-        <div className="mt-3 border-t border-border pt-3 flex items-center justify-between">
-          <p className={cn("text-xs font-medium", urgenciaClasse(card.ia_pausada_em))}>
-            Pausada {formatTempoRelativo(card.ia_pausada_em)} · Com {card.responsavel_atual === "IA" ? "IA" : card.responsavel_atual}
-          </p>
-          <span className="text-xs font-medium text-text-muted">{card.modelo_nome} #{card.numero_curto}</span>
+        <div className="mt-4 flex items-center justify-between border-t border-border pt-3">
+          <span className="text-xs font-medium text-text-muted">{card.modelo_nome} · #{card.numero_curto}</span>
+          <span className="text-xs text-text-muted">Com {card.responsavel_atual === "IA" ? "IA" : card.responsavel_atual}</span>
         </div>
       </article>
 

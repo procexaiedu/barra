@@ -23,7 +23,7 @@ function TendenciaTag({ delta, label, inverso, formatDelta }: Tendencia) {
     <p
       className={cn(
         "mt-1.5 flex items-center gap-1 text-[11px] font-medium",
-        neutro && "text-text-muted",
+        neutro && "text-text-secondary",
         positivo && "text-success-500",
         negativo && "text-danger-500"
       )}
@@ -59,7 +59,7 @@ export function TileMetrica({
     <Card
       className={cn(
         "relative rounded-lg bg-card p-5",
-        onClick && "cursor-pointer transition-colors hover:bg-surface-hover active:bg-surface-pressed",
+        onClick && "cursor-pointer transition-colors hover:bg-surface-hover hover:ring-border-brand/40 active:bg-surface-pressed",
         flashing && "tile-update-flash"
       )}
       onClick={onClick}
@@ -68,7 +68,7 @@ export function TileMetrica({
       onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick() } } : undefined}
     >
       <dl className="flex h-full flex-col">
-        <dt className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <dt className="flex min-h-[2lh] items-start gap-1.5 text-xs font-semibold uppercase leading-tight tracking-[0.08em] text-text-muted">
           {label}
           {tooltip ? (
             <Tooltip>
@@ -99,7 +99,7 @@ export function TileMetrica({
                 : valor.length <= 14
                   ? "text-[22px] leading-[40px]"
                   : "text-[18px] leading-[44px]",
-            isZero ? "text-text-muted" : (colorClass ?? "text-text-primary")
+            isZero ? "text-text-secondary" : (colorClass ?? "text-text-primary")
           )}
         >
           {valor}

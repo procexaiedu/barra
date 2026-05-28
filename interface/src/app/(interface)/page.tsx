@@ -339,7 +339,10 @@ export default function PainelGeral() {
 
       <section aria-label="Aguardando você" className="px-8 py-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-text-primary">Aguardando você</h2>
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+            <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+            Aguardando você
+          </h2>
           {data.cards_destaque.length > 0 && (
             <div className="flex items-center gap-3">
               <span className="text-xs font-medium text-text-muted">
@@ -360,26 +363,28 @@ export default function PainelGeral() {
         {data.cards_destaque.length > 0 && !compacto && (
           <div className="mb-3 flex items-center gap-5">
             <span className="flex items-center gap-1.5 text-xs text-text-muted">
-              <span className="h-2 w-2 rounded-sm bg-danger-500" />
+              <span className="h-2 w-2 rounded-full bg-state-lost" />
               Pix em revisão
             </span>
             <span className="flex items-center gap-1.5 text-xs text-text-muted">
-              <span className="h-2 w-2 rounded-sm bg-warn-500" />
+              <span className="h-2 w-2 rounded-full bg-state-handoff" />
               Aguardando decisão
             </span>
             <span className="flex items-center gap-1.5 text-xs text-text-muted">
-              <span className="h-2 w-2 rounded-sm bg-info-500" />
+              <span className="h-2 w-2 rounded-full bg-state-info" />
               Modelo com o cliente
             </span>
           </div>
         )}
 
         {data.cards_destaque.length === 0 ? (
-          <Card className="rounded-lg bg-card p-6">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 size={20} className="mt-0.5 text-success-500" />
+          <Card className="rounded-lg bg-card">
+            <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+              <div className="flex size-11 items-center justify-center rounded-full bg-success-500/10 ring-1 ring-success-500/20">
+                <CheckCircle2 size={22} strokeWidth={1.75} className="text-success-500" />
+              </div>
               <div>
-                <p className="text-sm text-text-primary">Nada precisa de você agora.</p>
+                <p className="text-sm font-medium text-text-primary">Nada precisa de você agora.</p>
                 <p className="mt-1 text-[13px] text-text-muted">
                   Atendimentos que precisarem da sua decisão aparecem aqui.
                 </p>
@@ -438,8 +443,11 @@ export default function PainelGeral() {
 
       <section aria-label="Métricas de hoje" className="px-8 py-5">
         <div className="mb-4">
-          <h2 className="text-base font-semibold text-text-primary">Hoje</h2>
-          <p className="mt-0.5 text-xs capitalize text-text-muted">
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+            <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+            Hoje
+          </h2>
+          <p className="mt-1 pl-[14px] text-xs capitalize text-text-muted">
             {formatDiaSemana(new Date())} · {formatData(new Date().toISOString())}
           </p>
         </div>
@@ -500,16 +508,26 @@ export default function PainelGeral() {
 
       <section aria-label="Agenda de hoje" className="px-8 py-5">
         <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-text-primary">Agenda de hoje</h2>
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+            <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+            Agenda de hoje
+          </h2>
           <Button variant="ghost" size="sm" onClick={abrirBloquear}>
             Bloquear horário
           </Button>
         </div>
         {data.agenda_dia.length === 0 ? (
-          <Card className="rounded-lg bg-card p-6">
-            <div className="flex items-start gap-3">
-              <CalendarOff size={20} className="mt-0.5 text-text-muted" />
-              <p className="text-sm text-text-primary">Nenhum horário reservado hoje.</p>
+          <Card className="rounded-lg bg-card">
+            <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+              <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+                <CalendarOff size={22} strokeWidth={1.75} className="text-text-muted" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-text-primary">Nenhum horário reservado hoje.</p>
+                <p className="mt-1 text-[13px] text-text-muted">
+                  Reservas e bloqueios de hoje aparecem aqui.
+                </p>
+              </div>
             </div>
           </Card>
         ) : (

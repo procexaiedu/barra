@@ -128,10 +128,10 @@ type ContextoData = {
 
 // ── mapa de badge ─────────────────────────────────────────────────────────────
 
-const BADGE_VARIANT: Record<IaPausadaMotivo, "revisao" | "handoff" | "paused"> = {
+const BADGE_VARIANT: Record<IaPausadaMotivo, "revisao" | "handoff" | "info"> = {
   pix_em_revisao: "revisao",
   handoff_ia: "handoff",
-  modelo_em_atendimento: "paused",
+  modelo_em_atendimento: "info",
 }
 
 const BADGE_LABEL: Record<IaPausadaMotivo, string> = {
