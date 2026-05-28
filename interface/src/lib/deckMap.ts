@@ -1,5 +1,6 @@
 import type { MapaMetrica } from "@/lib/mapaMetrica"
 import { RAMPA_DIVERGENTE_RGB } from "@/lib/cores/divergente"
+import { RAMPA_FAVO_RGB } from "@/lib/cores/favo"
 import type { MapaClientePonto } from "@/tipos/clientes"
 
 // deck.gl GoogleMapsOverlay + HexagonLayer (MAPA-6).
@@ -55,6 +56,14 @@ export interface CalorHandle {
 // Raio do hexágono em metros (decisão MAPA-6: 3 km — meio-termo para dado
 // esparso do P0; calibrar quando volume crescer).
 const RADIUS_M = 3000
+
+// Translucidez do favo: o mapa (ruas/bairros/costa) precisa aparecer por baixo.
+// Calibrado a olho sobre o mapa claro do Google — nítido sem virar laje opaca.
+const FAVO_OPACITY = 0.6
+// Encolhe cada hexágono (multiplicador 0..1) para criar a folga entre células —
+// o HexagonLayer não expõe stroke (props do ColumnLayer interno não são
+// repassadas pelo composite), então a separação vem da cobertura < 1.
+const FAVO_COVERAGE = 0.9
 
 // Aproximação em graus do RADIUS_M para o proxy de bin do MAPA-14. Sem ser o
 // mesmo grid do d3-hexbin (que a HexagonLayer usa), serve só para estimar a
@@ -130,6 +139,8 @@ export async function criarHexbinOverlay(
         colorRange: RAMPA_DIVERGENTE_RGB.map(([r, g, b]) => [r, g, b]),
         colorDomain: dominio,
         extruded: false,
+        opacity: FAVO_OPACITY,
+        coverage: FAVO_COVERAGE,
         pickable: true,
         gpuAggregation: false,
         getColorValue: (points) => {
@@ -166,7 +177,11 @@ export async function criarHexbinOverlay(
         },
       })
     }
-    const colorRange = lerRampaSeq()
+    // Rampa dedicada do favo (dourado pálido → âmbar), não a `lerRampaSeq()`: o
+    // degrau baixo precisa ler como "pouco" e não como buraco preto. Ver favo.ts.
+    const colorRange: Array<[number, number, number]> = RAMPA_FAVO_RGB.map(
+      ([r, g, b]) => [r, g, b],
+    )
     return new HexagonLayer<MapaClientePonto>({
       id: "clientes-hexbin",
       data: o.pontos,
@@ -175,6 +190,8 @@ export async function criarHexbinOverlay(
       colorAggregation: "SUM",
       colorRange,
       extruded: false,
+      opacity: FAVO_OPACITY,
+      coverage: FAVO_COVERAGE,
       pickable: true,
       // GPU aggregation desligado: complementa o `interleaved:false` do overlay.
       // A textura intermediária da aggregation no v9.3.x dessincroniza com a

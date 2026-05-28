@@ -255,9 +255,14 @@ export function SeletorMetrica({
 export function LegendaEscala({
   metrica,
   pontos,
+  rampa = RAMPA_SEQ,
 }: {
   metrica: MapaMetrica
   pontos: MapaClientePonto[]
+  /** Cores da rampa (CSS), do menor valor (esquerda) ao maior (direita). Default
+   *  `RAMPA_SEQ` (Calor/bolhas-métrica); os Favos passam `RAMPA_FAVO_CSS` para a
+   *  legenda bater com a rampa dourada pálida → âmbar do favo. */
+  rampa?: readonly string[]
 }) {
   const limites = limitesMetrica(pontos, metrica)
   const rotuloMetrica =
@@ -300,7 +305,7 @@ export function LegendaEscala({
           mutedRampa && "opacity-40",
         )}
         style={{
-          background: `linear-gradient(to right, ${RAMPA_SEQ.join(", ")})`,
+          background: `linear-gradient(to right, ${rampa.join(", ")})`,
         }}
       />
       <div className="mt-1">{conteudoLimites}</div>

@@ -37,6 +37,7 @@ import {
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
 import { MapaToolbar } from "@/components/clientes/MapaToolbar"
 import { PainelVisualizacaoMapa } from "@/components/clientes/PainelVisualizacaoMapa"
+import { RAMPA_FAVO_CSS } from "@/lib/cores/favo"
 import { rotuloPerfil } from "@/lib/perfilFisico"
 import type {
   EstadoAtendimento,
@@ -499,7 +500,11 @@ export function MapaClientes({
             ) : camadaEfetiva === "bolhas" && modoCor === "perfil" ? (
               <LegendaPerfil />
             ) : (
-              <LegendaEscala metrica={metrica} pontos={pontos} />
+              <LegendaEscala
+                metrica={metrica}
+                pontos={pontos}
+                rampa={camadaEfetiva === "hexbin" ? RAMPA_FAVO_CSS : undefined}
+              />
             )}
             {/* MAPA-9: enquanto a lente está ON, explica o subset visualmente independente
                 da camada/modo de cor — em Hexbin/Calor essa é a ÚNICA pista visual da lente
