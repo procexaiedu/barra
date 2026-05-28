@@ -97,6 +97,9 @@ export default function DemoMapa() {
         perfis={[]}
         incluirArquivados={false}
         onPeriodoChange={NOOP}
+        dataInicio={null}
+        dataFim={null}
+        onCustomPeriodoChange={NOOP}
         onModeloChange={NOOP}
         onPerfisChange={NOOP}
         onIncluirArquivadosChange={NOOP}
