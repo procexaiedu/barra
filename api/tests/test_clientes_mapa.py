@@ -2,6 +2,7 @@
 última data / recorrência (MAPA-5) + filtro desfecho/motivo (MAPA-8), ADR 0008."""
 
 from contextlib import asynccontextmanager
+from datetime import date as _date
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -603,5 +604,130 @@ def test_mapa_clientes_comparar_ignora_periodo_e_recencia() -> None:
         # de periodo/recencia — não devem aparecer no SQL do modo comparar.
         assert "INTERVAL '7 days'" not in fake.last_query
         assert "INTERVAL '90 days'" not in fake.last_query
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+# ---------------------------------------------------------------------------
+# Task 9: "Período personalizado" no filtro simples (data_inicio/data_fim).
+# Mesma estratégia dos testes do MAPA-8/11: o FakeConn não aplica o WHERE, mas
+# guarda a query/params para inspeção. Verifica que a janela explícita entra no
+# WHERE, tem precedência sobre `periodo`, valida `fim < inicio` e combina com os
+# demais filtros (modelo/perfil) no mesmo WHERE.
+
+
+def test_mapa_clientes_periodo_custom_filtra_intervalo() -> None:
+    fake = FakeConnMapa([_ponto("Fechado")])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa?data_inicio=2026-04-01&data_fim=2026-04-30",
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        # Janela `[inicio, fim+1 day)` em `created_at` no EXISTS de atendimentos.
+        assert "a.created_at >= %s::date" in fake.last_query
+        assert "a.created_at < (%s::date + INTERVAL '1 day')" in fake.last_query
+        assert isinstance(fake.last_params, list)
+        assert _date(2026, 4, 1) in fake.last_params
+        assert _date(2026, 4, 30) in fake.last_params
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_periodo_custom_tem_precedencia_sobre_preset() -> None:
+    """Com `data_inicio`/`data_fim`, o preset `periodo` é ignorado (sem dupla cláusula)."""
+    fake = FakeConnMapa([_ponto("Fechado")])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa"
+                "?periodo=7d&data_inicio=2026-04-01&data_fim=2026-04-30",
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        # O preset NÃO entra quando há janela custom.
+        assert "INTERVAL '7 days'" not in fake.last_query
+        assert "a.created_at < (%s::date + INTERVAL '1 day')" in fake.last_query
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_periodo_custom_range_invertido_422() -> None:
+    """`data_fim < data_inicio` → 422 (espelha a validação do modo Comparar)."""
+    fake = FakeConnMapa([])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa?data_inicio=2026-04-30&data_fim=2026-04-01",
+                headers=_token(),
+            )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "COMPARAR_RECORTE_VAZIO"
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_periodo_custom_incompleto_422() -> None:
+    """Só uma das datas → 422 (a UI sempre manda as duas; defesa em profundidade)."""
+    fake = FakeConnMapa([])
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa?data_inicio=2026-04-01",
+                headers=_token(),
+            )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "COMPARAR_RECORTE_INCOMPLETO"
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_mapa_clientes_periodo_custom_combina_com_modelo_e_perfil() -> None:
+    """A janela custom convive com os filtros de modelo e perfil no mesmo WHERE."""
+    fake = FakeConnMapa([_ponto("Fechado")])
+    modelo_id = uuid4()
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get(
+                "/v1/crm/clientes/mapa"
+                f"?data_inicio=2026-04-01&data_fim=2026-04-30&modelo_id={modelo_id}&perfis=loira",
+                headers=_token(),
+            )
+        assert response.status_code == 200
+        assert fake.last_query is not None
+        # As três cláusulas coexistem no WHERE.
+        assert "a.created_at < (%s::date + INTERVAL '1 day')" in fake.last_query
+        assert "cv.modelo_id = %s" in fake.last_query
+        assert "c.perfis_preferidos && %s::barravips.perfil_fisico_enum[]" in fake.last_query
+        assert isinstance(fake.last_params, list)
+        assert ["loira"] in fake.last_params
     finally:
         app.dependency_overrides.pop(get_conn, None)

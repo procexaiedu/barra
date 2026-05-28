@@ -36,7 +36,7 @@ export type EstadoAtendimento =
 export type TipoAtendimento = "interno" | "externo"
 export type Urgencia = "imediato" | "agendado" | "indefinido" | "estimado"
 
-export type FiltroPeriodo = "todos" | "7d" | "30d" | "90d"
+export type FiltroPeriodo = "todos" | "7d" | "30d" | "90d" | "custom"
 export type FiltroModelo = "todas" | string
 
 export interface Cliente {
@@ -221,6 +221,10 @@ export interface ConversaDetalheResponse {
 export interface FiltrosClientes {
   busca: string
   periodo: FiltroPeriodo
+  /** Task 9: janela do "Período personalizado" (ISO `YYYY-MM-DD`). Só usada quando
+   *  `periodo === "custom"`; `null` nos presets. Hoje só o filtro do Mapa seta custom. */
+  dataInicio: string | null
+  dataFim: string | null
   modeloId: FiltroModelo
   perfis: PerfilFisico[]
 }

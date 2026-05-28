@@ -23,6 +23,8 @@ type Status = "loading" | "success" | "error"
 const filtrosIniciais: FiltrosClientes = {
   busca: "",
   periodo: "todos",
+  dataInicio: null,
+  dataFim: null,
   modeloId: "todas",
   perfis: [],
 }
@@ -31,7 +33,11 @@ function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   const params = new URLSearchParams({ limit: "50" })
   const busca = filtros.busca.trim()
   if (busca) params.set("q", busca)
-  if (filtros.periodo !== "todos") params.set("periodo", filtros.periodo)
+  // A Lista não tem UI de período custom (só o Mapa, Task 9); por isso só
+  // serializa presets aqui. `periodo === "custom"` sem datas é NO-OP.
+  if (filtros.periodo !== "todos" && filtros.periodo !== "custom") {
+    params.set("periodo", filtros.periodo)
+  }
   if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
   for (const perfil of filtros.perfis) params.append("perfis", perfil)
   if (cursor) params.set("cursor", cursor)
@@ -80,10 +86,19 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
     () => ({
       busca: debouncedBusca,
       periodo: filtros.periodo,
+      dataInicio: filtros.dataInicio,
+      dataFim: filtros.dataFim,
       modeloId: filtros.modeloId,
       perfis: filtros.perfis,
     }),
-    [debouncedBusca, filtros.periodo, filtros.modeloId, filtros.perfis]
+    [
+      debouncedBusca,
+      filtros.periodo,
+      filtros.dataInicio,
+      filtros.dataFim,
+      filtros.modeloId,
+      filtros.perfis,
+    ]
   )
 
   const filtrosAplicados =

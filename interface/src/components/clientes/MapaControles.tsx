@@ -76,7 +76,7 @@ const OPCOES_MODO_COR: readonly { id: ModoCor; label: string; tooltip: string }[
   {
     id: "metrica",
     label: "Métrica",
-    tooltip: "Cor vai do claro (pouco) ao escuro (muito), seguindo a métrica.",
+    tooltip: "Pin colorido pela intensidade: dourado (pouco) ao vermelho (mais quente).",
   },
   {
     id: "desfecho",
@@ -255,9 +255,14 @@ export function SeletorMetrica({
 export function LegendaEscala({
   metrica,
   pontos,
+  rampa = RAMPA_SEQ,
 }: {
   metrica: MapaMetrica
   pontos: MapaClientePonto[]
+  /** Stops CSS da rampa exibida. Default = `--seq-*` (Favos/Calor). No modo
+   *  Pontos+Métrica (Task 12) o pai passa `RAMPA_INTENSIDADE_CSS` (→ vermelho no
+   *  topo) para a legenda casar com a cor do pin — senão a legenda mente. */
+  rampa?: readonly string[]
 }) {
   const limites = limitesMetrica(pontos, metrica)
   const rotuloMetrica =
@@ -300,7 +305,7 @@ export function LegendaEscala({
           mutedRampa && "opacity-40",
         )}
         style={{
-          background: `linear-gradient(to right, ${RAMPA_SEQ.join(", ")})`,
+          background: `linear-gradient(to right, ${rampa.join(", ")})`,
         }}
       />
       <div className="mt-1">{conteudoLimites}</div>
