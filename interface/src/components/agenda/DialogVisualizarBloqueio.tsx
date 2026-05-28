@@ -121,7 +121,7 @@ export function DialogVisualizarBloqueio({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex w-[min(96vw,80rem)] max-h-[92vh] min-h-[60vh] flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
+      <DialogContent className="flex w-[min(96vw,72rem)] max-h-[92vh] flex-col overflow-hidden rounded-lg border border-border-strong bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
         <DialogTitle className="sr-only">{titulo}</DialogTitle>
 
         {/* Header */}
@@ -173,10 +173,10 @@ export function DialogVisualizarBloqueio({
                 <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
                   Horário
                 </p>
-                <p className="mt-1 font-serif text-[36px] font-medium leading-none tabular-nums text-gold-500">
+                <p className="mt-1 font-mono text-[34px] font-medium leading-none tabular-nums text-text-brand">
                   {inicioHora}<span className="px-1 text-text-muted">–</span>{fimHora}
                   {overnight && (
-                    <span className="ml-2 align-middle text-xs font-normal text-text-muted">(próx. dia)</span>
+                    <span className="ml-2 align-middle font-sans text-xs font-normal text-text-muted">(próx. dia)</span>
                   )}
                 </p>
               </div>
@@ -208,7 +208,7 @@ export function DialogVisualizarBloqueio({
           )}>
             {/* Coluna esquerda: Atendimento vinculado */}
             {atendimento && (
-              <section className="rounded-lg border border-border bg-card p-5">
+              <section className="rounded-lg border border-border bg-surface p-5">
                 <SecaoHeader>Atendimento vinculado</SecaoHeader>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                   <Campo label="Número" value={`#${atendimento.numero_curto}`} />
@@ -250,7 +250,7 @@ export function DialogVisualizarBloqueio({
             {/* Coluna direita: Programa & Resumo + Observação */}
             <div className="space-y-6">
               {atendimentoId && (
-                <section className="rounded-lg border border-border bg-card p-5">
+                <section className="rounded-lg border border-border bg-surface p-5">
                   <SecaoHeader>Programa & Resumo</SecaoHeader>
                   {statusDetalhe === "loading" && (
                     <div className="space-y-3">
@@ -296,7 +296,7 @@ export function DialogVisualizarBloqueio({
                 </section>
               )}
 
-              <section className="rounded-lg border border-border bg-card p-5">
+              <section className="rounded-lg border border-border bg-surface p-5">
                 <SecaoHeader>Observação</SecaoHeader>
                 <p className="text-sm leading-relaxed text-text-primary">
                   {bloqueio.observacao ?? "—"}
