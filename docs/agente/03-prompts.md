@@ -29,7 +29,7 @@ O bloco 1 (BP_GERAL fundido) é **idêntico para todas as modelos** (decisão gr
 
 > **Mínimo cacheável por modelo (auditoria 2026-05-23):** Sonnet 4.6 exige **1.024 tokens** no prefixo cumulativo (Opus exige 4.096 — não usamos). Como o chat roda só em Sonnet 4.6 (sem modelo de fallback, `§6.3`), 1.024 é o único limiar relevante; o prefixo geral (~3-5K) o ultrapassa com folga. Validar via `usage` (`§4.2`).
 
-## 2. Persona — `agente/prompts/persona.md.j2`
+## 2. Persona — `agente/prompts/persona.md`
 
 > **Revisão 1.1 (pesquisa pós-QA 2026-05-02):** estrutura reescrita seguindo best practices Anthropic 4.6:
 >
@@ -45,7 +45,7 @@ O bloco 1 (BP_GERAL fundido) é **idêntico para todas as modelos** (decisão gr
 from dataclasses import dataclass
 from datetime import date
 
-# persona.md.j2 (BP1) é GERAL — sem variáveis por-modelo (só voz/conduta/comportamento,
+# persona.md (BP1) é GERAL — sem variáveis por-modelo (só voz/conduta/comportamento,
 # idêntico para todas). A identidade óbvia da modelo vai no BP3 (identidade.md.j2), via:
 
 @dataclass(frozen=True)
@@ -142,7 +142,7 @@ _env = Environment(
 
 def render_persona() -> str:
     """BP1 geral — sem variáveis por-modelo. Idêntico para todas as modelos."""
-    return _env.get_template("persona.md.j2").render()
+    return _env.get_template("persona.md").render()
 
 
 def render_identidade(m: IdentidadeModelo) -> str:
@@ -449,7 +449,7 @@ Coordenador exporta como Prometheus (`02 §10`):
 
 | Mudança                                                  | Bloco invalidado (escopo)                |
 | -------------------------------------------------------- | ---------------------------------------- |
-| Editar `persona.md.j2`/`regras.md.j2` (voz/conduta)      | BP1 geral — invalida p/ TODAS as modelos |
+| Editar `persona.md`/`regras.md.j2` (voz/conduta)      | BP1 geral — invalida p/ TODAS as modelos |
 | Editar `faq.md` (FAQ versionada, §3.2)                   | BP2 geral — invalida p/ TODAS            |
 | Atualizar identidade da modelo (nome/idade/idiomas/loc.) | BP3 daquela modelo                       |
 | Mudar `tipos_aceitos` da modelo                          | BP3 daquela modelo                       |
@@ -460,9 +460,11 @@ Coordenador exporta como Prometheus (`02 §10`):
 
 Ordenação dos blocos é **estável** por design — nunca trocar a ordem `tools` → geral (BP1–BP2) → por-modelo (BP3), senão o prefixo compartilhado deixa de ser global e o cache vira por-modelo. **Invariante de integridade do prefixo** (`tools`/BP1/BP2 byte-idênticos entre modelos + guard-rail de teste) está em `agente/CLAUDE.md`.
 
-### 4.4 Cache condicional da cauda do histórico — **adiado pro P1**
+### 4.4 Cache da cauda da janela (BP_JANELA) — **shipado**
 
-> **Decisão grilling 2026-05-23:** o P0 ship **sem cache de histórico** (só os 3 breakpoints fixos). Histórico vai a 1× todo turno. Motivo: "Simplicidade Primeiro" + medir hit/write-rate reais antes de otimizar — em P0 de baixo volume o ganho é mínimo e o histórico inicial é pequeno. Consequência: o **guard-rail #2** (byte-identidade do `traduz_mensagens` em 2 renders) sai do escopo P0 e vira pré-requisito de quando o BP4 voltar; o **guard-rail #1** (prefixo global byte-idêntico entre modelos) continua obrigatório. O texto abaixo descreve o desenho do P1.
+> **Reconciliação (2026-05-28):** o **BP_JANELA foi shipado**, não está mais adiado. A fusão do BP_GERAL (persona+regras+FAQ num bloco único, `persona.py:render_prefixo_geral`) liberou o 4º breakpoint; `agente/llm.py:marcar_cache_na_penultima` marca `cache_control` na **penúltima** mensagem da janela (chamado em `nos/prepare_context.py`). A implementação real marca SEMPRE a penúltima (a janela traduzida é texto puro — `tool_use`/`tool_result` vivem em `tool_calls`, fora dela), mais simples que o desenho condicional abaixo, que fica como referência histórica. Ver `agente/CLAUDE.md` e `pesquisa-best-practices-prompt-tools.md §3`.
+
+> **Decisão grilling 2026-05-23 (superada — ver a nota de reconciliação acima):** o P0 ship **sem cache de histórico** (só os 3 breakpoints fixos). Histórico vai a 1× todo turno. Motivo: "Simplicidade Primeiro" + medir hit/write-rate reais antes de otimizar — em P0 de baixo volume o ganho é mínimo e o histórico inicial é pequeno. Consequência: o **guard-rail #2** (byte-identidade do `traduz_mensagens` em 2 renders) sai do escopo P0 e vira pré-requisito de quando o BP4 voltar; o **guard-rail #1** (prefixo global byte-idêntico entre modelos) continua obrigatório. O texto abaixo descreve o desenho do P1.
 
 O breakpoint que sobra (o contexto dinâmico saiu do `system` — §1) cacheia o histórico, mas **só enquanto a conversa é append-only**. Sliding window de 20 (`02 §4`): enquanto `total_msgs ≤ janela` o array cresce por append → o prefixo de mensagens é estável → marca-se `cache_control` (5m) na **penúltima** mensagem (último bloco estável antes do turno volátil) e o burst da qualificação rende reads. Quando a janela desliza, `message[0]` muda todo turno → marcar a cauda viraria **write garantido (1.25×)** sobre o histórico → então **derruba-se o breakpoint** e o histórico volta a 1× (sem cache). Regra: emitir o `cache_control` da cauda apenas quando `total_msgs ≤ janela`.
 
@@ -474,7 +476,7 @@ Pré-requisito: `traduz_mensagens` (`02 §4`) reconstrói os blocos `tool_use`/`
 
 > **Cruzamento com a doc oficial (`docs/claudedocs/promptcaching.md`, 2026-05-24).** Três pontos da Anthropic que afetam a estratégia acima e não estavam registrados aqui.
 
-**Pré-aquecimento do prefixo global (`max_tokens: 0`) — candidato P1.** O prefixo `tools`+BP1+BP2 (~3-5K tokens) é compartilhado por TODAS as modelos (§1), mas a doc oficial é explícita: *"a cache entry only becomes available after the first response begins"*. O lock do coordenador é **por-conversa**, não global — então um burst de conversas paralelas (de modelos distintas) logo após **invalidar o prefixo global** (deploy de `persona.md.j2`/`regras.md.j2`/`faq.md`, §4.3) ou após um gap maior que o TTL **reescreve o mesmo prefixo N vezes** (N cache writes a 1.25×/2×), sem read entre eles — o "write-rate de burst quente" antecipado em `08`.
+**Pré-aquecimento do prefixo global (`max_tokens: 0`) — candidato P1.** O prefixo `tools`+BP1+BP2 (~3-5K tokens) é compartilhado por TODAS as modelos (§1), mas a doc oficial é explícita: *"a cache entry only becomes available after the first response begins"*. O lock do coordenador é **por-conversa**, não global — então um burst de conversas paralelas (de modelos distintas) logo após **invalidar o prefixo global** (deploy de `persona.md`/`regras.md.j2`/`faq.md`, §4.3) ou após um gap maior que o TTL **reescreve o mesmo prefixo N vezes** (N cache writes a 1.25×/2×), sem read entre eles — o "write-rate de burst quente" antecipado em `08`.
 
 Mitigação: uma única chamada `max_tokens: 0` com `cache_control` no BP2 (breakpoint no fim do prefixo global, **não** no user turn — exige breakpoint explícito, que já usamos) escreve o prefixo **antes** do tráfego. Disparar no startup do worker e/ou no fim do deploy de prompt. Custo: 1 cache write (o mesmo que o 1º turno real pagaria) e zero output tokens. Viável no P0 — a doc só rejeita `max_tokens: 0` com `stream:true`, thinking habilitado, structured outputs ou `tool_choice` `any`/`tool`; o chat roda thinking `disabled`, sem structured outputs, `tool_choice` `auto`, e o pre-warm é chamada própria sem stream (tools no array são permitidas). BP3 (por-modelo) não compensa pré-aquecer em massa — o ganho está no prefixo global. Para manter quente, re-disparar dentro do TTL. Decisão: medir o write-rate real (§4.2) antes de adotar; aplicar primeiro no deploy de prompt, onde a invalidação é certa.
 

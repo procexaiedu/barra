@@ -3,7 +3,7 @@ data: 2026-04-29
 status: vivo
 ---
 
-# Estrutura da codebase — Barra Vips MVP
+# Estrutura da codebase — Elite Baby MVP
 
 Documento vivo com a árvore completa do monorepo, convenções de organização e fluxo de git worktree.
 

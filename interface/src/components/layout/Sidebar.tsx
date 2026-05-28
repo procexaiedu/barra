@@ -93,7 +93,7 @@ export function Sidebar() {
         >
           {!collapsed && (
             <span className="font-serif text-[28px] font-medium text-gold-500 whitespace-nowrap">
-              Barra Vips
+              Elite Baby
             </span>
           )}
           <button

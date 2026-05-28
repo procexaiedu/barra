@@ -1,6 +1,6 @@
-﻿# 00 — Índice da Spec do Agente de Atendimento
+# 00 — Índice da Spec do Agente de Atendimento
 
-> **Projeto:** Central Inteligente de Atendimento — Barra Vips
+> **Projeto:** Central Inteligente de Atendimento — Elite Baby
 > **Escopo:** especificação completa do agente LangGraph (módulo 5.3 + coordenador 5.2 + humanização 5.5 + pipelines de mídia) para o piloto P0.
 > **Audiência:** agentes de IA construindo o backend a partir da base de código existente em `api/src/barra/`.
 > **Pré-requisitos:** ler `CLAUDE.md`, `CONTEXT.md`, `docs/mvp/00-indice.md`, `docs/adr/0001-*.md` e `docs/adr/0002-*.md` antes de codar.
@@ -42,7 +42,7 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 | Coordenador como ARQ job (não inline no webhook) | `07 §1` |
 | Anthropic SDK direto + Sonnet 4.6 (sem modelo de fallback; exaustão → escala) | `01 §2.5`, `01 §2.6` |
 | Thinking desabilitado no P0; effort fixo no default; `max_tokens` como guard-rail (reavaliar no piloto) | `03 §6` |
-| Prompt em **3 breakpoints fixos no P0** (BP4 condicional na cauda, adiado P1) (`cache_control`); contexto dinâmico no último user turn (sem cache) + estrutura XML semântica | `03 §1`, `03 §4` |
+| Prompt em **4 breakpoints fixos** (BP_TOOLS + BP_GERAL fundido + BP_MODELO + BP_JANELA na penúltima; BP_JANELA shipado, não mais adiado) (`cache_control`); contexto dinâmico no último user turn (sem cache) + estrutura XML semântica | `03 §1`, `03 §4` |
 | Coordenador **drain loop** + `turno_id = uuid5(job_id, loop_idx)` determinístico; debounce **first-wins**; LockBusy → re-defere curto | `07 §3`, `02 §7`, `01 §6.7` |
 | FAQ é **arquivo versionado `faq.md`** (`modelo_faq` dropada em 0030); catálogo enxugado para **5 tools** (só `consultar_agenda` de leitura) | `03 §3.2`, `04 §1` |
 | Classificação disclosure/jailbreak roda **dentro do grafo** (sobre a janela); modelo nomeado = canned+contador; jailbreak escala direto | `10 §8`, `10 §2.1`, `03 §7` |

@@ -293,8 +293,8 @@ export default function PainelGeral() {
   // Título da aba reflete contagem de pendências (antes dos early returns)
   const countPendentes = data?.cards_destaque.length ?? 0
   useEffect(() => {
-    document.title = countPendentes > 0 ? `(${countPendentes}) Painel | Barra Vips` : "Painel | Barra Vips"
-    return () => { document.title = "Painel | Barra Vips" }
+    document.title = countPendentes > 0 ? `(${countPendentes}) Painel | Elite Baby` : "Painel | Elite Baby"
+    return () => { document.title = "Painel | Elite Baby" }
   }, [countPendentes])
 
   // Hooks chamados antes de early returns — usa 0 como valor inicial seguro

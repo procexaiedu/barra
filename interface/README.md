@@ -1,6 +1,6 @@
 # Interface
 
-Frontend Next.js da Barra Vips.
+Frontend Next.js da Elite Baby.
 
 ## Estrutura
 

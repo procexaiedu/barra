@@ -2,15 +2,15 @@
 
 ## 1. Objetivo do MVP
 
-O MVP deve validar se um sistema simples, com IA controlada conduzindo o atendimento no WhatsApp, Fernando no loop como decisor e a modelo acionada apenas quando houver necessidade operacional dela, consegue melhorar o atendimento e a gestão operacional **com uma única modelo piloto**, sem prejudicar a qualidade que o cliente premium da Barra Vips exige.
+O MVP deve validar se um sistema simples, com IA controlada conduzindo o atendimento no WhatsApp, Fernando no loop como decisor e a modelo acionada apenas quando houver necessidade operacional dela, consegue melhorar o atendimento e a gestão operacional **com uma única modelo piloto**, sem prejudicar a qualidade que o cliente premium da Elite Baby exige.
 
 ### Objetivo principal
 
-> Validar uma operação real com uma modelo piloto da Barra Vips, centralizando atendimento via WhatsApp, agenda, CRM básico e regras de escalada para Fernando nas decisões sensíveis, com acionamento da modelo apenas quando ela precisar agir operacionalmente.
+> Validar uma operação real com uma modelo piloto da Elite Baby, centralizando atendimento via WhatsApp, agenda, CRM básico e regras de escalada para Fernando nas decisões sensíveis, com acionamento da modelo apenas quando ela precisar agir operacionalmente.
 
 ### Objetivos secundários
 
-- reduzir tempo de resposta inicial ao cliente que chega pelo BarraVips;
+- reduzir tempo de resposta inicial ao cliente que chega pelo Elite Baby;
 - padronizar o tom da conversa nos quatro atributos definidos por Fernando (objetiva, exclusiva, extrovertida, inocente/estrangeira);
 - registrar informações comerciais que hoje somem (nome, horário desejado, profissional de interesse, motivo de perda);
 - evitar conflito de agenda na modelo piloto;
@@ -144,7 +144,7 @@ O MVP deve conter apenas o necessário para validar a operação principal.
 | Atendimentos   | Status do atendimento                                         | Saber em que etapa cada cliente está                                                                                                                                                                                                                                                                                   |
 | Atendimentos   | Máquina de estados enxuta                                     | Operar `Novo`, `Triagem`, `Qualificado`, `Aguardando_confirmacao`, `Confirmado`, `Em_execucao`, `Fechado` e `Perdido`, sem automatizar exceções complexas                                                                                                                                                              |
 |                |                                                               |                                                                                                                                                                                                                                                                                                                        |
-| Atendimentos   | Metadados do primeiro contato                                 | Registrar origem padrão BarraVips, identificação WhatsApp e horário do primeiro contato                                                                                                                                                                                                                                |
+| Atendimentos   | Metadados do primeiro contato                                 | Registrar origem padrão Elite Baby, identificação WhatsApp e horário do primeiro contato                                                                                                                                                                                                                                |
 | IA             | Triagem                                                       | Organizar a conversa sem depender de Fernando ou modelo                                                                                                                                                                                                                                                         |
 | IA             | Identificação de intenção                                     | Entender o que o cliente quer                                                                                                                                                                                                                                                                                          |
 | IA             | Consulta de disponibilidade                                   | Responder com base na agenda                                                                                                                                                                                                                                                                                           |

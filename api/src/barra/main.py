@@ -55,7 +55,7 @@ def build_app() -> FastAPI:
         sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.ambiente)
 
     app = FastAPI(
-        title="Barra Vips API",
+        title="Elite Baby API",
         version="0.1.0",
         lifespan=lifespan,
         docs_url="/docs" if settings.ambiente != "producao" else None,

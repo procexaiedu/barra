@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation"
 import type { EtapaFunilId, FunilCoorte } from "@/tipos/dashboard"
 import { cn } from "@/lib/utils"
+import { emitirContrato } from "@/lib/verify/contract"
 
 interface Props {
   funil: FunilCoorte
@@ -34,7 +35,11 @@ export function FunilVendas({ funil }: Props) {
       : 0
 
   return (
-    <section aria-label="Funil de vendas por etapa" className="flex flex-col gap-3">
+    <section
+      {...emitirContrato("funil", { topo, perdidos_total, etapas })}
+      aria-label="Funil de vendas por etapa"
+      className="flex flex-col gap-3"
+    >
       <header className="flex items-baseline justify-between">
         <h2 className="text-base font-semibold text-text-primary">Funil de vendas</h2>
         <span className="text-xs font-medium text-text-muted">

@@ -241,24 +241,31 @@ def test_forma_canonica_da_tool_convertida() -> None:
     assert tool_obj["cache_control"]["type"] == "ephemeral"
 
 
-def test_strict_mode_opt_in_quando_strict_true() -> None:
-    # strict=True (opt-in, default False) ativa constrained decoding nas tools.
-    out = build_tools_para_bind([_tool_a, _tool_b, _tool_c], ttl="1h", strict=True)
-    assert all(t.get("strict") is True for t in out), "todas as tools devem ter strict=True"
+def test_strict_aplica_so_nas_tools_nomeadas() -> None:
+    # strict PER-TOOL: so as tools cujo nome esta em strict_tools recebem strict=True.
+    out = build_tools_para_bind(
+        [_tool_a, _tool_b, _tool_c], ttl="1h", strict_tools={"_tool_a", "_tool_c"}
+    )
+    by_name = {t["name"]: t for t in out}
+    assert by_name["_tool_a"].get("strict") is True
+    assert by_name["_tool_c"].get("strict") is True
+    assert "strict" not in by_name["_tool_b"], "tool fora do conjunto nao deve ter strict"
 
 
 def test_strict_mode_default_off_no_helper() -> None:
-    # Helper default `strict=False` (parametro). O `anthropic_strict_tools=True` do settings
-    # vive no caller (`nos/llm.py:no_llm`). Aqui testamos a forma do helper isoladamente.
+    # Helper default `strict_tools=()` → nenhuma tool strict. O master-switch
+    # `anthropic_strict_tools` vive no caller (`nos/llm.py:no_llm`).
     out = build_tools_para_bind([_tool_a, _tool_b, _tool_c], ttl="1h")
-    assert all("strict" not in t for t in out), "strict ausente quando helper recebe default"
+    assert all("strict" not in t for t in out), "strict ausente quando strict_tools vazio"
 
 
 def test_strict_requer_additional_properties_false_no_top_level() -> None:
     # Pre-req do strict mode (doc oficial `strict-tool-use`): additionalProperties:false no
     # TOP-LEVEL do input_schema. langchain envolve `payload: PydModel` em `{"payload": <schema>}`
     # e nao propaga o flag — o helper injeta no top-level p/ a Anthropic nao recusar com 400.
-    out = build_tools_para_bind([_tool_a, _tool_b, _tool_c], ttl="1h", strict=True)
+    out = build_tools_para_bind(
+        [_tool_a, _tool_b, _tool_c], ttl="1h", strict_tools={"_tool_a", "_tool_b", "_tool_c"}
+    )
     for t in out:
         schema = t.get("input_schema", {})
         assert schema.get("additionalProperties") is False, (
@@ -269,3 +276,23 @@ def test_strict_requer_additional_properties_false_no_top_level() -> None:
         assert payload_schema.get("additionalProperties") is False, (
             f"{t['name']}: payload schema deve ter additionalProperties:false (extra='forbid')"
         )
+
+
+def test_strict_remove_min_max_length() -> None:
+    # `_sanitizar_para_strict` remove minLength/maxLength (strict nao suporta — era o blocker do
+    # `escalar`). _PayloadA tem `x: str = Field(min_length=1)` → minLength no schema non-strict.
+    nao_strict = build_tools_para_bind([_tool_a], ttl="1h")[0]
+    x_ns = nao_strict["input_schema"]["properties"]["payload"]["properties"]["x"]
+    assert "minLength" in x_ns, "sanity: schema non-strict mantem minLength"
+    strict = build_tools_para_bind([_tool_a], ttl="1h", strict_tools={"_tool_a"})[0]
+    x_s = strict["input_schema"]["properties"]["payload"]["properties"]["x"]
+    assert "minLength" not in x_s and "maxLength" not in x_s, "strict deve remover min/maxLength"
+
+
+def test_input_examples_injetado_por_nome() -> None:
+    # `exemplos` injeta input_examples na tool nomeada; outras ficam sem.
+    exemplos = {"_tool_a": [{"payload": {"x": "exemplo"}}]}
+    out = build_tools_para_bind([_tool_a, _tool_b], ttl="1h", exemplos=exemplos)
+    by_name = {t["name"]: t for t in out}
+    assert by_name["_tool_a"]["input_examples"] == [{"payload": {"x": "exemplo"}}]
+    assert "input_examples" not in by_name["_tool_b"]

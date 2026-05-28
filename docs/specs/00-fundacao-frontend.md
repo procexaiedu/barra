@@ -1,4 +1,4 @@
-# 00 — Fundação Frontend Barra Vips
+# 00 — Fundação Frontend Elite Baby
 
 > **Constituição do painel.** Decisões transversais que valem para **todas as telas** do `interface/`. Não repetir essas decisões em specs de tela individuais — apenas referenciar este documento.
 >
@@ -36,8 +36,8 @@
 
 ## 1. Identidade e princípios
 
-- **Produto:** painel operacional Barra Vips (interno, ferramenta de trabalho de Fernando).
-- **Não é** o canal orgânico (BarraVips.com). Sem replicar estética sensual/adulta no painel.
+- **Produto:** painel operacional Elite Baby (interno, ferramenta de trabalho de Fernando).
+- **Não é** o canal orgânico (Elite Baby). Sem replicar estética sensual/adulta no painel.
 - **Princípios** (DESIGN.md §Princípios — resumo):
   1. Decisão acima de tudo. Próxima ação é o elemento mais brilhante da tela.
   2. Estado é a unidade visual — badge antes de conteúdo, borda esquerda comunica antes do texto.
@@ -314,7 +314,7 @@ Quando `viewport < 1024px` em qualquer rota de `(interface)/*`:
 
 - Esconde sidebar e conteúdo.
 - Mostra `<MobileBlocker/>`: container fullscreen `--background`, conteúdo centralizado vertical+horizontal:
-  - Logo "Barra Vips" em Cormorant Garamond `--gold-500` (`display-lg`).
+  - Logo "Elite Baby" em Cormorant Garamond `--gold-500` (`display-lg`).
   - Texto em Inter body-md `--text-primary`: *"Painel operacional disponível apenas em desktop. Use o grupo de Coordenação por modelo no celular."*
   - Sem botão, sem CTA. Só a mensagem.
 - `/login` é **exceção**: funciona normalmente em mobile.
@@ -323,7 +323,7 @@ Quando `viewport < 1024px` em qualquer rota de `(interface)/*`:
 
 Componente: `interface/src/components/layout/Sidebar.tsx`. Largura 240px (rail 64px em md).
 
-- **Topo:** logo "Barra Vips" em Cormorant Garamond peso 500, `--gold-500`, ~32px. Padding `spacing.5` em todos lados.
+- **Topo:** logo "Elite Baby" em Cormorant Garamond peso 500, `--gold-500`, ~32px. Padding `spacing.5` em todos lados.
 - **Grupos** (header `heading-sm` maiúsculo `letter-spacing 0.08em` `--text-muted`):
 
 | Grupo | Itens | Rota |

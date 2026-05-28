@@ -24,7 +24,7 @@ Base estrutural. Fundos, bordas, texto, divisores. **Nunca** usar `gray-*`, `zin
 
 ### Marca (`gold-*`)
 
-Identidade Barra Vips. **Restrita a:** logotipo, primary action, item ativo de navegação, ênfase intencional, ponto de marca em ranking/chart. **Não decorar** — gold em excesso vira ruído.
+Identidade Elite Baby. **Restrita a:** logotipo, primary action, item ativo de navegação, ênfase intencional, ponto de marca em ranking/chart. **Não decorar** — gold em excesso vira ruído.
 
 | Token | Hex | Uso |
 |---|---|---|
@@ -94,7 +94,7 @@ Três famílias carregadas via `next/font/google` em `app/layout.tsx`:
 | Família | Variável | Uso |
 |---|---|---|
 | **Inter** | `--font-sans` / `--font-heading` | Texto, números, UI inteira |
-| **Cormorant Garamond** | `--font-serif` | **Exclusivo do logotipo "Barra Vips"** na sidebar. Não usar em outro lugar. |
+| **Cormorant Garamond** | `--font-serif` | **Exclusivo do logotipo "Elite Baby"** na sidebar. Não usar em outro lugar. |
 | **JetBrains Mono** | `--font-mono` | IDs, telefones, valores tabulares, timestamps relativos |
 
 ### Escala em uso
@@ -109,7 +109,7 @@ Estes são os tamanhos efetivamente aplicados — não improvise outros sem just
 | `text-sm` (14px) | — | — | Corpo padrão, item de lista, input |
 | `text-base` (16px) | — | — | Título de card, item destacado |
 | `text-lg` (18px) | — | — | Título de dialog |
-| `text-[28px]` | — | — | Logotipo Barra Vips (Cormorant 500) |
+| `text-[28px]` | — | — | Logotipo Elite Baby (Cormorant 500) |
 | `text-[36px]` | `leading-[44px]` | `tracking-[-0.02em]` | KPI grande (`TileMetrica`) |
 | `text-[40px]` | `leading-[48px]` | — | KPI dashboard (`TileKpi`), com `tabular-nums` |
 

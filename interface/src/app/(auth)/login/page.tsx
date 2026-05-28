@@ -41,7 +41,7 @@ export default function Login() {
       return
     }
 
-    toast.success("Bem-vindo ao Barra Vips!")
+    toast.success("Bem-vindo ao Elite Baby!")
     router.push("/")
     router.refresh()
   }
@@ -62,7 +62,7 @@ export default function Login() {
             <Sparkles className="h-6 w-6 text-primary" />
           </div>
           <h1 className="font-heading text-4xl font-bold tracking-tight text-foreground">
-            Barra Vips
+            Elite Baby
           </h1>
           <p className="text-muted-foreground">
             Acesso à central inteligente

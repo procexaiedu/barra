@@ -646,7 +646,7 @@ Padrão da fundação §§6.3, 8.3, 8.4. Sem comportamento adicional específico
 
 ```
 ┌─────────────────┬───────────────────────────────────────────────────────────────┐
-│ Barra Vips      │ Painel                              MODELO   AGORA            │
+│ Elite Baby      │ Painel                              MODELO   AGORA            │
 │  (sidebar       │                                     Júlia    30 abr · 14:32   │
 │   compartilhada │                                                               │
 │   — fundação    │ Pendências humanas                              3 aguardando  │

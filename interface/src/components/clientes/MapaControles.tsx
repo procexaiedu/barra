@@ -834,6 +834,103 @@ function rangePronto(inicio: string | null, fim: string | null): boolean {
   return inicio !== null && fim !== null && fim >= inicio
 }
 
+// ── Comparações rápidas (presets) ────────────────────────────────────────────
+// A maioria esmagadora das comparações de campanha é "período atual × período
+// anterior de mesmo tamanho". Os presets resolvem isso em um clique e produzem
+// exatamente os mesmos 4 limites ISO que a entrada manual — nada novo chega ao
+// fetch. Convenção: A = base (mais antigo) · B = comparado (mais recente) ·
+// favo = B − A. Datas calculadas em horário local (Fernando opera em BRT).
+
+type LimitesComparar = Pick<CompararRecortes, "aInicio" | "aFim" | "bInicio" | "bFim">
+
+function isoLocal(d: Date): string {
+  const y = d.getFullYear()
+  const mes = String(d.getMonth() + 1).padStart(2, "0")
+  const dia = String(d.getDate()).padStart(2, "0")
+  return `${y}-${mes}-${dia}`
+}
+
+function somarDias(base: Date, n: number): Date {
+  const r = new Date(base)
+  r.setDate(r.getDate() + n)
+  return r
+}
+
+/** B = últimos `n` dias (até hoje) · A = os `n` dias imediatamente anteriores. */
+function janelaUltimosDias(n: number): LimitesComparar {
+  const hoje = new Date()
+  return {
+    bFim: isoLocal(hoje),
+    bInicio: isoLocal(somarDias(hoje, -(n - 1))),
+    aFim: isoLocal(somarDias(hoje, -n)),
+    aInicio: isoLocal(somarDias(hoje, -(2 * n - 1))),
+  }
+}
+
+/** B = mês atual (dia 1 até hoje) · A = mês anterior inteiro. */
+function janelaMesVsAnterior(): LimitesComparar {
+  const hoje = new Date()
+  const inicioMesAtual = new Date(hoje.getFullYear(), hoje.getMonth(), 1)
+  const fimMesAnterior = somarDias(inicioMesAtual, -1)
+  const inicioMesAnterior = new Date(
+    fimMesAnterior.getFullYear(),
+    fimMesAnterior.getMonth(),
+    1,
+  )
+  return {
+    aInicio: isoLocal(inicioMesAnterior),
+    aFim: isoLocal(fimMesAnterior),
+    bInicio: isoLocal(inicioMesAtual),
+    bFim: isoLocal(hoje),
+  }
+}
+
+type PresetCompararId = "7d" | "30d" | "mes"
+
+const PRESETS_COMPARAR: readonly {
+  id: PresetCompararId
+  label: string
+  descricao: string
+  calcular: () => LimitesComparar
+}[] = [
+  {
+    id: "7d",
+    label: "Últimos 7 dias",
+    descricao: "vs 7 dias anteriores",
+    calcular: () => janelaUltimosDias(7),
+  },
+  {
+    id: "30d",
+    label: "Últimos 30 dias",
+    descricao: "vs 30 dias anteriores",
+    calcular: () => janelaUltimosDias(30),
+  },
+  {
+    id: "mes",
+    label: "Este mês",
+    descricao: "vs mês passado",
+    calcular: janelaMesVsAnterior,
+  },
+] as const
+
+/** Qual preset (se algum) corresponde exatamente aos 4 limites atuais — usado
+ *  para destacar o chip ativo e resumir o trigger. Recalcula a partir de hoje,
+ *  então é coerente com o que os botões aplicariam agora. */
+function presetCorrespondente(valor: CompararRecortes): PresetCompararId | null {
+  for (const p of PRESETS_COMPARAR) {
+    const r = p.calcular()
+    if (
+      valor.aInicio === r.aInicio &&
+      valor.aFim === r.aFim &&
+      valor.bInicio === r.bInicio &&
+      valor.bFim === r.bFim
+    ) {
+      return p.id
+    }
+  }
+  return null
+}
+
 export function FiltroCompararPeriodos({
   valor,
   onChange,
@@ -842,23 +939,46 @@ export function FiltroCompararPeriodos({
   onChange: (next: CompararRecortes) => void
 }) {
   const [open, setOpen] = useState(false)
+  const [mostrarCustom, setMostrarCustom] = useState(false)
   const invalidoA = rangeInvalido(valor.aInicio, valor.aFim)
   const invalidoB = rangeInvalido(valor.bInicio, valor.bFim)
   const prontoA = rangePronto(valor.aInicio, valor.aFim)
   const prontoB = rangePronto(valor.bInicio, valor.bFim)
   const ativo = valor.comparar
+  const presetId = presetCorrespondente(valor)
+  // Datas que não batem com nenhum preset = entrada manual; revela a seção
+  // "personalizado" sozinha (derivado, sem effect) para o usuário ver o que
+  // está aplicado ao reabrir o popover.
+  const ehCustom = (prontoA || prontoB) && presetId === null
+  const custom = mostrarCustom || ehCustom
+
+  const aplicarPreset = (limites: LimitesComparar) => {
+    onChange({ comparar: true, ...limites })
+    setMostrarCustom(false)
+  }
 
   const toggleAtivo = () => {
-    // Liga o toggle abrindo o popover na primeira vez para o usuário preencher
-    // os recortes; desliga sem mexer nas datas (volta limpo ao religar).
+    // Ligar já aplica uma comparação útil (1 clique → mapa preenchido): preserva
+    // datas anteriores se já havia um range válido, senão usa o 1º preset.
+    // Desligar não mexe nas datas (volta intacto ao religar).
     if (!ativo) {
-      onChange({ ...valor, comparar: true })
+      if (prontoA && prontoB) {
+        onChange({ ...valor, comparar: true })
+      } else {
+        aplicarPreset(PRESETS_COMPARAR[0].calcular())
+      }
       setOpen(true)
     } else {
       onChange({ ...valor, comparar: false })
       setOpen(false)
     }
   }
+
+  const resumoTrigger = presetId
+    ? PRESETS_COMPARAR.find((p) => p.id === presetId)!.label
+    : prontoA && prontoB
+      ? `A ${curtaData(valor.aInicio!)}–${curtaData(valor.aFim!)} · B ${curtaData(valor.bInicio!)}–${curtaData(valor.bFim!)}`
+      : null
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -909,113 +1029,96 @@ export function FiltroCompararPeriodos({
             !ativo && "cursor-not-allowed opacity-50 hover:bg-card",
           )}
         >
-          {prontoA && prontoB ? (
-            <span className="truncate">
-              A {curtaData(valor.aInicio!)} a {curtaData(valor.aFim!)} ·{" "}
-              B {curtaData(valor.bInicio!)} a {curtaData(valor.bFim!)}
-            </span>
+          {resumoTrigger ? (
+            <span className="truncate">{resumoTrigger}</span>
           ) : (
-            <span className="text-text-muted">escolher datas</span>
+            <span className="text-text-muted">escolher período</span>
           )}
           <ChevronDown size={12} strokeWidth={1.5} className="shrink-0 text-text-muted" />
         </PopoverTrigger>
       </div>
-      <PopoverContent align="end" className="min-w-[280px] p-3">
+      <PopoverContent align="end" className="w-[300px] p-3">
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
             <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-              Período base (A)
+              Comparações rápidas
             </span>
-            <div className="flex items-center gap-2">
-              <input
-                aria-label="A, data inicial"
-                type="date"
-                value={valor.aInicio ?? ""}
-                aria-invalid={invalidoA || undefined}
-                onChange={(e) =>
-                  onChange({
-                    ...valor,
-                    aInicio: e.target.value === "" ? null : e.target.value,
-                  })
-                }
-                className={cn(
-                  "h-8 flex-1 rounded-md border border-input bg-input px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  invalidoA && "border-state-lost",
-                )}
-              />
-              <span className="text-text-muted">a</span>
-              <input
-                aria-label="A, data final"
-                type="date"
-                value={valor.aFim ?? ""}
-                aria-invalid={invalidoA || undefined}
-                onChange={(e) =>
-                  onChange({
-                    ...valor,
-                    aFim: e.target.value === "" ? null : e.target.value,
-                  })
-                }
-                className={cn(
-                  "h-8 flex-1 rounded-md border border-input bg-input px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  invalidoA && "border-state-lost",
-                )}
-              />
+            <div className="flex flex-col gap-1">
+              {PRESETS_COMPARAR.map((p) => {
+                const selecionado = presetId === p.id
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => aplicarPreset(p.calcular())}
+                    aria-pressed={selecionado}
+                    className={cn(
+                      "flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring",
+                      selecionado
+                        ? "border-gold-500 bg-gold-500/10"
+                        : "border-border bg-card hover:bg-accent",
+                    )}
+                  >
+                    <span className="flex flex-col leading-tight">
+                      <span className="text-sm font-medium text-text-primary">
+                        {p.label}
+                      </span>
+                      <span className="text-[11px] text-text-muted">{p.descricao}</span>
+                    </span>
+                    {selecionado && (
+                      <Check
+                        size={15}
+                        strokeWidth={2}
+                        className="shrink-0 text-gold-500"
+                      />
+                    )}
+                  </button>
+                )
+              })}
             </div>
-            {invalidoA && (
-              <span className="text-[11px] text-state-lost">
-                A: a data final está antes da inicial. Ajuste para aplicar.
-              </span>
-            )}
           </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wide text-text-muted">
-              Período a comparar (B)
-            </span>
-            <div className="flex items-center gap-2">
-              <input
-                aria-label="B, data inicial"
-                type="date"
-                value={valor.bInicio ?? ""}
-                aria-invalid={invalidoB || undefined}
-                onChange={(e) =>
-                  onChange({
-                    ...valor,
-                    bInicio: e.target.value === "" ? null : e.target.value,
-                  })
-                }
-                className={cn(
-                  "h-8 flex-1 rounded-md border border-input bg-input px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  invalidoB && "border-state-lost",
-                )}
+          <div className="flex flex-col gap-2 border-t border-border pt-2.5">
+            <button
+              type="button"
+              onClick={() => setMostrarCustom((v) => !v)}
+              aria-expanded={custom}
+              className="flex items-center justify-between gap-2 text-[11px] font-semibold uppercase tracking-wide text-text-muted outline-none transition-colors hover:text-text-secondary focus-visible:text-text-secondary"
+            >
+              Datas personalizadas
+              <ChevronDown
+                size={14}
+                strokeWidth={1.5}
+                className={cn("shrink-0 transition-transform", custom && "rotate-180")}
               />
-              <span className="text-text-muted">a</span>
-              <input
-                aria-label="B, data final"
-                type="date"
-                value={valor.bFim ?? ""}
-                aria-invalid={invalidoB || undefined}
-                onChange={(e) =>
-                  onChange({
-                    ...valor,
-                    bFim: e.target.value === "" ? null : e.target.value,
-                  })
-                }
-                className={cn(
-                  "h-8 flex-1 rounded-md border border-input bg-input px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  invalidoB && "border-state-lost",
-                )}
-              />
-            </div>
-            {invalidoB && (
-              <span className="text-[11px] text-state-lost">
-                B: a data final está antes da inicial. Ajuste para aplicar.
-              </span>
+            </button>
+            {custom && (
+              <div className="flex flex-col gap-3">
+                <LinhaRangeData
+                  rotulo="Período base (A)"
+                  destaque={false}
+                  inicio={valor.aInicio}
+                  fim={valor.aFim}
+                  invalido={invalidoA}
+                  msgErro="A: a data final está antes da inicial. Ajuste para aplicar."
+                  onInicio={(v) => onChange({ ...valor, aInicio: v })}
+                  onFim={(v) => onChange({ ...valor, aFim: v })}
+                />
+                <LinhaRangeData
+                  rotulo="Período a comparar (B)"
+                  destaque
+                  inicio={valor.bInicio}
+                  fim={valor.bFim}
+                  invalido={invalidoB}
+                  msgErro="B: a data final está antes da inicial. Ajuste para aplicar."
+                  onInicio={(v) => onChange({ ...valor, bInicio: v })}
+                  onFim={(v) => onChange({ ...valor, bFim: v })}
+                />
+              </div>
             )}
           </div>
           <p className="text-[11px] leading-snug text-text-muted">
-            No modo Comparar, o mapa fica em Favos e cada favo é colorido pela diferença
-            entre B e A. Os filtros Período e Recência ficam desligados. Os dois períodos
-            podem se sobrepor ou não.
+            O mapa entra em Favos coloridos pela variação de B em relação a A. Período e
+            Recência ficam desligados enquanto o Comparar está ativo.
           </p>
         </div>
       </PopoverContent>
@@ -1029,6 +1132,69 @@ function curtaData(iso: string): string {
   // shape, mas a defesa em profundidade evita NaN/exception na UI.
   const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   return m ? `${m[3]}/${m[2]}` : iso
+}
+
+/** Uma linha de range (início → fim) da seção "Datas personalizadas". Extraída
+ *  porque A e B são idênticas exceto pelo rótulo, cor do ponto e callbacks —
+ *  inline seria 2× o mesmo bloco de inputs nativos. `destaque` pinta o ponto de
+ *  dourado (B, o período "novo/comparado"); A fica neutro. */
+function LinhaRangeData({
+  rotulo,
+  destaque,
+  inicio,
+  fim,
+  invalido,
+  msgErro,
+  onInicio,
+  onFim,
+}: {
+  rotulo: string
+  destaque: boolean
+  inicio: string | null
+  fim: string | null
+  invalido: boolean
+  msgErro: string
+  onInicio: (v: string | null) => void
+  onFim: (v: string | null) => void
+}) {
+  const classeInput = cn(
+    "h-8 flex-1 rounded-md border border-input bg-input px-2 text-sm tabular-nums outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    invalido && "border-state-lost",
+  )
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-text-muted">
+        <span
+          aria-hidden
+          className={cn(
+            "h-2 w-2 rounded-full",
+            destaque ? "bg-gold-500" : "border border-border bg-text-muted/40",
+          )}
+        />
+        {rotulo}
+      </span>
+      <div className="flex items-center gap-2">
+        <input
+          aria-label={`${rotulo}, data inicial`}
+          type="date"
+          value={inicio ?? ""}
+          aria-invalid={invalido || undefined}
+          onChange={(e) => onInicio(e.target.value === "" ? null : e.target.value)}
+          className={classeInput}
+        />
+        <span className="text-text-muted">a</span>
+        <input
+          aria-label={`${rotulo}, data final`}
+          type="date"
+          value={fim ?? ""}
+          aria-invalid={invalido || undefined}
+          onChange={(e) => onFim(e.target.value === "" ? null : e.target.value)}
+          className={classeInput}
+        />
+      </div>
+      {invalido && <span className="text-[11px] text-state-lost">{msgErro}</span>}
+    </div>
+  )
 }
 
 /** Legenda divergente do modo Comparar (MAPA-14). Mostra a rampa BrBG invertida

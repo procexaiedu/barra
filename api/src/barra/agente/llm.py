@@ -11,7 +11,7 @@ Invariante (agente/CLAUDE.md): tools (posição 0) e BP1 (persona+regras) e BP2 
 — byte-idênticos entre todas as modelos. Funções puras: mesma entrada → mesma saída sem I/O.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from langchain_anthropic import convert_to_anthropic_tool
@@ -127,7 +127,11 @@ def marcar_cache_na_penultima(
 
 
 def build_tools_para_bind(
-    tools: Sequence[BaseTool], *, ttl: str, strict: bool = False
+    tools: Sequence[BaseTool],
+    *,
+    ttl: str,
+    strict_tools: Collection[str] = (),
+    exemplos: Mapping[str, list[dict[str, Any]]] | None = None,
 ) -> list[AnthropicTool]:
     """Converte BaseTool→dict Anthropic e injeta cache_control na ÚLTIMA tool (BP_TOOLS).
 
@@ -137,13 +141,19 @@ def build_tools_para_bind(
        de cache read (0.1×); breakpoints do `system` NÃO cobrem tools retroativamente — cada
        nível é segmento hierárquico independente (tools → system → messages).
 
-    2. `strict` (opt-in, default False; doc oficial `strict-tool-use`): constrained decoding +
-       grammar cache 24h. Hoje DESLIGADO no projeto porque o strict mode atual nao aceita:
-       - `additionalProperties: <schema>` (do nosso `dict[str, bool]` em `sinais_qualificacao`);
-       - `minimum`/`maximum` em number (sanitizavel via `_sanitizar_para_strict`);
-       - regex avancada com lookahead (gerada por Pydantic p/ `Decimal | None`; sanitizavel).
-       Quando refatorar a entidade ou a Anthropic relaxar, ligar via `ANTHROPIC_STRICT_TOOLS=true`.
-       PHI-safe: nenhum schema/enum/property name carrega dado de cliente.
+    2. `strict_tools` (PER-TOOL; doc oficial `strict-tool-use` + 04 §7): constrained decoding +
+       grammar cache 24h, aplicado SÓ às tools cujo nome está no conjunto. Por-tool e não global
+       porque o limite "Schema is too complex" da Anthropic é somado em TODAS as tools strict da
+       request — ligar nas 3 que não precisam (consultar_agenda/pedir_pix/enviar_midia) pagaria
+       latência de compilação à toa. P0: `STRICT_TOOLS = {"escalar"}` (`ferramentas/__init__.py`)
+       — enum de roteamento + 2 strings, cabe nos limites. `_sanitizar_para_strict` remove o que o
+       strict não aceita (minimum/maximum, min/maxLength, min/maxItems, pattern, anyOf-null).
+       PHI-safe: nenhum schema/enum/property name carrega dado de cliente (04 §7).
+
+    3. `exemplos` (per-tool, opcional; doc oficial `tool-use` campo `input_examples`): exemplos de
+       input válidos por nome de tool, injetados em `input_examples` da tool. Ajudam tools
+       complexas (escalar/registrar_extracao) sem custo de runtime — vivem no segmento `tools`
+       cacheado (pago 1x). Cada exemplo DEVE validar contra o `input_schema` enviado (senão 400).
 
     `tools` é GERAL (byte-idêntico p/ todas as modelos — agente/CLAUDE.md, 03 §1): ordem
     congelada, conversor determinístico. Lista vazia → []; `bind_tools([])` é no-op no chat.
@@ -154,14 +164,17 @@ def build_tools_para_bind(
     if not tools:
         return []
     converted = [convert_to_anthropic_tool(t) for t in tools]
-    if strict:
-        for tool_def in converted:
+    for tool_def in converted:
+        nome = tool_def["name"]
+        if nome in strict_tools:
             tool_def["strict"] = True
             # langchain envolve `payload: PydModel` em `{"payload": <schema>}` mas NAO propaga
             # `additionalProperties: false` para o top-level. A Anthropic exige em strict mode.
             schema = tool_def.get("input_schema") or {}
             schema.setdefault("additionalProperties", False)
             _sanitizar_para_strict(schema)
+        if exemplos and nome in exemplos:
+            tool_def["input_examples"] = list(exemplos[nome])
     converted[-1]["cache_control"] = _cache_control(ttl)
     return converted
 
@@ -172,6 +185,12 @@ def _sanitizar_para_strict(schema: Any) -> None:
     Hoje, em 2026-05:
     - `minimum`/`maximum` (e `exclusive*`) em number/integer: 400 "properties maximum, minimum
       are not supported".
+    - `minLength`/`maxLength` em string: idem nao suportados pelo strict (doc oficial
+      `#json-schema-limitations`). O Pydantic gera p/ `Field(min_length=..., max_length=...)`
+      (ex.: `resumo_operacional`/`acao_esperada` do `escalar`). Era o blocker do strict no
+      `escalar`. Removidos aqui; a validacao real continua no Pydantic post-call.
+    - `minItems`/`maxItems` em array: strict so aceita `minItems` 0/1 e nao aceita `maxItems`;
+      removidos por seguranca (perde so a "dica" pro grammar; Pydantic valida de verdade).
     - `pattern` com regex avancada (lookahead `(?!...)`, lookbehind, etc.): 400 "Invalid regex
       in pattern field". O Pydantic gera regex desse tipo automaticamente para `Decimal | None`
       e similares. Solucao conservadora: remover TODOS os patterns — a validacao real ja roda
@@ -191,6 +210,12 @@ def _sanitizar_para_strict(schema: Any) -> None:
             schema.pop("maximum", None)
             schema.pop("exclusiveMinimum", None)
             schema.pop("exclusiveMaximum", None)
+        # string/array: min/maxLength e min/maxItems nao sao suportados pelo strict.
+        # `pop(..., None)` e no-op quando ausente, entao nao precisa checar o `type` antes.
+        schema.pop("minLength", None)
+        schema.pop("maxLength", None)
+        schema.pop("minItems", None)
+        schema.pop("maxItems", None)
         schema.pop("pattern", None)
         _desencapsular_anyof_null(schema)
         for value in schema.values():

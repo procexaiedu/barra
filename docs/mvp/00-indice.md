@@ -1,6 +1,6 @@
 # 00 — Índice do Plano de MVP — Central Inteligente de Atendimento e Operação com IA
 
-> **Projeto:** Sistema de Gestão de Atendimento com IA para a operação Barra Vips
+> **Projeto:** Sistema de Gestão de Atendimento com IA para a operação Elite Baby
 > **Origem:** Quebra do `plano_mvp_central_inteligente_atendimento.md` em arquivos menores para facilitar uso seletivo de contexto durante o desenvolvimento.
 
 ## Como usar
@@ -11,7 +11,7 @@ Cada arquivo cobre um domínio específico do plano. Carregue apenas os arquivos
 
 | Arquivo | Conteúdo | Quando consultar |
 |---------|----------|-------------------|
-| [01-contexto-negocio.md](01-contexto-negocio.md) | Contexto Barra Vips, Fernando, persona da IA, atores, problema, resumo executivo | Para entender o negócio, o cliente, o porquê do projeto |
+| [01-contexto-negocio.md](01-contexto-negocio.md) | Contexto Elite Baby, Fernando, persona da IA, atores, problema, resumo executivo | Para entender o negócio, o cliente, o porquê do projeto |
 | [02-mvp-escopo.md](02-mvp-escopo.md) | Objetivos do MVP, princípios do produto, P0/P1, fora do escopo | Para decidir se algo entra no MVP ou não |
 | [03-modulos-sistema.md](03-modulos-sistema.md) | Central de Atendimentos, Agenda, IA de Atendimento, CRM, Mídia, Dashboard e IA Administrativa P1 | Para implementar qualquer módulo do sistema |
 | [04-fluxos-operacionais.md](04-fluxos-operacionais.md) | Fluxo geral, interno, externo (saída), agenda por áudio P1, perda por timeout, tipologia de cliente, mídia, máquina de estados | Para implementar lógica de conversa, agenda ou Pix |

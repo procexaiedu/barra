@@ -860,7 +860,7 @@ Nenhum ponto em aberto após alinhamento com o usuário em 2026-05-01.
 
 ```
 ┌─────────────────┬───────────────────────────────────────────────────────────────┐
-│ Barra Vips      │ Dashboard                          PERÍODO  ·  25 abr – 1 mai │
+│ Elite Baby      │ Dashboard                          PERÍODO  ·  25 abr – 1 mai │
 │  (sidebar       │                                                               │
 │   compartilhada │ [ Hoje ] [ 7 dias ] [ 30 dias ] [ Personalizado… ]  [Modelo▾] │
 │   — fundação    │                                                               │

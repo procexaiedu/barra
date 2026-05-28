@@ -39,6 +39,7 @@ import { MapaToolbar } from "@/components/clientes/MapaToolbar"
 import { PainelVisualizacaoMapa } from "@/components/clientes/PainelVisualizacaoMapa"
 import { RAMPA_FAVO_CSS } from "@/lib/cores/favo"
 import { rotuloPerfil } from "@/lib/perfilFisico"
+import { emitirContrato } from "@/lib/verify/contract"
 import type {
   EstadoAtendimento,
   FiltroPeriodo,
@@ -449,7 +450,14 @@ export function MapaClientes({
   }
 
   return (
-    <div className="space-y-3">
+    <div
+      {...emitirContrato("mapa", {
+        pins: pontos.length,
+        semLocalizacao: totalSemLocalizacao,
+        totalClientes: pontos.length + totalSemLocalizacao,
+      })}
+      className="space-y-3"
+    >
       <MapaToolbar
         periodo={periodo}
         dataInicio={dataInicio}

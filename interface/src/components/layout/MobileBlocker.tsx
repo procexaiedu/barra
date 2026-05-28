@@ -5,7 +5,7 @@ export function MobileBlocker() {
     <div className="flex min-h-screen items-center justify-center bg-background p-8 lg:hidden">
       <div className="text-center">
         <h1 className="mb-4 font-serif text-[40px] font-medium leading-[48px] text-gold-500">
-          Barra Vips
+          Elite Baby
         </h1>
         <p className="text-sm text-text-primary">
           O painel está disponível apenas em desktop.

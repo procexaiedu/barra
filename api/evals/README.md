@@ -1,4 +1,4 @@
-# Evals — agente Barra Vips
+# Evals — agente Elite Baby
 
 Datasets e runners de avaliação offline para o agente LangGraph (`api/src/barra/agente/`). Foco em três eixos do CONTEXT.md: persona estável, isolamento por par (cliente, modelo), e cumprimento da máquina de estados.
 
