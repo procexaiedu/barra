@@ -37,7 +37,7 @@ export function ItemAtendimento({
     ? "border-l-state-active"
     : item.ia_pausada
       ? "border-l-state-handoff"
-      : "border-l-transparent"
+      : "border-l-transparent hover:border-l-border-brand/50"
 
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Enter" || event.key === " ") {
@@ -54,20 +54,20 @@ export function ItemAtendimento({
       onClick={() => onSelect(item.id)}
       onKeyDown={handleKeyDown}
       className={cn(
-        "cursor-pointer border-l-3 bg-card px-4 py-3 transition-colors hover:bg-accent",
+        "cursor-pointer border-l-4 bg-card px-4 py-3 transition-colors",
         "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
-        selected ? "bg-accent" : "",
+        selected ? "bg-accent" : "hover:bg-surface-hover",
         border
       )}
     >
       <div className="flex min-w-0 items-center gap-2">
         <p className="flex-1 truncate text-sm font-semibold text-text-primary">{cliente}</p>
         <Badge variant={badgeForEstado(item.estado)} className="shrink-0">{estadoLabel[item.estado]}</Badge>
-        <span className="shrink-0 text-xs font-medium text-text-muted">
+        <span className="shrink-0 text-xs font-medium tabular-nums text-text-muted">
           {formatTempoRelativo(item.updated_at)}
         </span>
       </div>
-      <p className="mt-0.5 truncate text-[11px] text-text-muted">{meta}</p>
+      <p className="mt-1 truncate text-[11px] text-text-muted">{meta}</p>
     </article>
   )
 }

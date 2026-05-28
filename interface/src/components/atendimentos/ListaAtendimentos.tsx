@@ -54,8 +54,8 @@ export function ListaAtendimentos({
               />
             ))}
             {nextCursor && (
-              <div className="p-3">
-                <Button variant="ghost" className="w-full" onClick={onCarregarMais}>
+              <div className="p-2">
+                <Button variant="ghost" size="sm" className="w-full text-text-muted hover:text-text-primary" onClick={onCarregarMais}>
                   Carregar mais
                 </Button>
               </div>
@@ -69,10 +69,12 @@ export function ListaAtendimentos({
 
 function EmptyLista({ filtrosAplicados }: { filtrosAplicados: boolean }) {
   return (
-    <div className="flex min-h-[220px] items-start gap-3 p-6">
-      <Inbox size={20} strokeWidth={1.5} className="mt-0.5 text-text-muted" />
+    <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+      <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+        <Inbox size={22} strokeWidth={1.75} className="text-text-muted" />
+      </div>
       <div>
-        <p className="text-sm text-text-primary">
+        <p className="text-sm font-medium text-text-primary">
           {filtrosAplicados ? "Nenhum atendimento encontrado para estes filtros." : "Nenhum atendimento aberto."}
         </p>
         <p className="mt-1 text-[13px] text-text-muted">

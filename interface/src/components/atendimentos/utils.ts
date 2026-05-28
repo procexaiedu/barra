@@ -6,7 +6,7 @@ import type {
   Urgencia,
 } from "@/tipos/atendimentos"
 
-type BadgeVariant = "active" | "paused" | "handoff" | "revisao" | "closed" | "lost"
+type BadgeVariant = "active" | "paused" | "handoff" | "info" | "revisao" | "closed" | "lost"
 
 export const estadoLabel: Record<EstadoAtendimento, string> = {
   Novo: "Novo",
@@ -73,10 +73,38 @@ export function motivoExibido(
   return categoria ? MOTIVO_ESCALADA_TEXTO[categoria] : null
 }
 
+// Cor de estado — fonte única para que badge, faixa de acento e ponto de legenda
+// concordem na mesma cor em lista, kanban e detalhe (tokens --state-*):
+// Qualificando=dourado · Aguardando=âmbar · Em atendimento=azul · Fechado=verde · Perdido=vermelho.
+const ESTADO_VARIANT: Record<EstadoAtendimento, BadgeVariant> = {
+  Novo: "active",
+  Triagem: "active",
+  Qualificado: "active",
+  Aguardando_confirmacao: "handoff",
+  Confirmado: "handoff",
+  Em_execucao: "info",
+  Fechado: "closed",
+  Perdido: "lost",
+}
+
+type EstadoVariant = "active" | "handoff" | "info" | "closed" | "lost"
+
+export type CorEstado = { faixa: string; ponto: string; texto: string }
+
+const VARIANT_COR: Record<EstadoVariant, CorEstado> = {
+  active:  { faixa: "border-l-state-active",  ponto: "bg-state-active",  texto: "text-state-active"  },
+  handoff: { faixa: "border-l-state-handoff", ponto: "bg-state-handoff", texto: "text-state-handoff" },
+  info:    { faixa: "border-l-state-info",    ponto: "bg-state-info",    texto: "text-state-info"    },
+  closed:  { faixa: "border-l-state-closed",  ponto: "bg-state-closed",  texto: "text-state-closed"  },
+  lost:    { faixa: "border-l-state-lost",    ponto: "bg-state-lost",    texto: "text-state-lost"    },
+}
+
 export function badgeForEstado(estado: EstadoAtendimento): BadgeVariant {
-  if (estado === "Fechado") return "closed"
-  if (estado === "Perdido") return "lost"
-  return "active"
+  return ESTADO_VARIANT[estado]
+}
+
+export function corEstado(estado: EstadoAtendimento): CorEstado {
+  return VARIANT_COR[ESTADO_VARIANT[estado] as EstadoVariant]
 }
 
 export function badgeForIa(motivo: IaPausadaMotivo | null): BadgeVariant {
