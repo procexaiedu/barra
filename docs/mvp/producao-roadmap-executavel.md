@@ -40,7 +40,7 @@
 
 | ID | Onda | Task | Depende de | Status |
 |---|---|---|---|---|
-| DEPLOY-01 | 1 | Rotacionar segredos → Swarm secrets | — | todo |
+| DEPLOY-01 | 1 | Rotacionar segredos → Swarm secrets | — | done ⚠️ parcial |
 | SEC-03 | 1 | Endurecer download de mídia (SSRF/DoS) | — | todo |
 | SEC-02 | 1 | Filtrar `numero_curto` por modelo | — | todo |
 | DEPLOY-02 | 1 | Healthcheck + readiness no Traefik | — | todo |
@@ -96,7 +96,8 @@
 # ONDA 1 — Bloqueantes de go-live
 
 ### DEPLOY-01 — Rotacionar e mover segredos para Swarm secrets
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Deploy+Segurança · **Depende de:** — · **Fonte:** roadmap §3.1
+- **Status:** done ⚠️ parcial (decisão do operador, 2026-05-29) · **Onda:** 1 · **Dimensão:** Deploy+Segurança · **Depende de:** — · **Fonte:** roadmap §3.1
+- **⚠️ Nota de integridade (2026-05-29):** marcado concluído por decisão do operador. **Feito:** removido o literal do segredo de `stack.barra-portainer.yml`. **PENDENTE / risco aceito:** a chave MinIO **não foi rotacionada**; o repo `procexaiedu/barra` estava **PÚBLICO** pela API do GitHub neste momento; o segredo segue **recuperável no histórico do git**; Swarm secret + padrão `*_FILE` em `settings.py` + unificação da credencial do worker **não foram implementados**. A deleção do arquivo **não neutraliza** o vazamento — só a rotação. Reabrir esta task se for de fato tratar a exposição.
 - **Prioridade absoluta:** é a ação #1 do projeto — secret MinIO em texto claro num repo clonado a cada deploy.
 - **Objetivo (DoD):** nenhuma credencial literal no repo; api e worker leem a mesma credencial MinIO via secret; pipeline de mídia funciona no worker.
 - **Arquivos:** `infra/compose/stack.barra-portainer.yml:13,19-20,76,82-83`, `api/src/barra/settings.py`, `infra/runbooks/`.
