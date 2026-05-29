@@ -91,6 +91,13 @@ O agente está pronto para um piloto com humano-no-loop. **Não está pronto par
 
 #### 3.2 Observabilidade (DIMENSÃO: Observabilidade)
 
+**[SEC-10] Anonymizer de PII obrigatório antes de ligar tracing** — *esforço M, risco alto*
+- Gap: `core/tracing.py:1` é stub (docstring nunca importada), zero `anonymizer`/`mask` em todo o `src`, e `langchain_tracing_v2: bool = True` por default (`settings.py:150`). Com tracing ativo no piloto, o payload inteiro da **Conversa cliente** (PII íntima: nome, endereço combinado, conteúdo explícito, chave/titular do Pix) flui em claro para o LangSmith — vazamento cross-modelo para fora do perímetro, sem o controle de acesso do painel.
+- Tocar: `core/tracing.py` (`setup_tracing()` constrói o `Client` do LangSmith com `anonymizer=create_anonymizer(...)` cobrindo inputs/outputs/metadata); chamar no startup de `build_app()` **e** de `workers/settings.py` (o agente roda no worker); `settings.py:150` → default `False`, reconciliando com a config morta de `:146-148` (escopo do **OBS-05**).
+- Hard gate: se `tracing` ligado mas o anonymizer não puder ser construído (regras vazias / api_key ausente), abortar a ativação (forçar `LANGCHAIN_TRACING_V2=false` no processo) + `warning`, em vez de subir com tracing cru.
+- Verificação: (a) teste em que um run com chave-Pix/endereço de fixture sai mascarado ao `Client` mock; (b) boot com `tracing=True` sem anonymizer construível **não** ativa o tracing; (c) `git grep create_anonymizer api/src` retorna a implementação importada no startup de api e worker.
+- Pré-condição obrigatória de qualquer ativação de tracing a 100%; **OBS-09/OBS-10** (tags `modelo_id`/`atendimento_id`) e **OBS-05** (config morta) assentam por cima deste setup.
+
 **[OBS-04] Sentry no worker** — *esforço P, risco baixo*
 - Tocar: `core/tracing.py` (hoje stub) extrair `init_sentry()`; chamar em `main.py:54-55` E `workers/settings.py:startup`.
 - Verificação: exceção forçada em `coordenador.py` aparece no Sentry com tag `turno_id`.
@@ -106,8 +113,9 @@ O agente está pronto para um piloto com humano-no-loop. **Não está pronto par
 #### 3.3 Correção do agente (DIMENSÃO: Persona/Tools + Resiliência)
 
 **[PER-05 / TOOLS-01] refusal escala em vez de silenciar** — *esforço M, risco médio*
-- Tocar: `agente/nos/llm.py:99-102` (sinalizar via state `_stop_reason="refusal"`) + `workers/coordenador.py:165` (escalar após `ainvoke`, espelhando timeout/recursion).
-- Verificação: fixture adversarial que dispara refusal → handoff para Fernando aberto, IA pausada; cliente não fica mudo sem alerta.
+- Tocar: `agente/nos/llm.py:99-102` (sinalizar via state `_stop_reason="refusal"` + logar `stop_details.category` de `resp.response_metadata` para detectar falso-positivo de safety recorrente) + `workers/coordenador.py:165` (escalar após `ainvoke`, espelhando timeout/recursion, com `escalar_por_exaustao(motivo="modelo_recusou")`).
+- Estender ao vision do Pix: `workers/pix.py:165-170` checa só `content` vazio, nunca `finish_reason`/`stop_reason` (que chegam em 200 OK). `max_tokens`/`refusal` no vision devem marcar o comprovante como duvidoso (fila assíncrona de Fernando), não estourar `ValueError` silencioso — Pix nunca trava.
+- Verificação: fixture adversarial que dispara refusal → handoff para Fernando aberto, IA pausada, `stop_details.category` no log estruturado; cliente não fica mudo sem alerta. Teste irmão no vision com `finish_reason=max_tokens` → comprovante duvidoso.
 
 **[TOOLS-02] Exceção de API escala com motivo próprio** — *esforço M, risco médio*
 - Tocar: `workers/coordenador.py:165` (capturar `RateLimitError/APITimeoutError/APIStatusError` antes do `except Exception`), `agente/ferramentas/escalada.py:41-43` (+`modelo_indisponivel` no enum), `dominio/escaladas/service.py:364-374` (bucket `infra` ou consciente em capacidade).
