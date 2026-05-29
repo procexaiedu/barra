@@ -24,7 +24,7 @@ from barra.dominio.atendimentos.schemas import (
     MidiaInternaResponse,
     PerderRequest,
 )
-from barra.dominio.atendimentos.service import garantir_atendimento_aberto
+from barra.dominio.atendimentos.service import garantir_atendimento_aberto, validar_transicao_painel
 from barra.dominio.escaladas.service import aplicar_comando
 
 _logger = logging.getLogger(__name__)
@@ -461,6 +461,7 @@ async def alterar_estado(
     if row is None:
         raise NaoEncontrado("Atendimento")
     estado_anterior = row["estado"]
+    validar_transicao_painel(estado_anterior, body.estado)
     await conn.execute(
         "UPDATE barravips.atendimentos SET estado = %s WHERE id = %s",
         (body.estado, atendimento_id),

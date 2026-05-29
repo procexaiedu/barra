@@ -193,8 +193,10 @@ export function KanbanBoard({
     const colunaDestino = COLUNAS_ATIVAS.find((c) => c.id === destinoId)
     if (!colunaOrigem || !colunaDestino) return
 
-    // Só permite avanço entre colunas ativas
-    if (colunaDestino.indice <= colunaOrigem.indice) return
+    // Só permite avançar exatamente uma coluna por vez: nunca regride e nunca pula
+    // Aguardando (etapa de Pix / foto de portaria controlada pelo agente). O backend
+    // reforça a mesma regra (409) caso a API seja chamada direto.
+    if (colunaDestino.indice !== colunaOrigem.indice + 1) return
 
     try {
       await onMoverEstado(item.id, colunaDestino.estadoDestino)
