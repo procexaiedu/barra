@@ -69,6 +69,9 @@ desktop.ini
 .claude/settings.local.json
 # Logs locais de execução de agentes/skills — só local
 .claude/logs/
+# Skills do Claude Code (ferramental por-máquina, não código do projeto)
+.claude/skills/
+.agents/
 
 # --- Config local de MCP servers ---
 # Cada dev/ambiente aponta para project_ref próprio do Supabase; não deve entrar no repo
