@@ -16,8 +16,8 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-barra:6379
       # Apenas host ou host:porta — sem https:// e sem path (SDK MinIO)
       - MINIO_ENDPOINT=https://minioback.procexai.tech/
-      - MINIO_ACCESS_KEY=LrQ6PKpmpfLLwWPrRjxi
-      - MINIO_SECRET_KEY=AdxUPS6VBXTDQRoZOevPfL9of4CgNpmygJNCoVVe
+      - MINIO_ACCESS_KEY=
+      - MINIO_SECRET_KEY=
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
       - LLM_CHAT_PROVIDER=openrouter
