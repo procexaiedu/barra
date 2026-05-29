@@ -8,6 +8,7 @@ from uuid import UUID
 
 from psycopg import AsyncConnection
 
+from barra.core.errors import ConflitoEstado
 from barra.settings import get_settings
 
 Origem = Literal["webhook", "painel_fernando"]
@@ -319,6 +320,33 @@ async def _decidir_transicao(conn: AsyncConnection[Any], atendimento_id: UUID) -
     ):
         return "Aguardando_confirmacao"
     return None
+
+
+# Transicoes manuais permitidas pelo painel (kanban): so avanco linear, uma etapa por vez.
+# Nunca regride e nunca PULA Aguardando_confirmacao — essa etapa e gatilhada/controlada pelo
+# agente (Pix de deslocamento no externo, foto de portaria no interno) e o operador nao deve
+# saltar por cima dela. Fechado/Perdido nao tem destino manual aqui: entram pelas rotas de
+# registro de resultado (/fechar, /perder), que exigem valor_final / motivo. Em_execucao,
+# Fechado e Perdido nao sao origem de nenhuma transicao manual.
+_TRANSICOES_PAINEL: dict[str, frozenset[str]] = {
+    "Novo": frozenset({"Qualificado", "Aguardando_confirmacao"}),
+    "Triagem": frozenset({"Qualificado", "Aguardando_confirmacao"}),
+    "Qualificado": frozenset({"Aguardando_confirmacao"}),
+    "Aguardando_confirmacao": frozenset({"Em_execucao"}),
+    "Confirmado": frozenset({"Em_execucao"}),
+}
+
+
+def validar_transicao_painel(estado_atual: str, estado_destino: str) -> None:
+    """Levanta ConflitoEstado (409) se a transicao manual de estado_atual para estado_destino
+    nao for permitida pelo painel. Defesa de servidor: o kanban ja bloqueia regressao e salto
+    de coluna na UI, mas a regra de negocio vive aqui para que uma chamada direta a API nao a
+    contorne (02 §11 — fonte unica do lado do agente; aqui e a fonte do lado do painel)."""
+    if estado_destino not in _TRANSICOES_PAINEL.get(estado_atual, frozenset()):
+        raise ConflitoEstado(
+            f"Transicao de '{estado_atual}' para '{estado_destino}' nao e permitida pelo painel.",
+            details={"estado_atual": estado_atual, "estado_destino": estado_destino},
+        )
 
 
 async def _reagendamento_pos_bloqueio(
