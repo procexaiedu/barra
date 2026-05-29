@@ -14,6 +14,7 @@ from barra.agente.llm import build_system_messages
 from barra.agente.persona import (
     IdentidadeModelo,
     render_bp3,
+    render_fetiches,
     render_identidade,
     render_programas,
 )
@@ -41,6 +42,12 @@ PROGRAMAS: list[dict[str, Any]] = [
     {"nome": "Massagem Relaxante", "duracao_nome": "1 hora", "preco": 800},
     {"nome": "Massagem Relaxante", "duracao_nome": "2 horas", "preco": 1500},
     {"nome": "Programa Completo", "duracao_nome": "2 horas", "preco": 2500},
+]
+
+# preco None = incluso (faz sem custo); preenchido = extra pago (a IA cota "+R$X").
+FETICHES: list[dict[str, Any]] = [
+    {"nome": "Beijo na boca", "preco": None},
+    {"nome": "Inversão", "preco": 200},
 ]
 
 
@@ -92,11 +99,26 @@ def test_programas_vazio_orienta_escalar() -> None:
     assert "ainda não tem programas" in txt
 
 
-def test_render_bp3_concatena_identidade_e_programas() -> None:
-    bp3 = render_bp3(CARIOCA, PROGRAMAS)
+def test_fetiches_lista_extra_e_incluso() -> None:
+    txt = render_fetiches(FETICHES)
+    assert "Beijo na boca" in txt
+    assert "incluso" in txt  # preco None
+    assert "Inversão" in txt
+    assert "+R$200" in txt  # preco preenchido, filtro brl
+
+
+def test_fetiches_vazio_orienta_recusa() -> None:
+    txt = render_fetiches([])
+    assert "ainda não tem fetiches" in txt
+
+
+def test_render_bp3_concatena_identidade_programas_e_fetiches() -> None:
+    bp3 = render_bp3(CARIOCA, PROGRAMAS, FETICHES)
     assert "Bia" in bp3
     assert "# Programas e valores" in bp3
     assert "Programa Completo" in bp3
+    assert "# Fetiches" in bp3
+    assert "Inversão" in bp3
 
 
 def test_build_system_messages_emite_2_blocos() -> None:
@@ -104,7 +126,7 @@ def test_build_system_messages_emite_2_blocos() -> None:
     msgs = build_system_messages(
         geral_md=f"{GERAL}\n\n{FAQ}",
         ttl_geral="1h",
-        modelo_md=render_bp3(CARIOCA, PROGRAMAS),
+        modelo_md=render_bp3(CARIOCA, PROGRAMAS, FETICHES),
         ttl_modelo="1h",
     )
     assert len(msgs) == 2
@@ -119,13 +141,13 @@ def test_guardrail_bp_geral_byte_identico_entre_modelos() -> None:
     a = build_system_messages(
         geral_md=f"{GERAL}\n\n{FAQ}",
         ttl_geral="1h",
-        modelo_md=render_bp3(CARIOCA, PROGRAMAS),
+        modelo_md=render_bp3(CARIOCA, PROGRAMAS, FETICHES),
         ttl_modelo="1h",
     )
     b = build_system_messages(
         geral_md=f"{GERAL}\n\n{FAQ}",
         ttl_geral="1h",
-        modelo_md=render_bp3(ESTRANGEIRA, []),
+        modelo_md=render_bp3(ESTRANGEIRA, [], []),
         ttl_modelo="1h",
     )
     assert a[0].content == b[0].content  # BP_GERAL idêntico

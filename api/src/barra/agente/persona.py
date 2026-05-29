@@ -126,6 +126,20 @@ def render_programas(programas: list[dict[str, Any]]) -> str:
     return _env.get_template("programas.md.j2").render(programas=programas)
 
 
-def render_bp3(identidade: IdentidadeModelo, programas: list[dict[str, Any]]) -> str:
-    """BP3 completo por-modelo: identidade + programas concatenados (03 §2.3)."""
-    return f"{render_identidade(identidade)}\n{render_programas(programas)}"
+def render_fetiches(fetiches: list[dict[str, Any]]) -> str:
+    """BP3 por-modelo — cardápio de fetiches que a modelo FAZ (ADR 0014 revisado).
+
+    Cada item é um fetiche vinculado, com preço opcional: `preco` None = incluso (faz sem custo
+    extra); preenchido = extra pago que a IA cota ("+R$X"). A ausência de um fetiche da lista
+    significa que ela NÃO faz — a IA recusa de forma aberta, sem lista de negativos no prompt.
+    A lista deve chegar ordenada de forma determinística (pré-req do cache — agente/CLAUDE.md)."""
+    return _env.get_template("fetiches.md.j2").render(fetiches=fetiches)
+
+
+def render_bp3(
+    identidade: IdentidadeModelo,
+    programas: list[dict[str, Any]],
+    fetiches: list[dict[str, Any]],
+) -> str:
+    """BP3 completo por-modelo: identidade + programas + fetiches concatenados (03 §2.3)."""
+    return f"{render_identidade(identidade)}\n{render_programas(programas)}\n{render_fetiches(fetiches)}"

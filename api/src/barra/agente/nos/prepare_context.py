@@ -308,7 +308,21 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> str:
         (modelo_id,),
     )
     programas = await res.fetchall()
-    return render_bp3(identidade, programas)
+
+    # Fetiches que a modelo FAZ (ADR 0014 revisado): cardápio de venda por-modelo, com preço
+    # opcional (NULL = incluso). Ordem determinística (pré-req do cache, igual aos programas).
+    res = await conn.execute(
+        """
+        SELECT f.nome, mf.preco
+          FROM barravips.modelo_fetiches mf
+          JOIN barravips.fetiches f ON f.id = mf.fetiche_id
+         WHERE mf.modelo_id = %s
+         ORDER BY f.ordem ASC, f.nome ASC
+        """,
+        (modelo_id,),
+    )
+    fetiches = await res.fetchall()
+    return render_bp3(identidade, programas, fetiches)
 
 
 async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) -> dict[str, Any]:

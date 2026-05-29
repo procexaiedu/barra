@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
 import { formatBRL, formatData, formatRotulo, formatTelefone } from "@/lib/formatters"
+import { FeticheValor } from "@/components/comum/FeticheValor"
 import { badgeForEstado, estadoAtendimentoLabel, motivoPerdaLabel } from "@/components/clientes/utils"
 import { HistoricoMensagens } from "@/components/atendimentos/HistoricoMensagens"
 import type { AtendimentoDetalheResponse } from "@/tipos/atendimentos"
@@ -275,6 +276,21 @@ export function ModalAtendimentoHistorico({
                       </span>
                     </div>
                   )}
+                </section>
+              )}
+
+              {/* Fetiches (composição — preço incluso ou extra) */}
+              {(detalhe.fetiches ?? []).length > 0 && (
+                <section className="rounded-lg border border-border bg-card p-4">
+                  <SecaoHeader>Fetiches</SecaoHeader>
+                  <ul className="space-y-2">
+                    {detalhe.fetiches.map((f) => (
+                      <li key={f.id} className="flex items-center justify-between gap-3 text-sm">
+                        <span className="text-text-secondary">{f.nome}</span>
+                        <FeticheValor preco={f.preco_snapshot} />
+                      </li>
+                    ))}
+                  </ul>
                 </section>
               )}
 

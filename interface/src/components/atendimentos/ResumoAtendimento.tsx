@@ -15,9 +15,10 @@ import {
   XCircle,
 } from "lucide-react"
 import { Card } from "@/components/ui/card"
+import { FeticheValor } from "@/components/comum/FeticheValor"
 import { cn } from "@/lib/utils"
 import { formatBRL, formatData, formatDataHora, formatRotulo } from "@/lib/formatters"
-import type { AtendimentoDetalheResponse, ServicoFechado } from "@/tipos/atendimentos"
+import type { AtendimentoDetalheResponse, FeticheFechado, ServicoFechado } from "@/tipos/atendimentos"
 import { corEstado, estadoLabel, formatEnum, motivoExibido, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 import { DialogVisualizarBloqueio } from "@/components/agenda/DialogVisualizarBloqueio"
 
@@ -190,6 +191,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
           )}
         </div>
         <SecaoProgramas programas={detalhe.servicos} />
+        <SecaoFetiches fetiches={detalhe.fetiches} />
       </Secao>
 
       {/* Seção: Agenda / Local */}
@@ -376,6 +378,25 @@ function SecaoProgramas({ programas }: { programas: ServicoFechado[] }) {
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+function SecaoFetiches({ fetiches }: { fetiches: FeticheFechado[] }) {
+  if (fetiches.length === 0) return null
+  return (
+    <div className="mt-3">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        Fetiches
+      </p>
+      <div className="space-y-1">
+        {fetiches.map((f) => (
+          <div key={f.id} className="flex items-center justify-between gap-3">
+            <span className="text-[13px] text-text-secondary">{f.nome}</span>
+            <FeticheValor preco={f.preco_snapshot} />
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

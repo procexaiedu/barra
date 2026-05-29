@@ -14,6 +14,7 @@ from barra.core.auth import UsuarioAtual
 from barra.core.errors import ConflitoEstado, NaoEncontrado
 from barra.core.storage import presigned_get
 from barra.dominio.atendimentos.schemas import (
+    AdicionarFeticheRequest,
     AdicionarServicoRequest,
     AlterarEstadoRequest,
     CorrigirRegistroRequest,
@@ -348,6 +349,17 @@ async def obter_atendimento(
         """,
         (atendimento_id,),
     )
+    fetiches = await _fetch_all(
+        conn,
+        """
+        SELECT atf.id, atf.fetiche_id, f.nome, atf.preco_snapshot, atf.created_at
+          FROM barravips.atendimento_fetiches atf
+          JOIN barravips.fetiches f ON f.id = atf.fetiche_id
+         WHERE atf.atendimento_id = %s
+         ORDER BY atf.created_at
+        """,
+        (atendimento_id,),
+    )
     midias_internas = await _fetch_all(
         conn,
         """
@@ -391,6 +403,7 @@ async def obter_atendimento(
         "comprovantes_pix": pix,
         "escaladas": escaladas,
         "servicos": servicos,
+        "fetiches": fetiches,
         "midias_internas": _enriquecer_midias(midias_internas, request),
     }
 
@@ -593,6 +606,73 @@ async def remover_servico(
     )
     if result.rowcount == 0:
         raise NaoEncontrado("Serviço")
+
+
+@router.get("/{atendimento_id}/fetiches")
+async def listar_fetiches_atendimento(
+    atendimento_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    return await _fetch_all(
+        conn,
+        """
+        SELECT atf.id, atf.fetiche_id, f.nome, atf.preco_snapshot, atf.created_at
+          FROM barravips.atendimento_fetiches atf
+          JOIN barravips.fetiches f ON f.id = atf.fetiche_id
+         WHERE atf.atendimento_id = %s
+         ORDER BY atf.created_at
+        """,
+        (atendimento_id,),
+    )
+
+
+@router.post("/{atendimento_id}/fetiches", status_code=201)
+async def adicionar_fetiche(
+    atendimento_id: UUID,
+    body: AdicionarFeticheRequest,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    at = await _fetch_one(
+        conn, "SELECT modelo_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    if at is None:
+        raise NaoEncontrado("Atendimento")
+    mf = await _fetch_one(
+        conn,
+        "SELECT preco FROM barravips.modelo_fetiches WHERE modelo_id=%s AND fetiche_id=%s",
+        (at["modelo_id"], body.fetiche_id),
+    )
+    if mf is None:
+        raise NaoEncontrado("Fetiche não vinculado à modelo")
+    # ON CONFLICT idempotente (mesmo motivo de adicionar_servico). preco_snapshot pode ser
+    # NULL (fetiche incluso) — snapshot do preço vinculado no momento do registro.
+    row = await _fetch_one(
+        conn,
+        """
+        INSERT INTO barravips.atendimento_fetiches (atendimento_id, fetiche_id, preco_snapshot)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (atendimento_id, fetiche_id) DO UPDATE
+          SET atendimento_id = EXCLUDED.atendimento_id
+        RETURNING id, fetiche_id, preco_snapshot, created_at
+        """,
+        (atendimento_id, body.fetiche_id, mf["preco"]),
+    )
+    assert row is not None
+    return row
+
+
+@router.delete("/{atendimento_id}/fetiches/{fetiche_vinculo_id}", status_code=204)
+async def remover_fetiche(
+    atendimento_id: UUID,
+    fetiche_vinculo_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> None:
+    result = await conn.execute(
+        "DELETE FROM barravips.atendimento_fetiches WHERE id = %s AND atendimento_id = %s",
+        (fetiche_vinculo_id, atendimento_id),
+    )
+    if result.rowcount == 0:
+        raise NaoEncontrado("Fetiche")
 
 
 @router.post("/{atendimento_id}/midias", status_code=201)

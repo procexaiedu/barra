@@ -17,6 +17,7 @@ from barra.core.evolution import EvolutionClient
 from barra.core.storage import presigned_get, presigned_put, remove_object
 from barra.dominio.modelos.disponibilidade import bloqueios_futuros_fora
 from barra.dominio.modelos.schemas import (
+    AtualizarPrecoFeticheBody,
     AtualizarPrecoProgramaBody,
     ConectarWhatsappRequest,
     DisponibilidadeReplace,
@@ -27,6 +28,7 @@ from barra.dominio.modelos.schemas import (
     ModeloCreate,
     ModeloPatch,
     ServicoBody,
+    VincularFeticheBody,
     VincularProgramaBody,
 )
 
@@ -200,11 +202,13 @@ async def obter_modelo(
     modelo = await _modelo(conn, modelo_id)
     midia = await _midia(conn, request, modelo_id)
     programas = await _programas(conn, modelo_id)
+    fetiches = await _fetiches(conn, modelo_id)
     indicadores = await _indicadores(conn, modelo_id)
     return {
         "modelo": _modelo_com_foto(request, modelo),
         "midia": midia,
         "programas": programas,
+        "fetiches": fetiches,
         "evolution": _evolution_payload(modelo),
         "indicadores": indicadores,
     }
@@ -783,6 +787,76 @@ async def desvincular_programa(
     )
 
 
+@router.get("/{modelo_id}/fetiches")
+async def listar_fetiches_modelo(
+    modelo_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> list[dict[str, Any]]:
+    await _ensure_modelo(conn, modelo_id)
+    return await _fetiches(conn, modelo_id)
+
+
+@router.post("/{modelo_id}/fetiches", status_code=201)
+async def vincular_fetiche(
+    modelo_id: UUID,
+    body: VincularFeticheBody,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    await _ensure_modelo(conn, modelo_id)
+    fetiche = await _one(conn, "SELECT * FROM barravips.fetiches WHERE id = %s", (body.fetiche_id,))
+    if fetiche is None:
+        raise NaoEncontrado("Fetiche")
+    result = await conn.execute(
+        """
+        INSERT INTO barravips.modelo_fetiches (modelo_id, fetiche_id, preco)
+        VALUES (%s, %s, %s)
+        ON CONFLICT (modelo_id, fetiche_id) DO UPDATE SET preco = EXCLUDED.preco
+        RETURNING *
+        """,
+        (modelo_id, body.fetiche_id, body.preco),
+    )
+    row = await result.fetchone()
+    assert row is not None
+    return _serializar_vinculo_fetiche(row, fetiche)
+
+
+@router.patch("/{modelo_id}/fetiches/{fetiche_id}")
+async def atualizar_preco_fetiche(
+    modelo_id: UUID,
+    fetiche_id: UUID,
+    body: AtualizarPrecoFeticheBody,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    await _ensure_modelo(conn, modelo_id)
+    result = await conn.execute(
+        """
+        UPDATE barravips.modelo_fetiches SET preco = %s
+         WHERE modelo_id = %s AND fetiche_id = %s
+        RETURNING *
+        """,
+        (body.preco, modelo_id, fetiche_id),
+    )
+    row = await result.fetchone()
+    if row is None:
+        raise NaoEncontrado("Vínculo fetiche-modelo")
+    fetiche = await _one(conn, "SELECT * FROM barravips.fetiches WHERE id = %s", (fetiche_id,))
+    assert fetiche is not None
+    return _serializar_vinculo_fetiche(row, fetiche)
+
+
+@router.delete("/{modelo_id}/fetiches/{fetiche_id}", status_code=204)
+async def desvincular_fetiche(
+    modelo_id: UUID,
+    fetiche_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> None:
+    await _ensure_modelo(conn, modelo_id)
+    await conn.execute(
+        "DELETE FROM barravips.modelo_fetiches WHERE modelo_id = %s AND fetiche_id = %s",
+        (modelo_id, fetiche_id),
+    )
+
+
 @router.post("/{modelo_id}/midia/upload-url")
 async def criar_upload_url(
     modelo_id: UUID,
@@ -988,6 +1062,39 @@ def _serializar_vinculo(
         "categoria": programa["categoria"],
         "duracao_nome": duracao["nome"],
         "preco": float(vinculo["preco"]),
+    }
+
+
+async def _fetiches(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[str, Any]]:
+    rows = await _all(
+        conn,
+        """
+        SELECT mf.fetiche_id, mf.preco, f.nome
+          FROM barravips.modelo_fetiches mf
+          JOIN barravips.fetiches f ON f.id = mf.fetiche_id
+         WHERE mf.modelo_id = %s
+         ORDER BY f.ordem ASC, f.nome ASC
+        """,
+        (modelo_id,),
+    )
+    return [
+        {
+            "fetiche_id": str(row["fetiche_id"]),
+            "nome": row["nome"],
+            # None = incluso (a modelo faz, sem custo extra).
+            "preco": float(row["preco"]) if row["preco"] is not None else None,
+        }
+        for row in rows
+    ]
+
+
+def _serializar_vinculo_fetiche(
+    vinculo: dict[str, Any], fetiche: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        "fetiche_id": str(vinculo["fetiche_id"]),
+        "nome": fetiche["nome"],
+        "preco": float(vinculo["preco"]) if vinculo["preco"] is not None else None,
     }
 
 

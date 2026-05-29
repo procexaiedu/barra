@@ -236,3 +236,24 @@ class VincularProgramaBody(BaseModel):
 
 class AtualizarPrecoProgramaBody(BaseModel):
     preco: Decimal = Field(ge=0)
+
+
+class FeticheCreate(BaseModel):
+    nome: str = Field(min_length=1, max_length=100)
+    ordem: int = 0
+
+
+class FetichePatch(BaseModel):
+    nome: str | None = Field(default=None, min_length=1, max_length=100)
+    ordem: int | None = None
+
+
+class VincularFeticheBody(BaseModel):
+    fetiche_id: UUID
+    # None = incluso (a modelo faz, sem custo extra); preenchido = extra pago.
+    preco: Decimal | None = Field(default=None, ge=0)
+
+
+class AtualizarPrecoFeticheBody(BaseModel):
+    # None zera o preço (vira "incluso"); preenchido define o extra.
+    preco: Decimal | None = Field(default=None, ge=0)

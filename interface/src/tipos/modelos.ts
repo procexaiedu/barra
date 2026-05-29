@@ -147,6 +147,25 @@ export interface ProgramaModeloVinculo {
   preco: number
 }
 
+/** Fetiche do catálogo global (curado por Fernando, sem duração). */
+export interface Fetiche {
+  id: string
+  nome: string
+  ordem: number
+}
+
+export interface FeticheInput {
+  nome: string
+  ordem?: number
+}
+
+/** Fetiche que a modelo faz, com preço opcional (null = incluso). */
+export interface FeticheModeloVinculo {
+  fetiche_id: string
+  nome: string
+  preco: number | null
+}
+
 export interface WhatsappStatusResponse {
   instance_id: string | null
   status: EvolutionStatus
@@ -188,6 +207,7 @@ export interface ModeloDetalheResponse {
   modelo: ModeloDetalhe
   midia: MidiaItem[]
   programas: ProgramaModeloVinculo[]
+  fetiches: FeticheModeloVinculo[]
   evolution: WhatsappStatusResponse
   indicadores: ModeloIndicadores
 }
