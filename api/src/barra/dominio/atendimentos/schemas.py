@@ -71,6 +71,10 @@ class AdicionarServicoRequest(BaseModel):
     duracao_id: UUID
 
 
+class AdicionarFeticheRequest(BaseModel):
+    fetiche_id: UUID
+
+
 class MidiaInternaResponse(BaseModel):
     id: UUID
     tipo: Literal["imagem", "audio", "documento"]

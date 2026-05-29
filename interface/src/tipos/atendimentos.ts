@@ -133,6 +133,15 @@ export interface ServicoFechado {
   created_at: string
 }
 
+/** Fetiche registrado num atendimento (composição). preco_snapshot null = incluso. */
+export interface FeticheFechado {
+  id: string
+  fetiche_id: string
+  nome: string
+  preco_snapshot: number | null
+  created_at: string
+}
+
 export interface AtendimentoDetalheResponse {
   atendimento: AtendimentoOperacional
   cliente: {
@@ -149,6 +158,7 @@ export interface AtendimentoDetalheResponse {
   eventos: EventoAtendimento[]
   comprovantes_pix: ComprovantePixResumo[]
   servicos: ServicoFechado[]
+  fetiches: FeticheFechado[]
   midias_internas: MidiaInternaAtendimento[]
 }
 

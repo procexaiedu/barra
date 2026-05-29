@@ -15,6 +15,7 @@ function normalizarDetalheResponse(res: AtendimentoDetalheResponse): Atendimento
     eventos: Array.isArray(res.eventos) ? res.eventos : [],
     comprovantes_pix: Array.isArray(res.comprovantes_pix) ? res.comprovantes_pix : [],
     servicos: Array.isArray(res.servicos) ? res.servicos : [],
+    fetiches: Array.isArray(res.fetiches) ? res.fetiches : [],
     midias_internas: Array.isArray(res.midias_internas) ? res.midias_internas : [],
   }
 }

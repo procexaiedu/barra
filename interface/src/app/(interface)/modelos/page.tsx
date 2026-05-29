@@ -19,12 +19,14 @@ import { ToolbarModelos } from "@/components/modelos/ToolbarModelos"
 import { ListaModelos } from "@/components/modelos/ListaModelos"
 import { DetalheModelo } from "@/components/modelos/DetalheModelo"
 import { PainelProgramas } from "@/components/modelos/PainelProgramas"
+import { PainelFetiches } from "@/components/modelos/PainelFetiches"
 import { DialogCriarModelo } from "@/components/modelos/DialogCriarModelo"
 import { DialogConectarWhatsapp, type QrModalStatus } from "@/components/modelos/DialogConectarWhatsapp"
 import { DialogMidiaUpload } from "@/components/modelos/DialogMidiaUpload"
 import { DialogVisualizarMidia } from "@/components/modelos/DialogVisualizarMidia"
 import { useModelos } from "@/hooks/useModelos"
 import { useProgramas } from "@/hooks/useProgramas"
+import { useFetiches } from "@/hooks/useFetiches"
 import type { AbaModelo, ConectarWhatsappResponse, MidiaItem } from "@/tipos/modelos"
 
 type Confirmacao =
@@ -36,7 +38,7 @@ type Confirmacao =
   | { tipo: "descartar"; action: () => void }
   | null
 
-type ViewModelos = "lista" | "programas"
+type ViewModelos = "lista" | "programas" | "fetiches"
 
 export default function Modelos() {
   return (
@@ -50,6 +52,7 @@ function ModelosConteudo() {
   const router = useRouter()
   const modelos = useModelos()
   const programas = useProgramas()
+  const fetiches = useFetiches()
   const [view, setView] = useState<ViewModelos>("lista")
   const [criarOpen, setCriarOpen] = useState(false)
   const [uploadDialog, setUploadDialog] = useState<"midia" | "perfil" | null>(null)
@@ -219,6 +222,9 @@ function ModelosConteudo() {
             <TabBtn active={view === "programas"} onClick={() => protegerDirty(() => setView("programas"))}>
               Programas
             </TabBtn>
+            <TabBtn active={view === "fetiches"} onClick={() => protegerDirty(() => setView("fetiches"))}>
+              Fetiches
+            </TabBtn>
           </div>
         </div>
         {!esconderAdicionar && (
@@ -266,6 +272,11 @@ function ModelosConteudo() {
               onDesvincularPrograma={modelos.desvincularProgramaModelo}
               onCriarPrograma={programas.criarPrograma}
               onCriarDuracao={programas.criarDuracao}
+              catalogoFetiches={fetiches.fetiches}
+              onVincularFetiche={modelos.vincularFeticheModelo}
+              onAtualizarPrecoFetiche={modelos.atualizarPrecoFeticheModelo}
+              onDesvincularFetiche={modelos.desvincularFeticheModelo}
+              onCriarFetiche={fetiches.criarFetiche}
               onTrocarNumero={(numero) => setConfirmacao({ tipo: "trocar-numero", numero })}
               onConectar={() => conectar(false)}
               onPausar={() => setConfirmacao({ tipo: "pausar" })}
@@ -295,6 +306,18 @@ function ModelosConteudo() {
           onCriarDuracao={programas.criarDuracao}
           onAtualizarDuracao={programas.atualizarDuracao}
           onExcluirDuracao={programas.excluirDuracao}
+        />
+      )}
+
+      {view === "fetiches" && (
+        <PainelFetiches
+          fetiches={fetiches.fetiches}
+          status={fetiches.status}
+          error={fetiches.error}
+          onRetry={fetiches.carregar}
+          onCriar={fetiches.criarFetiche}
+          onAtualizar={fetiches.atualizarFetiche}
+          onExcluir={fetiches.excluirFetiche}
         />
       )}
 

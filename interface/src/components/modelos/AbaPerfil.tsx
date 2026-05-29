@@ -25,6 +25,9 @@ import { formatarRg, normalizarRg } from "@/lib/rg"
 import type {
   Duracao,
   DuracaoInput,
+  Fetiche,
+  FeticheInput,
+  FeticheModeloVinculo,
   ModeloDetalhe,
   PatchModeloInput,
   Programa,
@@ -37,6 +40,8 @@ export function AbaPerfil({
   catalogo,
   duracoes,
   programasVinculados,
+  fetichesVinculados,
+  catalogoFetiches,
   onDirtyChange,
   onSalvar,
   onVincularPrograma,
@@ -44,6 +49,10 @@ export function AbaPerfil({
   onDesvincularPrograma,
   onCriarPrograma,
   onCriarDuracao,
+  onVincularFetiche,
+  onAtualizarPrecoFetiche,
+  onDesvincularFetiche,
+  onCriarFetiche,
   onTrocarNumero,
   onConectar,
   onDesparear,
@@ -54,6 +63,8 @@ export function AbaPerfil({
   catalogo: Programa[]
   duracoes: Duracao[]
   programasVinculados: ProgramaModeloVinculo[]
+  fetichesVinculados: FeticheModeloVinculo[]
+  catalogoFetiches: Fetiche[]
   onDirtyChange: (dirty: boolean) => void
   onSalvar: (input: PatchModeloInput) => Promise<void>
   onVincularPrograma: (programaId: string, duracaoId: string, preco: number) => Promise<void>
@@ -61,6 +72,10 @@ export function AbaPerfil({
   onDesvincularPrograma: (programaId: string, duracaoId: string) => Promise<void>
   onCriarPrograma: (input: ProgramaInput) => Promise<Programa>
   onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
+  onVincularFetiche: (feticheId: string, preco: number | null) => Promise<void>
+  onAtualizarPrecoFetiche: (feticheId: string, preco: number | null) => Promise<void>
+  onDesvincularFetiche: (feticheId: string) => Promise<void>
+  onCriarFetiche: (input: FeticheInput) => Promise<Fetiche>
   onTrocarNumero: (numero: string) => void
   onConectar: () => void
   onDesparear: () => void
@@ -315,6 +330,12 @@ export function AbaPerfil({
         onDesvincular={onDesvincularPrograma}
         onCriarPrograma={onCriarPrograma}
         onCriarDuracao={onCriarDuracao}
+        catalogoFetiches={catalogoFetiches}
+        fetichesVinculados={fetichesVinculados}
+        onVincularFetiche={onVincularFetiche}
+        onAtualizarPrecoFetiche={onAtualizarPrecoFetiche}
+        onDesvincularFetiche={onDesvincularFetiche}
+        onCriarFetiche={onCriarFetiche}
       />
 
       <Card title="Repasse e Pix">

@@ -14,6 +14,7 @@ import { formatBRL, formatTelefone } from "@/lib/formatters"
 import { useConflitoAgenda } from "@/hooks/useConflitoAgenda"
 import { useTiposLocal } from "@/hooks/useTiposLocal"
 import { CampoLocalAutocomplete } from "@/components/comum/CampoLocalAutocomplete"
+import { FeticheValor } from "@/components/comum/FeticheValor"
 import type {
   AtendimentoDetalheResponse,
   EditarDadosPayload,
@@ -37,6 +38,12 @@ interface ProgramaModelo {
   duracao_nome: string
   horas: number | null
   preco: number
+}
+
+interface FeticheModelo {
+  fetiche_id: string
+  nome: string
+  preco: number | null
 }
 
 function parseDecimal(input: string): number | null {
@@ -108,6 +115,11 @@ export function ModalEdicao({
   const [adicionados, setAdicionados] = useState<{ programa_id: string; duracao_id: string; label: string }[]>([])
   const [selecionado, setSelecionado] = useState("")
 
+  const [fetichesModelo, setFetichesModelo] = useState<FeticheModelo[]>([])
+  const [removidosFet, setRemovidosFet] = useState<Set<string>>(new Set())
+  const [adicionadosFet, setAdicionadosFet] = useState<{ fetiche_id: string; nome: string; preco: number | null }[]>([])
+  const [selecionadoFet, setSelecionadoFet] = useState("")
+
   const {
     tiposCombinados,
     adicionarTipoSessao,
@@ -122,6 +134,9 @@ export function ModalEdicao({
     if (!modeloId) return
     api<ProgramaModelo[]>(`/v1/modelos/${modeloId}/programas`)
       .then(setProgramasModelo)
+      .catch(() => {})
+    api<FeticheModelo[]>(`/v1/modelos/${modeloId}/fetiches`)
+      .then(setFetichesModelo)
       .catch(() => {})
   }, [modeloId])
 
@@ -202,6 +217,22 @@ export function ModalEdicao({
     setProgramasMexidos(true)
   }
 
+  // Fetiches: composição registrada (preco_snapshot), não soma no valor (Valor final manual).
+  const fetichesVisiveis = (detalhe.fetiches ?? []).filter((f) => !removidosFet.has(f.id))
+  const fetichesAtivos = new Set([
+    ...fetichesVisiveis.map((f) => f.fetiche_id),
+    ...adicionadosFet.map((a) => a.fetiche_id),
+  ])
+  const fetichesDisponiveis = fetichesModelo.filter((f) => !fetichesAtivos.has(f.fetiche_id))
+
+  const handleAdicionarFetiche = () => {
+    if (!selecionadoFet) return
+    const fet = fetichesModelo.find((f) => f.fetiche_id === selecionadoFet)
+    if (!fet) return
+    setAdicionadosFet((prev) => [...prev, { fetiche_id: fet.fetiche_id, nome: fet.nome, preco: fet.preco }])
+    setSelecionadoFet("")
+  }
+
   const handleSalvar = async () => {
     const dados: EditarDadosPayload = {}
     if (tipo) dados.tipo_atendimento = tipo as "interno" | "externo"
@@ -234,6 +265,15 @@ export function ModalEdicao({
         await api(`/v1/atendimentos/${at.id}/servicos`, {
           method: "POST",
           body: JSON.stringify({ programa_id: a.programa_id, duracao_id: a.duracao_id }),
+        })
+      }
+      for (const fetVinculoId of removidosFet) {
+        await api(`/v1/atendimentos/${at.id}/fetiches/${fetVinculoId}`, { method: "DELETE" })
+      }
+      for (const a of adicionadosFet) {
+        await api(`/v1/atendimentos/${at.id}/fetiches`, {
+          method: "POST",
+          body: JSON.stringify({ fetiche_id: a.fetiche_id }),
         })
       }
       await onSalvar(at.id, dados)
@@ -475,6 +515,65 @@ export function ModalEdicao({
                     ))}
                   </select>
                   <Button variant="secondary" onClick={handleAdicionarPrograma} disabled={!selecionado || submitting}>
+                    Adicionar
+                  </Button>
+                </div>
+              )}
+
+              <span className="mt-2 text-[11px] font-medium leading-4 text-text-muted">Fetiches</span>
+              <div className="flex flex-col gap-1">
+                {fetichesVisiveis.map((f) => (
+                  <div key={f.id} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-hover px-3 py-2 text-sm">
+                    <span className="text-text-primary">{f.nome}</span>
+                    <div className="flex items-center gap-2">
+                      <FeticheValor preco={f.preco_snapshot} />
+                      <button
+                        type="button"
+                        onClick={() => setRemovidosFet((prev) => new Set([...prev, f.id]))}
+                        className="text-text-muted transition-colors hover:text-text-primary"
+                        disabled={submitting}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {adicionadosFet.map((a, i) => (
+                  <div key={i} className="flex items-center justify-between rounded-lg border border-dashed border-border-subtle bg-surface px-3 py-2 text-sm">
+                    <span className="text-text-primary">{a.nome}</span>
+                    <div className="flex items-center gap-2">
+                      <FeticheValor preco={a.preco} />
+                      <button
+                        type="button"
+                        onClick={() => setAdicionadosFet((prev) => prev.filter((_, j) => j !== i))}
+                        className="text-text-muted transition-colors hover:text-text-primary"
+                        disabled={submitting}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {fetichesVisiveis.length === 0 && adicionadosFet.length === 0 && fetichesDisponiveis.length === 0 && (
+                  <span className="text-xs text-text-muted">Nenhum fetiche marcado para esta modelo.</span>
+                )}
+              </div>
+              {fetichesDisponiveis.length > 0 && (
+                <div className="mt-1 flex gap-2">
+                  <select
+                    value={selecionadoFet}
+                    onChange={(e) => setSelecionadoFet(e.target.value)}
+                    className={controlClassName}
+                    disabled={submitting}
+                  >
+                    <option value="">Adicionar fetiche…</option>
+                    {fetichesDisponiveis.map((f) => (
+                      <option key={f.fetiche_id} value={f.fetiche_id}>
+                        {f.nome}{f.preco === null ? "" : ` (+${formatBRL(f.preco)})`}
+                      </option>
+                    ))}
+                  </select>
+                  <Button variant="secondary" onClick={handleAdicionarFetiche} disabled={!selecionadoFet || submitting}>
                     Adicionar
                   </Button>
                 </div>

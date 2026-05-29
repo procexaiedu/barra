@@ -14,6 +14,8 @@ import type {
   AbaModelo,
   Duracao,
   DuracaoInput,
+  Fetiche,
+  FeticheInput,
   MidiaItem,
   ModeloDetalheResponse,
   PatchModeloInput,
@@ -44,6 +46,11 @@ export function DetalheModelo({
   onDesvincularPrograma,
   onCriarPrograma,
   onCriarDuracao,
+  catalogoFetiches,
+  onVincularFetiche,
+  onAtualizarPrecoFetiche,
+  onDesvincularFetiche,
+  onCriarFetiche,
   onTrocarNumero,
   onConectar,
   onPausar,
@@ -72,6 +79,11 @@ export function DetalheModelo({
   onDesvincularPrograma: (programaId: string, duracaoId: string) => Promise<void>
   onCriarPrograma: (input: ProgramaInput) => Promise<Programa>
   onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
+  catalogoFetiches: Fetiche[]
+  onVincularFetiche: (feticheId: string, preco: number | null) => Promise<void>
+  onAtualizarPrecoFetiche: (feticheId: string, preco: number | null) => Promise<void>
+  onDesvincularFetiche: (feticheId: string) => Promise<void>
+  onCriarFetiche: (input: FeticheInput) => Promise<Fetiche>
   onTrocarNumero: (numero: string) => void
   onConectar: () => void
   onPausar: () => void
@@ -145,6 +157,8 @@ export function DetalheModelo({
           catalogo={catalogo}
           duracoes={duracoes}
           programasVinculados={detalhe.programas}
+          fetichesVinculados={detalhe.fetiches}
+          catalogoFetiches={catalogoFetiches}
           onDirtyChange={onDirtyChange}
           onSalvar={onSalvarPerfil}
           onVincularPrograma={onVincularPrograma}
@@ -152,6 +166,10 @@ export function DetalheModelo({
           onDesvincularPrograma={onDesvincularPrograma}
           onCriarPrograma={onCriarPrograma}
           onCriarDuracao={onCriarDuracao}
+          onVincularFetiche={onVincularFetiche}
+          onAtualizarPrecoFetiche={onAtualizarPrecoFetiche}
+          onDesvincularFetiche={onDesvincularFetiche}
+          onCriarFetiche={onCriarFetiche}
           onTrocarNumero={onTrocarNumero}
           onConectar={onConectar}
           onDesparear={onDesparear}
