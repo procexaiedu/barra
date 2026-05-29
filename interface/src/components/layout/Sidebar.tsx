@@ -8,6 +8,7 @@ import {
   MessagesSquare,
   Calendar,
   Receipt,
+  ListChecks,
   Users,
   IdCard,
   ChartLine,
@@ -34,6 +35,7 @@ const grupos = [
       { href: "/atendimentos", label: "Atendimentos", icon: MessagesSquare },
       { href: "/agenda", label: "Agenda", icon: Calendar },
       { href: "/pix", label: "Pix", icon: Receipt },
+      { href: "/tarefas", label: "Tarefas", icon: ListChecks },
     ],
   },
   {

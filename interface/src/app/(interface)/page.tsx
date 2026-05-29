@@ -17,6 +17,7 @@ import { ModalDecisaoCard } from "@/components/painel/ModalDecisaoCard"
 import { ModalDetalheAgenda } from "@/components/painel/ModalDetalheAgenda"
 import { ModalAtendimentoHistorico } from "@/components/clientes/ModalAtendimentoHistorico"
 import { DialogBloqueio } from "@/components/agenda/DialogBloqueio"
+import { TarefasHojeWidget } from "@/components/tarefas/TarefasHojeWidget"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Card } from "@/components/ui/card"
@@ -543,6 +544,8 @@ export default function PainelGeral() {
           </Card>
         )}
       </section>
+
+      <TarefasHojeWidget />
 
       <ModalDecisaoCard
         card={cardContexto}
