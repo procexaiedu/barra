@@ -13,6 +13,7 @@ from barra.dominio.modelos.programas_routes import router as programas_router
 from barra.dominio.modelos.routes import router as modelos_router
 from barra.dominio.painel.routes import router as painel_router
 from barra.dominio.pix.routes import router as pix_router
+from barra.dominio.tarefas.routes import router as tarefas_router
 
 router = APIRouter(dependencies=[Depends(get_user)])
 router.include_router(atendimentos_router, prefix="/atendimentos", tags=["atendimentos"])
@@ -27,6 +28,7 @@ router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(eventos_router, prefix="/eventos", tags=["eventos"])
 router.include_router(painel_router, prefix="/painel", tags=["painel"])
 router.include_router(financeiro_router, prefix="/financeiro", tags=["financeiro"])
+router.include_router(tarefas_router, prefix="/tarefas", tags=["tarefas"])
 
 
 @router.get("/saude", include_in_schema=False)
