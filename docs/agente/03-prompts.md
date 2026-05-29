@@ -398,17 +398,15 @@ Estrutura final enviada à Anthropic:
      "cache_control": {"type": "ephemeral", "ttl": "<ttl_geral>"}}   // BP0 — segmento `tools` cacheado
   ],
   "system": [
-    {"type": "text", "text": "<persona + regras renderizadas>",
-     "cache_control": {"type": "ephemeral", "ttl": "<ttl_geral>"}},   // BP1 geral
-    {"type": "text", "text": "<faq renderizada>",
-     "cache_control": {"type": "ephemeral", "ttl": "<ttl_geral>"}},   // BP2 geral
+    {"type": "text", "text": "<persona + regras + FAQ renderizados (render_prefixo_geral)>",
+     "cache_control": {"type": "ephemeral", "ttl": "<ttl_geral>"}},   // BP_GERAL fundido — global
     {"type": "text", "text": "<identidade + programas renderizados>",
-     "cache_control": {"type": "ephemeral", "ttl": "<ttl_modelo>"}}   // BP3 por-modelo
+     "cache_control": {"type": "ephemeral", "ttl": "<ttl_modelo>"}}   // BP_MODELO por-modelo
   ],
   "messages": [
     "... histórico (turnos anteriores) ...",
-    {"role": "assistant", "content": "<resposta turno N-1>"},        // P0: SEM cache_control (BP4 adiado — §4.4)
-    //   P1: + "cache_control":{"type":"ephemeral"} na penúltima msg, só se append-only
+    {"role": "assistant", "content": "<resposta turno N-1>",
+     "cache_control": {"type": "ephemeral", "ttl": "<ttl_modelo>"}}, // BP_JANELA — penúltima da janela (marcar_cache_na_penultima)
     {"role": "user", "content": "<msg cliente N> + <contexto dinâmico> + <reminder §10>"}
                                                                       // turno volátil — SEM cache_control
   ]
@@ -486,7 +484,7 @@ Mitigação: uma única chamada `max_tokens: 0` com `cache_control` no BP2 (brea
 
 ## 5. Build messages — `agente/llm.py`
 
-Helper único que cria `SystemMessage` com `cache_control` **em content blocks** — o formato que o `langchain-anthropic` **1.x** repassa para a Anthropic API (decisão grilling 2026-05-23; no 0.3 era via `additional_kwargs`).
+Helper único que cria `SystemMessage` com `cache_control` **em content blocks** — o formato que o `langchain-anthropic` **1.x** repassa para a Anthropic API (decisão grilling 2026-05-23; no 0.3 era via `additional_kwargs`). Recebe um único `geral_md` (persona+regras+FAQ **fundidos** pelo caller via `render_prefixo_geral`, §2.3) — BP_GERAL — e, opcionalmente, `modelo_md` (BP_MODELO). A cauda da janela (BP_JANELA) é marcada à parte por `marcar_cache_na_penultima` no `prepare_context` (§4.4), não aqui.
 
 ```python
 # api/src/barra/agente/llm.py
@@ -511,39 +509,40 @@ def _bloco_texto(texto: str, ttl: str | None) -> dict:
 
 def build_system_messages(
     *,
-    geral_md: str,    # BP1: persona + regras (voz/conduta) — GERAL, byte-idêntico p/ TODAS
-    faq_md: str,      # BP2: FAQ — GERAL, byte-idêntico p/ TODAS
-    modelo_md: str,   # BP3: identidade (nome/idade/...) + programas/preços + tipos_aceitos — por-modelo
-    ttl_geral: str,   # de settings (cache_ttl_geral): "1h" no piloto; no scale ver §1 (>= ttl_modelo)
-    ttl_modelo: str,  # de settings (cache_ttl_modelo): "1h" enquanto a modelo for esparsa
+    geral_md: str,              # BP_GERAL: persona + regras + FAQ FUNDIDOS (render_prefixo_geral) — GERAL, byte-idêntico p/ TODAS
+    ttl_geral: str,             # de settings (cache_ttl_geral): "1h" no piloto; no scale ver §1 (>= ttl_modelo)
+    modelo_md: str | None = None,   # BP_MODELO: identidade (nome/idade/...) + programas/preços + tipos_aceitos — por-modelo
+    ttl_modelo: str | None = None,  # de settings (cache_ttl_modelo): "1h" enquanto a modelo for esparsa
 ) -> list[SystemMessage]:
-    """3 blocos system cacheados (2 gerais + 1 por-modelo). TTL vem de settings (§1).
+    """Blocos system cacheados: BP_GERAL fundido + BP_MODELO (quando passado). TTL vem de settings (§1).
 
-    P0 = 3 breakpoints fixos (4º/cauda adiado — §4.4). cache_control vai em CONTENT
-    BLOCKS (langchain-anthropic 1.x), não em additional_kwargs (era 0.3).
+    BP_GERAL funde persona+regras+FAQ num bloco único (antes eram 2 separados — a fusão
+    via render_prefixo_geral liberou 1 dos 4 breakpoints p/ o BP_JANELA, §4.4). cache_control
+    vai em CONTENT BLOCKS (langchain-anthropic 1.x), não em additional_kwargs (era 0.3).
 
-    Ordem é estável e CRÍTICA: gerais (BP1–BP2) ANTES do por-modelo (BP3), senão o
-    prefixo compartilhado deixa de ser global. Os blocos gerais e as `tools` são
+    Ordem é estável e CRÍTICA: o bloco geral ANTES do por-modelo, senão o
+    prefixo compartilhado deixa de ser global. O bloco geral e as `tools` são
     byte-idênticos entre todas as modelos (invariante — ver agente/CLAUDE.md).
     O contexto dinâmico e o reminder NÃO são SystemMessage: vão no último HumanMessage,
     sem cache_control (§1, §10). Ver também §4.3.
 
     TTL misto: a Anthropic exige TTL mais longo ANTES do mais curto no array
-    (`1h` precede `5m`). Como BP3 vem depois de BP1/BP2, `ttl_geral` NÃO pode ser
+    (`1h` precede `5m`). Como BP_MODELO vem depois do BP_GERAL, `ttl_geral` NÃO pode ser
     mais curto que `ttl_modelo` (ex.: geral=5m + modelo=1h → 400). Ver §1.
     """
-    # mais-longo-primeiro: BP1/BP2 (geral) não pode ter TTL mais curto que BP3 (por-modelo)
+    # mais-longo-primeiro: BP_GERAL não pode ter TTL mais curto que BP_MODELO
     _rank = {"5m": 0, "1h": 1}
-    if _rank[ttl_geral] < _rank[ttl_modelo]:
+    if ttl_modelo is not None and _rank[ttl_geral] < _rank[ttl_modelo]:
         raise ValueError(
             f"ttl_geral ({ttl_geral}) não pode ser mais curto que ttl_modelo "
             f"({ttl_modelo}): viola a ordenação de TTL da Anthropic (§1)"
         )
-    return [
-        SystemMessage(content=[_bloco_texto(geral_md,  ttl_geral)]),   # BP1 — global
-        SystemMessage(content=[_bloco_texto(faq_md,    ttl_geral)]),   # BP2 — global
-        SystemMessage(content=[_bloco_texto(modelo_md, ttl_modelo)]),  # BP3 — por-modelo
+    mensagens = [
+        SystemMessage(content=[_bloco_texto(geral_md, ttl_geral)]),  # BP_GERAL — global
     ]
+    if modelo_md is not None:
+        mensagens.append(SystemMessage(content=[_bloco_texto(modelo_md, ttl_modelo)]))  # BP_MODELO — por-modelo
+    return mensagens
 ```
 
 > **Validado por spike empírico (2026-05-24; `langchain-anthropic` **1.4.3** instalado via `uv add` — lock: lc-anthropic 1.4.3 · anthropic 0.97.0 · langchain-core 1.3.2):** o wrapper repassa `cache_control` em **content blocks** de `SystemMessage` para a Anthropic (write=6802, read=6802 numa 2ª chamada idêntica; `effort="low"` aceito como kwarg direto do `ChatAnthropic`). **Atenção ao campo de write (`§4.2`):** `input_token_details["cache_creation"]` vem **sempre 0** no 1.4.3 — o write está em `ephemeral_5m_input_tokens` (+`ephemeral_1h_input_tokens`). **Teste obrigatório do M0** (precisa de chave): 1ª chamada → `(ephemeral_5m_input_tokens + ephemeral_1h_input_tokens) > 0` (write); 2ª idêntica → `cache_read > 0` (read) — rede contra o wrapper dropar `cache_control` em silêncio. **Não** assertar `cache_creation > 0`: falharia mesmo com o cache funcionando.
@@ -790,7 +789,7 @@ def no_llm(principal, tools):
     return _no
 ```
 
-**Nó `prepare_context`** é o **dono único do contexto**: o coordenador invoca com `{"messages": []}` e este nó monta tudo. Lê primeiro `ia_pausada` (1ª query) e curto-circuita se pausado, sem montar contexto; senão carrega persona/regras/FAQ/programas + agenda/cliente/contexto dinâmico, traduz a sliding window (`02 §4`), injeta reminder se necessário (`§10`) e retorna o conjunto completo:
+**Nó `prepare_context`** é o **dono único do contexto**: o coordenador invoca com `{"messages": []}` e este nó monta tudo. Lê primeiro `ia_pausada` (1ª query) e curto-circuita se pausado, sem montar contexto; senão funde persona+regras+FAQ no BP_GERAL (`render_prefixo_geral`) + monta o BP_MODELO (identidade/programas) + agenda/cliente/contexto dinâmico, traduz a sliding window (`02 §4`), marca o BP_JANELA na penúltima (`§4.4`), injeta reminder se necessário (`§10`) e retorna o conjunto completo:
 
 ```python
 # api/src/barra/agente/nos/prepare_context.py — esqueleto
@@ -805,10 +804,10 @@ async def prepare_context(state: EstadoAgente, runtime: Runtime[ContextAgente]) 
     if atendimento["ia_pausada"]:
         return {"_pausada": True}
 
-    # 2. monta os 3 blocos system ESTÁVEIS (BP1/BP2 gerais + BP3 por-modelo).
+    # 2. monta os blocos system ESTÁVEIS (BP_GERAL fundido + BP_MODELO por-modelo).
     #    Contexto dinâmico e reminder NÃO são SystemMessage — vão no último HumanMessage (§1, §4.4).
-    system_msgs = build_system_messages(geral_md=..., faq_md=...,  # BP1/BP2 gerais (compartilhados)
-                                          modelo_md=...)             # BP3 identidade+programas+tipos
+    system_msgs = build_system_messages(geral_md=render_prefixo_geral(),  # BP_GERAL persona+regras+FAQ fundidos
+                                          modelo_md=...)                    # BP_MODELO identidade+programas+tipos
     historico = traduzir_mensagens(await carregar_mensagens(pool, ...))  # 02 §4
 
     # 3. classifica disclosure/jailbreak DENTRO do grafo, sobre a cauda da janela (não no webhook):

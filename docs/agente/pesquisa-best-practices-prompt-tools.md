@@ -42,6 +42,12 @@ Após a pesquisa, nesta sessão foram implementados e verificados (escolha: "doc
 
 Itens **não** feitos (dependem de tráfego/medição ou decisão de produto): pré-aquecimento de cache (§4 #1), A/B de effort (§4 #2), poda de few-shot (§1.2), flatten do `payload` (§2.3), adaptive thinking (§1.4).
 
+### Atualização 2026-05-29
+
+Implementados e verificados (worktree isolado, gate verde — `mypy src` + 120 testes do agente + snapshot regenerado): **#1** pré-aquecimento de cache (`preaquecer_prefixo_global` no startup do worker, best-effort, `max_tokens=1`), **#7** flatten do `escalar` → params de topo, **#3** reconciliação restante (`03 §4.1/§5`, `06`, `04 §3.4`), **#9** revisão dos `Nunca`/`sempre`. Criado o novo **`08-evals.md`** (gate executável de cutover Vendedor→IA + protocolos dos experimentos #2/#6/#8).
+
+⚠️ **#5 revertido** — `input_examples` em `registrar_extracao` foi implementado mas **descartado**: medido que regride o agente (resposta **vazia** ao cliente no turno pós-tool; `test_skeleton_responde` falha determinístico 3/3; sem os exemplos, passa). `input_examples` só demonstram o input da tool, o que numa tool interna chamada todo turno ensina "chame e pare" (trata `proxima_acao_esperada` como output). Mantido só em `escalar` (tool terminal). Achado em `08 §5.4` e `ferramentas/__init__.py:53-57`. A recomendação de §2.2/§4 #5 para o `registrar_extracao` fica **contraindicada** até haver fixture que prove ganho sem a regressão.
+
 ---
 
 ## 1. Prompt / context engineering

@@ -560,7 +560,9 @@ class EscaladaPayload(BaseModel):
 
 @tool
 async def escalar(
-    payload: EscaladaPayload,
+    motivo: MotivoEscalada,
+    resumo_operacional: str,
+    acao_esperada: str,
     runtime: ToolRuntime[ContextAgente],
 ) -> str:
     """Escale o atendimento. O destino (Fernando p/ decisão sensível, ou modelo p/ ação
@@ -571,12 +573,16 @@ async def escalar(
     escreva mais texto nesse turno.
 
     Args:
-        payload.motivo: enum fechado — ver EscaladaPayload em §3.4. Categorias:
+        motivo: enum fechado (`MotivoEscalada`, alias do Literal compartilhado com
+          `EscaladaPayload` em §3.4). Categorias:
           - operacionais (fora_de_oferta, horario_indisponivel, ...)
           - AUP / persona (disclosure_insistente, jailbreak_attempt, ...)
-        payload.resumo_operacional: 1-3 frases descrevendo o que aconteceu na conversa.
-                                    Para AUP, incluir TEXTO LITERAL da pergunta do cliente.
-        payload.acao_esperada: o que Fernando/modelo devem decidir/fazer.
+        resumo_operacional: 1-3 frases descrevendo o que aconteceu na conversa.
+                            Para AUP, incluir TEXTO LITERAL da pergunta do cliente.
+        acao_esperada: o que Fernando/modelo devem decidir/fazer.
+
+    Parâmetros de topo (não wrapper `payload`, ADR/§7): o corpo reconstrói
+    `EscaladaPayload(...)` internamente para revalidar (min/max_length + enum).
     """
     pool = runtime.context.db_pool
     atendimento_id = runtime.context.atendimento_id

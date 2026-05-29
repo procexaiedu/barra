@@ -97,6 +97,10 @@ class Settings(BaseSettings):
         default=True,
         description="Master-switch do strict PER-TOOL (STRICT_TOOLS em ferramentas/__init__.py). False desliga.",
     )
+    preaquecer_cache_no_startup: bool = Field(
+        default=True,
+        description="Pre-aquece o prefixo global de cache (tools+BP_GERAL) com 1 request no startup do worker, evitando o burst de cache writes a 2x apos deploy de prompt ou gap > TTL (pesquisa §1.7 / 03 §4.5).",
+    )
 
     # Comportamento comercial do agente (grilling 2026-05-23; docs/agente + ADR-0004)
     desconto_max_pct: float = Field(

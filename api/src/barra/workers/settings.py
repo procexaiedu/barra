@@ -12,6 +12,7 @@ Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes 
 """
 
 import asyncio
+import logging
 import sys
 from typing import Any, ClassVar
 
@@ -21,6 +22,7 @@ from arq.cron import CronJob
 from openai import AsyncOpenAI
 
 from barra.agente.graph import build_graph
+from barra.agente.llm import preaquecer_prefixo_global
 from barra.core.db import criar_pool, fechar_pool
 from barra.core.evolution import EvolutionClient
 from barra.core.storage import criar_minio
@@ -42,6 +44,8 @@ from barra.workers.timeouts import (
 # JA dentro do loop, o guard tem que ficar no import do modulo.
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+logger = logging.getLogger(__name__)
 
 
 async def cron_timeout_longo(ctx: dict[str, Any]) -> int:
@@ -125,6 +129,14 @@ async def startup(ctx: dict[str, Any]) -> None:
         )
     else:
         ctx["openai_client"] = None
+    # Pre-aquece o prefixo global de cache (tools+BP_GERAL) com 1 request: o restart do worker
+    # no deploy de prompt e o gancho natural. Best-effort — falha de rede/API/sem chave nunca
+    # pode impedir o worker de subir (espelha o vision_client=None acima).
+    if settings.preaquecer_cache_no_startup:
+        try:
+            await preaquecer_prefixo_global(settings)
+        except Exception:
+            logger.warning("preaquecimento_cache_falhou", exc_info=True)
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:

@@ -22,42 +22,49 @@ from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
 
 
-class EscaladaPayload(BaseModel):
-    """Args de `escalar`. `responsavel` NAO entra — derivado de `motivo` no servico de dominio.
+# Enum de roteamento compartilhado entre o parametro `motivo` da tool (forma achatada enviada ao
+# LLM) e `EscaladaPayload.motivo` (validacao interna) — fonte unica, sem divergencia (04 §3.4).
+MotivoEscalada = Literal[
+    # Operacionais
+    "fora_de_oferta",
+    "horario_indisponivel",
+    "reagendamento_pos_bloqueio",
+    "politica_nova_necessaria",
+    "exaustao_iteracoes",
+    "timeout_grafo",
+    "modelo_recusou",
+    # AUP / persona / jailbreak (cf. 10-persona-jailbreak.md)
+    "disclosure_insistente",
+    "disclosure_explicito",
+    "jailbreak_attempt",
+    "pedido_explicito_repetido",
+    "prova_humanidade_persistente",
+    "cross_modelo_fishing",
+    # Generico (fallback)
+    "outro",
+]
 
-    `extra="forbid"` -> additionalProperties:false em todo nivel, requisito do strict tool use
-    (04 §7). O `motivo` e a chave de roteamento + metrica, entao o enum precisa bater exatamente;
-    nenhum dado de cliente entra em nome de campo ou enum (guarda de privacidade, 04 §7).
+
+class EscaladaPayload(BaseModel):
+    """Validacao interna de `escalar`. `responsavel` NAO entra — derivado de `motivo` no servico.
+
+    NAO e mais o schema da tool (a tool achatou os args em params de topo, 04 §3.4); fica como
+    classe de validacao reconstruida no corpo, preservando min/max_length e enum. `extra="forbid"`
+    mantem a rede de seguranca; nenhum dado de cliente entra em nome de campo ou enum (04 §7).
     """
 
     model_config = ConfigDict(extra="forbid")
 
-    motivo: Literal[
-        # Operacionais
-        "fora_de_oferta",
-        "horario_indisponivel",
-        "reagendamento_pos_bloqueio",
-        "politica_nova_necessaria",
-        "exaustao_iteracoes",
-        "timeout_grafo",
-        "modelo_recusou",
-        # AUP / persona / jailbreak (cf. 10-persona-jailbreak.md)
-        "disclosure_insistente",
-        "disclosure_explicito",
-        "jailbreak_attempt",
-        "pedido_explicito_repetido",
-        "prova_humanidade_persistente",
-        "cross_modelo_fishing",
-        # Generico (fallback)
-        "outro",
-    ]
+    motivo: MotivoEscalada
     resumo_operacional: str = Field(min_length=10, max_length=1000)
     acao_esperada: str = Field(min_length=3, max_length=400)
 
 
 @tool
 async def escalar(
-    payload: EscaladaPayload,
+    motivo: MotivoEscalada,
+    resumo_operacional: str,
+    acao_esperada: str,
     runtime: ToolRuntime[ContextAgente],
 ) -> str:
     """Escale o atendimento. O destino (Fernando p/ decisao sensivel, ou modelo p/ acao
@@ -67,15 +74,22 @@ async def escalar(
     quando a modelo registrar finalizado pelo grupo. Nao escreva mais texto nesse turno.
 
     Args:
-        payload.motivo: enum fechado — operacionais (fora_de_oferta, horario_indisponivel, ...)
+        motivo: enum fechado — operacionais (fora_de_oferta, horario_indisponivel, ...)
           ou AUP/persona (disclosure_insistente, jailbreak_attempt, ...).
-        payload.resumo_operacional: 1-3 frases descrevendo o que aconteceu na conversa.
-                                    Para AUP, incluir TEXTO LITERAL da pergunta do cliente.
-        payload.acao_esperada: o que Fernando/modelo devem decidir/fazer.
+        resumo_operacional: 1-3 frases descrevendo o que aconteceu na conversa.
+                            Para AUP, incluir TEXTO LITERAL da pergunta do cliente.
+        acao_esperada: o que Fernando/modelo devem decidir/fazer.
     """
     pool = runtime.context.db_pool
     atendimento_id = runtime.context.atendimento_id
     turno_id = runtime.context.turno_id
+
+    # Reconstroi o payload validado (re-valida min/max_length + enum, igual ao caminho anterior).
+    payload = EscaladaPayload(
+        motivo=motivo,
+        resumo_operacional=resumo_operacional,
+        acao_esperada=acao_esperada,
+    ).model_dump()
 
     async with pool.connection() as conn:
         resultado = await _executar_idempotente(
@@ -83,7 +97,7 @@ async def escalar(
             turno_id,
             "escalar",
             0,
-            payload.model_dump(),
+            payload,
             executor=lambda c, p: _executar_handoff(c, atendimento_id, p),
         )
 

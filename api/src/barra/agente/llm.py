@@ -11,13 +11,21 @@ Invariante (agente/CLAUDE.md): tools (posição 0) e BP1 (persona+regras) e BP2 
 — byte-idênticos entre todas as modelos. Funções puras: mesma entrada → mesma saída sem I/O.
 """
 
+import logging
 from collections.abc import Collection, Mapping, Sequence
 from typing import Any
 
 from langchain_anthropic import convert_to_anthropic_tool
 from langchain_anthropic.chat_models import AnthropicTool
-from langchain_core.messages import BaseMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langchain_core.tools import BaseTool
+
+from barra.core.llm import criar_chat_anthropic
+from barra.settings import Settings
+
+from .ferramentas import INPUT_EXAMPLES, STRICT_TOOLS, TOOLS
+
+logger = logging.getLogger(__name__)
 
 # TTL mais longo precede o mais curto no array da Anthropic (1h antes de 5m): ttl_tools (cabeça
 # do prefixo) ≥ ttl_geral (BP1/BP2) ≥ ttl_modelo (BP3), senão a API rejeita (400). §1/§5.
@@ -168,8 +176,9 @@ def build_tools_para_bind(
         nome = tool_def["name"]
         if nome in strict_tools:
             tool_def["strict"] = True
-            # langchain envolve `payload: PydModel` em `{"payload": <schema>}` mas NAO propaga
-            # `additionalProperties: false` para o top-level. A Anthropic exige em strict mode.
+            # langchain NAO propaga `additionalProperties: false` para o top-level do schema da
+            # tool; a Anthropic exige em strict mode. (O `escalar`, strict, usa args de topo;
+            # tools que ainda embrulham em `payload: PydModel` herdam o mesmo cuidado.)
             schema = tool_def.get("input_schema") or {}
             schema.setdefault("additionalProperties", False)
             _sanitizar_para_strict(schema)
@@ -250,3 +259,31 @@ def _desencapsular_anyof_null(schema: dict[str, Any]) -> None:
     # `default: null` perde validade quando null nao e mais um tipo aceito.
     if schema.get("default") is None and "default" in schema:
         schema.pop("default")
+
+
+async def preaquecer_prefixo_global(settings: Settings) -> None:
+    """Escreve o cache do prefixo global (tools + BP_GERAL) com 1 request, antes do trafego.
+
+    Reproduz byte-a-byte o segmento estavel que o no llm monta (mesmo bind de tools, mesmo
+    BP_GERAL via render_prefixo_geral), com cache_control no fim — forca o cache write a 1x/2x
+    UMA vez, para os turnos reais virarem cache read (0,1x). Sem BP_MODELO (por-modelo; o ganho
+    esta so no prefixo global — 03 §4.5). max_tokens=1 (a API rejeita 0; 1 token e desprezivel).
+    Best-effort: quem chama envolve em try/except — qualquer falha nunca derruba o startup.
+    """
+    from .persona import render_prefixo_geral  # import tardio: evita ciclo llm.py ↔ persona.py
+
+    chat = criar_chat_anthropic(settings)
+    chat.max_tokens = 1  # so o prefixo importa; output e descartado
+    tools_para_bind = build_tools_para_bind(
+        TOOLS,
+        ttl=settings.cache_ttl_geral,
+        strict_tools=STRICT_TOOLS if settings.anthropic_strict_tools else frozenset(),
+        exemplos=INPUT_EXAMPLES,
+    )
+    chat_bound = chat.bind_tools(tools_para_bind)
+    system_msgs = build_system_messages(
+        geral_md=render_prefixo_geral(),
+        ttl_geral=settings.cache_ttl_geral,
+    )
+    await chat_bound.ainvoke([*system_msgs, HumanMessage(content="ok")])
+    logger.info("preaquecimento_cache_ok")

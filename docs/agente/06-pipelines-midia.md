@@ -274,12 +274,12 @@ async def validar_pix(
         )
         esperado = await res.fetchone()
 
-    # 2. chama vision via Anthropic (Sonnet 4.6 com structured output)
+    # 2. chama vision via OpenRouter (cliente OpenAI-compat, response_format json_schema — §0 item 4, §2.3)
     extracao = await _extrair_pix_via_vision(
         bytes_img,
         media_type=media_type,
-        client=ctx["anthropic_client"],
-        modelo=settings.anthropic_model_vision_pix,
+        client=ctx["vision_client"],
+        modelo=settings.openrouter_model_vision_pix,
     )
 
     # 3. compara com esperado
@@ -337,9 +337,9 @@ async def validar_pix(
     )
 ```
 
-### 2.3 Prompt de extração — Anthropic Sonnet 4.6 + `messages.parse()`
+### 2.3 Prompt de extração — OpenRouter (OpenAI-compat) + `response_format` json_schema
 
-`client.messages.parse()` valida automaticamente a resposta contra o Pydantic schema (`output_format=ExtracaoPix`). Sem prompt do tipo "responda apenas em JSON" — schema é enforçado pela API.
+> **Histórico (superado pela emenda §0 item 4).** O bloco abaixo era a versão Anthropic-native (`messages.parse()` + `output_format=ExtracaoPix`); o código real (`workers/pix.py`) usa **OpenRouter** com cliente OpenAI-compat e `response_format` json_schema + validação `ExtracaoPix` por Pydantic manual (sai `messages.parse()`/`thinking-disabled`; o bloco de imagem vira o formato OpenAI `image_url` `data:{media_type};base64,…` — ver a nota de ordem image-then-text abaixo). Mantido como referência da intenção de extração estruturada.
 
 ```python
 PROMPT_PIX = """Você é um extrator de dados de comprovantes Pix brasileiros.
