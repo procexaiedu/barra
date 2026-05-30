@@ -4,7 +4,6 @@ import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from types import ModuleType
 from typing import Any
 from urllib.parse import urlparse
 
@@ -18,7 +17,7 @@ from barra.core.db import criar_pool, fechar_pool
 from barra.core.errors import instalar_handlers
 from barra.core.metrics import MetricsMiddleware, prometheus_response
 from barra.core.storage import criar_minio, ensure_bucket
-from barra.core.tracing import setup_tracing
+from barra.core.tracing import init_sentry, setup_tracing
 from barra.settings import get_settings
 from barra.webhook.routes import router as webhook_router
 
@@ -26,13 +25,6 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 _logger = logging.getLogger(__name__)
-
-try:
-    import sentry_sdk as _sentry_sdk
-except ModuleNotFoundError:  # pragma: no cover
-    sentry_sdk: ModuleType | None = None
-else:
-    sentry_sdk = _sentry_sdk
 
 
 @asynccontextmanager
@@ -62,8 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def build_app() -> FastAPI:
     settings = get_settings()
-    if settings.sentry_dsn and sentry_sdk is not None:
-        sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.ambiente)
+    init_sentry(settings)
     setup_tracing(settings)
 
     app = FastAPI(

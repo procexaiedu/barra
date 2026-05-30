@@ -26,7 +26,7 @@ from barra.agente.llm import preaquecer_prefixo_global
 from barra.core.db import criar_pool, fechar_pool
 from barra.core.evolution import EvolutionClient
 from barra.core.storage import criar_minio
-from barra.core.tracing import setup_tracing
+from barra.core.tracing import init_sentry, setup_tracing
 from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
 from barra.workers.envio import enviar_card, enviar_turno
@@ -105,8 +105,11 @@ async def cron_limpar_midias(ctx: dict[str, Any]) -> int:
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     ctx["settings"] = settings
-    # O agente roda aqui (worker), entao o tracing tem de subir aqui — com o anonymizer de PII
-    # ou desligado (hard gate em setup_tracing); nunca tracing cru.
+    # O agente roda aqui (worker), entao Sentry e tracing tem de subir aqui. Sentry captura a
+    # excecao do turno (integracao arq) com a tag turno_id (OBS-04); sem DSN e no-op.
+    init_sentry(settings)
+    # tracing LangSmith — com o anonymizer de PII ou desligado (hard gate em setup_tracing);
+    # nunca tracing cru.
     setup_tracing(settings)
     # Expoe as metricas do worker (agente_turno_*, agente_custo_turno_brl) p/ scrape em :9091.
     # Guard por ambiente: nao sobe em teste (a suite reusa o processo e a porta colidiria).
