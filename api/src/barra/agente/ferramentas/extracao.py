@@ -128,15 +128,9 @@ async def registrar_extracao(
                 "Ofereca outro horario ao cliente e registre de novo."
             )
 
-    # Pin de endereco (interno): enfileirado APOS o commit (simetrico ao card do escalar). Replay
-    # e inofensivo — o worker do pin e idempotente por atendimento_id (_job_id estavel).
-    if resultado.get("enviar_pin"):
-        await runtime.context.redis.enqueue_job(
-            "enviar_card",
-            tipo="loc_pin",
-            atendimento_id=atendimento_id,
-            _job_id=f"card:loc_pin:{atendimento_id}",
-        )
+    # Pin de endereco (interno): NAO enfileirado enquanto o renderer `_card_loc_pin`
+    # (workers/envio.py) ainda levanta NotImplementedError — o job so falharia 5x (M3d, 09 §4.3).
+    # O dominio segue setando `enviar_pin`; o enqueue volta junto com o renderer.
     # Aviso de saida (06 §5): card 'cliente saiu de casa' sem owner — SETNX no renderer
     # garante idempotencia inter-turnos; o _job_id aqui evita re-enfileirar no mesmo ARQ.
     if resultado.get("enviar_aviso_saida"):
