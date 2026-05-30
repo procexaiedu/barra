@@ -15,6 +15,7 @@ from psycopg_pool import AsyncConnectionPool
 from barra.core.errors import ErroDominio
 from barra.core.evolution import EvolutionClient
 from barra.core.metrics import ENVIO_DURACAO, ENVIO_RESULTADO, ENVIO_RETRIES
+from barra.core.tracing import sentry_sdk
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.workers._cards import render_card
 
@@ -508,7 +509,14 @@ async def enviar_turno(
         job_try = ctx.get("job_try", 1)
         max_tries = ctx.get("max_tries", 5)
         if job_try >= max_tries:
-            logger.exception("envio_falha_final turno_id=%s critico=%s", turno_id, critico)
+            # request_id = job_id do ARQ: no worker não há request_id HTTP, então o id do job é o
+            # de correlação (spec §15.2) — amarra log e Sentry a esta execução.
+            logger.exception(
+                "envio_falha_final turno_id=%s request_id=%s critico=%s",
+                turno_id,
+                ctx.get("job_id"),
+                critico,
+            )
             if critico and conv is not None:
                 # Dead-end (05 §7): efeito já no banco, mensagem pode não ter chegado → escala.
                 from barra.workers.coordenador import escalar_por_exaustao
@@ -518,6 +526,12 @@ async def enviar_turno(
                 )
                 ENVIO_RESULTADO.labels("exaustao_critico").inc()
             else:
+                # Falha final não-crítica: a mensagem ao cliente pode ter se perdido. Sem efeito no
+                # banco não há o que escalar (≠ crítico), mas a perda não pode ser silenciosa —
+                # captura no Sentry (init_sentry/OBS-04) para ficar visível à operação. Não muda a
+                # entrega/retry: o `raise` abaixo preserva a semântica do job.
+                if sentry_sdk is not None:
+                    sentry_sdk.capture_exception()
                 ENVIO_RESULTADO.labels("falha_evolution").inc()
         raise
     finally:
