@@ -27,7 +27,7 @@ async def aplicar_timeout_longo(conn: AsyncConnection[Any]) -> int:
                WHERE a.estado IN ('Novo', 'Triagem', 'Qualificado', 'Aguardando_confirmacao')
                  AND a.ia_pausada = false
                  AND COALESCE(msg.ultima_cliente, a.created_at) < now() - interval '24 hours'
-               FOR UPDATE SKIP LOCKED
+               FOR UPDATE OF a SKIP LOCKED
             ),
             upd AS (
               UPDATE barravips.atendimentos a
