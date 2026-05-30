@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from barra.api.v1 import router as api_v1_router
 from barra.core.db import criar_pool, fechar_pool
 from barra.core.errors import instalar_handlers
+from barra.core.logging import setup_logging
 from barra.core.metrics import MetricsMiddleware, prometheus_response
 from barra.core.storage import criar_minio, ensure_bucket
 from barra.core.tracing import init_sentry, setup_tracing
@@ -54,6 +55,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def build_app() -> FastAPI:
     settings = get_settings()
+    setup_logging(settings)
     init_sentry(settings)
     setup_tracing(settings)
 

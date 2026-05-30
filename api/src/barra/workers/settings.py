@@ -25,6 +25,7 @@ from barra.agente.graph import build_graph
 from barra.agente.llm import preaquecer_prefixo_global
 from barra.core.db import criar_pool, fechar_pool
 from barra.core.evolution import EvolutionClient
+from barra.core.logging import setup_logging
 from barra.core.storage import criar_minio
 from barra.core.tracing import init_sentry, setup_tracing
 from barra.settings import Settings, get_settings
@@ -105,6 +106,9 @@ async def cron_limpar_midias(ctx: dict[str, Any]) -> int:
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     ctx["settings"] = settings
+    # Logging estruturado JSON no nivel log_level — primeiro, p/ os logs subsequentes do
+    # startup (e o INFO do coordenador) saírem em vez de cair no WARNING default do root.
+    setup_logging(settings)
     # O agente roda aqui (worker), entao Sentry e tracing tem de subir aqui. Sentry captura a
     # excecao do turno (integracao arq) com a tag turno_id (OBS-04); sem DSN e no-op.
     init_sentry(settings)
