@@ -42,24 +42,24 @@
 |---|---|---|---|---|
 | DEPLOY-01 | 1 | Rotacionar segredos → Swarm secrets | — | done ⚠️ parcial |
 | SEC-03 | 1 | Endurecer download de mídia (SSRF/DoS) | — | done |
-| SEC-02 | 1 | Filtrar `numero_curto` por modelo | — | todo |
+| SEC-02 | 1 | Filtrar `numero_curto` por modelo | — | done |
 | DEPLOY-02 | 1 | Healthcheck + readiness no Traefik | — | todo |
 | DEPLOY-04 | 1 | Backup do Postgres + runbook | — | todo |
 | DEPLOY-03 | 1 | Imagem versionada + update start-first/rollback | — | todo |
-| SEC-10 | 1 | Anonymizer de PII antes de ligar tracing | — | todo |
-| OBS-04 | 1 | Sentry no worker | — | todo |
-| OBS-01 | 1 | Expor `/metrics` do worker | — | todo |
-| OBS-03 | 1 | Logging estruturado JSON | — | todo |
-| PER-05/TOOLS-01 | 1 | `refusal` escala em vez de silenciar | — | todo |
-| TOOLS-02 | 1 | Exceção de API escala com motivo próprio | — | todo |
-| WIN-TOOLS-05 | win | guarda `try/except` na parse de data | — | todo |
-| WIN-PER-08 | win | interpolar `localizacao_operacional` | — | todo |
-| WIN-PER-12 | win | remover stub `humanizacao.py` + corrigir doc | — | todo |
-| WIN-TOOLS-09 | win | minimizar payload Pix (sem chave/titular) | — | todo |
-| WIN-SEC-06 | win | `hmac.compare_digest` no token do webhook | — | todo |
-| WIN-SEC-09 | win | guard de CORS no boot em produção | — | todo |
-| WIN-REL-09 | win | não enfileirar `loc_pin` (renderer NotImplemented) | — | todo |
-| WIN-DEPLOY-10 | win | corrigir README do stack real | — | todo |
+| SEC-10 | 1 | Anonymizer de PII antes de ligar tracing | — | done |
+| OBS-04 | 1 | Sentry no worker | — | done |
+| OBS-01 | 1 | Expor `/metrics` do worker | — | done |
+| OBS-03 | 1 | Logging estruturado JSON | — | done |
+| PER-05/TOOLS-01 | 1 | `refusal` escala em vez de silenciar | — | done |
+| TOOLS-02 | 1 | Exceção de API escala com motivo próprio | — | done |
+| WIN-TOOLS-05 | win | guarda `try/except` na parse de data | — | done |
+| WIN-PER-08 | win | interpolar `localizacao_operacional` | — | done |
+| WIN-PER-12 | win | remover stub `humanizacao.py` + corrigir doc | — | done |
+| WIN-TOOLS-09 | win | minimizar payload Pix (sem chave/titular) | — | done |
+| WIN-SEC-06 | win | `hmac.compare_digest` no token do webhook | — | done |
+| WIN-SEC-09 | win | guard de CORS no boot em produção | — | done |
+| WIN-REL-09 | win | não enfileirar `loc_pin` (renderer NotImplemented) | — | done |
+| WIN-DEPLOY-10 | win | corrigir README do stack real | — | done |
 | EVAL-01 | 2 | Runner de evals mínimo + `make evals` | — | todo |
 | EVAL-08 | 2 | `NodesVisitedHandler` + `state_check` | EVAL-01 | todo |
 | EVAL-02 | 2 | LLM-judge binário + fixture de DUAS modelos (ADR 0015) | EVAL-01 | todo |
@@ -70,26 +70,26 @@
 | REL-05 | 2 | `cobrar_valor_final` com `FOR UPDATE SKIP LOCKED` | — | todo |
 | REL-02 | 2 | `abrir_handoff` idempotente | — | todo |
 | REL-06 | 2 | Mídia que falha upload não vira `texto` silencioso | — | todo |
-| REL-03 | 2 | `max_tries` consciente por job | — | todo |
+| REL-03 | 2 | `max_tries` consciente por job | — | done |
 | REL-04 | 2 | `vision_client` com timeout/retries | — | todo |
 | REL-08 | 2 | Escalada crítica resiliente a `atendimento_id` nulo | — | todo |
-| REL-12 | 2 | Visibilidade de falha final não-crítica | OBS-04 | todo |
+| REL-12 | 2 | Visibilidade de falha final não-crítica | OBS-04 | done |
 | OBS-02 | 2 | Prometheus + Grafana + Alertmanager | OBS-01 | todo |
-| OBS-07 | 2 | Middleware de request-id api→worker | OBS-03 | todo |
-| OBS-09/10 | 2 | Tag `modelo_id`/`atendimento_id` nos traces | SEC-10 | todo |
-| TOOLS-04 | 2 | Incrementar `AGENTE_ESCALADA` após `abrir_handoff` | — | todo |
+| OBS-07 | 2 | Middleware de request-id api→worker | OBS-03 | done |
+| OBS-09/10 | 2 | Tag `modelo_id`/`atendimento_id` nos traces | SEC-10 | done |
+| TOOLS-04 | 2 | Incrementar `AGENTE_ESCALADA` após `abrir_handoff` | — | done |
 | CUSTO-02 | 3 | Custo de STT + vision por atendimento | — | todo |
 | CUSTO-01 | 3 | Comissão + Taxa de cartão + ROI (ADRs 0012/0013) | CUSTO-02 | todo |
-| CUSTO-04 | 3 | Teto de turnos por conversa/dia + retry-after | — | todo |
+| CUSTO-04 | 3 | Teto de turnos por conversa/dia + retry-after | — | done |
 | CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | todo |
 | CUSTO-06 | 3 | Fonte única do alvo de custo | — | todo |
 | PER-01/03 | 3 | Diálogos canônicos com rubrica de voz | EVAL-01 | todo |
 | PER-11 | 3 | Reminder anti-drift `<armadilhas_de_voz>` | EVAL-01 | todo |
-| TOOLS-06 | 3 | Counter `agente_tool_erro_recuperavel_total` | — | todo |
+| TOOLS-06 | 3 | Counter `agente_tool_erro_recuperavel_total` | — | done |
 | TOOLS-08 | 3 | Eval de recall de `escalar` (AUP ambíguo) | EVAL-01 | todo |
 | EVAL-11 | 3 | `agente_eval_pass_rate` online (amostra) | EVAL-01 | todo |
 | DEPLOY-05/06 | 3 | `schema_migrations` + drift-check + staging | DEPLOY-03 | todo |
-| OBS-05 | 3 | Resolver config de tracing morta/duplicada | SEC-10 | todo |
+| OBS-05 | 3 | Resolver config de tracing morta/duplicada | SEC-10 | done |
 
 ---
 
@@ -113,7 +113,7 @@
 - **Verificação:** teste que (a) URL de host fora da allowlist é recusada, (b) corpo > limite aborta, (c) mídia legítima da Evolution passa.
 
 ### SEC-02 — Filtrar `numero_curto` por modelo
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Segurança · **Depende de:** — · **Fonte:** roadmap §3.1
+- **Status:** done (PR #52, 2026-05-30) · **Onda:** 1 · **Dimensão:** Segurança · **Depende de:** — · **Fonte:** roadmap §3.1
 - **Objetivo (DoD):** comando `#N` no grupo só afeta o atendimento da modelo correta — sem corrupção financeira cross-modelo.
 - **Arquivos:** `api/src/barra/webhook/routes.py:416-429` (TODO em :417-418) + call site `_processar_grupo` (~:271).
 - **Passos:** resolver `modelo_id` via `msg.instance_id`/`evolution_instance_id` (padrão de `_instance_cadastrada`/`_persistir_cliente`) e adicionar `AND modelo_id = %s`; recusar comando com erro curto no grupo se a modelo não resolver.
@@ -143,7 +143,7 @@
 - **Guardrails específicos:** compartilha o arquivo `ci.yml` com EVAL-04/03 — coordene para não conflitar.
 
 ### SEC-10 — Anonymizer de PII obrigatório antes de ligar tracing
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Observabilidade+Segurança · **Depende de:** — · **Fonte:** roadmap §3.2 (novo)
+- **Status:** done (PR #53, 2026-05-30) · **Onda:** 1 · **Dimensão:** Observabilidade+Segurança · **Depende de:** — · **Fonte:** roadmap §3.2 (novo)
 - **Objetivo (DoD):** tracing só ativa com PII mascarada; com `tracing=True` mas sem anonymizer construível, o tracing **não** sobe.
 - **Arquivos:** `api/src/barra/core/tracing.py:1` (stub), `api/src/barra/settings.py:146-152`, startup de `build_app()` e `workers/settings.py`.
 - **Passos:** (1) `setup_tracing()` constrói o `Client` LangSmith com `anonymizer=create_anonymizer(...)` cobrindo inputs/outputs/metadata (chave/titular Pix, telefone/JID, nome, endereço, conteúdo livre); (2) instalar no startup da api **e** do worker; (3) hard gate: anonymizer não-construível → força `LANGCHAIN_TRACING_V2=false` + `warning`; (4) default `langchain_tracing_v2=False` em `:150`.
@@ -151,25 +151,25 @@
 - **Guardrails específicos:** o agente roda no worker — o setup tem de rodar lá também.
 
 ### OBS-04 — Sentry no worker
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.2
+- **Status:** done (PR #57, 2026-05-30) · **Onda:** 1 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.2
 - **Objetivo (DoD):** exceção no pipeline da IA (worker) aparece no Sentry com tag `turno_id`.
 - **Arquivos:** `core/tracing.py` (extrair `init_sentry()`), `main.py:54-55`, `workers/settings.py:startup`.
 - **Verificação:** exceção forçada em `coordenador.py` aparece no Sentry com `turno_id`.
 
 ### OBS-01 — Expor `/metrics` do worker
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.2
+- **Status:** done (PR #46, 2026-05-30) · **Onda:** 1 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.2
 - **Objetivo (DoD):** métricas emitidas no worker são scrapeáveis.
 - **Arquivos:** `workers/settings.py:startup` → `prometheus_client.start_http_server(9091)` sob guard.
 - **Verificação:** `curl worker:9091/metrics` retorna `agente_turno_duracao`/`agente_custo_turno_brl`.
 
 ### OBS-03 — Logging estruturado JSON
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.2
+- **Status:** done (PR #60, 2026-05-30) · **Onda:** 1 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.2
 - **Objetivo (DoD):** logs em prod saem JSON com `turno_id`/`atendimento_id`; o `INFO` do coordenador deixa de cair no chão.
 - **Arquivos:** `core/logging.py` (stub) → structlog JSON em stdout no nível de `settings.log_level`; setup em `build_app()` e `workers/settings.py:startup`; bindar IDs do `ContextAgente`.
 - **Verificação:** logs de prod são JSON com os IDs; teste de que o setup é chamado nos dois entrypoints.
 
 ### PER-05/TOOLS-01 — `refusal` escala em vez de silenciar
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Resiliência · **Depende de:** — · **Fonte:** roadmap §3.3 + ADR-relacionado (stop_reason)
+- **Status:** done (PR #54, 2026-05-30) · **Onda:** 1 · **Dimensão:** Resiliência · **Depende de:** — · **Fonte:** roadmap §3.3 + ADR-relacionado (stop_reason)
 - **Objetivo (DoD):** quando o Sonnet recusa, abre handoff para Fernando (`modelo_recusou`), IA pausa, cliente não fica mudo; `stop_details.category` logado. Mesmo princípio no vision do Pix.
 - **Arquivos:** `agente/nos/llm.py:99-102`, `workers/coordenador.py:165,444-477`, `workers/pix.py:165-170`.
 - **Passos:** (1) no ramo `refusal`, sinalizar `_stop_reason="refusal"` via state + logar `stop_details.category` de `resp.response_metadata`; (2) no coordenador, após `ainvoke`, acionar `escalar_por_exaustao(motivo="modelo_recusou")` (infra já existe; bucket `defesa`); (3) vision do Pix: checar `finish_reason`/`stop_reason` (chegam em 200 OK), `max_tokens`/`refusal` → comprovante duvidoso (fila de Fernando), nunca `ValueError` silencioso.
@@ -177,7 +177,7 @@
 - **Guardrails específicos:** Pix nunca trava; nunca reenviar conteúdo cru de refusal ao cliente.
 
 ### TOOLS-02 — Exceção de API escala com motivo próprio
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Resiliência · **Depende de:** — · **Fonte:** roadmap §3.3
+- **Status:** done (PR #51, 2026-05-30) · **Onda:** 1 · **Dimensão:** Resiliência · **Depende de:** — · **Fonte:** roadmap §3.3
 - **Objetivo (DoD):** 5xx/timeout persistente da API vira escalada com `motivo=modelo_indisponivel` e bucket correto.
 - **Arquivos:** `workers/coordenador.py:165` (capturar `RateLimitError/APITimeoutError/APIStatusError` antes do `except Exception`), `agente/ferramentas/escalada.py:41-43` (+`modelo_indisponivel` no enum), `dominio/escaladas/service.py:364-374` (bucket `infra`).
 - **Verificação:** simular 5xx persistente → escalada com `motivo=modelo_indisponivel` e bucket correto.
@@ -185,36 +185,36 @@
 ## Wins seguros (Onda 1 — P, risco baixo, sem refatoração)
 
 ### WIN-TOOLS-05 — guarda na parse de data
-- **Status:** todo · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
+- **Status:** done (PR #40, 2026-05-30) · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
 - **DoD/Verificação:** `try/except ValueError` nas duas `date.fromisoformat` em `agente/ferramentas/leitura.py:31-32` → retorna `"ERRO: data inválida, use YYYY-MM-DD."`; teste com data malformada recebe o ERRO recuperável.
 
 ### WIN-PER-08 — interpolar `localizacao_operacional`
-- **Status:** todo · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
+- **Status:** done (PR #45, 2026-05-30) · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
 - **DoD/Verificação:** `prompts/identidade.md.j2:5` usa `localizacao_operacional` (fallback genérico se null) no lugar de "Rio" hardcoded; render de uma modelo de SP não contém "Rio".
 
 ### WIN-PER-12 — remover stub `humanizacao.py` + corrigir doc
-- **Status:** todo · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
+- **Status:** done (PR #41, 2026-05-30) · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
 - **DoD/Verificação:** stub `agente/humanizacao.py` removido e `agente/CLAUDE.md:37` aponta `workers/`; `git grep` não acha import do stub.
 
 ### WIN-TOOLS-09 — minimizar payload Pix
-- **Status:** todo · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
+- **Status:** done (PR #47, 2026-05-30) · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
 - **DoD/Verificação:** `agente/ferramentas/pix.py:110-116` e `_idempotencia.py:45` reduzem payload a `{valor}`; `eventos`/`tool_calls` não guardam `chave`/`titular` em claro.
 - **Guardrails específicos:** dado sensível nunca em enum/schema/eventos.
 
 ### WIN-SEC-06 — `hmac.compare_digest` no token do webhook
-- **Status:** todo · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
+- **Status:** done (PR #44, 2026-05-30) · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
 - **DoD/Verificação:** `webhook/routes.py:60` usa `hmac.compare_digest` (timing-safe) em vez de `!=`.
 
 ### WIN-SEC-09 — guard de CORS no boot em produção
-- **Status:** todo · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
+- **Status:** done (PR #42, 2026-05-30) · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
 - **DoD/Verificação:** `main.py` (antes do `add_middleware`) aborta o boot se `cors_origins` tiver `*`/regex amplo quando `ambiente=="producao"`; teste de boot falha com `*`.
 
 ### WIN-REL-09 — não enfileirar `loc_pin`
-- **Status:** todo · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
+- **Status:** done (PR #43, 2026-05-30) · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
 - **DoD/Verificação:** `agente/ferramentas/extracao.py:133-139` não enfileira `card:loc_pin` enquanto `_card_loc_pin` for `NotImplementedError` (ou implementar o renderer em `workers/envio.py:320`); atendimento interno não gera job que falha 5x.
 
 ### WIN-DEPLOY-10 — corrigir README do stack real
-- **Status:** todo · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
+- **Status:** done (PR #39, 2026-05-30) · **Onda:** win · **Depende de:** — · **Fonte:** roadmap §4
 - **DoD/Verificação:** `infra/compose/README.md:5` aponta `stack.barra-portainer.yml` como o stack real.
 
 ---
@@ -284,7 +284,7 @@
 - **Guardrails específicos:** Pix nunca some/trava.
 
 ### REL-03 — `max_tries` consciente por job
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Confiabilidade · **Depende de:** — · **Fonte:** roadmap §3.5
+- **Status:** done (PR #62, 2026-05-30) · **Onda:** 2 · **Dimensão:** Confiabilidade · **Depende de:** — · **Fonte:** roadmap §3.5
 - **DoD/Verificação:** `workers/settings.py:156` → `func(processar_turno, keep_result=0, max_tries=2)` (turno caro), `max_tries=3` para envios; erro transitório pós-LLM não reinvoca o Sonnet 5x.
 - **Guardrails específicos:** `keep_result=0` (memória: `keep_result=3600` quebra re-enqueue do ARQ).
 
@@ -297,7 +297,7 @@
 - **DoD/Verificação:** `workers/envio.py:506-522` carrega `atendimento_id` mesmo de atendimento terminal para o handoff (ou alerta dedicado distinto de `falha_evolution`); efeito crítico (Pix) nunca termina sem handoff/alerta.
 
 ### REL-12 — Visibilidade de falha final não-crítica
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Confiabilidade · **Depende de:** OBS-04 · **Fonte:** roadmap §3.5
+- **Status:** done (PR #61, 2026-05-30) · **Onda:** 2 · **Dimensão:** Confiabilidade · **Depende de:** OBS-04 · **Fonte:** roadmap §3.5
 - **DoD/Verificação:** `workers/envio.py:520-521` loga `error` com `turno_id`+request_id e captura no Sentry; mensagem perdida ao cliente fica visível à operação.
 
 ### OBS-02 — Prometheus + Grafana + Alertmanager
@@ -305,16 +305,16 @@
 - **DoD/Verificação:** stack de métricas com scrape de api e worker; regras versionadas (spike de `agente_escalada_total{bucket=defesa}`, write-rate de cache, p95, custo) disparam.
 
 ### OBS-07 — Middleware de request-id api→worker
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** OBS-03 · **Fonte:** roadmap §3.6
+- **Status:** done (PR #64, 2026-05-30) · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** OBS-03 · **Fonte:** roadmap §3.6
 - **DoD/Verificação:** request-id propagado da API até o worker junto do `turno_id`; aparece nos logs JSON.
 
 ### OBS-09/10 — Tag `modelo_id`/`atendimento_id` nos traces
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** SEC-10 · **Fonte:** roadmap §3.6
+- **Status:** done (PR #59, 2026-05-30) · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** SEC-10 · **Fonte:** roadmap §3.6
 - **DoD/Verificação:** traces LangSmith carregam `modelo_id`/`atendimento_id` (gen_ai.conversation.id) via `core/tracing.py`, sem inflar o label de cache.
 - **Guardrails específicos:** só depois do anonymizer (SEC-10) — não ligar tracing cru.
 
 ### TOOLS-04 — Incrementar `AGENTE_ESCALADA` após `abrir_handoff`
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.6
+- **Status:** done (PR #49, 2026-05-30) · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.6
 - **DoD/Verificação:** `intercept_disclosure.py` (~:60,~:99) incrementa `AGENTE_ESCALADA` após `abrir_handoff` para jailbreak/disclosure aparecerem em `bucket=defesa`.
 
 ---
@@ -334,7 +334,7 @@
 - **Guardrails específicos:** migration de schema → aplicar manual em prod self-hosted (sem `make migrate`).
 
 ### CUSTO-04 — Teto de turnos por conversa/dia + retry-after
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
+- **Status:** done (PR #58, 2026-05-30) · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
 - **DoD/Verificação:** contador Redis por conversa escala a Fernando ao estourar (fecha o loop do `RECURSION_LIMIT` dormente, `coordenador.py:45`); respeita `retry-after`; cliente em loop não queima orçamento até as 24h.
 
 ### CUSTO-05 — Alerta de write-rate de cache
@@ -355,7 +355,7 @@
 - **Guardrails específicos:** fora do prefixo cacheado; voz é GERAL (não por modelo).
 
 ### TOOLS-06 — Counter `agente_tool_erro_recuperavel_total`
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.8
+- **Status:** done (PR #56, 2026-05-30) · **Onda:** 3 · **Dimensão:** Observabilidade · **Depende de:** — · **Fonte:** roadmap §3.8
 - **DoD/Verificação:** counter `{tool,motivo}` nos pontos de `"ERRO:"`; aparece em `/metrics`.
 
 ### TOOLS-08 — Eval de recall de `escalar` (AUP ambíguo)
@@ -372,7 +372,7 @@
 - **Guardrails específicos:** esta task é o que torna seguro aplicar migration — até ela existir, schema em prod é manual.
 
 ### OBS-05 — Resolver config de tracing morta/duplicada
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Observabilidade · **Depende de:** SEC-10 · **Fonte:** roadmap §3.8
+- **Status:** done (PR #63, 2026-05-30) · **Onda:** 3 · **Dimensão:** Observabilidade · **Depende de:** SEC-10 · **Fonte:** roadmap §3.8
 - **DoD/Verificação:** config de tracing em `settings.py:146-148` deixa de ter fonte duplicada/morta; uma única fonte de verdade (reconciliada com SEC-10).
 
 ---
