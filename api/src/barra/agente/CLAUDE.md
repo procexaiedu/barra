@@ -34,4 +34,4 @@ Blocos estáveis entram com `cache_control` no `system`, na ordem de render `too
 
 ## Organização
 
-`graph.py` (montagem), `estado.py` (TypedDict do State), `humanizacao.py`, `classificador.py`, `nos/`, `ferramentas/`. Nó novo → `nos/`. Tool nova → `ferramentas/`.
+`graph.py` (montagem), `estado.py` (TypedDict do State), `classificador.py`, `nos/`, `ferramentas/`. Nó novo → `nos/`. Tool nova → `ferramentas/`. A humanização (chunking/jitter/presence) não vive aqui: roda no worker `enviar_turno` (`workers/`, despachada via `despachar_humanizacao`).
