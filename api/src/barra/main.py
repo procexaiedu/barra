@@ -18,6 +18,7 @@ from barra.core.db import criar_pool, fechar_pool
 from barra.core.errors import instalar_handlers
 from barra.core.metrics import MetricsMiddleware, prometheus_response
 from barra.core.storage import criar_minio, ensure_bucket
+from barra.core.tracing import setup_tracing
 from barra.settings import get_settings
 from barra.webhook.routes import router as webhook_router
 
@@ -63,6 +64,7 @@ def build_app() -> FastAPI:
     settings = get_settings()
     if settings.sentry_dsn and sentry_sdk is not None:
         sentry_sdk.init(dsn=settings.sentry_dsn, environment=settings.ambiente)
+    setup_tracing(settings)
 
     app = FastAPI(
         title="Elite Baby API",
