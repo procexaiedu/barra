@@ -18,6 +18,7 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
+import structlog
 from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.errors import GraphRecursionError
@@ -56,11 +57,17 @@ async def processar_turno(
     *,
     conversa_id: str,
     aguardar_transcricao: bool = False,
+    request_id: str | None = None,
 ) -> None:
     redis = ctx["redis"]
     pool = ctx["db_pool"]
     graph = ctx["graph"]
     settings = ctx["settings"]
+
+    # OBS-07: bind do request-id da API nos logs JSON (OBS-03) deste turno. Cada job ARQ roda no
+    # proprio contextvars.Context (worker cria task por job), entao o bind nao vaza entre turnos.
+    if request_id is not None:
+        structlog.contextvars.bind_contextvars(request_id=request_id)
 
     conv_uuid = UUID(conversa_id)
     modelo_anthropic = settings.anthropic_modelo_principal
@@ -76,6 +83,8 @@ async def processar_turno(
                 # gera novo enqueue -> novo score -> novo turno_id). Sem ele, `_job_id`
                 # estatico por conversa colidia turnos diferentes no mesmo turno_id.
                 turno_id = str(uuid5(NS_TURNO, f"{ctx['job_id']}:{ctx['score']}:{loop_idx}"))
+                # OBS-07/OBS-03: turno_id como campo dos logs JSON, junto do request_id.
+                structlog.contextvars.bind_contextvars(turno_id=turno_id)
                 await redis.delete(f"pending:conv:{conversa_id}")  # limpa ANTES de ler a janela
 
                 # 1. resolver atendimento e cobrir orfas.
@@ -341,6 +350,7 @@ async def processar_turno(
                         "processar_turno",
                         conversa_id=conversa_id,
                         aguardar_transcricao=False,
+                        request_id=request_id,  # OBS-07: mantem correlacao no turno recuperado
                         _job_id=f"turno:{conversa_id}",
                         _defer_by=timedelta(seconds=2),
                     )
@@ -350,6 +360,7 @@ async def processar_turno(
             "processar_turno",
             conversa_id=conversa_id,
             aguardar_transcricao=aguardar_transcricao,
+            request_id=request_id,  # OBS-07: mantem correlacao no re-defer
             _job_id=f"turno:{conversa_id}",
             _defer_by=timedelta(seconds=2),
         )

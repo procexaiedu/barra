@@ -22,6 +22,7 @@ async def enfileirar_turno(
     evolution_message_id: str,
     *,
     aguardar_transcricao: bool = False,
+    request_id: str | None = None,
 ) -> None:
     """Marca pendencia + debounce e enfileira `processar_turno` (01 §4.2).
 
@@ -29,6 +30,8 @@ async def enfileirar_turno(
     O `_job_id` estatico e o coalesce first-wins: o ARQ faz SET NX, o 1o vence e os
     enqueues seguintes na janela sao DESCARTADOS — nao ha substituicao. Quem chega com
     o turno ja rodando e recuperado pelo drain loop do coordenador, nao por reenfileiramento.
+
+    `request_id` (OBS-07) viaja no payload do job p/ o coordenador bindar nos logs JSON.
     """
     cid = str(conversa_id)
     # 1. pendencia — lida pelo drain do coordenador (01 §4.3).
@@ -40,6 +43,7 @@ async def enfileirar_turno(
         "processar_turno",
         conversa_id=cid,
         aguardar_transcricao=aguardar_transcricao,
+        request_id=request_id,
         _job_id=f"turno:{cid}",
         _defer_by=timedelta(seconds=4),
     )
