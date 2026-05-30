@@ -21,7 +21,6 @@ from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket, mapear
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
 
-
 # Enum de roteamento compartilhado entre o parametro `motivo` da tool (forma achatada enviada ao
 # LLM) e `EscaladaPayload.motivo` (validacao interna) — fonte unica, sem divergencia (04 §3.4).
 MotivoEscalada = Literal[

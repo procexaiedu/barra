@@ -18,6 +18,7 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
+from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.errors import GraphRecursionError
 from psycopg import AsyncConnection
@@ -159,6 +160,17 @@ async def processar_turno(
                     logger.error("graph_recursion turno_id=%s", turno_id)
                     await escalar_por_exaustao(
                         pool, atendimento["id"], turno_id, motivo="exaustao_iteracoes"
+                    )
+                    AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
+                    break
+                except (RateLimitError, APITimeoutError, APIStatusError):
+                    # 5xx/timeout persistente da API do LLM (Anthropic) — falha de plataforma, nao
+                    # bug do grafo. O no llm ja re-levanta esses erros (nos/llm.py); aqui escala
+                    # como modelo_indisponivel (bucket infra) em vez de cair no `except Exception`
+                    # generico abaixo, que jogaria para o retry do ARQ.
+                    logger.error("api_indisponivel turno_id=%s", turno_id)
+                    await escalar_por_exaustao(
+                        pool, atendimento["id"], turno_id, motivo="modelo_indisponivel"
                     )
                     AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
                     break
@@ -328,7 +340,9 @@ async def aguardar_transcricoes(redis: Any, conversa_id: str, *, orcamento_s: in
         try:
             data = json.loads(payload)
         except (TypeError, ValueError):
-            logger.warning("transcricao_payload_invalido conversa_id=%s payload=%r", conversa_id, payload)
+            logger.warning(
+                "transcricao_payload_invalido conversa_id=%s payload=%r", conversa_id, payload
+            )
             todos_ok = False
             continue
         if not data.get("ok", False):

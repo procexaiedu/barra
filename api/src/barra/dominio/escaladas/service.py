@@ -48,12 +48,16 @@ async def aplicar_comando(
             return await _atualizar_pix(conn, atendimento, origem, autor, payload)
         if comando == "comando_invalido":
             await _evento(conn, atendimento_id, "comando_invalido", origem, autor, payload)
-            return ResultadoComando(atendimento_id, atendimento["estado"], atendimento["pix_status"])
+            return ResultadoComando(
+                atendimento_id, atendimento["estado"], atendimento["pix_status"]
+            )
 
         raise EntradaInvalida("COMANDO_INVALIDO", "Comando invalido.")
 
 
-async def _buscar_atendimento(conn: AsyncConnection[Any], atendimento_id: UUID) -> dict[str, Any] | None:
+async def _buscar_atendimento(
+    conn: AsyncConnection[Any], atendimento_id: UUID
+) -> dict[str, Any] | None:
     result = await conn.execute(
         """
         SELECT a.*, m.percentual_repasse
@@ -113,7 +117,9 @@ async def _registrar_fechado(
 ) -> ResultadoComando:
     valor = payload.get("valor_final")
     if valor is None:
-        raise EntradaInvalida("VALOR_FINAL_OBRIGATORIO", "Valor final obrigatorio.", {"campo": "valor_final"})
+        raise EntradaInvalida(
+            "VALOR_FINAL_OBRIGATORIO", "Valor final obrigatorio.", {"campo": "valor_final"}
+        )
     if atendimento["estado"] in {"Fechado", "Perdido"}:
         raise ConflitoEstado("Atendimento ja esta finalizado.")
 
@@ -205,7 +211,9 @@ async def _corrigir_registro(
 ) -> ResultadoComando:
     novo = payload.get("novo_resultado")
     if novo == "Fechado" and payload.get("valor_final") is None:
-        raise EntradaInvalida("VALOR_FINAL_OBRIGATORIO", "Valor final obrigatorio.", {"campo": "valor_final"})
+        raise EntradaInvalida(
+            "VALOR_FINAL_OBRIGATORIO", "Valor final obrigatorio.", {"campo": "valor_final"}
+        )
     if novo == "Perdido" and payload.get("motivo") is None:
         raise EntradaInvalida("MOTIVO_OBRIGATORIO", "Motivo obrigatorio.", {"campo": "motivo"})
 
@@ -302,7 +310,9 @@ async def _atualizar_pix(
     # revisao de Fernando no painel (comprovantes_pix.decisao_final), sem pausar esperando ele.
     if decisao == "validado":
         # Guard defensivo: Pix de deslocamento so existe no fluxo externo.
-        estado = "Confirmado" if atendimento["tipo_atendimento"] == "externo" else atendimento["estado"]
+        estado = (
+            "Confirmado" if atendimento["tipo_atendimento"] == "externo" else atendimento["estado"]
+        )
         await conn.execute(
             """
             UPDATE barravips.atendimentos
@@ -320,7 +330,9 @@ async def _atualizar_pix(
         return ResultadoComando(atendimento["id"], estado, "validado")
 
     if decisao == "em_revisao":
-        estado = "Confirmado" if atendimento["tipo_atendimento"] == "externo" else atendimento["estado"]
+        estado = (
+            "Confirmado" if atendimento["tipo_atendimento"] == "externo" else atendimento["estado"]
+        )
         await conn.execute(
             """
             UPDATE barravips.atendimentos
@@ -393,6 +405,9 @@ _BUCKET_DEFESA: frozenset[str] = frozenset(
     }
 )
 
+# Bucket infra: falha de plataforma (5xx/timeout persistente da API do LLM), nao capacidade.
+_BUCKET_INFRA: frozenset[str] = frozenset({"modelo_indisponivel"})
+
 
 def mapear_motivo(motivo: str) -> tuple[TipoEscalada, str]:
     """Adapta o motivo rico da tool `escalar` a `abrir_handoff` (09 §4.3).
@@ -407,7 +422,9 @@ def mapear_motivo(motivo: str) -> tuple[TipoEscalada, str]:
 
 
 def mapear_bucket(motivo: str) -> str:
-    """Bucket da metrica `agente_escalada_total` (08 §3.2): ``defesa`` vs ``capacidade``."""
+    """Bucket da metrica `agente_escalada_total` (08 §3.2): ``infra``/``defesa``/``capacidade``."""
+    if motivo in _BUCKET_INFRA:
+        return "infra"
     return "defesa" if motivo in _BUCKET_DEFESA else "capacidade"
 
 
