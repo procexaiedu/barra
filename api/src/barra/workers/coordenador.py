@@ -13,7 +13,7 @@ a resposta (01 §6.7).
 import asyncio
 import json
 import logging
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
@@ -44,6 +44,11 @@ NS_TURNO = UUID("6ba7b814-9dad-11d1-80b4-00c04fd430c8")
 ESTADOS_TERMINAIS = {"Fechado", "Perdido"}
 MAX_DRAIN = 5  # teto de iteracoes de drain sob o MESMO lock; ao estourar, re-enfileira
 RECURSION_LIMIT = 18  # ~6-7 round-trips llm<->tools (5 tools no P0). DORMENTE ate o loop de M1
+# Teto de turnos por conversa/dia (CUSTO-04): contador Redis (`turnos:conv:{id}:{YYYY-MM-DD}`,
+# auto-expira em 24h) que, ao estourar, escala a Fernando em vez de deixar um cliente em loop
+# queimar orcamento ate o timeout de 24h. Default conservador, bem acima de uma negociacao
+# normal; tuning sem deploy nao foi pedido (constante local, no padrao de MAX_DRAIN).
+TETO_TURNOS_DIA = 50
 
 
 async def processar_turno(
@@ -88,6 +93,29 @@ async def processar_turno(
                         atendimento["estado"],
                     )
                     AGENTE_TURNO_RESULTADO.labels("ia_pausada_skip").inc()
+                    break
+
+                # 2.5. teto de turnos/conversa/dia (CUSTO-04): contador Redis por conversa+dia que,
+                #      ao estourar, escala a Fernando (custo) em vez de deixar um cliente em loop
+                #      queimar orcamento ate o timeout de 24h. CHECAGEM aqui (read-only, ANTES do
+                #      grafo: ao bater o teto nao processa o turno); o INCREMENTO so acontece apos
+                #      o grafo responder (mais abaixo) — assim um turno que falhou e foi retentado
+                #      pelo ARQ nao infla o contador nem escala falso. A data na chave faz o reset
+                #      diario; o TTL de 24h e so faxina. O retry-after de 429/5xx ja e tratado pelo
+                #      SDK (best-practices §196) + o ramo modelo_indisponivel; este teto e a parte.
+                chave_teto = f"turnos:conv:{conversa_id}:{datetime.now(UTC):%Y-%m-%d}"
+                ja_contados = int(await redis.get(chave_teto) or 0)
+                if ja_contados >= TETO_TURNOS_DIA:
+                    logger.warning(
+                        "teto_turnos conversa_id=%s n=%s teto=%s",
+                        conversa_id,
+                        ja_contados,
+                        TETO_TURNOS_DIA,
+                    )
+                    await escalar_por_exaustao(
+                        pool, atendimento["id"], turno_id, motivo="teto_turnos"
+                    )
+                    AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
                     break
 
                 if aguardar_transcricao:
@@ -181,6 +209,11 @@ async def processar_turno(
                     AGENTE_TURNO_DURACAO.labels(modelo_anthropic, tipo_turno).observe(
                         perf_counter() - inicio
                     )
+
+                # 5a. contabiliza o turno (CUSTO-04): so apos o grafo responder — turno que falhou
+                #     (excecao -> break/retry) nao chega aqui, entao nao infla o teto. RMW (nao
+                #     INCR) e seguro: todo o turno roda sob `lock:conv`, escritor unico por conversa.
+                await redis.set(chave_teto, ja_contados + 1, ex=86400)
 
                 # 5b. refusal do Sonnet (stop_reason=refusal chega em 200 OK, nao como excecao; o
                 #     no llm ja logou stop_details.category). O sinal vem no response_metadata da
