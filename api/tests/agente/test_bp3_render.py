@@ -38,6 +38,14 @@ ESTRANGEIRA = IdentidadeModelo(
     tipos_aceitos=["externo"],
 )
 
+PAULISTA = IdentidadeModelo(
+    nome="Lara",
+    idade=27,
+    idiomas=["pt-BR", "en-US"],  # dispara o bloco internacional onde a localização é citada
+    localizacao_operacional="São Paulo",
+    tipos_aceitos=["externo"],
+)
+
 PROGRAMAS: list[dict[str, Any]] = [
     {"nome": "Massagem Relaxante", "duracao_nome": "1 hora", "preco": 800},
     {"nome": "Massagem Relaxante", "duracao_nome": "2 horas", "preco": 1500},
@@ -73,6 +81,13 @@ def test_estrangeira_menciona_aura_e_sotaque() -> None:
     assert "sotaque" in txt
     assert "internacional" in txt
     assert "inglês" in txt
+
+
+def test_localizacao_operacional_interpolada_sem_rio_hardcoded() -> None:
+    # localizacao_operacional de SP no bloco internacional: render não vaza "Rio" hardcoded.
+    txt = render_identidade(PAULISTA)
+    assert "Rio" not in txt
+    assert "São Paulo" in txt
 
 
 def test_atendimento_reflete_tipos_aceitos() -> None:
