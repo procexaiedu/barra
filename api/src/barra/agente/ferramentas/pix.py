@@ -2,10 +2,11 @@
 
 Solicita o Pix de deslocamento do fluxo externo: move o atendimento para
 `Aguardando_confirmacao` com `pix_status='aguardando'` e RESERVA o slot (bloqueio prévio).
-A chave/titular/valor são persistidos no payload de `tool_calls` e anexados pela humanização
-(M4) — a tool NÃO chama Evolution e NÃO escreve a chave no retorno, mantendo o string crítico
-(chave de 32+ chars) fora do LLM. Invariante: externo em Aguardando_confirmacao ⟹ Pix
-solicitado (01 §6.1).
+Só o `valor` é persistido no payload de `tool_calls`/`eventos`; a chave/titular do Pix NUNCA
+vão em claro para a persistência (guard-rail de dado sensível) — quando a humanização (M4)
+anexar a chave, deve lê-la fresh do cadastro da modelo. A tool NÃO chama Evolution e NÃO
+escreve a chave no retorno, mantendo o string crítico (chave de 32+ chars) fora do LLM.
+Invariante: externo em Aguardando_confirmacao ⟹ Pix solicitado (01 §6.1).
 """
 
 import json
@@ -56,11 +57,7 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
                 turno_id,
                 "pedir_pix_deslocamento",
                 0,
-                payload={
-                    "valor": VALOR_PIX_DESLOCAMENTO,
-                    "chave": m["chave_pix"],
-                    "titular": m["titular_chave"],
-                },
+                payload={"valor": VALOR_PIX_DESLOCAMENTO},
                 executor=lambda c, p: _aplicar_pedido_pix(c, atendimento_id, p),
             )
         except ConflitoAgenda:
