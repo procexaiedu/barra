@@ -43,7 +43,7 @@
 | DEPLOY-01 | 1 | Rotacionar segredos → Swarm secrets | — | done ⚠️ parcial |
 | SEC-03 | 1 | Endurecer download de mídia (SSRF/DoS) | — | done |
 | SEC-02 | 1 | Filtrar `numero_curto` por modelo | — | done |
-| DEPLOY-02 | 1 | Healthcheck + readiness no Traefik | — | todo |
+| DEPLOY-02 | 1 | Healthcheck + readiness no Traefik | — | done |
 | DEPLOY-04 | 1 | Backup do Postgres + runbook | — | todo |
 | DEPLOY-03 | 1 | Imagem versionada + update start-first/rollback | — | todo |
 | SEC-10 | 1 | Anonymizer de PII antes de ligar tracing | — | done |
@@ -121,7 +121,8 @@
 - **Guardrails específicos:** invariante de isolamento por par.
 
 ### DEPLOY-02 — Healthcheck + readiness no Traefik
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Deploy · **Depende de:** — · **Fonte:** roadmap §3.1
+- **Status:** done (branch `deploy-02-healthcheck`, 2026-05-30) · **Onda:** 1 · **Dimensão:** Deploy · **Depende de:** — · **Fonte:** roadmap §3.1
+- **Implementado:** `healthcheck` em `barra-api` (bate `/ready` via o `python` da própria imagem — `uv:slim` não tem curl/wget — `start_period:300s` cobrindo `apt-get`+`git clone`+`uv sync`) e em `barra-worker` (bate o `/metrics` em `:9091` do OBS-01, healthcheck de processo); label Traefik `loadbalancer.healthcheck.path=/ready` (+`interval=10s`) na api. Quando o DB cai, `/ready` responde não-2xx (erro do `pool.connection()`), então o healthcheck falha e o Traefik tira a réplica do pool — sem tocar `main.py`. **Verificado:** `docker compose config` exit 0 + parse YAML do healthcheck/labels. **Passo ao vivo do operador:** confirmar num deploy real que o Traefik não roteia durante o `uv sync` e que `docker service ps` marca a task `unhealthy` com o DB fora — exige Swarm vivo. **Nota:** o `:9091` do worker é best-effort (OSError no bind é engolido p/ não derrubar o worker); num host single-replica não colide, mas se o bind falhar o healthcheck do worker reprova.
 - **Objetivo (DoD):** Traefik não roteia para container ainda em `uv sync`.
 - **Arquivos:** `infra/compose/stack.barra-portainer.yml` (api e worker); `/ready` já existe em `main.py:81`.
 - **Passos:** `healthcheck` da api batendo `/ready` com `start_period` cobrindo clone+`uv sync`; label `traefik...loadbalancer.healthcheck.path=/ready`; healthcheck de processo para o worker.

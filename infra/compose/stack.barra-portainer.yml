@@ -48,6 +48,15 @@ services:
       cd /app/repo/api &&
       uv sync --frozen --no-dev &&
       uv run uvicorn barra.main:app --host 0.0.0.0 --port 8000"
+    # DEPLOY-02: readiness gate. A imagem uv:slim nao tem curl/wget — usa o python da propria
+    # imagem p/ bater /ready (2xx quando o app subiu; nao-2xx enquanto clona/uv sync ou se o DB
+    # cai). start_period cobre apt-get+git clone+uv sync p/ o Traefik nao rotear cedo demais.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
     deploy:
       replicas: 1
       restart_policy:
@@ -59,6 +68,10 @@ services:
         - "traefik.http.routers.barra-api.tls=true"
         - "traefik.http.routers.barra-api.tls.certresolver=le"
         - "traefik.http.services.barra-api.loadbalancer.server.port=8000"
+        # DEPLOY-02: Traefik so roteia p/ a replica quando /ready responde 2xx (tira do pool
+        # durante o uv sync e quando o backend degrada).
+        - "traefik.http.services.barra-api.loadbalancer.healthcheck.path=/ready"
+        - "traefik.http.services.barra-api.loadbalancer.healthcheck.interval=10s"
         - "traefik.docker.network=traefik_public"
     depends_on:
       - redis-barra
@@ -110,6 +123,15 @@ services:
       cd /app/repo/api &&
       uv sync --frozen --no-dev &&
       uv run arq barra.workers.settings.WorkerSettings"
+    # DEPLOY-02: healthcheck de processo. O worker nao tem rota HTTP propria, mas o OBS-01 expoe
+    # as metricas do prometheus_client em :9091 no startup (ambiente!=teste) — bater nele prova
+    # que o processo arq subiu e segue vivo. start_period cobre apt-get+git clone+uv sync.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9091/metrics', timeout=3)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
     deploy:
       replicas: 1
       restart_policy:
