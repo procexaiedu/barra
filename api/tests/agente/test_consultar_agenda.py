@@ -58,6 +58,16 @@ async def test_janela_maior_que_14_dias_retorna_erro() -> None:
     assert out.startswith("ERRO:")
 
 
+async def test_data_malformada_retorna_erro_recuperavel() -> None:
+    """Data invalida: retorna o ERRO recuperavel antes de tocar o pool (db_pool=None prova)."""
+    out = await _chamar(
+        data_inicio="2026-13-99",
+        data_fim="2026-05-20",
+        runtime=_Runtime(_Ctx(None, "00000000-0000-0000-0000-000000000000")),
+    )
+    assert out == "ERRO: data inválida, use YYYY-MM-DD."
+
+
 # --- needs_db: leitura real contra o Postgres self-hosted, ROLLBACK sempre (espelha test_repo) ---
 
 

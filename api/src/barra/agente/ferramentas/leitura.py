@@ -28,8 +28,14 @@ async def consultar_agenda(
     """
     pool = runtime.context.db_pool
     modelo_id = runtime.context.modelo_id
-    di = date.fromisoformat(data_inicio)
-    df = date.fromisoformat(data_fim)
+    try:
+        di = date.fromisoformat(data_inicio)
+    except ValueError:
+        return "ERRO: data inválida, use YYYY-MM-DD."
+    try:
+        df = date.fromisoformat(data_fim)
+    except ValueError:
+        return "ERRO: data inválida, use YYYY-MM-DD."
     if (df - di).days > 14:
         return "ERRO: janela máxima é 14 dias. Refine sua consulta."
 
