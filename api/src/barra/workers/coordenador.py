@@ -316,6 +316,9 @@ async def processar_turno(
                     # (alvo natural de recusa/qualificacao/contraproposta). Sem inbound,
                     # o flag e ignorado (None) — defesa para canned/reengajamento.
                     alvo_quote = msg_ids_cliente[-1] if msg_ids_cliente else None
+                    # texto do alvo p/ o `quoted.message.conversation` (balão de reply não
+                    # fica vazio — a Evolution não faz lookup pelo id; verificado 2026-05-30).
+                    alvo_quote_texto = inbound[-1]["conteudo"] if inbound else None
                     quote_msg_ids: list[str | None] = [
                         alvo_quote if flag else None for flag in quote_flags
                     ]
@@ -336,6 +339,7 @@ async def processar_turno(
                             chars_inbound,
                             critico,
                             quote_msg_ids=quote_msg_ids,
+                            quote_texto=alvo_quote_texto,
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
 
@@ -563,6 +567,7 @@ async def despachar_humanizacao(
     chars_inbound: int,
     critico: bool,
     quote_msg_ids: list[str | None] | None = None,
+    quote_texto: str | None = None,
 ) -> None:
     """Um unico job `enviar_turno` por turno (05 §1): percorre chunks e midias em ordem (07 §3.4).
 
@@ -579,5 +584,6 @@ async def despachar_humanizacao(
         chars_inbound=chars_inbound,
         critico=critico,
         quote_msg_ids=quote_msg_ids,
+        quote_texto=quote_texto,
         _job_id=f"turno_envio:{turno_id}",
     )
