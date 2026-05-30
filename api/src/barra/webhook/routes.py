@@ -46,7 +46,9 @@ async def _upload_minio(minio: Any, bucket: str, key: str, data: bytes, content_
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(
         None,
-        lambda: minio.put_object(bucket, key, io.BytesIO(data), len(data), content_type=content_type),
+        lambda: minio.put_object(
+            bucket, key, io.BytesIO(data), len(data), content_type=content_type
+        ),
     )
 
 
@@ -93,7 +95,10 @@ async def evolution_webhook(
     async with pool.connection() as conn:
         if await _mensagem_ja_persistida(conn, msg.evolution_message_id):
             return {"status": "duplicate"}
-        if settings.evolution_grupo_coordenacao_jid and msg.remote_jid == settings.evolution_grupo_coordenacao_jid:
+        if (
+            settings.evolution_grupo_coordenacao_jid
+            and msg.remote_jid == settings.evolution_grupo_coordenacao_jid
+        ):
             return await _processar_grupo(conn, request, msg)
         # Defesa em profundidade para mensagens de cliente: a instance precisa
         # estar cadastrada em barravips.modelos.evolution_instance_id, já que
@@ -273,7 +278,19 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
         return {"status": "ignored"}
     atendimento_id = None
     if comando.numero_curto is not None:
-        atendimento_id = await _atendimento_por_numero(conn, comando.numero_curto)
+        # numero_curto e UNIQUE por (modelo_id, numero_curto), nao global: dois grupos
+        # de Coordenacao distintos podem ter o mesmo #N. Escopar pela modelo dona da
+        # instance evita afetar o atendimento de outra modelo (isolamento cross-modelo).
+        modelo_id = await _modelo_por_instance(conn, msg.instance_id)
+        if modelo_id is None:
+            COMANDOS_GRUPO.labels("invalido").inc()
+            _logger.warning(
+                "comando_grupo_modelo_nao_resolvida instance=%s remote=%s",
+                msg.instance_id,
+                msg.remote_jid,
+            )
+            return {"status": "unknown_instance"}
+        atendimento_id = await _atendimento_por_numero(conn, comando.numero_curto, modelo_id)
     if atendimento_id is None:
         COMANDOS_GRUPO.labels("invalido").inc()
         return {"status": "invalid"}
@@ -284,7 +301,8 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
             autor=autor,
             atendimento_id=atendimento_id,
             comando=comando.comando,
-            payload=comando.payload | {"texto": msg.texto, "evolution_message_id": msg.evolution_message_id},
+            payload=comando.payload
+            | {"texto": msg.texto, "evolution_message_id": msg.evolution_message_id},
         )
     except ErroDominio as exc:
         # Comando humano malformado/conflitante (ex.: `finalizado` em atendimento ja
@@ -433,18 +451,27 @@ async def _numero_por_card(conn: Any, card_message_id: str | None) -> int | None
     return row["numero_curto"] if row else None
 
 
-async def _atendimento_por_numero(conn: Any, numero_curto: int) -> Any | None:
-    # TODO(P1, multi-modelo): numero_curto e UNIQUE por (modelo_id, numero_curto), nao global.
-    # Resolver modelo_id via msg.instance_id e filtrar aqui antes de ativar a 2a modelo.
+async def _modelo_por_instance(conn: Any, instance_id: str | None) -> Any | None:
+    if not instance_id:
+        return None
+    row = await _one(
+        conn,
+        "SELECT id FROM barravips.modelos WHERE evolution_instance_id = %s",
+        (instance_id,),
+    )
+    return row["id"] if row else None
+
+
+async def _atendimento_por_numero(conn: Any, numero_curto: int, modelo_id: Any) -> Any | None:
     row = await _one(
         conn,
         """
         SELECT id FROM barravips.atendimentos
-         WHERE numero_curto = %s AND estado NOT IN ('Fechado', 'Perdido')
+         WHERE numero_curto = %s AND modelo_id = %s AND estado NOT IN ('Fechado', 'Perdido')
          ORDER BY updated_at DESC
          LIMIT 1
         """,
-        (numero_curto,),
+        (numero_curto, modelo_id),
     )
     return row["id"] if row else None
 
