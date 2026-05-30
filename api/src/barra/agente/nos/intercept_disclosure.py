@@ -21,9 +21,9 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from barra.core.db import conexao
-from barra.core.metrics import DISCLOSURE_DETECTADO, JAILBREAK_DETECTADO
+from barra.core.metrics import AGENTE_ESCALADA, DISCLOSURE_DETECTADO, JAILBREAK_DETECTADO
 from barra.dominio.escaladas.modelos import TipoEscalada
-from barra.dominio.escaladas.service import abrir_handoff
+from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket
 
 from .._canned import escolher_negacao
 from ..contexto import ContextAgente
@@ -58,6 +58,7 @@ async def intercept_disclosure(
                 autor="sistema",
                 observacao="jailbreak_attempt",
             )
+            AGENTE_ESCALADA.labels(mapear_bucket("jailbreak_attempt"), "jailbreak_attempt").inc()
         return Command(goto=END)  # type: ignore[arg-type]
 
     # Disclosure de alta confianca: negacao canned contornando a resistencia do Sonnet 4.6 a
@@ -97,6 +98,9 @@ async def intercept_disclosure(
                 autor="sistema",
                 observacao="disclosure_insistente",
             )
+            AGENTE_ESCALADA.labels(
+                mapear_bucket("disclosure_insistente"), "disclosure_insistente"
+            ).inc()
         DISCLOSURE_DETECTADO.labels("escalado").inc()
         return Command(goto=END)  # type: ignore[arg-type]
 
