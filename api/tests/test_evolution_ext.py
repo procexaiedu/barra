@@ -101,9 +101,35 @@ async def test_enviar_texto_anexa_quoted_quando_recebe_id() -> None:
         quoted_message_id="ABCDEF1234",
     )
     body = json.loads(route.calls.last.request.content)
-    # Evolution v2.3.6: quoted.message.conversation precisa existir mesmo vazio.
+    # Sem quoted_text, conversation cai no fallback vazio (defesa; o balão fica sem
+    # o snippet, mas a setinha ainda aponta certo pelo key.id).
     assert body["quoted"] == {"key": {"id": "ABCDEF1234"}, "message": {"conversation": ""}}
     assert body["text"] == "não tenho costume amor 😊"
+
+
+@respx.mock
+async def test_enviar_texto_quoted_inclui_texto_real_no_conversation() -> None:
+    """Com quoted_text, o balão de reply renderiza o snippet: a Evolution v2.3.6 ecoa
+    `quoted.message.conversation` para o contextInfo (não faz lookup pelo id; verificado
+    2026-05-30 — sem isso o cliente vê citação vazia)."""
+    route = respx.post(f"{BASE}/message/sendText/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-QT"}})
+    )
+    await _client().enviar_texto(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        texto="não tenho costume amor 😊",
+        contexto="conversa_cliente",
+        tipo="texto",
+        quoted_message_id="ABCDEF1234",
+        quoted_text="você faz anal?",
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body["quoted"] == {
+        "key": {"id": "ABCDEF1234"},
+        "message": {"conversation": "você faz anal?"},
+    }
 
 
 @respx.mock
@@ -140,7 +166,34 @@ async def test_enviar_midia_anexa_quoted_quando_recebe_id() -> None:
         quoted_message_id="XYZ987",
     )
     body = json.loads(route.calls.last.request.content)
+    # sem quoted_text → fallback vazio (mesma regra do enviar_texto)
     assert body["quoted"] == {"key": {"id": "XYZ987"}, "message": {"conversation": ""}}
+
+
+@respx.mock
+async def test_enviar_midia_quoted_inclui_texto_real_no_conversation() -> None:
+    """Com quoted_text, o sendMedia também preenche o snippet do balão (Evolution v2.3.6
+    ecoa quoted.message.conversation; sem isso, citação vazia)."""
+    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-QT2"}})
+    )
+    await _client().enviar_midia(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        url="https://minio.test/foto.jpg",
+        caption="olha 😏",
+        media_type="image",
+        contexto="conversa_cliente",
+        tipo="image",
+        quoted_message_id="XYZ987",
+        quoted_text="manda foto sua",
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body["quoted"] == {
+        "key": {"id": "XYZ987"},
+        "message": {"conversation": "manda foto sua"},
+    }
 
 
 @respx.mock

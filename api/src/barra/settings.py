@@ -154,6 +154,10 @@ class Settings(BaseSettings):
     evolution_base_url: str = ""
     evolution_api_key: str = ""
     evolution_webhook_token: str = ""
+    midia_max_bytes: int = Field(
+        default=25 * 1024 * 1024,
+        description="Teto de bytes ao baixar mídia da Evolution; download aborta acima disso (defesa DoS).",
+    )
     evolution_webhook_callback_url: str | None = Field(
         default=None,
         description="URL pública do nosso /webhook/evolution. Quando definida, é passada à Evolution no POST /instance/create.",

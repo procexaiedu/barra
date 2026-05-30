@@ -78,9 +78,12 @@ class _FakeEvolution:
     def __init__(self) -> None:
         self.ordem: list[tuple[str, Any]] = []
         self.quotes: list[str | None] = []
+        self.quote_textos: list[str | None] = []
         self._n = 0
 
-    async def marcar_lida(self, *, instance_id: str, remote_jid: str, message_ids: list[str]) -> None:
+    async def marcar_lida(
+        self, *, instance_id: str, remote_jid: str, message_ids: list[str]
+    ) -> None:
         self.ordem.append(("read", list(message_ids)))
 
     async def set_presence(
@@ -88,10 +91,18 @@ class _FakeEvolution:
     ) -> None:
         self.ordem.append(("presence", presence))
 
-    async def enviar_texto(self, *, texto: str, quoted_message_id: str | None = None, **_: Any) -> str:
+    async def enviar_texto(
+        self,
+        *,
+        texto: str,
+        quoted_message_id: str | None = None,
+        quoted_text: str | None = None,
+        **_: Any,
+    ) -> str:
         self._n += 1
         self.ordem.append(("texto", texto))
         self.quotes.append(quoted_message_id)
+        self.quote_textos.append(quoted_text)
         return f"mid-texto-{self._n}"
 
     async def enviar_midia(self, *, caption: str | None, **_: Any) -> str:
@@ -152,7 +163,9 @@ async def test_ordem_texto_antes_de_midia() -> None:
     # read receipt antes de qualquer envio
     assert evolution.ordem[0][0] == "read"
     # todo texto vem antes de toda mídia
-    pos = {t: [i for i, (tt, _) in enumerate(evolution.ordem) if tt == t] for t in ("texto", "midia")}
+    pos = {
+        t: [i for i, (tt, _) in enumerate(evolution.ordem) if tt == t] for t in ("texto", "midia")
+    }
     assert pos["texto"] and pos["midia"]
     assert max(pos["texto"]) < min(pos["midia"])
     assert _so(evolution, "texto") == ["oi amor", "tudo bem?"]
@@ -226,10 +239,13 @@ async def test_quote_msg_ids_propaga_para_evolution_por_bolha() -> None:
         chars_inbound=10,
         critico=False,
         quote_msg_ids=["evo-cliente-1", None],
+        quote_texto="você faz anal?",
     )
 
     assert _so(evolution, "texto") == ["não tenho costume", "me conta de vc"]
     assert evolution.quotes == ["evo-cliente-1", None]
+    # texto da msg citada só acompanha a bolha que de fato cita (a outra vai None)
+    assert evolution.quote_textos == ["você faz anal?", None]
 
 
 async def test_sem_quote_msg_ids_mantem_compat() -> None:
