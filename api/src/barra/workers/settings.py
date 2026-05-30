@@ -104,6 +104,17 @@ async def cron_limpar_midias(ctx: dict[str, Any]) -> int:
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     ctx["settings"] = settings
+    # Expoe as metricas do worker (agente_turno_*, agente_custo_turno_brl) p/ scrape em :9091.
+    # Guard por ambiente: nao sobe em teste (a suite reusa o processo e a porta colidiria).
+    if settings.ambiente != "teste":
+        from prometheus_client import start_http_server
+
+        # best-effort (igual ao preaquecimento abaixo): metricas nunca podem impedir o worker
+        # de subir — ex.: :9091 ja ocupada por outro worker no mesmo host/netns.
+        try:
+            start_http_server(9091)
+        except OSError:
+            logger.warning("metrics_http_server_falhou", exc_info=True)
     # max_size=20/autocommit=True para o turno (07 §2). NAO criar ctx["redis"]: o ARQ ja injeta
     # a ArqRedis em ctx["redis"] antes do startup — sobrescrever mataria enqueue_job.
     ctx["db_pool"] = await criar_pool(settings.database_url, max_size=20, autocommit=True)
