@@ -1,28 +1,44 @@
-import os
+"""OBS-01: o startup do worker expoe as metricas do prometheus_client em :9091.
+
+Guard por ambiente (settings.ambiente != "teste"): scrapeavel em producao/desenvolvimento,
+silencioso na suite. Mocka os recursos pesados do startup (pool, minio, evolution, grafo,
+preaquecimento) p/ isolar a decisao do guard sem tocar DB nem a API da Anthropic.
+"""
+
 from unittest.mock import AsyncMock, MagicMock
 
-from barra.settings import get_settings
-from barra.workers.settings import startup
+import pytest
+
+from barra.settings import Settings
+from barra.workers import settings as worker_settings
 
 
-async def _roda_startup(monkeypatch: object, *, metrics_enabled: bool) -> MagicMock:
-    get_settings.cache_clear()
-    os.environ["METRICS_ENABLED"] = "true" if metrics_enabled else "false"
-    get_settings.cache_clear()
+@pytest.fixture
+def _stub_recursos(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(worker_settings, "criar_pool", AsyncMock(return_value=MagicMock()))
+    monkeypatch.setattr(worker_settings, "criar_minio", MagicMock())
+    monkeypatch.setattr(worker_settings, "EvolutionClient", MagicMock())
+    monkeypatch.setattr(worker_settings, "build_graph", MagicMock())
+    monkeypatch.setattr(worker_settings, "preaquecer_prefixo_global", AsyncMock())
 
-    monkeypatch.setattr("barra.core.db.create_pool", AsyncMock(return_value=object()))
+
+async def _roda_startup(monkeypatch: pytest.MonkeyPatch, ambiente: str) -> MagicMock:
+    monkeypatch.setattr(worker_settings, "get_settings", lambda: Settings(ambiente=ambiente))
     fake_start = MagicMock()
     monkeypatch.setattr("prometheus_client.start_http_server", fake_start)
-
-    await startup({})
+    await worker_settings.startup({})
     return fake_start
 
 
-async def test_startup_expoe_metrics_quando_habilitado(monkeypatch: object) -> None:
-    fake_start = await _roda_startup(monkeypatch, metrics_enabled=True)
+async def test_startup_expoe_metrics_fora_de_teste(
+    monkeypatch: pytest.MonkeyPatch, _stub_recursos: None
+) -> None:
+    fake_start = await _roda_startup(monkeypatch, "producao")
     fake_start.assert_called_once_with(9091)
 
 
-async def test_startup_nao_expoe_metrics_quando_desabilitado(monkeypatch: object) -> None:
-    fake_start = await _roda_startup(monkeypatch, metrics_enabled=False)
+async def test_startup_nao_expoe_metrics_em_teste(
+    monkeypatch: pytest.MonkeyPatch, _stub_recursos: None
+) -> None:
+    fake_start = await _roda_startup(monkeypatch, "teste")
     fake_start.assert_not_called()
