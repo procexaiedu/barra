@@ -182,6 +182,24 @@ async def processar_turno(
                         perf_counter() - inicio
                     )
 
+                # 5b. refusal do Sonnet (stop_reason=refusal chega em 200 OK, nao como excecao; o
+                #     no llm ja logou stop_details.category). O sinal vem no response_metadata da
+                #     AIMessage gerada no turno (canal `messages`). Escala defesa (modelo_recusou)
+                #     e encerra SEM bolha crua ao cliente: abrir_handoff pausa a IA e Fernando
+                #     assume — mesmo padrao dos demais ramos de exaustao.
+                if any(
+                    isinstance(m, AIMessage)
+                    and m.usage_metadata is not None
+                    and (m.response_metadata or {}).get("stop_reason") == "refusal"
+                    for m in resultado["messages"]
+                ):
+                    logger.warning("turno_refusal turno_id=%s", turno_id)
+                    await escalar_por_exaustao(
+                        pool, atendimento["id"], turno_id, motivo="modelo_recusou"
+                    )
+                    AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
+                    break
+
                 # 6. cinto-suspensorio (01 §6.10): se um pipeline sem lock (Pix/foto) pausou a IA
                 #    OU o estado virou terminal durante o turno -> descarta o texto.
                 async with pool.connection() as conn:

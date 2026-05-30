@@ -39,6 +39,14 @@ from barra.dominio.escaladas.service import aplicar_comando
 logger = logging.getLogger(__name__)
 
 
+class VisionInconclusiva(Exception):
+    """Vision terminou sem extracao utilizavel (max_tokens/refusal/content vazio), em 200 OK.
+
+    Pix NUNCA trava (01 §6.1): `validar_pix` captura e marca o comprovante DUVIDOSO
+    (em_revisao, fila assincrona de Fernando) em vez de propagar.
+    """
+
+
 # --- Schema de saida do vision -----------------------------------------------
 # `extra="forbid"` <-> JSON Schema `additionalProperties:false` (06 §0 ressalva 4a +
 # cruzamento doc oficial 24-05): sem isso o roteamento dinamico do OpenRouter pode aceitar
@@ -46,18 +54,12 @@ logger = logging.getLogger(__name__)
 class ExtracaoPix(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    valor: Decimal | None = Field(
-        None, description="Valor pago em BRL, com 2 decimais."
-    )
+    valor: Decimal | None = Field(None, description="Valor pago em BRL, com 2 decimais.")
     chave_pix_destinatario: str | None = Field(
         None, description="Chave Pix do beneficiario (CPF, email, telefone, aleatoria)."
     )
-    titular_destinatario: str | None = Field(
-        None, description="Nome do titular do beneficiario."
-    )
-    banco_origem: str | None = Field(
-        None, description="Banco emissor do pagamento."
-    )
+    titular_destinatario: str | None = Field(None, description="Nome do titular do beneficiario.")
+    banco_origem: str | None = Field(None, description="Banco emissor do pagamento.")
     plausibilidade_visual: bool = Field(
         description=(
             "True se a imagem parece um comprovante real; False se suspeita "
@@ -95,8 +97,10 @@ def _detectar_mime_imagem(dados: bytes) -> str:
 
 def _chaves_compativeis(extraida: str, esperada: str) -> bool:
     """Compara chaves Pix com tolerancia (espacos, pontuacao) (06 §2.4)."""
+
     def _norm(s: str) -> str:
         return re.sub(r"[\s.\-+()/]", "", s).lower()
+
     return _norm(extraida) == _norm(esperada)
 
 
@@ -164,9 +168,15 @@ async def _extrair_via_openrouter(
         ],
         max_tokens=800,
     )
-    conteudo = resposta.choices[0].message.content
-    if not conteudo:
-        raise ValueError("vision retornou content vazio")
+    escolha = resposta.choices[0]
+    # finish_reason chega no 200 OK (nao como excecao): 'length' = max_tokens (JSON truncado),
+    # 'content_filter' = recusa do provider. Em ambos nao da pra extrair -> sinaliza inconclusivo
+    # (Pix NUNCA trava, 01 §6.1): validar_pix marca DUVIDOSO em vez de propagar. getattr porque
+    # fakes de teste podem nao expor finish_reason (o provider real sempre expoe).
+    finish_reason = getattr(escolha, "finish_reason", None)
+    conteudo = escolha.message.content
+    if finish_reason in ("length", "content_filter") or not conteudo:
+        raise VisionInconclusiva(finish_reason or "content_vazio")
     return ExtracaoPix.model_validate_json(conteudo)
 
 
@@ -220,44 +230,55 @@ async def validar_pix(
         bytes_img = await _baixar_minio(minio, settings.minio_bucket_media, object_key)
         media_type = _detectar_mime_imagem(bytes_img)
 
-        # 3. vision
-        extracao = await _extrair_via_openrouter(
-            bytes_img,
-            media_type=media_type,
-            client=vision_client,
-            modelo=settings.openrouter_model_vision_pix or "anthropic/claude-sonnet-4.6",
-        )
-
-        # 4. comparacoes (sem timestamp, emenda §0 item 11)
+        # 3. vision. finish_reason=max_tokens/refusal -> VisionInconclusiva: Pix NUNCA trava
+        #    (01 §6.1), cai em em_revisao (DUVIDOSO) com extracao vazia, sem propagar.
         motivo_em_revisao: str | None = None
         motivo_bucket: str | None = None
-        if not extracao.plausibilidade_visual:
-            motivo_em_revisao = (
-                f"plausibilidade visual: {extracao.motivo_se_implausivel or 'imagem suspeita'}"
+        try:
+            extracao: ExtracaoPix | None = await _extrair_via_openrouter(
+                bytes_img,
+                media_type=media_type,
+                client=vision_client,
+                modelo=settings.openrouter_model_vision_pix or "anthropic/claude-sonnet-4.6",
             )
-            motivo_bucket = "plausibilidade"
-        elif extracao.valor is None or extracao.valor < settings.pix_deslocamento_valor:
-            motivo_em_revisao = (
-                f"valor extraido {extracao.valor} < esperado R${settings.pix_deslocamento_valor}"
+        except VisionInconclusiva as exc:
+            logger.warning(
+                "validar_pix vision inconclusivo atendimento_id=%s finish_reason=%s",
+                atendimento_id,
+                exc,
             )
-            motivo_bucket = "valor"
-        elif (
-            chave_modelo
-            and extracao.chave_pix_destinatario
-            and not _chaves_compativeis(extracao.chave_pix_destinatario, chave_modelo)
-        ):
-            motivo_em_revisao = (
-                f"chave divergente: extraida {extracao.chave_pix_destinatario}, "
-                f"esperada {chave_modelo}"
-            )
-            motivo_bucket = "chave"
-        elif (
-            titular_modelo
-            and extracao.titular_destinatario
-            and not _titulares_compativeis(extracao.titular_destinatario, titular_modelo)
-        ):
-            motivo_em_revisao = f"titular divergente: extraido {extracao.titular_destinatario}"
-            motivo_bucket = "titular"
+            extracao = None
+            motivo_em_revisao = f"vision inconclusivo: finish_reason={exc}"
+            motivo_bucket = "vision"
+
+        # 4. comparacoes (sem timestamp, emenda §0 item 11). So quando houve extracao -- sem
+        #    ela ja esta em em_revisao pelo branch acima.
+        if extracao is not None:
+            if not extracao.plausibilidade_visual:
+                motivo_em_revisao = (
+                    f"plausibilidade visual: {extracao.motivo_se_implausivel or 'imagem suspeita'}"
+                )
+                motivo_bucket = "plausibilidade"
+            elif extracao.valor is None or extracao.valor < settings.pix_deslocamento_valor:
+                motivo_em_revisao = f"valor extraido {extracao.valor} < esperado R${settings.pix_deslocamento_valor}"
+                motivo_bucket = "valor"
+            elif (
+                chave_modelo
+                and extracao.chave_pix_destinatario
+                and not _chaves_compativeis(extracao.chave_pix_destinatario, chave_modelo)
+            ):
+                motivo_em_revisao = (
+                    f"chave divergente: extraida {extracao.chave_pix_destinatario}, "
+                    f"esperada {chave_modelo}"
+                )
+                motivo_bucket = "chave"
+            elif (
+                titular_modelo
+                and extracao.titular_destinatario
+                and not _titulares_compativeis(extracao.titular_destinatario, titular_modelo)
+            ):
+                motivo_em_revisao = f"titular divergente: extraido {extracao.titular_destinatario}"
+                motivo_bucket = "titular"
 
         decisao_pipeline = "validado" if motivo_em_revisao is None else "em_revisao"
 
@@ -276,9 +297,9 @@ async def validar_pix(
                 (
                     UUID(atendimento_id),
                     UUID(mensagem_id),
-                    extracao.valor,
-                    extracao.chave_pix_destinatario,
-                    extracao.titular_destinatario,
+                    extracao.valor if extracao else None,
+                    extracao.chave_pix_destinatario if extracao else None,
+                    extracao.titular_destinatario if extracao else None,
                     decisao_pipeline,
                     motivo_em_revisao,
                 ),
