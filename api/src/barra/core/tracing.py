@@ -78,9 +78,21 @@ _VALOR_PII = re.compile(
 
 _MASCARA = "[PII]"
 
+# Chave OTel gen_ai p/ a "conversa" do trace. No domínio do agente a conversa de um turno é o
+# Atendimento (uma negociação cliente-modelo), não a Conversa cliente — o LangSmith agrupa o
+# thread por este campo. Ver CONTEXT.md "Atendimento" / "Conversa cliente".
+_GEN_AI_CONVERSATION_ID = "gen_ai.conversation.id"
+
+# IDs internos opacos (UUID) que escopam o trace (OBS-09/10) — nunca PII. Allowlist por chave
+# porque o backstop _VALOR_PII casaria um UUID cujo último grupo de 12 hex é todo-dígito (~0.9%),
+# mascarando o discriminador do trace; isentamos por chave para o ID sobreviver ao egress.
+_CHAVES_ID_TRACE = frozenset({"modelo_id", "atendimento_id", _GEN_AI_CONVERSATION_ID})
+
 
 def _mascarar(valor: str, caminho: list[str | int]) -> str:
     chave = str(caminho[-1]).lower() if caminho else ""
+    if chave in _CHAVES_ID_TRACE:
+        return valor
     if any(k in chave for k in _CHAVES_PII):
         return _MASCARA
     if _VALOR_PII.search(valor):
@@ -118,6 +130,31 @@ def setup_tracing(settings: Settings) -> Client | None:
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
     os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
     return client
+
+
+def metadata_trace_turno(modelo_id: str, atendimento_id: str) -> dict[str, Any]:
+    """Fragmento de config (metadata + tags) que escopa o trace do turno por modelo/atendimento.
+
+    Merge no config do `graph.ainvoke` (ex.: `config |= metadata_trace_turno(...)`): os IDs
+    viajam como metadata/tags do RunTree do LangSmith — filtra/agrupa traces por modelo e por
+    atendimento, este último como `gen_ai.conversation.id` (convenção OTel gen_ai).
+
+    Invariante de cache: estes IDs vão SÓ no nível de config (metadata/tags), nunca no conteúdo
+    de mensagem/system. O prefixo cacheado (`tools→system→messages`) é montado em
+    `agente/prepare_context` a partir do `state`, não do config — logo metadata/tags não tocam o
+    prefixo e não invalidam o cache (agente/CLAUDE.md "Prompt caching"). Por isso são dado por-turno
+    legítimo aqui, e não no BP_MODELO.
+
+    Recebe `str` (não `ContextAgente`): `core/` não importa de `agente/` (direção de deps).
+    """
+    return {
+        "metadata": {
+            "modelo_id": modelo_id,
+            "atendimento_id": atendimento_id,
+            _GEN_AI_CONVERSATION_ID: atendimento_id,
+        },
+        "tags": [f"modelo_id:{modelo_id}", f"atendimento_id:{atendimento_id}"],
+    }
 
 
 def _tag_turno_id(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any]:
