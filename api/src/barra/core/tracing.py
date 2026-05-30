@@ -9,6 +9,7 @@ import logging
 import os
 import re
 from collections.abc import Callable
+from types import ModuleType
 from typing import Any
 
 import langsmith.run_trees as run_trees
@@ -16,6 +17,13 @@ from langsmith import Client
 from langsmith.anonymizer import create_anonymizer
 
 from barra.settings import Settings
+
+try:
+    import sentry_sdk as _sentry_sdk
+except ModuleNotFoundError:  # pragma: no cover
+    sentry_sdk: ModuleType | None = None
+else:
+    sentry_sdk = _sentry_sdk
 
 logger = logging.getLogger(__name__)
 
@@ -110,3 +118,44 @@ def setup_tracing(settings: Settings) -> Client | None:
     os.environ["LANGCHAIN_TRACING_V2"] = "true"
     os.environ["LANGCHAIN_PROJECT"] = settings.langchain_project
     return client
+
+
+def _tag_turno_id(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any]:
+    """before_send do Sentry: promove o `turno_id` a tag do evento (OBS-04).
+
+    A exceção não-tratada do pipeline da IA propaga pelo frame de `processar_turno`, que carrega
+    `turno_id` (= ContextAgente.turno_id) como local; expomos como tag para filtrar/agrupar no
+    Sentry. Best-effort: percorre o traceback procurando o local e nunca depende dele existir.
+    """
+    exc_info = hint.get("exc_info")
+    if exc_info is None:
+        return event
+    tb = exc_info[2]
+    turno_id: str | None = None
+    while tb is not None:
+        valor = tb.tb_frame.f_locals.get("turno_id")
+        if isinstance(valor, str):
+            turno_id = valor
+        tb = tb.tb_next
+    if turno_id is not None:
+        tags = event.get("tags") or {}
+        tags["turno_id"] = turno_id
+        event["tags"] = tags
+    return event
+
+
+def init_sentry(settings: Settings) -> bool:
+    """Inicializa o Sentry no boot da api (main.py) e do worker (workers/settings.py) — OBS-04.
+
+    No-op sem DSN configurado (ou sem o SDK instalado): nunca quebra o boot. No worker, a
+    integração arq do Sentry (auto-enabled) captura as exceções do turno; `_tag_turno_id`
+    (before_send) anexa a tag `turno_id`. Retorna True se o Sentry foi inicializado.
+    """
+    if not settings.sentry_dsn or sentry_sdk is None:
+        return False
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.ambiente,
+        before_send=_tag_turno_id,
+    )
+    return True
