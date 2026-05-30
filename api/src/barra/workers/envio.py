@@ -172,9 +172,7 @@ async def _card_pix(
     del atendimento_id  # vem no payload do job p/ _job_id; renderer le tudo do comprovante
 
 
-async def _card_chegada(
-    ctx: dict[str, Any], *, atendimento_id: str, **_: Any
-) -> None:
+async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -> None:
     """Card "cliente chegou" no grupo de Coordenação (06 §4).
 
     Anexa a foto de portaria do cliente (presigned URL do MinIO, TTL 30min) — a
@@ -231,11 +229,15 @@ async def _card_chegada(
             horario=e["bloqueio_inicio"],
         )
 
-        url = minio.presigned_get_object(
-            ctx["settings"].minio_bucket_media,
-            e["foto_object_key"],
-            expires=timedelta(minutes=30),
-        ) if e["foto_object_key"] else None
+        url = (
+            minio.presigned_get_object(
+                ctx["settings"].minio_bucket_media,
+                e["foto_object_key"],
+                expires=timedelta(minutes=30),
+            )
+            if e["foto_object_key"]
+            else None
+        )
 
         async with conn.transaction():
             if url:
@@ -266,9 +268,7 @@ async def _card_chegada(
             )
 
 
-async def _card_aviso_saida(
-    ctx: dict[str, Any], *, atendimento_id: str, **_: Any
-) -> None:
+async def _card_aviso_saida(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -> None:
     """Card "cliente saiu de casa" no grupo de Coordenação (06 §5).
 
     Sem owner (aviso_saida nao tem escalada — emenda §0 item 8): idempotencia por
@@ -412,6 +412,7 @@ async def enviar_turno(
     chars_inbound: int,
     critico: bool = False,
     quote_msg_ids: list[str | None] | None = None,
+    quote_texto: str | None = None,
 ) -> None:
     """Envia um turno chunk-by-chunk e depois as mídias (05 §4).
 
@@ -421,7 +422,10 @@ async def enviar_turno(
 
     `quote_msg_ids` (opcional) tem o mesmo tamanho de `chunks`; cada posição não-None faz a
     bolha sair com reply/quote àquela mensagem (Evolution v2.3.6 `quoted.key.id`). Default
-    None preserva o comportamento dos call sites canned/reengajamento.
+    None preserva o comportamento dos call sites canned/reengajamento. `quote_texto` é o
+    conteúdo da mensagem citada (última do cliente) — vai no `quoted.message.conversation`
+    para o balão de reply renderizar o texto; sem ele, o WhatsApp mostra a citação vazia
+    (a Evolution não faz lookup pelo id, verificado 2026-05-30).
     """
     redis = ctx["redis"]
     pool = ctx["db_pool"]
@@ -472,7 +476,9 @@ async def enviar_turno(
             await asyncio.sleep(typing_ms / 1000)
 
             # 4 + 5. POST (→ envios_evolution) e persistência em mensagens, na MESMA transação
-            quote_target = quote_msg_ids[idx] if quote_msg_ids and idx < len(quote_msg_ids) else None
+            quote_target = (
+                quote_msg_ids[idx] if quote_msg_ids and idx < len(quote_msg_ids) else None
+            )
             async with pool.connection() as conn, conn.transaction():
                 mid = await evolution.enviar_texto(
                     conn=conn,
@@ -484,6 +490,7 @@ async def enviar_turno(
                     atendimento_id=conv["atendimento_id"],
                     conversa_id=conversa_uuid,
                     quoted_message_id=quote_target,
+                    quoted_text=quote_texto if quote_target else None,
                 )
                 await conn.execute(
                     """

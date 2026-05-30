@@ -18,6 +18,7 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
+import structlog
 from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.errors import GraphRecursionError
@@ -56,11 +57,17 @@ async def processar_turno(
     *,
     conversa_id: str,
     aguardar_transcricao: bool = False,
+    request_id: str | None = None,
 ) -> None:
     redis = ctx["redis"]
     pool = ctx["db_pool"]
     graph = ctx["graph"]
     settings = ctx["settings"]
+
+    # OBS-07: bind do request-id da API nos logs JSON (OBS-03) deste turno. Cada job ARQ roda no
+    # proprio contextvars.Context (worker cria task por job), entao o bind nao vaza entre turnos.
+    if request_id is not None:
+        structlog.contextvars.bind_contextvars(request_id=request_id)
 
     conv_uuid = UUID(conversa_id)
     modelo_anthropic = settings.anthropic_modelo_principal
@@ -76,6 +83,8 @@ async def processar_turno(
                 # gera novo enqueue -> novo score -> novo turno_id). Sem ele, `_job_id`
                 # estatico por conversa colidia turnos diferentes no mesmo turno_id.
                 turno_id = str(uuid5(NS_TURNO, f"{ctx['job_id']}:{ctx['score']}:{loop_idx}"))
+                # OBS-07/OBS-03: turno_id como campo dos logs JSON, junto do request_id.
+                structlog.contextvars.bind_contextvars(turno_id=turno_id)
                 await redis.delete(f"pending:conv:{conversa_id}")  # limpa ANTES de ler a janela
 
                 # 1. resolver atendimento e cobrir orfas.
@@ -307,6 +316,9 @@ async def processar_turno(
                     # (alvo natural de recusa/qualificacao/contraproposta). Sem inbound,
                     # o flag e ignorado (None) — defesa para canned/reengajamento.
                     alvo_quote = msg_ids_cliente[-1] if msg_ids_cliente else None
+                    # texto do alvo p/ o `quoted.message.conversation` (balão de reply não
+                    # fica vazio — a Evolution não faz lookup pelo id; verificado 2026-05-30).
+                    alvo_quote_texto = inbound[-1]["conteudo"] if inbound else None
                     quote_msg_ids: list[str | None] = [
                         alvo_quote if flag else None for flag in quote_flags
                     ]
@@ -327,6 +339,7 @@ async def processar_turno(
                             chars_inbound,
                             critico,
                             quote_msg_ids=quote_msg_ids,
+                            quote_texto=alvo_quote_texto,
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
 
@@ -341,6 +354,7 @@ async def processar_turno(
                         "processar_turno",
                         conversa_id=conversa_id,
                         aguardar_transcricao=False,
+                        request_id=request_id,  # OBS-07: mantem correlacao no turno recuperado
                         _job_id=f"turno:{conversa_id}",
                         _defer_by=timedelta(seconds=2),
                     )
@@ -350,6 +364,7 @@ async def processar_turno(
             "processar_turno",
             conversa_id=conversa_id,
             aguardar_transcricao=aguardar_transcricao,
+            request_id=request_id,  # OBS-07: mantem correlacao no re-defer
             _job_id=f"turno:{conversa_id}",
             _defer_by=timedelta(seconds=2),
         )
@@ -552,6 +567,7 @@ async def despachar_humanizacao(
     chars_inbound: int,
     critico: bool,
     quote_msg_ids: list[str | None] | None = None,
+    quote_texto: str | None = None,
 ) -> None:
     """Um unico job `enviar_turno` por turno (05 §1): percorre chunks e midias em ordem (07 §3.4).
 
@@ -568,5 +584,6 @@ async def despachar_humanizacao(
         chars_inbound=chars_inbound,
         critico=critico,
         quote_msg_ids=quote_msg_ids,
+        quote_texto=quote_texto,
         _job_id=f"turno_envio:{turno_id}",
     )

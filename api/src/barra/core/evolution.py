@@ -35,16 +35,25 @@ class EvolutionClient:
         conversa_id: UUID | None = None,
         payload: dict[str, Any] | None = None,
         quoted_message_id: str | None = None,
+        quoted_text: str | None = None,
     ) -> str:
         if not self.settings.evolution_base_url:
-            raise ErroDominio("EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503)
+            raise ErroDominio(
+                "EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503
+            )
 
         body: dict[str, Any] = {"number": remote_jid, "text": texto}
         if quoted_message_id:
-            # Evolution v2.3.6 (cliente evolution_api_v3) repete o payload Baileys:
-            # `quoted.message.conversation` precisa existir mesmo vazio; o servidor
-            # casa o quote pelo `key.id` sem consultar o conteudo.
-            body["quoted"] = {"key": {"id": quoted_message_id}, "message": {"conversation": ""}}
+            # Evolution v2.3.6 (cliente evolution_api_v3) NAO faz lookup da mensagem
+            # citada pelo `key.id`: ela ecoa literalmente o `quoted.message.conversation`
+            # que mandamos para o `contextInfo.quotedMessage`. O `key.id` casa o reply
+            # (a setinha aponta certo), mas o TEXTO do balao de citacao no WhatsApp do
+            # cliente vem desse campo — vazio aqui = balao de reply vazio (verificado
+            # 2026-05-30). Por isso enviamos o conteudo real da mensagem citada.
+            body["quoted"] = {
+                "key": {"id": quoted_message_id},
+                "message": {"conversation": quoted_text or ""},
+            }
         url = f"{self.settings.evolution_base_url.rstrip('/')}/message/sendText/{instance_id}"
         headers = {"apikey": self.settings.evolution_api_key}
         async with httpx.AsyncClient(timeout=20) as client:
@@ -55,7 +64,9 @@ class EvolutionClient:
         evolution_message_id = _extrair_message_id(data)
         if not evolution_message_id:
             ENVIOS_EVOLUTION.labels("falha").inc()
-            raise ErroDominio("EVOLUTION_RESPOSTA_INVALIDA", "Evolution nao retornou id.", status_code=502)
+            raise ErroDominio(
+                "EVOLUTION_RESPOSTA_INVALIDA", "Evolution nao retornou id.", status_code=502
+            )
 
         await registrar_envio(
             conn,
@@ -87,19 +98,29 @@ class EvolutionClient:
         conversa_id: UUID | None = None,
         payload: dict[str, Any] | None = None,
         quoted_message_id: str | None = None,
+        quoted_text: str | None = None,
     ) -> str:
         """Espelha enviar_texto para mídia: POST /message/sendMedia → registra em
         envios_evolution → devolve evolution_message_id. O kwarg `view_once` (Mídia
         exclusiva, 01 §6.13) é ACEITO mas NÃO entra no body: a Evolution v2 self-host
-        ainda não expõe o campo no sendMedia — ignorado até o suporte chegar."""
+        ainda não expõe o campo no sendMedia — ignorado até o suporte chegar.
+
+        `quoted_text` segue a mesma regra do enviar_texto: a Evolution v2.3.6 ecoa
+        `quoted.message.conversation` (não faz lookup pelo id), então sem ele o balão
+        de citação sai vazio no cliente."""
         if not self.settings.evolution_base_url:
-            raise ErroDominio("EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503)
+            raise ErroDominio(
+                "EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503
+            )
 
         body: dict[str, Any] = {"number": remote_jid, "mediatype": media_type, "media": url}
         if caption:
             body["caption"] = caption
         if quoted_message_id:
-            body["quoted"] = {"key": {"id": quoted_message_id}, "message": {"conversation": ""}}
+            body["quoted"] = {
+                "key": {"id": quoted_message_id},
+                "message": {"conversation": quoted_text or ""},
+            }
         endpoint = f"{self.settings.evolution_base_url.rstrip('/')}/message/sendMedia/{instance_id}"
         headers = {"apikey": self.settings.evolution_api_key}
         async with httpx.AsyncClient(timeout=30) as client:
@@ -110,7 +131,9 @@ class EvolutionClient:
         evolution_message_id = _extrair_message_id(data)
         if not evolution_message_id:
             ENVIOS_EVOLUTION.labels("falha").inc()
-            raise ErroDominio("EVOLUTION_RESPOSTA_INVALIDA", "Evolution nao retornou id.", status_code=502)
+            raise ErroDominio(
+                "EVOLUTION_RESPOSTA_INVALIDA", "Evolution nao retornou id.", status_code=502
+            )
 
         await registrar_envio(
             conn,
@@ -138,7 +161,9 @@ class EvolutionClient:
         Evolution v2.3.6 self-host (verificado 2026-05-27) exige `readMessages` em camelCase;
         snake_case retorna 400 Bad Request."""
         if not self.settings.evolution_base_url:
-            raise ErroDominio("EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503)
+            raise ErroDominio(
+                "EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503
+            )
         body = {
             "readMessages": [
                 {"remoteJid": remote_jid, "fromMe": False, "id": mid} for mid in message_ids
@@ -290,7 +315,9 @@ class EvolutionClient:
         só querem checar status sem se preocupar com criação."""
         if not self.settings.evolution_base_url:
             return "unknown"
-        url = f"{self.settings.evolution_base_url.rstrip('/')}/instance/connectionState/{instance_id}"
+        url = (
+            f"{self.settings.evolution_base_url.rstrip('/')}/instance/connectionState/{instance_id}"
+        )
         headers = {"apikey": self.settings.evolution_api_key}
         async with httpx.AsyncClient(timeout=10) as client:
             response = await client.get(url, headers=headers)

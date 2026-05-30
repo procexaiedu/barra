@@ -41,7 +41,7 @@
 | ID | Onda | Task | Depende de | Status |
 |---|---|---|---|---|
 | DEPLOY-01 | 1 | Rotacionar segredos → Swarm secrets | — | done ⚠️ parcial |
-| SEC-03 | 1 | Endurecer download de mídia (SSRF/DoS) | — | todo |
+| SEC-03 | 1 | Endurecer download de mídia (SSRF/DoS) | — | done |
 | SEC-02 | 1 | Filtrar `numero_curto` por modelo | — | todo |
 | DEPLOY-02 | 1 | Healthcheck + readiness no Traefik | — | todo |
 | DEPLOY-04 | 1 | Backup do Postgres + runbook | — | todo |
@@ -106,7 +106,7 @@
 - **Guardrails específicos:** segredo é vivo — rotacione antes de qualquer outra coisa.
 
 ### SEC-03 — Endurecer `_baixar_midia` (SSRF + DoS)
-- **Status:** todo · **Onda:** 1 · **Dimensão:** Segurança · **Depende de:** — · **Fonte:** roadmap §3.1
+- **Status:** done (2026-05-29, branch `sec-03-midia`) · **Onda:** 1 · **Dimensão:** Segurança · **Depende de:** — · **Fonte:** roadmap §3.1
 - **Objetivo (DoD):** download de mídia recusa host fora da allowlist, não segue redirect e aborta acima do teto de bytes.
 - **Arquivos:** `api/src/barra/webhook/routes.py:32-41`.
 - **Passos:** (1) validar host de `msg.media_url` contra o host de `settings.evolution_base_url`; (2) `follow_redirects=False`; (3) `httpx.stream` abortando acima de `settings.midia_max_bytes` (~25MB) em vez de `resp.content`.
