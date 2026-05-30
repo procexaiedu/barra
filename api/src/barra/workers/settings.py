@@ -25,6 +25,7 @@ from barra.agente.graph import build_graph
 from barra.agente.llm import preaquecer_prefixo_global
 from barra.core.db import criar_pool, fechar_pool
 from barra.core.evolution import EvolutionClient
+from barra.core.logging import setup_logging
 from barra.core.storage import criar_minio
 from barra.core.tracing import init_sentry, setup_tracing
 from barra.settings import Settings, get_settings
