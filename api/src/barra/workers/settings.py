@@ -109,7 +109,12 @@ async def startup(ctx: dict[str, Any]) -> None:
     if settings.ambiente != "teste":
         from prometheus_client import start_http_server
 
-        start_http_server(9091)
+        # best-effort (igual ao preaquecimento abaixo): metricas nunca podem impedir o worker
+        # de subir — ex.: :9091 ja ocupada por outro worker no mesmo host/netns.
+        try:
+            start_http_server(9091)
+        except OSError:
+            logger.warning("metrics_http_server_falhou", exc_info=True)
     # max_size=20/autocommit=True para o turno (07 §2). NAO criar ctx["redis"]: o ARQ ja injeta
     # a ArqRedis em ctx["redis"] antes do startup — sobrescrever mataria enqueue_job.
     ctx["db_pool"] = await criar_pool(settings.database_url, max_size=20, autocommit=True)
