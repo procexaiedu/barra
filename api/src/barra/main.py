@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -46,7 +47,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         if not dev:
             raise
-        _logger.warning("minio_indisponivel_dev endpoint=%s; seguindo sem bucket", settings.minio_endpoint)
+        _logger.warning(
+            "minio_indisponivel_dev endpoint=%s; seguindo sem bucket", settings.minio_endpoint
+        )
     # Pool ARQ p/ enfileirar o turno (01 §4.2) — a MESMA conexao Redis do coordenador.
     # Sem redis_url (dev/teste) nao cria pool: o webhook so persiste a mensagem.
     app.state.arq = await _criar_arq_pool(settings.redis_url, dev)
@@ -68,6 +71,19 @@ def build_app() -> FastAPI:
         docs_url="/docs" if settings.ambiente != "producao" else None,
     )
     app.state.settings = settings
+    if settings.ambiente == "producao":
+        regex = settings.cors_origin_regex
+        # "regex amplo equivalente": testa o comportamento (casa origin arbitraria via fullmatch,
+        # como o CORSMiddleware faz), nao a forma sintatica — pega ".*", ".+", "https?://.*", etc.
+        regex_amplo = regex is not None and any(
+            re.compile(regex).fullmatch(origem)
+            for origem in ("https://origem-arbitraria.example", "http://outra.test", "null")
+        )
+        if any("*" in origem for origem in settings.cors_origins) or regex_amplo:
+            raise RuntimeError(
+                "CORS curinga proibido em producao: configure cors_origins explicitos "
+                "(sem '*' nem regex que case origin arbitraria)."
+            )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
@@ -129,7 +145,9 @@ async def _criar_arq_pool(redis_url: str, dev: bool) -> Any:
     except Exception:
         if not dev:
             raise
-        _logger.warning("redis_indisponivel_dev url=%s; seguindo sem ARQ (webhook so persiste)", redis_url)
+        _logger.warning(
+            "redis_indisponivel_dev url=%s; seguindo sem ARQ (webhook so persiste)", redis_url
+        )
         return None
 
 
