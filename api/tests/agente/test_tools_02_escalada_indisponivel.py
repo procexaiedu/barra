@@ -71,21 +71,36 @@ class _FakeRedis:
 
 
 class _FakeGraph:
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
     async def ainvoke(self, *_a: Any, **_k: Any) -> Any:
-        # 5xx persistente da API do LLM (Anthropic) — o no llm ja re-levanta este erro.
-        req = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
-        raise APIStatusError("server error", response=httpx.Response(500, request=req), body=None)
+        # erro persistente da API do LLM (Anthropic) — o no llm ja re-levanta esses erros.
+        raise self._exc
+
+
+def _req() -> httpx.Request:
+    return httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+
+
+def _erros_persistentes() -> list[BaseException]:
+    resp = httpx.Response(500, request=_req())
+    return [
+        APIStatusError("server error", response=resp, body=None),
+        RateLimitError("rate limited", response=httpx.Response(429, request=_req()), body=None),
+        APITimeoutError(request=_req()),
+    ]
 
 
 class _FakeSettings:
     anthropic_modelo_principal = "claude-test"
 
 
-def _ctx() -> dict[str, Any]:
+def _ctx(exc: BaseException) -> dict[str, Any]:
     return {
         "redis": _FakeRedis(),
         "db_pool": _FakePool(),
-        "graph": _FakeGraph(),
+        "graph": _FakeGraph(exc),
         "settings": _FakeSettings(),
         "job_id": "job-tools02",
         "score": 1000,
@@ -97,13 +112,18 @@ async def _lock_noop(*_a: Any, **_k: Any) -> Any:
     yield None
 
 
-async def test_5xx_persistente_aciona_escalada_modelo_indisponivel() -> None:
-    """graph.ainvoke -> APIStatusError(500) -> escalar_por_exaustao(motivo=modelo_indisponivel)."""
+@pytest.mark.parametrize("exc", _erros_persistentes(), ids=lambda e: type(e).__name__)
+async def test_erro_persistente_api_aciona_escalada_modelo_indisponivel(exc: BaseException) -> None:
+    """graph.ainvoke -> erro persistente da API -> escalar_por_exaustao(motivo=modelo_indisponivel).
+
+    Cobre os 3 erros desviados (RateLimitError, APITimeoutError, APIStatusError): se alguem
+    remover/reordenar um membro da tupla do except, o caso correspondente falha.
+    """
     with (
         patch("barra.workers.coordenador.adquirir_lock", _lock_noop),
         patch("barra.workers.coordenador.escalar_por_exaustao", new=AsyncMock()) as mock_escalar,
     ):
-        await processar_turno(_ctx(), conversa_id=_CONV_ID)
+        await processar_turno(_ctx(exc), conversa_id=_CONV_ID)
 
     mock_escalar.assert_awaited_once()
     assert mock_escalar.await_args.kwargs["motivo"] == "modelo_indisponivel"
