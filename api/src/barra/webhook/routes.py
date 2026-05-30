@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import io
 import logging
 from typing import Any, cast
@@ -56,8 +57,12 @@ async def evolution_webhook(
     authorization: str | None = Header(default=None),
 ) -> dict[str, str]:
     settings = request.app.state.settings
-    provided = x_webhook_token or (authorization.removeprefix("Bearer ").strip() if authorization else None)
-    if settings.evolution_webhook_token and provided != settings.evolution_webhook_token:
+    provided = x_webhook_token or (
+        authorization.removeprefix("Bearer ").strip() if authorization else None
+    )
+    if settings.evolution_webhook_token and (
+        provided is None or not hmac.compare_digest(provided, settings.evolution_webhook_token)
+    ):
         WEBHOOK_ERRORS.labels("auth").inc()
         raise ErroDominio("WEBHOOK_NAO_AUTORIZADO", "Webhook nao autorizado.", status_code=401)
 
