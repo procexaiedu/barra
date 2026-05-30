@@ -21,6 +21,12 @@ from barra.workers._cards import render_card
 
 logger = logging.getLogger(__name__)
 
+# Teto de tentativas dos jobs de envio (enviar_card/enviar_turno), fonte única (REL-03).
+# O ARQ NAO injeta max_tries no job_ctx, entao o fallback do dead-end abaixo (ctx.get) precisa
+# bater com o max_tries registrado em workers/settings.py — senao a checagem job_try>=max_tries
+# nunca dispara e a escalada de envio crítico exaurido some em silêncio. Mude aqui, muda nos dois.
+MAX_TRIES_ENVIO = 3
+
 
 async def enviar_texto_job(
     conn: AsyncConnection[Any],
@@ -514,7 +520,9 @@ async def enviar_turno(
     except Exception:
         # Falha final do job (ARQ não vai retentar): job_try chegou ao teto de tentativas.
         job_try = ctx.get("job_try", 1)
-        max_tries = ctx.get("max_tries", 5)
+        # ARQ nao popula max_tries no ctx -> o fallback É o teto efetivo; tem de ser o mesmo
+        # MAX_TRIES_ENVIO registrado em settings.py (REL-03), senao o dead-end nunca dispara.
+        max_tries = ctx.get("max_tries", MAX_TRIES_ENVIO)
         if job_try >= max_tries:
             # request_id = job_id do ARQ: no worker não há request_id HTTP, então o id do job é o
             # de correlação (spec §15.2) — amarra log e Sentry a esta execução.
