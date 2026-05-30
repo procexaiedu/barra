@@ -14,7 +14,8 @@ from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
 import httpx
-from anthropic import APIStatusError
+import pytest
+from anthropic import APIStatusError, APITimeoutError, RateLimitError
 
 from barra.dominio.escaladas.modelos import TipoEscalada
 from barra.workers.coordenador import escalar_por_exaustao, processar_turno
