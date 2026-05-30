@@ -18,6 +18,7 @@ from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
+from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.messages import AIMessage, BaseMessage
 from langgraph.errors import GraphRecursionError
 from psycopg import AsyncConnection

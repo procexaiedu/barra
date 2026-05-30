@@ -32,8 +32,6 @@ MotivoEscalada = Literal[
     "exaustao_iteracoes",
     "timeout_grafo",
     "modelo_recusou",
-    # Infra — 5xx/timeout persistente da API do LLM (Anthropic), nao a Modelo (profissional)
-    "modelo_indisponivel",
     # AUP / persona / jailbreak (cf. 10-persona-jailbreak.md)
     "disclosure_insistente",
     "disclosure_explicito",
