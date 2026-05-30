@@ -21,7 +21,6 @@ from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket, mapear
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
 
-
 # Enum de roteamento compartilhado entre o parametro `motivo` da tool (forma achatada enviada ao
 # LLM) e `EscaladaPayload.motivo` (validacao interna) — fonte unica, sem divergencia (04 §3.4).
 MotivoEscalada = Literal[
@@ -33,6 +32,8 @@ MotivoEscalada = Literal[
     "exaustao_iteracoes",
     "timeout_grafo",
     "modelo_recusou",
+    # Infra — 5xx/timeout persistente da API do LLM (Anthropic), nao a Modelo (profissional)
+    "modelo_indisponivel",
     # AUP / persona / jailbreak (cf. 10-persona-jailbreak.md)
     "disclosure_insistente",
     "disclosure_explicito",
