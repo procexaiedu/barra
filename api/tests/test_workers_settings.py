@@ -37,3 +37,15 @@ def test_jobs_de_envio_max_tries() -> None:
     for nome in ("enviar_card", "enviar_turno"):
         f = _func_por_nome(nome)
         assert f.max_tries == 3, nome  # type: ignore[attr-defined]
+
+
+def test_envio_max_tries_bate_com_fallback_do_dead_end() -> None:
+    # REL-03 [CRITICO]: o ARQ nao injeta max_tries no ctx, entao o dead-end de envio critico
+    # (envio.py: ctx.get("max_tries", MAX_TRIES_ENVIO)) usa a constante como teto efetivo. Se o
+    # registro divergir da constante, a checagem job_try>=max_tries nunca dispara e a escalada
+    # de envio_exaurido_critico some em silencio. Este teste trava os dois no mesmo valor.
+    from barra.workers.envio import MAX_TRIES_ENVIO
+
+    for nome in ("enviar_card", "enviar_turno"):
+        f = _func_por_nome(nome)
+        assert f.max_tries == MAX_TRIES_ENVIO, nome  # type: ignore[attr-defined]
