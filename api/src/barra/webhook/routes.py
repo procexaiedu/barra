@@ -3,6 +3,7 @@ import hmac
 import io
 import logging
 from typing import Any, cast
+from urllib.parse import urlsplit
 from uuid import UUID
 
 import httpx
@@ -30,13 +31,36 @@ _MIME_EXT: dict[str, str] = {
 }
 
 
-async def _baixar_midia(url: str) -> tuple[bytes, str] | None:
+def _host_permitido(url: str, base_url: str) -> bool:
+    """A mídia só pode vir do mesmo host da Evolution (anti-SSRF). Sem base_url
+    configurada não há allowlist para validar → recusa (fail-closed)."""
+    if not base_url:
+        return False
+    alvo = urlsplit(url).hostname
+    permitido = urlsplit(base_url).hostname
+    if not alvo or not permitido:
+        return False
+    return alvo.lower() == permitido.lower()
+
+
+async def _baixar_midia(url: str, base_url: str, max_bytes: int) -> tuple[bytes, str] | None:
+    if not _host_permitido(url, base_url):
+        _logger.warning("download_midia_host_negado url=%s", url)
+        return None
     try:
         async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.get(url, follow_redirects=True)
-            resp.raise_for_status()
-        ct = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-        return resp.content, ct
+            async with client.stream("GET", url, follow_redirects=False) as resp:
+                resp.raise_for_status()
+                ct = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                buf = bytearray()
+                async for chunk in resp.aiter_bytes():
+                    buf.extend(chunk)
+                    if len(buf) > max_bytes:
+                        _logger.warning(
+                            "download_midia_excede_limite url=%s limite=%d", url, max_bytes
+                        )
+                        return None
+        return bytes(buf), ct
     except Exception as exc:
         _logger.warning("falha_download_midia url=%s erro=%s", url, exc)
         return None
@@ -90,7 +114,9 @@ async def evolution_webhook(
     # Baixar mídia antes de abrir conexão, para não segurar o pool durante I/O de rede.
     midia: tuple[bytes, str] | None = None
     if msg.tipo != "texto" and msg.media_url and minio is not None:
-        midia = await _baixar_midia(msg.media_url)
+        midia = await _baixar_midia(
+            msg.media_url, settings.evolution_base_url, settings.midia_max_bytes
+        )
 
     async with pool.connection() as conn:
         if await _mensagem_ja_persistida(conn, msg.evolution_message_id):
