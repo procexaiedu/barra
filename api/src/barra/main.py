@@ -54,6 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def build_app() -> FastAPI:
     settings = get_settings()
+    setup_logging(settings)
     init_sentry(settings)
     setup_tracing(settings)
 
