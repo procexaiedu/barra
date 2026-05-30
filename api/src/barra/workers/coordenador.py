@@ -465,12 +465,24 @@ async def escalar_por_exaustao(
 
     A `abrir_handoff` shipada NAO aceita `motivo=` (09 §4.3): o motivo passa pelo `mapear_motivo`
     do servico de dominio (M3f) -> `(tipo, responsavel)` e o motivo literal vai em `observacao`.
-    Os motivos de exaustao (`timeout_grafo`/`exaustao_iteracoes`/`modelo_recusou`) caem em
-    `tipo=outro` + `responsavel="Fernando"` — comportamento identico ao hardcode anterior.
+    Os motivos (`timeout_grafo`/`exaustao_iteracoes`/`modelo_recusou`/`modelo_indisponivel`) caem
+    em `tipo=outro` + `responsavel="Fernando"`. O `resumo_operacional` varia por motivo: exaustao
+    fala de recursion_limit/60s; `modelo_indisponivel` fala de indisponibilidade da API do LLM.
     A metrica `agente_escalada_total` e emitida aqui (camada do agente), nao em `abrir_handoff`.
     """
     from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket, mapear_motivo
 
+    if motivo == "modelo_indisponivel":
+        resumo = (
+            f"API do LLM (Anthropic) indisponivel: 5xx/timeout persistente apos os retries do "
+            f"SDK. turno_id={turno_id}. Verificar status da Anthropic / trace LangSmith."
+        )
+    else:
+        resumo = (
+            f"Agente nao encerrou o turno: estourou recursion_limit "
+            f"({RECURSION_LIMIT} super-steps ~= {RECURSION_LIMIT // 2} round-trips) ou "
+            f"excedeu 60s. turno_id={turno_id}. Verificar trace LangSmith."
+        )
     tipo, responsavel = mapear_motivo(motivo)
     async with pool.connection() as conn:
         await abrir_handoff(
@@ -478,11 +490,7 @@ async def escalar_por_exaustao(
             atendimento_id=atendimento_id,
             responsavel=responsavel,
             tipo=tipo,
-            resumo_operacional=(
-                f"Agente nao encerrou o turno: estourou recursion_limit "
-                f"({RECURSION_LIMIT} super-steps ~= {RECURSION_LIMIT // 2} round-trips) ou "
-                f"excedeu 60s. turno_id={turno_id}. Verificar trace LangSmith."
-            ),
+            resumo_operacional=resumo,
             acao_esperada="Revisar trace, decidir se devolve para IA ou assume manualmente.",
             origem="agente",
             autor="sistema",
