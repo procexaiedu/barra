@@ -56,6 +56,7 @@ def _instrumentar_tokens(resp: BaseMessage, modelo: str) -> None:
         calcular_custo_brl(um, get_settings().usd_brl_cotacao)
     )
 
+
 class _NoLLM(Protocol):
     """Forma do no llm aceita pelo StateGraph (runtime keyword-only, como langgraph espera)."""
 
@@ -98,8 +99,15 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
             stop_reason = (resp.response_metadata or {}).get("stop_reason")
             if stop_reason == "refusal":
                 # safety filter do Sonnet -> escala p/ Fernando (sem fallback de modelo, 01 §2.6).
-                # TODO(M3): escalar_por_exaustao(motivo="modelo_recusou") -- nasce no M3f
-                logger.warning("llm stop_reason=refusal (turno_id=%s)", runtime.context.turno_id)
+                # O sinal viaja no response_metadata da AIMessage (canal `messages` do state):
+                # o coordenador le stop_reason apos o ainvoke e aciona escalar_por_exaustao
+                # (motivo="modelo_recusou"), pausando a IA sem mandar a bolha crua ao cliente.
+                detalhes = (resp.response_metadata or {}).get("stop_details") or {}
+                logger.warning(
+                    "llm stop_reason=refusal (turno_id=%s category=%s)",
+                    runtime.context.turno_id,
+                    detalhes.get("category"),
+                )
             elif stop_reason == "max_tokens":
                 # premissa: max_tokens=1024 nao trunca (03 §6.1). No P0 so observa, nao escala
                 # (09 §4.2); o spike na metrica e quem decide revisar o teto / mid-tool_use.
