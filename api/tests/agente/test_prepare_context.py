@@ -11,6 +11,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from _fakes import FakeConn, FakePool, FakeRuntime
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END
@@ -151,6 +152,7 @@ def test_traduzir_direcao_desconhecida_levanta() -> None:
         raise AssertionError("esperava ValueError para direcao fora do enum")
 
 
+@pytest.mark.needs_key  # build_graph() -> criar_chat_anthropic() exige ANTHROPIC_API_KEY
 def test_grafo_pausa_encerra_antes_do_llm() -> None:
     # Prova a coordenacao graph.py <-> prepare_context: sem aresta estatica de saida, a pausa
     # (Command(goto=END)) encerra o turno sem fan-out p/ intercept_disclosure/llm (sem AIMessage).
