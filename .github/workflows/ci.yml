@@ -1,0 +1,31 @@
+# CI minimo — juiz objetivo dos PRs (inclusive os gerados por agente noturno).
+# Roda mypy + pytest SEM TEST_DATABASE_URL nem ANTHROPIC_API_KEY: o conftest pula os
+# testes `needs_db`/`needs_key`, entao a CI nao toca o banco de producao nem a API real.
+# Lint (ruff) fica fora daqui de proposito: ha divida de formatacao preexistente no repo;
+# o lint dos arquivos efetivamente tocados ja e garantido pelo hook .claude/hooks/ruff_format.py.
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      - run: uv run mypy src
+      - run: uv run pytest
