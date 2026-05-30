@@ -147,7 +147,7 @@ class Settings(BaseSettings):
         description="Valor esperado do Pix de deslocamento, em BRL (06 §2.2/§0 item 6). Comparação é `valor >= esperado`: underpay → em_revisao; valor maior é aceito como validado.",
     )
 
-    langchain_tracing_v2: bool = True
+    langchain_tracing_v2: bool = False
     langchain_api_key: str | None = None
     langchain_project: str = "barra-vips-dev"
 
