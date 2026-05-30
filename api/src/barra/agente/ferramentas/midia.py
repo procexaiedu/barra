@@ -24,6 +24,8 @@ from langchain_core.tools import InjectedToolArg, tool
 from langgraph.prebuilt import ToolRuntime
 from psycopg import AsyncConnection
 
+from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
+
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
 
@@ -74,6 +76,7 @@ async def enviar_midia(
         )
         escolhida = await res.fetchone()
         if escolhida is None:
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("enviar_midia", "midia_indisponivel").inc()
             return f"ERRO: nenhuma midia tipo '{tipo}' disponivel para a tag '{tag}'."
 
         await _executar_idempotente(

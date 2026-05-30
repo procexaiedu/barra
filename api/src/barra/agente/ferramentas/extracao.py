@@ -14,6 +14,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from pydantic import BaseModel, ConfigDict, Field
 
+from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
 from barra.dominio.agenda.service import ConflitoAgenda
 from barra.dominio.atendimentos.service import registrar_extracao_ia
 
@@ -123,6 +124,7 @@ async def registrar_extracao(
         except ConflitoAgenda:
             # Erro recuperavel (04 §6): a transacao reverteu; instrua a IA a reofertar outro
             # horario. Sai como status=success de proposito (e o loop funcionando, nao falha).
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "agenda_conflito").inc()
             return (
                 "ERRO: o horario escolhido ja esta reservado para a modelo. "
                 "Ofereca outro horario ao cliente e registre de novo."
