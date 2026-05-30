@@ -5,6 +5,8 @@ from datetime import date
 from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 
+from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
+
 from ..contexto import ContextAgente
 
 
@@ -31,12 +33,15 @@ async def consultar_agenda(
     try:
         di = date.fromisoformat(data_inicio)
     except ValueError:
+        AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "data_invalida").inc()
         return "ERRO: data inválida, use YYYY-MM-DD."
     try:
         df = date.fromisoformat(data_fim)
     except ValueError:
+        AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "data_invalida").inc()
         return "ERRO: data inválida, use YYYY-MM-DD."
     if (df - di).days > 14:
+        AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "janela_excedida").inc()
         return "ERRO: janela máxima é 14 dias. Refine sua consulta."
 
     async with pool.connection() as conn:

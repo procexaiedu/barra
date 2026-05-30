@@ -78,6 +78,12 @@ AGENTE_ESCALADA = Counter(
     "Escaladas por bucket/motivo (ver docs/agente/08-evals.md 3.2)",
     ["bucket", "motivo"],
 )
+AGENTE_TOOL_ERRO_RECUPERAVEL = Counter(
+    "agente_tool_erro_recuperavel_total",
+    "Tools do agente que retornaram um 'ERRO:' recuperavel ao LLM (instrui a IA a reagir, "
+    "nao falha de turno). tool=nome da ferramenta, motivo=categoria curta e estavel.",
+    ["tool", "motivo"],
+)
 AGENTE_TURNO_TOKENS = Counter(
     "agente_turno_tokens_total",
     "Tokens por turno por tipo: input|output|cache_read|cache_write. Rotulado por "

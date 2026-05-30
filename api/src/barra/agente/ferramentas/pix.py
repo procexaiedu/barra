@@ -16,6 +16,7 @@ from langchain_core.tools import tool
 from langgraph.prebuilt import ToolRuntime
 from psycopg import AsyncConnection
 
+from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
 from barra.dominio.agenda.service import ConflitoAgenda, criar_bloqueio_previo
 
 from ..contexto import ContextAgente
@@ -49,6 +50,7 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
         )
         m = await res.fetchone()
         if m is None or not m["chave_pix"] or not m["titular_chave"]:
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "chave_pix_ausente").inc()
             return "ERRO: modelo não tem chave Pix cadastrada. Escale para Fernando."
 
         try:
@@ -63,6 +65,7 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
         except ConflitoAgenda:
             # Branch 13 (04 §6): a RESERVA do slot falhou (outro cliente já o tomou). O turno
             # inteiro reverteu (pix_status volta a nao_solicitado) — instrua a IA a re-ofertar.
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "agenda_conflito").inc()
             return (
                 "ERRO: o horário combinado acabou de ser reservado por outra conversa. "
                 "Ofereça outro horário ao cliente antes de pedir o Pix de novo."
