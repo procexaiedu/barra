@@ -188,9 +188,11 @@ class WorkerSettings:
     # keep_result=0 SO p/ processar_turno (09 §4.9): o keep_result=3600 global quebra o
     # re-enqueue do drain (_job_id estatico) por 1h apos o termino (arq#416/#432).
     functions: ClassVar[list[Any]] = [
-        func(processar_turno, keep_result=0),
-        func(enviar_card),  # cards no grupo (05 §6); keep_result default (global 3600)
-        func(enviar_turno),  # humanização do turno (05 §1/§4); keep_result default (global 3600)
+        # max_tries=2: turno caro — erro transitorio pos-LLM NAO deve reinvocar o Sonnet 5x (REL-03).
+        func(processar_turno, keep_result=0, max_tries=2),
+        # max_tries=3 nos envios (REL-03): retry de rede Evolution; keep_result default (global 3600).
+        func(enviar_card, max_tries=3),  # cards no grupo (05 §6)
+        func(enviar_turno, max_tries=3),  # humanização do turno (05 §1/§4)
         func(rotear_imagem),  # roteamento de imagem sob lock:conv (06 §2.1)
         func(validar_pix),  # validação de comprovante (06 §2.2); keep_result default
         # STT do agente (06 §1.3): fire-and-forget; sinalizacao via canal Redis (06 §1.4), nao

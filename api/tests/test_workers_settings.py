@@ -17,3 +17,23 @@ def test_worker_settings_redis_configurado() -> None:
     rs = WorkerSettings.redis_settings
     assert rs.host
     assert rs.port
+
+
+def _func_por_nome(nome: str) -> object:
+    for f in WorkerSettings.functions:
+        if f.name == nome:
+            return f
+    raise AssertionError(f"funcao ARQ {nome!r} nao registrada")
+
+
+def test_processar_turno_max_tries_e_keep_result() -> None:
+    # turno caro: max_tries=2 (nao reinvoca o Sonnet 5x) + keep_result=0 (invariante do re-enqueue).
+    f = _func_por_nome("processar_turno")
+    assert f.max_tries == 2  # type: ignore[attr-defined]
+    assert f.keep_result_s == 0  # type: ignore[attr-defined]
+
+
+def test_jobs_de_envio_max_tries() -> None:
+    for nome in ("enviar_card", "enviar_turno"):
+        f = _func_por_nome(nome)
+        assert f.max_tries == 3, nome  # type: ignore[attr-defined]
