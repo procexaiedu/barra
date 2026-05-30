@@ -119,8 +119,12 @@ async def evolution_webhook(
     # quem resolve/cria o atendimento e roda o turno e o coordenador. So enfileira.
     arq = getattr(request.app.state, "arq", None)
     if arq is not None:
+        # OBS-07: request-id da requisicao (setado pelo middleware) viaja ate o worker.
+        request_id = getattr(request.state, "request_id", None)
         if msg.tipo == "texto":
-            await enfileirar_turno(arq, conversa_id, msg.evolution_message_id)
+            await enfileirar_turno(
+                arq, conversa_id, msg.evolution_message_id, request_id=request_id
+            )
         elif msg.tipo == "imagem":
             # 06 §2.1: nao roteia sincronamente — rotear_imagem decide sob lock:conv.
             await arq.enqueue_job(
@@ -145,7 +149,11 @@ async def evolution_webhook(
                     _job_id=f"transcricao:{msg.evolution_message_id}",
                 )
             await enfileirar_turno(
-                arq, conversa_id, msg.evolution_message_id, aguardar_transcricao=True
+                arq,
+                conversa_id,
+                msg.evolution_message_id,
+                aguardar_transcricao=True,
+                request_id=request_id,
             )
     return {"status": "received"}
 

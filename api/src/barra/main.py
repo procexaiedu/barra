@@ -2,14 +2,15 @@ import asyncio
 import logging
 import re
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from arq import create_pool
 from arq.connections import RedisSettings
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from barra.api.v1 import router as api_v1_router
@@ -88,6 +89,23 @@ def build_app() -> FastAPI:
         allow_headers=["Authorization", "Content-Type", "X-Webhook-Token"],
     )
     app.add_middleware(MetricsMiddleware)
+
+    @app.middleware("http")
+    async def adicionar_request_id(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        # OBS-07: request-id por requisicao (captura X-Request-ID do upstream ou gera). Vai em
+        # request.state p/ o webhook propagar no job do turno e correlaciona os logs JSON
+        # (OBS-03) da API ate o worker; ecoa no header da resposta. O header e dado nao-confiavel:
+        # trunca p/ nao inflar o payload do job (Redis) nem o volume de log; o JSONRenderer ja
+        # escapa CRLF/aspas, entao nao ha log/header splitting.
+        recebido = request.headers.get("X-Request-ID")
+        request_id = recebido[:128] if recebido else str(uuid4())
+        request.state.request_id = request_id
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
     instalar_handlers(app)
     app.include_router(api_v1_router, prefix="/v1")
     app.include_router(webhook_router, prefix="/webhook")
