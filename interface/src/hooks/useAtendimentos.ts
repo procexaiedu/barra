@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
+import { toast } from "sonner"
 import { ApiError, api, apiFormData } from "@/lib/api"
 import { fimMesBrtIso, inicioMesBrtIso } from "@/lib/datas"
 import { subscribeTabelas } from "@/lib/realtime"
@@ -12,6 +13,7 @@ import type {
   AtendimentoListaItem,
   AtendimentosListaResponse,
   CriarAtendimentoRequest,
+  CorrigirRegistroPayload,
   CriarAtendimentoResultado,
   EditarDadosPayload,
   EstadoAtendimento,
@@ -101,6 +103,7 @@ export function useAtendimentos(
   const [detalheStatus, setDetalheStatus] = useState<Status>("loading")
   const [listaError, setListaError] = useState<string | null>(null)
   const [detalheError, setDetalheError] = useState<string | null>(null)
+  const [corrigirAlvoId, setCorrigirAlvoId] = useState<string | null>(null)
   const router = useRouter()
   const itemsRef = useRef<AtendimentoListaItem[]>([])
   const nextCursorRef = useRef<string | null>(null)
@@ -233,21 +236,55 @@ export function useAtendimentos(
     await loadLista("replace", true)
   }, [loadLista])
 
+  const abrirCorrigir = useCallback((id: string) => setCorrigirAlvoId(id), [])
+  const fecharCorrigir = useCallback(() => setCorrigirAlvoId(null), [])
+
+  const numeroDe = useCallback((id: string): number | null => {
+    const naLista = itemsRef.current.find((item) => item.id === id)
+    if (naLista) return naLista.numero_curto
+    if (detalheRef.current?.atendimento.id === id) return detalheRef.current.atendimento.numero_curto
+    return null
+  }, [])
+
   const fechar = useCallback(async (id: string, valorFinal: number) => {
+    const numero = numeroDe(id)
     await api(`/v1/atendimentos/${id}/fechar`, {
       method: "POST",
       body: JSON.stringify({ valor_final: valorFinal }),
     })
     await loadLista("replace", false)
-  }, [loadLista])
+    toast.success(`Atendimento #${numero ?? "?"} fechado`, {
+      action: { label: "Corrigir", onClick: () => abrirCorrigir(id) },
+    })
+  }, [loadLista, numeroDe, abrirCorrigir])
 
   const perder = useCallback(async (id: string, motivo: MotivoPerda, observacao: string | null) => {
+    const numero = numeroDe(id)
     await api(`/v1/atendimentos/${id}/perder`, {
       method: "POST",
       body: JSON.stringify({ motivo, observacao }),
     })
     await loadLista("replace", false)
-  }, [loadLista])
+    toast.success(`Atendimento #${numero ?? "?"} marcado como perdido`, {
+      action: { label: "Corrigir", onClick: () => abrirCorrigir(id) },
+    })
+  }, [loadLista, numeroDe, abrirCorrigir])
+
+  // Correção de Registro de resultado (Fechado↔Perdido + valor/motivo). Reaproveita
+  // o comando corrigir_registro do backend, que reconcilia bloqueio e Financeiro.
+  const corrigirRegistro = useCallback(async (id: string, payload: CorrigirRegistroPayload) => {
+    await api(`/v1/atendimentos/${id}/corrigir-registro`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    })
+    if (selectedIdRef.current === id) await loadDetalhe(id)
+    await loadLista("replace", true, true)
+    toast.success(
+      payload.novo_resultado === "Fechado"
+        ? "Resultado corrigido para fechado"
+        : "Resultado corrigido para perdido"
+    )
+  }, [loadDetalhe, loadLista])
 
   const moverEstado = useCallback(async (id: string, estado: EstadoKanbanDestino) => {
     setItems((current) =>
@@ -391,6 +428,10 @@ export function useAtendimentos(
     devolver,
     fechar,
     perder,
+    corrigirRegistro,
+    corrigirAlvoId,
+    abrirCorrigir,
+    fecharCorrigir,
     moverEstado,
     editarDados,
     criarAtendimento,

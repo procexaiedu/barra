@@ -1,5 +1,6 @@
 "use client"
 
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { ChevronRight } from "lucide-react"
 import type { ProfissionalRanking } from "@/tipos/dashboard"
@@ -72,18 +73,9 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
               return (
                 <tr
                   key={p.modelo.id}
-                  onClick={() => router.push(`/modelos?modelo=${p.modelo.id}&aba=perfil`)}
-                  tabIndex={0}
-                  role="link"
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault()
-                      router.push(`/modelos?modelo=${p.modelo.id}&aba=perfil`)
-                    }
-                  }}
                   className={cn(
-                    "cursor-pointer border-t border-border/60 transition-colors hover:bg-accent focus:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                    destacada && "bg-gold-500/[0.07]",
+                    "relative cursor-pointer border-t border-border/60 transition-colors hover:bg-accent has-[a:focus-visible]:bg-accent",
+                    destacada && "bg-text-brand/[0.07]",
                     temSelecao && !destacada && "opacity-55"
                   )}
                 >
@@ -93,13 +85,13 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
                       <span
                         className={cn(
                           "text-xs font-semibold uppercase tracking-[0.08em]",
-                          destacada ? "text-gold-500" : "text-text-primary"
+                          destacada ? "text-text-brand" : "text-text-primary"
                         )}
                       >
                         {p.modelo.nome}
                       </span>
                       {idx === 0 ? (
-                        <span className="rounded-sm bg-gold-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-gold-500">
+                        <span className="rounded-sm bg-text-brand/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-brand">
                           Top
                         </span>
                       ) : null}
@@ -112,7 +104,7 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
                         className="block h-1.5 w-20 overflow-hidden rounded-sm bg-muted"
                       >
                         <span
-                          className="block h-full rounded-sm bg-gold-500 transition-[width]"
+                          className="block h-full rounded-sm bg-text-brand"
                           style={{ width: `${pctVolume}%` }}
                         />
                       </span>
@@ -155,7 +147,13 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
                     })()}
                   </td>
                   <td className="px-2 py-4 text-right align-middle">
-                    <ChevronRight size={16} strokeWidth={1.5} className="text-text-muted" aria-hidden />
+                    <Link
+                      href={`/modelos?modelo=${p.modelo.id}&aba=perfil`}
+                      aria-label={`Abrir perfil de ${p.modelo.nome}`}
+                      className="inline-flex rounded-sm text-text-muted transition-colors after:absolute after:inset-0 hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+                    >
+                      <ChevronRight size={16} strokeWidth={1.5} aria-hidden />
+                    </Link>
                   </td>
                 </tr>
               )

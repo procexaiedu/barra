@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -22,6 +23,8 @@ from barra.webhook.routes import router as webhook_router
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+_logger = logging.getLogger(__name__)
+
 try:
     import sentry_sdk as _sentry_sdk
 except ModuleNotFoundError:  # pragma: no cover
@@ -33,16 +36,20 @@ else:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     settings = app.state.settings
+    dev = settings.ambiente != "producao"
     app.state.db_pool = await criar_pool(settings.database_url)
     app.state.minio = criar_minio(settings)
-    ensure_bucket(app.state.minio, settings.minio_bucket_media)
+    # MinIO/Redis vivem no swarm; em dev a maquina pode nao alcanca-los. Fora de producao
+    # toleramos a falha (sobe sem midia/ARQ) — em producao propagamos (fail-fast).
+    try:
+        ensure_bucket(app.state.minio, settings.minio_bucket_media)
+    except Exception:
+        if not dev:
+            raise
+        _logger.warning("minio_indisponivel_dev endpoint=%s; seguindo sem bucket", settings.minio_endpoint)
     # Pool ARQ p/ enfileirar o turno (01 §4.2) — a MESMA conexao Redis do coordenador.
     # Sem redis_url (dev/teste) nao cria pool: o webhook so persiste a mensagem.
-    app.state.arq = (
-        await create_pool(RedisSettings.from_dsn(settings.redis_url))
-        if settings.redis_url
-        else None
-    )
+    app.state.arq = await _criar_arq_pool(settings.redis_url, dev)
     yield
     if app.state.arq is not None:
         await app.state.arq.aclose()
@@ -102,6 +109,28 @@ def build_app() -> FastAPI:
 
 
 app = build_app()
+
+
+async def _criar_arq_pool(redis_url: str, dev: bool) -> Any:
+    """Pool ARQ p/ enfileirar turnos. None quando sem redis_url.
+
+    Em producao a falha de conexao propaga (fail-fast: sem ARQ o agente nao roda). Em dev
+    o Redis costuma viver no swarm, inalcancavel da maquina local — toleramos a falha (retries
+    curtos p/ nao pendurar) e seguimos com arq=None: o webhook so persiste a mensagem.
+    """
+    if not redis_url:
+        return None
+    redis_settings = RedisSettings.from_dsn(redis_url)
+    if dev:
+        redis_settings.conn_retries = 1
+        redis_settings.conn_retry_delay = 0
+    try:
+        return await create_pool(redis_settings)
+    except Exception:
+        if not dev:
+            raise
+        _logger.warning("redis_indisponivel_dev url=%s; seguindo sem ARQ (webhook so persiste)", redis_url)
+        return None
 
 
 async def _tcp_ready(url: str) -> bool:

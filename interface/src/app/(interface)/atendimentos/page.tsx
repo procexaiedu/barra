@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { LayoutList, Columns, Search, Plus } from "lucide-react"
+import { LayoutList, Columns, Search, Plus, SlidersHorizontal } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
 import { FiltroPeriodo } from "@/components/atendimentos/FiltroPeriodo"
@@ -13,9 +13,11 @@ import { ModalVisualizacao } from "@/components/atendimentos/ModalVisualizacao"
 import { ModalEdicao } from "@/components/atendimentos/ModalEdicao"
 import { ModalFecharAtendimento } from "@/components/atendimentos/ModalFecharAtendimento"
 import { ModalPerderAtendimento } from "@/components/atendimentos/ModalPerderAtendimento"
+import { ModalCorrigirRegistro } from "@/components/atendimentos/ModalCorrigirRegistro"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useAtendimentos } from "@/hooks/useAtendimentos"
 import { api } from "@/lib/api"
 import { hojeBrtIso } from "@/lib/datas"
@@ -300,6 +302,7 @@ function CentralAtendimentosInner() {
               onUploadMidia={atendimentos.uploadMidia}
               onDeletarMidia={atendimentos.deletarMidia}
               onEditar={() => setModalEdicao(atendimentos.detalhe)}
+              onCorrigir={() => atendimentos.detalhe && atendimentos.abrirCorrigir(atendimentos.detalhe.atendimento.id)}
             />
           </div>
         </div>
@@ -345,6 +348,7 @@ function CentralAtendimentosInner() {
             onFechar={atendimentos.fechar}
             onPerder={atendimentos.perder}
             onAbrirEdicao={(detalhe) => { setModalEdicao(detalhe); setModalId(null) }}
+            onCorrigir={(id) => { setModalId(null); atendimentos.abrirCorrigir(id) }}
           />
         </div>
       )}
@@ -372,6 +376,11 @@ function CentralAtendimentosInner() {
           }
           atendimentos.refetch()
         }}
+      />
+      <ModalCorrigirRegistro
+        atendimentoId={atendimentos.corrigirAlvoId}
+        onClose={atendimentos.fecharCorrigir}
+        onCorrigir={atendimentos.corrigirRegistro}
       />
       {modalNovoAberto && (
         <ModalNovoAtendimento
@@ -450,18 +459,34 @@ function Toolbar({
 }) {
   if (loading) {
     return (
-      <div aria-busy="true" className="grid grid-cols-[minmax(140px,1fr)_140px_110px_120px_100px_110px_150px] gap-2">
-        <Skeleton className="h-[54px] rounded-lg" />
-        {Array.from({ length: 6 }).map((_, index) => (
-          <Skeleton key={index} className="h-[54px] rounded-lg" />
-        ))}
+      <div aria-busy="true" className="flex items-end gap-2">
+        <Skeleton className="h-[54px] flex-1 rounded-lg" />
+        <Skeleton className="h-[54px] w-[140px] rounded-lg" />
+        <Skeleton className="h-[54px] w-[150px] rounded-lg" />
+        <Skeleton className="h-9 w-[104px] rounded-lg" />
       </div>
     )
   }
 
+  // Tipo/Quando/IA/Qualificação são filtros secundários: vivem atrás de "Filtros"
+  // para a barra primária não virar um muro de seis dropdowns lado a lado.
+  const secundariosAtivos = [
+    tipo !== "todos",
+    urgencia !== "todas",
+    iaFiltro !== "todos",
+    qualificacaoFiltro !== "todos",
+  ].filter(Boolean).length
+
+  const limparSecundarios = () => {
+    onTipoChange("todos")
+    onUrgenciaChange("todas")
+    onIaChange("todos")
+    onQualificacaoChange("todos")
+  }
+
   return (
-    <div className="grid grid-cols-[minmax(140px,1fr)_140px_110px_120px_100px_110px_150px] gap-2">
-      <label className="relative flex flex-col gap-0.5">
+    <div className="flex items-end gap-2">
+      <label className="relative flex flex-1 flex-col gap-0.5">
         <span className="text-xs font-medium text-text-muted">Buscar</span>
         <Search size={16} strokeWidth={1.5} className="pointer-events-none absolute left-3 bottom-2.5 text-text-muted" />
         <Input
@@ -471,22 +496,55 @@ function Toolbar({
           className="pl-9"
         />
       </label>
-      <SelectFiltro label="Estado" value={estado} onChange={(value) => onEstadoChange(value as EstadoFiltro)}>
-        {estados.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-      </SelectFiltro>
-      <SelectFiltro label="Tipo" value={tipo} onChange={(value) => onTipoChange(value as TipoFiltro)}>
-        {tipos.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-      </SelectFiltro>
-      <SelectFiltro label="Quando" value={urgencia} onChange={(value) => onUrgenciaChange(value as UrgenciaFiltro)}>
-        {urgencias.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-      </SelectFiltro>
-      <SelectFiltro label="IA" value={iaFiltro} onChange={(value) => onIaChange(value as IaFiltro)}>
-        {ia.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-      </SelectFiltro>
-      <SelectFiltro label="Qualificação" value={qualificacaoFiltro} onChange={(value) => onQualificacaoChange(value as QualificacaoFiltro)}>
-        {qualificacoes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-      </SelectFiltro>
-      <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
+      <div className="w-[140px]">
+        <SelectFiltro label="Estado" value={estado} onChange={(value) => onEstadoChange(value as EstadoFiltro)}>
+          {estados.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </SelectFiltro>
+      </div>
+      <div className="w-[150px]">
+        <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
+      </div>
+      <Popover>
+        <PopoverTrigger
+          data-slot="filtros-secundarios-trigger"
+          className="relative inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60"
+        >
+          <SlidersHorizontal size={15} strokeWidth={1.5} className="text-text-muted" />
+          Filtros
+          {secundariosAtivos > 0 && (
+            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold tabular-nums text-on-brand">
+              {secundariosAtivos}
+            </span>
+          )}
+        </PopoverTrigger>
+        <PopoverContent
+          data-slot="filtros-secundarios-content"
+          align="end"
+          className="flex w-[240px] flex-col gap-3"
+        >
+          <SelectFiltro label="Tipo" value={tipo} onChange={(value) => onTipoChange(value as TipoFiltro)}>
+            {tipos.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </SelectFiltro>
+          <SelectFiltro label="Quando" value={urgencia} onChange={(value) => onUrgenciaChange(value as UrgenciaFiltro)}>
+            {urgencias.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </SelectFiltro>
+          <SelectFiltro label="IA" value={iaFiltro} onChange={(value) => onIaChange(value as IaFiltro)}>
+            {ia.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </SelectFiltro>
+          <SelectFiltro label="Qualificação" value={qualificacaoFiltro} onChange={(value) => onQualificacaoChange(value as QualificacaoFiltro)}>
+            {qualificacoes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+          </SelectFiltro>
+          {secundariosAtivos > 0 && (
+            <button
+              type="button"
+              onClick={limparSecundarios}
+              className="self-start text-xs font-medium text-text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              Limpar filtros
+            </button>
+          )}
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
@@ -508,7 +566,7 @@ function SelectFiltro({
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60"
       >
         {children}
       </select>

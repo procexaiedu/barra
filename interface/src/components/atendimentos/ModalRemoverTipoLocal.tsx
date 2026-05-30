@@ -18,7 +18,7 @@ import { formatRotulo } from "@/lib/formatters"
 const SEM_TIPO = "__sem_tipo__"
 
 const controlClassName =
-  "h-10 w-full rounded-lg border border-border-strong bg-surface-hover px-3 text-sm text-text-primary outline-none transition-colors hover:bg-surface-pressed focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
+  "h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
 
 function rotulo(v: string): string {
   return formatRotulo(v) ?? v

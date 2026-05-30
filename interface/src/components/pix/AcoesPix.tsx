@@ -421,11 +421,11 @@ function HeroBlock({
   children: React.ReactNode
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card px-3.5 py-2.5">
+    <div className="min-w-0 rounded-lg border border-border bg-card px-3.5 py-2.5">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
         {label}
       </p>
-      <div className="mt-1.5">{children}</div>
+      <div className="mt-1.5 break-words">{children}</div>
     </div>
   )
 }

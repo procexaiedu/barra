@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
-import { LogIn, Loader2, Sparkles } from "lucide-react"
+import { LogIn, Loader2 } from "lucide-react"
 
 export default function Login() {
   const [isLoading, setIsLoading] = useState(false)
@@ -34,7 +34,7 @@ export default function Login() {
 
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      toast.error("Falha na autenticaÃ§Ã£o", {
+      toast.error("Falha na autenticação", {
         description: error.message,
       })
       setIsLoading(false)
@@ -47,39 +47,25 @@ export default function Login() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background">
-      {/* Dynamic Background Effects */}
-      <div className="absolute inset-0 z-0">
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-primary/20 via-background to-background opacity-50 mix-blend-screen" />
-        <div className="absolute -top-[40%] -left-[20%] h-[80%] w-[60%] rounded-full bg-primary/10 blur-[120px] animate-pulse duration-10000" />
-        <div className="absolute -bottom-[40%] -right-[20%] h-[80%] w-[60%] rounded-full bg-primary/5 blur-[120px]" />
-      </div>
-
-      {/* Login Card with Glassmorphism */}
-      <div className="z-10 w-full max-w-[420px] p-4 animate-in fade-in slide-in-from-bottom-8 duration-700">
-        <div className="mb-8 flex flex-col items-center justify-center space-y-2 text-center animate-in fade-in slide-in-from-top-4 duration-1000 delay-200">
-          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 ring-1 ring-primary/20 mb-2">
-            <Sparkles className="h-6 w-6 text-primary" />
-          </div>
-          <h1 className="font-heading text-4xl font-bold tracking-tight text-foreground">
+    <main className="flex min-h-screen items-center justify-center bg-background px-4">
+      <div className="w-full max-w-[400px]">
+        <div className="mb-8 text-center">
+          <h1 className="font-serif text-[28px] font-medium text-gold-500">
             Elite Baby
           </h1>
-          <p className="text-muted-foreground">
+          <p className="mt-1 text-sm text-text-muted">
             Acesso à central inteligente
           </p>
         </div>
 
-        <Card className="border-border/50 bg-background/60 backdrop-blur-xl shadow-2xl ring-1 ring-foreground/5 relative overflow-hidden group">
-          {/* Subtle hover effect on card border */}
-          <div className="absolute inset-0 z-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
-          
-          <CardHeader className="relative z-10 pb-6 pt-8">
-            <CardTitle className="text-xl">Entrar</CardTitle>
+        <Card>
+          <CardHeader>
+            <CardTitle>Entrar</CardTitle>
             <CardDescription>
               Insira suas credenciais corporativas abaixo
             </CardDescription>
           </CardHeader>
-          <form onSubmit={handleLogin} className="relative z-10">
+          <form onSubmit={handleLogin}>
             <CardContent className="space-y-5">
               <div className="space-y-2.5">
                 <Label htmlFor="email">E-mail</Label>
@@ -91,13 +77,10 @@ export default function Login() {
                   autoComplete="email"
                   required
                   disabled={isLoading}
-                  className="bg-background/50 transition-colors focus:bg-background"
                 />
               </div>
               <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="password">Senha</Label>
-                </div>
+                <Label htmlFor="password">Senha</Label>
                 <Input
                   id="password"
                   name="password"
@@ -106,16 +89,11 @@ export default function Login() {
                   autoComplete="current-password"
                   required
                   disabled={isLoading}
-                  className="bg-background/50 transition-colors focus:bg-background"
                 />
               </div>
             </CardContent>
-            <CardFooter className="pb-8 pt-4">
-              <Button 
-                type="submit" 
-                className="w-full h-11 relative overflow-hidden transition-all hover:shadow-[0_0_20px_-5px_hsl(var(--primary))]" 
-                disabled={isLoading}
-              >
+            <CardFooter className="mt-6">
+              <Button type="submit" className="w-full" disabled={isLoading}>
                 {isLoading ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -124,7 +102,7 @@ export default function Login() {
                 ) : (
                   <>
                     <LogIn className="mr-2 h-4 w-4" />
-                    Acessar Painel
+                    Acessar painel
                   </>
                 )}
               </Button>

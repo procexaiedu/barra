@@ -29,7 +29,7 @@ export function KanbanCard({
         corEstado(item.estado).faixa,
         isDragging
           ? "cursor-grabbing opacity-80 shadow-lg"
-          : "cursor-pointer hover:border-border-brand/50 hover:shadow-sm"
+          : "cursor-pointer hover:border-border-brand/50"
       )}
       onClick={onClick}
       role="button"
@@ -56,9 +56,9 @@ export function KanbanCard({
           </Badge>
         )}
         {item.urgencia && item.urgencia !== "imediato" && (
-          <Badge variant="active" className="text-[10px] opacity-60">
+          <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium text-text-muted">
             {urgenciaLabel[item.urgencia]}
-          </Badge>
+          </span>
         )}
         {item.ia_pausada && (
           <span className="flex items-center gap-1 text-[10px] font-medium text-text-secondary">

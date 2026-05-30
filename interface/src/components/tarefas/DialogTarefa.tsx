@@ -1,6 +1,6 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useState } from "react"
 import { toast } from "sonner"
 import { X } from "lucide-react"
 
@@ -9,10 +9,9 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Button } from "@/components/ui/button"
-import { Combobox } from "@/components/ui/combobox"
+import { SeletorResponsavel } from "./SeletorResponsavel"
 import { cn } from "@/lib/utils"
 import {
-  ATOR_LABEL,
   PRIORIDADE_BAR,
   PRIORIDADE_LABEL,
   PRIORIDADE_ORDEM,
@@ -53,13 +52,6 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
     tarefa?.atribuido ? atorKey(tarefa.atribuido.tipo, tarefa.atribuido.id) : "",
   ) // "" = sem responsável
   const [submitting, setSubmitting] = useState(false)
-
-  const opcoesKeys = useMemo(() => responsaveis.map((r) => atorKey(r.tipo, r.id)), [responsaveis])
-  const labelPorKey = useMemo(() => {
-    const m = new Map<string, string>()
-    for (const r of responsaveis) m.set(atorKey(r.tipo, r.id), `${r.nome} · ${ATOR_LABEL[r.tipo]}`)
-    return m
-  }, [responsaveis])
 
   const podeSalvar = titulo.trim().length > 0 && !submitting
 
@@ -201,22 +193,12 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
 
           <div className="space-y-1.5">
             <Label htmlFor="tarefa-responsavel">Responsável</Label>
-            <div className="flex items-center gap-2">
-              <Combobox
-                id="tarefa-responsavel"
-                value={responsavel}
-                onChange={setResponsavel}
-                options={opcoesKeys}
-                placeholder="Sem responsável"
-                displayFormat={(v) => labelPorKey.get(v) ?? v}
-                className="flex-1"
-              />
-              {responsavel && (
-                <Button variant="ghost" size="sm" onClick={() => setResponsavel("")}>
-                  Limpar
-                </Button>
-              )}
-            </div>
+            <SeletorResponsavel
+              id="tarefa-responsavel"
+              value={responsavel}
+              onChange={setResponsavel}
+              responsaveis={responsaveis}
+            />
           </div>
         </div>
 

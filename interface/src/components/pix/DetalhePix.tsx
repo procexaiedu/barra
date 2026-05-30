@@ -96,7 +96,7 @@ export function DetalhePix({
             Recebido {formatTempoRelativo(detalhe.pix.created_at)}
           </span>
         </div>
-        <h2 className="mt-3 text-[22px] font-semibold leading-[30px] text-text-primary">
+        <h2 className="mt-3 break-words text-[22px] font-semibold leading-[30px] text-text-primary">
           {cliente}
         </h2>
         <p className="mt-1 text-[13px] text-text-muted">

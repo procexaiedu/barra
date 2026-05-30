@@ -24,7 +24,7 @@ interface Props {
 
 export function ListaTarefas({ tarefas, onEditar, onExcluir, onConcluir }: Props) {
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-surface-raised shadow-sm">
+    <div className="overflow-hidden rounded-xl border border-border bg-surface-raised">
       {tarefas.map((t, i) => {
         const feita = t.status === "feita"
         const atrasada = t.prazo !== null && t.prazo < HOJE && !feita

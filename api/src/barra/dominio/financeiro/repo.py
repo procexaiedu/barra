@@ -75,7 +75,20 @@ async def resumo_periodo(
               WHERE a.percentual_repasse_snapshot IS NULL
             )::int AS contagem_sem_snapshot
             FROM barravips.atendimentos a
-            JOIN barravips.eventos e ON e.atendimento_id = a.id
+            JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente).
+            -- Sem isso, atendimentos com 2+ eventos `fechado_registrado` (ex.: correcao
+            -- Fechado->Perdido->Fechado em escaladas/service._corrigir_registro) gerariam
+            -- N linhas no JOIN e inflariam os SUM de valor — a contagem usa DISTINCT e
+            -- ficava correta, mascarando a corrupcao. `tipo` no SELECT mantem valido o
+            -- `AND e.tipo = 'fechado_registrado'` externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
            WHERE a.estado = 'Fechado'
              AND e.tipo = 'fechado_registrado'
              AND e.created_at >= %s AND e.created_at <= %s
@@ -164,7 +177,20 @@ async def listar_receitas(
           a.valor_final,
           a.percentual_repasse_snapshot
           FROM barravips.atendimentos a
-          JOIN barravips.eventos e ON e.atendimento_id = a.id
+          JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente).
+            -- Sem isso, atendimentos com 2+ eventos `fechado_registrado` (ex.: correcao
+            -- Fechado->Perdido->Fechado em escaladas/service._corrigir_registro) gerariam
+            -- N linhas no JOIN e inflariam os SUM de valor — a contagem usa DISTINCT e
+            -- ficava correta, mascarando a corrupcao. `tipo` no SELECT mantem valido o
+            -- `AND e.tipo = 'fechado_registrado'` externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
           JOIN barravips.modelos m ON m.id = a.modelo_id
           JOIN barravips.clientes c ON c.id = a.cliente_id
          WHERE a.estado = 'Fechado'
@@ -284,7 +310,20 @@ async def obter_contexto_receita(
             a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
           ), 0)::numeric AS repasse
           FROM barravips.atendimentos a
-          JOIN barravips.eventos e ON e.atendimento_id = a.id
+          JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente).
+            -- Sem isso, atendimentos com 2+ eventos `fechado_registrado` (ex.: correcao
+            -- Fechado->Perdido->Fechado em escaladas/service._corrigir_registro) gerariam
+            -- N linhas no JOIN e inflariam os SUM de valor — a contagem usa DISTINCT e
+            -- ficava correta, mascarando a corrupcao. `tipo` no SELECT mantem valido o
+            -- `AND e.tipo = 'fechado_registrado'` externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
          WHERE a.estado = 'Fechado'
            AND e.tipo = 'fechado_registrado'
            AND e.created_at >= %s AND e.created_at <= %s
@@ -311,7 +350,20 @@ async def obter_contexto_receita(
             (e.created_at AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
             SUM(a.valor_final)::numeric AS bruto
             FROM barravips.atendimentos a
-            JOIN barravips.eventos e ON e.atendimento_id = a.id
+            JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente).
+            -- Sem isso, atendimentos com 2+ eventos `fechado_registrado` (ex.: correcao
+            -- Fechado->Perdido->Fechado em escaladas/service._corrigir_registro) gerariam
+            -- N linhas no JOIN e inflariam os SUM de valor — a contagem usa DISTINCT e
+            -- ficava correta, mascarando a corrupcao. `tipo` no SELECT mantem valido o
+            -- `AND e.tipo = 'fechado_registrado'` externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
            WHERE a.estado = 'Fechado'
              AND e.tipo = 'fechado_registrado'
              AND a.modelo_id = %s
@@ -581,7 +633,20 @@ async def repasse_por_modelo(
                    WHERE a.percentual_repasse_snapshot IS NULL
                  ), 0)::numeric AS sem_snapshot_valor
             FROM barravips.atendimentos a
-            JOIN barravips.eventos e ON e.atendimento_id = a.id
+            JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente).
+            -- Sem isso, atendimentos com 2+ eventos `fechado_registrado` (ex.: correcao
+            -- Fechado->Perdido->Fechado em escaladas/service._corrigir_registro) gerariam
+            -- N linhas no JOIN e inflariam os SUM de valor — a contagem usa DISTINCT e
+            -- ficava correta, mascarando a corrupcao. `tipo` no SELECT mantem valido o
+            -- `AND e.tipo = 'fechado_registrado'` externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
            WHERE a.estado = 'Fechado'
              AND e.tipo = 'fechado_registrado'
              AND e.created_at >= %s AND e.created_at <= %s
@@ -654,7 +719,20 @@ async def listar_atendimentos_sem_snapshot(
           c.nome AS cliente_nome,
           a.valor_final
           FROM barravips.atendimentos a
-          JOIN barravips.eventos e ON e.atendimento_id = a.id
+          JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente).
+            -- Sem isso, atendimentos com 2+ eventos `fechado_registrado` (ex.: correcao
+            -- Fechado->Perdido->Fechado em escaladas/service._corrigir_registro) gerariam
+            -- N linhas no JOIN e inflariam os SUM de valor — a contagem usa DISTINCT e
+            -- ficava correta, mascarando a corrupcao. `tipo` no SELECT mantem valido o
+            -- `AND e.tipo = 'fechado_registrado'` externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
           JOIN barravips.clientes c ON c.id = a.cliente_id
          WHERE a.estado = 'Fechado'
            AND a.percentual_repasse_snapshot IS NULL
@@ -715,7 +793,20 @@ async def serie_diaria(
             ), 0)::numeric AS liquido,
             COUNT(DISTINCT a.id)::int AS fechamentos
             FROM barravips.atendimentos a
-            JOIN barravips.eventos e ON e.atendimento_id = a.id
+            JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente).
+            -- Sem isso, atendimentos com 2+ eventos `fechado_registrado` (ex.: correcao
+            -- Fechado->Perdido->Fechado em escaladas/service._corrigir_registro) gerariam
+            -- N linhas no JOIN e inflariam os SUM de valor — a contagem usa DISTINCT e
+            -- ficava correta, mascarando a corrupcao. `tipo` no SELECT mantem valido o
+            -- `AND e.tipo = 'fechado_registrado'` externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
            WHERE a.estado = 'Fechado'
              AND e.tipo = 'fechado_registrado'
              AND e.created_at >= %s AND e.created_at <= %s
@@ -763,7 +854,20 @@ async def mix_forma_pagamento(
           COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto,
           COUNT(DISTINCT a.id)::int AS fechamentos
           FROM barravips.atendimentos a
-          JOIN barravips.eventos e ON e.atendimento_id = a.id
+          JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente).
+            -- Sem isso, atendimentos com 2+ eventos `fechado_registrado` (ex.: correcao
+            -- Fechado->Perdido->Fechado em escaladas/service._corrigir_registro) gerariam
+            -- N linhas no JOIN e inflariam os SUM de valor — a contagem usa DISTINCT e
+            -- ficava correta, mascarando a corrupcao. `tipo` no SELECT mantem valido o
+            -- `AND e.tipo = 'fechado_registrado'` externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
          WHERE a.estado = 'Fechado'
            AND e.tipo = 'fechado_registrado'
            AND e.created_at >= %s AND e.created_at <= %s
@@ -810,7 +914,20 @@ async def top_modelos(
           ), 0)::numeric AS repasse_calc,
           COUNT(DISTINCT a.id)::int AS fechamentos
           FROM barravips.atendimentos a
-          JOIN barravips.eventos e ON e.atendimento_id = a.id
+          JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente).
+            -- Sem isso, atendimentos com 2+ eventos `fechado_registrado` (ex.: correcao
+            -- Fechado->Perdido->Fechado em escaladas/service._corrigir_registro) gerariam
+            -- N linhas no JOIN e inflariam os SUM de valor — a contagem usa DISTINCT e
+            -- ficava correta, mascarando a corrupcao. `tipo` no SELECT mantem valido o
+            -- `AND e.tipo = 'fechado_registrado'` externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
           JOIN barravips.modelos m ON m.id = a.modelo_id
          WHERE a.estado = 'Fechado'
            AND e.tipo = 'fechado_registrado'

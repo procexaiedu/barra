@@ -14,6 +14,7 @@ export function ListaPix({
   error,
   filtrosAplicados,
   nextCursor,
+  carregandoMais,
   onSelect,
   onRetry,
   onCarregarMais,
@@ -24,6 +25,7 @@ export function ListaPix({
   error: string | null
   filtrosAplicados: boolean
   nextCursor: string | null
+  carregandoMais: boolean
   onSelect: (id: string) => void
   onRetry: () => void
   onCarregarMais: () => void
@@ -55,8 +57,13 @@ export function ListaPix({
             ))}
             {nextCursor && (
               <div className="p-3">
-                <Button variant="ghost" className="w-full" onClick={onCarregarMais}>
-                  Carregar mais
+                <Button
+                  variant="ghost"
+                  className="w-full"
+                  onClick={onCarregarMais}
+                  disabled={carregandoMais}
+                >
+                  {carregandoMais ? "Carregando…" : "Carregar mais"}
                 </Button>
               </div>
             )}

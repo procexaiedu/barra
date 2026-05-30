@@ -21,6 +21,7 @@ interface Props {
   ariaLabel?: string
   serie?: SerieTemporalPonto[]
   corSparkline?: string
+  formatarSparkline?: (valor: number) => string
   nReferencia?: number | null
   destaque?: boolean
 }
@@ -39,6 +40,7 @@ export function TileKpi({
   ariaLabel,
   serie,
   corSparkline,
+  formatarSparkline,
   nReferencia,
   destaque = false,
 }: Props) {
@@ -75,7 +77,7 @@ export function TileKpi({
                   event.stopPropagation()
                 }
               }}
-              className="inline-flex items-center text-text-muted/60 transition-colors hover:text-text-primary focus-visible:text-text-primary focus-visible:outline-none"
+              className="inline-flex items-center text-text-muted transition-colors hover:text-text-primary focus-visible:text-text-primary focus-visible:outline-none"
             >
               <Info size={12} strokeWidth={1.75} aria-hidden />
             </TooltipTrigger>
@@ -98,6 +100,7 @@ export function TileKpi({
           cor={corSparkline}
           altura={destaque ? 48 : 36}
           ariaLabel={`Tendência de ${label}`}
+          formatarValor={formatarSparkline}
         />
       ) : null}
 

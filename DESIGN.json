@@ -1,0 +1,150 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-05-29",
+  "title": "Design System: Elite Baby Painel",
+  "extensions": {
+    "themeNote": "Dual theme (escuro + claro via next-themes, defaultTheme=system). Escuro é canônico; os valores abaixo são os do tema escuro. O claro inverte a escala de tinta mantendo os mesmos papéis.",
+    "colorMeta": {
+      "gold-500": { "role": "primary", "displayName": "Dourado Elite Baby", "canonical": "#C4A961", "tonalRamp": ["#1A1606", "#2E2810", "#4A3F25", "#6B5A35", "#8C7848", "#A8924F", "#C4A961", "#E6CB7A"] },
+      "ink-50": { "role": "neutral", "displayName": "Tinta", "canonical": "#0A0A0A", "tonalRamp": ["#0A0A0A", "#141414", "#1F1F1F", "#2A2A2A", "#3D3D3D", "#5C5C5C", "#8B8B8B", "#F5F5F5"] },
+      "warn-500": { "role": "state-handoff", "displayName": "Âmbar (handoff)", "canonical": "#F4B81C" },
+      "danger-500": { "role": "state-lost", "displayName": "Vermelho (perda/erro/risco)", "canonical": "#D62828" },
+      "success-500": { "role": "state-closed", "displayName": "Verde (fechado)", "canonical": "#1FB07A" },
+      "info-500": { "role": "state-info", "displayName": "Azul (modelo atendendo)", "canonical": "#4F8FE1" }
+    },
+    "palettes": {
+      "categorical": {
+        "purpose": "Séries discretas sem ordem implícita. Ordem fixa, máx 7 séries; danger NÃO entra (semântico).",
+        "dark": ["#C4A961", "#4F8FE1", "#1FB07A", "#B66CD9", "#E07A5F", "#6FCFC9", "#DB8EB8"],
+        "light": ["#C4A961", "#4F8FE1", "#1FB07A", "#9F4DC7", "#C95E40", "#4FB8B0", "#C77DA5"]
+      },
+      "sequential": {
+        "purpose": "Magnitude ordenada, single-hue dourado (sobrevive a daltonismo).",
+        "dark": ["#1A1606", "#4A3F25", "#8C7848", "#C4A961", "#E6CB7A"],
+        "light": ["#E6CB7A", "#C4A961", "#8C7848", "#4A3F25", "#1A1606"]
+      },
+      "diverging": {
+        "purpose": "Desvio em torno de neutro. Reusa danger/success; não inventar terceiro vermelho/verde.",
+        "stops": ["#D62828", "#E0857A", "#5C5C5C", "#7DCFA8", "#1FB07A"]
+      }
+    },
+    "shadows": [
+      { "name": "popover", "value": "0 8px 24px rgba(0,0,0,0.6)", "purpose": "Dropdown e popover sobre card." },
+      { "name": "modal", "value": "0 16px 48px rgba(0,0,0,0.7)", "purpose": "Dialog e modal de mídia sensível." }
+    ],
+    "motion": [
+      { "name": "transition-colors", "value": "color/background 100-200ms ease-out", "purpose": "Hover e active de cor (padrão)." },
+      { "name": "sidebar-collapse", "value": "width 200ms ease-in-out", "purpose": "Colapso da sidebar para rail." },
+      { "name": "tile-update-flash", "value": "background 0.7s ease-out (card -> accent -> card)", "purpose": "Pulso de atualização de KPI em tempo real." }
+    ],
+    "breakpoints": [
+      { "name": "sm", "value": "640px", "note": "Apenas login." },
+      { "name": "md", "value": "768px", "note": "Tablet: sidebar vira rail de 64px." },
+      { "name": "lg", "value": "1024px", "note": "Mínimo desejado para operação real." },
+      { "name": "xl", "value": "1280px", "note": "Layout canônico (timeline + contexto)." },
+      { "name": "2xl", "value": "1536px", "note": "Respiro lateral, sem alargar conteúdo." }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Ação canônica da tela. Uma instância visível por tela.",
+      "html": "<button class=\"ds-btn-primary\">Devolver para IA</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 12px; background: #C4A961; color: #000000; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s ease-out, transform 0.1s ease-out; } .ds-btn-primary:hover { background: #E6CB7A; } .ds-btn-primary:active { transform: translateY(1px); } .ds-btn-primary:focus-visible { outline: none; border-color: #E6CB7A; box-shadow: 0 0 0 3px rgba(230,203,122,0.5); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Ações secundárias: Cancelar, Ver detalhes.",
+      "html": "<button class=\"ds-btn-secondary\">Ver detalhes</button>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 12px; background: #1F1F1F; color: #F5F5F5; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s ease-out; } .ds-btn-secondary:hover { background: #2A2A2A; } .ds-btn-secondary:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(230,203,122,0.5); }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Ações destrutivas que confirmam: Marcar como perdido.",
+      "html": "<button class=\"ds-btn-danger\">Marcar como perdido</button>",
+      "css": ".ds-btn-danger { display: inline-flex; align-items: center; justify-content: center; height: 32px; padding: 0 10px; border: 1px solid transparent; border-radius: 12px; background: #1F1F1F; color: #D62828; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: background 0.15s ease-out; } .ds-btn-danger:hover { background: #2A2A2A; } .ds-btn-danger:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(214,40,40,0.2); border-color: rgba(214,40,40,0.4); }"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Campo de texto padrão do painel.",
+      "html": "<input class=\"ds-input\" placeholder=\"Buscar atendimento\" />",
+      "css": ".ds-input { height: 32px; width: 100%; padding: 4px 10px; border: 1px solid #3D3D3D; border-radius: 12px; background: rgba(31,31,31,0.3); color: #F5F5F5; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; outline: none; transition: border-color 0.15s ease-out; } .ds-input::placeholder { color: #8B8B8B; } .ds-input:focus-visible { border-color: #E6CB7A; box-shadow: 0 0 0 3px rgba(230,203,122,0.5); }"
+    },
+    {
+      "name": "State Badge (Handoff)",
+      "kind": "chip",
+      "refersTo": "badge-handoff",
+      "description": "Pílula de estado. Fundo e borda tingidos, texto na cor do estado. Vocabulário fechado.",
+      "html": "<span class=\"ds-badge-handoff\">Aguardando você</span>",
+      "css": ".ds-badge-handoff { display: inline-flex; align-items: center; padding: 4px 12px; border: 1px solid rgba(244,184,28,0.3); border-radius: 9999px; background: rgba(244,184,28,0.15); color: #F4B81C; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 12px; font-weight: 500; }"
+    },
+    {
+      "name": "CardDestaque (decision card)",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Componente-assinatura. Faixa de borda esquerda colorida pelo estado, badge, ação canônica.",
+      "html": "<div class=\"ds-card-destaque\"><div class=\"ds-card-head\"><span class=\"ds-badge-handoff\">Aguardando você</span><span class=\"ds-card-id\">Marina &middot; #1842</span></div><div class=\"ds-card-body\">Cliente pediu desconto fora do piso. Próxima ação: decidir contraproposta.</div></div>",
+      "css": ".ds-card-destaque { border-left: 4px solid #F4B81C; border-radius: 12px; background: #141414; padding: 20px; box-shadow: 0 0 0 1px rgba(245,245,245,0.1); transition: background 0.15s ease-out; } .ds-card-destaque:hover { background: #1F1F1F; box-shadow: 0 0 0 1px rgba(196,169,97,0.4); } .ds-card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; } .ds-card-id { font-family: 'JetBrains Mono', ui-monospace, monospace; font-size: 12px; color: #8B8B8B; } .ds-card-body { font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 13px; color: #B4B4B4; line-height: 1.5; }"
+    },
+    {
+      "name": "Sidebar Item (active)",
+      "kind": "nav",
+      "refersTo": "sidebar-item-active",
+      "description": "Item ativo da navegação: dourado sobre superfície de hover.",
+      "html": "<a class=\"ds-nav-item ds-nav-active\">Atendimentos</a>",
+      "css": ".ds-nav-item { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: 8px; font-family: Inter, ui-sans-serif, system-ui, sans-serif; font-size: 14px; color: #B4B4B4; text-decoration: none; cursor: pointer; transition: background 0.15s ease-out, color 0.15s ease-out; } .ds-nav-item:hover { color: #F5F5F5; background: #1F1F1F; } .ds-nav-active { color: #C4A961; background: #1F1F1F; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "A Sala de Comando Noturna",
+    "overview": "Este painel não é a vitrine. O canal orgânico Elite Baby existe para captar clientes; este produto existe para Fernando supervisionar, por horas seguidas, a IA que atende esses clientes em nome de cada modelo. A linguagem visual é a de uma sala de comando: superfície escura que descansa a vista na operação noturna, dourado como assinatura discreta, vocabulário cromático curto e severo onde cada cor carrega significado operacional. O painel tem dois temas (escuro e claro, system default), mas o escuro é o canônico: é a identidade Elite Baby e a referência para qualquer decisão.",
+    "keyCharacteristics": [
+      "Densidade alta: 12+ atendimentos visíveis sem rolar em 1080p.",
+      "Estado antes de conteúdo: badge e faixa de borda comunicam o estado de negócio antes do texto.",
+      "Dourado escasso: marca e ação canônica, nunca preenchimento de área.",
+      "Vocabulário de cor fechado: quatro hues semânticos, sem um quinto.",
+      "Desktop-only: abaixo de 1024px o operador vê um blocker."
+    ],
+    "rules": [
+      { "name": "A Regra dos Quatro Hues", "body": "O painel tem exatamente quatro cores semânticas (warn, danger, success, info) mais o dourado de marca. Nunca introduza uma quinta.", "section": "colors" },
+      { "name": "A Regra 60-30-10", "body": "60% superfície neutra, 30% texto e estrutura, 10% assinatura e estado. Se o dourado ou os estados parecerem 30% da tela, alguma cor saiu do papel.", "section": "colors" },
+      { "name": "A Regra do Par", "body": "Toda superfície colorida tem um par on- que define a cor do conteúdo sobre ela. O componente nunca decide essa combinação.", "section": "colors" },
+      { "name": "A Regra da Serifa Cerimonial", "body": "Cormorant Garamond aparece só no logotipo e no título do login. Em qualquer outro texto é regressão.", "section": "typography" },
+      { "name": "A Regra Flat-Por-Padrão", "body": "Nenhum componente além de modal e popover carrega sombra. Profundidade vem da superfície e do ring.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do começar cada tela operacional pelo estado do que está aberto agora, antes de dashboard ou métrica.",
+      "Do consumir cor pelo papel semântico, nunca pelo tom bruto em código de componente.",
+      "Do parear todo background colorido com seu on- correspondente.",
+      "Do preservar gold-500 como cor exclusiva da ação canônica e do item ativo da navegação.",
+      "Do mostrar JID, ID e comando literal em mono com text-muted.",
+      "Do confirmar destrutivos com modal que repete o estado atual e o proposto.",
+      "Do tratar o escuro como canônico ao decidir entre temas.",
+      "Do usar a faixa de borda esquerda só em card de decisão vinculado a estado (CardDestaque).",
+      "Do ler CONTEXT.md e docs/design/dominio-visual.md antes de inventar cor para estado de negócio."
+    ],
+    "donts": [
+      "Don't replicar a estética sensual/adulta do canal orgânico.",
+      "Don't usar painel SaaS genérico com gradientes, hero-metrics ou grid de cards idênticos.",
+      "Don't mostrar foto de modelo em lista/sidebar/hover nem mídia sensível em preview automático.",
+      "Don't usar serifa em texto operacional.",
+      "Don't usar vermelho ou âmbar fora do vocabulário de estado.",
+      "Don't introduzir um quarto dourado, um quinto cinza ou um quinto hue semântico.",
+      "Don't usar elevação por sombra em card.",
+      "Don't usar gradiente, glow, glass-morphism ou ícone decorativo (ícones só Lucide, 1.5px).",
+      "Don't desenhar ação destrutiva como button-primary.",
+      "Don't inventar versão mobile operacional.",
+      "Don't usar #000000 ou #FFFFFF puros em superfície grande (halation).",
+      "Don't usar danger-500 em chart categórico.",
+      "Don't depender só de cor para estado: badge sempre carrega rótulo textual."
+    ]
+  }
+}

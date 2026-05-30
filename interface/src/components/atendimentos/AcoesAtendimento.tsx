@@ -69,7 +69,7 @@ export function AcoesAtendimento({
         variant={devolverVisivel ? "secondary" : "primary"}
         onClick={() => setDialog("fechar")}
       >
-        Converter
+        Fechar
       </Button>
       <Button variant="danger" onClick={() => setDialog("perder")}>
         Perder

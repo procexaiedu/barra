@@ -8,7 +8,7 @@ export function BannerErro({
   onRetry: () => void
 }) {
   return (
-    <div className="rounded-lg border-l-3 border-l-destructive bg-card p-6">
+    <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-6">
       <p className="text-sm text-foreground">
         {mensagem ?? "Não foi possível carregar."}
       </p>

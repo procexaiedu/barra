@@ -8,9 +8,16 @@ interface Props {
   cor?: string
   altura?: number
   ariaLabel?: string
+  formatarValor?: (valor: number) => string
 }
 
-export function Sparkline({ pontos, cor = "var(--gold-500)", altura = 36, ariaLabel }: Props) {
+export function Sparkline({
+  pontos,
+  cor = "var(--gold-500)",
+  altura = 36,
+  ariaLabel,
+  formatarValor,
+}: Props) {
   if (!pontos || pontos.length === 0) {
     return <div aria-hidden style={{ height: altura }} />
   }
@@ -44,7 +51,13 @@ export function Sparkline({ pontos, cor = "var(--gold-500)", altura = 36, ariaLa
                 day: "2-digit",
                 month: "short",
               })
-              return [ponto.bruto !== null ? String(ponto.bruto) : "—", dataLegivel]
+              const valorFmt =
+                ponto.bruto !== null
+                  ? formatarValor
+                    ? formatarValor(ponto.bruto)
+                    : String(ponto.bruto)
+                  : "—"
+              return [valorFmt, dataLegivel]
             }}
           />
           <Line

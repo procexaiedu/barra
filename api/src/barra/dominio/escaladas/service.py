@@ -241,6 +241,26 @@ async def _corrigir_registro(
             atendimento["id"],
         ),
     )
+    # Sincroniza o bloqueio vinculado. O trigger sync_bloqueio_estado so age em
+    # bloqueio NAO-finalizado (guard NOT IN ('em_atendimento','concluido') no Perdido;
+    # NOT IN ('cancelado') no Fechado). Numa correcao o bloqueio normalmente ja esta
+    # concluido/cancelado de um registro anterior, entao o trigger nao o libera/reabre:
+    # Fechado->Perdido deixaria o slot preso em 'concluido' e Perdido->Fechado deixaria
+    # 'cancelado'. Forcamos a sincronia aqui (Fernando ja confirmou via
+    # confirmar_alteracao_bloqueio_finalizado quando o bloqueio estava finalizado).
+    if bloqueio_id:
+        if novo == "Perdido":
+            await conn.execute(
+                "UPDATE barravips.bloqueios SET estado = 'cancelado' "
+                "WHERE id = %s AND estado <> 'cancelado'",
+                (bloqueio_id,),
+            )
+        elif novo == "Fechado":
+            await conn.execute(
+                "UPDATE barravips.bloqueios SET estado = 'concluido' "
+                "WHERE id = %s AND estado <> 'concluido'",
+                (bloqueio_id,),
+            )
     await _evento(conn, atendimento["id"], "correcao_registro", origem, autor, payload)
     # Garante porta de entrada para o módulo Financeiro (ADR 0011): quando a
     # correção promove o atendimento para Fechado a partir de outro estado,

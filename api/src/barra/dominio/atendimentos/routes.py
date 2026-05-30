@@ -91,7 +91,7 @@ async def listar_atendimentos(
             "EXISTS (SELECT 1 FROM barravips.escaladas e2 "
             "WHERE e2.atendimento_id = a.id "
             "AND e2.aberta_em = (SELECT MAX(e3.aberta_em) FROM barravips.escaladas e3 WHERE e3.atendimento_id = a.id) "
-            "AND e2.motivo = %s)"
+            "AND e2.tipo = %s)"
         )
         params.append(motivo_escalada)
     if q:

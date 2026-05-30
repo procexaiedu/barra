@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**Fonte principal de informação:** @CONTEXT.md (vocabulário de domínio, termos da operação Elite Baby e o que evitar). Consulte esse arquivo antes de qualquer mudança.
+**Porta de entrada do domínio:** @CONTEXT.md (vocabulário, termos da operação Elite Baby e o que evitar). Consulte antes de qualquer mudança — mas a autoridade final segue a precedência abaixo.
 
 ## 1. Pense Antes de Codificar
 
@@ -140,24 +140,27 @@ barra/
 
 ## Stack
 
-- `api/` — Python 3.12 + uv, FastAPI 0.136, LangGraph 0.4 (`AsyncPostgresSaver`), ARQ workers, psycopg3 puro (sem ORM — ver ADR 0002), Anthropic SDK 0.42 com prompt caching.
+- `api/` — Python 3.12 + uv, FastAPI 0.136, LangGraph 0.4 (compila **sem checkpointer** no P0 — ver `agente/graph.py`; `AsyncPostgresSaver` reservado p/ P1), ARQ workers, psycopg3 puro (sem ORM — ver ADR 0002), Anthropic SDK 0.42 com prompt caching.
 - `interface/` — Next.js 16.2 (App Router), Tailwind v4, shadcn/ui (data-slot pattern), pnpm.
-- Infra — Supabase managed (Postgres + Auth), MinIO + Redis + Evolution API self-host via Portainer 2.39, Traefik.
+- Infra — Supabase self-hosted (Postgres + Auth), MinIO + Redis + Evolution API self-host via Portainer 2.39, Traefik.
 
 Migrations são SQL sequencial em `infra/sql/NNNN_*.sql`, aplicado via `psql` ou Supabase Studio. **Sem migration framework.**
+
+> ⚠️ **`make migrate` é proibido contra produção.** Ele aplica *tudo* de `infra/sql/`, incluindo os seeds descartáveis (`00NN_seed_*.sql`), injetando dados de teste no banco de produção (self-hosted). Em produção, aplique apenas as migrations de **schema** manualmente via psycopg, nunca os seeds.
 
 ## Comandos comuns
 
 Backend (a partir de `api/`):
-- `uv run uvicorn barra.main:app --reload --host 0.0.0.0 --port 8000` — FastAPI com reload
+- `make dev` — sobe a FastAPI (`python -m barra`; seta `WindowsSelectorEventLoopPolicy` antes do loop). **No Windows não use `uvicorn` cru** — pendura no ProactorEventLoop (500 no que toca o banco).
 - `make worker` — ARQ worker
 - `make test` — pytest
 - `make lint` / `make format` — ruff
+- `make typecheck` — mypy src (rode antes de PR)
 - `make migrate` — aplica `infra/sql/`
 - `uv sync` — instala/atualiza deps
 
 Frontend (a partir de `interface/`):
-- `pnpm dev` / `pnpm build` / `pnpm lint`
+- `pnpm dev` / `pnpm build` / `pnpm lint` / `pnpm verify` (gate de verificação agent-native)
 
 Tipos do FastAPI → frontend: `scripts/gera_tipos_openapi.sh` (planejado).
 

@@ -203,6 +203,14 @@ export interface EditarDadosPayload {
   place_id?: string | null
 }
 
+export interface CorrigirRegistroPayload {
+  novo_resultado: "Fechado" | "Perdido"
+  valor_final?: number | null
+  motivo?: MotivoPerda | null
+  observacao?: string | null
+  confirmar_alteracao_bloqueio_finalizado?: boolean
+}
+
 export interface CriarAtendimentoRequest {
   cliente_id: string
   modelo_id: string

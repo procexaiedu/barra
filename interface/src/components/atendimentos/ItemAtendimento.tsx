@@ -3,7 +3,7 @@
 import type { KeyboardEvent } from "react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { formatTelefone, formatTempoRelativo } from "@/lib/formatters"
+import { formatBRL, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
 import type { AtendimentoListaItem } from "@/tipos/atendimentos"
 import { badgeForEstado, estadoLabel, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 
@@ -17,6 +17,8 @@ export function ItemAtendimento({
   onSelect: (id: string) => void
 }) {
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
+  const valorFinal = item.valor_final
+  const valorExibido = valorFinal ?? item.valor_acordado
   const sq = item.sinais_qualificacao as Record<string, unknown> | null | undefined
   const sinais = sinaisParaTipo(item.tipo_atendimento)
   const progresso = sq
@@ -67,7 +69,19 @@ export function ItemAtendimento({
           {formatTempoRelativo(item.updated_at)}
         </span>
       </div>
-      <p className="mt-1 truncate text-[11px] text-text-muted">{meta}</p>
+      <div className="mt-1 flex items-center justify-between gap-2">
+        <p className="min-w-0 flex-1 truncate text-xs text-text-muted">{meta}</p>
+        {valorExibido != null && (
+          <span
+            className={cn(
+              "shrink-0 text-xs font-medium tabular-nums",
+              valorFinal != null ? "text-success-500" : "text-gold-500"
+            )}
+          >
+            {formatBRL(Number(valorExibido))}
+          </span>
+        )}
+      </div>
     </article>
   )
 }

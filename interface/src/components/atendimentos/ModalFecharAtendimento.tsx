@@ -57,7 +57,6 @@ export function ModalFecharAtendimento({
     setSubmitting(true)
     try {
       await onFechar(valor)
-      toast.success(`Atendimento #${numeroCurto} fechado`)
       setValorFinal("")
       setErro(null)
     } catch (e) {
@@ -72,10 +71,10 @@ export function ModalFecharAtendimento({
       <AlertDialogContent className="w-[min(94vw,40rem)] max-w-none bg-card">
         <AlertDialogHeader>
           <AlertDialogTitle className="font-serif text-xl font-medium text-text-primary">
-            Converter #{numeroCurto}?
+            Fechar #{numeroCurto}?
           </AlertDialogTitle>
           <AlertDialogDescription className="text-sm text-text-secondary">
-            Informe o valor final bruto pago pelo cliente.
+            Informe o valor final bruto pago pelo cliente. Isto encerra o atendimento e conclui o bloqueio vinculado.
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="grid grid-cols-2 gap-3">
@@ -101,6 +100,12 @@ export function ModalFecharAtendimento({
               onChange={(event) => {
                 setValorFinal(event.target.value)
                 setErro(null)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  void handleFechar()
+                }
               }}
               placeholder="1200,00"
               className="h-11 text-base"

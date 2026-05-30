@@ -72,7 +72,9 @@ export function DialogVisualizarComprovante({
   const [observacao, setObservacao] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [erro, setErro] = useState<string | null>(null)
+  const [imgErro, setImgErro] = useState(false)
   const [openAnterior, setOpenAnterior] = useState(open)
+  const [urlAnterior, setUrlAnterior] = useState(comprovante?.url ?? null)
 
   if (open !== openAnterior) {
     setOpenAnterior(open)
@@ -82,6 +84,12 @@ export function DialogVisualizarComprovante({
       setObservacao("")
       setErro(null)
     }
+  }
+
+  // Nova URL (ex.: após recarregar um link expirado) zera o estado de erro da imagem.
+  if ((comprovante?.url ?? null) !== urlAnterior) {
+    setUrlAnterior(comprovante?.url ?? null)
+    setImgErro(false)
   }
 
   const isPdf = pix?.mime_type === "application/pdf"
@@ -201,12 +209,31 @@ export function DialogVisualizarComprovante({
                   Comprovante não disponível em ambiente de desenvolvimento
                 </p>
               ) : isImage ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={comprovante.url}
-                  alt={pix?.nome_arquivo ?? "Comprovante"}
-                  className="max-h-full max-w-full rounded-md object-contain shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
-                />
+                imgErro ? (
+                  <div className="w-full max-w-md text-center">
+                    <BannerErro
+                      mensagem="Não foi possível exibir a imagem do comprovante. O link pode ter expirado."
+                      onRetry={onTentarNovamente}
+                    />
+                    <a
+                      href={comprovante.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-flex items-center gap-2 text-xs text-text-link underline-offset-4 hover:underline"
+                    >
+                      <ExternalLink size={14} strokeWidth={1.5} />
+                      Abrir em nova aba
+                    </a>
+                  </div>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={comprovante.url}
+                    alt={pix?.nome_arquivo ?? "Comprovante"}
+                    onError={() => setImgErro(true)}
+                    className="max-h-full max-w-full rounded-md object-contain shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+                  />
+                )
               ) : isPdf ? (
                 <div className="flex h-full w-full flex-col items-center gap-3">
                   <iframe
@@ -272,9 +299,9 @@ export function DialogVisualizarComprovante({
                     <Linha label="Remetente">
                       {pix?.titular_extraido ? (
                         <div className="space-y-0.5">
-                          <p className="text-text-primary">{pix.titular_extraido}</p>
+                          <p className="break-words text-text-primary">{pix.titular_extraido}</p>
                           {pix.documento_extraido && (
-                            <p className="font-mono text-xs text-text-muted">
+                            <p className="break-all font-mono text-xs text-text-muted">
                               {pix.documento_extraido}
                             </p>
                           )}
@@ -286,7 +313,7 @@ export function DialogVisualizarComprovante({
                     <Linha label="Chave destino">
                       {pix?.chave_extraida ? (
                         <div className="space-y-0.5">
-                          <p className="font-mono text-[13px] text-text-primary">
+                          <p className="break-all font-mono text-[13px] text-text-primary">
                             {pix.chave_extraida}
                           </p>
                           {pix.tipo_chave && (
@@ -468,7 +495,7 @@ function Linha({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div className="grid grid-cols-[110px_1fr] items-start gap-3">
       <dt className="pt-0.5 text-xs uppercase tracking-wide text-text-muted">{label}</dt>
-      <dd className="text-sm">{children}</dd>
+      <dd className="min-w-0 text-sm">{children}</dd>
     </div>
   )
 }

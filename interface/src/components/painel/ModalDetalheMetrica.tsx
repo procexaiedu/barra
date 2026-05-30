@@ -34,7 +34,7 @@ export function ModalDetalheMetrica({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex w-[min(96vw,80rem)] max-h-[92vh] min-h-[60vh] flex-col rounded-xl bg-card p-0 shadow-xl ring-1 ring-border">
         <header className="border-b border-border px-8 py-4">
-          <DialogTitle className="text-2xl font-semibold text-text-primary">
+          <DialogTitle className="text-base font-semibold text-text-primary">
             {tituloCompleto}
           </DialogTitle>
         </header>

@@ -27,7 +27,7 @@ export function ItemMidia({
         {item.tipo === "foto" ? (
           // URL assinada do MinIO com expiry; next/image precisaria de loader customizado.
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={item.url_assinada} alt={item.tag} className="h-full w-full object-cover" />
+          <img src={item.url_assinada} alt={item.tag} loading="lazy" className="h-full w-full object-cover" />
         ) : (
           <div className="flex flex-col items-center gap-1.5 text-text-muted">
             <Icon size={24} strokeWidth={1.5} />

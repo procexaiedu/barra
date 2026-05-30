@@ -65,7 +65,7 @@ function formatHorasCampo(horas: number): string {
 }
 
 const controlClassName =
-  "h-10 w-full rounded-lg border border-border-strong bg-surface-hover px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted hover:bg-surface-pressed focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
+  "h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
 
 export function ModalEdicao({
   detalhe,

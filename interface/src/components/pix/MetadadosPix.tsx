@@ -45,7 +45,7 @@ export function MetadadosPix({ pix }: { pix: PixDetalhe }) {
         <Linha label="Chave de destino">
           {chave ? (
             <span className="flex flex-wrap items-baseline gap-2">
-              <span className="font-mono text-[13px] text-text-primary">{chave}</span>
+              <span className="min-w-0 break-all font-mono text-[13px] text-text-primary">{chave}</span>
               {tipoChave && (
                 <span className="text-xs text-text-muted">{tipoChaveLabel[tipoChave]}</span>
               )}
@@ -75,7 +75,7 @@ function Linha({ label, children }: { label: string; children: ReactNode }) {
   return (
     <>
       <dt className="text-[13px] text-text-muted">{label}</dt>
-      <dd className="text-sm text-text-primary">{children}</dd>
+      <dd className="min-w-0 text-sm text-text-primary">{children}</dd>
     </>
   )
 }

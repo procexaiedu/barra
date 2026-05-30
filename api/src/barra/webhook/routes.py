@@ -272,14 +272,29 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
     if atendimento_id is None:
         COMANDOS_GRUPO.labels("invalido").inc()
         return {"status": "invalid"}
-    await aplicar_comando(
-        conn,
-        origem="grupo_coordenacao",
-        autor=autor,
-        atendimento_id=atendimento_id,
-        comando=comando.comando,
-        payload=comando.payload | {"texto": msg.texto, "evolution_message_id": msg.evolution_message_id},
-    )
+    try:
+        await aplicar_comando(
+            conn,
+            origem="grupo_coordenacao",
+            autor=autor,
+            atendimento_id=atendimento_id,
+            comando=comando.comando,
+            payload=comando.payload | {"texto": msg.texto, "evolution_message_id": msg.evolution_message_id},
+        )
+    except ErroDominio as exc:
+        # Comando humano malformado/conflitante (ex.: `finalizado` em atendimento ja
+        # finalizado -> ConflitoEstado 409; valor ambiguo -> EntradaInvalida 422).
+        # Reprocessar nao corrige, e mensagens de grupo nao sao persistidas em
+        # `mensagens` (sem dedupe inbound), entao um nao-2xx faria a Evolution
+        # reentregar e reprocessar em loop. Damos ack (200) e so registramos.
+        COMANDOS_GRUPO.labels("invalido").inc()
+        _logger.info(
+            "comando_grupo_erro codigo=%s atendimento=%s msg=%s",
+            exc.code,
+            atendimento_id,
+            exc.message,
+        )
+        return {"status": "command_error"}
     COMANDOS_GRUPO.labels("valido" if comando.erro is None else "invalido").inc()
     return {"status": "processed" if comando.erro is None else "invalid"}
 

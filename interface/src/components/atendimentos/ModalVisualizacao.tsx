@@ -27,6 +27,7 @@ export function ModalVisualizacao({
   onFechar,
   onPerder,
   onAbrirEdicao,
+  onCorrigir,
   readOnly = false,
 }: {
   atendimentoId: string | null
@@ -35,6 +36,7 @@ export function ModalVisualizacao({
   onFechar?: (id: string, valorFinal: number) => Promise<void>
   onPerder?: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
   onAbrirEdicao?: (detalhe: AtendimentoDetalheResponse) => void
+  onCorrigir?: (id: string) => void
   readOnly?: boolean
 }) {
   const [detalhe, setDetalhe] = useState<AtendimentoDetalheResponse | null>(null)
@@ -132,6 +134,7 @@ export function ModalVisualizacao({
             onPerder={readOnly ? undefined : handlePerder}
             onUploadMidia={readOnly ? undefined : handleUploadMidia}
             onDeletarMidia={readOnly ? undefined : handleDeletarMidia}
+            onCorrigir={readOnly || !detalhe || !onCorrigir ? undefined : () => onCorrigir(detalhe.atendimento.id)}
             readOnly={readOnly}
           />
         </div>

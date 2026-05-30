@@ -60,7 +60,7 @@ function LinhaWaterfall({
       </span>
       <div className="relative h-3 overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full transition-[width] duration-300"
+          className="h-full rounded-full"
           style={{ width: `${pct}%`, background: cor }}
         />
       </div>
@@ -110,6 +110,7 @@ export function BlocoFinanceiro({
         destaque
         serie={serieLiquido}
         corSparkline="var(--success-500)"
+        formatarSparkline={formatBRL}
         tendencia={
           anterior ? (
             <IndicadorTendencia

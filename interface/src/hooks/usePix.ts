@@ -84,11 +84,14 @@ export function usePix() {
   const [detalheError, setDetalheError] = useState<string | null>(null)
   const [comprovante, setComprovante] = useState<ComprovanteUrlResponse | null>(null)
   const [comprovanteStatus, setComprovanteStatus] = useState<ComprovanteStatus>("idle")
+  const [carregandoMais, setCarregandoMais] = useState(false)
 
   const itemsRef = useRef<PixListaItem[]>([])
   const nextCursorRef = useRef<string | null>(null)
   const detalheRef = useRef<PixDetalheResponse | null>(null)
   const selectedIdRef = useRef<string | null>(null)
+  const listaGenRef = useRef(0)
+  const appendingRef = useRef(false)
   const firstListaDone = useRef(false)
   const firstDetalheDone = useRef(false)
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -126,9 +129,11 @@ export function usePix() {
     setComprovanteStatus("loading")
     try {
       const res = await api<ComprovanteUrlResponse>(`/v1/pix/${id}/comprovante-url`)
+      if (selectedIdRef.current !== id) return // outro Pix foi selecionado nesse meio-tempo
       setComprovante(res)
       setComprovanteStatus("success")
     } catch {
+      if (selectedIdRef.current !== id) return
       setComprovante(null)
       setComprovanteStatus("error")
     }
@@ -139,6 +144,7 @@ export function usePix() {
       if (!firstDetalheDone.current) setDetalheStatus("loading")
       try {
         const res = await api<PixDetalheResponse>(`/v1/pix/${id}`)
+        if (selectedIdRef.current !== id) return // seleção mudou antes da resposta chegar
         detalheRef.current = res
         setDetalhe(res)
         setDetalheStatus("success")
@@ -151,6 +157,7 @@ export function usePix() {
           setComprovanteStatus("idle")
         }
       } catch (e) {
+        if (selectedIdRef.current !== id) return
         if (!firstDetalheDone.current) setDetalheStatus("error")
         setDetalheError(e instanceof Error ? e.message : "Erro desconhecido")
       }
@@ -178,6 +185,14 @@ export function usePix() {
       manterSelecao = false,
       atualizarDetalhe = false
     ) => {
+      if (mode === "append") {
+        // Ignora cliques repetidos em "Carregar mais": um append já em voo (ou sem
+        // próxima página) duplicaria itens com o mesmo cursor.
+        if (appendingRef.current || !nextCursorRef.current) return
+        appendingRef.current = true
+        setCarregandoMais(true)
+      }
+      const gen = ++listaGenRef.current
       if (mode === "replace" && !manterSelecao) {
         selectedIdRef.current = null
         detalheRef.current = null
@@ -191,6 +206,7 @@ export function usePix() {
       try {
         const cursor = mode === "append" ? nextCursorRef.current : null
         const res = await api<PixListaResponse>(buildListaPath(filtrosEfetivos, cursor))
+        if (gen !== listaGenRef.current) return // resposta de uma carga mais antiga; descarta
         const novosItems = mode === "append" ? [...itemsRef.current, ...res.items] : res.items
         itemsRef.current = novosItems
         nextCursorRef.current = res.next_cursor
@@ -215,8 +231,14 @@ export function usePix() {
           setComprovanteStatus("idle")
         }
       } catch (e) {
+        if (gen !== listaGenRef.current) return
         if (!firstListaDone.current) setListaStatus("error")
         setListaError(e instanceof Error ? e.message : "Erro desconhecido")
+      } finally {
+        if (mode === "append") {
+          appendingRef.current = false
+          setCarregandoMais(false)
+        }
       }
     },
     [filtrosEfetivos, selectPix]
@@ -227,8 +249,8 @@ export function usePix() {
   }, [loadLista])
 
   const carregarMais = useCallback(() => {
-    if (nextCursor) loadLista("append", true)
-  }, [loadLista, nextCursor])
+    loadLista("append", true)
+  }, [loadLista])
 
   const aprovar = useCallback(
     async (id: string) => {
@@ -323,6 +345,7 @@ export function usePix() {
     detalheError,
     comprovante,
     comprovanteStatus,
+    carregandoMais,
     refetch,
     carregarMais,
     selectPix,

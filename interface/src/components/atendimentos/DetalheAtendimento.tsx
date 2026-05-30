@@ -2,9 +2,10 @@
 
 import { useRef, useMemo, useState } from "react"
 import Link from "next/link"
-import { Clock, FileText, ImageOff, MessageSquare, Paperclip, Pencil, Plus, Trash2 } from "lucide-react"
+import { Clock, CreditCard, FileText, ImageOff, MessageSquare, Paperclip, Pencil, Plus, Trash2 } from "lucide-react"
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import {
@@ -30,6 +31,7 @@ import { ImageLightbox } from "@/components/ui/image-lightbox"
 interface MidiaItem {
   id: string
   tipo: "imagem" | "audio" | "texto"
+  origem: "interna" | "pix" | "recebida"
   nome: string
   subtitulo: string
   url: string | null
@@ -53,6 +55,7 @@ export function DetalheAtendimento({
   onUploadMidia,
   onDeletarMidia,
   onEditar,
+  onCorrigir,
   readOnly = false,
 }: {
   detalhe: AtendimentoDetalheResponse | null
@@ -65,6 +68,7 @@ export function DetalheAtendimento({
   onUploadMidia?: (atendimentoId: string, file: File, tipo: string) => Promise<void>
   onDeletarMidia?: (atendimentoId: string, midiaId: string) => Promise<void>
   onEditar?: () => void
+  onCorrigir?: () => void
   readOnly?: boolean
 }) {
   if (status === "loading") return <DetalheSkeleton />
@@ -144,6 +148,14 @@ export function DetalheAtendimento({
               onFechar={onFechar}
               onPerder={onPerder}
             />
+          </div>
+        )}
+
+        {!readOnly && onCorrigir && (atendimento.estado === "Fechado" || atendimento.estado === "Perdido") && (
+          <div className="mt-4">
+            <Button variant="secondary" size="sm" onClick={onCorrigir}>
+              Corrigir resultado
+            </Button>
           </div>
         )}
       </div>
@@ -238,6 +250,7 @@ function MidiasRecebidas({
     const internas = detalhe.midias_internas.map((midia) => ({
       id: midia.id,
       tipo: (midia.tipo === "documento" ? "texto" : midia.tipo) as "imagem" | "audio" | "texto",
+      origem: "interna" as const,
       nome: midia.nome_arquivo,
       subtitulo: `${midia.tipo} · ${formatDataHora(midia.created_at)}`,
       url: midia.media_url ?? null,
@@ -246,6 +259,7 @@ function MidiasRecebidas({
     const pix = detalhe.comprovantes_pix.map((comprovante) => ({
       id: comprovante.id,
       tipo: "imagem" as const,
+      origem: "pix" as const,
       nome: "comprovante Pix",
       subtitulo: `${comprovante.decisao_pipeline} · ${formatDataHora(comprovante.created_at)}`,
       url: null,
@@ -256,6 +270,7 @@ function MidiasRecebidas({
       .map((mensagem) => ({
         id: mensagem.id,
         tipo: mensagem.tipo as "imagem" | "audio" | "texto",
+        origem: "recebida" as const,
         nome: mensagem.media_object_key?.split("/").pop() ?? mensagem.tipo,
         subtitulo: `${mensagem.tipo} · ${formatDataHora(mensagem.created_at)}`,
         url: mensagem.media_url ?? null,
@@ -300,13 +315,21 @@ function MidiasRecebidas({
         <div className="flex flex-wrap gap-2">
           {midias.map((midia) => {
             if (!midia.pode_deletar && midia.url === null) {
+              const ehPix = midia.origem === "pix"
               return (
                 <Link
                   key={midia.id}
                   href="/pix"
-                  className="inline-flex max-w-full items-center gap-2 rounded-md bg-accent px-3 py-2 font-mono text-xs text-text-muted outline-none transition-colors hover:bg-muted hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                  className={cn(
+                    "inline-flex max-w-full items-center gap-2 rounded-md px-3 py-2 font-mono text-xs outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+                    ehPix
+                      ? "bg-gold-500/10 text-gold-500 hover:bg-gold-500/15"
+                      : "bg-accent text-text-muted hover:bg-muted hover:text-text-primary"
+                  )}
                 >
-                  <FileText size={14} strokeWidth={1.5} />
+                  {ehPix
+                    ? <CreditCard size={14} strokeWidth={1.5} />
+                    : <FileText size={14} strokeWidth={1.5} />}
                   <span className="truncate">{midia.nome}</span>
                   <span className="font-sans text-text-disabled">{midia.subtitulo}</span>
                 </Link>
@@ -443,7 +466,7 @@ function DetalheSkeleton() {
   return (
     <section aria-label="Detalhe do atendimento" aria-busy="true" className="space-y-3">
       {/* Card header: badge + nome + telefone + botões */}
-      <div className="rounded-lg border border-border bg-card p-4">
+      <div className="rounded-lg border border-border bg-muted p-5">
         <div className="flex flex-wrap items-center gap-2">
           <Skeleton className="h-5 w-28 rounded-full" />
           <Skeleton className="h-5 w-40 rounded" />

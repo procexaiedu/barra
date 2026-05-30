@@ -6,7 +6,7 @@ import type { BloqueioAgenda } from "@/tipos/agenda"
  * - Bloqueio puro (sem atendimento) → âmbar (warn-500 / state-handoff).
  * - cancelado / concluido têm precedência sobre as duas categorias acima.
  *
- * Tokens canônicos do design system (ver `.claude/designsystem/tokens.md`).
+ * Tokens canônicos do design system (ver `DESIGN.md` na raiz).
  * NÃO USAR `emerald-*`, `amber-*`, `sky-*` crus.
  */
 

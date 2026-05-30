@@ -91,7 +91,7 @@ export function BlocoMotivosEscalada({ data, onAbrirTodas }: Props) {
   const dadosVisiveis = dados.filter((d) => d.contagem > 0)
 
   const navegarParaTipo = (tipo: TipoEscalada) =>
-    router.push(`/atendimentos?ia_pausada=true&tipo_escalada=${encodeURIComponent(tipo)}`)
+    router.push(`/atendimentos?ia_pausada=true&motivo_escalada=${encodeURIComponent(tipo)}`)
 
   return (
     <section aria-label="Motivos de escalada" className="flex flex-col gap-3">

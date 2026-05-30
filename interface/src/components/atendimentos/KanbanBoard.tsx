@@ -196,7 +196,14 @@ export function KanbanBoard({
     // Só permite avançar exatamente uma coluna por vez: nunca regride e nunca pula
     // Aguardando (etapa de Pix / foto de portaria controlada pelo agente). O backend
     // reforça a mesma regra (409) caso a API seja chamada direto.
-    if (colunaDestino.indice !== colunaOrigem.indice + 1) return
+    if (colunaDestino.indice !== colunaOrigem.indice + 1) {
+      toast.error(
+        colunaDestino.indice <= colunaOrigem.indice
+          ? "Não dá para voltar uma etapa do atendimento."
+          : "Avance uma etapa por vez."
+      )
+      return
+    }
 
     try {
       await onMoverEstado(item.id, colunaDestino.estadoDestino)

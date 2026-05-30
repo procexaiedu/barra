@@ -83,7 +83,7 @@ function MensagemLinha({
         <div
           className={cn(
             "rounded-lg px-4 py-3 text-sm text-text-primary",
-            mensagem.direcao === "ia" ? "border-l-2 border-l-border-brand bg-muted" : "",
+            mensagem.direcao === "ia" ? "bg-muted ring-1 ring-border-brand/30" : "",
             mensagem.direcao === "modelo_manual" ? "bg-muted" : "",
             mensagem.direcao === "cliente" ? "bg-card border border-border" : ""
           )}

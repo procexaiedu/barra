@@ -60,6 +60,7 @@ function PixConteudo() {
           error={pix.listaError}
           filtrosAplicados={pix.filtrosAplicados}
           nextCursor={pix.nextCursor}
+          carregandoMais={pix.carregandoMais}
           onSelect={pix.selectPix}
           onRetry={pix.refetch}
           onCarregarMais={pix.carregarMais}

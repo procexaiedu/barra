@@ -62,7 +62,7 @@ export function BulletEscaladas({ contagem, nReferencia, onClick }: Props) {
                 event.stopPropagation()
               }
             }}
-            className="inline-flex items-center text-text-muted/60 transition-colors hover:text-text-primary focus-visible:text-text-primary focus-visible:outline-none"
+            className="inline-flex items-center text-text-muted transition-colors hover:text-text-primary focus-visible:text-text-primary focus-visible:outline-none"
           >
             <Info size={12} strokeWidth={1.75} aria-hidden />
           </TooltipTrigger>

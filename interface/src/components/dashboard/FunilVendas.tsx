@@ -102,7 +102,7 @@ export function FunilVendas({ funil }: Props) {
                       {topW > 0 ? (
                         <span
                           aria-hidden
-                          className="absolute inset-0 transition group-hover:brightness-110"
+                          className="absolute inset-0 transition-[filter] group-hover:brightness-110"
                           style={{ background: meta.cor, clipPath: clip }}
                         />
                       ) : null}

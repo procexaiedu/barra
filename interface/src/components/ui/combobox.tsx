@@ -46,15 +46,22 @@ export function Combobox({
   const [open, setOpen] = React.useState(false)
   const [termo, setTermo] = React.useState("")
 
-  const formatar = displayFormat ?? ((v: string) => formatRotulo(v) ?? v)
+  const formatar = React.useMemo(
+    () => displayFormat ?? ((v: string) => formatRotulo(v) ?? v),
+    [displayFormat],
+  )
 
   const termoTrim = termo.trim()
   const termoNorm = normaliza(termoTrim)
 
   const filtradas = React.useMemo(() => {
     if (!termoNorm) return options
-    return options.filter((o) => normaliza(o).includes(termoNorm))
-  }, [options, termoNorm])
+    // Filtra pelo rótulo exibido (e pela opção crua como fallback): quando a
+    // option é uma chave técnica (ex.: "modelo:<uuid>"), só o formatado casa.
+    return options.filter(
+      (o) => normaliza(formatar(o)).includes(termoNorm) || normaliza(o).includes(termoNorm),
+    )
+  }, [options, termoNorm, formatar])
 
   const baterExato = React.useMemo(
     () => options.some((o) => o.toLowerCase() === termoTrim.toLowerCase()),

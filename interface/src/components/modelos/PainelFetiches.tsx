@@ -57,7 +57,7 @@ export function PainelFetiches({
           <div>
             <h2 className="text-sm font-semibold text-text-primary">Fetiches</h2>
             <p className="text-xs text-text-muted">
-              Catálogo Elite Baby. Cada modelo marca os que faz (com preço opcional) no perfil dela.
+              Todos os fetiches da agência. Cada modelo escolhe os dela no perfil.
             </p>
           </div>
           <span className="text-xs text-text-muted">{fetiches.length}</span>
@@ -100,26 +100,24 @@ export function PainelFetiches({
           Como funciona
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-text-secondary">
-          O catálogo é a lista mestre. No perfil de cada modelo, marque os fetiches que ela faz —
-          cada um com preço opcional.
+          No perfil de cada modelo você marca quais ela faz e quanto cobra:
         </p>
         <dl className="mt-4 space-y-3">
           <div className="flex items-start gap-3">
             <dt className="pt-0.5"><FeticheValor preco={null} /></dt>
             <dd className="text-sm leading-relaxed text-text-secondary">
-              Faz, <span className="text-text-primary">sem custo extra</span> — já está no valor do programa.
+              Sem preço: <span className="text-text-primary">já incluso</span> no valor do programa.
             </dd>
           </div>
           <div className="flex items-start gap-3">
             <dt className="pt-0.5"><FeticheValor preco={200} /></dt>
             <dd className="text-sm leading-relaxed text-text-secondary">
-              Faz como <span className="text-text-primary">extra pago</span> — a IA cota o valor por cima do programa.
+              Com preço: a IA <span className="text-text-primary">cota como adicional</span> por cima do programa.
             </dd>
           </div>
         </dl>
         <p className="mt-4 border-t border-border pt-4 text-xs leading-relaxed text-text-muted">
-          A IA usa essa lista para responder “você faz X?” e recusar, de forma natural, o que não
-          estiver marcado. O que não está aqui, a modelo não faz.
+          Na conversa, a IA só oferece o que está marcado e recusa o resto com naturalidade.
         </p>
       </aside>
     </div>

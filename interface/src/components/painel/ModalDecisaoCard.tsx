@@ -275,7 +275,9 @@ export function ModalDecisaoCard({
         method: "POST",
         body: JSON.stringify({ valor_final: valor }),
       })
-      toast.success(`Atendimento #${card.numero_curto} fechado — ${formatBRL(valor)}`)
+      toast.success(`Atendimento #${card.numero_curto} fechado — ${formatBRL(valor)}`, {
+        description: "Corrija no atendimento se precisar.",
+      })
       setFecharAberto(false)
       onClose()
     } catch (e) {
@@ -300,7 +302,9 @@ export function ModalDecisaoCard({
           observacao: observacaoPerda || null,
         }),
       })
-      toast.success(`Atendimento #${card.numero_curto} registrado como perdido`)
+      toast.success(`Atendimento #${card.numero_curto} registrado como perdido`, {
+        description: "Corrija no atendimento se precisar.",
+      })
       setPerderAberto(false)
       onClose()
     } catch (e) {
@@ -507,11 +511,10 @@ export function ModalDecisaoCard({
               {isEmExecucao && (
                 <>
                   <Button
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
                     onClick={handleDevolver}
                     disabled={loadingAcao}
-                    className="text-text-muted"
                   >
                     Devolver IA
                   </Button>
@@ -593,7 +596,7 @@ export function ModalDecisaoCard({
               Fechar #{card?.numero_curto}
             </AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary">
-              Informe o valor total pago pelo cliente.
+              Informe o valor total pago pelo cliente. Você pode corrigir o fechamento depois no atendimento.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="py-1">
@@ -628,7 +631,7 @@ export function ModalDecisaoCard({
               Registrar perda #{card?.numero_curto}?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-text-secondary">
-              O atendimento será encerrado como perdido.
+              O atendimento será encerrado como perdido. Você pode corrigir depois no atendimento.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-3 py-1">

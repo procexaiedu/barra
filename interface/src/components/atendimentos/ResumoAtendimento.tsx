@@ -19,7 +19,7 @@ import { FeticheValor } from "@/components/comum/FeticheValor"
 import { cn } from "@/lib/utils"
 import { formatBRL, formatData, formatDataHora, formatRotulo } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse, FeticheFechado, ServicoFechado } from "@/tipos/atendimentos"
-import { corEstado, estadoLabel, formatEnum, motivoExibido, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
+import { formatEnum, motivoExibido, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 import { DialogVisualizarBloqueio } from "@/components/agenda/DialogVisualizarBloqueio"
 
 function asNumber(valor: number | string | null) {
@@ -37,14 +37,15 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
   const [modalBloqueioAberto, setModalBloqueioAberto] = useState(false)
   const atendimento = detalhe.atendimento
   const valorAcordado = asNumber(atendimento.valor_acordado)
+  const valorFinal = atendimento.estado === "Fechado" ? asNumber(atendimento.valor_final) : null
+  // O valor (acordado/final) e o badge de estado vivem no header do detalhe; aqui
+  // o acordado só reaparece como contraste quando o final fechou diferente dele.
+  const mostrarAcordadoDelta = valorFinal !== null && valorAcordado !== null && valorFinal !== valorAcordado
   const sq = atendimento.sinais_qualificacao as Record<string, unknown> | null
   const sinais = sinaisParaTipo(atendimento.tipo_atendimento)
   const total = sinais.length
   const progresso = sinais.filter(({ chave }) => sq?.[chave] === true).length
   const pct = total > 0 ? Math.round((progresso / total) * 100) : 0
-
-  // Concorda com o badge do detalhe (mesma cor por estado).
-  const { texto: estadoColorClass, ponto: estadoDotClass } = corEstado(atendimento.estado)
 
   const formaPagamentoLabel = atendimento.forma_pagamento
     ? atendimento.forma_pagamento === "pix"
@@ -78,47 +79,33 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
         <h2 className="text-[15px] font-semibold text-text-primary">Resumo do atendimento</h2>
       </div>
 
-      {/* Hero KPI: valor acordado em destaque, linha de baixo com estado + tipo + quando */}
-      <div className="mb-4 overflow-hidden rounded-md border border-border bg-muted">
-        <div className="flex flex-wrap items-end justify-between gap-2 px-4 py-3">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">Valor acordado</p>
-            {valorAcordado !== null ? (
-              <p className="mt-1 font-serif text-[28px] font-medium leading-none tabular-nums text-gold-500">
-                {formatBRL(valorAcordado)}
-              </p>
-            ) : (
-              <p className="mt-1 text-[15px] font-medium text-text-disabled">A combinar</p>
-            )}
-          </div>
-          <span className={cn("inline-flex items-center gap-1.5 rounded-full bg-accent px-3 py-1 text-[12px] font-semibold", estadoColorClass)}>
-            <span className={cn("inline-block h-1.5 w-1.5 rounded-full", estadoDotClass)} />
-            {estadoLabel[atendimento.estado]}
-          </span>
-        </div>
-        <div className="grid grid-cols-2 gap-px border-t border-border bg-border">
-          <StatTile label="Tipo" icone={<Target size={13} strokeWidth={1.75} className="text-info-500" />}>
-            <span className="text-[13px] leading-tight text-text-primary">
-              {atendimento.tipo_atendimento
-                ? tipoLabel[atendimento.tipo_atendimento]
-                : <span className="text-text-disabled">—</span>
-              }
-            </span>
-          </StatTile>
-          <StatTile label="Quando" icone={<CalendarClock size={13} strokeWidth={1.75} className="text-text-muted" />}>
-            <span className="text-[13px] leading-tight text-text-primary">
-              {atendimento.urgencia
-                ? urgenciaLabel[atendimento.urgencia]
-                : <span className="text-text-disabled">—</span>
-              }
-            </span>
-          </StatTile>
-        </div>
+      {/* Meta compacta — estado e valor vivem no header; aqui só tipo, quando e, se divergir, o acordado */}
+      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md border border-border bg-muted px-4 py-2.5">
+        <MetaInline label="Tipo" icone={<Target size={13} strokeWidth={1.75} className="text-info-500" />}>
+          {atendimento.tipo_atendimento
+            ? tipoLabel[atendimento.tipo_atendimento]
+            : <span className="text-text-disabled">—</span>}
+        </MetaInline>
+        <MetaInline label="Quando" icone={<CalendarClock size={13} strokeWidth={1.75} className="text-text-muted" />}>
+          {atendimento.urgencia
+            ? urgenciaLabel[atendimento.urgencia]
+            : <span className="text-text-disabled">—</span>}
+        </MetaInline>
+        {mostrarAcordadoDelta && (
+          <MetaInline label="Acordado">
+            <span className="tabular-nums text-text-secondary">{formatBRL(valorAcordado!)}</span>
+          </MetaInline>
+        )}
+        {valorAcordado === null && valorFinal === null && (
+          <MetaInline label="Valor">
+            <span className="text-text-disabled">A combinar</span>
+          </MetaInline>
+        )}
       </div>
 
       {/* Banner de handoff — exibido apenas quando pausada */}
       {atendimento.ia_pausada && (
-        <div className="mb-4 rounded-md border-l-4 border-state-handoff bg-state-handoff/10 p-3.5">
+        <div className="mb-4 rounded-md border border-state-handoff/30 bg-state-handoff/10 p-3.5">
           <div className="flex items-start gap-2.5">
             <AlertTriangle size={18} strokeWidth={2} className="mt-0.5 shrink-0 text-state-handoff" />
             <div className="min-w-0">
@@ -233,7 +220,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
                 />
               </div>
               <span className={cn(
-                "text-[13px] font-bold tabular-nums",
+                "text-[13px] font-semibold tabular-nums",
                 pct === 100 ? "text-success-500" : "text-text-primary"
               )}>{pct}%</span>
             </div>
@@ -335,14 +322,12 @@ function Secao({
   )
 }
 
-function StatTile({ label, icone, children }: { label: string; icone?: ReactNode; children: ReactNode }) {
+function MetaInline({ label, icone, children }: { label: string; icone?: ReactNode; children: ReactNode }) {
   return (
-    <div className="bg-muted px-3 py-2.5">
-      <p className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] leading-none text-text-muted">
-        {icone}
-        <span>{label}</span>
-      </p>
-      {children}
+    <div className="flex items-center gap-1.5">
+      {icone}
+      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] leading-none text-text-muted">{label}</span>
+      <span className="text-[13px] leading-tight text-text-primary">{children}</span>
     </div>
   )
 }

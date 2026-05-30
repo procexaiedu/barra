@@ -170,6 +170,7 @@ function DashboardConteudo({
             destaque
             serie={series.conversao?.pontos}
             corSparkline="var(--gold-500)"
+            formatarSparkline={(v) => formatPercent(v)}
             nReferencia={decididos}
             tendencia={
               kpis.taxa_conversao_pct !== null && anterior !== null ? (

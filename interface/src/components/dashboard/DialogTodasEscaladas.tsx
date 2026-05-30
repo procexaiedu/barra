@@ -42,7 +42,7 @@ export function DialogTodasEscaladas({
   const navegarParaTipo = (tipo: string | undefined) => {
     if (!tipo) return
     onOpenChange(false)
-    router.push(`/atendimentos?ia_pausada=true&tipo_escalada=${encodeURIComponent(tipo)}`)
+    router.push(`/atendimentos?ia_pausada=true&motivo_escalada=${encodeURIComponent(tipo)}`)
   }
 
   return (

@@ -61,7 +61,6 @@ export function ModalPerderAtendimento({
     setSubmitting(true)
     try {
       await onPerder(motivo, obs || null)
-      toast.success(`Atendimento #${numeroCurto} marcado como perdido`)
       setObservacao("")
       setMotivo("sumiu")
       setErro(null)

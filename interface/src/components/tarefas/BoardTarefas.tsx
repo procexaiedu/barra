@@ -81,8 +81,8 @@ export function BoardTarefas({ tarefas, onEditar, onExcluir, onMoverStatus }: Pr
                   onDragEnd={() => setArrastando(null)}
                   style={{ animationDelay: `${Math.min(i, 10) * 30}ms`, animationFillMode: "backwards" }}
                   className={cn(
-                    "group relative cursor-grab overflow-hidden rounded-lg border border-border bg-card pl-3 pr-2.5 py-2.5 shadow-sm transition-all duration-150 animate-in fade-in-0 slide-in-from-bottom-1",
-                    "hover:-translate-y-px hover:border-border-strong hover:shadow-md active:cursor-grabbing",
+                    "group relative cursor-grab overflow-hidden rounded-lg border border-border bg-card pl-3 pr-2.5 py-2.5 transition-all duration-150 animate-in fade-in-0 slide-in-from-bottom-1",
+                    "hover:-translate-y-px hover:border-border-strong active:cursor-grabbing",
                     arrastando === t.id && "opacity-50 ring-1 ring-gold-500/50",
                   )}
                 >
