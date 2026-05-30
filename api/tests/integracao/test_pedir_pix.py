@@ -7,7 +7,8 @@ deixa prepare_context, a tool e as asserções lerem a MESMA transação; ROLLBA
 
 Cobertura:
 - externo qualificado → Aguardando_confirmacao + pix_status=aguardando + bloqueio do slot;
-- a string da tool NÃO contém a chave Pix (mas o payload de tool_calls SIM, p/ a humanização);
+- a string da tool NÃO contém a chave Pix, e o payload persistido (tool_calls) tem só `valor`
+  — chave/titular NUNCA vão em claro para a persistência (guard-rail de dado sensível);
 - 2ª chamada (mesmo turno_id) é idempotente: não duplica bloqueio;
 - slot já reservado → ConflitoAgenda → erro recuperável + estado revertido;
 - modelo sem chave_pix → erro instrutivo + estado inalterado.
@@ -294,20 +295,21 @@ async def test_pede_pix_reserva_slot_e_nao_vaza_chave(
         hours=DURACAO_SLOT
     )
 
-    # a chave NÃO vaza pelo retorno da tool (vai pelo payload p/ a humanização anexar).
+    # a chave NÃO vaza pelo retorno da tool.
     tmsgs = _tool_messages(fake.vistas)
     assert len(tmsgs) == 1
     assert chave not in str(tmsgs[0].content)
 
-    # mas o payload de tool_calls TEM a chave (a humanização lê dali).
+    # e o payload de tool_calls tem SÓ `valor` — chave/titular NUNCA são persistidos em claro.
     res = await conn.execute(
         "SELECT payload FROM barravips.tool_calls"
         " WHERE tool_name = 'pedir_pix_deslocamento' AND call_idx = 0"
     )
     tc = await res.fetchone()
     assert tc is not None
-    assert tc["payload"]["chave"] == chave
-    assert tc["payload"]["valor"] == 100
+    assert tc["payload"] == {"valor": 100}
+    assert "chave" not in tc["payload"]
+    assert "titular" not in tc["payload"]
 
     # evento de auditoria registrado.
     res = await conn.execute(
