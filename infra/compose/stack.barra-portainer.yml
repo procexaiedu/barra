@@ -48,6 +48,8 @@ services:
       cd /app/repo/api &&
       uv sync --frozen --no-dev &&
       uv run uvicorn barra.main:app --host 0.0.0.0 --port 8000"
+    # DEPLOY-03: drena conexoes em voo no shutdown antes do SIGKILL (pareia com o start-first).
+    stop_grace_period: 30s
     # DEPLOY-02: readiness gate. A imagem uv:slim nao tem curl/wget — usa o python da propria
     # imagem p/ bater /ready (2xx quando o app subiu; nao-2xx enquanto clona/uv sync ou se o DB
     # cai). start_period cobre apt-get+git clone+uv sync p/ o Traefik nao rotear cedo demais.
@@ -59,6 +61,15 @@ services:
       start_period: 300s
     deploy:
       replicas: 1
+      # DEPLOY-03: api start-first — sobe a task nova e saudavel antes de derrubar a velha
+      # (sem 502; pareia com o readiness/healthcheck do DEPLOY-02). failure_action so reverte
+      # se a task nova falhar dentro do monitor (o healthcheck marca a task unhealthy).
+      update_config:
+        order: start-first
+        failure_action: rollback
+        monitor: 30s
+      rollback_config:
+        order: start-first
       restart_policy:
         condition: on-failure
       labels:
@@ -123,6 +134,8 @@ services:
       cd /app/repo/api &&
       uv sync --frozen --no-dev &&
       uv run arq barra.workers.settings.WorkerSettings"
+    # DEPLOY-03: da ao ARQ ate 30s p/ terminar o job em voo antes do SIGKILL (pareia com stop-first).
+    stop_grace_period: 30s
     # DEPLOY-02: healthcheck de processo. O worker nao tem rota HTTP propria, mas o OBS-01 expoe
     # as metricas do prometheus_client em :9091 no startup (ambiente!=teste) — bater nele prova
     # que o processo arq subiu e segue vivo. start_period cobre apt-get+git clone+uv sync.
@@ -134,6 +147,15 @@ services:
       start_period: 300s
     deploy:
       replicas: 1
+      # DEPLOY-03: worker stop-first (NAO start-first) — derruba o worker velho antes de subir
+      # o novo, garantindo 1 unico consumidor ARQ no Redis. start-first deixaria 2 workers no
+      # overlap -> entrega duplicada (ver memoria de workers orfaos em Swarm+ARQ).
+      update_config:
+        order: stop-first
+        failure_action: rollback
+        monitor: 30s
+      rollback_config:
+        order: stop-first
       restart_policy:
         condition: on-failure
     depends_on:
