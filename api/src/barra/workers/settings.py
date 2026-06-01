@@ -136,10 +136,14 @@ async def startup(ctx: dict[str, Any]) -> None:
     # OpenRouter; instanciado uma vez e reutilizado entre invocações. Sem chave configurada,
     # mantemos None — o openai SDK rejeita api_key vazia no construtor e derrubaria o worker;
     # validar_pix lida com vision_client=None levantando ao ser chamado (nao deveria sem chave).
+    # timeout 60s + 3 retries (espelha o openai_client abaixo, REL-04): vision pendurado nao pode
+    # segurar o slot do worker ate o job_timeout=400s.
     if settings.openrouter_api_key:
         ctx["vision_client"] = AsyncOpenAI(
             api_key=settings.openrouter_api_key,
             base_url="https://openrouter.ai/api/v1",
+            timeout=60.0,
+            max_retries=3,
         )
     else:
         ctx["vision_client"] = None
