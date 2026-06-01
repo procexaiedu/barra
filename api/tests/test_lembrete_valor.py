@@ -1,6 +1,8 @@
 """Testes do Lembrete de fechamento (ADR-0007): cron cobrar_valor_final + resolução do quote."""
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from uuid import uuid4
 
 from barra.webhook.routes import _resolver_card
@@ -22,10 +24,18 @@ class FakeConn:
     def __init__(self, rows: list[dict]) -> None:
         self._rows = rows
         self.queries: list[str] = []
+        self.transacoes = 0  # quantas vezes conn.transaction() foi aberto (transacao + savepoints)
 
     async def execute(self, query: str, params: tuple | None = None) -> _Result:
         self.queries.append(query)
         return _Result(self._rows)
+
+    @asynccontextmanager
+    async def transaction(self) -> AsyncIterator["FakeConn"]:
+        # Espelha psycopg3: transacao no nivel externo, savepoint quando aninhado. Nao suprime
+        # excecao -> a falha de um alvo propaga e e capturada pelo except do laco (best-effort).
+        self.transacoes += 1
+        yield self
 
 
 class FakeEvolution:
@@ -79,6 +89,33 @@ def test_query_alvos_tem_guardas() -> None:
     assert "e.observacao = %s" in q  # guard: já escalado some do conjunto
     assert "fechada_em IS NULL" in q
     assert "make_interval" in q
+    # REL-05: trava o alvo escopado em `a` (LATERAL agregado exige OF a) e pula o que outro
+    # worker já segurou — em vez de disparar o mesmo card 2x.
+    assert "FOR UPDATE OF a SKIP LOCKED" in q
+
+
+def test_roda_dentro_de_transacao() -> None:
+    # REL-05: busca + envio na MESMA transacao (1 externa + 1 savepoint por alvo) -> o lock do
+    # FOR UPDATE sobrevive ate o card commitar.
+    conn = FakeConn([_alvo("enviar", 0)])
+    asyncio.run(cobrar_valor_final(conn, FakeEvolution(), FakeSettings()))
+    assert conn.transacoes == 2  # 1 transacao externa + 1 savepoint do alvo
+
+
+def test_falha_de_um_alvo_nao_aborta_o_lote() -> None:
+    # REL-05: dentro da transacao unica, o savepoint isola a falha — o 1o alvo (canal ausente)
+    # vira falha e o 2o ainda recebe o card. Sem savepoint, a transacao abortada derrubaria o 2o.
+    conn = FakeConn(
+        [
+            _alvo("enviar", 0, evolution_instance_id=None),  # canal ausente -> RuntimeError
+            _alvo("enviar", 0, numero_curto=9, cliente_nome="Ana"),
+        ]
+    )
+    evo = FakeEvolution()
+    total = asyncio.run(cobrar_valor_final(conn, evo, FakeSettings()))
+    assert total == 1  # so o 2o conta
+    assert len(evo.envios) == 1
+    assert "#9" in evo.envios[0]["texto"]
 
 
 def test_envia_primeiro_card() -> None:

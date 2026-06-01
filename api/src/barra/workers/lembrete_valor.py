@@ -36,24 +36,33 @@ async def cobrar_valor_final(
 
     Best-effort por alvo (o fluxo nunca trava por card): falha de um envio é logada e contada na
     métrica, sem abortar o lote nem ser contada como ação concluída.
+
+    Tudo roda numa transação única: `_buscar_alvos` trava cada alvo (`FOR UPDATE OF a SKIP
+    LOCKED`) e o lock é mantido até o card/handoff commitar, então um worker concorrente pula o
+    alvo em vez de disparar o mesmo card 2x (REL-05, espelha `workers/timeouts.py`). O savepoint
+    por alvo isola a falha de um envio (rollback só do seu savepoint) sem abortar o lote nem
+    soltar os locks dos demais.
     """
     if not settings.lembrete_valor_ativo:
         return 0
 
-    alvos = await _buscar_alvos(conn, settings)
     acoes = 0
-    for alvo in alvos:
-        try:
-            if alvo["acao"] == "escalar":
-                await _escalar(conn, alvo, settings)
-                LEMBRETE_VALOR.labels("escalado").inc()
-            else:
-                await _enviar_card(conn, evolution, settings, alvo)
-                LEMBRETE_VALOR.labels("reenviado" if alvo["toques"] else "enviado").inc()
-            acoes += 1
-        except Exception:
-            logger.exception("lembrete_valor_falha atendimento_id=%s", alvo["id"])
-            LEMBRETE_VALOR.labels("falha").inc()
+    async with conn.transaction():
+        alvos = await _buscar_alvos(conn, settings)
+        for alvo in alvos:
+            try:
+                async with conn.transaction():  # savepoint: isola a falha de um alvo
+                    if alvo["acao"] == "escalar":
+                        await _escalar(conn, alvo, settings)
+                        label = "escalado"
+                    else:
+                        await _enviar_card(conn, evolution, settings, alvo)
+                        label = "reenviado" if alvo["toques"] else "enviado"
+                LEMBRETE_VALOR.labels(label).inc()
+                acoes += 1
+            except Exception:
+                logger.exception("lembrete_valor_falha atendimento_id=%s", alvo["id"])
+                LEMBRETE_VALOR.labels("falha").inc()
     return acoes
 
 
@@ -63,6 +72,11 @@ async def _buscar_alvos(conn: AsyncConnection[Any], settings: Settings) -> list[
     Toques e último envio vêm de `envios_evolution`. Já escalados (escalada aberta com
     `OBS_ESCALADA`) saem do conjunto — não recobram nem reenviam. `make_interval` aplica os
     intervalos no banco para não comparar timestamp aware/naive em Python.
+
+    `FOR UPDATE OF a SKIP LOCKED` trava cada atendimento elegível; deve rodar na transação do
+    chamador (`cobrar_valor_final`), que segura o lock até o envio commitar — daí um worker
+    concorrente pular o alvo (REL-05). O `OF a` é obrigatório: sem ele o `count(*)` do LATERAL
+    dispara `FOR UPDATE is not allowed with aggregate functions` (regressão do #67 em `timeouts`).
     """
     res = await conn.execute(
         """
@@ -96,6 +110,7 @@ async def _buscar_alvos(conn: AsyncConnection[Any], settings: Settings) -> list[
                     AND e.observacao = %s
                     AND e.fechada_em IS NULL
                )
+             FOR UPDATE OF a SKIP LOCKED
           ) q
          WHERE q.acao IS NOT NULL
         """,
