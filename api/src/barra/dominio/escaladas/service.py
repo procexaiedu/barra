@@ -443,13 +443,22 @@ async def abrir_handoff(
 ) -> None:
     motivo_texto = observacao or rotulo_tipo_escalada(tipo)
     async with conn.transaction():
-        await conn.execute(
+        # Idempotencia (REL-02): nao abre escalada duplicada quando o turno e reprocessado
+        # (re-drain do ARQ sem checkpointer; ou caminhos que chamam abrir_handoff direto sem
+        # _executar_idempotente, ex.: intercept_disclosure re-incrementando o contador). Uma
+        # escalada aberta (fechada_em IS NULL) ja deixou a IA pausada — o handoff esta de pe,
+        # nada a refazer. Mesmo guard de lembrete_valor._buscar_alvos.
+        cur = await conn.execute(
             """
             INSERT INTO barravips.escaladas (
               atendimento_id, responsavel, tipo, motivo, observacao,
               resumo_operacional, acao_esperada, card_message_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            SELECT %s, %s, %s, %s, %s, %s, %s, %s
+             WHERE NOT EXISTS (
+               SELECT 1 FROM barravips.escaladas
+                WHERE atendimento_id = %s AND fechada_em IS NULL
+             )
             """,
             (
                 atendimento_id,
@@ -460,8 +469,11 @@ async def abrir_handoff(
                 resumo_operacional,
                 acao_esperada,
                 card_message_id,
+                atendimento_id,
             ),
         )
+        if cur.rowcount == 0:
+            return  # escalada ja aberta — handoff idempotente, nada a refazer
         await conn.execute(
             """
             UPDATE barravips.atendimentos
