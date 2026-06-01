@@ -407,6 +407,28 @@ async def _carregar_destino(pool: AsyncConnectionPool[Any], conversa_id: str) ->
     return cast(dict[str, Any], row)
 
 
+async def _atendimento_para_escalada(
+    pool: AsyncConnectionPool[Any], conversa_id: str
+) -> UUID | None:
+    """Último atendimento da conversa em QUALQUER estado — fallback do handoff de exaustão
+    crítica (REL-08). `_carregar_destino` só resolve atendimento não-terminal; se o aberto virou
+    `Fechado`/`Perdido` entre o enqueue e a retry final, o handoff (`escaladas.atendimento_id`
+    NOT NULL) precisa de um atendimento mesmo terminal, senão o efeito crítico encerra em silêncio."""
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT id
+              FROM barravips.atendimentos
+             WHERE conversa_id = %s
+             ORDER BY created_at DESC
+             LIMIT 1
+            """,
+            (UUID(conversa_id),),
+        )
+        row = await res.fetchone()
+    return cast("UUID | None", row["id"]) if row else None
+
+
 async def enviar_turno(
     ctx: dict[str, Any],
     *,
@@ -534,12 +556,30 @@ async def enviar_turno(
             )
             if critico and conv is not None:
                 # Dead-end (05 §7): efeito já no banco, mensagem pode não ter chegado → escala.
+                # `_carregar_destino` só resolve atendimento não-terminal: se ele virou terminal
+                # entre o enqueue e esta retry, atendimento_id é NULL e a escalada
+                # (atendimento_id NOT NULL) falharia silenciosa. Recupera o último atendimento da
+                # conversa em qualquer estado (REL-08); sem nenhum, alerta dedicado, nunca silêncio.
                 from barra.workers.coordenador import escalar_por_exaustao
 
-                await escalar_por_exaustao(
-                    pool, conv["atendimento_id"], turno_id, motivo="envio_exaurido_critico"
-                )
-                ENVIO_RESULTADO.labels("exaustao_critico").inc()
+                alvo = conv["atendimento_id"] or await _atendimento_para_escalada(pool, conversa_id)
+                if alvo is not None:
+                    await escalar_por_exaustao(
+                        pool, alvo, turno_id, motivo="envio_exaurido_critico"
+                    )
+                    ENVIO_RESULTADO.labels("exaustao_critico").inc()
+                else:
+                    # Conversa sem nenhum atendimento (impossível abrir handoff): não silenciar —
+                    # log dedicado + Sentry para a operação ver o efeito crítico que se perdeu.
+                    logger.error(
+                        "envio_critico_sem_atendimento turno_id=%s request_id=%s conversa_id=%s",
+                        turno_id,
+                        ctx.get("job_id"),
+                        conversa_id,
+                    )
+                    if sentry_sdk is not None:
+                        sentry_sdk.capture_exception()
+                    ENVIO_RESULTADO.labels("exaustao_critico_sem_atendimento").inc()
             else:
                 # Falha final não-crítica: a mensagem ao cliente pode ter se perdido. Sem efeito no
                 # banco não há o que escalar (≠ crítico), mas a perda não pode ser silenciosa —
