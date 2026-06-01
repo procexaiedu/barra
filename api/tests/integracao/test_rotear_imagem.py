@@ -186,7 +186,8 @@ async def test_pix_aguardando(conn: AsyncConnection[dict[str, Any]]) -> None:
     kwargs = calls[0].kwargs
     assert kwargs["mensagem_id"] == str(mensagem_id)
     assert kwargs["atendimento_id"] == str(atendimento_id)
-    assert kwargs["media_url"] == "https://evolution.test/img.jpg"
+    # `validar_pix` nao aceita media_url (assinatura enxuta, 06 §0 item 2): nao deve ser passado.
+    assert "media_url" not in kwargs
     assert kwargs["_job_id"] == f"pix:{atendimento_id}:{mensagem_id}"
 
 

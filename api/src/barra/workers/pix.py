@@ -214,42 +214,60 @@ async def validar_pix(
                 (UUID(atendimento_id), UUID(mensagem_id)),
             )
             ctx_row = await res.fetchone()
-        if ctx_row is None or not ctx_row["media_object_key"]:
+        if ctx_row is None:
+            # Sem linha: a mensagem nao existe (anomalia). `comprovantes_pix.mensagem_id` e FK,
+            # entao sem mensagem_id valido nao da pra gravar o comprovante -- so registra e sai.
             logger.error(
-                "validar_pix sem media_object_key mensagem_id=%s atendimento_id=%s",
+                "validar_pix sem contexto mensagem_id=%s atendimento_id=%s",
                 mensagem_id,
                 atendimento_id,
             )
             return
 
-        object_key: str = ctx_row["media_object_key"]
+        object_key: str | None = ctx_row["media_object_key"]
         chave_modelo: str | None = ctx_row["chave_pix_modelo"]
         titular_modelo: str | None = ctx_row["titular_modelo"]
 
-        # 2. baixa do MinIO + detecta mime real (nao confiar na extensao da URL Evolution)
-        bytes_img = await _baixar_minio(minio, settings.minio_bucket_media, object_key)
-        media_type = _detectar_mime_imagem(bytes_img)
-
-        # 3. vision. finish_reason=max_tokens/refusal -> VisionInconclusiva: Pix NUNCA trava
-        #    (01 §6.1), cai em em_revisao (DUVIDOSO) com extracao vazia, sem propagar.
         motivo_em_revisao: str | None = None
         motivo_bucket: str | None = None
-        try:
-            extracao: ExtracaoPix | None = await _extrair_via_openrouter(
-                bytes_img,
-                media_type=media_type,
-                client=vision_client,
-                modelo=settings.openrouter_model_vision_pix or "anthropic/claude-sonnet-4.6",
-            )
-        except VisionInconclusiva as exc:
+        extracao: ExtracaoPix | None = None
+
+        if not object_key:
+            # REL-06: o upload do comprovante ao MinIO falhou no webhook (a mensagem caiu como
+            # 'texto' sem media_object_key). Pix NUNCA trava nem some (01 §6.1): em vez de o
+            # atendimento estagnar em Aguardando_confirmacao ate virar Perdido no timeout-24h,
+            # marcamos DUVIDOSO (em_revisao) -> o atendimento avanca para Confirmado e Fernando
+            # revisa na fila assincrona. Sem imagem nao ha download nem vision.
             logger.warning(
-                "validar_pix vision inconclusivo atendimento_id=%s finish_reason=%s",
+                "validar_pix midia ausente -> em_revisao mensagem_id=%s atendimento_id=%s",
+                mensagem_id,
                 atendimento_id,
-                exc,
             )
-            extracao = None
-            motivo_em_revisao = f"vision inconclusivo: finish_reason={exc}"
-            motivo_bucket = "vision"
+            motivo_em_revisao = "midia ausente: upload do comprovante falhou"
+            motivo_bucket = "midia"
+        else:
+            # 2. baixa do MinIO + detecta mime real (nao confiar na extensao da URL Evolution)
+            bytes_img = await _baixar_minio(minio, settings.minio_bucket_media, object_key)
+            media_type = _detectar_mime_imagem(bytes_img)
+
+            # 3. vision. finish_reason=max_tokens/refusal -> VisionInconclusiva: Pix NUNCA trava
+            #    (01 §6.1), cai em em_revisao (DUVIDOSO) com extracao vazia, sem propagar.
+            try:
+                extracao = await _extrair_via_openrouter(
+                    bytes_img,
+                    media_type=media_type,
+                    client=vision_client,
+                    modelo=settings.openrouter_model_vision_pix or "anthropic/claude-sonnet-4.6",
+                )
+            except VisionInconclusiva as exc:
+                logger.warning(
+                    "validar_pix vision inconclusivo atendimento_id=%s finish_reason=%s",
+                    atendimento_id,
+                    exc,
+                )
+                extracao = None
+                motivo_em_revisao = f"vision inconclusivo: finish_reason={exc}"
+                motivo_bucket = "vision"
 
         # 4. comparacoes (sem timestamp, emenda §0 item 11). So quando houve extracao -- sem
         #    ela ja esta em em_revisao pelo branch acima.

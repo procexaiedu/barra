@@ -101,11 +101,13 @@ async def rotear_imagem(
 
             if estado == "Aguardando_confirmacao" and pix_status == "aguardando":
                 assert atendimento is not None  # estado != None implica atendimento
+                # `validar_pix` tem assinatura enxuta (06 §0 item 2: a midia ja esta no MinIO,
+                # a URL da Evolution expira) e NAO aceita media_url — passa-lo aqui quebraria o
+                # job com TypeError no ARQ real.
                 await redis.enqueue_job(
                     "validar_pix",
                     mensagem_id=mensagem_id,
                     atendimento_id=str(atendimento["id"]),
-                    media_url=media_url,
                     _job_id=f"pix:{atendimento['id']}:{mensagem_id}",
                 )
                 ROTEAR_IMAGEM_DECISAO.labels("pix").inc()
@@ -231,7 +233,9 @@ async def transcrever_audio(
     if row is None or row["media_object_key"] is None:
         logger.warning("transcricao_sem_objeto mensagem_id=%s", mensagem_id)
         TRANSCRICAO_RESULTADO.labels("sem_audio").inc()
-        await _sinalizar_canal(redis, str(row["conversa_id"]) if row else None, mensagem_id, ok=False)
+        await _sinalizar_canal(
+            redis, str(row["conversa_id"]) if row else None, mensagem_id, ok=False
+        )
         return
 
     conversa_id = str(row["conversa_id"])
@@ -325,9 +329,7 @@ async def _sinalizar_canal(
     await redis.expire(chave, 30)
 
 
-async def _falha_definitiva(
-    pool: Any, redis: Any, *, mensagem_id: str, conversa_id: str
-) -> None:
+async def _falha_definitiva(pool: Any, redis: Any, *, mensagem_id: str, conversa_id: str) -> None:
     """Grava placeholder em `mensagens.conteudo` e sinaliza `{"ok": false}` (06 §1.5).
 
     Chamado quando nao ha provider configurado (ambiente sem chave/cliente) ou no retry esgotado

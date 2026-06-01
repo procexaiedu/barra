@@ -118,9 +118,14 @@ TITULAR_OK = "Maria Silva"
 
 async def _seed_cenario(
     c: AsyncConnection[dict[str, Any]],
+    *,
+    com_midia: bool = True,
 ) -> tuple[UUID, UUID]:
-    """Modelo (com chave/titular) + cliente + conversa + mensagem com media_object_key + atendimento
-    externo em Aguardando_confirmacao com pix_status=aguardando. Retorna (atendimento_id, mensagem_id)."""
+    """Modelo (com chave/titular) + cliente + conversa + mensagem + atendimento externo em
+    Aguardando_confirmacao com pix_status=aguardando. Retorna (atendimento_id, mensagem_id).
+
+    `com_midia=False` simula o REL-06: o webhook falhou o upload ao MinIO e gravou a mensagem
+    como 'texto' sem media_object_key (constraint: tipo != 'texto' exige media_object_key NOT NULL)."""
     modelo_id = uuid4()
     await c.execute(
         """
@@ -156,17 +161,20 @@ async def _seed_cenario(
         (conversa_id, cliente_id, modelo_id, f"test-chat-{uuid4().hex}"),
     )
     mensagem_id = uuid4()
+    tipo_msg = "imagem" if com_midia else "texto"
+    media_key = f"conversas/{conversa_id}/mensagens/{uuid4().hex}.jpg" if com_midia else None
     await c.execute(
         """
         INSERT INTO barravips.mensagens
             (id, conversa_id, direcao, tipo, conteudo, media_object_key, evolution_message_id)
-        VALUES (%s, %s, 'cliente', 'imagem', %s, %s, %s)
+        VALUES (%s, %s, 'cliente', %s, %s, %s, %s)
         """,
         (
             mensagem_id,
             conversa_id,
+            tipo_msg,
             "",
-            f"conversas/{conversa_id}/mensagens/{uuid4().hex}.jpg",
+            media_key,
             f"test-evo-{uuid4().hex}",
         ),
     )
@@ -373,5 +381,43 @@ async def test_plausibilidade_falsa_em_revisao(
     cp = await _ler_comprovante(conn, atendimento_id)
     assert cp["decisao_pipeline"] == "em_revisao"
     assert "plausibilidade" in (cp["motivo_em_revisao"] or "")
+
+    assert redis.jobs[0][1]["tipo"] == "pix_em_revisao"
+
+
+@pytest.mark.needs_db
+async def test_midia_ausente_em_revisao_nao_vira_perdido(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """REL-06: upload do comprovante ao MinIO falhou -> mensagem sem media_object_key.
+
+    `validar_pix` marca DUVIDOSO (em_revisao) e o atendimento avanca para Confirmado, em vez de
+    estagnar em Aguardando_confirmacao ate o timeout-24h virar Perdido (Pix NUNCA some/trava,
+    01 §6.1). Sem imagem, MinIO e vision nao sao tocados."""
+    atendimento_id, mensagem_id = await _seed_cenario(conn, com_midia=False)
+    vision = _FakeVisionClient(ExtracaoPix(plausibilidade_visual=True))  # nao deve ser chamado
+    redis = _FakeRedis()
+    ctx = _ctx(conn, vision, redis)
+
+    await validar_pix(
+        ctx,
+        mensagem_id=str(mensagem_id),
+        atendimento_id=str(atendimento_id),
+    )
+
+    # Fluxo NUNCA trava nem some: avanca mesmo sem o comprovante.
+    at = await _ler_atendimento(conn, atendimento_id)
+    assert at["estado"] == "Confirmado"
+    assert at["pix_status"] == "em_revisao"
+    assert at["ia_pausada"] is True
+
+    cp = await _ler_comprovante(conn, atendimento_id)
+    assert cp["decisao_pipeline"] == "em_revisao"
+    assert "midia" in (cp["motivo_em_revisao"] or "")
+    assert cp["valor_extraido"] is None  # sem extracao
+
+    # Sem imagem: nao baixa do MinIO nem chama o vision.
+    assert ctx["minio"].chamadas == 0
+    assert vision.chamadas == 0
 
     assert redis.jobs[0][1]["tipo"] == "pix_em_revisao"

@@ -12,6 +12,7 @@ from fastapi import APIRouter, Header, Request
 from barra.core.errors import ErroDominio, JidNaoPermitido
 from barra.core.evolution import envio_existe
 from barra.core.metrics import COMANDOS_GRUPO, WEBHOOK_ERRORS
+from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import garantir_conversa
 from barra.dominio.escaladas.service import Autor, aplicar_comando
 from barra.webhook.despacho import enfileirar_turno
@@ -408,7 +409,13 @@ async def _persistir_cliente(
                 await _upload_minio(minio, bucket, key, data, ct or "application/octet-stream")
                 media_key = key
             except Exception as exc:
+                # REL-06: falha de upload nao pode ser silenciosa. A midia vira 'texto' abaixo
+                # (constraint de DB), mas a operacao precisa ver -- para Pix, `validar_pix` marca
+                # em_revisao e o atendimento avanca em vez de virar Perdido no timeout-24h.
                 _logger.warning("falha_upload_minio key=%s erro=%s", key, exc)
+                WEBHOOK_ERRORS.labels("midia_upload").inc()
+                if sentry_sdk is not None:
+                    sentry_sdk.capture_exception(exc)
 
         # Constraint: tipo != 'texto' requer media_object_key NOT NULL.
         if msg.tipo != "texto" and media_key is None:
