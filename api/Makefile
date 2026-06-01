@@ -1,4 +1,4 @@
-.PHONY: dev worker test lint format typecheck migrate sync
+.PHONY: dev worker test lint format typecheck migrate sync evals
 
 sync:
 	uv sync
@@ -24,3 +24,6 @@ typecheck:
 migrate:
 	@if [ -z "$$DATABASE_URL" ]; then echo "DATABASE_URL obrigatorio"; exit 1; fi
 	@for f in ../infra/sql/*.sql; do psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -f "$$f"; done
+
+evals:
+	uv run python evals/runners/runner.py $(EVALS_ARGS)
