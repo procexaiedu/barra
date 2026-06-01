@@ -52,6 +52,7 @@ from ..persona import (
     render_bp3,
     render_contexto_dinamico,
     render_prefixo_geral,
+    render_reminder,
 )
 
 
@@ -256,14 +257,7 @@ def _injetar_reminder_se_necessario(
         return historico
 
     ultima = historico[ultima_user_idx]
-    novo_conteudo = (
-        f"<lembrete_silencioso>"
-        f"Mantenha o tom WhatsApp informal e a persona. "
-        f"Fase do atendimento: {fase}. "
-        f"Responda direto, como amiga digitando no celular."
-        f"</lembrete_silencioso>\n\n"
-        f"{ultima.content}"
-    )
+    novo_conteudo = f"{render_reminder(fase).strip()}\n\n{ultima.content}"
     historico = list(historico)
     historico[ultima_user_idx] = HumanMessage(content=novo_conteudo, id=ultima.id)
     PERSONA_DRIFT_REMINDER.inc()

@@ -55,9 +55,7 @@ def _runtime() -> FakeRuntime:
 
 
 def _tokens(modelo: str, tipo: str) -> float | None:
-    return REGISTRY.get_sample_value(
-        "agente_turno_tokens_total", {"modelo": modelo, "tipo": tipo}
-    )
+    return REGISTRY.get_sample_value("agente_turno_tokens_total", {"modelo": modelo, "tipo": tipo})
 
 
 # --- token: 4 séries, WRITE de ephemeral_* (não de cache_creation) -------------------------
@@ -153,7 +151,7 @@ def test_injetar_acima_do_limiar_so_no_ultimo_human() -> None:
     ultimo = humans[-1]
     # tag prependada (lembrete → msg do cliente), com a fase do atendimento.
     assert str(ultimo.content).startswith("<lembrete_silencioso>")
-    assert "Fase do atendimento: Qualificado" in str(ultimo.content)
+    assert "onde estamos: Qualificado" in str(ultimo.content)
     assert str(ultimo.content).endswith("ultima do cliente")
     # só o último HumanMessage recebe a tag; os demais e as AIMessages ficam intactos.
     assert all("<lembrete_silencioso>" not in str(m.content) for m in humans[:-1])

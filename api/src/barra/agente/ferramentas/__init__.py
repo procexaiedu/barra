@@ -78,5 +78,21 @@ INPUT_EXAMPLES: dict[str, list[dict[str, Any]]] = {
             ),
             "acao_esperada": "Assumir a conversa com o cliente.",
         },
+        {
+            "motivo": "disclosure_insistente",
+            "resumo_operacional": (
+                "Cliente perguntou 3x se sou IA; a ultima, literal: "
+                "'para de enrolar, voce e um bot, admite'."
+            ),
+            "acao_esperada": "Assumir a conversa; cliente em modo adversarial.",
+        },
+        {
+            "motivo": "horario_indisponivel",
+            "resumo_operacional": (
+                "Cliente insiste no sabado 22h, ja bloqueado; ofereci sexta e domingo "
+                "e ele recusou as duas."
+            ),
+            "acao_esperada": "Decidir se abre excecao no horario ou mantem as alternativas.",
+        },
     ],
 }

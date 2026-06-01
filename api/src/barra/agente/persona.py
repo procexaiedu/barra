@@ -32,11 +32,19 @@ def _brl(valor: Any) -> str:
 # Mapa BCP-47 → nome em português. Expor `pt-BR`/`en-US` cru ao LLM dilui o tom (a Bia não fala
 # "BCP-47") e gasta tokens com ruído técnico. Códigos desconhecidos viram o próprio código.
 _NOMES_IDIOMAS = {
-    "pt-BR": "português", "pt-PT": "português", "pt": "português",
-    "en-US": "inglês", "en-GB": "inglês", "en": "inglês",
-    "es": "espanhol", "es-ES": "espanhol", "es-AR": "espanhol",
-    "fr": "francês", "fr-FR": "francês",
-    "it": "italiano", "de": "alemão",
+    "pt-BR": "português",
+    "pt-PT": "português",
+    "pt": "português",
+    "en-US": "inglês",
+    "en-GB": "inglês",
+    "en": "inglês",
+    "es": "espanhol",
+    "es-ES": "espanhol",
+    "es-AR": "espanhol",
+    "fr": "francês",
+    "fr-FR": "francês",
+    "it": "italiano",
+    "de": "alemão",
 }
 
 
@@ -103,6 +111,17 @@ def render_contexto_dinamico(**variaveis: Any) -> str:
     volatile last"). As variáveis são resolvidas por queries no prepare_context.
     """
     return _env.get_template("contexto_dinamico.md.j2").render(**variaveis)
+
+
+def render_reminder(fase: str | None) -> str:
+    """Reminder anti-drift (03 §10) — texto volátil, NÃO cacheável.
+
+    Reinjeta o núcleo da voz perto do fim da janela em conversas longas, em primeira pessoa
+    (sem meta-vocabulário tipo "a persona"/"IA"). O prepare_context o prepende ao último
+    HumanMessage, dentro de <lembrete_silencioso> (coberto por <instrucoes_meta> em
+    regras.md.j2), na cauda volátil — fora do prefixo cacheável.
+    """
+    return _env.get_template("reminder.md.j2").render(fase=fase)
 
 
 def render_identidade(m: IdentidadeModelo) -> str:

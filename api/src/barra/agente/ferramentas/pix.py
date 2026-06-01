@@ -37,6 +37,11 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
     Escreva só o pedido no seu tom ("pra garantir teu horário, manda o pixzinho do deslocamento").
     Use APENAS para atendimento externo após acordar horário e endereço.
     Use APENAS UMA vez por atendimento (segunda chamada é idempotente, não duplica mensagem).
+
+    Returns:
+        Confirmação de que o Pix foi solicitado e o slot reservado. O retorno NÃO traz a chave —
+        você NUNCA digita a chave Pix; o sistema anexa chave/titular/valor exatos depois da sua
+        mensagem.
     """
     pool = runtime.context.db_pool
     atendimento_id = runtime.context.atendimento_id
@@ -51,7 +56,10 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
         m = await res.fetchone()
         if m is None or not m["chave_pix"] or not m["titular_chave"]:
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "chave_pix_ausente").inc()
-            return "ERRO: modelo não tem chave Pix cadastrada. Escale para Fernando."
+            return (
+                "ERRO: a modelo não tem chave Pix cadastrada — não dá pra pedir o Pix. "
+                'Use escalar(motivo="politica_nova_necessaria") para Fernando resolver o cadastro.'
+            )
 
         try:
             await _executar_idempotente(

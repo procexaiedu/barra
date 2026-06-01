@@ -178,11 +178,11 @@ async def test_lista_ativos_e_filtra_cancelados(conn: AsyncConnection[dict[str, 
 async def test_janela_sem_bloqueios_disponibilidade_total(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
-    """Modelo sem bloqueios na janela -> retorno sinaliza disponibilidade total."""
+    """Modelo sem bloqueios na janela -> retorno sinaliza nenhum horário ocupado."""
     modelo_id = await _seed_modelo(conn)
     out = await _chamar(
         data_inicio="2026-06-01",
         data_fim="2026-06-07",
         runtime=_Runtime(_Ctx(_PoolDeUmaConexao(conn), str(modelo_id))),
     )
-    assert "Disponibilidade total." in out
+    assert "Nenhum horário ocupado" in out

@@ -130,9 +130,9 @@ def test_fetiches_vazio_orienta_recusa() -> None:
 def test_render_bp3_concatena_identidade_programas_e_fetiches() -> None:
     bp3 = render_bp3(CARIOCA, PROGRAMAS, FETICHES)
     assert "Bia" in bp3
-    assert "# Programas e valores" in bp3
+    assert "<programas>" in bp3
     assert "Programa Completo" in bp3
-    assert "# Fetiches" in bp3
+    assert "<fetiches>" in bp3
     assert "Inversão" in bp3
 
 

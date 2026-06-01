@@ -34,6 +34,9 @@ MotivoEscalada = Literal[
     "modelo_recusou",
     # AUP / persona / jailbreak (cf. 10-persona-jailbreak.md)
     "disclosure_insistente",
+    # LEGADO (decisao 2026-05-23, 10 §2.1/§11): modelo nomeado conta como o generico (canned +
+    # contador, escala na 3a como disclosure_insistente). Mantido por compat com mapear_motivo /
+    # historico; nao acionado pelo pipeline no P0.
     "disclosure_explicito",
     "jailbreak_attempt",
     "pedido_explicito_repetido",
@@ -66,11 +69,13 @@ async def escalar(
     acao_esperada: str,
     runtime: ToolRuntime[ContextAgente],
 ) -> str:
-    """Escale o atendimento. O destino (Fernando p/ decisao sensivel, ou modelo p/ acao
-    operacional) e decidido pelo `motivo` — voce nao escolhe o responsavel.
+    """Escale o atendimento. O destino (Fernando para decisão sensível, ou a modelo para ação
+    operacional) é decidido pelo `motivo` — você não escolhe o responsável.
 
-    Apos chamar, sua proxima fala vira quando Fernando devolver para voce explicitamente, ou
-    quando a modelo registrar finalizado pelo grupo. Nao escreva mais texto nesse turno.
+    Quando NÃO usar: não escale na 1ª ou 2ª pergunta de disclosure (negue em personagem), num
+    pedido de desconto que ainda cabe no seu melhor valor, nem num horário que você conseguiu
+    redirecionar. Escale só quando o cliente insiste além das camadas de conduta das suas
+    regras, pede valor abaixo do seu piso de desconto, ou pede algo fora do que você oferece.
 
     Args:
         motivo: enum fechado — operacionais (fora_de_oferta, horario_indisponivel, ...)
@@ -78,6 +83,11 @@ async def escalar(
         resumo_operacional: 1-3 frases descrevendo o que aconteceu na conversa.
                             Para AUP, incluir TEXTO LITERAL da pergunta do cliente.
         acao_esperada: o que Fernando/modelo devem decidir/fazer.
+
+    Returns:
+        Confirmação de que a escalada foi aberta e para quem. Depois disso, sua próxima fala
+        só virá quando Fernando ou a modelo devolverem o atendimento para você — não escreva
+        mais texto neste turno.
     """
     pool = runtime.context.db_pool
     atendimento_id = runtime.context.atendimento_id
@@ -112,8 +122,8 @@ async def escalar(
     )
 
     return (
-        f"Escalada aberta para {resultado['responsavel']}. Proxima fala vira quando "
-        "devolverem para voce — nao escreva mais texto neste turno."
+        f"Escalada aberta para {resultado['responsavel']}. Próxima fala virá quando "
+        "devolverem para você — não escreva mais texto neste turno."
     )
 
 

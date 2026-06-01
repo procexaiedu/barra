@@ -18,15 +18,20 @@ async def consultar_agenda(
 ) -> str:
     """Consulta os bloqueios (horários OCUPADOS) da modelo entre data_inicio e data_fim.
 
-    As próximas 48h já estão no seu contexto — use esta tool APENAS para janelas além disso
-    (ex.: "tem horário sábado que vem?").
+    As próximas 48h já estão no seu contexto; responda direto sobre elas SEM esta tool. Use-a
+    APENAS quando o cliente perguntar por um dia além das próximas 48h (ex.: "tem horário sábado
+    que vem?").
 
     Args:
-        data_inicio: data inicial inclusiva, formato YYYY-MM-DD.
+        data_inicio: data inicial inclusiva, formato YYYY-MM-DD. Comece a partir do dia
+          consultado (além das próximas 48h), não a partir de hoje.
         data_fim: data final inclusiva, formato YYYY-MM-DD. Máximo 14 dias após data_inicio.
 
     Returns:
-        Markdown com os bloqueios ativos no período (o que NÃO está listado está livre).
+        Uma linha por horário OCUPADO (dia, hora e estado), ou a frase de que não há horário
+        ocupado no período — o que não aparece está livre. Se o cliente pediu um horário que
+        cai num bloqueio, ofereça outra janela com uma desculpa pessoal (ver a conduta de
+        indisponibilidade nas suas regras), sem revelar que é agenda de trabalho.
     """
     pool = runtime.context.db_pool
     modelo_id = runtime.context.modelo_id
@@ -58,6 +63,6 @@ async def consultar_agenda(
         )
         rows = await res.fetchall()
     if not rows:
-        return f"Sem bloqueios entre {di} e {df}. Disponibilidade total."
+        return f"Sem bloqueios entre {di} e {df}. Nenhum horário ocupado nesse período."
     linhas = [f"- {r['inicio']:%a %d/%m %H:%M} - {r['fim']:%H:%M} ({r['estado']})" for r in rows]
     return "Bloqueios:\n" + "\n".join(linhas)

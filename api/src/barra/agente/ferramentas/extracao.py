@@ -23,22 +23,29 @@ from ._idempotencia import _executar_idempotente
 
 
 class SinaisQualificacao(BaseModel):
-    """Sinais booleanos detectados; inclua so os True."""
+    """Sinais booleanos detectados; inclua só os True."""
 
     model_config = ConfigDict(extra="forbid")
 
-    informa_horario: bool = False
-    informa_local: bool = False
-    aceita_valor: bool = False
-    envia_pix: bool = False
-    responde_objetivamente: bool = False
+    informa_horario: bool = Field(False, description="cliente disse um horário concreto que quer")
+    informa_local: bool = Field(False, description="cliente informou bairro/endereço/tipo de local")
+    aceita_valor: bool = Field(
+        False, description="cliente concordou com o valor cotado (não apenas perguntou o preço)"
+    )
+    envia_pix: bool = Field(
+        False, description="cliente alegou ter enviado o Pix ou mandou comprovante"
+    )
+    responde_objetivamente: bool = Field(
+        False,
+        description="cliente responde direto às perguntas, sem enrolar — sinal de intenção real",
+    )
 
 
 class ExtracaoPayload(BaseModel):
     """Snapshot estruturado do que a IA aprendeu nesta conversa.
 
-    Todos os campos opcionais — registre o que esta claro; deixe NULL o que ainda nao.
-    O dominio faz UPSERT: campos nao-nulos sobrescrevem; campos nulos preservam o anterior.
+    Todos os campos opcionais — registre o que está claro; deixe NULL o que ainda não.
+    O domínio faz UPSERT: campos não-nulos sobrescrevem; campos nulos preservam o anterior.
     """
 
     # extra="forbid" => additionalProperties:false (strict tool use §7); nenhum dado de cliente
@@ -58,7 +65,7 @@ class ExtracaoPayload(BaseModel):
     valor_acordado: Decimal | None = Field(None, ge=0)
     sinais_qualificacao: SinaisQualificacao = Field(
         default_factory=SinaisQualificacao,
-        description="Passe so os True; defaults False sao excluidos do dump (nao sobrescrevem).",
+        description="Passe só os True; defaults False são excluídos do dump (não sobrescrevem).",
     )
     motivo_perda_candidato: (
         Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None
@@ -66,19 +73,20 @@ class ExtracaoPayload(BaseModel):
     aviso_saida_detectado: bool = Field(
         default=False,
         description=(
-            "Cliente avisou que saiu de casa em direcao ao endereco combinado "
+            "Cliente avisou que saiu de casa em direção ao endereço combinado "
             "(texto livre tipo 'sai', 'tô indo', 'estou indo', 'sai agora'). "
-            "Sinalize True SO em atendimento interno em Aguardando_confirmacao; "
-            "ignore em outros contextos. NAO pausa a IA — segue a conversa normal."
+            "Sinalize True SÓ em atendimento interno em Aguardando_confirmacao; "
+            "ignore em outros contextos. NÃO pausa a IA — segue a conversa normal."
         ),
     )
     limpar: list[str] = Field(
         default_factory=list,
         description=(
-            "Campos a ZERAR (NULL) quando o cliente RECUA/desmarca — ex.: disse um horario "
-            "e depois 'nao sei o dia ainda'. Nomes dos campos acima (ex.: "
-            "['data_desejada','horario_desejado']). So o que o cliente retratou; tem "
-            "precedencia sobre o payload."
+            "Campos a ZERAR (NULL) quando o cliente RECUA/desmarca — ex.: disse um horário "
+            "e depois 'não sei o dia ainda'. Nomes dos campos acima (ex.: "
+            "['data_desejada','horario_desejado']). Só o que o cliente retratou; tem "
+            "precedência sobre o payload. Zerar um campo apaga o valor anterior e pode "
+            "reverter a qualificação do atendimento — na dúvida, não liste."
         ),
     )
     proxima_acao_esperada: str = Field(min_length=3, max_length=240)
@@ -91,17 +99,21 @@ async def registrar_extracao(
 ) -> str:
     """Registre o snapshot do que aprendeu nesta conversa. Chame UMA vez por turno, perto do fim.
 
-    Esta tool dispara transicoes de estado:
-    - intencao=curiosidade/cotacao/agendamento + estado=Novo -> Triagem
-    - intencao=agendamento + dados minimos (horario_desejado, tipo_atendimento) + Triagem -> Qualificado
-    - tipo_atendimento=interno + horario_desejado + Qualificado -> Aguardando_confirmacao
-      (cria bloqueio previo E dispara o pin de endereco — side-effect, nao tool)
-    - externo NAO e promovido aqui: so pedir_pix_deslocamento leva externo a Aguardando_confirmacao
+    IMPORTANTE: registrar NÃO envia nada ao cliente — é uma nota interna. Você ainda precisa
+    responder ao cliente normalmente neste mesmo turno, em personagem, como se já soubesse.
 
-    O campo proxima_acao_esperada (obrigatorio) e exibido no painel para Fernando.
-    Use `limpar` para ZERAR campos que o cliente retratou (ex.: desmarcou o horario) —
-    o snapshot e incremental (COALESCE), entao sem `limpar` um valor antigo nunca some.
+    O snapshot é incremental (COALESCE): campos não-nulos sobrescrevem, nulos preservam o
+    anterior. Para apagar um dado que o cliente retratou de fato, use o campo `limpar`.
+
+    `proxima_acao_esperada` (obrigatório) é uma nota interna exibida no painel para Fernando —
+    não é texto para o cliente.
     """
+    # Transicoes de estado disparadas por esta tool (regra em registrar_extracao_ia):
+    # - intencao=curiosidade/cotacao/agendamento + estado=Novo -> Triagem
+    # - intencao=agendamento + horario_desejado + tipo_atendimento + Triagem -> Qualificado
+    # - tipo_atendimento=interno + horario_desejado + Qualificado -> Aguardando_confirmacao
+    #   (cria bloqueio previo E dispara o pin de endereco — side-effect, nao tool)
+    # - externo NAO e promovido aqui: so pedir_pix_deslocamento o leva a Aguardando_confirmacao
     pool = runtime.context.db_pool
     atendimento_id = runtime.context.atendimento_id
     turno_id = runtime.context.turno_id
@@ -126,8 +138,8 @@ async def registrar_extracao(
             # horario. Sai como status=success de proposito (e o loop funcionando, nao falha).
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "agenda_conflito").inc()
             return (
-                "ERRO: o horario escolhido ja esta reservado para a modelo. "
-                "Ofereca outro horario ao cliente e registre de novo."
+                "ERRO: o horário escolhido já está reservado para a modelo. "
+                "Ofereça outro horário ao cliente e registre de novo."
             )
 
     # Pin de endereco (interno): NAO enfileirado enquanto o renderer `_card_loc_pin`

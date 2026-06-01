@@ -124,7 +124,9 @@ async def _seed_modelo(connection: AsyncConnection[dict[str, Any]]) -> UUID:
     return modelo_id
 
 
-async def _seed_cliente(connection: AsyncConnection[dict[str, Any]], nome: str | None = None) -> UUID:
+async def _seed_cliente(
+    connection: AsyncConnection[dict[str, Any]], nome: str | None = None
+) -> UUID:
     cliente_id = uuid4()
     await connection.execute(
         "INSERT INTO barravips.clientes (id, telefone, nome) VALUES (%s, %s, %s)",
@@ -164,7 +166,15 @@ async def _seed_atendimento(
             (id, numero_curto, cliente_id, modelo_id, conversa_id, estado, tipo_atendimento)
         VALUES (%s, %s, %s, %s, %s, %s, %s)
         """,
-        (atendimento_id, numero_curto, cliente_id, modelo_id, conversa_id, estado, tipo_atendimento),
+        (
+            atendimento_id,
+            numero_curto,
+            cliente_id,
+            modelo_id,
+            conversa_id,
+            estado,
+            tipo_atendimento,
+        ),
     )
     return atendimento_id
 
@@ -181,7 +191,13 @@ async def _inserir_mensagem(
             (id, conversa_id, direcao, tipo, conteudo, evolution_message_id, created_at)
         VALUES (%s, %s, 'cliente', 'texto', %s, %s, %s)
         """,
-        (uuid4(), conversa_id, conteudo, f"test-evo-{uuid4().hex}", datetime(2026, 5, 24, 12, 0, tzinfo=UTC)),
+        (
+            uuid4(),
+            conversa_id,
+            conteudo,
+            f"test-evo-{uuid4().hex}",
+            datetime(2026, 5, 24, 12, 0, tzinfo=UTC),
+        ),
     )
 
 
@@ -262,7 +278,7 @@ async def test_loop_executa_tool_e_retorna_aimessage(
     assert len(tool_msgs) == 1
     assert tool_msgs[0].name == "consultar_agenda"
     # leitura real do banco (modelo sem bloqueios na janela) -> prova que o ToolNode executou a tool.
-    assert "Disponibilidade total" in tool_msgs[0].content
+    assert "Nenhum horário ocupado" in tool_msgs[0].content
 
 
 @pytest.mark.needs_db

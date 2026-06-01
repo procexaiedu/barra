@@ -13,7 +13,7 @@
 
 <agenda hoje="{{ data_atual }}" janela="próximas 48h">
 {% if bloqueios %}{% for b in bloqueios %}<bloqueio inicio="{{ b.inicio.strftime('%a %d/%m %H:%M') }}" fim="{{ b.fim.strftime('%H:%M') }}" estado="{{ b.estado }}"/>
-{% endfor %}{% else %}<livre>sem bloqueios nas próximas 48h, disponibilidade total</livre>
+{% endfor %}{% else %}<livre>sem bloqueios nas próximas 48h, nenhum horário ocupado</livre>
 {% endif %}</agenda>
 
 <periodo_de_trabalho>

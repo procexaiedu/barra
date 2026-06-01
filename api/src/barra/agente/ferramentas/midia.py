@@ -40,18 +40,23 @@ async def enviar_midia(
     tipo: Literal["foto", "video"] = "foto",
     call_idx: Annotated[int, InjectedToolArg] = 0,
 ) -> str:
-    """Anexa uma foto pre-aprovada da modelo (escolhida pelo sistema) a resposta do turno.
+    """Anexa uma mídia pré-aprovada da modelo (foto ou vídeo, escolhida pelo sistema) à resposta
+    do turno.
+
+    Use quando o cliente pede para ver você ou quando uma foto ajuda a fechar a venda. Mande
+    fotos primeiro; só use vídeo depois, quando o cliente quer ver mais. Não mande mídia na
+    saudação nem antes de qualquer qualificação.
 
     Args:
-        tag: categoria da foto. O sistema escolhe QUAL foto da tag (rotacao:
-             menos-recente-enviada), evitando repetir — voce nao escolhe foto especifica.
-        legenda: opcional, texto curto que aparece junto da midia no WhatsApp.
+        tag: categoria da mídia. O sistema escolhe QUAL item da tag (rotação:
+             menos-recente-enviada), evitando repetir — você não escolhe o item específico.
+        legenda: opcional, texto curto que aparece junto da mídia no WhatsApp.
         tipo: "foto" (default) ou "video". Mande fotos primeiro; use "video" depois,
-              apresentando-o como exclusivo/ao vivo na legenda (estrategia foto->video, 05 §5).
-              Video vai como visualizacao unica quando a plataforma suportar (pre-req, 05 §5).
+              apresentando-o como exclusivo/ao vivo na legenda (estratégia foto->video, 05 §5).
+              Vídeo vai como visualização única quando a plataforma suportar (pré-req, 05 §5).
 
-    Pode ser chamada varias vezes no mesmo turno (ex.: 2 fotos da mesma tag);
-    as midias sao enviadas apos o texto.
+    Pode ser chamada várias vezes no mesmo turno (ex.: 2 fotos da mesma tag);
+    as mídias são enviadas após o texto.
     """
     pool = runtime.context.db_pool
     modelo_id = runtime.context.modelo_id
@@ -77,7 +82,7 @@ async def enviar_midia(
         escolhida = await res.fetchone()
         if escolhida is None:
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("enviar_midia", "midia_indisponivel").inc()
-            return f"ERRO: nenhuma midia tipo '{tipo}' disponivel para a tag '{tag}'."
+            return f"ERRO: nenhuma mídia tipo '{tipo}' disponível para a tag '{tag}'."
 
         await _executar_idempotente(
             conn,
@@ -93,7 +98,7 @@ async def enviar_midia(
             executor=_registrar_envio_midia,
         )
 
-    return f"{tipo.capitalize()} de '{tag}' anexada (enviada apos o texto)."
+    return f"{tipo.capitalize()} de '{tag}' anexada (enviada após o texto)."
 
 
 async def _midias_do_turno(conn: AsyncConnection[Any], turno_id: str) -> list[str]:
