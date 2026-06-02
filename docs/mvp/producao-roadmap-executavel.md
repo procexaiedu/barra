@@ -85,7 +85,7 @@
 | CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | todo |
 | CUSTO-06 | 3 | Fonte única do alvo de custo | — | todo |
 | PER-01/03 | 3 | Diálogos canônicos com rubrica de voz | EVAL-01 | done (judge consumido em EVAL-04/03) |
-| PER-11 | 3 | Reminder anti-drift `<armadilhas_de_voz>` | EVAL-01 | todo |
+| PER-11 | 3 | Reminder anti-drift `<armadilhas_de_voz>` | EVAL-01 | done |
 | TOOLS-06 | 3 | Counter `agente_tool_erro_recuperavel_total` | — | done |
 | TOOLS-08 | 3 | Eval de recall de `escalar` (AUP ambíguo) | EVAL-01 | done |
 | EVAL-11 | 3 | `agente_eval_pass_rate` online (amostra) | EVAL-01 | todo |
@@ -377,7 +377,8 @@
 - **DoD/Verificação:** diálogos de `docs/agente/conversas-reais/` destilados em `evals/canonicos/scripted_5/` com rubrica de voz julgada por LLM; rodam no runner.
 
 ### PER-11 — Reminder anti-drift `<armadilhas_de_voz>`
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Persona · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8
+- **Status:** done (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 3 · **Dimensão:** Persona · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8
+- **Implementado:** o mecanismo de injeção (`_injetar_reminder_se_necessario` na cauda, sem `cache_control`, a partir de ≥8 AIMessages) **já estava shipado e correto** — PER-11 foi só conteúdo: `prompts/reminder.md.j2` agora re-ancora **3 pares `<armadilhas_de_voz>`** (formal/atendente + rubrica-de-palco/palavra-formal + markdown/bullets — os modos de drift mais prováveis em conversa longa), dentro do `<lembrete_silencioso>` (que `regras.md.j2` protege de vazar ao cliente). Voz é GERAL: só interpola `{{fase}}`, nenhum dado por-modelo. Fixture de validação `scripted_5/006_drift_tardio_reminder.jsonl` (8 turnos da IA → dispara o reminder) com rubrica de voz e `nao_deve_conter` dos marcadores de drift. Verificado **offline**: `render_reminder` injeta as armadilhas + interpola a fase; 5 testes de persona verdes; fixture parseia com ≥8 AIMessages.
 - **DoD/Verificação:** `prepare_context.py:259` re-ancora 2-3 pares `<armadilhas_de_voz>` (sem `cache_control`), validado por fixture multi-turno (drift em turno tardio).
 - **Guardrails específicos:** fora do prefixo cacheado; voz é GERAL (não por modelo).
 
