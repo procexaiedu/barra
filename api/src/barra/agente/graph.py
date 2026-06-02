@@ -1,10 +1,11 @@
 """build_graph() compoe os nos em StateGraph (sem checkpointer no P0).
 
-Grafo de 5 nos; o no llm e real (chama Sonnet 4.6) e o roteamento e por Command(goto=...) --
+Grafo de 6 nos; o no llm e real (chama Sonnet 4.6) e o roteamento e por Command(goto=...) --
 nao por arestas condicionais nem flags de state (09 §4.1). Wiring:
     START -(estatica)-> prepare_context -(Command)-> intercept_disclosure | END
           intercept_disclosure -(Command)-> llm -(Command)-> tools | post_process
-          tools -(estatica)-> llm   (loop ReAct)   post_process -> END
+          tools -(estatica)-> llm   (loop ReAct)
+          post_process -(estatica)-> output_guard -(Command)-> END   (ADR 0016, antes da bolha)
 O loop ReAct esta ATIVO a partir do M1: o llm roteia p/ "tools" (Command) quando ha tool_calls,
 o ToolNode executa as tools de TOOLS e devolve ao llm pela aresta "tools" -> "llm"; o teto e o
 `recursion_limit` (config de invocacao, nao constante aqui -- 03 §8, 09 §4.7).
@@ -21,7 +22,7 @@ explicito, ver CONTEXT.md).
 
 from typing import Any
 
-from langgraph.graph import END, START, StateGraph
+from langgraph.graph import START, StateGraph
 
 from barra.core.llm import criar_chat_anthropic
 from barra.settings import Settings, get_settings
@@ -29,7 +30,14 @@ from barra.settings import Settings, get_settings
 from .contexto import ContextAgente
 from .estado import EstadoAgente
 from .ferramentas import TOOLS
-from .nos import intercept_disclosure, no_llm, post_process, prepare_context, tools_node
+from .nos import (
+    intercept_disclosure,
+    no_llm,
+    output_guard,
+    post_process,
+    prepare_context,
+    tools_node,
+)
 
 
 def build_graph(settings: Settings | None = None, checkpointer: Any | None = None) -> Any:
@@ -56,6 +64,7 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
     builder.add_node("llm", no_llm(chat, TOOLS))
     builder.add_node("tools", tools_node)
     builder.add_node("post_process", post_process)
+    builder.add_node("output_guard", output_guard)
 
     builder.add_edge(START, "prepare_context")
     # prepare_context, intercept_disclosure e llm roteiam SO por Command(goto=...) -- sem aresta
@@ -63,6 +72,9 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
     # da pausa (o turno chamaria o llm mesmo pausado), por isso o caminho normal tambem e Command
     # (goto="intercept_disclosure"). Ver nos/prepare_context.py (M0-T4).
     builder.add_edge("tools", "llm")  # loop ReAct: ToolNode executou as tool_calls -> volta ao llm
-    builder.add_edge("post_process", END)
+    # Output-guard antes da bolha (ADR 0016): post_process (que so refaz o gate de pausa, retorna
+    # dict) tem aresta estatica UNICA -> output_guard. O output_guard roteia SO por Command(goto=END)
+    # -- sem aresta estatica de saida (mesma armadilha do fan-out: bloquear+seguir nao podem coexistir).
+    builder.add_edge("post_process", "output_guard")
 
     return builder.compile(checkpointer=checkpointer)

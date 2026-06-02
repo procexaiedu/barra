@@ -97,7 +97,7 @@ export function DetalheAtendimento({
 
   return (
     <section aria-label="Detalhe do atendimento" className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
-      <div className={cn("shrink-0 rounded-lg border border-border bg-muted p-5 border-l-4", estadoBorder)}>
+      <div className={cn("shrink-0 rounded-lg border-l-4 bg-card p-5 ring-1 ring-foreground/10", estadoBorder)}>
         <div className="flex items-start gap-3">
           <Badge variant={badgeForEstado(atendimento.estado)} className="px-2.5 py-1 text-[12px]">
             {estadoLabel[atendimento.estado]}
@@ -121,7 +121,7 @@ export function DetalheAtendimento({
 
         <div className="mt-3 flex flex-wrap items-end justify-between gap-x-6 gap-y-2">
           <div className="min-w-0 flex-1">
-            <h2 className="font-serif text-[28px] font-medium leading-tight tracking-tight text-text-primary">
+            <h2 className="text-xl font-semibold leading-tight tracking-tight text-text-primary">
               {cliente}
             </h2>
             <p className="mt-1 text-[13px] text-text-muted">
@@ -132,8 +132,8 @@ export function DetalheAtendimento({
           </div>
           {valorExibido !== null && (
             <div className="text-right">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">{valorLabel}</p>
-              <p className={cn("font-serif text-[28px] font-medium leading-none tabular-nums", valorColor)}>
+              <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">{valorLabel}</p>
+              <p className={cn("font-mono text-2xl font-semibold leading-none tabular-nums", valorColor)}>
                 {formatBRL(valorExibido)}
               </p>
             </div>
@@ -212,12 +212,12 @@ function SecaoFixa({
 }) {
   const temContagem = count !== undefined && count > 0
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-card">
+    <div className="flex flex-col overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
       <div className="flex shrink-0 items-center gap-2.5 px-4 py-3">
         {icone && <span className="shrink-0">{icone}</span>}
-        <span className="flex-1 text-[15px] font-semibold text-text-primary">{titulo}</span>
+        <span className="flex-1 text-base font-semibold text-text-primary">{titulo}</span>
         {temContagem && (
-          <span className="inline-flex min-w-[22px] items-center justify-center rounded-full bg-accent px-2 py-0.5 text-[12px] font-semibold tabular-nums text-text-secondary">
+          <span className="inline-flex min-w-[22px] items-center justify-center rounded-full bg-accent px-2 py-0.5 text-xs font-semibold tabular-nums text-text-secondary">
             {count}
           </span>
         )}
@@ -449,7 +449,7 @@ function EmptyDetalhe() {
   return (
     <section
       aria-label="Detalhe do atendimento"
-      className="flex min-h-[320px] flex-1 flex-col items-center justify-center gap-3 rounded-lg border border-border bg-card p-6 text-center"
+      className="flex min-h-[320px] flex-1 flex-col items-center justify-center gap-3 rounded-lg bg-card p-6 text-center ring-1 ring-foreground/10"
     >
       <div className="flex size-12 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
         <MessageSquare size={24} strokeWidth={1.5} className="text-text-muted" />
@@ -466,7 +466,7 @@ function DetalheSkeleton() {
   return (
     <section aria-label="Detalhe do atendimento" aria-busy="true" className="space-y-3">
       {/* Card header: badge + nome + telefone + botões */}
-      <div className="rounded-lg border border-border bg-muted p-5">
+      <div className="rounded-lg bg-card p-5 ring-1 ring-foreground/10">
         <div className="flex flex-wrap items-center gap-2">
           <Skeleton className="h-5 w-28 rounded-full" />
           <Skeleton className="h-5 w-40 rounded" />
@@ -480,7 +480,7 @@ function DetalheSkeleton() {
         </div>
       </div>
       {/* Resumo */}
-      <div className="rounded-lg border border-border bg-card p-4">
+      <div className="rounded-lg bg-card p-4 ring-1 ring-foreground/10">
         <Skeleton className="mb-4 h-4 w-44 rounded" />
         <div className="grid grid-cols-2 gap-6">
           <div className="space-y-2">
@@ -499,7 +499,7 @@ function DetalheSkeleton() {
       </div>
       {/* Seções colapsadas */}
       {["Histórico de mensagens", "Mídias recebidas", "Histórico do atendimento"].map((titulo) => (
-        <div key={titulo} className="overflow-hidden rounded-lg border border-border bg-card">
+        <div key={titulo} className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
           <div className="flex items-center justify-between px-4 py-3">
             <Skeleton className="h-4 w-44 rounded" />
             <Skeleton className="h-4 w-4 rounded" />

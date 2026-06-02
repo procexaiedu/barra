@@ -42,7 +42,7 @@ type ViewModelos = "lista" | "programas" | "fetiches"
 
 export default function Modelos() {
   return (
-    <Suspense fallback={<div className="mx-auto max-w-[1280px] text-sm text-text-muted">Carregando modelos...</div>}>
+    <Suspense fallback={<div className="text-sm text-text-muted">Carregando modelos...</div>}>
       <ModelosConteudo />
     </Suspense>
   )
@@ -209,36 +209,40 @@ function ModelosConteudo() {
   }
 
   return (
-    <div className="mx-auto max-w-[1280px] space-y-4">
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-border">
-        <div className="flex items-end gap-8">
-          <h1 className="font-serif text-[28px] font-medium leading-none text-text-primary pb-3">
-            Modelos
-          </h1>
-          <div role="tablist" aria-label="Visão" className="flex">
-            <TabBtn active={view === "lista"} onClick={() => protegerDirty(() => setView("lista"))}>
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-4">
+        <header className="flex flex-wrap items-end justify-between gap-4">
+          <div className="min-w-0">
+            <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
               Modelos
-            </TabBtn>
-            <TabBtn active={view === "programas"} onClick={() => protegerDirty(() => setView("programas"))}>
-              Programas
-            </TabBtn>
-            <TabBtn active={view === "fetiches"} onClick={() => protegerDirty(() => setView("fetiches"))}>
-              Fetiches
-            </TabBtn>
+            </h1>
+            <p className="mt-1 text-[13px] text-text-muted">
+              Cadastro, conexão de WhatsApp e cardápio de cada modelo da agência.
+            </p>
           </div>
-        </div>
-        {!esconderAdicionar && (
-          <div className="pb-2">
+          {!esconderAdicionar && (
             <Button variant="primary" size="sm" onClick={() => setCriarOpen(true)}>
               <UserPlus size={14} strokeWidth={1.5} />
               Adicionar modelo
             </Button>
-          </div>
-        )}
-      </header>
+          )}
+        </header>
+
+        <div role="tablist" aria-label="Visão" className="flex gap-1 border-b border-border">
+          <TabBtn active={view === "lista"} onClick={() => protegerDirty(() => setView("lista"))}>
+            Modelos
+          </TabBtn>
+          <TabBtn active={view === "programas"} onClick={() => protegerDirty(() => setView("programas"))}>
+            Programas
+          </TabBtn>
+          <TabBtn active={view === "fetiches"} onClick={() => protegerDirty(() => setView("fetiches"))}>
+            Fetiches
+          </TabBtn>
+        </div>
+      </div>
 
       {view === "lista" && (
-        <>
+        <div className="flex flex-col gap-4">
           <ToolbarModelos filtros={modelos.filtros} onChange={(filtros) => modelos.setFiltros(filtros)} />
           <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
             <ListaModelos
@@ -290,7 +294,7 @@ function ModelosConteudo() {
               onExcluirMidia={(midia) => setConfirmacao({ tipo: "excluir-midia", midia })}
             />
           </div>
-        </>
+        </div>
       )}
 
       {view === "programas" && (
@@ -381,7 +385,7 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`relative px-3 pb-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+      className={`relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
         active
           ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gold-500"
           : "text-text-muted hover:text-text-secondary"

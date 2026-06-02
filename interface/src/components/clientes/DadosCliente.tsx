@@ -108,7 +108,7 @@ export function DadosCliente({
       {(onEditarCliente || podeArquivar) && (
         <div className="flex items-center justify-between gap-2 border-b border-border px-5 py-3">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+            <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
               Cliente
             </span>
             {arquivado && <Badge variant="paused">Arquivado</Badge>}
@@ -148,22 +148,22 @@ export function DadosCliente({
       )}
       <div className="grid grid-cols-4 divide-x divide-border">
         <Metrica label="Fechados" icon={CheckCircle2}>
-          <span className="text-2xl font-semibold text-text-primary">
+          <span className="font-mono text-2xl font-semibold leading-none tabular-nums text-text-primary">
             {fechados.length > 0 ? fechados.length : "—"}
           </span>
         </Metrica>
         <Metrica label="Perdidos" icon={XCircle}>
-          <span className={`text-2xl font-semibold ${perdidos.length > 0 ? "text-state-lost" : "text-text-primary"}`}>
+          <span className={`font-mono text-2xl font-semibold leading-none tabular-nums ${perdidos.length > 0 ? "text-state-lost" : "text-text-primary"}`}>
             {perdidos.length > 0 ? perdidos.length : "—"}
           </span>
         </Metrica>
         <Metrica label="Receita Total" icon={Wallet}>
-          <span className={`text-lg font-semibold ${receita > 0 ? "text-state-closed" : "text-text-primary"}`}>
+          <span className={`font-mono text-lg font-semibold tabular-nums ${receita > 0 ? "text-state-closed" : "text-text-primary"}`}>
             {receita > 0 ? formatBRL(receita) : "—"}
           </span>
         </Metrica>
         <Metrica label="Ticket Médio" icon={TrendingUp}>
-          <span className="text-lg font-semibold text-text-primary">
+          <span className="font-mono text-lg font-semibold tabular-nums text-text-primary">
             {ticketMedio > 0 ? formatBRL(ticketMedio) : "—"}
           </span>
         </Metrica>
@@ -171,7 +171,7 @@ export function DadosCliente({
 
       <div className="border-t border-border">
         <div className="px-5 pt-3 pb-1">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
             Perfil do cliente
           </span>
         </div>
@@ -287,13 +287,13 @@ function PerfilFisicoSecao({
   return (
     <div className="border-t border-border">
       <div className="px-5 pt-3 pb-1">
-        <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           Perfil físico
         </span>
       </div>
       <div className="grid grid-cols-2 divide-x divide-border">
         <div className="flex flex-col gap-2 px-5 py-4">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
             Declarado
           </span>
           {declarados.length > 0 ? (
@@ -312,7 +312,7 @@ function PerfilFisicoSecao({
           )}
         </div>
         <div className="flex flex-col gap-2 px-5 py-4">
-          <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
             Histórico por tipo · todas as modelos
           </span>
           {temCalculo ? (
@@ -343,7 +343,7 @@ function BarraTipo({ label, qtd, max }: { label: string; qtd: number; max: numbe
       <span className="h-2 flex-1 overflow-hidden rounded-full bg-accent">
         <span className="block h-full rounded-full bg-state-active" style={{ width: `${pct}%` }} />
       </span>
-      <span className="w-5 shrink-0 text-right tabular-nums text-text-primary">{qtd}</span>
+      <span className="w-5 shrink-0 text-right font-mono tabular-nums text-text-primary">{qtd}</span>
     </div>
   )
 }
@@ -361,7 +361,7 @@ function Metrica({
 }) {
   return (
     <div className="flex flex-col gap-1.5 px-5 py-4">
-      <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         {Icon ? <Icon size={12} strokeWidth={1.75} aria-hidden className="text-text-muted" /> : null}
         {label}
         {tooltip ? (

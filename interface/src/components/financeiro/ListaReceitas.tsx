@@ -1,7 +1,8 @@
 "use client"
 
 import { Fragment, useEffect, useRef } from "react"
-import { ChevronRight, AlertTriangle, Loader2 } from "lucide-react"
+import { ChevronRight, AlertTriangle, Loader2, Receipt } from "lucide-react"
+import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { formatBRL, formatData, formatHorario } from "@/lib/formatters"
@@ -95,12 +96,45 @@ export function ListaReceitas({
     { bruto: 0, repasse: 0, n: 0 },
   )
 
-  if (loading && !lista) return <Skeleton className="h-64" />
+  if (loading && !lista) {
+    return (
+      <div
+        aria-busy="true"
+        className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10"
+      >
+        <Skeleton className="h-9 w-full rounded-none" />
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            className="grid grid-cols-[3.5rem_minmax(0,1fr)_8rem_minmax(8rem,9rem)] items-center gap-x-4 border-b border-border/60 px-4 py-2.5 last:border-b-0"
+          >
+            <Skeleton className="h-4 w-10 rounded-md" />
+            <Skeleton className="h-4 w-40 rounded-md" />
+            <Skeleton className="hidden h-1.5 w-full rounded-md sm:block" />
+            <Skeleton className="ml-auto h-4 w-20 rounded-md" />
+          </div>
+        ))}
+      </div>
+    )
+  }
   if (!lista || lista.items.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-card p-8 text-center text-sm text-text-muted">
-        Nenhuma receita no período.
-      </div>
+      <Card>
+        <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+          <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+            <Receipt size={22} strokeWidth={1.75} className="text-text-muted" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-text-primary">
+              Nenhuma receita no período.
+            </p>
+            <p className="mt-1 text-[13px] text-text-muted">
+              Os fechamentos aparecem aqui assim que houver atendimentos
+              convertidos no recorte selecionado.
+            </p>
+          </div>
+        </div>
+      </Card>
     )
   }
 
@@ -109,7 +143,7 @@ export function ListaReceitas({
       role="listbox"
       aria-label="Receitas agrupadas por dia"
       aria-multiselectable="false"
-      className="overflow-hidden rounded-lg border border-border bg-card"
+      className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10"
     >
       {grupos.map((g) => (
         <Fragment key={g.dia}>
@@ -160,7 +194,7 @@ function DiaBanner({ grupo }: { grupo: GrupoDia }) {
           {grupo.items.length} {plural}
         </span>
       </div>
-      <div className="flex items-baseline gap-3 text-[11px] tabular-nums">
+      <div className="flex items-baseline gap-3 font-mono text-[11px] tabular-nums">
         <span className="font-medium text-text-primary">
           {formatBRL(grupo.bruto)}
         </span>
@@ -202,10 +236,10 @@ function LinhaReceita({
           onClick()
         }
       }}
-      className={`group grid cursor-pointer grid-cols-[3.5rem_minmax(0,1fr)_8rem_minmax(8rem,9rem)] items-center gap-x-4 border-b border-border/60 px-4 py-2.5 transition-colors last:border-b-0 ${
+      className={`group grid cursor-pointer grid-cols-[3.5rem_minmax(0,1fr)_8rem_minmax(8rem,9rem)] items-center gap-x-4 border-b border-border/60 px-4 py-2.5 transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
         selected
-          ? "bg-[color:var(--gold-500)]/10"
-          : "hover:bg-muted/30"
+          ? "bg-gold-500/10"
+          : "hover:bg-accent"
       }`}
     >
       {/* col 1: hora + chevron quando selecionado, # logo abaixo */}
@@ -248,10 +282,10 @@ function LinhaReceita({
 
       {/* col 4: valor bruto + repasse */}
       <div className="flex flex-col items-end gap-0.5">
-        <span className="text-sm font-medium tabular-nums text-text-primary">
+        <span className="font-mono text-sm font-medium tabular-nums text-text-primary">
           {formatBRL(linha.valor_bruto)}
         </span>
-        <span className="text-[11px] tabular-nums text-text-muted">
+        <span className="font-mono text-[11px] tabular-nums text-text-muted">
           {semSnapshot ? "— repasse" : `${formatBRL(linha.valor_repasse_calculado)} rep.`}
         </span>
       </div>
@@ -298,9 +332,9 @@ function MagnitudeBar({
             Magnitude relativa
           </span>
           <span className="tabular-nums">
-            <strong className="font-semibold">{pctTexto}%</strong> do maior bruto da lista atual
+            <strong className="font-mono font-semibold">{pctTexto}%</strong> do maior bruto da lista atual
           </span>
-          <span className="text-[10.5px] tabular-nums text-text-muted">
+          <span className="font-mono text-[10.5px] tabular-nums text-text-muted">
             {formatBRL(bruto)} de {formatBRL(maxBruto)}
           </span>
         </div>
@@ -395,7 +429,7 @@ function FooterTotal({
         <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-muted">
           {truncado ? `Mostrando ${n} ${plural}` : `Total · ${n} ${plural}`}
         </span>
-        <div className="flex items-baseline gap-3 text-xs tabular-nums">
+        <div className="flex items-baseline gap-3 font-mono text-xs tabular-nums">
           <span className="font-semibold text-text-primary">
             {formatBRL(bruto)}
           </span>
@@ -410,7 +444,7 @@ function FooterTotal({
             type="button"
             onClick={onCarregarMais}
             disabled={carregandoMais}
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--gold-500)]/40 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
           >
             {carregandoMais ? (
               <>
@@ -421,7 +455,7 @@ function FooterTotal({
               <>
                 Carregar mais
                 {proximoLote ? (
-                  <span className="tabular-nums text-text-muted">
+                  <span className="font-mono tabular-nums text-text-muted">
                     · próximas {proximoLote}
                   </span>
                 ) : null}

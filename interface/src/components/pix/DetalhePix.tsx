@@ -1,6 +1,7 @@
 "use client"
 
 import { useState } from "react"
+import { ReceiptText } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -74,11 +75,20 @@ export function DetalhePix({
 
   if (detalhe === null) {
     return (
-      <section
-        aria-label="Detalhe do Pix"
-        className="rounded-lg border border-border bg-card p-6 text-[13px] text-text-muted"
-      >
-        Selecione um Pix na lista para ver os detalhes.
+      <section aria-label="Detalhe do Pix">
+        <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-lg bg-card px-6 py-10 text-center ring-1 ring-foreground/10">
+          <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+            <ReceiptText size={22} strokeWidth={1.75} className="text-text-muted" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-text-primary">
+              Selecione um Pix.
+            </p>
+            <p className="mt-1 text-[13px] text-text-muted">
+              Escolha um item na lista para ver comprovante, verificações e histórico.
+            </p>
+          </div>
+        </div>
       </section>
     )
   }
@@ -88,8 +98,8 @@ export function DetalhePix({
   const cliente = detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)
 
   return (
-    <section aria-label="Detalhe do Pix" className="space-y-3">
-      <header className="rounded-lg border border-border bg-card p-5">
+    <section aria-label="Detalhe do Pix" className="flex flex-col gap-3">
+      <header className="rounded-lg bg-card p-5 ring-1 ring-foreground/10">
         <div className="flex flex-wrap items-center gap-3">
           <Badge variant={badge.variant}>{badge.label}</Badge>
           <span className="ml-auto text-xs text-text-muted">

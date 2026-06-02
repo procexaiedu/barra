@@ -55,7 +55,7 @@ function DashboardInner() {
     : null
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-8">
       <HeaderDashboard />
 
       <ToolbarDashboard
@@ -77,7 +77,7 @@ function DashboardInner() {
         <div
           aria-busy={dashboard.isRefreshing}
           className={cn(
-            "flex flex-col gap-6 transition-opacity duration-150",
+            "flex flex-col gap-8 transition-opacity duration-150",
             dashboard.isRefreshing ? "pointer-events-none opacity-60" : ""
           )}
         >
@@ -149,7 +149,10 @@ function DashboardConteudo({
       {/* Seção 1 — Resultado (NSM) */}
       <section aria-label="Resultado" className="flex flex-col gap-3">
         <header>
-          <h2 className="text-base font-semibold text-text-primary">Resultado</h2>
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+            <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+            Resultado
+          </h2>
         </header>
         <div className="grid grid-cols-1 gap-4">
           <TileKpi
@@ -189,7 +192,10 @@ function DashboardConteudo({
       {/* Seção 2 — Operação */}
       <section aria-label="Operação" className="flex flex-col gap-3">
         <header>
-          <h2 className="text-base font-semibold text-text-primary">Operação</h2>
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+            <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+            Operação
+          </h2>
         </header>
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <TileKpi
@@ -296,7 +302,7 @@ function DashboardConteudo({
 
 function DashboardSkeletons() {
   return (
-    <div aria-busy="true" className="flex flex-col gap-6">
+    <div aria-busy="true" className="flex flex-col gap-8">
       <Skeleton className="h-[180px] w-full rounded-lg" />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         {Array.from({ length: 3 }).map((_, idx) => (

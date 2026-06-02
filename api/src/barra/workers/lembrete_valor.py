@@ -56,7 +56,7 @@ async def cobrar_valor_final(
                         await _escalar(conn, alvo, settings)
                         label = "escalado"
                     else:
-                        await _enviar_card(conn, evolution, settings, alvo)
+                        await _enviar_card(conn, evolution, alvo)
                         label = "reenviado" if alvo["toques"] else "enviado"
                 LEMBRETE_VALOR.labels(label).inc()
                 acoes += 1
@@ -80,9 +80,11 @@ async def _buscar_alvos(conn: AsyncConnection[Any], settings: Settings) -> list[
     """
     res = await conn.execute(
         """
-        SELECT id, numero_curto, evolution_instance_id, cliente_nome, toques, acao
+        SELECT id, numero_curto, evolution_instance_id, coordenacao_chat_id,
+               cliente_nome, toques, acao
           FROM (
-            SELECT a.id, a.numero_curto, m.evolution_instance_id, c.nome AS cliente_nome,
+            SELECT a.id, a.numero_curto, m.evolution_instance_id, m.coordenacao_chat_id,
+                   c.nome AS cliente_nome,
                    t.toques,
                    CASE
                      WHEN t.toques = 0 THEN 'enviar'
@@ -130,11 +132,12 @@ async def _buscar_alvos(conn: AsyncConnection[Any], settings: Settings) -> list[
 async def _enviar_card(
     conn: AsyncConnection[Any],
     evolution: EvolutionClient,
-    settings: Settings,
     alvo: dict[str, Any],
 ) -> None:
     instance_id = alvo["evolution_instance_id"]
-    grupo_jid = settings.evolution_grupo_coordenacao_jid
+    # Grupo de Coordenacao DA MODELO dona do atendimento (nao um JID global) -- senao o card com
+    # o nome do cliente da modelo B cairia no grupo de outra modelo (isolamento por par).
+    grupo_jid = alvo["coordenacao_chat_id"]
     if not instance_id or not grupo_jid:
         raise RuntimeError(f"canal ausente (instance={instance_id!r} grupo={grupo_jid!r})")
 

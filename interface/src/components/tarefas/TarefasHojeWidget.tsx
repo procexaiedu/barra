@@ -24,19 +24,22 @@ export function TarefasHojeWidget() {
   if (tarefas === null) return null // silencioso no carregamento
 
   return (
-    <section aria-label="Tarefas de hoje" className="px-8 py-5">
-      <div className="mb-4 flex items-center justify-between">
+    <section aria-label="Tarefas de hoje" className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
         <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
           <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
           Tarefas de hoje
         </h2>
-        <Link href="/tarefas" className="text-xs font-medium text-text-secondary hover:text-text-primary">
+        <Link
+          href="/tarefas"
+          className="rounded-md text-xs font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
           Ver todas
         </Link>
       </div>
 
       {tarefas.length === 0 ? (
-        <Card className="rounded-lg bg-card">
+        <Card>
           <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
             <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
               <CheckCircle2 size={22} strokeWidth={1.75} className="text-text-muted" />
@@ -48,19 +51,19 @@ export function TarefasHojeWidget() {
           </div>
         </Card>
       ) : (
-        <Card className="overflow-hidden rounded-lg bg-card">
+        <Card className="gap-0 py-0">
           {tarefas.map((t, i) => (
             <Link
               key={t.id}
               href="/tarefas"
               className={cn(
-                "flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent",
+                "flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 i > 0 && "border-t border-border-subtle",
               )}
             >
               <span className={cn("size-1.5 shrink-0 rounded-full", PRIORIDADE_BAR[t.prioridade])} />
               <span className="flex-1 truncate text-sm text-text-primary">{t.titulo}</span>
-              <span className="shrink-0 text-[11px] text-text-muted">
+              <span className="shrink-0 text-xs text-text-muted">
                 {PRIORIDADE_LABEL[t.prioridade]}
                 {t.atribuido && ` · ${t.atribuido.nome ?? ATOR_LABEL[t.atribuido.tipo]}`}
               </span>

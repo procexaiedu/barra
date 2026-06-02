@@ -38,18 +38,19 @@ export function ToolbarAgenda({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-card p-2">
       <div className="flex items-center gap-3">
-        {/* Segmented: poço recuado (bg-surface) + aba ativa elevada com anel e marca */}
-        <div className="flex rounded-lg bg-surface p-1" aria-label="Visão da agenda">
+        {/* Segmented (§7.9): poço recuado + aba ativa elevada (bg-card) com marca dourada */}
+        <div className="flex rounded-lg border border-border bg-muted p-0.5" aria-label="Visão da agenda">
           {visoes.map((item) => (
             <button
               key={item.value}
               type="button"
+              aria-pressed={visao === item.value}
               onClick={() => onVisaoChange(item.value)}
               className={cn(
-                "h-8 rounded-md px-3.5 text-sm font-medium transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
+                "rounded-md px-3 py-1 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 visao === item.value
-                  ? "bg-card text-text-brand ring-1 ring-inset ring-border-strong"
-                  : "text-text-secondary hover:text-text-primary"
+                  ? "bg-card text-text-brand shadow-sm"
+                  : "text-text-muted hover:text-text-primary"
               )}
             >
               {item.label}
@@ -66,16 +67,16 @@ export function ToolbarAgenda({
 
       <div className="flex items-center gap-3">
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-text-muted">Modelo</span>
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Modelo</span>
           <FiltroModelo modeloId={modeloId} onChange={onModeloChange} />
         </div>
         <label className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-text-muted">Tipo</span>
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Tipo</span>
           <div className="relative">
             <select
               value={tipoAtendimento}
               onChange={(e) => onTipoAtendimentoChange(e.target.value as "" | "interno" | "externo")}
-              className="h-9 w-full appearance-none rounded-md border border-input bg-input pl-3 pr-8 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="h-9 w-full appearance-none rounded-lg border border-input bg-input pl-3 pr-8 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               <option value="">Todos</option>
               <option value="interno">Interno</option>

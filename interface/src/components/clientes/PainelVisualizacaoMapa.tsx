@@ -61,7 +61,7 @@ export function PainelVisualizacaoMapa({
 function Linha({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">
+      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         {label}
       </span>
       {children}

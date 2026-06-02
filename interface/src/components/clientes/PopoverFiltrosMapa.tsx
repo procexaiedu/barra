@@ -85,13 +85,13 @@ export function PopoverFiltrosMapa({
       <PopoverTrigger
         aria-label="Mais filtros do mapa"
         className={cn(
-          "flex h-9 items-center gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          "relative inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
         )}
       >
-        <SlidersHorizontal size={14} strokeWidth={1.5} className="text-text-muted" />
+        <SlidersHorizontal size={15} strokeWidth={1.5} className="text-text-muted" />
         <span>Filtros</span>
         {ativos > 0 && (
-          <span className="shrink-0 rounded-full bg-gold-500/15 px-1.5 text-[10px] font-semibold text-gold-500 tabular-nums">
+          <span className="shrink-0 rounded-full bg-gold-500/15 px-1.5 text-[10px] font-semibold tabular-nums text-gold-500">
             {ativos}
           </span>
         )}
@@ -169,7 +169,7 @@ export function PopoverFiltrosMapa({
 function Secao({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted">
+      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         {label}
       </span>
       {children}

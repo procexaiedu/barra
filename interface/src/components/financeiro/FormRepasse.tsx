@@ -106,7 +106,7 @@ export function FormRepasse({
           <div>
             <Label>Modelo</Label>
             <select
-              className="mt-1 w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              className="mt-1 h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
               value={modeloId}
               onChange={(e) => setModeloId(e.target.value)}
             >
@@ -178,7 +178,7 @@ export function FormRepasse({
                 className="text-xs"
               />
               {comprovanteKey && (
-                <span className="text-xs text-success">✓ anexado</span>
+                <span className="text-xs text-success-500">✓ anexado</span>
               )}
             </div>
           </div>

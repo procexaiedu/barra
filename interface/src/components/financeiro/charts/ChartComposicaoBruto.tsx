@@ -97,10 +97,10 @@ export function ChartComposicaoBruto({ resumo }: Props) {
     >
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted">
+          <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-text-muted">
             Bruto recebido
           </span>
-          <span className="text-[18px] font-semibold tabular-nums text-text-primary">
+          <span className="font-mono text-[18px] font-semibold tabular-nums text-text-primary">
             {formatBRL(total)}
           </span>
         </div>
@@ -143,7 +143,7 @@ export function ChartComposicaoBruto({ resumo }: Props) {
                 <span className="flex flex-col items-end gap-0">
                   <span
                     className={cn(
-                      "text-right text-[12px] tabular-nums",
+                      "text-right font-mono text-[12px] tabular-nums",
                       inativo ? "text-text-disabled" : "text-text-secondary",
                     )}
                   >
@@ -151,7 +151,7 @@ export function ChartComposicaoBruto({ resumo }: Props) {
                   </span>
                   <span
                     className={cn(
-                      "text-right text-[10.5px] font-medium tabular-nums",
+                      "text-right font-mono text-[10.5px] font-medium tabular-nums",
                       inativo
                         ? "text-text-disabled"
                         : realcado

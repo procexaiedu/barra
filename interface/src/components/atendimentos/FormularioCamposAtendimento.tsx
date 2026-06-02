@@ -20,7 +20,7 @@ import type {
 } from "@/tipos/atendimentos"
 
 const controlClassName =
-  "h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
+  "h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
 
 interface ProgramaModelo {
   programa_id: string
@@ -490,7 +490,7 @@ export const FormularioCamposAtendimento = forwardRef<
           {adicionados.map((a, i) => (
             <div
               key={`${a.programa_id}|${a.duracao_id}|${i}`}
-              className="flex items-center justify-between rounded-lg border border-dashed border-border-subtle bg-surface px-3 py-2 text-sm"
+              className="flex items-center justify-between rounded-md border border-dashed border-border bg-muted px-3 py-2 text-sm"
             >
               <span className="text-text-primary">{a.label}</span>
               <button
@@ -558,7 +558,7 @@ export const FormularioCamposAtendimento = forwardRef<
   if (variant === "stack") {
     return (
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col divide-y divide-border-subtle rounded-lg border border-border-subtle bg-surface">
+        <div className="flex flex-col divide-y divide-border rounded-lg bg-card ring-1 ring-foreground/10">
           {colunaAtendimento}
           {colunaLocal}
           {colunaPagamento}
@@ -571,13 +571,13 @@ export const FormularioCamposAtendimento = forwardRef<
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-border-subtle overflow-hidden md:grid-cols-3 md:divide-x md:divide-y-0">
+      <div className="grid min-h-0 flex-1 grid-cols-1 divide-y divide-border overflow-hidden md:grid-cols-3 md:divide-x md:divide-y-0">
         {colunaAtendimento}
         {colunaLocal}
         {colunaPagamento}
       </div>
       {temConflito && (
-        <div className="border-t border-border-subtle px-5 py-3">
+        <div className="border-t border-border px-6 py-3">
           <AlertaConflito conflitos={conflitos} />
         </div>
       )}
@@ -597,9 +597,9 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
 
 function ColunaSecao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
-    <div className="flex min-h-0 min-w-0 flex-col gap-3 px-5 py-4">
-      <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-        <span className="h-2.5 w-0.5 rounded-full bg-gold-500" aria-hidden />
+    <div className="flex min-h-0 min-w-0 flex-col gap-3 px-6 py-4">
+      <span className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-3 w-1 rounded-full bg-gold-500" aria-hidden />
         {titulo}
       </span>
       <div className="flex min-h-0 flex-1 flex-col gap-3">{children}</div>

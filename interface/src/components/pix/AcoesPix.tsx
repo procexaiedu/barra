@@ -135,9 +135,10 @@ export function AcoesPix({
       {pendente && (
         <div className="grid grid-cols-2 gap-2">
           <Button
-            className="h-12 bg-emerald-600 text-white hover:bg-emerald-700"
+            className="h-12 bg-success-500 text-on-success hover:bg-success-500/90"
             onClick={() => abrir("validar")}
           >
+            <CheckCircle2 size={16} strokeWidth={1.5} />
             Validar Pix
           </Button>
           <Button
@@ -145,6 +146,7 @@ export function AcoesPix({
             className="h-12"
             onClick={() => abrir("rejeitar")}
           >
+            <XCircle size={16} strokeWidth={1.5} />
             Rejeitar Pix
           </Button>
         </div>
@@ -170,10 +172,10 @@ export function AcoesPix({
         open={dialog === "validar"}
         onOpenChange={(o) => !submitting && setDialog(o ? "validar" : null)}
       >
-        <AlertDialogContent className="flex w-[min(96vw,44rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0">
+        <AlertDialogContent className="flex w-[min(96vw,44rem)] max-w-none flex-col gap-0 overflow-hidden rounded-lg bg-popover p-0">
           {/* Header */}
           <div className="flex items-start gap-3 border-b border-border px-8 py-4">
-            <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-500">
+            <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-success-500/15 text-success-500">
               <CheckCircle2 size={22} strokeWidth={1.8} />
             </span>
             <div className="min-w-0 flex-1">
@@ -191,7 +193,7 @@ export function AcoesPix({
           <div className="grid grid-cols-3 gap-3 px-8 py-4">
             <HeroBlock label="Valor">
               {valorLabel ? (
-                <span className="text-2xl font-semibold leading-none text-text-primary">
+                <span className="font-mono text-2xl font-semibold leading-none tabular-nums text-text-primary">
                   {valorLabel}
                 </span>
               ) : (
@@ -217,7 +219,7 @@ export function AcoesPix({
             </AlertDialogCancel>
             <AlertDialogAction
               variant="primary"
-              className="bg-emerald-600 text-white hover:bg-emerald-500"
+              className="bg-success-500 text-on-success hover:bg-success-500/90"
               onClick={handleAprovar}
               disabled={submitting}
             >
@@ -232,10 +234,10 @@ export function AcoesPix({
         open={dialog === "rejeitar"}
         onOpenChange={(o) => !submitting && setDialog(o ? "rejeitar" : null)}
       >
-        <AlertDialogContent className="flex w-[min(96vw,68rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0">
+        <AlertDialogContent className="flex w-[min(96vw,68rem)] max-w-none flex-col gap-0 overflow-hidden rounded-lg bg-popover p-0">
           {/* Header */}
           <div className="flex items-start gap-3 border-b border-border px-8 py-4">
-            <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-red-500/15 text-red-500">
+            <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-danger-500/15 text-danger-500">
               <XCircle size={22} strokeWidth={1.8} />
             </span>
             <div className="min-w-0 flex-1">
@@ -254,7 +256,7 @@ export function AcoesPix({
           <div className="grid grid-cols-3 gap-3 border-b border-border px-8 py-4">
             <HeroBlock label="Valor">
               {valorLabel ? (
-                <span className="text-xl font-semibold leading-none text-text-primary">
+                <span className="font-mono text-xl font-semibold leading-none tabular-nums text-text-primary">
                   {valorLabel}
                 </span>
               ) : (
@@ -295,13 +297,13 @@ export function AcoesPix({
                     className={cn(
                       "flex items-center justify-between rounded-md border px-3.5 py-2.5 text-left text-sm transition-colors",
                       motivo === o.value
-                        ? "border-red-500/70 bg-red-500/10 text-text-primary"
+                        ? "border-danger-500/70 bg-danger-500/10 text-text-primary"
                         : "border-border bg-muted text-text-secondary hover:border-border-strong hover:text-text-primary",
                     )}
                   >
                     <span>{o.label}</span>
                     {motivo === o.value && (
-                      <span aria-hidden className="size-2 rounded-full bg-red-500" />
+                      <span aria-hidden className="size-2 rounded-full bg-danger-500" />
                     )}
                   </button>
                 ))}
@@ -362,7 +364,7 @@ export function AcoesPix({
         open={dialog === "reabrir"}
         onOpenChange={(o) => !submitting && setDialog(o ? "reabrir" : null)}
       >
-        <AlertDialogContent className="flex w-[min(96vw,40rem)] max-w-none flex-col gap-0 overflow-hidden rounded-xl border border-border bg-popover p-0">
+        <AlertDialogContent className="flex w-[min(96vw,40rem)] max-w-none flex-col gap-0 overflow-hidden rounded-lg bg-popover p-0">
           {/* Header */}
           <div className="flex items-start gap-3 border-b border-border px-8 py-4">
             <span className="mt-0.5 inline-flex size-10 shrink-0 items-center justify-center rounded-full bg-state-handoff/15 text-state-handoff">
@@ -382,7 +384,7 @@ export function AcoesPix({
           <div className="grid grid-cols-2 gap-3 px-8 py-4">
             <HeroBlock label="Valor">
               {valorLabel ? (
-                <span className="text-xl font-semibold leading-none text-text-primary">
+                <span className="font-mono text-xl font-semibold leading-none tabular-nums text-text-primary">
                   {valorLabel}
                 </span>
               ) : (
@@ -421,8 +423,8 @@ function HeroBlock({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-w-0 rounded-lg border border-border bg-card px-3.5 py-2.5">
-      <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+    <div className="min-w-0 rounded-md bg-muted px-3.5 py-2.5">
+      <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         {label}
       </p>
       <div className="mt-1.5 break-words">{children}</div>

@@ -2,6 +2,7 @@
 
 import { useMemo } from "react"
 import { useRouter } from "next/navigation"
+import { ShieldCheck } from "lucide-react"
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip as RechartsTooltip } from "recharts"
 import type {
   MotivoEscaladaPorTipo,
@@ -95,13 +96,30 @@ export function BlocoMotivosEscalada({ data, onAbrirTodas }: Props) {
 
   return (
     <section aria-label="Motivos de escalada" className="flex flex-col gap-3">
-      <header className="flex items-baseline justify-between">
-        <h2 className="text-base font-semibold text-text-primary">Motivos de escalada</h2>
-        <span className="text-xs font-medium text-text-muted">{data.total} no período</span>
+      <header className="flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+          <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+          Motivos de escalada
+        </h2>
+        <span className="text-xs font-medium text-text-muted">
+          <span className="font-mono tabular-nums">{data.total}</span> no período
+        </span>
       </header>
       <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
         {data.total === 0 ? (
-          <p className="text-sm text-text-muted">Sem atendimentos escalados no período.</p>
+          <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+            <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+              <ShieldCheck size={22} strokeWidth={1.75} className="text-text-muted" aria-hidden />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                Sem atendimentos escalados no período.
+              </p>
+              <p className="mt-1 text-[13px] text-text-muted">
+                Escaladas para Fernando ou modelo aparecem aqui.
+              </p>
+            </div>
+          </div>
         ) : (
           <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[200px_1fr] lg:grid-cols-[240px_1fr]">
             <div className="relative mx-auto h-[200px] w-[200px] lg:h-[240px] lg:w-[240px]">

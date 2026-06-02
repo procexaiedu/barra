@@ -72,10 +72,10 @@ export function ChartMixForma({ itens }: Props) {
       <div className="flex flex-col gap-3">
         {/* Total como heading próprio — fora da área de hover, sem conflito. */}
         <div className="flex items-baseline justify-between gap-3">
-          <span className="text-[10px] font-medium uppercase tracking-[0.14em] text-text-muted">
+          <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-text-muted">
             Bruto recebido
           </span>
-          <span className="text-[18px] font-semibold tabular-nums text-text-primary">
+          <span className="font-mono text-[18px] font-semibold tabular-nums text-text-primary">
             {formatBRL(total)}
           </span>
         </div>
@@ -117,14 +117,14 @@ export function ChartMixForma({ itens }: Props) {
                 >
                   {f.rotulo}
                   {f.fechamentos > 0 && (
-                    <span className="ml-1.5 text-[10.5px] text-text-disabled tabular-nums">
+                    <span className="ml-1.5 font-mono text-[10.5px] tabular-nums text-text-disabled">
                       · {f.fechamentos} fech.
                     </span>
                   )}
                 </span>
                 <span
                   className={cn(
-                    "text-right text-[12px] tabular-nums",
+                    "text-right font-mono text-[12px] tabular-nums",
                     inativo ? "text-text-disabled" : "text-text-secondary",
                   )}
                 >
@@ -132,7 +132,7 @@ export function ChartMixForma({ itens }: Props) {
                 </span>
                 <span
                   className={cn(
-                    "text-right text-[12px] font-medium tabular-nums",
+                    "text-right font-mono text-[12px] font-medium tabular-nums",
                     inativo
                       ? "text-text-disabled"
                       : realcado

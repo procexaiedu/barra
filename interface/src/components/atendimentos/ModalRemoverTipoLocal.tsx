@@ -18,7 +18,7 @@ import { formatRotulo } from "@/lib/formatters"
 const SEM_TIPO = "__sem_tipo__"
 
 const controlClassName =
-  "h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
+  "h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
 
 function rotulo(v: string): string {
   return formatRotulo(v) ?? v
@@ -81,7 +81,7 @@ export function ModalRemoverTipoLocal({
     <AlertDialog open={aberto} onOpenChange={(o) => !submitting && !o && fechar()}>
       <AlertDialogContent className="w-[min(94vw,32rem)] max-w-none bg-card">
         <AlertDialogHeader>
-          <AlertDialogTitle className="font-serif text-lg font-medium text-text-primary">
+          <AlertDialogTitle className="text-base font-semibold text-text-primary">
             Remover &ldquo;{nome ? rotulo(nome) : ""}&rdquo;?
           </AlertDialogTitle>
           <AlertDialogDescription className="text-sm text-text-secondary">
@@ -93,7 +93,7 @@ export function ModalRemoverTipoLocal({
 
         <div className="flex flex-col gap-1.5">
           <label
-            className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted"
+            className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted"
             htmlFor="substituto-tipo-local"
           >
             Substituir por

@@ -28,10 +28,10 @@ export function TilePixRevisao({ total }: Props) {
       )}
     >
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           Pix em revisão pendentes (agora)
         </span>
-        <span className="font-sans text-[40px] font-medium leading-[48px] text-text-primary">
+        <span className="font-mono text-[36px] font-semibold leading-none text-text-primary tabular-nums">
           {total}
         </span>
         <span className="text-[13px] text-text-muted">
@@ -47,7 +47,7 @@ export function TilePixRevisao({ total }: Props) {
                 role="button"
                 aria-disabled="true"
                 tabIndex={0}
-                className="inline-flex h-9 cursor-not-allowed items-center gap-2 rounded-md bg-transparent px-3 text-sm font-medium text-text-muted opacity-60 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                className="inline-flex h-9 cursor-not-allowed items-center gap-2 rounded-lg bg-transparent px-3 text-sm font-medium text-text-muted opacity-60 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               />
             }
           >

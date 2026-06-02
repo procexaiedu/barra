@@ -9,7 +9,9 @@ import { DialogTarefa } from "@/components/tarefas/DialogTarefa"
 import { ListaTarefas } from "@/components/tarefas/ListaTarefas"
 import { BoardTarefas } from "@/components/tarefas/BoardTarefas"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { BannerErro } from "@/components/layout/BannerErro"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -50,16 +52,16 @@ function Segmento<T extends string>({
   onChange: (v: T) => void
 }) {
   return (
-    <div className="flex rounded-lg border border-border bg-surface-raised p-0.5">
+    <div className="flex rounded-lg border border-border bg-muted p-0.5">
       {opcoes.map((o) => (
         <button
           key={o.valor}
           onClick={() => onChange(o.valor)}
+          aria-pressed={valor === o.valor}
           className={cn(
             "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
-            valor === o.valor
-              ? "bg-accent text-text-brand shadow-sm"
-              : "text-text-secondary hover:text-text-primary",
+            "aria-[pressed=true]:bg-accent aria-[pressed=true]:text-text-brand",
+            "text-text-muted hover:text-text-primary",
           )}
         >
           {o.label}
@@ -119,132 +121,132 @@ export default function TarefasPage() {
   const total = tarefas.length
 
   return (
-    <div className="mx-auto max-w-[1180px] px-8 py-9">
-      {/* Cabeçalho editorial */}
-      <header className="mb-7">
-        <p className="font-mono text-[11px] font-medium uppercase tracking-[0.28em] text-text-muted">
-          Operação
-        </p>
-        <div className="mt-1.5 flex items-end justify-between gap-4">
-          <h1 className="font-serif text-[40px] font-medium leading-[0.9] text-text-primary">
+    <div className="flex flex-col gap-8">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
             Tarefas
           </h1>
-          <Button variant="primary" onClick={abrirCriar}>
-            <Plus size={16} strokeWidth={1.5} />
-            Nova tarefa
-          </Button>
+          <p className="mt-1 text-[13px] text-text-muted">
+            Gestão interna da operação — sem cliente, IA ou agenda.
+          </p>
         </div>
-        <div className="mt-3.5 flex items-center gap-3">
-          <span className="h-px flex-1 bg-gradient-to-r from-gold-500/55 to-transparent" />
+        <Button variant="primary" onClick={abrirCriar}>
+          <Plus size={16} strokeWidth={1.5} />
+          Nova tarefa
+        </Button>
+      </header>
+
+      <section aria-label="Tarefas" className="flex flex-col gap-3">
+        {/* Filtros */}
+        <div className="flex flex-wrap items-center gap-2">
+          <Segmento
+            opcoes={FILTRO_STATUS}
+            valor={filtros.status}
+            onChange={(v) => setFiltros((f) => ({ ...f, status: v }))}
+          />
+          <Segmento
+            opcoes={FILTRO_PRAZO}
+            valor={filtros.prazo}
+            onChange={(v) => setFiltros((f) => ({ ...f, prazo: v }))}
+          />
+          <button
+            onClick={() => setFiltros((f) => ({ ...f, minhas: !f.minhas }))}
+            aria-pressed={filtros.minhas}
+            className={cn(
+              "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-150",
+              filtros.minhas
+                ? "border-border-brand bg-accent text-text-brand"
+                : "border-border text-text-muted hover:text-text-primary",
+            )}
+          >
+            <UserCheck size={13} strokeWidth={1.5} />
+            Minhas
+          </button>
+
           {status === "success" && (
-            <span className="font-mono text-[11px] tracking-wider text-text-muted">
+            <span className="ml-auto text-xs font-medium tabular-nums text-text-muted">
               {total} {total === 1 ? "tarefa" : "tarefas"}
             </span>
           )}
-        </div>
-      </header>
 
-      {/* Filtros */}
-      <div className="mb-5 flex flex-wrap items-center gap-2.5">
-        <Segmento
-          opcoes={FILTRO_STATUS}
-          valor={filtros.status}
-          onChange={(v) => setFiltros((f) => ({ ...f, status: v }))}
-        />
-        <Segmento
-          opcoes={FILTRO_PRAZO}
-          valor={filtros.prazo}
-          onChange={(v) => setFiltros((f) => ({ ...f, prazo: v }))}
-        />
-        <button
-          onClick={() => setFiltros((f) => ({ ...f, minhas: !f.minhas }))}
-          className={cn(
-            "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-150",
-            filtros.minhas
-              ? "border-border-brand bg-accent text-text-brand"
-              : "border-border text-text-secondary hover:bg-surface-hover",
-          )}
-        >
-          <UserCheck size={13} strokeWidth={1.5} />
-          Minhas
-        </button>
-
-        <div className="ml-auto flex rounded-lg border border-border bg-surface-raised p-0.5">
-          {(["lista", "board"] as const).map((v) => {
-            const Icon = v === "lista" ? LayoutList : LayoutGrid
-            return (
-              <button
-                key={v}
-                onClick={() => setVisao(v)}
-                aria-label={v === "lista" ? "Visão em lista" : "Visão em board"}
-                className={cn(
-                  "rounded-md p-1.5 transition-colors",
-                  visao === v
-                    ? "bg-accent text-text-brand"
-                    : "text-text-muted hover:text-text-primary",
-                )}
-              >
-                <Icon size={16} strokeWidth={1.5} />
-              </button>
-            )
-          })}
-        </div>
-      </div>
-
-      {status === "loading" && (
-        <div className="space-y-2">
-          {[0, 1, 2, 3].map((i) => (
-            <Skeleton key={i} className="h-[58px] rounded-xl" />
-          ))}
-        </div>
-      )}
-
-      {status === "error" && (
-        <div className="rounded-xl border border-danger-500/30 bg-danger-500/5 px-6 py-8 text-center">
-          <p className="text-sm text-danger-500">{error ?? "Erro ao carregar tarefas."}</p>
-          <div className="mt-4">
-            <Button variant="outline" size="sm" onClick={() => void recarregar()}>
-              Tentar de novo
-            </Button>
+          <div
+            className={cn(
+              "flex rounded-lg border border-border bg-muted p-0.5",
+              status !== "success" && "ml-auto",
+            )}
+          >
+            {(["lista", "board"] as const).map((v) => {
+              const Icon = v === "lista" ? LayoutList : LayoutGrid
+              return (
+                <button
+                  key={v}
+                  onClick={() => setVisao(v)}
+                  aria-label={v === "lista" ? "Visão em lista" : "Visão em board"}
+                  aria-pressed={visao === v}
+                  className={cn(
+                    "rounded-md p-1.5 transition-all duration-150",
+                    "aria-[pressed=true]:bg-accent aria-[pressed=true]:text-text-brand",
+                    "text-text-muted hover:text-text-primary",
+                  )}
+                >
+                  <Icon size={16} strokeWidth={1.5} />
+                </button>
+              )
+            })}
           </div>
         </div>
-      )}
 
-      {status === "success" && total === 0 && (
-        <div className="flex flex-col items-center justify-center gap-4 rounded-xl border border-dashed border-border-strong bg-surface-raised/60 px-6 py-16 text-center">
-          <div className="flex size-12 items-center justify-center rounded-full bg-surface-hover ring-1 ring-border-subtle">
-            <ListChecks size={22} strokeWidth={1.5} className="text-gold-500" />
+        {status === "loading" && (
+          <div aria-busy="true" className="flex flex-col gap-1.5">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-[58px] rounded-lg" />
+            ))}
           </div>
-          <div>
-            <p className="font-serif text-xl font-medium text-text-primary">Nada na lista</p>
-            <p className="mt-1 text-[13px] text-text-muted">
-              Crie a primeira tarefa da operação para começar.
-            </p>
-          </div>
-          <Button variant="outline" size="sm" onClick={abrirCriar}>
-            <Plus size={15} strokeWidth={1.5} />
-            Nova tarefa
-          </Button>
-        </div>
-      )}
+        )}
 
-      {status === "success" && total > 0 && (
-        visao === "lista" ? (
-          <ListaTarefas
-            tarefas={tarefas}
-            onEditar={abrirEditar}
-            onExcluir={setTarefaExcluir}
-            onConcluir={concluir}
-          />
-        ) : (
-          <BoardTarefas
-            tarefas={tarefas}
-            onEditar={abrirEditar}
-            onExcluir={setTarefaExcluir}
-            onMoverStatus={moverStatus}
-          />
-        )
-      )}
+        {status === "error" && (
+          <BannerErro mensagem={error ?? undefined} onRetry={() => void recarregar()} />
+        )}
+
+        {status === "success" && total === 0 && (
+          <Card>
+            <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+              <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+                <ListChecks size={22} strokeWidth={1.75} className="text-text-muted" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-text-primary">Nada na lista.</p>
+                <p className="mt-1 text-[13px] text-text-muted">
+                  Crie a primeira tarefa da operação para começar.
+                </p>
+              </div>
+              <Button variant="outline" size="sm" onClick={abrirCriar}>
+                <Plus size={15} strokeWidth={1.5} />
+                Nova tarefa
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {status === "success" && total > 0 && (
+          visao === "lista" ? (
+            <ListaTarefas
+              tarefas={tarefas}
+              onEditar={abrirEditar}
+              onExcluir={setTarefaExcluir}
+              onConcluir={concluir}
+            />
+          ) : (
+            <BoardTarefas
+              tarefas={tarefas}
+              onEditar={abrirEditar}
+              onExcluir={setTarefaExcluir}
+              onMoverStatus={moverStatus}
+            />
+          )
+        )}
+      </section>
 
       {dialogAberto && (
         <DialogTarefa

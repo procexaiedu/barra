@@ -55,11 +55,14 @@ export function ProgramasModelo({
   const grupos = useMemo(() => agruparPorPrograma(vinculados), [vinculados])
 
   return (
-    <section className="rounded-lg border border-border bg-card p-6">
+    <section className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
       <header className="mb-5 flex items-start justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold text-text-primary">Serviços e preços</h2>
-          <p className="mt-1 text-sm text-text-muted">
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+            <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+            Serviços e preços
+          </h2>
+          <p className="mt-1 pl-[14px] text-sm text-text-muted">
             Cadastre apenas o que esta modelo realmente oferece.
           </p>
         </div>
@@ -155,8 +158,8 @@ function GrupoPrograma({
   onDesvincular: (programaId: string, duracaoId: string) => Promise<void>
 }) {
   return (
-    <div className="rounded-lg border border-border bg-card">
-      <div className="border-b border-border px-4 py-2.5">
+    <div className="overflow-hidden rounded-md border border-border">
+      <div className="border-b border-border bg-muted px-4 py-2.5">
         <h3 className="text-sm font-semibold text-text-primary">{grupo.nome}</h3>
       </div>
       <ul className="divide-y divide-border">
@@ -241,7 +244,7 @@ function LinhaServico({
               value={precoInput}
               onChange={(e) => setPrecoInput(e.target.value)}
               placeholder="Ex.: 800"
-              className="h-8 w-28 bg-input text-sm tabular-nums"
+              className="h-8 w-28 bg-input font-mono text-sm tabular-nums"
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === "Enter") confirmar()
@@ -257,7 +260,7 @@ function LinhaServico({
           </>
         ) : (
           <>
-            <span className="text-sm font-medium tabular-nums text-text-primary">
+            <span className="font-mono text-sm font-medium tabular-nums text-text-primary">
               {formatBRL(linha.preco)}
             </span>
             <Button variant="ghost" size="icon-sm" onClick={abrirEdicao} disabled={submitting} aria-label="Editar preço">
@@ -362,7 +365,7 @@ function FetichesSubBloco({
           Nenhum fetiche marcado ainda.
         </p>
       ) : (
-        <ul className="divide-y divide-border rounded-lg border border-border">
+        <ul className="divide-y divide-border overflow-hidden rounded-md border border-border">
           {vinculados.map((f) => (
             <LinhaFetiche
               key={f.fetiche_id}
@@ -379,7 +382,7 @@ function FetichesSubBloco({
           <select
             value={selecionado}
             onChange={(e) => setSelecionado(e.target.value)}
-            className="h-8 flex-1 rounded-md border border-border bg-input px-2 text-sm text-text-primary"
+            className="h-9 flex-1 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <option value="">Escolher fetiche…</option>
             {disponiveis.map((f) => (
@@ -395,7 +398,7 @@ function FetichesSubBloco({
               value={precoNovo}
               onChange={(e) => setPrecoNovo(e.target.value)}
               placeholder="extra"
-              className="h-8 w-28 bg-input pl-7 text-sm tabular-nums"
+              className="h-9 w-28 bg-input pl-7 font-mono text-sm tabular-nums"
               onKeyDown={(e) => { if (e.key === "Enter") adicionar() }}
             />
           </div>
@@ -512,7 +515,7 @@ function LinhaFetiche({
               value={precoInput}
               onChange={(e) => setPrecoInput(e.target.value)}
               placeholder="Incluso"
-              className="h-8 w-28 bg-input text-sm tabular-nums"
+              className="h-8 w-28 bg-input font-mono text-sm tabular-nums"
               autoFocus
               onKeyDown={(e) => {
                 if (e.key === "Enter") confirmar()

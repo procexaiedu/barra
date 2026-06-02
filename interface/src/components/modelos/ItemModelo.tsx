@@ -39,17 +39,14 @@ export function ItemModelo({
         if (event.key === "Enter" || event.key === " ") onSelect()
       }}
       className={cn(
-        "group relative w-full rounded-lg border border-border/50 bg-card px-3 py-2.5 text-left transition hover:bg-accent hover:border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "group relative w-full rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:rounded-l-lg before:bg-transparent",
-        selected && "bg-accent before:bg-primary",
+        selected && "bg-accent before:bg-gold-500",
         item.status === "inativa" && "opacity-60"
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className={cn(
-          "truncate text-sm font-semibold",
-          selected ? "text-text-primary" : "text-text-primary"
-        )}>
+        <span className="truncate text-sm font-semibold text-text-primary">
           {item.nome}
         </span>
         <span className="flex shrink-0 items-center gap-1.5">

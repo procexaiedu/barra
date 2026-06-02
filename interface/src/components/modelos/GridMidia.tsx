@@ -1,6 +1,7 @@
 "use client"
 
 import { Images } from "lucide-react"
+import { Card } from "@/components/ui/card"
 import { ItemMidia } from "@/components/modelos/ItemMidia"
 import type { MidiaItem } from "@/tipos/modelos"
 
@@ -17,20 +18,22 @@ export function GridMidia({
 }) {
   if (items.length === 0) {
     return (
-      <div className="rounded-lg border border-border bg-card p-6">
-        <div className="flex gap-3">
-          <Images className="mt-0.5 text-text-muted" size={20} strokeWidth={1.5} />
+      <Card>
+        <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+          <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+            <Images size={22} strokeWidth={1.75} className="text-text-muted" />
+          </div>
           <div>
-            <p className="text-sm text-text-primary">Nenhuma midia cadastrada.</p>
-            <p className="mt-1 text-[13px] text-text-muted">Adicione fotos ou videos prontos para o atendimento.</p>
+            <p className="text-sm font-medium text-text-primary">Nenhuma mídia cadastrada.</p>
+            <p className="mt-1 text-[13px] text-text-muted">Adicione fotos ou vídeos prontos para o atendimento.</p>
           </div>
         </div>
-      </div>
+      </Card>
     )
   }
 
   return (
-    <section aria-label="Midia da modelo" className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+    <section aria-label="Mídia da modelo" className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-4">
       {items.map((item) => (
         <ItemMidia
           key={item.id}

@@ -22,7 +22,7 @@ export function AtendimentoVinculadoPix({
 }) {
   if (atendimento === null) {
     return (
-      <section className="rounded-lg border border-border bg-card p-3">
+      <section className="rounded-lg bg-card p-3 ring-1 ring-foreground/10">
         <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
           Atendimento vinculado
         </h3>
@@ -45,7 +45,7 @@ export function AtendimentoVinculadoPix({
   return (
     <section
       className={cn(
-        "rounded-lg border border-border border-l-3 bg-card p-3",
+        "rounded-lg border-l-3 bg-card p-3 ring-1 ring-foreground/10",
         terminal ? "border-l-border-strong" : "border-l-state-handoff"
       )}
     >

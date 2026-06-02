@@ -112,8 +112,8 @@ export function DialogPreencherRepasse({
           ) : (
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border bg-muted/30 text-xs uppercase text-text-muted">
-                  <th className="px-3 py-2 text-left">
+                <tr className="border-b border-border bg-muted/30 text-[10.5px] uppercase tracking-[0.1em] text-text-muted">
+                  <th className="px-3 py-2 text-left font-medium">
                     <input
                       type="checkbox"
                       checked={selecionados.size === itens.length}
@@ -122,28 +122,30 @@ export function DialogPreencherRepasse({
                           e.target.checked ? new Set(itens.map((x) => x.atendimento_id)) : new Set()
                         )
                       }}
+                      className="h-3.5 w-3.5 rounded border-input bg-transparent accent-primary"
                     />
                   </th>
-                  <th className="px-3 py-2 text-left">Data</th>
-                  <th className="px-3 py-2 text-left">#</th>
-                  <th className="px-3 py-2 text-left">Cliente</th>
-                  <th className="px-3 py-2 text-right">Valor</th>
+                  <th className="px-3 py-2 text-left font-medium">Data</th>
+                  <th className="px-3 py-2 text-left font-medium">#</th>
+                  <th className="px-3 py-2 text-left font-medium">Cliente</th>
+                  <th className="px-3 py-2 text-right font-medium">Valor</th>
                 </tr>
               </thead>
               <tbody>
                 {itens.map((a) => (
-                  <tr key={a.atendimento_id} className="border-b border-border/60">
+                  <tr key={a.atendimento_id} className="border-b border-border/60 transition-colors hover:bg-muted/25 last:border-b-0">
                     <td className="px-3 py-2">
                       <input
                         type="checkbox"
                         checked={selecionados.has(a.atendimento_id)}
                         onChange={() => toggle(a.atendimento_id)}
+                        className="h-3.5 w-3.5 rounded border-input bg-transparent accent-primary"
                       />
                     </td>
-                    <td className="px-3 py-2 text-text-muted">{formatData(a.fechado_em)}</td>
-                    <td className="px-3 py-2 font-mono text-xs">#{a.numero_curto}</td>
-                    <td className="px-3 py-2">{a.cliente_nome}</td>
-                    <td className="px-3 py-2 text-right tabular-nums">{formatBRL(a.valor_bruto)}</td>
+                    <td className="px-3 py-2 font-mono tabular-nums text-text-muted">{formatData(a.fechado_em)}</td>
+                    <td className="px-3 py-2 font-mono text-xs tabular-nums">#{a.numero_curto}</td>
+                    <td className="px-3 py-2 text-text-primary">{a.cliente_nome}</td>
+                    <td className="px-3 py-2 text-right font-mono tabular-nums">{formatBRL(a.valor_bruto)}</td>
                   </tr>
                 ))}
               </tbody>

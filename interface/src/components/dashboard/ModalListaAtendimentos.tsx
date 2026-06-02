@@ -189,7 +189,7 @@ export function ModalListaAtendimentos({
 
         <div className="max-h-[60vh] min-h-[120px] overflow-y-auto pr-1">
           {status === "loading" ? (
-            <ul className="flex flex-col gap-2">
+            <ul aria-busy="true" className="flex flex-col gap-2">
               {Array.from({ length: 6 }).map((_, idx) => (
                 <li key={idx}>
                   <Skeleton className="h-12 w-full rounded-md" />

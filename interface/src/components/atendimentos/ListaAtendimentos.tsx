@@ -30,7 +30,7 @@ export function ListaAtendimentos({
 }) {
   return (
     <section aria-label="Lista de atendimentos" className="min-w-0">
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
         {status === "loading" ? (
           <div aria-busy="true" className="space-y-px">
             {Array.from({ length: 8 }).map((_, index) => (

@@ -31,7 +31,7 @@ export function GraficoReceita({ historico }: { historico: AtendimentoHistoricoI
         aria-label="Gráfico de receita acumulada"
         className="rounded-lg border border-border bg-card p-5"
       >
-        <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           Receita acumulada
         </p>
         <div className="flex h-[140px] flex-col items-center justify-center gap-1.5 text-center">
@@ -81,7 +81,7 @@ export function GraficoReceita({ historico }: { historico: AtendimentoHistoricoI
 
   return (
     <section aria-label="Gráfico de receita acumulada" className="rounded-lg border border-border bg-card p-5">
-      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         Receita acumulada
       </p>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ overflow: "visible" }}>

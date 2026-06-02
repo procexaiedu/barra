@@ -262,13 +262,16 @@ export function DisponibilidadeModelo({
   const statusInativo = statusModelo === "pausada" || statusModelo === "inativa"
 
   return (
-    <section className="space-y-4">
+    <section className="flex flex-col gap-4">
       {statusInativo && <BannerStatus status={statusModelo!} />}
 
-      <div className="rounded-lg border border-border bg-card p-6">
+      <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
         <header className="mb-4">
-          <h2 className="text-base font-semibold text-text-primary">Período de trabalho</h2>
-          <p className="mt-1 max-w-prose text-sm text-text-muted">
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+            <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+            Período de trabalho
+          </h2>
+          <p className="mt-1 max-w-prose pl-[14px] text-sm text-text-muted">
             Defina os dias e horários em que a modelo aceita encontro. Fora desses dias e horários, o
             sistema não cria agendamento e a IA não sugere. Sem nenhuma janela, ela é tratada como
             disponível sempre.
@@ -430,6 +433,7 @@ function BarraVigencia({
                   type="checkbox"
                   checked={semFim}
                   onChange={(e) => setSemFim(e.target.checked)}
+                  className="size-3.5 rounded border-input bg-transparent accent-primary"
                 />
                 Sem prazo final
               </label>
@@ -503,7 +507,7 @@ function CartaoJanela({
     parseHorario(janela.hora_inicio) !== null && parseHorario(janela.hora_fim) !== null
 
   return (
-    <div className="rounded-lg border border-border bg-card p-3">
+    <div className="rounded-md border border-border p-3">
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <Input
@@ -641,7 +645,7 @@ function MiniTimeline({ janelas }: { janelas: Janela[] }) {
   }
 
   return (
-    <div className="mt-5 rounded-lg border border-border bg-muted/30 p-3">
+    <div className="mt-5 rounded-md border border-border bg-muted/30 p-3">
       <div className="mb-2 flex items-center justify-between">
         <p className="text-[11px] font-medium uppercase tracking-wide text-text-muted">Como fica</p>
         <div className="hidden gap-6 text-[10px] text-text-muted sm:flex">

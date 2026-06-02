@@ -46,6 +46,32 @@ def test_finalizado_com_valor_em_k() -> None:
     assert comando.payload["valor_final"] == Decimal("1000")
 
 
+def test_fechado_com_dois_numeros_e_valor_ambiguo() -> None:
+    # Antes pegava o 1o numero (R$50) e fechava em silencio; agora exige confirmacao.
+    comando = parse_comando_grupo("fechado #5 paguei 50 no uber e fechei 1500")
+    assert comando is not None
+    assert comando.comando == "comando_invalido"
+    assert comando.numero_curto == 5
+    assert comando.payload["motivo"] == "valor_ambiguo"
+
+
+def test_fechado_decimal_malformado_e_valor_ambiguo() -> None:
+    # "1,5" vira dois candidatos (1 e 5) -> ambiguo em vez de silenciosamente virar Decimal('1').
+    comando = parse_comando_grupo("fechado #5 1,5")
+    assert comando is not None
+    assert comando.comando == "comando_invalido"
+    assert comando.payload["motivo"] == "valor_ambiguo"
+
+
+def test_valor_pelado_ambiguo_citando_card_e_invalido() -> None:
+    comando = parse_comando_grupo(
+        "paguei 50 e fechei 1500", quoted_numero_curto=7, aguardando_valor=True
+    )
+    assert comando is not None
+    assert comando.comando == "comando_invalido"
+    assert comando.payload["motivo"] == "valor_ambiguo"
+
+
 def test_perdido_com_motivo_valido() -> None:
     comando = parse_comando_grupo("perdido sumiu #3")
     assert comando is not None

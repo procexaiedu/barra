@@ -25,7 +25,7 @@ export function AtendimentoAberto({ atendimento }: { atendimento: AtendimentoAbe
           : "rounded-lg border border-border bg-card p-5"
       }
     >
-      <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         Atendimento aberto
       </p>
       {atendimento === null ? (

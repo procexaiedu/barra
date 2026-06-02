@@ -347,11 +347,13 @@ async def validar_pix(
             comprovante_id=str(comprovante_id),
             _job_id=f"card:pix:{atendimento_id}",
         )
+        # PII: motivo_em_revisao interpola chave Pix/titular (dados da modelo, painel-only).
+        # Loga so o bucket nao-PII; o detalhe fica na coluna comprovantes_pix.motivo_em_revisao.
         logger.info(
-            "validar_pix decisao=%s atendimento_id=%s motivo=%s",
+            "validar_pix decisao=%s atendimento_id=%s motivo_tipo=%s",
             decisao_pipeline,
             atendimento_id,
-            motivo_em_revisao,
+            motivo_bucket,
         )
     finally:
         PIX_VALIDACAO_DURACAO.observe(perf_counter() - inicio)

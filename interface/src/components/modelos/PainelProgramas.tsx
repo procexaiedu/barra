@@ -5,6 +5,7 @@ import { Check, Loader2, Pencil, Plus, Trash2, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import type { Duracao, DuracaoInput, Programa, ProgramaInput } from "@/tipos/modelos"
 
@@ -37,7 +38,12 @@ export function PainelProgramas({
   const categorias = [...new Set(programas.map((p) => p.categoria).filter(Boolean))] as string[]
 
   if (status === "loading") {
-    return <p className="text-sm text-text-muted">Carregando programas...</p>
+    return (
+      <div aria-busy="true" className="grid gap-4 xl:grid-cols-2">
+        <Skeleton className="h-80 rounded-lg" />
+        <Skeleton className="h-80 rounded-lg" />
+      </div>
+    )
   }
   if (status === "error") {
     return <BannerErro mensagem={error ?? undefined} onRetry={onRetry} />
@@ -100,7 +106,7 @@ function SecaoCatalogo({
   const grupos = agrupar(programas)
 
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-card">
+    <section className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
       <header className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-text-primary">Programas</h2>
@@ -285,7 +291,7 @@ function SecaoDuracoes({
   }
 
   return (
-    <section className="overflow-hidden rounded-lg border border-border bg-card">
+    <section className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
       <header className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3">
         <div>
           <h2 className="text-sm font-semibold text-text-primary">Durações</h2>

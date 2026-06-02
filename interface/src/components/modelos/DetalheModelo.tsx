@@ -1,8 +1,9 @@
 "use client"
 
-import { Loader2 } from "lucide-react"
+import { Loader2, UserRound } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { AbasModelo } from "@/components/modelos/AbasModelo"
@@ -104,8 +105,8 @@ export function DetalheModelo({
   const badge = statusBadge[modelo.status]
 
   return (
-    <section aria-label="Detalhe da modelo" className="min-w-0 space-y-4">
-      <header className="rounded-lg border border-border bg-card px-4 py-3">
+    <section aria-label="Detalhe da modelo" className="flex min-w-0 flex-col gap-4">
+      <Card className="px-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <FotoPerfil url={modelo.foto_perfil_url} nome={modelo.nome} size="sm" />
@@ -146,7 +147,7 @@ export function DetalheModelo({
             )}
           </div>
         </div>
-      </header>
+      </Card>
 
       <AbasModelo aba={aba} onChange={onAbaChange} />
 
@@ -195,17 +196,26 @@ export function DetalheModelo({
 
 function EmptyDetalhe() {
   return (
-    <section aria-label="Detalhe da modelo" className="rounded-lg border border-border bg-card p-6">
-      <p className="text-sm text-text-primary">Nenhuma modelo selecionada.</p>
-      <p className="mt-1 text-[13px] text-text-muted">Selecione uma modelo na lista ou adicione a primeira.</p>
+    <section aria-label="Detalhe da modelo">
+      <Card>
+        <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+          <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+            <UserRound size={22} strokeWidth={1.75} className="text-text-muted" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-text-primary">Nenhuma modelo selecionada.</p>
+            <p className="mt-1 text-[13px] text-text-muted">Selecione uma modelo na lista ou adicione a primeira.</p>
+          </div>
+        </div>
+      </Card>
     </section>
   )
 }
 
 function DetalheSkeleton() {
   return (
-    <section aria-label="Detalhe da modelo" aria-busy="true" className="space-y-5">
-      <Skeleton className="h-24 rounded-lg" />
+    <section aria-label="Detalhe da modelo" aria-busy="true" className="flex flex-col gap-4">
+      <Skeleton className="h-[72px] rounded-lg" />
       <Skeleton className="h-10 rounded-lg" />
       <Skeleton className="h-56 rounded-lg" />
       <Skeleton className="h-56 rounded-lg" />

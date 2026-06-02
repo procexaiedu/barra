@@ -234,17 +234,18 @@ function CentralAtendimentosInner() {
   }, [mostrarEncerrados, view, buscarEncerrados])
 
   return (
-    <div className="flex h-[calc(100vh-64px)] flex-col gap-2">
-      <div className="flex-none flex items-center justify-between">
-        <h1 className="font-serif text-2xl font-medium leading-none text-text-primary">
-          Atendimentos
-        </h1>
+    <div className="flex h-[calc(100vh-4rem)] flex-col gap-4">
+      <header className="flex flex-none flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
+            Atendimentos
+          </h1>
+          <p className="mt-1 text-[13px] text-text-muted">
+            Negociações em andamento por modelo, da triagem ao fechamento.
+          </p>
+        </div>
         <div className="flex items-center gap-2">
-          <Button variant="primary" size="sm" onClick={() => setModalNovoAberto(true)}>
-            <Plus size={14} strokeWidth={1.5} />
-            Novo atendimento
-          </Button>
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-muted p-0.5">
+          <div className="flex rounded-lg border border-border bg-muted p-0.5">
             <ViewButton active={view === "lista"} onClick={() => handleViewChange("lista")} title="Lista">
               <LayoutList size={15} strokeWidth={1.5} />
             </ViewButton>
@@ -252,8 +253,12 @@ function CentralAtendimentosInner() {
               <Columns size={15} strokeWidth={1.5} />
             </ViewButton>
           </div>
+          <Button variant="primary" onClick={() => setModalNovoAberto(true)}>
+            <Plus size={16} strokeWidth={1.5} />
+            Novo atendimento
+          </Button>
         </div>
-      </div>
+      </header>
 
       <div className="flex-none">
         <Toolbar
@@ -276,7 +281,7 @@ function CentralAtendimentosInner() {
       </div>
 
       {view === "lista" ? (
-        <div className="flex-1 min-h-0 grid grid-cols-[320px_minmax(0,1fr)] gap-3">
+        <div className="flex-1 min-h-0 grid grid-cols-[320px_minmax(0,1fr)] gap-4">
           <div className="min-h-0 overflow-y-auto">
             <ListaAtendimentos
               items={atendimentos.items}
@@ -417,7 +422,7 @@ function ViewButton({
       type="button"
       title={title}
       onClick={onClick}
-      className={`flex items-center justify-center rounded-md p-1.5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${active ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
+      className={`flex items-center justify-center rounded-md p-1.5 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${active ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
     >
       {children}
     </button>
@@ -486,14 +491,14 @@ function Toolbar({
 
   return (
     <div className="flex items-end gap-2">
-      <label className="relative flex flex-1 flex-col gap-0.5">
+      <label className="relative flex flex-1 flex-col gap-1">
         <span className="text-xs font-medium text-text-muted">Buscar</span>
         <Search size={16} strokeWidth={1.5} className="pointer-events-none absolute left-3 bottom-2.5 text-text-muted" />
         <Input
           value={busca}
           onChange={(event) => onBuscaChange(event.target.value)}
           placeholder="Buscar cliente, telefone ou #N"
-          className="pl-9"
+          className="h-9 pl-9"
         />
       </label>
       <div className="w-[140px]">
@@ -507,7 +512,7 @@ function Toolbar({
       <Popover>
         <PopoverTrigger
           data-slot="filtros-secundarios-trigger"
-          className="relative inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60"
+          className="relative inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           <SlidersHorizontal size={15} strokeWidth={1.5} className="text-text-muted" />
           Filtros
@@ -561,12 +566,12 @@ function SelectFiltro({
   children: ReactNode
 }) {
   return (
-    <label className="flex flex-col gap-0.5">
+    <label className="flex flex-col gap-1">
       <span className="text-xs font-medium text-text-muted">{label}</span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60"
+        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         {children}
       </select>

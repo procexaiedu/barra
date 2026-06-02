@@ -45,7 +45,7 @@ export function DadosConversa({ conversa }: { conversa: ConversaResumo }) {
 function InfoCell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5 px-5 py-4">
-      <span className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         {label}
       </span>
       {children}

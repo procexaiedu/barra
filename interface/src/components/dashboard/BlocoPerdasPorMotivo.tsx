@@ -76,8 +76,11 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
 
   return (
     <section aria-label="Perdas por motivo" className="flex flex-col gap-3">
-      <header className="flex items-baseline justify-between">
-        <h2 className="text-base font-semibold text-text-primary">Perdas por motivo</h2>
+      <header className="flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+          <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+          Perdas por motivo
+        </h2>
         <span className="text-xs font-medium text-text-muted">
           {totalPerdas} perdas
           {pctDecididos !== null ? (
@@ -98,9 +101,16 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
 
       <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
         {totalPerdas === 0 ? (
-          <div className="flex items-center gap-2">
-            <CheckCircle2 size={20} strokeWidth={1.5} className="text-success-500" aria-hidden />
-            <span className="text-sm text-text-primary">Sem perdas no período.</span>
+          <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+            <div className="flex size-11 items-center justify-center rounded-full bg-success-500/10 ring-1 ring-success-500/20">
+              <CheckCircle2 size={22} strokeWidth={1.75} className="text-success-500" aria-hidden />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-text-primary">Sem perdas no período.</p>
+              <p className="mt-1 text-[13px] text-text-muted">
+                Os motivos de perda aparecem aqui quando houver atendimentos perdidos.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="grid grid-cols-1 items-center gap-4 sm:grid-cols-[200px_1fr] lg:grid-cols-[240px_1fr]">

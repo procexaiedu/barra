@@ -86,14 +86,15 @@ export function ChipsFiltrosAtivos({
   return (
     <div className="flex flex-wrap items-center gap-2 text-[13px] text-text-muted">
       <span>
-        {totalNoMapa} cliente{totalNoMapa === 1 ? "" : "s"} localizado{totalNoMapa === 1 ? "" : "s"}
+        <span className="font-mono tabular-nums">{totalNoMapa}</span> cliente
+        {totalNoMapa === 1 ? "" : "s"} localizado{totalNoMapa === 1 ? "" : "s"}
       </span>
       {totalSemLocalizacao > 0 && (
         <span
           className="rounded-full border border-border bg-card px-3 py-0.5"
           title="Clientes que existem nos filtros mas ainda não têm endereço cadastrado em nenhum atendimento externo."
         >
-          {totalSemLocalizacao} sem endereço
+          <span className="font-mono tabular-nums">{totalSemLocalizacao}</span> sem endereço
         </span>
       )}
 

@@ -63,20 +63,20 @@ export function PainelFinanceiro({
 
   if (loading && !resumo) {
     return (
-      <div className="space-y-3">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div aria-busy="true" className="flex flex-col gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-[124px] rounded-md" />
+            <Skeleton key={i} className="h-[124px] rounded-lg" />
           ))}
         </div>
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-          <Skeleton className="h-[148px] rounded-md sm:col-span-2" />
-          <Skeleton className="h-[148px] rounded-md" />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <Skeleton className="h-[148px] rounded-lg sm:col-span-2" />
+          <Skeleton className="h-[148px] rounded-lg" />
         </div>
-        <Skeleton className="h-[260px] w-full rounded-md" />
-        <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
-          <Skeleton className="h-[260px] rounded-md lg:col-span-2" />
-          <Skeleton className="h-[260px] rounded-md" />
+        <Skeleton className="h-[260px] w-full rounded-lg" />
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <Skeleton className="h-[260px] rounded-lg lg:col-span-2" />
+          <Skeleton className="h-[260px] rounded-lg" />
         </div>
       </div>
     )
@@ -96,16 +96,16 @@ export function PainelFinanceiro({
       : null
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       {janela && (
-        <div className="text-[11px] tabular-nums text-text-muted">
+        <div className="font-mono text-[11px] tabular-nums text-text-muted">
           deltas vs {janela.de} → {janela.ate}
         </div>
       )}
 
       {/* Primários: 3 KPIs above-the-fold com sparkline.
           Líquido em primeiro (hero gold) — é o resultado da Elite Baby. */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <KpiCard
           rotulo="Líquido Elite Baby"
           valor={r.valor_liquido_brl}
@@ -139,7 +139,7 @@ export function PainelFinanceiro({
 
       {/* Status (composto) + Fechamentos. O bloco composto conta a história
           quanto deve / quanto pagou / quanto falta, com progresso visual. */}
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <div className="sm:col-span-2">
           <StatusRepasses
             calculado={r.valor_repasse_calculado_brl}
@@ -168,7 +168,7 @@ export function PainelFinanceiro({
 
       <ChartReceitaDiaria serie={serie?.serie_diaria ?? []} />
 
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           <ChartTopModelos
             itens={serie?.top_modelos ?? []}

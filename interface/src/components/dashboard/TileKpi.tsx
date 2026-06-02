@@ -49,8 +49,8 @@ export function TileKpi({
   const mostrarSparkline = Array.isArray(serie) && serie.length > 0
 
   const valorClasses = destaque
-    ? "font-sans text-[56px] font-medium leading-[60px] text-text-primary tabular-nums"
-    : "font-sans text-[40px] font-medium leading-[48px] text-text-primary tabular-nums"
+    ? "font-mono text-[44px] font-semibold leading-none text-text-primary tabular-nums"
+    : "font-mono text-[36px] font-semibold leading-none text-text-primary tabular-nums"
 
   const conteudo = (
     <>
@@ -63,7 +63,7 @@ export function TileKpi({
             className={cn("text-text-muted", iconeClassName)}
           />
         ) : null}
-        <span className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           {label}
         </span>
         {tooltip ? (

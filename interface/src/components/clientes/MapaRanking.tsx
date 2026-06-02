@@ -75,8 +75,8 @@ export function MapaRanking({
       className="flex h-full w-[240px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
     >
       <div className="border-b border-border px-3 py-2">
-        <div className="text-[11px] font-medium uppercase tracking-wide text-text-secondary">
-          Top {TOP_N} bairros
+        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-secondary">
+          Top <span className="font-mono tabular-nums">{TOP_N}</span> bairros
         </div>
         <div className="text-[11px] text-text-muted">ordenado por {rotulo}</div>
       </div>
@@ -95,7 +95,7 @@ export function MapaRanking({
                   "flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 )}
               >
-                <span className="w-5 shrink-0 tabular-nums text-text-muted">
+                <span className="w-5 shrink-0 font-mono tabular-nums text-text-muted">
                   {index + 1}
                 </span>
                 <span
@@ -104,7 +104,7 @@ export function MapaRanking({
                 >
                   {item.chave}
                 </span>
-                <span className="tabular-nums text-text-secondary">
+                <span className="font-mono tabular-nums text-text-secondary">
                   {formatarValor(metrica, item.valor)}
                 </span>
               </button>

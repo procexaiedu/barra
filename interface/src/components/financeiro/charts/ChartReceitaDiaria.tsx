@@ -187,19 +187,19 @@ function TooltipReceitaDiaria({
   return (
     <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-lg shadow-black/40">
       <div className="mb-1 font-medium text-text-primary">{p.dia}</div>
-      <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 tabular-nums">
+      <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5">
         <dt className="text-text-muted">Bruto</dt>
-        <dd className="text-right text-text-primary">{formatBRL(p.bruto)}</dd>
+        <dd className="text-right font-mono tabular-nums text-text-primary">{formatBRL(p.bruto)}</dd>
         <dt className="text-gold-700">Líquido</dt>
-        <dd className="text-right text-gold-700">{formatBRL(p.liquido)}</dd>
+        <dd className="text-right font-mono tabular-nums text-gold-700">{formatBRL(p.liquido)}</dd>
         <dt style={{ color: "var(--chart-2)" }}>Repasse</dt>
-        <dd className="text-right" style={{ color: "var(--chart-2)" }}>
+        <dd className="text-right font-mono tabular-nums" style={{ color: "var(--chart-2)" }}>
           {formatBRL(p.repasse)}
         </dd>
         <dt className="text-text-muted">Fechamentos</dt>
-        <dd className="text-right text-text-secondary">{p.fechamentos}</dd>
+        <dd className="text-right font-mono tabular-nums text-text-secondary">{p.fechamentos}</dd>
         <dt className="border-t border-border/60 pt-1 text-text-muted">Acumulado</dt>
-        <dd className="border-t border-border/60 pt-1 text-right text-text-secondary">
+        <dd className="border-t border-border/60 pt-1 text-right font-mono tabular-nums text-text-secondary">
           {formatBRL(p.acumulado)}
         </dd>
       </dl>
@@ -221,10 +221,10 @@ export function ChartShell({
   children: React.ReactNode
 }) {
   return (
-    <section className="flex flex-col gap-3 rounded-md border border-border bg-card p-3">
+    <section className="flex flex-col gap-3 rounded-lg bg-card p-4 ring-1 ring-foreground/10">
       <header className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <div className="flex items-baseline gap-3">
-          <h3 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+          <h3 className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
             {titulo}
           </h3>
           {hint && <span className="text-[11px] text-text-disabled">{hint}</span>}
