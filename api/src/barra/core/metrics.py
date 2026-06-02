@@ -132,6 +132,19 @@ JAILBREAK_DETECTADO = Counter(
     "agente_jailbreak_attempt_total",
     "Tentativas de jailbreak detectadas",
 )
+# AGENTE-OG (ADR 0016): output-guard de saida antes da bolha. Etapa 1 = scan deterministico de
+# vazamento (persona/system/auto-referencia de IA/dado de outra modelo); Etapa 2 = LLM-judge de
+# AUP vinculante. Bloqueio -> handoff p/ Fernando (bucket=defesa) e a bolha nao e enviada.
+OUTPUT_LEAK_DETECTADO = Counter(
+    "agente_output_leak_total",
+    "Vazamentos barrados pela Etapa 1 do output-guard (10 §; ADR 0016), por motivo",
+    ["motivo"],  # persona | system | ia_self | cross_modelo
+)
+AUP_SAIDA_BLOQUEADO = Counter(
+    "agente_aup_saida_bloqueado_total",
+    "Bolhas barradas pela Etapa 2 (LLM-judge de AUP) do output-guard, por resultado",
+    ["resultado"],  # violou | judge_falhou (default seguro: bloqueia+escala)
+)
 # 05 §2: sentenca unica > 600 chars sai inteira no chunk; sinal de prompt que ignorou o
 # \n\n instruido (regressao de prompt), NAO erro de envio.
 CHUNK_OVERSIZE = Counter(

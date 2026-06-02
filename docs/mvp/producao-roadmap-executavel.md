@@ -66,7 +66,7 @@
 | EVAL-10 | 2 | Calibrar judge contra golden humano (ADR 0015) | EVAL-02 | todo |
 | EVAL-04/03 | 2 | Loop K=5 + CI bloqueante | EVAL-01, DEPLOY-03 | todo |
 | SEC-07 | 2 | Cobrir AUP fora do regex como fixtures | EVAL-02 | todo |
-| AGENTE-OG | 2 | Output-guard de saída antes da bolha (ADR 0016) | EVAL-02 | todo |
+| AGENTE-OG | 2 | Output-guard de saída antes da bolha (ADR 0016) | EVAL-02 | done |
 | SEC-11 | 2 | Categoria adversarial `injecao_midia` (Pix vision + STT) | EVAL-02 | todo |
 | REL-05 | 2 | `cobrar_valor_final` com `FOR UPDATE SKIP LOCKED` | — | done |
 | REL-02 | 2 | `abrir_handoff` idempotente | — | done |
@@ -273,7 +273,8 @@
 - **Refino (08b §3.3, 2026-06):** adicionar a categoria `over_refusal_nicho` (ADVISORY) — pares "gêmeos" de conteúdo **legítimo do nicho** (que **não** deve recusar/escalar) pareado com cada fixture de `explicito`. Sem isso, otimizar contra jailbreak mata venda legítima (regressão invisível). Fernando é a fonte de verdade do que é "legítimo vender".
 
 ### AGENTE-OG — Output-guard de saída antes da bolha (ADR 0016)
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Segurança · **Depende de:** EVAL-02 · **Fonte:** **ADR 0016**
+- **Status:** done (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 2 · **Dimensão:** Segurança · **Depende de:** EVAL-02 · **Fonte:** **ADR 0016**
+- **Implementado:** nó `agente/nos/output_guard.py` como **terminal antes do END** (não "entre post_process e despacho" — o despacho da humanização roda no **worker** `coordenador.py` *após* o `ainvoke`, não no grafo; o ponto natural de bloqueio dentro do grafo é o nó terminal). Wiring: `post_process —(estática)→ output_guard —(Command(goto=END))→ END` (sem aresta estática de saída, armadilha do fan-out). **Etapa 1** (determinística, sempre): regex de auto-referência de IA/nome de LLM + fragmento de system/persona + negativa cross-modelo (nomes/números de **outras** modelos consultados no banco, ≥4 chars). **Etapa 2** (LLM-judge AUP vinculante, `prompts/aup_saida.md`): só quando Etapa 1 passa e o texto não é negação canned (pool curado pula); **falha de infra do judge → default seguro (bloqueia+escala)**. Bloquear = `abrir_handoff` (ia_pausada=true, bucket `defesa`) + bolha zerada (mesmo id) — o cinto-suspensório do coordenador relê `ia_pausada` e não despacha. 2 contadores (`OUTPUT_LEAK_DETECTADO{motivo}`, `AUP_SAIDA_BLOQUEADO{resultado}`) + 2 kill-switches em settings (`output_guard_habilitado`, `output_guard_judge_habilitado`). Verificado **offline**: 8 testes (`tests/agente/test_output_guard.py`) cobrindo os 6 cenários do ADR (IA/system/cross-modelo bloqueiam, judge reprova, falha→default seguro, canned pula Etapa 2, limpo despacha) + bolha vazia não aciona; `mypy src` (105 arquivos) e `ruff` nos arquivos tocados verdes. Run live (judge Sonnet) é passo do operador.
 - **Objetivo (DoD):** nenhuma bolha é enviada sem passar por (1) scan determinístico de vazamento (system/persona/dado de outra modelo) e (2) LLM-judge de AUP vinculante; violação → bloqueia + handoff para Fernando.
 - **Arquivos:** `agente/nos/output_guard.py` (novo), `agente/graph.py` (inserir entre `post_process` e despacho da humanização, roteando por `Command`), `agente/nos/__init__.py`, `agente/prompts/aup_saida.md` (novo), `core/metrics.py` (2 contadores).
 - **Passos:** ler ADR 0016; Etapa 1 regex/substring sobre o texto de saída (marcadores de persona, auto-referência de IA, nome/JID/dado fora do par `(cliente_id,modelo_id)`); Etapa 2 judge Sonnet curto (prompt em `aup_saida.md`, fora do prefixo cacheado por-modelo); falha de infra do judge → default seguro (bloqueia+escala); canned de disclosure pula a Etapa 2.

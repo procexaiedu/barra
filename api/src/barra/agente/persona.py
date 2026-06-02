@@ -124,6 +124,15 @@ def render_reminder(fase: str | None) -> str:
     return _env.get_template("reminder.md.j2").render(fase=fase)
 
 
+def render_aup_saida() -> str:
+    """Constituição do output-guard de AUP (ADR 0016 / Etapa 2). Markdown puro, sem variável.
+
+    Prompt PRÓPRIO do judge de saída: NÃO interpola dado por-modelo e NÃO entra em
+    BP_GERAL/BP_MODELO/BP_JANELA — logo não afeta o cache hit-rate do chat principal.
+    """
+    return _env.get_template("aup_saida.md").render()
+
+
 def render_identidade(m: IdentidadeModelo) -> str:
     """BP3 por-modelo — identidade óbvia + tipos_aceitos (programas concatenados à parte, §3.3)."""
     return _env.get_template("identidade.md.j2").render(

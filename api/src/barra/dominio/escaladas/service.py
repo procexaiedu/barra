@@ -402,6 +402,9 @@ _BUCKET_DEFESA: frozenset[str] = frozenset(
         "prova_humanidade_persistente",
         "cross_modelo_fishing",
         "modelo_recusou",
+        # AGENTE-OG (ADR 0016): output-guard bloqueou a bolha antes do envio — defesa ativa.
+        "output_leak",
+        "aup_saida",
     }
 )
 

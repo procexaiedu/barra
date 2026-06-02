@@ -101,6 +101,15 @@ class Settings(BaseSettings):
         default=True,
         description="Pre-aquece o prefixo global de cache (tools+BP_GERAL) com 1 request no startup do worker, evitando o burst de cache writes a 2x apos deploy de prompt ou gap > TTL (pesquisa §1.7 / 03 §4.5).",
     )
+    # Output-guard de saida antes da bolha (AGENTE-OG / ADR 0016).
+    output_guard_habilitado: bool = Field(
+        default=True,
+        description="Liga o no output_guard (scan deterministico + LLM-judge de AUP) antes do despacho da bolha. False desliga o no inteiro (bolha sai como hoje) — kill-switch sem deploy.",
+    )
+    output_guard_judge_habilitado: bool = Field(
+        default=True,
+        description="Liga a Etapa 2 (LLM-judge de AUP vinculante) do output_guard. False roda so a Etapa 1 (scan deterministico barato), util se o judge nao-calibrado causar over-refusal. Falha de infra do judge -> default seguro (bloqueia+escala), nunca configuravel p/ passar.",
+    )
 
     # Comportamento comercial do agente (grilling 2026-05-23; docs/agente + ADR-0004)
     desconto_max_pct: float = Field(
@@ -119,11 +128,15 @@ class Settings(BaseSettings):
         description="Minutos de silêncio do cliente após a cotação antes do toque único de reengajamento.",
     )
     operacao_hora_inicio: int = Field(
-        default=10, ge=0, le=23,
+        default=10,
+        ge=0,
+        le=23,
         description="Hora local de início da operação; reengajamento não dispara fora dela.",
     )
     operacao_hora_fim: int = Field(
-        default=2, ge=0, le=23,
+        default=2,
+        ge=0,
+        le=23,
         description="Hora local de fim da operação (pode ser < início, ex.: 10-2h cruza a meia-noite).",
     )
     lembrete_valor_ativo: bool = Field(
@@ -131,15 +144,18 @@ class Settings(BaseSettings):
         description="Liga o Lembrete de fechamento: cobra o valor_final da modelo no grupo após o fim previsto do atendimento (ADR-0009). Mensagem interna no grupo de 2 pessoas, baixo risco -> default on.",
     )
     lembrete_valor_tolerancia_min: int = Field(
-        default=15, ge=0,
+        default=15,
+        ge=0,
         description="Minutos após bloqueios.fim antes do 1º lembrete de valor (o atendimento pode esticar).",
     )
     lembrete_valor_intervalo_min: int = Field(
-        default=30, ge=1,
+        default=30,
+        ge=1,
         description="Minutos entre reenvios do lembrete de valor (e antes de escalar após o máximo de toques).",
     )
     lembrete_valor_max_toques: int = Field(
-        default=3, ge=1,
+        default=3,
+        ge=1,
         description="Máximo de cards de lembrete de valor antes de escalar para Fernando via handoff.",
     )
     pix_deslocamento_valor: Decimal = Field(
