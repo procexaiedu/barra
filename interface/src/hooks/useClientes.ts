@@ -22,7 +22,7 @@ type Status = "loading" | "success" | "error"
 
 const filtrosIniciais: FiltrosClientes = {
   busca: "",
-  periodo: "todos",
+  periodo: "tudo",
   dataInicio: null,
   dataFim: null,
   modeloId: "todas",
@@ -33,9 +33,14 @@ function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   const params = new URLSearchParams({ limit: "50" })
   const busca = filtros.busca.trim()
   if (busca) params.set("q", busca)
-  // A Lista não tem UI de período custom (só o Mapa, Task 9); por isso só
-  // serializa presets aqui. `periodo === "custom"` sem datas é NO-OP.
-  if (filtros.periodo !== "todos" && filtros.periodo !== "custom") {
+  // Período unificado (FiltroPeriodo compartilhado): custom manda data_inicio/fim,
+  // presets mandam o nome, "tudo" não filtra (sem param).
+  if (filtros.periodo === "custom") {
+    if (filtros.dataInicio && filtros.dataFim) {
+      params.set("data_inicio", filtros.dataInicio)
+      params.set("data_fim", filtros.dataFim)
+    }
+  } else if (filtros.periodo !== "tudo") {
     params.set("periodo", filtros.periodo)
   }
   if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
@@ -103,7 +108,7 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
 
   const filtrosAplicados =
     filtrosEfetivos.busca.trim() !== "" ||
-    filtrosEfetivos.periodo !== "todos" ||
+    filtrosEfetivos.periodo !== "tudo" ||
     filtrosEfetivos.modeloId !== "todas" ||
     filtrosEfetivos.perfis.length > 0
 

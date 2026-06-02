@@ -44,7 +44,6 @@ import type {
   EstadoAtendimento,
   FiltroPeriodo,
   MapaClientePonto,
-  ModeloResumo,
   MotivoPerda,
   PerfilFisico,
 } from "@/tipos/clientes"
@@ -76,7 +75,6 @@ export function MapaClientes({
   dataInicio,
   dataFim,
   modeloId,
-  modelos,
   perfis,
   incluirArquivados,
   onPeriodoChange,
@@ -116,7 +114,6 @@ export function MapaClientes({
   dataInicio: string | null
   dataFim: string | null
   modeloId: string
-  modelos: ModeloResumo[]
   perfis: PerfilFisico[]
   incluirArquivados: boolean
   onPeriodoChange: (v: FiltroPeriodo) => void
@@ -463,7 +460,6 @@ export function MapaClientes({
         dataInicio={dataInicio}
         dataFim={dataFim}
         modeloId={modeloId}
-        modelos={modelos}
         perfis={perfis}
         desfecho={desfecho}
         motivosPerda={motivosPerda}

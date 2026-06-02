@@ -91,7 +91,7 @@ function buildMapaPath(
     // profundidade; backend valida `fim < inicio` com 422).
     params.set("data_inicio", filtros.dataInicio)
     params.set("data_fim", filtros.dataFim)
-  } else if (filtros.periodo !== "todos" && filtros.periodo !== "custom") {
+  } else if (filtros.periodo !== "tudo" && filtros.periodo !== "custom") {
     params.set("periodo", filtros.periodo)
   }
   if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)

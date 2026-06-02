@@ -1,10 +1,12 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { LayoutList, Columns, Search, Plus, SlidersHorizontal } from "lucide-react"
+import { LayoutList, Columns, Search, Plus } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
-import { FiltroPeriodo } from "@/components/atendimentos/FiltroPeriodo"
+import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
+import { PainelFiltros } from "@/components/filtros/PainelFiltros"
+import { SelectFiltro } from "@/components/filtros/SelectFiltro"
 import { ListaAtendimentos } from "@/components/atendimentos/ListaAtendimentos"
 import { KanbanBoard } from "@/components/atendimentos/KanbanBoard"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
@@ -17,10 +19,8 @@ import { ModalCorrigirRegistro } from "@/components/atendimentos/ModalCorrigirRe
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useAtendimentos } from "@/hooks/useAtendimentos"
 import { api } from "@/lib/api"
-import { hojeBrtIso } from "@/lib/datas"
 import type {
   AtendimentoDetalheResponse,
   AtendimentoListaItem,
@@ -146,6 +146,7 @@ function CentralAtendimentosInner() {
     const ate = searchParams.get("ate")
     if ((de && DATA_ISO_RE.test(de)) || (ate && DATA_ISO_RE.test(ate))) {
       override.periodo = {
+        periodo: "custom",
         de: de && DATA_ISO_RE.test(de) ? de : null,
         ate: ate && DATA_ISO_RE.test(ate) ? ate : null,
       }
@@ -166,16 +167,20 @@ function CentralAtendimentosInner() {
   const aplicarPeriodo = useCallback((proximo: PeriodoFiltro) => {
     atendimentos.setFiltros((current) => ({ ...current, periodo: proximo }))
     const params = new URLSearchParams(searchParams.toString())
-    const hoje = hojeBrtIso()
-    const ehDefault = proximo.de === hoje && proximo.ate === hoje
-    if (ehDefault) {
+    // "Este mês" é o default → URL limpa. Custom carrega o range; presets carregam só o nome.
+    if (proximo.periodo === "mes") {
+      params.delete("periodo")
       params.delete("de")
       params.delete("ate")
     } else {
-      if (proximo.de) params.set("de", proximo.de)
-      else params.delete("de")
-      if (proximo.ate) params.set("ate", proximo.ate)
-      else params.delete("ate")
+      params.set("periodo", proximo.periodo)
+      if (proximo.periodo === "custom" && proximo.de && proximo.ate) {
+        params.set("de", proximo.de)
+        params.set("ate", proximo.ate)
+      } else {
+        params.delete("de")
+        params.delete("ate")
+      }
     }
     const qs = params.toString()
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false })
@@ -509,72 +514,20 @@ function Toolbar({
       <div className="w-[150px]">
         <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
       </div>
-      <Popover>
-        <PopoverTrigger
-          data-slot="filtros-secundarios-trigger"
-          className="relative inline-flex h-9 items-center gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          <SlidersHorizontal size={15} strokeWidth={1.5} className="text-text-muted" />
-          Filtros
-          {secundariosAtivos > 0 && (
-            <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold tabular-nums text-on-brand">
-              {secundariosAtivos}
-            </span>
-          )}
-        </PopoverTrigger>
-        <PopoverContent
-          data-slot="filtros-secundarios-content"
-          align="end"
-          className="flex w-[240px] flex-col gap-3"
-        >
-          <SelectFiltro label="Tipo" value={tipo} onChange={(value) => onTipoChange(value as TipoFiltro)}>
-            {tipos.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </SelectFiltro>
-          <SelectFiltro label="Quando" value={urgencia} onChange={(value) => onUrgenciaChange(value as UrgenciaFiltro)}>
-            {urgencias.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </SelectFiltro>
-          <SelectFiltro label="IA" value={iaFiltro} onChange={(value) => onIaChange(value as IaFiltro)}>
-            {ia.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </SelectFiltro>
-          <SelectFiltro label="Qualificação" value={qualificacaoFiltro} onChange={(value) => onQualificacaoChange(value as QualificacaoFiltro)}>
-            {qualificacoes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-          </SelectFiltro>
-          {secundariosAtivos > 0 && (
-            <button
-              type="button"
-              onClick={limparSecundarios}
-              className="self-start text-xs font-medium text-text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-            >
-              Limpar filtros
-            </button>
-          )}
-        </PopoverContent>
-      </Popover>
+      <PainelFiltros ativos={secundariosAtivos} onLimpar={limparSecundarios}>
+        <SelectFiltro label="Tipo" value={tipo} onChange={(value) => onTipoChange(value as TipoFiltro)}>
+          {tipos.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </SelectFiltro>
+        <SelectFiltro label="Quando" value={urgencia} onChange={(value) => onUrgenciaChange(value as UrgenciaFiltro)}>
+          {urgencias.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </SelectFiltro>
+        <SelectFiltro label="IA" value={iaFiltro} onChange={(value) => onIaChange(value as IaFiltro)}>
+          {ia.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </SelectFiltro>
+        <SelectFiltro label="Qualificação" value={qualificacaoFiltro} onChange={(value) => onQualificacaoChange(value as QualificacaoFiltro)}>
+          {qualificacoes.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </SelectFiltro>
+      </PainelFiltros>
     </div>
-  )
-}
-
-function SelectFiltro({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  children: ReactNode
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-text-muted">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-      >
-        {children}
-      </select>
-    </label>
   )
 }

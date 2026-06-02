@@ -1,3 +1,5 @@
+import type { PresetPeriodo } from "./filtros"
+
 export type MotivoPerda =
   | "preco"
   | "sumiu"
@@ -36,7 +38,7 @@ export type EstadoAtendimento =
 export type TipoAtendimento = "interno" | "externo"
 export type Urgencia = "imediato" | "agendado" | "indefinido" | "estimado"
 
-export type FiltroPeriodo = "todos" | "7d" | "30d" | "90d" | "custom"
+export type FiltroPeriodo = PresetPeriodo
 export type FiltroModelo = "todas" | string
 
 export interface Cliente {

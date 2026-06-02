@@ -1,4 +1,5 @@
 import type { BloqueioAgenda } from "./agenda"
+import type { PeriodoSelecionado } from "./filtros"
 
 export type EstadoAtendimento =
   | "Novo"
@@ -169,10 +170,8 @@ export type UrgenciaFiltro = "todas" | Urgencia
 export type IaFiltro = "todos" | "ativa" | "pausada"
 export type QualificacaoFiltro = "todos" | "completa" | "incompleta"
 
-export interface PeriodoFiltro {
-  de: string | null
-  ate: string | null
-}
+/** Período unificado do painel (preset nomeado + range custom). Ver `./filtros`. */
+export type PeriodoFiltro = PeriodoSelecionado
 
 export interface FiltrosAtendimentos {
   busca: string

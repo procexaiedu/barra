@@ -20,6 +20,9 @@ from barra.core.janela import (
     janela_anterior as _janela_anterior,
 )
 from barra.core.janela import (
+    piso_operacao as _piso_operacao,
+)
+from barra.core.janela import (
     resolver_janela as _resolver_janela,
 )
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
@@ -36,7 +39,8 @@ async def dashboard(
     modelo_id: Annotated[list[UUID] | None, Query()] = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
-    janela = _resolver_janela(periodo, de, ate)
+    piso = await _piso_tudo(conn, modelo_id) if periodo == "tudo" else None
+    janela = _resolver_janela(periodo, de, ate, piso_tudo=piso)
     # "tudo" abrange toda a operação — comparação com período anterior não faz sentido.
     janela_anterior = _janela_anterior(janela) if periodo != "tudo" else None
 
@@ -85,6 +89,21 @@ def _financeiro_bloco(kpis: dict[str, Any]) -> dict[str, Any]:
         "fechamentos_total": f["contagem"],
         "fechamentos_sem_snapshot": f["contagem_sem_snapshot"],
     }
+
+
+async def _piso_tudo(conn: AsyncConnection[Any], modelo_id: list[UUID] | None) -> date | None:
+    """Borda esquerda do período "tudo": data do 1º atendimento da operação
+    (escopado pelo filtro de modelo). Evita o vão vazio do antigo piso 2020."""
+    filtro_modelo = ""
+    params: list[Any] = []
+    if modelo_id:
+        filtro_modelo = "WHERE a.modelo_id = ANY(%s)"
+        params.append(modelo_id)
+    return await _piso_operacao(
+        conn,
+        f"SELECT MIN(a.created_at) FROM barravips.atendimentos a {filtro_modelo}",
+        params,
+    )
 
 
 async def _roi(
@@ -173,7 +192,8 @@ async def dashboard_escaladas(
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     """Lista completa de escaladas (para dialog "ver todas")."""
-    janela = _resolver_janela(periodo, de, ate)
+    piso = await _piso_tudo(conn, modelo_id) if periodo == "tudo" else None
+    janela = _resolver_janela(periodo, de, ate, piso_tudo=piso)
 
     params: list[Any] = [janela.inicio, janela.fim]
     filtro_modelo = ""

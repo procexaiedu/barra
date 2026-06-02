@@ -153,16 +153,21 @@ class FakeConnPatchSucesso:
         self.executes.append((query, params))
         if "SELECT id, telefone FROM barravips.clientes" in query:
             return _Result([{"id": self.cliente_id, "telefone": "5521900000000"}])
-        if "SELECT id, nome, telefone, perfis_preferidos, arquivado_em FROM barravips.clientes" in query:
-            return _Result([
-                {
-                    "id": self.cliente_id,
-                    "nome": "Novo Nome",
-                    "telefone": "5521988887777",
-                    "perfis_preferidos": self.perfis,
-                    "arquivado_em": None,
-                }
-            ])
+        if (
+            "SELECT id, nome, telefone, perfis_preferidos, arquivado_em FROM barravips.clientes"
+            in query
+        ):
+            return _Result(
+                [
+                    {
+                        "id": self.cliente_id,
+                        "nome": "Novo Nome",
+                        "telefone": "5521988887777",
+                        "perfis_preferidos": self.perfis,
+                        "arquivado_em": None,
+                    }
+                ]
+            )
         return _Result([])
 
 
@@ -287,7 +292,8 @@ def test_arquivar_cliente_inativo_define_timestamp() -> None:
             )
         assert response2.status_code == 200
         novos_updates = [
-            q for q, _ in conn.executes[executes_antes:]
+            q
+            for q, _ in conn.executes[executes_antes:]
             if "UPDATE barravips.clientes SET arquivado_em = NOW()" in q
         ]
         assert novos_updates == []
@@ -394,7 +400,9 @@ def test_listar_clientes_periodo_aplica_filtro_de_atendimento() -> None:
         assert response.status_code == 200
         select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
         assert "a.cliente_id = c.id" in select_query
-        assert "INTERVAL '30 days'" in select_query
+        # Período agora resolve via janela BRT (core.janela.resolver_janela), filtrando
+        # por intervalo de datas em vez do antigo INTERVAL rolante.
+        assert "BETWEEN %s AND %s" in select_query
     finally:
         app.dependency_overrides.pop(get_conn, None)
 
@@ -446,9 +454,7 @@ def test_listar_clientes_filtra_por_perfis_com_overlap() -> None:
     app.dependency_overrides[get_conn] = _override(conn)
     try:
         with TestClient(app) as client:
-            response = client.get(
-                "/v1/crm/clientes?perfis=ruiva&perfis=loira", headers=_token()
-            )
+            response = client.get("/v1/crm/clientes?perfis=ruiva&perfis=loira", headers=_token())
         assert response.status_code == 200
         select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
         assert "c.perfis_preferidos && %s::barravips.perfil_fisico_enum[]" in select_query
@@ -461,9 +467,7 @@ def test_listar_clientes_modelo_id_filtra_por_conversa() -> None:
     app.dependency_overrides[get_conn] = _override(conn)
     try:
         with TestClient(app) as client:
-            response = client.get(
-                f"/v1/crm/clientes?modelo_id={uuid4()}", headers=_token()
-            )
+            response = client.get(f"/v1/crm/clientes?modelo_id={uuid4()}", headers=_token())
         assert response.status_code == 200
         select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
         assert "FROM barravips.conversas cv" in select_query

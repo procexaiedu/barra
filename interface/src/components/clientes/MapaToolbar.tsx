@@ -1,7 +1,5 @@
 "use client"
 
-import type { ReactNode } from "react"
-import { Calendar as CalendarIcon } from "lucide-react"
 import { ChipsFiltrosAtivos } from "@/components/clientes/ChipsFiltrosAtivos"
 import {
   FiltroCompararPeriodos,
@@ -11,24 +9,11 @@ import {
   type FiltroRecencia,
 } from "@/components/clientes/MapaControles"
 import { PopoverFiltrosMapa } from "@/components/clientes/PopoverFiltrosMapa"
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
-import { RangeCalendar } from "@/components/ui/range-calendar"
-import { formatarDiaMes } from "@/lib/datas"
+import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
+import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { FILTROS_MAPA_PADRAO } from "@/hooks/useClientesMapa"
-import type {
-  FiltroPeriodo,
-  ModeloResumo,
-  MotivoPerda,
-  PerfilFisico,
-} from "@/tipos/clientes"
-
-const PERIODOS: { value: FiltroPeriodo; label: string }[] = [
-  { value: "todos", label: "Todos" },
-  { value: "7d", label: "7 dias" },
-  { value: "30d", label: "30 dias" },
-  { value: "90d", label: "90 dias" },
-  { value: "custom", label: "Personalizado" },
-]
+import type { PresetPeriodo } from "@/tipos/filtros"
+import type { MotivoPerda, PerfilFisico } from "@/tipos/clientes"
 
 /** Toolbar específica da aba Mapa (substitui o Toolbar superior compartilhado).
  *  Duas linhas:
@@ -41,7 +26,6 @@ export function MapaToolbar({
   dataInicio,
   dataFim,
   modeloId,
-  modelos,
   perfis,
   desfecho,
   motivosPerda,
@@ -65,12 +49,11 @@ export function MapaToolbar({
   onLenteDemandaChange,
   onCompararChange,
 }: {
-  periodo: FiltroPeriodo
+  periodo: PresetPeriodo
   /** Task 9: janela do "Período personalizado" (ISO `YYYY-MM-DD`). */
   dataInicio: string | null
   dataFim: string | null
   modeloId: string
-  modelos: ModeloResumo[]
   perfis: PerfilFisico[]
   desfecho: FiltroDesfecho
   motivosPerda: MotivoPerda[]
@@ -83,7 +66,7 @@ export function MapaToolbar({
   comparar: CompararRecortes
   totalNoMapa: number
   totalSemLocalizacao: number
-  onPeriodoChange: (v: FiltroPeriodo) => void
+  onPeriodoChange: (v: PresetPeriodo) => void
   /** Task 9: aplica/zera a janela custom (datas ISO ou null para limpar). */
   onCustomPeriodoChange: (range: { dataInicio: string | null; dataFim: string | null }) => void
   onModeloChange: (v: string) => void
@@ -97,7 +80,7 @@ export function MapaToolbar({
   onCompararChange: (next: CompararRecortes) => void
 }) {
   const limparTudo = () => {
-    onPeriodoChange("todos")
+    onPeriodoChange("tudo")
     onCustomPeriodoChange({ dataInicio: null, dataFim: null })
     onModeloChange("todas")
     onPerfisChange([])
@@ -115,40 +98,27 @@ export function MapaToolbar({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2">
-        <SelectInline
-          label="Período"
-          value={periodo}
+        <FiltroPeriodo
+          value={{ periodo, de: dataInicio, ate: dataFim }}
           onChange={(v) => {
-            const proximo = v as FiltroPeriodo
-            onPeriodoChange(proximo)
-            // Trocar de "custom" para um preset/"Todos" descarta as datas — sem
-            // estado órfão escondido atrás do dropdown.
-            if (proximo !== "custom") {
-              onCustomPeriodoChange({ dataInicio: null, dataFim: null })
-            }
+            onPeriodoChange(v.periodo)
+            // Custom carrega o range; qualquer outro preset descarta as datas.
+            onCustomPeriodoChange({
+              dataInicio: v.periodo === "custom" ? v.de : null,
+              dataFim: v.periodo === "custom" ? v.ate : null,
+            })
           }}
-        >
-          {PERIODOS.map((p) => (
-            <option key={p.value} value={p.value}>
-              {p.label}
-            </option>
-          ))}
-        </SelectInline>
-        {periodo === "custom" && (
-          <PeriodoCustom
-            dataInicio={dataInicio}
-            dataFim={dataFim}
-            onChange={onCustomPeriodoChange}
+        />
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+            Modelo
+          </span>
+          <FiltroModelo
+            multi={false}
+            value={modeloId === "todas" ? [] : [modeloId]}
+            onChange={(ids) => onModeloChange(ids[0] ?? "todas")}
           />
-        )}
-        <SelectInline label="Modelo" value={modeloId} onChange={onModeloChange}>
-          <option value="todas">Todas</option>
-          {modelos.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.nome}
-            </option>
-          ))}
-        </SelectInline>
+        </div>
         <PopoverFiltrosMapa
           perfis={perfis}
           onPerfisChange={onPerfisChange}
@@ -200,75 +170,5 @@ export function MapaToolbar({
         onLimparTudo={limparTudo}
       />
     </div>
-  )
-}
-
-function SelectInline({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string
-  value: string
-  onChange: (v: string) => void
-  children: ReactNode
-}) {
-  return (
-    <label className="flex items-center gap-2">
-      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">{label}</span>
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 min-w-[8rem] rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-      >
-        {children}
-      </select>
-    </label>
-  )
-}
-
-/** Task 9: seletor de janela do "Período personalizado". Reusa o RangeCalendar
- *  (react-day-picker) já usado em FiltroPeriodo/DialogRangeCustom. O backend só
- *  filtra quando os dois lados estão preenchidos; enquanto o usuário escolhe só o
- *  início, o fetch ainda não envia o range (buildMapaPath exige inicio <= fim). */
-function PeriodoCustom({
-  dataInicio,
-  dataFim,
-  onChange,
-}: {
-  dataInicio: string | null
-  dataFim: string | null
-  onChange: (range: { dataInicio: string | null; dataFim: string | null }) => void
-}) {
-  const rotulo =
-    dataInicio && dataFim
-      ? `${formatarDiaMes(dataInicio)} – ${formatarDiaMes(dataFim)}`
-      : dataInicio
-        ? `Desde ${formatarDiaMes(dataInicio)}`
-        : "Escolher datas"
-
-  return (
-    <Popover>
-      <PopoverTrigger
-        data-slot="mapa-periodo-custom-trigger"
-        className="inline-flex h-9 items-center justify-between gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-      >
-        <span className="truncate">{rotulo}</span>
-        <CalendarIcon size={14} strokeWidth={1.5} className="shrink-0 text-text-muted" />
-      </PopoverTrigger>
-      <PopoverContent
-        data-slot="mapa-periodo-custom-content"
-        align="start"
-        className="flex w-[320px] flex-col gap-2 sm:w-[360px]"
-      >
-        <div className="flex justify-center">
-          <RangeCalendar
-            value={{ de: dataInicio, ate: dataFim }}
-            onChange={(range) => onChange({ dataInicio: range.de, dataFim: range.ate })}
-          />
-        </div>
-      </PopoverContent>
-    </Popover>
   )
 }

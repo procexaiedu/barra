@@ -1,3 +1,5 @@
+import { PERIODO_LABEL, type PeriodoSelecionado, type PresetPeriodo } from "@/tipos/filtros"
+
 const YMD_FMT = new Intl.DateTimeFormat("en-CA", {
   timeZone: "America/Sao_Paulo",
   year: "numeric",
@@ -70,4 +72,41 @@ const DIA_MES_FMT = new Intl.DateTimeFormat("pt-BR", {
 export function formatarDiaMes(iso: string): string {
   // iso no formato YYYY-MM-DD; fixa meio-dia BRT para evitar drift de fuso.
   return DIA_MES_FMT.format(new Date(`${iso}T12:00:00-03:00`))
+}
+
+function deslocaDiasBrtIso(dias: number): string {
+  const { ano, mes, dia } = partesBrt(new Date())
+  const base = new Date(Date.UTC(ano, mes - 1, dia))
+  base.setUTCDate(base.getUTCDate() + dias)
+  return isoYmd(base.getUTCFullYear(), base.getUTCMonth() + 1, base.getUTCDate())
+}
+
+/** Resolve um preset de período em `{de, ate}` ISO (BRT). "tudo" é janela aberta
+ *  (`null/null`); "custom" não é resolvido aqui (o range vem do calendário). "mes"
+ *  = 1º do mês até hoje, alinhado ao backend `resolver_janela`. */
+export function resolverPresetPeriodo(
+  preset: PresetPeriodo,
+): { de: string | null; ate: string | null } {
+  const hoje = hojeBrtIso()
+  switch (preset) {
+    case "hoje":
+      return { de: hoje, ate: hoje }
+    case "7d":
+      return { de: deslocaDiasBrtIso(-6), ate: hoje }
+    case "30d":
+      return { de: deslocaDiasBrtIso(-29), ate: hoje }
+    case "mes":
+      return { de: inicioMesBrtIso(), ate: hoje }
+    case "tudo":
+    case "custom":
+      return { de: null, ate: null }
+  }
+}
+
+/** Rótulo do gatilho do FiltroPeriodo: range absoluto quando custom, senão o label do preset. */
+export function rotuloPeriodo(value: PeriodoSelecionado): string {
+  if (value.periodo === "custom" && value.de && value.ate) {
+    return `${formatarDiaMes(value.de)} – ${formatarDiaMes(value.ate)}`
+  }
+  return PERIODO_LABEL[value.periodo]
 }

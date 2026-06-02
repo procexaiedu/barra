@@ -22,6 +22,15 @@ router = APIRouter()
 
 _logger = logging.getLogger(__name__)
 
+# Teto de downloads de mídia concorrentes no processo da API. O download roda inline no
+# handler do webhook (antes de tocar o pool), então um burst de webhooks de mídia abriria N
+# streams de até midia_max_bytes/30s cada, prendendo slots de request e saturando banda de
+# entrada. Sem semáforo não há teto. Valor conservador; downloads excedentes são recusados
+# (fail-fast: vira tipo='texto', webhook segue 200) em vez de enfileirados, p/ não acumular
+# coroutines pendentes sob ataque.
+_MAX_DOWNLOADS_MIDIA = 4
+_SEM_DOWNLOAD_MIDIA = asyncio.Semaphore(_MAX_DOWNLOADS_MIDIA)
+
 _MIME_EXT: dict[str, str] = {
     "image/jpeg": ".jpg",
     "image/png": ".png",
@@ -48,20 +57,26 @@ async def _baixar_midia(url: str, base_url: str, max_bytes: int) -> tuple[bytes,
     if not _host_permitido(url, base_url):
         _logger.warning("download_midia_host_negado url=%s", url)
         return None
+    # Teto de concorrência (anti-DoS): recusa cedo se já há _MAX_DOWNLOADS_MIDIA em voo,
+    # em vez de enfileirar espera ilimitada sob burst.
+    if _SEM_DOWNLOAD_MIDIA.locked():
+        _logger.warning("download_midia_concorrencia_excedida url=%s", url)
+        return None
     try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            async with client.stream("GET", url, follow_redirects=False) as resp:
-                resp.raise_for_status()
-                ct = resp.headers.get("content-type", "").split(";")[0].strip().lower()
-                buf = bytearray()
-                async for chunk in resp.aiter_bytes():
-                    buf.extend(chunk)
-                    if len(buf) > max_bytes:
-                        _logger.warning(
-                            "download_midia_excede_limite url=%s limite=%d", url, max_bytes
-                        )
-                        return None
-        return bytes(buf), ct
+        async with _SEM_DOWNLOAD_MIDIA:
+            async with httpx.AsyncClient(timeout=30) as client:
+                async with client.stream("GET", url, follow_redirects=False) as resp:
+                    resp.raise_for_status()
+                    ct = resp.headers.get("content-type", "").split(";")[0].strip().lower()
+                    buf = bytearray()
+                    async for chunk in resp.aiter_bytes():
+                        buf.extend(chunk)
+                        if len(buf) > max_bytes:
+                            _logger.warning(
+                                "download_midia_excede_limite url=%s limite=%d", url, max_bytes
+                            )
+                            return None
+            return bytes(buf), ct
     except Exception as exc:
         _logger.warning("falha_download_midia url=%s erro=%s", url, exc)
         return None

@@ -22,7 +22,7 @@ from uuid import UUID
 
 from psycopg import AsyncConnection
 
-from barra.core.janela import Janela
+from barra.core.janela import Janela, piso_operacao
 from barra.dominio.financeiro.calculos import VALOR_SERVICO_SQL, repasse_modelo
 from barra.dominio.financeiro.schemas import (
     AtendimentoSemSnapshotLinha,
@@ -43,6 +43,28 @@ from barra.dominio.financeiro.schemas import (
 # =============================================================================
 # Resumo
 # =============================================================================
+
+
+async def primeiro_fechamento(
+    conn: AsyncConnection[Any], modelo_ids: list[UUID] | None
+) -> date | None:
+    """Data do 1º `fechado_registrado` — borda esquerda do período "tudo" no
+    Financeiro (escopado pelo filtro de modelo). Evita o vão vazio do piso 2020."""
+    filtro = ""
+    params: list[Any] = []
+    if modelo_ids:
+        filtro = "AND a.modelo_id = ANY(%s)"
+        params.append(modelo_ids)
+    return await piso_operacao(
+        conn,
+        f"""
+        SELECT MIN(e.created_at)
+          FROM barravips.eventos e
+          JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+         WHERE e.tipo = 'fechado_registrado' {filtro}
+        """,
+        params,
+    )
 
 
 async def resumo_periodo(

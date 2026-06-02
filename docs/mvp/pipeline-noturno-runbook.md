@@ -1,7 +1,11 @@
 # Runbook — Pipeline noturno do roadmap (Claude Code Routines)
 
-> **O que é:** fan-out de **Claude Code Routines one-off**, uma por task elegível do
-> `producao-roadmap-executavel.md`. Cada routine clona `main`, trabalha isolada num branch
+> **Estado (2026-06-01):** a fila de produção que este pipeline drenava foi **concluída** e os docs de
+> roadmap removidos (no histórico do git). Pendências vivas migraram para `go-live-checklist.md`. Mantido
+> como **referência operacional** do formato de fan-out via Routines, reutilizável numa próxima leva.
+>
+> **O que é:** fan-out de **Claude Code Routines one-off**, uma por task elegível da fila de produção.
+> Cada routine clona `main`, trabalha isolada num branch
 > `claude/<task-id>`, **verifica por comando** e abre **um PR draft** (sucesso com evidência, ou
 > `[FAIL]` documentado). Você revisa de manhã. Motor: Routines na cloud Anthropic; modelo
 > `claude-opus-4-8`. Desenho aprovado em 2026-05-30.

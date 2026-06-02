@@ -9,13 +9,43 @@ from psycopg.errors import UniqueViolation
 
 from barra.api.deps import get_conn, get_user
 from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
+from barra.core.janela import resolver_janela
 from barra.dominio.clientes.schemas import ClienteCreate, ClientePatch
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
 _TELEFONE_BR_RE = re.compile(r"^55\d{10,11}$")
 
-PERIODOS_DIAS = {"7d": 7, "30d": 30, "90d": 90}
+
+def _predicado_periodo(
+    periodo: str | None,
+    data_inicio: str | None,
+    data_fim: str | None,
+) -> tuple[str, list[Any]] | None:
+    """Predicado EXISTS de "cliente com atendimento na janela", compartilhado pela
+    Lista e pelo Mapa. Custom (data_inicio/data_fim) tem precedência; presets
+    canônicos (hoje/7d/30d/mes) resolvem via janela BRT; "tudo"/None não filtram."""
+    if data_inicio is not None or data_fim is not None:
+        ini, fim = _parse_recorte("data", data_inicio, data_fim)
+        return (
+            "EXISTS (SELECT 1 FROM barravips.atendimentos a "
+            "WHERE a.cliente_id = c.id "
+            "AND a.created_at >= %s::date "
+            "AND a.created_at < (%s::date + INTERVAL '1 day'))",
+            [ini, fim],
+        )
+    if periodo and periodo not in ("tudo", "todos", "custom"):
+        try:
+            janela = resolver_janela(periodo, None, None)
+        except EntradaInvalida:
+            return None
+        return (
+            "EXISTS (SELECT 1 FROM barravips.atendimentos a "
+            "WHERE a.cliente_id = c.id "
+            "AND (a.created_at AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN %s AND %s)",
+            [janela.de, janela.ate],
+        )
+    return None
 
 
 @router.get("/clientes")
@@ -24,6 +54,8 @@ async def listar_clientes(
     modelo_id: UUID | None = None,
     q: str | None = None,
     periodo: str | None = None,
+    data_inicio: str | None = None,
+    data_fim: str | None = None,
     perfis: list[str] | None = Query(default=None),
     incluir_arquivados: bool = False,
     limit: int = Query(50, ge=1, le=100),
@@ -45,12 +77,10 @@ async def listar_clientes(
     if q:
         filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
-    if periodo in PERIODOS_DIAS:
-        filtros.append(
-            "EXISTS (SELECT 1 FROM barravips.atendimentos a "
-            "WHERE a.cliente_id = c.id "
-            f"AND a.created_at >= NOW() - INTERVAL '{PERIODOS_DIAS[periodo]} days')"
-        )
+    predicado = _predicado_periodo(periodo, data_inicio, data_fim)
+    if predicado:
+        filtros.append(predicado[0])
+        params.extend(predicado[1])
     if not incluir_arquivados:
         filtros.append("c.arquivado_em IS NULL")
     if cursor:
@@ -196,24 +226,12 @@ async def mapa_clientes(
     if q:
         filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s)")
         params.extend([f"%{q}%", f"%{q}%"])
-    # Task 9: "Período personalizado" tem precedência sobre o preset `periodo`.
-    # Janela `[inicio, fim+1 day)` em `created_at` (inclui o dia inteiro do fim),
-    # mesma forma do recorte do modo Comparar. `fim < inicio` → 422.
-    if data_inicio is not None or data_fim is not None:
-        custom_ini, custom_fim = _parse_recorte("data", data_inicio, data_fim)
-        filtros.append(
-            "EXISTS (SELECT 1 FROM barravips.atendimentos a "
-            "WHERE a.cliente_id = c.id "
-            "AND a.created_at >= %s::date "
-            "AND a.created_at < (%s::date + INTERVAL '1 day'))"
-        )
-        params.extend([custom_ini, custom_fim])
-    elif periodo in PERIODOS_DIAS:
-        filtros.append(
-            "EXISTS (SELECT 1 FROM barravips.atendimentos a "
-            "WHERE a.cliente_id = c.id "
-            f"AND a.created_at >= NOW() - INTERVAL '{PERIODOS_DIAS[periodo]} days')"
-        )
+    # "Período personalizado" tem precedência sobre o preset `periodo` (já tratado
+    # dentro de `_predicado_periodo`). Mesma janela usada na Lista.
+    predicado = _predicado_periodo(periodo, data_inicio, data_fim)
+    if predicado:
+        filtros.append(predicado[0])
+        params.extend(predicado[1])
     if not incluir_arquivados:
         filtros.append("c.arquivado_em IS NULL")
     # MAPA-8: filtros sobre o atendimento que ancora o ponto. Atuam DEPOIS do LATERAL,
@@ -310,9 +328,7 @@ def _parse_recorte(rotulo: str, inicio: str | None, fim: str | None) -> tuple[da
     if inicio is None or fim is None:
         raise EntradaInvalida(
             code="COMPARAR_RECORTE_INCOMPLETO",
-            message=(
-                f"Comparar exige {rotulo}_inicio e {rotulo}_fim (YYYY-MM-DD)."
-            ),
+            message=(f"Comparar exige {rotulo}_inicio e {rotulo}_fim (YYYY-MM-DD)."),
         )
     try:
         ini = date.fromisoformat(inicio)
@@ -670,12 +686,16 @@ async def desarquivar_cliente(
     return {"id": cliente["id"], "arquivado_em": None}
 
 
-async def _one(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
+async def _one(
+    conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]
+) -> dict[str, Any] | None:
     result = await conn.execute(query, params)
     return await result.fetchone()
 
 
-async def _all(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+async def _all(
+    conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]
+) -> list[dict[str, Any]]:
     result = await conn.execute(query, params)
     return list(await result.fetchall())
 

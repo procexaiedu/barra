@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { FiltroModelo } from "@/components/dashboard/FiltroModelo"
+import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { cn } from "@/lib/utils"
 import type { VisaoAgenda } from "@/tipos/agenda"
 
@@ -68,7 +68,11 @@ export function ToolbarAgenda({
       <div className="flex items-center gap-3">
         <div className="flex flex-col gap-1">
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Modelo</span>
-          <FiltroModelo modeloId={modeloId} onChange={onModeloChange} />
+          <FiltroModelo
+            multi={false}
+            value={modeloId ? [modeloId] : []}
+            onChange={(ids) => onModeloChange(ids[0] ?? null)}
+          />
         </div>
         <label className="flex flex-col gap-1">
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Tipo</span>

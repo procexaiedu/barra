@@ -9,7 +9,6 @@ import { BlocoMotivosEscalada } from "@/components/dashboard/BlocoMotivosEscalad
 import { BlocoPerdasPorMotivo } from "@/components/dashboard/BlocoPerdasPorMotivo"
 import { BulletEscaladas } from "@/components/dashboard/BulletEscaladas"
 import { FunilVendas } from "@/components/dashboard/FunilVendas"
-import { DialogRangeCustom } from "@/components/dashboard/DialogRangeCustom"
 import { DialogTodasEscaladas } from "@/components/dashboard/DialogTodasEscaladas"
 import { HeaderDashboard } from "@/components/dashboard/HeaderDashboard"
 import { IndicadorTendencia } from "@/components/dashboard/IndicadorTendencia"
@@ -25,6 +24,7 @@ import { formatBRL } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
 import { useDashboard } from "@/hooks/useDashboard"
 import type { DashboardResumo, SerieMetrica, SerieResposta } from "@/tipos/dashboard"
+import type { PeriodoSelecionado } from "@/tipos/filtros"
 
 export default function DashboardPage() {
   return (
@@ -36,7 +36,6 @@ export default function DashboardPage() {
 
 function DashboardInner() {
   const dashboard = useDashboard()
-  const [rangeOpen, setRangeOpen] = useState(false)
   const [escaladasOpen, setEscaladasOpen] = useState(false)
   const [metricaAberta, setMetricaAberta] = useState<TipoMetricaModal | null>(null)
 
@@ -54,18 +53,23 @@ function DashboardInner() {
     ? formatRangeAbsoluto(data.janela_comparacao.de, data.janela_comparacao.ate)
     : null
 
+  const onPeriodoChange = (v: PeriodoSelecionado) => {
+    if (v.periodo === "custom") {
+      if (v.de && v.ate) dashboard.setPeriodoCustom(v.de, v.ate)
+    } else {
+      dashboard.setPeriodoPreset(v.periodo)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <HeaderDashboard />
 
       <ToolbarDashboard
-        periodo={filtros.periodo}
-        de={filtros.de}
-        ate={filtros.ate}
+        periodo={{ periodo: filtros.periodo, de: filtros.de, ate: filtros.ate }}
         modeloIds={filtros.modelo_ids}
         rangeComparacao={rangeComparacao}
-        onPreset={dashboard.setPeriodoPreset}
-        onAbrirCustom={() => setRangeOpen(true)}
+        onPeriodoChange={onPeriodoChange}
         onModeloChange={dashboard.setModeloIds}
       />
 
@@ -90,14 +94,6 @@ function DashboardInner() {
           />
         </div>
       ) : null}
-
-      <DialogRangeCustom
-        open={rangeOpen}
-        onOpenChange={setRangeOpen}
-        deAtual={filtros.de}
-        ateAtual={filtros.ate}
-        onAplicar={dashboard.setPeriodoCustom}
-      />
 
       <DialogTodasEscaladas
         open={escaladasOpen}

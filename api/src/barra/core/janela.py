@@ -4,10 +4,13 @@ Antes vivia em ``dominio/dashboard/routes.py``; movido para ``core`` quando o
 módulo Financeiro (ADR 0011) passou a precisar do mesmo helper (`mes` adicionado).
 """
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from uuid import UUID
+
+from psycopg import AsyncConnection
 
 from barra.core.errors import EntradaInvalida
 
@@ -26,10 +29,17 @@ class Janela:
         return (self.ate - self.de).days + 1
 
 
-def resolver_janela(periodo: str, de: date | None, ate: date | None) -> Janela:
+def resolver_janela(
+    periodo: str,
+    de: date | None,
+    ate: date | None,
+    piso_tudo: date | None = None,
+) -> Janela:
     """Converte um período nomeado (hoje/7d/30d/mes/tudo/custom) numa Janela BRT.
 
     'mes' = 1º do mês corrente até hoje (ADR 0011, item K).
+    'tudo' ancora em ``piso_tudo`` (1º registro real da operação, computado pelo
+    chamador); ``date(2020, 1, 1)`` é só fallback p/ banco vazio.
     """
     hoje = datetime.now(BRT).date()
 
@@ -59,7 +69,7 @@ def resolver_janela(periodo: str, de: date | None, ate: date | None) -> Janela:
     if periodo == "mes":
         return janela_de_datas(hoje.replace(day=1), hoje)
     if periodo == "tudo":
-        return janela_de_datas(date(2020, 1, 1), hoje)
+        return janela_de_datas(piso_tudo or date(2020, 1, 1), hoje)
 
     raise EntradaInvalida("PERIODO_INVALIDO", f"periodo desconhecido: {periodo}")
 
@@ -76,6 +86,26 @@ def janela_anterior(janela: Janela) -> Janela | None:
     ate_anterior = janela.de - timedelta(days=1)
     de_anterior = ate_anterior - timedelta(days=duracao_dias - 1)
     return janela_de_datas(de_anterior, ate_anterior)
+
+
+async def piso_operacao(
+    conn: AsyncConnection[Any],
+    sql_min: str,
+    params: Sequence[Any] = (),
+) -> date | None:
+    """Borda esquerda do período 'tudo': a menor data relevante da operação.
+
+    O ``sql_min`` (um ``SELECT MIN(...)``) é fornecido pelo módulo porque a "data
+    relevante" varia — 1º atendimento (dashboard), 1º fechamento (financeiro), etc.
+    Devolve ``None`` quando não há registro (banco vazio → fallback 2020 no caller).
+    """
+    row = await (await conn.execute(sql_min, list(params))).fetchone()
+    valor = row[0] if row else None
+    if isinstance(valor, datetime):
+        return valor.astimezone(BRT).date()
+    if isinstance(valor, date):
+        return valor
+    return None
 
 
 def filtro_aplicado_dict(

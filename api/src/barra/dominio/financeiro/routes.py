@@ -21,7 +21,7 @@ from barra.api.deps import get_conn, get_user
 from barra.core.auth import UsuarioAtual
 from barra.core.janela import Janela as _Janela
 from barra.core.janela import resolver_janela
-from barra.dominio.financeiro import service
+from barra.dominio.financeiro import repo, service
 from barra.dominio.financeiro.schemas import (
     AtendimentosSemSnapshotResponse,
     ComissoesPorVendedorResponse,
@@ -45,6 +45,19 @@ router = APIRouter(dependencies=[Depends(get_user)])
 Periodo = Literal["hoje", "7d", "30d", "mes", "tudo", "custom"]
 
 
+async def _janela_periodo(
+    conn: AsyncConnection[Any],
+    periodo: str,
+    de: date | None,
+    ate: date | None,
+    modelo_ids: list[UUID] | None = None,
+) -> _Janela:
+    """Resolve a janela do período. Em "tudo", ancora no 1º fechamento da operação
+    (escopado pelo filtro de modelo) em vez do antigo piso fixo 2020."""
+    piso = await repo.primeiro_fechamento(conn, modelo_ids) if periodo == "tudo" else None
+    return resolver_janela(periodo, de, ate, piso_tudo=piso)
+
+
 # =============================================================================
 # Resumo
 # =============================================================================
@@ -58,7 +71,7 @@ async def get_resumo(
     modelo_id: Annotated[list[UUID] | None, Query()] = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> FinanceiroResumoResponse:
-    janela = resolver_janela(periodo, de, ate)
+    janela = await _janela_periodo(conn, periodo, de, ate, modelo_id)
     return await service.montar_resumo(conn, periodo=periodo, janela=janela, modelo_ids=modelo_id)
 
 
@@ -75,7 +88,7 @@ async def get_serie(
     modelo_id: Annotated[list[UUID] | None, Query()] = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> FinanceiroSerieResponse:
-    janela = resolver_janela(periodo, de, ate)
+    janela = await _janela_periodo(conn, periodo, de, ate, modelo_id)
     return await service.montar_serie(conn, periodo=periodo, janela=janela, modelo_ids=modelo_id)
 
 
@@ -95,7 +108,7 @@ async def get_receitas(
     cursor: str | None = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> ReceitasListaResponse:
-    janela = resolver_janela(periodo, de, ate)
+    janela = await _janela_periodo(conn, periodo, de, ate, modelo_id)
     return await service.montar_receitas(
         conn,
         periodo=periodo,
@@ -115,7 +128,7 @@ async def get_receita_contexto(
     ate: date | None = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> ReceitaContextoResponse:
-    janela = resolver_janela(periodo, de, ate)
+    janela = await _janela_periodo(conn, periodo, de, ate)
     return await service.montar_contexto_receita(conn, atendimento_id=atendimento_id, janela=janela)
 
 
@@ -128,7 +141,7 @@ async def export_receitas(
     forma_pagamento: str | None = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> StreamingResponse:
-    janela = resolver_janela(periodo, de, ate)
+    janela = await _janela_periodo(conn, periodo, de, ate, modelo_id)
     # Sem cursor — exporta tudo do período. Limite generoso para evitar abuso.
     resp = await service.montar_receitas(
         conn,
@@ -180,7 +193,7 @@ async def get_repasses(
     modelo_id: Annotated[list[UUID] | None, Query()] = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> RepassesPorModeloResponse:
-    janela = resolver_janela(periodo, de, ate)
+    janela = await _janela_periodo(conn, periodo, de, ate, modelo_id)
     return await service.montar_repasse_por_modelo(
         conn, periodo=periodo, janela=janela, modelo_ids=modelo_id
     )
@@ -195,7 +208,7 @@ async def get_comissoes(
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> ComissoesPorVendedorResponse:
     """Saldo de Comissão de vendedor por vendedor no período (ADR 0012)."""
-    janela = resolver_janela(periodo, de, ate)
+    janela = await _janela_periodo(conn, periodo, de, ate)
     return await service.montar_comissao_por_vendedor(
         conn, periodo=periodo, janela=janela, vendedor_ids=vendedor_id
     )
@@ -211,7 +224,7 @@ async def get_pagamentos(
     cursor: str | None = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> RepassesPagamentosListaResponse:
-    janela = resolver_janela(periodo, de, ate)
+    janela = await _janela_periodo(conn, periodo, de, ate, modelo_id)
     return await service.montar_pagamentos(
         conn,
         periodo=periodo,
@@ -230,7 +243,7 @@ async def export_pagamentos(
     modelo_id: Annotated[list[UUID] | None, Query()] = None,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> StreamingResponse:
-    janela = resolver_janela(periodo, de, ate)
+    janela = await _janela_periodo(conn, periodo, de, ate, modelo_id)
     resp = await service.montar_pagamentos(
         conn,
         periodo=periodo,
@@ -300,7 +313,6 @@ async def get_comprovante(
     request: Request,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> ComprovanteUrlResponse:
-    from barra.dominio.financeiro import repo
 
     pag = await repo.obter_pagamento(conn, pagamento_id)
     if pag is None or not pag.comprovante_object_key:

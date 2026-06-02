@@ -14,6 +14,9 @@ import { MapaClientes } from "@/components/clientes/MapaClientes"
 import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
+import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
+import { FiltroModelo } from "@/components/filtros/FiltroModelo"
+import { PainelFiltros } from "@/components/filtros/PainelFiltros"
 import { useClientes } from "@/hooks/useClientes"
 import { FILTROS_MAPA_PADRAO, useClientesMapa } from "@/hooks/useClientesMapa"
 import type { FiltrosMapa } from "@/hooks/useClientesMapa"
@@ -24,8 +27,6 @@ import type {
 } from "@/components/clientes/MapaControles"
 import type {
   ClienteListItem,
-  FiltroPeriodo,
-  ModeloResumo,
   MotivoPerda,
   PerfilFisico,
 } from "@/tipos/clientes"
@@ -34,13 +35,7 @@ import type {
   CriarAtendimentoRequest,
   CriarAtendimentoResultado,
 } from "@/tipos/atendimentos"
-
-const periodos: { value: FiltroPeriodo; label: string }[] = [
-  { value: "todos", label: "Todos" },
-  { value: "7d", label: "7 dias" },
-  { value: "30d", label: "30 dias" },
-  { value: "90d", label: "90 dias" },
-]
+import type { PeriodoSelecionado } from "@/tipos/filtros"
 
 export default function Clientes() {
   return (
@@ -205,14 +200,24 @@ function ClientesInner() {
         <>
           <Toolbar
             busca={crm.filtros.busca}
-            periodo={crm.filtros.periodo}
+            periodo={{
+              periodo: crm.filtros.periodo,
+              de: crm.filtros.dataInicio,
+              ate: crm.filtros.dataFim,
+            }}
             modeloId={crm.filtros.modeloId}
             perfis={crm.filtros.perfis}
-            modelos={crm.modelos}
             loading={crm.listaStatus === "loading"}
             incluirArquivados={crm.incluirArquivados}
             onBuscaChange={(busca) => crm.setFiltros((current) => ({ ...current, busca }))}
-            onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
+            onPeriodoChange={(p) =>
+              crm.setFiltros((current) => ({
+                ...current,
+                periodo: p.periodo,
+                dataInicio: p.periodo === "custom" ? p.de : null,
+                dataFim: p.periodo === "custom" ? p.ate : null,
+              }))
+            }
             onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
             onPerfisChange={(perfis) => crm.setFiltros((current) => ({ ...current, perfis }))}
             onIncluirArquivadosChange={crm.setIncluirArquivados}
@@ -292,7 +297,6 @@ function ClientesInner() {
           dataInicio={crm.filtros.dataInicio}
           dataFim={crm.filtros.dataFim}
           modeloId={crm.filtros.modeloId}
-          modelos={crm.modelos}
           perfis={crm.filtros.perfis}
           incluirArquivados={crm.incluirArquivados}
           onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
@@ -336,7 +340,6 @@ function Toolbar({
   periodo,
   modeloId,
   perfis,
-  modelos,
   loading,
   incluirArquivados,
   onBuscaChange,
@@ -346,14 +349,13 @@ function Toolbar({
   onIncluirArquivadosChange,
 }: {
   busca: string
-  periodo: FiltroPeriodo
+  periodo: PeriodoSelecionado
   modeloId: string
   perfis: PerfilFisico[]
-  modelos: ModeloResumo[]
   loading: boolean
   incluirArquivados: boolean
   onBuscaChange: (value: string) => void
-  onPeriodoChange: (value: FiltroPeriodo) => void
+  onPeriodoChange: (value: PeriodoSelecionado) => void
   onModeloChange: (value: string) => void
   onPerfisChange: (value: PerfilFisico[]) => void
   onIncluirArquivadosChange: (value: boolean) => void
@@ -370,95 +372,55 @@ function Toolbar({
       </div>
     )
   }
+  const filtrosSecundariosAtivos = perfis.length + (incluirArquivados ? 1 : 0)
   return (
-    <div className="flex flex-col gap-3">
-      <div className="grid grid-cols-[minmax(260px,1fr)_140px_180px] gap-3">
-        <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-            Buscar
-          </span>
-          <div className="relative">
-            <Search
-              size={16}
-              strokeWidth={1.5}
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-            />
-            <Input
-              value={busca}
-              onChange={(event) => onBuscaChange(event.target.value)}
-              placeholder="Buscar nome ou telefone"
-              aria-label="Buscar nome ou telefone"
-              className="pl-9"
-            />
-          </div>
-        </label>
-        <SelectFiltro
-          label="Período"
-          value={periodo}
-          onChange={(value) => onPeriodoChange(value as FiltroPeriodo)}
-        >
-          {periodos.map((item) => (
-            <option key={item.value} value={item.value}>
-              {item.label}
-            </option>
-          ))}
-        </SelectFiltro>
-        <SelectFiltro
-          label="Modelo"
-          value={modeloId}
-          onChange={(value) => onModeloChange(value)}
-        >
-          <option value="todas">Todas</option>
-          {modelos.map((modelo) => (
-            <option key={modelo.id} value={modelo.id}>
-              {modelo.nome}
-            </option>
-          ))}
-        </SelectFiltro>
-      </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-          Perfil físico
-        </span>
-        <SeletorPerfis value={perfis} onChange={onPerfisChange} idPrefix="filtro-perfil" />
-      </div>
-      <label className="flex w-fit cursor-pointer select-none items-center gap-2 text-xs text-text-muted">
-        <input
-          type="checkbox"
-          checked={incluirArquivados}
-          onChange={(e) => onIncluirArquivadosChange(e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-input bg-transparent accent-primary"
+    <div className="flex flex-wrap items-end gap-3">
+      <label className="relative flex min-w-[260px] flex-1 flex-col gap-1">
+        <span className="text-xs font-medium text-text-muted">Buscar</span>
+        <Search
+          size={16}
+          strokeWidth={1.5}
+          className="pointer-events-none absolute left-3 bottom-2.5 text-text-muted"
         />
-        Incluir clientes arquivados
+        <Input
+          value={busca}
+          onChange={(event) => onBuscaChange(event.target.value)}
+          placeholder="Buscar nome ou telefone"
+          aria-label="Buscar nome ou telefone"
+          className="h-9 pl-9"
+        />
       </label>
-    </div>
-  )
-}
-
-function SelectFiltro({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  children: ReactNode
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-        {label}
-      </span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+      <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-text-muted">Modelo</span>
+        <FiltroModelo
+          multi={false}
+          value={modeloId === "todas" ? [] : [modeloId]}
+          onChange={(ids) => onModeloChange(ids[0] ?? "todas")}
+        />
+      </div>
+      <PainelFiltros
+        ativos={filtrosSecundariosAtivos}
+        onLimpar={() => {
+          onPerfisChange([])
+          onIncluirArquivadosChange(false)
+        }}
       >
-        {children}
-      </select>
-    </label>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-text-muted">Perfil físico</span>
+          <SeletorPerfis value={perfis} onChange={onPerfisChange} idPrefix="filtro-perfil" />
+        </div>
+        <label className="flex w-fit cursor-pointer select-none items-center gap-2 text-xs text-text-muted">
+          <input
+            type="checkbox"
+            checked={incluirArquivados}
+            onChange={(e) => onIncluirArquivadosChange(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-input bg-transparent accent-primary"
+          />
+          Incluir clientes arquivados
+        </label>
+      </PainelFiltros>
+    </div>
   )
 }
 

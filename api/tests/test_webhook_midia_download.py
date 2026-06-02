@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from barra.webhook.routes import _baixar_midia
+from barra.webhook.routes import _MAX_DOWNLOADS_MIDIA, _SEM_DOWNLOAD_MIDIA, _baixar_midia
 
 _BASE = "https://evo.example.com"
 _LEGIT = f"{_BASE}/media/abc.jpg"
@@ -26,7 +26,9 @@ async def test_host_fora_da_allowlist_e_recusado() -> None:
 @pytest.mark.asyncio
 async def test_corpo_acima_do_limite_aborta() -> None:
     respx.get(_LEGIT).mock(
-        return_value=httpx.Response(200, content=b"x" * 2048, headers={"content-type": "image/jpeg"})
+        return_value=httpx.Response(
+            200, content=b"x" * 2048, headers={"content-type": "image/jpeg"}
+        )
     )
     out = await _baixar_midia(_LEGIT, _BASE, 1024)  # limite < corpo
     assert out is None
@@ -58,3 +60,24 @@ async def test_redirect_nao_e_seguido() -> None:
     # Redirect não seguido vira erro → recusa; o host interno nunca é tocado.
     assert not interno.called
     assert out is None
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_concorrencia_excedida_recusa_sem_baixar() -> None:
+    # Anti-DoS: com todos os slots de download em voo, a próxima mídia é recusada
+    # (fail-fast) sem tocar a rede, em vez de enfileirar espera ilimitada sob burst.
+    rota = respx.get(_LEGIT).mock(
+        return_value=httpx.Response(
+            200, content=b"\xff\xd8jpeg", headers={"content-type": "image/jpeg"}
+        )
+    )
+    for _ in range(_MAX_DOWNLOADS_MIDIA):
+        await _SEM_DOWNLOAD_MIDIA.acquire()
+    try:
+        out = await _baixar_midia(_LEGIT, _BASE, 25 * 1024 * 1024)
+        assert out is None
+        assert not rota.called
+    finally:
+        for _ in range(_MAX_DOWNLOADS_MIDIA):
+            _SEM_DOWNLOAD_MIDIA.release()

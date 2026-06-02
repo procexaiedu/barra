@@ -1,14 +1,12 @@
 <#
 .SYNOPSIS
-  Cria uma worktree dedicada para uma trilha de tasks do roadmap executavel.
+  Cria uma worktree dedicada para uma trilha de tasks isolada.
 
 .DESCRIPTION
   Faz `git worktree add` a partir de uma branch base (default: main), copia o
   api/.env (que e gitignored e nao vai junto na worktree) e garante
   TEST_DATABASE_URL derivado de DATABASE_URL (mesmo banco; os testes usam
   rollback). Imprime os proximos passos.
-
-  Ver docs/mvp/COMO-EXECUTAR.md secao 2.
 
 .PARAMETER Nome
   Nome curto da trilha (ex.: evals, webhook-sec, infra). Vira ../barra-<Nome>
@@ -85,7 +83,7 @@ if (-not (Test-Path $SrcEnv)) {
 Write-Host ""
 Write-Host "Pronto. Proximos passos:" -ForegroundColor Green
 Write-Host "  1. Abra um Claude Code em: $WorktreePath"
-Write-Host "  2. Cole o launcher de docs/mvp/COMO-EXECUTAR.md (secao 1)."
+Write-Host "  2. Trabalhe SO nesta branch isolada; git add por caminho explicito."
 Write-Host "  3. Evals do lock precisam de fakeredis[lua] (uv sync ja cobre)."
 Write-Host ""
 Write-Host "Ao terminar a trilha (apos mesclar/promover a branch):"

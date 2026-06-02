@@ -1,6 +1,8 @@
 import type { MotivoPerda } from "./atendimentos"
+import type { PresetPeriodo } from "./filtros"
 
-export type FiltroPeriodo = "hoje" | "7d" | "30d" | "mes" | "tudo" | "custom"
+/** @deprecated use `PresetPeriodo` de `./filtros` — alias mantido p/ compatibilidade. */
+export type FiltroPeriodo = PresetPeriodo
 
 export const TIPOS_ESCALADA = [
   "pix_validado",

@@ -32,7 +32,7 @@ import type {
 } from "@/tipos/atendimentos"
 import type { Cliente, ClienteListItem, ClientesListaResponse } from "@/tipos/clientes"
 import type { BloqueioAgenda, BloqueioFormState, EstadoBloqueio } from "@/tipos/agenda"
-import { FiltroModelo } from "@/components/dashboard/FiltroModelo"
+import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { toast } from "sonner"
 
 const MOTIVOS_PERDA = ["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] as const
@@ -708,8 +708,11 @@ export function DialogBloqueio({
                 <Label htmlFor="agenda-modelo">Modelo</Label>
                 <div className="mt-2 w-full max-w-xs">
                   <FiltroModelo
-                    modeloId={form.modelo_id ?? null}
-                    onChange={(val) => {
+                    multi={false}
+                    incluiTodas={false}
+                    value={form.modelo_id ? [form.modelo_id] : []}
+                    onChange={(ids) => {
+                      const val = ids[0] ?? null
                       if (form.modelo_id && form.modelo_id !== val) {
                         setAtendimentoSelecionado(null)
                         setBusca("")
@@ -720,7 +723,6 @@ export function DialogBloqueio({
                         setForm((f) => ({ ...f, modelo_id: val ?? undefined }))
                       }
                     }}
-                    hideTodas
                   />
                 </div>
               </div>

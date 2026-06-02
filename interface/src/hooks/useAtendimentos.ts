@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { ApiError, api, apiFormData } from "@/lib/api"
-import { fimMesBrtIso, inicioMesBrtIso } from "@/lib/datas"
+import { resolverPresetPeriodo } from "@/lib/datas"
 import { subscribeTabelas } from "@/lib/realtime"
 import { supabase } from "@/lib/supabase"
 import type {
@@ -33,7 +33,7 @@ function montarFiltrosIniciais(): FiltrosAtendimentos {
     urgencia: "todas",
     ia: "todos",
     qualificacao: "todos",
-    periodo: { de: inicioMesBrtIso(), ate: fimMesBrtIso() },
+    periodo: { periodo: "mes", ...resolverPresetPeriodo("mes") },
   }
 }
 
@@ -138,10 +138,8 @@ export function useAtendimentos(
     ]
   )
 
-  const inicioMes = inicioMesBrtIso()
-  const fimMes = fimMesBrtIso()
-  const periodoAplicado =
-    filtrosEfetivos.periodo.de !== inicioMes || filtrosEfetivos.periodo.ate !== fimMes
+  // "Este mês" é o período default → não conta como filtro aplicado.
+  const periodoAplicado = filtrosEfetivos.periodo.periodo !== "mes"
   const filtrosAplicados = filtrosEfetivos.busca.trim() !== ""
     || filtrosEfetivos.estado !== "abertos"
     || filtrosEfetivos.tipo !== "todos"
