@@ -2,14 +2,17 @@
 
 import { Suspense } from "react"
 import { DetalhePix } from "@/components/pix/DetalhePix"
-import { HeaderPix } from "@/components/pix/HeaderPix"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { ListaPix } from "@/components/pix/ListaPix"
 import { ToolbarPix } from "@/components/pix/ToolbarPix"
 import { usePix } from "@/hooks/usePix"
 
+const TITULO_PIX = "Pix de deslocamento"
+const DESCRICAO_PIX = "Aprove Pix duvidosos e revise os já validados."
+
 export default function PixPage() {
   return (
-    <Suspense fallback={<HeaderPix />}>
+    <Suspense fallback={<PageHeader title={TITULO_PIX} description={DESCRICAO_PIX} />}>
       <PixConteudo />
     </Suspense>
   )
@@ -21,7 +24,7 @@ function PixConteudo() {
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-4">
       <div className="flex-none">
-        <HeaderPix />
+        <PageHeader title={TITULO_PIX} description={DESCRICAO_PIX} />
       </div>
 
       <div className="flex-none">

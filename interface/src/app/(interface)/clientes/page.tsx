@@ -5,7 +5,6 @@ import { useSearchParams } from "next/navigation"
 import { Plus, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ApiError, api } from "@/lib/api"
-import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DetalheCliente } from "@/components/clientes/DetalheCliente"
@@ -14,6 +13,7 @@ import { MapaClientes } from "@/components/clientes/MapaClientes"
 import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
@@ -174,20 +174,15 @@ function ClientesInner() {
 
   return (
     <div className="flex flex-col gap-6">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
-            Clientes
-          </h1>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Histórico, recorrência e observações de cada cliente, em todas as modelos.
-          </p>
-        </div>
-        <Button variant="primary" onClick={() => setModalCriarAberto(true)}>
-          <Plus size={16} strokeWidth={1.5} />
-          Novo cliente
-        </Button>
-      </header>
+      <PageHeader
+        title="Clientes"
+        description="Histórico, recorrência e observações de cada cliente, em todas as modelos."
+        action={{
+          label: "Novo cliente",
+          onClick: () => setModalCriarAberto(true),
+          icon: <Plus size={16} strokeWidth={1.5} />,
+        }}
+      />
 
       <div role="tablist" aria-label="Visão de clientes" className="flex gap-1 border-b border-border">
         <TabBtn active={aba === "lista"} onClick={() => setAba("lista")}>

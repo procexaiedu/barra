@@ -3,6 +3,7 @@
 import { Suspense, useCallback, useEffect, useState } from "react"
 import { Download } from "lucide-react"
 import { BannerErro } from "@/components/layout/BannerErro"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { cn } from "@/lib/utils"
@@ -48,27 +49,20 @@ function FinanceiroInner() {
 
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
-            Financeiro
-          </h1>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Receitas, repasses por modelo e visão geral.
-          </p>
+      <PageHeader
+        title="Financeiro"
+        description="Receitas, repasses por modelo e visão geral."
+      >
+        <FiltroPeriodo
+          value={{ periodo: fin.filtros.periodo, de: fin.filtros.de, ate: fin.filtros.ate }}
+          onChange={onPeriodoChange}
+        />
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-text-muted">Modelo</span>
+          <FiltroModelo value={fin.filtros.modelo_ids} onChange={fin.setModeloIds} />
         </div>
-        <div className="flex flex-wrap items-end gap-2">
-          <FiltroPeriodo
-            value={{ periodo: fin.filtros.periodo, de: fin.filtros.de, ate: fin.filtros.ate }}
-            onChange={onPeriodoChange}
-          />
-          <div className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-text-muted">Modelo</span>
-            <FiltroModelo value={fin.filtros.modelo_ids} onChange={fin.setModeloIds} />
-          </div>
-          <ExportarBotao fin={fin} view={view} />
-        </div>
-      </header>
+        <ExportarBotao fin={fin} view={view} />
+      </PageHeader>
 
       <div className="flex flex-col gap-4">
         <div

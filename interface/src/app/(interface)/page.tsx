@@ -8,7 +8,8 @@ import { useTileFlash } from "@/hooks/useTileFlash"
 import { useCardEntrada } from "@/hooks/useCardEntrada"
 import { useDetalheMetrica } from "@/hooks/useDetalheMetrica"
 import { dataDeInput, dataInput, dataInputSaoPaulo, isoAgenda } from "@/hooks/useAgenda"
-import { HeaderPainel } from "@/components/painel/HeaderPainel"
+import { PageHeader } from "@/components/layout/PageHeader"
+import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { CardDestaque } from "@/components/painel/CardDestaque"
 import { TileMetrica } from "@/components/painel/TileMetrica"
 import { LinhaAgenda } from "@/components/painel/LinhaAgenda"
@@ -330,10 +331,15 @@ export default function PainelGeral() {
 
   return (
     <div className="flex flex-col gap-8">
-      <HeaderPainel
-        modeloIds={modeloIds}
-        onModeloChange={handleModeloChange}
-      />
+      <PageHeader
+        title="Painel"
+        description="Tudo que precisa da sua atenção, num só lugar."
+      >
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-text-muted">Modelo</span>
+          <FiltroModelo value={modeloIds} onChange={handleModeloChange} />
+        </div>
+      </PageHeader>
 
       <section aria-label="Aguardando você" className="flex flex-col gap-3">
         <div className="flex items-center justify-between">

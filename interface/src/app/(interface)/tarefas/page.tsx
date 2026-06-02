@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import {
   AlertDialog,
@@ -132,42 +133,36 @@ export default function TarefasPage() {
 
   return (
     <div className="flex flex-col gap-8">
-      <header className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
-            Tarefas
-          </h1>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Gestão interna da operação — sem cliente, IA ou agenda.
-          </p>
+      <PageHeader
+        title="Tarefas"
+        description="Gestão interna da operação — sem cliente, IA ou agenda."
+        action={{
+          label: "Nova tarefa",
+          onClick: abrirCriar,
+          icon: <Plus size={16} strokeWidth={1.5} />,
+        }}
+      >
+        <div className="flex rounded-lg border border-border bg-muted p-0.5">
+          {(["lista", "board"] as const).map((v) => {
+            const Icon = v === "lista" ? LayoutList : LayoutGrid
+            return (
+              <button
+                key={v}
+                onClick={() => setVisao(v)}
+                aria-label={v === "lista" ? "Visão em lista" : "Visão em board"}
+                aria-pressed={visao === v}
+                className={cn(
+                  "rounded-md p-1.5 transition-all duration-150",
+                  "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
+                  "text-text-muted hover:text-text-primary",
+                )}
+              >
+                <Icon size={16} strokeWidth={1.5} />
+              </button>
+            )
+          })}
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-lg border border-border bg-muted p-0.5">
-            {(["lista", "board"] as const).map((v) => {
-              const Icon = v === "lista" ? LayoutList : LayoutGrid
-              return (
-                <button
-                  key={v}
-                  onClick={() => setVisao(v)}
-                  aria-label={v === "lista" ? "Visão em lista" : "Visão em board"}
-                  aria-pressed={visao === v}
-                  className={cn(
-                    "rounded-md p-1.5 transition-all duration-150",
-                    "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
-                    "text-text-muted hover:text-text-primary",
-                  )}
-                >
-                  <Icon size={16} strokeWidth={1.5} />
-                </button>
-              )
-            })}
-          </div>
-          <Button variant="primary" onClick={abrirCriar}>
-            <Plus size={16} strokeWidth={1.5} />
-            Nova tarefa
-          </Button>
-        </div>
-      </header>
+      </PageHeader>
 
       <section aria-label="Tarefas" className="flex flex-col gap-3">
         {/* Filtros */}

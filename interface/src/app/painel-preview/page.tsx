@@ -6,7 +6,8 @@
 
 import { useState } from "react"
 import { CheckCircle2, CalendarOff, LayoutList, LayoutGrid } from "lucide-react"
-import { HeaderPainel } from "@/components/painel/HeaderPainel"
+import { PageHeader } from "@/components/layout/PageHeader"
+import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { CardDestaque } from "@/components/painel/CardDestaque"
 import { TileMetrica } from "@/components/painel/TileMetrica"
 import { LinhaAgenda } from "@/components/painel/LinhaAgenda"
@@ -90,7 +91,15 @@ function PainelChrome({
   const [compacto, setCompacto] = useState(false)
   return (
     <div>
-      <HeaderPainel modeloIds={[]} onModeloChange={() => {}} />
+      <PageHeader
+        title="Painel"
+        description="Tudo que precisa da sua atenção, num só lugar."
+      >
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-medium text-text-muted">Modelo</span>
+          <FiltroModelo value={[]} onChange={() => {}} />
+        </div>
+      </PageHeader>
 
       <section aria-label="Aguardando você" className="px-8 py-5">
         <div className="mb-4 flex items-center justify-between">

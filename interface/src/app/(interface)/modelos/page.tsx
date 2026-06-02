@@ -14,7 +14,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { ToolbarModelos } from "@/components/modelos/ToolbarModelos"
 import { ListaModelos } from "@/components/modelos/ListaModelos"
 import { DetalheModelo } from "@/components/modelos/DetalheModelo"
@@ -211,22 +211,19 @@ function ModelosConteudo() {
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-4">
-        <header className="flex flex-wrap items-end justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
-              Modelos
-            </h1>
-            <p className="mt-1 text-[13px] text-text-muted">
-              Cadastro, conexão de WhatsApp e cardápio de cada modelo da agência.
-            </p>
-          </div>
-          {!esconderAdicionar && (
-            <Button variant="primary" size="sm" onClick={() => setCriarOpen(true)}>
-              <UserPlus size={14} strokeWidth={1.5} />
-              Adicionar modelo
-            </Button>
-          )}
-        </header>
+        <PageHeader
+          title="Modelos"
+          description="Cadastro, conexão de WhatsApp e cardápio de cada modelo da agência."
+          action={
+            esconderAdicionar
+              ? undefined
+              : {
+                  label: "Adicionar modelo",
+                  onClick: () => setCriarOpen(true),
+                  icon: <UserPlus size={16} strokeWidth={1.5} />,
+                }
+          }
+        />
 
         <div role="tablist" aria-label="Visão" className="flex gap-1 border-b border-border">
           <TabBtn active={view === "lista"} onClick={() => protegerDirty(() => setView("lista"))}>

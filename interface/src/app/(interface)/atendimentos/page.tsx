@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExt
 import { LayoutList, Columns, Plus } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
+import { PageHeader } from "@/components/layout/PageHeader"
 import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
@@ -18,7 +19,6 @@ import { ModalEdicao } from "@/components/atendimentos/ModalEdicao"
 import { ModalFecharAtendimento } from "@/components/atendimentos/ModalFecharAtendimento"
 import { ModalPerderAtendimento } from "@/components/atendimentos/ModalPerderAtendimento"
 import { ModalCorrigirRegistro } from "@/components/atendimentos/ModalCorrigirRegistro"
-import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAtendimentos } from "@/hooks/useAtendimentos"
 import { api } from "@/lib/api"
@@ -241,16 +241,16 @@ function CentralAtendimentosInner() {
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-4">
-      <header className="flex flex-none flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
-          <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
-            Atendimentos
-          </h1>
-          <p className="mt-1 text-[13px] text-text-muted">
-            Negociações em andamento por modelo, da triagem ao fechamento.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex-none">
+        <PageHeader
+          title="Atendimentos"
+          description="Negociações em andamento por modelo, da triagem ao fechamento."
+          action={{
+            label: "Novo atendimento",
+            onClick: () => setModalNovoAberto(true),
+            icon: <Plus size={16} strokeWidth={1.5} />,
+          }}
+        >
           <div className="flex rounded-lg border border-border bg-muted p-0.5">
             <ViewButton active={view === "lista"} onClick={() => handleViewChange("lista")} title="Lista">
               <LayoutList size={15} strokeWidth={1.5} />
@@ -259,12 +259,8 @@ function CentralAtendimentosInner() {
               <Columns size={15} strokeWidth={1.5} />
             </ViewButton>
           </div>
-          <Button variant="primary" onClick={() => setModalNovoAberto(true)}>
-            <Plus size={16} strokeWidth={1.5} />
-            Novo atendimento
-          </Button>
-        </div>
-      </header>
+        </PageHeader>
+      </div>
 
       <div className="flex-none">
         <Toolbar
