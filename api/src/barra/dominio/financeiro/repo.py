@@ -23,7 +23,7 @@ from uuid import UUID
 from psycopg import AsyncConnection
 
 from barra.core.janela import Janela
-from barra.dominio.financeiro.calculos import VALOR_SERVICO_SQL
+from barra.dominio.financeiro.calculos import VALOR_SERVICO_SQL, repasse_modelo
 from barra.dominio.financeiro.schemas import (
     AtendimentoSemSnapshotLinha,
     ContextoCliente,
@@ -182,6 +182,7 @@ async def listar_receitas(
           a.cliente_id, c.nome AS cliente_nome,
           a.forma_pagamento::text AS forma_pagamento,
           a.valor_final,
+          a.taxa_cartao_snapshot,
           a.percentual_repasse_snapshot
           FROM barravips.atendimentos a
           JOIN LATERAL (
@@ -221,7 +222,15 @@ async def listar_receitas(
     for row in page:
         bruto = float(row["valor_final"])
         pct = row["percentual_repasse_snapshot"]
-        repasse = round(bruto * float(pct) / 100.0, 2) if pct is not None else 0.0
+        # Repasse sobre o VALOR DO SERVICO (liquido de taxa), nunca sobre o bruto inflado pela
+        # taxa (ADR 0013) — mesma formula dos agregados (VALOR_SERVICO_SQL). Sem snapshot de taxa
+        # e no-op (servico == bruto); divergiria da soma do periodo se calculasse sobre o bruto.
+        taxa = row["taxa_cartao_snapshot"]
+        repasse = (
+            round(repasse_modelo(bruto, float(taxa) if taxa is not None else None, float(pct)), 2)
+            if pct is not None
+            else 0.0
+        )
         items.append(
             ReceitaLinha(
                 atendimento_id=row["atendimento_id"],
