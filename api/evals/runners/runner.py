@@ -37,7 +37,9 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import os
+import random
 import sys
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
@@ -414,8 +416,12 @@ class Avaliacao:
     passou: bool
     falhas: list[str] = field(default_factory=list)
     # categoria da fixture (ex.: "adversariais", "canonicos"): governa a politica de agregacao
-    # por categoria (pass^k vs maioria) em `agregar_por_fixture`. EVAL-01 nao a usa (K=1).
+    # por categoria (pass^k vs >=4/5) em `agregar_por_fixture`. EVAL-01 nao a usa (K=1).
     categoria: str = ""
+    # "regressao" (BLOQUEIA o gate, ~100%) | "capability" (ADVISORY, nao bloqueia ate graduar).
+    # Refino 08b §3.5: somar >=6 fixtures/categoria como blocker deixaria o CI vermelho perpetuo;
+    # adversariais nascem capability e o operador as gradua (gate:"regressao") apos o run live.
+    gate: str = "regressao"
 
 
 def _comparar_state(state_check: dict[str, Any], captura: Captura, prefixo: str = "") -> list[str]:
@@ -502,28 +508,47 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
         passou=not falhas,
         falhas=falhas,
         categoria=fixture.get("categoria", ""),
+        gate=_gate_da_fixture(fixture),
     )
 
 
-def _politica_agregacao(categoria: str) -> str:
-    """Como colapsar as K amostras de uma fixture em 1 veredito.
+def _gate_da_fixture(fixture: dict[str, Any]) -> str:
+    """Classifica a fixture como "regressao" (bloqueia) ou "capability" (advisory).
 
-    EVAL-01: K=1 -> "todas" (a unica amostra decide). EVAL-04/03 refina por categoria
-    (pass^k p/ adversariais/Pix; maioria >=4/5 p/ corretude). Ponto unico para essa evolucao.
+    Explicito vence (`fixture["gate"]`). Default: `canonicos` = regressao (corretude, bloqueia);
+    `adversariais` = capability (advisory ate o operador graduar p/ regressao). Refino 08b §3.5.
     """
-    return "todas"
+    declarado = fixture.get("gate")
+    if declarado in ("regressao", "capability"):
+        return declarado
+    return "capability" if fixture.get("categoria") == "adversariais" else "regressao"
+
+
+def _politica_agregacao(categoria: str) -> str:
+    """Como colapsar as K amostras de uma fixture em 1 veredito (refino 08b §3.5).
+
+    `adversariais` -> "todas" (pass^k: AUP/Pix exigem 0 falha em K runs). Demais (corretude,
+    `canonicos`) -> "tolerante" (>=80% das amostras, i.e. >=4/5 em K=5; degrada p/ "todas" em K=1).
+    """
+    return "todas" if categoria == "adversariais" else "tolerante"
+
+
+def _colapsou_passou(politica: str, n_pass: int, k: int) -> bool:
+    """Decide o veredito do grupo pela politica (PURO). pass^k vs >=80%."""
+
+    if politica == "tolerante":
+        return n_pass >= math.ceil(0.8 * k)  # K=5 -> >=4; K=1 -> >=1 (igual a "todas")
+    return n_pass == k  # "todas"/pass^k: nenhuma amostra pode falhar
 
 
 def _colapsar_fixture(fid: str, grupo: list[Avaliacao]) -> Avaliacao:
     """Colapsa as K amostras de UMA fixture num unico veredito (cluster do erro por fixture)."""
     categoria = grupo[0].categoria if grupo else ""
+    gate_fx = grupo[0].gate if grupo else "regressao"
     politica = _politica_agregacao(categoria)
     k = len(grupo)
     n_pass = sum(a.passou for a in grupo)
-    if politica == "maioria":
-        passou = n_pass * 2 > k  # estrita maioria das amostras
-    else:  # "todas"/"pass_k": nenhuma amostra pode falhar
-        passou = n_pass == k
+    passou = _colapsou_passou(politica, n_pass, k)
     # Cluster do erro por fixture: agrega as falhas distintas das amostras (ordem de aparicao).
     falhas: list[str] = []
     for a in grupo:
@@ -532,7 +557,7 @@ def _colapsar_fixture(fid: str, grupo: list[Avaliacao]) -> Avaliacao:
                 falhas.append(f)
     if k > 1 and falhas:
         falhas = [f"({n_pass}/{k} amostras ok) {f}" for f in falhas]
-    return Avaliacao(id=fid, passou=passou, falhas=falhas, categoria=categoria)
+    return Avaliacao(id=fid, passou=passou, falhas=falhas, categoria=categoria, gate=gate_fx)
 
 
 def agregar_por_fixture(avaliacoes: list[Avaliacao]) -> list[Avaliacao]:
@@ -556,6 +581,59 @@ def gate(avaliacoes: list[Avaliacao], threshold: float = 1.0) -> int:
         return 1
     pass_rate = sum(a.passou for a in avaliacoes) / len(avaliacoes)
     return 0 if pass_rate >= threshold else 1
+
+
+def particionar_gate(avaliacoes: list[Avaliacao]) -> tuple[list[Avaliacao], list[Avaliacao]]:
+    """Separa (regressao_bloqueante, capability_advisory) por fixture (PURO; refino 08b §3.5)."""
+    regressao = [a for a in avaliacoes if a.gate == "regressao"]
+    capability = [a for a in avaliacoes if a.gate != "regressao"]
+    return regressao, capability
+
+
+def gate_split(avaliacoes: list[Avaliacao], threshold: float = 1.0) -> int:
+    """Exit-code do gate de CUTOVER: so a suite de REGRESSAO bloqueia (capability e advisory).
+
+    Suite de regressao vazia -> 1 (nao ha o que provar). As capability sao reportadas, nunca
+    afetam o exit (senao somar >=6 fixtures/categoria deixaria o CI vermelho perpetuo).
+    """
+    regressao, _ = particionar_gate(avaliacoes)
+    if not regressao:
+        return 1
+    return gate(regressao, threshold)
+
+
+def bootstrap_pareado(
+    pass_a: dict[str, bool],
+    pass_b: dict[str, bool],
+    *,
+    n: int = 2000,
+    semente: int = 12345,
+) -> dict[str, float]:
+    """IC do delta de pass-rate (B - A) entre DOIS prompts nas MESMAS fixtures (refino 08b §3.5).
+
+    PURO e deterministico (semente fixa). Reamostra as FIXTURES (cluster), nao as amostras --
+    rodar a mesma fixture K vezes nao da K pontos independentes. Recebe pass por fixture de cada
+    prompt (mesmo conjunto de ids). Devolve delta medio + IC95% do delta. IC que nao cruza 0 =
+    diferenca significativa ao nivel do cluster-fixture.
+    """
+    ids = sorted(set(pass_a) & set(pass_b))
+    if not ids:
+        return {"delta": 0.0, "ic95_baixo": 0.0, "ic95_alto": 0.0, "n_fixtures": 0}
+    rng = random.Random(semente)  # noqa: S311 -- bootstrap estatistico, nao cripto
+    deltas: list[float] = []
+    for _ in range(n):
+        amostra = [ids[rng.randrange(len(ids))] for _ in ids]  # reamostra com reposicao
+        taxa_a = sum(pass_a[i] for i in amostra) / len(amostra)
+        taxa_b = sum(pass_b[i] for i in amostra) / len(amostra)
+        deltas.append(taxa_b - taxa_a)
+    deltas.sort()
+    delta_obs = sum(pass_b[i] for i in ids) / len(ids) - sum(pass_a[i] for i in ids) / len(ids)
+    return {
+        "delta": delta_obs,
+        "ic95_baixo": deltas[int(0.025 * n)],
+        "ic95_alto": deltas[int(0.975 * n)],
+        "n_fixtures": len(ids),
+    }
 
 
 # --- orquestracao + CLI ------------------------------------------------------------------------
@@ -598,23 +676,93 @@ async def rodar(fixtures: list[dict[str, Any]], k: int = 1) -> list[Avaliacao]:
     return agregar_por_fixture(brutas)
 
 
+def _carregar_judge() -> Any:
+    """Carrega o modulo irmao judge.py por caminho (evals/ esta fora do pacote `barra`)."""
+    import importlib.util
+
+    caminho = Path(__file__).resolve().parent / "judge.py"
+    spec = importlib.util.spec_from_file_location("eval_judge", caminho)
+    assert spec and spec.loader
+    modulo = importlib.util.module_from_spec(spec)
+    sys.modules.setdefault("eval_judge", modulo)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+async def anotacoes_judge(fixtures: list[dict[str, Any]]) -> list[Any]:
+    """Roda o LLM-judge ADVISORY (EVAL-02) sobre as rubricas judge:llm das fixtures (needs_key).
+
+    SO anota/flag -- nunca afeta o exit (JUDGE_VINCULANTE=False ate EVAL-10). Faz 1 chamada Sonnet
+    por (fixture x rubrica llm) num turno isolado por fixture (rollback). Opt-in (--judge): custa
+    credito, fora do `make evals` default.
+    """
+    judge = _carregar_judge()
+    anotacoes: list[Any] = []
+    conn = await _conectar()
+    try:
+        for fixture in fixtures:
+            rubricas = judge.rubricas_llm_da_fixture(fixture)
+            if not rubricas:
+                continue
+            try:
+                captura, _ = await executar_fixture(conn, fixture)
+            finally:
+                await conn.rollback()
+            historico = [m["texto"] for m in fixture.get("mensagens_entrada", []) if m.get("texto")]
+            for rubrica in rubricas:
+                limiar = fixture["rubricas"][rubrica].get("limiar_aceite", 1.0)
+                veredito = await judge.julgar(rubrica, captura.texto_final, historico=historico)
+                anotacoes.append(
+                    judge.anotar_advisory(
+                        fixture.get("id", "?"), rubrica, veredito, limiar_aceite=limiar
+                    )
+                )
+    finally:
+        await conn.close()
+    return anotacoes
+
+
 def _imprimir(avaliacoes: list[Avaliacao]) -> None:
-    for a in avaliacoes:
-        marca = "PASS" if a.passou else "FAIL"
-        print(f"[{marca}] {a.id}")
-        for f in a.falhas:
-            print(f"        - {f}")
-    n_pass = sum(a.passou for a in avaliacoes)
-    print(f"\n{n_pass}/{len(avaliacoes)} fixtures passaram.")
+    """Imprime o resultado separando REGRESSAO (bloqueia) de CAPABILITY (advisory).
+
+    Nunca cala o que e advisory: o que nao bloqueia aparece marcado [advisory] para o leitor
+    nao confundir "verde" com "tudo coberto" (no silent caps).
+    """
+    regressao, capability = particionar_gate(avaliacoes)
+    for grupo, rotulo in (
+        (regressao, "REGRESSAO (bloqueia)"),
+        (capability, "CAPABILITY (advisory)"),
+    ):
+        if not grupo:
+            continue
+        print(f"\n== {rotulo} ==")
+        for a in grupo:
+            marca = "PASS" if a.passou else ("FAIL" if a.gate == "regressao" else "fail")
+            print(f"[{marca}] {a.id}")
+            for f in a.falhas:
+                print(f"        - {f}")
+    n_reg = sum(a.passou for a in regressao)
+    n_cap = sum(a.passou for a in capability)
+    print(
+        f"\nregressao: {n_reg}/{len(regressao)} | capability (advisory): {n_cap}/{len(capability)}"
+    )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Runner de evals deterministico (EVAL-01).")
+    parser = argparse.ArgumentParser(description="Runner de evals deterministico (EVAL-01/04/03).")
     parser.add_argument(
         "--subdir", action="append", help="subdiretorio de evals/ a rodar (repetivel)."
     )
     parser.add_argument(
-        "--threshold", type=float, default=1.0, help="pass-rate minimo para o gate (default 1.0)."
+        "--threshold", type=float, default=1.0, help="pass-rate minimo da REGRESSAO (default 1.0)."
+    )
+    parser.add_argument(
+        "--k", type=int, default=1, help="amostras por fixture (loop K; EVAL-04/03 usa 5)."
+    )
+    parser.add_argument(
+        "--judge",
+        action="store_true",
+        help="roda o LLM-judge ADVISORY (EVAL-02) nas rubricas judge:llm. Custa credito; nao gateia.",
     )
     args = parser.parse_args()
 
@@ -627,9 +775,19 @@ def main() -> None:
         print("Nenhuma fixture encontrada.", file=sys.stderr)
         raise SystemExit(2)
 
-    avaliacoes = asyncio.run(rodar(fixtures))
+    avaliacoes = asyncio.run(rodar(fixtures, k=args.k))
     _imprimir(avaliacoes)
-    raise SystemExit(gate(avaliacoes, args.threshold))
+
+    if args.judge:
+        print("\n== LLM-judge (ADVISORY — nao bloqueia) ==")
+        for anot in asyncio.run(anotacoes_judge(fixtures)):
+            flag = "ok" if anot.passou else "FLAG"
+            print(
+                f"[{flag}] {anot.fixture_id} {anot.rubrica} score={anot.score:.2f} — {anot.justificativa}"
+            )
+
+    # So a suite de REGRESSAO bloqueia o cutover; capability e advisory (refino 08b §3.5).
+    raise SystemExit(gate_split(avaliacoes, args.threshold))
 
 
 if __name__ == "__main__":

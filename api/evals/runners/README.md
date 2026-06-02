@@ -54,8 +54,38 @@ handler é reusado entre os turnos, então acumula a trajetória da fixture inte
 visitado em **qualquer** turno reprova). Ex.: `prompt_injection/001` com `nodes_proibidos:["tools"]`
 reprova se o agente chamou uma tool.
 
-**Fora de escopo aqui:** rubricas `judge: llm` (LLM-judge → EVAL-02). O loop K=5 + CI bloqueante
-é EVAL-04/03.
+### Loop K=5, política por categoria e gate split (EVAL-04/03)
+
+`--k N` roda cada fixture **N vezes** e agrega por fixture com política por **categoria**
+(`_politica_agregacao`): `adversariais` → **pass^k** (0 falha em K runs — AUP/Pix exigem isso);
+`canonicos` → **tolerante** (≥80% das amostras, i.e. ≥4/5 em K=5). As K amostras nunca contam
+como K pontos independentes.
+
+O gate de cutover (`gate_split`) bloqueia **só** a suíte de **regressão**; as **capability** são
+**advisory** (reportadas, nunca quebram o exit). Cada fixture é classificada por `_gate_da_fixture`:
+campo `gate:"regressao"|"capability"` explícito vence; default `canonicos`→regressão,
+`adversariais`→capability. Assim somar ≥6 fixtures/categoria **não** deixa o CI vermelho perpétuo —
+o operador **gradua** uma adversarial para `gate:"regressao"` depois que o run live confirma que o
+agente a passa. O runner imprime os dois grupos separados (sem silenciar o que é advisory).
+
+`bootstrap_pareado(pass_a, pass_b)` compara dois prompts nas **mesmas** fixtures, reamostrando
+**fixtures** (cluster), não amostras — devolve o delta de pass-rate + IC95%. Puro e determinístico
+(semente fixa).
+
+### LLM-judge advisory (EVAL-02) no loop
+
+`--judge` roda o `judge.py` (advisory) sobre as rubricas `judge:llm` das fixtures — **custa
+crédito**, fora do `make evals` default. Nunca afeta o exit enquanto `JUDGE_VINCULANTE=False`
+(EVAL-10): só imprime `[ok]`/`[FLAG]` por rubrica.
+
+### CI (`.github/workflows/evals.yml`)
+
+Workflow **separado** do `ci.yml`, com `paths` filtrando custo (só dispara em mudança de
+`agente/**`/`evals/**`). Roda `runner.py --k 5 --threshold 1.0` (regressão bloqueia). **Pula** sem
+os secrets `TEST_DATABASE_URL`/`ANTHROPIC_API_KEY` — habilitá-los + branch protection é passo do
+operador.
+
+**Fora de escopo aqui:** o judge vinculante (calibração é EVAL-10).
 
 ### Verificação da lógica de gate
 

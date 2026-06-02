@@ -64,7 +64,7 @@
 | EVAL-08 | 2 | `NodesVisitedHandler` + `state_check` | EVAL-01 | done |
 | EVAL-02 | 2 | LLM-judge binário + fixture de DUAS modelos (ADR 0015) | EVAL-01 | done (judge advisory; consumo no runner em EVAL-04/03) |
 | EVAL-10 | 2 | Calibrar judge contra golden humano (ADR 0015) | EVAL-02 | todo |
-| EVAL-04/03 | 2 | Loop K=5 + CI bloqueante | EVAL-01, DEPLOY-03 | todo |
+| EVAL-04/03 | 2 | Loop K=5 + CI bloqueante | EVAL-01, DEPLOY-03 | done |
 | SEC-07 | 2 | Cobrir AUP fora do regex como fixtures | EVAL-02 | done |
 | AGENTE-OG | 2 | Output-guard de saída antes da bolha (ADR 0016) | EVAL-02 | done |
 | SEC-11 | 2 | Categoria adversarial `injecao_midia` (Pix vision + STT) | EVAL-02 | todo |
@@ -260,7 +260,8 @@
 - **Refino (08b §3.1, 2026-06):** medir **primeiro** o acordo humano-humano (Fernando×sócia, 30–50 turnos) — o teto é `kappa_humano`, não 1.0; exigir 0.6 de um judge quando os humanos só concordam a 0.7 é frágil. Em rubricas de prevalência assimétrica (persona/tom), reportar **Gwet AC2 / balanced-accuracy** além do kappa (paradoxo do kappa); threshold de judge binário por **Youden's J**.
 
 ### EVAL-04/03 — Loop K=5 + CI bloqueante
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Evals · **Depende de:** EVAL-01, DEPLOY-03 · **Fonte:** roadmap §3.4
+- **Status:** done (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 2 · **Dimensão:** Evals · **Depende de:** EVAL-01, DEPLOY-03 · **Fonte:** roadmap §3.4
+- **Implementado:** `runner.py` ganhou `--k N` (loop K), **política por categoria** (`_politica_agregacao`: `adversariais`→`pass^k` 0-falha; `canonicos`→`tolerante` ≥80% = ≥4/5), **gate split** (`gate_split`/`particionar_gate`: só a suíte de **regressão** bloqueia; **capability** é advisory — campo `gate` por fixture, default `canonicos`→regressão / `adversariais`→capability, o operador gradua após o run live, evitando CI vermelho perpétuo) e **`bootstrap_pareado`** (compara 2 prompts reamostrando **fixtures**, não amostras; IC95% determinístico). **Consumo advisory do judge** (`--judge`/`anotacoes_judge`) fecha o gancho de EVAL-02/PER-01-03 (nunca gateia até EVAL-10). CI: **workflow novo `.github/workflows/evals.yml`** (separado do `ci.yml` p/ não conflitar com DEPLOY; `paths` filtra custo em `agente/**`/`evals/**`; roda `--k 5`; **pula sem secrets** — habilitar `TEST_DATABASE_URL`/`ANTHROPIC_API_KEY` + branch protection é passo do operador). Verificado **offline**: 44 testes puros (pass^k vs ≥4/5, gate split, bootstrap determinístico) + `ruff` + `evals.yml` válido. O run live K=5 e a graduação das adversariais ficam com o operador.
 - **Objetivo (DoD):** CI roda `lint+typecheck+test+evals` em cada PR; PR com regressão de prompt que vaze identidade reprova o build.
 - **Arquivos:** `runner.py` (loop K=5, `pass^k` para AUP/Pix, ≥4/5 corretude), `.github/workflows/ci.yml` (secrets `TEST_DATABASE_URL`/`ANTHROPIC_API_KEY`).
 - **Verificação:** abrir PR com regressão proposital → build vermelho; status check obrigatório (branch protection).

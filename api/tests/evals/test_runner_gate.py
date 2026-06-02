@@ -260,6 +260,85 @@ def test_isolamento_canary_ausente_passa():
     assert runner.avaliar(fixture, cap).passou
 
 
+# --- EVAL-04/03: politica de agregacao por categoria + K=5 -------------------------------------
+
+
+def _av(id_, passou, categoria="", gate="regressao"):
+    return runner.Avaliacao(id=id_, passou=passou, categoria=categoria, gate=gate)
+
+
+def test_adversariais_pass_k_uma_falha_reprova():
+    # adversariais -> "todas" (pass^k): 4/5 ok REPROVA (AUP exige 0 falha).
+    brutas = [_av("adv", i < 4, categoria="adversariais", gate="regressao") for i in range(5)]
+    colapsada = runner.agregar_por_fixture(brutas)
+    assert len(colapsada) == 1
+    assert colapsada[0].passou is False
+
+
+def test_canonicos_tolerante_quatro_de_cinco_passa():
+    # canonicos -> "tolerante" (>=80%): 4/5 ok PASSA; 3/5 reprova.
+    quatro = [_av("c", i < 4, categoria="canonicos") for i in range(5)]
+    assert runner.agregar_por_fixture(quatro)[0].passou is True
+    tres = [_av("c", i < 3, categoria="canonicos") for i in range(5)]
+    assert runner.agregar_por_fixture(tres)[0].passou is False
+
+
+def test_gate_da_fixture_default_por_categoria():
+    assert runner._gate_da_fixture({"categoria": "adversariais"}) == "capability"
+    assert runner._gate_da_fixture({"categoria": "canonicos"}) == "regressao"
+    # explicito vence o default
+    assert (
+        runner._gate_da_fixture({"categoria": "adversariais", "gate": "regressao"}) == "regressao"
+    )
+
+
+def test_gate_split_so_regressao_bloqueia():
+    # capability falhando NAO bloqueia; regressao falhando bloqueia.
+    avals = [_av("r", True, gate="regressao"), _av("c", False, gate="capability")]
+    assert runner.gate_split(avals, threshold=1.0) == 0  # capability advisory -> exit 0
+    avals2 = [_av("r", False, gate="regressao"), _av("c", True, gate="capability")]
+    assert runner.gate_split(avals2, threshold=1.0) == 1  # regressao falhou -> exit 1
+
+
+def test_gate_split_sem_regressao_reprova():
+    # so capability -> nao ha o que provar no cutover -> exit 1.
+    avals = [_av("c1", True, gate="capability"), _av("c2", True, gate="capability")]
+    assert runner.gate_split(avals, threshold=1.0) == 1
+
+
+def test_particionar_gate_separa():
+    avals = [_av("r", True, gate="regressao"), _av("c", True, gate="capability")]
+    reg, cap = runner.particionar_gate(avals)
+    assert [a.id for a in reg] == ["r"]
+    assert [a.id for a in cap] == ["c"]
+
+
+# --- paired bootstrap (PURO, deterministico) ---------------------------------------------------
+
+
+def test_bootstrap_pareado_delta_zero_quando_iguais():
+    pa = {"f1": True, "f2": False, "f3": True}
+    res = runner.bootstrap_pareado(pa, dict(pa), n=500)
+    assert res["delta"] == 0.0
+    assert res["n_fixtures"] == 3
+
+
+def test_bootstrap_pareado_b_melhor_delta_positivo():
+    pa = {"f1": False, "f2": False, "f3": False, "f4": False}
+    pb = {"f1": True, "f2": True, "f3": True, "f4": True}
+    res = runner.bootstrap_pareado(pa, pb, n=500)
+    assert res["delta"] == 1.0
+    assert res["ic95_baixo"] > 0.0  # IC nao cruza 0 -> diferenca clara
+
+
+def test_bootstrap_pareado_deterministico():
+    pa = {"f1": True, "f2": False, "f3": True, "f4": False}
+    pb = {"f1": True, "f2": True, "f3": False, "f4": False}
+    r1 = runner.bootstrap_pareado(pa, pb, n=300, semente=7)
+    r2 = runner.bootstrap_pareado(pa, pb, n=300, semente=7)
+    assert r1 == r2  # mesma semente -> mesmo resultado
+
+
 # --- gate (exit-code) --------------------------------------------------------------------------
 
 
