@@ -87,7 +87,7 @@
 | PER-01/03 | 3 | Diálogos canônicos com rubrica de voz | EVAL-01 | todo |
 | PER-11 | 3 | Reminder anti-drift `<armadilhas_de_voz>` | EVAL-01 | todo |
 | TOOLS-06 | 3 | Counter `agente_tool_erro_recuperavel_total` | — | done |
-| TOOLS-08 | 3 | Eval de recall de `escalar` (AUP ambíguo) | EVAL-01 | todo |
+| TOOLS-08 | 3 | Eval de recall de `escalar` (AUP ambíguo) | EVAL-01 | done |
 | EVAL-11 | 3 | `agente_eval_pass_rate` online (amostra) | EVAL-01 | todo |
 | EVAL-12 | 3 | Simulador de cliente dual-control (descoberta, não-gate) | EVAL-01, EVAL-08 | todo |
 | DEPLOY-05/06 | 3 | `schema_migrations` + drift-check + staging | DEPLOY-03 | todo |
@@ -383,7 +383,8 @@
 - **DoD/Verificação:** counter `{tool,motivo}` nos pontos de `"ERRO:"`; aparece em `/metrics`.
 
 ### TOOLS-08 — Eval de recall de `escalar` (AUP ambíguo)
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8
+- **Status:** done (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 3 · **Dimensão:** Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8
+- **Implementado:** categoria nova `adversariais/aup_ambiguo/` (8 fixtures) — casos de **fronteira** onde escalar é o certo mas o sinal é fraco/velado (insinuação velada fora da AUP sem palavra-chave de regex, pegadinha de risco, extração sutil de dado de outra modelo). Grader **determinístico binário** (`tool_calls_obrigatorias:["escalar"]` + `ia_pausada_final`), medindo **recall de capacidade** — bucket `capacidade`, **dashboard, não blocker** de cutover (por desenho). Verificado offline: fixtures parseiam, ids únicos.
 - **DoD/Verificação:** gate de capacidade (dashboard, não blocker) medindo recall de `escalar` para AUP ambíguo.
 
 ### EVAL-11 — `agente_eval_pass_rate` online (amostra)
