@@ -49,7 +49,7 @@ LangGraph oferece dois caminhos:
 - `create_react_agent` foi marcado como **legacy/deprecado em LangGraph v1.0** (GA out/2025), substituído por `langchain.agents.create_agent` com middleware. O **StateGraph custom não foi deprecado** — segue como o caminho de baixo nível suportado; só o prebuilt saiu. O fórum LangChain registra perda de feature concreta na migração (reescrita de histórico de mensagens em função do estado, exatamente o que precisamos para injetar SystemMessages dinâmicas e contexto fresco a cada turno).
 - O domínio Elite Baby tem **vários gates determinísticos** que cabem mal num loop ReAct opaco: gate de pausa (`ia_pausada=true` antes do LLM), refetch pós-tool, descarte de texto após `escalar`, decisão de cards no grupo, sliding window por turno. StateGraph permite enxerto natural de nós antes/depois do LLM.
 - Observabilidade: cada nó é um span dedicado no LangSmith; com `create_react_agent` o loop fica opaco.
-- Não há custo significativo: temos 5 tools no P0, mas o "loop" é tão simples (`prepare → llm → tools → llm → post_process`) que escrever 5 nós explícitos é mais claro que o prebuilt.
+- Não há custo significativo: temos 5 tools no P0, mas o "loop" é tão simples (`prepare_context → intercept_disclosure → llm → tools → llm → post_process → output_guard`) que escrever 6 nós explícitos é mais claro que o prebuilt.
 
 Estrutura canônica do grafo (detalhada em `02 §1` e `03 §7`):
 
@@ -60,7 +60,8 @@ START
               └─▶ llm   (ChatAnthropic com cache_control; thinking disabled + effort=low no P0 — só Sonnet, §2.6)
                     ├─▶ tools (executa tool_calls; loop volta para llm)
                     └─▶ post_process  (refetch atendimento; descarta texto se escalada)
-                          └─▶ END
+                          └─▶ output_guard  (ADR 0016: scan de vazamento + LLM-judge de AUP; bloqueia → handoff + bolha vazia)
+                                └─▶ END
 ```
 
 A máquina de estados de domínio (`Novo→Triagem→...→Fechado`) **NÃO** é refletida em nós do LangGraph. Cada estado é coluna em `atendimentos.estado`; transições são disparadas pelo coordenador a partir de tools de escrita ou eventos externos (Pix pipeline, foto de portaria, timeouts).
@@ -143,7 +144,7 @@ Detalhes de seleção em `03 §6`.
 api/src/barra/
 ├── agente/                            ← módulo 5.3 da mvp/03
 │   ├── __init__.py
-│   ├── graph.py                       ← build_graph() retornando StateGraph compilado (5 nós)
+│   ├── graph.py                       ← build_graph() retornando StateGraph compilado (6 nós)
 │   ├── estado.py                      ← EstadoAgente (alias MessagesState) + tipos auxiliares
 │   ├── nos/                           ← NOVO: nós do StateGraph
 │   │   ├── prepare_context.py         ← dono do contexto: gate ia_pausada + persona/agenda/cliente + janela

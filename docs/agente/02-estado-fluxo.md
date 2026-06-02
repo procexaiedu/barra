@@ -23,7 +23,7 @@ class EstadoAgente(MessagesState):
 
     midia_idx: int           # call_idx determinístico p/ idempotência de enviar_midia (04 §3.3)
     _categoria: str | None    # disclosure/jailbreak classificado pelo prepare_context (10 §8)
-    _confianca: float | None  # confiança da classificação; lido pelo intercept_disclosure
+    _confianca: str | None    # confiança ("alta" ou None) da classificação; lida pelo intercept_disclosure
 ```
 
 Estendemos com **campos transitórios por-turno** (`midia_idx`, `_categoria`, `_confianca`) — não persistidos, sem dado de domínio. `_categoria`/`_confianca` são gravadas pelo `prepare_context`, que **classifica disclosure/jailbreak dentro do grafo** (regex sobre a cauda de mensagens da janela), em vez de receber a categoria do webhook — robusto a debounce/drain, que processam uma janela e não um evento de mensagem único (decisão grilling 2026-05-23; ver `10 §8`); o `intercept_disclosure` lê esses campos para rotear. **A pausa não usa flag de state:** o `prepare_context` faz early exit via `Command(goto=END)` quando `ia_pausada` (`03 §7`) — por isso não há `_pausada`/`_intercept`. Se em P1 surgir necessidade (ex.: classificador interno/externo armazenado), adicionar como campo opcional com reducer apropriado.
