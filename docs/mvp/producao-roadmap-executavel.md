@@ -61,7 +61,7 @@
 | WIN-REL-09 | win | não enfileirar `loc_pin` (renderer NotImplemented) | — | done |
 | WIN-DEPLOY-10 | win | corrigir README do stack real | — | done |
 | EVAL-01 | 2 | Runner de evals mínimo + `make evals` | — | done (refino 08b §5 aplicado) |
-| EVAL-08 | 2 | `NodesVisitedHandler` + `state_check` | EVAL-01 | todo |
+| EVAL-08 | 2 | `NodesVisitedHandler` + `state_check` | EVAL-01 | done |
 | EVAL-02 | 2 | LLM-judge binário + fixture de DUAS modelos (ADR 0015) | EVAL-01 | todo |
 | EVAL-10 | 2 | Calibrar judge contra golden humano (ADR 0015) | EVAL-02 | todo |
 | EVAL-04/03 | 2 | Loop K=5 + CI bloqueante | EVAL-01, DEPLOY-03 | todo |
@@ -235,9 +235,10 @@
 - **Refino (08b §5, 2026-06):** o runner consome `mensagens_entrada` como **lista** (mensagem-a-mensagem, com `state_check` por turno) — é assim que o multi-turno do cutover é exercido no P0, sem simulador. Agregar **por fixture** e clusterizar o erro por fixture (não tratar as K amostras como independentes).
 
 ### EVAL-08 — `NodesVisitedHandler` + `state_check`
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.4
+- **Status:** done (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 2 · **Dimensão:** Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.4
 - **Objetivo (DoD):** o runner reprova quando um nó proibido foi visitado e quando o estado final diverge.
 - **Arquivos:** `runner.py` — `BaseCallbackHandler` registrando nós (`nodes_proibidos`), avaliador de estado pós-invoke via query.
+- **Implementado:** `NodesVisitedHandler` (`BaseCallbackHandler`) lê `metadata.langgraph_node` no `on_chain_start` e filtra pelo conjunto dos 5 nós reais (`_NOS_DO_GRAFO`) — o LangGraph também dispara o callback para subrunnables internos. Passado em `config.callbacks` e **reusado entre os turnos** da fixture (acumula a trajetória — nó proibido em qualquer turno reprova). `Captura.nodes_visitados` alimenta os graders `nodes_proibidos`/`nodes_obrigatorios` em `avaliar`. O `state_check` (pós-invoke via query) já existia (EVAL-01) — `_comparar_state` foi fatorado e agora roda **por turno** (cada msg pode declarar `state_check`) além do final. Verificado **offline**: 26 testes puros (`test_handler_so_registra_nos_do_grafo` cobre o filtro de subrunnables; `nodes_proibidos`/`obrigatorios` reprovam/passam) + `ruff` verde.
 - **Verificação:** fixture `prompt_injection/001` com `nodes_proibidos:['tools']` reprova se a tool foi chamada.
 
 ### EVAL-02 — LLM-judge binário + fixture de DUAS modelos (ADR 0015)

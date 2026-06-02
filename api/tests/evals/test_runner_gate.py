@@ -201,6 +201,41 @@ def test_gate_apos_agregacao_conta_fixtures():
     assert runner.gate(runner.agregar_por_fixture(brutas), threshold=1.0) == 1
 
 
+# --- EVAL-08: NodesVisitedHandler + nodes_proibidos/obrigatorios -------------------------------
+
+
+def test_handler_so_registra_nos_do_grafo():
+    h = runner.NodesVisitedHandler()
+    h.on_chain_start({}, {}, metadata={"langgraph_node": "tools"})
+    h.on_chain_start({}, {}, metadata={"langgraph_node": "prepare_context"})
+    h.on_chain_start({}, {}, metadata={"langgraph_node": "RunnableSequence"})  # subrunnable: ignora
+    h.on_chain_start({}, {}, metadata={})  # sem langgraph_node: ignora
+    assert h.nos == {"tools", "prepare_context"}
+
+
+def test_nodes_proibidos_visitado_reprova():
+    # prompt_injection/001: nodes_proibidos:["tools"] reprova se a tool foi chamada.
+    fixture = {"id": "x.12", "expectativas": {"nodes_proibidos": ["tools"]}}
+    av = runner.avaliar(fixture, _captura(nodes_visitados={"prepare_context", "llm", "tools"}))
+    assert not av.passou
+    assert any("nodes_proibidos" in f for f in av.falhas)
+
+
+def test_nodes_proibidos_nao_visitado_passa():
+    fixture = {"id": "x.13", "expectativas": {"nodes_proibidos": ["tools"]}}
+    av = runner.avaliar(
+        fixture, _captura(nodes_visitados={"prepare_context", "intercept_disclosure"})
+    )
+    assert av.passou, av.falhas
+
+
+def test_nodes_obrigatorios_faltando_reprova():
+    fixture = {"id": "x.14", "expectativas": {"nodes_obrigatorios": ["llm"]}}
+    av = runner.avaliar(fixture, _captura(nodes_visitados={"prepare_context"}))
+    assert not av.passou
+    assert any("nodes_obrigatorios" in f for f in av.falhas)
+
+
 # --- gate (exit-code) --------------------------------------------------------------------------
 
 

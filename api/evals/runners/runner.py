@@ -46,6 +46,7 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
+from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
@@ -54,6 +55,12 @@ from barra.agente.contexto import ContextAgente
 from barra.agente.graph import build_graph
 
 _EVALS_RAIZ = Path(__file__).resolve().parents[1]
+
+# Os 5 nos do grafo (graph.py). O LangGraph emite on_chain_start para muitos subrunnables
+# internos; filtramos por este conjunto para registrar SO transicoes de no (EVAL-08).
+_NOS_DO_GRAFO = frozenset(
+    {"prepare_context", "intercept_disclosure", "llm", "tools", "post_process"}
+)
 
 
 # --- carregamento de fixtures ------------------------------------------------------------------
@@ -89,6 +96,9 @@ class Captura:
     # intercept_disclosure OU a tool `escalar` do LLM). `avaliar()` injeta "escalar" no conjunto
     # de tools quando True, para o grader cobrir os dois caminhos de escalada.
     escalou: bool = False
+    # nos do grafo visitados na fixture (acumulado entre turnos pelo NodesVisitedHandler). Alvo
+    # do grader `nodes_proibidos`/`nodes_obrigatorios` (EVAL-08).
+    nodes_visitados: set[str] = field(default_factory=set)
 
 
 def _tools_chamadas(mensagens: list[BaseMessage]) -> set[str]:
@@ -229,6 +239,26 @@ def planejar_turnos(mensagens_entrada: list[dict[str, Any]]) -> list[PlanoTurno]
     ]
 
 
+class NodesVisitedHandler(BaseCallbackHandler):
+    """Registra os nos do grafo visitados no turno (EVAL-08).
+
+    O LangGraph injeta `langgraph_node` no metadata de cada execucao de no; coletamos so os
+    nomes que pertencem ao grafo (`_NOS_DO_GRAFO`), ignorando os subrunnables internos que o
+    `on_chain_start` tambem dispara. O mesmo handler e reusado entre os turnos de uma fixture,
+    entao acumula a trajetoria inteira -- um no proibido visitado em QUALQUER turno reprova.
+    """
+
+    def __init__(self) -> None:
+        self.nos: set[str] = set()
+
+    def on_chain_start(
+        self, serialized: dict[str, Any], inputs: dict[str, Any], **kwargs: Any
+    ) -> None:
+        no = (kwargs.get("metadata") or {}).get("langgraph_node")
+        if no in _NOS_DO_GRAFO:
+            self.nos.add(no)
+
+
 async def _capturar(
     conn: AsyncConnection[dict[str, Any]], atendimento_id: UUID, estado: dict[str, Any]
 ) -> Captura:
@@ -265,6 +295,7 @@ async def executar_fixture(
     """
     modelo_id, atendimento_id, cliente_id, conversa_id = await _seed_entidades(conn, fixture)
     grafo = build_graph()
+    handler = NodesVisitedHandler()  # reusado entre turnos -> acumula a trajetoria da fixture
     captura: Captura | None = None
     falhas_turno: list[str] = []
 
@@ -274,7 +305,7 @@ async def executar_fixture(
             continue  # resposta roteirizada da IA: historico da janela, nao dispara turno
         estado = await grafo.ainvoke(
             {"messages": []},
-            config={"recursion_limit": 18},
+            config={"recursion_limit": 18, "callbacks": [handler]},
             context=ContextAgente(
                 db_pool=_PoolDeUmaConexao(conn),  # type: ignore[arg-type]
                 redis=None,  # type: ignore[arg-type]
@@ -298,6 +329,7 @@ async def executar_fixture(
         raise ValueError(
             f"fixture {fixture.get('id', '?')!r} nao tem mensagem de cliente -- nenhum turno disparado"
         )
+    captura.nodes_visitados = set(handler.nos)  # trajetoria acumulada de todos os turnos
     return captura, falhas_turno
 
 
@@ -339,7 +371,8 @@ def _tools_efetivas(captura: Captura) -> set[str]:
 def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
     """Aplica os graders deterministicos da fixture sobre a Captura. Sem DB/LLM.
 
-    Rubricas `judge: llm` (EVAL-02) e `nodes_proibidos` (EVAL-08) sao ignoradas aqui.
+    Rubricas `judge: llm` (EVAL-02) sao ignoradas aqui. `nodes_proibidos`/`nodes_obrigatorios`
+    (EVAL-08) sao avaliados contra a trajetoria capturada pelo NodesVisitedHandler.
     """
     exp = fixture.get("expectativas", {})
     falhas: list[str] = []
@@ -366,6 +399,16 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
     max_chars = texto.get("max_chars")
     if max_chars is not None and len(captura.texto_final) > max_chars:
         falhas.append(f"texto excede max_chars ({len(captura.texto_final)} > {max_chars})")
+
+    # nodes_proibidos / nodes_obrigatorios (EVAL-08): trajetoria do grafo (acumulada nos turnos).
+    proibidos = set(exp.get("nodes_proibidos", []))
+    visitou_proibido = proibidos & captura.nodes_visitados
+    if visitou_proibido:
+        falhas.append(f"nodes_proibidos visitados: {sorted(visitou_proibido)}")
+    nodes_obrig = set(exp.get("nodes_obrigatorios", []))
+    nodes_faltando = nodes_obrig - captura.nodes_visitados
+    if nodes_faltando:
+        falhas.append(f"nodes_obrigatorios nao visitados: {sorted(nodes_faltando)}")
 
     # state_check (declarativo) tem precedencia sobre os aliases soltos; aplica os dois.
     state_check = dict(exp.get("state_check") or {})
