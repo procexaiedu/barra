@@ -8,3 +8,4 @@ Nao colocar codigo de producao neste diretorio.
 - `aplicar_sql.py` — aplica SQL no banco via psycopg.
 - `reset_agente.py` — reset de estado do agente para testes.
 - `vincular_instance_legacy.py` — vincula instancia Evolution legada a uma modelo.
+- `repara_encoding_evals.py` — conserta mojibake (dupla codificacao latin-1<->utf-8) nas fixtures `.jsonl` de `api/evals/`. Idempotente; `--dry-run` so reporta.
