@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
@@ -55,11 +55,11 @@ export function ModalDetalheMetrica({
           )}
         </div>
 
-        <footer className="flex justify-end border-t border-border px-8 py-3">
+        <DialogFooter>
           <Button variant="ghost" size="lg" onClick={() => onOpenChange(false)}>
             Fechar
           </Button>
-        </footer>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

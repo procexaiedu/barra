@@ -18,7 +18,7 @@ import {
   Image as ImageIcon,
 } from "lucide-react"
 import { toast } from "sonner"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -487,7 +487,7 @@ export function ModalDecisaoCard({
 
           {/* ── footer com ações ────────────────────────────────── */}
           {!loading && !erro && contexto && (
-            <footer className="flex justify-end gap-2 border-t border-border px-8 py-3">
+            <DialogFooter>
               <Button variant="ghost" size="sm" onClick={onClose} disabled={loadingAcao}>
                 Cancelar
               </Button>
@@ -537,7 +537,7 @@ export function ModalDecisaoCard({
                   {loadingAcao ? "Devolvendo…" : "Devolver para IA"}
                 </Button>
               )}
-            </footer>
+            </DialogFooter>
           )}
         </DialogContent>
       </Dialog>

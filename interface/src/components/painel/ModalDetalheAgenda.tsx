@@ -4,7 +4,7 @@ import { useState, useEffect, type ReactNode } from "react"
 import Link from "next/link"
 import { Bot, User, Hand, ExternalLink, X, Clock, Calendar, Timer, Users, FileText } from "lucide-react"
 import { toast } from "sonner"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -282,7 +282,7 @@ export function ModalDetalheAgenda({
 
           {/* ── footer ──────────────────────────────────────────── */}
           {linha && (
-            <footer className="flex items-center justify-between border-t border-border px-8 py-3">
+            <DialogFooter className="justify-between">
               <div>
                 {podeCancel && (
                   <Button
@@ -310,7 +310,7 @@ export function ModalDetalheAgenda({
                 <ExternalLink size={13} />
                 Ver na agenda
               </Button>
-            </footer>
+            </DialogFooter>
           )}
         </DialogContent>
       </Dialog>

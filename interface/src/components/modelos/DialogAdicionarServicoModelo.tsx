@@ -4,7 +4,7 @@ import { useMemo, useState } from "react"
 import { Check, Loader2, Plus, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import type {
@@ -434,7 +434,7 @@ export function DialogAdicionarServicoModelo({
           )}
         </div>
 
-        <footer className="flex items-center justify-between gap-3 border-t border-border bg-muted px-6 py-4">
+        <DialogFooter className="justify-between gap-3 bg-muted px-6 py-4">
           <span className="text-xs text-text-muted">
             {totalPares === 0
               ? "Selecione ao menos um serviço e duração."
@@ -452,7 +452,7 @@ export function DialogAdicionarServicoModelo({
               {totalPares > 0 ? ` ${totalPares}` : ""}
             </Button>
           </div>
-        </footer>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

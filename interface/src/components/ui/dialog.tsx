@@ -83,11 +83,28 @@ function DialogDescription({
   )
 }
 
+function DialogFooter({
+  className,
+  ...props
+}: React.ComponentProps<"footer">) {
+  return (
+    <footer
+      data-slot="dialog-footer"
+      className={cn(
+        "flex items-center justify-end gap-2 border-t border-border px-8 py-3",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
 export {
   Dialog,
   DialogClose,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogOverlay,
   DialogPortal,
   DialogTitle,
