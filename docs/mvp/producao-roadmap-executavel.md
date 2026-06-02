@@ -75,22 +75,22 @@
 | REL-04 | 2 | `vision_client` com timeout/retries | — | done |
 | REL-08 | 2 | Escalada crítica resiliente a `atendimento_id` nulo | — | done |
 | REL-12 | 2 | Visibilidade de falha final não-crítica | OBS-04 | done |
-| OBS-02 | 2 | Prometheus + Grafana + Alertmanager | OBS-01 | todo |
+| OBS-02 | 2 | Prometheus + Grafana + Alertmanager | OBS-01 | done · branch `feat/obs-monitoring` (code-only; deploy=operador) |
 | OBS-07 | 2 | Middleware de request-id api→worker | OBS-03 | done |
 | OBS-09/10 | 2 | Tag `modelo_id`/`atendimento_id` nos traces | SEC-10 | done |
 | TOOLS-04 | 2 | Incrementar `AGENTE_ESCALADA` após `abrir_handoff` | — | done |
-| CUSTO-02 | 3 | Custo de STT + vision por atendimento | — | todo |
-| CUSTO-01 | 3 | Comissão + Taxa de cartão + ROI (ADRs 0012/0013) | CUSTO-02 | todo |
+| CUSTO-02 | 3 | Custo de STT + vision por atendimento | — | done · branch `feat/custo-roi` |
+| CUSTO-01 | 3 | Comissão + Taxa de cartão + ROI (ADRs 0012/0013) | CUSTO-02 | done · branch `feat/custo-roi` (migration=operador) |
 | CUSTO-04 | 3 | Teto de turnos por conversa/dia + retry-after | — | done |
-| CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | todo |
-| CUSTO-06 | 3 | Fonte única do alvo de custo | — | todo |
+| CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | done · branch `feat/obs-monitoring` (code-only) |
+| CUSTO-06 | 3 | Fonte única do alvo de custo | — | done · branch `feat/custo-roi` |
 | PER-01/03 | 3 | Diálogos canônicos com rubrica de voz | EVAL-01 | done (judge consumido em EVAL-04/03) |
 | PER-11 | 3 | Reminder anti-drift `<armadilhas_de_voz>` | EVAL-01 | done |
 | TOOLS-06 | 3 | Counter `agente_tool_erro_recuperavel_total` | — | done |
 | TOOLS-08 | 3 | Eval de recall de `escalar` (AUP ambíguo) | EVAL-01 | done |
 | EVAL-11 | 3 | `agente_eval_pass_rate` online (amostra) | EVAL-01 | done (métrica emitida; scrape vivo = OBS-02/operador) |
 | EVAL-12 | 3 | Simulador de cliente dual-control (descoberta, não-gate) | EVAL-01, EVAL-08 | scaffold (atos+cliente+loop; run live = passo do operador) |
-| DEPLOY-05/06 | 3 | `schema_migrations` + drift-check + staging | DEPLOY-03 | todo |
+| DEPLOY-05/06 | 3 | `schema_migrations` + drift-check + staging | DEPLOY-03 | done · branch `feat/deploy-migrations` (staging+apply=operador) |
 | OBS-05 | 3 | Resolver config de tracing morta/duplicada | SEC-10 | done |
 
 ---
@@ -329,7 +329,9 @@
 - **DoD/Verificação:** `workers/envio.py:520-521` loga `error` com `turno_id`+request_id e captura no Sentry; mensagem perdida ao cliente fica visível à operação.
 
 ### OBS-02 — Prometheus + Grafana + Alertmanager
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** OBS-01 · **Fonte:** roadmap §3.6
+- **Status:** done (code-only, 2026-06-01, branch `feat/obs-monitoring`) · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** OBS-01 · **Fonte:** roadmap §3.6
+- **Implementado (code-only):** `infra/monitoring/prometheus.yml` (scrape `barra-api:8000/metrics` + `barra-worker:9091/metrics`), `alert.rules.yml` (4 sinais do DoD: spike `agente_escalada_total{bucket=defesa}`, write-rate de cache [CUSTO-05], p95 de `agente_turno_duracao_seconds`/HTTP, custo vs alvo), `alertmanager.yml` (rota + receiver placeholder `ALERT_WEBHOOK_URL`), datasource Grafana, e 3 serviços (prometheus/alertmanager/grafana) + volumes **aditivos** no `stack.barra-portainer.yml` (api/worker/redis intocados). Nomes/labels conferidos 1:1 com `core/metrics.py`; YAML válido; `docker compose config` exit 0; `mypy`/`pytest` sem regressão (config-only). Runbook `infra/runbooks/monitoring-stack.md`.
+- **Passo do operador:** `promtool/amtool check`; setar `ALERT_WEBHOOK_URL`/`GRAFANA_ADMIN_PASSWORD`; redeploy da stack no Swarm; DNS do Grafana; verificar targets UP + disparo de fumaça.
 - **DoD/Verificação:** stack de métricas com scrape de api e worker; regras versionadas (spike de `agente_escalada_total{bucket=defesa}`, write-rate de cache, p95, custo) disparam.
 
 ### OBS-07 — Middleware de request-id api→worker
@@ -350,11 +352,15 @@
 # ONDA 3 — Otimização, economia e prova de ROI
 
 ### CUSTO-02 — Custo de STT + vision por atendimento
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
-- **DoD/Verificação:** `workers/pix.py:167` lê `resposta.usage`; `workers/media.py:282` usa `resposta.duration`; `core/metrics.py` ganha Histograms de custo STT/vision; `custo_por_atendimento_brl` soma chat+STT+vision.
+- **Status:** done (2026-06-01, branch `feat/custo-roi`) · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
+- **Implementado:** `agente/_custo.py` ganhou tabela de preço de vision + tarifa por-minuto de STT + funções puras `calcular_custo_vision_brl`/`calcular_custo_stt_brl`/`custo_por_atendimento_brl`; `workers/pix.py` observa `AGENTE_CUSTO_VISION_BRL` de `resposta.usage` (o ponteiro `:167` do roadmap estava obsoleto — a resposta era descartada); `workers/media.py` observa `AGENTE_CUSTO_STT_BRL` da `duration`; 2 Histograms novos em `core/metrics.py` espelhando o do chat. **Decisão (tarifas pendentes de confirmação do operador, defaults documentados):** vision = tabela do Sonnet ($3/$15 por MTok) como proxy do modelo OpenRouter; STT = $0.006/min (Whisper-1). Verificado offline: 7 testes (`test_custo_02_stt_vision.py`) + mypy/ruff.
+- **Passo do operador:** confirmar as tarifas reais; somar `custo_por_atendimento_brl` (chat+STT+vision) no Grafana (o custo vive em Histograms no worker; o dashboard roda na api).
+- **DoD/Verificação:** `core/metrics.py` ganha Histograms de custo STT/vision; `custo_por_atendimento_brl` soma chat+STT+vision.
 
 ### CUSTO-01 — Comissão + Taxa de cartão + ROI (ADRs 0012/0013)
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** CUSTO-02 · **Fonte:** roadmap §3.7 + ADRs 0012/0013
+- **Status:** done (2026-06-01, branch `feat/custo-roi`) · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** CUSTO-02 · **Fonte:** roadmap §3.7 + ADRs 0012/0013
+- **Implementado:** migration `infra/sql/20260601090000_vendedores_comissao_taxa.sql` (enum nível, `vendedores`, `modelos.vendedor_id`, `atendimentos.vendedor_id`+`taxa_cartao_snapshot`, config seed `financeiro_comissao_niveis` 4/5/6%, `financeiro_comissoes_pagas`, RLS fernando-only — **migration-reviewer: apta**, idempotente, sem FK órfã). Fórmulas canônicas em `dominio/financeiro/calculos.py` (`valor_servico = valor_final/(1+taxa/100)`; repasse e comissão sobre o serviço, independentes; só `Fechado`; IA → vendedor nulo → comissão 0). Herança do vendedor na criação do atendimento (`atendimentos/service.py` + `coordenador.py`). Comissão (`comissao_por_vendedor` + service + rota `GET /financeiro/comissoes`) e bloco `roi_ia` no dashboard (`comissao_calculada` vs `comissao_evitada`). **Follow-up (achado do domain-isolation-reviewer, corrigido):** `listar_receitas` calculava o repasse da linha sobre o bruto — agora usa `repasse_modelo` (valor do serviço), com regressão `test_custo_01_receita_linha_taxa`. Isolamento verificado: nada de vendedor/comissão é exposto à IA (painel-only, RLS). Verificado offline: mypy/ruff + testes.
+- **Passos do operador:** aplicar a migration MANUALMENTE em prod (sem `make migrate`; pré-voo do schema real de `modelos`/`atendimentos`); cadastrar vendedores + `modelos.vendedor_id`; ligar a UI de fechamento p/ gravar `taxa_cartao_snapshot` (no-op enquanto NULL); alimentar `custo_ia_brl` do ROI via Grafana; validar a semântica de `comissao_evitada` (usa alíquota `intermediario` de referência); frontend (UI do ROI/seletor/comissões) é outra task.
 - **Objetivo (DoD):** dashboard responde "a IA custou R$X e evitou R$Y de comissão neste mês, por modelo".
 - **Arquivos:** `infra/sql/` (tabela `vendedores`, `modelos.vendedor_id`, `atendimentos.vendedor_id`/`taxa_cartao_snapshot`), `dominio/financeiro/{repo,service,routes}.py`, `dominio/dashboard/`.
 - **Passos:** `valor_servico = Valor final − taxa`; comissão = nível×`valor_servico` (independente do repasse); bloco ROI no dashboard (`custo_IA_por_fechado` vs `comissao_evitada`). **Ler ADRs 0012/0013.**
@@ -366,12 +372,14 @@
 - **DoD/Verificação:** contador Redis por conversa escala a Fernando ao estourar (fecha o loop do `RECURSION_LIMIT` dormente, `coordenador.py:45`); respeita `retry-after`; cliente em loop não queima orçamento até as 24h.
 
 ### CUSTO-05 — Alerta de write-rate de cache
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** OBS-02 · **Fonte:** roadmap §3.7
+- **Status:** done (code-only, 2026-06-01, branch `feat/obs-monitoring`) · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** OBS-02 · **Fonte:** roadmap §3.7
+- **Implementado:** regra `AgenteCacheWriteRateAlto` em `infra/monitoring/alert.rules.yml`: `rate(agente_turno_tokens_total{tipo=cache_write}) / rate(agente_turno_tokens_total{tipo=~input|cache_read|cache_write}) > 0.15` por 15m — espelha o invariante de write-rate de `agente/CLAUDE.md`. Dobrada na mesma entrega de rules do OBS-02 (a métrica-base já existia e é emitida pelo nó llm). Deploy ao vivo = passo do operador (junto do OBS-02).
 - **DoD/Verificação:** regra Alertmanager sobre `agente_turno_tokens_total{tipo=cache_write}` disparando >15% em regime (espelha o invariante de `agente/CLAUDE.md`).
 
 ### CUSTO-06 — Fonte única do alvo de custo
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
-- **DoD/Verificação:** `settings.custo_alvo_brl` referenciado em `core/metrics.py:96` e no runner; eliminado o divergente 0.12 vs 0.05.
+- **Status:** done (2026-06-01, branch `feat/custo-roi`) · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
+- **Implementado:** `settings.custo_alvo_brl` (default **0.12** — a meta de TURNO documentada no help do Histogram de custo) vira fonte única; help/comentários de `core/metrics.py`, `agente/nos/llm.py` e `agente/_custo.py` apontam pro settings sem hardcode. `test_custo_06_alvo_unico.py` trava contra reintrodução do literal. **Decisão:** o `max_custo_brl=0.05` das fixtures é um budget por-fixture de outro knob (hoje inerte no runner) — não unificado à força. (Os ponteiros do roadmap `metrics.py:96`/"no runner" estavam errados — o runner não lia custo.)
+- **DoD/Verificação:** `settings.custo_alvo_brl` é a fonte única; eliminado o divergente 0.12 vs 0.05.
 
 ### PER-01/03 — Diálogos canônicos com rubrica de voz
 - **Status:** done (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 3 · **Dimensão:** Persona+Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8
@@ -409,8 +417,10 @@
 - **Guardrails específicos:** simulador infla (até ~9 pp); proibido usá-lo como critério de cutover. Multi-turno do P0 já é coberto por fixtures `scripted_5/` pré-roteirizadas.
 
 ### DEPLOY-05/06 — `schema_migrations` + drift-check + staging
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Deploy · **Depende de:** DEPLOY-03 · **Fonte:** roadmap §3.8
-- **DoD/Verificação:** tabela `schema_migrations` + drift-check no CI; banco de staging separado; guarda de ambiente bloqueando seeds em prod.
+- **Status:** done (code, 2026-06-01, branch `feat/deploy-migrations`) · **Onda:** 3 · **Dimensão:** Deploy · **Depende de:** DEPLOY-03 · **Fonte:** roadmap §3.8
+- **Implementado:** migration `infra/sql/20260601100000_schema_migrations.sql` (tabela `barravips.schema_migrations`, `filename` PK, idempotente, sem RLS com COMMENT de isenção — **migration-reviewer: apta**); guarda de ambiente em `core/migracoes.py` (helpers PUROS `e_arquivo_seed`/`seed_bloqueado`) + `scripts/aplicar_sql.py`: com `ambiente=='producao'` recusa aplicar qualquer arquivo com `seed` no nome (qualquer posição, exit 3); `make migrate` pula *seed* em produção; registro do filename aplicado via `INSERT ON CONFLICT DO NOTHING`; drift-check estático (`scripts/verificar_migrations.py`) aditivo ao job `verify` do CI. Verificado offline: 47 testes + drift-check exit 0 + YAML do CI válido.
+- **Passos do operador:** banco de **staging** separado não existe (infra do operador); aplicar `schema_migrations` em prod + **backfill** do tracking das migrations de schema já aplicadas; garantir `AMBIENTE=producao` no `.env` de prod. Nota do migration-reviewer: `aplicar_sql.py` é autocommit (a atomicidade do `BEGIN/COMMIT` das migrations só vale via `psql -f`).
+- **DoD/Verificação:** tabela `schema_migrations` + drift-check no CI; guarda de ambiente bloqueando seeds em prod (staging = passo do operador).
 - **Guardrails específicos:** esta task é o que torna seguro aplicar migration — até ela existir, schema em prod é manual.
 
 ### OBS-05 — Resolver config de tracing morta/duplicada
