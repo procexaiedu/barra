@@ -2,9 +2,13 @@
 
 import { useState } from "react"
 import { toast } from "sonner"
-import { X } from "lucide-react"
 
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
@@ -94,21 +98,15 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="w-[468px] max-w-[92vw] rounded-lg bg-card p-6 shadow-lg ring-1 ring-foreground/10">
-        <div className="mb-5 flex items-center justify-between gap-4">
-          <DialogTitle>
-            {editando ? "Editar tarefa" : "Nova tarefa"}
-          </DialogTitle>
-          <button
-            onClick={onClose}
-            aria-label="Fechar"
-            className="-mr-1 rounded-md p-1 text-text-muted transition-colors hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <X size={16} strokeWidth={1.5} />
-          </button>
-        </div>
+      <DialogContent className="w-full max-w-md rounded-lg bg-card p-6 shadow-lg ring-1 ring-foreground/10">
+        <DialogTitle>{editando ? "Editar tarefa" : "Nova tarefa"}</DialogTitle>
+        <DialogDescription className="mt-1">
+          {editando
+            ? "Atualize os detalhes da tarefa."
+            : "Item de gestão interna da operação — sem cliente, IA ou agenda."}
+        </DialogDescription>
 
-        <div className="space-y-5">
+        <div className="mt-5 space-y-4">
           <div className="space-y-2">
             <Label htmlFor="tarefa-titulo">Título</Label>
             <Input
@@ -204,7 +202,7 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
           </div>
         </div>
 
-        <div className="mt-5 flex justify-end gap-2">
+        <div className="mt-6 flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose} disabled={submitting}>
             Cancelar
           </Button>

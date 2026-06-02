@@ -1,27 +1,41 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import Link from "next/link"
-import { CheckCircle2 } from "lucide-react"
+import { CheckCircle2, Plus } from "lucide-react"
 
-import { api } from "@/lib/api"
+import { useTarefas } from "@/hooks/useTarefas"
+import { DialogTarefa } from "@/components/tarefas/DialogTarefa"
 import { Card } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 import { ATOR_LABEL, PRIORIDADE_BAR, PRIORIDADE_LABEL } from "@/lib/tarefas"
-import type { Tarefa, TarefasListaResponse } from "@/tipos/tarefas"
+import type { Tarefa } from "@/tipos/tarefas"
 
 /** Widget autocontido da seção "Hoje" do Painel: tarefas com prazo hoje ainda
- *  pendentes (não-`feita`). Faz o próprio fetch — não acopla ao backend do painel. */
+ *  pendentes (não-`feita`). Reusa `useTarefas` para listar/criar/editar sem
+ *  acoplar ao backend do painel; o modal abre no próprio painel. */
 export function TarefasHojeWidget() {
-  const [tarefas, setTarefas] = useState<Tarefa[] | null>(null)
+  const { tarefas, status, responsaveis, criar, atualizar } = useTarefas({
+    status: "todos",
+    prazo: "hoje",
+    minhas: false,
+  })
+  const [dialogAberto, setDialogAberto] = useState(false)
+  const [tarefaEdit, setTarefaEdit] = useState<Tarefa | null>(null)
 
-  useEffect(() => {
-    void api<TarefasListaResponse>("/v1/tarefas?prazo=hoje")
-      .then((r) => setTarefas(r.items.filter((t) => t.status !== "feita")))
-      .catch(() => setTarefas([]))
-  }, [])
+  const abrirCriar = () => {
+    setTarefaEdit(null)
+    setDialogAberto(true)
+  }
+  const abrirEditar = (t: Tarefa) => {
+    setTarefaEdit(t)
+    setDialogAberto(true)
+  }
 
-  if (tarefas === null) return null // silencioso no carregamento
+  if (status !== "success") return null // silencioso no carregamento/erro
+
+  const pendentes = tarefas.filter((t) => t.status !== "feita")
 
   return (
     <section aria-label="Tarefas de hoje" className="flex flex-col gap-3">
@@ -30,15 +44,21 @@ export function TarefasHojeWidget() {
           <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
           Tarefas de hoje
         </h2>
-        <Link
-          href="/tarefas"
-          className="rounded-md text-xs font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          Ver todas
-        </Link>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={abrirCriar}>
+            <Plus size={14} strokeWidth={1.5} />
+            Nova
+          </Button>
+          <Link
+            href="/tarefas"
+            className="rounded-md px-1.5 text-xs font-medium text-text-secondary transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            Ver todas
+          </Link>
+        </div>
       </div>
 
-      {tarefas.length === 0 ? (
+      {pendentes.length === 0 ? (
         <Card>
           <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
             <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
@@ -48,16 +68,21 @@ export function TarefasHojeWidget() {
               <p className="text-sm font-medium text-text-primary">Nenhuma tarefa para hoje.</p>
               <p className="mt-1 text-[13px] text-text-muted">Tarefas com prazo de hoje aparecem aqui.</p>
             </div>
+            <Button variant="outline" size="sm" onClick={abrirCriar}>
+              <Plus size={15} strokeWidth={1.5} />
+              Nova tarefa
+            </Button>
           </div>
         </Card>
       ) : (
         <Card className="gap-0 py-0">
-          {tarefas.map((t, i) => (
-            <Link
+          {pendentes.map((t, i) => (
+            <button
               key={t.id}
-              href="/tarefas"
+              type="button"
+              onClick={() => abrirEditar(t)}
               className={cn(
-                "flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 i > 0 && "border-t border-border-subtle",
               )}
             >
@@ -67,9 +92,20 @@ export function TarefasHojeWidget() {
                 {PRIORIDADE_LABEL[t.prioridade]}
                 {t.atribuido && ` · ${t.atribuido.nome ?? ATOR_LABEL[t.atribuido.tipo]}`}
               </span>
-            </Link>
+            </button>
           ))}
         </Card>
+      )}
+
+      {dialogAberto && (
+        <DialogTarefa
+          key={tarefaEdit?.id ?? "novo"}
+          onClose={() => setDialogAberto(false)}
+          tarefa={tarefaEdit}
+          responsaveis={responsaveis}
+          onCriar={criar}
+          onAtualizar={atualizar}
+        />
       )}
     </section>
   )
