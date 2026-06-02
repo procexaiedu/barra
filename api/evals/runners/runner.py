@@ -1,17 +1,35 @@
 """Runner minimo de evals (EVAL-01): carrega fixtures .jsonl, seeda o estado, roda o grafo
-real e aplica graders DETERMINISTICOS, emitindo exit-code de gate.
+real MULTI-TURNO e aplica graders DETERMINISTICOS, emitindo exit-code de gate.
 
 Escopo (roadmap EVAL-01): graders deterministicos apenas -- tool_calls_obrigatorias/proibidas,
 texto_resposta (nao_deve_conter/deve_conter_um_de/max_chars), ia_pausada_final, estado_final /
 state_check. Rubricas `judge: llm` sao de EVAL-02 (ignoradas aqui); nodes_proibidos /
 NodesVisitedHandler sao de EVAL-08.
 
+Multi-turno (refino 08b §5): `mensagens_entrada` e uma LISTA consumida mensagem-a-mensagem.
+Cada mensagem do CLIENTE dispara UMA `ainvoke` (o prepare_context reconstroi a janela do banco);
+mensagens com `direcao:"ia"`/`"modelo_manual"` sao respostas roteirizadas que entram no banco
+como historico mas NAO disparam invoke. Sem isso o contador de insistencia (disclosure) so
+chegaria a 1 num unico invoke e a fixture multi-turno nunca exercitaria a escalada na 3a.
+Cada mensagem pode declarar `state_check` (estado esperado APOS aquele turno); as
+`expectativas` de topo valem para o ULTIMO turno (o resultado final da conversa roteirizada).
+
+Escalada determinista == `escalar`: disclosure-insistente/jailbreak escalam via `abrir_handoff`
+(no intercept_disclosure), nao pela tool `escalar`. A Captura detecta a linha aberta em
+`escaladas` (`escalou`) e injeta "escalar" no conjunto de tools, para `tool_calls_obrigatorias/
+proibidas:["escalar"]` cobrir tanto o caminho deterministico quanto o do LLM.
+
+Agregacao POR FIXTURE (refino 08b §5 / EVAL-04/03 §3.5): as K amostras de uma fixture sao
+colapsadas em UM veredito por `agregar_por_fixture` (nunca tratadas como K pontos independentes).
+No EVAL-01 e K=1 (identidade); o loop K=5 + politica por categoria (pass^k vs maioria) e EVAL-04/03.
+
 Invocacao real espelha tests/agente/test_fixtures_leitura_decisao.py: grafo SEM checkpointer,
-pool fake de UMA conexao (prepare_context + tools na MESMA transacao), ROLLBACK sempre. Usa
+pool fake de UMA conexao (prepare_context + tools na MESMA transacao), ROLLBACK por fixture
+(estado acumula ENTRE turnos da mesma fixture; so reseta ao trocar de fixture). Usa
 TEST_DATABASE_URL (nunca prod direto) + ANTHROPIC_API_KEY.
 
-`avaliar()` e `gate()` sao PUROS (nao tocam DB/LLM): recebem a `Captura` ja coletada e decidem
-pass/fail + exit-code. Sao o nucleo testavel do gate (tests/evals/test_runner_gate.py).
+`avaliar()`, `gate()`, `planejar_turnos()` e `agregar_por_fixture()` sao PUROS (nao tocam
+DB/LLM): sao o nucleo testavel do gate (tests/evals/test_runner_gate.py).
 """
 
 from __future__ import annotations
@@ -67,6 +85,10 @@ class Captura:
     estado_atendimento: str
     ia_pausada: bool
     pix_status: str
+    # True se uma linha foi aberta em `escaladas` durante a fixture (handoff determinista do
+    # intercept_disclosure OU a tool `escalar` do LLM). `avaliar()` injeta "escalar" no conjunto
+    # de tools quando True, para o grader cobrir os dois caminhos de escalada.
+    escalou: bool = False
 
 
 def _tools_chamadas(mensagens: list[BaseMessage]) -> set[str]:
@@ -112,13 +134,14 @@ class _PoolDeUmaConexao:
         yield self._conn
 
 
-async def _seed(
+async def _seed_entidades(
     conn: AsyncConnection[dict[str, Any]], fixture: dict[str, Any]
-) -> tuple[UUID, UUID, UUID]:
-    """Cria modelo/cliente/conversa/atendimento + mensagens do `estado_inicial`/`mensagens_entrada`.
+) -> tuple[UUID, UUID, UUID, UUID]:
+    """Cria modelo/cliente/conversa/atendimento a partir do `estado_inicial` (SEM mensagens).
 
-    Retorna (modelo_id, atendimento_id, cliente_id). `estado_inicial.recorrente` vai na conversa
-    (par cliente-modelo); estado/ia_pausada/pix_status vao no atendimento.
+    Retorna (modelo_id, atendimento_id, cliente_id, conversa_id). `estado_inicial.recorrente` vai
+    na conversa (par cliente-modelo); estado/ia_pausada/pix_status vao no atendimento. As mensagens
+    sao inseridas turno-a-turno por `_inserir_mensagem` (multi-turno, refino 08b §5).
     """
     inicial = fixture.get("estado_inicial", {})
     estado = inicial.get("atendimento_estado", "Triagem")
@@ -165,51 +188,117 @@ async def _seed(
             "handoff_ia" if ia_pausada else None,
         ),
     )
-    for msg in fixture.get("mensagens_entrada", []):
-        direcao = "ia" if msg.get("direcao") == "ia" else "cliente"
-        await conn.execute(
-            """
-            INSERT INTO barravips.mensagens
-                (id, conversa_id, direcao, tipo, conteudo, evolution_message_id)
-            VALUES (%s, %s, %s, 'texto', %s, %s)
-            """,
-            (uuid4(), conversa_id, direcao, msg["texto"], f"eval-evo-{uuid4().hex}"),
-        )
-    return modelo_id, atendimento_id, cliente_id
+    return modelo_id, atendimento_id, cliente_id, conversa_id
 
 
-async def executar_fixture(
-    conn: AsyncConnection[dict[str, Any]], fixture: dict[str, Any]
-) -> Captura:
-    """Seeda, roda o grafo real e coleta a Captura. Requer ANTHROPIC_API_KEY + DB de teste."""
-    modelo_id, atendimento_id, cliente_id = await _seed(conn, fixture)
-
-    estado = await build_graph().ainvoke(
-        {"messages": []},
-        config={"recursion_limit": 18},
-        context=ContextAgente(
-            db_pool=_PoolDeUmaConexao(conn),  # type: ignore[arg-type]
-            redis=None,  # type: ignore[arg-type]
-            modelo_id=str(modelo_id),
-            atendimento_id=str(atendimento_id),
-            cliente_id=str(cliente_id),
-            turno_id=str(uuid4()),
-        ),
+async def _inserir_mensagem(
+    conn: AsyncConnection[dict[str, Any]], conversa_id: UUID, msg: dict[str, Any]
+) -> None:
+    """Insere UMA mensagem da fixture na conversa (direcao cliente/ia/modelo_manual)."""
+    direcao = msg.get("direcao", "cliente")
+    if direcao not in ("cliente", "ia", "modelo_manual"):
+        direcao = "cliente"
+    await conn.execute(
+        """
+        INSERT INTO barravips.mensagens
+            (id, conversa_id, direcao, tipo, conteudo, evolution_message_id)
+        VALUES (%s, %s, %s, 'texto', %s, %s)
+        """,
+        (uuid4(), conversa_id, direcao, msg["texto"], f"eval-evo-{uuid4().hex}"),
     )
 
+
+@dataclass
+class PlanoTurno:
+    """Uma entrada de `mensagens_entrada`: a mensagem + se ela dispara um turno (`ainvoke`)."""
+
+    indice: int
+    msg: dict[str, Any]
+    dispara: bool  # True so para mensagens do cliente; 'ia'/'modelo_manual' = historico
+
+
+def planejar_turnos(mensagens_entrada: list[dict[str, Any]]) -> list[PlanoTurno]:
+    """Plano determinista de consumo turno-a-turno (PURO -- testavel sem DB/LLM).
+
+    Toda mensagem entra no banco (historico da janela); so as do CLIENTE disparam `ainvoke`
+    (refino 08b §5). `direcao` ausente assume cliente.
+    """
+    return [
+        PlanoTurno(indice=i, msg=m, dispara=m.get("direcao", "cliente") == "cliente")
+        for i, m in enumerate(mensagens_entrada)
+    ]
+
+
+async def _capturar(
+    conn: AsyncConnection[dict[str, Any]], atendimento_id: UUID, estado: dict[str, Any]
+) -> Captura:
+    """Coleta a Captura de UM turno: tools/texto das mensagens + estado + escalada (pos-invoke)."""
     res = await conn.execute(
         "SELECT estado, ia_pausada, pix_status FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
     row = await res.fetchone()
     assert row is not None
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    escalada_row = await res.fetchone()
     return Captura(
         tools_chamadas=_tools_chamadas(estado["messages"]),
         texto_final=_texto_final(estado["messages"]),
         estado_atendimento=row["estado"],
         ia_pausada=row["ia_pausada"],
         pix_status=row["pix_status"],
+        escalou=bool(escalada_row and escalada_row["n"] > 0),
     )
+
+
+async def executar_fixture(
+    conn: AsyncConnection[dict[str, Any]], fixture: dict[str, Any]
+) -> tuple[Captura, list[str]]:
+    """Seeda, roda o grafo MULTI-TURNO e coleta a Captura final + falhas de state_check por turno.
+
+    Requer ANTHROPIC_API_KEY + DB de teste. Insere cada mensagem; so as do cliente disparam
+    `ainvoke` (planejar_turnos). Estado acumula entre turnos da MESMA conexao (sem rollback aqui;
+    o rollback e por fixture em `rodar`). A Captura retornada e a do ULTIMO turno do cliente.
+    """
+    modelo_id, atendimento_id, cliente_id, conversa_id = await _seed_entidades(conn, fixture)
+    grafo = build_graph()
+    captura: Captura | None = None
+    falhas_turno: list[str] = []
+
+    for plano in planejar_turnos(fixture.get("mensagens_entrada", [])):
+        await _inserir_mensagem(conn, conversa_id, plano.msg)
+        if not plano.dispara:
+            continue  # resposta roteirizada da IA: historico da janela, nao dispara turno
+        estado = await grafo.ainvoke(
+            {"messages": []},
+            config={"recursion_limit": 18},
+            context=ContextAgente(
+                db_pool=_PoolDeUmaConexao(conn),  # type: ignore[arg-type]
+                redis=None,  # type: ignore[arg-type]
+                modelo_id=str(modelo_id),
+                atendimento_id=str(atendimento_id),
+                cliente_id=str(cliente_id),
+                turno_id=str(uuid4()),  # cada turno e um job distinto (turno_id novo)
+                # eval single-shot por turno, IDs novos por fixture: BP_MODELO/BP_JANELA seriam
+                # so write nunca read -> desliga o cache_control deles (WIP EVAL-01).
+                cache_modelo_e_janela=False,
+            ),
+        )
+        captura = await _capturar(conn, atendimento_id, estado)
+        state_check_turno = plano.msg.get("state_check")
+        if state_check_turno:
+            falhas_turno += _comparar_state(
+                state_check_turno, captura, prefixo=f"turno[{plano.indice}] "
+            )
+
+    if captura is None:
+        raise ValueError(
+            f"fixture {fixture.get('id', '?')!r} nao tem mensagem de cliente -- nenhum turno disparado"
+        )
+    return captura, falhas_turno
 
 
 # --- avaliacao (PURA: graders deterministicos) -------------------------------------------------
@@ -220,6 +309,31 @@ class Avaliacao:
     id: str
     passou: bool
     falhas: list[str] = field(default_factory=list)
+    # categoria da fixture (ex.: "adversariais", "canonicos"): governa a politica de agregacao
+    # por categoria (pass^k vs maioria) em `agregar_por_fixture`. EVAL-01 nao a usa (K=1).
+    categoria: str = ""
+
+
+def _comparar_state(state_check: dict[str, Any], captura: Captura, prefixo: str = "") -> list[str]:
+    """Compara o `state_check` declarativo contra a Captura. PURO. Reusado por turno e no final."""
+    atual = {
+        "atendimento_estado": captura.estado_atendimento,
+        "ia_pausada": captura.ia_pausada,
+        "pix_status": captura.pix_status,
+    }
+    return [
+        f"{prefixo}{chave}: esperado {esperado!r}, obtido {atual[chave]!r}"
+        for chave, esperado in state_check.items()
+        if chave in atual and atual[chave] != esperado
+    ]
+
+
+def _tools_efetivas(captura: Captura) -> set[str]:
+    """Tools observadas + "escalar" sintetico quando houve handoff determinista (escalou)."""
+    tools = set(captura.tools_chamadas)
+    if captura.escalou:
+        tools.add("escalar")
+    return tools
 
 
 def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
@@ -229,14 +343,15 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
     """
     exp = fixture.get("expectativas", {})
     falhas: list[str] = []
+    tools = _tools_efetivas(captura)
 
     obrigatorias = set(exp.get("tool_calls_obrigatorias", []))
-    faltando = obrigatorias - captura.tools_chamadas
+    faltando = obrigatorias - tools
     if faltando:
         falhas.append(f"tool_calls_obrigatorias nao chamadas: {sorted(faltando)}")
 
     proibidas = set(exp.get("tool_calls_proibidas", []))
-    chamou_proibida = proibidas & captura.tools_chamadas
+    chamou_proibida = proibidas & tools
     if chamou_proibida:
         falhas.append(f"tool_calls_proibidas chamadas: {sorted(chamou_proibida)}")
 
@@ -258,21 +373,63 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
         state_check.setdefault("ia_pausada", exp["ia_pausada_final"])
     if "estado_final_atendimento" in exp:
         state_check.setdefault("atendimento_estado", exp["estado_final_atendimento"])
+    falhas += _comparar_state(state_check, captura)
 
-    atual = {
-        "atendimento_estado": captura.estado_atendimento,
-        "ia_pausada": captura.ia_pausada,
-        "pix_status": captura.pix_status,
-    }
-    for chave, esperado in state_check.items():
-        if chave in atual and atual[chave] != esperado:
-            falhas.append(f"{chave}: esperado {esperado!r}, obtido {atual[chave]!r}")
+    return Avaliacao(
+        id=fixture.get("id", "?"),
+        passou=not falhas,
+        falhas=falhas,
+        categoria=fixture.get("categoria", ""),
+    )
 
-    return Avaliacao(id=fixture.get("id", "?"), passou=not falhas, falhas=falhas)
+
+def _politica_agregacao(categoria: str) -> str:
+    """Como colapsar as K amostras de uma fixture em 1 veredito.
+
+    EVAL-01: K=1 -> "todas" (a unica amostra decide). EVAL-04/03 refina por categoria
+    (pass^k p/ adversariais/Pix; maioria >=4/5 p/ corretude). Ponto unico para essa evolucao.
+    """
+    return "todas"
+
+
+def _colapsar_fixture(fid: str, grupo: list[Avaliacao]) -> Avaliacao:
+    """Colapsa as K amostras de UMA fixture num unico veredito (cluster do erro por fixture)."""
+    categoria = grupo[0].categoria if grupo else ""
+    politica = _politica_agregacao(categoria)
+    k = len(grupo)
+    n_pass = sum(a.passou for a in grupo)
+    if politica == "maioria":
+        passou = n_pass * 2 > k  # estrita maioria das amostras
+    else:  # "todas"/"pass_k": nenhuma amostra pode falhar
+        passou = n_pass == k
+    # Cluster do erro por fixture: agrega as falhas distintas das amostras (ordem de aparicao).
+    falhas: list[str] = []
+    for a in grupo:
+        for f in a.falhas:
+            if f not in falhas:
+                falhas.append(f)
+    if k > 1 and falhas:
+        falhas = [f"({n_pass}/{k} amostras ok) {f}" for f in falhas]
+    return Avaliacao(id=fid, passou=passou, falhas=falhas, categoria=categoria)
+
+
+def agregar_por_fixture(avaliacoes: list[Avaliacao]) -> list[Avaliacao]:
+    """Agrupa por fixture id e colapsa cada grupo num veredito unico (refino 08b §5).
+
+    NUNCA trata as K amostras como pontos independentes -- o gate conta FIXTURES, nao amostras.
+    Preserva a ordem de primeira aparicao de cada fixture. PURO -- testavel sem DB/LLM.
+    """
+    grupos: dict[str, list[Avaliacao]] = {}
+    for a in avaliacoes:
+        grupos.setdefault(a.id, []).append(a)
+    return [_colapsar_fixture(fid, grupo) for fid, grupo in grupos.items()]
 
 
 def gate(avaliacoes: list[Avaliacao], threshold: float = 1.0) -> int:
-    """Exit-code de gate: 0 se pass-rate >= threshold, 1 caso contrario (ou suite vazia)."""
+    """Exit-code de gate: 0 se pass-rate (por FIXTURE) >= threshold, 1 caso contrario (ou vazia).
+
+    Espera a lista JA agregada por fixture (`agregar_por_fixture`) -- cada item e 1 veredito.
+    """
     if not avaliacoes:
         return 1
     pass_rate = sum(a.passou for a in avaliacoes) / len(avaliacoes)
@@ -294,20 +451,29 @@ async def _conectar() -> AsyncConnection[dict[str, Any]]:
     )
 
 
-async def rodar(fixtures: list[dict[str, Any]]) -> list[Avaliacao]:
-    """Roda cada fixture numa transacao isolada com ROLLBACK (nada commita)."""
-    avaliacoes: list[Avaliacao] = []
+async def rodar(fixtures: list[dict[str, Any]], k: int = 1) -> list[Avaliacao]:
+    """Roda cada fixture K vezes (K=1 no EVAL-01; loop K=5 e EVAL-04/03), ROLLBACK por amostra.
+
+    Cada amostra e uma fixture multi-turno inteira numa transacao (estado acumula entre turnos,
+    rollback ao fim da amostra). Retorna as avaliacoes JA agregadas por fixture -- 1 veredito cada.
+    """
+    brutas: list[Avaliacao] = []
     conn = await _conectar()
     try:
         for fixture in fixtures:
-            try:
-                captura = await executar_fixture(conn, fixture)
-                avaliacoes.append(avaliar(fixture, captura))
-            finally:
-                await conn.rollback()
+            for _ in range(k):
+                try:
+                    captura, falhas_turno = await executar_fixture(conn, fixture)
+                    av = avaliar(fixture, captura)
+                    if falhas_turno:
+                        av.falhas = [*falhas_turno, *av.falhas]
+                        av.passou = not av.falhas
+                    brutas.append(av)
+                finally:
+                    await conn.rollback()
     finally:
         await conn.close()
-    return avaliacoes
+    return agregar_por_fixture(brutas)
 
 
 def _imprimir(avaliacoes: list[Avaliacao]) -> None:

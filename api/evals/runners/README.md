@@ -19,6 +19,26 @@ make evals EVALS_ARGS="--subdir canonicos/leitura --threshold 0.8"
 
 Sem `TEST_DATABASE_URL` o runner aborta (exit 2) — não roda contra prod por engano.
 
+### Multi-turno (refino 08b §5)
+
+`mensagens_entrada` é consumido **mensagem-a-mensagem**: cada mensagem do **cliente** dispara uma
+`ainvoke` (o `prepare_context` reconstrói a janela do banco); mensagens `direcao:"ia"` /
+`"modelo_manual"` entram no banco como **histórico roteirizado** mas **não** disparam invoke. É
+assim que o multi-turno do P0 é exercido sem simulador — e é o que faz o contador de insistência
+(disclosure) subir a cada turno e a fixture escalar só na 3ª (com invoke único pararia em 1).
+O estado **acumula entre os turnos** da mesma fixture (rollback só ao trocar de fixture). Cada
+mensagem pode declarar `state_check` (estado esperado **após aquele turno**); as `expectativas`
+de topo valem para o **último** turno.
+
+**Escalada determinística conta como `escalar`:** disclosure-insistente / jailbreak escalam via
+`abrir_handoff` (no `intercept_disclosure`), não pela tool `escalar`. O runner detecta a linha
+aberta em `escaladas` (`Captura.escalou`) e injeta `"escalar"` no conjunto de tools — então
+`tool_calls_obrigatorias` / `tool_calls_proibidas: ["escalar"]` cobrem os dois caminhos.
+
+**Agregação por fixture:** as K amostras de uma fixture são colapsadas em **um** veredito
+(`agregar_por_fixture`), nunca tratadas como K pontos independentes — o gate conta **fixtures**.
+No EVAL-01 é K=1 (identidade); o loop K=5 + política por categoria (`pass^k` vs maioria) é EVAL-04/03.
+
 ### Graders cobertos
 
 Determinísticos (este runner): `tool_calls_obrigatorias` / `tool_calls_proibidas`,

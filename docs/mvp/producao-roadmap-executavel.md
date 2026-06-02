@@ -60,7 +60,7 @@
 | WIN-SEC-09 | win | guard de CORS no boot em produção | — | done |
 | WIN-REL-09 | win | não enfileirar `loc_pin` (renderer NotImplemented) | — | done |
 | WIN-DEPLOY-10 | win | corrigir README do stack real | — | done |
-| EVAL-01 | 2 | Runner de evals mínimo + `make evals` | — | done ⚠️ reabrir (refino 08b §5) |
+| EVAL-01 | 2 | Runner de evals mínimo + `make evals` | — | done (refino 08b §5 aplicado) |
 | EVAL-08 | 2 | `NodesVisitedHandler` + `state_check` | EVAL-01 | todo |
 | EVAL-02 | 2 | LLM-judge binário + fixture de DUAS modelos (ADR 0015) | EVAL-01 | todo |
 | EVAL-10 | 2 | Calibrar judge contra golden humano (ADR 0015) | EVAL-02 | todo |
@@ -225,7 +225,8 @@
 # ONDA 2 — Robustez e o gate que autoriza o cutover
 
 ### EVAL-01 — Runner de evals mínimo + `make evals`
-- **Status:** ⚠️ **reabrir — refino pendente** · a impl (branch `eval-01-runner`) landou em 2026-06-01 numa sessão paralela **ANTES** do refino 08b §5 abaixo, então o runner ainda **não** consome `mensagens_entrada` como lista nem agrega/clusteriza por fixture. Código está na main e roda, mas o DoD do multi-turno do cutover só fecha com o refino aplicado. · **Onda:** 2 · **Dimensão:** Evals · **Depende de:** — · **Fonte:** roadmap §3.4
+- **Status:** done (refino 08b §5 aplicado, 2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 2 · **Dimensão:** Evals · **Depende de:** — · **Fonte:** roadmap §3.4
+- **Refino aplicado (08b §5):** `runner.py` agora consome `mensagens_entrada` **turno-a-turno** (`planejar_turnos`: cada msg do cliente dispara uma `ainvoke`; `ia`/`modelo_manual` viram histórico roteirizado sem invoke; estado acumula entre turnos, rollback por fixture), com `state_check` opcional por turno, e **agrega por fixture** (`agregar_por_fixture` colapsa as K amostras num veredito — K=1 hoje, `pass^k`/maioria por categoria fica para EVAL-04/03). Escalada determinística (`abrir_handoff` no disclosure-insistente/jailbreak) é detectada via `Captura.escalou` e injetada como tool `"escalar"`, fechando o gap em que `tool_calls_obrigatorias:["escalar"]` nunca casava o caminho determinístico. Verificado **offline**: 22 testes puros em `tests/evals/test_runner_gate.py` (planejamento de turnos, agregação por fixture, escalada→escalar, gate por fixture) + `ruff` + `mypy src` (104 arquivos) verdes. O run live (grafo + Sonnet) segue como passo do operador (`TEST_DATABASE_URL` + `ANTHROPIC_API_KEY`).
 - **Objetivo (DoD):** existe um runner que carrega as fixtures `.jsonl`, roda o grafo real e falha com exit-code ≠ 0 abaixo do threshold.
 - **Arquivos:** `api/evals/runners/runner.py` (novo; reusar `_seed_*` de `tests/agente/test_fixtures_leitura_decisao.py`), `api/Makefile` (alvo `evals`).
 - **Passos:** carregar fixtures, seedar estado, invocar o grafo por fixture, capturar `tool_calls` + estado final, aplicar graders determinísticos (`tool_calls_obrigatorias/proibidas`, `nao_deve_conter` regex, `ia_pausada_final`, `state_check`), emitir exit-code de gate.

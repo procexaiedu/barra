@@ -1,4 +1,4 @@
-.PHONY: dev worker test lint format typecheck migrate sync evals
+.PHONY: dev worker test test-llm lint format typecheck migrate sync evals
 
 sync:
 	uv sync
@@ -10,7 +10,10 @@ worker:
 	uv run arq barra.workers.settings.WorkerSettings
 
 test:
-	uv run pytest
+	uv run pytest -m "not needs_key"
+
+test-llm:
+	uv run pytest -m needs_key
 
 lint:
 	uv run ruff check .
