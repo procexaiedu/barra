@@ -5,6 +5,7 @@ import { Download } from "lucide-react"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { cn } from "@/lib/utils"
 import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { useFinanceiro, type FinanceiroView } from "@/hooks/useFinanceiro"
@@ -24,7 +25,7 @@ const VIEWS: { id: FinanceiroView; label: string }[] = [
 
 export default function FinanceiroPage() {
   return (
-    <Suspense fallback={<Skeleton className="m-6 h-[60vh] w-full" />}>
+    <Suspense fallback={<Skeleton className="h-[60vh] w-full rounded-lg" />}>
       <FinanceiroInner />
     </Suspense>
   )
@@ -35,44 +36,49 @@ function FinanceiroInner() {
   const view = fin.filtros.view
 
   return (
-    <div className="flex flex-col gap-4 p-4 sm:p-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Financeiro</h1>
-          <p className="text-sm text-text-muted">
+    <div className="flex flex-col gap-8">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
+            Financeiro
+          </h1>
+          <p className="mt-1 text-[13px] text-text-muted">
             Receitas, repasses por modelo e visão geral.
           </p>
         </div>
         <ExportarBotao fin={fin} view={view} />
       </header>
 
-      <nav
-        className="flex w-fit overflow-hidden rounded-lg border border-border bg-card"
-        role="tablist"
-        aria-label="Visões do Financeiro"
-      >
-        {VIEWS.map((v) => {
-          const ativo = v.id === view
-          return (
-            <button
-              key={v.id}
-              type="button"
-              role="tab"
-              aria-selected={ativo}
-              onClick={() => fin.setView(v.id)}
-              className={`px-4 py-2 text-sm transition-colors ${
-                ativo
-                  ? "bg-primary text-primary-foreground"
-                  : "text-text-muted hover:bg-muted hover:text-text-primary"
-              }`}
-            >
-              {v.label}
-            </button>
-          )
-        })}
-      </nav>
+      <div className="flex flex-col gap-4">
+        <div
+          role="tablist"
+          aria-label="Visões do Financeiro"
+          className="flex gap-1 border-b border-border"
+        >
+          {VIEWS.map((v) => {
+            const ativo = v.id === view
+            return (
+              <button
+                key={v.id}
+                type="button"
+                role="tab"
+                aria-selected={ativo}
+                onClick={() => fin.setView(v.id)}
+                className={cn(
+                  "relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  ativo
+                    ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gold-500"
+                    : "text-text-muted hover:text-text-secondary",
+                )}
+              >
+                {v.label}
+              </button>
+            )
+          })}
+        </div>
 
-      <ToolbarFinanceiro fin={fin} />
+        <ToolbarFinanceiro fin={fin} />
+      </div>
 
       {fin.error && <BannerErro mensagem={fin.error} onRetry={fin.refetch} />}
 
@@ -157,8 +163,8 @@ function ViewReceitas({ fin }: { fin: ReturnType<typeof useFinanceiro> }) {
   }, [handleKey])
 
   return (
-    <div className="flex min-h-0 flex-1 gap-3">
-      <div className="min-w-0 flex-1">
+    <div className="flex min-h-0 flex-1 gap-4">
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
         <ListaReceitas
           lista={fin.receitas}
           loading={fin.status === "loading"}
@@ -168,13 +174,13 @@ function ViewReceitas({ fin }: { fin: ReturnType<typeof useFinanceiro> }) {
           carregandoMais={fin.carregandoMaisReceitas}
           proximoLote={fin.limitAtual}
         />
-        <p className="mt-2 text-[11px] text-text-muted">
-          <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">j</kbd>
+        <p className="text-[11px] text-text-muted">
+          <kbd className="rounded-md border border-border bg-muted px-1 py-0.5 font-mono text-[10px] tabular-nums">j</kbd>
           <span className="mx-1">/</span>
-          <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">k</kbd>
+          <kbd className="rounded-md border border-border bg-muted px-1 py-0.5 font-mono text-[10px] tabular-nums">k</kbd>
           <span className="ml-1.5">navegar</span>
           <span className="mx-2">·</span>
-          <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">esc</kbd>
+          <kbd className="rounded-md border border-border bg-muted px-1 py-0.5 font-mono text-[10px] tabular-nums">esc</kbd>
           <span className="ml-1.5">fechar</span>
         </p>
       </div>
@@ -238,7 +244,7 @@ function ExportarBotao({
 
   return (
     <Button variant="outline" onClick={baixar} disabled={baixando}>
-      <Download className="size-4" />
+      <Download size={16} strokeWidth={1.5} />
       {baixando ? "Baixando…" : "Exportar CSV"}
     </Button>
   )

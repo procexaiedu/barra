@@ -2,7 +2,7 @@
 
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, Plus, Users } from "lucide-react"
 import type { ProfissionalRanking } from "@/tipos/dashboard"
 import { Button } from "@/components/ui/button"
 import { formatBRL } from "@/lib/formatters"
@@ -27,14 +27,24 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
         className="flex flex-col gap-3"
       >
         <header>
-          <h2 className="text-base font-semibold text-text-primary">
+          <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+            <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
             Profissionais mais procuradas
           </h2>
         </header>
-        <div className="flex flex-col items-start gap-3 rounded-lg bg-card p-6 ring-1 ring-foreground/10">
-          <p className="text-sm text-text-muted">Nenhuma modelo cadastrada.</p>
-          <Button variant="secondary" size="lg" onClick={() => router.push("/modelos")}>
-            Cadastrar modelo →
+        <div className="flex flex-col items-center justify-center gap-3 rounded-lg bg-card px-6 py-10 text-center ring-1 ring-foreground/10">
+          <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+            <Users size={22} strokeWidth={1.75} className="text-text-muted" aria-hidden />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-text-primary">Nenhuma modelo cadastrada.</p>
+            <p className="mt-1 text-[13px] text-text-muted">
+              Cadastre uma modelo para ver o ranking de procura.
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={() => router.push("/modelos")}>
+            <Plus size={14} strokeWidth={1.5} />
+            Cadastrar modelo
           </Button>
         </div>
       </section>
@@ -47,7 +57,8 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
       className="flex flex-col gap-3"
     >
       <header>
-        <h2 className="text-base font-semibold text-text-primary">
+        <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+          <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
           Profissionais mais procuradas
         </h2>
       </header>
@@ -55,7 +66,7 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
         <table className="w-full border-collapse text-sm">
           <caption className="sr-only">Profissionais ordenadas por volume no período</caption>
           <thead>
-            <tr className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+            <tr className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
               <th className="px-4 py-3 text-left">Modelo</th>
               <th className="w-44 px-4 py-3 text-right">Volume</th>
               <th className="w-32 px-4 py-3 text-right">Fechamentos</th>

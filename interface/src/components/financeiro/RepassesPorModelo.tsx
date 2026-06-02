@@ -17,6 +17,7 @@ import {
 import { api, ApiError } from "@/lib/api"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { formatBRL, formatData } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
@@ -60,28 +61,30 @@ export function RepassesPorModelo({
   const janelaCorrente = fin.repasses?.filtro_aplicado ?? fin.resumo?.filtro_aplicado ?? null
 
   return (
-    <div className="space-y-5">
-      <ResumoRepasses resumo={r} anterior={rAnt} loading={carregando} />
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-2">
+        <ResumoRepasses resumo={r} anterior={rAnt} loading={carregando} />
 
-      {fin.resumo?.janela_comparacao && (
-        <div className="text-[11px] tabular-nums text-text-muted -mt-3">
-          deltas vs {fin.resumo.janela_comparacao.de} → {fin.resumo.janela_comparacao.ate}
-        </div>
-      )}
+        {fin.resumo?.janela_comparacao && (
+          <div className="font-mono text-[11px] tabular-nums text-text-muted">
+            deltas vs {fin.resumo.janela_comparacao.de} → {fin.resumo.janela_comparacao.ate}
+          </div>
+        )}
+      </div>
 
       {carregando ? (
-        <>
-          <Skeleton className="h-[160px] rounded-md" />
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <Skeleton className="h-[280px] rounded-md" />
-            <Skeleton className="h-[280px] rounded-md" />
+        <div aria-busy="true" className="flex flex-col gap-8">
+          <Skeleton className="h-[160px] rounded-lg" />
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <Skeleton className="h-[280px] rounded-lg" />
+            <Skeleton className="h-[280px] rounded-lg" />
           </div>
-        </>
+        </div>
       ) : (
         r && r.valor_bruto_brl > 0 && (
           <>
             <ChartComposicaoBruto resumo={r} />
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <ChartDistribuicaoSaldo
                 items={repasses?.items ?? []}
                 onSelecionarModelo={(id) => setFormAberto({ modelo_id: id })}
@@ -96,14 +99,18 @@ export function RepassesPorModelo({
         )
       )}
 
-      <section className="space-y-3">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+      <section
+        aria-label="Saldo por modelo"
+        className="flex flex-col gap-3"
+      >
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+              <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
               Saldo por modelo
             </h2>
             {repasses && (
-              <span className="text-xs text-text-disabled tabular-nums">
+              <span className="font-mono text-xs tabular-nums text-text-muted">
                 {repasses.items.length}{" "}
                 {repasses.items.length === 1 ? "modelo" : "modelos"} no período
               </span>
@@ -114,13 +121,13 @@ export function RepassesPorModelo({
             onClick={() => setFormAberto({})}
             disabled={carregando}
           >
-            <Plus className="size-4" />
+            <Plus size={14} strokeWidth={1.5} />
             Registrar pagamento
           </Button>
         </header>
 
         {carregando ? (
-          <Skeleton className="h-44 rounded-md" />
+          <Skeleton className="h-44 rounded-lg" />
         ) : repasses && repasses.items.length > 0 ? (
           <TabelaSaldo
             items={repasses.items}
@@ -139,14 +146,18 @@ export function RepassesPorModelo({
         )}
       </section>
 
-      <section className="space-y-3">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex items-baseline gap-3">
-            <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-text-muted">
+      <section
+        aria-label="Pagamentos no período"
+        className="flex flex-col gap-3"
+      >
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+              <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
               Pagamentos no período
             </h2>
             {pagamentos && pagamentos.items.length > 0 && (
-              <span className="text-xs text-text-disabled tabular-nums">
+              <span className="font-mono text-xs tabular-nums text-text-muted">
                 {pagamentos.items.length}{" "}
                 {pagamentos.items.length === 1 ? "lançamento" : "lançamentos"}
               </span>
@@ -155,7 +166,7 @@ export function RepassesPorModelo({
         </header>
 
         {carregando ? (
-          <Skeleton className="h-32 rounded-md" />
+          <Skeleton className="h-32 rounded-lg" />
         ) : pagamentos && pagamentos.items.length > 0 ? (
           <TabelaPagamentos
             pagamentos={pagamentos}
@@ -217,9 +228,12 @@ function ResumoRepasses({
 }) {
   if (loading || !resumo) {
     return (
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        aria-busy="true"
+        className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
+      >
         {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="h-[112px] rounded-md" />
+          <Skeleton key={i} className="h-[112px] rounded-lg" />
         ))}
       </div>
     )
@@ -248,7 +262,7 @@ function ResumoRepasses({
     : (pctRepasseDoBruto ?? "devido pelos fechamentos")
 
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
       <KpiCard
         rotulo="Saldo a pagar"
         valor={resumo.valor_saldo_repasse_brl}
@@ -367,11 +381,11 @@ function TabelaSaldo({
   const restantes = items.length - visiveis
 
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-card">
+    <div className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border/80 bg-muted/30 text-[10.5px] uppercase tracking-[0.14em] text-text-muted">
+            <tr className="border-b border-border bg-muted/30 text-[10.5px] uppercase tracking-[0.1em] text-text-muted">
               <th className="px-4 py-2.5 text-left font-medium">Modelo</th>
               <th className="px-3 py-2.5 text-right font-medium">Fech.</th>
               <th className="px-3 py-2.5 text-right font-medium">Bruto</th>
@@ -397,23 +411,23 @@ function TabelaSaldo({
           {items.length > 1 && (
             <tfoot>
               <tr className="border-t-2 border-border/80 bg-muted/20 text-[12.5px]">
-                <td className="px-4 py-2.5 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-text-muted">
+                <td className="px-4 py-2.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-text-muted">
                   Total · {items.length}{" "}
                   {items.length === 1 ? "modelo" : "modelos"}
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-text-secondary">
                   {total.fech}
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-text-secondary">
                   {formatBRL(total.bruto)}
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-text-secondary">
                   {formatBRL(total.calculado)}
                 </td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">
+                <td className="px-3 py-2.5 text-right font-mono tabular-nums text-text-secondary">
                   {formatBRL(total.pago)}
                 </td>
-                <td className="border-l border-border/70 bg-gold-500/[0.04] px-3 py-2.5 text-right font-semibold tabular-nums text-gold-700">
+                <td className="border-l border-border/70 bg-gold-500/[0.04] px-3 py-2.5 text-right font-mono font-semibold tabular-nums text-gold-700">
                   {formatBRL(total.saldo)}
                 </td>
                 <td colSpan={2} className="px-3 py-2.5"></td>
@@ -429,10 +443,10 @@ function TabelaSaldo({
             onClick={() =>
               setVisiveis((v) => Math.min(items.length, v + pageSize))
             }
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--gold-500)]/40"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             Mostrar mais
-            <span className="tabular-nums text-text-muted">
+            <span className="font-mono tabular-nums text-text-muted">
               · {Math.min(pageSize, restantes)} de {restantes} restantes
             </span>
           </button>
@@ -470,18 +484,18 @@ function LinhaModelo({
       <td className="px-4 py-2.5">
         <span className="font-medium text-text-primary">{saldo.modelo_nome}</span>
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">
+      <td className="px-3 py-2.5 text-right font-mono tabular-nums text-text-secondary">
         {saldo.fechamentos_total}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">
+      <td className="px-3 py-2.5 text-right font-mono tabular-nums text-text-secondary">
         {formatBRL(saldo.valor_bruto)}
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-text-secondary">
+      <td className="px-3 py-2.5 text-right font-mono tabular-nums text-text-secondary">
         {formatBRL(saldo.valor_repasse_calculado)}
       </td>
       <td
         className={cn(
-          "px-3 py-2.5 text-right tabular-nums",
+          "px-3 py-2.5 text-right font-mono tabular-nums",
           saldo.valor_repasse_pago === 0
             ? "text-text-disabled"
             : "text-text-secondary",
@@ -491,7 +505,7 @@ function LinhaModelo({
       </td>
       <td
         className={cn(
-          "border-l border-border/70 bg-gold-500/[0.04] px-3 py-2.5 text-right font-semibold tabular-nums",
+          "border-l border-border/70 bg-gold-500/[0.04] px-3 py-2.5 text-right font-mono font-semibold tabular-nums",
           corSaldo,
         )}
         title={
@@ -513,8 +527,13 @@ function LinhaModelo({
               aria-hidden
               className="size-1.5 rounded-full bg-warn-500"
             />
-            {saldo.fechamentos_sem_snapshot} sem snapshot ·{" "}
-            {formatBRL(saldo.valor_sem_snapshot)}
+            <span className="font-mono tabular-nums">
+              {saldo.fechamentos_sem_snapshot}
+            </span>{" "}
+            sem snapshot ·{" "}
+            <span className="font-mono tabular-nums">
+              {formatBRL(saldo.valor_sem_snapshot)}
+            </span>
           </button>
         ) : (
           <span className="text-xs text-text-disabled">—</span>
@@ -552,11 +571,11 @@ function TabelaPagamentos({
 }) {
   const truncado = Boolean(pagamentos.next_cursor)
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-card">
+    <div className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-border/80 bg-muted/30 text-[10.5px] uppercase tracking-[0.14em] text-text-muted">
+            <tr className="border-b border-border bg-muted/30 text-[10.5px] uppercase tracking-[0.1em] text-text-muted">
               <th className="px-4 py-2.5 text-left font-medium">Data</th>
               <th className="px-3 py-2.5 text-left font-medium">Modelo</th>
               <th className="px-3 py-2.5 text-right font-medium">Valor</th>
@@ -578,7 +597,7 @@ function TabelaPagamentos({
             type="button"
             onClick={onCarregarMais}
             disabled={carregandoMais}
-            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--gold-500)]/40 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1 text-[11px] font-medium text-text-secondary transition-colors hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
           >
             {carregandoMais ? (
               <>
@@ -589,7 +608,7 @@ function TabelaPagamentos({
               <>
                 Carregar mais
                 {proximoLote ? (
-                  <span className="tabular-nums text-text-muted">
+                  <span className="font-mono tabular-nums text-text-muted">
                     · próximos {proximoLote}
                   </span>
                 ) : null}
@@ -629,13 +648,13 @@ function LinhaPagamento({
 
   return (
     <tr className="border-b border-border/40 transition-colors last:border-b-0 hover:bg-muted/25">
-      <td className="px-4 py-2.5 text-text-secondary tabular-nums">
+      <td className="px-4 py-2.5 font-mono tabular-nums text-text-secondary">
         {formatData(pagamento.data_pagamento)}
       </td>
       <td className="px-3 py-2.5 text-text-primary">
         {pagamento.modelo_nome ?? "—"}
       </td>
-      <td className="px-3 py-2.5 text-right font-medium tabular-nums text-text-primary">
+      <td className="px-3 py-2.5 text-right font-mono font-medium tabular-nums text-text-primary">
         {formatBRL(pagamento.valor)}
       </td>
       <td className="px-3 py-2.5">
@@ -677,14 +696,14 @@ function EstadoVazio({
   secundario?: React.ReactNode
 }) {
   return (
-    <div className="rounded-md border border-dashed border-border bg-card/60 px-6 py-8">
-      <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
-        <span className="grid size-9 place-items-center rounded-full bg-muted/60 text-text-muted">
+    <Card>
+      <div className="mx-auto flex max-w-md flex-col items-center gap-3 px-6 py-10 text-center">
+        <div className="flex size-11 items-center justify-center rounded-full bg-muted text-text-muted ring-1 ring-border-subtle">
           {icone ?? <CircleAlert className="size-5" />}
-        </span>
-        <div className="space-y-1">
-          <h3 className="text-sm font-medium text-text-primary">{titulo}</h3>
-          <p className="text-[12.5px] leading-relaxed text-text-muted">
+        </div>
+        <div>
+          <p className="text-sm font-medium text-text-primary">{titulo}</p>
+          <p className="mt-1 text-[13px] leading-relaxed text-text-muted">
             {descricao}
           </p>
         </div>
@@ -695,6 +714,6 @@ function EstadoVazio({
           </div>
         )}
       </div>
-    </div>
+    </Card>
   )
 }

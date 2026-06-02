@@ -160,14 +160,14 @@ export function ModalReatribuir({
         if (!open) handleClose()
       }}
     >
-      <DialogContent className="w-[min(94vw,32rem)] max-w-none rounded-lg border border-border bg-popover p-6 text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
-        <DialogTitle className="font-serif text-lg font-medium text-text-primary">Reatribuir atendimento #{at.numero_curto}</DialogTitle>
+      <DialogContent className="w-[min(94vw,32rem)] max-w-none rounded-lg bg-card p-6 text-card-foreground shadow-lg ring-1 ring-foreground/10">
+        <DialogTitle>Reatribuir atendimento #{at.numero_curto}</DialogTitle>
         <DialogDescription className="mt-1">
           O atendimento atual será marcado como Perdido (motivo: reatribuição) e um novo
           atendimento será criado para o par escolhido.
         </DialogDescription>
 
-        <div className="mt-5 space-y-3 rounded-md border border-border-subtle bg-surface px-4 py-3 text-sm">
+        <div className="mt-5 space-y-3 rounded-md bg-muted px-4 py-3 text-sm">
           <div className="flex justify-between gap-3">
             <span className="text-text-muted">Cliente atual</span>
             <span className="text-right text-text-primary">

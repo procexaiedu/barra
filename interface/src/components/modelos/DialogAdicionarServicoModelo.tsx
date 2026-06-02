@@ -315,8 +315,8 @@ export function DialogAdicionarServicoModelo({
                 const editandoDuracao = criandoDuracaoPara === pid
 
                 return (
-                  <div key={pid} className="rounded-lg border border-border bg-card">
-                    <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-2.5">
+                  <div key={pid} className="overflow-hidden rounded-md border border-border">
+                    <div className="flex items-center justify-between gap-3 border-b border-border bg-muted px-4 py-2.5">
                       <h4 className="text-sm font-semibold text-text-primary">{programa.nome}</h4>
                       <Button
                         variant="ghost"
@@ -418,7 +418,7 @@ export function DialogAdicionarServicoModelo({
                                     value={valor}
                                     onChange={(e) => setPreco(pid, did, e.target.value)}
                                     placeholder="0,00"
-                                    className="h-9 w-32 bg-input text-sm tabular-nums"
+                                    className="h-9 w-32 bg-input font-mono text-sm tabular-nums"
                                   />
                                 </div>
                               </div>

@@ -176,10 +176,10 @@ function ClientesInner() {
   )
 
   return (
-    <div className="space-y-6">
-      <header className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="font-serif text-[40px] font-medium leading-[48px] text-text-primary">
+    <div className="flex flex-col gap-6">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
             Clientes
           </h1>
           <p className="mt-1 text-[13px] text-text-muted">
@@ -218,21 +218,22 @@ function ClientesInner() {
             onIncluirArquivadosChange={crm.setIncluirArquivados}
           />
           {bairroFiltro && (
-            <div className="flex items-center gap-2 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-text-secondary">
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-text-secondary">
               <span>
                 Bairro:{" "}
-                <strong className="text-text-primary">{bairroFiltro}</strong>
+                <strong className="font-medium text-text-primary">{bairroFiltro}</strong>
               </span>
-              <span className="text-text-muted">·</span>
+              <span aria-hidden className="text-text-muted">·</span>
               <span>
-                {itemsLista.length} cliente{itemsLista.length === 1 ? "" : "s"}{" "}
+                <span className="font-mono tabular-nums">{itemsLista.length}</span> cliente
+                {itemsLista.length === 1 ? "" : "s"}{" "}
                 visíve{itemsLista.length === 1 ? "l" : "is"}
               </span>
               <button
                 type="button"
                 onClick={() => setBairroFiltro(null)}
                 aria-label="Limpar filtro de bairro"
-                className="ml-auto inline-flex items-center gap-1 rounded text-text-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="ml-auto inline-flex items-center gap-1 rounded-md text-text-muted transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <X size={14} strokeWidth={1.5} />
                 <span>Limpar</span>
@@ -361,18 +362,22 @@ function Toolbar({
     return (
       <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_180px] gap-3">
         {Array.from({ length: 3 }).map((_, index) => (
-          <Skeleton key={index} className="h-14 rounded-lg" />
+          <div key={index} className="flex flex-col gap-1.5">
+            <Skeleton className="h-3.5 w-16 rounded-md" />
+            <Skeleton className="h-9 rounded-lg" />
+          </div>
         ))}
       </div>
     )
   }
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-3">
       <div className="grid grid-cols-[minmax(260px,1fr)_140px_180px] gap-3">
-        <div className="flex flex-col gap-1">
-          <span className="text-xs font-medium text-text-muted">Buscar</span>
-          <label className="relative">
-            <span className="sr-only">Buscar nome ou telefone</span>
+        <label className="flex flex-col gap-1.5">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+            Buscar
+          </span>
+          <div className="relative">
             <Search
               size={16}
               strokeWidth={1.5}
@@ -382,10 +387,11 @@ function Toolbar({
               value={busca}
               onChange={(event) => onBuscaChange(event.target.value)}
               placeholder="Buscar nome ou telefone"
+              aria-label="Buscar nome ou telefone"
               className="pl-9"
             />
-          </label>
-        </div>
+          </div>
+        </label>
         <SelectFiltro
           label="Período"
           value={periodo}
@@ -411,7 +417,9 @@ function Toolbar({
         </SelectFiltro>
       </div>
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-xs font-medium text-text-muted">Perfil físico:</span>
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+          Perfil físico
+        </span>
         <SeletorPerfis value={perfis} onChange={onPerfisChange} idPrefix="filtro-perfil" />
       </div>
       <label className="flex w-fit cursor-pointer select-none items-center gap-2 text-xs text-text-muted">
@@ -439,12 +447,14 @@ function SelectFiltro({
   children: ReactNode
 }) {
   return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-text-muted">{label}</span>
+    <label className="flex flex-col gap-1.5">
+      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        {label}
+      </span>
       <select
         value={value}
         onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         {children}
       </select>
@@ -468,7 +478,7 @@ function TabBtn({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         active
           ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gold-500"
           : "text-text-muted hover:text-text-secondary"

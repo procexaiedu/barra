@@ -94,22 +94,22 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="w-[468px] max-w-[92vw] rounded-xl border border-border bg-card p-6 shadow-2xl">
-        <div className="mb-5 flex items-center justify-between">
-          <DialogTitle className="font-serif text-2xl font-medium leading-none">
+      <DialogContent className="w-[468px] max-w-[92vw] rounded-lg bg-card p-6 shadow-lg ring-1 ring-foreground/10">
+        <div className="mb-5 flex items-center justify-between gap-4">
+          <DialogTitle>
             {editando ? "Editar tarefa" : "Nova tarefa"}
           </DialogTitle>
           <button
             onClick={onClose}
             aria-label="Fechar"
-            className="rounded-md p-1 text-text-muted transition-colors hover:bg-accent hover:text-text-primary"
+            className="-mr-1 rounded-md p-1 text-text-muted transition-colors hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X size={16} strokeWidth={1.5} />
           </button>
         </div>
 
-        <div className="space-y-4">
-          <div className="space-y-1.5">
+        <div className="space-y-5">
+          <div className="space-y-2">
             <Label htmlFor="tarefa-titulo">Título</Label>
             <Input
               id="tarefa-titulo"
@@ -121,7 +121,7 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="tarefa-descricao">Descrição</Label>
             <Textarea
               id="tarefa-descricao"
@@ -133,8 +133,8 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div className="space-y-1.5">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
               <Label>Prioridade</Label>
               <div className="flex gap-1">
                 {PRIORIDADE_ORDEM.map((p) => (
@@ -142,11 +142,12 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
                     key={p}
                     type="button"
                     onClick={() => setPrioridade(p)}
+                    aria-pressed={prioridade === p}
                     className={cn(
-                      "flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-all duration-150",
+                      "flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       prioridade === p
-                        ? "border-border-brand bg-accent text-text-primary"
-                        : "border-border text-text-secondary hover:bg-surface-hover",
+                        ? "border-border-brand bg-accent text-text-brand"
+                        : "border-border text-text-muted hover:bg-surface-hover hover:text-text-primary",
                     )}
                   >
                     <span className={cn("size-1.5 rounded-full", PRIORIDADE_BAR[p])} aria-hidden />
@@ -156,7 +157,7 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
               </div>
             </div>
 
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label htmlFor="tarefa-prazo">Prazo</Label>
               <Input
                 id="tarefa-prazo"
@@ -168,7 +169,7 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
           </div>
 
           {editando && (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               <Label>Status</Label>
               <div className="flex gap-1">
                 {STATUS_ORDEM.map((s) => (
@@ -176,11 +177,12 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
                     key={s}
                     type="button"
                     onClick={() => setStatus(s)}
+                    aria-pressed={status === s}
                     className={cn(
-                      "flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-all duration-150",
+                      "flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       status === s
-                        ? "border-border-brand bg-accent text-text-primary"
-                        : "border-border text-text-secondary hover:bg-surface-hover",
+                        ? "border-border-brand bg-accent text-text-brand"
+                        : "border-border text-text-muted hover:bg-surface-hover hover:text-text-primary",
                     )}
                   >
                     <span className={cn("size-1.5 rounded-full", STATUS_ACENTO[s].bar)} aria-hidden />
@@ -191,7 +193,7 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
             </div>
           )}
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <Label htmlFor="tarefa-responsavel">Responsável</Label>
             <SeletorResponsavel
               id="tarefa-responsavel"

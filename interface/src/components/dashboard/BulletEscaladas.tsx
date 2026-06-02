@@ -49,7 +49,7 @@ export function BulletEscaladas({ contagem, nReferencia, onClick }: Props) {
     <>
       <header className="flex items-center gap-2">
         <AlertTriangle size={14} strokeWidth={1.75} aria-hidden className="text-warn-500" />
-        <span className="text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           Atendimentos escalados
         </span>
         <Tooltip>
@@ -78,7 +78,7 @@ export function BulletEscaladas({ contagem, nReferencia, onClick }: Props) {
       </header>
 
       <div className="flex items-baseline gap-2">
-        <span className="font-sans text-[40px] font-medium leading-[48px] text-text-primary tabular-nums">
+        <span className="font-mono text-[36px] font-semibold leading-none text-text-primary tabular-nums">
           {PCT_FMT.format(pct)}%
         </span>
         <span className="text-[13px] text-text-muted">

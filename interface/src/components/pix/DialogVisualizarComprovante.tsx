@@ -154,7 +154,7 @@ export function DialogVisualizarComprovante({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "flex w-[min(98vw,108rem)] h-[min(96vh,68rem)] flex-col overflow-hidden rounded-lg border border-border bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]",
+          "flex w-[min(98vw,108rem)] h-[min(96vh,68rem)] flex-col overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-2xl ring-1 ring-foreground/10",
         )}
       >
         {/* Header */}
@@ -231,7 +231,7 @@ export function DialogVisualizarComprovante({
                     src={comprovante.url}
                     alt={pix?.nome_arquivo ?? "Comprovante"}
                     onError={() => setImgErro(true)}
-                    className="max-h-full max-w-full rounded-md object-contain shadow-[0_8px_24px_rgba(0,0,0,0.5)]"
+                    className="max-h-full max-w-full rounded-md object-contain shadow-lg"
                   />
                 )
               ) : isPdf ? (
@@ -274,7 +274,7 @@ export function DialogVisualizarComprovante({
               </p>
               <p
                 className={cn(
-                  "mt-1 font-semibold leading-none",
+                  "mt-1 font-mono font-semibold leading-none tabular-nums",
                   valor ? "text-[40px] text-text-primary" : "text-2xl text-text-muted",
                 )}
               >
@@ -404,7 +404,7 @@ export function DialogVisualizarComprovante({
                       className={cn(
                         "flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors",
                         motivo === o.value
-                          ? "border-red-500/70 bg-red-500/10 text-text-primary"
+                          ? "border-danger-500/70 bg-danger-500/10 text-text-primary"
                           : "border-border bg-muted text-text-secondary hover:border-border-strong hover:text-text-primary",
                       )}
                     >
@@ -412,7 +412,7 @@ export function DialogVisualizarComprovante({
                       {motivo === o.value && (
                         <span
                           aria-hidden
-                          className="size-2 rounded-full bg-red-500"
+                          className="size-2 rounded-full bg-danger-500"
                         />
                       )}
                     </button>
@@ -456,7 +456,7 @@ export function DialogVisualizarComprovante({
                   Rejeitar Pix
                 </Button>
                 <Button
-                  className="bg-emerald-600 text-white hover:bg-emerald-500"
+                  className="bg-success-500 text-on-success hover:bg-success-500/90"
                   onClick={handleAprovar}
                   disabled={submitting}
                 >
@@ -476,7 +476,7 @@ export function DialogVisualizarComprovante({
                   Voltar
                 </Button>
                 <Button
-                  className="bg-red-700 text-white hover:bg-red-600"
+                  variant="danger"
                   onClick={handleRejeitar}
                   disabled={submitting}
                 >

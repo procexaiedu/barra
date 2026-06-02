@@ -131,7 +131,7 @@ export function ModalCorrigirRegistro({
     <AlertDialog open={!!atendimentoId} onOpenChange={(o) => !submitting && !o && fechar()}>
       <AlertDialogContent className="w-[min(94vw,44rem)] max-w-none bg-card">
         <AlertDialogHeader>
-          <AlertDialogTitle className="font-serif text-xl font-medium text-text-primary">
+          <AlertDialogTitle className="text-base font-semibold text-text-primary">
             Corrigir resultado {numero ? `#${numero}` : ""}
           </AlertDialogTitle>
           <AlertDialogDescription className="text-sm text-text-secondary">
@@ -153,12 +153,12 @@ export function ModalCorrigirRegistro({
                     setErro(null)
                   }}
                   className={cn(
-                    "rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors",
+                    "rounded-md border px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     resultado === r
                       ? r === "Fechado"
                         ? "border-success-500 bg-success-500/10 text-success-500"
                         : "border-danger-500 bg-danger-500/10 text-danger-500"
-                      : "border-border-subtle bg-surface-hover text-text-secondary hover:bg-surface-pressed"
+                      : "border-border bg-muted text-text-secondary hover:bg-accent hover:text-text-primary"
                   )}
                 >
                   {r}
@@ -169,7 +169,7 @@ export function ModalCorrigirRegistro({
             {resultado === "Fechado" ? (
               <div>
                 <label
-                  className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted"
+                  className="mb-1 block text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted"
                   htmlFor="corrigir-valor"
                 >
                   Valor final
@@ -198,7 +198,7 @@ export function ModalCorrigirRegistro({
             ) : (
               <div className="flex flex-col gap-3">
                 <div>
-                  <span className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                  <span className="mb-2 block text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
                     Motivo da perda
                   </span>
                   <div className="grid grid-cols-3 gap-2">
@@ -211,10 +211,10 @@ export function ModalCorrigirRegistro({
                           setErro(null)
                         }}
                         className={cn(
-                          "rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
+                          "rounded-md border px-3 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                           motivo === item.value
-                            ? "border-ring bg-surface-pressed text-text-primary"
-                            : "border-border-subtle bg-surface-hover text-text-secondary hover:bg-surface-pressed"
+                            ? "border-border-brand bg-accent text-text-primary"
+                            : "border-border bg-muted text-text-secondary hover:bg-accent hover:text-text-primary"
                         )}
                       >
                         {item.label}
@@ -224,7 +224,7 @@ export function ModalCorrigirRegistro({
                 </div>
                 <div>
                   <label
-                    className="mb-2 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted"
+                    className="mb-2 block text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted"
                     htmlFor="corrigir-obs"
                   >
                     Observação {motivo === "outro" ? "(obrigatória)" : "(opcional)"}

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { Calendar } from "lucide-react"
-import { Button } from "@/components/ui/button"
+import { cn } from "@/lib/utils"
 import { DialogRangeCustom } from "@/components/dashboard/DialogRangeCustom"
 import { FiltroModeloMulti } from "@/components/dashboard/FiltroModeloMulti"
 import { formatRangeAbsoluto } from "@/components/dashboard/utils"
@@ -28,28 +28,33 @@ export function ToolbarFinanceiro({
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-card p-3">
-        <div className="flex flex-wrap gap-1">
-          {PRESETS.map((p) => (
-            <Button
-              key={p.id}
-              variant={filtros.periodo === p.id ? "primary" : "ghost"}
-              size="sm"
-              onClick={() => fin.setPeriodoPreset(p.id)}
-            >
-              {p.label}
-            </Button>
-          ))}
-          <Button
-            variant={filtros.periodo === "custom" ? "primary" : "ghost"}
-            size="sm"
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/30 p-2">
+        <div className="flex rounded-lg border border-border bg-muted p-0.5">
+          {PRESETS.map((p) => {
+            const ativo = filtros.periodo === p.id
+            return (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={ativo}
+                onClick={() => fin.setPeriodoPreset(p.id)}
+                className="rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm text-text-muted hover:text-text-primary"
+              >
+                {p.label}
+              </button>
+            )
+          })}
+          <button
+            type="button"
+            aria-pressed={filtros.periodo === "custom"}
             onClick={() => setRangeOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm text-text-muted hover:text-text-primary"
           >
-            <Calendar className="size-3.5" />
+            <Calendar size={14} strokeWidth={1.5} />
             {filtros.periodo === "custom" && filtros.de && filtros.ate
               ? formatRangeAbsoluto(filtros.de, filtros.ate)
               : "Personalizar"}
-          </Button>
+          </button>
         </div>
 
         {view === "receitas" && (
@@ -59,8 +64,10 @@ export function ToolbarFinanceiro({
           />
         )}
 
-        <div className="flex flex-wrap items-center gap-2 border-l border-border pl-2">
-          <span className="text-xs text-text-muted">Modelo:</span>
+        <div className="flex flex-wrap items-center gap-2 border-l border-border pl-3">
+          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+            Modelo
+          </span>
           <FiltroModeloMulti
             modeloIds={filtros.modelo_ids}
             onChange={fin.setModeloIds}
@@ -90,25 +97,45 @@ function FiltroForma({
 }) {
   const opcoes = ["pix", "dinheiro", "cartao", "outro"] as const
   return (
-    <div className="flex flex-wrap items-center gap-1 border-l border-border pl-2">
-      <span className="text-xs text-text-muted">Forma:</span>
-      <Button
-        variant={!valor ? "primary" : "ghost"}
-        size="xs"
-        onClick={() => onChange(null)}
-      >
-        todas
-      </Button>
-      {opcoes.map((o) => (
-        <Button
-          key={o}
-          variant={valor === o ? "primary" : "ghost"}
-          size="xs"
-          onClick={() => onChange(o)}
-        >
-          {o}
-        </Button>
-      ))}
+    <div className="flex flex-wrap items-center gap-2 border-l border-border pl-3">
+      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        Forma
+      </span>
+      <div className="flex rounded-lg border border-border bg-muted p-0.5">
+        <SegForma ativo={!valor} onClick={() => onChange(null)}>
+          todas
+        </SegForma>
+        {opcoes.map((o) => (
+          <SegForma key={o} ativo={valor === o} onClick={() => onChange(o)}>
+            {o}
+          </SegForma>
+        ))}
+      </div>
     </div>
+  )
+}
+
+function SegForma({
+  ativo,
+  onClick,
+  children,
+}: {
+  ativo: boolean
+  onClick: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={ativo}
+      onClick={onClick}
+      className={cn(
+        "rounded-md px-2 py-1 text-xs font-medium capitalize transition-all duration-150",
+        "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
+        "text-text-muted hover:text-text-primary",
+      )}
+    >
+      {children}
+    </button>
   )
 }

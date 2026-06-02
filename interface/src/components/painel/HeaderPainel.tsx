@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react"
 import { ChevronDown } from "lucide-react"
+import { cn } from "@/lib/utils"
 import type { ModeloAtiva } from "@/tipos/painel"
 
 function SeletorModelo({
@@ -39,14 +40,15 @@ function SeletorModelo({
     <div ref={ref} className="relative">
       <button
         onClick={() => setAberto((v) => !v)}
-        className="flex items-center gap-1 text-base font-semibold text-text-primary hover:text-text-secondary outline-none"
+        aria-expanded={aberto}
+        className="flex items-center gap-1.5 text-sm font-semibold text-text-primary outline-none transition-colors hover:text-text-secondary focus-visible:text-text-primary"
       >
         {labelAtual}
-        <ChevronDown size={14} className="text-text-muted" />
+        <ChevronDown size={14} className="text-text-muted" aria-hidden />
       </button>
 
       {aberto && (
-        <div className="absolute right-0 top-full z-50 mt-1 min-w-[180px] rounded-lg border border-border bg-card py-1 shadow-lg">
+        <div className="absolute right-0 top-full z-50 mt-1.5 min-w-[180px] rounded-lg bg-popover py-1 shadow-md ring-1 ring-foreground/10">
           {opcoes.map((op) => (
             <button
               key={op.id ?? "__todas__"}
@@ -54,11 +56,10 @@ function SeletorModelo({
                 onModeloChange(op.id)
                 setAberto(false)
               }}
-              className={`w-full px-4 py-2 text-left text-sm hover:bg-accent ${
-                op.id === modeloId
-                  ? "font-semibold text-text-primary"
-                  : "text-text-secondary"
-              }`}
+              className={cn(
+                "w-full px-3 py-2 text-left text-sm transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none",
+                op.id === modeloId ? "font-semibold text-text-primary" : "text-text-secondary",
+              )}
             >
               {op.nome}
             </button>
@@ -81,28 +82,31 @@ export function HeaderPainel({
   const multiplas = modelos.length > 1
 
   return (
-    <div className="flex items-center justify-between px-8 pb-4 pt-8">
-      <h1 className="font-serif text-[40px] font-medium leading-[48px] tracking-[-0.02em] text-text-primary">
-        Painel
-      </h1>
-      <div className="flex items-center gap-6">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
-            MODELO
-          </p>
-          {multiplas ? (
-            <SeletorModelo
-              modelos={modelos}
-              modeloId={modeloId}
-              onModeloChange={onModeloChange}
-            />
-          ) : modelos.length === 1 ? (
-            <p className="text-base font-semibold text-text-primary">{modelos[0].nome}</p>
-          ) : (
-            <p className="text-base font-semibold text-text-muted">Nenhuma modelo ativa</p>
-          )}
-        </div>
+    <header className="flex flex-wrap items-end justify-between gap-4">
+      <div className="min-w-0">
+        <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
+          Painel
+        </h1>
+        <p className="mt-1 text-[13px] text-text-muted">
+          Tudo que precisa da sua atenção, num só lugar.
+        </p>
       </div>
-    </div>
+      <div className="flex flex-col items-end gap-1">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+          Modelo
+        </span>
+        {multiplas ? (
+          <SeletorModelo
+            modelos={modelos}
+            modeloId={modeloId}
+            onModeloChange={onModeloChange}
+          />
+        ) : modelos.length === 1 ? (
+          <p className="text-sm font-semibold text-text-primary">{modelos[0].nome}</p>
+        ) : (
+          <p className="text-sm font-semibold text-text-muted">Nenhuma modelo ativa</p>
+        )}
+      </div>
+    </header>
   )
 }

@@ -38,13 +38,13 @@ export function StatusRepasses({
         : "text-text-secondary"
 
   return (
-    <section className="flex h-full flex-col gap-3 rounded-md border border-border bg-card p-3">
+    <section className="flex h-full flex-col gap-3 rounded-lg bg-card p-4 ring-1 ring-foreground/10">
       <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <h3 className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           Status de repasses
         </h3>
         {bruto > 0 && (
-          <span className="text-[10.5px] tabular-nums text-text-disabled">
+          <span className="font-mono text-[10.5px] tabular-nums text-text-disabled">
             calculado = {pctDoBruto.toFixed(1)}% do bruto
           </span>
         )}
@@ -109,7 +109,7 @@ export function StatusRepasses({
           ) : (
             <>
               Falta liquidar{" "}
-              <span className="font-medium tabular-nums text-text-secondary">
+              <span className="font-mono font-medium tabular-nums text-text-secondary">
                 {formatBRL(Math.abs(saldo))}
               </span>{" "}
               para fechar o ciclo.
@@ -157,7 +157,7 @@ function Coluna({
       ) : (
         <span
           className={cn(
-            "truncate text-[15px] font-semibold tabular-nums leading-tight",
+            "truncate font-mono text-[15px] font-semibold tabular-nums leading-tight",
             corValor ?? "text-text-primary",
           )}
         >
@@ -165,7 +165,7 @@ function Coluna({
         </span>
       )}
       {trailing && (
-        <span className="truncate text-[10.5px] text-text-disabled tabular-nums">
+        <span className="truncate font-mono text-[10.5px] text-text-disabled tabular-nums">
           {trailing}
         </span>
       )}

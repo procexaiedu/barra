@@ -78,7 +78,7 @@ export function AcoesAtendimento({
       <AlertDialog open={dialog === "devolver"} onOpenChange={(open) => !submitting && setDialog(open ? "devolver" : null)}>
         <AlertDialogContent className="w-[min(94vw,28rem)] max-w-none bg-card">
           <AlertDialogHeader>
-            <AlertDialogTitle className="font-serif text-xl font-medium text-text-primary">
+            <AlertDialogTitle className="text-base font-semibold text-text-primary">
               Devolver #{atendimento.numero_curto} para a IA?
             </AlertDialogTitle>
             <AlertDialogDescription className="text-sm text-text-secondary">
@@ -86,7 +86,7 @@ export function AcoesAtendimento({
             </AlertDialogDescription>
           </AlertDialogHeader>
           {atendimento.ia_pausada && (
-            <div className="flex items-center gap-3 rounded-md border border-border-subtle bg-surface px-3 py-2 text-xs">
+            <div className="flex items-center gap-3 rounded-md bg-muted px-3 py-2 text-xs">
               <span className="text-text-muted">IA pausada</span>
               <span className="text-text-primary">{motivoPausaLabel(atendimento.ia_pausada_motivo)}</span>
             </div>

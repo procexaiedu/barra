@@ -74,11 +74,11 @@ export function FiltroPeriodo({ value, onChange }: Props) {
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <label className="flex flex-col gap-0.5">
+      <label className="flex flex-col gap-1">
         <span className="text-xs font-medium text-text-muted">Período</span>
         <PopoverTrigger
           data-slot="filtro-periodo-trigger"
-          className="inline-flex h-9 w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60"
+          className="inline-flex h-9 w-full items-center justify-between gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
         >
           <span className="truncate">{label}</span>
           <CalendarIcon size={14} strokeWidth={1.5} className="shrink-0 text-text-muted" />

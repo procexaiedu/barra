@@ -55,11 +55,12 @@ export function SeletorResponsavel({ value, onChange, responsaveis, id }: Props)
               key={t}
               type="button"
               onClick={() => setTipo(t)}
+              aria-pressed={tipo === t}
               className={cn(
-                "flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-all duration-150",
+                "flex-1 rounded-md border px-2 py-1.5 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 tipo === t
-                  ? "border-border-brand bg-accent text-text-primary"
-                  : "border-border text-text-secondary hover:bg-surface-hover",
+                  ? "border-border-brand bg-accent text-text-brand"
+                  : "border-border text-text-muted hover:bg-surface-hover hover:text-text-primary",
               )}
             >
               {ATOR_LABEL[t]}

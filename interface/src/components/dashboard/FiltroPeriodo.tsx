@@ -23,8 +23,14 @@ const PRESETS: { value: PresetValue; label: string }[] = [
 
 export function FiltroPeriodo({ periodo, de, ate, onPreset, onAbrirCustom }: Props) {
   const customAtivo = periodo === "custom"
+  const segmentoBase =
+    "rounded-md px-2.5 py-1.5 text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
   return (
-    <div className="flex items-center gap-2" role="group" aria-label="Período">
+    <div
+      className="flex h-9 items-center rounded-lg border border-border bg-muted p-0.5"
+      role="group"
+      aria-label="Período"
+    >
       {PRESETS.map((p) => {
         const ativo = periodo === p.value
         return (
@@ -34,11 +40,10 @@ export function FiltroPeriodo({ periodo, de, ate, onPreset, onAbrirCustom }: Pro
             onClick={() => onPreset(p.value)}
             aria-pressed={ativo}
             className={cn(
-              "h-9 rounded-md px-3 text-sm font-medium transition-colors",
-              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+              segmentoBase,
               ativo
                 ? "bg-accent text-text-brand"
-                : "bg-muted text-text-secondary hover:bg-accent hover:text-text-primary"
+                : "text-text-muted hover:text-text-primary"
             )}
           >
             {p.label}
@@ -50,15 +55,14 @@ export function FiltroPeriodo({ periodo, de, ate, onPreset, onAbrirCustom }: Pro
         onClick={onAbrirCustom}
         aria-pressed={customAtivo}
         className={cn(
-          "h-9 rounded-md px-3 text-sm font-medium transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+          segmentoBase,
           customAtivo
             ? "bg-accent text-text-brand"
-            : "bg-muted text-text-secondary hover:bg-accent hover:text-text-primary"
+            : "text-text-muted hover:text-text-primary"
         )}
       >
         {customAtivo && de && ate ? (
-          <span className="font-mono text-[12px] text-text-brand">
+          <span className="font-mono text-[12px] tabular-nums text-text-brand">
             {formatRangeAbsoluto(de, ate)}
           </span>
         ) : (

@@ -90,7 +90,7 @@ export function FiltroModeloMulti({ modeloIds, onChange }: Props) {
       <PopoverTrigger
         disabled={carregando}
         aria-label="Filtrar por modelo"
-        className="flex h-9 min-w-[9rem] items-center justify-between gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+        className="flex h-9 min-w-[9rem] items-center justify-between gap-2 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
       >
         <span className="flex items-center gap-2 truncate">
           <span className={cn("truncate", modeloIds.length === 0 && "text-text-muted")}>

@@ -35,7 +35,7 @@ const TITULO_MODAL = {
 } as const
 
 const ROW_CLS = cn(
-  "grid w-full items-center gap-3 rounded-md px-1 py-1.5 text-left text-[13px]",
+  "grid w-full items-center gap-3 rounded-md px-2 py-2 text-left text-[13px]",
   "transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
 )
 
@@ -83,7 +83,7 @@ function ResumoModelosFechamentos({ itens }: { itens: ItemFechamento[] }) {
 
   return (
     <div className="mb-3 rounded-md bg-muted px-3 py-2">
-      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-muted">Por modelo</p>
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Por modelo</p>
       <div className="flex flex-col gap-1">
         {por_modelo.map((m) => (
           <div key={m.nome} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 text-[13px]">
@@ -309,11 +309,7 @@ export default function PainelGeral() {
   if (status === "loading") return <PainelSkeleton />
 
   if (status === "error" || !data) {
-    return (
-      <div className="p-8">
-        <BannerErro mensagem={error ?? undefined} onRetry={refetch} />
-      </div>
-    )
+    return <BannerErro mensagem={error ?? undefined} onRetry={refetch} />
   }
 
   const mostrarModelo = modeloId === null && data.modelos_ativas.length > 1
@@ -331,29 +327,30 @@ export default function PainelGeral() {
     : undefined
 
   return (
-    <div>
+    <div className="flex flex-col gap-8">
       <HeaderPainel
         modelos={data.modelos_ativas}
         modeloId={modeloId}
         onModeloChange={handleModeloChange}
       />
 
-      <section aria-label="Aguardando você" className="px-8 py-5">
-        <div className="mb-4 flex items-center justify-between">
+      <section aria-label="Aguardando você" className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
             <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
             Aguardando você
           </h2>
           {data.cards_destaque.length > 0 && (
             <div className="flex items-center gap-3">
-              <span className="text-xs font-medium text-text-muted">
+              <span className="text-xs font-medium tabular-nums text-text-muted">
                 {data.cards_destaque.length} aguardando ação
               </span>
               <button
                 type="button"
                 onClick={() => setCompacto((c) => !c)}
                 title={compacto ? "Modo grade" : "Modo compacto"}
-                className="rounded p-1 text-text-muted transition-colors hover:bg-accent hover:text-text-primary"
+                aria-label={compacto ? "Modo grade" : "Modo compacto"}
+                className="rounded-md p-1 text-text-muted transition-colors hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {compacto ? <LayoutGrid size={16} /> : <LayoutList size={16} />}
               </button>
@@ -362,24 +359,24 @@ export default function PainelGeral() {
         </div>
 
         {data.cards_destaque.length > 0 && !compacto && (
-          <div className="mb-3 flex items-center gap-5">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5">
             <span className="flex items-center gap-1.5 text-xs text-text-muted">
-              <span className="h-2 w-2 rounded-full bg-state-lost" />
+              <span className="size-2 rounded-full bg-state-lost" aria-hidden />
               Pix em revisão
             </span>
             <span className="flex items-center gap-1.5 text-xs text-text-muted">
-              <span className="h-2 w-2 rounded-full bg-state-handoff" />
+              <span className="size-2 rounded-full bg-state-handoff" aria-hidden />
               Aguardando decisão
             </span>
             <span className="flex items-center gap-1.5 text-xs text-text-muted">
-              <span className="h-2 w-2 rounded-full bg-state-info" />
+              <span className="size-2 rounded-full bg-state-info" aria-hidden />
               Modelo com o cliente
             </span>
           </div>
         )}
 
         {data.cards_destaque.length === 0 ? (
-          <Card className="rounded-lg bg-card">
+          <Card>
             <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
               <div className="flex size-11 items-center justify-center rounded-full bg-success-500/10 ring-1 ring-success-500/20">
                 <CheckCircle2 size={22} strokeWidth={1.75} className="text-success-500" />
@@ -393,7 +390,7 @@ export default function PainelGeral() {
             </div>
           </Card>
         ) : compacto ? (
-          <Card className="max-h-44 overflow-y-auto rounded-lg bg-card">
+          <Card className="max-h-44 overflow-y-auto">
             {data.cards_destaque.map((card) => (
               <CardDestaque
                 key={card.atendimento_id}
@@ -423,12 +420,12 @@ export default function PainelGeral() {
                 ))}
               </div>
               {totalPaginas > 1 && (
-                <div className="mt-4 flex items-center justify-between">
+                <div className="flex items-center justify-between">
                   <Button variant="ghost" size="sm" disabled={paginaCards === 0}
                     onClick={() => setPaginaCards((p) => p - 1)}>
                     ← Anterior
                   </Button>
-                  <span className="text-xs text-text-muted">
+                  <span className="text-xs tabular-nums text-text-muted">
                     {paginaCards + 1} / {totalPaginas}
                   </span>
                   <Button variant="ghost" size="sm" disabled={paginaCards >= totalPaginas - 1}
@@ -442,8 +439,8 @@ export default function PainelGeral() {
         })()}
       </section>
 
-      <section aria-label="Métricas de hoje" className="px-8 py-5">
-        <div className="mb-4">
+      <section aria-label="Métricas de hoje" className="flex flex-col gap-3">
+        <div>
           <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
             <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
             Hoje
@@ -507,8 +504,8 @@ export default function PainelGeral() {
         </div>
       </section>
 
-      <section aria-label="Agenda de hoje" className="px-8 py-5">
-        <div className="mb-4 flex items-center justify-between">
+      <section aria-label="Agenda de hoje" className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
             <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
             Agenda de hoje
@@ -518,7 +515,7 @@ export default function PainelGeral() {
           </Button>
         </div>
         {data.agenda_dia.length === 0 ? (
-          <Card className="rounded-lg bg-card">
+          <Card>
             <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
               <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
                 <CalendarOff size={22} strokeWidth={1.75} className="text-text-muted" />
@@ -532,7 +529,7 @@ export default function PainelGeral() {
             </div>
           </Card>
         ) : (
-          <Card className="overflow-hidden rounded-lg bg-card">
+          <Card>
             {data.agenda_dia.map((linha) => (
               <LinhaAgenda
                 key={linha.id}
@@ -610,16 +607,17 @@ export default function PainelGeral() {
 
 function PainelSkeleton() {
   return (
-    <div aria-busy="true">
-      <div className="flex items-center justify-between px-8 pb-4 pt-8">
-        <Skeleton className="h-12 w-40" />
-        <div className="flex gap-6">
-          <Skeleton className="h-10 w-32" />
+    <div aria-busy="true" className="flex flex-col gap-8">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <Skeleton className="h-9 w-40 rounded-md" />
+          <Skeleton className="mt-2 h-4 w-64 rounded-md" />
         </div>
+        <Skeleton className="h-8 w-32 rounded-md" />
       </div>
 
-      <div className="px-8 py-5">
-        <Skeleton className="mb-4 h-6 w-48" />
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-6 w-48 rounded-md" />
         <div className="grid gap-4 xl:grid-cols-2">
           {[0, 1, 2, 3].map((i) => (
             <Skeleton key={i} className="h-[120px] rounded-lg" />
@@ -627,17 +625,17 @@ function PainelSkeleton() {
         </div>
       </div>
 
-      <div className="px-8 py-5">
-        <Skeleton className="mb-4 h-6 w-24" />
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-6 w-24 rounded-md" />
         <div className="grid grid-cols-5 gap-4">
           {[0, 1, 2, 3, 4].map((i) => (
-            <Skeleton key={i} className="h-24 rounded-lg" />
+            <Skeleton key={i} className="h-[120px] rounded-lg" />
           ))}
         </div>
       </div>
 
-      <div className="px-8 py-5">
-        <Skeleton className="mb-4 h-6 w-36" />
+      <div className="flex flex-col gap-3">
+        <Skeleton className="h-6 w-36 rounded-md" />
         <Skeleton className="h-[168px] rounded-lg" />
       </div>
     </div>

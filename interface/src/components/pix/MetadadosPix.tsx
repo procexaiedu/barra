@@ -18,7 +18,7 @@ export function MetadadosPix({ pix }: { pix: PixDetalhe }) {
   return (
     <section
       aria-label="Dados do comprovante"
-      className="rounded-lg border border-border bg-card p-3"
+      className="rounded-lg bg-card p-3 ring-1 ring-foreground/10"
     >
       <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
         Dados do comprovante

@@ -49,7 +49,7 @@ export function ItemPix({
       onKeyDown={handleKeyDown}
       className={cn(
         "min-h-[88px] cursor-pointer border-l-3 bg-card px-4 py-3 transition-colors hover:bg-accent",
-        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
+        "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset focus-visible:outline-none",
         selected ? "bg-accent" : "",
         border
       )}
@@ -60,10 +60,10 @@ export function ItemPix({
           {formatTempoRelativo(item.created_at)}
         </span>
       </div>
-      <p className="mt-2 text-base font-semibold text-text-primary">
+      <p className="mt-2 font-mono text-base font-semibold tabular-nums text-text-primary">
         {item.valor_extraido !== null
           ? formatBRL(item.valor_extraido)
-          : <span className="text-text-muted">Valor não extraído</span>}
+          : <span className="font-sans text-sm font-normal text-text-muted">Valor não extraído</span>}
       </p>
       <p className="truncate text-[13px] text-text-muted">{meta}</p>
       {status === "em_revisao" && item.motivo_em_revisao && (

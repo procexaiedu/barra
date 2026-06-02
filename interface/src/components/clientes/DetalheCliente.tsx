@@ -1,5 +1,6 @@
 "use client"
 
+import { UserSearch } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -72,19 +73,19 @@ export function DetalheCliente({
 
   return (
     <section aria-label="Detalhe do cliente" className="min-w-0 flex flex-col overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-y-auto scroll-thin space-y-3 pr-1">
+      <div className="flex-1 min-h-0 overflow-y-auto scroll-thin flex flex-col gap-4 pr-1">
         <header className="rounded-lg border border-border bg-card px-5 py-4">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-center gap-2">
               {detalhe.conversa.recorrente && <Badge variant="paused">Recorrente</Badge>}
-              <h1 className="truncate text-xl font-semibold">
+              <h2 className="truncate text-lg font-semibold">
                 <span className="text-text-muted">Cliente:</span>{" "}
                 <span className="text-text-primary">{nome}</span>
-              </h1>
+              </h2>
             </div>
             <span className="shrink-0 text-xs text-text-muted">{ultima}</span>
           </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] text-text-muted">
+          <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[13px] text-text-muted">
             {detalhe.cliente.nome && (
               <>
                 <span className="font-mono">{formatTelefone(detalhe.cliente.telefone)}</span>
@@ -151,8 +152,8 @@ function SeletorConversa({
 }) {
   return (
     <div className="mt-3 flex flex-wrap items-center gap-1.5 border-t border-border pt-3">
-      <span className="mr-1 text-[11px] uppercase tracking-[0.08em] text-text-muted">
-        Modelos:
+      <span className="mr-1 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        Modelos
       </span>
       {conversas.map((conversa) => {
         const ativa = conversa.id === conversaAtivaId
@@ -193,13 +194,13 @@ function SemHistorico({
     >
       <div className="flex items-center gap-2">
         {arquivado && <Badge variant="paused">Arquivado</Badge>}
-        <h1 className="truncate text-xl font-semibold">
+        <h2 className="truncate text-lg font-semibold">
           <span className="text-text-muted">Cliente:</span>{" "}
           <span className="text-text-primary">{nome}</span>
-        </h1>
+        </h2>
       </div>
       {cliente.telefone_mascarado && (
-        <p className="font-mono text-[13px] text-text-muted">{cliente.telefone_mascarado}</p>
+        <p className="font-mono text-[13px] tabular-nums text-text-muted">{cliente.telefone_mascarado}</p>
       )}
       <p className="text-sm text-text-primary">— Sem histórico</p>
       <p className="text-[13px] text-text-muted">
@@ -221,20 +222,30 @@ function SemHistorico({
 
 function EmptyDetalhe() {
   return (
-    <section aria-label="Detalhe do cliente" className="rounded-lg border border-border bg-card p-6">
-      <p className="text-sm text-text-primary">Nenhum cliente selecionado.</p>
-      <p className="mt-1 text-[13px] text-text-muted">
-        Selecione um cliente na lista para ver o histórico.
-      </p>
+    <section
+      aria-label="Detalhe do cliente"
+      className="flex h-full min-h-[320px] items-center justify-center rounded-lg border border-border bg-card p-6"
+    >
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+          <UserSearch size={22} strokeWidth={1.75} className="text-text-muted" />
+        </div>
+        <div>
+          <p className="text-sm font-medium text-text-primary">Nenhum cliente selecionado.</p>
+          <p className="mt-1 text-[13px] text-text-muted">
+            Selecione um cliente na lista para ver o histórico.
+          </p>
+        </div>
+      </div>
     </section>
   )
 }
 
 function DetalheSkeleton() {
   return (
-    <section aria-label="Detalhe do cliente" aria-busy="true" className="space-y-3">
+    <section aria-label="Detalhe do cliente" aria-busy="true" className="flex flex-col gap-4">
       <Skeleton className="h-20 rounded-lg" />
-      <Skeleton className="h-16 rounded-lg" />
+      <Skeleton className="h-28 rounded-lg" />
       <Skeleton className="h-16 rounded-lg" />
       <Skeleton className="h-32 rounded-lg" />
       <Skeleton className="h-40 rounded-lg" />

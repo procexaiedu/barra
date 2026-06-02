@@ -173,20 +173,20 @@ function TooltipTopModelo({
   return (
     <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-lg shadow-black/40">
       <div className="mb-1 font-medium text-text-primary">{p.modelo_nome}</div>
-      <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5 tabular-nums">
+      <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5">
         <dt className="text-text-muted">Bruto</dt>
-        <dd className="text-right text-text-primary">
+        <dd className="text-right font-mono tabular-nums text-text-primary">
           {formatBRL(p.bruto)}{" "}
           <span className="text-[10px] text-text-muted">({p.pctDoTotal.toFixed(1)}%)</span>
         </dd>
         <dt className="text-gold-700">Líquido</dt>
-        <dd className="text-right text-gold-700">{formatBRL(p.liquido)}</dd>
+        <dd className="text-right font-mono tabular-nums text-gold-700">{formatBRL(p.liquido)}</dd>
         <dt style={{ color: "var(--chart-2)" }}>Repasse</dt>
-        <dd className="text-right" style={{ color: "var(--chart-2)" }}>
+        <dd className="text-right font-mono tabular-nums" style={{ color: "var(--chart-2)" }}>
           {formatBRL(p.repasse)}
         </dd>
         <dt className="text-text-muted">Fechamentos</dt>
-        <dd className="text-right text-text-secondary">{p.fechamentos}</dd>
+        <dd className="text-right font-mono tabular-nums text-text-secondary">{p.fechamentos}</dd>
       </dl>
     </div>
   )

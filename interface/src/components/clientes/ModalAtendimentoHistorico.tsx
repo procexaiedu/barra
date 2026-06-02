@@ -23,7 +23,7 @@ const urgenciaLabel: Record<string, string> = {
 function Campo({ label, value }: { label: string; value: string }) {
   return (
     <div className="min-w-0">
-      <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <p className="mb-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         {label}
       </p>
       <p className="text-sm text-text-primary">{value}</p>
@@ -33,7 +33,7 @@ function Campo({ label, value }: { label: string; value: string }) {
 
 function SecaoHeader({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-3 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+    <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
       {children}
     </p>
   )
@@ -206,12 +206,12 @@ export function ModalAtendimentoHistorico({
                       : "—"}
                   />
                   <div className="min-w-0">
-                    <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                    <p className="mb-0.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
                       Valor final
                     </p>
                     <p className={
                       isFechado && at.valor_final !== null && at.valor_final !== undefined
-                        ? "text-sm font-semibold text-state-won"
+                        ? "font-mono text-sm font-semibold tabular-nums text-state-closed"
                         : "text-sm text-text-primary"
                     }>
                       {at.valor_final !== null && at.valor_final !== undefined
@@ -230,7 +230,7 @@ export function ModalAtendimentoHistorico({
                     <div className="flex items-center gap-3">
                       <Badge variant="closed">{estadoAtendimentoLabel[at.estado]}</Badge>
                       {at.valor_final !== null && at.valor_final !== undefined && (
-                        <span className="text-base font-semibold text-state-won tabular-nums">
+                        <span className="font-mono text-base font-semibold tabular-nums text-state-closed">
                           {formatBRL(Number(at.valor_final))}
                         </span>
                       )}
@@ -262,7 +262,7 @@ export function ModalAtendimentoHistorico({
                     {detalhe.servicos.map((sv) => (
                       <li key={sv.id} className="flex items-center justify-between text-sm">
                         <span className="text-text-secondary">{sv.nome}</span>
-                        <span className="font-medium tabular-nums text-text-primary">
+                        <span className="font-mono font-medium tabular-nums text-text-primary">
                           {formatBRL(sv.preco_snapshot)}
                         </span>
                       </li>
@@ -271,7 +271,7 @@ export function ModalAtendimentoHistorico({
                   {detalhe.servicos.length > 1 && (
                     <div className="mt-3 flex items-center justify-between border-t border-border pt-3 text-sm">
                       <span className="text-text-muted">Total</span>
-                      <span className="font-semibold tabular-nums text-text-primary">
+                      <span className="font-mono font-semibold tabular-nums text-text-primary">
                         {formatBRL(totalServicos)}
                       </span>
                     </div>
@@ -299,7 +299,7 @@ export function ModalAtendimentoHistorico({
                 <section className="rounded-lg border border-border bg-card p-4">
                   <SecaoHeader>Contexto operacional</SecaoHeader>
                   <div>
-                    <p className="mb-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+                    <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
                       Resumo
                     </p>
                     <p className="text-sm text-text-secondary">{at.resumo_operacional}</p>

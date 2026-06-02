@@ -47,15 +47,14 @@ export default function Login() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-[400px]">
-        <div className="mb-8 text-center">
-          <h1 className="font-serif text-[28px] font-medium text-gold-500">
+    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
+      <div className="flex w-full max-w-[400px] flex-col gap-8">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <span className="h-1 w-10 rounded-full bg-gold-500" aria-hidden />
+          <h1 className="font-serif text-[40px] font-medium leading-none tracking-[-0.01em] text-gold-500">
             Elite Baby
           </h1>
-          <p className="mt-1 text-sm text-text-muted">
-            Acesso à central inteligente
-          </p>
+          <p className="text-[13px] text-text-muted">Acesso à central inteligente.</p>
         </div>
 
         <Card>
@@ -66,7 +65,7 @@ export default function Login() {
             </CardDescription>
           </CardHeader>
           <form onSubmit={handleLogin}>
-            <CardContent className="space-y-5">
+            <CardContent className="flex flex-col gap-5">
               <div className="space-y-2.5">
                 <Label htmlFor="email">E-mail</Label>
                 <Input
@@ -92,16 +91,16 @@ export default function Login() {
                 />
               </div>
             </CardContent>
-            <CardFooter className="mt-6">
-              <Button type="submit" className="w-full" disabled={isLoading}>
+            <CardFooter>
+              <Button type="submit" variant="primary" size="lg" className="w-full" disabled={isLoading}>
                 {isLoading ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    <Loader2 size={16} strokeWidth={1.5} className="animate-spin" />
                     Autenticando...
                   </>
                 ) : (
                   <>
-                    <LogIn className="mr-2 h-4 w-4" />
+                    <LogIn size={16} strokeWidth={1.5} />
                     Acessar painel
                   </>
                 )}

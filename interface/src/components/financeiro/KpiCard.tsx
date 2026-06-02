@@ -37,35 +37,35 @@ interface KpiCardProps {
   rotulosSparkline?: string[]
 }
 
-const TONS: Record<KpiTom, { valor: string; borda: string; chip: string }> = {
+const TONS: Record<KpiTom, { valor: string; anel: string; chip: string }> = {
   default: {
     valor: "text-text-primary",
-    borda: "border-border",
+    anel: "ring-foreground/10",
     chip: "bg-muted/50 text-text-muted",
   },
   brand: {
     valor: "text-gold-700",
-    borda: "border-border",
+    anel: "ring-foreground/10",
     chip: "bg-gold-700/10 text-gold-700",
   },
   warning: {
     valor: "text-warn-500",
-    borda: "border-warn-500/40",
+    anel: "ring-warn-500/40",
     chip: "bg-warn-500/15 text-warn-500",
   },
   success: {
     valor: "text-success-500",
-    borda: "border-border",
+    anel: "ring-foreground/10",
     chip: "bg-success-500/15 text-success-500",
   },
   danger: {
     valor: "text-danger-500",
-    borda: "border-danger-500/40",
+    anel: "ring-danger-500/40",
     chip: "bg-danger-500/12 text-danger-500",
   },
   muted: {
     valor: "text-text-muted",
-    borda: "border-border",
+    anel: "ring-foreground/10",
     chip: "bg-muted/50 text-text-muted",
   },
 }
@@ -95,7 +95,7 @@ export function KpiCard({
       : new Intl.NumberFormat("pt-BR").format(valor)
 
   const delta = computarDelta(valor, anterior)
-  const destaqueBorda = destaque ? "border-gold-500/50" : tons.borda
+  const anel = destaque && tom === "brand" ? "ring-gold-500/40" : tons.anel
   const temSparkline = Array.isArray(sparkline) && sparkline.length >= 2
   const corSpark =
     corSparkline ??
@@ -114,12 +114,12 @@ export function KpiCard({
       data-tom={tom}
       data-destaque={destaque || undefined}
       className={cn(
-        "relative flex flex-col gap-2 rounded-md border bg-card p-3",
-        destaqueBorda,
+        "relative flex flex-col gap-2 rounded-lg bg-card p-4 ring-1",
+        anel,
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           {rotulo}
         </span>
         {icone && <span aria-hidden className="shrink-0 text-text-muted">{icone}</span>}
@@ -128,14 +128,14 @@ export function KpiCard({
       {okQuando ? (
         <div className="flex items-center gap-2 text-success-500">
           <CheckCircle2 className="size-5" aria-hidden />
-          <span className="text-[14px] font-medium">{okTexto ?? "tudo em dia"}</span>
+          <span className="text-sm font-medium">{okTexto ?? "tudo em dia"}</span>
         </div>
       ) : (
         <div className="flex items-baseline gap-2">
           <span
             className={cn(
-              "font-semibold tabular-nums leading-none",
-              destaque ? "text-[28px]" : "text-[22px]",
+              "font-mono font-semibold tabular-nums leading-none",
+              destaque ? "text-2xl" : "text-xl",
               tons.valor,
             )}
           >

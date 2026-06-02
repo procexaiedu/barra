@@ -216,7 +216,7 @@ export function AgendaClient() {
 
   if (agenda.status === "error") {
     return (
-      <section className="space-y-3">
+      <section className="flex flex-col gap-4">
         <HeaderAgenda modelo={agenda.modeloId ? (agenda.agenda?.modelo ?? null) : null} bloqueios={[]} />
         <BannerErro mensagem={agenda.error ?? undefined} onRetry={agenda.refetch} />
       </section>
@@ -226,7 +226,7 @@ export function AgendaClient() {
   const hojeStr = dataInputSaoPaulo()
 
   return (
-    <section className="space-y-3">
+    <section className="flex flex-col gap-4">
       <HeaderAgenda modelo={agenda.modeloId ? (agenda.agenda?.modelo ?? null) : null} bloqueios={bloqueios} />
       <ToolbarAgenda
         visao={agenda.visao}
@@ -321,19 +321,19 @@ export function AgendaClient() {
 
 export function AgendaSkeleton() {
   return (
-    <section className="space-y-3" aria-busy="true">
+    <section className="flex flex-col gap-4" aria-busy="true">
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-32" />
-          <Skeleton className="h-4 w-44" />
+        <div className="flex flex-col gap-2">
+          <Skeleton className="h-9 w-40 rounded-md" />
+          <Skeleton className="h-4 w-44 rounded-md" />
         </div>
         <Skeleton className="h-[4.75rem] w-80 rounded-lg" />
       </div>
       <div className="rounded-lg border border-border bg-card p-2">
         <div className="flex items-center justify-between">
-          <Skeleton className="h-9 w-48" />
-          <Skeleton className="h-9 w-56" />
-          <Skeleton className="h-9 w-40" />
+          <Skeleton className="h-8 w-48 rounded-md" />
+          <Skeleton className="h-9 w-56 rounded-md" />
+          <Skeleton className="h-9 w-40 rounded-md" />
         </div>
       </div>
       <div className="overflow-hidden rounded-lg border border-border bg-card">
@@ -342,7 +342,7 @@ export function AgendaSkeleton() {
             <Skeleton key={i} className="m-2 h-8 rounded-md" />
           ))}
         </div>
-        <div className="space-y-1 p-4">
+        <div className="flex flex-col gap-1 p-4">
           {Array.from({ length: 6 }, (_, i) => (
             <Skeleton key={i} className="h-16 rounded-lg" />
           ))}

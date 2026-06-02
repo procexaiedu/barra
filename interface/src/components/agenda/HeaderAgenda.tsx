@@ -23,10 +23,10 @@ export function HeaderAgenda({
   return (
     <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
       <div className="min-w-0">
-        <h1 className="font-serif text-[26px] leading-8 font-medium text-text-primary">
+        <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
           Agenda
         </h1>
-        <p className="text-sm text-text-muted">
+        <p className="mt-1 text-[13px] text-text-muted">
           {modelo ? `Modelo ${modelo.nome}` : "Nenhuma modelo ativa"}
         </p>
         {proximo && (
@@ -71,7 +71,7 @@ function ResumoItem({
 }) {
   return (
     <div className="flex min-w-[6.5rem] flex-col gap-1 px-4 py-2.5">
-      <dt className="flex items-center gap-1.5 text-xs font-medium text-text-muted">
+      <dt className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         {live && (
           <span
             className="size-1.5 rounded-full bg-success-500 motion-safe:animate-pulse"
@@ -82,7 +82,7 @@ function ResumoItem({
       </dt>
       <dd
         className={cn(
-          "text-2xl font-semibold leading-none tabular-nums",
+          "font-mono text-2xl font-semibold leading-none tabular-nums",
           live ? "text-success-500" : muted ? "text-text-muted" : "text-text-primary",
         )}
       >

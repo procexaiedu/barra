@@ -231,18 +231,18 @@ export function ModalNovoAtendimento({
           if (!o) handleClose()
         }}
       >
-        <DialogContent className="flex max-h-[90vh] w-[min(94vw,72rem)] max-w-none flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-0 shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
-          <div className="border-b border-border-subtle px-5 py-4">
-            <DialogTitle className="font-serif text-xl font-medium leading-tight text-text-primary">
+        <DialogContent className="flex max-h-[90vh] w-[min(94vw,72rem)] max-w-none flex-col overflow-hidden rounded-lg border border-border bg-popover p-0">
+          <header className="border-b border-border px-6 py-4">
+            <DialogTitle className="text-lg font-semibold text-text-primary">
               Novo atendimento
             </DialogTitle>
-            <DialogDescription className="mt-1 text-xs text-text-muted">
+            <DialogDescription className="mt-1 text-sm text-text-secondary">
               Selecione cliente e modelo. Os demais campos são opcionais e podem ser
               preenchidos agora ou editados depois.
             </DialogDescription>
-          </div>
+          </header>
 
-          <div className="grid grid-cols-1 gap-4 border-b border-border-subtle bg-surface px-5 py-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 border-b border-border bg-muted px-6 py-4 sm:grid-cols-2">
             <div className="relative">
               <div className="flex items-center justify-between">
                 <Label htmlFor="novo-atend-cliente">Cliente</Label>
@@ -288,7 +288,7 @@ export function ModalNovoAtendimento({
                   </button>
                 )}
                 {resultados.length > 0 && !clienteSelecionado && (
-                  <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg border border-border bg-popover shadow-[0_8px_24px_rgba(0,0,0,0.6)]">
+                  <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg bg-popover shadow-lg ring-1 ring-foreground/10">
                     {resultados.map((cliente) => (
                       <button
                         key={cliente.id}
@@ -326,7 +326,7 @@ export function ModalNovoAtendimento({
                 value={modeloId}
                 onChange={(e) => setModeloId(e.target.value)}
                 disabled={submitting || modelos.length === 0}
-                className="mt-2 h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-60"
+                className="mt-2 h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-60"
               >
                 <option value="" disabled>
                   {carregandoModelos
@@ -356,7 +356,7 @@ export function ModalNovoAtendimento({
             />
           </div>
 
-          <div className="flex justify-end gap-2 border-t border-border-subtle bg-surface px-5 py-3">
+          <div className="flex justify-end gap-2 border-t border-border bg-muted px-6 py-3">
             <Button variant="ghost" onClick={handleClose} disabled={submitting}>
               Cancelar
             </Button>

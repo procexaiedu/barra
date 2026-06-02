@@ -32,9 +32,9 @@ export function ListaPix({
 }) {
   return (
     <section aria-label="Lista de Pix" className="min-w-0">
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
         {status === "loading" ? (
-          <div aria-busy="true" className="space-y-px">
+          <div aria-busy="true" className="flex flex-col gap-px">
             {Array.from({ length: 8 }).map((_, index) => (
               <Skeleton key={index} className="h-[88px] rounded-none" />
             ))}
@@ -76,10 +76,12 @@ export function ListaPix({
 
 function EmptyLista({ filtrosAplicados }: { filtrosAplicados: boolean }) {
   return (
-    <div className="flex min-h-[220px] items-start gap-3 p-6">
-      <Inbox size={20} strokeWidth={1.5} className="mt-0.5 text-text-muted" />
+    <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+      <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+        <Inbox size={22} strokeWidth={1.75} className="text-text-muted" />
+      </div>
       <div>
-        <p className="text-sm text-text-primary">
+        <p className="text-sm font-medium text-text-primary">
           {filtrosAplicados
             ? "Nenhum Pix encontrado para estes filtros."
             : "Nenhum Pix aguardando decisão."}

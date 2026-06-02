@@ -65,7 +65,7 @@ function formatHorasCampo(horas: number): string {
 }
 
 const controlClassName =
-  "h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted hover:border-border-strong focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/60 disabled:cursor-not-allowed disabled:opacity-50"
+  "h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
 
 export function ModalEdicao({
   detalhe,
@@ -288,17 +288,17 @@ export function ModalEdicao({
 
   return (
     <Dialog open={!!detalhe} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="flex max-h-[90vh] w-[min(94vw,72rem)] max-w-none flex-col overflow-hidden rounded-xl border border-border-strong bg-surface-raised p-0 shadow-[0_16px_48px_rgba(0,0,0,0.7)]">
-        <div className="border-b border-border-subtle px-5 py-4">
-          <DialogTitle className="font-serif text-xl font-medium leading-tight text-text-primary">
+      <DialogContent className="flex max-h-[90vh] w-[min(94vw,72rem)] max-w-none flex-col overflow-hidden rounded-lg border border-border bg-popover p-0">
+        <header className="border-b border-border px-6 py-4">
+          <DialogTitle className="text-lg font-semibold text-text-primary">
             Editar #{at.numero_curto}
           </DialogTitle>
-          <DialogDescription className="mt-1 text-xs text-text-muted">
+          <DialogDescription className="mt-1 text-sm text-text-secondary">
             Ajuste os dados operacionais do atendimento.
           </DialogDescription>
-        </div>
+        </header>
 
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border-subtle bg-surface px-5 py-3 text-xs sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border bg-muted px-6 py-3 text-xs sm:grid-cols-4">
           <ItemContexto label="Cliente" title="Para alterar Cliente ou Modelo, use Reatribuir atendimento">
             <span className="text-text-primary">{detalhe.cliente.nome ?? "Sem nome"}</span>
             <span className="text-text-muted">{formatTelefone(detalhe.cliente.telefone)}</span>
@@ -320,7 +320,7 @@ export function ModalEdicao({
           </ItemContexto>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-3 divide-x divide-border-subtle overflow-hidden">
+        <div className="grid min-h-0 flex-1 grid-cols-3 divide-x divide-border overflow-hidden">
           <ColunaSecao titulo="Atendimento">
             <Campo label="Tipo de atendimento">
               <select
@@ -461,7 +461,7 @@ export function ModalEdicao({
               <span className="text-[11px] font-medium leading-4 text-text-muted">Programas</span>
               <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1">
                 {servicosVisiveis.map((s) => (
-                  <div key={s.id} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-hover px-3 py-2 text-sm">
+                  <div key={s.id} className="flex items-center justify-between rounded-md border border-border bg-muted px-3 py-2 text-sm">
                     <span className="text-text-primary">{s.nome}</span>
                     <div className="flex items-center gap-2">
                       <span className="text-text-muted">{s.duracao_nome}</span>
@@ -480,7 +480,7 @@ export function ModalEdicao({
                   </div>
                 ))}
                 {adicionados.map((a, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-lg border border-dashed border-border-subtle bg-surface px-3 py-2 text-sm">
+                  <div key={i} className="flex items-center justify-between rounded-md border border-dashed border-border bg-muted px-3 py-2 text-sm">
                     <span className="text-text-primary">{a.label}</span>
                     <button
                       type="button"
@@ -523,7 +523,7 @@ export function ModalEdicao({
               <span className="mt-2 text-[11px] font-medium leading-4 text-text-muted">Fetiches</span>
               <div className="flex flex-col gap-1">
                 {fetichesVisiveis.map((f) => (
-                  <div key={f.id} className="flex items-center justify-between rounded-lg border border-border-subtle bg-surface-hover px-3 py-2 text-sm">
+                  <div key={f.id} className="flex items-center justify-between rounded-md border border-border bg-muted px-3 py-2 text-sm">
                     <span className="text-text-primary">{f.nome}</span>
                     <div className="flex items-center gap-2">
                       <FeticheValor preco={f.preco_snapshot} />
@@ -539,7 +539,7 @@ export function ModalEdicao({
                   </div>
                 ))}
                 {adicionadosFet.map((a, i) => (
-                  <div key={i} className="flex items-center justify-between rounded-lg border border-dashed border-border-subtle bg-surface px-3 py-2 text-sm">
+                  <div key={i} className="flex items-center justify-between rounded-md border border-dashed border-border bg-muted px-3 py-2 text-sm">
                     <span className="text-text-primary">{a.nome}</span>
                     <div className="flex items-center gap-2">
                       <FeticheValor preco={a.preco} />
@@ -583,12 +583,12 @@ export function ModalEdicao({
         </div>
 
         {conflitos.length > 0 && (
-          <div className="border-t border-border-subtle bg-surface px-5 pt-3">
+          <div className="border-t border-border bg-muted px-6 pt-3">
             <AlertaConflito conflitos={conflitos} />
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-2 border-t border-border-subtle bg-surface px-5 py-3">
+        <div className="flex items-center justify-between gap-2 border-t border-border bg-muted px-6 py-3">
           <div>
             {onReatribuir && (
               <Button
@@ -630,9 +630,9 @@ function Campo({ label, children }: { label: string; children: React.ReactNode }
 
 function ColunaSecao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
   return (
-    <div className="flex min-h-0 min-w-0 flex-col gap-3 px-5 py-4">
-      <span className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
-        <span className="h-2.5 w-0.5 rounded-full bg-gold-500" aria-hidden />
+    <div className="flex min-h-0 min-w-0 flex-col gap-3 px-6 py-4">
+      <span className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-3 w-1 rounded-full bg-gold-500" aria-hidden />
         {titulo}
       </span>
       <div className="flex min-h-0 flex-1 flex-col gap-3">{children}</div>
@@ -643,7 +643,7 @@ function ColunaSecao({ titulo, children }: { titulo: string; children: React.Rea
 function ItemContexto({ label, children, title }: { label: string; children: React.ReactNode; title?: string }) {
   return (
     <div className="flex min-w-0 flex-col gap-0.5" title={title}>
-      <span className="text-[10px] font-medium uppercase tracking-wide text-text-muted">{label}</span>
+      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">{label}</span>
       <div className="flex min-w-0 flex-col leading-tight [&>span]:break-words">{children}</div>
     </div>
   )

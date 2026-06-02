@@ -44,7 +44,7 @@ export function LinhaTempoPix({ eventos }: { eventos: EventoPix[] }) {
   return (
     <section
       aria-label="Histórico do Pix"
-      className="rounded-lg border border-border bg-card"
+      className="rounded-lg bg-card ring-1 ring-foreground/10"
     >
       <h3 className="px-3 pt-3 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
         Histórico

@@ -56,7 +56,7 @@ export function InspectorReceita({
           type="button"
           onClick={onClose}
           aria-label="Fechar inspector"
-          className="rounded-md p-1 text-text-muted transition-colors hover:bg-muted hover:text-text-primary"
+          className="rounded-md p-1 text-text-muted transition-colors hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X className="size-4" />
         </button>
@@ -79,7 +79,7 @@ export function InspectorReceita({
       <footer className="border-t border-border p-3">
         <Link
           href={`/atendimentos?id=${linha.atendimento_id}`}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           Abrir atendimento
           <ArrowUpRight className="size-4" />
@@ -95,7 +95,7 @@ function Separador() {
 
 function BlocoLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+    <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
       {children}
     </p>
   )
@@ -227,7 +227,7 @@ function Row({
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-xs text-text-muted">{rotulo}</dt>
       <dd
-        className={`tabular-nums ${destaque ? "text-text-primary font-medium" : "text-text-primary"}`}
+        className={`font-mono tabular-nums ${destaque ? "text-text-primary font-medium" : "text-text-primary"}`}
       >
         {valor}
       </dd>
@@ -274,7 +274,7 @@ function Sparkline({ serie }: { serie: ContextoModeloDia[] }) {
           style={ancora}
         >
           <div className="text-text-muted">{formatData(ativo.dia)}</div>
-          <div className="font-medium tabular-nums text-text-primary">
+          <div className="font-mono font-medium tabular-nums text-text-primary">
             {ativo.bruto > 0 ? formatBRL(ativo.bruto) : "sem receita"}
           </div>
         </div>

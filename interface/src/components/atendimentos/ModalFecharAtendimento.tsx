@@ -70,7 +70,7 @@ export function ModalFecharAtendimento({
     <AlertDialog open={open} onOpenChange={(o) => !submitting && !o && fechar()}>
       <AlertDialogContent className="w-[min(94vw,40rem)] max-w-none bg-card">
         <AlertDialogHeader>
-          <AlertDialogTitle className="font-serif text-xl font-medium text-text-primary">
+          <AlertDialogTitle className="text-base font-semibold text-text-primary">
             Fechar #{numeroCurto}?
           </AlertDialogTitle>
           <AlertDialogDescription className="text-sm text-text-secondary">
@@ -78,17 +78,17 @@ export function ModalFecharAtendimento({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-lg border border-border-subtle bg-surface px-3 py-2.5">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+          <div className="rounded-md bg-muted px-3 py-2.5">
+            <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
               Valor acordado
             </p>
-            <p className="mt-1 font-serif text-[22px] font-medium leading-none tabular-nums text-gold-500">
+            <p className="mt-1 font-mono text-2xl font-semibold leading-none tabular-nums text-gold-500">
               {valorAcordado != null ? formatBRL(Number(valorAcordado)) : "—"}
             </p>
           </div>
           <div>
             <label
-              className="mb-1 block text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted"
+              className="mb-1 block text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted"
               htmlFor="valor-final-modal"
             >
               Valor final

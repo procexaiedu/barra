@@ -216,11 +216,11 @@ function SelectInline({
 }) {
   return (
     <label className="flex items-center gap-2">
-      <span className="text-xs font-medium text-text-muted">{label}</span>
+      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">{label}</span>
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9 min-w-[8rem] rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="h-9 min-w-[8rem] rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         {children}
       </select>
@@ -252,7 +252,7 @@ function PeriodoCustom({
     <Popover>
       <PopoverTrigger
         data-slot="mapa-periodo-custom-trigger"
-        className="inline-flex h-9 items-center justify-between gap-1.5 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="inline-flex h-9 items-center justify-between gap-1.5 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         <span className="truncate">{rotulo}</span>
         <CalendarIcon size={14} strokeWidth={1.5} className="shrink-0 text-text-muted" />

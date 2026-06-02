@@ -465,8 +465,8 @@ export function FiltroMotivoPerda({
               : "Por que o último atendimento foi perdido. Pode escolher vários."
         }
         className={cn(
-          "flex h-9 min-w-[8.5rem] items-center justify-between gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-          desabilitado && "cursor-not-allowed opacity-50 hover:bg-input",
+          "flex h-9 min-w-[8.5rem] items-center justify-between gap-2 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+          desabilitado && "cursor-not-allowed opacity-50 hover:border-input",
         )}
       >
         <span className="flex items-center gap-2 truncate">
@@ -663,7 +663,7 @@ export function FiltroValorRange({
       <PopoverTrigger
         aria-label="Filtrar por R$ já gasto pelo cliente"
         title="Total que cada cliente já gastou (em todas as modelos). Quem fica fora da faixa não aparece no mapa."
-        className="flex h-9 min-w-[8.5rem] items-center justify-between gap-2 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="flex h-9 min-w-[8.5rem] items-center justify-between gap-2 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
       >
         <span className="flex items-center gap-2 truncate">
           <span className="text-[11px] font-medium text-text-muted">R$ gasto:</span>

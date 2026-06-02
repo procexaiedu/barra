@@ -40,10 +40,14 @@ export function FunilVendas({ funil }: Props) {
       aria-label="Funil de vendas por etapa"
       className="flex flex-col gap-3"
     >
-      <header className="flex items-baseline justify-between">
-        <h2 className="text-base font-semibold text-text-primary">Funil de vendas</h2>
+      <header className="flex items-center justify-between">
+        <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+          <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+          Funil de vendas
+        </h2>
         <span className="text-xs font-medium text-text-muted">
-          {NUM_FMT.format(topo)} {topo === 1 ? "atendimento" : "atendimentos"} no período
+          <span className="font-mono tabular-nums">{NUM_FMT.format(topo)}</span>{" "}
+          {topo === 1 ? "atendimento" : "atendimentos"} no período
         </span>
       </header>
 

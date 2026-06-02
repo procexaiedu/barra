@@ -90,17 +90,21 @@ export function BlocoFinanceiro({
   )
 
   return (
-    <section aria-label="Resumo financeiro do período" className="flex flex-col gap-4">
-      <header className="flex items-baseline justify-between">
-        <h2 className="text-base font-semibold text-text-primary">Financeiro</h2>
+    <section aria-label="Resumo financeiro do período" className="flex flex-col gap-3">
+      <header className="flex items-center justify-between">
+        <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
+          <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+          Financeiro
+        </h2>
         {rangeComparacao ? (
-          <span className="font-mono text-[11px] text-text-muted">
+          <span className="font-mono text-[11px] tabular-nums text-text-muted">
             Comparado com {rangeComparacao}
           </span>
         ) : null}
       </header>
 
-      <TileKpi
+      <div className="flex flex-col gap-4">
+        <TileKpi
         label="Faturamento líquido (Elite Baby)"
         icone={Wallet}
         iconeClassName="text-success-500"
@@ -129,7 +133,7 @@ export function BlocoFinanceiro({
       />
 
       <div className="flex flex-col gap-1 rounded-lg bg-card p-4 ring-1 ring-foreground/10">
-        <h3 className="px-2 pb-2 text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
+        <h3 className="px-2 pb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           Decomposição do bruto
         </h3>
         <LinhaWaterfall
@@ -173,6 +177,7 @@ export function BlocoFinanceiro({
           </>
         ) : null}
       </p>
+      </div>
     </section>
   )
 }

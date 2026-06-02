@@ -24,7 +24,7 @@ export function HistoricoAtendimentosConversa({
         aria-label="Histórico de atendimentos da conversa"
         className="rounded-lg border border-border bg-card p-5"
       >
-        <p className="mb-4 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <p className="mb-4 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           Histórico
         </p>
         {itens.length === 0 ? (

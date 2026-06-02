@@ -17,7 +17,7 @@ export function ItemMidia({
 }) {
   const Icon = item.tipo === "video" ? Video : ImageIcon
   return (
-    <article className="group relative overflow-hidden rounded-lg border border-border bg-card">
+    <article className="group relative overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
       <button
         type="button"
         onClick={onOpen}

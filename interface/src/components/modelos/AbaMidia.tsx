@@ -59,7 +59,7 @@ function Select({
   onChange: (value: string) => void
 }) {
   return (
-    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="h-9 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+    <select aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} className="h-9 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50">
       {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
     </select>
   )

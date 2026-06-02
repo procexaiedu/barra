@@ -54,11 +54,11 @@ export function ItemAtendimentoHistorico({
           <span className="text-xs text-text-muted">{formatData(item.created_at)}</span>
           {detalheFinal && (
             <>
-              <span className="text-text-muted">·</span>
+              <span aria-hidden className="text-text-muted">·</span>
               <span
                 className={
                   item.estado === "Fechado"
-                    ? "text-sm font-medium text-state-won"
+                    ? "font-mono text-sm font-medium tabular-nums text-state-closed"
                     : "text-xs text-text-muted"
                 }
               >

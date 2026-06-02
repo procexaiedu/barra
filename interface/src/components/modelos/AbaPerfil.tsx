@@ -192,7 +192,7 @@ export function AbaPerfil({
     cpfCadastroValido && alturaValida && peValido && pesoValido && cinturaValida && emailValido
 
   return (
-    <div className="space-y-5">
+    <div className="flex flex-col gap-4">
       <Card title="Identidade">
         <div className="mb-5 flex items-center gap-4">
           <FotoPerfil url={modelo.foto_perfil_url} nome={modelo.nome} size="lg" />
@@ -220,7 +220,7 @@ export function AbaPerfil({
             <Input type="number" value={identidade.idade || ""} onChange={(e) => setIdentidade({ ...identidade, idade: Number(e.target.value) })} className="h-10 bg-input" />
           </Campo>
           <Campo label="Situação">
-            <select disabled value={modelo.status} className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-muted disabled:cursor-not-allowed disabled:opacity-70">
+            <select disabled value={modelo.status} className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-muted disabled:cursor-not-allowed disabled:opacity-70">
               <option value="ativa">Ativa</option>
               <option value="pausada">Pausada</option>
               <option value="inativa">Inativa</option>
@@ -230,7 +230,7 @@ export function AbaPerfil({
             <select
               value={identidade.tipo_fisico}
               onChange={(e) => setIdentidade({ ...identidade, tipo_fisico: e.target.value })}
-              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               <option value="">Não classificada</option>
               {PERFIS_FISICOS.map((slug) => (
@@ -244,7 +244,7 @@ export function AbaPerfil({
             <select
               value={identidade.nivel}
               onChange={(e) => setIdentidade({ ...identidade, nivel: e.target.value })}
-              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               <option value="">Sem classificação</option>
               {NIVEIS.map((nivel) => (
@@ -464,7 +464,7 @@ export function AbaPerfil({
             <select
               value={cadastro.cor_pele}
               onChange={(e) => setCadastro({ ...cadastro, cor_pele: e.target.value })}
-              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               <option value="">Não informada</option>
               {CORES_PELE.map((slug) => (
@@ -478,7 +478,7 @@ export function AbaPerfil({
             <select
               value={cadastro.cor_cabelo}
               onChange={(e) => setCadastro({ ...cadastro, cor_cabelo: e.target.value })}
-              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               <option value="">Não informada</option>
               {CORES_CABELO.map((slug) => (
@@ -547,7 +547,7 @@ export function AbaPerfil({
             <select
               value={cadastro.signo}
               onChange={(e) => setCadastro({ ...cadastro, signo: e.target.value })}
-              className="h-10 rounded-md border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary"
+              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               <option value="">Não informado</option>
               {SIGNOS.map((slug) => (
@@ -607,8 +607,11 @@ export function AbaPerfil({
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg border border-border bg-card p-6">
-      <h2 className="mb-5 text-base font-semibold text-text-primary">{title}</h2>
+    <section className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
+      <h2 className="mb-5 flex items-center gap-2.5 text-base font-semibold text-text-primary">
+        <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+        {title}
+      </h2>
       {children}
     </section>
   )

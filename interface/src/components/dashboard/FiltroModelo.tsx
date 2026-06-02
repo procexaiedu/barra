@@ -60,7 +60,7 @@ export function FiltroModelo({ modeloId, onChange, hideTodas }: Props) {
         value={modeloId ?? ""}
         onChange={(event) => onChange(event.target.value || null)}
         disabled={carregando}
-        className="h-9 rounded-md border border-input bg-input px-3 text-sm text-text-primary outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+        className="h-9 rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50"
       >
         {!hideTodas && <option value="">Todas</option>}
         {opcoes.map((m) => (

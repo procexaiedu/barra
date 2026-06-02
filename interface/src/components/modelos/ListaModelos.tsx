@@ -2,6 +2,7 @@
 
 import { Users } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { ItemModelo } from "@/components/modelos/ItemModelo"
@@ -35,8 +36,8 @@ export function ListaModelos({
   if (items.length === 0) return <EmptyLista filtrosAplicados={filtrosAplicados} onAdicionar={onAdicionar} />
 
   return (
-    <section aria-label="Lista de modelos">
-      <ul className="space-y-2">
+    <section aria-label="Lista de modelos" className="flex flex-col gap-2">
+      <ul className="flex flex-col gap-1.5">
         {items.map((item) => (
           <li key={item.id}>
             <ItemModelo
@@ -48,11 +49,9 @@ export function ListaModelos({
         ))}
       </ul>
       {nextCursor && (
-        <div className="pt-2">
-          <Button variant="ghost" onClick={onCarregarMais} className="w-full">
-            Carregar mais
-          </Button>
-        </div>
+        <Button variant="ghost" size="sm" onClick={onCarregarMais} className="w-full">
+          Carregar mais
+        </Button>
       )}
     </section>
   )
@@ -66,34 +65,36 @@ function EmptyLista({
   onAdicionar: () => void
 }) {
   return (
-    <section aria-label="Lista de modelos" className="rounded-lg border border-border bg-card p-6">
-      <div className="flex gap-3">
-        <Users className="mt-0.5 text-text-muted" size={20} strokeWidth={1.5} />
+    <Card>
+      <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
+        <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+          <Users size={22} strokeWidth={1.75} className="text-text-muted" />
+        </div>
         <div>
-          <p className="text-sm text-text-primary">
-            {filtrosAplicados ? "Nenhuma modelo encontrada para estes filtros." : "Nenhuma modelo cadastrada."}
+          <p className="text-sm font-medium text-text-primary">
+            {filtrosAplicados ? "Nenhuma modelo encontrada." : "Nenhuma modelo cadastrada."}
           </p>
           <p className="mt-1 text-[13px] text-text-muted">
             {filtrosAplicados
               ? "Ajuste situação, WhatsApp ou local de atendimento."
               : "Adicione a primeira modelo para começar a operar."}
           </p>
-          {!filtrosAplicados && (
-            <Button variant="primary" onClick={onAdicionar} className="mt-4">
-              Adicionar modelo
-            </Button>
-          )}
         </div>
+        {!filtrosAplicados && (
+          <Button variant="outline" size="sm" onClick={onAdicionar}>
+            Adicionar modelo
+          </Button>
+        )}
       </div>
-    </section>
+    </Card>
   )
 }
 
 function ListaSkeleton() {
   return (
-    <section aria-label="Lista de modelos" aria-busy="true" className="space-y-3">
+    <section aria-label="Lista de modelos" aria-busy="true" className="flex flex-col gap-1.5">
       {Array.from({ length: 4 }).map((_, index) => (
-        <Skeleton key={index} className="h-24 rounded-lg" />
+        <Skeleton key={index} className="h-[68px] rounded-lg" />
       ))}
     </section>
   )
