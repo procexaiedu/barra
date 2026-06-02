@@ -175,8 +175,91 @@ services:
     networks:
       - traefik_public
 
+  # OBS-02 — stack de observabilidade (Prometheus + Grafana + Alertmanager).
+  # Os configs versionados vivem em infra/monitoring/ no repo; como o Swarm nao tem o
+  # repo no host, cada servico clona a main no boot (mesmo padrao da api/worker) e aponta
+  # o config pro caminho clonado. Scrape interno pela rede traefik_public; so o Grafana
+  # publica via Traefik. NAO altera os 3 servicos acima (entrega aditiva).
+  prometheus-barra:
+    image: prom/prometheus:v2.53.0
+    user: root
+    command: >
+      sh -c "apk add --no-cache git &&
+      rm -rf /repo &&
+      git clone --depth 1 -b main https://github.com/procexaiedu/barra.git /repo &&
+      exec /bin/prometheus
+      --config.file=/repo/infra/monitoring/prometheus.yml
+      --storage.tsdb.path=/prometheus
+      --storage.tsdb.retention.time=15d
+      --web.enable-lifecycle"
+    volumes:
+      - prometheus-barra-data:/prometheus
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - traefik_public
+
+  alertmanager-barra:
+    image: prom/alertmanager:v0.27.0
+    user: root
+    environment:
+      # Destino real do alerta — passo do operador (ver infra/monitoring/alertmanager.yml).
+      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-http://localhost:9999/noop}
+    command: >
+      sh -c "apk add --no-cache git &&
+      rm -rf /repo &&
+      git clone --depth 1 -b main https://github.com/procexaiedu/barra.git /repo &&
+      exec /bin/alertmanager
+      --config.file=/repo/infra/monitoring/alertmanager.yml
+      --config.expand-env
+      --storage.path=/alertmanager"
+    volumes:
+      - alertmanager-barra-data:/alertmanager
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    networks:
+      - traefik_public
+
+  grafana-barra:
+    image: grafana/grafana:11.1.0
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SERVER_ROOT_URL=https://grafana-barra.procexai.tech
+      # Datasource provisionado a partir do repo clonado (ver command).
+      - GF_PATHS_PROVISIONING=/repo/infra/monitoring/grafana/provisioning
+    entrypoint: >
+      sh -c "apk add --no-cache git &&
+      rm -rf /repo &&
+      git clone --depth 1 -b main https://github.com/procexaiedu/barra.git /repo &&
+      exec /run.sh"
+    volumes:
+      - grafana-barra-data:/var/lib/grafana
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.grafana-barra.rule=Host(`grafana-barra.procexai.tech`)"
+        - "traefik.http.routers.grafana-barra.entrypoints=websecure"
+        - "traefik.http.routers.grafana-barra.tls=true"
+        - "traefik.http.routers.grafana-barra.tls.certresolver=le"
+        - "traefik.http.services.grafana-barra.loadbalancer.server.port=3000"
+        - "traefik.docker.network=traefik_public"
+    depends_on:
+      - prometheus-barra
+    networks:
+      - traefik_public
+
 volumes:
   redis-barra-data:
+  prometheus-barra-data:
+  alertmanager-barra-data:
+  grafana-barra-data:
 
 networks:
   traefik_public:

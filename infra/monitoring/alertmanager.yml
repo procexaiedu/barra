@@ -1,0 +1,29 @@
+# OBS-02 — Alertmanager do stack barra (Elite Baby MVP).
+# Roteamento minimo: todos os alertos das alert.rules.yml caem num unico receiver.
+# O destino real (webhook do painel / e-mail) e PASSO DO OPERADOR — preencher a env
+# var ALERT_WEBHOOK_URL na stack (Portainer) ou trocar pelo bloco email_configs.
+# O ${ALERT_WEBHOOK_URL} so e expandido porque o servico sobe o alertmanager com a flag
+# --config.expand-env (ver stack.barra-portainer.yml). Sem a flag, edite a url direto aqui.
+global:
+  resolve_timeout: 5m
+
+route:
+  # Agrupa por nome do alerta + dimensao p/ nao floodar (custo/latencia/seguranca).
+  group_by: ["alertname", "dimensao"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: barra-default
+
+receivers:
+  - name: barra-default
+    # Placeholder: webhook generico. O operador aponta ALERT_WEBHOOK_URL para o destino
+    # real (ex.: endpoint interno do painel ou um relay tipo Alertmanager->WhatsApp).
+    # Sem a env var configurada o Alertmanager sobe, so nao entrega (loga erro de envio).
+    webhook_configs:
+      - url: "${ALERT_WEBHOOK_URL}"
+        send_resolved: true
+    # Alternativa por e-mail (operador descomenta e preenche smtp_* no global + aqui):
+    # email_configs:
+    #   - to: "ops@procexai.tech"
+    #     send_resolved: true

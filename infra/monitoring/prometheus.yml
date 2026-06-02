@@ -1,0 +1,34 @@
+# OBS-02 — Prometheus do stack barra (Elite Baby MVP).
+# Scrape da api (FastAPI /metrics na porta da app) e do worker ARQ
+# (prometheus_client.start_http_server(9091) — ver workers/settings.py).
+# Os nomes de servico batem com o stack.barra-portainer.yml (rede traefik_public).
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+# Onde o Prometheus dispara as regras avaliadas (alert.rules.yml -> Alertmanager).
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager-barra:9093
+
+# Regras de alerta versionadas (OBS-02 DoD + CUSTO-05). Caminho dentro do container.
+rule_files:
+  - /etc/prometheus/alert.rules.yml
+
+scrape_configs:
+  # API FastAPI: MetricsMiddleware + rota /metrics em :8000 (main.py).
+  - job_name: barra-api
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - barra-api:8000
+
+  # Worker ARQ: start_http_server(9091) no startup (guard ambiente!=teste).
+  # Expoe agente_turno_*, agente_custo_turno_brl, agente_escalada_total etc.
+  - job_name: barra-worker
+    metrics_path: /metrics
+    static_configs:
+      - targets:
+          - barra-worker:9091
