@@ -333,6 +333,7 @@
 - **Implementado (code-only):** `infra/monitoring/prometheus.yml` (scrape `barra-api:8000/metrics` + `barra-worker:9091/metrics`), `alert.rules.yml` (4 sinais do DoD: spike `agente_escalada_total{bucket=defesa}`, write-rate de cache [CUSTO-05], p95 de `agente_turno_duracao_seconds`/HTTP, custo vs alvo), `alertmanager.yml` (rota + receiver placeholder `ALERT_WEBHOOK_URL`), datasource Grafana, e 3 serviços (prometheus/alertmanager/grafana) + volumes **aditivos** no `stack.barra-portainer.yml` (api/worker/redis intocados). Nomes/labels conferidos 1:1 com `core/metrics.py`; YAML válido; `docker compose config` exit 0; `mypy`/`pytest` sem regressão (config-only). Runbook `infra/runbooks/monitoring-stack.md`.
 - **Passo do operador:** `promtool/amtool check`; setar `ALERT_WEBHOOK_URL`/`GRAFANA_ADMIN_PASSWORD`; redeploy da stack no Swarm; DNS do Grafana; verificar targets UP + disparo de fumaça.
 - **DoD/Verificação:** stack de métricas com scrape de api e worker; regras versionadas (spike de `agente_escalada_total{bucket=defesa}`, write-rate de cache, p95, custo) disparam.
+- **Entrega (branch `feat/obs-monitoring`):** configs versionados em `infra/monitoring/` (`prometheus.yml` scrape de `barra-api:8000` + `barra-worker:9091`; `alert.rules.yml` com os 4 sinais; `alertmanager.yml`; datasource Grafana). Serviços `prometheus-barra`/`alertmanager-barra`/`grafana-barra` adicionados de forma aditiva ao `stack.barra-portainer.yml`. Runbook em `infra/runbooks/monitoring-stack.md`. Deploy ao vivo no Swarm e disparo real = passo do operador.
 
 ### OBS-07 — Middleware de request-id api→worker
 - **Status:** done (PR #64, 2026-05-30) · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** OBS-03 · **Fonte:** roadmap §3.6
@@ -381,6 +382,7 @@
 - **Status:** done (code-only, 2026-06-01, branch `feat/obs-monitoring`) · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** OBS-02 · **Fonte:** roadmap §3.7
 - **Implementado:** regra `AgenteCacheWriteRateAlto` em `infra/monitoring/alert.rules.yml`: `rate(agente_turno_tokens_total{tipo=cache_write}) / rate(agente_turno_tokens_total{tipo=~input|cache_read|cache_write}) > 0.15` por 15m — espelha o invariante de write-rate de `agente/CLAUDE.md`. Dobrada na mesma entrega de rules do OBS-02 (a métrica-base já existia e é emitida pelo nó llm). Deploy ao vivo = passo do operador (junto do OBS-02).
 - **DoD/Verificação:** regra Alertmanager sobre `agente_turno_tokens_total{tipo=cache_write}` disparando >15% em regime (espelha o invariante de `agente/CLAUDE.md`).
+- **Entrega (branch `feat/obs-monitoring`):** regra `AgenteCacheWriteRateAlto` em `infra/monitoring/alert.rules.yml` — `cache_write / (input + cache_read + cache_write) > 0.15` por 15m via `rate()`. Entregue junto do OBS-02 (mesma stack de rules). Disparo ao vivo = passo do operador.
 
 ### CUSTO-06 — Fonte única do alvo de custo
 - **Status:** done (2026-06-01, branch `feat/custo-roi`) · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7

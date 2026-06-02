@@ -1,0 +1,105 @@
+# OBS-02 — regras de alerta do agente (Elite Baby MVP).
+# Cobrem os 4 sinais do DoD do OBS-02 + a regra do CUSTO-05.
+# Nomes/labels de metrica espelham api/src/barra/core/metrics.py — NAO renomear sem alinhar la.
+#   agente_escalada_total{bucket,motivo}            bucket=defesa|capacidade
+#   agente_turno_tokens_total{modelo,tipo}          tipo=input|output|cache_read|cache_write
+#   agente_turno_duracao_seconds{modelo,tipo_turno} Histogram (_bucket/_count/_sum)
+#   agente_custo_turno_brl{modelo}                  Histogram (_bucket/_count/_sum)
+#   barra_http_request_duration_seconds{route,method} Histogram (_bucket/_count/_sum)
+groups:
+  - name: agente_defesa
+    rules:
+      # OBS-02 sinal 1 — spike de escaladas de defesa = ataque ativo (jailbreak/disclosure/AUP).
+      # bucket=defesa e o desejavel (a IA se protegeu); um SPIKE e o que sinaliza ataque em
+      # andamento. capacidade fica de fora (cego a alucinacao-sem-escalada, ver metrics.py).
+      - alert: AgenteSpikeEscaladaDefesa
+        expr: sum(rate(agente_escalada_total{bucket="defesa"}[5m])) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          dimensao: seguranca
+        annotations:
+          summary: "Spike de escaladas de defesa (possivel ataque ativo)"
+          description: >
+            rate(agente_escalada_total{bucket=defesa}) em {{ $value | printf "%.3f" }}/s nos
+            ultimos 5m. Defesa em alta = jailbreak/disclosure/AUP batendo na IA. Investigar
+            origem (conversa/cliente) nos traces.
+
+  - name: agente_custo
+    rules:
+      # CUSTO-05 — WRITE-RATE de cache. Invariante de agente/CLAUDE.md: write-rate alto
+      # pos-warmup = invalidador silencioso do prefixo cacheado (o prefixo deveria ser
+      # cache_read, nao reescrito a cada turno). cache_write / (input + cache_read + cache_write)
+      # > 15% em regime dispara. Usa rate() p/ olhar o fluxo recente, nao o acumulado historico.
+      - alert: AgenteCacheWriteRateAlto
+        expr: |
+          sum(rate(agente_turno_tokens_total{tipo="cache_write"}[15m]))
+          /
+          sum(rate(agente_turno_tokens_total{tipo=~"input|cache_read|cache_write"}[15m]))
+          > 0.15
+        for: 15m
+        labels:
+          severity: warning
+          dimensao: custo
+        annotations:
+          summary: "Write-rate de cache acima de 15% (invalidador silencioso do prefixo)"
+          description: >
+            cache_write representa {{ $value | humanizePercentage }} dos tokens de input em
+            regime. Pos-warmup o prefixo deveria ser cache_read; write alto = algo reescreve o
+            prefixo a cada turno (ver invariante em agente/CLAUDE.md / 03 §4.2).
+
+      # OBS-02 sinal 4 — custo por turno acima do alvo. p95 do Histogram de custo em BRL.
+      # alinhar com settings.custo_alvo_brl (CUSTO-06) — entregue em paralelo na feat/custo-roi;
+      # ate o merge usa-se o literal 0.12 (= meta documentada em metrics.py AGENTE_CUSTO_TURNO_BRL).
+      - alert: AgenteCustoTurnoAcimaDoAlvo
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(agente_custo_turno_brl_bucket[30m])) by (le)
+          ) > 0.12
+        for: 15m
+        labels:
+          severity: warning
+          dimensao: custo
+        annotations:
+          summary: "p95 do custo por turno acima do alvo (0.12 BRL)"
+          description: >
+            p95(agente_custo_turno_brl) = R$ {{ $value | printf "%.4f" }} nos ultimos 30m,
+            acima do alvo de R$ 0.12 (alinhar com settings.custo_alvo_brl — CUSTO-06).
+
+  - name: agente_latencia
+    rules:
+      # OBS-02 sinal 3 — p95 de latencia do turno do agente (split por tipo_turno p/ nao
+      # misturar texto com audio-Whisper). Histogram -> histogram_quantile sobre o _bucket.
+      - alert: AgenteLatenciaTurnoP95Alta
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(agente_turno_duracao_seconds_bucket[10m])) by (le, tipo_turno)
+          ) > 20
+        for: 10m
+        labels:
+          severity: warning
+          dimensao: latencia
+        annotations:
+          summary: "p95 de latencia do turno do agente acima de 20s"
+          description: >
+            p95(agente_turno_duracao_seconds{tipo_turno={{ $labels.tipo_turno }}}) =
+            {{ $value | printf "%.1f" }}s nos ultimos 10m.
+
+      # OBS-02 sinal 3 (complemento HTTP) — p95 de latencia da API por rota.
+      - alert: BarraHttpLatenciaP95Alta
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum(rate(barra_http_request_duration_seconds_bucket[10m])) by (le, route)
+          ) > 2
+        for: 10m
+        labels:
+          severity: warning
+          dimensao: latencia
+        annotations:
+          summary: "p95 de latencia HTTP acima de 2s"
+          description: >
+            p95(barra_http_request_duration_seconds{route={{ $labels.route }}}) =
+            {{ $value | printf \"%.2f\" }}s nos ultimos 10m.

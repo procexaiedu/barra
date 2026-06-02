@@ -1,0 +1,12 @@
+# OBS-02 — provisiona o Prometheus do stack como datasource padrao do Grafana.
+# Montado em /etc/grafana/provisioning/datasources/ no servico grafana-barra.
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    # Nome de servico + porta do prometheus-barra no stack.barra-portainer.yml.
+    url: http://prometheus-barra:9090
+    isDefault: true
+    editable: false
