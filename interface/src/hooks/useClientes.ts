@@ -27,6 +27,9 @@ const filtrosIniciais: FiltrosClientes = {
   dataFim: null,
   modeloIds: [],
   perfis: [],
+  recencia: null,
+  valorMin: null,
+  valorMax: null,
 }
 
 function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
@@ -45,6 +48,9 @@ function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   }
   for (const id of filtros.modeloIds) params.append("modelo_id", id)
   for (const perfil of filtros.perfis) params.append("perfis", perfil)
+  if (filtros.recencia) params.set("recencia", filtros.recencia)
+  if (filtros.valorMin != null) params.set("valor_min", String(filtros.valorMin))
+  if (filtros.valorMax != null) params.set("valor_max", String(filtros.valorMax))
   if (cursor) params.set("cursor", cursor)
   return `/v1/crm/clientes?${params.toString()}`
 }
@@ -95,6 +101,9 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
       dataFim: filtros.dataFim,
       modeloIds: filtros.modeloIds,
       perfis: filtros.perfis,
+      recencia: filtros.recencia,
+      valorMin: filtros.valorMin,
+      valorMax: filtros.valorMax,
     }),
     [
       debouncedBusca,
@@ -103,6 +112,9 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
       filtros.dataFim,
       filtros.modeloIds,
       filtros.perfis,
+      filtros.recencia,
+      filtros.valorMin,
+      filtros.valorMax,
     ]
   )
 
@@ -110,7 +122,10 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
     filtrosEfetivos.busca.trim() !== "" ||
     filtrosEfetivos.periodo !== "tudo" ||
     filtrosEfetivos.modeloIds.length > 0 ||
-    filtrosEfetivos.perfis.length > 0
+    filtrosEfetivos.perfis.length > 0 ||
+    filtrosEfetivos.recencia !== null ||
+    filtrosEfetivos.valorMin !== null ||
+    filtrosEfetivos.valorMax !== null
 
   // Carrega o detalhe rico de uma conversa específica (par cliente,modelo).
   const carregarConversa = useCallback(async (conversaId: string) => {
