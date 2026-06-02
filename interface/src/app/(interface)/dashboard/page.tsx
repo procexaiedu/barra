@@ -18,7 +18,6 @@ import {
 } from "@/components/dashboard/ModalListaAtendimentos"
 import { ProfissionaisRanking } from "@/components/dashboard/ProfissionaisRanking"
 import { TileKpi } from "@/components/dashboard/TileKpi"
-import { ToolbarDashboard } from "@/components/dashboard/ToolbarDashboard"
 import { formatPercent, formatRangeAbsoluto } from "@/components/dashboard/utils"
 import { formatBRL } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
@@ -63,9 +62,7 @@ function DashboardInner() {
 
   return (
     <div className="flex flex-col gap-8">
-      <HeaderDashboard />
-
-      <ToolbarDashboard
+      <HeaderDashboard
         periodo={{ periodo: filtros.periodo, de: filtros.de, ate: filtros.ate }}
         modeloIds={filtros.modelo_ids}
         rangeComparacao={rangeComparacao}

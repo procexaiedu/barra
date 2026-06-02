@@ -15,7 +15,10 @@ import { ListaReceitas } from "@/components/financeiro/ListaReceitas"
 import { InspectorReceita } from "@/components/financeiro/InspectorReceita"
 import { RepassesPorModelo } from "@/components/financeiro/RepassesPorModelo"
 import { ToolbarFinanceiro } from "@/components/financeiro/ToolbarFinanceiro"
+import { FiltroModelo } from "@/components/filtros/FiltroModelo"
+import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import type { ReceitaLinha } from "@/tipos/financeiro"
+import type { PeriodoSelecionado } from "@/tipos/filtros"
 
 const VIEWS: { id: FinanceiroView; label: string }[] = [
   { id: "geral", label: "Visão geral" },
@@ -35,6 +38,14 @@ function FinanceiroInner() {
   const fin = useFinanceiro()
   const view = fin.filtros.view
 
+  const onPeriodoChange = (v: PeriodoSelecionado) => {
+    if (v.periodo === "custom") {
+      if (v.de && v.ate) fin.setPeriodoCustom(v.de, v.ate)
+    } else {
+      fin.setPeriodoPreset(v.periodo)
+    }
+  }
+
   return (
     <div className="flex flex-col gap-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -46,7 +57,17 @@ function FinanceiroInner() {
             Receitas, repasses por modelo e visão geral.
           </p>
         </div>
-        <ExportarBotao fin={fin} view={view} />
+        <div className="flex flex-wrap items-end gap-2">
+          <FiltroPeriodo
+            value={{ periodo: fin.filtros.periodo, de: fin.filtros.de, ate: fin.filtros.ate }}
+            onChange={onPeriodoChange}
+          />
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-medium text-text-muted">Modelo</span>
+            <FiltroModelo value={fin.filtros.modelo_ids} onChange={fin.setModeloIds} />
+          </div>
+          <ExportarBotao fin={fin} view={view} />
+        </div>
       </header>
 
       <div className="flex flex-col gap-4">

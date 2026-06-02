@@ -1,9 +1,6 @@
 "use client"
 
 import { cn } from "@/lib/utils"
-import { FiltroModelo } from "@/components/filtros/FiltroModelo"
-import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
-import type { PeriodoSelecionado } from "@/tipos/filtros"
 import type { useFinanceiro } from "@/hooks/useFinanceiro"
 
 export function ToolbarFinanceiro({
@@ -12,29 +9,13 @@ export function ToolbarFinanceiro({
   fin: ReturnType<typeof useFinanceiro>
 }) {
   const { filtros } = fin
-  const view = filtros.view
 
-  const onPeriodoChange = (v: PeriodoSelecionado) => {
-    if (v.periodo === "custom") {
-      if (v.de && v.ate) fin.setPeriodoCustom(v.de, v.ate)
-    } else {
-      fin.setPeriodoPreset(v.periodo)
-    }
-  }
+  // Período e Modelo vivem no header; aqui ficam só os filtros específicos da view.
+  if (filtros.view !== "receitas") return null
 
   return (
     <div className="flex flex-wrap items-end gap-2">
-      <FiltroPeriodo
-        value={{ periodo: filtros.periodo, de: filtros.de, ate: filtros.ate }}
-        onChange={onPeriodoChange}
-      />
-      <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-text-muted">Modelo</span>
-        <FiltroModelo value={filtros.modelo_ids} onChange={fin.setModeloIds} />
-      </div>
-      {view === "receitas" && (
-        <FiltroForma valor={filtros.forma_pagamento} onChange={fin.setFormaPagamento} />
-      )}
+      <FiltroForma valor={filtros.forma_pagamento} onChange={fin.setFormaPagamento} />
     </div>
   )
 }
