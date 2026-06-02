@@ -227,19 +227,22 @@ export function AgendaClient() {
 
   return (
     <section className="flex flex-col gap-4">
-      <HeaderAgenda modelo={agenda.modeloId ? (agenda.agenda?.modelo ?? null) : null} bloqueios={bloqueios} />
-      <ToolbarAgenda
+      <HeaderAgenda
+        modelo={agenda.modeloId ? (agenda.agenda?.modelo ?? null) : null}
+        bloqueios={bloqueios}
         visao={agenda.visao}
+        onVisaoChange={agenda.setVisao}
+        onCriar={() => abrirCriacao(proximoSlotLivre(agenda.dataSelecionada, bloqueios))}
+      />
+      <ToolbarAgenda
         periodoLabel={agenda.periodo.label}
         modeloId={agenda.modeloId}
         tipoAtendimento={tipoAtendimento}
-        onVisaoChange={agenda.setVisao}
         onAnterior={agenda.anterior}
         onProximo={agenda.proximo}
         onHoje={agenda.hoje}
         onModeloChange={agenda.setModeloId}
         onTipoAtendimentoChange={setTipoAtendimento}
-        onCriar={() => abrirCriacao(proximoSlotLivre(agenda.dataSelecionada, bloqueios))}
       />
 
       {agenda.visao === "mes" ? (

@@ -1,14 +1,28 @@
+import { Plus } from "lucide-react"
 import { dataBrt, dataInputSaoPaulo } from "@/hooks/useAgenda"
 import { formatHorario } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
-import type { ModeloAgenda, BloqueioAgenda } from "@/tipos/agenda"
+import { Button } from "@/components/ui/button"
+import type { ModeloAgenda, BloqueioAgenda, VisaoAgenda } from "@/tipos/agenda"
+
+const VISOES: Array<{ value: VisaoAgenda; label: string }> = [
+  { value: "dia", label: "Dia" },
+  { value: "semana", label: "Semana" },
+  { value: "mes", label: "Mês" },
+]
 
 export function HeaderAgenda({
   modelo,
   bloqueios,
+  visao,
+  onVisaoChange,
+  onCriar,
 }: {
   modelo: ModeloAgenda | null
   bloqueios: BloqueioAgenda[]
+  visao?: VisaoAgenda
+  onVisaoChange?: (visao: VisaoAgenda) => void
+  onCriar?: () => void
 }) {
   const ativos = bloqueios.filter((b) => b.estado === "bloqueado" || b.estado === "em_atendimento").length
   const emAtendimento = bloqueios.filter((b) => b.estado === "em_atendimento").length
@@ -47,13 +61,45 @@ export function HeaderAgenda({
         )}
       </div>
 
-      {/* Painel de stats segmentado: uma superfície ancorada, divisores internos,
-          cor reservada só ao número "ao vivo" (Em atendimento) — eco do ponto verde da grade. */}
-      <dl className="flex shrink-0 divide-x divide-border overflow-hidden rounded-lg border border-border-strong bg-card">
-        <ResumoItem label="Bloqueios ativos" value={ativos} />
-        <ResumoItem label="Em atendimento" value={emAtendimento} live={emAtendimento > 0} />
-        <ResumoItem label="Cancelados" value={cancelados} muted={cancelados === 0} />
-      </dl>
+      <div className="flex flex-col items-end gap-3">
+        {visao && onVisaoChange && (
+          <div className="flex items-center gap-2">
+            {/* Segmented (§7.9): poço recuado + aba ativa elevada (bg-card) com marca dourada */}
+            <div className="flex rounded-lg border border-border bg-muted p-0.5" aria-label="Visão da agenda">
+              {VISOES.map((item) => (
+                <button
+                  key={item.value}
+                  type="button"
+                  aria-pressed={visao === item.value}
+                  onClick={() => onVisaoChange(item.value)}
+                  className={cn(
+                    "rounded-md px-3 py-1 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    visao === item.value
+                      ? "bg-card text-text-brand shadow-sm"
+                      : "text-text-muted hover:text-text-primary",
+                  )}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+            {onCriar && (
+              <Button variant="primary" size="sm" onClick={onCriar}>
+                <Plus />
+                Novo
+              </Button>
+            )}
+          </div>
+        )}
+
+        {/* Painel de stats segmentado: uma superfície ancorada, divisores internos,
+            cor reservada só ao número "ao vivo" (Em atendimento) — eco do ponto verde da grade. */}
+        <dl className="flex shrink-0 divide-x divide-border overflow-hidden rounded-lg border border-border-strong bg-card">
+          <ResumoItem label="Bloqueios ativos" value={ativos} />
+          <ResumoItem label="Em atendimento" value={emAtendimento} live={emAtendimento > 0} />
+          <ResumoItem label="Cancelados" value={cancelados} muted={cancelados === 0} />
+        </dl>
+      </div>
     </header>
   )
 }
