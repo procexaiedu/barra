@@ -1,6 +1,6 @@
 import json
 import logging
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -34,8 +34,6 @@ _FILTRO_STATUS = {
     "todos": "1=1",
 }
 
-_PERIODO_HORAS = {"24h": 24, "7d": 24 * 7, "30d": 24 * 30}
-
 
 @router.get("")
 async def listar_pix(
@@ -43,7 +41,8 @@ async def listar_pix(
     status: str = "pendentes",
     modelo_id: list[UUID] | None = Query(None),
     motivo_em_revisao: str | None = None,
-    periodo: str | None = None,
+    data_inicio: date | None = Query(None),
+    data_fim: date | None = Query(None),
     atendimento_id: UUID | None = None,
     q: str | None = None,
     limit: int = Query(50, ge=1, le=100),
@@ -59,10 +58,12 @@ async def listar_pix(
     if motivo_em_revisao:
         filtros.append("p.motivo_em_revisao = %s")
         params.append(motivo_em_revisao)
-    if periodo and periodo in _PERIODO_HORAS:
-        cutoff = datetime.now(UTC) - timedelta(hours=_PERIODO_HORAS[periodo])
-        filtros.append("p.created_at >= %s")
-        params.append(cutoff)
+    if data_inicio:
+        filtros.append("(p.created_at AT TIME ZONE 'America/Sao_Paulo')::date >= %s")
+        params.append(data_inicio)
+    if data_fim:
+        filtros.append("(p.created_at AT TIME ZONE 'America/Sao_Paulo')::date <= %s")
+        params.append(data_fim)
     if atendimento_id is not None:
         filtros.append("p.atendimento_id = %s")
         params.append(atendimento_id)

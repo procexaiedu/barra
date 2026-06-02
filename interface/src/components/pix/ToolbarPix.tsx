@@ -3,15 +3,15 @@
 import { Skeleton } from "@/components/ui/skeleton"
 import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
+import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import { SelectFiltro } from "@/components/filtros/SelectFiltro"
+import type { PeriodoSelecionado } from "@/tipos/filtros"
 import type {
-  FiltroPeriodoPix,
   FiltroStatusPix,
   MotivoRevisao,
 } from "@/tipos/pix"
 import {
   motivoRevisaoFiltroOptions,
-  periodoFiltroOptions,
   statusFiltroOptions,
 } from "./utils"
 
@@ -32,13 +32,13 @@ export function ToolbarPix({
   status: FiltroStatusPix
   modeloIds: string[]
   motivo: MotivoRevisao | "todos"
-  periodo: FiltroPeriodoPix
+  periodo: PeriodoSelecionado
   loading: boolean
   onBuscaChange: (value: string) => void
   onStatusChange: (value: FiltroStatusPix) => void
   onModeloChange: (value: string[]) => void
   onMotivoChange: (value: MotivoRevisao | "todos") => void
-  onPeriodoChange: (value: FiltroPeriodoPix) => void
+  onPeriodoChange: (value: PeriodoSelecionado) => void
 }) {
   if (loading) {
     return (
@@ -60,15 +60,7 @@ export function ToolbarPix({
         onChange={onBuscaChange}
         placeholder="Valor, cliente, telefone ou #N"
       />
-      <SelectFiltro
-        label="Período"
-        value={periodo}
-        onChange={(value) => onPeriodoChange(value as FiltroPeriodoPix)}
-      >
-        {periodoFiltroOptions.map((item) => (
-          <option key={item.value} value={item.value}>{item.label}</option>
-        ))}
-      </SelectFiltro>
+      <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium text-text-muted">Modelo</span>
         <FiltroModelo value={modeloIds} onChange={onModeloChange} className="w-full" />

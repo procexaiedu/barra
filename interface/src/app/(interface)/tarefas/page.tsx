@@ -68,7 +68,7 @@ function Segmento<T extends string>({
           aria-pressed={valor === o.valor}
           className={cn(
             "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
-            "aria-[pressed=true]:bg-accent aria-[pressed=true]:text-text-brand",
+            "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
             "text-text-muted hover:text-text-primary",
           )}
         >
@@ -153,7 +153,7 @@ export default function TarefasPage() {
                   aria-pressed={visao === v}
                   className={cn(
                     "rounded-md p-1.5 transition-all duration-150",
-                    "aria-[pressed=true]:bg-accent aria-[pressed=true]:text-text-brand",
+                    "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
                     "text-text-muted hover:text-text-primary",
                   )}
                 >

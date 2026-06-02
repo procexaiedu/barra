@@ -23,7 +23,7 @@ const filtrosIniciais: FiltrosPix = {
   status: "pendentes",
   modelo_ids: [],
   motivo_em_revisao: "todos",
-  periodo: "todos",
+  periodo: { periodo: "tudo", de: null, ate: null },
   atendimento_id: null,
 }
 
@@ -35,7 +35,8 @@ function buildListaPath(filtros: FiltrosPix, cursor: string | null) {
   else params.set("status", "pendentes")
   for (const id of filtros.modelo_ids) params.append("modelo_id", id)
   if (filtros.motivo_em_revisao !== "todos") params.set("motivo_em_revisao", filtros.motivo_em_revisao)
-  if (filtros.periodo !== "todos") params.set("periodo", filtros.periodo)
+  if (filtros.periodo.de) params.set("data_inicio", filtros.periodo.de)
+  if (filtros.periodo.ate) params.set("data_fim", filtros.periodo.ate)
   if (filtros.atendimento_id) params.set("atendimento_id", filtros.atendimento_id)
   if (cursor) params.set("cursor", cursor)
   return `/v1/pix?${params.toString()}`
@@ -122,7 +123,7 @@ export function usePix() {
     filtrosEfetivos.status !== "pendentes" ||
     filtrosEfetivos.modelo_ids.length > 0 ||
     filtrosEfetivos.motivo_em_revisao !== "todos" ||
-    filtrosEfetivos.periodo !== "todos" ||
+    filtrosEfetivos.periodo.periodo !== "tudo" ||
     filtrosEfetivos.atendimento_id !== null
 
   const loadComprovante = useCallback(async (id: string) => {

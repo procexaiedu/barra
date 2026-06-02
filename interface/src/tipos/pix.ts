@@ -1,3 +1,5 @@
+import type { PeriodoSelecionado } from "@/tipos/filtros"
+
 export type DecisaoPipeline = "validado" | "em_revisao"
 export type DecisaoFinal = "validado" | "invalido" | null
 
@@ -23,8 +25,6 @@ export type FiltroStatusPix =
   | "validado_manual"
   | "rejeitado"
   | "todos"
-
-export type FiltroPeriodoPix = "todos" | "24h" | "7d" | "30d"
 
 export type TipoChave = "cpf" | "cnpj" | "email" | "telefone" | "aleatoria"
 
@@ -150,6 +150,6 @@ export interface FiltrosPix {
   status: FiltroStatusPix
   modelo_ids: string[]
   motivo_em_revisao: MotivoRevisao | "todos"
-  periodo: FiltroPeriodoPix
+  periodo: PeriodoSelecionado
   atendimento_id: string | null
 }

@@ -57,13 +57,6 @@ export const statusFiltroOptions: { value: FiltroStatusPix; label: string }[] = 
   { value: "todos", label: "Todos" },
 ]
 
-export const periodoFiltroOptions = [
-  { value: "todos", label: "Todos" },
-  { value: "24h", label: "24 h" },
-  { value: "7d", label: "7 dias" },
-  { value: "30d", label: "30 dias" },
-] as const
-
 export const tipoChaveLabel: Record<TipoChave, string> = {
   cpf: "CPF",
   cnpj: "CNPJ",

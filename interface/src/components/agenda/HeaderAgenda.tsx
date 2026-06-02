@@ -31,7 +31,7 @@ export function HeaderAgenda({
     .sort((a, b) => a.inicio.localeCompare(b.inicio))[0] ?? null
 
   return (
-    <header className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
+    <header className="flex flex-wrap items-end justify-between gap-4">
       <div className="min-w-0">
         <h1 className="font-serif text-[32px] font-medium leading-tight tracking-[-0.01em] text-text-primary">
           Agenda
@@ -70,7 +70,7 @@ export function HeaderAgenda({
                 className={cn(
                   "rounded-md px-3 py-1 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   visao === item.value
-                    ? "bg-card text-text-brand shadow-sm"
+                    ? "bg-card text-text-primary shadow-sm"
                     : "text-text-muted hover:text-text-primary",
                 )}
               >
@@ -79,8 +79,8 @@ export function HeaderAgenda({
             ))}
           </div>
           {onCriar && (
-            <Button variant="primary" size="sm" onClick={onCriar}>
-              <Plus />
+            <Button variant="primary" onClick={onCriar}>
+              <Plus size={16} strokeWidth={1.5} />
               Novo
             </Button>
           )}
