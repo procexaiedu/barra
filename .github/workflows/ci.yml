@@ -29,6 +29,11 @@ jobs:
       - run: uv sync --frozen
       - run: uv run mypy src
       - run: uv run pytest
+      # DEPLOY-05/06: drift-check estatico das migrations (naming + sequencia
+      # NNNN sem buraco). Sem banco no CI, entao so a parte estatica roda aqui;
+      # o drift repo x schema_migrations e passo do operador (runbook).
+      - name: drift-check de migrations
+        run: uv run python ../scripts/verificar_migrations.py
 
   # DEPLOY-03: builda a imagem de producao a partir de api/Dockerfile.
   # Em PR apenas valida o build (push=false). Em push para main, publica no GHCR

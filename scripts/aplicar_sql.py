@@ -7,6 +7,10 @@ migration (IF NOT EXISTS / DROP ... IF EXISTS), como manda infra/sql/CLAUDE.md.
 
 DATABASE_URL vem do ambiente ou, se ausente, de api/.env (via barra.settings).
 
+Guarda de ambiente (DEPLOY-05/06): quando `settings.ambiente == 'producao'`, recusa
+aplicar qualquer arquivo de seed (nome contém `seed`). Ao aplicar uma migration de
+schema, registra o filename em `barravips.schema_migrations` (idempotente).
+
 Uso (da raiz do repo):
     uv run python scripts/aplicar_sql.py infra/sql/20260525202843_modelo_disponibilidade.sql
 """
@@ -21,6 +25,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "api" / "src"))
 
 import psycopg
+
+from barra.core.migracoes import e_arquivo_seed, seed_bloqueado
+from barra.settings import get_settings
 
 
 def split_sql(sql: str) -> list[str]:
@@ -96,12 +103,27 @@ def main() -> int:
         print("uso: uv run python scripts/aplicar_sql.py <arquivo.sql>", file=sys.stderr)
         return 2
     caminho = Path(sys.argv[1])
+    ambiente = get_settings().ambiente
+    # Guarda de ambiente: em producao, NUNCA aplicar seed (dados de teste descartaveis).
+    if seed_bloqueado(caminho.name, ambiente):
+        print(
+            f"RECUSADO: '{caminho.name}' e um seed e ambiente={ambiente} (seeds nao vao para prod).",
+            file=sys.stderr,
+        )
+        return 3
     sql = caminho.read_text(encoding="utf-8")
     statements = split_sql(sql)
     with psycopg.connect(_database_url(), autocommit=True) as conn:
         for st in statements:
             conn.execute(st)  # type: ignore[arg-type]
             print("OK:", st.splitlines()[0][:70])
+        # Registra a aplicacao no tracking (idempotente; seeds NAO sao rastreados).
+        if not e_arquivo_seed(caminho.name):
+            conn.execute(
+                "INSERT INTO barravips.schema_migrations (filename) VALUES (%s) "
+                "ON CONFLICT (filename) DO NOTHING",
+                (caminho.name,),
+            )
     print(f"--- {caminho.name}: {len(statements)} statements aplicados ---")
     return 0
 
