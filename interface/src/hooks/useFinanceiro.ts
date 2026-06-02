@@ -49,7 +49,7 @@ export interface FiltrosFinanceiro {
 function parseFiltros(params: URLSearchParams): FiltrosFinanceiro {
   const periodoRaw = params.get("periodo")
   const periodo = (periodoRaw && PERIODOS_VALIDOS.has(periodoRaw)
-    ? periodoRaw : "mes") as FiltroPeriodo
+    ? periodoRaw : "tudo") as FiltroPeriodo
   const de = params.get("de")
   const ate = params.get("ate")
   const viewRaw = params.get("view")
@@ -91,7 +91,7 @@ function montarPath(
 
 function montarQueryString(filtros: FiltrosFinanceiro): string {
   const params = new URLSearchParams()
-  if (filtros.periodo !== "mes") params.set("periodo", filtros.periodo)
+  if (filtros.periodo !== "tudo") params.set("periodo", filtros.periodo)
   if (filtros.periodo === "custom" && filtros.de && filtros.ate) {
     params.set("de", filtros.de)
     params.set("ate", filtros.ate)

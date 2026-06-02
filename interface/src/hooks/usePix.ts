@@ -21,7 +21,7 @@ type ComprovanteStatus = "idle" | "loading" | "success" | "error"
 const filtrosIniciais: FiltrosPix = {
   busca: "",
   status: "pendentes",
-  modelo_id: "todas",
+  modelo_ids: [],
   motivo_em_revisao: "todos",
   periodo: "todos",
   atendimento_id: null,
@@ -33,7 +33,7 @@ function buildListaPath(filtros: FiltrosPix, cursor: string | null) {
   if (busca) params.set("q", busca.startsWith("#") ? busca.slice(1) : busca)
   if (filtros.status !== "pendentes") params.set("status", filtros.status)
   else params.set("status", "pendentes")
-  if (filtros.modelo_id !== "todas") params.set("modelo_id", filtros.modelo_id)
+  for (const id of filtros.modelo_ids) params.append("modelo_id", id)
   if (filtros.motivo_em_revisao !== "todos") params.set("motivo_em_revisao", filtros.motivo_em_revisao)
   if (filtros.periodo !== "todos") params.set("periodo", filtros.periodo)
   if (filtros.atendimento_id) params.set("atendimento_id", filtros.atendimento_id)
@@ -102,7 +102,7 @@ export function usePix() {
     () => ({
       busca: debouncedBusca,
       status: filtros.status,
-      modelo_id: filtros.modelo_id,
+      modelo_ids: filtros.modelo_ids,
       motivo_em_revisao: filtros.motivo_em_revisao,
       periodo: filtros.periodo,
       atendimento_id: filtros.atendimento_id,
@@ -110,7 +110,7 @@ export function usePix() {
     [
       debouncedBusca,
       filtros.status,
-      filtros.modelo_id,
+      filtros.modelo_ids,
       filtros.motivo_em_revisao,
       filtros.periodo,
       filtros.atendimento_id,
@@ -120,7 +120,7 @@ export function usePix() {
   const filtrosAplicados =
     filtrosEfetivos.busca.trim() !== "" ||
     filtrosEfetivos.status !== "pendentes" ||
-    filtrosEfetivos.modelo_id !== "todas" ||
+    filtrosEfetivos.modelo_ids.length > 0 ||
     filtrosEfetivos.motivo_em_revisao !== "todos" ||
     filtrosEfetivos.periodo !== "todos" ||
     filtrosEfetivos.atendimento_id !== null
@@ -300,12 +300,10 @@ export function usePix() {
   }, [filtros.busca])
 
   useEffect(() => {
-    firstListaDone.current = false
-    firstDetalheDone.current = false
-    itemsRef.current = []
-    nextCursorRef.current = null
+    // Stale-while-revalidate: mantém lista/seleção durante o refetch por mudança de
+    // filtro (sem flick para skeleton). O skeleton só vale na 1ª carga.
     const timer = setTimeout(() => {
-      loadLista("replace", false)
+      loadLista("replace", true)
     }, 0)
     return () => clearTimeout(timer)
   }, [filtrosEfetivos, loadLista])

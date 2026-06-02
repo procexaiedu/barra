@@ -4,6 +4,7 @@ import type { ReactNode } from "react"
 import { Search } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import type {
   FiltroPeriodoPix,
   FiltroStatusPix,
@@ -18,11 +19,10 @@ import {
 export function ToolbarPix({
   busca,
   status,
-  modeloId,
+  modeloIds,
   motivo,
   periodo,
   loading,
-  modelos,
   onBuscaChange,
   onStatusChange,
   onModeloChange,
@@ -31,14 +31,13 @@ export function ToolbarPix({
 }: {
   busca: string
   status: FiltroStatusPix
-  modeloId: string | "todas"
+  modeloIds: string[]
   motivo: MotivoRevisao | "todos"
   periodo: FiltroPeriodoPix
   loading: boolean
-  modelos: { id: string; nome: string }[]
   onBuscaChange: (value: string) => void
   onStatusChange: (value: FiltroStatusPix) => void
-  onModeloChange: (value: string) => void
+  onModeloChange: (value: string[]) => void
   onMotivoChange: (value: MotivoRevisao | "todos") => void
   onPeriodoChange: (value: FiltroPeriodoPix) => void
 }) {
@@ -82,12 +81,10 @@ export function ToolbarPix({
           <option key={item.value} value={item.value}>{item.label}</option>
         ))}
       </SelectFiltro>
-      <SelectFiltro label="Modelo" value={modeloId} onChange={onModeloChange}>
-        <option value="todas">Todas</option>
-        {modelos.map((m) => (
-          <option key={m.id} value={m.id}>{m.nome}</option>
-        ))}
-      </SelectFiltro>
+      <label className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-text-muted">Modelo</span>
+        <FiltroModelo value={modeloIds} onChange={onModeloChange} className="w-full" />
+      </label>
       <SelectFiltro
         label="Motivo de revisão"
         value={motivo}

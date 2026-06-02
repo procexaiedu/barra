@@ -25,7 +25,7 @@ const filtrosIniciais: FiltrosClientes = {
   periodo: "tudo",
   dataInicio: null,
   dataFim: null,
-  modeloId: "todas",
+  modeloIds: [],
   perfis: [],
 }
 
@@ -43,7 +43,7 @@ function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   } else if (filtros.periodo !== "tudo") {
     params.set("periodo", filtros.periodo)
   }
-  if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
+  for (const id of filtros.modeloIds) params.append("modelo_id", id)
   for (const perfil of filtros.perfis) params.append("perfis", perfil)
   if (cursor) params.set("cursor", cursor)
   return `/v1/crm/clientes?${params.toString()}`
@@ -93,7 +93,7 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
       periodo: filtros.periodo,
       dataInicio: filtros.dataInicio,
       dataFim: filtros.dataFim,
-      modeloId: filtros.modeloId,
+      modeloIds: filtros.modeloIds,
       perfis: filtros.perfis,
     }),
     [
@@ -101,7 +101,7 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
       filtros.periodo,
       filtros.dataInicio,
       filtros.dataFim,
-      filtros.modeloId,
+      filtros.modeloIds,
       filtros.perfis,
     ]
   )
@@ -109,7 +109,7 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
   const filtrosAplicados =
     filtrosEfetivos.busca.trim() !== "" ||
     filtrosEfetivos.periodo !== "tudo" ||
-    filtrosEfetivos.modeloId !== "todas" ||
+    filtrosEfetivos.modeloIds.length > 0 ||
     filtrosEfetivos.perfis.length > 0
 
   // Carrega o detalhe rico de uma conversa específica (par cliente,modelo).
@@ -251,10 +251,9 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
   }, [filtros.busca])
 
   useEffect(() => {
-    firstListaDone.current = false
-    firstDetalheDone.current = false
-    itemsRef.current = []
-    nextCursorRef.current = null
+    // Stale-while-revalidate: NÃO reseta firstListaDone/items aqui — assim o refetch
+    // por mudança de filtro mantém a lista/seleção visíveis (sem flick para skeleton).
+    // O skeleton só aparece na 1ª carga (firstListaDone começa false).
     const idInicial = initialIdRef.current
     initialIdRef.current = null
     const timer = setTimeout(() => {
@@ -266,7 +265,7 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
         loadDetalhe(idInicial)
         loadLista("replace", true)
       } else {
-        loadLista("replace", false)
+        loadLista("replace", true)
       }
     }, 0)
     return () => clearTimeout(timer)

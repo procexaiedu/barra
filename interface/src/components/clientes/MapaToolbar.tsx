@@ -25,7 +25,7 @@ export function MapaToolbar({
   periodo,
   dataInicio,
   dataFim,
-  modeloId,
+  modeloIds,
   perfis,
   desfecho,
   motivosPerda,
@@ -53,7 +53,7 @@ export function MapaToolbar({
   /** Task 9: janela do "Período personalizado" (ISO `YYYY-MM-DD`). */
   dataInicio: string | null
   dataFim: string | null
-  modeloId: string
+  modeloIds: string[]
   perfis: PerfilFisico[]
   desfecho: FiltroDesfecho
   motivosPerda: MotivoPerda[]
@@ -69,7 +69,7 @@ export function MapaToolbar({
   onPeriodoChange: (v: PresetPeriodo) => void
   /** Task 9: aplica/zera a janela custom (datas ISO ou null para limpar). */
   onCustomPeriodoChange: (range: { dataInicio: string | null; dataFim: string | null }) => void
-  onModeloChange: (v: string) => void
+  onModeloChange: (v: string[]) => void
   onPerfisChange: (v: PerfilFisico[]) => void
   onDesfechoChange: (v: FiltroDesfecho) => void
   onMotivosPerdaChange: (v: MotivoPerda[]) => void
@@ -82,7 +82,7 @@ export function MapaToolbar({
   const limparTudo = () => {
     onPeriodoChange("tudo")
     onCustomPeriodoChange({ dataInicio: null, dataFim: null })
-    onModeloChange("todas")
+    onModeloChange([])
     onPerfisChange([])
     onDesfechoChange(FILTROS_MAPA_PADRAO.desfecho)
     onMotivosPerdaChange([])
@@ -113,11 +113,7 @@ export function MapaToolbar({
           <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
             Modelo
           </span>
-          <FiltroModelo
-            multi={false}
-            value={modeloId === "todas" ? [] : [modeloId]}
-            onChange={(ids) => onModeloChange(ids[0] ?? "todas")}
-          />
+          <FiltroModelo value={modeloIds} onChange={onModeloChange} />
         </div>
         <PopoverFiltrosMapa
           perfis={perfis}

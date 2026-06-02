@@ -26,7 +26,7 @@ export interface FiltrosDashboard {
 }
 
 const filtrosDefault: FiltrosDashboard = {
-  periodo: "7d",
+  periodo: "tudo",
   de: null,
   ate: null,
   modelo_ids: [],
@@ -34,7 +34,7 @@ const filtrosDefault: FiltrosDashboard = {
 
 function parseFiltrosFromSearch(params: URLSearchParams): FiltrosDashboard {
   const periodoRaw = params.get("periodo")
-  const periodo = (periodoRaw && PERIODOS_VALIDOS.has(periodoRaw) ? periodoRaw : "7d") as FiltroPeriodo
+  const periodo = (periodoRaw && PERIODOS_VALIDOS.has(periodoRaw) ? periodoRaw : "tudo") as FiltroPeriodo
   const de = params.get("de")
   const ate = params.get("ate")
   const modelo_ids = params.getAll("modelo_id")
@@ -78,7 +78,7 @@ const METRICAS_SPARKLINE: SerieMetrica[] = [
 
 function montarQueryString(filtros: FiltrosDashboard): string {
   const params = new URLSearchParams()
-  if (filtros.periodo !== "7d") params.set("periodo", filtros.periodo)
+  if (filtros.periodo !== "tudo") params.set("periodo", filtros.periodo)
   if (filtros.periodo === "custom" && filtros.de && filtros.ate) {
     params.set("de", filtros.de)
     params.set("ate", filtros.ate)

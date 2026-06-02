@@ -181,6 +181,8 @@ export interface FiltrosAtendimentos {
   ia: IaFiltro
   qualificacao: QualificacaoFiltro
   periodo: PeriodoFiltro
+  /** Multi-seleção de modelo. Vazio = todas (sem filtro). */
+  modeloIds: string[]
 }
 
 export type EstadoKanbanDestino = "Qualificado" | "Aguardando_confirmacao" | "Em_execucao"

@@ -51,7 +51,7 @@ def _predicado_periodo(
 @router.get("/clientes")
 async def listar_clientes(
     conn: AsyncConnection[Any] = Depends(get_conn),
-    modelo_id: UUID | None = None,
+    modelo_id: list[UUID] | None = Query(None),
     q: str | None = None,
     periodo: str | None = None,
     data_inicio: str | None = None,
@@ -71,7 +71,7 @@ async def listar_clientes(
     if modelo_id:
         filtros.append(
             "EXISTS (SELECT 1 FROM barravips.conversas cv "
-            "WHERE cv.cliente_id = c.id AND cv.modelo_id = %s)"
+            "WHERE cv.cliente_id = c.id AND cv.modelo_id = ANY(%s))"
         )
         params.append(modelo_id)
     if q:
@@ -147,7 +147,7 @@ async def listar_clientes(
 @router.get("/clientes/mapa")
 async def mapa_clientes(
     conn: AsyncConnection[Any] = Depends(get_conn),
-    modelo_id: UUID | None = None,
+    modelo_id: list[UUID] | None = Query(None),
     q: str | None = None,
     periodo: str | None = None,
     perfis: list[str] | None = Query(default=None),
@@ -220,7 +220,7 @@ async def mapa_clientes(
     if modelo_id:
         filtros.append(
             "EXISTS (SELECT 1 FROM barravips.conversas cv "
-            "WHERE cv.cliente_id = c.id AND cv.modelo_id = %s)"
+            "WHERE cv.cliente_id = c.id AND cv.modelo_id = ANY(%s))"
         )
         params.append(modelo_id)
     if q:
@@ -349,7 +349,7 @@ def _parse_recorte(rotulo: str, inicio: str | None, fim: str | None) -> tuple[da
 async def _mapa_clientes_comparar(
     conn: AsyncConnection[Any],
     *,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
     q: str | None,
     perfis: list[str] | None,
     incluir_arquivados: bool,
@@ -414,7 +414,7 @@ async def _mapa_clientes_comparar(
 
 def _filtros_base_comparar(
     *,
-    modelo_id: UUID | None,
+    modelo_id: list[UUID] | None,
     q: str | None,
     perfis: list[str] | None,
     incluir_arquivados: bool,
@@ -433,7 +433,7 @@ def _filtros_base_comparar(
     if modelo_id:
         filtros.append(
             "EXISTS (SELECT 1 FROM barravips.conversas cv "
-            "WHERE cv.cliente_id = c.id AND cv.modelo_id = %s)"
+            "WHERE cv.cliente_id = c.id AND cv.modelo_id = ANY(%s))"
         )
         params.append(modelo_id)
     if q:

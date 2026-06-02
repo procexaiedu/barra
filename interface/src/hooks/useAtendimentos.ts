@@ -4,7 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { toast } from "sonner"
 import { ApiError, api, apiFormData } from "@/lib/api"
-import { resolverPresetPeriodo } from "@/lib/datas"
 import { subscribeTabelas } from "@/lib/realtime"
 import { supabase } from "@/lib/supabase"
 import type {
@@ -33,7 +32,8 @@ function montarFiltrosIniciais(): FiltrosAtendimentos {
     urgencia: "todas",
     ia: "todos",
     qualificacao: "todos",
-    periodo: { periodo: "mes", ...resolverPresetPeriodo("mes") },
+    periodo: { periodo: "tudo", de: null, ate: null },
+    modeloIds: [],
   }
 }
 
@@ -81,6 +81,7 @@ function buildListaPath(
   }
   if (filtros.periodo.de) params.set("data_inicio", filtros.periodo.de)
   if (filtros.periodo.ate) params.set("data_fim", filtros.periodo.ate)
+  for (const id of filtros.modeloIds) params.append("modelo_id", id)
   if (cursor) params.set("cursor", cursor)
   return `/v1/atendimentos?${params.toString()}`
 }
@@ -126,6 +127,7 @@ export function useAtendimentos(
       ia: filtros.ia,
       qualificacao: filtros.qualificacao,
       periodo: filtros.periodo,
+      modeloIds: filtros.modeloIds,
     }),
     [
       debouncedBusca,
@@ -135,17 +137,19 @@ export function useAtendimentos(
       filtros.ia,
       filtros.qualificacao,
       filtros.periodo,
+      filtros.modeloIds,
     ]
   )
 
-  // "Este mês" é o período default → não conta como filtro aplicado.
-  const periodoAplicado = filtrosEfetivos.periodo.periodo !== "mes"
+  // "Todos" é o período default → não conta como filtro aplicado.
+  const periodoAplicado = filtrosEfetivos.periodo.periodo !== "tudo"
   const filtrosAplicados = filtrosEfetivos.busca.trim() !== ""
     || filtrosEfetivos.estado !== "abertos"
     || filtrosEfetivos.tipo !== "todos"
     || filtrosEfetivos.urgencia !== "todas"
     || filtrosEfetivos.ia !== "todos"
     || filtrosEfetivos.qualificacao !== "todos"
+    || filtrosEfetivos.modeloIds.length > 0
     || periodoAplicado
 
   const loadDetalhe = useCallback(async (id: string) => {
@@ -377,12 +381,10 @@ export function useAtendimentos(
   }, [filtros.busca])
 
   useEffect(() => {
-    firstListaDone.current = false
-    firstDetalheDone.current = false
-    itemsRef.current = []
-    nextCursorRef.current = null
+    // Stale-while-revalidate: mantém lista/seleção durante o refetch por mudança de
+    // filtro (sem flick para skeleton). O skeleton só vale na 1ª carga.
     const timer = setTimeout(() => {
-      loadLista("replace", false)
+      loadLista("replace", true)
     }, 0)
     return () => clearTimeout(timer)
   }, [filtrosEfetivos, loadLista])

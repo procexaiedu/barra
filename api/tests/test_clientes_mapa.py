@@ -725,7 +725,7 @@ def test_mapa_clientes_periodo_custom_combina_com_modelo_e_perfil() -> None:
         assert fake.last_query is not None
         # As três cláusulas coexistem no WHERE.
         assert "a.created_at < (%s::date + INTERVAL '1 day')" in fake.last_query
-        assert "cv.modelo_id = %s" in fake.last_query
+        assert "cv.modelo_id = ANY(%s)" in fake.last_query
         assert "c.perfis_preferidos && %s::barravips.perfil_fisico_enum[]" in fake.last_query
         assert isinstance(fake.last_params, list)
         assert ["loira"] in fake.last_params

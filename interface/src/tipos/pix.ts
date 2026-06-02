@@ -148,7 +148,7 @@ export interface RejeitarPixInput {
 export interface FiltrosPix {
   busca: string
   status: FiltroStatusPix
-  modelo_id: string | "todas"
+  modelo_ids: string[]
   motivo_em_revisao: MotivoRevisao | "todos"
   periodo: FiltroPeriodoPix
   atendimento_id: string | null

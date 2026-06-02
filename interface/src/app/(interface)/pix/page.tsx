@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useMemo } from "react"
+import { Suspense } from "react"
 import { DetalhePix } from "@/components/pix/DetalhePix"
 import { HeaderPix } from "@/components/pix/HeaderPix"
 import { ListaPix } from "@/components/pix/ListaPix"
@@ -18,19 +18,6 @@ export default function PixPage() {
 function PixConteudo() {
   const pix = usePix()
 
-  const modelosDisponiveis = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const item of pix.items) {
-      if (!map.has(item.modelo.id)) map.set(item.modelo.id, item.modelo.nome)
-    }
-    if (pix.detalhe && !map.has(pix.detalhe.modelo.id)) {
-      map.set(pix.detalhe.modelo.id, pix.detalhe.modelo.nome)
-    }
-    return Array.from(map.entries())
-      .map(([id, nome]) => ({ id, nome }))
-      .sort((a, b) => a.nome.localeCompare(b.nome, "pt-BR"))
-  }, [pix.items, pix.detalhe])
-
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-4">
       <div className="flex-none">
@@ -41,14 +28,13 @@ function PixConteudo() {
         <ToolbarPix
           busca={pix.filtros.busca}
           status={pix.filtros.status}
-          modeloId={pix.filtros.modelo_id}
+          modeloIds={pix.filtros.modelo_ids}
           motivo={pix.filtros.motivo_em_revisao}
           periodo={pix.filtros.periodo}
           loading={pix.listaStatus === "loading"}
-          modelos={modelosDisponiveis}
           onBuscaChange={(busca) => pix.setFiltros((current) => ({ ...current, busca }))}
           onStatusChange={(status) => pix.setFiltros((current) => ({ ...current, status }))}
-          onModeloChange={(modelo_id) => pix.setFiltros((current) => ({ ...current, modelo_id }))}
+          onModeloChange={(modelo_ids) => pix.setFiltros((current) => ({ ...current, modelo_ids }))}
           onMotivoChange={(motivo_em_revisao) =>
             pix.setFiltros((current) => ({ ...current, motivo_em_revisao }))
           }

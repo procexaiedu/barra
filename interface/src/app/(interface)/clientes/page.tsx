@@ -205,7 +205,7 @@ function ClientesInner() {
               de: crm.filtros.dataInicio,
               ate: crm.filtros.dataFim,
             }}
-            modeloId={crm.filtros.modeloId}
+            modeloIds={crm.filtros.modeloIds}
             perfis={crm.filtros.perfis}
             loading={crm.listaStatus === "loading"}
             incluirArquivados={crm.incluirArquivados}
@@ -218,7 +218,7 @@ function ClientesInner() {
                 dataFim: p.periodo === "custom" ? p.ate : null,
               }))
             }
-            onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
+            onModeloChange={(modeloIds) => crm.setFiltros((current) => ({ ...current, modeloIds }))}
             onPerfisChange={(perfis) => crm.setFiltros((current) => ({ ...current, perfis }))}
             onIncluirArquivadosChange={crm.setIncluirArquivados}
           />
@@ -296,14 +296,14 @@ function ClientesInner() {
           periodo={crm.filtros.periodo}
           dataInicio={crm.filtros.dataInicio}
           dataFim={crm.filtros.dataFim}
-          modeloId={crm.filtros.modeloId}
+          modeloIds={crm.filtros.modeloIds}
           perfis={crm.filtros.perfis}
           incluirArquivados={crm.incluirArquivados}
           onPeriodoChange={(periodo) => crm.setFiltros((current) => ({ ...current, periodo }))}
           onCustomPeriodoChange={({ dataInicio, dataFim }) =>
             crm.setFiltros((current) => ({ ...current, dataInicio, dataFim }))
           }
-          onModeloChange={(modeloId) => crm.setFiltros((current) => ({ ...current, modeloId }))}
+          onModeloChange={(modeloIds) => crm.setFiltros((current) => ({ ...current, modeloIds }))}
           onPerfisChange={(perfis) => crm.setFiltros((current) => ({ ...current, perfis }))}
           onIncluirArquivadosChange={crm.setIncluirArquivados}
           comparar={compararRecortes}
@@ -338,7 +338,7 @@ function ClientesInner() {
 function Toolbar({
   busca,
   periodo,
-  modeloId,
+  modeloIds,
   perfis,
   loading,
   incluirArquivados,
@@ -350,13 +350,13 @@ function Toolbar({
 }: {
   busca: string
   periodo: PeriodoSelecionado
-  modeloId: string
+  modeloIds: string[]
   perfis: PerfilFisico[]
   loading: boolean
   incluirArquivados: boolean
   onBuscaChange: (value: string) => void
   onPeriodoChange: (value: PeriodoSelecionado) => void
-  onModeloChange: (value: string) => void
+  onModeloChange: (value: string[]) => void
   onPerfisChange: (value: PerfilFisico[]) => void
   onIncluirArquivadosChange: (value: boolean) => void
 }) {
@@ -393,11 +393,7 @@ function Toolbar({
       <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
       <div className="flex flex-col gap-1">
         <span className="text-xs font-medium text-text-muted">Modelo</span>
-        <FiltroModelo
-          multi={false}
-          value={modeloId === "todas" ? [] : [modeloId]}
-          onChange={(ids) => onModeloChange(ids[0] ?? "todas")}
-        />
+        <FiltroModelo value={modeloIds} onChange={onModeloChange} />
       </div>
       <PainelFiltros
         ativos={filtrosSecundariosAtivos}

@@ -74,7 +74,7 @@ export function MapaClientes({
   periodo,
   dataInicio,
   dataFim,
-  modeloId,
+  modeloIds,
   perfis,
   incluirArquivados,
   onPeriodoChange,
@@ -113,12 +113,12 @@ export function MapaClientes({
   /** Task 9: janela do "Período personalizado" (ISO `YYYY-MM-DD`). */
   dataInicio: string | null
   dataFim: string | null
-  modeloId: string
+  modeloIds: string[]
   perfis: PerfilFisico[]
   incluirArquivados: boolean
   onPeriodoChange: (v: FiltroPeriodo) => void
   onCustomPeriodoChange: (range: { dataInicio: string | null; dataFim: string | null }) => void
-  onModeloChange: (v: string) => void
+  onModeloChange: (v: string[]) => void
   onPerfisChange: (v: PerfilFisico[]) => void
   onIncluirArquivadosChange: (v: boolean) => void
   /** MAPA-14: modo Comparar dois períodos (lift de campanha). Quando ativo +
@@ -459,7 +459,7 @@ export function MapaClientes({
         periodo={periodo}
         dataInicio={dataInicio}
         dataFim={dataFim}
-        modeloId={modeloId}
+        modeloIds={modeloIds}
         perfis={perfis}
         desfecho={desfecho}
         motivosPerda={motivosPerda}

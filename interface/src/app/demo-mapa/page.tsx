@@ -92,7 +92,7 @@ export default function DemoMapa() {
         onValorRangeChange={NOOP}
         onRecenciaChange={NOOP}
         periodo="tudo"
-        modeloId="todas"
+        modeloIds={[]}
         perfis={[]}
         incluirArquivados={false}
         onPeriodoChange={NOOP}

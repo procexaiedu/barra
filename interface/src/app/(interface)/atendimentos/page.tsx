@@ -5,6 +5,7 @@ import { LayoutList, Columns, Search, Plus } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
 import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
+import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { PainelFiltros } from "@/components/filtros/PainelFiltros"
 import { SelectFiltro } from "@/components/filtros/SelectFiltro"
 import { ListaAtendimentos } from "@/components/atendimentos/ListaAtendimentos"
@@ -167,8 +168,8 @@ function CentralAtendimentosInner() {
   const aplicarPeriodo = useCallback((proximo: PeriodoFiltro) => {
     atendimentos.setFiltros((current) => ({ ...current, periodo: proximo }))
     const params = new URLSearchParams(searchParams.toString())
-    // "Este mês" é o default → URL limpa. Custom carrega o range; presets carregam só o nome.
-    if (proximo.periodo === "mes") {
+    // "Todos" é o default → URL limpa. Custom carrega o range; presets carregam só o nome.
+    if (proximo.periodo === "tudo") {
       params.delete("periodo")
       params.delete("de")
       params.delete("ate")
@@ -274,8 +275,10 @@ function CentralAtendimentosInner() {
           iaFiltro={atendimentos.filtros.ia}
           qualificacaoFiltro={atendimentos.filtros.qualificacao}
           periodo={atendimentos.filtros.periodo}
+          modeloIds={atendimentos.filtros.modeloIds}
           loading={atendimentos.listaStatus === "loading"}
           onBuscaChange={(busca) => atendimentos.setFiltros((current) => ({ ...current, busca }))}
+          onModeloChange={(modeloIds) => atendimentos.setFiltros((current) => ({ ...current, modeloIds }))}
           onEstadoChange={(estado) => atendimentos.setFiltros((current) => ({ ...current, estado }))}
           onTipoChange={(tipo) => atendimentos.setFiltros((current) => ({ ...current, tipo }))}
           onUrgenciaChange={(urgencia) => atendimentos.setFiltros((current) => ({ ...current, urgencia }))}
@@ -442,6 +445,7 @@ function Toolbar({
   iaFiltro,
   qualificacaoFiltro,
   periodo,
+  modeloIds,
   loading,
   onBuscaChange,
   onEstadoChange,
@@ -450,6 +454,7 @@ function Toolbar({
   onIaChange,
   onQualificacaoChange,
   onPeriodoChange,
+  onModeloChange,
 }: {
   busca: string
   estado: EstadoFiltro
@@ -458,6 +463,7 @@ function Toolbar({
   iaFiltro: IaFiltro
   qualificacaoFiltro: QualificacaoFiltro
   periodo: PeriodoFiltro
+  modeloIds: string[]
   loading: boolean
   onBuscaChange: (value: string) => void
   onEstadoChange: (value: EstadoFiltro) => void
@@ -466,6 +472,7 @@ function Toolbar({
   onIaChange: (value: IaFiltro) => void
   onQualificacaoChange: (value: QualificacaoFiltro) => void
   onPeriodoChange: (value: PeriodoFiltro) => void
+  onModeloChange: (value: string[]) => void
 }) {
   if (loading) {
     return (
@@ -513,6 +520,10 @@ function Toolbar({
       </div>
       <div className="w-[150px]">
         <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
+      </div>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-text-muted">Modelo</span>
+        <FiltroModelo value={modeloIds} onChange={onModeloChange} />
       </div>
       <PainelFiltros ativos={secundariosAtivos} onLimpar={limparSecundarios}>
         <SelectFiltro label="Tipo" value={tipo} onChange={(value) => onTipoChange(value as TipoFiltro)}>

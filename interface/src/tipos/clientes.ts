@@ -227,6 +227,7 @@ export interface FiltrosClientes {
    *  `periodo === "custom"`; `null` nos presets. Hoje só o filtro do Mapa seta custom. */
   dataInicio: string | null
   dataFim: string | null
-  modeloId: FiltroModelo
+  /** Multi-seleção de modelo. Vazio = todas (sem filtro). */
+  modeloIds: string[]
   perfis: PerfilFisico[]
 }

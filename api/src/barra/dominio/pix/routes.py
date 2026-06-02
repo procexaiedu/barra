@@ -41,7 +41,7 @@ _PERIODO_HORAS = {"24h": 24, "7d": 24 * 7, "30d": 24 * 30}
 async def listar_pix(
     conn: AsyncConnection[Any] = Depends(get_conn),
     status: str = "pendentes",
-    modelo_id: UUID | None = None,
+    modelo_id: list[UUID] | None = Query(None),
     motivo_em_revisao: str | None = None,
     periodo: str | None = None,
     atendimento_id: UUID | None = None,
@@ -53,8 +53,8 @@ async def listar_pix(
     filtros = [filtro_status]
     params: list[Any] = []
 
-    if modelo_id is not None:
-        filtros.append("a.modelo_id = %s")
+    if modelo_id:
+        filtros.append("a.modelo_id = ANY(%s)")
         params.append(modelo_id)
     if motivo_em_revisao:
         filtros.append("p.motivo_em_revisao = %s")

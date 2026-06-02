@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { api } from "@/lib/api"
 import type {
   FiltrosClientes,
@@ -94,7 +94,7 @@ function buildMapaPath(
   } else if (filtros.periodo !== "tudo" && filtros.periodo !== "custom") {
     params.set("periodo", filtros.periodo)
   }
-  if (filtros.modeloId !== "todas") params.set("modelo_id", filtros.modeloId)
+  for (const id of filtros.modeloIds) params.append("modelo_id", id)
   for (const perfil of filtros.perfis) params.append("perfis", perfil)
   if (incluirArquivados) params.set("incluir_arquivados", "true")
   // MAPA-9: a lente SOBRESCREVE desfecho/motivo do MAPA-8 no fetch (não soma).
@@ -145,16 +145,19 @@ export function useClientesMapa(
   const [data, setData] = useState<MapaClientesResponse | null>(null)
   const [status, setStatus] = useState<Status>("idle")
   const [error, setError] = useState<string | null>(null)
+  const primeiraCarga = useRef(true)
 
   const path = buildMapaPath(filtros, mapa, incluirArquivados, lenteDemandaNaoAtendida)
 
   const carregar = useCallback(async () => {
-    setStatus("loading")
+    // Skeleton só na 1ª carga; refetch por filtro mantém os pontos atuais (sem flick).
+    if (primeiraCarga.current) setStatus("loading")
     try {
       const res = await api<MapaClientesResponse>(path)
       setData(res)
       setStatus("success")
       setError(null)
+      primeiraCarga.current = false
     } catch (e) {
       setStatus("error")
       setError(e instanceof Error ? e.message : "Erro desconhecido")

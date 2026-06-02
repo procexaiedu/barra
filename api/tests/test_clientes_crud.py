@@ -471,6 +471,6 @@ def test_listar_clientes_modelo_id_filtra_por_conversa() -> None:
         assert response.status_code == 200
         select_query = next((q for q in conn.queries if "ag.total_atendimentos" in q), "")
         assert "FROM barravips.conversas cv" in select_query
-        assert "cv.modelo_id = %s" in select_query
+        assert "cv.modelo_id = ANY(%s)" in select_query
     finally:
         app.dependency_overrides.pop(get_conn, None)
