@@ -75,14 +75,14 @@
 | REL-04 | 2 | `vision_client` com timeout/retries | — | done |
 | REL-08 | 2 | Escalada crítica resiliente a `atendimento_id` nulo | — | done |
 | REL-12 | 2 | Visibilidade de falha final não-crítica | OBS-04 | done |
-| OBS-02 | 2 | Prometheus + Grafana + Alertmanager | OBS-01 | todo |
+| OBS-02 | 2 | Prometheus + Grafana + Alertmanager | OBS-01 | code-only (deploy=operador) |
 | OBS-07 | 2 | Middleware de request-id api→worker | OBS-03 | done |
 | OBS-09/10 | 2 | Tag `modelo_id`/`atendimento_id` nos traces | SEC-10 | done |
 | TOOLS-04 | 2 | Incrementar `AGENTE_ESCALADA` após `abrir_handoff` | — | done |
 | CUSTO-02 | 3 | Custo de STT + vision por atendimento | — | todo |
 | CUSTO-01 | 3 | Comissão + Taxa de cartão + ROI (ADRs 0012/0013) | CUSTO-02 | todo |
 | CUSTO-04 | 3 | Teto de turnos por conversa/dia + retry-after | — | done |
-| CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | todo |
+| CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | code-only (deploy=operador) |
 | CUSTO-06 | 3 | Fonte única do alvo de custo | — | todo |
 | PER-01/03 | 3 | Diálogos canônicos com rubrica de voz | EVAL-01 | todo |
 | PER-11 | 3 | Reminder anti-drift `<armadilhas_de_voz>` | EVAL-01 | todo |
@@ -320,8 +320,9 @@
 - **DoD/Verificação:** `workers/envio.py:520-521` loga `error` com `turno_id`+request_id e captura no Sentry; mensagem perdida ao cliente fica visível à operação.
 
 ### OBS-02 — Prometheus + Grafana + Alertmanager
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** OBS-01 · **Fonte:** roadmap §3.6
+- **Status:** code-only (deploy=operador) · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** OBS-01 · **Fonte:** roadmap §3.6
 - **DoD/Verificação:** stack de métricas com scrape de api e worker; regras versionadas (spike de `agente_escalada_total{bucket=defesa}`, write-rate de cache, p95, custo) disparam.
+- **Entrega (branch `feat/obs-monitoring`):** configs versionados em `infra/monitoring/` (`prometheus.yml` scrape de `barra-api:8000` + `barra-worker:9091`; `alert.rules.yml` com os 4 sinais; `alertmanager.yml`; datasource Grafana). Serviços `prometheus-barra`/`alertmanager-barra`/`grafana-barra` adicionados de forma aditiva ao `stack.barra-portainer.yml`. Runbook em `infra/runbooks/monitoring-stack.md`. Deploy ao vivo no Swarm e disparo real = passo do operador.
 
 ### OBS-07 — Middleware de request-id api→worker
 - **Status:** done (PR #64, 2026-05-30) · **Onda:** 2 · **Dimensão:** Observabilidade · **Depende de:** OBS-03 · **Fonte:** roadmap §3.6
@@ -357,8 +358,9 @@
 - **DoD/Verificação:** contador Redis por conversa escala a Fernando ao estourar (fecha o loop do `RECURSION_LIMIT` dormente, `coordenador.py:45`); respeita `retry-after`; cliente em loop não queima orçamento até as 24h.
 
 ### CUSTO-05 — Alerta de write-rate de cache
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** OBS-02 · **Fonte:** roadmap §3.7
+- **Status:** code-only (deploy=operador) · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** OBS-02 · **Fonte:** roadmap §3.7
 - **DoD/Verificação:** regra Alertmanager sobre `agente_turno_tokens_total{tipo=cache_write}` disparando >15% em regime (espelha o invariante de `agente/CLAUDE.md`).
+- **Entrega (branch `feat/obs-monitoring`):** regra `AgenteCacheWriteRateAlto` em `infra/monitoring/alert.rules.yml` — `cache_write / (input + cache_read + cache_write) > 0.15` por 15m via `rate()`. Entregue junto do OBS-02 (mesma stack de rules). Disparo ao vivo = passo do operador.
 
 ### CUSTO-06 — Fonte única do alvo de custo
 - **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
