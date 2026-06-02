@@ -1,7 +1,6 @@
 "use client"
 
-import { Search } from "lucide-react"
-import { Input } from "@/components/ui/input"
+import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { SelectFiltro } from "@/components/filtros/SelectFiltro"
 import type { FiltrosModelos } from "@/tipos/modelos"
 
@@ -14,16 +13,12 @@ export function ToolbarModelos({
 }) {
   return (
     <section aria-label="Filtros de modelos" className="flex flex-wrap items-end gap-2">
-      <label className="relative flex min-w-72 flex-1 flex-col gap-1">
-        <span className="text-xs font-medium text-text-muted">Buscar</span>
-        <Search className="pointer-events-none absolute left-3 bottom-2.5 text-text-muted" size={14} strokeWidth={1.5} />
-        <Input
-          value={filtros.busca}
-          onChange={(event) => onChange({ ...filtros, busca: event.target.value })}
-          placeholder="Buscar nome, número ou bairro"
-          className="h-9 bg-input pl-9"
-        />
-      </label>
+      <BuscaFiltro
+        value={filtros.busca}
+        onChange={(busca) => onChange({ ...filtros, busca })}
+        placeholder="Buscar nome, número ou bairro"
+        className="min-w-72 flex-1"
+      />
       <SelectFiltro
         label="Situação"
         value={filtros.status}

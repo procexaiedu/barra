@@ -1,9 +1,10 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
-import { LayoutList, Columns, Search, Plus } from "lucide-react"
+import { LayoutList, Columns, Plus } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
+import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { PainelFiltros } from "@/components/filtros/PainelFiltros"
@@ -18,7 +19,6 @@ import { ModalFecharAtendimento } from "@/components/atendimentos/ModalFecharAte
 import { ModalPerderAtendimento } from "@/components/atendimentos/ModalPerderAtendimento"
 import { ModalCorrigirRegistro } from "@/components/atendimentos/ModalCorrigirRegistro"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAtendimentos } from "@/hooks/useAtendimentos"
 import { api } from "@/lib/api"
@@ -503,16 +503,12 @@ function Toolbar({
 
   return (
     <div className="flex items-end gap-2">
-      <label className="relative flex flex-1 flex-col gap-1">
-        <span className="text-xs font-medium text-text-muted">Buscar</span>
-        <Search size={16} strokeWidth={1.5} className="pointer-events-none absolute left-3 bottom-2.5 text-text-muted" />
-        <Input
-          value={busca}
-          onChange={(event) => onBuscaChange(event.target.value)}
-          placeholder="Buscar cliente, telefone ou #N"
-          className="h-9 pl-9"
-        />
-      </label>
+      <BuscaFiltro
+        value={busca}
+        onChange={onBuscaChange}
+        placeholder="Buscar cliente, telefone ou #N"
+        className="flex-1"
+      />
       <div className="w-[150px]">
         <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
       </div>

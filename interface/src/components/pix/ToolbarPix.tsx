@@ -1,8 +1,7 @@
 "use client"
 
-import { Search } from "lucide-react"
-import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { SelectFiltro } from "@/components/filtros/SelectFiltro"
 import type {
@@ -56,22 +55,11 @@ export function ToolbarPix({
 
   return (
     <div className="grid grid-cols-[minmax(260px,1fr)_140px_160px_180px_180px] gap-3">
-      <label className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-text-muted">Buscar</span>
-        <div className="relative">
-          <Search
-            size={16}
-            strokeWidth={1.5}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-          />
-          <Input
-            value={busca}
-            onChange={(event) => onBuscaChange(event.target.value)}
-            placeholder="Valor, cliente, telefone ou #N"
-            className="pl-9"
-          />
-        </div>
-      </label>
+      <BuscaFiltro
+        value={busca}
+        onChange={onBuscaChange}
+        placeholder="Valor, cliente, telefone ou #N"
+      />
       <SelectFiltro
         label="Período"
         value={periodo}
