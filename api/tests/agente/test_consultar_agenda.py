@@ -68,6 +68,69 @@ async def test_data_malformada_retorna_erro_recuperavel() -> None:
     assert out == "ERRO: data inválida, use YYYY-MM-DD."
 
 
+# --- AGT-07: cap por nº de bloqueios (sem DB; a constraint de não-sobreposição inviabiliza
+#     semear 50+ bloqueios reais, então um fake-pool devolve as linhas direto) ---
+
+
+class _FakeRowsResult:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self._rows = rows
+
+    async def fetchall(self) -> list[dict[str, Any]]:
+        return self._rows
+
+
+class _FakeRowsConn:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self._rows = rows
+
+    async def execute(self, *_a: Any, **_k: Any) -> _FakeRowsResult:
+        return _FakeRowsResult(self._rows)
+
+
+class _FakeRowsPool:
+    def __init__(self, rows: list[dict[str, Any]]) -> None:
+        self._rows = rows
+
+    @asynccontextmanager
+    async def connection(self) -> Any:
+        yield _FakeRowsConn(self._rows)
+
+
+def _bloqueio_row(dia: int) -> dict[str, Any]:
+    return {
+        "inicio": datetime(2026, 6, dia, 10, 0, tzinfo=UTC),
+        "fim": datetime(2026, 6, dia, 11, 0, tzinfo=UTC),
+    }
+
+
+async def test_consultar_agenda_capa_numero_de_bloqueios() -> None:
+    """Mais bloqueios que o teto -> corta em _MAX_BLOQUEIOS e sinaliza o truncamento."""
+    from barra.agente.ferramentas.leitura import _MAX_BLOQUEIOS
+
+    rows = [_bloqueio_row(2) for _ in range(_MAX_BLOQUEIOS + 1)]  # 1 acima do teto
+    out = await _chamar(
+        data_inicio="2026-06-01",
+        data_fim="2026-06-07",
+        runtime=_Runtime(_Ctx(_FakeRowsPool(rows), "m1")),
+    )
+    assert out.startswith("Bloqueios:")
+    assert out.count("\n- ") == _MAX_BLOQUEIOS  # capado no teto
+    assert "há mais nesse" in out  # sufixo de truncamento presente
+
+
+async def test_consultar_agenda_abaixo_do_teto_sem_sufixo() -> None:
+    """Abaixo do teto: lista completa, sem aviso de truncamento."""
+    rows = [_bloqueio_row(2), _bloqueio_row(3)]
+    out = await _chamar(
+        data_inicio="2026-06-01",
+        data_fim="2026-06-07",
+        runtime=_Runtime(_Ctx(_FakeRowsPool(rows), "m1")),
+    )
+    assert out.count("\n- ") == 2
+    assert "há mais" not in out
+
+
 # --- needs_db: leitura real contra o Postgres self-hosted, ROLLBACK sempre (espelha test_repo) ---
 
 
@@ -168,10 +231,12 @@ async def test_lista_ativos_e_filtra_cancelados(conn: AsyncConnection[dict[str, 
     )
 
     assert out.startswith("Bloqueios:")
-    assert "(bloqueado)" in out
-    assert "(em_atendimento)" in out
-    assert "(cancelado)" not in out
-    assert out.count("\n- ") == 2  # exatamente 2 linhas de bloqueio
+    # O estado bruto NUNCA chega ao LLM: 'em_atendimento' revelaria que a modelo esta com
+    # outro cliente — o CONTEXT.md proibe. bloqueado e em_atendimento viram "ocupado".
+    assert "em_atendimento" not in out
+    assert "bloqueado" not in out
+    assert out.count("(ocupado)") == 2
+    assert out.count("\n- ") == 2  # 2 ativos; o cancelado e filtrado pela query
 
 
 @pytest.mark.needs_db

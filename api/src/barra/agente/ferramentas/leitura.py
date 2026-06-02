@@ -9,6 +9,10 @@ from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
 
 from ..contexto import ContextAgente
 
+# AGT-07: teto de itens no retorno da agenda. A janela ja e capada por 14 dias, mas um periodo
+# denso poderia devolver dezenas de bloqueios e inflar o contexto/tokens do turno.
+_MAX_BLOQUEIOS = 50
+
 
 @tool
 async def consultar_agenda(
@@ -28,7 +32,7 @@ async def consultar_agenda(
         data_fim: data final inclusiva, formato YYYY-MM-DD. Máximo 14 dias após data_inicio.
 
     Returns:
-        Uma linha por horário OCUPADO (dia, hora e estado), ou a frase de que não há horário
+        Uma linha por horário OCUPADO (dia e hora), ou a frase de que não há horário
         ocupado no período — o que não aparece está livre. Se o cliente pediu um horário que
         cai num bloqueio, ofereça outra janela com uma desculpa pessoal (ver a conduta de
         indisponibilidade nas suas regras), sem revelar que é agenda de trabalho.
@@ -52,17 +56,29 @@ async def consultar_agenda(
     async with pool.connection() as conn:
         res = await conn.execute(
             """
-            SELECT inicio, fim, estado
+            SELECT inicio, fim
               FROM barravips.bloqueios
              WHERE modelo_id = %s
                AND estado IN ('bloqueado', 'em_atendimento')
                AND inicio::date BETWEEN %s AND %s
              ORDER BY inicio
+             LIMIT %s
             """,
-            (modelo_id, di, df),
+            (modelo_id, di, df, _MAX_BLOQUEIOS + 1),
         )
         rows = await res.fetchall()
     if not rows:
         return f"Sem bloqueios entre {di} e {df}. Nenhum horário ocupado nesse período."
-    linhas = [f"- {r['inicio']:%a %d/%m %H:%M} - {r['fim']:%H:%M} ({r['estado']})" for r in rows]
-    return "Bloqueios:\n" + "\n".join(linhas)
+    # AGT-07: corta no teto e sinaliza o truncamento (pega 1 a mais p/ detectar sem COUNT).
+    truncado = len(rows) > _MAX_BLOQUEIOS
+    linhas = [
+        f"- {r['inicio']:%a %d/%m %H:%M} - {r['fim']:%H:%M} (ocupado)"
+        for r in rows[:_MAX_BLOQUEIOS]
+    ]
+    texto = "Bloqueios:\n" + "\n".join(linhas)
+    if truncado:
+        texto += (
+            f"\n(Mostrando os primeiros {_MAX_BLOQUEIOS} horários ocupados; há mais nesse "
+            "período — consulte um intervalo menor para ver o resto.)"
+        )
+    return texto
