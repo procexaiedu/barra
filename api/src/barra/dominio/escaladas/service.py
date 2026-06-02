@@ -411,8 +411,9 @@ _BUCKET_DEFESA: frozenset[str] = frozenset(
     }
 )
 
-# Bucket infra: falha de plataforma (5xx/timeout persistente da API do LLM), nao capacidade.
-_BUCKET_INFRA: frozenset[str] = frozenset({"modelo_indisponivel"})
+# Bucket infra: falha de plataforma (5xx/timeout persistente da API do LLM, ou resposta truncada
+# com tool_use incompleto -- STOP-03/06), nao capacidade de negociacao.
+_BUCKET_INFRA: frozenset[str] = frozenset({"modelo_indisponivel", "modelo_truncado"})
 
 
 def mapear_motivo(motivo: str) -> tuple[TipoEscalada, str]:

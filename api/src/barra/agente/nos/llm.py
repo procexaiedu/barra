@@ -31,6 +31,11 @@ from ..llm import build_tools_para_bind
 
 logger = logging.getLogger(__name__)
 
+# stop_reasons de TRUNCAMENTO (a resposta foi cortada): max_tokens (teto do turno) e
+# model_context_window_exceeded (janela do modelo). Quando truncam COM tool_use, os args podem
+# vir incompletos -> nao despachar a tool (STOP-03/06). Ambos chegam em 200 OK, nao como excecao.
+_STOP_TRUNCADO = ("max_tokens", "model_context_window_exceeded")
+
 
 def _instrumentar_tokens(resp: BaseMessage, modelo: str) -> None:
     """Incrementa AGENTE_TURNO_TOKENS nas 4 series {input,output,cache_read,cache_write} (03 §4.2).
@@ -104,20 +109,28 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
                 # (motivo="modelo_recusou"), pausando a IA sem mandar a bolha crua ao cliente.
                 detalhes = (resp.response_metadata or {}).get("stop_details") or {}
                 logger.warning(
-                    "llm stop_reason=refusal (turno_id=%s category=%s)",
+                    "llm stop_reason=refusal (turno_id=%s category=%s anthropic_msg_id=%s)",
                     runtime.context.turno_id,
                     detalhes.get("category"),
+                    (resp.response_metadata or {}).get("id"),  # REL-OBS-02: id da msg Anthropic
                 )
-            elif stop_reason == "max_tokens":
-                # premissa: max_tokens=1024 nao trunca (03 §6.1). No P0 so observa, nao escala
-                # (09 §4.2); o spike na metrica e quem decide revisar o teto / mid-tool_use.
+            elif stop_reason in _STOP_TRUNCADO:
+                # premissa: max_tokens=1024 nao trunca (03 §6.1). Quando trunca COM tool_use, o
+                # roteamento abaixo NAO despacha a tool e o coordenador escala (modelo_truncado);
+                # sem tool_use so observa -- o spike na metrica decide revisar o teto.
                 TURNO_TRUNCADO.inc()
-                logger.warning("llm stop_reason=max_tokens (turno_id=%s)", runtime.context.turno_id)
+                logger.warning(
+                    "llm stop_reason=%s (turno_id=%s)", stop_reason, runtime.context.turno_id
+                )
         except (RateLimitError, APITimeoutError, APIStatusError) as exc:
             # exaustao de retry do SDK / 5xx / timeout -> escala (sem fallback de modelo, 01 §2.6).
-            # TODO(M3): escalar_por_exaustao(motivo="modelo_indisponivel") -- nasce no M3f
+            # REL-OBS-02: loga o request_id da Anthropic (header `request-id`, chave do ticket de
+            # suporte) -- presente em APIStatusError/RateLimitError; timeout sem resposta -> None.
             logger.warning(
-                "llm indisponivel: %s (turno_id=%s)", type(exc).__name__, runtime.context.turno_id
+                "llm indisponivel: %s (turno_id=%s anthropic_request_id=%s)",
+                type(exc).__name__,
+                runtime.context.turno_id,
+                getattr(exc, "request_id", None),
             )
             raise
 
@@ -125,6 +138,16 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
         # No M0 (TOOLS=[]) o LLM nunca pede tool_call -> sempre post_process; o ramo "tools" fica
         # dormente p/ o M1. getattr porque tool_calls so existe em AIMessage, nao em BaseMessage.
         if getattr(resp, "tool_calls", None):
+            if stop_reason in _STOP_TRUNCADO:
+                # STOP-03/06: tool_use truncado (teto do turno / janela de contexto) -> args podem
+                # estar incompletos. NAO despacha a tool; vai p/ post_process e o coordenador escala
+                # (modelo_truncado) lendo o sinal stop_reason+tool_calls, sem bolha crua ao cliente.
+                logger.warning(
+                    "llm tool_use truncado por %s (turno_id=%s) -> nao despacha tool",
+                    stop_reason,
+                    runtime.context.turno_id,
+                )
+                return Command(goto="post_process", update={"messages": [resp]})
             return Command(goto="tools", update={"messages": [resp]})
         return Command(goto="post_process", update={"messages": [resp]})
 

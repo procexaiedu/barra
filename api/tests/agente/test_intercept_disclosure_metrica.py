@@ -36,13 +36,20 @@ class _FakeResult:
 
 
 class _FakeConn:
-    """Conn fake: o UPDATE de disclosure_tentativas devolve `tentativas` (>=3 -> escala)."""
+    """Conn fake do caminho `_executar_idempotente` (M3a): o INSERT em tool_calls "insere"
+    (fetchone nao-None) e o executor faz o UPDATE devolvendo `tentativas` (>=3 -> escala).
+    `transaction()` e no-op -- a idempotencia cross-retry real e coberta em
+    test_intercept_disclosure_idempotente."""
 
     def __init__(self, tentativas: int) -> None:
         self._tentativas = tentativas
 
     async def execute(self, *args: Any, **kwargs: Any) -> _FakeResult:
         return _FakeResult({"disclosure_tentativas": self._tentativas})
+
+    @asynccontextmanager
+    async def transaction(self) -> Any:
+        yield self
 
 
 class _FakePool:

@@ -12,13 +12,14 @@ este no nao pode ter aresta estatica de saida -- roteia TODOS os caminhos por Co
 (09 §4.1, armadilha verificada M0-T4).
 """
 
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID
 
 from langchain_core.messages import AIMessage
 from langgraph.graph import END
 from langgraph.runtime import Runtime
 from langgraph.types import Command
+from psycopg import AsyncConnection
 
 from barra.core.db import conexao
 from barra.core.metrics import (
@@ -34,6 +35,7 @@ from barra.settings import get_settings
 from .._canned import escolher_negacao
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
+from ..ferramentas._idempotencia import _executar_idempotente
 
 _ACAO_ASSUMIR = "Assumir a conversa com o cliente."
 _RESUMO_DISCLOSURE = "Cliente insistiu (3a vez) perguntando se a Bia e IA."
@@ -94,6 +96,27 @@ async def _contabilizar_reincidencia(ctx: ContextAgente) -> None:
     REINCIDENCIA_SEGURANCA.labels("escalada").inc()
 
 
+async def _incrementar_disclosure(
+    conn: AsyncConnection[Any], payload: dict[str, Any]
+) -> dict[str, Any]:
+    """Executor do incremento de `disclosure_tentativas` (efeito de escrita do `_executar_idempotente`).
+
+    Roda no MAXIMO uma vez por `turno_id` (chave sintetica `_disclosure_incr`): devolve o contador
+    ja incrementado, persistido como `resultado` para o replay reler o mesmo valor sem re-somar.
+    """
+    res = await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET disclosure_tentativas = disclosure_tentativas + 1
+         WHERE id = %s
+         RETURNING disclosure_tentativas
+        """,
+        (UUID(payload["atendimento_id"]),),
+    )
+    row = await res.fetchone()
+    return {"tentativas": row["disclosure_tentativas"] if row else 1}
+
+
 async def intercept_disclosure(
     state: EstadoAgente, runtime: Runtime[ContextAgente]
 ) -> Command[Literal["llm", "post_process", "__end__"]]:
@@ -127,20 +150,19 @@ async def intercept_disclosure(
     if categoria == "disclosure_attempt" and confianca == "alta":
         await _contabilizar_reincidencia(ctx)
         async with conexao(ctx.db_pool) as conn:
-            # Incremento atomico (1 statement, roda 1x por invocacao). A idempotencia
-            # cross-retry (mesmo turno_id contando 2x no replay do ARQ) ainda nao esta coberta:
-            # TODO(M3a): guardar o incremento por (turno_id) via _executar_idempotente.
-            res = await conn.execute(
-                """
-                UPDATE barravips.atendimentos
-                   SET disclosure_tentativas = disclosure_tentativas + 1
-                 WHERE id = %s
-                 RETURNING disclosure_tentativas
-                """,
-                (UUID(ctx.atendimento_id),),
+            # Incremento idempotente cross-retry (M3a): o contador vive na MESMA transacao do
+            # `_executar_idempotente` (chave sintetica `_disclosure_incr`, call_idx=0). No replay
+            # do ARQ (mesmo turno_id) o ON CONFLICT devolve o `tentativas` da 1a execucao sem
+            # re-somar -- senao o contador subiria 2x e escalaria um toque antes do tempo.
+            resultado = await _executar_idempotente(
+                conn,
+                ctx.turno_id,
+                "_disclosure_incr",
+                0,
+                {"atendimento_id": ctx.atendimento_id},
+                _incrementar_disclosure,
             )
-            row = await res.fetchone()
-            tentativas = row["disclosure_tentativas"] if row else 1
+            tentativas = resultado["tentativas"]
 
             if tentativas < 3:
                 DISCLOSURE_DETECTADO.labels("negado").inc()

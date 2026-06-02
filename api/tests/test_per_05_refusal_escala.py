@@ -150,6 +150,24 @@ class _FakeGraphRefusal:
         }
 
 
+class _FakeGraphTruncado:
+    async def ainvoke(self, *_a: Any, **_k: Any) -> dict[str, Any]:
+        # STOP-03: max_tokens + tool_calls = tool_use truncado; o no llm NAO despachou a tool e
+        # roteou p/ post_process. O coordenador le o sinal e escala modelo_truncado.
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    usage_metadata=_USAGE,  # type: ignore[arg-type]
+                    response_metadata={"stop_reason": "max_tokens"},
+                    tool_calls=[
+                        {"name": "consultar_agenda", "args": {}, "id": "tc1", "type": "tool_call"}
+                    ],
+                )
+            ]
+        }
+
+
 class _FakeSettings:
     anthropic_modelo_principal = "claude-test"
 
@@ -159,11 +177,11 @@ async def _lock_noop(*_a: Any, **_k: Any) -> Any:
     yield None
 
 
-def _ctx_coord(redis: _FakeRedis) -> dict[str, Any]:
+def _ctx_coord(redis: _FakeRedis, graph: Any = None) -> dict[str, Any]:
     return {
         "redis": redis,
         "db_pool": _FakePool(),
-        "graph": _FakeGraphRefusal(),
+        "graph": graph or _FakeGraphRefusal(),
         "settings": _FakeSettings(),
         "job_id": "job-per05",
         "score": 1000,
@@ -203,6 +221,36 @@ async def test_motivo_modelo_recusou_mapeia_bucket_defesa() -> None:
     assert kwargs["responsavel"] == "Fernando"
     assert kwargs["observacao"] == "modelo_recusou"
     mock_metric.labels.assert_called_once_with("defesa", "modelo_recusou")
+
+
+async def test_coordenador_truncado_escala_modelo_truncado_sem_bolha() -> None:
+    """STOP-03: tool_use truncado por max_tokens -> escala modelo_truncado, sem bolha ao cliente."""
+    redis = _FakeRedis()
+    with (
+        patch("barra.workers.coordenador.adquirir_lock", _lock_noop),
+        patch("barra.workers.coordenador.escalar_por_exaustao", new=AsyncMock()) as mock_escalar,
+    ):
+        await processar_turno(_ctx_coord(redis, _FakeGraphTruncado()), conversa_id=_CONV_ID)
+
+    mock_escalar.assert_awaited_once()
+    assert mock_escalar.await_args.kwargs["motivo"] == "modelo_truncado"
+    enviados = [
+        c for c in redis.enqueue_job.call_args_list if c.args and c.args[0] == "enviar_turno"
+    ]
+    assert enviados == []
+
+
+async def test_motivo_modelo_truncado_mapeia_bucket_infra() -> None:
+    """modelo_truncado -> handoff Fernando (tipo=outro) + metrica bucket=infra (mapping real)."""
+    with (
+        patch("barra.dominio.escaladas.service.abrir_handoff", new=AsyncMock()) as mock_handoff,
+        patch("barra.workers.coordenador.AGENTE_ESCALADA") as mock_metric,
+    ):
+        await escalar_por_exaustao(_FakePool(), _ATEND_ID, "turno-stop03", motivo="modelo_truncado")
+
+    mock_handoff.assert_awaited_once()
+    assert mock_handoff.await_args.kwargs["observacao"] == "modelo_truncado"
+    mock_metric.labels.assert_called_once_with("infra", "modelo_truncado")
 
 
 # ============================================================================

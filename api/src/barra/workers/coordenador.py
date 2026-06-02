@@ -246,6 +246,25 @@ async def processar_turno(
                     AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
                     break
 
+                # 5c. STOP-03/06: tool_use truncado (max_tokens / janela de contexto) -> args
+                #     possivelmente incompletos; o no llm NAO despachou a tool. Escala falha de
+                #     capacidade (modelo_truncado) e encerra SEM bolha crua, igual ao refusal. Raro
+                #     (premissa: max_tokens=1024 nao trunca, 03 §6.1).
+                if any(
+                    isinstance(m, AIMessage)
+                    and m.usage_metadata is not None
+                    and (m.response_metadata or {}).get("stop_reason")
+                    in ("max_tokens", "model_context_window_exceeded")
+                    and bool(m.tool_calls)
+                    for m in resultado["messages"]
+                ):
+                    logger.warning("turno_truncado turno_id=%s", turno_id)
+                    await escalar_por_exaustao(
+                        pool, atendimento["id"], turno_id, motivo="modelo_truncado"
+                    )
+                    AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
+                    break
+
                 # 6. cinto-suspensorio (01 §6.10): se um pipeline sem lock (Pix/foto) pausou a IA
                 #    OU o estado virou terminal durante o turno -> descarta o texto.
                 async with pool.connection() as conn:

@@ -9,9 +9,11 @@ PULA a Etapa 2; (6) saida limpa despacha. Bloquear == handoff (ia_pausada) + bol
 
 import importlib
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph import END
 from langgraph.types import Command
@@ -228,3 +230,71 @@ async def test_a1_legenda_entra_na_etapa2_mesmo_com_texto_canned(monkeypatch: An
     res = await mod.output_guard(_state(NEGACOES_CANNED[0]), rt)  # type: ignore[arg-type]
     assert _passou_limpo(res)
     assert "olha o que eu separei" in visto["texto"]  # a legenda foi julgada junto
+
+
+# ============================================================================
+# SO-03: o judge inspeciona o PROPRIO stop_reason (include_raw) -> default seguro
+# ============================================================================
+
+
+class _FakeStructured:
+    def __init__(self, resultado: dict[str, Any]) -> None:
+        self._r = resultado
+
+    async def ainvoke(self, _mensagens: Any) -> dict[str, Any]:
+        return self._r
+
+
+class _FakeJudgeChat:
+    """Fake do chat do judge: .with_structured_output(include_raw=True).ainvoke() -> dict."""
+
+    def __init__(self, resultado: dict[str, Any]) -> None:
+        self._r = resultado
+
+    def with_structured_output(self, _schema: Any, include_raw: bool = False) -> _FakeStructured:
+        assert include_raw is True  # SO-03 exige include_raw p/ ver o stop_reason do judge
+        return _FakeStructured(self._r)
+
+
+def _judge_resultado(stop_reason: str, parsed: Any, parsing_error: Any = None) -> dict[str, Any]:
+    return {
+        "raw": AIMessage(content="", response_metadata={"stop_reason": stop_reason}),
+        "parsed": parsed,
+        "parsing_error": parsing_error,
+    }
+
+
+async def test_julgar_aup_refusal_levanta_inseguro(monkeypatch: Any) -> None:
+    # judge recusou (stop_reason=refusal) -> sem veredito confiavel -> _JudgeInseguro.
+    res = _judge_resultado("refusal", parsed=None)
+    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s: _FakeJudgeChat(res))
+    with pytest.raises(mod._JudgeInseguro):
+        await mod._julgar_aup("texto qualquer", SimpleNamespace())
+
+
+async def test_julgar_aup_parse_error_levanta_inseguro(monkeypatch: Any) -> None:
+    # parse falhou (parsing_error nao-None), mesmo com stop_reason normal -> _JudgeInseguro.
+    res = _judge_resultado("tool_use", parsed=None, parsing_error=ValueError("schema"))
+    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s: _FakeJudgeChat(res))
+    with pytest.raises(mod._JudgeInseguro):
+        await mod._julgar_aup("texto qualquer", SimpleNamespace())
+
+
+async def test_julgar_aup_ok_retorna_veredito(monkeypatch: Any) -> None:
+    # caminho feliz: stop_reason=tool_use + parsed valido -> devolve o veredito.
+    veredito = mod._VeredictoAup(viola=False, motivo="nenhum")
+    res = _judge_resultado("tool_use", parsed=veredito)
+    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s: _FakeJudgeChat(res))
+    out = await mod._julgar_aup("texto qualquer", SimpleNamespace())
+    assert out.viola is False
+
+
+async def test_so03_judge_refusal_no_guard_default_seguro_bloqueia(monkeypatch: Any) -> None:
+    # Integracao: judge recusa -> _julgar_aup levanta -> output_guard cai no default seguro.
+    cap = _Capturador()
+    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    res = _judge_resultado("refusal", parsed=None)
+    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s: _FakeJudgeChat(res))
+    out = await mod.output_guard(_state("texto limpo mas o judge recusa"), _runtime())  # type: ignore[arg-type]
+    assert _bloqueou(out)
+    assert cap.chamadas[0]["observacao"] == "aup_saida_judge_falhou"

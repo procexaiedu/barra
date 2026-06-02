@@ -44,6 +44,15 @@ _ACAO_ASSUMIR = "Assumir a conversa com o cliente."
 _RESUMO_LEAK = "Output-guard barrou a bolha (vazamento detectado antes do envio)."
 _RESUMO_AUP = "Output-guard barrou a bolha (LLM-judge de AUP reprovou antes do envio)."
 
+# SO-03: stop_reasons da resposta do PROPRIO judge que invalidam o veredito (sucesso via
+# structured-output chega como `tool_use`). Qualquer destes -> default seguro no caller.
+_STOP_INSEGURO = ("refusal", "max_tokens", "model_context_window_exceeded")
+
+
+class _JudgeInseguro(RuntimeError):
+    """Judge de AUP nao produziu veredito confiavel (refusal/truncado/parse) -> default seguro."""
+
+
 # Etapa 1 -- auto-referencia de IA / nomes de LLM no TEXTO DE SAIDA (admissao, nao pergunta do
 # cliente: o _classificador casa perguntas; aqui casamos a RESPOSTA vazando identidade).
 _MARCADORES_IA = re.compile(
@@ -148,15 +157,26 @@ def _scan_vazamento(texto: str, termos_cross: list[str]) -> str | None:
 
 
 async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
-    """Etapa 2: LLM-judge de AUP (Sonnet, structured output). Prompt em aup_saida.md."""
+    """Etapa 2: LLM-judge de AUP (Sonnet, structured output). Prompt em aup_saida.md.
+
+    SO-03: `include_raw` expoe o stop_reason da PROPRIA resposta do judge. Refusal, truncamento ou
+    falha de parse nao produzem veredito confiavel -> levanta `_JudgeInseguro`, e o caller cai no
+    DEFAULT SEGURO (bloqueia+escala), em vez de aceitar um `viola=False` espurio.
+    """
     from barra.core.llm import criar_chat_anthropic
 
-    chat = criar_chat_anthropic(settings).with_structured_output(_VeredictoAup)
+    chat = criar_chat_anthropic(settings).with_structured_output(_VeredictoAup, include_raw=True)
     mensagens = [
         {"role": "system", "content": render_aup_saida()},
         {"role": "user", "content": f"MENSAGEM A AVALIAR:\n{texto}"},
     ]
-    veredito = await chat.ainvoke(mensagens)
+    resultado = await chat.ainvoke(mensagens)
+    assert isinstance(resultado, dict)
+    bruto = resultado.get("raw")
+    stop_reason = (getattr(bruto, "response_metadata", None) or {}).get("stop_reason")
+    if resultado.get("parsing_error") is not None or stop_reason in _STOP_INSEGURO:
+        raise _JudgeInseguro(f"judge sem veredito confiavel (stop_reason={stop_reason})")
+    veredito = resultado.get("parsed")
     assert isinstance(veredito, _VeredictoAup)
     return veredito
 
