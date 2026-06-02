@@ -132,7 +132,9 @@ async def listar_pix(
                 "decisao_pipeline": row["decisao_pipeline"],
                 "decisao_final": row["decisao_final"],
                 "motivo_em_revisao": row["motivo_em_revisao"],
-                "valor_extraido": float(row["valor_extraido"]) if row["valor_extraido"] is not None else None,
+                "valor_extraido": float(row["valor_extraido"])
+                if row["valor_extraido"] is not None
+                else None,
                 "created_at": row["created_at"],
             }
             for row in rows
@@ -177,7 +179,9 @@ async def obter_pix(
             "decisao_pipeline": pix["decisao_pipeline"],
             "decisao_final": pix["decisao_final"],
             "motivo_em_revisao": pix["motivo_em_revisao"],
-            "valor_extraido": float(pix["valor_extraido"]) if pix["valor_extraido"] is not None else None,
+            "valor_extraido": float(pix["valor_extraido"])
+            if pix["valor_extraido"] is not None
+            else None,
             "horario_transacao": pix["timestamp_extraido"],
             "titular_extraido": pix["titular_extraido"],
             "documento_extraido": None,
@@ -203,7 +207,9 @@ async def obter_pix(
             "estado": pix["atendimento_estado"],
             "tipo_atendimento": pix["tipo_atendimento"],
             "urgencia": pix["urgencia"],
-            "valor_acordado": float(pix["valor_acordado"]) if pix["valor_acordado"] is not None else None,
+            "valor_acordado": float(pix["valor_acordado"])
+            if pix["valor_acordado"] is not None
+            else None,
             "proxima_acao_esperada": pix["proxima_acao_esperada"],
         }
         if pix["atendimento_id"]
@@ -280,16 +286,13 @@ async def aprovar_pix(
     # persistida acima. Se a instância Evolution estiver desconectada/inválida,
     # logamos e seguimos — não faz sentido reverter decisão de negócio porque
     # o envio do card falhou.
-    if (
-        request.app.state.settings.evolution_grupo_coordenacao_jid
-        and pix["evolution_instance_id"]
-    ):
+    if pix["coordenacao_chat_id"] and pix["evolution_instance_id"]:
         client = EvolutionClient(request.app.state.settings)
         try:
             await client.enviar_texto(
                 conn=conn,
                 instance_id=pix["evolution_instance_id"],
-                remote_jid=request.app.state.settings.evolution_grupo_coordenacao_jid,
+                remote_jid=pix["coordenacao_chat_id"],
                 texto=f"Saida confirmada #{pix['numero_curto']}",
                 contexto="grupo_coordenacao",
                 tipo="confirmacao",
@@ -378,7 +381,9 @@ async def reabrir_pix(
             """,
             (
                 pix["atendimento_id"],
-                json.dumps({"pix_id": str(pix_id), "decisao": "reaberto", "usuario_id": str(user.id)}),
+                json.dumps(
+                    {"pix_id": str(pix_id), "decisao": "reaberto", "usuario_id": str(user.id)}
+                ),
             ),
         )
     return {"id": pix_id, "decisao_final": None}
@@ -484,7 +489,7 @@ async def _pix(conn: AsyncConnection[Any], pix_id: UUID) -> dict[str, Any] | Non
                a.proxima_acao_esperada,
                c.id AS cliente_id, c.nome AS cliente_nome, c.telefone AS cliente_telefone,
                m.id AS modelo_id, m.nome AS modelo_nome,
-               m.chave_pix, m.titular_chave, m.evolution_instance_id
+               m.chave_pix, m.titular_chave, m.evolution_instance_id, m.coordenacao_chat_id
           FROM barravips.comprovantes_pix p
           JOIN barravips.mensagens msg ON msg.id = p.mensagem_id
           JOIN barravips.atendimentos a ON a.id = p.atendimento_id

@@ -33,13 +33,19 @@ class _FakeResult:
 
 
 class _FakeConn:
-    """Conn fake: o SELECT de _nomes_outras_modelos devolve as linhas dadas."""
+    """Conn fake: roteia por query -- _legendas_do_turno (tool_calls/enviar_midia) devolve as
+    legendas; _nomes_outras_modelos devolve as outras modelos."""
 
-    def __init__(self, outras_modelos: list[dict[str, Any]]) -> None:
-        self._rows = outras_modelos
+    def __init__(
+        self, outras_modelos: list[dict[str, Any]], legendas: list[str] | None = None
+    ) -> None:
+        self._outras = outras_modelos
+        self._legendas = legendas or []
 
-    async def execute(self, *args: Any, **kwargs: Any) -> _FakeResult:
-        return _FakeResult(self._rows)
+    async def execute(self, query: str, *args: Any, **kwargs: Any) -> _FakeResult:
+        if "enviar_midia" in query:
+            return _FakeResult([{"legenda": leg} for leg in self._legendas])
+        return _FakeResult(self._outras)
 
 
 class _FakePool:
@@ -56,8 +62,10 @@ class _Runtime:
         self.context = context
 
 
-def _runtime(outras_modelos: list[dict[str, Any]] | None = None) -> _Runtime:
-    pool = _FakePool(_FakeConn(outras_modelos or []))
+def _runtime(
+    outras_modelos: list[dict[str, Any]] | None = None, legendas: list[str] | None = None
+) -> _Runtime:
+    pool = _FakePool(_FakeConn(outras_modelos or [], legendas))
     ctx = ContextAgente(
         db_pool=pool,  # type: ignore[arg-type]
         redis=None,  # type: ignore[arg-type]
@@ -180,3 +188,43 @@ async def test_bolha_vazia_nao_aciona_guard(monkeypatch: Any) -> None:
     monkeypatch.setattr(mod, "_julgar_aup", _nao_chamar)
     res = await mod.output_guard(_state(""), _runtime())  # type: ignore[arg-type]
     assert res.goto == END
+
+
+async def test_a1_legenda_de_midia_com_outra_modelo_bloqueia(monkeypatch: Any) -> None:
+    # A1: bolha de texto limpa, mas a legenda da midia (caption, fora do content) cita outra
+    # modelo -> a Etapa 1 escaneia a legenda e bloqueia.
+    cap = _Capturador()
+    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    rt = _runtime(
+        outras_modelos=[{"nome": "Carolina", "numero_whatsapp": ""}],
+        legendas=["vem amor, a Carolina ja ta aqui comigo"],
+    )
+    res = await mod.output_guard(_state("te espero amanha entao"), rt)  # type: ignore[arg-type]
+    assert _bloqueou(res)
+    assert cap.chamadas[0]["observacao"].startswith("output_leak_cross_modelo")
+
+
+async def test_a1_turno_so_midia_legenda_vazando_bloqueia(monkeypatch: Any) -> None:
+    # A1: AIMessage sem texto (so tool_call de midia) + legenda com auto-referencia de IA ->
+    # bloqueia, apesar de a bolha de texto estar vazia (early-return nao dispara).
+    cap = _Capturador()
+    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    rt = _runtime(legendas=["na verdade sou uma IA, viu"])
+    res = await mod.output_guard(_state(""), rt)  # type: ignore[arg-type]
+    assert _bloqueou(res)
+    assert cap.chamadas[0]["observacao"].startswith("output_leak_ia_self")
+
+
+async def test_a1_legenda_entra_na_etapa2_mesmo_com_texto_canned(monkeypatch: Any) -> None:
+    # A1: turno com midia NAO pula a Etapa 2 mesmo se a bolha for canned -> o judge ve a legenda.
+    visto: dict[str, str] = {}
+
+    async def _judge(texto: str, settings: Any) -> Any:
+        visto["texto"] = texto
+        return mod._VeredictoAup(viola=False, motivo="nenhum")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _judge)
+    rt = _runtime(legendas=["olha o que eu separei so pra voce"])
+    res = await mod.output_guard(_state(NEGACOES_CANNED[0]), rt)  # type: ignore[arg-type]
+    assert _passou_limpo(res)
+    assert "olha o que eu separei" in visto["texto"]  # a legenda foi julgada junto

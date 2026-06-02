@@ -109,6 +109,22 @@ async def _nomes_outras_modelos(conn: Any, modelo_id: str) -> list[str]:
     return termos
 
 
+async def _legendas_do_turno(conn: Any, turno_id: str) -> list[str]:
+    """Legendas das midias anexadas neste turno (arg `legenda` de enviar_midia, em tool_calls).
+
+    A legenda vai ao cliente como caption FORA da bolha de texto (o coordenador a despacha do
+    `tool_calls`, nao do content da AIMessage) -- por isso precisa entrar no scan/judge do guard
+    junto com o texto. Escopada por `turno_id` (deterministico): nao traz legenda de turno
+    anterior. Espelha `ferramentas.midia._midias_do_turno`.
+    """
+    res = await conn.execute(
+        "SELECT payload->>'legenda' AS legenda FROM barravips.tool_calls "
+        "WHERE turno_id = %s AND tool_name = 'enviar_midia'",
+        (turno_id,),
+    )
+    return [leg for r in await res.fetchall() if (leg := (r.get("legenda") or "").strip())]
+
+
 def tem_marcador_ia(texto: str) -> bool:
     """True se o texto contem auto-referencia de IA / nome de LLM (PURO).
 
@@ -182,31 +198,38 @@ async def output_guard(
     if ultima is None:
         return Command(goto=END)  # type: ignore[arg-type]
     texto = _texto_de(ultima)
-    if not texto.strip():
-        # post_process ja zerou (pausa concorrente) ou turno sem bolha -- nada a guardar.
-        return Command(goto=END)  # type: ignore[arg-type]
+
+    # A legenda da midia (arg `legenda` de enviar_midia) sai ao cliente como caption FORA da bolha
+    # de texto -- precisa passar pelo MESMO scan/judge, senao escaparia do guard (A1). Coletada
+    # ANTES do early-return de texto vazio p/ cobrir tambem turno so-midia.
+    async with conexao(ctx.db_pool) as conn:
+        legendas = await _legendas_do_turno(conn, ctx.turno_id)
+        texto_guard = "\n".join(p for p in (texto, *legendas) if p.strip())
+        if not texto_guard.strip():
+            # post_process ja zerou (pausa concorrente) ou turno sem texto nem midia: nada a guardar.
+            return Command(goto=END)  # type: ignore[arg-type]
+        termos_cross = await _nomes_outras_modelos(conn, ctx.modelo_id)
 
     vazia = AIMessage(id=ultima.id, content="")  # bloqueio = substitui a bolha por vazia
 
-    # Etapa 1: scan deterministico (incl. negativa cross-modelo do banco).
-    async with conexao(ctx.db_pool) as conn:
-        termos_cross = await _nomes_outras_modelos(conn, ctx.modelo_id)
-    motivo = _scan_vazamento(texto, termos_cross)
+    # Etapa 1: scan deterministico (incl. negativa cross-modelo do banco) sobre texto + legendas.
+    motivo = _scan_vazamento(texto_guard, termos_cross)
     if motivo:
         OUTPUT_LEAK_DETECTADO.labels(motivo).inc()
         await _bloquear(ctx, observacao=f"output_leak_{motivo}", resumo=_RESUMO_LEAK)
         return Command(goto=END, update={"messages": [vazia]})  # type: ignore[arg-type]
 
-    # Negacao canned (pool curado): pula a Etapa 2 (texto ja confiavel).
-    if texto.strip() in NEGACOES_CANNED:
+    # Negacao canned (pool curado): pula a Etapa 2 (texto ja confiavel). So sem midia -- uma
+    # legenda precisa sempre passar pela Etapa 2, mesmo que a bolha de texto seja canned.
+    if not legendas and texto.strip() in NEGACOES_CANNED:
         return Command(goto=END)  # type: ignore[arg-type]
 
     if not settings.output_guard_judge_habilitado:
         return Command(goto=END)  # type: ignore[arg-type]
 
-    # Etapa 2: LLM-judge de AUP vinculante. Falha de infra -> default seguro (bloqueia+escala).
+    # Etapa 2: LLM-judge de AUP vinculante sobre texto + legendas. Falha de infra -> default seguro.
     try:
-        veredito = await _julgar_aup(texto, settings)
+        veredito = await _julgar_aup(texto_guard, settings)
     except Exception:
         logger.exception("output_guard judge falhou (turno_id=%s) -> default seguro", ctx.turno_id)
         AUP_SAIDA_BLOQUEADO.labels("judge_falhou").inc()

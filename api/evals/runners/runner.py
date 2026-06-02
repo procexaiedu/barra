@@ -58,10 +58,12 @@ from barra.agente.graph import build_graph
 
 _EVALS_RAIZ = Path(__file__).resolve().parents[1]
 
-# Os 5 nos do grafo (graph.py). O LangGraph emite on_chain_start para muitos subrunnables
-# internos; filtramos por este conjunto para registrar SO transicoes de no (EVAL-08).
+# Os 6 nos do grafo (graph.py). O LangGraph emite on_chain_start para muitos subrunnables
+# internos; filtramos por este conjunto para registrar SO transicoes de no (EVAL-08). O
+# output_guard (ultima rede antes da bolha, ADR 0016) PRECISA estar aqui, senao nenhuma fixture
+# consegue exigir/proibir que ele rode (nodes_obrigatorios/nodes_proibidos cegos a barreira).
 _NOS_DO_GRAFO = frozenset(
-    {"prepare_context", "intercept_disclosure", "llm", "tools", "post_process"}
+    {"prepare_context", "intercept_disclosure", "llm", "tools", "post_process", "output_guard"}
 )
 
 

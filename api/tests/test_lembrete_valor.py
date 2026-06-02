@@ -63,6 +63,7 @@ def _alvo(acao: str, toques: int, **over: object) -> dict:
         "id": uuid4(),
         "numero_curto": 7,
         "evolution_instance_id": "inst-1",
+        "coordenacao_chat_id": "grupo-modelo-a@g.us",
         "cliente_nome": "Carlos",
         "toques": toques,
         "acao": acao,
@@ -128,9 +129,38 @@ def test_envia_primeiro_card() -> None:
     assert env["contexto"] == "grupo_coordenacao"
     assert env["tipo"] == "card"
     assert env["payload"] == {"card_kind": CARD_KIND}
-    assert env["remote_jid"] == "5521@g.us"
+    assert env["remote_jid"] == "grupo-modelo-a@g.us"
     assert "#7" in env["texto"]
     assert "Carlos" in env["texto"]
+
+
+def test_card_vai_para_o_grupo_da_modelo_dona() -> None:
+    # Isolamento por par: cada card é postado no grupo de Coordenação DA MODELO dona do
+    # atendimento (`coordenacao_chat_id`), nunca num JID global — senão o nome do cliente de
+    # uma modelo vazaria no grupo de outra.
+    conn = FakeConn(
+        [
+            _alvo("enviar", 0, coordenacao_chat_id="grupo-a@g.us", cliente_nome="Carlos"),
+            _alvo(
+                "enviar", 0, coordenacao_chat_id="grupo-b@g.us", cliente_nome="Ana", numero_curto=9
+            ),
+        ]
+    )
+    evo = FakeEvolution()
+    asyncio.run(cobrar_valor_final(conn, evo, FakeSettings()))
+    destinos = {e["remote_jid"]: e["texto"] for e in evo.envios}
+    assert "Carlos" in destinos["grupo-a@g.us"]
+    assert "Ana" in destinos["grupo-b@g.us"]
+
+
+def test_coordenacao_ausente_vira_falha_sem_quebrar_lote() -> None:
+    # `coordenacao_chat_id` NULL (modelo sem grupo configurado) não cai em fallback global:
+    # vira falha best-effort, sem enviar o card a lugar nenhum.
+    conn = FakeConn([_alvo("enviar", 0, coordenacao_chat_id=None)])
+    evo = FakeEvolution()
+    total = asyncio.run(cobrar_valor_final(conn, evo, FakeSettings()))
+    assert total == 0
+    assert evo.envios == []
 
 
 def test_reenvio_ainda_manda_card() -> None:
