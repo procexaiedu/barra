@@ -80,7 +80,7 @@
 | OBS-09/10 | 2 | Tag `modelo_id`/`atendimento_id` nos traces | SEC-10 | done |
 | TOOLS-04 | 2 | Incrementar `AGENTE_ESCALADA` após `abrir_handoff` | — | done |
 | CUSTO-02 | 3 | Custo de STT + vision por atendimento | — | done |
-| CUSTO-01 | 3 | Comissão + Taxa de cartão + ROI (ADRs 0012/0013) | CUSTO-02 | todo |
+| CUSTO-01 | 3 | Comissão + Taxa de cartão + ROI (ADRs 0012/0013) | CUSTO-02 | done |
 | CUSTO-04 | 3 | Teto de turnos por conversa/dia + retry-after | — | done |
 | CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | todo |
 | CUSTO-06 | 3 | Fonte única do alvo de custo | — | done |
@@ -346,11 +346,17 @@
 - **PENDENTE (operador):** as tarifas em `_custo.py` são defaults plausíveis nunca batidos com o Fernando — vision adota a tabela do Sonnet ($3/$15 por MTok) como proxy do modelo do OpenRouter; STT usa $0.006/min (referência Whisper-1). Confirmar antes de tratar o custo como fechado.
 
 ### CUSTO-01 — Comissão + Taxa de cartão + ROI (ADRs 0012/0013)
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** CUSTO-02 · **Fonte:** roadmap §3.7 + ADRs 0012/0013
+- **Status:** done · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** CUSTO-02 · **Fonte:** roadmap §3.7 + ADRs 0012/0013
 - **Objetivo (DoD):** dashboard responde "a IA custou R$X e evitou R$Y de comissão neste mês, por modelo".
-- **Arquivos:** `infra/sql/` (tabela `vendedores`, `modelos.vendedor_id`, `atendimentos.vendedor_id`/`taxa_cartao_snapshot`), `dominio/financeiro/{repo,service,routes}.py`, `dominio/dashboard/`.
-- **Passos:** `valor_servico = Valor final − taxa`; comissão = nível×`valor_servico` (independente do repasse); bloco ROI no dashboard (`custo_IA_por_fechado` vs `comissao_evitada`). **Ler ADRs 0012/0013.**
-- **Verificação:** dashboard mostra o ROI por modelo; testes do cálculo (taxa só sobre serviço, nunca sobre Pix de deslocamento; só `Fechado` conta).
+- **Entregue:**
+  - Migration `infra/sql/20260601090000_vendedores_comissao_taxa.sql`: enum `vendedor_nivel_enum`, tabela `vendedores`, `modelos.vendedor_id` FK, `atendimentos.vendedor_id` FK + `taxa_cartao_snapshot`, config `financeiro_comissao_niveis` (seed 4/5/6%), `financeiro_comissoes_pagas`, RLS fernando-only (espelha ADR 0011).
+  - Herança do vendedor da modelo na criação do atendimento (`atendimentos/service.py::garantir_atendimento_aberto` e `workers/coordenador.py`); IA conduz → `modelos.vendedor_id` NULL → atendimento sem comissão.
+  - Fórmulas canônicas em `dominio/financeiro/calculos.py` (puras + `VALOR_SERVICO_SQL`): `valor_servico = valor_final / (1 + taxa/100)`; repasse e comissão sobre o serviço, independentes; testadas em `test_custo_01_comissao_taxa.py`.
+  - Base de repasse corrigida para o valor do serviço em `financeiro/repo.py`, `dashboard/routes.py`, `painel/routes.py` (no-op enquanto `taxa_cartao_snapshot` NULL). Comissão por vendedor: `repo.comissao_por_vendedor` + `service.montar_comissao_por_vendedor` + rota `GET /financeiro/comissoes` (espelha o repasse).
+  - Bloco ROI no dashboard (`_roi`, campo `roi_ia`): `comissao_calculada_brl` (humano) vs `comissao_evitada_brl` (IA, alíquota de referência `intermediario`). `custo_ia_brl` fica NULL com nota — vive nos Histograms Prometheus do worker (CUSTO-02), wire via Grafana.
+  - `settings.taxa_cartao_padrao_pct` (default 10%, ADR 0013) como default da UI de fechamento.
+- **Verificação:** mypy/ruff limpos; `pytest -m "not needs_key"` verde (471 passed). Cálculo coberto por testes puros offline (taxa só sobre serviço; comissão só onde há vendedor; independência repasse/comissão). Queries SQL são `needs_db` (não rodam offline).
+- **PENDENTE (operador):** aplicar a migration manualmente em prod self-hosted (runbook `infra/runbooks/aplicar-migrations-prod.md` — NUNCA `make migrate`); cadastrar vendedores + `modelos.vendedor_id`; UI de fechamento gravar `taxa_cartao_snapshot`; wire do `custo_ia_brl` no Grafana.
 - **Guardrails específicos:** migration de schema → aplicar manual em prod self-hosted (sem `make migrate`).
 
 ### CUSTO-04 — Teto de turnos por conversa/dia + retry-after

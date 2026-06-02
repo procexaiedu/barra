@@ -109,14 +109,20 @@ async def garantir_atendimento_aberto(
             ja_existia=True,
         )
 
+    # Herda o vendedor padrão da modelo (ADR 0012): subquery em vez de SELECT prévio para
+    # nascer atômico com o INSERT. modelos.vendedor_id NULL (IA conduz) → vendedor_id NULL
+    # (sem comissão). Coluna criada na migration 20260601090000.
     novo = await _one(
         conn,
         """
-        INSERT INTO barravips.atendimentos (cliente_id, modelo_id, conversa_id)
-        VALUES (%s, %s, %s)
+        INSERT INTO barravips.atendimentos (cliente_id, modelo_id, conversa_id, vendedor_id)
+        VALUES (
+          %s, %s, %s,
+          (SELECT vendedor_id FROM barravips.modelos WHERE id = %s)
+        )
         RETURNING id, numero_curto, estado::text AS estado, cliente_id, modelo_id, conversa_id
         """,
-        (cliente_id, modelo_id, conversa_id),
+        (cliente_id, modelo_id, conversa_id, modelo_id),
     )
     assert novo is not None
     return Atendimento(
@@ -255,9 +261,7 @@ async def registrar_extracao_ia(
     return {"mensagem": "Extracao registrada.", "novo_estado": novo_estado, **resultado_extra}
 
 
-async def _aviso_saida_aplicavel(
-    conn: AsyncConnection[Any], atendimento_id: UUID
-) -> bool:
+async def _aviso_saida_aplicavel(conn: AsyncConnection[Any], atendimento_id: UUID) -> bool:
     """True se o atendimento esta em interno + Aguardando_confirmacao (contexto onde aviso
     de saida faz sentido, 06 §5). Refetch porque o UPSERT pode ter acabado de promover o
     atendimento para Aguardando_confirmacao no MESMO turno."""
@@ -269,9 +273,7 @@ async def _aviso_saida_aplicavel(
     a = await res.fetchone()
     if a is None:
         return False
-    return bool(
-        a["estado"] == "Aguardando_confirmacao" and a["tipo_atendimento"] == "interno"
-    )
+    return bool(a["estado"] == "Aguardando_confirmacao" and a["tipo_atendimento"] == "interno")
 
 
 def _montar_upsert(payload: dict[str, Any], limpar: set[str]) -> tuple[list[str], list[Any]]:
@@ -570,9 +572,7 @@ async def handoff_foto_portaria_ia(
         )
 
 
-async def marcar_aviso_saida(
-    conn: AsyncConnection[Any], atendimento_id: UUID
-) -> bool:
+async def marcar_aviso_saida(conn: AsyncConnection[Any], atendimento_id: UUID) -> bool:
     """Marca `aviso_saida_em=now()` com guard IS NULL (helper leve, 06 §5 + emenda §0 item 8).
 
     Diferente do handoff de foto de portaria, NAO ha transicao de estado nem pausa de IA:

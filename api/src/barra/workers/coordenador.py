@@ -468,12 +468,16 @@ async def resolver_atendimento(
     if row:
         return row
 
+    # Herda o vendedor padrão da modelo (ADR 0012): quando a IA conduz a modelo,
+    # modelos.vendedor_id já é NULL → atendimento sem comissão, transição limpa.
     res = await conn.execute(
         """
         INSERT INTO barravips.atendimentos
-          (cliente_id, modelo_id, conversa_id, estado, fonte_decisao_ultima_transicao)
-        SELECT cliente_id, modelo_id, id, 'Novo', 'extracao_ia'
-          FROM barravips.conversas WHERE id = %s
+          (cliente_id, modelo_id, conversa_id, estado, fonte_decisao_ultima_transicao, vendedor_id)
+        SELECT c.cliente_id, c.modelo_id, c.id, 'Novo', 'extracao_ia', m.vendedor_id
+          FROM barravips.conversas c
+          JOIN barravips.modelos m ON m.id = c.modelo_id
+         WHERE c.id = %s
         RETURNING *
         """,
         (conversa_id,),

@@ -156,6 +156,14 @@ class Settings(BaseSettings):
         default=Decimal("100.00"),
         description="Valor esperado do Pix de deslocamento, em BRL (06 §2.2/§0 item 6). Comparação é `valor >= esperado`: underpay → em_revisao; valor maior é aceito como validado.",
     )
+    # Taxa de cartão default (ADR 0013): cobrada por cima do serviço quando forma_pagamento='cartao'.
+    # Snapshot por atendimento em atendimentos.taxa_cartao_snapshot; este e so o DEFAULT da UI/fechamento.
+    taxa_cartao_padrao_pct: Decimal = Field(
+        default=Decimal("10.00"),
+        ge=Decimal("0"),
+        le=Decimal("100"),
+        description="Percentual default da Taxa de cartão (ADR 0013), cobrado por cima do serviço no cartão. Isentável por atendimento; snapshot fica em atendimentos.taxa_cartao_snapshot.",
+    )
 
     langchain_tracing_v2: bool = False
     langchain_api_key: str | None = None

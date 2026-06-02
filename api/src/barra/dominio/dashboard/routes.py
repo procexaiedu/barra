@@ -23,6 +23,7 @@ from barra.core.janela import (
     resolver_janela as _resolver_janela,
 )
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
+from barra.dominio.financeiro.calculos import VALOR_SERVICO_SQL as _VS
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
@@ -46,6 +47,7 @@ async def dashboard(
     perdas = await _perdas_por_motivo(conn, janela, modelo_id)
     escalada_top = await _motivos_escalada_top(conn, janela, modelo_id)
     profissionais = await _profissionais(conn, janela)
+    roi = await _roi(conn, janela, modelo_id)
 
     agora = datetime.now(BRT)
 
@@ -67,6 +69,7 @@ async def dashboard(
         "perdas_por_motivo": perdas,
         "motivos_escalada": escalada_top,
         "profissionais": profissionais,
+        "roi_ia": roi,
         "servidor_em": agora.isoformat(),
     }
 
@@ -81,6 +84,83 @@ def _financeiro_bloco(kpis: dict[str, Any]) -> dict[str, Any]:
         "valor_sem_repasse_definido_brl": f["valor_sem_repasse_definido_brl"],
         "fechamentos_total": f["contagem"],
         "fechamentos_sem_snapshot": f["contagem_sem_snapshot"],
+    }
+
+
+async def _roi(
+    conn: AsyncConnection[Any],
+    janela: Janela,
+    modelo_id: list[UUID] | None,
+) -> dict[str, Any]:
+    """Bloco ROI da IA (CUSTO-01 / ADR 0012): comissão paga a humanos vs comissão evitada pela IA.
+
+    - `comissao_calculada_brl`: comissão projetada dos `Fechado` conduzidos por VENDEDOR humano
+      (vendedor_id não nulo), pela alíquota do nível — o que a operação humana custa.
+    - `comissao_evitada_brl`: dos `Fechado` conduzidos pela IA (vendedor_id NULL), o valor do
+      serviço x alíquota de REFERÊNCIA (nível 'intermediario' da config) — a comissão que a IA
+      poupa por conduzir sem vendedor.
+    - `custo_ia_brl`: custo de IA (chat+STT+vision) vive nos Histograms Prometheus do worker
+      (`agente_custo_*_brl`), não no Postgres do dashboard. É preenchido pelo operador/Grafana;
+      aqui retornamos None com a nota. `custo_ia_por_fechado` = custo_ia / fechados_ia quando
+      o operador injetar o custo.
+
+    Base de comissão = valor do serviço (líquido de taxa, ADR 0013), via VALOR_SERVICO_SQL.
+    Só `Fechado` conta. Espelha a âncora dedupada de `fechado_registrado`.
+    """
+    params: list[Any] = [janela.inicio, janela.fim]
+    filtro_modelo = ""
+    if modelo_id:
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
+        params.append(modelo_id)
+
+    result = await conn.execute(
+        f"""
+        SELECT
+          COUNT(DISTINCT a.id) FILTER (WHERE a.vendedor_id IS NOT NULL)::int AS fechados_humano,
+          COUNT(DISTINCT a.id) FILTER (WHERE a.vendedor_id IS NULL)::int AS fechados_ia,
+          COALESCE(
+            SUM({_VS} * cn.percentual / 100) FILTER (WHERE a.vendedor_id IS NOT NULL),
+          0)::numeric AS comissao_calculada,
+          COALESCE(
+            SUM({_VS} * ref.percentual / 100) FILTER (WHERE a.vendedor_id IS NULL),
+          0)::numeric AS comissao_evitada
+          FROM barravips.atendimentos a
+          JOIN LATERAL (
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
+          LEFT JOIN barravips.vendedores ven ON ven.id = a.vendedor_id
+          LEFT JOIN barravips.financeiro_comissao_niveis cn ON cn.nivel = ven.nivel
+          -- alíquota de referência p/ a comissão evitada (IA não tem vendedor/nível).
+          LEFT JOIN barravips.financeiro_comissao_niveis ref ON ref.nivel = 'intermediario'
+         WHERE a.estado = 'Fechado'
+           AND e.tipo = 'fechado_registrado'
+           AND e.created_at >= %s AND e.created_at <= %s
+           {filtro_modelo}
+        """,
+        params,
+    )
+    row = await result.fetchone()
+    fechados_humano = int(row["fechados_humano"]) if row else 0
+    fechados_ia = int(row["fechados_ia"]) if row else 0
+    comissao_calculada = float(row["comissao_calculada"]) if row else 0.0
+    comissao_evitada = float(row["comissao_evitada"]) if row else 0.0
+    return {
+        "fechados_humano": fechados_humano,
+        "fechados_ia": fechados_ia,
+        "comissao_calculada_brl": round(comissao_calculada, 2),
+        "comissao_evitada_brl": round(comissao_evitada, 2),
+        # custo de IA vem do Prometheus do worker (agente_custo_*_brl) — não do Postgres.
+        "custo_ia_brl": None,
+        "custo_ia_por_fechado_brl": None,
+        "nota_custo_ia": (
+            "custo de IA (chat+STT+vision) vive nos Histograms Prometheus do worker; "
+            "wire via Grafana/operador (CUSTO-02)"
+        ),
     }
 
 
@@ -146,7 +226,9 @@ SERIE_N_MIN = 4
 
 @router.get("/serie")
 async def dashboard_serie(
-    metrica: Literal["conversao", "fechamentos", "perdas", "escaladas", "liquido", "bruto"] = "conversao",
+    metrica: Literal[
+        "conversao", "fechamentos", "perdas", "escaladas", "liquido", "bruto"
+    ] = "conversao",
     unidade: Literal["dia", "semana"] = "semana",
     n: int = 12,
     modelo_id: Annotated[list[UUID] | None, Query()] = None,
@@ -276,10 +358,10 @@ async def _fechamentos(
           COUNT(DISTINCT a.id)::int AS contagem,
           COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto,
           COALESCE(SUM(
-            a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+            (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
           ), 0)::numeric AS valor_liquido,
           COALESCE(SUM(
-            a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+            (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * COALESCE(a.percentual_repasse_snapshot, 0) / 100
           ), 0)::numeric AS valor_repasse_modelo,
           COALESCE(SUM(a.valor_final) FILTER (
             WHERE a.percentual_repasse_snapshot IS NULL
@@ -447,7 +529,11 @@ async def _funil_coorte(
     perda_e = int(row.get("perda_execucao", 0) or 0)
     etapas = [
         {"id": "Qualificando", "coorte": topo, "perdas": perda_q},
-        {"id": "Aguardando", "coorte": int(row.get("coorte_aguardando", 0) or 0), "perdas": perda_a},
+        {
+            "id": "Aguardando",
+            "coorte": int(row.get("coorte_aguardando", 0) or 0),
+            "perdas": perda_a,
+        },
         {"id": "Em_execucao", "coorte": int(row.get("coorte_execucao", 0) or 0), "perdas": perda_e},
         {"id": "Fechado", "coorte": int(row.get("coorte_fechado", 0) or 0), "perdas": 0},
     ]
@@ -594,10 +680,10 @@ async def _profissionais(
                  COUNT(DISTINCT a.id)::int AS contagem,
                  COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto,
                  COALESCE(SUM(
-                   a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+                   (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
                  ), 0)::numeric AS valor_liquido,
                  COALESCE(SUM(
-                   a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+                   (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * COALESCE(a.percentual_repasse_snapshot, 0) / 100
                  ), 0)::numeric AS valor_repasse_modelo
             FROM barravips.atendimentos a
             JOIN barravips.eventos e ON e.atendimento_id = a.id
@@ -860,7 +946,7 @@ async def _serie_financeiro(
         params.append(modelo_id)
 
     if componente == "liquido":
-        expressao = "a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)"
+        expressao = "(a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)"
     elif componente == "bruto":
         expressao = "a.valor_final"
     else:

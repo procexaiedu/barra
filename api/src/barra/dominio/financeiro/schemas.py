@@ -239,3 +239,24 @@ class FinanceiroSerieResponse(BaseModel):
     serie_diaria: list[FinanceiroSerieDia]
     mix_forma_pagamento: list[FinanceiroMixForma]
     top_modelos: list[FinanceiroTopModelo]
+
+
+# ----------------------- Comissão de vendedor (ADR 0012) --------------------
+
+
+class SaldoVendedor(BaseModel):
+    """Saldo de comissão por vendedor (espelha SaldoModelo do repasse)."""
+
+    vendedor_id: UUID
+    vendedor_nome: str
+    nivel: str
+    fechamentos_total: int
+    valor_servico: float  # base liquida de taxa de cartao (ADR 0013)
+    valor_comissao_calculada: float
+    valor_comissao_paga: float
+    saldo: float  # calc - pago; pode ser negativo apos estorno
+
+
+class ComissoesPorVendedorResponse(BaseModel):
+    filtro_aplicado: dict[str, Any]
+    items: list[SaldoVendedor]

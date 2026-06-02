@@ -23,6 +23,7 @@ from barra.core.janela import Janela, filtro_aplicado_dict, janela_anterior
 from barra.dominio.financeiro import repo
 from barra.dominio.financeiro.schemas import (
     AtendimentosSemSnapshotResponse,
+    ComissoesPorVendedorResponse,
     ComprovanteUploadResponse,
     FinanceiroResumo,
     FinanceiroResumoResponse,
@@ -66,7 +67,8 @@ async def montar_resumo(
         filtro_aplicado=filtro_aplicado_dict(periodo, janela, modelo_ids),
         janela_comparacao=(
             JanelaComparacao(de=janela_ant.de.isoformat(), ate=janela_ant.ate.isoformat())
-            if janela_ant else None
+            if janela_ant
+            else None
         ),
         resumo=resumo,
         resumo_anterior=resumo_ant,
@@ -171,6 +173,21 @@ async def montar_repasse_por_modelo(
     )
 
 
+async def montar_comissao_por_vendedor(
+    conn: AsyncConnection,
+    *,
+    periodo: str,
+    janela: Janela,
+    vendedor_ids: list[UUID] | None,
+) -> ComissoesPorVendedorResponse:
+    """Saldo de comissão por vendedor no período (ADR 0012). Espelha o repasse por modelo."""
+    items = await repo.comissao_por_vendedor(conn, janela, vendedor_ids)
+    return ComissoesPorVendedorResponse(
+        filtro_aplicado=filtro_aplicado_dict(periodo, janela, vendedor_ids),
+        items=items,
+    )
+
+
 async def montar_pagamentos(
     conn: AsyncConnection,
     *,
@@ -181,9 +198,7 @@ async def montar_pagamentos(
     cursor_iso: str | None,
 ) -> RepassesPagamentosListaResponse:
     cursor = _decodificar_cursor_pagamento(cursor_iso) if cursor_iso else None
-    items, next_cursor = await repo.listar_pagamentos(
-        conn, janela, modelo_ids, limit, cursor
-    )
+    items, next_cursor = await repo.listar_pagamentos(conn, janela, modelo_ids, limit, cursor)
     return RepassesPagamentosListaResponse(
         filtro_aplicado=filtro_aplicado_dict(periodo, janela, modelo_ids),
         items=items,
@@ -296,9 +311,7 @@ def montar_upload_comprovante(
     return ComprovanteUploadResponse(object_key=object_key, put_url=put_url)
 
 
-def obter_url_comprovante(
-    *, bucket: str, minio_client: Minio | None, object_key: str
-) -> str:
+def obter_url_comprovante(*, bucket: str, minio_client: Minio | None, object_key: str) -> str:
     from barra.core.storage import presigned_get
 
     if not object_key.startswith("repasses/"):

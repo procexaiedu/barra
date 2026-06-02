@@ -1,9 +1,15 @@
-"""SQL puro psycopg3 do Módulo Financeiro (ADR 0011 / 0002).
+"""SQL puro psycopg3 do Módulo Financeiro (ADR 0011 / 0012 / 0013 / 0002).
 
 Receita = projeção sobre `barravips.atendimentos` JOIN `barravips.eventos`
 (tipo='fechado_registrado'). Repasses pagos têm tabela própria. Fórmulas de
 líquido/repasse são as MESMAS do `dashboard/routes.py:_fechamentos` e
 `painel/routes.py:198-217` — manter sincronizadas, divergir = bug.
+
+Base de repasse/comissão = VALOR DO SERVIÇO (ADR 0013): `valor_final / (1 + taxa/100)`,
+nunca o bruto inflado pela taxa de cartão. Enquanto `taxa_cartao_snapshot` for NULL
+(default hoje), a divisão é por 1 → idêntico ao bruto, então a mudança é no-op nos
+dados atuais e só passa a descontar quando a UI de fechamento gravar o snapshot.
+A expressão canônica está em `financeiro/calculos.py::VALOR_SERVICO_SQL`.
 """
 
 from __future__ import annotations
@@ -17,6 +23,7 @@ from uuid import UUID
 from psycopg import AsyncConnection
 
 from barra.core.janela import Janela
+from barra.dominio.financeiro.calculos import VALOR_SERVICO_SQL
 from barra.dominio.financeiro.schemas import (
     AtendimentoSemSnapshotLinha,
     ContextoCliente,
@@ -30,6 +37,7 @@ from barra.dominio.financeiro.schemas import (
     ReceitaLinha,
     RepassePagoResponse,
     SaldoModelo,
+    SaldoVendedor,
 )
 
 # =============================================================================
@@ -63,10 +71,10 @@ async def resumo_periodo(
             COUNT(DISTINCT a.id)::int AS contagem,
             COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto,
             COALESCE(SUM(
-              a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+              (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
             ), 0)::numeric AS valor_liquido,
             COALESCE(SUM(
-              a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+              (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * COALESCE(a.percentual_repasse_snapshot, 0) / 100
             ), 0)::numeric AS valor_repasse,
             COALESCE(SUM(a.valor_final) FILTER (
               WHERE a.percentual_repasse_snapshot IS NULL
@@ -106,8 +114,7 @@ async def resumo_periodo(
     """
 
     # Ordem dos placeholders: receita(2 datas + modelo?), pago(2 datas + modelo?).
-    params: list[Any] = [janela.inicio, janela.fim, *params_modelo,
-                         janela.de, janela.ate]
+    params: list[Any] = [janela.inicio, janela.fim, *params_modelo, janela.de, janela.ate]
     if modelo_ids:
         params.append(modelo_ids)
 
@@ -307,7 +314,7 @@ async def obter_contexto_receita(
           COUNT(DISTINCT a.id)::int AS fechamentos,
           COALESCE(SUM(a.valor_final), 0)::numeric AS bruto,
           COALESCE(SUM(
-            a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+            (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * COALESCE(a.percentual_repasse_snapshot, 0) / 100
           ), 0)::numeric AS repasse
           FROM barravips.atendimentos a
           JOIN LATERAL (
@@ -493,8 +500,15 @@ async def criar_pagamento(
         VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (modelo_id, data_pagamento, valor, forma_pagamento,
-         observacao, comprovante_object_key, user_id),
+        (
+            modelo_id,
+            data_pagamento,
+            valor,
+            forma_pagamento,
+            observacao,
+            comprovante_object_key,
+            user_id,
+        ),
     )
     row = await result.fetchone()
     assert row is not None
@@ -624,7 +638,7 @@ async def repasse_por_modelo(
                  COUNT(DISTINCT a.id)::int AS contagem,
                  COALESCE(SUM(a.valor_final), 0)::numeric AS bruto,
                  COALESCE(SUM(
-                   a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+                   (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * COALESCE(a.percentual_repasse_snapshot, 0) / 100
                  ), 0)::numeric AS repasse_calc,
                  COUNT(DISTINCT a.id) FILTER (
                    WHERE a.percentual_repasse_snapshot IS NULL
@@ -678,8 +692,12 @@ async def repasse_por_modelo(
     """
 
     params = [
-        janela.inicio, janela.fim, *params_modelo_fech,
-        janela.de, janela.ate, *params_modelo_pago,
+        janela.inicio,
+        janela.fim,
+        *params_modelo_fech,
+        janela.de,
+        janela.ate,
+        *params_modelo_pago,
         *params_modelo_final,
     ]
     result = await conn.execute(sql, params)
@@ -786,10 +804,10 @@ async def serie_diaria(
             (e.created_at AT TIME ZONE 'America/Sao_Paulo')::date AS dia,
             COALESCE(SUM(a.valor_final), 0)::numeric AS bruto,
             COALESCE(SUM(
-              a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+              (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * COALESCE(a.percentual_repasse_snapshot, 0) / 100
             ), 0)::numeric AS repasse_calc,
             COALESCE(SUM(
-              a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+              (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
             ), 0)::numeric AS liquido,
             COUNT(DISTINCT a.id)::int AS fechamentos
             FROM barravips.atendimentos a
@@ -907,10 +925,10 @@ async def top_modelos(
           m.nome AS modelo_nome,
           COALESCE(SUM(a.valor_final), 0)::numeric AS bruto,
           COALESCE(SUM(
-            a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+            (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
           ), 0)::numeric AS liquido,
           COALESCE(SUM(
-            a.valor_final * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+            (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * COALESCE(a.percentual_repasse_snapshot, 0) / 100
           ), 0)::numeric AS repasse_calc,
           COUNT(DISTINCT a.id)::int AS fechamentos
           FROM barravips.atendimentos a
@@ -993,3 +1011,154 @@ async def preencher_repasse_retroativo(
             )
 
     return len(atualizados)
+
+
+# =============================================================================
+# Comissão de vendedor (ADR 0012) — projeção, espelha repasse_por_modelo
+# =============================================================================
+
+
+async def comissao_por_vendedor(
+    conn: AsyncConnection[Any],
+    janela: Janela,
+    vendedor_ids: list[UUID] | None,
+) -> list[SaldoVendedor]:
+    """Saldo de comissão por vendedor: calculado (projeção) - pago, por janela.
+
+    Comissão = `valor_servico x percentual_do_nivel/100` sobre os `Fechado` com `vendedor_id`
+    (ADR 0012). `valor_servico` é líquido de taxa de cartão (ADR 0013). Independente do repasse.
+    Só `Fechado` conta (mesma âncora dedupada de `fechado_registrado` do resumo). IA-conduzido
+    (vendedor_id NULL) não entra. Saldo pode ficar negativo após estorno (sem trava, ADR 0012).
+    """
+    params_fech: list[Any] = []
+    filtro_fech = ""
+    if vendedor_ids:
+        filtro_fech = "AND a.vendedor_id = ANY(%s)"
+        params_fech.append(vendedor_ids)
+
+    params_pago: list[Any] = []
+    filtro_pago = ""
+    if vendedor_ids:
+        filtro_pago = "AND vendedor_id = ANY(%s)"
+        params_pago.append(vendedor_ids)
+
+    filtro_final = "WHERE c.vendedor_id IS NOT NULL OR p.vendedor_id IS NOT NULL"
+    params_final: list[Any] = []
+    if vendedor_ids:
+        filtro_final = "WHERE v.id = ANY(%s)"
+        params_final.append(vendedor_ids)
+
+    sql = f"""
+        WITH calc AS (
+          SELECT a.vendedor_id,
+                 COUNT(DISTINCT a.id)::int AS contagem,
+                 COALESCE(SUM({VALOR_SERVICO_SQL}), 0)::numeric AS servico,
+                 COALESCE(SUM(
+                   {VALOR_SERVICO_SQL} * cn.percentual / 100
+                 ), 0)::numeric AS comissao_calc
+            FROM barravips.atendimentos a
+            JOIN barravips.vendedores ven ON ven.id = a.vendedor_id
+            JOIN barravips.financeiro_comissao_niveis cn ON cn.nivel = ven.nivel
+            JOIN LATERAL (
+            -- Âncora dedupada (igual ao resumo): 1 fechado_registrado por atendimento.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
+           WHERE a.estado = 'Fechado'
+             AND e.tipo = 'fechado_registrado'
+             AND e.created_at >= %s AND e.created_at <= %s
+             {filtro_fech}
+           GROUP BY a.vendedor_id
+        ),
+        pago AS (
+          SELECT vendedor_id, COALESCE(SUM(valor), 0)::numeric AS total
+            FROM barravips.financeiro_comissoes_pagas
+           WHERE data_pagamento >= %s::date AND data_pagamento <= %s::date
+             {filtro_pago}
+           GROUP BY vendedor_id
+        )
+        SELECT
+          v.id AS vendedor_id,
+          v.nome AS vendedor_nome,
+          v.nivel::text AS nivel,
+          COALESCE(c.contagem, 0)::int AS contagem,
+          COALESCE(c.servico, 0)::numeric AS servico,
+          COALESCE(c.comissao_calc, 0)::numeric AS comissao_calc,
+          COALESCE(p.total, 0)::numeric AS comissao_paga
+          FROM barravips.vendedores v
+          LEFT JOIN calc c ON c.vendedor_id = v.id
+          LEFT JOIN pago p ON p.vendedor_id = v.id
+          {filtro_final}
+         ORDER BY (COALESCE(c.comissao_calc, 0) - COALESCE(p.total, 0)) DESC,
+                  v.nome ASC
+    """
+
+    params = [
+        janela.inicio,
+        janela.fim,
+        *params_fech,
+        janela.de,
+        janela.ate,
+        *params_pago,
+        *params_final,
+    ]
+    result = await conn.execute(sql, params)
+    rows = list(await result.fetchall())
+
+    return [
+        SaldoVendedor(
+            vendedor_id=row["vendedor_id"],
+            vendedor_nome=row["vendedor_nome"],
+            nivel=row["nivel"],
+            fechamentos_total=int(row["contagem"]),
+            valor_servico=round(float(row["servico"]), 2),
+            valor_comissao_calculada=round(float(row["comissao_calc"]), 2),
+            valor_comissao_paga=round(float(row["comissao_paga"]), 2),
+            saldo=round(float(row["comissao_calc"]) - float(row["comissao_paga"]), 2),
+        )
+        for row in rows
+    ]
+
+
+async def total_comissao_periodo(
+    conn: AsyncConnection[Any],
+    janela: Janela,
+    modelo_ids: list[UUID] | None,
+) -> float:
+    """Soma da comissão CALCULADA no período (ADR 0012), para o bloco ROI do dashboard.
+
+    Mesma projeção de `comissao_por_vendedor`, mas filtra por `modelo_id` (não por vendedor)
+    e devolve só o total — é a "comissão evitada" quando a IA conduz (atendimentos sem vendedor
+    não geram comissão). Só `Fechado` conta.
+    """
+    params: list[Any] = [janela.inicio, janela.fim]
+    filtro_modelo = ""
+    if modelo_ids:
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
+        params.append(modelo_ids)
+
+    sql = f"""
+        SELECT COALESCE(SUM({VALOR_SERVICO_SQL} * cn.percentual / 100), 0)::numeric AS total
+          FROM barravips.atendimentos a
+          JOIN barravips.vendedores ven ON ven.id = a.vendedor_id
+          JOIN barravips.financeiro_comissao_niveis cn ON cn.nivel = ven.nivel
+          JOIN LATERAL (
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
+         WHERE a.estado = 'Fechado'
+           AND e.tipo = 'fechado_registrado'
+           AND e.created_at >= %s AND e.created_at <= %s
+           {filtro_modelo}
+    """
+    result = await conn.execute(sql, params)
+    row = await result.fetchone()
+    return round(float(row["total"]), 2) if row else 0.0
