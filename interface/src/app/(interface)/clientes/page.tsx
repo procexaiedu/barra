@@ -2,11 +2,10 @@
 
 import { Suspense, useCallback, useMemo, useState, type ReactNode } from "react"
 import { useSearchParams } from "next/navigation"
-import { Plus, Search, X } from "lucide-react"
+import { Plus, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ApiError, api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DetalheCliente } from "@/components/clientes/DetalheCliente"
 import { ListaClientes } from "@/components/clientes/ListaClientes"
@@ -14,6 +13,7 @@ import { MapaClientes } from "@/components/clientes/MapaClientes"
 import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
+import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { PainelFiltros } from "@/components/filtros/PainelFiltros"
@@ -375,21 +375,12 @@ function Toolbar({
   const filtrosSecundariosAtivos = perfis.length + (incluirArquivados ? 1 : 0)
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <label className="relative flex min-w-[260px] flex-1 flex-col gap-1">
-        <span className="text-xs font-medium text-text-muted">Buscar</span>
-        <Search
-          size={16}
-          strokeWidth={1.5}
-          className="pointer-events-none absolute left-3 bottom-2.5 text-text-muted"
-        />
-        <Input
-          value={busca}
-          onChange={(event) => onBuscaChange(event.target.value)}
-          placeholder="Buscar nome ou telefone"
-          aria-label="Buscar nome ou telefone"
-          className="h-9 pl-9"
-        />
-      </label>
+      <BuscaFiltro
+        value={busca}
+        onChange={onBuscaChange}
+        placeholder="Buscar nome ou telefone"
+        className="min-w-[260px] flex-1"
+      />
       <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
       <div className="flex flex-col gap-1">
         <span className="text-xs font-medium text-text-muted">Modelo</span>

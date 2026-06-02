@@ -131,10 +131,32 @@ export default function TarefasPage() {
             Gestão interna da operação — sem cliente, IA ou agenda.
           </p>
         </div>
-        <Button variant="primary" onClick={abrirCriar}>
-          <Plus size={16} strokeWidth={1.5} />
-          Nova tarefa
-        </Button>
+        <div className="flex items-center gap-2">
+          <div className="flex rounded-lg border border-border bg-muted p-0.5">
+            {(["lista", "board"] as const).map((v) => {
+              const Icon = v === "lista" ? LayoutList : LayoutGrid
+              return (
+                <button
+                  key={v}
+                  onClick={() => setVisao(v)}
+                  aria-label={v === "lista" ? "Visão em lista" : "Visão em board"}
+                  aria-pressed={visao === v}
+                  className={cn(
+                    "rounded-md p-1.5 transition-all duration-150",
+                    "aria-[pressed=true]:bg-accent aria-[pressed=true]:text-text-brand",
+                    "text-text-muted hover:text-text-primary",
+                  )}
+                >
+                  <Icon size={16} strokeWidth={1.5} />
+                </button>
+              )
+            })}
+          </div>
+          <Button variant="primary" onClick={abrirCriar}>
+            <Plus size={16} strokeWidth={1.5} />
+            Nova tarefa
+          </Button>
+        </div>
       </header>
 
       <section aria-label="Tarefas" className="flex flex-col gap-3">
@@ -169,32 +191,6 @@ export default function TarefasPage() {
               {total} {total === 1 ? "tarefa" : "tarefas"}
             </span>
           )}
-
-          <div
-            className={cn(
-              "flex rounded-lg border border-border bg-muted p-0.5",
-              status !== "success" && "ml-auto",
-            )}
-          >
-            {(["lista", "board"] as const).map((v) => {
-              const Icon = v === "lista" ? LayoutList : LayoutGrid
-              return (
-                <button
-                  key={v}
-                  onClick={() => setVisao(v)}
-                  aria-label={v === "lista" ? "Visão em lista" : "Visão em board"}
-                  aria-pressed={visao === v}
-                  className={cn(
-                    "rounded-md p-1.5 transition-all duration-150",
-                    "aria-[pressed=true]:bg-accent aria-[pressed=true]:text-text-brand",
-                    "text-text-muted hover:text-text-primary",
-                  )}
-                >
-                  <Icon size={16} strokeWidth={1.5} />
-                </button>
-              )
-            })}
-          </div>
         </div>
 
         {status === "loading" && (

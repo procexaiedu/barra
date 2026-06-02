@@ -1,10 +1,9 @@
 "use client"
 
-import type { ReactNode } from "react"
-import { Search } from "lucide-react"
-import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
+import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
+import { SelectFiltro } from "@/components/filtros/SelectFiltro"
 import type {
   FiltroPeriodoPix,
   FiltroStatusPix,
@@ -43,7 +42,7 @@ export function ToolbarPix({
 }) {
   if (loading) {
     return (
-      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_180px_160px_180px_140px] gap-3">
+      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_160px_180px_180px] gap-3">
         {Array.from({ length: 5 }).map((_, index) => (
           <div key={index} className="flex flex-col gap-1">
             <Skeleton className="h-3.5 w-16 rounded" />
@@ -55,22 +54,24 @@ export function ToolbarPix({
   }
 
   return (
-    <div className="grid grid-cols-[minmax(260px,1fr)_180px_160px_180px_140px] gap-3">
+    <div className="grid grid-cols-[minmax(260px,1fr)_140px_160px_180px_180px] gap-3">
+      <BuscaFiltro
+        value={busca}
+        onChange={onBuscaChange}
+        placeholder="Valor, cliente, telefone ou #N"
+      />
+      <SelectFiltro
+        label="Período"
+        value={periodo}
+        onChange={(value) => onPeriodoChange(value as FiltroPeriodoPix)}
+      >
+        {periodoFiltroOptions.map((item) => (
+          <option key={item.value} value={item.value}>{item.label}</option>
+        ))}
+      </SelectFiltro>
       <label className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-text-muted">Buscar</span>
-        <div className="relative">
-          <Search
-            size={16}
-            strokeWidth={1.5}
-            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-text-muted"
-          />
-          <Input
-            value={busca}
-            onChange={(event) => onBuscaChange(event.target.value)}
-            placeholder="Valor, cliente, telefone ou #N"
-            className="pl-9"
-          />
-        </div>
+        <span className="text-xs font-medium text-text-muted">Modelo</span>
+        <FiltroModelo value={modeloIds} onChange={onModeloChange} className="w-full" />
       </label>
       <SelectFiltro
         label="Status"
@@ -81,10 +82,6 @@ export function ToolbarPix({
           <option key={item.value} value={item.value}>{item.label}</option>
         ))}
       </SelectFiltro>
-      <label className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-text-muted">Modelo</span>
-        <FiltroModelo value={modeloIds} onChange={onModeloChange} className="w-full" />
-      </label>
       <SelectFiltro
         label="Motivo de revisão"
         value={motivo}
@@ -94,40 +91,6 @@ export function ToolbarPix({
           <option key={item.value} value={item.value}>{item.label}</option>
         ))}
       </SelectFiltro>
-      <SelectFiltro
-        label="Período"
-        value={periodo}
-        onChange={(value) => onPeriodoChange(value as FiltroPeriodoPix)}
-      >
-        {periodoFiltroOptions.map((item) => (
-          <option key={item.value} value={item.value}>{item.label}</option>
-        ))}
-      </SelectFiltro>
     </div>
-  )
-}
-
-function SelectFiltro({
-  label,
-  value,
-  onChange,
-  children,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  children: ReactNode
-}) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-text-muted">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="h-9 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-      >
-        {children}
-      </select>
-    </label>
   )
 }
