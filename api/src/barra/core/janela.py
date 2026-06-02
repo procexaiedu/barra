@@ -100,7 +100,14 @@ async def piso_operacao(
     Devolve ``None`` quando não há registro (banco vazio → fallback 2020 no caller).
     """
     row = await (await conn.execute(sql_min, list(params))).fetchone()
-    valor = row[0] if row else None
+    # As conexões usam `dict_row` (core/db.py), então `row[0]` quebraria — pega o
+    # primeiro (e único) valor de forma agnóstica ao row factory.
+    if row is None:
+        valor = None
+    elif hasattr(row, "values"):
+        valor = next(iter(row.values()), None)
+    else:
+        valor = row[0]
     if isinstance(valor, datetime):
         return valor.astimezone(BRT).date()
     if isinstance(valor, date):

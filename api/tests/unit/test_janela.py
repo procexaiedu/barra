@@ -1,8 +1,11 @@
-"""Testes puros de `core.janela.resolver_janela` — foco no período "tudo" ancorado."""
+"""Testes puros de `core.janela` — período "tudo" ancorado e extração do piso."""
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
+from typing import Any
 
-from barra.core.janela import BRT, resolver_janela
+import pytest
+
+from barra.core.janela import BRT, piso_operacao, resolver_janela
 
 
 def _hoje() -> date:
@@ -30,3 +33,35 @@ def test_presets_ignoram_piso() -> None:
     janela = resolver_janela("hoje", None, None, piso_tudo=date(2024, 1, 1))
     assert janela.de == hoje
     assert janela.ate == hoje
+
+
+class _FakeCursor:
+    def __init__(self, row: Any) -> None:
+        self._row = row
+
+    async def fetchone(self) -> Any:
+        return self._row
+
+
+class _FakeConn:
+    """Conexão fake que devolve uma `dict_row` (como core/db.py)."""
+
+    def __init__(self, row: Any) -> None:
+        self._row = row
+
+    async def execute(self, sql: str, params: Any = None) -> _FakeCursor:
+        return _FakeCursor(self._row)
+
+
+@pytest.mark.asyncio
+async def test_piso_operacao_extrai_de_dict_row() -> None:
+    """Regressão: conexões usam dict_row, então `row[0]` quebrava com KeyError.
+    O piso deve sair do 1º valor do dict, convertido para data BRT."""
+    conn = _FakeConn({"min": datetime(2026, 5, 1, 12, 0, tzinfo=UTC)})
+    assert await piso_operacao(conn, "SELECT MIN(x)") == date(2026, 5, 1)
+
+
+@pytest.mark.asyncio
+async def test_piso_operacao_sem_registro_retorna_none() -> None:
+    conn = _FakeConn(None)
+    assert await piso_operacao(conn, "SELECT MIN(x)") is None
