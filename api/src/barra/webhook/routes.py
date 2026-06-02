@@ -93,6 +93,17 @@ async def evolution_webhook(
         WEBHOOK_ERRORS.labels("auth").inc()
         raise ErroDominio("WEBHOOK_NAO_AUTORIZADO", "Webhook nao autorizado.", status_code=401)
 
+    # Teto de corpo: payload legitimo da Evolution e pequeno (midia vem por URL, nao inline).
+    # Rejeita cedo pelo Content-Length para nao bufferizar JSON gigante em memoria (DoS).
+    content_length = request.headers.get("content-length")
+    if (
+        content_length
+        and content_length.isdigit()
+        and int(content_length) > settings.webhook_max_body_bytes
+    ):
+        WEBHOOK_ERRORS.labels("payload_grande").inc()
+        raise ErroDominio("PAYLOAD_GRANDE", "Payload excede o limite.", status_code=413)
+
     payload = await request.json()
 
     pool = getattr(request.app.state, "db_pool", None)
@@ -135,9 +146,8 @@ async def evolution_webhook(
         if not await _instance_cadastrada(conn, msg.instance_id):
             WEBHOOK_ERRORS.labels("instance").inc()
             _logger.warning(
-                "webhook_instance_desconhecida instance=%s remote=%s",
+                "webhook_instance_desconhecida instance=%s",
                 msg.instance_id,
-                msg.remote_jid,
             )
             return {"status": "unknown_instance"}
         conversa_id = await _persistir_cliente(conn, msg, minio, settings.minio_bucket_media, midia)
@@ -320,9 +330,8 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
         if modelo_id is None:
             COMANDOS_GRUPO.labels("invalido").inc()
             _logger.warning(
-                "comando_grupo_modelo_nao_resolvida instance=%s remote=%s",
+                "comando_grupo_modelo_nao_resolvida instance=%s",
                 msg.instance_id,
-                msg.remote_jid,
             )
             return {"status": "unknown_instance"}
         atendimento_id = await _atendimento_por_numero(conn, comando.numero_curto, modelo_id)

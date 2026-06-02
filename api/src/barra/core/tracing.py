@@ -194,5 +194,10 @@ def init_sentry(settings: Settings) -> bool:
         dsn=settings.sentry_dsn,
         environment=settings.ambiente,
         before_send=_tag_turno_id,
+        # PII hard-gate (mesma regra do anonymizer do LangSmith): sem isso o SDK serializa
+        # os f_locals de cada frame do traceback — vazando `msg` (telefone E.164, conteudo
+        # cru do cliente, media_url com token) e, no worker, chave Pix/titular da modelo.
+        include_local_variables=False,
+        send_default_pii=False,
     )
     return True

@@ -22,7 +22,9 @@ class MensagemEvolution:
 
 @dataclass(frozen=True)
 class ComandoGrupo:
-    comando: Literal["devolver_para_ia", "registrar_fechado", "registrar_perdido", "comando_invalido"]
+    comando: Literal[
+        "devolver_para_ia", "registrar_fechado", "registrar_perdido", "comando_invalido"
+    ]
     numero_curto: int | None
     payload: dict[str, Any]
     erro: str | None = None
@@ -85,9 +87,13 @@ def parse_comando_grupo(
         and numero is not None
         and not lower.startswith(("ia assume", "finalizado", "fechado", "perdido"))
     ):
-        valor = _valor(raw)
-        if valor is not None:
-            return ComandoGrupo("registrar_fechado", numero, {"valor_final": valor})
+        valores = _valores(raw)
+        if len(valores) == 1:
+            return ComandoGrupo("registrar_fechado", numero, {"valor_final": valores[0]})
+        if len(valores) > 1:
+            return ComandoGrupo(
+                "comando_invalido", numero, {"motivo": "valor_ambiguo"}, "Valor ambiguo."
+            )
 
     if lower.startswith("ia assume"):
         if numero is None:
@@ -97,15 +103,19 @@ def parse_comando_grupo(
     if lower.startswith("finalizado") or lower.startswith("fechado"):
         if numero is None:
             return _invalido("Informe #N do atendimento.")
-        valor = _valor(raw)
-        if valor is None:
+        valores = _valores(raw)
+        if len(valores) > 1:
+            return ComandoGrupo(
+                "comando_invalido", numero, {"motivo": "valor_ambiguo"}, "Valor ambiguo."
+            )
+        if not valores:
             return ComandoGrupo(
                 "comando_invalido",
                 numero,
                 {"motivo": "valor_final_obrigatorio"},
                 "Valor final obrigatorio.",
             )
-        return ComandoGrupo("registrar_fechado", numero, {"valor_final": valor})
+        return ComandoGrupo("registrar_fechado", numero, {"valor_final": valores[0]})
 
     if lower.startswith("perdido"):
         if numero is None:
@@ -144,12 +154,11 @@ def _numero_curto(texto: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
-def _valor(texto: str) -> Decimal | None:
-    sem_numero = re.sub(r"#\d+\b", "", texto, count=1)
-    match = re.search(r"(?:r\$\s*)?(\d+(?:[.,]\d{3})*(?:[.,]\d{2})?|\d+k)\b", sem_numero, re.I)
-    if not match:
-        return None
-    token = match.group(1).lower()
+_VALOR_RE = re.compile(r"(?:r\$\s*)?(\d+(?:[.,]\d{3})*(?:[.,]\d{2})?|\d+k)\b", re.I)
+
+
+def _token_para_decimal(token: str) -> Decimal | None:
+    token = token.lower()
     if token.endswith("k"):
         try:
             return Decimal(token[:-1]) * Decimal("1000")
@@ -160,6 +169,18 @@ def _valor(texto: str) -> Decimal | None:
         return Decimal(normalizado)
     except InvalidOperation:
         return None
+
+
+def _valores(texto: str) -> list[Decimal]:
+    """Todos os candidatos a valor no texto (apos remover o #N). >1 = ambiguo: o comando
+    nao deve chutar o primeiro (corromperia o Valor final / base de repasse em silencio)."""
+    sem_numero = re.sub(r"#\d+\b", "", texto, count=1)
+    out: list[Decimal] = []
+    for match in _VALOR_RE.finditer(sem_numero):
+        valor = _token_para_decimal(match.group(1))
+        if valor is not None:
+            out.append(valor)
+    return out
 
 
 def _motivo_perda(texto: str) -> str | None:

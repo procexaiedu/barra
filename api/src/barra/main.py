@@ -80,6 +80,19 @@ def build_app() -> FastAPI:
                 "CORS curinga proibido em producao: configure cors_origins explicitos "
                 "(sem '*' nem regex que case origin arbitraria)."
             )
+        # Fail-closed dos segredos: com default vazio, o gate de token do webhook
+        # (routes.py) e curto-circuitado e o webhook aceita POST nao autenticado; sem o
+        # jwt_secret o painel perde a verificacao de assinatura. Em producao isso e fatal.
+        if not settings.evolution_webhook_token:
+            raise RuntimeError(
+                "EVOLUTION_WEBHOOK_TOKEN obrigatorio em producao: sem ele o /webhook/evolution "
+                "fica fail-open (aceita POST nao autenticado)."
+            )
+        if not settings.supabase_jwt_secret:
+            raise RuntimeError(
+                "SUPABASE_JWT_SECRET obrigatorio em producao: sem ele o JWT do painel perde a "
+                "verificacao de assinatura."
+            )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins,
