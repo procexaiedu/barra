@@ -9,3 +9,4 @@ Nao colocar codigo de producao neste diretorio.
 - `reset_agente.py` — reset de estado do agente para testes.
 - `vincular_instance_legacy.py` — vincula instancia Evolution legada a uma modelo.
 - `repara_encoding_evals.py` — conserta mojibake (dupla codificacao latin-1<->utf-8) nas fixtures `.jsonl` de `api/evals/`. Idempotente; `--dry-run` so reporta.
+- `gera_indice_evals.py` — gera `docs/agente/evals-fixtures-indice.html`, indice navegavel das fixtures de `api/evals/{canonicos,adversariais}` com selo BARRA/AVISA (gate espelhado do `runner.py`). Regenere quando as fixtures mudarem.
