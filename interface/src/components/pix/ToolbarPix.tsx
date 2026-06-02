@@ -43,7 +43,7 @@ export function ToolbarPix({
 }) {
   if (loading) {
     return (
-      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_180px_160px_180px_140px] gap-3">
+      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_160px_180px_180px] gap-3">
         {Array.from({ length: 5 }).map((_, index) => (
           <div key={index} className="flex flex-col gap-1">
             <Skeleton className="h-3.5 w-16 rounded" />
@@ -55,7 +55,7 @@ export function ToolbarPix({
   }
 
   return (
-    <div className="grid grid-cols-[minmax(260px,1fr)_180px_160px_180px_140px] gap-3">
+    <div className="grid grid-cols-[minmax(260px,1fr)_140px_160px_180px_180px] gap-3">
       <label className="flex flex-col gap-1">
         <span className="text-xs font-medium text-text-muted">Buscar</span>
         <div className="relative">
@@ -73,11 +73,11 @@ export function ToolbarPix({
         </div>
       </label>
       <SelectFiltro
-        label="Status"
-        value={status}
-        onChange={(value) => onStatusChange(value as FiltroStatusPix)}
+        label="Período"
+        value={periodo}
+        onChange={(value) => onPeriodoChange(value as FiltroPeriodoPix)}
       >
-        {statusFiltroOptions.map((item) => (
+        {periodoFiltroOptions.map((item) => (
           <option key={item.value} value={item.value}>{item.label}</option>
         ))}
       </SelectFiltro>
@@ -86,20 +86,20 @@ export function ToolbarPix({
         <FiltroModelo value={modeloIds} onChange={onModeloChange} className="w-full" />
       </label>
       <SelectFiltro
+        label="Status"
+        value={status}
+        onChange={(value) => onStatusChange(value as FiltroStatusPix)}
+      >
+        {statusFiltroOptions.map((item) => (
+          <option key={item.value} value={item.value}>{item.label}</option>
+        ))}
+      </SelectFiltro>
+      <SelectFiltro
         label="Motivo de revisão"
         value={motivo}
         onChange={(value) => onMotivoChange(value as MotivoRevisao | "todos")}
       >
         {motivoRevisaoFiltroOptions.map((item) => (
-          <option key={item.value} value={item.value}>{item.label}</option>
-        ))}
-      </SelectFiltro>
-      <SelectFiltro
-        label="Período"
-        value={periodo}
-        onChange={(value) => onPeriodoChange(value as FiltroPeriodoPix)}
-      >
-        {periodoFiltroOptions.map((item) => (
           <option key={item.value} value={item.value}>{item.label}</option>
         ))}
       </SelectFiltro>

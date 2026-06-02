@@ -30,16 +30,16 @@ export function ToolbarFinanceiro({
         label="Período"
       />
 
-      {view === "receitas" && (
-        <FiltroForma valor={filtros.forma_pagamento} onChange={fin.setFormaPagamento} />
-      )}
-
       <div className="flex flex-wrap items-center gap-2 border-l border-border pl-3">
         <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           Modelo
         </span>
         <FiltroModelo value={filtros.modelo_ids} onChange={fin.setModeloIds} />
       </div>
+
+      {view === "receitas" && (
+        <FiltroForma valor={filtros.forma_pagamento} onChange={fin.setFormaPagamento} />
+      )}
     </div>
   )
 }

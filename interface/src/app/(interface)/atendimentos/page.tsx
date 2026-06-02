@@ -513,17 +513,17 @@ function Toolbar({
           className="h-9 pl-9"
         />
       </label>
-      <div className="w-[140px]">
-        <SelectFiltro label="Estado" value={estado} onChange={(value) => onEstadoChange(value as EstadoFiltro)}>
-          {estados.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
-        </SelectFiltro>
-      </div>
       <div className="w-[150px]">
         <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
       </div>
       <div className="flex flex-col gap-1">
         <span className="text-xs font-medium text-text-muted">Modelo</span>
         <FiltroModelo value={modeloIds} onChange={onModeloChange} />
+      </div>
+      <div className="w-[140px]">
+        <SelectFiltro label="Estado" value={estado} onChange={(value) => onEstadoChange(value as EstadoFiltro)}>
+          {estados.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}
+        </SelectFiltro>
       </div>
       <PainelFiltros ativos={secundariosAtivos} onLimpar={limparSecundarios}>
         <SelectFiltro label="Tipo" value={tipo} onChange={(value) => onTipoChange(value as TipoFiltro)}>
