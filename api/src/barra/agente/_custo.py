@@ -1,6 +1,8 @@
 """Custo estimado por turno em BRL (docs/agente/03 §4.2).
 
-Funcao pura `calcular_custo_brl(usage_metadata, cotacao_usd_brl)` consumida pelo no llm para
+O ALVO de custo por turno tem fonte unica em `settings.custo_alvo_brl` (CUSTO-06) — este modulo
+so calcula o custo realizado; nao repete o numero do alvo. Funcao pura
+`calcular_custo_brl(usage_metadata, cotacao_usd_brl)` consumida pelo no llm para
 observar o Histogram `AGENTE_CUSTO_TURNO_BRL`. Preco em USD/MTok espelha a tabela publica do
 Sonnet 4.6 (input $3, output $15, cache_write 1.25-2x, cache_read 0.1x). Quando a Anthropic
 mexer no preco, atualizar aqui (constante de modulo, nao settings — preco muda raro e queremos
@@ -22,6 +24,65 @@ PRECO_USD_PER_MTOK: dict[str, float] = {
     "cache_write_1h": 6.00,
     "cache_read": 0.30,
 }
+
+
+# --- Vision (Pix) e STT (Whisper) -------------------------------------------------------------
+# CUSTO-02: custo das outras chamadas de IA por atendimento, alem do chat.
+#
+# >>> TARIFAS PENDENTES DE CONFIRMACAO DO OPERADOR <<<
+# Os dois numeros abaixo sao DEFAULTS PLAUSIVEIS, nunca batidos com o Fernando. Sao alvos de
+# revisao (memoria pipeline_noturno: CUSTO-02 estava travado por falta da tarifa de STT).
+#  - PRECO_VISION_USD_PER_MTOK: o modelo de vision do Pix roteia pelo OpenRouter
+#    (settings.openrouter_model_vision_pix; default "anthropic/claude-sonnet-4.6" em pix.py),
+#    entao adotamos a tabela publica do Sonnet 4.6 (input $3 / output $15) como proxy. Se o
+#    operador fixar outro modelo no OpenRouter, ajustar aqui.
+#  - TARIFA_STT_USD_POR_MINUTO: Whisper-1 da OpenAI e faturado por minuto de audio
+#    (referencia publica $0.006/min). Confirmar a alic. real / eventual desconto antes de tratar
+#    como custo fechado.
+PRECO_VISION_USD_PER_MTOK: dict[str, float] = {
+    "input": 3.00,
+    "output": 15.00,
+}
+TARIFA_STT_USD_POR_MINUTO: float = 0.006
+
+
+def calcular_custo_vision_brl(usage: Any, cotacao_usd_brl: float) -> float:
+    """Custo em BRL de UMA chamada de vision (Pix) a partir do `usage` do SDK OpenAI-compativel.
+
+    `usage` e o objeto `CompletionUsage` da resposta `chat.completions.create` do OpenRouter
+    (atributos `prompt_tokens`/`completion_tokens`). `usage=None` (resposta inconclusiva,
+    fake de teste sem usage) -> 0.0, mesma defesa de `calcular_custo_brl`. Sem cache: o vision
+    e single-shot, nao reusa prefixo entre comprovantes.
+    """
+    if usage is None:
+        return 0.0
+    prompt_t: int = getattr(usage, "prompt_tokens", 0) or 0
+    completion_t: int = getattr(usage, "completion_tokens", 0) or 0
+    usd: float = (
+        prompt_t * PRECO_VISION_USD_PER_MTOK["input"]
+        + completion_t * PRECO_VISION_USD_PER_MTOK["output"]
+    ) / 1_000_000
+    return usd * cotacao_usd_brl
+
+
+def calcular_custo_stt_brl(duracao_segundos: float, cotacao_usd_brl: float) -> float:
+    """Custo em BRL de UMA transcricao Whisper a partir da duracao do audio (faturado por minuto).
+
+    `duracao_segundos` vem do `resposta.duration` do verbose_json do Whisper-1 (ja lida em
+    media.py). Duracao <= 0 (audio nao medido / fake) -> 0.0.
+    """
+    if duracao_segundos <= 0:
+        return 0.0
+    return (duracao_segundos / 60.0) * TARIFA_STT_USD_POR_MINUTO * cotacao_usd_brl
+
+
+def custo_por_atendimento_brl(chat_brl: float, stt_brl: float, vision_brl: float) -> float:
+    """Custo total de IA de um atendimento: soma chat + STT + vision (CUSTO-02).
+
+    Funcao pura para o bloco ROI do dashboard (CUSTO-01) compor o custo_IA_por_fechado a partir
+    dos tres componentes ja agregados por atendimento_id. Cada parcela e >= 0.
+    """
+    return chat_brl + stt_brl + vision_brl
 
 
 def calcular_custo_brl(

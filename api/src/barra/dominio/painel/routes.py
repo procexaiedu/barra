@@ -198,7 +198,7 @@ async def painel_resumo(
     lucro_result = await conn.execute(
         f"""
         SELECT COALESCE(SUM(
-          a.valor_final * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+          (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
         ), 0) AS lucro
           FROM barravips.atendimentos a
          WHERE a.estado = 'Fechado'

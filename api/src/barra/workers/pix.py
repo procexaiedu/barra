@@ -29,12 +29,15 @@ from uuid import UUID
 from openai import AsyncOpenAI
 from pydantic import BaseModel, ConfigDict, Field
 
+from barra.agente._custo import calcular_custo_vision_brl
 from barra.core.metrics import (
+    AGENTE_CUSTO_VISION_BRL,
     PIX_DIVERGENCIA,
     PIX_VALIDACAO_DECISAO,
     PIX_VALIDACAO_DURACAO,
 )
 from barra.dominio.escaladas.service import aplicar_comando
+from barra.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +170,14 @@ async def _extrair_via_openrouter(
             }
         ],
         max_tokens=800,
+    )
+    # CUSTO-02: observa o custo da chamada de vision ANTES de checar finish_reason -- um vision
+    # truncado/recusado tambem queimou tokens. `usage` pode faltar em fakes de teste; a funcao
+    # pura trata None -> 0.0. Label = nome do modelo de vision (mesmo criterio do chat).
+    AGENTE_CUSTO_VISION_BRL.labels(modelo).observe(
+        calcular_custo_vision_brl(
+            getattr(resposta, "usage", None), get_settings().usd_brl_cotacao
+        )
     )
     escolha = resposta.choices[0]
     # finish_reason chega no 200 OK (nao como excecao): 'length' = max_tokens (JSON truncado),

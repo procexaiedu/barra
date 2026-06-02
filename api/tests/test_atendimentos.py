@@ -68,6 +68,23 @@ class FakeConn:
                     }
                 ]
             )
+        # INSERT antes do SELECT em modelos: o INSERT em atendimentos passou a herdar
+        # vendedor_id via subquery `(SELECT vendedor_id FROM barravips.modelos WHERE id=%s)`
+        # (ADR 0012), que contem a substring de modelos — checar o INSERT primeiro evita o
+        # match prematuro no branch de modelos.
+        if "INSERT INTO barravips.atendimentos" in query:
+            return _Result(
+                [
+                    {
+                        "id": uuid4(),
+                        "numero_curto": 99,
+                        "estado": "Novo",
+                        "cliente_id": self.cliente_id,
+                        "modelo_id": self.modelo_id,
+                        "conversa_id": uuid4(),
+                    }
+                ]
+            )
         if "FROM barravips.modelos WHERE id" in query:
             if self.modelo_id is None:
                 return _Result([])
@@ -82,19 +99,6 @@ class FakeConn:
                     {
                         "id": self.atendimento_existente_id,
                         "numero_curto": 42,
-                        "estado": "Novo",
-                        "cliente_id": self.cliente_id,
-                        "modelo_id": self.modelo_id,
-                        "conversa_id": uuid4(),
-                    }
-                ]
-            )
-        if "INSERT INTO barravips.atendimentos" in query:
-            return _Result(
-                [
-                    {
-                        "id": uuid4(),
-                        "numero_curto": 99,
                         "estado": "Novo",
                         "cliente_id": self.cliente_id,
                         "modelo_id": self.modelo_id,

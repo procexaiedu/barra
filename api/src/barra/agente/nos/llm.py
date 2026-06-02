@@ -51,7 +51,7 @@ def _instrumentar_tokens(resp: BaseMessage, modelo: str) -> None:
     AGENTE_TURNO_TOKENS.labels(modelo, "cache_read").inc(read)
     AGENTE_TURNO_TOKENS.labels(modelo, "cache_write").inc(write)
     # Custo BRL: tabela Sonnet 4.6 + cotacao USD/BRL (settings). Observado pelo Histogram
-    # AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta <=0.12 BRL/turno). Mesmo label `modelo` p/ correlato.
+    # AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta em settings.custo_alvo_brl). Mesmo label `modelo` p/ correlato.
     AGENTE_CUSTO_TURNO_BRL.labels(modelo).observe(
         calcular_custo_brl(um, get_settings().usd_brl_cotacao)
     )

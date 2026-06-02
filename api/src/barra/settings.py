@@ -76,7 +76,17 @@ class Settings(BaseSettings):
     anthropic_effort: Literal["low", "medium", "high"] = "low"
     anthropic_max_tokens: int = 1024
 
-    # Cotacao USD->BRL p/ a metrica AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta <=0.12 BRL/turno).
+    # Fonte unica do alvo de custo por turno (CUSTO-06). Antes o numero estava duplicado em
+    # comentarios/help de core/metrics.py, agente/nos/llm.py e _custo.py; agora todos apontam
+    # para este campo. NAO confundir com `max_custo_brl` das fixtures de eval (budget por-fixture
+    # mais estrito, knob diferente, inerte no runner hoje).
+    custo_alvo_brl: float = Field(
+        default=0.12,
+        gt=0.0,
+        description="Alvo de custo estimado por turno do agente em BRL (Sonnet 4.6 com cache; 03 §4.2).",
+    )
+
+    # Cotacao USD->BRL p/ a metrica AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta em settings.custo_alvo_brl).
     # Reajustar por settings em vez de hardcoded p/ nao requerer deploy a cada flutuacao cambial.
     usd_brl_cotacao: float = Field(
         default=5.50,
@@ -167,6 +177,14 @@ class Settings(BaseSettings):
     pix_deslocamento_valor: Decimal = Field(
         default=Decimal("100.00"),
         description="Valor esperado do Pix de deslocamento, em BRL (06 §2.2/§0 item 6). Comparação é `valor >= esperado`: underpay → em_revisao; valor maior é aceito como validado.",
+    )
+    # Taxa de cartão default (ADR 0013): cobrada por cima do serviço quando forma_pagamento='cartao'.
+    # Snapshot por atendimento em atendimentos.taxa_cartao_snapshot; este e so o DEFAULT da UI/fechamento.
+    taxa_cartao_padrao_pct: Decimal = Field(
+        default=Decimal("10.00"),
+        ge=Decimal("0"),
+        le=Decimal("100"),
+        description="Percentual default da Taxa de cartão (ADR 0013), cobrado por cima do serviço no cartão. Isentável por atendimento; snapshot fica em atendimentos.taxa_cartao_snapshot.",
     )
 
     langchain_tracing_v2: bool = False

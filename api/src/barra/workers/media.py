@@ -20,7 +20,9 @@ from uuid import UUID
 from openai import APIError, AsyncOpenAI
 from psycopg import AsyncConnection
 
+from barra.agente._custo import calcular_custo_stt_brl
 from barra.core.metrics import (
+    AGENTE_CUSTO_STT_BRL,
     JOBS,
     ROTEAR_IMAGEM_DECISAO,
     TRANSCRICAO_DURACAO,
@@ -284,6 +286,11 @@ async def transcrever_audio(
 
     texto = (resposta.text or "").strip()
     duracao_audio = float(getattr(resposta, "duration", 0.0) or 0.0)
+    # CUSTO-02: custo de STT = duracao x tarifa por-minuto do Whisper (tarifa em _custo.py,
+    # PENDENTE de confirmacao). Label = nome do modelo de STT (mesmo criterio do chat/vision).
+    AGENTE_CUSTO_STT_BRL.labels(settings.openai_model_audio_transcribe).observe(
+        calcular_custo_stt_brl(duracao_audio, settings.usd_brl_cotacao)
+    )
     nota = f"\n_(originalmente audio, {round(duracao_audio)}s)_"
 
     # 4. UPDATE conteudo + sinaliza canal.

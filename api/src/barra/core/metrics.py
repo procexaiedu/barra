@@ -101,7 +101,20 @@ AGENTE_EVAL_PASS_RATE = Histogram(
 )
 AGENTE_CUSTO_TURNO_BRL = Histogram(
     "agente_custo_turno_brl",
-    "Custo estimado por turno em BRL (Sonnet 4.6 com cache; meta <=0.12 BRL)",
+    "Custo estimado por turno em BRL (Sonnet 4.6 com cache; meta = settings.custo_alvo_brl)",
+    ["modelo"],
+)
+# CUSTO-02: custo das outras chamadas de IA por atendimento, espelhando AGENTE_CUSTO_TURNO_BRL.
+# Tarifas em agente/_custo.py (PENDENTES de confirmacao do operador). Label `modelo` = nome do
+# modelo de vision do OpenRouter (nao o modelo_id da agencia), mesmo criterio do chat.
+AGENTE_CUSTO_VISION_BRL = Histogram(
+    "agente_custo_vision_brl",
+    "Custo estimado por chamada de vision (Pix) em BRL (CUSTO-02; tarifa em _custo.py)",
+    ["modelo"],
+)
+AGENTE_CUSTO_STT_BRL = Histogram(
+    "agente_custo_stt_brl",
+    "Custo estimado por transcricao STT (Whisper) em BRL (CUSTO-02; tarifa por-minuto em _custo.py)",
     ["modelo"],
 )
 TURNO_TRUNCADO = Counter(
