@@ -79,7 +79,7 @@
 | OBS-07 | 2 | Middleware de request-id api→worker | OBS-03 | done |
 | OBS-09/10 | 2 | Tag `modelo_id`/`atendimento_id` nos traces | SEC-10 | done |
 | TOOLS-04 | 2 | Incrementar `AGENTE_ESCALADA` após `abrir_handoff` | — | done |
-| CUSTO-02 | 3 | Custo de STT + vision por atendimento | — | todo |
+| CUSTO-02 | 3 | Custo de STT + vision por atendimento | — | done |
 | CUSTO-01 | 3 | Comissão + Taxa de cartão + ROI (ADRs 0012/0013) | CUSTO-02 | todo |
 | CUSTO-04 | 3 | Teto de turnos por conversa/dia + retry-after | — | done |
 | CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | todo |
@@ -341,8 +341,9 @@
 # ONDA 3 — Otimização, economia e prova de ROI
 
 ### CUSTO-02 — Custo de STT + vision por atendimento
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
-- **DoD/Verificação:** `workers/pix.py:167` lê `resposta.usage`; `workers/media.py:282` usa `resposta.duration`; `core/metrics.py` ganha Histograms de custo STT/vision; `custo_por_atendimento_brl` soma chat+STT+vision.
+- **Status:** done · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
+- **DoD/Verificação:** `_extrair_via_openrouter` (`workers/pix.py`) observa `AGENTE_CUSTO_VISION_BRL` a partir de `resposta.usage`; `transcrever_audio` (`workers/media.py`) observa `AGENTE_CUSTO_STT_BRL` a partir da `duration` × tarifa por-minuto; `core/metrics.py` ganha os 2 Histograms espelhando `AGENTE_CUSTO_TURNO_BRL`; `agente/_custo.py` ganha as funções puras `calcular_custo_vision_brl`/`calcular_custo_stt_brl`/`custo_por_atendimento_brl`. Testadas offline em `test_custo_02_stt_vision.py`.
+- **PENDENTE (operador):** as tarifas em `_custo.py` são defaults plausíveis nunca batidos com o Fernando — vision adota a tabela do Sonnet ($3/$15 por MTok) como proxy do modelo do OpenRouter; STT usa $0.006/min (referência Whisper-1). Confirmar antes de tratar o custo como fechado.
 
 ### CUSTO-01 — Comissão + Taxa de cartão + ROI (ADRs 0012/0013)
 - **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** CUSTO-02 · **Fonte:** roadmap §3.7 + ADRs 0012/0013
