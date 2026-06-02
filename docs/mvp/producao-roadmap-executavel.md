@@ -89,7 +89,7 @@
 | TOOLS-06 | 3 | Counter `agente_tool_erro_recuperavel_total` | — | done |
 | TOOLS-08 | 3 | Eval de recall de `escalar` (AUP ambíguo) | EVAL-01 | done |
 | EVAL-11 | 3 | `agente_eval_pass_rate` online (amostra) | EVAL-01 | done (métrica emitida; scrape vivo = OBS-02/operador) |
-| EVAL-12 | 3 | Simulador de cliente dual-control (descoberta, não-gate) | EVAL-01, EVAL-08 | todo |
+| EVAL-12 | 3 | Simulador de cliente dual-control (descoberta, não-gate) | EVAL-01, EVAL-08 | scaffold (atos+cliente+loop; run live = passo do operador) |
 | DEPLOY-05/06 | 3 | `schema_migrations` + drift-check + staging | DEPLOY-03 | todo |
 | OBS-05 | 3 | Resolver config de tracing morta/duplicada | SEC-10 | done |
 
@@ -399,7 +399,9 @@
 - **DoD/Verificação:** métrica online amostrando ~5-10% dos turnos com rubrica binária de `non_disclosure`.
 
 ### EVAL-12 — Simulador de cliente dual-control (descoberta, não-gate)
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Evals · **Depende de:** EVAL-01, EVAL-08 · **Fonte:** **08b §3.2/§5** (P1, NÃO-BLOCKING — fora do gate de cutover por desenho)
+- **Status:** scaffold (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 3 · **Dimensão:** Evals · **Depende de:** EVAL-01, EVAL-08 · **Fonte:** **08b §3.2/§5** (P1, NÃO-BLOCKING — fora do gate de cutover por desenho)
+- **Implementado:** `api/evals/sim/` — `atos.py` com os atos dual-control (τ²-bench) que **mutam o estado real** no banco de teste espelhando os gatilhos de produção (SQL puro parametrizado, cada um citando `CONTEXT.md`): `enviar_pix(valido|duvidoso)` (→`Confirmado` + `ia_pausada`, nunca trava), `enviar_foto_portaria` (interno `Aguardando_confirmacao`→`Em_execucao`), `enviar_aviso_saida` (seta `aviso_saida_em`, não muda estado), `ficar_em_silencio` (no-op, deixa o timeout decidir). `cliente.py` — `ClienteSimulado`/`PersonaCliente` (intenção + dados, **nunca o gabarito**) + `montar_prompt_cliente` **puro** (anti-leakage RealUserSim: **levanta `ValueError`** se um termo de gabarito escapar para a persona); `decidir` isola a chamada Sonnet (needs_anthropic_api). `loop.py` — `jornada(...)`: loop fechado cliente↔grafo com teto de turnos, reusando `runner.py` (seeding/invoke/captura) **por caminho** (importlib), coletando a `Trajetoria`. `README.md` documenta **POR QUE é não-gate** (infla ~9pp, não-determinístico, multi-turno do P0 já coberto por `scripted_5/`) e o fluxo **descoberta→fixture pré-roteirizada**. Verificado **offline**: 10 testes puros (`tests/evals/test_sim_anti_leakage.py`, importlib — gabarito secreto nunca entra no prompt, persona não expõe campo de gabarito, prompt recusa cada termo) + `ruff` verde + 70 testes de `tests/evals/` passam + `mypy src` (105) intacto (evals/ fora do src). O loop fechado live (grafo + cliente-LLM) é **passo do operador** (needs_db + needs_anthropic_api).
+- **Não-gate por desenho:** o verde-no-sim nunca conta para o cutover; qualquer falha descoberta numa jornada é **promovida a fixture pré-roteirizada de `scripted_5/`** (EVAL-01) — é o corpus determinístico que gateia.
 - **Objetivo (DoD):** existe um cliente simulado que conversa com o grafo em loop fechado e dispara as transições por **atos** (não por mensagens da IA), via "tools" que mudam o estado de verdade: `enviar_pix(valido|duvidoso)`, `enviar_foto_portaria`, `enviar_aviso_saida`, `ficar_em_silencio` (dual-control, τ²-bench). Serve para **descobrir** falhas que viram fixtures de regressão — **nunca** como gate de go-live.
 - **Arquivos:** `api/evals/sim/` (novo), ancorado em `docs/agente/conversas-reais/`.
 - **Passos:** separação top-down/bottom-up — o cliente conhece intenção + dados plausíveis, **nunca o gabarito**, e é constrangido por estado/tools observáveis; calibrar o cliente contra o corpus real (RealUserSim); limpeza anti-leakage por caso; reportar como `pass^k` e tratar como triagem.
