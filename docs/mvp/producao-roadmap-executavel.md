@@ -90,7 +90,7 @@
 | TOOLS-08 | 3 | Eval de recall de `escalar` (AUP ambíguo) | EVAL-01 | todo |
 | EVAL-11 | 3 | `agente_eval_pass_rate` online (amostra) | EVAL-01 | todo |
 | EVAL-12 | 3 | Simulador de cliente dual-control (descoberta, não-gate) | EVAL-01, EVAL-08 | todo |
-| DEPLOY-05/06 | 3 | `schema_migrations` + drift-check + staging | DEPLOY-03 | todo |
+| DEPLOY-05/06 | 3 | `schema_migrations` + drift-check + staging | DEPLOY-03 | done (código; staging + apply em prod = operador) |
 | OBS-05 | 3 | Resolver config de tracing morta/duplicada | SEC-10 | done |
 
 ---
@@ -394,8 +394,16 @@
 - **Guardrails específicos:** simulador infla (até ~9 pp); proibido usá-lo como critério de cutover. Multi-turno do P0 já é coberto por fixtures `scripted_5/` pré-roteirizadas.
 
 ### DEPLOY-05/06 — `schema_migrations` + drift-check + staging
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Deploy · **Depende de:** DEPLOY-03 · **Fonte:** roadmap §3.8
+- **Status:** done (código; staging + apply em prod = operador) · **Onda:** 3 · **Dimensão:** Deploy · **Depende de:** DEPLOY-03 · **Fonte:** roadmap §3.8
 - **DoD/Verificação:** tabela `schema_migrations` + drift-check no CI; banco de staging separado; guarda de ambiente bloqueando seeds em prod.
+- **Entregue (código):**
+  - Migration `infra/sql/20260601100000_schema_migrations.sql` cria `barravips.schema_migrations` (`filename` PK, `aplicada_em`), tabela interna sem RLS.
+  - Guarda de seed em `barra/core/migracoes.py` (puro/testável) + `scripts/aplicar_sql.py`: com `settings.ambiente=='producao'`, recusa aplicar qualquer arquivo com `seed` no nome (qualquer posição, case-insensitive). Alvo `make migrate` pula `*seed*` quando `AMBIENTE=producao`.
+  - `scripts/aplicar_sql.py` registra o filename de schema aplicado em `schema_migrations` (`ON CONFLICT DO NOTHING`).
+  - Drift-check estático `scripts/verificar_migrations.py` no CI (`.github/workflows/ci.yml`, job `verify`): valida naming (`NNNN_`/timestamp) e contiguidade da sequência legacy, sem banco.
+  - Testes: `api/tests/test_deploy_05_guarda_seed.py`, `api/tests/test_deploy_06_drift_check.py`.
+  - Runbook `infra/runbooks/aplicar-migrations-prod.md` atualizado (tracking + backfill + guarda de seed + drift-check).
+- **Pendente (operador, fora do código):** provisionar o **banco de staging separado** (hoje só há um Postgres self-hosted, sem dev/stage). Aplicar a migration `schema_migrations` em prod + **backfill** do tracking com as migrations de schema já aplicadas (passo manual via `scripts/aplicar_sql.py` ou MCP — ver runbook §1).
 - **Guardrails específicos:** esta task é o que torna seguro aplicar migration — até ela existir, schema em prod é manual.
 
 ### OBS-05 — Resolver config de tracing morta/duplicada
