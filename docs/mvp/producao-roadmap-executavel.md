@@ -84,7 +84,7 @@
 | CUSTO-04 | 3 | Teto de turnos por conversa/dia + retry-after | — | done |
 | CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | todo |
 | CUSTO-06 | 3 | Fonte única do alvo de custo | — | todo |
-| PER-01/03 | 3 | Diálogos canônicos com rubrica de voz | EVAL-01 | todo |
+| PER-01/03 | 3 | Diálogos canônicos com rubrica de voz | EVAL-01 | done (judge consumido em EVAL-04/03) |
 | PER-11 | 3 | Reminder anti-drift `<armadilhas_de_voz>` | EVAL-01 | todo |
 | TOOLS-06 | 3 | Counter `agente_tool_erro_recuperavel_total` | — | done |
 | TOOLS-08 | 3 | Eval de recall de `escalar` (AUP ambíguo) | EVAL-01 | done |
@@ -370,7 +370,8 @@
 - **DoD/Verificação:** `settings.custo_alvo_brl` referenciado em `core/metrics.py:96` e no runner; eliminado o divergente 0.12 vs 0.05.
 
 ### PER-01/03 — Diálogos canônicos com rubrica de voz
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Persona+Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8
+- **Status:** done (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 3 · **Dimensão:** Persona+Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8
+- **Implementado:** 5 fixtures multi-turno em `evals/canonicos/scripted_5/` destiladas das 4 conversas reais (`docs/agente/conversas-reais/`): qualificação interno+desconto, recusa de prática em camadas, gringo bilíngue (cliente alterna ES/PT, IA **mantém** PT-BR), desconto único + recusa abaixo do piso, dupla com cliente recuando. PII redatada (sem nomes/números reais). Cada fixture declara rubricas de voz `judge:llm` (`persona`/`tom_pt_br`/`instruction_following`, limiar ~0.8) + graders determinísticos (não responder em espanhol, não vazar IA, `max_chars`). Rodam no runner: a parte determinística grada agora; a **rubrica de voz é consumida quando o judge é ligado no loop (EVAL-04/03, advisory)**. Verificado offline: parseiam, multi-turno (3-5 turnos), rubricas presentes.
 - **DoD/Verificação:** diálogos de `docs/agente/conversas-reais/` destilados em `evals/canonicos/scripted_5/` com rubrica de voz julgada por LLM; rodam no runner.
 
 ### PER-11 — Reminder anti-drift `<armadilhas_de_voz>`
