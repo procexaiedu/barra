@@ -23,20 +23,15 @@ export function ToolbarFinanceiro({
   }
 
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-border bg-muted/30 p-2">
+    <div className="flex flex-wrap items-end gap-2">
       <FiltroPeriodo
         value={{ periodo: filtros.periodo, de: filtros.de, ate: filtros.ate }}
         onChange={onPeriodoChange}
-        label="Período"
       />
-
-      <div className="flex flex-wrap items-center gap-2 border-l border-border pl-3">
-        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-          Modelo
-        </span>
+      <div className="flex flex-col gap-1">
+        <span className="text-xs font-medium text-text-muted">Modelo</span>
         <FiltroModelo value={filtros.modelo_ids} onChange={fin.setModeloIds} />
       </div>
-
       {view === "receitas" && (
         <FiltroForma valor={filtros.forma_pagamento} onChange={fin.setFormaPagamento} />
       )}
@@ -53,11 +48,9 @@ function FiltroForma({
 }) {
   const opcoes = ["pix", "dinheiro", "cartao", "outro"] as const
   return (
-    <div className="flex flex-wrap items-center gap-2 border-l border-border pl-3">
-      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
-        Forma
-      </span>
-      <div className="flex rounded-lg border border-border bg-muted p-0.5">
+    <div className="flex flex-col gap-1">
+      <span className="text-xs font-medium text-text-muted">Forma</span>
+      <div className="flex h-9 items-center rounded-lg border border-border bg-muted p-0.5">
         <SegForma ativo={!valor} onClick={() => onChange(null)}>
           todas
         </SegForma>
