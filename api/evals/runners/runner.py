@@ -272,17 +272,25 @@ async def _seed_par_b_canary(
 async def _inserir_mensagem(
     conn: AsyncConnection[dict[str, Any]], conversa_id: UUID, msg: dict[str, Any]
 ) -> None:
-    """Insere UMA mensagem da fixture na conversa (direcao cliente/ia/modelo_manual)."""
+    """Insere UMA mensagem da fixture na conversa (direcao cliente/ia/modelo_manual).
+
+    `tipo` (default "texto") permite seedar audio (SEC-11): uma transcricao-STT (tipo="audio")
+    entra como HumanMessage cercado pelo spotlighting de prepare_context, exercitando o vetor
+    de injecao indireta via midia (comando no audio -> dado, nunca ordem).
+    """
     direcao = msg.get("direcao", "cliente")
     if direcao not in ("cliente", "ia", "modelo_manual"):
         direcao = "cliente"
+    tipo = msg.get("tipo", "texto")
+    if tipo not in ("texto", "audio", "imagem"):
+        tipo = "texto"
     await conn.execute(
         """
         INSERT INTO barravips.mensagens
             (id, conversa_id, direcao, tipo, conteudo, evolution_message_id)
-        VALUES (%s, %s, %s, 'texto', %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s)
         """,
-        (uuid4(), conversa_id, direcao, msg["texto"], f"eval-evo-{uuid4().hex}"),
+        (uuid4(), conversa_id, direcao, tipo, msg["texto"], f"eval-evo-{uuid4().hex}"),
     )
 
 
