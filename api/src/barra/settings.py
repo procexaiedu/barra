@@ -76,7 +76,17 @@ class Settings(BaseSettings):
     anthropic_effort: Literal["low", "medium", "high"] = "low"
     anthropic_max_tokens: int = 1024
 
-    # Cotacao USD->BRL p/ a metrica AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta <=0.12 BRL/turno).
+    # Fonte unica do alvo de custo por turno (CUSTO-06). Antes o numero estava duplicado em
+    # comentarios/help de core/metrics.py, agente/nos/llm.py e _custo.py; agora todos apontam
+    # para este campo. NAO confundir com `max_custo_brl` das fixtures de eval (budget por-fixture
+    # mais estrito, knob diferente, inerte no runner hoje).
+    custo_alvo_brl: float = Field(
+        default=0.12,
+        gt=0.0,
+        description="Alvo de custo estimado por turno do agente em BRL (Sonnet 4.6 com cache; 03 §4.2).",
+    )
+
+    # Cotacao USD->BRL p/ a metrica AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta em settings.custo_alvo_brl).
     # Reajustar por settings em vez de hardcoded p/ nao requerer deploy a cada flutuacao cambial.
     usd_brl_cotacao: float = Field(
         default=5.50,

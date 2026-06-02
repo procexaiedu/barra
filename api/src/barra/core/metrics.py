@@ -99,7 +99,7 @@ AGENTE_EVAL_PASS_RATE = Histogram(
 )
 AGENTE_CUSTO_TURNO_BRL = Histogram(
     "agente_custo_turno_brl",
-    "Custo estimado por turno em BRL (Sonnet 4.6 com cache; meta <=0.12 BRL)",
+    "Custo estimado por turno em BRL (Sonnet 4.6 com cache; meta = settings.custo_alvo_brl)",
     ["modelo"],
 )
 TURNO_TRUNCADO = Counter(

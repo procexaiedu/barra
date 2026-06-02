@@ -83,7 +83,7 @@
 | CUSTO-01 | 3 | Comissão + Taxa de cartão + ROI (ADRs 0012/0013) | CUSTO-02 | todo |
 | CUSTO-04 | 3 | Teto de turnos por conversa/dia + retry-after | — | done |
 | CUSTO-05 | 3 | Alerta de write-rate de cache | OBS-02 | todo |
-| CUSTO-06 | 3 | Fonte única do alvo de custo | — | todo |
+| CUSTO-06 | 3 | Fonte única do alvo de custo | — | done |
 | PER-01/03 | 3 | Diálogos canônicos com rubrica de voz | EVAL-01 | todo |
 | PER-11 | 3 | Reminder anti-drift `<armadilhas_de_voz>` | EVAL-01 | todo |
 | TOOLS-06 | 3 | Counter `agente_tool_erro_recuperavel_total` | — | done |
@@ -361,8 +361,9 @@
 - **DoD/Verificação:** regra Alertmanager sobre `agente_turno_tokens_total{tipo=cache_write}` disparando >15% em regime (espelha o invariante de `agente/CLAUDE.md`).
 
 ### CUSTO-06 — Fonte única do alvo de custo
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
-- **DoD/Verificação:** `settings.custo_alvo_brl` referenciado em `core/metrics.py:96` e no runner; eliminado o divergente 0.12 vs 0.05.
+- **Status:** done · **Onda:** 3 · **Dimensão:** Custo · **Depende de:** — · **Fonte:** roadmap §3.7
+- **DoD/Verificação:** `settings.custo_alvo_brl` (default 0.12) é fonte única do alvo de custo por turno; help do `AGENTE_CUSTO_TURNO_BRL` (`core/metrics.py`), comentário de `agente/nos/llm.py` e docstring de `agente/_custo.py` apontam para o settings pelo nome (sem hardcode). `test_custo_06_alvo_unico.py` trava contra reintrodução do literal.
+- **Nota (decisão):** mantido 0.12 (alvo de TURNO documentado no help do Histogram). O `max_custo_brl=0.05` das fixtures de eval é um budget por-fixture mais estrito de um knob diferente, hoje **inerte** no runner (não lê custo) — não foi unificado à força nem virou grader.
 
 ### PER-01/03 — Diálogos canônicos com rubrica de voz
 - **Status:** todo · **Onda:** 3 · **Dimensão:** Persona+Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8

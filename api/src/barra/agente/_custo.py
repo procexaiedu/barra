@@ -1,6 +1,8 @@
 """Custo estimado por turno em BRL (docs/agente/03 §4.2).
 
-Funcao pura `calcular_custo_brl(usage_metadata, cotacao_usd_brl)` consumida pelo no llm para
+O ALVO de custo por turno tem fonte unica em `settings.custo_alvo_brl` (CUSTO-06) — este modulo
+so calcula o custo realizado; nao repete o numero do alvo. Funcao pura
+`calcular_custo_brl(usage_metadata, cotacao_usd_brl)` consumida pelo no llm para
 observar o Histogram `AGENTE_CUSTO_TURNO_BRL`. Preco em USD/MTok espelha a tabela publica do
 Sonnet 4.6 (input $3, output $15, cache_write 1.25-2x, cache_read 0.1x). Quando a Anthropic
 mexer no preco, atualizar aqui (constante de modulo, nao settings — preco muda raro e queremos
