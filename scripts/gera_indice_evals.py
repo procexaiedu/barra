@@ -455,7 +455,8 @@ def main() -> None:
     print("self-test gate: OK (extracao casa com a regra do runner)")
     itens = coletar()
     SAIDA.parent.mkdir(parents=True, exist_ok=True)
-    SAIDA.write_text(construir_html(itens), encoding="utf-8")
+    # newline="\n": repo e eol=lf (.gitattributes); evita CRLF no Windows e diff espurio.
+    SAIDA.write_text(construir_html(itens), encoding="utf-8", newline="\n")
 
     total = len(itens)
     n_barra = sum(1 for i in itens if i["gate"] == "regressao")
