@@ -84,6 +84,8 @@ async def listar(
     conn: AsyncConnection[Any],
     *,
     status: str | None,
+    prioridade: str | None = None,
+    q: str | None = None,
     atribuido_tipo: str | None,
     atribuido_id: UUID | None,
     prazo: PrazoFiltro,
@@ -95,6 +97,15 @@ async def listar(
     if status is not None:
         filtros.append("t.status = %s")
         params.append(status)
+
+    if prioridade is not None:
+        filtros.append("t.prioridade = %s")
+        params.append(prioridade)
+
+    if q:
+        filtros.append("(t.titulo ILIKE %s OR t.descricao ILIKE %s)")
+        like = f"%{q}%"
+        params.extend([like, like])
 
     if atribuido_tipo is not None and atribuido_id is not None:
         filtros.append("t.atribuido_tipo = %s AND t.atribuido_id = %s")
@@ -150,8 +161,16 @@ async def criar(
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id
         """,
-        (titulo, descricao, prioridade, prazo,
-         criado_por_tipo, criado_por_id, atribuido_tipo, atribuido_id),
+        (
+            titulo,
+            descricao,
+            prioridade,
+            prazo,
+            criado_por_tipo,
+            criado_por_id,
+            atribuido_tipo,
+            atribuido_id,
+        ),
     )
     row = await result.fetchone()
     assert row is not None
@@ -211,7 +230,4 @@ async def listar_responsaveis(conn: AsyncConnection[Any]) -> list[ResponsavelOpc
         """
     )
     rows = list(await result.fetchall())
-    return [
-        ResponsavelOpcao(tipo=row["tipo"], id=row["id"], nome=row["nome"])
-        for row in rows
-    ]
+    return [ResponsavelOpcao(tipo=row["tipo"], id=row["id"], nome=row["nome"]) for row in rows]

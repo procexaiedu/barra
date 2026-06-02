@@ -17,7 +17,9 @@ import type { Tarefa } from "@/tipos/tarefas"
  *  acoplar ao backend do painel; o modal abre no próprio painel. */
 export function TarefasHojeWidget() {
   const { tarefas, status, responsaveis, criar, atualizar } = useTarefas({
+    busca: "",
     status: "todos",
+    prioridade: "todas",
     prazo: "hoje",
     minhas: false,
   })

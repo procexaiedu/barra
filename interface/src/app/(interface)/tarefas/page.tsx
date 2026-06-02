@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
+import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,6 +41,13 @@ const FILTRO_PRAZO: { valor: FiltrosTarefas["prazo"]; label: string }[] = [
   { valor: "hoje", label: "Hoje" },
   { valor: "semana", label: "Semana" },
   { valor: "atrasadas", label: "Atrasadas" },
+]
+
+const FILTRO_PRIORIDADE: { valor: FiltrosTarefas["prioridade"]; label: string }[] = [
+  { valor: "todas", label: "Toda prioridade" },
+  { valor: "alta", label: "Alta" },
+  { valor: "media", label: "Média" },
+  { valor: "baixa", label: "Baixa" },
 ]
 
 function Segmento<T extends string>({
@@ -73,7 +81,9 @@ function Segmento<T extends string>({
 
 export default function TarefasPage() {
   const [filtros, setFiltros] = useState<FiltrosTarefas>({
+    busca: "",
     status: "todos",
+    prioridade: "todas",
     prazo: "todos",
     minhas: false,
   })
@@ -161,11 +171,23 @@ export default function TarefasPage() {
 
       <section aria-label="Tarefas" className="flex flex-col gap-3">
         {/* Filtros */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-col gap-2">
+          <BuscaFiltro
+            value={filtros.busca}
+            onChange={(busca) => setFiltros((f) => ({ ...f, busca }))}
+            placeholder="Buscar tarefa"
+            className="max-w-md"
+          />
+          <div className="flex flex-wrap items-center gap-2">
           <Segmento
             opcoes={FILTRO_STATUS}
             valor={filtros.status}
             onChange={(v) => setFiltros((f) => ({ ...f, status: v }))}
+          />
+          <Segmento
+            opcoes={FILTRO_PRIORIDADE}
+            valor={filtros.prioridade}
+            onChange={(v) => setFiltros((f) => ({ ...f, prioridade: v }))}
           />
           <Segmento
             opcoes={FILTRO_PRAZO}
@@ -191,6 +213,7 @@ export default function TarefasPage() {
               {total} {total === 1 ? "tarefa" : "tarefas"}
             </span>
           )}
+          </div>
         </div>
 
         {status === "loading" && (

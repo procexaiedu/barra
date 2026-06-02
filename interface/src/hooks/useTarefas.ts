@@ -7,6 +7,7 @@ import type {
   CriarTarefaInput,
   PatchTarefaInput,
   PrazoFiltro,
+  PrioridadeTarefa,
   ResponsavelOpcao,
   ResponsaveisResponse,
   StatusTarefa,
@@ -17,14 +18,18 @@ import type {
 type Status = "loading" | "success" | "error"
 
 export interface FiltrosTarefas {
+  busca: string
   status: StatusTarefa | "todos"
+  prioridade: PrioridadeTarefa | "todas"
   prazo: PrazoFiltro
   minhas: boolean
 }
 
 function montarQuery(f: FiltrosTarefas): string {
   const p = new URLSearchParams()
+  if (f.busca.trim()) p.set("q", f.busca.trim())
   if (f.status !== "todos") p.set("status", f.status)
+  if (f.prioridade !== "todas") p.set("prioridade", f.prioridade)
   if (f.prazo !== "todos") p.set("prazo", f.prazo)
   if (f.minhas) p.set("minhas", "true")
   const qs = p.toString()
