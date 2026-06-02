@@ -21,6 +21,7 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from fakeredis.aioredis import FakeRedis
 from langchain_core.messages import AIMessage
 from langgraph.graph import END
 from langgraph.types import Command
@@ -139,7 +140,7 @@ async def _semear_atendimento(
 def _runtime(conn: AsyncConnection[dict[str, Any]], atendimento_id: UUID) -> _Runtime:
     ctx = ContextAgente(
         db_pool=_PoolDeUmaConexao(conn),  # type: ignore[arg-type]
-        redis=None,  # type: ignore[arg-type]
+        redis=FakeRedis(),  # contador de reincidência (SEC-JB-02): n=1 por teste, não escala
         modelo_id=str(uuid4()),
         atendimento_id=str(atendimento_id),
         cliente_id=str(uuid4()),

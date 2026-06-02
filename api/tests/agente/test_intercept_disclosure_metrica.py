@@ -11,6 +11,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 from uuid import uuid4
 
+from fakeredis.aioredis import FakeRedis
 from langgraph.graph import END
 from langgraph.types import Command
 from prometheus_client import REGISTRY
@@ -61,7 +62,7 @@ class _Runtime:
 def _runtime(pool: _FakePool) -> _Runtime:
     ctx = ContextAgente(
         db_pool=pool,  # type: ignore[arg-type]
-        redis=None,  # type: ignore[arg-type]
+        redis=FakeRedis(),  # contador de reincidência (SEC-JB-02): n=1, não escala nem soma métrica
         modelo_id=str(uuid4()),
         atendimento_id=str(uuid4()),
         cliente_id=str(uuid4()),

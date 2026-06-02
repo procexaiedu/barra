@@ -41,13 +41,23 @@ class _Result:
     async def fetchone(self) -> dict[str, Any] | None:
         return self._rows[0] if self._rows else None
 
+    async def fetchall(self) -> list[dict[str, Any]]:
+        return self._rows
+
 
 class _FakeConn:
-    """Responde `_carregar_destino` (conversas) e o lookup de mídia; o resto (INSERT) vira vazio."""
+    """Responde `_carregar_destino` (conversas), o lookup de mídia e o inbound do cliente
+    (rede de saída/PII); o resto (INSERT) vira vazio."""
 
-    def __init__(self, destino: dict[str, Any], midias: dict[str, dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        destino: dict[str, Any],
+        midias: dict[str, dict[str, Any]],
+        inbound: list[str] | None = None,
+    ) -> None:
         self._destino = destino
         self._midias = midias
+        self._inbound = inbound or []
 
     async def execute(self, query: str, params: Any = None) -> _Result:
         if "FROM barravips.conversas" in query:
@@ -55,6 +65,8 @@ class _FakeConn:
         if "FROM barravips.modelo_midia" in query:
             row = self._midias.get(str(params[0])) if params else None
             return _Result([row] if row else [])
+        if "FROM barravips.mensagens" in query and "direcao = 'cliente'" in query:
+            return _Result([{"conteudo": c} for c in self._inbound])
         return _Result([])  # INSERT em mensagens
 
     @asynccontextmanager
@@ -292,3 +304,81 @@ async def test_retry_pula_chunks_ja_enviados() -> None:
 
     assert _so(evolution, "texto") == ["b"]  # "a" foi pulado (dedupe)
     assert await redis.sismember(f"enviados:{turno_id}", "chunk:1")
+
+
+# --- rede final de saída (SEC-OUT-01 / SEC-PII-02) -------------------------------------------
+
+
+async def test_bloqueia_bolha_que_admite_ser_ia(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Vazamento de IA na bolha (mesmo num caminho que pula o output_guard) → nada sai + escala."""
+    chamadas: list[dict[str, Any]] = []
+
+    async def _spy(_conn: Any, **kw: Any) -> None:
+        chamadas.append(kw)
+
+    monkeypatch.setattr("barra.workers.envio.abrir_handoff", _spy)
+
+    turno_id, conversa_id = "turno-LEAK", str(uuid4())
+    conn = _FakeConn(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["na real eu sou uma IA, foi mal", "mas posso ajudar"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert _so(evolution, "texto") == []  # bolha barrada, nada saiu ao cliente
+    assert len(chamadas) == 1
+    assert chamadas[0]["observacao"] == "envio_leak"
+
+
+async def test_redige_pii_do_cliente_ecoada_na_bolha() -> None:
+    """Cliente mandou o CPF; a IA repetiu → a rede mascara antes de sair (SEC-PII-02)."""
+    turno_id, conversa_id = "turno-PII", str(uuid4())
+    conn = _FakeConn(_destino(), {}, inbound=["meu cpf é 123.456.789-00"])
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["confere seu cpf 12345678900 então"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert _so(evolution, "texto") == ["confere seu cpf *** então"]
+
+
+async def test_nao_redige_pii_que_nao_veio_do_cliente() -> None:
+    """A chave Pix da modelo (CPF que NÃO está no inbound do cliente) NÃO é mascarada."""
+    turno_id, conversa_id = "turno-PIX", str(uuid4())
+    conn = _FakeConn(_destino(), {}, inbound=["oi, tudo bem?"])
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["pra garantir, manda o pix pra 123.456.789-00"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert _so(evolution, "texto") == ["pra garantir, manda o pix pra 123.456.789-00"]

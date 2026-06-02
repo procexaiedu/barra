@@ -405,6 +405,9 @@ _BUCKET_DEFESA: frozenset[str] = frozenset(
         # AGENTE-OG (ADR 0016): output-guard bloqueou a bolha antes do envio — defesa ativa.
         "output_leak",
         "aup_saida",
+        # Rede final do enviar_turno (SEC-OUT-01) e reincidência por telefone (SEC-JB-02).
+        "envio_leak",
+        "reincidencia_seguranca",
     }
 )
 

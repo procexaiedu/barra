@@ -14,10 +14,19 @@ from psycopg_pool import AsyncConnectionPool
 
 from barra.core.errors import ErroDominio
 from barra.core.evolution import EvolutionClient
-from barra.core.metrics import ENVIO_DURACAO, ENVIO_RESULTADO, ENVIO_RETRIES
+from barra.core.metrics import (
+    AGENTE_ESCALADA,
+    ENVIO_DURACAO,
+    ENVIO_PII_REDIGIDA,
+    ENVIO_RESULTADO,
+    ENVIO_RETRIES,
+)
 from barra.core.tracing import sentry_sdk
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
+from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket
+from barra.settings import get_settings
 from barra.workers._cards import render_card
+from barra.workers._saida_guard import extrair_tokens_pii, redigir_pii_eco, tem_marcador_ia
 
 logger = logging.getLogger(__name__)
 
@@ -429,6 +438,84 @@ async def _atendimento_para_escalada(
     return cast("UUID | None", row["id"]) if row else None
 
 
+# --- Rede final de saída (SEC-OUT-01 / SEC-PII-02) ----------------------------
+# O output_guard (ADR 0016) é nó do grafo e só vê o caminho do LLM; os despachos canned
+# (transcrição falhou) e o reengajamento enfileiram `enviar_turno` direto, pulando-o. Esta rede
+# roda no `enviar_turno` e vale para TODOS os caminhos: bloqueia bolha que admite ser IA e redige
+# por eco a PII do cliente. Lógica pura em `_saida_guard`; aqui ficam o I/O e a decisão.
+
+_ACAO_ASSUMIR = "Assumir a conversa com o cliente."
+_RESUMO_ENVIO_LEAK = (
+    "Rede de saída barrou a bolha (auto-referência de IA detectada antes do envio)."
+)
+
+
+async def _pii_cliente_recente(pool: AsyncConnectionPool[Any], conversa_id: str) -> set[str]:
+    """Tokens de PII (CPF/RG/telefone) do inbound recente do cliente — base do gate de eco. Não
+    filtra por tipo='texto': a transcrição de áudio também preenche `conteudo` (eco via STT)."""
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT conteudo FROM barravips.mensagens
+             WHERE conversa_id = %s AND direcao = 'cliente' AND conteudo IS NOT NULL
+             ORDER BY created_at DESC
+             LIMIT 20
+            """,
+            (UUID(conversa_id),),
+        )
+        rows = await res.fetchall()
+    tokens: set[str] = set()
+    for r in rows:
+        tokens |= extrair_tokens_pii(r["conteudo"] or "")
+    return tokens
+
+
+async def _aplicar_saida_guard(
+    pool: AsyncConnectionPool[Any], conversa_id: str, conv: dict[str, Any], chunks: list[str]
+) -> list[str] | None:
+    """Rede final antes da bolha. Devolve os chunks (com PII do cliente redigida por eco, se houver)
+    ou None se o turno deve ser BLOQUEADO (vazamento de IA → handoff + bolha não sai)."""
+    if not get_settings().envio_guard_habilitado:
+        return chunks
+    texto = "\n".join(chunks)
+
+    # A1: auto-referência de IA → bloqueia o turno inteiro e escala (default seguro, A1).
+    if tem_marcador_ia(texto):
+        ENVIO_RESULTADO.labels("bloqueado_leak").inc()
+        atend = conv.get("atendimento_id")
+        if atend is not None:
+            async with pool.connection() as conn:
+                await abrir_handoff(
+                    conn,
+                    atendimento_id=atend,
+                    responsavel="Fernando",
+                    tipo=TipoEscalada.comportamento_atipico,
+                    resumo_operacional=_RESUMO_ENVIO_LEAK,
+                    acao_esperada=_ACAO_ASSUMIR,
+                    origem="agente",
+                    autor="sistema",
+                    observacao="envio_leak",
+                )
+            AGENTE_ESCALADA.labels(mapear_bucket("envio_leak"), "envio_leak").inc()
+        else:
+            logger.warning("envio_guard barrou leak sem atendimento_id conversa_id=%s", conversa_id)
+        return None
+
+    # A2: redação por eco. Pre-check barato — sem shape de PII na saída, nem consulta o inbound.
+    if not extrair_tokens_pii(texto):
+        return chunks
+    tokens_cliente = await _pii_cliente_recente(pool, conversa_id)
+    if not tokens_cliente:
+        return chunks
+    redigidos: list[str] = []
+    for chunk in chunks:
+        novo, tipos = redigir_pii_eco(chunk, tokens_cliente)
+        redigidos.append(novo)
+        for tipo in tipos:
+            ENVIO_PII_REDIGIDA.labels(tipo).inc()
+    return redigidos
+
+
 async def enviar_turno(
     ctx: dict[str, Any],
     *,
@@ -466,6 +553,14 @@ async def enviar_turno(
     conv: dict[str, Any] | None = None
     try:
         conv = await _carregar_destino(pool, conversa_id)
+
+        # Rede final de saída (SEC-OUT-01/SEC-PII-02): cobre também os caminhos canned/reengajamento
+        # que pulam o output_guard do grafo. Leak de IA → bloqueia o turno; PII do cliente → redige.
+        chunks_guard = await _aplicar_saida_guard(pool, conversa_id, conv, chunks)
+        if chunks_guard is None:
+            return  # bolha barrada: handoff já aberto, nada sai (o finally observa a duração)
+        chunks = chunks_guard
+
         conversa_uuid = UUID(conversa_id)
 
         # 0. read receipt + reading delay (lê antes de digitar, 05 §4.2). O membro "read" do set

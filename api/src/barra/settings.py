@@ -136,6 +136,21 @@ class Settings(BaseSettings):
         default=True,
         description="Liga a Etapa 2 (LLM-judge de AUP vinculante) do output_guard. False roda so a Etapa 1 (scan deterministico barato), util se o judge nao-calibrado causar over-refusal. Falha de infra do judge -> default seguro (bloqueia+escala), nunca configuravel p/ passar.",
     )
+    # Rede final de saida no enviar_turno (SEC-OUT-01/SEC-PII-02): cobre tambem os caminhos
+    # canned/reengajamento que pulam o no output_guard do grafo.
+    envio_guard_habilitado: bool = Field(
+        default=True,
+        description="Liga a rede final no enviar_turno: bloqueia+escala bolha que admite ser IA (auto-referencia) e redige por eco a PII do cliente (CPF/RG/telefone) — nao a chave Pix da modelo, que nao vem do cliente. False = bolha sai como hoje (kill-switch sem deploy).",
+    )
+    reincidencia_seguranca_habilitada: bool = Field(
+        default=True,
+        description="Conta tentativas de disclosure/jailbreak por telefone (cliente) em 24h e escala a Fernando ao atingir o limiar, SEM bloquear o cliente (SEC-JB-02/AUP). False desliga a contagem.",
+    )
+    reincidencia_seguranca_limiar: int = Field(
+        default=3,
+        ge=1,
+        description="Nº de tentativas de disclosure/jailbreak do mesmo telefone em 24h que dispara a escalada de reincidencia (1x por janela).",
+    )
     eval_online_sample_rate: float = Field(
         default=0.05,
         ge=0.0,

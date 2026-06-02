@@ -147,6 +147,13 @@ JAILBREAK_DETECTADO = Counter(
     "agente_jailbreak_attempt_total",
     "Tentativas de jailbreak detectadas",
 )
+# SEC-JB-02: reincidencia de seguranca por telefone (cliente) em janela de 24h. Conta tentativas
+# de disclosure/jailbreak e escala a Fernando ao cruzar o limiar, SEM bloquear o cliente.
+REINCIDENCIA_SEGURANCA = Counter(
+    "agente_reincidencia_seguranca_total",
+    "Eventos de reincidencia de disclosure/jailbreak por telefone (SEC-JB-02), por acao",
+    ["acao"],  # contabilizada | escalada
+)
 # AGENTE-OG (ADR 0016): output-guard de saida antes da bolha. Etapa 1 = scan deterministico de
 # vazamento (persona/system/auto-referencia de IA/dado de outra modelo); Etapa 2 = LLM-judge de
 # AUP vinculante. Bloqueio -> handoff p/ Fernando (bucket=defesa) e a bolha nao e enviada.
@@ -173,12 +180,20 @@ ENVIO_DURACAO = Histogram(
 )
 ENVIO_RESULTADO = Counter(
     "agente_envio_resultado_total",
-    "Resultado do envio do turno (05 §9): ok|cancelado|dedupe_skip|falha_evolution|exaustao_critico",
+    "Resultado do envio do turno (05 §9): "
+    "ok|cancelado|dedupe_skip|falha_evolution|exaustao_critico|bloqueado_leak",
     ["resultado"],
 )
 ENVIO_RETRIES = Counter(
     "agente_envio_retries_total",
     "Execucoes do job enviar_turno que sao retry do ARQ (ctx job_try>1) (05 §9)",
+)
+# SEC-PII-02: rede final do enviar_turno redigiu por eco PII do cliente (CPF/RG/telefone) que a
+# bolha ia repetir. Endereco/CEP de proposito fora (saida legitima de atendimento externo).
+ENVIO_PII_REDIGIDA = Counter(
+    "agente_envio_pii_redigida_total",
+    "Tokens de PII do cliente redigidos por eco na bolha de saida (SEC-PII-02), por tipo",
+    ["tipo"],  # cpf | rg | telefone
 )
 # 06 §7: pipeline de validacao do Pix de deslocamento. timestamp foi dropado no MVP
 # (skew BRT vs UTC marca falso ~100% dos comprovantes) entao nao ha label timestamp.
