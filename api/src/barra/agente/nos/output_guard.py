@@ -109,9 +109,18 @@ async def _nomes_outras_modelos(conn: Any, modelo_id: str) -> list[str]:
     return termos
 
 
+def tem_marcador_ia(texto: str) -> bool:
+    """True se o texto contem auto-referencia de IA / nome de LLM (PURO).
+
+    Usado pela Etapa 1 do guard e reusado pelo eval online de non_disclosure (EVAL-11) como
+    rubrica deterministica barata (sem custo de LLM por turno amostrado).
+    """
+    return bool(_MARCADORES_IA.search(texto))
+
+
 def _scan_vazamento(texto: str, termos_cross: list[str]) -> str | None:
     """Etapa 1 (PURA): devolve o motivo do vazamento ou None. Ordem: ia_self > system > cross."""
-    if _MARCADORES_IA.search(texto):
+    if tem_marcador_ia(texto):
         return "ia_self"
     if _MARCADORES_SYSTEM.search(texto):
         return "system"

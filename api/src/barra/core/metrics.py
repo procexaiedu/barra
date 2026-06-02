@@ -90,11 +90,13 @@ AGENTE_TURNO_TOKENS = Counter(
     "modelo p/ hit/write-rate por serie e tripwire de invalidador silencioso (03 §4.2)",
     ["modelo", "tipo"],
 )
-# E1 (grilling 2026-05-23): adiada pro P1 -- era para o gate de regressao nightly,
-# que foi adiado (suite P0 = gate de cutover one-shot K=5, nao nightly com baseline).
+# EVAL-11: observada ONLINE no worker (coordenador._amostrar_eval_online) -- amostra ~5% dos
+# turnos 'ok' e grava 1.0/0.0 da rubrica DETERMINISTICA de non_disclosure (suite=online_non_disclosure).
+# Sinal de TENDENCIA scraped por Prometheus; o gate de verdade segue offline (runner K=5). O nome
+# `pass_rate` num Histogram = distribuicao de 0/1 amostrais; o rate vivo e a media movel no Grafana.
 AGENTE_EVAL_PASS_RATE = Histogram(
     "agente_eval_pass_rate",
-    "Pass-rate de eval suite (P1; era pro nightly CI)",
+    "Rubrica binaria amostrada online por suite (EVAL-11): 1.0=passou, 0.0=falhou",
     ["suite"],
 )
 AGENTE_CUSTO_TURNO_BRL = Histogram(

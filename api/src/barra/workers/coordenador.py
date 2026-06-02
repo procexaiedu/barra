@@ -13,6 +13,7 @@ a resposta (01 §6.7).
 import asyncio
 import json
 import logging
+import random
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any
@@ -27,13 +28,16 @@ from psycopg_pool import AsyncConnectionPool
 
 from barra.agente._canned import escolher_canned_transcricao_falhou
 from barra.agente.contexto import ContextAgente
+from barra.agente.nos.output_guard import tem_marcador_ia
 from barra.core.metrics import (
     AGENTE_ESCALADA,
+    AGENTE_EVAL_PASS_RATE,
     AGENTE_TURNO_DURACAO,
     AGENTE_TURNO_RESULTADO,
     LOCK_OCUPADO,
 )
 from barra.core.redis import LockBusy, adquirir_lock
+from barra.settings import get_settings
 from barra.workers._chunking import chunk_texto
 
 logger = logging.getLogger(__name__)
@@ -342,6 +346,7 @@ async def processar_turno(
                             quote_texto=alvo_quote_texto,
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
+                        _amostrar_eval_online(chunks)  # EVAL-11: rubrica online amostrada
 
                 # 8. drena: chegou msg com o lock retido? re-roda sob o MESMO lock; senao sai.
                 if not await redis.get(f"pending:conv:{conversa_id}"):
@@ -414,6 +419,21 @@ async def aguardar_transcricoes(redis: Any, conversa_id: str, *, orcamento_s: in
         if not data.get("ok", False):
             todos_ok = False
     return leu_algum and todos_ok
+
+
+def _amostrar_eval_online(chunks: list[str]) -> None:
+    """EVAL-11: amostra ~`eval_online_sample_rate` dos turnos 'ok' e observa a rubrica online de
+    non_disclosure em `agente_eval_pass_rate{suite=online_non_disclosure}`.
+
+    Rubrica DETERMINISTICA (`tem_marcador_ia`, mesma do output_guard) -> sem custo de LLM por
+    turno amostrado. So observa um sinal de TENDENCIA (scraped por Prometheus em regime); o gate
+    de verdade segue offline (runner). 0 ou falha de amostragem -> no-op silencioso.
+    """
+    rate = get_settings().eval_online_sample_rate
+    if rate <= 0 or random.random() >= rate:  # noqa: S311 -- amostragem de telemetria, nao cripto
+        return
+    passou = 0.0 if tem_marcador_ia(" ".join(chunks)) else 1.0
+    AGENTE_EVAL_PASS_RATE.labels("online_non_disclosure").observe(passou)
 
 
 def _extrair_texto(msg: AIMessage) -> str:

@@ -88,7 +88,7 @@
 | PER-11 | 3 | Reminder anti-drift `<armadilhas_de_voz>` | EVAL-01 | done |
 | TOOLS-06 | 3 | Counter `agente_tool_erro_recuperavel_total` | — | done |
 | TOOLS-08 | 3 | Eval de recall de `escalar` (AUP ambíguo) | EVAL-01 | done |
-| EVAL-11 | 3 | `agente_eval_pass_rate` online (amostra) | EVAL-01 | todo |
+| EVAL-11 | 3 | `agente_eval_pass_rate` online (amostra) | EVAL-01 | done (métrica emitida; scrape vivo = OBS-02/operador) |
 | EVAL-12 | 3 | Simulador de cliente dual-control (descoberta, não-gate) | EVAL-01, EVAL-08 | todo |
 | DEPLOY-05/06 | 3 | `schema_migrations` + drift-check + staging | DEPLOY-03 | todo |
 | OBS-05 | 3 | Resolver config de tracing morta/duplicada | SEC-10 | done |
@@ -392,7 +392,8 @@
 - **DoD/Verificação:** gate de capacidade (dashboard, não blocker) medindo recall de `escalar` para AUP ambíguo.
 
 ### EVAL-11 — `agente_eval_pass_rate` online (amostra)
-- **Status:** todo · **Onda:** 3 · **Dimensão:** Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8
+- **Status:** done (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 3 · **Dimensão:** Evals · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.8
+- **Implementado:** `coordenador._amostrar_eval_online(chunks)` chamado após o despacho `ok` — amostra `settings.eval_online_sample_rate` (default 0.05) dos turnos e observa `agente_eval_pass_rate{suite="online_non_disclosure"}` com a rubrica **determinística** `tem_marcador_ia` (exposta do `output_guard` — sem custo de LLM por amostra). O Histogram `AGENTE_EVAL_PASS_RATE` (antes inerte/P1) foi reconciliado: agora é distribuição amostral 0/1 por suite. **Semântica online** depende de Prometheus scrapeando o worker (OBS-02/operador). Verificado **offline**: 4 testes (rate=0 no-op, texto limpo→1.0, vazamento IA→0.0, sorteio acima da taxa pula) + `mypy src` (105) + `ruff`.
 - **DoD/Verificação:** métrica online amostrando ~5-10% dos turnos com rubrica binária de `non_disclosure`.
 
 ### EVAL-12 — Simulador de cliente dual-control (descoberta, não-gate)

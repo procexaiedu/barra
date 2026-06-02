@@ -110,6 +110,12 @@ class Settings(BaseSettings):
         default=True,
         description="Liga a Etapa 2 (LLM-judge de AUP vinculante) do output_guard. False roda so a Etapa 1 (scan deterministico barato), util se o judge nao-calibrado causar over-refusal. Falha de infra do judge -> default seguro (bloqueia+escala), nunca configuravel p/ passar.",
     )
+    eval_online_sample_rate: float = Field(
+        default=0.05,
+        ge=0.0,
+        le=1.0,
+        description="EVAL-11: fracao dos turnos 'ok' amostrados p/ a rubrica online de non_disclosure (deterministica, sem custo de LLM) observada em agente_eval_pass_rate{suite=online_non_disclosure}. 0 desliga.",
+    )
 
     # Comportamento comercial do agente (grilling 2026-05-23; docs/agente + ADR-0004)
     desconto_max_pct: float = Field(
