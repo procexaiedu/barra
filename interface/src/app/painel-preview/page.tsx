@@ -18,17 +18,11 @@ import type {
   CardDestaque as CardT,
   MetricasDia,
   LinhaAgenda as LinhaT,
-  ModeloAtiva,
 } from "@/tipos/painel"
 
 const min = (n: number) => new Date(Date.now() - n * 60_000).toISOString()
 const hoje = new Date().toISOString().slice(0, 10)
 const iso = (hhmm: string) => `${hoje}T${hhmm}:00-03:00`
-
-const MODELOS: ModeloAtiva[] = [
-  { id: "m1", nome: "Valentina", evolution_instance_id: "lucia", evolution_status: "conectado" },
-  { id: "m2", nome: "Helena", evolution_instance_id: "helena", evolution_status: "conectado" },
-]
 
 const CARDS: CardT[] = [
   {
@@ -86,9 +80,8 @@ const AGENDA: LinhaT[] = [
 
 /* Réplica fiel do chrome de (interface)/page.tsx — ao editar a página real, espelhar aqui. */
 function PainelChrome({
-  modelos, cards, metricas, agenda, mostrarModelo,
+  cards, metricas, agenda, mostrarModelo,
 }: {
-  modelos: ModeloAtiva[]
   cards: CardT[]
   metricas: MetricasDia
   agenda: LinhaT[]
@@ -97,7 +90,7 @@ function PainelChrome({
   const [compacto, setCompacto] = useState(false)
   return (
     <div>
-      <HeaderPainel modelos={modelos} modeloId={null} onModeloChange={() => {}} />
+      <HeaderPainel modeloIds={[]} onModeloChange={() => {}} />
 
       <section aria-label="Aguardando você" className="px-8 py-5">
         <div className="mb-4 flex items-center justify-between">
@@ -268,9 +261,9 @@ export default function PainelPreview() {
       <Sidebar />
       <main className="flex-1 overflow-y-auto p-8">
         <Divisor texto="Estado populado" />
-        <PainelChrome modelos={MODELOS} cards={CARDS} metricas={METRICAS_CHEIA} agenda={AGENDA} mostrarModelo />
+        <PainelChrome cards={CARDS} metricas={METRICAS_CHEIA} agenda={AGENDA} mostrarModelo />
         <Divisor texto="Estado vazio / dia calmo" />
-        <PainelChrome modelos={MODELOS} cards={[]} metricas={METRICAS_ZERO} agenda={[]} mostrarModelo />
+        <PainelChrome cards={[]} metricas={METRICAS_ZERO} agenda={[]} mostrarModelo />
       </main>
     </div>
   )

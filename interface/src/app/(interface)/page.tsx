@@ -185,7 +185,9 @@ function fimIsoOvernight(data: string, inicio: string, fim: string): string {
 }
 
 export default function PainelGeral() {
-  const [modeloId, setModeloId] = useState<string | null>(null)
+  const [modeloIds, setModeloIds] = useState<string[]>([])
+  // Fluxos de bloqueio precisam de UMA modelo: só quando exatamente uma está filtrada.
+  const modeloIdUnico = modeloIds.length === 1 ? modeloIds[0] : null
   const [paginaCards, setPaginaCards] = useState(0)
   const [compacto, setCompacto] = useState(false)
   const [cardContexto, setCardContexto] = useState<CardDestaqueType | null>(null)
@@ -199,7 +201,7 @@ export default function PainelGeral() {
     fim: "11:00",
     observacao: "",
   }))
-  const { data, status, error, refetch } = usePainelResumo(modeloId)
+  const { data, status, error, refetch } = usePainelResumo(modeloIds)
 
   async function abrirBloquear() {
     const hoje = dataInputSaoPaulo()
@@ -213,7 +215,7 @@ export default function PainelGeral() {
         inicio: `${inicioMes}T00:00:00-03:00`,
         fim: `${fimMes}T23:59:59-03:00`,
       })
-      if (modeloId) params.append("modelo_id", modeloId)
+      if (modeloIdUnico) params.append("modelo_id", modeloIdUnico)
       const res = await api<AgendaResponse>(`/v1/agenda/bloqueios?${params.toString()}`)
       setBloqueiosMes(res.bloqueios)
     } catch {
@@ -222,7 +224,7 @@ export default function PainelGeral() {
   }
 
   const criarBloqueio = async (form: BloqueioFormState) => {
-    const mId = form.modelo_id ?? modeloId
+    const mId = form.modelo_id ?? modeloIdUnico
     if (!mId) {
       toast.error("Selecione uma modelo.")
       return
@@ -284,11 +286,11 @@ export default function PainelGeral() {
     }
   }
 
-  function handleModeloChange(id: string | null) {
+  function handleModeloChange(ids: string[]) {
     setPaginaCards(0)
-    setModeloId(id)
+    setModeloIds(ids)
   }
-  const detalhe = useDetalheMetrica(modeloId)
+  const detalhe = useDetalheMetrica(modeloIds)
   const novosCardIds = useCardEntrada(data?.cards_destaque ?? [])
 
   // Título da aba reflete contagem de pendências (antes dos early returns)
@@ -312,7 +314,7 @@ export default function PainelGeral() {
     return <BannerErro mensagem={error ?? undefined} onRetry={refetch} />
   }
 
-  const mostrarModelo = modeloId === null && data.modelos_ativas.length > 1
+  const mostrarModelo = modeloIds.length !== 1 && data.modelos_ativas.length > 1
 
   const tituloModal = detalhe.tituloCustom
     ?? (detalhe.modalAberto === "fechamentos" && detalhe.mostrarLucro
@@ -329,8 +331,7 @@ export default function PainelGeral() {
   return (
     <div className="flex flex-col gap-8">
       <HeaderPainel
-        modelos={data.modelos_ativas}
-        modeloId={modeloId}
+        modeloIds={modeloIds}
         onModeloChange={handleModeloChange}
       />
 
@@ -565,7 +566,7 @@ export default function PainelGeral() {
       {bloquearOpen && (
         <DialogBloqueio
           bloqueio={null}
-          modeloId={modeloId}
+          modeloId={modeloIdUnico}
           initial={bloquearInitial}
           bloqueios={bloqueiosMes}
           onClose={() => setBloquearOpen(false)}
