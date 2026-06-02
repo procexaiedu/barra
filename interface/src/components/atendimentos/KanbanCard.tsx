@@ -1,6 +1,6 @@
 "use client"
 
-import { PauseCircle } from "lucide-react"
+import { GripVertical, PauseCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
 import { formatBRL, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
@@ -12,20 +12,24 @@ export function KanbanCard({
   onClick,
   dragHandleProps,
   isDragging,
+  arrastavel,
 }: {
   item: AtendimentoListaItem
   onClick: () => void
   dragHandleProps?: Record<string, unknown>
   isDragging?: boolean
+  arrastavel?: boolean
 }) {
   const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
   const valorFinal = item.valor_final
   const valorExibido = valorFinal ?? item.valor_acordado
+  const mostrarAlca = arrastavel && dragHandleProps
 
   return (
     <div
       className={cn(
-        "rounded-lg border border-l-4 border-border bg-card p-3 transition-all",
+        "relative rounded-lg border border-l-4 border-border bg-card p-3 transition-all",
+        mostrarAlca && "pl-7",
         corEstado(item.estado).faixa,
         isDragging
           ? "cursor-grabbing opacity-80 shadow-lg"
@@ -35,8 +39,21 @@ export function KanbanCard({
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick() } }}
-      {...dragHandleProps}
     >
+      {mostrarAlca && (
+        <span
+          {...dragHandleProps}
+          onClick={(e) => e.stopPropagation()}
+          aria-label="Arrastar atendimento"
+          className={cn(
+            "absolute left-1 top-1/2 flex -translate-y-1/2 touch-none items-center rounded text-text-disabled",
+            "cursor-grab hover:text-text-muted active:cursor-grabbing",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          )}
+        >
+          <GripVertical size={14} strokeWidth={1.5} aria-hidden />
+        </span>
+      )}
       <div className="flex min-w-0 items-start justify-between gap-2">
         <p className="min-w-0 flex-1 truncate text-sm font-semibold text-text-primary">{cliente}</p>
         <span className="shrink-0 font-mono text-[11px] text-text-muted">#{item.numero_curto}</span>

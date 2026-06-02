@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Pencil, Trash2, CalendarClock, User2 } from "lucide-react"
+import { Pencil, Trash2, CalendarClock, User2, GripVertical } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import {
@@ -27,6 +27,7 @@ interface Props {
 export function BoardTarefas({ tarefas, onEditar, onExcluir, onMoverStatus }: Props) {
   const [arrastando, setArrastando] = useState<string | null>(null)
   const [sobre, setSobre] = useState<StatusTarefa | null>(null)
+  const [handleAtivo, setHandleAtivo] = useState<string | null>(null)
 
   const porStatus = (s: StatusTarefa) => tarefas.filter((t) => t.status === s)
 
@@ -76,13 +77,13 @@ export function BoardTarefas({ tarefas, onEditar, onExcluir, onMoverStatus }: Pr
               return (
                 <article
                   key={t.id}
-                  draggable
+                  draggable={handleAtivo === t.id}
                   onDragStart={() => setArrastando(t.id)}
-                  onDragEnd={() => setArrastando(null)}
+                  onDragEnd={() => { setArrastando(null); setHandleAtivo(null) }}
                   style={{ animationDelay: `${Math.min(i, 10) * 30}ms`, animationFillMode: "backwards" }}
                   className={cn(
-                    "group relative cursor-grab overflow-hidden rounded-lg bg-card py-2.5 pl-3 pr-2.5 ring-1 ring-foreground/10 transition-colors duration-150 animate-in fade-in-0 slide-in-from-bottom-1",
-                    "hover:bg-surface-hover active:cursor-grabbing",
+                    "group relative overflow-hidden rounded-lg bg-card py-2.5 pl-7 pr-2.5 ring-1 ring-foreground/10 transition-colors duration-150 animate-in fade-in-0 slide-in-from-bottom-1",
+                    "hover:bg-surface-hover",
                     arrastando === t.id && "opacity-50 ring-gold-500/50",
                   )}
                 >
@@ -95,6 +96,19 @@ export function BoardTarefas({ tarefas, onEditar, onExcluir, onMoverStatus }: Pr
                       feita && "opacity-30",
                     )}
                   />
+
+                  {/* alça de arrastar */}
+                  <span
+                    onPointerDown={() => setHandleAtivo(t.id)}
+                    onPointerUp={() => setHandleAtivo(null)}
+                    aria-label="Arrastar tarefa"
+                    className={cn(
+                      "absolute left-1 top-1/2 flex -translate-y-1/2 touch-none items-center text-text-disabled",
+                      "cursor-grab hover:text-text-muted active:cursor-grabbing",
+                    )}
+                  >
+                    <GripVertical size={14} strokeWidth={1.5} aria-hidden />
+                  </span>
 
                   <div className="flex items-start justify-between gap-2">
                     <p

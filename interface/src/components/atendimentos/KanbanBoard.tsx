@@ -119,6 +119,7 @@ function DraggableCard({
         item={item}
         onClick={() => onCardClick(item.id)}
         dragHandleProps={isTerminal ? {} : { ...attributes, ...listeners }}
+        arrastavel={!isTerminal}
         isDragging={false}
       />
     </div>
