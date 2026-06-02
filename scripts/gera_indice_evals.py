@@ -3,14 +3,19 @@
 
 As fixtures vivem em `api/evals/{canonicos,adversariais}/*.jsonl` (uma por linha).
 Hoje so da pra le-las nos .jsonl crus; este gerador emite uma pagina estatica,
-agrupada por categoria -> subcategoria, com selo BARRA (trava o gate) / AVISA
-(advisory) e os campos uteis de cada fixture.
+agrupada por categoria -> subcategoria, com selo BARRA (trava o lancamento) /
+AVISA (so monitora) e os campos uteis de cada fixture, em LINGUAGEM SIMPLES.
 
 Fidelidade do gate: NAO reimplementamos a regra por chute. Extraimos as funcoes
 REAIS `carregar_fixtures`, `_gate_da_fixture` e `_politica_agregacao` direto de
 `api/evals/runners/runner.py` via AST -- sem importar o modulo inteiro (que puxa
 build_graph/langchain/psycopg e exigiria .env). Um self-test confirma que a
 extracao casa com o comportamento documentado.
+
+Descricoes em linguagem simples vem de `scripts/evals_resumos.json` (curado a
+mao); se faltar um id, cai na descricao tecnica do .jsonl. Os nomes de
+ferramentas, estados, rubricas, categorias e subcategorias sao traduzidos por
+mapas abaixo (fallback: troca '_' por espaco).
 
 Saida: docs/agente/evals-fixtures-indice.html (UTF-8, sem build, so Google Fonts).
 
@@ -30,6 +35,7 @@ RAIZ = Path(__file__).resolve().parents[1]
 EVALS = RAIZ / "api" / "evals"
 RUNNER = EVALS / "runners" / "runner.py"
 SAIDA = RAIZ / "docs" / "agente" / "evals-fixtures-indice.html"
+RESUMOS_PATH = Path(__file__).resolve().parent / "evals_resumos.json"
 
 # So estes subdirs sao fixtures do AGENTE. `calibracao/` e dado de calibracao do
 # judge (linhas com `_header`, sem id/categoria/gate) -- nao entra no indice.
@@ -76,6 +82,92 @@ def _selftest_gate() -> None:
     assert _politica_agregacao("canonicos") == "tolerante"
 
 
+# --- humanizacao (jargao -> portugues claro) ---------------------------------------------------
+
+# Descricoes em linguagem simples (curadas); fallback p/ a descricao tecnica do .jsonl.
+RESUMOS: dict[str, str] = {
+    k: v
+    for k, v in json.loads(RESUMOS_PATH.read_text(encoding="utf-8")).items()
+    if not k.startswith("_")
+}
+
+TOOL_HUMANO = {
+    "consultar_agenda": "consultar a agenda",
+    "pedir_pix_deslocamento": "pedir o Pix de deslocamento",
+    "registrar_extracao": "registrar a negociação",
+    "escalar": "escalar para o Fernando",
+    "enviar_midia": "enviar foto/vídeo",
+}
+
+ESTADO_HUMANO = {
+    "Triagem": "Triagem (primeiro contato)",
+    "Qualificado": "Qualificado (cotação feita)",
+    "Aguardando_confirmacao": "Aguardando confirmação",
+    "Confirmado": "Confirmado",
+}
+
+RUBRICA_HUMANO = {
+    "cache_hit_rate": "reaproveitamento de contexto",
+    "conduta_indisponibilidade": "conduta na indisponibilidade",
+    "decisao_correta": "decisão correta",
+    "escalada_correta": "escalou na hora certa",
+    "estado_e_pausa": "estado e pausa corretos",
+    "fluxo_nao_trava": "fluxo não trava",
+    "injecao_midia_resistida": "resistiu à injeção por áudio",
+    "instruction_following": "seguiu as instruções",
+    "isolamento_par": "isolamento entre modelos",
+    "nao_repete_pii": "não repete dados pessoais",
+    "non_disclosure_passivo": "não se entrega como IA",
+    "ocr_chave": "leitura da chave do Pix",
+    "ocr_titular": "leitura do titular do Pix",
+    "ocr_valor": "leitura do valor do Pix",
+    "persona": "personagem",
+    "pii_e_dado_nao_ordem": "trata dado pessoal como dado, não ordem",
+    "texto_midia_e_dado_nao_ordem": "trata texto da mídia como dado, não ordem",
+    "tom_pt_br": "tom em português",
+    "tool_use_correto": "usou as ferramentas certas",
+}
+
+JUDGE_HUMANO = {"llm": "avaliação por IA", "deterministico": "checagem automática"}
+
+CAT_HUMANO = {
+    "canonicos": "Canônicas — o que a IA deve fazer",
+    "adversariais": "Adversariais — ataques e limites",
+}
+
+CAT_CURTO = {"canonicos": "Canônicas", "adversariais": "Adversariais"}
+
+SUBCAT_HUMANO = {
+    "agenda": "Agenda",
+    "cache_hit": "Reaproveitamento de contexto",
+    "leitura": "Consulta de agenda",
+    "pix_extracao": "Leitura de comprovante Pix",
+    "scripted_5": "Diálogos de voz",
+    "aup_ambiguo": "Limites velados (menor, coerção…)",
+    "cross_modelo": "Isolamento entre modelos",
+    "disclosure": "“Você é uma IA?”",
+    "explicito": "Pedidos explícitos",
+    "gaslighting": "Memória falsa / manipulação",
+    "injecao_midia": "Comando escondido em áudio/mídia",
+    "jailbreak": "Jailbreak",
+    "over_refusal_nicho": "Não recusar venda legítima",
+    "pii": "Dados pessoais (RG/CPF)",
+    "prompt_injection": "Comando injetado no texto",
+    "prova": "Prova de que é humana",
+}
+
+
+def _humano(mapa: dict[str, str], chave: str) -> str:
+    """Traducao amigavel; se faltar, troca '_' por espaco (fallback legivel)."""
+    return mapa.get(chave, chave.replace("_", " "))
+
+
+def _titulo_card(fid: str) -> str:
+    """'adversariais.disclosure.001' -> 'disclosure · 001' (id completo vai no tooltip)."""
+    partes = fid.split(".")
+    return " · ".join(partes[-2:]) if len(partes) >= 2 else fid
+
+
 # --- extracao dos campos exibiveis -------------------------------------------------------------
 
 
@@ -103,10 +195,10 @@ def _estado_final(fixture: dict[str, Any]) -> tuple[str | None, bool | None]:
 
 
 def _politica_humana(categoria: str) -> str:
-    pol = _politica_agregacao(categoria)
-    if pol == "todas":
-        return "pass^5 — nenhuma das 5 rodadas pode falhar"
-    return "tolerante — ≥4/5 rodadas (≥80%)"
+    """Como a fixture e aprovada nas 5 rodadas, em linguagem simples."""
+    if _politica_agregacao(categoria) == "todas":
+        return "acertar nas 5 tentativas"
+    return "acertar pelo menos 4 das 5"
 
 
 def coletar() -> list[dict[str, Any]]:
@@ -126,7 +218,8 @@ def coletar() -> list[dict[str, Any]]:
                 "id": fid,
                 "categoria": fx.get("categoria", ""),
                 "subcategoria": fx.get("subcategoria", "(sem subcategoria)"),
-                "descricao": fx.get("descricao", ""),
+                # descricao em linguagem simples (curada); fallback p/ a tecnica do .jsonl
+                "descricao": RESUMOS.get(fid) or fx.get("descricao", ""),
                 "gate": _gate_da_fixture(fx),
                 "obrig": list(exp.get("tool_calls_obrigatorias", [])),
                 "proib": list(exp.get("tool_calls_proibidas", [])),
@@ -138,7 +231,9 @@ def coletar() -> list[dict[str, Any]]:
                 ],
                 "isolamento_canary": bool(exp.get("isolamento_canary")),
                 "n_turnos_cliente": sum(
-                    1 for m in fx.get("mensagens_entrada", []) if m.get("direcao", "cliente") == "cliente"
+                    1
+                    for m in fx.get("mensagens_entrada", [])
+                    if m.get("direcao", "cliente") == "cliente"
                 ),
             }
         )
@@ -154,10 +249,10 @@ def _e(s: Any) -> str:
     return html.escape(str(s), quote=True)
 
 
-def _chips(itens: list[str], classe: str) -> str:
-    if not itens:
+def _chips(textos: list[str], classe: str) -> str:
+    if not textos:
         return '<span class="vazio">—</span>'
-    return "".join(f'<code class="chip {classe}">{_e(t)}</code>' for t in itens)
+    return "".join(f'<span class="chip {classe}">{_e(t)}</span>' for t in textos)
 
 
 def _card(it: dict[str, Any]) -> str:
@@ -165,40 +260,50 @@ def _card(it: dict[str, Any]) -> str:
     rotulo = ROTULO.get(gate, gate)
     estado = it["estado_final"]
     pausada = it["ia_pausada_final"]
+
     estado_txt = []
     if estado:
-        estado_txt.append(f'<span class="kv-v">{_e(estado)}</span>')
+        estado_txt.append(f'<span class="kv-v">{_e(_humano(ESTADO_HUMANO, estado))}</span>')
     if pausada is not None:
+        rotulo_ia = "IA pausa (passa pro Fernando)" if pausada else "IA continua respondendo"
         estado_txt.append(
-            f'<span class="kv-v ia-{"on" if pausada else "off"}">ia_pausada={_e(str(pausada).lower())}</span>'
+            f'<span class="kv-v ia-{"on" if pausada else "off"}">{_e(rotulo_ia)}</span>'
         )
     estado_html = " ".join(estado_txt) if estado_txt else '<span class="vazio">—</span>'
 
-    rubricas_html = "".join(
-        f'<code class="chip rub rub-{_e(r["judge"])}">{_e(r["nome"])}·{_e(r["judge"])}</code>'
-        for r in it["rubricas"]
-    ) or '<span class="vazio">—</span>'
+    rubricas_html = (
+        "".join(
+            f'<span class="chip rub rub-{_e(r["judge"])}">'
+            f'{_e(_humano(RUBRICA_HUMANO, r["nome"]))} · {_e(_humano(JUDGE_HUMANO, r["judge"]))}'
+            f"</span>"
+            for r in it["rubricas"]
+        )
+        or '<span class="vazio">—</span>'
+    )
 
     marcas = []
     if it["isolamento_canary"]:
-        marcas.append('<span class="tag-canary">isolamento_canary</span>')
+        marcas.append('<span class="tag-canary">teste de vazamento entre modelos</span>')
     if it["n_turnos_cliente"] > 1:
-        marcas.append(f'<span class="tag-multi">{it["n_turnos_cliente"]} turnos</span>')
+        marcas.append(f'<span class="tag-multi">conversa de {it["n_turnos_cliente"]} mensagens</span>')
     marcas_html = " ".join(marcas)
+
+    obrig = [_humano(TOOL_HUMANO, t) for t in it["obrig"]]
+    proib = [_humano(TOOL_HUMANO, t) for t in it["proib"]]
 
     return f"""
       <article class="card" data-categoria="{_e(it['categoria'])}" data-gate="{_e(gate)}">
         <header class="card-top">
-          <code class="fid">{_e(it['id'])}</code>
+          <code class="fid" title="{_e(it['id'])}">{_e(_titulo_card(it['id']))}</code>
           <span class="selo selo-{_e(gate)}">{_e(rotulo)}</span>
         </header>
         <p class="desc">{_e(it['descricao'])}</p>
         <dl class="meta">
-          <div class="row"><dt>obrigatórias</dt><dd>{_chips(it['obrig'], 'ok')}</dd></div>
-          <div class="row"><dt>proibidas</dt><dd>{_chips(it['proib'], 'no')}</dd></div>
-          <div class="row"><dt>estado final</dt><dd>{estado_html}</dd></div>
-          <div class="row"><dt>aprovação</dt><dd><span class="pol">{_e(it['politica'])}</span></dd></div>
-          <div class="row"><dt>rubricas</dt><dd>{rubricas_html}</dd></div>
+          <div class="row"><dt>Deve fazer</dt><dd>{_chips(obrig, 'ok')}</dd></div>
+          <div class="row"><dt>Não pode</dt><dd>{_chips(proib, 'no')}</dd></div>
+          <div class="row"><dt>Como termina</dt><dd>{estado_html}</dd></div>
+          <div class="row"><dt>Para passar</dt><dd><span class="pol">{_e(it['politica'])}</span></dd></div>
+          <div class="row"><dt>Como é avaliado</dt><dd>{rubricas_html}</dd></div>
         </dl>
         {f'<footer class="card-tags">{marcas_html}</footer>' if marcas_html else ''}
       </article>"""
@@ -230,20 +335,21 @@ def construir_html(itens: list[dict[str, Any]]) -> str:
             blocos_sub.append(
                 f"""
           <section class="sub" data-categoria="{_e(cat)}">
-            <h3 class="sub-h">{_e(sub)} <span class="sub-n">{len(lista)}</span></h3>
+            <h3 class="sub-h">{_e(_humano(SUBCAT_HUMANO, sub))} <span class="sub-n">{len(lista)}</span></h3>
             <div class="grid">{cards}</div>
           </section>"""
             )
         secoes.append(
             f"""
         <section class="cat" data-categoria="{_e(cat)}">
-          <h2 class="cat-h">{_e(cat)} <span class="cat-n">{n_cat}</span></h2>
+          <h2 class="cat-h">{_e(_humano(CAT_HUMANO, cat))} <span class="cat-n">{n_cat}</span></h2>
           {''.join(blocos_sub)}
         </section>"""
         )
 
     chips_cat = "".join(
-        f'<button class="filtro" data-tipo="cat" data-val="{_e(c)}">{_e(c)}</button>' for c in cats
+        f'<button class="filtro" data-tipo="cat" data-val="{_e(c)}">{_e(_humano(CAT_CURTO, c))}</button>'
+        for c in cats
     )
 
     return _TEMPLATE.format(
@@ -261,7 +367,7 @@ _TEMPLATE = """<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Fixtures de eval · Elite Baby</title>
+<title>Testes da IA · Elite Baby</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -289,16 +395,16 @@ body::before {{
 header.topo {{ border-bottom:1px solid var(--linha); padding-bottom:28px; margin-bottom:8px; }}
 .kicker {{ font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.18em;
   text-transform:uppercase; color:var(--ouro2); }}
-h1 {{ font-family:'Fraunces',serif; font-weight:700; font-size:clamp(30px,5vw,46px);
-  margin:.18em 0 .1em; color:var(--texto); letter-spacing:-.01em; }}
+h1 {{ font-family:'Fraunces',serif; font-weight:700; font-size:clamp(28px,5vw,44px);
+  margin:.18em 0 .12em; color:var(--texto); letter-spacing:-.01em; }}
 h1 em {{ font-style:italic; color:var(--ouro); }}
-.sub-titulo {{ color:var(--suave); max-width:62ch; }}
+.sub-titulo {{ color:var(--suave); max-width:64ch; font-size:15px; }}
+.sub-titulo strong {{ color:var(--texto); }}
 .stats {{ display:flex; gap:14px; flex-wrap:wrap; margin-top:22px; }}
 .stat {{ background:var(--painel); border:1px solid var(--linha); border-radius:12px;
-  padding:12px 18px; min-width:104px; }}
+  padding:12px 18px; min-width:108px; }}
 .stat .num {{ font-family:'Fraunces',serif; font-size:30px; font-weight:600; line-height:1; }}
-.stat .lbl {{ font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.1em;
-  text-transform:uppercase; color:var(--suave); margin-top:6px; }}
+.stat .lbl {{ font-size:12px; color:var(--suave); margin-top:6px; }}
 .stat.barra .num {{ color:var(--vermelho); }}
 .stat.avisa .num {{ color:var(--azul); }}
 .stat.total .num {{ color:var(--ouro); }}
@@ -306,22 +412,20 @@ h1 em {{ font-style:italic; color:var(--ouro); }}
 .barra-filtros {{ position:sticky; top:0; z-index:5; margin:26px 0 8px;
   background:linear-gradient(var(--bg) 72%, transparent); padding:14px 0 16px; }}
 .grupo-filtro {{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-bottom:8px; }}
-.grupo-filtro > .leg {{ font-family:'JetBrains Mono',monospace; font-size:11px;
-  letter-spacing:.12em; text-transform:uppercase; color:var(--suave); margin-right:4px; min-width:74px; }}
-.filtro {{ font-family:'JetBrains Mono',monospace; font-size:12px; cursor:pointer;
-  color:var(--texto); background:var(--sup); border:1px solid var(--linha);
-  border-radius:999px; padding:6px 14px; transition:.16s; }}
+.grupo-filtro > .leg {{ font-size:12px; color:var(--suave); margin-right:4px; min-width:74px; }}
+.filtro {{ font-size:13px; cursor:pointer; color:var(--texto);
+  background:var(--sup); border:1px solid var(--linha);
+  border-radius:999px; padding:6px 15px; transition:.16s; }}
 .filtro:hover {{ border-color:var(--ouro2); color:var(--ouro); }}
 .filtro.on {{ background:var(--ouro); color:#1a1206; border-color:var(--ouro); font-weight:700; }}
 .filtro.g-barra.on {{ background:var(--vermelho); border-color:var(--vermelho); color:#fff; }}
 .filtro.g-avisa.on {{ background:var(--azul); border-color:var(--azul); color:#0e1620; }}
 
-.cat-h {{ font-family:'Fraunces',serif; font-weight:600; font-size:26px; margin:40px 0 2px;
+.cat-h {{ font-family:'Fraunces',serif; font-weight:600; font-size:24px; margin:40px 0 2px;
   padding-bottom:8px; border-bottom:1px solid var(--linha); display:flex; align-items:baseline; gap:10px; }}
 .cat-n, .sub-n {{ font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--suave);
   background:var(--sup); border:1px solid var(--linha); border-radius:999px; padding:1px 10px; }}
-.sub-h {{ font-family:'JetBrains Mono',monospace; font-weight:500; font-size:14px;
-  letter-spacing:.06em; color:var(--ouro2); margin:26px 0 12px; text-transform:lowercase;
+.sub-h {{ font-weight:700; font-size:16px; color:var(--ouro2); margin:26px 0 12px;
   display:flex; align-items:center; gap:8px; }}
 .grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(360px,1fr)); gap:14px; }}
 
@@ -332,71 +436,69 @@ h1 em {{ font-style:italic; color:var(--ouro); }}
 @keyframes surge {{ from {{ opacity:0; transform:translateY(7px); }} to {{ opacity:1; transform:none; }} }}
 .card-top {{ display:flex; justify-content:space-between; align-items:center; gap:10px; margin-bottom:9px; }}
 .fid {{ font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--ouro);
-  word-break:break-all; }}
+  word-break:break-word; }}
 .selo {{ font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700;
   letter-spacing:.1em; padding:3px 10px; border-radius:6px; white-space:nowrap; flex-shrink:0; }}
 .selo-regressao {{ color:#1a0d09; background:linear-gradient(135deg,var(--vermelho),var(--ouro));
   box-shadow:0 0 0 1px rgba(223,90,68,.4); }}
 .selo-capability {{ color:#0e1620; background:var(--azul); }}
-.desc {{ margin:0 0 12px; color:var(--texto); font-size:13.5px; line-height:1.5; }}
+.desc {{ margin:0 0 12px; color:var(--texto); font-size:14px; line-height:1.55; }}
 .meta {{ margin:0; border-top:1px solid var(--linha); padding-top:10px;
-  display:flex; flex-direction:column; gap:6px; }}
-.meta .row {{ display:grid; grid-template-columns:96px 1fr; gap:8px; align-items:start; }}
-.meta dt {{ font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:.08em;
-  text-transform:uppercase; color:var(--suave); padding-top:3px; }}
+  display:flex; flex-direction:column; gap:7px; }}
+.meta .row {{ display:grid; grid-template-columns:104px 1fr; gap:10px; align-items:start; }}
+.meta dt {{ font-size:12px; font-weight:600; color:var(--suave); padding-top:3px; }}
 .meta dd {{ margin:0; display:flex; flex-wrap:wrap; gap:5px; align-items:center; }}
-.chip {{ font-family:'JetBrains Mono',monospace; font-size:11px; padding:2px 8px;
-  border-radius:5px; border:1px solid var(--linha); background:var(--sup); color:var(--texto); }}
+.chip {{ font-size:12px; padding:2px 9px; border-radius:6px;
+  border:1px solid var(--linha); background:var(--sup); color:var(--texto); }}
 .chip.ok {{ border-color:rgba(108,192,138,.5); color:var(--verde); }}
 .chip.no {{ border-color:rgba(223,90,68,.45); color:var(--vermelho); }}
 .chip.rub {{ color:var(--suave); }}
 .chip.rub-llm {{ border-color:rgba(111,168,207,.45); color:var(--azul); }}
 .chip.rub-deterministico {{ border-color:rgba(240,191,94,.4); color:var(--ouro2); }}
-.kv-v {{ font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--texto);
-  background:var(--sup); border:1px solid var(--linha); border-radius:5px; padding:2px 8px; }}
+.kv-v {{ font-size:12.5px; color:var(--texto);
+  background:var(--sup); border:1px solid var(--linha); border-radius:6px; padding:2px 9px; }}
 .ia-on {{ color:var(--vermelho); }} .ia-off {{ color:var(--verde); }}
-.pol {{ font-size:12px; color:var(--suave); }}
+.pol {{ font-size:13px; color:var(--texto); }}
 .vazio {{ color:var(--linha); }}
 .card-tags {{ margin-top:10px; display:flex; gap:6px; flex-wrap:wrap; }}
-.tag-canary, .tag-multi {{ font-family:'JetBrains Mono',monospace; font-size:10px;
-  letter-spacing:.06em; padding:2px 8px; border-radius:999px; }}
+.tag-canary, .tag-multi {{ font-size:11px; padding:2px 9px; border-radius:999px; }}
 .tag-canary {{ color:var(--vermelho); border:1px dashed rgba(223,90,68,.5); }}
 .tag-multi {{ color:var(--azul); border:1px solid rgba(111,168,207,.4); }}
 .cat.oculto, .sub.oculto, .card.oculto {{ display:none; }}
 footer.rodape {{ margin-top:60px; padding-top:20px; border-top:1px solid var(--linha);
-  color:var(--suave); font-size:12px; font-family:'JetBrains Mono',monospace; }}
-.legenda {{ display:flex; gap:18px; flex-wrap:wrap; margin-top:10px; }}
-.legenda span {{ display:inline-flex; align-items:center; gap:7px; }}
-.pip {{ width:11px; height:11px; border-radius:3px; display:inline-block; }}
+  color:var(--suave); font-size:13px; }}
+.legenda {{ display:flex; gap:22px; flex-wrap:wrap; margin-top:10px; }}
+.legenda span {{ display:inline-flex; align-items:center; gap:8px; }}
+.pip {{ width:12px; height:12px; border-radius:3px; display:inline-block; flex-shrink:0; }}
 .pip.b {{ background:linear-gradient(135deg,var(--vermelho),var(--ouro)); }}
 .pip.a {{ background:var(--azul); }}
+.nota {{ margin-top:14px; font-size:12px; opacity:.7; }}
 </style>
 </head>
 <body>
 <div class="wrap">
   <header class="topo">
-    <div class="kicker">Elite Baby · avaliação do agente</div>
-    <h1>Índice de <em>fixtures</em> de eval</h1>
-    <p class="sub-titulo">Cada fixture é um roteiro de conversa com o gabarito do que a IA
-    deve e não deve fazer. O selo <strong>BARRA</strong> indica regressão (trava o cutover);
-    <strong>AVISA</strong> é capability (advisory). A regra de gate espelha
-    <code>_gate_da_fixture</code> do runner.</p>
+    <div class="kicker">Elite Baby · testes da IA de atendimento</div>
+    <h1>O que a IA é <em>testada</em> para fazer</h1>
+    <p class="sub-titulo">Cada caso abaixo é um roteiro de conversa com o gabarito do que a IA
+    deve e não deve fazer. <strong>BARRA</strong> marca um caso obrigatório — se falhar, trava o
+    lançamento da IA. <strong>AVISA</strong> marca um caso de acompanhamento — só monitora, não trava.</p>
     <div class="stats">
-      <div class="stat total"><div class="num">{total}</div><div class="lbl">fixtures</div></div>
-      <div class="stat barra"><div class="num">{n_barra}</div><div class="lbl">BARRA</div></div>
-      <div class="stat avisa"><div class="num">{n_avisa}</div><div class="lbl">AVISA</div></div>
+      <div class="stat total"><div class="num">{total}</div><div class="lbl">casos de teste</div></div>
+      <div class="stat barra"><div class="num">{n_barra}</div><div class="lbl">BARRA (obrigatórios)</div></div>
+      <div class="stat avisa"><div class="num">{n_avisa}</div><div class="lbl">AVISA (acompanhamento)</div></div>
     </div>
   </header>
 
   <div class="barra-filtros">
     <div class="grupo-filtro">
-      <span class="leg">categoria</span>
-      <button class="filtro on" data-tipo="cat" data-val="*">todas</button>
+      <span class="leg">Categoria</span>
+      <button class="filtro on" data-tipo="cat" data-val="*">Todas</button>
       {chips_cat}
     </div>
     <div class="grupo-filtro">
-      <span class="leg">gate</span>
-      <button class="filtro on" data-tipo="gate" data-val="*">todos</button>
+      <span class="leg">Tipo</span>
+      <button class="filtro on" data-tipo="gate" data-val="*">Todos</button>
       <button class="filtro g-barra" data-tipo="gate" data-val="regressao">BARRA</button>
       <button class="filtro g-avisa" data-tipo="gate" data-val="capability">AVISA</button>
     </div>
@@ -408,11 +510,11 @@ footer.rodape {{ margin-top:60px; padding-top:20px; border-top:1px solid var(--l
 
   <footer class="rodape">
     <div class="legenda">
-      <span><i class="pip b"></i> BARRA = regressão (bloqueia o gate, pass-rate ~100%)</span>
-      <span><i class="pip a"></i> AVISA = capability (advisory, não bloqueia até graduar)</span>
+      <span><i class="pip b"></i> <strong>BARRA</strong> — caso obrigatório: trava o lançamento se falhar</span>
+      <span><i class="pip a"></i> <strong>AVISA</strong> — caso de acompanhamento: só monitora, não trava</span>
     </div>
-    <p>Gerado por <code>{gerado_por}</code> a partir de <code>api/evals/{{canonicos,adversariais}}</code>.
-    Regenere quando as fixtures mudarem.</p>
+    <p class="nota">Cada caso é testado 5 vezes. Página gerada automaticamente por <code>{gerado_por}</code>;
+    para atualizar, rode o gerador de novo quando os casos mudarem.</p>
   </footer>
 </div>
 
@@ -454,6 +556,9 @@ def main() -> None:
     _selftest_gate()
     print("self-test gate: OK (extracao casa com a regra do runner)")
     itens = coletar()
+    faltam = [i["id"] for i in itens if i["id"] not in RESUMOS]
+    if faltam:
+        print(f"  AVISO: {len(faltam)} fixtures sem resumo simples (usando descricao crua): {faltam}")
     SAIDA.parent.mkdir(parents=True, exist_ok=True)
     # newline="\n": repo e eol=lf (.gitattributes); evita CRLF no Windows e diff espurio.
     SAIDA.write_text(construir_html(itens), encoding="utf-8", newline="\n")
