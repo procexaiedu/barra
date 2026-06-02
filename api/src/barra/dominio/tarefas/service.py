@@ -35,6 +35,8 @@ async def listar_tarefas(
     conn: AsyncConnection[Any],
     *,
     status: str | None,
+    prioridade: str | None = None,
+    q: str | None = None,
     minhas: bool,
     user_id: UUID,
     prazo: PrazoFiltro,
@@ -43,9 +45,12 @@ async def listar_tarefas(
     # "minhas" = tarefas atribuídas ao usuário logado (no P0 todo login é 'usuario').
     atribuido_tipo = "usuario" if minhas else None
     atribuido_id = user_id if minhas else None
+    busca = q.strip() if q else None
     items = await repo.listar(
         conn,
         status=status,
+        prioridade=prioridade,
+        q=busca or None,
         atribuido_tipo=atribuido_tipo,
         atribuido_id=atribuido_id,
         prazo=prazo,

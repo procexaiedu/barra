@@ -26,7 +26,7 @@ export interface DetalheMetricaState {
   retry: () => void
 }
 
-export function useDetalheMetrica(modeloId: string | null): DetalheMetricaState {
+export function useDetalheMetrica(modeloIds: string[]): DetalheMetricaState {
   const [modalAberto, setModalAberto] = useState<TipoModal | null>(null)
   const [mostrarLucro, setMostrarLucro] = useState(false)
   const [tituloCustom, setTituloCustom] = useState<string | null>(null)
@@ -36,12 +36,15 @@ export function useDetalheMetrica(modeloId: string | null): DetalheMetricaState 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [tentativa, setTentativa] = useState(0)
+  const modeloKey = modeloIds.join(",")
 
   useEffect(() => {
     if (!modalAberto) return
     let active = true
     const tipo = modalAberto
-    const params = modeloId ? `?modelo_id=${modeloId}` : ""
+    const ids = modeloKey ? modeloKey.split(",") : []
+    const qs = ids.map((id) => `modelo_id=${encodeURIComponent(id)}`).join("&")
+    const params = qs ? `?${qs}` : ""
     api<{ itens: ItemAberto[] | ItemFechamento[] | ItemPerda[] }>(`${ENDPOINT[tipo]}${params}`)
       .then((d) => {
         if (!active) return
@@ -64,7 +67,7 @@ export function useDetalheMetrica(modeloId: string | null): DetalheMetricaState 
         setLoading(false)
       })
     return () => { active = false }
-  }, [modalAberto, modeloId, tentativa])
+  }, [modalAberto, modeloKey, tentativa])
 
   const abrir = useCallback((tipo: TipoModal, lucro = false, titulo?: string) => {
     setDetalheAbertos([])

@@ -238,6 +238,7 @@ export function AgendaClient() {
         periodoLabel={agenda.periodo.label}
         modeloId={agenda.modeloId}
         tipoAtendimento={tipoAtendimento}
+        bloqueios={bloqueios}
         onAnterior={agenda.anterior}
         onProximo={agenda.proximo}
         onHoje={agenda.hoje}

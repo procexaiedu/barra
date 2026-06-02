@@ -99,7 +99,7 @@ export function FiltroModelo({
         )}
       >
         <span className="flex items-center gap-2 truncate">
-          <span className={cn("truncate", value.length === 0 && "text-text-muted")}>{rotulo}</span>
+          <span className="truncate">{rotulo}</span>
           {value.length > 1 && (
             <span className="shrink-0 rounded-full bg-gold-500/15 px-1.5 text-[10px] font-semibold text-gold-500 tabular-nums">
               {value.length}

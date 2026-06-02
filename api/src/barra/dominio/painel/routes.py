@@ -32,7 +32,13 @@ def _ontem_brt() -> tuple[datetime, datetime]:
 def _formatar_telefone(telefone: str | None) -> str:
     if not telefone:
         return ""
-    digitos = telefone.replace("+", "").replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
+    digitos = (
+        telefone.replace("+", "")
+        .replace("-", "")
+        .replace(" ", "")
+        .replace("(", "")
+        .replace(")", "")
+    )
     if digitos.startswith("55") and len(digitos) >= 12:
         digitos = digitos[2:]
     if len(digitos) == 11:
@@ -44,7 +50,7 @@ def _formatar_telefone(telefone: str | None) -> str:
 
 @router.get("/resumo")
 async def painel_resumo(
-    modelo_id: UUID | None = Query(None),
+    modelo_id: list[UUID] | None = Query(None),
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     agora = datetime.now(BRT)
@@ -69,7 +75,7 @@ async def painel_resumo(
     ]
 
     # Filtro de modelo para as queries abaixo
-    filtro_modelo_sql = "AND a.modelo_id = %s" if modelo_id else ""
+    filtro_modelo_sql = "AND a.modelo_id = ANY(%s)" if modelo_id else ""
     filtro_modelo_params: tuple[Any, ...] = (modelo_id,) if modelo_id else ()
 
     cards_result = await conn.execute(
@@ -110,25 +116,29 @@ async def painel_resumo(
         if row["ia_pausada_motivo"] == "modelo_em_atendimento" and not expirado:
             continue
 
-        cards_destaque.append({
-            "atendimento_id": str(row["atendimento_id"]),
-            "numero_curto": row["numero_curto"],
-            "cliente_nome": row["cliente_nome"],
-            "cliente_telefone_formatado": _formatar_telefone(row["cliente_telefone"]),
-            "ia_pausada_motivo": row["ia_pausada_motivo"],
-            "motivo_escalada": row["motivo_escalada"],
-            "proxima_acao_esperada": row["proxima_acao_esperada"],
-            "responsavel_atual": row["responsavel_atual"],
-            "ia_pausada_em": row["ia_pausada_em"].isoformat() if row["ia_pausada_em"] else None,
-            "previsao_termino": previsao.isoformat() if previsao else None,
-            "expirado": expirado,
-            "modelo_nome": row["modelo_nome"],
-        })
+        cards_destaque.append(
+            {
+                "atendimento_id": str(row["atendimento_id"]),
+                "numero_curto": row["numero_curto"],
+                "cliente_nome": row["cliente_nome"],
+                "cliente_telefone_formatado": _formatar_telefone(row["cliente_telefone"]),
+                "ia_pausada_motivo": row["ia_pausada_motivo"],
+                "motivo_escalada": row["motivo_escalada"],
+                "proxima_acao_esperada": row["proxima_acao_esperada"],
+                "responsavel_atual": row["responsavel_atual"],
+                "ia_pausada_em": row["ia_pausada_em"].isoformat() if row["ia_pausada_em"] else None,
+                "previsao_termino": previsao.isoformat() if previsao else None,
+                "expirado": expirado,
+                "modelo_nome": row["modelo_nome"],
+            }
+        )
 
     ordem_motivo = {"pix_em_revisao": 0, "handoff_ia": 1, "modelo_em_atendimento": 2}
-    cards_destaque.sort(key=lambda c: (ordem_motivo.get(c["ia_pausada_motivo"], 9), c["ia_pausada_em"] or ""))
+    cards_destaque.sort(
+        key=lambda c: (ordem_motivo.get(c["ia_pausada_motivo"], 9), c["ia_pausada_em"] or "")
+    )
 
-    filtro_modelo_aten = "AND modelo_id = %s" if modelo_id else ""
+    filtro_modelo_aten = "AND modelo_id = ANY(%s)" if modelo_id else ""
 
     abertos_result = await conn.execute(
         f"""
@@ -142,7 +152,7 @@ async def painel_resumo(
     abertos_row = await abertos_result.fetchone()
     abertos = abertos_row["n"] if abertos_row else 0
 
-    filtro_modelo_eventos = "AND a.modelo_id = %s" if modelo_id else ""
+    filtro_modelo_eventos = "AND a.modelo_id = ANY(%s)" if modelo_id else ""
 
     fechamentos_result = await conn.execute(
         f"""
@@ -255,7 +265,7 @@ async def painel_resumo(
     perdas_ontem = int(ontem_row["perdas"]) if ontem_row else 0
     valor_ontem = float(ontem_row["valor_bruto"]) if ontem_row else 0.0
 
-    pix_filtro = "AND a.modelo_id = %s" if modelo_id else ""
+    pix_filtro = "AND a.modelo_id = ANY(%s)" if modelo_id else ""
     pix_result = await conn.execute(
         f"""
         SELECT COUNT(*) AS n
@@ -270,7 +280,7 @@ async def painel_resumo(
     pix_row = await pix_result.fetchone()
     pix_pendentes = pix_row["n"] if pix_row else 0
 
-    filtro_bloqueio = "AND b.modelo_id = %s" if modelo_id else ""
+    filtro_bloqueio = "AND b.modelo_id = ANY(%s)" if modelo_id else ""
     agenda_result = await conn.execute(
         f"""
         SELECT
@@ -338,10 +348,10 @@ async def painel_resumo(
 
 @router.get("/detalhe/abertos")
 async def painel_detalhe_abertos(
-    modelo_id: UUID | None = Query(None),
+    modelo_id: list[UUID] | None = Query(None),
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
-    filtro = "AND a.modelo_id = %s" if modelo_id else ""
+    filtro = "AND a.modelo_id = ANY(%s)" if modelo_id else ""
     params: tuple[Any, ...] = (modelo_id,) if modelo_id else ()
 
     result = await conn.execute(
@@ -377,11 +387,11 @@ async def painel_detalhe_abertos(
 
 @router.get("/detalhe/fechamentos-hoje")
 async def painel_detalhe_fechamentos(
-    modelo_id: UUID | None = Query(None),
+    modelo_id: list[UUID] | None = Query(None),
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     inicio_dia, fim_dia = _hoje_brt()
-    filtro = "AND a.modelo_id = %s" if modelo_id else ""
+    filtro = "AND a.modelo_id = ANY(%s)" if modelo_id else ""
     params: tuple[Any, ...] = (inicio_dia, fim_dia, *((modelo_id,) if modelo_id else ()))
 
     result = await conn.execute(
@@ -410,26 +420,32 @@ async def painel_detalhe_fechamentos(
     itens = []
     for row in rows:
         vf = float(row["valor_final"]) if row["valor_final"] is not None else None
-        pct = float(row["percentual_repasse_snapshot"]) if row["percentual_repasse_snapshot"] is not None else None
+        pct = (
+            float(row["percentual_repasse_snapshot"])
+            if row["percentual_repasse_snapshot"] is not None
+            else None
+        )
         lucro = (vf * (1 - pct / 100)) if vf is not None and pct is not None else vf
-        itens.append({
-            "atendimento_id": str(row["id"]),
-            "numero_curto": row["numero_curto"],
-            "cliente_nome": row["cliente_nome"],
-            "valor_final": vf,
-            "lucro": lucro,
-            "modelo_nome": row["modelo_nome"],
-        })
+        itens.append(
+            {
+                "atendimento_id": str(row["id"]),
+                "numero_curto": row["numero_curto"],
+                "cliente_nome": row["cliente_nome"],
+                "valor_final": vf,
+                "lucro": lucro,
+                "modelo_nome": row["modelo_nome"],
+            }
+        )
     return {"itens": itens, "servidor_em": agora.isoformat()}
 
 
 @router.get("/detalhe/perdas-hoje")
 async def painel_detalhe_perdas(
-    modelo_id: UUID | None = Query(None),
+    modelo_id: list[UUID] | None = Query(None),
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     inicio_dia, fim_dia = _hoje_brt()
-    filtro = "AND a.modelo_id = %s" if modelo_id else ""
+    filtro = "AND a.modelo_id = ANY(%s)" if modelo_id else ""
     params: tuple[Any, ...] = (inicio_dia, fim_dia, *((modelo_id,) if modelo_id else ()))
 
     result = await conn.execute(

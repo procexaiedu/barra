@@ -57,6 +57,9 @@ async def listar_clientes(
     data_inicio: str | None = None,
     data_fim: str | None = None,
     perfis: list[str] | None = Query(default=None),
+    recencia: Literal["ativos", "dormentes"] | None = None,
+    valor_min: float | None = None,
+    valor_max: float | None = None,
     incluir_arquivados: bool = False,
     limit: int = Query(50, ge=1, le=100),
     cursor: str | None = None,
@@ -81,6 +84,19 @@ async def listar_clientes(
     if predicado:
         filtros.append(predicado[0])
         params.extend(predicado[1])
+    # Faixa de R$ fechado (ag.valor_total — cross-modelo) e recência sobre a última
+    # atividade (ag.ultima_atividade = MAX updated_at). Espelha os filtros do Mapa
+    # (MAPA-11); negativos viram NO-OP. ag.* vem do LATERAL agregado abaixo.
+    if valor_min is not None and valor_min >= 0:
+        filtros.append("ag.valor_total >= %s")
+        params.append(valor_min)
+    if valor_max is not None and valor_max >= 0:
+        filtros.append("ag.valor_total <= %s")
+        params.append(valor_max)
+    if recencia == "ativos":
+        filtros.append("ag.ultima_atividade >= NOW() - INTERVAL '90 days'")
+    elif recencia == "dormentes":
+        filtros.append("ag.ultima_atividade < NOW() - INTERVAL '90 days'")
     if not incluir_arquivados:
         filtros.append("c.arquivado_em IS NULL")
     if cursor:

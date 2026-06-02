@@ -17,6 +17,7 @@ from barra.core.auth import UsuarioAtual
 from barra.dominio.tarefas import service
 from barra.dominio.tarefas.schemas import (
     PrazoFiltro,
+    PrioridadeTarefa,
     ResponsaveisResponse,
     StatusTarefa,
     TarefaCriar,
@@ -31,13 +32,21 @@ router = APIRouter(dependencies=[Depends(get_user)])
 @router.get("")
 async def listar(
     status: StatusTarefa | None = None,
+    prioridade: PrioridadeTarefa | None = None,
     prazo: PrazoFiltro = "todos",
+    q: str | None = None,
     minhas: bool = False,
     user: UsuarioAtual = Depends(get_user),
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> TarefasListaResponse:
     return await service.listar_tarefas(
-        conn, status=status, minhas=minhas, user_id=user.id, prazo=prazo
+        conn,
+        status=status,
+        prioridade=prioridade,
+        q=q,
+        minhas=minhas,
+        user_id=user.id,
+        prazo=prazo,
     )
 
 

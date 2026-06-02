@@ -9,23 +9,27 @@ import type { PainelResumo } from "@/tipos/painel"
 
 type Status = "loading" | "success" | "error"
 
-export function usePainelResumo(modeloId: string | null) {
+export function usePainelResumo(modeloIds: string[]) {
   const [data, setData] = useState<PainelResumo | null>(null)
   const [status, setStatus] = useState<Status>("loading")
   const [error, setError] = useState<string | null>(null)
   const router = useRouter()
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const firstLoadDone = useRef(false)
-  const modeloIdRef = useRef(modeloId)
+  const modeloIdsRef = useRef(modeloIds)
+  const modeloKey = modeloIds.join(",")
 
   useEffect(() => {
-    modeloIdRef.current = modeloId
-  }, [modeloId])
+    modeloIdsRef.current = modeloIds
+  }, [modeloIds])
 
   const fetchResumo = useCallback(async () => {
     if (!firstLoadDone.current) setStatus("loading")
     try {
-      const params = modeloIdRef.current ? `?modelo_id=${modeloIdRef.current}` : ""
+      const qs = modeloIdsRef.current
+        .map((id) => `modelo_id=${encodeURIComponent(id)}`)
+        .join("&")
+      const params = qs ? `?${qs}` : ""
       const res = await api<PainelResumo>(`/v1/painel/resumo${params}`)
       setData(res)
       setStatus("success")
@@ -47,7 +51,7 @@ export function usePainelResumo(modeloId: string | null) {
   // Refetch imediato quando o filtro de modelo muda (sem resetar firstLoadDone — evita flash de skeleton)
   useEffect(() => {
     fetchResumo()
-  }, [modeloId, fetchResumo])
+  }, [modeloKey, fetchResumo])
 
   useEffect(() => {
     const cleanupRealtime = subscribeTabelas(

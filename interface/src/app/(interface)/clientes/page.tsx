@@ -6,6 +6,7 @@ import { Plus, X } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { ApiError, api } from "@/lib/api"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DetalheCliente } from "@/components/clientes/DetalheCliente"
 import { ListaClientes } from "@/components/clientes/ListaClientes"
@@ -17,6 +18,7 @@ import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { PainelFiltros } from "@/components/filtros/PainelFiltros"
+import { SelectFiltro } from "@/components/filtros/SelectFiltro"
 import { useClientes } from "@/hooks/useClientes"
 import { FILTROS_MAPA_PADRAO, useClientesMapa } from "@/hooks/useClientesMapa"
 import type { FiltrosMapa } from "@/hooks/useClientesMapa"
@@ -207,6 +209,9 @@ function ClientesInner() {
             }}
             modeloIds={crm.filtros.modeloIds}
             perfis={crm.filtros.perfis}
+            recencia={crm.filtros.recencia}
+            valorMin={crm.filtros.valorMin}
+            valorMax={crm.filtros.valorMax}
             loading={crm.listaStatus === "loading"}
             incluirArquivados={crm.incluirArquivados}
             onBuscaChange={(busca) => crm.setFiltros((current) => ({ ...current, busca }))}
@@ -220,6 +225,10 @@ function ClientesInner() {
             }
             onModeloChange={(modeloIds) => crm.setFiltros((current) => ({ ...current, modeloIds }))}
             onPerfisChange={(perfis) => crm.setFiltros((current) => ({ ...current, perfis }))}
+            onRecenciaChange={(recencia) => crm.setFiltros((current) => ({ ...current, recencia }))}
+            onValorRangeChange={({ valorMin, valorMax }) =>
+              crm.setFiltros((current) => ({ ...current, valorMin, valorMax }))
+            }
             onIncluirArquivadosChange={crm.setIncluirArquivados}
           />
           {bairroFiltro && (
@@ -340,24 +349,34 @@ function Toolbar({
   periodo,
   modeloIds,
   perfis,
+  recencia,
+  valorMin,
+  valorMax,
   loading,
   incluirArquivados,
   onBuscaChange,
   onPeriodoChange,
   onModeloChange,
   onPerfisChange,
+  onRecenciaChange,
+  onValorRangeChange,
   onIncluirArquivadosChange,
 }: {
   busca: string
   periodo: PeriodoSelecionado
   modeloIds: string[]
   perfis: PerfilFisico[]
+  recencia: "ativos" | "dormentes" | null
+  valorMin: number | null
+  valorMax: number | null
   loading: boolean
   incluirArquivados: boolean
   onBuscaChange: (value: string) => void
   onPeriodoChange: (value: PeriodoSelecionado) => void
   onModeloChange: (value: string[]) => void
   onPerfisChange: (value: PerfilFisico[]) => void
+  onRecenciaChange: (value: "ativos" | "dormentes" | null) => void
+  onValorRangeChange: (range: { valorMin: number | null; valorMax: number | null }) => void
   onIncluirArquivadosChange: (value: boolean) => void
 }) {
   if (loading) {
@@ -372,7 +391,12 @@ function Toolbar({
       </div>
     )
   }
-  const filtrosSecundariosAtivos = perfis.length + (incluirArquivados ? 1 : 0)
+  const faixaValorAtiva = valorMin != null || valorMax != null
+  const filtrosSecundariosAtivos =
+    perfis.length +
+    (incluirArquivados ? 1 : 0) +
+    (recencia ? 1 : 0) +
+    (faixaValorAtiva ? 1 : 0)
   return (
     <div className="flex flex-wrap items-end gap-3">
       <BuscaFiltro
@@ -390,12 +414,59 @@ function Toolbar({
         ativos={filtrosSecundariosAtivos}
         onLimpar={() => {
           onPerfisChange([])
+          onRecenciaChange(null)
+          onValorRangeChange({ valorMin: null, valorMax: null })
           onIncluirArquivadosChange(false)
         }}
       >
         <div className="flex flex-col gap-1.5">
           <span className="text-xs font-medium text-text-muted">Perfil físico</span>
           <SeletorPerfis value={perfis} onChange={onPerfisChange} idPrefix="filtro-perfil" />
+        </div>
+        <SelectFiltro
+          label="Recência"
+          value={recencia ?? "todos"}
+          onChange={(v) => onRecenciaChange(v === "todos" ? null : (v as "ativos" | "dormentes"))}
+        >
+          <option value="todos">Qualquer atividade</option>
+          <option value="ativos">Ativos (até 90 dias)</option>
+          <option value="dormentes">Dormentes (90+ dias)</option>
+        </SelectFiltro>
+        <div className="flex flex-col gap-1.5">
+          <span className="text-xs font-medium text-text-muted">Valor fechado (R$)</span>
+          <div className="flex items-center gap-2">
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              value={valorMin ?? ""}
+              onChange={(e) =>
+                onValorRangeChange({
+                  valorMin: e.target.value === "" ? null : Number(e.target.value),
+                  valorMax,
+                })
+              }
+              placeholder="Mín"
+              aria-label="Valor mínimo"
+              className="h-9"
+            />
+            <span className="text-text-muted">–</span>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              value={valorMax ?? ""}
+              onChange={(e) =>
+                onValorRangeChange({
+                  valorMin,
+                  valorMax: e.target.value === "" ? null : Number(e.target.value),
+                })
+              }
+              placeholder="Máx"
+              aria-label="Valor máximo"
+              className="h-9"
+            />
+          </div>
         </div>
         <label className="flex w-fit cursor-pointer select-none items-center gap-2 text-xs text-text-muted">
           <input

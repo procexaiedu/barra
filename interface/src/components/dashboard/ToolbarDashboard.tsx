@@ -21,7 +21,7 @@ export function ToolbarDashboard({
 }: Props) {
   return (
     <section aria-label="Filtros do dashboard" className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end gap-2">
         <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
         <div className="flex flex-col gap-1">
           <span className="text-xs font-medium text-text-muted">Modelo</span>

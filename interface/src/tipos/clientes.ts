@@ -230,4 +230,9 @@ export interface FiltrosClientes {
   /** Multi-seleção de modelo. Vazio = todas (sem filtro). */
   modeloIds: string[]
   perfis: PerfilFisico[]
+  /** Recência por última atividade: "ativos" (≥90d) / "dormentes" (<90d). null = sem filtro. */
+  recencia: "ativos" | "dormentes" | null
+  /** Faixa do valor fechado (R$ cross-modelo) do cliente. null = sem limite. */
+  valorMin: number | null
+  valorMax: number | null
 }
