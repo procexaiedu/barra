@@ -62,7 +62,7 @@
 | WIN-DEPLOY-10 | win | corrigir README do stack real | — | done |
 | EVAL-01 | 2 | Runner de evals mínimo + `make evals` | — | done (refino 08b §5 aplicado) |
 | EVAL-08 | 2 | `NodesVisitedHandler` + `state_check` | EVAL-01 | done |
-| EVAL-02 | 2 | LLM-judge binário + fixture de DUAS modelos (ADR 0015) | EVAL-01 | todo |
+| EVAL-02 | 2 | LLM-judge binário + fixture de DUAS modelos (ADR 0015) | EVAL-01 | done (judge advisory; consumo no runner em EVAL-04/03) |
 | EVAL-10 | 2 | Calibrar judge contra golden humano (ADR 0015) | EVAL-02 | todo |
 | EVAL-04/03 | 2 | Loop K=5 + CI bloqueante | EVAL-01, DEPLOY-03 | todo |
 | SEC-07 | 2 | Cobrir AUP fora do regex como fixtures | EVAL-02 | todo |
@@ -242,7 +242,8 @@
 - **Verificação:** fixture `prompt_injection/001` com `nodes_proibidos:['tools']` reprova se a tool foi chamada.
 
 ### EVAL-02 — LLM-judge binário + fixture de DUAS modelos (ADR 0015)
-- **Status:** todo · **Onda:** 2 · **Dimensão:** Evals+Segurança · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.4 + **ADR 0015**
+- **Status:** done (2026-06-01, branch `feat/evals-cutover-gate`) · **Onda:** 2 · **Dimensão:** Evals+Segurança · **Depende de:** EVAL-01 · **Fonte:** roadmap §3.4 + **ADR 0015**
+- **Implementado:** `evals/runners/judge.py` + `judge.md` — judge binário Sonnet 4.6, structured output `{passou,score,justificativa}` por rubrica, recebe só o `texto_resposta` (+histórico em rubrica de drift `persona`), nunca o gabarito; anti-viés no `judge.md` (ignora comprimento, critério binário sem A/B). **ADVISORY** (`JUDGE_VINCULANTE=False`) até calibrar (EVAL-10) — nunca bloqueia o gate; os graders determinísticos são o gate (LLM-judge sofre *agreeableness bias*). Grader **cross-modelo STRONG** no runner (`_seed_par_b_canary` + `isolamento_canary` varrendo a `superficie_auditavel` = bolha **+ args de TODAS as tools**, não só o output — AgentLeak); `cross_modelo/001` reescrita STRONG (era falso-positivo `['Carol']`). **Fixtures** populadas a ≥6 por categoria: `explicito` 6 (inclui AUP-dura menor/coerção/ilegal → escala, nunca cota), `gaslighting` 6, `prova` 6, `jailbreak` 6, `cross_modelo` 6 (2 STRONG com canaries distintos). Verificado **offline**: 68 fixtures parseiam, ids únicos; 35 testes puros (gate+judge). **Consumo do judge no loop do runner + gate `pass^5` ficam em EVAL-04/03.** Run live é passo do operador.
 - **Objetivo (DoD):** rubricas `judge:llm` declaradas nas fixtures têm implementação; gate AUP exige `pass^5` (0 vazamento em K=5) em `non_disclosure`/`deve_negar_identidade`/cross-modelo.
 - **Arquivos:** `api/evals/runners/judge.py` + `judge.md` (novos), `adversariais/{explicito,gaslighting,prova}/`, `cross_modelo/`, `disclosure/`, `jailbreak/`, `prompt_injection/` (≥6 fixtures cada; cross-modelo com dados de DUAS modelos no banco de teste).
 - **Passos:** judge recebe só o `texto_resposta` (e histórico quando a rubrica é de drift), devolve `{passou,score,justificativa}` via structured output, Sonnet 4.6; rubrica binária por critério (sem comparação A/B); instruções anti-viés no `judge.md` (ignorar comprimento; julgar só o critério). **Ler ADR 0015 antes.**
