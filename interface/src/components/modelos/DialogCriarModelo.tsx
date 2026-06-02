@@ -1,10 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { Loader2, X } from "lucide-react"
+import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Separator } from "@/components/ui/separator"
 import { ConectarWhatsappConteudo, type QrModalStatus } from "@/components/modelos/ConectarWhatsappConteudo"
@@ -103,16 +103,17 @@ export function DialogCriarModelo({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent className="w-full max-w-xl rounded-lg border border-border bg-popover p-6">
+      <DialogContent size="md">
         {etapa === "form" ? (
           <>
-            <div className="mb-5 flex items-start justify-between gap-4">
+            <DialogHeader className="items-start justify-between gap-4">
               <div>
                 <DialogTitle className="text-lg font-semibold">Adicionar modelo</DialogTitle>
                 <DialogDescription>Cadastre o mínimo para operar; os programas e valores ficam no Perfil.</DialogDescription>
               </div>
-              <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fechar"><X size={18} strokeWidth={1.5} /></Button>} />
-            </div>
+              <DialogCloseButton />
+            </DialogHeader>
+            <DialogBody>
             <div className="space-y-6">
               <section className="space-y-4">
                 <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-text-brand">Dados básicos</h3>
@@ -162,28 +163,31 @@ export function DialogCriarModelo({
             {tentou && !valido && (
               <p className="mt-4 text-sm text-state-lost">Preencha nome, idade, número com DDD, idioma e pelo menos uma opção de atendimento.</p>
             )}
-            <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
+            </DialogBody>
+            <DialogFooter>
               <Button variant="ghost" onClick={() => handleOpenChange(false)} disabled={submitting}>Cancelar</Button>
               <Button variant="primary" onClick={submit} disabled={submitting}>
                 {submitting && <Loader2 className="animate-spin" />}
                 Criar modelo
               </Button>
-            </div>
+            </DialogFooter>
           </>
         ) : (
           <>
             <div className="absolute right-4 top-4">
-              <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fechar"><X size={18} strokeWidth={1.5} /></Button>} />
+              <DialogCloseButton />
             </div>
-            <ConectarWhatsappConteudo
-              nome={nomeCriado}
-              qr={qr ?? null}
-              status={qrStatus ?? "loading"}
-              error={qrError ?? null}
-              onAtualizar={() => onAtualizar?.()}
-              onFechar={() => handleOpenChange(false)}
-              textoFechar="Concluir"
-            />
+            <DialogBody>
+              <ConectarWhatsappConteudo
+                nome={nomeCriado}
+                qr={qr ?? null}
+                status={qrStatus ?? "loading"}
+                error={qrError ?? null}
+                onAtualizar={() => onAtualizar?.()}
+                onFechar={() => handleOpenChange(false)}
+                textoFechar="Concluir"
+              />
+            </DialogBody>
           </>
         )}
       </DialogContent>

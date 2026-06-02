@@ -6,7 +6,6 @@ import {
   ExternalLink,
   FileText,
   RotateCcw,
-  X,
   XCircle,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -16,8 +15,10 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import {
   Dialog,
-  DialogClose,
+  DialogCloseButton,
   DialogContent,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { BannerErro } from "@/components/layout/BannerErro"
@@ -153,12 +154,11 @@ export function DialogVisualizarComprovante({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className={cn(
-          "flex w-[min(98vw,108rem)] h-[min(96vh,68rem)] flex-col overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-2xl ring-1 ring-foreground/10",
-        )}
+        size="xl"
+        className="h-[min(96vh,68rem)] max-h-none w-[min(98vw,108rem)] overflow-hidden"
       >
         {/* Header */}
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-b border-border px-8 py-4">
+        <DialogHeader className="justify-between">
           <div className="flex min-w-0 items-center gap-3">
             <DialogTitle className="text-lg font-semibold text-text-primary">
               Comprovante Pix
@@ -175,14 +175,8 @@ export function DialogVisualizarComprovante({
               </span>
             )}
           </div>
-          <DialogClose
-            render={
-              <Button variant="ghost" size="icon" aria-label="Fechar">
-                <X size={18} strokeWidth={1.5} />
-              </Button>
-            }
-          />
-        </div>
+          <DialogCloseButton />
+        </DialogHeader>
 
         {/* Body: viewer + sidebar */}
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_440px]">
@@ -445,7 +439,7 @@ export function DialogVisualizarComprovante({
 
         {/* Footer */}
         {hasActions && (
-          <div className="flex flex-shrink-0 items-center justify-end gap-2 border-t border-border px-8 py-4">
+          <DialogFooter>
             {fase === "view" ? (
               <>
                 <Button
@@ -484,7 +478,7 @@ export function DialogVisualizarComprovante({
                 </Button>
               </>
             )}
-          </div>
+          </DialogFooter>
         )}
       </DialogContent>
     </Dialog>

@@ -1,10 +1,10 @@
 "use client"
 
 import { useMemo, useState } from "react"
-import { Loader2, Upload, X } from "lucide-react"
+import { Loader2, Upload } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import type { TipoMidia, UploadUrlResponse } from "@/tipos/modelos"
 
@@ -70,14 +70,15 @@ export function DialogMidiaUpload({
 
   return (
     <Dialog open={open} onOpenChange={(value) => !submitting && onOpenChange(value)}>
-      <DialogContent className="w-full max-w-lg rounded-lg border border-border bg-popover p-6">
-        <div className="mb-5 flex items-start justify-between gap-4">
+      <DialogContent size="sm">
+        <DialogHeader className="items-start justify-between gap-4">
           <div>
             <DialogTitle className="text-lg font-semibold">{modo === "perfil" ? "Alterar foto de perfil" : "Adicionar midia"}</DialogTitle>
             <DialogDescription>{modo === "perfil" ? "Imagem JPEG, PNG ou WebP ate 5 MB." : "Imagem ou video ate 50 MB."}</DialogDescription>
           </div>
-          <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fechar"><X size={18} strokeWidth={1.5} /></Button>} />
-        </div>
+          <DialogCloseButton />
+        </DialogHeader>
+        <DialogBody>
         <label className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-border bg-muted p-6 text-center text-sm text-text-muted focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2">
           <Upload className="mb-2" size={24} strokeWidth={1.5} />
           {file ? file.name : "Selecionar arquivo"}
@@ -101,13 +102,14 @@ export function DialogMidiaUpload({
           </div>
         )}
         {tentou && !valido && <p className="mt-4 text-sm text-state-lost">Arquivo, tamanho ou tag inválidos.</p>}
-        <div className="mt-6 flex justify-end gap-2 border-t border-border pt-4">
+        </DialogBody>
+        <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={submitting}>Cancelar</Button>
           <Button variant="primary" onClick={submit} disabled={!valido || submitting}>
             {submitting && <Loader2 className="animate-spin" />}
             Enviar
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -100,9 +100,11 @@ export function FormRepasse({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-md rounded-lg bg-card p-6 ring-1 ring-foreground/10">
-        <DialogTitle className="text-lg font-semibold">Registrar pagamento de repasse</DialogTitle>
-        <div className="mt-4 space-y-3">
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold">Registrar pagamento de repasse</DialogTitle>
+        </DialogHeader>
+        <DialogBody className="space-y-3">
           <div>
             <Label>Modelo</Label>
             <select
@@ -182,15 +184,15 @@ export function FormRepasse({
               )}
             </div>
           </div>
-        </div>
-        <div className="mt-6 flex justify-end gap-2">
+        </DialogBody>
+        <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={salvando}>
             Cancelar
           </Button>
           <Button onClick={salvar} disabled={salvando || !modeloId || !valor}>
             {salvando ? "Salvando…" : "Salvar"}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

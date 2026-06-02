@@ -5,8 +5,11 @@ import { toast } from "sonner"
 
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -98,15 +101,17 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
 
   return (
     <Dialog open onOpenChange={(o) => { if (!o) onClose() }}>
-      <DialogContent className="w-full max-w-md rounded-lg bg-card p-6 shadow-lg ring-1 ring-foreground/10">
-        <DialogTitle>{editando ? "Editar tarefa" : "Nova tarefa"}</DialogTitle>
-        <DialogDescription className="mt-1">
-          {editando
-            ? "Atualize os detalhes da tarefa."
-            : "Item de gestão interna da operação — sem cliente, IA ou agenda."}
-        </DialogDescription>
+      <DialogContent size="sm">
+        <DialogHeader className="flex-col items-start gap-1">
+          <DialogTitle>{editando ? "Editar tarefa" : "Nova tarefa"}</DialogTitle>
+          <DialogDescription>
+            {editando
+              ? "Atualize os detalhes da tarefa."
+              : "Item de gestão interna da operação — sem cliente, IA ou agenda."}
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="mt-5 space-y-4">
+        <DialogBody className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="tarefa-titulo">Título</Label>
             <Input
@@ -200,16 +205,16 @@ export function DialogTarefa({ onClose, tarefa, responsaveis, onCriar, onAtualiz
               responsaveis={responsaveis}
             />
           </div>
-        </div>
+        </DialogBody>
 
-        <div className="mt-6 flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="ghost" onClick={onClose} disabled={submitting}>
             Cancelar
           </Button>
           <Button variant="primary" onClick={handleSubmit} disabled={!podeSalvar}>
             {editando ? "Salvar" : "Criar tarefa"}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

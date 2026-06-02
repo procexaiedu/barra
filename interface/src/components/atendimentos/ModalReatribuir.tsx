@@ -4,8 +4,11 @@ import { useState } from "react"
 import { toast } from "sonner"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -160,13 +163,16 @@ export function ModalReatribuir({
         if (!open) handleClose()
       }}
     >
-      <DialogContent className="w-[min(94vw,32rem)] max-w-none rounded-lg bg-card p-6 text-card-foreground shadow-lg ring-1 ring-foreground/10">
-        <DialogTitle>Reatribuir atendimento #{at.numero_curto}</DialogTitle>
-        <DialogDescription className="mt-1">
-          O atendimento atual será marcado como Perdido (motivo: reatribuição) e um novo
-          atendimento será criado para o par escolhido.
-        </DialogDescription>
+      <DialogContent size="sm">
+        <DialogHeader className="flex-col items-start gap-1">
+          <DialogTitle>Reatribuir atendimento #{at.numero_curto}</DialogTitle>
+          <DialogDescription>
+            O atendimento atual será marcado como Perdido (motivo: reatribuição) e um novo
+            atendimento será criado para o par escolhido.
+          </DialogDescription>
+        </DialogHeader>
 
+        <DialogBody>
         <div className="mt-5 space-y-3 rounded-md bg-muted px-4 py-3 text-sm">
           <div className="flex justify-between gap-3">
             <span className="text-text-muted">Cliente atual</span>
@@ -198,15 +204,16 @@ export function ModalReatribuir({
             autoComplete="off"
           />
         </div>
+        </DialogBody>
 
-        <div className="mt-6 flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="ghost" onClick={handleClose}>
             Cancelar
           </Button>
           <Button variant="primary" onClick={() => setPasso(2)}>
             Continuar
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

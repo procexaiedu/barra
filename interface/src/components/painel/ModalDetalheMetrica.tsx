@@ -1,7 +1,7 @@
 "use client"
 
 import type { ReactNode } from "react"
-import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
@@ -32,14 +32,14 @@ export function ModalDetalheMetrica({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex w-[min(96vw,80rem)] max-h-[92vh] min-h-[60vh] flex-col rounded-xl bg-card p-0 shadow-xl ring-1 ring-border">
-        <header className="border-b border-border px-8 py-4">
+      <DialogContent size="lg">
+        <DialogHeader>
           <DialogTitle className="text-base font-semibold text-text-primary">
             {tituloCompleto}
           </DialogTitle>
-        </header>
+        </DialogHeader>
 
-        <div className="flex-1 min-h-[120px] overflow-y-auto px-8 py-6">
+        <DialogBody className="min-h-[120px]">
           {loading ? (
             <ul className="flex flex-col gap-2">
               {Array.from({ length: 8 }).map((_, idx) => (
@@ -53,7 +53,7 @@ export function ModalDetalheMetrica({
           ) : (
             children
           )}
-        </div>
+        </DialogBody>
 
         <DialogFooter>
           <Button variant="ghost" size="lg" onClick={() => onOpenChange(false)}>

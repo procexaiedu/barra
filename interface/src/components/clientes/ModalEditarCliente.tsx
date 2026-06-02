@@ -5,8 +5,11 @@ import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -102,13 +105,15 @@ export function ModalEditarCliente({
         if (!o) handleClose()
       }}
     >
-      <DialogContent className="w-full max-w-lg rounded-lg bg-card p-6 shadow-lg ring-1 ring-foreground/10">
-        <DialogTitle>Editar cliente</DialogTitle>
-        <DialogDescription className="mt-1">
-          Os valores atuais estão pré-carregados — apague e digite para alterar.
-        </DialogDescription>
+      <DialogContent size="sm">
+        <DialogHeader className="flex-col items-start gap-1">
+          <DialogTitle>Editar cliente</DialogTitle>
+          <DialogDescription>
+            Os valores atuais estão pré-carregados — apague e digite para alterar.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="mt-5 space-y-4">
+        <DialogBody className="space-y-4">
           <div>
             <Label htmlFor="editar-cliente-nome">Nome</Label>
             <Input
@@ -159,9 +164,9 @@ export function ModalEditarCliente({
               idPrefix="editar-cliente-perfil"
             />
           </div>
-        </div>
+        </DialogBody>
 
-        <div className="mt-6 flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="ghost" onClick={handleClose} disabled={submitting}>
             Cancelar
           </Button>
@@ -169,7 +174,7 @@ export function ModalEditarCliente({
             {submitting && <Loader2 className="animate-spin" />}
             Salvar
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

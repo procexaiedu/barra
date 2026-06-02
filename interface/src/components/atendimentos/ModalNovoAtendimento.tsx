@@ -5,8 +5,11 @@ import { Loader2, Search, X } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -231,18 +234,18 @@ export function ModalNovoAtendimento({
           if (!o) handleClose()
         }}
       >
-        <DialogContent className="flex max-h-[90vh] w-[min(94vw,72rem)] max-w-none flex-col overflow-hidden rounded-lg border border-border bg-popover p-0">
-          <header className="border-b border-border px-6 py-4">
+        <DialogContent size="lg" className="overflow-hidden">
+          <DialogHeader className="flex-col items-start gap-1">
             <DialogTitle className="text-lg font-semibold text-text-primary">
               Novo atendimento
             </DialogTitle>
-            <DialogDescription className="mt-1 text-sm text-text-secondary">
+            <DialogDescription className="text-sm text-text-secondary">
               Selecione cliente e modelo. Os demais campos são opcionais e podem ser
               preenchidos agora ou editados depois.
             </DialogDescription>
-          </header>
+          </DialogHeader>
 
-          <div className="grid grid-cols-1 gap-4 border-b border-border bg-muted px-6 py-4 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 border-b border-border bg-muted px-8 py-4 sm:grid-cols-2">
             <div className="relative">
               <div className="flex items-center justify-between">
                 <Label htmlFor="novo-atend-cliente">Cliente</Label>
@@ -346,7 +349,7 @@ export function ModalNovoAtendimento({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          <DialogBody className="min-h-0 p-0">
             <FormularioCamposAtendimento
               ref={camposRef}
               modeloId={modeloId || null}
@@ -354,9 +357,9 @@ export function ModalNovoAtendimento({
               variant="horizontal"
               onConflitoChange={setTemConflito}
             />
-          </div>
+          </DialogBody>
 
-          <div className="flex justify-end gap-2 border-t border-border bg-muted px-6 py-3">
+          <DialogFooter className="bg-muted">
             <Button variant="ghost" onClick={handleClose} disabled={submitting}>
               Cancelar
             </Button>
@@ -364,7 +367,7 @@ export function ModalNovoAtendimento({
               {submitting && <Loader2 className="animate-spin" />}
               Criar atendimento
             </Button>
-          </div>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
       <ModalCriarCliente

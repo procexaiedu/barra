@@ -2,7 +2,7 @@
 
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
@@ -47,12 +47,14 @@ export function DialogTodasEscaladas({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex w-full max-w-xl flex-col gap-5 rounded-lg bg-card p-6 ring-1 ring-foreground/10">
-        <DialogTitle className="text-lg font-semibold text-text-primary">
-          Motivos de escalada — período completo
-        </DialogTitle>
+      <DialogContent size="md">
+        <DialogHeader>
+          <DialogTitle className="text-lg font-semibold text-text-primary">
+            Motivos de escalada — período completo
+          </DialogTitle>
+        </DialogHeader>
 
-        <div className="max-h-[60vh] min-h-[120px] overflow-y-auto pr-1">
+        <DialogBody className="min-h-[120px]">
           {status === "loading" ? (
             <ul aria-busy="true" className="flex flex-col gap-2">
               {Array.from({ length: 8 }).map((_, idx) => (
@@ -106,13 +108,13 @@ export function DialogTodasEscaladas({
               </ul>
             )
           ) : null}
-        </div>
+        </DialogBody>
 
-        <div className="flex justify-end">
+        <DialogFooter>
           <Button variant="ghost" size="lg" onClick={() => onOpenChange(false)}>
             Fechar
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

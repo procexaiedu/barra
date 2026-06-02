@@ -1,9 +1,11 @@
+import os
 from decimal import Decimal
 from functools import lru_cache
+from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -47,6 +49,20 @@ class Settings(BaseSettings):
         if "/" in s:
             s = s.split("/", 1)[0].strip()
         return s
+
+    @model_validator(mode="before")
+    @classmethod
+    def _carregar_secrets_de_arquivo(cls, data: object) -> object:
+        """Padrão *_FILE (Docker/Swarm secret): se `<CAMPO>_FILE` aponta para um arquivo
+        existente, seu conteúdo (sem espaços nas pontas) vence o valor inline. Mantém o
+        segredo fora do env e do git — em prod a chave vive só no Swarm secret montado em
+        /run/secrets/minio_secret_key, lido via MINIO_SECRET_KEY_FILE (DEPLOY-01)."""
+        if isinstance(data, dict):
+            for campo in ("minio_secret_key",):
+                caminho = os.environ.get(f"{campo.upper()}_FILE")
+                if caminho and Path(caminho).is_file():
+                    data[campo] = Path(caminho).read_text(encoding="utf-8").strip()
+        return data
 
     llm_chat_provider: Literal["openrouter", "anthropic"] = "anthropic"
     llm_vision_provider: Literal["openrouter"] = "openrouter"

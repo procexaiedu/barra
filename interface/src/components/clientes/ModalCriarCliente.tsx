@@ -5,8 +5,11 @@ import { Loader2 } from "lucide-react"
 import { toast } from "sonner"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogDescription,
+  DialogFooter,
+  DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
@@ -85,13 +88,15 @@ export function ModalCriarCliente({
         if (!o) handleClose()
       }}
     >
-      <DialogContent className="w-full max-w-md rounded-lg bg-card p-6 shadow-lg ring-1 ring-foreground/10">
-        <DialogTitle>Novo cliente</DialogTitle>
-        <DialogDescription className="mt-1">
-          Cadastre nome (opcional) e telefone no formato brasileiro.
-        </DialogDescription>
+      <DialogContent size="sm">
+        <DialogHeader className="flex-col items-start gap-1">
+          <DialogTitle>Novo cliente</DialogTitle>
+          <DialogDescription>
+            Cadastre nome (opcional) e telefone no formato brasileiro.
+          </DialogDescription>
+        </DialogHeader>
 
-        <div className="mt-5 space-y-4">
+        <DialogBody className="space-y-4">
           <div>
             <Label htmlFor="novo-cliente-nome">Nome</Label>
             <Input
@@ -134,9 +139,9 @@ export function ModalCriarCliente({
               idPrefix="novo-cliente-perfil"
             />
           </div>
-        </div>
+        </DialogBody>
 
-        <div className="mt-6 flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="ghost" onClick={handleClose} disabled={submitting}>
             Cancelar
           </Button>
@@ -144,7 +149,7 @@ export function ModalCriarCliente({
             {submitting && <Loader2 className="animate-spin" />}
             Criar cliente
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

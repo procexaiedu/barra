@@ -1,8 +1,6 @@
 "use client"
 
-import { X } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogCloseButton, DialogContent } from "@/components/ui/dialog"
 import { ConectarWhatsappConteudo, type QrModalStatus } from "@/components/modelos/ConectarWhatsappConteudo"
 import type { ConectarWhatsappResponse, ModeloDetalhe } from "@/tipos/modelos"
 
@@ -27,18 +25,20 @@ export function DialogConectarWhatsapp({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-lg rounded-lg border border-border bg-popover p-6">
+      <DialogContent size="sm">
         <div className="absolute right-4 top-4">
-          <DialogClose render={<Button variant="ghost" size="icon" aria-label="Fechar"><X size={18} strokeWidth={1.5} /></Button>} />
+          <DialogCloseButton />
         </div>
-        <ConectarWhatsappConteudo
-          nome={modelo?.nome ?? ""}
-          qr={qr}
-          status={status}
-          error={error}
-          onAtualizar={onAtualizar}
-          onFechar={() => onOpenChange(false)}
-        />
+        <DialogBody>
+          <ConectarWhatsappConteudo
+            nome={modelo?.nome ?? ""}
+            qr={qr}
+            status={status}
+            error={error}
+            onAtualizar={onAtualizar}
+            onFechar={() => onOpenChange(false)}
+          />
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

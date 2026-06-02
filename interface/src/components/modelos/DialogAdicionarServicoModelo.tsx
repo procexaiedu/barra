@@ -4,7 +4,7 @@ import { useMemo, useState } from "react"
 import { Check, Loader2, Plus, X } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import type {
@@ -206,24 +206,18 @@ export function DialogAdicionarServicoModelo({
 
   return (
     <Dialog open={open} onOpenChange={(value) => !submitting && (value ? onOpenChange(true) : fechar())}>
-      <DialogContent className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-border bg-popover">
-        <header className="flex items-start justify-between gap-4 border-b border-border px-6 py-4">
+      <DialogContent size="md">
+        <DialogHeader className="items-start justify-between gap-4">
           <div>
             <DialogTitle className="text-lg font-semibold">Adicionar serviço</DialogTitle>
             <DialogDescription>
               Escolha quais serviços a modelo oferece, em quais durações, e o preço de cada um.
             </DialogDescription>
           </div>
-          <DialogClose
-            render={
-              <Button variant="ghost" size="icon" aria-label="Fechar">
-                <X size={18} strokeWidth={1.5} />
-              </Button>
-            }
-          />
-        </header>
+          <DialogCloseButton />
+        </DialogHeader>
 
-        <div className="flex-1 space-y-6 overflow-y-auto px-6 py-5">
+        <DialogBody className="space-y-6">
           <section>
             <div className="mb-2 flex items-center justify-between">
               <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">Serviços</h3>
@@ -432,9 +426,9 @@ export function DialogAdicionarServicoModelo({
               })}
             </section>
           )}
-        </div>
+        </DialogBody>
 
-        <DialogFooter className="justify-between gap-3 bg-muted px-6 py-4">
+        <DialogFooter className="justify-between gap-3 bg-muted">
           <span className="text-xs text-text-muted">
             {totalPares === 0
               ? "Selecione ao menos um serviço e duração."

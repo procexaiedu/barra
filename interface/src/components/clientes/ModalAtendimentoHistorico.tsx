@@ -1,8 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { X } from "lucide-react"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { api } from "@/lib/api"
@@ -80,11 +79,11 @@ export function ModalAtendimentoHistorico({
 
   return (
     <Dialog open={!!atendimentoId} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="flex h-[88vh] max-w-2xl flex-col overflow-hidden bg-surface p-0">
+      <DialogContent size="md" className="overflow-hidden">
         <DialogTitle className="sr-only">Detalhe do atendimento</DialogTitle>
 
         {/* Header */}
-        <div className="flex flex-none items-center justify-between border-b border-border bg-surface px-5 py-3">
+        <DialogHeader className="justify-between">
           <span className="text-sm font-semibold text-text-primary">
             {detalhe
               ? `${detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)} · #${at?.numero_curto}`
@@ -96,19 +95,12 @@ export function ModalAtendimentoHistorico({
                 {estadoAtendimentoLabel[at.estado]}
               </Badge>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Fechar"
-              className="rounded-md p-1 text-text-muted hover:bg-surface-hover hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-colors"
-            >
-              <X size={16} strokeWidth={1.5} />
-            </button>
+            <DialogCloseButton />
           </div>
-        </div>
+        </DialogHeader>
 
         {/* Body */}
-        <div className="scroll-thin flex-1 overflow-y-auto p-5 space-y-5">
+        <DialogBody className="scroll-thin space-y-5">
 
           {/* Carregando */}
           {status === "loading" && (
@@ -314,7 +306,7 @@ export function ModalAtendimentoHistorico({
               </section>
             </>
           )}
-        </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

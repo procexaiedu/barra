@@ -7,6 +7,9 @@
 > Consolidado em 2026-06-01.
 >
 > Carrega também o **veredito GO/NO-GO** e o critério de **cutover** que o `docs/agente/08-evals.md` referencia.
+>
+> O **passo-a-passo ordenado do operador** (comandos, rollback, dependências) vive em
+> `infra/runbooks/pre-launch-checklist.md` — este arquivo é o registro de pendências; aquele é o roteiro de execução.
 
 ---
 
@@ -17,18 +20,25 @@
 - **Cutover do Vendedor → IA por modelo só depois que o gate de evals existir E PASSAR ao vivo** — não basta
   o código do runner estar na `main`: exige `EVAL-04/03` verdes em CI (K=5) + judge calibrado e **vinculante**
   (`EVAL-10`). Atendimento conduzido pela IA não gera comissão; antes do gate, a IA opera assistida.
-- **Tese econômica (ROI) só é demonstrável** depois de `CUSTO-01`/`CUSTO-02` ao vivo (migration aplicada) —
-  sem `valor_servico`/comissão/taxa em prod, "a IA lucra mais que o vendedor" não tem como ser medido.
+- **Tese econômica (ROI) só é demonstrável** depois do **cadastro operacional** (`CUSTO-01`: popular
+  `vendedores` + `modelos.vendedor_id`) e de `CUSTO-02` (tarifa STT) ao vivo. A migration de schema do
+  `CUSTO-01` já está em prod (2026-06-02); falta popular os dados — sem comissão/taxa preenchidas, "a IA
+  lucra mais que o vendedor" não tem como ser medido.
 
 ---
 
 ## 2. Segurança — item aberto (ação #1)
 
-- [ ] **DEPLOY-01 — rotacionar a `MINIO_SECRET_KEY`.** Status no roadmap era `done ⚠️ parcial`: o literal foi
-      removido do stack, **mas a chave nunca foi rotacionada** e segue **recuperável no histórico de um repo
-      público**. A deleção do arquivo **não** neutraliza o vazamento — só a rotação. Falta ainda: mover para
-      **Swarm secret** + padrão `*_FILE` em `settings.py` + **unificar a credencial MinIO do worker**
-      (`stack.barra-portainer.yml:82-83` vazio quebra mídia no worker). É a prioridade absoluta do projeto.
+- [ ] **DEPLOY-01 — rotacionar a `MINIO_SECRET_KEY`** (ainda é a prioridade absoluta). A chave segue
+      **recuperável no histórico de um repo que esteve público** — só a **rotação** neutraliza o vazamento;
+      a deleção do literal não.
+  - ✅ **Código pronto (2026-06-02):** padrão `*_FILE` em `settings.py` (`MINIO_SECRET_KEY_FILE` lê o Swarm
+    secret montado e vence o valor inline) + `stack.barra-portainer.yml` monta o secret `minio_secret_key`
+    em **api e worker** e lê a access key de `${MINIO_ACCESS_KEY}` (worker antes vinha vazio → mídia quebrava
+    por `minio is None`; agora unificado). Testes em `api/tests/test_deploy_01_secret_file.py`.
+  - ⏳ **Falta o operador:** gerar a chave nova no MinIO + revogar a antiga, criar o Swarm secret
+    (`docker secret create minio_secret_key -`), setar `MINIO_ACCESS_KEY` no Portainer e redeploy. Passo-a-passo
+    em `infra/runbooks/pre-launch-checklist.md` (BLOCO A).
 
 ---
 
@@ -63,9 +73,11 @@ O código está na `main` (branch `feat/evals-cutover-gate`); falta rodar/ligar:
 
 ## 5. Financeiro / ROI (migration pendente)
 
-- [ ] **CUSTO-01 — aplicar a migration** (tabela `vendedores`, `modelos.vendedor_id`,
-      `atendimentos.vendedor_id`/`taxa_cartao_snapshot`) em prod via psycopg. Sem ela o bloco de ROI no dashboard
-      (`custo_IA_por_fechado` vs `comissao_evitada`) não tem dados. ADRs 0012/0013; branch `feat/custo-roi`.
+- [x] **CUSTO-01 — migration aplicada (verificado em prod 2026-06-02).** `vendedores`, `modelos.vendedor_id`,
+      `atendimentos.vendedor_id` e `atendimentos.taxa_cartao_snapshot` existem no schema `barravips`. O bloco de
+      ROI no dashboard (`custo_IA_por_fechado` vs `comissao_evitada`) já tem onde puxar dados. Resta o **cadastro
+      operacional** (popular `vendedores` + setar `modelos.vendedor_id`) — ver `pre-launch-checklist.md` C-5.
+      ADRs 0012/0013.
 
 ---
 

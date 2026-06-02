@@ -1,8 +1,7 @@
 "use client"
 
-import { ExternalLink, X } from "lucide-react"
-import { Button } from "@/components/ui/button"
-import { Dialog, DialogClose, DialogContent } from "@/components/ui/dialog"
+import { ExternalLink } from "lucide-react"
+import { Dialog, DialogCloseButton, DialogContent } from "@/components/ui/dialog"
 import type { MidiaItem } from "@/tipos/modelos"
 
 export function DialogVisualizarMidia({
@@ -17,13 +16,7 @@ export function DialogVisualizarMidia({
       <DialogContent className="flex h-[100vh] w-[100vw] items-center justify-center bg-ink-0 p-0">
         <div className="relative flex h-full w-full items-center justify-center">
           <div className="absolute right-4 top-4 z-10">
-            <DialogClose
-              render={
-                <Button variant="ghost" size="icon" aria-label="Fechar">
-                  <X size={20} strokeWidth={1.5} />
-                </Button>
-              }
-            />
+            <DialogCloseButton />
           </div>
           {midia?.tipo === "video" ? (
             <video src={midia.url_assinada} controls className="max-h-[90vh] max-w-[90vw]" />

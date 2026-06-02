@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react"
 import { toast } from "sonner"
 import { X } from "lucide-react"
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Combobox } from "@/components/ui/combobox"
@@ -288,17 +288,17 @@ export function ModalEdicao({
 
   return (
     <Dialog open={!!detalhe} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="flex max-h-[90vh] w-[min(94vw,72rem)] max-w-none flex-col overflow-hidden rounded-lg border border-border bg-popover p-0">
-        <header className="border-b border-border px-6 py-4">
+      <DialogContent size="lg" className="overflow-hidden">
+        <DialogHeader className="flex-col items-start gap-1">
           <DialogTitle className="text-lg font-semibold text-text-primary">
             Editar #{at.numero_curto}
           </DialogTitle>
-          <DialogDescription className="mt-1 text-sm text-text-secondary">
+          <DialogDescription className="text-sm text-text-secondary">
             Ajuste os dados operacionais do atendimento.
           </DialogDescription>
-        </header>
+        </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border bg-muted px-6 py-3 text-xs sm:grid-cols-4">
+        <div className="grid grid-cols-2 gap-x-4 gap-y-3 border-b border-border bg-muted px-8 py-3 text-xs sm:grid-cols-4">
           <ItemContexto label="Cliente" title="Para alterar Cliente ou Modelo, use Reatribuir atendimento">
             <span className="text-text-primary">{detalhe.cliente.nome ?? "Sem nome"}</span>
             <span className="text-text-muted">{formatTelefone(detalhe.cliente.telefone)}</span>
@@ -320,7 +320,7 @@ export function ModalEdicao({
           </ItemContexto>
         </div>
 
-        <div className="grid min-h-0 flex-1 grid-cols-3 divide-x divide-border overflow-hidden">
+        <DialogBody className="grid min-h-0 grid-cols-3 divide-x divide-border overflow-hidden p-0">
           <ColunaSecao titulo="Atendimento">
             <Campo label="Tipo de atendimento">
               <select
@@ -580,15 +580,15 @@ export function ModalEdicao({
               )}
             </div>
           </ColunaSecao>
-        </div>
+        </DialogBody>
 
         {conflitos.length > 0 && (
-          <div className="border-t border-border bg-muted px-6 pt-3">
+          <div className="border-t border-border bg-muted px-8 pt-3">
             <AlertaConflito conflitos={conflitos} />
           </div>
         )}
 
-        <div className="flex items-center justify-between gap-2 border-t border-border bg-muted px-6 py-3">
+        <DialogFooter className="justify-between bg-muted">
           <div>
             {onReatribuir && (
               <Button
@@ -606,7 +606,7 @@ export function ModalEdicao({
               {submitting ? "Salvando…" : "Salvar"}
             </Button>
           </div>
-        </div>
+        </DialogFooter>
       </DialogContent>
       <ModalRemoverTipoLocal
         nome={remocao?.nome ?? null}

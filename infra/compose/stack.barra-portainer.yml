@@ -16,8 +16,10 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-barra:6379
       # Apenas host ou host:porta — sem https:// e sem path (SDK MinIO)
       - MINIO_ENDPOINT=https://minioback.procexai.tech/
-      - MINIO_ACCESS_KEY=
-      - MINIO_SECRET_KEY=
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      # DEPLOY-01: a chave secreta vem do Swarm secret (padrao *_FILE em settings.py),
+      # nunca do env nem do git. Operador cria o secret `minio_secret_key` (ver runbook).
+      - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
       - LLM_CHAT_PROVIDER=openrouter
@@ -88,6 +90,8 @@ services:
       - redis-barra
     networks:
       - traefik_public
+    secrets:
+      - minio_secret_key
 
   barra-worker:
     image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
@@ -103,8 +107,10 @@ services:
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-barra:6379
       # Apenas host ou host:porta — sem https:// e sem path (SDK MinIO)
       - MINIO_ENDPOINT=minioback.procexai.tech
-      - MINIO_ACCESS_KEY=
-      - MINIO_SECRET_KEY=
+      # DEPLOY-01: worker usa a MESMA credencial da api (unificada). Access key vem do env
+      # do Portainer; a chave secreta vem do Swarm secret via *_FILE (antes vazia -> midia quebrava).
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
       - LLM_CHAT_PROVIDER=openrouter
@@ -162,6 +168,8 @@ services:
       - redis-barra
     networks:
       - traefik_public
+    secrets:
+      - minio_secret_key
 
   redis-barra:
     image: redis:7.0-alpine
@@ -263,4 +271,11 @@ volumes:
 
 networks:
   traefik_public:
+    external: true
+
+secrets:
+  # DEPLOY-01: criado pelo operador ANTES do deploy, fora do git:
+  #   printf '%s' '<chave-rotacionada>' | docker secret create minio_secret_key -
+  # Montado em /run/secrets/minio_secret_key; lido via MINIO_SECRET_KEY_FILE (ver runbook).
+  minio_secret_key:
     external: true

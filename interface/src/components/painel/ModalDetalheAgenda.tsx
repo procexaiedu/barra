@@ -2,9 +2,9 @@
 
 import { useState, useEffect, type ReactNode } from "react"
 import Link from "next/link"
-import { Bot, User, Hand, ExternalLink, X, Clock, Calendar, Timer, Users, FileText } from "lucide-react"
+import { Bot, User, Hand, ExternalLink, Clock, Calendar, Timer, Users, FileText } from "lucide-react"
 import { toast } from "sonner"
-import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -142,9 +142,9 @@ export function ModalDetalheAgenda({
   return (
     <>
       <Dialog open={linha !== null} onOpenChange={(v) => { if (!v) onFechar() }}>
-        <DialogContent className="flex w-[min(96vw,80rem)] max-h-[92vh] min-h-[60vh] flex-col rounded-xl bg-card p-0 shadow-xl ring-1 ring-border">
+        <DialogContent size="lg">
           {/* ── header ──────────────────────────────────────────── */}
-          <header className="flex items-start justify-between gap-3 border-b border-border px-8 py-4">
+          <DialogHeader className="items-start justify-between">
             <div className="flex flex-col gap-1.5">
               {linha && badge && (
                 <>
@@ -158,19 +158,12 @@ export function ModalDetalheAgenda({
                 </>
               )}
             </div>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={onFechar}
-              aria-label="Fechar"
-            >
-              <X size={14} />
-            </Button>
-          </header>
+            <DialogCloseButton />
+          </DialogHeader>
 
           {/* ── corpo ───────────────────────────────────────────── */}
           {linha && (
-            <div className="flex-1 px-8 py-6">
+            <DialogBody>
               {/* Hero KPI: horário em destaque */}
               <div className="mb-6 overflow-hidden rounded-md border border-border bg-muted">
                 <div className="flex flex-wrap items-end justify-between gap-3 px-6 py-5">
@@ -277,7 +270,7 @@ export function ModalDetalheAgenda({
                   </p>
                 </SecaoBloco>
               )}
-            </div>
+            </DialogBody>
           )}
 
           {/* ── footer ──────────────────────────────────────────── */}

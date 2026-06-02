@@ -1,8 +1,7 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import { X } from "lucide-react"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { api, apiFormData } from "@/lib/api"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
 import { formatTelefone } from "@/lib/formatters"
@@ -95,10 +94,10 @@ export function ModalVisualizacao({
 
   return (
     <Dialog open={!!atendimentoId} onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent className="flex max-h-[92vh] min-h-[60vh] w-[min(96vw,88rem)] max-w-none flex-col overflow-hidden rounded-lg bg-card p-0 ring-1 ring-foreground/10">
+      <DialogContent size="xl" className="overflow-hidden">
         <DialogTitle className="sr-only">Detalhe do atendimento</DialogTitle>
 
-        <div className="flex flex-none items-center justify-between border-b border-border bg-muted px-6 py-3">
+        <DialogHeader className="justify-between bg-muted">
           <span className="text-sm font-semibold text-text-primary">
             {detalhe ? `${detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)} · #${detalhe.atendimento.numero_curto}` : "Atendimento"}
           </span>
@@ -112,18 +111,11 @@ export function ModalVisualizacao({
                 Editar
               </button>
             )}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Fechar"
-              className="rounded-md p-1 text-text-muted hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <X size={16} strokeWidth={1.5} />
-            </button>
+            <DialogCloseButton />
           </div>
-        </div>
+        </DialogHeader>
 
-        <div className="flex min-h-0 flex-1 flex-col p-6">
+        <DialogBody className="flex min-h-0 flex-col overflow-visible p-6">
           <DetalheAtendimento
             detalhe={detalhe}
             status={status}
@@ -137,7 +129,7 @@ export function ModalVisualizacao({
             onCorrigir={readOnly || !detalhe || !onCorrigir ? undefined : () => onCorrigir(detalhe.atendimento.id)}
             readOnly={readOnly}
           />
-        </div>
+        </DialogBody>
       </DialogContent>
     </Dialog>
   )

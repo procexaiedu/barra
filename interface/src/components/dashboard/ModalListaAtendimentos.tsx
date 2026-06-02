@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { ArrowUpRight } from "lucide-react"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -179,15 +179,15 @@ export function ModalListaAtendimentos({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex w-full max-w-xl flex-col gap-5 rounded-lg bg-card p-6 ring-1 ring-foreground/10">
-        <div className="flex flex-col gap-1">
+      <DialogContent size="md">
+        <DialogHeader className="flex-col items-start gap-1">
           <DialogTitle className="text-lg font-semibold text-text-primary">
             {tipo ? TITULO[tipo] : ""}
           </DialogTitle>
           <p className="text-xs text-text-muted">{subtitulo}</p>
-        </div>
+        </DialogHeader>
 
-        <div className="max-h-[60vh] min-h-[120px] overflow-y-auto pr-1">
+        <DialogBody className="min-h-[120px]">
           {status === "loading" ? (
             <ul aria-busy="true" className="flex flex-col gap-2">
               {Array.from({ length: 6 }).map((_, idx) => (
@@ -251,9 +251,9 @@ export function ModalListaAtendimentos({
               </Button>
             </div>
           ) : null}
-        </div>
+        </DialogBody>
 
-        <div className="flex items-center justify-between gap-2">
+        <DialogFooter className="justify-between">
           <Button
             variant="ghost"
             size="sm"
@@ -266,7 +266,7 @@ export function ModalListaAtendimentos({
           <Button variant="ghost" size="lg" onClick={() => onOpenChange(false)}>
             Fechar
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

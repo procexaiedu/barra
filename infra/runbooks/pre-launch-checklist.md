@@ -36,17 +36,23 @@ Gerado por workflow de pré-launch (2026-06-01). Achados de drift B1/B2/B3 verif
 
 ## BLOCO A — Segurança: rotação do secret MinIO (DEPLOY-01) — **AÇÃO #1, BLOQUEANTE**
 
-> O literal foi removido do stack, mas a **chave MinIO nunca foi rotacionada** e segue recuperável no histórico de um repo que esteve público. Deletar o arquivo **não** neutraliza o vazamento — só a rotação. Além disso, conferir que `stack.barra-portainer.yml` preenche a credencial para api **e** worker (worker vazio → mídia quebra: STT/vision pulam por `minio is None`).
+> A **chave MinIO nunca foi rotacionada** e segue recuperável no histórico de um repo que esteve público — só a **rotação** neutraliza o vazamento; deletar o literal não. **Código pronto (2026-06-02):** `settings.py` lê a chave via `MINIO_SECRET_KEY_FILE` (padrão Docker/Swarm secret — vence o valor inline) e `stack.barra-portainer.yml` monta o Swarm secret `minio_secret_key` em **api e worker**, lendo a access key (não-secreta) de `${MINIO_ACCESS_KEY}`. Isso já corrige o worker que vinha **vazio** (mídia quebrava: STT/vision pulavam por `minio is None`). Restam os passos do **operador** abaixo.
 
-- [ ] **A-1 — Rotacionar `MINIO_SECRET_KEY` (e access key, se for o caso)** no provedor MinIO, gerando credencial nova e **revogando a antiga**.
-  - Feito: a credencial antiga não autentica mais (`mc alias set ... && mc ls` com a chave velha falha).
-- [ ] **A-2 — Provisionar a credencial nova no Swarm** (Portainer → stack `barra`), a **mesma** para api **e** worker.
-  - Feito: `docker service inspect barra_barra-worker` mostra a env preenchida e **não** expõe o literal antigo.
-- [ ] **A-3 — Verificar que o segredo antigo sumiu do HEAD.**
-  - Comando: `git grep <prefixo-da-secret-antiga>` no HEAD → vazio.
-- [ ] **A-4 — Provar mídia no worker** após redeploy: enviar áudio/imagem de teste e confirmar que STT/vision **não** pulam por `minio is None`.
+- [ ] **A-1 — Gerar credencial nova no provedor MinIO e REVOGAR a antiga** (a rotação em si).
+  - Feito: a chave velha não autentica mais (`mc alias set velho <endpoint> <access-key> <chave-velha> && mc ls velho` falha).
+- [ ] **A-2 — Criar o Swarm secret com a chave nova** (no host do Swarm, fora do git):
+  ```bash
+  printf '%s' '<chave-secreta-nova>' | docker secret create minio_secret_key -
+  ```
+  - E setar `MINIO_ACCESS_KEY` (não-secreto) no env do stack `barra` no Portainer — a **mesma** para api e worker.
+  - Feito: `docker secret ls` lista `minio_secret_key`; o stack já referencia `external: true` (no YAML).
+- [ ] **A-3 — Redeploy do stack** (Portainer → "Update the stack" do `barra`, ou `docker stack deploy --with-registry-auth`). O `*_FILE` faz `settings.minio_secret_key` ler `/run/secrets/minio_secret_key` no boot.
+  - Feito: `docker service inspect barra_barra-worker --format '{{json .Spec.TaskTemplate.ContainerSpec.Secrets}}'` mostra `minio_secret_key` montado; **nenhuma** env expõe o literal da chave.
+- [ ] **A-4 — Verificar que o segredo antigo sumiu do HEAD** (o histórico ainda guarda — por isso é a rotação que protege, não a deleção).
+  - Comando: `git grep '<prefixo-da-chave-antiga>'` no HEAD → vazio.
+- [ ] **A-5 — Provar mídia no worker** após o redeploy: enviar áudio/imagem de teste e confirmar que STT/vision **não** pulam por `minio is None`.
   - Feito: log do worker mostra upload/download MinIO OK; métrica de custo STT/vision incrementa.
-  - ⏮ ROLLBACK: restaurar env anterior no Portainer e `docker service update --force` (nunca `docker restart`).
+  - ⏮ ROLLBACK: a rotação não tem rollback limpo (a chave velha foi revogada de propósito). Se o deploy falhar, recriar o secret com a chave nova e `docker service update --force` (**nunca** `docker restart` em Swarm → órfão ARQ).
 
 ---
 

@@ -18,7 +18,7 @@ import {
   Image as ImageIcon,
 } from "lucide-react"
 import { toast } from "sonner"
-import { Dialog, DialogContent, DialogFooter, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -330,9 +330,9 @@ export function ModalDecisaoCard({
   return (
     <>
       <Dialog open={card !== null} onOpenChange={(v) => { if (!v) onClose() }}>
-        <DialogContent className="flex w-[min(96vw,88rem)] max-h-[92vh] min-h-[70vh] flex-col rounded-xl bg-card p-0 shadow-xl ring-1 ring-border">
+        <DialogContent size="xl" className="min-h-[70vh]">
           {/* ── header ──────────────────────────────────────────── */}
-          <header className="flex items-center gap-3 border-b border-border px-8 py-4">
+          <DialogHeader>
             {card && (
               <>
                 <Badge variant={BADGE_VARIANT[card.ia_pausada_motivo]}>
@@ -360,10 +360,10 @@ export function ModalDecisaoCard({
                 </Button>
               </>
             )}
-          </header>
+          </DialogHeader>
 
           {/* ── corpo ───────────────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto px-8 py-6">
+          <DialogBody>
             {loading && (
               <div className="space-y-4">
                 <Skeleton className="h-32 w-full rounded-md" />
@@ -483,7 +483,7 @@ export function ModalDecisaoCard({
                 </div>
               </>
             )}
-          </div>
+          </DialogBody>
 
           {/* ── footer com ações ────────────────────────────────── */}
           {!loading && !erro && contexto && (

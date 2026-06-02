@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog"
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -83,15 +83,18 @@ export function DialogPreencherRepasse({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-full max-w-lg rounded-lg bg-card p-6 ring-1 ring-foreground/10">
-        <DialogTitle className="text-lg font-semibold">
-          Definir repasse retroativo · {modeloNome}
-        </DialogTitle>
-        <p className="mt-1 text-sm text-text-muted">
-          Aplica o percentual escolhido apenas aos atendimentos selecionados (e que ainda
-          não tinham snapshot). Cada um vira um evento de correção no histórico.
-        </p>
+      <DialogContent size="sm">
+        <DialogHeader className="flex-col items-start gap-1">
+          <DialogTitle className="text-lg font-semibold">
+            Definir repasse retroativo · {modeloNome}
+          </DialogTitle>
+          <p className="text-sm text-text-muted">
+            Aplica o percentual escolhido apenas aos atendimentos selecionados (e que ainda
+            não tinham snapshot). Cada um vira um evento de correção no histórico.
+          </p>
+        </DialogHeader>
 
+        <DialogBody>
         <div className="mt-4">
           <Label>Percentual (%)</Label>
           <Input
@@ -152,15 +155,16 @@ export function DialogPreencherRepasse({
             </table>
           )}
         </div>
+        </DialogBody>
 
-        <div className="mt-6 flex justify-end gap-2">
+        <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={salvando}>
             Cancelar
           </Button>
           <Button onClick={salvar} disabled={salvando || selecionados.size === 0}>
             {salvando ? "Aplicando…" : `Aplicar (${selecionados.size})`}
           </Button>
-        </div>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
