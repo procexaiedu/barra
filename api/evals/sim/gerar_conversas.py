@@ -116,39 +116,53 @@ async def _rodar[T: _CenarioComum](
     construir_cliente: Callable[[T], ClienteLike],
 ) -> list[dict[str, Any]]:
     """Roda cada cenario via `jornada` com o cliente que a factory constroi (robo ou fixo). O resto
-    (seed/rollback/serializacao/observabilidade) e identico aos dois -- so o cliente diverge."""
-    runner = _carregar_runner()
-    conn = await runner._conectar()  # TEST_DATABASE_URL; SystemExit(2) se ausente
-    conversas: list[dict[str, Any]] = []
-    try:
-        for i, cen in enumerate(cenarios, 1):
-            seed = {"estado_inicial": cen.estado_inicial}
-            try:
-                traj = await jornada(
-                    conn,
-                    seed,
-                    construir_cliente(cen),
-                    cen.decidir_ato,
-                    max_turnos=cen.max_turnos,
-                    apos_seed=_apos_seed,
-                )
-                conversas.append(_serializar(cen, traj))
-                n_ia = sum(1 for p in traj.passos if p.bolha_ia)
-                print(
-                    f"[{i}/{len(cenarios)}] {cen.nome}: {len(traj.passos)} passos, {n_ia} falas da IA"
-                )
-            except Exception as e:  # um cenario que quebra nao mata os outros
-                import traceback
+    (seed/serializacao/observabilidade) e identico aos dois -- so o cliente diverge.
 
-                print(
-                    f"[{i}/{len(cenarios)}] {cen.nome}: FALHOU -- {type(e).__name__}: {e}",
-                    file=sys.stderr,
-                )
-                traceback.print_exc()
-            finally:
-                await conn.rollback()  # nada persiste no banco (mesmo apos falha)
-    finally:
-        await conn.close()
+    Cada cenario usa SUA PROPRIA conexao (1 transacao por cenario, depois rollback+close). Isolar por
+    conexao e o que torna o arnes robusto a falha: se uma tool de escrita estoura DENTRO do
+    `conn.transaction()` que `_executar_idempotente` abre, a conexao fica num estado de transacao
+    quebrado e o `conn.rollback()` seguinte bate em "rollback forbidden within a Transaction context"
+    -- com conexao COMPARTILHADA essa 2a excecao escapava do loop e DERRUBAVA o run inteiro, perdendo
+    as conversas ja coletadas e nunca gravando o jsonl. Por conexao + rollback best-effort + close
+    sempre: um cenario que quebra nao contamina nem mata os outros, e o `close()` sem commit ja
+    garante zero persistencia (o rollback e so higiene)."""
+    runner = _carregar_runner()
+    conversas: list[dict[str, Any]] = []
+    for i, cen in enumerate(cenarios, 1):
+        conn = await runner._conectar()  # TEST_DATABASE_URL; SystemExit(2) se ausente
+        seed = {"estado_inicial": cen.estado_inicial}
+        try:
+            traj = await jornada(
+                conn,
+                seed,
+                construir_cliente(cen),
+                cen.decidir_ato,
+                max_turnos=cen.max_turnos,
+                apos_seed=_apos_seed,
+            )
+            conversas.append(_serializar(cen, traj))
+            n_ia = sum(1 for p in traj.passos if p.bolha_ia)
+            print(
+                f"[{i}/{len(cenarios)}] {cen.nome}: {len(traj.passos)} passos, {n_ia} falas da IA"
+            )
+        except Exception as e:  # um cenario que quebra nao mata os outros
+            import traceback
+
+            print(
+                f"[{i}/{len(cenarios)}] {cen.nome}: FALHOU -- {type(e).__name__}: {e}",
+                file=sys.stderr,
+            )
+            traceback.print_exc()
+        finally:
+            # rollback best-effort: se a tool estourou DENTRO do conn.transaction() do
+            # _executar_idempotente, a conn fica em "transaction context" e o rollback bate -- o
+            # close() abaixo descarta a transacao do mesmo jeito. So registramos para nao mascarar.
+            try:
+                await conn.rollback()
+            except Exception as rb:  # higiene; close() ja garante zero persistencia
+                print(f"  (rollback best-effort falhou: {type(rb).__name__})", file=sys.stderr)
+            # close sem commit descarta a transacao -> zero persistencia, mesmo apos rollback abortado.
+            await conn.close()
     return conversas
 
 
