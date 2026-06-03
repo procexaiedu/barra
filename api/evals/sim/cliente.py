@@ -13,7 +13,7 @@ offline) garante que nenhum termo de gabarito entra no prompt. `decidir` chama o
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, Protocol
 
 # A acao que o cliente decide a cada passo: ou manda texto, ou aplica um dos atos dual-control.
 AtoNome = Literal[
@@ -46,6 +46,17 @@ class AcaoCliente:
 
     mensagem: str | None = None
     ato: AtoNome | None = None
+
+
+class ClienteLike(Protocol):
+    """Interface minima que o `jornada` (loop.py) espera de um cliente: decidir a proxima acao a
+    partir do que observou. Tanto o `ClienteSimulado` (LLM, este modulo) quanto o
+    `ClienteRoteirizado` (falas fixas, cliente_fixo.py) a satisfazem -- o loop nao distingue um do
+    outro, entao a maquina de seeding/invoke/observabilidade serve aos dois."""
+
+    async def decidir(
+        self, historico_visivel: list[str], *, settings: Any | None = None
+    ) -> AcaoCliente: ...
 
 
 # Termos que JAMAIS podem aparecer no prompt do cliente -- e o vocabulario de gabarito/expectativa

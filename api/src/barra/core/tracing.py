@@ -132,6 +132,33 @@ def setup_tracing(settings: Settings) -> Client | None:
     return client
 
 
+def setup_tracing_sim(settings: Settings, *, projeto: str = "barra-vips-sim") -> Client | None:
+    """Tracing do SIMULADOR de evals -- SEM anonymizer, conteúdo LEGÍVEL para root-cause do flywheel.
+
+    Diferente de `setup_tracing` (produção, hard-gate de anonymizer obrigatório): aqui o conteúdo das
+    mensagens vai cru ao LangSmith porque os dados são SINTÉTICOS -- modelo/cliente do seed do
+    `runner._seed_entidades` ("Modelo Eval", telefone `eval-tel-*`) e falas roteirizadas das conversas
+    reais JÁ anonimizadas (`docs/agente/conversas-reais`). NUNCA chamar de `main.py`/worker: lá os
+    dados são reais (PII de cliente/modelo) e o caminho é `setup_tracing`.
+
+    Aponta um projeto SEPARADO (`barra-vips-sim`), para os traces do sim não se misturarem com os de
+    produção. Retorna None (sem ligar) se não houver `langchain_api_key` -- aí o diagnóstico cai no
+    `conversas.jsonl` enriquecido (C5a), que não depende do LangSmith.
+    """
+    if not settings.langchain_api_key:
+        return None
+    # Guard de não-produção: o nome do projeto carrega o sufixo `-sim`; se alguém passar um projeto
+    # sem ele, forçamos -- o sim nunca escreve no projeto de produção.
+    if not projeto.endswith("-sim"):
+        projeto = f"{projeto}-sim"
+    client = Client(api_key=settings.langchain_api_key)  # SEM anonymizer: dados sintéticos
+    run_trees._CLIENT = client
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGCHAIN_PROJECT"] = projeto
+    logger.info("tracing_sim_ligado projeto=%s (sem anonymizer; dados sinteticos)", projeto)
+    return client
+
+
 def metadata_trace_turno(modelo_id: str, atendimento_id: str) -> dict[str, Any]:
     """Fragmento de config (metadata + tags) que escopa o trace do turno por modelo/atendimento.
 

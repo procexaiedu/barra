@@ -21,12 +21,12 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from psycopg import AsyncConnection
 
 from . import atos as _atos
-from .cliente import AcaoCliente, ClienteSimulado
+from .cliente import AcaoCliente, ClienteLike
 
 _RUNNERS = Path(__file__).resolve().parents[1] / "runners"
 
@@ -44,7 +44,14 @@ def _carregar_runner() -> Any:
 
 @dataclass
 class PassoJornada:
-    """Um passo do loop: a acao do cliente + a bolha da IA (se rodou turno) + o estado pos-passo."""
+    """Um passo do loop: a acao do cliente + a bolha da IA (se rodou turno) + o estado pos-passo.
+
+    Os campos de OBSERVABILIDADE (`pix_status`, `tools_chamadas`, `escalou`, `nodes_visitados`)
+    afloram sinais que o turno ja produzia mas a serializacao descartava (EVAL-12): que tools a IA
+    chamou, se abriu linha em `escaladas` (escala via tool `escalar`; NAO a escala-por-reincidencia
+    do disclosure, que depende de redis real e nao roda no sim), e que nos do grafo rodaram NESTE
+    turno. Tornam "chamada de tools / escalada / handoff" auditavel no corpus e na evals-notas.html.
+    Em passos de ATO (sem invoke) so `pix_status` e o estado fazem sentido."""
 
     indice: int
     acao_mensagem: str | None
@@ -52,6 +59,25 @@ class PassoJornada:
     bolha_ia: str | None
     estado_atendimento: str | None
     ia_pausada: bool | None
+    pix_status: str | None = None
+    tools_chamadas: list[str] = field(default_factory=list)
+    escalou: bool | None = None
+    nodes_visitados: list[str] = field(default_factory=list)
+    # snapshot que o agente extraiu no turno (payload do registrar_extracao): horario/duracao/tipo/
+    # valor/sinais. Torna reservas e escaladas AUTO-EXPLICAVEIS no corpus (ex.: um horario vago
+    # virando horario_desejado e disparando a reserva previa -> reagendamento). None se o turno nao
+    # chamou registrar_extracao.
+    extracao: dict[str, Any] | None = None
+    # --- observabilidade de DIAGNOSTICO (C5a do flywheel; nao usada pela rotulagem) ---------------
+    # O system montado pelo prepare_context (prefixo tools+system+janela) que a IA "viu" neste turno:
+    # diagnostico de POR QUE decidiu (cardapio/contexto dinamico/janela). None se ausente.
+    prompt_montado: str | None = None
+    # Raciocinio (blocos thinking) do turno. Quase sempre None no P0 (thinking=disabled); capturado
+    # de graca caso liguem adaptive. Util p/ root-cause quando presente.
+    thinking: str | None = None
+    # I/O das tools do turno: nome + args + resultado. Traz o MOTIVO da escalada (args de `escalar`)
+    # -- o que o classificador E2E precisa p/ distinguir escalada legitima de espuria.
+    tool_io: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -83,13 +109,186 @@ async def _aplicar_ato(
         raise ValueError(f"ato desconhecido: {ato!r}")
 
 
+class _RedisStub:
+    """Stub de ArqRedis p/ a jornada: o agente toca o redis em alguns pontos (a tool `escalar`
+    enfileira `enviar_card`; o intercept_disclosure conta reincidencia com set/incr/expire). Com
+    redis=None tudo isso quebraria; aqui cada metodo vira coroutine no-op. So o estado de DB
+    (escalada + pausa da IA) importa para a trajetoria -- o ENVIO (Evolution/card) e a contagem de
+    reincidencia (rate-limit cross-turno) nao ocorrem no sim: aceitavel p/ gerar conversas, so nao
+    exercita a escalada-por-reincidencia (que precisa de redis real).
+
+    `__getattr__` IGNORA dunders (`__pydantic_serializer__` etc.): interceptar dunders fazia o
+    Pydantic usar o no-op como serializer e quebrava o model_dump do input das tools (a
+    serializacao do context toca o redis). Levantar AttributeError nos dunders devolve o
+    comportamento padrao. (runner.py usa redis=None porque as fixtures escalam pelo caminho
+    deterministico abrir_handoff, nunca pela tool escalar do LLM -- que a jornada exercita.)"""
+
+    def __getattr__(self, nome: str) -> Any:
+        if nome.startswith("__"):
+            raise AttributeError(nome)
+
+        async def _noop(*_a: Any, **_k: Any) -> None:
+            return None
+
+        return _noop
+
+
+def _extrair_fala_do_turno(messages: list[Any]) -> str:
+    """Fala que iria ao cliente NESTE turno: agrega o texto das AIMessages APOS o ultimo
+    HumanMessage. Captura tanto a resposta do LLM (multi-bolha) quanto a negacao CANNED do
+    intercept_disclosure -- que vem SEM usage_metadata e seria descartada por
+    workers.coordenador._extrair_texto_do_turno (que filtra por usage_metadata p/ ignorar
+    historicas). Aqui o criterio e POSICIONAL: a fala nova (LLM ou canned) vem depois da msg atual
+    do cliente; as AIMessages historicas re-injetadas pelo prepare_context vem ANTES dela. Duck-typing
+    (`.type`/`.content`) p/ nao depender de imports de langchain."""
+    ult_human = -1
+    for i, m in enumerate(messages):
+        if getattr(m, "type", None) == "human":
+            ult_human = i
+    partes: list[str] = []
+    for m in messages[ult_human + 1 :]:
+        if getattr(m, "type", None) != "ai":
+            continue
+        conteudo = getattr(m, "content", None)
+        if isinstance(conteudo, str):
+            if conteudo.strip():
+                partes.append(conteudo)
+        elif isinstance(conteudo, list):
+            for bloco in conteudo:
+                if (
+                    isinstance(bloco, dict)
+                    and bloco.get("type") == "text"
+                    and str(bloco.get("text", "")).strip()
+                ):
+                    partes.append(bloco["text"])
+    return "\n\n".join(partes)
+
+
+def _extrair_extracao_do_turno(messages: list[Any]) -> dict[str, Any] | None:
+    """Payload do ULTIMO `registrar_extracao` chamado NESTE turno (apos a ultima HumanMessage) -- o
+    snapshot que o agente extraiu (horario_desejado/duracao/tipo/valor/sinais). Torna a reserva
+    previa e a escala de reagendamento auto-explicaveis no corpus: um horario VAGO ("depois das
+    21h") que vira horario_desejado e dispara a reserva fica visivel ao rotulador. Duck-typing
+    sobre `tool_calls` (sem depender de imports de langchain); None se o turno nao chamou a tool."""
+    ult_human = -1
+    for i, m in enumerate(messages):
+        if getattr(m, "type", None) == "human":
+            ult_human = i
+    payload: dict[str, Any] | None = None
+    for m in messages[ult_human + 1 :]:
+        for tc in getattr(m, "tool_calls", None) or []:
+            if tc.get("name") == "registrar_extracao":
+                args = tc.get("args") or {}
+                bruto = args.get("payload", args)
+                if isinstance(bruto, dict):
+                    payload = bruto  # ultimo vence (1 registrar_extracao por turno na pratica)
+    return payload
+
+
+def _texto_de_conteudo(conteudo: Any) -> str:
+    """Texto plano de um `content` do langchain (str OU lista de blocos {type:text,...})."""
+    if isinstance(conteudo, str):
+        return conteudo
+    if isinstance(conteudo, list):
+        return "\n".join(
+            str(b.get("text", ""))
+            for b in conteudo
+            if isinstance(b, dict) and b.get("type") == "text"
+        )
+    return ""
+
+
+def _extrair_prompt_montado(messages: list[Any]) -> str | None:
+    """O SystemMessage montado pelo prepare_context (prefixo tools+system+janela) que a IA "viu"
+    neste turno -- diagnostico de POR QUE decidiu (cardapio/contexto dinamico/janela). Pega o
+    PRIMEIRO system da janela; None se ausente. Duck-typing (`.type`/`.content`)."""
+    for m in messages:
+        if getattr(m, "type", None) == "system":
+            return _texto_de_conteudo(getattr(m, "content", None)) or None
+    return None
+
+
+def _extrair_thinking_do_turno(messages: list[Any]) -> str | None:
+    """Blocos de raciocinio (type='thinking') das AIMessages APOS o ultimo HumanMessage. Quase sempre
+    None no P0 (thinking desabilitado); capturado de graca caso liguem adaptive. Duck-typing."""
+    ult_human = -1
+    for i, m in enumerate(messages):
+        if getattr(m, "type", None) == "human":
+            ult_human = i
+    partes: list[str] = []
+    for m in messages[ult_human + 1 :]:
+        if getattr(m, "type", None) != "ai":
+            continue
+        conteudo = getattr(m, "content", None)
+        if isinstance(conteudo, list):
+            for bloco in conteudo:
+                if isinstance(bloco, dict) and bloco.get("type") == "thinking":
+                    txt = str(bloco.get("thinking") or bloco.get("text") or "")
+                    if txt.strip():
+                        partes.append(txt)
+    return "\n".join(partes) or None
+
+
+def _extrair_tool_io_do_turno(messages: list[Any]) -> list[dict[str, Any]]:
+    """I/O das tools chamadas NESTE turno (apos o ultimo HumanMessage): nome + args (do tool_call) +
+    resultado (do ToolMessage casado por id). Traz o MOTIVO da escalada (args de `escalar`) --
+    essencial p/ o classificador distinguir escalada legitima de espuria. Duck-typing."""
+    ult_human = -1
+    for i, m in enumerate(messages):
+        if getattr(m, "type", None) == "human":
+            ult_human = i
+    janela = messages[ult_human + 1 :]
+    resultados: dict[str, str] = {}
+    for m in janela:
+        if getattr(m, "type", None) == "tool":
+            tcid = getattr(m, "tool_call_id", None)
+            if tcid:
+                resultados[tcid] = _texto_de_conteudo(getattr(m, "content", None))
+    io: list[dict[str, Any]] = []
+    for m in janela:
+        for tc in getattr(m, "tool_calls", None) or []:
+            io.append(
+                {
+                    "tool": tc.get("name"),
+                    "args": tc.get("args") or {},
+                    "resultado": resultados.get(tc.get("id", "")),
+                }
+            )
+    return io
+
+
+async def _inserir_msg(
+    conn: AsyncConnection[dict[str, Any]],
+    conversa_id: UUID,
+    direcao: str,
+    texto: str,
+    ordem: int,
+) -> None:
+    """Insere uma mensagem com id time-ordered (uuidv7) e created_at CRESCENTE por `ordem`.
+
+    Diferente de `runner._inserir_mensagem` (uuid4 + created_at=now()): numa unica transacao now()
+    e constante (transaction_timestamp), entao varias mensagens empatariam em created_at e a janela
+    do prepare_context (ORDER BY created_at, id) embaralharia. Aqui o created_at cresce com `ordem`
+    e o id e uuidv7 -- a janela sai na ordem cronologica real da conversa (pre-req p/ a IA "ver" o
+    que ja disse e p/ o cliente progredir em vez de repetir a abertura)."""
+    await conn.execute(
+        """
+        INSERT INTO barravips.mensagens
+            (id, conversa_id, direcao, tipo, conteudo, evolution_message_id, created_at)
+        VALUES (barravips.uuidv7(), %s, %s, 'texto', %s, %s, now() + (%s * interval '1 second'))
+        """,
+        (conversa_id, direcao, texto, f"sim-{uuid4().hex}", ordem),
+    )
+
+
 async def jornada(
     conn: AsyncConnection[dict[str, Any]],
     fixture_seed: dict[str, Any],
-    cliente: ClienteSimulado,
+    cliente: ClienteLike,
     decidir_ato: Any | None = None,
     *,
     max_turnos: int = 8,
+    apos_seed: Any | None = None,
 ) -> Trajetoria:
     """Roda a jornada dual-control fechada (needs_db + needs_anthropic_api). Coleta a trajetoria.
 
@@ -99,16 +298,28 @@ async def jornada(
     e um hook opcional (roteiro da persona) que, dado o passo/estado, devolve um nome de ato a
     aplicar em vez de pedir texto ao cliente; default None = sempre texto.
 
+    `apos_seed(conn, modelo_id, atendimento_id, cliente_id, conversa_id)` e um hook async opcional
+    rodado logo apos `_seed_entidades` e ANTES do 1o turno -- usado para popular o cardapio/agenda
+    da modelo recem-seedada (ver sim/seed_cardapio.py), ja que `_seed_entidades` cria modelo minima
+    (sem programas, a IA nao teria preco para cotar). default None = nao mexe no seed.
+
     O caller envolve isto em transacao + ROLLBACK (como `runner.rodar`). Promova qualquer falha
     observada na trajetoria a uma fixture de `scripted_5/`.
     """
     runner = _carregar_runner()
+    # metadata_trace_turno agrupa os traces do LangSmith-sim por atendimento (thread OTel). Import
+    # LAZY: mantém loop.py importável em testes puros (test_obs_diagnostico) sem arrastar langsmith.
+    from barra.core.tracing import metadata_trace_turno
+
     grafo = runner.build_graph()
     modelo_id, atendimento_id, _cliente_id, conversa_id = await runner._seed_entidades(
         conn, fixture_seed
     )
+    if apos_seed is not None:
+        await apos_seed(conn, modelo_id, atendimento_id, _cliente_id, conversa_id)
     handler = runner.NodesVisitedHandler()
     trajetoria = Trajetoria()
+    ordem = 0  # contador monotonico de mensagens (created_at crescente -> janela em ordem)
 
     for indice in range(max_turnos):
         estado_atual = await _ler_estado(conn, atendimento_id)
@@ -124,6 +335,7 @@ async def jornada(
                     bolha_ia=None,
                     estado_atendimento=pos["estado"],
                     ia_pausada=pos["ia_pausada"],
+                    pix_status=pos["pix_status"],
                 )
             )
             if pos["ia_pausada"]:
@@ -131,31 +343,59 @@ async def jornada(
             continue
 
         acao: AcaoCliente = await cliente.decidir(trajetoria.bolhas_da_ia())
-        await runner._inserir_mensagem(
-            conn, conversa_id, {"direcao": "cliente", "texto": acao.mensagem or ""}
-        )
+        await _inserir_msg(conn, conversa_id, "cliente", acao.mensagem or "", ordem)
+        ordem += 1
+        nodes_antes = set(handler.nos)  # handler acumula entre turnos -> delta = nos DESTE turno
         resultado = await grafo.ainvoke(
             {"messages": []},
-            config={"recursion_limit": 18, "callbacks": [handler]},
+            config={
+                "recursion_limit": 18,
+                "callbacks": [handler],
+                # agrupa o trace por modelo/atendimento no LangSmith-sim (inócuo se tracing off).
+                **metadata_trace_turno(str(modelo_id), str(atendimento_id)),
+            },
             context=runner.ContextAgente(
                 db_pool=runner._PoolDeUmaConexao(conn),
-                redis=None,
+                redis=_RedisStub(),  # escalar enfileira card (no-op no sim); runner e Any (path import)
                 modelo_id=str(modelo_id),
                 atendimento_id=str(atendimento_id),
                 cliente_id=str(_cliente_id),
                 turno_id=str(runner.uuid4()),
-                cache_modelo_e_janela=False,
+                # Liga BP_MODELO + BP_JANELA (= producao). Ao contrario do runner.py (1 turno por
+                # fixture, IDs novos -> esses blocos seriam so-write, por isso ele passa False),
+                # a jornada e MULTI-TURNO com IDs ESTAVEIS: modelo/conversa seedadas 1x e janela
+                # append-only (<20 msgs). Entao o cardapio (BP_MODELO) e o historico crescente
+                # (BP_JANELA) sao LIDOS nos turnos 2..N em vez de reenviados a preco cheio -- corta
+                # o grosso do custo da geracao, que se concentra nos turnos tardios das conversas longas.
+                cache_modelo_e_janela=True,
             ),
         )
         captura = await runner._capturar(conn, atendimento_id, resultado)
+        # Bolha = fala nova do turno (ver _extrair_fala_do_turno): agrega o texto das AIMessages
+        # apos a msg atual do cliente -- captura LLM (multi-bolha) E a negacao canned do
+        # intercept_disclosure, ignora historicas e a passagem vazia pos-tool do ReAct.
+        bolha = _extrair_fala_do_turno(resultado["messages"])
+        if bolha:
+            # Grava a fala da IA no banco p/ a janela do proximo turno inclui-la (a IA "ve" o que
+            # disse; o cliente progride). Em producao quem grava e o worker enviar_turno.
+            await _inserir_msg(conn, conversa_id, "ia", bolha, ordem)
+            ordem += 1
         trajetoria.passos.append(
             PassoJornada(
                 indice=indice,
                 acao_mensagem=acao.mensagem,
                 acao_ato=None,
-                bolha_ia=captura.texto_final,
+                bolha_ia=bolha,
                 estado_atendimento=captura.estado_atendimento,
                 ia_pausada=captura.ia_pausada,
+                pix_status=captura.pix_status,
+                tools_chamadas=sorted(captura.tools_chamadas),
+                escalou=captura.escalou,
+                nodes_visitados=sorted(handler.nos - nodes_antes),
+                extracao=_extrair_extracao_do_turno(resultado["messages"]),
+                prompt_montado=_extrair_prompt_montado(resultado["messages"]),
+                thinking=_extrair_thinking_do_turno(resultado["messages"]),
+                tool_io=_extrair_tool_io_do_turno(resultado["messages"]),
             )
         )
         if captura.ia_pausada:
@@ -167,9 +407,10 @@ async def jornada(
 async def _ler_estado(
     conn: AsyncConnection[dict[str, Any]], atendimento_id: UUID
 ) -> dict[str, Any]:
-    """Le o estado observavel do atendimento (estado + ia_pausada) -- o que constrange os atos."""
+    """Le o estado observavel do atendimento (estado + ia_pausada + pix_status) -- o que constrange
+    os atos e alimenta a observabilidade do passo de ato."""
     res = await conn.execute(
-        "SELECT estado, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        "SELECT estado, ia_pausada, pix_status FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
     row = await res.fetchone()
