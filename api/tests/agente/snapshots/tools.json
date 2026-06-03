@@ -1,6 +1,6 @@
 [
   {
-    "description": "Consulta os bloqueios (horários OCUPADOS) da modelo entre data_inicio e data_fim.\n\n    As próximas 48h já estão no seu contexto; responda direto sobre elas SEM esta tool. Use-a\n    APENAS quando o cliente perguntar por um dia além das próximas 48h (ex.: \"tem horário sábado\n    que vem?\").\n\n    Args:\n        data_inicio: data inicial inclusiva, formato YYYY-MM-DD. Comece a partir do dia\n          consultado (além das próximas 48h), não a partir de hoje.\n        data_fim: data final inclusiva, formato YYYY-MM-DD. Máximo 14 dias após data_inicio.\n\n    Returns:\n        Uma linha por horário OCUPADO (dia, hora e estado), ou a frase de que não há horário\n        ocupado no período — o que não aparece está livre. Se o cliente pediu um horário que\n        cai num bloqueio, ofereça outra janela com uma desculpa pessoal (ver a conduta de\n        indisponibilidade nas suas regras), sem revelar que é agenda de trabalho.",
+    "description": "Consulta os bloqueios (horários OCUPADOS) da modelo entre data_inicio e data_fim.\n\n    As próximas 48h já estão no seu contexto; responda direto sobre elas SEM esta tool. Use-a\n    APENAS quando o cliente perguntar por um dia além das próximas 48h (ex.: \"tem horário sábado\n    que vem?\").\n\n    Args:\n        data_inicio: data inicial inclusiva, formato YYYY-MM-DD. Comece a partir do dia\n          consultado (além das próximas 48h), não a partir de hoje.\n        data_fim: data final inclusiva, formato YYYY-MM-DD. Máximo 14 dias após data_inicio.\n\n    Returns:\n        Uma linha por horário OCUPADO (dia e hora), ou a frase de que não há horário\n        ocupado no período — o que não aparece está livre. Se o cliente pediu um horário que\n        cai num bloqueio, ofereça outra janela com uma desculpa pessoal (ver a conduta de\n        indisponibilidade nas suas regras), sem revelar que é agenda de trabalho.",
     "input_schema": {
       "properties": {
         "data_fim": {
@@ -108,7 +108,8 @@
                   "type": "null"
                 }
               ],
-              "default": null
+              "default": null,
+              "description": "Horário de relógio do encontro (HH:MM). PREENCHA quando o cliente cravar uma hora OU quando ele está vindo AGORA/imediato (use a hora atual; data_desejada=hoje) — é o que faz o atendimento interno AVANÇAR para Aguardando_confirmacao e te pausar na chegada. NÃO preencha em horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até o cliente cravar."
             },
             "intencao": {
               "anyOf": [
@@ -252,7 +253,8 @@
                   "type": "null"
                 }
               ],
-              "default": null
+              "default": null,
+              "description": "Valor total acordado com o cliente. SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — sem a duração o sistema não consegue conferir o piso de desconto e escala à toa uma oferta que era válida."
             }
           },
           "required": [

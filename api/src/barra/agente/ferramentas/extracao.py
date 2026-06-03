@@ -56,13 +56,30 @@ class ExtracaoPayload(BaseModel):
     urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None
     tipo_atendimento: Literal["interno", "externo"] | None = None
     data_desejada: date | None = None
-    horario_desejado: time | None = None
+    horario_desejado: time | None = Field(
+        None,
+        description=(
+            "Horário de relógio do encontro (HH:MM). PREENCHA quando o cliente cravar uma hora OU "
+            "quando ele está vindo AGORA/imediato (use a hora atual; data_desejada=hoje) — é o que "
+            "faz o atendimento interno AVANÇAR para Aguardando_confirmacao e te pausar na chegada. "
+            "NÃO preencha em horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando "
+            "até o cliente cravar."
+        ),
+    )
     duracao_horas: Decimal | None = Field(None, ge=0, le=48)
     endereco: str | None = None
     bairro: str | None = None
     tipo_local: Literal["hotel", "casa", "apartamento", "outro"] | None = None
     forma_pagamento: Literal["pix", "dinheiro", "outro"] | None = None
-    valor_acordado: Decimal | None = Field(None, ge=0)
+    valor_acordado: Decimal | None = Field(
+        None,
+        ge=0,
+        description=(
+            "Valor total acordado com o cliente. SEMPRE grave JUNTO com duracao_horas (a duração do "
+            "programa cotado) — sem a duração o sistema não consegue conferir o piso de desconto e "
+            "escala à toa uma oferta que era válida."
+        ),
+    )
     sinais_qualificacao: SinaisQualificacao = Field(
         default_factory=SinaisQualificacao,
         description="Passe só os True; defaults False são excluídos do dump (não sobrescrevem).",

@@ -133,6 +133,20 @@ class _RedisStub:
         return _noop
 
 
+def _tool_use_ids(msg: Any) -> set[str]:
+    """IDs dos tool_calls de uma AIMessage (duck-typed): de `.tool_calls` e dos blocos `tool_use`
+    do content. Espelha coordenador._tool_use_ids sem depender de imports de langchain."""
+    ids = {tc.get("id") for tc in (getattr(msg, "tool_calls", None) or []) if tc.get("id")}
+    conteudo = getattr(msg, "content", None)
+    if isinstance(conteudo, list):
+        ids |= {
+            b.get("id")
+            for b in conteudo
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")
+        }
+    return ids
+
+
 def _extrair_fala_do_turno(messages: list[Any]) -> str:
     """Fala que iria ao cliente NESTE turno: agrega o texto das AIMessages APOS o ultimo
     HumanMessage. Captura tanto a resposta do LLM (multi-bolha) quanto a negacao CANNED do
@@ -140,15 +154,29 @@ def _extrair_fala_do_turno(messages: list[Any]) -> str:
     workers.coordenador._extrair_texto_do_turno (que filtra por usage_metadata p/ ignorar
     historicas). Aqui o criterio e POSICIONAL: a fala nova (LLM ou canned) vem depois da msg atual
     do cliente; as AIMessages historicas re-injetadas pelo prepare_context vem ANTES dela. Duck-typing
-    (`.type`/`.content`) p/ nao depender de imports de langchain."""
+    (`.type`/`.content`) p/ nao depender de imports de langchain.
+
+    Espelha o coordenador (prod): descarta o texto da AIMessage cujo tool_call resultou em ToolMessage
+    "ERRO:" (rascunho superado pela retentativa de tool-com-erro recuperavel) -- senao o jsonl do sim
+    mostraria a fala duplicada que o cliente real NAO veria (bug externo_pix, 2026-06-03)."""
     ult_human = -1
     for i, m in enumerate(messages):
         if getattr(m, "type", None) == "human":
             ult_human = i
+    janela = messages[ult_human + 1 :]
+    ids_com_erro = {
+        getattr(m, "tool_call_id", None)
+        for m in janela
+        if getattr(m, "type", None) == "tool"
+        and str(getattr(m, "content", "")).startswith("ERRO:")
+        and getattr(m, "tool_call_id", None)
+    }
     partes: list[str] = []
-    for m in messages[ult_human + 1 :]:
+    for m in janela:
         if getattr(m, "type", None) != "ai":
             continue
+        if ids_com_erro and (_tool_use_ids(m) & ids_com_erro):
+            continue  # rascunho superado por retentativa de tool-com-erro recuperavel
         conteudo = getattr(m, "content", None)
         if isinstance(conteudo, str):
             if conteudo.strip():

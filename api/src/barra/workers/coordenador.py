@@ -21,7 +21,7 @@ from uuid import UUID, uuid5
 
 import structlog
 from anthropic import APIStatusError, APITimeoutError, RateLimitError
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langgraph.errors import GraphRecursionError
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
@@ -467,6 +467,21 @@ def _extrair_texto(msg: AIMessage) -> str:
     return "".join(partes)
 
 
+def _tool_use_ids(msg: AIMessage) -> set[str]:
+    """IDs dos tool_calls de uma AIMessage -- de `.tool_calls` (LLM real) e dos blocos `tool_use`
+    do content (cobre mensagens cruas/testes onde `.tool_calls` nao foi populado)."""
+    ids: set[str] = set()
+    for tc in msg.tool_calls or []:
+        tid = tc.get("id")
+        if tid:
+            ids.add(tid)
+    if isinstance(msg.content, list):
+        for b in msg.content:
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id"):
+                ids.add(b["id"])
+    return ids
+
+
 def _extrair_texto_do_turno(messages: list[BaseMessage]) -> str:
     """Agrega texto das AIMessages GERADAS pelo LLM neste turno, separadas por \\n\\n.
 
@@ -478,13 +493,30 @@ def _extrair_texto_do_turno(messages: list[BaseMessage]) -> str:
     no input do LLM (`nos/prepare_context.py:188`); essas vem SEM `usage_metadata`. Filtrar
     por `usage_metadata` mantem so o que o LLM gerou agora — agregar historicas duplicaria
     a resposta anterior junto com a nova (bug observado em prod 2026-05-27).
+
+    Erro recuperavel + retry (2026-06-03): quando uma tool devolve "ERRO: ..." (string, nao excecao),
+    o LLM RE-EMITE o texto e re-chama a tool na passagem seguinte. O texto da passagem cujo tool_call
+    ERROU e um rascunho SUPERADO pela retentativa -- agrega-lo duplicaria a fala ao cliente (bug
+    externo_pix). Descartamos o texto das AIMessages cujo tool_call resultou em ToolMessage "ERRO:".
     """
-    partes = [
-        _extrair_texto(m)
+    ids_com_erro = {
+        m.tool_call_id
         for m in messages
-        if isinstance(m, AIMessage) and m.usage_metadata is not None
-    ]
-    return "\n\n".join(p for p in partes if p)
+        if isinstance(m, ToolMessage) and str(m.content).startswith("ERRO:") and m.tool_call_id
+    }
+    partes: list[str] = []
+    for m in messages:
+        if not (isinstance(m, AIMessage) and m.usage_metadata is not None):
+            continue
+        if ids_com_erro and (_tool_use_ids(m) & ids_com_erro):
+            # rascunho superado por retentativa de tool-com-erro recuperavel. Premissa: no maximo
+            # UMA tool de escrita com erro recuperavel por passagem -- as tools de mídia (fan-out
+            # multi-call por turno) NAO retornam "ERRO:" agregavel a texto, entao nao acionam isto.
+            continue
+        texto = _extrair_texto(m)
+        if texto:
+            partes.append(texto)
+    return "\n\n".join(partes)
 
 
 async def resolver_atendimento(
