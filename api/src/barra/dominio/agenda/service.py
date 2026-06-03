@@ -23,6 +23,12 @@ class ConflitoAgenda(Exception):
     """Slot ja reservado por outra conversa da mesma modelo (EXCLUDE de bloqueios)."""
 
 
+class HorarioNaoDefinido(Exception):
+    """Reserva pedida sem `horario_desejado`: o chamador tentou reservar o slot antes de o horario
+    combinado existir. Erro RECUPERAVEL -- a tool de escrita devolve instrucao p/ a IA confirmar o
+    horario primeiro, nunca um crash de turno (o caminho interno ja so reserva com horario != None)."""
+
+
 async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict[str, Any]) -> None:
     """Reserva o slot previo do atendimento (estado `bloqueado`, origem `ia`) e fecha a FK circular.
 
@@ -35,6 +41,13 @@ async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict
     modelo_id = atendimento["modelo_id"]
     data = atendimento.get("data_desejada") or datetime.now(BRT).date()
     horario = atendimento["horario_desejado"]
+    if horario is None:
+        # Sem horario combinado a reserva nao tem inicio (datetime.combine(data, None) estouraria
+        # TypeError -> crash de turno). Precondicao do chamador: so reservar APOS o horario combinado.
+        # Erro recuperavel: a tool de escrita captura e instrui a IA a confirmar o horario primeiro.
+        raise HorarioNaoDefinido(
+            "horario_desejado ausente: combine o horario antes de reservar o slot"
+        )
     duracao = atendimento.get("duracao_horas") or DURACAO_PADRAO_HORAS
     inicio = datetime.combine(data, horario, tzinfo=BRT)
     fim = inicio + timedelta(hours=float(duracao))

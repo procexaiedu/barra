@@ -17,7 +17,11 @@ from langgraph.prebuilt import ToolRuntime
 from psycopg import AsyncConnection
 
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
-from barra.dominio.agenda.service import ConflitoAgenda, criar_bloqueio_previo
+from barra.dominio.agenda.service import (
+    ConflitoAgenda,
+    HorarioNaoDefinido,
+    criar_bloqueio_previo,
+)
 
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
@@ -77,6 +81,15 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
             return (
                 "ERRO: o horário combinado acabou de ser reservado por outra conversa. "
                 "Ofereça outro horário ao cliente antes de pedir o Pix de novo."
+            )
+        except HorarioNaoDefinido:
+            # A IA pediu o Pix antes de o horário estar combinado (ex.: cliente pede o Pix e só
+            # depois fala a hora). Sem horário não dá pra reservar o slot — o turno reverteu
+            # (pix_status volta a nao_solicitado); instrua a IA a confirmar o horário primeiro.
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "horario_ausente").inc()
+            return (
+                "ERRO: o horário ainda não está combinado — não dá pra reservar o slot nem pedir o "
+                "Pix. Confirme o horário com o cliente primeiro, depois peça o Pix de deslocamento."
             )
 
     # Retorno NÃO inclui a chave — a humanização a anexa deterministicamente após o texto da IA.
