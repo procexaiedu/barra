@@ -38,7 +38,8 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
     cria bloqueio prévio do horário (reserva o slot). A humanização ANEXA a
     chave/titular/valor exatos à sua mensagem — você NÃO redigita a chave (string crítico).
 
-    Escreva só o pedido no seu tom ("pra garantir teu horário, manda o pixzinho do deslocamento").
+    Escreva o pedido em UMA só bolha, só DEPOIS desta tool retornar sucesso ("pra garantir teu
+    horário, manda o pixzinho do deslocamento") — não pré-anuncie numa passagem anterior nem repita.
     Use APENAS para atendimento externo após acordar horário e endereço.
     Use APENAS UMA vez por atendimento (segunda chamada é idempotente, não duplica mensagem).
 
