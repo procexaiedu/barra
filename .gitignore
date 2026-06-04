@@ -103,3 +103,9 @@ temp/
 
 # DevContext
 .devcontext
+
+# --- Artefatos de trabalho local (debug dumps / prints soltos) ---
+# Dumps de depuração e prints de evals gerados na raiz; não vão pro repo.
+_dump_*.txt
+/evals-*.jpeg
+/evals-*.jpg

@@ -27,9 +27,12 @@ class _Result:
 class FakeConn:
     """Conn fake que registra queries/binds e retorna respostas determinísticas."""
 
-    def __init__(self, *, mensagem_existe: bool, envio_existe: bool) -> None:
+    def __init__(
+        self, *, mensagem_existe: bool, envio_existe: bool, grupo_por_banco: bool = False
+    ) -> None:
         self.mensagem_existe = mensagem_existe
         self.envio_existe = envio_existe
+        self.grupo_por_banco = grupo_por_banco
         self.queries: list[str] = []
         self.binds: list[tuple[str, Any]] = []
 
@@ -44,6 +47,8 @@ class FakeConn:
             return _Result([{"?column?": 1}] if self.mensagem_existe else [])
         if "FROM barravips.envios_evolution WHERE evolution_message_id" in query:
             return _Result([{"?column?": 1}] if self.envio_existe else [])
+        if "WHERE coordenacao_chat_id" in query:
+            return _Result([{"?column?": 1}] if self.grupo_por_banco else [])
         if "SELECT 1 FROM barravips.modelos WHERE evolution_instance_id" in query:
             return _Result([{"?column?": 1}])  # _instance_cadastrada
         if "SELECT id FROM barravips.modelos WHERE evolution_instance_id" in query:
@@ -182,6 +187,32 @@ def test_webhook_cliente_texto_persiste_orfa_e_enfileira_turno() -> None:
     chaves = {chave for (chave, _v, _ex) in arq.sets}
     assert f"pending:conv:{_CONVERSA_ID}" in chaves
     assert f"debounce:conv:{_CONVERSA_ID}" in chaves
+
+
+def test_webhook_grupo_reconhecido_por_coordenacao_chat_id() -> None:
+    """Multi-modelo: comando chega do grupo da modelo (coordenacao_chat_id) com o JID
+    global de settings DESLIGADO. Deve entrar no fluxo de grupo (e aqui parar como
+    `invalid` porque o atendimento #12 não existe no FakeConn) — nunca ser tratado como
+    mensagem de cliente. Sem o reconhecimento por banco, cairia no ramo cliente
+    (INSERT em clientes/mensagens + enqueue de turno) e o comando se perderia."""
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.jid_permitido = None
+    settings.evolution_grupo_coordenacao_jid = None  # JID global desligado
+    settings.evolution_fernando_jids = []
+    conn = FakeConn(mensagem_existe=False, envio_existe=False, grupo_por_banco=True)
+    arq = FakeArq()
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        app.state.arq = arq
+        response = client.post("/webhook/evolution", json=_payload_grupo("CMD-GRUPO-1"))
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "invalid"}
+    # Não foi tratado como cliente: nenhum INSERT de cliente/mensagem, nenhum turno.
+    assert [q for q in conn.queries if "INSERT INTO barravips.clientes" in q] == []
+    assert [q for q in conn.queries if "INSERT INTO barravips.mensagens" in q] == []
+    assert arq.enqueued == []
 
 
 def test_webhook_token_invalido_retorna_401() -> None:

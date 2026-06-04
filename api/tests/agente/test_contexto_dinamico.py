@@ -90,7 +90,14 @@ async def _seed_conversa(
             (id, cliente_id, modelo_id, evolution_chat_id, recorrente, observacoes_internas)
         VALUES (%s, %s, %s, %s, %s, %s)
         """,
-        (conversa_id, cliente_id, modelo_id, f"test-chat-{uuid4().hex}", recorrente, observacoes_internas),
+        (
+            conversa_id,
+            cliente_id,
+            modelo_id,
+            f"test-chat-{uuid4().hex}",
+            recorrente,
+            observacoes_internas,
+        ),
     )
     return conversa_id
 
@@ -193,16 +200,18 @@ async def test_contexto_dinamico_no_ultimo_humanmessage(
     # data atual (04 §2.1): ancora "hoje" no contexto dinamico p/ a IA escrever datas absolutas
     # em consultar_agenda. Vem do banco (current_date) -> assertar o formato YYYY-MM-DD, nao o
     # valor exato (depende do relogio/fuso do banco).
-    assert re.search(r"Hoje: \d{4}-\d{2}-\d{2}", str(ultimo_human.content))
+    assert re.search(r'hoje="\d{4}-\d{2}-\d{2}"', str(ultimo_human.content))
     # as linhas dos bloqueios das 48h aparecem como tags XML <bloqueio .../> (uma por linha),
     # guarda contra a regressao do for-loop grudado (02 §5).
     linhas_bloqueio = [
         ln
         for ln in ultimo_human.content.splitlines()
-        if ln.startswith("<bloqueio ")
-        and ('estado="bloqueado"' in ln or 'estado="em_atendimento"' in ln)
+        if ln.startswith("<bloqueio ") and 'estado="ocupado"' in ln
     ]
     assert len(linhas_bloqueio) == 2
+    # o estado bruto (bloqueado/em_atendimento) NUNCA chega ao LLM — vira "ocupado"
+    assert 'estado="em_atendimento"' not in ultimo_human.content
+    assert 'estado="bloqueado"' not in ultimo_human.content
     assert "disponibilidade total" not in ultimo_human.content.lower()
 
     # prefixo cacheavel INTACTO: nenhum SystemMessage recebeu o texto do contexto dinamico.

@@ -14,15 +14,38 @@ calibração contra humano é a salvaguarda do self-preference: não pular (ADR 
 
 ## Runbook (passos do operador)
 
-### 1. Rotular o golden set — e medir o acordo humano-humano PRIMEIRO  · `needs_human_labels`
+### 1. Gerar conversas E2E, rotular por-fala — e medir o acordo humano-humano PRIMEIRO  · `needs_human_labels`
 
-Fernando **e** a sócia rotulam, **independentemente**, 30–50 turnos curados de
-`docs/agente/conversas-reais/` (passa/falha por rubrica). Cada linha do `golden.jsonl` segue o
-formato de `dataset_exemplo.jsonl`:
+**Não se rotula resposta isolada — a IA é conversacional.** O insumo são **atendimentos completos**
+simulados (cliente-LLM ↔ grafo real), gerados por `evals/sim/gerar_conversas.py` (EVAL-12; needs_db
++ needs_key) em `conversas.jsonl`. Fernando **e** a sócia abrem `docs/agente/evals-notas.html`
+(servida por HTTP) e, **independentemente**, marcam **✓ passou / ✕ não passou** em **cada fala da
+IA**, no contexto da conversa, com comentário opcional. O veredito é **holístico**: ✕ se a fala
+quebra **qualquer** das 4 dimensões (non_disclosure, persona, instruction_following, tom_pt_br); ✓
+se respeita todas.
+
+Gerar o corpus (passo do operador, **custa crédito** — cliente-LLM + agente-LLM por turno, fora do CI):
+
+```sh
+# da raiz de api/, com ANTHROPIC_API_KEY (--usar-database-url copia DATABASE_URL de prod p/
+# TEST_DATABASE_URL no processo; o arnês nunca commita — rollback sempre):
+uv run python -m evals.sim.gerar_conversas --usar-database-url                    # todos os cenários
+uv run python -m evals.sim.gerar_conversas --cenario <nome> --usar-database-url   # só um (smoke)
+```
+
+Cada rotulador exporta o **seu** arquivo (`golden_<rotulador>.jsonl`) com **só a sua coluna** — cada
+fala vira um item (sem `rubrica` — holístico):
 
 ```json
-{"id": "...", "texto_resposta": "...", "rubrica": "non_disclosure_passivo", "rotulo_humano_fernando": true, "rotulo_humano_socia": true}
+{"id": "cenario::3", "conversa_id": "cenario", "cenario": "...", "texto_resposta": "...", "historico": ["cliente: ...", "ia: ...", "cliente: ..."], "rotulo_humano_fernando": true, "rotulo_humano_socia": true}
 ```
+
+O campo **`historico`** (os turnos ANTES daquela fala — `"cliente: ..."`/`"ia: ..."`/`"[ato]"`) é o
+contexto que o judge recebe (`montar_mensagens`, **todas** as rubricas): `tom_pt_br`/`instruction_following`
+só dão para julgar com a conversa à vista (idioma / o que foi pedido). Humano e judge avaliam a
+**mesma** informação. O `calibrar.py` detecta o golden holístico (sem `rubrica`): a fala "passa" no
+judge se passa em **todas** as rubricas — comparável ao ✓/✕ humano. (Golden legado **com** `rubrica`
+por linha — `dataset_exemplo.jsonl` — segue suportado, por-rubrica.)
 
 Antes de tudo, medir o acordo entre os dois humanos — ele é o **TETO** da meta (refino 08b §3.1):
 
@@ -36,12 +59,38 @@ vier baixo, **a rubrica está mal definida** — afie o critério no `judge.md` 
 julgar o judge. O golden é **held-out**: nunca reusar como fixture do gate de cutover (evita leak
 por fixture reutilizada).
 
+### 1b. Juntar os dois exports num golden de duas colunas  · puro
+
+A UI exporta **um arquivo por rotulador** (`golden_fernando.jsonl` / `golden_socia.jsonl`), cada um
+com **só a sua coluna**. O `calibrar.py` exige as **duas** colunas na mesma linha por `id`, então
+faça o INNER JOIN com `merge_rotulos.py` (puro, **sem crédito**) — só as falas rotuladas pelos
+**dois** entram no golden (as de um só são descartadas com aviso, sem cap silencioso):
+
+```sh
+uv run python evals/calibracao/merge_rotulos.py \
+    --fernando evals/calibracao/golden_fernando.jsonl \
+    --socia    evals/calibracao/golden_socia.jsonl \
+    --saida    evals/calibracao/golden.jsonl
+```
+
 ### 2. Rodar o judge sobre o golden  · `needs_anthropic_api`
 
-Rodar `runners/judge.py:julgar(rubrica, texto_resposta, ...)` (advisory, Sonnet 4.6) sobre cada
-linha do golden, coletando `passou` por item. Custa crédito Anthropic — passo deliberado, fora do
-`make evals`/CI. O resultado é a lista `judge: list[bool]` pareada com o rótulo humano consolidado
-(critério do operador: ex. AND dos dois humanos para segurança, ou a maioria).
+`calibrar.py` roda o judge (advisory, Sonnet 4.6) sobre cada linha do golden, coletando `passou`
+por item. Custa crédito Anthropic — passo deliberado, fora do `make evals`/CI. O resultado é a
+lista `judge: list[bool]` pareada com o rótulo humano consolidado (critério do operador: ex. AND
+dos dois humanos para segurança, ou a maioria).
+
+Cada fala do golden holístico é avaliada em **uma única chamada** (`judge.julgar_holistico` →
+`JudgeHolistico`, as 4 rubricas LLM de uma vez), não quatro: corta ~75% das chamadas do juiz e
+reenvia constituição + contexto 1× por fala em vez de 4×. Para gastar menos enquanto afina o
+`judge.md`, rode um subconjunto antes da rodada completa:
+
+```sh
+uv run python evals/calibracao/calibrar.py --cenario desconfiado_ia --cenario pede_desconto
+```
+
+O golden legado **por-rubrica** (`dataset_exemplo.jsonl`) segue julgado uma rubrica por chamada
+(`judge.julgar`).
 
 ### 3. Computar as métricas de concordância  · puro
 

@@ -105,7 +105,7 @@ barra-vips/
 │   │       ├── webhook/                   ✓ entrada Evolution API
 │   │       │   ├── __init__.py
 │   │       │   ├── routes.py              ✓ POST /webhook/evolution
-│   │       │   ├── filtro.py              ✓ stub — token + JID allowlist (Fase 1.5)
+│   │       │   ├── filtro.py              ✓ placeholder vazio — gates reais em routes.py/despacho.py
 │   │       │   ├── debounce.py            ✓ stub — multi-device + 60s (estado em Redis)
 │   │       │   └── despacho.py            ✓ stub — roteia para graph.ainvoke
 │   │       │

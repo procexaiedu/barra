@@ -244,7 +244,11 @@ class Settings(BaseSettings):
 
     jid_permitido: str | None = Field(
         default=None,
-        description="Quando definido, webhook só processa mensagens deste JID. Usado na Fase 1.5.",
+        description=(
+            "Flag de TESTE da Fase 1.5: quando definido, o webhook só processa mensagens deste "
+            "único JID global. Default None = desligado. NÃO é allowlist por modelo nem defesa de "
+            "produção — a borda real é token + instância cadastrada + UNIQUE evolution_instance_id."
+        ),
     )
 
     sentry_dsn: str | None = None

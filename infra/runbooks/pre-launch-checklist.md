@@ -34,9 +34,11 @@ Gerado por workflow de pré-launch (2026-06-01). Achados de drift B1/B2/B3 verif
 
 ---
 
-## BLOCO A — Segurança: rotação do secret MinIO (DEPLOY-01) — **AÇÃO #1, BLOQUEANTE**
+## BLOCO A — Segurança: rotação do secret MinIO (DEPLOY-01) — **✅ CONCLUÍDO (operador, 2026-06-02)**
 
-> A **chave MinIO nunca foi rotacionada** e segue recuperável no histórico de um repo que esteve público — só a **rotação** neutraliza o vazamento; deletar o literal não. **Código pronto (2026-06-02):** `settings.py` lê a chave via `MINIO_SECRET_KEY_FILE` (padrão Docker/Swarm secret — vence o valor inline) e `stack.barra-portainer.yml` monta o Swarm secret `minio_secret_key` em **api e worker**, lendo a access key (não-secreta) de `${MINIO_ACCESS_KEY}`. Isso já corrige o worker que vinha **vazio** (mídia quebrava: STT/vision pulavam por `minio is None`). Restam os passos do **operador** abaixo.
+> ✅ **Chave MinIO rotacionada pelo operador (2026-06-02)** — vazamento histórico neutralizado (a chave antiga não autentica mais). O procedimento e o código `*_FILE` abaixo ficam como referência.
+>
+> A chave seguia recuperável no histórico de um repo que esteve público — só a **rotação** neutralizava o vazamento; deletar o literal não. **Código pronto (2026-06-02):** `settings.py` lê a chave via `MINIO_SECRET_KEY_FILE` (padrão Docker/Swarm secret — vence o valor inline) e `stack.barra-portainer.yml` monta o Swarm secret `minio_secret_key` em **api e worker**, lendo a access key (não-secreta) de `${MINIO_ACCESS_KEY}`. Isso já corrige o worker que vinha **vazio** (mídia quebrava: STT/vision pulavam por `minio is None`). Restam os passos do **operador** abaixo.
 
 - [ ] **A-1 — Gerar credencial nova no provedor MinIO e REVOGAR a antiga** (a rotação em si).
   - Feito: a chave velha não autentica mais (`mc alias set velho <endpoint> <access-key> <chave-velha> && mc ls velho` falha).
@@ -73,8 +75,10 @@ Gerado por workflow de pré-launch (2026-06-01). Achados de drift B1/B2/B3 verif
 
 ---
 
-## BLOCO C — Migrations de schema em prod (DEPLOY-05/06 + CUSTO-01) — **incorpora os achados de drift**
+## BLOCO C — Migrations de schema em prod (DEPLOY-05/06 + CUSTO-01) — **C-1/C-2 ✅ FEITOS (2026-06-02)**
 
+> ✅ **`schema_migrations` criada + backfill das 42 migrations de schema aplicado (2026-06-02, verificado via MCP).** Integridade OK: DRIFT `20260526225347` e o data-fix `0036` ausentes, sem seeds. Resta só a **decisão do DRIFT** (C-4) e o **cadastro operacional** (C-5).
+>
 > **Banco ÚNICO = prod.** Aplicar **uma a uma** via `uv run python scripts/aplicar_sql.py infra/sql/<arquivo>.sql`. **NUNCA `make migrate`.** Runbook: `infra/runbooks/aplicar-migrations-prod.md`.
 
 ### Estado real verificado (introspecção read-only do prod, 2026-06-01)

@@ -1,9 +1,9 @@
 # OBS-02 — Alertmanager do stack barra (Elite Baby MVP).
 # Roteamento minimo: todos os alertos das alert.rules.yml caem num unico receiver.
-# O destino real (webhook do painel / e-mail) e PASSO DO OPERADOR — preencher a env
-# var ALERT_WEBHOOK_URL na stack (Portainer) ou trocar pelo bloco email_configs.
-# O ${ALERT_WEBHOOK_URL} so e expandido porque o servico sobe o alertmanager com a flag
-# --config.expand-env (ver stack.barra-portainer.yml). Sem a flag, edite a url direto aqui.
+# O destino real (webhook do painel / e-mail) e PASSO DO OPERADOR — editar a url do
+# webhook_configs abaixo (ou trocar pelo bloco email_configs) e recriar o Swarm config.
+# OBS: o Alertmanager NAO expande variaveis de ambiente no config (nao existe a flag
+# --config.expand-env); por isso a url fica literal aqui, nunca via ${ENV}.
 global:
   resolve_timeout: 5m
 
@@ -17,11 +17,11 @@ route:
 
 receivers:
   - name: barra-default
-    # Placeholder: webhook generico. O operador aponta ALERT_WEBHOOK_URL para o destino
-    # real (ex.: endpoint interno do painel ou um relay tipo Alertmanager->WhatsApp).
-    # Sem a env var configurada o Alertmanager sobe, so nao entrega (loga erro de envio).
+    # Placeholder noop: o operador troca por um destino real (endpoint interno do painel
+    # ou um relay tipo Alertmanager->WhatsApp) e recria o Swarm config barra_alertmanager_yml.
+    # Com a url noop o Alertmanager sobe e agrupa, so nao entrega de verdade.
     webhook_configs:
-      - url: "${ALERT_WEBHOOK_URL}"
+      - url: "http://localhost:9999/noop"
         send_resolved: true
     # Alternativa por e-mail (operador descomenta e preenche smtp_* no global + aqui):
     # email_configs:

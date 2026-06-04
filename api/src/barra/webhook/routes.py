@@ -54,13 +54,15 @@ def _host_permitido(url: str, base_url: str) -> bool:
 
 
 async def _baixar_midia(url: str, base_url: str, max_bytes: int) -> tuple[bytes, str] | None:
+    # Loga só o host: a media_url da Evolution carrega path/token da mídia do cliente (PII);
+    # tracing.py já a trata como PII no Sentry, então não pode vazar pelo logger da aplicação.
     if not _host_permitido(url, base_url):
-        _logger.warning("download_midia_host_negado url=%s", url)
+        _logger.warning("download_midia_host_negado host=%s", urlsplit(url).hostname)
         return None
     # Teto de concorrência (anti-DoS): recusa cedo se já há _MAX_DOWNLOADS_MIDIA em voo,
     # em vez de enfileirar espera ilimitada sob burst.
     if _SEM_DOWNLOAD_MIDIA.locked():
-        _logger.warning("download_midia_concorrencia_excedida url=%s", url)
+        _logger.warning("download_midia_concorrencia_excedida host=%s", urlsplit(url).hostname)
         return None
     try:
         async with _SEM_DOWNLOAD_MIDIA:
@@ -73,12 +75,16 @@ async def _baixar_midia(url: str, base_url: str, max_bytes: int) -> tuple[bytes,
                         buf.extend(chunk)
                         if len(buf) > max_bytes:
                             _logger.warning(
-                                "download_midia_excede_limite url=%s limite=%d", url, max_bytes
+                                "download_midia_excede_limite host=%s limite=%d",
+                                urlsplit(url).hostname,
+                                max_bytes,
                             )
                             return None
             return bytes(buf), ct
     except Exception as exc:
-        _logger.warning("falha_download_midia url=%s erro=%s", url, exc)
+        _logger.warning(
+            "falha_download_midia host=%s erro=%s", urlsplit(url).hostname, type(exc).__name__
+        )
         return None
 
 
@@ -148,10 +154,7 @@ async def evolution_webhook(
     async with pool.connection() as conn:
         if await _mensagem_ja_persistida(conn, msg.evolution_message_id):
             return {"status": "duplicate"}
-        if (
-            settings.evolution_grupo_coordenacao_jid
-            and msg.remote_jid == settings.evolution_grupo_coordenacao_jid
-        ):
+        if await _eh_grupo_coordenacao(conn, settings, msg):
             return await _processar_grupo(conn, request, msg)
         # Defesa em profundidade para mensagens de cliente: a instance precisa
         # estar cadastrada em barravips.modelos.evolution_instance_id, já que
@@ -316,6 +319,32 @@ async def _instance_cadastrada(conn: Any, instance_id: str | None) -> bool:
         conn,
         "SELECT 1 FROM barravips.modelos WHERE evolution_instance_id = %s LIMIT 1",
         (instance_id,),
+    )
+    return row is not None
+
+
+async def _eh_grupo_coordenacao(conn: Any, settings: Any, msg: MensagemEvolution) -> bool:
+    """Reconhece se a mensagem veio de um grupo de Coordenação por modelo.
+
+    Cada modelo tem o SEU grupo (`barravips.modelos.coordenacao_chat_id`), então o
+    reconhecimento é por banco (índice parcial `modelos_coordenacao_chat_idx`), nunca
+    por um JID único global — senão só uma modelo teria os comandos de grupo
+    (`ia assume`, `finalizado`, `perdido`) processados, e as respostas nos grupos das
+    demais cairiam no ramo de cliente. O escopo por modelo/instance é garantido depois
+    em `_processar_grupo` (`_modelo_por_instance`).
+
+    `settings.evolution_grupo_coordenacao_jid` segue como atalho opcional de teste
+    (Fase 1.5): quando definido e batendo, dispensa a ida ao banco.
+    """
+    jid = settings.evolution_grupo_coordenacao_jid
+    if jid and msg.remote_jid == jid:
+        return True
+    if not msg.remote_jid.endswith("@g.us"):
+        return False
+    row = await _one(
+        conn,
+        "SELECT 1 FROM barravips.modelos WHERE coordenacao_chat_id = %s LIMIT 1",
+        (msg.remote_jid,),
     )
     return row is not None
 

@@ -65,13 +65,22 @@ def _ler_golden(caminho: Path) -> list[dict]:
 
 
 async def _julgar_linhas(linhas: list[dict]) -> list[bool]:
-    """`passou` do judge por linha (sequencial, p/ nao estourar rate limit). needs_key."""
+    """`passou` do judge por linha (sequencial, p/ nao estourar rate limit). needs_key.
+
+    Linha COM `rubrica` -> julga aquela rubrica (golden legado, por-rubrica). Linha SEM `rubrica`
+    (golden por-conversa, HOLISTICO) -> UMA chamada `julgar_holistico` avalia as 4 rubricas LLM de
+    uma vez com o `historico` da conversa; a fala "passa" se passa em TODAS (`holistico_passou`),
+    espelhando o veredito holistico do humano na UI. Uma chamada por fala em vez de quatro corta
+    ~75% do custo do juiz nesta calibracao (EVAL-10)."""
     resultados: list[bool] = []
     for ln in linhas:
-        veredito = await judge.julgar(
-            ln["rubrica"], ln["texto_resposta"], historico=ln.get("historico")
-        )
-        resultados.append(bool(veredito.passou))
+        historico = ln.get("historico")
+        if ln.get("rubrica"):
+            veredito = await judge.julgar(ln["rubrica"], ln["texto_resposta"], historico=historico)
+            resultados.append(bool(veredito.passou))
+            continue
+        holistico = await judge.julgar_holistico(ln["texto_resposta"], historico=historico)
+        resultados.append(judge.holistico_passou(holistico))
     return resultados
 
 
@@ -109,6 +118,12 @@ def _relatorio(
 def main() -> int:
     p = argparse.ArgumentParser(description="Calibracao do LLM-judge (EVAL-10).")
     p.add_argument("--golden", type=Path, default=_AQUI / "golden.jsonl")
+    p.add_argument(
+        "--cenario",
+        action="append",
+        help="filtra o golden por cenario (repetivel; default todos). Rode 2-3 cenarios enquanto "
+        "afina o judge.md p/ gastar menos credito antes da rodada completa.",
+    )
     p.add_argument("--consolidacao", choices=["and", "or"], default="and")
     p.add_argument("--min-tpr", type=float, default=0.9)
     p.add_argument("--min-tnr", type=float, default=0.85)
@@ -125,21 +140,37 @@ def main() -> int:
     if not linhas:
         print("golden sem linhas rotuladas (so cabecalho?). Ver README.md.", file=sys.stderr)
         return 2
+    if args.cenario:
+        alvo = set(args.cenario)
+        linhas = [ln for ln in linhas if ln.get("cenario") in alvo]
+        if not linhas:
+            print(
+                f"nenhuma linha do golden casou --cenario {sorted(alvo)}.",
+                file=sys.stderr,
+            )
+            return 2
 
     judge_passou = asyncio.run(_julgar_linhas(linhas))
     mins = (args.min_tpr, args.min_tnr, args.min_kappa)
+    # Golden por-CONVERSA (holistico) nao tem `rubrica` por linha -> so o relatorio GERAL. Golden
+    # legado (por-rubrica) detalha cada rubrica + GERAL.
+    por_rubrica = "rubrica" in linhas[0]
 
     todas_passam = True
-    for rub in sorted({ln["rubrica"] for ln in linhas}):
-        idx = [i for i, ln in enumerate(linhas) if ln["rubrica"] == rub]
-        f = [bool(linhas[i]["rotulo_humano_fernando"]) for i in idx]
-        s = [bool(linhas[i]["rotulo_humano_socia"]) for i in idx]
-        jp = [judge_passou[i] for i in idx]
-        todas_passam &= _relatorio(rub, f, s, jp, args.consolidacao, mins)
+    if por_rubrica:
+        for rub in sorted({ln["rubrica"] for ln in linhas}):
+            idx = [i for i, ln in enumerate(linhas) if ln["rubrica"] == rub]
+            f = [bool(linhas[i]["rotulo_humano_fernando"]) for i in idx]
+            s = [bool(linhas[i]["rotulo_humano_socia"]) for i in idx]
+            jp = [judge_passou[i] for i in idx]
+            todas_passam &= _relatorio(rub, f, s, jp, args.consolidacao, mins)
 
     f_all = [bool(ln["rotulo_humano_fernando"]) for ln in linhas]
     s_all = [bool(ln["rotulo_humano_socia"]) for ln in linhas]
-    geral = _relatorio("GERAL", f_all, s_all, judge_passou, args.consolidacao, mins)
+    nome_geral = (
+        "GERAL" if por_rubrica else "GERAL (holistico: fala passa se respeita as 4 rubricas)"
+    )
+    geral = _relatorio(nome_geral, f_all, s_all, judge_passou, args.consolidacao, mins)
 
     print("\n" + "=" * 60)
     if geral and todas_passam:

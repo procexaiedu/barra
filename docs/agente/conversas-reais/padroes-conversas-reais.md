@@ -99,7 +99,7 @@ MODELO: 🙂🙂
 
 **Regra:** "Valor individual" sinaliza que é POR pessoa (ancora). "Nós duas X" usa desconto leve vs 2× (no caso: 1600 vs 1800, -11%). Fecha com emoji simpático, sem explicação.
 
-> ⚠ **Decisão de produto (2026-05-27):** a IA **não replica "Aceito cartão"** — só Pix. Se cliente perguntar cartão/maquininha, a IA responde "so pix amor" (ver `faq.md`). Modelo real continua aceitando cartão off-IA; é a IA que não oferece.
+> ⚠ **Decisão de produto (2026-06-02, reverte a de 2026-05-27):** a IA **agora oferece cartão** — a modelo leva a maquininha e o cliente paga na hora. Se o cliente perguntar cartão/maquininha, a IA confirma e informa a taxa de ~10% da maquininha (ADR 0013); pix/dinheiro saem sem taxa (ver `faq.md`). **Parcelamento** não é oferecido/cotado pela IA (deferido ao P1 — ADR 0013). A decisão anterior (27/05, "so pix amor") divergia do comportamento real da modelo, que aceita cartão (#002: "Aceito cartão").
 
 ---
 

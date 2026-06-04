@@ -261,7 +261,7 @@ Não é experimento aberto: foi medido e **descartado**. Adicionar `input_exampl
 
 - `docs/agente/02-estado-fluxo.md §11` (`:397-423`) — tabela de transições (fonte do `state_check`); `§10` (`:382-395`) métricas do turno (p95/tokens).
 - `docs/agente/04-tools.md §3.4-3.6` — enum `motivo`, derivação de `responsavel`, buckets defesa/capacidade; `§6` erro recuperável vs infra; `§3.1` guarda do piso (ADR-0004).
-- `docs/agente/conversas-reais/padroes-conversas-reais.md` — todo o mapa de fixtures (`§3.2`); decisões de produto: videocall (§17 `:291-309`), cartão→só Pix (§6).
+- `docs/agente/conversas-reais/padroes-conversas-reais.md` — todo o mapa de fixtures (`§3.2`); decisões de produto: videocall (§17 `:291-309`), cartão aceito c/ taxa de maquininha — reversão 2026-06-02 (§6).
 - `docs/agente/pesquisa-best-practices-prompt-tools.md §1.2` (poda #6), `§1.4` (effort #2 e adaptive #8), `§4` (ordenação esforço×ganho).
 - `docs/mvp/go-live-checklist.md §1` — veredito GO/NO-GO, cutover do Vendedor→IA só após o gate passar, NO-GO autônomo; `§3` — passos ao vivo do gate (EVAL-01/02/04/03/10).
 

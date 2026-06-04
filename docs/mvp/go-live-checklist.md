@@ -29,16 +29,14 @@
 
 ## 2. Segurança — item aberto (ação #1)
 
-- [ ] **DEPLOY-01 — rotacionar a `MINIO_SECRET_KEY`** (ainda é a prioridade absoluta). A chave segue
-      **recuperável no histórico de um repo que esteve público** — só a **rotação** neutraliza o vazamento;
-      a deleção do literal não.
-  - ✅ **Código pronto (2026-06-02):** padrão `*_FILE` em `settings.py` (`MINIO_SECRET_KEY_FILE` lê o Swarm
-    secret montado e vence o valor inline) + `stack.barra-portainer.yml` monta o secret `minio_secret_key`
-    em **api e worker** e lê a access key de `${MINIO_ACCESS_KEY}` (worker antes vinha vazio → mídia quebrava
-    por `minio is None`; agora unificado). Testes em `api/tests/test_deploy_01_secret_file.py`.
-  - ⏳ **Falta o operador:** gerar a chave nova no MinIO + revogar a antiga, criar o Swarm secret
-    (`docker secret create minio_secret_key -`), setar `MINIO_ACCESS_KEY` no Portainer e redeploy. Passo-a-passo
-    em `infra/runbooks/pre-launch-checklist.md` (BLOCO A).
+- [x] **DEPLOY-01 — chave `MINIO_SECRET_KEY` rotacionada (operador, 2026-06-02).** O vazamento histórico foi
+      neutralizado pela rotação (a chave antiga não autentica mais). Item de segurança #1 fechado.
+  - **Worker MinIO unificado em prod (2026-06-02):** o `barra-worker` estava com `MINIO_ACCESS_KEY`/`SECRET_KEY`
+    **vazios** (STT/vision quebravam por `minio is None`); corrigido via `StackUpdate` no Portainer com a mesma
+    credencial do api. api/worker validados de pé pós-deploy (uvicorn up; crons rodando). Redis intacto.
+  - Código `*_FILE` em `settings.py` + Swarm secret no `stack.barra-portainer.yml` disponível para mover a chave
+    de vez do env para um Swarm secret — testes em `api/tests/test_deploy_01_secret_file.py`. *Ainda fora da
+    `main`; integrar é opcional e retrocompatível. A chave hoje segue **literal** no YAML colado do Portainer.*
 
 ---
 
@@ -64,10 +62,20 @@ O código está na `main` (branch `feat/evals-cutover-gate`); falta rodar/ligar:
       imagem no GHCR, fazer o **cutover do `command`** no stack (`image: ghcr.io/procexaiedu/barra:${IMAGE_TAG}`,
       removendo `apt-get`/`git clone`/`uv sync`) e rodar o **drill de `docker service update --rollback`**.
       Recipe em `infra/runbooks/deploy-imagem-versionada.md`. (branch `feat/deploy-migrations`/CI já tem `build-image`.)
-- [ ] **OBS-02 — subir Prometheus + Grafana + Alertmanager** (branch `feat/obs-monitoring`, code-only). Destrava
-      `CUSTO-05` (alerta de write-rate de cache) e o scrape vivo de `EVAL-11` (`agente_eval_pass_rate`).
-- [ ] **DEPLOY-05/06 — migrations:** banco de **staging separado** + **aplicar as migrations de schema** em prod
-      **manualmente via psycopg** (nunca `make migrate` — aplica seeds). `schema_migrations` + drift-check no CI já em código.
+- [x] **OBS-02 — Prometheus + Alertmanager + Grafana no ar (2026-06-02), via Swarm configs.** Deployado no
+      stack `barra-vips` (Portainer/MCP). O design original (clone-at-boot do repo) **não subia**: `prom/prometheus`
+      e `prom/alertmanager` não têm `apk`/`git`; `rule_files` apontava pro path errado; a flag `--config.expand-env`
+      não existe no alertmanager; e o `alert.rules.yml` tinha escape inválido. Refeito com os 4 YAMLs como **Swarm
+      configs** montados nos containers; os bugs do `alert.rules.yml`/`alertmanager.yml` foram corrigidos no repo.
+      Estado: 6 serviços `running` 1/1, prometheus `ready` (regras carregadas), alertmanager `listening`, grafana up.
+  - ⏳ **Pendências do operador:** apontar DNS `grafana-barra.procexai.tech` (senha admin gerada no deploy),
+    trocar o webhook noop do Alertmanager (recriar o Swarm config `barra_alertmanager_yml`) e confirmar os targets
+    UP no Prometheus/Grafana. Follow-up de código: atualizar `stack.barra-portainer.yml` (ainda traz o clone-at-boot
+    antigo) pra refletir os Swarm configs. Destrava `CUSTO-05` e o scrape de `EVAL-11`.
+- [x] **DEPLOY-05/06 — `schema_migrations` + backfill aplicados em prod (2026-06-02, verificado via MCP).** A
+      tabela existe com as **42** migrations de schema; backfill íntegro (DRIFT `20260526225347` e o data-fix
+      `0036` corretamente ausentes, sem seeds de dados). Banco de **staging separado** foi descopado (banco
+      único = prod). Resta só a **decisão de produto** do DRIFT `20260526225347` (BLOCO C-4 do runbook) — não-bloqueante.
 
 ---
 

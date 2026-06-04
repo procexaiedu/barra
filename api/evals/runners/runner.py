@@ -49,7 +49,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from langchain_core.callbacks.base import BaseCallbackHandler
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
@@ -80,7 +80,16 @@ def carregar_fixtures(
         for arquivo in sorted(base.rglob("*.jsonl")):
             for linha in arquivo.read_text(encoding="utf-8").splitlines():
                 if linha.strip():
-                    fixtures.append(json.loads(linha))
+                    fx = json.loads(linha)
+                    # Fixtures de pipeline de midia (`tipo_pipeline`, ex.: vision_pix) NAO tem
+                    # `mensagens_entrada` e nao passam pelo runner de turnos do agente -- o caminho
+                    # de worker (workers/pix.py:validar_pix) nunca foi ligado aqui. Sem este skip,
+                    # `executar_fixture` levanta ValueError (captura None) e o finally de `rodar`
+                    # so faz rollback -> a excecao propaga e ABORTA A RUN INTEIRA (desperdicio de
+                    # credito ja gasto). Pular aqui isola o gate de turnos do harness de midia.
+                    if "tipo_pipeline" in fx:
+                        continue
+                    fixtures.append(fx)
     return fixtures
 
 
@@ -142,19 +151,34 @@ def _superficie_auditavel(mensagens: list[BaseMessage]) -> str:
 
 
 def _texto_final(mensagens: list[BaseMessage]) -> str:
-    """Conteudo (texto) da ultima AIMessage -- a bolha que iria ao cliente."""
-    for m in reversed(mensagens):
-        if isinstance(m, AIMessage):
-            conteudo = m.content
-            if isinstance(conteudo, str):
-                return conteudo
-            partes = [
+    """Fala que iria ao cliente NESTE turno: agrega o texto de TODAS as AIMessages APOS o ultimo
+    HumanMessage (a msg atual do cliente).
+
+    O agente costuma emitir o texto numa AIMessage e DEPOIS chamar registrar_extracao (uma
+    AIMessage so-tool_call + ToolMessage + as vezes uma AIMessage final VAZIA). Pegar so a ULTIMA
+    AIMessage devolvia '' nesses casos e cegava os graders de texto (nao_deve_conter/deve_conter/
+    max_chars) a fala real -- falso-PASS no proibido (string vazia nao contem nada) e falso-FAIL no
+    obrigatorio. Espelha sim/loop.py:_extrair_fala_do_turno e o coordenador de producao.
+    """
+    ult_human = -1
+    for i, m in enumerate(mensagens):
+        if isinstance(m, HumanMessage):
+            ult_human = i
+    partes: list[str] = []
+    for m in mensagens[ult_human + 1 :]:
+        if not isinstance(m, AIMessage):
+            continue
+        conteudo = m.content
+        if isinstance(conteudo, str):
+            if conteudo:
+                partes.append(conteudo)
+        elif isinstance(conteudo, list):
+            partes += [
                 bloco.get("text", "")
                 for bloco in conteudo
                 if isinstance(bloco, dict) and bloco.get("type") == "text"
             ]
-            return "".join(partes)
-    return ""
+    return "\n".join(p for p in partes if p)
 
 
 # --- seeding (espelha test_fixtures_leitura_decisao.py) ----------------------------------------
@@ -169,6 +193,25 @@ class _PoolDeUmaConexao:
     @asynccontextmanager
     async def connection(self) -> AsyncIterator[AsyncConnection[dict[str, Any]]]:
         yield self._conn
+
+
+class _RedisStub:
+    """Stub de ArqRedis: a tool `escalar` (e o registrar_extracao no aviso de saida) enfileiram
+    cards via `enqueue_job`. Com `redis=None` isso CRASHA quando o LLM aciona a tool escalar (e nao
+    so o caminho deterministico abrir_handoff, que nao toca o redis). Cada metodo vira coroutine
+    no-op: so o estado de DB (escalada + ia_pausada) importa p/ os graders; o ENVIO do card e a
+    contagem de reincidencia cross-turno nao ocorrem no runner. `__getattr__` ignora dunders, senao
+    o Pydantic usaria o no-op como serializer e quebraria o model_dump do input das tools (a
+    serializacao do context toca o redis). Espelha sim/loop.py:_RedisStub."""
+
+    def __getattr__(self, nome: str) -> Any:
+        if nome.startswith("__"):
+            raise AttributeError(nome)
+
+        async def _noop(*_a: Any, **_k: Any) -> None:
+            return None
+
+        return _noop
 
 
 async def _seed_entidades(
@@ -191,10 +234,44 @@ async def _seed_entidades(
     await conn.execute(
         """
         INSERT INTO barravips.modelos
-            (id, nome, idade, numero_whatsapp, valor_padrao, tipo_atendimento_aceito)
-        VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[])
+            (id, nome, idade, numero_whatsapp, valor_padrao, tipo_atendimento_aceito,
+             chave_pix, titular_chave)
+        VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[], %s, %s)
         """,
-        (modelo_id, "Modelo Eval", 25, f"eval-wpp-{uuid4().hex}", 500, ["interno", "externo"]),
+        # chave_pix/titular sempre setados: um modelo real tem chave; sem eles
+        # pedir_pix_deslocamento (pix.py:57) faz early-return de ERRO e nunca transiciona o
+        # externo (agenda.002 falharia o state_check + a string de erro induz escalada espuria).
+        # Em fixtures que proibem pedir_pix o grader pega o nome da tool de qualquer forma.
+        (
+            modelo_id,
+            "Modelo Eval",
+            25,
+            f"eval-wpp-{uuid4().hex}",
+            500,
+            ["interno", "externo"],
+            "evalpix@modelo.test",
+            "Modelo Eval",
+        ),
+    )
+    # Cardapio minimo: vincula a modelo bare a programas/duracoes do CATALOGO GLOBAL (seeds de
+    # infra/sql, UUIDs deterministicos e0.../d0...) via modelo_programas. SEM cardapio o
+    # programas.md.j2 renderiza "A modelo ainda nao tem programas cadastrados. Se cliente perguntar
+    # valor, escale para Fernando" e o agente escala fora_de_oferta em QUALQUER booking/cotacao
+    # (confirmado no trace de agenda.001). Referencia o catalogo, nao o muta -> o rollback por
+    # fixture remove so estes vinculos. Programa Completo 1h/2h/Pernoite a 800/1500/3000.
+    await conn.execute(
+        """
+        INSERT INTO barravips.modelo_programas
+            (modelo_id, programa_id, duracao_id, preco, created_at, updated_at)
+        VALUES
+            (%s, 'e0000000-0000-0000-0000-000000000003',
+                 'd0000000-0000-0000-0000-000000000001', 800, now(), now()),
+            (%s, 'e0000000-0000-0000-0000-000000000003',
+                 'd0000000-0000-0000-0000-000000000002', 1500, now(), now()),
+            (%s, 'e0000000-0000-0000-0000-000000000003',
+                 'd0000000-0000-0000-0000-000000000005', 3000, now(), now())
+        """,
+        (modelo_id, modelo_id, modelo_id),
     )
     await conn.execute(
         "INSERT INTO barravips.clientes (id, telefone, nome) VALUES (%s, %s, %s)",
@@ -207,13 +284,25 @@ async def _seed_entidades(
         """,
         (conversa_id, cliente_id, modelo_id, f"eval-chat-{uuid4().hex}", recorrente),
     )
+    # Campos operacionais opcionais lidos de `estado_inicial` (NULL quando ausentes -> mesmo
+    # comportamento de antes). `horario_desejado` e necessario p/ o externo: pedir_pix_deslocamento
+    # cria o bloqueio previo via criar_bloqueio_previo, que faz datetime.combine(data, horario) e
+    # estoura TypeError se horario for NULL (data/duracao tem fallback hoje/1h; horario nao).
     await conn.execute(
         """
         INSERT INTO barravips.atendimentos
             (id, numero_curto, cliente_id, modelo_id, conversa_id,
-             estado, pix_status, ia_pausada, ia_pausada_motivo)
-        VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s)
+             estado, pix_status, ia_pausada, ia_pausada_motivo,
+             tipo_atendimento, horario_desejado, data_desejada, duracao_horas, endereco, bairro)
+        VALUES (%s, 1, %s, %s, %s, %s, %s, %s, %s,
+                %s::barravips.tipo_atendimento_enum, %s::time,
+                COALESCE(%s::date, CASE WHEN %s::time IS NOT NULL THEN CURRENT_DATE END),
+                %s, %s, %s)
         """,
+        # data_desejada: quando ha horario mas a fixture nao deu data, default p/ CURRENT_DATE.
+        # Senao o agente, ao registrar_extracao apos pedir_pix (que ja reservou o bloqueio com
+        # data=hoje), grava data_desejada=hoje e o _reagendamento_pos_bloqueio ve NULL->hoje como
+        # "mudanca de horario" e escala falsamente (confirmado no trace de agenda.002).
         (
             atendimento_id,
             cliente_id,
@@ -223,6 +312,13 @@ async def _seed_entidades(
             pix_status,
             ia_pausada,
             "handoff_ia" if ia_pausada else None,
+            inicial.get("tipo_atendimento"),
+            inicial.get("horario_desejado"),
+            inicial.get("data_desejada"),
+            inicial.get("horario_desejado"),
+            inicial.get("duracao_horas"),
+            inicial.get("endereco"),
+            inicial.get("bairro"),
         ),
     )
     return modelo_id, atendimento_id, cliente_id, conversa_id
@@ -272,13 +368,22 @@ async def _seed_par_b_canary(
 
 
 async def _inserir_mensagem(
-    conn: AsyncConnection[dict[str, Any]], conversa_id: UUID, msg: dict[str, Any]
+    conn: AsyncConnection[dict[str, Any]], conversa_id: UUID, msg: dict[str, Any], ordem: int
 ) -> None:
     """Insere UMA mensagem da fixture na conversa (direcao cliente/ia/modelo_manual).
 
     `tipo` (default "texto") permite seedar audio (SEC-11): uma transcricao-STT (tipo="audio")
     entra como HumanMessage cercado pelo spotlighting de prepare_context, exercitando o vetor
     de injecao indireta via midia (comando no audio -> dado, nunca ordem).
+
+    `ordem` (indice na fixture) vira `created_at = now() + ordem segundos`. CRITICO: as mensagens
+    sao inseridas em rajada (mesmo `now()` ate o ms) e carregar_mensagens ordena por
+    `(created_at DESC, id DESC)`. Os ids aqui sao uuid4 (ALEATORIOS -- prod usa uuidv7 time-ordered),
+    entao SEM um created_at crescente o desempate cai no id aleatorio e EMBARALHA a janela. Quando o
+    embaralho deixa uma AIMessage (`ia`) por ULTIMO, o contexto dinamico (anexado a ultima
+    HumanMessage, nao a ultima msg) faz as mensagens TERMINAREM com assistant -> Anthropic rejeita
+    com 400 'must end with a user message' (nao-deterministico, varia com o uuid sorteado). O
+    created_at crescente restaura a ordem cronologica deterministica.
     """
     direcao = msg.get("direcao", "cliente")
     if direcao not in ("cliente", "ia", "modelo_manual"):
@@ -289,10 +394,10 @@ async def _inserir_mensagem(
     await conn.execute(
         """
         INSERT INTO barravips.mensagens
-            (id, conversa_id, direcao, tipo, conteudo, evolution_message_id)
-        VALUES (%s, %s, %s, %s, %s, %s)
+            (id, conversa_id, direcao, tipo, conteudo, evolution_message_id, created_at)
+        VALUES (%s, %s, %s, %s, %s, %s, now() + make_interval(secs => %s))
         """,
-        (uuid4(), conversa_id, direcao, tipo, msg["texto"], f"eval-evo-{uuid4().hex}"),
+        (uuid4(), conversa_id, direcao, tipo, msg["texto"], f"eval-evo-{uuid4().hex}", ordem),
     )
 
 
@@ -384,7 +489,7 @@ async def executar_fixture(
     falhas_turno: list[str] = []
 
     for plano in planejar_turnos(fixture.get("mensagens_entrada", [])):
-        await _inserir_mensagem(conn, conversa_id, plano.msg)
+        await _inserir_mensagem(conn, conversa_id, plano.msg, plano.indice)
         if not plano.dispara:
             continue  # resposta roteirizada da IA: historico da janela, nao dispara turno
         estado = await grafo.ainvoke(
@@ -392,7 +497,7 @@ async def executar_fixture(
             config={"recursion_limit": 18, "callbacks": [handler]},
             context=ContextAgente(
                 db_pool=_PoolDeUmaConexao(conn),  # type: ignore[arg-type]
-                redis=None,  # type: ignore[arg-type]
+                redis=_RedisStub(),  # type: ignore[arg-type]
                 modelo_id=str(modelo_id),
                 atendimento_id=str(atendimento_id),
                 cliente_id=str(cliente_id),
@@ -661,11 +766,14 @@ async def _conectar() -> AsyncConnection[dict[str, Any]]:
     )
 
 
-async def rodar(fixtures: list[dict[str, Any]], k: int = 1) -> list[Avaliacao]:
+async def rodar(fixtures: list[dict[str, Any]], k: int = 1, debug: bool = False) -> list[Avaliacao]:
     """Roda cada fixture K vezes (K=1 no EVAL-01; loop K=5 e EVAL-04/03), ROLLBACK por amostra.
 
     Cada amostra e uma fixture multi-turno inteira numa transacao (estado acumula entre turnos,
     rollback ao fim da amostra). Retorna as avaliacoes JA agregadas por fixture -- 1 veredito cada.
+    `debug=True` imprime no stderr, por amostra, a Captura (tools efetivas, estado, texto final e a
+    superficie auditavel -- que carrega os ARGS das tools, incl. o motivo/resumo do `escalar`):
+    diagnostico de POR QUE uma fixture falhou, sem novo gasto de credito alem do run.
     """
     brutas: list[Avaliacao] = []
     conn = await _conectar()
@@ -679,6 +787,38 @@ async def rodar(fixtures: list[dict[str, Any]], k: int = 1) -> list[Avaliacao]:
                         av.falhas = [*falhas_turno, *av.falhas]
                         av.passou = not av.falhas
                     brutas.append(av)
+                    if debug:
+                        marca = "PASS" if av.passou else "FAIL"
+                        # superficie e system+messages+args de tools concatenados; a persona vem no
+                        # INICIO (ruido), os args do ULTIMO turno (incl. motivo/resumo do escalar)
+                        # no FIM -> mostra a CAUDA, nao a cabeca.
+                        print(
+                            f"\n[DEBUG {marca} {fixture.get('id', '?')}] "
+                            f"tools={sorted(_tools_efetivas(captura))} "
+                            f"estado={captura.estado_atendimento} ia_pausada={captura.ia_pausada} "
+                            f"pix={captura.pix_status} escalou={captura.escalou}\n"
+                            f"  TEXTO_FINAL={captura.texto_final!r}\n"
+                            f"  SUPERFICIE_CAUDA={captura.superficie_auditavel[-1600:]!r}",
+                            file=sys.stderr,
+                        )
+                except Exception as exc:
+                    # Um erro ao executar UMA fixture (400 da API, bug de seed, etc.) vira um veredito
+                    # FAIL so dessa fixture -- NAO aborta a run inteira (preservando o credito ja
+                    # gasto nas outras e o gate das demais). Espelha o skip do crash de vision.
+                    brutas.append(
+                        Avaliacao(
+                            id=fixture.get("id", "?"),
+                            passou=False,
+                            falhas=[f"ERRO na execucao: {type(exc).__name__}: {exc}"],
+                            categoria=fixture.get("categoria", ""),
+                            gate=_gate_da_fixture(fixture),
+                        )
+                    )
+                    if debug:
+                        print(
+                            f"\n[DEBUG ERRO {fixture.get('id', '?')}] {type(exc).__name__}: {exc}",
+                            file=sys.stderr,
+                        )
                 finally:
                     await conn.rollback()
     finally:
@@ -774,6 +914,11 @@ def main() -> None:
         action="store_true",
         help="roda o LLM-judge ADVISORY (EVAL-02) nas rubricas judge:llm. Custa credito; nao gateia.",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="imprime no stderr, por fixture, a Captura (tools+args, texto, estado) p/ diagnostico.",
+    )
     args = parser.parse_args()
 
     # psycopg async pendura no ProactorEventLoop (default Windows) -> Selector antes do loop.
@@ -785,7 +930,7 @@ def main() -> None:
         print("Nenhuma fixture encontrada.", file=sys.stderr)
         raise SystemExit(2)
 
-    avaliacoes = asyncio.run(rodar(fixtures, k=args.k))
+    avaliacoes = asyncio.run(rodar(fixtures, k=args.k, debug=args.debug))
     _imprimir(avaliacoes)
 
     if args.judge:

@@ -81,3 +81,38 @@ async def test_concorrencia_excedida_recusa_sem_baixar() -> None:
     finally:
         for _ in range(_MAX_DOWNLOADS_MIDIA):
             _SEM_DOWNLOAD_MIDIA.release()
+
+
+@respx.mock
+@pytest.mark.asyncio
+async def test_logs_nao_vazam_media_url_crua(caplog: pytest.LogCaptureFixture) -> None:
+    """R3: a media_url da Evolution carrega path/token da mídia do cliente (PII).
+
+    Os warnings de _baixar_midia logam só o host (sinal de SSRF no host_negado, host conhecido
+    nos demais), nunca a URL crua com path/query/token.
+    """
+    token = "TOKENSECRETO123"
+
+    # host fora da allowlist (SSRF): o host aparece como sinal; token/path não.
+    with caplog.at_level("WARNING", logger="barra.webhook.routes"):
+        out = await _baixar_midia(f"http://169.254.169.254/steal?mediaKey={token}", _BASE, 1024)
+    assert out is None
+    assert token not in caplog.text
+    assert "/steal" not in caplog.text
+    assert "169.254.169.254" in caplog.text
+
+    caplog.clear()
+
+    # host legítimo, corpo acima do limite: host conhecido aparece; token/path não.
+    url_com_token = f"{_BASE}/m/x.jpg?token={token}"
+    respx.get(url_com_token).mock(
+        return_value=httpx.Response(
+            200, content=b"x" * 2048, headers={"content-type": "image/jpeg"}
+        )
+    )
+    with caplog.at_level("WARNING", logger="barra.webhook.routes"):
+        out = await _baixar_midia(url_com_token, _BASE, 1024)
+    assert out is None
+    assert token not in caplog.text
+    assert "/m/x.jpg" not in caplog.text
+    assert "evo.example.com" in caplog.text

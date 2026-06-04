@@ -102,4 +102,4 @@ groups:
           summary: "p95 de latencia HTTP acima de 2s"
           description: >
             p95(barra_http_request_duration_seconds{route={{ $labels.route }}}) =
-            {{ $value | printf \"%.2f\" }}s nos ultimos 10m.
+            {{ $value | printf "%.2f" }}s nos ultimos 10m.
