@@ -251,6 +251,16 @@ class Settings(BaseSettings):
         ),
     )
 
+    reset_teste_instances: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Allowlist de evolution_instance_id que aceitam o comando de TESTE `#reset` no grupo "
+            "(zera todo o estado transacional da modelo p/ recomeçar um teste E2E do zero). "
+            "Default vazio = desligado. Ferramenta de teste — nunca inclua a instância de uma "
+            "modelo real em produção."
+        ),
+    )
+
     sentry_dsn: str | None = None
 
 

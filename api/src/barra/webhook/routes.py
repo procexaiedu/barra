@@ -10,13 +10,14 @@ import httpx
 from fastapi import APIRouter, Header, Request
 
 from barra.core.errors import ErroDominio, JidNaoPermitido
-from barra.core.evolution import envio_existe
+from barra.core.evolution import EvolutionClient, envio_existe
 from barra.core.metrics import COMANDOS_GRUPO, WEBHOOK_ERRORS
 from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import garantir_conversa
 from barra.dominio.escaladas.service import Autor, aplicar_comando
 from barra.webhook.despacho import enfileirar_turno
 from barra.webhook.parser import MensagemEvolution, extrair_mensagem, parse_comando_grupo
+from barra.webhook.reset_teste import limpar_redis_modelo, resetar_modelo
 
 router = APIRouter()
 
@@ -141,6 +142,11 @@ async def evolution_webhook(
         return {"status": "ignored"}
     if settings.jid_permitido and msg.remote_jid != settings.jid_permitido:
         raise JidNaoPermitido()
+
+    # Comando de TESTE `#reset` (gate: settings.reset_teste_instances): zera o estado
+    # transacional da modelo p/ recomeçar um teste do zero. Não persiste a mensagem.
+    if _eh_reset_teste(msg, settings):
+        return await _processar_reset_teste(pool, request, msg)
 
     minio = getattr(request.app.state, "minio", None)
 
@@ -581,3 +587,52 @@ def _autor_grupo(fernando_jids: list[str], msg: MensagemEvolution) -> Autor | No
     if msg.from_me:
         return "modelo"
     return None
+
+
+def _eh_reset_teste(msg: MensagemEvolution, settings: Any) -> bool:
+    """Comando de TESTE `#reset`: zera o estado da modelo p/ recomeçar do zero. Gate por
+    instância em `settings.reset_teste_instances` (vazio por padrão = desligado), então em
+    produção real é inerte e o texto seguiria como mensagem normal de cliente."""
+    return (
+        msg.tipo == "texto"
+        and msg.texto.strip().lower() == "#reset"
+        and msg.instance_id in settings.reset_teste_instances
+    )
+
+
+async def _processar_reset_teste(
+    pool: Any, request: Request, msg: MensagemEvolution
+) -> dict[str, str]:
+    """Zera o estado transacional da modelo, limpa o Redis e confirma no grupo. Não persiste
+    a mensagem `#reset`. Reusa o mesmo wipe do `scripts/reset_agente.py` (`reset_teste`)."""
+    settings = request.app.state.settings
+    async with pool.connection() as conn:
+        resultado = await resetar_modelo(conn, msg.instance_id)
+    if resultado is None:
+        return {"status": "reset_instancia_desconhecida"}
+
+    # Redis fora da transação do banco: falha de limpeza não desfaz o wipe (ids viram lixo inerte).
+    arq = getattr(request.app.state, "arq", None)
+    try:
+        await limpar_redis_modelo(arq, resultado["conversa_ids"], resultado["atendimento_ids"])
+    except Exception:
+        _logger.warning("reset_teste_redis_falhou instance=%s", msg.instance_id)
+
+    # Confirmação no grupo (best-effort, conexão nova: o wipe já commitou).
+    try:
+        async with pool.connection() as conn_conf:
+            await EvolutionClient(settings).enviar_texto(
+                conn=conn_conf,
+                instance_id=msg.instance_id,
+                remote_jid=msg.remote_jid,
+                texto="✅ Atendimento resetado. Pode começar do zero.",
+                contexto="conversa_cliente",
+                tipo="confirmacao",
+            )
+    except Exception:
+        _logger.warning("reset_teste_confirmacao_falhou instance=%s", msg.instance_id)
+
+    _logger.info(
+        "reset_teste_aplicado instance=%s contagens=%s", msg.instance_id, resultado["contagens"]
+    )
+    return {"status": "reset"}

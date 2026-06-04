@@ -41,42 +41,9 @@ from pathlib import Path
 import psycopg
 import redis as redis_sync
 
+from barra.webhook.reset_teste import DELETES_RESET
+
 ENV_PATH = Path(__file__).resolve().parent.parent / "api" / ".env"
-
-# Ordem filhos -> pais. Cada item: (rotulo, SQL, usa_modelo_id_como_param).
-# Subquery por modelo_id evita materializar listas grandes; clientes e' tratado
-# a' parte (precisa dos ids capturados antes dos deletes).
-_DELETES = [
-    ("atendimento_servicos",
-     "DELETE FROM barravips.atendimento_servicos WHERE atendimento_id IN "
-     "(SELECT id FROM barravips.atendimentos WHERE modelo_id = %s)"),
-    ("atendimento_midias",
-     "DELETE FROM barravips.atendimento_midias WHERE atendimento_id IN "
-     "(SELECT id FROM barravips.atendimentos WHERE modelo_id = %s)"),
-    ("comprovantes_pix",
-     "DELETE FROM barravips.comprovantes_pix WHERE atendimento_id IN "
-     "(SELECT id FROM barravips.atendimentos WHERE modelo_id = %s)"),
-    ("escaladas",
-     "DELETE FROM barravips.escaladas WHERE atendimento_id IN "
-     "(SELECT id FROM barravips.atendimentos WHERE modelo_id = %s)"),
-    ("eventos",
-     "DELETE FROM barravips.eventos WHERE atendimento_id IN "
-     "(SELECT id FROM barravips.atendimentos WHERE modelo_id = %s)"),
-    ("envios_evolution",
-     "DELETE FROM barravips.envios_evolution WHERE "
-     "conversa_id IN (SELECT id FROM barravips.conversas WHERE modelo_id = %s) "
-     "OR atendimento_id IN (SELECT id FROM barravips.atendimentos WHERE modelo_id = %s)"),
-    ("mensagens",
-     "DELETE FROM barravips.mensagens WHERE conversa_id IN "
-     "(SELECT id FROM barravips.conversas WHERE modelo_id = %s)"),
-    ("bloqueios",
-     "DELETE FROM barravips.bloqueios WHERE modelo_id = %s"),
-    ("atendimentos",
-     "DELETE FROM barravips.atendimentos WHERE modelo_id = %s"),
-    ("conversas",
-     "DELETE FROM barravips.conversas WHERE modelo_id = %s"),
-]
-
 
 def ler_env(path: Path) -> dict[str, str]:
     if not path.exists():
@@ -128,7 +95,7 @@ def resetar_banco(dsn: str, instancia: str, apply: bool, purge_tool_calls: bool)
         print(f"  clientes vinculados (candidatos a orfao) = {len(cliente_ids)}\n")
 
         contagens: list[tuple[str, int]] = []
-        for rotulo, sql in _DELETES:
+        for rotulo, sql in DELETES_RESET:
             params = (modelo_id, modelo_id) if rotulo == "envios_evolution" else (modelo_id,)
             cur.execute(sql, params)
             contagens.append((rotulo, cur.rowcount))
