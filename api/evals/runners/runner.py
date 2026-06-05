@@ -53,8 +53,10 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMe
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
+from barra.agente._custo import calcular_custo_brl
 from barra.agente.contexto import ContextAgente
 from barra.agente.graph import build_graph
+from barra.settings import get_settings
 
 _EVALS_RAIZ = Path(__file__).resolve().parents[1]
 
@@ -116,6 +118,13 @@ class Captura:
     # produziu -- bolha(s) + args de TODAS as tools + saidas de tool. Auditar so o output cega
     # ~42% do vazamento (AgentLeak), por isso o canary e procurado tambem nos args das tools.
     superficie_auditavel: str = ""
+    # Custo realizado do ULTIMO turno em BRL (rubrica `metricas.max_custo_brl`). None = turno sem
+    # usage medivel (fake/sem key) -> o grader de custo em `avaliar()` NAO aplica (nao reprova por
+    # ausencia de medida). Calculado em `_capturar` por `calcular_custo_brl` + cotacao de settings.
+    custo_brl: float | None = None
+    # Taxa de acerto de cache do turno = cache_read / input_total (rubrica `cache_hit_rate_minimo`,
+    # so nas fixtures de `cache_hit/`). None = sem usage medivel -> grader nao aplica.
+    cache_hit_rate: float | None = None
 
 
 def _tools_chamadas(mensagens: list[BaseMessage]) -> set[str]:
@@ -129,6 +138,57 @@ def _tools_chamadas(mensagens: list[BaseMessage]) -> set[str]:
         if isinstance(m, ToolMessage) and m.name:
             nomes.add(m.name)
     return nomes
+
+
+def _agregar_usage(mensagens: list[BaseMessage]) -> dict[str, Any]:
+    """Soma o `usage_metadata` de TODAS as AIMessages do turno (PURO).
+
+    Um turno faz N chamadas no loop ReAct (1 por iteracao llm); o custo/cache do turno e a soma.
+    Devolve um dict no MESMO formato de uma unica `usage_metadata` (input_tokens/output_tokens +
+    `input_token_details` com cache_read/ephemeral_5m/1h) para `calcular_custo_brl` consumir sem
+    adaptacao. Nenhuma AIMessage com usage (fake/sem key) -> {} (custo indefinido, nao 0)."""
+    input_t = output_t = cache_read = eph5 = eph1 = 0
+    viu = False
+    for m in mensagens:
+        um = getattr(m, "usage_metadata", None)
+        if not um:
+            continue
+        viu = True
+        input_t += um.get("input_tokens", 0) or 0
+        output_t += um.get("output_tokens", 0) or 0
+        det = um.get("input_token_details") or {}
+        cache_read += det.get("cache_read", 0) or 0
+        eph5 += det.get("ephemeral_5m_input_tokens", 0) or 0
+        eph1 += det.get("ephemeral_1h_input_tokens", 0) or 0
+    if not viu:
+        return {}
+    return {
+        "input_tokens": input_t,
+        "output_tokens": output_t,
+        "input_token_details": {
+            "cache_read": cache_read,
+            "ephemeral_5m_input_tokens": eph5,
+            "ephemeral_1h_input_tokens": eph1,
+        },
+    }
+
+
+def _cache_hit_rate(usage: dict[str, Any]) -> float | None:
+    """cache_read / input_total do turno (PURO). None se sem usage ou input_total=0.
+
+    `input_total` = nao-cacheado (`input_tokens`) + cache_read + cache_write (ephemeral 5m/1h),
+    espelhando a definicao do README de evals (`cache_read` / input total)."""
+    if not usage:
+        return None
+    det = usage.get("input_token_details") or {}
+    cache_read = det.get("cache_read", 0)
+    total = (
+        usage.get("input_tokens", 0)
+        + cache_read
+        + det.get("ephemeral_5m_input_tokens", 0)
+        + det.get("ephemeral_1h_input_tokens", 0)
+    )
+    return (cache_read / total) if total > 0 else None
 
 
 def _superficie_auditavel(mensagens: list[BaseMessage]) -> str:
@@ -457,6 +517,11 @@ async def _capturar(
         (atendimento_id,),
     )
     escalada_row = await res.fetchone()
+    # Custo/cache do turno (rubricas metricas.max_custo_brl / cache_hit_rate_minimo). Usage vazio
+    # (fake/sem key) -> custo None: o grader nao reprova por ausencia de medida, so quando ha custo
+    # E ele estoura o teto. Cotacao USD->BRL de settings (mesma fonte da metrica de prod).
+    usage = _agregar_usage(estado["messages"])
+    custo_brl = calcular_custo_brl(usage, get_settings().usd_brl_cotacao) if usage else None
     return Captura(
         tools_chamadas=_tools_chamadas(estado["messages"]),
         texto_final=_texto_final(estado["messages"]),
@@ -465,6 +530,8 @@ async def _capturar(
         pix_status=row["pix_status"],
         escalou=bool(escalada_row and escalada_row["n"] > 0),
         superficie_auditavel=_superficie_auditavel(estado["messages"]),
+        custo_brl=custo_brl,
+        cache_hit_rate=_cache_hit_rate(usage),
     )
 
 
@@ -617,6 +684,25 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
     if "estado_final_atendimento" in exp:
         state_check.setdefault("atendimento_estado", exp["estado_final_atendimento"])
     falhas += _comparar_state(state_check, captura)
+
+    # metricas de custo/cache (CUSTO-06): opt-in por fixture. So reprovam quando ha medida
+    # (custo_brl/cache_hit_rate nao-None) E ela viola o limite -- captura sem usage (fake/sem key)
+    # nao aplica. Regressao de custo (cache miss explodido) reprova mesmo com a resposta correta.
+    metricas = exp.get("metricas") or {}
+    max_custo = metricas.get("max_custo_brl")
+    if max_custo is not None and captura.custo_brl is not None and captura.custo_brl > max_custo:
+        falhas.append(
+            f"custo do turno excede max_custo_brl (R${captura.custo_brl:.4f} > R${max_custo})"
+        )
+    piso_cache = metricas.get("cache_hit_rate_minimo")
+    if (
+        piso_cache is not None
+        and captura.cache_hit_rate is not None
+        and captura.cache_hit_rate < piso_cache
+    ):
+        falhas.append(
+            f"cache_hit_rate abaixo do piso ({captura.cache_hit_rate:.2f} < {piso_cache})"
+        )
 
     return Avaliacao(
         id=fixture.get("id", "?"),

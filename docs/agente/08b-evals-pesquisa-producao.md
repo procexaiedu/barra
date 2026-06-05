@@ -9,6 +9,14 @@ precedencia: "Onde este doc divergir de um ADR vigente (0015 LLM-judge/golden, 0
 
 # Evals do Agente — Pesquisa de Estado da Arte e Plano de Produção
 
+> ⚠️ **STATUS (2026-06-05): a tabela de gaps §6/§7 e frases como "nada existe ainda",
+> "`runners/` só `.gitkeep`", "`make evals` inexistente", "judge a criar", "11 fixtures"
+> **estão obsoletas** — descrevem o repo de quando a pesquisa foi escrita. Estado real hoje:
+> runner, judge, `NodesVisitedHandler`, calibração estatística (kappa/Gwet/Youden) e simulador
+> **implementados**; `make evals` existe; corpus = **61 fixtures** de gate. O que segue válido é o
+> *plano/recomendações*: judge cross-família, calibração do golden (placeholder), barras de erro,
+> `injecao_midia` (1 fixture vs meta 8–15) e baseline/tripwire (P1). **Em conflito, o código vence.**
+
 > **O que este documento é.** Um complemento de pesquisa (estado da arte jun/2026) e plano de execução mapeado aos blockers, para fechar o gate de evals que autoriza o cutover Vendedor→IA. **Não** redefine o desenho do gate: a spec executável continua em `docs/agente/08-evals.md` e o schema de fixture em `api/evals/README.md`. Este doc traz: (a) o que a literatura recente muda nas escolhas em aberto; (b) gaps concretos vs o repo real; (c) prioridade e critério de pronto por blocker; (d) checklist de cutover; (e) decisões que dependem do Fernando.
 >
 > **Disciplina de citação.** Onde a verificação de uma afirmação marcou `supported=false`, este doc usa a versão corrigida ou rebaixa para "indicativo, não confirmado". As fontes estão inline e consolidadas em **§8**.

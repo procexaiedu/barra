@@ -1,5 +1,17 @@
 # 08 — Gate de Evals executável
 
+> ⚠️ **STATUS (2026-06-05): o runner DESCRITO AQUI JÁ EXISTE.** Este doc foi escrito como
+> *especificação pré-implementação* e várias frases ("`runners/` tem só `.gitkeep`", "A CRIAR",
+> "~11 fixtures") **estão obsoletas**. Estado real, verificado no disco: `api/evals/runners/runner.py`
+> está implementado (multi-turno, K runs, agregação por fixture, exit-code, graders determinísticos
+> + canary cross-modelo STRONG), `make evals` existe no Makefile, `judge.py` existe (advisory,
+> `JUDGE_VINCULANTE=False` até calibrar — EVAL-10) e o corpus de gate tem **61 fixtures** (15
+> canônicas + 46 adversariais). O que falta é **operacional, não código**: (a) o gate de CI
+> (`.github/workflows/evals.yml`) só bloqueia quando o operador adiciona os secrets + marca o check
+> obrigatório (ver `infra/runbooks/evals-gate-vinculante.md`); (b) o judge nunca foi calibrado
+> (`golden.jsonl` é placeholder); (c) K=5 ainda não rodou ao vivo. **Em conflito, o código vence
+> este doc.** Trechos abaixo preservados como registro histórico da spec.
+
 > Especificação do **gate que autoriza o cutover do Vendedor → IA por modelo** (Onda 2 do roadmap). Define fixtures, runner, métricas e o critério GO/NO-GO — tudo executável via `make evals`, não documento.
 >
 > **Reescrita (2026-05-29):** substitui a versão anterior (estratégia + observabilidade). O escopo agora é o **gate executável completo** exigido pelos blockers `SEC-01 / EVAL-01..04` (critério GO/NO-GO e cutover em `docs/mvp/go-live-checklist.md §1`) — hoje `api/evals/runners/` tem só `.gitkeep`, então o `08` é a **especificação que o runner implementa**. Não duplica o schema de fixture: a **fonte de verdade do schema** é `api/evals/README.md`; este doc referencia (`README:31-89`) e especifica o critério de aprovação, o corpus a curar e os protocolos de experimento. Observabilidade Prometheus/LangSmith/Sentry (antiga §3/§5/§6) sai do escopo — vive nas dimensões OBS do roadmap (`:92-104`).
