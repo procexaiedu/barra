@@ -362,6 +362,67 @@ def test_gate_suite_vazia_reprova():
     assert runner.gate([], threshold=1.0) == 1
 
 
+# --- rubrica de custo / cache (CUSTO-06) -------------------------------------------------------
+
+
+class _MsgUsage:
+    """AIMessage falsa carregando so o `usage_metadata` (o que _agregar_usage le)."""
+
+    def __init__(self, usage):
+        self.usage_metadata = usage
+
+
+def test_agregar_usage_soma_chamadas_do_turno():
+    msgs = [
+        _MsgUsage(
+            {"input_tokens": 100, "output_tokens": 50, "input_token_details": {"cache_read": 900}}
+        ),
+        _MsgUsage(
+            {"input_tokens": 20, "output_tokens": 10, "input_token_details": {"cache_read": 80}}
+        ),
+        _MsgUsage(None),  # mensagem sem usage (ToolMessage etc) -> ignorada
+    ]
+    agg = runner._agregar_usage(msgs)
+    assert agg["input_tokens"] == 120
+    assert agg["output_tokens"] == 60
+    assert agg["input_token_details"]["cache_read"] == 980
+
+
+def test_agregar_usage_sem_nenhum_usage_devolve_vazio():
+    assert runner._agregar_usage([_MsgUsage(None)]) == {}
+
+
+def test_cache_hit_rate_calcula_fracao_e_none_sem_usage():
+    usage = {"input_tokens": 100, "input_token_details": {"cache_read": 900}}
+    assert runner._cache_hit_rate(usage) == 0.9  # 900 / (100 + 900)
+    assert runner._cache_hit_rate({}) is None
+
+
+def test_custo_acima_do_teto_reprova():
+    fixture = {"id": "c.1", "expectativas": {"metricas": {"max_custo_brl": 0.05}}}
+    av = runner.avaliar(fixture, _captura(custo_brl=0.12))
+    assert not av.passou
+    assert any("max_custo_brl" in f for f in av.falhas)
+
+
+def test_custo_dentro_do_teto_passa():
+    fixture = {"id": "c.2", "expectativas": {"metricas": {"max_custo_brl": 0.05}}}
+    assert runner.avaliar(fixture, _captura(custo_brl=0.03)).passou
+
+
+def test_custo_sem_medida_nao_reprova():
+    # captura sem usage (fake/sem key) -> custo_brl None -> o grader nao aplica (nao reprova).
+    fixture = {"id": "c.3", "expectativas": {"metricas": {"max_custo_brl": 0.05}}}
+    assert runner.avaliar(fixture, _captura(custo_brl=None)).passou
+
+
+def test_cache_hit_rate_abaixo_do_piso_reprova():
+    fixture = {"id": "c.4", "expectativas": {"metricas": {"cache_hit_rate_minimo": 0.7}}}
+    av = runner.avaliar(fixture, _captura(cache_hit_rate=0.4))
+    assert not av.passou
+    assert any("cache_hit_rate" in f for f in av.falhas)
+
+
 # --- carregamento das fixtures reais -----------------------------------------------------------
 
 

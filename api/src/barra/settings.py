@@ -75,6 +75,11 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     anthropic_modelo_principal: str = "claude-sonnet-4-6"
     anthropic_model_chat: str | None = None
+    # Modelo do LLM-judge dos evals (EVAL-02). None -> usa o `anthropic_modelo_principal`, i.e. o
+    # MESMO modelo do agente sob teste -> vies de auto-concordancia (self-preference). Apontar p/
+    # um modelo diferente (ex. "claude-opus-4-8") mitiga: pesos distintos reduzem o vies. Cross-
+    # familia real (GPT/Gemini via OpenRouter) e o alvo final, exige wiring de provider -> P1.
+    anthropic_modelo_judge: str | None = None
 
     # STT do agente (06 §1.3): Whisper direto da OpenAI. Sai do OpenRouter porque o hop
     # extra nao compensa num STT critico de baixa latencia sob o orcamento de 8s (sabatina

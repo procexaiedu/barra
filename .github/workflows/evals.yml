@@ -8,6 +8,8 @@
 # TEST_DATABASE_URL (banco de teste, NUNCA prod) e ANTHROPIC_API_KEY no repo, e tornar o check
 # "evals" obrigatorio na branch protection da main. Sem os secrets o job pula (nao falha) —
 # entao forks / a CI sem billing seguem verdes ate o operador habilitar.
+# >>> PASSO A PASSO (provisionar o banco de teste, secrets, check obrigatorio, graduar as
+# >>> adversariais de capability->regressao): infra/runbooks/evals-gate-vinculante.md
 name: evals
 
 on:
