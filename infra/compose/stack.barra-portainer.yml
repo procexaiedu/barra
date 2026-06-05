@@ -52,6 +52,9 @@ services:
       - 'CORS_ORIGINS=["https://elitebaby.procexai.tech","https://barravips.procexai.tech","https://barra-nine.vercel.app","https://barra-procexais-projects.vercel.app","https://barra-git-main-procexais-projects.vercel.app","https://barra-vips.vercel.app"]'
       - 'CORS_ORIGIN_REGEX=https://([a-z0-9-]+\.)*procexai\.tech|https://barra[a-z0-9-]*\.vercel\.app'
       - JID_PERMITIDO=120363423572479616@g.us
+      # Comando de TESTE `#reset` no grupo cliente-teste: zera o estado da modelo p/
+      # recomeçar do zero. Só a instância de teste `lucia` — nunca uma modelo real.
+      - 'RESET_TESTE_INSTANCES=["lucia"]'
       - SENTRY_DSN=
     command: >
       sh -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates &&
