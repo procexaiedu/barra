@@ -109,3 +109,6 @@ temp/
 _dump_*.txt
 /evals-*.jpeg
 /evals-*.jpg
+
+# --- migracao entre maquinas (scripts locais) ---
+_migracao/
