@@ -1,4 +1,14 @@
-# BARRA VIPS - Docker Compose para Portainer
+# BARRA VIPS — Docker Compose para Portainer (Swarm), git-backed (GitOps).
+#
+# FONTE ÚNICA DE VERDADE da stack de produção `barra-vips`. O Portainer puxa este
+# arquivo do repo (branch main, path infra/compose/stack.barra-portainer.yml) e
+# redeploya via webhook. Ver ADR 0018 e infra/runbooks/stack-git-backed.md.
+#
+# SEGREDOS NÃO FICAM AQUI. Valores sensíveis são placeholders `${VAR}` resolvidos
+# pelas Env vars do stack no Portainer (fora do git); a chave do MinIO vem de um
+# Swarm secret (`minio_secret_key`, external) via MINIO_SECRET_KEY_FILE.
+# Config não-sensível (CORS, JIDs, modelos, flags) é versionada aqui de propósito:
+# é o que impede a "evaporação" de config em redeploys manuais.
 version: '3.8'
 
 services:
@@ -9,38 +19,38 @@ services:
       - AMBIENTE=producao
       - LOG_LEVEL=INFO
       - DATABASE_URL=${DATABASE_URL}
-      - SUPABASE_URL=https://zinrqzsxvpqfoogohrwg.supabase.co
-      - SUPABASE_ANON_KEY=sb_publishable_Wnf-V2dnSmpEhx5QTXtxNw_SH6BT0M_
+      - SUPABASE_URL=https://db.procexai.tech
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-barra:6379
-      # Apenas host ou host:porta — sem https:// e sem path (SDK MinIO)
       - MINIO_ENDPOINT=https://minioback.procexai.tech/
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      # DEPLOY-01: a chave secreta vem do Swarm secret (padrao *_FILE em settings.py),
-      # nunca do env nem do git. Operador cria o secret `minio_secret_key` (ver runbook).
+      # MINIO_SECRET_KEY vem do Swarm secret (settings.py lê MINIO_SECRET_KEY_FILE).
       - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
-      - LLM_CHAT_PROVIDER=openrouter
+      - LLM_CHAT_PROVIDER=anthropic
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
       - OPENROUTER_API_KEY=
       - OPENROUTER_MODEL_CHAT=
       - OPENROUTER_MODEL_VISION_PIX=
       - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=
-      - ANTHROPIC_API_KEY=
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
+      - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
       - LANGCHAIN_TRACING_V2=true
-      - LANGCHAIN_API_KEY=
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
       - LANGCHAIN_PROJECT=barra-vips-prod
       - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+      - EVOLUTION_INSTANCIA=lucia
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
-      - EVOLUTION_WEBHOOK_CALLBACK_URL=https://api-barra.procexai.tech/webhook/evolution
-      - EVOLUTION_GRUPO_COORDENACAO_JID=120363423572479616@g.us
+      - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
-      - 'CORS_ORIGINS=["https://elitebaby.procexai.tech","https://barravips.procexai.tech","https://barra-vips.vercel.app"]'
+      - 'CORS_ORIGINS=["https://elitebaby.procexai.tech","https://barravips.procexai.tech","https://barra-nine.vercel.app","https://barra-procexais-projects.vercel.app","https://barra-git-main-procexais-projects.vercel.app","https://barra-vips.vercel.app"]'
+      - 'CORS_ORIGIN_REGEX=https://([a-z0-9-]+\.)*procexai\.tech|https://barra[a-z0-9-]*\.vercel\.app'
       - JID_PERMITIDO=120363423572479616@g.us
       - SENTRY_DSN=
     command: >
@@ -50,28 +60,8 @@ services:
       cd /app/repo/api &&
       uv sync --frozen --no-dev &&
       uv run uvicorn barra.main:app --host 0.0.0.0 --port 8000"
-    # DEPLOY-03: drena conexoes em voo no shutdown antes do SIGKILL (pareia com o start-first).
-    stop_grace_period: 30s
-    # DEPLOY-02: readiness gate. A imagem uv:slim nao tem curl/wget — usa o python da propria
-    # imagem p/ bater /ready (2xx quando o app subiu; nao-2xx enquanto clona/uv sync ou se o DB
-    # cai). start_period cobre apt-get+git clone+uv sync p/ o Traefik nao rotear cedo demais.
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 300s
     deploy:
       replicas: 1
-      # DEPLOY-03: api start-first — sobe a task nova e saudavel antes de derrubar a velha
-      # (sem 502; pareia com o readiness/healthcheck do DEPLOY-02). failure_action so reverte
-      # se a task nova falhar dentro do monitor (o healthcheck marca a task unhealthy).
-      update_config:
-        order: start-first
-        failure_action: rollback
-        monitor: 30s
-      rollback_config:
-        order: start-first
       restart_policy:
         condition: on-failure
       labels:
@@ -81,15 +71,12 @@ services:
         - "traefik.http.routers.barra-api.tls=true"
         - "traefik.http.routers.barra-api.tls.certresolver=le"
         - "traefik.http.services.barra-api.loadbalancer.server.port=8000"
-        # DEPLOY-02: Traefik so roteia p/ a replica quando /ready responde 2xx (tira do pool
-        # durante o uv sync e quando o backend degrada).
-        - "traefik.http.services.barra-api.loadbalancer.healthcheck.path=/ready"
-        - "traefik.http.services.barra-api.loadbalancer.healthcheck.interval=10s"
         - "traefik.docker.network=traefik_public"
     depends_on:
       - redis-barra
     networks:
       - traefik_public
+      - supabase_default
     secrets:
       - minio_secret_key
 
@@ -100,36 +87,34 @@ services:
       - AMBIENTE=producao
       - LOG_LEVEL=INFO
       - DATABASE_URL=${DATABASE_URL}
-      - SUPABASE_URL=https://zinrqzsxvpqfoogohrwg.supabase.co
-      - SUPABASE_ANON_KEY=sb_publishable_Wnf-V2dnSmpEhx5QTXtxNw_SH6BT0M_
+      - SUPABASE_URL=https://db.procexai.tech
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-barra:6379
-      # Apenas host ou host:porta — sem https:// e sem path (SDK MinIO)
       - MINIO_ENDPOINT=minioback.procexai.tech
-      # DEPLOY-01: worker usa a MESMA credencial da api (unificada). Access key vem do env
-      # do Portainer; a chave secreta vem do Swarm secret via *_FILE (antes vazia -> midia quebrava).
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
-      - LLM_CHAT_PROVIDER=openrouter
+      - LLM_CHAT_PROVIDER=anthropic
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
       - OPENROUTER_API_KEY=
       - OPENROUTER_MODEL_CHAT=
       - OPENROUTER_MODEL_VISION_PIX=
       - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=
-      - ANTHROPIC_API_KEY=
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
+      - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
       - LANGCHAIN_TRACING_V2=true
-      - LANGCHAIN_API_KEY=
+      - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
       - LANGCHAIN_PROJECT=barra-vips-prod
       - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
+      - EVOLUTION_INSTANCIA=lucia
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
-      - EVOLUTION_WEBHOOK_CALLBACK_URL=https://api-barra.procexai.tech/webhook/evolution
-      - EVOLUTION_GRUPO_COORDENACAO_JID=120363423572479616@g.us
+      - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
       - JID_PERMITIDO=120363423572479616@g.us
       - SENTRY_DSN=
@@ -140,34 +125,15 @@ services:
       cd /app/repo/api &&
       uv sync --frozen --no-dev &&
       uv run arq barra.workers.settings.WorkerSettings"
-    # DEPLOY-03: da ao ARQ ate 30s p/ terminar o job em voo antes do SIGKILL (pareia com stop-first).
-    stop_grace_period: 30s
-    # DEPLOY-02: healthcheck de processo. O worker nao tem rota HTTP propria, mas o OBS-01 expoe
-    # as metricas do prometheus_client em :9091 no startup (ambiente!=teste) — bater nele prova
-    # que o processo arq subiu e segue vivo. start_period cobre apt-get+git clone+uv sync.
-    healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:9091/metrics', timeout=3)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 300s
     deploy:
       replicas: 1
-      # DEPLOY-03: worker stop-first (NAO start-first) — derruba o worker velho antes de subir
-      # o novo, garantindo 1 unico consumidor ARQ no Redis. start-first deixaria 2 workers no
-      # overlap -> entrega duplicada (ver memoria de workers orfaos em Swarm+ARQ).
-      update_config:
-        order: stop-first
-        failure_action: rollback
-        monitor: 30s
-      rollback_config:
-        order: stop-first
       restart_policy:
         condition: on-failure
     depends_on:
       - redis-barra
     networks:
       - traefik_public
+      - supabase_default
     secrets:
       - minio_secret_key
 
@@ -183,23 +149,18 @@ services:
     networks:
       - traefik_public
 
-  # OBS-02 — stack de observabilidade (Prometheus + Grafana + Alertmanager).
-  # Os configs versionados vivem em infra/monitoring/ no repo; como o Swarm nao tem o
-  # repo no host, cada servico clona a main no boot (mesmo padrao da api/worker) e aponta
-  # o config pro caminho clonado. Scrape interno pela rede traefik_public; so o Grafana
-  # publica via Traefik. NAO altera os 3 servicos acima (entrega aditiva).
   prometheus-barra:
     image: prom/prometheus:v2.53.0
-    user: root
-    command: >
-      sh -c "apk add --no-cache git &&
-      rm -rf /repo &&
-      git clone --depth 1 -b main https://github.com/procexaiedu/barra.git /repo &&
-      exec /bin/prometheus
-      --config.file=/repo/infra/monitoring/prometheus.yml
-      --storage.tsdb.path=/prometheus
-      --storage.tsdb.retention.time=15d
-      --web.enable-lifecycle"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --web.enable-lifecycle
+    configs:
+      - source: barra_prometheus_yml_v1
+        target: /etc/prometheus/prometheus.yml
+      - source: barra_alert_rules_yml_v2
+        target: /etc/prometheus/alert.rules.yml
     volumes:
       - prometheus-barra-data:/prometheus
     deploy:
@@ -211,18 +172,12 @@ services:
 
   alertmanager-barra:
     image: prom/alertmanager:v0.27.0
-    user: root
-    environment:
-      # Destino real do alerta — passo do operador (ver infra/monitoring/alertmanager.yml).
-      - ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL:-http://localhost:9999/noop}
-    command: >
-      sh -c "apk add --no-cache git &&
-      rm -rf /repo &&
-      git clone --depth 1 -b main https://github.com/procexaiedu/barra.git /repo &&
-      exec /bin/alertmanager
-      --config.file=/repo/infra/monitoring/alertmanager.yml
-      --config.expand-env
-      --storage.path=/alertmanager"
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+      - --storage.path=/alertmanager
+    configs:
+      - source: barra_alertmanager_yml_v2
+        target: /etc/alertmanager/alertmanager.yml
     volumes:
       - alertmanager-barra-data:/alertmanager
     deploy:
@@ -235,15 +190,11 @@ services:
   grafana-barra:
     image: grafana/grafana:11.1.0
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - GF_SERVER_ROOT_URL=https://grafana-barra.procexai.tech
-      # Datasource provisionado a partir do repo clonado (ver command).
-      - GF_PATHS_PROVISIONING=/repo/infra/monitoring/grafana/provisioning
-    entrypoint: >
-      sh -c "apk add --no-cache git &&
-      rm -rf /repo &&
-      git clone --depth 1 -b main https://github.com/procexaiedu/barra.git /repo &&
-      exec /run.sh"
+    configs:
+      - source: barra_grafana_ds_yml_v1
+        target: /etc/grafana/provisioning/datasources/prometheus.yml
     volumes:
       - grafana-barra-data:/var/lib/grafana
     deploy:
@@ -258,8 +209,6 @@ services:
         - "traefik.http.routers.grafana-barra.tls.certresolver=le"
         - "traefik.http.services.grafana-barra.loadbalancer.server.port=3000"
         - "traefik.docker.network=traefik_public"
-    depends_on:
-      - prometheus-barra
     networks:
       - traefik_public
 
@@ -269,13 +218,24 @@ volumes:
   alertmanager-barra-data:
   grafana-barra-data:
 
+configs:
+  barra_prometheus_yml_v1:
+    external: true
+  barra_alert_rules_yml_v2:
+    external: true
+  barra_alertmanager_yml_v2:
+    external: true
+  barra_grafana_ds_yml_v1:
+    external: true
+
 networks:
   traefik_public:
     external: true
+  supabase_default:
+    external: true
 
 secrets:
-  # DEPLOY-01: criado pelo operador ANTES do deploy, fora do git:
-  #   printf '%s' '<chave-rotacionada>' | docker secret create minio_secret_key -
-  # Montado em /run/secrets/minio_secret_key; lido via MINIO_SECRET_KEY_FILE (ver runbook).
+  # Criado pelo operador, fora do git (ver infra/runbooks/stack-git-backed.md):
+  #   printf '%s' '<chave-minio>' | docker secret create minio_secret_key -
   minio_secret_key:
     external: true
