@@ -12,6 +12,23 @@ Contexto e decisões: ADR 0018. Stack: Portainer Swarm, endpoint `1`, SwarmId
 - **Segredo** (qualquer `${VAR}`): editar a **Env var** do stack no Portainer (não vai a PR).
   Exceção: a chave do MinIO é Swarm secret (rotacionar com `docker secret`).
 
+> ⚠️ **Redeploy é só pelo webhook do GitHub.** O webhook **preserva** o `Env` guardado do
+> stack. **Nunca** dispare um redeploy git pela **API/MCP** (`StackGitRedeploy`,
+> `StackUpdateGit`) sem repassar o array `Env` completo: a API trata `Env` ausente como
+> **vazio** e **sobrescreve os 12 segredos guardados de uma vez** → todo `${VAR}` resolve pra
+> string vazia e o stack inteiro cai (api/worker dão `RuntimeError` no boot; o `redis-barra`
+> sobe com `--requirepass` sem valor e some do DNS). Aconteceu em 2026-06-05 ao aplicar uma
+> env via API. Se precisar redeployar fora do webhook, use o **UI do Portainer** (que mantém o
+> `Env`) ou repasse o `Env` completo — e mesmo assim prefira o webhook.
+>
+> **Recuperar se zerou:** rollback Docker serviço-a-serviço (o daemon guarda o `PreviousSpec`
+> com a env resolvida, então não precisa redigitar segredo). `redis-barra` **antes** de
+> api/worker, senão eles não resolvem o host e ficam em loop:
+> `POST /services/<nome>/update?version=<idx>&rollback=previous` (header `Content-Type:
+> application/json`, body = o `Spec` atual verbatim; corpo `{}` falha com "mismatched Runtime
+> and *Spec fields"). Depois **repovoar o `Env` guardado** no UI do Portainer (o rollback
+> conserta os serviços, não o `Env` do stack).
+
 ## Cutover (uma vez)
 
 Pré-requisitos:
