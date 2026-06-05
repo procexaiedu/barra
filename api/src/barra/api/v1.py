@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends
 
 from barra.api.deps import get_user
+from barra.calibracao.routes import router as calibracao_router
 from barra.dominio.agenda.routes import router as agenda_router
 from barra.dominio.atendimentos.routes import router as atendimentos_router
 from barra.dominio.clientes.routes import router as clientes_router
@@ -31,6 +32,7 @@ router.include_router(eventos_router, prefix="/eventos", tags=["eventos"])
 router.include_router(painel_router, prefix="/painel", tags=["painel"])
 router.include_router(financeiro_router, prefix="/financeiro", tags=["financeiro"])
 router.include_router(tarefas_router, prefix="/tarefas", tags=["tarefas"])
+router.include_router(calibracao_router, prefix="/calibracao", tags=["calibracao"])
 
 
 @router.get("/saude", include_in_schema=False)

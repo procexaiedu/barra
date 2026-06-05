@@ -81,6 +81,12 @@ class Settings(BaseSettings):
     # familia real (GPT/Gemini via OpenRouter) e o alvo final, exige wiring de provider -> P1.
     anthropic_modelo_judge: str | None = None
 
+    # Rotulagem de calibracao no painel (Loop B / EVAL-10): sem RBAC, ambos operadores sao
+    # papel='fernando' -> a unica forma de distinguir quem rotula e o email. Mapeia cada email
+    # ao rotulador; email nao listado nao abre a tela (403). Setar os dois em prod.
+    calibracao_email_fernando: str | None = None
+    calibracao_email_socia: str | None = None
+
     # STT do agente (06 §1.3): Whisper direto da OpenAI. Sai do OpenRouter porque o hop
     # extra nao compensa num STT critico de baixa latencia sob o orcamento de 8s (sabatina
     # 2026-05-23 §1.3). Default whisper-1 porque a resposta verbose_json inclui .duration
