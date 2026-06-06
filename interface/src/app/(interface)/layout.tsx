@@ -11,8 +11,8 @@ export default function InterfaceLayout({ children }: { children: ReactNode }) {
     <MobileNavProvider>
       <div className="flex min-h-screen">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1320px] px-4 py-5 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-8 2xl:px-8 2xl:py-8">
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1320px] overflow-x-clip px-4 py-5 pb-[calc(4rem+env(safe-area-inset-bottom))] lg:pb-8 2xl:px-8 2xl:py-8">
             {children}
           </div>
         </main>
