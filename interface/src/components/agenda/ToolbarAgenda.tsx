@@ -35,7 +35,7 @@ export function ToolbarAgenda({
         <Button variant="ghost" size="icon" onClick={onAnterior} aria-label="Período anterior">
           <ChevronLeft />
         </Button>
-        <span className="min-w-44 text-center text-sm font-semibold capitalize tabular-nums text-text-primary">
+        <span className="min-w-0 flex-1 text-center text-sm font-semibold capitalize tabular-nums text-text-primary sm:min-w-44 sm:flex-none">
           {periodoLabel}
         </span>
         <Button variant="ghost" size="icon" onClick={onProximo} aria-label="Próximo período">
@@ -77,7 +77,7 @@ export function ToolbarAgenda({
 
       {/* Resumo de bloqueios: recolhido à direita da barra; cor reservada só ao
           número "ao vivo" (Em atendimento) — eco do ponto verde da grade. */}
-      <dl className="ml-auto flex shrink-0 divide-x divide-border overflow-hidden rounded-lg border border-border bg-muted">
+      <dl className="flex w-full divide-x divide-border overflow-hidden rounded-lg border border-border bg-muted sm:ml-auto sm:w-auto sm:shrink-0">
         <ResumoItem label="Bloqueios ativos" value={ativos} />
         <ResumoItem label="Em atendimento" value={emAtendimento} live={emAtendimento > 0} />
         <ResumoItem label="Cancelados" value={cancelados} muted={cancelados === 0} />
@@ -98,7 +98,7 @@ function ResumoItem({
   muted?: boolean
 }) {
   return (
-    <div className="flex min-w-[6rem] flex-col gap-0.5 px-3 py-1.5">
+    <div className="flex min-w-0 flex-1 flex-col gap-0.5 px-3 py-1.5 sm:min-w-[6rem] sm:flex-none">
       <dt className="flex items-center gap-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">
         {live && (
           <span

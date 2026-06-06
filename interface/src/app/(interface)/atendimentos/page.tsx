@@ -482,8 +482,8 @@ function Toolbar({
 }) {
   if (loading) {
     return (
-      <div aria-busy="true" className="flex items-end gap-2">
-        <Skeleton className="h-[54px] flex-1 rounded-lg" />
+      <div aria-busy="true" className="flex flex-wrap items-end gap-2">
+        <Skeleton className="h-[54px] min-w-[12rem] flex-1 rounded-lg" />
         <Skeleton className="h-[54px] w-[140px] rounded-lg" />
         <Skeleton className="h-[54px] w-[150px] rounded-lg" />
         <Skeleton className="h-9 w-[104px] rounded-lg" />
@@ -508,12 +508,12 @@ function Toolbar({
   }
 
   return (
-    <div className="flex items-end gap-2">
+    <div className="flex flex-wrap items-end gap-2">
       <BuscaFiltro
         value={busca}
         onChange={onBuscaChange}
         placeholder="Buscar cliente, telefone ou #N"
-        className="flex-1"
+        className="min-w-[12rem] flex-1"
       />
       <div className="w-[150px]">
         <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />

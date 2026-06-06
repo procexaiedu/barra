@@ -72,6 +72,20 @@ Antes de considerar uma tarefa concluída:
 
 Regra prática: toda tarefa não trivial deve terminar com uma verificação objetiva. Uma conclusão sem teste, execução ou inspeção concreta ainda é uma hipótese.
 
+## 6. Worktree: Merge Local e Limpeza ao Concluir
+
+**Trabalhou numa worktree? Encerre integrando e apagando — com critério, nunca cego.**
+
+Ao terminar uma tarefa feita numa worktree (`.claude/worktrees/`), feche o ciclo localmente:
+
+1. **Verifique e commite** — só prossiga com o critério de sucesso batido (testes/lint/o que aplicar) e tudo commitado. Trabalho incompleto ou quebrado **não** entra nesta etapa.
+2. Capture o branch (`git branch --show-current`).
+3. `ExitWorktree(action: keep)` — volte ao diretório original em `main`, com worktree e branch intactos. **Não use `action: remove` aqui:** ele é para *abandonar* trabalho — recusa commits não integrados e apaga o branch, justamente o que você quer mergear.
+4. `git merge --no-ff <branch>` a partir do diretório original. **Conflito → pare e avise; nunca force.**
+5. Limpe só depois do merge: `git worktree remove .claude/worktrees/<nome>` e `git branch -d <branch>` (o `-d` confirma que já está integrado).
+
+Apenas **local** — sem `push`, a menos que o usuário peça. Se a tarefa ficou inacabada ou os testes falharam, **não** faça o merge: relate o estado e deixe a worktree para retomada (`ExitWorktree(action: keep)`).
+
 ---
 
 ## Contexto do projeto
