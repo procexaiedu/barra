@@ -46,6 +46,25 @@ _RESUMO_REINCIDENCIA = (
 _JANELA_REINCIDENCIA_S = 86400  # 24h
 
 
+async def _escalar_handoff(
+    conn: AsyncConnection[Any], ctx: ContextAgente, *, resumo: str, observacao: str
+) -> None:
+    """Abre handoff p/ Fernando e contabiliza a escalada — contrato unico das 3 saidas de escala
+    deste no (jailbreak, disclosure na 3a, reincidencia). So o `resumo`/`observacao` variam."""
+    await abrir_handoff(
+        conn,
+        atendimento_id=UUID(ctx.atendimento_id),
+        responsavel="Fernando",
+        tipo=TipoEscalada.comportamento_atipico,
+        resumo_operacional=resumo,
+        acao_esperada=_ACAO_ASSUMIR,
+        origem="agente",
+        autor="sistema",
+        observacao=observacao,
+    )
+    AGENTE_ESCALADA.labels(mapear_bucket(observacao), observacao).inc()
+
+
 async def _contabilizar_reincidencia(ctx: ContextAgente) -> None:
     """Conta tentativas de disclosure/jailbreak por telefone (cliente) em 24h e, ao cruzar o limiar,
     escala a Fernando UMA vez por janela (SEC-JB-02). NUNCA bloqueia o cliente — é sinal p/ Fernando,
@@ -78,21 +97,12 @@ async def _contabilizar_reincidencia(ctx: ContextAgente) -> None:
         return
     try:
         async with conexao(ctx.db_pool) as conn:
-            await abrir_handoff(
-                conn,
-                atendimento_id=UUID(ctx.atendimento_id),
-                responsavel="Fernando",
-                tipo=TipoEscalada.comportamento_atipico,
-                resumo_operacional=_RESUMO_REINCIDENCIA,
-                acao_esperada=_ACAO_ASSUMIR,
-                origem="agente",
-                autor="sistema",
-                observacao="reincidencia_seguranca",
+            await _escalar_handoff(
+                conn, ctx, resumo=_RESUMO_REINCIDENCIA, observacao="reincidencia_seguranca"
             )
     except Exception:
         await redis.delete(chave_escalado)  # não queima a janela se o handoff falhou
         raise
-    AGENTE_ESCALADA.labels(mapear_bucket("reincidencia_seguranca"), "reincidencia_seguranca").inc()
     REINCIDENCIA_SEGURANCA.labels("escalada").inc()
 
 
@@ -130,18 +140,9 @@ async def intercept_disclosure(
     if categoria == "jailbreak_attempt":
         JAILBREAK_DETECTADO.inc()
         async with conexao(ctx.db_pool) as conn:
-            await abrir_handoff(
-                conn,
-                atendimento_id=UUID(ctx.atendimento_id),
-                responsavel="Fernando",
-                tipo=TipoEscalada.comportamento_atipico,
-                resumo_operacional=_RESUMO_JAILBREAK,
-                acao_esperada=_ACAO_ASSUMIR,
-                origem="agente",
-                autor="sistema",
-                observacao="jailbreak_attempt",
+            await _escalar_handoff(
+                conn, ctx, resumo=_RESUMO_JAILBREAK, observacao="jailbreak_attempt"
             )
-            AGENTE_ESCALADA.labels(mapear_bucket("jailbreak_attempt"), "jailbreak_attempt").inc()
         await _contabilizar_reincidencia(ctx)
         return Command(goto=END)  # type: ignore[arg-type]
 
@@ -171,20 +172,9 @@ async def intercept_disclosure(
                     update={"messages": [AIMessage(content=escolher_negacao())]},
                 )
 
-            await abrir_handoff(
-                conn,
-                atendimento_id=UUID(ctx.atendimento_id),
-                responsavel="Fernando",
-                tipo=TipoEscalada.comportamento_atipico,
-                resumo_operacional=_RESUMO_DISCLOSURE,
-                acao_esperada=_ACAO_ASSUMIR,
-                origem="agente",
-                autor="sistema",
-                observacao="disclosure_insistente",
+            await _escalar_handoff(
+                conn, ctx, resumo=_RESUMO_DISCLOSURE, observacao="disclosure_insistente"
             )
-            AGENTE_ESCALADA.labels(
-                mapear_bucket("disclosure_insistente"), "disclosure_insistente"
-            ).inc()
         DISCLOSURE_DETECTADO.labels("escalado").inc()
         return Command(goto=END)  # type: ignore[arg-type]
 
