@@ -1,0 +1,62 @@
+"""Reconciliação de cards de handoff — rede de segurança contra handoff silencioso.
+
+Achado no teste E2E ao vivo (2026-06-05, grupo Lucia): a IA abriu uma escalada
+(`ia_pausada=true`) mas o card no grupo de Coordenação NUNCA foi entregue — `card_message_id`
+ficou NULL e o job ARQ `enviar_card` enfileirado inline pela tool `escalar`
+(`agente/ferramentas/escalada.py`) não executou. A causa exata no nível do ARQ não foi isolada
+(o enqueue usa a mesma ArqRedis do `enviar_turno`, que funciona). Esta varredura GARANTE a
+entrega chamando `enviar_card` INLINE no contexto do cron — que comprovadamente roda a cada
+minuto — em vez de re-enfileirar, contornando qualquer falha de enqueue/pickup. Idempotente:
+`_card_escalada` é no-op quando o card já saiu (`card_message_id` não-nulo).
+"""
+
+import logging
+from typing import Any
+
+from barra.workers.envio import enviar_card
+
+logger = logging.getLogger(__name__)
+
+# Folga antes do backstop disparar: deixa o caminho inline (enqueue na tool `escalar`) entregar
+# normalmente em ~1s; só escaladas "presas" além disso entram na reconciliação, evitando corrida.
+_RECONCILIACAO_FOLGA_SEGUNDOS = 30
+
+
+async def reconciliar_cards_escalada(ctx: dict[str, Any]) -> int:
+    """Entrega cards de escalada órfãos: abertos, sem `card_message_id`, abertos há > folga.
+
+    Devolve quantas escaladas foram processadas. Roda como cron (a cada minuto). Usa o `ctx`
+    do worker (`db_pool` + `evolution`) para chamar `enviar_card` inline.
+    """
+    pool = ctx.get("db_pool")
+    evolution = ctx.get("evolution")
+    if pool is None or evolution is None:
+        return 0
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT id::text AS id
+              FROM barravips.escaladas
+             WHERE fechada_em IS NULL
+               AND card_message_id IS NULL
+               AND aberta_em < now() - make_interval(secs => %s)
+             ORDER BY aberta_em
+             LIMIT 50
+            """,
+            (_RECONCILIACAO_FOLGA_SEGUNDOS,),
+        )
+        pendentes = [r["id"] for r in await res.fetchall()]
+
+    processados = 0
+    for escalada_id in pendentes:
+        try:
+            await enviar_card(ctx, tipo="escalada", escalada_id=escalada_id)
+            processados += 1
+        except Exception:
+            logger.warning(
+                "reconciliar_card_escalada_falhou escalada_id=%s", escalada_id, exc_info=True
+            )
+    if processados:
+        logger.info("reconciliar_cards_escalada processados=%s", processados)
+    return processados

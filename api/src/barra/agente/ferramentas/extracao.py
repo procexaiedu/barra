@@ -59,11 +59,14 @@ class ExtracaoPayload(BaseModel):
     horario_desejado: time | None = Field(
         None,
         description=(
-            "Horário de relógio do encontro (HH:MM). PREENCHA quando o cliente cravar uma hora OU "
-            "quando ele está vindo AGORA/imediato (use a hora atual; data_desejada=hoje) — é o que "
-            "faz o atendimento interno AVANÇAR para Aguardando_confirmacao e te pausar na chegada. "
-            "NÃO preencha em horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando "
-            "até o cliente cravar."
+            "Horário de relógio do encontro (HH:MM). PREENCHA na PRIMEIRA vez que o cliente der o "
+            "horário — não re-pergunte algo que ele já disse. Cravou uma hora ('22h', 'meio-dia') → "
+            "use-a. Disse tempo RELATIVO/imediato → calcule a partir da hora atual (vem em "
+            "<agenda agora=\"HH:MM\"> no contexto): 'agora/já/imediato' = a hora atual; 'daqui N "
+            "min/horas' = hora atual + N (ex.: agora=22:30 e cliente diz 'daqui 1h' → preencha "
+            "23:30; data_desejada=hoje, virando o dia se passar da meia-noite). É o que faz o "
+            "atendimento AVANÇAR para Aguardando_confirmacao e te pausar na chegada. NÃO preencha em "
+            "horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar."
         ),
     )
     duracao_horas: Decimal | None = Field(None, ge=0, le=48)

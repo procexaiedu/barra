@@ -56,6 +56,20 @@ RECURSION_LIMIT = 18  # ~6-7 round-trips llm<->tools (5 tools no P0). DORMENTE a
 TETO_TURNOS_DIA = 50
 
 
+def _formatar_bolha_pix(chave: str, titular: str | None, valor: Any) -> str:
+    """Bolha determinística com os dados do Pix de deslocamento, anexada após o texto da IA.
+
+    A tool `pedir_pix_deslocamento` mantém a chave (string crítico) FORA do LLM e promete que o
+    sistema a anexa (agente/ferramentas/pix.py). É aqui que isso acontece: lemos a chave fresh do
+    cadastro e formamos uma bolha objetiva (sem termo de carinho, no estilo de mensagem de dado).
+    """
+    linhas = [f"chave pix: {chave}"]
+    if titular:
+        linhas.append(f"em nome de {titular}")
+    linhas.append(f"valor: R${valor}")
+    return "\n".join(linhas)
+
+
 async def processar_turno(
     ctx: dict[str, Any],
     *,
@@ -331,6 +345,24 @@ async def processar_turno(
                         )
                         critico = await res.fetchone() is not None
 
+                        # Pix de deslocamento (bug F): a tool `pedir_pix_deslocamento` NÃO devolve
+                        # a chave (string crítico fora do LLM, agente/ferramentas/pix.py) e promete
+                        # que o sistema a anexa. É aqui: se o turno pediu Pix, lemos chave/titular
+                        # fresh do cadastro + o valor que a tool registrou, p/ anexar a bolha do
+                        # Pix após o texto da IA. Sem isto o cliente pede o Pix e não recebe a chave.
+                        res = await conn.execute(
+                            """
+                            SELECT mo.chave_pix, mo.titular_chave, tc.payload->>'valor' AS valor
+                              FROM barravips.tool_calls tc
+                              JOIN barravips.modelos mo ON mo.id = %s
+                             WHERE tc.turno_id = %s
+                               AND tc.tool_name = 'pedir_pix_deslocamento'
+                             LIMIT 1
+                            """,
+                            (atendimento["modelo_id"], turno_id),
+                        )
+                        pix_row = await res.fetchone()
+
                     msg_ids_cliente: list[str] = [r["evolution_message_id"] for r in inbound]
                     chars_inbound = sum(len(r["conteudo"] or "") for r in inbound)
 
@@ -345,6 +377,19 @@ async def processar_turno(
                     quote_msg_ids: list[str | None] = [
                         alvo_quote if flag else None for flag in quote_flags
                     ]
+                    # Anexa a bolha do Pix (bug F) como ÚLTIMA bolha do turno, sem quote. Quando o
+                    # turno pediu Pix ele já é `critico` (não-cancelável), então a chave sempre sai.
+                    chave_pix = pix_row.get("chave_pix") if pix_row else None
+                    if chave_pix:
+                        chunks = [
+                            *chunks,
+                            _formatar_bolha_pix(
+                                chave_pix,
+                                pix_row.get("titular_chave"),
+                                pix_row.get("valor") or settings.pix_deslocamento_valor,
+                            ),
+                        ]
+                        quote_msg_ids = [*quote_msg_ids, None]
                     if not chunks and not midias:
                         logger.warning("turno_sem_resposta turno_id=%s", turno_id)
                         AGENTE_TURNO_RESULTADO.labels("ok_sem_resposta").inc()

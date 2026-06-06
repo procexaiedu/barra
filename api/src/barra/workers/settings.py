@@ -34,6 +34,7 @@ from barra.workers.envio import MAX_TRIES_ENVIO, enviar_card, enviar_turno
 from barra.workers.lembrete_valor import cobrar_valor_final
 from barra.workers.media import limpar_midias_vencidas, rotear_imagem, transcrever_audio
 from barra.workers.pix import validar_pix
+from barra.workers.reconciliacao import reconciliar_cards_escalada
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
@@ -101,6 +102,12 @@ async def cron_limpar_midias(ctx: dict[str, Any]) -> int:
         return 0
     async with pool.connection() as conn:
         return await limpar_midias_vencidas(conn, minio)
+
+
+async def cron_reconciliar_cards(ctx: dict[str, Any]) -> int:
+    # Rede de segurança contra handoff silencioso: entrega cards de escalada órfãos chamando
+    # enviar_card inline (ctx tem db_pool + evolution). Ver workers/reconciliacao.py.
+    return await reconciliar_cards_escalada(ctx)
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -220,6 +227,7 @@ class WorkerSettings:
             minute={0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55},
         ),
         cron(cron_limpar_midias, name="limpar_midias", hour={3}, minute={0}),
+        cron(cron_reconciliar_cards, name="reconciliar_cards"),
     ]
     keep_result = 3600  # global; processar_turno sobrescreve p/ 0 via func(...) acima
     max_jobs = 10
