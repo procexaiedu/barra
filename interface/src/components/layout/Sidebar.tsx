@@ -1,23 +1,9 @@
 "use client"
 
-import { useEffect, useState, useSyncExternalStore } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import {
-  LayoutDashboard,
-  MessagesSquare,
-  Calendar,
-  Receipt,
-  ListChecks,
-  Users,
-  IdCard,
-  ChartLine,
-  Wallet,
-  ClipboardCheck,
-  LogOut,
-  PanelLeft,
-  PanelLeftClose,
-} from "lucide-react"
+import { LogOut, PanelLeft, PanelLeftClose } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import {
@@ -27,56 +13,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ThemeToggle } from "@/components/layout/ThemeToggle"
-
-/** Recolhe a sidebar por padrão em notebooks (abaixo de xl/1280px). Lê o
- *  media query via useSyncExternalStore — evita setState em effect (regra de
- *  lint do projeto) e dá snapshot SSR estável (`false` = expandida). */
-function useBelowXl() {
-  return useSyncExternalStore(
-    (cb) => {
-      const mql = window.matchMedia("(max-width: 1279px)")
-      mql.addEventListener("change", cb)
-      return () => mql.removeEventListener("change", cb)
-    },
-    () => window.matchMedia("(max-width: 1279px)").matches,
-    () => false
-  )
-}
-
-const grupos = [
-  {
-    label: "OPERAÇÃO",
-    items: [
-      { href: "/", label: "Painel", icon: LayoutDashboard },
-      { href: "/atendimentos", label: "Atendimentos", icon: MessagesSquare },
-      { href: "/agenda", label: "Agenda", icon: Calendar },
-      { href: "/pix", label: "Pix", icon: Receipt },
-      { href: "/tarefas", label: "Tarefas", icon: ListChecks },
-    ],
-  },
-  {
-    label: "CADASTROS",
-    items: [
-      { href: "/clientes", label: "Clientes", icon: Users },
-      { href: "/modelos", label: "Modelos", icon: IdCard },
-    ],
-  },
-  {
-    label: "ANÁLISE",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: ChartLine },
-      { href: "/financeiro", label: "Financeiro", icon: Wallet },
-      { href: "/calibracao", label: "Calibração", icon: ClipboardCheck },
-    ],
-  },
-]
+import { grupos, itemAtivo } from "@/components/layout/navegacao"
+import { useMediaQuery } from "@/hooks/useMediaQuery"
 
 export function Sidebar() {
   const pathname = usePathname()
   const [email, setEmail] = useState<string | null>(null)
-  const belowXl = useBelowXl()
-  const [override, setOverride] = useState<boolean | null>(null)
-  const collapsed = override ?? belowXl
+  // Auto-recolhe abaixo de xl (1280px) p/ notebooks ~1366 não ficarem cramped (feat 70f23d3),
+  // com override manual: ao clicar, a escolha manual vence o automático. useMediaQuery é SSR-safe
+  // (useSyncExternalStore) — sem setState em effect (regra de lint do projeto).
+  const belowXl = useMediaQuery("(max-width: 1279px)")
+  const [collapsedManual, setCollapsedManual] = useState<boolean | null>(null)
+  const collapsed = collapsedManual ?? belowXl
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -88,10 +36,7 @@ export function Sidebar() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  const isActive = (href: string) => {
-    if (href === "/") return pathname === "/"
-    return pathname.startsWith(href)
-  }
+  const isActive = (href: string) => itemAtivo(href, pathname)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
@@ -118,7 +63,7 @@ export function Sidebar() {
             </span>
           )}
           <button
-            onClick={() => setOverride(!collapsed)}
+            onClick={() => setCollapsedManual(!collapsed)}
             aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
             className="flex size-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-accent hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >

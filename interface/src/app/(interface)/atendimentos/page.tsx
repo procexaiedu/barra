@@ -5,6 +5,7 @@ import { LayoutList, Columns, Plus } from "lucide-react"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
 import { PageHeader } from "@/components/layout/PageHeader"
+import { PainelDetalheResponsivo } from "@/components/layout/PainelDetalheResponsivo"
 import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
@@ -200,6 +201,7 @@ function CentralAtendimentosInner() {
   const [modalEdicao, setModalEdicao] = useState<AtendimentoDetalheResponse | null>(null)
   const [modalReatribuir, setModalReatribuir] = useState<AtendimentoDetalheResponse | null>(null)
   const [modalNovoAberto, setModalNovoAberto] = useState(false)
+  const [detalheAberto, setDetalheAberto] = useState(false)
   const [mostrarEncerrados, setMostrarEncerrados] = useState(true)
   const [itemsEncerrados, setItemsEncerrados] = useState<AtendimentoListaItem[]>([])
   const [acaoTerminalPendente, setAcaoTerminalPendente] = useState<
@@ -285,8 +287,13 @@ function CentralAtendimentosInner() {
       </div>
 
       {view === "lista" ? (
-        <div className="flex-1 min-h-0 grid grid-cols-[260px_minmax(0,1fr)] gap-4 2xl:grid-cols-[320px_minmax(0,1fr)]">
-          <div className="min-h-0 overflow-y-auto">
+        <PainelDetalheResponsivo
+          className="flex-1"
+          gridClassName="lg:grid-cols-[320px_minmax(0,1fr)]"
+          tituloDetalhe="Detalhe do atendimento"
+          detalheAberto={detalheAberto}
+          onFecharDetalhe={() => setDetalheAberto(false)}
+          lista={
             <ListaAtendimentos
               items={atendimentos.items}
               selectedId={atendimentos.selectedId}
@@ -294,12 +301,15 @@ function CentralAtendimentosInner() {
               error={atendimentos.listaError}
               filtrosAplicados={atendimentos.filtrosAplicados}
               nextCursor={atendimentos.nextCursor}
-              onSelect={atendimentos.selectAtendimento}
+              onSelect={(id) => {
+                atendimentos.selectAtendimento(id)
+                setDetalheAberto(true)
+              }}
               onRetry={atendimentos.refetch}
               onCarregarMais={atendimentos.carregarMais}
             />
-          </div>
-          <div className="min-h-0 overflow-y-auto">
+          }
+          detalhe={
             <DetalheAtendimento
               detalhe={atendimentos.detalhe}
               status={atendimentos.detalheStatus}
@@ -313,8 +323,8 @@ function CentralAtendimentosInner() {
               onEditar={() => setModalEdicao(atendimentos.detalhe)}
               onCorrigir={() => atendimentos.detalhe && atendimentos.abrirCorrigir(atendimentos.detalhe.atendimento.id)}
             />
-          </div>
-        </div>
+          }
+        />
       ) : (
         <div className="flex-1 min-h-0">
           <KanbanBoard

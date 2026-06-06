@@ -1,8 +1,9 @@
 "use client"
 
-import { Suspense } from "react"
+import { Suspense, useState } from "react"
 import { DetalhePix } from "@/components/pix/DetalhePix"
 import { PageHeader } from "@/components/layout/PageHeader"
+import { PainelDetalheResponsivo } from "@/components/layout/PainelDetalheResponsivo"
 import { ListaPix } from "@/components/pix/ListaPix"
 import { ToolbarPix } from "@/components/pix/ToolbarPix"
 import { usePix } from "@/hooks/usePix"
@@ -20,6 +21,7 @@ export default function PixPage() {
 
 function PixConteudo() {
   const pix = usePix()
+  const [detalheAberto, setDetalheAberto] = useState(false)
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-4">
@@ -45,8 +47,12 @@ function PixConteudo() {
         />
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)] gap-4 2xl:grid-cols-[360px_minmax(0,1fr)]">
-        <div className="min-h-0 overflow-y-auto">
+      <PainelDetalheResponsivo
+        className="flex-1"
+        tituloDetalhe="Detalhe do Pix"
+        detalheAberto={detalheAberto}
+        onFecharDetalhe={() => setDetalheAberto(false)}
+        lista={
           <ListaPix
             items={pix.items}
             selectedId={pix.selectedId}
@@ -55,12 +61,15 @@ function PixConteudo() {
             filtrosAplicados={pix.filtrosAplicados}
             nextCursor={pix.nextCursor}
             carregandoMais={pix.carregandoMais}
-            onSelect={pix.selectPix}
+            onSelect={(id) => {
+              pix.selectPix(id)
+              setDetalheAberto(true)
+            }}
             onRetry={pix.refetch}
             onCarregarMais={pix.carregarMais}
           />
-        </div>
-        <div className="min-h-0 overflow-y-auto">
+        }
+        detalhe={
           <DetalhePix
             detalhe={pix.detalhe}
             status={pix.detalheStatus}
@@ -73,8 +82,8 @@ function PixConteudo() {
             onReabrir={pix.reabrir}
             onRecarregarComprovante={pix.recarregarComprovante}
           />
-        </div>
-      </div>
+        }
+      />
     </div>
   )
 }

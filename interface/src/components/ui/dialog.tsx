@@ -124,7 +124,7 @@ function DialogHeader({
     <div
       data-slot="dialog-header"
       className={cn(
-        "flex items-center gap-3 border-b border-border px-8 py-4",
+        "flex items-center gap-3 border-b border-border px-4 py-4 sm:px-8",
         className
       )}
       {...props}
@@ -139,7 +139,7 @@ function DialogBody({
   return (
     <div
       data-slot="dialog-body"
-      className={cn("flex-1 overflow-y-auto px-8 py-6", className)}
+      className={cn("flex-1 overflow-y-auto px-4 py-6 sm:px-8", className)}
       {...props}
     />
   )
@@ -153,7 +153,7 @@ function DialogFooter({
     <footer
       data-slot="dialog-footer"
       className={cn(
-        "flex items-center justify-end gap-2 border-t border-border px-8 py-3",
+        "flex items-center justify-end gap-2 border-t border-border px-4 py-3 sm:px-8",
         className
       )}
       {...props}

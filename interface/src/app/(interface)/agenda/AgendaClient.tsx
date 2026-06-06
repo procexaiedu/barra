@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { toast } from "sonner"
+import { AgendaDiaLista } from "@/components/agenda/AgendaDiaLista"
 import { CalendarioMes } from "@/components/agenda/CalendarioMes"
 import { DialogBloqueio } from "@/components/agenda/DialogBloqueio"
 import { DialogVisualizarBloqueio } from "@/components/agenda/DialogVisualizarBloqueio"
@@ -22,6 +23,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useIsMobile } from "@/hooks/useMediaQuery"
 import { dataDeInput, dataInput, dataInputSaoPaulo, isoAgenda, useAgenda } from "@/hooks/useAgenda"
 import { ApiError } from "@/lib/api"
 import type { AtualizarBloqueioInput, BloqueioAgenda, BloqueioFormState } from "@/tipos/agenda"
@@ -88,6 +90,7 @@ export function AgendaClient() {
   const bloqueioParam = searchParams.get("bloqueio") ?? undefined
 
   const agenda = useAgenda({ data: dataParam })
+  const isMobile = useIsMobile()
 
   type DialogModo = "fechado" | "visualizar" | "editar" | "criar"
   type DialogState = { modo: DialogModo; bloqueio: BloqueioAgenda | null }
@@ -255,6 +258,16 @@ export function AgendaClient() {
           onCriarNoDia={(data) => abrirCriacao(proximoSlotLivre(data, bloqueios))}
           onEditarBloqueio={(b) => setDialog({ modo: "visualizar", bloqueio: b })}
           onMover={moverBloqueio}
+        />
+      ) : isMobile ? (
+        <AgendaDiaLista
+          data={agenda.dataSelecionada}
+          bloqueios={bloqueios}
+          dataHoje={hojeStr}
+          onNavegar={agenda.setDataSelecionada}
+          onHoje={agenda.hoje}
+          onCriarNoDia={(data) => abrirCriacao(proximoSlotLivre(data, bloqueios))}
+          onEditar={(b) => setDialog({ modo: "visualizar", bloqueio: b })}
         />
       ) : (
         <GradeSemanal
