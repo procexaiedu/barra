@@ -23,21 +23,18 @@ from psycopg import AsyncConnection
 
 from barra.core.db import conexao
 from barra.core.metrics import (
-    AGENTE_ESCALADA,
     DISCLOSURE_DETECTADO,
     JAILBREAK_DETECTADO,
     REINCIDENCIA_SEGURANCA,
 )
-from barra.dominio.escaladas.modelos import TipoEscalada
-from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket
 from barra.settings import get_settings
 
 from .._canned import escolher_negacao
+from .._defesa import escalar_defesa
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..ferramentas._idempotencia import _executar_idempotente
 
-_ACAO_ASSUMIR = "Assumir a conversa com o cliente."
 _RESUMO_DISCLOSURE = "Cliente insistiu (3a vez) perguntando se a Bia e IA."
 _RESUMO_JAILBREAK = "Cliente tentou override de instrucao (jailbreak)."
 _RESUMO_REINCIDENCIA = (
@@ -49,20 +46,10 @@ _JANELA_REINCIDENCIA_S = 86400  # 24h
 async def _escalar_handoff(
     conn: AsyncConnection[Any], ctx: ContextAgente, *, resumo: str, observacao: str
 ) -> None:
-    """Abre handoff p/ Fernando e contabiliza a escalada — contrato unico das 3 saidas de escala
-    deste no (jailbreak, disclosure na 3a, reincidencia). So o `resumo`/`observacao` variam."""
-    await abrir_handoff(
-        conn,
-        atendimento_id=UUID(ctx.atendimento_id),
-        responsavel="Fernando",
-        tipo=TipoEscalada.comportamento_atipico,
-        resumo_operacional=resumo,
-        acao_esperada=_ACAO_ASSUMIR,
-        origem="agente",
-        autor="sistema",
-        observacao=observacao,
-    )
-    AGENTE_ESCALADA.labels(mapear_bucket(observacao), observacao).inc()
+    """Adapta o ctx p/ a saida de escala compartilhada das defesas (`_defesa.escalar_defesa`).
+    Contrato unico das 3 saidas deste no (jailbreak, disclosure na 3a, reincidencia); so o
+    `resumo`/`observacao` variam."""
+    await escalar_defesa(conn, ctx.atendimento_id, resumo=resumo, observacao=observacao)
 
 
 async def _contabilizar_reincidencia(ctx: ContextAgente) -> None:

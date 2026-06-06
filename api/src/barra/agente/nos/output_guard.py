@@ -19,7 +19,6 @@ ia_pausada apos o turno (cinto-suspensorio) e nao despacha. Roteamento SO por Co
 import logging
 import re
 from typing import Any, Literal
-from uuid import UUID
 
 from langchain_core.messages import AIMessage
 from langgraph.graph import END
@@ -28,19 +27,17 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from barra.core.db import conexao
-from barra.core.metrics import AGENTE_ESCALADA, AUP_SAIDA_BLOQUEADO, OUTPUT_LEAK_DETECTADO
-from barra.dominio.escaladas.modelos import TipoEscalada
-from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket
+from barra.core.metrics import AUP_SAIDA_BLOQUEADO, OUTPUT_LEAK_DETECTADO
 from barra.settings import get_settings
 
 from .._canned import NEGACOES_CANNED
+from .._defesa import escalar_defesa
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..persona import render_aup_saida
 
 logger = logging.getLogger(__name__)
 
-_ACAO_ASSUMIR = "Assumir a conversa com o cliente."
 _RESUMO_LEAK = "Output-guard barrou a bolha (vazamento detectado antes do envio)."
 _RESUMO_AUP = "Output-guard barrou a bolha (LLM-judge de AUP reprovou antes do envio)."
 
@@ -181,8 +178,11 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
     return veredito
 
 
-async def _bloquear(ctx: ContextAgente, *, observacao: str, resumo: str) -> None:
+async def _bloquear(ctx: ContextAgente, *, observacao: str, resumo: str, metric_key: str) -> None:
     """Abre handoff p/ Fernando (ia_pausada=true) e contabiliza a escalada (bucket=defesa).
+
+    `observacao` e o motivo granular persistido; `metric_key` e o rotulo grosso da metrica
+    (`output_leak`/`aup_saida`), passado pelo caller que ja sabe qual etapa barrou.
 
     Sem atendimento_id (webhook fino) nao ha o que pausar: so loga -- a bolha ja sera zerada.
     """
@@ -190,19 +190,9 @@ async def _bloquear(ctx: ContextAgente, *, observacao: str, resumo: str) -> None
         logger.warning("output_guard bloqueou sem atendimento_id (%s)", observacao)
         return
     async with conexao(ctx.db_pool) as conn:
-        await abrir_handoff(
-            conn,
-            atendimento_id=UUID(ctx.atendimento_id),
-            responsavel="Fernando",
-            tipo=TipoEscalada.comportamento_atipico,
-            resumo_operacional=resumo,
-            acao_esperada=_ACAO_ASSUMIR,
-            origem="agente",
-            autor="sistema",
-            observacao=observacao,
+        await escalar_defesa(
+            conn, ctx.atendimento_id, resumo=resumo, observacao=observacao, metric_key=metric_key
         )
-    motivo_metric = "aup_saida" if observacao.startswith("aup_saida") else "output_leak"
-    AGENTE_ESCALADA.labels(mapear_bucket(motivo_metric), motivo_metric).inc()
 
 
 async def output_guard(
@@ -236,7 +226,9 @@ async def output_guard(
     motivo = _scan_vazamento(texto_guard, termos_cross)
     if motivo:
         OUTPUT_LEAK_DETECTADO.labels(motivo).inc()
-        await _bloquear(ctx, observacao=f"output_leak_{motivo}", resumo=_RESUMO_LEAK)
+        await _bloquear(
+            ctx, observacao=f"output_leak_{motivo}", resumo=_RESUMO_LEAK, metric_key="output_leak"
+        )
         return Command(goto=END, update={"messages": [vazia]})  # type: ignore[arg-type]
 
     # Negacao canned (pool curado): pula a Etapa 2 (texto ja confiavel). So sem midia -- uma
@@ -253,12 +245,19 @@ async def output_guard(
     except Exception:
         logger.exception("output_guard judge falhou (turno_id=%s) -> default seguro", ctx.turno_id)
         AUP_SAIDA_BLOQUEADO.labels("judge_falhou").inc()
-        await _bloquear(ctx, observacao="aup_saida_judge_falhou", resumo=_RESUMO_AUP)
+        await _bloquear(
+            ctx, observacao="aup_saida_judge_falhou", resumo=_RESUMO_AUP, metric_key="aup_saida"
+        )
         return Command(goto=END, update={"messages": [vazia]})  # type: ignore[arg-type]
 
     if veredito.viola:
         AUP_SAIDA_BLOQUEADO.labels("violou").inc()
-        await _bloquear(ctx, observacao=f"aup_saida_{veredito.motivo}", resumo=_RESUMO_AUP)
+        await _bloquear(
+            ctx,
+            observacao=f"aup_saida_{veredito.motivo}",
+            resumo=_RESUMO_AUP,
+            metric_key="aup_saida",
+        )
         return Command(goto=END, update={"messages": [vazia]})  # type: ignore[arg-type]
 
     return Command(goto=END)  # type: ignore[arg-type]

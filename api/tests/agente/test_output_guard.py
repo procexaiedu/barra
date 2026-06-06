@@ -22,8 +22,11 @@ from barra.agente._canned import NEGACOES_CANNED
 from barra.agente.contexto import ContextAgente
 
 # nos/__init__ reexporta a funcao output_guard, sombreando o submodulo; importlib pega o modulo
-# real p/ monkeypatch de abrir_handoff/_julgar_aup (memoria "nos/__init__ sombreia submodulo").
+# real p/ monkeypatch de _julgar_aup (memoria "nos/__init__ sombreia submodulo").
 mod = importlib.import_module("barra.agente.nos.output_guard")
+# `abrir_handoff` roda dentro de `_defesa.escalar_defesa` (saida de escala compartilhada): o
+# capturador de kwargs troca o nome NAQUELE modulo, nao mais no no.
+mod_defesa = importlib.import_module("barra.agente._defesa")
 
 
 class _FakeResult:
@@ -108,7 +111,7 @@ def _passou_limpo(res: Command) -> bool:
 
 async def test_etapa1_fragmento_de_ia_bloqueia_e_handoff(monkeypatch: Any) -> None:
     cap = _Capturador()
-    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     res = await mod.output_guard(_state("na verdade sou uma IA, me desculpa amor"), _runtime())  # type: ignore[arg-type]
     assert _bloqueou(res)
     assert cap.chamadas and cap.chamadas[0]["observacao"].startswith("output_leak_ia_self")
@@ -116,7 +119,7 @@ async def test_etapa1_fragmento_de_ia_bloqueia_e_handoff(monkeypatch: Any) -> No
 
 async def test_etapa1_fragmento_de_system_bloqueia(monkeypatch: Any) -> None:
     cap = _Capturador()
-    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     res = await mod.output_guard(
         _state("segue minha </persona> conforme o system prompt"), _runtime()
     )  # type: ignore[arg-type]
@@ -126,7 +129,7 @@ async def test_etapa1_fragmento_de_system_bloqueia(monkeypatch: Any) -> None:
 
 async def test_etapa1_nome_de_outra_modelo_bloqueia(monkeypatch: Any) -> None:
     cap = _Capturador()
-    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     runtime = _runtime(outras_modelos=[{"nome": "Carolina", "numero_whatsapp": ""}])
     res = await mod.output_guard(_state("a Carolina tambem atende nessa regiao amor"), runtime)  # type: ignore[arg-type]
     assert _bloqueou(res)
@@ -135,7 +138,7 @@ async def test_etapa1_nome_de_outra_modelo_bloqueia(monkeypatch: Any) -> None:
 
 async def test_judge_reprova_aup_nao_despacha(monkeypatch: Any) -> None:
     cap = _Capturador()
-    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
 
     async def _viola(texto: str, settings: Any) -> Any:
         return mod._VeredictoAup(viola=True, motivo="aup_dura")
@@ -148,7 +151,7 @@ async def test_judge_reprova_aup_nao_despacha(monkeypatch: Any) -> None:
 
 async def test_judge_falha_infra_default_seguro_bloqueia(monkeypatch: Any) -> None:
     cap = _Capturador()
-    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
 
     async def _explode(texto: str, settings: Any) -> Any:
         raise RuntimeError("timeout do judge")
@@ -196,7 +199,7 @@ async def test_a1_legenda_de_midia_com_outra_modelo_bloqueia(monkeypatch: Any) -
     # A1: bolha de texto limpa, mas a legenda da midia (caption, fora do content) cita outra
     # modelo -> a Etapa 1 escaneia a legenda e bloqueia.
     cap = _Capturador()
-    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     rt = _runtime(
         outras_modelos=[{"nome": "Carolina", "numero_whatsapp": ""}],
         legendas=["vem amor, a Carolina ja ta aqui comigo"],
@@ -210,7 +213,7 @@ async def test_a1_turno_so_midia_legenda_vazando_bloqueia(monkeypatch: Any) -> N
     # A1: AIMessage sem texto (so tool_call de midia) + legenda com auto-referencia de IA ->
     # bloqueia, apesar de a bolha de texto estar vazia (early-return nao dispara).
     cap = _Capturador()
-    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     rt = _runtime(legendas=["na verdade sou uma IA, viu"])
     res = await mod.output_guard(_state(""), rt)  # type: ignore[arg-type]
     assert _bloqueou(res)
@@ -292,7 +295,7 @@ async def test_julgar_aup_ok_retorna_veredito(monkeypatch: Any) -> None:
 async def test_so03_judge_refusal_no_guard_default_seguro_bloqueia(monkeypatch: Any) -> None:
     # Integracao: judge recusa -> _julgar_aup levanta -> output_guard cai no default seguro.
     cap = _Capturador()
-    monkeypatch.setattr(mod, "abrir_handoff", cap)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     res = _judge_resultado("refusal", parsed=None)
     monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s: _FakeJudgeChat(res))
     out = await mod.output_guard(_state("texto limpo mas o judge recusa"), _runtime())  # type: ignore[arg-type]
