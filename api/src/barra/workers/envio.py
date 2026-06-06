@@ -110,8 +110,8 @@ async def _card_escalada(ctx: dict[str, Any], *, escalada_id: str, **_: Any) -> 
                 instance_id=e["evolution_instance_id"],
                 remote_jid=e["coordenacao_chat_id"],
                 texto=texto,
-                contexto="coordenacao",
-                tipo="card_escalada",
+                contexto="grupo_coordenacao",
+                tipo="card",
             )
             await conn.execute(
                 "UPDATE barravips.escaladas SET card_message_id = %s WHERE id = %s",
@@ -177,8 +177,8 @@ async def _card_pix(
                 instance_id=cp["evolution_instance_id"],
                 remote_jid=cp["coordenacao_chat_id"],
                 texto=texto,
-                contexto="coordenacao",
-                tipo="card_pix",
+                contexto="grupo_coordenacao",
+                tipo="card",
             )
             await conn.execute(
                 "UPDATE barravips.comprovantes_pix SET card_message_id = %s WHERE id = %s",
@@ -263,8 +263,8 @@ async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -
                     url=url,
                     caption=texto,
                     media_type="foto",
-                    contexto="coordenacao",
-                    tipo="card_chegada",
+                    contexto="grupo_coordenacao",
+                    tipo="card",
                 )
             else:
                 # Defesa: foto nao foi gravada (caso raro); manda so o texto para a modelo
@@ -274,8 +274,8 @@ async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -
                     instance_id=e["evolution_instance_id"],
                     remote_jid=e["coordenacao_chat_id"],
                     texto=texto,
-                    contexto="coordenacao",
-                    tipo="card_chegada",
+                    contexto="grupo_coordenacao",
+                    tipo="card",
                 )
             await conn.execute(
                 "UPDATE barravips.escaladas SET card_message_id = %s WHERE id = %s",
@@ -328,8 +328,8 @@ async def _card_aviso_saida(ctx: dict[str, Any], *, atendimento_id: str, **_: An
             instance_id=a["evolution_instance_id"],
             remote_jid=a["coordenacao_chat_id"],
             texto=texto,
-            contexto="coordenacao",
-            tipo="card_aviso_saida",
+            contexto="grupo_coordenacao",
+            tipo="card",
         )
 
 

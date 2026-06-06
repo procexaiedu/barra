@@ -1,7 +1,13 @@
 """M4d — `enviar_card(tipo="escalada")` envia o card no grupo e grava `escaladas.card_message_id`.
 
 Idempotência por owner (06 §9): a 2ª execução não reenvia, pois `card_message_id` já está
-preenchido. Evolution é mockado (não toca a rede).
+preenchido. O Evolution é mockado, mas o mock NÃO pula `registrar_envio`: ele persiste em
+`envios_evolution` com o `contexto`/`tipo` que o renderer passou, exatamente como o client real.
+Isso é deliberado — a CHECK de `envios_evolution` (`contexto IN ('conversa_cliente',
+'grupo_coordenacao')`, `tipo IN ('ia','card',...)`) só vale contra o banco real, e um fake que
+devolve id sintético sem inserir deixaria passar um card com contexto/tipo inválido: em prod o
+POST sai mas o INSERT estoura a CHECK, a transação reverte, `card_message_id` nunca grava e o
+cron `reconciliar_cards_escalada` reenvia o card a cada minuto (duplicata no grupo).
 
 Padrão needs_db de test_handoff_via_escalar.py: TEST_DATABASE_URL, autocommit=False, dict_row,
 ROLLBACK SEMPRE no teardown — nada commita no banco prod self-hosted. Um `_FakePool` entrega a
@@ -20,6 +26,7 @@ import pytest_asyncio
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
+from barra.core.evolution import registrar_envio
 from barra.workers.envio import enviar_card
 
 
@@ -52,14 +59,36 @@ class _FakePool:
 
 
 class _FakeEvolution:
-    """Mock do EvolutionClient: conta envios e devolve um message id sintético."""
+    """Mock do EvolutionClient: não toca a rede, mas persiste em `envios_evolution` via
+    `registrar_envio` (como o client real) para que a CHECK de contexto/tipo seja exercida."""
 
     def __init__(self) -> None:
-        self.chamadas = 0
+        self.envios: list[tuple[str, str]] = []
 
-    async def enviar_texto(self, **_: Any) -> str:
-        self.chamadas += 1
-        return f"card-mid-{self.chamadas}"
+    async def enviar_texto(
+        self,
+        *,
+        conn: AsyncConnection[dict[str, Any]],
+        instance_id: str,
+        remote_jid: str,
+        contexto: str,
+        tipo: str,
+        **_: Any,
+    ) -> str:
+        mid = f"card-mid-{len(self.envios) + 1}"
+        await registrar_envio(
+            conn,
+            evolution_message_id=mid,
+            instance_id=instance_id,
+            remote_jid=remote_jid,
+            contexto=contexto,
+            tipo=tipo,
+            atendimento_id=None,
+            conversa_id=None,
+            payload={},
+        )
+        self.envios.append((contexto, tipo))
+        return mid
 
 
 async def _seed_escalada(c: AsyncConnection[dict[str, Any]]) -> UUID:
@@ -121,9 +150,7 @@ async def _seed_escalada(c: AsyncConnection[dict[str, Any]]) -> UUID:
     return escalada_id
 
 
-async def _ler_card_message_id(
-    c: AsyncConnection[dict[str, Any]], escalada_id: UUID
-) -> str | None:
+async def _ler_card_message_id(c: AsyncConnection[dict[str, Any]], escalada_id: UUID) -> str | None:
     res = await c.execute(
         "SELECT card_message_id FROM barravips.escaladas WHERE id = %s", (escalada_id,)
     )
@@ -144,11 +171,14 @@ async def test_enviar_card_escalada_grava_id_e_idempotente(
 
     mid1 = await _ler_card_message_id(conn, escalada_id)
     assert mid1 is not None  # card_message_id gravado no owner
-    assert evolution.chamadas == 1
+    assert len(evolution.envios) == 1
+    # Contrato do card: contexto/tipo aceitos pela CHECK de envios_evolution. Com os antigos
+    # ("coordenacao"/"card_escalada") o registrar_envio acima dispararia CheckViolation aqui.
+    assert evolution.envios == [("grupo_coordenacao", "card")]
 
     # 2ª execução: card_message_id já preenchido → não reenvia (idempotência por owner).
     await enviar_card(ctx, tipo="escalada", escalada_id=str(escalada_id))
 
     mid2 = await _ler_card_message_id(conn, escalada_id)
     assert mid2 == mid1
-    assert evolution.chamadas == 1
+    assert len(evolution.envios) == 1  # 2ª execução não reenviou
