@@ -19,6 +19,9 @@ from barra.agente.contexto import ContextAgente
 # `nos/__init__` reexporta a FUNÇÃO intercept_disclosure, que sombreia o submódulo de mesmo nome;
 # `import ... as mod` pegaria a função. import_module devolve o módulo p/ monkeypatch (memória).
 mod = importlib.import_module("barra.agente.nos.intercept_disclosure")
+# `abrir_handoff` roda dentro de `_defesa.escalar_defesa` (saida de escala compartilhada): o spy
+# troca o nome NAQUELE modulo.
+mod_defesa = importlib.import_module("barra.agente._defesa")
 
 
 class _DummyPool:
@@ -45,7 +48,7 @@ def spy_handoff(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     async def _spy(_conn: object, **kw: Any) -> None:
         chamadas.append(kw)
 
-    monkeypatch.setattr(mod, "abrir_handoff", _spy)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", _spy)
     return chamadas
 
 

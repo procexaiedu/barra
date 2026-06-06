@@ -19,8 +19,11 @@ from prometheus_client import REGISTRY
 from barra.agente.contexto import ContextAgente
 
 # `nos/__init__.py` reexporta a funcao `intercept_disclosure`, sombreando o atributo de submodulo
-# de mesmo nome; importlib pega o modulo real (de sys.modules) p/ o monkeypatch de `abrir_handoff`.
+# de mesmo nome; importlib pega o modulo real (de sys.modules).
 mod = importlib.import_module("barra.agente.nos.intercept_disclosure")
+# `abrir_handoff` e chamado de dentro de `_defesa.escalar_defesa` (saida de escala compartilhada);
+# o monkeypatch troca o nome NAQUELE modulo, nao mais no no.
+mod_defesa = importlib.import_module("barra.agente._defesa")
 
 
 async def _abrir_handoff_noop(conn: Any, **kwargs: Any) -> None:
@@ -86,7 +89,7 @@ def _valor_defesa(motivo: str) -> float:
 
 
 async def test_jailbreak_incrementa_escalada_bucket_defesa(monkeypatch: Any) -> None:
-    monkeypatch.setattr(mod, "abrir_handoff", _abrir_handoff_noop)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", _abrir_handoff_noop)
     runtime = _runtime(_FakePool(_FakeConn(0)))
     antes = _valor_defesa("jailbreak_attempt")
     state = {"messages": [], "_categoria": "jailbreak_attempt", "_confianca": "alta"}
@@ -99,7 +102,7 @@ async def test_jailbreak_incrementa_escalada_bucket_defesa(monkeypatch: Any) -> 
 
 
 async def test_disclosure_insistente_incrementa_escalada_bucket_defesa(monkeypatch: Any) -> None:
-    monkeypatch.setattr(mod, "abrir_handoff", _abrir_handoff_noop)
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", _abrir_handoff_noop)
     # tentativas=3 (>=3) -> caminho de escala (handoff + END).
     runtime = _runtime(_FakePool(_FakeConn(3)))
     antes = _valor_defesa("disclosure_insistente")
