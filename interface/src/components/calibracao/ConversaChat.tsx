@@ -56,15 +56,7 @@ export function ConversaChat({
               </div>
             )
           }
-          return (
-            <BolhaIA
-              key={i}
-              texto={m.texto}
-              citado={m.citado}
-              fala={m.fala}
-              onMarcar={onMarcar}
-            />
-          )
+          return <BolhaIA key={i} bolhas={m.bolhas} fala={m.fala} onMarcar={onMarcar} />
         })}
       </div>
     </Card>

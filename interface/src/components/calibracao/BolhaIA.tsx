@@ -8,16 +8,17 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import type { FalaParaRotular } from "@/tipos/calibracao"
 
-/** Bolha da IA ("ela") no chat: reply do WhatsApp (quando cita o cliente) + voto
- *  ✓/✕ e comentario inline. Veredito HOLISTICO (4 rubricas) — ver GUIA_ROTULAGEM.md. */
+import type { Bolha } from "./timeline"
+
+/** Um turno da IA ("ela") no chat: 1+ bolhas do WhatsApp (cada chunk e um balao
+ *  separado, com reply quando cita o cliente) + voto ✓/✕ e comentario UMA vez no
+ *  turno. Veredito HOLISTICO (4 rubricas) — ver GUIA_ROTULAGEM.md. */
 export function BolhaIA({
-  texto,
-  citado,
+  bolhas,
   fala,
   onMarcar,
 }: {
-  texto: string
-  citado: string | null
+  bolhas: Bolha[]
   fala: FalaParaRotular
   onMarcar: (falaPk: string, passou: boolean, observacao: string) => void
 }) {
@@ -29,21 +30,28 @@ export function BolhaIA({
     <div className="flex flex-col items-end gap-1">
       <span className="pr-1 text-[10px] uppercase tracking-wide text-text-muted">ela (IA)</span>
 
-      <div
-        className={cn(
-          "max-w-[78%] rounded-2xl rounded-br-sm border px-3 py-2 text-sm text-text-primary",
-          voto === true && "border-emerald-500/40 bg-emerald-500/10",
-          voto === false && "border-destructive/40 bg-destructive/10",
-          voto === null && "border-primary/25 bg-primary/10",
-        )}
-      >
-        {citado !== null && (
-          <div className="mb-1.5 border-l-2 border-primary/70 bg-muted/60 py-1 pl-2 pr-2">
-            <p className="text-[10px] font-medium text-primary">cliente</p>
-            <p className="line-clamp-2 whitespace-pre-wrap text-[12px] text-text-muted">{citado}</p>
+      <div className="flex max-w-[78%] flex-col items-end gap-1">
+        {bolhas.map((b, i) => (
+          <div
+            key={i}
+            className={cn(
+              "rounded-2xl rounded-br-sm border px-3 py-2 text-sm text-text-primary",
+              voto === true && "border-emerald-500/40 bg-emerald-500/10",
+              voto === false && "border-destructive/40 bg-destructive/10",
+              voto === null && "border-primary/25 bg-primary/10",
+            )}
+          >
+            {b.citado !== null && (
+              <div className="mb-1.5 border-l-2 border-primary/70 bg-muted/60 py-1 pl-2 pr-2">
+                <p className="text-[10px] font-medium text-primary">cliente</p>
+                <p className="line-clamp-2 whitespace-pre-wrap text-[12px] text-text-muted">
+                  {b.citado}
+                </p>
+              </div>
+            )}
+            <p className="whitespace-pre-wrap">{b.texto}</p>
           </div>
-        )}
-        <p className="whitespace-pre-wrap">{texto}</p>
+        ))}
       </div>
 
       <div className="flex items-center gap-1.5">
