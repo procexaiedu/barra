@@ -20,6 +20,9 @@ from ..estado import EstadoAgente
 
 async def post_process(state: EstadoAgente, runtime: Runtime[ContextAgente]) -> dict[str, Any]:
     """Refetch ia_pausada; se pausou durante o turno, zera o texto da resposta."""
+    # Webhook fino (atendimento_id None): nada a pausar — espelha o gate do prepare_context.
+    if runtime.context.atendimento_id is None:
+        return {}
     async with conexao(runtime.context.db_pool) as conn:
         result = await conn.execute(
             "SELECT ia_pausada FROM barravips.atendimentos WHERE id = %s",
