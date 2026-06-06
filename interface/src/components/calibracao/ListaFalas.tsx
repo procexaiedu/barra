@@ -2,9 +2,10 @@
 
 import type { FalaParaRotular } from "@/tipos/calibracao"
 
-import { CartaoFala } from "./CartaoFala"
+import { ConversaChat } from "./ConversaChat"
+import { agruparPorConversa } from "./timeline"
 
-/** Lista de falas da rodada com progresso do proprio rotulador. */
+/** Falas da rodada agrupadas por conversa (um chat cada) + progresso do rotulador. */
 export function ListaFalas({
   falas,
   onMarcar,
@@ -13,18 +14,15 @@ export function ListaFalas({
   onMarcar: (falaPk: string, passou: boolean, observacao: string) => void
 }) {
   const rotuladas = falas.filter((f) => f.meu_rotulo !== null).length
+  const conversas = agruparPorConversa(falas)
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <p className="text-[13px] text-text-muted">
-        {rotuladas}/{falas.length} falas rotuladas por você
+        {rotuladas}/{falas.length} falas rotuladas por você · {conversas.length} conversas
       </p>
-      {falas.map((fala) => (
-        <CartaoFala
-          key={fala.id}
-          fala={fala}
-          onMarcar={(passou, obs) => onMarcar(fala.id, passou, obs)}
-        />
+      {conversas.map((c) => (
+        <ConversaChat key={c.conversaId} cenario={c.cenario} falas={c.falas} onMarcar={onMarcar} />
       ))}
     </div>
   )
