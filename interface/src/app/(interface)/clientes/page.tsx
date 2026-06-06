@@ -14,6 +14,7 @@ import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
 import { PageHeader } from "@/components/layout/PageHeader"
+import { PainelDetalheResponsivo } from "@/components/layout/PainelDetalheResponsivo"
 import { BuscaFiltro } from "@/components/filtros/BuscaFiltro"
 import { FiltroPeriodo } from "@/components/filtros/FiltroPeriodo"
 import { FiltroModelo } from "@/components/filtros/FiltroModelo"
@@ -56,6 +57,7 @@ function ClientesInner() {
   )
   const crm = useClientes({ selectedIdInicial: clienteIdInicial })
   const [modalCriarAberto, setModalCriarAberto] = useState(false)
+  const [detalheAberto, setDetalheAberto] = useState(false)
   const [aba, setAba] = useState<"lista" | "mapa">("lista")
   // Cliente para o qual abrir o modal "Novo atendimento" (pré-selecionado).
   const [atendimentoParaCliente, setAtendimentoParaCliente] = useState<ClienteListItem | null>(null)
@@ -145,6 +147,7 @@ function ClientesInner() {
   }, [])
 
   const handleSelecionar = (id: string) => {
+    setDetalheAberto(true)
     if (id === crm.selectedId) return
     crm.selecionarCliente(id)
   }
@@ -249,34 +252,43 @@ function ClientesInner() {
               </button>
             </div>
           )}
-          <div className="grid h-[calc(100vh-240px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
-            <ListaClientes
-              items={itemsLista}
-              selectedId={crm.selectedId}
-              status={crm.listaStatus}
-              error={crm.listaError}
-              filtrosAplicados={crm.filtrosAplicados || bairroFiltro !== null}
-              nextCursor={crm.nextCursor}
-              onSelect={handleSelecionar}
-              onRetry={crm.refetch}
-              onCarregarMais={crm.carregarMais}
-            />
-            <DetalheCliente
-              detalhe={crm.detalhe}
-              conversas={crm.conversas}
-              conversaAtivaId={crm.conversaAtivaId}
-              clienteSemHistorico={crm.clienteSemHistorico}
-              status={crm.detalheStatus}
-              error={crm.detalheError}
-              arquivado={crm.clienteArquivado}
-              onRetry={crm.refetch}
-              onSelecionarConversa={crm.selecionarConversa}
-              onEditarCliente={crm.editarCliente}
-              onArquivarCliente={crm.arquivarCliente}
-              onDesarquivarCliente={crm.desarquivarCliente}
-              onCriarAtendimento={setAtendimentoParaCliente}
-            />
-          </div>
+          <PainelDetalheResponsivo
+            className="h-[calc(100vh-240px)] gap-5 overflow-hidden"
+            gridClassName="lg:grid-cols-[360px_minmax(0,1fr)]"
+            tituloDetalhe="Detalhe do cliente"
+            detalheAberto={detalheAberto}
+            onFecharDetalhe={() => setDetalheAberto(false)}
+            lista={
+              <ListaClientes
+                items={itemsLista}
+                selectedId={crm.selectedId}
+                status={crm.listaStatus}
+                error={crm.listaError}
+                filtrosAplicados={crm.filtrosAplicados || bairroFiltro !== null}
+                nextCursor={crm.nextCursor}
+                onSelect={handleSelecionar}
+                onRetry={crm.refetch}
+                onCarregarMais={crm.carregarMais}
+              />
+            }
+            detalhe={
+              <DetalheCliente
+                detalhe={crm.detalhe}
+                conversas={crm.conversas}
+                conversaAtivaId={crm.conversaAtivaId}
+                clienteSemHistorico={crm.clienteSemHistorico}
+                status={crm.detalheStatus}
+                error={crm.detalheError}
+                arquivado={crm.clienteArquivado}
+                onRetry={crm.refetch}
+                onSelecionarConversa={crm.selecionarConversa}
+                onEditarCliente={crm.editarCliente}
+                onArquivarCliente={crm.arquivarCliente}
+                onDesarquivarCliente={crm.desarquivarCliente}
+                onCriarAtendimento={setAtendimentoParaCliente}
+              />
+            }
+          />
         </>
       ) : (
         <MapaClientes

@@ -33,19 +33,32 @@ function SheetOverlay({ className, ...props }: DialogPrimitive.Backdrop.Props) {
   )
 }
 
+const sheetSides = {
+  right:
+    "inset-y-0 right-0 h-full w-[420px] max-w-[92vw] border-l border-border data-open:slide-in-from-right data-closed:slide-out-to-right",
+  left:
+    "inset-y-0 left-0 h-full w-[420px] max-w-[92vw] border-r border-border data-open:slide-in-from-left data-closed:slide-out-to-left",
+  bottom:
+    "inset-x-0 bottom-0 max-h-[85vh] w-full rounded-t-xl border-t border-border data-open:slide-in-from-bottom data-closed:slide-out-to-bottom",
+} as const
+
+type SheetSide = keyof typeof sheetSides
+
 function SheetContent({
   className,
   children,
+  side = "right",
   ...props
-}: DialogPrimitive.Popup.Props) {
+}: DialogPrimitive.Popup.Props & { side?: SheetSide }) {
   return (
     <SheetPortal>
       <SheetOverlay />
       <DialogPrimitive.Popup
         data-slot="sheet-content"
         className={cn(
-          "fixed inset-y-0 right-0 z-50 flex h-full w-[420px] flex-col bg-card shadow-xl",
-          "duration-200 data-open:animate-in data-open:slide-in-from-right data-closed:animate-out data-closed:slide-out-to-right",
+          "fixed z-50 flex flex-col bg-card shadow-xl",
+          "duration-200 data-open:animate-in data-closed:animate-out",
+          sheetSides[side],
           className
         )}
         {...props}

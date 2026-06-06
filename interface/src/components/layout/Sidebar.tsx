@@ -3,21 +3,7 @@
 import { useEffect, useState } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
-import {
-  LayoutDashboard,
-  MessagesSquare,
-  Calendar,
-  Receipt,
-  ListChecks,
-  Users,
-  IdCard,
-  ChartLine,
-  Wallet,
-  ClipboardCheck,
-  LogOut,
-  PanelLeft,
-  PanelLeftClose,
-} from "lucide-react"
+import { LogOut, PanelLeft, PanelLeftClose } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { cn } from "@/lib/utils"
 import {
@@ -27,34 +13,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ThemeToggle } from "@/components/layout/ThemeToggle"
-
-const grupos = [
-  {
-    label: "OPERAÇÃO",
-    items: [
-      { href: "/", label: "Painel", icon: LayoutDashboard },
-      { href: "/atendimentos", label: "Atendimentos", icon: MessagesSquare },
-      { href: "/agenda", label: "Agenda", icon: Calendar },
-      { href: "/pix", label: "Pix", icon: Receipt },
-      { href: "/tarefas", label: "Tarefas", icon: ListChecks },
-    ],
-  },
-  {
-    label: "CADASTROS",
-    items: [
-      { href: "/clientes", label: "Clientes", icon: Users },
-      { href: "/modelos", label: "Modelos", icon: IdCard },
-    ],
-  },
-  {
-    label: "ANÁLISE",
-    items: [
-      { href: "/dashboard", label: "Dashboard", icon: ChartLine },
-      { href: "/financeiro", label: "Financeiro", icon: Wallet },
-      { href: "/calibracao", label: "Calibração", icon: ClipboardCheck },
-    ],
-  },
-]
+import { grupos, itemAtivo } from "@/components/layout/navegacao"
 
 export function Sidebar() {
   const pathname = usePathname()
@@ -71,10 +30,7 @@ export function Sidebar() {
     return () => sub.subscription.unsubscribe()
   }, [])
 
-  const isActive = (href: string) => {
-    if (href === "/") return pathname === "/"
-    return pathname.startsWith(href)
-  }
+  const isActive = (href: string) => itemAtivo(href, pathname)
 
   const handleLogout = async () => {
     await supabase.auth.signOut()

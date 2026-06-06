@@ -42,7 +42,7 @@ export function ToolbarPix({
 }) {
   if (loading) {
     return (
-      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_160px_180px_180px] gap-3">
+      <div aria-busy="true" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(260px,1fr)_140px_160px_180px_180px]">
         {Array.from({ length: 5 }).map((_, index) => (
           <div key={index} className="flex flex-col gap-1">
             <Skeleton className="h-3.5 w-16 rounded" />
@@ -54,7 +54,7 @@ export function ToolbarPix({
   }
 
   return (
-    <div className="grid grid-cols-[minmax(260px,1fr)_140px_160px_180px_180px] gap-3">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(260px,1fr)_140px_160px_180px_180px]">
       <BuscaFiltro
         value={busca}
         onChange={onBuscaChange}

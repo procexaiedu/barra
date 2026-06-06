@@ -35,6 +35,9 @@ import {
   type ModoCor,
 } from "@/components/clientes/MapaControles"
 import { MapaRanking, chaveBairro } from "@/components/clientes/MapaRanking"
+import { Sheet, SheetBody, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { useIsMobile } from "@/hooks/useMediaQuery"
+import { ListTree } from "lucide-react"
 import { MapaToolbar } from "@/components/clientes/MapaToolbar"
 import { PainelVisualizacaoMapa } from "@/components/clientes/PainelVisualizacaoMapa"
 import { RAMPA_FAVO_CSS } from "@/lib/cores/favo"
@@ -157,6 +160,9 @@ export function MapaClientes({
     }>
   >([])
   const [mapPronto, setMapPronto] = useState(false)
+  const isMobile = useIsMobile()
+  // Mobile: ranking de bairros vai para um Sheet (o mapa fica em tela cheia).
+  const [rankingAberto, setRankingAberto] = useState(false)
   // Métrica do mapa (MAPA-1, espinha dorsal). Default = R$ fechado, conforme spec.
   const [metrica, setMetrica] = useState<MapaMetrica>("valor")
   // MAPA-3: modo de cor dos pontos. Ortogonal à métrica (que rege o tamanho).
@@ -483,9 +489,19 @@ export function MapaClientes({
         onLenteDemandaChange={onLenteDemandaChange}
         onCompararChange={onCompararChange}
       />
-      <div className="flex h-[calc(100vh-300px)] min-h-[420px] gap-2">
+      <div className="flex h-[60vh] min-h-[360px] gap-2 lg:h-[calc(100vh-300px)] lg:min-h-[420px]">
         <div className="relative flex-1 overflow-hidden rounded-lg border border-border">
           <div ref={containerRef} className="h-full w-full" />
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => setRankingAberto(true)}
+              className="absolute bottom-3 right-3 z-10 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-2 text-xs font-medium text-text-primary shadow-md transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <ListTree size={15} strokeWidth={1.5} />
+              Ranking
+            </button>
+          )}
           {/* Painel de Visualização (Camada/Métrica/Cor) flutua dentro do mapa,
               perto dos pontos que pinta — ortogonal aos filtros (que reduzem o conjunto). */}
           <div className="absolute right-3 top-3">
@@ -555,12 +571,35 @@ export function MapaClientes({
             </div>
           )}
         </div>
-        <MapaRanking
-          pontos={pontos}
-          metrica={metrica}
-          onSelectBairro={handleSelectBairro}
-        />
+        {!isMobile && (
+          <MapaRanking
+            pontos={pontos}
+            metrica={metrica}
+            onSelectBairro={handleSelectBairro}
+          />
+        )}
       </div>
+
+      {isMobile && (
+        <Sheet open={rankingAberto} onOpenChange={setRankingAberto}>
+          <SheetContent side="bottom" className="max-h-[70vh]">
+            <SheetHeader>
+              <SheetTitle>Top bairros</SheetTitle>
+            </SheetHeader>
+            <SheetBody className="p-3">
+              <MapaRanking
+                className="h-auto max-h-[55vh] w-full border-0"
+                pontos={pontos}
+                metrica={metrica}
+                onSelectBairro={(chave) => {
+                  handleSelectBairro(chave)
+                  setRankingAberto(false)
+                }}
+              />
+            </SheetBody>
+          </SheetContent>
+        </Sheet>
+      )}
     </div>
   )
 }

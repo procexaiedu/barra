@@ -15,6 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { PageHeader } from "@/components/layout/PageHeader"
+import { PainelDetalheResponsivo } from "@/components/layout/PainelDetalheResponsivo"
 import { ToolbarModelos } from "@/components/modelos/ToolbarModelos"
 import { ListaModelos } from "@/components/modelos/ListaModelos"
 import { DetalheModelo } from "@/components/modelos/DetalheModelo"
@@ -64,6 +65,7 @@ function ModelosConteudo() {
   const [qrStatus, setQrStatus] = useState<QrModalStatus>("loading")
   const [qrError, setQrError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [detalheAberto, setDetalheAberto] = useState(false)
 
   const detalhe = modelos.detalhe
   const modelo = detalhe?.modelo ?? null
@@ -241,20 +243,32 @@ function ModelosConteudo() {
       {view === "lista" && (
         <div className="flex flex-col gap-4">
           <ToolbarModelos filtros={modelos.filtros} onChange={(filtros) => modelos.setFiltros(filtros)} />
-          <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
-            <ListaModelos
-              items={modelos.items}
-              selectedId={modelos.selectedId}
-              status={modelos.listaStatus}
-              error={modelos.listaError}
-              filtrosAplicados={modelos.filtrosAplicados}
-              nextCursor={modelos.nextCursor}
-              onRetry={modelos.refetch}
-              onAdicionar={() => setCriarOpen(true)}
-              onCarregarMais={modelos.carregarMais}
-              onSelect={(id) => protegerDirty(() => modelos.selecionarModelo(id))}
-            />
-            <DetalheModelo
+          <PainelDetalheResponsivo
+            gridClassName="lg:grid-cols-[340px_1fr]"
+            tituloDetalhe="Modelo"
+            detalheAberto={detalheAberto}
+            onFecharDetalhe={() => protegerDirty(() => setDetalheAberto(false))}
+            lista={
+              <ListaModelos
+                items={modelos.items}
+                selectedId={modelos.selectedId}
+                status={modelos.listaStatus}
+                error={modelos.listaError}
+                filtrosAplicados={modelos.filtrosAplicados}
+                nextCursor={modelos.nextCursor}
+                onRetry={modelos.refetch}
+                onAdicionar={() => setCriarOpen(true)}
+                onCarregarMais={modelos.carregarMais}
+                onSelect={(id) =>
+                  protegerDirty(() => {
+                    modelos.selecionarModelo(id)
+                    setDetalheAberto(true)
+                  })
+                }
+              />
+            }
+            detalhe={
+              <DetalheModelo
               detalhe={modelos.detalhe}
               aba={modelos.aba}
               status={modelos.detalheStatus}
@@ -289,8 +303,9 @@ function ModelosConteudo() {
               onOpenMidia={setMidiaAberta}
               onToggleAprovadaMidia={(midia) => modelos.atualizarMidia(midia.id, { aprovada: !midia.aprovada })}
               onExcluirMidia={(midia) => setConfirmacao({ tipo: "excluir-midia", midia })}
-            />
-          </div>
+              />
+            }
+          />
         </div>
       )}
 

@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils"
 import { KanbanCard } from "@/components/atendimentos/KanbanCard"
 import { corEstado } from "@/components/atendimentos/utils"
 import { emitirContrato } from "@/lib/verify/contract"
+import { useIsMobile } from "@/hooks/useMediaQuery"
 import type { AtendimentoListaItem, EstadoAtendimento, EstadoKanbanDestino } from "@/tipos/atendimentos"
 
 interface Coluna {
@@ -44,6 +45,16 @@ function estadoParaColunaId(estado: EstadoAtendimento): string {
     if (coluna.estados.includes(estado)) return coluna.id
   }
   return "Qualificando"
+}
+
+// Próxima coluna ativa válida (avanço de exatamente uma etapa). Retorna null
+// quando não há avanço ativo (item terminal ou já em Em_execucao — daí o
+// avanço é para um terminal, tratado à parte). Mesma regra do drag desktop.
+function proximaColunaAtiva(estado: EstadoAtendimento): Coluna | null {
+  const origemId = estadoParaColunaId(estado)
+  const origem = COLUNAS_ATIVAS.find((c) => c.id === origemId)
+  if (!origem) return null
+  return COLUNAS_ATIVAS.find((c) => c.indice === origem.indice + 1) ?? null
 }
 
 function ColunaDroppable({
@@ -126,6 +137,100 @@ function DraggableCard({
   )
 }
 
+// Ações de transição por toque no mobile (substitui o drag). Avanço de uma
+// etapa ativa quando existe; em Em_execucao oferece os dois terminais.
+function AcoesMobile({
+  coluna,
+  item,
+  onAvancar,
+  onSolicitarTerminal,
+}: {
+  coluna: Coluna
+  item: AtendimentoListaItem
+  onAvancar: (item: AtendimentoListaItem) => void
+  onSolicitarTerminal: (item: AtendimentoListaItem, destino: "Fechado" | "Perdido") => void
+}) {
+  const proxAtiva = COLUNAS_ATIVAS.find((c) => c.indice === coluna.indice + 1)
+  const botaoBase =
+    "inline-flex h-9 flex-1 items-center justify-center gap-1 rounded-md border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+
+  if (proxAtiva) {
+    return (
+      <button
+        type="button"
+        onClick={() => onAvancar(item)}
+        className={cn(botaoBase, "border-border text-text-secondary hover:bg-accent hover:text-text-primary")}
+      >
+        Avançar para {proxAtiva.titulo} →
+      </button>
+    )
+  }
+
+  // Em_execucao: encerramento (abre o modal de valor/motivo).
+  return (
+    <div className="flex gap-2">
+      <button
+        type="button"
+        onClick={() => onSolicitarTerminal(item, "Fechado")}
+        className={cn(botaoBase, "border-success-500/50 text-success-600 hover:bg-success-500/10")}
+      >
+        Fechar
+      </button>
+      <button
+        type="button"
+        onClick={() => onSolicitarTerminal(item, "Perdido")}
+        className={cn(botaoBase, "border-danger-500/50 text-danger-600 hover:bg-danger-500/10")}
+      >
+        Perder
+      </button>
+    </div>
+  )
+}
+
+function ColunaMobile({
+  coluna,
+  items,
+  onCardClick,
+  onAvancar,
+  onSolicitarTerminal,
+}: {
+  coluna: Coluna
+  items: AtendimentoListaItem[]
+  onCardClick: (id: string) => void
+  onAvancar: (item: AtendimentoListaItem) => void
+  onSolicitarTerminal: (item: AtendimentoListaItem, destino: "Fechado" | "Perdido") => void
+}) {
+  return (
+    <section className="flex flex-col gap-2">
+      <div className="flex items-center justify-between px-1">
+        <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
+          <span className={cn("h-1.5 w-1.5 rounded-full", corEstado(coluna.estados[0]).ponto)} aria-hidden />
+          {coluna.titulo}
+        </h3>
+        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium tabular-nums text-text-muted">{items.length}</span>
+      </div>
+      <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted p-2">
+        {items.length === 0 && (
+          <p className="px-2 py-4 text-center text-[11px] text-text-disabled">Nenhum atendimento</p>
+        )}
+        {items.map((item) => (
+          <div key={item.id} className="flex flex-col gap-1.5">
+            <KanbanCard item={item} onClick={() => onCardClick(item.id)} arrastavel={false} isDragging={false} />
+            {!coluna.terminal && (
+              <AcoesMobile
+                coluna={coluna}
+                item={item}
+                onAvancar={onAvancar}
+                onSolicitarTerminal={onSolicitarTerminal}
+              />
+            )}
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 export function KanbanBoard({
   items,
   itemsEncerrados,
@@ -143,6 +248,7 @@ export function KanbanBoard({
   onMoverEstado: (id: string, estado: EstadoKanbanDestino) => Promise<void>
   onSolicitarTerminal: (item: AtendimentoListaItem, destino: "Fechado" | "Perdido") => void
 }) {
+  const isMobile = useIsMobile()
   const [draggingItem, setDraggingItem] = useState<AtendimentoListaItem | null>(null)
 
   const sensors = useSensors(
@@ -213,6 +319,20 @@ export function KanbanBoard({
     }
   }, [onMoverEstado, onSolicitarTerminal])
 
+  // Avanço por toque (mobile): mesma regra de "uma etapa ativa por vez".
+  const avancar = useCallback(
+    async (item: AtendimentoListaItem) => {
+      const prox = proximaColunaAtiva(item.estado)
+      if (!prox) return
+      try {
+        await onMoverEstado(item.id, prox.estadoDestino)
+      } catch {
+        toast.error("Erro ao mover atendimento")
+      }
+    },
+    [onMoverEstado]
+  )
+
   const colunas = mostrarEncerrados ? [...COLUNAS_ATIVAS, ...COLUNAS_TERMINAIS] : COLUNAS_ATIVAS
 
   // Contrato de verificação: contagem por coluna (todas as 5, independente das visíveis)
@@ -222,6 +342,36 @@ export function KanbanBoard({
     porColuna: Object.fromEntries(
       [...COLUNAS_ATIVAS, ...COLUNAS_TERMINAIS].map((c) => [c.id, (itensPorColuna.get(c.id) ?? []).length])
     ),
+  }
+
+  // Mobile: lista vertical por estado, transição por botões (sem DnD). O
+  // contrato de verificação é emitido no mesmo container raiz das duas variantes.
+  if (isMobile) {
+    return (
+      <div {...emitirContrato("kanban", contratoEstado)} className="flex h-full flex-col gap-3">
+        <div className="flex-none flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={onToggleEncerrados}
+            className="text-[11px] font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none"
+          >
+            {mostrarEncerrados ? "Ocultar encerrados" : "Mostrar encerrados"}
+          </button>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pb-2">
+          {colunas.map((coluna) => (
+            <ColunaMobile
+              key={coluna.id}
+              coluna={coluna}
+              items={itensPorColuna.get(coluna.id) ?? []}
+              onCardClick={onCardClick}
+              onAvancar={avancar}
+              onSolicitarTerminal={onSolicitarTerminal}
+            />
+          ))}
+        </div>
+      </div>
+    )
   }
 
   return (

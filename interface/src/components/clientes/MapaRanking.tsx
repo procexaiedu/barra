@@ -56,10 +56,12 @@ export function MapaRanking({
   pontos,
   metrica,
   onSelectBairro,
+  className,
 }: {
   pontos: MapaClientePonto[]
   metrica: MapaMetrica
   onSelectBairro: (chave: string) => void
+  className?: string
 }) {
   const itens = agregar(pontos, metrica)
   const rotulo =
@@ -72,7 +74,10 @@ export function MapaRanking({
   return (
     <aside
       aria-label="Bairros que mais aparecem no mapa"
-      className="flex h-full w-[240px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card"
+      className={cn(
+        "flex h-full w-[240px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card",
+        className
+      )}
     >
       <div className="border-b border-border px-3 py-2">
         <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-secondary">

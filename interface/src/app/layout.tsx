@@ -1,4 +1,4 @@
-import type { Metadata } from "next"
+import type { Metadata, Viewport } from "next"
 import { Inter, JetBrains_Mono, Cormorant_Garamond } from "next/font/google"
 import { Toaster } from "sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
@@ -27,6 +27,14 @@ const cormorant = Cormorant_Garamond({
 export const metadata: Metadata = {
   title: "Elite Baby Painel",
   description: "Central inteligente de atendimento Elite Baby.",
+}
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  // Necessário para que env(safe-area-inset-*) tenha valor em iPhone (notch /
+  // gesture bar) — usado pela BottomNav fixa.
+  viewportFit: "cover",
 }
 
 export default function RootLayout({
