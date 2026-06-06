@@ -59,7 +59,7 @@ services:
       # Mapeia email do operador logado -> rotulador na tela /calibracao (Loop B / EVAL-10).
       # Emails (nao-secreto); sem eles a tela responde 403 "nao configurado como rotulador".
       - CALIBRACAO_EMAIL_FERNANDO=fernando@procexai.tech
-      - CALIBRACAO_EMAIL_SOCIA=contato@procexai.tech
+      - CALIBRACAO_EMAIL_SOCIA=elitebaby@procexai.tech
     command: >
       sh -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates &&
       rm -rf /app/repo &&
