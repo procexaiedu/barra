@@ -41,10 +41,6 @@ async def consultar_agenda(
     modelo_id = runtime.context.modelo_id
     try:
         di = date.fromisoformat(data_inicio)
-    except ValueError:
-        AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "data_invalida").inc()
-        return "ERRO: data inválida, use YYYY-MM-DD."
-    try:
         df = date.fromisoformat(data_fim)
     except ValueError:
         AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "data_invalida").inc()
