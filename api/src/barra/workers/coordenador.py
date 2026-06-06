@@ -29,6 +29,7 @@ from psycopg_pool import AsyncConnectionPool
 from barra.agente._canned import escolher_canned_transcricao_falhou
 from barra.agente.contexto import ContextAgente
 from barra.agente.nos.output_guard import tem_marcador_ia
+from barra.agente.persona import _brl
 from barra.core.metrics import (
     AGENTE_ESCALADA,
     AGENTE_EVAL_PASS_RATE,
@@ -66,7 +67,7 @@ def _formatar_bolha_pix(chave: str, titular: str | None, valor: Any) -> str:
     linhas = [f"chave pix: {chave}"]
     if titular:
         linhas.append(f"em nome de {titular}")
-    linhas.append(f"valor: R${valor}")
+    linhas.append(f"valor: {_brl(valor)}")
     return "\n".join(linhas)
 
 
@@ -347,21 +348,24 @@ async def processar_turno(
 
                         # Pix de deslocamento (bug F): a tool `pedir_pix_deslocamento` NÃO devolve
                         # a chave (string crítico fora do LLM, agente/ferramentas/pix.py) e promete
-                        # que o sistema a anexa. É aqui: se o turno pediu Pix, lemos chave/titular
-                        # fresh do cadastro + o valor que a tool registrou, p/ anexar a bolha do
-                        # Pix após o texto da IA. Sem isto o cliente pede o Pix e não recebe a chave.
-                        res = await conn.execute(
-                            """
-                            SELECT mo.chave_pix, mo.titular_chave, tc.payload->>'valor' AS valor
-                              FROM barravips.tool_calls tc
-                              JOIN barravips.modelos mo ON mo.id = %s
-                             WHERE tc.turno_id = %s
-                               AND tc.tool_name = 'pedir_pix_deslocamento'
-                             LIMIT 1
-                            """,
-                            (atendimento["modelo_id"], turno_id),
-                        )
-                        pix_row = await res.fetchone()
+                        # que o sistema a anexa. Só consultamos quando o turno é `critico` —
+                        # pedir_pix SEMPRE torna o turno crítico, então o turno comum (sem write
+                        # tool) pula a query. Lemos chave/titular fresh do cadastro + o valor que a
+                        # tool registrou, p/ anexar a bolha do Pix após o texto da IA.
+                        pix_row: dict[str, Any] | None = None
+                        if critico:
+                            res = await conn.execute(
+                                """
+                                SELECT mo.chave_pix, mo.titular_chave, tc.payload->>'valor' AS valor
+                                  FROM barravips.tool_calls tc
+                                  JOIN barravips.modelos mo ON mo.id = %s
+                                 WHERE tc.turno_id = %s
+                                   AND tc.tool_name = 'pedir_pix_deslocamento'
+                                 LIMIT 1
+                                """,
+                                (atendimento["modelo_id"], turno_id),
+                            )
+                            pix_row = await res.fetchone()
 
                     msg_ids_cliente: list[str] = [r["evolution_message_id"] for r in inbound]
                     chars_inbound = sum(len(r["conteudo"] or "") for r in inbound)
@@ -379,12 +383,11 @@ async def processar_turno(
                     ]
                     # Anexa a bolha do Pix (bug F) como ÚLTIMA bolha do turno, sem quote. Quando o
                     # turno pediu Pix ele já é `critico` (não-cancelável), então a chave sempre sai.
-                    chave_pix = pix_row.get("chave_pix") if pix_row else None
-                    if chave_pix:
+                    if pix_row and pix_row.get("chave_pix"):
                         chunks = [
                             *chunks,
                             _formatar_bolha_pix(
-                                chave_pix,
+                                pix_row["chave_pix"],
                                 pix_row.get("titular_chave"),
                                 pix_row.get("valor") or settings.pix_deslocamento_valor,
                             ),
