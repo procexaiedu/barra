@@ -402,6 +402,12 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     )
     cliente = await res.fetchone() or {}
 
+    # Exclui o bloqueio do ATENDIMENTO ATUAL: sem checkpointer a IA não lembra que reservou esse
+    # slot pra ESTE cliente (prompt reconstruído do zero todo turno) — se o visse na lista de
+    # "ocupados" recusaria o próprio horário e re-negociaria com o cliente. O guard de overlap em
+    # criar_bloqueio_previo segue barrando double-booking real na criação. `IS DISTINCT FROM`
+    # preserva os bloqueios avulsos (atendimento_id NULL); o gate `%s IS NULL` mantém todos os
+    # bloqueios quando não há atendimento no contexto (fluxo do gate).
     res = await conn.execute(
         """
         SELECT inicio, fim
@@ -410,9 +416,10 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
            AND estado IN ('bloqueado', 'em_atendimento')
            AND inicio >= now()
            AND inicio < now() + interval '48 hours'
+           AND (%s::uuid IS NULL OR atendimento_id IS DISTINCT FROM %s::uuid)
          ORDER BY inicio
         """,
-        (ctx.modelo_id,),
+        (ctx.modelo_id, ctx.atendimento_id, ctx.atendimento_id),
     )
     bloqueios = await res.fetchall()
 
@@ -420,14 +427,21 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
 
     historico = await _resumir_historico(conn, ctx.cliente_id, ctx.modelo_id)
 
-    # data atual do banco (mesma conexão/relógio das janelas com now() acima): a IA escreve
-    # datas absolutas em consultar_agenda e precisa da âncora de "hoje" (04 §2.1).
-    res = await conn.execute("SELECT current_date AS hoje")
-    hoje_row = await res.fetchone()
-    data_atual = hoje_row["hoje"] if hoje_row else None
+    # data E hora atuais em horário de Brasília (America/Sao_Paulo): a IA escreve datas
+    # absolutas em consultar_agenda e precisa tanto da âncora de "hoje" (04 §2.1) quanto da
+    # hora atual para resolver tempo relativo do cliente ("daqui 1h", "agora"). `current_date`
+    # sozinho vinha em UTC — off-by-one de dia à noite (BRT = UTC-3) — e sem a hora a IA
+    # chutava o horário do bloqueio. now() (UTC) nas janelas acima não muda; só a âncora que a
+    # IA lê passa a ser local.
+    res = await conn.execute("SELECT (current_timestamp AT TIME ZONE 'America/Sao_Paulo') AS agora")
+    agora_row = await res.fetchone()
+    agora = agora_row["agora"] if agora_row else None
+    data_atual = agora.date() if agora is not None else None
+    hora_atual = agora.strftime("%H:%M") if agora is not None else None
 
     return {
         "data_atual": data_atual,
+        "hora_atual": hora_atual,
         "numero_curto": atendimento.get("numero_curto"),
         "estado": atendimento.get("estado"),
         "tipo_atendimento": atendimento.get("tipo_atendimento"),

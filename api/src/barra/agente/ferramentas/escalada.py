@@ -7,6 +7,7 @@ emitida AQUI (camada do agente), nao dentro de `abrir_handoff` — que e compart
 painel/comandos/pix e nao conhece o enum de motivos da tool.
 """
 
+import logging
 from typing import Any, Literal
 from uuid import UUID
 
@@ -20,6 +21,8 @@ from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket, mapear
 
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
+
+_logger = logging.getLogger(__name__)
 
 # Enum de roteamento compartilhado entre o parametro `motivo` da tool (forma achatada enviada ao
 # LLM) e `EscaladaPayload.motivo` (validacao interna) — fonte unica, sem divergencia (04 §3.4).
@@ -112,14 +115,24 @@ async def escalar(
 
     # Card no grupo de Coordenacao: JOB ARQ (05 §6), despachado direto pelo Evolution (bypass
     # humanizacao). APOS o commit — re-disparo em replay e inofensivo (dedupe nativo por _job_id).
+    # Falha de enqueue NAO pode quebrar a escalada (ja commitada): logamos e o cron
+    # `reconciliar_cards` (workers/reconciliacao.py) entrega o card como rede de seguranca —
+    # handoff silencioso e o pior caso.
     arq = runtime.context.redis  # ArqRedis: enqueue_job
-    await arq.enqueue_job(
-        "enviar_card",
-        tipo="escalada",
-        escalada_id=str(resultado["escalada_id"]),
-        atendimento_id=atendimento_id,
-        _job_id=f"card:escalada:{resultado['escalada_id']}",
-    )
+    try:
+        await arq.enqueue_job(
+            "enviar_card",
+            tipo="escalada",
+            escalada_id=str(resultado["escalada_id"]),
+            atendimento_id=atendimento_id,
+            _job_id=f"card:escalada:{resultado['escalada_id']}",
+        )
+    except Exception:
+        _logger.warning(
+            "escalar_enqueue_card_falhou escalada_id=%s",
+            resultado["escalada_id"],
+            exc_info=True,
+        )
 
     return (
         f"Escalada aberta para {resultado['responsavel']}. Próxima fala virá quando "
