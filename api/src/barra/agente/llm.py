@@ -91,9 +91,7 @@ def build_system_messages(
     return mensagens
 
 
-def marcar_cache_na_penultima(
-    mensagens: list[BaseMessage], *, ttl: str
-) -> list[BaseMessage]:
+def marcar_cache_na_penultima(mensagens: list[BaseMessage], *, ttl: str) -> list[BaseMessage]:
     """Aplica `cache_control` na PENÚLTIMA mensagem da janela (BP_JANELA, doc oficial Anthropic
     `prompt-caching` §"Multi-turn conversations").
 
@@ -121,16 +119,7 @@ def marcar_cache_na_penultima(
     # cache_control nem perder estrutura existente).
     if not isinstance(penult.content, str):
         return mensagens
-    novo = type(penult)(
-        content=[
-            {
-                "type": "text",
-                "text": penult.content,
-                "cache_control": _cache_control(ttl),
-            }
-        ],
-        id=penult.id,
-    )
+    novo = type(penult)(content=[_bloco_texto(penult.content, ttl)], id=penult.id)
     return [*mensagens[:-2], novo, mensagens[-1]]
 
 
