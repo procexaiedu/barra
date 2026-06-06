@@ -241,7 +241,7 @@ function ModelosConteudo() {
       {view === "lista" && (
         <div className="flex flex-col gap-4">
           <ToolbarModelos filtros={modelos.filtros} onChange={(filtros) => modelos.setFiltros(filtros)} />
-          <div className="grid gap-4 xl:grid-cols-[340px_1fr]">
+          <div className="grid gap-4 xl:grid-cols-[300px_1fr] 2xl:grid-cols-[340px_1fr]">
             <ListaModelos
               items={modelos.items}
               selectedId={modelos.selectedId}

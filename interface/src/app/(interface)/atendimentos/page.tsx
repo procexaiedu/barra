@@ -285,7 +285,7 @@ function CentralAtendimentosInner() {
       </div>
 
       {view === "lista" ? (
-        <div className="flex-1 min-h-0 grid grid-cols-[320px_minmax(0,1fr)] gap-4">
+        <div className="flex-1 min-h-0 grid grid-cols-[260px_minmax(0,1fr)] gap-4 2xl:grid-cols-[320px_minmax(0,1fr)]">
           <div className="min-h-0 overflow-y-auto">
             <ListaAtendimentos
               items={atendimentos.items}

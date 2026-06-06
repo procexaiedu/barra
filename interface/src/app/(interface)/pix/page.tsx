@@ -45,7 +45,7 @@ function PixConteudo() {
         />
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-[360px_minmax(0,1fr)] gap-4">
+      <div className="grid min-h-0 flex-1 grid-cols-[300px_minmax(0,1fr)] gap-4 2xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="min-h-0 overflow-y-auto">
           <ListaPix
             items={pix.items}

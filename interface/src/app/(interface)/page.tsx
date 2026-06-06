@@ -456,7 +456,7 @@ export default function PainelGeral() {
             {formatDiaSemana(new Date())} · {formatData(new Date().toISOString())}
           </p>
         </div>
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-3 gap-4 2xl:grid-cols-5">
           <TileMetrica
             label="ATENDIMENTOS ABERTOS"
             valor={String(data.metricas_dia.abertos)}
@@ -634,7 +634,7 @@ function PainelSkeleton() {
 
       <div className="flex flex-col gap-3">
         <Skeleton className="h-6 w-24 rounded-md" />
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-3 gap-4 2xl:grid-cols-5">
           {[0, 1, 2, 3, 4].map((i) => (
             <Skeleton key={i} className="h-[120px] rounded-lg" />
           ))}

@@ -75,7 +75,7 @@ function ColunaDroppable({
       : "border-border bg-muted"
 
   return (
-    <div className="flex min-w-[220px] flex-1 flex-col gap-2">
+    <div className="flex min-w-[200px] flex-1 flex-col gap-2 2xl:min-w-[220px]">
       <div className="flex items-center justify-between px-1">
         <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-text-muted">
           <span className={cn("h-1.5 w-1.5 rounded-full", corEstado(coluna.estados[0]).ponto)} aria-hidden />

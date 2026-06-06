@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import Link from "next/link"
 import { usePathname } from "next/navigation"
 import {
@@ -27,6 +27,21 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip"
 import { ThemeToggle } from "@/components/layout/ThemeToggle"
+
+/** Recolhe a sidebar por padrão em notebooks (abaixo de xl/1280px). Lê o
+ *  media query via useSyncExternalStore — evita setState em effect (regra de
+ *  lint do projeto) e dá snapshot SSR estável (`false` = expandida). */
+function useBelowXl() {
+  return useSyncExternalStore(
+    (cb) => {
+      const mql = window.matchMedia("(max-width: 1279px)")
+      mql.addEventListener("change", cb)
+      return () => mql.removeEventListener("change", cb)
+    },
+    () => window.matchMedia("(max-width: 1279px)").matches,
+    () => false
+  )
+}
 
 const grupos = [
   {
@@ -59,7 +74,9 @@ const grupos = [
 export function Sidebar() {
   const pathname = usePathname()
   const [email, setEmail] = useState<string | null>(null)
-  const [collapsed, setCollapsed] = useState(false)
+  const belowXl = useBelowXl()
+  const [override, setOverride] = useState<boolean | null>(null)
+  const collapsed = override ?? belowXl
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -101,7 +118,7 @@ export function Sidebar() {
             </span>
           )}
           <button
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => setOverride(!collapsed)}
             aria-label={collapsed ? "Expandir menu" : "Recolher menu"}
             className="flex size-8 items-center justify-center rounded-md text-text-secondary transition-colors hover:bg-accent hover:text-text-primary focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >

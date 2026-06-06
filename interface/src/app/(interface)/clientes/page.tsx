@@ -249,7 +249,7 @@ function ClientesInner() {
               </button>
             </div>
           )}
-          <div className="grid h-[calc(100vh-240px)] grid-cols-[360px_minmax(0,1fr)] gap-5 overflow-hidden">
+          <div className="grid h-[calc(100vh-240px)] grid-cols-[300px_minmax(0,1fr)] gap-4 overflow-hidden 2xl:grid-cols-[360px_minmax(0,1fr)] 2xl:gap-5">
             <ListaClientes
               items={itemsLista}
               selectedId={crm.selectedId}

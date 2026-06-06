@@ -178,7 +178,7 @@ function PainelChrome({
             {formatDiaSemana(new Date())} · {formatData(new Date().toISOString())}
           </p>
         </div>
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-3 gap-4 2xl:grid-cols-5">
           <TileMetrica
             label="ATENDIMENTOS ABERTOS"
             valor={String(metricas.abertos)}

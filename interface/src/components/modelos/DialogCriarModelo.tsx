@@ -117,14 +117,14 @@ export function DialogCriarModelo({
             <div className="space-y-6">
               <section className="space-y-4">
                 <h3 className="text-xs font-semibold uppercase tracking-[0.12em] text-text-brand">Dados básicos</h3>
-                <div className="grid grid-cols-3 gap-5">
-                  <Campo label="Nome" className="col-span-2">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3 sm:gap-5">
+                  <Campo label="Nome" className="sm:col-span-2">
                     <Input value={form.nome} maxLength={100} onChange={(e) => setForm({ ...form, nome: e.target.value })} className="h-10 bg-input border-border-strong" />
                   </Campo>
                   <Campo label="Idade">
                     <Input type="number" value={form.idade || ""} onChange={(e) => setForm({ ...form, idade: Number(e.target.value) })} className="h-10 bg-input border-border-strong" />
                   </Campo>
-                  <Campo label="Número de WhatsApp" className="col-span-2">
+                  <Campo label="Número de WhatsApp" className="sm:col-span-2">
                     <Input
                       value={formatarTelefoneBR(numeroDigitos)}
                       placeholder="(21) 98765-4321"
