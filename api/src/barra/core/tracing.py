@@ -184,6 +184,25 @@ def metadata_trace_turno(modelo_id: str, atendimento_id: str) -> dict[str, Any]:
     }
 
 
+def registrar_feedback_online(run_id: str | None, key: str, score: float) -> None:
+    """Anexa um feedback determinístico (não-PII) ao run do LangSmith (EVAL-11 online → trace).
+
+    Só `key` (nome da rubrica) + `score` 0/1 — NUNCA conteúdo de mensagem. O conteúdo de prod já
+    vai ao LangSmith mascarado (`setup_tracing` força o anonymizer); este feedback é o jeito de ter
+    o veredito de um invariante determinístico VISÍVEL no trace mesmo com o texto `[PII]` (que
+    cegaria um evaluator que lesse o conteúdo do trace). Best-effort: no-op sem client global
+    (tracing desligado) ou sem `run_id`. Síncrono (POST no Client) — o caller roda fora do event
+    loop (`asyncio.to_thread`) e nunca deixa a telemetria derrubar o turno.
+    """
+    client = run_trees._CLIENT
+    if client is None or run_id is None:
+        return
+    try:
+        client.create_feedback(run_id, key=key, score=score)
+    except Exception:  # best-effort: telemetria nunca quebra o turno
+        logger.debug("feedback_online_falhou key=%s", key, exc_info=True)
+
+
 def _tag_turno_id(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any]:
     """before_send do Sentry: promove o `turno_id` a tag do evento (OBS-04).
 

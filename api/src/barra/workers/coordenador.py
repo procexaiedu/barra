@@ -22,6 +22,7 @@ from uuid import UUID, uuid5
 import structlog
 from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.tracers.context import collect_runs
 from langgraph.errors import GraphRecursionError
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
@@ -38,6 +39,7 @@ from barra.core.metrics import (
     LOCK_OCUPADO,
 )
 from barra.core.redis import LockBusy, adquirir_lock
+from barra.core.tracing import metadata_trace_turno, registrar_feedback_online
 from barra.settings import get_settings
 from barra.workers._chunking import chunk_texto
 
@@ -182,9 +184,13 @@ async def processar_turno(
                 # 4. config (thread_id + recursion_limit, nativos do LangGraph) + context (deps e
                 #    ids de escopo via Runtime Context API — 04 §1.1). prepare_context monta o
                 #    prompt do zero dentro do grafo (03 §7), entrada vai vazia.
+                #    metadata/tags de trace (modelo_id/atendimento_id, este como gen_ai.conversation.id)
+                #    escopam o trace do LangSmith — sem isso o trace de prod so tinha thread_id e nao
+                #    dava p/ agrupar por atendimento (os IDs vao so no config, nao tocam o cache).
                 config: dict[str, Any] = {
                     "configurable": {"thread_id": conversa_id},
                     "recursion_limit": RECURSION_LIMIT,
+                    **metadata_trace_turno(str(atendimento["modelo_id"]), str(atendimento["id"])),
                 }
                 context = ContextAgente(
                     db_pool=pool,
@@ -198,11 +204,22 @@ async def processar_turno(
 
                 # 5. invoca grafo (teto de tempo por iteracao; o job_timeout do ARQ e generoso)
                 inicio = perf_counter()
+                # collect_runs captura o id do run-raiz do grafo p/ anexar o feedback online (EVAL-11)
+                # ao MESMO trace do LangSmith. O id e compartilhado entre os callbacks, entao bate com
+                # o run que o tracer global envia ao LangSmith. None se nada foi coletado.
+                run_id_trace: str | None = None
                 try:
-                    resultado = await asyncio.wait_for(
-                        graph.ainvoke(entrada, config=config, context=context),
-                        timeout=60.0,
-                    )
+                    with collect_runs() as runs_cb:
+                        resultado = await asyncio.wait_for(
+                            graph.ainvoke(
+                                entrada,
+                                config={**config, "callbacks": [runs_cb]},
+                                context=context,
+                            ),
+                            timeout=60.0,
+                        )
+                    if runs_cb.traced_runs:
+                        run_id_trace = str(runs_cb.traced_runs[0].id)
                 except TimeoutError:
                     logger.error("graph_timeout turno_id=%s", turno_id)
                     await escalar_por_exaustao(
@@ -413,7 +430,16 @@ async def processar_turno(
                             quote_texto=alvo_quote_texto,
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
-                        _amostrar_eval_online(chunks)  # EVAL-11: rubrica online amostrada
+                        # EVAL-11: rubrica online amostrada -> Prometheus (tendencia) + feedback no
+                        # trace do LangSmith (veredito por-turno, visivel mesmo com conteudo [PII]).
+                        score_online = _amostrar_eval_online(chunks)
+                        if score_online is not None and run_id_trace is not None:
+                            await asyncio.to_thread(
+                                registrar_feedback_online,
+                                run_id_trace,
+                                "online_non_disclosure",
+                                score_online,
+                            )
 
                 # 8. drena: chegou msg com o lock retido? re-roda sob o MESMO lock; senao sai.
                 if not await redis.get(f"pending:conv:{conversa_id}"):
@@ -488,19 +514,23 @@ async def aguardar_transcricoes(redis: Any, conversa_id: str, *, orcamento_s: in
     return leu_algum and todos_ok
 
 
-def _amostrar_eval_online(chunks: list[str]) -> None:
+def _amostrar_eval_online(chunks: list[str]) -> float | None:
     """EVAL-11: amostra ~`eval_online_sample_rate` dos turnos 'ok' e observa a rubrica online de
     non_disclosure em `agente_eval_pass_rate{suite=online_non_disclosure}`.
 
     Rubrica DETERMINISTICA (`tem_marcador_ia`, mesma do output_guard) -> sem custo de LLM por
     turno amostrado. So observa um sinal de TENDENCIA (scraped por Prometheus em regime); o gate
     de verdade segue offline (runner). 0 ou falha de amostragem -> no-op silencioso.
+
+    Devolve o score (0.0/1.0) quando o turno foi amostrado, p/ o caller anexar o mesmo veredito como
+    feedback no trace do LangSmith; None quando nao amostrou (rate=0 ou sorteio acima da taxa).
     """
     rate = get_settings().eval_online_sample_rate
     if rate <= 0 or random.random() >= rate:  # noqa: S311 -- amostragem de telemetria, nao cripto
-        return
+        return None
     passou = 0.0 if tem_marcador_ia(" ".join(chunks)) else 1.0
     AGENTE_EVAL_PASS_RATE.labels("online_non_disclosure").observe(passou)
+    return passou
 
 
 def _extrair_texto(msg: AIMessage) -> str:

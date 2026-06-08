@@ -634,6 +634,7 @@ async def executar_fixture(
         await _inserir_mensagem(conn, conversa_id, plano.msg, plano.indice)
         if not plano.dispara:
             continue  # resposta roteirizada da IA: historico da janela, nao dispara turno
+        nodes_antes = set(handler.nos)  # handler acumula entre turnos -> delta = nos DESTE turno
         estado = await grafo.ainvoke(
             {"messages": []},
             config={"recursion_limit": 18, "callbacks": [handler]},
@@ -650,11 +651,16 @@ async def executar_fixture(
             ),
         )
         captura = await _capturar(conn, atendimento_id, estado)
-        state_check_turno = plano.msg.get("state_check")
+        nodes_turno = set(handler.nos) - nodes_antes  # nos visitados SO neste turno (08c §4)
+        exp_turno = plano.msg.get("expectativas") or {}
+        prefixo = f"turno[{plano.indice}] "
+        # state_check per-turno: legado no topo do item + (novo) dentro do `expectativas` do turno.
+        state_check_turno = plano.msg.get("state_check") or exp_turno.get("state_check")
         if state_check_turno:
-            falhas_turno += _comparar_state(
-                state_check_turno, captura, prefixo=f"turno[{plano.indice}] "
-            )
+            falhas_turno += _comparar_state(state_check_turno, captura, prefixo=prefixo)
+        falhas_turno += _avaliar_turno(
+            exp_turno, captura.tools_chamadas, nodes_turno, prefixo=prefixo
+        )
 
     if captura is None:
         raise ValueError(
@@ -693,6 +699,37 @@ def _comparar_state(state_check: dict[str, Any], captura: Captura, prefixo: str 
         for chave, esperado in state_check.items()
         if chave in atual and atual[chave] != esperado
     ]
+
+
+def _avaliar_turno(
+    exp_turno: dict[str, Any], tools_turno: set[str], nodes_turno: set[str], prefixo: str = ""
+) -> list[str]:
+    """Graders de TRAJETORIA por turno (PURO): tool_calls_*/nodes_* de UM turno (08c §4).
+
+    Espelha os graders de tool/no de `avaliar()`, mas escopados ao turno -- a ORDEM dos turnos em
+    `mensagens_entrada` ja codifica a "ordem certa" do caminho (avaliar a trajetoria, nao so a saida
+    final), sem precisar de um DSL de sequencia. `tools_turno` ja sao as tools DESTE turno (cada
+    `ainvoke` e independente, sem checkpointer); `nodes_turno` e o DELTA do NodesVisitedHandler no
+    turno. A escalada do LLM aparece como tool `escalar` nas mensagens; a escalada DETERMINISTICA
+    (intercept_disclosure) aparece como NO -- afirme-a por `nodes_obrigatorios`, nao por tool."""
+    falhas: list[str] = []
+    obrigatorias = set(exp_turno.get("tool_calls_obrigatorias", []))
+    faltando = obrigatorias - tools_turno
+    if faltando:
+        falhas.append(f"{prefixo}tool_calls_obrigatorias nao chamadas: {sorted(faltando)}")
+    proibidas = set(exp_turno.get("tool_calls_proibidas", []))
+    chamou_proibida = proibidas & tools_turno
+    if chamou_proibida:
+        falhas.append(f"{prefixo}tool_calls_proibidas chamadas: {sorted(chamou_proibida)}")
+    proibidos = set(exp_turno.get("nodes_proibidos", []))
+    visitou_proibido = proibidos & nodes_turno
+    if visitou_proibido:
+        falhas.append(f"{prefixo}nodes_proibidos visitados: {sorted(visitou_proibido)}")
+    nodes_obrig = set(exp_turno.get("nodes_obrigatorios", []))
+    nodes_faltando = nodes_obrig - nodes_turno
+    if nodes_faltando:
+        falhas.append(f"{prefixo}nodes_obrigatorios nao visitados: {sorted(nodes_faltando)}")
+    return falhas
 
 
 def _tools_efetivas(captura: Captura) -> set[str]:

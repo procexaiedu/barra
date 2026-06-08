@@ -83,9 +83,11 @@ class Settings(BaseSettings):
 
     # Rotulagem de calibracao no painel (Loop B / EVAL-10): sem RBAC, ambos operadores sao
     # papel='fernando' -> a unica forma de distinguir quem rotula e o email. Mapeia cada email
-    # ao rotulador; email nao listado nao abre a tela (403). Setar os dois em prod.
+    # ao rotulador; email nao listado nao abre a tela (403). Setar os tres em prod.
+    # 'procex' e um 3o revisor independente (bucket proprio); o golden segue fernando x socia.
     calibracao_email_fernando: str | None = None
     calibracao_email_socia: str | None = None
+    calibracao_email_procex: str | None = None
 
     # STT do agente (06 §1.3): Whisper direto da OpenAI. Sai do OpenRouter porque o hop
     # extra nao compensa num STT critico de baixa latencia sob o orcamento de 8s (sabatina

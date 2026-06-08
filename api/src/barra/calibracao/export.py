@@ -20,6 +20,25 @@ class RotuloFala:
     observacao: str | None = None
 
 
+def separar_rotulos(
+    rows: list[dict[str, Any]],
+) -> tuple[dict[str, RotuloFala], dict[str, RotuloFala]]:
+    """Particiona os rotulos da rodada nas duas colunas do golden (PURO; testavel offline).
+
+    `rows`: dicts com `fala_id, rotulador, passou, observacao`. So 'fernando' e 'socia'
+    compoem o golden; rotuladores fora dele (ex.: 'procex', 3o revisor independente) sao
+    IGNORADOS — nunca caem na coluna do outro.
+    """
+    rot_f: dict[str, RotuloFala] = {}
+    rot_s: dict[str, RotuloFala] = {}
+    for r in rows:
+        if r["rotulador"] == "fernando":
+            rot_f[r["fala_id"]] = RotuloFala(passou=r["passou"], observacao=r["observacao"])
+        elif r["rotulador"] == "socia":
+            rot_s[r["fala_id"]] = RotuloFala(passou=r["passou"], observacao=r["observacao"])
+    return rot_f, rot_s
+
+
 def montar_golden(
     falas: list[dict[str, Any]],
     rotulos_fernando: dict[str, RotuloFala],
