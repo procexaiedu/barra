@@ -16,7 +16,7 @@ Estado de partida (relatório):
 | Eixo | Status hoje | C/P/G | Falta para Coberto |
 |---|---|---|---|
 | 1 · Persona & voz | Parcial | 6/4/0 | gate determinístico de voz sobre a fala gerada ✅ (F3.3); falta a ★API ao vivo + revisão humana |
-| 2 · FAQ & conhecimento | **Frágil** | 1/3/6 | conduta real (negativas, fetiche, over-refusal) |
+| 2 · FAQ & conhecimento | **Frágil** | 1/3/6 | gate determinístico de render (F0.5) + conduta da fala (parcelado/só-pix/over-refusal) ✅ (F3.4); falta a ★API ao vivo + revisão humana |
 | 3 · Tool calling | Parcial | 11/2/5 | **decisão** (tool certa/proibida), não-inventar-write |
 | 4a · Trajetória atômica | Coberto | 13/1/4 | 4 gaps atômicos + timeout 45min no banco real |
 | 4b · Conversa completa (E2E) ★ | **Gap (gate)** | 23 jornadas · 0 gate | E2E como gate determinístico + revisão humana, fechar a venda |
@@ -390,7 +390,7 @@ Voz/persona/conduta subjetivas ficam sob revisão humana, não rubrica automáti
 | **F3.1** ✅ (repo) | Habilitar secrets do `evals.yml` + branch protection "evals" **obrigatória** | todos ★ | job não pula em silêncio; evals barram merge | `.github/workflows/evals.yml` |
 | **F3.2** | Runner K=5 sobre as 75 fixtures (grafo real + Sonnet) roda **como gate** | 4b, FAQ, Tools | ao menos 1 corrida verde registrada como cutover; regressão reprova | `evals/runner.py` |
 | **F3.3** ✅ (gate determinístico) | Persona: checagens determinísticas de **voz sobre falas geradas** (anti tom corporativo, asterisco-ação, gíria masculina, formato R$, max_chars de abertura) | Persona | gate observa fala real gerada, não só montagem | graders de persona |
-| **F3.4** | FAQ conduta como gate: 8 perguntas canônicas (conteúdo obrigatório **determinístico**; conduta subjetiva = revisão humana contra golden), recusa videocall, cartão sem parcelar + taxa 10%, cota fetiche do cardápio, recusa-aberta fora-da-lista, **controle de over-refusal** | FAQ | regressão "só pix amor" / "oferece parcelado" / over-refusal reprova (no determinístico) | fixtures FAQ + runner |
+| **F3.4** ✅ (gate determinístico) | FAQ conduta como gate: 8 perguntas canônicas (conteúdo obrigatório **determinístico**; conduta subjetiva = revisão humana contra golden), recusa videocall, cartão sem parcelar + taxa 10%, cota fetiche do cardápio, recusa-aberta fora-da-lista, **controle de over-refusal** | FAQ | regressão "só pix amor" / "oferece parcelado" / over-refusal reprova (no determinístico) | fixtures FAQ + runner |
 | **F3.5** ✅ (gate determinístico) | Tools decisão: ~30 cenários tools obrigatórias/proibidas como gate; extração em **modo estrito** (não fabrica args fora do schema) | Tools | "chamou a errada / não chamou a obrigatória / inventou write" reprova | fixtures tools, schema extração |
 | **F3.6** | Invariantes adversariais held-out registrado contra a IA real: piso de desconto + oferta única sob gaslighting, jailbreak, injeção, AUP, prova de humanidade | Inv. (piso) | corrida held-out verde dos ~50 adversariais; piso vira gate | fixtures gaslighting/desconto |
 | **F3.7** ✅ (gate determinístico) | `max_custo_brl` por fixture vira gate **vinculante** | Guardrails | fixture acima do teto de custo reprova | runner, `max_custo_brl` |
@@ -504,6 +504,39 @@ Inv. piso → **Coberto**.
 > test`: 851 passed; mypy + ruff limpos. **★API segue pendente:** ver o custo real estourar numa
 > corrida ao vivo é a outra metade — bloqueada por crédito (`anthropic_creditos_esgotados_prod`); a
 > lógica do gate vinculante já está trancada determinística.
+
+> **Status F3.4 ✅ gate determinístico (feito, merge local):** a conduta de FAQ só tinha rede de
+> **render** (F0.5 prova que os itens críticos da `faq.md` chegam ao prompt) e de **conteúdo opt-in**
+> (`texto_resposta.deve_conter`/`nao_deve_conter`, que dependem de um autor de fixture **lembrar** de
+> colar o marcador). A **conduta na fala gerada** — a bolha que iria ao cliente — não tinha gate
+> sempre-ligado: uma resposta que **oferece parcelamento**, **restringe o pagamento a pix** ou
+> **enfileira um muro de recusas** passava batido se a fixture não pingasse o termo à mão. F3.4 torna
+> as 3 regressões que o roadmap nomeia um gate **estrutural e sempre-ligado sobre `captura.texto_final`**
+> (espelha o modo da F3.3/F3.5: uma quebra de FAQ é sempre erro, nunca escolha de fixture; em run real
+> só dispara se o modelo regrediu): `validar_faq_conduta` (PURO, sem DB/LLM) reprova — **(1) oferece
+> parcelado** (`faq.md` item 8 "no cartão é só à vista amor, não parcelo"): token `parcel*` / "em N x"
+> / "N vezes" **não negado** (a recusa canônica `não parcelo` tem negação imediata → não reprova);
+> **(2) "só pix amor"** (`faq.md` itens 2/7 — aceita pix, **dinheiro ou cartão**): `(só|apenas|somente)
+> … pix` ou recusa de um meio aceito (`não aceito cartão/dinheiro/maquininha`), **guardado contra o
+> deslocamento** (que é legitimamente só-pix, `faq.md` item 3 / `<pix_externo>`); **(3) over-refusal**
+> (persona `<armadilhas_de_voz>` "lista de exclusões antes do sim" + regras `<recusa_de_pratica>`,
+> recusa **uma por vez** em mensagem própria): **≥2** recusas de prática no **mesmo balão** (muro de
+> nãos). **Conservador de propósito** (igual ao output_guard da F0.4 e à gíria da F3.3): só o
+> **inequívoco** reprova — uma recusa suave isolada (`nao tenho costume amor`) e a recusa de
+> videochamada (`video chamada eu nao faço, mas mando fotos`) **passam** (1 recusa < muro); a resposta
+> de pagamento certa (`pix, dinheiro ou cartão`) e a recusa canônica de parcela **passam**. A conduta
+> subjetiva (tom, ritmo da venda, recusa-aberta bem-conduzida) **não** vira rubrica automática — fica
+> sob **revisão humana contra a golden** (ADR 0015 rejeitou o judge). **Dentes provados
+> (vermelho→verde):** TDD — as 4 reprovas de nível-`avaliar` (parcela / só-pix / recusa-de-meio /
+> muro) + o unit do `validar_faq_conduta` puro falham antes do grader existir; com ele, reprovam,
+> enquanto os 4 GUARDs (deslocamento, parcela negada, pagamento canônico, recusa única) seguem verdes.
+> Plugado em `avaliar()` **sempre-ligado** (espelha F3.3/F3.5). Roda no `make test` padrão (regex puro,
+> não `needs_db`) — gate de PR de verdade. `make test`: 870 passed; mypy (`mypy src`) + ruff limpos.
+> **★API segue pendente:** rodar as 8 perguntas canônicas + os arcos de conduta ao vivo (grafo real +
+> Sonnet) — ver a fala real estourar os marcadores e a **conduta subjetiva** sob revisão humana contra
+> a golden — é a outra metade, bloqueada por crédito (`anthropic_creditos_esgotados_prod`). O gate
+> determinístico das 3 regressões nomeadas já está trancado. FAQ → **Coberto** quando a corrida ao vivo
+> + a revisão humana fecharem.
 
 ---
 
