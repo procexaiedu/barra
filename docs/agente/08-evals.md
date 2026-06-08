@@ -12,6 +12,15 @@
 > (`golden.jsonl` é placeholder); (c) K=5 ainda não rodou ao vivo. **Em conflito, o código vence
 > este doc.** Trechos abaixo preservados como registro histórico da spec.
 
+> ⚠️ **STATUS (2026-06-08): o LLM-judge dos evals foi REJEITADO (ADR 0015 → `rejected`).** O
+> gate fica **100% determinístico** — camada 1 (regex `nao_deve_conter` + `state_check` +
+> `tool_calls_proibidas`/`nodes_proibidos` + canary cross-modelo) é o veredito; **não há camada
+> 2 de judge**. As seções §4.3 (LLM-judge binário) e as menções a `judge:llm`/EVAL-10/calibração
+> abaixo ficam como **registro histórico** — voz/persona/tom subjetivos e disclosure parafraseado
+> passam a ser **revisão humana contra a golden**, não rubrica automática. A segurança de prod
+> contra paráfrase segue no **output-guard runtime (ADR 0016, `accepted`)**, peça distinta e
+> preservada. **Em conflito, este banner vence as menções a judge vinculante abaixo.**
+
 > Especificação do **gate que autoriza o cutover do Vendedor → IA por modelo** (Onda 2 do roadmap). Define fixtures, runner, métricas e o critério GO/NO-GO — tudo executável via `make evals`, não documento.
 >
 > **Reescrita (2026-05-29):** substitui a versão anterior (estratégia + observabilidade). O escopo agora é o **gate executável completo** exigido pelos blockers `SEC-01 / EVAL-01..04` (critério GO/NO-GO e cutover em `docs/mvp/go-live-checklist.md §1`) — hoje `api/evals/runners/` tem só `.gitkeep`, então o `08` é a **especificação que o runner implementa**. Não duplica o schema de fixture: a **fonte de verdade do schema** é `api/evals/README.md`; este doc referencia (`README:31-89`) e especifica o critério de aprovação, o corpus a curar e os protocolos de experimento. Observabilidade Prometheus/LangSmith/Sentry (antiga §3/§5/§6) sai do escopo — vive nas dimensões OBS do roadmap (`:92-104`).

@@ -17,6 +17,14 @@ precedencia: "Onde este doc divergir de um ADR vigente (0015 LLM-judge/golden, 0
 > *plano/recomendações*: judge cross-família, calibração do golden (placeholder), barras de erro,
 > `injecao_midia` (1 fixture vs meta 8–15) e baseline/tripwire (P1). **Em conflito, o código vence.**
 
+> ⚠️ **STATUS (2026-06-08): LLM-judge dos evals REJEITADO (ADR 0015 → `rejected`).** O gate de
+> cutover fica **só na camada 1 determinística** (já era o blocker — rec#2, checklist §6). **EVAL-10
+> (calibração) e EVAL-02 na parte de `judge.py`/rubricas `judge:llm` ficam CANCELADOS** como caminho;
+> sobra a fixture STRONG de isolamento (canary/SQL real), que é determinística. Voz/persona/tom e
+> disclosure parafraseado viram **revisão humana contra a golden**, não rubrica automática. **Não
+> afeta o output-guard runtime (ADR 0016, `accepted`)** — judge distinto, em prod, preservado.
+> Menções a judge vinculante/calibração abaixo são **registro histórico**; este banner vence.
+
 > **O que este documento é.** Um complemento de pesquisa (estado da arte jun/2026) e plano de execução mapeado aos blockers, para fechar o gate de evals que autoriza o cutover Vendedor→IA. **Não** redefine o desenho do gate: a spec executável continua em `docs/agente/08-evals.md` e o schema de fixture em `api/evals/README.md`. Este doc traz: (a) o que a literatura recente muda nas escolhas em aberto; (b) gaps concretos vs o repo real; (c) prioridade e critério de pronto por blocker; (d) checklist de cutover; (e) decisões que dependem do Fernando.
 >
 > **Disciplina de citação.** Onde a verificação de uma afirmação marcou `supported=false`, este doc usa a versão corrigida ou rebaixa para "indicativo, não confirmado". As fontes estão inline e consolidadas em **§8**.

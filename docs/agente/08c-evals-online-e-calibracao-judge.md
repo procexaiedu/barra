@@ -21,6 +21,15 @@ metodo: "Workflow /deep-research (wf_7964be6e-8bf): fan-out de busca → fetch �
 > adversarial (`3-0` = unânime; `2-1` = confirmado com ressalva). Onde a pesquisa **refutou**
 > uma ideia plausível, ela está em §6 com o placar `0-3` — não silenciada.
 
+> ⚠️ **STATUS (2026-06-08): o LLM-judge dos evals foi REJEITADO (ADR 0015 → `rejected`).** Logo a
+> **§5 inteira (calibração do judge)** e o **passe de judge amostrado da camada online** ficam como
+> **registro do estado da arte**, não como plano ativo — não vamos calibrar nem operar um judge nos
+> evals. **O que do doc segue válido:** a camada online **determinística** (invariantes in-app →
+> feedback no trace, ex. `online_non_disclosure`, §2/§7) e o split **regressão ≠ capacidade** (§3).
+> A revisão humana periódica (§1, camada 3) deixa de ser "para calibrar o judge" e passa a ser
+> **diff manual contra a golden**. Nada disto toca o **output-guard runtime (ADR 0016)**, judge
+> distinto e preservado. Este banner vence as menções a calibração abaixo.
+
 ---
 
 ## 1. Sumário executivo

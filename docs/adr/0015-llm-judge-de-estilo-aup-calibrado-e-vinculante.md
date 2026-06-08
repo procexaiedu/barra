@@ -1,8 +1,39 @@
 ---
-status: proposed
+status: rejected
 ---
 
 # LLM-judge de estilo e AUP calibrado e vinculante
+
+> ⚠️ **REJEITADO (2026-06-08).** Esta proposta nunca foi aceita (`proposed` desde sempre;
+> `JUDGE_VINCULANTE=False` foi o estado de fato), e a decisão agora é **não construir um
+> LLM-judge vinculante para os evals**. Razões, com cobertura nos docs 08/08b/08c:
+>
+> 1. **O judge nunca foi o gate.** O cutover (08b §1 rec#2, checklist §6) sempre apoiou o
+>    veredito na **camada 1 determinística** (regex `nao_deve_conter` + `state_check` +
+>    `tool_calls_proibidas`/`nodes_proibidos` + canary cross-modelo). EVAL-10 (calibração)
+>    é **P1, NÃO-BLOCKING** — "o cutover NÃO espera por isso". Remover o judge não tira nada
+>    de que o gate dependia.
+> 2. **Consenso code-first.** 08b §3.6 / §1: "assertivas determinísticas primeiro; judge só
+>    para o subjetivo" — endossa `checks.py` como gate primário.
+> 3. **O judge é o elo mais frágil.** Superconfiança 90-100% (08c §5.2), **agreeableness
+>    bias TPR>96%/TNR<25%** nos binários de segurança (08b §1), self-preference
+>    Sonnet-julga-Sonnet (esta própria ADR), sycophancy multi-turn. Um judge não-calibrado
+>    que nunca seria vinculante vale quase nada.
+>
+> **O que se abre mão (consciente):** grading **automático** nos evals de disclosure
+> parafraseado, voz/persona/tom subjetivos, deriva de persona em turno tardio e
+> "venda bem-conduzida" (F4.7). Isso passa a ser **revisão humana contra a golden**, não
+> gate vermelho. A golden (F2.1) deixa de ser calibração e vira (a) referência held-out
+> para diff manual de mudanças de `persona.md`/`faq.md` e (b) mina de **novos graders
+> determinísticos** (cada falha mecanizável vira regex/`state_check`).
+>
+> **NÃO confundir com a ADR 0016 (output-guard, `accepted`/implementado).** A Etapa 2 do
+> output-guard é um LLM-judge de AUP **vinculante em runtime**, que barra cada bolha antes
+> do envio — peça *diferente* deste judge de evals e **preservada**. A segurança de prod
+> contra disclosure parafraseado / vazamento cross-modelo vive lá, não aqui; por isso
+> remover o judge de evals não cria buraco de segurança em produção.
+>
+> Texto original preservado abaixo como registro histórico da proposta.
 
 As fixtures adversariais e canônicas já declaram rubricas com `judge: llm` — `non_disclosure_passivo`, e as planejadas `persona`, `instruction_following`, `tom_pt_br` — com `limiar_aceite` exigido pelo gate de cutover (`api/evals/README.md:135`: "AUP/disclosure = 0 vazamento confirmado em qualquer run (judge-flag → revisão humana)"). Mas o juiz não existe: `README.md:133` marca `runners/judge.md` e `runners/checks.py` como **TODO M6**, e fixtures como `api/evals/adversariais/disclosure/001_pergunta_direta.jsonl:1` ficam com a parte determinística (regex `nao_deve_conter`, `tool_calls_proibidas`) sob enforcement e a rubrica subjetiva sem nada por trás. Risco de produção: regex só pega vazamento **literal** ("sou uma IA", "Anthropic"); quebra de persona parafraseada, tom fora do PT-BR coloquial, deriva de personagem em turno tardio e recusa nuançada de AUP passam pelo gate e só seriam detectadas pelo próprio cliente no WhatsApp da modelo — exatamente o que a persona GERAL compartilhada existe para nunca deixar acontecer. Agrava: agente e juiz são ambos Sonnet 4.6 (memória "Fallback Haiku removido"), então um juiz ingênuo herda **self-preference** e pode aprovar a própria voz. Sem calibração contra golden humano, ligar o juiz como blocker é tão arriscado quanto não tê-lo.
 

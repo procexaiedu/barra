@@ -3,8 +3,10 @@ real MULTI-TURNO e aplica graders DETERMINISTICOS, emitindo exit-code de gate.
 
 Escopo (roadmap EVAL-01): graders deterministicos apenas -- tool_calls_obrigatorias/proibidas,
 texto_resposta (nao_deve_conter/deve_conter_um_de/max_chars), ia_pausada_final, estado_final /
-state_check. Rubricas `judge: llm` sao de EVAL-02 (ignoradas aqui); nodes_proibidos /
-NodesVisitedHandler sao de EVAL-08.
+state_check. Rubricas `judge: llm` em fixtures antigas sao INERTES (o LLM-judge dos evals foi
+rejeitado -- ADR 0015 `rejected`; sem `JUDGE_VINCULANTE`); este runner simplesmente as ignora.
+Voz/persona/conduta subjetivas viram revisao humana contra a golden, nao rubrica automatica.
+nodes_proibidos / NodesVisitedHandler sao de EVAL-08.
 
 Multi-turno (refino 08b §5): `mensagens_entrada` e uma LISTA consumida mensagem-a-mensagem.
 Cada mensagem do CLIENTE dispara UMA `ainvoke` (o prepare_context reconstroi a janela do banco);
@@ -1024,52 +1026,6 @@ async def rodar(fixtures: list[dict[str, Any]], k: int = 1, debug: bool = False)
     return agregar_por_fixture(brutas)
 
 
-def _carregar_judge() -> Any:
-    """Carrega o modulo irmao judge.py por caminho (evals/ esta fora do pacote `barra`)."""
-    import importlib.util
-
-    caminho = Path(__file__).resolve().parent / "judge.py"
-    spec = importlib.util.spec_from_file_location("eval_judge", caminho)
-    assert spec and spec.loader
-    modulo = importlib.util.module_from_spec(spec)
-    sys.modules.setdefault("eval_judge", modulo)
-    spec.loader.exec_module(modulo)
-    return modulo
-
-
-async def anotacoes_judge(fixtures: list[dict[str, Any]]) -> list[Any]:
-    """Roda o LLM-judge ADVISORY (EVAL-02) sobre as rubricas judge:llm das fixtures (needs_key).
-
-    SO anota/flag -- nunca afeta o exit (JUDGE_VINCULANTE=False ate EVAL-10). Faz 1 chamada Sonnet
-    por (fixture x rubrica llm) num turno isolado por fixture (rollback). Opt-in (--judge): custa
-    credito, fora do `make evals` default.
-    """
-    judge = _carregar_judge()
-    anotacoes: list[Any] = []
-    conn = await _conectar()
-    try:
-        for fixture in fixtures:
-            rubricas = judge.rubricas_llm_da_fixture(fixture)
-            if not rubricas:
-                continue
-            try:
-                captura, _ = await executar_fixture(conn, fixture)
-            finally:
-                await conn.rollback()
-            historico = [m["texto"] for m in fixture.get("mensagens_entrada", []) if m.get("texto")]
-            for rubrica in rubricas:
-                limiar = fixture["rubricas"][rubrica].get("limiar_aceite", 1.0)
-                veredito = await judge.julgar(rubrica, captura.texto_final, historico=historico)
-                anotacoes.append(
-                    judge.anotar_advisory(
-                        fixture.get("id", "?"), rubrica, veredito, limiar_aceite=limiar
-                    )
-                )
-    finally:
-        await conn.close()
-    return anotacoes
-
-
 def _imprimir(avaliacoes: list[Avaliacao]) -> None:
     """Imprime o resultado separando REGRESSAO (bloqueia) de CAPABILITY (advisory).
 
@@ -1108,11 +1064,6 @@ def main() -> None:
         "--k", type=int, default=1, help="amostras por fixture (loop K; EVAL-04/03 usa 5)."
     )
     parser.add_argument(
-        "--judge",
-        action="store_true",
-        help="roda o LLM-judge ADVISORY (EVAL-02) nas rubricas judge:llm. Custa credito; nao gateia.",
-    )
-    parser.add_argument(
         "--debug",
         action="store_true",
         help="imprime no stderr, por fixture, a Captura (tools+args, texto, estado) p/ diagnostico.",
@@ -1138,14 +1089,6 @@ def main() -> None:
 
     avaliacoes = asyncio.run(rodar(fixtures, k=args.k, debug=args.debug))
     _imprimir(avaliacoes)
-
-    if args.judge:
-        print("\n== LLM-judge (ADVISORY — nao bloqueia) ==")
-        for anot in asyncio.run(anotacoes_judge(fixtures)):
-            flag = "ok" if anot.passou else "FLAG"
-            print(
-                f"[{flag}] {anot.fixture_id} {anot.rubrica} score={anot.score:.2f} — {anot.justificativa}"
-            )
 
     # So a suite de REGRESSAO bloqueia o cutover; capability e advisory (refino 08b §3.5).
     raise SystemExit(gate_split(avaliacoes, args.threshold))
