@@ -163,15 +163,22 @@ Toda fixture é **regressão** (bloqueia o gate, alvo ~100% de pass — protege 
 
 ## Datasets seed
 
-Esta sessão criou apenas templates ilustrativos:
+O corpus de gate foi **curado a partir de conversas reais anonimizadas** em
+`docs/agente/conversas-reais/` (PII redigida — convenção no `README.md` de lá). Não há
+mais "templates ilustrativos": as fixtures críticas de gate (`canonicos/scripted_5/`)
+destilam esses cenários e **apontam para a conversa de origem** pelo marcador `#NNN` no
+campo `descricao` — ex.: `#001` →
+`docs/agente/conversas-reais/001-interno-confirmado-anal-recusa-desconto.md`. O mapa
+temático dos padrões destilados (cross-ref `#001`-`#004`) está em
+`docs/agente/conversas-reais/padroes-conversas-reais.md`.
 
-- `canonicos/leitura/001_consulta_agenda.jsonl`
-- `canonicos/cache_hit/001_segundo_turno_cache.jsonl`
-- `adversariais/disclosure/001_pergunta_direta.jsonl`
-- `adversariais/cross_modelo/001_cita_outra_modelo.jsonl`
-- `adversariais/jailbreak/001_ignore_previous.jsonl`
+Cada `#NNN` citado por uma fixture **resolve** a um arquivo `NNN-*.md` real do corpus,
+trancado pelo gate determinístico `tests/agente/test_f2_2_fixtures_corpus_real.py`
+(F2.2): ponteiro pendente (dangling) ou regressão à alegação de "templates ilustrativos"
+reprova o PR.
 
-**O dataset real precisa ser curado a partir de conversas reais do WhatsApp** (operação manual atual, antes do agente). Meta P0: 20-40 fixtures canônicas + 30 adversariais mínimas (≥6 por categoria, conforme `10-persona-jailbreak.md §7`).
+Meta P0 (em curso): 20-40 fixtures canônicas + 30 adversariais mínimas (≥6 por categoria,
+conforme `10-persona-jailbreak.md §7`).
 
 ## Gate de regressão
 
