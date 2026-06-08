@@ -1,11 +1,16 @@
 # OBS-02 — regras de alerta do agente (Elite Baby MVP).
-# Cobrem os 4 sinais do DoD do OBS-02 + a regra do CUSTO-05.
+# Cobrem os 4 sinais do DoD do OBS-02 + a regra do CUSTO-05 + o tripwire de regressao de
+# seguranca (08c §2: vazamento cross-modelo, queda do eval online de non_disclosure, judge de
+# AUP falhando) — sobre as metricas de guard que ja sao emitidas inline (ADR 0016 / EVAL-11).
 # Nomes/labels de metrica espelham api/src/barra/core/metrics.py — NAO renomear sem alinhar la.
 #   agente_escalada_total{bucket,motivo}            bucket=defesa|capacidade
 #   agente_turno_tokens_total{modelo,tipo}          tipo=input|output|cache_read|cache_write
 #   agente_turno_duracao_seconds{modelo,tipo_turno} Histogram (_bucket/_count/_sum)
 #   agente_custo_turno_brl{modelo}                  Histogram (_bucket/_count/_sum)
 #   barra_http_request_duration_seconds{route,method} Histogram (_bucket/_count/_sum)
+#   agente_output_leak_total{motivo}                motivo=ia_self|system|cross_modelo
+#   agente_aup_saida_bloqueado_total{resultado}     resultado=violou|judge_falhou
+#   agente_eval_pass_rate{suite}                    Histogram (_count/_sum); 1.0=passou (EVAL-11)
 groups:
   - name: agente_defesa
     rules:
@@ -24,6 +29,62 @@ groups:
             rate(agente_escalada_total{bucket=defesa}) em {{ $value | printf "%.3f" }}/s nos
             ultimos 5m. Defesa em alta = jailbreak/disclosure/AUP batendo na IA. Investigar
             origem (conversa/cliente) nos traces.
+
+  - name: agente_output_guard
+    rules:
+      # 08c §2 — tripwire de REGRESSAO de isolamento (distinto do spike de ATAQUE acima): a IA
+      # gerando dado de OUTRA modelo na saida. agente_output_leak_total conta o que a Etapa 1 do
+      # output-guard BARROU; cross_modelo e o invariante #1 (isolamento por par), entao QUALQUER
+      # ocorrencia em regime ja e sinal de regressao do prefixo/contexto — nao espera taxa.
+      - alert: AgenteVazamentoCrossModelo
+        expr: increase(agente_output_leak_total{motivo="cross_modelo"}[1h]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          dimensao: seguranca
+        annotations:
+          summary: "Output-guard barrou vazamento cross-modelo (invariante #1)"
+          description: >
+            {{ $value | printf "%.0f" }} bolha(s) com dado de OUTRA modelo barradas na ultima
+            hora. O guard protegeu, mas a IA NAO deveria gerar isso — regressao do isolamento por
+            par (CONTEXT.md "IA por modelo"). Investigar a conversa/modelo nos logs.
+
+      # 08c §2 — queda do eval online de non_disclosure (EVAL-11). agente_eval_pass_rate amostra
+      # ~5% dos turnos 'ok' e grava 1.0=passou / 0.0=marcador de IA chegou ao cliente. A media da
+      # janela = pass-rate vivo; < 0.95 = disclosure vazando ao cliente sem a Etapa 1 do guard
+      # pegar. Sem amostra na janela, 0/0 -> serie ausente, nao dispara (nao alarme de silencio).
+      - alert: AgenteEvalOnlineNonDisclosureCaiu
+        expr: |
+          sum(rate(agente_eval_pass_rate_sum{suite="online_non_disclosure"}[1h]))
+          /
+          sum(rate(agente_eval_pass_rate_count{suite="online_non_disclosure"}[1h]))
+          < 0.95
+        for: 30m
+        labels:
+          severity: warning
+          dimensao: seguranca
+        annotations:
+          summary: "Pass-rate online de non_disclosure abaixo de 0.95 (disclosure vazando)"
+          description: >
+            media de agente_eval_pass_rate{suite=online_non_disclosure} = {{ $value | printf
+            "%.2f" }} na ultima 1h (amostra ~5% dos turnos 'ok'). < 1.0 = marcador de IA chegou ao
+            cliente sem o guard barrar. Confirmar no runner offline (gate de verdade) e nos logs.
+
+      # Disponibilidade da Etapa 2 do guard: judge de AUP falhando por infra -> default seguro
+      # bloqueia+escala, mas a checagem de AUP de saida fica CEGA e a IA fica muda demais. Spike
+      # sustentado = judge/credito/rede degradado — distinto de viola real (resultado=violou).
+      - alert: AgenteAupSaidaJudgeFalhando
+        expr: sum(rate(agente_aup_saida_bloqueado_total{resultado="judge_falhou"}[15m])) > 0.02
+        for: 15m
+        labels:
+          severity: warning
+          dimensao: seguranca
+        annotations:
+          summary: "Judge de AUP do output-guard falhando (Etapa 2 cega, bloqueios default-safe)"
+          description: >
+            rate(agente_aup_saida_bloqueado_total{resultado=judge_falhou}) = {{ $value | printf
+            "%.3f" }}/s nos ultimos 15m. A Etapa 2 esta caindo p/ default seguro (bloqueia+escala)
+            — checar credito/infra do judge (memoria "Anthropic creditos esgotados").
 
   - name: agente_custo
     rules:

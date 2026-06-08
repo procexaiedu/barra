@@ -19,6 +19,7 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 | [06-pipelines-midia.md](06-pipelines-midia.md) | Transcrição de áudio, OCR/vision para Pix, comportamento de imagem fora-fluxo | Implementando `workers/media.py` ou `workers/pix.py` |
 | [07-coordenador.md](07-coordenador.md) | Webhook → debounce → lock → resolução → invocação grafo → dispatch; cron de timeouts | Implementando `webhook/despacho.py`, `webhook/debounce.py`, `workers/timeouts.py` |
 | [08-evals.md](08-evals.md) | LangSmith datasets, cenários canônicos, métricas Prometheus, gate de pronto-pra-piloto | Escrevendo testes ou evals em `evals/` |
+| [08c-evals-online-e-calibracao-judge.md](08c-evals-online-e-calibracao-judge.md) | Pesquisa fact-checada (jun/2026): camada de eval ONLINE sobre traces de prod + calibração do judge contra rótulo humano (Trust-or-Escalate, indeterminação, overconfidence/style-bias) | Planejando a camada online de evals ou calibrando o judge panel |
 | [09-roteiro.md](09-roteiro.md) | Roadmap Claude Code first (M0→M6), estado atual reconciliado, grafo de dependências, tarefas coláveis, "Bugs e decisões", gate pronto-pra-piloto | Planejando ou executando a implementação do agente; escolhendo a próxima tarefa |
 | [10-persona-jailbreak.md](10-persona-jailbreak.md) | Política AUP, negação ativa de IA + canned, protocolos defensivos, reminder injection, adversarial dataset | Editando persona/regras/protocolos; antes de cada release de prompt |
 

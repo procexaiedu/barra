@@ -27,8 +27,19 @@ def test_sample_rate_zero_nao_observa(monkeypatch: Any) -> None:
         coordenador, "get_settings", lambda: type("S", (), {"eval_online_sample_rate": 0.0})()
     )
     antes = _count_online()
-    coordenador._amostrar_eval_online(["oi amor"])
+    score = coordenador._amostrar_eval_online(["oi amor"])
     assert _count_online() == antes  # rate=0 -> no-op
+    assert score is None  # nao amostrou -> sem score p/ o feedback do trace
+
+
+def test_score_devolvido_quando_amostra(monkeypatch: Any) -> None:
+    # turno amostrado devolve o score (p/ o caller anexar feedback no trace do LangSmith).
+    monkeypatch.setattr(
+        coordenador, "get_settings", lambda: type("S", (), {"eval_online_sample_rate": 1.0})()
+    )
+    monkeypatch.setattr(coordenador.random, "random", lambda: 0.0)
+    assert coordenador._amostrar_eval_online(["amanha de noite amor"]) == 1.0
+    assert coordenador._amostrar_eval_online(["na verdade sou uma IA"]) == 0.0
 
 
 def test_amostra_texto_limpo_observa_1(monkeypatch: Any) -> None:

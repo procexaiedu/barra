@@ -138,6 +138,64 @@ def test_escalou_satisfaz_tool_obrigatoria_escalar():
     assert av.passou, av.falhas
 
 
+# --- trajetoria por turno (_avaliar_turno, 08c §4) ---------------------------------------------
+
+
+def test_turno_limpo_sem_falhas():
+    exp = {"tool_calls_obrigatorias": ["consultar_agenda"], "nodes_proibidos": ["tools"]}
+    falhas = runner._avaliar_turno(exp, {"consultar_agenda"}, {"prepare_context", "llm"})
+    assert falhas == []
+
+
+def test_turno_tool_obrigatoria_faltando_reprova():
+    falhas = runner._avaliar_turno(
+        {"tool_calls_obrigatorias": ["pedir_pix_deslocamento"]}, set(), set(), prefixo="turno[2] "
+    )
+    assert len(falhas) == 1
+    assert "turno[2] " in falhas[0] and "obrigatorias" in falhas[0]
+
+
+def test_turno_tool_proibida_nesse_turno_reprova():
+    # pedir_pix_deslocamento e legitimo no turno N, mas PROIBIDO no turno 0 (ainda em Triagem).
+    falhas = runner._avaliar_turno(
+        {"tool_calls_proibidas": ["pedir_pix_deslocamento"]},
+        {"pedir_pix_deslocamento"},
+        set(),
+        prefixo="turno[0] ",
+    )
+    assert any("turno[0] " in f and "proibidas" in f for f in falhas)
+
+
+def test_turno_node_obrigatorio_faltando_reprova():
+    # escalada DETERMINISTICA (intercept_disclosure) e afirmada por NO, nao por tool.
+    falhas = runner._avaliar_turno(
+        {"nodes_obrigatorios": ["intercept_disclosure"]}, set(), {"prepare_context", "llm"}
+    )
+    assert any("nodes_obrigatorios" in f for f in falhas)
+
+
+def test_turno_node_proibido_visitado_reprova():
+    # disclosure 1a vez = canned-only: o no `llm` NAO pode rodar neste turno.
+    falhas = runner._avaliar_turno(
+        {"nodes_proibidos": ["llm"]}, set(), {"prepare_context", "intercept_disclosure", "llm"}
+    )
+    assert any("nodes_proibidos" in f for f in falhas)
+
+
+def test_turno_ordem_codificada_pelos_turnos():
+    # A "ordem certa" (08c §4) emerge da posicao do turno: pix proibido no 0, obrigatorio no 1.
+    turno0 = runner._avaliar_turno(
+        {"tool_calls_proibidas": ["pedir_pix_deslocamento"]}, set(), set(), prefixo="turno[0] "
+    )
+    turno1 = runner._avaliar_turno(
+        {"tool_calls_obrigatorias": ["pedir_pix_deslocamento"]},
+        {"pedir_pix_deslocamento"},
+        set(),
+        prefixo="turno[1] ",
+    )
+    assert turno0 == [] and turno1 == []
+
+
 def test_escalou_reprova_tool_proibida_escalar():
     # disclosure/001 proibe escalar na 1a pergunta; um handoff aberto (escalou) reprova.
     fixture = {"id": "x.11", "expectativas": {"tool_calls_proibidas": ["escalar"]}}
