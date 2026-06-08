@@ -136,6 +136,32 @@ async def test_etapa1_nome_de_outra_modelo_bloqueia(monkeypatch: Any) -> None:
     assert cap.chamadas[0]["observacao"].startswith("output_leak_cross_modelo")
 
 
+async def test_etapa1_revela_outro_cliente_bloqueia(monkeypatch: Any) -> None:
+    # Invariante de agenda (CONTEXT.md): no bloqueio a IA usa desculpa pessoal e NUNCA revela que
+    # esta com outro cliente. Vazar isso na saida -> Etapa 1 barra antes do envio + handoff.
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    res = await mod.output_guard(
+        _state("amor agora nao da, to com um cliente, te chamo quando acabar"), _runtime()
+    )  # type: ignore[arg-type]
+    assert _bloqueou(res)
+    assert cap.chamadas[0]["observacao"].startswith("output_leak_outro_cliente")
+
+
+async def test_etapa1_desculpa_pessoal_no_bloqueio_passa(monkeypatch: Any) -> None:
+    # Falso-positivo a evitar: a desculpa pessoal LEGITIMA (salao, "te atendendo") nao menciona
+    # outro cliente -> passa a Etapa 1 (o judge da Etapa 2 ainda decide a AUP).
+    async def _ok(texto: str, settings: Any) -> Any:
+        return mod._VeredictoAup(viola=False, motivo="nenhum")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _ok)
+    res = await mod.output_guard(
+        _state("amor esse horario eu to no salao 💅 mas as 21h fica perfeito, te atendendo bem"),
+        _runtime(),
+    )  # type: ignore[arg-type]
+    assert _passou_limpo(res)
+
+
 async def test_judge_reprova_aup_nao_despacha(monkeypatch: Any) -> None:
     cap = _Capturador()
     monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
