@@ -327,6 +327,91 @@ def test_validar_voz_persona_puro():
     assert runner.validar_voz_persona("custa R$1.500") == []
 
 
+# --- F3.4: conduta de FAQ como gate sobre a FALA GERADA ----------------------------------------
+# Espelha faq.md (cartao a vista/nao parcela; pix+dinheiro+cartao) + persona.md/regras.md (muro de
+# recusas). Sempre-ligado p/ as 3 regressoes que o roadmap nomeia, sobre captura.texto_final. So o
+# INEQUIVOCO reprova (conduta subjetiva = revisao humana contra a golden, ADR 0015).
+
+
+def test_conduta_oferece_parcelado_reprova():
+    # faq.md item 8: "no cartao e so a vista amor, nao parcelo" -> oferecer parcela e sempre erro.
+    fixture = {"id": "fc.1", "expectativas": {}}
+    av = runner.avaliar(fixture, _captura(texto_final="pode parcelar em 3x no cartao amor"))
+    assert not av.passou
+    assert any("parcel" in f for f in av.falhas)
+
+
+def test_conduta_recusa_de_parcela_canonica_passa():
+    # GUARD: a resposta canonica da FAQ NEGA o parcelamento -- nao pode ser confundida com oferta.
+    fixture = {"id": "fc.1b", "expectativas": {}}
+    cap = _captura(texto_final="no cartao e so a vista amor, nao parcelo")
+    assert runner.avaliar(fixture, cap).passou
+
+
+def test_conduta_so_pix_reprova():
+    # faq.md item 2/7: aceita pix, dinheiro OU cartao -> restringir a "so pix" e over-refusal.
+    fixture = {"id": "fc.2", "expectativas": {}}
+    av = runner.avaliar(fixture, _captura(texto_final="so pix amor"))
+    assert not av.passou
+    assert any("pagamento restrito" in f for f in av.falhas)
+
+
+def test_conduta_recusa_meio_aceito_reprova():
+    # recusar um meio que a modelo aceita (cartao/dinheiro/maquininha) e a mesma over-refusal.
+    fixture = {"id": "fc.2b", "expectativas": {}}
+    av = runner.avaliar(fixture, _captura(texto_final="nao aceito cartao amor, so pix mesmo"))
+    assert not av.passou
+    assert any("pagamento restrito" in f for f in av.falhas)
+
+
+def test_conduta_pix_deslocamento_nao_reprova():
+    # GUARD: o Pix de R$100 do deslocamento e legitimamente so-pix; nao pode disparar o grader.
+    fixture = {"id": "fc.2c", "expectativas": {}}
+    cap = _captura(texto_final="o deslocamento e so pix amor, separado do valor do programa")
+    assert runner.avaliar(fixture, cap).passou
+
+
+def test_conduta_pagamento_canonico_passa():
+    # GUARD anti-vacuo: a resposta certa lista pix/dinheiro/cartao e passa por todos os graders.
+    fixture = {"id": "fc.2d", "expectativas": {}}
+    cap = _captura(texto_final="aceito sim amor, levo a maquininha. no cartao tem taxinha de 10%")
+    assert runner.avaliar(fixture, cap).passou
+
+
+def test_conduta_over_refusal_muro_de_naos_reprova():
+    # persona <armadilhas_de_voz>/regras <cotacao>: nao enfileirar exclusoes antes do "sim".
+    fixture = {"id": "fc.3", "expectativas": {}}
+    cap = _captura(texto_final="nao faco anal, nao faco beijo grego, sem fetiche pesado")
+    av = runner.avaliar(fixture, cap)
+    assert not av.passou
+    assert any("over-refusal" in f for f in av.falhas)
+
+
+def test_conduta_recusa_unica_suave_passa():
+    # GUARD: uma recusa suave isolada e CORRETA (regras <recusa_de_pratica> 1a camada) -> passa.
+    fixture = {"id": "fc.3b", "expectativas": {}}
+    assert runner.avaliar(fixture, _captura(texto_final="nao tenho costume amor 😊")).passou
+    # e a recusa de videochamada (1 "nao faco" + alternativa) tambem nao e muro de naos.
+    cap = _captura(texto_final="video chamada eu nao faco, mas mando fotos se quiser")
+    assert runner.avaliar(fixture, cap).passou
+
+
+def test_validar_faq_conduta_puro():
+    # limpo
+    assert runner.validar_faq_conduta("aceito pix, dinheiro ou cartao amor") == []
+    # parcelado oferecido (nao negado) vs negado
+    assert any("parcel" in f for f in runner.validar_faq_conduta("consigo parcelar em 2x"))
+    assert runner.validar_faq_conduta("no cartao e so a vista, nao parcelo") == []
+    # so pix / recusa de meio aceito
+    assert any("pagamento restrito" in f for f in runner.validar_faq_conduta("so aceito pix"))
+    assert any("pagamento restrito" in f for f in runner.validar_faq_conduta("nao aceito cartao"))
+    # deslocamento e so-pix legitimo
+    assert runner.validar_faq_conduta("o pix do deslocamento e so pix amor") == []
+    # over-refusal: >=2 recusas no mesmo balao; 1 sozinha passa
+    assert any("over-refusal" in f for f in runner.validar_faq_conduta("nao faco x, nao faco y"))
+    assert runner.validar_faq_conduta("nao tenho costume amor") == []
+
+
 # --- escalada determinista == "escalar" (EVAL-01: handoff do intercept_disclosure) -------------
 
 

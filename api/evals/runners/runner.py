@@ -257,6 +257,78 @@ def validar_voz_persona(texto: str) -> list[str]:
     return falhas
 
 
+# Conduta de FAQ (F3.4): marcadores deterministicos espelhando faq.md + regras.md/persona.md.
+# Fonte de verdade = os itens da FAQ e <armadilhas_de_voz>; nunca editar a fonte p/ passar o gate.
+# (1) Cartao sem parcelar (faq.md item 8 "no cartao e so a vista amor, nao parcelo"): oferecer
+# parcelamento e sempre erro. Token `parcel*` ou "em N x"/"N vezes" = oferta -- A MENOS que negado
+# (a recusa canonica tem negacao imediata antes do token).
+_FAQ_PARCELA = re.compile(r"parcel\w*|\bem\s+\d+\s*x\b|\b\d+\s+vezes\b")
+_FAQ_NEGACAO = re.compile(r"\b(n[aã]o|sem|nem)\b")
+# (2) Pagamento (faq.md item 2/7: pix, dinheiro OU cartao). Restringir o pagamento do programa a
+# pix ("so/apenas/somente ... pix") ou recusar um meio aceito e over-refusal de pagamento. O "so
+# pix" e guardado contra o deslocamento, que e legitimamente so-pix (faq.md item 3 / <pix_externo>).
+_FAQ_SO_PIX = re.compile(r"\b(s[oó]|apenas|somente)\s+(?:\w+\s+){0,2}pix\b")
+_FAQ_RECUSA_MEIO = re.compile(
+    r"\bn[aã]o\s+(?:aceito|recebo|trabalho\s+com|levo)\s+(?:cart[aã]o|dinheiro|maquininha)\b"
+)
+# (3) Over-refusal: >=2 recusas de pratica enfileiradas no MESMO balao (persona <armadilhas_de_voz>
+# "lista de exclusoes antes do sim"; regras <cotacao>/<recusa_de_pratica>: recusa uma por vez, em
+# mensagem propria). Uma recusa suave isolada ("nao tenho costume amor") e CORRETA -> so o muro reprova.
+_FAQ_RECUSA_PRATICA = re.compile(r"\bn[aã]o\s+(?:fa[cç]o|tenho\s+costume|rolo|curto)\b")
+
+
+def _oferta_nao_negada(low: str, rx: re.Pattern[str]) -> list[str]:
+    """Casamentos de `rx` sem negacao na janela imediatamente anterior (PURO).
+
+    Distingue OFERTA de RECUSA: "parcelo" sozinho = oferta; "nao parcelo"/"sem parcelamento" =
+    recusa canonica (negacao nos ~25 chars antes do token) -> nao reprova.
+    """
+    achados: list[str] = []
+    for m in rx.finditer(low):
+        if not _FAQ_NEGACAO.search(low[max(0, m.start() - 25) : m.start()]):
+            achados.append(m.group(0))
+    return achados
+
+
+def validar_faq_conduta(texto: str) -> list[str]:
+    """Graders deterministicos de CONDUTA de FAQ sobre a fala gerada (F3.4), PURO -- sem DB/LLM.
+
+    Sempre-ligado (espelha F3.3/F3.5: uma quebra de FAQ e sempre erro, nao opt-in de fixture) p/ as
+    3 regressoes inequivocas que o roadmap nomeia -- "oferece parcelado", "so pix amor" e
+    over-refusal (muro de naos). Observa `captura.texto_final` (a bolha ao cliente), nao a montagem:
+    a F0.5 ja prova o RENDER da FAQ; aqui o gate prova a FALA. Conservador como o output_guard/F3.3
+    (so o que SO pode ser erro); conduta subjetiva (tom, ritmo da venda) fica p/ revisao humana
+    contra a golden (ADR 0015), nao rubrica automatica.
+    """
+    falhas: list[str] = []
+    low = texto.lower()
+
+    parcela = _oferta_nao_negada(low, _FAQ_PARCELA)
+    if parcela:
+        falhas.append(
+            f"conduta: oferece parcelamento (faq: cartao e so a vista, nao parcelo): {parcela}"
+        )
+
+    so_pix = [
+        m.group(0)
+        for m in _FAQ_SO_PIX.finditer(low)
+        if "desloc" not in low[max(0, m.start() - 20) : m.end() + 20]
+    ]
+    recusa_meio = [m.group(0) for m in _FAQ_RECUSA_MEIO.finditer(low)]
+    if so_pix or recusa_meio:
+        falhas.append(
+            f"conduta: pagamento restrito (faq: aceita pix/dinheiro/cartao): {so_pix + recusa_meio}"
+        )
+
+    recusas = _FAQ_RECUSA_PRATICA.findall(low)
+    if len(recusas) >= 2:
+        falhas.append(
+            f"conduta: over-refusal (>=2 recusas de pratica no mesmo balao): {len(recusas)}"
+        )
+
+    return falhas
+
+
 def _agregar_usage(mensagens: list[BaseMessage]) -> dict[str, Any]:
     """Soma o `usage_metadata` de TODAS as AIMessages do turno (PURO).
 
@@ -910,6 +982,11 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
     # prompt. Sempre-ligados p/ as quebras inequivocas de <armadilhas_de_voz> -- valem para toda
     # fixture, igual ao modo estrito da F3.5 (uma quebra de persona e sempre erro, nao opt-in).
     falhas += validar_voz_persona(captura.texto_final)
+
+    # Conduta de FAQ (F3.4): graders sobre a FALA GERADA, sempre-ligados p/ as regressoes
+    # inequivocas -- oferta de parcelamento, pagamento restrito a pix e muro de recusas. Espelha o
+    # modo da F3.3 (uma quebra de FAQ e sempre erro, nao opt-in); conduta subjetiva = revisao humana.
+    falhas += validar_faq_conduta(captura.texto_final)
 
     # nodes_proibidos / nodes_obrigatorios (EVAL-08): trajetoria do grafo (acumulada nos turnos).
     proibidos = set(exp.get("nodes_proibidos", []))
