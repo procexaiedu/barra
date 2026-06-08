@@ -15,6 +15,10 @@ Cobre:
     cancelado, evento de transicao.
   - recente: aviso ha < 45 min -> intacto (a query roda, o WHERE descarta).
   - foto chegou: foto_portaria_em preenchido -> intacto (cliente chegou, nao e timeout).
+  - guard: bloqueio ja em_atendimento -> atendimento vira Perdido/sumiu, mas o bloqueio NAO e
+    cancelado (CONTEXT.md "Bloqueio": Perdido -> cancelado so se ainda nao em_atendimento/concluido).
+  - agregacao: dois alvos elegiveis numa unica varredura -> ambos Perdido/sumiu + bloqueios
+    cancelados (a CTE opera sobre o conjunto, nao linha-a-linha).
 """
 
 from __future__ import annotations
@@ -60,9 +64,11 @@ async def _seed_interno_aguardando(
     *,
     aviso_min_atras: float | None,
     foto: bool = False,
+    bloqueio_estado: str = "bloqueado",
 ) -> tuple[UUID, UUID]:
-    """Interno em Aguardando_confirmacao com bloqueio vinculado (bloqueado). `aviso_min_atras=None`
-    deixa aviso_saida_em nulo; `foto=True` preenche foto_portaria_em. Devolve (atendimento, bloqueio)."""
+    """Interno em Aguardando_confirmacao com bloqueio vinculado. `aviso_min_atras=None`
+    deixa aviso_saida_em nulo; `foto=True` preenche foto_portaria_em; `bloqueio_estado`
+    define o estado do bloqueio vinculado (default `bloqueado`). Devolve (atendimento, bloqueio)."""
     modelo_id, cliente_id, conversa_id, atendimento_id, bloqueio_id = (uuid4() for _ in range(5))
     await c.execute(
         """
@@ -103,10 +109,17 @@ async def _seed_interno_aguardando(
     await c.execute(
         """
         INSERT INTO barravips.bloqueios (id, modelo_id, atendimento_id, inicio, fim, estado, origem)
-        VALUES (%s, %s, %s, %s, %s, 'bloqueado'::barravips.estado_bloqueio_enum,
+        VALUES (%s, %s, %s, %s, %s, %s::barravips.estado_bloqueio_enum,
                 'ia'::barravips.origem_bloqueio_enum)
         """,
-        (bloqueio_id, modelo_id, atendimento_id, inicio, inicio + timedelta(hours=2)),
+        (
+            bloqueio_id,
+            modelo_id,
+            atendimento_id,
+            inicio,
+            inicio + timedelta(hours=2),
+            bloqueio_estado,
+        ),
     )
     await c.execute(
         "UPDATE barravips.atendimentos SET bloqueio_id = %s WHERE id = %s",
@@ -190,3 +203,66 @@ async def test_timeout_interno_ignora_se_foto_chegou(
     )
     a = await res.fetchone()
     assert a is not None and a["estado"] == "Aguardando_confirmacao"
+
+
+@pytest.mark.needs_db
+async def test_timeout_interno_preserva_bloqueio_em_atendimento(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # Guard de cancelamento (CONTEXT.md "Bloqueio": Perdido -> cancelado SO se ainda nao
+    # em_atendimento/concluido). Se a modelo ja engajou (bloqueio em_atendimento), o timeout
+    # ainda marca o atendimento como Perdido/sumiu, mas NAO pode arrancar o bloqueio dela.
+    # Sem este caso o `AND b.estado NOT IN (...)` da CTE cancel_bloqueio fica sem dentes.
+    atendimento_id, bloqueio_id = await _seed_interno_aguardando(
+        conn, aviso_min_atras=46, bloqueio_estado="em_atendimento"
+    )
+
+    await aplicar_timeout_interno(conn)
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, motivo_perda::text AS motivo_perda "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Perdido"
+    assert a["motivo_perda"] == "sumiu"
+
+    # Bloqueio preservado: em_atendimento NAO vira cancelado.
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = %s", (bloqueio_id,)
+    )
+    b = await res.fetchone()
+    assert b is not None and b["estado"] == "em_atendimento"
+
+
+@pytest.mark.needs_db
+async def test_timeout_interno_varre_multiplos_alvos(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # Agregacao: uma unica varredura processa N atendimentos elegiveis (a CTE alvo + FOR UPDATE
+    # SKIP LOCKED + UPDATE...FROM operam sobre o conjunto, nao linha-a-linha). Banco compartilhado
+    # -> assertamos sobre os DOIS registros semeados, nunca sobre a contagem global.
+    a1, b1 = await _seed_interno_aguardando(conn, aviso_min_atras=46)
+    a2, b2 = await _seed_interno_aguardando(conn, aviso_min_atras=50)
+
+    total = await aplicar_timeout_interno(conn)
+    assert total >= 2
+
+    res = await conn.execute(
+        "SELECT id, estado::text AS estado, motivo_perda::text AS motivo_perda "
+        "FROM barravips.atendimentos WHERE id = ANY(%s)",
+        ([a1, a2],),
+    )
+    ats = {r["id"]: r async for r in res}
+    for aid in (a1, a2):
+        assert ats[aid]["estado"] == "Perdido"
+        assert ats[aid]["motivo_perda"] == "sumiu"
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = ANY(%s)",
+        ([b1, b2],),
+    )
+    estados = {r["estado"] async for r in res}
+    assert estados == {"cancelado"}
