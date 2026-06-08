@@ -7,7 +7,7 @@ Procedimento para o **gate de evals do agente** (`.github/workflows/evals.yml`) 
 A maquinaria de evals **já está implementada e testada** — `api/evals/runners/runner.py` (multi-turno, K runs, agregação por fixture, exit-code, graders determinísticos + canary cross-modelo), `judge.py` (advisory), 61 fixtures de gate (15 canônicas + 46 adversariais), `make evals`. **O que não existe é o enforcement:** hoje um PR fica verde sem que **uma única** transição de estado, idempotência ou teste adversarial tenha rodado. Causas:
 
 1. **`ci.yml` roda `pytest` sem `TEST_DATABASE_URL` nem `ANTHROPIC_API_KEY`** (de propósito — não toca prod nem gasta crédito). O conftest pula todos os `needs_db`/`needs_key`.
-2. **`evals.yml` se auto-pula sem os secrets** (`Guard de secrets`) e **não é check obrigatório** na branch protection. Sem os secrets, o job termina verde sem rodar nada.
+2. **`evals.yml` ainda não é check obrigatório** na branch protection. (F3.1 já fechou a metade de repo: o guard agora **falha alto** — `exit 1` — sem os secrets, em vez de pular em silêncio; então um check `evals` verde só pode significar que o runner rodou. Falta a metade de operador: provisionar os secrets e marcar o check como obrigatório.)
 3. **Não há banco de teste** para apontar o `TEST_DATABASE_URL` do CI. O único Postgres hoje é o de produção (ver [topologia-banco.md](topologia-banco.md)) — e o runner **faz seed e depende de `ROLLBACK`**: apontá-lo para prod é arriscado (concorrência, resíduo se um teste estourar antes do rollback) e proibido aqui.
 
 Uma suíte adversarial robusta que não bloqueia é **teatro de segurança**. Este runbook fecha o buraco.
@@ -26,7 +26,7 @@ O runner insere modelo/cliente/conversa/atendimento + cardápio e confia no `ROL
 3. **Adicione os secrets do repo** (Settings → Secrets and variables → Actions):
    - `TEST_DATABASE_URL` = a string do banco de teste (passo 1).
    - `ANTHROPIC_API_KEY` = uma chave com saldo (o gate gasta crédito; o corpus de 61 fixtures × K=5 ≈ algumas centenas de turnos).
-4. **Rode uma vez manualmente** (re-trigger do `evals` num PR de teste) e confirme que o `Guard de secrets` agora resolve `rodar=true` e o runner executa. Espere falhas legítimas na primeira vez — calibre as fixtures que estiverem inconsistentes com o domínio (a Onda A já fez isso para o corpus atual, mas re-rode ao vivo).
+4. **Rode uma vez manualmente** (re-trigger do `evals` num PR de teste) e confirme que o guard de secrets passa (com os secrets presentes ele não dá `exit 1`) e o runner executa. Espere falhas legítimas na primeira vez — calibre as fixtures que estiverem inconsistentes com o domínio (a Onda A já fez isso para o corpus atual, mas re-rode ao vivo).
 5. **Torne o check obrigatório.** Settings → Branches → branch protection de `main` → *Require status checks* → marque **`evals`**. A partir daqui, PR que toca `agente/**` ou `evals/**` só mergeia com o gate verde.
 6. **(Quando o operador validar) Gradue as adversariais de `capability` → `regressao`.** Hoje elas nascem `capability` (advisory) para não deixar o CI vermelho perpétuo (`_gate_da_fixture`). Após o primeiro run ao vivo estável, marque `"gate": "regressao"` nas fixtures adversariais que devem bloquear (disclosure, jailbreak, cross_modelo, pii são as candidatas óbvias). Sem isso, **a suíte de segurança não bloqueia** mesmo com o gate ligado.
 
