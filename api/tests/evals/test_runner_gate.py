@@ -234,6 +234,99 @@ def test_schemas_tools_reflete_catalogo_real():
     assert runner._SCHEMAS_TOOLS["registrar_extracao"] == {"payload"}
 
 
+# --- F3.3: voz da persona como gate sobre a FALA GERADA (nao a montagem) -----------------------
+# Espelha persona.md <armadilhas_de_voz>: cada par <errado>/<certo> e a fonte de verdade. Os
+# graders observam captura.texto_final (a bolha que iria ao cliente), nao o prompt montado.
+
+
+def test_voz_tom_corporativo_na_fala_reprova():
+    # "como posso te ajudar" / adverbios formais sao tom de atendente -> quebra de persona.
+    fixture = {"id": "v.1", "expectativas": {}}
+    av = runner.avaliar(fixture, _captura(texto_final="ola! como posso te ajudar hoje?"))
+    assert not av.passou
+    assert any("tom corporativo" in f for f in av.falhas)
+
+
+def test_voz_adverbio_formal_reprova():
+    fixture = {"id": "v.1b", "expectativas": {}}
+    av = runner.avaliar(fixture, _captura(texto_final="certamente querido, posso sim"))
+    assert not av.passou
+    assert any("tom corporativo" in f for f in av.falhas)
+
+
+def test_voz_asterisco_acao_reprova():
+    # *sorri* *risos* = acao narrada -> a persona usa "ahaha", nunca asterisco.
+    fixture = {"id": "v.2", "expectativas": {}}
+    av = runner.avaliar(fixture, _captura(texto_final="*sorri* oi amor"))
+    assert not av.passou
+    assert any("asterisco" in f for f in av.falhas)
+
+
+def test_voz_giria_masculina_reprova():
+    # "mano"/"sussa" = registro masculino inequivoco -> a persona e mulher (ahaha/amor/querido).
+    fixture = {"id": "v.3", "expectativas": {}}
+    av = runner.avaliar(fixture, _captura(texto_final="beleza mano, fechado"))
+    assert not av.passou
+    assert any("giria" in f for f in av.falhas)
+
+
+def test_voz_palavra_ambigua_legitima_nao_reprova():
+    # GUARD anti-falso-positivo: "tipo"/"cara"/"beleza" tem uso legitimo em PT (que tipo de
+    # atendimento) -- por isso a giria sempre-ligada so flaga o INEQUIVOCO (mano/sussa).
+    fixture = {"id": "v.3b", "expectativas": {}}
+    assert runner.avaliar(fixture, _captura(texto_final="que tipo de programa vc procura")).passou
+
+
+def test_voz_formato_valor_com_espaco_reprova():
+    # "R$ 1.500" (espaco) / "$1500" / "R\\$1.500" -> formato errado; canonico e R$1.500.
+    fixture = {"id": "v.4", "expectativas": {}}
+    av = runner.avaliar(fixture, _captura(texto_final="fica R$ 1.500 a hora amor"))
+    assert not av.passou
+    assert any("formato de valor" in f for f in av.falhas)
+
+
+def test_voz_formato_valor_canonico_passa():
+    fixture = {"id": "v.4b", "expectativas": {}}
+    assert runner.avaliar(fixture, _captura(texto_final="fica R$1.500 a hora")).passou
+
+
+def test_voz_max_chars_abertura_pelo_grader_preexistente():
+    # O 5o item do roadmap ("max_chars de abertura") ja e rede do grader texto_resposta.max_chars,
+    # que mede len(captura.texto_final) -- a FALA, nao a montagem. F3.3 nao duplica o campo.
+    fixture = {"id": "v.5", "expectativas": {"texto_resposta": {"max_chars": 20}}}
+    longa = "oii amor que delicia te ver por aqui hoje viu"
+    av = runner.avaliar(fixture, _captura(texto_final=longa))
+    assert not av.passou
+    assert any("max_chars" in f for f in av.falhas)
+    # bolha curta de abertura passa o teto
+    assert runner.avaliar(fixture, _captura(texto_final="oi amor")).passou
+
+
+def test_voz_fala_limpa_passa():
+    # ancora anti-vacuo: uma fala real da persona passa por TODOS os graders de voz.
+    fixture = {"id": "v.ok", "expectativas": {}}
+    cap = _captura(texto_final="oii\n\npode sim amor\n\nfica R$1.500 a hora")
+    assert runner.avaliar(fixture, cap).passou
+
+
+def test_validar_voz_persona_puro():
+    # limpo
+    assert runner.validar_voz_persona("oii amor, fica R$1.500 a hora") == []
+    # tom corporativo (adverbio formal + frase de atendente)
+    assert any("tom corporativo" in f for f in runner.validar_voz_persona("absolutamente, querido"))
+    assert any("tom corporativo" in f for f in runner.validar_voz_persona("em que posso te ajudar"))
+    # asterisco-acao
+    assert any("asterisco" in f for f in runner.validar_voz_persona("*pensa* deixa eu ver"))
+    # giria masculina inequivoca
+    assert any("giria" in f for f in runner.validar_voz_persona("sussa, ate mais"))
+    # formato de valor: espaco, cifrao nu, virgula
+    assert any("formato de valor" in f for f in runner.validar_voz_persona("R$ 1.500"))
+    assert any("formato de valor" in f for f in runner.validar_voz_persona("custa $1500"))
+    assert any("formato de valor" in f for f in runner.validar_voz_persona("custa R$1,500"))
+    # R$ canonico nao reprova
+    assert runner.validar_voz_persona("custa R$1.500") == []
+
+
 # --- escalada determinista == "escalar" (EVAL-01: handoff do intercept_disclosure) -------------
 
 

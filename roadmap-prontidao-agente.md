@@ -15,7 +15,7 @@ Estado de partida (relatório):
 
 | Eixo | Status hoje | C/P/G | Falta para Coberto |
 |---|---|---|---|
-| 1 · Persona & voz | Parcial | 6/4/0 | voz real gerada como gate (hoje só render/guarda) |
+| 1 · Persona & voz | Parcial | 6/4/0 | gate determinístico de voz sobre a fala gerada ✅ (F3.3); falta a ★API ao vivo + revisão humana |
 | 2 · FAQ & conhecimento | **Frágil** | 1/3/6 | conduta real (negativas, fetiche, over-refusal) |
 | 3 · Tool calling | Parcial | 11/2/5 | **decisão** (tool certa/proibida), não-inventar-write |
 | 4a · Trajetória atômica | Coberto | 13/1/4 | 4 gaps atômicos + timeout 45min no banco real |
@@ -389,7 +389,7 @@ Voz/persona/conduta subjetivas ficam sob revisão humana, não rubrica automáti
 |---|---|---|---|---|
 | **F3.1** ✅ (repo) | Habilitar secrets do `evals.yml` + branch protection "evals" **obrigatória** | todos ★ | job não pula em silêncio; evals barram merge | `.github/workflows/evals.yml` |
 | **F3.2** | Runner K=5 sobre as 75 fixtures (grafo real + Sonnet) roda **como gate** | 4b, FAQ, Tools | ao menos 1 corrida verde registrada como cutover; regressão reprova | `evals/runner.py` |
-| **F3.3** | Persona: checagens determinísticas de **voz sobre falas geradas** (anti tom corporativo, asterisco-ação, gíria masculina, formato R$, max_chars de abertura) | Persona | gate observa fala real gerada, não só montagem | graders de persona |
+| **F3.3** ✅ (gate determinístico) | Persona: checagens determinísticas de **voz sobre falas geradas** (anti tom corporativo, asterisco-ação, gíria masculina, formato R$, max_chars de abertura) | Persona | gate observa fala real gerada, não só montagem | graders de persona |
 | **F3.4** | FAQ conduta como gate: 8 perguntas canônicas (conteúdo obrigatório **determinístico**; conduta subjetiva = revisão humana contra golden), recusa videocall, cartão sem parcelar + taxa 10%, cota fetiche do cardápio, recusa-aberta fora-da-lista, **controle de over-refusal** | FAQ | regressão "só pix amor" / "oferece parcelado" / over-refusal reprova (no determinístico) | fixtures FAQ + runner |
 | **F3.5** ✅ (gate determinístico) | Tools decisão: ~30 cenários tools obrigatórias/proibidas como gate; extração em **modo estrito** (não fabrica args fora do schema) | Tools | "chamou a errada / não chamou a obrigatória / inventou write" reprova | fixtures tools, schema extração |
 | **F3.6** | Invariantes adversariais held-out registrado contra a IA real: piso de desconto + oferta única sob gaslighting, jailbreak, injeção, AUP, prova de humanidade | Inv. (piso) | corrida held-out verde dos ~50 adversariais; piso vira gate | fixtures gaslighting/desconto |
@@ -426,6 +426,40 @@ Inv. piso → **Coberto**.
 > esgotado (`anthropic_creditos_esgotados_prod`). Passo a passo em
 > `infra/runbooks/evals-gate-vinculante.md`. F3.1 só conta como **Coberto pleno** quando
 > essa metade for habilitada.
+
+> **Status F3.3 ✅ gate determinístico (feito, merge local):** os graders do runner observavam o
+> texto da fala só por **conteúdo opt-in** — `texto_resposta.nao_deve_conter`/`deve_conter_um_de`
+> dependiam de um autor de fixture **lembrar** de colar a lista de marcadores. A voz da persona
+> (`persona.md` `<armadilhas_de_voz>`) só era checada onde alguém pingou os termos à mão (as 3
+> fixtures `canonicos.persona.001/002/003`) — e mesmo lá o lastro subjetivo era rubrica `judge:llm`,
+> **inerte** desde o ADR 0015. F3.3 torna a voz um gate **estrutural e sempre-ligado sobre a FALA
+> GERADA** (`captura.texto_final`, a bolha que iria ao cliente — não a montagem do prompt, que a
+> F0.5 já cobre no render da FAQ): `validar_voz_persona` (PURO, sem DB/LLM) reprova as 4 quebras
+> **inequívocas** de `<armadilhas_de_voz>` — **(1) tom corporativo** (advérbios formais
+> `genuinamente/absolutamente/certamente/honestamente/diretamente` + saudação de atendente
+> `como posso te ajudar`), **(2) asterisco-ação** narrada (`*sorri*`/`*risos*`; a persona usa
+> "ahaha"), **(3) gíria masculina** e **(4) formato de valor** (canônico `R$1.500` colado; reprova
+> `R$ ` com espaço, `$1500` nu/escapado e vírgula no valor). Plugado em `avaliar()` **sempre-ligado**
+> (não opt-in, espelha o modo estrito da F3.5: uma quebra de persona é sempre erro, nunca escolha de
+> fixture; em run real só dispara se o modelo quebrou a voz). **Conservador de propósito na gíria:**
+> o `<errado>` lista `mano/cara/beleza/tipo/sussa`, mas `tipo`/`cara`/`beleza` têm uso **legítimo** em
+> PT (evidência grep: `que tipo de atendimento`, `palavras tipo "vc é IA?"` em `regras.md`/corpus) —
+> o gate sempre-ligado só flaga o **inequívoco** (`mano`/`sussa`), igual ao output_guard da F0.4
+> ("só frases que SÓ podem significar"); as ambíguas seguem disponíveis por `nao_deve_conter` nas
+> fixtures onde o contexto as desambigua (ex.: `persona.003`). O **5º item do roadmap, "max_chars de
+> abertura", já tinha rede** no grader pré-existente `texto_resposta.max_chars` (mede
+> `len(captura.texto_final)` = a fala; `persona.001` cota a abertura em 60) — duplicar viraria config
+> redundante (CLAUDE.md §2), então F3.3 **não** adiciona campo novo. **Dentes provados
+> (vermelho→verde):** TDD — as 6 checagens de reprova + o unit do `validar_voz_persona` puro falham
+> antes do grader existir; neutralizar o `falhas += validar_voz_persona(...)` em `avaliar()` deixa as
+> 5 reprovas de nível-`avaliar` vermelhas (o vínculo ao gate, não só a função pura). Âncora
+> anti-vácuo: uma fala real da persona (`oii / pode sim amor / fica R$1.500 a hora`) passa por TODOS
+> os graders. Roda no `make test` padrão (regex puro, não `needs_db`) — gate de PR de verdade,
+> espelha F0.5/F3.5. `make test`: 861 passed; mypy (`mypy src`) + ruff limpos. **★API segue
+> pendente:** ver a voz real gerada estourar os marcadores numa corrida ao vivo (grafo real + Sonnet)
+> é a outra metade — bloqueada por crédito (`anthropic_creditos_esgotados_prod`); o gate
+> determinístico de voz já está trancado. Persona → **Coberto** quando a corrida ao vivo + a revisão
+> humana contra a golden (sem judge, ADR 0015) fecharem.
 
 > **Status F3.5 ✅ gate determinístico (feito, merge local):** o runner extraía tools só por
 > **nome** (`_tools_chamadas` lê `.tool_calls` e devolve um `set[str]`) — cego aos **args** e

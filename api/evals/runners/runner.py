@@ -42,6 +42,7 @@ import json
 import math
 import os
 import random
+import re
 import sys
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
@@ -200,6 +201,59 @@ def validar_extracao_estrita(
         extras = sorted(set(args) - schemas[nome])
         if extras:
             falhas.append(f"extracao estrita: args fora do schema em {nome!r}: {extras}")
+    return falhas
+
+
+# Voz da persona (F3.3): marcadores deterministicos espelhando persona.md <armadilhas_de_voz>.
+# Fonte de verdade = os pares <errado>/<certo> da persona; nunca editar a persona p/ passar o gate.
+# Tom corporativo: adverbios formais que a persona proibe + saudacao de atendente.
+_VOZ_CORP_PALAVRAS = ("genuinamente", "absolutamente", "certamente", "honestamente", "diretamente")
+_VOZ_CORP_FRASES = ("como posso te ajudar", "como posso ajudar", "em que posso te ajudar")
+# Giria masculina: o <errado> lista mano/cara/beleza/tipo/sussa, mas "cara"/"beleza"/"tipo" tem uso
+# legitimo em PT (que TIPO de atendimento, a CARA do cliente) -- evidencia em regras.md/corpus. Por
+# isso o gate sempre-ligado so flaga o INEQUIVOCO (mano/sussa); conservador como o output_guard.
+_VOZ_GIRIA = ("mano", "sussa")
+# *acao narrada* (a persona usa "ahaha", nunca asterisco). Exige conteudo entre asteriscos.
+_VOZ_ASTERISCO = re.compile(r"\*\s*\S[^*\n]*\*")
+# Formato de valor: canonico e R$1.500 (R$ colado, ponto p/ milhar). Os 3 marcadores de erro
+# (espelhando "R\\$ 1,500.00, \\$1500, $1.500, R$ 1.500"): cifrao sem R imediatamente antes
+# (nu/escapado), R$ com espaco antes do numero, e virgula no valor. Operam no texto minusculo.
+_VOZ_VALOR_RUIM = (
+    re.compile(r"(?<!r)\$\s*\d"),  # $ / \$ sem "r" antes, seguido de numero
+    re.compile(r"r\$\s+\d"),  # R$ com espaco antes do numero
+    re.compile(r"r\$\s*[\d.]*,\d"),  # virgula no valor (BR usa ponto p/ milhar)
+)
+
+
+def validar_voz_persona(texto: str) -> list[str]:
+    """Graders deterministicos de VOZ sobre a fala gerada (F3.3), PURO -- sem DB/LLM.
+
+    Observa a bolha que iria ao cliente (`captura.texto_final`), nao a montagem do prompt: o gate
+    da F0.5 prova o RENDER da FAQ; este prova a FALA. Sempre-ligado p/ as quebras inequivocas de
+    persona.md <armadilhas_de_voz> -- tom corporativo, asterisco-acao, giria masculina, formato de
+    valor -- porque uma quebra de persona e sempre erro, nunca escolha de fixture (espelha o modo
+    estrito da F3.5; em run real so dispara se o modelo quebrou a voz). O 5o item do roadmap,
+    "max_chars de abertura", ja tem rede no grader pre-existente `texto_resposta.max_chars` (a
+    fixture de abertura `canonicos.persona.001` cota a bolha em 60); nao se duplica aqui.
+    """
+    falhas: list[str] = []
+    low = texto.lower()
+
+    corp = [p for p in _VOZ_CORP_PALAVRAS if re.search(rf"\b{p}\b", low)]
+    corp += [f for f in _VOZ_CORP_FRASES if f in low]
+    if corp:
+        falhas.append(f"voz: tom corporativo (palavra/frase de atendente): {corp}")
+
+    if _VOZ_ASTERISCO.search(texto):
+        falhas.append(f"voz: asterisco-acao narrada: {_VOZ_ASTERISCO.findall(texto)}")
+
+    giria = [g for g in _VOZ_GIRIA if re.search(rf"\b{g}\b", low)]
+    if giria:
+        falhas.append(f"voz: giria masculina (registro errado): {giria}")
+
+    if any(rx.search(low) for rx in _VOZ_VALOR_RUIM):
+        falhas.append(f"voz: formato de valor invalido (use R$1.500 colado): {texto!r}")
+
     return falhas
 
 
@@ -851,6 +905,11 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
     max_chars = texto.get("max_chars")
     if max_chars is not None and len(captura.texto_final) > max_chars:
         falhas.append(f"texto excede max_chars ({len(captura.texto_final)} > {max_chars})")
+
+    # Voz da persona (F3.3): graders sobre a FALA GERADA (captura.texto_final), nao a montagem do
+    # prompt. Sempre-ligados p/ as quebras inequivocas de <armadilhas_de_voz> -- valem para toda
+    # fixture, igual ao modo estrito da F3.5 (uma quebra de persona e sempre erro, nao opt-in).
+    falhas += validar_voz_persona(captura.texto_final)
 
     # nodes_proibidos / nodes_obrigatorios (EVAL-08): trajetoria do grafo (acumulada nos turnos).
     proibidos = set(exp.get("nodes_proibidos", []))
