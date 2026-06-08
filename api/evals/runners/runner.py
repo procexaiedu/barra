@@ -381,7 +381,82 @@ async def _seed_entidades(
             inicial.get("bairro"),
         ),
     )
+    # Agenda opcional (estado_inicial.bloqueios / .disponibilidade): seedada AQUI, na MESMA
+    # transacao do grafo, entao `now()` e estavel e compartilhado entre seed e prepare_context.
+    # Por isso bloqueios sao RELATIVOS a now() (offset_horas) em vez de timestamps absolutos: o
+    # cliente pede "daqui Nh", o agente resolve via current_timestamp (mesmo now()), e o slot bate.
+    await _seed_bloqueios(conn, modelo_id, inicial.get("bloqueios") or [])
+    await _seed_disponibilidade(conn, modelo_id, inicial.get("disponibilidade") or [])
+
     return modelo_id, atendimento_id, cliente_id, conversa_id
+
+
+async def _seed_bloqueios(
+    conn: AsyncConnection[dict[str, Any]], modelo_id: UUID, bloqueios: list[dict[str, Any]]
+) -> None:
+    """Planta bloqueios AVULSOS (atendimento_id NULL) relativos a now() (refino agenda A-01/A-05).
+
+    Cada item: {offset_horas, duracao_horas, estado?='bloqueado', origem?='ia'}. inicio/fim sao
+    computados em SQL a partir de now() (estavel na transacao) -> casam com o "daqui Nh" que o
+    agente resolve no mesmo turno. Avulso (NULL): a query de contexto das 48h o inclui
+    (atendimento_id IS DISTINCT FROM o atendimento atual), e o guard EXCLUDE de criar_bloqueio_previo
+    bate nele (conflito). Bloqueio ativo (bloqueado/em_atendimento) dentro de 48h aparece no
+    <bloqueio> do contexto; o agente recusa com desculpa pessoal sem revelar a agenda.
+    """
+    for b in bloqueios:
+        await conn.execute(
+            """
+            INSERT INTO barravips.bloqueios (modelo_id, atendimento_id, inicio, fim, origem, estado)
+            VALUES (%s, NULL,
+                    now() + (%s * interval '1 hour'),
+                    now() + ((%s + %s) * interval '1 hour'),
+                    %s::barravips.origem_bloqueio_enum,
+                    %s::barravips.estado_bloqueio_enum)
+            """,
+            (
+                modelo_id,
+                b["offset_horas"],
+                b["offset_horas"],
+                b.get("duracao_horas", 1),
+                b.get("origem", "ia"),
+                b.get("estado", "bloqueado"),
+            ),
+        )
+
+
+async def _seed_disponibilidade(
+    conn: AsyncConnection[dict[str, Any]], modelo_id: UUID, regras: list[dict[str, Any]]
+) -> None:
+    """Planta regras de periodo de trabalho relativas a HOJE-BRT (refino agenda A-02).
+
+    Cada item: {offset_dias_inicio, offset_dias_fim?=None, dia_semana(0-6 DOW), hora_inicio, hora_fim}.
+    data_inicio = hoje-BRT + offset (estavel na transacao). Uma regra cujo data_inicio cai no FUTURO
+    deixa todos os dias proximos FORA do periodo -> o agente assume folga/viagem e ancora a volta na
+    data_inicio (contexto_dinamico <periodo_de_trabalho>), em vez de inventar desculpa pessoal.
+    Sem nenhuma regra a modelo e reservavel sempre (mesmo comportamento de antes).
+    """
+    for r in regras:
+        await conn.execute(
+            """
+            INSERT INTO barravips.modelo_disponibilidade
+                (modelo_id, data_inicio, data_fim, dia_semana, hora_inicio, hora_fim)
+            VALUES (
+                %s,
+                (current_timestamp AT TIME ZONE 'America/Sao_Paulo')::date + %s,
+                CASE WHEN %s::int IS NULL THEN NULL
+                     ELSE (current_timestamp AT TIME ZONE 'America/Sao_Paulo')::date + %s::int END,
+                %s, %s::time, %s::time)
+            """,
+            (
+                modelo_id,
+                r["offset_dias_inicio"],
+                r.get("offset_dias_fim"),
+                r.get("offset_dias_fim"),
+                r["dia_semana"],
+                r["hora_inicio"],
+                r["hora_fim"],
+            ),
+        )
 
 
 async def _seed_par_b_canary(
@@ -1005,6 +1080,12 @@ def main() -> None:
         action="store_true",
         help="imprime no stderr, por fixture, a Captura (tools+args, texto, estado) p/ diagnostico.",
     )
+    parser.add_argument(
+        "--id",
+        action="append",
+        help="roda so as fixtures cujo id contem esta substring (repetivel). Para validar um "
+        "subconjunto sem re-rodar a suite inteira (e queimar credito).",
+    )
     args = parser.parse_args()
 
     # psycopg async pendura no ProactorEventLoop (default Windows) -> Selector antes do loop.
@@ -1012,6 +1093,8 @@ def main() -> None:
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
     fixtures = carregar_fixtures(subdirs=args.subdir)
+    if args.id:
+        fixtures = [f for f in fixtures if any(s in f.get("id", "") for s in args.id)]
     if not fixtures:
         print("Nenhuma fixture encontrada.", file=sys.stderr)
         raise SystemExit(2)
