@@ -4,8 +4,9 @@ Roda no caminho normal de saida (depois do post_process). Recebe o texto final d
 duas etapas, decide se a bolha pode seguir:
 
 - Etapa 1 (deterministica, barata, sempre): scan de vazamento no TEXTO DE SAIDA -- auto-referencia
-  de IA / nome de LLM, fragmento de system/persona, e dado de OUTRA modelo (nome/numero de modelos
-  que nao a do par). Match -> bloqueia.
+  de IA / nome de LLM, fragmento de system/persona, segredo da agenda (revelar estar com outro
+  cliente / em outro atendimento, em vez da desculpa pessoal), e dado de OUTRA modelo (nome/numero
+  de modelos que nao a do par). Match -> bloqueia.
 - Etapa 2 (LLM-judge de AUP, vinculante): so quando a Etapa 1 passa e o texto NAO e uma negacao
   canned (pool curado pula a Etapa 2). Prompt em `prompts/aup_saida.md` (fora do prefixo cacheado
   por-modelo). Violou -> bloqueia. Falha de infra do judge -> DEFAULT SEGURO: bloqueia+escala.
@@ -63,6 +64,22 @@ _MARCADORES_IA = re.compile(
 _MARCADORES_SYSTEM = re.compile(
     r"(</?persona>|<desconto>|</?regras?>|</?faq>|\[system\]"
     r"|prompt do sistema|system prompt|minhas instru[çc][õo]es|instru[çc][õo]es acima)",
+    re.IGNORECASE,
+)
+# Etapa 1 -- segredo da agenda: a IA recusa horario em bloqueio com DESCULPA PESSOAL (salao,
+# jantar, balada) e NUNCA revela que esta com outro cliente / em outro atendimento (CONTEXT.md
+# "Agenda — comportamento da IA"). Os scans acima nao pegam essa admissao; aqui casamos as
+# n-gramas inequivocas do vazamento. Conservador de proposito (so frases que so podem significar
+# "com outro cliente"): a assimetria favorece barrar -- falso-positivo vira handoff (seguro),
+# enquanto o vazamento e irreversivel uma vez enviado.
+_MARCADORES_OUTRO_CLIENTE = re.compile(
+    r"\b("
+    r"outr[oa]s? clientes?"
+    r"|com (um|uma|outr[oa]|mais um[a]?) cliente"
+    r"|(t[ôo]|estou|tenho|t[ôo] com|estou com) (um |uma |o |a |outr[oa] )?cliente"
+    r"|(em|num|noutro|outro|nesse|neste) atendimento"
+    r"|atendendo (outr[oa]|um|uma|mais um|algu[ée]m|outr[oa] pessoa|cliente)"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -141,11 +158,16 @@ def tem_marcador_ia(texto: str) -> bool:
 
 
 def _scan_vazamento(texto: str, termos_cross: list[str]) -> str | None:
-    """Etapa 1 (PURA): devolve o motivo do vazamento ou None. Ordem: ia_self > system > cross."""
+    """Etapa 1 (PURA): devolve o motivo do vazamento ou None.
+
+    Ordem: ia_self > system > outro_cliente > cross.
+    """
     if tem_marcador_ia(texto):
         return "ia_self"
     if _MARCADORES_SYSTEM.search(texto):
         return "system"
+    if _MARCADORES_OUTRO_CLIENTE.search(texto):
+        return "outro_cliente"
     alvo = texto.lower()
     for termo in termos_cross:
         if re.search(rf"\b{re.escape(termo.lower())}\b", alvo):
