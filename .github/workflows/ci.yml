@@ -23,15 +23,49 @@ jobs:
     defaults:
       run:
         working-directory: api
+    # F0.1: Postgres efemero (service container) p/ os testes needs_db rodarem de
+    # verdade a cada PR — FOR UPDATE + agregacao contra Postgres real, sem tocar o
+    # banco de producao. postgres:15 espelha a versao do Supabase em prod (15.8).
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: barra
+          POSTGRES_PASSWORD: barra
+          POSTGRES_DB: barra_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Aponta p/ o service container local (NAO prod). Com TEST_DATABASE_URL
+      # setado, o conftest deixa de pular os needs_db. DATABASE_URL e p/ o make
+      # migrate aplicar o schema; o conftest zera DATABASE_URL dentro do pytest.
+      DATABASE_URL: postgresql://barra:barra@localhost:5432/barra_test
+      TEST_DATABASE_URL: postgresql://barra:barra@localhost:5432/barra_test
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - run: uv sync --frozen
       - run: uv run mypy src
+      # Postgres limpo nao tem o que o Supabase provê em prod (auth.users, roles,
+      # publication supabase_realtime). O bootstrap stuba isso antes do schema.
+      # psql ja vem no runner ubuntu-latest (postgresql-client).
+      - name: bootstrap Supabase no Postgres efemero
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f ../infra/sql/ci/bootstrap_supabase.sql
+      # Aplica so o SCHEMA (infra/sql/*.sql sem os *seed*) no Postgres efemero antes
+      # do pytest. Os needs_db semeiam os proprios dados (rollback por teste), entao
+      # os seeds descartaveis ficam de fora — CI limpo, sem o FK seed->auth.users.
+      - name: aplica schema no Postgres efemero
+        run: make migrate
+        env:
+          MIGRATE_SKIP_SEEDS: "1"
       - run: uv run pytest
       # DEPLOY-05/06: drift-check estatico das migrations (naming + sequencia
-      # NNNN sem buraco). Sem banco no CI, entao so a parte estatica roda aqui;
-      # o drift repo x schema_migrations e passo do operador (runbook).
+      # NNNN sem buraco). O drift repo x schema_migrations e passo do operador (runbook).
       - name: drift-check de migrations
         run: uv run python ../scripts/verificar_migrations.py
 
