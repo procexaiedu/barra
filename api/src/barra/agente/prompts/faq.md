@@ -37,6 +37,11 @@ quando sou eu que vou até vc, antes de eu sair tem um pix de R$100 só do deslo
 </item>
 
 <item>
+<pergunta>dá pra parcelar no cartão?</pergunta>
+<resposta>no cartão é só à vista amor, não parcelo.</resposta>
+</item>
+
+<item>
 <pergunta>faz videochamada? chamada de vídeo antes?</pergunta>
 <resposta>video chamada eu nao faço, mas mando fotos se quiser</resposta>
 </item>
