@@ -1,6 +1,49 @@
 # CLAUDE.md
 
-**Porta de entrada do domínio:** @CONTEXT.md (vocabulário, termos da operação Elite Baby e o que evitar). Consulte antes de qualquer mudança — mas a autoridade final segue a precedência abaixo.
+**Porta de entrada do domínio:** @CONTEXT.md (vocabulário, termos da operação Elite Baby e o que evitar). 
+
+## Agent skills
+
+### Issue tracker
+
+Issues e PRDs vivem como GitHub issues em `procexaiedu/barra`, via `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Cinco papéis canônicos de triagem mapeados 1:1 para labels do GitHub (defaults). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` na raiz do repo. See `docs/agents/domain.md`.
+
+## 0. Segurança em Produção
+
+**Nenhuma ação que atinja produção sem autorização explícita minha, frase a frase.**
+
+São ações que **atingem produção** (lista não exaustiva):
+- Mensagem real no WhatsApp (Evolution prod) ou qualquer envio que chegue a um cliente/grupo real.
+- Gasto de crédito Anthropic real (`make test-llm`, rodar o agente/evals ao vivo, geração de conversas com cliente-LLM).
+- Escrita no banco de produção: `ALTER`/`INSERT`/`UPDATE`/`DELETE`, migrations, `pg_execute_mutation`/`pg_execute_sql` mutável. **`make migrate` contra prod é proibido** (aplica seeds).
+- Deploy/infra: `StackGitRedeploy`, `StackUpdate`, `service update --force`, qualquer coisa no Portainer que reinicie ou redeploye a stack `barra-vips` (⚠️ redeploy git sem `Env` zera os segredos e derruba prod).
+- `git push`/`delete` em `origin`.
+
+Antes de qualquer uma delas: **liste o que vai tocar prod e pare.** Só executo após autorização inequívoca.
+
+**Frase canônica de autorização — desambigua o "eu aplico":**
+- `pode aplicar em prod` / `aplique em prod` / `manda ver em prod` = **eu (Claude) executo.**
+- `eu aplico` / `eu rodo` / `eu faço via MCP` = **você faz; eu NÃO executo** — preparo o artefato e paro.
+
+Na dúvida sobre quem executa, **pergunto** em vez de assumir.
+
+### Gate de verificação antes de push/deploy
+
+**Nada vai para `origin` ou prod sem o gate verde.** Antes de `git push` ou qualquer deploy:
+
+1. **Lint** — `make lint` (api) e/ou `pnpm lint` (interface).
+2. **Build** — `pnpm build` no frontend; `make typecheck` no backend.
+3. **Testes** — `make test`; e quando a mudança tocar código de banco, rode também os `needs_db` contra o DB real (`TEST_DATABASE_URL`), não só o subconjunto que roda no CI.
+
+Só empurra com **tudo verde**. Falhou um passo → pare, relate a saída, não empurre. (`make test-llm` e evals ao vivo consomem crédito e caem na regra de prod da seção 0 — pedem autorização à parte.)
 
 ## 1. Pense Antes de Codificar
 
@@ -100,7 +143,6 @@ Monorepo plano. Árvore orientativa — pastas novas podem existir sem estar lis
 
 ```
 barra/
-├── AGENTS.md
 ├── CLAUDE.md
 ├── CONTEXT.md
 ├── docs/
@@ -115,7 +157,7 @@ barra/
 │   │   │   ├── db.py, redis.py, storage.py, llm.py, evolution.py
 │   │   │   ├── errors.py, auth.py, metrics.py, logging.py, tracing.py
 │   │   ├── agente/             # LangGraph
-│   │   │   ├── graph.py, estado.py, humanizacao.py, classificador.py
+│   │   │   ├── graph.py, estado.py, classificador.py, contexto.py, persona.py, llm.py
 │   │   │   ├── prompts/       # persona.md, faq.md, regras.md
 │   │   │   ├── nos/, ferramentas/
 │   │   ├── dominio/            # bounded contexts — cada pasta: routes, service, repo, modelos, schemas
@@ -127,11 +169,15 @@ barra/
 │   │   │   ├── pix/
 │   │   │   ├── escaladas/
 │   │   │   ├── eventos/
-│   │   │   └── dashboard/
+│   │   │   ├── dashboard/
+│   │   │   ├── financeiro/
+│   │   │   ├── painel/
+│   │   │   └── tarefas/
 │   │   ├── webhook/            # Evolution — token, allowlist, debounce; não é REST público
 │   │   │   ├── routes.py, parser.py, filtro.py, debounce.py, despacho.py
 │   │   ├── workers/            # ARQ
 │   │   │   ├── settings.py, envio.py, timeouts.py, media.py, pix.py
+│   │   ├── calibracao/         # rotuladores, golden, runner de evals
 │   │   └── api/                # deps.py, v1.py
 │   ├── tests/
 │   └── evals/
@@ -139,7 +185,7 @@ barra/
 │   ├── src/app/
 │   │   ├── layout.tsx, page.tsx, globals.css
 │   │   ├── (auth)/login/
-│   │   └── (interface)/        # interface, atendimentos, agenda, crm, modelos, pix, dashboard
+│   │   └── (interface)/        # atendimentos, agenda, clientes, modelos, pix, dashboard, financeiro, tarefas, calibracao
 │   ├── src/components/ui/
 │   ├── src/lib/
 │   └── src/tipos/              # gerado a partir do OpenAPI (script planejado)
@@ -154,7 +200,7 @@ barra/
 
 ## Stack
 
-- `api/` — Python 3.12 + uv, FastAPI 0.136, LangGraph 0.4 (compila **sem checkpointer** no P0 — ver `agente/graph.py`; `AsyncPostgresSaver` reservado p/ P1), ARQ workers, psycopg3 puro (sem ORM — ver ADR 0002), Anthropic SDK 0.42 com prompt caching.
+- `api/` — Python 3.12 + uv, FastAPI 0.136, LangGraph 1.1 (compila **sem checkpointer** no P0 — ver `agente/graph.py`; `AsyncPostgresSaver` reservado p/ P1), ARQ workers, psycopg3 puro (sem ORM — ver ADR 0002), langchain-anthropic 1.4 (ChatAnthropic) sobre Anthropic SDK 0.97, com prompt caching.
 - `interface/` — Next.js 16.2 (App Router), Tailwind v4, shadcn/ui (data-slot pattern), pnpm.
 - Infra — Supabase self-hosted (Postgres + Auth), MinIO + Redis + Evolution API self-host via Portainer 2.39, Traefik.
 
@@ -168,9 +214,11 @@ Backend (a partir de `api/`):
 - `make dev` — sobe a FastAPI (`python -m barra`; seta `WindowsSelectorEventLoopPolicy` antes do loop). **No Windows não use `uvicorn` cru** — pendura no ProactorEventLoop (500 no que toca o banco).
 - `make worker` — ARQ worker
 - `make test` — pytest
+- `make test-llm` — testes que batem na API real (consome crédito Anthropic)
 - `make lint` / `make format` — ruff
 - `make typecheck` — mypy src (rode antes de PR)
 - `make migrate` — aplica `infra/sql/`
+- `make evals` — gate de evals do agente
 - `uv sync` — instala/atualiza deps
 
 Frontend (a partir de `interface/`):
