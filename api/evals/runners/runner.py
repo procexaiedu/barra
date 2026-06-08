@@ -57,10 +57,18 @@ from psycopg.rows import dict_row
 
 from barra.agente._custo import calcular_custo_brl
 from barra.agente.contexto import ContextAgente
+from barra.agente.ferramentas import TOOLS
 from barra.agente.graph import build_graph
 from barra.settings import get_settings
 
 _EVALS_RAIZ = Path(__file__).resolve().parents[1]
+
+# Catalogo real de tools do agente -> nomes validos + args validos por tool (F3.5). Extracao
+# em modo estrito: uma tool_call cujo NOME nao esta aqui (alucinacao/write inventado) ou cujos
+# ARGS tem chave fora deste schema = extracao fabricada -> reprova. `BaseTool.args` devolve as
+# propriedades do input_schema (= nomes de arg aceitos). Congelado no import, espelha a constante
+# de modulo `ferramentas.TOOLS` (proibido subsetting por modelo -- agente/CLAUDE.md).
+_SCHEMAS_TOOLS: dict[str, set[str]] = {t.name: set(t.args.keys()) for t in TOOLS}
 
 # Os 6 nos do grafo (graph.py). O LangGraph emite on_chain_start para muitos subrunnables
 # internos; filtramos por este conjunto para registrar SO transicoes de no (EVAL-08). O
@@ -127,6 +135,12 @@ class Captura:
     # Taxa de acerto de cache do turno = cache_read / input_total (rubrica `cache_hit_rate_minimo`,
     # so nas fixtures de `cache_hit/`). None = sem usage medivel -> grader nao aplica.
     cache_hit_rate: float | None = None
+    # Detalhe das tool_calls do turno p/ a extracao em modo estrito (F3.5): cada item
+    # {name, args, valido}. `valido=False` = entrada de `invalid_tool_calls` (langchain nao casou
+    # os args contra o schema). `validar_extracao_estrita` reprova nome fora do catalogo (write
+    # inventado), arg fora do schema e tool_call invalida. So olhar `tools_chamadas` (set de nomes)
+    # cega a fabricacao de args e descarta as invalidas silenciosamente.
+    tool_calls_detalhe: list[dict[str, Any]] = field(default_factory=list)
 
 
 def _tools_chamadas(mensagens: list[BaseMessage]) -> set[str]:
@@ -140,6 +154,53 @@ def _tools_chamadas(mensagens: list[BaseMessage]) -> set[str]:
         if isinstance(m, ToolMessage) and m.name:
             nomes.add(m.name)
     return nomes
+
+
+def _tool_calls_detalhe(mensagens: list[BaseMessage]) -> list[dict[str, Any]]:
+    """Extrai cada tool_call do turno com nome+args+validade, p/ a extracao estrita (F3.5).
+
+    Le `.tool_calls` (parseadas OK contra o schema -> valido=True) E `.invalid_tool_calls`
+    (langchain nao casou os args/JSON -> valido=False). `_tools_chamadas` ignora as invalidas e
+    descarta os args -- um write alucinado (tool inexistente) ou com arg fabricado entraria como
+    invalid_tool_call e passaria batido. Aqui ele e preservado p/ `validar_extracao_estrita`.
+    """
+    detalhe: list[dict[str, Any]] = []
+    for m in mensagens:
+        for tc in getattr(m, "tool_calls", None) or []:
+            detalhe.append({"name": tc.get("name"), "args": tc.get("args") or {}, "valido": True})
+        for tc in getattr(m, "invalid_tool_calls", None) or []:
+            detalhe.append({"name": tc.get("name"), "args": tc.get("args"), "valido": False})
+    return detalhe
+
+
+def validar_extracao_estrita(
+    tool_calls_detalhe: list[dict[str, Any]],
+    schemas: dict[str, set[str]] | None = None,
+) -> list[str]:
+    """Modo estrito de extracao (F3.5): reprova tool_call fabricada (PURO, sem DB/LLM).
+
+    Tres falhas, uma por tool_call ofensora:
+    - `valido=False` -> a Anthropic/langchain nao casou os args contra o schema (== "args fora do
+      schema"); reprova mesmo o nome sendo de uma tool real.
+    - nome fora do catalogo -> tool inventada (write alucinado); a IA nunca pode acionar uma tool
+      que nao existe no prefixo congelado.
+    - arg de topo fora do schema da tool -> extracao fabricou um campo que a tool nao aceita.
+    """
+    schemas = _SCHEMAS_TOOLS if schemas is None else schemas
+    falhas: list[str] = []
+    for tc in tool_calls_detalhe:
+        nome = tc.get("name")
+        if not tc.get("valido", True):
+            falhas.append(f"extracao estrita: tool_call invalida (args fora do schema): {nome!r}")
+            continue
+        if nome not in schemas:
+            falhas.append(f"extracao estrita: tool fora do catalogo (inventada): {nome!r}")
+            continue
+        args = tc.get("args") or {}
+        extras = sorted(set(args) - schemas[nome])
+        if extras:
+            falhas.append(f"extracao estrita: args fora do schema em {nome!r}: {extras}")
+    return falhas
 
 
 def _agregar_usage(mensagens: list[BaseMessage]) -> dict[str, Any]:
@@ -609,6 +670,7 @@ async def _capturar(
         superficie_auditavel=_superficie_auditavel(estado["messages"]),
         custo_brl=custo_brl,
         cache_hit_rate=_cache_hit_rate(usage),
+        tool_calls_detalhe=_tool_calls_detalhe(estado["messages"]),
     )
 
 
@@ -687,6 +749,10 @@ class Avaliacao:
     # Refino 08b §3.5: somar >=6 fixtures/categoria como blocker deixaria o CI vermelho perpetuo;
     # adversariais nascem capability e o operador as gradua (gate:"regressao") apos o run live.
     gate: str = "regressao"
+    # F3.7: o teto de custo (`metricas.max_custo_brl`) e GUARDRAIL (eixo 7), nao comportamento. Um
+    # estouro e VINCULANTE -- bloqueia o cutover mesmo numa fixture `capability` (cujas falhas de
+    # comportamento sao advisory). `particionar_gate` trata custo_estourado como bloqueante.
+    custo_estourado: bool = False
 
 
 def _comparar_state(state_check: dict[str, Any], captura: Captura, prefixo: str = "") -> list[str]:
@@ -762,6 +828,11 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
     if chamou_proibida:
         falhas.append(f"tool_calls_proibidas chamadas: {sorted(chamou_proibida)}")
 
+    # Extracao em modo estrito (F3.5): sempre-ligado, nao opt-in -- uma tool fabricada (nome fora
+    # do catalogo / arg fora do schema / tool_call invalida) e sempre erro, nunca uma escolha de
+    # fixture. Em run real isso so dispara se o modelo alucinou; o gate o transforma em reprova.
+    falhas += validar_extracao_estrita(captura.tool_calls_detalhe)
+
     texto = exp.get("texto_resposta", {})
     alvo = captura.texto_final.lower()
     vazados = [t for t in texto.get("nao_deve_conter", []) if t.lower() in alvo]
@@ -804,7 +875,10 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
     # nao aplica. Regressao de custo (cache miss explodido) reprova mesmo com a resposta correta.
     metricas = exp.get("metricas") or {}
     max_custo = metricas.get("max_custo_brl")
-    if max_custo is not None and captura.custo_brl is not None and captura.custo_brl > max_custo:
+    custo_estourado = (
+        max_custo is not None and captura.custo_brl is not None and captura.custo_brl > max_custo
+    )
+    if custo_estourado:
         falhas.append(
             f"custo do turno excede max_custo_brl (R${captura.custo_brl:.4f} > R${max_custo})"
         )
@@ -824,6 +898,7 @@ def avaliar(fixture: dict[str, Any], captura: Captura) -> Avaliacao:
         falhas=falhas,
         categoria=fixture.get("categoria", ""),
         gate=_gate_da_fixture(fixture),
+        custo_estourado=custo_estourado,
     )
 
 
@@ -872,7 +947,17 @@ def _colapsar_fixture(fid: str, grupo: list[Avaliacao]) -> Avaliacao:
                 falhas.append(f)
     if k > 1 and falhas:
         falhas = [f"({n_pass}/{k} amostras ok) {f}" for f in falhas]
-    return Avaliacao(id=fid, passou=passou, falhas=falhas, categoria=categoria, gate=gate_fx)
+    # custo_estourado e VINCULANTE (F3.7): se QUALQUER amostra estourou o teto, a fixture o
+    # carrega -- o guardrail bloqueia mesmo que a maioria das amostras tenha ficado no teto.
+    custo_estourado = any(a.custo_estourado for a in grupo)
+    return Avaliacao(
+        id=fid,
+        passou=passou,
+        falhas=falhas,
+        categoria=categoria,
+        gate=gate_fx,
+        custo_estourado=custo_estourado,
+    )
 
 
 def agregar_por_fixture(avaliacoes: list[Avaliacao]) -> list[Avaliacao]:
@@ -899,10 +984,15 @@ def gate(avaliacoes: list[Avaliacao], threshold: float = 1.0) -> int:
 
 
 def particionar_gate(avaliacoes: list[Avaliacao]) -> tuple[list[Avaliacao], list[Avaliacao]]:
-    """Separa (regressao_bloqueante, capability_advisory) por fixture (PURO; refino 08b §3.5)."""
-    regressao = [a for a in avaliacoes if a.gate == "regressao"]
-    capability = [a for a in avaliacoes if a.gate != "regressao"]
-    return regressao, capability
+    """Separa (regressao_bloqueante, capability_advisory) por fixture (PURO; refino 08b §3.5).
+
+    F3.7: um estouro de teto de custo (`custo_estourado`) e VINCULANTE -- a fixture entra no balde
+    bloqueante mesmo classificada como `capability`. Custo e guardrail (eixo 7), nao comportamento
+    em maturacao: nao pode ser advisory.
+    """
+    bloqueante = [a for a in avaliacoes if a.gate == "regressao" or a.custo_estourado]
+    advisory = [a for a in avaliacoes if a.gate != "regressao" and not a.custo_estourado]
+    return bloqueante, advisory
 
 
 def gate_split(avaliacoes: list[Avaliacao], threshold: float = 1.0) -> int:

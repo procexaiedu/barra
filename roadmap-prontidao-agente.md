@@ -391,9 +391,9 @@ Voz/persona/conduta subjetivas ficam sob revisão humana, não rubrica automáti
 | **F3.2** | Runner K=5 sobre as 75 fixtures (grafo real + Sonnet) roda **como gate** | 4b, FAQ, Tools | ao menos 1 corrida verde registrada como cutover; regressão reprova | `evals/runner.py` |
 | **F3.3** | Persona: checagens determinísticas de **voz sobre falas geradas** (anti tom corporativo, asterisco-ação, gíria masculina, formato R$, max_chars de abertura) | Persona | gate observa fala real gerada, não só montagem | graders de persona |
 | **F3.4** | FAQ conduta como gate: 8 perguntas canônicas (conteúdo obrigatório **determinístico**; conduta subjetiva = revisão humana contra golden), recusa videocall, cartão sem parcelar + taxa 10%, cota fetiche do cardápio, recusa-aberta fora-da-lista, **controle de over-refusal** | FAQ | regressão "só pix amor" / "oferece parcelado" / over-refusal reprova (no determinístico) | fixtures FAQ + runner |
-| **F3.5** | Tools decisão: ~30 cenários tools obrigatórias/proibidas como gate; extração em **modo estrito** (não fabrica args fora do schema) | Tools | "chamou a errada / não chamou a obrigatória / inventou write" reprova | fixtures tools, schema extração |
+| **F3.5** ✅ (gate determinístico) | Tools decisão: ~30 cenários tools obrigatórias/proibidas como gate; extração em **modo estrito** (não fabrica args fora do schema) | Tools | "chamou a errada / não chamou a obrigatória / inventou write" reprova | fixtures tools, schema extração |
 | **F3.6** | Invariantes adversariais held-out registrado contra a IA real: piso de desconto + oferta única sob gaslighting, jailbreak, injeção, AUP, prova de humanidade | Inv. (piso) | corrida held-out verde dos ~50 adversariais; piso vira gate | fixtures gaslighting/desconto |
-| **F3.7** | `max_custo_brl` por fixture vira gate **vinculante** | Guardrails | fixture acima do teto de custo reprova | runner, `max_custo_brl` |
+| **F3.7** ✅ (gate determinístico) | `max_custo_brl` por fixture vira gate **vinculante** | Guardrails | fixture acima do teto de custo reprova | runner, `max_custo_brl` |
 
 **Saída da Fase 3:** Persona → **Coberto**; FAQ → **Coberto**; Tools → **Coberto**;
 Inv. piso → **Coberto**.
@@ -426,6 +426,50 @@ Inv. piso → **Coberto**.
 > esgotado (`anthropic_creditos_esgotados_prod`). Passo a passo em
 > `infra/runbooks/evals-gate-vinculante.md`. F3.1 só conta como **Coberto pleno** quando
 > essa metade for habilitada.
+
+> **Status F3.5 ✅ gate determinístico (feito, merge local):** o runner extraía tools só por
+> **nome** (`_tools_chamadas` lê `.tool_calls` e devolve um `set[str]`) — cego aos **args** e
+> descartando `invalid_tool_calls` em silêncio. Um write alucinado (tool fora do catálogo, ex.
+> `registrar_pagamento`) ou uma tool real com **arg fabricado fora do schema** entrava como
+> `invalid_tool_call` e **passava batido**: os graders `tool_calls_obrigatorias/proibidas` nunca
+> o viam → falso-PASS. F3.5 fecha isso com a **extração em modo estrito** (`validar_extracao_estrita`,
+> PURO): congela o catálogo real no import (`_SCHEMAS_TOOLS = {t.name: set(t.args.keys()) for t in
+> ferramentas.TOOLS}` — as 5 tools P0, `BaseTool.args` = nomes de arg aceitos) e reprova três
+> formas de extração fabricada — **(1)** nome fora do catálogo (write inventado), **(2)** arg de
+> topo fora do schema da tool, **(3)** `invalid_tool_call` (a Anthropic/langchain não casou os args
+> contra o schema = "args fora do schema"). `_capturar` agora popula `Captura.tool_calls_detalhe`
+> (nome+args+validade, lendo `.tool_calls` E `.invalid_tool_calls`) e `avaliar` chama o grader
+> **sempre-ligado** (não opt-in — uma tool fabricada é sempre erro, nunca escolha de fixture; em
+> run real só dispara se o modelo alucinou). "chamou a errada / não chamou a obrigatória" seguem
+> nos graders `proibidas/obrigatorias` pré-existentes; F3.5 adiciona o "inventou write/arg".
+> **Dentes provados (vermelho→verde):** sem o grader, capturas com arg fora do schema / write
+> inventado / tool_call inválida passavam (`avaliar` retornava `passou=True`); com o modo estrito,
+> reprovam — 7 casos novos em `tests/evals/test_runner_gate.py` (incl. unit do `validar_extracao_estrita`
+> puro, da extração de `_tool_calls_detalhe` e da âncora anti-vácuo do `_SCHEMAS_TOOLS` = catálogo
+> real). Roda no `make test` padrão (PURO, sem DB/LLM) — gate de PR de verdade. `make test`: 851
+> passed; mypy (`mypy src`) + ruff limpos. **★API segue pendente:** a corrida ao vivo das ~30
+> fixtures de decisão (grafo real + Sonnet) é a outra metade de F3.5 — bloqueada por crédito
+> Anthropic (`anthropic_creditos_esgotados_prod`); o gate determinístico de schema já está trancado.
+
+> **Status F3.7 ✅ gate determinístico (feito, merge local):** o runner **já** calculava o custo
+> por turno (`_capturar` → `_agregar_usage` + `calcular_custo_brl`) e `avaliar` já reprovava
+> `custo_brl > metricas.max_custo_brl` — mas o estouro **não era vinculante**: `gate_split` (o gate
+> de cutover, exit-code do `main`) só conta a suíte de **regressão**; numa fixture `capability`
+> (adversariais, advisory por comportamento em maturação) o estouro de custo era **silenciosamente
+> ignorado** (não bloqueava o merge). Custo é **guardrail** (eixo 7), não comportamento — não pode
+> ser advisory. F3.7 torna o teto **vinculante**: `avaliar` marca `Avaliacao.custo_estourado`
+> (distinto das demais falhas), `_colapsar_fixture` o propaga pela agregação por fixture (qualquer
+> amostra que estourou carimba a fixture) e `particionar_gate` move a fixture para o balde
+> **bloqueante** quando `custo_estourado`, mesmo classificada `capability`. O vínculo é **específico
+> de custo**: uma capability que falha por **comportamento** (não custo) segue advisory e não
+> bloqueia (guard provado em teste). **Dentes provados (vermelho→verde):** uma fixture adversariais
+> (capability) acima do teto + uma regressão que passa → `gate_split` devolvia **0** (cutover
+> passava, ignorando a capability); com o vínculo devolve **1** (bloqueia) — 4 casos novos em
+> `tests/evals/test_runner_gate.py` (marca, vínculo em capability, sobrevivência à agregação, guard
+> do comportamento-não-custo). Roda no `make test` padrão (PURO) — gate de PR de verdade. `make
+> test`: 851 passed; mypy + ruff limpos. **★API segue pendente:** ver o custo real estourar numa
+> corrida ao vivo é a outra metade — bloqueada por crédito (`anthropic_creditos_esgotados_prod`); a
+> lógica do gate vinculante já está trancada determinística.
 
 ---
 

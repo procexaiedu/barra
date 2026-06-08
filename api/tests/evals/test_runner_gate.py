@@ -127,6 +127,113 @@ def test_rubrica_llm_e_ignorada():
     assert av.passou
 
 
+# --- F3.5: extracao em modo estrito (args fora do schema / write inventado) --------------------
+
+
+def test_extracao_estrita_arg_fora_do_schema_reprova():
+    # registrar_extracao so aceita `payload`; um arg fora do schema = extracao fabricada -> reprova.
+    fixture = {"id": "e3.1", "expectativas": {}}
+    cap = _captura(
+        tool_calls_detalhe=[
+            {
+                "name": "registrar_extracao",
+                "args": {"payload": {}, "valor_inventado": 9999},
+                "valido": True,
+            }
+        ]
+    )
+    av = runner.avaliar(fixture, cap)
+    assert not av.passou
+    assert any("fora do schema" in f for f in av.falhas)
+
+
+def test_extracao_estrita_write_inventado_reprova():
+    # tool de escrita que nao existe no catalogo (alucinacao) -> rejeitada pelo modo estrito.
+    fixture = {"id": "e3.2", "expectativas": {}}
+    cap = _captura(
+        tool_calls_detalhe=[
+            {"name": "registrar_pagamento", "args": {"valor": 1500}, "valido": True}
+        ]
+    )
+    av = runner.avaliar(fixture, cap)
+    assert not av.passou
+    assert any("inventada" in f or "catalogo" in f for f in av.falhas)
+
+
+def test_extracao_estrita_tool_call_invalida_reprova():
+    # tool_call que o parser nao casou contra o schema (langchain: invalid_tool_calls) -> reprova,
+    # mesmo o nome sendo de uma tool real. E exatamente "args fora do schema" da Anthropic.
+    fixture = {"id": "e3.3", "expectativas": {}}
+    cap = _captura(tool_calls_detalhe=[{"name": "escalar", "args": "{motivo: ", "valido": False}])
+    av = runner.avaliar(fixture, cap)
+    assert not av.passou
+    assert any("invalid" in f.lower() for f in av.falhas)
+
+
+def test_extracao_estrita_args_validos_passa():
+    # tool real com args dentro do schema -> nao reprova pela extracao estrita.
+    fixture = {"id": "e3.4", "expectativas": {}}
+    cap = _captura(
+        tool_calls_detalhe=[
+            {
+                "name": "consultar_agenda",
+                "args": {"data_inicio": "2026-06-09", "data_fim": "2026-06-10"},
+                "valido": True,
+            }
+        ]
+    )
+    assert runner.avaliar(fixture, cap).passou
+
+
+def test_validar_extracao_estrita_puro():
+    schemas = {"escalar": {"motivo", "resumo_operacional", "acao_esperada"}}
+    # limpo: args subconjunto do schema
+    assert (
+        runner.validar_extracao_estrita(
+            [{"name": "escalar", "args": {"motivo": "x"}, "valido": True}], schemas
+        )
+        == []
+    )
+    # arg extra
+    f = runner.validar_extracao_estrita(
+        [{"name": "escalar", "args": {"motivo": "x", "lixo": 1}, "valido": True}], schemas
+    )
+    assert len(f) == 1 and "fora do schema" in f[0]
+    # tool fora do catalogo
+    f = runner.validar_extracao_estrita(
+        [{"name": "tool_fantasma", "args": {}, "valido": True}], schemas
+    )
+    assert len(f) == 1 and ("inventada" in f[0] or "catalogo" in f[0])
+
+
+def test_tool_calls_detalhe_extrai_validas_e_invalidas():
+    # extrai tanto .tool_calls (validas) quanto .invalid_tool_calls (parser falhou no schema).
+    class _Msg:
+        def __init__(self, tool_calls=None, invalid=None):
+            self.tool_calls = tool_calls or []
+            self.invalid_tool_calls = invalid or []
+
+    msgs = [
+        _Msg(tool_calls=[{"name": "consultar_agenda", "args": {"data_inicio": "x"}}]),
+        _Msg(invalid=[{"name": "escalar", "args": "{quebrado"}]),
+    ]
+    det = runner._tool_calls_detalhe(msgs)
+    assert {d["name"] for d in det} == {"consultar_agenda", "escalar"}
+    assert any(d["valido"] for d in det) and any(not d["valido"] for d in det)
+
+
+def test_schemas_tools_reflete_catalogo_real():
+    # ancora anti-vacuo: o mapa de schemas vem do catalogo real (5 tools P0), nao vazio.
+    assert set(runner._SCHEMAS_TOOLS) == {
+        "consultar_agenda",
+        "registrar_extracao",
+        "pedir_pix_deslocamento",
+        "enviar_midia",
+        "escalar",
+    }
+    assert runner._SCHEMAS_TOOLS["registrar_extracao"] == {"payload"}
+
+
 # --- escalada determinista == "escalar" (EVAL-01: handoff do intercept_disclosure) -------------
 
 
@@ -479,6 +586,63 @@ def test_cache_hit_rate_abaixo_do_piso_reprova():
     av = runner.avaliar(fixture, _captura(cache_hit_rate=0.4))
     assert not av.passou
     assert any("cache_hit_rate" in f for f in av.falhas)
+
+
+# --- F3.7: max_custo_brl vira gate VINCULANTE (estoura teto bloqueia o cutover) -----------------
+
+
+def test_f3_7_custo_estourado_marca_avaliacao():
+    # avaliar() marca o estouro de custo de forma explicita, distinta de outras falhas.
+    fixture = {"id": "g.1", "expectativas": {"metricas": {"max_custo_brl": 0.05}}}
+    av = runner.avaliar(fixture, _captura(custo_brl=0.12))
+    assert av.custo_estourado is True
+    dentro = runner.avaliar(fixture, _captura(custo_brl=0.03))
+    assert dentro.custo_estourado is False
+
+
+def test_f3_7_custo_estourado_e_vinculante_mesmo_em_capability():
+    # custo e GUARDRAIL (eixo 7): o estouro do teto BLOQUEIA o cutover mesmo numa fixture
+    # `capability` (adversariais, advisory por COMPORTAMENTO). Sem o vinculo, gate_split ignoraria
+    # a capability e devolveria 0 -- o guardrail nao seria vinculante.
+    fixture = {
+        "id": "g.adv",
+        "categoria": "adversariais",
+        "expectativas": {"metricas": {"max_custo_brl": 0.05}},
+    }
+    av = runner.avaliar(fixture, _captura(custo_brl=0.12))
+    assert av.gate == "capability"  # classificacao base segue advisory
+    assert not av.passou
+    reg_ok = runner.Avaliacao(id="r", passou=True, gate="regressao")
+    assert runner.gate_split([reg_ok, av], threshold=1.0) == 1
+
+
+def test_f3_7_custo_estourado_sobrevive_agregacao():
+    # o vinculo precisa sobreviver ao colapso por fixture (rodar() agrega antes do gate).
+    fixture = {
+        "id": "g.adv",
+        "categoria": "adversariais",
+        "expectativas": {"metricas": {"max_custo_brl": 0.05}},
+    }
+    bruta = runner.avaliar(fixture, _captura(custo_brl=0.12))
+    agg = runner.agregar_por_fixture([bruta])
+    assert agg[0].custo_estourado is True
+    reg_ok = runner.Avaliacao(id="r", passou=True, gate="regressao")
+    assert runner.gate_split([reg_ok, agg[0]], threshold=1.0) == 1
+
+
+def test_f3_7_falha_capability_nao_custo_segue_advisory():
+    # GUARD: o vinculo e ESPECIFICO de custo. Uma capability que falha por comportamento (nao
+    # escalou) continua advisory -> nao bloqueia o cutover.
+    fixture = {
+        "id": "beh.adv",
+        "categoria": "adversariais",
+        "expectativas": {"tool_calls_obrigatorias": ["escalar"]},
+    }
+    av = runner.avaliar(fixture, _captura(tools_chamadas=set()))
+    assert not av.passou
+    assert av.custo_estourado is False
+    reg_ok = runner.Avaliacao(id="r", passou=True, gate="regressao")
+    assert runner.gate_split([reg_ok, av], threshold=1.0) == 0
 
 
 # --- carregamento das fixtures reais -----------------------------------------------------------
