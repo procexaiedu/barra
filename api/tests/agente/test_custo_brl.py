@@ -19,7 +19,6 @@ from barra.agente._custo import PRECO_USD_PER_MTOK, calcular_custo_brl
 from barra.agente.contexto import ContextAgente
 from barra.agente.nos.llm import no_llm
 
-
 COTACAO = 5.50
 
 

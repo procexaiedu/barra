@@ -6,8 +6,9 @@ Dois invariantes, sem tocar a API real (chat fake via monkeypatch de `criar_chat
   2. best-effort: falha no `ainvoke` nao propaga atraves do try/except do `startup`.
 """
 
-import barra.agente.llm as agente_llm
 import pytest
+
+import barra.agente.llm as agente_llm
 from barra.agente.ferramentas import INPUT_EXAMPLES, STRICT_TOOLS, TOOLS
 from barra.agente.llm import (
     build_system_messages,

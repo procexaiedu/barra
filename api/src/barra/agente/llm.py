@@ -134,8 +134,8 @@ def build_tools_para_bind(
 
     1. `cache_control` na ÚLTIMA tool (doc oficial Anthropic `tool-use-with-prompt-caching`):
        "Place cache_control on the last tool in your tools array. This caches the entire
-       tool-definitions prefix." Sem isso, o array `tools` é input fresh todo turno (1.0×) em vez
-       de cache read (0.1×); breakpoints do `system` NÃO cobrem tools retroativamente — cada
+       tool-definitions prefix." Sem isso, o array `tools` é input fresh todo turno (1.0x) em vez
+       de cache read (0.1x); breakpoints do `system` NÃO cobrem tools retroativamente — cada
        nível é segmento hierárquico independente (tools → system → messages).
 
     2. `strict_tools` (PER-TOOL; doc oficial `strict-tool-use` + 04 §7): constrained decoding +
