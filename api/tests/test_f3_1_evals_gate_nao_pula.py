@@ -28,10 +28,16 @@ import yaml
 
 
 def _raiz_repo() -> Path:
+    # Ancora no `.git` (raiz REAL do repo / worktree), não no primeiro ancestral que
+    # tenha `.github/workflows/evals.yml`: uma cópia-sombra stale numa pasta intermediária
+    # (ex.: `api/.github/...` deixada por engano com o cwd em api/) senão sequestraria o
+    # gate p/ validar um workflow que nem é o do repo — verde/vermelho falso.
     for ancestor in Path(__file__).resolve().parents:
-        if (ancestor / ".github" / "workflows" / "evals.yml").is_file():
+        if (ancestor / ".git").exists() and (
+            ancestor / ".github" / "workflows" / "evals.yml"
+        ).is_file():
             return ancestor
-    raise AssertionError("não achei a raiz do repo (.github/workflows/evals.yml)")
+    raise AssertionError("não achei a raiz do repo (.git + .github/workflows/evals.yml)")
 
 
 def _evals() -> dict[str, Any]:
