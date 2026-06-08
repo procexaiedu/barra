@@ -8,6 +8,14 @@ Cobre os 5 caminhos de decisao (06 §2.1):
   - test_fora_fluxo_com_legenda: caption setado -> enfileira processar_turno
   - test_fora_fluxo_pura: sem legenda + sem atendimento aberto -> silencio
   - test_lock_busy: lock:conv pre-adquirido -> re-enfileira rotear_imagem com _defer_by
+
+F0.7 (roadmap) — tranca o roteamento por `tipo_atendimento` em Aguardando_confirmacao:
+imagem em **externo** = comprovante Pix, NUNCA Foto de portaria (que e interno-only,
+CONTEXT.md "Foto de portaria"). O `test_pix_aguardando` acima nao protege o guard
+`tipo_atendimento == 'interno'` do branch foto-portaria: o branch do Pix vem antes e
+intercepta o caso externo+pix='aguardando', entao apagar aquele guard passa batido nele.
+Os dois testes abaixo provam no banco real (estado nao vira Em_execucao, foto_portaria_em
+fica NULL) que um externo nunca cai no handoff de foto de portaria.
 """
 
 import os
@@ -332,3 +340,121 @@ async def test_lock_busy_redefer(conn: AsyncConnection[dict[str, Any]]) -> None:
     assert kwargs["conversa_id"] == str(conversa_id)
     assert kwargs["caption"] is None
     assert "_defer_by" in kwargs
+
+
+async def _ler_atendimento(
+    c: AsyncConnection[dict[str, Any]], atendimento_id: UUID
+) -> dict[str, Any]:
+    res = await c.execute(
+        """
+        SELECT estado::text AS estado,
+               foto_portaria_em,
+               responsavel_atual::text AS responsavel_atual,
+               ia_pausada
+          FROM barravips.atendimentos
+         WHERE id = %s
+        """,
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None
+    return row
+
+
+@pytest.mark.needs_db
+async def test_externo_aguardando_e_pix_nunca_foto_portaria(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """F0.7: externo em Aguardando_confirmacao = comprovante Pix, NUNCA Foto de portaria.
+
+    Caso realista (pix_status='aguardando'): a imagem deve seguir o pipeline do Pix
+    (`validar_pix`) e o atendimento NAO pode sofrer o handoff de foto de portaria — provado
+    no banco real (estado segue Aguardando_confirmacao, `foto_portaria_em` NULL, IA nao pausada).
+    """
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        estado="Aguardando_confirmacao",
+        tipo_atendimento="externo",
+        pix_status="aguardando",
+    )
+    mensagem_id = await _seed_msg_cliente_orfa(conn, conversa_id)
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+
+    await rotear_imagem(
+        ctx,
+        mensagem_id=str(mensagem_id),
+        conversa_id=str(conversa_id),
+        media_url="https://evolution.test/comprovante.jpg",
+        caption=None,
+    )
+
+    # Despacho: pipeline do Pix, nao handoff de foto de portaria.
+    calls = redis.enqueue_job.call_args_list
+    assert len(calls) == 1
+    assert calls[0].args == ("validar_pix",)
+    # Nenhum card 'chegada' (assinatura do handoff de foto de portaria) foi enfileirado.
+    assert all(c.kwargs.get("tipo") != "chegada" for c in calls)
+
+    # Banco real: a foto de portaria NAO rodou (estado intacto, sem marca de chegada).
+    a = await _ler_atendimento(conn, atendimento_id)
+    assert a["estado"] == "Aguardando_confirmacao"
+    assert a["foto_portaria_em"] is None
+    assert a["responsavel_atual"] != "modelo"
+    assert a["ia_pausada"] is False
+
+
+@pytest.mark.needs_db
+async def test_externo_aguardando_sem_pix_nao_vira_foto_portaria(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """F0.7 (dente do guard): externo em Aguardando_confirmacao SEM Pix em curso nunca vira
+    Foto de portaria.
+
+    Sonda que isola o guard `tipo_atendimento == 'interno'` do branch foto-portaria: com
+    `pix_status != 'aguardando'` o branch do Pix nao intercepta, entao o unico anteparo contra o
+    externo cair no handoff de foto de portaria e aquele guard. Comportamento correto = silencio
+    (06 §3). Apagar o guard (`and tipo_atendimento == 'interno'`) faz este externo virar
+    Em_execucao -> teste vermelho (dente provado).
+    """
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        estado="Aguardando_confirmacao",
+        tipo_atendimento="externo",
+        pix_status="nao_solicitado",
+    )
+    mensagem_id = await _seed_msg_cliente_orfa(conn, conversa_id)
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+
+    await rotear_imagem(
+        ctx,
+        mensagem_id=str(mensagem_id),
+        conversa_id=str(conversa_id),
+        media_url="https://evolution.test/foto-qualquer.jpg",
+        caption=None,
+    )
+
+    # Silencio: sem foto de portaria, sem Pix (pix nao foi solicitado), sem turno (sem legenda).
+    assert redis.enqueue_job.call_args_list == []
+
+    # Banco real: o externo nao sofreu o handoff de foto de portaria.
+    a = await _ler_atendimento(conn, atendimento_id)
+    assert a["estado"] == "Aguardando_confirmacao"
+    assert a["foto_portaria_em"] is None
+    assert a["responsavel_atual"] != "modelo"
+    assert a["ia_pausada"] is False
