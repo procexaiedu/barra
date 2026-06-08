@@ -6,8 +6,9 @@
 #
 # PRE-REQUISITO DO OPERADOR p/ este gate de fato bloquear: adicionar os secrets
 # TEST_DATABASE_URL (banco de teste, NUNCA prod) e ANTHROPIC_API_KEY no repo, e tornar o check
-# "evals" obrigatorio na branch protection da main. Sem os secrets o job pula (nao falha) —
-# entao forks / a CI sem billing seguem verdes ate o operador habilitar.
+# "evals" obrigatorio na branch protection da main. F3.1: sem os secrets o job FALHA ALTO
+# (nao pula em silencio) — um check `evals` verde so pode significar que o runner rodou.
+# Como o job so dispara nos `paths` (agente/evals), PR que nao toca o agente nem o aciona.
 # >>> PASSO A PASSO (provisionar o banco de teste, secrets, check obrigatorio, graduar as
 # >>> adversariais de capability->regressao): infra/runbooks/evals-gate-vinculante.md
 name: evals
@@ -42,19 +43,18 @@ jobs:
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-      - name: Guard de secrets (sem eles o gate de evals nao roda)
-        id: guard
+      # F3.1: guard FAIL-LOUD — sem os secrets o job FALHA (exit 1), nunca pula em silencio.
+      # Vem antes do setup/sync p/ nao gastar minutos a toa. Um `evals` verde => runner rodou.
+      - name: Exige os secrets do gate (falha alto — nunca pula em silencio)
         run: |
-          if [ -z "$TEST_DATABASE_URL" ] || [ -z "$ANTHROPIC_API_KEY" ]; then
-            echo "secrets ausentes — pulando o gate de evals (habilitar e passo do operador)."
-            echo "rodar=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "rodar=true" >> "$GITHUB_OUTPUT"
+          faltando=""
+          [ -z "$TEST_DATABASE_URL" ] && faltando="$faltando TEST_DATABASE_URL"
+          [ -z "$ANTHROPIC_API_KEY" ] && faltando="$faltando ANTHROPIC_API_KEY"
+          if [ -n "$faltando" ]; then
+            echo "::error::Gate de evals SEM os secrets:$faltando — o gate NAO pula, FALHA p/ barrar merge. Provisione: infra/runbooks/evals-gate-vinculante.md"
+            exit 1
           fi
       - uses: astral-sh/setup-uv@v5
-        if: steps.guard.outputs.rodar == 'true'
       - run: uv sync --frozen
-        if: steps.guard.outputs.rodar == 'true'
       # K=5: pass^k nas adversariais (regressao), >=4/5 nos canonicos. So a REGRESSAO bloqueia.
       - run: uv run python evals/runners/runner.py --k 5 --threshold 1.0
-        if: steps.guard.outputs.rodar == 'true'
