@@ -148,6 +148,47 @@ async def test_etapa1_revela_outro_cliente_bloqueia(monkeypatch: Any) -> None:
     assert cap.chamadas[0]["observacao"].startswith("output_leak_outro_cliente")
 
 
+# F0.4: o scan de "outro cliente" precisa pegar as confissoes alem do n-grama literal "com um
+# cliente" -- variantes igualmente inequivocas que vazavam antes: estar no meio de OUTRO
+# atendimento, atender SEM dizer "te"/"voce" (atende ALGUEM, nao o proprio cliente), e estar com
+# OUTRA PESSOA. Cada uma so pode significar "estou com outro cliente agora" -> barra + handoff.
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "to no meio de um atendimento agora amor, ja te respondo",
+        "to no atendimento agora, te chamo quando acabar",
+        "agora nao da amor, to atendendo, depois te respondo",
+        "estou atendendo agora, mais tarde a gente acerta",
+        "to ocupada com outra pessoa agora amor",
+    ],
+)
+async def test_etapa1_outro_cliente_variantes_bloqueia(monkeypatch: Any, texto: str) -> None:
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    res = await mod.output_guard(_state(texto), _runtime())  # type: ignore[arg-type]
+    assert _bloqueou(res)
+    assert cap.chamadas[0]["observacao"].startswith("output_leak_outro_cliente")
+
+
+# F0.4 (anti falso-positivo): atender o PROPRIO cliente ("te/voce atendendo") e fala legitima --
+# nunca pode virar handoff. O guard so barra quando o objeto NAO e o interlocutor.
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "to te atendendo com todo carinho amor",
+        "to atendendo voce super bem hoje",
+        "to atendendo vc agora, relaxa que e so seu",
+    ],
+)
+async def test_etapa1_atender_o_proprio_cliente_passa(monkeypatch: Any, texto: str) -> None:
+    async def _ok(t: str, settings: Any) -> Any:
+        return mod._VeredictoAup(viola=False, motivo="nenhum")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _ok)
+    res = await mod.output_guard(_state(texto), _runtime())  # type: ignore[arg-type]
+    assert _passou_limpo(res)
+
+
 async def test_etapa1_desculpa_pessoal_no_bloqueio_passa(monkeypatch: Any) -> None:
     # Falso-positivo a evitar: a desculpa pessoal LEGITIMA (salao, "te atendendo") nao menciona
     # outro cliente -> passa a Etapa 1 (o judge da Etapa 2 ainda decide a AUP).

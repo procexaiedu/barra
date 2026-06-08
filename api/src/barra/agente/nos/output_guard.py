@@ -76,8 +76,13 @@ _MARCADORES_OUTRO_CLIENTE = re.compile(
     r"\b("
     r"outr[oa]s? clientes?"
     r"|com (um|uma|outr[oa]|mais um[a]?) cliente"
+    r"|com (outr[oa]|mais um[a]?) pessoa"
     r"|(t[ôo]|estou|tenho|t[ôo] com|estou com) (um |uma |o |a |outr[oa] )?cliente"
-    r"|(em|num|noutro|outro|nesse|neste) atendimento"
+    # "estou atendendo agora" -- atende ALGUEM. O lookahead protege "te/voce atendendo" (o
+    # PROPRIO cliente, fala legitima): so vaza quando o objeto NAO e o interlocutor.
+    r"|(t[ôo]|estou) atendendo(?!\s+(voc|vc|te\b|o senhor|a senhora))"
+    r"|(em|num|no|noutro|outro|nesse|neste) atendimento"
+    r"|no meio de (um |outro )?atendimento"
     r"|atendendo (outr[oa]|um|uma|mais um|algu[ée]m|outr[oa] pessoa|cliente)"
     r")\b",
     re.IGNORECASE,
