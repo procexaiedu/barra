@@ -9,7 +9,7 @@ from uuid import UUID
 from psycopg import AsyncConnection
 
 from barra.calibracao import repo
-from barra.calibracao.export import RotuloFala, montar_golden
+from barra.calibracao.export import montar_golden, separar_rotulos
 from barra.calibracao.falas import falas_de, parse_jsonl
 from barra.calibracao.schemas import (
     FalaParaRotular,
@@ -25,21 +25,26 @@ from barra.core.errors import ErroDominio
 class _EmailsRotulador(Protocol):
     calibracao_email_fernando: str | None
     calibracao_email_socia: str | None
+    calibracao_email_procex: str | None
 
 
 def resolver_rotulador(email: str | None, settings: _EmailsRotulador) -> str:
-    """Email do operador logado -> 'fernando' | 'socia' (puro; testavel offline).
+    """Email do operador logado -> 'fernando' | 'socia' | 'procex' (puro; testavel offline).
 
-    Unica forma de distinguir os dois (sem RBAC, ambos papel='fernando'). Email nao mapeado
-    -> 403: a tela so abre p/ quem esta configurado como rotulador.
+    Unica forma de distinguir os rotuladores (sem RBAC, todos papel='fernando'). Email nao
+    mapeado -> 403: a tela so abre p/ quem esta configurado como rotulador. 'procex' e um 3o
+    revisor independente; suas marcas ficam fora do golden (fernando x socia) — ver `exportar`.
     """
     alvo = (email or "").strip().lower()
     f = (settings.calibracao_email_fernando or "").strip().lower()
     s = (settings.calibracao_email_socia or "").strip().lower()
+    p = (settings.calibracao_email_procex or "").strip().lower()
     if alvo and alvo == f:
         return "fernando"
     if alvo and alvo == s:
         return "socia"
+    if alvo and alvo == p:
+        return "procex"
     raise ErroDominio(
         "ROTULADOR_NAO_AUTORIZADO",
         "Seu usuario nao esta configurado como rotulador de calibracao.",
@@ -132,11 +137,7 @@ async def exportar(conn: AsyncConnection[Any], rodada_id: UUID) -> tuple[str, li
     """Reconstroi o golden.jsonl da rodada (formato que calibrar.py consome) + avisos."""
     await _exigir_rodada(conn, rodada_id)
     falas = await repo.falas_para_export(conn, rodada_id)
-    rot_f: dict[str, RotuloFala] = {}
-    rot_s: dict[str, RotuloFala] = {}
-    for r in await repo.rotulos_para_export(conn, rodada_id):
-        alvo = rot_f if r["rotulador"] == "fernando" else rot_s
-        alvo[r["fala_id"]] = RotuloFala(passou=r["passou"], observacao=r["observacao"])
+    rot_f, rot_s = separar_rotulos(await repo.rotulos_para_export(conn, rodada_id))
 
     golden, avisos = montar_golden(falas, rot_f, rot_s)
     jsonl = "\n".join(json.dumps(linha, ensure_ascii=False) for linha in golden)

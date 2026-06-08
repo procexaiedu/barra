@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from barra.api.deps import get_conn
-from barra.calibracao.export import RotuloFala, montar_golden
+from barra.calibracao.export import RotuloFala, montar_golden, separar_rotulos
 from barra.calibracao.falas import falas_de, parse_jsonl
 from barra.calibracao.service import resolver_rotulador
 from barra.core.errors import ErroDominio
@@ -133,15 +133,20 @@ def test_montar_golden_inclui_observacao_nao_vazia():
     assert "observacao_socia" not in linha  # vazia -> omitida
 
 
-def _settings(fernando: str | None, socia: str | None):
-    return SimpleNamespace(calibracao_email_fernando=fernando, calibracao_email_socia=socia)
+def _settings(fernando: str | None, socia: str | None, procex: str | None = None):
+    return SimpleNamespace(
+        calibracao_email_fernando=fernando,
+        calibracao_email_socia=socia,
+        calibracao_email_procex=procex,
+    )
 
 
 def test_resolver_rotulador_mapeia_emails():
-    st = _settings("fer@x.com", "soc@x.com")
+    st = _settings("fer@x.com", "soc@x.com", "proc@x.com")
     assert resolver_rotulador("fer@x.com", st) == "fernando"
     assert resolver_rotulador("SOC@x.com", st) == "socia"  # case-insensitive
     assert resolver_rotulador("  fer@x.com ", st) == "fernando"  # trim
+    assert resolver_rotulador("PROC@x.com", st) == "procex"  # 3o revisor
 
 
 def test_resolver_rotulador_email_desconhecido_403():
@@ -156,7 +161,20 @@ def test_resolver_rotulador_sem_email_ou_config_nao_casa_vazio():
     with pytest.raises(ErroDominio):
         resolver_rotulador(None, _settings(None, None))
     with pytest.raises(ErroDominio):
-        resolver_rotulador("", _settings("", ""))
+        resolver_rotulador("", _settings("", "", ""))
+
+
+def test_separar_rotulos_ignora_terceiro_revisor():
+    # 'procex' tem bucket proprio no banco mas NAO entra no golden (fernando x socia):
+    # nunca pode cair na coluna da socia (que era o bug do `else` no bucketing antigo).
+    rows = [
+        {"fala_id": "c1::0", "rotulador": "fernando", "passou": True, "observacao": None},
+        {"fala_id": "c1::0", "rotulador": "socia", "passou": False, "observacao": "x"},
+        {"fala_id": "c1::0", "rotulador": "procex", "passou": True, "observacao": "ignorar"},
+    ]
+    rot_f, rot_s = separar_rotulos(rows)
+    assert rot_f == {"c1::0": RotuloFala(True, None)}
+    assert rot_s == {"c1::0": RotuloFala(False, "x")}  # procex nao sobrescreveu
 
 
 # --- Wiring HTTP (FakeConn, sem DB real) ---------------------------------------

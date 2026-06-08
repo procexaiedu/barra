@@ -58,8 +58,10 @@ services:
       - SENTRY_DSN=
       # Mapeia email do operador logado -> rotulador na tela /calibracao (Loop B / EVAL-10).
       # Emails (nao-secreto); sem eles a tela responde 403 "nao configurado como rotulador".
+      # 'procex' e um 3o revisor independente (fora do golden fernando x socia).
       - CALIBRACAO_EMAIL_FERNANDO=fernando@procexai.tech
       - CALIBRACAO_EMAIL_SOCIA=elitebaby@procexai.tech
+      - CALIBRACAO_EMAIL_PROCEX=contato@procexai.tech
     command: >
       sh -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates &&
       rm -rf /app/repo &&
