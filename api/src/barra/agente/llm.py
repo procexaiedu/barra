@@ -109,8 +109,11 @@ def marcar_cache_na_penultima(mensagens: list[BaseMessage], *, ttl: str) -> list
     Janela < 2 mensagens (cliente novo): sem cache (no-op). Sem ganho perdido — o turno tem
     poucos blocos pra cachear de toda forma.
 
-    `ttl` ≥ `ttl_modelo` (que ≥ `ttl_geral` no prefixo) — regra "TTL maior antes do menor" da
-    Anthropic. No P0 usar `cache_ttl_modelo` (alinha com o BP_MODELO que vem logo antes).
+    `ttl` ≤ `ttl_modelo` (que ≤ `ttl_geral` no prefixo) — regra "TTL maior antes do menor" da
+    Anthropic: o BP_JANELA é o ÚLTIMO breakpoint do array, então pode ser o mais curto, nunca
+    mais longo que os anteriores. O caller (prepare_context) escolhe o TTL pela saturação da
+    janela: 1h quando o prefixo ainda é append-only (read inter-turno), 5m quando a janela
+    deslizou (só reuso intra-turno).
     """
     if len(mensagens) < 2:
         return mensagens

@@ -91,6 +91,45 @@ def test_caminho_normal_2_system_mais_janela_cronologica() -> None:
     assert msgs[4].content == "[mensagem manual da modelo]: deixa que eu respondo"
 
 
+def _linhas_n(n: int) -> list[dict[str, Any]]:
+    """n mensagens alternando cliente/ia, em ordem DESC (mais nova primeiro = cliente)."""
+    base = datetime(2026, 5, 24, 12, 0, tzinfo=UTC)
+    return [
+        {
+            "id": uuid4(),
+            "direcao": "cliente" if i % 2 == 0 else "ia",
+            "tipo": "texto",
+            "conteudo": f"msg {i}",
+            "media_object_key": None,
+            "created_at": base + timedelta(minutes=n - i),
+        }
+        for i in range(n)
+    ]
+
+
+def test_bp_janela_saturada_cai_para_ttl_5m() -> None:
+    # Janela no LIMIT 20: a cabeça desliza no turno seguinte (prefixo de messages muda) → o
+    # write do BP_JANELA nunca vira read inter-turno; o mark fica só pelo reuso intra-turno e
+    # cai p/ 5m (write 1.25x) — cache_control SEM campo ttl (formato default ephemeral).
+    res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_n(20))))
+    assert isinstance(res, Command)
+    penultima = res.update["messages"][-2]
+    assert isinstance(penultima.content, list)
+    assert penultima.content[0]["cache_control"] == {"type": "ephemeral"}
+
+
+def test_bp_janela_append_only_mantem_ttl_modelo() -> None:
+    # Janela abaixo do LIMIT (append-only no próximo turno): TTL segue cache_ttl_modelo —
+    # mesmo cache_control do bloco BP_MODELO (msgs[1]), que usa a mesma setting.
+    res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_n(19))))
+    assert isinstance(res, Command)
+    msgs = res.update["messages"]
+    cc_modelo = msgs[1].content[0]["cache_control"]
+    penultima = msgs[-2]
+    assert isinstance(penultima.content, list)
+    assert penultima.content[0]["cache_control"] == cc_modelo
+
+
 def test_atendimento_id_none_pula_gate() -> None:
     rt = _runtime(mensagens=[])
     rt.context.atendimento_id = None  # type: ignore[assignment]

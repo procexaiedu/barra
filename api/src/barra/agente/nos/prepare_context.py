@@ -110,8 +110,8 @@ async def prepare_context(
 
     # 5. BP_JANELA (cache na penúltima): aproveita o slot liberado pela fusão BP_GERAL (antes
     #    era BP1+BP2 separados). Só efetivo com janela ≥ 2; a última msg fica volátil (contexto
-    #    dinâmico + reminder), penúltima entra no cache. TTL = `cache_ttl_modelo` (mesma cadência
-    #    do BP_MODELO que vem logo antes — respeita "TTL maior antes do menor" da Anthropic).
+    #    dinâmico + reminder), penúltima entra no cache. TTL ≤ `cache_ttl_modelo` (último
+    #    breakpoint do array — respeita "TTL maior antes do menor" da Anthropic).
     settings = get_settings()
     # BP_JANELA + BP_MODELO só se amortizam em tráfego real (multi-turn / repetido por-modelo). No
     # runner de evals (ctx.cache_modelo_e_janela=False) cada turno é uma `ainvoke` isolada com IDs
@@ -119,7 +119,14 @@ async def prepare_context(
     # BP_GERAL/tools (prefixo global) seguem cacheados de qualquer forma.
     ttl_modelo = settings.cache_ttl_modelo if ctx.cache_modelo_e_janela else None
     if ctx.cache_modelo_e_janela:
-        mensagens = marcar_cache_na_penultima(mensagens, ttl=settings.cache_ttl_modelo)
+        # Janela SATURADA (LIMIT 20 da query atingido): no próximo turno a cabeça desliza e o
+        # prefixo de messages muda desde o 1º bloco → o write do BP_JANELA nunca vira read
+        # inter-turno. O mark continua valendo pelo reuso INTRA-turno (loop de tools / extração
+        # forçada releem o mesmo prefixo segundos depois), então cai para TTL 5m: write 1.25x
+        # em vez de 2x (1h) sobre a janela inteira re-escrita a cada turno. Janela ainda
+        # append-only (< 20) mantém o TTL longo — o read do turno seguinte paga o prêmio.
+        ttl_janela = "5m" if len(linhas) >= 20 else settings.cache_ttl_modelo
+        mensagens = marcar_cache_na_penultima(mensagens, ttl=ttl_janela)
 
     # 6. Prefixo system: BP_GERAL fundido (persona+regras+FAQ byte-idêntico p/ todas —
     #    agente/CLAUDE.md) + BP_MODELO. Ordem estável: geral antes do por-modelo (invariante).
