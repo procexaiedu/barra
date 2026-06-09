@@ -578,7 +578,7 @@ Inv. piso → **Coberto**.
 |---|---|---|---|---|
 | **F4.1** ✅ (gate determinístico + corrida ★API ao vivo) | Jornada E2E começando em **`Novo`** (1º contato antes da triagem) | 4b (estado Novo) | jornada exercita Novo→Triagem pela conversa | `evals/`/`sim/cenarios*.py` |
 | **F4.2** ✅ (gate determinístico + corrida ★API ao vivo) | Jornadas que chegam a **`Fechado`** pela conversa (modelo fecha respondendo card com Valor final) | 4b (Fechado) | E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana | `sim/`, runner |
-| **F4.3** 🟡 (gate determinístico pronto; espinha needs_db + corrida ★API pendentes de §0) | Jornada que vira **`Perdido (sumiu)`** por timeout como continuação E2E | 4b (Perdido) | ramo "não volta" é jornada graduada | `sim/`, runner |
+| **F4.3** ✅ (gate determinístico + corrida ★API ao vivo) | Jornada que vira **`Perdido (sumiu)`** por timeout como continuação E2E | 4b (Perdido) | ramo "não volta" é jornada graduada | `sim/`, runner |
 | **F4.4** | `Em_execucao → Fechado` por **Lembrete de fechamento** dentro de uma jornada | 4b | cobrança proativa do Valor final fecha pela conversa | `sim/`, runner |
 | **F4.5** | **Recorrência**: novo Atendimento na mesma Conversa cliente após um Fechado | 4b | cenário existe e passa | `sim/`, runner |
 | **F4.6** | Upsell de duração (MAX de horas), recusa de fetiche fora-da-lista com retomada limpa, Pix duvidoso com card de duvidez + fila de Fernando (sem travar) | 4b | cada arco coberto por jornada graduada; redis stub deixa de mascarar o card | `sim/`, runner |
@@ -669,8 +669,8 @@ conversa (Novo … Fechado/Perdido). **Substituição do vendedor demonstrada pe
 > contra a golden (sem judge, ADR 0015) — F4.7. A persona-LLM (`interno_fecha_venda`, `cenarios.py`)
 > fica pronta p/ o golden quando o operador regerar o corpus inteiro.
 
-> **Status F4.3 🟡 gate determinístico pronto, espinha needs_db + corrida ★API pendentes (feito,
-> merge local):** TODA jornada do sim fechava (foto de portaria → Em_execucao → Fechado pela F4.2) ou
+> **Status F4.3 ✅ gate determinístico + corrida ★API ao vivo (feito, merge local):** TODA jornada do
+> sim fechava (foto de portaria → Em_execucao → Fechado pela F4.2) ou
 > avançava por Pix (Confirmado) — o ramo **"NÃO VOLTA"** (o cliente avisa que saiu, **some** e nunca
 > chega) jamais era percorrido pela própria jornada, então `Perdido (sumiu)` não tinha continuação
 > E2E. Esse desfecho **não** é um turno da IA nem um ato síncrono do cliente: é o **timeout
@@ -698,12 +698,24 @@ conversa (Novo … Fechado/Perdido). **Substituição do vendedor demonstrada pe
 > verde, e os invariantes pré-existentes dos conjuntos (tamanho ∈ faixa — bump 17→18 —, nomes únicos,
 > anti-leakage, atos declarados) seguem verdes. `make test`: 907 passed (94 `needs_db` skipped sem
 > `TEST_DATABASE_URL`, incl. a espinha — rodam no Postgres efêmero do CI); mypy (`mypy src`) + ruff
-> limpos. **Metades ★API/needs_db PENDENTES (§0, não é código):** a espinha `needs_db` e a **corrida ao
-> vivo** (grafo real + Sonnet conduzindo até o aviso, depois o silêncio que vira timeout → `Perdido`)
-> não foram rodadas — exigem o **banco de prod** (em rollback-sempre) + crédito, autorização §0
-> frase-a-frase (mesmo padrão sancionado da F4.1/F4.2). A espinha é correta por construção: espelha
-> exatamente o `test_timeout_interno.py` (gêmeo já verde contra o DB real, F0.6). F4.3 → **Coberto**
-> quando essas metades forem rodadas e registradas ao vivo.
+> limpos. A espinha `needs_db` rodou **ao vivo contra o prod** (`db.procexai.tech`, rollback-sempre, §0
+> autorizada): `test_ato_de_timeout_leva_aguardando_para_perdido_sumiu` **verde** (5 passed = 4 PURO + 1
+> espinha) — `Aguardando_confirmacao → Perdido` + motivo `sumiu` + `fonte=auto_timeout_interno` +
+> bloqueio cancelado, provado no Postgres real (espelha o gêmeo já verde `test_timeout_interno.py`, F0.6).
+>
+> **★API RODADA AO VIVO (2026-06-08, autorizada §0):** `uv run python -m evals.sim.gerar_conversas
+> --fixo --cenario fixo_interno_some_perdido --usar-database-url` (cliente roteirizado → só a IA roda;
+> contra o PROD self-hosted em **rollback-sempre** — 1 transação, `close()` sem commit → zero
+> persistência; corpus `conversas_fixas.jsonl` restaurado via `git checkout`, idêntico ao backup —
+> mesmo padrão sancionado da F4.1/F4.2). A trajetória provou o critério ao vivo (9 passos, 5 falas da
+> IA): a conversa percorreu **`Triagem → Qualificado → Aguardando_confirmacao`** (a IA conduzindo via
+> `registrar_extracao` a cada turno — cotação `R$800 1h`, interno "no seu local", horário, endereço
+> progressivo), o ato **`enviar_aviso_saida`** (o cliente avisa que saiu, segue em
+> `Aguardando_confirmacao`, IA não pausa), o **silêncio** (o cliente some — `ficar_em_silencio`) e então
+> o timeout pós-loop **`cliente_some_timeout` → `Perdido`** — **o ramo "não volta" percorrido pela
+> conversa até a perda por silêncio, ao vivo**. F4.3 → **Coberto** (gate determinístico bloqueia
+> regressão a cada PR + corrida ★API registrada ao vivo). A persona-LLM (`interno_some_perdido`,
+> `cenarios.py`) fica pronta p/ o golden quando o operador regerar o corpus inteiro.
 
 ---
 
