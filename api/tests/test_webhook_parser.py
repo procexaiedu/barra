@@ -189,3 +189,62 @@ def test_extrair_mensagem_quote_traz_stanza_id() -> None:
 def test_extrair_mensagem_payload_sem_id_retorna_none() -> None:
     payload = {"instance": "barra", "data": {"key": {}, "message": {}}}
     assert extrair_mensagem(payload) is None
+
+
+def test_extrair_mensagem_imagem_base64_nivel_mensagem() -> None:
+    # WEBHOOK_BASE64: a Evolution entrega a midia decifrada em `message.base64`.
+    payload = {
+        "instance": "barra-piloto",
+        "data": {
+            "key": {"id": "IMG1", "remoteJid": "5521@g.us", "fromMe": False},
+            "message": {
+                "imageMessage": {
+                    "url": "https://mmg.whatsapp.net/v/x.enc",
+                    "mimetype": "image/jpeg",
+                },
+                "base64": "QUJD",
+            },
+        },
+    }
+    msg = extrair_mensagem(payload)
+    assert msg is not None
+    assert msg.tipo == "imagem"
+    assert msg.media_base64 == "QUJD"
+    assert msg.media_mimetype == "image/jpeg"
+    # a url crua do CDN cifrado continua disponivel, mas nao e mais o caminho primario
+    assert msg.media_url == "https://mmg.whatsapp.net/v/x.enc"
+
+
+def test_extrair_mensagem_imagem_base64_aninhado_no_image_message() -> None:
+    # Variacao de versao: base64 dentro de `imageMessage.base64`.
+    payload = {
+        "instance": "barra-piloto",
+        "data": {
+            "key": {"id": "IMG2", "remoteJid": "5521@g.us", "fromMe": False},
+            "message": {
+                "imageMessage": {
+                    "url": "https://mmg.whatsapp.net/v/y.enc",
+                    "mimetype": "image/png",
+                    "base64": "REVG",
+                }
+            },
+        },
+    }
+    msg = extrair_mensagem(payload)
+    assert msg is not None
+    assert msg.media_base64 == "REVG"
+    assert msg.media_mimetype == "image/png"
+
+
+def test_extrair_mensagem_imagem_sem_base64_fica_none() -> None:
+    # Sem WEBHOOK_BASE64 (ou bug #2375): base64 ausente -> None (cai no download host-locked).
+    payload = {
+        "instance": "barra-piloto",
+        "data": {
+            "key": {"id": "IMG3", "remoteJid": "5521@g.us", "fromMe": False},
+            "message": {"imageMessage": {"url": "https://mmg.whatsapp.net/v/z.enc"}},
+        },
+    }
+    msg = extrair_mensagem(payload)
+    assert msg is not None
+    assert msg.media_base64 is None

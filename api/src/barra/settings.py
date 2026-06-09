@@ -243,8 +243,8 @@ class Settings(BaseSettings):
         description="Teto de bytes ao baixar mídia da Evolution; download aborta acima disso (defesa DoS).",
     )
     webhook_max_body_bytes: int = Field(
-        default=1024 * 1024,
-        description="Teto do corpo do POST /webhook/evolution (Content-Length); payload Evolution é pequeno (mídia vem por URL). Acima disso → 413 (defesa DoS de memória).",
+        default=36 * 1024 * 1024,
+        description="Teto do corpo do POST /webhook/evolution (Content-Length). Com WEBHOOK_BASE64 a mídia vem inline (base64, ~+33%), então precisa caber midia_max_bytes (25 MiB) inflado + folga de JSON. Acima disso → 413 (defesa DoS de memória).",
     )
     evolution_webhook_callback_url: str | None = Field(
         default=None,

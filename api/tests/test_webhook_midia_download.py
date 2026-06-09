@@ -1,10 +1,17 @@
 """SEC-03: `_baixar_midia` endurecido contra SSRF (host fora da allowlist) e DoS (corpo gigante)."""
 
+import base64
+
 import httpx
 import pytest
 import respx
 
-from barra.webhook.routes import _MAX_DOWNLOADS_MIDIA, _SEM_DOWNLOAD_MIDIA, _baixar_midia
+from barra.webhook.routes import (
+    _MAX_DOWNLOADS_MIDIA,
+    _SEM_DOWNLOAD_MIDIA,
+    _baixar_midia,
+    _decodificar_base64,
+)
 
 _BASE = "https://evo.example.com"
 _LEGIT = f"{_BASE}/media/abc.jpg"
@@ -81,6 +88,32 @@ async def test_concorrencia_excedida_recusa_sem_baixar() -> None:
     finally:
         for _ in range(_MAX_DOWNLOADS_MIDIA):
             _SEM_DOWNLOAD_MIDIA.release()
+
+
+def test_decodificar_base64_valido() -> None:
+    # WEBHOOK_BASE64: midia decifrada inline -> bytes + content_type, sem tocar a rede.
+    raw = b"\xff\xd8jpeg"
+    b64 = base64.standard_b64encode(raw).decode("ascii")
+    out = _decodificar_base64(b64, "image/jpeg", 25 * 1024 * 1024)
+    assert out == (raw, "image/jpeg")
+
+
+def test_decodificar_base64_invalido_retorna_none() -> None:
+    out = _decodificar_base64("nao!!!base64@@@", "image/jpeg", 25 * 1024 * 1024)
+    assert out is None
+
+
+def test_decodificar_base64_acima_do_limite_retorna_none() -> None:
+    raw = b"x" * 4096
+    b64 = base64.standard_b64encode(raw).decode("ascii")
+    out = _decodificar_base64(b64, "image/jpeg", 1024)  # limite < corpo
+    assert out is None
+
+
+def test_decodificar_base64_mimetype_ausente_vira_content_type_vazio() -> None:
+    b64 = base64.standard_b64encode(b"abc").decode("ascii")
+    out = _decodificar_base64(b64, None, 25 * 1024 * 1024)
+    assert out == (b"abc", "")
 
 
 @respx.mock
