@@ -68,6 +68,10 @@ async def test_reconciliar_entrega_cards_orfaos(monkeypatch: pytest.MonkeyPatch)
     assert conn.sql is not None
     assert "card_message_id IS NULL" in conn.sql
     assert "fechada_em IS NULL" in conn.sql
+    # Roteamento por owner (UX §9.6): só órfãs que viram card no grupo entram na reconciliação —
+    # owner=Fernando vai pro painel, então fica de fora (senão o _card_escalada no-op as relê
+    # toda rodada, represando órfãs reais da modelo).
+    assert "responsavel = 'modelo'" in conn.sql
 
 
 async def test_reconciliar_noop_sem_pool() -> None:

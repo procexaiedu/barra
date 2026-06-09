@@ -91,8 +91,19 @@ class _FakeEvolution:
         return mid
 
 
-async def _seed_escalada(c: AsyncConnection[dict[str, Any]]) -> UUID:
-    """Seede modelo (com grupo de coordenação) + cliente + conversa + atendimento + escalada."""
+async def _seed_escalada(
+    c: AsyncConnection[dict[str, Any]],
+    *,
+    responsavel: str = "modelo",
+    tipo: str = "fora_de_oferta",
+    motivo: str = "fora_de_oferta",
+    observacao: str | None = None,
+) -> UUID:
+    """Seede modelo (com grupo de coordenação) + cliente + conversa + atendimento + escalada.
+
+    Default `responsavel='modelo'` (escalada operacional dela): vira card no grupo. Os parâmetros
+    cobrem o roteamento por owner (UX §9.6): owner=Fernando não posta, salvo o lembrete-sem-resposta
+    (`observacao='valor_final_nao_confirmado'`)."""
     modelo_id = uuid4()
     await c.execute(
         """
@@ -137,14 +148,19 @@ async def _seed_escalada(c: AsyncConnection[dict[str, Any]]) -> UUID:
     await c.execute(
         """
         INSERT INTO barravips.escaladas
-            (id, atendimento_id, responsavel, tipo, motivo, resumo_operacional, acao_esperada)
-        VALUES (%s, %s, 'Fernando', 'comportamento_atipico', 'disclosure_insistente', %s, %s)
+            (id, atendimento_id, responsavel, tipo, motivo, observacao,
+             resumo_operacional, acao_esperada)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
         """,
         (
             escalada_id,
             atendimento_id,
-            "Cliente insistindo em revelar a IA.",
-            "Decidir se devolve para IA ou assume.",
+            responsavel,
+            tipo,
+            motivo,
+            observacao,
+            "Cliente pediu valor fora da tabela.",
+            "Decidir o preço ou devolver para a IA.",
         ),
     )
     return escalada_id
@@ -163,6 +179,7 @@ async def _ler_card_message_id(c: AsyncConnection[dict[str, Any]], escalada_id: 
 async def test_enviar_card_escalada_grava_id_e_idempotente(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
+    # owner=modelo (fora_de_oferta): escalada operacional dela → vira card no grupo.
     escalada_id = await _seed_escalada(conn)
     evolution = _FakeEvolution()
     ctx: dict[str, Any] = {"db_pool": _FakePool(conn), "evolution": evolution}
@@ -182,3 +199,46 @@ async def test_enviar_card_escalada_grava_id_e_idempotente(
     mid2 = await _ler_card_message_id(conn, escalada_id)
     assert mid2 == mid1
     assert len(evolution.envios) == 1  # 2ª execução não reenviou
+
+
+@pytest.mark.needs_db
+async def test_enviar_card_escalada_owner_fernando_nao_posta(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Roteamento por owner (UX §9.6): escalada owner=Fernando (jailbreak/política/exaustão) não
+    vai pro grupo da modelo — fica no painel/fila. Não posta nem grava `card_message_id`."""
+    escalada_id = await _seed_escalada(
+        conn,
+        responsavel="Fernando",
+        tipo="comportamento_atipico",
+        motivo="disclosure_insistente",
+    )
+    evolution = _FakeEvolution()
+    ctx: dict[str, Any] = {"db_pool": _FakePool(conn), "evolution": evolution}
+
+    await enviar_card(ctx, tipo="escalada", escalada_id=str(escalada_id))
+
+    assert evolution.envios == []  # nada foi pro grupo
+    assert await _ler_card_message_id(conn, escalada_id) is None  # segue "aberta" para o painel
+
+
+@pytest.mark.needs_db
+async def test_enviar_card_escalada_lembrete_sem_resposta_posta(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Exceção do roteamento (UX §9.6): o lembrete-sem-resposta é owner=Fernando mas continua no
+    grupo — é a mesma thread do Lembrete de fechamento que já vive lá."""
+    escalada_id = await _seed_escalada(
+        conn,
+        responsavel="Fernando",
+        tipo="outro",
+        motivo="valor_final_nao_confirmado",
+        observacao="valor_final_nao_confirmado",
+    )
+    evolution = _FakeEvolution()
+    ctx: dict[str, Any] = {"db_pool": _FakePool(conn), "evolution": evolution}
+
+    await enviar_card(ctx, tipo="escalada", escalada_id=str(escalada_id))
+
+    assert evolution.envios == [("grupo_coordenacao", "card")]
+    assert await _ler_card_message_id(conn, escalada_id) is not None

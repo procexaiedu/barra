@@ -23,7 +23,11 @@ from barra.core.metrics import (
 )
 from barra.core.tracing import sentry_sdk
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
-from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket
+from barra.dominio.escaladas.service import (
+    abrir_handoff,
+    card_escalada_vai_ao_grupo,
+    mapear_bucket,
+)
 from barra.settings import get_settings
 from barra.workers._cards import render_card
 from barra.workers._saida_guard import extrair_tokens_pii, redigir_pii_eco, tem_marcador_ia
@@ -81,7 +85,8 @@ async def _card_escalada(ctx: dict[str, Any], *, escalada_id: str, **_: Any) -> 
         res = await conn.execute(
             """
             SELECT e.tipo::text AS tipo, e.resumo_operacional, e.acao_esperada,
-                   e.card_message_id, a.numero_curto, cl.nome AS cliente_nome,
+                   e.card_message_id, e.responsavel, e.observacao, e.atendimento_id,
+                   a.numero_curto, a.conversa_id, cl.nome AS cliente_nome,
                    mo.coordenacao_chat_id, mo.evolution_instance_id
               FROM barravips.escaladas e
               JOIN barravips.atendimentos a ON a.id = e.atendimento_id
@@ -94,6 +99,13 @@ async def _card_escalada(ctx: dict[str, Any], *, escalada_id: str, **_: Any) -> 
         e = await res.fetchone()
         if not e or e["card_message_id"]:
             return  # idempotência por owner: card já enviado
+
+        # Roteamento por owner (UX §9.6): escalada owner=Fernando (jailbreak/política/exaustão) não
+        # vai pro grupo da modelo — é decisão do Operador e vive no painel/fila no P0. A exceção é o
+        # lembrete-sem-resposta, que segue na mesma thread do Lembrete de fechamento. Sai sem gravar
+        # card_message_id; a reconciliação espelha o mesmo filtro para não reprocessar em loop.
+        if not card_escalada_vai_ao_grupo(e["responsavel"], e["observacao"]):
+            return
 
         rotulo = rotulo_tipo_escalada(TipoEscalada(e["tipo"])) if e["tipo"] else "Handoff"
         texto = render_card(
@@ -112,6 +124,8 @@ async def _card_escalada(ctx: dict[str, Any], *, escalada_id: str, **_: Any) -> 
                 texto=texto,
                 contexto="grupo_coordenacao",
                 tipo="card",
+                atendimento_id=e["atendimento_id"],
+                conversa_id=e["conversa_id"],
             )
             await conn.execute(
                 "UPDATE barravips.escaladas SET card_message_id = %s WHERE id = %s",
@@ -143,8 +157,8 @@ async def _card_pix(
                    cp.decisao_pipeline::text AS decisao_pipeline,
                    cp.motivo_em_revisao,
                    cp.valor_extraido,
-                   a.numero_curto, a.endereco, a.valor_acordado,
-                   b.inicio AS bloqueio_inicio,
+                   a.numero_curto, a.endereco, a.valor_acordado, a.conversa_id,
+                   (b.inicio AT TIME ZONE 'America/Sao_Paulo') AS bloqueio_inicio,
                    cl.nome AS cliente_nome,
                    mo.coordenacao_chat_id, mo.evolution_instance_id
               FROM barravips.comprovantes_pix cp
@@ -179,12 +193,13 @@ async def _card_pix(
                 texto=texto,
                 contexto="grupo_coordenacao",
                 tipo="card",
+                atendimento_id=UUID(atendimento_id),
+                conversa_id=cp["conversa_id"],
             )
             await conn.execute(
                 "UPDATE barravips.comprovantes_pix SET card_message_id = %s WHERE id = %s",
                 (mid, UUID(comprovante_id)),
             )
-    del atendimento_id  # vem no payload do job p/ _job_id; renderer le tudo do comprovante
 
 
 async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -> None:
@@ -206,8 +221,8 @@ async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -
         res = await conn.execute(
             """
             SELECT e.id AS escalada_id, e.card_message_id,
-                   a.numero_curto, a.endereco,
-                   b.inicio AS bloqueio_inicio,
+                   a.numero_curto, a.endereco, a.conversa_id,
+                   (b.inicio AT TIME ZONE 'America/Sao_Paulo') AS bloqueio_inicio,
                    cl.nome AS cliente_nome,
                    mo.coordenacao_chat_id, mo.evolution_instance_id,
                    foto.media_object_key AS foto_object_key
@@ -265,6 +280,8 @@ async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -
                     media_type="foto",
                     contexto="grupo_coordenacao",
                     tipo="card",
+                    atendimento_id=UUID(atendimento_id),
+                    conversa_id=e["conversa_id"],
                 )
             else:
                 # Defesa: foto nao foi gravada (caso raro); manda so o texto para a modelo
@@ -276,6 +293,8 @@ async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -
                     texto=texto,
                     contexto="grupo_coordenacao",
                     tipo="card",
+                    atendimento_id=UUID(atendimento_id),
+                    conversa_id=e["conversa_id"],
                 )
             await conn.execute(
                 "UPDATE barravips.escaladas SET card_message_id = %s WHERE id = %s",
@@ -301,8 +320,8 @@ async def _card_aviso_saida(ctx: dict[str, Any], *, atendimento_id: str, **_: An
     async with pool.connection() as conn:
         res = await conn.execute(
             """
-            SELECT a.numero_curto,
-                   b.inicio AS bloqueio_inicio,
+            SELECT a.numero_curto, a.conversa_id,
+                   (b.inicio AT TIME ZONE 'America/Sao_Paulo') AS bloqueio_inicio,
                    cl.nome AS cliente_nome,
                    mo.coordenacao_chat_id, mo.evolution_instance_id
               FROM barravips.atendimentos a
@@ -330,6 +349,8 @@ async def _card_aviso_saida(ctx: dict[str, Any], *, atendimento_id: str, **_: An
             texto=texto,
             contexto="grupo_coordenacao",
             tipo="card",
+            atendimento_id=UUID(atendimento_id),
+            conversa_id=a["conversa_id"],
         )
 
 

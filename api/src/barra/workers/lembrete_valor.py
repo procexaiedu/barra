@@ -18,13 +18,17 @@ from psycopg import AsyncConnection
 
 from barra.core.evolution import EvolutionClient
 from barra.core.metrics import LEMBRETE_VALOR
+from barra.dominio.escaladas.service import OBS_LEMBRETE_SEM_RESPOSTA
 from barra.settings import Settings
+from barra.workers._cards import render_card
 
 logger = logging.getLogger(__name__)
 
 # Marca dos cards de lembrete em envios_evolution.payload e da escalada que encerra o ciclo.
 CARD_KIND = "lembrete_valor"
-OBS_ESCALADA = "valor_final_nao_confirmado"
+# Fonte única no domínio (a regra de audiência em escaladas/service precisa dela e não pode
+# depender de workers): esta escalada é a exceção que continua no grupo da modelo (UX §9.6).
+OBS_ESCALADA = OBS_LEMBRETE_SEM_RESPOSTA
 
 
 async def cobrar_valor_final(
@@ -141,11 +145,10 @@ async def _enviar_card(
     if not instance_id or not grupo_jid:
         raise RuntimeError(f"canal ausente (instance={instance_id!r} grupo={grupo_jid!r})")
 
-    cliente = alvo["cliente_nome"] or "cliente"
-    texto = (
-        f"#{alvo['numero_curto']} — atendimento com {cliente} encerrado. "
-        f"Qual foi o valor final cobrado? Responda este card com o valor (ex.: 1500). "
-        f"Se não rolou: perdido <motivo>."
+    texto = render_card(
+        "lembrete_valor",
+        numero_curto=alvo["numero_curto"],
+        cliente_nome=alvo["cliente_nome"] or "cliente",
     )
     await evolution.enviar_texto(
         conn=conn,

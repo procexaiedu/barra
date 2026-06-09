@@ -13,6 +13,7 @@ minuto — em vez de re-enfileirar, contornando qualquer falha de enqueue/pickup
 import logging
 from typing import Any
 
+from barra.dominio.escaladas.service import OBS_LEMBRETE_SEM_RESPOSTA
 from barra.workers.envio import enviar_card
 
 logger = logging.getLogger(__name__)
@@ -41,10 +42,14 @@ async def reconciliar_cards_escalada(ctx: dict[str, Any]) -> int:
              WHERE fechada_em IS NULL
                AND card_message_id IS NULL
                AND aberta_em < now() - make_interval(secs => %s)
+               -- Só escaladas que viram card no grupo (UX §9.6): owner=Fernando vai pro painel,
+               -- não pro grupo, então não é "órfã" — fora daqui senão o _card_escalada no-op as
+               -- reprocessaria a cada minuto, ocupando o LIMIT e represando órfãs reais da modelo.
+               AND (responsavel = 'modelo' OR observacao = %s)
              ORDER BY aberta_em
              LIMIT 50
             """,
-            (_RECONCILIACAO_FOLGA_SEGUNDOS,),
+            (_RECONCILIACAO_FOLGA_SEGUNDOS, OBS_LEMBRETE_SEM_RESPOSTA),
         )
         pendentes = [r["id"] for r in await res.fetchall()]
 

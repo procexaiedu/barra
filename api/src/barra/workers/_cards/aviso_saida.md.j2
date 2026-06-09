@@ -1,2 +1,3 @@
-🚗 *Cliente saiu de casa #{{ numero_curto }}* — {{ cliente_nome }}
-{% if horario %}🕒 previsto {{ horario.strftime('%H:%M') }}{% endif %}
+🚗 *Cliente avisou que saiu* · {{ cliente_nome }} · #{{ numero_curto }}
+{% if horario %}🕒 previsto {{ horario.strftime('%H:%M') }}
+{% endif %}

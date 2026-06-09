@@ -77,7 +77,10 @@ class EvolutionClient:
             tipo=tipo,
             atendimento_id=atendimento_id,
             conversa_id=conversa_id,
-            payload=payload or data,
+            # Marcador do caller (ex.: {"card_kind": ...}) MESCLA sobre a resposta da Evolution,
+            # nao a substitui: a auditoria preserva o payload completo (texto reconstrutivel) e
+            # ainda carrega o marcador queryavel. `payload or data` puro perdia o `data` (#7).
+            payload={**data, **payload} if payload else data,
         )
         ENVIOS_EVOLUTION.labels("sucesso").inc()
         return evolution_message_id
@@ -144,7 +147,10 @@ class EvolutionClient:
             tipo=tipo,
             atendimento_id=atendimento_id,
             conversa_id=conversa_id,
-            payload=payload or data,
+            # Marcador do caller (ex.: {"card_kind": ...}) MESCLA sobre a resposta da Evolution,
+            # nao a substitui: a auditoria preserva o payload completo (texto reconstrutivel) e
+            # ainda carrega o marcador queryavel. `payload or data` puro perdia o `data` (#7).
+            payload={**data, **payload} if payload else data,
         )
         ENVIOS_EVOLUTION.labels("sucesso").inc()
         return evolution_message_id
