@@ -20,7 +20,7 @@ o langchain engole o NameError em silencio e a tool envia args vazias ao LLM (me
 
 from typing import Annotated, Any, Literal
 
-from langchain_core.tools import InjectedToolArg, tool
+from langchain_core.tools import InjectedToolArg, ToolException, tool
 from langgraph.prebuilt import ToolRuntime
 from psycopg import AsyncConnection
 
@@ -82,7 +82,7 @@ async def enviar_midia(
         escolhida = await res.fetchone()
         if escolhida is None:
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("enviar_midia", "midia_indisponivel").inc()
-            return f"ERRO: nenhuma mídia tipo '{tipo}' disponível para a tag '{tag}'."
+            raise ToolException(f"ERRO: nenhuma mídia tipo '{tipo}' disponível para a tag '{tag}'.")
 
         await _executar_idempotente(
             conn,

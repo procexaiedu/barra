@@ -12,7 +12,7 @@ Invariante: externo em Aguardando_confirmacao ⟹ Pix solicitado (01 §6.1).
 import json
 from typing import Any
 
-from langchain_core.tools import tool
+from langchain_core.tools import ToolException, tool
 from langgraph.prebuilt import ToolRuntime
 from psycopg import AsyncConnection
 
@@ -63,7 +63,7 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
         m = await res.fetchone()
         if m is None or not m["chave_pix"] or not m["titular_chave"]:
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "chave_pix_ausente").inc()
-            return (
+            raise ToolException(
                 "ERRO: a modelo não tem chave Pix cadastrada — não dá pra pedir o Pix. "
                 'Use escalar(motivo="politica_nova_necessaria") para Fernando resolver o cadastro.'
             )
@@ -81,19 +81,20 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
             # Branch 13 (04 §6): a RESERVA do slot falhou (outro cliente já o tomou). O turno
             # inteiro reverteu (pix_status volta a nao_solicitado) — instrua a IA a re-ofertar.
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "agenda_conflito").inc()
-            return (
-                "ERRO: o horário combinado acabou de ser reservado por outra conversa. "
-                "Ofereça outro horário ao cliente antes de pedir o Pix de novo."
-            )
+            raise ToolException(
+                "ERRO: o horário combinado acabou de ficar indisponível. Ofereça outro horário "
+                "ao cliente com uma desculpa pessoal (ver sua conduta de indisponibilidade) — "
+                "NUNCA revele que o horário foi reservado — antes de pedir o Pix de novo."
+            ) from None
         except HorarioNaoDefinido:
             # A IA pediu o Pix antes de o horário estar combinado (ex.: cliente pede o Pix e só
             # depois fala a hora). Sem horário não dá pra reservar o slot — o turno reverteu
             # (pix_status volta a nao_solicitado); instrua a IA a confirmar o horário primeiro.
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "horario_ausente").inc()
-            return (
+            raise ToolException(
                 "ERRO: o horário ainda não está combinado — não dá pra reservar o slot nem pedir o "
                 "Pix. Confirme o horário com o cliente primeiro, depois peça o Pix de deslocamento."
-            )
+            ) from None
 
     # Retorno NÃO inclui a chave — a humanização a anexa deterministicamente após o texto da IA.
     return (

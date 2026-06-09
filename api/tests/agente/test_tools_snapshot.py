@@ -89,14 +89,26 @@ def test_snapshot_input_examples_no_escalar() -> None:
 def test_snapshot_sinais_qualificacao_e_schema_fechado() -> None:
     # Post-refactor: `sinais_qualificacao` virou `SinaisQualificacao(BaseModel)` com 5 booleans
     # fixos. Snapshot trava a forma — se alguem voltar pra `dict[str, bool]`, o teste pega.
+    # Pos-achatamento (04 §3.4, igual escalar): args de topo, sem wrapper `payload`; o campo
+    # e `SinaisQualificacao | None` -> schema inline dentro do anyOf (objeto ou null).
     salvo = json.loads(_SNAPSHOT.read_text(encoding="utf-8"))
     extracao = next(t for t in salvo if t["name"] == "registrar_extracao")
-    sq = extracao["input_schema"]["properties"]["payload"]["properties"]["sinais_qualificacao"]
+    sq = extracao["input_schema"]["properties"]["sinais_qualificacao"]
+    if "anyOf" in sq:
+        sq = next(opt for opt in sq["anyOf"] if opt.get("type") == "object")
     # Pode aparecer como ref ou como schema inline. Resolve $ref se houver.
     if "$ref" in sq:
         ref_name = sq["$ref"].rsplit("/", 1)[-1]
-        sq = extracao["input_schema"]["properties"]["payload"]["$defs"][ref_name]
+        sq = extracao["input_schema"]["$defs"][ref_name]
     props = sq.get("properties", {})
-    esperado = {"informa_horario", "informa_local", "aceita_valor", "envia_pix", "responde_objetivamente"}
-    assert set(props.keys()) == esperado, f"campos do SinaisQualificacao mudaram: {set(props.keys())}"
+    esperado = {
+        "informa_horario",
+        "informa_local",
+        "aceita_valor",
+        "envia_pix",
+        "responde_objetivamente",
+    }
+    assert set(props.keys()) == esperado, (
+        f"campos do SinaisQualificacao mudaram: {set(props.keys())}"
+    )
     assert sq.get("additionalProperties") is False, "SinaisQualificacao deve ser schema fechado"

@@ -131,13 +131,14 @@ def test_rubrica_llm_e_ignorada():
 
 
 def test_extracao_estrita_arg_fora_do_schema_reprova():
-    # registrar_extracao so aceita `payload`; um arg fora do schema = extracao fabricada -> reprova.
+    # registrar_extracao tem args achatados (04 §3.4); um arg de topo fora do schema = extracao
+    # fabricada -> reprova, mesmo havendo um arg valido junto.
     fixture = {"id": "e3.1", "expectativas": {}}
     cap = _captura(
         tool_calls_detalhe=[
             {
                 "name": "registrar_extracao",
-                "args": {"payload": {}, "valor_inventado": 9999},
+                "args": {"proxima_acao_esperada": "aguardar", "valor_inventado": 9999},
                 "valido": True,
             }
         ]
@@ -231,7 +232,11 @@ def test_schemas_tools_reflete_catalogo_real():
         "enviar_midia",
         "escalar",
     }
-    assert runner._SCHEMAS_TOOLS["registrar_extracao"] == {"payload"}
+    # Args achatados (04 §3.4, igual escalar): sem wrapper `payload`, campos de topo.
+    assert "payload" not in runner._SCHEMAS_TOOLS["registrar_extracao"]
+    assert {"proxima_acao_esperada", "horario_desejado", "valor_acordado"} <= (
+        runner._SCHEMAS_TOOLS["registrar_extracao"]
+    )
 
 
 # --- F3.3: voz da persona como gate sobre a FALA GERADA (nao a montagem) -----------------------

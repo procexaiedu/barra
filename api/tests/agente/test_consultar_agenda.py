@@ -1,9 +1,10 @@
 """consultar_agenda (M1-T1): runtime nao vaza no schema, guarda de janela, leitura real.
 
 Tres checagens (04 §2.1):
-  1. schema enviado ao LLM tem so data_inicio/data_fim — runtime e injetado pelo ToolNode,
-     fora do schema (prova que nao vaza dep ao modelo);
-  2. janela > 14 dias retorna ERRO ANTES de tocar o pool (db_pool=None prova que nao consultou);
+  1. schema enviado ao LLM tem so data_inicio/data_fim (tipados `date` -> format: "date") —
+     runtime e injetado pelo ToolNode, fora do schema (prova que nao vaza dep ao modelo);
+  2. janela > 14 dias levanta ToolException ANTES de tocar o pool (db_pool=None prova que nao
+     consultou); com handle_tool_error=True ela vira ToolMessage(status="error") no grafo;
   3. (needs_db) com bloqueios semeados, lista os ativos e filtra os cancelados.
 
 O bloco needs_db espelha test_repo_integracao.py: conexao de TEST_DATABASE_URL, ROLLBACK no
@@ -15,14 +16,16 @@ entao os testes chamam `.coroutine` (a corrotina crua do @tool) com um runtime f
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from langchain_core.tools import ToolException
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
+from pydantic import ValidationError
 
 from barra.agente.ferramentas.leitura import consultar_agenda
 
@@ -48,24 +51,33 @@ def test_schema_nao_vaza_runtime() -> None:
     assert set(consultar_agenda.args) == {"data_inicio", "data_fim"}
 
 
-async def test_janela_maior_que_14_dias_retorna_erro() -> None:
-    """> 14 dias: retorna ERRO antes de tocar o pool (db_pool=None prova que nao consultou)."""
-    out = await _chamar(
-        data_inicio="2026-05-01",
-        data_fim="2026-05-20",
-        runtime=_Runtime(_Ctx(None, "00000000-0000-0000-0000-000000000000")),
-    )
-    assert out.startswith("ERRO:")
+def test_schema_datas_tipadas_format_date() -> None:
+    """Params `date` -> schema {type: string, format: date}: o LLM ve o formato esperado."""
+    assert consultar_agenda.args["data_inicio"]["format"] == "date"
+    assert consultar_agenda.args["data_fim"]["format"] == "date"
 
 
-async def test_data_malformada_retorna_erro_recuperavel() -> None:
-    """Data invalida: retorna o ERRO recuperavel antes de tocar o pool (db_pool=None prova)."""
-    out = await _chamar(
-        data_inicio="2026-13-99",
-        data_fim="2026-05-20",
-        runtime=_Runtime(_Ctx(None, "00000000-0000-0000-0000-000000000000")),
-    )
-    assert out == "ERRO: data inválida, use YYYY-MM-DD."
+async def test_janela_maior_que_14_dias_levanta_erro_recuperavel() -> None:
+    """> 14 dias: ToolException antes de tocar o pool (db_pool=None prova que nao consultou).
+
+    No grafo, handle_tool_error=True a converte em ToolMessage(status="error") com este texto
+    ("ERRO: ..."), que vira `is_error: true` no tool_result da Anthropic.
+    """
+    with pytest.raises(ToolException, match=r"^ERRO: janela máxima"):
+        await _chamar(
+            data_inicio=date(2026, 5, 1),
+            data_fim=date(2026, 5, 20),
+            runtime=_Runtime(_Ctx(None, "00000000-0000-0000-0000-000000000000")),
+        )
+
+
+def test_data_malformada_rejeitada_na_validacao_de_args() -> None:
+    """Data invalida e barrada na camada de args (pydantic), antes do corpo da tool — o ToolNode
+    a devolve ao LLM como erro de invocacao com o detalhe da validacao."""
+    schema = consultar_agenda.args_schema
+    assert schema is not None
+    with pytest.raises(ValidationError):
+        schema.model_validate({"data_inicio": "2026-13-99", "data_fim": "2026-05-20"})
 
 
 # --- AGT-07: cap por nº de bloqueios (sem DB; a constraint de não-sobreposição inviabiliza
@@ -110,8 +122,8 @@ async def test_consultar_agenda_capa_numero_de_bloqueios() -> None:
 
     rows = [_bloqueio_row(2) for _ in range(_MAX_BLOQUEIOS + 1)]  # 1 acima do teto
     out = await _chamar(
-        data_inicio="2026-06-01",
-        data_fim="2026-06-07",
+        data_inicio=date(2026, 6, 1),
+        data_fim=date(2026, 6, 7),
         runtime=_Runtime(_Ctx(_FakeRowsPool(rows), "m1")),
     )
     assert out.startswith("Bloqueios:")
@@ -123,8 +135,8 @@ async def test_consultar_agenda_abaixo_do_teto_sem_sufixo() -> None:
     """Abaixo do teto: lista completa, sem aviso de truncamento."""
     rows = [_bloqueio_row(2), _bloqueio_row(3)]
     out = await _chamar(
-        data_inicio="2026-06-01",
-        data_fim="2026-06-07",
+        data_inicio=date(2026, 6, 1),
+        data_fim=date(2026, 6, 7),
         runtime=_Runtime(_Ctx(_FakeRowsPool(rows), "m1")),
     )
     assert out.count("\n- ") == 2
@@ -225,8 +237,8 @@ async def test_lista_ativos_e_filtra_cancelados(conn: AsyncConnection[dict[str, 
     )
 
     out = await _chamar(
-        data_inicio="2026-06-01",
-        data_fim="2026-06-07",
+        data_inicio=date(2026, 6, 1),
+        data_fim=date(2026, 6, 7),
         runtime=_Runtime(_Ctx(_PoolDeUmaConexao(conn), str(modelo_id))),
     )
 
@@ -246,8 +258,8 @@ async def test_janela_sem_bloqueios_disponibilidade_total(
     """Modelo sem bloqueios na janela -> retorno sinaliza nenhum horário ocupado."""
     modelo_id = await _seed_modelo(conn)
     out = await _chamar(
-        data_inicio="2026-06-01",
-        data_fim="2026-06-07",
+        data_inicio=date(2026, 6, 1),
+        data_fim=date(2026, 6, 7),
         runtime=_Runtime(_Ctx(_PoolDeUmaConexao(conn), str(modelo_id))),
     )
     assert "Nenhum horário ocupado" in out

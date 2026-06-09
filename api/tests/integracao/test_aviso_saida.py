@@ -55,10 +55,8 @@ def _chama_extracao_com_aviso(call_id: str) -> AIMessage:
             {
                 "name": "registrar_extracao",
                 "args": {
-                    "payload": {
-                        "aviso_saida_detectado": True,
-                        "proxima_acao_esperada": "esperar cliente chegar",
-                    }
+                    "aviso_saida_detectado": True,
+                    "proxima_acao_esperada": "esperar cliente chegar",
                 },
                 "id": call_id,
                 "type": "tool_call",

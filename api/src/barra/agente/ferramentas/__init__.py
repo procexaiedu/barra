@@ -39,6 +39,16 @@ TOOLS: list[BaseTool] = [
     escalar,
 ]
 
+# Erros RECUPERAVEIS (doc oficial `tool-use` "Handling Tool Results"): as tools levantam
+# ToolException e, com handle_tool_error=True, o BaseTool a converte em ToolMessage com
+# status="error" -> `is_error: true` no tool_result da Anthropic, mantendo o TEXTO da excecao
+# como conteudo (a instrucao de recuperacao chega ao modelo). O prefixo "ERRO: " e mantido de
+# proposito: o coordenador (workers/coordenador.py) o usa p/ descartar o texto de AIMessages
+# cujo tool_call falhou. Excecoes INESPERADAS (DB, bug) NAO sao ToolException e continuam
+# estourando o turno (o ToolNode do langgraph so trata erro de args e re-levanta o resto).
+for _tool in TOOLS:
+    _tool.handle_tool_error = True
+
 # Tools com strict tool use (grammar-constrained decoding; doc oficial `strict-tool-use`, 04 §7).
 # PER-TOOL, nao global: o limite "Schema is too complex" da Anthropic e somado em TODAS as tools
 # strict da request; ligar nas que nao precisam (sem param ou so Literal) pagaria latencia de

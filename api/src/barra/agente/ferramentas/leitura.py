@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from langchain_core.tools import tool
+from langchain_core.tools import ToolException, tool
 from langgraph.prebuilt import ToolRuntime
 
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
@@ -16,8 +16,8 @@ _MAX_BLOQUEIOS = 50
 
 @tool
 async def consultar_agenda(
-    data_inicio: str,
-    data_fim: str,
+    data_inicio: date,
+    data_fim: date,
     runtime: ToolRuntime[ContextAgente],
 ) -> str:
     """Consulta os bloqueios (horários OCUPADOS) da modelo entre data_inicio e data_fim.
@@ -37,17 +37,14 @@ async def consultar_agenda(
         cai num bloqueio, ofereça outra janela com uma desculpa pessoal (ver a conduta de
         indisponibilidade nas suas regras), sem revelar que é agenda de trabalho.
     """
+    # `format: "date"` no schema (params tipados `date`): o parse/validacao do YYYY-MM-DD roda na
+    # camada de args (data invalida vira ToolMessage de erro do ToolNode, com o detalhe pydantic).
     pool = runtime.context.db_pool
     modelo_id = runtime.context.modelo_id
-    try:
-        di = date.fromisoformat(data_inicio)
-        df = date.fromisoformat(data_fim)
-    except ValueError:
-        AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "data_invalida").inc()
-        return "ERRO: data inválida, use YYYY-MM-DD."
+    di, df = data_inicio, data_fim
     if (df - di).days > 14:
         AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "janela_excedida").inc()
-        return "ERRO: janela máxima é 14 dias. Refine sua consulta."
+        raise ToolException("ERRO: janela máxima é 14 dias. Refine sua consulta.")
 
     async with pool.connection() as conn:
         res = await conn.execute(

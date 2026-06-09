@@ -581,15 +581,21 @@ def _extrair_texto_do_turno(messages: list[BaseMessage]) -> str:
     por `usage_metadata` mantem so o que o LLM gerou agora — agregar historicas duplicaria
     a resposta anterior junto com a nova (bug observado em prod 2026-05-27).
 
-    Erro recuperavel + retry (2026-06-03): quando uma tool devolve "ERRO: ..." (string, nao excecao),
-    o LLM RE-EMITE o texto e re-chama a tool na passagem seguinte. O texto da passagem cujo tool_call
+    Erro recuperavel + retry (2026-06-03): quando uma tool falha de forma recuperavel, o LLM
+    RE-EMITE o texto e re-chama a tool na passagem seguinte. O texto da passagem cujo tool_call
     ERROU e um rascunho SUPERADO pela retentativa -- agrega-lo duplicaria a fala ao cliente (bug
-    externo_pix). Descartamos o texto das AIMessages cujo tool_call resultou em ToolMessage "ERRO:".
+    externo_pix). Descartamos o texto das AIMessages cujo tool_call resultou em ToolMessage de
+    erro: `status == "error"` cobre ToolException com handle_tool_error (ferramentas/, prefixo
+    "ERRO:") E erro de args do ToolNode (ToolInvocationError, ex. data invalida pos-tipagem
+    `date` -- sem o prefixo); o startswith fica de cinto de seguranca p/ ToolMessage construida
+    a mao com status default.
     """
     ids_com_erro = {
         m.tool_call_id
         for m in messages
-        if isinstance(m, ToolMessage) and str(m.content).startswith("ERRO:") and m.tool_call_id
+        if isinstance(m, ToolMessage)
+        and (m.status == "error" or str(m.content).startswith("ERRO:"))
+        and m.tool_call_id
     }
     partes: list[str] = []
     for m in messages:

@@ -1,6 +1,7 @@
 """M3f — mapping puro motivo -> (tipo, responsavel) + bucket (04 §3.4/§3.6, 09 §4.3).
 
-DB-free: as funcoes sao puras. Cobre TODOS os motivos do enum de `EscaladaPayload`
+DB-free: as funcoes sao puras. Cobre TODOS os motivos roteaveis — o Literal da tool (o que o
+LLM pode emitir) + os motivos INTERNOS emitidos como string por coordenador/services
 (test_cobertura_enum_completa garante que a tabela ESPERADO nao fica defasada se o enum mudar)
 e o default seguro para um motivo desconhecido.
 """
@@ -53,10 +54,24 @@ def test_mapear_bucket(motivo: str) -> None:
     assert mapear_bucket(motivo) == esperado_bucket
 
 
+# Motivos INTERNOS: fora do schema do LLM (nao estao no Literal da tool — poluiriam o espaco de
+# decisao e o grammar strict), emitidos como string por coordenador (exaustao/timeout/recusa),
+# atendimentos/service (reagendamento) e legado do classificador (disclosure_explicito).
+MOTIVOS_INTERNOS = {
+    "reagendamento_pos_bloqueio",
+    "exaustao_iteracoes",
+    "timeout_grafo",
+    "modelo_recusou",
+    "disclosure_explicito",
+}
+
+
 def test_cobertura_enum_completa() -> None:
-    """A tabela ESPERADO cobre exatamente o Literal de `motivo` de EscaladaPayload."""
+    """ESPERADO cobre exatamente o Literal do LLM (EscaladaPayload) + os motivos internos."""
     motivos_enum = set(get_args(EscaladaPayload.model_fields["motivo"].annotation))
-    assert motivos_enum == set(ESPERADO)
+    assert motivos_enum | MOTIVOS_INTERNOS == set(ESPERADO)
+    # Interno NUNCA vaza pro schema do LLM (se vazar, o enum da tool engordou de volta).
+    assert motivos_enum.isdisjoint(MOTIVOS_INTERNOS)
 
 
 def test_default_seguro_motivo_desconhecido() -> None:

@@ -26,21 +26,22 @@ _logger = logging.getLogger(__name__)
 
 # Enum de roteamento compartilhado entre o parametro `motivo` da tool (forma achatada enviada ao
 # LLM) e `EscaladaPayload.motivo` (validacao interna) — fonte unica, sem divergencia (04 §3.4).
+#
+# SO motivos que a CONDUTA manda o LLM usar (regras.md.j2 <quando_usar_escalar> + camadas AUP de
+# 10-persona-jailbreak.md). Os motivos INTERNOS ficam fora do schema do LLM de proposito — poluem
+# o espaco de decisao e o grammar do strict — mas continuam aceitos como string por
+# `mapear_motivo` (dominio/escaladas/service.py), que e a fonte de verdade do roteamento:
+#   - exaustao_iteracoes / timeout_grafo / modelo_recusou — emitidos pelo coordenador
+#     (workers/coordenador.py, escalar_por_exaustao);
+#   - reagendamento_pos_bloqueio — emitido por dominio/atendimentos/service.py;
+#   - disclosure_explicito — legado do classificador (2026-05-23, 10 §2.1/§11), nao acionado no P0.
 MotivoEscalada = Literal[
     # Operacionais
     "fora_de_oferta",
     "horario_indisponivel",
-    "reagendamento_pos_bloqueio",
     "politica_nova_necessaria",
-    "exaustao_iteracoes",
-    "timeout_grafo",
-    "modelo_recusou",
     # AUP / persona / jailbreak (cf. 10-persona-jailbreak.md)
     "disclosure_insistente",
-    # LEGADO (decisao 2026-05-23, 10 §2.1/§11): modelo nomeado conta como o generico (canned +
-    # contador, escala na 3a como disclosure_insistente). Mantido por compat com mapear_motivo /
-    # historico; nao acionado pelo pipeline no P0.
-    "disclosure_explicito",
     "jailbreak_attempt",
     "pedido_explicito_repetido",
     "prova_humanidade_persistente",

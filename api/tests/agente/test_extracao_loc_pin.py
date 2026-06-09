@@ -12,7 +12,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import barra.agente.ferramentas.extracao as extracao
-from barra.agente.ferramentas.extracao import ExtracaoPayload, registrar_extracao
+from barra.agente.ferramentas.extracao import registrar_extracao
 
 # .coroutine e a corrotina crua do @tool; .ainvoke({...}) NAO injeta runtime, .coroutine sim.
 _chamar = registrar_extracao.coroutine  # type: ignore[attr-defined]
@@ -51,7 +51,7 @@ async def test_enviar_pin_nao_enfileira_loc_pin(monkeypatch: Any) -> None:
     redis.enqueue_job = AsyncMock()
 
     out = await _chamar(
-        payload=ExtracaoPayload(proxima_acao_esperada="confirmar saida do cliente"),
+        proxima_acao_esperada="confirmar saida do cliente",
         runtime=_Runtime(_Ctx(redis)),
     )
 

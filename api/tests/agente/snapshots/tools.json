@@ -4,9 +4,11 @@
     "input_schema": {
       "properties": {
         "data_fim": {
+          "format": "date",
           "type": "string"
         },
         "data_inicio": {
+          "format": "date",
           "type": "string"
         }
       },
@@ -19,252 +21,265 @@
     "name": "consultar_agenda"
   },
   {
-    "description": "Registre o snapshot do que aprendeu nesta conversa. Chame UMA vez por turno, perto do fim.\n\n    IMPORTANTE: registrar NÃO envia nada ao cliente — é uma nota interna. Você ainda precisa\n    responder ao cliente normalmente neste mesmo turno, em personagem, como se já soubesse.\n\n    O snapshot é incremental (COALESCE): campos não-nulos sobrescrevem, nulos preservam o\n    anterior. Para apagar um dado que o cliente retratou de fato, use o campo `limpar`.\n\n    `proxima_acao_esperada` (obrigatório) é uma nota interna exibida no painel para Fernando —\n    não é texto para o cliente.",
+    "description": "Registre o snapshot do que aprendeu nesta conversa. Chame UMA vez por turno, perto do fim.\n\n    IMPORTANTE: registrar NÃO envia nada ao cliente — é uma nota interna. Você ainda precisa\n    responder ao cliente normalmente neste mesmo turno, em personagem, como se já soubesse.\n\n    Todos os campos são opcionais, exceto `proxima_acao_esperada` — registre o que está claro;\n    deixe de fora o que ainda não. O snapshot é incremental (COALESCE): campos não-nulos\n    sobrescrevem, nulos preservam o anterior. Para apagar um dado que o cliente retratou de\n    fato, use o campo `limpar`.\n\n    `proxima_acao_esperada` (obrigatório) é uma nota interna exibida no painel para Fernando —\n    não é texto para o cliente.",
     "input_schema": {
       "properties": {
-        "payload": {
-          "additionalProperties": false,
-          "description": "Snapshot estruturado do que a IA aprendeu nesta conversa.\n\nTodos os campos opcionais — registre o que está claro; deixe NULL o que ainda não.\nO domínio faz UPSERT: campos não-nulos sobrescrevem; campos nulos preservam o anterior.",
-          "properties": {
-            "aviso_saida_detectado": {
-              "default": false,
-              "description": "Cliente avisou que saiu de casa em direção ao endereço combinado (texto livre tipo 'sai', 'tô indo', 'estou indo', 'sai agora'). Sinalize True SÓ em atendimento interno em Aguardando_confirmacao; ignore em outros contextos. NÃO pausa a IA — segue a conversa normal.",
-              "type": "boolean"
+        "aviso_saida_detectado": {
+          "default": false,
+          "description": "Cliente avisou que saiu de casa em direção ao endereço combinado (texto livre tipo 'sai', 'tô indo', 'estou indo', 'sai agora'). Sinalize True SÓ em atendimento interno em Aguardando_confirmacao; ignore em outros contextos. NÃO pausa a IA — segue a conversa normal.",
+          "type": "boolean"
+        },
+        "bairro": {
+          "anyOf": [
+            {
+              "type": "string"
             },
-            "bairro": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "data_desejada": {
+          "anyOf": [
+            {
+              "format": "date",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "duracao_horas": {
+          "anyOf": [
+            {
+              "maximum": 48.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "endereco": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "forma_pagamento": {
+          "anyOf": [
+            {
+              "enum": [
+                "pix",
+                "dinheiro",
+                "outro"
               ],
-              "default": null
+              "type": "string"
             },
-            "data_desejada": {
-              "anyOf": [
-                {
-                  "format": "date",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "horario_desejado": {
+          "anyOf": [
+            {
+              "format": "time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Horário de relógio do encontro (HH:MM). PREENCHA na PRIMEIRA vez que o cliente der o horário — não re-pergunte algo que ele já disse. Cravou uma hora ('22h', 'meio-dia') → use-a. Disse tempo RELATIVO/imediato → calcule a partir da hora atual (vem em <agenda agora=\"HH:MM\"> no contexto): 'agora/já/imediato' = a hora atual; 'daqui N min/horas' = hora atual + N (ex.: agora=22:30 e cliente diz 'daqui 1h' → preencha 23:30; data_desejada=hoje, virando o dia se passar da meia-noite). É o que faz o atendimento AVANÇAR para Aguardando_confirmacao e te pausar na chegada. NÃO preencha em horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar."
+        },
+        "intencao": {
+          "anyOf": [
+            {
+              "enum": [
+                "curiosidade",
+                "cotacao",
+                "agendamento"
               ],
-              "default": null
+              "type": "string"
             },
-            "duracao_horas": {
-              "anyOf": [
-                {
-                  "maximum": 48.0,
-                  "minimum": 0.0,
-                  "type": "number"
-                },
-                {
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "endereco": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "forma_pagamento": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "pix",
-                    "dinheiro",
-                    "outro"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "horario_desejado": {
-              "anyOf": [
-                {
-                  "format": "time",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Horário de relógio do encontro (HH:MM). PREENCHA na PRIMEIRA vez que o cliente der o horário — não re-pergunte algo que ele já disse. Cravou uma hora ('22h', 'meio-dia') → use-a. Disse tempo RELATIVO/imediato → calcule a partir da hora atual (vem em <agenda agora=\"HH:MM\"> no contexto): 'agora/já/imediato' = a hora atual; 'daqui N min/horas' = hora atual + N (ex.: agora=22:30 e cliente diz 'daqui 1h' → preencha 23:30; data_desejada=hoje, virando o dia se passar da meia-noite). É o que faz o atendimento AVANÇAR para Aguardando_confirmacao e te pausar na chegada. NÃO preencha em horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar."
-            },
-            "intencao": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "curiosidade",
-                    "cotacao",
-                    "agendamento"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "limpar": {
-              "description": "Campos a ZERAR (NULL) quando o cliente RECUA/desmarca — ex.: disse um horário e depois 'não sei o dia ainda'. Nomes dos campos acima (ex.: ['data_desejada','horario_desejado']). Só o que o cliente retratou; tem precedência sobre o payload. Zerar um campo apaga o valor anterior e pode reverter a qualificação do atendimento — na dúvida, não liste.",
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "limpar": {
+          "anyOf": [
+            {
               "items": {
                 "type": "string"
               },
               "type": "array"
             },
-            "motivo_perda_candidato": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "preco",
-                    "sumiu",
-                    "risco",
-                    "indisponibilidade",
-                    "fora_de_area",
-                    "outro"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Campos a ZERAR (NULL) quando o cliente RECUA/desmarca — ex.: disse um horário e depois 'não sei o dia ainda'. Nomes dos outros campos desta tool (ex.: ['data_desejada','horario_desejado']). Só o que o cliente retratou; tem precedência sobre os demais campos. Zerar um campo apaga o valor anterior e pode reverter a qualificação do atendimento — na dúvida, não liste."
+        },
+        "motivo_perda_candidato": {
+          "anyOf": [
+            {
+              "enum": [
+                "preco",
+                "sumiu",
+                "risco",
+                "indisponibilidade",
+                "fora_de_area",
+                "outro"
               ],
-              "default": null
-            },
-            "proxima_acao_esperada": {
-              "maxLength": 240,
-              "minLength": 3,
               "type": "string"
             },
-            "sinais_qualificacao": {
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proxima_acao_esperada": {
+          "maxLength": 240,
+          "minLength": 3,
+          "type": "string"
+        },
+        "sinais_qualificacao": {
+          "anyOf": [
+            {
               "additionalProperties": false,
-              "description": "Passe só os True; defaults False são excluídos do dump (não sobrescrevem).",
+              "description": "Sinais booleanos detectados; inclua só os True.",
               "properties": {
                 "aceita_valor": {
                   "default": false,
                   "description": "cliente concordou com o valor cotado (não apenas perguntou o preço)",
+                  "title": "Aceita Valor",
                   "type": "boolean"
                 },
                 "envia_pix": {
                   "default": false,
                   "description": "cliente alegou ter enviado o Pix ou mandou comprovante",
+                  "title": "Envia Pix",
                   "type": "boolean"
                 },
                 "informa_horario": {
                   "default": false,
                   "description": "cliente disse um horário concreto que quer",
+                  "title": "Informa Horario",
                   "type": "boolean"
                 },
                 "informa_local": {
                   "default": false,
                   "description": "cliente informou bairro/endereço/tipo de local",
+                  "title": "Informa Local",
                   "type": "boolean"
                 },
                 "responde_objetivamente": {
                   "default": false,
                   "description": "cliente responde direto às perguntas, sem enrolar — sinal de intenção real",
+                  "title": "Responde Objetivamente",
                   "type": "boolean"
                 }
               },
+              "title": "SinaisQualificacao",
               "type": "object"
             },
-            "tipo_atendimento": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "interno",
-                    "externo"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "tipo_local": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "hotel",
-                    "casa",
-                    "apartamento",
-                    "outro"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "urgencia": {
-              "anyOf": [
-                {
-                  "enum": [
-                    "imediato",
-                    "agendado",
-                    "indefinido",
-                    "estimado"
-                  ],
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null
-            },
-            "valor_acordado": {
-              "anyOf": [
-                {
-                  "minimum": 0.0,
-                  "type": "number"
-                },
-                {
-                  "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "default": null,
-              "description": "Valor total acordado com o cliente. SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — sem a duração o sistema não consegue conferir o piso de desconto e escala à toa uma oferta que era válida."
+            {
+              "type": "null"
             }
-          },
-          "required": [
-            "proxima_acao_esperada"
           ],
-          "type": "object"
+          "default": null,
+          "description": "Sinais detectados na conversa — inclua só os True."
+        },
+        "tipo_atendimento": {
+          "anyOf": [
+            {
+              "enum": [
+                "interno",
+                "externo"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tipo_local": {
+          "anyOf": [
+            {
+              "enum": [
+                "hotel",
+                "casa",
+                "apartamento",
+                "outro"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "urgencia": {
+          "anyOf": [
+            {
+              "enum": [
+                "imediato",
+                "agendado",
+                "indefinido",
+                "estimado"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "valor_acordado": {
+          "anyOf": [
+            {
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Valor total acordado com o cliente. SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — sem a duração o sistema não consegue conferir o piso de desconto e escala à toa uma oferta que era válida."
         }
       },
       "required": [
-        "payload"
+        "proxima_acao_esperada"
       ],
       "type": "object"
     },
@@ -356,13 +371,8 @@
           "enum": [
             "fora_de_oferta",
             "horario_indisponivel",
-            "reagendamento_pos_bloqueio",
             "politica_nova_necessaria",
-            "exaustao_iteracoes",
-            "timeout_grafo",
-            "modelo_recusou",
             "disclosure_insistente",
-            "disclosure_explicito",
             "jailbreak_attempt",
             "pedido_explicito_repetido",
             "prova_humanidade_persistente",
