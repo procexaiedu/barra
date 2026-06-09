@@ -391,7 +391,9 @@ async def test_extrair_via_openrouter_sinaliza_inconclusivo(finish: str, content
 
 async def test_extrair_via_openrouter_stop_valido_extrai() -> None:
     """finish_reason=stop com JSON valido -> ExtracaoPix (caminho feliz intacto)."""
-    payload = ExtracaoPix(plausibilidade_visual=True, valor=Decimal("100.00")).model_dump_json()
+    payload = ExtracaoPix(
+        plausibilidade_visual=True, valor=Decimal("100.00"), confianca="alta"
+    ).model_dump_json()
     client = _FakeVisionFinish("stop", content=payload)
     extracao = await _extrair_via_openrouter(
         b"\xff\xd8\xff",

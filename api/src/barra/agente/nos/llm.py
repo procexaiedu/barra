@@ -15,7 +15,7 @@ from typing import Any, Literal, Protocol
 
 from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.tools import BaseTool
 from langgraph.runtime import Runtime
 from langgraph.types import Command
@@ -35,6 +35,24 @@ logger = logging.getLogger(__name__)
 # model_context_window_exceeded (janela do modelo). Quando truncam COM tool_use, os args podem
 # vir incompletos -> nao despachar a tool (STOP-03/06). Ambos chegam em 200 OK, nao como excecao.
 _STOP_TRUNCADO = ("max_tokens", "model_context_window_exceeded")
+
+# Fallback deterministico de extracao (#2): nome da tool de escrita que persiste o snapshot do
+# turno. Quando o LLM encerra sem chama-la, o no forca 1 chamada (tool_choice) antes de fechar.
+_TOOL_EXTRACAO = "registrar_extracao"
+
+
+def _extraiu_no_turno(messages: Sequence[BaseMessage]) -> bool:
+    """True se `registrar_extracao` foi chamada por uma AIMessage GERADA neste turno.
+
+    `usage_metadata is not None` isola as AIMessages reais deste `ainvoke` das historicas
+    re-injetadas pelo prepare_context (sem usage) -- mesma heuristica de `_extrair_texto_do_turno`
+    no coordenador. So conta tool_call cujo nome bate exatamente.
+    """
+    for m in messages:
+        if isinstance(m, AIMessage) and m.usage_metadata is not None:
+            if any(tc.get("name") == _TOOL_EXTRACAO for tc in (m.tool_calls or [])):
+                return True
+    return False
 
 
 def _instrumentar_tokens(resp: BaseMessage, modelo: str) -> None:
@@ -90,6 +108,17 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
         exemplos=INPUT_EXAMPLES,
     )
     chat_bound = chat.bind_tools(tools_para_bind)
+    # Fallback deterministico de extracao (#2): 2o bind que FORCA registrar_extracao via
+    # tool_choice (doc oficial `tool-use` / langchain-anthropic bind_tools). So existe quando a
+    # tool esta no catalogo e o kill-switch esta ligado -- em M0/testes (TOOLS=[]) fica None e o
+    # caminho de forcamento some, sem tocar o bind normal nem o cache do prefixo (tool_choice e
+    # parametro de request do 2o bind, nao altera o prefixo cacheado tools+system do 1o).
+    nomes_tools = {t.name for t in tools}
+    chat_forcado = (
+        chat.bind_tools(tools_para_bind, tool_choice=_TOOL_EXTRACAO)
+        if _TOOL_EXTRACAO in nomes_tools and settings.forcar_extracao_por_turno
+        else None
+    )
     # nome Anthropic (claude-sonnet-4-6) p/ o label das metricas de token, nao o modelo_id da
     # agencia (03 §4.2). Lido via `.model`, nao `.model_name` (M0-T1; alias write-only no 1.4.3).
     modelo_anthropic = chat.model
@@ -97,6 +126,12 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
     async def llm(
         state: EstadoAgente, runtime: Runtime[ContextAgente]
     ) -> Command[Literal["tools", "post_process"]]:
+        # Reentrada pos-extracao forcada (#2): o `tools` ja rodou a registrar_extracao forcada e
+        # o texto ao cliente ja vive em `messages` (resp do turno). NAO reinvocar o modelo --
+        # fecharia uma 2a bolha e custaria 1 request a toa. Fecha o turno direto no post_process
+        # (que ainda refaz o gate de pausa). O guard tambem corta loop infinito de forcamento.
+        if state.get("_extracao_forcada"):
+            return Command(goto="post_process")
         try:
             resp = await chat_bound.ainvoke(state["messages"])
             _instrumentar_tokens(resp, modelo_anthropic)
@@ -149,6 +184,34 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
                 )
                 return Command(goto="post_process", update={"messages": [resp]})
             return Command(goto="tools", update={"messages": [resp]})
+
+        # Resposta final ao cliente (sem tool_calls). Fallback deterministico (#2): se NENHUM
+        # registrar_extracao rodou neste turno, a FSM defasaria (valor/tipo/horario nao persistem).
+        # Forca 1 extracao via tool_choice e despacha pelo `tools`; a reentrada (guard acima) fecha
+        # o turno sem reinvocar o modelo -> sem bolha dupla, +1 request so quando o LLM esqueceu.
+        if chat_forcado is not None and not _extraiu_no_turno(state["messages"]):
+            # Forca sobre `state["messages"]` (NAO inclui `resp`): a request precisa terminar numa
+            # msg user/tool p/ o modelo responder -- anexar `resp` (assistant) daria 2 assistant
+            # consecutivas (400). `resp` so vai no update local; nunca volta a Anthropic (a
+            # reentrada nao reinvoca). A extracao olha o contexto do cliente, ja completo aqui.
+            forcado = await chat_forcado.ainvoke(state["messages"])
+            _instrumentar_tokens(forcado, modelo_anthropic)
+            forcado_stop = (forcado.response_metadata or {}).get("stop_reason")
+            if forcado_stop in _STOP_TRUNCADO or not getattr(forcado, "tool_calls", None):
+                # Extracao forcada truncou (args incompletos) ou nao saiu tool_call: descarta o
+                # forcado e fecha como antes do fix (turno sem extracao) -- nunca persiste payload
+                # incompleto. Caso raro (max_tokens=1024 nao trunca o schema pequeno, 03 §6.1).
+                logger.warning(
+                    "extracao forcada sem tool_call util (stop=%s turno_id=%s)",
+                    forcado_stop,
+                    runtime.context.turno_id,
+                )
+                return Command(goto="post_process", update={"messages": [resp]})
+            logger.info("extracao forcada (turno_id=%s)", runtime.context.turno_id)
+            return Command(
+                goto="tools",
+                update={"messages": [resp, forcado], "_extracao_forcada": True},
+            )
         return Command(goto="post_process", update={"messages": [resp]})
 
     return llm

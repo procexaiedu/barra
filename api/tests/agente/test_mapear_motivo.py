@@ -11,7 +11,12 @@ import pytest
 
 from barra.agente.ferramentas.escalada import EscaladaPayload
 from barra.dominio.escaladas.modelos import TipoEscalada
-from barra.dominio.escaladas.service import mapear_bucket, mapear_motivo
+from barra.dominio.escaladas.service import (
+    OBS_LEMBRETE_SEM_RESPOSTA,
+    card_escalada_vai_ao_grupo,
+    mapear_bucket,
+    mapear_motivo,
+)
 
 # motivo -> (tipo esperado, responsavel esperado, bucket esperado)
 ESPERADO: dict[str, tuple[TipoEscalada, str, str]] = {
@@ -58,3 +63,16 @@ def test_default_seguro_motivo_desconhecido() -> None:
     """Motivo fora do enum cai no default seguro: Fernando + outro + bucket capacidade."""
     assert mapear_motivo("xpto_inexistente") == (TipoEscalada.outro, "Fernando")
     assert mapear_bucket("xpto_inexistente") == "capacidade"
+
+
+def test_card_escalada_vai_ao_grupo() -> None:
+    """Roteamento por owner (UX §9.6): modelo → grupo; Fernando → painel/fila, salvo o
+    lembrete-sem-resposta (que continua no grupo)."""
+    # owner=modelo: sempre vai ao grupo, com ou sem observação.
+    assert card_escalada_vai_ao_grupo("modelo", None) is True
+    assert card_escalada_vai_ao_grupo("modelo", "fora_de_oferta") is True
+    # owner=Fernando: não vai ao grupo (jailbreak/política/exaustão são do painel).
+    assert card_escalada_vai_ao_grupo("Fernando", None) is False
+    assert card_escalada_vai_ao_grupo("Fernando", "disclosure_insistente") is False
+    # Exceção: lembrete-sem-resposta é Fernando mas continua na thread do grupo.
+    assert card_escalada_vai_ao_grupo("Fernando", OBS_LEMBRETE_SEM_RESPOSTA) is True

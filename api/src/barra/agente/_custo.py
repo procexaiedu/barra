@@ -33,15 +33,15 @@ PRECO_USD_PER_MTOK: dict[str, float] = {
 # Os dois numeros abaixo sao DEFAULTS PLAUSIVEIS, nunca batidos com o Fernando. Sao alvos de
 # revisao (memoria pipeline_noturno: CUSTO-02 estava travado por falta da tarifa de STT).
 #  - PRECO_VISION_USD_PER_MTOK: o modelo de vision do Pix roteia pelo OpenRouter
-#    (settings.openrouter_model_vision_pix; default "anthropic/claude-sonnet-4.6" em pix.py),
-#    entao adotamos a tabela publica do Sonnet 4.6 (input $3 / output $15) como proxy. Se o
+#    (settings.openrouter_model_vision_pix; default "google/gemini-3-flash-preview" em pix.py),
+#    entao adotamos a tabela publica do Gemini 3 Flash (input $0.50 / output $3.00). Se o
 #    operador fixar outro modelo no OpenRouter, ajustar aqui.
 #  - TARIFA_STT_USD_POR_MINUTO: Whisper-1 da OpenAI e faturado por minuto de audio
 #    (referencia publica $0.006/min). Confirmar a alic. real / eventual desconto antes de tratar
 #    como custo fechado.
 PRECO_VISION_USD_PER_MTOK: dict[str, float] = {
-    "input": 3.00,
-    "output": 15.00,
+    "input": 0.50,
+    "output": 3.00,
 }
 TARIFA_STT_USD_POR_MINUTO: float = 0.006
 
@@ -85,9 +85,7 @@ def custo_por_atendimento_brl(chat_brl: float, stt_brl: float, vision_brl: float
     return chat_brl + stt_brl + vision_brl
 
 
-def calcular_custo_brl(
-    usage_metadata: dict[str, Any] | None, cotacao_usd_brl: float
-) -> float:
+def calcular_custo_brl(usage_metadata: dict[str, Any] | None, cotacao_usd_brl: float) -> float:
     """Custo estimado do turno em BRL a partir do `usage_metadata` da AIMessage.
 
     Le `input_token_details` no formato langchain-anthropic 1.4.3 (mapeamento assimetrico:

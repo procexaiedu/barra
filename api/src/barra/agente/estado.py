@@ -31,8 +31,13 @@ class EstadoAgente(MessagesState):
         prepare_context (regex sobre a cauda da janela), lida pelo intercept_disclosure
         para rotear canned/escala/llm (10 §8). _confianca e a string "alta" (ou None) que
         `classificar_janela` retorna -- nao um float. Ausentes => sem deteccao.
+    _extracao_forcada: guard do fallback deterministico de extracao (#2, nos/llm.py). O no
+        llm o seta True ao forcar registrar_extracao no fim do turno; na reentrada pos-`tools`
+        ele fecha o turno (goto post_process) SEM reinvocar o modelo -- evita bolha dupla e
+        loop infinito de forcamento. Nasce ausente a cada `ainvoke` (sem checkpointer).
     """
 
     midia_idx: int
     _categoria: str | None
     _confianca: str | None
+    _extracao_forcada: bool
