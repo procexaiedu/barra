@@ -2,6 +2,7 @@
 
 import json
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -143,6 +144,96 @@ async def _one(
 ) -> dict[str, Any] | None:
     result = await conn.execute(query, params)
     return await result.fetchone()
+
+
+# -----------------------------------------------------------------------------
+# Digest de pendencias por modelo (UX §6.4) — o que aguarda a modelo no grupo dela
+# -----------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Pendencia:
+    """Uma linha do digest de pendencias da modelo. `categoria` escolhe o emoji/copy no card."""
+
+    numero_curto: int
+    cliente_nome: str
+    categoria: Literal["handoff", "falta_valor", "pix"]
+    detalhe: str | None  # handoff: motivo curto da escalada
+    encerrado_em: datetime | None  # falta_valor: bloqueios.fim ja em America/Sao_Paulo
+
+
+async def listar_pendencias_modelo(
+    conn: AsyncConnection[Any],
+    modelo_id: UUID,
+    *,
+    tolerancia_min: int,
+) -> list[Pendencia]:
+    """Atendimentos da modelo que aguardam acao DELA, agrupados por tipo (UX §6.4).
+
+    Tres origens, todas escopadas a `modelo_id` (isolamento por par):
+      - **handoff**: escalada aberta com `responsavel='modelo'` (so as dela; jailbreak/politica/
+        exaustao sao `responsavel='Fernando'` e ficam no painel — UX §9.6);
+      - **falta_valor**: `Em_execucao` com `bloqueios.fim` vencido (+ tolerancia) — a mesma
+        condicao que o Lembrete de fechamento cobra (espelha `workers/lembrete_valor`);
+      - **pix**: comprovante `em_revisao` ainda nao resolvido por Fernando.
+
+    Um atendimento pode cair em mais de uma origem; deduplica por `numero_curto` mantendo a de
+    maior prioridade (handoff > falta_valor > pix), ja garantida pelo `ORDER BY` da query.
+    `bloqueios.fim` ja vem convertido para America/Sao_Paulo (naive), pronto p/ `strftime` no card.
+    """
+    res = await conn.execute(
+        """
+        SELECT numero_curto, cliente_nome, categoria, detalhe, encerrado_em
+          FROM (
+            SELECT a.numero_curto, c.nome AS cliente_nome, 'handoff' AS categoria,
+                   e.motivo AS detalhe, NULL::timestamp AS encerrado_em,
+                   0 AS prioridade, e.aberta_em AS ord
+              FROM barravips.escaladas e
+              JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+              JOIN barravips.clientes c ON c.id = a.cliente_id
+             WHERE a.modelo_id = %(modelo_id)s
+               AND e.fechada_em IS NULL
+               AND e.responsavel = 'modelo'
+               AND a.estado NOT IN ('Fechado', 'Perdido')
+            UNION ALL
+            SELECT a.numero_curto, c.nome, 'falta_valor',
+                   NULL, (b.fim AT TIME ZONE 'America/Sao_Paulo'),
+                   1, b.fim
+              FROM barravips.atendimentos a
+              JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+              JOIN barravips.clientes c ON c.id = a.cliente_id
+             WHERE a.modelo_id = %(modelo_id)s
+               AND a.estado = 'Em_execucao'
+               AND b.fim < now() - make_interval(mins => %(tolerancia)s)
+            UNION ALL
+            SELECT a.numero_curto, c.nome, 'pix',
+                   NULL, NULL, 2, a.updated_at
+              FROM barravips.atendimentos a
+              JOIN barravips.clientes c ON c.id = a.cliente_id
+             WHERE a.modelo_id = %(modelo_id)s
+               AND a.pix_status = 'em_revisao'
+               AND a.estado NOT IN ('Fechado', 'Perdido')
+          ) q
+         ORDER BY prioridade, numero_curto
+        """,
+        {"modelo_id": modelo_id, "tolerancia": tolerancia_min},
+    )
+    vistos: set[int] = set()
+    pendencias: list[Pendencia] = []
+    for row in await res.fetchall():
+        if row["numero_curto"] in vistos:
+            continue  # ja listado por origem de maior prioridade
+        vistos.add(row["numero_curto"])
+        pendencias.append(
+            Pendencia(
+                numero_curto=row["numero_curto"],
+                cliente_nome=row["cliente_nome"] or "cliente",
+                categoria=row["categoria"],
+                detalhe=row["detalhe"],
+                encerrado_em=row["encerrado_em"],
+            )
+        )
+    return pendencias
 
 
 # -----------------------------------------------------------------------------
@@ -288,10 +379,27 @@ def _montar_upsert(payload: dict[str, Any], limpar: set[str]) -> tuple[list[str]
         elif payload.get(campo) is not None:
             sets.append(f"{campo} = %s")
             valores.append(payload[campo])
-    if payload.get("sinais_qualificacao"):
+    sinais = _sinais_qualificacao_derivados(payload, limpar)
+    if sinais:
         sets.append("sinais_qualificacao = sinais_qualificacao || %s::jsonb")
-        valores.append(json.dumps(payload["sinais_qualificacao"]))
+        valores.append(json.dumps(sinais))
     return sets, valores
+
+
+def _sinais_qualificacao_derivados(payload: dict[str, Any], limpar: set[str]) -> dict[str, Any]:
+    """Sinais de qualificacao a mergear no JSONB (`||`). Parte do que o LLM passou e DERIVA
+    deterministicamente os dois sinais redundantes com campo estruturado — `valor_acordado` =>
+    `aceita_valor`, `horario_desejado` => `informa_horario` — que o LLM as vezes esquece de marcar
+    (defasagem do diagnostico E2E #5, 2026-06-09). O campo estruturado e a fonte confiavel (o
+    abaixo-do-piso nem grava `valor_acordado`; a docstring de `horario_desejado` so manda preencher
+    com hora concreta); o boolean apenas o espelha. Nao deriva ao `limpar` o campo (cliente recuou)
+    e o merge `||` so adiciona True — nunca rebaixa um sinal ja gravado."""
+    sinais = dict(payload.get("sinais_qualificacao") or {})
+    if "valor_acordado" not in limpar and payload.get("valor_acordado") is not None:
+        sinais["aceita_valor"] = True
+    if "horario_desejado" not in limpar and payload.get("horario_desejado") is not None:
+        sinais["informa_horario"] = True
+    return sinais
 
 
 async def _decidir_transicao(conn: AsyncConnection[Any], atendimento_id: UUID) -> str | None:

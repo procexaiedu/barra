@@ -435,6 +435,25 @@ def mapear_bucket(motivo: str) -> str:
     return "defesa" if motivo in _BUCKET_DEFESA else "capacidade"
 
 
+# Observacao canonica da escalada de lembrete-sem-resposta (espelha
+# `workers/lembrete_valor.OBS_ESCALADA`, que a importa daqui). Vive no dominio porque a regra de
+# audiencia abaixo precisa dela e `dominio/` nao pode depender de `workers/` (direcao das deps).
+OBS_LEMBRETE_SEM_RESPOSTA = "valor_final_nao_confirmado"
+
+
+def card_escalada_vai_ao_grupo(responsavel: str, observacao: str | None) -> bool:
+    """Decide se uma escalada gera Card no grupo de Coordenacao da modelo (UX §1.5/§9.6).
+
+    Roteia por owner: ``responsavel='modelo'`` (acao operacional dela) -> grupo. ``responsavel=
+    'Fernando'`` (excecao de gestao/sistema: jailbreak, politica, exaustao) -> NAO posta no grupo,
+    vai so pro painel/fila no P0 (IA Admin no P1). Unica excecao: o lembrete-sem-resposta, que
+    continua no grupo por ser a mesma thread do Lembrete de fechamento que ja vive la.
+    """
+    if responsavel == "modelo":
+        return True
+    return observacao == OBS_LEMBRETE_SEM_RESPOSTA
+
+
 async def abrir_handoff(
     conn: AsyncConnection[Any],
     *,
