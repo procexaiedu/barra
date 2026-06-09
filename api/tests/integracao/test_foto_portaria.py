@@ -162,7 +162,15 @@ async def _seed_atendimento_interno_aguardando(
                 'interno'::barravips.tipo_atendimento_enum,
                 'nao_solicitado'::barravips.pix_status_enum, %s, %s, %s)
         """,
-        (atendimento_id, cliente_id, modelo_id, conversa_id, data_desejada, horario_desejado, duracao),
+        (
+            atendimento_id,
+            cliente_id,
+            modelo_id,
+            conversa_id,
+            data_desejada,
+            horario_desejado,
+            duracao,
+        ),
     )
     bloqueio_id = await _seed_bloqueio(
         c,
@@ -177,9 +185,13 @@ async def _seed_atendimento_interno_aguardando(
 
 async def _seed_msg_imagem(
     c: AsyncConnection[dict[str, Any]], conversa_id: UUID
-) -> tuple[UUID, str]:
-    """Mensagem do cliente tipo='imagem' com media_object_key (gravada pelo webhook fino)."""
+) -> tuple[UUID, str, str]:
+    """Mensagem do cliente tipo='imagem' com media_object_key (gravada pelo webhook fino).
+
+    Devolve (id interno, evolution_message_id, object_key): o `rotear_imagem` recebe o
+    `evolution_message_id` (como o webhook faz) e resolve o UUID interno."""
     mensagem_id = uuid4()
+    evolution_message_id = f"test-evo-{uuid4().hex}"
     object_key = f"conversas/{conversa_id}/mensagens/{uuid4().hex}.jpg"
     await c.execute(
         """
@@ -188,9 +200,9 @@ async def _seed_msg_imagem(
              created_at)
         VALUES (%s, %s, 'cliente', 'imagem', '', %s, %s, %s)
         """,
-        (mensagem_id, conversa_id, object_key, f"test-evo-{uuid4().hex}", datetime.now(UTC)),
+        (mensagem_id, conversa_id, object_key, evolution_message_id, datetime.now(UTC)),
     )
-    return mensagem_id, object_key
+    return mensagem_id, evolution_message_id, object_key
 
 
 # --- testes ----------------------------------------------------------------------------------
@@ -207,14 +219,14 @@ async def test_foto_portaria_handoff_completo(
     atendimento_id, bloqueio_id = await _seed_atendimento_interno_aguardando(
         conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id
     )
-    mensagem_id, object_key = await _seed_msg_imagem(conn, conversa_id)
+    mensagem_id, evolution_id, object_key = await _seed_msg_imagem(conn, conversa_id)
 
     redis = _redis_fake()
     ctx = _ctx(_PoolDeUmaConexao(conn), redis)
 
     await rotear_imagem(
         ctx,
-        mensagem_id=str(mensagem_id),
+        mensagem_id=evolution_id,
         conversa_id=str(conversa_id),
         media_url="https://evolution.test/portaria.jpg",
         caption=None,

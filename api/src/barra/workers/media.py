@@ -72,6 +72,20 @@ async def limpar_midias_vencidas(
     return apagados
 
 
+async def _resolver_mensagem_uuid(
+    conn: AsyncConnection[Any], evolution_message_id: str
+) -> UUID | None:
+    """Resolve o UUID interno de `mensagens.id` pelo `evolution_message_id`. O webhook enfileira
+    `rotear_imagem` com o id da Evolution (string), mas `validar_pix`/`_handoff_foto_portaria`
+    operam pelo UUID interno (FK + UUID() estrito)."""
+    res = await conn.execute(
+        "SELECT id FROM barravips.mensagens WHERE evolution_message_id = %s",
+        (evolution_message_id,),
+    )
+    row = await res.fetchone()
+    return row["id"] if row else None
+
+
 async def rotear_imagem(
     ctx: dict[str, Any],
     *,
@@ -96,6 +110,10 @@ async def rotear_imagem(
         async with adquirir_lock(redis, f"lock:conv:{conversa_id}", ttl=60, heartbeat_interval=15):
             async with pool.connection() as conn:
                 atendimento = await resolver_atendimento_existente(conn, UUID(conversa_id))
+                # O webhook enfileira com o `evolution_message_id` (string); `validar_pix` e
+                # `_handoff_foto_portaria` operam pelo UUID interno de `mensagens.id` (FK + UUID()
+                # estrito). Resolve aqui para nao passar o id da Evolution adiante (ValueError).
+                mensagem_uuid = await _resolver_mensagem_uuid(conn, mensagem_id)
 
             estado = atendimento["estado"] if atendimento else None
             pix_status = atendimento["pix_status"] if atendimento else None
@@ -103,12 +121,17 @@ async def rotear_imagem(
 
             if estado == "Aguardando_confirmacao" and pix_status == "aguardando":
                 assert atendimento is not None  # estado != None implica atendimento
+                if mensagem_uuid is None:
+                    logger.error(
+                        "rotear_imagem sem mensagem persistida evolution_id=%s", mensagem_id
+                    )
+                    return
                 # `validar_pix` tem assinatura enxuta (06 §0 item 2: a midia ja esta no MinIO,
                 # a URL da Evolution expira) e NAO aceita media_url — passa-lo aqui quebraria o
                 # job com TypeError no ARQ real.
                 await redis.enqueue_job(
                     "validar_pix",
-                    mensagem_id=mensagem_id,
+                    mensagem_id=str(mensagem_uuid),
                     atendimento_id=str(atendimento["id"]),
                     _job_id=f"pix:{atendimento['id']}:{mensagem_id}",
                 )
@@ -117,11 +140,16 @@ async def rotear_imagem(
 
             if estado == "Aguardando_confirmacao" and tipo_atendimento == "interno":
                 assert atendimento is not None
+                if mensagem_uuid is None:
+                    logger.error(
+                        "rotear_imagem sem mensagem persistida evolution_id=%s", mensagem_id
+                    )
+                    return
                 await _handoff_foto_portaria(
                     ctx,
                     conversa_id=conversa_id,
                     atendimento_id=str(atendimento["id"]),
-                    mensagem_id=mensagem_id,
+                    mensagem_id=str(mensagem_uuid),
                 )
                 ROTEAR_IMAGEM_DECISAO.labels("foto_portaria").inc()
                 return

@@ -22,7 +22,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 from unittest.mock import AsyncMock
 from uuid import UUID, uuid4
 
@@ -137,8 +137,17 @@ async def _seed_atendimento(
     return atendimento_id
 
 
-async def _seed_msg_cliente_orfa(c: AsyncConnection[dict[str, Any]], conversa_id: UUID) -> UUID:
+class _MsgSeed(NamedTuple):
+    id: UUID
+    evolution_id: str
+
+
+async def _seed_msg_cliente_orfa(c: AsyncConnection[dict[str, Any]], conversa_id: UUID) -> _MsgSeed:
+    """Devolve (id interno, evolution_id). Espelha o webhook: a mensagem e persistida com os
+    DOIS ids; o `rotear_imagem` recebe o `evolution_message_id` e resolve o UUID interno antes
+    de chamar `validar_pix`/`_handoff_foto_portaria`."""
     mensagem_id = uuid4()
+    evolution_message_id = f"test-evo-{uuid4().hex}"
     await c.execute(
         """
         INSERT INTO barravips.mensagens
@@ -150,11 +159,11 @@ async def _seed_msg_cliente_orfa(c: AsyncConnection[dict[str, Any]], conversa_id
             mensagem_id,
             conversa_id,
             f"conversas/{conversa_id}/mensagens/{uuid4().hex}.jpg",
-            f"test-evo-{uuid4().hex}",
+            evolution_message_id,
             datetime.now(UTC),
         ),
     )
-    return mensagem_id
+    return _MsgSeed(mensagem_id, evolution_message_id)
 
 
 # --- testes ----------------------------------------------------------------------------------
@@ -162,7 +171,11 @@ async def _seed_msg_cliente_orfa(c: AsyncConnection[dict[str, Any]], conversa_id
 
 @pytest.mark.needs_db
 async def test_pix_aguardando(conn: AsyncConnection[dict[str, Any]]) -> None:
-    """Aguardando_confirmacao + pix_status='aguardando' -> enqueue validar_pix com _job_id estavel."""
+    """Aguardando_confirmacao + pix_status='aguardando' -> enqueue validar_pix com _job_id estavel.
+
+    Regressao: o webhook enfileira `rotear_imagem` com o `evolution_message_id` (string), mas
+    `validar_pix` opera pelo UUID interno de `mensagens.id`. O `rotear_imagem` deve RESOLVER o
+    UUID antes de repassar — senao `validar_pix` estoura em `UUID(mensagem_id)`."""
     modelo_id = await _seed_modelo(conn)
     cliente_id = await _seed_cliente(conn)
     conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
@@ -175,14 +188,14 @@ async def test_pix_aguardando(conn: AsyncConnection[dict[str, Any]]) -> None:
         tipo_atendimento="externo",
         pix_status="aguardando",
     )
-    mensagem_id = await _seed_msg_cliente_orfa(conn, conversa_id)
+    msg = await _seed_msg_cliente_orfa(conn, conversa_id)
 
     redis = _redis_fake()
     ctx = _ctx(_PoolDeUmaConexao(conn), redis)
 
     await rotear_imagem(
         ctx,
-        mensagem_id=str(mensagem_id),
+        mensagem_id=msg.evolution_id,
         conversa_id=str(conversa_id),
         media_url="https://evolution.test/img.jpg",
         caption=None,
@@ -192,11 +205,13 @@ async def test_pix_aguardando(conn: AsyncConnection[dict[str, Any]]) -> None:
     assert len(calls) == 1
     assert calls[0].args == ("validar_pix",)
     kwargs = calls[0].kwargs
-    assert kwargs["mensagem_id"] == str(mensagem_id)
+    # `validar_pix` recebe o UUID interno RESOLVIDO, nao o evolution_message_id que entrou.
+    assert kwargs["mensagem_id"] == str(msg.id)
     assert kwargs["atendimento_id"] == str(atendimento_id)
     # `validar_pix` nao aceita media_url (assinatura enxuta, 06 §0 item 2): nao deve ser passado.
     assert "media_url" not in kwargs
-    assert kwargs["_job_id"] == f"pix:{atendimento_id}:{mensagem_id}"
+    # _job_id (idempotencia) mantem o evolution_message_id, estavel por mensagem.
+    assert kwargs["_job_id"] == f"pix:{atendimento_id}:{msg.evolution_id}"
 
 
 @pytest.mark.needs_db
@@ -219,14 +234,14 @@ async def test_interno_aciona_foto_portaria(conn: AsyncConnection[dict[str, Any]
         tipo_atendimento="interno",
         pix_status="nao_solicitado",
     )
-    mensagem_id = await _seed_msg_cliente_orfa(conn, conversa_id)
+    msg = await _seed_msg_cliente_orfa(conn, conversa_id)
 
     redis = _redis_fake()
     ctx = _ctx(_PoolDeUmaConexao(conn), redis)
 
     await rotear_imagem(
         ctx,
-        mensagem_id=str(mensagem_id),
+        mensagem_id=msg.evolution_id,
         conversa_id=str(conversa_id),
         media_url="https://evolution.test/portaria.jpg",
         caption=None,
@@ -265,14 +280,14 @@ async def test_fora_fluxo_com_legenda_enfileira_turno(
         tipo_atendimento="externo",
         pix_status="nao_solicitado",
     )
-    mensagem_id = await _seed_msg_cliente_orfa(conn, conversa_id)
+    msg = await _seed_msg_cliente_orfa(conn, conversa_id)
 
     redis = _redis_fake()
     ctx = _ctx(_PoolDeUmaConexao(conn), redis)
 
     await rotear_imagem(
         ctx,
-        mensagem_id=str(mensagem_id),
+        mensagem_id=msg.evolution_id,
         conversa_id=str(conversa_id),
         media_url="https://evolution.test/foto-aleatoria.jpg",
         caption="olha que linda essa selfie minha",
@@ -294,14 +309,14 @@ async def test_fora_fluxo_sem_legenda_fica_em_silencio(
     cliente_id = await _seed_cliente(conn)
     conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
     # Sem atendimento aberto: resolver_atendimento_existente devolve None -> silencio.
-    mensagem_id = await _seed_msg_cliente_orfa(conn, conversa_id)
+    msg = await _seed_msg_cliente_orfa(conn, conversa_id)
 
     redis = _redis_fake()
     ctx = _ctx(_PoolDeUmaConexao(conn), redis)
 
     await rotear_imagem(
         ctx,
-        mensagem_id=str(mensagem_id),
+        mensagem_id=msg.evolution_id,
         conversa_id=str(conversa_id),
         media_url="https://evolution.test/nada.jpg",
         caption=None,
@@ -316,7 +331,7 @@ async def test_lock_busy_redefer(conn: AsyncConnection[dict[str, Any]]) -> None:
     modelo_id = await _seed_modelo(conn)
     cliente_id = await _seed_cliente(conn)
     conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
-    mensagem_id = await _seed_msg_cliente_orfa(conn, conversa_id)
+    msg = await _seed_msg_cliente_orfa(conn, conversa_id)
 
     redis = _redis_fake()
     # Simula turno de texto retendo o lock — o adquirir_lock vai erguer LockBusy.
@@ -326,7 +341,7 @@ async def test_lock_busy_redefer(conn: AsyncConnection[dict[str, Any]]) -> None:
 
     await rotear_imagem(
         ctx,
-        mensagem_id=str(mensagem_id),
+        mensagem_id=msg.evolution_id,
         conversa_id=str(conversa_id),
         media_url="https://evolution.test/img.jpg",
         caption=None,
@@ -336,7 +351,8 @@ async def test_lock_busy_redefer(conn: AsyncConnection[dict[str, Any]]) -> None:
     assert len(calls) == 1
     assert calls[0].args == ("rotear_imagem",)
     kwargs = calls[0].kwargs
-    assert kwargs["mensagem_id"] == str(mensagem_id)
+    # LockBusy estoura antes de resolver o UUID: o re-enqueue mantem o evolution_message_id.
+    assert kwargs["mensagem_id"] == msg.evolution_id
     assert kwargs["conversa_id"] == str(conversa_id)
     assert kwargs["caption"] is None
     assert "_defer_by" in kwargs
@@ -383,14 +399,14 @@ async def test_externo_aguardando_e_pix_nunca_foto_portaria(
         tipo_atendimento="externo",
         pix_status="aguardando",
     )
-    mensagem_id = await _seed_msg_cliente_orfa(conn, conversa_id)
+    msg = await _seed_msg_cliente_orfa(conn, conversa_id)
 
     redis = _redis_fake()
     ctx = _ctx(_PoolDeUmaConexao(conn), redis)
 
     await rotear_imagem(
         ctx,
-        mensagem_id=str(mensagem_id),
+        mensagem_id=msg.evolution_id,
         conversa_id=str(conversa_id),
         media_url="https://evolution.test/comprovante.jpg",
         caption=None,
@@ -436,14 +452,14 @@ async def test_externo_aguardando_sem_pix_nao_vira_foto_portaria(
         tipo_atendimento="externo",
         pix_status="nao_solicitado",
     )
-    mensagem_id = await _seed_msg_cliente_orfa(conn, conversa_id)
+    msg = await _seed_msg_cliente_orfa(conn, conversa_id)
 
     redis = _redis_fake()
     ctx = _ctx(_PoolDeUmaConexao(conn), redis)
 
     await rotear_imagem(
         ctx,
-        mensagem_id=str(mensagem_id),
+        mensagem_id=msg.evolution_id,
         conversa_id=str(conversa_id),
         media_url="https://evolution.test/foto-qualquer.jpg",
         caption=None,
