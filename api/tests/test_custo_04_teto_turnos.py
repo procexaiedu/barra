@@ -128,13 +128,17 @@ async def test_teto_turnos_escala_no_excedente_e_nao_processa() -> None:
         patch("barra.workers.coordenador.TETO_TURNOS_DIA", 2),
         patch("barra.workers.coordenador.escalar_por_exaustao", new=AsyncMock()) as mock_escalar,
     ):
-        # turnos 1 e 2 (<= teto) processam normal; cada chamada e um turno (pending vazio -> 1 iter).
+        # turnos 1 e 2 (<= teto) processam normal; cada chamada e um turno (o gate de
+        # pendencia exige pending:conv setado; o drain o consome -> 1 iter por chamada).
+        await redis.set(f"pending:conv:{_CONV_ID}", "1")
         await processar_turno(_ctx(redis, graph), conversa_id=_CONV_ID)
+        await redis.set(f"pending:conv:{_CONV_ID}", "1")
         await processar_turno(_ctx(redis, graph), conversa_id=_CONV_ID)
         assert graph.chamadas == 2
         mock_escalar.assert_not_awaited()
 
         # turno 3 (N+1) estoura o teto: escala teto_turnos e NAO invoca o grafo.
+        await redis.set(f"pending:conv:{_CONV_ID}", "1")
         await processar_turno(_ctx(redis, graph), conversa_id=_CONV_ID)
 
     assert graph.chamadas == 2  # o grafo NAO rodou no turno excedente
@@ -177,6 +181,7 @@ async def test_turno_que_falha_nao_conta_para_o_teto() -> None:
     chave = f"turnos:conv:{_CONV_ID}:{datetime.now(UTC):%Y-%m-%d}"
 
     with patch("barra.workers.coordenador.adquirir_lock", _lock_noop):
+        await redis.set(f"pending:conv:{_CONV_ID}", "1")
         with pytest.raises(RuntimeError):
             await processar_turno(_ctx(redis, _GrafoQueFalha()), conversa_id=_CONV_ID)
 

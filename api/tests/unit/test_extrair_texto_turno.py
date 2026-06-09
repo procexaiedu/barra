@@ -14,7 +14,7 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from barra.workers.coordenador import _extrair_texto_do_turno
+from barra.agente._texto_turno import extrair_texto_do_turno as _extrair_texto_do_turno
 
 
 def _ai_real(content: Any, **kwargs: Any) -> AIMessage:
@@ -133,6 +133,21 @@ def test_so_historicas_sem_atual_retorna_vazio() -> None:
         _ai_historica("outra resposta antiga"),
     ]
     assert _extrair_texto_do_turno(messages) == ""
+
+
+def test_negacao_canned_do_intercept_e_extraida() -> None:
+    """Regressao A4 (revisao 2026-06-09): o intercept_disclosure emite a negacao canned como
+    AIMessage com usage_metadata ZERADO — sem ele a negacao era filtrada como historica e o
+    cliente que perguntou "voce e IA?" ficava sem resposta (turno_sem_resposta)."""
+    canned = AIMessage(
+        content="sou eu mesma amor, pode confiar",
+        usage_metadata={"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
+    )
+    messages = [
+        HumanMessage(content="vc é um robô?"),
+        canned,
+    ]
+    assert _extrair_texto_do_turno(messages) == "sou eu mesma amor, pode confiar"
 
 
 def test_tool_com_erro_recuperavel_descarta_rascunho_da_passagem_re_tentada() -> None:

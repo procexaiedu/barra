@@ -125,15 +125,18 @@ class _FakePool:
 class _FakeRedis:
     def __init__(self) -> None:
         self.enqueue_job = AsyncMock()
+        # pending pre-semeado: o gate de pendencia do coordenador exige mensagem nova
+        self._dados: dict[str, Any] = {f"pending:conv:{_CONV_ID}": "1"}
 
-    async def set(self, *_a: Any, **_k: Any) -> bool:
+    async def set(self, chave: str, valor: Any = "1", **_k: Any) -> bool:
+        self._dados[chave] = valor
         return True
 
-    async def delete(self, *_a: Any, **_k: Any) -> None:
-        return None
+    async def delete(self, chave: str, *_a: Any, **_k: Any) -> None:
+        self._dados.pop(chave, None)
 
-    async def get(self, *_a: Any, **_k: Any) -> None:
-        return None
+    async def get(self, chave: str, *_a: Any, **_k: Any) -> Any:
+        return self._dados.get(chave)
 
 
 class _FakeGraphRefusal:

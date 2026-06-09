@@ -9,6 +9,7 @@ from time import perf_counter
 from typing import Any, cast
 from uuid import UUID
 
+from arq import Retry
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
@@ -373,7 +374,26 @@ async def enviar_card(ctx: dict[str, Any], *, tipo: str, **kw: Any) -> None:
     """Job ARQ: envia um card no grupo de Coordenação direto pelo Evolution, sem passar pela
     humanização (05 §6). Dispatch por `tipo`; cada renderer é idempotente por owner."""
     render = _RENDER_CARD[tipo]
-    await render(ctx, **kw)
+    try:
+        await render(ctx, **kw)
+    except Exception:
+        # Mesmo racional do enviar_turno: o ARQ NAO retenta excecao comum, e o max_tries de
+        # settings.py (REL-03) so vale se a falha transitoria virar `Retry` explicito. A
+        # idempotencia por owner (card_message_id / SETNX) cobre o re-percorrer.
+        job_try = ctx.get("job_try", 1)
+        max_tries = ctx.get("max_tries", MAX_TRIES_ENVIO)
+        if job_try < max_tries:
+            logger.warning(
+                "card_falha_transitoria tipo=%s request_id=%s job_try=%s/%s",
+                tipo,
+                ctx.get("job_id"),
+                job_try,
+                max_tries,
+                exc_info=True,
+            )
+            raise Retry(defer=10 * job_try) from None
+        logger.exception("card_falha_final tipo=%s request_id=%s", tipo, ctx.get("job_id"))
+        raise
 
 
 # --- Humanização: job único `enviar_turno` por turno (05 §1/§4) --------------
@@ -656,54 +676,65 @@ async def enviar_turno(
         if await _enviar_midias(ctx, conversa_id, turno_id, midias, conv, critico):
             ENVIO_RESULTADO.labels("ok").inc()
     except Exception:
-        # Falha final do job (ARQ não vai retentar): job_try chegou ao teto de tentativas.
         job_try = ctx.get("job_try", 1)
         # ARQ nao popula max_tries no ctx -> o fallback É o teto efetivo; tem de ser o mesmo
         # MAX_TRIES_ENVIO registrado em settings.py (REL-03), senao o dead-end nunca dispara.
         max_tries = ctx.get("max_tries", MAX_TRIES_ENVIO)
-        if job_try >= max_tries:
-            # request_id = job_id do ARQ: no worker não há request_id HTTP, então o id do job é o
-            # de correlação (spec §15.2) — amarra log e Sentry a esta execução.
-            logger.exception(
-                "envio_falha_final turno_id=%s request_id=%s critico=%s",
+        if job_try < max_tries:
+            # O ARQ NAO retenta excecao comum (so `Retry` explicito ou shutdown do worker) —
+            # sem isto o job morria na 1a falha transitoria da Evolution e o dead-end abaixo
+            # era inalcancavel. O retry re-percorre o turno do zero e reusa a idempotencia ja
+            # existente (mark-after-send por chunk/midia + `enviados:{turno_id}`).
+            logger.warning(
+                "envio_falha_transitoria turno_id=%s request_id=%s job_try=%s/%s",
                 turno_id,
                 ctx.get("job_id"),
-                critico,
+                job_try,
+                max_tries,
+                exc_info=True,
             )
-            if critico and conv is not None:
-                # Dead-end (05 §7): efeito já no banco, mensagem pode não ter chegado → escala.
-                # `_carregar_destino` só resolve atendimento não-terminal: se ele virou terminal
-                # entre o enqueue e esta retry, atendimento_id é NULL e a escalada
-                # (atendimento_id NOT NULL) falharia silenciosa. Recupera o último atendimento da
-                # conversa em qualquer estado (REL-08); sem nenhum, alerta dedicado, nunca silêncio.
-                from barra.workers.coordenador import escalar_por_exaustao
+            raise Retry(defer=10 * job_try) from None
+        # Falha final do job (sem nova tentativa): job_try chegou ao teto.
+        # request_id = job_id do ARQ: no worker não há request_id HTTP, então o id do job é o
+        # de correlação (spec §15.2) — amarra log e Sentry a esta execução.
+        logger.exception(
+            "envio_falha_final turno_id=%s request_id=%s critico=%s",
+            turno_id,
+            ctx.get("job_id"),
+            critico,
+        )
+        if critico and conv is not None:
+            # Dead-end (05 §7): efeito já no banco, mensagem pode não ter chegado → escala.
+            # `_carregar_destino` só resolve atendimento não-terminal: se ele virou terminal
+            # entre o enqueue e esta retry, atendimento_id é NULL e a escalada
+            # (atendimento_id NOT NULL) falharia silenciosa. Recupera o último atendimento da
+            # conversa em qualquer estado (REL-08); sem nenhum, alerta dedicado, nunca silêncio.
+            from barra.workers.coordenador import escalar_por_exaustao
 
-                alvo = conv["atendimento_id"] or await _atendimento_para_escalada(pool, conversa_id)
-                if alvo is not None:
-                    await escalar_por_exaustao(
-                        pool, alvo, turno_id, motivo="envio_exaurido_critico"
-                    )
-                    ENVIO_RESULTADO.labels("exaustao_critico").inc()
-                else:
-                    # Conversa sem nenhum atendimento (impossível abrir handoff): não silenciar —
-                    # log dedicado + Sentry para a operação ver o efeito crítico que se perdeu.
-                    logger.error(
-                        "envio_critico_sem_atendimento turno_id=%s request_id=%s conversa_id=%s",
-                        turno_id,
-                        ctx.get("job_id"),
-                        conversa_id,
-                    )
-                    if sentry_sdk is not None:
-                        sentry_sdk.capture_exception()
-                    ENVIO_RESULTADO.labels("exaustao_critico_sem_atendimento").inc()
+            alvo = conv["atendimento_id"] or await _atendimento_para_escalada(pool, conversa_id)
+            if alvo is not None:
+                await escalar_por_exaustao(pool, alvo, turno_id, motivo="envio_exaurido_critico")
+                ENVIO_RESULTADO.labels("exaustao_critico").inc()
             else:
-                # Falha final não-crítica: a mensagem ao cliente pode ter se perdido. Sem efeito no
-                # banco não há o que escalar (≠ crítico), mas a perda não pode ser silenciosa —
-                # captura no Sentry (init_sentry/OBS-04) para ficar visível à operação. Não muda a
-                # entrega/retry: o `raise` abaixo preserva a semântica do job.
+                # Conversa sem nenhum atendimento (impossível abrir handoff): não silenciar —
+                # log dedicado + Sentry para a operação ver o efeito crítico que se perdeu.
+                logger.error(
+                    "envio_critico_sem_atendimento turno_id=%s request_id=%s conversa_id=%s",
+                    turno_id,
+                    ctx.get("job_id"),
+                    conversa_id,
+                )
                 if sentry_sdk is not None:
                     sentry_sdk.capture_exception()
-                ENVIO_RESULTADO.labels("falha_evolution").inc()
+                ENVIO_RESULTADO.labels("exaustao_critico_sem_atendimento").inc()
+        else:
+            # Falha final não-crítica: a mensagem ao cliente pode ter se perdido. Sem efeito no
+            # banco não há o que escalar (≠ crítico), mas a perda não pode ser silenciosa —
+            # captura no Sentry (init_sentry/OBS-04) para ficar visível à operação. Não muda a
+            # entrega/retry: o `raise` abaixo preserva a semântica do job.
+            if sentry_sdk is not None:
+                sentry_sdk.capture_exception()
+            ENVIO_RESULTADO.labels("falha_evolution").inc()
         raise
     finally:
         ENVIO_DURACAO.observe(perf_counter() - inicio)
@@ -768,7 +799,11 @@ async def _enviar_midias(
                 caption=item.get("legenda") or None,
                 media_type=m["tipo"],
                 contexto="conversa_cliente",
-                tipo=m["tipo"],
+                # `tipo` é o enum de envios_evolution (CHECK só aceita ia/card/confirmacao/
+                # erro_comando/midia) — passar m["tipo"] ('foto'/'video') estourava o CHECK
+                # DEPOIS do POST: cliente recebia, transação revertia e o mark `midia:{idx}`
+                # não gravava (reprocesso reenviaria). O tipo de conteúdo vai em media_type.
+                tipo="midia",
                 # view-once p/ vídeo (Mídia exclusiva, 01 §6.13): efetivo só quando a Evolution
                 # self-host expuser o campo no sendMedia; ignorado até lá.
                 view_once=(m["tipo"] == "video"),

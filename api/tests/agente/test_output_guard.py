@@ -14,7 +14,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.graph import END
 from langgraph.types import Command
 
@@ -83,7 +83,14 @@ def _runtime(
 
 
 def _state(texto: str) -> dict[str, Any]:
-    return {"messages": [HumanMessage(content="oi", id="h1"), AIMessage(content=texto, id="a1")]}
+    # usage_metadata marca a AIMessage como GERADA NESTE turno: o guard agrega por
+    # `mensagens_do_turno` (agente/_texto_turno.py) — sem usage seria historico re-injetado.
+    bolha = AIMessage(
+        content=texto,
+        id="a1",
+        usage_metadata={"input_tokens": 10, "output_tokens": 5, "total_tokens": 15},
+    )
+    return {"messages": [HumanMessage(content="oi", id="h1"), bolha]}
 
 
 class _Capturador:
@@ -368,3 +375,64 @@ async def test_so03_judge_refusal_no_guard_default_seguro_bloqueia(monkeypatch: 
     out = await mod.output_guard(_state("texto limpo mas o judge recusa"), _runtime())  # type: ignore[arg-type]
     assert _bloqueou(out)
     assert cap.chamadas[0]["observacao"] == "aup_saida_judge_falhou"
+
+
+# ============================================================================
+# A3 (revisao 2026-06-09): o guard agrega o TURNO (mesmo filtro do coordenador),
+# nao so a ultima AIMessage.
+# ============================================================================
+
+_USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+
+
+async def test_a3_vazamento_na_primeira_passagem_react_bloqueia_e_zera_o_turno(
+    monkeypatch: Any,
+) -> None:
+    """ReAct: o texto ao cliente sai na 1a passagem (texto+tool_call) e a ultima AIMessage vem
+    vazia. Antes o guard so via a ultima ("" -> early return) e o coordenador despachava o
+    agregado SEM scan/judge. Agora o guard ve o mesmo agregado e, ao bloquear, zera TODAS as
+    AIMessages do turno."""
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    primeira = AIMessage(
+        content=[
+            {"type": "text", "text": "agora nao da amor, to com um cliente"},
+            {"type": "tool_use", "id": "t1", "name": "registrar_extracao", "input": {}},
+        ],
+        id="a1",
+        usage_metadata=_USAGE,
+    )
+    final = AIMessage(content=[], id="a2", usage_metadata=_USAGE)
+    state = {
+        "messages": [
+            HumanMessage(content="tem horario hoje?", id="h1"),
+            primeira,
+            ToolMessage(content="Extracao registrada.", tool_call_id="t1", id="tm1"),
+            final,
+        ]
+    }
+    res = await mod.output_guard(state, _runtime())  # type: ignore[arg-type]
+    assert res.goto == END
+    msgs = (res.update or {})["messages"]
+    assert {m.id for m in msgs} == {"a1", "a2"}
+    assert all(m.content == "" for m in msgs)
+    assert cap.chamadas[0]["observacao"].startswith("output_leak_outro_cliente")
+
+
+async def test_a3_aimessage_historica_nao_aciona_o_guard(monkeypatch: Any) -> None:
+    """AIMessage re-injetada do banco (sem usage_metadata) nao e deste turno: nem deve ser
+    escaneada (ja foi ao cliente) nem pode causar bloqueio/escalada espuria."""
+
+    async def _nao_chamar(t: str, settings: Any) -> Any:
+        raise AssertionError("judge nao deveria rodar sem mensagem do turno")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _nao_chamar)
+    state = {
+        "messages": [
+            HumanMessage(content="oi", id="h1"),
+            AIMessage(content="to com um cliente agora", id="hist-1"),  # historica (sem usage)
+        ]
+    }
+    res = await mod.output_guard(state, _runtime())  # type: ignore[arg-type]
+    assert res.goto == END
+    assert not (res.update or {}).get("messages")

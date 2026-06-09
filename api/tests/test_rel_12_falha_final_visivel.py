@@ -17,6 +17,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
+from arq import Retry
 from fakeredis.aioredis import FakeRedis
 
 from barra.workers import envio
@@ -139,8 +140,8 @@ async def test_falha_final_nao_critica_loga_e_captura_no_sentry(
 async def test_falha_nao_final_nao_captura_no_sentry(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Antes do teto de tentativas (job_try < max_tries) o ARQ ainda vai retentar: a falha
-    re-propaga SEM virar log final/Sentry — preserva a semântica de retry."""
+    """Antes do teto de tentativas (job_try < max_tries) a falha transitória vira `Retry`
+    explícito (o ARQ NÃO retenta exceção comum) — sem log final/Sentry."""
     turno_id, conversa_id = "turno-RETRY", str(uuid4())
 
     capturas: list[str] = []
@@ -153,7 +154,7 @@ async def test_falha_nao_final_nao_captura_no_sentry(
     redis = FakeRedis()
     await redis.set(f"turno_atual:{conversa_id}", turno_id)
 
-    with pytest.raises(RuntimeError, match="evolution 500"):
+    with pytest.raises(Retry):
         await enviar_turno(
             _ctx(redis, job_try=1, max_tries=5, job_id="job-xyz"),
             conversa_id=conversa_id,
@@ -166,3 +167,23 @@ async def test_falha_nao_final_nao_captura_no_sentry(
         )
 
     assert capturas == []  # ainda há retry pela frente: não captura como falha final
+
+
+async def test_card_falha_transitoria_vira_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`enviar_card` segue o mesmo racional do `enviar_turno`: falha transitória antes do teto
+    vira `Retry` explícito (o ARQ não retenta exceção comum); no teto, re-propaga (falha final)."""
+
+    async def _explode(ctx: Any, **kw: Any) -> None:
+        raise RuntimeError("evolution 500")
+
+    monkeypatch.setitem(envio._RENDER_CARD, "escalada", _explode)
+
+    with pytest.raises(Retry):
+        await envio.enviar_card(
+            {"job_try": 1, "max_tries": 3, "job_id": "job-card"}, tipo="escalada", escalada_id="x"
+        )
+
+    with pytest.raises(RuntimeError, match="evolution 500"):
+        await envio.enviar_card(
+            {"job_try": 3, "max_tries": 3, "job_id": "job-card"}, tipo="escalada", escalada_id="x"
+        )

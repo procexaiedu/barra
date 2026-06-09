@@ -187,6 +187,7 @@ async def test_coordenador_basico(conn: AsyncConnection[dict[str, Any]]) -> None
     graph = _GrafoFake(texto="oi amor")
     ctx = _ctx(_PoolDeUmaConexao(conn), redis, graph)
 
+    await redis.set(f"pending:conv:{conversa_id}", "1")  # gate de pendencia do coordenador
     await processar_turno(ctx, conversa_id=str(conversa_id))
 
     # 1. resolveu/criou o atendimento (estado Novo) para a conversa.
@@ -237,6 +238,7 @@ async def test_drain_excede_max(conn: AsyncConnection[dict[str, Any]]) -> None:
     graph = _GrafoFakeDrena(redis, str(conversa_id))  # re-seta pending a cada turno
     ctx = _ctx(_PoolDeUmaConexao(conn), redis, graph)
 
+    await redis.set(f"pending:conv:{conversa_id}", "1")  # gate de pendencia do coordenador
     await processar_turno(ctx, conversa_id=str(conversa_id))
 
     # estourou o teto de drain: o grafo rodou MAX_DRAIN vezes sob o MESMO lock.

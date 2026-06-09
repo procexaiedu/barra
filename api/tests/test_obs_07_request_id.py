@@ -162,6 +162,7 @@ async def test_worker_binda_request_id_e_turno_id_no_log_json(
     }
 
     setup_logging(SimpleNamespace(log_level="INFO"))
+    await redis.set(f"pending:conv:{_CONV_ID}", "1")  # gate de pendencia do coordenador
     await processar_turno(ctx, conversa_id=_CONV_ID, request_id="rid-e2e")
 
     linhas = [ln for ln in capsys.readouterr().out.splitlines() if ln.strip()]
