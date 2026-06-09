@@ -388,7 +388,7 @@ Voz/persona/conduta subjetivas ficam sob revisão humana, não rubrica automáti
 | ID | Item | Fecha | Critério de sucesso | Onde |
 |---|---|---|---|---|
 | **F3.1** ✅ (repo) | Habilitar secrets do `evals.yml` + branch protection "evals" **obrigatória** | todos ★ | job não pula em silêncio; evals barram merge | `.github/workflows/evals.yml` |
-| **F3.2** 🟡 (registro pronto; corrida ★API pendente de crédito) | Runner K=2 sobre as **24 canônicas** (grafo real + Sonnet) roda **como gate** no **cutover + nightly** (não per-PR). As 46 adversariais ficam **advisory** (`capability`, `runner.py:965`), sob demanda ao tocar prompt de segurança — não bloqueiam merge | 4b, FAQ, Tools | ao menos 1 corrida verde das canônicas registrada como cutover; regressão reprova | `evals/runner.py` |
+| **F3.2** 🟡 (registro pronto; corrida ★API pendente de banco de teste) | Runner K=2 sobre as **24 canônicas** (grafo real + Sonnet) roda **como gate** no **cutover + nightly** (não per-PR). As 46 adversariais ficam **advisory** (`capability`, `runner.py:965`), sob demanda ao tocar prompt de segurança — não bloqueiam merge | 4b, FAQ, Tools | ao menos 1 corrida verde das canônicas registrada como cutover; regressão reprova | `evals/runner.py` |
 | **F3.3** ✅ (gate determinístico) | Persona: checagens determinísticas de **voz sobre falas geradas** (anti tom corporativo, asterisco-ação, gíria masculina, formato R$, max_chars de abertura) | Persona | gate observa fala real gerada, não só montagem | graders de persona |
 | **F3.4** ✅ (gate determinístico) | FAQ conduta como gate: 8 perguntas canônicas (conteúdo obrigatório **determinístico**; conduta subjetiva = revisão humana contra golden), recusa videocall, cartão sem parcelar + taxa 10%, cota fetiche do cardápio, recusa-aberta fora-da-lista, **controle de over-refusal** | FAQ | regressão "só pix amor" / "oferece parcelado" / over-refusal reprova (no determinístico) | fixtures FAQ + runner |
 | **F3.5** ✅ (gate determinístico) | Tools decisão: ~30 cenários tools obrigatórias/proibidas como gate; extração em **modo estrito** (não fabrica args fora do schema) | Tools | "chamou a errada / não chamou a obrigatória / inventou write" reprova | fixtures tools, schema extração |
@@ -446,8 +446,12 @@ Inv. piso → **Coberto**.
 > fixture/prompt). Roda no `make test` padrão (puro, não `needs_db`): 880 passed, lint limpo, `mypy
 > src` verde. **Metade ★API PENDENTE (não é código):** a **corrida ao vivo** (grafo real + Sonnet K=2
 > sobre as canônicas, que de fato escreve o primeiro `evals/registros/cutover.json` verde) é **★API**
-> (custa crédito, §0) e está **bloqueada** por crédito Anthropic esgotado
-> (`anthropic_creditos_esgotados_prod`). Comando pronto: `runner.py --subdir canonicos --k 2
+> (custa crédito, §0). Crédito **disponível** (2026-06-08); o blocker real é o **banco**: o runner
+> seeda modelo/cliente/atendimento + cardápio e depende de `ROLLBACK` por fixture, então
+> `evals-gate-vinculante.md` **proíbe** apontar `TEST_DATABASE_URL` para prod (concorrência + resíduo)
+> e **não há banco de teste provisionado** (env unset, sem Postgres local/docker; o único é o prod).
+> Destravar = passo 1 do runbook (branch de teste do Supabase self-hosted ou Postgres limpo,
+> schema-only, `inet_server_addr() != prod`). Comando pronto: `runner.py --subdir canonicos --k 2
 > --registrar-cutover evals/registros/cutover.json`. F3.2 só conta como **Coberto pleno** quando essa
 > corrida verde for registrada ao vivo.
 
