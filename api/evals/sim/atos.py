@@ -127,6 +127,121 @@ async def modelo_fecha_card(
     )
 
 
+class _SettingsLembrete:
+    """So o que `cobrar_valor_final` le (ativo/tolerancia/intervalo/max_toques) -- espelha o stub
+    `_Settings` da F0.9. Valores deterministicos: com `toques=0` a acao e sempre 'enviar', entao a
+    unica config que importa e a tolerancia (o alvo precisa estar vencido, e o ato envelhece o
+    bloqueio bem alem dela)."""
+
+    lembrete_valor_ativo = True
+    lembrete_valor_tolerancia_min = 15
+    lembrete_valor_intervalo_min = 30
+    lembrete_valor_max_toques = 3
+
+
+class _EvolutionSim:
+    """Stub de EvolutionClient p/ a jornada: pula o HTTP da Evolution mas PERSISTE o envio em
+    `envios_evolution` pela MESMA porta que o cliente real usa apos o POST (`registrar_envio`).
+    Assim o card proativo do Lembrete de fechamento deixa rastro auditavel (`card_kind`) -- a prova
+    de que a cobranca disparou -- sem rede. So `enviar_texto` e exercitado pelo cron."""
+
+    async def enviar_texto(
+        self,
+        *,
+        conn: AsyncConnection[dict[str, Any]],
+        instance_id: str,
+        remote_jid: str,
+        texto: str,
+        contexto: str,
+        tipo: str,
+        atendimento_id: UUID | None = None,
+        conversa_id: UUID | None = None,
+        payload: dict[str, Any] | None = None,
+        **_ignorado: Any,
+    ) -> str:
+        from barra.core.evolution import registrar_envio
+
+        message_id = f"sim-card-{uuid4().hex}"
+        await registrar_envio(
+            conn,
+            evolution_message_id=message_id,
+            instance_id=instance_id,
+            remote_jid=remote_jid,
+            contexto=contexto,
+            tipo=tipo,
+            atendimento_id=atendimento_id,
+            conversa_id=conversa_id,
+            payload=payload or {},
+        )
+        return message_id
+
+
+async def lembrete_cobra_valor_e_fecha(
+    conn: AsyncConnection[dict[str, Any]],
+    atendimento_id: UUID,
+    *,
+    valor_final: str = "800",
+) -> None:
+    """Lembrete de fechamento: a COBRANCA PROATIVA do Valor final fecha a venda (CONTEXT.md "Lembrete
+    de fechamento" / ADR-0009; F0.9).
+
+    Caminho-irmao do `modelo_fecha_card` (F4.2) para o MESMO desfecho `Em_execucao -> Fechado`. La a
+    modelo fecha por impulso proprio; AQUI o SISTEMA cobra primeiro: passado o fim do atendimento e
+    ainda em `Em_execucao`, o cron de prod `cobrar_valor_final` (workers/lembrete_valor.py) manda um
+    card no grupo de Coordenacao pedindo o valor; a modelo responde ESSE card com o valor -> Fechado.
+    O fecho vem em RESPOSTA a cobranca, nao espontaneo.
+
+    Como o `cliente_some_timeout` envelhece o aviso e dispara o cron real, aqui ENVELHECEMOS o
+    `bloqueios.fim` (o relogio do sim nao espera o atendimento acabar) para o alvo ficar elegivel,
+    garantimos o canal de Coordenacao da modelo (senao `_enviar_card` viraria 'canal ausente') e
+    disparamos o MESMO `cobrar_valor_final` de prod -- nao reimplementa o card. Em seguida a modelo
+    fecha pela mesma porta `aplicar_comando registrar_fechado` do `modelo_fecha_card`. O `valor_final`
+    e REPRESENTATIVO (cardapio do sim cota 1h=800); o valor negociado correto e qualidade-de-venda,
+    sob revisao humana, fora do escopo deterministico (F4.7).
+
+    Imports LAZY (igual ao `modelo_fecha_card`/`cliente_some_timeout`): mantem `atos.py` importavel
+    nos testes puros sem arrastar workers/dominio.
+    """
+    from barra.dominio.escaladas.service import aplicar_comando
+    from barra.workers.lembrete_valor import cobrar_valor_final
+
+    # Envelhece a JANELA inteira do bloqueio vinculado para o passado (o relogio do sim nao espera o
+    # programa real terminar): o atendimento fica vencido alem da tolerancia e entra no conjunto de
+    # alvos do lembrete. Move inicio E fim (nao so o fim) preservando `fim > inicio` -- a constraint
+    # `bloqueios_intervalo_valido`; so envelhecer o fim o deixaria antes do inicio seedado/reservado.
+    await conn.execute(
+        """
+        UPDATE barravips.bloqueios
+           SET inicio = now() - interval '180 minutes',
+               fim = now() - interval '60 minutes'
+         WHERE atendimento_id = %s
+        """,
+        (atendimento_id,),
+    )
+    # Garante o canal de Coordenacao da modelo dona do atendimento (o seed minimo do runner nao o
+    # popula) -- sem instance/grupo, `_enviar_card` levanta 'canal ausente' e o card nao sai.
+    await conn.execute(
+        """
+        UPDATE barravips.modelos
+           SET evolution_instance_id = COALESCE(evolution_instance_id, %s),
+               coordenacao_chat_id = COALESCE(coordenacao_chat_id, %s)
+         WHERE id = (SELECT modelo_id FROM barravips.atendimentos WHERE id = %s)
+        """,
+        (f"sim-inst-{uuid4().hex}", f"sim-coord-{uuid4().hex}@g.us", atendimento_id),
+    )
+    # Cobranca proativa: o cron de prod manda o card pedindo o valor final (rastro em envios_evolution).
+    await cobrar_valor_final(conn, _EvolutionSim(), _SettingsLembrete())  # type: ignore[arg-type]
+    # A modelo responde o card com o valor final -> Fechado (mesma porta do modelo_fecha_card).
+    await aplicar_comando(
+        conn,
+        origem="grupo_coordenacao",
+        autor="modelo",
+        atendimento_id=atendimento_id,
+        comando="registrar_fechado",
+        payload={"valor_final": valor_final},
+    )
+
+
 async def cliente_some_timeout(
     conn: AsyncConnection[dict[str, Any]],
     atendimento_id: UUID,

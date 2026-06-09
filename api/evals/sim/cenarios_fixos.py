@@ -51,6 +51,10 @@ class CenarioFixo:
     # F4.2: apos a jornada chegar em Em_execucao (foto de portaria), a MODELO responde o card com o
     # Valor final -> Fechado (fecho fora-de-banda, aplicado pos-loop pelo `jornada`). default False.
     fechar_card: bool = False
+    # F4.4: apos chegar em Em_execucao, o Lembrete de fechamento cobra PROATIVAMENTE o Valor final (o
+    # cron `cobrar_valor_final` manda o card) e a modelo responde -> Fechado (pos-loop). Caminho-irmao
+    # do `fechar_card`: la a modelo fecha por impulso, aqui em resposta a cobranca. default False.
+    cobrar_e_fechar: bool = False
     # F4.3: o cliente avisou que saiu e SUMIU (sem foto de portaria); apos o loop, o timeout
     # determinista de 45 min marca `Perdido(sumiu)` (ramo "nao volta", aplicado pos-loop). default False.
     timeout_sumiu: bool = False
@@ -95,6 +99,26 @@ CENARIOS_FIXOS: list[CenarioFixo] = [
         max_turnos=10,
         atos_disponiveis=["enviar_foto_portaria"],
         fechar_card=True,
+    ),
+    # --- F4.4: jornada FIXA que chega a `Fechado` pela COBRANCA PROATIVA do Valor final -----------
+    # Gemea deterministica de `cenarios.interno_lembrete_fecha`: interno COMPLETO que chega em
+    # Em_execucao pela portaria; apos a chegada, `cobrar_e_fechar=True` aplica o fecho pos-loop -- o
+    # Lembrete de fechamento cobra (o cron manda o card pedindo o valor) e a modelo responde -> Fechado.
+    # Caminho-irmao do `fixo_interno_fecha_venda` (la a modelo fecha por impulso; aqui pela cobranca).
+    CenarioFixo(
+        nome="fixo_interno_lembrete_fecha",
+        mensagens_cliente=[
+            "Oi, quanto e 1h agora?",
+            "e ai no seu local? prefiro ir ate voce",
+            "fechou, consigo ir agora mesmo",
+            "qual seu endereco",
+            "to indo ai",
+            "cheguei, to na portaria",
+        ],
+        decidir_ato=_roteiro_portaria(aviso_em=None, portaria_em=7),
+        max_turnos=10,
+        atos_disponiveis=["enviar_foto_portaria"],
+        cobrar_e_fechar=True,
     ),
     # --- F4.3: jornada FIXA que vira `Perdido (sumiu)` por timeout -- o ramo "NAO VOLTA" ----------
     # Gemea deterministica de `cenarios.interno_some_perdido`: interno graduado (conversa -> Aguardando

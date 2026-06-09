@@ -52,9 +52,10 @@ def test_nomes_unicos():
 
 
 def test_tamanho_do_set_no_intervalo_combinado():
-    # decisao de produto: ~14-18 cenarios equilibrados (cobertura da fronteira sem rotulagem brutal).
-    # +1 com a F4.2 (`interno_fecha_venda`, ate Fechado); +1 com a F4.3 (`interno_some_perdido`, Perdido).
-    assert 14 <= len(cenarios.CENARIOS) <= 18
+    # decisao de produto: ~14-19 cenarios equilibrados (cobertura da fronteira sem rotulagem brutal).
+    # +1 com a F4.2 (`interno_fecha_venda`, ate Fechado); +1 com a F4.3 (`interno_some_perdido`, Perdido);
+    # +1 com a F4.4 (`interno_lembrete_fecha`, Fechado pela cobranca proativa).
+    assert 14 <= len(cenarios.CENARIOS) <= 19
 
 
 @pytest.mark.parametrize("cen", cenarios.CENARIOS, ids=_ids)

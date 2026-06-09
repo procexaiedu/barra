@@ -107,6 +107,9 @@ async def _aplicar_ato(
         _atos.ficar_em_silencio()  # no-op: deixa o timeout decidir
     elif ato == "modelo_fecha_card":
         await _atos.modelo_fecha_card(conn, atendimento_id)  # 3o ator: a modelo fecha o card
+    elif ato == "lembrete_cobra_e_fecha":
+        # Lembrete de fechamento (F4.4): o cron cobra proativamente o valor e a modelo fecha respondendo.
+        await _atos.lembrete_cobra_valor_e_fecha(conn, atendimento_id)
     elif ato == "cliente_some_timeout":
         await _atos.cliente_some_timeout(
             conn, atendimento_id
@@ -324,6 +327,7 @@ async def jornada(
     max_turnos: int = 8,
     apos_seed: Any | None = None,
     fechar_card: bool = False,
+    cobrar_e_fechar: bool = False,
     timeout_sumiu: bool = False,
 ) -> Trajetoria:
     """Roda a jornada dual-control fechada (needs_db + needs_anthropic_api). Coleta a trajetoria.
@@ -343,6 +347,12 @@ async def jornada(
     `Em_execucao` (a foto de portaria pausou a IA e encerrou o loop) e entao a MODELO responde o card
     com o Valor final (`modelo_fecha_card` -> Fechado). E fora-de-banda (3o ator, nao um turno da IA);
     so dispara se a jornada de fato chegou em `Em_execucao`. default False = morre em Em_execucao.
+
+    `cobrar_e_fechar=True` (F4.4) aplica o fecho pela COBRANCA PROATIVA APOS o loop: a conversa termina
+    em `Em_execucao` (foto de portaria) e entao o Lembrete de fechamento cobra o Valor final -- o cron
+    `cobrar_valor_final` manda o card no grupo de Coordenacao e a modelo responde com o valor -> Fechado
+    (`lembrete_cobra_e_fecha`). Caminho-irmao do `fechar_card`: la a modelo fecha por impulso, aqui em
+    resposta a cobranca do sistema. So dispara se a jornada chegou em `Em_execucao`. default False.
 
     `timeout_sumiu=True` (F4.3) aplica o ramo "NAO VOLTA" APOS o loop: o cliente avisou que saiu e
     SUMIU (silencio, sem foto de portaria), entao o loop terminou em `Aguardando_confirmacao`; o ato
@@ -462,6 +472,29 @@ async def jornada(
                     indice=len(trajetoria.passos),
                     acao_mensagem=None,
                     acao_ato="modelo_fecha_card",
+                    bolha_ia=None,
+                    estado_atendimento=final["estado"],
+                    ia_pausada=final["ia_pausada"],
+                    pix_status=final["pix_status"],
+                )
+            )
+
+    # Cobranca proativa fora-de-banda (F4.4, Lembrete de fechamento): a conversa terminou em
+    # `Em_execucao` (a foto de portaria pausou a IA); agora o cron `cobrar_valor_final` cobra o Valor
+    # final mandando o card no grupo de Coordenacao e a modelo responde com o valor -> `Fechado`.
+    # Caminho-irmao do `fechar_card` (la a modelo fecha por impulso; aqui em resposta a cobranca). So
+    # dispara se de fato chegou em `Em_execucao`; senao a venda nao se concretizou. Mutuamente
+    # exclusivo com `fechar_card` na pratica (se ambos, o fecho ja levou a Fechado e o guard pula).
+    if cobrar_e_fechar:
+        pos = await _ler_estado(conn, atendimento_id)
+        if pos["estado"] == "Em_execucao":
+            await _aplicar_ato(conn, atendimento_id, "lembrete_cobra_e_fecha")
+            final = await _ler_estado(conn, atendimento_id)
+            trajetoria.passos.append(
+                PassoJornada(
+                    indice=len(trajetoria.passos),
+                    acao_mensagem=None,
+                    acao_ato="lembrete_cobra_e_fecha",
                     bolha_ia=None,
                     estado_atendimento=final["estado"],
                     ia_pausada=final["ia_pausada"],

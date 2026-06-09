@@ -110,6 +110,10 @@ class Cenario:
     # F4.2: apos a jornada chegar em Em_execucao (foto de portaria), a MODELO responde o card com o
     # Valor final -> Fechado (fecho fora-de-banda, aplicado pos-loop pelo `jornada`). default False.
     fechar_card: bool = False
+    # F4.4: apos chegar em Em_execucao, o Lembrete de fechamento cobra PROATIVAMENTE o Valor final (o
+    # cron `cobrar_valor_final` manda o card) e a modelo responde -> Fechado (pos-loop). Caminho-irmao
+    # do `fechar_card`: la a modelo fecha por impulso, aqui em resposta a cobranca. default False.
+    cobrar_e_fechar: bool = False
     # F4.3: o cliente avisou que saiu e SUMIU (sem foto de portaria); apos o loop, o timeout
     # determinista de 45 min marca `Perdido(sumiu)` (ramo "nao volta", aplicado pos-loop). default False.
     timeout_sumiu: bool = False
@@ -156,6 +160,27 @@ CENARIOS: list[Cenario] = [
         decidir_ato=_roteiro_portaria(aviso_em=5, portaria_em=7),
         max_turnos=11,
         fechar_card=True,
+    ),
+    # --- F4.4: jornada que chega a `Fechado` pela COBRANCA PROATIVA do Valor final ----------------
+    # Mesmo desfecho da F4.2 (Em_execucao -> Fechado), outro caminho: aqui a modelo NAO fecha por
+    # impulso -- o Lembrete de fechamento cobra primeiro (o cron `cobrar_valor_final` manda o card no
+    # grupo de Coordenacao) e a modelo responde ESSE card com o valor (`cobrar_e_fechar=True`, pos-loop).
+    # A persona e identica a `interno_fecha_venda`: o que muda e o gatilho do fecho (cobranca, nao impulso).
+    Cenario(
+        nome="interno_lembrete_fecha",
+        persona=PersonaCliente(
+            nome="Anderson",
+            o_que_quer=(
+                "quer marcar um interno de 1h hoje a noite, voce vai ate ela. pergunta o preco, "
+                "combina um horario depois das 21h, avisa que ja saiu de casa e, ao chegar no "
+                "predio, manda a foto da portaria"
+            ),
+            orcamento="ate uns 1200",
+            atos_disponiveis=["enviar_aviso_saida", "enviar_foto_portaria"],
+        ),
+        decidir_ato=_roteiro_portaria(aviso_em=5, portaria_em=7),
+        max_turnos=11,
+        cobrar_e_fechar=True,
     ),
     # --- F4.3: jornada que vira `Perdido (sumiu)` por timeout -- o ramo "NAO VOLTA" ----------------
     # Interno graduado (conversa -> Aguardando -> aviso de saida) que NAO chega: o cliente avisa que
