@@ -209,7 +209,7 @@ PIX_VALIDACAO_DECISAO = Counter(
 PIX_DIVERGENCIA = Counter(
     "agente_pix_divergencia_total",
     "Motivo que levou um comprovante a em_revisao (06 §7; sem timestamp por §0 item 11)",
-    ["motivo"],  # plausibilidade | valor | chave | titular
+    ["motivo"],  # plausibilidade | legibilidade | valor | chave | titular | midia | vision
 )
 # 06 §1.3: pipeline de transcricao Whisper.
 TRANSCRICAO_DURACAO = Histogram(

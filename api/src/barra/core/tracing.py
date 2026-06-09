@@ -159,6 +159,56 @@ def setup_tracing_sim(settings: Settings, *, projeto: str = "barra-vips-sim") ->
     return client
 
 
+# Handler do Langfuse-sim, setado por `setup_langfuse_sim` (entrypoint CLI do sim) e lido pelo site
+# de ainvoke da jornada. Fica None por padrão -- o pytest NUNCA chama setup_langfuse_sim, então o
+# tracing Langfuse não liga sozinho nos testes (que importam Settings com as chaves do .env).
+_LANGFUSE_HANDLER: Any | None = None
+
+
+def setup_langfuse_sim(settings: Settings) -> Any | None:
+    """Liga o tracing Langfuse do SIMULADOR (avaliação vs LangSmith) e cacheia o CallbackHandler.
+
+    Mesma filosofia (e mesmas travas) do `setup_tracing_sim`: conteúdo LEGÍVEL porque os dados são
+    SINTÉTICOS. NUNCA chamar de `main.py`/worker (PII real) nem de teste -- só dos entrypoints CLI do
+    sim. O handler fica num global que o site de ainvoke da jornada anexa aos callbacks; sem esta
+    chamada (caso default, ex.: pytest), `langfuse_handler()` devolve None e o Langfuse não traça.
+
+    No-op (retorna None) se `langfuse` não instalado (é dep de dev, ausente em prod), chaves ausentes,
+    ou auth falha -- aí a jornada só traça no LangSmith-sim.
+    """
+    global _LANGFUSE_HANDLER
+    if not settings.langfuse_public_key:
+        return None
+    try:
+        from langfuse import get_client
+        from langfuse.langchain import CallbackHandler
+    except ModuleNotFoundError:
+        logger.warning("langfuse_sim: pacote langfuse ausente (dep de dev); tracing langfuse off")
+        return None
+    # O SDK do Langfuse lê as chaves do os.environ (get_client monta o singleton). pydantic-settings
+    # carrega do .env mas não exporta p/ os.environ -- ponte aqui, no padrão do setup_tracing (que já
+    # seta LANGCHAIN_* no environ). setdefault: não sobrescreve um env real já presente.
+    os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.langfuse_public_key)
+    os.environ.setdefault("LANGFUSE_SECRET_KEY", settings.langfuse_secret_key or "")
+    os.environ.setdefault("LANGFUSE_HOST", settings.langfuse_host)
+    client = get_client()
+    if not client.auth_check():
+        logger.warning("langfuse_sim: auth_check falhou; tracing langfuse off")
+        return None
+    _LANGFUSE_HANDLER = CallbackHandler()
+    logger.info(
+        "langfuse_sim_ligado host=%s (sem masking; dados sinteticos)", settings.langfuse_host
+    )
+    return _LANGFUSE_HANDLER
+
+
+def langfuse_handler() -> Any | None:
+    """CallbackHandler do Langfuse-sim p/ anexar aos callbacks do ainvoke da jornada; None se
+    `setup_langfuse_sim` não foi chamado (default — ex.: pytest), garantindo que o Langfuse nunca
+    traça fora do entrypoint CLI explícito do sim."""
+    return _LANGFUSE_HANDLER
+
+
 def metadata_trace_turno(modelo_id: str, atendimento_id: str) -> dict[str, Any]:
     """Fragmento de config (metadata + tags) que escopa o trace do turno por modelo/atendimento.
 

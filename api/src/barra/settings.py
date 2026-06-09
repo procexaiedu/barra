@@ -1,12 +1,13 @@
+import json
 import os
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlparse
 
 from pydantic import Field, field_validator, model_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -140,6 +141,10 @@ class Settings(BaseSettings):
         default=True,
         description="Pre-aquece o prefixo global de cache (tools+BP_GERAL) com 1 request no startup do worker, evitando o burst de cache writes a 2x apos deploy de prompt ou gap > TTL (pesquisa §1.7 / 03 §4.5).",
     )
+    forcar_extracao_por_turno: bool = Field(
+        default=True,
+        description="Fallback deterministico (#2): quando o LLM encerra o turno sem chamar registrar_extracao, forca 1 chamada (tool_choice) antes de fechar o turno, garantindo que a FSM nao defase. Custa 1 request extra so nos turnos onde o modelo esqueceu. False = comportamento dependente da boa vontade do LLM (kill-switch sem deploy).",
+    )
     # Output-guard de saida antes da bolha (AGENTE-OG / ADR 0016).
     output_guard_habilitado: bool = Field(
         default=True,
@@ -235,6 +240,12 @@ class Settings(BaseSettings):
     langchain_api_key: str | None = None
     langchain_project: str = "barra-vips-dev"
 
+    # Langfuse — SÓ no path sim/dev (avaliação vs LangSmith); nunca em prod (PII real). Lido por
+    # setup_langfuse_sim; ausência das chaves = tracing langfuse off.
+    langfuse_public_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_host: str = "https://us.cloud.langfuse.com"
+
     evolution_base_url: str = ""
     evolution_api_key: str = ""
     evolution_webhook_token: str = ""
@@ -255,14 +266,35 @@ class Settings(BaseSettings):
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
     cors_origin_regex: str | None = None
 
-    jid_permitido: str | None = Field(
-        default=None,
+    jid_permitido: Annotated[list[str], NoDecode] = Field(
+        default_factory=list,
         description=(
-            "Flag de TESTE da Fase 1.5: quando definido, o webhook só processa mensagens deste "
-            "único JID global. Default None = desligado. NÃO é allowlist por modelo nem defesa de "
-            "produção — a borda real é token + instância cadastrada + UNIQUE evolution_instance_id."
+            "Allowlist de TESTE da Fase 1.5: quando não-vazia, o webhook só processa mensagens "
+            "cujo remote_jid esteja na lista. Default [] = desligado. Aceita VÁRIOS JIDs (formato "
+            "JSON no env) para um teste E2E pinar tanto o grupo do cliente quanto o seu grupo de "
+            "Coordenação — senão o comando de fechamento no grupo (`finalizado`/`perdido`) leva "
+            "403 na porta. NÃO é defesa de produção — a borda real é token + instância cadastrada "
+            "+ UNIQUE evolution_instance_id."
         ),
     )
+
+    @field_validator("jid_permitido", mode="before")
+    @classmethod
+    def _parse_jid_permitido(cls, v: object) -> object:
+        """Parser explícito (o campo é `NoDecode`, então recebe a string crua do env). Aceita:
+        vazio → []; lista JSON (`["a","b"]`) → parseada; um único JID cru (compat com o formato
+        antigo `JID_PERMITIDO=...@g.us`) → [JID]. Sem isso, `.env`/compose com valor cru viram
+        SettingsError."""
+        if v is None:
+            return []
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return []
+            if s.startswith("["):
+                return json.loads(s)
+            return [s]
+        return v
 
     reset_teste_instances: list[str] = Field(
         default_factory=list,
