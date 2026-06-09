@@ -33,6 +33,7 @@ from barra.settings import get_settings
 
 from .._canned import NEGACOES_CANNED
 from .._defesa import escalar_defesa
+from .._texto_turno import extrair_texto_do_turno, mensagens_do_turno
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..persona import render_aup_saida
@@ -96,25 +97,6 @@ class _VeredictoAup(BaseModel):
     motivo: str = Field(
         description="rotulo curto: ia_self|system_leak|cross_modelo|aup_dura|nenhum"
     )
-
-
-def _ultima_ai_com_texto(state: EstadoAgente) -> AIMessage | None:
-    """A AIMessage que iria ao cliente (a bolha). None se nao ha texto a guardar."""
-    for m in reversed(state["messages"]):
-        if isinstance(m, AIMessage):
-            return m
-    return None
-
-
-def _texto_de(msg: AIMessage) -> str:
-    conteudo = msg.content
-    if isinstance(conteudo, str):
-        return conteudo
-    if isinstance(conteudo, list):
-        return "".join(
-            b.get("text", "") for b in conteudo if isinstance(b, dict) and b.get("type") == "text"
-        )
-    return ""
 
 
 async def _nomes_outras_modelos(conn: Any, modelo_id: str) -> list[str]:
@@ -231,10 +213,12 @@ async def output_guard(
     if not settings.output_guard_habilitado:
         return Command(goto=END)  # type: ignore[arg-type]
 
-    ultima = _ultima_ai_com_texto(state)
-    if ultima is None:
-        return Command(goto=END)  # type: ignore[arg-type]
-    texto = _texto_de(ultima)
+    # Mesmo agregado que o coordenador despacha (`extrair_texto_do_turno`): TODAS as AIMessages
+    # geradas neste turno, nao so a ultima — no ReAct o texto ao cliente costuma sair na 1a
+    # passagem (texto + tool_call) e a ultima vem vazia (ou e o tool_use da extracao forcada);
+    # guardar so a ultima deixava o texto real passar sem scan/judge.
+    msgs_turno = mensagens_do_turno(state["messages"])
+    texto = extrair_texto_do_turno(state["messages"])
 
     # A legenda da midia (arg `legenda` de enviar_midia) sai ao cliente como caption FORA da bolha
     # de texto -- precisa passar pelo MESMO scan/judge, senao escaparia do guard (A1). Coletada
@@ -247,7 +231,9 @@ async def output_guard(
             return Command(goto=END)  # type: ignore[arg-type]
         termos_cross = await _nomes_outras_modelos(conn, ctx.modelo_id)
 
-    vazia = AIMessage(id=ultima.id, content="")  # bloqueio = substitui a bolha por vazia
+    # bloqueio = substitui TODAS as AIMessages do turno por vazias (mesmo id -> reducer troca);
+    # zerar so a ultima deixaria o texto da 1a passagem vivo p/ o coordenador despachar.
+    vazias = [AIMessage(id=m.id, content="") for m in msgs_turno]
 
     # Etapa 1: scan deterministico (incl. negativa cross-modelo do banco) sobre texto + legendas.
     motivo = _scan_vazamento(texto_guard, termos_cross)
@@ -256,7 +242,7 @@ async def output_guard(
         await _bloquear(
             ctx, observacao=f"output_leak_{motivo}", resumo=_RESUMO_LEAK, metric_key="output_leak"
         )
-        return Command(goto=END, update={"messages": [vazia]})  # type: ignore[arg-type]
+        return Command(goto=END, update={"messages": vazias})  # type: ignore[arg-type]
 
     # Negacao canned (pool curado): pula a Etapa 2 (texto ja confiavel). So sem midia -- uma
     # legenda precisa sempre passar pela Etapa 2, mesmo que a bolha de texto seja canned.
@@ -275,7 +261,7 @@ async def output_guard(
         await _bloquear(
             ctx, observacao="aup_saida_judge_falhou", resumo=_RESUMO_AUP, metric_key="aup_saida"
         )
-        return Command(goto=END, update={"messages": [vazia]})  # type: ignore[arg-type]
+        return Command(goto=END, update={"messages": vazias})  # type: ignore[arg-type]
 
     if veredito.viola:
         AUP_SAIDA_BLOQUEADO.labels("violou").inc()
@@ -285,6 +271,6 @@ async def output_guard(
             resumo=_RESUMO_AUP,
             metric_key="aup_saida",
         )
-        return Command(goto=END, update={"messages": [vazia]})  # type: ignore[arg-type]
+        return Command(goto=END, update={"messages": vazias})  # type: ignore[arg-type]
 
     return Command(goto=END)  # type: ignore[arg-type]

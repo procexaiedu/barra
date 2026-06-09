@@ -26,7 +26,7 @@ from __future__ import annotations
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -349,9 +349,11 @@ async def test_consultar_agenda_nao_traz_bloqueio_do_par_b(
         ),
     )
 
+    # `date` direto: a tool tipou os args (92a8c02) e a conversao YYYY-MM-DD -> date e da
+    # camada de args do ToolNode, que este call direto na coroutine NAO atravessa.
     out = await _chamar_agenda(
-        data_inicio="2026-06-09",
-        data_fim="2026-06-15",
+        data_inicio=date(2026, 6, 9),
+        data_fim=date(2026, 6, 15),
         runtime=_Runtime(_CtxAgenda(_PoolDeUmaConexao(conn), str(modelo_a))),
     )
 

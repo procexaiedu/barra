@@ -15,20 +15,21 @@ import json
 import logging
 import random
 from contextlib import AbstractContextManager, nullcontext
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid5
 
 import structlog
 from anthropic import APIStatusError, APITimeoutError, RateLimitError
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage
 from langfuse import Langfuse, get_client
 from langgraph.errors import GraphRecursionError
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
 from barra.agente._canned import escolher_canned_transcricao_falhou
+from barra.agente._texto_turno import extrair_texto_do_turno
 from barra.agente.contexto import ContextAgente
 from barra.agente.nos.output_guard import tem_marcador_ia
 from barra.agente.persona import _brl
@@ -42,6 +43,7 @@ from barra.core.metrics import (
 from barra.core.redis import LockBusy, adquirir_lock
 from barra.core.tracing import langfuse_handler, metadata_trace_turno, registrar_feedback_online
 from barra.settings import get_settings
+from barra.webhook.despacho import enfileirar_processar_turno
 from barra.workers._chunking import chunk_texto
 
 logger = logging.getLogger(__name__)
@@ -99,6 +101,14 @@ async def processar_turno(
     # foi setado por enfileirar_turno, entao ao re-disparar o turno le a janela inteira.
     try:
         async with adquirir_lock(redis, f"lock:conv:{conversa_id}", ttl=60, heartbeat_interval=15):
+            # Gate de pendencia: sem `pending:conv` nao ha mensagem nova — outro job ja consumiu
+            # a janela (ex.: o de varredura, ver webhook/despacho.py). Rodar o grafo mesmo assim
+            # geraria double-texting: a janela termina na propria fala da IA e o LLM emendaria
+            # outra bolha. So no 1o loop; nos seguintes o passo 8 ja exige pending cheio.
+            if not await redis.get(f"pending:conv:{conversa_id}"):
+                logger.info("turno_sem_pendencia conversa_id=%s", conversa_id)
+                AGENTE_TURNO_RESULTADO.labels("sem_pendencia").inc()
+                return
             for loop_idx in range(MAX_DRAIN):  # DRAIN LOOP BOUNDED (01 §4.3)
                 # `ctx['score']` (timestamp ms do enqueue) e estavel no retry do MESMO job
                 # (preserva dedupe de envio) e UNICO entre turnos distintos (cada webhook
@@ -249,7 +259,8 @@ async def processar_turno(
                     # 5xx/timeout persistente da API do LLM (Anthropic) — falha de plataforma, nao
                     # bug do grafo. O no llm ja re-levanta esses erros (nos/llm.py); aqui escala
                     # como modelo_indisponivel (bucket infra) em vez de cair no `except Exception`
-                    # generico abaixo, que jogaria para o retry do ARQ.
+                    # generico abaixo, que mataria o turno sem escalada (o ARQ NAO retenta excecao
+                    # comum — so `Retry` explicito ou shutdown do worker).
                     logger.error("api_indisponivel turno_id=%s", turno_id)
                     await escalar_por_exaustao(
                         pool, atendimento["id"], turno_id, motivo="modelo_indisponivel"
@@ -320,7 +331,7 @@ async def processar_turno(
                     AGENTE_TURNO_RESULTADO.labels("escalado").inc()
                 else:
                     # 7. extrai resposta + msgs do cliente do turno (read receipt, 05 §4.2).
-                    texto = _extrair_texto_do_turno(resultado["messages"])
+                    texto = extrair_texto_do_turno(resultado["messages"])
 
                     async with pool.connection() as conn:
                         res = await conn.execute(
@@ -455,25 +466,26 @@ async def processar_turno(
                     break
             else:
                 # teto de drain estourado com pending ainda cheio -> re-enfileira (libera o lock).
-                # Evita prender um worker slot num cliente tagarela.
+                # Evita prender um worker slot num cliente tagarela. NB: enqueue direto com o
+                # `_job_id` estatico seria no-op aqui — a job_key DESTE job ainda existe ate o
+                # finish_job — por isso o helper com fallback de varredura (webhook/despacho.py).
                 if await redis.get(f"pending:conv:{conversa_id}"):
-                    await redis.enqueue_job(
-                        "processar_turno",
-                        conversa_id=conversa_id,
+                    await enfileirar_processar_turno(
+                        redis,
+                        conversa_id,
                         aguardar_transcricao=False,
                         request_id=request_id,  # OBS-07: mantem correlacao no turno recuperado
-                        _job_id=f"turno:{conversa_id}",
-                        _defer_by=timedelta(seconds=2),
+                        defer_s=2,
                     )
     except LockBusy:
         # contenda com rotear_imagem (06 §2.1) — re-defere curto via ctx["redis"] (ArqRedis).
-        await redis.enqueue_job(
-            "processar_turno",
-            conversa_id=conversa_id,
+        # Mesmo caso do MAX_DRAIN: o `_job_id` estatico pode ser o NOSSO -> helper com fallback.
+        await enfileirar_processar_turno(
+            redis,
+            conversa_id,
             aguardar_transcricao=aguardar_transcricao,
             request_id=request_id,  # OBS-07: mantem correlacao no re-defer
-            _job_id=f"turno:{conversa_id}",
-            _defer_by=timedelta(seconds=2),
+            defer_s=2,
         )
         LOCK_OCUPADO.inc()
 
@@ -540,76 +552,6 @@ def _amostrar_eval_online(chunks: list[str]) -> float | None:
     passou = 0.0 if tem_marcador_ia(" ".join(chunks)) else 1.0
     AGENTE_EVAL_PASS_RATE.labels("online_non_disclosure").observe(passou)
     return passou
-
-
-def _extrair_texto(msg: AIMessage) -> str:
-    """Texto plano de uma AIMessage. content pode ser str ou lista de blocos (1.x)."""
-    if isinstance(msg.content, str):
-        return msg.content
-    partes = [
-        bloco.get("text", "")
-        for bloco in msg.content
-        if isinstance(bloco, dict) and bloco.get("type") == "text"
-    ]
-    return "".join(partes)
-
-
-def _tool_use_ids(msg: AIMessage) -> set[str]:
-    """IDs dos tool_calls de uma AIMessage -- de `.tool_calls` (LLM real) e dos blocos `tool_use`
-    do content (cobre mensagens cruas/testes onde `.tool_calls` nao foi populado)."""
-    ids: set[str] = set()
-    for tc in msg.tool_calls or []:
-        tid = tc.get("id")
-        if tid:
-            ids.add(tid)
-    if isinstance(msg.content, list):
-        for b in msg.content:
-            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id"):
-                ids.add(b["id"])
-    return ids
-
-
-def _extrair_texto_do_turno(messages: list[BaseMessage]) -> str:
-    """Agrega texto das AIMessages GERADAS pelo LLM neste turno, separadas por \\n\\n.
-
-    No padrao ReAct, o LLM e chamado de novo depois de cada ToolMessage; quando ja respondeu
-    o cliente na 1a passagem (texto + tool_call), a 2a passagem volta com `content=[]` —
-    pegar so a ultima AIMessage daria "" e disparava `turno_sem_resposta`.
-
-    O `prepare_context` re-injeta AIMessages historicas (mensagens previas da IA do banco)
-    no input do LLM (`nos/prepare_context.py:188`); essas vem SEM `usage_metadata`. Filtrar
-    por `usage_metadata` mantem so o que o LLM gerou agora — agregar historicas duplicaria
-    a resposta anterior junto com a nova (bug observado em prod 2026-05-27).
-
-    Erro recuperavel + retry (2026-06-03): quando uma tool falha de forma recuperavel, o LLM
-    RE-EMITE o texto e re-chama a tool na passagem seguinte. O texto da passagem cujo tool_call
-    ERROU e um rascunho SUPERADO pela retentativa -- agrega-lo duplicaria a fala ao cliente (bug
-    externo_pix). Descartamos o texto das AIMessages cujo tool_call resultou em ToolMessage de
-    erro: `status == "error"` cobre ToolException com handle_tool_error (ferramentas/, prefixo
-    "ERRO:") E erro de args do ToolNode (ToolInvocationError, ex. data invalida pos-tipagem
-    `date` -- sem o prefixo); o startswith fica de cinto de seguranca p/ ToolMessage construida
-    a mao com status default.
-    """
-    ids_com_erro = {
-        m.tool_call_id
-        for m in messages
-        if isinstance(m, ToolMessage)
-        and (m.status == "error" or str(m.content).startswith("ERRO:"))
-        and m.tool_call_id
-    }
-    partes: list[str] = []
-    for m in messages:
-        if not (isinstance(m, AIMessage) and m.usage_metadata is not None):
-            continue
-        if ids_com_erro and (_tool_use_ids(m) & ids_com_erro):
-            # rascunho superado por retentativa de tool-com-erro recuperavel. Premissa: no maximo
-            # UMA tool de escrita com erro recuperavel por passagem -- as tools de mídia (fan-out
-            # multi-call por turno) NAO retornam "ERRO:" agregavel a texto, entao nao acionam isto.
-            continue
-        texto = _extrair_texto(m)
-        if texto:
-            partes.append(texto)
-    return "\n\n".join(partes)
 
 
 async def resolver_atendimento(

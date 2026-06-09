@@ -91,6 +91,7 @@ class _FakeEvolution:
         self.ordem: list[tuple[str, Any]] = []
         self.quotes: list[str | None] = []
         self.quote_textos: list[str | None] = []
+        self.tipos_midia: list[str | None] = []  # kwarg `tipo` (enum envios_evolution) por mídia
         self._n = 0
 
     async def marcar_lida(
@@ -117,9 +118,10 @@ class _FakeEvolution:
         self.quote_textos.append(quoted_text)
         return f"mid-texto-{self._n}"
 
-    async def enviar_midia(self, *, caption: str | None, **_: Any) -> str:
+    async def enviar_midia(self, *, caption: str | None, tipo: str | None = None, **_: Any) -> str:
         self._n += 1
         self.ordem.append(("midia", caption))
+        self.tipos_midia.append(tipo)
         return f"mid-midia-{self._n}"
 
 
@@ -182,6 +184,9 @@ async def test_ordem_texto_antes_de_midia() -> None:
     assert max(pos["texto"]) < min(pos["midia"])
     assert _so(evolution, "texto") == ["oi amor", "tudo bem?"]
     assert _so(evolution, "midia") == ["olha 😏"]
+    # A1 (revisao 2026-06-09): `tipo` é o enum de envios_evolution ('midia'), nunca o tipo de
+    # conteúdo ('foto'/'video') — m["tipo"] estourava o CHECK do banco depois do POST.
+    assert evolution.tipos_midia == ["midia"]
     # cursor de dedupe marcado para read, chunks e mídia
     for membro in ("read", "chunk:0", "chunk:1", "midia:0"):
         assert await redis.sismember(f"enviados:{turno_id}", membro)

@@ -85,8 +85,10 @@ class FakeArq:
     async def set(self, key: str, value: Any, ex: Any = None) -> None:
         self.sets.append((key, value, ex))
 
-    async def enqueue_job(self, name: str, **kwargs: Any) -> None:
+    async def enqueue_job(self, name: str, **kwargs: Any) -> Any:
+        # devolve truthy como o ARQ real no sucesso (None = coalesced -> dispararia a varredura)
         self.enqueued.append((name, kwargs))
+        return object()
 
     async def aclose(self) -> None:
         return None

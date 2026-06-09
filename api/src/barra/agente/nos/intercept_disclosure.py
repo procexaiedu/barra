@@ -154,10 +154,15 @@ async def intercept_disclosure(
 
             if tentativas < 3:
                 DISCLOSURE_DETECTADO.labels("negado").inc()
-                return Command(
-                    goto="post_process",
-                    update={"messages": [AIMessage(content=escolher_negacao())]},
+                # usage_metadata zerado marca a negacao como GERADA NESTE turno: o extrator do
+                # coordenador e o output_guard separam turno vs historico re-injetado por
+                # `usage_metadata is not None` (agente/_texto_turno.py). Sem ele a negacao era
+                # filtrada como historica e o cliente ficava sem resposta (turno_sem_resposta).
+                negacao = AIMessage(
+                    content=escolher_negacao(),
+                    usage_metadata={"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
                 )
+                return Command(goto="post_process", update={"messages": [negacao]})
 
             await _escalar_handoff(
                 conn, ctx, resumo=_RESUMO_DISCLOSURE, observacao="disclosure_insistente"
