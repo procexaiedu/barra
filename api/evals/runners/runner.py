@@ -806,7 +806,7 @@ async def _capturar(
 
 async def executar_fixture(
     conn: AsyncConnection[dict[str, Any]], fixture: dict[str, Any]
-) -> tuple[Captura, list[str]]:
+) -> tuple[Captura, list[str], list[dict[str, Any]]]:
     """Seeda, roda o grafo MULTI-TURNO e coleta a Captura final + falhas de state_check por turno.
 
     Requer ANTHROPIC_API_KEY + DB de teste. Insere cada mensagem; so as do cliente disparam
@@ -1105,8 +1105,10 @@ def _gate_da_fixture(fixture: dict[str, Any]) -> str:
     `adversariais` = capability (advisory ate o operador graduar p/ regressao). Refino 08b §3.5.
     """
     declarado = fixture.get("gate")
-    if declarado in ("regressao", "capability"):
-        return declarado
+    if declarado == "regressao":
+        return "regressao"
+    if declarado == "capability":
+        return "capability"
     return "capability" if fixture.get("categoria") == "adversariais" else "regressao"
 
 
