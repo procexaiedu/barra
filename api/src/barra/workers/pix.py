@@ -175,9 +175,7 @@ async def _extrair_via_openrouter(
     # truncado/recusado tambem queimou tokens. `usage` pode faltar em fakes de teste; a funcao
     # pura trata None -> 0.0. Label = nome do modelo de vision (mesmo criterio do chat).
     AGENTE_CUSTO_VISION_BRL.labels(modelo).observe(
-        calcular_custo_vision_brl(
-            getattr(resposta, "usage", None), get_settings().usd_brl_cotacao
-        )
+        calcular_custo_vision_brl(getattr(resposta, "usage", None), get_settings().usd_brl_cotacao)
     )
     escolha = resposta.choices[0]
     # finish_reason chega no 200 OK (nao como excecao): 'length' = max_tokens (JSON truncado),
@@ -206,7 +204,7 @@ async def validar_pix(
     pool = ctx["db_pool"]
     minio = ctx["minio"]
     settings = ctx["settings"]
-    vision_client: AsyncOpenAI = ctx["vision_client"]
+    vision_client: AsyncOpenAI | None = ctx["vision_client"]
 
     inicio = perf_counter()
     try:
@@ -256,6 +254,16 @@ async def validar_pix(
             )
             motivo_em_revisao = "midia ausente: upload do comprovante falhou"
             motivo_bucket = "midia"
+        elif vision_client is None:
+            # Pix NUNCA trava (01 §6.1): sem credencial de vision (OPENROUTER_API_KEY ausente) nao
+            # da pra fazer OCR -> em_revisao (DUVIDOSO), o atendimento avanca para Confirmado e
+            # Fernando revisa na fila assincrona, em vez de o job crashar (AttributeError no client
+            # None) e o atendimento estagnar ate o timeout de 24h.
+            logger.warning(
+                "validar_pix sem vision_client -> em_revisao atendimento_id=%s", atendimento_id
+            )
+            motivo_em_revisao = "vision indisponivel: credencial de OCR ausente"
+            motivo_bucket = "vision"
         else:
             # 2. baixa do MinIO + detecta mime real (nao confiar na extensao da URL Evolution)
             bytes_img = await _baixar_minio(minio, settings.minio_bucket_media, object_key)
@@ -278,6 +286,17 @@ async def validar_pix(
                 )
                 extracao = None
                 motivo_em_revisao = f"vision inconclusivo: finish_reason={exc}"
+                motivo_bucket = "vision"
+            except Exception as exc:
+                # Pix NUNCA trava (01 §6.1): falha inesperada de OCR (rede, APIError, provider)
+                # -> em_revisao + avanca, em vez de propagar pro ARQ e deixar o atendimento preso.
+                logger.warning(
+                    "validar_pix vision falhou atendimento_id=%s erro=%s",
+                    atendimento_id,
+                    type(exc).__name__,
+                )
+                extracao = None
+                motivo_em_revisao = f"vision falhou: {type(exc).__name__}"
                 motivo_bucket = "vision"
 
         # 4. comparacoes (sem timestamp, emenda §0 item 11). So quando houve extracao -- sem

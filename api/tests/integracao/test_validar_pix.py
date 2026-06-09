@@ -421,3 +421,79 @@ async def test_midia_ausente_em_revisao_nao_vira_perdido(
     assert vision.chamadas == 0
 
     assert redis.jobs[0][1]["tipo"] == "pix_em_revisao"
+
+
+@pytest.mark.needs_db
+async def test_sem_vision_client_em_revisao_nao_crasha(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Pix NUNCA trava (01 §6.1): sem credencial de OCR (`vision_client=None`, OPENROUTER_API_KEY
+    ausente) o atendimento avanca em em_revisao, em vez de o job crashar (AttributeError no client
+    None) e estagnar em Aguardando_confirmacao ate o timeout-24h virar Perdido."""
+    from barra.settings import get_settings
+
+    atendimento_id, mensagem_id = await _seed_cenario(conn)
+    redis = _FakeRedis()
+    minio = _FakeMinio()
+    ctx: dict[str, Any] = {
+        "db_pool": _PoolDeUmaConexao(conn),
+        "minio": minio,
+        "vision_client": None,
+        "settings": get_settings(),
+        "redis": redis,
+    }
+
+    await validar_pix(ctx, mensagem_id=str(mensagem_id), atendimento_id=str(atendimento_id))
+
+    at = await _ler_atendimento(conn, atendimento_id)
+    assert at["estado"] == "Confirmado"
+    assert at["pix_status"] == "em_revisao"
+    assert at["ia_pausada"] is True
+
+    cp = await _ler_comprovante(conn, atendimento_id)
+    assert cp["decisao_pipeline"] == "em_revisao"
+    assert "vision" in (cp["motivo_em_revisao"] or "")
+    assert cp["valor_extraido"] is None
+    # Sem client de vision: nem baixa do MinIO (a branch e anterior ao download).
+    assert minio.chamadas == 0
+    assert redis.jobs[0][1]["tipo"] == "pix_em_revisao"
+
+
+@pytest.mark.needs_db
+async def test_vision_falha_inesperada_em_revisao_nao_crasha(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Pix NUNCA trava (01 §6.1): falha inesperada do OCR (rede, APIError, provider 5xx) cai em
+    em_revisao + avanca, em vez de propagar pro ARQ e deixar o atendimento preso."""
+    from barra.settings import get_settings
+
+    atendimento_id, mensagem_id = await _seed_cenario(conn)
+    redis = _FakeRedis()
+    minio = _FakeMinio()
+
+    async def _create_explode(**_: Any) -> Any:
+        raise RuntimeError("provider 500")
+
+    vision = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=_create_explode))
+    )
+    ctx: dict[str, Any] = {
+        "db_pool": _PoolDeUmaConexao(conn),
+        "minio": minio,
+        "vision_client": vision,
+        "settings": get_settings(),
+        "redis": redis,
+    }
+
+    await validar_pix(ctx, mensagem_id=str(mensagem_id), atendimento_id=str(atendimento_id))
+
+    at = await _ler_atendimento(conn, atendimento_id)
+    assert at["estado"] == "Confirmado"
+    assert at["pix_status"] == "em_revisao"
+
+    cp = await _ler_comprovante(conn, atendimento_id)
+    assert cp["decisao_pipeline"] == "em_revisao"
+    assert "vision" in (cp["motivo_em_revisao"] or "")
+    # A imagem foi baixada (branch do else), mas o OCR estourou e foi degradado.
+    assert minio.chamadas == 1
+    assert redis.jobs[0][1]["tipo"] == "pix_em_revisao"
