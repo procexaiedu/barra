@@ -30,6 +30,7 @@ from psycopg.rows import dict_row
 from barra.agente.contexto import ContextAgente
 from barra.agente.graph import build_graph
 from barra.dominio.agenda.service import BRT
+from barra.settings import get_settings
 
 DATA_SLOT = date(2026, 6, 1)
 HORARIO_SLOT = time(22, 0)
@@ -37,6 +38,14 @@ DURACAO_SLOT = 2  # horas
 
 
 # --- LLM mockado -----------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _sem_forca_extracao(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isola este módulo da extração forçada (#2, default-ON): aqui o assunto é a tool pedir_pix,
+    não a força. Com a flag ligada, o turno final sem auto-extração ganharia 1 ainvoke a mais,
+    defasando as asserções. A força tem teste dedicado em test_llm_forca_extracao."""
+    monkeypatch.setattr(get_settings(), "forcar_extracao_por_turno", False)
 
 
 class _FakeChat:
@@ -50,7 +59,7 @@ class _FakeChat:
         self._i = 0
         self.vistas: list[list[Any]] = []
 
-    def bind_tools(self, tools: Any) -> "_FakeChat":
+    def bind_tools(self, tools: Any, *, tool_choice: Any = None, **_kw: Any) -> "_FakeChat":
         return self
 
     async def ainvoke(self, messages: list[Any]) -> AIMessage:

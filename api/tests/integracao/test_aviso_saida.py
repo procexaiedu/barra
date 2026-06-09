@@ -38,7 +38,7 @@ class _FakeChat:
         self._i = 0
         self.vistas: list[list[Any]] = []
 
-    def bind_tools(self, tools: Any) -> "_FakeChat":
+    def bind_tools(self, tools: Any, *, tool_choice: Any = None, **_kw: Any) -> "_FakeChat":
         return self
 
     async def ainvoke(self, messages: list[Any]) -> AIMessage:
@@ -257,9 +257,7 @@ async def test_aviso_saida_marca_e_enfileira_card(
     assert a["responsavel_atual"] == "IA"
 
     # 2. Card 'aviso_saida' enfileirado uma unica vez com _job_id estavel.
-    chamadas_card = [
-        c for c in redis.enqueue_job.call_args_list if c.args == ("enviar_card",)
-    ]
+    chamadas_card = [c for c in redis.enqueue_job.call_args_list if c.args == ("enviar_card",)]
     aviso = [c for c in chamadas_card if c.kwargs.get("tipo") == "aviso_saida"]
     assert len(aviso) == 1
     assert aviso[0].kwargs["atendimento_id"] == str(atendimento_id)

@@ -46,7 +46,7 @@ class _FakeChat:
         self._i = 0
         self.vistas: list[list[Any]] = []
 
-    def bind_tools(self, tools: Any) -> "_FakeChat":
+    def bind_tools(self, tools: Any, *, tool_choice: Any = None, **_kw: Any) -> "_FakeChat":
         return self
 
     async def ainvoke(self, messages: list[Any]) -> AIMessage:
@@ -229,9 +229,18 @@ async def _seed_3_midias(
              NULL,                        '2026-01-03T00:00:00+00:00')
         """,
         (
-            ja_velha, modelo_id, tag, f"media/{ja_velha}.jpg",
-            recente,  modelo_id, tag, f"media/{recente}.jpg",
-            nunca,    modelo_id, tag, f"media/{nunca}.jpg",
+            ja_velha,
+            modelo_id,
+            tag,
+            f"media/{ja_velha}.jpg",
+            recente,
+            modelo_id,
+            tag,
+            f"media/{recente}.jpg",
+            nunca,
+            modelo_id,
+            tag,
+            f"media/{nunca}.jpg",
         ),
     )
     return {"ja_velha": ja_velha, "recente": recente, "nunca": nunca}

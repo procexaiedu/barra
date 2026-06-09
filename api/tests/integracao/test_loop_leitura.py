@@ -27,8 +27,17 @@ from psycopg.rows import dict_row
 
 from barra.agente.contexto import ContextAgente
 from barra.agente.graph import build_graph
+from barra.settings import get_settings
 
 # --- LLM mockado: scripts de AIMessages (sem chamar a API real) ------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _sem_forca_extracao(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Isola este módulo da extração forçada (#2, default-ON): aqui o assunto é o loop ReAct, não
+    a força. Com a flag ligada, o turno sem auto-extração ganharia 1 ainvoke a mais (3 em vez de
+    2), defasando as asserções de contagem. A força tem teste dedicado em test_llm_forca_extracao."""
+    monkeypatch.setattr(get_settings(), "forcar_extracao_por_turno", False)
 
 
 class _FakeChat:
@@ -42,7 +51,7 @@ class _FakeChat:
         self._i = 0
         self.vistas: list[list[Any]] = []
 
-    def bind_tools(self, tools: Any) -> "_FakeChat":
+    def bind_tools(self, tools: Any, *, tool_choice: Any = None, **_kw: Any) -> "_FakeChat":
         return self
 
     async def ainvoke(self, messages: list[Any]) -> AIMessage:
@@ -62,7 +71,9 @@ class _FakeChatLoopInfinito:
         self._df = data_fim
         self._n = 0
 
-    def bind_tools(self, tools: Any) -> "_FakeChatLoopInfinito":
+    def bind_tools(
+        self, tools: Any, *, tool_choice: Any = None, **_kw: Any
+    ) -> "_FakeChatLoopInfinito":
         return self
 
     async def ainvoke(self, messages: list[Any]) -> AIMessage:
