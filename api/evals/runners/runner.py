@@ -46,7 +46,7 @@ import re
 import sys
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -1203,6 +1203,72 @@ def gate_split(avaliacoes: list[Avaliacao], threshold: float = 1.0) -> int:
     return gate(regressao, threshold)
 
 
+# --- registro de cutover (F3.2) ----------------------------------------------------------------
+
+
+@dataclass
+class RegistroCutover:
+    """Baseline persistido de uma corrida do gate (F3.2). `verde` espelha `gate_split`: True so
+    quando a suite de REGRESSAO (as canonicas) passa. Uma corrida cuja regressao reprova carrega
+    `verde=False` e a lista de `reprovadas` -- nunca vira baseline (so `verde` e gravavel)."""
+
+    tipo: str  # "cutover" | "nightly" -- mesma maquina, rotulo da corrida
+    carimbo: str  # ISO8601 da corrida (injetado pelo caller; o registro nao chama now())
+    k: int  # amostras por fixture (F3.2: K=2 nas canonicas)
+    threshold: float  # pass-rate minimo da regressao
+    verde: bool  # gate_split(avaliacoes, threshold) == 0
+    n_regressao: int  # tamanho da suite bloqueante (canonicas + custo-estourado vinculante)
+    n_pass: int  # quantas da bloqueante passaram
+    fixtures: list[str] = field(default_factory=list)  # ids da suite bloqueante
+    reprovadas: dict[str, list[str]] = field(default_factory=dict)  # id -> falhas (vazio se verde)
+
+
+def montar_registro_cutover(
+    avaliacoes: list[Avaliacao],
+    *,
+    k: int,
+    threshold: float,
+    carimbo: str,
+    tipo: str = "cutover",
+) -> RegistroCutover:
+    """Constroi o registro a partir das avaliacoes JA agregadas por fixture (PURO; sem DB/LLM).
+
+    A suite bloqueante e a MESMA de `gate_split` (`particionar_gate`: regressao + custo-estourado
+    vinculante da F3.7); `verde` reusa `gate_split` para nao divergir do exit-code. As capability
+    advisory ficam de fora da contagem -- uma adversarial que falha por comportamento nunca derruba
+    o cutover, mas um estouro de custo (vinculante) sim.
+    """
+    bloqueante, _ = particionar_gate(avaliacoes)
+    verde = gate_split(avaliacoes, threshold) == 0
+    reprovadas = {a.id: a.falhas for a in bloqueante if not a.passou}
+    return RegistroCutover(
+        tipo=tipo,
+        carimbo=carimbo,
+        k=k,
+        threshold=threshold,
+        verde=verde,
+        n_regressao=len(bloqueante),
+        n_pass=sum(a.passou for a in bloqueante),
+        fixtures=[a.id for a in bloqueante],
+        reprovadas=reprovadas,
+    )
+
+
+def escrever_registro_cutover(registro: RegistroCutover, caminho: Path) -> None:
+    """Grava o baseline de cutover como JSON. So registra quando VERDE -- uma regressao NUNCA vira
+    cutover (reprova com ValueError, nada escrito). Os dentes do criterio F3.2: "regressao reprova".
+    """
+    if not registro.verde:
+        raise ValueError(
+            f"cutover REPROVADO: {len(registro.reprovadas)} fixture(s) bloqueante(s) falharam "
+            f"({sorted(registro.reprovadas)}); baseline NAO registrado."
+        )
+    caminho.parent.mkdir(parents=True, exist_ok=True)
+    caminho.write_text(
+        json.dumps(asdict(registro), ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+
+
 def bootstrap_pareado(
     pass_a: dict[str, bool],
     pass_b: dict[str, bool],
@@ -1399,6 +1465,18 @@ def main() -> None:
         "--rodada-nome",
         help="nome da rodada de calibracao (default: gate-<carimbo>). Exige --ingerir-calibracao.",
     )
+    parser.add_argument(
+        "--registrar-cutover",
+        metavar="CAMINHO",
+        help="apos a corrida, grava o baseline de CUTOVER (F3.2) em CAMINHO -- so se VERDE. Uma "
+        "regressao reprova e nada e escrito. Use com --subdir canonicos --k 2.",
+    )
+    parser.add_argument(
+        "--nightly",
+        action="store_true",
+        help="rotula o registro como 'nightly' em vez de 'cutover' (mesma maquina; exige "
+        "--registrar-cutover).",
+    )
     args = parser.parse_args()
 
     # psycopg async pendura no ProactorEventLoop (default Windows) -> Selector antes do loop.
@@ -1419,6 +1497,29 @@ def main() -> None:
         carimbo = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%dT%H%M%S")
         nome = args.rodada_nome or f"gate-{carimbo}"
         asyncio.run(_persistir_calibracao(nome, conversas))
+
+    if args.registrar_cutover:
+        registro = montar_registro_cutover(
+            avaliacoes,
+            k=args.k,
+            threshold=args.threshold,
+            carimbo=datetime.now(ZoneInfo("America/Sao_Paulo")).isoformat(timespec="seconds"),
+            tipo="nightly" if args.nightly else "cutover",
+        )
+        caminho = Path(args.registrar_cutover)
+        if registro.verde:
+            escrever_registro_cutover(registro, caminho)
+            print(
+                f"\n{registro.tipo} VERDE registrado em {caminho} "
+                f"({registro.n_pass}/{registro.n_regressao} canonicas, K={registro.k})."
+            )
+        else:
+            # Regressao reprova -> nao registra; o exit-code abaixo ja sinaliza vermelho.
+            print(
+                f"\n{registro.tipo} REPROVADO: {sorted(registro.reprovadas)} -- baseline NAO "
+                f"registrado.",
+                file=sys.stderr,
+            )
 
     # So a suite de REGRESSAO bloqueia o cutover; capability e advisory (refino 08b §3.5).
     raise SystemExit(gate_split(avaliacoes, args.threshold))
