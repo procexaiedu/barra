@@ -64,8 +64,8 @@ def test_nomes_unicos():
 
 
 def test_tamanho_dos_conjuntos():
-    # iteração: conjunto enxuto p/ rotulagem barata (4 reais 001..004 + variacoes).
-    assert 6 <= len(cenarios_fixos.CENARIOS_FIXOS) <= 10
+    # iteração: conjunto enxuto p/ rotulagem barata (4 reais 001..004 + variacoes + jornadas F4.x).
+    assert 6 <= len(cenarios_fixos.CENARIOS_FIXOS) <= 11
     # held-out: medição de generalização -- pequeno e disjunto.
     assert 2 <= len(cenarios_fixos.CENARIOS_FIXOS_HELDOUT) <= 6
 

@@ -579,7 +579,7 @@ Inv. piso → **Coberto**.
 | **F4.1** ✅ (gate determinístico + corrida ★API ao vivo) | Jornada E2E começando em **`Novo`** (1º contato antes da triagem) | 4b (estado Novo) | jornada exercita Novo→Triagem pela conversa | `evals/`/`sim/cenarios*.py` |
 | **F4.2** ✅ (gate determinístico + corrida ★API ao vivo) | Jornadas que chegam a **`Fechado`** pela conversa (modelo fecha respondendo card com Valor final) | 4b (Fechado) | E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana | `sim/`, runner |
 | **F4.3** ✅ (gate determinístico + corrida ★API ao vivo) | Jornada que vira **`Perdido (sumiu)`** por timeout como continuação E2E | 4b (Perdido) | ramo "não volta" é jornada graduada | `sim/`, runner |
-| **F4.4** | `Em_execucao → Fechado` por **Lembrete de fechamento** dentro de uma jornada | 4b | cobrança proativa do Valor final fecha pela conversa | `sim/`, runner |
+| **F4.4** ✅ (gate determinístico + corrida ★API ao vivo) | `Em_execucao → Fechado` por **Lembrete de fechamento** dentro de uma jornada | 4b | cobrança proativa do Valor final fecha pela conversa | `sim/`, runner |
 | **F4.5** | **Recorrência**: novo Atendimento na mesma Conversa cliente após um Fechado | 4b | cenário existe e passa | `sim/`, runner |
 | **F4.6** | Upsell de duração (MAX de horas), recusa de fetiche fora-da-lista com retomada limpa, Pix duvidoso com card de duvidez + fila de Fernando (sem travar) | 4b | cada arco coberto por jornada graduada; redis stub deixa de mascarar o card | `sim/`, runner |
 | **F4.7** | **Revisão humana de venda bem-conduzida** (rubrica comercial: ritmo, não perder o cliente, fechar) sobre as jornadas geradas, contra a golden — sem judge automático (ADR 0015 rejeitado) | 4b | rubrica humana aplicada às jornadas E2E; falhas viram fixtures/graders determinísticos | revisão humana + `evals/` graders |
@@ -716,6 +716,70 @@ conversa (Novo … Fechado/Perdido). **Substituição do vendedor demonstrada pe
 > conversa até a perda por silêncio, ao vivo**. F4.3 → **Coberto** (gate determinístico bloqueia
 > regressão a cada PR + corrida ★API registrada ao vivo). A persona-LLM (`interno_some_perdido`,
 > `cenarios.py`) fica pronta p/ o golden quando o operador regerar o corpus inteiro.
+
+> **Status F4.4 ✅ gate determinístico + espinha needs_db ao vivo + corrida ★API ao vivo (feito,
+> merge local):** a F4.2 já chega a `Fechado`, mas pelo fecho **espontâneo** da modelo
+> (`modelo_fecha_card`: ela responde o card por conta própria). O **outro caminho** do mesmo desfecho
+> — o que CONTEXT.md/ADR-0009 chamam de **Lembrete de fechamento** — nunca era percorrido por jornada:
+> passado o fim do atendimento e ainda em `Em_execucao`, o cron `cobrar_valor_final`
+> (`workers/lembrete_valor.py`, provado isolado na **F0.9**) **cobra proativamente** o Valor final
+> mandando um card no grupo de Coordenação, e a modelo responde **esse** card com o valor → `Fechado`.
+> O fecho vem em **resposta à cobrança do sistema**, não de um impulso da modelo. F4.4 fecha a costura
+> como jornada graduada, espelhando F4.2/F4.3: um novo ato fora-de-banda **`lembrete_cobra_e_fecha`**
+> (`sim/atos.py`) que **envelhece o `bloqueios.fim`** (o relógio do sim não espera o programa real
+> acabar), garante o canal de Coordenação da modelo (o seed mínimo do runner não o popula — senão
+> `_enviar_card` viraria `canal ausente`), dispara o **mesmo** `cobrar_valor_final` de prod (o card
+> proativo, persistido em `envios_evolution` via o stub `_EvolutionSim` que chama o `registrar_envio`
+> real, deixando o rastro `card_kind=lembrete_valor`) e então fecha pela **mesma** porta
+> `aplicar_comando registrar_fechado` do `modelo_fecha_card` — não reimplementa nem o card nem o fecho.
+> Aplicado **pós-loop** pelo `jornada` (novo `cobrar_e_fechar=True`): a conversa termina em
+> `Em_execucao` (foto de portaria) e então o lembrete cobra e a modelo responde → `Fechado`. Cenário
+> **`interno_lembrete_fecha`** (persona-LLM, `cenarios.py`) + **`fixo_interno_lembrete_fecha`** (cliente
+> roteirizado, `cenarios_fixos.py`), ambos interno completo (conversa → Aguardando → portaria →
+> Em_execucao → cobrança → fecho). O gate tem **duas metades, espelhando F0.x/F1.x/F4.1/F4.2/F4.3**:
+> **(1) estrutural PURO** (sem DB/LLM, roda no `make test`): ≥1 persona **e** ≥1 fixo declaram
+> `cobrar_e_fechar=True` **e** o roteiro de fato alcança `Em_execucao` pela portaria (anti "cobra do
+> nada"); **(2) espinha `needs_db`** (Postgres efêmero do CI pós-F0.1): semeia `Em_execucao` + bloqueio
+> `em_atendimento` pela **mesma porta que `sim/loop.py:jornada`** (`runner._seed_entidades`) e aplica o
+> **exato ato pós-loop que o `jornada` dispara** (`loop._aplicar_ato(..., "lembrete_cobra_e_fecha")`),
+> provando que **(a)** a cobrança proativa disparou — um card `lembrete_valor` foi enviado pelo cron
+> real — e **(b)** a resposta da modelo a esse card leva **`Em_execucao → Fechado`** + Valor final
+> gravado + **bloqueio concluído** (trigger `sync_bloqueio_estado`) + IA despausada. É "pela conversa"
+> menos o LLM conduzir a venda até a portaria. **Dentes provados (vermelho→verde), TDD:** sem as
+> jornadas, as 2 checagens de existência falham (`assert []`); com elas, verde, e os invariantes
+> pré-existentes dos conjuntos (tamanho ∈ faixa — bump CENARIOS 18→19 e CENARIOS_FIXOS 10→11 —, nomes
+> únicos, anti-leakage, atos declarados) seguem verdes. **Test-only + sim** (núcleo `cobrar_valor_final`
+> + `aplicar_comando` intactos, já provados isolados na F0.9/F0.8). `make test`: 916 passed (95
+> `needs_db` skipped sem `TEST_DATABASE_URL`, incl. a espinha — rodam no Postgres efêmero do CI); mypy
+> (`mypy src`) + ruff limpos. **Gotcha do ato (vermelho→verde ao vivo):** envelhecer **só** o
+> `bloqueios.fim` para o passado o deixava **antes** do `inicio` (seedado/reservado em curso) e a
+> constraint `bloqueios_intervalo_valido` (`fim > inicio`) reprovava o INSERT/UPDATE — o ato move a
+> **janela inteira** para o passado (`inicio = now()-180min`, `fim = now()-60min`), preservando o
+> intervalo válido e deixando o atendimento vencido além da tolerância.
+>
+> **Espinha `needs_db` AO VIVO (2026-06-08, autorizada §0):** rodou contra o **prod**
+> (`db.procexai.tech`, rollback-sempre — 1 transação, `close()` sem commit → zero persistência):
+> `test_lembrete_cobra_proativo_e_modelo_fecha_em_execucao_para_fechado` **verde** (1 passed) — o cron
+> real `cobrar_valor_final` enviou o card `lembrete_valor` (cobrança proativa) **e** a resposta da
+> modelo levou `Em_execucao → Fechado` + Valor final + bloqueio **concluído** + IA despausada, provado
+> no Postgres real.
+>
+> **★API RODADA AO VIVO (2026-06-08, autorizada §0):** `uv run python -m evals.sim.gerar_conversas
+> --fixo --cenario fixo_interno_lembrete_fecha --usar-database-url` (cliente roteirizado → só a IA roda;
+> prod self-hosted em **rollback-sempre**; corpus `conversas_fixas.jsonl` restaurado via `git checkout`,
+> idêntico ao backup — mesmo padrão sancionado da F4.1/F4.2/F4.3). A trajetória provou o critério ao
+> vivo (9 passos, 7 falas da IA): a conversa percorreu **`Triagem → Qualificado →
+> Aguardando_confirmacao`** (a IA conduzindo via `registrar_extracao` — cotação `R$800 1h`, interno "no
+> seu local", bairro, endereço progressivo), o ato **`enviar_foto_portaria` → `Em_execucao`** (IA
+> pausada), e o fecho pós-loop **`lembrete_cobra_e_fecha` → `Fechado`** (o cron cobra o Valor final e a
+> modelo responde, IA despausada) — **a máquina de estados percorrida pela conversa até a venda fechada
+> pela cobrança proativa, ao vivo**. (As falas fixas do cenário usam "agora" em vez de "22h hoje" — a
+> ~22h30 BRT da rodada, "22h já passou" derrubava a reserva para "amanhã" e o "cheguei na portaria"
+> imediato fazia a IA escalar por inconsistência temporal; "agora" torna a demonstração robusta à hora
+> do dia, sem mudar a mecânica do fecho.) F4.4 → **Coberto** (gate determinístico bloqueia regressão a
+> cada PR + espinha `needs_db` e corrida ★API registradas ao vivo). A qualidade-de-venda segue sob
+> **revisão humana** contra a golden (sem judge, ADR 0015) — F4.7. A persona-LLM
+> (`interno_lembrete_fecha`, `cenarios.py`) fica pronta p/ o golden quando o operador regerar o corpus.
 
 ---
 
