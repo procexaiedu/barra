@@ -236,10 +236,12 @@ def main() -> None:
 
     # Tracing LangSmith-sim (sem anonymizer; dados sintéticos) -> root-cause via MCP do LangSmith.
     # No-op sem LANGCHAIN_API_KEY: o diagnóstico ainda tem o conversas.jsonl enriquecido (C5a).
-    from barra.core.tracing import setup_tracing_sim
+    from barra.core.tracing import setup_langfuse_sim, setup_tracing_sim
     from barra.settings import get_settings
 
     setup_tracing_sim(get_settings())
+    # Tracing Langfuse-sim em paralelo (avaliação LangSmith vs Langfuse). No-op sem chaves Langfuse.
+    setup_langfuse_sim(get_settings())
 
     if args.fixo and args.held_out:
         conversas = asyncio.run(
@@ -257,6 +259,16 @@ def main() -> None:
         "\n".join(json.dumps(c, ensure_ascii=False) for c in conversas) + "\n", encoding="utf-8"
     )
     print(f"\nGravado: {saida} ({len(conversas)} conversas)")
+
+    # Flush do Langfuse antes de sair (best practice: sem flush, traces do batch ficam por enviar).
+    # No-op se o Langfuse não foi ligado (sem chaves) ou não está instalado.
+    if get_settings().langfuse_public_key:
+        try:
+            from langfuse import get_client
+
+            get_client().flush()
+        except ModuleNotFoundError:
+            pass
 
 
 if __name__ == "__main__":

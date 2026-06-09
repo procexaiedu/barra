@@ -57,6 +57,7 @@
   .coin-human{color:var(--purple-ink);background:var(--purple-bg);border:1px solid var(--purple-line)}
   .coin-prod{color:#cbd5e1;background:#1b2330;border:1px solid var(--line2)}
   .coin-done{color:#0b1a0a;background:#9be39b;border:1px solid #245a1e;font-weight:700}
+  .coin-part{color:#0e0a00;background:#f2cc60;border:1px solid #5a4400;font-weight:700}
 
   .verdict{background:linear-gradient(180deg,#171d27,#12161d);border:1px solid var(--line2);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow);margin:24px 0 8px}
   .verdict h3{margin:0 0 4px;font-size:16px}
@@ -70,6 +71,7 @@
   table.heat td.eixo small{display:block;color:var(--mut2);font-weight:400;font-family:var(--mono);font-size:11px;margin-top:2px}
   .arrow-go{color:var(--mut2);padding:0 5px}
   .ids{font-family:var(--mono);font-size:11.5px;color:var(--accent)}
+  .ids .ok{color:var(--green-ink)}
 
   .note{font-size:13px;color:var(--mut);background:var(--panel);border:1px dashed var(--line2);border-radius:9px;padding:11px 14px;margin:14px 0}
   .note b{color:var(--ink)}
@@ -77,7 +79,7 @@
   .guar{background:var(--panel2);border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:10px;padding:14px 16px;margin:0 0 18px;color:var(--ink);font-size:14.5px}
   .guar b{color:var(--accent)}
 
-  .phase-head{display:flex;align-items:center;gap:12px;margin:6px 0 6px}
+  .phase-head{display:flex;align-items:center;gap:12px;margin:6px 0 6px;flex-wrap:wrap}
   .phase-head .num{font-family:var(--mono);font-size:12px;color:var(--accent);border:1px solid var(--line2);border-radius:6px;padding:3px 10px;white-space:nowrap}
   .phase-head h3{margin:0;font-size:17px}
 
@@ -85,16 +87,21 @@
   .irow{display:grid;grid-template-columns:62px 1fr 250px;gap:14px;align-items:start;padding:13px 15px;border-bottom:1px solid var(--line)}
   .irow:last-child{border-bottom:0}
   .irow:hover{background:var(--panel)}
+  .irow.is-done{background:rgba(46,160,67,.05)}
   .irow .id{font-family:var(--mono);font-weight:700;color:var(--accent);font-size:12.5px;padding-top:1px}
   .irow .body .t{font-size:14px}
   .irow .body .crit{font-size:12.5px;color:var(--mut);margin-top:5px}
   .irow .body .crit b{color:var(--green-ink);font-weight:600}
+  .irow .body .crit .did{color:var(--green-ink)}
+  .irow .body .crit .todo{color:var(--amber-ink)}
   .irow .rgt{display:flex;flex-direction:column;gap:5px;align-items:flex-end}
   .irow .where{font-family:var(--mono);font-size:10.5px;color:var(--mut2);text-align:right}
   @media(max-width:780px){.irow{grid-template-columns:48px 1fr}.irow .rgt{grid-column:1/-1;align-items:flex-start;flex-direction:row;flex-wrap:wrap}}
 
   .out{font-size:13.5px;color:var(--green-ink);background:var(--green-bg);border:1px solid #1c5230;border-radius:9px;padding:11px 14px;margin:8px 0 26px}
   .out b{color:#aef0c4}
+  .out.pend{color:var(--amber-ink);background:var(--amber-bg);border-color:#5a4400}
+  .out.pend b{color:#f2cc60}
 
   /* critical path */
   .lane{display:grid;grid-template-columns:230px 1fr;gap:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:12px 0 8px}
@@ -105,6 +112,7 @@
   .chip.now{border-color:#245a1e;background:#10260f;color:#9be39b}
   .chip.par{border-color:var(--purple-line);background:var(--purple-bg);color:var(--purple-ink)}
   .chip.block{border-color:#6e1f1d;background:var(--red-bg);color:var(--red-ink)}
+  .chip.amber{border-color:#5a4400;background:var(--amber-bg);color:var(--amber-ink)}
   .chip.free2{border-color:var(--line2);background:#1b2330;color:#cbd5e1}
 
   footer{margin-top:40px;padding-top:18px;border-top:1px solid var(--line);color:var(--mut2);font-size:12px;font-family:var(--mono)}
@@ -119,13 +127,12 @@
   <div class="wrap">
     <p class="kick">Central Elite Baby · IA por modelo · P0 (MVP)</p>
     <h1>Roadmap de Prontidão — Matriz inteira → Coberto</h1>
-    <p class="sub">O plano para levar <b>os 8 eixos</b> de Parcial/Frágil/Gap a <b style="color:var(--green-ink)">Coberto</b>: cada gap com rede que <b>reprova um PR</b> ao regredir. Sequenciado pela regra das <b>duas moedas</b> — determinístico (barato, faça já) vs ★API (escasso, bloqueado até restaurar crédito). Par de execução: <code>roadmap-prontidao-agente.md</code>.</p>
+    <p class="sub">O plano para levar <b>os 8 eixos</b> de Parcial/Frágil/Gap a <b style="color:var(--green-ink)">Coberto</b>: cada gap com rede que <b>reprova um PR</b> ao regredir. Sequenciado pela regra das <b>duas moedas</b> — determinístico (barato, faça já) vs ★API (escasso). Par de execução: <code>roadmap-prontidao-agente.md</code>.</p>
     <div class="meta">
       <span class="pill"><b>6</b> fases · 35 itens</span>
-      <span class="pill"><b>14</b> determinísticos (sem API)</span>
-      <span class="pill"><b>11</b> ★API (bloqueados)</span>
-      <span class="pill"><b>3</b> humano · <b>7</b> eng. de prod</span>
-      <span class="pill">crédito Anthropic prod: <b style="color:var(--red-ink)">esgotado</b></span>
+      <span class="pill"><b style="color:var(--green-ink)">19</b> ✓ feitos · <b style="color:var(--amber-ink)">6</b> parciais</span>
+      <span class="pill">eixos Coberto: <b style="color:var(--green-ink)">4a · 5 (UX)</b></span>
+      <span class="pill">★API ao vivo: <b style="color:var(--green-ink)">F4 rodou</b> · F3.2 trava no banco de teste</span>
     </div>
   </div>
 </header>
@@ -133,11 +140,11 @@
 <nav class="tabs">
   <div class="tabs-inner" id="tabbar">
     <button class="tab active" data-t="alvo"><span class="dot" style="background:var(--accent)"></span>Alvo &amp; caminho</button>
-    <button class="tab" data-t="f0"><span class="dot" style="background:var(--green)"></span>F0 · Determinístico</button>
-    <button class="tab" data-t="f1"><span class="dot" style="background:var(--green)"></span>F1 · UX/costura</button>
+    <button class="tab" data-t="f0"><span class="dot" style="background:var(--green)"></span>F0 · Determinístico ✓</button>
+    <button class="tab" data-t="f1"><span class="dot" style="background:var(--green)"></span>F1 · UX/costura ✓</button>
     <button class="tab" data-t="f2"><span class="dot" style="background:var(--purple-ink)"></span>F2 · Golden</button>
-    <button class="tab" data-t="f3"><span class="dot" style="background:var(--red)"></span>F3 · Evals ao vivo ★</button>
-    <button class="tab" data-t="f4"><span class="dot" style="background:var(--red)"></span>F4 · Máquina de estados ★</button>
+    <button class="tab" data-t="f3"><span class="dot" style="background:var(--amber)"></span>F3 · Evals ao vivo ★</button>
+    <button class="tab" data-t="f4"><span class="dot" style="background:var(--green)"></span>F4 · Máquina de estados ★</button>
     <button class="tab" data-t="f5"><span class="dot" style="background:#cbd5e1"></span>F5 · Guardrails</button>
   </div>
 </nav>
@@ -148,18 +155,19 @@
 <section class="view active" id="alvo">
   <div class="verdict">
     <h3>A leitura em uma frase</h3>
-    <p>A maior parte dos gaps não precisa de API: <b class="g">Invariantes, Trajetória atômica e UX fecham com rede determinística</b> (Fases 0–1), a custo ~zero. O que de fato exige crédito — <b class="r">a IA viva (FAQ-conduta, Tools-decisão, conversa E2E que fecha a venda), gateada no determinístico + revisão humana</b> — fica nas Fases 3–4, <b class="r">bloqueadas até restaurar o billing</b>. O <b class="r">LLM-judge dos evals foi rejeitado (ADR 0015)</b>: nada é "graduado por juiz". A <b class="p">rotulagem humana do golden</b> (Fase 2) roda em paralelo, mas como <b class="p">referência held-out — não bloqueia mais nada</b>.</p>
+    <p>As redes determinísticas fecharam: <b class="g">Invariantes, Trajetória atômica e UX → Coberto</b> (F0–F1), e os gates determinísticos de Persona/FAQ/Tools/custo (F3.3–F3.7) estão trancados. A <b class="g">conversa E2E já percorre Novo…Fechado/Perdido ao vivo</b> (F4.1–F4.4, corridas ★API registradas 2026-06-08). Falta: a <b class="r">corrida de cutover do runner (F3.2), travada num banco de teste</b>; os adversariais held-out (F3.6); recorrência/upsell (F4.5–F4.6); e os guardrails de prod (F5). O <b class="r">LLM-judge foi rejeitado (ADR 0015)</b>: nada é "graduado por juiz". A <b class="p">golden virou referência held-out</b> (Fase 2) para diff manual + revisão humana (F4.7) — não bloqueia mais nada.</p>
   </div>
 
   <div class="legend">
+    <span><span class="coin coin-done">✓ FEITO</span> rede trancada (e Coberto onde marcado)</span>
+    <span><span class="coin coin-part">◑ PARCIAL</span> uma metade pronta, outra pendente</span>
     <span><span class="coin coin-free">DETERMINÍSTICO</span> roda no make test, sem API</span>
     <span><span class="coin coin-api">★ API</span> exige crédito + grafo real</span>
     <span><span class="coin coin-human">HUMANO</span> rotulagem do operador</span>
-    <span><span class="coin coin-prod">ENG. PROD</span> engenharia de produção</span>
   </div>
 
   <h2 class="sec" style="margin-top:22px">Matriz-alvo — de onde sai, o que o leva a Coberto</h2>
-  <p class="lead">Cada eixo e os itens do roadmap que fecham sua lacuna. Quando todas as colunas viram verde, a matriz inteira está Coberto.</p>
+  <p class="lead">Cada eixo e os itens do roadmap que fecham sua lacuna (✓ = item já trancado). Quando todas as colunas viram verde, a matriz inteira está Coberto.</p>
   <table class="heat">
     <thead>
       <tr><th>Eixo de qualidade</th><th>Hoje</th><th>Itens que o levam a Coberto</th><th>Moeda</th></tr>
@@ -168,72 +176,75 @@
       <tr>
         <td class="eixo">1 · Persona &amp; voz<small>soa como a modelo?</small></td>
         <td><span class="st st-par"><span class="d"></span>Parcial</span></td>
-        <td><span class="ids">F3.3</span> graders determinísticos de voz · revisão humana (sem judge)</td>
-        <td><span class="coin coin-api">★ API</span></td>
+        <td><span class="ids"><span class="ok">F3.3 ✓</span></span> graders de voz (gate det.) · falta ★API ao vivo + revisão humana</td>
+        <td><span class="coin coin-free">DET.</span> + <span class="coin coin-api">★ API</span></td>
       </tr>
       <tr>
         <td class="eixo">2 · FAQ &amp; conhecimento<small>respostas e negativas</small></td>
-        <td><span class="st st-gap"><span class="d"></span>Frágil</span></td>
-        <td><span class="ids">F0.5</span> render asserta itens · <span class="ids">F3.4</span> conduta real</td>
+        <td><span class="st st-par"><span class="d"></span>Parcial</span></td>
+        <td><span class="ids"><span class="ok">F0.5 ✓</span></span> render · <span class="ids"><span class="ok">F3.4 ✓</span></span> conduta (gate det.) · falta ★API + humano</td>
         <td><span class="coin coin-free">DET.</span> + <span class="coin coin-api">★ API</span></td>
       </tr>
       <tr>
         <td class="eixo">3 · Tool calling<small>chama a certa, não inventa</small></td>
         <td><span class="st st-par"><span class="d"></span>Parcial</span></td>
-        <td><span class="ids">F3.5</span> decisão + extração estrita</td>
-        <td><span class="coin coin-api">★ API</span></td>
+        <td><span class="ids"><span class="ok">F3.5 ✓</span></span> decisão + extração estrita (gate det.) · falta ★API ao vivo</td>
+        <td><span class="coin coin-free">DET.</span> + <span class="coin coin-api">★ API</span></td>
       </tr>
-      <tr>
-        <td class="eixo">4a · Trajetória atômica<small>transições isoladas</small></td>
-        <td><span class="st st-cob"><span class="d"></span>Coberto*</span></td>
-        <td><span class="ids">F0.6–F0.10</span> 45min real + 4 gaps atômicos</td>
+      <tr style="background:rgba(46,160,67,.06)">
+        <td class="eixo" style="color:var(--green-ink)">4a · Trajetória atômica<small>transições isoladas</small></td>
+        <td><span class="st st-cob"><span class="d"></span>Coberto pleno</span></td>
+        <td><span class="ids"><span class="ok">F0.6–F0.10 ✓</span></span> 45min real + 4 gaps atômicos no Postgres</td>
         <td><span class="coin coin-free">DET.</span></td>
       </tr>
       <tr style="background:rgba(218,54,51,.06)">
         <td class="eixo" style="color:var(--red-ink)">4b · Conversa completa ★<small>substitui o vendedor</small></td>
         <td><span class="st st-gap"><span class="d"></span>Gap (gate)</span></td>
-        <td><span class="ids">F2</span> golden · <span class="ids">F3.2</span> runner gate · <span class="ids">F4.*</span> fecha a venda</td>
+        <td><span class="ids"><span class="ok">F4.1–F4.4 ✓</span></span> Novo…Fechado/Perdido ao vivo · <span class="ids">F3.2</span> runner gate (trava banco) · <span class="ids">F4.5–F4.7</span> pendentes</td>
         <td><span class="coin coin-api">★ API</span></td>
       </tr>
-      <tr>
-        <td class="eixo">5 · UX / humanização<small>bolhas, ritmo, comandos</small></td>
-        <td><span class="st st-par"><span class="d"></span>Parcial</span></td>
-        <td><span class="ids">F1.1</span> webhook→estado · <span class="ids">F1.2</span> cadência · <span class="ids">F1.3–F1.4</span></td>
+      <tr style="background:rgba(46,160,67,.06)">
+        <td class="eixo" style="color:var(--green-ink)">5 · UX / humanização<small>bolhas, ritmo, comandos</small></td>
+        <td><span class="st st-cob"><span class="d"></span>Coberto</span></td>
+        <td><span class="ids"><span class="ok">F1.1–F1.4 ✓</span></span> webhook→estado · cadência · debounce · bolha</td>
         <td><span class="coin coin-free">DET.</span></td>
       </tr>
       <tr>
         <td class="eixo">6 · Invariantes de domínio<small>não-violáveis</small></td>
         <td><span class="st st-par"><span class="d"></span>Parcial</span></td>
-        <td><span class="ids">F0.2</span> PII · <span class="ids">F0.3</span> cross-modelo · <span class="ids">F0.4</span> outro cliente · <span class="ids">F0.10</span> · <span class="ids">F3.6</span> piso</td>
+        <td><span class="ids"><span class="ok">F0.2 ✓ F0.3 ✓ F0.4 ✓ F0.10 ✓</span></span> PII/cross-modelo/outro cliente/pix · <span class="ids">F3.6</span> piso pendente</td>
         <td><span class="coin coin-free">DET.</span> + <span class="coin coin-api">★ API</span></td>
       </tr>
       <tr>
         <td class="eixo">7 · Guardrails custo/seg.<small>limites, exaustão</small></td>
         <td><span class="st st-par"><span class="d"></span>Parcial</span></td>
-        <td><span class="ids">F3.7</span> max_custo gate · <span class="ids">F5.1–F5.4</span> teto R$, write-rate, baseline</td>
+        <td><span class="ids"><span class="ok">F3.7 ✓</span></span> max_custo gate · <span class="ids">F5.1–F5.4</span> teto R$, write-rate, baseline</td>
         <td><span class="coin coin-prod">PROD</span> + <span class="coin coin-api">★ API</span></td>
       </tr>
     </tbody>
   </table>
-  <div class="note">* <b>4a já é Coberto</b> na leitura de status, mas carrega 4 gaps atômicos + o timeout de 45min só contra banco simulado. F0.6–F0.10 fecham o eixo <b>pleno</b> (todos verdes), com prova no Postgres real.</div>
+  <div class="note">✓ <b>4a → Coberto pleno</b> (F0.6–F0.10 provados no Postgres real) e <b>5 (UX) → Coberto</b> (F1.1–F1.4). Invariantes (6) tem 4 dos 5 itens trancados — falta só o piso de desconto (F3.6, ★API).</div>
 
   <h2 class="sec" style="margin-top:30px">Caminho crítico — o que roda quando</h2>
   <div class="lane">
-    <div class="lh">🟢 AGORA · sem API</div>
+    <div class="lh">🟢 FEITO · sem API</div>
     <div>
-      <span class="chip now">F0 inteira</span><span class="chip now">F1 inteira</span>
-      &nbsp;— fecha <b style="color:var(--green-ink)">Invariantes, 4a e UX</b> (3 eixos) a custo ~zero.
+      <span class="chip now">F0 inteira ✓</span><span class="chip now">F1 inteira ✓</span>
+      &nbsp;— fecharam <b style="color:var(--green-ink)">Invariantes, 4a e UX</b> (3 eixos) a custo ~zero.
     </div>
     <div class="lh">🟣 EM PARALELO · humano</div>
     <div>
-      <span class="chip par">F2.1 rotulagem</span><span class="chip par">F2.2 corpus</span>
-      &nbsp;— Fernando + sócia + 3º procex montam o <code>golden.jsonl</code> como <b>referência held-out</b>. Não espera API e <b>não bloqueia mais F3/F4</b>.
+      <span class="chip par">F2.1 rotulagem</span><span class="chip now">F2.2 corpus ✓</span>
+      &nbsp;— Fernando + sócia + 3º procex montam o <code>golden.jsonl</code> como <b>referência held-out</b>. Não espera API e <b>não bloqueia F3/F4</b>.
     </div>
-    <div class="lh">🔴 BLOQUEADO · crédito Anthropic</div>
+    <div class="lh">🟢 ★API · já rodou</div>
     <div>
-      <span class="chip block">F3 evals ao vivo</span><span class="arrow-go">→</span>
-      <span class="chip block">F4 fecha a venda</span>
-      &nbsp;— só depois de restaurar billing (não espera mais F2 — judge removido). Fecha <b style="color:var(--red-ink)">Persona, FAQ, Tools, 4b</b>.
+      <span class="chip now">F4.1 Novo→Triagem ✓</span><span class="chip now">F4.2 Fechado ✓</span><span class="chip now">F4.3 Perdido ✓</span><span class="chip now">F4.4 Lembrete ✓</span>
+      &nbsp;— jornada E2E percorrida ao vivo até a venda (2026-06-08, §0).
+    </div>
+    <div class="lh">🟡 ★API · pendente</div>
+    <div>
+      <span class="chip amber">F3.2 cutover</span> trava no banco de teste · <span class="chip amber">F3.6 adversariais</span> · <span class="chip amber">F4.5–F4.7 recorrência/upsell/revisão</span>.
     </div>
     <div class="lh">⚪ INDEPENDENTE · eng. prod</div>
     <div>
@@ -241,39 +252,39 @@
       &nbsp;— engenharia de prod determinística, a qualquer momento. <span class="chip free2">F5.4 baseline</span> depende de F3.
     </div>
   </div>
-  <div class="note"><b>Decisão de sequência:</b> não acione o runner ao vivo com crédito esgotado — vira ruído. O retorno imediato está em F0+F1, que transformam 3 eixos em Coberto sem gastar 1 token. A rotulagem humana (F2.1) virou <b>referência held-out</b> (o LLM-judge foi rejeitado, ADR 0015) — útil para diff manual, mas <b>não é mais gargalo de nada</b>.</div>
+  <div class="note"><b>Decisão de sequência:</b> o retorno barato (F0+F1 + os gates determinísticos de F3) já está colhido — 3 eixos viraram Coberto e as redes de Persona/FAQ/Tools/custo estão trancadas sem gastar token. O que resta é ★API caro: a corrida de cutover do runner (F3.2) <b>trava num banco de teste</b> (não pode apontar p/ prod), e os arcos de jornada que faltam (F4.5–F4.7). A rotulagem humana (F2.1) é <b>referência held-out</b> (o LLM-judge foi rejeitado, ADR 0015) — útil para diff manual, mas <b>não é gargalo de nada</b>.</div>
 </section>
 
 <!-- ============ F0 ============ -->
 <section class="view" id="f0">
-  <div class="phase-head"><span class="num">Fase 0</span><h3>Rede determinística sem API</h3><span class="coin coin-free">DETERMINÍSTICO · faça já</span></div>
-  <div class="guar"><b>Por que primeiro:</b> fecha de uma vez a maior parte dos Gaps de <b>Invariantes (6)</b>, parte de <b>FAQ</b> e os <b>4 gaps atômicos de 4a</b> — sem gastar 1 token de API. Tudo roda no <code>make test</code>.</div>
+  <div class="phase-head"><span class="num">Fase 0</span><h3>Rede determinística sem API</h3><span class="coin coin-done">✓ FASE COMPLETA</span></div>
+  <div class="guar"><b>Fechou de uma vez</b> a maior parte dos Gaps de <b>Invariantes (6)</b>, parte de <b>FAQ</b> e os <b>4 gaps atômicos de 4a</b> — sem gastar 1 token de API. Tudo roda no <code>make test</code>. <b>F0.1–F0.10 todos ✓.</b></div>
   <div class="items">
-    <div class="irow"><div class="id">F0.1</div><div class="body"><div class="t">Postgres efêmero no CI (service container).</div><div class="crit">Sucesso: <b>needs-DB roda no CI limpo</b>, não pulado nem apontando p/ prod. Destrava F0.6–F0.10. <b>Feito (PR #75):</b> service <code>postgres:15</code> + bootstrap Supabase (<code>infra/sql/ci/</code>) + schema-only (<code>MIGRATE_SKIP_SEEDS</code>) + gate determinístico. <i>Run ao vivo na CI aguarda billing do GitHub Actions.</i></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">.github/workflows · conftest</span></div></div>
-    <div class="irow"><div class="id">F0.2</div><div class="body"><div class="t">Assert: montador de contexto <b>nunca</b> carrega campo painel-only (RG/CPF/endereço residencial/tipo físico/perfil preferido/mapa).</div><div class="crit">Sucesso: <b>teste falha se qualquer PII entra no prompt</b> do agente. Fecha Inv. PII.</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">agente/prepare_context.py</span></div></div>
-    <div class="irow"><div class="id">F0.3</div><div class="body"><div class="t">Assert: montador + tools <b>nunca</b> trazem dado do par B na entrada (canary cross-modelo).</div><div class="crit">Sucesso: <b>canary do par B no contexto/args reprova</b>. Fecha Inv. cross-modelo entrada.</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">prepare_context · ferramentas/</span></div></div>
-    <div class="irow"><div class="id">F0.4</div><div class="body"><div class="t">Estender <code>output_guard</code> p/ pegar "estou com (um/outro) cliente agora".</div><div class="crit">Sucesso: <b>bolha confessando outro cliente é barrada e vira handoff</b>, igual ao scan de IA/outra modelo.</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">agente/ output guard</span></div></div>
-    <div class="irow"><div class="id">F0.5</div><div class="body"><div class="t">Render de FAQ asserta <b>itens críticos presentes</b> (recusa videocall, Pix R$100 separado, taxa 10%, sem parcelamento).</div><div class="crit">Sucesso: <b>edição que apaga item crítico quebra o teste</b> (hoje só checa não-vazio/estável).</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">grader de render FAQ</span></div></div>
-    <div class="irow"><div class="id">F0.6</div><div class="body"><div class="t">Timeout interno 45min contra <b>banco real</b> (gêmeo do de 24h).</div><div class="crit">Sucesso: <b>Aviso sem Foto → Perdido(sumiu) + cancela bloqueio</b>, provado no Postgres (FOR UPDATE + agregação).</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">workers/timeouts.py</span></div></div>
-    <div class="irow"><div class="id">F0.7</div><div class="body"><div class="t">Atômico: imagem em <b>externo</b> Aguard. = comprovante Pix (não Foto de portaria).</div><div class="crit">Sucesso: <b>roteamento correto provado no banco real</b>.</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">despacho de imagem</span></div></div>
-    <div class="irow"><div class="id">F0.8</div><div class="body"><div class="t">Atômico: <code>Em_execucao → Fechado</code> pelo comando da modelo no grupo (gatilho isolado).</div><div class="crit">Sucesso: <b>fechado [valor] respondendo card → Fechado + Valor final + bloqueio concluído</b>.</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">dominio/atendimentos/</span></div></div>
-    <div class="irow"><div class="id">F0.9</div><div class="body"><div class="t">Atômico: Lembrete de fechamento — reenvio em intervalos até máximo + Handoff após silêncio.</div><div class="crit">Sucesso: <b>reenvio e abertura de handoff provados isolados</b> (hoje só a seleção de alvos).</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">workers/ · lembrete</span></div></div>
-    <div class="irow"><div class="id">F0.10</div><div class="body"><div class="t">"Nunca trava por Pix" (needs-DB) vira gate confiável no CI.</div><div class="crit">Sucesso: <b>os 4 ramos rodam no Postgres efêmero a cada PR</b> (depende de F0.1). Fecha Inv. nunca-trava-Pix.</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">teste Pix existente</span></div></div>
+    <div class="irow is-done"><div class="id">F0.1</div><div class="body"><div class="t">Postgres efêmero no CI (service container).</div><div class="crit">Sucesso: <b>needs-DB roda no CI limpo</b>, não pulado nem apontando p/ prod. Destrava F0.6–F0.10. <span class="did">✓ PR #75: service <code>postgres:15</code> + bootstrap Supabase (<code>infra/sql/ci/</code>) + schema-only (<code>MIGRATE_SKIP_SEEDS</code>) + gate determinístico.</span> <span class="todo">Run ao vivo na CI aguarda billing do GitHub Actions.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">.github/workflows · conftest</span></div></div>
+    <div class="irow is-done"><div class="id">F0.2</div><div class="body"><div class="t">Assert: montador de contexto <b>nunca</b> carrega campo painel-only (RG/CPF/endereço residencial/tipo físico/perfil preferido/mapa).</div><div class="crit">Sucesso: <b>teste falha se qualquer PII entra no prompt</b>. <span class="did">✓ Gate AST sobre o SQL do montador (sem banco); Inv. PII trancada.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">agente/nos/prepare_context.py</span></div></div>
+    <div class="irow is-done"><div class="id">F0.3</div><div class="body"><div class="t">Assert: montador + tools <b>nunca</b> trazem dado do par B na entrada (canary cross-modelo).</div><div class="crit">Sucesso: <b>canary do par B no contexto/args reprova</b>. <span class="did">✓ <code>needs_db</code> com sentinela do par B em toda superfície; Inv. cross-modelo trancada.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">prepare_context · ferramentas/</span></div></div>
+    <div class="irow is-done"><div class="id">F0.4</div><div class="body"><div class="t">Estender <code>output_guard</code> p/ pegar "estou com (um/outro) cliente agora".</div><div class="crit">Sucesso: <b>bolha confessando outro cliente é barrada e vira handoff</b>. <span class="did">✓ Variantes inequívocas trancadas; falso-positivo vira handoff seguro.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">agente/nos/output_guard.py</span></div></div>
+    <div class="irow is-done"><div class="id">F0.5</div><div class="body"><div class="t">Render de FAQ asserta <b>itens críticos presentes</b> (recusa videocall, Pix R$100 separado, taxa 10%, sem parcelamento).</div><div class="crit">Sucesso: <b>edição que apaga item crítico quebra o teste</b>. <span class="did">✓ 4 itens assertados sobre <code>render_prefixo_geral()</code>; conduta ao vivo segue em F3.4.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">grader de render FAQ</span></div></div>
+    <div class="irow is-done"><div class="id">F0.6</div><div class="body"><div class="t">Timeout interno 45min contra <b>banco real</b> (gêmeo do de 24h).</div><div class="crit">Sucesso: <b>Aviso sem Foto → Perdido(sumiu) + cancela bloqueio</b>, provado no Postgres. <span class="did">✓ Guard (não cancela <code>em_atendimento</code>) + agregação provados.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">workers/timeouts.py</span></div></div>
+    <div class="irow is-done"><div class="id">F0.7</div><div class="body"><div class="t">Atômico: imagem em <b>externo</b> Aguard. = comprovante Pix (não Foto de portaria).</div><div class="crit">Sucesso: <b>roteamento correto provado no banco real</b>. <span class="did">✓ Guard <code>tipo_atendimento=='interno'</code> coberto (dente que faltava).</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">workers/media.py</span></div></div>
+    <div class="irow is-done"><div class="id">F0.8</div><div class="body"><div class="t">Atômico: <code>Em_execucao → Fechado</code> pelo comando da modelo no grupo (gatilho isolado).</div><div class="crit">Sucesso: <b>fechado [valor] respondendo card → Fechado + Valor final + bloqueio concluído</b>. <span class="did">✓ 3 efeitos num gatilho provados no Postgres; "sem valor não encerra".</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">dominio/escaladas/service.py</span></div></div>
+    <div class="irow is-done"><div class="id">F0.9</div><div class="body"><div class="t">Atômico: Lembrete de fechamento — reenvio em intervalos até máximo + Handoff após silêncio.</div><div class="crit">Sucesso: <b>reenvio e abertura de handoff provados isolados</b>. <span class="did">✓ Decisão SQL (reenvio/gate/handoff/idempotência) provada ponta a ponta.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">workers/lembrete_valor.py</span></div></div>
+    <div class="irow is-done"><div class="id">F0.10</div><div class="body"><div class="t">"Nunca trava por Pix" (needs-DB) vira gate confiável no CI.</div><div class="crit">Sucesso: <b>os 4 ramos rodam no Postgres efêmero a cada PR</b>. <span class="did">✓ Gate AST garante que os 4 ramos existem, são <code>needs_db</code> e provam o avanço.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">teste Pix · gate AST</span></div></div>
   </div>
-  <div class="out"><b>Saída da Fase 0:</b> Invariantes → <b>Coberto</b> · 4a → <b>Coberto pleno</b> · FAQ ganha gate de conteúdo (conduta fecha na F3).</div>
+  <div class="out"><b>Saída da Fase 0 ✓ atingida:</b> Invariantes → <b>Coberto</b> (menos o piso, F3.6) · 4a → <b>Coberto pleno</b> · FAQ ganhou gate de conteúdo (conduta fecha na F3).</div>
 </section>
 
 <!-- ============ F1 ============ -->
 <section class="view" id="f1">
-  <div class="phase-head"><span class="num">Fase 1</span><h3>Costura e UX determinística</h3><span class="coin coin-free">DETERMINÍSTICO · sem API</span></div>
-  <div class="guar"><b>Fecha o eixo 5 (UX)</b> e a costura webhook→estado — o ritmo que o cliente percebe e o comando de grupo chegando ponta-a-ponta.</div>
+  <div class="phase-head"><span class="num">Fase 1</span><h3>Costura e UX determinística</h3><span class="coin coin-done">✓ FASE COMPLETA</span></div>
+  <div class="guar"><b>Fechou o eixo 5 (UX)</b> e a costura webhook→estado — o ritmo que o cliente percebe e o comando de grupo chegando ponta-a-ponta. <b>F1.1–F1.4 todos ✓.</b></div>
   <div class="items">
-    <div class="irow"><div class="id">F1.1</div><div class="body"><div class="t">E2E webhook→estado do comando de grupo: <code>fechado 1500 #5</code> registra resultado, despausa IA e sincroniza bloqueio.</div><div class="crit">Sucesso: <b>teste de integração da costura completa</b> (hoje a integração para na classificação).</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">webhook/ · atendimentos/service.py</span></div></div>
-    <div class="irow"><div class="id">F1.2</div><div class="body"><div class="t">Travar invariantes de <b>cadência/ritmo</b>: ordem read→digitando→bolha, atraso proporcional à fala, presence por bolha, jitter.</div><div class="crit">Sucesso: <b>teste falha se a ordem/proporção quebra</b> (hoje todo delay é neutralizado).</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">agente/humanizacao.py</span></div></div>
-    <div class="irow"><div class="id">F1.3</div><div class="body"><div class="t">debounce multi-device + <code>fromMe</code> com <b>payload real</b> (mesmo messageId, JIDs diferentes; manual da modelo sem key.participant).</div><div class="crit">Sucesso: <b>duplicata real coalescida; manual da modelo atribuída a ela</b>, não à IA.</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">webhook/debounce.py · parser</span></div></div>
-    <div class="irow"><div class="id">F1.4</div><div class="body"><div class="t">Limite de bolha verificado com <b>textos reais da persona</b>, não só caso sintético.</div><div class="crit">Sucesso: <b>falas reais caem no envelope esperado</b>.</div></div><div class="rgt"><span class="coin coin-free">DET.</span><span class="where">grader de bolhas</span></div></div>
+    <div class="irow is-done"><div class="id">F1.1</div><div class="body"><div class="t">E2E webhook→estado do comando de grupo: <code>fechado 1500 #5</code> registra resultado, despausa IA e sincroniza bloqueio.</div><div class="crit">Sucesso: <b>teste de integração da costura completa</b>. <span class="did">✓ <code>needs_db</code> da costura inteira (payload Evolution → estado): fechado, perdido e "sem valor".</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">webhook/ · atendimentos/service.py</span></div></div>
+    <div class="irow is-done"><div class="id">F1.2</div><div class="body"><div class="t">Travar invariantes de <b>cadência/ritmo</b>: ordem read→digitando→bolha, atraso proporcional à fala, presence por bolha, jitter.</div><div class="crit">Sucesso: <b>teste falha se a ordem/proporção quebra</b>. <span class="did">✓ Timeline grava cada <code>sleep</code> em vez de neutralizar; 4 invariantes trancados.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">workers/envio.py</span></div></div>
+    <div class="irow is-done"><div class="id">F1.3</div><div class="body"><div class="t">debounce multi-device + <code>fromMe</code> com <b>payload real</b> (mesmo messageId, JIDs diferentes; manual da modelo sem key.participant).</div><div class="crit">Sucesso: <b>duplicata real coalescida; manual da modelo atribuída a ela</b>. <span class="did">✓ Dedupe por <code>evolution_message_id</code>; modelo vs eco da IA pelo originador real.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">webhook/debounce.py · parser</span></div></div>
+    <div class="irow is-done"><div class="id">F1.4</div><div class="body"><div class="t">Limite de bolha verificado com <b>textos reais da persona</b>, não só caso sintético.</div><div class="crit">Sucesso: <b>falas reais caem no envelope esperado</b>. <span class="did">✓ ~35 falas verbatim do corpus (containment provado) no envelope de chunk.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">workers/_chunking.py · grader</span></div></div>
   </div>
-  <div class="out"><b>Saída da Fase 1:</b> UX → <b>Coberto</b>.</div>
+  <div class="out"><b>Saída da Fase 1 ✓ atingida:</b> UX → <b>Coberto</b>.</div>
 </section>
 
 <!-- ============ F2 ============ -->
@@ -281,8 +292,8 @@
   <div class="phase-head"><span class="num">Fase 2</span><h3>Golden como referência held-out</h3><span class="coin coin-human">HUMANO · não-bloqueante</span></div>
   <div class="guar"><b>Mudança de escopo (2026-06-08): o LLM-judge dos evals foi rejeitado (ADR 0015 → <code>rejected</code>).</b> Não há "calibração de juiz". A golden virou <b>referência held-out</b> + mina de graders determinísticos. A rotulagem roda em paralelo e <b>não bloqueia F3/F4</b>.</div>
   <div class="items">
-    <div class="irow"><div class="id">F2.1</div><div class="body"><div class="t"><code>golden.jsonl</code> real held-out: Fernando + sócia rotulam; 3º rotulador procex fora do par golden (via <code>/calibracao</code>).</div><div class="crit">Sucesso: <b>golden ≥ N falas reais rotuladas</b>, não 3 linhas placeholder. Usado como referência para diff manual + novos graders.</div></div><div class="rgt"><span class="coin coin-human">HUMANO</span><span class="where">evals/golden.jsonl · /calibracao</span></div></div>
-    <div class="irow"><div class="id">F2.2</div><div class="body"><div class="t">Corpus curado de conversas reais substitui os "templates ilustrativos" do README.</div><div class="crit">Sucesso: <b>diretórios de fixtures apontam p/ conversas reais anonimizadas</b>.</div></div><div class="rgt"><span class="coin coin-human">HUMANO</span><span class="where">docs/agente/conversas-reais/</span></div></div>
+    <div class="irow"><div class="id">F2.1</div><div class="body"><div class="t"><code>golden.jsonl</code> real held-out: Fernando + sócia rotulam; 3º rotulador procex fora do par golden (via <code>/calibracao</code>).</div><div class="crit">Sucesso: <b>golden ≥ N falas reais rotuladas</b>, não 3 linhas placeholder. Referência para diff manual + novos graders. <span class="todo">Pendente — trabalho do operador.</span></div></div><div class="rgt"><span class="coin coin-human">HUMANO</span><span class="where">evals/golden.jsonl · /calibracao</span></div></div>
+    <div class="irow is-done"><div class="id">F2.2</div><div class="body"><div class="t">Corpus curado de conversas reais substitui os "templates ilustrativos" do README.</div><div class="crit">Sucesso: <b>diretórios de fixtures apontam p/ conversas reais anonimizadas</b>. <span class="did">✓ Gate prova que todo <code>#NNN</code> resolve a um <code>NNN-*.md</code> real; README reescrito.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-free">DET.</span><span class="where">docs/agente/conversas-reais/</span></div></div>
     <div class="irow" style="opacity:.55"><div class="id"><s>F2.3</s></div><div class="body"><div class="t"><s>Calibrar juiz contra golden → <code>JUDGE_VINCULANTE=True</code></s> — <b>CANCELADO</b> (ADR 0015 rejeitado; sem judge nos evals).</div><div class="crit">—</div></div><div class="rgt"><span class="coin">—</span><span class="where">—</span></div></div>
   </div>
   <div class="out"><b>Saída da Fase 2:</b> golden held-out como <b>referência humana</b> — cada label vira diff manual de <code>persona.md</code>/<code>faq.md</code> ou, se mecanizável, um grader determinístico. Voz/persona/conduta subjetivas ficam sob revisão humana, não rubrica automática.</div>
@@ -290,34 +301,34 @@
 
 <!-- ============ F3 ============ -->
 <section class="view" id="f3">
-  <div class="phase-head"><span class="num">Fase 3</span><h3>Gate de evals ao vivo</h3><span class="coin coin-api">★ API · bloqueado até restaurar crédito</span></div>
-  <div class="guar" style="border-left-color:var(--red)"><b>Peça que destrava FAQ-conduta, Tools-decisão e parte de 4b.</b> Pré-requisito: crédito Anthropic restaurado (não espera mais F2 — judge removido). Não comece com billing esgotado.</div>
+  <div class="phase-head"><span class="num">Fase 3</span><h3>Gate de evals ao vivo</h3><span class="coin coin-part">◑ GATES DET. ✓ · ★API pendente</span></div>
+  <div class="guar" style="border-left-color:var(--amber)"><b>Os gates determinísticos já estão trancados</b> (F3.3/F3.4/F3.5/F3.7 observam a fala/tool geradas no <code>make test</code>). Falta a <b>metade ★API ao vivo</b>: a corrida de cutover do runner (F3.2) <b>trava num banco de teste</b> (não pode apontar p/ prod); F3.6 (adversariais) e a confirmação ao vivo dos demais gates seguem pendentes.</div>
   <div class="items">
-    <div class="irow"><div class="id">F3.1</div><div class="body"><div class="t">Habilitar secrets do <code>evals.yml</code> + branch protection "evals" <b>obrigatória</b>.</div><div class="crit">Sucesso: <b>job não pula em silêncio; evals barram merge</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">.github/workflows/evals.yml</span></div></div>
-    <div class="irow"><div class="id">F3.2</div><div class="body"><div class="t">Runner K=5 sobre as 75 fixtures (grafo real + Sonnet) roda <b>como gate</b>.</div><div class="crit">Sucesso: <b>≥1 corrida verde registrada como cutover; regressão reprova</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">evals/runner.py</span></div></div>
-    <div class="irow"><div class="id">F3.3</div><div class="body"><div class="t">Persona: checagens determinísticas de <b>voz sobre falas geradas</b> (anti tom corporativo, asterisco-ação, gíria masculina, formato R$, max_chars de abertura).</div><div class="crit">Sucesso: <b>gate observa fala real gerada</b>, não só montagem do prompt.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">graders de persona</span></div></div>
-    <div class="irow"><div class="id">F3.4</div><div class="body"><div class="t">FAQ conduta como gate: 8 perguntas canônicas (conteúdo obrigatório <b>determinístico</b>; conduta subjetiva = revisão humana), recusa videocall, cartão sem parcelar + taxa 10%, cota fetiche do cardápio, recusa-aberta fora-da-lista, <b>controle de over-refusal</b>.</div><div class="crit">Sucesso: <b>regressão "só pix amor" / "oferece parcelado" / over-refusal reprova (no determinístico)</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">fixtures FAQ · runner</span></div></div>
-    <div class="irow"><div class="id">F3.5</div><div class="body"><div class="t">Tools decisão: ~30 cenários tools obrigatórias/proibidas como gate; extração em <b>modo estrito</b>.</div><div class="crit">Sucesso: <b>"chamou a errada / não chamou a obrigatória / inventou write" reprova</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">fixtures tools · schema extração</span></div></div>
-    <div class="irow"><div class="id">F3.6</div><div class="body"><div class="t">Invariantes adversariais held-out contra a IA real: piso + oferta única sob gaslighting, jailbreak, injeção, AUP, prova de humanidade.</div><div class="crit">Sucesso: <b>corrida held-out verde dos ~50 adversariais; piso vira gate</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">fixtures gaslighting/desconto</span></div></div>
-    <div class="irow"><div class="id">F3.7</div><div class="body"><div class="t"><code>max_custo_brl</code> por fixture vira gate <b>vinculante</b>.</div><div class="crit">Sucesso: <b>fixture acima do teto de custo reprova</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">runner · max_custo_brl</span></div></div>
+    <div class="irow is-done"><div class="id">F3.1</div><div class="body"><div class="t">Habilitar secrets do <code>evals.yml</code> + branch protection "evals" <b>obrigatória</b>.</div><div class="crit">Sucesso: <b>job não pula em silêncio; evals barram merge</b>. <span class="did">✓ Guard fail-loud + runner incondicional; gate de wiring trancado.</span> <span class="todo">Metade de operador: provisionar secrets + branch protection.</span></div></div><div class="rgt"><span class="coin coin-part">◑ REPO</span><span class="coin coin-api">★ API</span><span class="where">.github/workflows/evals.yml</span></div></div>
+    <div class="irow"><div class="id">F3.2</div><div class="body"><div class="t">Runner K=2 sobre as <b>24 canônicas</b> (grafo real + Sonnet) roda <b>como gate</b> no cutover + nightly. As 46 adversariais ficam <b>advisory</b> (não barram merge).</div><div class="crit">Sucesso: <b>≥1 corrida verde das canônicas registrada como cutover; regressão reprova</b>. <span class="did">✓ Máquina de registro (<code>RegistroCutover</code>) pronta e testada.</span> <span class="todo">Corrida ★API ao vivo trava: não há banco de teste provisionado (proibido apontar p/ prod).</span></div></div><div class="rgt"><span class="coin coin-part">◑ REGISTRO</span><span class="coin coin-api">★ API</span><span class="where">evals/runner.py</span></div></div>
+    <div class="irow is-done"><div class="id">F3.3</div><div class="body"><div class="t">Persona: checagens determinísticas de <b>voz sobre falas geradas</b> (anti tom corporativo, asterisco-ação, gíria masculina, formato R$, max_chars de abertura).</div><div class="crit">Sucesso: <b>gate observa fala real gerada</b>, não só montagem. <span class="did">✓ <code>validar_voz_persona</code> sempre-ligado sobre <code>captura.texto_final</code>.</span> <span class="todo">Ver a voz real estourar ao vivo (★API).</span></div></div><div class="rgt"><span class="coin coin-part">◑ GATE DET.</span><span class="coin coin-api">★ API</span><span class="where">graders de persona</span></div></div>
+    <div class="irow is-done"><div class="id">F3.4</div><div class="body"><div class="t">FAQ conduta como gate: 8 perguntas canônicas, recusa videocall, cartão sem parcelar + taxa 10%, cota fetiche do cardápio, recusa-aberta fora-da-lista, <b>controle de over-refusal</b>.</div><div class="crit">Sucesso: <b>regressão "só pix amor" / "oferece parcelado" / over-refusal reprova</b>. <span class="did">✓ <code>validar_faq_conduta</code> tranca as 3 regressões nomeadas.</span> <span class="todo">Conduta subjetiva = revisão humana; 8 perguntas ao vivo (★API).</span></div></div><div class="rgt"><span class="coin coin-part">◑ GATE DET.</span><span class="coin coin-api">★ API</span><span class="where">fixtures FAQ · runner</span></div></div>
+    <div class="irow is-done"><div class="id">F3.5</div><div class="body"><div class="t">Tools decisão: ~30 cenários tools obrigatórias/proibidas como gate; extração em <b>modo estrito</b> (não fabrica args fora do schema).</div><div class="crit">Sucesso: <b>"chamou a errada / não chamou a obrigatória / inventou write" reprova</b>. <span class="did">✓ <code>validar_extracao_estrita</code> congela o catálogo real e reprova write/arg inventado.</span> <span class="todo">~30 fixtures ao vivo (★API).</span></div></div><div class="rgt"><span class="coin coin-part">◑ GATE DET.</span><span class="coin coin-api">★ API</span><span class="where">fixtures tools · schema extração</span></div></div>
+    <div class="irow"><div class="id">F3.6</div><div class="body"><div class="t">Invariantes adversariais held-out contra a IA real: piso + oferta única sob gaslighting, jailbreak, injeção, AUP, prova de humanidade.</div><div class="crit">Sucesso: <b>corrida held-out verde dos ~50 adversariais; piso vira gate</b>. <span class="todo">Pendente — corrida ★API ao vivo.</span></div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">fixtures gaslighting/desconto</span></div></div>
+    <div class="irow is-done"><div class="id">F3.7</div><div class="body"><div class="t"><code>max_custo_brl</code> por fixture vira gate <b>vinculante</b>.</div><div class="crit">Sucesso: <b>fixture acima do teto de custo reprova</b>. <span class="did">✓ <code>custo_estourado</code> move a fixture p/ o balde bloqueante, mesmo numa <code>capability</code>.</span> <span class="todo">Ver custo real estourar ao vivo (★API).</span></div></div><div class="rgt"><span class="coin coin-part">◑ GATE DET.</span><span class="coin coin-api">★ API</span><span class="where">runner · max_custo_brl</span></div></div>
   </div>
-  <div class="out"><b>Saída da Fase 3:</b> Persona → <b>Coberto</b> · FAQ → <b>Coberto</b> · Tools → <b>Coberto</b> · Inv. piso → <b>Coberto</b>.</div>
+  <div class="out pend"><b>Saída da Fase 3 (parcial):</b> gates determinísticos de Persona/FAQ/Tools/custo <b>✓ trancados</b>. Persona/FAQ/Tools → <b>Coberto</b> quando a corrida ★API ao vivo + a revisão humana contra a golden fecharem; Inv. piso depende de F3.6.</div>
 </section>
 
 <!-- ============ F4 ============ -->
 <section class="view" id="f4">
-  <div class="phase-head"><span class="num">Fase 4</span><h3>Fechar a máquina de estados pela conversa <span style="color:var(--accent);font-size:13px">★ maior peso</span></h3><span class="coin coin-api">★ API</span></div>
-  <div class="guar" style="border-left-color:var(--red)"><b>Substitui o vendedor.</b> Hoje toda jornada morre em Confirmado/Em_execucao; <code>Novo</code>, <code>Fechado</code> e <code>Perdido</code> <b>nunca são alcançados pela própria conversa</b>. Esta fase fecha a venda E2E.</div>
+  <div class="phase-head"><span class="num">Fase 4</span><h3>Fechar a máquina de estados pela conversa <span style="color:var(--accent);font-size:13px">★ maior peso</span></h3><span class="coin coin-part">◑ F4.1–F4.4 ✓ ao vivo</span></div>
+  <div class="guar" style="border-left-color:var(--green)"><b>Substitui o vendedor.</b> Antes toda jornada morria em Confirmado/Em_execucao; <code>Novo</code>, <code>Fechado</code> e <code>Perdido</code> nunca eram alcançados pela própria conversa. <b>F4.1–F4.4 ✓: a jornada E2E já percorre Novo…Fechado/Perdido ao vivo</b> (corridas ★API registradas 2026-06-08, §0). Faltam recorrência/upsell (F4.5–F4.6) e a revisão humana de venda (F4.7).</div>
   <div class="items">
-    <div class="irow"><div class="id">F4.1</div><div class="body"><div class="t">Jornada E2E começando em <code>Novo</code> (1º contato antes da triagem).</div><div class="crit">Sucesso: <b>jornada exercita Novo→Triagem pela conversa</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">sim/cenarios*.py</span></div></div>
-    <div class="irow"><div class="id">F4.2</div><div class="body"><div class="t">Jornadas que chegam a <code>Fechado</code> pela conversa (modelo fecha respondendo card com Valor final).</div><div class="crit">Sucesso: <b>E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
-    <div class="irow"><div class="id">F4.3</div><div class="body"><div class="t">Jornada que vira <code>Perdido (sumiu)</code> por timeout como continuação E2E.</div><div class="crit">Sucesso: <b>o ramo "não volta" é jornada graduada</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
-    <div class="irow"><div class="id">F4.4</div><div class="body"><div class="t"><code>Em_execucao → Fechado</code> por Lembrete de fechamento dentro de uma jornada.</div><div class="crit">Sucesso: <b>cobrança proativa do Valor final fecha pela conversa</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
-    <div class="irow"><div class="id">F4.5</div><div class="body"><div class="t"><b>Recorrência</b>: novo Atendimento na mesma Conversa cliente após um Fechado.</div><div class="crit">Sucesso: <b>cenário existe e passa</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
-    <div class="irow"><div class="id">F4.6</div><div class="body"><div class="t">Upsell de duração (MAX de horas), recusa de fetiche fora-da-lista com retomada limpa, Pix duvidoso com card + fila de Fernando (sem travar).</div><div class="crit">Sucesso: <b>cada arco coberto por jornada graduada; redis stub deixa de mascarar o card</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
-    <div class="irow"><div class="id">F4.7</div><div class="body"><div class="t"><b>Revisão humana de venda bem-conduzida</b> (rubrica comercial: ritmo, não perder o cliente, fechar) sobre as jornadas geradas, contra a golden — sem judge automático (ADR 0015 rejeitado).</div><div class="crit">Sucesso: <b>rubrica humana aplicada às jornadas E2E; falhas viram fixtures/graders determinísticos</b>.</div></div><div class="rgt"><span class="coin coin-human">HUMANO</span><span class="where">revisão humana · evals/ graders</span></div></div>
+    <div class="irow is-done"><div class="id">F4.1</div><div class="body"><div class="t">Jornada E2E começando em <code>Novo</code> (1º contato antes da triagem).</div><div class="crit">Sucesso: <b>jornada exercita Novo→Triagem pela conversa</b>. <span class="did">✓ Gate det. + corrida ★API ao vivo: "Oi" → Novo, "quanto é 1h?" → Triagem. Coberto.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-api">★ API</span><span class="where">sim/cenarios*.py</span></div></div>
+    <div class="irow is-done"><div class="id">F4.2</div><div class="body"><div class="t">Jornadas que chegam a <code>Fechado</code> pela conversa (modelo fecha respondendo card com Valor final).</div><div class="crit">Sucesso: <b>E2E real percorre até Fechado; estado/tools por turno = gate det., qualidade da venda = revisão humana</b>. <span class="did">✓ Ato <code>modelo_fecha_card</code> pós-loop; corrida ★API: Triagem→…→Em_execucao→Fechado ao vivo. Coberto.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
+    <div class="irow is-done"><div class="id">F4.3</div><div class="body"><div class="t">Jornada que vira <code>Perdido (sumiu)</code> por timeout como continuação E2E.</div><div class="crit">Sucesso: <b>o ramo "não volta" é jornada graduada</b>. <span class="did">✓ Ato <code>cliente_some_timeout</code> envelhece o aviso; ★API: aviso→silêncio→Perdido(sumiu) ao vivo. Coberto.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
+    <div class="irow is-done"><div class="id">F4.4</div><div class="body"><div class="t"><code>Em_execucao → Fechado</code> por Lembrete de fechamento dentro de uma jornada.</div><div class="crit">Sucesso: <b>cobrança proativa do Valor final fecha pela conversa</b>. <span class="did">✓ Ato <code>lembrete_cobra_e_fecha</code>; ★API: cron cobra o card e a modelo responde → Fechado ao vivo. Coberto.</span></div></div><div class="rgt"><span class="coin coin-done">✓ FEITO</span><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
+    <div class="irow"><div class="id">F4.5</div><div class="body"><div class="t"><b>Recorrência</b>: novo Atendimento na mesma Conversa cliente após um Fechado.</div><div class="crit">Sucesso: <b>cenário existe e passa</b>. <span class="todo">Pendente.</span></div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
+    <div class="irow"><div class="id">F4.6</div><div class="body"><div class="t">Upsell de duração (MAX de horas), recusa de fetiche fora-da-lista com retomada limpa, Pix duvidoso com card + fila de Fernando (sem travar).</div><div class="crit">Sucesso: <b>cada arco coberto por jornada graduada; redis stub deixa de mascarar o card</b>. <span class="todo">Pendente.</span></div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">sim/ · runner</span></div></div>
+    <div class="irow"><div class="id">F4.7</div><div class="body"><div class="t"><b>Revisão humana de venda bem-conduzida</b> (rubrica comercial: ritmo, não perder o cliente, fechar) sobre as jornadas geradas, contra a golden — sem judge automático (ADR 0015 rejeitado).</div><div class="crit">Sucesso: <b>rubrica humana aplicada às jornadas E2E; falhas viram fixtures/graders determinísticos</b>. <span class="todo">Pendente — trabalho humano.</span></div></div><div class="rgt"><span class="coin coin-human">HUMANO</span><span class="where">revisão humana · evals/ graders</span></div></div>
   </div>
-  <div class="out"><b>Saída da Fase 4:</b> 4b → <b>Coberto</b> · máquina de estados coberta ponta-a-ponta (Novo … Fechado/Perdido) · <b>substituição do vendedor demonstrada pela suíte</b>.</div>
+  <div class="out pend"><b>Saída da Fase 4 (parcial):</b> a máquina de estados já é percorrida <b>Novo … Fechado/Perdido ao vivo</b> (F4.1–F4.4 ✓). 4b → <b>Coberto</b> quando F4.5–F4.7 + o cutover do runner (F3.2) fecharem — <b>substituição do vendedor demonstrada pela suíte</b>.</div>
 </section>
 
 <!-- ============ F5 ============ -->
@@ -325,16 +336,16 @@
   <div class="phase-head"><span class="num">Fase 5</span><h3>Guardrails financeiros de prod + baseline</h3><span class="coin coin-prod">ENG. PROD + baseline</span></div>
   <div class="guar">Mix: engenharia de prod determinística (vai a qualquer momento) + baseline que depende de F3.</div>
   <div class="items">
-    <div class="irow"><div class="id">F5.1</div><div class="body"><div class="t">Teto de custo em <b>BRL por atendimento</b> aplicado em prod: ao bater, pausa IA + Handoff (não só métrica).</div><div class="crit">Sucesso: <b>atendimento que estoura o teto pausa e escala</b>.</div></div><div class="rgt"><span class="coin coin-prod">PROD</span><span class="where">agente/graph.py · settings</span></div></div>
-    <div class="irow"><div class="id">F5.2</div><div class="body"><div class="t">Verificação automática de <b>write-rate</b> do cache (&gt;10–15% pós-warmup = alerta/trava).</div><div class="crit">Sucesso: <b>métrica calculada e travada</b>, não inspeção manual.</div></div><div class="rgt"><span class="coin coin-prod">PROD</span><span class="where">métricas · cron</span></div></div>
-    <div class="irow"><div class="id">F5.3</div><div class="body"><div class="t">Confirmar com o operador as tarifas de leitura de Pix e transcrição (hoje defaults plausíveis).</div><div class="crit">Sucesso: <b>número-base validado; custo agregado confiável</b>.</div></div><div class="rgt"><span class="coin coin-prod">PROD</span><span class="where">settings de custo</span></div></div>
-    <div class="irow"><div class="id">F5.4</div><div class="body"><div class="t">Baseline de pass-rate + tripwire de regressão nightly (&gt;5%).</div><div class="crit">Sucesso: <b>nightly compara contra baseline e alerta</b>.</div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">evals.yml nightly</span></div></div>
+    <div class="irow"><div class="id">F5.1</div><div class="body"><div class="t">Teto de custo em <b>BRL por atendimento</b> aplicado em prod: ao bater, pausa IA + Handoff (não só métrica).</div><div class="crit">Sucesso: <b>atendimento que estoura o teto pausa e escala</b>. <span class="todo">Pendente.</span></div></div><div class="rgt"><span class="coin coin-prod">PROD</span><span class="where">agente/graph.py · settings</span></div></div>
+    <div class="irow"><div class="id">F5.2</div><div class="body"><div class="t">Verificação automática de <b>write-rate</b> do cache (&gt;10–15% pós-warmup = alerta/trava).</div><div class="crit">Sucesso: <b>métrica calculada e travada</b>, não inspeção manual. <span class="todo">Pendente.</span></div></div><div class="rgt"><span class="coin coin-prod">PROD</span><span class="where">métricas · cron</span></div></div>
+    <div class="irow"><div class="id">F5.3</div><div class="body"><div class="t">Confirmar com o operador as tarifas de leitura de Pix e transcrição (hoje defaults plausíveis).</div><div class="crit">Sucesso: <b>número-base validado; custo agregado confiável</b>. <span class="todo">Pendente.</span></div></div><div class="rgt"><span class="coin coin-prod">PROD</span><span class="where">settings de custo</span></div></div>
+    <div class="irow"><div class="id">F5.4</div><div class="body"><div class="t">Baseline de pass-rate + tripwire de regressão nightly (&gt;5%).</div><div class="crit">Sucesso: <b>nightly compara contra baseline e alerta</b>. <span class="todo">Pendente — depende de F3.</span></div></div><div class="rgt"><span class="coin coin-api">★ API</span><span class="where">evals.yml nightly</span></div></div>
   </div>
   <div class="out"><b>Saída da Fase 5:</b> Guardrails → <b>Coberto</b> · matriz inteira em verde.</div>
 </section>
 
 <footer>
-  Roadmap derivado de relatorio-prontidao-agente.html · 8 eixos → Coberto · 6 fases · 35 itens · sequenciado por duas moedas (determinístico vs ★API) · 2026-06-08.
+  Roadmap derivado de relatorio-prontidao-agente.html · 8 eixos → Coberto · 6 fases · 35 itens · sequenciado por duas moedas (determinístico vs ★API) · atualizado 2026-06-09.
   Par de execução: <span class="hl">roadmap-prontidao-agente.md</span>.
 </footer>
 

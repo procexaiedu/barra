@@ -27,14 +27,6 @@ São ações que **atingem produção** (lista não exaustiva):
 - Deploy/infra: `StackGitRedeploy`, `StackUpdate`, `service update --force`, qualquer coisa no Portainer que reinicie ou redeploye a stack `barra-vips` (⚠️ redeploy git sem `Env` zera os segredos e derruba prod).
 - `git push`/`delete` em `origin`.
 
-Antes de qualquer uma delas: **liste o que vai tocar prod e pare.** Só executo após autorização inequívoca.
-
-**Frase canônica de autorização — desambigua o "eu aplico":**
-- `pode aplicar em prod` / `aplique em prod` / `manda ver em prod` = **eu (Claude) executo.**
-- `eu aplico` / `eu rodo` / `eu faço via MCP` = **você faz; eu NÃO executo** — preparo o artefato e paro.
-
-Na dúvida sobre quem executa, **pergunto** em vez de assumir.
-
 ### Gate de verificação antes de push/deploy
 
 **Nada vai para `origin` ou prod sem o gate verde.** Antes de `git push` ou qualquer deploy:

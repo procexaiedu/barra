@@ -51,7 +51,9 @@ services:
       - EVOLUTION_FERNANDO_JIDS=[]
       - 'CORS_ORIGINS=["https://elitebaby.procexai.tech","https://barravips.procexai.tech","https://barra-nine.vercel.app","https://barra-procexais-projects.vercel.app","https://barra-git-main-procexais-projects.vercel.app","https://barra-vips.vercel.app"]'
       - 'CORS_ORIGIN_REGEX=https://([a-z0-9-]+\.)*procexai\.tech|https://barra[a-z0-9-]*\.vercel\.app'
-      - JID_PERMITIDO=120363423572479616@g.us
+      # Allowlist de teste: pina o grupo cliente-teste E o grupo de Coordenação, senão o
+      # comando de fechamento no grupo (`finalizado`/`perdido`) levaria 403 na porta.
+      - 'JID_PERMITIDO=["120363423572479616@g.us","120363407815206369@g.us"]'
       # Comando de TESTE `#reset` no grupo cliente-teste: zera o estado da modelo p/
       # recomeçar do zero. Só a instância de teste `lucia` — nunca uma modelo real.
       - 'RESET_TESTE_INSTANCES=["lucia"]'
@@ -125,7 +127,8 @@ services:
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
-      - JID_PERMITIDO=120363423572479616@g.us
+      # Allowlist de teste: grupo cliente-teste + grupo de Coordenação (ver serviço da API).
+      - 'JID_PERMITIDO=["120363423572479616@g.us","120363407815206369@g.us"]'
       - SENTRY_DSN=
     command: >
       sh -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates &&

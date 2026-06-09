@@ -366,7 +366,7 @@ async def jornada(
     runner = _carregar_runner()
     # metadata_trace_turno agrupa os traces do LangSmith-sim por atendimento (thread OTel). Import
     # LAZY: mantém loop.py importável em testes puros (test_obs_diagnostico) sem arrastar langsmith.
-    from barra.core.tracing import metadata_trace_turno
+    from barra.core.tracing import langfuse_handler, metadata_trace_turno
 
     grafo = runner.build_graph()
     modelo_id, atendimento_id, _cliente_id, conversa_id = await runner._seed_entidades(
@@ -375,6 +375,10 @@ async def jornada(
     if apos_seed is not None:
         await apos_seed(conn, modelo_id, atendimento_id, _cliente_id, conversa_id)
     handler = runner.NodesVisitedHandler()
+    # Langfuse-sim (avaliação vs LangSmith): None fora do entrypoint CLI (ex.: pytest), então o
+    # tracing Langfuse não liga nos testes. Quando ligado, agrupa a jornada por atendimento (session).
+    lf = langfuse_handler()
+    callbacks: list[Any] = [handler] if lf is None else [handler, lf]
     trajetoria = Trajetoria()
     ordem = 0  # contador monotonico de mensagens (created_at crescente -> janela em ordem)
 
@@ -403,14 +407,13 @@ async def jornada(
         await _inserir_msg(conn, conversa_id, "cliente", acao.mensagem or "", ordem)
         ordem += 1
         nodes_antes = set(handler.nos)  # handler acumula entre turnos -> delta = nos DESTE turno
+        # metadata/tags do LangSmith-sim + session do Langfuse (= atendimento; agrupa os turnos da
+        # jornada). langfuse_session_id é inócuo p/ o LangSmith.
+        trace_cfg = metadata_trace_turno(str(modelo_id), str(atendimento_id))
+        trace_cfg["metadata"]["langfuse_session_id"] = str(atendimento_id)
         resultado = await grafo.ainvoke(
             {"messages": []},
-            config={
-                "recursion_limit": 18,
-                "callbacks": [handler],
-                # agrupa o trace por modelo/atendimento no LangSmith-sim (inócuo se tracing off).
-                **metadata_trace_turno(str(modelo_id), str(atendimento_id)),
-            },
+            config={"recursion_limit": 18, "callbacks": callbacks, **trace_cfg},
             context=runner.ContextAgente(
                 db_pool=runner._PoolDeUmaConexao(conn),
                 redis=_RedisStub(),  # escalar enfileira card (no-op no sim); runner e Any (path import)

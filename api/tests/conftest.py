@@ -3,6 +3,7 @@
 import asyncio
 import os
 import sys
+from collections.abc import Generator
 from pathlib import Path
 
 # psycopg async no Windows precisa do selector loop, senao PoolTimeout (memoria
@@ -22,6 +23,29 @@ import pytest
 @pytest.fixture(scope="session")
 def anyio_backend() -> str:
     return "asyncio"
+
+
+@pytest.fixture(autouse=True)
+def _evolution_offline() -> Generator[None, None, None]:
+    """Rede de seguranca (§0): nenhum teste pode POSTar no Evolution de prod. O `.env` carregado
+    pelo pydantic-settings traz `evolution_base_url` real (`make test` roda com ele presente), e a
+    Fase 2 passou a enviar confirmacoes/erros de comando de volta ao grupo. Zera o `base_url` do
+    singleton de settings por padrao -> todo `enviar_texto` levanta antes da rede e os call sites
+    best-effort viram no-op. Testes que exercem envio mockam respx ou setam um host fake explicito
+    (que sobrepoe este default e e revertido pelo monkeypatch ao fim)."""
+    try:
+        from barra.settings import get_settings
+
+        settings = get_settings()
+    except Exception:
+        yield
+        return
+    original = settings.evolution_base_url
+    settings.evolution_base_url = ""
+    try:
+        yield
+    finally:
+        settings.evolution_base_url = original
 
 
 def _tem_chave_anthropic() -> bool:
