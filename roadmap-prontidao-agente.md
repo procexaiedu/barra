@@ -576,7 +576,7 @@ Inv. piso → **Coberto**.
 
 | ID | Item | Fecha | Critério de sucesso | Onde |
 |---|---|---|---|---|
-| **F4.1** 🟡 (gate determinístico; corrida ★API pendente) | Jornada E2E começando em **`Novo`** (1º contato antes da triagem) | 4b (estado Novo) | jornada exercita Novo→Triagem pela conversa | `evals/`/`sim/cenarios*.py` |
+| **F4.1** ✅ (gate determinístico + corrida ★API ao vivo) | Jornada E2E começando em **`Novo`** (1º contato antes da triagem) | 4b (estado Novo) | jornada exercita Novo→Triagem pela conversa | `evals/`/`sim/cenarios*.py` |
 | **F4.2** | Jornadas que chegam a **`Fechado`** pela conversa (modelo fecha respondendo card com Valor final) | 4b (Fechado) | E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana | `sim/`, runner |
 | **F4.3** | Jornada que vira **`Perdido (sumiu)`** por timeout como continuação E2E | 4b (Perdido) | ramo "não volta" é jornada graduada | `sim/`, runner |
 | **F4.4** | `Em_execucao → Fechado` por **Lembrete de fechamento** dentro de uma jornada | 4b | cobrança proativa do Valor final fecha pela conversa | `sim/`, runner |
@@ -608,12 +608,21 @@ conversa (Novo … Fechado/Perdido). **Substituição do vendedor demonstrada pe
 > (`assert []` — nenhum cenário começa em Novo); com elas, verde, e os invariantes pré-existentes
 > dos conjuntos (tamanho ∈ faixa, nomes únicos, anti-leakage, atos declarados) seguem verdes.
 > `make test`: 849 passed (91 `needs_db` skipped sem `TEST_DATABASE_URL`, incl. a espinha — rodam
-> no Postgres efêmero do CI); mypy (`mypy src`) + ruff limpos. **Metade ★API PENDENTE (não é
-> código):** a **corrida ao vivo** (grafo real + Sonnet via `gerar_conversas`) que de fato gera a
-> conversa `primeiro_contato_novo` percorrendo Novo→Triagem é **★API** (custa crédito, §0) e
-> depende do banco de teste (mesmo blocker da F3.2 — `evals-gate-vinculante.md` proíbe apontar
-> `TEST_DATABASE_URL` p/ prod). F4.1 conta como **Coberto pleno** quando essa corrida for
-> registrada ao vivo.
+> no Postgres efêmero do CI); mypy (`mypy src`) + ruff limpos.
+>
+> **★API RODADA AO VIVO (2026-06-08, autorizada §0):** `uv run python -m evals.sim.gerar_conversas
+> --fixo --cenario fixo_primeiro_contato_novo --usar-database-url` (cliente roteirizado → só a IA
+> roda; contra o PROD self-hosted em **rollback-sempre** — 1 transação, `close()` sem commit → zero
+> persistência, que é o padrão sancionado do harness `gerar_conversas` p/ needs_db, ≠ runner de
+> cutover da F3.2; corpus `conversas_fixas.jsonl` restaurado via `git checkout`, idêntico ao
+> backup). A trajetória provou o critério ao vivo: **passo 1** `"Oi, tudo bem?"` → estado **`Novo`**
+> (intenção `None`, só cumprimento); **passo 2** `"vi seu anuncio, quanto é 1h?"` → a IA chama
+> `registrar_extracao` com `intencao='cotacao'` → **`Triagem`** (Novo→Triagem **pela conversa, ao
+> vivo**), seguindo a cadeia completa desde a entrada `Triagem → Qualificado →
+> Aguardando_confirmacao → (foto de portaria) → Em_execucao`. F4.1 → **Coberto** (gate
+> determinístico bloqueia regressão a cada PR + corrida ★API registrada ao vivo). A persona-LLM
+> (`primeiro_contato_novo`, `cenarios.py`) fica pronta p/ o golden quando o operador regerar o
+> corpus inteiro.
 
 ---
 
