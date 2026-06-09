@@ -93,6 +93,27 @@ class Cenario:
 
 
 CENARIOS: list[Cenario] = [
+    # --- F4.1: jornada que COMECA em `Novo` (1o contato, antes da triagem) ------------------------
+    # Todas as outras nascem em `Triagem` (default); esta parte de `Novo` e exercita Novo->Triagem
+    # pela conversa: a 1a fala exprime intencao (preco/1h/marcar) -> a IA extrai -> Triagem. Segue
+    # como interno que fecha por portaria, demonstrando a maquina de estados desde a entrada.
+    Cenario(
+        nome="primeiro_contato_novo",
+        persona=PersonaCliente(
+            nome="Gustavo",
+            o_que_quer=(
+                "e a PRIMEIRA vez que voce fala com ela -- comeca do zero, mandando um oi e "
+                "perguntando o preco de 1h pra hoje a noite. voce vai ate ela (interno). depois de "
+                "saber o valor, combina um horario depois das 21h; quando combinar, avisa que ja "
+                "saiu de casa e, ao chegar no predio, manda a foto da portaria"
+            ),
+            orcamento="ate uns 1500",
+            atos_disponiveis=["enviar_aviso_saida", "enviar_foto_portaria"],
+        ),
+        estado_inicial={"atendimento_estado": "Novo"},
+        decidir_ato=_roteiro_portaria(aviso_em=6, portaria_em=8),
+        max_turnos=12,
+    ),
     # --- felizes INTERNO que fecham por foto de portaria (caminho de conversao real, 001/002) ----
     Cenario(
         nome="interno_qualificacao",

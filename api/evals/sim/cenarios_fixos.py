@@ -46,6 +46,26 @@ class CenarioFixo:
 
 
 CENARIOS_FIXOS: list[CenarioFixo] = [
+    # --- F4.1: jornada FIXA que COMECA em `Novo` (1o contato, antes da triagem) ------------------
+    # Gemea deterministica de `cenarios.primeiro_contato_novo`: parte de `Novo` (as demais nascem em
+    # `Triagem`) e a 1a fala ("oi" + preco) dispara Novo->Triagem pela conversa. Fecha interno por
+    # portaria -- a maquina de estados desde a entrada, com cliente roteirizado (sem cliente-LLM).
+    CenarioFixo(
+        nome="fixo_primeiro_contato_novo",
+        mensagens_cliente=[
+            "Oi, tudo bem?",
+            "vi seu anuncio. quanto e 1h hoje a noite?",
+            "e ai no seu local? prefiro ir ate voce",
+            "fechou, pode ser umas 22h?",
+            "qual seu endereco",
+            "to indo ai",
+            "cheguei, to na portaria",
+        ],
+        estado_inicial={"atendimento_estado": "Novo"},
+        decidir_ato=_roteiro_portaria(aviso_em=None, portaria_em=8),
+        max_turnos=11,
+        atos_disponiveis=["enviar_foto_portaria"],
+    ),
     # --- 4 BASE: 1:1 das conversas reais que converteram (001..004) -----------------------------
     CenarioFixo(
         # 001: interno, recusa de anal em 3 camadas, desconto unico ancorado, fecha por portaria.
