@@ -87,6 +87,57 @@ def test_perdido_sem_motivo_e_comando_invalido() -> None:
     assert comando.payload["motivo"] == "motivo_perda_obrigatorio"
 
 
+def test_forgiveness_sinonimos_de_fechamento() -> None:
+    # UX §6.3: `fechei`/`fechamos` valem como `fechado`/`finalizado`.
+    for texto in ("fechei 1500 #3", "fechamos 1500 #3"):
+        comando = parse_comando_grupo(texto)
+        assert comando is not None, texto
+        assert comando.comando == "registrar_fechado", texto
+        assert comando.payload["valor_final"] == Decimal("1500"), texto
+
+
+def test_forgiveness_sinonimos_de_perda_com_motivo() -> None:
+    # `perdi` / `não rolou` / `nao rolou` valem como `perdido`.
+    for texto in ("perdi sumiu #3", "não rolou sumiu #3", "nao rolou sumiu #3"):
+        comando = parse_comando_grupo(texto)
+        assert comando is not None, texto
+        assert comando.comando == "registrar_perdido", texto
+        assert comando.payload["motivo"] == "sumiu", texto
+
+
+def test_forgiveness_perda_sem_motivo_cai_no_erro_que_pede_motivo() -> None:
+    # §6.3: sinônimo de perda sem motivo ainda exige o motivo (erro 6.2), não inventa um.
+    comando = parse_comando_grupo("nao rolou #3")
+    assert comando is not None
+    assert comando.comando == "comando_invalido"
+    assert comando.payload["motivo"] == "motivo_perda_obrigatorio"
+
+
+def test_forgiveness_sinonimo_citando_lembrete_segue_fluxo_normal() -> None:
+    # Sinônimo numa resposta-quote ao lembrete não vira valor-pelado: cai no fluxo de fechamento,
+    # herdando o #N do card citado.
+    comando = parse_comando_grupo("fechei 1500", quoted_numero_curto=7, aguardando_valor=True)
+    assert comando is not None
+    assert comando.comando == "registrar_fechado"
+    assert comando.numero_curto == 7
+    assert comando.payload["valor_final"] == Decimal("1500")
+
+
+def test_pendencias_reconhece_sinonimos_sem_numero() -> None:
+    # UX §6.4: digest sob demanda, sem `#N`. Acentuado/sem acento, caixa e espacos tolerados.
+    for texto in ("pendências", "pendencias", "Pendencias", "  status  ", "STATUS", "pendentes"):
+        comando = parse_comando_grupo(texto)
+        assert comando is not None, texto
+        assert comando.comando == "listar_pendencias", texto
+        assert comando.numero_curto is None, texto
+
+
+def test_pendencias_nao_dispara_em_frase_que_contem_a_palavra() -> None:
+    # Igualdade exata: "qual o status do #5" NAO e o digest (e referencia a um atendimento).
+    assert parse_comando_grupo("qual o status do #5") is None
+    assert parse_comando_grupo("status do atendimento") is None
+
+
 def test_ia_assume_sem_numero_curto_e_invalido() -> None:
     comando = parse_comando_grupo("IA assume")
     assert comando is not None

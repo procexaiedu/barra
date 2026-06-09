@@ -1,0 +1,18 @@
+{% set EMOJI = {'handoff': '🔔', 'falta_valor': '💵', 'pix': '⚠️'} %}
+{% if pendencias %}
+📋 *Pendências* · {{ pendencias | length }} aguardando você
+{% for p in pendencias %}
+{% if p.categoria == 'handoff' %}
+{{ EMOJI[p.categoria] }} #{{ p.numero_curto }} {{ p.cliente_nome }} — handoff: {{ p.detalhe }}
+{% elif p.categoria == 'falta_valor' %}
+{{ EMOJI[p.categoria] }} #{{ p.numero_curto }} {{ p.cliente_nome }} — falta o valor (encerrou {{ p.encerrado_em.strftime('%H:%M') }})
+{% else %}
+{{ EMOJI[p.categoria] }} #{{ p.numero_curto }} {{ p.cliente_nome }} — Pix a conferir
+{% endif %}
+{% endfor %}
+
+👉 responda no número, ex.: *fechado #{{ pendencias[0].numero_curto }} 1500*
+{% else %}
+📋 *Pendências* · tudo em dia ✨
+Nenhum card aguardando você agora.
+{% endif %}

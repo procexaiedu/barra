@@ -232,3 +232,111 @@ def test_webhook_token_invalido_retorna_401() -> None:
         assert response.json()["error"]["code"] == "WEBHOOK_NAO_AUTORIZADO"
     finally:
         settings.evolution_webhook_token = ""
+
+
+def test_webhook_jid_fora_da_allowlist_retorna_403() -> None:
+    """Allowlist de teste ligada: JID que não está na lista é barrado na porta (403)."""
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.evolution_grupo_coordenacao_jid = "120363000000000000@g.us"
+    settings.jid_permitido = ["120363111111111111@g.us"]
+    conn = FakeConn(mensagem_existe=False, envio_existe=False)
+    try:
+        with TestClient(app) as client:
+            app.state.db_pool = FakePool(conn)
+            response = client.post("/webhook/evolution", json=_payload_grupo("FORA-1"))
+        assert response.status_code == 403
+        assert response.json()["error"]["code"] == "JID_NAO_PERMITIDO"
+    finally:
+        settings.jid_permitido = []
+
+
+def test_webhook_allowlist_libera_coordenacao_alem_do_cliente() -> None:
+    """#8: a allowlist pina o grupo do cliente E o de Coordenação. O comando de grupo
+    (JID da Coordenação) passa o gate em vez de levar 403 — destrava o fechamento no rig."""
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.evolution_grupo_coordenacao_jid = "120363000000000000@g.us"
+    settings.evolution_fernando_jids = []
+    # Grupo do cliente + grupo de Coordenação na mesma allowlist.
+    settings.jid_permitido = ["120363423572479616@g.us", "120363000000000000@g.us"]
+    conn = FakeConn(mensagem_existe=False, envio_existe=False)
+    try:
+        with TestClient(app) as client:
+            app.state.db_pool = FakePool(conn)
+            app.state.arq = FakeArq()
+            response = client.post("/webhook/evolution", json=_payload_grupo("COORD-OK-1"))
+        # Passou o gate e entrou no fluxo de grupo (para como `invalid`: #12 não existe no
+        # FakeConn). O que importa é NÃO ser 403 — a porta deixou a Coordenação passar.
+        assert response.status_code == 200
+        assert response.json() == {"status": "invalid"}
+    finally:
+        settings.jid_permitido = []
+
+
+def _payload_grupo_texto(texto: str, message_id: str = "CMD-ERR") -> dict[str, Any]:
+    return {
+        "instance": "barra",
+        "data": {
+            "key": {"id": message_id, "remoteJid": "120363000000000000@g.us", "fromMe": True},
+            "message": {"conversation": texto},
+        },
+    }
+
+
+def _capturar_respostas(monkeypatch: Any) -> list[tuple[str, str]]:
+    """Substitui `_responder_grupo` por um capturador (sem rede) e devolve a lista de
+    (texto, tipo) enviados — prova o wiring §6 sem POSTar no Evolution."""
+    from barra.webhook import routes
+
+    capturas: list[tuple[str, str]] = []
+
+    async def _fake(
+        _settings: Any, _conn: Any, _msg: Any, texto: str, tipo: str = "erro_comando"
+    ) -> None:
+        capturas.append((texto, tipo))
+
+    monkeypatch.setattr(routes, "_responder_grupo", _fake)
+    return capturas
+
+
+def test_webhook_grupo_sem_numero_responde_erro_recuperacao(monkeypatch: Any) -> None:
+    """Comando sem #N (fora de resposta-quote): ack `invalid` e erro com recuperação (§6.2)."""
+    from barra.webhook.respostas import texto_erro_comando
+
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.jid_permitido = None
+    settings.evolution_grupo_coordenacao_jid = None
+    settings.evolution_fernando_jids = []
+    capturas = _capturar_respostas(monkeypatch)
+    conn = FakeConn(mensagem_existe=False, envio_existe=False, grupo_por_banco=True)
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        app.state.arq = FakeArq()
+        response = client.post("/webhook/evolution", json=_payload_grupo_texto("finalizado 1000"))
+
+    assert response.json() == {"status": "invalid"}
+    assert capturas == [(texto_erro_comando("numero_curto_ausente"), "erro_comando")]
+
+
+def test_webhook_grupo_atendimento_inexistente_responde_erro(monkeypatch: Any) -> None:
+    """Comando com #N que não casa um atendimento aberto: ack `invalid` + erro com recuperação."""
+    from barra.webhook.respostas import texto_erro_comando
+
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.jid_permitido = None
+    settings.evolution_grupo_coordenacao_jid = None
+    settings.evolution_fernando_jids = []
+    capturas = _capturar_respostas(monkeypatch)
+    conn = FakeConn(mensagem_existe=False, envio_existe=False, grupo_por_banco=True)
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        app.state.arq = FakeArq()
+        response = client.post(
+            "/webhook/evolution", json=_payload_grupo_texto("finalizado 1000 #12")
+        )
+
+    assert response.json() == {"status": "invalid"}
+    assert capturas == [(texto_erro_comando("atendimento_nao_encontrado"), "erro_comando")]

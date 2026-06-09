@@ -124,6 +124,20 @@ async def _chamar_webhook(
     return await evolution_webhook(request)  # type: ignore[arg-type]
 
 
+def _capturar_respostas(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Captura as respostas §6 (confirmação/erro) sem POSTar no Evolution: prova o eco de volta
+    ao grupo na costura real (parse → aplicar_comando → resposta), por (texto, tipo)."""
+    from barra.webhook import routes
+
+    capturas: list[tuple[str, str]] = []
+
+    async def _fake(_s: Any, _c: Any, _m: Any, texto: str, tipo: str = "erro_comando") -> None:
+        capturas.append((texto, tipo))
+
+    monkeypatch.setattr(routes, "_responder_grupo", _fake)
+    return capturas
+
+
 # --- seeds (espelham test_f0_8_fechado_card; + instance/coordenacao p/ a costura) -------------
 
 
@@ -274,9 +288,11 @@ _GRUPO_JID = "120363000000000001@g.us"
 @pytest.mark.needs_db
 async def test_f1_1_webhook_fechado_registra_despausa_e_sincroniza_bloqueio(
     conn: AsyncConnection[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """`fechado 1500 #N` entrando pelo webhook do grupo → Fechado + Valor final + bloqueio
     concluído + IA despausada, ponta a ponta (payload Evolution → estado no banco)."""
+    capturas = _capturar_respostas(monkeypatch)
     modelo_id = await _seed_modelo(conn, instance=_INSTANCE, grupo_jid=_GRUPO_JID)
     cliente_id = await _seed_cliente(conn)
     conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
@@ -309,17 +325,21 @@ async def test_f1_1_webhook_fechado_registra_despausa_e_sincroniza_bloqueio(
     # auditoria do Financeiro + transição.
     assert await _tem_evento(conn, atendimento_id, "fechado_registrado")
     assert await _tem_evento(conn, atendimento_id, "transicao_estado")
+    # eco de confirmação de volta ao grupo (§6.1), nunca sucesso silencioso.
+    assert capturas == [(f"✅ #{numero_curto} fechado · R$ 1.500,00 registrado", "confirmacao")]
 
 
 @pytest.mark.needs_db
 async def test_f1_1_webhook_perdido_registra_despausa_e_cancela_bloqueio(
     conn: AsyncConnection[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Costura do ramo irmão: `perdido sumiu #N` pelo webhook → Perdido + Motivo de perda +
     bloqueio cancelado + IA despausada. Seed em **Confirmado** com o **bloqueio prévio** ainda
     `bloqueado` (antes do Em_execucao), porque o trigger só cancela o bloqueio no Perdido se ele
     ainda **não** está `em_atendimento`/`concluido` (CONTEXT.md "Bloqueio"; guard provado em
     F0.6). É o cenário realista em que o Perdido de fato sincroniza o bloqueio."""
+    capturas = _capturar_respostas(monkeypatch)
     modelo_id = await _seed_modelo(conn, instance=_INSTANCE, grupo_jid=_GRUPO_JID)
     cliente_id = await _seed_cliente(conn)
     conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
@@ -354,11 +374,14 @@ async def test_f1_1_webhook_perdido_registra_despausa_e_cancela_bloqueio(
     assert a["ia_pausada"] is False
     assert await _tem_evento(conn, atendimento_id, "perdido_registrado")
     assert await _tem_evento(conn, atendimento_id, "transicao_estado")
+    # eco de confirmação de volta ao grupo (§6.1).
+    assert capturas == [(f"✅ #{numero_curto} marcado como perdido · motivo: sumiu", "confirmacao")]
 
 
 @pytest.mark.needs_db
 async def test_f1_1_webhook_fechado_sem_valor_nao_encerra_e_da_ack(
     conn: AsyncConnection[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Comando malformado pela costura: `fechado #N` (sem valor) → o parser devolve
     `comando_invalido` (`comando.erro` setado) e o handler dá ack `invalid` (200, p/ a
@@ -366,6 +389,7 @@ async def test_f1_1_webhook_fechado_sem_valor_nao_encerra_e_da_ack(
     em_atendimento): `aplicar_comando('comando_invalido')` só registra o evento, não
     transiciona. Tranca o "+ Valor final" obrigatório atravessando o handler inteiro, não só
     o serviço (F0.8)."""
+    capturas = _capturar_respostas(monkeypatch)
     modelo_id = await _seed_modelo(conn, instance=_INSTANCE, grupo_jid=_GRUPO_JID)
     cliente_id = await _seed_cliente(conn)
     conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
@@ -392,3 +416,7 @@ async def test_f1_1_webhook_fechado_sem_valor_nao_encerra_e_da_ack(
     assert a["estado"] == "Em_execucao"
     assert a["valor_final"] is None
     assert await _estado_bloqueio(conn, bloqueio_id) == "em_atendimento"
+    # erro com recuperação de volta ao grupo (§6.2), nunca beco sem saída.
+    from barra.webhook.respostas import texto_erro_comando
+
+    assert capturas == [(texto_erro_comando("valor_final_obrigatorio"), "erro_comando")]

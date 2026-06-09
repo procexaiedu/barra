@@ -25,7 +25,11 @@ class MensagemEvolution:
 @dataclass(frozen=True)
 class ComandoGrupo:
     comando: Literal[
-        "devolver_para_ia", "registrar_fechado", "registrar_perdido", "comando_invalido"
+        "devolver_para_ia",
+        "registrar_fechado",
+        "registrar_perdido",
+        "listar_pendencias",
+        "comando_invalido",
     ]
     numero_curto: int | None
     payload: dict[str, Any]
@@ -79,6 +83,19 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
     )
 
 
+# Forgiveness de comando (UX §6.3): sinônimos determinísticos da modelo/Fernando além das palavras
+# canônicas. Continua regex/prefixo puro — NLP livre ("acho que foi uns mil e quinhentos") é IA
+# Admin (P1). A tolerância NÃO se estende ao conjunto de motivos de perda (mantém os 6 fixos; o
+# erro 6.2 já os lista) nem afrouxa o `#N` obrigatório fora de resposta-quote ao lembrete.
+_FECHAMENTO = ("finalizado", "fechado", "fechei", "fechamos")
+_PERDA = ("perdido", "perdi", "nao rolou", "não rolou")
+_PREFIXOS_COMANDO = ("ia assume", *_FECHAMENTO, *_PERDA)
+
+# Digest de pendencias (UX §6.4): comando sem `#N`, lido por igualdade exata (apos normalizar
+# espacos/caixa) p/ nao colidir com "qual o status do #5". Sinonimos acentuado/sem acento.
+_PENDENCIAS = frozenset({"pendencias", "pendências", "pendentes", "status"})
+
+
 def parse_comando_grupo(
     texto: str,
     quoted_numero_curto: int | None = None,
@@ -91,13 +108,14 @@ def parse_comando_grupo(
     numero = _numero_curto(raw) or quoted_numero_curto
     lower = raw.lower()
 
+    # Digest sob demanda (UX §6.4): nao escopa um atendimento (sem `#N`); so lista as pendencias
+    # da modelo dona do grupo. Igualdade exata para nao capturar frases que contenham a palavra.
+    if lower in _PENDENCIAS:
+        return ComandoGrupo("listar_pendencias", None, {})
+
     # Resposta ao card de Lembrete de fechamento (ADR-0009): citando o card, um valor "pelado"
     # (sem palavra-chave) fecha o atendimento. Prefixos conhecidos seguem o fluxo normal abaixo.
-    if (
-        aguardando_valor
-        and numero is not None
-        and not lower.startswith(("ia assume", "finalizado", "fechado", "perdido"))
-    ):
+    if aguardando_valor and numero is not None and not lower.startswith(_PREFIXOS_COMANDO):
         valores = _valores(raw)
         if len(valores) == 1:
             return ComandoGrupo("registrar_fechado", numero, {"valor_final": valores[0]})
@@ -111,7 +129,7 @@ def parse_comando_grupo(
             return _invalido("Informe #N do atendimento.")
         return ComandoGrupo("devolver_para_ia", numero, {})
 
-    if lower.startswith("finalizado") or lower.startswith("fechado"):
+    if lower.startswith(_FECHAMENTO):
         if numero is None:
             return _invalido("Informe #N do atendimento.")
         valores = _valores(raw)
@@ -128,7 +146,7 @@ def parse_comando_grupo(
             )
         return ComandoGrupo("registrar_fechado", numero, {"valor_final": valores[0]})
 
-    if lower.startswith("perdido"):
+    if lower.startswith(_PERDA):
         if numero is None:
             return _invalido("Informe #N do atendimento.")
         motivo = _motivo_perda(lower)

@@ -15,11 +15,13 @@ from barra.core.errors import ErroDominio, JidNaoPermitido
 from barra.core.evolution import EvolutionClient, envio_existe
 from barra.core.metrics import COMANDOS_GRUPO, WEBHOOK_ERRORS
 from barra.core.tracing import sentry_sdk
-from barra.dominio.atendimentos.service import garantir_conversa
+from barra.dominio.atendimentos.service import garantir_conversa, listar_pendencias_modelo
 from barra.dominio.escaladas.service import Autor, aplicar_comando
 from barra.webhook.despacho import enfileirar_turno
 from barra.webhook.parser import MensagemEvolution, extrair_mensagem, parse_comando_grupo
 from barra.webhook.reset_teste import limpar_redis_modelo, resetar_modelo
+from barra.webhook.respostas import texto_confirmacao, texto_erro_comando, texto_erro_dominio
+from barra.workers._cards import render_card
 
 router = APIRouter()
 
@@ -157,7 +159,7 @@ async def evolution_webhook(
     msg = extrair_mensagem(payload)
     if msg is None:
         return {"status": "ignored"}
-    if settings.jid_permitido and msg.remote_jid != settings.jid_permitido:
+    if settings.jid_permitido and msg.remote_jid not in settings.jid_permitido:
         raise JidNaoPermitido()
 
     # Comando de TESTE `#reset` (gate: settings.reset_teste_instances): zera o estado
@@ -396,23 +398,35 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
     comando = parse_comando_grupo(msg.texto, quoted_numero, aguardando_valor=aguardando_valor)
     if comando is None:
         return {"status": "ignored"}
-    atendimento_id = None
-    if comando.numero_curto is not None:
-        # numero_curto e UNIQUE por (modelo_id, numero_curto), nao global: dois grupos
-        # de Coordenacao distintos podem ter o mesmo #N. Escopar pela modelo dona da
-        # instance evita afetar o atendimento de outra modelo (isolamento cross-modelo).
-        modelo_id = await _modelo_por_instance(conn, msg.instance_id)
-        if modelo_id is None:
-            COMANDOS_GRUPO.labels("invalido").inc()
-            _logger.warning(
-                "comando_grupo_modelo_nao_resolvida instance=%s",
-                msg.instance_id,
-            )
-            return {"status": "unknown_instance"}
-        atendimento_id = await _atendimento_por_numero(conn, comando.numero_curto, modelo_id)
+
+    # Digest de pendencias (UX §6.4): comando sem `#N`, so leitura — lista o que aguarda a modelo
+    # dona do grupo. Antes do gate de `#N` obrigatorio, que nao se aplica aqui.
+    if comando.comando == "listar_pendencias":
+        return await _responder_pendencias(settings, conn, msg)
+
+    # Sem #N nao da pra escopar o atendimento (o parser ja marcou comando_invalido). Responde com
+    # recuperacao (§6.2) e para — fora de resposta-quote a um card, o #N e obrigatorio.
+    if comando.numero_curto is None:
+        COMANDOS_GRUPO.labels("invalido").inc()
+        await _responder_grupo(settings, conn, msg, texto_erro_comando("numero_curto_ausente"))
+        return {"status": "invalid"}
+
+    # numero_curto e UNIQUE por (modelo_id, numero_curto), nao global: dois grupos de Coordenacao
+    # distintos podem ter o mesmo #N. Escopar pela modelo dona da instance evita afetar o
+    # atendimento de outra modelo (isolamento cross-modelo).
+    modelo_id = await _modelo_por_instance(conn, msg.instance_id)
+    if modelo_id is None:
+        COMANDOS_GRUPO.labels("invalido").inc()
+        _logger.warning("comando_grupo_modelo_nao_resolvida instance=%s", msg.instance_id)
+        return {"status": "unknown_instance"}
+    atendimento_id = await _atendimento_por_numero(conn, comando.numero_curto, modelo_id)
     if atendimento_id is None:
         COMANDOS_GRUPO.labels("invalido").inc()
+        await _responder_grupo(
+            settings, conn, msg, texto_erro_comando("atendimento_nao_encontrado")
+        )
         return {"status": "invalid"}
+
     try:
         await aplicar_comando(
             conn,
@@ -424,11 +438,11 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
             | {"texto": msg.texto, "evolution_message_id": msg.evolution_message_id},
         )
     except ErroDominio as exc:
-        # Comando humano malformado/conflitante (ex.: `finalizado` em atendimento ja
-        # finalizado -> ConflitoEstado 409; valor ambiguo -> EntradaInvalida 422).
-        # Reprocessar nao corrige, e mensagens de grupo nao sao persistidas em
-        # `mensagens` (sem dedupe inbound), entao um nao-2xx faria a Evolution
-        # reentregar e reprocessar em loop. Damos ack (200) e so registramos.
+        # Comando humano malformado/conflitante (ex.: `finalizado` em atendimento ja finalizado ->
+        # ConflitoEstado 409; motivo `outro` sem observacao -> EntradaInvalida 422). Reprocessar nao
+        # corrige, e mensagens de grupo nao sao persistidas em `mensagens` (sem dedupe inbound),
+        # entao um nao-2xx faria a Evolution reentregar e reprocessar em loop. Damos ack (200),
+        # registramos e respondemos com recuperacao (§6.2).
         COMANDOS_GRUPO.labels("invalido").inc()
         _logger.info(
             "comando_grupo_erro codigo=%s atendimento=%s msg=%s",
@@ -436,9 +450,80 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
             atendimento_id,
             exc.message,
         )
+        await _responder_grupo(settings, conn, msg, texto_erro_dominio(exc.code))
         return {"status": "command_error"}
-    COMANDOS_GRUPO.labels("valido" if comando.erro is None else "invalido").inc()
-    return {"status": "processed" if comando.erro is None else "invalid"}
+
+    # comando_invalido com #N valido (valor ambiguo / sem valor / sem motivo): aplicar_comando so
+    # registrou o evento de auditoria, nao transicionou. Responde com recuperacao (§6.2).
+    if comando.comando == "comando_invalido":
+        COMANDOS_GRUPO.labels("invalido").inc()
+        await _responder_grupo(
+            settings, conn, msg, texto_erro_comando(comando.payload.get("motivo"))
+        )
+        return {"status": "invalid"}
+
+    # Sucesso: eco de confirmacao curto (§6.1) — nunca sucesso silencioso (CONTEXT "Registro de
+    # resultado"; o undo e o "Corrigir" no painel, nao um dialogo bloqueante).
+    COMANDOS_GRUPO.labels("valido").inc()
+    await _responder_grupo(
+        settings,
+        conn,
+        msg,
+        texto_confirmacao(comando.comando, comando.payload, comando.numero_curto),
+        tipo="confirmacao",
+    )
+    return {"status": "processed"}
+
+
+async def _responder_pendencias(settings: Any, conn: Any, msg: MensagemEvolution) -> dict[str, str]:
+    """Monta e envia o digest de pendencias (UX §6.4) no grupo da modelo dona da instance.
+
+    Escopa por modelo (isolamento por par): a query so ve atendimentos dessa modelo. A tolerancia
+    do `falta_valor` espelha o Lembrete de fechamento (mesmo gatilho). Envio best-effort via
+    `_responder_grupo` (tipo='card')."""
+    modelo_id = await _modelo_por_instance(conn, msg.instance_id)
+    if modelo_id is None:
+        COMANDOS_GRUPO.labels("invalido").inc()
+        _logger.warning("digest_pendencias_modelo_nao_resolvida instance=%s", msg.instance_id)
+        return {"status": "unknown_instance"}
+    pendencias = await listar_pendencias_modelo(
+        conn, modelo_id, tolerancia_min=settings.lembrete_valor_tolerancia_min
+    )
+    COMANDOS_GRUPO.labels("digest").inc()
+    texto = render_card("pendencias", pendencias=pendencias)
+    await _responder_grupo(settings, conn, msg, texto, tipo="card")
+    return {"status": "digest"}
+
+
+async def _responder_grupo(
+    settings: Any,
+    conn: Any,
+    msg: MensagemEvolution,
+    texto: str,
+    tipo: str = "erro_comando",
+) -> None:
+    """Envia uma resposta curta (confirmacao §6.1 / erro §6.2) de volta ao grupo de Coordenacao,
+    no mesmo canal de onde o comando veio (instance da modelo + JID do grupo).
+
+    Best-effort: o comando ja foi aplicado (ou rejeitado) e committado; uma falha de envio NAO pode
+    quebrar o ack 200 do webhook (um nao-2xx faria a Evolution reentregar e reaplicar). Sem
+    `evolution_base_url` (testes / Evolution off) vira no-op. A transacao garante que o
+    `envios_evolution` do eco committe — e o proximo webhook desse proprio eco (fromMe) cai no
+    `envio_existe` (outbound_ignored), sem loop."""
+    try:
+        async with conn.transaction():
+            await EvolutionClient(settings).enviar_texto(
+                conn=conn,
+                instance_id=msg.instance_id,
+                remote_jid=msg.remote_jid,
+                texto=texto,
+                contexto="grupo_coordenacao",
+                tipo=tipo,
+            )
+    except Exception:
+        _logger.warning(
+            "resposta_grupo_falhou tipo=%s msg=%s", tipo, msg.evolution_message_id, exc_info=True
+        )
 
 
 async def _persistir_cliente(
