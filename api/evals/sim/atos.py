@@ -127,6 +127,38 @@ async def modelo_fecha_card(
     )
 
 
+async def cliente_some_timeout(
+    conn: AsyncConnection[dict[str, Any]],
+    atendimento_id: UUID,
+) -> None:
+    """O cliente avisou que saiu mas SOME e nunca chega: apos 45 min o timeout determinista o marca
+    `Perdido(sumiu)` (CONTEXT.md "Aviso de saida" / "timeout interno"; ramo "nao volta").
+
+    Unico ato que representa a passagem do TEMPO + o cron de prod (nao um turno da IA nem um ato
+    sincrono do cliente): o `aviso_saida_em` ja foi setado por `enviar_aviso_saida` na jornada -- aqui
+    ENVELHECEMOS o aviso (o relogio do sim nao espera os 45 min reais) e disparamos o MESMO
+    `aplicar_timeout_interno` de producao (workers/timeouts.py), que varre o interno em
+    `Aguardando_confirmacao` com aviso vencido e sem foto de portaria -> `Perdido`, motivo `sumiu`,
+    bloqueio cancelado. Nao reimplementa a transicao: chama a funcao de prod, como `modelo_fecha_card`
+    chama `aplicar_comando`. So envelhece se o aviso ja foi enviado (`aviso_saida_em IS NOT NULL`); se
+    nao, o timeout nao tem o que varrer e nada muda (conservador).
+
+    Import LAZY de `aplicar_timeout_interno` (igual ao `modelo_fecha_card`): mantem `atos.py`
+    importavel nos testes puros sem arrastar os workers.
+    """
+    from barra.workers.timeouts import aplicar_timeout_interno
+
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET aviso_saida_em = now() - interval '46 minutes'
+         WHERE id = %s AND aviso_saida_em IS NOT NULL
+        """,
+        (atendimento_id,),
+    )
+    await aplicar_timeout_interno(conn)
+
+
 def ficar_em_silencio() -> None:
     """Cliente nao faz nada -- deixa o TIMEOUT determinista decidir (no-op, sem DB).
 

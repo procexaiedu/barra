@@ -57,6 +57,7 @@ class _CenarioComum(Protocol):
     decidir_ato: Any
     max_turnos: int
     fechar_card: bool
+    timeout_sumiu: bool
 
 
 async def _apos_seed(conn: Any, modelo_id: Any, *_ids: Any) -> None:
@@ -141,6 +142,7 @@ async def _rodar[T: _CenarioComum](
                 max_turnos=cen.max_turnos,
                 apos_seed=_apos_seed,
                 fechar_card=cen.fechar_card,
+                timeout_sumiu=cen.timeout_sumiu,
             )
             conversas.append(_serializar(cen, traj))
             n_ia = sum(1 for p in traj.passos if p.bolha_ia)
