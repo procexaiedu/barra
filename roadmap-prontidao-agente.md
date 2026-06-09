@@ -577,7 +577,7 @@ Inv. piso → **Coberto**.
 | ID | Item | Fecha | Critério de sucesso | Onde |
 |---|---|---|---|---|
 | **F4.1** ✅ (gate determinístico + corrida ★API ao vivo) | Jornada E2E começando em **`Novo`** (1º contato antes da triagem) | 4b (estado Novo) | jornada exercita Novo→Triagem pela conversa | `evals/`/`sim/cenarios*.py` |
-| **F4.2** 🟡 (gate determinístico + estrutura pronta; corrida ★API pendente) | Jornadas que chegam a **`Fechado`** pela conversa (modelo fecha respondendo card com Valor final) | 4b (Fechado) | E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana | `sim/`, runner |
+| **F4.2** ✅ (gate determinístico + corrida ★API ao vivo) | Jornadas que chegam a **`Fechado`** pela conversa (modelo fecha respondendo card com Valor final) | 4b (Fechado) | E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana | `sim/`, runner |
 | **F4.3** | Jornada que vira **`Perdido (sumiu)`** por timeout como continuação E2E | 4b (Perdido) | ramo "não volta" é jornada graduada | `sim/`, runner |
 | **F4.4** | `Em_execucao → Fechado` por **Lembrete de fechamento** dentro de uma jornada | 4b | cobrança proativa do Valor final fecha pela conversa | `sim/`, runner |
 | **F4.5** | **Recorrência**: novo Atendimento na mesma Conversa cliente após um Fechado | 4b | cenário existe e passa | `sim/`, runner |
@@ -624,8 +624,8 @@ conversa (Novo … Fechado/Perdido). **Substituição do vendedor demonstrada pe
 > (`primeiro_contato_novo`, `cenarios.py`) fica pronta p/ o golden quando o operador regerar o
 > corpus inteiro.
 
-> **Status F4.2 🟡 gate determinístico + estrutura pronta, corrida ★API pendente (feito, merge
-> local):** TODA jornada do sim morria em **`Em_execucao`** (a foto de portaria pausa a IA e o loop
+> **Status F4.2 ✅ gate determinístico + corrida ★API ao vivo (feito, merge local):** TODA jornada
+> do sim morria em **`Em_execucao`** (a foto de portaria pausa a IA e o loop
 > conversacional encerra) ou em **`Confirmado`** (Pix) — **`Fechado`**, o desfecho da venda, nunca era
 > alcançado pela própria jornada. A transição final **não** é um turno da IA nem um ato do cliente: é a
 > **modelo** respondendo o card na Coordenação com o **Valor final** (`aplicar_comando
@@ -648,12 +648,26 @@ conversa (Novo … Fechado/Perdido). **Substituição do vendedor demonstrada pe
 > verde, e os invariantes pré-existentes dos conjuntos (tamanho ∈ faixa — bump 16→17 —, nomes únicos,
 > anti-leakage, atos declarados) seguem verdes. `make test`: 898 passed (93 `needs_db` skipped sem
 > `TEST_DATABASE_URL`, incl. a espinha — rodam no Postgres efêmero do CI); mypy (`mypy src`) + ruff limpos.
-> **Metade ★API PENDENTE (não é código):** a **corrida ao vivo** (grafo real + Sonnet conduz o interno
-> até `Em_execucao`, depois o fecho pós-loop grava o primeiro `Fechado` por jornada) é **★API** (custa
-> crédito, §0) e o **único banco disponível é o prod** (`db.procexai.tech`) — sem banco de teste
-> provisionado (`TEST_DATABASE_URL` unset; espinha skipped localmente, idêntico à F4.1). F4.2 só conta
-> como **Coberto pleno** quando essa corrida verde for registrada ao vivo. A persona-LLM
-> (`interno_fecha_venda`) fica pronta p/ o golden quando o operador regerar o corpus.
+> A espinha `needs_db` rodou **ao vivo contra o prod** (`db.procexai.tech`, rollback-sempre, §0
+> autorizada): `test_ato_de_fecho_leva_em_execucao_para_fechado` **verde** (1 passed) + suíte
+> `needs_db` completa 91 passed (as 2 falhas — `test_transcrever_audio` por `usd_brl_cotacao` ausente
+> no settings e `test_disponibilidade::test_bloqueios_futuros_fora` — são **pré-existentes e não
+> relacionadas**, vermelhas no `main` limpo, idem F0.6/F0.8/F0.9).
+>
+> **★API RODADA AO VIVO (2026-06-08, autorizada §0):** `uv run python -m evals.sim.gerar_conversas
+> --fixo --cenario fixo_interno_fecha_venda --usar-database-url` (cliente roteirizado → só a IA roda;
+> contra o PROD self-hosted em **rollback-sempre** — 1 transação por cenário, `close()` sem commit →
+> zero persistência; corpus `conversas_fixas.jsonl` restaurado via `git checkout`, idêntico ao
+> backup — mesmo padrão sancionado da F4.1). A trajetória provou o critério ao vivo (9 passos, 7 falas
+> da IA): a conversa percorreu **`Triagem → Qualificado → Aguardando_confirmacao`** (a IA conduzindo
+> via `registrar_extracao` a cada turno — cotação `R$800 1h`, horário, bairro, endereço progressivo),
+> o ato **`enviar_foto_portaria` → `Em_execucao`** (IA pausada), e o fecho pós-loop
+> **`modelo_fecha_card` → `Fechado`** (a modelo responde o card com o Valor final, IA despausada) —
+> **a máquina de estados percorrida pela conversa até a venda fechada, ao vivo**. F4.2 → **Coberto**
+> (gate determinístico bloqueia regressão a cada PR + corrida ★API registrada ao vivo). A
+> qualidade-de-venda (valor negociado, ritmo, não perder o cliente) segue sob **revisão humana**
+> contra a golden (sem judge, ADR 0015) — F4.7. A persona-LLM (`interno_fecha_venda`, `cenarios.py`)
+> fica pronta p/ o golden quando o operador regerar o corpus inteiro.
 
 ---
 
