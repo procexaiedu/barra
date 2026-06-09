@@ -90,6 +90,9 @@ class Cenario:
     )
     decidir_ato: RoteiroAtos | None = None
     max_turnos: int = 8
+    # F4.2: apos a jornada chegar em Em_execucao (foto de portaria), a MODELO responde o card com o
+    # Valor final -> Fechado (fecho fora-de-banda, aplicado pos-loop pelo `jornada`). default False.
+    fechar_card: bool = False
 
 
 CENARIOS: list[Cenario] = [
@@ -113,6 +116,26 @@ CENARIOS: list[Cenario] = [
         estado_inicial={"atendimento_estado": "Novo"},
         decidir_ato=_roteiro_portaria(aviso_em=6, portaria_em=8),
         max_turnos=12,
+    ),
+    # --- F4.2: jornada que chega a `Fechado` -- a modelo fecha o card com o Valor final -----------
+    # Interno COMPLETO (conversa -> Aguardando -> foto de portaria -> Em_execucao); apos a chegada, a
+    # MODELO responde o card com o Valor final -> `Fechado` (fecho fora-de-banda, `fechar_card=True`,
+    # aplicado pos-loop pelo `jornada`). Fecha a maquina de estados pela conversa ate a venda fechada.
+    Cenario(
+        nome="interno_fecha_venda",
+        persona=PersonaCliente(
+            nome="Joao",
+            o_que_quer=(
+                "quer marcar um interno de 1h hoje a noite, voce vai ate ela. pergunta o preco, "
+                "combina um horario depois das 21h, avisa que ja saiu de casa e, ao chegar no "
+                "predio, manda a foto da portaria"
+            ),
+            orcamento="ate uns 1200",
+            atos_disponiveis=["enviar_aviso_saida", "enviar_foto_portaria"],
+        ),
+        decidir_ato=_roteiro_portaria(aviso_em=5, portaria_em=7),
+        max_turnos=11,
+        fechar_card=True,
     ),
     # --- felizes INTERNO que fecham por foto de portaria (caminho de conversao real, 001/002) ----
     Cenario(

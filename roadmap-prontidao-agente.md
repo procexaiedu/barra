@@ -577,7 +577,7 @@ Inv. piso → **Coberto**.
 | ID | Item | Fecha | Critério de sucesso | Onde |
 |---|---|---|---|---|
 | **F4.1** ✅ (gate determinístico + corrida ★API ao vivo) | Jornada E2E começando em **`Novo`** (1º contato antes da triagem) | 4b (estado Novo) | jornada exercita Novo→Triagem pela conversa | `evals/`/`sim/cenarios*.py` |
-| **F4.2** | Jornadas que chegam a **`Fechado`** pela conversa (modelo fecha respondendo card com Valor final) | 4b (Fechado) | E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana | `sim/`, runner |
+| **F4.2** 🟡 (gate determinístico + estrutura pronta; corrida ★API pendente) | Jornadas que chegam a **`Fechado`** pela conversa (modelo fecha respondendo card com Valor final) | 4b (Fechado) | E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana | `sim/`, runner |
 | **F4.3** | Jornada que vira **`Perdido (sumiu)`** por timeout como continuação E2E | 4b (Perdido) | ramo "não volta" é jornada graduada | `sim/`, runner |
 | **F4.4** | `Em_execucao → Fechado` por **Lembrete de fechamento** dentro de uma jornada | 4b | cobrança proativa do Valor final fecha pela conversa | `sim/`, runner |
 | **F4.5** | **Recorrência**: novo Atendimento na mesma Conversa cliente após um Fechado | 4b | cenário existe e passa | `sim/`, runner |
@@ -623,6 +623,37 @@ conversa (Novo … Fechado/Perdido). **Substituição do vendedor demonstrada pe
 > determinístico bloqueia regressão a cada PR + corrida ★API registrada ao vivo). A persona-LLM
 > (`primeiro_contato_novo`, `cenarios.py`) fica pronta p/ o golden quando o operador regerar o
 > corpus inteiro.
+
+> **Status F4.2 🟡 gate determinístico + estrutura pronta, corrida ★API pendente (feito, merge
+> local):** TODA jornada do sim morria em **`Em_execucao`** (a foto de portaria pausa a IA e o loop
+> conversacional encerra) ou em **`Confirmado`** (Pix) — **`Fechado`**, o desfecho da venda, nunca era
+> alcançado pela própria jornada. A transição final **não** é um turno da IA nem um ato do cliente: é a
+> **modelo** respondendo o card na Coordenação com o **Valor final** (`aplicar_comando
+> registrar_fechado`, pela porta `grupo_coordenacao`/`modelo`) — um gatilho **fora-de-banda de um 3º
+> ator**, provado isolado na **F0.8**. F4.2 fecha a costura: um novo ato dual-control
+> **`modelo_fecha_card`** (`sim/atos.py`, o único ato de um ator que não é o cliente; chama o **mesmo**
+> `aplicar_comando registrar_fechado` da prod — não reimplementa o UPDATE), aplicado **pós-loop** pelo
+> `jornada` (novo `fechar_card=True`): a conversa termina em `Em_execucao` e então a modelo fecha o card
+> → **`Fechado`**. Cenario **`interno_fecha_venda`** (persona-LLM, `cenarios.py`) + **`fixo_interno_fecha_venda`**
+> (cliente roteirizado, `cenarios_fixos.py`), ambos jornada de **interno completa** (conversa → Aguardando
+> → portaria → Em_execucao → fecho). O gate tem **duas metades, espelhando F0.x/F1.x/F4.1**: **(1)
+> estrutural PURO** (sem DB/LLM, roda no `make test`): ≥1 persona **e** ≥1 fixo declaram `fechar_card=True`
+> **e** o roteiro de fato alcança `Em_execucao` pela portaria (anti "fecho do nada"); **(2) espinha
+> `needs_db`** (Postgres efêmero do CI pós-F0.1): semeia `Em_execucao` + bloqueio `em_atendimento` pela
+> **mesma porta que `sim/loop.py:jornada`** (`runner._seed_entidades`) e aplica o **exato ato de fecho que
+> o `jornada` dispara pós-loop** (`loop._aplicar_ato(..., "modelo_fecha_card")`), provando
+> **`Em_execucao → Fechado`** + Valor final gravado + **bloqueio concluído** (trigger `sync_bloqueio_estado`)
+> + IA despausada. É "pela conversa" menos o LLM conduzir a venda até a portaria. **Dentes provados
+> (vermelho→verde), TDD:** sem as jornadas, as 2 checagens de existência falham (`assert []`); com elas,
+> verde, e os invariantes pré-existentes dos conjuntos (tamanho ∈ faixa — bump 16→17 —, nomes únicos,
+> anti-leakage, atos declarados) seguem verdes. `make test`: 898 passed (93 `needs_db` skipped sem
+> `TEST_DATABASE_URL`, incl. a espinha — rodam no Postgres efêmero do CI); mypy (`mypy src`) + ruff limpos.
+> **Metade ★API PENDENTE (não é código):** a **corrida ao vivo** (grafo real + Sonnet conduz o interno
+> até `Em_execucao`, depois o fecho pós-loop grava o primeiro `Fechado` por jornada) é **★API** (custa
+> crédito, §0) e o **único banco disponível é o prod** (`db.procexai.tech`) — sem banco de teste
+> provisionado (`TEST_DATABASE_URL` unset; espinha skipped localmente, idêntico à F4.1). F4.2 só conta
+> como **Coberto pleno** quando essa corrida verde for registrada ao vivo. A persona-LLM
+> (`interno_fecha_venda`) fica pronta p/ o golden quando o operador regerar o corpus.
 
 ---
 

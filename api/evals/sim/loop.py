@@ -105,6 +105,8 @@ async def _aplicar_ato(
         await _atos.enviar_aviso_saida(conn, atendimento_id)
     elif ato == "ficar_em_silencio":
         _atos.ficar_em_silencio()  # no-op: deixa o timeout decidir
+    elif ato == "modelo_fecha_card":
+        await _atos.modelo_fecha_card(conn, atendimento_id)  # 3o ator: a modelo fecha o card
     else:
         raise ValueError(f"ato desconhecido: {ato!r}")
 
@@ -317,6 +319,7 @@ async def jornada(
     *,
     max_turnos: int = 8,
     apos_seed: Any | None = None,
+    fechar_card: bool = False,
 ) -> Trajetoria:
     """Roda a jornada dual-control fechada (needs_db + needs_anthropic_api). Coleta a trajetoria.
 
@@ -330,6 +333,11 @@ async def jornada(
     rodado logo apos `_seed_entidades` e ANTES do 1o turno -- usado para popular o cardapio/agenda
     da modelo recem-seedada (ver sim/seed_cardapio.py), ja que `_seed_entidades` cria modelo minima
     (sem programas, a IA nao teria preco para cotar). default None = nao mexe no seed.
+
+    `fechar_card=True` (F4.2) aplica o fecho da venda APOS o loop: a conversa termina em
+    `Em_execucao` (a foto de portaria pausou a IA e encerrou o loop) e entao a MODELO responde o card
+    com o Valor final (`modelo_fecha_card` -> Fechado). E fora-de-banda (3o ator, nao um turno da IA);
+    so dispara se a jornada de fato chegou em `Em_execucao`. default False = morre em Em_execucao.
 
     O caller envolve isto em transacao + ROLLBACK (como `runner.rodar`). Promova qualquer falha
     observada na trajetoria a uma fixture de `scripted_5/`.
@@ -428,6 +436,27 @@ async def jornada(
         )
         if captura.ia_pausada:
             break
+
+    # Fecho da venda fora-de-banda (F4.2, 3o ator): a conversa terminou em `Em_execucao` (a foto de
+    # portaria pausou a IA e encerrou o loop); agora a modelo responde o card com o Valor final ->
+    # `Fechado`. Espelha producao -- o registro de resultado NAO e um turno da IA. So fecha se de
+    # fato chegou em `Em_execucao` (jornada interna completa); senao a venda nao se concretizou.
+    if fechar_card:
+        pos = await _ler_estado(conn, atendimento_id)
+        if pos["estado"] == "Em_execucao":
+            await _aplicar_ato(conn, atendimento_id, "modelo_fecha_card")
+            final = await _ler_estado(conn, atendimento_id)
+            trajetoria.passos.append(
+                PassoJornada(
+                    indice=len(trajetoria.passos),
+                    acao_mensagem=None,
+                    acao_ato="modelo_fecha_card",
+                    bolha_ia=None,
+                    estado_atendimento=final["estado"],
+                    ia_pausada=final["ia_pausada"],
+                    pix_status=final["pix_status"],
+                )
+            )
 
     return trajetoria
 

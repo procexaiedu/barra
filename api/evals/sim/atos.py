@@ -95,6 +95,38 @@ async def enviar_aviso_saida(
     )
 
 
+async def modelo_fecha_card(
+    conn: AsyncConnection[dict[str, Any]],
+    atendimento_id: UUID,
+    *,
+    valor_final: str = "800",
+) -> None:
+    """A MODELO fecha a venda respondendo o card na Coordenacao com o Valor final (CONTEXT.md
+    "Registro de resultado").
+
+    Unico ato dual-control de um 3o ator (a modelo, nao o cliente): a transicao final
+    `Em_execucao -> Fechado` nao e disparada por turno da IA nem por ato do cliente, mas pela modelo
+    respondendo o card. Espelha exatamente o gatilho de producao -- `aplicar_comando registrar_fechado`
+    pela porta `grupo_coordenacao`/`modelo` (a mesma que o webhook chama ao resolver um card, provada
+    isolada na F0.8): grava o Valor final, conclui o bloqueio vinculado (trigger sync_bloqueio_estado)
+    e despausa a IA. O `valor_final` e REPRESENTATIVO (a cardapio do sim cota 1h=800) -- o valor
+    negociado correto e qualidade-de-venda, sob revisao humana, fora do escopo deterministico (F4.2).
+
+    Import LAZY de `aplicar_comando` (igual ao `loop.py` com `barra.core.tracing`): mantem `atos.py`
+    importavel nos testes puros sem arrastar o dominio.
+    """
+    from barra.dominio.escaladas.service import aplicar_comando
+
+    await aplicar_comando(
+        conn,
+        origem="grupo_coordenacao",
+        autor="modelo",
+        atendimento_id=atendimento_id,
+        comando="registrar_fechado",
+        payload={"valor_final": valor_final},
+    )
+
+
 def ficar_em_silencio() -> None:
     """Cliente nao faz nada -- deixa o TIMEOUT determinista decidir (no-op, sem DB).
 
