@@ -40,9 +40,17 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
       - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
-      - LANGCHAIN_TRACING_V2=true
+      # Observabilidade: Langfuse self-hosted (ADR 0019). LANGCHAIN_TRACING_V2=false e
+      # OBRIGATORIO -- sem setup_tracing (removido no cutover Fase 3) o LangChain auto-tracaria
+      # pro LangSmith com o client default SEM anonymizer (PII crua). LANGCHAIN_* ficam mortos
+      # ate a Fase 4 (LangSmith aposentado). LANGFUSE_HOST nao e segredo (versionado); as chaves
+      # PUBLIC/SECRET sao ${VAR} resolvidas pelo Env do stack no Portainer.
+      - LANGCHAIN_TRACING_V2=false
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
       - LANGCHAIN_PROJECT=barra-vips-prod
+      - LANGFUSE_HOST=https://langfuse.procexai.tech
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
       - EVOLUTION_INSTANCIA=lucia
@@ -118,9 +126,17 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
       - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
-      - LANGCHAIN_TRACING_V2=true
+      # Observabilidade: Langfuse self-hosted (ADR 0019). LANGCHAIN_TRACING_V2=false e
+      # OBRIGATORIO -- sem setup_tracing (removido no cutover Fase 3) o LangChain auto-tracaria
+      # pro LangSmith com o client default SEM anonymizer (PII crua). LANGCHAIN_* ficam mortos
+      # ate a Fase 4 (LangSmith aposentado). LANGFUSE_HOST nao e segredo (versionado); as chaves
+      # PUBLIC/SECRET sao ${VAR} resolvidas pelo Env do stack no Portainer.
+      - LANGCHAIN_TRACING_V2=false
       - LANGCHAIN_API_KEY=${LANGCHAIN_API_KEY}
       - LANGCHAIN_PROJECT=barra-vips-prod
+      - LANGFUSE_HOST=https://langfuse.procexai.tech
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
       - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
       - EVOLUTION_INSTANCIA=lucia

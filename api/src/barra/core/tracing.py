@@ -165,17 +165,11 @@ def setup_tracing_sim(settings: Settings, *, projeto: str = "barra-vips-sim") ->
 _LANGFUSE_HANDLER: Any | None = None
 
 
-def setup_langfuse_sim(settings: Settings) -> Any | None:
-    """Liga o tracing Langfuse do SIMULADOR (avaliação vs LangSmith) e cacheia o CallbackHandler.
-
-    Mesma filosofia (e mesmas travas) do `setup_tracing_sim`: conteúdo LEGÍVEL porque os dados são
-    SINTÉTICOS. NUNCA chamar de `main.py`/worker (PII real) nem de teste -- só dos entrypoints CLI do
-    sim. O handler fica num global que o site de ainvoke da jornada anexa aos callbacks; sem esta
-    chamada (caso default, ex.: pytest), `langfuse_handler()` devolve None e o Langfuse não traça.
-
-    No-op (retorna None) se `langfuse` não instalado (é dep de dev, ausente em prod), chaves ausentes,
-    ou auth falha -- aí a jornada só traça no LangSmith-sim.
-    """
+def _ligar_langfuse_handler(settings: Settings, *, rotulo: str) -> Any | None:
+    """Núcleo compartilhado de `setup_langfuse` (prod) e `setup_langfuse_sim` (sim): faz a ponte das
+    chaves p/ o `os.environ` (o SDK lê de lá; pydantic-settings carrega do .env mas não exporta),
+    valida o auth e cacheia o `CallbackHandler` no global. `setdefault` não sobrescreve env real já
+    presente. No-op (None) sem chaves, sem o pacote, ou se o auth falhar."""
     global _LANGFUSE_HANDLER
     if not settings.langfuse_public_key:
         return None
@@ -183,23 +177,51 @@ def setup_langfuse_sim(settings: Settings) -> Any | None:
         from langfuse import get_client
         from langfuse.langchain import CallbackHandler
     except ModuleNotFoundError:
-        logger.warning("langfuse_sim: pacote langfuse ausente (dep de dev); tracing langfuse off")
+        logger.warning("langfuse_%s: pacote langfuse ausente; tracing langfuse off", rotulo)
         return None
-    # O SDK do Langfuse lê as chaves do os.environ (get_client monta o singleton). pydantic-settings
-    # carrega do .env mas não exporta p/ os.environ -- ponte aqui, no padrão do setup_tracing (que já
-    # seta LANGCHAIN_* no environ). setdefault: não sobrescreve um env real já presente.
     os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.langfuse_public_key)
     os.environ.setdefault("LANGFUSE_SECRET_KEY", settings.langfuse_secret_key or "")
     os.environ.setdefault("LANGFUSE_HOST", settings.langfuse_host)
     client = get_client()
     if not client.auth_check():
-        logger.warning("langfuse_sim: auth_check falhou; tracing langfuse off")
+        logger.warning("langfuse_%s: auth_check falhou; tracing langfuse off", rotulo)
         return None
     _LANGFUSE_HANDLER = CallbackHandler()
-    logger.info(
-        "langfuse_sim_ligado host=%s (sem masking; dados sinteticos)", settings.langfuse_host
-    )
     return _LANGFUSE_HANDLER
+
+
+def setup_langfuse(settings: Settings) -> Any | None:
+    """Liga o tracing Langfuse self-hosted de PRODUÇÃO (ADR 0019) e cacheia o CallbackHandler.
+
+    Substitui o `setup_tracing` (LangSmith + anonymizer) no `main.py`/worker. SEM masking: com o
+    Langfuse na infra própria (mesmo perímetro de confiança do banco que já guarda a PII), o trace
+    volta a ser legível e a proteção de PII migra do masking-no-egress p/ o controle de acesso ao
+    Langfuse. O handler fica num global que o coordenador anexa aos callbacks do `graph.ainvoke`.
+
+    No-op (None) sem chaves, sem o pacote, ou se o auth falhar -- aí o turno roda sem tracing.
+    """
+    handler = _ligar_langfuse_handler(settings, rotulo="prod")
+    if handler is not None:
+        logger.info(
+            "langfuse_prod_ligado host=%s (self-hosted; PII na infra propria, sem masking)",
+            settings.langfuse_host,
+        )
+    return handler
+
+
+def setup_langfuse_sim(settings: Settings) -> Any | None:
+    """Liga o tracing Langfuse do SIMULADOR de evals (dados sintéticos, legível) e cacheia o handler.
+
+    NUNCA chamar de teste -- só dos entrypoints CLI do sim. O handler fica num global que o site de
+    ainvoke da jornada anexa aos callbacks; sem esta chamada (caso default, ex.: pytest),
+    `langfuse_handler()` devolve None e o Langfuse não traça.
+    """
+    handler = _ligar_langfuse_handler(settings, rotulo="sim")
+    if handler is not None:
+        logger.info(
+            "langfuse_sim_ligado host=%s (sem masking; dados sinteticos)", settings.langfuse_host
+        )
+    return handler
 
 
 def langfuse_handler() -> Any | None:
@@ -224,33 +246,38 @@ def metadata_trace_turno(modelo_id: str, atendimento_id: str) -> dict[str, Any]:
 
     Recebe `str` (não `ContextAgente`): `core/` não importa de `agente/` (direção de deps).
     """
+    tags = [f"modelo_id:{modelo_id}", f"atendimento_id:{atendimento_id}"]
     return {
         "metadata": {
             "modelo_id": modelo_id,
             "atendimento_id": atendimento_id,
             _GEN_AI_CONVERSATION_ID: atendimento_id,
+            # Langfuse (ADR 0019): agrupa os turnos da jornada por atendimento e replica as tags no
+            # nível do trace; o CallbackHandler lê estas chaves do metadata do config.
+            "langfuse_session_id": atendimento_id,
+            "langfuse_tags": tags,
         },
-        "tags": [f"modelo_id:{modelo_id}", f"atendimento_id:{atendimento_id}"],
+        "tags": tags,
     }
 
 
-def registrar_feedback_online(run_id: str | None, key: str, score: float) -> None:
-    """Anexa um feedback determinístico (não-PII) ao run do LangSmith (EVAL-11 online → trace).
+def registrar_feedback_online(trace_id: str | None, name: str, score: float) -> None:
+    """Anexa um score determinístico (não-PII) ao trace do Langfuse (EVAL-11 online → trace).
 
-    Só `key` (nome da rubrica) + `score` 0/1 — NUNCA conteúdo de mensagem. O conteúdo de prod já
-    vai ao LangSmith mascarado (`setup_tracing` força o anonymizer); este feedback é o jeito de ter
-    o veredito de um invariante determinístico VISÍVEL no trace mesmo com o texto `[PII]` (que
-    cegaria um evaluator que lesse o conteúdo do trace). Best-effort: no-op sem client global
-    (tracing desligado) ou sem `run_id`. Síncrono (POST no Client) — o caller roda fora do event
-    loop (`asyncio.to_thread`) e nunca deixa a telemetria derrubar o turno.
+    Só `name` (rubrica) + `score` 0/1 — NUNCA conteúdo de mensagem. Com o Langfuse self-hosted o
+    conteúdo do trace já é legível (ADR 0019); este score é o veredito por-turno de um invariante
+    determinístico, visível no trace e agregável no painel. Best-effort: no-op sem o handler global
+    (tracing desligado — ex.: pytest) ou sem `trace_id`. Síncrono — o caller roda fora do event loop
+    (`asyncio.to_thread`) e nunca deixa a telemetria derrubar o turno.
     """
-    client = run_trees._CLIENT
-    if client is None or run_id is None:
+    if _LANGFUSE_HANDLER is None or trace_id is None:
         return
     try:
-        client.create_feedback(run_id, key=key, score=score)
+        from langfuse import get_client
+
+        get_client().create_score(trace_id=trace_id, name=name, value=score)
     except Exception:  # best-effort: telemetria nunca quebra o turno
-        logger.debug("feedback_online_falhou key=%s", key, exc_info=True)
+        logger.debug("feedback_online_falhou name=%s", name, exc_info=True)
 
 
 def _tag_turno_id(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any]:

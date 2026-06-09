@@ -244,7 +244,7 @@ class Settings(BaseSettings):
     # setup_langfuse_sim; ausência das chaves = tracing langfuse off.
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
-    langfuse_host: str = "https://us.cloud.langfuse.com"
+    langfuse_host: str = "https://langfuse.procexai.tech"
 
     evolution_base_url: str = ""
     evolution_api_key: str = ""

@@ -27,7 +27,7 @@ from barra.core.db import criar_pool, fechar_pool
 from barra.core.evolution import EvolutionClient
 from barra.core.logging import setup_logging
 from barra.core.storage import criar_minio
-from barra.core.tracing import init_sentry, setup_tracing
+from barra.core.tracing import init_sentry, setup_langfuse
 from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
 from barra.workers.envio import MAX_TRIES_ENVIO, enviar_card, enviar_turno
@@ -119,9 +119,9 @@ async def startup(ctx: dict[str, Any]) -> None:
     # O agente roda aqui (worker), entao Sentry e tracing tem de subir aqui. Sentry captura a
     # excecao do turno (integracao arq) com a tag turno_id (OBS-04); sem DSN e no-op.
     init_sentry(settings)
-    # tracing LangSmith — com o anonymizer de PII ou desligado (hard gate em setup_tracing);
-    # nunca tracing cru.
-    setup_tracing(settings)
+    # tracing Langfuse self-hosted (ADR 0019) — trace legível, PII na infra própria (sem masking);
+    # o coordenador anexa o handler global aos callbacks do graph.ainvoke. No-op sem chaves.
+    setup_langfuse(settings)
     # Expoe as metricas do worker (agente_turno_*, agente_custo_turno_brl) p/ scrape em :9091.
     # Guard por ambiente: nao sobe em teste (a suite reusa o processo e a porta colidiria).
     if settings.ambiente != "teste":

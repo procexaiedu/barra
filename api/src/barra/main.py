@@ -19,7 +19,7 @@ from barra.core.errors import instalar_handlers
 from barra.core.logging import setup_logging
 from barra.core.metrics import MetricsMiddleware, prometheus_response
 from barra.core.storage import criar_minio, ensure_bucket
-from barra.core.tracing import init_sentry, setup_tracing
+from barra.core.tracing import init_sentry, setup_langfuse
 from barra.settings import get_settings
 from barra.webhook.routes import router as webhook_router
 
@@ -58,7 +58,7 @@ def build_app() -> FastAPI:
     settings = get_settings()
     setup_logging(settings)
     init_sentry(settings)
-    setup_tracing(settings)
+    setup_langfuse(settings)
 
     app = FastAPI(
         title="Elite Baby API",

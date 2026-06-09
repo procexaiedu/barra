@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import random
+from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime, timedelta
 from time import perf_counter
 from typing import Any
@@ -22,7 +23,7 @@ from uuid import UUID, uuid5
 import structlog
 from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
-from langchain_core.tracers.context import collect_runs
+from langfuse import Langfuse, get_client
 from langgraph.errors import GraphRecursionError
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
@@ -39,7 +40,7 @@ from barra.core.metrics import (
     LOCK_OCUPADO,
 )
 from barra.core.redis import LockBusy, adquirir_lock
-from barra.core.tracing import metadata_trace_turno, registrar_feedback_online
+from barra.core.tracing import langfuse_handler, metadata_trace_turno, registrar_feedback_online
 from barra.settings import get_settings
 from barra.workers._chunking import chunk_texto
 
@@ -204,22 +205,30 @@ async def processar_turno(
 
                 # 5. invoca grafo (teto de tempo por iteracao; o job_timeout do ARQ e generoso)
                 inicio = perf_counter()
-                # collect_runs captura o id do run-raiz do grafo p/ anexar o feedback online (EVAL-11)
-                # ao MESMO trace do LangSmith. O id e compartilhado entre os callbacks, entao bate com
-                # o run que o tracer global envia ao LangSmith. None se nada foi coletado.
-                run_id_trace: str | None = None
+                # Langfuse (ADR 0019): trace-id determinístico por turno (seed=turno_id) — evita o
+                # `handler.last_trace_id` racy num worker que processa turnos concorrentes. Embrulha o
+                # ainvoke num span com esse trace_id p/ o CallbackHandler pendurar o grafo nele; o
+                # mesmo id ancora o score online (EVAL-11). None se o tracing esta desligado.
+                lf_handler = langfuse_handler()
+                trace_id_eval: str | None = None
+                callbacks: list[Any] = []
+                span_ctx: AbstractContextManager[Any] = nullcontext()
+                if lf_handler is not None:
+                    trace_id_eval = Langfuse.create_trace_id(seed=turno_id)
+                    callbacks = [lf_handler]
+                    span_ctx = get_client().start_as_current_observation(
+                        as_type="span", name="turno", trace_context={"trace_id": trace_id_eval}
+                    )
                 try:
-                    with collect_runs() as runs_cb:
+                    with span_ctx:
                         resultado = await asyncio.wait_for(
                             graph.ainvoke(
                                 entrada,
-                                config={**config, "callbacks": [runs_cb]},
+                                config={**config, "callbacks": callbacks},
                                 context=context,
                             ),
                             timeout=60.0,
                         )
-                    if runs_cb.traced_runs:
-                        run_id_trace = str(runs_cb.traced_runs[0].id)
                 except TimeoutError:
                     logger.error("graph_timeout turno_id=%s", turno_id)
                     await escalar_por_exaustao(
@@ -430,13 +439,13 @@ async def processar_turno(
                             quote_texto=alvo_quote_texto,
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
-                        # EVAL-11: rubrica online amostrada -> Prometheus (tendencia) + feedback no
-                        # trace do LangSmith (veredito por-turno, visivel mesmo com conteudo [PII]).
+                        # EVAL-11: rubrica online amostrada -> Prometheus (tendencia) + score no
+                        # trace do Langfuse (veredito por-turno, agora sobre conteudo legivel).
                         score_online = _amostrar_eval_online(chunks)
-                        if score_online is not None and run_id_trace is not None:
+                        if score_online is not None and trace_id_eval is not None:
                             await asyncio.to_thread(
                                 registrar_feedback_online,
-                                run_id_trace,
+                                trace_id_eval,
                                 "online_non_disclosure",
                                 score_online,
                             )

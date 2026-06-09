@@ -117,7 +117,9 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jinja2" },
+    { name = "langchain" },
     { name = "langchain-anthropic" },
+    { name = "langfuse" },
     { name = "langgraph" },
     { name = "langgraph-checkpoint-postgres" },
     { name = "minio" },
@@ -137,8 +139,6 @@ dependencies = [
 [package.dev-dependencies]
 dev = [
     { name = "fakeredis", extra = ["lua"] },
-    { name = "langchain" },
-    { name = "langfuse" },
     { name = "mypy" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
@@ -154,7 +154,9 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.136" },
     { name = "httpx", specifier = ">=0.28" },
     { name = "jinja2", specifier = ">=3.1.6" },
+    { name = "langchain", specifier = ">=1.3.4" },
     { name = "langchain-anthropic", specifier = ">=1.4.3" },
+    { name = "langfuse", specifier = ">=4.7.1" },
     { name = "langgraph", specifier = ">=0.4" },
     { name = "langgraph-checkpoint-postgres", specifier = ">=2.0" },
     { name = "minio", specifier = ">=7.2" },
@@ -174,8 +176,6 @@ requires-dist = [
 [package.metadata.requires-dev]
 dev = [
     { name = "fakeredis", extras = ["lua"], specifier = ">=2.35.1" },
-    { name = "langchain", specifier = ">=1.3.4" },
-    { name = "langfuse", specifier = ">=4.7.1" },
     { name = "mypy", specifier = ">=1.13" },
     { name = "pytest", specifier = ">=8.3" },
     { name = "pytest-asyncio", specifier = ">=0.24" },

@@ -44,6 +44,9 @@ def test_ids_surgem_como_metadata_e_tags_do_trace() -> None:
     assert meta["atendimento_id"] == _ATENDIMENTO_ID
     # atendimento_id também sob a convenção OTel gen_ai (thread do LangSmith)
     assert meta["gen_ai.conversation.id"] == _ATENDIMENTO_ID
+    # Langfuse (ADR 0019): agrupa a jornada por atendimento + replica as tags no nível do trace
+    assert meta["langfuse_session_id"] == _ATENDIMENTO_ID
+    assert "atendimento_id:" + _ATENDIMENTO_ID in meta["langfuse_tags"]
     assert "modelo_id:" + _MODELO_ID in run.tags
     assert "atendimento_id:" + _ATENDIMENTO_ID in run.tags
 

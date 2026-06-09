@@ -20,7 +20,7 @@ def _stub_recursos(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(worker_settings, "EvolutionClient", MagicMock())
     monkeypatch.setattr(worker_settings, "build_graph", MagicMock())
     monkeypatch.setattr(worker_settings, "preaquecer_prefixo_global", AsyncMock())
-    monkeypatch.setattr(worker_settings, "setup_tracing", MagicMock())
+    monkeypatch.setattr(worker_settings, "setup_langfuse", MagicMock())
     monkeypatch.setattr(worker_settings, "init_sentry", MagicMock())
 
 
