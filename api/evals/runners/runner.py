@@ -47,9 +47,11 @@ import sys
 from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
 from langchain_core.callbacks.base import BaseCallbackHandler
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
@@ -60,6 +62,8 @@ from barra.agente._custo import calcular_custo_brl
 from barra.agente.contexto import ContextAgente
 from barra.agente.ferramentas import TOOLS
 from barra.agente.graph import build_graph
+from barra.calibracao import service as calibracao_service
+from barra.calibracao.schemas import RodadaResumo
 from barra.settings import get_settings
 
 _EVALS_RAIZ = Path(__file__).resolve().parents[1]
@@ -819,11 +823,16 @@ async def executar_fixture(
     handler = NodesVisitedHandler()  # reusado entre turnos -> acumula a trajetoria da fixture
     captura: Captura | None = None
     falhas_turno: list[str] = []
+    # Turnos da conversa p/ a auto-ingestao na aba de calibracao (formato conversas.jsonl): so a
+    # mensagem do CLIENTE e a bolha GERADA entram. A 'ia' roteirizada (historico da janela, nao
+    # disparou o LLM) NAO vira fala rotulavel -- "tudo que rodou a LLM" = so a bolha gerada.
+    turnos_conversa: list[dict[str, Any]] = []
 
     for plano in planejar_turnos(fixture.get("mensagens_entrada", [])):
         await _inserir_mensagem(conn, conversa_id, plano.msg, plano.indice)
         if not plano.dispara:
             continue  # resposta roteirizada da IA: historico da janela, nao dispara turno
+        turnos_conversa.append({"papel": "cliente", "texto": plano.msg.get("texto", "")})
         nodes_antes = set(handler.nos)  # handler acumula entre turnos -> delta = nos DESTE turno
         estado = await grafo.ainvoke(
             {"messages": []},
@@ -842,6 +851,18 @@ async def executar_fixture(
         )
         captura = await _capturar(conn, atendimento_id, estado)
         nodes_turno = set(handler.nos) - nodes_antes  # nos visitados SO neste turno (08c §4)
+        turnos_conversa.append(
+            {
+                "papel": "ia",  # bolha GERADA -> fala rotulavel (idx atribuido na serializacao)
+                "texto": captura.texto_final,
+                "estado": captura.estado_atendimento,
+                "ia_pausada": captura.ia_pausada,
+                "pix_status": captura.pix_status,
+                "tools": sorted(_tools_efetivas(captura)),
+                "escalou": captura.escalou,
+                "nodes": sorted(nodes_turno),
+            }
+        )
         exp_turno = plano.msg.get("expectativas") or {}
         prefixo = f"turno[{plano.indice}] "
         # state_check per-turno: legado no topo do item + (novo) dentro do `expectativas` do turno.
@@ -857,7 +878,46 @@ async def executar_fixture(
             f"fixture {fixture.get('id', '?')!r} nao tem mensagem de cliente -- nenhum turno disparado"
         )
     captura.nodes_visitados = set(handler.nos)  # trajetoria acumulada de todos os turnos
-    return captura, falhas_turno
+    return captura, falhas_turno, turnos_conversa
+
+
+def serializar_conversa(
+    fixture_id: str, amostra: int, turnos: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Turnos capturados de UMA amostra -> conversa no formato `conversas.jsonl` que a aba de
+    calibracao ingere (`calibracao.falas.parse_jsonl`/`falas_de`). PURO -- testavel sem DB/LLM.
+
+    Cada bolha `papel='ia'` ganha o `idx` sequencial (chave de rotulagem na UI; espelha o
+    `_serializar` de `sim/gerar_conversas.py`). As K amostras da MESMA fixture viram conversas
+    distintas (`<id>#kN`) para que Fernando/socia vejam a variacao run-a-run (flake de voz/persona).
+    """
+    falas = [dict(t) for t in turnos]
+    idx = 0
+    for t in falas:
+        if t.get("papel") == "ia":
+            t["idx"] = idx
+            idx += 1
+    return {"conversa_id": f"{fixture_id}#k{amostra}", "cenario": fixture_id, "turnos": falas}
+
+
+def conversas_para_jsonl(conversas: list[dict[str, Any]]) -> bytes:
+    """Serializa as conversas em bytes .jsonl UTF-8 -- a entrada de `calibracao.service.criar_rodada`
+    (mesma que o upload manual da aba recebe). PURO."""
+    return ("\n".join(json.dumps(c, ensure_ascii=False) for c in conversas) + "\n").encode("utf-8")
+
+
+async def ingerir_conversas(
+    conn: AsyncConnection[Any], nome: str, conversas: list[dict[str, Any]]
+) -> RodadaResumo:
+    """Materializa as conversas GERADAS pelo runner como uma RODADA de calibracao (reusa o mesmo
+    `criar_rodada` do upload da aba). O caller commita: escrita no banco do PAINEL e acao de
+    producao (§0) -- so acontece sob o opt-in explicito `--ingerir-calibracao`."""
+    return await calibracao_service.criar_rodada(
+        conn,
+        nome,
+        "Gerada pelo runner de evals (corrida ao vivo do gate).",
+        conversas_para_jsonl(conversas),
+    )
 
 
 # --- avaliacao (PURA: graders deterministicos) -------------------------------------------------
@@ -1192,22 +1252,51 @@ async def _conectar() -> AsyncConnection[dict[str, Any]]:
     )
 
 
-async def rodar(fixtures: list[dict[str, Any]], k: int = 1, debug: bool = False) -> list[Avaliacao]:
+async def _persistir_calibracao(nome: str, conversas: list[dict[str, Any]]) -> None:
+    """Abre conexao COMMITADA ao banco do PAINEL (`settings.database_url`, distinto do
+    `TEST_DATABASE_URL` rolled-back do gate) e grava a rodada de calibracao. Escrita em prod (§0):
+    so chamada sob `--ingerir-calibracao`. Banco do painel ausente/igual ao de teste -> erro claro.
+    """
+    url = get_settings().database_url
+    if not url:
+        print(
+            "ERRO: settings.database_url vazio -- sem banco do painel p/ ingerir a calibracao.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    conn = await AsyncConnection.connect(url, autocommit=False, row_factory=dict_row)
+    try:
+        resumo = await ingerir_conversas(conn, nome, conversas)
+        await conn.commit()
+        print(
+            f"\nrodada de calibracao gravada no painel: {resumo.nome!r} ({resumo.total_falas} falas)."
+        )
+    finally:
+        await conn.close()
+
+
+async def rodar(
+    fixtures: list[dict[str, Any]], k: int = 1, debug: bool = False
+) -> tuple[list[Avaliacao], list[dict[str, Any]]]:
     """Roda cada fixture K vezes (K=1 no EVAL-01; loop K=5 e EVAL-04/03), ROLLBACK por amostra.
 
     Cada amostra e uma fixture multi-turno inteira numa transacao (estado acumula entre turnos,
-    rollback ao fim da amostra). Retorna as avaliacoes JA agregadas por fixture -- 1 veredito cada.
+    rollback ao fim da amostra). Retorna `(avaliacoes JA agregadas por fixture, conversas geradas)`.
+    As conversas (formato `conversas.jsonl`, uma por amostra) sao o material da auto-ingestao na aba
+    de calibracao -- toda fala que rodou a LLM fica salva, nao so o veredito pass/fail.
     `debug=True` imprime no stderr, por amostra, a Captura (tools efetivas, estado, texto final e a
     superficie auditavel -- que carrega os ARGS das tools, incl. o motivo/resumo do `escalar`):
     diagnostico de POR QUE uma fixture falhou, sem novo gasto de credito alem do run.
     """
     brutas: list[Avaliacao] = []
+    conversas: list[dict[str, Any]] = []
     conn = await _conectar()
     try:
         for fixture in fixtures:
-            for _ in range(k):
+            for amostra in range(k):
                 try:
-                    captura, falhas_turno = await executar_fixture(conn, fixture)
+                    captura, falhas_turno, turnos = await executar_fixture(conn, fixture)
+                    conversas.append(serializar_conversa(fixture.get("id", "?"), amostra, turnos))
                     av = avaliar(fixture, captura)
                     if falhas_turno:
                         av.falhas = [*falhas_turno, *av.falhas]
@@ -1249,7 +1338,7 @@ async def rodar(fixtures: list[dict[str, Any]], k: int = 1, debug: bool = False)
                     await conn.rollback()
     finally:
         await conn.close()
-    return agregar_por_fixture(brutas)
+    return agregar_por_fixture(brutas), conversas
 
 
 def _imprimir(avaliacoes: list[Avaliacao]) -> None:
@@ -1300,6 +1389,16 @@ def main() -> None:
         help="roda so as fixtures cujo id contem esta substring (repetivel). Para validar um "
         "subconjunto sem re-rodar a suite inteira (e queimar credito).",
     )
+    parser.add_argument(
+        "--ingerir-calibracao",
+        action="store_true",
+        help="apos a corrida, grava as conversas GERADAS como uma rodada na aba de calibracao "
+        "(escrita COMMITADA no banco do painel = acao de prod, §0). Sem o flag: nada e escrito.",
+    )
+    parser.add_argument(
+        "--rodada-nome",
+        help="nome da rodada de calibracao (default: gate-<carimbo>). Exige --ingerir-calibracao.",
+    )
     args = parser.parse_args()
 
     # psycopg async pendura no ProactorEventLoop (default Windows) -> Selector antes do loop.
@@ -1313,8 +1412,13 @@ def main() -> None:
         print("Nenhuma fixture encontrada.", file=sys.stderr)
         raise SystemExit(2)
 
-    avaliacoes = asyncio.run(rodar(fixtures, k=args.k, debug=args.debug))
+    avaliacoes, conversas = asyncio.run(rodar(fixtures, k=args.k, debug=args.debug))
     _imprimir(avaliacoes)
+
+    if args.ingerir_calibracao and conversas:
+        carimbo = datetime.now(ZoneInfo("America/Sao_Paulo")).strftime("%Y%m%dT%H%M%S")
+        nome = args.rodada_nome or f"gate-{carimbo}"
+        asyncio.run(_persistir_calibracao(nome, conversas))
 
     # So a suite de REGRESSAO bloqueia o cutover; capability e advisory (refino 08b §3.5).
     raise SystemExit(gate_split(avaliacoes, args.threshold))
