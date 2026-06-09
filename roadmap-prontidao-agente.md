@@ -576,7 +576,7 @@ Inv. piso → **Coberto**.
 
 | ID | Item | Fecha | Critério de sucesso | Onde |
 |---|---|---|---|---|
-| **F4.1** | Jornada E2E começando em **`Novo`** (1º contato antes da triagem) | 4b (estado Novo) | jornada exercita Novo→Triagem pela conversa | `evals/`/`sim/cenarios*.py` |
+| **F4.1** 🟡 (gate determinístico; corrida ★API pendente) | Jornada E2E começando em **`Novo`** (1º contato antes da triagem) | 4b (estado Novo) | jornada exercita Novo→Triagem pela conversa | `evals/`/`sim/cenarios*.py` |
 | **F4.2** | Jornadas que chegam a **`Fechado`** pela conversa (modelo fecha respondendo card com Valor final) | 4b (Fechado) | E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana | `sim/`, runner |
 | **F4.3** | Jornada que vira **`Perdido (sumiu)`** por timeout como continuação E2E | 4b (Perdido) | ramo "não volta" é jornada graduada | `sim/`, runner |
 | **F4.4** | `Em_execucao → Fechado` por **Lembrete de fechamento** dentro de uma jornada | 4b | cobrança proativa do Valor final fecha pela conversa | `sim/`, runner |
@@ -586,6 +586,34 @@ Inv. piso → **Coberto**.
 
 **Saída da Fase 4:** 4b → **Coberto**; máquina de estados coberta ponta-a-ponta pela
 conversa (Novo … Fechado/Perdido). **Substituição do vendedor demonstrada pela suíte.**
+
+> **Status F4.1 🟡 gate determinístico pronto, corrida ★API pendente (feito, merge local):** TODA
+> jornada do sim nascia em **`Triagem`** (o `estado_inicial` default de `Cenario`/`CenarioFixo`):
+> **`Novo`** — o 1º contato, antes de a IA extrair qualquer intenção — nunca era alcançado pela
+> própria conversa, então o eixo 4b não tinha como percorrer a entrada da máquina de estados.
+> F4.1 adiciona a jornada que parte de `Novo`: `primeiro_contato_novo` (persona LLM, `cenarios.py`)
+> e `fixo_primeiro_contato_novo` (cliente roteirizado, `cenarios_fixos.py`), ambos com
+> `estado_inicial = {"atendimento_estado": "Novo"}` e **1ª fala exprimindo intenção** (preço/1h —
+> o gatilho de Novo→Triagem), seguindo como interno que fecha por portaria (a máquina de estados
+> desde a entrada). O gate (`api/tests/evals/test_f4_1_jornada_novo_triagem.py`) tem **duas
+> metades, espelhando F0.x/F1.x**: **(1) estrutural PURO** (sem DB/LLM, roda no `make test`): ≥1
+> jornada persona **e** ≥1 fixa começam em `Novo`, com a 1ª fala carregando intenção — anti-vácuo
+> sobre os conjuntos não-vazios; **(2) espinha `needs_db`** (Postgres efêmero do CI pós-F0.1):
+> semeia pela **mesma porta que `sim/loop.py:jornada`** (`runner._seed_entidades`, honrando
+> `estado_inicial`) e prova que o atendimento **nasce em `Novo`** (não coagido ao default
+> `Triagem` do seed), depois aplica a **exata rota de domínio que a tool `registrar_extracao`
+> dispara num turno** (`registrar_extracao_ia` com `intencao`) e prova a transição
+> **Novo→Triagem** no banco — é "pela conversa" menos o LLM decidir chamar a tool. **Dentes
+> provados (vermelho→verde), TDD:** sem as jornadas, as 2 checagens estruturais falham
+> (`assert []` — nenhum cenário começa em Novo); com elas, verde, e os invariantes pré-existentes
+> dos conjuntos (tamanho ∈ faixa, nomes únicos, anti-leakage, atos declarados) seguem verdes.
+> `make test`: 849 passed (91 `needs_db` skipped sem `TEST_DATABASE_URL`, incl. a espinha — rodam
+> no Postgres efêmero do CI); mypy (`mypy src`) + ruff limpos. **Metade ★API PENDENTE (não é
+> código):** a **corrida ao vivo** (grafo real + Sonnet via `gerar_conversas`) que de fato gera a
+> conversa `primeiro_contato_novo` percorrendo Novo→Triagem é **★API** (custa crédito, §0) e
+> depende do banco de teste (mesmo blocker da F3.2 — `evals-gate-vinculante.md` proíbe apontar
+> `TEST_DATABASE_URL` p/ prod). F4.1 conta como **Coberto pleno** quando essa corrida for
+> registrada ao vivo.
 
 ---
 
