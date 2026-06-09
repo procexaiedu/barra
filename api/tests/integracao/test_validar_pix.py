@@ -255,6 +255,7 @@ async def test_validado_avanca_confirmado_e_enfileira_card(
         banco_origem="Itau",
         plausibilidade_visual=True,
         motivo_se_implausivel=None,
+        confianca="alta",
     )
     vision = _FakeVisionClient(extracao)
     redis = _FakeRedis()
@@ -296,6 +297,7 @@ async def test_underpay_em_revisao_mas_fluxo_avanca(
         banco_origem="Itau",
         plausibilidade_visual=True,
         motivo_se_implausivel=None,
+        confianca="alta",
     )
     vision = _FakeVisionClient(extracao)
     redis = _FakeRedis()
@@ -331,6 +333,7 @@ async def test_chave_divergente_em_revisao(
         banco_origem="Nubank",
         plausibilidade_visual=True,
         motivo_se_implausivel=None,
+        confianca="alta",
     )
     vision = _FakeVisionClient(extracao)
     redis = _FakeRedis()
@@ -364,6 +367,7 @@ async def test_plausibilidade_falsa_em_revisao(
         banco_origem=None,
         plausibilidade_visual=False,
         motivo_se_implausivel="screenshot de outro app, sem header de banco",
+        confianca="alta",
     )
     vision = _FakeVisionClient(extracao)
     redis = _FakeRedis()
@@ -386,6 +390,44 @@ async def test_plausibilidade_falsa_em_revisao(
 
 
 @pytest.mark.needs_db
+async def test_confianca_baixa_em_revisao(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Legibilidade baixa (imagem cortada/desfocada): mesmo com valor/chave/titular plausiveis,
+    a extracao nao e confiavel o bastante para validar em silencio -> em_revisao + avanca.
+    Distinto de plausibilidade (fraude): a imagem e crivel, so esta ilegivel."""
+    atendimento_id, mensagem_id = await _seed_cenario(conn)
+    extracao = ExtracaoPix(
+        valor=Decimal("100.00"),
+        chave_pix_destinatario=CHAVE_OK,
+        titular_destinatario=TITULAR_OK,
+        banco_origem="Itau",
+        plausibilidade_visual=True,
+        motivo_se_implausivel=None,
+        confianca="baixa",
+    )
+    vision = _FakeVisionClient(extracao)
+    redis = _FakeRedis()
+
+    await validar_pix(
+        _ctx(conn, vision, redis),
+        mensagem_id=str(mensagem_id),
+        atendimento_id=str(atendimento_id),
+    )
+
+    at = await _ler_atendimento(conn, atendimento_id)
+    assert at["estado"] == "Confirmado"
+    assert at["pix_status"] == "em_revisao"
+    assert at["ia_pausada"] is True
+
+    cp = await _ler_comprovante(conn, atendimento_id)
+    assert cp["decisao_pipeline"] == "em_revisao"
+    assert "legibilidade" in (cp["motivo_em_revisao"] or "")
+
+    assert redis.jobs[0][1]["tipo"] == "pix_em_revisao"
+
+
+@pytest.mark.needs_db
 async def test_midia_ausente_em_revisao_nao_vira_perdido(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
@@ -395,7 +437,9 @@ async def test_midia_ausente_em_revisao_nao_vira_perdido(
     estagnar em Aguardando_confirmacao ate o timeout-24h virar Perdido (Pix NUNCA some/trava,
     01 §6.1). Sem imagem, MinIO e vision nao sao tocados."""
     atendimento_id, mensagem_id = await _seed_cenario(conn, com_midia=False)
-    vision = _FakeVisionClient(ExtracaoPix(plausibilidade_visual=True))  # nao deve ser chamado
+    vision = _FakeVisionClient(
+        ExtracaoPix(plausibilidade_visual=True, confianca="alta")
+    )  # nao deve ser chamado
     redis = _FakeRedis()
     ctx = _ctx(conn, vision, redis)
 

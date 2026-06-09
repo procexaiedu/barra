@@ -23,7 +23,7 @@ import logging
 import re
 from decimal import Decimal
 from time import perf_counter
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from openai import AsyncOpenAI
@@ -40,6 +40,11 @@ from barra.dominio.escaladas.service import aplicar_comando
 from barra.settings import get_settings
 
 logger = logging.getLogger(__name__)
+
+
+# Alias de modulo (posicao de valor): mantem as aspas dos membros do Literal — em anotacao,
+# com `from __future__ import annotations`, o autofix UP do ruff as removeria (F821).
+Confianca = Literal["alta", "media", "baixa"]
 
 
 class VisionInconclusiva(Exception):
@@ -73,14 +78,35 @@ class ExtracaoPix(BaseModel):
         None,
         description="Motivo curto quando plausibilidade_visual=False; vazio caso contrario.",
     )
+    confianca: Confianca = Field(
+        description=(
+            "Confianca na LEGIBILIDADE da extracao (distinto de plausibilidade, que e fraude): "
+            "'alta' = campos lidos com clareza; 'media' = algum campo borrado/parcial mas legivel; "
+            "'baixa' = imagem cortada, desfocada ou valor/chave ilegiveis. 'baixa' cai em revisao."
+        )
+    )
 
 
-PROMPT_PIX = """Voce e um extrator de dados de comprovantes Pix brasileiros.
+PROMPT_PIX = """Voce e um extrator de dados de comprovantes Pix brasileiros. Devolve SO o JSON do schema.
 
-Analise a imagem do comprovante. Para cada campo:
-- Deixe NULL se nao estiver legivel ou nao aparecer.
-- plausibilidade_visual=false se: imagem foi claramente editada, screenshot de outro app que nao e banco/Pix, recibo manuscrito, montagem digital evidente.
-- valor SEMPRE com 2 casas decimais.
+CAMPOS:
+- valor: total pago em BRL, SEMPRE com 2 casas decimais (ex.: 100.00). NULL se ilegivel.
+- chave_pix_destinatario: a chave do BENEFICIARIO (quem RECEBE). Os 4 formatos BR:
+  - CPF/CNPJ (so digitos, ex.: 12345678900),
+  - e-mail (ex.: nome@dominio.com),
+  - telefone E.164 (ex.: +5511987654321),
+  - aleatoria (UUID, ex.: 123e4567-e89b-12d3-a456-426614174000).
+  Copie como aparece, sem inventar. NULL se nao aparecer.
+- titular_destinatario: nome de quem RECEBE (nao de quem paga). NULL se ilegivel.
+- banco_origem: banco emissor do pagamento. NULL se nao aparecer.
+- plausibilidade_visual: false se imagem editada, screenshot de app que nao e banco/Pix,
+  recibo manuscrito ou montagem digital evidente; true caso contrario.
+- motivo_se_implausivel: motivo curto quando plausibilidade_visual=false; senao NULL.
+- confianca: 'alta' se leu tudo com clareza; 'media' se algum campo borrado/parcial mas legivel;
+  'baixa' se imagem cortada/desfocada ou valor/chave ilegiveis.
+
+EXEMPLO de saida:
+{"valor": 100.00, "chave_pix_destinatario": "modelo@pix.com", "titular_destinatario": "Maria Silva", "banco_origem": "Nubank", "plausibilidade_visual": true, "motivo_se_implausivel": null, "confianca": "alta"}
 """
 
 
@@ -143,6 +169,10 @@ async def _extrair_via_openrouter(
     `provider.require_parameters=true` (ressalva 4a): sem isso o roteamento dinamico pode
     cair num provider que ignora o json_schema. Imagem ANTES do texto (ressalva ordem
     image-then-text + cruzamento vision.md 24-05).
+
+    `reasoning.effort=low`: o modelo default (Gemini 3 Flash) e "thinking" — extrair recibo
+    nao precisa raciocinio profundo, e a duvidez ja e tratada deterministicamente abaixo. Low
+    segura latencia e tokens de output (que custam como reasoning). Modelos sem thinking ignoram.
     """
     b64 = base64.standard_b64encode(bytes_img).decode("ascii")
     schema = ExtracaoPix.model_json_schema()
@@ -156,7 +186,10 @@ async def _extrair_via_openrouter(
                 "strict": True,
             },
         },
-        extra_body={"provider": {"require_parameters": True}},
+        extra_body={
+            "provider": {"require_parameters": True},
+            "reasoning": {"effort": "low"},
+        },
         messages=[
             {
                 "role": "user",
@@ -276,7 +309,7 @@ async def validar_pix(
                     bytes_img,
                     media_type=media_type,
                     client=vision_client,
-                    modelo=settings.openrouter_model_vision_pix or "anthropic/claude-sonnet-4.6",
+                    modelo=settings.openrouter_model_vision_pix or "google/gemini-3-flash-preview",
                 )
             except VisionInconclusiva as exc:
                 logger.warning(
@@ -307,6 +340,14 @@ async def validar_pix(
                     f"plausibilidade visual: {extracao.motivo_se_implausivel or 'imagem suspeita'}"
                 )
                 motivo_bucket = "plausibilidade"
+            elif extracao.confianca == "baixa":
+                # Legibilidade baixa (imagem cortada/desfocada): os campos extraidos nao sao
+                # confiaveis o bastante para validar em silencio -> em_revisao. Distinto de
+                # plausibilidade (fraude): aqui a imagem e crivel, so esta ilegivel.
+                motivo_em_revisao = (
+                    "legibilidade baixa: imagem cortada/desfocada ou campos ilegiveis"
+                )
+                motivo_bucket = "legibilidade"
             elif extracao.valor is None or extracao.valor < settings.pix_deslocamento_valor:
                 motivo_em_revisao = f"valor extraido {extracao.valor} < esperado R${settings.pix_deslocamento_valor}"
                 motivo_bucket = "valor"
