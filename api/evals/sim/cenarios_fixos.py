@@ -43,6 +43,9 @@ class CenarioFixo:
     decidir_ato: RoteiroAtos | None = None
     max_turnos: int = 8
     atos_disponiveis: list[AtoNome] = field(default_factory=list)
+    # F4.2: apos a jornada chegar em Em_execucao (foto de portaria), a MODELO responde o card com o
+    # Valor final -> Fechado (fecho fora-de-banda, aplicado pos-loop pelo `jornada`). default False.
+    fechar_card: bool = False
 
 
 CENARIOS_FIXOS: list[CenarioFixo] = [
@@ -65,6 +68,25 @@ CENARIOS_FIXOS: list[CenarioFixo] = [
         decidir_ato=_roteiro_portaria(aviso_em=None, portaria_em=8),
         max_turnos=11,
         atos_disponiveis=["enviar_foto_portaria"],
+    ),
+    # --- F4.2: jornada FIXA que chega a `Fechado` -- a modelo fecha o card com o Valor final ------
+    # Gemea deterministica de `cenarios.interno_fecha_venda`: interno COMPLETO que chega em
+    # Em_execucao pela portaria; apos a chegada, `fechar_card=True` aplica o fecho pos-loop (a modelo
+    # responde o card com o Valor final -> Fechado). A maquina de estados percorrida ate a venda.
+    CenarioFixo(
+        nome="fixo_interno_fecha_venda",
+        mensagens_cliente=[
+            "Oi, quanto e 1h hoje a noite?",
+            "e ai no seu local? prefiro ir ate voce",
+            "fechou, pode ser umas 22h?",
+            "qual seu endereco",
+            "to indo ai",
+            "cheguei, to na portaria",
+        ],
+        decidir_ato=_roteiro_portaria(aviso_em=None, portaria_em=7),
+        max_turnos=10,
+        atos_disponiveis=["enviar_foto_portaria"],
+        fechar_card=True,
     ),
     # --- 4 BASE: 1:1 das conversas reais que converteram (001..004) -----------------------------
     CenarioFixo(

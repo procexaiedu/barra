@@ -27,6 +27,7 @@ class _FakeCen:
         self.estado_inicial = {"atendimento_estado": "Triagem"}
         self.decidir_ato = None
         self.max_turnos = 4
+        self.fechar_card = False
         self.falha = falha
 
 
@@ -73,7 +74,9 @@ async def test_rodar_isola_falha_preserva_parciais_e_sobrevive_rollback_quebrado
 
     monkeypatch.setattr(gc, "_carregar_runner", lambda: _FakeRunner())
 
-    async def _fake_jornada(conn, seed, cliente, decidir_ato, *, max_turnos, apos_seed):
+    async def _fake_jornada(
+        conn, seed, cliente, decidir_ato, *, max_turnos, apos_seed, fechar_card=False
+    ):
         if (
             cliente.falha
         ):  # o cenário do meio quebra, como o externo_pix real (TypeError no bloqueio)
