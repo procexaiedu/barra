@@ -8,7 +8,7 @@ com FakeConn (sem regra => sempre disponível) e, no bloco needs_db, contra o Po
 
 import os
 from collections.abc import AsyncIterator
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -79,7 +79,9 @@ def test_data_fim_aberta_vale_indefinidamente() -> None:
 
 
 def test_dia_da_semana_errado() -> None:
-    regra = _regra(date(2026, 5, 10), date(2026, 5, 30), (_DOW_SEX + 1) % 7, time(14, 0), time(22, 0))
+    regra = _regra(
+        date(2026, 5, 10), date(2026, 5, 30), (_DOW_SEX + 1) % 7, time(14, 0), time(22, 0)
+    )
     assert _regra_cobre(regra, _SEX.replace(hour=18)) is False
 
 
@@ -202,7 +204,14 @@ async def test_round_trip_disponivel_em(conn: AsyncConnection[dict[str, Any]]) -
           (modelo_id, data_inicio, data_fim, dia_semana, hora_inicio, hora_fim)
         VALUES (%s, %s, %s, %s, %s, %s)
         """,
-        (modelo_id, date(2026, 6, 1), date(2026, 6, 30), _dow_postgres(ter_local), time(14, 0), time(22, 0)),
+        (
+            modelo_id,
+            date(2026, 6, 1),
+            date(2026, 6, 30),
+            _dow_postgres(ter_local),
+            time(14, 0),
+            time(22, 0),
+        ),
     )
     assert await modelo_disponivel_em(conn, modelo_id, ter_local) is True
     assert await modelo_disponivel_em(conn, modelo_id, ter_local.replace(hour=8)) is False
@@ -212,14 +221,27 @@ async def test_round_trip_disponivel_em(conn: AsyncConnection[dict[str, Any]]) -
 async def test_bloqueios_futuros_fora(conn: AsyncConnection[dict[str, Any]]) -> None:
     """Um bloqueio futuro dentro da janela não aparece; um fora aparece no alerta."""
     modelo_id = await _seed_modelo(conn)
-    ter_local = datetime(2026, 6, 2, 18, 0, tzinfo=BRT)
+    # A query filtra `b.inicio > now()`; data fixa apodrece quando vira passado. Usa a próxima
+    # terça pelo menos uma semana à frente, 18:00 BRT.
+    agora = datetime.now(BRT)
+    dias_ate_terca = (1 - agora.weekday()) % 7
+    ter_local = (agora + timedelta(days=dias_ate_terca + 7)).replace(
+        hour=18, minute=0, second=0, microsecond=0
+    )
     await conn.execute(
         """
         INSERT INTO barravips.modelo_disponibilidade
           (modelo_id, data_inicio, data_fim, dia_semana, hora_inicio, hora_fim)
         VALUES (%s, %s, %s, %s, %s, %s)
         """,
-        (modelo_id, date(2026, 6, 1), date(2026, 6, 30), _dow_postgres(ter_local), time(14, 0), time(22, 0)),
+        (
+            modelo_id,
+            ter_local.date() - timedelta(days=1),
+            ter_local.date() + timedelta(days=1),
+            _dow_postgres(ter_local),
+            time(14, 0),
+            time(22, 0),
+        ),
     )
     # dentro da janela (terça 18:00) -> não entra no alerta
     await conn.execute(
@@ -231,11 +253,18 @@ async def test_bloqueios_futuros_fora(conn: AsyncConnection[dict[str, Any]]) -> 
     await conn.execute(
         "INSERT INTO barravips.bloqueios (id, modelo_id, inicio, fim, estado, origem) "
         "VALUES (%s, %s, %s, %s, %s, %s)",
-        (uuid4(), modelo_id, ter_local.replace(hour=8), ter_local.replace(hour=9), "bloqueado", "manual"),
+        (
+            uuid4(),
+            modelo_id,
+            ter_local.replace(hour=8),
+            ter_local.replace(hour=9),
+            "bloqueado",
+            "manual",
+        ),
     )
     fora = await bloqueios_futuros_fora(conn, modelo_id)
     assert len(fora) == 1
-    assert fora[0]["inicio"].startswith("2026-06-02")
+    assert fora[0]["inicio"].startswith(ter_local.strftime("%Y-%m-%d"))
 
 
 @pytest.mark.needs_db
@@ -248,12 +277,18 @@ async def test_rota_put_get_disponibilidade(conn: AsyncConnection[dict[str, Any]
     body = DisponibilidadeReplace(
         regras=[
             DisponibilidadeRegra(
-                data_inicio=date(2026, 6, 1), data_fim=date(2026, 6, 30),
-                dia_semana=2, hora_inicio=time(14, 0), hora_fim=time(22, 0),
+                data_inicio=date(2026, 6, 1),
+                data_fim=date(2026, 6, 30),
+                dia_semana=2,
+                hora_inicio=time(14, 0),
+                hora_fim=time(22, 0),
             ),
             DisponibilidadeRegra(
-                data_inicio=date(2026, 6, 1), data_fim=None,
-                dia_semana=5, hora_inicio=time(18, 0), hora_fim=time(4, 0),
+                data_inicio=date(2026, 6, 1),
+                data_fim=None,
+                dia_semana=5,
+                hora_inicio=time(18, 0),
+                hora_fim=time(4, 0),
             ),
         ]
     )

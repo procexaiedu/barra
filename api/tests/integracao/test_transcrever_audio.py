@@ -114,7 +114,9 @@ async def conn() -> AsyncIterator[AsyncConnection[dict[str, Any]]]:
             await connection.close()
 
 
-async def _seed_par_completo(connection: AsyncConnection[dict[str, Any]]) -> tuple[UUID, UUID, UUID, UUID]:
+async def _seed_par_completo(
+    connection: AsyncConnection[dict[str, Any]],
+) -> tuple[UUID, UUID, UUID, UUID]:
     """Cria modelo+cliente+conversa+mensagem(audio, sem conteudo). Devolve (modelo, cliente, conversa, mensagem)."""
     modelo_id = uuid4()
     await connection.execute(
@@ -157,7 +159,9 @@ async def _seed_par_completo(connection: AsyncConnection[dict[str, Any]]) -> tup
     return modelo_id, cliente_id, conversa_id, mensagem_id
 
 
-async def _conteudo_de(connection: AsyncConnection[dict[str, Any]], mensagem_id: UUID) -> str | None:
+async def _conteudo_de(
+    connection: AsyncConnection[dict[str, Any]], mensagem_id: UUID
+) -> str | None:
     res = await connection.execute(
         "SELECT conteudo FROM barravips.mensagens WHERE id = %s", (mensagem_id,)
     )
@@ -185,6 +189,7 @@ def _settings_fake() -> Any:
         minio_bucket_media = "media"
         openai_api_key = "sk-fake"
         openai_model_audio_transcribe = "whisper-1"
+        usd_brl_cotacao = 5.50
 
     return _S()
 
