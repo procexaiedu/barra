@@ -388,7 +388,7 @@ Voz/persona/conduta subjetivas ficam sob revisão humana, não rubrica automáti
 | ID | Item | Fecha | Critério de sucesso | Onde |
 |---|---|---|---|---|
 | **F3.1** ✅ (repo) | Habilitar secrets do `evals.yml` + branch protection "evals" **obrigatória** | todos ★ | job não pula em silêncio; evals barram merge | `.github/workflows/evals.yml` |
-| **F3.2** | Runner K=2 sobre as **24 canônicas** (grafo real + Sonnet) roda **como gate** no **cutover + nightly** (não per-PR). As 46 adversariais ficam **advisory** (`capability`, `runner.py:965`), sob demanda ao tocar prompt de segurança — não bloqueiam merge | 4b, FAQ, Tools | ao menos 1 corrida verde das canônicas registrada como cutover; regressão reprova | `evals/runner.py` |
+| **F3.2** 🟡 (registro pronto; corrida ★API pendente de crédito) | Runner K=2 sobre as **24 canônicas** (grafo real + Sonnet) roda **como gate** no **cutover + nightly** (não per-PR). As 46 adversariais ficam **advisory** (`capability`, `runner.py:965`), sob demanda ao tocar prompt de segurança — não bloqueiam merge | 4b, FAQ, Tools | ao menos 1 corrida verde das canônicas registrada como cutover; regressão reprova | `evals/runner.py` |
 | **F3.3** ✅ (gate determinístico) | Persona: checagens determinísticas de **voz sobre falas geradas** (anti tom corporativo, asterisco-ação, gíria masculina, formato R$, max_chars de abertura) | Persona | gate observa fala real gerada, não só montagem | graders de persona |
 | **F3.4** ✅ (gate determinístico) | FAQ conduta como gate: 8 perguntas canônicas (conteúdo obrigatório **determinístico**; conduta subjetiva = revisão humana contra golden), recusa videocall, cartão sem parcelar + taxa 10%, cota fetiche do cardápio, recusa-aberta fora-da-lista, **controle de over-refusal** | FAQ | regressão "só pix amor" / "oferece parcelado" / over-refusal reprova (no determinístico) | fixtures FAQ + runner |
 | **F3.5** ✅ (gate determinístico) | Tools decisão: ~30 cenários tools obrigatórias/proibidas como gate; extração em **modo estrito** (não fabrica args fora do schema) | Tools | "chamou a errada / não chamou a obrigatória / inventou write" reprova | fixtures tools, schema extração |
@@ -426,6 +426,30 @@ Inv. piso → **Coberto**.
 > esgotado (`anthropic_creditos_esgotados_prod`). Passo a passo em
 > `infra/runbooks/evals-gate-vinculante.md`. F3.1 só conta como **Coberto pleno** quando
 > essa metade for habilitada.
+
+> **Status F3.2 🟡 registro pronto, corrida ★API pendente (feito, merge local):** o runner só
+> emitia **exit-code** — nada **persistia** que uma corrida verde das **24 canônicas** (a suíte de
+> regressão) virou o **baseline de cutover**. O critério ("ao menos 1 corrida verde das canônicas
+> registrada como cutover; regressão reprova") exige um **registro durável**, não só um `0` no shell.
+> F3.2 adiciona a máquina que faltava: `RegistroCutover` + `montar_registro_cutover` (**PURO**, sem
+> DB/LLM) lê as avaliações **já agregadas por fixture** e decide se a corrida é um cutover verde —
+> `verde` **reusa `gate_split`** (não diverge do exit-code) sobre a suíte bloqueante de
+> `particionar_gate` (regressão + custo-estourado **vinculante** da F3.7); `escrever_registro_cutover`
+> grava o JSON **só se VERDE** (`tipo`/`carimbo`/`k`/`threshold`/`verde`/`n_pass`/`reprovadas`), e uma
+> regressão **reprova** (levanta `ValueError`, **nada gravado**) — os dentes do critério. CLI:
+> `--registrar-cutover CAMINHO` (+ `--nightly` p/ o mesmo registro rotulado nightly). **Dentes
+> provados (vermelho→verde), TDD:** as 6 checagens (`test_runner_cutover_registro.py`) falham antes
+> da função existir; provam (1) canônicas verdes → registra `cutover`; (2) 1 canônica falha → reprova,
+> JSON não criado; (3) adversarial `capability` falhando **não** bloqueia (advisory); (4) `max_custo_brl`
+> estourado numa capability **reprova** o cutover (vínculo F3.7 sobrevive); (5) suíte de regressão
+> **vazia** não registra (anti-vácuo); (6) rótulo `nightly` propaga. **Test-only + runner** (sem tocar
+> fixture/prompt). Roda no `make test` padrão (puro, não `needs_db`): 880 passed, lint limpo, `mypy
+> src` verde. **Metade ★API PENDENTE (não é código):** a **corrida ao vivo** (grafo real + Sonnet K=2
+> sobre as canônicas, que de fato escreve o primeiro `evals/registros/cutover.json` verde) é **★API**
+> (custa crédito, §0) e está **bloqueada** por crédito Anthropic esgotado
+> (`anthropic_creditos_esgotados_prod`). Comando pronto: `runner.py --subdir canonicos --k 2
+> --registrar-cutover evals/registros/cutover.json`. F3.2 só conta como **Coberto pleno** quando essa
+> corrida verde for registrada ao vivo.
 
 > **Status F3.3 ✅ gate determinístico (feito, merge local):** os graders do runner observavam o
 > texto da fala só por **conteúdo opt-in** — `texto_resposta.nao_deve_conter`/`deve_conter_um_de`
