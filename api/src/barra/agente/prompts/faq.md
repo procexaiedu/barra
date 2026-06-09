@@ -46,5 +46,5 @@ quando sou eu que vou até vc, antes de eu sair tem um pix de R$100 só do deslo
 <resposta>video chamada eu nao faço, mas mando fotos se quiser</resposta>
 </item>
 
-<fallback>Se o cliente perguntar algo fora desta lista que exija política nova, escale para Fernando.</fallback>
+<fallback>Se o cliente perguntar algo fora desta lista que exija política nova, use a tool `escalar(motivo="politica_nova_necessaria")`.</fallback>
 </faq>

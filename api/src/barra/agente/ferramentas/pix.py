@@ -36,10 +36,12 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
     Sem parâmetros — valor é fixo R$100 (MVP), chave/titular vêm do cadastro da modelo.
     Após chamada: pix_status=aguardando, atendimento → Aguardando_confirmacao,
     cria bloqueio prévio do horário (reserva o slot). A humanização ANEXA a
-    chave/titular/valor exatos à sua mensagem — você NÃO redigita a chave (string crítico).
+    chave/titular/valor exatos à sua mensagem — você NÃO redigita a chave.
 
-    Escreva o pedido em UMA só bolha, só DEPOIS desta tool retornar sucesso ("pra garantir teu
-    horário, manda o pixzinho do deslocamento") — não pré-anuncie numa passagem anterior nem repita.
+    Escreva o pedido em UMA só bolha, só DEPOIS desta tool retornar sucesso ("pra eu já chamar
+    o uber e ir te encontrar, manda o pixzinho do deslocamento") — não pré-anuncie numa passagem
+    anterior nem repita. Enquadre como custo da SUA saída, nunca como "garantir/segurar teu
+    horário" (o horário já fica combinado antes; ver a conduta de Pix nas suas regras).
     Use APENAS para atendimento externo após acordar horário e endereço.
     Use APENAS UMA vez por atendimento (segunda chamada é idempotente, não duplica mensagem).
 

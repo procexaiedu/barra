@@ -51,9 +51,9 @@ async def enviar_midia(
         tag: categoria da mídia. O sistema escolhe QUAL item da tag (rotação:
              menos-recente-enviada), evitando repetir — você não escolhe o item específico.
         legenda: opcional, texto curto que aparece junto da mídia no WhatsApp.
-        tipo: "foto" (default) ou "video". Mande fotos primeiro; use "video" depois,
-              apresentando-o como exclusivo/ao vivo na legenda (estratégia foto->video, 05 §5).
-              Vídeo vai como visualização única quando a plataforma suportar (pré-req, 05 §5).
+        tipo: "foto" (default) ou "video". Use "video" só depois de já ter mandado foto,
+              apresentando-o como exclusivo/gravado agora na legenda. O vídeo vai como
+              visualização única quando a plataforma suportar.
 
     Pode ser chamada várias vezes no mesmo turno (ex.: 2 fotos da mesma tag);
     as mídias são enviadas após o texto.
