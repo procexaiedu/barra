@@ -18,6 +18,8 @@ class MensagemEvolution:
     media_url: str | None
     quoted_message_id: str | None
     caption: str | None = None
+    media_base64: str | None = None
+    media_mimetype: str | None = None
 
 
 @dataclass(frozen=True)
@@ -44,15 +46,22 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
     texto = _texto(message) or str(data.get("text") or data.get("body") or "")
     tipo = "texto"
     media_url = None
+    media_mimetype: str | None = None
     caption: str | None = None
     if "audioMessage" in message:
         tipo = "audio"
         media_url = message["audioMessage"].get("url")
+        media_mimetype = message["audioMessage"].get("mimetype")
     elif "imageMessage" in message:
         tipo = "imagem"
         media_url = message["imageMessage"].get("url")
+        media_mimetype = message["imageMessage"].get("mimetype")
         raw_caption = message["imageMessage"].get("caption")
         caption = str(raw_caption).strip() or None if raw_caption else None
+    # WEBHOOK_BASE64 ligado: a Evolution entrega a midia ja DECIFRADA inline (a `url` aponta
+    # pro CDN cifrado do WhatsApp, inutil sem a mediaKey). O campo varia por versao/tipo, entao
+    # lemos os dois caminhos conhecidos: nivel da mensagem e dentro do *Message.
+    media_base64 = _media_base64(message)
     quoted = _quoted_id(message)
     return MensagemEvolution(
         evolution_message_id=str(message_id),
@@ -65,6 +74,8 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
         media_url=media_url,
         quoted_message_id=quoted,
         caption=caption,
+        media_base64=media_base64,
+        media_mimetype=media_mimetype,
     )
 
 
@@ -139,6 +150,21 @@ def _texto(message: dict[str, Any]) -> str | None:
     ext = message.get("extendedTextMessage")
     if isinstance(ext, dict) and ext.get("text"):
         return str(ext["text"])
+    return None
+
+
+def _media_base64(message: dict[str, Any]) -> str | None:
+    """Base64 decifrado entregue pela Evolution (WEBHOOK_BASE64). O campo varia entre versoes:
+    no nivel da mensagem (`message.base64`) ou aninhado (`message.imageMessage.base64`). Le os
+    dois e ignora vazio/nao-string."""
+    candidatos: list[Any] = [message.get("base64")]
+    for chave in ("imageMessage", "audioMessage"):
+        sub = message.get(chave)
+        if isinstance(sub, dict):
+            candidatos.append(sub.get("base64"))
+    for valor in candidatos:
+        if isinstance(valor, str) and valor:
+            return valor
     return None
 
 

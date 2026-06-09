@@ -1,4 +1,6 @@
 import asyncio
+import base64
+import binascii
 import hmac
 import io
 import logging
@@ -89,6 +91,21 @@ async def _baixar_midia(url: str, base_url: str, max_bytes: int) -> tuple[bytes,
         return None
 
 
+def _decodificar_base64(b64: str, mimetype: str | None, max_bytes: int) -> tuple[bytes, str] | None:
+    """Decodifica a mídia base64 inline da Evolution (WEBHOOK_BASE64). Aplica o mesmo teto de
+    bytes do download e devolve (bytes, content_type) no formato de `_baixar_midia`."""
+    try:
+        raw = base64.b64decode(b64, validate=True)
+    except (binascii.Error, ValueError):
+        _logger.warning("midia_base64_invalida")
+        return None
+    if len(raw) > max_bytes:
+        _logger.warning("midia_base64_excede_limite limite=%d", max_bytes)
+        return None
+    ct = (mimetype or "").split(";")[0].strip().lower()
+    return raw, ct
+
+
 async def _upload_minio(minio: Any, bucket: str, key: str, data: bytes, content_type: str) -> None:
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(
@@ -150,12 +167,20 @@ async def evolution_webhook(
 
     minio = getattr(request.app.state, "minio", None)
 
-    # Baixar mídia antes de abrir conexão, para não segurar o pool durante I/O de rede.
+    # Obter os bytes da mídia antes de abrir conexão, para não segurar o pool durante I/O.
+    # Com WEBHOOK_BASE64 a Evolution entrega a mídia DECIFRADA inline (sem rede); a `media_url`
+    # aponta pro CDN cifrado do WhatsApp (mmg.whatsapp.net), inútil sem a mediaKey e barrado pelo
+    # allowlist anti-SSRF. Sem base64, cai no download host-locked (defesa em profundidade).
     midia: tuple[bytes, str] | None = None
-    if msg.tipo != "texto" and msg.media_url and minio is not None:
-        midia = await _baixar_midia(
-            msg.media_url, settings.evolution_base_url, settings.midia_max_bytes
-        )
+    if msg.tipo != "texto" and minio is not None:
+        if msg.media_base64:
+            midia = _decodificar_base64(
+                msg.media_base64, msg.media_mimetype, settings.midia_max_bytes
+            )
+        elif msg.media_url:
+            midia = await _baixar_midia(
+                msg.media_url, settings.evolution_base_url, settings.midia_max_bytes
+            )
 
     async with pool.connection() as conn:
         if await _mensagem_ja_persistida(conn, msg.evolution_message_id):
