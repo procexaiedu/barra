@@ -578,7 +578,7 @@ Inv. piso → **Coberto**.
 |---|---|---|---|---|
 | **F4.1** ✅ (gate determinístico + corrida ★API ao vivo) | Jornada E2E começando em **`Novo`** (1º contato antes da triagem) | 4b (estado Novo) | jornada exercita Novo→Triagem pela conversa | `evals/`/`sim/cenarios*.py` |
 | **F4.2** ✅ (gate determinístico + corrida ★API ao vivo) | Jornadas que chegam a **`Fechado`** pela conversa (modelo fecha respondendo card com Valor final) | 4b (Fechado) | E2E real percorre até Fechado; estado/tools por turno = gate determinístico, qualidade da venda = revisão humana | `sim/`, runner |
-| **F4.3** | Jornada que vira **`Perdido (sumiu)`** por timeout como continuação E2E | 4b (Perdido) | ramo "não volta" é jornada graduada | `sim/`, runner |
+| **F4.3** 🟡 (gate determinístico pronto; espinha needs_db + corrida ★API pendentes de §0) | Jornada que vira **`Perdido (sumiu)`** por timeout como continuação E2E | 4b (Perdido) | ramo "não volta" é jornada graduada | `sim/`, runner |
 | **F4.4** | `Em_execucao → Fechado` por **Lembrete de fechamento** dentro de uma jornada | 4b | cobrança proativa do Valor final fecha pela conversa | `sim/`, runner |
 | **F4.5** | **Recorrência**: novo Atendimento na mesma Conversa cliente após um Fechado | 4b | cenário existe e passa | `sim/`, runner |
 | **F4.6** | Upsell de duração (MAX de horas), recusa de fetiche fora-da-lista com retomada limpa, Pix duvidoso com card de duvidez + fila de Fernando (sem travar) | 4b | cada arco coberto por jornada graduada; redis stub deixa de mascarar o card | `sim/`, runner |
@@ -668,6 +668,42 @@ conversa (Novo … Fechado/Perdido). **Substituição do vendedor demonstrada pe
 > qualidade-de-venda (valor negociado, ritmo, não perder o cliente) segue sob **revisão humana**
 > contra a golden (sem judge, ADR 0015) — F4.7. A persona-LLM (`interno_fecha_venda`, `cenarios.py`)
 > fica pronta p/ o golden quando o operador regerar o corpus inteiro.
+
+> **Status F4.3 🟡 gate determinístico pronto, espinha needs_db + corrida ★API pendentes (feito,
+> merge local):** TODA jornada do sim fechava (foto de portaria → Em_execucao → Fechado pela F4.2) ou
+> avançava por Pix (Confirmado) — o ramo **"NÃO VOLTA"** (o cliente avisa que saiu, **some** e nunca
+> chega) jamais era percorrido pela própria jornada, então `Perdido (sumiu)` não tinha continuação
+> E2E. Esse desfecho **não** é um turno da IA nem um ato síncrono do cliente: é o **timeout
+> determinista de 45 min** (`aplicar_timeout_interno`, `workers/timeouts.py`) que varre o interno em
+> `Aguardando_confirmacao` com **aviso de saída vencido e sem foto de portaria** → `Perdido`, motivo
+> `sumiu`, bloqueio cancelado — provado isolado na **F0.6**. F4.3 fecha a costura como jornada
+> graduada, espelhando F4.2: um novo ato fora-de-banda **`cliente_some_timeout`** (`sim/atos.py`) que
+> **envelhece o `aviso_saida_em`** (o relógio do sim não espera os 45 min reais) e dispara o **mesmo**
+> `aplicar_timeout_interno` da prod — não reimplementa a transição, igual ao `modelo_fecha_card` que
+> chama `aplicar_comando`; aplicado **pós-loop** pelo `jornada` (novo `timeout_sumiu=True`): a conversa
+> termina em `Aguardando_confirmacao` (cliente avisou e sumiu) e então o timeout o marca `Perdido`.
+> Roteiro **`_roteiro_some_sem_chegar`** (envia `enviar_aviso_saida`, depois `ficar_em_silencio` a cada
+> passo, **nunca** a foto de portaria). Cenário **`interno_some_perdido`** (persona-LLM, `cenarios.py`)
+> + **`fixo_interno_some_perdido`** (cliente roteirizado, `cenarios_fixos.py`), ambos interno graduado
+> (conversa → Aguardando → aviso → silêncio → timeout). O gate tem **duas metades, espelhando
+> F0.x/F1.x/F4.1/F4.2**: **(1) estrutural PURO** (sem DB/LLM, roda no `make test`): ≥1 persona **e** ≥1
+> fixo declaram `timeout_sumiu=True` **e** o roteiro avisa-e-some sem chegar pela portaria (anti
+> "Perdido do nada"); **(2) espinha `needs_db`** (Postgres efêmero do CI pós-F0.1): semeia interno
+> `Aguardando_confirmacao` + bloqueio `bloqueado` + aviso enviado pela **mesma porta que
+> `sim/loop.py:jornada`** (`runner._seed_entidades`) e aplica o **exato ato de timeout que o `jornada`
+> dispara pós-loop** (`loop._aplicar_ato(..., "cliente_some_timeout")`), provando
+> **`Aguardando_confirmacao → Perdido`** + motivo `sumiu` + `fonte=auto_timeout_interno` + **bloqueio
+> cancelado**. É "pela conversa" menos o LLM conduzir até o aviso de saída. **Dentes provados
+> (vermelho→verde), TDD:** sem as jornadas, as 2 checagens de existência falham (`assert []`); com elas,
+> verde, e os invariantes pré-existentes dos conjuntos (tamanho ∈ faixa — bump 17→18 —, nomes únicos,
+> anti-leakage, atos declarados) seguem verdes. `make test`: 907 passed (94 `needs_db` skipped sem
+> `TEST_DATABASE_URL`, incl. a espinha — rodam no Postgres efêmero do CI); mypy (`mypy src`) + ruff
+> limpos. **Metades ★API/needs_db PENDENTES (§0, não é código):** a espinha `needs_db` e a **corrida ao
+> vivo** (grafo real + Sonnet conduzindo até o aviso, depois o silêncio que vira timeout → `Perdido`)
+> não foram rodadas — exigem o **banco de prod** (em rollback-sempre) + crédito, autorização §0
+> frase-a-frase (mesmo padrão sancionado da F4.1/F4.2). A espinha é correta por construção: espelha
+> exatamente o `test_timeout_interno.py` (gêmeo já verde contra o DB real, F0.6). F4.3 → **Coberto**
+> quando essas metades forem rodadas e registradas ao vivo.
 
 ---
 

@@ -22,7 +22,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .cenarios import RoteiroAtos, _roteiro_pix, _roteiro_portaria
+from .cenarios import (
+    RoteiroAtos,
+    _roteiro_pix,
+    _roteiro_portaria,
+    _roteiro_some_sem_chegar,
+)
 from .cliente import AtoNome
 
 
@@ -46,6 +51,9 @@ class CenarioFixo:
     # F4.2: apos a jornada chegar em Em_execucao (foto de portaria), a MODELO responde o card com o
     # Valor final -> Fechado (fecho fora-de-banda, aplicado pos-loop pelo `jornada`). default False.
     fechar_card: bool = False
+    # F4.3: o cliente avisou que saiu e SUMIU (sem foto de portaria); apos o loop, o timeout
+    # determinista de 45 min marca `Perdido(sumiu)` (ramo "nao volta", aplicado pos-loop). default False.
+    timeout_sumiu: bool = False
 
 
 CENARIOS_FIXOS: list[CenarioFixo] = [
@@ -87,6 +95,25 @@ CENARIOS_FIXOS: list[CenarioFixo] = [
         max_turnos=10,
         atos_disponiveis=["enviar_foto_portaria"],
         fechar_card=True,
+    ),
+    # --- F4.3: jornada FIXA que vira `Perdido (sumiu)` por timeout -- o ramo "NAO VOLTA" ----------
+    # Gemea deterministica de `cenarios.interno_some_perdido`: interno graduado (conversa -> Aguardando
+    # -> aviso de saida) que NAO chega -- o cliente avisa que saiu e SOME (sem foto de portaria). Apos o
+    # loop, `timeout_sumiu=True` aplica o timeout determinista de 45 min -> `Perdido(sumiu)`. O ramo
+    # terminal por silencio percorrido com cliente roteirizado (sem cliente-LLM).
+    CenarioFixo(
+        nome="fixo_interno_some_perdido",
+        mensagens_cliente=[
+            "Oi, quanto e 1h hoje a noite?",
+            "e ai no seu local? prefiro ir ate voce",
+            "fechou, pode ser umas 22h?",
+            "qual seu endereco",
+            "to indo ai",
+        ],
+        decidir_ato=_roteiro_some_sem_chegar(aviso_em=5),
+        max_turnos=8,
+        atos_disponiveis=["enviar_aviso_saida", "ficar_em_silencio"],
+        timeout_sumiu=True,
     ),
     # --- 4 BASE: 1:1 das conversas reais que converteram (001..004) -----------------------------
     CenarioFixo(

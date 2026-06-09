@@ -79,6 +79,23 @@ def _roteiro_some_e_volta(indice: int, estado: dict[str, Any]) -> str | None:
     return None
 
 
+def _roteiro_some_sem_chegar(*, aviso_em: int = 5) -> RoteiroAtos:
+    """Ramo "NAO VOLTA" (F4.3): o cliente avisa que saiu (passo `aviso_em`) e depois SOME -- silencio
+    a cada passo seguinte (`ficar_em_silencio`, no-op), NUNCA mandando a foto de portaria. Apos o loop,
+    o `jornada` com `timeout_sumiu=True` dispara o timeout determinista de 45 min -> `Perdido(sumiu)`.
+    O aviso dispara no indice exato (como o `aviso_em` de `_roteiro_portaria`); o estado constrange so
+    o desfecho (o post-loop so aplica o timeout se parou em `Aguardando_confirmacao`)."""
+
+    def decidir(indice: int, estado: dict[str, Any]) -> str | None:
+        if indice == aviso_em:
+            return "enviar_aviso_saida"
+        if indice > aviso_em:
+            return "ficar_em_silencio"
+        return None
+
+    return decidir
+
+
 @dataclass
 class Cenario:
     """Uma jornada parametrizada: persona + estado inicial + roteiro opcional de atos."""
@@ -93,6 +110,9 @@ class Cenario:
     # F4.2: apos a jornada chegar em Em_execucao (foto de portaria), a MODELO responde o card com o
     # Valor final -> Fechado (fecho fora-de-banda, aplicado pos-loop pelo `jornada`). default False.
     fechar_card: bool = False
+    # F4.3: o cliente avisou que saiu e SUMIU (sem foto de portaria); apos o loop, o timeout
+    # determinista de 45 min marca `Perdido(sumiu)` (ramo "nao volta", aplicado pos-loop). default False.
+    timeout_sumiu: bool = False
 
 
 CENARIOS: list[Cenario] = [
@@ -136,6 +156,28 @@ CENARIOS: list[Cenario] = [
         decidir_ato=_roteiro_portaria(aviso_em=5, portaria_em=7),
         max_turnos=11,
         fechar_card=True,
+    ),
+    # --- F4.3: jornada que vira `Perdido (sumiu)` por timeout -- o ramo "NAO VOLTA" ----------------
+    # Interno graduado (conversa -> Aguardando -> aviso de saida) que NAO chega: o cliente avisa que
+    # saiu e SOME (silencio, sem foto de portaria). Apos o loop, `timeout_sumiu=True` dispara o timeout
+    # determinista de 45 min -> `Perdido(sumiu)` + bloqueio cancelado. Fecha o ramo terminal que nunca
+    # era percorrido pela conversa (toda jornada ate aqui fechava ou avancava por Pix).
+    Cenario(
+        nome="interno_some_perdido",
+        persona=PersonaCliente(
+            nome="Rodrigo",
+            o_que_quer=(
+                "quer marcar um interno de 1h hoje a noite, voce vai ate ela. pergunta o preco, "
+                "combina um horario depois das 21h e avisa que ja saiu de casa -- mas no meio do "
+                "caminho voce desiste e PARA de responder de vez: nao manda mais nenhuma mensagem e "
+                "nunca chega no predio (nao manda foto da portaria)"
+            ),
+            orcamento="ate uns 1000",
+            atos_disponiveis=["enviar_aviso_saida", "ficar_em_silencio"],
+        ),
+        decidir_ato=_roteiro_some_sem_chegar(aviso_em=6),
+        max_turnos=10,
+        timeout_sumiu=True,
     ),
     # --- felizes INTERNO que fecham por foto de portaria (caminho de conversao real, 001/002) ----
     Cenario(

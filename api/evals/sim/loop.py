@@ -107,6 +107,10 @@ async def _aplicar_ato(
         _atos.ficar_em_silencio()  # no-op: deixa o timeout decidir
     elif ato == "modelo_fecha_card":
         await _atos.modelo_fecha_card(conn, atendimento_id)  # 3o ator: a modelo fecha o card
+    elif ato == "cliente_some_timeout":
+        await _atos.cliente_some_timeout(
+            conn, atendimento_id
+        )  # ramo "nao volta": timeout -> Perdido
     else:
         raise ValueError(f"ato desconhecido: {ato!r}")
 
@@ -320,6 +324,7 @@ async def jornada(
     max_turnos: int = 8,
     apos_seed: Any | None = None,
     fechar_card: bool = False,
+    timeout_sumiu: bool = False,
 ) -> Trajetoria:
     """Roda a jornada dual-control fechada (needs_db + needs_anthropic_api). Coleta a trajetoria.
 
@@ -338,6 +343,12 @@ async def jornada(
     `Em_execucao` (a foto de portaria pausou a IA e encerrou o loop) e entao a MODELO responde o card
     com o Valor final (`modelo_fecha_card` -> Fechado). E fora-de-banda (3o ator, nao um turno da IA);
     so dispara se a jornada de fato chegou em `Em_execucao`. default False = morre em Em_execucao.
+
+    `timeout_sumiu=True` (F4.3) aplica o ramo "NAO VOLTA" APOS o loop: o cliente avisou que saiu e
+    SUMIU (silencio, sem foto de portaria), entao o loop terminou em `Aguardando_confirmacao`; o ato
+    `cliente_some_timeout` envelhece o aviso e dispara o cron de prod (`aplicar_timeout_interno`) ->
+    `Perdido(sumiu)`. Tambem fora-de-banda (timeout, nao um turno da IA); so dispara se a jornada de
+    fato parou em `Aguardando_confirmacao`. default False = nao aplica o timeout.
 
     O caller envolve isto em transacao + ROLLBACK (como `runner.rodar`). Promova qualquer falha
     observada na trajetoria a uma fixture de `scripted_5/`.
@@ -451,6 +462,27 @@ async def jornada(
                     indice=len(trajetoria.passos),
                     acao_mensagem=None,
                     acao_ato="modelo_fecha_card",
+                    bolha_ia=None,
+                    estado_atendimento=final["estado"],
+                    ia_pausada=final["ia_pausada"],
+                    pix_status=final["pix_status"],
+                )
+            )
+
+    # Ramo "nao volta" fora-de-banda (F4.3, timeout): o cliente avisou que saiu e SUMIU, entao o loop
+    # terminou em `Aguardando_confirmacao`; agora o timeout determinista de 45 min o marca
+    # `Perdido(sumiu)`. Espelha producao -- a perda por silencio NAO e um turno da IA. So dispara se de
+    # fato parou em `Aguardando_confirmacao` (avisou e nao chegou); senao a jornada teve outro desfecho.
+    if timeout_sumiu:
+        pos = await _ler_estado(conn, atendimento_id)
+        if pos["estado"] == "Aguardando_confirmacao":
+            await _aplicar_ato(conn, atendimento_id, "cliente_some_timeout")
+            final = await _ler_estado(conn, atendimento_id)
+            trajetoria.passos.append(
+                PassoJornada(
+                    indice=len(trajetoria.passos),
+                    acao_mensagem=None,
+                    acao_ato="cliente_some_timeout",
                     bolha_ia=None,
                     estado_atendimento=final["estado"],
                     ia_pausada=final["ia_pausada"],
