@@ -110,8 +110,10 @@ def test_programas_tabela_uma_linha_por_combinacao() -> None:
 
 
 def test_programas_vazio_orienta_escalar() -> None:
+    # Cadastro incompleto no painel (estado anormal): não inventar valor + escalar p/ Fernando.
     txt = render_programas([])
-    assert "ainda não tem programas" in txt
+    assert "cadastro incompleto" in txt
+    assert 'escalar(motivo="politica_nova_necessaria")' in txt
 
 
 def test_fetiches_lista_extra_e_incluso() -> None:
