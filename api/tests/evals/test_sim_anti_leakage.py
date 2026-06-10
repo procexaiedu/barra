@@ -88,7 +88,9 @@ def test_prompt_recusa_cada_termo_de_gabarito(termo):
 
 def test_persona_cliente_nao_tem_campo_de_gabarito():
     campos = set(cliente.PersonaCliente.__dataclass_fields__)
-    assert campos == {"nome", "o_que_quer", "orcamento", "atos_disponiveis"}
+    # `estilo` (perfis.py) e variacao de FORMA, nao gabarito -- e passa pelo mesmo check
+    # anti-leakage do montar_prompt_cliente (ver test_perfis_anti_leakage.py).
+    assert campos == {"nome", "o_que_quer", "orcamento", "atos_disponiveis", "estilo"}
     # nenhum nome de campo sugere gabarito/expectativa.
     assert not any("gabarito" in c or "expectativa" in c or "esperado" in c for c in campos)
 

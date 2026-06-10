@@ -12,6 +12,7 @@ Nao tem fallback de modelo: o chat roda so em Sonnet 4.6 (decisao M0), entao um 
 basta. Se algum dia entrar Opus/Haiku, parametrizar por `modelo` aqui.
 """
 
+from collections.abc import Sequence
 from typing import Any
 
 # USD por milhao de tokens — Sonnet 4.6 (claude-sonnet-4-6).
@@ -83,6 +84,23 @@ def custo_por_atendimento_brl(chat_brl: float, stt_brl: float, vision_brl: float
     dos tres componentes ja agregados por atendimento_id. Cada parcela e >= 0.
     """
     return chat_brl + stt_brl + vision_brl
+
+
+def custo_chat_turno_brl(messages: Sequence[Any], cotacao_usd_brl: float) -> float:
+    """Custo de chat (Sonnet) do TURNO em BRL: soma `calcular_custo_brl` sobre as AIMessages
+    GERADAS no turno (usage_metadata != None — mesma heuristica de extrair_texto_do_turno para
+    ignorar as historicas re-injetadas pelo prepare_context, que vem sem usage).
+
+    Duck-typing via getattr (sem import de langchain): o modulo segue puro/testavel offline.
+    Cobre todas as chamadas do loop ReAct e a 2a chamada da extracao forcada (ambas viram
+    AIMessage com usage no canal `messages`). Consumida pelo coordenador para ACUMULAR o custo
+    em `atendimentos.custo_ia_brl` (OBS go-live) — so chat; STT/vision seguem no Prometheus.
+    """
+    return sum(
+        calcular_custo_brl(um, cotacao_usd_brl)
+        for m in messages
+        if (um := getattr(m, "usage_metadata", None))
+    )
 
 
 def calcular_custo_brl(usage_metadata: dict[str, Any] | None, cotacao_usd_brl: float) -> float:

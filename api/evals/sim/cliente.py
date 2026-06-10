@@ -38,6 +38,9 @@ class PersonaCliente:
     o_que_quer: str
     orcamento: str
     atos_disponiveis: list[AtoNome] = field(default_factory=list)
+    # Variacao de FORMA (perfis.py): como o cliente escreve/negocia, nunca o objetivo. Entra no
+    # system do cliente e no check anti-leakage. "" = sem perfil (persona original).
+    estilo: str = ""
 
 
 @dataclass
@@ -88,7 +91,13 @@ def montar_prompt_cliente(
     termo de gabarito escapou para a persona (defesa em profundidade do anti-leakage).
     """
     blob_persona = "\n".join(
-        [persona.nome, persona.o_que_quer, persona.orcamento, *persona.atos_disponiveis]
+        [
+            persona.nome,
+            persona.o_que_quer,
+            persona.orcamento,
+            persona.estilo,
+            *persona.atos_disponiveis,
+        ]
     ).lower()
     vazou = [t for t in _TERMOS_DE_GABARITO if t in blob_persona]
     if vazou:
@@ -106,6 +115,8 @@ def montar_prompt_cliente(
         f"Seu nome: {persona.nome}\n"
         f"Seu orcamento/limite: {persona.orcamento}"
     )
+    if persona.estilo:
+        sistema += f"\nSeu jeito de escrever e negociar: {persona.estilo}"
     if historico_visivel:
         observado = "\n".join(historico_visivel)
         humano = (
@@ -125,6 +136,9 @@ class ClienteSimulado:
 
     def __init__(self, persona: PersonaCliente) -> None:
         self.persona = persona
+        # Custo acumulado das chamadas do CLIENTE-LLM (BRL). O custo da IA ja sai por turno via
+        # runner._capturar; sem este acumulador o budget guard da massa subestimaria ~40% do robo.
+        self.custo_brl_acumulado: float = 0.0
 
     async def decidir(
         self, historico_visivel: list[str], *, settings: Any | None = None
@@ -136,6 +150,7 @@ class ClienteSimulado:
         so gera a fala do cliente. Isolada a chamada real para o resto do modulo ficar testavel
         offline.
         """
+        from barra.agente._custo import calcular_custo_brl
         from barra.core.llm import criar_chat_anthropic
         from barra.settings import get_settings
 
@@ -143,6 +158,9 @@ class ClienteSimulado:
         chat = criar_chat_anthropic(settings)
         mensagens = montar_prompt_cliente(self.persona, historico_visivel)
         resposta = await chat.ainvoke(mensagens)
+        self.custo_brl_acumulado += calcular_custo_brl(
+            getattr(resposta, "usage_metadata", None), settings.usd_brl_cotacao
+        )
         conteudo = resposta.content
         texto = conteudo if isinstance(conteudo, str) else str(conteudo)
         return AcaoCliente(mensagem=texto.strip())

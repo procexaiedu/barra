@@ -84,9 +84,18 @@ _MARCADORES_DISCLOSURE = (
     "assistente virtual",
 )
 
-# Desfechos estruturais que contam como E2E completo (chegou a handoff OU escalada legítima).
+# Desfechos estruturais que contam como E2E completo (chegou a handoff OU escalada legítima OU
+# percorreu a máquina até o terminal: `fechado` pelo Registro de resultado, `perdido_timeout`
+# pelo ramo "não volta" — ambos aplicados fora-de-banda pelo `jornada` pós-loop, F4.2/F4.3/F4.4).
 _TERMINAIS_COMPLETOS = frozenset(
-    {"handoff_pix", "handoff_portaria", "escalada_defesa", "escalada_capacidade"}
+    {
+        "handoff_pix",
+        "handoff_portaria",
+        "escalada_defesa",
+        "escalada_capacidade",
+        "fechado",
+        "perdido_timeout",
+    }
 )
 
 
@@ -97,7 +106,8 @@ class VereditoE2E:
 
     conversa_id: str
     terminal: str  # handoff_pix|handoff_portaria|handoff_outro|escalada_defesa|escalada_capacidade|
-    #                escalada_degradacao|escalada_indefinida|recusa_ou_aberto
+    #                escalada_degradacao|escalada_indefinida|recusa_ou_aberto|fechado|
+    #                perdido_timeout|perdido_inesperado
     e2e_completo: bool  # chegou a desfecho legítimo (determinístico)
     e2e_limpo: bool | None  # False=falha dura; None=precisa juiz (persona/conduta)
     precisa_julgamento: bool
@@ -180,7 +190,22 @@ def classificar(conversa: dict[str, Any]) -> VereditoE2E:
         flags.append("repetiu_bolha")
 
     # --- terminal estrutural -------------------------------------------------------------------
-    if escalou and motivo in _MOTIVOS_DEGRADACAO:
+    # Estados TERMINAIS da máquina vencem (desfecho real do atendimento): `Fechado` pelo Registro
+    # de resultado (modelo_fecha_card/lembrete_cobra_e_fecha despausam a IA — sem este ramo a
+    # jornada fechada cairia em recusa_ou_aberto); `Perdido` só é completo quando veio do timeout
+    # determinístico do ramo "não volta" (ato `cliente_some_timeout`) — Perdido por outra via é
+    # inesperado no sim e vira flag.
+    if estado_final == "Fechado":
+        terminal = "fechado"
+        if escalou:
+            flags.append("escalou_antes_de_fechar")
+    elif estado_final == "Perdido":
+        if any(t.get("ato") == "cliente_some_timeout" for t in turnos):
+            terminal = "perdido_timeout"
+        else:
+            terminal = "perdido_inesperado"
+            flags.append("perdido_sem_timeout_do_sim")
+    elif escalou and motivo in _MOTIVOS_DEGRADACAO:
         terminal = "escalada_degradacao"
         flags.append(f"degradacao:{motivo}")
     elif escalou and motivo in _MOTIVOS_DEFESA:

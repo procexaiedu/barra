@@ -92,6 +92,7 @@ class _GrafoQueFalha:
 
 class _FakeSettings:
     anthropic_modelo_principal = "claude-test"
+    usd_brl_cotacao = 5.5  # lido pelo acumulo de custo do turno (passo 5a')
 
 
 @asynccontextmanager

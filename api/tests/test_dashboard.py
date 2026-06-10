@@ -34,9 +34,11 @@ class FakeConn:
         self,
         atendimentos: list[dict[str, Any]] | None = None,
         modelos: list[dict[str, Any]] | None = None,
+        custo_ia: float = 0.0,
     ) -> None:
         self.atendimentos = atendimentos or []
         self.modelos = modelos or []
+        self.custo_ia = custo_ia
         self.last_queries: list[str] = []
 
     @asynccontextmanager
@@ -97,6 +99,10 @@ class FakeConn:
         # _motivos_escalada_top
         if "FROM barravips.escaladas e" in query and "GROUP BY e.motivo" in query:
             return _Result([])
+
+        # _roi — custo de chat acumulado (atendimentos.custo_ia_brl)
+        if "SUM(a.custo_ia_brl)" in query:
+            return _Result([{"custo_ia": self.custo_ia}])
 
         return _Result([])
 
@@ -184,9 +190,7 @@ class FakeConn:
 
     def _funil_coorte(self, modelo_filtro: set[UUID] | None) -> dict[str, Any]:
         ats = [
-            a
-            for a in self.atendimentos
-            if modelo_filtro is None or a["modelo_id"] in modelo_filtro
+            a for a in self.atendimentos if modelo_filtro is None or a["modelo_id"] in modelo_filtro
         ]
         ranks = [(a["estado"], self._rank(a)) for a in ats]
         return {
@@ -325,9 +329,8 @@ def test_fechamentos_calcula_liquido_e_repasse() -> None:
     # Apenas o fechado com pct NULL: 500
     assert fech["valor_sem_repasse_definido_brl"] == 500.00
     # Invariante: bruto == liquido + repasse_modelo
-    assert (
-        fech["valor_bruto_brl"]
-        == round(fech["valor_liquido_brl"] + fech["valor_repasse_modelo_brl"], 2)
+    assert fech["valor_bruto_brl"] == round(
+        fech["valor_liquido_brl"] + fech["valor_repasse_modelo_brl"], 2
     )
     assert fech["contagem"] == 2
     assert fech["contagem_sem_snapshot"] == 1
@@ -520,3 +523,21 @@ def test_dashboard_filtra_multiplas_modelos() -> None:
     # O ranking de profissionais NÃO filtra — mostra todas (destaque é no frontend).
     nomes = {p["modelo"]["nome"] for p in body["profissionais"]}
     assert nomes == {"Alice", "Bia", "Cris"}
+
+
+def test_roi_ia_expoe_custo_acumulado() -> None:
+    # OBS go-live: o bloco roi_ia soma atendimentos.custo_ia_brl da janela (acumulado por turno
+    # pelo coordenador). Sem Fechado da IA na janela, custo_por_fechado fica None.
+    conn = FakeConn(custo_ia=12.345)
+    _instalar_override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/dashboard", params={"periodo": "7d"}, headers=_token())
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+    assert response.status_code == 200
+    roi = response.json()["roi_ia"]
+    assert roi["custo_ia_brl"] == 12.35
+    assert roi["custo_ia_por_fechado_brl"] is None
+    assert "Sonnet" in roi["nota_custo_ia"]

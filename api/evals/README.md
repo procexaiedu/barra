@@ -204,3 +204,29 @@ Exemplo de baseline de pass-rate:
 ```
 
 A cada execução, o baseline só é atualizado se TODAS as rubricas igualaram ou superaram o valor anterior. Qualquer regressão ("rubrica X caiu de Y para Z em N fixtures") reprova o gate.
+
+## Rodada de go-live (massa E2E + gate + veredito)
+
+Fluxo do operador para validar o agente por completo antes de produção (needs_db +
+`ANTHROPIC_API_KEY`; **custa crédito** — autorização explícita, CLAUDE.md §0):
+
+```bash
+make massa      # ~52 jornadas Novo->Fechado/Perdido (sim/massa.py): 19 cenários robo × K=2
+                # (perfis de sim/perfis.py) + 11 fixos + 3 held-out; teto de custo abortável
+                # (default R$50); grava evals/registros/rodadas/<carimbo>/{massa.jsonl,meta.json}
+make cutover    # runner K=5 (canônicas >=4/5 + adversariais pass^K) + baseline cutover.json na
+                # rodada (gate.log com o stdout); exige TEST_DATABASE_URL
+make veredito   # OFFLINE: compõe gate + massa + custo/cache -> veredito.{json,md}; exit 0=GO/1=NO-GO
+```
+
+Hierarquia: o **gate determinístico é o componente dominante** — `cutover.json` ausente/não-verde
+é NO-GO; a massa entra como invariantes-duros (disclosure/canary bloqueiam), estatística de
+condução (taxa E2E estrutural) e descoberta. A **fila do juiz** (persona/conduta) sai no
+`veredito.md` com o comando `evals.diagnostico.extrair` pronto por conversa — revisão por
+subagente Claude Code ou rotulagem humana (`--ingerir-calibracao` da massa manda para a UI
+`/calibracao`); o GO pressupõe a fila revisada. Smoke barato antes da rodada cheia:
+
+```bash
+uv run python -m evals.sim.massa --cenario interno_qualificacao --k-robo 1 \
+    --sem-fixos --sem-heldout --teto-brl 5 --usar-database-url
+```

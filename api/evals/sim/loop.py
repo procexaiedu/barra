@@ -68,6 +68,11 @@ class PassoJornada:
     # virando horario_desejado e disparando a reserva previa -> reagendamento). None se o turno nao
     # chamou registrar_extracao.
     extracao: dict[str, Any] | None = None
+    # Custo realizado do turno em BRL e hit-rate de cache (de runner._capturar; antes descartados).
+    # None em passos de ato (sem invoke) e em capturas sem usage medivel (fake/sem key). Alimentam
+    # o budget guard da massa (sim/massa.py) e a saude de custo/cache do veredito.
+    custo_brl: float | None = None
+    cache_hit_rate: float | None = None
     # --- observabilidade de DIAGNOSTICO (C5a do flywheel; nao usada pela rotulagem) ---------------
     # O system montado pelo prepare_context (prefixo tools+system+janela) que a IA "viu" neste turno:
     # diagnostico de POR QUE decidiu (cardapio/contexto dinamico/janela). None se ausente.
@@ -453,6 +458,8 @@ async def jornada(
                 escalou=captura.escalou,
                 nodes_visitados=sorted(handler.nos - nodes_antes),
                 extracao=_extrair_extracao_do_turno(resultado["messages"]),
+                custo_brl=captura.custo_brl,
+                cache_hit_rate=captura.cache_hit_rate,
                 prompt_montado=_extrair_prompt_montado(resultado["messages"]),
                 thinking=_extrair_thinking_do_turno(resultado["messages"]),
                 tool_io=_extrair_tool_io_do_turno(resultado["messages"]),

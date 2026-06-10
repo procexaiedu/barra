@@ -41,11 +41,13 @@ camadas sobrepostas que não se substituem** (modelo "queijo suíço"):
    mudança de agente/modelo**. → *No Barra: já temos (`08-evals.md`, 61 fixtures, `make evals`).*
 2. **Online / observability** — evaluators rodando **sobre traces de produção** (amostra), pra
    detectar degradação por update de modelo, drift de dados ou novo padrão de usuário. → 🟡
-   *No Barra: PARCIAL (jun/2026). `coordenador._amostrar_eval_online` roda o invariante
-   determinístico `online_non_disclosure` numa amostra (`eval_online_sample_rate`) e agora
-   emite o veredito como **feedback no trace** do LangSmith (`registrar_feedback_online`), além
-   do Prometheus. Falta: ampliar p/ os demais invariantes determinísticos e o passe de judge
-   amostrado. Ver §2 sobre por que os checks de TEXTO têm de rodar in-app (masking de PII).*
+   *No Barra: PARCIAL (jun/2026). `coordenador._amostrar_eval_online` roda 4 invariantes
+   determinísticos numa amostra (`eval_online_sample_rate`, 1 sorteio): `online_non_disclosure`,
+   `online_system_leak`, `online_segredo_agenda` (regexes do output_guard, fonte única) e
+   `online_formato_bolha` (bolha vazia/estourada/template residual) — cada um vira suite no
+   `agente_eval_pass_rate` + **feedback no trace** (`registrar_feedback_online`). O alerta
+   `AgenteEvalOnlineCaiu` cobre as 4 pelo label `suite`. Falta: o passe de judge amostrado.
+   Ver §2 sobre por que os checks de TEXTO têm de rodar in-app (masking de PII).*
 3. **Revisão humana periódica** — anotação para **calibrar o judge**, não para validar cada
    resposta. → ⚠️ *No Barra: LACUNA. O judge nunca foi calibrado (`golden.jsonl` placeholder).*
 
@@ -275,7 +277,7 @@ tooling de calibração e achados de viés podem mudar.
 | 4 | Adotar **escalada por confiança** (Sonnet barato → escala só no incerto) no judge | calibração | Moeda B | casa c/ crédito escasso |
 | 5 | **Debias de formatação** no prompt do judge (chain-of-thought / estratégia combinada) | calibração | Moeda A | rápido |
 | 6 | **Manter** swap de ordem/posição no judge panel (refutação §6.1) | calibração | — | invariante |
-| 7 | Camada online: invariantes determinísticos + judge amostrado/periódico no LangSmith | online | Moeda B | 🟡 parcial: `online_non_disclosure` in-app → feedback no trace (jun/2026); falta ampliar invariantes + judge amostrado |
+| 7 | Camada online: invariantes determinísticos + judge amostrado/periódico no LangSmith | online | Moeda B | 🟡 parcial: 4 invariantes in-app (`non_disclosure`, `system_leak`, `segredo_agenda`, `formato_bolha`) → feedback no trace (jun/2026); falta judge amostrado |
 | 8 | Trajetória por-turno no gate (tool/nó/state por turno em `mensagens_entrada`) | offline | Moeda A | ✅ feito (jun/2026) |
 
 > **Moeda A** = plano Claude Code (abundante). **Moeda B** = crédito de API de prod (escasso —

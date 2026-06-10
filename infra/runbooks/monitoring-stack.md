@@ -21,6 +21,10 @@ real, datasource, disparo de alerta — é **passo do operador** descrito abaixo
 | Alerta | Métrica | Disparo |
 |---|---|---|
 | `AgenteSpikeEscaladaDefesa` | `agente_escalada_total{bucket="defesa"}` | `rate > 0.1/s` por 5m (ataque ativo) |
+| `AgenteTaxaEscaladaCapacidadeAlta` | `agente_escalada_total{bucket="capacidade"}` / `agente_turno_resultado_total` | razão `> 15%` em 6h por 1h (deriva lenta de condução) |
+| `AgenteVazamentoCrossModelo` | `agente_output_leak_total{motivo="cross_modelo"}` | `increase > 0` em 1h (**critical**, invariante #1) |
+| `AgenteEvalOnlineCaiu` | `agente_eval_pass_rate{suite}` | média por suite `< 0.95` em 1h por 30m (4 suites: non_disclosure, system_leak, segredo_agenda, formato_bolha) |
+| `AgenteAupSaidaJudgeFalhando` | `agente_aup_saida_bloqueado_total{resultado="judge_falhou"}` | `rate > 0.02/s` por 15m (Etapa 2 cega) |
 | `AgenteCacheWriteRateAlto` (CUSTO-05) | `agente_turno_tokens_total{tipo=cache_write}` | write / (input+read+write) `> 15%` por 15m |
 | `AgenteCustoTurnoAcimaDoAlvo` | `agente_custo_turno_brl` | p95 `> 0.12 BRL` por 15m |
 | `AgenteLatenciaTurnoP95Alta` | `agente_turno_duracao_seconds` | p95 `> 20s` por 10m |
@@ -52,7 +56,7 @@ real, datasource, disparo de alerta — é **passo do operador** descrito abaixo
 
 1. `prometheus-barra` → Status → Targets: `barra-api` e `barra-worker` **UP**.
 2. Grafana abre em `grafana-barra.procexai.tech`, datasource Prometheus já presente.
-3. Status → Rules no Prometheus lista os 5 alertas (estado `inactive`/`pending`/`firing`).
+3. Status → Rules no Prometheus lista os 9 alertas (estado `inactive`/`pending`/`firing`).
 4. Disparo de fumaça: gerar tráfego que eleve `agente_escalada_total{bucket=defesa}` (ou
    abaixar temporariamente o threshold) e confirmar a entrega no `ALERT_WEBHOOK_URL`.
 

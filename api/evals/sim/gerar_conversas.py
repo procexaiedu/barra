@@ -66,12 +66,22 @@ async def _apos_seed(conn: Any, modelo_id: Any, *_ids: Any) -> None:
     await seed_cardapio(conn, modelo_id)
 
 
-def _serializar(cenario: _CenarioComum, traj: Trajetoria) -> dict[str, Any]:
+def _serializar(
+    cenario: _CenarioComum,
+    traj: Trajetoria,
+    *,
+    conversa_id: str | None = None,
+    extras: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Trajetoria -> conversa rotulavel. Cada fala da IA ganha `idx` (chave de rotulagem na UI) +
     os sinais de OBSERVABILIDADE do turno (estado/ia_pausada/pix_status/tools/escalou/nodes) que
     tornam "chamada de tools / escalada / handoff" auditaveis no corpus e na evals-notas.html. Os
     campos extras sao ADITIVOS: o export do golden le so texto_resposta/idx/historico (calibrar.py
-    e a UI ignoram o resto), entao nao afetam a rotulagem nem a calibracao."""
+    e a UI ignoram o resto), entao nao afetam a rotulagem nem a calibracao.
+
+    `conversa_id` (default `cenario.nome`) permite a massa identificar amostras (`cenario#k1`);
+    `extras` (ex.: {"perfil": "regateiro", "tipo": "robo"}) e mesclado no dict raiz -- tambem
+    aditivo, classificar.py/UI ignoram chaves que nao conhecem."""
     turnos: list[dict[str, Any]] = []
     for passo in traj.passos:
         if passo.acao_ato:
@@ -99,6 +109,8 @@ def _serializar(cenario: _CenarioComum, traj: Trajetoria) -> dict[str, Any]:
                     "escalou": passo.escalou,
                     "nodes": passo.nodes_visitados,
                     "extracao": passo.extracao,
+                    "custo_brl": passo.custo_brl,
+                    "cache_hit_rate": passo.cache_hit_rate,
                     # diagnostico (C5a): aditivo, a UI/calibrar.py ignoram. O tool_io traz o motivo
                     # da escalada (args de `escalar`) que o classificador E2E le.
                     "prompt_montado": passo.prompt_montado,
@@ -111,7 +123,12 @@ def _serializar(cenario: _CenarioComum, traj: Trajetoria) -> dict[str, Any]:
         if turno["papel"] == "ia":
             turno["idx"] = idx
             idx += 1
-    return {"conversa_id": cenario.nome, "cenario": cenario.nome, "turnos": turnos}
+    return {
+        "conversa_id": conversa_id or cenario.nome,
+        "cenario": cenario.nome,
+        "turnos": turnos,
+        **(extras or {}),
+    }
 
 
 async def _rodar[T: _CenarioComum](

@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import random
+import re
 import unicodedata
 from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
@@ -30,9 +31,14 @@ from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
 from barra.agente._canned import escolher_canned_transcricao_falhou
+from barra.agente._custo import custo_chat_turno_brl
 from barra.agente._texto_turno import extrair_texto_do_turno
 from barra.agente.contexto import ContextAgente
-from barra.agente.nos.output_guard import tem_marcador_ia
+from barra.agente.nos.output_guard import (
+    tem_marcador_ia,
+    tem_marcador_outro_cliente,
+    tem_marcador_system,
+)
 from barra.agente.persona import _brl
 from barra.core.metrics import (
     AGENTE_ESCALADA,
@@ -46,7 +52,7 @@ from barra.core.redis import LockBusy, adquirir_lock
 from barra.core.tracing import langfuse_handler, metadata_trace_turno, registrar_feedback_online
 from barra.settings import get_settings
 from barra.webhook.despacho import enfileirar_processar_turno
-from barra.workers._chunking import chunk_texto
+from barra.workers._chunking import MAX_CHARS, chunk_texto
 
 logger = logging.getLogger(__name__)
 
@@ -336,6 +342,15 @@ async def processar_turno(
                 #     INCR) e seguro: todo o turno roda sob `lock:conv`, escritor unico por conversa.
                 await redis.set(chave_teto, ja_contados + 1, ex=86400)
 
+                # 5a'. custo do turno acumulado no atendimento (OBS go-live): ANTES do descarte do
+                #      passo 6 — turno descartado tambem queimou tokens. Best-effort: telemetria
+                #      nunca derruba o turno.
+                await acumular_custo_atendimento(
+                    pool,
+                    atendimento["id"],
+                    custo_chat_turno_brl(resultado["messages"], settings.usd_brl_cotacao),
+                )
+
                 # 5b. refusal do Sonnet (stop_reason=refusal chega em 200 OK, nao como excecao; o
                 #     no llm ja logou stop_details.category). O sinal vem no response_metadata da
                 #     AIMessage gerada no turno (canal `messages`). Escala defesa (modelo_recusou)
@@ -501,16 +516,17 @@ async def processar_turno(
                             quote_textos=quote_textos,
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
-                        # EVAL-11: rubrica online amostrada -> Prometheus (tendencia) + score no
-                        # trace do Langfuse (veredito por-turno, agora sobre conteudo legivel).
-                        score_online = _amostrar_eval_online(chunks)
-                        if score_online is not None and trace_id_eval is not None:
-                            await asyncio.to_thread(
-                                registrar_feedback_online,
-                                trace_id_eval,
-                                "online_non_disclosure",
-                                score_online,
-                            )
+                        # EVAL-11: rubricas online amostradas (1 sorteio, 4 suites) -> Prometheus
+                        # (tendencia) + scores no trace do Langfuse (veredito por-turno legivel).
+                        scores_online = _amostrar_eval_online(chunks)
+                        if scores_online is not None and trace_id_eval is not None:
+                            for suite, score in scores_online.items():
+                                await asyncio.to_thread(
+                                    registrar_feedback_online,
+                                    trace_id_eval,
+                                    suite,
+                                    score,
+                                )
 
                 # 8. drena: chegou msg com o lock retido? re-roda sob o MESMO lock; senao sai.
                 if not await redis.get(f"pending:conv:{conversa_id}"):
@@ -586,23 +602,83 @@ async def aguardar_transcricoes(redis: Any, conversa_id: str, *, orcamento_s: in
     return leu_algum and todos_ok
 
 
-def _amostrar_eval_online(chunks: list[str]) -> float | None:
-    """EVAL-11: amostra ~`eval_online_sample_rate` dos turnos 'ok' e observa a rubrica online de
-    non_disclosure em `agente_eval_pass_rate{suite=online_non_disclosure}`.
+# Marcador residual de template numa bolha final: prefixo [quote...] que o chunking deveria ter
+# extraido, cerca de codigo ou heading markdown — sinal de regressao de prompt/chunking que
+# escapou para o cliente.
+_MARCADOR_TEMPLATE = re.compile(r"\[quote|```|^#{1,3}\s", re.MULTILINE)
 
-    Rubrica DETERMINISTICA (`tem_marcador_ia`, mesma do output_guard) -> sem custo de LLM por
-    turno amostrado. So observa um sinal de TENDENCIA (scraped por Prometheus em regime); o gate
-    de verdade segue offline (runner). 0 ou falha de amostragem -> no-op silencioso.
 
-    Devolve o score (0.0/1.0) quando o turno foi amostrado, p/ o caller anexar o mesmo veredito como
-    feedback no trace do LangSmith; None quando nao amostrou (rate=0 ou sorteio acima da taxa).
+def _formato_bolha_ok(chunks: list[str]) -> bool:
+    """Rubrica online de formato (PURA): nenhuma bolha vazia, nenhuma acima de MAX_CHARS do
+    chunking e sem marcador residual de template."""
+    if not chunks:
+        return False
+    for c in chunks:
+        if not c.strip() or len(c) > MAX_CHARS or _MARCADOR_TEMPLATE.search(c):
+            return False
+    return True
+
+
+def _amostrar_eval_online(chunks: list[str]) -> dict[str, float] | None:
+    """EVAL-11: amostra ~`eval_online_sample_rate` dos turnos 'ok' e observa as rubricas online
+    DETERMINISTICAS em `agente_eval_pass_rate{suite=...}` — sem custo de LLM por turno amostrado.
+
+    Um UNICO sorteio cobre as 4 suites (mesmo turno amostrado para todas — comparaveis entre si):
+      - `online_non_disclosure`  — `tem_marcador_ia` (auto-referencia de IA);
+      - `online_system_leak`    — `tem_marcador_system` (fragmento de system/persona);
+      - `online_segredo_agenda` — `tem_marcador_outro_cliente` ("estou com outro cliente");
+      - `online_formato_bolha`  — `_formato_bolha_ok` (vazia/estourada/template residual).
+    As tres primeiras reusam os regexes do output_guard (fonte unica) e cobrem exatamente os
+    caminhos que PULAM o no output_guard (canned do intercept, bolha anexada pelo coordenador).
+
+    So observa sinal de TENDENCIA (Prometheus); o gate de verdade segue offline (runner). Devolve
+    {suite: score 0.0/1.0} quando amostrou, p/ o caller anexar como feedback no trace do Langfuse;
+    None quando nao amostrou (rate=0 ou sorteio acima da taxa).
     """
     rate = get_settings().eval_online_sample_rate
     if rate <= 0 or random.random() >= rate:  # noqa: S311 -- amostragem de telemetria, nao cripto
         return None
-    passou = 0.0 if tem_marcador_ia(" ".join(chunks)) else 1.0
-    AGENTE_EVAL_PASS_RATE.labels("online_non_disclosure").observe(passou)
-    return passou
+    texto = " ".join(chunks)
+    scores = {
+        "online_non_disclosure": 0.0 if tem_marcador_ia(texto) else 1.0,
+        "online_system_leak": 0.0 if tem_marcador_system(texto) else 1.0,
+        "online_segredo_agenda": 0.0 if tem_marcador_outro_cliente(texto) else 1.0,
+        "online_formato_bolha": 1.0 if _formato_bolha_ok(chunks) else 0.0,
+    }
+    for suite, score in scores.items():
+        AGENTE_EVAL_PASS_RATE.labels(suite).observe(score)
+    return scores
+
+
+async def acumular_custo_atendimento(
+    pool: AsyncConnectionPool[Any], atendimento_id: UUID, custo_brl: float
+) -> None:
+    """Acumula o custo de chat do turno em `atendimentos.custo_ia_brl` (OBS go-live).
+
+    UPDATE acumulativo atomico (`custo_ia_brl + %s`) — race-safe por construcao, e o turno ja
+    roda sob `lock:conv` (escritor unico). BEST-EFFORT, mesmo contrato de
+    `registrar_feedback_online`: telemetria nunca derruba o turno (falha vira warning).
+    `custo_brl <= 0` (sem usage medivel) -> no-op.
+
+    O `conn.transaction()` confina a falha num SAVEPOINT: se o UPDATE estourar (ex.: migration
+    `custo_ia_brl` ainda nao aplicada nesse banco), so o savepoint e desfeito — uma transacao
+    externa compartilhada (pool-de-uma-conexao dos testes needs_db) NAO fica abortada.
+    """
+    if custo_brl <= 0:
+        return
+    try:
+        async with pool.connection() as conn, conn.transaction():
+            await conn.execute(
+                "UPDATE barravips.atendimentos SET custo_ia_brl = custo_ia_brl + %s WHERE id = %s",
+                (custo_brl, atendimento_id),
+            )
+    except Exception:
+        logger.warning(
+            "custo_persistencia_falhou atendimento_id=%s custo_brl=%s",
+            atendimento_id,
+            custo_brl,
+            exc_info=True,
+        )
 
 
 async def resolver_atendimento(

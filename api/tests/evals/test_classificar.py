@@ -240,3 +240,48 @@ def test_resumo_lote_agrega():
     assert r["e2e_completo"] == 1  # só "a"
     assert set(r["falhas_duras"]) == {"b", "c"}  # disclosure + degradação
     assert r["por_terminal"]["handoff_portaria"] == 1
+
+
+# --- desfechos TERMINAIS da maquina (atos pos-loop da massa: F4.2/F4.3/F4.4) ----------------------
+
+
+def test_fechado_pelo_card_e_e2e_completo():
+    # modelo_fecha_card/lembrete_cobra_e_fecha DESPAUSAM a IA: sem o ramo `fechado`, a jornada
+    # fechada cairia em recusa_ou_aberto e derrubaria a taxa E2E da massa indevidamente.
+    c = _conv(
+        "interno_fecha_venda#k0",
+        [
+            _cli("cheguei"),
+            _ato("enviar_foto_portaria", "Em_execucao", ia_pausada=True),
+            _ato("modelo_fecha_card", "Fechado", ia_pausada=False),
+        ],
+    )
+    v = clf.classificar(c)
+    assert v.terminal == "fechado"
+    assert v.e2e_completo
+    assert v.precisa_julgamento  # persona/conduta sempre vao ao juiz
+
+
+def test_perdido_por_timeout_do_sim_e_e2e_completo():
+    c = _conv(
+        "interno_some_perdido#k0",
+        [
+            _cli("ja sai"),
+            _ato("enviar_aviso_saida", "Aguardando_confirmacao"),
+            _ato("cliente_some_timeout", "Perdido", ia_pausada=False),
+        ],
+    )
+    v = clf.classificar(c)
+    assert v.terminal == "perdido_timeout"
+    assert v.e2e_completo
+
+
+def test_perdido_sem_timeout_do_sim_e_inesperado():
+    c = _conv(
+        "x",
+        [_cli("oi"), _ia("oi", estado="Perdido", ia_pausada=False)],
+    )
+    v = clf.classificar(c)
+    assert v.terminal == "perdido_inesperado"
+    assert not v.e2e_completo
+    assert "perdido_sem_timeout_do_sim" in v.flags

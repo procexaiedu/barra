@@ -118,10 +118,10 @@ async def _roi(
     - `comissao_evitada_brl`: dos `Fechado` conduzidos pela IA (vendedor_id NULL), o valor do
       serviço x alíquota de REFERÊNCIA (nível 'intermediario' da config) — a comissão que a IA
       poupa por conduzir sem vendedor.
-    - `custo_ia_brl`: custo de IA (chat+STT+vision) vive nos Histograms Prometheus do worker
-      (`agente_custo_*_brl`), não no Postgres do dashboard. É preenchido pelo operador/Grafana;
-      aqui retornamos None com a nota. `custo_ia_por_fechado` = custo_ia / fechados_ia quando
-      o operador injetar o custo.
+    - `custo_ia_brl`: custo de CHAT (Sonnet) acumulado por turno em `atendimentos.custo_ia_brl`
+      pelo coordenador (OBS go-live) — soma dos atendimentos CRIADOS na janela. STT/vision são
+      marginais e seguem só no Prometheus (`agente_custo_{stt,vision}_brl`).
+      `custo_ia_por_fechado` = custo_ia / fechados_ia (None sem fechados da IA).
 
     Base de comissão = valor do serviço (líquido de taxa, ADR 0013), via VALOR_SERVICO_SQL.
     Só `Fechado` conta. Espelha a âncora dedupada de `fechado_registrado`.
@@ -168,17 +168,36 @@ async def _roi(
     fechados_ia = int(row["fechados_ia"]) if row else 0
     comissao_calculada = float(row["comissao_calculada"]) if row else 0.0
     comissao_evitada = float(row["comissao_evitada"]) if row else 0.0
+
+    # Custo de chat acumulado nos atendimentos CRIADOS na janela (a coluna é por atendimento,
+    # não por turno — a âncora natural é o created_at do atendimento).
+    params_custo: list[Any] = [janela.inicio, janela.fim]
+    filtro_custo = ""
+    if modelo_id:
+        filtro_custo = "AND a.modelo_id = ANY(%s)"
+        params_custo.append(modelo_id)
+    result_custo = await conn.execute(
+        f"""
+        SELECT COALESCE(SUM(a.custo_ia_brl), 0)::numeric AS custo_ia
+          FROM barravips.atendimentos a
+         WHERE a.created_at >= %s AND a.created_at <= %s
+           {filtro_custo}
+        """,
+        params_custo,
+    )
+    row_custo = await result_custo.fetchone()
+    custo_ia = float(row_custo["custo_ia"]) if row_custo else 0.0
+
     return {
         "fechados_humano": fechados_humano,
         "fechados_ia": fechados_ia,
         "comissao_calculada_brl": round(comissao_calculada, 2),
         "comissao_evitada_brl": round(comissao_evitada, 2),
-        # custo de IA vem do Prometheus do worker (agente_custo_*_brl) — não do Postgres.
-        "custo_ia_brl": None,
-        "custo_ia_por_fechado_brl": None,
+        "custo_ia_brl": round(custo_ia, 2),
+        "custo_ia_por_fechado_brl": (round(custo_ia / fechados_ia, 2) if fechados_ia else None),
         "nota_custo_ia": (
-            "custo de IA (chat+STT+vision) vive nos Histograms Prometheus do worker; "
-            "wire via Grafana/operador (CUSTO-02)"
+            "custo de chat (Sonnet) acumulado por turno pelo coordenador; estimativa, não fatura. "
+            "STT/vision marginais seguem no Prometheus (agente_custo_{stt,vision}_brl)"
         ),
     }
 

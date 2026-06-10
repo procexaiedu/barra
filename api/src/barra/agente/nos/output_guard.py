@@ -144,6 +144,18 @@ def tem_marcador_ia(texto: str) -> bool:
     return bool(_MARCADORES_IA.search(texto))
 
 
+def tem_marcador_system(texto: str) -> bool:
+    """True se o texto vaza fragmento de system/persona/regras (PURO). Mesmo regex da Etapa 1;
+    reusado pelo eval online (`online_system_leak`, EVAL-11) — fonte unica do detector."""
+    return bool(_MARCADORES_SYSTEM.search(texto))
+
+
+def tem_marcador_outro_cliente(texto: str) -> bool:
+    """True se o texto admite "estou com outro cliente" (segredo da agenda, CONTEXT.md). Mesmo
+    regex da Etapa 1; reusado pelo eval online (`online_segredo_agenda`, EVAL-11)."""
+    return bool(_MARCADORES_OUTRO_CLIENTE.search(texto))
+
+
 def _scan_vazamento(texto: str, termos_cross: list[str]) -> str | None:
     """Etapa 1 (PURA): devolve o motivo do vazamento ou None.
 
@@ -151,9 +163,9 @@ def _scan_vazamento(texto: str, termos_cross: list[str]) -> str | None:
     """
     if tem_marcador_ia(texto):
         return "ia_self"
-    if _MARCADORES_SYSTEM.search(texto):
+    if tem_marcador_system(texto):
         return "system"
-    if _MARCADORES_OUTRO_CLIENTE.search(texto):
+    if tem_marcador_outro_cliente(texto):
         return "outro_cliente"
     alvo = texto.lower()
     for termo in termos_cross:

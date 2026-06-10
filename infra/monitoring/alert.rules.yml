@@ -30,6 +30,29 @@ groups:
             ultimos 5m. Defesa em alta = jailbreak/disclosure/AUP batendo na IA. Investigar
             origem (conversa/cliente) nos traces.
 
+      # Deriva LENTA de escaladas de capacidade (complemento do spike acima, que so pega ataque
+      # em 5m): a fracao de turnos processados que termina em escalada de capacidade subindo ao
+      # longo do dia = degradacao de conducao (cardapio incompleto, agenda apertada, regressao de
+      # prompt) que nenhum alerta pegava. Denominador restrito aos turnos REALMENTE processados
+      # (exclui sem_pendencia/ia_pausada_skip/lock_busy, que inflariam a base). Limiar 0.15 e
+      # proposta inicial — tuning do operador pos-go-live.
+      - alert: AgenteTaxaEscaladaCapacidadeAlta
+        expr: |
+          sum(increase(agente_escalada_total{bucket="capacidade"}[6h]))
+          /
+          sum(increase(agente_turno_resultado_total{resultado=~"ok|ok_sem_resposta|escalado|exaustao"}[6h]))
+          > 0.15
+        for: 1h
+        labels:
+          severity: warning
+          dimensao: capacidade
+        annotations:
+          summary: "Taxa de escalada de capacidade acima de 15% dos turnos (deriva lenta)"
+          description: >
+            {{ $value | humanizePercentage }} dos turnos processados nas ultimas 6h terminaram em
+            escalada de capacidade (fora_de_oferta/horario_indisponivel/...). Nao e ataque — e a
+            IA reconhecendo limite demais: checar cardapio/agenda/regressao de prompt nos traces.
+
   - name: agente_output_guard
     rules:
       # 08c §2 — tripwire de REGRESSAO de isolamento (distinto do spike de ATAQUE acima): a IA
@@ -49,26 +72,29 @@ groups:
             hora. O guard protegeu, mas a IA NAO deveria gerar isso — regressao do isolamento por
             par (CONTEXT.md "IA por modelo"). Investigar a conversa/modelo nos logs.
 
-      # 08c §2 — queda do eval online de non_disclosure (EVAL-11). agente_eval_pass_rate amostra
-      # ~5% dos turnos 'ok' e grava 1.0=passou / 0.0=marcador de IA chegou ao cliente. A media da
-      # janela = pass-rate vivo; < 0.95 = disclosure vazando ao cliente sem a Etapa 1 do guard
-      # pegar. Sem amostra na janela, 0/0 -> serie ausente, nao dispara (nao alarme de silencio).
-      - alert: AgenteEvalOnlineNonDisclosureCaiu
+      # 08c §2 — queda de QUALQUER rubrica do eval online (EVAL-11). agente_eval_pass_rate
+      # amostra ~5% dos turnos 'ok' (1 sorteio, 4 suites: online_non_disclosure,
+      # online_system_leak, online_segredo_agenda, online_formato_bolha — coordenador.py) e grava
+      # 1.0=passou / 0.0=falhou. A media por suite = pass-rate vivo; < 0.95 dispara COM o label
+      # `suite` apontando a rubrica. Sem amostra na janela, 0/0 -> serie ausente, nao dispara
+      # (nao alarme de silencio).
+      - alert: AgenteEvalOnlineCaiu
         expr: |
-          sum(rate(agente_eval_pass_rate_sum{suite="online_non_disclosure"}[1h]))
+          sum by (suite) (rate(agente_eval_pass_rate_sum[1h]))
           /
-          sum(rate(agente_eval_pass_rate_count{suite="online_non_disclosure"}[1h]))
+          sum by (suite) (rate(agente_eval_pass_rate_count[1h]))
           < 0.95
         for: 30m
         labels:
           severity: warning
           dimensao: seguranca
         annotations:
-          summary: "Pass-rate online de non_disclosure abaixo de 0.95 (disclosure vazando)"
+          summary: "Pass-rate do eval online abaixo de 0.95 (suite {{ $labels.suite }})"
           description: >
-            media de agente_eval_pass_rate{suite=online_non_disclosure} = {{ $value | printf
-            "%.2f" }} na ultima 1h (amostra ~5% dos turnos 'ok'). < 1.0 = marcador de IA chegou ao
-            cliente sem o guard barrar. Confirmar no runner offline (gate de verdade) e nos logs.
+            media de agente_eval_pass_rate{suite={{ $labels.suite }}} = {{ $value | printf
+            "%.2f" }} na ultima 1h (amostra ~5% dos turnos 'ok'). non_disclosure/system_leak/
+            segredo_agenda = vazamento chegando ao cliente sem o guard barrar; formato_bolha =
+            regressao de chunking/template. Confirmar no runner offline (gate de verdade) e logs.
 
       # Disponibilidade da Etapa 2 do guard: judge de AUP falhando por infra -> default seguro
       # bloqueia+escala, mas a checagem de AUP de saida fica CEGA e a IA fica muda demais. Spike

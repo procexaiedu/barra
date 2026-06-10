@@ -60,3 +60,16 @@ traj = await jornada(conn, seed, ClienteSimulado(persona), max_turnos=8)
 
 O loop **não** roda offline (chama o grafo e o cliente-LLM). A verificação offline cobre só a
 lógica pura anti-leakage; o run live é passo do operador.
+
+## Rodada em massa (`massa.py`) — continua NÃO-GATE
+
+`uv run python -m evals.sim.massa` roda a composição completa (~52 jornadas: 19 cenários robo ×
+K=2 com perfis de `perfis.py` + 11 fixos + 3 held-out) com teto de custo (`--teto-brl`, aborta) e
+escrita incremental em `evals/registros/rodadas/<carimbo>/massa.jsonl`. Os **perfis** variam só a
+FORMA da persona (apressado, regateiro, desconfiado…), nunca o objetivo — senão os roteiros
+`decidir_ato` por índice/estado dessincronizariam. O `estilo` passa pelo mesmo check anti-leakage
+de `montar_prompt_cliente`.
+
+O veredito da rodada é de `evals.diagnostico.veredito` (offline) e o gate continua sendo o runner
+K=5 (`make cutover`) — o verde da massa segue **não** contando para o cutover; ela contribui com
+invariantes-duros, taxa E2E estrutural e a fila do juiz. Ver `evals/README.md` §"Rodada de go-live".
