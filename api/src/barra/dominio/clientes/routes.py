@@ -100,8 +100,16 @@ async def listar_clientes(
     if not incluir_arquivados:
         filtros.append("c.arquivado_em IS NULL")
     if cursor:
-        filtros.append("c.updated_at < %s::timestamptz")
-        params.append(cursor)
+        # Cursor composto "timestamp|id": updated_at sozinho não pagina quando há
+        # empate (import em lote grava centenas de linhas na mesma transação).
+        cursor_ts, _, cursor_id = cursor.partition("|")
+        if cursor_id:
+            filtros.append("(c.updated_at, c.id) < (%s::timestamptz, %s::uuid)")
+            params.extend([cursor_ts, cursor_id])
+        else:
+            # cursor legado (só timestamp), emitido antes do desempate
+            filtros.append("c.updated_at < %s::timestamptz")
+            params.append(cursor_ts)
     params.append(limit + 1)
     result = await conn.execute(
         f"""
@@ -129,14 +137,19 @@ async def listar_clientes(
              WHERE a.cliente_id = c.id
           ) ag ON TRUE
          WHERE {" AND ".join(filtros)}
-         ORDER BY c.updated_at DESC
+         ORDER BY c.updated_at DESC, c.id DESC
          LIMIT %s
         """,
         params,
     )
     rows = list(await result.fetchall())
-    next_cursor = rows[-1]["updated_at"].isoformat() if len(rows) > limit else None
+    # next_cursor sai da última linha EXIBIDA (rows[-1] pré-truncate era a linha
+    # extra do limit+1 — com "<" estrito ela nunca aparecia: 1 cliente sumia por página)
+    tem_mais = len(rows) > limit
     rows = rows[:limit]
+    next_cursor = (
+        f"{rows[-1]['updated_at'].isoformat()}|{rows[-1]['id']}" if tem_mais and rows else None
+    )
     return {
         "items": [
             {
