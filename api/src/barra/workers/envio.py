@@ -568,7 +568,7 @@ async def enviar_turno(
     chars_inbound: int,
     critico: bool = False,
     quote_msg_ids: list[str | None] | None = None,
-    quote_texto: str | None = None,
+    quote_textos: list[str | None] | None = None,
 ) -> None:
     """Envia um turno chunk-by-chunk e depois as mídias (05 §4).
 
@@ -578,8 +578,8 @@ async def enviar_turno(
 
     `quote_msg_ids` (opcional) tem o mesmo tamanho de `chunks`; cada posição não-None faz a
     bolha sair com reply/quote àquela mensagem (Evolution v2.3.6 `quoted.key.id`). Default
-    None preserva o comportamento dos call sites canned/reengajamento. `quote_texto` é o
-    conteúdo da mensagem citada (última do cliente) — vai no `quoted.message.conversation`
+    None preserva o comportamento dos call sites canned/reengajamento. `quote_textos` é paralelo
+    e carrega o conteúdo da mensagem citada de cada bolha — vai no `quoted.message.conversation`
     para o balão de reply renderizar o texto; sem ele, o WhatsApp mostra a citação vazia
     (a Evolution não faz lookup pelo id, verificado 2026-05-30).
     """
@@ -643,6 +643,9 @@ async def enviar_turno(
             quote_target = (
                 quote_msg_ids[idx] if quote_msg_ids and idx < len(quote_msg_ids) else None
             )
+            quote_target_texto = (
+                quote_textos[idx] if quote_textos and idx < len(quote_textos) else None
+            )
             async with pool.connection() as conn, conn.transaction():
                 mid = await evolution.enviar_texto(
                     conn=conn,
@@ -654,7 +657,7 @@ async def enviar_turno(
                     atendimento_id=conv["atendimento_id"],
                     conversa_id=conversa_uuid,
                     quoted_message_id=quote_target,
-                    quoted_text=quote_texto if quote_target else None,
+                    quoted_text=quote_target_texto if quote_target else None,
                 )
                 await conn.execute(
                     """
