@@ -102,6 +102,78 @@ def test_listar_clientes_vazio_retorna_200() -> None:
         app.dependency_overrides.pop(get_conn, None)
 
 
+class FakeConnPaginacao:
+    """3 clientes com o MESMO updated_at (import em lote grava todos na mesma
+    transação) — o cursor precisa desempatar por id ou a página 2 pula todos."""
+
+    def __init__(self) -> None:
+        self.executes: list[tuple[str, object]] = []
+        ts = datetime(2026, 6, 9, 12, 0, 0, tzinfo=UTC)
+        self.rows = [
+            {
+                "id": UUID(int=n),
+                "nome": f"Cliente {n}",
+                "telefone": f"55199999000{n}",
+                "primeiro_contato_modelo_id": None,
+                "arquivado_em": None,
+                "created_at": ts,
+                "updated_at": ts,
+                "total_atendimentos": 0,
+                "total_fechados": 0,
+                "valor_total": 0,
+                "ultima_atividade": None,
+                "modelos_distintas": 0,
+                "modelo_predominante_nome": None,
+            }
+            for n in (3, 2, 1)
+        ]
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
+
+    async def execute(self, query: str, params: object = None) -> _Result:
+        self.executes.append((query, params))
+        if "ag.total_atendimentos" in query:
+            return _Result(self.rows)
+        return _Result([])
+
+
+def test_listar_clientes_cursor_desempata_por_id_com_updated_at_igual() -> None:
+    fake = FakeConnPaginacao()
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/crm/clientes?limit=2", headers=_token())
+        assert response.status_code == 200
+        body = response.json()
+        assert len(body["items"]) == 2
+        # cursor vem da última linha EXIBIDA (não da linha extra do limit+1)
+        # e carrega o id para desempate
+        assert body["next_cursor"] is not None
+        _ts, sep, cid = body["next_cursor"].partition("|")
+        assert sep == "|"
+        assert cid == str(UUID(int=2))
+
+        with TestClient(app) as client:
+            response2 = client.get(
+                f"/v1/crm/clientes?limit=2&cursor={body['next_cursor']}",
+                headers=_token(),
+            )
+        assert response2.status_code == 200
+        query, params = next(
+            (q, p) for q, p in fake.executes if "ag.total_atendimentos" in q and p and len(p) > 2
+        )
+        assert "(c.updated_at, c.id) < (%s::timestamptz, %s::uuid)" in query
+        assert str(UUID(int=2)) in [str(p) for p in params]
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
 def test_obter_cliente_inexistente_retorna_404() -> None:
     async def _override():
         yield FakeConnVazio()
