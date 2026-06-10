@@ -287,6 +287,36 @@ def test_extrair_mensagem_imagem_base64_aninhado_no_image_message() -> None:
     assert msg.media_mimetype == "image/png"
 
 
+def test_extrair_mensagem_reacao_e_descartada() -> None:
+    # Bug do turno fantasma: uma reacao (👀) chegava como texto vazio, virava turno e o agente
+    # confabulava "tudo bem e voce?". reactionMessage nunca e turno de conversa -> None (200
+    # 'ignored' no routes), mesmo quando a Evolution traz o emoji em `.text`.
+    payload = {
+        "instance": "barra-piloto",
+        "data": {
+            "key": {"id": "REACT1", "remoteJid": "5521999999999@s.whatsapp.net", "fromMe": False},
+            "message": {
+                "reactionMessage": {"text": "👀", "key": {"id": "ABC123"}},
+            },
+        },
+    }
+    assert extrair_mensagem(payload) is None
+
+
+def test_extrair_mensagem_texto_vazio_e_descartado() -> None:
+    # Sticker/protocolo/forma desconhecida sem texto e sem midia -> texto vazio. Nao ha o que o
+    # agente responda; descarta na borda em vez de despachar turno fantasma.
+    for message in ({"conversation": ""}, {"stickerMessage": {"url": "https://cdn/s.webp"}}):
+        payload = {
+            "instance": "barra-piloto",
+            "data": {
+                "key": {"id": "EMPTY1", "remoteJid": "5521@s.whatsapp.net", "fromMe": False},
+                "message": message,
+            },
+        }
+        assert extrair_mensagem(payload) is None, message
+
+
 def test_extrair_mensagem_imagem_sem_base64_fica_none() -> None:
     # Sem WEBHOOK_BASE64 (ou bug #2375): base64 ausente -> None (cai no download host-locked).
     payload = {
