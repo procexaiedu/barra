@@ -6,7 +6,8 @@ Só o `valor` é persistido no payload de `tool_calls`/`eventos`; a chave/titula
 vão em claro para a persistência (guard-rail de dado sensível) — quando a humanização (M4)
 anexar a chave, deve lê-la fresh do cadastro da modelo. A tool NÃO chama Evolution e NÃO
 escreve a chave no retorno, mantendo o string crítico (chave de 32+ chars) fora do LLM.
-Invariante: externo em Aguardando_confirmacao ⟹ Pix solicitado (01 §6.1).
+Invariante: externo SEM cliente_busca em Aguardando_confirmacao ⟹ Pix solicitado (01 §6.1,
+emendada pelo ADR 0020 — o pickup é promovido pela extração, sem Pix).
 """
 
 import json
@@ -37,6 +38,12 @@ class _TipoNaoExterno(Exception):
     foto-portaria para o branch pix em rotear_imagem (media.py avalia pix primeiro)."""
 
 
+class _ClienteBusca(Exception):
+    """Tool chamada num externo-pickup (cliente_busca=true, ADR 0020): o cliente busca a modelo,
+    nao ha deslocamento dela — Pix de deslocamento nao existe nesse caso. Guarda determinística
+    sobre a instrucao da docstring/prompt (<externo_cliente_busca>)."""
+
+
 @tool
 async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
     """Solicita o Pix de deslocamento, de valor fixo (ref. R$100), para saída externa.
@@ -52,6 +59,8 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
     anterior nem repita. Enquadre como custo da SUA saída, nunca como "garantir/segurar teu
     horário" (o horário já fica combinado antes; ver a conduta de Pix nas suas regras).
     Use APENAS para atendimento externo após acordar horário e endereço.
+    Use APENAS quando VOCÊ se desloca por conta própria (uber até o cliente). Se o cliente vem
+    te BUSCAR de carro, não há deslocamento seu — NÃO chame esta tool, não existe Pix nesse caso.
     Use APENAS UMA vez por atendimento (segunda chamada é idempotente, não duplica mensagem).
 
     Returns:
@@ -99,6 +108,15 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
                 "externa, registre tipo_atendimento='externo' (registrar_extracao) antes de "
                 "pedir o Pix."
             ) from None
+        except _ClienteBusca:
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "cliente_busca").inc()
+            raise ToolException(
+                "ERRO: este atendimento está registrado como pickup (o CLIENTE vem te buscar) — "
+                "não existe Pix de deslocamento nesse caso, o deslocamento não é seu. Siga sem "
+                "Pix: combine o ponto de encontro (ver <externo_cliente_busca> nas suas regras). "
+                "Se na verdade VOCÊ vai de uber até ele, corrija com registrar_extracao "
+                "(cliente_busca=false) antes de pedir o Pix."
+            ) from None
         except ConflitoAgenda:
             # Branch 13 (04 §6): a RESERVA do slot falhou (outro cliente já o tomou). O turno
             # inteiro reverteu (pix_status volta a nao_solicitado) — instrua a IA a re-ofertar.
@@ -143,8 +161,8 @@ async def _aplicar_pedido_pix(
 ) -> dict[str, Any]:
     res = await conn.execute(
         """
-        SELECT id, modelo_id, tipo_atendimento::text AS tipo_atendimento,
-               data_desejada, horario_desejado, duracao_horas
+        SELECT id, modelo_id, tipo_atendimento::text AS tipo_atendimento, cliente_busca,
+               bloqueio_id, data_desejada, horario_desejado, duracao_horas
           FROM barravips.atendimentos
          WHERE id = %s
         """,
@@ -156,6 +174,9 @@ async def _aplicar_pedido_pix(
     # qualquer escrita: tipo ausente ou interno aborta a transação inteira (erro recuperável).
     if atendimento["tipo_atendimento"] != "externo":
         raise _TipoNaoExterno(atendimento["tipo_atendimento"] or "nao_registrado")
+    # Pickup (ADR 0020): cliente busca a modelo — sem Pix de deslocamento.
+    if atendimento["cliente_busca"]:
+        raise _ClienteBusca()
 
     # Guarda WHERE pix_status='nao_solicitado': idempotência de estado (não re-transiciona um
     # atendimento que já saiu de nao_solicitado). A idempotência por turno fica no tool_calls.
@@ -171,7 +192,10 @@ async def _aplicar_pedido_pix(
     )
     # Bloqueio prévio do externo nasce AQUI (simétrico ao interno em registrar_extracao):
     # reserva o slot ao entrar em Aguardando_confirmacao e fecha a janela de double-booking.
-    await criar_bloqueio_previo(conn, atendimento=atendimento)
+    # Exceção: atendimento que JÁ tem bloqueio (ex.: pickup promovido pela extração e depois
+    # corrigido para Uber, ADR 0020) — recriar colidiria com o próprio bloqueio (EXCLUDE).
+    if atendimento["bloqueio_id"] is None:
+        await criar_bloqueio_previo(conn, atendimento=atendimento)
 
     await conn.execute(
         """

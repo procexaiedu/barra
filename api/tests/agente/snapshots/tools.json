@@ -40,6 +40,18 @@
           ],
           "default": null
         },
+        "cliente_busca": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "True quando o atendimento é EXTERNO e o CLIENTE vem buscar você de carro (pickup — ADR 0020): não existe Pix de deslocamento nesse caso (o deslocamento não é seu). Registre junto com tipo_atendimento='externo' e o horário: é o que reserva o slot e te pausa na hora do encontro. NÃO marque quando você vai de uber até o cliente (aí o fluxo é o Pix). Cliente recuou do pickup (vai te receber sem buscar / você vai de uber)? Mande false — não use `limpar` para este campo."
+        },
         "data_desejada": {
           "anyOf": [
             {
@@ -78,7 +90,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Endereço do CLIENTE / destino do atendimento (externo: onde ele está ou para onde vão — vira a localização DELE no sistema). NUNCA grave aqui o SEU ponto de encontro: no pickup (cliente_busca), só preencha se o cliente disser para onde vão."
         },
         "forma_pagamento": {
           "anyOf": [
@@ -107,7 +120,7 @@
             }
           ],
           "default": null,
-          "description": "Horário de relógio do encontro (HH:MM). PREENCHA na PRIMEIRA vez que o cliente der o horário — não re-pergunte algo que ele já disse. Cravou uma hora ('22h', 'meio-dia') → use-a. Disse tempo RELATIVO/imediato → calcule a partir da hora atual (vem em <agenda agora=\"HH:MM\"> no contexto): 'agora/já/imediato' = a hora atual; 'daqui N min/horas' = hora atual + N (ex.: agora=22:30 e cliente diz 'daqui 1h' → preencha 23:30; data_desejada=hoje, virando o dia se passar da meia-noite). É o que faz o atendimento AVANÇAR para Aguardando_confirmacao e te pausar na chegada. NÃO preencha em horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar."
+          "description": "Horário de relógio do encontro (HH:MM). PREENCHA na PRIMEIRA vez que o cliente der o horário — não re-pergunte algo que ele já disse. Cravou uma hora ('22h', 'meio-dia') → use-a. Disse tempo RELATIVO/imediato → calcule a partir da hora atual (vem em <agenda agora=\"HH:MM\"> no contexto): 'agora/já/imediato' = a hora atual; 'daqui N min/horas' = hora atual + N (ex.: agora=22:30 e cliente diz 'daqui 1h' → preencha 23:30; data_desejada=hoje, virando o dia se passar da meia-noite). É o que faz o atendimento AVANÇAR para Aguardando_confirmacao e te pausar na chegada. NÃO preencha em horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar. Depois de registrado, NÃO recalcule horário relativo nos turnos seguintes — omita o campo (o snapshot preserva o anterior); só reenvie se o CLIENTE pedir outro horário."
         },
         "intencao": {
           "anyOf": [
@@ -286,7 +299,7 @@
     "name": "registrar_extracao"
   },
   {
-    "description": "Solicita o Pix de deslocamento, de valor fixo (ref. R$100), para saída externa.\n\n    Sem parâmetros — o valor é fixo (definido pela agência), chave/titular vêm do cadastro da\n    modelo.\n    Após chamada: pix_status=aguardando, atendimento → Aguardando_confirmacao,\n    cria bloqueio prévio do horário (reserva o slot). A humanização ANEXA a\n    chave/titular/valor exatos à sua mensagem — você NÃO redigita a chave.\n\n    Escreva o pedido em UMA só bolha, só DEPOIS desta tool retornar sucesso (\"pra eu já chamar\n    o uber e ir te encontrar, manda o pixzinho do deslocamento\") — não pré-anuncie numa passagem\n    anterior nem repita. Enquadre como custo da SUA saída, nunca como \"garantir/segurar teu\n    horário\" (o horário já fica combinado antes; ver a conduta de Pix nas suas regras).\n    Use APENAS para atendimento externo após acordar horário e endereço.\n    Use APENAS UMA vez por atendimento (segunda chamada é idempotente, não duplica mensagem).\n\n    Returns:\n        Confirmação de que o Pix foi solicitado e o slot reservado. O retorno NÃO traz a chave —\n        você NUNCA digita a chave Pix; o sistema anexa chave/titular/valor exatos depois da sua\n        mensagem.",
+    "description": "Solicita o Pix de deslocamento, de valor fixo (ref. R$100), para saída externa.\n\n    Sem parâmetros — o valor é fixo (definido pela agência), chave/titular vêm do cadastro da\n    modelo.\n    Após chamada: pix_status=aguardando, atendimento → Aguardando_confirmacao,\n    cria bloqueio prévio do horário (reserva o slot). A humanização ANEXA a\n    chave/titular/valor exatos à sua mensagem — você NÃO redigita a chave.\n\n    Escreva o pedido em UMA só bolha, só DEPOIS desta tool retornar sucesso (\"pra eu já chamar\n    o uber e ir te encontrar, manda o pixzinho do deslocamento\") — não pré-anuncie numa passagem\n    anterior nem repita. Enquadre como custo da SUA saída, nunca como \"garantir/segurar teu\n    horário\" (o horário já fica combinado antes; ver a conduta de Pix nas suas regras).\n    Use APENAS para atendimento externo após acordar horário e endereço.\n    Use APENAS quando VOCÊ se desloca por conta própria (uber até o cliente). Se o cliente vem\n    te BUSCAR de carro, não há deslocamento seu — NÃO chame esta tool, não existe Pix nesse caso.\n    Use APENAS UMA vez por atendimento (segunda chamada é idempotente, não duplica mensagem).\n\n    Returns:\n        Confirmação de que o Pix foi solicitado e o slot reservado. O retorno NÃO traz a chave —\n        você NUNCA digita a chave Pix; o sistema anexa chave/titular/valor exatos depois da sua\n        mensagem.",
     "input_schema": {
       "properties": {},
       "type": "object"

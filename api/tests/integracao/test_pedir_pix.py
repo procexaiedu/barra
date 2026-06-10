@@ -563,3 +563,84 @@ async def test_modelo_sem_chave_pix_retorna_erro(
     tmsgs = _tool_messages(fake.vistas)
     assert len(tmsgs) == 1
     assert "ERRO" in str(tmsgs[0].content)
+
+
+@pytest.mark.needs_db
+async def test_pickup_cliente_busca_nao_pede_pix(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0020: externo-pickup (cliente_busca=true, o cliente vem buscar a modelo) nao tem Pix
+    de deslocamento. Guarda deterministica sobre a docstring/prompt (<externo_cliente_busca>):
+    tool-call num pickup NAO grava pix_status nem cria bloqueio — erro recuperavel, estado
+    intacto (a promocao do pickup e da extracao, nao desta tool)."""
+    modelo_id = await _seed_modelo(conn, chave_pix=f"k-{uuid4().hex}", titular="T")
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento_externo(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id
+    )
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET cliente_busca = true WHERE id = %s",
+        (atendimento_id,),
+    )
+    await _inserir_mensagem(conn, conversa_id=conversa_id)
+
+    fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="te espero na rua amor")])
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+
+    graph = build_graph()
+    await graph.ainvoke(
+        {"messages": []},
+        config={"recursion_limit": 18},
+        context=_contexto(
+            _PoolDeUmaConexao(conn),
+            modelo_id=modelo_id,
+            atendimento_id=atendimento_id,
+            cliente_id=cliente_id,
+            turno_id=str(uuid4()),
+        ),
+    )
+
+    at = await _atendimento(conn, atendimento_id)
+    assert at["estado"] == "Qualificado"  # inalterado
+    assert at["pix_status"] == "nao_solicitado"
+    assert await _contar_bloqueios(conn, atendimento_id) == 0
+
+    tmsgs = _tool_messages(fake.vistas)
+    assert len(tmsgs) == 1
+    assert "ERRO" in str(tmsgs[0].content)
+    assert "buscar" in str(tmsgs[0].content)
+
+
+@pytest.mark.needs_db
+async def test_pix_apos_pickup_corrigido_nao_recria_bloqueio(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Correção pickup→Uber (ADR 0020): atendimento que JÁ tem bloqueio prévio (criado pela
+    promoção do pickup na extração) e vira fluxo Uber NÃO recria o bloqueio — recriar colidiria
+    com o próprio slot (EXCLUDE → ConflitoAgenda) e derrubaria o turno (achado do
+    domain-isolation-reviewer)."""
+    from barra.agente.ferramentas.pix import _aplicar_pedido_pix
+    from barra.dominio.atendimentos.service import registrar_extracao_ia
+
+    modelo_id = await _seed_modelo(conn, chave_pix=f"k-{uuid4().hex}", titular="T")
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento_externo(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id
+    )
+    # Pickup promovido pela extração: Aguardando_confirmacao + bloqueio prévio, sem Pix.
+    await registrar_extracao_ia(
+        conn, str(atendimento_id), {"cliente_busca": True, "proxima_acao_esperada": "aguardar"}
+    )
+    assert await _contar_bloqueios(conn, atendimento_id) == 1
+    # Cliente muda de ideia: ela vai de uber afinal — corrige e pede o Pix.
+    await registrar_extracao_ia(
+        conn, str(atendimento_id), {"cliente_busca": False, "proxima_acao_esperada": "pedir pix"}
+    )
+
+    await _aplicar_pedido_pix(conn, str(atendimento_id), {"valor": "100"})
+
+    at = await _atendimento(conn, atendimento_id)
+    assert at["pix_status"] == "aguardando"
+    assert await _contar_bloqueios(conn, atendimento_id) == 1  # não recriou nem duplicou

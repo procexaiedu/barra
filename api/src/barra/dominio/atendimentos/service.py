@@ -2,7 +2,7 @@
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Literal, cast
 from uuid import UUID
@@ -249,6 +249,7 @@ _CAMPOS_UPSERT = (
     "intencao",
     "urgencia",
     "tipo_atendimento",
+    "cliente_busca",
     "data_desejada",
     "horario_desejado",
     "duracao_horas",
@@ -279,7 +280,10 @@ async def registrar_extracao_ia(
 
     # Branch 12 (04 §3.1): cliente muda horario de atendimento que JA tem bloqueio previo em
     # Aguardando_confirmacao -> nao sobrescreve (deixaria o bloqueio orfao); escala p/ a modelo.
-    if await _reagendamento_pos_bloqueio(conn, aid, payload):
+    # "drift" (diferenca <= tolerancia) NAO e pedido do cliente: a extração re-deriva horario
+    # relativo ("daqui 1h") do `agora` de cada turno — descarta horario/data e segue o upsert.
+    veredito_reagendamento = await _reagendamento_pos_bloqueio(conn, aid, payload)
+    if veredito_reagendamento == "mudanca":
         await _escalar_modelo(
             conn,
             aid,
@@ -291,6 +295,16 @@ async def registrar_extracao_ia(
             "mensagem": "Horario ja reservado: reagendamento escalado para a modelo.",
             "novo_estado": None,
         }
+    if veredito_reagendamento == "drift":
+        descartado = {
+            k: payload[k] for k in ("horario_desejado", "data_desejada") if payload.get(k)
+        }
+        payload = {
+            k: v for k, v in payload.items() if k not in ("horario_desejado", "data_desejada")
+        }
+        # Auditoria do descarte (revisão de domínio): o evento extracao_registrada carrega o que
+        # foi ignorado — divergência conversa vs bloqueio fica rastreável no histórico do painel.
+        payload["drift_descartado"] = descartado
 
     # Guarda do piso de desconto (ADR-0004, defesa-em-profundidade sobre o prompt geral): valor
     # abaixo do piso NAO e gravado e dispara escalada fora_de_oferta para a modelo.
@@ -352,14 +366,16 @@ async def registrar_extracao_ia(
         await _registrar_evento(conn, aid, "transicao_estado", {"para": novo_estado})
         if novo_estado == "Aguardando_confirmacao":
             atendimento = await _refetch_para_bloqueio(conn, aid)
-            # Externo NAO chega aqui (so pedir_pix_deslocamento promove externo, M3e); este ramo
-            # e o interno: cria o bloqueio previo e sinaliza o pin de endereco (side-effect, nao
-            # tool — o wrapper enfileira o card loc_pin apos o commit).
-            if atendimento["tipo_atendimento"] == "interno":
+            # Externo-Uber NAO chega aqui (so pedir_pix_deslocamento o promove, M3e); chegam o
+            # interno e o externo-pickup (cliente_busca, ADR 0020) — ambos criam o bloqueio
+            # previo. O pin de endereco e so do interno (no pickup o ponto de encontro vai por
+            # texto, conduta <externo_cliente_busca>).
+            if atendimento["tipo_atendimento"] == "interno" or atendimento["cliente_busca"]:
                 from barra.dominio.agenda.service import criar_bloqueio_previo
 
                 await criar_bloqueio_previo(conn, atendimento=atendimento)
-                resultado_extra["enviar_pin"] = True
+                if atendimento["tipo_atendimento"] == "interno":
+                    resultado_extra["enviar_pin"] = True
 
     # 3. Aviso de saida (06 §5 + emenda §0 item 10): detectado pelo agente, nao por regex.
     #    So em interno em Aguardando_confirmacao e guardado por aviso_saida_em IS NULL
@@ -420,7 +436,9 @@ def _montar_upsert(payload: dict[str, Any], limpar: set[str]) -> tuple[list[str]
     valores: list[Any] = []
     for campo in _CAMPOS_UPSERT:
         if campo in limpar:
-            sets.append(f"{campo} = NULL")
+            # `cliente_busca` e a unica coluna NOT NULL do upsert (default false): retratacao
+            # via `limpar` volta ao default em vez de NULL (NotNullViolation derrubaria o turno).
+            sets.append(f"{campo} = false" if campo == "cliente_busca" else f"{campo} = NULL")
         elif payload.get(campo) is not None:
             sets.append(f"{campo} = %s")
             valores.append(payload[campo])
@@ -449,11 +467,12 @@ def _sinais_qualificacao_derivados(payload: dict[str, Any], limpar: set[str]) ->
 
 async def _decidir_transicao(conn: AsyncConnection[Any], atendimento_id: UUID) -> str | None:
     """Transicoes da extracao (02 §11 — fonte unica do lado do agente). Le o estado JA atualizado
-    pelo UPSERT. Externo nao e promovido aqui (invariante: externo em Aguardando_confirmacao =>
-    Pix solicitado; so pedir_pix_deslocamento promove, 01 §6.1)."""
+    pelo UPSERT. Externo-Uber nao e promovido aqui (invariante: externo sem cliente_busca em
+    Aguardando_confirmacao => Pix solicitado; so pedir_pix_deslocamento promove, 01 §6.1).
+    Externo-pickup (cliente_busca, ADR 0020) promove como o interno: sem Pix no fluxo."""
     res = await conn.execute(
         "SELECT estado::text AS estado, intencao::text AS intencao, "
-        "tipo_atendimento::text AS tipo_atendimento, horario_desejado "
+        "tipo_atendimento::text AS tipo_atendimento, cliente_busca, horario_desejado "
         "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
@@ -470,8 +489,11 @@ async def _decidir_transicao(conn: AsyncConnection[Any], atendimento_id: UUID) -
         return "Qualificado"
     if (
         a["estado"] == "Qualificado"
-        and a["tipo_atendimento"] == "interno"
         and a["horario_desejado"] is not None
+        and (
+            a["tipo_atendimento"] == "interno"
+            or (a["tipo_atendimento"] == "externo" and a["cliente_busca"])
+        )
     ):
         return "Aguardando_confirmacao"
     return None
@@ -504,15 +526,21 @@ def validar_transicao_painel(estado_atual: str, estado_destino: str) -> None:
         )
 
 
+_TOLERANCIA_DRIFT_HORARIO = timedelta(minutes=15)
+
+
 async def _reagendamento_pos_bloqueio(
     conn: AsyncConnection[Any], atendimento_id: UUID, payload: dict[str, Any]
-) -> bool:
-    """True quando o payload tenta mudar horario/data de um atendimento que ja esta em
-    Aguardando_confirmacao COM bloqueio previo (branch 12)."""
+) -> Literal["mudanca", "drift"] | None:
+    """Classifica a tentativa de mudar horario/data de um atendimento que ja esta em
+    Aguardando_confirmacao COM bloqueio previo (branch 12). None = payload nao mexe em
+    horario/data (ou nao ha bloqueio); "drift" = diferenca dentro da tolerancia (re-derivacao
+    do horario relativo a partir do `agora` do turno, nao e pedido do cliente — descartar);
+    "mudanca" = reagendamento real -> escalar."""
     novo_horario = payload.get("horario_desejado")
     nova_data = payload.get("data_desejada")
     if novo_horario is None and nova_data is None:
-        return False
+        return None
     res = await conn.execute(
         "SELECT estado::text AS estado, bloqueio_id, horario_desejado, data_desejada "
         "FROM barravips.atendimentos WHERE id = %s",
@@ -520,8 +548,32 @@ async def _reagendamento_pos_bloqueio(
     )
     a = await res.fetchone()
     if a is None or a["estado"] != "Aguardando_confirmacao" or a["bloqueio_id"] is None:
+        return None
+    if not (_difere(a["horario_desejado"], novo_horario) or _difere(a["data_desejada"], nova_data)):
+        return None
+    if _dentro_da_tolerancia(a["data_desejada"], a["horario_desejado"], nova_data, novo_horario):
+        return "drift"
+    return "mudanca"
+
+
+def _dentro_da_tolerancia(data_atual: Any, hora_atual: Any, nova_data: Any, nova_hora: Any) -> bool:
+    """Diferenca pedida fica dentro de _TOLERANCIA_DRIFT_HORARIO? Compara o datetime combinado
+    (data + hora); campo ausente no payload herda o valor atual. Sem referencia completa para
+    medir o drift, devolve False (escala, comportamento anterior)."""
+    nova_hora_t = _como_time(nova_hora) if nova_hora is not None else hora_atual
+    nova_data_d = _como_date(nova_data) if nova_data is not None else data_atual
+    if hora_atual is None or nova_hora_t is None or data_atual is None or nova_data_d is None:
         return False
-    return _difere(a["horario_desejado"], novo_horario) or _difere(a["data_desejada"], nova_data)
+    delta = datetime.combine(nova_data_d, nova_hora_t) - datetime.combine(data_atual, hora_atual)
+    return abs(delta) <= _TOLERANCIA_DRIFT_HORARIO
+
+
+def _como_time(v: Any) -> time:
+    return v if isinstance(v, time) else time.fromisoformat(str(v))
+
+
+def _como_date(v: Any) -> date:
+    return v if isinstance(v, date) else date.fromisoformat(str(v))
 
 
 def _difere(atual: Any, novo: Any) -> bool:
@@ -617,7 +669,7 @@ async def _refetch_para_bloqueio(
     conn: AsyncConnection[Any], atendimento_id: UUID
 ) -> dict[str, Any]:
     res = await conn.execute(
-        "SELECT id, modelo_id, tipo_atendimento::text AS tipo_atendimento, "
+        "SELECT id, modelo_id, tipo_atendimento::text AS tipo_atendimento, cliente_busca, "
         "data_desejada, horario_desejado, duracao_horas "
         "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),

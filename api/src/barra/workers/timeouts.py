@@ -240,4 +240,66 @@ async def confirmar_em_execucao(conn: AsyncConnection[Any]) -> int:
         )
         rows = await result.fetchall()
     TIMEOUTS.labels("em_execucao").inc(len(rows))
-    return len(rows)
+
+    # Externo-pickup (ADR 0020): cliente busca a modelo — sem Pix, o atendimento espera em
+    # Aguardando_confirmacao ate a hora do encontro (bloqueio.inicio). Aqui ele entra em
+    # execucao COM pausa da IA (modelo_em_atendimento, como o Pix recebido faria no Uber) e a
+    # escalada tipo 'cliente_busca' hospeda o card "Cliente vem te buscar", entregue pelo
+    # reconciliar_cards no grupo de Coordenacao. Guards: ia_pausada=false (nao re-pausa nem
+    # re-escala um atendimento ja pausado) e pix_status='nao_solicitado' (ordem inversa do ADR
+    # 0020: cliente_busca marcado DEPOIS de pedir_pix nao reclassifica — o fluxo Uber vence).
+    async with conn.transaction():
+        result = await conn.execute(
+            """
+            WITH alvo AS (
+              SELECT a.id, a.bloqueio_id
+                FROM barravips.atendimentos a
+                JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+               WHERE a.tipo_atendimento = 'externo'
+                 AND a.cliente_busca = true
+                 AND a.pix_status = 'nao_solicitado'
+                 AND a.estado = 'Aguardando_confirmacao'
+                 AND a.ia_pausada = false
+                 AND b.inicio <= now()
+               FOR UPDATE OF a SKIP LOCKED
+            ),
+            upd AS (
+              UPDATE barravips.atendimentos a
+                 SET estado = 'Em_execucao',
+                     ia_pausada = true,
+                     ia_pausada_motivo = 'modelo_em_atendimento',
+                     responsavel_atual = 'modelo',
+                     fonte_decisao_ultima_transicao = 'cron_em_execucao'
+                FROM alvo
+               WHERE a.id = alvo.id
+              RETURNING a.id, a.bloqueio_id
+            ),
+            bloq AS (
+              UPDATE barravips.bloqueios b
+                 SET estado = 'em_atendimento'
+                FROM upd
+               WHERE b.id = upd.bloqueio_id AND b.estado = 'bloqueado'
+              RETURNING b.id
+            ),
+            esc AS (
+              INSERT INTO barravips.escaladas (
+                atendimento_id, responsavel, tipo, motivo,
+                resumo_operacional, acao_esperada
+              )
+              SELECT id, 'modelo', 'cliente_busca', 'Hora do encontro (cliente vem buscar)',
+                     'Chegou a hora do encontro: o cliente vem te buscar.',
+                     'Saia para o encontro; ao encerrar, responda o card com finalizado [valor].'
+                FROM upd
+              RETURNING atendimento_id
+            )
+            INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
+            SELECT id, 'transicao_estado', 'cron', 'sistema',
+                   jsonb_build_object('de', 'Aguardando_confirmacao', 'para', 'Em_execucao',
+                                      'fonte', 'cron_em_execucao', 'gatilho', 'cliente_busca')
+              FROM upd
+            RETURNING atendimento_id
+            """
+        )
+        rows_pickup = await result.fetchall()
+    TIMEOUTS.labels("em_execucao_pickup").inc(len(rows_pickup))
+    return len(rows) + len(rows_pickup)

@@ -31,7 +31,7 @@ Máquina de estados linear (mecânica em `docs/mvp/03`); terminais `Fechado`/`Pe
 - `Novo` — primeiro contato, antes de triagem.
 - `Triagem` — IA coletando intenção e dados mínimos.
 - `Qualificado` — intenção real demonstrada; cotação apresentada.
-- `Aguardando_confirmacao` — aguarda **Pix de deslocamento** (externo) ou **Foto de portaria** (interno). O **Aviso de saída** é informativo, não muda o estado.
+- `Aguardando_confirmacao` — aguarda **Pix de deslocamento** (externo), **Foto de portaria** (interno) ou o **horário do encontro** (externo-pickup, ADR 0020). O **Aviso de saída** é informativo, não muda o estado.
 - `Confirmado` — externo: **Pix recebido** (validado **ou** duvidoso — nunca trava por Pix); IA pausada (`modelo_em_atendimento`), modelo conduz.
 - `Em_execucao` — modelo engajada: **Foto de portaria** recebida (interno) ou horário previsto chegou (externo).
 - `Fechado` — convertido por **Registro de resultado** (exige **Valor final**).
@@ -41,10 +41,10 @@ _Avoid_: tratar revisão de Pix como estado (é `pix_status=em_revisao`, atendim
 **Atendimento interno vs externo**:
 Eixo (`tipo_atendimento`) que define quem se desloca:
 - **interno** — o cliente vai até a modelo; o endereço é o **ponto de encontro na modelo**, não onde o cliente mora. Confirma pela **Foto de portaria**. Fica **fora do Mapa de clientes**. Sem Pix de deslocamento.
-- **externo** — a modelo se desloca; o **Pix de deslocamento** (valor fixo) antecipa o custo, e o endereço é a localização do cliente — geocodificada e plotada no **Mapa de clientes**.
+- **externo** — a modelo se desloca; o **Pix de deslocamento** (valor fixo) antecipa o custo, e o endereço é a localização do cliente — geocodificada e plotada no **Mapa de clientes**. Subcaso: o **cliente busca a modelo** de carro (rolê/casa dele) — segue externo, mas **sem Pix de deslocamento** (não há Uber dela para antecipar); o endereço que a IA passa é o **ponto de encontro** dela (rua + referência, nunca porta/apartamento), informado quando o horário fecha. No pickup o atendimento avança sem `Confirmado`: a extração reserva o slot (`Aguardando_confirmacao`) e, na hora do encontro, a IA pausa com card "Cliente vem te buscar". Ver ADR 0020.
 
 A modelo declara os tipos que aceita (`tipo_atendimento_aceito[]`, pode ser os dois); cada atendimento fixa exatamente um. A IA nunca negocia um tipo que a modelo não realiza.
-_Avoid_: tratar interno como localização do cliente; exigir Pix no interno ou Foto de portaria no externo; plotar interno no Mapa.
+_Avoid_: tratar interno como localização do cliente; exigir Pix no interno ou Foto de portaria no externo; exigir Pix quando o cliente busca a modelo; plotar interno no Mapa.
 
 **Coordenação por modelo**:
 Grupo persistente com **2 participantes** — o número da modelo (operado pela IA) e Fernando. A IA envia cards/resumos acionáveis a partir do número da modelo; a modelo lê no próprio celular, sem identidade separada. Mensagens manuais da modelo entram como `fromMe` do mesmo número que a IA opera; o sistema distingue IA de modelo pelo originador real do envio.
@@ -115,8 +115,8 @@ Menor valor que a IA oferece sozinha — percentual único abaixo do **Preço de
 _Avoid_: expor o valor ao cliente; tratar como mínimo por programa (no P0 é teto percentual único).
 
 **Pix de deslocamento**:
-Pagamento antecipado, de **valor fixo**, do deslocamento de saída. O comprovante sempre faz o atendimento avançar — **nunca trava por Pix**: checagens OK validam em silêncio; divergência/suspeita marca o comprovante como duvidoso, o card à modelo sinaliza a duvidez (ela decide antes de pedir o Uber) e Fernando revisa depois numa fila assíncrona, sem bloquear.
-_Avoid_: sinal; pagamento do atendimento; valor proporcional à distância/programa; travar o fluxo por Pix duvidoso; handoff síncrono para Fernando por Pix.
+Pagamento antecipado, de **valor fixo**, do deslocamento de saída. Existe **apenas quando a modelo se desloca por conta própria** (Uber até o cliente); cliente que **busca a modelo** de carro é externo **sem Pix** — não há deslocamento dela para antecipar. O comprovante sempre faz o atendimento avançar — **nunca trava por Pix**: checagens OK validam em silêncio; divergência/suspeita marca o comprovante como duvidoso, o card à modelo sinaliza a duvidez (ela decide antes de pedir o Uber) e Fernando revisa depois numa fila assíncrona, sem bloquear.
+_Avoid_: sinal; pagamento do atendimento; valor proporcional à distância/programa; cobrar quando o cliente busca a modelo; travar o fluxo por Pix duvidoso; handoff síncrono para Fernando por Pix.
 
 **Aviso de saída**:
 Mensagem do cliente em atendimento interno avisando que saiu de casa rumo ao endereço combinado. Primeiro aviso operacional da sequência interna; prepara a modelo (card simples) mas não confirma o atendimento, e a IA continua respondendo o cliente normalmente (estado segue em `Aguardando_confirmacao`).

@@ -52,12 +52,27 @@ _DESC_HORARIO = (
     "min/horas' = hora atual + N (ex.: agora=22:30 e cliente diz 'daqui 1h' → preencha "
     "23:30; data_desejada=hoje, virando o dia se passar da meia-noite). É o que faz o "
     "atendimento AVANÇAR para Aguardando_confirmacao e te pausar na chegada. NÃO preencha em "
-    "horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar."
+    "horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar. "
+    "Depois de registrado, NÃO recalcule horário relativo nos turnos seguintes — omita o campo "
+    "(o snapshot preserva o anterior); só reenvie se o CLIENTE pedir outro horário."
 )
 _DESC_VALOR = (
     "Valor total acordado com o cliente. SEMPRE grave JUNTO com duracao_horas (a duração do "
     "programa cotado) — sem a duração o sistema não consegue conferir o piso de desconto e "
     "escala à toa uma oferta que era válida."
+)
+_DESC_CLIENTE_BUSCA = (
+    "True quando o atendimento é EXTERNO e o CLIENTE vem buscar você de carro (pickup — ADR "
+    "0020): não existe Pix de deslocamento nesse caso (o deslocamento não é seu). Registre "
+    "junto com tipo_atendimento='externo' e o horário: é o que reserva o slot e te pausa na "
+    "hora do encontro. NÃO marque quando você vai de uber até o cliente (aí o fluxo é o Pix). "
+    "Cliente recuou do pickup (vai te receber sem buscar / você vai de uber)? Mande false — "
+    "não use `limpar` para este campo."
+)
+_DESC_ENDERECO = (
+    "Endereço do CLIENTE / destino do atendimento (externo: onde ele está ou para onde vão — "
+    "vira a localização DELE no sistema). NUNCA grave aqui o SEU ponto de encontro: no pickup "
+    "(cliente_busca), só preencha se o cliente disser para onde vão."
 )
 _DESC_AVISO_SAIDA = (
     "Cliente avisou que saiu de casa em direção ao endereço combinado "
@@ -90,6 +105,7 @@ class ExtracaoPayload(BaseModel):
     intencao: Literal["curiosidade", "cotacao", "agendamento"] | None = None
     urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None
     tipo_atendimento: Literal["interno", "externo"] | None = None
+    cliente_busca: bool | None = None
     data_desejada: date | None = None
     horario_desejado: time | None = None
     duracao_horas: Decimal | None = Field(None, ge=0, le=48)
@@ -114,10 +130,11 @@ async def registrar_extracao(
     intencao: Literal["curiosidade", "cotacao", "agendamento"] | None = None,
     urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None,
     tipo_atendimento: Literal["interno", "externo"] | None = None,
+    cliente_busca: Annotated[bool | None, Field(description=_DESC_CLIENTE_BUSCA)] = None,
     data_desejada: date | None = None,
     horario_desejado: Annotated[time | None, Field(description=_DESC_HORARIO)] = None,
     duracao_horas: Annotated[Decimal | None, Field(ge=0, le=48)] = None,
-    endereco: str | None = None,
+    endereco: Annotated[str | None, Field(description=_DESC_ENDERECO)] = None,
     bairro: str | None = None,
     tipo_local: Literal["hotel", "casa", "apartamento", "outro"] | None = None,
     forma_pagamento: Literal["pix", "dinheiro", "outro"] | None = None,
@@ -150,7 +167,9 @@ async def registrar_extracao(
     # - intencao=agendamento + horario_desejado + tipo_atendimento + Triagem -> Qualificado
     # - tipo_atendimento=interno + horario_desejado + Qualificado -> Aguardando_confirmacao
     #   (cria bloqueio previo E dispara o pin de endereco — side-effect, nao tool)
-    # - externo NAO e promovido aqui: so pedir_pix_deslocamento o leva a Aguardando_confirmacao
+    # - externo+cliente_busca + horario_desejado + Qualificado -> Aguardando_confirmacao
+    #   (pickup, ADR 0020: bloqueio previo sem Pix; pausa vem do cron no horario)
+    # - externo SEM cliente_busca NAO e promovido aqui: so pedir_pix_deslocamento o leva la
     pool = runtime.context.db_pool
     atendimento_id = runtime.context.atendimento_id
     turno_id = runtime.context.turno_id
@@ -160,6 +179,7 @@ async def registrar_extracao(
         intencao=intencao,
         urgencia=urgencia,
         tipo_atendimento=tipo_atendimento,
+        cliente_busca=cliente_busca,
         data_desejada=data_desejada,
         horario_desejado=horario_desejado,
         duracao_horas=duracao_horas,

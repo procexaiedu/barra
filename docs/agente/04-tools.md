@@ -230,8 +230,11 @@ async def registrar_extracao(
     - intencao=agendamento + dados mínimos (horario_desejado, tipo_atendimento) + estado=Triagem → Qualificado
     - tipo_atendimento=interno + horario_desejado + estado=Qualificado → Aguardando_confirmacao
       (cria bloqueio prévio E dispara o pin de endereço — side-effect, não tool; ver Notas)
-    - externo NÃO é promovido aqui: só pedir_pix_deslocamento leva externo a Aguardando_confirmacao
-      (invariante "externo em Aguardando_confirmacao ⟹ Pix solicitado"; ver 01 §6.1)
+    - externo + cliente_busca=true + horario_desejado + estado=Qualificado → Aguardando_confirmacao
+      (pickup, ADR 0020: bloqueio prévio sem Pix nem pin; pausa vem do cron no horário)
+    - externo SEM cliente_busca NÃO é promovido aqui: só pedir_pix_deslocamento o leva lá
+      (invariante "externo sem cliente_busca em Aguardando_confirmacao ⟹ Pix solicitado";
+      ver 01 §6.1, emendada pelo ADR 0020)
 
     O campo proxima_acao_esperada (obrigatório) é exibido no painel para Fernando.
     Use `limpar` para ZERAR campos que o cliente retratou (ex.: desmarcou o horário) —
@@ -345,8 +348,10 @@ async def _decidir_transicao(conn, atendimento_id: str) -> str | None:
     if a["estado"] == "Qualificado" and a["tipo_atendimento"] == "interno" \
             and a["horario_desejado"] is not None:
         return "Aguardando_confirmacao"  # interno: bloqueio prévio criado em _aplicar_extracao
-    # externo NÃO é promovido por extração — só pedir_pix_deslocamento promove
-    # (invariante: externo em Aguardando_confirmacao ⟹ Pix solicitado; ver 01 §6.1, 06 §2)
+    # externo+cliente_busca (pickup, ADR 0020) também promove aqui — bloqueio prévio sem Pix.
+    # externo SEM cliente_busca NÃO é promovido por extração — só pedir_pix_deslocamento promove
+    # (invariante: externo sem cliente_busca em Aguardando_confirmacao ⟹ Pix solicitado;
+    # ver 01 §6.1, 06 §2, ADR 0020)
     return None
 ```
 
@@ -354,7 +359,7 @@ async def _decidir_transicao(conn, atendimento_id: str) -> str | None:
 - **Mover `_aplicar_extracao` e `_decidir_transicao` para `dominio/atendimentos/service.py:registrar_extracao_ia(conn, atendimento_id, payload)`.** A tool em `agente/ferramentas/extracao.py` fica como wrapper de ~10 linhas que chama o serviço de domínio **na mesma transação** (snapshot + transição + bloqueio são atômicos — o advisory lock + EXCLUDE não toleram janela). Justificativa: regra de transição de estado é domain logic, não tool logic — pertence ao mesmo módulo onde os outros estados são manipulados (`aplicar_comando`, `_atualizar_pix`, etc.). O serviço **retorna flags** (ex.: `enviar_pin`); transporte (enqueue_job) fica no wrapper, fora do domínio.
 - **Pin de endereço (interno) — side-effect, não tool.** Um pin (`/message/sendLocation`) é estruturado e a IA não consegue expressá-lo como texto, então o sistema o despacha de qualquer forma. O serviço de domínio sinaliza `enviar_pin=True` quando interno entra em `Aguardando_confirmacao`; o wrapper enfileira o job ARQ `enviar_card {tipo: loc_pin}` após o commit (simétrico ao card do `escalar`). Re-disparo em replay é inofensivo (worker idempotente por `atendimento_id`). Para EXTERNO não há pin — cita-se só `localizacao_operacional` (bairro/cidade). Substitui a tool `enviar_localizacao` cogitada no placeholder de `ferramentas/__init__.py`.
 - Bloqueio prévio (interno) é criado em `_criar_bloqueio_previo`; reaproveita `dominio/agenda/service.py`. **Branch 13 (escalável/edge-case):** `_criar_bloqueio_previo` toma `pg_advisory_xact_lock` por `(modelo_id, slot)` e conta com a EXCLUDE constraint da tabela `bloqueios` como backstop duro; em sobreposição levanta `ConflitoAgenda` → a tool reverte o turno e retorna erro recuperável para a IA re-ofertar (escala só se não resolver). Serializa booking entre conversas distintas da mesma modelo.
-- **Branch 12 (reagendamento pós-bloqueio):** se o cliente muda o horário de um atendimento já em `Aguardando_confirmacao` com bloqueio, `_aplicar_extracao` escala para a modelo (`reagendamento_pos_bloqueio`) em vez de sobrescrever o horário e deixar o bloqueio órfão.
+- **Branch 12 (reagendamento pós-bloqueio):** se o cliente muda o horário de um atendimento já em `Aguardando_confirmacao` com bloqueio, `_aplicar_extracao` escala para a modelo (`reagendamento_pos_bloqueio`) em vez de sobrescrever o horário e deixar o bloqueio órfão. **Emenda (regressão E2E 2026-06-10):** diferença **≤ 15 min** (`_TOLERANCIA_DRIFT_HORARIO`) do horário gravado **não** é pedido do cliente — é a extração re-derivando horário relativo ("daqui 1h") do `agora` do turno seguinte. Nesse caso o horário/data do payload é **descartado** (o slot reservado vence; o descarte fica auditável no evento `extracao_registrada`, chave `drift_descartado`) e o resto do upsert segue. Trade-off consciente: um pedido genuíno de mudança ≤ 15 min também é absorvido pelo slot reservado (operacionalmente irrelevante num bloqueio de horas); acima da tolerância, escala como antes.
 - **Guarda do piso de desconto (ADR-0004).** Quando o payload traz `valor_acordado` **abaixo do piso** (`preço de tabela do programa × (1 − settings.desconto_max_pct)`), `registrar_extracao_ia` **não grava o valor** e abre `escalar(motivo="fora_de_oferta")` — defesa-em-profundidade sobre a regra do prompt (`03 §3.1 <desconto>`), que o LLM pode ignorar. O preço de tabela vem de `modelo_programas` pela duração acordada; sem programa correspondente, trata como abaixo do piso (escala). Com `desconto_max_pct=0` o piso é o próprio valor de tabela (qualquer abatimento escala). A regra do percentual vive no prompt geral; o valor mínimo nunca é exposto ao LLM.
 - **`input_examples` (avaliar nas evals `08`, cruzamento 2026-05-24).** A doc oficial recomenda o campo opcional `input_examples` para tools com nested/format-sensitive params — `registrar_extracao` (~15 campos, `sinais_qualificacao`, `limpar`) e `escalar` são o alvo exato. Custo ~100-200 tokens/exemplo, pagos 1x no prefixo cacheado (entra na tool definition, então precisa ser tão estável quanto o resto). Pré-req: confirmar que `langchain-anthropic` propaga `input_examples` (mesma pendência do `strict`, `§7`); cada exemplo deve validar contra o `input_schema` (senão a API retorna 400). Tratar como ajuste fino, não bloqueador.
 
