@@ -33,10 +33,13 @@ services:
       - LLM_CHAT_PROVIDER=anthropic
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
-      - OPENROUTER_API_KEY=
-      - OPENROUTER_MODEL_CHAT=
-      - OPENROUTER_MODEL_VISION_PIX=
-      - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=
+      # OpenRouter (vision do Pix / transcricao de audio): ${VAR} resolvidas pelo Env do stack
+      # no Portainer, igual as chaves Langfuse. Hardcoded vazio aqui zerava o OCR a cada redeploy
+      # (auto-redeploy git no push), caindo todo Pix em em_revisao.
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL_CHAT=${OPENROUTER_MODEL_CHAT}
+      - OPENROUTER_MODEL_VISION_PIX=${OPENROUTER_MODEL_VISION_PIX}
+      - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=${OPENROUTER_MODEL_AUDIO_TRANSCRIBE}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
       - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
@@ -119,10 +122,13 @@ services:
       - LLM_CHAT_PROVIDER=anthropic
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
-      - OPENROUTER_API_KEY=
-      - OPENROUTER_MODEL_CHAT=
-      - OPENROUTER_MODEL_VISION_PIX=
-      - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=
+      # OpenRouter (vision do Pix / transcricao de audio): ${VAR} resolvidas pelo Env do stack
+      # no Portainer, igual as chaves Langfuse. Hardcoded vazio aqui zerava o OCR a cada redeploy
+      # (auto-redeploy git no push), caindo todo Pix em em_revisao.
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL_CHAT=${OPENROUTER_MODEL_CHAT}
+      - OPENROUTER_MODEL_VISION_PIX=${OPENROUTER_MODEL_VISION_PIX}
+      - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=${OPENROUTER_MODEL_AUDIO_TRANSCRIBE}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
       - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
