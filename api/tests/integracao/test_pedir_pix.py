@@ -18,6 +18,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -163,6 +164,7 @@ async def _seed_atendimento_externo(
     cliente_id: UUID,
     modelo_id: UUID,
     conversa_id: UUID,
+    tipo: str = "externo",
 ) -> UUID:
     atendimento_id = uuid4()
     await connection.execute(
@@ -170,9 +172,19 @@ async def _seed_atendimento_externo(
         INSERT INTO barravips.atendimentos
             (id, numero_curto, cliente_id, modelo_id, conversa_id, estado, tipo_atendimento,
              data_desejada, horario_desejado, duracao_horas)
-        VALUES (%s, 1, %s, %s, %s, 'Qualificado', 'externo', %s, %s, %s)
+        VALUES (%s, 1, %s, %s, %s, 'Qualificado', %s::barravips.tipo_atendimento_enum,
+                %s, %s, %s)
         """,
-        (atendimento_id, cliente_id, modelo_id, conversa_id, DATA_SLOT, HORARIO_SLOT, DURACAO_SLOT),
+        (
+            atendimento_id,
+            cliente_id,
+            modelo_id,
+            conversa_id,
+            tipo,
+            DATA_SLOT,
+            HORARIO_SLOT,
+            DURACAO_SLOT,
+        ),
     )
     return atendimento_id
 
@@ -269,6 +281,7 @@ async def test_pede_pix_reserva_slot_e_nao_vaza_chave(
     fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="prontinho amor, te mandei tudo 🥰")])
     monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
 
+    turno_id = str(uuid4())
     graph = build_graph()
     await graph.ainvoke(
         {"messages": []},
@@ -278,7 +291,7 @@ async def test_pede_pix_reserva_slot_e_nao_vaza_chave(
             modelo_id=modelo_id,
             atendimento_id=atendimento_id,
             cliente_id=cliente_id,
-            turno_id=str(uuid4()),
+            turno_id=turno_id,
         ),
     )
 
@@ -310,13 +323,17 @@ async def test_pede_pix_reserva_slot_e_nao_vaza_chave(
     assert chave not in str(tmsgs[0].content)
 
     # e o payload de tool_calls tem SÓ `valor` — chave/titular NUNCA são persistidos em claro.
+    # Filtra pelo turno DESTE teste: tool_calls do banco real tem linhas commitadas de turnos
+    # de prod com o mesmo tool_name/call_idx (fetchone sem filtro pegaria uma arbitrária).
     res = await conn.execute(
         "SELECT payload FROM barravips.tool_calls"
-        " WHERE tool_name = 'pedir_pix_deslocamento' AND call_idx = 0"
+        " WHERE tool_name = 'pedir_pix_deslocamento' AND call_idx = 0 AND turno_id = %s",
+        (turno_id,),
     )
     tc = await res.fetchone()
     assert tc is not None
-    assert tc["payload"] == {"valor": 100}
+    # valor vem da setting (fonte unica), nao de constante hardcoded.
+    assert tc["payload"] == {"valor": str(get_settings().pix_deslocamento_valor)}
     assert "chave" not in tc["payload"]
     assert "titular" not in tc["payload"]
 
@@ -417,6 +434,97 @@ async def test_slot_ja_reservado_reverte_e_erro_recuperavel(
     tmsgs = _tool_messages(fake.vistas)
     assert len(tmsgs) == 1
     assert "ERRO" in str(tmsgs[0].content)
+
+
+@pytest.mark.needs_db
+async def test_atendimento_interno_nao_pede_pix(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CONTEXT.md "Pix de deslocamento": sem Pix no interno. Guarda determinística sobre a
+    docstring da tool ("Use APENAS para atendimento externo"): tool-call alucinado num interno
+    NAO grava pix_status=aguardando (que desviaria a proxima imagem do branch foto-portaria
+    para o branch pix em rotear_imagem) — erro recuperavel, estado intacto."""
+    modelo_id = await _seed_modelo(conn, chave_pix=f"k-{uuid4().hex}", titular="T")
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento_externo(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id, tipo="interno"
+    )
+    await _inserir_mensagem(conn, conversa_id=conversa_id)
+
+    fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="deixa eu te explicar amor")])
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+
+    graph = build_graph()
+    await graph.ainvoke(
+        {"messages": []},
+        config={"recursion_limit": 18},
+        context=_contexto(
+            _PoolDeUmaConexao(conn),
+            modelo_id=modelo_id,
+            atendimento_id=atendimento_id,
+            cliente_id=cliente_id,
+            turno_id=str(uuid4()),
+        ),
+    )
+
+    at = await _atendimento(conn, atendimento_id)
+    assert at["estado"] == "Qualificado"  # inalterado
+    assert at["pix_status"] == "nao_solicitado"
+    assert await _contar_bloqueios(conn, atendimento_id) == 0
+
+    tmsgs = _tool_messages(fake.vistas)
+    assert len(tmsgs) == 1
+    assert "ERRO" in str(tmsgs[0].content)
+    assert "externo" in str(tmsgs[0].content).lower()
+
+
+@pytest.mark.needs_db
+async def test_valor_do_pix_vem_do_setting(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`pix_deslocamento_valor` é a fonte única do valor: payload de auditoria e retorno da tool
+    refletem a setting (antes havia constante hardcoded de 100 que driftava do setting usado na
+    validação do comprovante e na bolha da chave)."""
+    monkeypatch.setattr(get_settings(), "pix_deslocamento_valor", Decimal("150.00"))
+    modelo_id = await _seed_modelo(conn, chave_pix=f"k-{uuid4().hex}", titular="T")
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento_externo(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id
+    )
+    await _inserir_mensagem(conn, conversa_id=conversa_id)
+
+    fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="te mandei tudo 🥰")])
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+
+    turno_id = str(uuid4())
+    graph = build_graph()
+    await graph.ainvoke(
+        {"messages": []},
+        config={"recursion_limit": 18},
+        context=_contexto(
+            _PoolDeUmaConexao(conn),
+            modelo_id=modelo_id,
+            atendimento_id=atendimento_id,
+            cliente_id=cliente_id,
+            turno_id=turno_id,
+        ),
+    )
+
+    # Filtra pelo turno DESTE teste (tool_calls do banco real tem linhas de turnos de prod).
+    res = await conn.execute(
+        "SELECT payload FROM barravips.tool_calls"
+        " WHERE tool_name = 'pedir_pix_deslocamento' AND call_idx = 0 AND turno_id = %s",
+        (turno_id,),
+    )
+    tc = await res.fetchone()
+    assert tc is not None
+    assert tc["payload"] == {"valor": "150.00"}
+
+    tmsgs = _tool_messages(fake.vistas)
+    assert len(tmsgs) == 1
+    assert "150" in str(tmsgs[0].content)
 
 
 @pytest.mark.needs_db

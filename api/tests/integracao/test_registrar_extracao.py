@@ -49,7 +49,7 @@ async def conn() -> AsyncIterator[AsyncConnection[dict[str, Any]]]:
 # --- seeds (espelham test_coordenador_basico) ------------------------------------------------
 
 
-async def _seed_modelo(c: AsyncConnection[dict[str, Any]]) -> UUID:
+async def _seed_modelo(c: AsyncConnection[dict[str, Any]], aceita: list[str] | None = None) -> UUID:
     modelo_id = uuid4()
     await c.execute(
         """
@@ -57,7 +57,14 @@ async def _seed_modelo(c: AsyncConnection[dict[str, Any]]) -> UUID:
             (id, nome, idade, numero_whatsapp, valor_padrao, tipo_atendimento_aceito)
         VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[])
         """,
-        (modelo_id, "Modelo Teste", 25, f"test-wpp-{uuid4().hex}", 500, ["interno", "externo"]),
+        (
+            modelo_id,
+            "Modelo Teste",
+            25,
+            f"test-wpp-{uuid4().hex}",
+            500,
+            aceita if aceita is not None else ["interno", "externo"],
+        ),
     )
     return modelo_id
 
@@ -147,10 +154,12 @@ async def _seed_programa(
 
 
 async def _seed_par(
-    c: AsyncConnection[dict[str, Any]], **atendimento_kwargs: Any
+    c: AsyncConnection[dict[str, Any]],
+    aceita: list[str] | None = None,
+    **atendimento_kwargs: Any,
 ) -> tuple[UUID, UUID]:
     """Modelo+cliente+conversa+atendimento. Retorna (modelo_id, atendimento_id)."""
-    modelo_id = await _seed_modelo(c)
+    modelo_id = await _seed_modelo(c, aceita)
     cliente_id = await _seed_cliente(c)
     conversa_id = await _seed_conversa(c, cliente_id, modelo_id)
     atendimento_id = await _seed_atendimento(
@@ -271,6 +280,74 @@ async def test_valor_abaixo_do_piso_escala(conn: AsyncConnection[dict[str, Any]]
     assert esc["responsavel"] == "modelo"
     assert esc["tipo"] == "fora_de_oferta"
     assert esc["observacao"] == "fora_de_oferta"
+
+
+@pytest.mark.needs_db
+async def test_tipo_nao_aceito_escala(conn: AsyncConnection[dict[str, Any]]) -> None:
+    """CONTEXT.md "Atendimento interno vs externo": a IA nunca negocia tipo que a modelo nao
+    realiza. Guarda determinística (mesmo padrao do piso ADR-0004): tipo fora de
+    tipo_atendimento_aceito[] NAO e gravado e escala fora_de_oferta."""
+    _, atendimento_id = await _seed_par(conn, aceita=["interno"], estado="Triagem")
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "intencao": "agendamento",
+            "tipo_atendimento": "externo",
+            "proxima_acao_esperada": "combinar a saida",
+        },
+    )
+
+    assert resultado["novo_estado"] is None
+
+    # Tipo NAO gravado; IA pausada com responsavel modelo; estado preservado.
+    res = await conn.execute(
+        "SELECT estado::text AS estado, tipo_atendimento, ia_pausada, "
+        "responsavel_atual::text AS responsavel_atual "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["tipo_atendimento"] is None
+    assert a["ia_pausada"] is True
+    assert a["responsavel_atual"] == "modelo"
+    assert a["estado"] == "Triagem"
+
+    # Escalada fora_de_oferta para a modelo.
+    res = await conn.execute(
+        "SELECT responsavel::text AS responsavel, tipo::text AS tipo "
+        "FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None
+    assert esc["responsavel"] == "modelo"
+    assert esc["tipo"] == "fora_de_oferta"
+
+
+@pytest.mark.needs_db
+async def test_tipo_aceito_ou_modelo_sem_cadastro_grava_normal(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Tipo dentro do array grava normal; array vazio (cadastro incompleto) nao trava a venda."""
+    for aceita, tipo in ([["externo"], "externo"], [[], "interno"]):
+        _, atendimento_id = await _seed_par(conn, aceita=aceita, estado="Triagem")
+        await registrar_extracao_ia(
+            conn,
+            str(atendimento_id),
+            {"tipo_atendimento": tipo, "proxima_acao_esperada": "seguir qualificando"},
+        )
+        res = await conn.execute(
+            "SELECT tipo_atendimento::text AS tipo, ia_pausada "
+            "FROM barravips.atendimentos WHERE id = %s",
+            (atendimento_id,),
+        )
+        a = await res.fetchone()
+        assert a is not None, (aceita, tipo)
+        assert a["tipo"] == tipo, (aceita, tipo)
+        assert a["ia_pausada"] is False, (aceita, tipo)
 
 
 @pytest.mark.needs_db

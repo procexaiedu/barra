@@ -307,6 +307,28 @@ async def registrar_extracao_ia(
             "novo_estado": None,
         }
 
+    # Guarda do tipo de atendimento (CONTEXT.md "Atendimento interno vs externo",
+    # defesa-em-profundidade sobre o prompt do BP3): tipo que a modelo nao aceita NAO e gravado
+    # e dispara escalada fora_de_oferta — a IA nunca negocia tipo que a modelo nao realiza.
+    # Mesmo padrao da guarda do piso acima; array vazio = cadastro incompleto, nao trava.
+    tipo_pedido = payload.get("tipo_atendimento")
+    if (
+        tipo_pedido
+        and "tipo_atendimento" not in limpar
+        and not await _tipo_aceito(conn, aid, tipo_pedido)
+    ):
+        await _escalar_modelo(
+            conn,
+            aid,
+            motivo="fora_de_oferta",
+            resumo=f"Cliente pediu atendimento {tipo_pedido} e a modelo nao realiza esse tipo.",
+            acao="Decidir com o cliente como seguir ou recusar.",
+        )
+        return {
+            "mensagem": "Tipo de atendimento que a modelo nao realiza: escalado, tipo nao gravado.",
+            "novo_estado": None,
+        }
+
     # 1. UPSERT por COALESCE: so campos nao-nulos sobrescrevem; `limpar` forca NULL e tem
     #    PRECEDENCIA sobre o payload (cliente recuou). `sinais_qualificacao` faz merge jsonb.
     sets, valores = _montar_upsert(payload, limpar)
@@ -350,6 +372,29 @@ async def registrar_extracao_ia(
 
     await _registrar_evento(conn, aid, "extracao_registrada", payload)
     return {"mensagem": "Extracao registrada.", "novo_estado": novo_estado, **resultado_extra}
+
+
+async def _tipo_aceito(conn: AsyncConnection[Any], atendimento_id: UUID, tipo: str) -> bool:
+    """True se a modelo do atendimento aceita `tipo` (`modelos.tipo_atendimento_aceito[]`).
+
+    Array vazio/NULL = aceita ambos: cadastro incompleto nao trava a venda (mesmo espirito de
+    "modelo sem regra de Disponibilidade e reservavel sempre")."""
+    res = await conn.execute(
+        """
+        SELECT m.tipo_atendimento_aceito::text[] AS aceitos
+          FROM barravips.atendimentos a
+          JOIN barravips.modelos m ON m.id = a.modelo_id
+         WHERE a.id = %s
+        """,
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    if row is None:
+        return True
+    # ::text[] no SELECT: sem o cast o psycopg devolve o enum-array custom como STRING
+    # ("{interno,externo}") e o `in` viraria substring-match (array vazio "{}" seria truthy).
+    aceitos = row["aceitos"] or []
+    return not aceitos or tipo in aceitos
 
 
 async def _aviso_saida_aplicavel(conn: AsyncConnection[Any], atendimento_id: UUID) -> bool:

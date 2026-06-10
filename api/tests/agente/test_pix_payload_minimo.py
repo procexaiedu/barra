@@ -17,7 +17,8 @@ from typing import Any
 import pytest
 
 from barra.agente.ferramentas import pix
-from barra.agente.ferramentas.pix import VALOR_PIX_DESLOCAMENTO, pedir_pix_deslocamento
+from barra.agente.ferramentas.pix import pedir_pix_deslocamento
+from barra.settings import get_settings
 
 # .coroutine é a corrotina crua do @tool; .ainvoke({...}) NÃO injeta runtime, .coroutine sim.
 _chamar = pedir_pix_deslocamento.coroutine  # type: ignore[attr-defined]
@@ -72,6 +73,7 @@ async def test_payload_persistido_so_tem_valor(monkeypatch: pytest.MonkeyPatch) 
 
     assert "solicitado" in out  # caminho feliz (não ERRO)
     payload = capturado["payload"]
-    assert payload == {"valor": VALOR_PIX_DESLOCAMENTO}
+    # valor vem da setting (fonte unica), serializado como string decimal.
+    assert payload == {"valor": str(get_settings().pix_deslocamento_valor)}
     assert "chave" not in payload
     assert "titular" not in payload

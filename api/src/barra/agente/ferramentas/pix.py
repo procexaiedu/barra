@@ -17,24 +17,32 @@ from langgraph.prebuilt import ToolRuntime
 from psycopg import AsyncConnection
 
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
+from barra.core.moeda import formatar_brl
 from barra.dominio.agenda.service import (
     ConflitoAgenda,
     ForaDisponibilidade,
     HorarioNaoDefinido,
     criar_bloqueio_previo,
 )
+from barra.settings import get_settings
 
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
 
-VALOR_PIX_DESLOCAMENTO = 100  # R$ fixo do MVP (CONTEXT.md "Pix de deslocamento")
+
+class _TipoNaoExterno(Exception):
+    """Tool chamada num atendimento que nao esta registrado como externo (CONTEXT.md "Pix de
+    deslocamento": sem Pix no interno). Guarda determinística sobre a instrucao da docstring:
+    gravar pix_status='aguardando' num interno desviaria a proxima imagem do branch
+    foto-portaria para o branch pix em rotear_imagem (media.py avalia pix primeiro)."""
 
 
 @tool
 async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
-    """Solicita Pix de R$100 para deslocamento (saída externa).
+    """Solicita o Pix de deslocamento, de valor fixo (ref. R$100), para saída externa.
 
-    Sem parâmetros — valor é fixo R$100 (MVP), chave/titular vêm do cadastro da modelo.
+    Sem parâmetros — o valor é fixo (definido pela agência), chave/titular vêm do cadastro da
+    modelo.
     Após chamada: pix_status=aguardando, atendimento → Aguardando_confirmacao,
     cria bloqueio prévio do horário (reserva o slot). A humanização ANEXA a
     chave/titular/valor exatos à sua mensagem — você NÃO redigita a chave.
@@ -69,15 +77,28 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
                 'Use escalar(motivo="politica_nova_necessaria") para Fernando resolver o cadastro.'
             )
 
+        # Fonte unica do valor (settings.pix_deslocamento_valor): a mesma usada na validacao do
+        # comprovante (workers/pix.py) e na bolha da chave (coordenador) — payload de auditoria
+        # e retorno nunca driftam do cobrado.
+        valor = get_settings().pix_deslocamento_valor
         try:
             await _executar_idempotente(
                 conn,
                 turno_id,
                 "pedir_pix_deslocamento",
                 0,
-                payload={"valor": VALOR_PIX_DESLOCAMENTO},
+                payload={"valor": str(valor)},
                 executor=lambda c, p: _aplicar_pedido_pix(c, atendimento_id, p),
             )
+        except _TipoNaoExterno:
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "tipo_nao_externo").inc()
+            raise ToolException(
+                "ERRO: o Pix de deslocamento é só de atendimento EXTERNO (quando você se "
+                "desloca) — este atendimento não está registrado como externo. No interno o "
+                "cliente confirma chegando (foto da portaria), sem Pix. Se a saída é mesmo "
+                "externa, registre tipo_atendimento='externo' (registrar_extracao) antes de "
+                "pedir o Pix."
+            ) from None
         except ConflitoAgenda:
             # Branch 13 (04 §6): a RESERVA do slot falhou (outro cliente já o tomou). O turno
             # inteiro reverteu (pix_status volta a nao_solicitado) — instrua a IA a re-ofertar.
@@ -112,7 +133,7 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
 
     # Retorno NÃO inclui a chave — a humanização a anexa deterministicamente após o texto da IA.
     return (
-        "Pix de R$ 100 solicitado e slot reservado. Escreva o pedido no seu tom, "
+        f"Pix de {formatar_brl(valor)} solicitado e slot reservado. Escreva o pedido no seu tom, "
         "SEM digitar a chave — o sistema anexa chave/titular/valor exatos após sua mensagem."
     )
 
@@ -120,6 +141,22 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
 async def _aplicar_pedido_pix(
     conn: AsyncConnection[Any], atendimento_id: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
+    res = await conn.execute(
+        """
+        SELECT id, modelo_id, tipo_atendimento::text AS tipo_atendimento,
+               data_desejada, horario_desejado, duracao_horas
+          FROM barravips.atendimentos
+         WHERE id = %s
+        """,
+        (atendimento_id,),
+    )
+    atendimento = await res.fetchone()
+    assert atendimento is not None
+    # Guarda determinística (CONTEXT.md "Pix de deslocamento": sem Pix no interno) ANTES de
+    # qualquer escrita: tipo ausente ou interno aborta a transação inteira (erro recuperável).
+    if atendimento["tipo_atendimento"] != "externo":
+        raise _TipoNaoExterno(atendimento["tipo_atendimento"] or "nao_registrado")
+
     # Guarda WHERE pix_status='nao_solicitado': idempotência de estado (não re-transiciona um
     # atendimento que já saiu de nao_solicitado). A idempotência por turno fica no tool_calls.
     await conn.execute(
@@ -134,16 +171,6 @@ async def _aplicar_pedido_pix(
     )
     # Bloqueio prévio do externo nasce AQUI (simétrico ao interno em registrar_extracao):
     # reserva o slot ao entrar em Aguardando_confirmacao e fecha a janela de double-booking.
-    res = await conn.execute(
-        """
-        SELECT id, modelo_id, data_desejada, horario_desejado, duracao_horas
-          FROM barravips.atendimentos
-         WHERE id = %s
-        """,
-        (atendimento_id,),
-    )
-    atendimento = await res.fetchone()
-    assert atendimento is not None
     await criar_bloqueio_previo(conn, atendimento=atendimento)
 
     await conn.execute(
