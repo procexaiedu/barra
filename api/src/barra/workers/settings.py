@@ -4,7 +4,7 @@ Cron:
   - timeout_longo (24h sem cliente): a cada 5 min
   - timeout_interno (45 min sem foto portaria, contado do aviso de saida): a cada minuto
   - confirmar_em_execucao (bloqueio.inicio <= now): a cada minuto
-  - cobrar_valor_final (Lembrete de fechamento, ADR-0007; fim do atendimento): a cada minuto
+  - cobrar_valor_final (Lembrete de fechamento, ADR-0009; fim do atendimento): a cada minuto
   - reengajar_silenciosos (toque proativo apos cotacao; default off): a cada 5 min
   - limpar_midias_vencidas (90d em estados terminais): diário 03:00
 

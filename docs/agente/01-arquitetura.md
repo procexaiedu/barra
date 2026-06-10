@@ -222,7 +222,10 @@ async def enfileirar_turno(
     # 3. coalesce via _job_id estático: ARQ faz SET NX (o 1º vence; enqueues seguintes
     #    na janela são DESCARTADOS — não há "substituição"). O turno lê a sliding window
     #    inteira ao rodar, então quem chegou na janela já entra; quem chega COM o turno
-    #    já rodando é recuperado pelo drain loop (§4.3), não por reenfileiramento.
+    #    já rodando é recuperado pelo drain loop (§4.3) e, como fallback, por um
+    #    reenfileiramento de varredura (`turno:{cid}:varredura`, também SET NX, máx. 1 na
+    #    fila) quando o enqueue primário coalesceu — fecha o turno perdido quando o drain
+    #    já tinha consumido o pending (despacho.py, 2026-06-09).
     job_id = f"turno:{conversa_id}"
     await arq_pool.enqueue_job(
         "processar_turno",
@@ -251,9 +254,11 @@ async def processar_turno(
     async with adquirir_lock(redis, f"lock:conv:{conversa_id}", ttl=60, heartbeat=15) as lock:
         loop_idx = 0
         while True:  # drena pending list (passo 11): msgs chegadas durante o turno
-            # turno_id DETERMINÍSTICO por (job, iteração): no retry do ARQ as dedupe keys
-            # de envio/tool são reusadas → sem resposta duplicada (§6.7). Nunca uuid7() runtime.
-            turno_id = uuid5(NS_TURNO, f"{ctx['job_id']}:{loop_idx}")
+            # turno_id DETERMINÍSTICO por (job, score, iteração): no retry do ARQ as dedupe keys
+            # de envio/tool são reusadas → sem resposta duplicada (§6.7). O score entra porque
+            # o _job_id é estático por conversa — sem ele turnos distintos colidiriam no mesmo
+            # turno_id. Nunca uuid7() runtime.
+            turno_id = uuid5(NS_TURNO, f"{ctx['job_id']}:{ctx['score']}:{loop_idx}")
             await redis.delete(f"pending:conv:{conversa_id}")  # limpa ANTES de ler a janela
 
             async with pool.connection() as conn:
@@ -393,7 +398,7 @@ Itens onde a spec técnica do agente substitui ou refina a especificação de pr
 
 Versões anteriores usavam `AsyncPostgresSaver` (checkpoint por `thread_id`) + cron de retenção de 90 dias. **Decisão (grilling 2026-05-22): removido no P0.**
 
-**Justificativa:** o prompt é montado do zero a cada turno a partir do Postgres (sliding window 20, `02 §4`), então o checkpoint nunca alimentava o prompt — e o reducer `add_messages` com `thread_id` persistente acumulava todo o histórico no estado (quebrando a sliding window) e duplicava as `SystemMessage` dinâmicas a cada turno. Auditoria já vem de `mensagens` + `eventos`; idempotência/resume já vêm de `tool_calls` (`04 §5`) + re-execução do turno. **Mas a idempotência do retry exige `turno_id` determinístico:** `turno_id = uuid5(NS_TURNO, f"{job_id}:{loop_idx}")` (`04 §3.3`), nunca `uuid7()` em runtime — senão o retry do ARQ gera `turno_id` novo, fura a dedupe `dedup:envio:{conversa_id}:{turno_id}:{chunk_idx}` e o cliente recebe a resposta duplicada. O grafo roda com `grafo.compile()` **sem** `checkpointer=` — estado efêmero por invocação. Some o `workers/retencao.py` e seu cron. Se P1 trouxer interrupts/time-travel, reintroduzir o checkpointer com ids estáveis por mensagem desde o início.
+**Justificativa:** o prompt é montado do zero a cada turno a partir do Postgres (sliding window 20, `02 §4`), então o checkpoint nunca alimentava o prompt — e o reducer `add_messages` com `thread_id` persistente acumulava todo o histórico no estado (quebrando a sliding window) e duplicava as `SystemMessage` dinâmicas a cada turno. Auditoria já vem de `mensagens` + `eventos`; idempotência/resume já vêm de `tool_calls` (`04 §5`) + re-execução do turno. **Mas a idempotência do retry exige `turno_id` determinístico:** `turno_id = uuid5(NS_TURNO, f"{job_id}:{score}:{loop_idx}")` (`04 §3.3`; o `score` desambigua turnos distintos sob o `_job_id` estático por conversa), nunca `uuid7()` em runtime — senão o retry do ARQ gera `turno_id` novo, fura a dedupe `dedup:envio:{conversa_id}:{turno_id}:{chunk_idx}` e o cliente recebe a resposta duplicada. O grafo roda com `grafo.compile()` **sem** `checkpointer=` — estado efêmero por invocação. Some o `workers/retencao.py` e seu cron. Se P1 trouxer interrupts/time-travel, reintroduzir o checkpointer com ids estáveis por mensagem desde o início.
 
 ### 6.8 Negação ativa de IA + interceptação canned (override `CONTEXT.md`)
 
@@ -429,7 +434,7 @@ Transições terminais atômicas — cron de timeouts (`workers/timeouts.py`) e 
 
 Consequências:
 - As **write-tools do turno** ganham a mesma guarda no `WHERE`. Se o cron já virou `Perdido` no meio do turno, a tool vira no-op (0 linhas afetadas).
-- O **`post_process`** passa a checar **`estado` terminal além de `ia_pausada`** — fecha o furo em que o cron marca `Perdido`/`sumiu` (sem setar `ia_pausada`, ver `workers/timeouts.py`) e a IA responderia um cliente já dado como perdido.
+- O furo em que o cron marca `Perdido`/`sumiu` no meio do turno (sem setar `ia_pausada`, ver `workers/timeouts.py`) é fechado em duas camadas: o **`post_process`** refaz a checagem de `ia_pausada` dentro do grafo, e o **coordenador** (passo 6, cinto-suspensório — `02 §7`) reconsulta `ia_pausada` **e `estado` terminal** antes de despachar a humanização, descartando o texto.
 - Resíduo aceito: janela sub-segundo (ex.: `enviar_midia` disparar microssegundos antes de um timeout). Eliminá-la exigiria o cron adquirir `lock:conv` — **rejeitado** por enfiar dependência Redis num cron hoje SQL-puro/atômico.
 
 **Justificativa:** estende o padrão que o cron já usa (`SKIP LOCKED` + `WHERE` guard) em vez de bolt-on de mutex Redis em toda mutação; consistente com ADR-0002 (SQL puro) e responsivo para o painel/comandos de Fernando.

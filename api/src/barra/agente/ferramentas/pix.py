@@ -19,6 +19,7 @@ from psycopg import AsyncConnection
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
 from barra.dominio.agenda.service import (
     ConflitoAgenda,
+    ForaDisponibilidade,
     HorarioNaoDefinido,
     criar_bloqueio_previo,
 )
@@ -85,6 +86,19 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
                 "ERRO: o horário combinado acabou de ficar indisponível. Ofereça outro horário "
                 "ao cliente com uma desculpa pessoal (ver sua conduta de indisponibilidade) — "
                 "NUNCA revele que o horário foi reservado — antes de pedir o Pix de novo."
+            ) from None
+        except ForaDisponibilidade:
+            # Trava dura (ADR 0005): horário fora do período de trabalho. O turno reverteu
+            # (pix_status volta a nao_solicitado). Conduta de período de trabalho, não a
+            # desculpa pessoal do conflito (fora do período não há outro cliente a esconder).
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels(
+                "pedir_pix_deslocamento", "fora_disponibilidade"
+            ).inc()
+            raise ToolException(
+                "ERRO: o horário combinado cai FORA do seu período de trabalho — o sistema não "
+                "reserva o slot. Assuma que está fora, diga quando volta e combine a primeira "
+                "data/horário dentro do período (veja <periodo_de_trabalho> no contexto) antes "
+                "de pedir o Pix de novo."
             ) from None
         except HorarioNaoDefinido:
             # A IA pediu o Pix antes de o horário estar combinado (ex.: cliente pede o Pix e só

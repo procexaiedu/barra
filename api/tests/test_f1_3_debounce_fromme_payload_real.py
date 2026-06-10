@@ -36,9 +36,9 @@ _ATENDIMENTO_ID = UUID("44444444-4444-4444-4444-444444444444")
 
 _GRUPO_JID = "120363000000000000@g.us"
 
-# Indice de `evolution_message_id` no bind do INSERT de mensagens (6a coluna; ver
-# `_persistir_cliente`): conversa_id, atendimento_id, tipo, conteudo, media_key, ev_id.
-_INSERT_EVID_IDX = 5
+# Indice de `evolution_message_id` no bind do INSERT de mensagens (ultima coluna; ver
+# `_persistir_cliente`): conversa_id, atendimento_id, direcao, tipo, conteudo, media_key, ev_id.
+_INSERT_EVID_IDX = -1
 
 
 class _Result:

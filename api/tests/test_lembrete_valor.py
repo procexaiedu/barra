@@ -1,4 +1,4 @@
-"""Testes do Lembrete de fechamento (ADR-0007): cron cobrar_valor_final + resolução do quote."""
+"""Testes do Lembrete de fechamento (ADR-0009): cron cobrar_valor_final + resolução do quote."""
 
 import asyncio
 from collections.abc import AsyncIterator

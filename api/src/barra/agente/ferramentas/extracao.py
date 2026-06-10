@@ -15,7 +15,7 @@ from langgraph.prebuilt import ToolRuntime
 from pydantic import BaseModel, ConfigDict, Field
 
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
-from barra.dominio.agenda.service import ConflitoAgenda
+from barra.dominio.agenda.service import ConflitoAgenda, ForaDisponibilidade
 from barra.dominio.atendimentos.service import registrar_extracao_ia
 
 from ..contexto import ContextAgente
@@ -198,6 +198,17 @@ async def registrar_extracao(
                 "ERRO: o horário escolhido já está reservado para a modelo. "
                 "Ofereça outro horário ao cliente com uma desculpa pessoal (ver sua conduta de "
                 "indisponibilidade) — NUNCA diga que o horário foi reservado — e registre de novo."
+            ) from None
+        except ForaDisponibilidade:
+            # Trava dura (ADR 0005): horário fora do período de trabalho da modelo. Conduta
+            # DIFERENTE do conflito de agenda: aqui não há outro cliente a esconder — a IA
+            # assume a folga, revela quando volta e ancora a primeira data disponível.
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "fora_disponibilidade").inc()
+            raise ToolException(
+                "ERRO: o horário pedido cai FORA do seu período de trabalho — o sistema não "
+                "reserva. Siga sua conduta de período de trabalho: assuma que está fora, diga "
+                "quando volta e ofereça a primeira data/horário dentro do período (veja "
+                "<periodo_de_trabalho> no contexto) — depois registre de novo."
             ) from None
 
     # Pin de endereco (interno): NAO enfileirado enquanto o renderer `_card_loc_pin`

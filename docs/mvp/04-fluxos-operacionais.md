@@ -246,7 +246,7 @@ Estado canônico do atendimento no P0. Detalhamento dos estados em `03 §4.2`; e
 | `Em_execucao` | `Fechado` | Comando `fechado valor` ou `finalizado valor` | Modelo/Fernando via grupo ou painel |
 | qualquer | `Perdido` | Comando `perdido motivo` | Modelo/Fernando via grupo ou painel |
 | pré-confirmação | `Perdido` | Timeout determinístico longo de §5.1 (24 h sem mensagem do cliente) | Cron worker, `fonte_decisao=auto_timeout` |
-| `Aguardando_confirmacao` (interno) | `Perdido` | Timeout interno curto de §5.2 (30 min após horário sem foto) | Cron worker, `fonte_decisao=auto_timeout_interno` |
+| `Aguardando_confirmacao` (interno) | `Perdido` | Timeout interno curto de §5.2 (45 min do Aviso de saída sem foto) | Cron worker, `fonte_decisao=auto_timeout_interno` |
 | `Aguardando_confirmacao` | (sem mudança) | Pix em revisão, aviso de saída, imagem fora do interno | Eventos colaterais; estado preserva |
 
 ### 8.3 Pix como sub-estado, não estado do atendimento
@@ -284,7 +284,7 @@ Toda transição persistida grava `fonte_decisao` para auditoria. Valores no P0:
 - `comando_grupo` — comando da modelo ou Fernando no grupo de Coordenação por modelo;
 - `painel_fernando` — ação de Fernando pelo painel;
 - `auto_timeout` — timeout determinístico longo, §5.1 (24 h sem mensagem);
-- `auto_timeout_interno` — timeout interno curto, §5.2 (30 min após horário sem foto);
+- `auto_timeout_interno` — timeout interno curto, §5.2 (45 min do Aviso de saída sem foto);
 - `cron_em_execucao` — horário previsto disparou `Em_execucao` no fluxo externo.
 
 P1 introduz `classificador_p1` para transições inferidas por LLM (`03 §5.7`) — não usado no P0.

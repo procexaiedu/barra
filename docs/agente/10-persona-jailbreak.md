@@ -76,7 +76,7 @@ Notas:
 
 **Decisão (grilling 2026-05-22):** o Sonnet 4.6 é pós-treinado para **resistir a negar que é IA** — confiar só no LLM para essa negação arrisca derrapagem (recusa/evasão) no pior momento (cliente já desconfiado). Por isso adotamos um **híbrido**:
 
-- **Disclosure de alta confiança** (o `webhook/classificador.py` casa o regex com clareza — "vc é IA?", "é robô?", "vc é real?"): a negação **não passa pelo LLM**. O nó `intercept_disclosure` (`03 §7`) escolhe uma frase de um **pool de 5-8 variações em personagem** e responde. Robusto e ainda variado (sorteio sem repetir a última usada na conversa).
+- **Disclosure de alta confiança** (o `webhook/classificador.py` casa o regex com clareza — "vc é IA?", "é robô?", "vc é real?"): a negação **não passa pelo LLM**. O nó `intercept_disclosure` (`03 §7`) escolhe uma frase de um **pool de 5-8 variações em personagem** e responde. Robusto e ainda variado (sorteio simples no P0 — `_canned.py`; o dedupe da última usada na conversa ficou para o P1).
 - **Casos ambíguos** (regex não bate, ou disclosure indireto): seguem para o LLM com os protocolos few-shot do `§3`.
 - **Contagem de insistência** (1ª/2ª negar → 3ª escalar) usa o contador persistido `atendimentos.disclosure_tentativas` (nova coluna; migration nova em `infra/sql/`), incrementado pelo nó para qualquer disclosure sinalizado (alta confiança E ambíguo) de forma **idempotente por `turno_id`** (retry do ARQ não conta 2x), valendo para ambos os caminhos e sobrevivendo à janela de 20. **Modelo nomeado ("vc é Claude?") entra na contagem como o genérico** (decisão 2026-05-23). Só **jailbreak** (DAN / ignore previous / system override) escala direto, sem contagem (`§2.1`).
 

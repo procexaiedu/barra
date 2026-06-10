@@ -2,7 +2,7 @@
 
 > Worker `processar_turno` (lock Redis, debounce, drain bounded, resolução determinística, exaustão) e crons determinísticos (`timeouts.py` + `confirmar_em_execucao` + `limpar_midias`).
 >
-> **Status (2026-05-23):** os crons estão **implementados** (`workers/timeouts.py`, `workers/settings.py`) — a §4 os descreve como são. O `processar_turno` (`workers/coordenador.py`) **ainda não existe**; §2/§3 são spec-a-construir. Decisões em `[[decisoes_grilling_23-05_coordenador]]`.
+> **Status (2026-06-10):** crons **e** `processar_turno` (`workers/coordenador.py`) estão **implementados**. §2/§3 nasceram como spec e o código evoluiu além delas em dois pontos: o `turno_id` inclui o `score` (`uuid5(job_id:score:loop_idx)` — o `_job_id` estático por conversa colidia turnos distintos) e o coalesce ganhou fallback de varredura (`turno:{cid}:varredura`, `despacho.py`, 2026-06-09). Decisões em `[[decisoes_grilling_23-05_coordenador]]`.
 
 ## 1. Por que ARQ e não inline no webhook
 

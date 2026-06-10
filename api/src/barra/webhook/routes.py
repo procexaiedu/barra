@@ -201,6 +201,18 @@ async def evolution_webhook(
                 msg.instance_id,
             )
             return {"status": "unknown_instance"}
+        # fromMe no 1:1 é ambíguo (webhook/CLAUDE.md): eco do envio da própria IA (registrado em
+        # envios_evolution pelo `enviar_turno`) OU a modelo digitando manualmente no mesmo número.
+        # Eco → ignora; modelo manual → persiste com direcao='modelo_manual' (mvp/05 §4.2/§5.3;
+        # `prepare_context` a traduz como AIMessage prefixada) e NÃO enfileira turno — a IA
+        # absorve no contexto do próximo turno e aguarda a próxima mensagem DO CLIENTE.
+        if msg.from_me:
+            if await envio_existe(conn, msg.evolution_message_id):
+                return {"status": "outbound_ignored"}
+            await _persistir_cliente(
+                conn, msg, minio, settings.minio_bucket_media, midia, direcao="modelo_manual"
+            )
+            return {"status": "modelo_manual"}
         conversa_id = await _persistir_cliente(conn, msg, minio, settings.minio_bucket_media, midia)
 
     # Webhook fino (01 §4.1 / 06 §0.1): a mensagem foi persistida orfa (atendimento_id=NULL);
@@ -532,11 +544,13 @@ async def _persistir_cliente(
     minio: Any,
     bucket: str,
     midia: tuple[bytes, str] | None,
+    direcao: str = "cliente",
 ) -> UUID:
-    """Persiste a mensagem do cliente como orfa (atendimento_id=NULL) e devolve o conversa_id.
+    """Persiste a mensagem da conversa 1:1 como orfa (atendimento_id=NULL) e devolve o conversa_id.
 
     Webhook fino (06 §0.1): faz upsert apenas da CONVERSA do par; quem resolve/cria o
     atendimento e cobre as orfas e o coordenador (`processar_turno`), sob `lock:conv`.
+    `direcao` e 'cliente' (inbound) ou 'modelo_manual' (fromMe digitado pela modelo).
     """
     async with conn.transaction():
         modelo = await _one(
@@ -601,12 +615,13 @@ async def _persistir_cliente(
             INSERT INTO barravips.mensagens (
               conversa_id, atendimento_id, direcao, tipo, conteudo, media_object_key, evolution_message_id
             )
-            VALUES (%s, %s, 'cliente', %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             ON CONFLICT (evolution_message_id) DO NOTHING
             """,
             (
                 conversa_id,
                 None,
+                direcao,
                 tipo_db,
                 msg.texto,
                 media_key,

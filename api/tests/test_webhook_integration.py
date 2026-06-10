@@ -191,6 +191,76 @@ def test_webhook_cliente_texto_persiste_orfa_e_enfileira_turno() -> None:
     assert f"debounce:conv:{_CONVERSA_ID}" in chaves
 
 
+def test_webhook_from_me_1a1_persiste_modelo_manual_sem_turno() -> None:
+    """fromMe no chat 1:1 sem registro em envios_evolution = a modelo digitando manualmente no
+    proprio numero (mvp/05 §4.2/§5.3): persiste com direcao='modelo_manual' e NAO enfileira
+    turno — a IA absorve no contexto do proximo turno do cliente, nunca responde a propria
+    modelo. Antes era gravada como 'cliente' e virava turno."""
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.jid_permitido = None
+    settings.evolution_grupo_coordenacao_jid = "grupo-diferente@g.us"  # força ramo cliente
+    conn = FakeConn(mensagem_existe=False, envio_existe=False)
+    arq = FakeArq()
+    payload = {
+        "instance": "barra",
+        "data": {
+            "key": {
+                "id": "MSG-MANUAL-1",
+                "remoteJid": "5521988887777@s.whatsapp.net",
+                "fromMe": True,
+            },
+            "message": {"conversation": "amor, chego 22h em ponto"},
+        },
+    }
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        app.state.arq = arq
+        response = client.post("/webhook/evolution", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "modelo_manual"}
+    insert_msg = [(q, p) for (q, p) in conn.binds if "INSERT INTO barravips.mensagens" in q]
+    assert len(insert_msg) == 1
+    query, params = insert_msg[0]
+    assert params is not None
+    assert "modelo_manual" in query or "modelo_manual" in params
+    assert "'cliente'" not in query
+    # Nenhum turno: a IA nao responde a fala da propria modelo.
+    assert arq.enqueued == []
+
+
+def test_webhook_from_me_1a1_eco_da_ia_e_ignorado() -> None:
+    """fromMe no 1:1 que JA esta em envios_evolution e eco do envio da propria IA: ignora sem
+    persistir nada (desambiguacao canonica pelo originador real — webhook/CLAUDE.md)."""
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.jid_permitido = None
+    settings.evolution_grupo_coordenacao_jid = "grupo-diferente@g.us"
+    conn = FakeConn(mensagem_existe=False, envio_existe=True)
+    arq = FakeArq()
+    payload = {
+        "instance": "barra",
+        "data": {
+            "key": {
+                "id": "MSG-ECO-1",
+                "remoteJid": "5521988887777@s.whatsapp.net",
+                "fromMe": True,
+            },
+            "message": {"conversation": "oi amor, tudo bem?"},
+        },
+    }
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        app.state.arq = arq
+        response = client.post("/webhook/evolution", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "outbound_ignored"}
+    assert [q for q in conn.queries if "INSERT INTO barravips.mensagens" in q] == []
+    assert arq.enqueued == []
+
+
 def test_webhook_grupo_reconhecido_por_coordenacao_chat_id() -> None:
     """Multi-modelo: comando chega do grupo da modelo (coordenacao_chat_id) com o JID
     global de settings DESLIGADO. Deve entrar no fluxo de grupo (e aqui parar como

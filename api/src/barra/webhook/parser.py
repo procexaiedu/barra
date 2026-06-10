@@ -157,7 +157,7 @@ def parse_comando_grupo(
     if lower.startswith(_PERDA):
         if numero is None:
             return _invalido("Informe #N do atendimento.")
-        motivo = _motivo_perda(lower)
+        motivo, observacao = _motivo_perda(raw)
         if motivo is None:
             return ComandoGrupo(
                 "comando_invalido",
@@ -165,7 +165,10 @@ def parse_comando_grupo(
                 {"motivo": "motivo_perda_obrigatorio"},
                 "Motivo obrigatorio.",
             )
-        return ComandoGrupo("registrar_perdido", numero, {"motivo": motivo})
+        payload: dict[str, Any] = {"motivo": motivo}
+        if observacao:
+            payload["observacao"] = observacao
+        return ComandoGrupo("registrar_perdido", numero, payload)
 
     return None
 
@@ -235,11 +238,28 @@ def _valores(texto: str) -> list[Decimal]:
     return out
 
 
-def _motivo_perda(texto: str) -> str | None:
-    for motivo in ["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"]:
-        if motivo in texto:
-            return motivo
-    return None
+# Motivos do enum + grafias que o proprio erro de recuperacao instrui ("preço" com cedilha) e
+# "fora de area" como se digita (espacos, com/sem acento). Match por palavra inteira, no PRIMEIRO
+# motivo que aparece no texto (leftmost) — nao na ordem da lista: "perdido outro cliente sumiu
+# antes de fechar" e motivo `outro` com observacao, nunca `sumiu` (corrupcao silenciosa).
+_MOTIVO_PERDA_RE = re.compile(
+    r"\b(pre[cç]o|sumiu|risco|indisponibilidade|fora[ _]de[ _][aá]rea|outro)\b", re.I
+)
+
+
+def _motivo_perda(texto: str) -> tuple[str | None, str | None]:
+    """(motivo canonico, observacao) do texto de um comando de perda.
+
+    A observacao e o que sobra DEPOIS do motivo (sem o `#N`) — e a forma do mvp/05 §3.1
+    (`perdido [motivo] [obs?] #N`) e a unica porta de `outro` via grupo (o servico exige
+    observacao para `outro`; sem extrai-la aqui o comando era um beco sem saida)."""
+    sem_numero = re.sub(r"#\d+\b", "", texto)
+    match = _MOTIVO_PERDA_RE.search(sem_numero)
+    if match is None:
+        return None, None
+    canonico = match.group(1).lower().replace("ç", "c").replace("á", "a").replace(" ", "_")
+    observacao = sem_numero[match.end() :].strip(" .,:;!-—") or None
+    return canonico, observacao
 
 
 def _invalido(erro: str) -> ComandoGrupo:

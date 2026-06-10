@@ -80,6 +80,56 @@ def test_perdido_com_motivo_valido() -> None:
     assert comando.payload["motivo"] == "sumiu"
 
 
+def test_perdido_outro_extrai_observacao() -> None:
+    # mvp/05 §3.1: `perdido [motivo] [obs?] #N` — pro motivo `outro` a observacao vem do grupo,
+    # nao so do painel. Antes o parser a descartava e o servico devolvia OBSERVACAO_OBRIGATORIA
+    # em loop (beco sem saida, contra o §6.2).
+    comando = parse_comando_grupo("perdido outro cliente desistiu na hora #3")
+    assert comando is not None
+    assert comando.comando == "registrar_perdido"
+    assert comando.numero_curto == 3
+    assert comando.payload["motivo"] == "outro"
+    assert comando.payload["observacao"] == "cliente desistiu na hora"
+
+
+def test_perdido_outro_observacao_com_token_de_outro_motivo() -> None:
+    # Exemplo literal do texto de recuperacao (`respostas.py` observacao_obrigatoria). Antes o
+    # substring-match na frase inteira registrava motivo='sumiu' em silencio (corrupcao).
+    comando = parse_comando_grupo("perdido outro cliente sumiu antes de fechar #3")
+    assert comando is not None
+    assert comando.comando == "registrar_perdido"
+    assert comando.payload["motivo"] == "outro"
+    assert comando.payload["observacao"] == "cliente sumiu antes de fechar"
+
+
+def test_perdido_outro_sem_observacao_segue_sem_chave() -> None:
+    # Sem observacao o parser nao inventa: o servico exige (OBSERVACAO_OBRIGATORIA) e o erro
+    # de recuperacao instrui o complemento.
+    comando = parse_comando_grupo("perdido outro #3")
+    assert comando is not None
+    assert comando.comando == "registrar_perdido"
+    assert comando.payload["motivo"] == "outro"
+    assert "observacao" not in comando.payload
+
+
+def test_perdido_aceita_grafia_acentuada_do_erro_de_recuperacao() -> None:
+    # O erro 6.2 lista "preço" (com cedilha); o parser precisa aceitar a grafia que ele mesmo
+    # instrui, normalizando pro valor canonico do enum.
+    comando = parse_comando_grupo("perdido preço #3")
+    assert comando is not None
+    assert comando.comando == "registrar_perdido"
+    assert comando.payload["motivo"] == "preco"
+
+
+def test_perdido_fora_de_area_com_espacos() -> None:
+    # "fora de area" como alguem digita (sem underscore, com/sem acento) -> enum fora_de_area.
+    for texto in ("perdido fora de area #3", "perdido fora de área #3"):
+        comando = parse_comando_grupo(texto)
+        assert comando is not None, texto
+        assert comando.comando == "registrar_perdido", texto
+        assert comando.payload["motivo"] == "fora_de_area", texto
+
+
 def test_perdido_sem_motivo_e_comando_invalido() -> None:
     comando = parse_comando_grupo("perdido #3")
     assert comando is not None

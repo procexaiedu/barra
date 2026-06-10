@@ -11,6 +11,8 @@ from typing import Any
 from psycopg import AsyncConnection
 from psycopg.errors import ExclusionViolation
 
+from barra.dominio.modelos.disponibilidade import modelo_disponivel_em
+
 # Offset fixo -03:00 (espelha dominio/painel e dominio/dashboard); o horario_desejado do
 # cliente e local (BRT). Combinar como aware evita o pitfall naive x aware (memoria de TZ).
 BRT = timezone(timedelta(hours=-3))
@@ -21,6 +23,13 @@ DURACAO_PADRAO_HORAS = 1
 
 class ConflitoAgenda(Exception):
     """Slot ja reservado por outra conversa da mesma modelo (EXCLUDE de bloqueios)."""
+
+
+class ForaDisponibilidade(Exception):
+    """Inicio do bloqueio cai fora da Disponibilidade da modelo (ADR 0005: trava dura para a IA —
+    'o sistema impede criar bloqueio fora dela'). Erro RECUPERAVEL: a tool de escrita instrui a IA
+    a seguir a conduta de periodo de trabalho (revelar a volta e ancorar a 1a data disponivel).
+    O override fora-da-disponibilidade e exclusivo do painel/Fernando (agenda/routes.py)."""
 
 
 class HorarioNaoDefinido(Exception):
@@ -51,6 +60,13 @@ async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict
     duracao = atendimento.get("duracao_horas") or DURACAO_PADRAO_HORAS
     inicio = datetime.combine(data, horario, tzinfo=BRT)
     fim = inicio + timedelta(hours=float(duracao))
+
+    # Trava dura (ADR 0005): a IA nunca cria bloqueio fora da Disponibilidade. Valida so o
+    # INICIO (o fim pode estourar a janela — Pernoite); modelo sem regra e reservavel sempre.
+    # O painel nao passa por aqui (POST/PATCH /bloqueios tem INSERT proprio com o override
+    # confirmar_fora_disponibilidade, exclusivo de Fernando).
+    if not await modelo_disponivel_em(conn, modelo_id, inicio):
+        raise ForaDisponibilidade("Inicio do bloqueio fora da disponibilidade da modelo.")
 
     # Advisory lock por modelo serializa o booking entre conversas distintas da MESMA modelo
     # ANTES do INSERT; a EXCLUDE pega o caso de duas transacoes que escaparem da serializacao.

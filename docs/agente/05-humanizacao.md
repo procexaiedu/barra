@@ -41,6 +41,13 @@ chunks dentro do mesmo processo.
 A IA é instruída no prompt (`regras.md`) a separar pensamentos com **linha em branco**. O
 chunking vive em `workers/_chunking.py` (consumido pelo coordenador):
 
+> **Atualização (quote por trecho, 2026-06-09 — commits `fe4559d`/`3acaa89`):** a assinatura real
+> é `chunk_texto(texto) -> tuple[list[str], list[str | None]]`. A IA pode prefixar um bloco com o
+> marker `[quote]` / `[quote: trecho]`; o marker é extraído do texto e vira o alvo de quote da
+> bolha (`quote_alvos`, resolvido pelo coordenador em `_resolver_quotes` contra a última inbound
+> que contém o trecho, com fallback gracioso). O snippet abaixo é a versão pré-quote, mantido
+> como referência do split; a fonte de verdade é `workers/_chunking.py`.
+
 ```python
 # api/src/barra/workers/_chunking.py
 import re
@@ -285,7 +292,7 @@ async def enviar_turno(
                 remote_jid=conv["evolution_chat_id"],
                 texto=conteudo,
                 contexto="conversa_cliente",
-                tipo="texto",
+                tipo="ia",  # CHECK de envios_evolution: ia/card/confirmacao/erro_comando/midia
                 atendimento_id=conv["atendimento_id"],
                 conversa_id=UUID(conversa_id),
             )
@@ -383,7 +390,7 @@ async def _enviar_midias(ctx, conversa_id, turno_id, midias, conv, critico):
                 caption=item["legenda"] or None,
                 media_type=m["tipo"],
                 contexto="conversa_cliente",
-                tipo=m["tipo"],
+                tipo="midia",  # CHECK de envios_evolution não aceita 'foto'/'video' (MIME-like)
                 # view-once p/ vídeo (Mídia exclusiva, 01 §6.13): efetivo só quando a Evolution
                 # self-host expuser o campo no sendMedia (pré-req); ignorado até lá.
                 view_once=(m["tipo"] == "video"),
@@ -486,8 +493,8 @@ async def _card_escalada(ctx, *, escalada_id: str, **_) -> None:
                 instance_id=e["evolution_instance_id"],
                 remote_jid=e["coordenacao_chat_id"],
                 texto=texto,
-                contexto="coordenacao",
-                tipo="card_escalada",
+                contexto="grupo_coordenacao",  # CHECK: conversa_cliente | grupo_coordenacao
+                tipo="card",
             )
             await conn.execute(
                 "UPDATE barravips.escaladas SET card_message_id = %s WHERE id = %s",
@@ -503,11 +510,12 @@ Pipeline de Pix e foto de portaria enfileiram `enviar_card` com o `tipo` corresp
 
 ## 7. Falha de envio
 
-ARQ retry default: 5 tentativas com backoff exponencial sobre o job `enviar_turno`. O cursor
+Retry de envio: **3 tentativas** (`MAX_TRIES_ENVIO`, `envio.py` — fonte única, REL-03; registrado
+em `workers/settings.py`), via `Retry` explícito (o ARQ não retenta exceção comum). O cursor
 `enviados:{turno_id}` faz o retry **retomar de onde parou** (chunks já entregues são pulados);
 o `dedup` via `ON CONFLICT` é a segunda rede.
 
-Esgotadas as 5 tentativas, o tratamento depende de `critico`:
+Esgotadas as 3 tentativas, o tratamento depende de `critico`:
 
 - **Turno crítico** (Pix pedido / slot reservado): o efeito já está no banco mas a mensagem pode
   não ter chegado — exatamente o dead-end que o conceito de crítico existe para evitar. Em vez de

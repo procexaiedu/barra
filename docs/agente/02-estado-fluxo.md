@@ -411,7 +411,7 @@ Reflete a **verdade técnica corrente** (esta spec); onde diverge de `mvp/04 §8
 | `Em_execucao` | `Fechado` | `fechado valor` / `finalizado valor` | grupo/painel (**fora do agente**) | bloqueio→`concluido`; financeiro |
 | qualquer (até `Em_execucao`) | `Perdido` | `perdido motivo` | grupo/painel | bloqueio→`cancelado` se ∉ {em_atendimento, concluido} |
 | pré-confirmação (`Novo`/`Triagem`/`Qualificado`/`Aguardando_confirmacao`) | `Perdido` | timeout 24h sem **mensagem do cliente** (IA/modelo não contam; `timeouts.py`) | cron `varrer_timeouts` (`07 §4`) | `motivo=sumiu`; bloqueio→`cancelado` |
-| `Aguardando_confirmacao` (interno) | `Perdido` | **45 min do `aviso_saida_em`** sem foto | cron (`07 §4`) | `motivo=sumiu`; bloqueio→`cancelado`. **Diverge do mvp §8.2** (que diz "30 min após horário"); referência é o aviso de saída (`CONTEXT.md`) |
+| `Aguardando_confirmacao` (interno) | `Perdido` | **45 min do `aviso_saida_em`** sem foto | cron (`07 §4`) | `motivo=sumiu`; bloqueio→`cancelado`; referência é o aviso de saída (`CONTEXT.md`; mvp §8.2 corrigido em 2026-06-10) |
 
 **Transições nulas (eventos colaterais — estado preserva):**
 - Aviso de saída (texto) em `Aguardando_confirmacao` interno → grava `aviso_saida_em` + card; IA segue conduzindo (`06 §5`).
