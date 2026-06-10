@@ -173,6 +173,13 @@ CHUNK_OVERSIZE = Counter(
     "agente_chunk_oversize_total",
     "Chunks com sentenca unica acima de MAX_CHARS (05 §2)",
 )
+QUOTE_RESOLUCAO = Counter(
+    "agente_quote_resolucao_total",
+    # ok = trecho casou uma inbound; miss = trecho nao casou (caiu na ultima); ultima = `[quote]`
+    # puro (uso normal, nao e erro). Taxa de falha do trecho = miss / (ok + miss), NAO miss / total.
+    "Resolucao do alvo de quote (`[quote: trecho]`): ok|miss|ultima",
+    ["resultado"],
+)
 # 05 §9: humanizacao de envio (job enviar_turno).
 ENVIO_DURACAO = Histogram(
     "agente_envio_turno_duracao_seconds",

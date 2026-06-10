@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import random
+import unicodedata
 from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 from time import perf_counter
@@ -39,6 +40,7 @@ from barra.core.metrics import (
     AGENTE_TURNO_DURACAO,
     AGENTE_TURNO_RESULTADO,
     LOCK_OCUPADO,
+    QUOTE_RESOLUCAO,
 )
 from barra.core.redis import LockBusy, adquirir_lock
 from barra.core.tracing import langfuse_handler, metadata_trace_turno, registrar_feedback_online
@@ -74,6 +76,60 @@ def _formatar_bolha_pix(chave: str, titular: str | None, valor: Any) -> str:
         linhas.append(f"em nome de {titular}")
     linhas.append(f"valor: {_brl(valor)}")
     return "\n".join(linhas)
+
+
+def _norm_quote(texto: str) -> str:
+    """Normaliza para o match de trecho: colapsa espaços, casefold e remove acentos.
+
+    O LLM copia o texto do cliente, mas costuma soltar diacríticos do PT-BR ao recortar o trecho
+    (`horario` por `horário`, `voce` por `você`). Dobrar via NFKD + drop de combining marks deixa o
+    match acento-insensível, evitando o fallback-para-última justo no caso de desambiguação.
+    """
+    decomposto = unicodedata.normalize("NFKD", texto)
+    sem_acento = "".join(c for c in decomposto if not unicodedata.combining(c))
+    return " ".join(sem_acento.split()).casefold()
+
+
+def _resolver_quotes(
+    quote_alvos: list[str | None],
+    inbound: list[dict[str, Any]],
+) -> tuple[list[str | None], list[str | None]]:
+    """Casa cada alvo de quote (saída de `chunk_texto`) com a mensagem do cliente alvo.
+
+    Devolve dois lists paralelos aos chunks: `(quote_msg_ids, quote_textos)`, onde cada posição é
+    o `evolution_message_id` e o `conteudo` (texto do balão, p/ `quoted.message.conversation` — a
+    Evolution não faz lookup pelo id; verificado 2026-05-30) da mensagem citada, ou `None`.
+
+    Por alvo:
+    - `None` → sem quote;
+    - `""` (`[quote]` puro) → última mensagem do cliente do turno;
+    - `"trecho"` (`[quote: trecho]`) → a ÚLTIMA inbound cujo conteúdo contém o trecho; miss →
+      fallback gracioso para a última mensagem (nunca trava o turno).
+
+    Sem inbound, todo alvo vira `None` (defesa para canned/reengajamento).
+    """
+    msg_ids: list[str | None] = []
+    textos: list[str | None] = []
+    ultimo = inbound[-1] if inbound else None
+    for alvo in quote_alvos:
+        if alvo is None or ultimo is None:
+            msg_ids.append(None)
+            textos.append(None)
+            continue
+        escolhido = ultimo
+        if alvo == "":
+            QUOTE_RESOLUCAO.labels("ultima").inc()
+        else:
+            trecho = _norm_quote(alvo)
+            casados = [r for r in inbound if trecho in _norm_quote(r["conteudo"] or "")]
+            if casados:
+                escolhido = casados[-1]
+                QUOTE_RESOLUCAO.labels("ok").inc()
+            else:
+                QUOTE_RESOLUCAO.labels("miss").inc()  # fallback p/ última
+        msg_ids.append(escolhido["evolution_message_id"])
+        textos.append(escolhido["conteudo"])
+    return msg_ids, textos
 
 
 async def processar_turno(
@@ -407,17 +463,11 @@ async def processar_turno(
                     msg_ids_cliente: list[str] = [r["evolution_message_id"] for r in inbound]
                     chars_inbound = sum(len(r["conteudo"] or "") for r in inbound)
 
-                    chunks, quote_flags = chunk_texto(texto)
-                    # `[quote]` na bolha → cita a ULTIMA mensagem do cliente no turno
-                    # (alvo natural de recusa/qualificacao/contraproposta). Sem inbound,
-                    # o flag e ignorado (None) — defesa para canned/reengajamento.
-                    alvo_quote = msg_ids_cliente[-1] if msg_ids_cliente else None
-                    # texto do alvo p/ o `quoted.message.conversation` (balão de reply não
-                    # fica vazio — a Evolution não faz lookup pelo id; verificado 2026-05-30).
-                    alvo_quote_texto = inbound[-1]["conteudo"] if inbound else None
-                    quote_msg_ids: list[str | None] = [
-                        alvo_quote if flag else None for flag in quote_flags
-                    ]
+                    chunks, quote_alvos = chunk_texto(texto)
+                    # casa cada alvo de `[quote]` com (evolution_message_id, texto do balão) da
+                    # mensagem do cliente alvo. `[quote: trecho]` busca a msg que contém o trecho;
+                    # `[quote]` puro pega a última. Sem inbound, o alvo é ignorado (None).
+                    quote_msg_ids, quote_textos = _resolver_quotes(quote_alvos, inbound)
                     # Anexa a bolha do Pix (bug F) como ÚLTIMA bolha do turno, sem quote. Quando o
                     # turno pediu Pix ele já é `critico` (não-cancelável), então a chave sempre sai.
                     if pix_row and pix_row.get("chave_pix"):
@@ -430,6 +480,7 @@ async def processar_turno(
                             ),
                         ]
                         quote_msg_ids = [*quote_msg_ids, None]
+                        quote_textos = [*quote_textos, None]
                     if not chunks and not midias:
                         logger.warning("turno_sem_resposta turno_id=%s", turno_id)
                         AGENTE_TURNO_RESULTADO.labels("ok_sem_resposta").inc()
@@ -447,7 +498,7 @@ async def processar_turno(
                             chars_inbound,
                             critico,
                             quote_msg_ids=quote_msg_ids,
-                            quote_texto=alvo_quote_texto,
+                            quote_textos=quote_textos,
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
                         # EVAL-11: rubrica online amostrada -> Prometheus (tendencia) + score no
@@ -677,7 +728,7 @@ async def despachar_humanizacao(
     chars_inbound: int,
     critico: bool,
     quote_msg_ids: list[str | None] | None = None,
-    quote_texto: str | None = None,
+    quote_textos: list[str | None] | None = None,
 ) -> None:
     """Um unico job `enviar_turno` por turno (05 §1): percorre chunks e midias em ordem (07 §3.4).
 
@@ -694,6 +745,6 @@ async def despachar_humanizacao(
         chars_inbound=chars_inbound,
         critico=critico,
         quote_msg_ids=quote_msg_ids,
-        quote_texto=quote_texto,
+        quote_textos=quote_textos,
         _job_id=f"turno_envio:{turno_id}",
     )

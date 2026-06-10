@@ -256,7 +256,7 @@ async def test_quote_msg_ids_propaga_para_evolution_por_bolha() -> None:
         chars_inbound=10,
         critico=False,
         quote_msg_ids=["evo-cliente-1", None],
-        quote_texto="você faz anal?",
+        quote_textos=["você faz anal?", None],
     )
 
     assert _so(evolution, "texto") == ["não tenho costume", "me conta de vc"]

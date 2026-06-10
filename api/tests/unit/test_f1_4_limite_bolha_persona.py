@@ -133,10 +133,10 @@ def test_cada_fala_real_e_uma_unica_bolha_dentro_do_cap() -> None:
     real não manda paredão >600 — o sentence-split (que conta CHUNK_OVERSIZE) nunca engata aqui."""
     antes = REGISTRY.get_sample_value("agente_chunk_oversize_total") or 0.0
     for fala in FALAS_REAIS:
-        chunks, flags = chunk_texto(fala)
+        chunks, alvos = chunk_texto(fala)
         assert len(chunks) == 1, f"fala real virou {len(chunks)} bolhas: {fala!r}"
         assert len(chunks[0]) <= MAX_CHARS, f"bolha real estourou o cap: {fala!r}"
-        assert flags == [False]
+        assert alvos == [None]
         assert _norm(chunks[0]) == _norm(fala)  # conteúdo preservado
     depois = REGISTRY.get_sample_value("agente_chunk_oversize_total") or 0.0
     assert depois == antes  # nenhuma fala real conta como oversize
@@ -151,11 +151,11 @@ def test_turnos_reais_caem_no_envelope_de_bolhas() -> None:
     antes = REGISTRY.get_sample_value("agente_chunk_oversize_total") or 0.0
     for descricao, falas, n_esperado in TURNOS_REAIS:
         texto = "\n\n".join(falas)
-        chunks, flags = chunk_texto(texto)
+        chunks, alvos = chunk_texto(texto)
         assert len(chunks) == n_esperado, f"{descricao}: {len(chunks)} bolhas ≠ {n_esperado}"
         assert len(chunks) <= MAX_CHUNKS
         assert all(len(c) <= MAX_CHARS for c in chunks), f"{descricao}: bolha > cap"
-        assert flags == [False] * n_esperado
+        assert alvos == [None] * n_esperado
         corpo = _norm(" ".join(chunks))
         for fala in falas:
             assert _norm(fala) in corpo, f"{descricao}: pensamento perdido: {fala!r}"
@@ -167,7 +167,7 @@ def test_turno_real_acima_do_cap_funde_no_envelope() -> None:
     """Turno real com mais de MAX_CHUNKS pensamentos colapsa em exatamente MAX_CHUNKS bolhas
     (excedente fundido) — o cap engata em conteúdo real, não só no sintético `b0..b7`."""
     falas = FALAS_REAIS[:8]  # 8 > MAX_CHUNKS(6)
-    chunks, flags = chunk_texto("\n\n".join(falas))
+    chunks, alvos = chunk_texto("\n\n".join(falas))
     assert len(chunks) == MAX_CHUNKS
     assert "\n\n" in chunks[-1]  # excedente fundido no último, conteúdo preservado
-    assert len(flags) == len(chunks)
+    assert len(alvos) == len(chunks)
