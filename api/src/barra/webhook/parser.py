@@ -65,6 +65,14 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
     # WEBHOOK_BASE64 ligado: a Evolution entrega a midia ja DECIFRADA inline (a `url` aponta
     # pro CDN cifrado do WhatsApp, inutil sem a mediaKey). O campo varia por versao/tipo, entao
     # lemos os dois caminhos conhecidos: nivel da mensagem e dentro do *Message.
+    # Reacao/sticker/protocolMessage (edicao, delete) e afins chegam SEM texto e sem midia
+    # reconhecida. Sem este gate viravam um MensagemEvolution de texto vazio, persistido e
+    # despachado como TURNO FANTASMA (chars_inbound=0) -- e o agente confabulava uma resposta a
+    # um input que nunca existiu (ex.: "tudo bem e voce?" para uma reacao). Nao sao turnos de
+    # conversa: descarta na borda (routes -> 200 'ignored'). `reactionMessage` e explicito porque
+    # versoes da Evolution podem trazer o emoji em `.text` (nao-vazio) e ainda assim nao e turno.
+    if "reactionMessage" in message or (tipo == "texto" and not texto.strip()):
+        return None
     media_base64 = _media_base64(message)
     quoted = _quoted_id(message)
     return MensagemEvolution(
