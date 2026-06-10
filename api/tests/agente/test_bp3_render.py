@@ -28,6 +28,7 @@ CARIOCA = IdentidadeModelo(
     idiomas=["pt-BR"],
     localizacao_operacional="Barra da Tijuca",
     tipos_aceitos=["interno", "externo"],
+    endereco_formatado="Av. das Américas, 500 - Barra da Tijuca, Rio de Janeiro - RJ",
 )
 
 ESTRANGEIRA = IdentidadeModelo(
@@ -88,6 +89,17 @@ def test_localizacao_operacional_interpolada_sem_rio_hardcoded() -> None:
     txt = render_identidade(PAULISTA)
     assert "Rio" not in txt
     assert "São Paulo" in txt
+
+
+def test_endereco_formatado_exposto_como_ponto_de_encontro() -> None:
+    # ADR 0020: no pickup a IA precisa passar o endereço de atendimento (ponto de encontro).
+    # Endereço presente → renderiza; ausente (ESTRANGEIRA) → linha some, sem "None" vazado.
+    txt = render_identidade(CARIOCA)
+    assert "Av. das Américas, 500 - Barra da Tijuca, Rio de Janeiro - RJ" in txt
+    assert "ponto de encontro" in txt
+    sem_endereco = render_identidade(ESTRANGEIRA)
+    assert "ponto de encontro" not in sem_endereco
+    assert "None" not in sem_endereco
 
 
 def test_atendimento_reflete_tipos_aceitos() -> None:

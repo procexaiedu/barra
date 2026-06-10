@@ -68,6 +68,10 @@ class IdentidadeModelo:
     idiomas: list[str]
     localizacao_operacional: str | None
     tipos_aceitos: list[str]
+    # Endereço OPERACIONAL (ponto de encontro: cliente vem até você / te busca de carro). Não é
+    # o residencial (`endereco_residencial_formatado`, PII sensível — a IA nunca lê). Default
+    # None: modelo sem endereço cadastrado não renderiza a linha.
+    endereco_formatado: str | None = None
 
 
 @lru_cache(maxsize=8)
@@ -141,6 +145,7 @@ def render_identidade(m: IdentidadeModelo) -> str:
         idiomas=m.idiomas,
         localizacao_operacional=m.localizacao_operacional,
         tipos_aceitos=m.tipos_aceitos,
+        endereco_formatado=m.endereco_formatado,
     )
 
 
