@@ -23,7 +23,9 @@ export const formatDataHora = (iso: string) =>
 export const formatData = (iso: string) =>
   new Intl.DateTimeFormat('pt-BR', {
     day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Sao_Paulo',
-  }).format(new Date(iso))
+  // Date-only ("2026-06-10", ex. data_desejada) parseia como meia-noite UTC e o formatter
+  // em America/Sao_Paulo recua para o dia anterior; ancorar ao meio-dia UTC mantém o dia.
+  }).format(new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00Z` : iso))
 
 export const formatHorario = (iso: string) =>
   new Intl.DateTimeFormat('pt-BR', {
@@ -45,6 +47,18 @@ export function formatDiaSemana(date: Date): string {
   return new Intl.DateTimeFormat('pt-BR', {
     weekday: 'long', timeZone: 'America/Sao_Paulo',
   }).format(date)
+}
+
+export function formatDuracaoHoras(valor: number | string | null | undefined): string | null {
+  if (valor === null || valor === undefined) return null
+  const horas = typeof valor === 'string' ? Number(valor) : valor
+  if (!Number.isFinite(horas) || horas <= 0) return null
+  const totalMin = Math.round(horas * 60)
+  const h = Math.floor(totalMin / 60)
+  const min = totalMin % 60
+  if (h === 0) return `${min} min`
+  if (min === 0) return `${h}h`
+  return `${h}h${String(min).padStart(2, '0')}`
 }
 
 export function formatRotulo(valor: string | null | undefined): string | null {

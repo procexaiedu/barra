@@ -17,7 +17,7 @@ import {
 import { Card } from "@/components/ui/card"
 import { FeticheValor } from "@/components/comum/FeticheValor"
 import { cn } from "@/lib/utils"
-import { formatBRL, formatData, formatDataHora, formatRotulo } from "@/lib/formatters"
+import { formatBRL, formatData, formatDataHora, formatDuracaoHoras, formatRotulo } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse, FeticheFechado, ServicoFechado } from "@/tipos/atendimentos"
 import { formatEnum, motivoExibido, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 import { DialogVisualizarBloqueio } from "@/components/agenda/DialogVisualizarBloqueio"
@@ -58,7 +58,9 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
   const linhasLocal = [
     atendimento.bairro,
     atendimento.tipo_local ? (formatRotulo(atendimento.tipo_local) ?? atendimento.tipo_local) : null,
-    atendimento.duracao_horas ? `${atendimento.duracao_horas} h` : null,
+    formatDuracaoHoras(atendimento.duracao_horas)
+      ? `Duração ${formatDuracaoHoras(atendimento.duracao_horas)}`
+      : null,
   ].filter(Boolean) as string[]
 
   const linhaQuando = [
