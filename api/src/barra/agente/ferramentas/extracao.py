@@ -78,7 +78,10 @@ _DESC_AVISO_SAIDA = (
     "Cliente avisou que saiu de casa em direção ao endereço combinado "
     "(texto livre tipo 'sai', 'tô indo', 'estou indo', 'sai agora'). "
     "Sinalize True SÓ em atendimento interno em Aguardando_confirmacao; "
-    "ignore em outros contextos. NÃO pausa a IA — segue a conversa normal."
+    "ignore em outros contextos. Marque MESMO quando o cliente diz isso JUNTO "
+    "com outra coisa no mesmo turno (ex.: confirma o endereço, pergunta o "
+    "horário) — o aviso de saída não é exclusivo de outros campos. "
+    "NÃO pausa a IA — segue a conversa normal."
 )
 _DESC_LIMPAR = (
     "Campos a ZERAR (NULL) quando o cliente RECUA/desmarca — ex.: disse um horário "

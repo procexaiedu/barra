@@ -22,6 +22,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
 from barra.settings import get_settings
+from barra.workers.envio import _card_chegada
 from barra.workers.media import rotear_imagem
 
 
@@ -298,3 +299,65 @@ async def test_foto_portaria_handoff_completo(
     assert calls[0].kwargs["tipo"] == "chegada"
     assert calls[0].kwargs["atendimento_id"] == str(atendimento_id)
     assert calls[0].kwargs["_job_id"] == f"card:chegada:{atendimento_id}"
+
+
+@pytest.mark.needs_db
+async def test_card_chegada_entrega_e_marca_owner(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Regressão E2E 2026-06-10: `_card_chegada` ordenava por `e.created_at`, coluna que
+    `barravips.escaladas` NAO tem (a de tempo é `aberta_em`) -> UndefinedColumn em todo
+    card de chegada, e a modelo nunca era avisada que o cliente chegou. Só pega contra o
+    schema real: o teste roda o renderer e exige POST + gravação do `card_message_id`."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id, _ = await _seed_atendimento_interno_aguardando(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id
+    )
+    await _seed_msg_imagem(conn, conversa_id)
+
+    # handoff implicito cria a escalada owner (foto_portaria, card_message_id NULL).
+    redis = _redis_fake()
+    ctx_handoff = _ctx(_PoolDeUmaConexao(conn), redis)
+    res = await conn.execute(
+        "SELECT evolution_message_id FROM barravips.mensagens WHERE conversa_id = %s",
+        (conversa_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None
+    await rotear_imagem(
+        ctx_handoff,
+        mensagem_id=row["evolution_message_id"],
+        conversa_id=str(conversa_id),
+        media_url="https://evolution.test/portaria.jpg",
+        caption=None,
+    )
+
+    # roda o renderer do card 'chegada' com evolution/minio mockados.
+    evolution = AsyncMock()
+    evolution.enviar_midia = AsyncMock(return_value="card-mid-chegada")
+    evolution.enviar_texto = AsyncMock(return_value="card-mid-chegada")
+    minio = AsyncMock()
+    minio.presigned_get_object = lambda *a, **k: "https://minio.test/portaria.jpg"
+    ctx_card: dict[str, Any] = {
+        "db_pool": _PoolDeUmaConexao(conn),
+        "evolution": evolution,
+        "minio": minio,
+        "settings": get_settings(),
+    }
+
+    await _card_chegada(ctx_card, atendimento_id=str(atendimento_id))
+
+    # 1. Card foi efetivamente postado na Coordenação (foto + caption).
+    assert evolution.enviar_midia.await_count == 1
+
+    # 2. `card_message_id` gravado na escalada owner (idempotência por owner).
+    res = await conn.execute(
+        "SELECT card_message_id FROM barravips.escaladas "
+        "WHERE atendimento_id = %s AND tipo = 'foto_portaria'",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None
+    assert esc["card_message_id"] == "card-mid-chegada"

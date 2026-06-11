@@ -109,3 +109,9 @@ temp/
 _dump_*.txt
 /evals-*.jpeg
 /evals-*.jpg
+
+# Saídas de execução dos evals (geradas a cada `make massa`); regeneráveis.
+api/evals/registros/
+
+# Export de contatos reais (PII de clientes); só local, nunca no repo.
+contacts*.csv

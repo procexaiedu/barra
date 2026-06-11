@@ -27,8 +27,9 @@ from barra.agente._custo import calcular_custo_brl, custo_chat_turno_brl
 from barra.workers.coordenador import acumular_custo_atendimento
 
 COTACAO = 5.50
+# input_tokens e o TOTAL do langchain-anthropic (fresco 1000 + read 5000 + write 300 = 6300).
 _USAGE = {
-    "input_tokens": 1000,
+    "input_tokens": 6300,
     "output_tokens": 200,
     "input_token_details": {"cache_read": 5000, "ephemeral_1h_input_tokens": 300},
 }

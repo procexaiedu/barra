@@ -17,13 +17,19 @@ from langchain_anthropic import ChatAnthropic
 from barra.settings import Settings
 
 
-def criar_chat_anthropic(settings: Settings, *, modelo: str | None = None) -> ChatAnthropic:
+def criar_chat_anthropic(
+    settings: Settings, *, modelo: str | None = None, com_effort: bool = True
+) -> ChatAnthropic:
     """Wrapper LangChain do ChatAnthropic usado pelo grafo (nó llm).
 
     Sonnet 4.6 com thinking desabilitado e effort=low (03 §6.1/§6.2): tom e tamanho da
     resposta vêm da persona/few-shot, não do effort — cujo default no 4.6 é high (mais
     latência/custo). max_tokens é guard-rail (~1024). Retry de 429/5xx/timeout fica a
     cargo do SDK (max_retries), sem wrapper manual (decisão M0).
+
+    `com_effort=False` p/ modelos que NÃO aceitam o parâmetro `effort` (ex.: Haiku 4.5, usado
+    no LLM-judge de AUP do output_guard) — a langchain só envia `effort` quando truthy, então
+    `effort=None` o omite e evita o 400. Sonnet 4.6 mantém o default.
     """
     modelo = modelo or settings.anthropic_modelo_principal
     return ChatAnthropic(
@@ -31,7 +37,7 @@ def criar_chat_anthropic(settings: Settings, *, modelo: str | None = None) -> Ch
         api_key=settings.anthropic_api_key,
         max_tokens=settings.anthropic_max_tokens,
         thinking={"type": settings.anthropic_thinking},
-        effort=settings.anthropic_effort,
+        effort=settings.anthropic_effort if com_effort else None,
         max_retries=2,
         timeout=60.0,
     )

@@ -183,7 +183,9 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
     """
     from barra.core.llm import criar_chat_anthropic
 
-    chat = criar_chat_anthropic(settings).with_structured_output(_VeredictoAup, include_raw=True)
+    chat = criar_chat_anthropic(
+        settings, modelo=settings.output_guard_modelo, com_effort=False
+    ).with_structured_output(_VeredictoAup, include_raw=True)
     mensagens = [
         {"role": "system", "content": render_aup_saida()},
         {"role": "user", "content": f"MENSAGEM A AVALIAR:\n{texto}"},

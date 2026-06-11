@@ -145,6 +145,21 @@ class Settings(BaseSettings):
         default=True,
         description="Fallback deterministico (#2): quando o LLM encerra o turno sem chamar registrar_extracao, forca 1 chamada (tool_choice) antes de fechar o turno, garantindo que a FSM nao defase. Custa 1 request extra so nos turnos onde o modelo esqueceu. False = comportamento dependente da boa vontade do LLM (kill-switch sem deploy).",
     )
+    # Reducao de custo (Langfuse 06-2026: ~half das geracoes Sonnet sao a extracao forcada, cada
+    # uma relendo ~14,7k tokens de prefixo a 0.1x). A extracao e nota interna estruturada — nao
+    # precisa da persona/regras/FAQ nem da voz do Sonnet. Quando ON, a chamada FORCADA de
+    # registrar_extracao roteia p/ `extracao_modelo` (Haiku) com prompt minimo (janela sem o
+    # SystemMessage geral), em vez do Sonnet com o prefixo inteiro. NAO afeta o caminho normal
+    # (quando o LLM extrai sozinho no loop). Default OFF: virar p/ True exige validar paridade da
+    # FSM via `make evals` antes (a extracao alimenta transicoes no caminho do dinheiro).
+    extracao_no_modelo_barato: bool = Field(
+        default=False,
+        description="Roteia a chamada FORCADA de registrar_extracao p/ extracao_modelo (barato) com prompt minimo, em vez do Sonnet com prefixo inteiro. Default OFF — exige validacao por evals antes de ligar (kill-switch).",
+    )
+    extracao_modelo: str = Field(
+        default="claude-haiku-4-5",
+        description="Modelo da extracao forcada barata quando extracao_no_modelo_barato=True. Haiku 4.5 (~1/3 do custo do Sonnet); classificacao estruturada, nao a voz da IA. Haiku NAO aceita `effort` -> chat criado com com_effort=False.",
+    )
     # Output-guard de saida antes da bolha (AGENTE-OG / ADR 0016).
     output_guard_habilitado: bool = Field(
         default=True,
@@ -153,6 +168,10 @@ class Settings(BaseSettings):
     output_guard_judge_habilitado: bool = Field(
         default=True,
         description="Liga a Etapa 2 (LLM-judge de AUP vinculante) do output_guard. False roda so a Etapa 1 (scan deterministico barato), util se o judge nao-calibrado causar over-refusal. Falha de infra do judge -> default seguro (bloqueia+escala), nunca configuravel p/ passar.",
+    )
+    output_guard_modelo: str = Field(
+        default="claude-haiku-4-5",
+        description="Modelo do LLM-judge de AUP (Etapa 2). E classificacao binaria (viola/nao), nao a voz da IA -> roda em Haiku 4.5 (1/3 do custo do Sonnet) sem afetar a conversa. Prompt curto (~580 tok < minimo de cache 4096) entao nao ha cache a perder. Haiku NAO aceita `effort` -> o chat e criado com com_effort=False (senao 400). Voltar p/ claude-sonnet-4-6 se o Haiku regredir a precisao do guard.",
     )
     # Rede final de saida no enviar_turno (SEC-OUT-01/SEC-PII-02): cobre tambem os caminhos
     # canned/reengajamento que pulam o no output_guard do grafo.

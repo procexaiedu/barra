@@ -41,6 +41,7 @@ from .cenarios import CENARIOS, Cenario
 from .cenarios_fixos import CENARIOS_FIXOS, CENARIOS_FIXOS_HELDOUT, CenarioFixo
 from .cliente import ClienteLike, ClienteSimulado
 from .cliente_fixo import ClienteRoteirizado
+from .cliente_ponte import ClientePonte
 from .gerar_conversas import _apos_seed, _serializar
 from .loop import Trajetoria, _carregar_runner, jornada
 from .perfis import PERFIS, PerfilCliente, variar_persona
@@ -123,10 +124,14 @@ def custo_da_jornada(traj: Trajetoria, cliente: Any) -> float:
     return custo + float(getattr(cliente, "custo_brl_acumulado", 0.0) or 0.0)
 
 
-def _construir_cliente(item: ItemMassa) -> ClienteLike:
+def _construir_cliente(item: ItemMassa, dir_ponte: Path | None = None) -> ClienteLike:
     if item.tipo == "robo":
         assert isinstance(item.cenario, Cenario)
-        return ClienteSimulado(variar_persona(item.cenario.persona, item.perfil))
+        persona = variar_persona(item.cenario.persona, item.perfil)
+        if dir_ponte is not None:
+            # Ponte Claude Code: fala do cliente vem de agente do plano -- API so para o agente.
+            return ClientePonte(persona, dir_ponte, item.conversa_id)
+        return ClienteSimulado(persona)
     assert isinstance(item.cenario, CenarioFixo)
     return ClienteRoteirizado(item.cenario.mensagens_cliente)
 
@@ -145,13 +150,13 @@ def _git_sha() -> str | None:
 
 
 async def _rodar_item(
-    runner: Any, item: ItemMassa
+    runner: Any, item: ItemMassa, dir_ponte: Path | None = None
 ) -> tuple[dict[str, Any] | None, float, str | None]:
     """Roda UMA jornada na sua propria conexao/transacao (rollback+close sempre, como
     `gerar_conversas._rodar`: um item que quebra nao contamina nem mata a rodada).
     Retorna (conversa serializada | None, custo medido, erro | None)."""
     conn = await runner._conectar()  # TEST_DATABASE_URL; SystemExit(2) se ausente
-    cliente = _construir_cliente(item)
+    cliente = _construir_cliente(item, dir_ponte)
     cen = item.cenario
     try:
         traj = await jornada(
@@ -197,6 +202,7 @@ async def rodar_massa(
     teto_brl: float,
     paralelo: int = 1,
     dir_rodada: Path,
+    dir_ponte: Path | None = None,
 ) -> dict[str, Any]:
     """Roda o plano com teto de custo e escrita incremental; devolve o meta da rodada.
 
@@ -225,7 +231,7 @@ async def rodar_massa(
             item = plano[proximo]
             proximo += 1
             rotulo = f"[{proximo}/{len(plano)}] {item.conversa_id}"
-            conversa, custo, erro = await _rodar_item(runner, item)
+            conversa, custo, erro = await _rodar_item(runner, item, dir_ponte)
             guarda.registrar(custo)
             async with lock_escrita:
                 if conversa is not None:
@@ -257,6 +263,7 @@ async def rodar_massa(
         "teto_brl": teto_brl,
         "abortado_por_orcamento": abortado,
         "paralelo": paralelo,
+        "cliente_ponte": dir_ponte is not None,
         "git_sha": _git_sha(),
         "duracao_s": round(time.monotonic() - inicio, 1),
         "itens": itens_meta,
@@ -294,6 +301,12 @@ def main() -> None:
         help="dir de rodada existente (continua/appenda); default cria novo por carimbo.",
     )
     parser.add_argument(
+        "--cliente-ponte",
+        action="store_true",
+        help="cenarios robo respondidos por agente Claude Code via arquivos em <rodada>/ponte/ "
+        "(cliente_ponte.py) -- credito de API SO para o agente do Barra.",
+    )
+    parser.add_argument(
         "--usar-database-url",
         action="store_true",
         help="DELIBERADO: usa o DATABASE_URL do .env (PROD) como TEST_DATABASE_URL. O arnes nunca "
@@ -329,7 +342,9 @@ def main() -> None:
     )
     n_robo = sum(1 for it in plano if it.tipo == "robo")
     n_fixo = len(plano) - n_robo
-    estimativa = n_robo * _ESTIMATIVA_ROBO_BRL + n_fixo * _ESTIMATIVA_FIXO_BRL
+    # Com a ponte, o cliente-LLM sai da conta de API: robo custa como fixo (so o agente roda).
+    custo_robo = _ESTIMATIVA_FIXO_BRL if args.cliente_ponte else _ESTIMATIVA_ROBO_BRL
+    estimativa = n_robo * custo_robo + n_fixo * _ESTIMATIVA_FIXO_BRL
     print(
         f"rodada: {len(plano)} jornadas ({n_robo} robo + {n_fixo} fixas/held-out); "
         f"estimativa ~R${estimativa:.0f}, teto R${args.teto_brl:.0f}."
@@ -343,8 +358,17 @@ def main() -> None:
     setup_langfuse_sim(get_settings())
 
     dir_rodada = Path(args.rodada) if args.rodada else _RODADAS / time.strftime("%Y%m%dT%H%M%S")
+    dir_ponte = dir_rodada / "ponte" if args.cliente_ponte else None
+    if dir_ponte is not None:
+        print(f"cliente via PONTE Claude Code: pedidos/respostas em {dir_ponte}")
     meta = asyncio.run(
-        rodar_massa(plano, teto_brl=args.teto_brl, paralelo=args.paralelo, dir_rodada=dir_rodada)
+        rodar_massa(
+            plano,
+            teto_brl=args.teto_brl,
+            paralelo=args.paralelo,
+            dir_rodada=dir_rodada,
+            dir_ponte=dir_ponte,
+        )
     )
     print(
         f"\nrodada gravada: {dir_rodada} ({meta['n_gerado']} conversas, "

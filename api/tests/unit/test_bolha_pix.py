@@ -2,6 +2,8 @@
 deslocamento após o texto da IA — a tool `pedir_pix_deslocamento` mantém a chave fora do LLM.
 """
 
+from decimal import Decimal
+
 from barra.workers.coordenador import _formatar_bolha_pix
 
 
@@ -17,3 +19,11 @@ def test_bolha_pix_sem_titular() -> None:
     assert "em nome de" not in bolha
     assert "chave pix: chave@exemplo.com" in bolha
     assert "R$100" in bolha
+
+
+def test_bolha_pix_valor_decimal_da_setting() -> None:
+    """Regressão E2E 2026-06-10 (commit 2934443): `settings.pix_deslocamento_valor` é um
+    `Decimal` e o JSONB de idempotência o devolve como string `"100.00"`. `_brl` fazia
+    `int("100.00")` -> ValueError, descartando o turno inteiro (cliente fica mudo no Pix)."""
+    assert "R$100" in _formatar_bolha_pix("chave@exemplo.com", None, Decimal("100.00"))
+    assert "R$100" in _formatar_bolha_pix("chave@exemplo.com", None, "100.00")

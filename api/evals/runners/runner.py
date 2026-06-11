@@ -122,6 +122,11 @@ class Captura:
     estado_atendimento: str
     ia_pausada: bool
     pix_status: str
+    # True quando `atendimentos.aviso_saida_em` foi gravado (Aviso de saida detectado pelo agente,
+    # 06 §5 + emenda §0 item 10). E a pre-condicao que ARMA o timeout interno de 45min; o aviso nao
+    # muda estado nem pausa a IA, entao sem este campo o `state_check` nao consegue afirmar que a
+    # deteccao aconteceu (gap que deixou o bug E2E 10/06 passar). `state_check: {aviso_saida_armado}`.
+    aviso_saida_armado: bool = False
     # True se uma linha foi aberta em `escaladas` durante a fixture (handoff determinista do
     # intercept_disclosure OU a tool `escalar` do LLM). `avaliar()` injeta "escalar" no conjunto
     # de tools quando True, para o grader cobrir os dois caminhos de escalada.
@@ -369,18 +374,15 @@ def _agregar_usage(mensagens: list[BaseMessage]) -> dict[str, Any]:
 def _cache_hit_rate(usage: dict[str, Any]) -> float | None:
     """cache_read / input_total do turno (PURO). None se sem usage ou input_total=0.
 
-    `input_total` = nao-cacheado (`input_tokens`) + cache_read + cache_write (ephemeral 5m/1h),
-    espelhando a definicao do README de evals (`cache_read` / input total)."""
+    `input_total` JA E `usage["input_tokens"]`: langchain-anthropic 1.4.3 reporta input_tokens como
+    o total (base + cache_read + cache_creation; ver `_custo.input_nao_cacheado`). Somar cache_read
+    e ephemeral por cima dobrava a parcela cacheada no denominador e cortava o hit pela metade
+    (0.49 reportado vs ~0.92 real)."""
     if not usage:
         return None
     det = usage.get("input_token_details") or {}
     cache_read = det.get("cache_read", 0)
-    total = (
-        usage.get("input_tokens", 0)
-        + cache_read
-        + det.get("ephemeral_5m_input_tokens", 0)
-        + det.get("ephemeral_1h_input_tokens", 0)
-    )
+    total = usage.get("input_tokens", 0)
     return (cache_read / total) if total > 0 else None
 
 
@@ -775,7 +777,8 @@ async def _capturar(
 ) -> Captura:
     """Coleta a Captura de UM turno: tools/texto das mensagens + estado + escalada (pos-invoke)."""
     res = await conn.execute(
-        "SELECT estado, ia_pausada, pix_status FROM barravips.atendimentos WHERE id = %s",
+        "SELECT estado, ia_pausada, pix_status, aviso_saida_em "
+        "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
     row = await res.fetchone()
@@ -796,6 +799,7 @@ async def _capturar(
         estado_atendimento=row["estado"],
         ia_pausada=row["ia_pausada"],
         pix_status=row["pix_status"],
+        aviso_saida_armado=row["aviso_saida_em"] is not None,
         escalou=bool(escalada_row and escalada_row["n"] > 0),
         superficie_auditavel=_superficie_auditavel(estado["messages"]),
         custo_brl=custo_brl,
@@ -947,6 +951,7 @@ def _comparar_state(state_check: dict[str, Any], captura: Captura, prefixo: str 
         "atendimento_estado": captura.estado_atendimento,
         "ia_pausada": captura.ia_pausada,
         "pix_status": captura.pix_status,
+        "aviso_saida_armado": captura.aviso_saida_armado,
     }
     return [
         f"{prefixo}{chave}: esperado {esperado!r}, obtido {atual[chave]!r}"

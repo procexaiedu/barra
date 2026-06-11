@@ -54,6 +54,14 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
     if settings is None:
         settings = get_settings()
     chat = criar_chat_anthropic(settings)
+    # Extracao forcada barata (settings.extracao_no_modelo_barato): chat Haiku (com_effort=False —
+    # Haiku nao aceita `effort`, igual ao judge do output_guard) injetado no no llm. None quando
+    # desligado -> o no forca no Sonnet com prefixo inteiro (comportamento atual).
+    chat_extracao_barata = (
+        criar_chat_anthropic(settings, modelo=settings.extracao_modelo, com_effort=False)
+        if settings.extracao_no_modelo_barato
+        else None
+    )
 
     # context_schema: deps de runtime + ids de escopo via Runtime Context API (04 §1.1).
     # Nao usar config["configurable"] p/ pool/redis (legado; quebra ao ligar checkpointer).
@@ -61,7 +69,7 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
 
     builder.add_node("prepare_context", prepare_context)
     builder.add_node("intercept_disclosure", intercept_disclosure)
-    builder.add_node("llm", no_llm(chat, TOOLS))
+    builder.add_node("llm", no_llm(chat, TOOLS, chat_extracao_barata=chat_extracao_barata))
     builder.add_node("tools", tools_node)
     builder.add_node("post_process", post_process)
     builder.add_node("output_guard", output_guard)

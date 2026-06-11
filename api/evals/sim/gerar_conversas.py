@@ -97,11 +97,15 @@ def _serializar(
             continue
         if passo.acao_mensagem is not None:
             turnos.append({"papel": "cliente", "texto": passo.acao_mensagem})
-        if passo.bolha_ia:
+        # Inclui também o turno MUDO com sinal (ex.: output_guard bloqueou a bolha e pausou):
+        # sem ele o DESFECHO da jornada (pausa/escalada/custo) sumia do jsonl e o diagnóstico
+        # lia a conversa como "aberta". Entra sem `idx` (abaixo), então a rotulagem golden/UI
+        # (que lê só falas com idx) não muda.
+        if passo.bolha_ia or passo.escalou or passo.ia_pausada or passo.custo_brl:
             turnos.append(
                 {
                     "papel": "ia",
-                    "texto": passo.bolha_ia,
+                    "texto": passo.bolha_ia or "",
                     "estado": passo.estado_atendimento,
                     "ia_pausada": passo.ia_pausada,
                     "pix_status": passo.pix_status,
@@ -120,7 +124,7 @@ def _serializar(
             )
     idx = 0
     for turno in turnos:
-        if turno["papel"] == "ia":
+        if turno["papel"] == "ia" and turno["texto"]:
             turno["idx"] = idx
             idx += 1
     return {

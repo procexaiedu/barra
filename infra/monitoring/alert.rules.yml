@@ -116,13 +116,16 @@ groups:
     rules:
       # CUSTO-05 — WRITE-RATE de cache. Invariante de agente/CLAUDE.md: write-rate alto
       # pos-warmup = invalidador silencioso do prefixo cacheado (o prefixo deveria ser
-      # cache_read, nao reescrito a cada turno). cache_write / (input + cache_read + cache_write)
-      # > 15% em regime dispara. Usa rate() p/ olhar o fluxo recente, nao o acumulado historico.
+      # cache_read, nao reescrito a cada turno). cache_write / input > 15% em regime dispara.
+      # `input` JA E o total de tokens de input (langchain-anthropic 1.4.3 reporta input_tokens
+      # incluindo cache_read + cache_creation — ver _custo.input_nao_cacheado / runner._cache_hit_rate);
+      # somar cache_read/cache_write por cima dobrava a parcela cacheada no denominador e subestimava
+      # o write-rate. Usa rate() p/ olhar o fluxo recente, nao o acumulado historico.
       - alert: AgenteCacheWriteRateAlto
         expr: |
           sum(rate(agente_turno_tokens_total{tipo="cache_write"}[15m]))
           /
-          sum(rate(agente_turno_tokens_total{tipo=~"input|cache_read|cache_write"}[15m]))
+          sum(rate(agente_turno_tokens_total{tipo="input"}[15m]))
           > 0.15
         for: 15m
         labels:

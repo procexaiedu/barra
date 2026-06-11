@@ -73,3 +73,13 @@ de `montar_prompt_cliente`.
 O veredito da rodada é de `evals.diagnostico.veredito` (offline) e o gate continua sendo o runner
 K=5 (`make cutover`) — o verde da massa segue **não** contando para o cutover; ela contribui com
 invariantes-duros, taxa E2E estrutural e a fila do juiz. Ver `evals/README.md` §"Rodada de go-live".
+
+### Ponte Claude Code (`--cliente-ponte`)
+
+Com `--cliente-ponte`, o lado cliente dos cenários robo deixa de chamar a API (regra: **crédito
+de API só para o agente do Barra**): `cliente_ponte.py` escreve cada turno do cliente como
+`<rodada>/ponte/<id>__t<N>.pedido.json` (prompt já renderizado por `montar_prompt_cliente`, mesmo
+guard anti-leakage) e espera o `*.resposta.json` (`{"mensagem": ...}`), escrito por um agente do
+Claude Code (tokens do plano). Resposta deve ser gravada atomicamente (tmp + `mv`); sem resposta
+em 15 min a jornada falha sozinha e a rodada segue. Fixos/held-out seguem roteirizados (já eram
+custo zero do lado cliente).

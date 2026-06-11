@@ -15,7 +15,7 @@ from typing import Any, Literal, Protocol
 
 from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_anthropic import ChatAnthropic
-from langchain_core.messages import AIMessage, BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
 from langchain_core.tools import BaseTool
 from langgraph.runtime import Runtime
 from langgraph.types import Command
@@ -39,6 +39,30 @@ _STOP_TRUNCADO = ("max_tokens", "model_context_window_exceeded")
 # Fallback deterministico de extracao (#2): nome da tool de escrita que persiste o snapshot do
 # turno. Quando o LLM encerra sem chama-la, o no forca 1 chamada (tool_choice) antes de fechar.
 _TOOL_EXTRACAO = "registrar_extracao"
+
+# Reducao de custo (settings.extracao_no_modelo_barato): system prompt MINIMO da extracao forcada
+# barata. Substitui o BP_GERAL (~14,7k tokens persona+regras+FAQ) — a extracao e nota interna
+# estruturada, nao gera texto ao cliente, entao nao precisa da voz nem do FAQ. As regras de cada
+# campo ja viajam na descricao da tool (Annotated+Field); a hora atual e o periodo de trabalho
+# vem no contexto dinamico anexado a ULTIMA HumanMessage (preservada pelo strip).
+_SYSTEM_EXTRACAO_BARATA = (
+    "Voce le uma conversa entre uma acompanhante e um cliente e registra o ESTADO da negociacao "
+    "chamando a ferramenta registrar_extracao. Voce NAO responde ao cliente e NAO inventa dados: "
+    "registre apenas o que esta claro na conversa. As regras de cada campo estao na descricao da "
+    "ferramenta. A hora atual e o periodo de trabalho vem no contexto da ultima mensagem."
+)
+
+
+def _janela_para_extracao_barata(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
+    """Janela do turno SEM os blocos system gerais, prefixada pelo system minimo de extracao.
+
+    O ganho de custo vem exatamente de NAO enviar o BP_GERAL (persona+regras+FAQ) na chamada
+    barata: troca ~14,7k tokens de prefixo por ~70. As mensagens da conversa (incluindo a ultima
+    HumanMessage, que carrega o contexto dinamico/`<agenda agora=...>`) sao preservadas na ordem —
+    a request continua comecando por user apos o system, valida na Anthropic.
+    """
+    conversa = [m for m in messages if not isinstance(m, SystemMessage)]
+    return [SystemMessage(content=_SYSTEM_EXTRACAO_BARATA), *conversa]
 
 
 def _extraiu_no_turno(messages: Sequence[BaseMessage]) -> bool:
@@ -88,7 +112,12 @@ class _NoLLM(Protocol):
     ) -> Coroutine[Any, Any, Command[Literal["tools", "post_process"]]]: ...
 
 
-def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
+def no_llm(
+    chat: ChatAnthropic,
+    tools: Sequence[BaseTool],
+    *,
+    chat_extracao_barata: ChatAnthropic | None = None,
+) -> _NoLLM:
     """Factory: liga o ChatAnthropic + catalogo de tools ao no llm.
 
     O chat e injetado por build_graph (09 §4.5) para nao reconstruir o ChatAnthropic a cada
@@ -96,6 +125,11 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
     pois tools sao GERAIS como BP1/BP2; doc oficial Anthropic tool-use-with-prompt-caching). Lista
     vazia (P0 pre-M1) -> passa direto, prefixo de tools vazio e byte-identico (invariante de cache,
     agente/CLAUDE.md). Mudanca em qualquer tool invalida tools+system+messages (hierarquia).
+
+    `chat_extracao_barata` (settings.extracao_no_modelo_barato): quando injetado, a chamada
+    FORCADA de registrar_extracao roda nesse chat barato (Haiku) ligado SO a tool de extracao e
+    sobre a janela sem o BP_GERAL — corta ~14,7k tokens de prefixo da ~metade das geracoes Sonnet
+    que hoje sao so extracao. None (default) -> caminho inalterado (forca no Sonnet com prefixo).
     """
     settings = get_settings()
     # strict PER-TOOL (STRICT_TOOLS = {"escalar"}); master-switch anthropic_strict_tools desliga
@@ -114,14 +148,29 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
     # caminho de forcamento some, sem tocar o bind normal nem o cache do prefixo (tool_choice e
     # parametro de request do 2o bind, nao altera o prefixo cacheado tools+system do 1o).
     nomes_tools = {t.name for t in tools}
+    forca_ligada = _TOOL_EXTRACAO in nomes_tools and settings.forcar_extracao_por_turno
     chat_forcado = (
-        chat.bind_tools(tools_para_bind, tool_choice=_TOOL_EXTRACAO)
-        if _TOOL_EXTRACAO in nomes_tools and settings.forcar_extracao_por_turno
+        chat.bind_tools(tools_para_bind, tool_choice=_TOOL_EXTRACAO) if forca_ligada else None
+    )
+    # Bind barato da extracao forcada (settings.extracao_no_modelo_barato): liga o chat Haiku SO a
+    # tool de extracao (nao o catalogo todo) com tool_choice. Sem cache_control nas tools — o
+    # prefixo barato e curto (system minimo + janela), nao ha 14,7k a cachear. `tool_extracao` e
+    # a propria BaseTool achada por nome (o convert/strict do build_tools_para_bind nao importa
+    # aqui: e 1 tool so e nao compartilha o prefixo cacheado do Sonnet).
+    tool_extracao = next((t for t in tools if t.name == _TOOL_EXTRACAO), None)
+    chat_forcado_barato = (
+        chat_extracao_barata.bind_tools([tool_extracao], tool_choice=_TOOL_EXTRACAO)
+        if forca_ligada and chat_extracao_barata is not None and tool_extracao is not None
         else None
     )
     # nome Anthropic (claude-sonnet-4-6) p/ o label das metricas de token, nao o modelo_id da
     # agencia (03 §4.2). Lido via `.model`, nao `.model_name` (M0-T1; alias write-only no 1.4.3).
     modelo_anthropic = chat.model
+    # Label de metrica da extracao barata: nome do modelo barato (Haiku), p/ NAO poluir o tripwire
+    # de write-rate do Sonnet (mesmo cuidado do output_guard, 03 §4.2). `custo BRL` da extracao
+    # barata sai pela tabela do Sonnet em _custo.py (super-estima, conservador) ate _custo virar
+    # por-modelo; a medicao real por-modelo ja vem do Langfuse nativo (totalCost).
+    modelo_extracao_barata = chat_extracao_barata.model if chat_extracao_barata is not None else ""
 
     async def llm(
         state: EstadoAgente, runtime: Runtime[ContextAgente]
@@ -194,8 +243,20 @@ def no_llm(chat: ChatAnthropic, tools: Sequence[BaseTool]) -> _NoLLM:
             # msg user/tool p/ o modelo responder -- anexar `resp` (assistant) daria 2 assistant
             # consecutivas (400). `resp` so vai no update local; nunca volta a Anthropic (a
             # reentrada nao reinvoca). A extracao olha o contexto do cliente, ja completo aqui.
-            forcado = await chat_forcado.ainvoke(state["messages"])
-            _instrumentar_tokens(forcado, modelo_anthropic)
+            #
+            # Caminho barato (settings.extracao_no_modelo_barato): roda no Haiku sobre a janela SEM
+            # o BP_GERAL (system minimo de extracao) — corta ~14,7k tokens de prefixo. O resultado
+            # (AIMessage com tool_call de registrar_extracao) e despachado pelo MESMO `tools`, entao
+            # a execucao de dominio/idempotencia/FSM e identica ao caminho Sonnet. Instrumenta sob o
+            # label do modelo barato p/ nao poluir o write-rate do Sonnet.
+            if chat_forcado_barato is not None:
+                forcado = await chat_forcado_barato.ainvoke(
+                    _janela_para_extracao_barata(state["messages"])
+                )
+                _instrumentar_tokens(forcado, modelo_extracao_barata)
+            else:
+                forcado = await chat_forcado.ainvoke(state["messages"])
+                _instrumentar_tokens(forcado, modelo_anthropic)
             forcado_stop = (forcado.response_metadata or {}).get("stop_reason")
             if forcado_stop in _STOP_TRUNCADO or not getattr(forcado, "tool_calls", None):
                 # Extracao forcada truncou (args incompletos) ou nao saiu tool_call: descarta o

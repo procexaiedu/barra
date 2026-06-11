@@ -243,7 +243,7 @@ async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -
                    LIMIT 1
               ) foto ON true
              WHERE e.atendimento_id = %s AND e.tipo = 'foto_portaria'
-             ORDER BY e.created_at DESC
+             ORDER BY e.aberta_em DESC
              LIMIT 1
             """,
             (UUID(atendimento_id),),

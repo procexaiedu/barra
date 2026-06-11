@@ -741,8 +741,9 @@ def test_agregar_usage_sem_nenhum_usage_devolve_vazio():
 
 
 def test_cache_hit_rate_calcula_fracao_e_none_sem_usage():
-    usage = {"input_tokens": 100, "input_token_details": {"cache_read": 900}}
-    assert runner._cache_hit_rate(usage) == 0.9  # 900 / (100 + 900)
+    # input_tokens (1000) JA inclui o cache_read (900); o hit e 900/1000, nao 900/(1000+900).
+    usage = {"input_tokens": 1000, "input_token_details": {"cache_read": 900}}
+    assert runner._cache_hit_rate(usage) == 0.9
     assert runner._cache_hit_rate({}) is None
 
 

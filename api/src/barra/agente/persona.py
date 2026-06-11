@@ -7,6 +7,7 @@ consumido no M2. Templates Jinja ficam em `prompts/`.
 """
 
 from dataclasses import dataclass
+from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -25,8 +26,11 @@ _env = Environment(
 def _brl(valor: Any) -> str:
     """Formata valor inteiro em BRL no padrão da persona: `R$1.500` (sem espaço, ponto como
     separador de milhar). `persona.md` `<voz>` exige exatamente esse formato; o default Python
-    `{:,.0f}` usa locale americano (`R$ 1,500`) e contradiria a regra."""
-    return "R$" + f"{int(valor):,}".replace(",", ".")
+    `{:,.0f}` usa locale americano (`R$ 1,500`) e contradiria a regra.
+
+    `Decimal(str(valor))` antes do `int` aceita os formatos que chegam do JSONB de idempotência
+    (string `"100.00"`, de `settings.pix_deslocamento_valor`) sem o `int("100.00")` crashar."""
+    return "R$" + f"{int(Decimal(str(valor))):,}".replace(",", ".")
 
 
 # Mapa BCP-47 → nome em português. Expor `pt-BR`/`en-US` cru ao LLM dilui o tom (a Bia não fala

@@ -103,13 +103,33 @@ def custo_chat_turno_brl(messages: Sequence[Any], cotacao_usd_brl: float) -> flo
     )
 
 
+def input_nao_cacheado(usage_metadata: dict[str, Any]) -> int:
+    """Tokens de input FRESCO (preco cheio), separados da parcela cacheada.
+
+    langchain-anthropic 1.4.3 reporta `usage_metadata["input_tokens"]` como o TOTAL — base +
+    cache_read + cache_creation (`_create_usage_metadata` em chat_models.py:2286-2293: "Anthropic's
+    `input_tokens` excludes cached tokens, so we manually add cache_read and cache_creation"). Logo
+    o fresco e o resto apos descontar a leitura de cache e a escrita (ephemeral_5m/1h). Cobrar o
+    `input_tokens` cru a preco de input cheio dobra a conta do prefixo cacheado (~5x/turno).
+    """
+    det = usage_metadata.get("input_token_details") or {}
+    cacheado = (
+        (det.get("cache_read", 0) or 0)
+        + (det.get("ephemeral_5m_input_tokens", 0) or 0)
+        + (det.get("ephemeral_1h_input_tokens", 0) or 0)
+    )
+    input_total: int = usage_metadata.get("input_tokens", 0)
+    return max(0, input_total - cacheado)
+
+
 def calcular_custo_brl(usage_metadata: dict[str, Any] | None, cotacao_usd_brl: float) -> float:
     """Custo estimado do turno em BRL a partir do `usage_metadata` da AIMessage.
 
     Le `input_token_details` no formato langchain-anthropic 1.4.3 (mapeamento assimetrico:
     cache_read OK; write em `ephemeral_5m/1h`, NUNCA em `cache_creation`, memoria
-    auditoria_best_practices_agente). `input_tokens` aqui ja vem como o RESTO nao-cacheado
-    (a Anthropic separa cache_read/cache_creation do input_tokens nu).
+    auditoria_best_practices_agente). `input_tokens` vem como o TOTAL (inclui cache_read +
+    cache_creation), entao a parcela de input cheio e `input_nao_cacheado` — o resto, ja
+    descontados read/write; o cache entra so nas suas proprias tarifas (0.1x read, 1.25-2x write).
 
     `usage_metadata=None` ou sem chaves esperadas -> 0.0 (turno sem custo medivel; o nao-key
     no nao quebra a metrica). Mesma defesa de `_instrumentar_tokens`.
@@ -117,7 +137,7 @@ def calcular_custo_brl(usage_metadata: dict[str, Any] | None, cotacao_usd_brl: f
     if not usage_metadata:
         return 0.0
     det = usage_metadata.get("input_token_details") or {}
-    input_t: int = usage_metadata.get("input_tokens", 0)
+    input_t: int = input_nao_cacheado(usage_metadata)
     output_t: int = usage_metadata.get("output_tokens", 0)
     cache_read: int = det.get("cache_read", 0)
     cache_write_5m: int = det.get("ephemeral_5m_input_tokens", 0)

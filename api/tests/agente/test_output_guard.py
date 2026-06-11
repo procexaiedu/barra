@@ -344,25 +344,31 @@ def _judge_resultado(stop_reason: str, parsed: Any, parsing_error: Any = None) -
 async def test_julgar_aup_refusal_levanta_inseguro(monkeypatch: Any) -> None:
     # judge recusou (stop_reason=refusal) -> sem veredito confiavel -> _JudgeInseguro.
     res = _judge_resultado("refusal", parsed=None)
-    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s: _FakeJudgeChat(res))
+    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
     with pytest.raises(mod._JudgeInseguro):
-        await mod._julgar_aup("texto qualquer", SimpleNamespace())
+        await mod._julgar_aup(
+            "texto qualquer", SimpleNamespace(output_guard_modelo="claude-haiku-4-5")
+        )
 
 
 async def test_julgar_aup_parse_error_levanta_inseguro(monkeypatch: Any) -> None:
     # parse falhou (parsing_error nao-None), mesmo com stop_reason normal -> _JudgeInseguro.
     res = _judge_resultado("tool_use", parsed=None, parsing_error=ValueError("schema"))
-    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s: _FakeJudgeChat(res))
+    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
     with pytest.raises(mod._JudgeInseguro):
-        await mod._julgar_aup("texto qualquer", SimpleNamespace())
+        await mod._julgar_aup(
+            "texto qualquer", SimpleNamespace(output_guard_modelo="claude-haiku-4-5")
+        )
 
 
 async def test_julgar_aup_ok_retorna_veredito(monkeypatch: Any) -> None:
     # caminho feliz: stop_reason=tool_use + parsed valido -> devolve o veredito.
     veredito = mod._VeredictoAup(viola=False, motivo="nenhum")
     res = _judge_resultado("tool_use", parsed=veredito)
-    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s: _FakeJudgeChat(res))
-    out = await mod._julgar_aup("texto qualquer", SimpleNamespace())
+    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
+    out = await mod._julgar_aup(
+        "texto qualquer", SimpleNamespace(output_guard_modelo="claude-haiku-4-5")
+    )
     assert out.viola is False
 
 
@@ -371,7 +377,7 @@ async def test_so03_judge_refusal_no_guard_default_seguro_bloqueia(monkeypatch: 
     cap = _Capturador()
     monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     res = _judge_resultado("refusal", parsed=None)
-    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s: _FakeJudgeChat(res))
+    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
     out = await mod.output_guard(_state("texto limpo mas o judge recusa"), _runtime())  # type: ignore[arg-type]
     assert _bloqueou(out)
     assert cap.chamadas[0]["observacao"] == "aup_saida_judge_falhou"

@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
 from barra.agente.ferramentas.extracao import registrar_extracao
 from barra.agente.nos.llm import no_llm
@@ -140,6 +140,30 @@ async def test_kill_switch_desliga_forcamento(monkeypatch: pytest.MonkeyPatch) -
 
     assert cmd.goto == "post_process"
     assert chat.forcado.chamadas == []
+
+
+async def test_extracao_forcada_roteia_pro_chat_barato_sem_system() -> None:
+    """chat_extracao_barata injetado -> forca no Haiku sobre a janela SEM o SystemMessage geral."""
+    chat = _FakeChat(_texto_final(), _extracao())
+    barato = _FakeChat(_extracao(), _extracao())  # so o bind forcado (tool_choice) e usado
+    node = no_llm(chat, [registrar_extracao], chat_extracao_barata=barato)
+    system = SystemMessage(content="PERSONA GIGANTE ~14k tokens")
+    state = {"messages": [system, HumanMessage(content="daqui uma hr")]}
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "tools"
+    assert cmd.update["_extracao_forcada"] is True
+    # texto do Sonnet preservado + extracao do chat BARATO, nessa ordem
+    assert cmd.update["messages"] == [chat.normal._resp, barato.forcado._resp]
+    # o Sonnet NAO foi chamado p/ a extracao; o barato foi
+    assert chat.forcado.chamadas == []
+    assert len(barato.forcado.chamadas) == 1
+    # janela do barato: system minimo de extracao (nao o gigante) + a conversa preservada
+    janela = barato.forcado.chamadas[0]
+    systems = [m for m in janela if isinstance(m, SystemMessage)]
+    assert len(systems) == 1 and systems[0].content != system.content
+    assert HumanMessage(content="daqui uma hr") in janela
 
 
 async def test_tool_call_normal_segue_react_sem_forcar() -> None:

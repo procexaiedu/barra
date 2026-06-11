@@ -121,6 +121,40 @@ def test_serializar_default_preserva_comportamento():
     assert turno_ia["cache_hit_rate"] == pytest.approx(0.8)
 
 
+def test_serializar_turno_mudo_com_sinal_preserva_desfecho():
+    # output_guard bloqueou a bolha e pausou: o turno sai SEM texto mas com o desfecho
+    # (ia_pausada/escalou/estado) -- e sem idx, p/ nao entrar na rotulagem golden/UI.
+    mudo = loop.PassoJornada(
+        indice=1,
+        acao_mensagem="cheguei",
+        acao_ato=None,
+        bolha_ia=None,
+        estado_atendimento="Aguardando_confirmacao",
+        ia_pausada=True,
+        escalou=True,
+    )
+    conversa = gerar._serializar(_CenarioFake(), loop.Trajetoria(passos=[_passo(0.1), mudo]))
+    ias = [t for t in conversa["turnos"] if t["papel"] == "ia"]
+    assert len(ias) == 2
+    assert ias[1]["texto"] == ""
+    assert ias[1]["ia_pausada"] is True
+    assert ias[1]["escalou"] is True
+    assert "idx" not in ias[1]
+    assert ias[0]["idx"] == 0  # falas com texto seguem numeradas como antes
+
+    # Turno mudo SEM nenhum sinal (silencio legitimo sem custo) segue fora do jsonl.
+    vazio = loop.PassoJornada(
+        indice=2,
+        acao_mensagem="?",
+        acao_ato=None,
+        bolha_ia=None,
+        estado_atendimento="Triagem",
+        ia_pausada=False,
+    )
+    conversa2 = gerar._serializar(_CenarioFake(), loop.Trajetoria(passos=[vazio]))
+    assert [t["papel"] for t in conversa2["turnos"]] == ["cliente"]
+
+
 def test_serializar_com_conversa_id_e_extras():
     traj = loop.Trajetoria(passos=[_passo()])
     conversa = gerar._serializar(
