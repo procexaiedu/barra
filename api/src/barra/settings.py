@@ -153,8 +153,8 @@ class Settings(BaseSettings):
     # (quando o LLM extrai sozinho no loop). Default OFF: virar p/ True exige validar paridade da
     # FSM via `make evals` antes (a extracao alimenta transicoes no caminho do dinheiro).
     extracao_no_modelo_barato: bool = Field(
-        default=False,
-        description="Roteia a chamada FORCADA de registrar_extracao p/ extracao_modelo (barato) com prompt minimo, em vez do Sonnet com prefixo inteiro. Default OFF — exige validacao por evals antes de ligar (kill-switch).",
+        default=True,
+        description="Roteia a chamada FORCADA de registrar_extracao p/ extracao_modelo (barato) com prompt minimo, em vez do Sonnet com prefixo inteiro. Default ON (Haiku) — kill-switch: setar False reverte ao Sonnet. Paridade de FSM via `make evals` ainda nao validada ao vivo (gasta credito).",
     )
     extracao_modelo: str = Field(
         default="claude-haiku-4-5",
