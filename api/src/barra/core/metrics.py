@@ -58,7 +58,7 @@ REENGAJAMENTO = Counter(
     ["resultado"],  # enviado | flag_off | sem_alvo
 )
 
-# Metricas do agente LangGraph (ver docs/agente/08-evals.md, 09-roteiro.md)
+# Metricas do agente LangGraph (ver docs/agente/08-evals.md)
 AGENTE_TURNO_DURACAO = Histogram(
     "agente_turno_duracao_seconds",
     "Duracao por turno (p50/p95/p99); split por tipo_turno p/ nao misturar texto e audio-Whisper (E5)",

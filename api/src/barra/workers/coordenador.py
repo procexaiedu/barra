@@ -205,7 +205,7 @@ async def processar_turno(
                 #      o grafo responder (mais abaixo) — assim um turno que falhou e foi retentado
                 #      pelo ARQ nao infla o contador nem escala falso. A data na chave faz o reset
                 #      diario; o TTL de 24h e so faxina. O retry-after de 429/5xx ja e tratado pelo
-                #      SDK (best-practices §196) + o ramo modelo_indisponivel; este teto e a parte.
+                #      SDK + o ramo modelo_indisponivel; este teto e a parte.
                 chave_teto = f"turnos:conv:{conversa_id}:{datetime.now(UTC):%Y-%m-%d}"
                 ja_contados = int(await redis.get(chave_teto) or 0)
                 if ja_contados >= TETO_TURNOS_DIA:

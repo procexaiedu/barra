@@ -2,8 +2,8 @@
 
 > Constituição do **juiz-de-persona**. Complementa as rubricas `persona`/`tom_pt_br` de
 > `api/evals/runners/judge.md` ancorando-as em **dado humano imutável**: as falas reais das modelos
-> nas conversas que **fecharam venda** (`docs/agente/conversas-reais/001-003`, destiladas em
-> `padroes-conversas-reais.md`). O loop de iteração pode editar a persona livremente, mas a régua
+> nas conversas que **fecharam venda** (conversas reais anonimizadas, hoje fora do repo). O loop de
+> iteração pode editar a persona livremente, mas a régua
 > que a avalia vem das conversas reais — não de um critério que o loop redefine. É isso que impede
 > a deriva auto-referente (o agente otimizando conversão até virar robótico/agressivo).
 

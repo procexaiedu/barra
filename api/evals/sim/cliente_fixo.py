@@ -10,7 +10,7 @@ o loop nao distingue um do outro -- toda a maquina de seeding/invoke/observabili
 reaproveita intacta. A unica diferenca e que `decidir` devolve a proxima fala de uma lista fixa em
 vez de chamar o Sonnet. SEM chamada de LLM -> esta classe e testavel/usavel offline.
 
-As falas fixas vem quase literais das conversas REAIS (`docs/agente/conversas-reais/001..004`) --
+As falas fixas vem quase literais das conversas REAIS anonimizadas (hoje fora do repo) --
 ver `cenarios_fixos.py`. Anti-leakage: como nao ha prompt de persona, nao ha gabarito a vazar; ainda
 assim as falas sao do CLIENTE realista, nunca embutem o veredito esperado (coberto por teste).
 """

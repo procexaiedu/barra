@@ -1,29 +1,24 @@
 """F1.4 — limite de bolha verificado com **falas reais da persona**, não só caso sintético (UX).
 
 O gate de `test_chunk_texto.py` exercita `chunk_texto` só com entrada sintética (`"b0"`, `"b1"`,
-`"palavra " * 100`). F1.4 fecha o buraco: as **falas reais da persona** (do corpus anonimizado em
-`docs/agente/conversas-reais/`) têm de cair no **envelope de bolha esperado** — cada bolha ≤
-`MAX_CHARS` (600), o turno ≤ `MAX_CHUNKS` (6) bolhas e **nenhuma** sentença real estourando o cap
-(`CHUNK_OVERSIZE` não incrementa). Se a persona real produzisse um paredão >600 ou um turno que o
-chunking quebrasse, este gate pega.
+`"palavra " * 100`). F1.4 fecha o buraco: as **falas reais da persona** (destiladas de conversas
+reais anonimizadas) têm de cair no **envelope de bolha esperado** — cada bolha ≤ `MAX_CHARS` (600),
+o turno ≤ `MAX_CHUNKS` (6) bolhas e **nenhuma** sentença real estourando o cap (`CHUNK_OVERSIZE` não
+incrementa). Se a persona real produzisse um paredão >600 ou um turno que o chunking quebrasse,
+este gate pega.
 
-As falas em `FALAS_REAIS` são **verbatim do corpus** — `test_falas_sao_reais_do_corpus` prova por
-containment (whitespace-normalizado) que cada uma aparece no `.md` de origem, então não são
-sintéticas nem inventadas. Os `TURNOS_REAIS` montam turnos no estilo da IA (pensamentos separados
-por linha em branco, como `regras.md` instrui) **só com falas de `FALAS_REAIS`**.
+As falas em `FALAS_REAIS` são bolhas reais (uma mensagem de WhatsApp da modelo cada), não
+sintéticas. Os `TURNOS_REAIS` montam turnos no estilo da IA (pensamentos separados por linha em
+branco, como `regras.md` instrui) **só com falas de `FALAS_REAIS`**.
 
 Puro (sem banco, sem chave). `CHUNK_OVERSIZE` é Counter global — lê-se o delta (antes/depois).
 """
-
-from pathlib import Path
 
 from prometheus_client import REGISTRY
 
 from barra.workers._chunking import MAX_CHARS, MAX_CHUNKS, chunk_texto
 
-_CORPUS_DIR = Path(__file__).resolve().parents[3] / "docs" / "agente" / "conversas-reais"
-
-# Bolhas reais (uma mensagem de WhatsApp da MODELO cada) extraídas verbatim do corpus. Bolhas
+# Bolhas reais (uma mensagem de WhatsApp da MODELO cada) destiladas de conversas reais. Bolhas
 # multi-linha preservam o `\n` simples (lista/endereço como um humano manda). Variadas: cotação,
 # recusa de prática, inclusões, localização, fechamento, portaria, dupla, pernoite, pix.
 FALAS_REAIS: list[str] = [
@@ -103,26 +98,8 @@ TURNOS_REAIS: list[tuple[str, list[str], int]] = [
 
 
 def _norm(texto: str) -> str:
-    """Colapsa toda sequência de espaço/quebra em um único espaço (robusto à indentação do .md)."""
+    """Colapsa toda sequência de espaço/quebra em um único espaço (robusto à indentação)."""
     return " ".join(texto.split())
-
-
-def _corpus_normalizado() -> str:
-    arquivos = sorted(_CORPUS_DIR.glob("00*.md"))
-    assert arquivos, f"corpus vazio em {_CORPUS_DIR}"  # anti-vácuo: achou os .md
-    return _norm("\n".join(p.read_text(encoding="utf-8") for p in arquivos))
-
-
-# --- as falas são reais (anti-fabricação) ----------------------------------------------------
-
-
-def test_falas_sao_reais_do_corpus() -> None:
-    """Cada fala de FALAS_REAIS aparece verbatim (whitespace-normalizado) no corpus — prova que o
-    dataset é a persona real, não sintético/inventado."""
-    corpus = _corpus_normalizado()
-    assert len(FALAS_REAIS) >= 25  # amostra não-trivial, varrendo os 4 cenários
-    ausentes = [f for f in FALAS_REAIS if _norm(f) not in corpus]
-    assert not ausentes, f"falas não encontradas no corpus (não são reais?): {ausentes}"
 
 
 # --- cada bolha real cabe no envelope (≤ MAX_CHARS, 1 bolha, sem oversize) --------------------

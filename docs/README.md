@@ -6,7 +6,7 @@ Documentação viva do projeto. Portas de entrada do domínio: `CONTEXT.md` (rai
 
 - `mvp/`: escopo, contexto de negócio, fluxos e interfaces do MVP.
 - `adr/`: decisões arquiteturais numeradas (normativo; nunca apagar — `superseded`).
-- `agente/`: design do agente LangGraph (arquitetura, estado, prompts, tools, evals). `agente/referencia/` guarda a doc de API da Anthropic usada como apoio.
+- `agente/`: design do agente LangGraph (arquitetura, estado, prompts, tools, evals).
 - `specs/`: specs completas das 7 telas do painel (fundação + tela-01..07).
 - `ux/`: guias UX por tela — jornada, blocos e dados, não implementação (complementa `specs/`).
 - `design/`: ponte domínio → visual (`dominio-visual.md`); complementa o `DESIGN.md` da raiz.

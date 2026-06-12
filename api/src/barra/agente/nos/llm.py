@@ -4,8 +4,8 @@ M0: no real -- chama Anthropic Sonnet 4.6 via ChatAnthropic (langchain-anthropic
     as tools bindadas e roteia por Command(goto=...). Sem modelo de fallback: 429/5xx/timeout
     sobem como excecao (retry ja foi do SDK, max_retries) e, na exaustao, escalam para Fernando
     via escalar_por_exaustao (TODO M3f; 01 §2.6). O check de stop_reason (refusal/max_tokens
-    chegam em 200 OK, nao como excecao -- docs/agente/referencia/stop.md) vive dentro do try/except
-    (09 §4.2). Sem effort hibridizado por turno (removido, 03 §6.2.1); a classificacao de
+    chegam em 200 OK, nao como excecao) vive dentro do try/except. Sem effort hibridizado por
+    turno (removido, 03 §6.2.1); a classificacao de
     disclosure roda no prepare_context sobre a janela (03 §7), nao no webhook.
 """
 
@@ -184,7 +184,7 @@ def no_llm(
         try:
             resp = await chat_bound.ainvoke(state["messages"])
             _instrumentar_tokens(resp, modelo_anthropic)
-            # stop_reason chega num 200 OK, nao como excecao (09 §4.2 / docs/agente/referencia/stop.md):
+            # stop_reason chega num 200 OK, nao como excecao:
             stop_reason = (resp.response_metadata or {}).get("stop_reason")
             if stop_reason == "refusal":
                 # safety filter do Sonnet -> escala p/ Fernando (sem fallback de modelo, 01 §2.6).

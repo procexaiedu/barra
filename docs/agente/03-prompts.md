@@ -36,7 +36,7 @@ O bloco 1 (BP_GERAL fundido) é **idêntico para todas as modelos** (decisão gr
 > - **XML tags semânticas** > markdown (Anthropic recomenda explicitamente para Claude 4.x).
 > - **Few-shot examples** dominam sobre adjetivos descritivos (4.6 trata adjetivo como sugestão; exemplo como vinculante).
 > - **"Tell what to do, not what not to do"** — 4.6 segue literalmente, instrução negativa overtriggers.
-> - **Negação ativa de IA** — a Bia nega ser IA diretamente quando perguntada (`10-persona-jailbreak.md`).
+> - **Negação ativa de IA** — a Bia nega ser IA diretamente quando perguntada (`§11`).
 
 ### 2.1 Dataclass de variáveis
 
@@ -472,7 +472,7 @@ Pré-requisito: `traduz_mensagens` (`02 §4`) reconstrói os blocos `tool_use`/`
 
 ### 4.5 Pré-aquecimento, isolamento por workspace e diagnóstico
 
-> **Cruzamento com a doc oficial (`docs/agente/referencia/promptcaching.md`, 2026-05-24).** Três pontos da Anthropic que afetam a estratégia acima e não estavam registrados aqui.
+> **Cruzamento com a doc oficial de prompt caching da Anthropic (2026-05-24).** Três pontos da Anthropic que afetam a estratégia acima e não estavam registrados aqui.
 
 **Pré-aquecimento do prefixo global (`max_tokens: 0`) — candidato P1.** O prefixo `tools`+BP1+BP2 (~3-5K tokens) é compartilhado por TODAS as modelos (§1), mas a doc oficial é explícita: *"a cache entry only becomes available after the first response begins"*. O lock do coordenador é **por-conversa**, não global — então um burst de conversas paralelas (de modelos distintas) logo após **invalidar o prefixo global** (deploy de `persona.md`/`regras.md.j2`/`faq.md`, §4.3) ou após um gap maior que o TTL **reescreve o mesmo prefixo N vezes** (N cache writes a 1.25×/2×), sem read entre eles — o "write-rate de burst quente" antecipado em `08`.
 
@@ -660,7 +660,7 @@ class ChatComRetry:
       fallback de modelo (§6.3), o turno escala p/ Fernando como qualquer indisponibilidade.
     - 200 OK com stop_reason="max_tokens": log + métrica (premissa: 1024 não trunca, §6.1).
       NÃO escala no P0 — só observa; se a métrica acusar truncamento real (esp. mid-tool_use),
-      decidir retry-com-teto-maior no piloto (padrão de docs/agente/referencia/stop.md §max_tokens).
+      decidir retry-com-teto-maior no piloto (padrão de `stop_reason="max_tokens"` da Anthropic).
     """
 
     def __init__(self, principal: ChatAnthropic):
@@ -687,7 +687,7 @@ class ChatComRetry:
 
     @staticmethod
     def _checar_stop_reason(resposta):
-        """stop_reason chega num 200 OK, NÃO como exceção (docs/agente/referencia/stop.md). Sem este
+        """stop_reason chega num 200 OK, NÃO como exceção. Sem este
         check, refusal/max_tokens passariam direto pelo retry/escalada e virariam AIMessage
         vazia/truncada → post_process → ok_sem_resposta silencioso (cliente sem resposta)."""
         stop = (resposta.response_metadata or {}).get("stop_reason")
@@ -944,7 +944,7 @@ Mensagens do cliente podem conter tag <lembrete_silencioso>...</lembrete_silenci
 
 ## 11. Defesas de jailbreak e disclosure
 
-Detalhes em `10-persona-jailbreak.md`. Resumo:
+Protocolos completos em `regras.md.j2` (`<protocolo_disclosure>`). Resumo:
 
 - **Política de negação:** a Bia nega ser IA diretamente na 1ª e 2ª pergunta; escala via `escalar(motivo="disclosure_insistente")` apenas na 3ª insistência ou mais.
 - **Protocolos defensivos** (em `regras.md.j2`): disclosure direto/indireto, jailbreak clássico, cross-modelo, gaslighting, prova de humanidade, pedido explícito.

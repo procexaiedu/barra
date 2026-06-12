@@ -137,8 +137,8 @@ def setup_tracing_sim(settings: Settings, *, projeto: str = "barra-vips-sim") ->
 
     Diferente de `setup_tracing` (produção, hard-gate de anonymizer obrigatório): aqui o conteúdo das
     mensagens vai cru ao LangSmith porque os dados são SINTÉTICOS -- modelo/cliente do seed do
-    `runner._seed_entidades` ("Modelo Eval", telefone `eval-tel-*`) e falas roteirizadas das conversas
-    reais JÁ anonimizadas (`docs/agente/conversas-reais`). NUNCA chamar de `main.py`/worker: lá os
+    `runner._seed_entidades` ("Modelo Eval", telefone `eval-tel-*`) e falas roteirizadas de conversas
+    reais JÁ anonimizadas. NUNCA chamar de `main.py`/worker: lá os
     dados são reais (PII de cliente/modelo) e o caminho é `setup_tracing`.
 
     Aponta um projeto SEPARADO (`barra-vips-sim`), para os traces do sim não se misturarem com os de

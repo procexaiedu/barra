@@ -547,7 +547,7 @@ class EscaladaPayload(BaseModel):
         "timeout_grafo",
         "modelo_recusou",   # stop_reason="refusal" do Sonnet (filtro de safety). Sistema-emitido
                             # via escalar_por_exaustao, nunca escolhido pelo LLM (ele recusou). Ver 03 §6.3.
-        # AUP / persona / jailbreak (cf. 10-persona-jailbreak.md)
+        # AUP / persona / jailbreak (cf. regras.md.j2 <protocolo_disclosure>)
         "disclosure_insistente",
         "disclosure_explicito",  # LEGADO: modelo nomeado ("vc é Claude?") agora passa por canned+contador
                                  # como o genérico (decisão 2026-05-23) → só disclosure_insistente na 3ª.
@@ -667,7 +667,7 @@ Motivos da família AUP (`disclosure_*`, `jailbreak_attempt`, `pedido_explicito_
 
 **Bucket de métrica (branch 19, `08 §3.2`):** AUP-família = bucket **defesa** (desejável; spike = ataque); operacionais (`fora_de_oferta`, `horario_indisponivel`, `politica_nova_necessaria`, `reagendamento_pos_bloqueio`, `exaustao_iteracoes`, `timeout_grafo`) = bucket **capacidade** (é o que o gate de qualidade mede). `modelo_recusou` = bucket **defesa** (filtro de safety da API, não falha de capacidade do agente — não deve reprovar o gate de qualidade, mas spike merece investigação no domínio adulto). `abrir_handoff` emite `agente_escalada_total{bucket, motivo}`.
 
-Detalhes em `10-persona-jailbreak.md §2-§4`.
+Detalhes em `03 §11` e `regras.md.j2` (`<protocolo_disclosure>`).
 
 ## 4. Registro centralizado das tools
 

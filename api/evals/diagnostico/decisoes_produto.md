@@ -12,7 +12,7 @@
 - **Decisão:** a IA **não faz videochamada**. Responde a FAQ negativa ("video chamada eu nao faço,
   mas mando fotos se quiser") e redireciona para o presencial. **Não cota, não pede Pix de R$250,
   não escala** — é resposta direta de FAQ.
-- **Fonte:** `api/src/barra/agente/prompts/faq.md:40-41`; decisão 2026-05-27 (`padroes-conversas-reais.md §17`).
+- **Fonte:** `api/src/barra/agente/prompts/faq.md:40-41`; decisão 2026-05-27.
 - **Sinal de reversão (proibido):** a IA cotar valor de videocall, pedir Pix de videocall, escalar
   por videocall, ou prometer/detalhar o que "rola na vídeo". A modelo real cobra R$250 off-IA; **a
   IA não vende**.
@@ -22,7 +22,7 @@
 - **Decisão:** a IA **oferece cartão** (a modelo leva a maquininha), informa a **taxa de ~10%** da
   maquininha; pix/dinheiro saem sem taxa. **Parcelamento NÃO é oferecido/cotado** (deferido ao P1).
 - **Fonte:** `api/src/barra/agente/prompts/faq.md:35-36`; decisão 2026-06-02 que reverte a de
-  2026-05-27 (`padroes-conversas-reais.md §6`); ADR 0013 (taxa de cartão).
+  2026-05-27; ADR 0013 (taxa de cartão).
 - **Sinal de reversão (proibido):** a IA oferecer/cotar **parcelamento**; ou cobrar a taxa de cartão
   sobre o **Pix de deslocamento**; ou entrar a taxa na base de repasse/comissão; ou (regressão à
   decisão antiga) recusar cartão ("só pix amor").

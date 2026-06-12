@@ -5,8 +5,8 @@ RealUserSim) + um roteiro opcional de atos dual-control (`decidir_ato(indice, es
 `estado_inicial`. O arnes `gerar_conversas.py` roda cada cenario via `sim/loop.py:jornada` contra o
 grafo real (com `seed_cardapio` no hook `apos_seed`) e salva a transcricao em `conversas.jsonl`.
 
-Conjunto EQUILIBRADO ancorado nas conversas REAIS que CONVERTERAM
-(`docs/agente/conversas-reais/001..004`). Achado central dos transcripts: as 4 conversas que
+Conjunto EQUILIBRADO ancorado nas conversas REAIS que CONVERTERAM (anonimizadas, hoje fora do
+repo). Achado central dos transcripts: as 4 conversas que
 fecharam sao INTERNO (o cliente vai ate ela -> foto de portaria); o pix de deslocamento (externo,
 ela se desloca) NAO e o caminho de conversao tipico -- em 003 o cliente propoe externo e a modelo
 ANCORA no apartamento dela. Por isso o conjunto e interno-dominante: 9 jornadas que fecham por

@@ -1,7 +1,7 @@
 """Conversas FIXAS (cliente roteirizado) para gerar calibracao barata e reutilizavel (EVAL-12).
 
 Cada `CenarioFixo` carrega uma lista de FALAS DE CLIENTE pre-escritas (`mensagens_cliente`) -- tiradas
-quase literais das conversas REAIS que temos documentadas (`docs/agente/conversas-reais/001..004`) +
+quase literais das conversas REAIS anonimizadas (hoje fora do repo) +
 variacoes -- em vez de uma `PersonaCliente` que pede falas ao Sonnet. O arnes `gerar_conversas.py
 --fixo` roda cada um via `sim/loop.py:jornada` contra o GRAFO REAL com `ClienteRoteirizado`, gravando
 em `evals/calibracao/conversas_fixas.jsonl`. So a IA roda ao vivo (custa ~metade do cliente-LLM); o
