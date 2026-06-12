@@ -22,7 +22,7 @@ Single-context: `CONTEXT.md` + `docs/adr/` na raiz do repo. See `docs/agents/dom
 
 São ações que **atingem produção** (lista não exaustiva):
 - Mensagem real no WhatsApp (Evolution prod) ou qualquer envio que chegue a um cliente/grupo real.
-- Gasto de crédito Anthropic real (`make test-llm`, rodar o agente/evals ao vivo, geração de conversas com cliente-LLM).
+- Gasto de crédito Anthropic real (`make test-llm`, rodar o agente ao vivo).
 - Escrita no banco de produção: `ALTER`/`INSERT`/`UPDATE`/`DELETE`, migrations, `pg_execute_mutation`/`pg_execute_sql` mutável. **`make migrate` contra prod é proibido** (aplica seeds).
 - Deploy/infra: `StackGitRedeploy`, `StackUpdate`, `service update --force`, qualquer coisa no Portainer que reinicie ou redeploye a stack `barra-vips` (⚠️ redeploy git sem `Env` zera os segredos e derruba prod).
 - `git push`/`delete` em `origin`.
@@ -35,7 +35,7 @@ São ações que **atingem produção** (lista não exaustiva):
 2. **Build** — `pnpm build` no frontend; `make typecheck` no backend.
 3. **Testes** — `make test`; e quando a mudança tocar código de banco, rode também os `needs_db` contra o DB real (`TEST_DATABASE_URL`), não só o subconjunto que roda no CI.
 
-Só empurra com **tudo verde**. Falhou um passo → pare, relate a saída, não empurre. (`make test-llm` e evals ao vivo consomem crédito e caem na regra de prod da seção 0 — pedem autorização à parte.)
+Só empurra com **tudo verde**. Falhou um passo → pare, relate a saída, não empurre. (`make test-llm` consome crédito e cai na regra de prod da seção 0 — pede autorização à parte.)
 
 ## 1. Pense Antes de Codificar
 
@@ -131,64 +131,9 @@ Decisões arquiteturais registradas em `docs/adr/` (numeradas; nunca apagar — 
 
 ## Mapa do repositório
 
-Monorepo plano. Árvore orientativa — pastas novas podem existir sem estar listadas.
+Monorepo plano: `api/` (FastAPI + LangGraph + ARQ), `interface/` (Next.js 16 — App Router), `infra/` (compose, `sql/` sequencial, runbooks), `docs/` (`adr/`, `mvp/`), `scripts/`.
 
-```
-barra/
-├── CLAUDE.md
-├── CONTEXT.md
-├── docs/
-│   ├── mvp/                    # produto e domínio (00-indice …)
-│   └── adr/
-├── api/                        # backend — FastAPI, LangGraph, ARQ
-│   ├── pyproject.toml, uv.lock, Makefile, Dockerfile, .env.example
-│   ├── src/barra/
-│   │   ├── main.py             # FastAPI app + lifespan
-│   │   ├── settings.py
-│   │   ├── core/               # cross-cutting (sem regra de negócio)
-│   │   │   ├── db.py, redis.py, storage.py, llm.py, evolution.py
-│   │   │   ├── errors.py, auth.py, metrics.py, logging.py, tracing.py
-│   │   ├── agente/             # LangGraph
-│   │   │   ├── graph.py, estado.py, classificador.py, contexto.py, persona.py, llm.py
-│   │   │   ├── prompts/       # persona.md, faq.md, regras.md
-│   │   │   ├── nos/, ferramentas/
-│   │   ├── dominio/            # bounded contexts — cada pasta: routes, service, repo, modelos, schemas
-│   │   │   ├── conversas/
-│   │   │   ├── atendimentos/
-│   │   │   ├── clientes/
-│   │   │   ├── modelos/
-│   │   │   ├── agenda/
-│   │   │   ├── pix/
-│   │   │   ├── escaladas/
-│   │   │   ├── eventos/
-│   │   │   ├── dashboard/
-│   │   │   ├── financeiro/
-│   │   │   ├── painel/
-│   │   │   └── tarefas/
-│   │   ├── webhook/            # Evolution — token, allowlist, debounce; não é REST público
-│   │   │   ├── routes.py, parser.py, filtro.py, debounce.py, despacho.py
-│   │   ├── workers/            # ARQ
-│   │   │   ├── settings.py, envio.py, timeouts.py, media.py, pix.py
-│   │   ├── calibracao/         # rotuladores, golden, runner de evals
-│   │   └── api/                # deps.py, v1.py
-│   ├── tests/
-│   └── evals/
-├── interface/                  # Next.js 16 — App Router
-│   ├── src/app/
-│   │   ├── layout.tsx, page.tsx, globals.css
-│   │   ├── (auth)/login/
-│   │   └── (interface)/        # atendimentos, agenda, clientes, modelos, pix, dashboard, financeiro, tarefas, calibracao
-│   ├── src/components/ui/
-│   ├── src/lib/
-│   └── src/tipos/              # gerado a partir do OpenAPI (script planejado)
-├── infra/
-│   ├── compose/stack.barra.yml
-│   ├── compose/env/
-│   ├── sql/                    # NNNN_*.sql sequencial
-│   └── runbooks/
-├── scripts/
-└── .agents/, .claude/
-```
+Árvore detalhada por pasta: `docs/agents/repo-map.md`.
 
 ## Stack
 
@@ -210,7 +155,6 @@ Backend (a partir de `api/`):
 - `make lint` / `make format` — ruff
 - `make typecheck` — mypy src (rode antes de PR)
 - `make migrate` — aplica `infra/sql/`
-- `make evals` — gate de evals do agente
 - `uv sync` — instala/atualiza deps
 
 Frontend (a partir de `interface/`):
