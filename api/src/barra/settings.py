@@ -108,8 +108,7 @@ class Settings(BaseSettings):
 
     # Fonte unica do alvo de custo por turno (CUSTO-06). Antes o numero estava duplicado em
     # comentarios/help de core/metrics.py, agente/nos/llm.py e _custo.py; agora todos apontam
-    # para este campo. NAO confundir com `max_custo_brl` das fixtures de eval (budget por-fixture
-    # mais estrito, knob diferente, inerte no runner hoje).
+    # para este campo.
     custo_alvo_brl: float = Field(
         default=0.12,
         gt=0.0,
@@ -259,8 +258,8 @@ class Settings(BaseSettings):
     langchain_api_key: str | None = None
     langchain_project: str = "barra-vips-dev"
 
-    # Langfuse — SÓ no path sim/dev (avaliação vs LangSmith); nunca em prod (PII real). Lido por
-    # setup_langfuse_sim; ausência das chaves = tracing langfuse off.
+    # Langfuse self-hosted — tracing de PRODUÇÃO (ADR 0019; substituiu o LangSmith). Lido por
+    # setup_langfuse; ausência das chaves = tracing langfuse off.
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://langfuse.procexai.tech"

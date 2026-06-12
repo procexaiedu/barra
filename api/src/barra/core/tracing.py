@@ -132,44 +132,18 @@ def setup_tracing(settings: Settings) -> Client | None:
     return client
 
 
-def setup_tracing_sim(settings: Settings, *, projeto: str = "barra-vips-sim") -> Client | None:
-    """Tracing do SIMULADOR de evals -- SEM anonymizer, conteúdo LEGÍVEL para root-cause do flywheel.
-
-    Diferente de `setup_tracing` (produção, hard-gate de anonymizer obrigatório): aqui o conteúdo das
-    mensagens vai cru ao LangSmith porque os dados são SINTÉTICOS -- modelo/cliente do seed do
-    `runner._seed_entidades` ("Modelo Eval", telefone `eval-tel-*`) e falas roteirizadas de conversas
-    reais JÁ anonimizadas. NUNCA chamar de `main.py`/worker: lá os
-    dados são reais (PII de cliente/modelo) e o caminho é `setup_tracing`.
-
-    Aponta um projeto SEPARADO (`barra-vips-sim`), para os traces do sim não se misturarem com os de
-    produção. Retorna None (sem ligar) se não houver `langchain_api_key` -- aí o diagnóstico cai no
-    `conversas.jsonl` enriquecido (C5a), que não depende do LangSmith.
-    """
-    if not settings.langchain_api_key:
-        return None
-    # Guard de não-produção: o nome do projeto carrega o sufixo `-sim`; se alguém passar um projeto
-    # sem ele, forçamos -- o sim nunca escreve no projeto de produção.
-    if not projeto.endswith("-sim"):
-        projeto = f"{projeto}-sim"
-    client = Client(api_key=settings.langchain_api_key)  # SEM anonymizer: dados sintéticos
-    run_trees._CLIENT = client
-    os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_PROJECT"] = projeto
-    logger.info("tracing_sim_ligado projeto=%s (sem anonymizer; dados sinteticos)", projeto)
-    return client
-
-
-# Handler do Langfuse-sim, setado por `setup_langfuse_sim` (entrypoint CLI do sim) e lido pelo site
-# de ainvoke da jornada. Fica None por padrão -- o pytest NUNCA chama setup_langfuse_sim, então o
-# tracing Langfuse não liga sozinho nos testes (que importam Settings com as chaves do .env).
+# Handler do Langfuse setado por `setup_langfuse` (prod, ADR 0019) e lido por `langfuse_handler()`
+# (o coordenador anexa aos callbacks do `graph.ainvoke`). Fica None por padrão -- o pytest NUNCA
+# chama setup_langfuse, então o tracing Langfuse não liga sozinho nos testes (que importam Settings
+# com as chaves do .env).
 _LANGFUSE_HANDLER: Any | None = None
 
 
-def _ligar_langfuse_handler(settings: Settings, *, rotulo: str) -> Any | None:
-    """Núcleo compartilhado de `setup_langfuse` (prod) e `setup_langfuse_sim` (sim): faz a ponte das
-    chaves p/ o `os.environ` (o SDK lê de lá; pydantic-settings carrega do .env mas não exporta),
-    valida o auth e cacheia o `CallbackHandler` no global. `setdefault` não sobrescreve env real já
-    presente. No-op (None) sem chaves, sem o pacote, ou se o auth falhar."""
+def _ligar_langfuse_handler(settings: Settings) -> Any | None:
+    """Núcleo de `setup_langfuse`: faz a ponte das chaves p/ o `os.environ` (o SDK lê de lá;
+    pydantic-settings carrega do .env mas não exporta), valida o auth e cacheia o `CallbackHandler`
+    no global. `setdefault` não sobrescreve env real já presente. No-op (None) sem chaves, sem o
+    pacote, ou se o auth falhar."""
     global _LANGFUSE_HANDLER
     if not settings.langfuse_public_key:
         return None
@@ -177,14 +151,14 @@ def _ligar_langfuse_handler(settings: Settings, *, rotulo: str) -> Any | None:
         from langfuse import get_client
         from langfuse.langchain import CallbackHandler
     except ModuleNotFoundError:
-        logger.warning("langfuse_%s: pacote langfuse ausente; tracing langfuse off", rotulo)
+        logger.warning("langfuse_prod: pacote langfuse ausente; tracing langfuse off")
         return None
     os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.langfuse_public_key)
     os.environ.setdefault("LANGFUSE_SECRET_KEY", settings.langfuse_secret_key or "")
     os.environ.setdefault("LANGFUSE_HOST", settings.langfuse_host)
     client = get_client()
     if not client.auth_check():
-        logger.warning("langfuse_%s: auth_check falhou; tracing langfuse off", rotulo)
+        logger.warning("langfuse_prod: auth_check falhou; tracing langfuse off")
         return None
     _LANGFUSE_HANDLER = CallbackHandler()
     return _LANGFUSE_HANDLER
@@ -200,7 +174,7 @@ def setup_langfuse(settings: Settings) -> Any | None:
 
     No-op (None) sem chaves, sem o pacote, ou se o auth falhar -- aí o turno roda sem tracing.
     """
-    handler = _ligar_langfuse_handler(settings, rotulo="prod")
+    handler = _ligar_langfuse_handler(settings)
     if handler is not None:
         logger.info(
             "langfuse_prod_ligado host=%s (self-hosted; PII na infra propria, sem masking)",
@@ -209,25 +183,10 @@ def setup_langfuse(settings: Settings) -> Any | None:
     return handler
 
 
-def setup_langfuse_sim(settings: Settings) -> Any | None:
-    """Liga o tracing Langfuse do SIMULADOR de evals (dados sintéticos, legível) e cacheia o handler.
-
-    NUNCA chamar de teste -- só dos entrypoints CLI do sim. O handler fica num global que o site de
-    ainvoke da jornada anexa aos callbacks; sem esta chamada (caso default, ex.: pytest),
-    `langfuse_handler()` devolve None e o Langfuse não traça.
-    """
-    handler = _ligar_langfuse_handler(settings, rotulo="sim")
-    if handler is not None:
-        logger.info(
-            "langfuse_sim_ligado host=%s (sem masking; dados sinteticos)", settings.langfuse_host
-        )
-    return handler
-
-
 def langfuse_handler() -> Any | None:
-    """CallbackHandler do Langfuse-sim p/ anexar aos callbacks do ainvoke da jornada; None se
-    `setup_langfuse_sim` não foi chamado (default — ex.: pytest), garantindo que o Langfuse nunca
-    traça fora do entrypoint CLI explícito do sim."""
+    """CallbackHandler do Langfuse (prod, ADR 0019) p/ o coordenador anexar aos callbacks do
+    `graph.ainvoke`; None se `setup_langfuse` não foi chamado (default — ex.: pytest), garantindo
+    que o Langfuse nunca traça fora do boot de main.py/worker."""
     return _LANGFUSE_HANDLER
 
 

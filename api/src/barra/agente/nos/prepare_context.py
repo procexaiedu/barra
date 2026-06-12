@@ -113,10 +113,10 @@ async def prepare_context(
     #    dinâmico + reminder), penúltima entra no cache. TTL ≤ `cache_ttl_modelo` (último
     #    breakpoint do array — respeita "TTL maior antes do menor" da Anthropic).
     settings = get_settings()
-    # BP_JANELA + BP_MODELO só se amortizam em tráfego real (multi-turn / repetido por-modelo). No
-    # runner de evals (ctx.cache_modelo_e_janela=False) cada turno é uma `ainvoke` isolada com IDs
-    # novos, então esses dois blocos seriam só write nunca read — desliga o cache_control deles.
-    # BP_GERAL/tools (prefixo global) seguem cacheados de qualquer forma.
+    # BP_JANELA + BP_MODELO só se amortizam em tráfego real (multi-turn / repetido por-modelo).
+    # Com `ctx.cache_modelo_e_janela=False` (cada `ainvoke` single-turn isolada, IDs novos) esses
+    # dois blocos seriam só write nunca read — desliga o cache_control deles. BP_GERAL/tools
+    # (prefixo global) seguem cacheados de qualquer forma.
     ttl_modelo = settings.cache_ttl_modelo if ctx.cache_modelo_e_janela else None
     if ctx.cache_modelo_e_janela:
         # Janela SATURADA (LIMIT 20 da query atingido): no próximo turno a cabeça desliza e o

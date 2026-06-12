@@ -631,7 +631,8 @@ def _amostrar_eval_online(chunks: list[str]) -> dict[str, float] | None:
     As tres primeiras reusam os regexes do output_guard (fonte unica) e cobrem exatamente os
     caminhos que PULAM o no output_guard (canned do intercept, bolha anexada pelo coordenador).
 
-    So observa sinal de TENDENCIA (Prometheus); o gate de verdade segue offline (runner). Devolve
+    So observa sinal de TENDENCIA (Prometheus): nao bloqueia nem reprova turno (o gate offline
+    via runner foi removido — hoje EVAL-11 e a unica checagem automatica de invariantes). Devolve
     {suite: score 0.0/1.0} quando amostrou, p/ o caller anexar como feedback no trace do Langfuse;
     None quando nao amostrou (rate=0 ou sorteio acima da taxa).
     """

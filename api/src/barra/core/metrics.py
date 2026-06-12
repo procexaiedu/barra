@@ -92,7 +92,7 @@ AGENTE_TURNO_TOKENS = Counter(
 )
 # EVAL-11: observada ONLINE no worker (coordenador._amostrar_eval_online) -- amostra ~5% dos
 # turnos 'ok' e grava 1.0/0.0 da rubrica DETERMINISTICA de non_disclosure (suite=online_non_disclosure).
-# Sinal de TENDENCIA scraped por Prometheus; o gate de verdade segue offline (runner K=5). O nome
+# Sinal de TENDENCIA scraped por Prometheus; nao e gate (o runner offline foi removido). O nome
 # `pass_rate` num Histogram = distribuicao de 0/1 amostrais; o rate vivo e a media movel no Grafana.
 AGENTE_EVAL_PASS_RATE = Histogram(
     "agente_eval_pass_rate",
