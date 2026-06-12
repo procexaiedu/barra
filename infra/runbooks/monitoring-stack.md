@@ -13,8 +13,31 @@ real, datasource, disparo de alerta — é **passo do operador** descrito abaixo
   Avalia `alert.rules.yml` e dispara para o Alertmanager. Interno à rede `traefik_public`.
 - `alertmanager-barra` — sobe com `--config.expand-env` para expandir `${ALERT_WEBHOOK_URL}`.
   Rota única → receiver placeholder. Interno.
-- `grafana-barra` — datasource Prometheus provisionado de `infra/monitoring/grafana/provisioning`.
-  Publicado via Traefik em `grafana-barra.procexai.tech`.
+- `grafana-barra` — datasource Prometheus **e dashboards** provisionados de
+  `infra/monitoring/grafana/provisioning` (`GF_PATHS_PROVISIONING`). Publicado via Traefik em
+  `grafana-barra.procexai.tech`. O datasource tem `uid: prometheus` fixo p/ os dashboards
+  referenciarem a fonte sem clique manual.
+
+## Dashboards provisionados (`infra/monitoring/grafana/`)
+
+Versionados no repo; sobem sozinhos no boot do `grafana-barra` (provider `file`, recarrega a
+cada 30s). Aparecem na pasta **Elite Baby** do Grafana — nada de import manual.
+
+| Arquivo | Conteúdo |
+|---|---|
+| `grafana/provisioning/dashboards/dashboards.yml` | Provider que carrega os `.json` de `grafana/dashboards/`. |
+| `grafana/dashboards/elite-baby-visao-geral.json` | Dashboard **Elite Baby — Visão Geral** (uid `elite-baby-visao-geral`): 17 painéis em 4 seções — *Saúde & HTTP*, *Agente desempenho*, *Custo & tokens*, *Segurança & domínio*. Cada painel de p95/write-rate traz a linha tracejada no mesmo limiar dos alertas. |
+
+> As queries batem com os nomes reais em `api/src/barra/core/metrics.py`. Métrica nova no código
+> → novo painel aqui (mesmo `datasource.uid: prometheus`). Os contadores de segurança usam
+> `… or vector(0)` p/ mostrar `0` em vez de *No data* quando ainda não houve evento.
+
+> **Aplicação em prod via Swarm config (divergência conhecida):** se o `grafana-barra` em prod
+> roda pelo *string-stack* com configs montadas (e não pelo clone-at-boot deste repo), o operador
+> precisa, além das configs já existentes: (1) criar as Swarm configs do provider e do JSON,
+> (2) montá-las sob `…/provisioning/dashboards/` e no `path` do provider, e (3) garantir
+> `GF_PATHS_PROVISIONING` no serviço. No modelo clone-at-boot do `stack.barra-portainer.yml` nada
+> disso é necessário — basta a `main` ter os arquivos e reiniciar o serviço.
 
 ## Sinais cobertos pelas regras (`infra/monitoring/alert.rules.yml`)
 
@@ -55,9 +78,12 @@ real, datasource, disparo de alerta — é **passo do operador** descrito abaixo
 ## Verificação ao vivo
 
 1. `prometheus-barra` → Status → Targets: `barra-api` e `barra-worker` **UP**.
+   (Sem rota pública; ver pelo Grafana → Explore com a query `up`.)
 2. Grafana abre em `grafana-barra.procexai.tech`, datasource Prometheus já presente.
-3. Status → Rules no Prometheus lista os 9 alertas (estado `inactive`/`pending`/`firing`).
-4. Disparo de fumaça: gerar tráfego que eleve `agente_escalada_total{bucket=defesa}` (ou
+3. Dashboards → pasta **Elite Baby** → **Visão Geral** carrega com os 17 painéis; o painel
+   *Alvos coletados (UP)* mostra `2` e *Requests/s por status* tem série recente.
+4. Status → Rules no Prometheus lista os 9 alertas (estado `inactive`/`pending`/`firing`).
+5. Disparo de fumaça: gerar tráfego que eleve `agente_escalada_total{bucket=defesa}` (ou
    abaixar temporariamente o threshold) e confirmar a entrega no `ALERT_WEBHOOK_URL`.
 
 | Data | Targets UP? | Datasource ok? | Regras carregadas? | Alerta entregue? | Operador |

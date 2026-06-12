@@ -1,0 +1,18 @@
+# OBS-02 — provider de dashboards versionados do Grafana (Elite Baby MVP).
+# Lido automaticamente de $GF_PATHS_PROVISIONING/dashboards/ (ver stack.barra-portainer.yml).
+# Carrega os .json de `options.path` no boot e a cada updateIntervalSeconds, sem clique manual.
+apiVersion: 1
+
+providers:
+  - name: 'elite-baby'
+    orgId: 1
+    folder: 'Elite Baby'
+    type: file
+    disableDeletion: false
+    # Recarrega quando o arquivo muda no /repo clonado (mesmo padrao do datasource).
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      # Caminho DENTRO do container: o stack clona a main em /repo no boot.
+      path: /repo/infra/monitoring/grafana/dashboards
+      foldersFromFilesStructure: false
