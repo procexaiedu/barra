@@ -716,3 +716,60 @@ async def test_pickup_limpar_cliente_busca_volta_a_false(
     a = await res.fetchone()
     assert a is not None
     assert a["cliente_busca"] is False
+
+
+# --- cotacao apresentada (ADR 0022) -----------------------------------------------------------
+
+
+@pytest.mark.needs_db
+async def test_cotacao_apresentada_carimba_uma_vez(conn: AsyncConnection[dict[str, Any]]) -> None:
+    # ADR 0022: cotacao_apresentada=True carimba cotacao_enviada_em (first-write-wins, ancora do
+    # reengajamento). 2a chamada com o flag de novo NAO move o carimbo (preserva a 1a cotacao).
+    _, atendimento_id = await _seed_par(conn, estado="Triagem", intencao="cotacao")
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"cotacao_apresentada": True, "proxima_acao_esperada": "aguardar resposta ao preco"},
+    )
+    assert resultado["novo_estado"] is None  # cotar nao transiciona estado
+
+    res = await conn.execute(
+        "SELECT cotacao_enviada_em FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["cotacao_enviada_em"] is not None
+    primeiro = a["cotacao_enviada_em"]
+
+    # Reenviar o flag num turno seguinte nao re-carimba (guard IS NULL).
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"cotacao_apresentada": True, "proxima_acao_esperada": "reforcar o valor"},
+    )
+    res = await conn.execute(
+        "SELECT cotacao_enviada_em FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a2 = await res.fetchone()
+    assert a2 is not None
+    assert a2["cotacao_enviada_em"] == primeiro
+
+
+@pytest.mark.needs_db
+async def test_sem_cotacao_apresentada_nao_carimba(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # Sem o flag (so registra intencao/sondagem), cotacao_enviada_em permanece NULL.
+    _, atendimento_id = await _seed_par(conn)  # estado Novo
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"intencao": "cotacao", "proxima_acao_esperada": "apresentar valores"},
+    )
+    res = await conn.execute(
+        "SELECT cotacao_enviada_em FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["cotacao_enviada_em"] is None

@@ -500,7 +500,7 @@ async def despachar_humanizacao(
 | `timeout_longo` | 5 min | `aplicar_timeout_longo` | 24h sem msg DO CLIENTE em pré-confirmação → `Perdido`/`sumiu` |
 | `timeout_interno` | 1 min | `aplicar_timeout_interno` | interno com `aviso_saida` sem foto há 45min → `Perdido`/`sumiu` |
 | `confirmar_em_execucao` | 1 min | `confirmar_em_execucao` | externo `Confirmado`→`Em_execucao` quando `bloqueio.inicio <= now` |
-| `reengajar_silenciosos` | 5 min | `reengajar_silenciosos` | cliente sumiu após cotação há ~`reengajamento_delay_min` (Triagem/Qualificado, no horário, `reengajado_em IS NULL`) → 1 toque canned ao cliente + marca `reengajado_em`. **Só se `settings.reengajamento_ativo`** (`§4.5`, `01 §6.12`) |
+| `reengajar_silenciosos` | 5 min | `reengajar_silenciosos` | cliente sumiu após cotação há ~`reengajamento_delay_min` (`cotacao_enviada_em` entre delay e 24h, sem msg do cliente depois; Triagem/Qualificado, no horário, `reengajado_em IS NULL`) → 1 toque canned ao cliente + marca `reengajado_em`. **Só se `settings.reengajamento_ativo`** (`§4.5`, ADR 0022, `01 §6.12`) |
 | `limpar_midias` | diário 03:00 | `limpar_midias_vencidas` | GC de objetos MinIO 90d em estados terminais (política de mídia: `06`) |
 
 ### 4.1 `aplicar_timeout_longo` (24h)
@@ -570,7 +570,7 @@ GC idempotente de objetos MinIO de atendimentos em estado terminal há 90d. A **
 
 **Decisão grilling 2026-05-23** (`01 §6.12`, `CONTEXT.md` "Reengajamento"). Ao contrário dos timeouts, este cron **envia mensagem ao cliente**: um toque proativo único quando o cliente recebeu a cotação e sumiu. Roda só com `settings.reengajamento_ativo=true` (default off no início do piloto).
 
-Alvo (CTE atômica, `FOR UPDATE SKIP LOCKED`): atendimentos em `Triagem`/`Qualificado`, `ia_pausada=false`, `intencao IN ('cotacao','agendamento')` (proxy de "cotação apresentada"), `reengajado_em IS NULL`, última msg **do cliente** entre `reengajamento_delay_min` e 24h atrás, e hora local **dentro de `[operacao_hora_inicio, operacao_hora_fim)`**. O `UPDATE ... SET reengajado_em=now()` no mesmo CTE garante **1 toque por atendimento** (idempotente entre execuções concorrentes).
+Alvo (CTE atômica, `FOR UPDATE SKIP LOCKED`, **ADR 0022**): atendimentos em `Triagem`/`Qualificado`, `ia_pausada=false`, `reengajado_em IS NULL`, `cotacao_enviada_em` (a IA apresentou o preço — carimbado por `registrar_extracao` via o flag `cotacao_apresentada`) entre `reengajamento_delay_min` e 24h atrás, **nenhuma msg do cliente depois de `cotacao_enviada_em`** (silêncio genuíno desde a cotação), e hora local **dentro de `[operacao_hora_inicio, operacao_hora_fim)`**. O `UPDATE ... SET reengajado_em=now()` no mesmo CTE garante **1 toque por atendimento** (idempotente entre execuções concorrentes). O gatilho é ancorado no **evento real da cotação** — substitui o proxy `intencao IN ('cotacao','agendamento')`, que disparava antes de a IA cotar (os 3 buracos em `docs/agente/11`).
 
 Para cada alvo, enfileira o envio ao cliente **reusando `enviar_turno`** (`05 §1`) com um chunk **canned** sorteado de um pool de reaberturas em persona (constante em `agente/`, mesma técnica do pool de disclosure `10 §3.1`), `midias=[]`, `critico=false`:
 

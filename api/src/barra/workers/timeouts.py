@@ -128,13 +128,16 @@ async def reengajar_silenciosos(
     redis: ArqRedis,
     settings: Settings,
 ) -> int:
-    """Reabre proativamente clientes que sumiram apos a cotacao (07 §4.5, ADR/CONTEXT.md).
+    """Reabre proativamente clientes que sumiram apos a cotacao (07 §4.5, ADR 0022, CONTEXT.md).
 
     Atomico: CTE com FOR UPDATE SKIP LOCKED + UPDATE reengajado_em=now() garante 1 toque por
-    atendimento entre execucoes concorrentes. Alvo: Triagem/Qualificado com intencao em
-    cotacao/agendamento, ia_pausada=false, reengajado_em IS NULL, ultima msg do CLIENTE entre
-    `reengajamento_delay_min` e 24h atras (acima de 24h o `timeout_longo` ja vai cobrir como
-    Perdido/sumiu). Hora local BRT dentro de [operacao_hora_inicio, operacao_hora_fim).
+    atendimento entre execucoes concorrentes. Alvo ancorado no evento REAL da cotacao (ADR 0022):
+    Triagem/Qualificado, ia_pausada=false, reengajado_em IS NULL, `cotacao_enviada_em` (a IA
+    apresentou o preco) entre `reengajamento_delay_min` e 24h atras (acima de 24h o `timeout_longo`
+    cobre como Perdido/sumiu), e NENHUMA msg do CLIENTE depois da cotacao (silencio genuino — isso
+    exclui "vou pensar", "ja marquei" etc). Hora local BRT dentro de [operacao_hora_inicio,
+    operacao_hora_fim). Substitui o proxy `intencao IN ('cotacao','agendamento')`, que disparava
+    antes de a IA cotar.
 
     Para cada alvo, enfileira `enviar_turno` reusando a humanizacao (toque canned, sem desconto,
     nao critico). O `turno_atual:{conversa_id}` aponta o turno do reengajo -> cancel-on-new-message
@@ -161,18 +164,18 @@ async def reengajar_silenciosos(
             WITH alvo AS (
               SELECT a.id, a.conversa_id
                 FROM barravips.atendimentos a
-                LEFT JOIN LATERAL (
-                  SELECT max(created_at) AS ultima_cliente
-                    FROM barravips.mensagens m
-                   WHERE m.atendimento_id = a.id AND m.direcao = 'cliente'
-                ) msg ON true
                WHERE a.estado IN ('Triagem', 'Qualificado')
                  AND a.ia_pausada = false
-                 AND a.intencao IN ('cotacao', 'agendamento')
                  AND a.reengajado_em IS NULL
-                 AND msg.ultima_cliente IS NOT NULL
-                 AND msg.ultima_cliente <= now() - make_interval(mins => %s)
-                 AND msg.ultima_cliente >= now() - interval '24 hours'
+                 AND a.cotacao_enviada_em IS NOT NULL
+                 AND a.cotacao_enviada_em <= now() - make_interval(mins => %s)
+                 AND a.cotacao_enviada_em >= now() - interval '24 hours'
+                 AND NOT EXISTS (
+                   SELECT 1 FROM barravips.mensagens m
+                    WHERE m.atendimento_id = a.id
+                      AND m.direcao = 'cliente'
+                      AND m.created_at > a.cotacao_enviada_em
+                 )
                  FOR UPDATE OF a SKIP LOCKED
             )
             UPDATE barravips.atendimentos a

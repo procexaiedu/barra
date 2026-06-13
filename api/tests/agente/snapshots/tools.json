@@ -52,6 +52,11 @@
           "default": null,
           "description": "True quando o atendimento é EXTERNO e o CLIENTE vem buscar você de carro (pickup — ADR 0020): não existe Pix de deslocamento nesse caso (o deslocamento não é seu). Registre junto com tipo_atendimento='externo' e o horário: é o que reserva o slot e te pausa na hora do encontro. NÃO marque quando você vai de uber até o cliente (aí o fluxo é o Pix). Cliente recuou do pickup (vai te receber sem buscar / você vai de uber)? Mande false — não use `limpar` para este campo."
         },
+        "cotacao_apresentada": {
+          "default": false,
+          "description": "Marque True SÓ no turno em que você APRESENTA o valor de um programa ao cliente (preço + duração) — a cotação de fato. É o que ativa o reengajamento proativo se o cliente sumir DEPOIS de receber o preço. NÃO marque quando ele só pergunta/sonda o valor sem você ter cotado ainda, nem nos turnos seguintes (o sistema guarda o primeiro carimbo e ignora repetições).",
+          "type": "boolean"
+        },
         "data_desejada": {
           "anyOf": [
             {

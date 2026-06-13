@@ -144,7 +144,7 @@ Regras que definem quando a modelo aceita ser reservada — cada regra é um int
 _Avoid_: confundir com status, bloqueio ou horário de operação global; materializar folga como bloqueio.
 
 **Reengajamento**:
-Reabertura proativa **única** de um cliente que recebeu a cotação e silenciou — mensagem curta e calorosa (sem desconto) ~30 min depois, dentro do horário de operação. Só em `Triagem`/`Qualificado` com cotação apresentada. Não reseta o timeout de 24h (que conta da última msg do **cliente**): sem resposta, vira `Perdido` (`sumiu`). No P0 é desligável e começa o piloto **desligado**.
+Reabertura proativa **única** de um cliente que recebeu a cotação e silenciou — mensagem curta e calorosa (sem desconto) ~30 min depois, dentro do horário de operação. Gatilho ancorado no **evento real da cotação** (`cotacao_enviada_em`, carimbado quando a IA apresenta o preço): só em `Triagem`/`Qualificado`, com cotação apresentada e **nenhuma resposta do cliente desde então** — o relógio conta da cotação, não de proxy de intenção (ADR 0022). Não reseta o timeout de 24h (que conta da última msg do **cliente**): sem resposta, vira `Perdido` (`sumiu`). No P0 é desligável e começa o piloto **desligado**.
 _Avoid_: múltiplos toques; reabrir quem não chegou à cotação; desconto no toque; confundir com o timeout de 24h.
 
 **Lembrete de fechamento**:

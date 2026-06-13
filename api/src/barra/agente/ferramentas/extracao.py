@@ -74,6 +74,13 @@ _DESC_ENDERECO = (
     "vira a localização DELE no sistema). NUNCA grave aqui o SEU ponto de encontro: no pickup "
     "(cliente_busca), só preencha se o cliente disser para onde vão."
 )
+_DESC_COTACAO = (
+    "Marque True SÓ no turno em que você APRESENTA o valor de um programa ao cliente "
+    "(preço + duração) — a cotação de fato. É o que ativa o reengajamento proativo se o "
+    "cliente sumir DEPOIS de receber o preço. NÃO marque quando ele só pergunta/sonda o valor "
+    "sem você ter cotado ainda, nem nos turnos seguintes (o sistema guarda o primeiro carimbo "
+    "e ignora repetições)."
+)
 _DESC_AVISO_SAIDA = (
     "Cliente avisou que saiu de casa em direção ao endereço combinado "
     "(texto livre tipo 'sai', 'tô indo', 'estou indo', 'sai agora'). "
@@ -122,6 +129,7 @@ class ExtracaoPayload(BaseModel):
         Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None
     ) = None
     aviso_saida_detectado: bool = False
+    cotacao_apresentada: bool = False
     limpar: list[str] = Field(default_factory=list)
     proxima_acao_esperada: str = Field(min_length=3, max_length=240)
 
@@ -150,6 +158,7 @@ async def registrar_extracao(
         Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None
     ) = None,
     aviso_saida_detectado: Annotated[bool, Field(description=_DESC_AVISO_SAIDA)] = False,
+    cotacao_apresentada: Annotated[bool, Field(description=_DESC_COTACAO)] = False,
     limpar: Annotated[list[str] | None, Field(description=_DESC_LIMPAR)] = None,
 ) -> str:
     """Registre o snapshot do que aprendeu nesta conversa. Chame UMA vez por turno, perto do fim.
@@ -194,6 +203,7 @@ async def registrar_extracao(
         sinais_qualificacao=sinais_qualificacao or SinaisQualificacao(),
         motivo_perda_candidato=motivo_perda_candidato,
         aviso_saida_detectado=aviso_saida_detectado,
+        cotacao_apresentada=cotacao_apresentada,
         limpar=limpar or [],
         proxima_acao_esperada=proxima_acao_esperada,
     )
