@@ -224,14 +224,20 @@ function CentralAtendimentosInner() {
     }
   }, [])
 
+  // A busca separada de encerrados só completa as colunas terminais no estado
+  // default "abertos" (a query principal não traz terminais). Com um estado
+  // específico filtrado, atendimentos.items já traz aquele estado — injetar os
+  // encerrados aqui duplicaria (Fechado: 50+50) e vazaria terminais nas demais.
+  const completarEncerrados = mostrarEncerrados && view === "kanban" && atendimentos.filtros.estado === "abertos"
+
   const recarregarEncerrados = useCallback(async () => {
     setItemsEncerrados(await buscarEncerrados())
   }, [buscarEncerrados])
 
   useEffect(() => {
-    if (!mostrarEncerrados || view !== "kanban") {
-      return
-    }
+    // Sem completar: a prop do Kanban já recebe [] (gate abaixo), então o
+    // itemsEncerrados em cache fica ocioso até voltar a "abertos" — não vaza.
+    if (!completarEncerrados) return
     let cancelado = false
     buscarEncerrados().then((items) => {
       if (!cancelado) setItemsEncerrados(items)
@@ -239,7 +245,7 @@ function CentralAtendimentosInner() {
     return () => {
       cancelado = true
     }
-  }, [mostrarEncerrados, view, buscarEncerrados])
+  }, [completarEncerrados, buscarEncerrados])
 
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col gap-4">
@@ -329,7 +335,7 @@ function CentralAtendimentosInner() {
         <div className="flex-1 min-h-0">
           <KanbanBoard
             items={atendimentos.items}
-            itemsEncerrados={mostrarEncerrados && view === "kanban" ? itemsEncerrados : []}
+            itemsEncerrados={completarEncerrados ? itemsEncerrados : []}
             mostrarEncerrados={mostrarEncerrados}
             onToggleEncerrados={() => setMostrarEncerrados((v) => !v)}
             onCardClick={setModalId}
