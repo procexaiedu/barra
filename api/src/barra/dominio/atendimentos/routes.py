@@ -122,8 +122,13 @@ async def listar_atendimentos(
         filtros.append("(a.created_at AT TIME ZONE 'America/Sao_Paulo')::date <= %s")
         params.append(data_fim)
     if cursor:
-        filtros.append("a.updated_at < %s::timestamptz")
-        params.append(cursor)
+        if "|" in cursor:
+            cursor_ts, cursor_id = cursor.rsplit("|", 1)
+            filtros.append("(a.updated_at, a.id) < (%s::timestamptz, %s::uuid)")
+            params.extend([cursor_ts, cursor_id])
+        else:
+            filtros.append("a.updated_at < %s::timestamptz")
+            params.append(cursor)
     params.append(limit + 1)
     result = await conn.execute(
         f"""
@@ -149,14 +154,16 @@ async def listar_atendimentos(
            LIMIT 1
         ) AS prog ON true
         WHERE {" AND ".join(filtros)}
-        ORDER BY a.updated_at DESC
+        ORDER BY a.updated_at DESC, a.id DESC
         LIMIT %s
         """,
         params,
     )
     rows = list(await result.fetchall())
-    next_cursor = rows[-1]["updated_at"].isoformat() if len(rows) > limit else None
+    tem_mais = len(rows) > limit
     rows = rows[:limit]
+    ultimo = rows[-1] if (tem_mais and rows) else None
+    next_cursor = f"{ultimo['updated_at'].isoformat()}|{ultimo['id']}" if ultimo else None
     return {
         "items": [
             {
@@ -484,7 +491,9 @@ async def alterar_estado(
         " VALUES (%s, 'transicao_estado', 'painel', 'Fernando', %s::jsonb)",
         (
             atendimento_id,
-            json.dumps({"estado_anterior": estado_anterior, "estado_novo": body.estado, "via": "kanban"}),
+            json.dumps(
+                {"estado_anterior": estado_anterior, "estado_novo": body.estado, "via": "kanban"}
+            ),
         ),
     )
     return {"id": str(atendimento_id), "estado": body.estado}
@@ -690,7 +699,9 @@ async def upload_midia(
         raise HTTPException(400, f"tipo inválido: {tipo!r}. Use 'imagem', 'audio' ou 'documento'.")
     ct = (arquivo.content_type or "").lower()
     if not (ct.startswith("image/") or ct.startswith("audio/") or ct == "application/pdf"):
-        raise HTTPException(415, "tipo de arquivo não permitido (aceitos: image/*, audio/*, application/pdf)")
+        raise HTTPException(
+            415, "tipo de arquivo não permitido (aceitos: image/*, audio/*, application/pdf)"
+        )
 
     data = await arquivo.read(_MAX_UPLOAD_BYTES + 1)
     if len(data) > _MAX_UPLOAD_BYTES:
