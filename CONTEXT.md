@@ -31,20 +31,21 @@ Máquina de estados linear (mecânica em `docs/mvp/03`); terminais `Fechado`/`Pe
 - `Novo` — primeiro contato, antes de triagem.
 - `Triagem` — IA coletando intenção e dados mínimos.
 - `Qualificado` — intenção real demonstrada; cotação apresentada.
-- `Aguardando_confirmacao` — aguarda **Pix de deslocamento** (externo), **Foto de portaria** (interno) ou o **horário do encontro** (externo-pickup, ADR 0020). O **Aviso de saída** é informativo, não muda o estado.
+- `Aguardando_confirmacao` — aguarda **Pix de deslocamento** (externo), **Foto de portaria** (interno), o **horário do encontro** (externo-pickup, ADR 0020) ou o **horário da vídeo chamada** (remoto, ADR 0021). O **Aviso de saída** é informativo, não muda o estado.
 - `Confirmado` — externo: **Pix recebido** (validado **ou** duvidoso — nunca trava por Pix); IA pausada (`modelo_em_atendimento`), modelo conduz.
 - `Em_execucao` — modelo engajada: **Foto de portaria** recebida (interno) ou horário previsto chegou (externo).
 - `Fechado` — convertido por **Registro de resultado** (exige **Valor final**).
 - `Perdido` — não converteu, por registro explícito ou timeout determinístico (exige **Motivo de perda**).
 _Avoid_: tratar revisão de Pix como estado (é `pix_status=em_revisao`, atendimento ainda em `Aguardando_confirmacao`/`Confirmado`); condicionar `Confirmado` a Pix sem dúvida; inventar estados intermediários no P0.
 
-**Atendimento interno vs externo**:
-Eixo (`tipo_atendimento`) que define quem se desloca:
+**Atendimento interno, externo ou remoto**:
+Eixo (`tipo_atendimento`) que define quem se desloca — ou se ninguém se desloca:
 - **interno** — o cliente vai até a modelo; o endereço é o **ponto de encontro na modelo**, não onde o cliente mora. Confirma pela **Foto de portaria**. Fica **fora do Mapa de clientes**. Sem Pix de deslocamento.
 - **externo** — a modelo se desloca; o **Pix de deslocamento** (valor fixo) antecipa o custo, e o endereço é a localização do cliente — geocodificada e plotada no **Mapa de clientes**. Subcaso: o **cliente busca a modelo** de carro (rolê/casa dele) — segue externo, mas **sem Pix de deslocamento** (não há Uber dela para antecipar); o endereço que a IA passa é o **ponto de encontro** dela (rua + referência, nunca porta/apartamento), informado quando o horário fecha. No pickup o atendimento avança sem `Confirmado`: a extração reserva o slot (`Aguardando_confirmacao`) e, na hora do encontro, a IA pausa com card "Cliente vem te buscar". Ver ADR 0020.
+- **remoto** — ninguém se desloca: o serviço é uma **Vídeo chamada** ao vivo. Sem local físico, **fora do Mapa de clientes**, **sem Pix** e sem Foto de portaria. A extração reserva o slot (`Aguardando_confirmacao` + bloqueio prévio, como o interno, só pelo horário) e, na hora marcada, a IA pausa com o card "Hora da sua vídeo chamada"; pula `Confirmado`. Pagamento combinado manualmente pela modelo (P0). Ver ADR 0021.
 
-A modelo declara os tipos que aceita (`tipo_atendimento_aceito[]`, pode ser os dois); cada atendimento fixa exatamente um. A IA nunca negocia um tipo que a modelo não realiza.
-_Avoid_: tratar interno como localização do cliente; exigir Pix no interno ou Foto de portaria no externo; exigir Pix quando o cliente busca a modelo; plotar interno no Mapa.
+A modelo declara os tipos que aceita (`tipo_atendimento_aceito[]`, pode ser mais de um); cada atendimento fixa exatamente um. A IA nunca negocia um tipo que a modelo não realiza.
+_Avoid_: tratar interno como localização do cliente; exigir Pix no interno/remoto ou Foto de portaria no externo/remoto; exigir Pix quando o cliente busca a modelo; plotar interno ou remoto no Mapa; misturar remoto e presencial no mesmo atendimento.
 
 **Coordenação por modelo**:
 Grupo persistente com **2 participantes** — o número da modelo (operado pela IA) e Fernando. A IA envia cards/resumos acionáveis a partir do número da modelo; a modelo lê no próprio celular, sem identidade separada. Mensagens manuais da modelo entram como `fromMe` do mesmo número que a IA opera; o sistema distingue IA de modelo pelo originador real do envio.
@@ -115,7 +116,7 @@ Menor valor que a IA oferece sozinha — percentual único abaixo do **Preço de
 _Avoid_: expor o valor ao cliente; tratar como mínimo por programa (no P0 é teto percentual único).
 
 **Pix de deslocamento**:
-Pagamento antecipado, de **valor fixo**, do deslocamento de saída. Existe **apenas quando a modelo se desloca por conta própria** (Uber até o cliente); cliente que **busca a modelo** de carro é externo **sem Pix** — não há deslocamento dela para antecipar. O comprovante sempre faz o atendimento avançar — **nunca trava por Pix**: checagens OK validam em silêncio; divergência/suspeita marca o comprovante como duvidoso, o card à modelo sinaliza a duvidez (ela decide antes de pedir o Uber) e Fernando revisa depois numa fila assíncrona, sem bloquear.
+Pagamento antecipado, de **valor fixo**, do deslocamento de saída. Existe **apenas quando a modelo se desloca por conta própria** (Uber até o cliente); cliente que **busca a modelo** de carro é externo **sem Pix**, e a **Vídeo chamada** (remoto) é **sem Pix** — não há deslocamento dela para antecipar. O comprovante sempre faz o atendimento avançar — **nunca trava por Pix**: checagens OK validam em silêncio; divergência/suspeita marca o comprovante como duvidoso, o card à modelo sinaliza a duvidez (ela decide antes de pedir o Uber) e Fernando revisa depois numa fila assíncrona, sem bloquear.
 _Avoid_: sinal; pagamento do atendimento; valor proporcional à distância/programa; cobrar quando o cliente busca a modelo; travar o fluxo por Pix duvidoso; handoff síncrono para Fernando por Pix.
 
 **Aviso de saída**:
@@ -153,6 +154,10 @@ _Avoid_: cobrança do cliente; confundir com **Reengajamento** (que é voltado a
 **Mídia exclusiva**:
 Foto/vídeo da modelo enviado na venda com enquadramento de exclusividade — primeiro fotos, depois um vídeo "gravado ao vivo só para o cliente". Quando a plataforma (Evolution self-host) permitir, o vídeo vai como view-once; sem suporte, vai normal e a proteção fica para o P1.
 _Avoid_: vídeo antes de foto; expor que o vídeo "ao vivo" é pré-gravado; prometer view-once sem suporte da plataforma.
+
+**Vídeo chamada**:
+Serviço da modelo (programa em `modelo_programas`, com preço/duração) entregue como uma **chamada de vídeo ao vivo** que a **modelo (humana)** faz na hora marcada — é o único serviço **remoto** (ver **Atendimento … remoto**). A IA cota e combina como qualquer programa (valor, horário), reserva o slot e pausa no horário com o card "Hora da sua vídeo chamada"; **não abre chamada no chat**. Distinta da **Mídia exclusiva** (foto/vídeo pré-gravado enviado por `enviar_midia`): vídeo chamada é interação ao vivo, não mídia. View-once/gravação não se aplicam. Ver ADR 0021.
+_Avoid_: confundir com **Mídia exclusiva** (mandar vídeo); a IA conduzir/abrir a chamada (quem faz é a modelo); tratar como interno/externo; cobrar Pix; plotar no Mapa.
 
 **Perfil físico preferido**:
 Tipo físico que o cliente prefere (loira, morena, ruiva, negra, asiática, outra). Dado **global do cliente** e **painel-only/Fernando**, com duas leituras: a **declarada** (Fernando marca uma ou mais) e a **calculada** (breakdown dos `Fechado` agrupados pelo `tipo_fisico` das modelos atendidas — "6 ruivas, 2 loiras", expondo também quantos fechados são de modelos não classificadas). A IA conversacional nunca lê o breakdown (seria agregação cross-modelo, fura o isolamento por par) nem escreve a preferência — isso é **IA Admin** (P1). Eixo único (não separa cabelo/etnia/biotipo; biotipo fica de fora). O filtro de clientes usa só a parte **declarada**, semântica OR. Classificar `tipo_fisico` é pré-condição da parte calculada (sem ela o breakdown é parcial mas válido; modelos existentes nascem sem `tipo_fisico`, sem backfill). Ver ADR 0006.
