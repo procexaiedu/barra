@@ -389,6 +389,12 @@ async def registrar_extracao_ia(
             if await marcar_aviso_saida(conn, aid):
                 resultado_extra["enviar_aviso_saida"] = True
 
+    # 4. Cotacao apresentada (ADR 0022): carimba cotacao_enviada_em (first-write-wins) quando a IA
+    #    sinaliza que apresentou o preco. Ancora o reengajamento proativo (cron reengajar_silenciosos);
+    #    sem transicao nem pausa — so o marcador. O guard IS NULL preserva o primeiro carimbo.
+    if payload.get("cotacao_apresentada"):
+        await marcar_cotacao_enviada(conn, aid)
+
     await _registrar_evento(conn, aid, "extracao_registrada", payload)
     return {"mensagem": "Extracao registrada.", "novo_estado": novo_estado, **resultado_extra}
 
@@ -796,6 +802,25 @@ async def marcar_aviso_saida(conn: AsyncConnection[Any], atendimento_id: UUID) -
         UPDATE barravips.atendimentos
            SET aviso_saida_em = now()
          WHERE id = %s AND aviso_saida_em IS NULL
+        """,
+        (atendimento_id,),
+    )
+    return result.rowcount > 0
+
+
+async def marcar_cotacao_enviada(conn: AsyncConnection[Any], atendimento_id: UUID) -> bool:
+    """Marca `cotacao_enviada_em=now()` com guard IS NULL (first-write-wins, ADR 0022).
+
+    Ancora do reengajamento proativo: registra o instante em que a IA apresentou o preco pela
+    primeira vez. Sem transicao de estado nem pausa de IA — so o marcador. Devolve False (no-op
+    silencioso) se ja estava setado, preservando o primeiro carimbo (turnos seguintes nao
+    re-carimbam, mesmo que a IA reenvie o flag).
+    """
+    result = await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET cotacao_enviada_em = now()
+         WHERE id = %s AND cotacao_enviada_em IS NULL
         """,
         (atendimento_id,),
     )

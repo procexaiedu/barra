@@ -4,13 +4,17 @@
 (o FakeRedis nao tem). Um fake-pool de UMA conexao reusa a transacao do teste -> ROLLBACK
 limpa tudo. Os settings sao construidos por `model_copy(update=...)` p/ cada cenario.
 
-Cobre:
+Gatilho ancorado na cotacao (ADR 0022): alvo = `cotacao_enviada_em` entre delay e 24h, SEM
+msg do cliente depois da cotacao (silencio genuino). Cobre:
   - flag_off: nao consulta o banco, nao enfileira.
-  - happy: alvo qualificado dentro do horario -> 1 toque enfileirado + reengajado_em marcado;
+  - happy: cotou 40min atras, cliente silenciou -> 1 toque enfileirado + reengajado_em marcado;
     2a varredura imediatamente depois nao reabre (idempotencia da coluna).
+  - nunca_cotou: cotacao_enviada_em IS NULL (mesmo com intencao='cotacao') -> 0 alvos (buraco #1).
+  - cliente_respondeu_apos_cotacao: msg do cliente depois da cotacao -> 0 alvos (buraco #2).
   - fora_horario: monkeypatch em `_dentro_da_janela` retornando False -> 0 alvos.
   - ja_reengajado: reengajado_em setado -> filtro do WHERE descarta.
-  - cliente_respondeu: ultima msg do cliente recente (dentro do delay) -> 0 alvos.
+  - delay: cotou ha poucos minutos (< delay) -> 0 alvos.
+  - acima_24h: cotou ha mais de 24h -> 0 alvos (timeout_longo cobre).
 """
 
 from __future__ import annotations
@@ -131,18 +135,28 @@ async def _seed_atendimento(
     intencao: str = "cotacao",
     ia_pausada: bool = False,
     reengajado_em: datetime | None = None,
+    cotacao_enviada_em: datetime | None = None,
 ) -> UUID:
     atendimento_id = uuid4()
     await c.execute(
         """
         INSERT INTO barravips.atendimentos
             (id, cliente_id, modelo_id, conversa_id, estado, intencao,
-             ia_pausada, reengajado_em, fonte_decisao_ultima_transicao)
+             ia_pausada, reengajado_em, cotacao_enviada_em, fonte_decisao_ultima_transicao)
         VALUES (%s, %s, %s, %s, %s::barravips.estado_atendimento_enum,
-                %s::barravips.intencao_enum, %s, %s, 'extracao_ia')
+                %s::barravips.intencao_enum, %s, %s, %s, 'extracao_ia')
         """,
-        (atendimento_id, cliente_id, modelo_id, conversa_id, estado,
-         intencao, ia_pausada, reengajado_em),
+        (
+            atendimento_id,
+            cliente_id,
+            modelo_id,
+            conversa_id,
+            estado,
+            intencao,
+            ia_pausada,
+            reengajado_em,
+            cotacao_enviada_em,
+        ),
     )
     return atendimento_id
 
@@ -175,21 +189,40 @@ async def _seed_msg_cliente(
 async def _seed_cenario_padrao(
     c: AsyncConnection[dict[str, Any]],
     *,
-    minutos_silencio: int = 40,
+    minutos_cotacao: int | None = 40,
+    resposta_cliente_min: int | None = None,
     estado: str = "Qualificado",
     intencao: str = "cotacao",
     ia_pausada: bool = False,
     reengajado_em: datetime | None = None,
 ) -> tuple[UUID, UUID]:
+    """Atendimento cotado (`cotacao_enviada_em` = now - `minutos_cotacao`; None = nunca cotou).
+
+    `resposta_cliente_min` (opcional) semeia uma msg do CLIENTE essa qtd de minutos atras —
+    use < `minutos_cotacao` para simular o cliente respondendo DEPOIS da cotacao (quebra o
+    NOT EXISTS do gatilho).
+    """
     modelo_id = await _seed_modelo(c)
     cliente_id = await _seed_cliente(c)
     conversa_id = await _seed_conversa(c, cliente_id, modelo_id)
-    atendimento_id = await _seed_atendimento(
-        c, cliente_id, modelo_id, conversa_id,
-        estado=estado, intencao=intencao, ia_pausada=ia_pausada,
-        reengajado_em=reengajado_em,
+    cotacao_em = (
+        datetime.now(UTC) - timedelta(minutes=minutos_cotacao)
+        if minutos_cotacao is not None
+        else None
     )
-    await _seed_msg_cliente(c, conversa_id, atendimento_id, minutos_atras=minutos_silencio)
+    atendimento_id = await _seed_atendimento(
+        c,
+        cliente_id,
+        modelo_id,
+        conversa_id,
+        estado=estado,
+        intencao=intencao,
+        ia_pausada=ia_pausada,
+        reengajado_em=reengajado_em,
+        cotacao_enviada_em=cotacao_em,
+    )
+    if resposta_cliente_min is not None:
+        await _seed_msg_cliente(c, conversa_id, atendimento_id, minutos_atras=resposta_cliente_min)
     return atendimento_id, conversa_id
 
 
@@ -273,12 +306,11 @@ async def test_alvo_qualificado_envia_e_marca_reengajado_em(
 
 @pytest.mark.needs_db
 async def test_fora_do_horario_nao_age(
-    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch,
+    conn: AsyncConnection[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await _seed_cenario_padrao(conn)
-    monkeypatch.setattr(
-        "barra.workers.timeouts._dentro_da_janela", lambda *_a, **_kw: False
-    )
+    monkeypatch.setattr("barra.workers.timeouts._dentro_da_janela", lambda *_a, **_kw: False)
     redis = _redis_fake()
     total = await reengajar_silenciosos(conn, redis, _settings())
     assert total == 0
@@ -298,11 +330,43 @@ async def test_ja_reengajado_nao_reabre(conn: AsyncConnection[dict[str, Any]]) -
 
 
 @pytest.mark.needs_db
-async def test_cliente_respondeu_recentemente_nao_dispara(
+async def test_cotou_ha_pouco_nao_dispara(conn: AsyncConnection[dict[str, Any]]) -> None:
+    # cotacao ha 5min < reengajamento_delay_min (30) -> filtro do WHERE descarta.
+    await _seed_cenario_padrao(conn, minutos_cotacao=5)
+    redis = _redis_fake()
+    total = await reengajar_silenciosos(conn, redis, _settings())
+    assert total == 0
+    assert redis.enqueue_job.call_args_list == []
+
+
+@pytest.mark.needs_db
+async def test_nunca_cotou_nao_dispara(conn: AsyncConnection[dict[str, Any]]) -> None:
+    # Buraco #1 (ADR 0022): intencao='cotacao' mas a IA nunca apresentou o preco
+    # (cotacao_enviada_em IS NULL) -> nao reengaja, mesmo com msg do cliente parada ha 40min.
+    await _seed_cenario_padrao(conn, minutos_cotacao=None, resposta_cliente_min=40)
+    redis = _redis_fake()
+    total = await reengajar_silenciosos(conn, redis, _settings())
+    assert total == 0
+    assert redis.enqueue_job.call_args_list == []
+
+
+@pytest.mark.needs_db
+async def test_cliente_respondeu_apos_cotacao_nao_dispara(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
-    # silencio < reengajamento_delay_min (30) -> filtro do WHERE descarta.
-    await _seed_cenario_padrao(conn, minutos_silencio=5)
+    # Buraco #2 (ADR 0022): cotou ha 40min, mas o cliente respondeu ha 10min (DEPOIS da cotacao)
+    # -> o NOT EXISTS quebra (silencio nao e genuino). Cobre "vou pensar", "ja marquei" etc.
+    await _seed_cenario_padrao(conn, minutos_cotacao=40, resposta_cliente_min=10)
+    redis = _redis_fake()
+    total = await reengajar_silenciosos(conn, redis, _settings())
+    assert total == 0
+    assert redis.enqueue_job.call_args_list == []
+
+
+@pytest.mark.needs_db
+async def test_cotacao_acima_de_24h_nao_dispara(conn: AsyncConnection[dict[str, Any]]) -> None:
+    # Cotou ha mais de 24h -> fora da janela (o timeout_longo ja cobre como Perdido/sumiu).
+    await _seed_cenario_padrao(conn, minutos_cotacao=25 * 60)
     redis = _redis_fake()
     total = await reengajar_silenciosos(conn, redis, _settings())
     assert total == 0
