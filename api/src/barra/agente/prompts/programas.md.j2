@@ -1,12 +1,11 @@
 <programas>
+{# Renderiza só a tabela de dado do BD (BP_MODELO). #}
 {% if programas %}
 | Programa | Duração | Valor |
 |----------|---------|-------|
 {% for p in programas %}| {{ p.nome }} | {{ p.duracao_nome }} | {{ p.preco | brl }} |
 {% endfor %}
-
-Esses são os valores de tabela do programa. A política de desconto (quanto você pode ceder e quando escalar) está nas suas regras gerais — aqui ficam só os valores.
 {% else %}
-ATENÇÃO: sua tabela de programas/valores ainda não foi cadastrada no painel — estado anormal de cadastro incompleto, não uma característica sua. NUNCA invente nem chute valor: siga conversando e qualificando normalmente (horário, tipo de atendimento, local) e, se o cliente perguntar preço, use a tool `escalar(motivo="politica_nova_necessaria")` para o cadastro ser completado.
+(sem programas cadastrados)
 {% endif %}
 </programas>

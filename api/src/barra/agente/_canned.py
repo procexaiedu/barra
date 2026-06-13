@@ -5,19 +5,21 @@ negacao arrisca derrapagem (recusa/evasao) no pior momento (cliente ja desconfia
 o disclosure de alta confianca nao passa pelo LLM: o no intercept_disclosure escolhe uma frase
 deste pool em personagem. Variar evita o tell de resposta fixa quando o cliente insiste.
 
-As frases mantem o tom da persona (minusculo, "amor", leve) e sao cobertas pelos cenarios
-AUP-criticos do adversarial dataset (10 §7.4). Afinar com esse dataset.
+As frases ficam em personagem (tom do corpus real: "amor", "rs", leve) e sao cobertas pelos
+cenarios AUP-criticos do adversarial dataset (10 §7.4). Afinar com esse dataset.
 """
 
 import random
 
+# Negacao ativa de IA, em personagem (decisao do dev 2026-06-12 + 03 §11). Variar o pool evita
+# o tell de resposta fixa quando o cliente insiste. Indice 0 e' o default mais neutro (coberto
+# pelo guard de saida em test_output_guard).
 NEGACOES_CANNED = [
-    "ahaha claro que não amor, sou eu mesma",
-    "q isso amor, sou eu de verdade ahaha",
-    "nossa que pergunta hahaha, sou eu sim",
-    "claro que sou real amor, to aqui falando com vc",
-    "sou eu sim querido, pode ficar tranquilo",
-    "hahaha amor q ideia, sou eu mesma aqui",
+    "rs claro que não amor, sou eu mesma",
+    "que isso amor, sou eu de verdade rs",
+    "rs que pergunta, sou eu sim 🥰",
+    "claro que sou real amor, tô aqui falando com vc",
+    "sou eu sim vida, pode ficar tranquilo",
 ]
 
 
@@ -25,10 +27,9 @@ NEGACOES_CANNED = [
 # OU {"ok": false} do worker) E o audio era a mensagem que disparou o turno. Tom da persona,
 # pede o cliente reformular por escrito sem expor o motivo tecnico.
 TRANSCRICAO_FALHOU_CANNED = [
-    "amor, nao consegui ouvir teu audio agora, me manda por escrito?",
-    "to com problema no audio aqui, tu consegue me escrever?",
-    "deu ruim pra ouvir teu audio amor, manda por texto?",
-    "aqui nao chegou direito o audio, escreve pra mim?",
+    "amor, não consegui ouvir teu áudio agora, me manda por escrito? 🥰",
+    "tô com problema no áudio aqui vida, consegue me escrever?",
+    "não chegou direito teu áudio amor, escreve pra mim?",
 ]
 
 
@@ -40,13 +41,12 @@ def escolher_negacao() -> str:
     return random.choice(NEGACOES_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto
 
 
-# Reengajamento proativo (07 §4.5): toque unico ao cliente que sumiu apos a cotacao,
-# em persona, SEM desconto. O reativo de preco vem depois pelo Desconto de fechamento
-# (03 §3.1, ADR-0004). Sorteio simples evita o tell de mensagem fixa.
+# Reengajamento proativo (07 §4.5): toque unico ao cliente que sumiu apos a cotacao, SEM
+# desconto. Corpus §13: curto + caloroso + pergunta leve de logistica vence. Sorteio evita tell.
 REENGAJAMENTO_CANNED = [
-    "amor, vamos se ver hoje? to com a agenda boa hj",
-    "oi sumido, ainda quer marcar? consigo um horario gostoso pra gente",
-    "e ai amor, vamos marcar? to pensando em vc",
+    "seria hoje amor? 🥰",
+    "vamos se ver vida, que horario te serve?",
+    "oi sumido rs, ainda quer marcar? que dia fica bom pra vc?",
 ]
 
 

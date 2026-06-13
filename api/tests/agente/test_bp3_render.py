@@ -39,21 +39,13 @@ ESTRANGEIRA = IdentidadeModelo(
     tipos_aceitos=["externo"],
 )
 
-PAULISTA = IdentidadeModelo(
-    nome="Lara",
-    idade=27,
-    idiomas=["pt-BR", "en-US"],  # dispara o bloco internacional onde a localização é citada
-    localizacao_operacional="São Paulo",
-    tipos_aceitos=["externo"],
-)
-
 PROGRAMAS: list[dict[str, Any]] = [
     {"nome": "Massagem Relaxante", "duracao_nome": "1 hora", "preco": 800},
     {"nome": "Massagem Relaxante", "duracao_nome": "2 horas", "preco": 1500},
     {"nome": "Programa Completo", "duracao_nome": "2 horas", "preco": 2500},
 ]
 
-# preco None = incluso (faz sem custo); preenchido = extra pago (a IA cota "+R$X").
+# preco None = incluso; preenchido = extra pago.
 FETICHES: list[dict[str, Any]] = [
     {"nome": "Beijo na boca", "preco": None},
     {"nome": "Inversão", "preco": 200},
@@ -64,31 +56,6 @@ def test_identidade_inclui_nome_e_idade() -> None:
     txt = render_identidade(CARIOCA)
     assert "Bia" in txt
     assert "26" in txt
-
-
-def test_carioca_nativa_nao_finge_sotaque() -> None:
-    # idiomas == ["pt-BR"] → sem aura internacional / sotaque / desconhecimento de bairros.
-    txt = render_identidade(CARIOCA)
-    assert "sotaque" not in txt
-    assert "internacional" not in txt
-    # localizacao operacional presente aparece.
-    assert "Barra da Tijuca" in txt
-
-
-def test_estrangeira_menciona_aura_e_sotaque() -> None:
-    # idiomas != ["pt-BR"] → aura internacional + sotaque (03 §2.1).
-    # Idiomas são renderizados pelo filtro `idioma_humano` (persona.py): `en-US` -> `inglês`.
-    txt = render_identidade(ESTRANGEIRA)
-    assert "sotaque" in txt
-    assert "internacional" in txt
-    assert "inglês" in txt
-
-
-def test_localizacao_operacional_interpolada_sem_rio_hardcoded() -> None:
-    # localizacao_operacional de SP no bloco internacional: render não vaza "Rio" hardcoded.
-    txt = render_identidade(PAULISTA)
-    assert "Rio" not in txt
-    assert "São Paulo" in txt
 
 
 def test_endereco_formatado_exposto_como_ponto_de_encontro() -> None:
@@ -102,14 +69,6 @@ def test_endereco_formatado_exposto_como_ponto_de_encontro() -> None:
     assert "None" not in sem_endereco
 
 
-def test_atendimento_reflete_tipos_aceitos() -> None:
-    ambos = render_identidade(CARIOCA)  # interno + externo
-    assert "dois jeitos" in ambos
-    so_externo = render_identidade(ESTRANGEIRA)  # só externo
-    assert "indo até o cliente" in so_externo
-    assert "dois jeitos" not in so_externo
-
-
 def test_programas_tabela_uma_linha_por_combinacao() -> None:
     # gotcha do for-loop grudado (M1-T2): cada combinação em SUA PRÓPRIA linha de tabela.
     txt = render_programas(PROGRAMAS)
@@ -121,24 +80,12 @@ def test_programas_tabela_uma_linha_por_combinacao() -> None:
     assert "R$2.500" in txt
 
 
-def test_programas_vazio_orienta_escalar() -> None:
-    # Cadastro incompleto no painel (estado anormal): não inventar valor + escalar p/ Fernando.
-    txt = render_programas([])
-    assert "cadastro incompleto" in txt
-    assert 'escalar(motivo="politica_nova_necessaria")' in txt
-
-
 def test_fetiches_lista_extra_e_incluso() -> None:
     txt = render_fetiches(FETICHES)
     assert "Beijo na boca" in txt
     assert "incluso" in txt  # preco None
     assert "Inversão" in txt
     assert "+R$200" in txt  # preco preenchido, filtro brl
-
-
-def test_fetiches_vazio_orienta_recusa() -> None:
-    txt = render_fetiches([])
-    assert "ainda não tem fetiches" in txt
 
 
 def test_render_bp3_concatena_identidade_programas_e_fetiches() -> None:

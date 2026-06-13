@@ -1,15 +1,14 @@
-"""F1.4 — limite de bolha verificado com **falas reais da persona**, não só caso sintético (UX).
+"""F1.4 — limite de bolha verificado com falas no formato de WhatsApp, não só caso sintético (UX).
 
 O gate de `test_chunk_texto.py` exercita `chunk_texto` só com entrada sintética (`"b0"`, `"b1"`,
-`"palavra " * 100`). F1.4 fecha o buraco: as **falas reais da persona** (destiladas de conversas
-reais anonimizadas) têm de cair no **envelope de bolha esperado** — cada bolha ≤ `MAX_CHARS` (600),
-o turno ≤ `MAX_CHUNKS` (6) bolhas e **nenhuma** sentença real estourando o cap (`CHUNK_OVERSIZE` não
-incrementa). Se a persona real produzisse um paredão >600 ou um turno que o chunking quebrasse,
-este gate pega.
+`"palavra " * 100`). F1.4 fecha o buraco: falas no formato real (bolha curta, multi-linha com `\n`
+simples, emoji) têm de cair no **envelope de bolha esperado** — cada bolha ≤ `MAX_CHARS` (600),
+o turno ≤ `MAX_CHUNKS` (6) bolhas e **nenhuma** sentença estourando o cap (`CHUNK_OVERSIZE` não
+incrementa).
 
-As falas em `FALAS_REAIS` são bolhas reais (uma mensagem de WhatsApp da modelo cada), não
-sintéticas. Os `TURNOS_REAIS` montam turnos no estilo da IA (pensamentos separados por linha em
-branco, como `regras.md` instrui) **só com falas de `FALAS_REAIS`**.
+TODO (reset do agente): as falas em `FALAS_REAIS`/`TURNOS_REAIS` são placeholders neutros — o que
+importa aqui é o FORMATO (comprimento, `\n` simples, separação por linha em branco), não o
+conteúdo. Repopular com falas destiladas do novo corpus quando a persona for reescrita.
 
 Puro (sem banco, sem chave). `CHUNK_OVERSIZE` é Counter global — lê-se o delta (antes/depois).
 """
@@ -18,80 +17,54 @@ from prometheus_client import REGISTRY
 
 from barra.workers._chunking import MAX_CHARS, MAX_CHUNKS, chunk_texto
 
-# Bolhas reais (uma mensagem de WhatsApp da MODELO cada) destiladas de conversas reais. Bolhas
-# multi-linha preservam o `\n` simples (lista/endereço como um humano manda). Variadas: cotação,
-# recusa de prática, inclusões, localização, fechamento, portaria, dupla, pernoite, pix.
+# Placeholders neutros (uma bolha de WhatsApp cada). Variam comprimento e usam `\n` simples nas
+# multi-linha (como um humano manda lista/endereço). Sem linha em branco interna (cada uma = 1 bolha).
 FALAS_REAIS: list[str] = [
-    # 001 — interno, recusa de anal, desconto de fechamento
-    "Meu cache 800 1h",
-    "Beijo na boca, faço oral sem camisinha, faço estilo namoradinha",
-    "Não tenho costume 😊",
-    "Isso depende amor, para isso acontecer o valor tem que valer a pena\n"
-    "e você tem que ser carinhoso ❤️",
-    "Mas como disse não tenho costume mesmo...",
-    "Sou uma mulher educada, extrovertida",
-    "Tenho meu local ou posso ir até você também",
-    "Estou barra da Tijuca próximo ao posto 3",
-    "800 1h seria no meu local\nIndo até você teria o custo adicional do uber",
-    "Se vier agora consigo fazer por 700 1h",
-    "Com local já incluso no cachê",
-    "Pra mim está ótimo\nTenho disponibilidade para as 22h sim",
-    "Combinado",
-    "700 1h as 22h",
-    "Não inclui anal ok",
-    "Confirmado ?",
-    "Sou sua durante o período combinado 🥰",
-    "Chegando me avisa",
-    "Que eu lhe informo o quarto e libero sua visita",
-    # 002 — dupla com amiga, cliente escolhe uma
-    "Meu cachê 900 1h estou na barra da Tijuca",
-    "Estou com uma amiga",
-    "Valor individual amor",
-    "Só eu 900",
-    "Nós duas 1600",
-    "Aceito cartão",
-    "Pode ser ela",
-    "Sem problemas",
-    # 003 — gringo bilíngue, pernoite
-    "Posso ir até você",
-    "Faço pernoite",
-    "Podemos passar a noite juntos",
-    "Vamos combinar algo bacana amor",
-    "Você pode vir no meu apartamento",
-    "Quantas horas vamos ficar juntos ?",
-    # 004 — videocall, qualificação, pix de 50
-    "Livre amor",
-    "Estou na barra",
-    "Vou enviar meu Pix",
+    "oi, tudo bem? 😊",
+    "consigo sim",
+    "me avisa quando estiver a caminho",
+    "primeiro a gente combina\ndepois eu te confirmo",
+    "perfeito pra mim",
+    "pode ser um pouco mais tarde?",
+    "fechado então",
+    "qualquer coisa me chama ❤️",
+    "tô por aqui",
+    "vou verificar e já te falo",
+    "anota aí o endereço\nrua das flores, 100",
+    "combinado",
 ]
 
-# Turnos reais no estilo da IA: pensamentos consecutivos da persona separados por linha em branco
-# (como a IA é instruída a fazer). Cada tupla: (descrição, falas-em-ordem, nº de bolhas esperado).
-# Só usa falas de FALAS_REAIS — assim o containment cobre todos os constituintes.
+# Turnos no estilo da IA: pensamentos consecutivos separados por linha em branco. Cada tupla:
+# (descrição, falas-em-ordem, nº de bolhas esperado). Só usa falas de FALAS_REAIS — assim o
+# containment cobre todos os constituintes.
 TURNOS_REAIS: list[tuple[str, list[str], int]] = [
     (
-        "cotação + inclusões positivas",
-        ["Meu cache 800 1h", "Beijo na boca, faço oral sem camisinha, faço estilo namoradinha"],
+        "saudação + disponibilidade",
+        ["oi, tudo bem? 😊", "consigo sim"],
         2,
     ),
     (
-        "recusa em camadas (porta entreaberta + reafirma)",
+        "confirmação em passos",
         [
-            "Isso depende amor, para isso acontecer o valor tem que valer a pena\n"
-            "e você tem que ser carinhoso ❤️",
-            "Mas como disse não tenho costume mesmo...",
-            "Sou uma mulher educada, extrovertida",
+            "primeiro a gente combina\ndepois eu te confirmo",
+            "perfeito pra mim",
+            "fechado então",
         ],
         3,
     ),
     (
-        "trava de escopo no fechamento",
-        ["Combinado", "700 1h as 22h", "Não inclui anal ok", "Confirmado ?"],
+        "ajuste de horário",
+        ["pode ser um pouco mais tarde?", "consigo sim", "combinado", "qualquer coisa me chama ❤️"],
         4,
     ),
     (
-        "dupla: preços individuais",
-        ["Valor individual amor", "Só eu 900", "Nós duas 1600", "Aceito cartão"],
+        "fechando o combinado",
+        [
+            "anota aí o endereço\nrua das flores, 100",
+            "tô por aqui",
+            "me avisa quando estiver a caminho",
+            "combinado",
+        ],
         4,
     ),
 ]
@@ -102,28 +75,28 @@ def _norm(texto: str) -> str:
     return " ".join(texto.split())
 
 
-# --- cada bolha real cabe no envelope (≤ MAX_CHARS, 1 bolha, sem oversize) --------------------
+# --- cada bolha cabe no envelope (≤ MAX_CHARS, 1 bolha, sem oversize) --------------------------
 
 
 def test_cada_fala_real_e_uma_unica_bolha_dentro_do_cap() -> None:
-    """Toda bolha real vira exatamente 1 chunk, ≤ MAX_CHARS, sem disparar o oversize. A persona
-    real não manda paredão >600 — o sentence-split (que conta CHUNK_OVERSIZE) nunca engata aqui."""
+    """Toda bolha vira exatamente 1 chunk, ≤ MAX_CHARS, sem disparar o oversize. Bolha no formato
+    real não é paredão >600 — o sentence-split (que conta CHUNK_OVERSIZE) nunca engata aqui."""
     antes = REGISTRY.get_sample_value("agente_chunk_oversize_total") or 0.0
     for fala in FALAS_REAIS:
         chunks, alvos = chunk_texto(fala)
-        assert len(chunks) == 1, f"fala real virou {len(chunks)} bolhas: {fala!r}"
-        assert len(chunks[0]) <= MAX_CHARS, f"bolha real estourou o cap: {fala!r}"
+        assert len(chunks) == 1, f"fala virou {len(chunks)} bolhas: {fala!r}"
+        assert len(chunks[0]) <= MAX_CHARS, f"bolha estourou o cap: {fala!r}"
         assert alvos == [None]
         assert _norm(chunks[0]) == _norm(fala)  # conteúdo preservado
     depois = REGISTRY.get_sample_value("agente_chunk_oversize_total") or 0.0
-    assert depois == antes  # nenhuma fala real conta como oversize
+    assert depois == antes  # nenhuma fala conta como oversize
 
 
-# --- turnos reais de múltiplos pensamentos caem no envelope ----------------------------------
+# --- turnos de múltiplos pensamentos caem no envelope ----------------------------------------
 
 
 def test_turnos_reais_caem_no_envelope_de_bolhas() -> None:
-    """Turno real (pensamentos separados por linha em branco) → uma bolha por pensamento, ≤
+    """Turno (pensamentos separados por linha em branco) → uma bolha por pensamento, ≤
     MAX_CHUNKS, cada bolha ≤ MAX_CHARS, sem oversize, e todo pensamento preservado."""
     antes = REGISTRY.get_sample_value("agente_chunk_oversize_total") or 0.0
     for descricao, falas, n_esperado in TURNOS_REAIS:
@@ -141,8 +114,8 @@ def test_turnos_reais_caem_no_envelope_de_bolhas() -> None:
 
 
 def test_turno_real_acima_do_cap_funde_no_envelope() -> None:
-    """Turno real com mais de MAX_CHUNKS pensamentos colapsa em exatamente MAX_CHUNKS bolhas
-    (excedente fundido) — o cap engata em conteúdo real, não só no sintético `b0..b7`."""
+    """Turno com mais de MAX_CHUNKS pensamentos colapsa em exatamente MAX_CHUNKS bolhas
+    (excedente fundido) — o cap engata em conteúdo de verdade, não só no sintético `b0..b7`."""
     falas = FALAS_REAIS[:8]  # 8 > MAX_CHUNKS(6)
     chunks, alvos = chunk_texto("\n\n".join(falas))
     assert len(chunks) == MAX_CHUNKS

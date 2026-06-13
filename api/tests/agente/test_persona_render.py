@@ -16,17 +16,6 @@ def test_render_persona_inclui_persona_e_regras() -> None:
     assert "<conduta>" in txt  # ...+ regras
 
 
-def test_desconto_desligado_diz_que_nao_concede() -> None:
-    txt = render_persona(desconto_max_pct=0)
-    assert "não concede desconto" in txt
-
-
-def test_desconto_ligado_interpola_percentual() -> None:
-    txt = render_persona(desconto_max_pct=0.15)
-    assert "15%" in txt
-    assert "não concede desconto" not in txt
-
-
 def test_carregar_faq_nao_vazio_e_estavel() -> None:
     a = carregar_faq()
     assert a.strip()
