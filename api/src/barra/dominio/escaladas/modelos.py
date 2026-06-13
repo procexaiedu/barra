@@ -18,6 +18,7 @@ class TipoEscalada(StrEnum):
     comportamento_atipico = "comportamento_atipico"
     indisponibilidade = "indisponibilidade"
     cliente_busca = "cliente_busca"
+    video_chamada = "video_chamada"
     outro = "outro"
 
 
@@ -30,6 +31,7 @@ _ROTULOS: dict[TipoEscalada, str] = {
     TipoEscalada.comportamento_atipico: "Comportamento atípico antes de confirmar",
     TipoEscalada.indisponibilidade: "Sem agenda disponível",
     TipoEscalada.cliente_busca: "Cliente vem te buscar",
+    TipoEscalada.video_chamada: "Hora da vídeo chamada",
     TipoEscalada.outro: "Outro",
 }
 

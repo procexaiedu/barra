@@ -1,7 +1,7 @@
 import type { PerfilFisico } from "@/tipos/clientes"
 
 export type StatusModelo = "ativa" | "pausada" | "inativa"
-export type TipoAtendimento = "interno" | "externo"
+export type TipoAtendimento = "interno" | "externo" | "remoto"
 export type TipoMidia = "foto" | "video"
 export type AbaModelo = "perfil" | "midia" | "disponibilidade"
 export type FiltroStatusModelo = "todos" | StatusModelo

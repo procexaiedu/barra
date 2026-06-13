@@ -401,3 +401,54 @@ async def test_confirmar_em_execucao_ignora_bloqueio_futuro(
 
     assert (await _ler_atendimento(conn, atendimento_id))["estado"] == "Confirmado"
     assert await _estado_bloqueio(conn, bloqueio_id) == "bloqueado"
+
+
+@pytest.mark.needs_db
+async def test_confirmar_em_execucao_remoto_no_horario(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Remoto (video chamada, ADR 0021) em Aguardando_confirmacao + bloqueio cujo inicio ja passou
+    -> Em_execucao, IA pausada (modelo_em_atendimento), bloqueio em_atendimento e escalada
+    'video_chamada' que hospeda o card."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        estado="Aguardando_confirmacao",
+        tipo="remoto",
+        ia_pausada=False,
+    )
+    inicio = datetime.now(UTC) - timedelta(minutes=10)
+    bloqueio_id = await _seed_bloqueio(
+        conn,
+        modelo_id=modelo_id,
+        atendimento_id=atendimento_id,
+        inicio=inicio,
+        fim=inicio + timedelta(hours=1),
+        estado="bloqueado",
+    )
+
+    n = await confirmar_em_execucao(conn)
+
+    assert n >= 1
+    a = await _ler_atendimento(conn, atendimento_id)
+    assert a["estado"] == "Em_execucao"
+    assert a["ia_pausada"] is True
+    assert a["ia_pausada_motivo"] == "modelo_em_atendimento"
+    assert a["responsavel_atual"] == "modelo"
+    assert await _estado_bloqueio(conn, bloqueio_id) == "em_atendimento"
+
+    # Escalada 'video_chamada' para a modelo hospeda o card "Hora da vídeo chamada".
+    res = await conn.execute(
+        "SELECT tipo::text AS tipo, responsavel::text AS responsavel "
+        "FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None
+    assert esc["tipo"] == "video_chamada"
+    assert esc["responsavel"] == "modelo"

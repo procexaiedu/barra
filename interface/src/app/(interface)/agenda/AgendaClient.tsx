@@ -102,7 +102,7 @@ export function AgendaClient() {
     observacao: "",
   })
   const bloqueioInicialHandled = useRef(false)
-  const [tipoAtendimento, setTipoAtendimento] = useState<"" | "interno" | "externo">("")
+  const [tipoAtendimento, setTipoAtendimento] = useState<"" | "interno" | "externo" | "remoto">("")
   const [atendimentoVisualizandoId, setAtendimentoVisualizandoId] = useState<string | null>(null)
   // Override "fora da disponibilidade": guarda a confirmação a refazer com a flag (ADR 0005).
   const [foraDisp, setForaDisp] = useState<{ confirmar: () => Promise<void> } | null>(null)

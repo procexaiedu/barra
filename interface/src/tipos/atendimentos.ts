@@ -11,7 +11,7 @@ export type EstadoAtendimento =
   | "Fechado"
   | "Perdido"
 
-export type TipoAtendimento = "interno" | "externo"
+export type TipoAtendimento = "interno" | "externo" | "remoto"
 export type Urgencia = "imediato" | "agendado" | "indefinido" | "estimado"
 export type IaPausadaMotivo = "pix_em_revisao" | "modelo_em_atendimento" | "handoff_ia"
 export type ResponsavelAtual = "IA" | "Fernando" | "modelo"

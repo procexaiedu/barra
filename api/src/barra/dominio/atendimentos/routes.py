@@ -40,6 +40,19 @@ _GRUPOS_ESTADO: dict[str, tuple[str, ...]] = {
     "Aguardando": ("Aguardando_confirmacao", "Confirmado"),
 }
 
+# Quais sinais de qualificacao se aplicam varia por tipo: interno nao tem Pix;
+# remoto (video chamada) nao tem Pix nem local fisico. `::text` evita erro de
+# enum caso o label 'remoto' ainda nao tenha sido aplicado no banco.
+_COND_QUALIFICACAO_COMPLETA = (
+    "a.sinais_qualificacao IS NOT NULL"
+    " AND jsonb_typeof(a.sinais_qualificacao->'aceita_valor') = 'boolean'"
+    " AND jsonb_typeof(a.sinais_qualificacao->'informa_horario') = 'boolean'"
+    " AND (a.tipo_atendimento::text = 'remoto'"
+    " OR jsonb_typeof(a.sinais_qualificacao->'informa_local') = 'boolean')"
+    " AND (a.tipo_atendimento::text IN ('interno', 'remoto')"
+    " OR jsonb_typeof(a.sinais_qualificacao->'envia_pix') = 'boolean')"
+)
+
 
 @router.get("")
 async def listar_atendimentos(
@@ -98,23 +111,9 @@ async def listar_atendimentos(
         filtros.append("(c.nome ILIKE %s OR c.telefone ILIKE %s OR a.numero_curto::text = %s)")
         params.extend([f"%{q}%", f"%{q}%", q])
     if qualificacao_completa is True:
-        filtros.append(
-            "a.sinais_qualificacao IS NOT NULL"
-            " AND jsonb_typeof(a.sinais_qualificacao->'envia_pix') = 'boolean'"
-            " AND jsonb_typeof(a.sinais_qualificacao->'aceita_valor') = 'boolean'"
-            " AND jsonb_typeof(a.sinais_qualificacao->'informa_local') = 'boolean'"
-            " AND jsonb_typeof(a.sinais_qualificacao->'informa_horario') = 'boolean'"
-        )
+        filtros.append(_COND_QUALIFICACAO_COMPLETA)
     elif qualificacao_completa is False:
-        filtros.append(
-            "NOT ("
-            "a.sinais_qualificacao IS NOT NULL"
-            " AND jsonb_typeof(a.sinais_qualificacao->'envia_pix') = 'boolean'"
-            " AND jsonb_typeof(a.sinais_qualificacao->'aceita_valor') = 'boolean'"
-            " AND jsonb_typeof(a.sinais_qualificacao->'informa_local') = 'boolean'"
-            " AND jsonb_typeof(a.sinais_qualificacao->'informa_horario') = 'boolean'"
-            ")"
-        )
+        filtros.append(f"NOT ({_COND_QUALIFICACAO_COMPLETA})")
     if data_inicio:
         filtros.append("(a.created_at AT TIME ZONE 'America/Sao_Paulo')::date >= %s")
         params.append(data_inicio)

@@ -46,6 +46,7 @@ export function ToolbarModelos({
         <option value="todos">Atende em qualquer</option>
         <option value="interno">Atende no local dela</option>
         <option value="externo">Atende no local do cliente</option>
+        <option value="remoto">Faz vídeo chamada</option>
       </SelectFiltro>
       <SelectFiltro
         label="Nível"

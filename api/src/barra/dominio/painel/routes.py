@@ -496,7 +496,9 @@ def _calcular_previsao(row: dict[str, Any]) -> datetime | None:
         foto_em: datetime = row["foto_portaria_em"]
         return foto_em + timedelta(hours=float(duracao))
 
-    if tipo == "externo" and row.get("data_desejada") and row.get("horario_desejado"):
+    # Externo e remoto (video chamada, ADR 0021): a previsao ancora no horario combinado
+    # (remoto nao tem foto de portaria; o bloqueio comeca no horario marcado).
+    if tipo in ("externo", "remoto") and row.get("data_desejada") and row.get("horario_desejado"):
         dt = datetime.combine(row["data_desejada"], row["horario_desejado"], tzinfo=BRT)
         return dt + timedelta(hours=float(duracao))
 

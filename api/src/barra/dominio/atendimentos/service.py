@@ -367,10 +367,13 @@ async def registrar_extracao_ia(
         if novo_estado == "Aguardando_confirmacao":
             atendimento = await _refetch_para_bloqueio(conn, aid)
             # Externo-Uber NAO chega aqui (so pedir_pix_deslocamento o promove, M3e); chegam o
-            # interno e o externo-pickup (cliente_busca, ADR 0020) — ambos criam o bloqueio
-            # previo. O pin de endereco e so do interno (no pickup o ponto de encontro vai por
-            # texto, conduta <externo_cliente_busca>).
-            if atendimento["tipo_atendimento"] == "interno" or atendimento["cliente_busca"]:
+            # interno, o externo-pickup (cliente_busca, ADR 0020) e o remoto (video chamada, ADR
+            # 0021) — todos criam o bloqueio previo. O pin de endereco e so do interno (no pickup
+            # o ponto de encontro vai por texto; remoto nao tem endereco algum).
+            if (
+                atendimento["tipo_atendimento"] in ("interno", "remoto")
+                or atendimento["cliente_busca"]
+            ):
                 from barra.dominio.agenda.service import criar_bloqueio_previo
 
                 await criar_bloqueio_previo(conn, atendimento=atendimento)
@@ -469,7 +472,8 @@ async def _decidir_transicao(conn: AsyncConnection[Any], atendimento_id: UUID) -
     """Transicoes da extracao (02 §11 — fonte unica do lado do agente). Le o estado JA atualizado
     pelo UPSERT. Externo-Uber nao e promovido aqui (invariante: externo sem cliente_busca em
     Aguardando_confirmacao => Pix solicitado; so pedir_pix_deslocamento promove, 01 §6.1).
-    Externo-pickup (cliente_busca, ADR 0020) promove como o interno: sem Pix no fluxo."""
+    Externo-pickup (cliente_busca, ADR 0020) promove como o interno: sem Pix no fluxo.
+    Remoto (video chamada, ADR 0021) tambem promove como o interno: so o horario, sem Pix."""
     res = await conn.execute(
         "SELECT estado::text AS estado, intencao::text AS intencao, "
         "tipo_atendimento::text AS tipo_atendimento, cliente_busca, horario_desejado "
@@ -492,6 +496,7 @@ async def _decidir_transicao(conn: AsyncConnection[Any], atendimento_id: UUID) -
         and a["horario_desejado"] is not None
         and (
             a["tipo_atendimento"] == "interno"
+            or a["tipo_atendimento"] == "remoto"
             or (a["tipo_atendimento"] == "externo" and a["cliente_busca"])
         )
     ):
