@@ -12,6 +12,8 @@ export const TIPOS_ESCALADA = [
   "fora_de_oferta",
   "comportamento_atipico",
   "indisponibilidade",
+  "cliente_busca",
+  "video_chamada",
   "outro",
 ] as const
 

@@ -480,6 +480,51 @@ async def test_atendimento_interno_nao_pede_pix(
 
 
 @pytest.mark.needs_db
+async def test_atendimento_remoto_nao_pede_pix(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Vídeo chamada (remoto, ADR 0021) nao tem Pix de deslocamento — ninguem se desloca. A mesma
+    guarda determinística do interno (`tipo != 'externo'`) rejeita o tool-call alucinado: estado
+    intacto, pix_status preservado, erro recuperavel."""
+    modelo_id = await _seed_modelo(conn, chave_pix=f"k-{uuid4().hex}", titular="T")
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento_externo(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id, tipo="remoto"
+    )
+    await _inserir_mensagem(conn, conversa_id=conversa_id)
+
+    fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="deixa eu te explicar amor")])
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+
+    graph = build_graph()
+    await graph.ainvoke(
+        {"messages": []},
+        config={"recursion_limit": 18},
+        context=_contexto(
+            _PoolDeUmaConexao(conn),
+            modelo_id=modelo_id,
+            atendimento_id=atendimento_id,
+            cliente_id=cliente_id,
+            turno_id=str(uuid4()),
+        ),
+    )
+
+    at = await _atendimento(conn, atendimento_id)
+    assert at["estado"] == "Qualificado"  # inalterado
+    assert at["pix_status"] == "nao_solicitado"
+    assert await _contar_bloqueios(conn, atendimento_id) == 0
+
+    tmsgs = _tool_messages(fake.vistas)
+    assert len(tmsgs) == 1
+    conteudo = str(tmsgs[0].content).lower()
+    assert "ERRO" in str(tmsgs[0].content)
+    # Mensagem dedicada do remoto: orienta seguir sem Pix, NAO reclassificar como externo.
+    assert "vídeo chamada" in conteudo
+    assert "sem pix" in conteudo
+
+
+@pytest.mark.needs_db
 async def test_valor_do_pix_vem_do_setting(
     conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -44,6 +44,12 @@ class _ClienteBusca(Exception):
     sobre a instrucao da docstring/prompt (<externo_cliente_busca>)."""
 
 
+class _TipoRemoto(Exception):
+    """Tool chamada num remoto (video chamada, ADR 0021): ninguem se desloca, Pix de deslocamento
+    nao existe. Guarda dedicada (separada de _TipoNaoExterno) para nao instruir a IA a
+    reclassificar como externo — vídeo chamada nunca vira externo."""
+
+
 @tool
 async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
     """Solicita o Pix de deslocamento, de valor fixo (ref. R$100), para saída externa.
@@ -117,6 +123,14 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
                 "Se na verdade VOCÊ vai de uber até ele, corrija com registrar_extracao "
                 "(cliente_busca=false) antes de pedir o Pix."
             ) from None
+        except _TipoRemoto:
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("pedir_pix_deslocamento", "video_chamada").inc()
+            raise ToolException(
+                "ERRO: este é um atendimento de vídeo chamada (remoto) — ninguém se desloca, então "
+                "NÃO existe Pix de deslocamento. Siga sem Pix: combine só valor e horário; na hora "
+                "marcada o sistema te passa pra fazer a chamada (ver <video_chamada> nas suas "
+                "regras). Não reclassifique como externo."
+            ) from None
         except ConflitoAgenda:
             # Branch 13 (04 §6): a RESERVA do slot falhou (outro cliente já o tomou). O turno
             # inteiro reverteu (pix_status volta a nao_solicitado) — instrua a IA a re-ofertar.
@@ -172,6 +186,9 @@ async def _aplicar_pedido_pix(
     assert atendimento is not None
     # Guarda determinística (CONTEXT.md "Pix de deslocamento": sem Pix no interno) ANTES de
     # qualquer escrita: tipo ausente ou interno aborta a transação inteira (erro recuperável).
+    # Remoto (video chamada, ADR 0021) tem guarda própria — não empurra reclassificar p/ externo.
+    if atendimento["tipo_atendimento"] == "remoto":
+        raise _TipoRemoto()
     if atendimento["tipo_atendimento"] != "externo":
         raise _TipoNaoExterno(atendimento["tipo_atendimento"] or "nao_registrado")
     # Pickup (ADR 0020): cliente busca a modelo — sem Pix de deslocamento.

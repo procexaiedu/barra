@@ -22,6 +22,7 @@ export const estadoLabel: Record<EstadoAtendimento, string> = {
 export const tipoLabel: Record<TipoAtendimento, string> = {
   interno: "No local da modelo",
   externo: "No local do cliente",
+  remoto: "Vídeo chamada",
 }
 
 export const urgenciaLabel: Record<Urgencia, string> = {
@@ -242,6 +243,9 @@ const TODOS_SINAIS: { chave: string; rotulo: string }[] = [
 
 export function sinaisParaTipo(tipo: string | null | undefined): { chave: string; rotulo: string }[] {
   if (tipo === "interno") return TODOS_SINAIS.filter((s) => s.chave !== "envia_pix")
+  // Remoto (vídeo chamada): sem deslocamento e sem Pix — só valor e horário.
+  if (tipo === "remoto")
+    return TODOS_SINAIS.filter((s) => s.chave !== "envia_pix" && s.chave !== "informa_local")
   return TODOS_SINAIS
 }
 

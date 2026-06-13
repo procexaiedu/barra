@@ -35,7 +35,9 @@ class PerderRequest(BaseModel):
 class CorrigirRegistroRequest(BaseModel):
     novo_resultado: Literal["Fechado", "Perdido"]
     valor_final: Decimal | None = Field(default=None, ge=0)
-    motivo: Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None = None
+    motivo: (
+        Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None
+    ) = None
     observacao: str | None = None
     confirmar_alteracao_bloqueio_finalizado: bool = False
 
@@ -45,7 +47,7 @@ class AlterarEstadoRequest(BaseModel):
 
 
 class EditarDadosRequest(BaseModel):
-    tipo_atendimento: Literal["interno", "externo"] | None = None
+    tipo_atendimento: Literal["interno", "externo", "remoto"] | None = None
     urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None
     data_desejada: date | None = None
     horario_desejado: time | None = None

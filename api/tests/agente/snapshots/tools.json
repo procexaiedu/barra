@@ -229,7 +229,8 @@
             {
               "enum": [
                 "interno",
-                "externo"
+                "externo",
+                "remoto"
               ],
               "type": "string"
             },

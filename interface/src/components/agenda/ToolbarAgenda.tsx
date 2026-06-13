@@ -17,13 +17,13 @@ export function ToolbarAgenda({
 }: {
   periodoLabel: string
   modeloId: string | null
-  tipoAtendimento: "" | "interno" | "externo"
+  tipoAtendimento: "" | "interno" | "externo" | "remoto"
   bloqueios: BloqueioAgenda[]
   onAnterior: () => void
   onProximo: () => void
   onHoje: () => void
   onModeloChange: (modeloId: string | null) => void
-  onTipoAtendimentoChange: (tipo: "" | "interno" | "externo") => void
+  onTipoAtendimentoChange: (tipo: "" | "interno" | "externo" | "remoto") => void
 }) {
   const ativos = bloqueios.filter((b) => b.estado === "bloqueado" || b.estado === "em_atendimento").length
   const emAtendimento = bloqueios.filter((b) => b.estado === "em_atendimento").length
@@ -59,12 +59,13 @@ export function ToolbarAgenda({
         <div className="relative">
           <select
             value={tipoAtendimento}
-            onChange={(e) => onTipoAtendimentoChange(e.target.value as "" | "interno" | "externo")}
+            onChange={(e) => onTipoAtendimentoChange(e.target.value as "" | "interno" | "externo" | "remoto")}
             className="h-9 w-full appearance-none rounded-lg border border-input bg-input pl-3 pr-8 text-sm text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
           >
             <option value="">Todos</option>
             <option value="interno">Interno</option>
             <option value="externo">Externo</option>
+            <option value="remoto">Vídeo chamada</option>
           </select>
           <ChevronDown
             size={14}

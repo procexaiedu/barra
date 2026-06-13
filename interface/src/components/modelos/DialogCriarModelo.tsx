@@ -218,6 +218,7 @@ export function TipoChecks({
   const opcoes: { tipo: TipoAtendimento; titulo: string; descricao: string }[] = [
     { tipo: "interno", titulo: "No local dela", descricao: "Cliente vai até a modelo" },
     { tipo: "externo", titulo: "No local do cliente", descricao: "Modelo se desloca" },
+    { tipo: "remoto", titulo: "Vídeo chamada", descricao: "Ao vivo, ninguém se desloca" },
   ]
   return (
     <div className="grid gap-3 sm:grid-cols-2">

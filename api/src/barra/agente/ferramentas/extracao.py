@@ -107,7 +107,7 @@ class ExtracaoPayload(BaseModel):
 
     intencao: Literal["curiosidade", "cotacao", "agendamento"] | None = None
     urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None
-    tipo_atendimento: Literal["interno", "externo"] | None = None
+    tipo_atendimento: Literal["interno", "externo", "remoto"] | None = None
     cliente_busca: bool | None = None
     data_desejada: date | None = None
     horario_desejado: time | None = None
@@ -132,7 +132,7 @@ async def registrar_extracao(
     runtime: ToolRuntime[ContextAgente],
     intencao: Literal["curiosidade", "cotacao", "agendamento"] | None = None,
     urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None,
-    tipo_atendimento: Literal["interno", "externo"] | None = None,
+    tipo_atendimento: Literal["interno", "externo", "remoto"] | None = None,
     cliente_busca: Annotated[bool | None, Field(description=_DESC_CLIENTE_BUSCA)] = None,
     data_desejada: date | None = None,
     horario_desejado: Annotated[time | None, Field(description=_DESC_HORARIO)] = None,

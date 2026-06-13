@@ -302,4 +302,63 @@ async def confirmar_em_execucao(conn: AsyncConnection[Any]) -> int:
         )
         rows_pickup = await result.fetchall()
     TIMEOUTS.labels("em_execucao_pickup").inc(len(rows_pickup))
-    return len(rows) + len(rows_pickup)
+
+    # Remoto / video chamada (ADR 0021): ninguem se desloca — o atendimento espera em
+    # Aguardando_confirmacao ate a hora da chamada (bloqueio.inicio). Aqui entra em execucao COM
+    # pausa da IA (modelo_em_atendimento, como o Pix recebido faria no Uber) e a escalada tipo
+    # 'video_chamada' hospeda o card "Hora da vídeo chamada", entregue pelo reconciliar_cards no
+    # grupo de Coordenacao. Guard ia_pausada=false (nao re-pausa nem re-escala um atendimento ja
+    # pausado). Remoto nunca tem Pix (pix_status segue 'nao_solicitado'), entao nao filtra por ele.
+    async with conn.transaction():
+        result = await conn.execute(
+            """
+            WITH alvo AS (
+              SELECT a.id, a.bloqueio_id
+                FROM barravips.atendimentos a
+                JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+               WHERE a.tipo_atendimento = 'remoto'
+                 AND a.estado = 'Aguardando_confirmacao'
+                 AND a.ia_pausada = false
+                 AND b.inicio <= now()
+               FOR UPDATE OF a SKIP LOCKED
+            ),
+            upd AS (
+              UPDATE barravips.atendimentos a
+                 SET estado = 'Em_execucao',
+                     ia_pausada = true,
+                     ia_pausada_motivo = 'modelo_em_atendimento',
+                     responsavel_atual = 'modelo',
+                     fonte_decisao_ultima_transicao = 'cron_em_execucao'
+                FROM alvo
+               WHERE a.id = alvo.id
+              RETURNING a.id, a.bloqueio_id
+            ),
+            bloq AS (
+              UPDATE barravips.bloqueios b
+                 SET estado = 'em_atendimento'
+                FROM upd
+               WHERE b.id = upd.bloqueio_id AND b.estado = 'bloqueado'
+              RETURNING b.id
+            ),
+            esc AS (
+              INSERT INTO barravips.escaladas (
+                atendimento_id, responsavel, tipo, motivo,
+                resumo_operacional, acao_esperada
+              )
+              SELECT id, 'modelo', 'video_chamada', 'Hora da vídeo chamada',
+                     'Chegou a hora da sua vídeo chamada com o cliente.',
+                     'Faça a chamada; ao encerrar, responda o card com finalizado [valor].'
+                FROM upd
+              RETURNING atendimento_id
+            )
+            INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
+            SELECT id, 'transicao_estado', 'cron', 'sistema',
+                   jsonb_build_object('de', 'Aguardando_confirmacao', 'para', 'Em_execucao',
+                                      'fonte', 'cron_em_execucao', 'gatilho', 'video_chamada')
+              FROM upd
+            RETURNING atendimento_id
+            """
+        )
+        rows_remoto = await result.fetchall()
+    TIMEOUTS.labels("em_execucao_remoto").inc(len(rows_remoto))
+    return len(rows) + len(rows_pickup) + len(rows_remoto)
