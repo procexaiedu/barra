@@ -113,5 +113,8 @@ _dump_*.txt
 # Export de contatos reais (PII de clientes); só local, nunca no repo.
 contacts*.csv
 
+# Artefatos de eval do corpus (contêm @lid de clientes reais — PII); só local, nunca no repo.
+scripts/eval_corpus/
+
 # --- migracao entre maquinas (scripts locais) ---
 _migracao/
