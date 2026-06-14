@@ -16,6 +16,9 @@ os.environ.setdefault("AMBIENTE", "teste")
 os.environ["DATABASE_URL"] = ""
 os.environ["REDIS_URL"] = ""
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+# `api/` no path -> o pacote de harness de evals (api/evals/) importa como `from evals.x import y`
+# tanto na suite (gate de seguranca, Camada 1) quanto nos scripts de shadow (Camada 2).
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import pytest
 
