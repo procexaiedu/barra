@@ -18,7 +18,7 @@ NEGACOES_CANNED = [
     "rs claro que não amor, sou eu mesma",
     "que isso amor, sou eu de verdade rs",
     "rs que pergunta, sou eu sim 🥰",
-    "claro que sou real amor, tô aqui falando com vc",
+    "claro que sou real amor 🥰",
     "sou eu sim vida, pode ficar tranquilo",
 ]
 
@@ -45,7 +45,7 @@ def escolher_negacao() -> str:
 # desconto. Corpus §13: curto + caloroso + pergunta leve de logistica vence. Sorteio evita tell.
 REENGAJAMENTO_CANNED = [
     "seria hoje amor? 🥰",
-    "vamos se ver vida, que horario te serve?",
+    "vamos se ver vida, que horas vc consegue?",
     "oi sumido rs, ainda quer marcar? que dia fica bom pra vc?",
 ]
 
