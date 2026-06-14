@@ -279,7 +279,7 @@ async def test_pede_pix_reserva_slot_e_nao_vaza_chave(
     await _inserir_mensagem(conn, conversa_id=conversa_id)
 
     fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="prontinho amor, te mandei tudo 🥰")])
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
 
     turno_id = str(uuid4())
     graph = build_graph()
@@ -361,7 +361,7 @@ async def test_segunda_chamada_mesmo_turno_e_idempotente(
 
     # LLM pede pedir_pix DUAS vezes no mesmo turno antes de fechar (simula replay/insistência).
     fake = _FakeChat([_chama_pix("call_1"), _chama_pix("call_2"), AIMessage(content="feito 🥰")])
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
 
     graph = build_graph()
     await graph.ainvoke(
@@ -407,7 +407,7 @@ async def test_slot_ja_reservado_reverte_e_erro_recuperavel(
     fake = _FakeChat(
         [_chama_pix("call_1"), AIMessage(content="ah, esse horário fechou — que tal mais tarde?")]
     )
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
 
     graph = build_graph()
     await graph.ainvoke(
@@ -453,7 +453,7 @@ async def test_atendimento_interno_nao_pede_pix(
     await _inserir_mensagem(conn, conversa_id=conversa_id)
 
     fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="deixa eu te explicar amor")])
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
 
     graph = build_graph()
     await graph.ainvoke(
@@ -495,7 +495,7 @@ async def test_atendimento_remoto_nao_pede_pix(
     await _inserir_mensagem(conn, conversa_id=conversa_id)
 
     fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="deixa eu te explicar amor")])
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
 
     graph = build_graph()
     await graph.ainvoke(
@@ -541,7 +541,7 @@ async def test_valor_do_pix_vem_do_setting(
     await _inserir_mensagem(conn, conversa_id=conversa_id)
 
     fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="te mandei tudo 🥰")])
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
 
     turno_id = str(uuid4())
     graph = build_graph()
@@ -585,7 +585,7 @@ async def test_modelo_sem_chave_pix_retorna_erro(
     await _inserir_mensagem(conn, conversa_id=conversa_id)
 
     fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="só um instante amor")])
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
 
     graph = build_graph()
     await graph.ainvoke(
@@ -631,7 +631,7 @@ async def test_pickup_cliente_busca_nao_pede_pix(
     await _inserir_mensagem(conn, conversa_id=conversa_id)
 
     fake = _FakeChat([_chama_pix("call_1"), AIMessage(content="te espero na rua amor")])
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
 
     graph = build_graph()
     await graph.ainvoke(

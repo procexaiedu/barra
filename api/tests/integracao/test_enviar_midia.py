@@ -282,7 +282,7 @@ async def test_enviar_midia_rotacao_call_idx_e_idempotencia(
     fotos = await _seed_3_midias(conn, modelo_id, tag="apresentacao")
 
     fake = _FakeChat([_ai_2_midias("apresentacao"), AIMessage(content="ta ai amor 😘")])
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings: fake)
+    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
 
     graph = build_graph()
     turno_id = str(uuid4())
