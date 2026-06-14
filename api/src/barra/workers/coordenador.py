@@ -84,6 +84,42 @@ def _formatar_bolha_pix(chave: str, titular: str | None, valor: Any) -> str:
     return "\n".join(linhas)
 
 
+# Marcadores de "estou enviando" — uma bolha curta com qualquer um deles, antes da bolha
+# determinística do Pix, é pré-anúncio redundante ("mandando por aqui", "segue"): a chave já sai
+# logo abaixo. Não casa o ENQUADRAMENTO do pedido ("me manda o pixzinho do deslocamento"), que é
+# legítimo e excluído por _eh_pre_anuncio_pix.
+_MARCADORES_ENVIO_PIX = (
+    "mandando",
+    "segue",
+    "ta aqui",
+    "aqui ta",
+    "aqui esta",
+    "aqui vai",
+    "ai vai",
+    "ai esta",
+    "ja te mando",
+    "te mando",
+    "vou mandar",
+    "vou te mandar",
+)
+_EXCLUI_PRE_ANUNCIO_PIX = ("deslocament", "pixzinho", "me manda", "preciso", "manda o", "manda a")
+
+
+def _eh_pre_anuncio_pix(texto: str) -> bool:
+    """A última bolha de texto da IA, antes da bolha do Pix, é só pré-anúncio de envio?
+
+    Rede de segurança determinística (a correção primária é o prompt): a tool não devolve a chave,
+    mas o prompt induzia a IA a "escrever com a chave", produzindo uma ponte vazia ("mandando por
+    aqui 🥰") redundante com a bolha que o coordenador anexa. Descartamos essa ponte. Conservador:
+    só bolha CURTA, com marcador de envio e SEM enquadramento do pedido (que deve sobreviver)."""
+    norm = _norm_quote(texto)
+    if not norm or len(norm) > 35:
+        return False
+    if any(t in norm for t in _EXCLUI_PRE_ANUNCIO_PIX):
+        return False
+    return any(m in norm for m in _MARCADORES_ENVIO_PIX)
+
+
 def _norm_quote(texto: str) -> str:
     """Normaliza para o match de trecho: colapsa espaços, casefold e remove acentos.
 
@@ -486,6 +522,18 @@ async def processar_turno(
                     # Anexa a bolha do Pix (bug F) como ÚLTIMA bolha do turno, sem quote. Quando o
                     # turno pediu Pix ele já é `critico` (não-cancelável), então a chave sempre sai.
                     if pix_row and pix_row.get("chave_pix"):
+                        # Descarta a bolha-ponte de pré-anúncio ("mandando por aqui") antes da chave
+                        # — redundante com a bolha determinística logo abaixo (listas de quote são
+                        # paralelas aos chunks, então a última posição cai junto).
+                        if chunks and _eh_pre_anuncio_pix(chunks[-1]):
+                            logger.info(
+                                "pix_pre_anuncio_descartado turno_id=%s bolha=%r",
+                                turno_id,
+                                chunks[-1],
+                            )
+                            chunks = chunks[:-1]
+                            quote_msg_ids = quote_msg_ids[:-1]
+                            quote_textos = quote_textos[:-1]
                         chunks = [
                             *chunks,
                             _formatar_bolha_pix(

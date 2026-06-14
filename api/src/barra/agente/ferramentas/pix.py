@@ -61,8 +61,10 @@ async def pedir_pix_deslocamento(runtime: ToolRuntime[ContextAgente]) -> str:
     chave/titular/valor exatos à sua mensagem — você NÃO redigita a chave.
 
     Escreva o pedido em UMA só bolha, só DEPOIS desta tool retornar sucesso ("pra eu já chamar
-    o uber e ir te encontrar, manda o pixzinho do deslocamento") — não pré-anuncie numa passagem
-    anterior nem repita. Enquadre como custo da SUA saída, nunca como "garantir/segurar teu
+    o uber e ir te encontrar, manda o pixzinho do deslocamento") e PARE. Não pré-anuncie numa
+    passagem anterior, não repita e não adicione uma bolha de "estou enviando" (nada de "mandando
+    por aqui", "segue", "aqui está"): o sistema anexa a chave logo abaixo da sua mensagem sozinho.
+    Enquadre como custo da SUA saída, nunca como "garantir/segurar teu
     horário" (o horário já fica combinado antes; ver a conduta de Pix nas suas regras).
     Use APENAS para atendimento externo após acordar horário e endereço.
     Use APENAS quando VOCÊ se desloca por conta própria (uber até o cliente). Se o cliente vem
