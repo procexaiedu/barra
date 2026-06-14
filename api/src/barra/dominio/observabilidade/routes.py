@@ -30,6 +30,7 @@ async def listar(
     apenas_nao_avaliadas: bool = False,
     cursor: str | None = None,
     limit: int = Query(50, ge=1, le=100),
+    origem: str = Query("prod", pattern="^(prod|e2e|todos)$"),
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> TurnosObservabilidadeResponse:
     return await service.listar_turnos(
@@ -40,6 +41,7 @@ async def listar(
         apenas_nao_avaliadas=apenas_nao_avaliadas,
         cursor=cursor,
         limit=limit,
+        origem=origem,
     )
 
 

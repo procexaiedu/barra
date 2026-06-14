@@ -66,9 +66,15 @@ async def listar_turnos(
     apenas_nao_avaliadas: bool,
     cursor: str | None,
     limit: int,
+    origem: str = "prod",
 ) -> TurnosObservabilidadeResponse:
     cond: list[str] = []
     params: list[Any] = []
+    # `origem` separa trafego real ('prod', default) das corridas do harness e2e ('e2e'); 'todos'
+    # mostra ambos. Esconder e2e por padrao evita misturar conversas sinteticas com as reais.
+    if origem in ("prod", "e2e"):
+        cond.append("co.origem = %s")
+        params.append(origem)
     if modelo_id is not None:
         cond.append("co.modelo_id = %s")
         params.append(modelo_id)

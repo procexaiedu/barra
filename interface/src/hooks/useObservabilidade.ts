@@ -11,12 +11,16 @@ import type {
 
 type Status = "loading" | "success" | "error"
 
+export type OrigemTurnos = "prod" | "e2e"
+
 export interface FiltrosObservabilidade {
   apenasNaoAvaliadas: boolean
+  // prod = tráfego real (default); e2e = corridas do harness de avaliação (cliente = Claude Code)
+  origem: OrigemTurnos
 }
 
 function buildPath(filtros: FiltrosObservabilidade, cursor?: string | null) {
-  const p = new URLSearchParams({ limit: "50" })
+  const p = new URLSearchParams({ limit: "50", origem: filtros.origem })
   if (filtros.apenasNaoAvaliadas) p.set("apenas_nao_avaliadas", "true")
   if (cursor) p.set("cursor", cursor)
   return `/v1/observabilidade?${p.toString()}`

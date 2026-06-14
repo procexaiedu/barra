@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { Bot } from "lucide-react"
 
-import { useObservabilidade } from "@/hooks/useObservabilidade"
+import { useObservabilidade, type OrigemTurnos } from "@/hooks/useObservabilidade"
 import { ListaTurnos } from "@/components/observabilidade/ListaTurnos"
 import { DialogAvaliar } from "@/components/observabilidade/DialogAvaliar"
 import { Button } from "@/components/ui/button"
@@ -16,8 +16,9 @@ import type { TurnoObservabilidade } from "@/tipos/observabilidade"
 
 export default function ObservabilidadePage() {
   const [apenasNaoAvaliadas, setApenasNaoAvaliadas] = useState(false)
+  const [origem, setOrigem] = useState<OrigemTurnos>("prod")
   const { items, nextCursor, status, error, carregarMais, avaliar, recarregar } =
-    useObservabilidade({ apenasNaoAvaliadas })
+    useObservabilidade({ apenasNaoAvaliadas, origem })
   const [alvo, setAlvo] = useState<TurnoObservabilidade | null>(null)
 
   return (
@@ -29,6 +30,24 @@ export default function ObservabilidadePage() {
 
       <section aria-label="Respostas do agente" className="flex flex-col gap-3">
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
+            {(["prod", "e2e"] as const).map((o) => (
+              <button
+                key={o}
+                type="button"
+                onClick={() => setOrigem(o)}
+                aria-pressed={origem === o}
+                className={cn(
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
+                  origem === o
+                    ? "bg-accent text-text-brand"
+                    : "text-text-muted hover:text-text-primary",
+                )}
+              >
+                {o === "prod" ? "Produção" : "E2E"}
+              </button>
+            ))}
+          </div>
           <button
             type="button"
             onClick={() => setApenasNaoAvaliadas((v) => !v)}
