@@ -3,13 +3,14 @@ import path from "node:path"
 
 const ART = path.resolve(__dirname, ".artifacts")
 
-// Verificacao visual da pagina /observabilidade (CLAUDE.md §5). Authed via storageState (setup).
-// O backend local (localhost:8000) ja expoe /v1/observabilidade. Captura a lista e o dialog de
-// avaliacao para inspecao; nao PERSISTE avaliacao (fecha sem salvar) para nao sujar o prod.
+// Verificacao visual da aba "Avaliar ao vivo" da tela /avaliacao (CLAUDE.md §5). Authed via
+// storageState (setup). O backend local (localhost:8000) ja expoe /v1/observabilidade. Captura a
+// lista e o dialog de avaliacao para inspecao; nao PERSISTE avaliacao (fecha sem salvar) para nao
+// sujar o prod.
 test("observabilidade: lista e dialog de avaliacao", async ({ page }) => {
-  await page.goto("/observabilidade")
+  await page.goto("/avaliacao")
 
-  await expect(page.getByRole("heading", { name: "Observabilidade" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Avaliação" })).toBeVisible()
 
   // espera sair do skeleton: ou aparece a lista, ou o empty state.
   await page.waitForLoadState("networkidle")

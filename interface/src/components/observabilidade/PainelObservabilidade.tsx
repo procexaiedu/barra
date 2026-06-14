@@ -10,11 +10,13 @@ import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
-import { PageHeader } from "@/components/layout/PageHeader"
 import { cn } from "@/lib/utils"
 import type { TurnoObservabilidade } from "@/tipos/observabilidade"
 
-export default function ObservabilidadePage() {
+/** Aba "Avaliar ao vivo" da tela de Avaliação: cada resposta do agente no
+ *  tráfego real (ou e2e), avaliada por Fernando (bom/ruim + nota). Ground-truth
+ *  contínuo, single-rater — distinto da calibração do judge. */
+export function PainelObservabilidade() {
   const [apenasNaoAvaliadas, setApenasNaoAvaliadas] = useState(false)
   const [origem, setOrigem] = useState<OrigemTurnos>("prod")
   const { items, nextCursor, status, error, carregarMais, avaliar, recarregar } =
@@ -22,12 +24,7 @@ export default function ObservabilidadePage() {
   const [alvo, setAlvo] = useState<TurnoObservabilidade | null>(null)
 
   return (
-    <div className="flex flex-col gap-8">
-      <PageHeader
-        title="Observabilidade"
-        description="Cada resposta do agente, avaliada por você — vira o gabarito que mede se a IA substitui o vendedor."
-      />
-
+    <>
       <section aria-label="Respostas do agente" className="flex flex-col gap-3">
         <div className="flex items-center gap-2">
           <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
@@ -120,6 +117,6 @@ export default function ObservabilidadePage() {
           onAvaliar={avaliar}
         />
       )}
-    </div>
+    </>
   )
 }

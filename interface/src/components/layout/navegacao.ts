@@ -8,7 +8,6 @@ import {
   IdCard,
   ChartLine,
   Wallet,
-  ClipboardCheck,
   Bot,
   type LucideIcon,
 } from "lucide-react"
@@ -49,8 +48,7 @@ export const grupos: GrupoNavegacao[] = [
     items: [
       { href: "/dashboard", label: "Dashboard", icon: ChartLine },
       { href: "/financeiro", label: "Financeiro", icon: Wallet },
-      { href: "/observabilidade", label: "Observabilidade", icon: Bot },
-      { href: "/calibracao", label: "Calibração", icon: ClipboardCheck },
+      { href: "/avaliacao", label: "Avaliação", icon: Bot },
     ],
   },
 ]

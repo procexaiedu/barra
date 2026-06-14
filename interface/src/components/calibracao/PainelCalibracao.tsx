@@ -4,12 +4,15 @@ import { toast } from "sonner"
 
 import { ListaFalas } from "@/components/calibracao/ListaFalas"
 import { SeletorRodada } from "@/components/calibracao/SeletorRodada"
-import { PageHeader } from "@/components/layout/PageHeader"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCalibracao } from "@/hooks/useCalibracao"
 
-export default function CalibracaoPage() {
+/** Aba "Calibrar judge" da tela de Avaliação: rotulagem double-blind (Fernando
+ *  e sócia, independentes) de rodadas .jsonl para montar o golden.jsonl que
+ *  calibra o LLM-judge (ADR 0015). Batch + 2 raters — distinto da avaliação
+ *  ao vivo. */
+export function PainelCalibracao() {
   const cal = useCalibracao()
 
   async function criar(nome: string, arquivo: File) {
@@ -68,10 +71,6 @@ export default function CalibracaoPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader
-        title="Calibração"
-        description="Rotule cada fala da IA (✓ passou / ✕ não passou) para calibrar o judge. Você e a sócia marcam de forma independente."
-      />
       <SeletorRodada
         rodadas={cal.rodadas}
         rodadaId={cal.rodadaId}

@@ -56,7 +56,7 @@ const ROTAS = [
   "/modelos",
   "/dashboard",
   "/financeiro",
-  "/calibracao",
+  "/avaliacao",
 ]
 
 for (const rota of ROTAS) {
