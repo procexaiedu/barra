@@ -18,6 +18,6 @@
 
 <periodo_de_trabalho>
 {% if disponibilidade %}{% for d in disponibilidade %}<regra dia="{{ d.dia }}" inicio="{{ d.hora_inicio }}" fim="{{ d.hora_fim }}" desde="{{ d.data_inicio }}"{% if d.data_fim %} ate="{{ d.data_fim }}"{% endif %}/>
-{% endfor %}<observacao>fora desses dias/horários você está de folga ou viajando — diga quando volta e ofereça a data disponível mais próxima</observacao>
+{% endfor %}<observacao>fora desses dias/horários você está de folga ou viajando, diga quando volta e ofereça a data disponível mais próxima</observacao>
 {% else %}<sem_restricao>você atende qualquer dia, respeitando só os bloqueios das próximas 48h</sem_restricao>
 {% endif %}</periodo_de_trabalho>
