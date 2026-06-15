@@ -194,13 +194,17 @@ class Settings(BaseSettings):
         description="Teto do Desconto de fechamento sobre o Preço de tabela do programa (ADR-0004). 0 desliga o desconto (IA escala todo pedido abaixo da tabela).",
     )
     reengajamento_ativo: bool = Field(
-        default=False,
-        description="Liga a reabertura proativa de cliente que sumiu após a cotação. Default off no início do piloto (docs/agente/07 §4).",
+        default=True,
+        description="Liga a reabertura proativa de cliente que sumiu após a cotação. Piloto ligado em 15/06 (docs/agente/07 §4); desligue via REENGAJAMENTO_ATIVO=false.",
     )
     reengajamento_delay_min: int = Field(
-        default=30,
+        default=45,
         ge=1,
-        description="Minutos de silêncio do cliente após a cotação antes do toque único de reengajamento.",
+        description=(
+            "Minutos de silêncio do cliente após a cotação antes do toque único de reengajamento. "
+            "45 calibrado no corpus do Vendedor (corpus.eval_reengajamento): retorno faz platô de "
+            "~40min a 2h (~83%) e despenca após 12h; o humano nunca cutuca antes de 40min."
+        ),
     )
     operacao_hora_inicio: int = Field(
         default=10,

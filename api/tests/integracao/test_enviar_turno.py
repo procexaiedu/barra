@@ -37,6 +37,7 @@ def _sem_sleep(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 class _Result:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
+        self.rowcount = len(rows)
 
     async def fetchone(self) -> dict[str, Any] | None:
         return self._rows[0] if self._rows else None
@@ -387,3 +388,66 @@ async def test_nao_redige_pii_que_nao_veio_do_cliente() -> None:
     )
 
     assert _so(evolution, "texto") == ["pra garantir, manda o pix pra 123.456.789-00"]
+
+
+async def test_carimba_cotacao_quando_chunk_tem_preco() -> None:
+    """Rede determinística do ADR 0022: chunk com preço dispara o carimbo de cotação na MESMA
+    transação do envio, mesmo sem o flag `cotacao_apresentada` do LLM. Só o chunk com R$ carimba,
+    e o UPDATE traz o gate de estado da venda (Triagem/Qualificado)."""
+    turno_id, conversa_id = "turno-COT", str(uuid4())
+    updates: list[tuple[str, Any]] = []
+
+    class _ConnCapta(_FakeConn):
+        async def execute(self, query: str, params: Any = None) -> _Result:
+            if "SET cotacao_enviada_em" in query:
+                updates.append((query, params))
+            return await super().execute(query, params)
+
+    conn = _ConnCapta(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["a hora fica R$800 amor", "qual prefere?"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert len(updates) == 1  # só o chunk com preço
+    assert "estado IN ('Triagem', 'Qualificado')" in updates[0][0]
+
+
+async def test_nao_carimba_cotacao_sem_preco() -> None:
+    """Texto sem R$ (reengajamento/canned passam por aqui) não dispara carimbo de cotação."""
+    turno_id, conversa_id = "turno-SEM", str(uuid4())
+    updates: list[str] = []
+
+    class _ConnCapta(_FakeConn):
+        async def execute(self, query: str, params: Any = None) -> _Result:
+            if "SET cotacao_enviada_em" in query:
+                updates.append(query)
+            return await super().execute(query, params)
+
+    conn = _ConnCapta(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["oi amor, ainda tá pensando? 🥰"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert updates == []
