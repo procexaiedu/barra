@@ -41,7 +41,7 @@ export function ItemMidia({
         )}
       </button>
       <div className="flex items-center justify-between gap-2 px-2.5 py-2">
-        <span className="truncate text-xs font-medium text-text-secondary">{item.tag}</span>
+        <span className={`truncate text-xs font-medium ${item.tag ? "text-text-secondary" : "italic text-text-muted"}`}>{item.tag || "Sem tag"}</span>
         <div className="flex shrink-0 gap-0.5">
           <Button variant="ghost" size="icon-xs" onClick={onToggleAprovada} aria-label={item.aprovada ? "Inativar" : "Ativar"}>
             {item.aprovada ? <EyeOff size={12} strokeWidth={1.5} /> : <Eye size={12} strokeWidth={1.5} />}
