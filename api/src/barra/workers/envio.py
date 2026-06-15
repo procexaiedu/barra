@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import random
+import re
 from collections.abc import Awaitable, Callable
 from datetime import timedelta
 from time import perf_counter
@@ -23,6 +24,7 @@ from barra.core.metrics import (
     ENVIO_RETRIES,
 )
 from barra.core.tracing import sentry_sdk
+from barra.dominio.atendimentos.service import marcar_cotacao_enviada_por_texto
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.dominio.escaladas.service import (
     abrir_handoff,
@@ -40,6 +42,11 @@ logger = logging.getLogger(__name__)
 # bater com o max_tries registrado em workers/settings.py — senao a checagem job_try>=max_tries
 # nunca dispara e a escalada de envio crítico exaurido some em silêncio. Mude aqui, muda nos dois.
 MAX_TRIES_ENVIO = 3
+
+# Rede determinística do carimbo de cotação (ADR 0022): um chunk de saída com preço (R$ seguido
+# de dígito) ancora o reengajamento mesmo quando o LLM não marca `cotacao_apresentada`. Caminhos
+# canned/reengajamento passam por aqui sem preço no texto, então não disparam falso carimbo.
+RE_PRECO = re.compile(r"R\$\s?\d")
 
 
 async def enviar_texto_job(
@@ -668,6 +675,11 @@ async def enviar_turno(
                     """,
                     (conversa_uuid, conv["atendimento_id"], conteudo, mid),
                 )
+                # Carimbo determinístico da cotação (ADR 0022): na MESMA transação do envio,
+                # ancora o reengajamento só pelo que de fato saiu. Idempotente (guard IS NULL +
+                # estado) — repetir entre chunks/retries é no-op.
+                if conv["atendimento_id"] is not None and RE_PRECO.search(conteudo):
+                    await marcar_cotacao_enviada_por_texto(conn, conv["atendimento_id"])
 
             # 6. MARK-AFTER-SEND: só agora idx conta como entregue (05 §4.3)
             await redis.sadd(f"enviados:{turno_id}", f"chunk:{idx}")

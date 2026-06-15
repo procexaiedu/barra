@@ -825,3 +825,26 @@ async def marcar_cotacao_enviada(conn: AsyncConnection[Any], atendimento_id: UUI
         (atendimento_id,),
     )
     return result.rowcount > 0
+
+
+async def marcar_cotacao_enviada_por_texto(
+    conn: AsyncConnection[Any], atendimento_id: UUID
+) -> bool:
+    """Carimba `cotacao_enviada_em=now()` quando a IA de fato enviou um texto COM preco.
+
+    Rede deterministica do ADR 0022: complementa o flag `cotacao_apresentada` da extracao, que
+    depende do LLM lembrar de marca-lo (e nao marca quando lista a tabela inteira e trata como
+    "aguardando escolha do programa"). Alem do guard IS NULL (first-write-wins), exige estado
+    `Triagem`/`Qualificado`: so a cotacao da fase de venda ancora o reengajamento; um `R$` que
+    aparece depois (ex.: reconfirmar valor em Aguardando_confirmacao) nao cria ancora espuria.
+    """
+    result = await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET cotacao_enviada_em = now()
+         WHERE id = %s AND cotacao_enviada_em IS NULL
+           AND estado IN ('Triagem', 'Qualificado')
+        """,
+        (atendimento_id,),
+    )
+    return result.rowcount > 0
