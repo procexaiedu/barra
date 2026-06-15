@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS corpus.eval_e2e (
     id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     run_tag            text        NOT NULL,
     perfil_nome        text        NOT NULL,
+    eixo               text        NOT NULL DEFAULT '',  -- eixo de comportamento (cobertura); '' nos cenarios sinteticos
     thread_ref         text,                    -- origem no corpus (instancia:remote_jid)
     desfecho_conducao  text        NOT NULL,    -- conduziu | pausou_handoff | cliente_sumiu | max_turnos
     estado_final       text,                    -- estado do atendimento ao parar

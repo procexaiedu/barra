@@ -36,10 +36,17 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from evals.e2e.avaliacao import (
+    avaliar_e2e,
+    flush_langfuse,
+    gravar_veredito,
+    pontuar_no_langfuse,
+)
 from evals.e2e.extracao import extrair_perfil_por_ref
 from evals.e2e.perfil import ESTADOS_CONDUZIDOS, PerfilCaso, perfil_para_fixture
 from evals.e2e.persistencia import gravar_resposta_ia, seed_caso_persistente
-from evals.harness import Cenario, rodar_turno, seedar
+from evals.e2e.runner import ResultadoE2E
+from evals.harness import Cenario, ResultadoTurno, habilitar_tracing, rodar_turno, seedar
 
 _USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 
@@ -145,6 +152,9 @@ class Sessao:
         self.persistir = persistir  # True: commita em barravips (painel); False: ROLLBACK no /fim
         self.i = 0
         self.custo = 0.0
+        # Acumulados p/ o veredito no /fim (mesma estrutura que runner.ResultadoE2E consome).
+        self.turnos: list[ResultadoTurno] = []
+        self.trajetoria: list[dict[str, Any]] = []
 
 
 async def abrir_sessao(ref: str, *, fake: bool, persistir: bool) -> Sessao:
@@ -199,9 +209,13 @@ async def _h_turno(request: Request) -> JSONResponse:
     if not texto:
         return JSONResponse({"erro": "campo 'texto' vazio"}, status_code=400)
 
-    r = await rodar_turno(s.conn, s.cen, turno_cliente=texto, graph=s.graph)
+    r = await rodar_turno(
+        s.conn, s.cen, turno_cliente=texto, graph=s.graph, trace_tag="e2e", escopar_trace=True
+    )
     s.i += 1
     s.custo += r.metricas.custo_brl
+    s.turnos.append(r)
+    s.trajetoria.append(r.estado_final)
     estado = (r.estado_final or {}).get("estado")
     if s.persistir:
         # grava a bolha da IA (o worker de envio nao roda no harness) e COMMITA o turno inteiro
@@ -221,8 +235,61 @@ async def _h_turno(request: Request) -> JSONResponse:
     )
 
 
+def _inferir_desfecho(s: Sessao, override: str | None) -> str:
+    """Como a conducao parou. O cliente (Claude Code) pode informar `desfecho` no /fim
+    (cliente_sumiu/max_turnos); senao inferimos do ultimo estado/pausa."""
+    if not s.turnos:
+        return "sem_turnos"
+    ultimo = s.turnos[-1].estado_final or {}
+    if ultimo.get("estado") in ESTADOS_CONDUZIDOS:
+        return "conduziu"
+    if ultimo.get("ia_pausada"):
+        return "pausou_handoff"
+    return override or "encerrado"
+
+
+def _veredito_da_sessao(s: Sessao, override: str | None) -> Any:
+    """Monta o ResultadoE2E acumulado e devolve o VeredictoE2E (puro, sem tocar o DB)."""
+    res = ResultadoE2E(
+        perfil_nome=s.perfil.nome,
+        trajetoria=s.trajetoria,
+        turnos=s.turnos,
+        desfecho_conducao=_inferir_desfecho(s, override),
+        estado_final=(s.turnos[-1].estado_final or {}).get("estado") if s.turnos else None,
+        desfecho_real=s.perfil.desfecho_real,
+    )
+    return avaliar_e2e(res, s.perfil)
+
+
 async def _h_fim(request: Request) -> JSONResponse:
     s: Sessao = request.app.state.sessao
+    body = await request.json() if await request.body() else {}
+    veredito = _veredito_da_sessao(s, str(body.get("desfecho") or "") or None)
+
+    # Veredito como score no trace Langfuse do ultimo turno (EVAL-11 online) + flush da entrega.
+    await pontuar_no_langfuse(s.turnos[-1].trace_id if s.turnos else None, veredito)
+    await flush_langfuse()
+
+    # Veredito em corpus.eval_e2e: conn AUTOCOMMIT separada (sobrevive ao rollback do seed). So com
+    # E2E_RUN_TAG (intencao explicita) e a ddl.sql aplicada — ambos §0 (escrita em prod).
+    run_tag = os.environ.get("E2E_RUN_TAG")
+    if run_tag:
+        conn_eval = await AsyncConnection.connect(
+            os.environ["TEST_DATABASE_URL"], autocommit=True, row_factory=dict_row
+        )
+        try:
+            await gravar_veredito(
+                conn_eval,
+                veredito,
+                run_tag=run_tag,
+                thread_ref=s.perfil.thread_ref,
+                desfecho_real=s.perfil.desfecho_real,
+                trajetoria=s.trajetoria,
+                eixo=s.perfil.eixo_comportamento,
+            )
+        finally:
+            await conn_eval.close()
+
     if not s.conn.closed:
         if s.persistir:
             await s.conn.commit()  # turnos ja commitados; garante o estado final
@@ -230,7 +297,20 @@ async def _h_fim(request: Request) -> JSONResponse:
             await s.conn.rollback()  # nada commita (§0)
         await s.conn.close()
     request.app.state.server.should_exit = True
-    return JSONResponse({"n_turnos": s.i, "custo_total_brl": round(s.custo, 6), "encerrado": True})
+    return JSONResponse(
+        {
+            "n_turnos": s.i,
+            "custo_total_brl": round(s.custo, 6),
+            "conduziu": veredito.conduziu,
+            "desfecho_conducao": veredito.desfecho_conducao,
+            "estado_final": veredito.estado_final,
+            "bate_desfecho_real": veredito.bate_desfecho_real,
+            "violacoes": veredito.violacoes,
+            "veredito_ok": veredito.ok,
+            "gravado_run_tag": run_tag,
+            "encerrado": True,
+        }
+    )
 
 
 def _gravar_perfil(io_dir: str, perfil: PerfilCaso) -> None:
@@ -255,6 +335,8 @@ def _gravar_perfil(io_dir: str, perfil: PerfilCaso) -> None:
 
 
 async def _serve(args: argparse.Namespace) -> None:
+    ligou = habilitar_tracing()  # liga o trace Langfuse de prod (ADR 0019); no-op sem as envs
+    print(f"langfuse: {'ligado' if ligou else 'desligado (sem LANGFUSE_*)'}")
     sessao = await abrir_sessao(args.ref, fake=args.fake, persistir=args.persistir)
     app = Starlette(
         routes=[

@@ -17,7 +17,7 @@ o caller. Este modulo so prepara o cenario, executa um turno e coleta o resultad
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
 from time import perf_counter
 from typing import Any
@@ -172,6 +172,7 @@ class ResultadoTurno:
     mensagens: list[BaseMessage]  # mensagens cruas do turno (debug)
     estado_final: dict[str, Any]  # {estado, pix_status, ia_pausada} pos-turno (state_check)
     metricas: Metricas = field(default_factory=Metricas)  # observabilidade do turno
+    trace_id: str | None = None  # trace Langfuse do turno (so com escopar_trace); ancora o score
 
 
 def _metricas_tokens(mensagens: list[BaseMessage], cotacao_usd_brl: float) -> Metricas:
@@ -491,10 +492,15 @@ async def rodar_turno(
     *,
     turno_cliente: str,
     graph: Any | None = None,
+    trace_tag: str = "eval_gate",
+    escopar_trace: bool = False,
 ) -> ResultadoTurno:
     """Insere a mensagem do cliente, roda UM `ainvoke` (gasta credito, §0) e coleta o resultado.
 
     `graph` reusavel entre turnos (build_graph() uma vez). `conn` e a MESMA do seed (transacao).
+    `trace_tag` marca a origem do trace no Langfuse (gate vs e2e). `escopar_trace` embrulha o
+    ainvoke num span com trace-id deterministico (padrao de prod, coordenador.py) e o devolve em
+    `ResultadoTurno.trace_id` para ancorar o score online (`registrar_feedback_online`).
     """
     await _inserir_mensagem(
         conn, conversa_id=cen.conversa_id, direcao="cliente", texto=turno_cliente
@@ -514,16 +520,28 @@ async def rodar_turno(
     # Observabilidade: trace Langfuse (ADR 0019) quando habilitado (`habilitar_tracing`), escopado
     # por modelo/atendimento — o MESMO caminho de prod. Tags extras marcam que o trace e do gate.
     config: dict[str, Any] = {"recursion_limit": 18, "callbacks": [handler]}
+    trace_id: str | None = None
+    span_ctx: AbstractContextManager[Any] = nullcontext()
     lf = langfuse_handler()
     if lf is not None:
         config["callbacks"].append(lf)
         meta = metadata_trace_turno(str(cen.modelo_id), str(cen.atendimento_id))
-        meta["metadata"]["langfuse_tags"] = [*meta["metadata"]["langfuse_tags"], "eval_gate"]
+        meta["metadata"]["langfuse_tags"] = [*meta["metadata"]["langfuse_tags"], trace_tag]
         config["metadata"] = meta["metadata"]
-        config["tags"] = [*meta["tags"], "eval_gate"]
+        config["tags"] = [*meta["tags"], trace_tag]
+        if escopar_trace:
+            # trace-id deterministico (seed=turno_id) + span explicito: o CallbackHandler pendura
+            # o grafo nele e o mesmo id ancora o score online no /fim (padrao de coordenador.py).
+            from langfuse import Langfuse, get_client
+
+            trace_id = Langfuse.create_trace_id(seed=ctx.turno_id)
+            span_ctx = get_client().start_as_current_observation(
+                as_type="span", name="turno_e2e", trace_context={"trace_id": trace_id}
+            )
 
     t0 = perf_counter()
-    estado = await graph.ainvoke({"messages": []}, config=config, context=ctx)
+    with span_ctx:
+        estado = await graph.ainvoke({"messages": []}, config=config, context=ctx)
     latencia = perf_counter() - t0
 
     mensagens: list[BaseMessage] = estado["messages"]
@@ -539,6 +557,7 @@ async def rodar_turno(
         mensagens=mensagens,
         estado_final=await estado_pos_turno(conn, cen.atendimento_id),
         metricas=metricas,
+        trace_id=trace_id,
     )
 
 
