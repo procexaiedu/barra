@@ -69,6 +69,8 @@ desktop.ini
 .claude/scheduled_tasks.lock
 # Permissões locais do Claude Code — config por máquina, não vai pro repo.
 .claude/settings.local.json
+# Memória pessoal do Claude Code (URLs de sandbox, credenciais de teste) — nunca no repo.
+CLAUDE.local.md
 # Logs locais de execução de agentes/skills — só local
 .claude/logs/
 # Skills do Claude Code (ferramental por-máquina, não código do projeto)
