@@ -54,26 +54,30 @@ _COND_QUALIFICACAO_COMPLETA = (
 )
 
 
-@router.get("")
-async def listar_atendimentos(
-    conn: AsyncConnection[Any] = Depends(get_conn),
-    estado: str | None = None,
-    tipo_atendimento: str | None = None,
-    urgencia: str | None = None,
-    ia_pausada: bool | None = None,
-    modelo_id: list[UUID] | None = Query(None),
-    motivo_perda: str | None = None,
-    motivo_escalada: str | None = None,
-    q: str | None = None,
-    qualificacao_completa: bool | None = None,
-    data_inicio: date | None = Query(None),
-    data_fim: date | None = Query(None),
-    limit: int = Query(50, ge=1, le=100),
-    cursor: str | None = None,
-) -> dict[str, Any]:
+def _montar_filtros_atendimentos(
+    *,
+    estado: str | None,
+    tipo_atendimento: str | None,
+    urgencia: str | None,
+    ia_pausada: bool | None,
+    modelo_id: list[UUID] | None,
+    motivo_perda: str | None,
+    motivo_escalada: str | None,
+    q: str | None,
+    qualificacao_completa: bool | None,
+    data_inicio: date | None,
+    data_fim: date | None,
+) -> tuple[list[str], list[Any]]:
+    """Monta o WHERE compartilhado por GET /atendimentos e GET /atendimentos/resumo.
+
+    `estado='todos'` não aplica filtro de estado (inclui Fechado/Perdido);
+    `estado` ausente mantém o default "abertos" (NOT IN terminais).
+    """
     params: list[Any] = []
     filtros = ["1=1"]
-    if estado:
+    if estado == "todos":
+        pass
+    elif estado:
         grupo = _GRUPOS_ESTADO.get(estado)
         if grupo:
             placeholders = ", ".join(["%s"] * len(grupo))
@@ -120,6 +124,39 @@ async def listar_atendimentos(
     if data_fim:
         filtros.append("(a.created_at AT TIME ZONE 'America/Sao_Paulo')::date <= %s")
         params.append(data_fim)
+    return filtros, params
+
+
+@router.get("")
+async def listar_atendimentos(
+    conn: AsyncConnection[Any] = Depends(get_conn),
+    estado: str | None = None,
+    tipo_atendimento: str | None = None,
+    urgencia: str | None = None,
+    ia_pausada: bool | None = None,
+    modelo_id: list[UUID] | None = Query(None),
+    motivo_perda: str | None = None,
+    motivo_escalada: str | None = None,
+    q: str | None = None,
+    qualificacao_completa: bool | None = None,
+    data_inicio: date | None = Query(None),
+    data_fim: date | None = Query(None),
+    limit: int = Query(50, ge=1, le=100),
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    filtros, params = _montar_filtros_atendimentos(
+        estado=estado,
+        tipo_atendimento=tipo_atendimento,
+        urgencia=urgencia,
+        ia_pausada=ia_pausada,
+        modelo_id=modelo_id,
+        motivo_perda=motivo_perda,
+        motivo_escalada=motivo_escalada,
+        q=q,
+        qualificacao_completa=qualificacao_completa,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+    )
     if cursor:
         if "|" in cursor:
             cursor_ts, cursor_id = cursor.rsplit("|", 1)
@@ -191,6 +228,106 @@ async def listar_atendimentos(
             for row in rows
         ],
         "next_cursor": next_cursor,
+    }
+
+
+@router.get("/resumo")
+async def resumo_atendimentos(
+    conn: AsyncConnection[Any] = Depends(get_conn),
+    estado: str | None = None,
+    tipo_atendimento: str | None = None,
+    urgencia: str | None = None,
+    ia_pausada: bool | None = None,
+    modelo_id: list[UUID] | None = Query(None),
+    motivo_perda: str | None = None,
+    motivo_escalada: str | None = None,
+    q: str | None = None,
+    qualificacao_completa: bool | None = None,
+    data_inicio: date | None = Query(None),
+    data_fim: date | None = Query(None),
+) -> dict[str, Any]:
+    """Agrega o recorte atual (mesmos filtros da lista): faturamento bruto dos
+    Fechados (Σ valor_final), contagens e ticket médio, por modelo e por estado.
+
+    Só o bruto é somado — os dados importados não têm repasse/taxa snapshot
+    (ver dashboard para líquido/repasse de atendimentos com snapshot).
+    """
+    filtros, params = _montar_filtros_atendimentos(
+        estado=estado,
+        tipo_atendimento=tipo_atendimento,
+        urgencia=urgencia,
+        ia_pausada=ia_pausada,
+        modelo_id=modelo_id,
+        motivo_perda=motivo_perda,
+        motivo_escalada=motivo_escalada,
+        q=q,
+        qualificacao_completa=qualificacao_completa,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+    )
+    where = " AND ".join(filtros)
+
+    por_estado_rows = await _fetch_all(
+        conn,
+        f"""
+        SELECT a.estado::text AS estado,
+               COUNT(*)::int AS total,
+               COALESCE(SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0)::float8
+                 AS faturamento_bruto_brl
+          FROM barravips.atendimentos a
+          JOIN barravips.clientes c ON c.id = a.cliente_id
+         WHERE {where}
+         GROUP BY a.estado
+        """,
+        tuple(params),
+    )
+    por_modelo_rows = await _fetch_all(
+        conn,
+        f"""
+        SELECT m.id AS modelo_id, m.nome AS modelo_nome,
+               COUNT(*) FILTER (WHERE a.estado = 'Fechado')::int AS fechados,
+               COALESCE(SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0)::float8
+                 AS faturamento_bruto_brl
+          FROM barravips.atendimentos a
+          JOIN barravips.clientes c ON c.id = a.cliente_id
+          JOIN barravips.modelos m ON m.id = a.modelo_id
+         WHERE {where}
+         GROUP BY m.id, m.nome
+         ORDER BY faturamento_bruto_brl DESC, fechados DESC, m.nome
+        """,
+        tuple(params),
+    )
+
+    total = sum(r["total"] for r in por_estado_rows)
+    fechados = next((r["total"] for r in por_estado_rows if r["estado"] == "Fechado"), 0)
+    faturamento = sum(r["faturamento_bruto_brl"] for r in por_estado_rows)
+    ticket_medio = faturamento / fechados if fechados else None
+
+    return {
+        "total": total,
+        "fechados": fechados,
+        "faturamento_bruto_brl": faturamento,
+        "ticket_medio_brl": ticket_medio,
+        "por_modelo": [
+            {
+                "modelo_id": str(r["modelo_id"]),
+                "modelo_nome": r["modelo_nome"],
+                "fechados": r["fechados"],
+                "faturamento_bruto_brl": r["faturamento_bruto_brl"],
+                "ticket_medio_brl": (
+                    r["faturamento_bruto_brl"] / r["fechados"] if r["fechados"] else None
+                ),
+            }
+            for r in por_modelo_rows
+        ],
+        "por_estado": [
+            {
+                "estado": r["estado"],
+                "total": r["total"],
+                "faturamento_bruto_brl": r["faturamento_bruto_brl"],
+            }
+            for r in por_estado_rows
+        ],
     }
 
 

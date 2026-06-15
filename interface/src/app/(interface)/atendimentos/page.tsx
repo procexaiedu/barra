@@ -12,6 +12,7 @@ import { FiltroModelo } from "@/components/filtros/FiltroModelo"
 import { PainelFiltros } from "@/components/filtros/PainelFiltros"
 import { SelectFiltro } from "@/components/filtros/SelectFiltro"
 import { ListaAtendimentos } from "@/components/atendimentos/ListaAtendimentos"
+import { ResumoFinanceiro } from "@/components/atendimentos/ResumoFinanceiro"
 import { KanbanBoard } from "@/components/atendimentos/KanbanBoard"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { ModalReatribuir } from "@/components/atendimentos/ModalReatribuir"
@@ -59,6 +60,7 @@ function getViewServerSnapshot(): ViewMode {
 }
 
 const ESTADOS_VALIDOS: ReadonlySet<string> = new Set([
+  "todos",
   "Qualificando",
   "Aguardando",
   "Em_execucao",
@@ -68,6 +70,7 @@ const ESTADOS_VALIDOS: ReadonlySet<string> = new Set([
 
 const estados: { value: EstadoFiltro; label: string }[] = [
   { value: "abertos", label: "Abertos" },
+  { value: "todos", label: "Todos" },
   { value: "Qualificando", label: "Qualificando" },
   { value: "Aguardando", label: "Aguardando" },
   { value: "Em_execucao", label: "Em atendimento" },
@@ -291,6 +294,10 @@ function CentralAtendimentosInner() {
           onQualificacaoChange={(value) => atendimentos.setFiltros((current) => ({ ...current, qualificacao: value }))}
           onPeriodoChange={aplicarPeriodo}
         />
+      </div>
+
+      <div className="flex-none">
+        <ResumoFinanceiro resumo={atendimentos.resumo} status={atendimentos.resumoStatus} />
       </div>
 
       {view === "lista" ? (

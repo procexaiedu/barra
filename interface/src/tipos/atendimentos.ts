@@ -164,7 +164,32 @@ export interface AtendimentoDetalheResponse {
 }
 
 export type EstadoGrupo = "Qualificando" | "Aguardando"
-export type EstadoFiltro = "abertos" | EstadoGrupo | EstadoAtendimento
+export type EstadoFiltro = "abertos" | "todos" | EstadoGrupo | EstadoAtendimento
+
+/** Recorte financeiro de um modelo dentro do filtro atual (GET /atendimentos/resumo). */
+export interface ResumoModeloAtendimentos {
+  modelo_id: string
+  modelo_nome: string
+  fechados: number
+  faturamento_bruto_brl: number
+  ticket_medio_brl: number | null
+}
+
+export interface ResumoEstadoAtendimentos {
+  estado: EstadoAtendimento
+  total: number
+  faturamento_bruto_brl: number
+}
+
+/** Agregado do recorte atual: faturamento bruto dos Fechados + contagens. */
+export interface ResumoAtendimentos {
+  total: number
+  fechados: number
+  faturamento_bruto_brl: number
+  ticket_medio_brl: number | null
+  por_modelo: ResumoModeloAtendimentos[]
+  por_estado: ResumoEstadoAtendimentos[]
+}
 export type TipoFiltro = "todos" | TipoAtendimento
 export type UrgenciaFiltro = "todas" | Urgencia
 export type IaFiltro = "todos" | "ativa" | "pausada"

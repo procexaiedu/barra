@@ -48,22 +48,35 @@ def _predicado_periodo(
     return None
 
 
-@router.get("/clientes")
-async def listar_clientes(
-    conn: AsyncConnection[Any] = Depends(get_conn),
-    modelo_id: list[UUID] | None = Query(None),
-    q: str | None = None,
-    periodo: str | None = None,
-    data_inicio: str | None = None,
-    data_fim: str | None = None,
-    perfis: list[str] | None = Query(default=None),
-    recencia: Literal["ativos", "dormentes"] | None = None,
-    valor_min: float | None = None,
-    valor_max: float | None = None,
-    incluir_arquivados: bool = False,
-    limit: int = Query(50, ge=1, le=100),
-    cursor: str | None = None,
-) -> dict[str, Any]:
+# LATERAL agregado enxuto (cross-modelo) para o resumo: só as colunas que os
+# filtros (valor_min/max, recencia) e os totais (faturamento, recorrência) usam.
+_LATERAL_AG_RESUMO = """
+  LEFT JOIN LATERAL (
+    SELECT
+      COUNT(*) FILTER (WHERE a.estado = 'Fechado') AS total_fechados,
+      COALESCE(SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0) AS valor_total,
+      MAX(a.updated_at) AS ultima_atividade
+      FROM barravips.atendimentos a
+     WHERE a.cliente_id = c.id
+  ) ag ON TRUE
+"""
+
+
+def _montar_filtros_clientes(
+    *,
+    modelo_id: list[UUID] | None,
+    q: str | None,
+    periodo: str | None,
+    data_inicio: str | None,
+    data_fim: str | None,
+    perfis: list[str] | None,
+    recencia: Literal["ativos", "dormentes"] | None,
+    valor_min: float | None,
+    valor_max: float | None,
+    incluir_arquivados: bool,
+) -> tuple[list[str], list[Any]]:
+    """WHERE compartilhado por GET /clientes e GET /clientes/resumo. Referencia
+    `c.*` e o LATERAL `ag` (presente em ambas as queries)."""
     params: list[Any] = []
     filtros = ["1=1"]
     if perfis:
@@ -86,7 +99,7 @@ async def listar_clientes(
         params.extend(predicado[1])
     # Faixa de R$ fechado (ag.valor_total — cross-modelo) e recência sobre a última
     # atividade (ag.ultima_atividade = MAX updated_at). Espelha os filtros do Mapa
-    # (MAPA-11); negativos viram NO-OP. ag.* vem do LATERAL agregado abaixo.
+    # (MAPA-11); negativos viram NO-OP. ag.* vem do LATERAL agregado.
     if valor_min is not None and valor_min >= 0:
         filtros.append("ag.valor_total >= %s")
         params.append(valor_min)
@@ -99,6 +112,37 @@ async def listar_clientes(
         filtros.append("ag.ultima_atividade < NOW() - INTERVAL '90 days'")
     if not incluir_arquivados:
         filtros.append("c.arquivado_em IS NULL")
+    return filtros, params
+
+
+@router.get("/clientes")
+async def listar_clientes(
+    conn: AsyncConnection[Any] = Depends(get_conn),
+    modelo_id: list[UUID] | None = Query(None),
+    q: str | None = None,
+    periodo: str | None = None,
+    data_inicio: str | None = None,
+    data_fim: str | None = None,
+    perfis: list[str] | None = Query(default=None),
+    recencia: Literal["ativos", "dormentes"] | None = None,
+    valor_min: float | None = None,
+    valor_max: float | None = None,
+    incluir_arquivados: bool = False,
+    limit: int = Query(50, ge=1, le=100),
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    filtros, params = _montar_filtros_clientes(
+        modelo_id=modelo_id,
+        q=q,
+        periodo=periodo,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        perfis=perfis,
+        recencia=recencia,
+        valor_min=valor_min,
+        valor_max=valor_max,
+        incluir_arquivados=incluir_arquivados,
+    )
     if cursor:
         # Cursor composto "timestamp|id": updated_at sozinho não pagina quando há
         # empate (import em lote grava centenas de linhas na mesma transação).
@@ -170,6 +214,94 @@ async def listar_clientes(
             for row in rows
         ],
         "next_cursor": next_cursor,
+    }
+
+
+@router.get("/clientes/resumo")
+async def resumo_clientes(
+    conn: AsyncConnection[Any] = Depends(get_conn),
+    modelo_id: list[UUID] | None = Query(None),
+    q: str | None = None,
+    periodo: str | None = None,
+    data_inicio: str | None = None,
+    data_fim: str | None = None,
+    perfis: list[str] | None = Query(default=None),
+    recencia: Literal["ativos", "dormentes"] | None = None,
+    valor_min: float | None = None,
+    valor_max: float | None = None,
+    incluir_arquivados: bool = False,
+) -> dict[str, Any]:
+    """Agrega o recorte de clientes (mesmos filtros da lista): faturamento bruto
+    cross-modelo (Σ fechado), nº de clientes/recorrentes, ticket médio por cliente
+    e o recorte de faturamento por modelo. Painel-only (cross-modelo, ADR 0008)."""
+    filtros, params = _montar_filtros_clientes(
+        modelo_id=modelo_id,
+        q=q,
+        periodo=periodo,
+        data_inicio=data_inicio,
+        data_fim=data_fim,
+        perfis=perfis,
+        recencia=recencia,
+        valor_min=valor_min,
+        valor_max=valor_max,
+        incluir_arquivados=incluir_arquivados,
+    )
+    where = " AND ".join(filtros)
+
+    totais_result = await conn.execute(
+        f"""
+        SELECT
+          COUNT(*)::int AS total_clientes,
+          COUNT(*) FILTER (WHERE ag.total_fechados >= 2)::int AS recorrentes,
+          COUNT(*) FILTER (WHERE ag.total_fechados > 0)::int AS com_fechamento,
+          COALESCE(SUM(ag.valor_total), 0)::float8 AS faturamento_bruto_brl
+          FROM barravips.clientes c
+          {_LATERAL_AG_RESUMO}
+         WHERE {where}
+        """,
+        params,
+    )
+    totais = await totais_result.fetchone()
+    assert totais is not None
+
+    por_modelo_result = await conn.execute(
+        f"""
+        SELECT m.id AS modelo_id, m.nome AS modelo_nome,
+               COUNT(*) FILTER (WHERE at.estado = 'Fechado')::int AS fechados,
+               COALESCE(SUM(at.valor_final) FILTER (WHERE at.estado = 'Fechado'), 0)::float8
+                 AS faturamento_bruto_brl
+          FROM barravips.clientes c
+          {_LATERAL_AG_RESUMO}
+          JOIN barravips.atendimentos at ON at.cliente_id = c.id
+          JOIN barravips.modelos m ON m.id = at.modelo_id
+         WHERE {where}
+         GROUP BY m.id, m.nome
+        HAVING COUNT(*) FILTER (WHERE at.estado = 'Fechado') > 0
+         ORDER BY faturamento_bruto_brl DESC, fechados DESC, m.nome
+        """,
+        params,
+    )
+    por_modelo = list(await por_modelo_result.fetchall())
+
+    com_fechamento = totais["com_fechamento"]
+    faturamento = totais["faturamento_bruto_brl"]
+    return {
+        "total_clientes": totais["total_clientes"],
+        "recorrentes": totais["recorrentes"],
+        "faturamento_bruto_brl": faturamento,
+        "ticket_medio_brl": faturamento / com_fechamento if com_fechamento else None,
+        "por_modelo": [
+            {
+                "modelo_id": str(r["modelo_id"]),
+                "modelo_nome": r["modelo_nome"],
+                "fechados": r["fechados"],
+                "faturamento_bruto_brl": r["faturamento_bruto_brl"],
+                "ticket_medio_brl": (
+                    r["faturamento_bruto_brl"] / r["fechados"] if r["fechados"] else None
+                ),
+            }
+            for r in por_modelo
+        ],
     }
 
 

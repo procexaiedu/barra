@@ -81,6 +81,24 @@ export interface ClientesAgregadosResponse {
   next_cursor: string | null
 }
 
+/** Recorte de faturamento de um modelo dentro do filtro de clientes. */
+export interface ResumoModeloClientes {
+  modelo_id: string
+  modelo_nome: string
+  fechados: number
+  faturamento_bruto_brl: number
+  ticket_medio_brl: number | null
+}
+
+/** Agregado do recorte de clientes (GET /crm/clientes/resumo): financeiro cross-modelo. */
+export interface ResumoClientes {
+  total_clientes: number
+  recorrentes: number
+  faturamento_bruto_brl: number
+  ticket_medio_brl: number | null
+  por_modelo: ResumoModeloClientes[]
+}
+
 /** Ponto do Mapa de clientes (ADR 0008): 1 por cliente, no externo mais recente com geo. */
 export interface MapaClientePonto {
   cliente_id: string

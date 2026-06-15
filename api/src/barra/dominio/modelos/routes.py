@@ -37,21 +37,17 @@ PERSONA_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "agente" / "prompt
 _logger = logging.getLogger(__name__)
 
 
-@router.get("")
-async def listar_modelos(
-    request: Request,
-    status: str | None = None,
-    evolution: str | None = None,
-    tipo: str | None = None,
-    nivel: str | None = None,
-    q: str | None = None,
-    limit: int = Query(default=50, ge=1, le=100),
-    cursor: str | None = None,
-    conn: AsyncConnection[Any] = Depends(get_conn),
-) -> dict[str, Any]:
+def _montar_filtros_modelos(
+    *,
+    status: str | None,
+    evolution: str | None,
+    tipo: str | None,
+    nivel: str | None,
+    q: str | None,
+) -> tuple[list[str], list[Any]]:
+    """WHERE compartilhado por GET /modelos e GET /modelos/resumo (referencia `m.*`)."""
     filtros: list[str] = []
     params: list[Any] = []
-
     if status:
         filtros.append("m.status = %s")
         params.append(status)
@@ -80,6 +76,25 @@ async def listar_modelos(
             """
         )
         params.extend([f"{termo}%", f"{digitos}%" if digitos else "___sem_numero___", f"{termo}%"])
+    return filtros, params
+
+
+@router.get("")
+async def listar_modelos(
+    request: Request,
+    status: str | None = None,
+    evolution: str | None = None,
+    tipo: str | None = None,
+    nivel: str | None = None,
+    q: str | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    cursor: str | None = None,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    filtros, params = _montar_filtros_modelos(
+        status=status, evolution=evolution, tipo=tipo, nivel=nivel, q=q
+    )
+
     if cursor:
         filtros.append("m.created_at > %s::timestamptz")
         params.append(cursor)
@@ -118,6 +133,68 @@ async def listar_modelos(
     return {
         "items": [_modelo_lista_item(request, row) for row in page],
         "next_cursor": rows[limit]["created_at"].isoformat() if len(rows) > limit else None,
+    }
+
+
+@router.get("/resumo")
+async def resumo_modelos(
+    status: str | None = None,
+    evolution: str | None = None,
+    tipo: str | None = None,
+    nivel: str | None = None,
+    q: str | None = None,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    """Agrega o recorte de modelos (mesmos filtros da lista): contagens por
+    situação/WhatsApp/nível e o faturamento bruto total da agência no recorte
+    (Σ valor_final dos Fechados das modelos filtradas)."""
+    filtros, params = _montar_filtros_modelos(
+        status=status, evolution=evolution, tipo=tipo, nivel=nivel, q=q
+    )
+    where = f"WHERE {' AND '.join(filtros)}" if filtros else ""
+
+    contagens_result = await conn.execute(
+        f"""
+        SELECT
+          COUNT(*)::int AS total,
+          COUNT(*) FILTER (WHERE m.status = 'ativa')::int AS ativas,
+          COUNT(*) FILTER (WHERE m.status = 'pausada')::int AS pausadas,
+          COUNT(*) FILTER (WHERE m.status = 'inativa')::int AS inativas,
+          COUNT(*) FILTER (WHERE m.evolution_status IS DISTINCT FROM 'conectado')::int
+            AS whatsapp_pendente,
+          COUNT(*) FILTER (WHERE m.nivel IS NULL)::int AS sem_nivel
+          FROM barravips.modelos m
+          {where}
+        """,
+        params,
+    )
+    contagens = await contagens_result.fetchone()
+    assert contagens is not None
+
+    financeiro_result = await conn.execute(
+        f"""
+        SELECT
+          COUNT(*) FILTER (WHERE at.estado = 'Fechado')::int AS fechados,
+          COALESCE(SUM(at.valor_final) FILTER (WHERE at.estado = 'Fechado'), 0)::float8
+            AS faturamento_bruto_brl
+          FROM barravips.modelos m
+          JOIN barravips.atendimentos at ON at.modelo_id = m.id
+          {where}
+        """,
+        params,
+    )
+    financeiro = await financeiro_result.fetchone()
+    assert financeiro is not None
+
+    return {
+        "total": contagens["total"],
+        "ativas": contagens["ativas"],
+        "pausadas": contagens["pausadas"],
+        "inativas": contagens["inativas"],
+        "whatsapp_pendente": contagens["whatsapp_pendente"],
+        "sem_nivel": contagens["sem_nivel"],
+        "fechados": financeiro["fechados"],
+        "faturamento_bruto_brl": financeiro["faturamento_bruto_brl"],
     }
 
 
@@ -226,7 +303,9 @@ async def editar_modelo(
         return atual
 
     if updates.get("status") == "inativa" and atual["evolution_instance_id"]:
-        numero_mudou = "numero_whatsapp" in updates and updates["numero_whatsapp"] != atual["numero_whatsapp"]
+        numero_mudou = (
+            "numero_whatsapp" in updates and updates["numero_whatsapp"] != atual["numero_whatsapp"]
+        )
         if not numero_mudou:
             raise ConflitoEstado("Despareie a Evolution antes de inativar")
 
@@ -277,7 +356,9 @@ async def conectar_whatsapp(
     # (create respondeu 403 "name in use", sem QR no corpo).
     try:
         criada = await client.criar_instancia(instance_id, numero=modelo.get("numero_whatsapp"))
-        resposta = criada if _extrair_qr_code(criada) else await client.conectar_instancia(instance_id)
+        resposta = (
+            criada if _extrair_qr_code(criada) else await client.conectar_instancia(instance_id)
+        )
     except httpx.HTTPStatusError as exc:
         raise ConflitoEstado(
             f"Evolution recusou a conexão (HTTP {exc.response.status_code}). "
@@ -424,7 +505,9 @@ async def pausar_modelo(
                 "em_execucao_em_curso": em_execucao,
             },
         )
-        card_enviado = await _enviar_card_pausa(conn, request, modelo, conversas_pausadas, em_execucao)
+        card_enviado = await _enviar_card_pausa(
+            conn, request, modelo, conversas_pausadas, em_execucao
+        )
 
     return {
         "modelo_id": str(modelo_id),
@@ -494,12 +577,16 @@ async def verificar_coordenacao(
 
     client = EvolutionClient(settings)
     try:
-        info = await client.buscar_grupo_info(modelo["evolution_instance_id"], modelo["coordenacao_chat_id"])
+        info = await client.buscar_grupo_info(
+            modelo["evolution_instance_id"], modelo["coordenacao_chat_id"]
+        )
     except httpx.HTTPError:
         return {"ok": False, "motivo": "Grupo inexistente ou instancia offline.", "membros": []}
 
     membros = _extrair_membros(info)
-    ok = _grupo_tem_membros_esperados(membros, modelo["numero_whatsapp"], settings.evolution_fernando_jids)
+    ok = _grupo_tem_membros_esperados(
+        membros, modelo["numero_whatsapp"], settings.evolution_fernando_jids
+    )
     if ok:
         await conn.execute(
             "UPDATE barravips.modelos SET coordenacao_verificada_em = now() WHERE id = %s",
@@ -644,7 +731,15 @@ async def editar_servico(
          WHERE id = %s AND modelo_id = %s
         RETURNING *
         """,
-        (body.nome.strip(), body.duracao_horas, body.preco, body.ativo, body.ordem, servico_id, modelo_id),
+        (
+            body.nome.strip(),
+            body.duracao_horas,
+            body.preco,
+            body.ativo,
+            body.ordem,
+            servico_id,
+            modelo_id,
+        ),
     )
     row = await result.fetchone()
     if row is None:
@@ -666,6 +761,7 @@ async def deletar_servico(
 
 
 # ── Disponibilidade (período de trabalho — ADR 0005) ──────────────────────────
+
 
 @router.get("/{modelo_id}/disponibilidade")
 async def listar_disponibilidade(
@@ -727,7 +823,9 @@ async def vincular_programa(
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     await _ensure_modelo(conn, modelo_id)
-    programa = await _one(conn, "SELECT * FROM barravips.programas WHERE id = %s", (body.programa_id,))
+    programa = await _one(
+        conn, "SELECT * FROM barravips.programas WHERE id = %s", (body.programa_id,)
+    )
     if programa is None:
         raise NaoEncontrado("Programa")
     duracao = await _one(conn, "SELECT * FROM barravips.duracoes WHERE id = %s", (body.duracao_id,))
@@ -964,7 +1062,9 @@ async def deletar_midia(
         except Exception as exc:
             _logger.warning(
                 "falha_remover_minio bucket=%s key=%s erro=%s",
-                row["bucket"], row["object_key"], exc,
+                row["bucket"],
+                row["object_key"],
+                exc,
             )
 
 
@@ -1009,7 +1109,7 @@ async def _midia(
         conn,
         f"""
         SELECT * FROM barravips.modelo_midia
-         WHERE {' AND '.join(filtros)}
+         WHERE {" AND ".join(filtros)}
          ORDER BY created_at DESC
         """,
         tuple(params),
@@ -1088,9 +1188,7 @@ async def _fetiches(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[st
     ]
 
 
-def _serializar_vinculo_fetiche(
-    vinculo: dict[str, Any], fetiche: dict[str, Any]
-) -> dict[str, Any]:
+def _serializar_vinculo_fetiche(vinculo: dict[str, Any], fetiche: dict[str, Any]) -> dict[str, Any]:
     return {
         "fetiche_id": str(vinculo["fetiche_id"]),
         "nome": fetiche["nome"],
@@ -1258,9 +1356,7 @@ def _modelo_lista_item(request: Request, row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _evolution_payload(
-    modelo: dict[str, Any], conexao_estado: str | None = None
-) -> dict[str, Any]:
+def _evolution_payload(modelo: dict[str, Any], conexao_estado: str | None = None) -> dict[str, Any]:
     return {
         "instance_id": modelo.get("evolution_instance_id"),
         "status": modelo.get("evolution_status") or "desconectado",
@@ -1378,11 +1474,15 @@ def _extrair_membros(info: dict[str, Any]) -> list[str]:
     return membros
 
 
-def _grupo_tem_membros_esperados(membros: list[str], numero_modelo: str, fernando_jids: list[str]) -> bool:
+def _grupo_tem_membros_esperados(
+    membros: list[str], numero_modelo: str, fernando_jids: list[str]
+) -> bool:
     if len(membros) != 2:
         return False
     numeros = {_digitos_jid(m) for m in membros}
-    return _digitos_jid(numero_modelo) in numeros and any(_digitos_jid(j) in numeros for j in fernando_jids)
+    return _digitos_jid(numero_modelo) in numeros and any(
+        _digitos_jid(j) in numeros for j in fernando_jids
+    )
 
 
 def _digitos_jid(valor: str) -> str:
@@ -1393,11 +1493,15 @@ def _ler_persona_template() -> str:
     return PERSONA_TEMPLATE_PATH.read_text(encoding="utf-8")
 
 
-async def _one(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
+async def _one(
+    conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]
+) -> dict[str, Any] | None:
     result = await conn.execute(query, params)
     return await result.fetchone()
 
 
-async def _all(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+async def _all(
+    conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]
+) -> list[dict[str, Any]]:
     result = await conn.execute(query, params)
     return list(await result.fetchall())

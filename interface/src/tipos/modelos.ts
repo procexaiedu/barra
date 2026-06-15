@@ -56,6 +56,18 @@ export interface ModelosListaResponse {
   next_cursor: string | null
 }
 
+/** Agregado do recorte de modelos (GET /modelos/resumo): situação + faturamento total. */
+export interface ResumoModelos {
+  total: number
+  ativas: number
+  pausadas: number
+  inativas: number
+  whatsapp_pendente: number
+  sem_nivel: number
+  fechados: number
+  faturamento_bruto_brl: number
+}
+
 export interface ModeloDetalhe {
   id: string
   nome: string
