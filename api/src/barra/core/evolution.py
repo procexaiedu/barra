@@ -2,6 +2,7 @@
 
 import json
 import logging
+import re
 from typing import Any, cast
 from uuid import UUID
 
@@ -16,6 +17,25 @@ _logger = logging.getLogger(__name__)
 
 # Eventos que precisamos para pareamento + ingestão de mensagens.
 _EVENTOS_WEBHOOK = ["CONNECTION_UPDATE", "QRCODE_UPDATED", "MESSAGES_UPSERT"]
+
+# Marker `[quote]`/`[quote: trecho]` da humanização (workers/_chunking). É instrução
+# INTERNA — o chunk o extrai do prefixo da bolha e nunca deve sobrar no texto enviado.
+# Um `[quote]` visível entrega na hora que do outro lado é uma IA, não a modelo.
+_MARKER_QUOTE = re.compile(r"\[quote\b[^\]]*\]", re.IGNORECASE)
+_ESPACO_HORIZONTAL = re.compile(r"[ \t]{2,}")
+
+
+def _remover_markers_quote(texto: str) -> str:
+    """Rede de segurança final: remove qualquer marker `[quote...]` residual em QUALQUER
+    posição antes de mandar ao cliente. O chunk já tira o marker no prefixo correto; isto
+    cobre os erros de formatação do LLM (marker no meio da linha, sem linha em branco antes,
+    variação de sintaxe) que escapariam do chunk. Preserva `\\n`; colapsa só o espaço
+    horizontal que a remoção deixa para trás."""
+    if not _MARKER_QUOTE.search(texto):
+        return texto
+    _logger.warning("marker [quote] residual removido antes do envio (chunk nao pegou)")
+    limpo = _ESPACO_HORIZONTAL.sub(" ", _MARKER_QUOTE.sub("", texto))
+    return "\n".join(linha.strip() for linha in limpo.split("\n")).strip()
 
 
 class EvolutionClient:
@@ -42,7 +62,7 @@ class EvolutionClient:
                 "EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503
             )
 
-        body: dict[str, Any] = {"number": remote_jid, "text": texto}
+        body: dict[str, Any] = {"number": remote_jid, "text": _remover_markers_quote(texto)}
         if quoted_message_id:
             # Evolution v2.3.6 (cliente evolution_api_v3) NAO faz lookup da mensagem
             # citada pelo `key.id`: ela ecoa literalmente o `quoted.message.conversation`
@@ -118,7 +138,7 @@ class EvolutionClient:
 
         body: dict[str, Any] = {"number": remote_jid, "mediatype": media_type, "media": url}
         if caption:
-            body["caption"] = caption
+            body["caption"] = _remover_markers_quote(caption)
         if quoted_message_id:
             body["quoted"] = {
                 "key": {"id": quoted_message_id},
