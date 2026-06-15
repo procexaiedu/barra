@@ -85,8 +85,8 @@ export function AbaPerfil({
   const [identidade, setIdentidade] = useState({
     nome: modelo.nome,
     idade: modelo.idade,
-    tipo_fisico: modelo.tipo_fisico ?? "",
     nivel: modelo.nivel ?? "",
+    signo: modelo.signo ?? "",
   })
   const [numeroDigitos, setNumeroDigitos] = useState(() => deE164BR(modelo.numero_whatsapp))
   const [repasse, setRepasse] = useState({
@@ -103,18 +103,20 @@ export function AbaPerfil({
     idiomas: modelo.idiomas.join(", "),
     tipo_atendimento_aceito: modelo.tipo_atendimento_aceito,
   })
-  const [cadastro, setCadastro] = useState({
-    rg: formatarRg(modelo.rg ?? ""),
-    cpf: formatarCpf(modelo.cpf ?? ""),
-    endereco_residencial_formatado: modelo.endereco_residencial_formatado,
-    place_id_residencial: modelo.place_id_residencial,
+  const [fisico, setFisico] = useState({
+    tipo_fisico: modelo.tipo_fisico ?? "",
     cor_pele: modelo.cor_pele ?? "",
     cor_cabelo: modelo.cor_cabelo ?? "",
     altura_cm: modelo.altura_cm as number | null,
     tamanho_pe: modelo.tamanho_pe as number | null,
     peso_kg: modelo.peso_kg as number | null,
     cintura_cm: modelo.cintura_cm as number | null,
-    signo: modelo.signo ?? "",
+  })
+  const [dados, setDados] = useState({
+    rg: formatarRg(modelo.rg ?? ""),
+    cpf: formatarCpf(modelo.cpf ?? ""),
+    endereco_residencial_formatado: modelo.endereco_residencial_formatado,
+    place_id_residencial: modelo.place_id_residencial,
     instagram: modelo.instagram ?? "",
     email: modelo.email ?? "",
   })
@@ -123,8 +125,8 @@ export function AbaPerfil({
   const dirtyIdentidade =
     identidade.nome !== modelo.nome ||
     identidade.idade !== modelo.idade ||
-    (identidade.tipo_fisico || null) !== modelo.tipo_fisico ||
-    (identidade.nivel || null) !== modelo.nivel
+    (identidade.nivel || null) !== modelo.nivel ||
+    (identidade.signo || null) !== modelo.signo
   const dirtyWhats = paraE164BR(numeroDigitos) !== modelo.numero_whatsapp
   const percentual = repasse.percentual_repasse === "" ? null : Number(repasse.percentual_repasse)
   const dirtyRepasse =
@@ -138,23 +140,24 @@ export function AbaPerfil({
     atendimento.place_id !== modelo.place_id ||
     atendimento.idiomas !== modelo.idiomas.join(", ") ||
     atendimento.tipo_atendimento_aceito.join("|") !== modelo.tipo_atendimento_aceito.join("|")
-  const cpfDigitos = normalizarCpf(cadastro.cpf)
-  const rgNormalizado = normalizarRg(cadastro.rg)
-  const dirtyCadastro =
+  const dirtyFisico =
+    (fisico.tipo_fisico || null) !== modelo.tipo_fisico ||
+    (fisico.cor_pele || null) !== modelo.cor_pele ||
+    (fisico.cor_cabelo || null) !== modelo.cor_cabelo ||
+    fisico.altura_cm !== modelo.altura_cm ||
+    fisico.tamanho_pe !== modelo.tamanho_pe ||
+    fisico.peso_kg !== modelo.peso_kg ||
+    fisico.cintura_cm !== modelo.cintura_cm
+  const cpfDigitos = normalizarCpf(dados.cpf)
+  const rgNormalizado = normalizarRg(dados.rg)
+  const dirtyDados =
     rgNormalizado !== (modelo.rg ?? "") ||
     cpfDigitos !== (modelo.cpf ?? "") ||
-    cadastro.endereco_residencial_formatado !== modelo.endereco_residencial_formatado ||
-    cadastro.place_id_residencial !== modelo.place_id_residencial ||
-    (cadastro.cor_pele || null) !== modelo.cor_pele ||
-    (cadastro.cor_cabelo || null) !== modelo.cor_cabelo ||
-    cadastro.altura_cm !== modelo.altura_cm ||
-    cadastro.tamanho_pe !== modelo.tamanho_pe ||
-    cadastro.peso_kg !== modelo.peso_kg ||
-    cadastro.cintura_cm !== modelo.cintura_cm ||
-    (cadastro.signo || null) !== modelo.signo ||
-    (cadastro.instagram.trim() || null) !== modelo.instagram ||
-    (cadastro.email.trim() || null) !== modelo.email
-  const anyDirty = dirtyIdentidade || dirtyWhats || dirtyRepasse || dirtyAtendimento || dirtyCadastro
+    dados.endereco_residencial_formatado !== modelo.endereco_residencial_formatado ||
+    dados.place_id_residencial !== modelo.place_id_residencial ||
+    (dados.instagram.trim() || null) !== modelo.instagram ||
+    (dados.email.trim() || null) !== modelo.email
+  const anyDirty = dirtyIdentidade || dirtyWhats || dirtyRepasse || dirtyAtendimento || dirtyFisico || dirtyDados
 
   useEffect(() => {
     const timer = setTimeout(() => onDirtyChange(anyDirty), 0)
@@ -177,19 +180,19 @@ export function AbaPerfil({
   const whatsappValido = /^\d{10,11}$/.test(numeroDigitos)
   const repasseValido = percentual === null || (percentual >= 0 && percentual <= 100)
   const atendimentoValido = idiomasArray.length > 0 && atendimento.tipo_atendimento_aceito.length > 0
-  const cpfCadastroValido = cpfDigitos === "" || cpfValido(cadastro.cpf)
+  const cpfCadastroValido = cpfDigitos === "" || cpfValido(dados.cpf)
   const alturaValida =
-    cadastro.altura_cm === null || (cadastro.altura_cm >= 100 && cadastro.altura_cm <= 230)
+    fisico.altura_cm === null || (fisico.altura_cm >= 100 && fisico.altura_cm <= 230)
   const peValido =
-    cadastro.tamanho_pe === null || (cadastro.tamanho_pe >= 28 && cadastro.tamanho_pe <= 50)
+    fisico.tamanho_pe === null || (fisico.tamanho_pe >= 28 && fisico.tamanho_pe <= 50)
   const pesoValido =
-    cadastro.peso_kg === null || (cadastro.peso_kg >= 30 && cadastro.peso_kg <= 200)
+    fisico.peso_kg === null || (fisico.peso_kg >= 30 && fisico.peso_kg <= 200)
   const cinturaValida =
-    cadastro.cintura_cm === null || (cadastro.cintura_cm >= 40 && cadastro.cintura_cm <= 120)
-  const emailTrim = cadastro.email.trim()
+    fisico.cintura_cm === null || (fisico.cintura_cm >= 40 && fisico.cintura_cm <= 120)
+  const emailTrim = dados.email.trim()
   const emailValido = emailTrim === "" || /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(emailTrim)
-  const cadastroValido =
-    cpfCadastroValido && alturaValida && peValido && pesoValido && cinturaValida && emailValido
+  const fisicoValido = alturaValida && peValido && pesoValido && cinturaValida
+  const dadosValido = cpfCadastroValido && emailValido
 
   return (
     <div className="flex flex-col gap-4">
@@ -226,20 +229,6 @@ export function AbaPerfil({
               <option value="inativa">Inativa</option>
             </select>
           </Campo>
-          <Campo label="Perfil físico">
-            <select
-              value={identidade.tipo_fisico}
-              onChange={(e) => setIdentidade({ ...identidade, tipo_fisico: e.target.value })}
-              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              <option value="">Não classificada</option>
-              {PERFIS_FISICOS.map((slug) => (
-                <option key={slug} value={slug}>
-                  {PERFIL_FISICO_LABEL[slug]}
-                </option>
-              ))}
-            </select>
-          </Campo>
           <Campo label="Nível">
             <select
               value={identidade.nivel}
@@ -254,6 +243,20 @@ export function AbaPerfil({
               ))}
             </select>
           </Campo>
+          <Campo label="Signo">
+            <select
+              value={identidade.signo}
+              onChange={(e) => setIdentidade({ ...identidade, signo: e.target.value })}
+              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <option value="">Não informado</option>
+              {SIGNOS.map((slug) => (
+                <option key={slug} value={slug}>
+                  {SIGNO_LABEL[slug]}
+                </option>
+              ))}
+            </select>
+          </Campo>
         </div>
         <Salvar
           dirty={dirtyIdentidade}
@@ -263,8 +266,8 @@ export function AbaPerfil({
           onClick={() => salvar("identidade", {
             nome: identidade.nome.trim(),
             idade: identidade.idade,
-            tipo_fisico: (identidade.tipo_fisico || null) as PatchModeloInput["tipo_fisico"],
             nivel: (identidade.nivel || null) as PatchModeloInput["nivel"],
+            signo: (identidade.signo || null) as PatchModeloInput["signo"],
           }, "Identidade atualizada")}
         />
       </Card>
@@ -321,45 +324,126 @@ export function AbaPerfil({
         />
       </Card>
 
-      <ProgramasModelo
-        catalogo={catalogo}
-        duracoes={duracoes}
-        vinculados={programasVinculados}
-        onVincular={onVincularPrograma}
-        onAtualizarPreco={onAtualizarPrecoPrograma}
-        onDesvincular={onDesvincularPrograma}
-        onCriarPrograma={onCriarPrograma}
-        onCriarDuracao={onCriarDuracao}
-        catalogoFetiches={catalogoFetiches}
-        fetichesVinculados={fetichesVinculados}
-        onVincularFetiche={onVincularFetiche}
-        onAtualizarPrecoFetiche={onAtualizarPrecoFetiche}
-        onDesvincularFetiche={onDesvincularFetiche}
-        onCriarFetiche={onCriarFetiche}
-      />
-
-      <Card title="Repasse e Pix">
+      <Card title="Características físicas">
         <div className="grid gap-5 sm:grid-cols-2">
-          <Campo label="Comissão Elite Baby (%)">
-            <Input type="number" min={0} max={100} value={repasse.percentual_repasse} onChange={(e) => setRepasse({ ...repasse, percentual_repasse: e.target.value })} className="h-10 bg-input" />
+          <Campo label="Perfil físico">
+            <select
+              value={fisico.tipo_fisico}
+              onChange={(e) => setFisico({ ...fisico, tipo_fisico: e.target.value })}
+              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <option value="">Não classificada</option>
+              {PERFIS_FISICOS.map((slug) => (
+                <option key={slug} value={slug}>
+                  {PERFIL_FISICO_LABEL[slug]}
+                </option>
+              ))}
+            </select>
           </Campo>
-          <Campo label="Pix">
-            <Input value={repasse.chave_pix} onChange={(e) => setRepasse({ ...repasse, chave_pix: e.target.value })} className="h-10 bg-input" />
+          <Campo label="Cor de pele">
+            <select
+              value={fisico.cor_pele}
+              onChange={(e) => setFisico({ ...fisico, cor_pele: e.target.value })}
+              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <option value="">Não informada</option>
+              {CORES_PELE.map((slug) => (
+                <option key={slug} value={slug}>
+                  {COR_PELE_LABEL[slug]}
+                </option>
+              ))}
+            </select>
           </Campo>
-          <Campo label="Nome no Pix">
-            <Input value={repasse.titular_chave} onChange={(e) => setRepasse({ ...repasse, titular_chave: e.target.value })} className="h-10 bg-input" />
+          <Campo label="Cor de cabelo">
+            <select
+              value={fisico.cor_cabelo}
+              onChange={(e) => setFisico({ ...fisico, cor_cabelo: e.target.value })}
+              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
+            >
+              <option value="">Não informada</option>
+              {CORES_CABELO.map((slug) => (
+                <option key={slug} value={slug}>
+                  {COR_CABELO_LABEL[slug]}
+                </option>
+              ))}
+            </select>
+          </Campo>
+          <Campo label="Altura (cm)">
+            <Input
+              type="number"
+              min={100}
+              max={230}
+              value={fisico.altura_cm ?? ""}
+              onChange={(e) =>
+                setFisico({ ...fisico, altura_cm: e.target.value === "" ? null : Number(e.target.value) })
+              }
+              className="h-10 bg-input"
+            />
+            {fisico.altura_cm !== null && !alturaValida && (
+              <span className="text-[11px] normal-case tracking-normal text-state-lost">Altura entre 100 e 230 cm</span>
+            )}
+          </Campo>
+          <Campo label="Peso (kg)">
+            <Input
+              type="number"
+              min={30}
+              max={200}
+              step="0.1"
+              value={fisico.peso_kg ?? ""}
+              onChange={(e) =>
+                setFisico({ ...fisico, peso_kg: e.target.value === "" ? null : Number(e.target.value) })
+              }
+              className="h-10 bg-input"
+            />
+            {fisico.peso_kg !== null && !pesoValido && (
+              <span className="text-[11px] normal-case tracking-normal text-state-lost">Peso entre 30 e 200 kg</span>
+            )}
+          </Campo>
+          <Campo label="Cintura (cm)">
+            <Input
+              type="number"
+              min={40}
+              max={120}
+              value={fisico.cintura_cm ?? ""}
+              onChange={(e) =>
+                setFisico({ ...fisico, cintura_cm: e.target.value === "" ? null : Number(e.target.value) })
+              }
+              className="h-10 bg-input"
+            />
+            {fisico.cintura_cm !== null && !cinturaValida && (
+              <span className="text-[11px] normal-case tracking-normal text-state-lost">Cintura entre 40 e 120 cm</span>
+            )}
+          </Campo>
+          <Campo label="Tamanho do pé">
+            <Input
+              type="number"
+              min={28}
+              max={50}
+              value={fisico.tamanho_pe ?? ""}
+              onChange={(e) =>
+                setFisico({ ...fisico, tamanho_pe: e.target.value === "" ? null : Number(e.target.value) })
+              }
+              className="h-10 bg-input"
+            />
+            {fisico.tamanho_pe !== null && !peValido && (
+              <span className="text-[11px] normal-case tracking-normal text-state-lost">Tamanho do pé entre 28 e 50</span>
+            )}
           </Campo>
         </div>
         <Salvar
-          dirty={dirtyRepasse}
-          disabled={!repasseValido}
-          submitting={submitting === "repasse"}
-          label="Salvar repasse"
-          onClick={() => salvar("repasse", {
-            percentual_repasse: percentual,
-            chave_pix: repasse.chave_pix.trim() || null,
-            titular_chave: repasse.titular_chave.trim() || null,
-          }, "Repasse atualizado")}
+          dirty={dirtyFisico}
+          disabled={!fisicoValido}
+          submitting={submitting === "fisico"}
+          label="Salvar características físicas"
+          onClick={() => salvar("fisico", {
+            tipo_fisico: (fisico.tipo_fisico || null) as PatchModeloInput["tipo_fisico"],
+            cor_pele: (fisico.cor_pele || null) as PatchModeloInput["cor_pele"],
+            cor_cabelo: (fisico.cor_cabelo || null) as PatchModeloInput["cor_cabelo"],
+            altura_cm: fisico.altura_cm,
+            tamanho_pe: fisico.tamanho_pe,
+            peso_kg: fisico.peso_kg,
+            cintura_cm: fisico.cintura_cm,
+          }, "Características físicas atualizadas")}
         />
       </Card>
 
@@ -416,22 +500,64 @@ export function AbaPerfil({
         />
       </Card>
 
-      <Card title="Dados cadastrais">
+      <ProgramasModelo
+        catalogo={catalogo}
+        duracoes={duracoes}
+        vinculados={programasVinculados}
+        onVincular={onVincularPrograma}
+        onAtualizarPreco={onAtualizarPrecoPrograma}
+        onDesvincular={onDesvincularPrograma}
+        onCriarPrograma={onCriarPrograma}
+        onCriarDuracao={onCriarDuracao}
+        catalogoFetiches={catalogoFetiches}
+        fetichesVinculados={fetichesVinculados}
+        onVincularFetiche={onVincularFetiche}
+        onAtualizarPrecoFetiche={onAtualizarPrecoFetiche}
+        onDesvincularFetiche={onDesvincularFetiche}
+        onCriarFetiche={onCriarFetiche}
+      />
+
+      <Card title="Repasse e Pix">
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Campo label="Comissão Elite Baby (%)">
+            <Input type="number" min={0} max={100} value={repasse.percentual_repasse} onChange={(e) => setRepasse({ ...repasse, percentual_repasse: e.target.value })} className="h-10 bg-input" />
+          </Campo>
+          <Campo label="Pix">
+            <Input value={repasse.chave_pix} onChange={(e) => setRepasse({ ...repasse, chave_pix: e.target.value })} className="h-10 bg-input" />
+          </Campo>
+          <Campo label="Nome no Pix">
+            <Input value={repasse.titular_chave} onChange={(e) => setRepasse({ ...repasse, titular_chave: e.target.value })} className="h-10 bg-input" />
+          </Campo>
+        </div>
+        <Salvar
+          dirty={dirtyRepasse}
+          disabled={!repasseValido}
+          submitting={submitting === "repasse"}
+          label="Salvar repasse"
+          onClick={() => salvar("repasse", {
+            percentual_repasse: percentual,
+            chave_pix: repasse.chave_pix.trim() || null,
+            titular_chave: repasse.titular_chave.trim() || null,
+          }, "Repasse atualizado")}
+        />
+      </Card>
+
+      <Card title="Documentos e redes">
         <div className="grid gap-5 sm:grid-cols-2">
           <Campo label="RG">
             <Input
-              value={cadastro.rg}
+              value={dados.rg}
               placeholder="00.000.000-0"
-              onChange={(e) => setCadastro({ ...cadastro, rg: formatarRg(e.target.value) })}
+              onChange={(e) => setDados({ ...dados, rg: formatarRg(e.target.value) })}
               className="h-10 bg-input"
             />
           </Campo>
           <Campo label="CPF">
             <Input
-              value={cadastro.cpf}
+              value={dados.cpf}
               placeholder="000.000.000-00"
               inputMode="numeric"
-              onChange={(e) => setCadastro({ ...cadastro, cpf: formatarCpf(e.target.value) })}
+              onChange={(e) => setDados({ ...dados, cpf: formatarCpf(e.target.value) })}
               className="h-10 bg-input"
             />
             {cpfDigitos !== "" && !cpfCadastroValido && (
@@ -441,18 +567,18 @@ export function AbaPerfil({
           <div className="sm:col-span-2">
             <Campo label="Endereço residencial">
               <CampoLocalAutocomplete
-                valorInicial={cadastro.endereco_residencial_formatado ?? ""}
-                enderecoFormatadoAtual={cadastro.endereco_residencial_formatado}
+                valorInicial={dados.endereco_residencial_formatado ?? ""}
+                enderecoFormatadoAtual={dados.endereco_residencial_formatado}
                 onSelecionar={(local) =>
-                  setCadastro((c) => ({
-                    ...c,
+                  setDados((d) => ({
+                    ...d,
                     endereco_residencial_formatado: local.endereco_formatado,
                     place_id_residencial: local.place_id,
                   }))
                 }
                 onLimpar={() =>
-                  setCadastro((c) => ({
-                    ...c,
+                  setDados((d) => ({
+                    ...d,
                     endereco_residencial_formatado: null,
                     place_id_residencial: null,
                   }))
@@ -460,108 +586,11 @@ export function AbaPerfil({
               />
             </Campo>
           </div>
-          <Campo label="Cor de pele">
-            <select
-              value={cadastro.cor_pele}
-              onChange={(e) => setCadastro({ ...cadastro, cor_pele: e.target.value })}
-              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              <option value="">Não informada</option>
-              {CORES_PELE.map((slug) => (
-                <option key={slug} value={slug}>
-                  {COR_PELE_LABEL[slug]}
-                </option>
-              ))}
-            </select>
-          </Campo>
-          <Campo label="Cor de cabelo">
-            <select
-              value={cadastro.cor_cabelo}
-              onChange={(e) => setCadastro({ ...cadastro, cor_cabelo: e.target.value })}
-              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              <option value="">Não informada</option>
-              {CORES_CABELO.map((slug) => (
-                <option key={slug} value={slug}>
-                  {COR_CABELO_LABEL[slug]}
-                </option>
-              ))}
-            </select>
-          </Campo>
-          <Campo label="Altura (cm)">
-            <Input
-              type="number"
-              min={100}
-              max={230}
-              value={cadastro.altura_cm ?? ""}
-              onChange={(e) =>
-                setCadastro({ ...cadastro, altura_cm: e.target.value === "" ? null : Number(e.target.value) })
-              }
-              className="h-10 bg-input"
-            />
-          </Campo>
-          <Campo label="Tamanho do pé">
-            <Input
-              type="number"
-              min={28}
-              max={50}
-              value={cadastro.tamanho_pe ?? ""}
-              onChange={(e) =>
-                setCadastro({ ...cadastro, tamanho_pe: e.target.value === "" ? null : Number(e.target.value) })
-              }
-              className="h-10 bg-input"
-            />
-          </Campo>
-          <Campo label="Peso (kg)">
-            <Input
-              type="number"
-              min={30}
-              max={200}
-              step="0.1"
-              value={cadastro.peso_kg ?? ""}
-              onChange={(e) =>
-                setCadastro({ ...cadastro, peso_kg: e.target.value === "" ? null : Number(e.target.value) })
-              }
-              className="h-10 bg-input"
-            />
-            {cadastro.peso_kg !== null && !pesoValido && (
-              <span className="text-[11px] normal-case tracking-normal text-state-lost">Peso entre 30 e 200 kg</span>
-            )}
-          </Campo>
-          <Campo label="Cintura (cm)">
-            <Input
-              type="number"
-              min={40}
-              max={120}
-              value={cadastro.cintura_cm ?? ""}
-              onChange={(e) =>
-                setCadastro({ ...cadastro, cintura_cm: e.target.value === "" ? null : Number(e.target.value) })
-              }
-              className="h-10 bg-input"
-            />
-            {cadastro.cintura_cm !== null && !cinturaValida && (
-              <span className="text-[11px] normal-case tracking-normal text-state-lost">Cintura entre 40 e 120 cm</span>
-            )}
-          </Campo>
-          <Campo label="Signo">
-            <select
-              value={cadastro.signo}
-              onChange={(e) => setCadastro({ ...cadastro, signo: e.target.value })}
-              className="h-10 rounded-lg border border-input bg-input px-3 text-sm normal-case tracking-normal text-text-primary outline-none transition-colors hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-            >
-              <option value="">Não informado</option>
-              {SIGNOS.map((slug) => (
-                <option key={slug} value={slug}>
-                  {SIGNO_LABEL[slug]}
-                </option>
-              ))}
-            </select>
-          </Campo>
           <Campo label="Instagram">
             <Input
-              value={cadastro.instagram}
+              value={dados.instagram}
               placeholder="@usuario"
-              onChange={(e) => setCadastro({ ...cadastro, instagram: e.target.value })}
+              onChange={(e) => setDados({ ...dados, instagram: e.target.value })}
               className="h-10 bg-input"
             />
           </Campo>
@@ -569,9 +598,9 @@ export function AbaPerfil({
             <Input
               type="email"
               inputMode="email"
-              value={cadastro.email}
+              value={dados.email}
               placeholder="contato@exemplo.com"
-              onChange={(e) => setCadastro({ ...cadastro, email: e.target.value })}
+              onChange={(e) => setDados({ ...dados, email: e.target.value })}
               className="h-10 bg-input"
             />
             {emailTrim !== "" && !emailValido && (
@@ -580,25 +609,18 @@ export function AbaPerfil({
           </Campo>
         </div>
         <Salvar
-          dirty={dirtyCadastro}
-          disabled={!cadastroValido}
-          submitting={submitting === "cadastro"}
-          label="Salvar dados cadastrais"
-          onClick={() => salvar("cadastro", {
+          dirty={dirtyDados}
+          disabled={!dadosValido}
+          submitting={submitting === "dados"}
+          label="Salvar documentos e redes"
+          onClick={() => salvar("dados", {
             rg: rgNormalizado || null,
             cpf: cpfDigitos || null,
-            endereco_residencial_formatado: cadastro.endereco_residencial_formatado,
-            place_id_residencial: cadastro.place_id_residencial,
-            cor_pele: (cadastro.cor_pele || null) as PatchModeloInput["cor_pele"],
-            cor_cabelo: (cadastro.cor_cabelo || null) as PatchModeloInput["cor_cabelo"],
-            altura_cm: cadastro.altura_cm,
-            tamanho_pe: cadastro.tamanho_pe,
-            peso_kg: cadastro.peso_kg,
-            cintura_cm: cadastro.cintura_cm,
-            signo: (cadastro.signo || null) as PatchModeloInput["signo"],
-            instagram: cadastro.instagram.trim() || null,
-            email: cadastro.email.trim() || null,
-          }, "Dados cadastrais atualizados")}
+            endereco_residencial_formatado: dados.endereco_residencial_formatado,
+            place_id_residencial: dados.place_id_residencial,
+            instagram: dados.instagram.trim() || null,
+            email: dados.email.trim() || null,
+          }, "Documentos e redes atualizados")}
         />
       </Card>
     </div>

@@ -2,7 +2,12 @@
 
 import { Wallet } from "lucide-react"
 import type { ResumoClientes as ResumoClientesData } from "@/tipos/clientes"
-import { FaixaResumo, SkeletonFaixaResumo, type ResumoKpi } from "@/components/comum/FaixaResumo"
+import {
+  DICA_FATURAMENTO_BRUTO,
+  FaixaResumo,
+  SkeletonFaixaResumo,
+  type ResumoKpi,
+} from "@/components/comum/FaixaResumo"
 import { TabelaPorModelo } from "@/components/comum/TabelaPorModelo"
 import { formatBRL } from "@/lib/formatters"
 
@@ -17,7 +22,12 @@ export function ResumoClientes({ resumo, status }: Props) {
 
   const ticket = resumo.ticket_medio_brl
   const kpis: ResumoKpi[] = [
-    { label: "Faturamento", valor: formatBRL(resumo.faturamento_bruto_brl), destaque: true },
+    {
+      label: "Faturamento",
+      valor: formatBRL(resumo.faturamento_bruto_brl),
+      destaque: true,
+      dica: DICA_FATURAMENTO_BRUTO,
+    },
     { label: "Clientes", valor: String(resumo.total_clientes) },
     { label: "Recorrentes", valor: String(resumo.recorrentes) },
     { label: "Ticket médio", valor: ticket != null ? formatBRL(ticket) : "—" },

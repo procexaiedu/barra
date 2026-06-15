@@ -1,14 +1,20 @@
 "use client"
 
 import { useState, type ReactNode } from "react"
-import { ChevronDown } from "lucide-react"
+import { ChevronDown, Info } from "lucide-react"
 import { cn } from "@/lib/utils"
+
+/** Dica padrão do KPI de faturamento das faixas (Atendimentos/Clientes/Modelos). */
+export const DICA_FATURAMENTO_BRUTO =
+  "Valor bruto dos Fechados — sem repasse nem taxa de cartão. Inclui dados importados sem data."
 
 export interface ResumoKpi {
   label: string
   valor: string
   /** Destaca o valor em verde (ex: faturamento). */
   destaque?: boolean
+  /** Texto explicativo opcional (ícone Info + tooltip nativo ao lado do valor). */
+  dica?: string
 }
 
 /**
@@ -58,6 +64,11 @@ export function FaixaResumo({
             >
               {k.valor}
             </span>
+            {k.dica ? (
+              <span title={k.dica} className="inline-flex cursor-help text-text-muted">
+                <Info size={12} strokeWidth={1.75} aria-label={k.dica} />
+              </span>
+            ) : null}
           </span>
         ))}
         {temDetalhe ? (

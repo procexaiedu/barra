@@ -38,14 +38,13 @@ barra/
 │   │   │   ├── routes.py, parser.py, filtro.py, debounce.py, despacho.py
 │   │   ├── workers/            # ARQ
 │   │   │   ├── settings.py, envio.py, timeouts.py, media.py, pix.py
-│   │   ├── calibracao/         # rotuladores, golden, runner de evals
 │   │   └── api/                # deps.py, v1.py
 │   └── tests/
 ├── interface/                  # Next.js 16 — App Router
 │   ├── src/app/
 │   │   ├── layout.tsx, page.tsx, globals.css
 │   │   ├── (auth)/login/
-│   │   └── (interface)/        # atendimentos, agenda, clientes, modelos, pix, dashboard, financeiro, tarefas, calibracao
+│   │   └── (interface)/        # atendimentos, agenda, clientes, modelos, pix, dashboard, financeiro, tarefas, avaliacao
 │   ├── src/components/ui/
 │   ├── src/lib/
 │   └── src/tipos/              # gerado a partir do OpenAPI (script planejado)

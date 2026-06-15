@@ -23,7 +23,7 @@ export function AbaMidia({
   const [tipo, setTipo] = useState<"todos" | TipoMidia>("todos")
   const [tag, setTag] = useState("todas")
   const [aprovacao, setAprovacao] = useState<FiltroAprovacao>("aprovadas")
-  const tags = useMemo(() => Array.from(new Set(midia.map((item) => item.tag))).sort(), [midia])
+  const tags = useMemo(() => Array.from(new Set(midia.map((item) => item.tag).filter(Boolean))).sort(), [midia])
   const items = useMemo(() => midia.filter((item) => {
     if (tipo !== "todos" && item.tipo !== tipo) return false
     if (tag !== "todas" && item.tag !== tag) return false

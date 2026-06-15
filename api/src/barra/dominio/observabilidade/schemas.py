@@ -27,6 +27,7 @@ class TurnoObservabilidade(BaseModel):
     """Uma resposta da IA no seu contexto, com a avaliacao humana (se houver)."""
 
     resposta_ia_id: UUID  # mensagens.id da resposta da IA — chave da avaliacao
+    conversa_id: UUID  # par cliente-modelo — chave de agrupamento do chat no painel
     atendimento_id: UUID | None
     numero_curto: int | None
     cliente_nome: str | None

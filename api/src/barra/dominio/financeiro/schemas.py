@@ -37,11 +37,20 @@ class JanelaComparacao(BaseModel):
     ate: str
 
 
+class ImportadosSemData(BaseModel):
+    """Fechados sem data (sem evento `fechado_registrado`) — ficam fora do recorte
+    por período. Bruto total, independente da janela e respeitando só o modelo."""
+
+    contagem: int
+    valor_bruto_brl: float
+
+
 class FinanceiroResumoResponse(BaseModel):
     filtro_aplicado: dict[str, Any]
     janela_comparacao: JanelaComparacao | None
     resumo: FinanceiroResumo
     resumo_anterior: FinanceiroResumo | None
+    importados_sem_data: ImportadosSemData
 
 
 # ----------------------- Receitas (projeção) --------------------------------

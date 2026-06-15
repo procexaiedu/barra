@@ -25,6 +25,7 @@ from .schemas import (
 _SQL_BASE = """
 SELECT
   ia.id                AS resposta_ia_id,
+  ia.conversa_id       AS conversa_id,
   ia.conteudo          AS ia_conteudo,
   ia.created_at        AS ia_created_at,
   ia.atendimento_id    AS atendimento_id,
@@ -124,6 +125,7 @@ def _row_para_turno(r: dict[str, Any]) -> TurnoObservabilidade:
         )
     return TurnoObservabilidade(
         resposta_ia_id=r["resposta_ia_id"],
+        conversa_id=r["conversa_id"],
         atendimento_id=r.get("atendimento_id"),
         numero_curto=r.get("numero_curto"),
         cliente_nome=r.get("cliente_nome"),

@@ -374,6 +374,7 @@ function ModelosConteudo() {
       <DialogMidiaUpload
         open={uploadDialog !== null}
         modo={uploadDialog ?? "midia"}
+        tagsExistentes={detalhe?.midia.map((m) => m.tag) ?? []}
         onOpenChange={(open) => !open && setUploadDialog(null)}
         onCriarUploadUrl={modelos.criarUploadUrl}
         onConfirmarMidia={modelos.criarMidia}
