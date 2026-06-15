@@ -117,12 +117,12 @@ async def _falas_do_cliente(
     return [str(r["texto"]).strip() for r in await res.fetchall()]
 
 
-def _montar(th: dict[str, Any], falas: list[str]) -> PerfilCaso:
+def _montar(th: dict[str, Any], falas: list[str], eixo: str = "") -> PerfilCaso:
     numeradas = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(falas))
     desfecho = th["desfecho_proxy"]
     ref = f"{th['instancia']}:{th['remote_jid']}"
     return PerfilCaso(
-        nome=f"{desfecho}:{ref}",
+        nome=f"{eixo or desfecho}:{ref}",
         abertura=falas[0],
         modelo=MODELO_SINTETICA,
         roteiro_cliente=falas[1:],
@@ -131,4 +131,68 @@ def _montar(th: dict[str, Any], falas: list[str]) -> PerfilCaso:
         desfecho_real=desfecho,
         label_bin=th["label_bin"],
         thread_ref=ref,
+        eixo_comportamento=eixo,
     )
+
+
+# Eixos de COMPORTAMENTO do cliente: cada um e uma clausula extra sobre a base (cliente iniciou,
+# 2-10 falas, nao-ops). Estratifica por COMO o cliente age, nao so pelo desfecho — cobre a
+# distribuicao real (literatura: personas diversas pegam falhas diferentes). A ordem e a
+# prioridade na deduplicacao: uma thread entra no 1o eixo que casa, nao em dois.
+_EIXOS: list[tuple[str, str]] = [
+    (
+        "decidido_rapido",
+        "t.desfecho_proxy = 'convertido_provavel' AND t.tem_valor AND t.n_cli BETWEEN 2 AND 4",
+    ),
+    ("objetor", "t.objecao"),
+    ("ghost_pos_cotacao", "t.ghost_pos_cotacao"),
+    (
+        "explorador_ambiguo",
+        "t.desfecho_proxy IN ('ambiguo','qualificado_sem_prova') AND t.n_cli >= 5",
+    ),
+    ("pre_cotacao_sumiu", "t.desfecho_proxy = 'sem_cotacao'"),
+    ("externo", "t.tipo_atendimento_proxy = 'externo'"),
+]
+
+
+async def extrair_nucleo(
+    conn: AsyncConnection[dict[str, Any]],
+    *,
+    por_eixo: int = 2,
+    min_cli: int = 2,
+    max_cli: int = 10,
+) -> list[PerfilCaso]:
+    """Monta o NUCLEO de perfis estratificado por eixo de comportamento (`por_eixo` de cada).
+
+    Dedup global por ref (prioridade = ordem de `_EIXOS`) — uma thread nunca conta em dois eixos.
+    So SELECT, sem credito. Sobrepoe a selecao por-desfecho do `extrair_perfis` para cobertura.
+    """
+    vistos: set[str] = set()
+    perfis: list[PerfilCaso] = []
+    for eixo, cond in _EIXOS:
+        res = await conn.execute(
+            f"""
+            SELECT t.instancia, t.remote_jid, t.desfecho_proxy, t.tipo_atendimento_proxy, ec.label_bin
+            FROM corpus.threads t
+            LEFT JOIN corpus.eval_cotacao ec USING (instancia, remote_jid)
+            WHERE t.cliente_iniciou AND t.n_cli BETWEEN %(min)s AND %(max)s
+              AND NOT COALESCE(t.thread_ops, false)
+              AND ({cond})
+            ORDER BY t.remote_jid
+            """,
+            {"min": min_cli, "max": max_cli},
+        )
+        n = 0
+        for th in await res.fetchall():
+            if n >= por_eixo:
+                break
+            ref = f"{th['instancia']}:{th['remote_jid']}"
+            if ref in vistos:
+                continue
+            falas = await _falas_do_cliente(conn, th["instancia"], th["remote_jid"])
+            if len(falas) < min_cli:
+                continue
+            vistos.add(ref)
+            perfis.append(_montar(th, falas, eixo=eixo))
+            n += 1
+    return perfis

@@ -45,7 +45,9 @@ async def garantir_modelo_sandbox(conn: AsyncConnection[dict[str, Any]]) -> None
                 MODELO_SINTETICA["idade"],
                 "e2e-sandbox",
                 500,
-                MODELO_SINTETICA["tipo_atendimento_aceito"],
+                # a sandbox aceita os 3 tipos para que os cenarios sinteticos (interno/externo/
+                # remoto) persistam sob ela sem precisar de uma modelo por tipo.
+                ["interno", "externo", "remoto"],
                 MODELO_SINTETICA["localizacao_operacional"],
                 MODELO_SINTETICA["endereco_formatado"],
             ),
@@ -134,6 +136,9 @@ async def limpar_sandbox(conn: AsyncConnection[dict[str, Any]]) -> int:
         (SANDBOX_MODELO_ID,),
     )
     clientes = [r["cliente_id"] for r in await res.fetchall()]
+    # bloqueios referenciam modelo_id direto (reserva de agenda criada pela IA na qualificacao);
+    # apaga antes da modelo para nao violar bloqueios_modelo_id_fkey.
+    await conn.execute("DELETE FROM barravips.bloqueios WHERE modelo_id = %s", (SANDBOX_MODELO_ID,))
     await conn.execute(
         "DELETE FROM barravips.atendimentos WHERE modelo_id = %s", (SANDBOX_MODELO_ID,)
     )

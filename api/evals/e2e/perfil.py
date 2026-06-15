@@ -54,6 +54,9 @@ class PerfilCaso:
     desfecho_real: str | None = None  # corpus.threads.desfecho_proxy (ex.: convertido_provavel)
     label_bin: str | None = None  # corpus.eval_cotacao.label_bin: GOOD | BAD
     thread_ref: str | None = None  # origem no corpus (instancia:remote_jid), p/ rastreio
+    # Eixo de COMPORTAMENTO do cliente (estratificacao de cobertura, nao so desfecho). Vazio nos
+    # cenarios sinteticos de funcionalidade; preenchido por `extracao.extrair_nucleo`.
+    eixo_comportamento: str = ""
 
 
 def perfil_para_fixture(perfil: PerfilCaso) -> dict[str, Any]:

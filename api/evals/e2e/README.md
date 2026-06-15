@@ -50,12 +50,34 @@ multi-turn.
   filtro "E2E" no toggle). A cada turno grava a bolha da IA em `mensagens` (o worker de envio
   não roda no harness). `limpar_sandbox(conn)` apaga tudo da sandbox.
 - `avaliacao.py` — `avaliar_e2e`: veredito determinístico (conduziu? vazou? bateu o
-  desfecho real?).
-- `extracao.py` — `extrair_perfis`: monta `PerfilCaso`s do corpus (`corpus.threads` +
-  `corpus.turnos`), só SELECT, **sem crédito**. Convertidos (`convertido_provavel`) e
-  perdidos (`perdido_sumiu`/`perdido_objecao`); a persona embute as falas reais do cliente
-  como âncora. Modelo = `MODELO_SINTETICA` (a ponte corpus→modelo real é irrecuperável).
-- `ddl.sql` — `corpus.eval_e2e` (uma linha por corrida). **Não aplicado em prod** (§0).
+  desfecho real?). `gravar_veredito`: persiste a corrida em `corpus.eval_e2e` (conn AUTOCOMMIT
+  separada, sobrevive ao rollback do seed; `run_tag` = registro de "já testado").
+- `extracao.py` — `extrair_perfis` (por desfecho) e **`extrair_nucleo` (por EIXO DE
+  COMPORTAMENTO**: decidido_rapido, objetor, ghost_pos_cotacao, explorador_ambiguo,
+  pre_cotacao_sumiu, externo — dedup global, `por_eixo` de cada). Só SELECT, **sem crédito**.
+  A persona embute as falas reais como âncora. Modelo = `MODELO_SINTETICA`.
+- `lote.py` — monta o **núcleo de refs por eixo** (`extrair_nucleo`) com porta por item para o
+  fan-out de sub-agentes; `--run-tag` pula refs já testadas (dedup via `corpus.eval_e2e`).
+- `cenarios.py` — **catálogo de cenários sintéticos de funcionalidade** (`CenarioFunc`): fluxos
+  que o corpus de venda não tem (externo c/Pix, pickup, remoto, desconto fora do piso,
+  disclosure, jailbreak, foto de portaria), com `roteiro_cliente` fixo e expectativas (tool/estado).
+- `massa.py` — **runner em massa dos cenários** com `ClienteRoteirizado` (Python, sem sub-agente):
+  seed → condução → pós-evento determinístico (foto de portaria via `handoff_foto_portaria_ia`,
+  sem worker/vision) → veredito. Dedup por `run_tag`, `k` execuções (pass^k; default 1), agrega
+  cobertura. `--fake` valida o encanamento sem crédito; `--persistir` COMMITA cada cenário no painel
+  (sandbox, §0); real exige `E2E_AUTORIZADO=1` (§0).
+- `ddl.sql` — `corpus.eval_e2e` (uma linha por corrida, com coluna `eixo`). **Aplicado em prod 15/06**.
+
+## Observabilidade (Langfuse + scores)
+
+`sessao.py` e `massa.py` ligam o **trace Langfuse de prod** (ADR 0019) no startup via
+`harness.habilitar_tracing()` — no-op silencioso sem as envs `LANGFUSE_*`. O `rodar_turno` aceita
+`trace_tag` (marca os traces e2e como `"e2e"`, vs `"eval_gate"` do gate) e `escopar_trace` (cria um
+trace-id determinístico + span, padrão do `coordenador.py`, devolvido em `ResultadoTurno.trace_id`).
+No fim de cada corrida, `avaliacao.pontuar_no_langfuse` empurra o veredito determinístico como
+**scores** no trace (`e2e_conduziu`, `e2e_sem_violacoes`, `e2e_bate_desfecho_real` — este só quando
+há desfecho real do corpus), e `flush_langfuse` garante a entrega. O Langfuse é **self-hosted**
+(`langfuse.procexai.tech`) — o MCP Langfuse aponta para outra instância (cloud).
 
 ## Rodar
 
@@ -79,15 +101,30 @@ curl -s -XPOST localhost:8765/fim                            # rollback + shutdo
 
 Só o agente chama a API (1 ainvoke/turno). O cliente é o Claude Code, ancorado nas falas reais.
 
+## Orquestração multi-perfil (vários clientes em paralelo)
+
+A visão: testar o agente contra **vários perfis de cliente reais ao mesmo tempo**, cada um um
+**sub-agente Claude Code** que reage à IA em tempo real, do início ao fim da conversa.
+
+- `lote.py` — `montar_lote`: extrai um **leque diverso** de refs do corpus (uma fatia de cada
+  desfecho: convertido / perdido_objecao / perdido_sumiu) e atribui uma **porta por ref**. Só
+  SELECT, sem crédito. `uv run python -m evals.e2e.lote --por-grupo 3 --porta-base 8800`.
+- **Fan-out**: para cada item do lote, sobe uma `sessao.py` na sua porta e spawna um sub-agente
+  conduzindo via `curl` (cada sessão é 1 perfil; portas distintas = sem colisão). Os sub-agentes
+  rodam em paralelo. O `/fim` de cada um devolve o **veredito da corrida**.
+- **Validado com `--fake`** (custo zero, rollback): 2 sessões + 2 sub-agentes-cliente em paralelo
+  (convertido + objeção) conduziram até `Aguardando_confirmacao` e devolveram veredito; o
+  `bate_desfecho_real` **discriminou** (true no convertido, false no que o real perdeu por objeção).
+
 ## Falta (próximos passos)
 
-1. ~~**Extração de `PerfilCaso` do corpus**~~ — **FEITO** (`extracao.py`, validado em
-   `tests/agente/test_e2e_extracao.py`). Deriva abertura/roteiro/persona/rótulos de
-   `corpus.threads` + `corpus.turnos`, convertidas e não-convertidas, sem crédito.
-2. ~~**Sessão turn-by-turn (cliente = Claude Code)**~~ — **FEITO** (`sessao.py`, validado com
-   `--fake`: subiu, conduziu Novo→`Aguardando_confirmacao` em 3 turnos, `/fim` reverteu).
-3. **Persistência em `corpus.eval_e2e`** + veredito por corrida. Atenção ao isolamento
-   transacional: o seed precisa de ROLLBACK (não poluir prod), mas `corpus.eval_e2e` precisa
-   de COMMIT — **conexões separadas**. A persistência ainda não está ligada na `sessao.py`.
-4. **Corrida real** (gasta crédito): rodar a sessão sem `--fake` sobre um lote de refs
-   convertidas + perdidas, comparar a taxa de condução por desfecho real.
+1. ~~**Extração de `PerfilCaso` do corpus**~~ — **FEITO** (`extracao.py`).
+2. ~~**Sessão turn-by-turn (cliente = Claude Code)**~~ — **FEITO** (`sessao.py`).
+3. ~~**Veredito por corrida + persistência em `corpus.eval_e2e`**~~ — **FEITO**: o `/fim` acumula
+   os turnos, computa `avaliar_e2e` e devolve o veredito no JSON. Grava em `corpus.eval_e2e` com
+   `gravar_veredito` numa conn **AUTOCOMMIT separada** (sobrevive ao rollback do seed), **guarded
+   por `E2E_RUN_TAG`** (sem a env, só devolve o veredito; gravar exige a `ddl.sql` aplicada — §0).
+4. ~~**Orquestrador multi-perfil**~~ — **FEITO** (`lote.py` + fan-out de sub-agentes, validado fake).
+5. **Corrida REAL** (§0 — gasta crédito do agente): rodar o fan-out sem `--fake`, sobre o lote, e
+   comparar a taxa de condução por desfecho real. Com `--persistir` (escreve no painel
+   `/observabilidade`) e `E2E_RUN_TAG` + `ddl.sql` aplicada (grava vereditos), tudo §0.

@@ -16,12 +16,13 @@ test_e2e_conducao.py.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
 from psycopg import AsyncConnection
 
-from evals.harness import ResultadoTurno, rodar_turno, seedar
+from evals.harness import Cenario, ResultadoTurno, rodar_turno, seedar
 
 from .cliente import ClienteSimulado
 from .perfil import ESTADOS_CONDUZIDOS, PerfilCaso, perfil_para_fixture
@@ -37,6 +38,9 @@ class ResultadoE2E:
     desfecho_conducao: str = "max_turnos"  # conduziu | pausou_handoff | cliente_sumiu | max_turnos
     estado_final: str | None = None
     desfecho_real: str | None = None  # rotulo do corpus (comparacao)
+    cenario: Cenario | None = (
+        None  # cenario seedado (atendimento_id p/ pos-eventos, ex.: foto portaria)
+    )
 
     @property
     def n_turnos(self) -> int:
@@ -66,17 +70,39 @@ async def rodar_e2e(
     *,
     graph: Any | None = None,
     max_turnos: int = 12,
+    cen: Cenario | None = None,
+    pos_turno: Callable[[AsyncConnection[dict[str, Any]], Cenario, ResultadoTurno], Awaitable[None]]
+    | None = None,
+    trace_tag: str = "e2e",
+    escopar_trace: bool = False,
 ) -> ResultadoE2E:
-    """Conduz o caso `perfil` ate um desfecho de conducao. ROLLBACK e responsabilidade do caller."""
-    cen = await seedar(conn, perfil_para_fixture(perfil))
-    res = ResultadoE2E(perfil_nome=perfil.nome, trajetoria=[], desfecho_real=perfil.desfecho_real)
+    """Conduz o caso `perfil` ate um desfecho de conducao. ROLLBACK e responsabilidade do caller.
+
+    `cen` externo pula o seed efemero (a corrida persistente passa o caso da modelo sandbox).
+    `pos_turno` roda apos cada turno (a persistencia grava a bolha da IA e COMMITA). `trace_tag`/
+    `escopar_trace` propagam o trace Langfuse + score ao `rodar_turno`.
+    """
+    if cen is None:
+        cen = await seedar(conn, perfil_para_fixture(perfil))
+    res = ResultadoE2E(
+        perfil_nome=perfil.nome, trajetoria=[], desfecho_real=perfil.desfecho_real, cenario=cen
+    )
 
     turno_cliente: str | None = perfil.abertura
     for _ in range(max_turnos):
         assert turno_cliente is not None
-        r = await rodar_turno(conn, cen, turno_cliente=turno_cliente, graph=graph)
+        r = await rodar_turno(
+            conn,
+            cen,
+            turno_cliente=turno_cliente,
+            graph=graph,
+            trace_tag=trace_tag,
+            escopar_trace=escopar_trace,
+        )
         res.turnos.append(r)
         res.trajetoria.append(r.estado_final)
+        if pos_turno is not None:
+            await pos_turno(conn, cen, r)
 
         if _estado(r) in ESTADOS_CONDUZIDOS:
             res.desfecho_conducao = "conduziu"

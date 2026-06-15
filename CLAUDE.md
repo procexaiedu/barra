@@ -1,21 +1,5 @@
 # CLAUDE.md
 
-**Porta de entrada do domínio:** @CONTEXT.md (vocabulário, termos da operação Elite Baby e o que evitar). 
-
-## Agent skills
-
-### Issue tracker
-
-Issues e PRDs vivem como GitHub issues em `procexaiedu/barra`, via `gh` CLI. See `docs/agents/issue-tracker.md`.
-
-### Triage labels
-
-Cinco papéis canônicos de triagem mapeados 1:1 para labels do GitHub (defaults). See `docs/agents/triage-labels.md`.
-
-### Domain docs
-
-Single-context: `CONTEXT.md` + `docs/adr/` na raiz do repo. See `docs/agents/domain.md`.
-
 ## 0. Segurança em Produção
 
 **Nenhuma ação que atinja produção sem autorização explícita minha, frase a frase.**
@@ -26,16 +10,6 @@ São ações que **atingem produção** (lista não exaustiva):
 - Escrita no banco de produção: `ALTER`/`INSERT`/`UPDATE`/`DELETE`, migrations, `pg_execute_mutation`/`pg_execute_sql` mutável. **`make migrate` contra prod é proibido** (aplica seeds).
 - Deploy/infra: `StackGitRedeploy`, `StackUpdate`, `service update --force`, qualquer coisa no Portainer que reinicie ou redeploye a stack `barra-vips` (⚠️ redeploy git sem `Env` zera os segredos e derruba prod).
 - `git push`/`delete` em `origin`.
-
-### Gate de verificação antes de push/deploy
-
-**Nada vai para `origin` ou prod sem o gate verde.** Antes de `git push` ou qualquer deploy:
-
-1. **Lint** — `make lint` (api) e/ou `pnpm lint` (interface).
-2. **Build** — `pnpm build` no frontend; `make typecheck` no backend.
-3. **Testes** — `make test`; e quando a mudança tocar código de banco, rode também os `needs_db` contra o DB real (`TEST_DATABASE_URL`), não só o subconjunto que roda no CI.
-
-Só empurra com **tudo verde**. Falhou um passo → pare, relate a saída, não empurre. (`make test-llm` consome crédito e cai na regra de prod da seção 0 — pede autorização à parte.)
 
 ## 1. Pense Antes de Codificar
 
@@ -127,19 +101,38 @@ Apenas **local** — sem `push`, a menos que o usuário peça. Se a tarefa ficou
 
 Central inteligente de atendimento da agência Elite Baby. Cada modelo opera em seu próprio WhatsApp; uma IA dedicada (LangGraph) atende clientes em nome dela, pausa para handoff e escala decisões para Fernando ou para a modelo via grupo de **Coordenação por modelo**. Estamos no P0 (MVP).
 
-Decisões arquiteturais registradas em `docs/adr/` (numeradas; nunca apagar — substituir com `status: superseded`). Contexto de produto em `docs/mvp/`.
+**Porta de entrada do domínio:** @CONTEXT.md (vocabulário, termos da operação Elite Baby e o que evitar). 
 
-## Mapa do repositório
+### Issue tracker
 
-Monorepo plano: `api/` (FastAPI + LangGraph + ARQ), `interface/` (Next.js 16 — App Router), `infra/` (compose, `sql/` sequencial, runbooks), `docs/` (`adr/`, `mvp/`), `scripts/`.
+Issues e PRDs vivem como GitHub issues em `procexaiedu/barra`, via `gh` CLI.
 
-Árvore detalhada por pasta: `docs/agents/repo-map.md`.
+### Triage labels
 
-## Stack
+Cinco papéis canônicos de triagem mapeados 1:1 para labels do GitHub (defaults).
+
+### Domain docs
+
+Single-context: `CONTEXT.md` + `docs/adr/` na raiz do repo.
+
+## Gate de verificação
+
+Antes de empurrar, nesta ordem (comandos detalhados em "Comandos comuns"):
+
+1. **Lint** — api e interface.
+2. **Build/typecheck** — `pnpm build` no front; `make typecheck` no back.
+3. **Testes** — `make test`; quando a mudança tocar código de banco, rode também os `needs_db` contra o DB real (`TEST_DATABASE_URL`), não só o subconjunto que roda no CI.
+
+Só empurra com **tudo verde**. Falhou um passo → pare, relate a saída, não empurre. (`make test-llm` consome crédito e cai na regra de prod da seção 0 — pede autorização à parte.)
+
+## Mapa do repositório e stack
+
+Monorepo plano. Árvore detalhada por pasta: `docs/agents/repo-map.md`.
 
 - `api/` — Python 3.12 + uv, FastAPI 0.136, LangGraph 1.1 (compila **sem checkpointer** no P0 — ver `agente/graph.py`; `AsyncPostgresSaver` reservado p/ P1), ARQ workers, psycopg3 puro (sem ORM — ver ADR 0002), langchain-anthropic 1.4 (ChatAnthropic) sobre Anthropic SDK 0.97, com prompt caching.
 - `interface/` — Next.js 16.2 (App Router), Tailwind v4, shadcn/ui (data-slot pattern), pnpm.
-- Infra — Supabase self-hosted (Postgres + Auth), MinIO + Redis + Evolution API self-host via Portainer 2.39, Traefik.
+- `infra/` — Supabase self-hosted (Postgres + Auth), MinIO + Redis + Evolution API self-host via Portainer 2.39, Traefik; compose, runbooks e `sql/` (migrations sequenciais).
+- `docs/` (`adr/`, `mvp/`), `scripts/`.
 
 Migrations são SQL sequencial em `infra/sql/NNNN_*.sql`, aplicado via `psql` ou Supabase Studio. **Sem migration framework.**
 
@@ -151,10 +144,10 @@ Backend (a partir de `api/`):
 - `make dev` — sobe a FastAPI (`python -m barra`; seta `WindowsSelectorEventLoopPolicy` antes do loop). **No Windows não use `uvicorn` cru** — pendura no ProactorEventLoop (500 no que toca o banco).
 - `make worker` — ARQ worker
 - `make test` — pytest
-- `make test-llm` — testes que batem na API real (consome crédito Anthropic)
+- `make test-llm` — testes que batem na API real (consome crédito Anthropic; ver gate)
 - `make lint` / `make format` — ruff
-- `make typecheck` — mypy src (rode antes de PR)
-- `make migrate` — aplica `infra/sql/`
+- `make typecheck` — mypy src
+- `make migrate` — aplica `infra/sql/` (⚠️ proibido em prod — ver "Mapa do repositório e stack")
 - `uv sync` — instala/atualiza deps
 
 Frontend (a partir de `interface/`):
