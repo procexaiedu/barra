@@ -19,7 +19,8 @@ from barra.core.metrics import CHUNK_OVERSIZE
 MAX_CHARS = 600
 MAX_CHUNKS = 6
 # `[quote]` puro ou `[quote: trecho]` (case-insensitive). O grupo `trecho` é None no puro.
-_QUOTE_PREFIX = re.compile(r"^\s*\[quote(?::\s*(?P<trecho>[^\]]*?)\s*)?\]\s*", re.IGNORECASE)
+# `\s*` após `quote` tolera variação do LLM (`[quote ]`, `[quote : trecho]`) sem perder o alvo.
+_QUOTE_PREFIX = re.compile(r"^\s*\[quote\s*(?::\s*(?P<trecho>[^\]]*?)\s*)?\]\s*", re.IGNORECASE)
 
 
 def chunk_texto(texto: str) -> tuple[list[str], list[str | None]]:

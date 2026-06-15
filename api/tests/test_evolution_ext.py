@@ -150,6 +150,46 @@ async def test_enviar_texto_sem_quoted_nao_inclui_chave() -> None:
 
 
 @respx.mock
+async def test_enviar_texto_remove_marker_quote_residual() -> None:
+    """Rede de segurança: um `[quote...]` que escapou do chunk (marker no meio da linha,
+    sem linha em branco antes) NUNCA chega ao cliente — vazá-lo entrega que é uma IA."""
+    route = respx.post(f"{BASE}/message/sendText/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-R"}})
+    )
+    await _client().enviar_texto(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        texto="oii amor [quote: faz oral] faço sim vida",
+        contexto="conversa_cliente",
+        tipo="texto",
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert "[quote" not in body["text"].lower()
+    assert body["text"] == "oii amor faço sim vida"
+
+
+@respx.mock
+async def test_enviar_midia_remove_marker_quote_do_caption() -> None:
+    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-MR"}})
+    )
+    await _client().enviar_midia(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        url="https://x/y.jpg",
+        caption="[quote: foto] essa sou eu amor",
+        media_type="image",
+        contexto="conversa_cliente",
+        tipo="midia",
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert "[quote" not in body["caption"].lower()
+    assert body["caption"] == "essa sou eu amor"
+
+
+@respx.mock
 async def test_enviar_midia_anexa_quoted_quando_recebe_id() -> None:
     route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
         return_value=httpx.Response(200, json={"key": {"id": "MID-Q2"}})
