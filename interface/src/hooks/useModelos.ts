@@ -18,6 +18,7 @@ import type {
   ModelosListaResponse,
   PatchModeloInput,
   PausarModeloResponse,
+  ResumoModelos,
   UploadUrlResponse,
   WhatsappStatusResponse,
 } from "@/tipos/modelos"
@@ -38,16 +39,26 @@ function abaFromQuery(value: string | null): AbaModelo {
   return abasValidas.includes(value as AbaModelo) ? (value as AbaModelo) : "perfil"
 }
 
-function buildListaPath(filtros: FiltrosModelos, cursor?: string | null) {
-  const params = new URLSearchParams({ limit: "50" })
+function montarParamsModelos(filtros: FiltrosModelos): URLSearchParams {
+  const params = new URLSearchParams()
   const busca = filtros.busca.trim()
   if (busca) params.set("q", busca)
   if (filtros.status !== "todos") params.set("status", filtros.status)
   if (filtros.evolution !== "todos") params.set("evolution", filtros.evolution)
   if (filtros.tipo !== "todos") params.set("tipo", filtros.tipo)
   if (filtros.nivel !== "todos") params.set("nivel", filtros.nivel)
+  return params
+}
+
+function buildListaPath(filtros: FiltrosModelos, cursor?: string | null) {
+  const params = montarParamsModelos(filtros)
+  params.set("limit", "50")
   if (cursor) params.set("cursor", cursor)
   return `/v1/modelos?${params.toString()}`
+}
+
+function buildResumoPath(filtros: FiltrosModelos) {
+  return `/v1/modelos/resumo?${montarParamsModelos(filtros).toString()}`
 }
 
 function toArray(value: unknown): string[] {
@@ -86,6 +97,8 @@ export function useModelos() {
   const [debouncedBusca, setDebouncedBusca] = useState("")
   const [items, setItems] = useState<ModeloListaItem[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [resumo, setResumo] = useState<ResumoModelos | null>(null)
+  const [resumoStatus, setResumoStatus] = useState<Status>("loading")
   const [selectedId, setSelectedId] = useState<string | null>(searchParams.get("modelo"))
   const [aba, setAbaState] = useState<AbaModelo>(() => abaFromQuery(searchParams.get("aba")))
   const [detalhe, setDetalhe] = useState<ModeloDetalheResponse | null>(null)
@@ -208,6 +221,18 @@ export function useModelos() {
     },
     [aba, filtrosEfetivos, loadDetalhe, replaceUrl, searchParams, selecionarModelo]
   )
+
+  const loadResumo = useCallback(async () => {
+    setResumoStatus("loading")
+    try {
+      const res = await api<ResumoModelos>(buildResumoPath(filtrosEfetivos))
+      setResumo(res)
+      setResumoStatus("success")
+    } catch {
+      setResumo(null)
+      setResumoStatus("error")
+    }
+  }, [filtrosEfetivos])
 
   const refetch = useCallback(() => {
     loadLista("replace", true)
@@ -428,12 +453,13 @@ export function useModelos() {
       }
       realtimeEvents.current = 0
       loadLista("replace", true)
+      loadResumo()
       // CONNECTION_UPDATE atualiza barravips.modelos no DB; sem refetch do
       // detalhe, o badge "WhatsApp pronto" no perfil dependeria do polling.
       const id = selectedIdRef.current
       if (id) loadDetalhe(id, false)
     }, 250)
-  }, [loadLista, loadDetalhe])
+  }, [loadLista, loadDetalhe, loadResumo])
 
   useEffect(() => {
     if (buscaTimer.current) clearTimeout(buscaTimer.current)
@@ -447,9 +473,12 @@ export function useModelos() {
     firstListaDone.current = false
     nextCursorRef.current = null
     itemsRef.current = []
-    const timer = setTimeout(() => loadLista("replace", false), 0)
+    const timer = setTimeout(() => {
+      loadLista("replace", false)
+      loadResumo()
+    }, 0)
     return () => clearTimeout(timer)
-  }, [filtrosEfetivos, loadLista])
+  }, [filtrosEfetivos, loadLista, loadResumo])
 
   useEffect(() => {
     const cleanupRealtime = subscribeTabelas(
@@ -476,6 +505,8 @@ export function useModelos() {
     filtrosAplicados,
     items,
     nextCursor,
+    resumo,
+    resumoStatus,
     selectedId,
     aba,
     detalhe,

@@ -16,6 +16,7 @@ import type {
   EditarClienteRequest,
   FiltrosClientes,
   ModeloResumo,
+  ResumoClientes,
 } from "@/tipos/clientes"
 
 type Status = "loading" | "success" | "error"
@@ -32,8 +33,8 @@ const filtrosIniciais: FiltrosClientes = {
   valorMax: null,
 }
 
-function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
-  const params = new URLSearchParams({ limit: "50" })
+function montarParamsClientes(filtros: FiltrosClientes): URLSearchParams {
+  const params = new URLSearchParams()
   const busca = filtros.busca.trim()
   if (busca) params.set("q", busca)
   // Período unificado (FiltroPeriodo compartilhado): custom manda data_inicio/fim,
@@ -51,8 +52,18 @@ function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
   if (filtros.recencia) params.set("recencia", filtros.recencia)
   if (filtros.valorMin != null) params.set("valor_min", String(filtros.valorMin))
   if (filtros.valorMax != null) params.set("valor_max", String(filtros.valorMax))
+  return params
+}
+
+function buildListaPath(filtros: FiltrosClientes, cursor?: string | null) {
+  const params = montarParamsClientes(filtros)
+  params.set("limit", "50")
   if (cursor) params.set("cursor", cursor)
   return `/v1/crm/clientes?${params.toString()}`
+}
+
+function buildResumoPath(filtros: FiltrosClientes) {
+  return `/v1/crm/clientes/resumo?${montarParamsClientes(filtros).toString()}`
 }
 
 interface ModelosResponse {
@@ -66,6 +77,8 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
   const [debouncedBusca, setDebouncedBusca] = useState("")
   const [items, setItems] = useState<ClienteListaItem[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [resumo, setResumo] = useState<ResumoClientes | null>(null)
+  const [resumoStatus, setResumoStatus] = useState<Status>("loading")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   // Conversas (pares cliente,modelo) do cliente selecionado — alimentam o seletor de modelo.
   const [conversas, setConversas] = useState<ClienteConversaResumo[]>([])
@@ -237,6 +250,18 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
     [filtrosEfetivos, loadDetalhe, selecionarCliente, limparSelecao]
   )
 
+  const loadResumo = useCallback(async () => {
+    setResumoStatus("loading")
+    try {
+      const res = await api<ResumoClientes>(buildResumoPath(filtrosEfetivos))
+      setResumo(res)
+      setResumoStatus("success")
+    } catch {
+      setResumo(null)
+      setResumoStatus("error")
+    }
+  }, [filtrosEfetivos])
+
   const refetch = useCallback(() => {
     loadLista("replace", true)
   }, [loadLista])
@@ -254,8 +279,9 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
       }
       realtimeEvents.current = 0
       loadLista("replace", true)
+      loadResumo()
     }, 250)
-  }, [loadLista])
+  }, [loadLista, loadResumo])
 
   useEffect(() => {
     if (buscaTimer.current) clearTimeout(buscaTimer.current)
@@ -282,9 +308,10 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
       } else {
         loadLista("replace", true)
       }
+      loadResumo()
     }, 0)
     return () => clearTimeout(timer)
-  }, [filtrosEfetivos, incluirArquivados, loadLista, loadDetalhe])
+  }, [filtrosEfetivos, incluirArquivados, loadLista, loadDetalhe, loadResumo])
 
   useEffect(() => {
     api<ModelosResponse[]>("/v1/modelos")
@@ -366,6 +393,8 @@ export function useClientes(opts: { selectedIdInicial?: string | null } = {}) {
     setIncluirArquivados,
     items,
     nextCursor,
+    resumo,
+    resumoStatus,
     selectedId,
     conversas,
     conversaAtivaId,

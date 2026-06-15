@@ -20,6 +20,7 @@ import type {
   FiltrosAtendimentos,
   MidiaInternaAtendimento,
   MotivoPerda,
+  ResumoAtendimentos,
 } from "@/tipos/atendimentos"
 
 type Status = "loading" | "success" | "error"
@@ -60,12 +61,11 @@ export interface FiltrosUrlAtendimentos {
   motivoEscalada?: string | null
 }
 
-function buildListaPath(
+function montarParamsAtendimentos(
   filtros: FiltrosAtendimentos,
-  filtrosUrl: FiltrosUrlAtendimentos,
-  cursor?: string | null
-) {
-  const params = new URLSearchParams({ limit: "50" })
+  filtrosUrl: FiltrosUrlAtendimentos
+): URLSearchParams {
+  const params = new URLSearchParams()
   const busca = filtros.busca.trim()
   if (busca) params.set("q", busca.startsWith("#") ? busca.slice(1) : busca)
   if (filtros.estado !== "abertos") params.set("estado", filtros.estado)
@@ -82,8 +82,25 @@ function buildListaPath(
   if (filtros.periodo.de) params.set("data_inicio", filtros.periodo.de)
   if (filtros.periodo.ate) params.set("data_fim", filtros.periodo.ate)
   for (const id of filtros.modeloIds) params.append("modelo_id", id)
+  return params
+}
+
+function buildListaPath(
+  filtros: FiltrosAtendimentos,
+  filtrosUrl: FiltrosUrlAtendimentos,
+  cursor?: string | null
+) {
+  const params = montarParamsAtendimentos(filtros, filtrosUrl)
+  params.set("limit", "50")
   if (cursor) params.set("cursor", cursor)
   return `/v1/atendimentos?${params.toString()}`
+}
+
+function buildResumoPath(
+  filtros: FiltrosAtendimentos,
+  filtrosUrl: FiltrosUrlAtendimentos
+) {
+  return `/v1/atendimentos/resumo?${montarParamsAtendimentos(filtros, filtrosUrl).toString()}`
 }
 
 export function useAtendimentos(
@@ -98,6 +115,8 @@ export function useAtendimentos(
   const [debouncedBusca, setDebouncedBusca] = useState("")
   const [items, setItems] = useState<AtendimentoListaItem[]>([])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [resumo, setResumo] = useState<ResumoAtendimentos | null>(null)
+  const [resumoStatus, setResumoStatus] = useState<Status>("loading")
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [detalhe, setDetalhe] = useState<AtendimentoDetalheResponse | null>(null)
   const [listaStatus, setListaStatus] = useState<Status>("loading")
@@ -221,6 +240,18 @@ export function useAtendimentos(
       setListaError(e instanceof Error ? e.message : "Erro desconhecido")
     }
   }, [filtrosEfetivos, selectAtendimento])
+
+  const loadResumo = useCallback(async () => {
+    setResumoStatus("loading")
+    try {
+      const res = await api<ResumoAtendimentos>(buildResumoPath(filtrosEfetivos, filtrosUrlRef.current))
+      setResumo(res)
+      setResumoStatus("success")
+    } catch {
+      setResumo(null)
+      setResumoStatus("error")
+    }
+  }, [filtrosEfetivos])
 
   const refetch = useCallback(() => {
     loadLista("replace", true, true)
@@ -365,8 +396,9 @@ export function useAtendimentos(
       }
       realtimeEvents.current = 0
       loadLista("replace", true, true)
+      loadResumo()
     }, 250)
-  }, [loadLista])
+  }, [loadLista, loadResumo])
 
   useEffect(() => {
     filtrosUrlRef.current = filtrosUrl
@@ -385,9 +417,10 @@ export function useAtendimentos(
     // filtro (sem flick para skeleton). O skeleton só vale na 1ª carga.
     const timer = setTimeout(() => {
       loadLista("replace", true)
+      loadResumo()
     }, 0)
     return () => clearTimeout(timer)
-  }, [filtrosEfetivos, loadLista])
+  }, [filtrosEfetivos, loadLista, loadResumo])
 
   useEffect(() => {
     const cleanupRealtime = subscribeTabelas(
@@ -416,6 +449,8 @@ export function useAtendimentos(
     filtrosAplicados,
     items,
     nextCursor,
+    resumo,
+    resumoStatus,
     selectedId,
     detalhe,
     listaStatus,

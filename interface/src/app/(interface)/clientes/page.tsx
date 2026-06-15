@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { DetalheCliente } from "@/components/clientes/DetalheCliente"
 import { ListaClientes } from "@/components/clientes/ListaClientes"
 import { MapaClientes } from "@/components/clientes/MapaClientes"
+import { ResumoClientes } from "@/components/clientes/ResumoClientes"
 import { ModalCriarCliente } from "@/components/clientes/ModalCriarCliente"
 import { ModalNovoAtendimento } from "@/components/atendimentos/ModalNovoAtendimento"
 import { SeletorPerfis } from "@/components/clientes/SeletorPerfis"
@@ -229,6 +230,7 @@ function ClientesInner() {
             }
             onIncluirArquivadosChange={crm.setIncluirArquivados}
           />
+          <ResumoClientes resumo={crm.resumo} status={crm.resumoStatus} />
           {bairroFiltro && (
             <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-text-secondary">
               <span>
@@ -253,7 +255,7 @@ function ClientesInner() {
             </div>
           )}
           <PainelDetalheResponsivo
-            className="h-[calc(100vh-240px)] gap-5 overflow-hidden"
+            className="h-[calc(100vh-310px)] gap-5 overflow-hidden"
             gridClassName="lg:grid-cols-[360px_minmax(0,1fr)]"
             tituloDetalhe="Detalhe do cliente"
             detalheAberto={detalheAberto}

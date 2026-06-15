@@ -17,6 +17,7 @@ import {
 import { PageHeader } from "@/components/layout/PageHeader"
 import { PainelDetalheResponsivo } from "@/components/layout/PainelDetalheResponsivo"
 import { ToolbarModelos } from "@/components/modelos/ToolbarModelos"
+import { ResumoModelos } from "@/components/modelos/ResumoModelos"
 import { ListaModelos } from "@/components/modelos/ListaModelos"
 import { DetalheModelo } from "@/components/modelos/DetalheModelo"
 import { PainelProgramas } from "@/components/modelos/PainelProgramas"
@@ -243,6 +244,7 @@ function ModelosConteudo() {
       {view === "lista" && (
         <div className="flex flex-col gap-4">
           <ToolbarModelos filtros={modelos.filtros} onChange={(filtros) => modelos.setFiltros(filtros)} />
+          <ResumoModelos resumo={modelos.resumo} status={modelos.resumoStatus} />
           <PainelDetalheResponsivo
             gridClassName="lg:grid-cols-[340px_1fr]"
             tituloDetalhe="Modelo"
