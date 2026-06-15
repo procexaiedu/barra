@@ -4,24 +4,21 @@ import { useState } from "react"
 import { Bot } from "lucide-react"
 
 import { useObservabilidade, type OrigemTurnos } from "@/hooks/useObservabilidade"
-import { ListaTurnos } from "@/components/observabilidade/ListaTurnos"
-import { DialogAvaliar } from "@/components/observabilidade/DialogAvaliar"
+import { ListaConversas } from "@/components/observabilidade/ListaConversas"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { cn } from "@/lib/utils"
-import type { TurnoObservabilidade } from "@/tipos/observabilidade"
 
-/** Aba "Avaliar ao vivo" da tela de Avaliação: cada resposta do agente no
- *  tráfego real (ou e2e), avaliada por Fernando (bom/ruim + nota). Ground-truth
- *  contínuo, single-rater — distinto da calibração do judge. */
+/** Tela de Avaliação ("Avaliar ao vivo"): cada resposta do agente no tráfego
+ *  real (ou e2e), agrupada por conversa em chat e avaliada inline por Fernando
+ *  (bom/ruim + nota + comentário). Ground-truth contínuo, single-rater. */
 export function PainelObservabilidade() {
   const [apenasNaoAvaliadas, setApenasNaoAvaliadas] = useState(false)
   const [origem, setOrigem] = useState<OrigemTurnos>("prod")
   const { items, nextCursor, status, error, carregarMais, avaliar, recarregar } =
     useObservabilidade({ apenasNaoAvaliadas, origem })
-  const [alvo, setAlvo] = useState<TurnoObservabilidade | null>(null)
 
   return (
     <>
@@ -97,7 +94,7 @@ export function PainelObservabilidade() {
 
         {status === "success" && items.length > 0 && (
           <>
-            <ListaTurnos turnos={items} onAvaliar={setAlvo} />
+            <ListaConversas turnos={items} onAvaliar={avaliar} />
             {nextCursor && (
               <div className="flex justify-center">
                 <Button variant="outline" onClick={carregarMais}>
@@ -108,15 +105,6 @@ export function PainelObservabilidade() {
           </>
         )}
       </section>
-
-      {alvo && (
-        <DialogAvaliar
-          key={alvo.resposta_ia_id}
-          turno={alvo}
-          onClose={() => setAlvo(null)}
-          onAvaliar={avaliar}
-        />
-      )}
     </>
   )
 }

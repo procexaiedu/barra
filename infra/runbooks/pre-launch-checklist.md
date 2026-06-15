@@ -149,8 +149,6 @@ Gerado por workflow de pré-launch (2026-06-01). Achados de drift B1/B2/B3 verif
 - [ ] **E-1 — Run live do runner (EVAL-01/02):** grafo real (Sonnet) com `TEST_DATABASE_URL` (**banco de teste com rollback, NUNCA prod**) + `ANTHROPIC_API_KEY`. Comando: `make evals`.
 - [ ] **E-2 — CI bloqueante (EVAL-04/03):** secrets `TEST_DATABASE_URL`/`ANTHROPIC_API_KEY` no workflow; branch protection; graduar adversariais novas `capability` → `regressão` **só após** o primeiro run verde.
   - ▶ depende de: B-1, E-1.
-- [ ] **E-3 — Calibrar o judge (EVAL-10) — passo humano:** rotular golden held-out com Fernando + sócia (30-50 turnos). Medir acordo humano-humano **primeiro** (teto). Rodar `evals/calibracao/calibrar.py` → TPR/TNR/κ (+ Gwet AC2 em persona/tom). Limiares ADR 0015: TPR ≥ 0.90, TNR ≥ 0.85, κ ≥ 0.60.
-  - Feito: `promove_a_blocker(...)` retorna `True`; **só então** `JUDGE_VINCULANTE=True` em `runners/judge.py`.
 - [ ] **E-4 — (Descoberta, NÃO-GATE) EVAL-12:** run live do simulador dual-control. Falhas viram fixtures de `scripted_5/`.
 
 ---

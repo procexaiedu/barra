@@ -108,7 +108,6 @@ Tudo aqui é determinístico/offline: roda sem Anthropic. A **verificação** qu
 
 | ID | O que fica pronto (Claude) | O que falta (bloqueio) |
 |---|---|---|
-| **A4 — Calibrar judge** | `gerar_candidatos.py` + `para_rotular.jsonl` (28 itens reais) já prontos; `calibracao.py` computa TPR/TNR/kappa/Gwet AC2. | 🟦 Fernando + sócia rotulam o golden independentemente → 🔴 rodar `calibrar.py` → promover `JUDGE_VINCULANTE` só se TPR≥0.9 / TNR≥0.85 / κ≥0.6 (ADR 0015). Reportar **Gwet AC2** (EVAL-10). |
 | **EVAL-07 — Judge de família distinta** | Implementar judge alternativo via OpenRouter (GPT/Gemini, já usado no Pix) atrás de flag, p/ quebrar self-preference. | 🔴 Verificar concordância vs. Sonnet exige run live. |
 | **A3 — Gate de evals real** | Fixtures de `prompt_injection/jailbreak/cross_modelo/pii/injecao_midia` prontas p/ graduar a `gate:'regressao'`. | 🔴 graduar exige run live (senão CI fica vermelho por flaky) + 🟦 secrets `TEST_DATABASE_URL`/`ANTHROPIC_API_KEY` no GitHub + branch protection (tornar `evals` **required check**). |
 | **A5 — Verificar métricas de tool** | Instrumentação da Onda B já no runner. | 🔴 número real só com run live de evals. |

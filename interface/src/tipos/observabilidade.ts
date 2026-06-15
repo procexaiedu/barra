@@ -17,6 +17,7 @@ export interface AvaliacaoResposta {
 
 export interface TurnoObservabilidade {
   resposta_ia_id: string
+  conversa_id: string
   atendimento_id: string | null
   numero_curto: number | null
   cliente_nome: string | null
