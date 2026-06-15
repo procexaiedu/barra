@@ -1,7 +1,9 @@
 "use client"
 
 import { useMemo } from "react"
+import { Info } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
+import { formatBRL } from "@/lib/formatters"
 import type {
   FinanceiroResumo,
   FinanceiroResumoResponse,
@@ -86,6 +88,7 @@ export function PainelFinanceiro({
   const r: FinanceiroResumo = resumo.resumo
   const ant = resumo.resumo_anterior
   const janela = resumo.janela_comparacao
+  const imp = resumo.importados_sem_data
 
   // Ticket médio = bruto / fechamentos. Útil contra outliers nos KPIs absolutos.
   const ticketMedio =
@@ -97,6 +100,20 @@ export function PainelFinanceiro({
 
   return (
     <div className="flex flex-col gap-4">
+      {imp.contagem > 0 && (
+        <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-2.5 text-[13px] text-text-muted">
+          <Info size={14} strokeWidth={1.75} aria-hidden className="mt-0.5 shrink-0" />
+          <span>
+            <span className="font-medium text-text-secondary">
+              {imp.contagem} atendimento{imp.contagem === 1 ? "" : "s"} importado
+              {imp.contagem === 1 ? "" : "s"} sem data
+            </span>{" "}
+            ({formatBRL(imp.valor_bruto_brl)} bruto) não entram nos números por período —
+            veja o total em Atendimentos ou Clientes.
+          </span>
+        </div>
+      )}
+
       {janela && (
         <div className="font-mono text-[11px] tabular-nums text-text-muted">
           deltas vs {janela.de} → {janela.ate}

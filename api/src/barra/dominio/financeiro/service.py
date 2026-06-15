@@ -28,6 +28,7 @@ from barra.dominio.financeiro.schemas import (
     FinanceiroResumo,
     FinanceiroResumoResponse,
     FinanceiroSerieResponse,
+    ImportadosSemData,
     JanelaComparacao,
     PreencherRepasseRetroativoBody,
     PreencherRepasseRetroativoResponse,
@@ -63,6 +64,8 @@ async def montar_resumo(
     if janela_ant:
         resumo_ant = await repo.resumo_periodo(conn, janela_ant, modelo_ids)
 
+    imp_contagem, imp_bruto = await repo.importados_sem_data(conn, modelo_ids)
+
     return FinanceiroResumoResponse(
         filtro_aplicado=filtro_aplicado_dict(periodo, janela, modelo_ids),
         janela_comparacao=(
@@ -72,6 +75,7 @@ async def montar_resumo(
         ),
         resumo=resumo,
         resumo_anterior=resumo_ant,
+        importados_sem_data=ImportadosSemData(contagem=imp_contagem, valor_bruto_brl=imp_bruto),
     )
 
 

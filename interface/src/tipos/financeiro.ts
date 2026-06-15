@@ -19,11 +19,18 @@ export interface FinanceiroResumo {
   fechamentos_sem_snapshot: number
 }
 
+/** Fechados sem data (sem evento `fechado_registrado`) — fora do recorte por período. */
+export interface ImportadosSemData {
+  contagem: number
+  valor_bruto_brl: number
+}
+
 export interface FinanceiroResumoResponse {
   filtro_aplicado: FiltroAplicado
   janela_comparacao: JanelaComparacao | null
   resumo: FinanceiroResumo
   resumo_anterior: FinanceiroResumo | null
+  importados_sem_data: ImportadosSemData
 }
 
 // ---------- Receitas ----------

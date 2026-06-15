@@ -161,6 +161,40 @@ async def resumo_periodo(
     )
 
 
+async def importados_sem_data(
+    conn: AsyncConnection[Any],
+    modelo_ids: list[UUID] | None,
+) -> tuple[int, float]:
+    """Bruto dos Fechados sem evento `fechado_registrado` (dados importados sem data).
+
+    O resumo por período ancora em `fechado_registrado.created_at` (regime caixa,
+    ADR 0011), então esses fechados não aparecem lá. Aqui somamos o bruto deles
+    respeitando o filtro de modelo, mas ignorando a janela (não têm data)."""
+    filtro_modelo = ""
+    params: list[Any] = []
+    if modelo_ids:
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
+        params.append(modelo_ids)
+
+    sql = f"""
+        SELECT
+          COUNT(*)::int AS contagem,
+          COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto
+          FROM barravips.atendimentos a
+         WHERE a.estado = 'Fechado'
+           AND NOT EXISTS (
+             SELECT 1 FROM barravips.eventos e
+              WHERE e.atendimento_id = a.id
+                AND e.tipo = 'fechado_registrado'
+           )
+           {filtro_modelo}
+    """
+    result = await conn.execute(sql, params)
+    row = await result.fetchone()
+    assert row is not None  # agregado sempre retorna 1 linha
+    return int(row["contagem"]), round(float(row["valor_bruto"]), 2)
+
+
 # =============================================================================
 # Receitas (projeção)
 # =============================================================================

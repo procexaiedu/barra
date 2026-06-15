@@ -2,7 +2,12 @@
 
 import { Users } from "lucide-react"
 import type { ResumoModelos as ResumoModelosData } from "@/tipos/modelos"
-import { FaixaResumo, SkeletonFaixaResumo, type ResumoKpi } from "@/components/comum/FaixaResumo"
+import {
+  DICA_FATURAMENTO_BRUTO,
+  FaixaResumo,
+  SkeletonFaixaResumo,
+  type ResumoKpi,
+} from "@/components/comum/FaixaResumo"
 import { formatBRL } from "@/lib/formatters"
 
 interface Props {
@@ -18,7 +23,12 @@ export function ResumoModelos({ resumo, status }: Props) {
     { label: "Modelos", valor: String(resumo.total) },
     { label: "Ativas", valor: String(resumo.ativas) },
     { label: "Inativas", valor: String(resumo.inativas) },
-    { label: "Faturamento", valor: formatBRL(resumo.faturamento_bruto_brl), destaque: true },
+    {
+      label: "Faturamento",
+      valor: formatBRL(resumo.faturamento_bruto_brl),
+      destaque: true,
+      dica: DICA_FATURAMENTO_BRUTO,
+    },
   ]
 
   return (
