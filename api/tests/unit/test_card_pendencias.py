@@ -27,7 +27,7 @@ def test_pendencias_lista_as_tres_categorias_com_emoji_e_copy() -> None:
     assert "💵 #42 Marina — falta o valor (encerrou 14:30)" in texto
     assert "⚠️ #51 Bia — Pix a conferir" in texto
     # rodape cita o primeiro #N como exemplo de comando
-    assert "👉 responda no número, ex.: *fechado #58 1500*" in texto
+    assert "👉 Responda no número, ex.: *fechado #58 1500*" in texto
 
 
 def test_pendencias_sem_linhas_em_branco_entre_itens() -> None:

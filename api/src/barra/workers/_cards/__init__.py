@@ -1,7 +1,7 @@
 """Render Jinja2 dos cards do grupo de Coordenação (não passam por humanização, 05 §6).
 
 Templates `*.md.j2` ficam neste diretório, no mesmo padrão de `agente/persona.py`. A gramática
-única dos cards está em `docs/ux/coordenacao-grupo-ux.md §4`.
+única dos cards (formato, léxico de emoji, voz) está em `CARDS.md`, ao lado dos templates.
 """
 
 from pathlib import Path

@@ -1,3 +1,5 @@
-🚗 *Cliente avisou que saiu* · {{ cliente_nome }} · #{{ numero_curto }}
-{% if horario %}🕒 previsto {{ horario.strftime('%H:%M') }}
+🚗 *Cliente saiu de casa* · {{ cliente_nome }} · #{{ numero_curto }}
+
+{% if horario %}🕒 chega ~{{ horario.strftime('%H:%M') }}
 {% endif %}
+Info · a IA segue conversando

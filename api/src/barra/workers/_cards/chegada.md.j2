@@ -1,8 +1,8 @@
 🚪 *Cliente chegou* · {{ cliente_nome }} · #{{ numero_curto }}
-{% set campo_end = '📍 ' ~ endereco if endereco else '' %}
-{% set campo_hor = '🕒 ' ~ horario.strftime('%H:%M') if horario else '' %}
-{% set linha_local = [campo_end, campo_hor] | select | join('  ·  ') %}
-{% if linha_local %}{{ linha_local }}
+
+{% if endereco %}📍 {{ endereco }}
+{% endif %}
+{% if horario %}🕒 {{ horario.strftime('%H:%M') }}
 {% endif %}
 
-👉 Confira a foto antes de abrir.
+👉 Confere a foto antes de abrir
