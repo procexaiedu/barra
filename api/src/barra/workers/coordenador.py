@@ -73,9 +73,10 @@ TETO_TURNOS_DIA = 50
 def _formatar_bolha_pix(chave: str, titular: str | None, valor: Any) -> str:
     """Bolha determinística com os dados do Pix de deslocamento, anexada após o texto da IA.
 
-    A tool `pedir_pix_deslocamento` mantém a chave (string crítico) FORA do LLM e promete que o
-    sistema a anexa (agente/ferramentas/pix.py). É aqui que isso acontece: lemos a chave fresh do
-    cadastro e formamos uma bolha objetiva (sem termo de carinho, no estilo de mensagem de dado).
+    A solicitação determinística de Pix (registrar_extracao, dominio/atendimentos/service.py)
+    mantém a chave (string crítico) FORA do LLM e promete que o sistema a anexa. É aqui que isso
+    acontece: lemos a chave fresh do cadastro e formamos uma bolha objetiva (sem termo de carinho,
+    no estilo de mensagem de dado).
     """
     linhas = [f"chave pix: {chave}"]
     if titular:
@@ -473,38 +474,41 @@ async def processar_turno(
 
                         # critico (07 §3 passo 8 / 05 §3): write tool COM EFEITO ja commitada --
                         # a msg ao cliente (chave Pix, confirmacao) nao pode ser cancelada nem
-                        # perdida. pedir_pix SEMPRE conta; registrar_extracao so quando CAUSOU
-                        # transicao (marcar toda registrar_extracao mataria o cancel). O flag
-                        # vai no PAYLOAD do job (05 §7), nao no Redis -- TTL pode expirar antes
-                        # da ultima retry com backoff.
+                        # perdida. registrar_extracao so conta quando CAUSOU transicao (marcar toda
+                        # registrar_extracao mataria o cancel) OU solicitou o Pix de deslocamento
+                        # (pix_solicitado; o pickup->Uber pede Pix sem nova transicao, novo_estado
+                        # NULL). O flag vai no PAYLOAD do job (05 §7), nao no Redis -- TTL pode
+                        # expirar antes da ultima retry com backoff.
                         res = await conn.execute(
                             """
                             SELECT 1 FROM barravips.tool_calls
                              WHERE turno_id = %s
-                               AND ( tool_name = 'pedir_pix_deslocamento'
-                                  OR ( tool_name = 'registrar_extracao'
-                                       AND resultado->>'novo_estado' IS NOT NULL ) )
+                               AND tool_name = 'registrar_extracao'
+                               AND ( resultado->>'novo_estado' IS NOT NULL
+                                  OR resultado->>'pix_solicitado' = 'true' )
                              LIMIT 1
                             """,
                             (turno_id,),
                         )
                         critico = await res.fetchone() is not None
 
-                        # Pix de deslocamento (bug F): a tool `pedir_pix_deslocamento` NÃO devolve
-                        # a chave (string crítico fora do LLM, agente/ferramentas/pix.py) e promete
-                        # que o sistema a anexa. Só consultamos quando o turno é `critico` —
-                        # pedir_pix SEMPRE torna o turno crítico, então o turno comum (sem write
-                        # tool) pula a query. Lemos chave/titular fresh do cadastro + o valor que a
-                        # tool registrou, p/ anexar a bolha do Pix após o texto da IA.
+                        # Pix de deslocamento: a solicitacao deterministica (registrar_extracao,
+                        # dominio/atendimentos/service.py) NAO grava a chave (string crítico fora do
+                        # LLM) — só o valor em `pix_valor`, e promete que o sistema anexa a chave.
+                        # Só consultamos quando o turno é `critico`. Lemos chave/titular fresh do
+                        # cadastro + o valor que a extração registrou, p/ anexar a bolha do Pix após
+                        # o texto da IA.
                         pix_row: dict[str, Any] | None = None
                         if critico:
                             res = await conn.execute(
                                 """
-                                SELECT mo.chave_pix, mo.titular_chave, tc.payload->>'valor' AS valor
+                                SELECT mo.chave_pix, mo.titular_chave,
+                                       tc.resultado->>'pix_valor' AS valor
                                   FROM barravips.tool_calls tc
                                   JOIN barravips.modelos mo ON mo.id = %s
                                  WHERE tc.turno_id = %s
-                                   AND tc.tool_name = 'pedir_pix_deslocamento'
+                                   AND tc.tool_name = 'registrar_extracao'
+                                   AND tc.resultado->>'pix_solicitado' = 'true'
                                  LIMIT 1
                                 """,
                                 (atendimento["modelo_id"], turno_id),

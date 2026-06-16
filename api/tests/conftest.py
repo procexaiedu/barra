@@ -64,6 +64,15 @@ def _tem_chave_anthropic() -> bool:
         return False
 
 
+def _optou_por_credito() -> bool:
+    """Opt-in explicito p/ gastar credito Anthropic real nos `needs_key` (§0).
+
+    So `make test-llm` e `make evals` setam `RUN_LLM_TESTS`. Ter a chave no `.env` NAO basta:
+    sem este opt-in, nenhuma selecao ad-hoc de pytest (`-m needs_db`, um arquivo, um diretorio)
+    dispara a API por engano. Memoria: needs_db_sozinho_gasta_credito."""
+    return bool(os.environ.get("RUN_LLM_TESTS"))
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # --strict-markers esta ligado (pyproject addopts): registrar os markers aqui evita erro.
     config.addinivalue_line(
@@ -77,16 +86,28 @@ def pytest_configure(config: pytest.Config) -> None:
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Pula `needs_key` sem chave da Anthropic e `needs_db` sem TEST_DATABASE_URL.
+    """Pula `needs_key` e `needs_db` quando o pre-requisito de cada um nao esta presente.
 
     Os dois gates sao independentes: a suite padrao e a CI nao tocam a API nem o banco.
+
+    `needs_key` exige DUAS condicoes p/ rodar: chave da Anthropic E o opt-in `RUN_LLM_TESTS`
+    (so `make test-llm`/`make evals` setam). Ter a chave no `.env` NAO basta — assim nenhuma
+    selecao ad-hoc (`-m needs_db`, um arquivo, um diretorio) gasta credito por engano (§0).
     """
-    pular_key = not _tem_chave_anthropic()
+    sem_chave = not _tem_chave_anthropic()
+    sem_optin = not _optou_por_credito()
     pular_db = not os.environ.get("TEST_DATABASE_URL")
-    skip_key = pytest.mark.skip(reason="sem chave da Anthropic: pulando testes needs_key")
+    skip_sem_chave = pytest.mark.skip(reason="sem chave da Anthropic: pulando testes needs_key")
+    skip_sem_optin = pytest.mark.skip(
+        reason="needs_key gasta credito Anthropic real (§0): defina RUN_LLM_TESTS=1 "
+        "(make test-llm / make evals) para rodar de proposito"
+    )
     skip_db = pytest.mark.skip(reason="sem TEST_DATABASE_URL: pulando testes needs_db")
     for item in items:
-        if pular_key and "needs_key" in item.keywords:
-            item.add_marker(skip_key)
+        if "needs_key" in item.keywords:
+            if sem_chave:
+                item.add_marker(skip_sem_chave)
+            elif sem_optin:
+                item.add_marker(skip_sem_optin)
         if pular_db and "needs_db" in item.keywords:
             item.add_marker(skip_db)

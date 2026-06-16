@@ -3,8 +3,9 @@
 M1: ToolNode do langgraph executando as tools de leitura registradas em TOOLS
     (P0: consultar_agenda). Loop tools<->llm ate o LLM parar de pedir tool_call
     (teto em recursion_limit, config de invocacao -- 03 §8, 09 §4.7).
-M3: adiciona tools de escrita (registrar_extracao, pedir_pix_deslocamento, escalar) com
-    idempotencia via tabela barravips.tool_calls.
+M3: adiciona tools de escrita (registrar_extracao, escalar) com idempotencia via tabela
+    barravips.tool_calls. (O Pix de deslocamento virou side-effect deterministico da extracao,
+    nao tool -- ver dominio/atendimentos/service.py:_solicitar_pix_deslocamento_se_aplicavel.)
 M5e: registra `enviar_midia`. Como ela pode ser chamada VARIAS vezes no mesmo turno (ex.:
     2 fotos da mesma tag) e a idempotencia depende da PK `(turno_id, tool_name, call_idx)`,
     `_ToolNodeComMidiaIdx` injeta `call_idx` ordinal no `_inject_tool_args` (NUNCA no `args`
@@ -51,9 +52,7 @@ class _ToolNodeComMidiaIdx(ToolNode):
     ) -> Any:
         result = super()._inject_tool_args(tool_call, tool_runtime, tool)
         if tool_call["name"] == "enviar_midia":
-            result["args"]["call_idx"] = _calcular_call_idx_midia(
-                tool_runtime, tool_call["id"]
-            )
+            result["args"]["call_idx"] = _calcular_call_idx_midia(tool_runtime, tool_call["id"])
         return result
 
 
@@ -65,9 +64,7 @@ def _calcular_call_idx_midia(tool_runtime: Any, this_call_id: str) -> int:
     if state is None:
         return 0
     mensagens = (
-        state.get("messages")
-        if isinstance(state, dict)
-        else getattr(state, "messages", None)
+        state.get("messages") if isinstance(state, dict) else getattr(state, "messages", None)
     )
     if not mensagens:
         return 0

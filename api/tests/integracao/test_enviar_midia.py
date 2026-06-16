@@ -3,7 +3,7 @@
 Exercita a tool pela MECANICA real do grafo (ToolNode subclass injeta `call_idx` ordinal), com o
 LLM MOCKADO (script de AIMessages) -- `needs_db`, nao `needs_key`. Um fake-pool de UMA conexao
 deixa prepare_context, a tool e as assercoes lerem a MESMA transacao; ROLLBACK no teardown (nada
-commita no banco prod self-hosted). Espelha test_pedir_pix.py.
+commita no banco prod self-hosted). Espelha test_loop_leitura.py.
 
 Cobertura:
 - (a) `NULLS FIRST, created_at` escolhe a foto nunca enviada no 1o call; a 2a chamada exclui
@@ -129,7 +129,7 @@ async def _garantir_coluna_ultimo_envio_em(connection: AsyncConnection[dict[str,
     )
 
 
-# --- seeds (espelham test_pedir_pix / test_loop_leitura) ------------------------------------
+# --- seeds (espelham test_loop_leitura) -----------------------------------------------------
 
 
 async def _seed_modelo(c: AsyncConnection[dict[str, Any]]) -> UUID:

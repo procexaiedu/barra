@@ -148,6 +148,25 @@ async def _inserir_bloqueio_48h(
     )
 
 
+async def _seed_disponibilidade(
+    connection: AsyncConnection[dict[str, Any]],
+    modelo_id: UUID,
+    *,
+    dia_semana: int,
+    hora_inicio: str,
+    hora_fim: str,
+) -> None:
+    """Regra de Disponibilidade (gate do `proximo_livre`). hora_fim == hora_inicio = 24h (ADR 0005)."""
+    await connection.execute(
+        """
+        INSERT INTO barravips.modelo_disponibilidade
+            (id, modelo_id, data_inicio, dia_semana, hora_inicio, hora_fim)
+        VALUES (%s, %s, current_date - 7, %s, %s, %s)
+        """,
+        (uuid4(), modelo_id, dia_semana, hora_inicio, hora_fim),
+    )
+
+
 def _texto_system(msg: SystemMessage) -> str:
     """Concatena o texto dos content blocks do SystemMessage (content e lista no formato 1.x)."""
     if isinstance(msg.content, str):
@@ -197,6 +216,11 @@ async def test_contexto_dinamico_no_ultimo_humanmessage(
     assert "Qualificado" in ultimo_human.content
     assert "externo" in ultimo_human.content
     assert "Carlos" in ultimo_human.content
+    # belief-state: Qualificado com tipo preenchido (externo) mas sem horario_desejado -> o item
+    # faltante aparece EXPLICITO em <ainda_falta>, e o proximo passo determinístico vem do estado.
+    assert "<situacao_do_atendimento" in ultimo_human.content
+    assert "o dia e o horário" in ultimo_human.content
+    assert "<proximo_passo>" in ultimo_human.content
     # data atual (04 §2.1): ancora "hoje" no contexto dinamico p/ a IA escrever datas absolutas
     # em consultar_agenda. Vem do banco (current_date) -> assertar o formato YYYY-MM-DD, nao o
     # valor exato (depende do relogio/fuso do banco).
@@ -218,4 +242,75 @@ async def test_contexto_dinamico_no_ultimo_humanmessage(
     systems = [m for m in msgs if isinstance(m, SystemMessage)]
     assert systems
     for s in systems:
-        assert "<estado_atual>" not in _texto_system(s)
+        assert "<situacao_do_atendimento" not in _texto_system(s)
+
+
+async def _montar_ctx_com_bloqueio(
+    conn: AsyncConnection[dict[str, Any]],
+) -> tuple[UUID, ContextAgente]:
+    """Seed mínimo (modelo/cliente/conversa/atendimento/msg + 1 bloqueio em 48h) p/ checar o render."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn, nome="Carlos")
+    conversa_id = await _seed_conversa(
+        conn, cliente_id, modelo_id, recorrente=False, observacoes_internas=""
+    )
+    atendimento_id = await _seed_atendimento(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id
+    )
+    await _inserir_mensagem(conn, conversa_id=conversa_id, conteudo="consegue hj 22h?")
+    await _inserir_bloqueio_48h(conn, modelo_id, offset_horas=3, estado="bloqueado")
+    ctx = ContextAgente(
+        db_pool=_PoolDeUmaConexao(conn),  # type: ignore[arg-type]
+        redis=None,  # type: ignore[arg-type]
+        modelo_id=str(modelo_id),
+        atendimento_id=str(atendimento_id),
+        cliente_id=str(cliente_id),
+        turno_id=str(uuid4()),
+    )
+    return modelo_id, ctx
+
+
+def _linha_bloqueio(content: str) -> str:
+    return next(ln for ln in content.splitlines() if ln.startswith("<bloqueio "))
+
+
+@pytest.mark.needs_db
+async def test_proximo_livre_renderiza_quando_dentro_da_disponibilidade(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # Disponibilidade total (7 dias, 24h): o slot adjacente ao bloqueio sempre cai numa janela ->
+    # o atributo proximo_livre é renderizado no <bloqueio>.
+    modelo_id, ctx = await _montar_ctx_com_bloqueio(conn)
+    for dow in range(7):
+        await _seed_disponibilidade(
+            conn, modelo_id, dia_semana=dow, hora_inicio="00:00", hora_fim="00:00"
+        )
+
+    res = await prepare_context({"messages": []}, FakeRuntime(ctx))
+    assert isinstance(res, Command)
+    ultimo_human = [m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1]
+    assert "proximo_livre=" in _linha_bloqueio(str(ultimo_human.content))
+
+
+@pytest.mark.needs_db
+async def test_proximo_livre_ausente_fora_da_disponibilidade(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # Regra só num dia da semana distante do bloqueio (now()+3h) e do seu slot adjacente:
+    # o gate barra e o atributo proximo_livre NÃO é renderizado.
+    modelo_id, ctx = await _montar_ctx_com_bloqueio(conn)
+    res_now = await conn.execute("SELECT (now() AT TIME ZONE 'America/Sao_Paulo') AS agora")
+    agora_row = await res_now.fetchone()
+    assert agora_row is not None
+    dow_hoje = (agora_row["agora"].weekday() + 1) % 7  # Python weekday -> DOW Postgres
+    dow_distante = (dow_hoje + 3) % 7
+    await _seed_disponibilidade(
+        conn, modelo_id, dia_semana=dow_distante, hora_inicio="00:00", hora_fim="00:00"
+    )
+
+    res = await prepare_context({"messages": []}, FakeRuntime(ctx))
+    assert isinstance(res, Command)
+    ultimo_human = [m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1]
+    linha = _linha_bloqueio(str(ultimo_human.content))
+    assert 'estado="ocupado"' in linha
+    assert "proximo_livre=" not in linha

@@ -66,6 +66,18 @@ def _regra_cobre(regra: dict[str, Any], loc: datetime) -> bool:
     return False
 
 
+def regras_cobrem(regras: list[dict[str, Any]], instante: datetime) -> bool:
+    """True se `instante` cai em alguma `regra` (lista vazia = disponível sempre).
+
+    Parte pura de `modelo_disponivel_em`, reusável sem banco (ex.: o pré-cálculo do slot
+    adjacente em `agente/nos/_proximo_livre.py`). Valida só o instante — o fim pode estender além.
+    """
+    if not regras:
+        return True
+    loc = (instante if instante.tzinfo else instante.replace(tzinfo=BRT)).astimezone(BRT)
+    return any(_regra_cobre(regra, loc) for regra in regras)
+
+
 async def modelo_disponivel_em(
     conn: AsyncConnection[Any], modelo_id: UUID, instante: datetime
 ) -> bool:
@@ -75,7 +87,6 @@ async def modelo_disponivel_em(
     Valida apenas o instante de início — o fim pode estender além (Pernoite dura 12h e
     estoura janelas menores).
     """
-    loc = (instante if instante.tzinfo else instante.replace(tzinfo=BRT)).astimezone(BRT)
     res = await conn.execute(
         """
         SELECT data_inicio, data_fim, dia_semana, hora_inicio, hora_fim
@@ -84,10 +95,7 @@ async def modelo_disponivel_em(
         """,
         (modelo_id,),
     )
-    regras = await res.fetchall()
-    if not regras:
-        return True
-    return any(_regra_cobre(regra, loc) for regra in regras)
+    return regras_cobrem(await res.fetchall(), instante)
 
 
 async def bloqueios_futuros_fora(

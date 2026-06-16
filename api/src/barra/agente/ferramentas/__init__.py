@@ -1,7 +1,9 @@
 """Ferramentas (tools) do agente LangGraph.
 
-Catalogo P0 (5 tools): consultar_agenda, registrar_extracao, pedir_pix_deslocamento,
-enviar_midia, escalar. Ver docs/agente/04-tools.md.
+Catalogo P0 (4 tools): consultar_agenda, registrar_extracao, enviar_midia, escalar.
+Ver docs/agente/04-tools.md. O Pix de deslocamento NAO e tool: virou side-effect
+deterministico da extracao (externo sem cliente_busca + horario -> Aguardando_confirmacao
+solicita o Pix; ver `dominio/atendimentos/service.py:_solicitar_pix_deslocamento_se_aplicavel`).
 
 NAO e tool: o pin de endereco do fluxo INTERNO e side-effect deterministico da
 transicao interno -> Aguardando_confirmacao (decisao grilling 2026-05-23, 04 §3.1) --
@@ -22,19 +24,16 @@ from .escalada import escalar
 from .extracao import registrar_extracao
 from .leitura import consultar_agenda
 from .midia import enviar_midia
-from .pix import pedir_pix_deslocamento
 
 # Constante de modulo congelada, ordem fixa (invariante de prefixo -- agente/CLAUDE.md):
 # tools = posicao 0, byte-identico p/ TODAS as modelos. Proibido build_tools(modelo) ou
 # subsetting por modelo. M1 registra consultar_agenda (unica de leitura, 04 §2.2); M3 as
-# tools de escrita (registrar_extracao, pedir_pix_deslocamento, escalar); M5e entra com
-# enviar_midia ANTES de escalar.
+# tools de escrita (registrar_extracao, escalar); M5e entra com enviar_midia ANTES de escalar.
 # Ordem canonica de 04 §4: leitura primeiro, escrita depois, `escalar` por ULTIMO. O
 # `cache_control` (BP0) e injetado na ULTIMA tool por `build_tools_para_bind` (agente/llm.py).
 TOOLS: list[BaseTool] = [
     consultar_agenda,
     registrar_extracao,
-    pedir_pix_deslocamento,
     enviar_midia,
     escalar,
 ]

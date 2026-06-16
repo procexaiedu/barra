@@ -65,7 +65,7 @@ def _chama_extracao_com_aviso(call_id: str) -> AIMessage:
     )
 
 
-# --- infra (espelha test_pedir_pix) ---------------------------------------------------------
+# --- infra (espelha test_registrar_extracao) ------------------------------------------------
 
 
 @pytest_asyncio.fixture

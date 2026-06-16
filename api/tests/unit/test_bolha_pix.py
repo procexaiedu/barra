@@ -1,5 +1,6 @@
 """Bug F (teste E2E ao vivo 2026-06-05): o sistema anexa chave/titular/valor do Pix de
-deslocamento após o texto da IA — a tool `pedir_pix_deslocamento` mantém a chave fora do LLM.
+deslocamento após o texto da IA — a solicitação determinística de Pix (registrar_extracao)
+mantém a chave fora do LLM.
 """
 
 from decimal import Decimal

@@ -12,7 +12,7 @@ em slot sobreposto; reagendamento pos-bloqueio escala sem sobrescrever (branch 1
 
 import os
 from collections.abc import AsyncIterator
-from datetime import date, time
+from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -23,8 +23,9 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
 from barra.agente.ferramentas._idempotencia import _executar_idempotente
-from barra.dominio.agenda.service import ConflitoAgenda
+from barra.dominio.agenda.service import BRT, ConflitoAgenda
 from barra.dominio.atendimentos.service import registrar_extracao_ia
+from barra.settings import get_settings
 
 # --- infra de DB real (ROLLBACK sempre) ------------------------------------------------------
 
@@ -213,13 +214,15 @@ async def test_interno_horario_cria_bloqueio_e_pin(conn: AsyncConnection[dict[st
     assert resultado["enviar_pin"] is True
 
     res = await conn.execute(
-        "SELECT estado::text AS estado, bloqueio_id FROM barravips.atendimentos WHERE id = %s",
+        "SELECT estado::text AS estado, bloqueio_id, pix_status::text AS pix_status "
+        "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
     a = await res.fetchone()
     assert a is not None
     assert a["estado"] == "Aguardando_confirmacao"
     assert a["bloqueio_id"] is not None
+    assert a["pix_status"] == "nao_solicitado"  # interno nao pede Pix de deslocamento
 
     # Bloqueio previo ligado ao atendimento, origem ia, estado bloqueado.
     res = await conn.execute(
@@ -585,11 +588,13 @@ async def test_pickup_extracao_promove_sem_pix(conn: AsyncConnection[dict[str, A
 
 
 @pytest.mark.needs_db
-async def test_pickup_externo_sem_cliente_busca_nao_promove(
+async def test_externo_uber_promove_e_solicita_pix(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
-    # Externo-Uber segue intocado (invariante 01 §6.1): sem cliente_busca a extracao NAO promove
-    # — so pedir_pix_deslocamento leva o externo a Aguardando_confirmacao.
+    # Externo-Uber (externo sem cliente_busca, invariante 01 §6.1) agora promove na PROPRIA extracao:
+    # Aguardando_confirmacao + bloqueio previo + pix_status='aguardando' + evento pix_solicitado, e o
+    # resultado sinaliza pix_solicitado/pix_valor (p/ o coordenador anexar a bolha da chave). A chave
+    # NUNCA entra no resultado/evento (guard-rail de dado sensivel).
     _, atendimento_id = await _seed_par(
         conn,
         estado="Qualificado",
@@ -603,14 +608,92 @@ async def test_pickup_externo_sem_cliente_busca_nao_promove(
         conn, str(atendimento_id), {"proxima_acao_esperada": "pedir o pix"}
     )
 
-    assert resultado["novo_estado"] is None
+    valor = str(get_settings().pix_deslocamento_valor)
+    assert resultado["novo_estado"] == "Aguardando_confirmacao"
+    assert resultado["pix_solicitado"] is True
+    assert resultado["pix_valor"] == valor
+    # guard-rail: nem a chave nem o titular vazam pelo resultado da extracao.
+    assert "chave" not in resultado
+    assert "titular" not in resultado
+
     res = await conn.execute(
-        "SELECT estado::text AS estado, bloqueio_id FROM barravips.atendimentos WHERE id = %s",
+        "SELECT estado::text AS estado, pix_status::text AS pix_status, bloqueio_id "
+        "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
     a = await res.fetchone()
     assert a is not None
-    assert a["estado"] == "Qualificado"
+    assert a["estado"] == "Aguardando_confirmacao"
+    assert a["pix_status"] == "aguardando"
+    assert a["bloqueio_id"] is not None  # bloqueio previo reservou o slot
+
+    # bloqueio previo: 1, origem ia, estado bloqueado.
+    res = await conn.execute(
+        "SELECT origem::text AS origem, estado::text AS estado "
+        "FROM barravips.bloqueios WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    bloqueios = await res.fetchall()
+    assert len(bloqueios) == 1
+    assert bloqueios[0]["origem"] == "ia"
+    assert bloqueios[0]["estado"] == "bloqueado"
+
+    # evento de auditoria pix_solicitado com SO o valor.
+    res = await conn.execute(
+        "SELECT payload FROM barravips.eventos "
+        "WHERE atendimento_id = %s AND tipo = 'pix_solicitado'",
+        (atendimento_id,),
+    )
+    ev = await res.fetchall()
+    assert len(ev) == 1
+    assert ev[0]["payload"] == {"valor": valor}
+
+
+@pytest.mark.needs_db
+async def test_externo_uber_slot_tomado_reverte(conn: AsyncConnection[dict[str, Any]]) -> None:
+    # Externo-Uber cujo slot foi tomado entre turnos: criar_bloqueio_previo (no bloco de Pix)
+    # levanta ConflitoAgenda, a transacao reverte tudo (estado, pix_status, bloqueio) — paridade
+    # com a antiga tool. A casca da tool (extracao.py) converte em erro recuperavel; aqui testamos
+    # a propagacao + reversao na funcao nucleo.
+    modelo_id = await _seed_modelo(conn)
+    horario, data, duracao = time(20, 0), date(2026, 12, 6), Decimal("1")
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento(
+        conn,
+        conversa_id,
+        cliente_id,
+        modelo_id,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        horario_desejado=horario,
+        data_desejada=data,
+        duracao_horas=duracao,
+    )
+    # Bloqueio avulso de outra origem ja ocupa o slot da modelo.
+    inicio = datetime.combine(data, horario, tzinfo=BRT)
+    await conn.execute(
+        "INSERT INTO barravips.bloqueios (modelo_id, inicio, fim, origem, estado) "
+        "VALUES (%s, %s, %s, 'manual', 'bloqueado')",
+        (modelo_id, inicio, inicio + timedelta(hours=float(duracao))),
+    )
+
+    with pytest.raises(ConflitoAgenda):
+        async with conn.transaction():
+            await registrar_extracao_ia(
+                conn, str(atendimento_id), {"proxima_acao_esperada": "pedir o pix"}
+            )
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, pix_status::text AS pix_status, bloqueio_id "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Qualificado"  # reverteu
+    assert a["pix_status"] == "nao_solicitado"
     assert a["bloqueio_id"] is None
 
 
@@ -691,6 +774,9 @@ async def test_pickup_limpar_cliente_busca_volta_a_false(
 ) -> None:
     # `limpar: ["cliente_busca"]` numa coluna NOT NULL DEFAULT false: volta ao default em vez de
     # SET NULL (NotNullViolation derrubaria o turno inteiro — achado do langgraph-reviewer).
+    # Alem disso, e o caso pickup->Uber: o atendimento JA esta em Aguardando_confirmacao com bloqueio
+    # previo (criado quando era pickup); ao virar Uber (cliente_busca=false) a solicitacao
+    # deterministica de Pix dispara — marca pix_status='aguardando' SEM recriar o bloqueio.
     _, atendimento_id = await _seed_par(
         conn,
         estado="Qualificado",
@@ -703,19 +789,34 @@ async def test_pickup_limpar_cliente_busca_volta_a_false(
     await registrar_extracao_ia(
         conn, str(atendimento_id), {"cliente_busca": True, "proxima_acao_esperada": "aguardar"}
     )
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.bloqueios WHERE atendimento_id = %s", (atendimento_id,)
+    )
+    assert (await res.fetchone())["n"] == 1  # pickup ja reservou o slot
 
-    await registrar_extracao_ia(
+    resultado = await registrar_extracao_ia(
         conn,
         str(atendimento_id),
         {"limpar": ["cliente_busca"], "proxima_acao_esperada": "cliente recuou do pickup"},
     )
 
+    # cliente_busca volta a false E o Pix de deslocamento e solicitado (sem nova transicao).
+    assert resultado["pix_solicitado"] is True
     res = await conn.execute(
-        "SELECT cliente_busca FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+        "SELECT cliente_busca, estado::text AS estado, pix_status::text AS pix_status "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
     )
     a = await res.fetchone()
     assert a is not None
     assert a["cliente_busca"] is False
+    assert a["estado"] == "Aguardando_confirmacao"
+    assert a["pix_status"] == "aguardando"
+    # bloqueio previo NAO recriado (recriar colidiria com o proprio slot — EXCLUDE).
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.bloqueios WHERE atendimento_id = %s", (atendimento_id,)
+    )
+    assert (await res.fetchone())["n"] == 1
 
 
 # --- cotacao apresentada (ADR 0022) -----------------------------------------------------------

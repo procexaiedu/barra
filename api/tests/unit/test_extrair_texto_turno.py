@@ -151,41 +151,42 @@ def test_negacao_canned_do_intercept_e_extraida() -> None:
 
 
 def test_tool_com_erro_recuperavel_descarta_rascunho_da_passagem_re_tentada() -> None:
-    """Bug 2026-06-03 (externo_pix): uma tool de escrita devolve "ERRO: ..." (recuperavel, string e
-    nao excecao); o LLM RE-EMITE o texto e re-chama a tool na passagem seguinte. Antes do filtro, as
-    duas passagens eram agregadas e o cliente via a fala DUPLICADA. So o texto da passagem BEM-SUCEDIDA
-    deve sair; o rascunho da passagem cujo tool_call ERROU e descartado."""
+    """Bug 2026-06-03: uma tool de escrita devolve "ERRO: ..." (recuperavel, string e nao excecao);
+    o LLM RE-EMITE o texto e re-chama a tool na passagem seguinte. Antes do filtro, as duas passagens
+    eram agregadas e o cliente via a fala DUPLICADA. So o texto da passagem BEM-SUCEDIDA deve sair;
+    o rascunho da passagem cujo tool_call ERROU e descartado. Exemplo: registrar_extracao com
+    ConflitoAgenda (slot tomado) na 1a passagem, sucesso na 2a."""
     messages = [
-        HumanMessage(content="me passa o pix do deslocamento"),
-        # 1a passagem: texto + pedir_pix que vai FALHAR (horario ainda nao combinado)
+        HumanMessage(content="quero sábado 22h então"),
+        # 1a passagem: texto + registrar_extracao que vai FALHAR (slot tomado entre turnos)
         _ai_real(
             [
                 {"type": "text", "text": "combinado, 22h então 😊"},
                 {
                     "type": "tool_use",
                     "id": "toolu_err",
-                    "name": "pedir_pix_deslocamento",
+                    "name": "registrar_extracao",
                     "input": {},
                 },
             ]
         ),
         ToolMessage(
-            content="ERRO: o horário ainda não está combinado — confirme primeiro.",
+            content="ERRO: o horário escolhido já está reservado — ofereça outro.",
             tool_call_id="toolu_err",
         ),
-        # 2a passagem (retentativa): texto re-emitido + pedir_pix que tem SUCESSO
+        # 2a passagem (retentativa): texto re-emitido + registrar_extracao que tem SUCESSO
         _ai_real(
             [
-                {"type": "text", "text": "pra garantir teu horário amor, manda o pixzinho 🥰"},
+                {"type": "text", "text": "esse horário fechou amor, e domingo 22h? 🥰"},
                 {
                     "type": "tool_use",
                     "id": "toolu_ok",
-                    "name": "pedir_pix_deslocamento",
+                    "name": "registrar_extracao",
                     "input": {},
                 },
             ]
         ),
-        ToolMessage(content="Pix de R$ 100 solicitado e slot reservado.", tool_call_id="toolu_ok"),
+        ToolMessage(content="Extracao registrada.", tool_call_id="toolu_ok"),
         _ai_real([]),  # passagem final vazia
     ]
-    assert _extrair_texto_do_turno(messages) == "pra garantir teu horário amor, manda o pixzinho 🥰"
+    assert _extrair_texto_do_turno(messages) == "esse horário fechou amor, e domingo 22h? 🥰"

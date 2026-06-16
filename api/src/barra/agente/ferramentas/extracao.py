@@ -181,7 +181,9 @@ async def registrar_extracao(
     #   (cria bloqueio previo E dispara o pin de endereco — side-effect, nao tool)
     # - externo+cliente_busca + horario_desejado + Qualificado -> Aguardando_confirmacao
     #   (pickup, ADR 0020: bloqueio previo sem Pix; pausa vem do cron no horario)
-    # - externo SEM cliente_busca NAO e promovido aqui: so pedir_pix_deslocamento o leva la
+    # - externo SEM cliente_busca + horario_desejado + Qualificado -> Aguardando_confirmacao
+    #   (externo-Uber: side-effect deterministico cria bloqueio previo, marca pix_status e
+    #    solicita o Pix — _solicitar_pix_deslocamento_se_aplicavel; a IA so escreve a bolha)
     pool = runtime.context.db_pool
     atendimento_id = runtime.context.atendimento_id
     turno_id = runtime.context.turno_id

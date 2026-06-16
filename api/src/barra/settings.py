@@ -206,6 +206,14 @@ class Settings(BaseSettings):
             "~40min a 2h (~83%) e despenca após 12h; o humano nunca cutuca antes de 40min."
         ),
     )
+    agenda_buffer_proximo_livre_min: int = Field(
+        default=30,
+        ge=0,
+        description=(
+            "Buffer em minutos após o fim de um bloqueio para sugerir o próximo slot adjacente "
+            "(proximo_livre no contexto dinâmico). Só pré-cálculo determinístico; não vai ao prompt."
+        ),
+    )
     operacao_hora_inicio: int = Field(
         default=10,
         ge=0,

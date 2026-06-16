@@ -1,9 +1,18 @@
-<estado_atual>
-<atendimento numero="#{{ numero_curto }}" estado="{{ estado }}" tipo="{{ tipo_atendimento or 'ainda não definido' }}" urgencia="{{ urgencia or 'não capturada' }}"/>
+<situacao_do_atendimento numero="#{{ numero_curto }}" estado="{{ estado }}">
+<ja_combinado>
+<tipo>{{ tipo_atendimento or '—' }}</tipo>
+{% if data_desejada %}<horario>{{ data_desejada }} às {{ horario_desejado }}</horario>{% endif %}
+{% if endereco %}<local>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</local>{% endif %}
+{% if urgencia %}<urgencia>{{ urgencia }}</urgencia>{% endif %}
 <pix_deslocamento>{{ pix_status }}</pix_deslocamento>
-{% if data_desejada %}<horario_desejado>{{ data_desejada }} às {{ horario_desejado }}</horario_desejado>{% endif %}
-{% if endereco %}<endereco>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</endereco>{% endif %}
-</estado_atual>
+</ja_combinado>
+<ainda_falta>
+{% if slots_faltantes %}{% for s in slots_faltantes %}<item>{{ s }}</item>
+{% endfor %}{% else %}<nada>tudo desta etapa já está combinado</nada>
+{% endif %}</ainda_falta>
+<proximo_passo>{{ proximo_passo }}</proximo_passo>
+<antes_de_perguntar>Antes de perguntar qualquer item de "ainda falta", releia a última mensagem do cliente: se ela já responde o item, trate como combinado e não repergunte. Você já está no meio do atendimento, não recumprimente nem se reapresente.</antes_de_perguntar>
+</situacao_do_atendimento>
 
 <cliente nome="{{ cliente_nome or 'ainda não informado' }}" recorrente="{{ 'sim' if recorrente else 'não' }}">
 {% if historico_anteriores %}<historico>{{ historico_anteriores }}</historico>{% endif %}
@@ -12,7 +21,7 @@
 </cliente>
 
 <agenda hoje="{{ data_atual }}" agora="{{ hora_atual }}" janela="próximas 48h">
-{% if bloqueios %}{% for b in bloqueios %}<bloqueio inicio="{{ b.inicio.strftime('%a %d/%m %H:%M') }}" fim="{{ b.fim.strftime('%H:%M') }}" estado="ocupado"/>
+{% if bloqueios %}{% for b in bloqueios %}<bloqueio inicio="{{ b.inicio.strftime('%a %d/%m %H:%M') }}" fim="{{ b.fim.strftime('%H:%M') }}" estado="ocupado"{% if b.proximo_livre %} proximo_livre="{{ b.proximo_livre.strftime('%a %d/%m %H:%M') }}"{% endif %}/>
 {% endfor %}{% else %}<livre>sem bloqueios nas próximas 48h, nenhum horário ocupado</livre>
 {% endif %}</agenda>
 

@@ -41,6 +41,7 @@ from psycopg import AsyncConnection
 
 from barra.core.db import conexao
 from barra.core.metrics import PERSONA_DRIFT_REMINDER
+from barra.dominio.atendimentos.service import derivar_belief_state
 from barra.dominio.conversas.modelos import DirecaoMensagem
 from barra.settings import get_settings
 
@@ -55,6 +56,7 @@ from ..persona import (
     render_prefixo_geral,
     render_reminder,
 )
+from ._proximo_livre import proximo_livre
 
 
 async def prepare_context(
@@ -386,7 +388,7 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     if ctx.atendimento_id is not None:
         res = await conn.execute(
             """
-            SELECT numero_curto, estado, tipo_atendimento, urgencia, pix_status,
+            SELECT numero_curto, estado, intencao, tipo_atendimento, urgencia, pix_status,
                    data_desejada, horario_desejado, endereco, bairro
               FROM barravips.atendimentos
              WHERE id = %s
@@ -430,9 +432,18 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
         """,
         (ctx.modelo_id, ctx.atendimento_id, ctx.atendimento_id),
     )
-    bloqueios = await res.fetchall()
+    bloqueios_raw = await res.fetchall()
 
-    disponibilidade = await _resolver_disponibilidade(conn, ctx.modelo_id)
+    # Regras cruas p/ o pré-cálculo do `proximo_livre` (slot adjacente após o fim de cada
+    # bloqueio); a versão formatada vai pro template. Cada bloqueio carrega o seu próximo slot
+    # reservável (CONTEXT.md "Bloqueio"), pré-computado em Python — a IA só verbaliza.
+    regras_disp = await _carregar_disponibilidade(conn, ctx.modelo_id)
+    disponibilidade = _formatar_disponibilidade(regras_disp)
+    buffer_min = get_settings().agenda_buffer_proximo_livre_min
+    bloqueios = [
+        {**b, "proximo_livre": proximo_livre(b["fim"], bloqueios_raw, regras_disp, buffer_min)}
+        for b in bloqueios_raw
+    ]
 
     historico = await _resumir_historico(conn, ctx.cliente_id, ctx.modelo_id)
 
@@ -448,11 +459,23 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     data_atual = agora.date() if agora is not None else None
     hora_atual = agora.strftime("%H:%M") if agora is not None else None
 
+    # Belief-state (state-update prompting): o que falta pra avançar + próximo passo, derivados da
+    # MESMA FSM da extração (dominio/atendimentos/service). Reinjetado na cauda volátil a cada turno
+    # para cortar a re-pergunta multi-turn. estado=None (gate/webhook fino) → belief neutro.
+    belief = derivar_belief_state(
+        estado=atendimento.get("estado"),
+        intencao=atendimento.get("intencao"),
+        tipo_atendimento=atendimento.get("tipo_atendimento"),
+        horario_desejado=atendimento.get("horario_desejado"),
+    )
+
     return {
         "data_atual": data_atual,
         "hora_atual": hora_atual,
         "numero_curto": atendimento.get("numero_curto"),
         "estado": atendimento.get("estado"),
+        "slots_faltantes": belief.slots_faltantes,
+        "proximo_passo": belief.proximo_passo,
         "tipo_atendimento": atendimento.get("tipo_atendimento"),
         "urgencia": atendimento.get("urgencia"),
         "pix_status": _pix_status_humano(atendimento.get("pix_status")),
@@ -490,13 +513,14 @@ def _pix_status_humano(status: str | None) -> str:
     return _PIX_STATUS_HUMANO.get(status, status)
 
 
-async def _resolver_disponibilidade(
+async def _carregar_disponibilidade(
     conn: AsyncConnection[Any], modelo_id: str
 ) -> list[dict[str, Any]]:
-    """Regras de disponibilidade da modelo, já legíveis, p/ a IA não sugerir fora (ADR 0005).
+    """Regras cruas de disponibilidade da modelo (ADR 0005).
 
-    Texto volátil na cauda (não cacheável). `ORDER BY` determinístico só por higiene de render;
-    a cauda não entra no prefixo cacheável. Sem regra → lista vazia (template diz "sem restrição").
+    Servem a dois consumidores no mesmo turno: a versão legível pro template
+    (`_formatar_disponibilidade`) e o gate do pré-cálculo do `proximo_livre` (`regras_cobrem`).
+    `ORDER BY` determinístico só por higiene de render. Sem regra → lista vazia.
     """
     res = await conn.execute(
         """
@@ -507,6 +531,11 @@ async def _resolver_disponibilidade(
         """,
         (modelo_id,),
     )
+    return await res.fetchall()
+
+
+def _formatar_disponibilidade(regras: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Regras já legíveis p/ a cauda volátil, p/ a IA não sugerir fora (ADR 0005)."""
     return [
         {
             "dia": _DIAS_SEMANA[r["dia_semana"]],
@@ -515,7 +544,7 @@ async def _resolver_disponibilidade(
             "data_inicio": r["data_inicio"].strftime("%d/%m/%Y"),
             "data_fim": r["data_fim"].strftime("%d/%m/%Y") if r["data_fim"] else None,
         }
-        for r in await res.fetchall()
+        for r in regras
     ]
 
 

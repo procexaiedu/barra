@@ -80,7 +80,7 @@ def test_caminho_normal_2_system_mais_janela_cronologica() -> None:
     # msgs[2] = HumanMessage do cliente + contexto dinamico (ultimo HumanMessage da janela)
     assert isinstance(msgs[2], HumanMessage)
     assert msgs[2].content.startswith("ola")
-    assert "<estado_atual>" in msgs[2].content
+    assert "<situacao_do_atendimento" in msgs[2].content
     # msgs[3] = penultima da janela = AIMessage "oi amor", agora COM cache_control (lista)
     assert isinstance(msgs[3], AIMessage)
     assert isinstance(msgs[3].content, list)
@@ -144,7 +144,7 @@ def test_atendimento_id_none_pula_gate() -> None:
     assert isinstance(msgs[0], SystemMessage)
     assert isinstance(msgs[1], SystemMessage)
     assert isinstance(msgs[2], HumanMessage)
-    assert "<estado_atual>" in msgs[2].content
+    assert "<situacao_do_atendimento" in msgs[2].content
 
 
 def test_traduzir_audio_sem_transcricao_vira_placeholder() -> None:
