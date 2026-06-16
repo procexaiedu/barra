@@ -65,6 +65,20 @@ def test_robusto_a_chunking_de_bolhas():
     assert _confirmou_dia_hoje(msgs) is True
 
 
+def test_burst_do_cliente_tudobem_depois_sim():
+    # Caso REAL (trace 4837d789): o cliente responde a pergunta composta "tudo bem? seria hoje?"
+    # em DUAS bolhas — "tudobem" e "sim". A afirmação vem precedida da PRÓPRIA bolha anterior do
+    # cliente, não da sondagem da IA; o walk-back tem que pular a salva do cliente p/ achar o probe.
+    msgs = [
+        _cli("oi"),
+        _ia("Oii boa noite 🥰"),
+        _ia("tudo bem? seria hoje?"),
+        _cli("tudobem"),
+        _cli("sim"),
+    ]
+    assert _confirmou_dia_hoje(msgs) is True
+
+
 # --- _confirmou_dia_hoje: negativos ---
 
 
@@ -72,6 +86,12 @@ def test_cliente_cita_outro_dia():
     for resp in ("sim, mas amanhã", "pode ser sexta", "isso, semana que vem", "sim dia 20"):
         msgs = [_ia("seria hoje?"), _cli(resp)]
         assert _confirmou_dia_hoje(msgs) is False, resp
+
+
+def test_burst_que_cita_outro_dia_nao_assume_hoje():
+    # Outro dia numa bolha ANTERIOR do burst (não na própria afirmação) → não confirma hoje.
+    msgs = [_ia("seria hoje?"), _cli("amanhã"), _cli("sim")]
+    assert _confirmou_dia_hoje(msgs) is False
 
 
 def test_ia_nao_sondou_o_dia():

@@ -320,13 +320,26 @@ def _e_afirmacao_curta(texto: str) -> bool:
 
 
 def _confirmou_dia_hoje(mensagens: list[BaseMessage]) -> bool:
-    """True se a janela evidencia o abridor 'seria hoje?' (qualquer bolha da IA imediatamente antes)
-    respondido por uma afirmação curta do cliente — determinístico, sem LLM. Varre a salva contígua
-    de AIMessages que precede cada resposta-afirmação do cliente (robusto a chunking de bolhas)."""
+    """True se a janela evidencia o abridor 'seria hoje?' (qualquer bolha da IA) respondido por uma
+    afirmação curta do cliente — determinístico, sem LLM. Antes de varrer as bolhas da IA, pula a
+    salva contígua do PRÓPRIO cliente: ele responde a pergunta composta 'tudo bem? seria hoje?' em
+    duas bolhas ('tudobem' + 'sim'), e a afirmação fica precedida pela sua própria bolha anterior,
+    não pela sondagem da IA (trace real 4837d789). Outro dia em qualquer bolha do burst → não assume
+    hoje (deixa a extração capturar o dia explícito)."""
     for i, msg in enumerate(mensagens):
         if not (isinstance(msg, HumanMessage) and _e_afirmacao_curta(_texto_msg(msg))):
             continue
         j = i - 1
+        # Pula a salva contígua do cliente (burst em bolhas separadas). Se alguma bolha do burst
+        # cita outro dia, aborta este par — não confirma hoje.
+        burst_cita_outro_dia = False
+        while j >= 0 and isinstance(mensagens[j], HumanMessage):
+            if _TOKEN_OUTRO_DIA.search(_texto_msg(mensagens[j]).lower()):
+                burst_cita_outro_dia = True
+            j -= 1
+        if burst_cita_outro_dia:
+            continue
+        # Varre as bolhas contíguas da IA que antecedem o burst, procurando a sondagem do dia.
         while j >= 0 and isinstance(mensagens[j], AIMessage):
             if _PROBE_DIA_HOJE.search(_texto_msg(mensagens[j])):
                 return True
