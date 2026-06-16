@@ -14,17 +14,38 @@ Os padroes aqui partem do esqueleto do 10 §8, ajustados para casar os tres exem
 10 §3.1 declara como alta confianca ("vc e IA?", "e robo?", "vc e real?"): o sujeito
 (voce/vc) e opcional e o substantivo de "pessoa real" tambem -- senao "e robo?" e "vc e
 real?" (sem "voce" / sem "pessoa") nao casariam o esqueleto literal.
+
+NORMALIZACAO (memoria `classificador_disclosure_depende_acento`): o texto passa por
+`normalizar` ANTES da regex -- diacriticos removidos + casefold + whitespace colapsado. Os
+padroes operam SO sobre texto normalizado (sem acento, minusculo): "é"->"e", "robô"->"robo",
+"você"->"voce", "já"->"ja". Por isso NAO ha variante acentuada aqui -- acento nunca chega a
+regex. O efeito colateral e que "é"(verbo) colapsa em "e"(conjuncao) e "ia"(IA) em "ia"(verbo):
+para nao gerar falso-positivo em fala normal ("e ia te chamar"), o disclosure exige um GATE --
+sujeito (voce/vc/tu) OU artigo (um/uma) OU um substantivo forte (bot/robo/gpt/...) que nao
+aparece em conversa normal. Ver os comentarios por padrao abaixo.
 """
 
 import re
 
 from langchain_core.messages import BaseMessage, HumanMessage
 
+from ._normalizar import normalizar
+
 # Identidade: generico (ia/bot/robo) E modelo nomeado (gpt/claude/gemini) -- MESMO balde,
-# tratados igual (canned + contador, escala na 3a). Ver 10 §2.1.
+# tratados igual (canned + contador, escala na 3a). Ver 10 §2.1. Texto JA normalizado (sem acento).
+_NOUNS_IDENTIDADE = r"(ia|ai|bot|robo|chatbot|gpt|chatgpt|claude|gemini|llama)"
+# Substantivos FORTES (sem "ia"/"ai", que colidem com o verbo "ia" e o adverbio "ai"=aí): nao
+# aparecem em fala normal de cliente, entao dispensam o gate de sujeito/artigo.
+_NOUNS_FORTES = r"(bot|robo|chatbot|gpt|chatgpt|claude|gemini|llama)"
 PADROES_DISCLOSURE = [
-    r"\b((você|vc|tu) )?é (uma? |um )?(ia|ai|bot|rob[ôo]|chatbot|gpt|chatgpt|claude|gemini|llama)\b",
-    r"\b(é|to falando com|é mesmo) (uma? )?(pessoa|humana?|real|de verdade)\b",
+    # com SUJEITO ("voce/vc/tu e <noun>"): o sujeito desambigua "e"(=é) de "e"(=conjuncao).
+    rf"\b(voce |vc |tu )e (um |uma )?{_NOUNS_IDENTIDADE}\b",
+    # com ARTIGO ("e um/uma <noun>"): o artigo desambigua "e ia"(verbo) de "e um(a) ia"(identidade).
+    rf"\be (um |uma ){_NOUNS_IDENTIDADE}\b",
+    # substantivo FORTE sozinho ("e bot?", "e robo?"): dispensa sujeito/artigo (nao e fala normal).
+    rf"\be {_NOUNS_FORTES}\b",
+    # "pessoa real": "vc e real?", "to falando com uma pessoa?", "e mesmo humana?".
+    r"\b(e|to falando com|e mesmo) (uma? )?(pessoa|humana?|real|de verdade)\b",
 ]
 
 # Jailbreak / override de instrucao: escala DIRETO (sem canned, sem contagem). Ver 10 §2.1, §4.4.
@@ -32,13 +53,13 @@ PADROES_JAILBREAK = [
     r"\bdan mode\b",
     r"\b(developer|dev) mode\b",
     r"ignore (previous|all|prior) instructions",
-    r"\besquece tudo\b.*\bvoc[eê]\b",
+    r"\besquece tudo\b.*\bvoce\b",
     r"\[system\]",
     r"</persona>",
 ]
 
 PADROES_PROVA = [
-    r"\b(manda|envia|me manda) (um |uma )?(audio|foto|vídeo|video)\b.*(agora|já)\b",
+    r"\b(manda|envia|me manda) (um |uma )?(audio|foto|video)\b.*(agora|ja)\b",
     r"\b(\d+\s+dedos)\b",
 ]
 
@@ -50,7 +71,7 @@ def classificar_janela(historico: list[BaseMessage]) -> tuple[str | None, str | 
     prova_humanidade_attempt, None}; confianca in {'alta', None}. Ordem de checagem:
     jailbreak -> disclosure -> prova (jailbreak vence quando casa as duas familias).
     """
-    t = _texto_da_cauda_cliente(historico).lower()
+    t = normalizar(_texto_da_cauda_cliente(historico))
     if any(re.search(p, t) for p in PADROES_JAILBREAK):
         return "jailbreak_attempt", "alta"
     if any(re.search(p, t) for p in PADROES_DISCLOSURE):
