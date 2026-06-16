@@ -6,7 +6,7 @@ próximo passo e (b) a consistência fonte-única: o belief só fica "sem faltan
 quando a FSM dispararia a transição. Puro, sem DB.
 """
 
-from datetime import time
+from datetime import date, time
 
 import pytest
 
@@ -43,7 +43,7 @@ def test_triagem_curiosidade_falta_querer_marcar() -> None:
     )
     assert b.proxima_transicao is None
     assert "ele querer mesmo marcar" in b.slots_faltantes
-    assert "o dia e o horário" in b.slots_faltantes
+    assert "que horas ele quer" in b.slots_faltantes
 
 
 def test_qualificado_so_falta_horario() -> None:
@@ -55,7 +55,7 @@ def test_qualificado_so_falta_horario() -> None:
         horario_desejado=None,
     )
     assert b.proxima_transicao is None
-    assert b.slots_faltantes == ["o dia e o horário"]
+    assert b.slots_faltantes == ["que horas ele quer"]
 
 
 def test_qualificado_completo_nada_falta_e_promove() -> None:
@@ -146,7 +146,7 @@ def test_render_slot_vazio_aparece_explicito() -> None:
     assert "<tipo>interno</tipo>" in out
     # o que falta NÃO é omitido — aparece como <item> dentro de <ainda_falta>.
     assert "<ainda_falta>" in out
-    assert "o dia e o horário" in out
+    assert "que horas ele quer" in out
     assert "<proximo_passo>" in out
     assert "releia a última mensagem do cliente" in out
 
@@ -154,3 +154,18 @@ def test_render_slot_vazio_aparece_explicito() -> None:
 def test_render_etapa_completa_diz_nada_falta() -> None:
     out = _render("Qualificado", tipo_atendimento="interno", horario_desejado=_HORA)
     assert "tudo desta etapa já está combinado" in out
+
+
+def test_render_dia_capturado_sai_de_ainda_falta_sem_as_none() -> None:
+    # cliente confirmou o dia mas ainda não a hora: o dia entra em <ja_combinado>, só a hora fica
+    # em <ainda_falta>, e nada renderiza "às None" (regressão do split dia/hora).
+    out = _render(
+        "Triagem",
+        tipo_atendimento="interno",
+        data_desejada=date(2026, 6, 15),
+        horario_desejado=None,
+    )
+    assert "<dia>2026-06-15</dia>" in out
+    assert "<hora>" not in out
+    assert "às None" not in out
+    assert "que horas ele quer" in out  # a hora ainda falta

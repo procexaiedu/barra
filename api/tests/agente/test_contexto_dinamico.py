@@ -219,7 +219,7 @@ async def test_contexto_dinamico_no_ultimo_humanmessage(
     # belief-state: Qualificado com tipo preenchido (externo) mas sem horario_desejado -> o item
     # faltante aparece EXPLICITO em <ainda_falta>, e o proximo passo determinístico vem do estado.
     assert "<situacao_do_atendimento" in ultimo_human.content
-    assert "o dia e o horário" in ultimo_human.content
+    assert "que horas ele quer" in ultimo_human.content
     assert "<proximo_passo>" in ultimo_human.content
     # data atual (04 §2.1): ancora "hoje" no contexto dinamico p/ a IA escrever datas absolutas
     # em consultar_agenda. Vem do banco (current_date) -> assertar o formato YYYY-MM-DD, nao o

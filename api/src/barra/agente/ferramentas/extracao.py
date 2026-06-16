@@ -56,6 +56,16 @@ _DESC_HORARIO = (
     "Depois de registrado, NÃO recalcule horário relativo nos turnos seguintes — omita o campo "
     "(o snapshot preserva o anterior); só reenvie se o CLIENTE pedir outro horário."
 )
+_DESC_DATA = (
+    "Dia do encontro. PREENCHA na PRIMEIRA vez que o cliente DECLARA ou CONFIRMA um dia — não "
+    're-pergunte o que já está combinado. Resolva palavras relativas contra <agenda hoje="..."> '
+    "no contexto: 'hoje' = a data de hoje; 'amanhã' = hoje + 1; nome de dia da semana = a próxima "
+    "ocorrência. CRÍTICO: se VOCÊ perguntou o dia ('seria hoje?', 'é pra hoje?') e o cliente "
+    "confirmou ('sim', 'isso', 'pode ser', 'aham'), esse 'sim' É a data — grave o dia confirmado, "
+    "NÃO trate como se ele 'ainda não tivesse informado'. Sem dia explícito a reserva assume hoje, "
+    "então registrar o dia certo é o que evita o slot cair no dia errado. Recuo do cliente ('não "
+    "sei o dia ainda') usa o campo `limpar`, não este."
+)
 _DESC_VALOR = (
     "Valor total acordado com o cliente. SEMPRE grave JUNTO com duracao_horas (a duração do "
     "programa cotado) — sem a duração o sistema não consegue conferir o piso de desconto e "
@@ -142,7 +152,7 @@ async def registrar_extracao(
     urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None,
     tipo_atendimento: Literal["interno", "externo", "remoto"] | None = None,
     cliente_busca: Annotated[bool | None, Field(description=_DESC_CLIENTE_BUSCA)] = None,
-    data_desejada: date | None = None,
+    data_desejada: Annotated[date | None, Field(description=_DESC_DATA)] = None,
     horario_desejado: Annotated[time | None, Field(description=_DESC_HORARIO)] = None,
     duracao_horas: Annotated[Decimal | None, Field(ge=0, le=48)] = None,
     endereco: Annotated[str | None, Field(description=_DESC_ENDERECO)] = None,

@@ -1,7 +1,8 @@
 <situacao_do_atendimento numero="#{{ numero_curto }}" estado="{{ estado }}">
 <ja_combinado>
 <tipo>{{ tipo_atendimento or '—' }}</tipo>
-{% if data_desejada %}<horario>{{ data_desejada }} às {{ horario_desejado }}</horario>{% endif %}
+{% if data_desejada %}<dia>{{ data_desejada }}</dia>{% endif %}
+{% if horario_desejado %}<hora>{{ horario_desejado }}</hora>{% endif %}
 {% if endereco %}<local>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</local>{% endif %}
 {% if urgencia %}<urgencia>{{ urgencia }}</urgencia>{% endif %}
 <pix_deslocamento>{{ pix_status }}</pix_deslocamento>

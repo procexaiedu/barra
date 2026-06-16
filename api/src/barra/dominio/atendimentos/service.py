@@ -506,7 +506,7 @@ _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], st
         "Qualificado",
         [
             (lambda *, intencao, **_: intencao == "agendamento", "ele querer mesmo marcar"),
-            (lambda *, horario_desejado, **_: horario_desejado is not None, "o dia e o horário"),
+            (lambda *, horario_desejado, **_: horario_desejado is not None, "que horas ele quer"),
             (
                 lambda *, tipo_atendimento, **_: tipo_atendimento is not None,
                 "se você vai até ele, ele vem até você ou é vídeo chamada",
@@ -516,7 +516,7 @@ _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], st
     "Qualificado": (
         "Aguardando_confirmacao",
         [
-            (lambda *, horario_desejado, **_: horario_desejado is not None, "o dia e o horário"),
+            (lambda *, horario_desejado, **_: horario_desejado is not None, "que horas ele quer"),
             (
                 lambda *, tipo_atendimento, **_: tipo_atendimento is not None,
                 "se você vai até ele, ele vem até você ou é vídeo chamada",
