@@ -359,6 +359,21 @@ def _aplicar_dia_confirmado(variaveis: dict[str, Any], mensagens: list[BaseMessa
         variaveis["data_desejada"] = variaveis["data_atual"]
 
 
+def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
+    """True se a IA já emitiu a sondagem do dia ("seria hoje?") em alguma AIMessage da janela.
+
+    Guard anti-repetição (persona.md:18: a sondagem do "agora" é UMA vez). A re-pergunta vinha do
+    LLM recolando a frase de sondagem mais saliente da persona sempre que o belief sinaliza
+    agendamento em aberto — inclusive com o dia JÁ combinado (o A2 preenche `data_desejada`, mas o
+    <antes_de_perguntar> só cobre itens de <ainda_falta>, e o dia não está lá; trace prod 9db632c7).
+    Detectamos deterministicamente que a sondagem já foi feita (zero LLM, reusa `_PROBE_DIA_HOJE`)
+    para o contexto dinâmico instruir a NÃO recolá-la. No turno de abertura a janela ainda não tem a
+    sondagem (só a msg do cliente) → False, então não suprime o abridor social do primeiro turno."""
+    return any(
+        isinstance(m, AIMessage) and _PROBE_DIA_HOJE.search(_texto_msg(m)) for m in mensagens
+    )
+
+
 async def _anexar_contexto_dinamico(
     conn: AsyncConnection[Any], ctx: ContextAgente, mensagens: list[BaseMessage]
 ) -> tuple[list[BaseMessage], str | None]:
@@ -377,6 +392,9 @@ async def _anexar_contexto_dinamico(
     # A2: captura determinística do dia (abridor "seria hoje?" + afirmação do cliente) antes do
     # render — sem persistir, só alimenta o belief p/ a IA não repetir a sondagem (ver helper acima).
     _aplicar_dia_confirmado(variaveis, mensagens)
+    # Guard anti-repetição: se a sondagem "seria hoje?" já foi feita, o contexto dinâmico instrui a
+    # IA a não recolá-la (o A2 acima só preenche o dia; não impede o LLM de repetir a frase).
+    variaveis["dia_ja_sondado"] = _ja_sondou_o_dia(mensagens)
     texto = render_contexto_dinamico(**variaveis)
     fase = variaveis["estado"]
 

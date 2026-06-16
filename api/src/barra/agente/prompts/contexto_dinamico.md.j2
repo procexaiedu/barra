@@ -13,7 +13,8 @@
 {% endif %}</ainda_falta>
 <proximo_passo>{{ proximo_passo }}</proximo_passo>
 <antes_de_perguntar>Antes de perguntar qualquer item de "ainda falta", releia a última mensagem do cliente: se ela já responde o item, trate como combinado e não repergunte. Você já está no meio do atendimento, não recumprimente nem se reapresente.</antes_de_perguntar>
-</situacao_do_atendimento>
+{% if dia_ja_sondado %}<ja_sondou_o_dia>Você já sondou o dia ("seria hoje?") antes nesta conversa. NÃO repita essa sondagem nem a cole no turno do preço, a mesma pergunta de novo te entrega como robô. Pra avançar, puxe o que ainda falta de fato (se falta a hora, pergunte a hora concreta, tipo "que horas você consegue?") ou responda o que ele trouxe.</ja_sondou_o_dia>
+{% endif %}</situacao_do_atendimento>
 
 <cliente nome="{{ cliente_nome or 'ainda não informado' }}" recorrente="{{ 'sim' if recorrente else 'não' }}">
 {% if historico_anteriores %}<historico>{{ historico_anteriores }}</historico>{% endif %}

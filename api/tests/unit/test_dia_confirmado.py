@@ -9,7 +9,12 @@ from datetime import date
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from barra.agente.nos.prepare_context import _aplicar_dia_confirmado, _confirmou_dia_hoje
+from barra.agente.nos.prepare_context import (
+    _aplicar_dia_confirmado,
+    _confirmou_dia_hoje,
+    _ja_sondou_o_dia,
+)
+from barra.agente.persona import render_contexto_dinamico
 
 HOJE = date(2026, 6, 16)
 
@@ -153,3 +158,78 @@ def test_nao_aplica_com_data_atual_nula():
     v = _variaveis(data_atual=None)
     _aplicar_dia_confirmado(v, [_ia("seria hoje?"), _cli("sim")])
     assert v["data_desejada"] is None
+
+
+# --- _ja_sondou_o_dia: guard anti-repetição da sondagem (fix da re-pergunta "seria hoje?") ---
+
+
+def test_ja_sondou_detecta_probe_da_ia():
+    msgs = [_cli("oi"), _ia("oii amor 🥰 tudo bem? seria hoje? 😊"), _cli("tudobem")]
+    assert _ja_sondou_o_dia(msgs) is True
+
+
+def test_ja_sondou_variantes_do_probe():
+    for probe in ("é pra hoje?", "pra hoje?", "é hoje?", "seria hoje amor?"):
+        assert _ja_sondou_o_dia([_ia(probe), _cli("oi")]) is True, probe
+
+
+def test_ja_sondou_falso_no_turno_de_abertura():
+    # Turno 1: a janela só tem a msg do cliente; a sondagem ainda não foi emitida → abertura livre.
+    assert _ja_sondou_o_dia([_cli("oi")]) is False
+
+
+def test_ja_sondou_ignora_probe_do_cliente():
+    # Só conta sondagem da IA (AIMessage): o cliente escrever "hoje?" não é a sondagem dela.
+    assert _ja_sondou_o_dia([_cli("é pra hoje?")]) is False
+
+
+def test_ja_sondou_falso_sem_sondagem():
+    msgs = [_cli("oi"), _ia("oii amor, tudo bem? 😊"), _cli("quanto é 1h?")]
+    assert _ja_sondou_o_dia(msgs) is False
+
+
+def test_ja_sondou_janela_vazia():
+    assert _ja_sondou_o_dia([]) is False
+
+
+# --- render: guard anti-repetição entra no contexto dinâmico só depois da sondagem feita ---
+
+
+def _render_vars(**over):
+    base = dict(
+        numero_curto=1,
+        estado="Triagem",
+        tipo_atendimento=None,
+        data_desejada=HOJE,
+        horario_desejado=None,
+        endereco=None,
+        bairro=None,
+        urgencia=None,
+        pix_status="não aplicável",
+        slots_faltantes=["ele querer mesmo marcar", "que horas ele quer"],
+        proximo_passo="fechar o que falta pra combinar o encontro",
+        cliente_nome=None,
+        recorrente=False,
+        historico_anteriores=None,
+        ultimo_motivo_perda=None,
+        observacoes_internas=None,
+        data_atual=HOJE,
+        hora_atual="00:27",
+        bloqueios=[],
+        disponibilidade=[],
+    )
+    base.update(over)
+    return base
+
+
+def test_render_injeta_guard_quando_ja_sondou():
+    # Reproduz o turno 3 do atendimento 019ece77 (trace prod 9db632c7): dia combinado, sondagem
+    # já feita → o contexto dinâmico tem que instruir a NÃO recolar "seria hoje?".
+    com = render_contexto_dinamico(dia_ja_sondado=True, **_render_vars())
+    assert "ja_sondou_o_dia" in com
+    assert "seria hoje" in com.lower()
+
+
+def test_render_sem_guard_no_turno_de_abertura():
+    sem = render_contexto_dinamico(dia_ja_sondado=False, **_render_vars(data_desejada=None))
+    assert "ja_sondou_o_dia" not in sem
