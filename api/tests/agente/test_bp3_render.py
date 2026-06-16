@@ -20,7 +20,6 @@ from barra.agente.persona import (
 )
 
 GERAL = "<persona>voz geral</persona>"
-FAQ = "# faq\nconteudo geral"
 
 CARIOCA = IdentidadeModelo(
     nome="Bia",
@@ -98,9 +97,9 @@ def test_render_bp3_concatena_identidade_programas_e_fetiches() -> None:
 
 
 def test_build_system_messages_emite_2_blocos() -> None:
-    # Pos-fusao BP_GERAL: 2 blocos system (geral fundido + por-modelo), antes eram 3.
+    # BP_GERAL: 2 blocos system (geral + por-modelo).
     msgs = build_system_messages(
-        geral_md=f"{GERAL}\n\n{FAQ}",
+        geral_md=GERAL,
         ttl_geral="1h",
         modelo_md=render_bp3(CARIOCA, PROGRAMAS, FETICHES),
         ttl_modelo="1h",
@@ -115,13 +114,13 @@ def test_build_system_messages_emite_2_blocos() -> None:
 def test_guardrail_bp_geral_byte_identico_entre_modelos() -> None:
     # Guard-rail #1: BP_GERAL fundido byte-idêntico p/ 2 modelos distintas; só o BP_MODELO difere.
     a = build_system_messages(
-        geral_md=f"{GERAL}\n\n{FAQ}",
+        geral_md=GERAL,
         ttl_geral="1h",
         modelo_md=render_bp3(CARIOCA, PROGRAMAS, FETICHES),
         ttl_modelo="1h",
     )
     b = build_system_messages(
-        geral_md=f"{GERAL}\n\n{FAQ}",
+        geral_md=GERAL,
         ttl_geral="1h",
         modelo_md=render_bp3(ESTRANGEIRA, [], []),
         ttl_modelo="1h",

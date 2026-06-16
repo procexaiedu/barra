@@ -1,6 +1,6 @@
 """Render dos prompts do agente.
 
-BP1 (persona + regras) e BP2 (FAQ) são GERAIS — byte-idênticos para todas as modelos
+BP1 (persona + regras) é GERAL — byte-idêntico para todas as modelos
 (CONTEXT.md "IA por modelo"; docs/agente/03 §1-§3.2). O dado por-modelo (BP3: identidade +
 programas) nasce aqui declarado (`IdentidadeModelo`/`render_identidade`) mas só passa a ser
 consumido no M2. Templates Jinja ficam em `prompts/`.
@@ -91,24 +91,16 @@ def render_persona(desconto_max_pct: float | None = None) -> str:
     return f"{persona}\n{regras}"
 
 
-@lru_cache(maxsize=1)
-def carregar_faq() -> str:
-    """FAQ versionada (`faq.md` plano, docs/agente/03 §3.2). Idêntico para todas — entra no
-    BP_GERAL fundido junto de persona+regras (ver `render_prefixo_geral`)."""
-    return _env.get_template("faq.md").render()
-
-
 def render_prefixo_geral(desconto_max_pct: float | None = None) -> str:
-    """BP_GERAL fundido — persona+regras+FAQ num único bloco system byte-idêntico p/ todas.
+    """BP_GERAL — persona+regras num único bloco system byte-idêntico p/ todas.
 
-    Antes eram 2 blocos system separados (persona+regras / FAQ), mas ambos têm o mesmo perfil
-    (geral, TTL igual, mudam só por deploy) e consumiam 2 dos 4 breakpoints disponíveis. Fundir
-    libera 1 breakpoint p/ o cache da janela de mensagens (`agente/llm.py:marcar_cache_na_penultima`).
+    BP_GERAL ocupa um único breakpoint de cache; os outros 3 ficam p/ BP_TOOLS, BP_MODELO e o
+    cache da janela de mensagens (`agente/llm.py:marcar_cache_na_penultima`).
 
     Caller único: `prepare_context.py`. Testes que precisam reproduzir o conteúdo do bloco geral
     devem chamar esta função (não montar a string fora — risco de byte-drift).
     """
-    return f"{render_persona(desconto_max_pct)}\n\n{carregar_faq()}"
+    return render_persona(desconto_max_pct)
 
 
 def render_contexto_dinamico(**variaveis: Any) -> str:

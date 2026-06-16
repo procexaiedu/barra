@@ -8,7 +8,7 @@ Escopo: subsistema LangGraph que conduz a IA por modelo.
 
 ## Prompts são markdown, com Jinja onde há variável
 
-`prompts/persona.md`, `prompts/faq.md` e `prompts/regras.md.j2` são a fonte de verdade. Os planos (`persona.md`, `faq.md`) são markdown puro; os que interpolam variável usam Jinja com sufixo `.md.j2` (ex.: `regras.md.j2` interpola `desconto_max_pct` no bloco `<desconto>` — ADR-0004; `docs/agente/09 §4.4`). Para mudar tom, FAQ ou regra de negócio do agente, edite o markdown — não cole string nova em `graph.py`, `classificador.py` nem em nenhum nó. Strings de prompt hardcoded no código são bug.
+`prompts/persona.md` e `prompts/regras.md.j2` são a fonte de verdade. O plano (`persona.md`) é markdown puro; os que interpolam variável usam Jinja com sufixo `.md.j2` (ex.: `regras.md.j2` interpola `desconto_max_pct` no bloco `<desconto>` — ADR-0004; `docs/agente/09 §4.4`). Para mudar tom ou regra de negócio do agente, edite o markdown — não cole string nova em `graph.py`, `classificador.py` nem em nenhum nó. Strings de prompt hardcoded no código são bug.
 
 ## Isolamento por par (cliente, modelo)
 

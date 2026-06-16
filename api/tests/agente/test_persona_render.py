@@ -1,6 +1,6 @@
-"""Aceite M0-T2 — render dos prompts BP1 (persona + regras) + BP2 (FAQ) via Jinja."""
+"""Aceite M0-T2 — render dos prompts BP1 (persona + regras) via Jinja."""
 
-from barra.agente.persona import carregar_faq, render_persona
+from barra.agente.persona import render_persona
 
 
 def test_render_persona_nao_vazio_e_estavel() -> None:
@@ -14,9 +14,3 @@ def test_render_persona_inclui_persona_e_regras() -> None:
     txt = render_persona()
     assert "<persona>" in txt  # BP1 = persona...
     assert "<conduta>" in txt  # ...+ regras
-
-
-def test_carregar_faq_nao_vazio_e_estavel() -> None:
-    a = carregar_faq()
-    assert a.strip()
-    assert a == carregar_faq()
