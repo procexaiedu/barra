@@ -71,6 +71,17 @@ _DESC_VALOR = (
     "programa cotado) — sem a duração o sistema não consegue conferir o piso de desconto e "
     "escala à toa uma oferta que era válida."
 )
+_DESC_TIPO_ATENDIMENTO = (
+    "Quem se desloca. REGRA CRÍTICA de leitura: 'você/vc/te' na boca do CLIENTE se refere a "
+    "VOCÊ (a modelo) — não inverta o sentido. Classifique pelo que o cliente diz:\n"
+    "- 'interno' = o CLIENTE vem até você (ele se desloca): 'vou', 'vou aí', 'vou até você', "
+    "'vou no seu local', 'posso ir'. O endereço é o SEU ponto de encontro; SEM Pix.\n"
+    "- 'externo' = VOCÊ vai até o cliente de uber (você se desloca): 'vem até mim', 'vem aqui', "
+    "'você vem?', 'pode vir no meu endereço'. Pega o endereço DELE; tem Pix de deslocamento.\n"
+    "- 'externo' + cliente_busca=true (pickup): o cliente vai TE BUSCAR de carro — 'vou te "
+    "buscar', 'te pego', 'passo aí pra te pegar'. É externo, mas SEM Pix.\n"
+    "- 'remoto' = vídeo chamada, ninguém se desloca."
+)
 _DESC_CLIENTE_BUSCA = (
     "True quando o atendimento é EXTERNO e o CLIENTE vem buscar você de carro (pickup — ADR "
     "0020): não existe Pix de deslocamento nesse caso (o deslocamento não é seu). Registre "
@@ -150,7 +161,10 @@ async def registrar_extracao(
     runtime: ToolRuntime[ContextAgente],
     intencao: Literal["curiosidade", "cotacao", "agendamento"] | None = None,
     urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None,
-    tipo_atendimento: Literal["interno", "externo", "remoto"] | None = None,
+    tipo_atendimento: Annotated[
+        Literal["interno", "externo", "remoto"] | None,
+        Field(description=_DESC_TIPO_ATENDIMENTO),
+    ] = None,
     cliente_busca: Annotated[bool | None, Field(description=_DESC_CLIENTE_BUSCA)] = None,
     data_desejada: Annotated[date | None, Field(description=_DESC_DATA)] = None,
     horario_desejado: Annotated[time | None, Field(description=_DESC_HORARIO)] = None,

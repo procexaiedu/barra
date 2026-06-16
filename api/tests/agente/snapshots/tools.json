@@ -244,7 +244,8 @@
               "type": "null"
             }
           ],
-          "default": null
+          "default": null,
+          "description": "Quem se desloca. REGRA CRÍTICA de leitura: 'você/vc/te' na boca do CLIENTE se refere a VOCÊ (a modelo) — não inverta o sentido. Classifique pelo que o cliente diz:\n- 'interno' = o CLIENTE vem até você (ele se desloca): 'vou', 'vou aí', 'vou até você', 'vou no seu local', 'posso ir'. O endereço é o SEU ponto de encontro; SEM Pix.\n- 'externo' = VOCÊ vai até o cliente de uber (você se desloca): 'vem até mim', 'vem aqui', 'você vem?', 'pode vir no meu endereço'. Pega o endereço DELE; tem Pix de deslocamento.\n- 'externo' + cliente_busca=true (pickup): o cliente vai TE BUSCAR de carro — 'vou te buscar', 'te pego', 'passo aí pra te pegar'. É externo, mas SEM Pix.\n- 'remoto' = vídeo chamada, ninguém se desloca."
         },
         "tipo_local": {
           "anyOf": [
