@@ -1,26 +1,28 @@
-{% set campo_end = '📍 ' ~ endereco if endereco else '' %}
-{% set campo_hor = '🕒 ' ~ horario.strftime('%H:%M') if horario else '' %}
-{% set linha_local = [campo_end, campo_hor] | select | join('  ·  ') %}
-{% set campo_comb = '💰 Combinado ' ~ (valor_acordado | moeda) if valor_acordado else '' %}
-{% set campo_desl = '💸 Deslocamento ' ~ (valor_extraido | moeda) if valor_extraido else '' %}
-{% set campo_receb = '💸 Recebido ' ~ (valor_extraido | moeda) if valor_extraido else '' %}
 {% if decisao == "validado" %}
 ✅ *Saída confirmada* · {{ cliente_nome }} · #{{ numero_curto }}
-Pix ok — pode se preparar.
 
-{% set linha_valores = [campo_comb, campo_desl] | select | join('  ·  ') %}
-{% if linha_local %}{{ linha_local }}
+{% if endereco %}📍 {{ endereco }}
 {% endif %}
-{% if linha_valores %}{{ linha_valores }}
+{% if horario %}🕒 {{ horario.strftime('%H:%M') }}
 {% endif %}
+{% if valor_acordado %}💰 Combinado {{ valor_acordado | moeda }}
+{% endif %}
+{% if valor_extraido %}💸 Deslocamento {{ valor_extraido | moeda }}
+{% endif %}
+
+👉 Pix ok, pode se preparar
 {% else %}
 ⚠️ *Pix duvidoso* · {{ cliente_nome }} · #{{ numero_curto }}
-{{ motivo_em_revisao }}.
-{% set linha_valores = [campo_receb, campo_comb] | select | join('  ·  ') %}
-{% if linha_valores %}{{ linha_valores }}
+{{ motivo_em_revisao }}
+
+{% if endereco %}📍 {{ endereco }}
 {% endif %}
-{% if linha_local %}{{ linha_local }}
+{% if horario %}🕒 {{ horario.strftime('%H:%M') }}
+{% endif %}
+{% if valor_acordado %}💰 Combinado {{ valor_acordado | moeda }}
+{% endif %}
+{% if valor_extraido %}💸 Recebido {{ valor_extraido | moeda }}
 {% endif %}
 
-👉 Você decide chamar o Uber agora — Fernando confere depois, sem travar.
+👉 Você decide o Uber — o Fernando confere depois, sem travar
 {% endif %}

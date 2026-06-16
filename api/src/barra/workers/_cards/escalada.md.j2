@@ -1,6 +1,9 @@
+{% set resumo = (resumo_operacional or '') | replace('\n', ' ') | truncate(120, false, '…') %}
 🔔 *Handoff* · {{ cliente_nome }} · #{{ numero_curto }}
 {{ tipo_rotulo }}
+{% if resumo %}
 
-{{ resumo_operacional }}
+{{ resumo }}
+{% endif %}
 
-👉 {{ acao_esperada }} — para devolver à IA, responda *IA assume*
+👉 {{ acao_esperada }} — ou responda *IA assume*
