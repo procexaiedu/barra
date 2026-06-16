@@ -31,6 +31,7 @@ Adiado: cache condicional da cauda (BP4, P1, 03 §4.4).
 """
 
 import hashlib
+import re
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -257,6 +258,94 @@ def _spotlight_legenda(texto: str, msg_id: str) -> str:
     )
 
 
+# A2 (captura determinística do dia — display-only): o abridor social "seria hoje?" (persona.md:32)
+# seguido de afirmação curta do cliente CONFIRMA que o encontro é hoje. Mas a extração forçada roda
+# no Haiku barato (nos/llm.py) e ele não faz essa correferência ("sim" → data_desejada=hoje) enterrada
+# na description do campo — então o belief não traz o dia em <ja_combinado> e a IA REPETE "seria hoje?"
+# no turno do preço (persona.md:18 e regras.md.j2:17 proíbem). Detectamos o par deterministicamente
+# (zero LLM, zero crédito) e assumimos hoje SÓ no render do belief, sem persistir: a agenda já usa hoje
+# por default (criar_bloqueio_previo: data = data_desejada or hoje), o estado real não diverge, e o
+# belief é artefato derivado recomputado todo turno. Gated por evidência: só dispara DEPOIS do "sim",
+# então não suprime o abridor no turno 1.
+_PROBE_DIA_HOJE = re.compile(r"\b(?:seria|é pra|pra|é) hoje\b", re.IGNORECASE)
+# Cliente citou OUTRO dia → não assume hoje (deixa a extração capturar o dia explícito).
+_TOKEN_OUTRO_DIA = re.compile(
+    r"\b(amanh[ãa]|depois de amanh[ãa]|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|"
+    r"semana|m[êe]s|dia \d+)\b",
+    re.IGNORECASE,
+)
+# Afirmação curta que confirma a sondagem (conjunto fechado; texto normalizado p/ alpha+espaço).
+_AFIRMACOES = frozenset(
+    {
+        "sim",
+        "isso",
+        "isso mesmo",
+        "isso ai",
+        "pode ser",
+        "pode",
+        "claro",
+        "com certeza",
+        "aham",
+        "ahan",
+        "uhum",
+        "é",
+        "eh",
+        "sim sim",
+    }
+)
+# Primeira palavra forte o bastante p/ valer mesmo seguida de vocativo ("sim amor", "claro vida").
+_AFIRMACOES_FORTES = frozenset({"sim", "isso", "claro", "aham", "uhum", "ahan"})
+# Estados onde o dia ainda pode estar em aberto; de Aguardando_confirmacao em diante não reabre.
+_ESTADOS_PRE_CONFIRMACAO = frozenset({"Novo", "Triagem", "Qualificado"})
+
+
+def _texto_msg(msg: BaseMessage) -> str:
+    return msg.content if isinstance(msg.content, str) else ""
+
+
+def _normalizar_afirmacao(texto: str) -> str:
+    """Reduz a alpha+espaço minúsculo (descarta emoji/pontuação): 'Sim 😊' → 'sim'."""
+    limpo = "".join(c for c in texto.lower() if c.isalpha() or c.isspace())
+    return " ".join(limpo.split())
+
+
+def _e_afirmacao_curta(texto: str) -> bool:
+    """True se a msg do cliente é uma afirmação curta de 'sim' SEM citar outro dia."""
+    if _TOKEN_OUTRO_DIA.search(texto.lower()):
+        return False
+    norm = _normalizar_afirmacao(texto)
+    if not norm:
+        return False
+    return norm in _AFIRMACOES or norm.split()[0] in _AFIRMACOES_FORTES
+
+
+def _confirmou_dia_hoje(mensagens: list[BaseMessage]) -> bool:
+    """True se a janela evidencia o abridor 'seria hoje?' (qualquer bolha da IA imediatamente antes)
+    respondido por uma afirmação curta do cliente — determinístico, sem LLM. Varre a salva contígua
+    de AIMessages que precede cada resposta-afirmação do cliente (robusto a chunking de bolhas)."""
+    for i, msg in enumerate(mensagens):
+        if not (isinstance(msg, HumanMessage) and _e_afirmacao_curta(_texto_msg(msg))):
+            continue
+        j = i - 1
+        while j >= 0 and isinstance(mensagens[j], AIMessage):
+            if _PROBE_DIA_HOJE.search(_texto_msg(mensagens[j])):
+                return True
+            j -= 1
+    return False
+
+
+def _aplicar_dia_confirmado(variaveis: dict[str, Any], mensagens: list[BaseMessage]) -> None:
+    """A2 (display-only): assume hoje no belief quando a janela confirma o dia e `data_desejada` está
+    null num estado pré-confirmação. Muta `variaveis` in-place; NÃO persiste (a agenda já usa hoje)."""
+    if (
+        variaveis.get("data_desejada") is None
+        and variaveis.get("data_atual") is not None
+        and variaveis.get("estado") in _ESTADOS_PRE_CONFIRMACAO
+        and _confirmou_dia_hoje(mensagens)
+    ):
+        variaveis["data_desejada"] = variaveis["data_atual"]
+
+
 async def _anexar_contexto_dinamico(
     conn: AsyncConnection[Any], ctx: ContextAgente, mensagens: list[BaseMessage]
 ) -> tuple[list[BaseMessage], str | None]:
@@ -272,6 +361,9 @@ async def _anexar_contexto_dinamico(
     (= `estado` do atendimento) já resolvida, p/ o reminder (03 §10) reusar sem nova query.
     """
     variaveis = await _resolver_variaveis(conn, ctx)
+    # A2: captura determinística do dia (abridor "seria hoje?" + afirmação do cliente) antes do
+    # render — sem persistir, só alimenta o belief p/ a IA não repetir a sondagem (ver helper acima).
+    _aplicar_dia_confirmado(variaveis, mensagens)
     texto = render_contexto_dinamico(**variaveis)
     fase = variaveis["estado"]
 
