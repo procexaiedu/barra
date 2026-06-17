@@ -105,23 +105,25 @@ class _ChatRoteirizado:
 def _sequencia_interno() -> list[AIMessage]:
     amanha = date.today() + timedelta(days=1)
     base = {"proxima_acao_esperada": "conduzir o agendamento interno", "intencao": "agendamento"}
+    so_tipo = {**base, "tipo_atendimento": "interno", "cotacao_apresentada": True}
     completa = {
-        **base,
-        "tipo_atendimento": "interno",
+        **so_tipo,
         "horario_desejado": "15:00",
         "data_desejada": amanha.isoformat(),
         "duracao_horas": 1,
-        "cotacao_apresentada": True,
     }
-    # 3 turnos: extracao + bolha cada. A extracao e incremental (COALESCE), entao manda tudo ja no
-    # 1o turno; _decidir_transicao sobe 1 degrau por turno mesmo com os campos repetidos.
+    # 3 turnos incrementais (espelham um cliente revelando aos poucos): intenção+cotação (Triagem)
+    # -> tipo (Qualificado) -> horário (Aguardando_confirmacao + bloqueio). Prova que o multi-hop
+    # NÃO pula etapas quando a info chega gradual e sobe os degraus na ordem; os dois últimos só
+    # subiriam juntos se tipo+horário chegassem no MESMO turno. O runner para ao chegar em
+    # Aguardando_confirmacao, então o 3o turno fecha a jornada.
     return [
-        _extracao(completa),
-        _bolha("oii amor, claro que atendo 😊"),
+        _extracao({**base, "cotacao_apresentada": True}),
+        _bolha("oii amor, claro que atendo 😊 o encontro de 1h fica 400"),
+        _extracao(so_tipo),
+        _bolha("aaa que delícia, você vem aqui então 🥰"),
         _extracao(completa),
         _bolha("amanhã 15h fica perfeito pra mim"),
-        _extracao(completa),
-        _bolha("te espero então, beijo 😘"),
     ]
 
 
@@ -145,7 +147,7 @@ async def test_conduz_interno_novo_ate_aguardando_confirmacao(
             "tipo_atendimento_aceito": ["interno", "externo"],
             "programas": [{"nome": "Encontro", "duracao_nome": "1 hora", "horas": 1, "preco": 400}],
         },
-        roteiro_cliente=["pode ser interno, amanhã 15h, 1 hora", "fechado, pode marcar"],
+        roteiro_cliente=["pode ser interno", "amanhã 15h, 1 hora"],
         tipo_esperado="interno",
         desfecho_real="convertido_provavel",
     )

@@ -201,6 +201,15 @@ async def evolution_webhook(
                 msg.instance_id,
             )
             return {"status": "unknown_instance"}
+        # WhatsApp LID: o cliente é identificado pelo telefone E.164, nunca pelo @lid (CONTEXT
+        # "Cliente"). Resolve telefone + chat_id antes de persistir; sem E.164 confiável (@lid sem
+        # remoteJidAlt) NÃO grava o LID — descarta com 200 (fail-closed) p/ a Evolution dar ack.
+        identidade = _resolver_identidade_cliente(msg)
+        if identidade is None:
+            WEBHOOK_ERRORS.labels("lid_sem_telefone").inc()
+            _logger.warning("webhook_lid_sem_telefone remote_jid=%s", msg.remote_jid)
+            return {"status": "lid_sem_telefone"}
+        telefone, chat_jid = identidade
         # fromMe no 1:1 é ambíguo (webhook/CLAUDE.md): eco do envio da própria IA (registrado em
         # envios_evolution pelo `enviar_turno`) OU a modelo digitando manualmente no mesmo número.
         # Eco → ignora; modelo manual → persiste com direcao='modelo_manual' (mvp/05 §4.2/§5.3;
@@ -210,10 +219,19 @@ async def evolution_webhook(
             if await envio_existe(conn, msg.evolution_message_id):
                 return {"status": "outbound_ignored"}
             await _persistir_cliente(
-                conn, msg, minio, settings.minio_bucket_media, midia, direcao="modelo_manual"
+                conn,
+                msg,
+                minio,
+                settings.minio_bucket_media,
+                midia,
+                telefone,
+                chat_jid,
+                direcao="modelo_manual",
             )
             return {"status": "modelo_manual"}
-        conversa_id = await _persistir_cliente(conn, msg, minio, settings.minio_bucket_media, midia)
+        conversa_id = await _persistir_cliente(
+            conn, msg, minio, settings.minio_bucket_media, midia, telefone, chat_jid
+        )
 
     # Webhook fino (01 §4.1 / 06 §0.1): a mensagem foi persistida orfa (atendimento_id=NULL);
     # quem resolve/cria o atendimento e roda o turno e o coordenador. So enfileira.
@@ -538,12 +556,39 @@ async def _responder_grupo(
         )
 
 
+def _resolver_identidade_cliente(msg: MensagemEvolution) -> tuple[str, str] | None:
+    """(telefone E.164, evolution_chat_id) de uma mensagem 1:1 de cliente, ou None quando o
+    telefone real nao esta disponivel.
+
+    WhatsApp LID (CONTEXT "Cliente" = telefone E.164, unico; nunca o @lid): quando o
+    `remoteJid` vem como `<id-opaco>@lid`, o split daria o LID — que nao casa o cliente entre
+    contatos (recorrencia) nem com o numero. A Evolution entrega o E.164 real em `remoteJidAlt`
+    (`<telefone>@s.whatsapp.net`); usamos ele tanto p/ telefone quanto p/ chat_id — responder
+    para um `@lid` falha (Evolution #1585). Sem `remoteJidAlt` nao ha E.164 confiavel: devolve
+    None (fail-closed — nunca grava LID como telefone). Para `remoteJid` que ja nao e `@lid`,
+    mantem o comportamento atual (split direto).
+    """
+    if msg.remote_jid.endswith("@lid"):
+        alt = msg.remote_jid_alt
+        if not alt:
+            return None
+        # `<telefone>[:device]@s.whatsapp.net` -> so os digitos do numero; o chat_id e
+        # reconstruido sem o device (responder com `:device` no JID e fragil).
+        telefone = alt.split("@", 1)[0].split(":", 1)[0]
+        if not telefone.isdigit():
+            return None
+        return telefone, f"{telefone}@s.whatsapp.net"
+    return msg.remote_jid.split("@", 1)[0], msg.remote_jid
+
+
 async def _persistir_cliente(
     conn: Any,
     msg: MensagemEvolution,
     minio: Any,
     bucket: str,
     midia: tuple[bytes, str] | None,
+    telefone: str,
+    chat_jid: str,
     direcao: str = "cliente",
 ) -> UUID:
     """Persiste a mensagem da conversa 1:1 como orfa (atendimento_id=NULL) e devolve o conversa_id.
@@ -560,7 +605,6 @@ async def _persistir_cliente(
         )
         if modelo is None:
             raise ErroDominio("MODELO_NAO_RESOLVIDA", "Modelo nao resolvida.", status_code=404)
-        telefone = msg.remote_jid.split("@", 1)[0]
         cliente = await _one(
             conn,
             """
@@ -576,7 +620,7 @@ async def _persistir_cliente(
             conn,
             cliente_id=cliente["id"],
             modelo_id=modelo["id"],
-            evolution_chat_id=msg.remote_jid,
+            evolution_chat_id=chat_jid,
         )
 
         # Fazer upload da mídia para MinIO e obter a key permanente. Sem atendimento, a key

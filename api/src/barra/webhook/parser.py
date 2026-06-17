@@ -17,6 +17,10 @@ class MensagemEvolution:
     tipo: Literal["texto", "audio", "imagem"]
     media_url: str | None
     quoted_message_id: str | None
+    # WhatsApp LID: quando o cliente fala via @lid o `remoteJid` vem `<id-opaco>@lid` e o
+    # telefone E.164 real chega aqui como `<telefone>@s.whatsapp.net` (CONTEXT "Cliente":
+    # a chave é o telefone, nunca o LID). Em mensagem de grupo/fromMe pode vir ausente.
+    remote_jid_alt: str | None = None
     caption: str | None = None
     media_base64: str | None = None
     media_mimetype: str | None = None
@@ -45,6 +49,7 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
     message = cast(dict[str, Any], raw_message) if isinstance(raw_message, dict) else {}
     message_id = key.get("id") or data.get("id") or data.get("messageId")
     remote_jid = key.get("remoteJid") or data.get("remoteJid")
+    remote_jid_alt = key.get("remoteJidAlt") or data.get("remoteJidAlt")
     if not message_id or not remote_jid:
         return None
     texto = _texto(message) or str(data.get("text") or data.get("body") or "")
@@ -79,6 +84,7 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
         evolution_message_id=str(message_id),
         instance_id=str(payload.get("instance") or data.get("instanceId") or ""),
         remote_jid=str(remote_jid),
+        remote_jid_alt=str(remote_jid_alt) if remote_jid_alt else None,
         sender_jid=key.get("participant") or data.get("sender") or data.get("participant"),
         from_me=bool(key.get("fromMe") or data.get("fromMe")),
         texto=texto.strip(),

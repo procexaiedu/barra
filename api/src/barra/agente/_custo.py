@@ -8,8 +8,10 @@ Sonnet 4.6 (input $3, output $15, cache_write 1.25-2x, cache_read 0.1x). Quando 
 mexer no preco, atualizar aqui (constante de modulo, nao settings — preco muda raro e queremos
 controle de versao no repo).
 
-Nao tem fallback de modelo: o chat roda so em Sonnet 4.6 (decisao M0), entao um unico mapa
-basta. Se algum dia entrar Opus/Haiku, parametrizar por `modelo` aqui.
+O chat roda em Sonnet 4.6, mas a extracao forcada barata roda em Haiku 4.5 (`no_llm`,
+chat_extracao_barata): por isso o custo e parametrizado POR MODELO (`_tabela_preco`), lendo o
+nome Anthropic de cada AIMessage. Cobrar tudo a tarifa de Sonnet super-estimava a extracao
+(~3x) e divergia do `total_cost` do Langfuse (que ja precifica por modelo).
 """
 
 from collections.abc import Sequence
@@ -25,6 +27,25 @@ PRECO_USD_PER_MTOK: dict[str, float] = {
     "cache_write_1h": 6.00,
     "cache_read": 0.30,
 }
+
+# USD por milhao de tokens — Haiku 4.5 (claude-haiku-4-5). Tabela publica $1 input / $5 output;
+# mesmos multiplicadores de cache (1.25x/2x/0.1x). Usado pela extracao forcada barata.
+PRECO_HAIKU_USD_PER_MTOK: dict[str, float] = {
+    "input": 1.00,
+    "output": 5.00,
+    "cache_write_5m": 1.25,
+    "cache_write_1h": 2.00,
+    "cache_read": 0.10,
+}
+
+
+def _tabela_preco(model_name: str | None) -> dict[str, float]:
+    """Tabela de preco USD/MTok pelo nome Anthropic do modelo. Haiku -> tabela Haiku; qualquer
+    outro (incl. None / Sonnet) -> Sonnet (default seguro, o chat principal). Match por substring
+    p/ tolerar o sufixo de data (`claude-haiku-4-5-20251001`)."""
+    if model_name and "haiku" in model_name.lower():
+        return PRECO_HAIKU_USD_PER_MTOK
+    return PRECO_USD_PER_MTOK
 
 
 # --- Vision (Pix) e STT (Whisper) -------------------------------------------------------------
@@ -97,10 +118,18 @@ def custo_chat_turno_brl(messages: Sequence[Any], cotacao_usd_brl: float) -> flo
     em `atendimentos.custo_ia_brl` (OBS go-live) — so chat; STT/vision seguem no Prometheus.
     """
     return sum(
-        calcular_custo_brl(um, cotacao_usd_brl)
+        calcular_custo_brl(um, cotacao_usd_brl, model_name=_modelo_da_mensagem(m))
         for m in messages
         if (um := getattr(m, "usage_metadata", None))
     )
+
+
+def _modelo_da_mensagem(m: Any) -> str | None:
+    """Nome Anthropic da AIMessage (`response_metadata.model_name`, com fallback `model`), p/
+    `custo_chat_turno_brl` precificar cada chamada do turno pela tabela do SEU modelo — a extracao
+    forcada e Haiku, o resto Sonnet. Duck-typing (sem import de langchain); None -> tabela Sonnet."""
+    meta = getattr(m, "response_metadata", None) or {}
+    return meta.get("model_name") or meta.get("model")
 
 
 def input_nao_cacheado(usage_metadata: dict[str, Any]) -> int:
@@ -122,8 +151,15 @@ def input_nao_cacheado(usage_metadata: dict[str, Any]) -> int:
     return max(0, input_total - cacheado)
 
 
-def calcular_custo_brl(usage_metadata: dict[str, Any] | None, cotacao_usd_brl: float) -> float:
+def calcular_custo_brl(
+    usage_metadata: dict[str, Any] | None,
+    cotacao_usd_brl: float,
+    model_name: str | None = None,
+) -> float:
     """Custo estimado do turno em BRL a partir do `usage_metadata` da AIMessage.
+
+    `model_name` (nome Anthropic) escolhe a tabela de preco (`_tabela_preco`): Haiku para a
+    extracao forcada barata, Sonnet para o resto e para `None` (default seguro do chat principal).
 
     Le `input_token_details` no formato langchain-anthropic 1.4.3 (mapeamento assimetrico:
     cache_read OK; write em `ephemeral_5m/1h`, NUNCA em `cache_creation`, memoria
@@ -136,6 +172,7 @@ def calcular_custo_brl(usage_metadata: dict[str, Any] | None, cotacao_usd_brl: f
     """
     if not usage_metadata:
         return 0.0
+    preco = _tabela_preco(model_name)
     det = usage_metadata.get("input_token_details") or {}
     input_t: int = input_nao_cacheado(usage_metadata)
     output_t: int = usage_metadata.get("output_tokens", 0)
@@ -143,10 +180,10 @@ def calcular_custo_brl(usage_metadata: dict[str, Any] | None, cotacao_usd_brl: f
     cache_write_5m: int = det.get("ephemeral_5m_input_tokens", 0)
     cache_write_1h: int = det.get("ephemeral_1h_input_tokens", 0)
     usd: float = (
-        input_t * PRECO_USD_PER_MTOK["input"]
-        + output_t * PRECO_USD_PER_MTOK["output"]
-        + cache_write_1h * PRECO_USD_PER_MTOK["cache_write_1h"]
-        + cache_write_5m * PRECO_USD_PER_MTOK["cache_write_5m"]
-        + cache_read * PRECO_USD_PER_MTOK["cache_read"]
+        input_t * preco["input"]
+        + output_t * preco["output"]
+        + cache_write_1h * preco["cache_write_1h"]
+        + cache_write_5m * preco["cache_write_5m"]
+        + cache_read * preco["cache_read"]
     ) / 1_000_000
     return usd * cotacao_usd_brl

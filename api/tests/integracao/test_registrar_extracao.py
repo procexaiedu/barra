@@ -237,6 +237,53 @@ async def test_interno_horario_cria_bloqueio_e_pin(conn: AsyncConnection[dict[st
 
 
 @pytest.mark.needs_db
+async def test_multihop_triagem_ate_aguardando_no_mesmo_turno(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Bug B: quando intencao+tipo+horario chegam no MESMO turno, a FSM multi-hop leva
+    Triagem -> Qualificado -> Aguardando_confirmacao numa unica extracao e cria o bloqueio previo
+    ali — sem a janela de um turno do antigo single-hop (que deixava o slot sem reserva ate o turno
+    seguinte, p.ex. o Aviso de saida)."""
+    _, atendimento_id = await _seed_par(conn, estado="Triagem", intencao="cotacao")
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "intencao": "agendamento",
+            "tipo_atendimento": "interno",
+            "horario_desejado": "22:00:00",
+            "data_desejada": "2026-12-01",
+            "duracao_horas": "1",
+            "proxima_acao_esperada": "confirmar saida do cliente",
+        },
+    )
+
+    # Promoveu ate Aguardando_confirmacao + bloqueio + pin, tudo no mesmo turno.
+    assert resultado["novo_estado"] == "Aguardando_confirmacao"
+    assert resultado["enviar_pin"] is True
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, bloqueio_id FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Aguardando_confirmacao"
+    assert a["bloqueio_id"] is not None
+
+    # Auditoria: os DOIS hops foram registrados (passou por Qualificado), provando o multi-hop.
+    res = await conn.execute(
+        "SELECT payload FROM barravips.eventos "
+        "WHERE atendimento_id = %s AND tipo = 'transicao_estado' "
+        "ORDER BY created_at",
+        (atendimento_id,),
+    )
+    transicoes = [e["payload"]["para"] for e in await res.fetchall()]
+    assert transicoes == ["Qualificado", "Aguardando_confirmacao"]
+
+
+@pytest.mark.needs_db
 async def test_remoto_horario_cria_bloqueio_sem_pin(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
