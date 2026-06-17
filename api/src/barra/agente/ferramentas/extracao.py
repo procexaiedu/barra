@@ -71,6 +71,13 @@ _DESC_VALOR = (
     "programa cotado) — sem a duração o sistema não consegue conferir o piso de desconto e "
     "escala à toa uma oferta que era válida."
 )
+_DESC_DURACAO = (
+    "Duração em horas do programa que o cliente FECHOU. PREENCHA assim que ele escolhe o "
+    "pacote — é o que dimensiona o bloqueio na agenda; sem ela o sistema reserva só 1h por "
+    "padrão e pode subdimensionar o horário. Se você cotou mais de uma duração (ex.: 1h e 2h) "
+    "e o cliente ainda NÃO escolheu, a duração não está fechada — omita o campo até ele cravar, "
+    "não chute. Grave junto com valor_acordado quando ambos estiverem fechados."
+)
 _DESC_TIPO_ATENDIMENTO = (
     "Quem se desloca. REGRA CRÍTICA de leitura: 'você/vc/te' na boca do CLIENTE se refere a "
     "VOCÊ (a modelo) — não inverta o sentido. Classifique pelo que o cliente diz:\n"
@@ -168,7 +175,7 @@ async def registrar_extracao(
     cliente_busca: Annotated[bool | None, Field(description=_DESC_CLIENTE_BUSCA)] = None,
     data_desejada: Annotated[date | None, Field(description=_DESC_DATA)] = None,
     horario_desejado: Annotated[time | None, Field(description=_DESC_HORARIO)] = None,
-    duracao_horas: Annotated[Decimal | None, Field(ge=0, le=48)] = None,
+    duracao_horas: Annotated[Decimal | None, Field(ge=0, le=48, description=_DESC_DURACAO)] = None,
     endereco: Annotated[str | None, Field(description=_DESC_ENDERECO)] = None,
     bairro: str | None = None,
     tipo_local: Literal["hotel", "casa", "apartamento", "outro"] | None = None,
