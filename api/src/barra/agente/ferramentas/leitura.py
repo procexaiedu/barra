@@ -33,9 +33,8 @@ async def consultar_agenda(
 
     Returns:
         Uma linha por horário OCUPADO (dia e hora), ou a frase de que não há horário
-        ocupado no período — o que não aparece está livre. Se o cliente pediu um horário que
-        cai num bloqueio, ofereça outra janela com uma desculpa pessoal (ver a conduta de
-        indisponibilidade nas suas regras), sem revelar que é agenda de trabalho.
+        ocupado no período — o que não aparece está livre. Se o horário que o cliente pediu
+        cair num bloqueio, siga sua conduta de indisponibilidade (nas suas regras).
     """
     # `format: "date"` no schema (params tipados `date`): o parse/validacao do YYYY-MM-DD roda na
     # camada de args (data invalida vira ToolMessage de erro do ToolNode, com o detalhe pydantic).

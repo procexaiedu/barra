@@ -120,3 +120,7 @@ scripts/eval_corpus/
 
 # --- migracao entre maquinas (scripts locais) ---
 _migracao/
+
+# Artefatos locais: extensao do VS Code e prompt renderizado (saida gerada). Nunca no repo.
+*.vsix
+prompt_agente_renderizado.md

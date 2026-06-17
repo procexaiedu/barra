@@ -57,6 +57,11 @@ REENGAJAMENTO = Counter(
     "Reengajamento proativo do cliente apos a cotacao (07 §4.5)",
     ["resultado"],  # enviado | flag_off | sem_alvo
 )
+FLUXO_DRIFT = Counter(
+    "barra_fluxo_drift_total",
+    "Sensor de deriva de fluxo conversacional (contabilidade da corrida; JSD vai pro Langfuse)",
+    ["origem", "resultado"],  # resultado: ok | flag_off | sem_dado
+)
 
 # Metricas do agente LangGraph (ver docs/agente/08-evals.md)
 AGENTE_TURNO_DURACAO = Histogram(
