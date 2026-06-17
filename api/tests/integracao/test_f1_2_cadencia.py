@@ -12,10 +12,10 @@ verdade, então roda instantâneo, mas asserta sobre as durações *pedidas* e s
 Invariantes travados:
 - **ordem read→digitando→bolha**: read receipt primeiro; cada bolha precedida do seu `composing`.
 - **atraso proporcional à fala**: o reading delay (antes do 1º composing) cresce com `chars_inbound`
-  e segue a fórmula com piso 500ms / teto 3000ms (05 §4.1) — o único delay proporcional por design
-  (o typing é plano de propósito, 05 §4.1).
+  e segue a fórmula com piso 1500ms / teto 9000ms (05 §4.1, recalibrado 2026-06-17) — o único delay
+  proporcional por design (o typing é plano de propósito, 05 §4.1).
 - **presence por bolha**: um `composing` por chunk de texto, sempre antes do envio.
-- **jitter**: pausa entre bolhas (400-1200ms) e typing (800-2000ms) presentes e dentro da faixa —
+- **jitter**: pausa entre bolhas (800-2800ms) e typing (800-2000ms) presentes e dentro da faixa —
   não neutralizados.
 
 Puro (sem rede, sem DB real): Evolution/MinIO/Conn/Pool são fakes; Redis é `fakeredis`. NÃO mexe no
@@ -241,10 +241,10 @@ async def test_reading_delay_segue_a_formula_com_piso_e_teto() -> None:
 
 
 def test_calcular_reading_delay_proporcional_piso_teto() -> None:
-    """Invariante puro da fórmula: piso 500ms, teto 3000ms, monotônico e estritamente crescente
-    na faixa entre piso e teto (proporção à fala)."""
-    assert calcular_reading_delay_ms(0) == 500  # piso
-    assert calcular_reading_delay_ms(10_000) == 3000  # teto
+    """Invariante puro da fórmula: piso 1500ms, teto 9000ms, monotônico e estritamente crescente
+    na faixa entre piso e teto (proporção à fala). Recalibrado com o corpus (2026-06-17)."""
+    assert calcular_reading_delay_ms(0) == 1500  # piso
+    assert calcular_reading_delay_ms(10_000) == 9000  # teto
     # estritamente crescente enquanto não saturou o teto
     seq = [calcular_reading_delay_ms(n) for n in (0, 20, 60, 120)]
     assert seq == sorted(seq)
@@ -252,14 +252,14 @@ def test_calcular_reading_delay_proporcional_piso_teto() -> None:
     # monotônico não-decrescente em toda a faixa (inclui a saturação no teto)
     largo = [calcular_reading_delay_ms(n) for n in range(0, 400, 7)]
     assert largo == sorted(largo)
-    assert max(largo) <= 3000
+    assert max(largo) <= 9000
 
 
 # --- jitter + typing presentes e dentro da faixa (não neutralizados) -------------------------
 
 
 async def test_typing_e_jitter_presentes_e_na_faixa() -> None:
-    """Um typing antes de cada bolha (800-2000ms) e um jitter depois de cada bolha (400-1200ms).
+    """Um typing antes de cada bolha (800-2000ms) e um jitter depois de cada bolha (800-2800ms).
     Dente: dropar o sleep de jitter (passo 7) zera a contagem; achatar a faixa estoura o bound."""
     papeis = _sleeps_por_papel(
         await _roda_turno(chunks=["a", "b", "c"], chars_inbound=10, msg_ids_cliente=["evo-1"])
@@ -267,12 +267,12 @@ async def test_typing_e_jitter_presentes_e_na_faixa() -> None:
     assert len(papeis["typing"]) == 3
     assert len(papeis["jitter"]) == 3
     assert all(0.8 <= s <= 2.0 for s in papeis["typing"])
-    assert all(0.4 <= s <= 1.2 for s in papeis["jitter"])
+    assert all(0.8 <= s <= 2.8 for s in papeis["jitter"])
 
 
 def test_typing_e_pausa_dentro_da_faixa_da_spec() -> None:
-    """Faixas planas da spec (05 §4.1) amostradas: typing 0.8-2.0s, jitter 0.4-1.2s."""
+    """Faixas planas da spec (05 §4.1, jitter recalibrado 2026-06-17): typing 0.8-2.0s, jitter 0.8-2.8s."""
     typings = [calcular_typing_ms("qualquer fala") for _ in range(200)]
     pausas = [calcular_pausa_ms() for _ in range(200)]
     assert all(800 <= t <= 2000 for t in typings)
-    assert all(400 <= p <= 1200 for p in pausas)
+    assert all(800 <= p <= 2800 for p in pausas)

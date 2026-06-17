@@ -416,14 +416,24 @@ def calcular_typing_ms(_texto: str) -> int:
 
 
 def calcular_pausa_ms() -> int:
-    """Pausa entre chunks: 400-1200ms uniform (05 §4.1)."""
-    return random.randint(400, 1200)  # noqa: S311 -- jitter de humanização, nao cripto
+    """Pausa entre chunks: 800-2800ms uniform (05 §4.1).
+
+    Calibrado com o corpus do Vendedor (mineração 2026-06-17, scripts/eval_corpus/
+    mineracao_humanizacao.md): o gap real entre bolhas consecutivas dele é p50≈4s / p75≈9s.
+    Somado ao composing (0.8-2s), a pausa de 0.8-2.8s coloca a mediana entre-bolhas perto dos 4s
+    humanos sem estourar o job_timeout de 90s no teto de 6 chunks."""
+    return random.randint(800, 2800)  # noqa: S311 -- jitter de humanização, nao cripto
 
 
 def calcular_reading_delay_ms(chars_inbound: int) -> int:
     """Reading delay antes do PRIMEIRO 'composing' (humano lê → digita → responde), proporcional
-    ao inbound do turno com piso e teto enxutos (05 §4.1)."""
-    return min(500 + chars_inbound * 12, 3000)
+    ao inbound do turno com piso e teto (05 §4.1).
+
+    Calibrado com o corpus (mineração 2026-06-17): a latência real da 1ª resposta do Vendedor é
+    p25≈14s / p50≈40s. Subimos piso e teto (1.5s / 9s) para sair do "instantâneo demais", mas
+    ficamos DELIBERADAMENTE abaixo da mediana humana — 40s de silêncio num bot que acabou de ser
+    acionado lê como travado, não como humano, e o teto protege o job_timeout de 90s."""
+    return min(1500 + chars_inbound * 20, 9000)
 
 
 def _redis_eq(valor: object, esperado: str) -> bool:
