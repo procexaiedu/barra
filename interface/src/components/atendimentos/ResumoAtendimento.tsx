@@ -139,7 +139,9 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
           </p>
         ) : (
           <p className="text-[14px] leading-relaxed text-text-disabled">
-            Aguardando primeira interação da IA
+            {detalhe.mensagens.length > 0
+              ? "A IA ainda não gerou um resumo deste atendimento."
+              : "Aguardando primeira interação da IA"}
           </p>
         )}
       </Secao>
