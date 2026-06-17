@@ -412,3 +412,62 @@ def test_webhook_grupo_atendimento_inexistente_responde_erro(monkeypatch: Any) -
 
     assert response.json() == {"status": "invalid"}
     assert capturas == [(texto_erro_comando("atendimento_nao_encontrado"), "erro_comando")]
+
+
+def test_webhook_cliente_lid_grava_telefone_do_remote_jid_alt() -> None:
+    """WhatsApp LID: o cliente é o telefone E.164 do remoteJidAlt, nunca o @lid (CONTEXT
+    'Cliente'). Payload ancorado na captura real de prod (Evolution v2.3.6)."""
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.jid_permitido = None
+    settings.evolution_grupo_coordenacao_jid = "grupo-diferente@g.us"  # força ramo cliente
+    conn = FakeConn(mensagem_existe=False, envio_existe=False)
+    arq = FakeArq()
+    payload = {
+        "instance": "barra",
+        "data": {
+            "key": {
+                "id": "MSG-LID-1",
+                "remoteJid": "265394770157821@lid",
+                "remoteJidAlt": "5519983382045@s.whatsapp.net",
+                "fromMe": False,
+            },
+            "message": {"conversation": "oi"},
+        },
+    }
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        app.state.arq = arq
+        response = client.post("/webhook/evolution", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "received"}
+    insert_cli = [(q, p) for (q, p) in conn.binds if "INSERT INTO barravips.clientes" in q]
+    assert len(insert_cli) == 1
+    _, params = insert_cli[0]
+    assert params[0] == "5519983382045"  # telefone E.164 do remoteJidAlt, não o LID
+
+
+def test_webhook_cliente_lid_sem_alt_nao_grava_lid() -> None:
+    """@lid sem remoteJidAlt: fail-closed — descarta (200) sem criar cliente com o LID."""
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.jid_permitido = None
+    settings.evolution_grupo_coordenacao_jid = "grupo-diferente@g.us"  # força ramo cliente
+    conn = FakeConn(mensagem_existe=False, envio_existe=False)
+    arq = FakeArq()
+    payload = {
+        "instance": "barra",
+        "data": {
+            "key": {"id": "MSG-LID-2", "remoteJid": "265394770157821@lid", "fromMe": False},
+            "message": {"conversation": "oi"},
+        },
+    }
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        app.state.arq = arq
+        response = client.post("/webhook/evolution", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "lid_sem_telefone"}
+    assert [q for q in conn.queries if "INSERT INTO barravips.clientes" in q] == []
