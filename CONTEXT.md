@@ -30,8 +30,8 @@ _Avoid_: confundir com a **Conversa cliente**; tratar como dado global do client
 Máquina de estados linear (mecânica em `docs/mvp/03`); terminais `Fechado`/`Perdido`.
 - `Novo` — primeiro contato, antes de triagem.
 - `Triagem` — IA coletando intenção e dados mínimos.
-- `Qualificado` — intenção real demonstrada; cotação apresentada.
-- `Aguardando_confirmacao` — aguarda **Pix de deslocamento** (externo), **Foto de portaria** (interno), o **horário do encontro** (externo-pickup, ADR 0020) ou o **horário da vídeo chamada** (remoto, ADR 0021). O **Aviso de saída** é informativo, não muda o estado.
+- `Qualificado` — intenção real demonstrada (quer marcar) e **tipo definido**; a cotação já costuma ter sido apresentada (carimbada à parte em `cotacao_enviada_em`, ADR 0022, não é gate desta transição). O **horário ainda não está cravado** — é o que falta para `Aguardando_confirmacao`.
+- `Aguardando_confirmacao` — **horário combinado** (gatilho desta transição; cria o **bloqueio prévio**) e aguarda **Pix de deslocamento** (externo), **Foto de portaria** (interno), o **horário do encontro** (externo-pickup, ADR 0020) ou o **horário da vídeo chamada** (remoto, ADR 0021). O **Aviso de saída** é informativo, não muda o estado.
 - `Confirmado` — externo: **Pix recebido** (validado **ou** duvidoso — nunca trava por Pix); IA pausada (`modelo_em_atendimento`), modelo conduz.
 - `Em_execucao` — modelo engajada: **Foto de portaria** recebida (interno) ou horário previsto chegou (externo).
 - `Fechado` — convertido por **Registro de resultado** (exige **Valor final**).
@@ -40,12 +40,12 @@ _Avoid_: tratar revisão de Pix como estado (é `pix_status=em_revisao`, atendim
 
 **Atendimento interno, externo ou remoto**:
 Eixo (`tipo_atendimento`) que define quem se desloca — ou se ninguém se desloca:
-- **interno** — o cliente vai até a modelo; o endereço é o **ponto de encontro na modelo**, não onde o cliente mora. A IA passa a **rua + referência quando o horário fecha** (o cliente precisa do caminho para chegar) e reserva o **número exato (apartamento/quarto) para a chegada à portaria** — duas fases, ao contrário do pickup, onde a porta nunca sai. Confirma pela **Foto de portaria**. Fica **fora do Mapa de clientes**. Sem Pix de deslocamento.
+- **interno** — o cliente vai até a modelo; o endereço é o **ponto de encontro na modelo**, não onde o cliente mora. A IA passa o **endereço completo (rua + número/complemento + referência) quando o horário fecha**, numa fase só, para o cliente chegar direto (ADR 0023; antes era em duas fases, com o número reservado para a portaria). Antes do horário fechar, no máximo a região. Confirma a chegada pela **Foto de portaria**. Fica **fora do Mapa de clientes**. Sem Pix de deslocamento.
 - **externo** — a modelo se desloca; o **Pix de deslocamento** (valor fixo) antecipa o custo, e o endereço é a localização do cliente — geocodificada e plotada no **Mapa de clientes**. Subcaso: o **cliente busca a modelo** de carro (rolê/casa dele) — segue externo, mas **sem Pix de deslocamento** (não há Uber dela para antecipar); o endereço que a IA passa é o **ponto de encontro** dela (rua + referência, nunca porta/apartamento), informado quando o horário fecha. No pickup o atendimento avança sem `Confirmado`: a extração reserva o slot (`Aguardando_confirmacao`) e, na hora do encontro, a IA pausa com card "Cliente vem te buscar". Ver ADR 0020.
 - **remoto** — ninguém se desloca: o serviço é uma **Vídeo chamada** ao vivo. Sem local físico, **fora do Mapa de clientes**, **sem Pix** e sem Foto de portaria. A extração reserva o slot (`Aguardando_confirmacao` + bloqueio prévio, como o interno, só pelo horário) e, na hora marcada, a IA pausa com o card "Hora da sua vídeo chamada"; pula `Confirmado`. Pagamento combinado manualmente pela modelo (P0). Ver ADR 0021.
 
 A modelo declara os tipos que aceita (`tipo_atendimento_aceito[]`, pode ser mais de um); cada atendimento fixa exatamente um. A IA nunca negocia um tipo que a modelo não realiza.
-_Avoid_: tratar interno como localização do cliente; segurar a rua até a portaria no interno (o cliente precisa do caminho quando o horário fecha — só o número exato espera a chegada); exigir Pix no interno/remoto ou Foto de portaria no externo/remoto; exigir Pix quando o cliente busca a modelo; plotar interno ou remoto no Mapa; misturar remoto e presencial no mesmo atendimento.
+_Avoid_: tratar interno como localização do cliente; revelar o endereço (mesmo a rua) antes do horário fechar (antes do fechamento, só a região); exigir Pix no interno/remoto ou Foto de portaria no externo/remoto; exigir Pix quando o cliente busca a modelo; plotar interno ou remoto no Mapa; misturar remoto e presencial no mesmo atendimento.
 
 **Coordenação por modelo**:
 Grupo persistente com **2 participantes** — o número da modelo (operado pela IA) e Fernando. A IA envia cards/resumos acionáveis a partir do número da modelo; a modelo lê no próprio celular, sem identidade separada. Mensagens manuais da modelo entram como `fromMe` do mesmo número que a IA opera; o sistema distingue IA de modelo pelo originador real do envio.

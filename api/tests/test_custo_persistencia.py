@@ -56,6 +56,34 @@ def test_turno_sem_usage_da_zero() -> None:
     assert custo_chat_turno_brl([], COTACAO) == 0.0
 
 
+def test_extracao_haiku_precificada_pela_tabela_haiku() -> None:
+    # Bug C: a AIMessage da extracao forcada roda em Haiku; custo_chat_turno_brl le o
+    # response_metadata.model_name e cobra pela tabela Haiku ($1/$5), nao a do Sonnet ($3/$15).
+    haiku = SimpleNamespace(
+        usage_metadata=_USAGE,
+        response_metadata={"model_name": "claude-haiku-4-5-20251001"},
+    )
+    sonnet = SimpleNamespace(
+        usage_metadata=_USAGE,
+        response_metadata={"model_name": "claude-sonnet-4-6"},
+    )
+    custo_haiku = custo_chat_turno_brl([haiku], COTACAO)
+    custo_sonnet = custo_chat_turno_brl([sonnet], COTACAO)
+    # casa com o calculo direto pela tabela Haiku e fica abaixo do mesmo turno cobrado como Sonnet.
+    assert custo_haiku == pytest.approx(
+        calcular_custo_brl(_USAGE, COTACAO, model_name="claude-haiku-4-5-20251001")
+    )
+    assert 0 < custo_haiku < custo_sonnet
+
+
+def test_model_name_ausente_cai_em_sonnet() -> None:
+    # Sem response_metadata (fallback seguro), cobra como Sonnet — o chat principal.
+    sem_meta = SimpleNamespace(usage_metadata=_USAGE)
+    assert custo_chat_turno_brl([sem_meta], COTACAO) == pytest.approx(
+        calcular_custo_brl(_USAGE, COTACAO)
+    )
+
+
 # --- offline: acumular_custo_atendimento ---------------------------------------------------------
 
 

@@ -356,16 +356,24 @@ async def registrar_extracao_ia(
         valores,
     )
 
-    # 2. Transicao de estado (02 §11) + side-effects deterministicos.
+    # 2. Transicao de estado (02 §11) + side-effects deterministicos. MULTI-HOP: itera ate o
+    #    ponto-fixo, aplicando cada hop + seu side-effect. Quando intencao+tipo+horario chegam no
+    #    mesmo turno, Triagem->Qualificado->Aguardando_confirmacao ocorrem juntos e o bloqueio
+    #    previo nasce no proprio turno do horario (sem a janela de um turno do single-hop). Termina
+    #    sempre: cada hop avanca o estado e Aguardando_confirmacao+ nao tem transicao automatica.
     resultado_extra: dict[str, Any] = {}
-    novo_estado = await _decidir_transicao(conn, aid)
-    if novo_estado is not None:
+    novo_estado: str | None = None
+    while True:
+        hop = await _decidir_transicao(conn, aid)
+        if hop is None:
+            break
+        novo_estado = hop
         await conn.execute(
             "UPDATE barravips.atendimentos SET estado = %s WHERE id = %s",
-            (novo_estado, aid),
+            (hop, aid),
         )
-        await _registrar_evento(conn, aid, "transicao_estado", {"para": novo_estado})
-        if novo_estado == "Aguardando_confirmacao":
+        await _registrar_evento(conn, aid, "transicao_estado", {"para": hop})
+        if hop == "Aguardando_confirmacao":
             atendimento = await _refetch_para_bloqueio(conn, aid)
             # Interno, externo-pickup (cliente_busca, ADR 0020) e remoto (video chamada, ADR 0021)
             # criam o bloqueio previo aqui. O externo-Uber tambem promove agora, mas seu bloqueio
@@ -494,9 +502,17 @@ class BeliefState:
 # Pre-condicoes de cada transicao automatica da extracao (02 §11). FONTE UNICA: alimenta tanto
 # `_proxima_transicao` (a FSM real, lida no UPSERT) quanto o belief-state (o que falta + proximo
 # passo no prompt). Cada predicado recebe os campos do atendimento por keyword; quando falso, seu
-# rotulo entra em `slots_faltantes`, na ordem de cobranca. Espelha o comportamento historico: TODO
-# tipo com horario combinado promove Qualificado->Aguardando_confirmacao (cliente_busca NAO e
-# condicao — a reserva/Pix do externo-Uber sai do bloco de Pix, nao daqui).
+# rotulo entra em `slots_faltantes`, na ordem de cobranca.
+#
+# O HORARIO e o limiar de `Aguardando_confirmacao` (= reserva do slot), NAO de `Qualificado`:
+# Triagem->Qualificado pede intencao+tipo (intencao real + "dado minimo" do tipo); o horario
+# combinado e quem promove Qualificado->Aguardando_confirmacao e cria o bloqueio previo. Antes
+# o horario gateava as DUAS transicoes, o que fundia os estados (saida de Qualificado era
+# subconjunto da entrada) e, com a FSM single-hop, atrasava o bloqueio um turno quando
+# intencao+tipo+horario chegavam juntos. `registrar_extracao_ia` agora itera ate o ponto-fixo
+# (multi-hop), entao Triagem->Qualificado->Aguardando_confirmacao ocorrem no MESMO turno.
+# TODO tipo com horario combinado promove a Aguardando_confirmacao (cliente_busca NAO e condicao
+# — a reserva/Pix do externo-Uber sai do bloco de Pix, nao daqui).
 _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], str]]]] = {
     "Novo": (
         "Triagem",
@@ -506,7 +522,6 @@ _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], st
         "Qualificado",
         [
             (lambda *, intencao, **_: intencao == "agendamento", "ele querer mesmo marcar"),
-            (lambda *, horario_desejado, **_: horario_desejado is not None, "que horas ele quer"),
             (
                 lambda *, tipo_atendimento, **_: tipo_atendimento is not None,
                 "se você vai até ele, ele vem até você ou é vídeo chamada",

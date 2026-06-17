@@ -97,10 +97,11 @@ def _instrumentar_tokens(resp: BaseMessage, modelo: str) -> None:
     AGENTE_TURNO_TOKENS.labels(modelo, "output").inc(um["output_tokens"])
     AGENTE_TURNO_TOKENS.labels(modelo, "cache_read").inc(read)
     AGENTE_TURNO_TOKENS.labels(modelo, "cache_write").inc(write)
-    # Custo BRL: tabela Sonnet 4.6 + cotacao USD/BRL (settings). Observado pelo Histogram
+    # Custo BRL: tabela do PROPRIO modelo (`calcular_custo_brl` despacha por `modelo` — Haiku p/ a
+    # extracao barata, Sonnet p/ o resto) + cotacao USD/BRL (settings). Observado pelo Histogram
     # AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta em settings.custo_alvo_brl). Mesmo label `modelo` p/ correlato.
     AGENTE_CUSTO_TURNO_BRL.labels(modelo).observe(
-        calcular_custo_brl(um, get_settings().usd_brl_cotacao)
+        calcular_custo_brl(um, get_settings().usd_brl_cotacao, model_name=modelo)
     )
 
 
@@ -168,8 +169,8 @@ def no_llm(
     modelo_anthropic = chat.model
     # Label de metrica da extracao barata: nome do modelo barato (Haiku), p/ NAO poluir o tripwire
     # de write-rate do Sonnet (mesmo cuidado do output_guard, 03 §4.2). `custo BRL` da extracao
-    # barata sai pela tabela do Sonnet em _custo.py (super-estima, conservador) ate _custo virar
-    # por-modelo; a medicao real por-modelo ja vem do Langfuse nativo (totalCost).
+    # barata agora sai pela tabela do PROPRIO modelo (Haiku) — `_custo.calcular_custo_brl` despacha
+    # por `model_name`, casando com o `total_cost` por-modelo do Langfuse.
     modelo_extracao_barata = chat_extracao_barata.model if chat_extracao_barata is not None else ""
 
     async def llm(

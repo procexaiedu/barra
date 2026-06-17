@@ -38,12 +38,14 @@ def test_novo_com_intencao_promove_triagem() -> None:
 
 
 def test_triagem_curiosidade_falta_querer_marcar() -> None:
+    # Horário deixou de ser slot de Triagem (virou o limiar de Aguardando_confirmacao): Triagem
+    # cobra intenção real + o tipo ("dado mínimo"), nunca a hora.
     b = derivar_belief_state(
         estado="Triagem", intencao="curiosidade", tipo_atendimento=None, horario_desejado=None
     )
     assert b.proxima_transicao is None
     assert "ele querer mesmo marcar" in b.slots_faltantes
-    assert "que horas ele quer" in b.slots_faltantes
+    assert "que horas ele quer" not in b.slots_faltantes
 
 
 def test_qualificado_so_falta_horario() -> None:
@@ -139,7 +141,9 @@ def _render(estado: str, **over: object) -> str:
 
 
 def test_render_slot_vazio_aparece_explicito() -> None:
-    out = _render("Triagem", tipo_atendimento="interno", horario_desejado=None)
+    # Em Qualificado com o tipo combinado e a hora ainda não: a hora é o slot faltante explícito
+    # (horário virou limiar de Aguardando_confirmacao, não mais de Triagem).
+    out = _render("Qualificado", tipo_atendimento="interno", horario_desejado=None)
     assert "<situacao_do_atendimento" in out
     assert "<ja_combinado>" in out
     assert "<interno" not in out  # sanity: tipo vai dentro de <tipo>, não como tag própria
@@ -160,7 +164,7 @@ def test_render_dia_capturado_sai_de_ainda_falta_sem_as_none() -> None:
     # cliente confirmou o dia mas ainda não a hora: o dia entra em <ja_combinado>, só a hora fica
     # em <ainda_falta>, e nada renderiza "às None" (regressão do split dia/hora).
     out = _render(
-        "Triagem",
+        "Qualificado",
         tipo_atendimento="interno",
         data_desejada=date(2026, 6, 15),
         horario_desejado=None,
