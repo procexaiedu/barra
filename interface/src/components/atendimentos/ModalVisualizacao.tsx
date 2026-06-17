@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { api, apiFormData } from "@/lib/api"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
-import { formatTelefone } from "@/lib/formatters"
+import { nomeCliente } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse, MidiaInternaAtendimento, MotivoPerda } from "@/tipos/atendimentos"
 
 function normalizarDetalheResponse(res: AtendimentoDetalheResponse): AtendimentoDetalheResponse {
@@ -99,7 +99,7 @@ export function ModalVisualizacao({
 
         <DialogHeader className="justify-between bg-muted">
           <span className="text-sm font-semibold text-text-primary">
-            {detalhe ? `${detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)} · #${detalhe.atendimento.numero_curto}` : "Atendimento"}
+            {detalhe ? `${nomeCliente(detalhe.cliente.nome, detalhe.cliente.telefone)} · #${detalhe.atendimento.numero_curto}` : "Atendimento"}
           </span>
           <div className="flex items-center gap-2">
             {detalhe && !readOnly && onAbrirEdicao && (

@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
-import { formatBRL, formatData, formatDataHora, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
+import { ehTelefoneExibivel, formatBRL, formatData, formatDataHora, formatTelefone, formatTempoRelativo, nomeCliente } from "@/lib/formatters"
 import type { AtendimentoDetalheResponse, EventoAtendimento, MotivoPerda } from "@/tipos/atendimentos"
 import { AcoesAtendimento } from "@/components/atendimentos/AcoesAtendimento"
 import { HistoricoMensagens } from "@/components/atendimentos/HistoricoMensagens"
@@ -76,7 +76,8 @@ export function DetalheAtendimento({
   if (!detalhe) return <EmptyDetalhe />
 
   const atendimento = detalhe.atendimento
-  const cliente = detalhe.cliente.nome ?? formatTelefone(detalhe.cliente.telefone)
+  const cliente = nomeCliente(detalhe.cliente.nome, detalhe.cliente.telefone)
+  const telefoneExibivel = ehTelefoneExibivel(detalhe.cliente.telefone)
   const valorAcordado = atendimento.valor_acordado !== null && atendimento.valor_acordado !== undefined
     ? Number(atendimento.valor_acordado)
     : null
@@ -126,8 +127,12 @@ export function DetalheAtendimento({
             </h2>
             <p className="mt-1 text-[13px] text-text-muted">
               Atendimento de <span className="font-medium text-text-secondary">{detalhe.modelo.nome}</span>
-              <span aria-hidden> · </span>
-              <span className="font-mono text-text-muted">{formatTelefone(detalhe.cliente.telefone)}</span>
+              {telefoneExibivel && (
+                <>
+                  <span aria-hidden> · </span>
+                  <span className="font-mono text-text-muted">{formatTelefone(detalhe.cliente.telefone)}</span>
+                </>
+              )}
             </p>
           </div>
           {valorExibido !== null && (
@@ -165,7 +170,7 @@ export function DetalheAtendimento({
           <div className="flex min-w-0 flex-col gap-3">
             <ResumoAtendimento detalhe={detalhe} />
             <SecaoFixa
-              titulo="Histórico de mensagens"
+              titulo="Conversa com o cliente"
               count={detalhe.mensagens.length}
               icone={<MessageSquare size={16} strokeWidth={1.75} className="text-info-500" />}
             >

@@ -3,7 +3,7 @@
 import type { KeyboardEvent } from "react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { formatBRL, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
+import { formatBRL, formatTempoRelativo, nomeCliente } from "@/lib/formatters"
 import type { AtendimentoListaItem } from "@/tipos/atendimentos"
 import { badgeForEstado, estadoLabel, sinaisParaTipo, tipoLabel, urgenciaLabel } from "@/components/atendimentos/utils"
 
@@ -16,7 +16,7 @@ export function ItemAtendimento({
   selected: boolean
   onSelect: (id: string) => void
 }) {
-  const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
+  const cliente = nomeCliente(item.cliente.nome, item.cliente.telefone)
   const valorFinal = item.valor_final
   const valorExibido = valorFinal ?? item.valor_acordado
   const sq = item.sinais_qualificacao as Record<string, unknown> | null | undefined

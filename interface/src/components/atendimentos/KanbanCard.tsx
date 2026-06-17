@@ -3,7 +3,7 @@
 import { GripVertical, PauseCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
-import { formatBRL, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
+import { formatBRL, formatTempoRelativo, nomeCliente } from "@/lib/formatters"
 import type { AtendimentoListaItem } from "@/tipos/atendimentos"
 import { corEstado, urgenciaLabel } from "@/components/atendimentos/utils"
 
@@ -20,7 +20,7 @@ export function KanbanCard({
   isDragging?: boolean
   arrastavel?: boolean
 }) {
-  const cliente = item.cliente.nome ?? formatTelefone(item.cliente.telefone)
+  const cliente = nomeCliente(item.cliente.nome, item.cliente.telefone)
   const valorFinal = item.valor_final
   const valorExibido = valorFinal ?? item.valor_acordado
   const mostrarAlca = arrastavel && dragHandleProps
