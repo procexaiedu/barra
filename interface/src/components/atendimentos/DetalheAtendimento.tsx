@@ -19,13 +19,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
-import { formatBRL, formatDataHora, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
-import type { AtendimentoDetalheResponse, MotivoPerda } from "@/tipos/atendimentos"
+import { formatBRL, formatData, formatDataHora, formatTelefone, formatTempoRelativo } from "@/lib/formatters"
+import type { AtendimentoDetalheResponse, EventoAtendimento, MotivoPerda } from "@/tipos/atendimentos"
 import { AcoesAtendimento } from "@/components/atendimentos/AcoesAtendimento"
 import { HistoricoMensagens } from "@/components/atendimentos/HistoricoMensagens"
 import { LinhaEvento } from "@/components/atendimentos/LinhaEvento"
 import { ResumoAtendimento } from "@/components/atendimentos/ResumoAtendimento"
-import { badgeForEstado, corEstado, estadoLabel } from "@/components/atendimentos/utils"
+import { badgeForEstado, categoriaEvento, corEstado, estadoLabel } from "@/components/atendimentos/utils"
 import { ImageLightbox } from "@/components/ui/image-lightbox"
 
 interface MidiaItem {
@@ -186,7 +186,7 @@ export function DetalheAtendimento({
               />
             </SecaoFixa>
             <SecaoFixa
-              titulo="Histórico do atendimento"
+              titulo="Linha do tempo"
               count={detalhe.eventos.length}
               icone={<Clock size={16} strokeWidth={1.75} className="text-text-muted" />}
             >
@@ -420,10 +420,32 @@ function MidiasRecebidas({
 }
 
 function Eventos({ eventos }: { eventos: AtendimentoDetalheResponse["eventos"] }) {
+  const [mostrarTelemetria, setMostrarTelemetria] = useState(false)
+
   const ordenados = useMemo(
     () => [...eventos].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
     [eventos]
   )
+  const telemetriaCount = useMemo(
+    () => ordenados.filter((e) => categoriaEvento(e.tipo) === "telemetria").length,
+    [ordenados]
+  )
+  const visiveis = useMemo(
+    () => (mostrarTelemetria ? ordenados : ordenados.filter((e) => categoriaEvento(e.tipo) === "marco")),
+    [ordenados, mostrarTelemetria]
+  )
+  // Agrupa por dia (já vem em ordem decrescente) — cabeçalho de data por grupo,
+  // só a hora em cada item.
+  const grupos = useMemo(() => {
+    const mapa = new Map<string, EventoAtendimento[]>()
+    for (const ev of visiveis) {
+      const dia = formatData(ev.created_at)
+      const lista = mapa.get(dia) ?? []
+      lista.push(ev)
+      mapa.set(dia, lista)
+    }
+    return [...mapa.entries()]
+  }, [visiveis])
 
   if (ordenados.length === 0) {
     return (
@@ -437,10 +459,31 @@ function Eventos({ eventos }: { eventos: AtendimentoDetalheResponse["eventos"] }
   }
 
   return (
-    <div>
-      {ordenados.map((evento) => (
-        <LinhaEvento key={evento.id} evento={evento} />
+    <div className="flex flex-col gap-3">
+      {grupos.map(([dia, evs]) => (
+        <div key={dia}>
+          <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-muted">{dia}</p>
+          <ol className="flex flex-col">
+            {evs.map((evento, i) => (
+              <LinhaEvento key={evento.id} evento={evento} isLast={i === evs.length - 1} />
+            ))}
+          </ol>
+        </div>
       ))}
+      {visiveis.length === 0 && (
+        <p className="text-[13px] text-text-disabled">Sem marcos ainda — só atualizações internas da IA.</p>
+      )}
+      {telemetriaCount > 0 && (
+        <button
+          type="button"
+          onClick={() => setMostrarTelemetria((v) => !v)}
+          className="self-start text-[12px] font-medium text-text-link hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          {mostrarTelemetria
+            ? "Ocultar atualizações da IA"
+            : `Mostrar atualizações da IA (${telemetriaCount})`}
+        </button>
+      )}
     </div>
   )
 }

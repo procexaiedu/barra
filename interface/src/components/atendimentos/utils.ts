@@ -1,6 +1,7 @@
 import { formatRotulo } from "@/lib/formatters"
 import type {
   EstadoAtendimento,
+  EventoAtendimento,
   IaPausadaMotivo,
   TipoAtendimento,
   Urgencia,
@@ -253,4 +254,41 @@ export function formatEnum(valor: string | null | undefined): string | null {
   if (!valor) return null
   if (VALOR_LEGIVEL_MAP[valor]) return VALOR_LEGIVEL_MAP[valor]
   return formatRotulo(valor)
+}
+
+// --- Linha do tempo (eventos do atendimento) ---
+
+// A extração da IA é telemetria interna (atualização de contexto), não um marco
+// de negócio. O Fernando vê marcos por padrão; a telemetria fica atrás de um toggle.
+export function categoriaEvento(tipo: string): "marco" | "telemetria" {
+  return tipo === "extracao_registrada" ? "telemetria" : "marco"
+}
+
+// Chave de ícone por tipo de evento; o componente mapeia para um ícone Lucide.
+export function iconeEvento(tipo: string): string {
+  if (tipo === "transicao_estado") return "estado"
+  if (tipo.startsWith("pix") || tipo.startsWith("pipeline") || tipo === "comprovante_recebido") return "pix"
+  if (tipo === "atendimento_fechado") return "fechado"
+  if (tipo === "atendimento_perdido") return "perdido"
+  if (tipo === "cliente_chegou" || tipo === "saida_confirmada" || tipo === "aviso_saida") return "chegada"
+  if (tipo === "handoff_aberto" || tipo === "ia_pausada") return "pausa"
+  if (tipo === "handoff_fechado" || tipo === "ia_devolvida") return "retomada"
+  if (tipo.startsWith("bloqueio")) return "bloqueio"
+  if (tipo === "extracao_registrada") return "ia"
+  return "default"
+}
+
+// Descrição em linguagem de negócio para a linha do tempo. Para a extração da IA,
+// usa a "próxima ação esperada" (texto humano) em vez do payload técnico.
+export function descricaoEvento(evento: EventoAtendimento): string | null {
+  const p = evento.payload ?? {}
+  if (evento.tipo === "transicao_estado") {
+    const para = typeof p.para === "string"
+      ? (estadoLabel[p.para as EstadoAtendimento] ?? formatRotulo(p.para) ?? p.para)
+      : null
+    return para ? `Avançou para ${para}` : null
+  }
+  const proxima = p["proxima_acao_esperada"]
+  if (typeof proxima === "string" && proxima.trim()) return proxima.trim()
+  return resumoPayload(p as Record<string, unknown>)
 }
