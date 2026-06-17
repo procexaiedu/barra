@@ -192,10 +192,17 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
       >
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            {atendimento.endereco
-              ? <p className="text-[15px] font-medium leading-snug text-text-primary">{atendimento.endereco}</p>
-              : <p className="text-[14px] text-text-disabled">Endereço não informado</p>
-            }
+            {atendimento.endereco ? (
+              <p className="text-[15px] font-medium leading-snug text-text-primary">{atendimento.endereco}</p>
+            ) : atendimento.tipo_atendimento === "interno" ? (
+              <p className="text-[14px] text-text-secondary">
+                No local de {detalhe.modelo.nome} · endereço revelado na chegada
+              </p>
+            ) : atendimento.tipo_atendimento === "remoto" ? (
+              <p className="text-[14px] text-text-secondary">Vídeo chamada · sem local físico</p>
+            ) : (
+              <p className="text-[14px] text-text-disabled">Endereço não informado</p>
+            )}
             <p className="mt-1 text-[13px] text-text-secondary">
               {linhasLocal.length > 0 ? linhasLocal.join(" · ") : <NaoInformado />}
             </p>
@@ -344,7 +351,7 @@ function SecaoProgramas({ programas }: { programas: ServicoFechado[] }) {
         Programas
       </p>
       {programas.length === 0 ? (
-        <p className="text-[13px] text-text-disabled">Nenhum programa fechado.</p>
+        <p className="text-[13px] text-text-disabled">Nenhum programa selecionado ainda.</p>
       ) : (
         <div className="space-y-1">
           {programas.map((s) => (

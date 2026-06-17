@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatData, formatDuracaoHoras } from './formatters'
+import { ehTelefoneExibivel, formatData, formatDuracaoHoras, nomeCliente } from './formatters'
 
 describe('formatData', () => {
   it('date-only (data_desejada) mantém o dia — não recua para a véspera em BRT', () => {
@@ -35,5 +35,31 @@ describe('formatDuracaoHoras', () => {
     expect(formatDuracaoHoras(undefined)).toBeNull()
     expect(formatDuracaoHoras(0)).toBeNull()
     expect(formatDuracaoHoras('abc')).toBeNull()
+  })
+})
+
+describe('ehTelefoneExibivel', () => {
+  it('aceita E.164 BR (com e sem 55)', () => {
+    expect(ehTelefoneExibivel('5512992609133')).toBe(true)
+    expect(ehTelefoneExibivel('12992609133')).toBe(true)
+  })
+
+  it('rejeita JID de grupo e número de 18 dígitos', () => {
+    expect(ehTelefoneExibivel('120363423572479616')).toBe(false)
+    expect(ehTelefoneExibivel('120363423572479616@g.us')).toBe(false)
+  })
+})
+
+describe('nomeCliente', () => {
+  it('prioriza o nome quando há', () => {
+    expect(nomeCliente('João', '120363423572479616')).toBe('João')
+  })
+
+  it('formata o telefone válido quando não há nome', () => {
+    expect(nomeCliente(null, '5512992609133')).toBe('(12) 99260-9133')
+  })
+
+  it('usa rótulo neutro para JID/telefone inválido sem nome', () => {
+    expect(nomeCliente(null, '120363423572479616')).toBe('Contato sem telefone')
   })
 })

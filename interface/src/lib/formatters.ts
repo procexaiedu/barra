@@ -12,6 +12,23 @@ export function formatTelefone(input: string): string {
   return input.split('@')[0].replace(/^\+?55/, '')
 }
 
+// Telefone "exibível": E.164 BR (10/11 dígitos após remover o 55). JID de grupo
+// (@g.us / número de 18 dígitos) não é telefone de cliente e não deve virar título.
+export function ehTelefoneExibivel(input: string): boolean {
+  if (input.includes('@')) return false
+  let digitos = input.replace(/\D/g, '')
+  if (digitos.startsWith('55') && digitos.length >= 12) digitos = digitos.slice(2)
+  return digitos.length === 10 || digitos.length === 11
+}
+
+// Identidade do cliente para títulos/listas: nome quando houver, senão o telefone
+// formatado, senão um rótulo neutro (evita exibir o JID de 18 dígitos como nome).
+export function nomeCliente(nome: string | null | undefined, telefone: string): string {
+  if (nome) return nome
+  if (ehTelefoneExibivel(telefone)) return formatTelefone(telefone)
+  return 'Contato sem telefone'
+}
+
 export const formatBRL = (n: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n)
 
