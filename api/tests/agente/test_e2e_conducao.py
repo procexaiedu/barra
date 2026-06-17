@@ -111,6 +111,7 @@ def _sequencia_interno() -> list[AIMessage]:
         "horario_desejado": "15:00",
         "data_desejada": amanha.isoformat(),
         "duracao_horas": 1,
+        "cotacao_apresentada": True,
     }
     # 3 turnos: extracao + bolha cada. A extracao e incremental (COALESCE), entao manda tudo ja no
     # 1o turno; _decidir_transicao sobe 1 degrau por turno mesmo com os campos repetidos.

@@ -86,6 +86,7 @@ class _ChatFakeInterno:
             "horario_desejado": "15:00",
             "data_desejada": amanha.isoformat(),
             "duracao_horas": 1,
+            "cotacao_apresentada": True,
         }
 
     def _extracao(self) -> Any:
