@@ -41,6 +41,7 @@ class VeredictoE2E:
 
 def avaliar_e2e(res: ResultadoE2E, perfil: PerfilCaso) -> VeredictoE2E:
     from evals.checks import _texto_e_args
+    from evals.sequencia import avaliar_sequencia
 
     violacoes: list[str] = []
     for i, t in enumerate(res.turnos):
@@ -49,6 +50,9 @@ def avaliar_e2e(res: ResultadoE2E, perfil: PerfilCaso) -> VeredictoE2E:
             violacoes.append(f"turno {i}: marcador de outro cliente na saida (vazamento por-par)")
         if tem_marcador_system(saida):
             violacoes.append(f"turno {i}: marcador de system vazou para a bolha")
+
+    # Camada 2: ordem de acoes cross-turn (cotacao antes de confirmar; pix so em externo).
+    violacoes.extend(avaliar_sequencia(res))
 
     # Comparacao com o desfecho real do corpus: a IA "deveria" ter conduzido (chegado a
     # confirmacao) nos casos que o cliente real convergiu? Rotulo, nao gabarito de fechamento.
