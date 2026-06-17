@@ -245,6 +245,15 @@ class Settings(BaseSettings):
         ge=1,
         description="Máximo de cards de lembrete de valor antes de escalar para Fernando via handoff.",
     )
+    fluxo_drift_ativo: bool = Field(
+        default=False,
+        description="Liga o sensor semanal de deriva de fluxo conversacional (corpus humano vs. agente). Observacional: só lê conversas (barravips.mensagens) e escreve dataset+score no Langfuse, nunca toca o agente ao vivo. Começa OFF; ligue via FLUXO_DRIFT_ATIVO=true.",
+    )
+    fluxo_drift_janela_dias: int = Field(
+        default=7,
+        ge=1,
+        description="Janela (dias) de conversas do agente que o sensor de fluxo agrega a cada corrida.",
+    )
     pix_deslocamento_valor: Decimal = Field(
         default=Decimal("100.00"),
         description="Valor esperado do Pix de deslocamento, em BRL (06 §2.2/§0 item 6). Comparação é `valor >= esperado`: underpay → em_revisao; valor maior é aceito como validado.",

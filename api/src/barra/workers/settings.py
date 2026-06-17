@@ -7,6 +7,7 @@ Cron:
   - cobrar_valor_final (Lembrete de fechamento, ADR-0009; fim do atendimento): a cada minuto
   - reengajar_silenciosos (toque proativo apos cotacao; default off): a cada 5 min
   - limpar_midias_vencidas (90d em estados terminais): diário 03:00
+  - fluxo_drift (sensor de deriva de fluxo; observacional, default off): segunda 04:00
 
 Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes do envio.
 """
@@ -31,6 +32,7 @@ from barra.core.tracing import init_sentry, setup_langfuse
 from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
 from barra.workers.envio import MAX_TRIES_ENVIO, enviar_card, enviar_turno
+from barra.workers.fluxo_drift import medir_fluxo_drift
 from barra.workers.lembrete_valor import cobrar_valor_final
 from barra.workers.media import limpar_midias_vencidas, rotear_imagem, transcrever_audio
 from barra.workers.pix import validar_pix
@@ -108,6 +110,15 @@ async def cron_reconciliar_cards(ctx: dict[str, Any]) -> int:
     # Rede de segurança contra handoff silencioso: entrega cards de escalada órfãos chamando
     # enviar_card inline (ctx tem db_pool + evolution). Ver workers/reconciliacao.py.
     return await reconciliar_cards_escalada(ctx)
+
+
+async def cron_fluxo_drift(ctx: dict[str, Any]) -> int:
+    pool = ctx.get("db_pool")
+    settings = ctx.get("settings")
+    if pool is None or settings is None:
+        return 0
+    async with pool.connection() as conn:
+        return await medir_fluxo_drift(conn, settings)
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -228,6 +239,8 @@ class WorkerSettings:
         ),
         cron(cron_limpar_midias, name="limpar_midias", hour={3}, minute={0}),
         cron(cron_reconciliar_cards, name="reconciliar_cards"),
+        # Sensor de deriva de fluxo (observacional, flag default OFF): segunda 04:00 UTC, fora de pico.
+        cron(cron_fluxo_drift, name="fluxo_drift", weekday="mon", hour={4}, minute={0}),
     ]
     keep_result = 3600  # global; processar_turno sobrescreve p/ 0 via func(...) acima
     max_jobs = 10

@@ -239,6 +239,55 @@ def registrar_feedback_online(trace_id: str | None, name: str, score: float) -> 
         logger.debug("feedback_online_falhou name=%s", name, exc_info=True)
 
 
+def registrar_score_agregado(nome: str, valor: float, *, janela: str = "") -> None:
+    """Anexa um score AGREGADO (ex.: JSD do sensor de fluxo) a um trace sintético do Langfuse.
+
+    Diferente do `registrar_feedback_online` (score por-turno num trace existente), aqui não há turno:
+    cria-se um trace determinístico por (nome, janela) via `create_trace_id(seed=...)` — reexecução na
+    mesma janela sobrescreve o mesmo ponto —, daí o `create_score`. O time-series de scores vira o
+    dashboard de deriva no Langfuse. Best-effort: no-op sem o handler global (tracing off — ex.: pytest).
+    """
+    if _LANGFUSE_HANDLER is None:
+        return
+    try:
+        from langfuse import Langfuse, get_client
+
+        client = get_client()
+        trace_id = Langfuse.create_trace_id(seed=f"{nome}:{janela}")
+        with client.start_as_current_observation(
+            as_type="span", name=f"{nome} {janela}".strip(), trace_context={"trace_id": trace_id}
+        ):
+            pass
+        client.create_score(name=nome, value=float(valor), trace_id=trace_id, data_type="NUMERIC")
+    except Exception:  # best-effort: telemetria nunca quebra o job
+        logger.debug("score_agregado_falhou name=%s", nome, exc_info=True)
+
+
+def garantir_dataset(nome: str) -> None:
+    """Cria o dataset do Langfuse se faltar (idempotente por nome). Best-effort."""
+    if _LANGFUSE_HANDLER is None:
+        return
+    try:
+        from langfuse import get_client
+
+        get_client().create_dataset(name=nome)
+    except Exception:  # best-effort: já existe ou tracing off
+        logger.debug("garantir_dataset_falhou nome=%s", nome, exc_info=True)
+
+
+def upsert_item_dataset(dataset: str, item_id: str, metadata: dict[str, Any]) -> None:
+    """Upsert (por `id`) de um item num dataset do Langfuse — sem conteúdo PII além do que o trace já
+    guarda (self-hosted, ADR 0019). Best-effort: no-op sem handler. Exige `garantir_dataset` antes."""
+    if _LANGFUSE_HANDLER is None:
+        return
+    try:
+        from langfuse import get_client
+
+        get_client().create_dataset_item(dataset_name=dataset, id=item_id, metadata=metadata)
+    except Exception:  # best-effort: telemetria nunca quebra o job
+        logger.debug("upsert_dataset_falhou dataset=%s", dataset, exc_info=True)
+
+
 def _tag_turno_id(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any]:
     """before_send do Sentry: promove o `turno_id` a tag do evento (OBS-04).
 
