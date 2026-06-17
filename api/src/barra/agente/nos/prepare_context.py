@@ -542,6 +542,9 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     # criar_bloqueio_previo segue barrando double-booking real na criação. `IS DISTINCT FROM`
     # preserva os bloqueios avulsos (atendimento_id NULL); o gate `%s IS NULL` mantém todos os
     # bloqueios quando não há atendimento no contexto (fluxo do gate).
+    # ⚠️ Janela de 48h espelhada em texto LLM-visível: `consultar_agenda` (DESC, ferramentas/
+    # leitura.py) e o prompt `<tools_disponiveis>` (regras.md.j2) dizem "próximas 48h" pra ensinar
+    # quando chamar a tool. Mudou aqui → atualize os dois, senão a DESC/prompt mentem em silêncio.
     res = await conn.execute(
         """
         SELECT inicio, fim

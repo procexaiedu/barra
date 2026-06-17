@@ -43,17 +43,16 @@ async def enviar_midia(
     """Anexa uma mídia pré-aprovada da modelo (foto ou vídeo, escolhida pelo sistema) à resposta
     do turno.
 
-    Use quando o cliente pede para ver você ou quando uma foto ajuda a fechar a venda. Mande
-    fotos primeiro; só use vídeo depois, quando o cliente quer ver mais. Não mande mídia na
-    saudação nem antes de qualquer qualificação.
+    Use quando o cliente quer te ver, pede mais fotos ou quando uma foto ajuda a fechar a venda;
+    siga sua conduta de mídia (nas suas regras) para a ordem foto→vídeo. NÃO mande na saudação
+    nem antes de qualquer qualificação.
 
     Args:
         tag: categoria da mídia. O sistema escolhe QUAL item da tag (rotação:
              menos-recente-enviada), evitando repetir — você não escolhe o item específico.
         legenda: opcional, texto curto que aparece junto da mídia no WhatsApp.
-        tipo: "foto" (default) ou "video". Use "video" só depois de já ter mandado foto,
-              apresentando-o como exclusivo/gravado agora na legenda. O vídeo vai como
-              visualização única quando a plataforma suportar.
+        tipo: "foto" (default) ou "video" — qual mídia anexar. O vídeo vai como visualização
+              única quando a plataforma suportar.
 
     Pode ser chamada várias vezes no mesmo turno (ex.: 2 fotos da mesma tag);
     as mídias são enviadas após o texto.

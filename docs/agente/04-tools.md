@@ -753,3 +753,32 @@ Tools de **enum/tipo crítico** entram com `strict: true` na `ToolParam` — o *
 > **Nota (ponto baixo — `payload` aninhado).** `escalar` (3 campos) e `pedir_pix` embrulham args num único `payload: BaseModel`. A Anthropic recomenda *"explicit parameters"*; args de topo (`motivo, resumo_operacional, acao_esperada`) tendem a ter aderência marginalmente melhor que um objeto aninhado. Com `strict: true` ligado o ganho do achatamento encolhe — tratar como ajuste fino a validar nas evals (`08`), não como bug. `registrar_extracao` (~15 campos) justifica o agrupamento.
 
 > **Guarda de privacidade (retenção de schema, cruzamento 2026-05-24).** A grammar compilada do strict é cacheada **~24h pela Anthropic fora das proteções de prompt/resposta** — então **nenhum dado de cliente pode entrar em nome de campo, `enum`, `const` ou `pattern`** de tool. Hoje isso vale por design: os enums são taxonomias fixas (`motivo`, `motivo_perda_candidato`, `tipo_local`, …) e o dado do cliente vive no message content (BP4/BP2, `02 §5`/`03 §3.2`), que **é** protegido. Como `strict` está ligado justo nas duas tools com mais enums (`§7`), elevamos a regra a invariante: **dado sensível só no prompt, jamais no schema** — corolário direto da decisão "dado vem no contexto, não em tool de leitura" (`§1`).
+
+> ⚠️ **Drift doc↔código (2026-06-16):** a tabela acima lista `registrar_extracao` como alvo strict, mas o código real (`ferramentas/__init__.py`) tem `STRICT_TOOLS = frozenset({"escalar"})` — `registrar_extracao` está **FORA** (comentário: "até o schema ser enxugado", limite de 16 union types; são ~10 campos `X | None`). O **código é o árbitro** (`CLAUDE.md` raiz, fonte de verdade). Ligá-la depende de reduzir union types abaixo de 16 (trocar `X | None` opcionais por `required` + default), ainda não feito. Reconciliar esta seção quando/se entrar.
+
+## 8. Auditoria de redação das tools (2026-06-16)
+
+Revisão da redação das 4 tools contra os artigos de engenharia da Anthropic ([Writing effective tools for AI agents](https://www.anthropic.com/engineering/writing-tools-for-agents), [Advanced tool use](https://www.anthropic.com/engineering/advanced-tool-use)) e a fronteira conduta↔DESC (`agente/CLAUDE.md`). Veredito por frente:
+
+**As `_DESC_*` pesadas de `registrar_extracao` NÃO são folclore — são cicatriz.** O princípio da Anthropic ("remova a frase se não confunde um leitor competente") pressupõe um leitor sem histórico de falha; os nossos têm. Cada cláusula pesada defende um bug fechado — **não trimar mecanicamente**, gate por eval (`agente/CLAUDE.md` "Dedup não é deleção grátis"):
+
+| Cláusula da DESC | Bug que ela defende | Evidência |
+|---|---|---|
+| `_DESC_DATA` "se VOCÊ perguntou o dia e o cliente confirmou, esse 'sim' É a data" | re-pergunta "seria hoje?" (voltou 5×) | guard `_ja_sondou_o_dia` (commit `bb4a9b8`); memória `belief_extracao_repergunta_seria_hoje` |
+| `_DESC_TIPO_ATENDIMENTO` "'você/vc/te' na boca do cliente = a modelo" | inversão de quem se desloca (interno↔externo) | commit `8216a6e` "classifica tipo_atendimento pela boca do cliente" |
+| `_DESC_HORARIO` aritmética de horário relativo + "não recalcule nos turnos seguintes" | slot no horário errado / re-cálculo a cada turno | regra de geração, não captura (mesma memória) |
+| `normalizar()` por trás do classificador (não é DESC, mas mesma classe) | buraco do acento no disclosure | commit `f8fcf43` |
+
+A alavanca real ali **não é encurtar a DESC** — é migrar as cláusulas *determinísticas* para guard (como o `_ja_sondou_o_dia`), gated pela instrumentação do silent-drop da extração (memória `structured_outputs_extracao_sem_evidencia`: evidência primeiro).
+
+**`escalar` — fronteira negativa fica.** O "Quando NÃO usar" da docstring (não escalar na 1ª/2ª disclosure, desconto que cabe, horário redirecionável) **não re-cola** `<quando_usar_escalar>` (que é o protocolo positivo `quando→motivo`): é a fronteira pelo lado complementar, que a Anthropic endossa ("negative examples define boundaries, prevent over-trigger"). Codificado como exceção de dedup em `agente/CLAUDE.md §"Fronteira conduta ↔ tool description"` categoria 3.
+
+**Renomear `registrar_extracao` — descartado.** Nome é jargão de ML (não acionável), mas é string de PK em `barravips.tool_calls (turno_id, tool_name, call_idx)`, aparece em `_midias_do_turno`, no descarte do coordenador e em labels de métrica. Raio de explosão (linhas de idempotência vivas + queries + cache de prefixo) >> ganho cosmético.
+
+**Acoplamento `48h` — comentado.** A janela vive como literal `interval '48 hours'` em `prepare_context.py` e é espelhada em texto na DESC do `consultar_agenda` e em `<tools_disponiveis>`. Adicionado comentário de cross-referência no literal (não interpolação dinâmica — número estável, §2 simplicidade) pra cortar o drift silencioso.
+
+**Dedup categoria-2 aplicado (working-tree, não-deployado):**
+- `consultar_agenda` Returns: deixou de re-escrever a desculpa-pessoal-em-bloqueio e passou a *referenciar* a conduta de indisponibilidade. **Sólido por construção** — `<indisponibilidade>` (`regras.md.j2:83-96`) é dono completo: desculpa leve + `proximo_livre` + "nunca diz que está com outro cliente" + ancorar-a-volta. A cópia na DESC era estritamente redundante.
+- `enviar_midia` docstring: dedup da *ordem* foto→vídeo + exclusividade-na-legenda (categoria 2, dona em `<midia>`, `regras.md.j2:98-100`), **mas mantido o negativo "NÃO na saudação nem antes de qualquer qualificação"** — `<midia>` não afirma esse negativo explícito (só o enquadramento positivo), e "quando NÃO chamar a tool" é categoria 3, onde o negativo curto na DESC é endossado. Remover teria sido over-dedup.
+
+**Por que o simulador (`wf_simulador.js`) NÃO valida estes drafts:** ele roda o *prompt* renderizado, **sem o grafo** — sem tools (não vê nenhuma DESC), sem agenda (nunca cai num bloqueio) e sem envio de mídia. Os ramos de conduta dedupados não são exercidos por ele. A única validação comportamental real é o `api/evals/e2e/` (roda o grafo com as tools), que **custa crédito Anthropic (§0)** e precisa de autorização explícita. Sem isso, a garantia é a estática acima (o site canônico carrega a conduta) + o gate verde (lint/mypy).
