@@ -22,6 +22,12 @@ logger = logging.getLogger(__name__)
 # normalmente em ~1s; só escaladas "presas" além disso entram na reconciliação, evitando corrida.
 _RECONCILIACAO_FOLGA_SEGUNDOS = 30
 
+# Card canônico por tipo de escalada. A maioria (escalar tool, cliente_busca, video_chamada) usa o
+# card genérico de Handoff (`escalada`). `foto_portaria` é a exceção: sua escalada só hospeda o
+# `card_message_id` do card PRÓPRIO `chegada` (🚪 + foto). Reconciliar com `escalada` mandaria o 🔔
+# genérico e envenenaria a idempotência por owner, deixando o 🚪 nunca sair (bug E2E 2026-06-17).
+_CARD_POR_TIPO_ESCALADA = {"foto_portaria": "chegada"}
+
 
 async def reconciliar_cards_escalada(ctx: dict[str, Any]) -> int:
     """Entrega cards de escalada órfãos: abertos, sem `card_message_id`, abertos há > folga.
@@ -37,7 +43,7 @@ async def reconciliar_cards_escalada(ctx: dict[str, Any]) -> int:
     async with pool.connection() as conn:
         res = await conn.execute(
             """
-            SELECT id::text AS id
+            SELECT id::text AS id, tipo::text AS tipo, atendimento_id::text AS atendimento_id
               FROM barravips.escaladas
              WHERE fechada_em IS NULL
                AND card_message_id IS NULL
@@ -51,16 +57,24 @@ async def reconciliar_cards_escalada(ctx: dict[str, Any]) -> int:
             """,
             (_RECONCILIACAO_FOLGA_SEGUNDOS, OBS_LEMBRETE_SEM_RESPOSTA),
         )
-        pendentes = [r["id"] for r in await res.fetchall()]
+        pendentes = await res.fetchall()
 
     processados = 0
-    for escalada_id in pendentes:
+    for esc in pendentes:
+        # Cada tipo é reconciliado com o SEU card (foto_portaria → chegada; resto → escalada);
+        # mandar sempre `escalada` envenenaria a idempotência por owner do card próprio.
+        tipo_card = _CARD_POR_TIPO_ESCALADA.get(esc["tipo"], "escalada")
         try:
-            await enviar_card(ctx, tipo="escalada", escalada_id=escalada_id)
+            await enviar_card(
+                ctx,
+                tipo=tipo_card,
+                escalada_id=esc["id"],
+                atendimento_id=esc["atendimento_id"],
+            )
             processados += 1
         except Exception:
             logger.warning(
-                "reconciliar_card_escalada_falhou escalada_id=%s", escalada_id, exc_info=True
+                "reconciliar_card_escalada_falhou escalada_id=%s", esc["id"], exc_info=True
             )
     if processados:
         logger.info("reconciliar_cards_escalada processados=%s", processados)

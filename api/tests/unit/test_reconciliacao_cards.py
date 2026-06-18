@@ -50,7 +50,12 @@ class _Pool:
 
 
 async def test_reconciliar_entrega_cards_orfaos(monkeypatch: pytest.MonkeyPatch) -> None:
-    conn = _Conn([{"id": "e1"}, {"id": "e2"}])
+    conn = _Conn(
+        [
+            {"id": "e1", "tipo": "comportamento_atipico", "atendimento_id": "a1"},
+            {"id": "e2", "tipo": "fora_de_oferta", "atendimento_id": "a2"},
+        ]
+    )
     ctx = {"db_pool": _Pool(conn), "evolution": object()}
 
     chamadas: list[tuple[str, str]] = []
@@ -72,6 +77,34 @@ async def test_reconciliar_entrega_cards_orfaos(monkeypatch: pytest.MonkeyPatch)
     # owner=Fernando vai pro painel, então fica de fora (senão o _card_escalada no-op as relê
     # toda rodada, represando órfãs reais da modelo).
     assert "responsavel = 'modelo'" in conn.sql
+
+
+async def test_reconciliar_foto_portaria_usa_card_chegada(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regressão (E2E ao vivo 2026-06-17, grupo Lucia): a escalada `foto_portaria` só hospeda o
+    `card_message_id` do card próprio `chegada` (🚪 + foto). O reconciliador NÃO pode mandar o card
+    genérico `escalada` (🔔) — isso envenena a idempotência por owner e o 🚪 nunca sai. Cada tipo é
+    reconciliado com o SEU card; só `foto_portaria` tem card próprio, o resto cai no `escalada`.
+    """
+    conn = _Conn(
+        [
+            {"id": "e1", "tipo": "foto_portaria", "atendimento_id": "a1"},
+            {"id": "e2", "tipo": "cliente_busca", "atendimento_id": "a2"},
+        ]
+    )
+    ctx = {"db_pool": _Pool(conn), "evolution": object()}
+
+    chamadas: list[tuple[str, str, str]] = []
+
+    async def fake_enviar_card(_ctx: Any, *, tipo: str, **kw: Any) -> None:
+        chamadas.append((tipo, kw["escalada_id"], kw["atendimento_id"]))
+
+    monkeypatch.setattr(recon, "enviar_card", fake_enviar_card)
+
+    n = await recon.reconciliar_cards_escalada(ctx)
+
+    assert n == 2
+    # foto_portaria entrega o card `chegada` (com a foto); cliente_busca segue no `escalada`.
+    assert chamadas == [("chegada", "e1", "a1"), ("escalada", "e2", "a2")]
 
 
 async def test_reconciliar_noop_sem_pool() -> None:
