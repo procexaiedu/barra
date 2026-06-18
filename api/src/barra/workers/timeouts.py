@@ -69,14 +69,15 @@ async def aplicar_timeout_interno(conn: AsyncConnection[Any]) -> int:
         result = await conn.execute(
             """
             WITH alvo AS (
-              SELECT id, bloqueio_id, estado AS estado_anterior
-                FROM barravips.atendimentos
-               WHERE tipo_atendimento = 'interno'
-                 AND estado = 'Aguardando_confirmacao'
-                 AND aviso_saida_em IS NOT NULL
-                 AND foto_portaria_em IS NULL
-                 AND aviso_saida_em < now() - interval '45 minutes'
-               FOR UPDATE SKIP LOCKED
+              SELECT a.id, a.bloqueio_id, a.estado AS estado_anterior
+                FROM barravips.atendimentos a
+                JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+               WHERE a.tipo_atendimento = 'interno'
+                 AND a.estado = 'Aguardando_confirmacao'
+                 AND a.aviso_saida_em IS NOT NULL
+                 AND a.foto_portaria_em IS NULL
+                 AND GREATEST(a.aviso_saida_em, b.inicio) < now() - interval '45 minutes'
+               FOR UPDATE OF a SKIP LOCKED
             ),
             upd AS (
               UPDATE barravips.atendimentos a

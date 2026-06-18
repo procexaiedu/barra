@@ -19,6 +19,8 @@ Cobre:
     cancelado (CONTEXT.md "Bloqueio": Perdido -> cancelado so se ainda nao em_atendimento/concluido).
   - agregacao: dois alvos elegiveis numa unica varredura -> ambos Perdido/sumiu + bloqueios
     cancelados (a CTE opera sobre o conjunto, nao linha-a-linha).
+  - ancora (ADR 0024): aviso cedo mas horario combinado ainda perto -> intacto (conta do horario);
+    aviso posterior ao horario -> dispara contando do aviso (GREATEST(aviso, bloqueio.inicio)).
 """
 
 from __future__ import annotations
@@ -65,10 +67,14 @@ async def _seed_interno_aguardando(
     aviso_min_atras: float | None,
     foto: bool = False,
     bloqueio_estado: str = "bloqueado",
+    bloqueio_inicio_min_atras: float = -120.0,
 ) -> tuple[UUID, UUID]:
     """Interno em Aguardando_confirmacao com bloqueio vinculado. `aviso_min_atras=None`
     deixa aviso_saida_em nulo; `foto=True` preenche foto_portaria_em; `bloqueio_estado`
-    define o estado do bloqueio vinculado (default `bloqueado`). Devolve (atendimento, bloqueio)."""
+    define o estado do bloqueio vinculado (default `bloqueado`); `bloqueio_inicio_min_atras`
+    posiciona o inicio do bloqueio (horario combinado) em minutos NO PASSADO (default -120 =
+    2h no futuro, como antes). A nova ancora (ADR 0024) conta de GREATEST(aviso, bloqueio.inicio),
+    entao quem deve disparar precisa do bloqueio tambem no passado. Devolve (atendimento, bloqueio)."""
     modelo_id, cliente_id, conversa_id, atendimento_id, bloqueio_id = (uuid4() for _ in range(5))
     await c.execute(
         """
@@ -103,9 +109,10 @@ async def _seed_interno_aguardando(
         """,
         (atendimento_id, cliente_id, modelo_id, conversa_id, aviso_em, foto_em),
     )
-    # Bloqueio previo (horario combinado), no futuro, vinculado ao atendimento. FK circular:
-    # cria o bloqueio depois do atendimento e amarra via UPDATE (mesmo padrao do schema).
-    inicio = datetime.now(UTC) + timedelta(hours=2)
+    # Bloqueio previo (horario combinado) vinculado ao atendimento. FK circular: cria o bloqueio
+    # depois do atendimento e amarra via UPDATE (mesmo padrao do schema). `bloqueio_inicio_min_atras`
+    # negativo coloca o inicio no futuro (default 2h a frente).
+    inicio = datetime.now(UTC) - timedelta(minutes=bloqueio_inicio_min_atras)
     await c.execute(
         """
         INSERT INTO barravips.bloqueios (id, modelo_id, atendimento_id, inicio, fim, estado, origem)
@@ -135,7 +142,10 @@ async def _seed_interno_aguardando(
 async def test_timeout_interno_marca_perdido_e_cancela_bloqueio(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
-    atendimento_id, bloqueio_id = await _seed_interno_aguardando(conn, aviso_min_atras=46)
+    # Aviso e horario combinado ambos > 45 min atras -> GREATEST > 45 min, dispara.
+    atendimento_id, bloqueio_id = await _seed_interno_aguardando(
+        conn, aviso_min_atras=46, bloqueio_inicio_min_atras=60
+    )
 
     total = await aplicar_timeout_interno(conn)
     assert total >= 1
@@ -214,7 +224,7 @@ async def test_timeout_interno_preserva_bloqueio_em_atendimento(
     # ainda marca o atendimento como Perdido/sumiu, mas NAO pode arrancar o bloqueio dela.
     # Sem este caso o `AND b.estado NOT IN (...)` da CTE cancel_bloqueio fica sem dentes.
     atendimento_id, bloqueio_id = await _seed_interno_aguardando(
-        conn, aviso_min_atras=46, bloqueio_estado="em_atendimento"
+        conn, aviso_min_atras=46, bloqueio_estado="em_atendimento", bloqueio_inicio_min_atras=60
     )
 
     await aplicar_timeout_interno(conn)
@@ -244,8 +254,8 @@ async def test_timeout_interno_varre_multiplos_alvos(
     # Agregacao: uma unica varredura processa N atendimentos elegiveis (a CTE alvo + FOR UPDATE
     # SKIP LOCKED + UPDATE...FROM operam sobre o conjunto, nao linha-a-linha). Banco compartilhado
     # -> assertamos sobre os DOIS registros semeados, nunca sobre a contagem global.
-    a1, b1 = await _seed_interno_aguardando(conn, aviso_min_atras=46)
-    a2, b2 = await _seed_interno_aguardando(conn, aviso_min_atras=50)
+    a1, b1 = await _seed_interno_aguardando(conn, aviso_min_atras=46, bloqueio_inicio_min_atras=60)
+    a2, b2 = await _seed_interno_aguardando(conn, aviso_min_atras=50, bloqueio_inicio_min_atras=70)
 
     total = await aplicar_timeout_interno(conn)
     assert total >= 2
@@ -266,3 +276,50 @@ async def test_timeout_interno_varre_multiplos_alvos(
     )
     estados = {r["estado"] async for r in res}
     assert estados == {"cancelado"}
+
+
+@pytest.mark.needs_db
+async def test_timeout_interno_nao_dispara_se_horario_combinado_ainda_perto(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # ADR 0024: avisar cedo nao penaliza. Aviso ha 90 min, mas o horario combinado e daqui a 10 min
+    # (bloqueio.inicio no futuro) -> GREATEST(aviso, inicio) = inicio, dentro da janela -> intacto.
+    atendimento_id, bloqueio_id = await _seed_interno_aguardando(
+        conn, aviso_min_atras=90, bloqueio_inicio_min_atras=-10
+    )
+
+    await aplicar_timeout_interno(conn)
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None and a["estado"] == "Aguardando_confirmacao"
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = %s", (bloqueio_id,)
+    )
+    b = await res.fetchone()
+    assert b is not None and b["estado"] == "bloqueado"
+
+
+@pytest.mark.needs_db
+async def test_timeout_interno_conta_do_aviso_quando_posterior_ao_horario(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # ADR 0024 (GREATEST): cliente atrasado que avisa depois do horario. Horario combinado ha 90 min,
+    # aviso ha 46 min -> GREATEST = aviso, > 45 min -> dispara (conta do aviso, nao do horario).
+    atendimento_id, _ = await _seed_interno_aguardando(
+        conn, aviso_min_atras=46, bloqueio_inicio_min_atras=90
+    )
+
+    total = await aplicar_timeout_interno(conn)
+    assert total >= 1
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, motivo_perda::text AS motivo_perda "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None and a["estado"] == "Perdido" and a["motivo_perda"] == "sumiu"

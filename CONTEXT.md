@@ -189,7 +189,7 @@ Só o que **não** é derivável das definições acima.
 
 **Pix e fluxo interno (gatilhos de transição)**
 - Comprovante de **Pix** (validado ou duvidoso) → card "saída confirmada", `ia_pausada=true` (`modelo_em_atendimento`), atendimento → `Confirmado`. Duvidoso: card sinaliza a duvidez + fila assíncrona de revisão de Fernando; sem handoff síncrono nem pausa esperando Fernando.
-- **Aviso de saída** sem **Foto de portaria** em **45 min** (contados do envio do aviso, `aviso_saida_em`) → timeout determinístico → `Perdido` (`sumiu`), sem mensagem ao cliente; a IA segue ativa para conversas futuras.
+- **Aviso de saída** sem **Foto de portaria** em **45 min** (contados do **mais tarde** entre o aviso, `aviso_saida_em`, e o **horário combinado**, `bloqueios.inicio` — `GREATEST`, ADR 0024) → timeout determinístico → `Perdido` (`sumiu`), sem mensagem ao cliente; a IA segue ativa para conversas futuras. Avisar antes do horário não penaliza: o relógio só corre 45 min depois do horário combinado (ou 45 min após o aviso, quando este vem depois).
 
 **Agenda — comportamento da IA (contraste-chave)**
 - Horário pedido cai em **bloqueio**: a IA recusa com **desculpa pessoal** coerente (salão, me arrumando, jantar, balada) e oferece outra janela; **nunca revela que está com outro cliente**, nunca para de responder.
@@ -213,7 +213,7 @@ Só o que **não** é derivável das definições acima.
 - **"grupo da modelo"**: conversa com cliente = **Conversa cliente**; grupo interno = **Coordenação por modelo**.
 - **"Pix confirmado"** ≠ revisão humana obrigatória nem bloqueio: o fluxo sempre avança; divergência marca `pix_status` (informativo) + fila assíncrona de Fernando.
 - **horário combinado vs desejado**: desejado = pedido não confirmado; combinado = confirmado e reservado.
-- **timeout interno** conta do envio do **Aviso de saída** (`aviso_saida_em`), não do horário combinado/desejado.
+- **timeout interno** conta do **mais tarde** entre o envio do **Aviso de saída** (`aviso_saida_em`) e o **horário combinado** (`bloqueios.inicio`) — `GREATEST`, ADR 0024; avisar cedo não antecipa o `Perdido`.
 - **"reengajamento"** (termo solto) cobre dois conceitos distintos de propósito: o **Reengajamento** (P0, automático, toque único dentro de um atendimento aberto que silenciou ~30 min após a cotação) e a **Reativação** (P1, campanha manual de Fernando que reabre cliente dormente para um segundo atendimento). Automático×manual, por-atendimento×por-cliente.
 - **"desconto"**: deixou de ser sempre escalada — a IA concede **Desconto de fechamento** até o **Piso de desconto** numa única oferta; "escala em vez de negociar" vale só abaixo do piso.
 - **Perfil físico preferido** por linguagem natural pela IA: no P0 é painel-only (Fernando); a parte calculada é cross-modelo e furaria o isolamento por par — leitura/escrita por NL fica para a **IA Admin** (P1). É global do cliente; não confundir com as **observações** (por par).
