@@ -82,6 +82,8 @@ def criar_chat_openrouter(
     modelo: str,
     require_parameters: bool = True,
     reasoning_off: bool = False,
+    temperature: float | None = None,
+    quantizations: list[str] | None = None,
 ) -> ChatOpenAI:
     """Wrapper LangChain do ChatOpenAI apontado p/ o OpenRouter (base_url OpenAI-compatível).
 
@@ -102,12 +104,27 @@ def criar_chat_openrouter(
     do Sonnet no chat (a voz vem da persona, não do reasoning; corta latência/custo de modelos
     de raciocínio como o DeepSeek V4 Flash).
 
+    `temperature` (default None): quando setada, vai pro request; None omite (default do provider).
+    Só o chat #1 passa um valor (1.3, recomendação DeepSeek p/ chat) — as chamadas baratas #2/#3
+    chamam sem, ficando determinísticas. **Só tem efeito com `reasoning_off=True`**: o thinking mode
+    do DeepSeek ignora temperature/top_p (langchain omite o campo quando None).
+
+    `quantizations` (default None): piso de qualidade do roteamento OpenRouter — restringe os
+    provedores aos níveis de quantização listados (`provider.quantizations`, ex.: ["fp8"]). O
+    `deepseek-v4-flash` é servido em FP4/FP8/Unknown por ~18 provedores; sem piso, o roteamento pode
+    cair num FP4 que degrada a voz/structured output de forma imprevisível. None = sem restrição.
+
     `modelo` é obrigatório (o id OpenRouter do candidato): a factory só é chamada quando o
     provider correspondente está em `openrouter`, e o settings valida que o id está setado.
     """
-    extra_body: dict[str, Any] = {}
+    provider: dict[str, Any] = {}
     if require_parameters:
-        extra_body["provider"] = {"require_parameters": True}
+        provider["require_parameters"] = True
+    if quantizations:
+        provider["quantizations"] = list(quantizations)
+    extra_body: dict[str, Any] = {}
+    if provider:
+        extra_body["provider"] = provider
     if reasoning_off:
         extra_body["reasoning"] = {"enabled": False}
     return ChatOpenAI(
@@ -115,9 +132,38 @@ def criar_chat_openrouter(
         api_key=settings.openrouter_api_key,
         base_url="https://openrouter.ai/api/v1",
         max_tokens=settings.anthropic_max_tokens,
+        temperature=temperature,  # None -> langchain omite (default do provider)
         max_retries=2,
         timeout=60.0,
         extra_body=extra_body,
+    )
+
+
+def criar_chat_deepseek(
+    settings: Settings, *, modelo: str | None = None, temperature: float | None = None
+) -> ChatOpenAI:
+    """Wrapper do ChatOpenAI apontado DIRETO p/ a API DeepSeek (api.deepseek.com), OpenAI-compatível.
+
+    Usado pelo chat #1 (llm_chat_provider=deepseek) e pelo judge de AUP (output_guard_provider=
+    deepseek): vai direto no DeepSeek (não no pool do OpenRouter) por dois motivos que pesam em escala
+    — (1) o cache automático de prefixo só existe no endpoint oficial, e o prefixo byte-idêntico fica
+    quente (chat: BP_GERAL global; judge: o system aup_saida.md repetido antes de cada bolha), ~98%
+    mais barato no hit; (2) crava modelo/quantização, sem a roleta de FP4 do load-balance.
+
+    `modelo` (default settings.deepseek_model_chat = `deepseek-chat`) já é o modo non-thinking do V4
+    Flash — então NÃO precisa de `reasoning_off` nem do `extra_body` de provider/quant (conceitos do
+    OpenRouter); evita o thinking que corromperia structured output (judge) e ignoraria temperature
+    (chat). ⚠️ `deepseek-chat` é alias legado (aposenta 2026-07-24); depois usar `deepseek-v4-flash`
+    com parâmetro explícito de non-thinking. `temperature` honrada (non-thinking); None = omite.
+    """
+    return ChatOpenAI(
+        model=modelo or settings.deepseek_model_chat,
+        api_key=settings.deepseek_api_key,
+        base_url="https://api.deepseek.com",
+        max_tokens=settings.anthropic_max_tokens,
+        temperature=temperature,
+        max_retries=2,
+        timeout=60.0,
     )
 
 

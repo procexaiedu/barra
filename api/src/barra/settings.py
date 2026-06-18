@@ -65,11 +65,36 @@ class Settings(BaseSettings):
                     data[campo] = Path(caminho).read_text(encoding="utf-8").strip()
         return data
 
-    llm_chat_provider: Literal["openrouter", "anthropic"] = "anthropic"
+    llm_chat_provider: Literal["openrouter", "anthropic", "deepseek"] = "deepseek"
     llm_vision_provider: Literal["openrouter"] = "openrouter"
     llm_audio_provider: Literal["openrouter"] = "openrouter"
     openrouter_api_key: str | None = None
     openrouter_model_chat: str | None = None
+    # Chat #1 DIRETO na API DeepSeek (api.deepseek.com), quando llm_chat_provider=deepseek. Preferido
+    # em escala: garante o cache automatico de prefixo (so o endpoint oficial cacheia; o prefixo
+    # global byte-identico fica quente -> 98% mais barato no hit) E crava modelo/quant (sem roleta de
+    # FP4 do load-balance OpenRouter). `deepseek-chat` = V4 Flash non-thinking (nao precisa de
+    # reasoning_off; nomes legados saem em 2026-07-24 -> depois `deepseek-v4-flash` direto).
+    deepseek_api_key: str | None = None
+    deepseek_model_chat: str = "deepseek-chat"
+    # Temperatura do chat #1 (qualquer provider que sirva o chat: deepseek-direct ou openrouter).
+    # Recomendacao oficial DeepSeek p/ chat/traducao ~1.3 (vs ~1.0 default). So e honrada em modo
+    # non-thinking (deepseek-chat ja e; no OpenRouter exige reasoning OFF, que _criar_chat_principal
+    # seta). Escopo: SO o chat #1 — extracao (#2) e judge (#3) chamam sem temperatura (determinismo).
+    chat_temperature: float = Field(
+        default=1.3,
+        ge=0.0,
+        description="Temperatura do chat #1 (DeepSeek V4 Flash). 1.3 = recomendacao oficial DeepSeek p/ chat; so vale non-thinking.",
+    )
+    # Piso de quantizacao do roteamento OpenRouter (provider.quantizations). O deepseek-v4-flash e
+    # servido em FP4 (Wafer/DeepInfra), FP8 (~8 provedores) e Unknown por ~18 endpoints; sem piso o
+    # load-balance pode cair num FP4 que degrada voz/structured output de forma imprevisivel (e fura
+    # o cache, que e por-provedor). ["fp8"] = piso de qualidade COM disponibilidade (8 provedores).
+    # Aplicado aos 3 caminhos V4 Flash (chat #1, extracao #2, judge #3). [] reabre tudo (kill-switch).
+    openrouter_quantizations: list[str] = Field(
+        default_factory=lambda: ["fp8"],
+        description="Niveis de quantizacao aceitos no roteamento OpenRouter do V4 Flash. ['fp8'] = piso de qualidade; [] = sem restricao.",
+    )
     openrouter_model_vision_pix: str | None = None
     # TODO(M5-final): aposentar (sabatina 2026-05-23 §1.3 — STT migrou para OpenAI direto).
     openrouter_model_audio_transcribe: str | None = None
@@ -175,7 +200,7 @@ class Settings(BaseSettings):
     # Provider do judge de AUP (#3). `anthropic` (default) -> output_guard_modelo via ChatAnthropic;
     # `openrouter` -> openrouter_model_judge via ChatOpenAI. E CAMINHO DE SEGURANCA (ADR 0016): o
     # default-seguro do _julgar_aup continua valendo em qualquer veredito inconclusivo.
-    output_guard_provider: Literal["anthropic", "openrouter"] = "anthropic"
+    output_guard_provider: Literal["anthropic", "openrouter", "deepseek"] = "anthropic"
     openrouter_model_judge: str | None = Field(
         default=None,
         description="Id OpenRouter do judge de AUP quando output_guard_provider=openrouter. Classificacao binaria com structured output; exige nao recusar conteudo adulto legitimo (senao over-refusal pelo default-seguro).",
@@ -364,9 +389,10 @@ class Settings(BaseSettings):
         return self.llm_chat_provider == "anthropic"
 
     @model_validator(mode="after")
-    def _validar_provider_openrouter(self) -> "Settings":
-        """Falha cedo (no boot) quando uma chamada aponta p/ OpenRouter sem o id do modelo ou sem a
-        chave — em vez de estourar 500 no meio do turno. Cobre #1 (chat), #2 (extracao) e #3 (judge)."""
+    def _validar_providers_llm(self) -> "Settings":
+        """Falha cedo (no boot) quando uma chamada aponta p/ OpenRouter sem o id do modelo/chave, ou
+        p/ DeepSeek-direct sem a chave — em vez de estourar 500 no meio do turno. Cobre #1 (chat),
+        #2 (extracao) e #3 (judge)."""
         alvos = [
             ("llm_chat_provider", "openrouter_model_chat", self.openrouter_model_chat),
             ("extracao_provider", "openrouter_model_extracao", self.openrouter_model_extracao),
@@ -378,6 +404,9 @@ class Settings(BaseSettings):
                     raise ValueError(f"{campo_provider}=openrouter exige {campo_modelo} setado")
                 if not self.openrouter_api_key:
                     raise ValueError(f"{campo_provider}=openrouter exige openrouter_api_key setado")
+        for campo_provider in ("llm_chat_provider", "output_guard_provider"):
+            if getattr(self, campo_provider) == "deepseek" and not self.deepseek_api_key:
+                raise ValueError(f"{campo_provider}=deepseek exige deepseek_api_key setado")
         return self
 
 

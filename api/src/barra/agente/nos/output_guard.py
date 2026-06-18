@@ -186,15 +186,29 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
     from barra.core.llm import (
         PARADA_INSEGURA,
         criar_chat_anthropic,
+        criar_chat_deepseek,
         criar_chat_openrouter,
         motivo_parada,
     )
 
-    if settings.output_guard_provider == "openrouter":
+    if settings.output_guard_provider == "deepseek":
+        # direct DeepSeek (deepseek-chat = non-thinking V4 Flash): cacheia o prefixo aup_saida.md (o
+        # mesmo system antes de CADA bolha) e crava modelo/quant — sem roleta do pool nem risco de
+        # thinking corromper o veredito (vllm#41132). method="function_calling" mantido.
+        chat = criar_chat_deepseek(settings).with_structured_output(
+            _VeredictoAup, include_raw=True, method="function_calling"
+        )
+    elif settings.output_guard_provider == "openrouter":
         assert settings.openrouter_model_judge is not None  # garantido pelo model_validator
         # method="function_calling" explicito: mais robusto que json_schema no roteamento OpenRouter.
+        # reasoning_off: o veredito e structured output e o thinking mode do DeepSeek V4 corrompe
+        # structured output (vllm#41132) — alem de 2-5x latencia num caminho que roda antes de CADA
+        # bolha. quant: piso de qualidade do roteamento (consistencia da classificacao de seguranca).
         chat = criar_chat_openrouter(
-            settings, modelo=settings.openrouter_model_judge
+            settings,
+            modelo=settings.openrouter_model_judge,
+            reasoning_off=True,
+            quantizations=settings.openrouter_quantizations,
         ).with_structured_output(_VeredictoAup, include_raw=True, method="function_calling")
     else:
         chat = criar_chat_anthropic(
