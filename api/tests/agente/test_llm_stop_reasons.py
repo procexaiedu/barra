@@ -91,14 +91,47 @@ async def test_tool_use_completo_vai_para_tools() -> None:
 
 
 async def test_refusal_loga_anthropic_msg_id(caplog: pytest.LogCaptureFixture) -> None:
-    """REL-OBS-02: refusal (200 OK) loga o id da mensagem Anthropic p/ correlacao/suporte."""
+    """REL-OBS-02: refusal (200 OK) loga o id da mensagem do provider p/ correlacao/suporte."""
     from barra.agente.nos.llm import no_llm
 
     resp = _ai("refusal", com_tool=False, extra_meta={"id": "msg_01ABC", "stop_details": {}})
     node = no_llm(_FakeChat(resp), [])
     with caplog.at_level(logging.WARNING, logger="barra.agente.nos.llm"):
         await node({"messages": []}, _runtime())  # type: ignore[arg-type]
-    assert "anthropic_msg_id=msg_01ABC" in caplog.text
+    assert "msg_id=msg_01ABC" in caplog.text
+
+
+def _ai_openai(finish_reason: str, *, com_tool: bool) -> AIMessage:
+    """AIMessage no formato OpenAI/OpenRouter (DeepSeek): parada em `finish_reason`, nao stop_reason."""
+    return AIMessage(
+        content="" if com_tool else "texto",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        response_metadata={"finish_reason": finish_reason},
+        tool_calls=[_TOOL_CALL] if com_tool else [],
+    )
+
+
+async def test_finish_reason_length_trata_como_truncado() -> None:
+    """Provider-agnostico: truncamento OpenAI/OpenRouter vem como finish_reason='length' e cai no
+    mesmo caminho de PARADA_TRUNCADA (tool_use nao despachado), via motivo_parada."""
+    from barra.agente.nos.llm import no_llm
+
+    node = no_llm(_FakeChat(_ai_openai("length", com_tool=True)), [])
+    comando = await node({"messages": []}, _runtime())  # type: ignore[arg-type]
+    assert comando.goto == "post_process"  # NAO "tools"
+
+
+async def test_finish_reason_content_filter_trata_como_recusa(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Provider-agnostico: recusa OpenAI/OpenRouter vem como finish_reason='content_filter' e cai
+    no branch de recusa (loga parada=recusa), via _PARADA_RECUSA."""
+    from barra.agente.nos.llm import no_llm
+
+    node = no_llm(_FakeChat(_ai_openai("content_filter", com_tool=False)), [])
+    with caplog.at_level(logging.WARNING, logger="barra.agente.nos.llm"):
+        await node({"messages": []}, _runtime())  # type: ignore[arg-type]
+    assert "parada=recusa" in caplog.text
 
 
 async def test_erro_sdk_loga_anthropic_request_id(caplog: pytest.LogCaptureFixture) -> None:

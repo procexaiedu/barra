@@ -38,11 +38,26 @@ PRECO_HAIKU_USD_PER_MTOK: dict[str, float] = {
     "cache_read": 0.10,
 }
 
+# USD por milhao de tokens — modelos OpenRouter das chamadas baratas (#2 extracao, #3 judge) quando
+# o provider correspondente esta em `openrouter`. Keyed pelo id OpenRouter (ex.: "google/...").
+# Sem cache (essas chamadas nao reusam prefixo) -> so input/output. VAZIO ate o modelo ser
+# escolhido (pesquisa separada): enquanto vazio, um id OpenRouter cai na tabela Sonnet (superestima)
+# MAS sob label proprio do modelo -> NAO polui o tripwire de write-rate do Sonnet. Preencher com a
+# tarifa publica do candidato quando ele landar.
+# deepseek/deepseek-v4-flash: tarifa publica OpenRouter ($0.09 input / $0.18 output por MTok,
+# api/v1/models 2026-06-17). Sem cache nessas chamadas -> so input/output.
+PRECO_OPENROUTER_USD_PER_MTOK: dict[str, dict[str, float]] = {
+    "deepseek/deepseek-v4-flash": {"input": 0.09, "output": 0.18},
+}
+
 
 def _tabela_preco(model_name: str | None) -> dict[str, float]:
-    """Tabela de preco USD/MTok pelo nome Anthropic do modelo. Haiku -> tabela Haiku; qualquer
-    outro (incl. None / Sonnet) -> Sonnet (default seguro, o chat principal). Match por substring
-    p/ tolerar o sufixo de data (`claude-haiku-4-5-20251001`)."""
+    """Tabela de preco USD/MTok pelo nome do modelo. id OpenRouter conhecido -> sua tarifa; Haiku ->
+    tabela Haiku; qualquer outro (incl. None / Sonnet) -> Sonnet (default seguro, o chat principal).
+    Match por substring p/ tolerar sufixo de data (`claude-haiku-4-5-20251001`) e prefixo de
+    provider OpenRouter."""
+    if model_name and model_name in PRECO_OPENROUTER_USD_PER_MTOK:
+        return PRECO_OPENROUTER_USD_PER_MTOK[model_name]
     if model_name and "haiku" in model_name.lower():
         return PRECO_HAIKU_USD_PER_MTOK
     return PRECO_USD_PER_MTOK
@@ -179,11 +194,15 @@ def calcular_custo_brl(
     cache_read: int = det.get("cache_read", 0)
     cache_write_5m: int = det.get("ephemeral_5m_input_tokens", 0)
     cache_write_1h: int = det.get("ephemeral_1h_input_tokens", 0)
+    # input/output existem em toda tabela; as chaves de cache só nas tabelas Anthropic (Sonnet/
+    # Haiku). A tabela OpenRouter (ex.: deepseek/deepseek-v4-flash) é só input/output — o cache do
+    # DeepSeek é automático no provider, não marcado por nós — então `.get(..., 0.0)` evita KeyError
+    # (a parcela de cache fica 0 quando o modelo não a tarifa por aqui).
     usd: float = (
         input_t * preco["input"]
         + output_t * preco["output"]
-        + cache_write_1h * preco["cache_write_1h"]
-        + cache_write_5m * preco["cache_write_5m"]
-        + cache_read * preco["cache_read"]
+        + cache_write_1h * preco.get("cache_write_1h", 0.0)
+        + cache_write_5m * preco.get("cache_write_5m", 0.0)
+        + cache_read * preco.get("cache_read", 0.0)
     ) / 1_000_000
     return usd * cotacao_usd_brl

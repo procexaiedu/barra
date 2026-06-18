@@ -116,12 +116,17 @@ async def prepare_context(
     #    dinâmico + reminder), penúltima entra no cache. TTL ≤ `cache_ttl_modelo` (último
     #    breakpoint do array — respeita "TTL maior antes do menor" da Anthropic).
     settings = get_settings()
+    # cache_control ephemeral é Anthropic-only: no chat em OpenRouter/DeepSeek (llm_chat_provider)
+    # ele quebraria o roteamento e é inútil (cache do DeepSeek é automático) — desliga os 4
+    # breakpoints (tools no nó llm; system/BP_MODELO/BP_JANELA aqui).
+    cache_anthropic = settings.cache_control_anthropic
     # BP_JANELA + BP_MODELO só se amortizam em tráfego real (multi-turn / repetido por-modelo).
     # Com `ctx.cache_modelo_e_janela=False` (cada `ainvoke` single-turn isolada, IDs novos) esses
     # dois blocos seriam só write nunca read — desliga o cache_control deles. BP_GERAL/tools
-    # (prefixo global) seguem cacheados de qualquer forma.
-    ttl_modelo = settings.cache_ttl_modelo if ctx.cache_modelo_e_janela else None
-    if ctx.cache_modelo_e_janela:
+    # (prefixo global) seguem cacheados de qualquer forma (só no caminho Anthropic).
+    cache_blocos = ctx.cache_modelo_e_janela and cache_anthropic
+    ttl_modelo = settings.cache_ttl_modelo if cache_blocos else None
+    if cache_blocos:
         # Janela SATURADA (LIMIT 20 da query atingido): no próximo turno a cabeça desliza e o
         # prefixo de messages muda desde o 1º bloco → o write do BP_JANELA nunca vira read
         # inter-turno. O mark continua valendo pelo reuso INTRA-turno (loop de tools / extração
@@ -138,6 +143,7 @@ async def prepare_context(
         ttl_geral=settings.cache_ttl_geral,
         modelo_md=modelo_md,
         ttl_modelo=ttl_modelo,
+        cache=cache_anthropic,
     )
     return Command(
         goto="intercept_disclosure",

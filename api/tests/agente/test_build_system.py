@@ -78,6 +78,24 @@ def test_bp_modelo_emitido_quando_modelo_md() -> None:
     ]
 
 
+def test_cache_false_emite_strings_puras_sem_cache_control() -> None:
+    # Chat em OpenRouter/DeepSeek: cache_control ephemeral é Anthropic-only → blocos como STRING
+    # pura (cache do DeepSeek é automático). BP_GERAL + BP_MODELO na mesma ordem, sem content blocks.
+    modelo = "<modelo>identidade</modelo>"
+    msgs = build_system_messages(
+        geral_md=GERAL, ttl_geral="1h", modelo_md=modelo, ttl_modelo="1h", cache=False
+    )
+    assert [m.content for m in msgs] == [GERAL, modelo]  # strings puras, ordem estável
+
+
+def test_cache_false_ignora_ordenacao_de_ttl() -> None:
+    # Sem cache_control não há ordenação de TTL a violar: ttl_geral=5m + ttl_modelo=1h não levanta.
+    msgs = build_system_messages(
+        geral_md=GERAL, ttl_geral="5m", modelo_md="<i>", ttl_modelo="1h", cache=False
+    )
+    assert [m.content for m in msgs] == [GERAL, "<i>"]
+
+
 def test_ttl_geral_mais_curto_que_modelo_viola_ordenacao() -> None:
     # geral=5m antes de modelo=1h → 400 na Anthropic; a guarda rejeita antes de montar.
     with pytest.raises(ValueError):

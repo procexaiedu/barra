@@ -24,7 +24,7 @@ from typing import Any
 
 from langgraph.graph import START, StateGraph
 
-from barra.core.llm import criar_chat_anthropic
+from barra.core.llm import criar_chat_anthropic, criar_chat_openrouter
 from barra.settings import Settings, get_settings
 
 from .contexto import ContextAgente
@@ -40,6 +40,39 @@ from .nos import (
 )
 
 
+def _criar_chat_principal(settings: Settings) -> Any:
+    """Chat principal (#1) pelo provider em settings.llm_chat_provider.
+
+    `openrouter` -> ChatOpenAI (id em openrouter_model_chat; settings valida que está setado),
+    SEM `require_parameters` (o deepseek-v4-flash dá 404 com ele, mesmo honrando tool_choice) e com
+    `reasoning_off` (espelha o effort=low do Sonnet — voz vem da persona). `anthropic` (default) ->
+    Sonnet via criar_chat_anthropic. Devolve um BaseChatModel; o nó llm só usa
+    bind_tools/ainvoke/nome_modelo, espelhados pelos dois wrappers.
+    """
+    if settings.llm_chat_provider == "openrouter":
+        assert settings.openrouter_model_chat is not None  # garantido pelo model_validator
+        return criar_chat_openrouter(
+            settings,
+            modelo=settings.openrouter_model_chat,
+            require_parameters=False,
+            reasoning_off=True,
+        )
+    return criar_chat_anthropic(settings)
+
+
+def _criar_chat_extracao_barata(settings: Settings) -> Any:
+    """Chat da extracao forcada barata (#2) pelo provider em settings.extracao_provider.
+
+    `openrouter` -> ChatOpenAI (id em openrouter_model_extracao; settings valida que esta setado).
+    `anthropic` -> Haiku via ChatAnthropic com com_effort=False. Devolve um BaseChatModel; o no
+    llm so usa bind_tools/ainvoke/.model_name|.model, espelhados pelos dois wrappers.
+    """
+    if settings.extracao_provider == "openrouter":
+        assert settings.openrouter_model_extracao is not None  # garantido pelo model_validator
+        return criar_chat_openrouter(settings, modelo=settings.openrouter_model_extracao)
+    return criar_chat_anthropic(settings, modelo=settings.extracao_modelo, com_effort=False)
+
+
 def build_graph(settings: Settings | None = None, checkpointer: Any | None = None) -> Any:
     """Constroi o StateGraph do agente.
 
@@ -53,14 +86,14 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
     """
     if settings is None:
         settings = get_settings()
-    chat = criar_chat_anthropic(settings)
-    # Extracao forcada barata (settings.extracao_no_modelo_barato): chat Haiku (com_effort=False —
-    # Haiku nao aceita `effort`, igual ao judge do output_guard) injetado no no llm. None quando
-    # desligado -> o no forca no Sonnet com prefixo inteiro (comportamento atual).
+    chat = _criar_chat_principal(settings)
+    # Extracao forcada barata (settings.extracao_no_modelo_barato): chat injetado no no llm. None
+    # quando desligado -> o no forca no Sonnet com prefixo inteiro (comportamento atual). O provider
+    # e por-chamada (settings.extracao_provider): `openrouter` usa ChatOpenAI (id em
+    # openrouter_model_extracao); `anthropic` (default) usa Haiku via ChatAnthropic com com_effort
+    # =False (Haiku nao aceita `effort`, igual ao judge do output_guard).
     chat_extracao_barata = (
-        criar_chat_anthropic(settings, modelo=settings.extracao_modelo, com_effort=False)
-        if settings.extracao_no_modelo_barato
-        else None
+        _criar_chat_extracao_barata(settings) if settings.extracao_no_modelo_barato else None
     )
 
     # context_schema: deps de runtime + ids de escopo via Runtime Context API (04 §1.1).

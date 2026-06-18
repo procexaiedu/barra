@@ -60,11 +60,15 @@ def _texto_final() -> AIMessage:
     )
 
 
-def _extracao(stop_reason: str = "tool_use", *, com_tool: bool = True) -> AIMessage:
+def _extracao(
+    motivo_parada: str = "tool_use", *, com_tool: bool = True, chave: str = "stop_reason"
+) -> AIMessage:
+    # chave="stop_reason" (Anthropic) ou "finish_reason" (OpenRouter): o no le os dois via
+    # core.llm.motivo_parada.
     return AIMessage(
         content="",
         usage_metadata=_USAGE,  # type: ignore[arg-type]
-        response_metadata={"stop_reason": stop_reason},
+        response_metadata={chave: motivo_parada},
         tool_calls=(
             [{"name": "registrar_extracao", "args": {}, "id": "ex1", "type": "tool_call"}]
             if com_tool
@@ -126,6 +130,21 @@ async def test_extracao_forcada_truncada_e_descartada() -> None:
 
     assert cmd.goto == "post_process"
     assert cmd.update["messages"] == [chat.normal._resp]  # so o texto; forcado descartado
+    assert "_extracao_forcada" not in cmd.update
+
+
+async def test_extracao_forcada_openrouter_length_descartada() -> None:
+    """Forcado no provider OpenRouter trunca como finish_reason=length (com tool_call presente) ->
+    o no descarta via PARADA_TRUNCADA, igual ao max_tokens da Anthropic. Prova o mapeamento
+    provider-aware do motivo de parada na #2."""
+    chat = _FakeChat(_texto_final(), _extracao("length", chave="finish_reason"))
+    node = no_llm(chat, [registrar_extracao])
+    state = {"messages": [HumanMessage(content="oi")]}
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    assert cmd.update["messages"] == [chat.normal._resp]  # forcado truncado descartado
     assert "_extracao_forcada" not in cmd.update
 
 

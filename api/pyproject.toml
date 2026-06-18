@@ -26,6 +26,7 @@ dependencies = [
     "openai>=1.50",
     "langfuse>=4.7.1",
     "langchain>=1.3.4",
+    "langchain-openai>=1.3.2",
 ]
 
 [dependency-groups]

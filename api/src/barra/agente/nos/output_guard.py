@@ -43,10 +43,6 @@ logger = logging.getLogger(__name__)
 _RESUMO_LEAK = "Output-guard barrou a bolha (vazamento detectado antes do envio)."
 _RESUMO_AUP = "Output-guard barrou a bolha (LLM-judge de AUP reprovou antes do envio)."
 
-# SO-03: stop_reasons da resposta do PROPRIO judge que invalidam o veredito (sucesso via
-# structured-output chega como `tool_use`). Qualquer destes -> default seguro no caller.
-_STOP_INSEGURO = ("refusal", "max_tokens", "model_context_window_exceeded")
-
 
 class _JudgeInseguro(RuntimeError):
     """Judge de AUP nao produziu veredito confiavel (refusal/truncado/parse) -> default seguro."""
@@ -175,17 +171,35 @@ def _scan_vazamento(texto: str, termos_cross: list[str]) -> str | None:
 
 
 async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
-    """Etapa 2: LLM-judge de AUP (Sonnet, structured output). Prompt em aup_saida.md.
+    """Etapa 2: LLM-judge de AUP (Haiku/OpenRouter, structured output). Prompt em aup_saida.md.
 
-    SO-03: `include_raw` expoe o stop_reason da PROPRIA resposta do judge. Refusal, truncamento ou
-    falha de parse nao produzem veredito confiavel -> levanta `_JudgeInseguro`, e o caller cai no
-    DEFAULT SEGURO (bloqueia+escala), em vez de aceitar um `viola=False` espurio.
+    Provider por settings.output_guard_provider: `anthropic` (default, Haiku via ChatAnthropic) ou
+    `openrouter` (ChatOpenAI). No ChatOpenAI o structured output usa function-calling explicito
+    (`method`), mais robusto que json_schema no roteamento dinamico do OpenRouter.
+
+    SO-03: `include_raw` expoe o motivo de parada da PROPRIA resposta do judge. Recusa
+    (refusal/content_filter), truncamento (max_tokens/length) ou falha de parse nao produzem
+    veredito confiavel -> levanta `_JudgeInseguro`, e o caller cai no DEFAULT SEGURO (bloqueia+
+    escala), em vez de aceitar um `viola=False` espurio. `motivo_parada`/`PARADA_INSEGURA` unificam
+    os vocabularios Anthropic (stop_reason) e OpenAI/OpenRouter (finish_reason).
     """
-    from barra.core.llm import criar_chat_anthropic
+    from barra.core.llm import (
+        PARADA_INSEGURA,
+        criar_chat_anthropic,
+        criar_chat_openrouter,
+        motivo_parada,
+    )
 
-    chat = criar_chat_anthropic(
-        settings, modelo=settings.output_guard_modelo, com_effort=False
-    ).with_structured_output(_VeredictoAup, include_raw=True)
+    if settings.output_guard_provider == "openrouter":
+        assert settings.openrouter_model_judge is not None  # garantido pelo model_validator
+        # method="function_calling" explicito: mais robusto que json_schema no roteamento OpenRouter.
+        chat = criar_chat_openrouter(
+            settings, modelo=settings.openrouter_model_judge
+        ).with_structured_output(_VeredictoAup, include_raw=True, method="function_calling")
+    else:
+        chat = criar_chat_anthropic(
+            settings, modelo=settings.output_guard_modelo, com_effort=False
+        ).with_structured_output(_VeredictoAup, include_raw=True)
     mensagens = [
         {"role": "system", "content": render_aup_saida()},
         {"role": "user", "content": f"MENSAGEM A AVALIAR:\n{texto}"},
@@ -193,9 +207,9 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
     resultado = await chat.ainvoke(mensagens)
     assert isinstance(resultado, dict)
     bruto = resultado.get("raw")
-    stop_reason = (getattr(bruto, "response_metadata", None) or {}).get("stop_reason")
-    if resultado.get("parsing_error") is not None or stop_reason in _STOP_INSEGURO:
-        raise _JudgeInseguro(f"judge sem veredito confiavel (stop_reason={stop_reason})")
+    parada = motivo_parada(getattr(bruto, "response_metadata", None))
+    if resultado.get("parsing_error") is not None or parada in PARADA_INSEGURA:
+        raise _JudgeInseguro(f"judge sem veredito confiavel (parada={parada})")
     veredito = resultado.get("parsed")
     assert isinstance(veredito, _VeredictoAup)
     return veredito

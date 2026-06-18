@@ -58,6 +58,7 @@ def build_system_messages(
     ttl_geral: str,
     modelo_md: str | None = None,
     ttl_modelo: str | None = None,
+    cache: bool = True,
 ) -> list[SystemMessage]:
     """Blocos `system` cacheados, na ordem de render da Anthropic (§1, §4).
 
@@ -65,6 +66,10 @@ def build_system_messages(
     modelos. Quando `modelo_md` é passado (M2-T1+), emite um 2º bloco por-modelo (identidade +
     programas). A ordem é estável e CRÍTICA: geral antes do por-modelo, senão o prefixo deixa de
     ser global (§1, §4.3). O cache_control vai em content blocks (langchain-anthropic 1.x).
+
+    `cache=False` (chat em OpenRouter/DeepSeek): o `cache_control` ephemeral é Anthropic-only e
+    quebraria o roteamento do OpenRouter — emite os blocos como STRING pura (cache do DeepSeek é
+    automático no provider). Mesma ordem (geral, depois por-modelo); sem validação de TTL (não há).
 
     **Fusão BP_GERAL** (decisão posterior ao M0): persona+regras+FAQ entram num bloco system
     único — antes eram 2 separados (BP1+BP2), mas tinham TTL/conteúdo/cadência idênticos e
@@ -78,6 +83,11 @@ def build_system_messages(
     bloco por-modelo vem depois do geral, `ttl_geral` não pode ser mais curto que `ttl_modelo`
     (ex.: geral=5m + modelo=1h → 400). §1/§5.
     """
+    if not cache:
+        mensagens_plain = [SystemMessage(content=geral_md)]
+        if modelo_md is not None:
+            mensagens_plain.append(SystemMessage(content=modelo_md))
+        return mensagens_plain
     if ttl_modelo is not None and _RANK[ttl_geral] < _RANK[ttl_modelo]:
         raise ValueError(
             f"ttl_geral ({ttl_geral}) não pode ser mais curto que ttl_modelo "

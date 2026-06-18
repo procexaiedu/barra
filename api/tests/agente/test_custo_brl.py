@@ -49,6 +49,21 @@ def test_calcular_custo_brl_combina_4_componentes() -> None:
     assert custo == pytest.approx(esperado_usd * COTACAO)
 
 
+def test_calcular_custo_brl_deepseek_tabela_2_chaves_sem_keyerror() -> None:
+    # Chat #1 em OpenRouter/DeepSeek: a tabela do slug é só input/output (cache automático no
+    # provider, não tarifado por nós). calcular_custo_brl não pode estourar KeyError ao acessar as
+    # chaves de cache — `.get(..., 0.0)` zera a parcela. Mesmo com cache_read no usage (langchain-
+    # openai pode reportar), a tarifa de cache fica 0 → custo = só input/output frescos.
+    um: dict[str, Any] = {
+        "input_tokens": 4600,  # total = 100 fresco + 4000 read + 500 write
+        "output_tokens": 50,
+        "input_token_details": {"cache_read": 4000, "ephemeral_1h_input_tokens": 500},
+    }
+    custo = calcular_custo_brl(um, COTACAO, model_name="deepseek/deepseek-v4-flash")
+    esperado_usd = (100 * 0.09 + 50 * 0.18) / 1_000_000  # cache_read/write a 0.0
+    assert custo == pytest.approx(esperado_usd * COTACAO)
+
+
 def test_calcular_custo_brl_so_cache_read_quase_zero() -> None:
     # Turno todo lendo do cache (steady state ideal): input_tokens (total) == cache_read, fresco=0.
     # Paga so 0.1x p/ os 5k cacheados: 5k*0.3/1M = 0.0015 USD = ~0.008 BRL. Bem abaixo da meta 0.12.

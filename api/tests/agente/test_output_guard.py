@@ -328,14 +328,20 @@ class _FakeJudgeChat:
     def __init__(self, resultado: dict[str, Any]) -> None:
         self._r = resultado
 
-    def with_structured_output(self, _schema: Any, include_raw: bool = False) -> _FakeStructured:
-        assert include_raw is True  # SO-03 exige include_raw p/ ver o stop_reason do judge
+    def with_structured_output(
+        self, _schema: Any, include_raw: bool = False, method: str | None = None
+    ) -> _FakeStructured:
+        assert include_raw is True  # SO-03 exige include_raw p/ ver o motivo de parada do judge
         return _FakeStructured(self._r)
 
 
-def _judge_resultado(stop_reason: str, parsed: Any, parsing_error: Any = None) -> dict[str, Any]:
+def _judge_resultado(
+    motivo_parada: str, parsed: Any, parsing_error: Any = None, *, chave: str = "stop_reason"
+) -> dict[str, Any]:
+    # chave="stop_reason" (Anthropic) ou "finish_reason" (OpenRouter): o _julgar_aup le os dois via
+    # core.llm.motivo_parada.
     return {
-        "raw": AIMessage(content="", response_metadata={"stop_reason": stop_reason}),
+        "raw": AIMessage(content="", response_metadata={chave: motivo_parada}),
         "parsed": parsed,
         "parsing_error": parsing_error,
     }
@@ -347,7 +353,10 @@ async def test_julgar_aup_refusal_levanta_inseguro(monkeypatch: Any) -> None:
     monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
     with pytest.raises(mod._JudgeInseguro):
         await mod._julgar_aup(
-            "texto qualquer", SimpleNamespace(output_guard_modelo="claude-haiku-4-5")
+            "texto qualquer",
+            SimpleNamespace(
+                output_guard_provider="anthropic", output_guard_modelo="claude-haiku-4-5"
+            ),
         )
 
 
@@ -357,7 +366,10 @@ async def test_julgar_aup_parse_error_levanta_inseguro(monkeypatch: Any) -> None
     monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
     with pytest.raises(mod._JudgeInseguro):
         await mod._julgar_aup(
-            "texto qualquer", SimpleNamespace(output_guard_modelo="claude-haiku-4-5")
+            "texto qualquer",
+            SimpleNamespace(
+                output_guard_provider="anthropic", output_guard_modelo="claude-haiku-4-5"
+            ),
         )
 
 
@@ -367,7 +379,8 @@ async def test_julgar_aup_ok_retorna_veredito(monkeypatch: Any) -> None:
     res = _judge_resultado("tool_use", parsed=veredito)
     monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
     out = await mod._julgar_aup(
-        "texto qualquer", SimpleNamespace(output_guard_modelo="claude-haiku-4-5")
+        "texto qualquer",
+        SimpleNamespace(output_guard_provider="anthropic", output_guard_modelo="claude-haiku-4-5"),
     )
     assert out.viola is False
 
@@ -381,6 +394,48 @@ async def test_so03_judge_refusal_no_guard_default_seguro_bloqueia(monkeypatch: 
     out = await mod.output_guard(_state("texto limpo mas o judge recusa"), _runtime())  # type: ignore[arg-type]
     assert _bloqueou(out)
     assert cap.chamadas[0]["observacao"] == "aup_saida_judge_falhou"
+
+
+def _settings_judge_openrouter() -> SimpleNamespace:
+    return SimpleNamespace(
+        output_guard_provider="openrouter",
+        openrouter_model_judge="vendor/modelo",
+        output_guard_modelo="claude-haiku-4-5",
+    )
+
+
+async def test_julgar_aup_openrouter_content_filter_levanta_inseguro(monkeypatch: Any) -> None:
+    # Provider OpenRouter: o motivo de parada vem como finish_reason; content_filter (recusa do
+    # provider) -> sem veredito confiavel -> _JudgeInseguro (default seguro do caller). Caminho de
+    # SEGURANCA: um modelo que modera conteudo adulto NAO pode liberar a bolha por engano.
+    res = _judge_resultado("content_filter", parsed=None, chave="finish_reason")
+    monkeypatch.setattr(
+        "barra.core.llm.criar_chat_openrouter", lambda s, *, modelo: _FakeJudgeChat(res)
+    )
+    with pytest.raises(mod._JudgeInseguro):
+        await mod._julgar_aup("texto qualquer", _settings_judge_openrouter())
+
+
+async def test_julgar_aup_openrouter_length_levanta_inseguro(monkeypatch: Any) -> None:
+    # finish_reason=length (truncamento OpenAI) tambem invalida o veredito -> _JudgeInseguro.
+    res = _judge_resultado("length", parsed=None, chave="finish_reason")
+    monkeypatch.setattr(
+        "barra.core.llm.criar_chat_openrouter", lambda s, *, modelo: _FakeJudgeChat(res)
+    )
+    with pytest.raises(mod._JudgeInseguro):
+        await mod._julgar_aup("texto qualquer", _settings_judge_openrouter())
+
+
+async def test_julgar_aup_openrouter_ok_retorna_veredito(monkeypatch: Any) -> None:
+    # finish_reason=stop + parsed valido -> devolve o veredito (prova que a rota OpenRouter le
+    # finish_reason e aceita parada normal).
+    veredito = mod._VeredictoAup(viola=True, motivo="ia_self")
+    res = _judge_resultado("stop", parsed=veredito, chave="finish_reason")
+    monkeypatch.setattr(
+        "barra.core.llm.criar_chat_openrouter", lambda s, *, modelo: _FakeJudgeChat(res)
+    )
+    out = await mod._julgar_aup("texto qualquer", _settings_judge_openrouter())
+    assert out.viola is True
 
 
 # ============================================================================

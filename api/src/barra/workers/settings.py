@@ -175,8 +175,10 @@ async def startup(ctx: dict[str, Any]) -> None:
         ctx["openai_client"] = None
     # Pre-aquece o prefixo global de cache (tools+BP_GERAL) com 1 request: o restart do worker
     # no deploy de prompt e o gancho natural. Best-effort — falha de rede/API/sem chave nunca
-    # pode impedir o worker de subir (espelha o vision_client=None acima).
-    if settings.preaquecer_cache_no_startup:
+    # pode impedir o worker de subir (espelha o vision_client=None acima). So no chat Anthropic:
+    # o preaquecimento escreve cache_control ephemeral (Anthropic-only); no OpenRouter/DeepSeek o
+    # cache e automatico no provider, nao ha prefixo a pre-escrever.
+    if settings.preaquecer_cache_no_startup and settings.cache_control_anthropic:
         try:
             await preaquecer_prefixo_global(settings)
         except Exception:

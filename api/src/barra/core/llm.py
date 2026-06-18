@@ -1,7 +1,11 @@
-"""Factories de cliente Anthropic do chat (docs/agente/03 §6.2).
+"""Factories de cliente do chat (docs/agente/03 §6.2).
 
 criar_chat_anthropic(): wrapper langchain-anthropic 1.x (ChatAnthropic) usado pelo nó llm —
     thinking disabled + effort=low (suportado pelo Sonnet 4.6).
+criar_chat_openrouter(): wrapper langchain-openai (ChatOpenAI) apontado p/ o OpenRouter, usado
+    pelas chamadas baratas que podem sair da Anthropic (extração forçada #2, judge de AUP #3)
+    quando o provider correspondente está em `openrouter`. Mesma interface a jusante
+    (bind_tools/with_structured_output/ainvoke), formato de saída diferente no metadata.
 criar_anthropic_client(): raw SDK anthropic 0.97 (dispensável no P0; vision do Pix vai por OpenRouter).
 
 A montagem dos 4 breakpoints de cache_control vive em agente/llm.py:
@@ -11,10 +15,39 @@ A montagem dos 4 breakpoints de cache_control vive em agente/llm.py:
     - BP_JANELA: `marcar_cache_na_penultima` (cache na penultima msg da janela)
 """
 
+from typing import Any
+
 from anthropic import AsyncAnthropic
 from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
 
 from barra.settings import Settings
+
+# Motivo de parada provider-aware: a Anthropic reporta `stop_reason`, OpenAI/OpenRouter
+# `finish_reason`. Os dois conjuntos abaixo unificam os dois vocabulários para os caminhos que
+# trocam de provider (#2 extração forçada, #3 judge de AUP); a #1 (Sonnet) segue lendo
+# `stop_reason` direto no nó llm.
+# - TRUNCADA: a resposta foi cortada (args de tool podem vir incompletos -> não despachar).
+# - INSEGURA: além de truncada, recusa do provider -> veredito do judge não é confiável
+#   (default seguro: bloqueia+escala). `content_filter`/`refusal` são as recusas OpenAI/Anthropic.
+PARADA_TRUNCADA = frozenset({"max_tokens", "model_context_window_exceeded", "length"})
+PARADA_INSEGURA = PARADA_TRUNCADA | frozenset({"refusal", "content_filter"})
+
+
+def motivo_parada(response_metadata: dict[str, Any] | None) -> str | None:
+    """Motivo de parada provider-agnóstico: `stop_reason` (Anthropic) ou `finish_reason` (OpenAI).
+
+    Lê o que existir no `response_metadata` da AIMessage. None quando nenhum dos dois está
+    presente (fake de teste / resposta sem metadata) — o caller trata como "não inseguro".
+    """
+    meta = response_metadata or {}
+    return meta.get("stop_reason") or meta.get("finish_reason")
+
+
+def nome_modelo(chat: Any) -> str:
+    """Nome do modelo do chat, tolerando os dois wrappers: ChatAnthropic expõe `.model`,
+    ChatOpenAI expõe `.model_name`. Usado nos labels de métrica (token/custo por modelo)."""
+    return getattr(chat, "model", None) or getattr(chat, "model_name", None) or ""
 
 
 def criar_chat_anthropic(
@@ -40,6 +73,51 @@ def criar_chat_anthropic(
         effort=settings.anthropic_effort if com_effort else None,
         max_retries=2,
         timeout=60.0,
+    )
+
+
+def criar_chat_openrouter(
+    settings: Settings,
+    *,
+    modelo: str,
+    require_parameters: bool = True,
+    reasoning_off: bool = False,
+) -> ChatOpenAI:
+    """Wrapper LangChain do ChatOpenAI apontado p/ o OpenRouter (base_url OpenAI-compatível).
+
+    Espelha `criar_chat_anthropic` para as chamadas que podem trocar de provider (chat #1,
+    extração forçada #2, judge de AUP #3): mesma interface a jusante (bind_tools,
+    with_structured_output, ainvoke). NÃO aceita `thinking`/`effort` (parâmetros Anthropic) —
+    omitidos.
+
+    `require_parameters` (default True): `provider.require_parameters=true` (via extra_body,
+    espelha pix.py) força o roteamento dinâmico do OpenRouter a um provider que honra
+    tool_choice/json_schema, em vez de cair num provider que os ignora silenciosamente. As
+    chamadas baratas #2/#3 dependem disso. **Alguns modelos não têm provider que satisfaça o
+    flag** (ex.: `deepseek-v4-flash` → 404 "no endpoints" sempre, mesmo honrando tool_choice):
+    para o chat #1 nesses modelos, passar `require_parameters=False`.
+
+    `reasoning_off` (default False): quando True, desliga o reasoning do modelo via
+    `reasoning.enabled=false` (campo unificado do OpenRouter) — espelha o `effort=low` deliberado
+    do Sonnet no chat (a voz vem da persona, não do reasoning; corta latência/custo de modelos
+    de raciocínio como o DeepSeek V4 Flash).
+
+    `modelo` é obrigatório (o id OpenRouter do candidato): a factory só é chamada quando o
+    provider correspondente está em `openrouter`, e o settings valida que o id está setado.
+    """
+    extra_body: dict[str, Any] = {}
+    if require_parameters:
+        extra_body["provider"] = {"require_parameters": True}
+    if reasoning_off:
+        extra_body["reasoning"] = {"enabled": False}
+    return ChatOpenAI(
+        model=modelo,
+        api_key=settings.openrouter_api_key,
+        base_url="https://openrouter.ai/api/v1",
+        max_tokens=settings.anthropic_max_tokens,
+        max_retries=2,
+        timeout=60.0,
+        extra_body=extra_body,
     )
 
 

@@ -151,6 +151,14 @@ class Settings(BaseSettings):
         default="claude-haiku-4-5",
         description="Modelo da extracao forcada barata quando extracao_no_modelo_barato=True. Haiku 4.5 (~1/3 do custo do Sonnet); classificacao estruturada, nao a voz da IA. Haiku NAO aceita `effort` -> chat criado com com_effort=False.",
     )
+    # Provider da extracao forcada (#2). `anthropic` (default) -> extracao_modelo via ChatAnthropic;
+    # `openrouter` -> openrouter_model_extracao via ChatOpenAI (base_url OpenRouter). Toggle dedicado
+    # (nao reusa llm_chat_provider, que e semantico da #1) -> kill-switch por-chamada sem deploy.
+    extracao_provider: Literal["anthropic", "openrouter"] = "anthropic"
+    openrouter_model_extracao: str | None = Field(
+        default=None,
+        description="Id OpenRouter da extracao forcada quando extracao_provider=openrouter. Exige tool-calling forcado confiavel no schema de registrar_extracao (12+ campos nullable).",
+    )
     # Output-guard de saida antes da bolha (AGENTE-OG / ADR 0016).
     output_guard_habilitado: bool = Field(
         default=True,
@@ -163,6 +171,14 @@ class Settings(BaseSettings):
     output_guard_modelo: str = Field(
         default="claude-haiku-4-5",
         description="Modelo do LLM-judge de AUP (Etapa 2). E classificacao binaria (viola/nao), nao a voz da IA -> roda em Haiku 4.5 (1/3 do custo do Sonnet) sem afetar a conversa. Prompt curto (~580 tok < minimo de cache 4096) entao nao ha cache a perder. Haiku NAO aceita `effort` -> o chat e criado com com_effort=False (senao 400). Voltar p/ claude-sonnet-4-6 se o Haiku regredir a precisao do guard.",
+    )
+    # Provider do judge de AUP (#3). `anthropic` (default) -> output_guard_modelo via ChatAnthropic;
+    # `openrouter` -> openrouter_model_judge via ChatOpenAI. E CAMINHO DE SEGURANCA (ADR 0016): o
+    # default-seguro do _julgar_aup continua valendo em qualquer veredito inconclusivo.
+    output_guard_provider: Literal["anthropic", "openrouter"] = "anthropic"
+    openrouter_model_judge: str | None = Field(
+        default=None,
+        description="Id OpenRouter do judge de AUP quando output_guard_provider=openrouter. Classificacao binaria com structured output; exige nao recusar conteudo adulto legitimo (senao over-refusal pelo default-seguro).",
     )
     # Rede final de saida no enviar_turno (SEC-OUT-01/SEC-PII-02): cobre tambem os caminhos
     # canned/reengajamento que pulam o no output_guard do grafo.
@@ -338,6 +354,31 @@ class Settings(BaseSettings):
     )
 
     sentry_dsn: str | None = None
+
+    @property
+    def cache_control_anthropic(self) -> bool:
+        """True quando o chat #1 roda em Anthropic — único caso em que o `cache_control` ephemeral
+        vale. No OpenRouter/DeepSeek ele quebraria o roteamento e é inútil (cache automático do
+        provider). Fonte única do predicado: consumido pelo nó llm (bind de tools), pelo
+        prepare_context (system/BP_MODELO/BP_JANELA) e pelo preaquecimento do worker."""
+        return self.llm_chat_provider == "anthropic"
+
+    @model_validator(mode="after")
+    def _validar_provider_openrouter(self) -> "Settings":
+        """Falha cedo (no boot) quando uma chamada aponta p/ OpenRouter sem o id do modelo ou sem a
+        chave — em vez de estourar 500 no meio do turno. Cobre #1 (chat), #2 (extracao) e #3 (judge)."""
+        alvos = [
+            ("llm_chat_provider", "openrouter_model_chat", self.openrouter_model_chat),
+            ("extracao_provider", "openrouter_model_extracao", self.openrouter_model_extracao),
+            ("output_guard_provider", "openrouter_model_judge", self.openrouter_model_judge),
+        ]
+        for campo_provider, campo_modelo, valor_modelo in alvos:
+            if getattr(self, campo_provider) == "openrouter":
+                if not valor_modelo:
+                    raise ValueError(f"{campo_provider}=openrouter exige {campo_modelo} setado")
+                if not self.openrouter_api_key:
+                    raise ValueError(f"{campo_provider}=openrouter exige openrouter_api_key setado")
+        return self
 
 
 @lru_cache
