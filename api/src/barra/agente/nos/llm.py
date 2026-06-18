@@ -215,8 +215,8 @@ def no_llm(
         # gate de pausa). Dois caminhos setam esses guards na ida ao `tools`:
         #  - _extracao_forcada (#2): o LLM esqueceu registrar_extracao e o no forcou 1 chamada;
         #  - _resposta_inline_concluida: o LLM ja respondeu o cliente (texto) E so pediu
-        #    registrar_extracao na MESMA msg (padrao DeepSeek). A tool de escrita nao devolve nada
-        #    acionavel; reinvocar so faz o DeepSeek tagarelar uma 2a bolha (trace 022e0a70).
+        #    registrar_extracao na MESMA msg (padrao DeepSeek). O texto ja saiu antes da tool, entao
+        #    o resultado da extracao nao muda a fala do turno; reinvocar so gera uma 2a bolha (022e0a70).
         # O primeiro guard tambem corta loop infinito de forcamento.
         if state.get("_extracao_forcada") or state.get("_resposta_inline_concluida"):
             return Command(goto="post_process")
@@ -272,16 +272,17 @@ def no_llm(
                 )
                 return Command(goto="post_process", update={"messages": [resp]})
             update: dict[str, Any] = {"messages": [resp]}
-            # 1a passagem inline: o modelo ja respondeu o cliente (texto) E so pediu a tool de
-            # escrita (registrar_extracao nao devolve nada acionavel). O DeepSeek reincide com texto
-            # na reentrada do ReAct (2a bolha espuria, trace 022e0a70); o Sonnet volta vazio. Em
-            # ambos nao ha o que reprocessar -> marca o turno p/ a reentrada (guard no topo) fechar
-            # sem reinvocar -- corta a bolha e poupa 1 request. Tool de LEITURA no conjunto (ex.
-            # consultar_agenda) -> `all` falha, segue o ReAct normal (o modelo precisa do resultado).
+            # 1a passagem inline: o modelo ja respondeu o cliente (texto) E so pediu registrar_extracao
+            # na MESMA msg. O texto ao cliente JA esta emitido (antes da tool rodar), entao o
+            # resultado da extracao nao muda mais a fala deste turno -- reinvocar so faz o DeepSeek
+            # tagarelar uma 2a bolha espuria (trace 022e0a70; o Sonnet volta vazio). Marca o turno p/
+            # a reentrada (guard no topo) fechar sem reinvocar -- corta a bolha e poupa 1 request.
+            # `all` antes do texto: tool de LEITURA no conjunto (consultar_agenda) falha cedo e segue
+            # o ReAct normal (o modelo precisa do resultado), sem materializar a string a toa.
             if (
                 isinstance(resp, AIMessage)
-                and texto_da_mensagem(resp)
                 and all(tc.get("name") == _TOOL_EXTRACAO for tc in resp.tool_calls)
+                and texto_da_mensagem(resp)
             ):
                 update["_resposta_inline_concluida"] = True
             return Command(goto="tools", update=update)

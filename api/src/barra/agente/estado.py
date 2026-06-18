@@ -37,10 +37,10 @@ class EstadoAgente(MessagesState):
         loop infinito de forcamento. Nasce ausente a cada `ainvoke` (sem checkpointer).
     _resposta_inline_concluida: irmao inline do _extracao_forcada (nos/llm.py). O no llm o seta
         True quando a 1a passagem ja emitiu texto ao cliente E so pediu registrar_extracao na
-        MESMA AIMessage (padrao do DeepSeek V4 Flash; o Sonnet responde OU extrai). A tool de
-        escrita nao devolve nada acionavel, entao a reentrada do ReAct nao tem o que reprocessar:
-        o guard fecha no post_process sem reinvocar o modelo -- senao o DeepSeek tagarela uma 2a
-        bolha espuria (trace 022e0a70, 2026-06-18). Nasce ausente a cada `ainvoke`.
+        MESMA AIMessage (padrao do DeepSeek V4 Flash; o Sonnet responde OU extrai). O texto ao
+        cliente ja saiu antes da tool rodar, entao o resultado da extracao nao muda mais a fala
+        deste turno: o guard fecha no post_process sem reinvocar o modelo -- senao o DeepSeek
+        tagarela uma 2a bolha espuria (trace 022e0a70, 2026-06-18). Nasce ausente a cada `ainvoke`.
     """
 
     midia_idx: int
