@@ -30,7 +30,12 @@ services:
       - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
-      - LLM_CHAT_PROVIDER=openrouter
+      - LLM_CHAT_PROVIDER=deepseek
+      # Chat #1 DIRETO na API DeepSeek (api.deepseek.com): cache automatico de prefixo garantido +
+      # modelo cravado (sem roleta FP4 do load-balance OpenRouter). DEEPSEEK_API_KEY e ${VAR} do Env
+      # do stack (segredo, fora do git); DEEPSEEK_MODEL_CHAT=deepseek-chat = V4 Flash non-thinking.
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_MODEL_CHAT=deepseek-chat
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
       # OpenRouter (vision do Pix / transcricao de audio): ${VAR} resolvidas pelo Env do stack
@@ -119,7 +124,12 @@ services:
       - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
-      - LLM_CHAT_PROVIDER=openrouter
+      - LLM_CHAT_PROVIDER=deepseek
+      # Chat #1 DIRETO na API DeepSeek (api.deepseek.com): cache automatico de prefixo garantido +
+      # modelo cravado (sem roleta FP4 do load-balance OpenRouter). DEEPSEEK_API_KEY e ${VAR} do Env
+      # do stack (segredo, fora do git); DEEPSEEK_MODEL_CHAT=deepseek-chat = V4 Flash non-thinking.
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_MODEL_CHAT=deepseek-chat
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
       # OpenRouter (vision do Pix / transcricao de audio): ${VAR} resolvidas pelo Env do stack
