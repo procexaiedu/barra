@@ -30,7 +30,7 @@ services:
       - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
-      - LLM_CHAT_PROVIDER=anthropic
+      - LLM_CHAT_PROVIDER=openrouter
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
       # OpenRouter (vision do Pix / transcricao de audio): ${VAR} resolvidas pelo Env do stack
@@ -119,7 +119,7 @@ services:
       - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
-      - LLM_CHAT_PROVIDER=anthropic
+      - LLM_CHAT_PROVIDER=openrouter
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
       # OpenRouter (vision do Pix / transcricao de audio): ${VAR} resolvidas pelo Env do stack
