@@ -6,10 +6,12 @@ B) a lista de bloqueios do contexto EXCLUI o bloqueio do próprio atendimento �
    checkpointer, a IA vê a reserva que ela mesma criou como "ocupada" e recusa o próprio slot.
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from barra.agente.contexto import ContextAgente
+
+BRT = timezone(timedelta(hours=-3))
 from barra.agente.nos.prepare_context import _resolver_variaveis
 from barra.agente.persona import render_contexto_dinamico
 
@@ -45,7 +47,14 @@ class _FakeConn:
     async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> _Result:
         self.calls.append((sql, params))
         if "AT TIME ZONE" in sql:
-            return _Result([{"agora": datetime(2026, 6, 5, 22, 30)}])
+            return _Result(
+                [
+                    {
+                        "agora": datetime(2026, 6, 5, 22, 30),
+                        "agora_tz": datetime(2026, 6, 5, 22, 30, tzinfo=BRT),
+                    }
+                ]
+            )
         return _Result([])
 
 

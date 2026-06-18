@@ -293,6 +293,24 @@ async def test_proximo_livre_renderiza_quando_dentro_da_disponibilidade(
 
 
 @pytest.mark.needs_db
+async def test_horario_minimo_renderiza_quando_dentro_da_disponibilidade(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # ADR 0025: antecedência mínima (now + buffer) ancorada na agenda. Disponibilidade total ->
+    # now+buffer cai numa janela -> a tag <horario_minimo .../> aparece no contexto dinâmico.
+    modelo_id, ctx = await _montar_ctx_com_bloqueio(conn)
+    for dow in range(7):
+        await _seed_disponibilidade(
+            conn, modelo_id, dia_semana=dow, hora_inicio="00:00", hora_fim="00:00"
+        )
+
+    res = await prepare_context({"messages": []}, FakeRuntime(ctx))
+    assert isinstance(res, Command)
+    ultimo_human = [m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1]
+    assert "<horario_minimo inicio=" in str(ultimo_human.content)
+
+
+@pytest.mark.needs_db
 async def test_proximo_livre_ausente_fora_da_disponibilidade(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:

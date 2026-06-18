@@ -15,7 +15,11 @@ from langgraph.prebuilt import ToolRuntime
 from pydantic import BaseModel, ConfigDict, Field
 
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
-from barra.dominio.agenda.service import ConflitoAgenda, ForaDisponibilidade
+from barra.dominio.agenda.service import (
+    AntecedenciaInsuficiente,
+    ConflitoAgenda,
+    ForaDisponibilidade,
+)
 from barra.dominio.atendimentos.service import registrar_extracao_ia
 
 from ..contexto import ContextAgente
@@ -275,6 +279,18 @@ async def registrar_extracao(
                 "reserva. Siga sua conduta de período de trabalho: assuma que está fora, diga "
                 "quando volta e ofereça a primeira data/horário dentro do período (veja "
                 "<periodo_de_trabalho> no contexto) — depois registre de novo."
+            ) from None
+        except AntecedenciaInsuficiente:
+            # Buffer de preparo (ADR 0025): o horário pedido é cedo demais a partir de agora. NÃO
+            # é conflito com outro cliente — é tempo de se arrumar. Ancore no <horario_minimo> do
+            # contexto (já calculado), nunca num número inventado.
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels(
+                "registrar_extracao", "antecedencia_insuficiente"
+            ).inc()
+            raise ToolException(
+                "ERRO: esse horário é cedo demais — você precisa de um tempinho pra se arrumar. "
+                "Ofereça ao cliente o horário de <horario_minimo> do seu contexto (numa hora leve e "
+                "redonda, sem inventar minutos) — depois registre de novo."
             ) from None
 
     # Pin de endereco (interno): NAO enfileirado enquanto o renderer `_card_loc_pin`

@@ -300,3 +300,62 @@ def test_bloqueio_fora_disponibilidade_com_confirmar_retorna_201() -> None:
         assert any("INSERT INTO barravips.bloqueios" in q for q, _ in fake.execucoes)
     finally:
         app.dependency_overrides.pop(get_conn, None)
+
+
+class FakeConnVizinhoNoBuffer:
+    """Disponibilidade OK (sem regra), mas o gap-check (make_interval) acha um vizinho no buffer."""
+
+    def __init__(self) -> None:
+        self.bloqueio = {"id": uuid4(), "modelo_id": uuid4(), "estado": "bloqueado"}
+        self.execucoes: list[tuple[str, object]] = []
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
+
+    async def execute(self, query: str, params: object = None) -> _Result:
+        self.execucoes.append((query, params))
+        if "make_interval" in query:  # existe_vizinho_no_buffer
+            return _Result([{"?column?": 1}])
+        if "INSERT INTO barravips.bloqueios" in query:
+            return _Result([self.bloqueio])
+        return _Result([])
+
+
+def test_bloqueio_dentro_do_buffer_retorna_409() -> None:
+    # ADR 0025: gap < buffer sem override -> 409 pedindo confirmar_buffer, sem INSERT.
+    fake = FakeConnVizinhoNoBuffer()
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.post("/v1/agenda/bloqueios", json=_body(), headers=_token())
+        assert response.status_code == 409
+        body = response.json()
+        assert body["error"]["code"] == "CONFLITO_ESTADO"
+        assert body["error"]["details"]["campo"] == "confirmar_buffer"
+        assert not any("INSERT INTO barravips.bloqueios" in q for q, _ in fake.execucoes)
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+def test_bloqueio_dentro_do_buffer_com_confirmar_retorna_201() -> None:
+    # Override explícito do Fernando: força a reserva colada, com o INSERT acontecendo.
+    fake = FakeConnVizinhoNoBuffer()
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        body = _body()
+        body["confirmar_buffer"] = True
+        with TestClient(app) as client:
+            response = client.post("/v1/agenda/bloqueios", json=body, headers=_token())
+        assert response.status_code == 201
+        assert any("INSERT INTO barravips.bloqueios" in q for q, _ in fake.execucoes)
+    finally:
+        app.dependency_overrides.pop(get_conn, None)

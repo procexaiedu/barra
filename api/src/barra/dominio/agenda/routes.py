@@ -9,7 +9,9 @@ from psycopg.errors import ExclusionViolation, ForeignKeyViolation
 from barra.api.deps import get_conn, get_user
 from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
 from barra.dominio.agenda.schemas import BloqueioCreate, BloqueioPatch, CancelarBloqueio
+from barra.dominio.agenda.service import existe_vizinho_no_buffer
 from barra.dominio.modelos.disponibilidade import modelo_disponivel_em
+from barra.settings import get_settings
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
@@ -100,6 +102,19 @@ async def criar_bloqueio(
             "Horario fora da disponibilidade da modelo.",
             {"campo": "confirmar_fora_disponibilidade"},
         )
+    # Gap de preparo/intervalo (ADR 0025): override explicito do Fernando, espelhando
+    # confirmar_fora_disponibilidade. Sem confirmacao, vizinho dentro do buffer alerta (409).
+    if not body.confirmar_buffer and await existe_vizinho_no_buffer(
+        conn,
+        modelo_id=body.modelo_id,
+        inicio=body.inicio,
+        fim=body.fim,
+        buffer_min=get_settings().agenda_buffer_min,
+    ):
+        raise ConflitoEstado(
+            "Bloqueio dentro do intervalo minimo de outro.",
+            {"campo": "confirmar_buffer"},
+        )
     try:
         async with conn.transaction():
             result = await conn.execute(
@@ -149,6 +164,23 @@ async def editar_bloqueio(
         raise ConflitoEstado(
             "Horario fora da disponibilidade da modelo.",
             {"campo": "confirmar_fora_disponibilidade"},
+        )
+    # Gap de preparo/intervalo (ADR 0025): so quando o intervalo muda; ignora o proprio bloqueio.
+    if (
+        (body.inicio is not None or body.fim is not None)
+        and not body.confirmar_buffer
+        and await existe_vizinho_no_buffer(
+            conn,
+            modelo_id=atual["modelo_id"],
+            inicio=inicio,
+            fim=fim,
+            buffer_min=get_settings().agenda_buffer_min,
+            excluir_id=bloqueio_id,
+        )
+    ):
+        raise ConflitoEstado(
+            "Bloqueio dentro do intervalo minimo de outro.",
+            {"campo": "confirmar_buffer"},
         )
 
     sets = ["inicio = %s", "fim = %s", "observacao = COALESCE(%s, observacao)"]
@@ -243,7 +275,9 @@ async def _bloqueio(conn: AsyncConnection[Any], bloqueio_id: UUID) -> dict[str, 
     return await result.fetchone()
 
 
-async def _modelo_ativa(conn: AsyncConnection[Any], modelo_id: UUID | None) -> dict[str, str] | None:
+async def _modelo_ativa(
+    conn: AsyncConnection[Any], modelo_id: UUID | None
+) -> dict[str, str] | None:
     if modelo_id is None:
         return None
     result = await conn.execute(

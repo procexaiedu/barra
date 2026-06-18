@@ -23,7 +23,8 @@
 </cliente>
 
 <agenda hoje="{{ data_atual }}" agora="{{ hora_atual }}" janela="próximas 48h">
-{% if bloqueios %}{% for b in bloqueios %}<bloqueio inicio="{{ b.inicio.strftime('%a %d/%m %H:%M') }}" fim="{{ b.fim.strftime('%H:%M') }}" estado="ocupado"{% if b.proximo_livre %} proximo_livre="{{ b.proximo_livre.strftime('%a %d/%m %H:%M') }}"{% endif %}/>
+{% if horario_minimo %}<horario_minimo inicio="{{ horario_minimo.strftime('%a %d/%m %H:%M') }}"/>
+{% endif %}{% if bloqueios %}{% for b in bloqueios %}<bloqueio inicio="{{ b.inicio.strftime('%a %d/%m %H:%M') }}" fim="{{ b.fim.strftime('%H:%M') }}" estado="ocupado"{% if b.proximo_livre %} proximo_livre="{{ b.proximo_livre.strftime('%a %d/%m %H:%M') }}"{% endif %}/>
 {% endfor %}{% else %}<livre>sem bloqueios nas próximas 48h, nenhum horário ocupado</livre>
 {% endif %}</agenda>
 

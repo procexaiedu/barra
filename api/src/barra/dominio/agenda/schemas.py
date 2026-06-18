@@ -11,6 +11,7 @@ class BloqueioCreate(BaseModel):
     observacao: str | None = None
     atendimento_id: UUID | None = None
     confirmar_fora_disponibilidade: bool = False
+    confirmar_buffer: bool = False
 
     @model_validator(mode="after")
     def intervalo_valido(self) -> "BloqueioCreate":
@@ -26,6 +27,7 @@ class BloqueioPatch(BaseModel):
     atendimento_id: UUID | None = None
     confirmar_edicao_vinculada: bool = False
     confirmar_fora_disponibilidade: bool = False
+    confirmar_buffer: bool = False
 
 
 class CancelarBloqueio(BaseModel):

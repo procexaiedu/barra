@@ -11,8 +11,12 @@ from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock
 
+import pytest
+from langchain_core.tools import ToolException
+
 import barra.agente.ferramentas.extracao as extracao
 from barra.agente.ferramentas.extracao import registrar_extracao
+from barra.dominio.agenda.service import AntecedenciaInsuficiente
 
 # .coroutine e a corrotina crua do @tool; .ainvoke({...}) NAO injeta runtime, .coroutine sim.
 _chamar = registrar_extracao.coroutine  # type: ignore[attr-defined]
@@ -57,3 +61,22 @@ async def test_enviar_pin_nao_enfileira_loc_pin(monkeypatch: Any) -> None:
 
     assert out == "ok"
     assert not any(c.kwargs.get("tipo") == "loc_pin" for c in redis.enqueue_job.call_args_list)
+
+
+async def test_antecedencia_insuficiente_vira_toolexception(monkeypatch: Any) -> None:
+    """ADR 0025: AntecedenciaInsuficiente do domínio vira erro recuperável (ToolException) que
+    instrui a IA a ancorar no <horario_minimo>, sem crashar o turno."""
+
+    async def _raise(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        raise AntecedenciaInsuficiente("cedo demais")
+
+    monkeypatch.setattr(extracao, "_executar_idempotente", _raise)
+
+    redis = AsyncMock()
+    redis.enqueue_job = AsyncMock()
+
+    with pytest.raises(ToolException, match=r"^ERRO:.*horario_minimo"):
+        await _chamar(
+            proxima_acao_esperada="confirmar horario",
+            runtime=_Runtime(_Ctx(redis)),
+        )

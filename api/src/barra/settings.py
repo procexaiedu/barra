@@ -247,12 +247,14 @@ class Settings(BaseSettings):
             "~40min a 2h (~83%) e despenca após 12h; o humano nunca cutuca antes de 40min."
         ),
     )
-    agenda_buffer_proximo_livre_min: int = Field(
+    agenda_buffer_min: int = Field(
         default=30,
         ge=0,
         description=(
-            "Buffer em minutos após o fim de um bloqueio para sugerir o próximo slot adjacente "
-            "(proximo_livre no contexto dinâmico). Só pré-cálculo determinístico; não vai ao prompt."
+            "Buffer em minutos de preparo/intervalo ao redor de um bloqueio (ADR 0025). Regra DURA "
+            "da reservabilidade: antecedência mínima (inicio >= now + buffer) e gap entre "
+            "atendimentos (>= buffer) em criar_bloqueio_previo; e a sugestão do próximo slot "
+            "adjacente (proximo_livre + horario_minimo) no contexto dinâmico. Global."
         ),
     )
     operacao_hora_inicio: int = Field(

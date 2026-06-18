@@ -12,6 +12,7 @@ from psycopg import AsyncConnection
 from psycopg.errors import ExclusionViolation
 
 from barra.dominio.modelos.disponibilidade import modelo_disponivel_em
+from barra.settings import get_settings
 
 # Offset fixo -03:00 (espelha dominio/painel e dominio/dashboard); o horario_desejado do
 # cliente e local (BRT). Combinar como aware evita o pitfall naive x aware (memoria de TZ).
@@ -38,14 +39,59 @@ class HorarioNaoDefinido(Exception):
     horario primeiro, nunca um crash de turno (o caminho interno ja so reserva com horario != None)."""
 
 
+class AntecedenciaInsuficiente(Exception):
+    """Inicio do bloqueio cai dentro do buffer de preparo a partir de agora (inicio < now + buffer,
+    ADR 0025). Erro RECUPERAVEL e DISTINTO de ConflitoAgenda: nao ha outro cliente a esconder — e
+    tempo de preparo. A tool instrui a IA a ancorar no <horario_minimo> do contexto (sem inventar
+    minutos). So a IA passa por aqui; o painel/Fernando nao tem antecedencia minima."""
+
+
+async def existe_vizinho_no_buffer(
+    conn: AsyncConnection[Any],
+    *,
+    modelo_id: Any,
+    inicio: datetime,
+    fim: datetime,
+    buffer_min: int,
+    excluir_id: Any | None = None,
+) -> bool:
+    """True se ha um bloqueio ATIVO da modelo a menos de `buffer_min` do intervalo [inicio, fim]
+    (ADR 0025, gap >= buffer). Condicao do ADR: new.inicio < f2 + buffer AND i2 < new.fim + buffer.
+    A EXCLUDE `bloqueios_sem_sobreposicao` so barra sobreposicao real ('[)'); a adjacencia colada
+    (fim == inicio) e a quase-adjacencia caem aqui. `excluir_id` ignora o proprio bloqueio (PATCH).
+    Reusado pela IA (`criar_bloqueio_previo`) e pelo painel (POST/PATCH /bloqueios)."""
+    params: list[Any] = [modelo_id, inicio, buffer_min, fim, buffer_min]
+    filtro_self = ""
+    if excluir_id is not None:
+        filtro_self = "AND id <> %s"
+        params.append(excluir_id)
+    res = await conn.execute(
+        f"""
+        SELECT 1
+          FROM barravips.bloqueios
+         WHERE modelo_id = %s
+           AND estado IN ('bloqueado', 'em_atendimento')
+           AND fim    > %s - make_interval(mins => %s)
+           AND inicio < %s + make_interval(mins => %s)
+           {filtro_self}
+         LIMIT 1
+        """,
+        params,
+    )
+    return await res.fetchone() is not None
+
+
 async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict[str, Any]) -> None:
     """Reserva o slot previo do atendimento (estado `bloqueado`, origem `ia`) e fecha a FK circular.
 
     inicio = (data_desejada ou hoje BRT) + horario_desejado; fim = inicio + (duracao_horas ou
-    DURACAO_PADRAO_HORAS). Serializa o booking por modelo com `pg_advisory_xact_lock` (mesmo
-    padrao do trigger gen_numero_curto, 0001_schema_inicial.sql:193); a EXCLUDE
-    `bloqueios_sem_sobreposicao` (0001:515) e o backstop duro. Em sobreposicao levanta
-    `ConflitoAgenda` -> o chamador reverte o turno e a tool reoferta outro horario.
+    DURACAO_PADRAO_HORAS). Buffer de preparo/intervalo (ADR 0025, `agenda_buffer_min`) e regra DURA:
+    antecedencia minima (inicio < now + buffer -> `AntecedenciaInsuficiente`) e gap entre
+    atendimentos (vizinho ativo dentro do buffer -> `ConflitoAgenda`). Serializa o booking por modelo
+    com `pg_advisory_xact_lock` (mesmo padrao do trigger gen_numero_curto, 0001_schema_inicial.sql:193);
+    a EXCLUDE `bloqueios_sem_sobreposicao` (0001:515) e o backstop de sobreposicao real. Cada erro
+    recuperavel reverte o turno e a tool reoferta (ConflitoAgenda) ou ancora no horario_minimo
+    (AntecedenciaInsuficiente).
     """
     modelo_id = atendimento["modelo_id"]
     data = atendimento.get("data_desejada") or datetime.now(BRT).date()
@@ -68,12 +114,26 @@ async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict
     if not await modelo_disponivel_em(conn, modelo_id, inicio):
         raise ForaDisponibilidade("Inicio do bloqueio fora da disponibilidade da modelo.")
 
+    # Antecedencia minima (ADR 0025): a IA nunca reserva dentro do buffer de preparo a partir de
+    # agora. Casa com o <horario_minimo> do contexto (arredonda_acima(now + buffer)); aqui o teto e
+    # cru (now + buffer), pois qualquer inicio >= horario_minimo ja o satisfaz. Nao precisa do lock.
+    buffer = get_settings().agenda_buffer_min
+    if inicio < datetime.now(BRT) + timedelta(minutes=buffer):
+        raise AntecedenciaInsuficiente(
+            "Inicio dentro do buffer de preparo a partir de agora (now + buffer)."
+        )
+
     # Advisory lock por modelo serializa o booking entre conversas distintas da MESMA modelo
-    # ANTES do INSERT; a EXCLUDE pega o caso de duas transacoes que escaparem da serializacao.
+    # ANTES do gap-check e do INSERT; a EXCLUDE pega o caso de duas transacoes que escaparem.
     await conn.execute(
         "SELECT pg_advisory_xact_lock(hashtextextended(%s::text, 0))",
         (str(modelo_id),),
     )
+    # Gap entre atendimentos (ADR 0025): vizinho ativo dentro do buffer -> rejeita (gap >= buffer).
+    if await existe_vizinho_no_buffer(
+        conn, modelo_id=modelo_id, inicio=inicio, fim=fim, buffer_min=buffer
+    ):
+        raise ConflitoAgenda("Vizinho ativo dentro do buffer de intervalo.")
     try:
         res = await conn.execute(
             """

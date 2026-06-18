@@ -571,7 +571,7 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     # reservável (CONTEXT.md "Bloqueio"), pré-computado em Python — a IA só verbaliza.
     regras_disp = await _carregar_disponibilidade(conn, ctx.modelo_id)
     disponibilidade = _formatar_disponibilidade(regras_disp)
-    buffer_min = get_settings().agenda_buffer_proximo_livre_min
+    buffer_min = get_settings().agenda_buffer_min
     bloqueios = [
         {**b, "proximo_livre": proximo_livre(b["fim"], bloqueios_raw, regras_disp, buffer_min)}
         for b in bloqueios_raw
@@ -585,11 +585,26 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     # sozinho vinha em UTC — off-by-one de dia à noite (BRT = UTC-3) — e sem a hora a IA
     # chutava o horário do bloqueio. now() (UTC) nas janelas acima não muda; só a âncora que a
     # IA lê passa a ser local.
-    res = await conn.execute("SELECT (current_timestamp AT TIME ZONE 'America/Sao_Paulo') AS agora")
+    res = await conn.execute(
+        "SELECT (current_timestamp AT TIME ZONE 'America/Sao_Paulo') AS agora, "
+        "current_timestamp AS agora_tz"
+    )
     agora_row = await res.fetchone()
     agora = agora_row["agora"] if agora_row else None
     data_atual = agora.date() if agora is not None else None
     hora_atual = agora.strftime("%H:%M") if agora is not None else None
+
+    # Antecedência mínima (ADR 0025): o cedo que a IA pode oferecer pra um pedido imediato =
+    # arredonda_acima(now + buffer), ajustado a bloqueios e Disponibilidade. Reusa proximo_livre
+    # com `agora_tz` (aware, mesmo fuso dos bloqueios -> renderiza igual). None = now+buffer cai fora
+    # da Disponibilidade (a IA cai na conduta de período de trabalho). O hard rule em
+    # criar_bloqueio_previo é o backstop; aqui é só a âncora proativa.
+    agora_tz = agora_row["agora_tz"] if agora_row else None
+    horario_minimo = (
+        proximo_livre(agora_tz, bloqueios_raw, regras_disp, buffer_min)
+        if agora_tz is not None
+        else None
+    )
 
     # Belief-state (state-update prompting): o que falta pra avançar + próximo passo, derivados da
     # MESMA FSM da extração (dominio/atendimentos/service). Reinjetado na cauda volátil a cada turno
@@ -622,6 +637,7 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
         "historico_anteriores": historico,
         "bloqueios": bloqueios,
         "disponibilidade": disponibilidade,
+        "horario_minimo": horario_minimo,
     }
 
 
