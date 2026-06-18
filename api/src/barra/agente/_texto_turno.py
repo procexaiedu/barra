@@ -17,7 +17,7 @@ def mensagens_do_turno(messages: Sequence[BaseMessage]) -> list[AIMessage]:
     return [m for m in messages if isinstance(m, AIMessage) and m.usage_metadata is not None]
 
 
-def _extrair_texto(msg: AIMessage) -> str:
+def texto_da_mensagem(msg: AIMessage) -> str:
     """Texto plano de uma AIMessage. content pode ser str ou lista de blocos (1.x)."""
     if isinstance(msg.content, str):
         return msg.content
@@ -79,7 +79,7 @@ def extrair_texto_do_turno(messages: Sequence[BaseMessage]) -> str:
             # UMA tool de escrita com erro recuperavel por passagem -- as tools de mídia (fan-out
             # multi-call por turno) NAO retornam "ERRO:" agregavel a texto, entao nao acionam isto.
             continue
-        texto = _extrair_texto(m)
+        texto = texto_da_mensagem(m)
         if texto:
             partes.append(texto)
     return "\n\n".join(partes)

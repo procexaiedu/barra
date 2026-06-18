@@ -30,6 +30,7 @@ from barra.core.metrics import AGENTE_CUSTO_TURNO_BRL, AGENTE_TURNO_TOKENS, TURN
 from barra.settings import get_settings
 
 from .._custo import calcular_custo_brl
+from .._texto_turno import texto_da_mensagem
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..ferramentas import INPUT_EXAMPLES, STRICT_TOOLS
@@ -209,11 +210,15 @@ def no_llm(
     async def llm(
         state: EstadoAgente, runtime: Runtime[ContextAgente]
     ) -> Command[Literal["tools", "post_process"]]:
-        # Reentrada pos-extracao forcada (#2): o `tools` ja rodou a registrar_extracao forcada e
-        # o texto ao cliente ja vive em `messages` (resp do turno). NAO reinvocar o modelo --
-        # fecharia uma 2a bolha e custaria 1 request a toa. Fecha o turno direto no post_process
-        # (que ainda refaz o gate de pausa). O guard tambem corta loop infinito de forcamento.
-        if state.get("_extracao_forcada"):
+        # Reentrada pos-`tools` sem nada a reprocessar: NAO reinvocar o modelo -- fecharia uma 2a
+        # bolha e custaria 1 request a toa. Fecha o turno direto no post_process (que ainda refaz o
+        # gate de pausa). Dois caminhos setam esses guards na ida ao `tools`:
+        #  - _extracao_forcada (#2): o LLM esqueceu registrar_extracao e o no forcou 1 chamada;
+        #  - _resposta_inline_concluida: o LLM ja respondeu o cliente (texto) E so pediu
+        #    registrar_extracao na MESMA msg (padrao DeepSeek). O texto ja saiu antes da tool, entao
+        #    o resultado da extracao nao muda a fala do turno; reinvocar so gera uma 2a bolha (022e0a70).
+        # O primeiro guard tambem corta loop infinito de forcamento.
+        if state.get("_extracao_forcada") or state.get("_resposta_inline_concluida"):
             return Command(goto="post_process")
         try:
             resp = await chat_bound.ainvoke(state["messages"])
@@ -266,7 +271,21 @@ def no_llm(
                     runtime.context.turno_id,
                 )
                 return Command(goto="post_process", update={"messages": [resp]})
-            return Command(goto="tools", update={"messages": [resp]})
+            update: dict[str, Any] = {"messages": [resp]}
+            # 1a passagem inline: o modelo ja respondeu o cliente (texto) E so pediu registrar_extracao
+            # na MESMA msg. O texto ao cliente JA esta emitido (antes da tool rodar), entao o
+            # resultado da extracao nao muda mais a fala deste turno -- reinvocar so faz o DeepSeek
+            # tagarelar uma 2a bolha espuria (trace 022e0a70; o Sonnet volta vazio). Marca o turno p/
+            # a reentrada (guard no topo) fechar sem reinvocar -- corta a bolha e poupa 1 request.
+            # `all` antes do texto: tool de LEITURA no conjunto (consultar_agenda) falha cedo e segue
+            # o ReAct normal (o modelo precisa do resultado), sem materializar a string a toa.
+            if (
+                isinstance(resp, AIMessage)
+                and all(tc.get("name") == _TOOL_EXTRACAO for tc in resp.tool_calls)
+                and texto_da_mensagem(resp)
+            ):
+                update["_resposta_inline_concluida"] = True
+            return Command(goto="tools", update=update)
 
         # Resposta final ao cliente (sem tool_calls). Fallback deterministico (#2): se NENHUM
         # registrar_extracao rodou neste turno, a FSM defasaria (valor/tipo/horario nao persistem).

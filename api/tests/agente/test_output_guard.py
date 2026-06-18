@@ -401,6 +401,7 @@ def _settings_judge_openrouter() -> SimpleNamespace:
         output_guard_provider="openrouter",
         openrouter_model_judge="vendor/modelo",
         output_guard_modelo="claude-haiku-4-5",
+        openrouter_quantizations=["fp8"],
     )
 
 
@@ -410,7 +411,8 @@ async def test_julgar_aup_openrouter_content_filter_levanta_inseguro(monkeypatch
     # SEGURANCA: um modelo que modera conteudo adulto NAO pode liberar a bolha por engano.
     res = _judge_resultado("content_filter", parsed=None, chave="finish_reason")
     monkeypatch.setattr(
-        "barra.core.llm.criar_chat_openrouter", lambda s, *, modelo: _FakeJudgeChat(res)
+        "barra.core.llm.criar_chat_openrouter",
+        lambda s, *, modelo, **kwargs: _FakeJudgeChat(res),
     )
     with pytest.raises(mod._JudgeInseguro):
         await mod._julgar_aup("texto qualquer", _settings_judge_openrouter())
@@ -420,7 +422,8 @@ async def test_julgar_aup_openrouter_length_levanta_inseguro(monkeypatch: Any) -
     # finish_reason=length (truncamento OpenAI) tambem invalida o veredito -> _JudgeInseguro.
     res = _judge_resultado("length", parsed=None, chave="finish_reason")
     monkeypatch.setattr(
-        "barra.core.llm.criar_chat_openrouter", lambda s, *, modelo: _FakeJudgeChat(res)
+        "barra.core.llm.criar_chat_openrouter",
+        lambda s, *, modelo, **kwargs: _FakeJudgeChat(res),
     )
     with pytest.raises(mod._JudgeInseguro):
         await mod._julgar_aup("texto qualquer", _settings_judge_openrouter())
@@ -432,9 +435,27 @@ async def test_julgar_aup_openrouter_ok_retorna_veredito(monkeypatch: Any) -> No
     veredito = mod._VeredictoAup(viola=True, motivo="ia_self")
     res = _judge_resultado("stop", parsed=veredito, chave="finish_reason")
     monkeypatch.setattr(
-        "barra.core.llm.criar_chat_openrouter", lambda s, *, modelo: _FakeJudgeChat(res)
+        "barra.core.llm.criar_chat_openrouter",
+        lambda s, *, modelo, **kwargs: _FakeJudgeChat(res),
     )
     out = await mod._julgar_aup("texto qualquer", _settings_judge_openrouter())
+    assert out.viola is True
+
+
+async def test_julgar_aup_deepseek_direct_ok_retorna_veredito(monkeypatch: Any) -> None:
+    # Judge em direct DeepSeek (deepseek-chat = non-thinking): cacheia aup_saida.md + crava modelo.
+    # finish_reason=stop + parsed valido -> devolve o veredito pela rota criar_chat_deepseek.
+    veredito = mod._VeredictoAup(viola=True, motivo="ia_self")
+    res = _judge_resultado("stop", parsed=veredito, chave="finish_reason")
+    monkeypatch.setattr(
+        "barra.core.llm.criar_chat_deepseek", lambda s, **kwargs: _FakeJudgeChat(res)
+    )
+    settings = SimpleNamespace(
+        output_guard_provider="deepseek",
+        deepseek_api_key="sk-test",
+        deepseek_model_chat="deepseek-chat",
+    )
+    out = await mod._julgar_aup("texto qualquer", settings)
     assert out.viola is True
 
 

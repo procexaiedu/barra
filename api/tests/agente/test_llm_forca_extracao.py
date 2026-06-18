@@ -60,6 +60,32 @@ def _texto_final() -> AIMessage:
     )
 
 
+def _texto_mais_extracao() -> AIMessage:
+    """1a passagem inline do DeepSeek: texto client-facing + registrar_extracao na MESMA AIMessage.
+
+    Padrao que o Sonnet nao faz no abridor (responde OU extrai), mas o DeepSeek V4 Flash faz --
+    e que, sem o curto-circuito, deixa a reentrada do ReAct reinvocar o modelo (2a bolha espuria,
+    trace 022e0a70 de 2026-06-18). finish_reason=tool_calls (formato OpenRouter).
+    """
+    return AIMessage(
+        content="Oii\n\ntudo sim, e você",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        response_metadata={"finish_reason": "tool_calls"},
+        tool_calls=[{"name": "registrar_extracao", "args": {}, "id": "ex1", "type": "tool_call"}],
+    )
+
+
+def _texto_mais_leitura() -> AIMessage:
+    """ReAct legitimo: texto + tool de LEITURA (consultar_agenda). A reentrada deve reinvocar
+    (o modelo precisa do resultado da agenda p/ seguir) -- nao pode cair no curto-circuito."""
+    return AIMessage(
+        content="deixa eu ver minha agenda",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        response_metadata={"finish_reason": "tool_calls"},
+        tool_calls=[{"name": "consultar_agenda", "args": {}, "id": "ca1", "type": "tool_call"}],
+    )
+
+
 def _extracao(
     motivo_parada: str = "tool_use", *, com_tool: bool = True, chave: str = "stop_reason"
 ) -> AIMessage:
@@ -196,3 +222,49 @@ async def test_tool_call_normal_segue_react_sem_forcar() -> None:
     assert cmd.goto == "tools"
     assert "_extracao_forcada" not in cmd.update
     assert chat.forcado.chamadas == []
+
+
+async def test_texto_mais_extracao_inline_marca_turno_concluido() -> None:
+    """Bug DeepSeek (1/2): texto + registrar_extracao na MESMA msg -> marca o turno concluido.
+
+    A extracao ainda roteia pelo `tools` (FSM intacta), mas a flag sinaliza a reentrada a fechar
+    sem reinvocar (espelha _extracao_forcada). NAO forca: a extracao ja veio inline."""
+    chat = _FakeChat(_texto_mais_extracao(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    state = {"messages": [HumanMessage(content="oi")]}
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "tools"
+    assert cmd.update["_resposta_inline_concluida"] is True
+    assert cmd.update["messages"] == [chat.normal._resp]
+    assert chat.forcado.chamadas == []  # extracao veio inline -> sem forcamento
+
+
+async def test_reentrada_pos_extracao_inline_nao_reinvoca_modelo() -> None:
+    """Bug DeepSeek (2/2): pos-`tools`, a reentrada do ReAct NAO pode reinvocar o modelo.
+
+    Sem o guard, o DeepSeek tagarela "deixou ele conduzir" (2a bolha espuria, trace 022e0a70).
+    Com a flag, fecha direto no post_process -- mesma protecao do _extracao_forcada."""
+    chat = _FakeChat(_texto_mais_extracao(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    state = {"messages": [HumanMessage(content="oi")], "_resposta_inline_concluida": True}
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    assert chat.normal.chamadas == []  # modelo NAO reinvocado -> sem 2a bolha
+    assert chat.forcado.chamadas == []
+
+
+async def test_texto_mais_tool_de_leitura_nao_curto_circuita() -> None:
+    """ReAct legitimo: texto + tool de LEITURA (consultar_agenda) deve reinvocar normalmente --
+    o curto-circuito so vale p/ a tool write-only de extracao."""
+    chat = _FakeChat(_texto_mais_leitura(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    state = {"messages": [HumanMessage(content="amanha 10h tem?")]}
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "tools"
+    assert "_resposta_inline_concluida" not in cmd.update  # nao curto-circuita
