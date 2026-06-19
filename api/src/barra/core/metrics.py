@@ -139,7 +139,7 @@ LOCK_OCUPADO = Counter(
 ROTEAR_IMAGEM_DECISAO = Counter(
     "agente_rotear_imagem_decisao_total",
     "Decisao de roteamento de imagem sob lock:conv (06 §2.1): "
-    "pix|foto_portaria|fora_fluxo_legenda|silencio|lock_busy",
+    "pix|foto_portaria|foto_portaria_ressurreicao|fora_fluxo_legenda|silencio|lock_busy",
     ["decisao"],
 )
 # 10 §9: deteccao heuristica de disclosure/jailbreak no intercept_disclosure (M3g).

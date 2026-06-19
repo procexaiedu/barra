@@ -781,6 +781,9 @@ async def resolver_atendimento_existente(
     Espelha `resolver_atendimento` mas e read-only — usado pelo `rotear_imagem` sob `lock:conv`
     para roteamento (sem efeito colateral): se a imagem chega numa conversa sem atendimento
     aberto, o caminho normal e fora-fluxo (a IA cria atendimento pelo turno, nao por imagem).
+
+    Contrato: exclui terminais (`Fechado`/`Perdido`). A ressurreicao de `rotear_imagem`
+    (ADR 0027) depende disso — so age quando este devolve None (interno morto por timeout).
     """
     res = await conn.execute(
         """

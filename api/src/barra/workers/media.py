@@ -154,6 +154,18 @@ async def rotear_imagem(
                 ROTEAR_IMAGEM_DECISAO.labels("foto_portaria").inc()
                 return
 
+            if atendimento is None and mensagem_uuid is not None:
+                # Ressurreicao interna (ADR 0027): a foto chegou DEPOIS de o timeout (ADR 0024)
+                # matar o #1 interno (Perdido/auto_timeout_interno) e cancelar o bloqueio —
+                # `resolver_atendimento_existente` exclui terminais, entao nao ha atendimento
+                # aberto. Tenta reconectar o interno morto cujo slot segue livre e dentro do
+                # bloqueio.fim; orfanar a prova de chegada fisica seria errado.
+                if await _ressurreicao_foto_portaria(
+                    ctx, conversa_id=conversa_id, mensagem_id=str(mensagem_uuid)
+                ):
+                    ROTEAR_IMAGEM_DECISAO.labels("foto_portaria_ressurreicao").inc()
+                    return
+
             if caption:
                 # Imagem fora-fluxo COM legenda: dispara turno (IA cega responde a legenda; 06 §3).
                 # Import tardio evita ciclo workers.media -> webhook.despacho -> webhook.parser.
@@ -221,6 +233,51 @@ async def _handoff_foto_portaria(
         _job_id=f"card:chegada:{atendimento_id}",
     )
     del conversa_id  # reservado para futuro logging; assinatura espelha o stub original
+
+
+async def _ressurreicao_foto_portaria(
+    ctx: dict[str, Any],
+    *,
+    conversa_id: str,
+    mensagem_id: str,
+) -> bool:
+    """Tenta ressuscitar um interno auto_timeout_interno pela foto tardia (ADR 0027).
+
+    Le `media_object_key` da mensagem, delega o SQL atomico (candidato + 4 efeitos) ao
+    servico de dominio e, se reconectou, enfileira o card 'chegada' (mesma idempotencia do
+    handoff normal: `_job_id=card:chegada:{atendimento_id}`). Devolve True se ressuscitou,
+    False se nao havia candidato (caller segue fora-fluxo: a volta vira novo #N).
+    """
+    pool = ctx["db_pool"]
+    redis = ctx["redis"]
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            "SELECT media_object_key FROM barravips.mensagens WHERE id = %s",
+            (UUID(mensagem_id),),
+        )
+        row = await res.fetchone()
+        media_object_key = row["media_object_key"] if row else None
+
+        from barra.dominio.atendimentos.service import ressuscitar_interno_foto_portaria
+
+        atendimento_id = await ressuscitar_interno_foto_portaria(
+            conn,
+            conversa_id=UUID(conversa_id),
+            mensagem_id=UUID(mensagem_id),
+            media_object_key=media_object_key,
+        )
+
+    if atendimento_id is None:
+        return False
+
+    await redis.enqueue_job(
+        "enviar_card",
+        tipo="chegada",
+        atendimento_id=str(atendimento_id),
+        _job_id=f"card:chegada:{atendimento_id}",
+    )
+    return True
 
 
 async def transcrever_audio(

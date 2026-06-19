@@ -1,8 +1,10 @@
 ---
-status: accepted
+status: superseded by ADR-0026
 ---
 
 # Endereço do atendimento interno em fase única (número junto com a rua)
+
+> **Superseded pelo ADR 0026** (18/06/2026): a disclosure interna passou a ter **2 níveis** — rua+número do prédio (público, pela IA quando combina o encontro) e apartamento/quarto (a unidade, pela modelo humana pós-Foto de portaria). O re-gate da unidade que este ADR pediu para "não reintroduzir sem rediscutir" foi rediscutido e reintroduzido lá, via humana (não 2-fase de prompt).
 
 Em 17/06/2026 o agente passou a revelar o endereço do interno em **duas fases** (`regras.md.j2` `<encontro_e_endereco>`, memória `deploy_disclosure_interno_duracao_17-06`): **fase 1** — rua + referência quando o horário fecha; **fase 2** — número exato (apartamento/quarto) só quando o cliente chega à portaria, gatilhado pela **Foto de portaria**. A intenção era **discrição/segurança**: não entregar o número exato da modelo antes do cliente provar presença física, mitigando quem "zoa" e exposição do endereço a quem nunca aparece.
 

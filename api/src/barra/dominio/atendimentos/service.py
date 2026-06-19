@@ -9,6 +9,7 @@ from typing import Any, Literal, cast
 from uuid import UUID
 
 from psycopg import AsyncConnection
+from psycopg.errors import ExclusionViolation
 
 from barra.core.errors import ConflitoEstado
 from barra.settings import get_settings
@@ -889,6 +890,28 @@ async def _registrar_evento(
 # -----------------------------------------------------------------------------
 
 
+async def _inserir_escalada_chegada(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
+    """Abre a escalada owner do card 'chegada' (idempotencia por owner do card, 06 §9).
+
+    Copy compartilhada entre o handoff do interno vivo e a ressurreicao (ADR 0027) — ambos
+    alimentam o mesmo card `tipo='chegada'`, entao a copy mora num lugar so.
+    """
+    await conn.execute(
+        """
+        INSERT INTO barravips.escaladas (
+          atendimento_id, responsavel, tipo, motivo,
+          resumo_operacional, acao_esperada
+        )
+        VALUES (
+          %s, 'modelo', 'foto_portaria', 'Cliente chegou (foto de portaria)',
+          'Cliente chegou no endereco combinado.',
+          'Conferir a foto antes de abrir a porta.'
+        )
+        """,
+        (atendimento_id,),
+    )
+
+
 async def handoff_foto_portaria_ia(
     conn: AsyncConnection[Any],
     *,
@@ -938,20 +961,7 @@ async def handoff_foto_portaria_ia(
             """,
             (atendimento_id,),
         )
-        await conn.execute(
-            """
-            INSERT INTO barravips.escaladas (
-              atendimento_id, responsavel, tipo, motivo,
-              resumo_operacional, acao_esperada
-            )
-            VALUES (
-              %s, 'modelo', 'foto_portaria', 'Cliente chegou (foto de portaria)',
-              'Cliente chegou no endereco combinado.',
-              'Conferir a foto antes de abrir a porta.'
-            )
-            """,
-            (atendimento_id,),
-        )
+        await _inserir_escalada_chegada(conn, atendimento_id)
         await conn.execute(
             "INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload) "
             "VALUES (%s, 'transicao_estado', 'agente', 'sistema', %s::jsonb)",
@@ -968,6 +978,113 @@ async def handoff_foto_portaria_ia(
                 ),
             ),
         )
+
+
+async def ressuscitar_interno_foto_portaria(
+    conn: AsyncConnection[Any],
+    *,
+    conversa_id: UUID,
+    mensagem_id: UUID,
+    media_object_key: str | None,
+) -> UUID | None:
+    """Ressuscita um interno auto_timeout_interno pela foto de portaria tardia (ADR 0027).
+
+    A foto chegou DEPOIS de o timeout (ADR 0024) marcar o #1 interno como Perdido/sumiu e
+    cancelar o bloqueio. Se o cliente literalmente chegou ao local, orfanar a prova de
+    chegada e fragmentar num novo #N seria errado operacionalmente.
+
+    Reconecta o atendimento — volta a Em_execucao, ia_pausada=true (modelo_em_atendimento),
+    reativa o bloqueio cancelado e abre a escalada owner do card 'chegada' — SE E SO SE:
+      - a morte foi `auto_timeout_interno` (Perdido humano se respeita);
+      - o slot segue livre (nenhum bloqueio ativo ocupou a janela);
+      - ainda dentro do `bloqueio.fim` (o horario reservado nao acabou).
+    Fora disso devolve None e o chamador segue fora-fluxo: a volta e recorrencia legitima
+    (novo #N por mensagem). Excecao explicita ao invariante "Perdido e terminal", registrada
+    no ADR 0027.
+
+    Devolve o `atendimento_id` ressuscitado ou None (sem candidato).
+    """
+    try:
+        async with conn.transaction():
+            res = await conn.execute(
+                """
+                SELECT a.id, a.estado::text AS estado_anterior, b.id AS bloqueio_id
+                  FROM barravips.atendimentos a
+                  JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+                 WHERE a.conversa_id = %s
+                   AND a.tipo_atendimento = 'interno'
+                   AND a.estado = 'Perdido'
+                   AND a.fonte_decisao_ultima_transicao = 'auto_timeout_interno'
+                   AND b.estado = 'cancelado'
+                   AND b.fim > now()
+                   AND NOT EXISTS (
+                     SELECT 1
+                       FROM barravips.bloqueios x
+                      WHERE x.modelo_id = b.modelo_id
+                        AND x.id <> b.id
+                        AND x.estado IN ('bloqueado', 'em_atendimento')
+                        AND tstzrange(x.inicio, x.fim, '[)') && tstzrange(b.inicio, b.fim, '[)')
+                   )
+                 ORDER BY a.created_at DESC
+                 LIMIT 1
+                 FOR UPDATE OF a SKIP LOCKED
+                """,
+                (conversa_id,),
+            )
+            alvo = await res.fetchone()
+            if alvo is None:
+                return None
+
+            atendimento_id = alvo["id"]
+            await conn.execute(
+                """
+                UPDATE barravips.atendimentos
+                   SET estado = 'Em_execucao',
+                       motivo_perda = NULL,
+                       ia_pausada = true,
+                       ia_pausada_motivo = 'modelo_em_atendimento',
+                       responsavel_atual = 'modelo',
+                       foto_portaria_em = now(),
+                       fonte_decisao_ultima_transicao = 'webhook_imagem'
+                 WHERE id = %s
+                """,
+                (atendimento_id,),
+            )
+            # Reativa o bloqueio cancelado. O NOT EXISTS acima ja descarta slot ocupado, mas
+            # outro bloqueio ativo pode correr a janela entre o SELECT e este UPDATE (o
+            # FOR UPDATE tranca `a`, nao o concorrente `x`): a EXCLUDE constraint
+            # `bloqueios_sem_sobreposicao` barra a colisao e o except abaixo trata como slot
+            # tomado — mesma defesa que `criar_bloqueio_previo` da no INSERT.
+            await conn.execute(
+                """
+                UPDATE barravips.bloqueios
+                   SET estado = 'em_atendimento'
+                 WHERE id = %s AND estado = 'cancelado'
+                """,
+                (alvo["bloqueio_id"],),
+            )
+            await _inserir_escalada_chegada(conn, atendimento_id)
+            await conn.execute(
+                "INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload) "
+                "VALUES (%s, 'transicao_estado', 'agente', 'sistema', %s::jsonb)",
+                (
+                    atendimento_id,
+                    json.dumps(
+                        {
+                            "de": alvo["estado_anterior"],
+                            "para": "Em_execucao",
+                            "gatilho": "foto_portaria_ressurreicao",
+                            "mensagem_id": str(mensagem_id),
+                            "media_object_key": media_object_key,
+                        }
+                    ),
+                ),
+            )
+            return cast(UUID, atendimento_id)
+    except ExclusionViolation:
+        # Corrida: o slot foi reocupado entre a checagem e a reativacao do bloqueio. Mesmo
+        # desfecho do NOT EXISTS — nao ressuscita (recorrencia vira novo #N), sem job fatal.
+        return None
 
 
 async def marcar_aviso_saida(conn: AsyncConnection[Any], atendimento_id: UUID) -> bool:

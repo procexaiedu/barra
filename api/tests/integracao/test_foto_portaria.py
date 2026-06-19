@@ -141,6 +141,59 @@ async def _seed_bloqueio(
     return bloqueio_id
 
 
+async def _seed_atendimento_interno_timeout_perdido(
+    c: AsyncConnection[dict[str, Any]],
+    *,
+    cliente_id: UUID,
+    modelo_id: UUID,
+    conversa_id: UUID,
+    inicio: datetime,
+    fim: datetime,
+) -> tuple[UUID, UUID]:
+    """Interno morto pelo timeout (ADR 0024): Perdido/sumiu/auto_timeout_interno + bloqueio
+    'cancelado'. Espelha o estado deixado por `aplicar_timeout_interno`. Devolve
+    (atendimento_id, bloqueio_id) para os testes de ressurreicao (ADR 0027)."""
+    atendimento_id = uuid4()
+    await c.execute(
+        """
+        INSERT INTO barravips.atendimentos
+            (id, cliente_id, modelo_id, conversa_id, estado, tipo_atendimento,
+             pix_status, data_desejada, horario_desejado, duracao_horas,
+             motivo_perda, fonte_decisao_ultima_transicao, aviso_saida_em)
+        VALUES (%s, %s, %s, %s, 'Perdido'::barravips.estado_atendimento_enum,
+                'interno'::barravips.tipo_atendimento_enum,
+                'nao_solicitado'::barravips.pix_status_enum, %s, %s, %s,
+                'sumiu'::barravips.motivo_perda_enum,
+                'auto_timeout_interno'::barravips.fonte_decisao_enum, %s)
+        """,
+        (
+            atendimento_id,
+            cliente_id,
+            modelo_id,
+            conversa_id,
+            inicio.date(),
+            inicio.timetz(),
+            Decimal((fim - inicio).total_seconds() / 3600),
+            inicio - timedelta(hours=1),
+        ),
+    )
+    bloqueio_id = uuid4()
+    await c.execute(
+        """
+        INSERT INTO barravips.bloqueios
+            (id, modelo_id, atendimento_id, inicio, fim, estado, origem)
+        VALUES (%s, %s, %s, %s, %s, 'cancelado'::barravips.estado_bloqueio_enum,
+                'ia'::barravips.origem_bloqueio_enum)
+        """,
+        (bloqueio_id, modelo_id, atendimento_id, inicio, fim),
+    )
+    await c.execute(
+        "UPDATE barravips.atendimentos SET bloqueio_id = %s WHERE id = %s",
+        (bloqueio_id, atendimento_id),
+    )
+    return atendimento_id, bloqueio_id
+
+
 async def _seed_atendimento_interno_aguardando(
     c: AsyncConnection[dict[str, Any]],
     *,
@@ -361,3 +414,253 @@ async def test_card_chegada_entrega_e_marca_owner(
     esc = await res.fetchone()
     assert esc is not None
     assert esc["card_message_id"] == "card-mid-chegada"
+
+
+# --- ressurreicao interna (ADR 0027) ---------------------------------------------------------
+
+
+@pytest.mark.needs_db
+async def test_ressurreicao_foto_tardia_reconecta_interno(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """ADR 0027: foto chega DEPOIS do timeout matar o #1 interno, com o slot ainda livre e
+    dentro do bloqueio.fim -> ressuscita (Em_execucao) em vez de orfanar."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    agora = datetime.now(UTC)
+    atendimento_id, bloqueio_id = await _seed_atendimento_interno_timeout_perdido(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        inicio=agora - timedelta(hours=1),
+        fim=agora + timedelta(hours=1),
+    )
+    _, evolution_id, object_key = await _seed_msg_imagem(conn, conversa_id)
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+
+    await rotear_imagem(
+        ctx,
+        mensagem_id=evolution_id,
+        conversa_id=str(conversa_id),
+        media_url="https://evolution.test/portaria.jpg",
+        caption=None,
+    )
+
+    # atendimento volta a Em_execucao, ia pausada, motivo de perda limpo.
+    res = await conn.execute(
+        """
+        SELECT estado::text AS estado, ia_pausada,
+               ia_pausada_motivo::text AS ia_pausada_motivo,
+               responsavel_atual::text AS responsavel_atual,
+               motivo_perda, foto_portaria_em,
+               fonte_decisao_ultima_transicao::text AS fonte_decisao
+          FROM barravips.atendimentos WHERE id = %s
+        """,
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Em_execucao"
+    assert a["ia_pausada"] is True
+    assert a["ia_pausada_motivo"] == "modelo_em_atendimento"
+    assert a["responsavel_atual"] == "modelo"
+    assert a["motivo_perda"] is None
+    assert a["foto_portaria_em"] is not None
+    assert a["fonte_decisao"] == "webhook_imagem"
+
+    # bloqueio cancelado reativado.
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = %s",
+        (bloqueio_id,),
+    )
+    b = await res.fetchone()
+    assert b is not None
+    assert b["estado"] == "em_atendimento"
+
+    # escalada owner do card 'chegada'.
+    res = await conn.execute(
+        "SELECT tipo::text AS tipo, responsavel::text AS responsavel "
+        "FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None
+    assert esc["tipo"] == "foto_portaria"
+    assert esc["responsavel"] == "modelo"
+
+    # evento de transicao marca a ressurreicao.
+    res = await conn.execute(
+        """
+        SELECT payload FROM barravips.eventos
+         WHERE atendimento_id = %s AND tipo = 'transicao_estado'
+         ORDER BY created_at DESC LIMIT 1
+        """,
+        (atendimento_id,),
+    )
+    ev = await res.fetchone()
+    assert ev is not None
+    assert ev["payload"]["de"] == "Perdido"
+    assert ev["payload"]["para"] == "Em_execucao"
+    assert ev["payload"]["gatilho"] == "foto_portaria_ressurreicao"
+    assert ev["payload"]["media_object_key"] == object_key
+
+    # card 'chegada' enfileirado.
+    calls = redis.enqueue_job.call_args_list
+    assert len(calls) == 1
+    assert calls[0].kwargs["tipo"] == "chegada"
+    assert calls[0].kwargs["atendimento_id"] == str(atendimento_id)
+    assert calls[0].kwargs["_job_id"] == f"card:chegada:{atendimento_id}"
+
+
+@pytest.mark.needs_db
+async def test_ressurreicao_recusa_apos_bloqueio_fim(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """ADR 0027: passou do horario reservado (bloqueio.fim < now) -> nao ressuscita; a volta
+    e recorrencia legitima (novo #N), a foto cai em silencio."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    agora = datetime.now(UTC)
+    atendimento_id, bloqueio_id = await _seed_atendimento_interno_timeout_perdido(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        inicio=agora - timedelta(hours=3),
+        fim=agora - timedelta(hours=1),
+    )
+    _, evolution_id, _ = await _seed_msg_imagem(conn, conversa_id)
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+
+    await rotear_imagem(
+        ctx,
+        mensagem_id=evolution_id,
+        conversa_id=str(conversa_id),
+        media_url=None,
+        caption=None,
+    )
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Perdido"  # intocado
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = %s",
+        (bloqueio_id,),
+    )
+    b = await res.fetchone()
+    assert b is not None
+    assert b["estado"] == "cancelado"
+    assert redis.enqueue_job.call_args_list == []
+
+
+@pytest.mark.needs_db
+async def test_ressurreicao_recusa_slot_ocupado(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """ADR 0027: outro bloqueio ativo ocupou o slot apos o cancelamento -> nao ressuscita
+    (nao-sobreposicao)."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    agora = datetime.now(UTC)
+    inicio = agora - timedelta(hours=1)
+    fim = agora + timedelta(hours=1)
+    atendimento_id, _ = await _seed_atendimento_interno_timeout_perdido(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        inicio=inicio,
+        fim=fim,
+    )
+    # bloqueio avulso ativo sobre a mesma janela (slot realocado).
+    await conn.execute(
+        """
+        INSERT INTO barravips.bloqueios (id, modelo_id, inicio, fim, estado, origem)
+        VALUES (%s, %s, %s, %s, 'bloqueado'::barravips.estado_bloqueio_enum,
+                'painel_fernando'::barravips.origem_bloqueio_enum)
+        """,
+        (uuid4(), modelo_id, inicio, fim),
+    )
+    _, evolution_id, _ = await _seed_msg_imagem(conn, conversa_id)
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+
+    await rotear_imagem(
+        ctx,
+        mensagem_id=evolution_id,
+        conversa_id=str(conversa_id),
+        media_url=None,
+        caption=None,
+    )
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Perdido"
+    assert redis.enqueue_job.call_args_list == []
+
+
+@pytest.mark.needs_db
+async def test_ressurreicao_ignora_perdido_humano(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """ADR 0027: Perdido por decisao humana (fonte != auto_timeout_interno) nao ressuscita —
+    decisao humana se respeita."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    agora = datetime.now(UTC)
+    atendimento_id, _ = await _seed_atendimento_interno_timeout_perdido(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        inicio=agora - timedelta(hours=1),
+        fim=agora + timedelta(hours=1),
+    )
+    # Fernando encerrou na mao (painel): muda so a fonte da ultima transicao.
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET fonte_decisao_ultima_transicao = 'comando_grupo'
+         WHERE id = %s
+        """,
+        (atendimento_id,),
+    )
+    _, evolution_id, _ = await _seed_msg_imagem(conn, conversa_id)
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+
+    await rotear_imagem(
+        ctx,
+        mensagem_id=evolution_id,
+        conversa_id=str(conversa_id),
+        media_url=None,
+        caption=None,
+    )
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Perdido"
+    assert redis.enqueue_job.call_args_list == []
