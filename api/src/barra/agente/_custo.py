@@ -45,19 +45,38 @@ PRECO_HAIKU_USD_PER_MTOK: dict[str, float] = {
 # MAS sob label proprio do modelo -> NAO polui o tripwire de write-rate do Sonnet. Preencher com a
 # tarifa publica do candidato quando ele landar.
 # deepseek/deepseek-v4-flash: tarifa publica OpenRouter ($0.09 input / $0.18 output por MTok,
-# api/v1/models 2026-06-17). Sem cache nessas chamadas -> so input/output.
+# api/v1/models 2026-06-17). Sem cache nessas chamadas -> so input/output. So vale p/ o caminho
+# OpenRouter (model_name com prefixo "deepseek/"); o DeepSeek-direct reporta "deepseek-v4-flash"
+# sem prefixo e cai na PRECO_DEEPSEEK_USD_PER_MTOK abaixo (com cache).
 PRECO_OPENROUTER_USD_PER_MTOK: dict[str, dict[str, float]] = {
     "deepseek/deepseek-v4-flash": {"input": 0.09, "output": 0.18},
 }
 
+# USD por milhao de tokens — DeepSeek V4 Flash DIRETO (api.deepseek.com), usado pelo chat #1
+# (`llm_chat_provider=deepseek`) e, quando ligados, pela extracao #2 e pelo judge #3. A API reporta
+# `model_name="deepseek-v4-flash"` (sem prefixo de provider), mesmo com o alias `deepseek-chat`
+# configurado. Tarifa oficial V4 Flash (deepseek.com 2026-06): input cache-miss $0.14, output $0.28,
+# cache-hit $0.0028 (50x mais barato que o miss). O cache do DeepSeek-direct e automatico e o
+# `usage_metadata` reporta a parcela cacheada em `input_token_details.cache_read` — `calcular_custo_brl`
+# desconta o cache_read do input cheio (input_nao_cacheado) e o cobra a `cache_read`. Sem chaves de
+# write (ephemeral_*): o DeepSeek nao cobra escrita de cache.
+PRECO_DEEPSEEK_USD_PER_MTOK: dict[str, float] = {
+    "input": 0.14,
+    "output": 0.28,
+    "cache_read": 0.0028,
+}
+
 
 def _tabela_preco(model_name: str | None) -> dict[str, float]:
-    """Tabela de preco USD/MTok pelo nome do modelo. id OpenRouter conhecido -> sua tarifa; Haiku ->
-    tabela Haiku; qualquer outro (incl. None / Sonnet) -> Sonnet (default seguro, o chat principal).
-    Match por substring p/ tolerar sufixo de data (`claude-haiku-4-5-20251001`) e prefixo de
-    provider OpenRouter."""
+    """Tabela de preco USD/MTok pelo nome do modelo. id OpenRouter conhecido -> sua tarifa; DeepSeek
+    -> tarifa DeepSeek-direct (com cache); Haiku -> tabela Haiku; qualquer outro (incl. None /
+    Sonnet) -> Sonnet (default seguro, o chat principal). Match por substring p/ tolerar sufixo de
+    data (`claude-haiku-4-5-20251001`) e variacoes de naming do DeepSeek (`deepseek-v4-flash`,
+    `deepseek-chat`)."""
     if model_name and model_name in PRECO_OPENROUTER_USD_PER_MTOK:
         return PRECO_OPENROUTER_USD_PER_MTOK[model_name]
+    if model_name and "deepseek" in model_name.lower():
+        return PRECO_DEEPSEEK_USD_PER_MTOK
     if model_name and "haiku" in model_name.lower():
         return PRECO_HAIKU_USD_PER_MTOK
     return PRECO_USD_PER_MTOK

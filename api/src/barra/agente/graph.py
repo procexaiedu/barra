@@ -69,10 +69,15 @@ def _criar_chat_principal(settings: Settings) -> Any:
 def _criar_chat_extracao_barata(settings: Settings) -> Any:
     """Chat da extracao forcada barata (#2) pelo provider em settings.extracao_provider.
 
+    `deepseek` -> ChatOpenAI DIRETO na API DeepSeek (deepseek_model_chat). `deepseek-chat` ja e
+    non-thinking — nao corrompe o structured output da extracao (tool_choice) e dispensa
+    reasoning_off; o cache automatico do DeepSeek barateia o prefixo curto (system minimo + janela).
     `openrouter` -> ChatOpenAI (id em openrouter_model_extracao; settings valida que esta setado).
     `anthropic` -> Haiku via ChatAnthropic com com_effort=False. Devolve um BaseChatModel; o no
     llm so usa bind_tools/ainvoke/.model_name|.model, espelhados pelos dois wrappers.
     """
+    if settings.extracao_provider == "deepseek":
+        return criar_chat_deepseek(settings)
     if settings.extracao_provider == "openrouter":
         assert settings.openrouter_model_extracao is not None  # garantido pelo model_validator
         # reasoning_off: a extracao forcada e structured output (tool_choice) — o thinking mode do

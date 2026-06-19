@@ -64,6 +64,24 @@ def test_calcular_custo_brl_deepseek_tabela_2_chaves_sem_keyerror() -> None:
     assert custo == pytest.approx(esperado_usd * COTACAO)
 
 
+def test_calcular_custo_brl_deepseek_direct_usa_tabela_com_cache() -> None:
+    # Regressao: o DeepSeek-direct (api.deepseek.com) reporta `model_name="deepseek-v4-flash"` SEM
+    # prefixo de provider — antes do fix isso nao casava a key OpenRouter "deepseek/..." e caia na
+    # tabela Sonnet ($3/$15), inflando o custo ~30x. Agora o match por substring "deepseek" usa a
+    # tarifa direta (input $0.14, output $0.28, cache_read $0.0028): input fresco=943, cache_read=
+    # 11008, output=24 — o mesmo turno real do trace 33f01d3a (92% cache hit).
+    um: dict[str, Any] = {
+        "input_tokens": 11_951,  # total = 943 fresco + 11008 read
+        "output_tokens": 24,
+        "input_token_details": {"cache_read": 11_008},
+    }
+    custo = calcular_custo_brl(um, COTACAO, model_name="deepseek-v4-flash")
+    esperado_usd = (943 * 0.14 + 24 * 0.28 + 11_008 * 0.0028) / 1_000_000
+    assert custo == pytest.approx(esperado_usd * COTACAO)
+    # e a um custo irrisorio (~R$0.001), nao a fantasia de Sonnet que o bug produzia.
+    assert calcular_custo_brl(um, COTACAO) > custo * 20  # default Sonnet >> DeepSeek direto
+
+
 def test_calcular_custo_brl_so_cache_read_quase_zero() -> None:
     # Turno todo lendo do cache (steady state ideal): input_tokens (total) == cache_read, fresco=0.
     # Paga so 0.1x p/ os 5k cacheados: 5k*0.3/1M = 0.0015 USD = ~0.008 BRL. Bem abaixo da meta 0.12.

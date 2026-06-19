@@ -176,10 +176,14 @@ class Settings(BaseSettings):
         default="claude-haiku-4-5",
         description="Modelo da extracao forcada barata quando extracao_no_modelo_barato=True. Haiku 4.5 (~1/3 do custo do Sonnet); classificacao estruturada, nao a voz da IA. Haiku NAO aceita `effort` -> chat criado com com_effort=False.",
     )
-    # Provider da extracao forcada (#2). `anthropic` (default) -> extracao_modelo via ChatAnthropic;
-    # `openrouter` -> openrouter_model_extracao via ChatOpenAI (base_url OpenRouter). Toggle dedicado
-    # (nao reusa llm_chat_provider, que e semantico da #1) -> kill-switch por-chamada sem deploy.
-    extracao_provider: Literal["anthropic", "openrouter"] = "anthropic"
+    # Provider da extracao forcada (#2). `deepseek` (default) -> deepseek_model_chat via
+    # criar_chat_deepseek (api.deepseek.com direto); `anthropic` -> extracao_modelo (Haiku) via
+    # ChatAnthropic; `openrouter` -> openrouter_model_extracao via ChatOpenAI (base_url OpenRouter).
+    # Toggle dedicado (nao reusa llm_chat_provider, que e semantico da #1) -> kill-switch por-chamada
+    # sem deploy. DeepSeek-direct: ~30x mais barato que Haiku E cacheia o prefixo (system minimo +
+    # janela) automaticamente; `deepseek-chat` e non-thinking, nao corrompe o structured output da
+    # extracao (tool_choice).
+    extracao_provider: Literal["anthropic", "openrouter", "deepseek"] = "deepseek"
     openrouter_model_extracao: str | None = Field(
         default=None,
         description="Id OpenRouter da extracao forcada quando extracao_provider=openrouter. Exige tool-calling forcado confiavel no schema de registrar_extracao (12+ campos nullable).",
@@ -197,10 +201,12 @@ class Settings(BaseSettings):
         default="claude-haiku-4-5",
         description="Modelo do LLM-judge de AUP (Etapa 2). E classificacao binaria (viola/nao), nao a voz da IA -> roda em Haiku 4.5 (1/3 do custo do Sonnet) sem afetar a conversa. Prompt curto (~580 tok < minimo de cache 4096) entao nao ha cache a perder. Haiku NAO aceita `effort` -> o chat e criado com com_effort=False (senao 400). Voltar p/ claude-sonnet-4-6 se o Haiku regredir a precisao do guard.",
     )
-    # Provider do judge de AUP (#3). `anthropic` (default) -> output_guard_modelo via ChatAnthropic;
-    # `openrouter` -> openrouter_model_judge via ChatOpenAI. E CAMINHO DE SEGURANCA (ADR 0016): o
-    # default-seguro do _julgar_aup continua valendo em qualquer veredito inconclusivo.
-    output_guard_provider: Literal["anthropic", "openrouter", "deepseek"] = "anthropic"
+    # Provider do judge de AUP (#3). `deepseek` (default) -> deepseek_model_chat via
+    # criar_chat_deepseek (cacheia o prefixo aup_saida.md, o mesmo system antes de CADA bolha);
+    # `anthropic` -> output_guard_modelo (Haiku) via ChatAnthropic; `openrouter` ->
+    # openrouter_model_judge via ChatOpenAI. E CAMINHO DE SEGURANCA (ADR 0016): o default-seguro do
+    # _julgar_aup continua valendo em qualquer veredito inconclusivo (refusal/truncado/parse).
+    output_guard_provider: Literal["anthropic", "openrouter", "deepseek"] = "deepseek"
     openrouter_model_judge: str | None = Field(
         default=None,
         description="Id OpenRouter do judge de AUP quando output_guard_provider=openrouter. Classificacao binaria com structured output; exige nao recusar conteudo adulto legitimo (senao over-refusal pelo default-seguro).",
@@ -214,6 +220,10 @@ class Settings(BaseSettings):
     reincidencia_seguranca_habilitada: bool = Field(
         default=True,
         description="Conta tentativas de disclosure/jailbreak por telefone (cliente) em 24h e escala a Fernando ao atingir o limiar, SEM bloquear o cliente (SEC-JB-02/AUP). False desliga a contagem.",
+    )
+    filtro_emoji_habilitado: bool = Field(
+        default=True,
+        description="Normaliza o emoji da bolha de saida (camada de voz, nao seguranca): remove todo glyph fora do whitelist {🥰,😊}, limita a 1 por bolha e seca emoji na cotacao/sondagem/desconto/logistica (espelha a regra seca-da-cotacao-em-diante da persona). Vale para todos os caminhos do enviar_turno. False = bolha sai como o modelo gerou (kill-switch sem deploy).",
     )
     reincidencia_seguranca_limiar: int = Field(
         default=3,
@@ -406,7 +416,7 @@ class Settings(BaseSettings):
                     raise ValueError(f"{campo_provider}=openrouter exige {campo_modelo} setado")
                 if not self.openrouter_api_key:
                     raise ValueError(f"{campo_provider}=openrouter exige openrouter_api_key setado")
-        for campo_provider in ("llm_chat_provider", "output_guard_provider"):
+        for campo_provider in ("llm_chat_provider", "extracao_provider", "output_guard_provider"):
             if getattr(self, campo_provider) == "deepseek" and not self.deepseek_api_key:
                 raise ValueError(f"{campo_provider}=deepseek exige deepseek_api_key setado")
         return self
