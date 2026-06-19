@@ -10,10 +10,10 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from barra.agente.contexto import ContextAgente
-
-BRT = timezone(timedelta(hours=-3))
 from barra.agente.nos.prepare_context import _resolver_variaveis
 from barra.agente.persona import render_contexto_dinamico
+
+BRT = timezone(timedelta(hours=-3))
 
 
 def test_render_contexto_inclui_hora_atual() -> None:
