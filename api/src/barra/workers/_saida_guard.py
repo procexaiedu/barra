@@ -19,9 +19,15 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 
+from barra.agente.fluxo import rotular_turno
 from barra.agente.nos.output_guard import tem_marcador_ia
 
-__all__ = ["extrair_tokens_pii", "redigir_pii_eco", "tem_marcador_ia"]
+__all__ = [
+    "extrair_tokens_pii",
+    "normalizar_emoji_voz",
+    "redigir_pii_eco",
+    "tem_marcador_ia",
+]
 
 # PII do cliente que a IA não deve ecoar. Endereço/CEP de propósito fora (saída legítima). O `tipo`
 # alimenta a métrica; em sobreposição de formato (telefone de 11 dígitos casa o shape de CPF) o
@@ -103,3 +109,66 @@ def redigir_pii_eco(texto: str, tokens_cliente: set[str]) -> tuple[str, list[str
     for tipo, padrao in _PADROES_PII:
         texto = padrao.sub(_substituir(tipo), texto)
     return texto, redigidos
+
+
+# --- Normalização de emoji da voz (camada de calibração, não segurança) -------
+# Mineração do corpus do Vendedor (scripts/eval_corpus/voz_por_momento.py, 2026-06-18): emoji é
+# RARO (10,7% das bolhas, 94,7% delas com exatamente 1), de vocabulário minúsculo e afetivo
+# (🥰 😊 dominam), concentrado na ABERTURA e ausente na venda dura (1% na sondagem). O modelo, por
+# format-bias de RLHF ("From Lists to Emojis", ACL 2025), tende a saturar (E2E rig Lucia: 32%, só
+# 🥰 repetido). Esta rede determinística crava o whitelist e seca a venda; a DISTRIBUIÇÃO/frequência
+# ao longo da conversa é alavanca de prompt (persona.md), fora do alcance desta função stateless.
+
+# Whitelist de voz: os dois únicos emoji que a persona usa (persona.md <voz>).
+_EMOJI_PERMITIDOS = frozenset({"🥰", "😊"})
+
+# Atos em que o Vendedor humano NÃO usa emoji (persona.md: "da cotação em diante é tudo seco").
+_ATOS_SECOS = frozenset({"cotacao", "sondagem", "desconto", "logistica"})
+
+# Faixas Unicode de emoji (mesmo recorte da estilometria do corpus). Inclui pictographs/emoticons,
+# símbolos & dingbats, setas, estrelas suplementares, seletores de variação e bandeiras.
+_EMOJI = re.compile(
+    "["
+    "\U0001f300-\U0001faff"
+    "\U00002600-\U000027bf"
+    "\U00002190-\U000021ff"
+    "\U00002b00-\U00002bff"
+    "\U0000fe00-\U0000fe0f"
+    "\U0001f1e6-\U0001f1ff"
+    "]"
+)
+
+
+def _normalizar_bolha(bolha: str) -> str:
+    """Aplica whitelist + máx-1 + seca-na-venda a UMA bolha. Não injeta emoji que o modelo não pôs."""
+    matches = list(_EMOJI.finditer(bolha))
+    if not matches:
+        return bolha
+    if rotular_turno(bolha) in _ATOS_SECOS:
+        manter = -1  # ato seco → remove todos
+    else:
+        # mantém só o ÚLTIMO emoji do whitelist (o corpus usa emoji como sufixo); o resto cai.
+        permitidos = [i for i, m in enumerate(matches) if m.group() in _EMOJI_PERMITIDOS]
+        manter = permitidos[-1] if permitidos else -1
+    partes: list[str] = []
+    fim = 0
+    for i, m in enumerate(matches):
+        partes.append(bolha[fim : m.start()])
+        if i == manter:
+            partes.append(m.group())
+        fim = m.end()
+    partes.append(bolha[fim:])
+    # limpa o espaço/sujeira que a remoção deixa (espaço duplo, espaço antes de pontuação, sobra).
+    texto = "".join(partes)
+    texto = re.sub(r"[ \t]{2,}", " ", texto)
+    texto = re.sub(r"\s+([,.!?])", r"\1", texto)
+    return texto.strip()
+
+
+def normalizar_emoji_voz(chunks: list[str]) -> list[str]:
+    """Normaliza o emoji de cada bolha do turno. Descarta bolha que ficou vazia (era só emoji fora
+    do whitelist); se isso esvaziar o turno inteiro, devolve os chunks originais (não engole o turno).
+    """
+    out = [_normalizar_bolha(c) for c in chunks]
+    nao_vazios = [c for c in out if c.strip()]
+    return nao_vazios or chunks

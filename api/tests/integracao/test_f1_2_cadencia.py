@@ -271,8 +271,14 @@ async def test_typing_e_jitter_presentes_e_na_faixa() -> None:
 
 
 def test_typing_e_pausa_dentro_da_faixa_da_spec() -> None:
-    """Faixas planas da spec (05 §4.1, jitter recalibrado 2026-06-17): typing 0.8-2.0s, jitter 0.8-2.8s."""
-    typings = [calcular_typing_ms("qualquer fala") for _ in range(200)]
+    """Typing proporcional à bolha de saída, piso 1.0s/teto 5.5s (05 §4.1, 2026-06-18); jitter
+    plano 0.8-2.8s. Dente: voltar o typing a random plano achata a proporcionalidade e quebra a
+    monotonicidade abaixo."""
+    curtas = [calcular_typing_ms("ok") for _ in range(200)]
+    longas = [calcular_typing_ms("x" * 200) for _ in range(200)]
     pausas = [calcular_pausa_ms() for _ in range(200)]
-    assert all(800 <= t <= 2000 for t in typings)
+    # piso e teto respeitados em toda a faixa
+    assert all(1000 <= t <= 5500 for t in curtas + longas)
+    # bolha maior ⇒ 'digitando…' maior (proporcionalidade monotônica, o ponto da mudança)
+    assert min(longas) > max(curtas)
     assert all(800 <= p <= 2800 for p in pausas)

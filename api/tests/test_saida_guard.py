@@ -7,6 +7,7 @@ quebraria o Pix de deslocamento quando a humanização (M4) anexar a chave.
 
 from barra.workers._saida_guard import (
     extrair_tokens_pii,
+    normalizar_emoji_voz,
     redigir_pii_eco,
     tem_marcador_ia,
 )
@@ -82,3 +83,39 @@ def test_cep_nao_e_tratado_como_pii() -> None:
 def test_marcador_ia_detecta_admissao() -> None:
     assert tem_marcador_ia("na real eu sou uma IA, foi mal")
     assert not tem_marcador_ia("sou a Bia, prazer 😊")
+
+
+# --- normalizar_emoji_voz: whitelist {🥰,😊} + máx-1 + seca-na-venda ----------
+
+
+def test_emoji_remove_fora_do_whitelist_mantem_permitido() -> None:
+    """Glyph fora de {🥰,😊} cai (girassol idiossincrático, fogo, coração); o permitido fica."""
+    assert normalizar_emoji_voz(["Bom dia 🌻"]) == ["Bom dia"]
+    assert normalizar_emoji_voz(["Oii amor 🥰"]) == ["Oii amor 🥰"]
+    assert normalizar_emoji_voz(["tudo bem? 😊"]) == ["tudo bem? 😊"]
+    assert normalizar_emoji_voz(["que delícia 🔥❤"]) == ["que delícia"]
+
+
+def test_emoji_maximo_um_por_bolha_mantem_o_ultimo() -> None:
+    """Rajada vira 1 (o corpus usa emoji como sufixo único)."""
+    assert normalizar_emoji_voz(["ai amor 🥰🥰🥰"]) == ["ai amor 🥰"]
+
+
+def test_emoji_secado_na_cotacao_e_logistica() -> None:
+    """Da cotação em diante é seco: bolha com preço ou logística perde o emoji (persona <voz>)."""
+    assert normalizar_emoji_voz(["800 1h ou 1200 2h 🥰"]) == ["800 1h ou 1200 2h"]
+    assert normalizar_emoji_voz(["te espero no endereço 🥰"]) == ["te espero no endereço"]
+
+
+def test_emoji_mantido_na_saudacao() -> None:
+    assert normalizar_emoji_voz(["Boa tarde amor 🥰"]) == ["Boa tarde amor 🥰"]
+
+
+def test_emoji_bolha_sem_emoji_intacta() -> None:
+    assert normalizar_emoji_voz(["seria hoje?"]) == ["seria hoje?"]
+
+
+def test_emoji_descarta_bolha_que_virou_vazia() -> None:
+    """Bolha que era só um glyph fora do whitelist some; o turno não vai vazio."""
+    assert normalizar_emoji_voz(["uma gracinha 🥰", "🌻"]) == ["uma gracinha 🥰"]
+    assert normalizar_emoji_voz(["🌻"]) == ["🌻"]  # esvaziaria tudo → devolve original

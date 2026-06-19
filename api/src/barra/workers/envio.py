@@ -33,7 +33,12 @@ from barra.dominio.escaladas.service import (
 )
 from barra.settings import get_settings
 from barra.workers._cards import render_card
-from barra.workers._saida_guard import extrair_tokens_pii, redigir_pii_eco, tem_marcador_ia
+from barra.workers._saida_guard import (
+    extrair_tokens_pii,
+    normalizar_emoji_voz,
+    redigir_pii_eco,
+    tem_marcador_ia,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -409,10 +414,26 @@ async def enviar_card(ctx: dict[str, Any], *, tipo: str, **kw: Any) -> None:
 # laço — jobs por chunk rodariam concorrentes (`max_jobs`) e não garantiriam ordem (05 §1).
 
 
-def calcular_typing_ms(_texto: str) -> int:
-    """Typing 0.8-2.0s, plano (05 §4.1). O que vende humanização é o 'digitando…' aparecer,
-    não a duração exata, então random plano em vez de proporcional ao tamanho."""
-    return random.randint(800, 2000)  # noqa: S311 -- jitter de humanização, nao cripto
+def calcular_typing_ms(texto: str) -> int:
+    """Typing proporcional ao tamanho da bolha DE SAÍDA, com piso/teto e jitter (05 §4.1).
+
+    Mudança 2026-06-18: era random plano 0.8-2.0s. A literatura de humanização (Gnewuch et al.,
+    "Faster is Not Always Better") manda escalar o delay pela complexidade da RESPOSTA, não só do
+    inbound (ver calcular_reading_delay_ms); e o tell mais detectável é uma bolha longa que aparece
+    após ~1s de 'digitando…'. Agora a duração cresce com len(texto); o random vira só jitter.
+
+    Como o reading delay, é DELIBERADAMENTE comprimido (~22 char/s, super-humano) para caber no
+    job_timeout de 90s com até 6 chunks — 200 cpm humanos levariam ~60s numa bolha de 200 chars e
+    leriam como travado. O que vende não é a velocidade absoluta bater com a humana, e sim a
+    proporcionalidade monotônica: bolha maior, 'digitando…' visivelmente maior.
+
+    Níveis (2026-06-18): piso 1.0s, +45ms/char, teto 5.5s. Calibrado pra que a bolha típica do
+    corpus (~15 chars) some typing+pausa ≈ 4s, em cima do gap inter-bolha humano (p50≈4s). NÃO
+    subir mais: o estudo de typing humanizado (Zhou & Hu, CUI '24) mostra que pausa pura, sem o
+    self-editing visível que o WhatsApp não permite mostrar, tende a ler como 'robótico/lento'."""
+    base_ms = 1000 + len(texto) * 45
+    jitter_ms = random.randint(-150, 350)  # noqa: S311 -- jitter de humanização, nao cripto
+    return max(1000, min(base_ms + jitter_ms, 5500))
 
 
 def calcular_pausa_ms() -> int:
@@ -533,6 +554,10 @@ async def _aplicar_saida_guard(
 ) -> list[str] | None:
     """Rede final antes da bolha. Devolve os chunks (com PII do cliente redigida por eco, se houver)
     ou None se o turno deve ser BLOQUEADO (vazamento de IA → handoff + bolha não sai)."""
+    # Camada de voz (independente do envio_guard de segurança): crava o whitelist de emoji {🥰,😊}
+    # e seca a venda. Aplica em TODOS os caminhos (canned/reengajamento inclusive), antes do resto.
+    if get_settings().filtro_emoji_habilitado:
+        chunks = normalizar_emoji_voz(chunks)
     if not get_settings().envio_guard_habilitado:
         return chunks
     texto = "\n".join(chunks)
