@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Elite Baby · Leitura do Atendimento</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,400..600&family=Spectral:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  :root{
+    --ink:#0c0a08;
+    --ink-2:#15110d;
+    --panel:#1a1510;
+    --line:rgba(201,163,94,.18);
+    --line-strong:rgba(201,163,94,.34);
+    --gold:#c9a35e;
+    --gold-bright:#e6c884;
+    --cream:#f2ead9;
+    --muted:#a99a82;
+    --muted-2:#7d715f;
+    --rose:#c77b6b;
+    --green:#8aa173;
+    --shadow:0 30px 70px -30px rgba(0,0,0,.85);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:
+      radial-gradient(120% 80% at 80% -10%, rgba(201,163,94,.10), transparent 55%),
+      radial-gradient(90% 60% at -10% 100%, rgba(199,123,107,.07), transparent 50%),
+      var(--ink);
+    color:var(--cream);
+    font-family:"Spectral",Georgia,serif;
+    font-weight:400;
+    line-height:1.6;
+    -webkit-font-smoothing:antialiased;
+    letter-spacing:.01em;
+    overflow-x:hidden;
+  }
+  body::before{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:1;opacity:.04;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+  .wrap{max-width:1180px;margin:0 auto;padding:0 28px;position:relative;z-index:2}
+
+  /* ---------- HEADER ---------- */
+  header{padding:78px 0 30px;border-bottom:1px solid var(--line)}
+  .kicker{
+    font-family:"Spline Sans Mono",monospace;font-size:11px;letter-spacing:.42em;
+    text-transform:uppercase;color:var(--gold);margin-bottom:26px;
+  }
+  h1{
+    font-family:"Fraunces",serif;font-weight:340;font-size:clamp(38px,6.4vw,82px);
+    line-height:.98;letter-spacing:-.02em;color:var(--cream);
+  }
+  h1 em{font-style:italic;color:var(--gold-bright);font-weight:380}
+  .lede{
+    max-width:640px;margin-top:26px;font-size:clamp(16px,1.6vw,19px);
+    color:var(--muted);font-weight:300;
+  }
+  .basis{
+    margin-top:30px;display:flex;flex-wrap:wrap;gap:10px 26px;
+    font-family:"Spline Sans Mono",monospace;font-size:11.5px;letter-spacing:.04em;
+    color:var(--muted-2);text-transform:uppercase;
+  }
+  .basis b{color:var(--gold);font-weight:500}
+
+  /* ---------- SECTION ---------- */
+  section{padding:74px 0;border-bottom:1px solid var(--line)}
+  .eyebrow{
+    font-family:"Spline Sans Mono",monospace;font-size:11px;letter-spacing:.36em;
+    text-transform:uppercase;color:var(--gold);display:flex;align-items:center;gap:14px;margin-bottom:22px;
+  }
+  .eyebrow::before{content:"";width:30px;height:1px;background:var(--gold)}
+  h2{
+    font-family:"Fraunces",serif;font-weight:330;font-size:clamp(27px,3.6vw,44px);
+    line-height:1.04;letter-spacing:-.015em;max-width:780px;
+  }
+  h2 em{font-style:italic;color:var(--gold-bright)}
+  .sub{margin-top:16px;max-width:620px;color:var(--muted);font-weight:300;font-size:16.5px}
+
+  /* ---------- HERO STATS ---------- */
+  .hero-grid{
+    margin-top:46px;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:3px;overflow:hidden;
+  }
+  .hero-cell{background:linear-gradient(170deg,var(--ink-2),var(--ink));padding:34px 30px}
+  .hero-num{
+    font-family:"Fraunces",serif;font-weight:300;font-size:clamp(52px,7vw,86px);
+    line-height:.9;letter-spacing:-.03em;color:var(--gold-bright);
+    font-variant-numeric:tabular-nums;
+  }
+  .hero-num span{font-size:.42em;color:var(--gold);vertical-align:.55em;margin-left:2px}
+  .hero-label{margin-top:16px;font-size:15px;color:var(--cream);font-weight:400}
+  .hero-note{margin-top:6px;font-size:13.5px;color:var(--muted-2);font-weight:300;font-style:italic}
+
+  /* ---------- FUNNEL ---------- */
+  .funnel{margin-top:48px;display:flex;flex-direction:column;gap:9px}
+  .frow{position:relative}
+  .fbar{
+    position:relative;height:62px;border-radius:2px;overflow:hidden;
+    background:rgba(201,163,94,.05);border:1px solid var(--line);
+  }
+  .ffill{
+    position:absolute;inset:0;width:var(--w);transform-origin:left;transform:scaleX(0);
+    background:linear-gradient(90deg,rgba(201,163,94,.28),rgba(230,200,132,.5));
+    border-right:2px solid var(--gold-bright);
+    transition:transform 1.1s cubic-bezier(.22,1,.36,1);
+  }
+  .show .ffill{transform:scaleX(1)}
+  .ftext{
+    position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;
+    padding:0 22px;z-index:2;
+  }
+  .ftext .name{font-size:16px;color:var(--cream);font-weight:500}
+  .ftext .num{
+    font-family:"Spline Sans Mono",monospace;font-weight:500;font-size:15px;
+    color:var(--gold-bright);font-variant-numeric:tabular-nums;
+  }
+  .ftext .num small{color:var(--muted-2);margin-left:8px;font-weight:400}
+  .leak{
+    display:flex;justify-content:flex-end;gap:8px;align-items:center;
+    padding:3px 22px 0;font-size:13px;color:var(--rose);font-style:italic;font-family:"Spectral"
+  }
+  .leak b{font-family:"Spline Sans Mono",monospace;font-style:normal;font-weight:500;font-size:12.5px}
+
+  /* ---------- REACTION CARDS ---------- */
+  .react{margin-top:46px;display:grid;grid-template-columns:repeat(5,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .rcell{background:var(--ink-2);padding:26px 20px;display:flex;flex-direction:column;gap:14px;position:relative}
+  .rcell .rp{font-family:"Fraunces",serif;font-size:40px;font-weight:300;color:var(--cream);line-height:1;font-variant-numeric:tabular-nums}
+  .rcell .rn{font-size:14px;color:var(--gold);font-weight:500}
+  .rcell .rd{font-size:12.5px;color:var(--muted);font-weight:300;line-height:1.45;margin-top:auto}
+  .rcell .tag{font-family:"Spline Sans Mono",monospace;font-size:10.5px;letter-spacing:.05em;padding:3px 8px;border-radius:99px;display:inline-block;width:fit-content}
+  .tag.win{color:var(--green);background:rgba(138,161,115,.12);border:1px solid rgba(138,161,115,.3)}
+  .tag.lose{color:var(--rose);background:rgba(199,123,107,.12);border:1px solid rgba(199,123,107,.3)}
+
+  .verdict{
+    margin-top:34px;padding:30px 34px;border:1px solid var(--line-strong);border-radius:3px;
+    background:linear-gradient(150deg,rgba(201,163,94,.07),transparent);
+    font-family:"Fraunces",serif;font-size:clamp(19px,2.3vw,26px);font-weight:330;line-height:1.4;
+  }
+  .verdict b{color:var(--gold-bright);font-weight:430}
+  .verdict .small{display:block;margin-top:14px;font-family:"Spectral";font-size:15px;color:var(--muted);font-weight:300}
+
+  /* ---------- TWO COL ---------- */
+  .duo{margin-top:46px;display:grid;grid-template-columns:1fr 1fr;gap:54px}
+  .blocktitle{font-family:"Fraunces",serif;font-size:21px;font-weight:360;margin-bottom:24px;color:var(--cream)}
+  .lines{display:flex;flex-direction:column;gap:18px}
+  .line .top{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:7px}
+  .line .lname{font-size:15.5px;color:var(--cream);font-weight:400}
+  .line .lval{font-family:"Spline Sans Mono",monospace;font-size:14px;color:var(--gold-bright);font-variant-numeric:tabular-nums;font-weight:500}
+  .track{height:7px;border-radius:99px;background:rgba(201,163,94,.08);overflow:hidden}
+  .meter{height:100%;width:var(--w);transform-origin:left;transform:scaleX(0);border-radius:99px;
+    background:linear-gradient(90deg,var(--gold),var(--gold-bright));transition:transform 1s cubic-bezier(.22,1,.36,1)}
+  .show .meter{transform:scaleX(1)}
+  .meter.dim{background:linear-gradient(90deg,rgba(199,123,107,.6),var(--rose))}
+
+  /* ---------- RECOVERY ---------- */
+  .rec-grid{margin-top:46px;display:grid;grid-template-columns:1.2fr 1fr;gap:54px;align-items:start}
+  .gauge{display:flex;flex-direction:column;gap:22px}
+  .grow{display:flex;align-items:center;gap:20px}
+  .grow .gl{width:140px;font-size:14.5px;color:var(--cream);flex-shrink:0}
+  .grow .gt{flex:1;height:30px;border-radius:2px;background:rgba(201,163,94,.06);position:relative;overflow:hidden;border:1px solid var(--line)}
+  .grow .gf{position:absolute;inset:0;width:var(--w);transform-origin:left;transform:scaleX(0);transition:transform 1s cubic-bezier(.22,1,.36,1)}
+  .show .gf{transform:scaleX(1)}
+  .gf.best{background:linear-gradient(90deg,rgba(138,161,115,.4),var(--green))}
+  .gf.mid{background:linear-gradient(90deg,rgba(201,163,94,.3),var(--gold))}
+  .gf.worst{background:linear-gradient(90deg,rgba(199,123,107,.35),var(--rose))}
+  .grow .gv{font-family:"Spline Sans Mono",monospace;font-size:14px;width:48px;text-align:right;color:var(--gold-bright);font-weight:500}
+  .decay{border-left:1px solid var(--line);padding-left:34px}
+  .decay h4{font-family:"Fraunces",serif;font-weight:360;font-size:18px;margin-bottom:18px}
+  .decaylist{display:flex;flex-direction:column;gap:0}
+  .dr{display:flex;justify-content:space-between;padding:13px 0;border-bottom:1px solid var(--line);font-size:14.5px;align-items:baseline}
+  .dr:last-child{border-bottom:0}
+  .dr .dw{color:var(--muted)}
+  .dr .dp{font-family:"Spline Sans Mono",monospace;font-weight:500;font-variant-numeric:tabular-nums}
+  .dp.hi{color:var(--green)} .dp.lo{color:var(--rose)} .dp.md{color:var(--gold-bright)}
+
+  .takeaways{margin-top:14px;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .ta{background:var(--ink-2);padding:30px 26px}
+  .ta .n{font-family:"Spline Sans Mono",monospace;font-size:12px;color:var(--gold);letter-spacing:.2em;margin-bottom:16px}
+  .ta p{font-family:"Fraunces",serif;font-size:19px;font-weight:330;line-height:1.35;color:var(--cream)}
+  .ta p b{color:var(--gold-bright);font-weight:430}
+
+  /* ---------- HOURS / DAYS ---------- */
+  .hours{margin-top:46px;display:flex;align-items:flex-end;gap:3px;height:190px}
+  .hbar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;gap:9px}
+  .hbar .hb{width:100%;border-radius:2px 2px 0 0;transform-origin:bottom;transform:scaleY(0);
+    background:linear-gradient(180deg,rgba(201,163,94,.55),rgba(201,163,94,.12));transition:transform 1s cubic-bezier(.22,1,.36,1)}
+  .show .hbar .hb{transform:scaleY(1)}
+  .hbar.peak .hb{background:linear-gradient(180deg,var(--gold-bright),rgba(230,200,132,.25))}
+  .hbar .hl{font-family:"Spline Sans Mono",monospace;font-size:9.5px;color:var(--muted-2);height:12px;white-space:nowrap}
+  .hbar.peak .hl{color:var(--gold-bright)}
+  .daygrid{margin-top:18px;display:grid;grid-template-columns:repeat(7,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .dcell{background:var(--ink-2);padding:18px 8px;text-align:center}
+  .dcell.hi{background:linear-gradient(160deg,rgba(201,163,94,.15),var(--ink-2))}
+  .dcell .dn{font-family:"Spline Sans Mono",monospace;font-size:10.5px;letter-spacing:.12em;color:var(--gold);text-transform:uppercase}
+  .dcell .dv{font-family:"Fraunces",serif;font-size:clamp(22px,3vw,31px);font-weight:300;color:var(--cream);margin-top:7px;font-variant-numeric:tabular-nums}
+
+  /* ---------- RANK ---------- */
+  .rank{margin-top:46px;display:flex;flex-direction:column;gap:1px;background:var(--line);border:1px solid var(--line);border-radius:3px;overflow:hidden}
+  .rrow{background:var(--ink-2);display:grid;grid-template-columns:48px 1fr 88px 88px 76px;gap:18px;align-items:center;padding:22px 26px}
+  .rrow.head{background:var(--ink);padding:14px 26px}
+  .rrow.head span{font-family:"Spline Sans Mono",monospace;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted-2)}
+  .rrow .pos{font-family:"Fraunces",serif;font-size:30px;font-weight:300;color:var(--gold-bright);line-height:1}
+  .rrow .who{font-size:16px;color:var(--cream)}
+  .rrow .who small{display:block;color:var(--muted-2);font-size:12px;font-family:"Spline Sans Mono",monospace;margin-top:4px}
+  .rrow .metric{font-family:"Spline Sans Mono",monospace;font-size:17px;color:var(--muted);font-variant-numeric:tabular-nums;text-align:right}
+  .rrow .metric.lead{color:var(--gold-bright);font-weight:600}
+  .rcol-r{text-align:right}
+
+  footer{padding:56px 0 90px;color:var(--muted-2);font-size:13px;font-weight:300;line-height:1.7;font-style:italic}
+  footer b{color:var(--muted);font-style:normal;font-weight:400}
+
+  /* reveal */
+  .reveal{opacity:0;transform:translateY(26px);transition:opacity .9s ease,transform .9s cubic-bezier(.22,1,.36,1)}
+  .reveal.show{opacity:1;transform:none}
+
+  @media(max-width:860px){
+    .hero-grid,.react,.takeaways{grid-template-columns:1fr}
+    .duo,.rec-grid{grid-template-columns:1fr;gap:40px}
+    .decay{border-left:0;padding-left:0;border-top:1px solid var(--line);padding-top:30px}
+    .react .rcell .rd{min-height:0}
+    .rrow{grid-template-columns:38px 1fr 60px 60px;gap:12px;padding:18px}
+    .rrow .metric:last-child{display:none}
+    .rrow.head span:last-child{display:none}
+    .hbar .hl{font-size:7px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="reveal">
+    <div class="kicker">Elite Baby · Leitura do Atendimento</div>
+    <h1>O que os clientes das<br/>suas <em>modelos</em> revelam</h1>
+    <p class="lede">Leitura de todo cliente que chamou suas modelos no WhatsApp — onde ele fecha o programa, onde some, e qual o momento que decide a venda. Tudo lido dos atendimentos reais, não de achismo.</p>
+    <div class="basis">
+      <span><b>1.512</b> atendimentos</span>
+      <span><b>71.335</b> mensagens</span>
+      <span><b>4</b> modelos</span>
+      <span>base · histórico de WhatsApp</span>
+    </div>
+  </header>
+
+  <!-- HERO -->
+  <section class="reveal">
+    <div class="eyebrow">O retrato em três números</div>
+    <h2>O programa se ganha ou se perde <em>na cotação</em> — e quase metade dos clientes nem chega lá.</h2>
+    <div class="hero-grid">
+      <div class="hero-cell">
+        <div class="hero-num">54<span>%</span></div>
+        <div class="hero-label">dos clientes chegam a receber a cotação</div>
+        <div class="hero-note">os outros 46% somem antes do valor</div>
+      </div>
+      <div class="hero-cell">
+        <div class="hero-num">92<span>%</span></div>
+        <div class="hero-label">dos clientes que param de responder ao ver o preço não voltam mais</div>
+        <div class="hero-note">parou de responder, cliente perdido</div>
+      </div>
+      <div class="hero-cell">
+        <div class="hero-num">53<span>%</span></div>
+        <div class="hero-label">das perdas é cliente que some sem falar nada</div>
+        <div class="hero-note">valor alto é só 14% — não é o vilão</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- FUNNEL -->
+  <section class="reveal">
+    <div class="eyebrow">O funil do atendimento</div>
+    <h2>De cada 100 clientes, <em>onde eles param</em></h2>
+    <p class="sub">Cada degrau mostra quantos clientes chegaram pelo menos até ali. O maior vazamento é cedo — antes mesmo de a modelo passar um valor.</p>
+    <div class="funnel" id="funnel">
+      <div class="frow">
+        <div class="fbar"><div class="ffill" style="--w:100%"></div>
+          <div class="ftext"><span class="name">Cliente chamou a modelo</span><span class="num">1.512 <small>100%</small></span></div></div>
+      </div>
+      <div class="frow">
+        <div class="fbar"><div class="ffill" style="--w:75.9%"></div>
+          <div class="ftext"><span class="name">Disse o que queria</span><span class="num">1.148 <small>75,9%</small></span></div></div>
+        <div class="leak">somem no "oi", sem dizer a que vieram <b>−24,1%</b></div>
+      </div>
+      <div class="frow">
+        <div class="fbar"><div class="ffill" style="--w:54.2%"></div>
+          <div class="ftext"><span class="name">Recebeu a cotação</span><span class="num">819 <small>54,2%</small></span></div></div>
+        <div class="leak">perguntam mas saem antes do valor <b>−21,8%</b></div>
+      </div>
+      <div class="frow">
+        <div class="fbar"><div class="ffill" style="--w:29.2%"></div>
+          <div class="ftext"><span class="name">Entrou em negociação</span><span class="num">442 <small>29,2%</small></span></div></div>
+      </div>
+      <div class="frow">
+        <div class="fbar"><div class="ffill" style="--w:18.1%"></div>
+          <div class="ftext"><span class="name">Combinou o horário</span><span class="num">274 <small>18,1%</small></span></div></div>
+      </div>
+      <div class="frow">
+        <div class="fbar"><div class="ffill" style="--w:10.3%"></div>
+          <div class="ftext"><span class="name">Confirmou presença (chegou, mandou Pix ou chamou o carro)</span><span class="num">155 <small>10,3%</small></span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- REACTION TO QUOTE -->
+  <section class="reveal">
+    <div class="eyebrow">O momento da verdade</div>
+    <h2>Como o cliente reage <em>ao ouvir o valor</em></h2>
+    <p class="sub">Entre os 784 atendimentos que receberam cotação, a primeira reação ao valor prevê quase todo o resto. Não é o valor em si — é o que o cliente faz depois.</p>
+    <div class="react">
+      <div class="rcell">
+        <div class="rp">35%</div><div class="rn">Se interessou</div>
+        <div class="rd">faz perguntas, continua o papo</div>
+        <span class="tag win">↑ fecha 19%</span>
+      </div>
+      <div class="rcell">
+        <div class="rp">19%</div><div class="rn">Já quer marcar</div>
+        <div class="rd">já parte pra horário e endereço</div>
+        <span class="tag win">↑ fecha 71%</span>
+      </div>
+      <div class="rcell">
+        <div class="rp">20%</div><div class="rn">Parou de responder</div>
+        <div class="rd">simplesmente some</div>
+        <span class="tag lose">↓ some 92%</span>
+      </div>
+      <div class="rcell">
+        <div class="rp">14%</div><div class="rn">Desviou</div>
+        <div class="rd">muda de assunto, foge do valor</div>
+        <span class="tag lose">↓ some 28%</span>
+      </div>
+      <div class="rcell">
+        <div class="rp">11%</div><div class="rn">Pechinchou</div>
+        <div class="rd">achou caro, pediu desconto</div>
+        <span class="tag win">↑ fecha 21%</span>
+      </div>
+    </div>
+    <div class="verdict">
+      Cliente que já parte pra <b>horário e endereço</b> ao ver o valor fecha o programa em <b>71%</b> das vezes; quem <b>para de responder</b> some em <b>92%</b>.
+      <span class="small">Repare: quem pechincha ainda fecha 21% — mais que o que cala. Cliente que reclama do valor ainda quer; o perigoso é o que some sem falar nada.</span>
+    </div>
+  </section>
+
+  <!-- WHY WE LOSE / WHAT CLIENT WANTS -->
+  <section class="reveal">
+    <div class="eyebrow">Onde o dinheiro escapa</div>
+    <h2>Por que perdemos — e <em>o que o cliente procura</em></h2>
+    <div class="duo">
+      <div>
+        <div class="blocktitle">Por que o cliente perde <span style="color:var(--muted-2);font-size:14px;font-family:'Spline Sans Mono'">· n=580</span></div>
+        <div class="lines" id="loss">
+          <div class="line"><div class="top"><span class="lname">Sumiu sem falar nada</span><span class="lval">52,6%</span></div><div class="track"><div class="meter dim" style="--w:100%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Não bateu o horário / agenda</span><span class="lval">23,3%</span></div><div class="track"><div class="meter dim" style="--w:44%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Achou caro</span><span class="lval">13,6%</span></div><div class="track"><div class="meter dim" style="--w:26%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Outro</span><span class="lval">6,4%</span></div><div class="track"><div class="meter dim" style="--w:12%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Medo de golpe / segurança</span><span class="lval">2,6%</span></div><div class="track"><div class="meter dim" style="--w:5%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Fora da área de atendimento</span><span class="lval">1,6%</span></div><div class="track"><div class="meter dim" style="--w:3%"></div></div></div>
+        </div>
+        <p class="sub" style="margin-top:24px">55% somem <b style="color:var(--cream);font-weight:500">sem dar motivo</b>. Trazer esses de volta é mais sobre o tempo e o jeito do retorno do que sobre baixar valor.</p>
+      </div>
+      <div>
+        <div class="blocktitle">Tipo de atendimento procurado</div>
+        <div class="lines" id="type">
+          <div class="line"><div class="top"><span class="lname">Interno (cliente vai até a modelo)</span><span class="lval">49,3%</span></div><div class="track"><div class="meter" style="--w:100%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Externo (modelo se desloca)</span><span class="lval">6,5%</span></div><div class="track"><div class="meter" style="--w:13%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Aceita ambos</span><span class="lval">4,8%</span></div><div class="track"><div class="meter" style="--w:10%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Cliente busca a modelo (pickup)</span><span class="lval">1,2%</span></div><div class="track"><div class="meter" style="--w:2.4%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Vídeo chamada (remoto)</span><span class="lval">1,1%</span></div><div class="track"><div class="meter" style="--w:2.2%"></div></div></div>
+          <div class="line"><div class="top"><span class="lname">Não definido no atendimento</span><span class="lval">37,2%</span></div><div class="track"><div class="meter" style="--w:75%"></div></div></div>
+        </div>
+        <p class="sub" style="margin-top:24px">O <b style="color:var(--cream);font-weight:500">interno domina</b> com folga. Externo e vídeo chamada, somados, não passam de 9% — na prática, é o cliente que vai até a modelo.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- WHAT BLOCKS THE CLIENT -->
+  <section class="reveal">
+    <div class="eyebrow">Onde o atendimento emperra</div>
+    <h2>O que <em>trava o cliente</em></h2>
+    <p class="sub">Em 7 de cada 10 atendimentos o cliente não levanta nenhuma objeção. Quando levanta, é mais sobre encaixar horário do que sobre dinheiro.</p>
+    <div class="lines" style="margin-top:40px;max-width:780px">
+      <div class="line"><div class="top"><span class="lname">Horário não bate</span><span class="lval">12,6%</span></div><div class="track"><div class="meter" style="--w:100%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">Achou caro</span><span class="lval">9,9%</span></div><div class="track"><div class="meter" style="--w:79%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">Distância / local</span><span class="lval">3,8%</span></div><div class="track"><div class="meter" style="--w:30%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">Ficou em cima do muro (indeciso)</span><span class="lval">2,4%</span></div><div class="track"><div class="meter" style="--w:19%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">Medo de golpe (pede prova de que é real)</span><span class="lval">2,0%</span></div><div class="track"><div class="meter" style="--w:16%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">Receio de segurança</span><span class="lval">0,9%</span></div><div class="track"><div class="meter" style="--w:7%"></div></div></div>
+    </div>
+    <div class="verdict" style="margin-top:34px">Mais clientes esbarram em <b>horário</b> (13%) do que em <b>preço</b> (10%).
+      <span class="small">Agilizar o encaixe de horário destrava mais venda do que baixar valor. E aqueles 2% que pedem prova de que é real são justamente medo de golpe — uma foto ou áudio na hora certa salva o atendimento.</span>
+    </div>
+  </section>
+
+  <!-- PRICE TABLE -->
+  <section class="reveal">
+    <div class="eyebrow">A tabela na prática</div>
+    <h2>Os valores que as modelos <em>mais cotam</em></h2>
+    <p class="sub">Os preços que mais aparecem nas cotações, lidos do texto das conversas. O miolo do cardápio fica entre R$ 350 e R$ 700.</p>
+    <div class="lines" style="margin-top:40px;max-width:780px">
+      <div class="line"><div class="top"><span class="lname">R$ 600</span><span class="lval">279 cotações</span></div><div class="track"><div class="meter" style="--w:100%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">R$ 400</span><span class="lval">262</span></div><div class="track"><div class="meter" style="--w:94%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">R$ 350</span><span class="lval">228</span></div><div class="track"><div class="meter" style="--w:82%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">R$ 500</span><span class="lval">186</span></div><div class="track"><div class="meter" style="--w:67%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">R$ 700</span><span class="lval">148</span></div><div class="track"><div class="meter" style="--w:53%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">R$ 300</span><span class="lval">64</span></div><div class="track"><div class="meter" style="--w:23%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">R$ 250</span><span class="lval">56</span></div><div class="track"><div class="meter" style="--w:20%"></div></div></div>
+      <div class="line"><div class="top"><span class="lname">R$ 150</span><span class="lval">41</span></div><div class="track"><div class="meter" style="--w:15%"></div></div></div>
+    </div>
+    <p class="sub" style="margin-top:24px">Acima de R$ 1.000 aparece pernoite e pacote. <b style="color:var(--cream);font-weight:500">Importante:</b> é o valor <b style="color:var(--cream);font-weight:500">cotado</b>, não o fechado — desconto de fechamento e Pix de deslocamento entram depois.</p>
+  </section>
+
+  <!-- MODEL RANKING -->
+  <section class="reveal">
+    <div class="eyebrow">Desempenho por modelo</div>
+    <h2>Quais modelos estão <em>vendendo melhor</em></h2>
+    <p class="sub">As 4 modelos lado a lado (mantidas anônimas). Não é só volume: a que mais fecha agenda recebe menos contato que a de maior movimento.</p>
+    <div class="rank">
+      <div class="rrow head"><span>#</span><span>Modelo</span><span class="rcol-r">Chega ao valor</span><span class="rcol-r">Fecha agenda</span><span class="rcol-r">Msgs/atend.</span></div>
+      <div class="rrow"><span class="pos">A</span><span class="who">Modelo A<small>541 atendimentos</small></span><span class="metric lead">60%</span><span class="metric lead">65%</span><span class="metric">18</span></div>
+      <div class="rrow"><span class="pos">B</span><span class="who">Modelo B<small>671 atendimentos</small></span><span class="metric">51%</span><span class="metric">56%</span><span class="metric">17</span></div>
+      <div class="rrow"><span class="pos">C</span><span class="who">Modelo C<small>174 atendimentos</small></span><span class="metric">44%</span><span class="metric">47%</span><span class="metric">12</span></div>
+      <div class="rrow"><span class="pos">D</span><span class="who">Modelo D<small>126 atendimentos</small></span><span class="metric">32%</span><span class="metric">33%</span><span class="metric">7</span></div>
+    </div>
+    <p class="sub" style="margin-top:24px">A <b style="color:var(--cream);font-weight:500">Modelo A</b> recebe menos contato que a B, mas fecha agenda em <b style="color:var(--cream);font-weight:500">65%</b> contra 33% da última — quase o dobro. Vale entender o que ela faz de diferente e replicar.</p>
+  </section>
+
+  <!-- DEMAND CLOCK -->
+  <section class="reveal">
+    <div class="eyebrow">O relógio da demanda</div>
+    <h2>Quando os clientes <em>chamam</em></h2>
+    <p class="sub">Horário de Brasília, primeiro contato de cada cliente. A procura tem dois picos — meio da tarde (15h) e começo da noite (21h) — e quase não dorme.</p>
+    <div class="hours" id="hours">
+      <div class="hbar"><div class="hb" style="height:56%"></div><div class="hl">0h</div></div>
+      <div class="hbar"><div class="hb" style="height:43%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:22%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:26%"></div><div class="hl">3h</div></div>
+      <div class="hbar"><div class="hb" style="height:21%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:25%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:47%"></div><div class="hl">6h</div></div>
+      <div class="hbar"><div class="hb" style="height:51%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:68%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:73%"></div><div class="hl">9h</div></div>
+      <div class="hbar"><div class="hb" style="height:82%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:81%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:78%"></div><div class="hl">12h</div></div>
+      <div class="hbar"><div class="hb" style="height:90%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:82%"></div><div class="hl"></div></div>
+      <div class="hbar peak"><div class="hb" style="height:97%"></div><div class="hl">15h</div></div>
+      <div class="hbar"><div class="hb" style="height:79%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:76%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:69%"></div><div class="hl">18h</div></div>
+      <div class="hbar"><div class="hb" style="height:84%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:65%"></div><div class="hl"></div></div>
+      <div class="hbar peak"><div class="hb" style="height:100%"></div><div class="hl">21h</div></div>
+      <div class="hbar"><div class="hb" style="height:75%"></div><div class="hl"></div></div>
+      <div class="hbar"><div class="hb" style="height:75%"></div><div class="hl">23h</div></div>
+    </div>
+    <div class="daygrid">
+      <div class="dcell hi"><div class="dn">Seg</div><div class="dv">292</div></div>
+      <div class="dcell"><div class="dn">Ter</div><div class="dv">192</div></div>
+      <div class="dcell"><div class="dn">Qua</div><div class="dv">200</div></div>
+      <div class="dcell"><div class="dn">Qui</div><div class="dv">203</div></div>
+      <div class="dcell"><div class="dn">Sex</div><div class="dv">212</div></div>
+      <div class="dcell"><div class="dn">Sáb</div><div class="dv">188</div></div>
+      <div class="dcell"><div class="dn">Dom</div><div class="dv">215</div></div>
+    </div>
+    <p class="sub" style="margin-top:24px"><b style="color:var(--cream);font-weight:500">Segunda</b> é o dia mais movimentado e a procura se concentra da tarde à noite. É aí que a modelo (ou a IA) precisa responder na hora — cliente que espera some.</p>
+  </section>
+
+  <!-- RECOVERY -->
+  <section class="reveal">
+    <div class="eyebrow">A segunda chance</div>
+    <h2>Quando o cliente some, <em>dá pra trazer de volta</em></h2>
+    <p class="sub">Sobre 718 tentativas reais de reabrir um cliente que sumiu: o jeito de puxar papo e o tempo de espera mudam tudo. Uma pergunta leve traz de volta dois em cada três.</p>
+    <div class="rec-grid">
+      <div class="gauge" id="reeng">
+        <div class="grow"><span class="gl">Pergunta leve</span><div class="gt"><div class="gf best" style="--w:68.5%"></div></div><span class="gv">68%</span></div>
+        <div class="grow"><span class="gl">Mídia nova</span><div class="gt"><div class="gf mid" style="--w:55.2%"></div></div><span class="gv">55%</span></div>
+        <div class="grow"><span class="gl">"Tô indo embora"</span><div class="gt"><div class="gf worst" style="--w:27.8%"></div></div><span class="gv">28%</span></div>
+        <div class="grow"><span class="gl">Oferta de desconto</span><div class="gt"><div class="gf worst" style="--w:11.1%"></div></div><span class="gv">11%</span></div>
+      </div>
+      <div class="decay">
+        <h4>A janela esfria rápido</h4>
+        <div class="decaylist">
+          <div class="dr"><span class="dw">40 min – 2 h</span><span class="dp hi">62,3%</span></div>
+          <div class="dr"><span class="dw">2 h – 24 h</span><span class="dp md">~50%</span></div>
+          <div class="dr"><span class="dw">depois de 24 h</span><span class="dp lo">37,2%</span></div>
+        </div>
+        <p class="sub" style="margin-top:20px;font-size:14.5px">A chance de reabrir despenca com o tempo. O retorno certo é <b style="color:var(--cream);font-weight:500">cedo e leve</b> — não é desconto, nem "tô indo embora".</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAKEAWAYS -->
+  <section class="reveal" style="border-bottom:0">
+    <div class="eyebrow">Em uma linha</div>
+    <h2>O que fazer com isso</h2>
+    <div class="takeaways">
+      <div class="ta"><div class="n">01</div><p>Metade some <b>antes do valor</b>. Levar mais cliente até a cotação rende mais do que dar desconto.</p></div>
+      <div class="ta"><div class="n">02</div><p>O <b>silêncio na cotação</b> é o sinal de cliente perdido. É nessa janela, respondendo rápido, que se salva o programa.</p></div>
+      <div class="ta"><div class="n">03</div><p>Quem some volta com <b>uma pergunta leve em até 2 h</b> — não com desconto nem pressão.</p></div>
+    </div>
+  </section>
+
+  <footer>
+    <b>Como foi medido.</b> Leitura de 1.512 atendimentos reais do WhatsApp de 4 modelos, classificados por estágio do funil, reação à cotação, objeção e motivo de perda. Os desfechos são lidos do próprio atendimento (cliente chegou, mandou o Pix, chamou o carro) — são indicadores fortes, mas não substituem o valor final que a modelo fecha e registra. A "tabela praticada" é o valor <b>cotado</b> garimpado do texto das conversas, não o fechado. Horários convertidos para o fuso de Brasília. Modelos mantidas anônimas (A–D). Reação à cotação: 784 · motivos de perda: 580 · retorno a cliente sumido: 718 tentativas. Percentuais arredondados.
+  </footer>
+
+</div>
+
+<script>
+  const io=new IntersectionObserver((es)=>{
+    es.forEach(e=>{ if(e.isIntersecting){ e.target.classList.add('show'); io.unobserve(e.target);} });
+  },{threshold:.18});
+  document.querySelectorAll('.reveal,#funnel,#loss,#type,#reeng').forEach(el=>io.observe(el));
+  // header visível de cara
+  requestAnimationFrame(()=>document.querySelector('header').classList.add('show'));
+</script>
+</body>
+</html>
