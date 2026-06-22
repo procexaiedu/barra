@@ -54,8 +54,8 @@ PRECO_OPENROUTER_USD_PER_MTOK: dict[str, dict[str, float]] = {
 
 # USD por milhao de tokens — DeepSeek V4 Flash DIRETO (api.deepseek.com), usado pelo chat #1
 # (`llm_chat_provider=deepseek`) e, quando ligados, pela extracao #2 e pelo judge #3. A API reporta
-# `model_name="deepseek-v4-flash"` (sem prefixo de provider), mesmo com o alias `deepseek-chat`
-# configurado. Tarifa oficial V4 Flash (deepseek.com 2026-06): input cache-miss $0.14, output $0.28,
+# `model_name="deepseek-v4-flash"` (sem prefixo de provider; idem com o alias legado `deepseek-chat`,
+# que aposenta 2026-07-24). Tarifa oficial V4 Flash (deepseek.com 2026-06): input cache-miss $0.14, output $0.28,
 # cache-hit $0.0028 (50x mais barato que o miss). O cache do DeepSeek-direct e automatico e o
 # `usage_metadata` reporta a parcela cacheada em `input_token_details.cache_read` — `calcular_custo_brl`
 # desconta o cache_read do input cheio (input_nao_cacheado) e o cobra a `cache_read`. Sem chaves de
@@ -65,6 +65,21 @@ PRECO_DEEPSEEK_USD_PER_MTOK: dict[str, float] = {
     "output": 0.28,
     "cache_read": 0.0028,
 }
+
+
+def cache_read_deepseek(response_metadata: dict[str, Any] | None) -> int:
+    """Tokens de cache-hit do DeepSeek-direct que o langchain-openai NAO mapeia p/ usage_metadata.
+
+    O DeepSeek-direct (api.deepseek.com) reporta o cache so em `token_usage.prompt_cache_hit_tokens`
+    (campo proprio), NUNCA no `prompt_tokens_details.cached_tokens` que `ChatOpenAI._create_usage_metadata`
+    le -> `usage_metadata.input_token_details.cache_read` chega ZERADO no caminho DeepSeek-direct e
+    `calcular_custo_brl` cobraria 100% do input como miss ($0.14), super-estimando ~10x a parcela de
+    input (o "92% cache hit" do Langfuse, que le o `token_usage` cru, divergiria do nosso BRL). O SDK
+    OpenAI preserva o campo extra (CompletionUsage.model_config extra='allow'), entao ele sobrevive em
+    `response_metadata["token_usage"]`. Anthropic/OpenRouter nao tem essa chave -> 0 (no-op)."""
+    tu = (response_metadata or {}).get("token_usage") or {}
+    valor = tu.get("prompt_cache_hit_tokens", 0)
+    return int(valor) if valor else 0
 
 
 def _tabela_preco(model_name: str | None) -> dict[str, float]:

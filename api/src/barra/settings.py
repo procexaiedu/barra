@@ -73,13 +73,16 @@ class Settings(BaseSettings):
     # Chat #1 DIRETO na API DeepSeek (api.deepseek.com), quando llm_chat_provider=deepseek. Preferido
     # em escala: garante o cache automatico de prefixo (so o endpoint oficial cacheia; o prefixo
     # global byte-identico fica quente -> 98% mais barato no hit) E crava modelo/quant (sem roleta de
-    # FP4 do load-balance OpenRouter). `deepseek-chat` = V4 Flash non-thinking (nao precisa de
-    # reasoning_off; nomes legados saem em 2026-07-24 -> depois `deepseek-v4-flash` direto).
+    # FP4 do load-balance OpenRouter). `deepseek-v4-flash` = id atual do V4 Flash (os aliases legados
+    # `deepseek-chat`/`deepseek-reasoner` saem em 2026-07-24 15:59 UTC). O id cru tem thinking LIGADO
+    # por default (doc oficial: "the thinking toggle defaults to enabled") -> criar_chat_deepseek
+    # passa `extra_body={"thinking": {"type": "disabled"}}` p/ travar non-thinking (preserva
+    # structured output #2/#3 e a temperature 1.3 do chat #1).
     deepseek_api_key: str | None = None
-    deepseek_model_chat: str = "deepseek-chat"
+    deepseek_model_chat: str = "deepseek-v4-flash"
     # Temperatura do chat #1 (qualquer provider que sirva o chat: deepseek-direct ou openrouter).
     # Recomendacao oficial DeepSeek p/ chat/traducao ~1.3 (vs ~1.0 default). So e honrada em modo
-    # non-thinking (deepseek-chat ja e; no OpenRouter exige reasoning OFF, que _criar_chat_principal
+    # non-thinking (direct: extra_body thinking:disabled; no OpenRouter exige reasoning OFF, que _criar_chat_principal
     # seta). Escopo: SO o chat #1 — extracao (#2) e judge (#3) chamam sem temperatura (determinismo).
     chat_temperature: float = Field(
         default=1.3,
@@ -181,7 +184,7 @@ class Settings(BaseSettings):
     # ChatAnthropic; `openrouter` -> openrouter_model_extracao via ChatOpenAI (base_url OpenRouter).
     # Toggle dedicado (nao reusa llm_chat_provider, que e semantico da #1) -> kill-switch por-chamada
     # sem deploy. DeepSeek-direct: ~30x mais barato que Haiku E cacheia o prefixo (system minimo +
-    # janela) automaticamente; `deepseek-chat` e non-thinking, nao corrompe o structured output da
+    # janela) automaticamente; thinking travado em disabled (extra_body) nao corrompe o structured output da
     # extracao (tool_choice).
     extracao_provider: Literal["anthropic", "openrouter", "deepseek"] = "deepseek"
     openrouter_model_extracao: str | None = Field(

@@ -150,11 +150,15 @@ def criar_chat_deepseek(
     quente (chat: BP_GERAL global; judge: o system aup_saida.md repetido antes de cada bolha), ~98%
     mais barato no hit; (2) crava modelo/quantização, sem a roleta de FP4 do load-balance.
 
-    `modelo` (default settings.deepseek_model_chat = `deepseek-chat`) já é o modo non-thinking do V4
-    Flash — então NÃO precisa de `reasoning_off` nem do `extra_body` de provider/quant (conceitos do
-    OpenRouter); evita o thinking que corromperia structured output (judge) e ignoraria temperature
-    (chat). ⚠️ `deepseek-chat` é alias legado (aposenta 2026-07-24); depois usar `deepseek-v4-flash`
-    com parâmetro explícito de non-thinking. `temperature` honrada (non-thinking); None = omite.
+    `modelo` (default settings.deepseek_model_chat = `deepseek-v4-flash`) é o id atual do V4 Flash;
+    os aliases legados `deepseek-chat`/`deepseek-reasoner` aposentam 2026-07-24 15:59 UTC. O id cru
+    tem **thinking LIGADO por default** (doc oficial: "the thinking toggle defaults to enabled"),
+    então a factory passa SEMPRE `extra_body={"thinking": {"type": "disabled"}}` p/ travar
+    non-thinking — sem isso o thinking corromperia o structured output (extração #2/judge #3),
+    ignoraria a `temperature` (chat #1) e ainda arriscaria HTTP 400 nas tool calls (o provider exige
+    devolver `reasoning_content` nos turnos seguintes, que o langchain-openai não conhece). Não usa
+    `reasoning_off` nem `provider`/`quantizations` (conceitos do OpenRouter, não do endpoint direto).
+    `temperature` honrada (non-thinking); None = omite.
     """
     return ChatOpenAI(
         model=modelo or settings.deepseek_model_chat,
@@ -164,6 +168,8 @@ def criar_chat_deepseek(
         temperature=temperature,
         max_retries=2,
         timeout=60.0,
+        # thinking disabled explícito: o id cru `deepseek-v4-flash` liga thinking por default.
+        extra_body={"thinking": {"type": "disabled"}},
     )
 
 

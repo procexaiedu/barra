@@ -443,7 +443,7 @@ async def test_julgar_aup_openrouter_ok_retorna_veredito(monkeypatch: Any) -> No
 
 
 async def test_julgar_aup_deepseek_direct_ok_retorna_veredito(monkeypatch: Any) -> None:
-    # Judge em direct DeepSeek (deepseek-chat = non-thinking): cacheia aup_saida.md + crava modelo.
+    # Judge em direct DeepSeek (V4 Flash, thinking travado em disabled): cacheia aup_saida.md + crava modelo.
     # finish_reason=stop + parsed valido -> devolve o veredito pela rota criar_chat_deepseek.
     veredito = mod._VeredictoAup(viola=True, motivo="ia_self")
     res = _judge_resultado("stop", parsed=veredito, chave="finish_reason")
@@ -453,7 +453,7 @@ async def test_julgar_aup_deepseek_direct_ok_retorna_veredito(monkeypatch: Any) 
     settings = SimpleNamespace(
         output_guard_provider="deepseek",
         deepseek_api_key="sk-test",
-        deepseek_model_chat="deepseek-chat",
+        deepseek_model_chat="deepseek-v4-flash",
     )
     out = await mod._julgar_aup("texto qualquer", settings)
     assert out.viola is True

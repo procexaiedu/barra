@@ -44,7 +44,7 @@ def _criar_chat_principal(settings: Settings) -> Any:
     """Chat principal (#1) pelo provider em settings.llm_chat_provider.
 
     `deepseek` -> ChatOpenAI DIRETO na API DeepSeek (cache automático garantido + modelo/quant
-    cravados; preferido em escala). `deepseek-chat` já é non-thinking, só passa `temperature`.
+    cravados; preferido em escala). thinking travado em disabled (extra_body), só passa `temperature`.
     `openrouter` -> ChatOpenAI no pool OpenRouter (id em openrouter_model_chat), SEM
     `require_parameters` (o deepseek-v4-flash dá 404 com ele, mesmo honrando tool_choice), com
     `reasoning_off` (voz vem da persona), `temperature` e piso de `quantizations`.
@@ -69,8 +69,8 @@ def _criar_chat_principal(settings: Settings) -> Any:
 def _criar_chat_extracao_barata(settings: Settings) -> Any:
     """Chat da extracao forcada barata (#2) pelo provider em settings.extracao_provider.
 
-    `deepseek` -> ChatOpenAI DIRETO na API DeepSeek (deepseek_model_chat). `deepseek-chat` ja e
-    non-thinking — nao corrompe o structured output da extracao (tool_choice) e dispensa
+    `deepseek` -> ChatOpenAI DIRETO na API DeepSeek (deepseek_model_chat). thinking travado em
+    disabled (extra_body) — nao corrompe o structured output da extracao (tool_choice) e dispensa
     reasoning_off; o cache automatico do DeepSeek barateia o prefixo curto (system minimo + janela).
     `openrouter` -> ChatOpenAI (id em openrouter_model_extracao; settings valida que esta setado).
     `anthropic` -> Haiku via ChatAnthropic com com_effort=False. Devolve um BaseChatModel; o no

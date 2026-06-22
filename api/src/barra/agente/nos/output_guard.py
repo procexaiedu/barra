@@ -192,7 +192,7 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
     )
 
     if settings.output_guard_provider == "deepseek":
-        # direct DeepSeek (deepseek-chat = non-thinking V4 Flash): cacheia o prefixo aup_saida.md (o
+        # direct DeepSeek (V4 Flash, thinking travado em disabled): cacheia o prefixo aup_saida.md (o
         # mesmo system antes de CADA bolha) e crava modelo/quant — sem roleta do pool nem risco de
         # thinking corromper o veredito (vllm#41132). method="function_calling" mantido.
         chat = criar_chat_deepseek(settings).with_structured_output(

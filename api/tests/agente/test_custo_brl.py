@@ -17,6 +17,7 @@ from prometheus_client import REGISTRY
 
 from barra.agente._custo import (
     PRECO_USD_PER_MTOK,
+    cache_read_deepseek,
     calcular_custo_brl,
     input_nao_cacheado,
 )
@@ -80,6 +81,40 @@ def test_calcular_custo_brl_deepseek_direct_usa_tabela_com_cache() -> None:
     assert custo == pytest.approx(esperado_usd * COTACAO)
     # e a um custo irrisorio (~R$0.001), nao a fantasia de Sonnet que o bug produzia.
     assert calcular_custo_brl(um, COTACAO) > custo * 20  # default Sonnet >> DeepSeek direto
+
+
+def test_cache_read_deepseek_extrai_hit_do_token_usage() -> None:
+    # DeepSeek-direct reporta o cache so em token_usage.prompt_cache_hit_tokens (campo proprio,
+    # preservado pelo SDK OpenAI extra='allow'); o langchain-openai NAO o mapeia p/ cache_read.
+    rm = {"token_usage": {"prompt_tokens": 11_951, "prompt_cache_hit_tokens": 11_008}}
+    assert cache_read_deepseek(rm) == 11_008
+
+
+def test_cache_read_deepseek_ausente_ou_anthropic_retorna_zero() -> None:
+    # Anthropic/OpenRouter nao tem essa chave -> 0 (no-op). None/sem token_usage -> 0.
+    assert cache_read_deepseek(None) == 0
+    assert cache_read_deepseek({}) == 0
+    assert cache_read_deepseek({"token_usage": {"prompt_tokens": 100}}) == 0
+    assert cache_read_deepseek({"token_usage": {"prompt_cache_hit_tokens": 0}}) == 0
+
+
+def test_custo_brl_com_cache_reinjetado_bate_o_direct() -> None:
+    # Pipeline do fix: o usage do DeepSeek-direct chega SEM cache_read (langchain-openai le
+    # `prompt_tokens_details.cached_tokens`, que o DeepSeek manda como None). Apos reinjetar o hit do
+    # token_usage em input_token_details.cache_read, calcular_custo_brl cobra o prefixo a $0.0028
+    # (read), nao a $0.14 (miss) — fim da super-estimativa ~10x. Mesmo turno do trace 33f01d3a.
+    hit = cache_read_deepseek({"token_usage": {"prompt_cache_hit_tokens": 11_008}})
+    um: dict[str, Any] = {
+        "input_tokens": 11_951,  # total = 943 miss + 11008 hit
+        "output_tokens": 24,
+        "input_token_details": {"cache_read": hit},
+    }
+    custo = calcular_custo_brl(um, COTACAO, model_name="deepseek-v4-flash")
+    esperado_usd = (943 * 0.14 + 24 * 0.28 + 11_008 * 0.0028) / 1_000_000
+    assert custo == pytest.approx(esperado_usd * COTACAO)
+    # sem o reinject (cache_read=0) o mesmo turno cobraria todo o input como miss -> ~10x maior.
+    sem_fix: dict[str, Any] = {**um, "input_token_details": {}}
+    assert calcular_custo_brl(sem_fix, COTACAO, model_name="deepseek-v4-flash") > custo * 5
 
 
 def test_calcular_custo_brl_so_cache_read_quase_zero() -> None:
@@ -185,3 +220,28 @@ def test_no_llm_observa_custo_brl_no_histogram() -> None:
     asyncio.run(no_llm(_FakeChat(resp, model=modelo), [])({"messages": []}, _runtime()))
     depois = REGISTRY.get_sample_value("agente_custo_turno_brl_count", {"modelo": modelo}) or 0.0
     assert depois - antes == 1.0, "1 observe por turno"
+
+
+def test_no_llm_reinjeta_cache_read_deepseek_no_objeto() -> None:
+    # DeepSeek-direct: o usage chega sem cache_read; o cache-hit so vem em response_metadata.
+    # token_usage. O no llm reinjeta cache_read NO PROPRIO objeto da AIMessage (mutacao in-place),
+    # entao tanto a metrica/custo aqui quanto a acumulacao do coordenador (que le este mesmo objeto no
+    # canal `messages`) precificam o prefixo como cache, nao como input cheio.
+    modelo = f"deepseek-v4-flash-{uuid4().hex}"
+    um = {
+        "input_tokens": 11_951,  # total = 943 miss + 11008 hit
+        "output_tokens": 24,
+        "total_tokens": 11_975,
+        "input_token_details": {},  # langchain-openai nao mapeou (DeepSeek nao manda cached_tokens)
+    }
+    resp = AIMessage(
+        content="oi",
+        usage_metadata=um,  # type: ignore[arg-type]
+        response_metadata={
+            "token_usage": {"prompt_cache_hit_tokens": 11_008},
+            "finish_reason": "stop",
+        },
+    )
+    asyncio.run(no_llm(_FakeChat(resp, model=modelo), [])({"messages": []}, _runtime()))
+    assert resp.usage_metadata is not None
+    assert resp.usage_metadata["input_token_details"]["cache_read"] == 11_008

@@ -29,7 +29,7 @@ from barra.core.llm import PARADA_TRUNCADA, motivo_parada, nome_modelo
 from barra.core.metrics import AGENTE_CUSTO_TURNO_BRL, AGENTE_TURNO_TOKENS, TURNO_TRUNCADO
 from barra.settings import get_settings
 
-from .._custo import calcular_custo_brl
+from .._custo import cache_read_deepseek, calcular_custo_brl
 from .._texto_turno import texto_da_mensagem
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
@@ -113,6 +113,18 @@ def _instrumentar_tokens(resp: BaseMessage, modelo: str) -> None:
     um = getattr(resp, "usage_metadata", None)
     if not um:
         return
+    # DeepSeek-direct reporta o cache-hit so em token_usage.prompt_cache_hit_tokens — o langchain-openai
+    # nao mapeia p/ input_token_details.cache_read (le `prompt_tokens_details.cached_tokens`, que o
+    # DeepSeek nao manda). Reinjeta antes de medir/cobrar: sem isso a metrica cache_read e o custo BRL
+    # (aqui E no coordenador, que le este MESMO objeto no canal `messages`) tratam todo o prefixo como
+    # input cheio (~10x). Mutacao in-place de `um` (= resp.usage_metadata) propaga aos dois leitores.
+    # Idempotente: so injeta quando o mapeamento padrao veio zerado. Anthropic/OpenRouter -> hit=0, no-op.
+    hit = cache_read_deepseek(getattr(resp, "response_metadata", None))
+    if hit:
+        det_ds = dict(um.get("input_token_details") or {})
+        if not det_ds.get("cache_read"):
+            det_ds["cache_read"] = hit
+            um["input_token_details"] = det_ds
     det = um.get("input_token_details") or {}
     read = det.get("cache_read", 0)
     write = det.get("ephemeral_5m_input_tokens", 0) + det.get("ephemeral_1h_input_tokens", 0)
