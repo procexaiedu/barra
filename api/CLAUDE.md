@@ -20,7 +20,7 @@ Estrutura confirmada: `barra/{core, agente, dominio, webhook, workers, api}` + `
 |---|---|
 | `make dev` | `python -m barra` (seta WindowsSelectorEventLoopPolicy antes do loop; reload off no Windows) |
 | `make worker` | `arq barra.workers.settings.WorkerSettings` |
-| `make test` | `pytest -m "not needs_key"` — suíte padrão, **não** chama a API Anthropic (mesmo com `.env` de prod presente) |
+| `make test` | `pytest -m "not needs_key"` — suíte padrão, **não** chama API de LLM real (DeepSeek no agente ao vivo, Anthropic nos evals), mesmo com `.env` de prod presente |
 | `make test-llm` | `pytest -m needs_key` — só os testes que batem na API real; **custa crédito**, rode de propósito |
 | `make lint` / `make format` | `ruff check` / `ruff format` |
 | `make typecheck` | `mypy src` — rode antes de PR |

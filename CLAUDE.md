@@ -6,7 +6,7 @@
 
 São ações que **atingem produção** (lista não exaustiva):
 - Mensagem real no WhatsApp (Evolution prod) ou qualquer envio que chegue a um cliente/grupo real.
-- Gasto de crédito Anthropic real (`make test-llm`, rodar o agente ao vivo).
+- Gasto de crédito de LLM real: o agente ao vivo roda **DeepSeek V4 Flash direto** (`api.deepseek.com`); `make test-llm` e o LLM-judge dos evals ainda batem na Anthropic.
 - Escrita no banco de produção: `ALTER`/`INSERT`/`UPDATE`/`DELETE`, migrations, `pg_execute_mutation`/`pg_execute_sql` mutável. **`make migrate` contra prod é proibido** (aplica seeds).
 - Deploy/infra: `StackGitRedeploy`, `StackUpdate`, `service update --force`, qualquer coisa no Portainer que reinicie ou redeploye a stack `barra-vips` (⚠️ redeploy git sem `Env` zera os segredos e derruba prod).
 - `git push`/`delete` em `origin`.
@@ -129,7 +129,7 @@ Só empurra com **tudo verde**. Falhou um passo → pare, relate a saída, não 
 
 Monorepo plano. Árvore detalhada por pasta: `docs/agents/repo-map.md`.
 
-- `api/` — Python 3.12 + uv, FastAPI 0.136, LangGraph 1.1 (compila **sem checkpointer** no P0 — ver `agente/graph.py`; `AsyncPostgresSaver` reservado p/ P1), ARQ workers, psycopg3 puro (sem ORM — ver ADR 0002), langchain-anthropic 1.4 (ChatAnthropic) sobre Anthropic SDK 0.97, com prompt caching.
+- `api/` — Python 3.12 + uv, FastAPI 0.136, LangGraph 1.1 (compila **sem checkpointer** no P0 — ver `agente/graph.py`; `AsyncPostgresSaver` reservado p/ P1), ARQ workers, psycopg3 puro (sem ORM — ver ADR 0002). Os 3 caminhos de texto do agente ao vivo (chat/extração/judge de AUP) rodam **DeepSeek V4 Flash direto** via langchain-openai (ChatOpenAI → `api.deepseek.com`); langchain-anthropic 1.4 (ChatAnthropic) sobre Anthropic SDK 0.97 fica **dormante** (só LLM-judge dos evals + infra de prompt caching). Vision do Pix via OpenRouter, STT via OpenAI.
 - `interface/` — Next.js 16.2 (App Router), Tailwind v4, shadcn/ui (data-slot pattern), pnpm.
 - `infra/` — Supabase self-hosted (Postgres + Auth), MinIO + Redis + Evolution API self-host via Portainer 2.39, Traefik; compose, runbooks e `sql/` (migrations sequenciais).
 - `docs/` (`adr/`, `mvp/`), `scripts/`.

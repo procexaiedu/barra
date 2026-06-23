@@ -1,6 +1,6 @@
 # 03 — Prompts, Cache e Persona
 
-> Templates Jinja2, dataclass `Persona`, estratégia de `cache_control` em **4 breakpoints fixos** (BP_TOOLS + BP_GERAL fundido persona+regras+FAQ + BP_MODELO identidade+programas + BP_JANELA penúltima msg da janela) e seleção de modelo (chat via `langchain-anthropic` 1.x `ChatAnthropic`; vision do Pix via OpenRouter — `06 §2.3`; o raw `anthropic` SDK 0.97 fica reservado p/ P1).
+> Templates Jinja2, dataclass `Persona`, estratégia de `cache_control` em **4 breakpoints fixos** (BP_TOOLS + BP_GERAL fundido persona+regras+FAQ + BP_MODELO identidade+programas + BP_JANELA penúltima msg da janela) e seleção de modelo (chat via `langchain-openai` `ChatOpenAI` apontado **direto no DeepSeek V4 Flash** — `core/llm.py:criar_chat_deepseek`; vision do Pix via OpenRouter — `06 §2.3`). A infra de `cache_control`/`ChatAnthropic` descrita aqui é **dormante** sob DeepSeek (cacheia o prefixo automaticamente): só os evals e o preaquecimento exercitam o caminho Anthropic.
 
 ## 1. Estrutura geral
 
@@ -547,7 +547,9 @@ def build_system_messages(
 
 > **Validado por spike empírico (2026-05-24; `langchain-anthropic` **1.4.3** instalado via `uv add` — lock: lc-anthropic 1.4.3 · anthropic 0.97.0 · langchain-core 1.3.2):** o wrapper repassa `cache_control` em **content blocks** de `SystemMessage` para a Anthropic (write=6802, read=6802 numa 2ª chamada idêntica; `effort="low"` aceito como kwarg direto do `ChatAnthropic`). **Atenção ao campo de write (`§4.2`):** `input_token_details["cache_creation"]` vem **sempre 0** no 1.4.3 — o write está em `ephemeral_5m_input_tokens` (+`ephemeral_1h_input_tokens`). **Teste obrigatório do M0** (precisa de chave): 1ª chamada → `(ephemeral_5m_input_tokens + ephemeral_1h_input_tokens) > 0` (write); 2ª idêntica → `cache_read > 0` (read) — rede contra o wrapper dropar `cache_control` em silêncio. **Não** assertar `cache_creation > 0`: falharia mesmo com o cache funcionando.
 
-## 6. Seleção de modelo (chat: `langchain-anthropic` 1.x; vision: OpenRouter — `06 §2.3`)
+## 6. Seleção de modelo (chat: DeepSeek V4 Flash direto; vision: OpenRouter — `06 §2.3`)
+
+> **Estado vigente (supersede o detalhamento Sonnet/Anthropic desta seção):** os 3 caminhos de texto rodam **DeepSeek V4 Flash direto** (`core/llm.py:criar_chat_deepseek`, `ChatOpenAI` → `api.deepseek.com`, `thinking=disabled`), não `criar_chat_anthropic`/Sonnet. Os settings reais hoje são `deepseek_api_key`/`deepseek_model_chat`; `anthropic_*` e `criar_chat_anthropic` sobrevivem só p/ o LLM-judge dos evals e o preaquecimento de cache (dormente). O pseudocódigo abaixo (incl. `ChatComRetry`, tabela Sonnet, `criar_anthropic_client`) é registro de design da época do Sonnet — fonte canônica corrente: `core/llm.py` + `settings.py` (`01 §2.5`).
 
 ### 6.1 Configuração
 

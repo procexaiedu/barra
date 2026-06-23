@@ -1,13 +1,13 @@
 ---
 name: run-api
-description: Run, launch, start, boot, smoke-test, or test the Elite Baby backend (api/ — FastAPI + LangGraph + ARQ). Use to start the dev server, hit its HTTP surface with the curl smoke driver, check readiness, or run the pytest gate — without spending Anthropic credits or touching prod data.
+description: Run, launch, start, boot, smoke-test, or test the Elite Baby backend (api/ — FastAPI + LangGraph + ARQ). Use to start the dev server, hit its HTTP surface with the curl smoke driver, check readiness, or run the pytest gate — without spending LLM credits (the live agent runs DeepSeek; Anthropic is only used by the evals) or touching prod data.
 ---
 
 # Run the backend (api/)
 
 FastAPI (LangGraph agent + ARQ workers) on Python 3.12 via `uv`. The HTTP
 surface is driven by **`smoke.sh`** (this dir) — curl against read-only infra
-endpoints only: no mutations, no Anthropic calls, no agent turn.
+endpoints only: no mutations, no LLM calls, no agent turn.
 
 **All paths below are relative to `api/`.** Verified on macOS (Python via uv,
 uv 0.11).
@@ -62,8 +62,9 @@ make lint        # ruff check
 
 - The ~75 **skipped** tests are `needs_db` — they want a `TEST_DATABASE_URL`
   (separate test DB with rollback). Set it to run them; skipping is expected.
-- `make test-llm` (`-m needs_key`) hits the real Anthropic API and **costs
-  credit** — run it deliberately, not as routine sanity.
+- `make test-llm` (`-m needs_key`) hits a real LLM API (DeepSeek for the agent,
+  Anthropic for the evals) and **costs credit** — run it deliberately, not as
+  routine sanity.
 
 ## Run (human path)
 
@@ -75,7 +76,7 @@ make dev   # → http://localhost:8000 ; interactive docs at /docs ; Ctrl-C to s
 
 `make worker` (`arq barra.workers.settings.WorkerSettings`) runs the LangGraph
 agent that processes WhatsApp turns. It needs a **reachable Redis** (swarm only —
-unreachable from local dev) **and Anthropic credits**, so it's out of scope for
+unreachable from local dev) **and DeepSeek credits**, so it's out of scope for
 the local smoke. Don't assume it runs from a plain `make dev` machine.
 
 ## Gotchas

@@ -26,11 +26,12 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 
 ## Stack do agente (resumo)
 
-- **Provider LLM:** Anthropic API direto via `anthropic` SDK (Python). Wrapper LangChain via `langchain-anthropic.ChatAnthropic` para integração com LangGraph.
-- **Modelo principal (chat):** `claude-sonnet-4-6` — $3/M input, $15/M output, cache read ~0.1×, cache write 1.25× (TTL 5m) ou 2× (TTL 1h). **Sem modelo de fallback:** `RateLimitError` faz retry com backoff e, na exaustão (ou `APIStatusError(status >= 500)`/timeout), o turno escala para Fernando via `escalar_por_exaustao` (`01 §2.6`).
-- **Modelo vision (Pix):** via **OpenRouter** (`llm_vision_provider="openrouter"`; cliente OpenAI-compatível + `response_format` json_schema, validação `ExtracaoPix` Pydantic manual — decisão grilling 2026-05-23, `06 §2.3`).
-- **Modelo transcrição:** `whisper-1` direto na **OpenAI API** (Anthropic não transcreve áudio), contido em `workers/media.py`. Junto do vision via OpenRouter, são os dois providers não-Anthropic do MVP.
-- **Orquestrador:** LangGraph **1.1.10** com **StateGraph custom** (decisão `01 §2.1` — `create_react_agent` foi deprecado na v1.0; rodamos v1.x). **Sem checkpointer no P0** — estado efêmero por turno, prompt montado do zero a partir do Postgres (decisão `02 §3`). SDK: `langchain-anthropic` **1.x** para o chat (sobre `anthropic` **0.97**); vision do Pix via OpenRouter e transcrição via OpenAI (`06`).
+- **Provider LLM (texto):** **DeepSeek V4 Flash DIRETO** (`api.deepseek.com`, OpenAI-compatível) via `langchain-openai.ChatOpenAI` (`core/llm.py:criar_chat_deepseek`). É o único provider dos **3 caminhos de texto** do agente ao vivo: chat #1, extração forçada #2 e judge de AUP #3. `thinking` travado em `disabled` (`extra_body`); cache automático de prefixo no endpoint oficial (sem `cache_control`).
+- **Modelo principal (chat):** `deepseek-v4-flash` (`settings.deepseek_model_chat`; aliases legados `deepseek-chat`/`deepseek-reasoner` aposentam 2026-07-24). **Sem modelo de fallback:** na exaustão/timeout o turno escala para Fernando via `escalar_por_exaustao` (`01 §2.6`).
+- **Modelo vision (Pix):** via **OpenRouter** (`llm_vision_provider="openrouter"`; cliente OpenAI-compatível + `response_format` json_schema, validação `ExtracaoPix` Pydantic manual — decisão grilling 2026-05-23, `06 §2.3`). DeepSeek não faz imagem.
+- **Modelo transcrição:** `whisper-1` direto na **OpenAI API** (DeepSeek não transcreve áudio), contido em `workers/media.py`.
+- **Anthropic (dormante):** `langchain-anthropic.ChatAnthropic` sobre `anthropic` **0.97** sobrevive só para o **LLM-judge dos evals** (`api/evals/`) e o preaquecimento de cache `cache_control` (`settings.cache_control_anthropic`, default off) — não serve o agente ao vivo.
+- **Orquestrador:** LangGraph **1.1.10** com **StateGraph custom** (decisão `01 §2.1` — `create_react_agent` foi deprecado na v1.0; rodamos v1.x). **Sem checkpointer no P0** — estado efêmero por turno, prompt montado do zero a partir do Postgres (decisão `02 §3`).
 - **Worker de turno:** ARQ + Redis (lock de conversa, dedupe, cancel-on-new-message).
 - **Tracing:** LangSmith desde o primeiro turno; metas em `08-evals.md §3`.
 
@@ -42,7 +43,7 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 | `thread_id = conversa_id` | `02 §2` |
 | State minimalista (`MessagesState`) | `02 §3` |
 | Coordenador como ARQ job (não inline no webhook) | `07 §1` |
-| Anthropic SDK direto + Sonnet 4.6 (sem modelo de fallback; exaustão → escala) | `01 §2.5`, `01 §2.6` |
+| DeepSeek V4 Flash direto p/ os 3 caminhos de texto (sem modelo de fallback; exaustão → escala) | `01 §2.5`, `01 §2.6` |
 | Thinking desabilitado no P0; effort fixo no default; `max_tokens` como guard-rail (reavaliar no piloto) | `03 §6` |
 | Prompt em **4 breakpoints fixos** (BP_TOOLS + BP_GERAL fundido + BP_MODELO + BP_JANELA na penúltima; BP_JANELA shipado, não mais adiado) (`cache_control`); contexto dinâmico no último user turn (sem cache) + estrutura XML semântica | `03 §1`, `03 §4` |
 | Coordenador **drain loop** + `turno_id = uuid5(job_id, loop_idx)` determinístico; debounce **first-wins**; LockBusy → re-defere curto | `07 §3`, `02 §7`, `01 §6.7` |
@@ -57,7 +58,7 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 | `prepare_context` é dono único do contexto (coordenador invoca com `messages` vazio); `gate_pausa` dobrado nele | `03 §7`, `01 §2.3` |
 | Bloqueio prévio do externo nasce no `pedir_pix_deslocamento` (fecha double-booking) | `04 §3.2` |
 | Integridade de agenda: advisory lock `(modelo, slot)` + EXCLUDE constraint backstop (race entre conversas) | `04 §3.1`, `09` |
-| Sonnet sem modelo de fallback: retry no 429, exaustão/5xx/timeout → `escalar_por_exaustao` | `01 §2.6`, `03 §6.3` |
+| DeepSeek V4 Flash sem modelo de fallback: exaustão/timeout → `escalar_por_exaustao` | `01 §2.6`, `03 §6.3` |
 | `stop_reason` em 200 OK tratado: `refusal` → escala (`modelo_recusou` → Fernando, bucket defesa); `max_tokens` → só métrica; `pause_turn` N/A (≠ `recursion_limit`) | `03 §6.3`, `03 §8`, `04` |
 | Turno com write tool não é cancelável por cancel-on-new-message | `05 §3`, `02 §8.1` |
 | Reminder injection no user turn (combate persona drift) | `03 §10` |
@@ -68,7 +69,7 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 | `pedir_pix_deslocamento()` sem args (R$100 fixo) | `04 §3.6` |
 | Pix nunca trava o fluxo: validado/duvidoso → `Confirmado`; card sinaliza modelo + fila de revisão de Fernando | `06 §2.2` |
 | Sliding window de 20 mensagens | `02 §4` |
-| Transcrição via OpenAI Whisper API direto (Anthropic não transcreve) | `06 §1` |
+| Transcrição via OpenAI Whisper API direto (DeepSeek não transcreve) | `06 §1` |
 | Pix vision via **OpenRouter** (json_schema + Pydantic manual; `messages.parse()` Anthropic-native preterido por **escolha de provider**, não limitação — segue válido na GA) | `06 §2.3` |
 | Lock Redis TTL 60s + heartbeat do worker (15s) | `07 §3.2` |
 | Cron timeouts a cada 5min | `07 §4` |

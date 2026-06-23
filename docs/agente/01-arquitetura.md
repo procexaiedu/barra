@@ -99,11 +99,15 @@ Webhook responde 200 imediatamente após persistir mensagem e enfileirar `proces
 - Permite cancelamento granular: ao chegar nova mensagem do cliente em conversa cuja IA ainda está enviando chunks, ARQ cancela jobs pendentes (`05 §3`).
 - Desacopla webhook (latência baixa, idempotência simples) de turno (latência alta, idempotência por `turno_id`).
 
-### 2.5 Anthropic SDK direto para o chat (vision via OpenRouter, áudio via OpenAI)
+### 2.5 DeepSeek V4 Flash direto para o chat (vision via OpenRouter, áudio via OpenAI)
 
-O **chat** vai direto para a Anthropic API via `anthropic` Python SDK (default `llm_chat_provider="anthropic"`). O **vision do Pix** migrou para **OpenRouter** (cliente OpenAI-compatível, `06 §2.3`/`§0` item 4) e a **transcrição** usa OpenAI Whisper direto (`06 §1.3`) — ambos isolados nos workers, fora do chat.
+> **Estado vigente (supersede o racional histórico abaixo):** os **3 caminhos de texto** do agente ao vivo — chat #1, extração forçada #2 e judge de AUP #3 — rodam **SEMPRE no DeepSeek V4 Flash DIRETO** (`api.deepseek.com`, OpenAI-compatível) via `langchain-openai.ChatOpenAI` (`core/llm.py:criar_chat_deepseek`), com `thinking` travado em `disabled`. Preferido em escala: o endpoint oficial **cacheia o prefixo automaticamente** (~98% mais barato no hit, sem `cache_control` ephemeral — que até quebraria o roteamento OpenAI-compatível) e crava modelo/quantização (sem a roleta de FP4 do load-balance). A infra `cache_control`/`ChatAnthropic` descrita nesta seção e em `§2.6`/`§6.6` ficou **dormante**: sobrevive só para o LLM-judge dos evals (`api/evals/`) e o preaquecimento de cache (`settings.cache_control_anthropic`, default off). **Vision do Pix segue OpenRouter** e **STT segue OpenAI** (DeepSeek não faz imagem/áudio). Fonte canônica: `core/llm.py` + `settings.py`.
 
-Justificativa:
+O racional original (Anthropic Sonnet direto) está preservado abaixo como registro da decisão.
+
+O **chat** ia direto para a Anthropic API via `anthropic` Python SDK. O **vision do Pix** migrou para **OpenRouter** (cliente OpenAI-compatível, `06 §2.3`/`§0` item 4) e a **transcrição** usa OpenAI Whisper direto (`06 §1.3`) — ambos isolados nos workers, fora do chat.
+
+Justificativa (histórica, da decisão Sonnet):
 - **Cache funciona como anunciado**: `cache_control` per-block com TTL `5m`/`1h` é nativo da Anthropic; via OpenRouter tem caveats relevantes (a doc oficial OpenRouter restringe `cache_control` automático ao roteamento direto à Anthropic, e issues abertas reportam comportamento "estático" mesmo nesse caso). Provider único elimina essa incerteza.
 - **Tool calling premium**: Sonnet 4.6 ~80%+ Toolathlon vs ~50% Kimi K2.6 — diferença material para os turnos com `consultar_*` + `registrar_extracao` + `escalar` no mesmo turno.
 - **PT-BR de qualidade premium**: Anthropic investe em multilingual; Moonshot foca CN/EN. Para um produto onde "uma palavra errada perde o cliente premium" é regra de domínio (`CONTEXT.md`), tom é a variável mais cara.
@@ -114,7 +118,11 @@ Cliente Anthropic vive em `core/llm.py` como wrapper fino sobre `anthropic.Async
 
 **Transcrição e vision são as exceções não-Anthropic.** Anthropic não faz speech-to-text: para áudio do cliente usamos OpenAI Whisper API direto (`whisper-1`), isolado em `workers/media.py`; o vision do Pix usa OpenRouter (`06 §2.3`). São os dois providers externos do MVP — escolhas conscientes para não bloquear em features.
 
-### 2.6 Sonnet 4.6 como modelo único (sem fallback de modelo)
+### 2.6 Modelo único, sem fallback de modelo
+
+> **Estado vigente:** o modelo único do agente ao vivo é **`deepseek-v4-flash`** (DeepSeek V4 Flash direto), não o Sonnet — ver `§2.5`. A tabela e a estimativa de custo abaixo são do Sonnet e ficam como registro histórico; o custo real por turno hoje é ~R$ 0,005–0,01 (DeepSeek com cache automático, `settings.custo_alvo_brl`). A **política de indisponibilidade** (sem fallback; exaustão/timeout → escala) segue valendo, agora sobre o DeepSeek.
+
+Tabela histórica (decisão Sonnet):
 
 | Aspecto | `claude-sonnet-4-6` |
 |---------|---------------------|
@@ -383,9 +391,11 @@ Itens onde a spec técnica do agente substitui ou refina a especificação de pr
 
 **Materialização:** sliding window fixa de **20 mensagens** (clientes + IA + modelo_manual misturadas), ordenadas por `created_at desc`, depois revertidas para ordem cronológica antes de enviar ao LLM. Detalhes em `02 §4`.
 
-### 6.6 Anthropic SDK direto + StateGraph custom
+### 6.6 Provider do chat + StateGraph custom
 
-`mvp/07 §3` cita "Anthropic SDK 0.42 com prompt caching" como stack mas não prescreve provider. `docs/agente` 1.0 colocou OpenRouter + Kimi K2.6 como solução; **esta revisão (1.1) reverte para Anthropic SDK direto + Sonnet 4.6** (sem modelo de fallback — ver `§2.6`).
+> **Estado vigente:** o provider do chat é hoje **DeepSeek V4 Flash direto** via `langchain-openai.ChatOpenAI` (`§2.5`). O histórico de idas e voltas abaixo (OpenRouter+Kimi → Anthropic Sonnet) fica como registro; a decisão StateGraph custom segue valendo.
+
+`mvp/07 §3` cita "Anthropic SDK 0.42 com prompt caching" como stack mas não prescreve provider. `docs/agente` 1.0 colocou OpenRouter + Kimi K2.6 como solução; a revisão 1.1 reverteu para Anthropic SDK direto + Sonnet 4.6; a stack vigente migrou em seguida para DeepSeek V4 Flash direto (`§2.5`), sempre sem modelo de fallback (`§2.6`).
 
 **Justificativa (revisão pós-QA 2026-05-02):**
 - Cache `cache_control` 4 breakpoints é nativo da Anthropic — sem caveats; via OpenRouter tinha comportamento incerto (`OpenRouterTeam/ai-sdk-provider#35`, `sst/opencode#1245`).

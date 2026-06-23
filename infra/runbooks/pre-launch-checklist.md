@@ -166,7 +166,7 @@ Gerado por workflow de pré-launch (2026-06-01). Achados de drift B1/B2/B3 verif
 
 ## VERIFICAÇÃO DE FUMAÇA FINAL (ponta-a-ponta, antes de declarar GO)
 
-- [ ] **S-1 — Webhook → resposta:** mensagem de teste chega, debounce dispara, IA responde no número da modelo. (Confirmar créditos Anthropic ativos — "créditos esgotados" deixa o agente mudo com 400.)
+- [ ] **S-1 — Webhook → resposta:** mensagem de teste chega, debounce dispara, IA responde no número da modelo. (Confirmar créditos **DeepSeek** ativos — o agente ao vivo é DeepSeek V4 Flash direto; "créditos esgotados" deixa o agente mudo com 400. Anthropic só é exigida nos evals.)
 - [ ] **S-2 — Mídia:** áudio (STT) e imagem (vision Pix) processam sem `minio is None` (valida BLOCO A).
 - [ ] **S-3 — Isolamento por par:** turno na modelo do piloto não vaza dado de outra modelo (output-guard ativo).
 - [ ] **S-4 — Comando de grupo:** `fechado #N <valor>` na Coordenação afeta só o atendimento da modelo certa (SEC-02) e grava financeiro.

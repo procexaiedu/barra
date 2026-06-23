@@ -30,8 +30,8 @@ nem estilo — so estas armadilhas estruturais.
 
 **6. Contratos do SDK / Evolution.**
 - `envios_evolution.tipo` e um ENUM curto (`ia` | `card` | `confirmacao` | `erro_comando` | `midia`) — NAO um MIME. Texto da IA pro cliente usa `tipo='ia'`.
-- ChatAnthropic 1.x: construir com `model=`, ler com `.model` (`model_name` e alias write-only).
-- Chat so em Sonnet 4.6 — sem fallback Haiku: exaustao ESCALA (nao troca de modelo), `refusal` -> escalar (nunca retry cego).
+- Chat ao vivo = DeepSeek V4 Flash direto via `ChatOpenAI` (`criar_chat_deepseek`); ler o nome do modelo por `.model_name`. `ChatAnthropic` 1.x (construir com `model=`, ler `.model`) sobrevive so p/ evals/preaquecimento (dormente).
+- Chat so em DeepSeek V4 Flash — sem fallback de modelo: exaustao ESCALA (nao troca de modelo), `refusal`/`finish_reason` inseguro -> escalar (nunca retry cego).
 
 ## Saida
 
