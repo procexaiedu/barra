@@ -770,6 +770,7 @@ async def _profissionais(
     # ficam vazios para preservar o formato da query (CTEs por janela).
     filtro_modelo_volume = ""
     filtro_modelo_fech = ""
+    filtro_modelo_imp = ""
     filtro_modelo_perd = ""
     filtro_modelo_join = ""
     params: list[Any] = [
@@ -818,6 +819,32 @@ async def _profissionais(
              AND e.created_at >= %s AND e.created_at <= %s {filtro_modelo_fech}
            GROUP BY a.modelo_id
         ),
+        fech_imp AS (
+          -- Fechados IMPORTADOS sem evento `fechado_registrado` (histórico do caderno do
+          -- vendedor, sem data). O recorte por período acima os ignora (ancora no evento,
+          -- regime caixa ADR 0011), então o ranking mostraria fechamentos/valor zerados
+          -- mesmo com R$ reais no histórico. Espelha financeiro/repo.importados_sem_data:
+          -- mesma definição (Fechado + NOT EXISTS evento), ignorando a janela. Mesma
+          -- decomposição bruto/líquido/repasse da CTE `fech`.
+          SELECT a.modelo_id,
+                 COUNT(*)::int AS contagem,
+                 COALESCE(SUM(a.valor_final), 0)::numeric AS valor_bruto,
+                 COALESCE(SUM(
+                   (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * (1 - COALESCE(a.percentual_repasse_snapshot, 0) / 100)
+                 ), 0)::numeric AS valor_liquido,
+                 COALESCE(SUM(
+                   (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * COALESCE(a.percentual_repasse_snapshot, 0) / 100
+                 ), 0)::numeric AS valor_repasse_modelo
+            FROM barravips.atendimentos a
+           WHERE a.estado = 'Fechado'
+             AND NOT EXISTS (
+               SELECT 1 FROM barravips.eventos e
+                WHERE e.atendimento_id = a.id
+                  AND e.tipo = 'fechado_registrado'
+             )
+             {filtro_modelo_imp}
+           GROUP BY a.modelo_id
+        ),
         perd AS (
           SELECT a.modelo_id, COUNT(DISTINCT a.id)::int AS contagem
             FROM barravips.atendimentos a
@@ -827,16 +854,21 @@ async def _profissionais(
              AND e.created_at >= %s AND e.created_at <= %s {filtro_modelo_perd}
            GROUP BY a.modelo_id
         )
+        -- fechamentos/valor exibidos = com evento na janela + importados (sem data); a TAXA
+        -- de conversão (no Python) usa só `fechamentos_periodo`, pois não há perdas importadas
+        -- e contar os importados como fechados infla a conversão para ~100% (enganoso).
         SELECT m.id AS modelo_id, m.nome AS modelo_nome,
                COALESCE(v.volume, 0)::int AS volume,
-               COALESCE(f.contagem, 0)::int AS fechamentos,
-               COALESCE(f.valor_bruto, 0)::numeric AS valor_bruto,
-               COALESCE(f.valor_liquido, 0)::numeric AS valor_liquido,
-               COALESCE(f.valor_repasse_modelo, 0)::numeric AS valor_repasse_modelo,
+               COALESCE(f.contagem, 0)::int AS fechamentos_periodo,
+               (COALESCE(f.contagem, 0) + COALESCE(fi.contagem, 0))::int AS fechamentos,
+               (COALESCE(f.valor_bruto, 0) + COALESCE(fi.valor_bruto, 0))::numeric AS valor_bruto,
+               (COALESCE(f.valor_liquido, 0) + COALESCE(fi.valor_liquido, 0))::numeric AS valor_liquido,
+               (COALESCE(f.valor_repasse_modelo, 0) + COALESCE(fi.valor_repasse_modelo, 0))::numeric AS valor_repasse_modelo,
                COALESCE(p.contagem, 0)::int AS perdas
           FROM barravips.modelos m
           LEFT JOIN volume v ON v.modelo_id = m.id
           LEFT JOIN fech f ON f.modelo_id = m.id
+          LEFT JOIN fech_imp fi ON fi.modelo_id = m.id
           LEFT JOIN perd p ON p.modelo_id = m.id
           {filtro_modelo_join}
          ORDER BY volume DESC, valor_bruto DESC, m.nome ASC
@@ -847,8 +879,10 @@ async def _profissionais(
 
     profissionais = []
     for row in rows:
-        decididos = int(row["fechamentos"]) + int(row["perdas"])
-        taxa = (int(row["fechamentos"]) / decididos * 100) if decididos > 0 else None
+        # Conversão sobre o desfecho COM evento na janela (não os importados sem data):
+        # importados não têm perda registrada, então contá-los inflaria a taxa para ~100%.
+        decididos = int(row["fechamentos_periodo"]) + int(row["perdas"])
+        taxa = (int(row["fechamentos_periodo"]) / decididos * 100) if decididos > 0 else None
         profissionais.append(
             {
                 "modelo": {"id": str(row["modelo_id"]), "nome": row["modelo_nome"]},

@@ -254,11 +254,16 @@ class FakeConn:
                 valor_bruto += valor
                 valor_liquido += valor * (Decimal("1") - pct_dec / Decimal("100"))
                 valor_repasse += valor * pct_dec / Decimal("100")
+            # fechamentos_periodo = fechados COM evento na janela (base da conversão);
+            # `importado` (default False) marca os Fechado sem evento (histórico sem data),
+            # que entram em fechamentos/valor mas não na conversão. Espelha fech + fech_imp.
+            fech_periodo = [a for a in fechados_m if not a.get("importado", False)]
             rows.append(
                 {
                     "modelo_id": m["id"],
                     "modelo_nome": m["nome"],
                     "volume": len(atendimentos_m),
+                    "fechamentos_periodo": len(fech_periodo),
                     "fechamentos": len(fechados_m),
                     "valor_bruto": valor_bruto,
                     "valor_liquido": valor_liquido,
@@ -291,6 +296,7 @@ def _fechado(
     modelo_id: UUID,
     valor: str,
     pct: str | None,
+    importado: bool = False,
 ) -> dict[str, Any]:
     return {
         "id": uuid4(),
@@ -299,6 +305,9 @@ def _fechado(
         "valor_final": Decimal(valor),
         "percentual_repasse_snapshot": Decimal(pct) if pct is not None else None,
         "created_at": datetime.now(UTC),
+        # importado = Fechado sem evento `fechado_registrado` (histórico sem data): entra em
+        # fechamentos/valor do ranking, mas não na base de conversão (fechamentos_periodo).
+        "importado": importado,
     }
 
 
@@ -421,6 +430,39 @@ def test_profissionais_inclui_liquido_e_repasse() -> None:
     assert bia_row["valor_liquido_brl"] == 560.00
     # 800 * 0.3
     assert bia_row["valor_repasse_modelo_brl"] == 240.00
+
+
+def test_profissionais_inclui_fechados_importados_sem_data() -> None:
+    """Fechado importado sem evento (histórico do caderno) entra em fechamentos/valor do
+    ranking — antes ficava zerado porque a CTE ancorava no evento `fechado_registrado`. A
+    conversão usa só o desfecho COM evento, então importado sem perda não infla a taxa."""
+    nina = uuid4()
+    conn = FakeConn(
+        atendimentos=[
+            _fechado(nina, "1000", None, importado=True),
+            _fechado(nina, "500", None, importado=True),
+        ],
+        modelos=[{"id": nina, "nome": "Nina"}],
+    )
+
+    _instalar_override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/dashboard", params={"periodo": "7d"}, headers=_token())
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+    assert response.status_code == 200
+    nina_row = next(p for p in response.json()["profissionais"] if p["modelo"]["nome"] == "Nina")
+    # fechamentos e valor refletem os importados (não ficam zerados)
+    assert nina_row["fechamentos"] == 2
+    assert nina_row["valor_bruto_brl"] == 1500.00
+    # sem snapshot de repasse → líquido = bruto, repasse = 0 (dado de repasse não existe)
+    assert nina_row["valor_liquido_brl"] == 1500.00
+    assert nina_row["valor_repasse_modelo_brl"] == 0.00
+    # conversão não é inflada: sem desfecho COM evento, n_referencia = 0 e taxa = None
+    assert nina_row["n_referencia"] == 0
+    assert nina_row["taxa_conversao_pct"] is None
 
 
 def test_dashboard_bloco_financeiro_top_level() -> None:
