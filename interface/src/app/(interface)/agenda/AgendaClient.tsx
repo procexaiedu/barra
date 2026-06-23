@@ -37,6 +37,19 @@ function ehForaDisponibilidade(e: unknown): boolean {
   )
 }
 
+// 409 do backend quando o horário fica dentro do buffer de preparo/intervalo (ADR 0025);
+// Fernando força com confirmar_buffer, igual ao override fora da disponibilidade.
+function ehBuffer(e: unknown): boolean {
+  return (
+    e instanceof ApiError &&
+    e.code === "CONFLITO_ESTADO" &&
+    (e.details as { campo?: string } | null)?.campo === "confirmar_buffer"
+  )
+}
+
+// Overrides que o painel pode forçar ao criar/atualizar bloqueio; acumulam quando ambos disparam.
+type Confirmacoes = { foraDisp?: boolean; buffer?: boolean }
+
 function fimIsoOvernight(data: string, inicio: string, fim: string): string {
   if (fim !== "24:00" && fim < inicio) {
     const d = dataDeInput(data)
@@ -106,6 +119,8 @@ export function AgendaClient() {
   const [atendimentoVisualizandoId, setAtendimentoVisualizandoId] = useState<string | null>(null)
   // Override "fora da disponibilidade": guarda a confirmação a refazer com a flag (ADR 0005).
   const [foraDisp, setForaDisp] = useState<{ confirmar: () => Promise<void> } | null>(null)
+  // Override "dentro do buffer de preparo" (ADR 0025): mesma mecânica de confirmação.
+  const [buffer, setBuffer] = useState<{ confirmar: () => Promise<void> } | null>(null)
 
   const bloqueios = useMemo(() => {
     let items = [...(agenda.agenda?.bloqueios ?? [])]
@@ -133,7 +148,7 @@ export function AgendaClient() {
     setInitialForm(form)
   }
 
-  const criar = async (form: BloqueioFormState, forcar = false) => {
+  const criar = async (form: BloqueioFormState, conf: Confirmacoes = {}) => {
     const modeloId = form.modelo_id ?? agenda.agenda?.modelo?.id
     if (!modeloId) {
       toast.error("Selecione uma modelo.")
@@ -146,14 +161,20 @@ export function AgendaClient() {
         fim: fimIsoOvernight(form.data, form.inicio, form.fim),
         observacao: form.observacao.trim() || null,
         ...(form.atendimento_id ? { atendimento_id: form.atendimento_id } : {}),
-        ...(forcar ? { confirmar_fora_disponibilidade: true } : {}),
+        ...(conf.foraDisp ? { confirmar_fora_disponibilidade: true } : {}),
+        ...(conf.buffer ? { confirmar_buffer: true } : {}),
       })
       toast.success(form.atendimento_id ? "Agendamento criado" : "Bloqueio criado")
       setDialog({ modo: "fechado", bloqueio: null })
       setForaDisp(null)
+      setBuffer(null)
     } catch (e) {
-      if (ehForaDisponibilidade(e) && !forcar) {
-        setForaDisp({ confirmar: () => criar(form, true) })
+      if (ehForaDisponibilidade(e) && !conf.foraDisp) {
+        setForaDisp({ confirmar: () => criar(form, { ...conf, foraDisp: true }) })
+        return
+      }
+      if (ehBuffer(e) && !conf.buffer) {
+        setBuffer({ confirmar: () => criar(form, { ...conf, buffer: true }) })
         return
       }
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
@@ -164,7 +185,7 @@ export function AgendaClient() {
     id: string,
     form: BloqueioFormState,
     atendimentoId?: string | null,
-    forcar = false,
+    conf: Confirmacoes = {},
   ) => {
     try {
       const payload: AtualizarBloqueioInput = {
@@ -173,16 +194,22 @@ export function AgendaClient() {
         observacao: form.observacao.trim() || null,
       }
       if (atendimentoId !== undefined) payload.atendimento_id = atendimentoId
-      if (forcar) payload.confirmar_fora_disponibilidade = true
+      if (conf.foraDisp) payload.confirmar_fora_disponibilidade = true
+      if (conf.buffer) payload.confirmar_buffer = true
       await agenda.atualizarBloqueio(id, payload)
       const ehAgendamento =
         atendimentoId !== undefined ? Boolean(atendimentoId) : Boolean(dialog.bloqueio?.atendimento_id)
       toast.success(ehAgendamento ? "Agendamento atualizado" : "Bloqueio atualizado")
       setDialog({ modo: "fechado", bloqueio: null })
       setForaDisp(null)
+      setBuffer(null)
     } catch (e) {
-      if (ehForaDisponibilidade(e) && !forcar) {
-        setForaDisp({ confirmar: () => atualizar(id, form, atendimentoId, true) })
+      if (ehForaDisponibilidade(e) && !conf.foraDisp) {
+        setForaDisp({ confirmar: () => atualizar(id, form, atendimentoId, { ...conf, foraDisp: true }) })
+        return
+      }
+      if (ehBuffer(e) && !conf.buffer) {
+        setBuffer({ confirmar: () => atualizar(id, form, atendimentoId, { ...conf, buffer: true }) })
         return
       }
       toast.error(e instanceof Error ? e.message : "Erro do servidor. Tente novamente.")
@@ -327,6 +354,24 @@ export function AgendaClient() {
           <AlertDialogFooter>
             <AlertDialogCancel>Voltar</AlertDialogCancel>
             <AlertDialogAction onClick={() => { void foraDisp?.confirmar() }}>
+              Criar mesmo assim
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={buffer !== null} onOpenChange={(aberto) => { if (!aberto) setBuffer(null) }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Dentro do buffer de preparo</AlertDialogTitle>
+            <AlertDialogDescription>
+              Este horário fica colado a outro bloqueio ou dentro do intervalo mínimo de preparo
+              (a IA não reservaria aqui). Quer criar mesmo assim?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Voltar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { void buffer?.confirmar() }}>
               Criar mesmo assim
             </AlertDialogAction>
           </AlertDialogFooter>

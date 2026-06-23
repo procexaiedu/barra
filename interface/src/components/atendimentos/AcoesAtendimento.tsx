@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/alert-dialog"
 import { ModalFecharAtendimento } from "@/components/atendimentos/ModalFecharAtendimento"
 import { ModalPerderAtendimento } from "@/components/atendimentos/ModalPerderAtendimento"
-import type { AtendimentoOperacional, MotivoPerda } from "@/tipos/atendimentos"
+import type { AtendimentoOperacional, FecharAtendimentoDados, MotivoPerda } from "@/tipos/atendimentos"
 
 type Dialog = "devolver" | "fechar" | "perder" | null
 
@@ -34,7 +34,7 @@ export function AcoesAtendimento({
 }: {
   atendimento: AtendimentoOperacional
   onDevolver: (id: string) => Promise<void>
-  onFechar: (id: string, valorFinal: number) => Promise<void>
+  onFechar: (id: string, dados: FecharAtendimentoDados) => Promise<void>
   onPerder: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
 }) {
   const [dialog, setDialog] = useState<Dialog>(null)
@@ -104,8 +104,9 @@ export function AcoesAtendimento({
         open={dialog === "fechar"}
         numeroCurto={atendimento.numero_curto}
         valorAcordado={atendimento.valor_acordado}
-        onFechar={async (valorFinal) => {
-          await onFechar(atendimento.id, valorFinal)
+        formaPagamentoInicial={atendimento.forma_pagamento}
+        onFechar={async (dados) => {
+          await onFechar(atendimento.id, dados)
           setDialog(null)
         }}
         onCancelar={() => setDialog(null)}

@@ -120,6 +120,11 @@ async def listar(
         filtros.append(f"t.prazo >= {_HOJE_BRT} AND t.prazo <= {_HOJE_BRT} + 6")
     elif prazo == "atrasadas":
         filtros.append(f"t.prazo < {_HOJE_BRT} AND t.status <> 'feita'")
+    elif prazo == "hoje_e_atrasadas":
+        # Secao "Hoje" do Painel (ADR 0017): prazo de hoje + atrasadas nao-feitas num so filtro.
+        filtros.append(
+            f"(t.prazo = {_HOJE_BRT} OR (t.prazo < {_HOJE_BRT} AND t.status <> 'feita'))"
+        )
 
     where = ("WHERE " + " AND ".join(filtros)) if filtros else ""
     params.append(limit)

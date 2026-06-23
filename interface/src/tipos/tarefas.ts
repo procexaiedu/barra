@@ -6,7 +6,7 @@ export type PrioridadeTarefa = "baixa" | "media" | "alta"
 /** Ator polimórfico. No P0 só `usuario`/`modelo` são selecionáveis; `vendedor`
  *  fica reservado para quando a tabela do ADR 0012 existir. */
 export type AtorTipo = "usuario" | "modelo" | "vendedor"
-export type PrazoFiltro = "hoje" | "semana" | "atrasadas" | "todos"
+export type PrazoFiltro = "hoje" | "semana" | "atrasadas" | "hoje_e_atrasadas" | "todos"
 
 export interface AtorRef {
   tipo: AtorTipo

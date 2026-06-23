@@ -5,7 +5,12 @@ import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogHeader, Dia
 import { api, apiFormData } from "@/lib/api"
 import { DetalheAtendimento } from "@/components/atendimentos/DetalheAtendimento"
 import { nomeCliente } from "@/lib/formatters"
-import type { AtendimentoDetalheResponse, MidiaInternaAtendimento, MotivoPerda } from "@/tipos/atendimentos"
+import type {
+  AtendimentoDetalheResponse,
+  FecharAtendimentoDados,
+  MidiaInternaAtendimento,
+  MotivoPerda,
+} from "@/tipos/atendimentos"
 
 function normalizarDetalheResponse(res: AtendimentoDetalheResponse): AtendimentoDetalheResponse {
   return {
@@ -32,7 +37,7 @@ export function ModalVisualizacao({
   atendimentoId: string | null
   onClose: () => void
   onDevolver?: (id: string) => Promise<void>
-  onFechar?: (id: string, valorFinal: number) => Promise<void>
+  onFechar?: (id: string, dados: FecharAtendimentoDados) => Promise<void>
   onPerder?: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
   onAbrirEdicao?: (detalhe: AtendimentoDetalheResponse) => void
   onCorrigir?: (id: string) => void
@@ -67,9 +72,9 @@ export function ModalVisualizacao({
     onClose()
   }, [onDevolver, onClose])
 
-  const handleFechar = useCallback(async (id: string, valorFinal: number) => {
+  const handleFechar = useCallback(async (id: string, dados: FecharAtendimentoDados) => {
     if (!onFechar) return
-    await onFechar(id, valorFinal)
+    await onFechar(id, dados)
     onClose()
   }, [onFechar, onClose])
 

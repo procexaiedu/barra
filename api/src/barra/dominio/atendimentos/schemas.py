@@ -19,11 +19,13 @@ class DevolverRequest(BaseModel):
 
 class FecharRequest(BaseModel):
     valor_final: Decimal = Field(ge=0)
-    # Taxa de cartão (ADR 0013): percentual cobrado por cima do serviço quando o pagamento
-    # é no cartão. None = sem taxa (pix/dinheiro ou cartão isento). O snapshot preserva o
-    # histórico se o default mudar; a UI sugere `settings.taxa_cartao_padrao_pct`. O comando
-    # do grupo (`fechado [valor]`) não envia taxa — Fernando ajusta depois no painel (correção).
-    taxa_cartao_snapshot: Decimal | None = Field(default=None, ge=0, le=100)
+    # Taxa de cartão (ADR 0013): o backend carimba taxa_cartao_snapshot a partir de
+    # settings.taxa_cartao_padrao_pct quando forma_pagamento='cartao' e a taxa não é isenta.
+    # forma_pagamento confirma a forma no fechamento (alimenta o mix do Financeiro); isentar_taxa
+    # zera a taxa (caso VIP/valor alto). O comando do grupo (`fechado [valor]`) não envia nada
+    # disso — Fernando ajusta a taxa depois no painel (correção, que aceita % numérico).
+    forma_pagamento: Literal["pix", "dinheiro", "cartao"] | None = None
+    isentar_taxa: bool = False
 
 
 class PerderRequest(BaseModel):

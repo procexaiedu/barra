@@ -12,15 +12,16 @@ import { cn } from "@/lib/utils"
 import { ATOR_LABEL, PRIORIDADE_BAR, PRIORIDADE_LABEL } from "@/lib/tarefas"
 import type { Tarefa } from "@/tipos/tarefas"
 
-/** Widget autocontido da seção "Hoje" do Painel: tarefas com prazo hoje ainda
- *  pendentes (não-`feita`). Reusa `useTarefas` para listar/criar/editar sem
- *  acoplar ao backend do painel; o modal abre no próprio painel. */
+/** Widget autocontido da seção "Hoje" do Painel: tarefas com prazo de hoje +
+ *  atrasadas não-`feita` (definição de "Tarefas de hoje" do ADR 0017). Reusa
+ *  `useTarefas` para listar/criar/editar sem acoplar ao backend do painel; o
+ *  modal abre no próprio painel. */
 export function TarefasHojeWidget() {
   const { tarefas, status, responsaveis, criar, atualizar } = useTarefas({
     busca: "",
     status: "todos",
     prioridade: "todas",
-    prazo: "hoje",
+    prazo: "hoje_e_atrasadas",
     minhas: false,
   })
   const [dialogAberto, setDialogAberto] = useState(false)
@@ -73,7 +74,7 @@ export function TarefasHojeWidget() {
             </div>
             <div>
               <p className="text-sm font-medium text-text-primary">Nenhuma tarefa para hoje.</p>
-              <p className="mt-1 text-[13px] text-text-muted">Tarefas com prazo de hoje aparecem aqui.</p>
+              <p className="mt-1 text-[13px] text-text-muted">Tarefas de hoje e atrasadas aparecem aqui.</p>
             </div>
             <Button variant="outline" size="sm" onClick={abrirCriar}>
               <Plus size={15} strokeWidth={1.5} />

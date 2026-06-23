@@ -23,6 +23,10 @@ from barra.core.janela import Janela, filtro_aplicado_dict, janela_anterior
 from barra.dominio.financeiro import repo
 from barra.dominio.financeiro.schemas import (
     AtendimentosSemSnapshotResponse,
+    ComissaoPagaCriar,
+    ComissaoPagaPatch,
+    ComissaoPagaResponse,
+    ComissoesPagamentosListaResponse,
     ComissoesPorVendedorResponse,
     ComprovanteUploadResponse,
     FinanceiroResumo,
@@ -268,6 +272,79 @@ async def excluir_pagamento(conn: AsyncConnection, pagamento_id: UUID) -> None:
     ok = await repo.excluir_pagamento(conn, pagamento_id)
     if not ok:
         raise NaoEncontrado("Pagamento de repasse")
+
+
+# =============================================================================
+# Pagamentos de comissão (ADR 0012) — espelha os de repasse, eixo vendedor.
+# Reaproveita o codec de cursor (date|uuid, genérico).
+# =============================================================================
+
+
+async def montar_comissao_pagamentos(
+    conn: AsyncConnection,
+    *,
+    periodo: str,
+    janela: Janela,
+    vendedor_ids: list[UUID] | None,
+    limit: int,
+    cursor_iso: str | None,
+) -> ComissoesPagamentosListaResponse:
+    cursor = _decodificar_cursor_pagamento(cursor_iso) if cursor_iso else None
+    items, next_cursor = await repo.listar_comissao_pagamentos(
+        conn, janela, vendedor_ids, limit, cursor
+    )
+    return ComissoesPagamentosListaResponse(
+        filtro_aplicado=filtro_aplicado_dict(periodo, janela, vendedor_ids),
+        items=items,
+        next_cursor=_codificar_cursor_pagamento(next_cursor) if next_cursor else None,
+    )
+
+
+async def criar_comissao_pagamento(
+    conn: AsyncConnection,
+    body: ComissaoPagaCriar,
+    user_id: UUID,
+) -> ComissaoPagaResponse:
+    pag_id = await repo.criar_comissao_pagamento(
+        conn,
+        vendedor_id=body.vendedor_id,
+        data_pagamento=body.data_pagamento,
+        valor=body.valor,
+        forma_pagamento=body.forma_pagamento,
+        observacao=body.observacao,
+        comprovante_object_key=body.comprovante_object_key,
+        user_id=user_id,
+    )
+    pag = await repo.obter_comissao_pagamento(conn, pag_id)
+    assert pag is not None
+    return pag
+
+
+async def atualizar_comissao_pagamento(
+    conn: AsyncConnection,
+    pagamento_id: UUID,
+    body: ComissaoPagaPatch,
+) -> ComissaoPagaResponse:
+    ok = await repo.atualizar_comissao_pagamento(
+        conn,
+        pagamento_id,
+        data_pagamento=body.data_pagamento,
+        valor=body.valor,
+        forma_pagamento=body.forma_pagamento,
+        observacao=body.observacao,
+        comprovante_object_key=body.comprovante_object_key,
+    )
+    if not ok:
+        raise NaoEncontrado("Pagamento de comissão")
+    pag = await repo.obter_comissao_pagamento(conn, pagamento_id)
+    assert pag is not None
+    return pag
+
+
+async def excluir_comissao_pagamento(conn: AsyncConnection, pagamento_id: UUID) -> None:
+    ok = await repo.excluir_comissao_pagamento(conn, pagamento_id)
+    if not ok:
+        raise NaoEncontrado("Pagamento de comissão")
 
 
 # =============================================================================

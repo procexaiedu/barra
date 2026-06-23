@@ -17,6 +17,7 @@ import type {
   EditarDadosPayload,
   EstadoAtendimento,
   EstadoKanbanDestino,
+  FecharAtendimentoDados,
   FiltrosAtendimentos,
   MidiaInternaAtendimento,
   MotivoPerda,
@@ -279,11 +280,15 @@ export function useAtendimentos(
     return null
   }, [])
 
-  const fechar = useCallback(async (id: string, valorFinal: number) => {
+  const fechar = useCallback(async (id: string, dados: FecharAtendimentoDados) => {
     const numero = numeroDe(id)
     await api(`/v1/atendimentos/${id}/fechar`, {
       method: "POST",
-      body: JSON.stringify({ valor_final: valorFinal }),
+      body: JSON.stringify({
+        valor_final: dados.valorFinal,
+        ...(dados.formaPagamento ? { forma_pagamento: dados.formaPagamento } : {}),
+        ...(dados.isentarTaxa ? { isentar_taxa: true } : {}),
+      }),
     })
     await loadLista("replace", false)
     toast.success(`Atendimento #${numero ?? "?"} fechado`, {

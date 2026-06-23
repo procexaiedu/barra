@@ -383,10 +383,18 @@ async def test_julgar_aup_ok_retorna_veredito(monkeypatch: Any) -> None:
 
 async def test_so03_judge_refusal_no_guard_default_seguro_bloqueia(monkeypatch: Any) -> None:
     # Integracao: judge recusa -> _julgar_aup levanta -> output_guard cai no default seguro.
+    # O no le get_settings() REAL (provider default deepseek), nao um SimpleNamespace: o fake do
+    # judge precisa cobrir QUALQUER provider configurado, senao o ramo do provider real bate na API
+    # viva e o caminho refusal->default-seguro nunca e exercido.
     cap = _Capturador()
     monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     res = _judge_resultado("refusal", parsed=None)
-    monkeypatch.setattr("barra.core.llm.criar_chat_deepseek", lambda s, **kw: _FakeJudgeChat(res))
+    # Mocka os factories que EXISTEM em core.llm (a consolidação deepseek-direct removeu o
+    # criar_chat_openrouter) — cobre qualquer provider configurável sob o default deepseek.
+    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
+    monkeypatch.setattr(
+        "barra.core.llm.criar_chat_deepseek", lambda s, **kwargs: _FakeJudgeChat(res)
+    )
     out = await mod.output_guard(_state("texto limpo mas o judge recusa"), _runtime())  # type: ignore[arg-type]
     assert _bloqueou(out)
     assert cap.chamadas[0]["observacao"] == "aup_saida_judge_falhou"

@@ -7,6 +7,7 @@ import pytest
 
 from barra.core.errors import EntradaInvalida
 from barra.dominio.escaladas.service import aplicar_comando
+from barra.settings import get_settings
 
 
 class _Result:
@@ -105,9 +106,10 @@ def _update_fechado(conn: "FakeConn") -> tuple[str, object]:
     )
 
 
-def test_fechamento_grava_taxa_cartao_snapshot() -> None:
-    # ADR 0013: o fechamento grava taxa_cartao_snapshot — sem isso a fórmula de valor
-    # líquido (VALOR_SERVICO_SQL) é no-op e repasse/comissão saem inflados pela taxa.
+def test_fechamento_cartao_carimba_taxa_padrao() -> None:
+    # ADR 0013 (backend carimba): forma_pagamento='cartao' não isenta → o backend grava
+    # taxa_cartao_snapshot = settings.taxa_cartao_padrao_pct e confirma a forma. Sem isso a
+    # fórmula de valor líquido (VALOR_SERVICO_SQL) é no-op e repasse/comissão saem inflados.
     conn = FakeConn(_atendimento())
 
     async def run():
@@ -117,18 +119,48 @@ def test_fechamento_grava_taxa_cartao_snapshot() -> None:
             autor="Fernando",
             atendimento_id=conn.atendimento["id"],
             comando="registrar_fechado",
-            payload={"valor_final": Decimal("1100"), "taxa_cartao_snapshot": Decimal("10")},
+            payload={
+                "valor_final": Decimal("1100"),
+                "forma_pagamento": "cartao",
+                "isentar_taxa": False,
+            },
         )
 
     asyncio.run(run())
     query, params = _update_fechado(conn)
     assert "taxa_cartao_snapshot = %s" in query
-    assert Decimal("10") in params  # type: ignore[operator]
+    assert "forma_pagamento = COALESCE(%s, forma_pagamento)" in query
+    assert params[2] == get_settings().taxa_cartao_padrao_pct  # type: ignore[index]
+    assert params[3] == "cartao"  # type: ignore[index]
 
 
-def test_fechamento_grupo_sem_taxa_grava_none() -> None:
-    # Comando do grupo (`fechado [valor]`) não envia taxa → snapshot NULL (sem taxa);
-    # Fernando ajusta depois no painel (correção).
+def test_fechamento_cartao_isento_nao_carimba_taxa() -> None:
+    # Toggle "isentar taxa" (VIP/valor alto): cartão mas isento → taxa NULL, forma confirmada.
+    conn = FakeConn(_atendimento())
+
+    async def run():
+        return await aplicar_comando(
+            conn,
+            origem="painel",
+            autor="Fernando",
+            atendimento_id=conn.atendimento["id"],
+            comando="registrar_fechado",
+            payload={
+                "valor_final": Decimal("1100"),
+                "forma_pagamento": "cartao",
+                "isentar_taxa": True,
+            },
+        )
+
+    asyncio.run(run())
+    _query, params = _update_fechado(conn)
+    assert params[2] is None  # type: ignore[index]  # taxa isenta
+    assert params[3] == "cartao"  # type: ignore[index]
+
+
+def test_fechamento_grupo_sem_forma_nao_carimba_taxa() -> None:
+    # Comando do grupo (`fechado [valor]`) não envia forma → taxa NULL e forma preservada
+    # (COALESCE com None); Fernando ajusta a taxa depois no painel (correção).
     conn = FakeConn(_atendimento())
 
     async def run():
@@ -144,7 +176,8 @@ def test_fechamento_grupo_sem_taxa_grava_none() -> None:
     asyncio.run(run())
     query, params = _update_fechado(conn)
     assert "taxa_cartao_snapshot = %s" in query
-    assert params[2] is None  # type: ignore[index]
+    assert params[2] is None  # type: ignore[index]  # sem taxa
+    assert params[3] is None  # type: ignore[index]  # forma não informada → COALESCE preserva
 
 
 def test_correcao_grava_taxa_cartao_snapshot() -> None:

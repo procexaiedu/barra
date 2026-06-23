@@ -198,6 +198,51 @@ async def resumo_modelos(
     }
 
 
+@router.get("/mapa")
+async def mapa_modelos(
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    """Camada de oferta do Mapa (ADR 0010): 1 ponto por modelo na geo OPERACIONAL
+    (`modelos.latitude/longitude`, migration 0028), todas as situações (o front
+    estiliza por `status`). Modelo sem geo (lat/lng NULL) não vira ponto e entra em
+    `total_sem_localizacao_operacional` (espelha o "sem localização" dos clientes,
+    ADR 0008). Painel-only (o router já exige Fernando); a IA nunca acessa. Sem
+    paginação (poucas modelos no P0). NUNCA expõe rg/cpf/endereço residencial/
+    percentual_repasse — só o não-sensível do contrato do ADR. Declarado ANTES de
+    GET /{modelo_id} para "mapa" não cair no path param UUID.
+    """
+    result = await conn.execute(
+        """
+        SELECT id, nome, status, tipo_fisico, tipo_atendimento_aceito,
+               latitude::float8 AS latitude, longitude::float8 AS longitude
+          FROM barravips.modelos
+         ORDER BY nome
+        """
+    )
+    rows = await result.fetchall()
+    items: list[dict[str, Any]] = []
+    total_sem_localizacao_operacional = 0
+    for r in rows:
+        if r["latitude"] is None or r["longitude"] is None:
+            total_sem_localizacao_operacional += 1
+            continue
+        items.append(
+            {
+                "id": str(r["id"]),
+                "nome": r["nome"],
+                "status": r["status"],
+                "tipo_fisico": r["tipo_fisico"],
+                "tipo_atendimento_aceito": r["tipo_atendimento_aceito"],
+                "latitude": r["latitude"],
+                "longitude": r["longitude"],
+            }
+        )
+    return {
+        "items": items,
+        "total_sem_localizacao_operacional": total_sem_localizacao_operacional,
+    }
+
+
 def _traduzir_unique(exc: UniqueViolation) -> NoReturn:
     """CPF duplicado vira 409 com code próprio; demais constraints sobem como estão."""
     if (getattr(exc.diag, "constraint_name", None) or "") == "modelos_cpf_unique":

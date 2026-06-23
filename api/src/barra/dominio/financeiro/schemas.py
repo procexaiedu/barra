@@ -269,3 +269,42 @@ class SaldoVendedor(BaseModel):
 class ComissoesPorVendedorResponse(BaseModel):
     filtro_aplicado: dict[str, Any]
     items: list[SaldoVendedor]
+
+
+# Pagamentos de Comissão de vendedor (ADR 0012) — espelha os DTOs de repasse pago,
+# trocando o eixo de modelo por vendedor. A forma reaproveita FormaPagamentoRepasse
+# (pix/dinheiro/outro): paga-se a pessoa do vendedor, nunca via cartão.
+class ComissaoPagaCriar(BaseModel):
+    vendedor_id: UUID
+    data_pagamento: date
+    valor: Decimal = Field(gt=0)
+    forma_pagamento: FormaPagamentoRepasse
+    observacao: str | None = None
+    comprovante_object_key: str | None = None  # opcional; upload separado (P1)
+
+
+class ComissaoPagaPatch(BaseModel):
+    data_pagamento: date | None = None
+    valor: Decimal | None = Field(default=None, gt=0)
+    forma_pagamento: FormaPagamentoRepasse | None = None
+    observacao: str | None = None
+    comprovante_object_key: str | None = None
+
+
+class ComissaoPagaResponse(BaseModel):
+    id: UUID
+    vendedor_id: UUID
+    vendedor_nome: str | None  # JOIN
+    data_pagamento: date
+    valor: Decimal
+    forma_pagamento: FormaPagamentoRepasse
+    observacao: str | None
+    comprovante_object_key: str | None
+    created_at: str
+    updated_at: str
+
+
+class ComissoesPagamentosListaResponse(BaseModel):
+    filtro_aplicado: dict[str, Any]
+    items: list[ComissaoPagaResponse]
+    next_cursor: str | None

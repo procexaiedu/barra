@@ -26,6 +26,7 @@ from barra.core.janela import Janela, piso_operacao
 from barra.dominio.financeiro.calculos import VALOR_SERVICO_SQL, repasse_modelo
 from barra.dominio.financeiro.schemas import (
     AtendimentoSemSnapshotLinha,
+    ComissaoPagaResponse,
     ContextoCliente,
     ContextoModelo,
     ContextoModeloDia,
@@ -648,6 +649,189 @@ async def obter_pagamento(
         id=row["id"],
         modelo_id=row["modelo_id"],
         modelo_nome=row["modelo_nome"],
+        data_pagamento=row["data_pagamento"],
+        valor=Decimal(str(row["valor"])),
+        forma_pagamento=row["forma_pagamento"],
+        observacao=row["observacao"],
+        comprovante_object_key=row["comprovante_object_key"],
+        created_at=row["created_at"].isoformat(),
+        updated_at=row["updated_at"].isoformat(),
+    )
+
+
+# =============================================================================
+# Comissões pagas (ADR 0012) — espelha os repasses pagos, eixo vendedor
+# =============================================================================
+
+
+async def listar_comissao_pagamentos(
+    conn: AsyncConnection[Any],
+    janela: Janela,
+    vendedor_ids: list[UUID] | None,
+    limit: int,
+    cursor: tuple[date, UUID] | None,
+) -> tuple[list[ComissaoPagaResponse], tuple[date, UUID] | None]:
+    params: list[Any] = [janela.de, janela.ate]
+    filtros: list[str] = []
+    if vendedor_ids:
+        filtros.append("p.vendedor_id = ANY(%s)")
+        params.append(vendedor_ids)
+    if cursor:
+        d, pid = cursor
+        filtros.append("(p.data_pagamento, p.id) < (%s, %s)")
+        params.extend([d, pid])
+
+    filtro_sql = ""
+    if filtros:
+        filtro_sql = "AND " + " AND ".join(filtros)
+
+    params.append(limit + 1)
+
+    result = await conn.execute(
+        f"""
+        SELECT
+          p.id, p.vendedor_id, v.nome AS vendedor_nome,
+          p.data_pagamento, p.valor, p.forma_pagamento::text AS forma_pagamento,
+          p.observacao, p.comprovante_object_key,
+          p.created_at, p.updated_at
+          FROM barravips.financeiro_comissoes_pagas p
+          JOIN barravips.vendedores v ON v.id = p.vendedor_id
+         WHERE p.data_pagamento >= %s::date AND p.data_pagamento <= %s::date
+           {filtro_sql}
+         ORDER BY p.data_pagamento DESC, p.id DESC
+         LIMIT %s
+        """,
+        params,
+    )
+    rows = list(await result.fetchall())
+
+    has_next = len(rows) > limit
+    page = rows[:limit]
+    next_cursor: tuple[date, UUID] | None = None
+    if has_next:
+        last = page[-1]
+        next_cursor = (last["data_pagamento"], last["id"])
+
+    items = [
+        ComissaoPagaResponse(
+            id=row["id"],
+            vendedor_id=row["vendedor_id"],
+            vendedor_nome=row["vendedor_nome"],
+            data_pagamento=row["data_pagamento"],
+            valor=Decimal(str(row["valor"])),
+            forma_pagamento=row["forma_pagamento"],
+            observacao=row["observacao"],
+            comprovante_object_key=row["comprovante_object_key"],
+            created_at=row["created_at"].isoformat(),
+            updated_at=row["updated_at"].isoformat(),
+        )
+        for row in page
+    ]
+    return items, next_cursor
+
+
+async def criar_comissao_pagamento(
+    conn: AsyncConnection[Any],
+    *,
+    vendedor_id: UUID,
+    data_pagamento: date,
+    valor: Decimal,
+    forma_pagamento: str,
+    observacao: str | None,
+    comprovante_object_key: str | None,
+    user_id: UUID,
+) -> UUID:
+    result = await conn.execute(
+        """
+        INSERT INTO barravips.financeiro_comissoes_pagas
+            (vendedor_id, data_pagamento, valor, forma_pagamento,
+             observacao, comprovante_object_key, created_by)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING id
+        """,
+        (
+            vendedor_id,
+            data_pagamento,
+            valor,
+            forma_pagamento,
+            observacao,
+            comprovante_object_key,
+            user_id,
+        ),
+    )
+    row = await result.fetchone()
+    assert row is not None
+    return UUID(str(row["id"]))
+
+
+async def atualizar_comissao_pagamento(
+    conn: AsyncConnection[Any],
+    pagamento_id: UUID,
+    *,
+    data_pagamento: date | None,
+    valor: Decimal | None,
+    forma_pagamento: str | None,
+    observacao: str | None,
+    comprovante_object_key: str | None,
+) -> bool:
+    sets: list[str] = []
+    params: list[Any] = []
+    if data_pagamento is not None:
+        sets.append("data_pagamento = %s")
+        params.append(data_pagamento)
+    if valor is not None:
+        sets.append("valor = %s")
+        params.append(valor)
+    if forma_pagamento is not None:
+        sets.append("forma_pagamento = %s")
+        params.append(forma_pagamento)
+    if observacao is not None:
+        sets.append("observacao = %s")
+        params.append(observacao)
+    if comprovante_object_key is not None:
+        sets.append("comprovante_object_key = %s")
+        params.append(comprovante_object_key)
+    if not sets:
+        return True
+    params.append(pagamento_id)
+    result = await conn.execute(
+        f"UPDATE barravips.financeiro_comissoes_pagas SET {', '.join(sets)} WHERE id = %s",
+        params,
+    )
+    return result.rowcount > 0
+
+
+async def excluir_comissao_pagamento(conn: AsyncConnection[Any], pagamento_id: UUID) -> bool:
+    result = await conn.execute(
+        "DELETE FROM barravips.financeiro_comissoes_pagas WHERE id = %s",
+        (pagamento_id,),
+    )
+    return result.rowcount > 0
+
+
+async def obter_comissao_pagamento(
+    conn: AsyncConnection[Any], pagamento_id: UUID
+) -> ComissaoPagaResponse | None:
+    result = await conn.execute(
+        """
+        SELECT
+          p.id, p.vendedor_id, v.nome AS vendedor_nome,
+          p.data_pagamento, p.valor, p.forma_pagamento::text AS forma_pagamento,
+          p.observacao, p.comprovante_object_key,
+          p.created_at, p.updated_at
+          FROM barravips.financeiro_comissoes_pagas p
+          JOIN barravips.vendedores v ON v.id = p.vendedor_id
+         WHERE p.id = %s
+        """,
+        (pagamento_id,),
+    )
+    row = await result.fetchone()
+    if row is None:
+        return None
+    return ComissaoPagaResponse(
+        id=row["id"],
+        vendedor_id=row["vendedor_id"],
+        vendedor_nome=row["vendedor_nome"],
         data_pagamento=row["data_pagamento"],
         valor=Decimal(str(row["valor"])),
         forma_pagamento=row["forma_pagamento"],
