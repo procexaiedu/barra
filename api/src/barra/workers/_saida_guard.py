@@ -26,8 +26,10 @@ from barra.agente.nos.output_guard import tem_marcador_ia
 __all__ = [
     "extrair_tokens_pii",
     "normalizar_emoji_voz",
+    "normalizar_travessao",
     "redigir_pii_eco",
     "tem_marcador_ia",
+    "tem_placeholder_eco",
 ]
 
 # PII do cliente que a IA não deve ecoar. Endereço/CEP de propósito fora (saída legítima). O `tipo`
@@ -112,6 +114,31 @@ def redigir_pii_eco(texto: str, tokens_cliente: set[str]) -> tuple[str, list[str
     return texto, redigidos
 
 
+# --- Eco de placeholder de ensino (SEC-OUT — bolha quebrada, não vai ao cliente) ------
+# Os exemplos <ela> da persona/regras usam {valor}, {horario}, etc. como marcadores de "aqui entra
+# o dado real", e a persona manda NUNCA escrever as chaves (persona.md). O DeepSeek às vezes copia
+# o token literal (tic de modelo, "LLM resiste à instrução") — uma bolha com {valor} é uma cotação
+# QUEBRADA (sem o número), pior que não responder. Casa as duas formas observadas: a chave
+# {palavra} dos exemplos e o colchete instrucional inventado ([insira a rua], [seu endereço]).
+# NÃO casa o marker [quote]/[quote: trecho] — o chunking já o removeu antes desta rede, e 'quote'
+# não está nos gatilhos do colchete. Match → o enviar_turno bloqueia o turno e escala (handoff).
+_PLACEHOLDER = re.compile(
+    r"\{[a-zà-ÿ_]{2,20}\}"  # {valor}, {horario}, {nome}, {duracao}, {endereco}, ...
+    r"|\[\s*(?:insira|inserir|coloque|preench\w*|adicione|informe|seu|sua|valor|"
+    r"hor[áa]rio|endere\w*|rua|bairro)\b[^\]]*\]",  # [insira a rua], [seu endereço], ...
+    re.IGNORECASE,
+)
+
+
+def tem_placeholder_eco(texto: str) -> bool:
+    """True se a bolha tem placeholder de ensino não-substituído ({valor}, [insira ...]) (PURO).
+
+    É uma cotação/fala QUEBRADA que não pode ir ao cliente: silenciar o token deixaria a bolha
+    sem o dado (preço sem número), então o caller bloqueia+escala em vez de redigir. Não casa o
+    marker [quote]/[quote: trecho] (já removido pelo chunking; 'quote' fora dos gatilhos)."""
+    return bool(_PLACEHOLDER.search(texto))
+
+
 # --- Normalização de emoji da voz (camada de calibração, não segurança) -------
 # Mineração do corpus do Vendedor (scripts/eval_corpus/voz_por_momento.py, 2026-06-18): emoji é
 # RARO (10,7% das bolhas, 94,7% delas com exatamente 1), de vocabulário minúsculo e afetivo
@@ -188,3 +215,34 @@ def normalizar_emoji_voz(chunks: list[str], rng: random.Random | None = None) ->
     out = [_normalizar_bolha(c, rng) for c in chunks]
     nao_vazios = [c for c in out if c.strip()]
     return nao_vazios or chunks
+
+
+# --- Normalização de travessão da voz (camada de calibração, não segurança) ---
+# persona.md <voz>: "nada de travessão (aquele traço longo de teclado de computador), que ninguém
+# digita no celular e te entrega como robô. Onde pensaria em usar um, quebre a bolha ou use
+# vírgula." O DeepSeek vaza '—' (em-dash) mesmo instruído (tic de modelo, mais comum em formatação
+# de endereço: "Rua X — Bairro"). Esta rede crava a regra de forma determinística: troca o em-dash
+# (U+2014) por vírgula — a opção sempre-gramatical (a outra, "quebrar a bolha", é impossível pós-
+# chunking, e a vírgula casa o "use vírgula" da persona). NUNCA toca o hífen ASCII '-' (bem-vindo,
+# guarda-roupa são legítimos) nem o en-dash U+2013 (raro e ambíguo com faixa numérica; sem
+# evidência de vazamento). Stateless; não injeta nada que o modelo não pôs.
+_TRAVESSAO = re.compile(r"\s*—+\s*")  # em-dash '—', o "traço longo" da persona <voz>
+
+
+def _normalizar_travessao_bolha(bolha: str) -> str:
+    """Troca em-dash por vírgula numa bolha e limpa a sujeira da troca. No-op sem em-dash."""
+    if "—" not in bolha:
+        return bolha
+    texto = _TRAVESSAO.sub(", ", bolha)
+    texto = re.sub(r"^\s*,\s*", "", texto)  # ponta inicial (lista/ênfase solta) → só some
+    texto = re.sub(r"\s*,\s*$", "", texto)  # ponta final → só some
+    texto = re.sub(r",\s*,", ",", texto)  # vírgula dupla
+    texto = re.sub(r"[ \t]{2,}", " ", texto)  # espaço duplo
+    texto = re.sub(r"\s+([,.!?])", r"\1", texto)  # espaço antes de pontuação
+    return texto.strip()
+
+
+def normalizar_travessao(chunks: list[str]) -> list[str]:
+    """Troca o travessão (em-dash) por vírgula em cada bolha do turno (persona <voz>). Não toca o
+    hífen ASCII nem o en-dash; preserva a contagem de bolhas (transform por-bolha, sem dropar)."""
+    return [_normalizar_travessao_bolha(c) for c in chunks]

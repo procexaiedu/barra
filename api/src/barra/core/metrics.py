@@ -193,7 +193,7 @@ ENVIO_DURACAO = Histogram(
 ENVIO_RESULTADO = Counter(
     "agente_envio_resultado_total",
     "Resultado do envio do turno (05 §9): "
-    "ok|cancelado|dedupe_skip|falha_evolution|exaustao_critico|bloqueado_leak",
+    "ok|cancelado|dedupe_skip|falha_evolution|exaustao_critico|bloqueado_leak|bloqueado_placeholder",
     ["resultado"],
 )
 ENVIO_RETRIES = Counter(

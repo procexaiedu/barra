@@ -36,8 +36,10 @@ from barra.workers._cards import render_card
 from barra.workers._saida_guard import (
     extrair_tokens_pii,
     normalizar_emoji_voz,
+    normalizar_travessao,
     redigir_pii_eco,
     tem_marcador_ia,
+    tem_placeholder_eco,
 )
 
 logger = logging.getLogger(__name__)
@@ -594,6 +596,10 @@ _ACAO_ASSUMIR = "Assumir a conversa com o cliente."
 _RESUMO_ENVIO_LEAK = (
     "Rede de saída barrou a bolha (auto-referência de IA detectada antes do envio)."
 )
+_RESUMO_ENVIO_PLACEHOLDER = (
+    "Rede de saída barrou a bolha (placeholder de ensino não-substituído, ex. {valor}, "
+    "antes do envio). Provável cotação sem o número — refaça a fala ao cliente."
+)
 
 
 async def _pii_cliente_recente(pool: AsyncConnectionPool[Any], conversa_id: str) -> set[str]:
@@ -616,39 +622,80 @@ async def _pii_cliente_recente(pool: AsyncConnectionPool[Any], conversa_id: str)
     return tokens
 
 
+async def _bloquear_envio(
+    pool: AsyncConnectionPool[Any],
+    conversa_id: str,
+    conv: dict[str, Any],
+    *,
+    resultado: str,
+    resumo: str,
+    observacao: str,
+) -> None:
+    """Bloqueia o turno na rede de saída: conta a métrica, abre handoff p/ Fernando (default seguro)
+    e contabiliza a escalada (bucket=defesa). Sem atendimento_id (canned/reengajamento) só loga — a
+    bolha já não sai. Fonte única do bloqueio das defesas A1 (leak de IA) e A1.5 (placeholder)."""
+    ENVIO_RESULTADO.labels(resultado).inc()
+    atend = conv.get("atendimento_id")
+    if atend is None:
+        logger.warning(
+            "envio_guard barrou (%s) sem atendimento_id conversa_id=%s", observacao, conversa_id
+        )
+        return
+    async with pool.connection() as conn:
+        await abrir_handoff(
+            conn,
+            atendimento_id=atend,
+            responsavel="Fernando",
+            tipo=TipoEscalada.comportamento_atipico,
+            resumo_operacional=resumo,
+            acao_esperada=_ACAO_ASSUMIR,
+            origem="agente",
+            autor="sistema",
+            observacao=observacao,
+        )
+    AGENTE_ESCALADA.labels(mapear_bucket(observacao), observacao).inc()
+
+
 async def _aplicar_saida_guard(
     pool: AsyncConnectionPool[Any], conversa_id: str, conv: dict[str, Any], chunks: list[str]
 ) -> list[str] | None:
     """Rede final antes da bolha. Devolve os chunks (com PII do cliente redigida por eco, se houver)
     ou None se o turno deve ser BLOQUEADO (vazamento de IA → handoff + bolha não sai)."""
-    # Camada de voz (independente do envio_guard de segurança): crava o whitelist de emoji {🥰,😊}
-    # e seca a venda. Aplica em TODOS os caminhos (canned/reengajamento inclusive), antes do resto.
+    # Camada de voz (independente do envio_guard de segurança): crava o whitelist de emoji {🥰,😊},
+    # seca a venda e troca travessão por vírgula. Aplica em TODOS os caminhos (canned/reengajamento
+    # inclusive), antes do resto.
     if get_settings().filtro_emoji_habilitado:
         chunks = normalizar_emoji_voz(chunks)
+    if get_settings().filtro_travessao_habilitado:
+        chunks = normalizar_travessao(chunks)
     if not get_settings().envio_guard_habilitado:
         return chunks
     texto = "\n".join(chunks)
 
     # A1: auto-referência de IA → bloqueia o turno inteiro e escala (default seguro, A1).
     if tem_marcador_ia(texto):
-        ENVIO_RESULTADO.labels("bloqueado_leak").inc()
-        atend = conv.get("atendimento_id")
-        if atend is not None:
-            async with pool.connection() as conn:
-                await abrir_handoff(
-                    conn,
-                    atendimento_id=atend,
-                    responsavel="Fernando",
-                    tipo=TipoEscalada.comportamento_atipico,
-                    resumo_operacional=_RESUMO_ENVIO_LEAK,
-                    acao_esperada=_ACAO_ASSUMIR,
-                    origem="agente",
-                    autor="sistema",
-                    observacao="envio_leak",
-                )
-            AGENTE_ESCALADA.labels(mapear_bucket("envio_leak"), "envio_leak").inc()
-        else:
-            logger.warning("envio_guard barrou leak sem atendimento_id conversa_id=%s", conversa_id)
+        await _bloquear_envio(
+            pool,
+            conversa_id,
+            conv,
+            resultado="bloqueado_leak",
+            resumo=_RESUMO_ENVIO_LEAK,
+            observacao="envio_leak",
+        )
+        return None
+
+    # A1.5: placeholder de ensino não-substituído ({valor}, [insira a rua]) → cotação QUEBRADA.
+    # Bloqueia+escala como o A1: silenciar o token deixaria a bolha sem o dado (preço sem número),
+    # então é melhor handoff p/ Fernando refazer a fala do que mandar a cotação truncada.
+    if tem_placeholder_eco(texto):
+        await _bloquear_envio(
+            pool,
+            conversa_id,
+            conv,
+            resultado="bloqueado_placeholder",
+            resumo=_RESUMO_ENVIO_PLACEHOLDER,
+            observacao="envio_placeholder",
+        )
         return None
 
     # A2: redação por eco. Pre-check barato — sem shape de PII na saída, nem consulta o inbound.

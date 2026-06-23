@@ -10,8 +10,10 @@ import random
 from barra.workers._saida_guard import (
     extrair_tokens_pii,
     normalizar_emoji_voz,
+    normalizar_travessao,
     redigir_pii_eco,
     tem_marcador_ia,
+    tem_placeholder_eco,
 )
 
 
@@ -164,3 +166,66 @@ def test_emoji_frequencia_converge_para_alvo_do_corpus() -> None:
     )
     assert 0.52 < saud / n < 0.62  # keep-alvo 0.57
     assert 0.29 < outro / n < 0.39  # keep-alvo 0.34
+
+
+# --- tem_placeholder_eco: token de ensino não-substituído ({valor}, [insira ...]) ------
+
+
+def test_placeholder_detecta_chave_de_ensino() -> None:
+    """A chave {palavra} dos exemplos <ela> que o modelo copiou literal = cotação quebrada."""
+    assert tem_placeholder_eco("{valor} 1h no meu local rs")
+    assert tem_placeholder_eco("te espero às {horario} amor")
+    assert tem_placeholder_eco("é na {rua}, {bairro}")
+
+
+def test_placeholder_detecta_colchete_instrucional() -> None:
+    """Colchete de fill-in que o DeepSeek inventa ([insira a rua], [seu endereço])."""
+    assert tem_placeholder_eco("é na [insira a rua] número 10")
+    assert tem_placeholder_eco("o ponto é [seu endereço aqui]")
+
+
+def test_placeholder_nao_casa_marker_quote() -> None:
+    """[quote]/[quote: trecho] NÃO é placeholder ('quote' fora dos gatilhos) — senão barraria reply
+    legítimo. (Na prática o chunking já removeu o marker antes desta rede; defesa em profundidade.)"""
+    assert not tem_placeholder_eco("[quote] beleza amor")
+    assert not tem_placeholder_eco("[quote: quanto 1h] 800 amor")
+
+
+def test_placeholder_nao_casa_fala_legitima() -> None:
+    """Cotação/horário/endereço reais (sem chaves nem colchete de fill-in) passam limpos."""
+    assert not tem_placeholder_eco("800 1h ou 1200 2h no meu local")
+    assert not tem_placeholder_eco("te espero às 23h30 amor")
+    assert not tem_placeholder_eco("é na Rua das Flores, Chácara da Barra rs")
+    assert not tem_placeholder_eco("seria hoje? 🥰")
+
+
+# --- normalizar_travessao: em-dash '—' → vírgula (persona <voz>) ----------------
+
+
+def test_travessao_entre_trechos_vira_virgula() -> None:
+    """O caso documentado: o DeepSeek vaza '—' em endereço apesar da regra."""
+    assert normalizar_travessao(["é na Rua X — Chácara da Barra"]) == [
+        "é na Rua X, Chácara da Barra"
+    ]
+    assert normalizar_travessao(["X—Y"]) == ["X, Y"]  # colado, sem espaços
+    assert normalizar_travessao(["A — B — C"]) == ["A, B, C"]  # múltiplos
+
+
+def test_travessao_nas_pontas_some() -> None:
+    """Travessão de lista/ênfase solta na ponta vira nada (vírgula na ponta seria feia)."""
+    assert normalizar_travessao(["— item solto"]) == ["item solto"]
+    assert normalizar_travessao(["fim da frase —"]) == ["fim da frase"]
+
+
+def test_travessao_nao_toca_hifen_nem_en_dash() -> None:
+    """Hífen ASCII (bem-vindo) e en-dash (faixa numérica) são preservados — só o em-dash sai."""
+    assert normalizar_travessao(["seja bem-vindo ao guarda-roupa"]) == [
+        "seja bem-vindo ao guarda-roupa"
+    ]
+    en = chr(0x2013)  # en-dash (U+2013) montado sem literal ambíguo no source
+    assert normalizar_travessao([f"das 10{en}12h"]) == [f"das 10{en}12h"]  # en-dash intocado
+
+
+def test_travessao_no_op_sem_em_dash_e_preserva_bolhas() -> None:
+    """Sem em-dash não muda nada; a contagem de bolhas é preservada (transform por-bolha)."""
+    assert normalizar_travessao(["oi amor", "tudo bem?"]) == ["oi amor", "tudo bem?"]

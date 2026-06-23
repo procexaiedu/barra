@@ -213,6 +213,10 @@ class Settings(BaseSettings):
         default=True,
         description="Normaliza o emoji da bolha de saida (camada de voz, nao seguranca): remove todo glyph fora do whitelist {🥰,😊}, limita a 1 por bolha e seca emoji na cotacao/sondagem/desconto/logistica (espelha a regra seca-da-cotacao-em-diante da persona). Vale para todos os caminhos do enviar_turno. False = bolha sai como o modelo gerou (kill-switch sem deploy).",
     )
+    filtro_travessao_habilitado: bool = Field(
+        default=True,
+        description="Normaliza o travessao da bolha de saida (camada de voz, nao seguranca): troca o em-dash '—' por virgula (persona <voz>: 'nada de travessao... use virgula'), que o DeepSeek vaza mesmo instruido. Nao toca o hifen ASCII '-' nem o en-dash. Vale para todos os caminhos do enviar_turno. False = bolha sai como o modelo gerou (kill-switch sem deploy).",
+    )
     reincidencia_seguranca_limiar: int = Field(
         default=3,
         ge=1,

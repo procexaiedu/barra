@@ -346,6 +346,60 @@ async def test_bloqueia_bolha_que_admite_ser_ia(monkeypatch: pytest.MonkeyPatch)
     assert chamadas[0]["observacao"] == "envio_leak"
 
 
+async def test_bloqueia_bolha_com_placeholder_de_ensino(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Token de ensino não-substituído ({valor}) que o DeepSeek copiou = cotação quebrada (sem o
+    número) → nada sai + escala p/ Fernando refazer a fala (A1.5)."""
+    chamadas: list[dict[str, Any]] = []
+
+    async def _spy(_conn: Any, **kw: Any) -> None:
+        chamadas.append(kw)
+
+    monkeypatch.setattr("barra.workers.envio.abrir_handoff", _spy)
+
+    turno_id, conversa_id = "turno-PH", str(uuid4())
+    conn = _FakeConn(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["{valor} 1h no meu local rs"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert _so(evolution, "texto") == []  # cotação quebrada barrada, nada saiu ao cliente
+    assert len(chamadas) == 1
+    assert chamadas[0]["observacao"] == "envio_placeholder"
+
+
+async def test_normaliza_travessao_no_despacho() -> None:
+    """Em-dash que o modelo vaza em endereço vira vírgula antes da bolha sair (persona <voz>)."""
+    turno_id, conversa_id = "turno-DASH", str(uuid4())
+    conn = _FakeConn(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["é na Rua das Flores — Chácara da Barra"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert _so(evolution, "texto") == ["é na Rua das Flores, Chácara da Barra"]
+
+
 async def test_redige_pii_do_cliente_ecoada_na_bolha() -> None:
     """Cliente mandou o CPF; a IA repetiu → a rede mascara antes de sair (SEC-PII-02)."""
     turno_id, conversa_id = "turno-PII", str(uuid4())
