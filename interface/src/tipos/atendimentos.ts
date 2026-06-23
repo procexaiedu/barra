@@ -19,6 +19,15 @@ export type MotivoPerda = "preco" | "sumiu" | "risco" | "indisponibilidade" | "f
 export type DirecaoMensagem = "cliente" | "ia" | "modelo_manual"
 export type TipoMensagem = "texto" | "audio" | "imagem"
 export type PixStatus = "nao_solicitado" | "aguardando" | "enviado" | "em_revisao" | "validado" | "invalido"
+export type FormaPagamento = "pix" | "dinheiro" | "cartao"
+
+// Dados do fechamento (ADR 0013): valor final + forma confirmada + isentar taxa de cartão.
+// O backend carimba taxa_cartao_snapshot a partir disto (forma='cartao' e não isento → taxa padrão).
+export interface FecharAtendimentoDados {
+  valorFinal: number
+  formaPagamento: FormaPagamento | null
+  isentarTaxa: boolean
+}
 
 export interface AtendimentoListaItem {
   id: string

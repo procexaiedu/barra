@@ -49,6 +49,7 @@ export interface CriarBloqueioInput {
   observacao: string | null
   atendimento_id?: string
   confirmar_fora_disponibilidade?: boolean
+  confirmar_buffer?: boolean
 }
 
 export interface AtualizarBloqueioInput {
@@ -57,6 +58,7 @@ export interface AtualizarBloqueioInput {
   observacao: string | null
   atendimento_id?: string | null
   confirmar_fora_disponibilidade?: boolean
+  confirmar_buffer?: boolean
 }
 
 export interface BloqueioFormState {

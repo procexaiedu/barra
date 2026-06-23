@@ -10,6 +10,7 @@ from psycopg import AsyncConnection
 
 from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
+from barra.settings import get_settings
 
 Origem = Literal["painel", "grupo_coordenacao", "pipeline_pix", "cron", "agente"]
 Autor = Literal["IA", "Fernando", "modelo", "sistema"]
@@ -123,6 +124,14 @@ async def _registrar_fechado(
     if atendimento["estado"] in {"Fechado", "Perdido"}:
         raise ConflitoEstado("Atendimento ja esta finalizado.")
 
+    # Taxa de cartão (ADR 0013): o backend carimba o snapshot a partir do default em settings
+    # quando a forma confirmada no fechamento é cartão e a taxa não é isenta. Sem forma (comando
+    # do grupo) ou pix/dinheiro/isento → sem taxa. forma_pagamento usa COALESCE para confirmar a
+    # forma sem apagar a que já estava no atendimento quando o fechamento não a informa.
+    forma = payload.get("forma_pagamento")
+    isentar = bool(payload.get("isentar_taxa"))
+    taxa = get_settings().taxa_cartao_padrao_pct if forma == "cartao" and not isentar else None
+
     await conn.execute(
         """
         UPDATE barravips.atendimentos
@@ -130,6 +139,7 @@ async def _registrar_fechado(
                valor_final = %s,
                percentual_repasse_snapshot = COALESCE(percentual_repasse_snapshot, %s),
                taxa_cartao_snapshot = %s,
+               forma_pagamento = COALESCE(%s, forma_pagamento),
                ia_pausada = false,
                ia_pausada_motivo = NULL,
                responsavel_atual = 'Fernando',
@@ -139,7 +149,8 @@ async def _registrar_fechado(
         (
             Decimal(str(valor)),
             atendimento["percentual_repasse"],
-            payload.get("taxa_cartao_snapshot"),
+            taxa,
+            forma,
             _fonte(origem),
             atendimento["id"],
         ),

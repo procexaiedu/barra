@@ -583,7 +583,8 @@ async def fechar_atendimento(
         comando="registrar_fechado",
         payload={
             "valor_final": body.valor_final,
-            "taxa_cartao_snapshot": body.taxa_cartao_snapshot,
+            "forma_pagamento": body.forma_pagamento,
+            "isentar_taxa": body.isentar_taxa,
         },
     )
     return {"id": result.atendimento_id, "estado": result.estado}

@@ -20,7 +20,12 @@ import {
 } from "@/components/ui/alert-dialog"
 import { cn } from "@/lib/utils"
 import { ehTelefoneExibivel, formatBRL, formatData, formatDataHora, formatTelefone, formatTempoRelativo, nomeCliente } from "@/lib/formatters"
-import type { AtendimentoDetalheResponse, EventoAtendimento, MotivoPerda } from "@/tipos/atendimentos"
+import type {
+  AtendimentoDetalheResponse,
+  EventoAtendimento,
+  FecharAtendimentoDados,
+  MotivoPerda,
+} from "@/tipos/atendimentos"
 import { AcoesAtendimento } from "@/components/atendimentos/AcoesAtendimento"
 import { HistoricoMensagens } from "@/components/atendimentos/HistoricoMensagens"
 import { LinhaEvento } from "@/components/atendimentos/LinhaEvento"
@@ -63,7 +68,7 @@ export function DetalheAtendimento({
   error: string | null
   onRetry: () => void
   onDevolver?: (id: string) => Promise<void>
-  onFechar?: (id: string, valorFinal: number) => Promise<void>
+  onFechar?: (id: string, dados: FecharAtendimentoDados) => Promise<void>
   onPerder?: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
   onUploadMidia?: (atendimentoId: string, file: File, tipo: string) => Promise<void>
   onDeletarMidia?: (atendimentoId: string, midiaId: string) => Promise<void>

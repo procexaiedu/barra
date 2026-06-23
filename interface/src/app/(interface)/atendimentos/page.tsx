@@ -354,9 +354,9 @@ function CentralAtendimentosInner() {
             open={acaoTerminalPendente?.destino === "Fechado"}
             numeroCurto={acaoTerminalPendente?.item.numero_curto ?? null}
             valorAcordado={acaoTerminalPendente?.item.valor_acordado ?? null}
-            onFechar={async (valorFinal) => {
+            onFechar={async (dados) => {
               if (!acaoTerminalPendente) return
-              await atendimentos.fechar(acaoTerminalPendente.item.id, valorFinal)
+              await atendimentos.fechar(acaoTerminalPendente.item.id, dados)
               setAcaoTerminalPendente(null)
               if (mostrarEncerrados) await recarregarEncerrados()
             }}
