@@ -22,11 +22,17 @@ logger = logging.getLogger(__name__)
 # normalmente em ~1s; só escaladas "presas" além disso entram na reconciliação, evitando corrida.
 _RECONCILIACAO_FOLGA_SEGUNDOS = 30
 
-# Card canônico por tipo de escalada. A maioria (escalar tool, cliente_busca, video_chamada) usa o
-# card genérico de Handoff (`escalada`). `foto_portaria` é a exceção: sua escalada só hospeda o
-# `card_message_id` do card PRÓPRIO `chegada` (🚪 + foto). Reconciliar com `escalada` mandaria o 🔔
-# genérico e envenenaria a idempotência por owner, deixando o 🚪 nunca sair (bug E2E 2026-06-17).
-_CARD_POR_TIPO_ESCALADA = {"foto_portaria": "chegada"}
+# Card canônico por tipo de escalada. Cada tipo com card PRÓPRIO é reconciliado com o SEU card; o
+# resto (escalar tool, jailbreak, política) cai no card genérico de Handoff (`escalada`).
+# Próprios: `foto_portaria` → 🚪 chegada (+ foto); `cliente_busca`/`video_chamada` (pickup/remoto,
+# ADR 0020/0021) → 🤝/🎥 "go-time" (não são Handoff, e sim "chegou a hora"). Reconciliar qualquer
+# um deles com `escalada` mandaria o 🔔 genérico e envenenaria a idempotência por owner, deixando
+# o card próprio nunca sair (regressão `foto_portaria`, bug E2E 2026-06-17).
+_CARD_POR_TIPO_ESCALADA = {
+    "foto_portaria": "chegada",
+    "cliente_busca": "cliente_busca",
+    "video_chamada": "video_chamada",
+}
 
 
 async def reconciliar_cards_escalada(ctx: dict[str, Any]) -> int:

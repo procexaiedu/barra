@@ -242,3 +242,28 @@ async def test_enviar_card_escalada_lembrete_sem_resposta_posta(
 
     assert evolution.envios == [("grupo_coordenacao", "card")]
     assert await _ler_card_message_id(conn, escalada_id) is not None
+
+
+@pytest.mark.needs_db
+@pytest.mark.parametrize("tipo", ["cliente_busca", "video_chamada"])
+async def test_enviar_card_go_time_grava_id_e_idempotente(
+    conn: AsyncConnection[dict[str, Any]], tipo: str
+) -> None:
+    """Card "go-time" pickup/remoto (🤝/🎥, ADR 0020/0021): a escalada owner=modelo hospeda o
+    `card_message_id` e o renderer próprio (`_card_go_time`) posta no grupo com `contexto/tipo`
+    aceitos pela CHECK de `envios_evolution`, gravando o id. Idempotente por owner: a 2ª execução
+    não reenvia."""
+    escalada_id = await _seed_escalada(conn, responsavel="modelo", tipo=tipo, motivo=tipo)
+    evolution = _FakeEvolution()
+    ctx: dict[str, Any] = {"db_pool": _FakePool(conn), "evolution": evolution}
+
+    await enviar_card(ctx, tipo=tipo, escalada_id=str(escalada_id))
+
+    mid1 = await _ler_card_message_id(conn, escalada_id)
+    assert mid1 is not None
+    assert evolution.envios == [("grupo_coordenacao", "card")]
+
+    # 2ª execução: card_message_id já preenchido → não reenvia.
+    await enviar_card(ctx, tipo=tipo, escalada_id=str(escalada_id))
+    assert await _ler_card_message_id(conn, escalada_id) == mid1
+    assert len(evolution.envios) == 1

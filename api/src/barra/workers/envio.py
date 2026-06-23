@@ -315,6 +315,71 @@ async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -
             )
 
 
+# Escalada owner=modelo cujo card próprio é um momento "go-time" (não Handoff): tipo → template.
+# A escalada (criada por timeouts.confirmar_em_execucao na hora do encontro) só hospeda o
+# card_message_id; sem isto cairia no card genérico 🔔 escalada (reconciliacao._CARD_POR_TIPO).
+_CARD_POR_TIPO_GO_TIME: dict[str, str] = {
+    "cliente_busca": "cliente_busca",
+    "video_chamada": "video_chamada",
+}
+
+
+async def _card_go_time(ctx: dict[str, Any], *, escalada_id: str, **_: Any) -> None:
+    """Card "go-time" de pickup (🤝) / vídeo chamada (🎥) no grupo de Coordenação (ADR 0020/0021).
+
+    Não é Handoff: o gatilho é "chegou a hora", como 🚪 chegada / ✅ saída confirmada. A escalada
+    owner=modelo tipo='cliente_busca'/'video_chamada' só hospeda o `card_message_id`. Idempotência
+    por owner (= `_card_escalada`): só envia se `card_message_id IS NULL`; POST + UPDATE na MESMA
+    transação. O template sai de `_CARD_POR_TIPO_GO_TIME[tipo]`.
+    """
+    pool = ctx["db_pool"]
+    evolution: EvolutionClient = ctx["evolution"]
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT e.tipo::text AS tipo, e.card_message_id, e.atendimento_id,
+                   a.numero_curto, a.endereco, a.conversa_id,
+                   (b.inicio AT TIME ZONE 'America/Sao_Paulo') AS bloqueio_inicio,
+                   cl.nome AS cliente_nome,
+                   mo.coordenacao_chat_id, mo.evolution_instance_id
+              FROM barravips.escaladas e
+              JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+              JOIN barravips.modelos      mo ON mo.id = a.modelo_id
+              JOIN barravips.clientes     cl ON cl.id = a.cliente_id
+              LEFT JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+             WHERE e.id = %s
+            """,
+            (UUID(escalada_id),),
+        )
+        e = await res.fetchone()
+        if not e or e["card_message_id"]:
+            return  # idempotência por owner: card já enviado
+
+        texto = render_card(
+            _CARD_POR_TIPO_GO_TIME[e["tipo"]],
+            numero_curto=e["numero_curto"],
+            cliente_nome=e["cliente_nome"] or "cliente",
+            endereco=e["endereco"],
+            horario=e["bloqueio_inicio"],
+        )
+        async with conn.transaction():
+            mid = await evolution.enviar_texto(
+                conn=conn,
+                instance_id=e["evolution_instance_id"],
+                remote_jid=e["coordenacao_chat_id"],
+                texto=texto,
+                contexto="grupo_coordenacao",
+                tipo="card",
+                atendimento_id=e["atendimento_id"],
+                conversa_id=e["conversa_id"],
+            )
+            await conn.execute(
+                "UPDATE barravips.escaladas SET card_message_id = %s WHERE id = %s",
+                (mid, UUID(escalada_id)),
+            )
+
+
 async def _card_aviso_saida(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -> None:
     """Card "cliente saiu de casa" no grupo de Coordenação (06 §5).
 
@@ -377,6 +442,8 @@ _RENDER_CARD: dict[str, Callable[..., Awaitable[None]]] = {
     "pix_validado": _card_pix,
     "pix_em_revisao": _card_pix,
     "chegada": _card_chegada,
+    "cliente_busca": _card_go_time,
+    "video_chamada": _card_go_time,
     "aviso_saida": _card_aviso_saida,
     "loc_pin": _card_loc_pin,
 }
