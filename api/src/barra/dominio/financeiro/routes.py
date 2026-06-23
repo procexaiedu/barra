@@ -24,6 +24,10 @@ from barra.core.janela import resolver_janela
 from barra.dominio.financeiro import repo, service
 from barra.dominio.financeiro.schemas import (
     AtendimentosSemSnapshotResponse,
+    ComissaoPagaCriar,
+    ComissaoPagaPatch,
+    ComissaoPagaResponse,
+    ComissoesPagamentosListaResponse,
     ComissoesPorVendedorResponse,
     ComprovanteUploadResponse,
     ComprovanteUrlResponse,
@@ -212,6 +216,54 @@ async def get_comissoes(
     return await service.montar_comissao_por_vendedor(
         conn, periodo=periodo, janela=janela, vendedor_ids=vendedor_id
     )
+
+
+@router.get("/comissoes/pagamentos")
+async def get_comissao_pagamentos(
+    periodo: Periodo = "mes",
+    de: date | None = None,
+    ate: date | None = None,
+    vendedor_id: Annotated[list[UUID] | None, Query()] = None,
+    limit: int = Query(default=50, ge=1, le=200),
+    cursor: str | None = None,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> ComissoesPagamentosListaResponse:
+    """Pagamentos de Comissão de vendedor registrados no período (ADR 0012)."""
+    janela = await _janela_periodo(conn, periodo, de, ate)
+    return await service.montar_comissao_pagamentos(
+        conn,
+        periodo=periodo,
+        janela=janela,
+        vendedor_ids=vendedor_id,
+        limit=limit,
+        cursor_iso=cursor,
+    )
+
+
+@router.post("/comissoes/pagamentos", status_code=201)
+async def post_comissao_pagamento(
+    body: ComissaoPagaCriar,
+    user: UsuarioAtual = Depends(get_user),
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> ComissaoPagaResponse:
+    return await service.criar_comissao_pagamento(conn, body, user.id)
+
+
+@router.patch("/comissoes/pagamentos/{pagamento_id}")
+async def patch_comissao_pagamento(
+    pagamento_id: UUID,
+    body: ComissaoPagaPatch,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> ComissaoPagaResponse:
+    return await service.atualizar_comissao_pagamento(conn, pagamento_id, body)
+
+
+@router.delete("/comissoes/pagamentos/{pagamento_id}", status_code=204)
+async def delete_comissao_pagamento(
+    pagamento_id: UUID,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> None:
+    await service.excluir_comissao_pagamento(conn, pagamento_id)
 
 
 @router.get("/repasses/pagamentos")
