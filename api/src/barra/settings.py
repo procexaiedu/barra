@@ -245,6 +245,18 @@ class Settings(BaseSettings):
             "~40min a 2h (~83%) e despenca após 12h; o humano nunca cutuca antes de 40min."
         ),
     )
+    experimento_braco_ativo: bool = Field(
+        default=False,
+        description=(
+            "Liga o trilho do A/B vivo: cada atendimento NASCE carimbado num braço determinístico "
+            "e sticky por cliente (md5(cliente_id) % 2 -> 'controle'/'tratamento') em "
+            "workers/coordenador.resolver_atendimento. DESLIGADO por default (net-new, sem alavanca "
+            "validada): com OFF a coluna experimento_braco nem é referenciada na query, então o "
+            "código roda contra o schema pré-migration. Ligar exige a migration "
+            "20260623044614_atendimentos_experimento_braco aplicada em prod. Até uma alavanca ser "
+            "ligada no braço 'tratamento', controle e tratamento rodam comportamento idêntico (A/A)."
+        ),
+    )
     agenda_buffer_min: int = Field(
         default=30,
         ge=0,

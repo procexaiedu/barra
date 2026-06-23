@@ -794,13 +794,29 @@ async def resolver_atendimento(
     if row:
         return row
 
+    # Trilho do A/B vivo (experimento_braco): com o flag ligado, o atendimento nasce carimbado
+    # num braço determinístico e sticky por cliente, computado em SQL para herdar c.cliente_id da
+    # subquery sem round-trip extra na criação. DESLIGADO por default — e nesse caso a coluna nem
+    # entra na query, então `resolver_atendimento` roda contra o schema pré-migration (a coluna
+    # experimento_braco pode não existir em prod até a migration ser aplicada). Os fragmentos são
+    # literais constantes (sem input do usuário) — nada de injeção.
+    if get_settings().experimento_braco_ativo:
+        col_braco = ", experimento_braco"
+        sel_braco = (
+            ", CASE WHEN get_byte(decode(md5(c.cliente_id::text), 'hex'), 0) % 2 = 0 "
+            "THEN 'controle' ELSE 'tratamento' END"
+        )
+    else:
+        col_braco = ""
+        sel_braco = ""
+
     # Herda o vendedor padrão da modelo (ADR 0012): quando a IA conduz a modelo,
     # modelos.vendedor_id já é NULL → atendimento sem comissão, transição limpa.
     res = await conn.execute(
-        """
+        f"""
         INSERT INTO barravips.atendimentos
-          (cliente_id, modelo_id, conversa_id, estado, fonte_decisao_ultima_transicao, vendedor_id)
-        SELECT c.cliente_id, c.modelo_id, c.id, 'Novo', 'extracao_ia', m.vendedor_id
+          (cliente_id, modelo_id, conversa_id, estado, fonte_decisao_ultima_transicao, vendedor_id{col_braco})
+        SELECT c.cliente_id, c.modelo_id, c.id, 'Novo', 'extracao_ia', m.vendedor_id{sel_braco}
           FROM barravips.conversas c
           JOIN barravips.modelos m ON m.id = c.modelo_id
          WHERE c.id = %s
