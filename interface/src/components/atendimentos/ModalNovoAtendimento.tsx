@@ -284,14 +284,14 @@ export function ModalNovoAtendimento({
                   <button
                     type="button"
                     onClick={limparCliente}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-text-muted hover:bg-muted hover:text-text-primary"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-text-muted hover:bg-muted hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     aria-label="Limpar cliente"
                   >
                     <X size={14} />
                   </button>
                 )}
                 {resultados.length > 0 && !clienteSelecionado && (
-                  <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg bg-popover shadow-lg ring-1 ring-foreground/10">
+                  <div className="absolute z-10 mt-1 max-h-60 w-full overflow-y-auto rounded-lg bg-popover shadow-elev-2 ring-1 ring-border-subtle">
                     {resultados.map((cliente) => (
                       <button
                         key={cliente.id}

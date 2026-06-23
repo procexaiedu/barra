@@ -49,20 +49,20 @@ export function BolhaResposta({
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <span className="pr-1 text-[10px] uppercase tracking-wide text-text-muted">ela (IA)</span>
+      <span className="pr-1 font-mono text-[10px] uppercase tracking-wide text-text-muted">ela (IA)</span>
 
       <div
         className={cn(
-          "max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-sm border px-3 py-2 text-sm text-text-primary",
+          "max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-br-sm border px-3 py-2 text-sm text-text-primary transition-colors",
           veredito === "bom" && "border-state-active/40 bg-state-active/10",
           veredito === "ruim" && "border-state-lost/40 bg-state-lost/10",
-          veredito === null && "border-primary/25 bg-primary/10",
+          veredito === null && "border-border bg-surface",
         )}
       >
         {turno.resposta_ia.conteudo}
       </div>
 
-      <div className="flex items-center gap-1.5">
+      <div className="flex flex-wrap items-center gap-1.5">
         <Button
           type="button"
           size="sm"
@@ -97,13 +97,13 @@ export function BolhaResposta({
               type="button"
               onClick={() => escolherNota(n)}
               aria-label={`Nota ${n}`}
-              className="p-0.5"
+              className="p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
             >
               <Star
                 size={14}
                 strokeWidth={1.5}
                 className={cn(
-                  nota != null && n <= nota ? "fill-state-info text-state-info" : "text-border",
+                  nota != null && n <= nota ? "fill-gold-500 text-gold-500" : "text-border",
                 )}
               />
             </button>
@@ -115,8 +115,8 @@ export function BolhaResposta({
           size="sm"
           variant="ghost"
           onClick={() => setComentando((v) => !v)}
-          className={cn("h-7 px-2 text-xs text-text-muted", comentario && "text-primary")}
-          aria-label="comentário"
+          className={cn("h-7 px-2 text-xs text-text-muted", comentario && "text-text-brand")}
+          aria-label="Adicionar comentário"
         >
           <MessageSquare className="size-3.5" />
         </Button>

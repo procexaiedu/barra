@@ -69,7 +69,7 @@ function SecaoBloco({
   children: ReactNode
 }) {
   return (
-    <section className="rounded-md border border-border bg-card p-4">
+    <section className="rounded-md border border-border bg-card p-4 shadow-elev-1">
       <header className="mb-3 flex items-center gap-2">
         {icone}
         <h3 className="text-[11px] font-semibold uppercase tracking-[0.08em] text-text-muted">
@@ -165,7 +165,7 @@ export function ModalDetalheAgenda({
           {linha && (
             <DialogBody>
               {/* Hero KPI: horário em destaque */}
-              <div className="mb-6 overflow-hidden rounded-md border border-border bg-muted">
+              <div className="mb-6 overflow-hidden rounded-md border border-border bg-muted shadow-elev-1">
                 <div className="flex flex-wrap items-end justify-between gap-3 px-6 py-5">
                   <div>
                     <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
@@ -198,7 +198,7 @@ export function ModalDetalheAgenda({
                     label="Duração"
                     icone={<Timer size={11} strokeWidth={1.75} className="text-text-muted" />}
                   >
-                    {formatDuracao(linha.inicio, linha.fim)}
+                    <span className="font-mono tabular-nums">{formatDuracao(linha.inicio, linha.fim)}</span>
                   </StatTile>
                   <StatTile
                     label="Modelo"

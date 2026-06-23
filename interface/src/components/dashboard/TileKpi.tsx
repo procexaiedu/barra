@@ -49,7 +49,7 @@ export function TileKpi({
   const mostrarSparkline = Array.isArray(serie) && serie.length > 0
 
   const valorClasses = destaque
-    ? "font-mono text-[44px] font-semibold leading-none text-text-primary tabular-nums"
+    ? "font-mono text-[44px] font-semibold leading-none tabular-nums text-aurum"
     : "font-mono text-[36px] font-semibold leading-none text-text-primary tabular-nums"
 
   const conteudo = (
@@ -121,7 +121,7 @@ export function TileKpi({
   )
 
   const baseClass =
-    "flex flex-col gap-3 rounded-lg bg-card p-6 ring-1 ring-foreground/10 text-left"
+    "flex flex-col gap-3 rounded-lg bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle text-left"
 
   if (interativo) {
     return (
@@ -138,7 +138,7 @@ export function TileKpi({
         }}
         className={cn(
           baseClass,
-          "cursor-pointer transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          "cursor-pointer transition-all hover:-translate-y-px hover:shadow-elev-2 hover:ring-border-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         )}
       >
         {conteudo}

@@ -26,7 +26,7 @@ export function ComprovantePix({
   const erro = comprovanteStatus === "error"
 
   return (
-    <section className="rounded-lg bg-card p-3 ring-1 ring-foreground/10">
+    <section className="rounded-lg bg-card p-3 shadow-elev-1 ring-1 ring-border-subtle">
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 items-center gap-2">
           <Paperclip size={14} strokeWidth={1.5} className="shrink-0 text-text-muted" />

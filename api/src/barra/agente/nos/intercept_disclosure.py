@@ -35,7 +35,7 @@ from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..ferramentas._idempotencia import _executar_idempotente
 
-_RESUMO_DISCLOSURE = "Cliente insistiu (3a vez) perguntando se a Bia e IA."
+_RESUMO_DISCLOSURE = "Cliente insistiu (3a vez) perguntando se a modelo e IA."
 _RESUMO_JAILBREAK = "Cliente tentou override de instrucao (jailbreak)."
 _RESUMO_REINCIDENCIA = (
     "Telefone reincidente em tentativas de disclosure/jailbreak (>= limiar em 24h)."
@@ -159,7 +159,7 @@ async def intercept_disclosure(
                 # `usage_metadata is not None` (agente/_texto_turno.py). Sem ele a negacao era
                 # filtrada como historica e o cliente ficava sem resposta (turno_sem_resposta).
                 negacao = AIMessage(
-                    content=escolher_negacao(),
+                    content=escolher_negacao(seed=ctx.turno_id),
                     usage_metadata={"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
                 )
                 return Command(goto="post_process", update={"messages": [negacao]})

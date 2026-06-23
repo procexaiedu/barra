@@ -22,8 +22,9 @@ export function AtendimentoVinculadoPix({
 }) {
   if (atendimento === null) {
     return (
-      <section className="rounded-lg bg-card p-3 ring-1 ring-foreground/10">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <section className="rounded-lg bg-card p-3 shadow-elev-1 ring-1 ring-border-subtle">
+        <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+          <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
           Atendimento vinculado
         </h3>
         <p className="mt-2 text-[13px] text-text-muted">
@@ -45,12 +46,13 @@ export function AtendimentoVinculadoPix({
   return (
     <section
       className={cn(
-        "rounded-lg border-l-3 bg-card p-3 ring-1 ring-foreground/10",
+        "rounded-lg border-l-3 bg-card p-3 shadow-elev-1 ring-1 ring-border-subtle",
         terminal ? "border-l-border-strong" : "border-l-state-handoff"
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+          <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
           Atendimento vinculado
         </h3>
         {onVisualizar && (

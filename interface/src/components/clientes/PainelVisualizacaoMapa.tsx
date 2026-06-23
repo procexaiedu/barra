@@ -36,7 +36,7 @@ export function PainelVisualizacaoMapa({
   return (
     <div
       aria-label="Como mostrar o mapa"
-      className="flex w-fit max-w-[280px] flex-col gap-2 rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+      className="flex w-fit max-w-[280px] flex-col gap-2 rounded-md border border-border bg-card/95 p-2 shadow-elev-2 backdrop-blur"
     >
       <Linha label="Visualização">
         <SeletorCamada

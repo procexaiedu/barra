@@ -47,9 +47,11 @@ export function ItemCliente({
       onClick={() => onSelect(item.id)}
       onKeyDown={handleKeyDown}
       className={cn(
-        "cursor-pointer border-l-3 bg-card px-4 py-2.5 transition-colors hover:bg-accent",
+        "cursor-pointer border-l-3 bg-card px-4 py-2.5 transition-all hover:bg-accent",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
-        selected ? "bg-accent border-l-state-active" : "border-l-transparent"
+        selected
+          ? "bg-accent border-l-state-active [background-image:var(--gradient-gold-soft)]"
+          : "border-l-transparent hover:border-l-border-subtle"
       )}
     >
       <div className="flex items-baseline gap-2">

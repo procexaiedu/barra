@@ -40,12 +40,12 @@ interface KpiCardProps {
 const TONS: Record<KpiTom, { valor: string; anel: string; chip: string }> = {
   default: {
     valor: "text-text-primary",
-    anel: "ring-foreground/10",
+    anel: "ring-border-subtle",
     chip: "bg-muted/50 text-text-muted",
   },
   brand: {
     valor: "text-gold-700",
-    anel: "ring-foreground/10",
+    anel: "ring-border-subtle",
     chip: "bg-gold-700/10 text-gold-700",
   },
   warning: {
@@ -55,7 +55,7 @@ const TONS: Record<KpiTom, { valor: string; anel: string; chip: string }> = {
   },
   success: {
     valor: "text-success-500",
-    anel: "ring-foreground/10",
+    anel: "ring-border-subtle",
     chip: "bg-success-500/15 text-success-500",
   },
   danger: {
@@ -65,7 +65,7 @@ const TONS: Record<KpiTom, { valor: string; anel: string; chip: string }> = {
   },
   muted: {
     valor: "text-text-muted",
-    anel: "ring-foreground/10",
+    anel: "ring-border-subtle",
     chip: "bg-muted/50 text-text-muted",
   },
 }
@@ -114,7 +114,7 @@ export function KpiCard({
       data-tom={tom}
       data-destaque={destaque || undefined}
       className={cn(
-        "relative flex flex-col gap-2 rounded-lg bg-card p-4 ring-1",
+        "relative flex flex-col gap-2 rounded-lg bg-card p-4 ring-1 shadow-elev-1 rise-in",
         anel,
       )}
     >
@@ -136,7 +136,7 @@ export function KpiCard({
             className={cn(
               "font-mono font-semibold tabular-nums leading-none",
               destaque ? "text-2xl" : "text-xl",
-              tons.valor,
+              destaque && tom === "brand" ? "text-aurum" : tons.valor,
             )}
           >
             {formatado}

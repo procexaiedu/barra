@@ -1,7 +1,7 @@
 "use client"
 
 import { useMemo } from "react"
-import { ChevronLeft, ChevronRight, Plus } from "lucide-react"
+import { CalendarOff, ChevronLeft, ChevronRight, Plus } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { formatHorario } from "@/lib/formatters"
 import { estiloCardCompleto } from "@/components/agenda/cores"
@@ -104,16 +104,22 @@ export function AgendaDiaLista({
       <button
         type="button"
         onClick={() => onCriarNoDia(data)}
-        className="flex h-10 items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-sm font-medium text-text-secondary transition-colors hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex h-10 items-center justify-center gap-1.5 rounded-lg border border-dashed border-border text-sm font-medium text-text-secondary transition-colors hover:border-border-brand/40 hover:bg-accent hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <Plus size={16} strokeWidth={1.5} />
         Novo bloqueio
       </button>
 
       {doDia.length === 0 ? (
-        <p className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-text-muted">
-          Nenhum bloqueio neste dia.
-        </p>
+        <div className="flex flex-col items-center gap-3 rounded-lg border border-border bg-card px-4 py-12 text-center shadow-elev-1 ring-1 ring-border-subtle">
+          <span className="flex size-12 items-center justify-center rounded-full bg-muted">
+            <CalendarOff size={22} strokeWidth={1.5} className="text-text-disabled" aria-hidden />
+          </span>
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-text-secondary">Dia livre</p>
+            <p className="text-xs leading-relaxed text-text-muted">Nenhum bloqueio para este dia.</p>
+          </div>
+        </div>
       ) : (
         <ul className="flex flex-col gap-2">
           {doDia.map((b) => {
@@ -129,7 +135,7 @@ export function AgendaDiaLista({
                   type="button"
                   onClick={() => onEditar(b)}
                   className={cn(
-                    "flex w-full flex-col gap-0.5 rounded-lg border border-border p-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                    "flex w-full flex-col gap-0.5 rounded-lg border border-border p-3 text-left shadow-elev-1 ring-1 ring-border-subtle transition-all hover:-translate-y-px hover:shadow-elev-2 hover:ring-border-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                     estiloCardCompleto(b)
                   )}
                 >

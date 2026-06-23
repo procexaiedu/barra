@@ -99,7 +99,7 @@ def _erros_persistentes() -> list[BaseException]:
 
 
 class _FakeSettings:
-    anthropic_modelo_principal = "claude-test"
+    deepseek_model_chat = "deepseek-test"
 
 
 def _ctx(exc: BaseException) -> dict[str, Any]:

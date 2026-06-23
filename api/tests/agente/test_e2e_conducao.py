@@ -136,7 +136,9 @@ async def test_conduz_interno_novo_ate_aguardando_confirmacao(
     from barra.agente import graph as graph_mod
 
     chat_fake = _ChatRoteirizado(_sequencia_interno())
-    monkeypatch.setattr(graph_mod, "criar_chat_anthropic", lambda *a, **k: chat_fake)
+    # Caminhos de texto sao DeepSeek-only -> _criar_chat_principal/extracao chamam criar_chat_deepseek;
+    # mocka o factory com o fake p/ o teste não escapar pra API real (§0).
+    monkeypatch.setattr(graph_mod, "criar_chat_deepseek", lambda *a, **k: chat_fake)
     graph = graph_mod.build_graph()
 
     perfil = PerfilCaso(

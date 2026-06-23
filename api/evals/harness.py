@@ -525,7 +525,9 @@ async def rodar_turno(
     lf = langfuse_handler()
     if lf is not None:
         config["callbacks"].append(lf)
-        meta = metadata_trace_turno(str(cen.modelo_id), str(cen.atendimento_id))
+        meta = metadata_trace_turno(
+            str(cen.modelo_id), str(cen.atendimento_id), str(cen.cliente_id)
+        )
         meta["metadata"]["langfuse_tags"] = [*meta["metadata"]["langfuse_tags"], trace_tag]
         config["metadata"] = meta["metadata"]
         config["tags"] = [*meta["tags"], trace_tag]

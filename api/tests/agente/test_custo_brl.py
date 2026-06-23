@@ -245,3 +245,29 @@ def test_no_llm_reinjeta_cache_read_deepseek_no_objeto() -> None:
     asyncio.run(no_llm(_FakeChat(resp, model=modelo), [])({"messages": []}, _runtime()))
     assert resp.usage_metadata is not None
     assert resp.usage_metadata["input_token_details"]["cache_read"] == 11_008
+
+
+def test_no_llm_nao_sobrescreve_cache_read_ja_mapeado() -> None:
+    # Ramo idempotente do guard `if not det_ds.get("cache_read")` (nos/llm.py): quando o
+    # langchain ja mapeou cache_read (ex.: OpenRouter, ou um dia o langchain-openai passa a ler
+    # prompt_tokens_details.cached_tokens), um prompt_cache_hit_tokens DIVERGENTE no token_usage
+    # NAO pode sobrescrever o valor ja presente -- senao o custo/metrica do turno duplicaria/distorceria.
+    modelo = f"deepseek-v4-flash-{uuid4().hex}"
+    um = {
+        "input_tokens": 11_951,
+        "output_tokens": 24,
+        "total_tokens": 11_975,
+        "input_token_details": {"cache_read": 5_000},  # ja mapeado pelo langchain
+    }
+    resp = AIMessage(
+        content="oi",
+        usage_metadata=um,  # type: ignore[arg-type]
+        response_metadata={
+            "token_usage": {"prompt_cache_hit_tokens": 11_008},  # valor cru DIVERGENTE
+            "finish_reason": "stop",
+        },
+    )
+    asyncio.run(no_llm(_FakeChat(resp, model=modelo), [])({"messages": []}, _runtime()))
+    assert resp.usage_metadata is not None
+    # mantem os 5_000 ja mapeados; NAO sobrescreve com os 11_008 do campo cru
+    assert resp.usage_metadata["input_token_details"]["cache_read"] == 5_000

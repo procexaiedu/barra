@@ -15,7 +15,7 @@ def test_secret_key_vem_do_arquivo_e_vence_o_inline(
     monkeypatch.setenv("MINIO_SECRET_KEY_FILE", str(arquivo))
 
     # O arquivo é a fonte de verdade: vence até o valor inline (a chave nunca vive no env).
-    # deepseek_api_key: o default llm_chat_provider=deepseek a exige no validator; sem .env aqui,
+    # deepseek_api_key: os caminhos de texto sao DeepSeek-only e o validator a exige; sem .env aqui,
     # passamos uma fake só p/ o Settings bootar (este teste é sobre o secret-file do MinIO).
     s = Settings(_env_file=None, deepseek_api_key="x", minio_secret_key="inline-vazado")
     assert s.minio_secret_key == "segredo-do-swarm"

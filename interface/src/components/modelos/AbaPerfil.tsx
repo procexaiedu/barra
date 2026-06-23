@@ -629,7 +629,7 @@ export function AbaPerfil({
 
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
+    <section className="rounded-lg bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle">
       <h2 className="mb-5 flex items-center gap-2.5 text-base font-semibold text-text-primary">
         <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
         {title}

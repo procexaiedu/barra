@@ -1,9 +1,9 @@
 """No llm.
 
-No real -- chama o chat principal (#1) bindado com as tools e roteia por Command(goto=...). O
-    modelo e provider-agnostico (settings.llm_chat_provider): Sonnet 4.6 via ChatAnthropic (default)
-    ou DeepSeek via ChatOpenAI/OpenRouter -- o no le motivo de parada/nome do modelo de forma
-    unificada (motivo_parada/nome_modelo, core.llm), nao campos Anthropic crus. Sem modelo de
+No real -- chama o chat principal (#1) bindado com as tools e roteia por Command(goto=...). O chat
+    e DeepSeek V4 Flash direto via ChatOpenAI (criar_chat_deepseek); o no le motivo de parada/nome
+    do modelo de forma unificada (motivo_parada/nome_modelo, core.llm) -- codigo provider-agnostico,
+    nao campos Anthropic crus, mantido p/ a infra de cache dormente. Sem modelo de
     fallback: 429/5xx/timeout sobem como excecao (retry ja foi do SDK, max_retries) e, na exaustao,
     escalam para Fernando via escalar_por_exaustao (TODO M3f; 01 §2.6). O check de parada
     (refusal/max_tokens chegam em 200 OK, nao como excecao) vive dentro do try/except. Sem effort
@@ -17,7 +17,13 @@ from typing import Any, Literal, Protocol
 
 from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, BaseMessage, SystemMessage
+from langchain_core.messages import (
+    AIMessage,
+    BaseMessage,
+    RemoveMessage,
+    SystemMessage,
+    ToolMessage,
+)
 from langchain_core.tools import BaseTool
 from langgraph.runtime import Runtime
 from langgraph.types import Command
@@ -25,12 +31,12 @@ from openai import APIStatusError as OpenAIAPIStatusError
 from openai import APITimeoutError as OpenAIAPITimeoutError
 from openai import RateLimitError as OpenAIRateLimitError
 
-from barra.core.llm import PARADA_TRUNCADA, motivo_parada, nome_modelo
-from barra.core.metrics import AGENTE_CUSTO_TURNO_BRL, AGENTE_TURNO_TOKENS, TURNO_TRUNCADO
+from barra.core.llm import PARADA_RECUSA, PARADA_TRUNCADA, motivo_parada, nome_modelo
+from barra.core.metrics import TURNO_TRUNCADO
 from barra.settings import get_settings
 
-from .._custo import cache_read_deepseek, calcular_custo_brl
-from .._texto_turno import texto_da_mensagem
+from .._instrumentar import instrumentar_tokens
+from .._texto_turno import mensagens_do_turno, texto_da_mensagem
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..ferramentas import INPUT_EXAMPLES, STRICT_TOOLS
@@ -38,9 +44,9 @@ from ..llm import build_tools_para_bind
 
 logger = logging.getLogger(__name__)
 
-# Indisponibilidade do provider (retry do SDK exausto / 5xx / timeout) -> escala. Os dois SDKs
-# levantam tipos homonimos em modulos distintos (anthropic vs openai): cobrir ambos para o chat #1
-# rodar em qualquer provider (settings.llm_chat_provider). `request_id` existe nos dois.
+# Indisponibilidade do provider (retry do SDK exausto / 5xx / timeout) -> escala. O chat e DeepSeek
+# via openai SDK; cobrimos tambem os tipos homonimos do SDK anthropic (infra de cache dormente/evals).
+# `request_id` existe nos dois.
 _EXCECOES_LLM = (
     RateLimitError,
     APITimeoutError,
@@ -50,9 +56,9 @@ _EXCECOES_LLM = (
     OpenAIAPIStatusError,
 )
 
-# Recusa do provider (safety filter) -> escala sem mandar a bolha crua: `refusal` (Anthropic) /
-# `content_filter` (OpenAI/OpenRouter). E o complemento de PARADA_TRUNCADA dentro de PARADA_INSEGURA.
-_PARADA_RECUSA = frozenset({"refusal", "content_filter"})
+# Recusa do provider (safety filter) -> escala sem mandar a bolha crua. Alias local do vocabulario
+# canonico de core.llm (fonte unica; antes era um frozenset duplicado aqui -> risco de drift).
+_PARADA_RECUSA = PARADA_RECUSA
 
 # Truncamento da resposta (args de tool podem vir incompletos -> nao despachar; STOP-03/06): o
 # conjunto canonico vive em core.llm.PARADA_TRUNCADA (provider-aware: max_tokens/
@@ -102,42 +108,24 @@ def _extraiu_no_turno(messages: Sequence[BaseMessage]) -> bool:
     return False
 
 
-def _instrumentar_tokens(resp: BaseMessage, modelo: str) -> None:
-    """Incrementa AGENTE_TURNO_TOKENS nas 4 series {input,output,cache_read,cache_write} (03 §4.2).
+def _extracao_recente_errou(messages: Sequence[BaseMessage]) -> bool:
+    """True se a extracao recem-executada (bloco final de ToolMessages, pos-ida ao `tools`) trouxe
+    erro RECUPERAVEL.
 
-    WRITE vem de `ephemeral_5m+ephemeral_1h`, NUNCA de `cache_creation` (no langchain-anthropic
-    1.4.3 esse campo vem sempre 0 -- spike 2026-05-24). `modelo` e o nome Anthropic
-    (claude-sonnet-4-6), nao o modelo_id da agencia: misturar quebra o tripwire de write-rate.
-    `getattr` porque usage_metadata so existe em AIMessage, nao em BaseMessage.
+    ConflitoAgenda/ForaDisponibilidade/AntecedenciaInsuficiente viram ToolException (handle_tool_error)
+    -> ToolMessage `status="error"` (prefixo "ERRO:"). So consultado quando um guard de reentrada
+    esta setado: nesse contexto o bloco final de ToolMessages e SEMPRE a extracao deste turno
+    (forcada: 1 ToolMessage; inline: todas de registrar_extracao) -- nao ha outra tool no fim.
     """
-    um = getattr(resp, "usage_metadata", None)
-    if not um:
-        return
-    # DeepSeek-direct reporta o cache-hit so em token_usage.prompt_cache_hit_tokens — o langchain-openai
-    # nao mapeia p/ input_token_details.cache_read (le `prompt_tokens_details.cached_tokens`, que o
-    # DeepSeek nao manda). Reinjeta antes de medir/cobrar: sem isso a metrica cache_read e o custo BRL
-    # (aqui E no coordenador, que le este MESMO objeto no canal `messages`) tratam todo o prefixo como
-    # input cheio (~10x). Mutacao in-place de `um` (= resp.usage_metadata) propaga aos dois leitores.
-    # Idempotente: so injeta quando o mapeamento padrao veio zerado. Anthropic/OpenRouter -> hit=0, no-op.
-    hit = cache_read_deepseek(getattr(resp, "response_metadata", None))
-    if hit:
-        det_ds = dict(um.get("input_token_details") or {})
-        if not det_ds.get("cache_read"):
-            det_ds["cache_read"] = hit
-            um["input_token_details"] = det_ds
-    det = um.get("input_token_details") or {}
-    read = det.get("cache_read", 0)
-    write = det.get("ephemeral_5m_input_tokens", 0) + det.get("ephemeral_1h_input_tokens", 0)
-    AGENTE_TURNO_TOKENS.labels(modelo, "input").inc(um["input_tokens"])
-    AGENTE_TURNO_TOKENS.labels(modelo, "output").inc(um["output_tokens"])
-    AGENTE_TURNO_TOKENS.labels(modelo, "cache_read").inc(read)
-    AGENTE_TURNO_TOKENS.labels(modelo, "cache_write").inc(write)
-    # Custo BRL: tabela do PROPRIO modelo (`calcular_custo_brl` despacha por `modelo` — Haiku p/ a
-    # extracao barata, Sonnet p/ o resto) + cotacao USD/BRL (settings). Observado pelo Histogram
-    # AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta em settings.custo_alvo_brl). Mesmo label `modelo` p/ correlato.
-    AGENTE_CUSTO_TURNO_BRL.labels(modelo).observe(
-        calcular_custo_brl(um, get_settings().usd_brl_cotacao, model_name=modelo)
-    )
+    achou_tool = False
+    for m in reversed(messages):
+        if isinstance(m, ToolMessage):
+            achou_tool = True
+            if m.status == "error" or str(m.content).startswith("ERRO:"):
+                return True
+        elif achou_tool:
+            break
+    return False
 
 
 class _NoLLM(Protocol):
@@ -145,7 +133,7 @@ class _NoLLM(Protocol):
 
     def __call__(
         self, state: EstadoAgente, *, runtime: Runtime[ContextAgente]
-    ) -> Coroutine[Any, Any, Command[Literal["tools", "post_process"]]]: ...
+    ) -> Coroutine[Any, Any, Command[Literal["tools", "post_process", "llm"]]]: ...
 
 
 def no_llm(
@@ -157,11 +145,11 @@ def no_llm(
     """Factory: liga o chat principal (#1) + catalogo de tools ao no llm.
 
     O chat e injetado por build_graph (09 §4.5) para nao reconstruir o cliente a cada invocacao.
-    Provider-agnostico (settings.llm_chat_provider): ChatAnthropic (Sonnet) ou ChatOpenAI
-    (DeepSeek/OpenRouter). No caminho Anthropic, bind_tools roda com `cache_control` na ULTIMA tool
-    (TTL = cache_ttl_geral, tools GERAIS como BP1/BP2; doc oficial tool-use-with-prompt-caching). No
-    OpenRouter o `cache_control` e Anthropic-only e quebraria o roteamento, alem de inutil (cache do
-    DeepSeek e automatico): binda as BaseTool cruas (sem convert/strict/input_examples). Lista vazia
+    Chat = DeepSeek V4 Flash direto (ChatOpenAI). O codigo segue provider-agnostico: o ramo
+    cache_control_anthropic (bind com `cache_control` na ULTIMA tool, doc oficial
+    tool-use-with-prompt-caching) fica DORMENTE no P0 (DeepSeek-direct cacheia automatico e o
+    `cache_control` ephemeral quebraria o roteamento OpenAI-compativel): binda as BaseTool cruas
+    (sem convert/strict/input_examples). Lista vazia
     (P0 pre-M1) -> passa direto. Mudanca em qualquer tool invalida tools+system+messages (hierarquia).
 
     `chat_extracao_barata` (settings.extracao_no_modelo_barato): quando injetado, a chamada
@@ -218,10 +206,14 @@ def no_llm(
     modelo_extracao_barata = (
         nome_modelo(chat_extracao_barata) if chat_extracao_barata is not None else ""
     )
+    # Auto-reoferta (settings.reoferta_automatica_habilitada): quando ligada, um erro RECUPERAVEL na
+    # extracao (ConflitoAgenda etc.) volta ao no llm p/ o modelo reofertar um horario, em vez de
+    # fechar mudo. Lido na construcao (kill-switch, igual `forca_ligada`); default OFF.
+    reoferta_ligada = settings.reoferta_automatica_habilitada
 
     async def llm(
         state: EstadoAgente, runtime: Runtime[ContextAgente]
-    ) -> Command[Literal["tools", "post_process"]]:
+    ) -> Command[Literal["tools", "post_process", "llm"]]:
         # Reentrada pos-`tools` sem nada a reprocessar: NAO reinvocar o modelo -- fecharia uma 2a
         # bolha e custaria 1 request a toa. Fecha o turno direto no post_process (que ainda refaz o
         # gate de pausa). Dois caminhos setam esses guards na ida ao `tools`:
@@ -231,10 +223,45 @@ def no_llm(
         #    o resultado da extracao nao muda a fala do turno; reinvocar so gera uma 2a bolha (022e0a70).
         # O primeiro guard tambem corta loop infinito de forcamento.
         if state.get("_extracao_forcada") or state.get("_resposta_inline_concluida"):
+            if _extracao_recente_errou(state["messages"]):
+                # A extracao (forcada/inline) errou RECUPERAVEL (ConflitoAgenda etc.): a transacao
+                # reverteu, NENHUM bloqueio foi criado. Os rascunhos de texto STALE deste turno
+                # (AIMessage gerada SEM tool_call -- a falsa confirmacao "te espero as 22h" do caminho
+                # FORCADO) precisam sumir: extrair_texto_do_turno NAO os filtra (o erro vive no
+                # `forcado`, msg separada), entao iriam ao cliente como confirmacao de reserva
+                # inexistente. No inline o texto ja carrega o tool_call que errou -> ja e filtrado
+                # downstream (stale_ids vazio).
+                stale_ids = {
+                    m.id
+                    for m in mensagens_do_turno(state["messages"])
+                    if not (m.tool_calls or []) and m.id
+                }
+                if reoferta_ligada and not state.get("_reoferta_tentada"):
+                    # AUTO-REOFERTA (one-shot, settings.reoferta_automatica_habilitada): em vez de
+                    # fechar MUDO, volta ao proprio no llm p/ o modelo ver o erro (no ToolMessage) e
+                    # REOFERTAR um horario. Remover os stale tem papel duplo: (a) tira a falsa
+                    # confirmacao do cliente; (b) deixa as mensagens VALIDAS p/ re-invocar (sem 2
+                    # AIMessages seguidas no caminho forcado). Limpar os guards + _reoferta_tentada=True
+                    # faz a re-invocacao rodar o fluxo normal UMA vez; se a reoferta tambem errar, a
+                    # reentrada cai no mute abaixo. goto="llm" reusa a janela ja montada pelo
+                    # prepare_context (nao re-roda o no). O modelo ja "extraiu" no turno (a chamada que
+                    # errou conta em _extraiu_no_turno) -> o fallback forcado nao re-dispara.
+                    flags: dict[str, Any] = {
+                        "_extracao_forcada": False,
+                        "_resposta_inline_concluida": False,
+                        "_reoferta_tentada": True,
+                    }
+                    if stale_ids:
+                        flags["messages"] = [RemoveMessage(id=i) for i in stale_ids]
+                    return Command(goto="llm", update=flags)
+                # Reoferta desligada OU ja tentada (a reoferta tambem errou): fecha MUDO removendo os
+                # rascunhos stale -- no dominio de booking, silencio > reserva fantasma.
+                remocoes: list[BaseMessage] = [RemoveMessage(id=i) for i in stale_ids]
+                return Command(goto="post_process", update={"messages": remocoes})
             return Command(goto="post_process")
         try:
             resp = await chat_bound.ainvoke(state["messages"])
-            _instrumentar_tokens(resp, modelo_chat)
+            instrumentar_tokens(resp, modelo_chat)
             # motivo de parada chega num 200 OK, nao como excecao. Lido provider-agnostico
             # (stop_reason Anthropic | finish_reason OpenAI/OpenRouter) via motivo_parada:
             parada = motivo_parada(resp.response_metadata)
@@ -318,13 +345,13 @@ def no_llm(
                 forcado = await chat_forcado_barato.ainvoke(
                     _janela_para_extracao_barata(state["messages"])
                 )
-                _instrumentar_tokens(forcado, modelo_extracao_barata)
+                instrumentar_tokens(forcado, modelo_extracao_barata)
             else:
                 forcado = await chat_forcado.ainvoke(state["messages"])
-                _instrumentar_tokens(forcado, modelo_chat)
-            # motivo_parada: provider-aware (stop_reason Anthropic / finish_reason OpenRouter) — a
-            # extracao barata pode rodar no ChatOpenAI (settings.extracao_provider), cujo truncamento
-            # vem como finish_reason="length".
+                instrumentar_tokens(forcado, modelo_chat)
+            # motivo_parada: provider-aware (stop_reason Anthropic / finish_reason OpenAI) — a
+            # extracao barata roda no ChatOpenAI (DeepSeek-direct), cujo truncamento vem como
+            # finish_reason="length".
             forcado_stop = motivo_parada(forcado.response_metadata)
             if forcado_stop in PARADA_TRUNCADA or not getattr(forcado, "tool_calls", None):
                 # Extracao forcada truncou (args incompletos) ou nao saiu tool_call: descarta o

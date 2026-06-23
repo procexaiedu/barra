@@ -90,6 +90,22 @@ def test_pula_cadeia_de_bloqueios_consecutivos() -> None:
     assert proximo_livre(fim, blocos, [], 30) == _dt(TER, 1, 30)
 
 
+def test_pula_quando_cand_cai_no_buffer_antes_do_proximo_bloco() -> None:
+    # ADR 0025: cand 22:30 com bloco seguinte 22:45-24:00 -> gap 15min < buffer 30 -> a reserva
+    # rejeitaria. Pula o bloco -> 24:00+30 = 00:30 (TER). (Antes oferecia 22:30 e a reserva falhava.)
+    fim = _dt(SEG, 22, 0)
+    blocos = [_bloco(_dt(SEG, 22, 45), _dt(TER, 0, 0))]
+    assert proximo_livre(fim, blocos, [], 30) == _dt(TER, 0, 30)
+
+
+def test_gap_exatamente_buffer_e_reservavel() -> None:
+    # gap == buffer (30min): cand 22:30 com bloco 23:00-24:00 -> reservável (gap >= buffer). O `>`
+    # estrito não pula. Espelha `i2 < new.fim + buffer` (23:00 < 23:00 é falso) do gate da reserva.
+    fim = _dt(SEG, 22, 0)
+    blocos = [_bloco(_dt(SEG, 23, 0), _dt(TER, 0, 0))]
+    assert proximo_livre(fim, blocos, [], 30) == _dt(SEG, 22, 30)
+
+
 # --- proximo_livre: gate de Disponibilidade --------------------------------
 
 

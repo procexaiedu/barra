@@ -32,19 +32,22 @@ export function PageHeader({
   ) : null
 
   return (
-    <header className="flex flex-wrap items-end justify-between gap-4">
-      <div className="min-w-0">
-        <h1 className="font-serif text-[26px] font-medium leading-tight tracking-[-0.01em] text-text-primary sm:text-[32px]">
-          {title}
-        </h1>
-        <p className="mt-1 text-[13px] text-text-muted">{description}</p>
-      </div>
-      {(children || botaoAcao) && (
-        <div className="flex flex-wrap items-end gap-2">
-          {children}
-          {botaoAcao}
+    <header className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-serif text-[27px] font-medium leading-tight tracking-[-0.01em] text-text-primary sm:text-[34px]">
+            {title}
+          </h1>
+          <p className="mt-1 text-[13px] text-text-muted">{description}</p>
         </div>
-      )}
+        {(children || botaoAcao) && (
+          <div className="flex flex-wrap items-end gap-2">
+            {children}
+            {botaoAcao}
+          </div>
+        )}
+      </div>
+      <div className="rule-aurum" aria-hidden />
     </header>
   )
 }

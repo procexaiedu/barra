@@ -51,13 +51,18 @@ export function FunilVendas({ funil }: Props) {
         </span>
       </header>
 
-      <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
+      <div className="rounded-lg bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle">
         {topo === 0 ? (
-          <div className="flex flex-col gap-1 rounded-md bg-muted p-4">
-            <span className="text-sm text-text-primary">
-              Nenhum atendimento no período selecionado.
-            </span>
-            <span className="text-[13px] text-text-muted">Ajuste o período no topo da página.</span>
+          <div className="flex flex-col items-center justify-center gap-3 py-8 text-center">
+            <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
+              <span aria-hidden className="font-mono text-base text-text-muted">0</span>
+            </div>
+            <div>
+              <p className="text-sm font-medium text-text-primary">
+                Nenhum atendimento no período selecionado.
+              </p>
+              <p className="mt-1 text-[13px] text-text-muted">Ajuste o período no topo da página.</p>
+            </div>
           </div>
         ) : (
           <>

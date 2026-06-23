@@ -28,12 +28,12 @@ export function KanbanCard({
   return (
     <div
       className={cn(
-        "relative rounded-lg border border-l-4 border-border bg-card p-3 transition-all",
+        "relative rounded-lg border border-l-4 border-border bg-card p-3 shadow-elev-1 transition-all",
         mostrarAlca && "pl-7",
         corEstado(item.estado).faixa,
         isDragging
-          ? "cursor-grabbing opacity-80 shadow-lg"
-          : "cursor-pointer hover:border-border-brand/50"
+          ? "cursor-grabbing opacity-80 shadow-elev-2"
+          : "cursor-pointer hover:-translate-y-px hover:shadow-elev-2 hover:ring-1 hover:ring-border-brand/40"
       )}
       onClick={onClick}
       role="button"

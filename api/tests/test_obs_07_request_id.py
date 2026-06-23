@@ -156,7 +156,7 @@ async def test_worker_binda_request_id_e_turno_id_no_log_json(
         "redis": redis,
         "db_pool": _FakePool(),
         "graph": _GrafoFake(),
-        "settings": SimpleNamespace(anthropic_modelo_principal="claude-test"),
+        "settings": SimpleNamespace(deepseek_model_chat="deepseek-test"),
         "job_id": "job-obs07",
         "score": 1_700_000_000_000,
     }
@@ -189,7 +189,7 @@ async def test_re_enqueue_em_lock_ocupado_preserva_request_id(
         "redis": redis,
         "db_pool": _FakePool(),
         "graph": _GrafoFake(),
-        "settings": SimpleNamespace(anthropic_modelo_principal="claude-test"),
+        "settings": SimpleNamespace(deepseek_model_chat="deepseek-test"),
         "job_id": "job-obs07",
         "score": 1_700_000_000_000,
     }

@@ -30,24 +30,21 @@ services:
       - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
-      - LLM_CHAT_PROVIDER=deepseek
-      # Chat #1 DIRETO na API DeepSeek (api.deepseek.com): cache automatico de prefixo garantido +
-      # modelo cravado (sem roleta FP4 do load-balance OpenRouter). DEEPSEEK_API_KEY e ${VAR} do Env
-      # do stack (segredo, fora do git); DEEPSEEK_MODEL_CHAT=deepseek-chat = V4 Flash non-thinking.
+      # Os 3 caminhos de TEXTO (chat #1, extracao #2, judge #3) sao DeepSeek V4 Flash DIRETO
+      # (api.deepseek.com): cache automatico de prefixo garantido + modelo cravado. DEEPSEEK_API_KEY
+      # e ${VAR} do Env do stack (segredo, fora do git). DEEPSEEK_MODEL_CHAT=deepseek-v4-flash = id
+      # atual do V4 Flash (aliases legados deepseek-chat/deepseek-reasoner saem em 2026-07-24 15:59
+      # UTC); o id cru tem thinking ON por default -> criar_chat_deepseek trava non-thinking via extra_body.
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - DEEPSEEK_MODEL_CHAT=deepseek-chat
+      - DEEPSEEK_MODEL_CHAT=deepseek-v4-flash
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
-      # OpenRouter (vision do Pix / transcricao de audio): ${VAR} resolvidas pelo Env do stack
-      # no Portainer, igual as chaves Langfuse. Hardcoded vazio aqui zerava o OCR a cada redeploy
+      # OpenRouter (vision do Pix / transcricao de audio — o DeepSeek nao faz imagem/audio): ${VAR}
+      # resolvidas pelo Env do stack no Portainer. Hardcoded vazio aqui zerava o OCR a cada redeploy
       # (auto-redeploy git no push), caindo todo Pix em em_revisao.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - OPENROUTER_MODEL_CHAT=${OPENROUTER_MODEL_CHAT}
       - OPENROUTER_MODEL_VISION_PIX=${OPENROUTER_MODEL_VISION_PIX}
       - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=${OPENROUTER_MODEL_AUDIO_TRANSCRIBE}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
-      - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
       # Observabilidade: Langfuse self-hosted (ADR 0019). LANGCHAIN_TRACING_V2=false e
       # OBRIGATORIO -- sem setup_tracing (removido no cutover Fase 3) o LangChain auto-tracaria
       # pro LangSmith com o client default SEM anonymizer (PII crua). LANGCHAIN_* ficam mortos
@@ -124,24 +121,21 @@ services:
       - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
       - MINIO_BUCKET_MEDIA=barra-media
       - MINIO_USE_SSL=true
-      - LLM_CHAT_PROVIDER=deepseek
-      # Chat #1 DIRETO na API DeepSeek (api.deepseek.com): cache automatico de prefixo garantido +
-      # modelo cravado (sem roleta FP4 do load-balance OpenRouter). DEEPSEEK_API_KEY e ${VAR} do Env
-      # do stack (segredo, fora do git); DEEPSEEK_MODEL_CHAT=deepseek-chat = V4 Flash non-thinking.
+      # Os 3 caminhos de TEXTO (chat #1, extracao #2, judge #3) sao DeepSeek V4 Flash DIRETO
+      # (api.deepseek.com): cache automatico de prefixo garantido + modelo cravado. DEEPSEEK_API_KEY
+      # e ${VAR} do Env do stack (segredo, fora do git). DEEPSEEK_MODEL_CHAT=deepseek-v4-flash = id
+      # atual do V4 Flash (aliases legados deepseek-chat/deepseek-reasoner saem em 2026-07-24 15:59
+      # UTC); o id cru tem thinking ON por default -> criar_chat_deepseek trava non-thinking via extra_body.
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
-      - DEEPSEEK_MODEL_CHAT=deepseek-chat
+      - DEEPSEEK_MODEL_CHAT=deepseek-v4-flash
       - LLM_VISION_PROVIDER=openrouter
       - LLM_AUDIO_PROVIDER=openrouter
-      # OpenRouter (vision do Pix / transcricao de audio): ${VAR} resolvidas pelo Env do stack
-      # no Portainer, igual as chaves Langfuse. Hardcoded vazio aqui zerava o OCR a cada redeploy
+      # OpenRouter (vision do Pix / transcricao de audio — o DeepSeek nao faz imagem/audio): ${VAR}
+      # resolvidas pelo Env do stack no Portainer. Hardcoded vazio aqui zerava o OCR a cada redeploy
       # (auto-redeploy git no push), caindo todo Pix em em_revisao.
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
-      - OPENROUTER_MODEL_CHAT=${OPENROUTER_MODEL_CHAT}
       - OPENROUTER_MODEL_VISION_PIX=${OPENROUTER_MODEL_VISION_PIX}
       - OPENROUTER_MODEL_AUDIO_TRANSCRIBE=${OPENROUTER_MODEL_AUDIO_TRANSCRIBE}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - ANTHROPIC_MODELO_PRINCIPAL=claude-sonnet-4-6
-      - ANTHROPIC_MODELO_RAPIDO=claude-haiku-4-5-20251001
       # Observabilidade: Langfuse self-hosted (ADR 0019). LANGCHAIN_TRACING_V2=false e
       # OBRIGATORIO -- sem setup_tracing (removido no cutover Fase 3) o LangChain auto-tracaria
       # pro LangSmith com o client default SEM anonymizer (PII crua). LANGCHAIN_* ficam mortos

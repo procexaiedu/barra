@@ -1,9 +1,11 @@
 import asyncio
 import base64
 import binascii
+import hashlib
 import hmac
 import io
 import logging
+import re
 from typing import Any, cast
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -44,6 +46,30 @@ _MIME_EXT: dict[str, str] = {
     "audio/mpeg": ".mp3",
     "audio/mp4": ".m4a",
 }
+
+# evolution_message_id e o `key.id` da stanza WhatsApp -- 100% controlado pelo remetente do webhook
+# (cf. bug Evolution #1916, ids anomalos). Ele entra cru no path da chave de objeto MinIO
+# (`conversas/{conversa_id}/mensagens/{id}{ext}`); sem sanitizar, um id com `../` escaparia o
+# prefixo da conversa e sobrescreveria a midia de OUTRO atendimento (o pipeline de Pix rele essa
+# key e a manda a vision). Trocamos todo char fora de [A-Za-z0-9._-] por `_` -- mata `/` e portanto
+# a travessia (chaves S3/MinIO sao planas: sem `/` nao ha como mudar de prefixo). IDs reais do
+# WhatsApp sao alfanumericos -> passam intactos, nenhuma mensagem descartada. A COLUNA
+# evolution_message_id segue com o id CRU (chave de dedupe `ON CONFLICT`); so o path e' sanitizado.
+_ID_OBJETO_INSEGURO = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def _segmento_objeto_seguro(valor: str) -> str:
+    seguro = _ID_OBJETO_INSEGURO.sub("_", valor)[:128]
+    if seguro in ("", ".", ".."):
+        seguro = "sem_id"
+    elif seguro == valor:
+        return seguro  # id ja seguro (caso comum: WhatsApp alfanumerico) -> intacto, sem hash
+    # Sanitizou (ou degenerou): a substituicao e' many-to-one, entao ids distintos poderiam colapsar
+    # na MESMA key e o 2o upload sobrescreveria a midia do 1o (ex.: comprovante de Pix) DENTRO da
+    # mesma conversa. Anexa um hash curto do id CRU p/ reatar a injetividade (ids distintos -> keys
+    # distintas), mantendo o determinismo por id (mesmo id -> mesma key, replay-safe).
+    sufixo = hashlib.sha256(valor.encode()).hexdigest()[:8]
+    return seguro[:119] + "_" + sufixo
 
 
 def _host_permitido(url: str, base_url: str) -> bool:
@@ -631,7 +657,7 @@ async def _persistir_cliente(
         if msg.tipo != "texto" and midia is not None and minio is not None:
             data, ct = midia
             ext = _MIME_EXT.get(ct, ".jpg" if msg.tipo == "imagem" else ".ogg")
-            key = f"conversas/{conversa_id}/mensagens/{msg.evolution_message_id}{ext}"
+            key = f"conversas/{conversa_id}/mensagens/{_segmento_objeto_seguro(msg.evolution_message_id)}{ext}"
             try:
                 await _upload_minio(minio, bucket, key, data, ct or "application/octet-stream")
                 media_key = key

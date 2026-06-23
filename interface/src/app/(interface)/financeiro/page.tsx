@@ -98,21 +98,29 @@ function FinanceiroInner() {
       {fin.error && <BannerErro mensagem={fin.error} onRetry={fin.refetch} />}
 
       {view === "geral" && (
-        <PainelFinanceiro
-          resumo={fin.resumo}
-          serie={fin.serie}
-          loading={fin.status === "loading"}
-          onSelecionarModelo={(id) => fin.setModeloIds([id])}
-        />
+        <div className="rise-in">
+          <PainelFinanceiro
+            resumo={fin.resumo}
+            serie={fin.serie}
+            loading={fin.status === "loading"}
+            onSelecionarModelo={(id) => fin.setModeloIds([id])}
+          />
+        </div>
       )}
-      {view === "receitas" && <ViewReceitas fin={fin} />}
+      {view === "receitas" && (
+        <div className="rise-in">
+          <ViewReceitas fin={fin} />
+        </div>
+      )}
       {view === "repasses" && (
-        <RepassesPorModelo
-          repasses={fin.repasses}
-          pagamentos={fin.pagamentos}
-          loading={fin.status === "loading"}
-          fin={fin}
-        />
+        <div className="rise-in">
+          <RepassesPorModelo
+            repasses={fin.repasses}
+            pagamentos={fin.pagamentos}
+            loading={fin.status === "loading"}
+            fin={fin}
+          />
+        </div>
       )}
     </div>
   )

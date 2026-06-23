@@ -71,6 +71,7 @@ function Segmento<T extends string>({
             "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
             "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
             "text-text-muted hover:text-text-primary",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
           {o.label}
@@ -155,6 +156,7 @@ export default function TarefasPage() {
                   "rounded-md p-1.5 transition-all duration-150",
                   "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
                   "text-text-muted hover:text-text-primary",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 )}
               >
                 <Icon size={16} strokeWidth={1.5} />
@@ -194,6 +196,7 @@ export default function TarefasPage() {
             aria-pressed={filtros.minhas}
             className={cn(
               "flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-150",
+              "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               filtros.minhas
                 ? "border-border-brand bg-accent text-text-brand"
                 : "border-border text-text-muted hover:text-text-primary",
@@ -204,7 +207,7 @@ export default function TarefasPage() {
           </button>
 
           {status === "success" && (
-            <span className="ml-auto text-xs font-medium tabular-nums text-text-muted">
+            <span className="ml-auto font-mono text-xs tabular-nums text-text-muted">
               {total} {total === 1 ? "tarefa" : "tarefas"}
             </span>
           )}

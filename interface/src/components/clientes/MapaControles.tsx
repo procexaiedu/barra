@@ -102,7 +102,7 @@ export function SeletorModoCor({
     <div
       role="radiogroup"
       aria-label="Colorir os pontos por"
-      className="inline-flex rounded-lg border border-border bg-card p-0.5"
+      className="inline-flex rounded-lg border border-border bg-card p-0.5 shadow-elev-1"
     >
       {OPCOES_MODO_COR.map((opcao) => {
         const ativo = opcao.id === modo
@@ -295,7 +295,7 @@ export function LegendaEscala({
   return (
     <div
       aria-label={`Legenda de escala: ${rotuloMetrica}`}
-      className="w-[200px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+      className="w-[200px] rounded-md border border-border bg-card/95 p-2 shadow-elev-2 backdrop-blur"
     >
       <div className="mb-1 text-[11px] font-medium text-text-secondary">
         {rotuloMetrica}
@@ -325,7 +325,7 @@ export function LegendaDesfecho() {
   return (
     <div
       aria-label="Legenda por desfecho"
-      className="w-[200px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+      className="w-[200px] rounded-md border border-border bg-card/95 p-2 shadow-elev-2 backdrop-blur"
     >
       <div className="mb-1 text-[11px] font-medium text-text-secondary">Desfecho</div>
       <ul className="flex flex-col gap-1 text-[11px] text-text-muted">
@@ -585,7 +585,7 @@ export function LegendaDemandaNaoAtendida() {
   return (
     <div
       aria-label="Legenda Demanda não atendida"
-      className="w-[260px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+      className="w-[260px] rounded-md border border-border bg-card/95 p-2 shadow-elev-2 backdrop-blur"
     >
       <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium text-text-secondary">
         <span
@@ -1210,7 +1210,7 @@ export function LegendaDelta({ metrica }: { metrica: MapaMetrica }) {
   return (
     <div
       aria-label={`Legenda de variação: ${rotuloMetrica}`}
-      className="w-[220px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+      className="w-[220px] rounded-md border border-border bg-card/95 p-2 shadow-elev-2 backdrop-blur"
     >
       <div className="mb-1 text-[11px] font-medium text-text-secondary">
         Variação de {rotuloMetrica} (B menos A)
@@ -1237,7 +1237,7 @@ export function LegendaPerfil() {
   return (
     <div
       aria-label="Legenda por perfil físico"
-      className="w-[200px] rounded-md border border-border bg-card/95 p-2 shadow-sm backdrop-blur"
+      className="w-[200px] rounded-md border border-border bg-card/95 p-2 shadow-elev-2 backdrop-blur"
     >
       <div className="mb-1 text-[11px] font-medium text-text-secondary">
         Perfil físico

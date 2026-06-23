@@ -27,15 +27,17 @@ export function ModalDetalheMetrica({
   onRetry,
   children,
 }: Props) {
-  const tituloCompleto =
-    !loading && count !== undefined ? `${titulo} (${count})` : titulo
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent size="lg">
         <DialogHeader>
           <DialogTitle className="text-base font-semibold text-text-primary">
-            {tituloCompleto}
+            {titulo}
+            {!loading && count !== undefined && (
+              <span className="ml-1 font-mono tabular-nums text-text-muted">
+                ({count})
+              </span>
+            )}
           </DialogTitle>
         </DialogHeader>
 

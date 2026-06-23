@@ -34,8 +34,8 @@ export function SeletorPerfis({
             onClick={() => toggle(slug)}
             className={
               ativo
-                ? "rounded-full border border-state-active bg-accent px-3 py-1 text-xs font-medium text-text-primary disabled:opacity-50"
-                : "rounded-full border border-border px-3 py-1 text-xs text-text-muted transition-colors hover:bg-accent hover:text-text-primary disabled:opacity-50"
+                ? "rounded-full border border-state-active bg-accent px-3 py-1 text-xs font-medium text-text-primary transition-colors disabled:opacity-50"
+                : "rounded-full border border-border px-3 py-1 text-xs text-text-muted transition-colors hover:bg-accent hover:border-border-strong hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
             }
           >
             {PERFIL_FISICO_LABEL[slug]}

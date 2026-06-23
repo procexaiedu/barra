@@ -3,15 +3,14 @@
 O ALVO de custo por turno tem fonte unica em `settings.custo_alvo_brl` (CUSTO-06) — este modulo
 so calcula o custo realizado; nao repete o numero do alvo. Funcao pura
 `calcular_custo_brl(usage_metadata, cotacao_usd_brl)` consumida pelo no llm para
-observar o Histogram `AGENTE_CUSTO_TURNO_BRL`. Preco em USD/MTok espelha a tabela publica do
-Sonnet 4.6 (input $3, output $15, cache_write 1.25-2x, cache_read 0.1x). Quando a Anthropic
-mexer no preco, atualizar aqui (constante de modulo, nao settings — preco muda raro e queremos
-controle de versao no repo).
+observar o Histogram `AGENTE_CUSTO_TURNO_BRL`. Preco em USD/MTok = constante de modulo (nao
+settings — preco muda raro e queremos controle de versao no repo); atualizar aqui quando o
+provedor mexer na tarifa.
 
-O chat roda em Sonnet 4.6, mas a extracao forcada barata roda em Haiku 4.5 (`no_llm`,
-chat_extracao_barata): por isso o custo e parametrizado POR MODELO (`_tabela_preco`), lendo o
-nome Anthropic de cada AIMessage. Cobrar tudo a tarifa de Sonnet super-estimava a extracao
-(~3x) e divergia do `total_cost` do Langfuse (que ja precifica por modelo).
+Os 3 caminhos de texto do agente ao vivo (chat #1, extracao #2, judge #3) rodam em DeepSeek V4
+Flash direto -> `_tabela_preco` despacha pelo nome do modelo de cada AIMessage e usa a tarifa
+DeepSeek-direct (com cache). As tabelas Sonnet/Haiku sobrevivem para o LLM-judge dos evals e
+para o caso default (modelo desconhecido cai na tarifa Sonnet, conservadora).
 """
 
 from collections.abc import Sequence
@@ -52,8 +51,8 @@ PRECO_OPENROUTER_USD_PER_MTOK: dict[str, dict[str, float]] = {
     "deepseek/deepseek-v4-flash": {"input": 0.09, "output": 0.18},
 }
 
-# USD por milhao de tokens — DeepSeek V4 Flash DIRETO (api.deepseek.com), usado pelo chat #1
-# (`llm_chat_provider=deepseek`) e, quando ligados, pela extracao #2 e pelo judge #3. A API reporta
+# USD por milhao de tokens — DeepSeek V4 Flash DIRETO (api.deepseek.com), usado pelos 3 caminhos de
+# texto do agente: chat #1, extracao forcada #2 e judge de AUP #3. A API reporta
 # `model_name="deepseek-v4-flash"` (sem prefixo de provider; idem com o alias legado `deepseek-chat`,
 # que aposenta 2026-07-24). Tarifa oficial V4 Flash (deepseek.com 2026-06): input cache-miss $0.14, output $0.28,
 # cache-hit $0.0028 (50x mais barato que o miss). O cache do DeepSeek-direct e automatico e o

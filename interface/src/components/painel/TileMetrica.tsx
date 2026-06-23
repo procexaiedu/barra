@@ -59,7 +59,7 @@ export function TileMetrica({
     <Card
       className={cn(
         "relative p-5",
-        onClick && "cursor-pointer transition-colors hover:bg-surface-hover active:bg-surface-pressed",
+        onClick && "cursor-pointer transition-all hover:-translate-y-px hover:bg-surface-hover hover:shadow-elev-2 hover:ring-border-brand/40 active:translate-y-0 active:bg-surface-pressed",
         flashing && "tile-update-flash"
       )}
       onClick={onClick}

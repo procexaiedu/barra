@@ -12,7 +12,7 @@ export function FotoPerfil({
   const classe = size === "lg" ? "size-20" : size === "sm" ? "size-9" : "size-14"
   const icon = size === "lg" ? 28 : size === "sm" ? 16 : 20
   return (
-    <div className={`${classe} shrink-0 overflow-hidden rounded-full border border-border bg-muted`}>
+    <div className={`${classe} shrink-0 overflow-hidden rounded-full bg-muted ring-1 ring-border-subtle`}>
       {url ? (
         // URL assinada do MinIO com expiry; next/image precisaria de loader customizado.
         // eslint-disable-next-line @next/next/no-img-element

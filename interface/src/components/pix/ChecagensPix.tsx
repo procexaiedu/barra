@@ -8,9 +8,10 @@ export function ChecagensPix({ checagens }: { checagens: ChecagemPix[] }) {
   return (
     <section
       aria-label="Verificações automáticas"
-      className="rounded-lg bg-card p-3 ring-1 ring-foreground/10"
+      className="rounded-lg bg-card p-3 shadow-elev-1 ring-1 ring-border-subtle"
     >
-      <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
         Verificações automáticas
       </h3>
       {checagens.length === 0 ? (

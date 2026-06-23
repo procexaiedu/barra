@@ -9,6 +9,7 @@ de um campo de tracing duplicado/morto) e cobrem o que o teste do SEC-10 não co
 """
 
 import inspect
+import logging
 import os
 from typing import ClassVar
 
@@ -70,3 +71,17 @@ def test_cada_campo_de_tracing_e_lido_em_core_tracing() -> None:
     fonte = inspect.getsource(tracing)
     for campo in _CAMPOS_TRACING:
         assert f"settings.{campo}" in fonte, f"campo de tracing nao-lido (morto?): {campo}"
+
+
+def test_langfuse_chave_ausente_loga_warning_de_boot(caplog: pytest.LogCaptureFixture) -> None:
+    """Chave Langfuse vazia (cenário do redeploy git que zera o Env do stack) não pode ficar muda:
+    `_ligar_langfuse_handler` preserva o contrato (retorna None) MAS grita um WARNING de boot, para
+    distinguir 'tracing off de propósito' de 'a chave evaporou em prod'."""
+    settings = Settings(langfuse_public_key="", langchain_tracing_v2=False)
+    with caplog.at_level(logging.WARNING):
+        handler = tracing._ligar_langfuse_handler(settings)
+    assert handler is None
+    assert any(
+        r.levelno == logging.WARNING and "langfuse_prod" in r.message and "ausente" in r.message
+        for r in caplog.records
+    )

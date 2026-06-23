@@ -99,7 +99,7 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
         </span>
       </header>
 
-      <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
+      <div className="rounded-lg bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle">
         {totalPerdas === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
             <div className="flex size-11 items-center justify-center rounded-full bg-success-500/10 ring-1 ring-success-500/20">
@@ -184,7 +184,7 @@ export function BlocoPerdasPorMotivo({ linhas, totalPerdas, totalDecididos }: Pr
                       className={cn(
                         "grid w-full grid-cols-[14px_1fr_36px_52px] items-center gap-2 rounded-md py-1 pl-1 pr-2 text-left",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                        inativo ? "opacity-50" : "transition-colors hover:bg-accent"
+                        inativo ? "opacity-50" : "transition-colors hover:bg-surface-hover"
                       )}
                       aria-label={`${d.rotulo}: ${d.contagem} perdas`}
                     >

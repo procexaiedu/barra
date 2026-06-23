@@ -78,7 +78,7 @@ export function ModalFecharAtendimento({
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="grid grid-cols-2 gap-3">
-          <div className="rounded-md bg-muted px-3 py-2.5">
+          <div className="rounded-md bg-muted px-3 py-2.5 ring-1 ring-border-subtle">
             <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
               Valor acordado
             </p>

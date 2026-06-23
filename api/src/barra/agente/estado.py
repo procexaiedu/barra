@@ -1,7 +1,7 @@
 """Estado do grafo LangGraph.
 
 Espelha a maquina de estados de docs/mvp/04 §8:
-Novo -> Triagem -> Qualificado -> Aguardando_confirmacao -> Em_atendimento -> Concluido/Perdido.
+Novo -> Triagem -> Qualificado -> Aguardando_confirmacao -> Confirmado -> Em_execucao -> Fechado/Perdido.
 
 State minimalista: `messages` + campos transitorios por-invocacao. Deps de runtime
 (pool, redis) e IDs de escopo (atendimento_id, modelo_id, cliente_id, turno_id) vivem no
@@ -41,6 +41,11 @@ class EstadoAgente(MessagesState):
         cliente ja saiu antes da tool rodar, entao o resultado da extracao nao muda mais a fala
         deste turno: o guard fecha no post_process sem reinvocar o modelo -- senao o DeepSeek
         tagarela uma 2a bolha espuria (trace 022e0a70, 2026-06-18). Nasce ausente a cada `ainvoke`.
+    _reoferta_tentada: one-shot da auto-reoferta (nos/llm.py, settings.reoferta_automatica_habilitada).
+        Quando a extracao (forcada/inline) erra recuperavel (ConflitoAgenda etc.) e a reoferta esta
+        ligada, o guard volta ao proprio no llm p/ o modelo REOFERTAR um horario em vez de fechar
+        mudo, e seta este flag. Se a reoferta tambem errar, a reentrada cai no MUTE (sem reofertar de
+        novo) -- silencio > reserva fantasma. Nasce ausente a cada `ainvoke` (sem checkpointer).
     """
 
     midia_idx: int
@@ -48,3 +53,4 @@ class EstadoAgente(MessagesState):
     _confianca: str | None
     _extracao_forcada: bool
     _resposta_inline_concluida: bool
+    _reoferta_tentada: bool

@@ -45,7 +45,7 @@ export function BloqueioAgenda({
       type="button"
       onClick={onClick}
       className={cn(
-        "w-full rounded-lg border border-border bg-card text-left transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
+        "w-full rounded-lg border border-border bg-card text-left shadow-elev-1 ring-1 ring-border-subtle transition-all hover:-translate-y-px hover:bg-muted hover:shadow-elev-2 hover:ring-border-brand/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
         compacto ? "p-2" : "p-3",
         compacto && bordaCompacto(bloqueio),
         bloqueio.estado === "cancelado" && "opacity-60"

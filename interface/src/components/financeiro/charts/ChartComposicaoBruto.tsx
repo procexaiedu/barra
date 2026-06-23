@@ -100,7 +100,7 @@ export function ChartComposicaoBruto({ resumo }: Props) {
           <span className="text-[10px] font-medium uppercase tracking-[0.1em] text-text-muted">
             Bruto recebido
           </span>
-          <span className="font-mono text-[18px] font-semibold tabular-nums text-text-primary">
+          <span className="font-mono text-[18px] font-semibold tabular-nums text-aurum">
             {formatBRL(total)}
           </span>
         </div>

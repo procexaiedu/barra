@@ -36,7 +36,7 @@ export function InspectorReceita({
   return (
     <aside
       aria-label="Detalhes da receita"
-      className="flex h-full w-[380px] shrink-0 flex-col border-l border-l-success-500/40 bg-card"
+      className="flex h-full w-[380px] shrink-0 flex-col border-l border-l-border-subtle bg-card shadow-elev-2 rise-in"
     >
       <header className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0">
@@ -79,7 +79,7 @@ export function InspectorReceita({
       <footer className="border-t border-border p-3">
         <Link
           href={`/atendimentos?id=${linha.atendimento_id}`}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          className="flex w-full items-center justify-center gap-1.5 rounded-lg [background-image:var(--gradient-gold)] bg-gold-500 px-3 py-2 text-sm font-medium text-primary-foreground shadow-elev-1 transition-all hover:brightness-[1.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           Abrir atendimento
           <ArrowUpRight className="size-4" />
@@ -90,12 +90,13 @@ export function InspectorReceita({
 }
 
 function Separador() {
-  return <div aria-hidden="true" className="h-px bg-border" />
+  return <div aria-hidden="true" className="rule-aurum mx-4" />
 }
 
 function BlocoLabel({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+    <p className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-primary">
+      <span className="h-2.5 w-0.5 rounded-full bg-gold-500" aria-hidden />
       {children}
     </p>
   )
@@ -227,7 +228,7 @@ function Row({
     <div className="flex items-baseline justify-between gap-3">
       <dt className="text-xs text-text-muted">{rotulo}</dt>
       <dd
-        className={`font-mono tabular-nums ${destaque ? "text-text-primary font-medium" : "text-text-primary"}`}
+        className={`font-mono tabular-nums ${destaque ? "text-base font-semibold text-text-primary" : "text-text-primary"}`}
       >
         {valor}
       </dd>

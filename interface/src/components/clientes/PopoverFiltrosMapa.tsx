@@ -169,7 +169,8 @@ export function PopoverFiltrosMapa({
 function Secao({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+      <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-2.5 w-0.5 rounded-full bg-gold-500/70" aria-hidden />
         {label}
       </span>
       {children}

@@ -346,14 +346,14 @@ export function AgendaSkeleton() {
         </div>
         <Skeleton className="h-[4.75rem] w-80 rounded-lg" />
       </div>
-      <div className="rounded-lg border border-border bg-card p-2">
+      <div className="rounded-lg border border-border bg-card p-2 shadow-elev-1 ring-1 ring-border-subtle">
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48 rounded-md" />
           <Skeleton className="h-9 w-56 rounded-md" />
           <Skeleton className="h-9 w-40 rounded-md" />
         </div>
       </div>
-      <div className="overflow-hidden rounded-lg border border-border bg-card">
+      <div className="overflow-hidden rounded-lg border border-border bg-card shadow-elev-1 ring-1 ring-border-subtle">
         <div className="grid h-12 border-b border-border" style={{ gridTemplateColumns: "52px repeat(7, 1fr)" }}>
           {Array.from({ length: 8 }, (_, i) => (
             <Skeleton key={i} className="m-2 h-8 rounded-md" />

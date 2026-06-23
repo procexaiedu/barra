@@ -23,7 +23,7 @@ _env = Environment(
 )
 
 
-def _brl(valor: Any) -> str:
+def brl(valor: Any) -> str:
     """Formata valor inteiro em BRL no padrão da persona: `R$1.500` (sem espaço, ponto como
     separador de milhar). `persona.md` `<voz>` exige exatamente esse formato; o default Python
     `{:,.0f}` usa locale americano (`R$ 1,500`) e contradiria a regra.
@@ -56,7 +56,7 @@ def _idioma_humano(codigo: str) -> str:
     return _NOMES_IDIOMAS.get(codigo, codigo)
 
 
-_env.filters["brl"] = _brl
+_env.filters["brl"] = brl
 _env.filters["idioma_humano"] = _idioma_humano
 
 

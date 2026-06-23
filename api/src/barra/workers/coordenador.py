@@ -27,6 +27,9 @@ from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.messages import AIMessage
 from langfuse import Langfuse, get_client
 from langgraph.errors import GraphRecursionError
+from openai import APIStatusError as OpenAIAPIStatusError
+from openai import APITimeoutError as OpenAIAPITimeoutError
+from openai import RateLimitError as OpenAIRateLimitError
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
@@ -39,7 +42,8 @@ from barra.agente.nos.output_guard import (
     tem_marcador_outro_cliente,
     tem_marcador_system,
 )
-from barra.agente.persona import _brl
+from barra.agente.persona import brl
+from barra.core.llm import PARADA_RECUSA, PARADA_TRUNCADA, motivo_parada
 from barra.core.metrics import (
     AGENTE_ESCALADA,
     AGENTE_EVAL_PASS_RATE,
@@ -69,6 +73,24 @@ RECURSION_LIMIT = 18  # ~6-7 round-trips llm<->tools (5 tools no P0). DORMENTE a
 # normal; tuning sem deploy nao foi pedido (constante local, no padrao de MAX_DRAIN).
 TETO_TURNOS_DIA = 50
 
+# Descricao humana por motivo de exaustao, p/ o resumo_operacional do handoff
+# (escalar_por_exaustao). Antes o resumo dizia "estourou recursion_limit ou excedeu 60s" para
+# TODO motivo -- mentindo p/ teto_turnos / modelo_indisponivel / modelo_recusou / modelo_truncado,
+# que nada tem a ver com recursion/timeout. Fallback generico p/ motivo novo nao mapeado.
+_DESCRICAO_EXAUSTAO: dict[str, str] = {
+    "exaustao_iteracoes": (
+        f"estourou o recursion_limit ({RECURSION_LIMIT} super-steps "
+        f"~= {RECURSION_LIMIT // 2} round-trips llm<->tools)"
+    ),
+    "timeout_grafo": "excedeu o teto de 60s de execucao do turno",
+    "teto_turnos": f"atingiu o teto de {TETO_TURNOS_DIA} turnos no dia para a conversa (CUSTO-04)",
+    "modelo_indisponivel": (
+        "o provider do LLM ficou indisponivel (5xx/timeout apos os retries do SDK)"
+    ),
+    "modelo_recusou": "o LLM recusou a geracao (safety filter do provider)",
+    "modelo_truncado": "a resposta do LLM truncou (max_tokens/janela de contexto) com tool_use incompleto",
+}
+
 
 def _formatar_bolha_pix(chave: str, titular: str | None, valor: Any) -> str:
     """Bolha determinística com os dados do Pix de deslocamento, anexada após o texto da IA.
@@ -81,7 +103,7 @@ def _formatar_bolha_pix(chave: str, titular: str | None, valor: Any) -> str:
     linhas = [f"chave pix: {chave}"]
     if titular:
         linhas.append(f"em nome de {titular}")
-    linhas.append(f"valor: {_brl(valor)}")
+    linhas.append(f"valor: {brl(valor)}")
     return "\n".join(linhas)
 
 
@@ -193,7 +215,8 @@ async def processar_turno(
         structlog.contextvars.bind_contextvars(request_id=request_id)
 
     conv_uuid = UUID(conversa_id)
-    modelo_anthropic = settings.anthropic_modelo_principal
+    # Label da metrica de duracao = modelo do chat ao vivo (DeepSeek V4 Flash direto).
+    modelo_chat = settings.deepseek_model_chat
     tipo_turno = "audio" if aguardar_transcricao else "texto"
 
     # O lock contende SO com rotear_imagem (06 §2.1). Ocupado -> re-defere curto; o pending ja
@@ -273,7 +296,13 @@ async def processar_turno(
                         # so o chunk canned. msg_ids_cliente e chars_inbound zerados — o audio
                         # nao gera read receipt aqui (a humanizacao continua mandando reads na
                         # proxima mensagem do cliente).
-                        canned = escolher_canned_transcricao_falhou()
+                        # Marca o turno atual ANTES do despacho (cancel-on-new-message, 05 §3.1): o
+                        # canned vai critico=False, entao `enviar_turno` so o envia se
+                        # turno_atual==turno_id. O set normal (passo 3) NAO roda neste branch (break
+                        # abaixo), entao sem este set turno_atual fica no valor do turno ANTERIOR e o
+                        # canned e abortado -> cliente sem o aviso de audio falho.
+                        await redis.set(f"turno_atual:{conversa_id}", turno_id, ex=600)
+                        canned = escolher_canned_transcricao_falhou(seed=turno_id)
                         await despachar_humanizacao(
                             ctx,
                             conversa_id,
@@ -294,13 +323,17 @@ async def processar_turno(
                 # 4. config (thread_id + recursion_limit, nativos do LangGraph) + context (deps e
                 #    ids de escopo via Runtime Context API — 04 §1.1). prepare_context monta o
                 #    prompt do zero dentro do grafo (03 §7), entrada vai vazia.
-                #    metadata/tags de trace (modelo_id/atendimento_id, este como gen_ai.conversation.id)
-                #    escopam o trace do LangSmith — sem isso o trace de prod so tinha thread_id e nao
-                #    dava p/ agrupar por atendimento (os IDs vao so no config, nao tocam o cache).
+                #    metadata/tags de trace (modelo_id/atendimento_id/cliente_id, o atendimento como
+                #    gen_ai.conversation.id) escopam o trace do LangSmith — sem isso o trace de prod so
+                #    tinha thread_id e nao dava p/ agrupar/filtrar (os IDs vao so no config, nao tocam o cache).
                 config: dict[str, Any] = {
                     "configurable": {"thread_id": conversa_id},
                     "recursion_limit": RECURSION_LIMIT,
-                    **metadata_trace_turno(str(atendimento["modelo_id"]), str(atendimento["id"])),
+                    **metadata_trace_turno(
+                        str(atendimento["modelo_id"]),
+                        str(atendimento["id"]),
+                        str(atendimento["cliente_id"]),
+                    ),
                 }
                 context = ContextAgente(
                     db_pool=pool,
@@ -354,12 +387,20 @@ async def processar_turno(
                     )
                     AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
                     break
-                except (RateLimitError, APITimeoutError, APIStatusError):
-                    # 5xx/timeout persistente da API do LLM (Anthropic) — falha de plataforma, nao
-                    # bug do grafo. O no llm ja re-levanta esses erros (nos/llm.py); aqui escala
-                    # como modelo_indisponivel (bucket infra) em vez de cair no `except Exception`
-                    # generico abaixo, que mataria o turno sem escalada (o ARQ NAO retenta excecao
-                    # comum — so `Retry` explicito ou shutdown do worker).
+                except (
+                    RateLimitError,
+                    APITimeoutError,
+                    APIStatusError,
+                    OpenAIRateLimitError,
+                    OpenAIAPITimeoutError,
+                    OpenAIAPIStatusError,
+                ):
+                    # 5xx/timeout persistente da API do LLM (Anthropic OU DeepSeek/OpenRouter) — falha
+                    # de plataforma, nao bug do grafo. Os dois SDKs levantam tipos homonimos em modulos
+                    # distintos (anthropic vs openai); o no llm re-levanta AMBOS (_EXCECOES_LLM, nos/
+                    # llm.py) e aqui escalamos como modelo_indisponivel (bucket infra) em vez de cair no
+                    # `except Exception` generico abaixo, que mataria o turno sem escalada (o ARQ NAO
+                    # retenta excecao comum — so `Retry` explicito ou shutdown do worker).
                     logger.error("api_indisponivel turno_id=%s", turno_id)
                     await escalar_por_exaustao(
                         pool, atendimento["id"], turno_id, motivo="modelo_indisponivel"
@@ -370,7 +411,7 @@ async def processar_turno(
                     logger.exception("graph_erro turno_id=%s", turno_id)
                     raise
                 finally:
-                    AGENTE_TURNO_DURACAO.labels(modelo_anthropic, tipo_turno).observe(
+                    AGENTE_TURNO_DURACAO.labels(modelo_chat, tipo_turno).observe(
                         perf_counter() - inicio
                     )
 
@@ -396,7 +437,7 @@ async def processar_turno(
                 if any(
                     isinstance(m, AIMessage)
                     and m.usage_metadata is not None
-                    and (m.response_metadata or {}).get("stop_reason") == "refusal"
+                    and motivo_parada(m.response_metadata) in PARADA_RECUSA
                     for m in resultado["messages"]
                 ):
                     logger.warning("turno_refusal turno_id=%s", turno_id)
@@ -413,8 +454,7 @@ async def processar_turno(
                 if any(
                     isinstance(m, AIMessage)
                     and m.usage_metadata is not None
-                    and (m.response_metadata or {}).get("stop_reason")
-                    in ("max_tokens", "model_context_window_exceeded")
+                    and motivo_parada(m.response_metadata) in PARADA_TRUNCADA
                     and bool(m.tool_calls)
                     for m in resultado["messages"]
                 ):
@@ -831,6 +871,7 @@ async def escalar_por_exaustao(
     from barra.dominio.escaladas.service import abrir_handoff, mapear_bucket, mapear_motivo
 
     tipo, responsavel = mapear_motivo(motivo)
+    descricao = _DESCRICAO_EXAUSTAO.get(motivo, f"encerrou por '{motivo}'")
     async with pool.connection() as conn:
         await abrir_handoff(
             conn,
@@ -838,9 +879,8 @@ async def escalar_por_exaustao(
             responsavel=responsavel,
             tipo=tipo,
             resumo_operacional=(
-                f"Agente nao encerrou o turno: estourou recursion_limit "
-                f"({RECURSION_LIMIT} super-steps ~= {RECURSION_LIMIT // 2} round-trips) ou "
-                f"excedeu 60s. turno_id={turno_id}. Verificar trace LangSmith."
+                f"Agente nao encerrou o turno: {descricao}. "
+                f"turno_id={turno_id}. Verificar o trace do turno."
             ),
             acao_esperada="Revisar trace, decidir se devolve para IA ou assume manualmente.",
             origem="agente",

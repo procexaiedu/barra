@@ -341,7 +341,7 @@ export function CalendarioMes({
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-      <section aria-label="Calendário mensal" className={cn("flex min-w-0 gap-3 rounded-lg border border-border bg-card", visaoMes ? "p-3" : "p-4")}>
+      <section aria-label="Calendário mensal" className={cn("flex min-w-0 gap-3 rounded-lg border border-border bg-card shadow-elev-1 ring-1 ring-border-subtle", visaoMes ? "p-3" : "p-4")}>
         <div className="min-w-0 flex-1">
           <div className={cn("grid grid-cols-7", visaoMes ? "border-b border-border" : "gap-2 pb-2")}>
             {diasSemana.map((dia) => (
@@ -398,7 +398,7 @@ export function CalendarioMes({
         </div>
 
         {diaPainel && (
-          <aside className="w-72 shrink-0 rounded-lg border border-border bg-background">
+          <aside className="w-72 shrink-0 rounded-lg border border-border bg-card shadow-elev-2 ring-1 ring-border-subtle">
             <div className="flex items-center justify-between border-b border-border px-3 py-2">
               <span className="text-xs font-semibold capitalize text-text-primary">
                 {formatarDataPainel(diaPainel)}
@@ -434,7 +434,7 @@ export function CalendarioMes({
       </section>
       <DragOverlay>
         {draggingBloqueio ? (
-          <div className="rounded-lg border border-border bg-card p-2 shadow-md">
+          <div className="rounded-lg border border-border bg-card p-2 shadow-elev-3">
             <BloqueioAgenda bloqueio={draggingBloqueio} compacto onClick={() => {}} />
           </div>
         ) : null}

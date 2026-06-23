@@ -125,12 +125,12 @@ def _graph_fake() -> Any:
     from barra.agente import graph as gm
 
     fake = _ChatFakeInterno()
-    orig = gm.criar_chat_anthropic  # type: ignore[attr-defined]
-    gm.criar_chat_anthropic = lambda *a, **k: fake  # type: ignore[attr-defined,assignment]
+    orig = gm.criar_chat_deepseek  # type: ignore[attr-defined]
+    gm.criar_chat_deepseek = lambda *a, **k: fake  # type: ignore[attr-defined,assignment]
     try:
         return gm.build_graph()
     finally:
-        gm.criar_chat_anthropic = orig  # type: ignore[attr-defined]
+        gm.criar_chat_deepseek = orig  # type: ignore[attr-defined]
 
 
 # --- estado da sessao ------------------------------------------------------------------------

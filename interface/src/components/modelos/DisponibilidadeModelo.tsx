@@ -265,7 +265,7 @@ export function DisponibilidadeModelo({
     <section className="flex flex-col gap-4">
       {statusInativo && <BannerStatus status={statusModelo!} />}
 
-      <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
+      <div className="rounded-lg bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle">
         <header className="mb-4">
           <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
             <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
@@ -507,7 +507,7 @@ function CartaoJanela({
     parseHorario(janela.hora_inicio) !== null && parseHorario(janela.hora_fim) !== null
 
   return (
-    <div className="rounded-md border border-border p-3">
+    <div className="rounded-md border border-border bg-surface p-3 shadow-elev-1">
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-2">
           <Input

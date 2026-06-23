@@ -37,6 +37,7 @@ from barra.workers.lembrete_valor import cobrar_valor_final
 from barra.workers.media import limpar_midias_vencidas, rotear_imagem, transcrever_audio
 from barra.workers.pix import validar_pix
 from barra.workers.reconciliacao import reconciliar_cards_escalada
+from barra.workers.revisao_baixo_score import coletar_baixo_score
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
@@ -119,6 +120,15 @@ async def cron_fluxo_drift(ctx: dict[str, Any]) -> int:
         return 0
     async with pool.connection() as conn:
         return await medir_fluxo_drift(conn, settings)
+
+
+async def cron_baixo_score(ctx: dict[str, Any]) -> int:
+    pool = ctx.get("db_pool")
+    settings = ctx.get("settings")
+    if pool is None or settings is None:
+        return 0
+    async with pool.connection() as conn:
+        return await coletar_baixo_score(conn, settings)
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -243,6 +253,8 @@ class WorkerSettings:
         cron(cron_reconciliar_cards, name="reconciliar_cards"),
         # Sensor de deriva de fluxo (observacional, flag default OFF): segunda 04:00 UTC, fora de pico.
         cron(cron_fluxo_drift, name="fluxo_drift", weekday="mon", hour={4}, minute={0}),
+        # Coletor de turnos reprovados → dataset de regressão (observacional, flag OFF): diário 04:30.
+        cron(cron_baixo_score, name="baixo_score", hour={4}, minute={30}),
     ]
     keep_result = 3600  # global; processar_turno sobrescreve p/ 0 via func(...) acima
     max_jobs = 10

@@ -39,9 +39,9 @@ export function ItemModelo({
         if (event.key === "Enter" || event.key === " ") onSelect()
       }}
       className={cn(
-        "group relative w-full rounded-lg border border-border bg-card px-3 py-2.5 text-left transition-colors hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        "group relative w-full rounded-lg border border-border bg-card px-3 py-2.5 text-left shadow-elev-1 transition-all hover:-translate-y-px hover:bg-surface-hover hover:shadow-elev-2 hover:ring-1 hover:ring-border-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         "before:absolute before:left-0 before:top-0 before:bottom-0 before:w-[3px] before:rounded-l-lg before:bg-transparent",
-        selected && "bg-accent before:bg-gold-500",
+        selected && "bg-accent before:bg-gold-500 ring-1 ring-border-brand/40",
         item.status === "inativa" && "opacity-60"
       )}
     >

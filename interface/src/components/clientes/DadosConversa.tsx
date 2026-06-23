@@ -8,7 +8,7 @@ export function DadosConversa({ conversa }: { conversa: ConversaResumo }) {
   return (
     <div
       aria-label="Dados da conversa"
-      className="grid grid-cols-3 divide-x divide-border rounded-lg border border-border bg-card"
+      className="grid grid-cols-1 divide-y divide-border rounded-lg border border-border bg-card shadow-elev-1 ring-1 ring-border-subtle sm:grid-cols-3 sm:divide-x sm:divide-y-0"
     >
       <InfoCell label="Conversa desde">
         <span className="text-sm font-medium text-text-primary">

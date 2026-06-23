@@ -86,7 +86,7 @@ _GEN_AI_CONVERSATION_ID = "gen_ai.conversation.id"
 # IDs internos opacos (UUID) que escopam o trace (OBS-09/10) — nunca PII. Allowlist por chave
 # porque o backstop _VALOR_PII casaria um UUID cujo último grupo de 12 hex é todo-dígito (~0.9%),
 # mascarando o discriminador do trace; isentamos por chave para o ID sobreviver ao egress.
-_CHAVES_ID_TRACE = frozenset({"modelo_id", "atendimento_id", _GEN_AI_CONVERSATION_ID})
+_CHAVES_ID_TRACE = frozenset({"modelo_id", "atendimento_id", "cliente_id", _GEN_AI_CONVERSATION_ID})
 
 
 def _mascarar(valor: str, caminho: list[str | int]) -> str:
@@ -146,6 +146,10 @@ def _ligar_langfuse_handler(settings: Settings) -> Any | None:
     pacote, ou se o auth falhar."""
     global _LANGFUSE_HANDLER
     if not settings.langfuse_public_key:
+        logger.warning(
+            "langfuse_prod: chave ausente; tracing langfuse off "
+            "(pode ser o redeploy git que zera o Env do stack)"
+        )
         return None
     try:
         from langfuse import get_client
@@ -190,12 +194,14 @@ def langfuse_handler() -> Any | None:
     return _LANGFUSE_HANDLER
 
 
-def metadata_trace_turno(modelo_id: str, atendimento_id: str) -> dict[str, Any]:
-    """Fragmento de config (metadata + tags) que escopa o trace do turno por modelo/atendimento.
+def metadata_trace_turno(modelo_id: str, atendimento_id: str, cliente_id: str) -> dict[str, Any]:
+    """Fragmento de config (metadata + tags) que escopa o trace do turno por modelo/atendimento/cliente.
 
     Merge no config do `graph.ainvoke` (ex.: `config |= metadata_trace_turno(...)`): os IDs
-    viajam como metadata/tags do RunTree do LangSmith — filtra/agrupa traces por modelo e por
-    atendimento, este último como `gen_ai.conversation.id` (convenção OTel gen_ai).
+    viajam como metadata/tags do RunTree do LangSmith — filtra/agrupa traces por modelo, por
+    cliente, e por atendimento, este último como `gen_ai.conversation.id` (convenção OTel gen_ai).
+    `cliente_id` é UUID opaco do banco (não o telefone E.164), tratado como ID-de-escopo igual aos
+    outros — mesmo perímetro de confiança do Langfuse self-hosted (ADR 0019).
 
     Invariante de cache: estes IDs vão SÓ no nível de config (metadata/tags), nunca no conteúdo
     de mensagem/system. O prefixo cacheado (`tools→system→messages`) é montado em
@@ -205,11 +211,16 @@ def metadata_trace_turno(modelo_id: str, atendimento_id: str) -> dict[str, Any]:
 
     Recebe `str` (não `ContextAgente`): `core/` não importa de `agente/` (direção de deps).
     """
-    tags = [f"modelo_id:{modelo_id}", f"atendimento_id:{atendimento_id}"]
+    tags = [
+        f"modelo_id:{modelo_id}",
+        f"atendimento_id:{atendimento_id}",
+        f"cliente_id:{cliente_id}",
+    ]
     return {
         "metadata": {
             "modelo_id": modelo_id,
             "atendimento_id": atendimento_id,
+            "cliente_id": cliente_id,
             _GEN_AI_CONVERSATION_ID: atendimento_id,
             # Langfuse (ADR 0019): agrupa os turnos da jornada por atendimento e replica as tags no
             # nível do trace; o CallbackHandler lê estas chaves do metadata do config.

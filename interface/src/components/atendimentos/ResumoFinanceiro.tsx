@@ -50,7 +50,8 @@ export function ResumoFinanceiro({ resumo, status }: Props) {
       {temDetalhe ? (
         <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_minmax(220px,300px)]">
           <div className="min-w-0">
-            <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+            <h3 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+              <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
               Por modelo
             </h3>
             {resumo.por_modelo.length === 0 ? (
@@ -61,7 +62,8 @@ export function ResumoFinanceiro({ resumo, status }: Props) {
           </div>
 
           <div className="min-w-0">
-            <h3 className="mb-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+            <h3 className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+              <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
               Por estado
             </h3>
             <ul className="flex flex-col gap-1">

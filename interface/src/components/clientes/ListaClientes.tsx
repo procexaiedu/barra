@@ -30,7 +30,7 @@ export function ListaClientes({
 }) {
   return (
     <section aria-label="Lista de clientes" className="min-w-0 flex flex-col overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-y-auto scroll-thin rounded-lg border border-border bg-card">
+      <div className="flex-1 min-h-0 overflow-y-auto scroll-thin rounded-lg border border-border bg-card shadow-elev-1 ring-1 ring-border-subtle">
         {status === "loading" ? (
           <div aria-busy="true" className="space-y-px">
             {Array.from({ length: 12 }).map((_, index) => (

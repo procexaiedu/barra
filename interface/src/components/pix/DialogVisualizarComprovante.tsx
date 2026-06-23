@@ -263,13 +263,14 @@ export function DialogVisualizarComprovante({
           <aside className="flex min-h-0 flex-col overflow-y-auto border-l border-border bg-card">
             {/* Hero: valor */}
             <div className="border-b border-border px-6 py-5">
-              <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted">
+                <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
                 Valor extraído
               </p>
               <p
                 className={cn(
                   "mt-1 font-mono font-semibold leading-none tabular-nums",
-                  valor ? "text-[40px] text-text-primary" : "text-2xl text-text-muted",
+                  valor ? "text-aurum text-[40px]" : "text-2xl text-text-muted",
                 )}
               >
                 {valor ?? "Não identificado"}
@@ -286,7 +287,8 @@ export function DialogVisualizarComprovante({
               <>
                 {/* Dados do comprovante */}
                 <section className="border-b border-border px-6 py-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                  <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted">
+                    <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
                     Dados do comprovante
                   </p>
                   <dl className="mt-3 space-y-2.5 text-sm">
@@ -334,7 +336,8 @@ export function DialogVisualizarComprovante({
                 {totalChecagens > 0 && (
                   <section className="border-b border-border px-6 py-4">
                     <div className="flex items-baseline justify-between">
-                      <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                      <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted">
+                        <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
                         Verificações automáticas
                       </p>
                       <span className="text-xs text-text-muted">
@@ -381,7 +384,8 @@ export function DialogVisualizarComprovante({
             ) : (
               <section className="border-b border-border px-6 py-4">
                 <div className="flex items-baseline justify-between">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+                  <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted">
+                    <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
                     Por que rejeitar?
                   </p>
                   <span className="text-xs text-text-muted">{observacao.length}/500</span>
@@ -396,7 +400,7 @@ export function DialogVisualizarComprovante({
                         setErro(null)
                       }}
                       className={cn(
-                        "flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors",
+                        "flex items-center justify-between rounded-md border px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                         motivo === o.value
                           ? "border-danger-500/70 bg-danger-500/10 text-text-primary"
                           : "border-border bg-muted text-text-secondary hover:border-border-strong hover:text-text-primary",

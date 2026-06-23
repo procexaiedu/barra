@@ -149,7 +149,7 @@ export function CampoLocalAutocomplete({
             if (elementoRef.current) elementoRef.current.value = ""
             onLimpar()
           }}
-          className="justify-self-start text-[11px] normal-case tracking-normal text-text-muted underline-offset-2 hover:underline"
+          className="justify-self-start text-[11px] normal-case tracking-normal text-text-muted underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
         >
           Limpar endereço
         </button>

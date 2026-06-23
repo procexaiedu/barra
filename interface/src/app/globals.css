@@ -116,6 +116,13 @@
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) * 1.5);
   --radius-xl: calc(var(--radius) * 2);
+
+  /* Elevação tematizada — referência via var() (inline) para o valor trocar
+     com o tema. No dark, o realce interno no topo (inset highlight) dá a
+     materialidade "iluminada de cima" / metal escovado. */
+  --shadow-elev-1: var(--elev-1);
+  --shadow-elev-2: var(--elev-2);
+  --shadow-elev-3: var(--elev-3);
 }
 
 :root {
@@ -211,7 +218,19 @@
   --border:               var(--border-subtle);
   --input:                var(--surface-raised);
   --ring:                 var(--focus-ring);
-  --radius:               0.5rem;
+  --radius:               0.625rem;
+
+  /* Ouro como metal: gradiente metálico p/ wordmark, CTA primário e fios de
+     destaque. "Better gold, not more gold." */
+  --gradient-gold: linear-gradient(135deg, var(--gold-700) 0%, var(--gold-500) 48%, var(--gold-300) 100%);
+  --gradient-gold-soft: linear-gradient(135deg, color-mix(in oklab, var(--gold-500) 16%, transparent), transparent 70%);
+  --rule-gold: color-mix(in oklab, var(--gold-500) 45%, transparent);
+
+  /* Elevação clara — sombra neutra suave (sem realce interno; superfície plana
+     lê melhor no claro). */
+  --elev-1: 0 1px 2px -1px rgb(20 20 20 / 0.08), 0 1px 3px 0 rgb(20 20 20 / 0.05);
+  --elev-2: 0 2px 6px -2px rgb(20 20 20 / 0.10), 0 6px 16px -4px rgb(20 20 20 / 0.08);
+  --elev-3: 0 4px 10px -3px rgb(20 20 20 / 0.12), 0 16px 36px -8px rgb(20 20 20 / 0.14);
 
   --sidebar:                       var(--surface-raised);
   --sidebar-foreground:            var(--text-secondary);
@@ -296,6 +315,18 @@
   --input:                var(--surface-raised);
   --ring:                 var(--focus-ring);
 
+  /* Gradiente metálico um pouco mais quente no escuro (o ouro "brilha" sobre
+     o fundo noturno). */
+  --gradient-gold: linear-gradient(135deg, var(--gold-700) 0%, var(--gold-500) 52%, var(--gold-300) 100%);
+  --gradient-gold-soft: linear-gradient(135deg, color-mix(in oklab, var(--gold-500) 22%, transparent), transparent 72%);
+  --rule-gold: color-mix(in oklab, var(--gold-500) 55%, transparent);
+
+  /* Elevação escura — sombra profunda + realce interno no topo (lit-from-above,
+     metal escovado). É a materialidade-assinatura do tema noturno. */
+  --elev-1: 0 1px 2px 0 rgb(0 0 0 / 0.55), inset 0 1px 0 0 rgb(255 255 255 / 0.035);
+  --elev-2: 0 4px 16px -4px rgb(0 0 0 / 0.62), inset 0 1px 0 0 rgb(255 255 255 / 0.05);
+  --elev-3: 0 14px 36px -10px rgb(0 0 0 / 0.72), inset 0 1px 0 0 rgb(255 255 255 / 0.06);
+
   --sidebar:                       var(--surface);
   --sidebar-foreground:            var(--text-secondary);
   --sidebar-primary:               var(--gold-500);
@@ -336,6 +367,41 @@
   .scroll-thin::-webkit-scrollbar-thumb:hover {
     background-color: var(--text-muted);
   }
+
+  /* Wordmark / numeral metálico — preenche o texto com o gradiente de ouro. */
+  .text-aurum {
+    background-image: var(--gradient-gold);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  /* Fio de ouro — divisória/sublinhado-assinatura sob cabeçalhos de página. */
+  .rule-aurum {
+    height: 1px;
+    background-image: linear-gradient(to right, var(--rule-gold), transparent 78%);
+  }
+
+  /* Entrada suave de cards/seções (orquestração discreta no load). */
+  @keyframes rise-in {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .rise-in {
+    animation: rise-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+}
+
+/* Piso de qualidade: respeita quem pediu menos movimento. */
+@media (prefers-reduced-motion: reduce) {
+  .rise-in,
+  .tile-update-flash,
+  [data-slot="skeleton"]::before {
+    animation: none !important;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
 }
 
 @keyframes tile-update-flash {
@@ -346,6 +412,11 @@
 
 .tile-update-flash {
   animation: tile-update-flash 0.7s ease-out;
+}
+
+/* Shimmer dos skeletons — varredura de luz sutil, mais premium que o pulse. */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
 }
 
 /* Google Places Autocomplete (CampoLocalAutocomplete): alinhar ao visual dos demais campos.

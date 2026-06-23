@@ -81,7 +81,7 @@ export function DialogTodasEscaladas({
                         disabled={!tipo}
                         className={cn(
                           "grid w-full grid-cols-[1fr_auto] items-start gap-3 rounded-md p-2 text-left",
-                          tipo ? "transition-colors hover:bg-accent" : "opacity-60",
+                          tipo ? "transition-colors hover:bg-surface-hover" : "opacity-60",
                           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         )}
                       >

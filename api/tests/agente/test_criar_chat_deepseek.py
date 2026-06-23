@@ -16,9 +16,7 @@ from barra.settings import Settings
 
 
 def _settings() -> Settings:
-    return Settings(  # type: ignore[call-arg]
-        deepseek_api_key="sk-test", llm_chat_provider="anthropic", _env_file=None
-    )
+    return Settings(deepseek_api_key="sk-test", _env_file=None)  # type: ignore[call-arg]
 
 
 def test_base_url_e_modelo_direto_deepseek() -> None:
@@ -40,11 +38,12 @@ def test_extra_body_trava_thinking_disabled() -> None:
     assert chat.extra_body == {"thinking": {"type": "disabled"}}
 
 
-def test_validator_exige_chave_quando_provider_deepseek() -> None:
+def test_validator_exige_chave_deepseek() -> None:
+    # Caminhos de texto DeepSeek-only: o validator exige deepseek_api_key sempre.
     with pytest.raises(ValidationError, match="deepseek_api_key"):
-        Settings(llm_chat_provider="deepseek", deepseek_api_key=None, _env_file=None)  # type: ignore[call-arg]
+        Settings(deepseek_api_key=None, _env_file=None)  # type: ignore[call-arg]
 
 
 def test_validator_ok_com_chave() -> None:
-    s = Settings(llm_chat_provider="deepseek", deepseek_api_key="sk-x", _env_file=None)  # type: ignore[call-arg]
-    assert s.llm_chat_provider == "deepseek"
+    s = Settings(deepseek_api_key="sk-x", _env_file=None)  # type: ignore[call-arg]
+    assert s.deepseek_api_key == "sk-x"

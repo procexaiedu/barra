@@ -38,9 +38,10 @@ export function StatusRepasses({
         : "text-text-secondary"
 
   return (
-    <section className="flex h-full flex-col gap-3 rounded-lg bg-card p-4 ring-1 ring-foreground/10">
-      <header className="flex flex-wrap items-baseline justify-between gap-2">
-        <h3 className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+    <section className="flex h-full flex-col gap-3 rounded-lg bg-card p-4 ring-1 ring-border-subtle shadow-elev-1">
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.08em] text-text-primary">
+          <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
           Status de repasses
         </h3>
         {bruto > 0 && (

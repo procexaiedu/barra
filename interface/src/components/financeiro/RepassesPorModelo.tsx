@@ -66,8 +66,8 @@ export function RepassesPorModelo({
         <ResumoRepasses resumo={r} anterior={rAnt} loading={carregando} />
 
         {fin.resumo?.janela_comparacao && (
-          <div className="font-mono text-[11px] tabular-nums text-text-muted">
-            deltas vs {fin.resumo.janela_comparacao.de} → {fin.resumo.janela_comparacao.ate}
+          <div className="inline-flex items-center gap-1.5 rounded-sm bg-muted/40 px-2 py-0.5 font-mono text-[10.5px] tabular-nums text-text-muted">
+            deltas vs <span className="text-text-secondary">{fin.resumo.janela_comparacao.de} → {fin.resumo.janela_comparacao.ate}</span>
           </div>
         )}
       </div>
@@ -381,7 +381,7 @@ function TabelaSaldo({
   const restantes = items.length - visiveis
 
   return (
-    <div className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
+    <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border-subtle shadow-elev-1">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -571,7 +571,7 @@ function TabelaPagamentos({
 }) {
   const truncado = Boolean(pagamentos.next_cursor)
   return (
-    <div className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
+    <div className="overflow-hidden rounded-lg bg-card ring-1 ring-border-subtle shadow-elev-1">
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

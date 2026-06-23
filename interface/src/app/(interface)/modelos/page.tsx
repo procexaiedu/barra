@@ -44,7 +44,7 @@ type ViewModelos = "lista" | "programas" | "fetiches"
 
 export default function Modelos() {
   return (
-    <Suspense fallback={<div className="text-sm text-text-muted">Carregando modelos...</div>}>
+    <Suspense fallback={<div className="flex items-center gap-2 text-sm text-text-muted"><Loader2 size={14} className="animate-spin" />Carregando modelos…</div>}>
       <ModelosConteudo />
     </Suspense>
   )

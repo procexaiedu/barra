@@ -264,7 +264,9 @@ async def test_loop_executa_tool_e_retorna_aimessage(
             AIMessage(content="amor, sábado que vem tô livre sim 🥰"),
         ]
     )
-    monkeypatch.setattr("barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: fake)
+    # Caminhos de texto sao DeepSeek-only -> _criar_chat_principal/extracao chamam criar_chat_deepseek;
+    # mocka o factory com o fake p/ o teste não escapar pra API real (§0).
+    monkeypatch.setattr("barra.agente.graph.criar_chat_deepseek", lambda settings, **_kw: fake)
 
     graph = build_graph()
     estado = await graph.ainvoke(
@@ -307,7 +309,8 @@ async def test_recursion_limit_encerra_loop_infinito(
 
     di, df = _janela_tool()
     monkeypatch.setattr(
-        "barra.agente.graph.criar_chat_anthropic", lambda settings, **_kw: _FakeChatLoopInfinito(di, df)
+        "barra.agente.graph.criar_chat_deepseek",
+        lambda settings, **_kw: _FakeChatLoopInfinito(di, df),
     )
 
     graph = build_graph()

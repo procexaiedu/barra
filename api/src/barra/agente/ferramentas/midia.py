@@ -61,12 +61,22 @@ async def enviar_midia(
     modelo_id = runtime.context.modelo_id
     turno_id = runtime.context.turno_id
 
-    async with pool.connection() as conn:
+    # `conn.transaction()` explicito: o pool do worker e autocommit=True (core/db.py), entao sem ele
+    # cada execute commitaria sozinho e o lock de linha da SELECT (abaixo) soltaria antes do INSERT.
+    # A transacao segura o lock da selecao ate `_executar_idempotente` gravar — serializa duas
+    # chamadas concorrentes da mesma tag. O `_executar_idempotente` abre `conn.transaction()` aninhado
+    # (vira SAVEPOINT), inalterado.
+    async with pool.connection() as conn, conn.transaction():
         ja_no_turno = await _midias_do_turno(conn, turno_id)
 
         # NULLS FIRST coloca midia nunca enviada no topo (preferencia por novidade);
         # `created_at` desempata. `NOT (id = ANY(...))` exclui midias ja anexadas neste turno
         # — duas chamadas da mesma tag no MESMO turno entregam fotos diferentes.
+        # `FOR UPDATE SKIP LOCKED`: duas `enviar_midia` da MESMA tag no mesmo turno rodam em paralelo
+        # (asyncio.gather do ToolNode `_afunc`) e, sem lock, AMBAS leem `ja_no_turno` vazio e escolhem
+        # a MESMA foto (TOCTOU) -> cliente recebe a foto repetida. O lock de linha serializa: a 1a
+        # trava sua foto, a 2a PULA a travada (SKIP LOCKED) e pega a proxima distinta. Esgotou (so
+        # fotos travadas / nenhuma sobrando) -> None, mesmo caminho de "indisponivel".
         res = await conn.execute(
             """
             SELECT id, object_key
@@ -75,6 +85,7 @@ async def enviar_midia(
                AND NOT (id = ANY(%s::uuid[]))
              ORDER BY ultimo_envio_em NULLS FIRST, created_at
              LIMIT 1
+             FOR UPDATE SKIP LOCKED
             """,
             (modelo_id, tag, tipo, ja_no_turno),
         )

@@ -65,45 +65,36 @@ class Settings(BaseSettings):
                     data[campo] = Path(caminho).read_text(encoding="utf-8").strip()
         return data
 
-    llm_chat_provider: Literal["openrouter", "anthropic", "deepseek"] = "deepseek"
     llm_vision_provider: Literal["openrouter"] = "openrouter"
     llm_audio_provider: Literal["openrouter"] = "openrouter"
     openrouter_api_key: str | None = None
-    openrouter_model_chat: str | None = None
-    # Chat #1 DIRETO na API DeepSeek (api.deepseek.com), quando llm_chat_provider=deepseek. Preferido
-    # em escala: garante o cache automatico de prefixo (so o endpoint oficial cacheia; o prefixo
-    # global byte-identico fica quente -> 98% mais barato no hit) E crava modelo/quant (sem roleta de
-    # FP4 do load-balance OpenRouter). `deepseek-v4-flash` = id atual do V4 Flash (os aliases legados
+    # Os 3 caminhos de TEXTO do agente (chat #1, extracao forcada #2 e judge de AUP #3) rodam SEMPRE
+    # no DeepSeek V4 Flash DIRETO (api.deepseek.com) — sem alternativa de provider. Preferido em
+    # escala: garante o cache automatico de prefixo (so o endpoint oficial cacheia; o prefixo global
+    # byte-identico fica quente -> 98% mais barato no hit) E crava modelo/quant (sem roleta de FP4 do
+    # load-balance OpenRouter). `deepseek-v4-flash` = id atual do V4 Flash (os aliases legados
     # `deepseek-chat`/`deepseek-reasoner` saem em 2026-07-24 15:59 UTC). O id cru tem thinking LIGADO
     # por default (doc oficial: "the thinking toggle defaults to enabled") -> criar_chat_deepseek
     # passa `extra_body={"thinking": {"type": "disabled"}}` p/ travar non-thinking (preserva
-    # structured output #2/#3 e a temperature 1.3 do chat #1).
+    # structured output #2/#3 e a temperature 1.3 do chat #1). Vision (Pix OCR) e audio (STT) seguem
+    # no OpenRouter/OpenAI — o DeepSeek nao faz imagem/audio.
     deepseek_api_key: str | None = None
     deepseek_model_chat: str = "deepseek-v4-flash"
-    # Temperatura do chat #1 (qualquer provider que sirva o chat: deepseek-direct ou openrouter).
-    # Recomendacao oficial DeepSeek p/ chat/traducao ~1.3 (vs ~1.0 default). So e honrada em modo
-    # non-thinking (direct: extra_body thinking:disabled; no OpenRouter exige reasoning OFF, que _criar_chat_principal
-    # seta). Escopo: SO o chat #1 — extracao (#2) e judge (#3) chamam sem temperatura (determinismo).
+    # Temperatura do chat #1 (DeepSeek V4 Flash direct). Recomendacao oficial DeepSeek p/ chat/traducao
+    # ~1.3 (vs ~1.0 default). So e honrada em modo non-thinking (a factory trava thinking:disabled via
+    # extra_body). Escopo: SO o chat #1 — extracao (#2) e judge (#3) chamam sem temperatura (determinismo).
     chat_temperature: float = Field(
         default=1.3,
         ge=0.0,
         description="Temperatura do chat #1 (DeepSeek V4 Flash). 1.3 = recomendacao oficial DeepSeek p/ chat; so vale non-thinking.",
     )
-    # Piso de quantizacao do roteamento OpenRouter (provider.quantizations). O deepseek-v4-flash e
-    # servido em FP4 (Wafer/DeepInfra), FP8 (~8 provedores) e Unknown por ~18 endpoints; sem piso o
-    # load-balance pode cair num FP4 que degrada voz/structured output de forma imprevisivel (e fura
-    # o cache, que e por-provedor). ["fp8"] = piso de qualidade COM disponibilidade (8 provedores).
-    # Aplicado aos 3 caminhos V4 Flash (chat #1, extracao #2, judge #3). [] reabre tudo (kill-switch).
-    openrouter_quantizations: list[str] = Field(
-        default_factory=lambda: ["fp8"],
-        description="Niveis de quantizacao aceitos no roteamento OpenRouter do V4 Flash. ['fp8'] = piso de qualidade; [] = sem restricao.",
-    )
     openrouter_model_vision_pix: str | None = None
     # TODO(M5-final): aposentar (sabatina 2026-05-23 §1.3 — STT migrou para OpenAI direto).
     openrouter_model_audio_transcribe: str | None = None
+    # Anthropic sobrevive APENAS para o LLM-judge dos evals (EVAL-02; api/evals/) e o preaquecimento
+    # dormente — os 3 caminhos de texto do agente ao vivo (chat/extracao/judge de AUP) sao DeepSeek-only.
     anthropic_api_key: str | None = None
     anthropic_modelo_principal: str = "claude-sonnet-4-6"
-    anthropic_model_chat: str | None = None
     # Modelo do LLM-judge dos evals (EVAL-02). None -> usa o `anthropic_modelo_principal`, i.e. o
     # MESMO modelo do agente sob teste -> vies de auto-concordancia (self-preference). Apontar p/
     # um modelo diferente (ex. "claude-opus-4-8") mitiga: pesos distintos reduzem o vies. Cross-
@@ -117,22 +108,34 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model_audio_transcribe: str = "whisper-1"
 
-    # Chat Anthropic (grilling 2026-05-23; docs/agente/03 §6.1): TTL de cache por bloco +
-    # parâmetros do ChatAnthropic. cache_ttl_geral (BP1/BP2) não pode ser mais curto que
+    # TTL de cache por bloco da infra de cache_control Anthropic (DORMENTE sob DeepSeek; ver
+    # cache_control_anthropic abaixo): cache_ttl_geral (BP1/BP2) não pode ser mais curto que
     # cache_ttl_modelo (BP3) — a Anthropic exige o TTL mais longo antes do mais curto (03 §1/§5).
     cache_ttl_geral: str = "1h"
     cache_ttl_modelo: str = "1h"
+    # thinking/effort: parametros do ChatAnthropic (so o preaquecimento dormente e os evals usam).
     anthropic_thinking: Literal["enabled", "disabled"] = "disabled"
     anthropic_effort: Literal["low", "medium", "high"] = "low"
+    # Teto de tokens da resposta — compartilhado por TODAS as factories de chat (DeepSeek, e o
+    # Anthropic dormente). Guard-rail (~1024): tom e tamanho vem da persona, nao deste limite.
     anthropic_max_tokens: int = 1024
+    # Infra de cache_control da Anthropic (BP_TOOLS/GERAL/MODELO/JANELA + preaquecimento): DORMENTE
+    # no P0 porque o chat e DeepSeek-direct (cacheia o prefixo automaticamente, sem cache_control
+    # ephemeral — que ate quebraria o roteamento OpenAI-compativel). Mantida ligavel (default False)
+    # p/ um eventual A/B de chat Anthropic e exercitada pelos guard-rails de prefixo
+    # (test_prepare_context). Consumido pelo no llm (bind de tools), prepare_context (system/
+    # BP_MODELO/BP_JANELA) e pelo preaquecimento do worker.
+    cache_control_anthropic: bool = False
 
     # Fonte unica do alvo de custo por turno (CUSTO-06). Antes o numero estava duplicado em
     # comentarios/help de core/metrics.py, agente/nos/llm.py e _custo.py; agora todos apontam
-    # para este campo.
+    # para este campo. Recalibrado p/ DeepSeek V4 Flash direto (com cache automatico): o turno custa
+    # ~R$0,005-0,01; 0,03 da folga p/ turnos cold-cache (extracao+judge releem o prefixo) sem ruido,
+    # ~4x mais apertado que o alvo antigo do Sonnet (0,12).
     custo_alvo_brl: float = Field(
-        default=0.12,
+        default=0.03,
         gt=0.0,
-        description="Alvo de custo estimado por turno do agente em BRL (Sonnet 4.6 com cache; 03 §4.2).",
+        description="Alvo de custo estimado por turno do agente em BRL (DeepSeek V4 Flash com cache; 03 §4.2).",
     )
 
     # Cotacao USD->BRL p/ a metrica AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta em settings.custo_alvo_brl).
@@ -140,7 +143,7 @@ class Settings(BaseSettings):
     usd_brl_cotacao: float = Field(
         default=5.50,
         gt=0.0,
-        description="Cotacao USD->BRL usada p/ converter o custo estimado do turno (Sonnet 4.6).",
+        description="Cotacao USD->BRL usada p/ converter o custo estimado do turno do agente.",
     )
 
     # Strict mode em tools (doc oficial Anthropic `strict-tool-use`): grammar-constrained
@@ -164,32 +167,24 @@ class Settings(BaseSettings):
         default=True,
         description="Fallback deterministico (#2): quando o LLM encerra o turno sem chamar registrar_extracao, forca 1 chamada (tool_choice) antes de fechar o turno, garantindo que a FSM nao defase. Custa 1 request extra so nos turnos onde o modelo esqueceu. False = comportamento dependente da boa vontade do LLM (kill-switch sem deploy).",
     )
-    # Reducao de custo (Langfuse 06-2026: ~half das geracoes Sonnet sao a extracao forcada, cada
-    # uma relendo ~14,7k tokens de prefixo a 0.1x). A extracao e nota interna estruturada — nao
-    # precisa da persona/regras/FAQ nem da voz do Sonnet. Quando ON, a chamada FORCADA de
-    # registrar_extracao roteia p/ `extracao_modelo` (Haiku) com prompt minimo (janela sem o
-    # SystemMessage geral), em vez do Sonnet com o prefixo inteiro. NAO afeta o caminho normal
-    # (quando o LLM extrai sozinho no loop). Default OFF: virar p/ True exige validar paridade da
-    # FSM via `make evals` antes (a extracao alimenta transicoes no caminho do dinheiro).
+    # Reducao de custo: a extracao forcada e nota interna estruturada — nao precisa da persona/regras/
+    # FAQ. Quando ON, a chamada FORCADA de registrar_extracao roteia p/ uma janela MINIMA (sem o
+    # SystemMessage geral), em vez do prefixo inteiro; sempre no DeepSeek V4 Flash direto (igual ao
+    # chat). NAO afeta o caminho normal (quando o LLM extrai sozinho no loop). thinking travado em
+    # disabled (extra_body) nao corrompe o structured output da extracao (tool_choice).
     extracao_no_modelo_barato: bool = Field(
         default=True,
-        description="Roteia a chamada FORCADA de registrar_extracao p/ extracao_modelo (barato) com prompt minimo, em vez do Sonnet com prefixo inteiro. Default ON (Haiku) — kill-switch: setar False reverte ao Sonnet. Paridade de FSM via `make evals` ainda nao validada ao vivo (gasta credito).",
+        description="Roteia a chamada FORCADA de registrar_extracao p/ uma janela minima (sem o prefixo geral), em vez do prefixo inteiro. Sempre DeepSeek V4 Flash. False = usa o prefixo inteiro (kill-switch sem deploy).",
     )
-    extracao_modelo: str = Field(
-        default="claude-haiku-4-5",
-        description="Modelo da extracao forcada barata quando extracao_no_modelo_barato=True. Haiku 4.5 (~1/3 do custo do Sonnet); classificacao estruturada, nao a voz da IA. Haiku NAO aceita `effort` -> chat criado com com_effort=False.",
-    )
-    # Provider da extracao forcada (#2). `deepseek` (default) -> deepseek_model_chat via
-    # criar_chat_deepseek (api.deepseek.com direto); `anthropic` -> extracao_modelo (Haiku) via
-    # ChatAnthropic; `openrouter` -> openrouter_model_extracao via ChatOpenAI (base_url OpenRouter).
-    # Toggle dedicado (nao reusa llm_chat_provider, que e semantico da #1) -> kill-switch por-chamada
-    # sem deploy. DeepSeek-direct: ~30x mais barato que Haiku E cacheia o prefixo (system minimo +
-    # janela) automaticamente; thinking travado em disabled (extra_body) nao corrompe o structured output da
-    # extracao (tool_choice).
-    extracao_provider: Literal["anthropic", "openrouter", "deepseek"] = "deepseek"
-    openrouter_model_extracao: str | None = Field(
-        default=None,
-        description="Id OpenRouter da extracao forcada quando extracao_provider=openrouter. Exige tool-calling forcado confiavel no schema de registrar_extracao (12+ campos nullable).",
+    # Auto-reoferta (#1/#2 follow-up): quando a extracao (forcada/inline) erra RECUPERAVEL
+    # (ConflitoAgenda etc.) ao criar o bloqueio previo, a IA reoferta UM horario alternativo em vez
+    # de fechar o turno MUDO. Volta ao proprio no llm (one-shot via _reoferta_tentada) p/ o modelo
+    # ver o erro no ToolMessage e reofertar; se a reoferta tambem errar, fecha mudo. Default OFF:
+    # muda o nó mais critico e precisa de validacao no simulador/ao vivo (gasta credito) antes de ON.
+    # Kill-switch sem deploy. False = comportamento atual (mute em erro recuperavel pos-extracao).
+    reoferta_automatica_habilitada: bool = Field(
+        default=False,
+        description="Liga a auto-reoferta de horario quando a extracao erra recuperavel (ConflitoAgenda) ao reservar o slot, em vez de fechar o turno mudo. Volta ao no llm (one-shot) p/ o modelo reofertar. Default OFF — exige validacao no simulador/ao vivo antes de ligar (gasta credito; muda o no mais critico).",
     )
     # Output-guard de saida antes da bolha (AGENTE-OG / ADR 0016).
     output_guard_habilitado: bool = Field(
@@ -200,20 +195,10 @@ class Settings(BaseSettings):
         default=True,
         description="Liga a Etapa 2 (LLM-judge de AUP vinculante) do output_guard. False roda so a Etapa 1 (scan deterministico barato), util se o judge nao-calibrado causar over-refusal. Falha de infra do judge -> default seguro (bloqueia+escala), nunca configuravel p/ passar.",
     )
-    output_guard_modelo: str = Field(
-        default="claude-haiku-4-5",
-        description="Modelo do LLM-judge de AUP (Etapa 2). E classificacao binaria (viola/nao), nao a voz da IA -> roda em Haiku 4.5 (1/3 do custo do Sonnet) sem afetar a conversa. Prompt curto (~580 tok < minimo de cache 4096) entao nao ha cache a perder. Haiku NAO aceita `effort` -> o chat e criado com com_effort=False (senao 400). Voltar p/ claude-sonnet-4-6 se o Haiku regredir a precisao do guard.",
-    )
-    # Provider do judge de AUP (#3). `deepseek` (default) -> deepseek_model_chat via
-    # criar_chat_deepseek (cacheia o prefixo aup_saida.md, o mesmo system antes de CADA bolha);
-    # `anthropic` -> output_guard_modelo (Haiku) via ChatAnthropic; `openrouter` ->
-    # openrouter_model_judge via ChatOpenAI. E CAMINHO DE SEGURANCA (ADR 0016): o default-seguro do
-    # _julgar_aup continua valendo em qualquer veredito inconclusivo (refusal/truncado/parse).
-    output_guard_provider: Literal["anthropic", "openrouter", "deepseek"] = "deepseek"
-    openrouter_model_judge: str | None = Field(
-        default=None,
-        description="Id OpenRouter do judge de AUP quando output_guard_provider=openrouter. Classificacao binaria com structured output; exige nao recusar conteudo adulto legitimo (senao over-refusal pelo default-seguro).",
-    )
+    # O LLM-judge de AUP (#3, Etapa 2) roda SEMPRE no DeepSeek V4 Flash direto (criar_chat_deepseek):
+    # cacheia o prefixo aup_saida.md (o mesmo system antes de CADA bolha) e crava modelo/quant. E
+    # classificacao binaria (viola/nao), nao a voz da IA. CAMINHO DE SEGURANCA (ADR 0016): o
+    # default-seguro do _julgar_aup vale em qualquer veredito inconclusivo (refusal/truncado/parse).
     # Rede final de saida no enviar_turno (SEC-OUT-01/SEC-PII-02): cobre tambem os caminhos
     # canned/reengajamento que pulam o no output_guard do grafo.
     envio_guard_habilitado: bool = Field(
@@ -310,6 +295,15 @@ class Settings(BaseSettings):
         ge=1,
         description="Janela (dias) de conversas do agente que o sensor de fluxo agrega a cada corrida.",
     )
+    baixo_score_ativo: bool = Field(
+        default=False,
+        description="Liga o coletor diário de turnos reprovados ('ruim' no painel /observabilidade) para um dataset de regressão no Langfuse. Observacional: só lê avaliacoes_resposta_ia e escreve dataset, nunca toca o agente ao vivo. Começa OFF; ligue via BAIXO_SCORE_ATIVO=true.",
+    )
+    baixo_score_janela_dias: int = Field(
+        default=7,
+        ge=1,
+        description="Janela (dias, por avaliado_em) de turnos reprovados que o coletor de baixo score agrega a cada corrida.",
+    )
     pix_deslocamento_valor: Decimal = Field(
         default=Decimal("100.00"),
         description="Valor esperado do Pix de deslocamento, em BRL (06 §2.2/§0 item 6). Comparação é `valor >= esperado`: underpay → em_revisao; valor maior é aceito como validado.",
@@ -395,33 +389,14 @@ class Settings(BaseSettings):
 
     sentry_dsn: str | None = None
 
-    @property
-    def cache_control_anthropic(self) -> bool:
-        """True quando o chat #1 roda em Anthropic — único caso em que o `cache_control` ephemeral
-        vale. No OpenRouter/DeepSeek ele quebraria o roteamento e é inútil (cache automático do
-        provider). Fonte única do predicado: consumido pelo nó llm (bind de tools), pelo
-        prepare_context (system/BP_MODELO/BP_JANELA) e pelo preaquecimento do worker."""
-        return self.llm_chat_provider == "anthropic"
-
     @model_validator(mode="after")
     def _validar_providers_llm(self) -> "Settings":
-        """Falha cedo (no boot) quando uma chamada aponta p/ OpenRouter sem o id do modelo/chave, ou
-        p/ DeepSeek-direct sem a chave — em vez de estourar 500 no meio do turno. Cobre #1 (chat),
-        #2 (extracao) e #3 (judge)."""
-        alvos = [
-            ("llm_chat_provider", "openrouter_model_chat", self.openrouter_model_chat),
-            ("extracao_provider", "openrouter_model_extracao", self.openrouter_model_extracao),
-            ("output_guard_provider", "openrouter_model_judge", self.openrouter_model_judge),
-        ]
-        for campo_provider, campo_modelo, valor_modelo in alvos:
-            if getattr(self, campo_provider) == "openrouter":
-                if not valor_modelo:
-                    raise ValueError(f"{campo_provider}=openrouter exige {campo_modelo} setado")
-                if not self.openrouter_api_key:
-                    raise ValueError(f"{campo_provider}=openrouter exige openrouter_api_key setado")
-        for campo_provider in ("llm_chat_provider", "extracao_provider", "output_guard_provider"):
-            if getattr(self, campo_provider) == "deepseek" and not self.deepseek_api_key:
-                raise ValueError(f"{campo_provider}=deepseek exige deepseek_api_key setado")
+        """Falha cedo (no boot) quando o DeepSeek-direct (chat #1, extracao #2, judge #3 — todos
+        DeepSeek-only) nao tem a chave, em vez de estourar 500 no meio do turno."""
+        if not self.deepseek_api_key:
+            raise ValueError(
+                "os caminhos de texto do agente sao DeepSeek-only e exigem deepseek_api_key setado"
+            )
         return self
 
 

@@ -110,7 +110,8 @@ export function MapaToolbar({
           }}
         />
         <div className="flex items-center gap-2">
-          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+          <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+            <span className="h-2.5 w-0.5 rounded-full bg-gold-500/70" aria-hidden />
             Modelo
           </span>
           <FiltroModelo value={modeloIds} onChange={onModeloChange} />

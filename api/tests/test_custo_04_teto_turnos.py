@@ -91,7 +91,7 @@ class _GrafoQueFalha:
 
 
 class _FakeSettings:
-    anthropic_modelo_principal = "claude-test"
+    deepseek_model_chat = "deepseek-test"
     usd_brl_cotacao = 5.5  # lido pelo acumulo de custo do turno (passo 5a')
 
 
@@ -170,6 +170,49 @@ async def test_motivo_teto_turnos_mapeia_bucket_capacidade() -> None:
     assert kwargs["responsavel"] == "Fernando"
     assert kwargs["observacao"] == "teto_turnos"
     mock_metric.labels.assert_called_once_with("capacidade", "teto_turnos")
+
+
+@pytest.mark.parametrize(
+    ("motivo", "fragmento"),
+    [
+        ("exaustao_iteracoes", "recursion_limit"),
+        ("timeout_grafo", "60s"),
+        ("teto_turnos", "teto de"),
+        ("modelo_indisponivel", "indisponivel"),
+        ("modelo_recusou", "recusou"),
+        ("modelo_truncado", "truncou"),
+    ],
+)
+async def test_resumo_operacional_reflete_o_motivo(motivo: str, fragmento: str) -> None:
+    """bughunt: o resumo do handoff dizia 'estourou recursion_limit ou excedeu 60s' para TODO
+    motivo -- mentindo p/ teto_turnos / modelo_indisponivel / modelo_recusou / modelo_truncado, que
+    nada tem a ver com recursion/timeout. Agora cada motivo descreve a propria causa; recursion/60s
+    nao vazam onde nao se aplicam."""
+    with (
+        patch("barra.dominio.escaladas.service.abrir_handoff", new=AsyncMock()) as mock_handoff,
+        patch("barra.workers.coordenador.AGENTE_ESCALADA"),
+    ):
+        await escalar_por_exaustao(_FakePool(), _ATEND_ID, "turno-x", motivo=motivo)
+
+    resumo = mock_handoff.await_args.kwargs["resumo_operacional"]
+    assert fragmento in resumo
+    if motivo != "exaustao_iteracoes":
+        assert "recursion_limit" not in resumo  # nao mente recursion p/ outros motivos
+    if motivo != "timeout_grafo":
+        assert "60s" not in resumo  # nao mente timeout p/ outros motivos
+
+
+async def test_resumo_operacional_motivo_desconhecido_usa_fallback() -> None:
+    """Motivo novo nao mapeado -> fallback generico, sem crashar nem mentir recursion/timeout."""
+    with (
+        patch("barra.dominio.escaladas.service.abrir_handoff", new=AsyncMock()) as mock_handoff,
+        patch("barra.workers.coordenador.AGENTE_ESCALADA"),
+    ):
+        await escalar_por_exaustao(_FakePool(), _ATEND_ID, "turno-x", motivo="motivo_novo")
+
+    resumo = mock_handoff.await_args.kwargs["resumo_operacional"]
+    assert "motivo_novo" in resumo
+    assert "recursion_limit" not in resumo
 
 
 # --- (c) retry-safety: turno que falha nao conta para o teto ----------------------------------

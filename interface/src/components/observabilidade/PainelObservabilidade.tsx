@@ -23,7 +23,7 @@ export function PainelObservabilidade() {
   return (
     <>
       <section aria-label="Respostas do agente" className="flex flex-col gap-3">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
             {(["prod", "e2e"] as const).map((o) => (
               <button
@@ -32,9 +32,9 @@ export function PainelObservabilidade() {
                 onClick={() => setOrigem(o)}
                 aria-pressed={origem === o}
                 className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
+                  "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   origem === o
-                    ? "bg-accent text-text-brand"
+                    ? "[background-image:var(--gradient-gold-soft)] text-text-brand"
                     : "text-text-muted hover:text-text-primary",
                 )}
               >
@@ -47,16 +47,16 @@ export function PainelObservabilidade() {
             onClick={() => setApenasNaoAvaliadas((v) => !v)}
             aria-pressed={apenasNaoAvaliadas}
             className={cn(
-              "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-150",
+              "rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               apenasNaoAvaliadas
-                ? "border-border-brand bg-accent text-text-brand"
+                ? "border-border-brand [background-image:var(--gradient-gold-soft)] text-text-brand"
                 : "border-border text-text-muted hover:text-text-primary",
             )}
           >
             Só não avaliadas
           </button>
           {status === "success" && (
-            <span className="ml-auto text-xs font-medium tabular-nums text-text-muted">
+            <span className="ml-auto font-mono text-xs font-medium tabular-nums text-text-muted">
               {items.length} {items.length === 1 ? "resposta" : "respostas"}
             </span>
           )}

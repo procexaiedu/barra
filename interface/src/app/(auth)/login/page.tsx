@@ -47,17 +47,22 @@ export default function Login() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <div className="flex w-full max-w-[400px] flex-col gap-8">
-        <div className="flex flex-col items-center gap-2 text-center">
+    <main className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background px-4 py-10">
+      {/* Halo de ouro — o "momento de entrada" do produto de luxo, contido. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 [background:radial-gradient(48%_38%_at_50%_26%,color-mix(in_oklab,var(--gold-500)_14%,transparent),transparent_68%)]"
+      />
+      <div className="relative flex w-full max-w-[400px] flex-col gap-8">
+        <div className="flex flex-col items-center gap-2.5 text-center">
           <span className="h-1 w-10 rounded-full bg-gold-500" aria-hidden />
-          <h1 className="font-serif text-[40px] font-medium leading-none tracking-[-0.01em] text-gold-500">
+          <h1 className="text-aurum font-serif text-[42px] font-medium leading-none tracking-[-0.01em]">
             Elite Baby
           </h1>
           <p className="text-[13px] text-text-muted">Acesso à central inteligente.</p>
         </div>
 
-        <Card>
+        <Card className="rise-in">
           <CardHeader>
             <CardTitle>Entrar</CardTitle>
             <CardDescription>

@@ -138,7 +138,7 @@ export function CardDestaque({
         tabIndex={0}
         onClick={handleCardClick}
         onKeyDown={handleCardKeyDown}
-        className={cn("group cursor-pointer rounded-lg border-l-4 bg-card p-5 ring-1 ring-foreground/10 transition-colors hover:bg-surface-hover hover:ring-border-brand/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none", badge.borderClass, flashing && "tile-update-flash")}
+        className={cn("group cursor-pointer rounded-lg border-l-4 bg-card p-5 ring-1 ring-border-subtle shadow-elev-1 transition-all hover:-translate-y-px hover:bg-surface-hover hover:shadow-elev-2 hover:ring-border-brand/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none", badge.borderClass, flashing && "tile-update-flash")}
       >
         <div className="flex items-center gap-2.5">
           <Badge variant={badge.variant}>{badge.label}</Badge>

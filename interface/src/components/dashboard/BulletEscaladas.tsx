@@ -89,7 +89,7 @@ export function BulletEscaladas({ contagem, nReferencia, onClick }: Props) {
       <div
         role="img"
         aria-label={`Escalada em ${PCT_FMT.format(pct)}% — classificação ${classificacao}`}
-        className="relative h-7 w-full overflow-hidden rounded-md ring-1 ring-foreground/10"
+        className="relative h-7 w-full overflow-hidden rounded-md ring-1 ring-border-subtle"
       >
         <div
           className="absolute inset-y-0 left-0"
@@ -157,7 +157,7 @@ export function BulletEscaladas({ contagem, nReferencia, onClick }: Props) {
   )
 
   const baseClass =
-    "flex flex-col gap-3 rounded-lg bg-card p-6 ring-1 ring-foreground/10 text-left"
+    "flex flex-col gap-3 rounded-lg bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle text-left"
 
   if (interativo) {
     return (
@@ -174,7 +174,7 @@ export function BulletEscaladas({ contagem, nReferencia, onClick }: Props) {
         aria-label="Atendimentos escalados — abrir lista detalhada"
         className={cn(
           baseClass,
-          "cursor-pointer transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          "cursor-pointer transition-all hover:-translate-y-px hover:shadow-elev-2 hover:ring-border-brand/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         )}
       >
         {conteudo}

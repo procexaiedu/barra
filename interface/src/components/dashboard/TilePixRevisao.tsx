@@ -23,7 +23,7 @@ export function TilePixRevisao({ total }: Props) {
     <section
       aria-label="Pix em revisão pendentes"
       className={cn(
-        "flex items-center justify-between gap-4 rounded-lg bg-card p-6 ring-1 ring-foreground/10",
+        "flex items-center justify-between gap-4 rounded-lg bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle",
         !semPendentes && "border-l-3 border-l-warn-500"
       )}
     >

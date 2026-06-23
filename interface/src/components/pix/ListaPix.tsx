@@ -32,7 +32,7 @@ export function ListaPix({
 }) {
   return (
     <section aria-label="Lista de Pix" className="min-w-0">
-      <div className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
+      <div className="overflow-hidden rounded-lg bg-card shadow-elev-1 ring-1 ring-border-subtle">
         {status === "loading" ? (
           <div aria-busy="true" className="flex flex-col gap-px">
             {Array.from({ length: 8 }).map((_, index) => (

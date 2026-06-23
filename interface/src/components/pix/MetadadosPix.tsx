@@ -18,14 +18,19 @@ export function MetadadosPix({ pix }: { pix: PixDetalhe }) {
   return (
     <section
       aria-label="Dados do comprovante"
-      className="rounded-lg bg-card p-3 ring-1 ring-foreground/10"
+      className="rounded-lg bg-card p-3 shadow-elev-1 ring-1 ring-border-subtle"
     >
-      <h3 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
         Dados do comprovante
       </h3>
       <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[180px_1fr]">
         <Linha label="Valor">
-          {valor ?? <NaoExtraido />}
+          {valor ? (
+            <span className="font-mono tabular-nums text-text-primary">{valor}</span>
+          ) : (
+            <NaoExtraido />
+          )}
         </Linha>
         <Linha label="Data e hora">
           {horario ?? <NaoExtraido />}

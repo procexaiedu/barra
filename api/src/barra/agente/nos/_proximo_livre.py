@@ -34,16 +34,26 @@ def proximo_livre(
 ) -> datetime | None:
     """Próximo horário reservável após `fim`, ou None se não couber na Disponibilidade.
 
-    `cand` = `fim` + buffer, arredondado pra cima na meia-hora. Se cair dentro de um bloqueio
-    seguinte, pula pra depois dele (some o buffer de novo) — cobre cadeias consecutivas. Só
-    retorna se o início cair numa janela de Disponibilidade (sem regra = sempre disponível).
+    `cand` = `fim` + buffer, arredondado pra cima na meia-hora. Pula um bloqueio seguinte se `cand`
+    cair DENTRO dele OU dentro do buffer ANTES dele (ADR 0025: gap >= buffer dos dois lados — a
+    adjacência `fim == inicio`, e tudo a menos de um buffer, não é reservável); some o buffer e
+    re-arredonda, cobrindo cadeias consecutivas. Só retorna se o início cair numa janela de
+    Disponibilidade (sem regra = sempre disponível).
+
+    É camada de conversa: oferece o início respeitando o buffer dos dois lados, como a reserva
+    exige (`existe_vizinho_no_buffer`, ADR 0025). A reserva re-valida na criação (sobreposição +
+    buffer + a duração efetiva, que este pré-cálculo não conhece).
     """
-    cand = _arredonda_meia_hora_acima(fim + timedelta(minutes=buffer_min))
+    buffer = timedelta(minutes=buffer_min)
+    cand = _arredonda_meia_hora_acima(fim + buffer)
     for _ in range(len(blocos) + 1):
-        conflito = next((b for b in blocos if b["inicio"] <= cand < b["fim"]), None)
+        # Conflita se `cand` cai DENTRO do bloco ou no buffer ANTES dele (gap < buffer). O `>`
+        # estrito deixa a adjacência de gap == buffer reservável (espelha `i2 < new.fim + buffer`
+        # do gate da reserva, ADR 0025).
+        conflito = next((b for b in blocos if b["inicio"] - buffer < cand < b["fim"]), None)
         if conflito is None:
             break
-        cand = _arredonda_meia_hora_acima(conflito["fim"] + timedelta(minutes=buffer_min))
+        cand = _arredonda_meia_hora_acima(conflito["fim"] + buffer)
     else:
         return None
     if not regras_cobrem(regras_disp, cand):

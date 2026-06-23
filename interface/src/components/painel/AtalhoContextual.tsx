@@ -77,7 +77,7 @@ export function AtalhoContextual({
 
   return (
     <section aria-label="Atalhos" className="px-8 py-6">
-      <div className="mb-6 border-t border-border" />
+      <div className="rule-aurum mb-6" />
       <div className="flex flex-wrap gap-3">
         {visibleAtalhos.map((atalho) => {
           const Icon = atalho.icon

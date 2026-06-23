@@ -133,7 +133,7 @@ function PresetBotao({
       className={cn(
         "rounded-md border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         ativo
-          ? "border-primary bg-primary/10 text-text-primary"
+          ? "border-gold-500/60 bg-gold-500/10 text-text-primary"
           : "border-border bg-muted text-text-secondary hover:border-border-strong hover:text-text-primary"
       )}
     >

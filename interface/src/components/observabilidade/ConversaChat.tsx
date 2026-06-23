@@ -21,16 +21,16 @@ export function ConversaChat({
   const completa = total > 0 && avaliadas === total
 
   return (
-    <Card className="overflow-hidden p-0">
-      <div className="flex items-center justify-between border-b border-border bg-muted/30 px-4 py-2.5">
+    <Card className="overflow-hidden p-0 shadow-elev-1 ring-1 ring-border-subtle transition-all">
+      <div className="flex items-center justify-between border-b border-border bg-surface px-4 py-2.5">
         <p className="text-[13px] text-text-secondary">
           <span className="font-medium text-text-primary">{modeloNome}</span>
           <span className="text-text-muted"> · {clienteLabel}</span>
         </p>
         <span
           className={cn(
-            "rounded-full px-2 py-0.5 text-[11px]",
-            completa ? "bg-emerald-500/15 text-emerald-600" : "bg-muted text-text-muted",
+            "font-mono rounded-full px-2 py-0.5 text-[11px] tabular-nums",
+            completa ? "bg-success-500/15 text-success-500" : "bg-muted text-text-muted",
           )}
         >
           {avaliadas}/{total} avaliadas
@@ -51,7 +51,8 @@ export function ConversaChat({
           if (m.tipo === "atendimento") {
             return (
               <div key={i} className="flex justify-center py-0.5">
-                <span className="rounded-full bg-muted/60 px-3 py-1 text-[11px] text-text-muted">
+                <span className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-muted/60 px-3 py-1 text-[11px] text-text-muted">
+                  <span className="h-1.5 w-1.5 rounded-full bg-gold-500/60" aria-hidden />
                   Atendimento #{m.numeroCurto}
                 </span>
               </div>

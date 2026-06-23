@@ -106,20 +106,23 @@ function SecaoCatalogo({
   const grupos = agrupar(programas)
 
   return (
-    <section className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
+    <section className="overflow-hidden rounded-lg bg-card shadow-elev-1 ring-1 ring-border-subtle">
       <header className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold text-text-primary">Programas</h2>
-          <p className="text-xs text-text-muted">
+          <h2 className="flex items-center gap-2.5 text-sm font-semibold text-text-primary">
+            <span className="h-3.5 w-1 rounded-full bg-gold-500" aria-hidden />
+            Programas
+          </h2>
+          <p className="pl-[14px] text-xs text-text-muted">
             Catálogo Elite Baby. Também é possível criar serviços direto no perfil de cada modelo.
           </p>
         </div>
-        <span className="text-xs text-text-muted">{programas.length}</span>
+        <span className="font-mono tabular-nums text-xs text-text-muted">{programas.length}</span>
       </header>
 
       {programas.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-text-muted">
-          Nenhum programa cadastrado.
+          Nenhum programa cadastrado ainda.
         </p>
       ) : (
         <div className="divide-y divide-border">
@@ -291,20 +294,23 @@ function SecaoDuracoes({
   }
 
   return (
-    <section className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
+    <section className="overflow-hidden rounded-lg bg-card shadow-elev-1 ring-1 ring-border-subtle">
       <header className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3">
         <div>
-          <h2 className="text-sm font-semibold text-text-primary">Durações</h2>
-          <p className="text-xs text-text-muted">
+          <h2 className="flex items-center gap-2.5 text-sm font-semibold text-text-primary">
+            <span className="h-3.5 w-1 rounded-full bg-gold-500" aria-hidden />
+            Durações
+          </h2>
+          <p className="pl-[14px] text-xs text-text-muted">
             Catálogo de durações. Também é possível criar durações direto no perfil.
           </p>
         </div>
-        <span className="text-xs text-text-muted">{duracoes.length}</span>
+        <span className="font-mono tabular-nums text-xs text-text-muted">{duracoes.length}</span>
       </header>
 
       {duracoes.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-text-muted">
-          Nenhuma duração cadastrada.
+          Nenhuma duração cadastrada ainda.
         </p>
       ) : (
         <ul className="divide-y divide-border">

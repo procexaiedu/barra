@@ -45,6 +45,11 @@ export function TarefasHojeWidget() {
         <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
           <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
           Tarefas de hoje
+          {pendentes.length > 0 && (
+            <span className="font-mono text-xs tabular-nums text-text-muted">
+              {pendentes.length}
+            </span>
+          )}
         </h2>
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="sm" onClick={abrirCriar}>
@@ -83,8 +88,9 @@ export function TarefasHojeWidget() {
               key={t.id}
               type="button"
               onClick={() => abrirEditar(t)}
+              style={{ animationDelay: `${Math.min(i, 8) * 30}ms`, animationFillMode: "backwards" }}
               className={cn(
-                "flex items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                "flex items-center gap-3 px-4 py-3 text-left transition-colors animate-in fade-in-0 slide-in-from-bottom-1 hover:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                 i > 0 && "border-t border-border-subtle",
               )}
             >

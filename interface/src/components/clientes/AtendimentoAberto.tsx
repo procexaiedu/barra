@@ -21,13 +21,14 @@ export function AtendimentoAberto({ atendimento }: { atendimento: AtendimentoAbe
       aria-label="Atendimento aberto"
       className={
         ativo
-          ? "rounded-lg border border-border border-l-3 border-l-state-handoff bg-card p-5"
-          : "rounded-lg border border-border bg-card p-5"
+          ? "rounded-lg border border-border border-l-3 border-l-state-handoff bg-card p-5 shadow-elev-1 ring-1 ring-border-subtle"
+          : "rounded-lg border border-border bg-card p-5 shadow-elev-1 ring-1 ring-border-subtle"
       }
     >
-      <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+      <h2 className="mb-3 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
         Atendimento aberto
-      </p>
+      </h2>
       {atendimento === null ? (
         <p className="text-[13px] text-text-muted">Sem atendimento aberto nesta conversa.</p>
       ) : (

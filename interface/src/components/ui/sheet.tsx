@@ -56,7 +56,7 @@ function SheetContent({
       <DialogPrimitive.Popup
         data-slot="sheet-content"
         className={cn(
-          "fixed z-50 flex flex-col bg-card shadow-xl",
+          "fixed z-50 flex flex-col bg-card shadow-elev-3",
           "duration-200 data-open:animate-in data-closed:animate-out",
           sheetSides[side],
           className

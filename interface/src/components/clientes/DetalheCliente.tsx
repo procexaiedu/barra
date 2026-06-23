@@ -73,8 +73,8 @@ export function DetalheCliente({
 
   return (
     <section aria-label="Detalhe do cliente" className="min-w-0 flex flex-col overflow-hidden">
-      <div className="flex-1 min-h-0 overflow-y-auto scroll-thin flex flex-col gap-4 pr-1">
-        <header className="rounded-lg border border-border bg-card px-5 py-4">
+      <div className="flex-1 min-h-0 overflow-y-auto scroll-thin flex flex-col gap-4 pr-1 rise-in">
+        <header className="rounded-lg border border-border bg-card px-5 py-4 shadow-elev-1 ring-1 ring-border-subtle">
           <div className="flex items-start justify-between gap-4">
             <div className="flex min-w-0 items-center gap-2">
               {detalhe.conversa.recorrente && <Badge variant="paused">Recorrente</Badge>}
@@ -190,7 +190,7 @@ function SemHistorico({
   return (
     <section
       aria-label="Detalhe do cliente"
-      className="flex flex-col gap-3 rounded-lg border border-border bg-card p-6"
+      className="flex flex-col gap-3 rounded-lg border border-border bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle"
     >
       <div className="flex items-center gap-2">
         {arquivado && <Badge variant="paused">Arquivado</Badge>}
@@ -224,7 +224,7 @@ function EmptyDetalhe() {
   return (
     <section
       aria-label="Detalhe do cliente"
-      className="flex h-full min-h-[320px] items-center justify-center rounded-lg border border-border bg-card p-6"
+      className="flex h-full min-h-[320px] items-center justify-center rounded-lg border border-border bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle"
     >
       <div className="flex flex-col items-center gap-3 text-center">
         <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">

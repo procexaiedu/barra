@@ -83,14 +83,14 @@ function ResumoModelosFechamentos({ itens }: { itens: ItemFechamento[] }) {
   ).sort((a, b) => b.bruto - a.bruto)
 
   return (
-    <div className="mb-3 rounded-md bg-muted px-3 py-2">
+    <div className="mb-3 rounded-md bg-muted px-3 py-2 ring-1 ring-border-subtle">
       <p className="mb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">Por modelo</p>
       <div className="flex flex-col gap-1">
         {por_modelo.map((m) => (
           <div key={m.nome} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 text-[13px]">
             <span className="truncate text-text-primary">{m.nome}</span>
-            <span className="font-mono text-xs text-text-muted">{formatBRL(m.bruto)}</span>
-            <span className="font-mono text-xs text-success-500">{formatBRL(m.lucro)}</span>
+            <span className="font-mono text-xs tabular-nums text-text-muted">{formatBRL(m.bruto)}</span>
+            <span className="font-mono text-xs tabular-nums text-success-500">{formatBRL(m.lucro)}</span>
           </div>
         ))}
       </div>
@@ -125,11 +125,11 @@ function ListaFechamentos({
                   : <span className="ml-1 text-text-muted">#{item.numero_curto}</span>}
               </span>
               {mostrarLucro && (
-                <span className="font-mono text-xs text-text-muted line-through">
+                <span className="font-mono text-xs tabular-nums text-text-muted line-through">
                   {item.valor_final != null ? formatBRL(item.valor_final) : "—"}
                 </span>
               )}
-              <span className="font-mono text-xs text-text-primary">
+              <span className="font-mono text-xs tabular-nums text-text-primary">
                 {mostrarLucro
                   ? (item.lucro != null ? formatBRL(item.lucro) : "—")
                   : (item.valor_final != null ? formatBRL(item.valor_final) : "—")}
@@ -349,7 +349,7 @@ export default function PainelGeral() {
           </h2>
           {data.cards_destaque.length > 0 && (
             <div className="flex items-center gap-3">
-              <span className="text-xs font-medium tabular-nums text-text-muted">
+              <span className="font-mono text-xs font-medium tabular-nums text-text-muted">
                 {data.cards_destaque.length} aguardando ação
               </span>
               <button
@@ -432,7 +432,7 @@ export default function PainelGeral() {
                     onClick={() => setPaginaCards((p) => p - 1)}>
                     ← Anterior
                   </Button>
-                  <span className="text-xs tabular-nums text-text-muted">
+                  <span className="font-mono text-xs tabular-nums text-text-muted">
                     {paginaCards + 1} / {totalPaginas}
                   </span>
                   <Button variant="ghost" size="sm" disabled={paginaCards >= totalPaginas - 1}

@@ -173,7 +173,7 @@ export function ModalReatribuir({
         </DialogHeader>
 
         <DialogBody>
-        <div className="mt-5 space-y-3 rounded-md bg-muted px-4 py-3 text-sm">
+        <div className="mt-5 space-y-3 rounded-md bg-muted px-4 py-3 text-sm ring-1 ring-border-subtle">
           <div className="flex justify-between gap-3">
             <span className="text-text-muted">Cliente atual</span>
             <span className="text-right text-text-primary">

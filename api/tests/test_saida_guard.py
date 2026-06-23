@@ -5,12 +5,28 @@ chave Pix da modelo (CPF/telefone que NÃO veio do cliente) nunca é mascarada �
 quebraria o Pix de deslocamento quando a humanização (M4) anexar a chave.
 """
 
+import random
+
 from barra.workers._saida_guard import (
     extrair_tokens_pii,
     normalizar_emoji_voz,
     redigir_pii_eco,
     tem_marcador_ia,
 )
+
+
+class _Rng:
+    """rng de teste p/ a trava de frequência: .random() devolve sempre `v` (0.0 mantém, 1.0 remove)."""
+
+    def __init__(self, v: float) -> None:
+        self._v = v
+
+    def random(self) -> float:
+        return self._v
+
+
+_KEEP = _Rng(0.0)  # 0.0 >= keep nunca True → mantém (isola o teste de whitelist/máx-1/seca)
+_DROP = _Rng(1.0)  # 1.0 >= keep sempre True → remove
 
 
 def test_extrai_cpf_e_telefone_ignora_numero_curto() -> None:
@@ -91,14 +107,14 @@ def test_marcador_ia_detecta_admissao() -> None:
 def test_emoji_remove_fora_do_whitelist_mantem_permitido() -> None:
     """Glyph fora de {🥰,😊} cai (girassol idiossincrático, fogo, coração); o permitido fica."""
     assert normalizar_emoji_voz(["Bom dia 🌻"]) == ["Bom dia"]
-    assert normalizar_emoji_voz(["Oii amor 🥰"]) == ["Oii amor 🥰"]
-    assert normalizar_emoji_voz(["tudo bem? 😊"]) == ["tudo bem? 😊"]
+    assert normalizar_emoji_voz(["Oii amor 🥰"], rng=_KEEP) == ["Oii amor 🥰"]
+    assert normalizar_emoji_voz(["tudo bem? 😊"], rng=_KEEP) == ["tudo bem? 😊"]
     assert normalizar_emoji_voz(["que delícia 🔥❤"]) == ["que delícia"]
 
 
 def test_emoji_maximo_um_por_bolha_mantem_o_ultimo() -> None:
     """Rajada vira 1 (o corpus usa emoji como sufixo único)."""
-    assert normalizar_emoji_voz(["ai amor 🥰🥰🥰"]) == ["ai amor 🥰"]
+    assert normalizar_emoji_voz(["ai amor 🥰🥰🥰"], rng=_KEEP) == ["ai amor 🥰"]
 
 
 def test_emoji_secado_na_cotacao_e_logistica() -> None:
@@ -108,7 +124,7 @@ def test_emoji_secado_na_cotacao_e_logistica() -> None:
 
 
 def test_emoji_mantido_na_saudacao() -> None:
-    assert normalizar_emoji_voz(["Boa tarde amor 🥰"]) == ["Boa tarde amor 🥰"]
+    assert normalizar_emoji_voz(["Boa tarde amor 🥰"], rng=_KEEP) == ["Boa tarde amor 🥰"]
 
 
 def test_emoji_bolha_sem_emoji_intacta() -> None:
@@ -117,5 +133,34 @@ def test_emoji_bolha_sem_emoji_intacta() -> None:
 
 def test_emoji_descarta_bolha_que_virou_vazia() -> None:
     """Bolha que era só um glyph fora do whitelist some; o turno não vai vazio."""
-    assert normalizar_emoji_voz(["uma gracinha 🥰", "🌻"]) == ["uma gracinha 🥰"]
+    assert normalizar_emoji_voz(["uma gracinha 🥰", "🌻"], rng=_KEEP) == ["uma gracinha 🥰"]
     assert normalizar_emoji_voz(["🌻"]) == ["🌻"]  # esvaziaria tudo → devolve original
+
+
+# --- trava de frequência de emoji (atos não-secos): calibrada ao corpus humano ---------
+
+
+def test_emoji_trava_frequencia_remove_quando_sorteio_falha() -> None:
+    """Ato não-seco: com o sorteio em 'remove', o emoji whitelistado cai (a trava de frequência)."""
+    assert normalizar_emoji_voz(["Boa tarde amor 🥰"], rng=_DROP) == ["Boa tarde amor"]
+    assert normalizar_emoji_voz(["uma gracinha 🥰"], rng=_DROP) == ["uma gracinha"]
+
+
+def test_emoji_trava_nao_afeta_atos_secos() -> None:
+    """Ato seco já zera por _ATOS_SECOS, independe do sorteio (mesmo com rng em 'mantém')."""
+    assert normalizar_emoji_voz(["800 1h no meu local 🥰"], rng=_KEEP) == ["800 1h no meu local"]
+
+
+def test_emoji_frequencia_converge_para_alvo_do_corpus() -> None:
+    """Em agregado, a fração de bolhas que mantêm emoji ≈ keep-alvo por ato (saudação 0.57, outro
+    0.34) — a trava traz a frequência do agente à do corpus humano."""
+    rng = random.Random(20260622)
+    n = 4000
+    saud = sum(
+        normalizar_emoji_voz(["Boa noite amor 🥰"], rng=rng)[0].endswith("🥰") for _ in range(n)
+    )
+    outro = sum(
+        normalizar_emoji_voz(["que delícia amor 🥰"], rng=rng)[0].endswith("🥰") for _ in range(n)
+    )
+    assert 0.52 < saud / n < 0.62  # keep-alvo 0.57
+    assert 0.29 < outro / n < 0.39  # keep-alvo 0.34

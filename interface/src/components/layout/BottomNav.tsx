@@ -22,15 +22,17 @@ export function BottomNav() {
 
   const itemClass = (ativo: boolean) =>
     cn(
-      "flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
+      "relative flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
       "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
-      ativo ? "text-text-brand" : "text-text-secondary"
+      ativo
+        ? "text-text-brand before:absolute before:top-0 before:h-[2px] before:w-9 before:rounded-b-full before:bg-gold-500 before:content-['']"
+        : "text-text-secondary"
     )
 
   return (
     <nav
       aria-label="Navegação principal (mobile)"
-      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background pb-[env(safe-area-inset-bottom)] lg:hidden"
+      className="fixed inset-x-0 bottom-0 z-40 flex border-t border-border bg-background/95 backdrop-blur-sm pb-[env(safe-area-inset-bottom)] shadow-[0_-4px_16px_-6px_rgb(20_20_20/0.16)] dark:shadow-[0_-4px_18px_-4px_rgb(0_0_0/0.6)] lg:hidden"
     >
       {destinosPrincipais.map((item) => {
         const Icon = item.icon

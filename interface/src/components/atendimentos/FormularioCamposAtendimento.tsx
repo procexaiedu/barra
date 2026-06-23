@@ -501,11 +501,11 @@ export const FormularioCamposAtendimento = forwardRef<
                 onClick={() =>
                   setAdicionados((prev) => prev.filter((_, j) => j !== i))
                 }
-                className="text-text-muted transition-colors hover:text-text-primary"
+                className="text-text-muted transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 disabled={disabled}
                 aria-label={`Remover ${a.label}`}
               >
-                <X size={14} />
+                <X size={14} aria-hidden />
               </button>
             </div>
           ))}
@@ -561,7 +561,7 @@ export const FormularioCamposAtendimento = forwardRef<
   if (variant === "stack") {
     return (
       <div className="flex flex-col gap-3">
-        <div className="flex flex-col divide-y divide-border rounded-lg bg-card ring-1 ring-foreground/10">
+        <div className="flex flex-col divide-y divide-border rounded-lg bg-card shadow-elev-1 ring-1 ring-border-subtle">
           {colunaAtendimento}
           {colunaLocal}
           {colunaPagamento}

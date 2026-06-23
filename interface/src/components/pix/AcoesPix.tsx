@@ -282,7 +282,8 @@ export function AcoesPix({
           <div className="grid flex-1 grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-x-8 gap-y-4 px-8 py-6">
             {/* Coluna esquerda: motivos */}
             <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-text-muted">
+              <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-text-muted">
+                <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
                 Motivo da rejeição
               </p>
               <div className="mt-3 grid grid-cols-1 gap-1.5">
@@ -295,7 +296,7 @@ export function AcoesPix({
                       setErro(null)
                     }}
                     className={cn(
-                      "flex items-center justify-between rounded-md border px-3.5 py-2.5 text-left text-sm transition-colors",
+                      "flex items-center justify-between rounded-md border px-3.5 py-2.5 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                       motivo === o.value
                         ? "border-danger-500/70 bg-danger-500/10 text-text-primary"
                         : "border-border bg-muted text-text-secondary hover:border-border-strong hover:text-text-primary",
@@ -423,7 +424,7 @@ function HeroBlock({
   children: React.ReactNode
 }) {
   return (
-    <div className="min-w-0 rounded-md bg-muted px-3.5 py-2.5">
+    <div className="min-w-0 rounded-md bg-muted px-3.5 py-2.5 ring-1 ring-border-subtle">
       <p className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
         {label}
       </p>

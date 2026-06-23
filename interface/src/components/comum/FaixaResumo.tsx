@@ -38,7 +38,7 @@ export function FaixaResumo({
   const temDetalhe = Boolean(children)
 
   return (
-    <div className="rounded-lg bg-card ring-1 ring-foreground/10">
+    <div className="rounded-lg bg-card shadow-elev-1 ring-1 ring-border-subtle">
       <button
         type="button"
         onClick={() => temDetalhe && setAberto((v) => !v)}
@@ -46,7 +46,7 @@ export function FaixaResumo({
         className={cn(
           "flex w-full flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 text-left",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-          temDetalhe ? "cursor-pointer transition-colors hover:bg-accent" : "cursor-default"
+          temDetalhe ? "cursor-pointer transition-colors hover:bg-surface-hover" : "cursor-default"
         )}
       >
         <span className="flex items-center gap-2 text-xs font-medium uppercase tracking-[0.08em] text-text-muted">
@@ -82,7 +82,7 @@ export function FaixaResumo({
       </button>
 
       {aberto && temDetalhe ? (
-        <div className="border-t border-border/60 px-4 py-3">{children}</div>
+        <div className="border-t border-border-subtle px-4 py-3">{children}</div>
       ) : null}
     </div>
   )
@@ -92,7 +92,7 @@ export function SkeletonFaixaResumo() {
   return (
     <div
       aria-busy="true"
-      className="h-[46px] animate-pulse rounded-lg bg-card ring-1 ring-foreground/10"
+      className="h-[46px] animate-pulse rounded-lg bg-card ring-1 ring-border-subtle"
     />
   )
 }

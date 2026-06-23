@@ -11,6 +11,16 @@ cenarios AUP-criticos do adversarial dataset (10 §7.4). Afinar com esse dataset
 
 import random
 
+
+def _sortear(pool: list[str], seed: str | None) -> str:
+    """Sorteia uma frase do pool. Com `seed` (o turno_id) o sorteio e DETERMINISTICO por turno: no
+    replay do job ARQ (mesmo turno_id) a MESMA frase sai -- senao o texto despachado ao cliente
+    divergiria do auditado/re-enviado (o contador de disclosure ja e idempotente cross-retry; o
+    TEXTO precisa ser tambem). `random.Random(None)` semeia da entropia do SO == sorteio normal,
+    entao sem seed o comportamento e o de antes."""
+    return random.Random(seed).choice(pool)  # noqa: S311 -- sorteio de copy, nao cripto
+
+
 # Negacao ativa de IA, em personagem (decisao do dev 2026-06-12 + 03 §11). Variar o pool evita
 # o tell de resposta fixa quando o cliente insiste. Indice 0 e' o default mais neutro (coberto
 # pelo guard de saida em test_output_guard).
@@ -33,12 +43,11 @@ TRANSCRICAO_FALHOU_CANNED = [
 ]
 
 
-def escolher_negacao() -> str:
-    """Sorteia uma negacao do pool (10 §3.1).
-
-    Sorteio simples (nao-cripto); dedupe da ultima usada na conversa fica para o P1.
+def escolher_negacao(seed: str | None = None) -> str:
+    """Sorteia uma negacao do pool (10 §3.1). `seed`=turno_id torna o sorteio deterministico no
+    replay do job (ver `_sortear`). Dedupe da ultima usada na conversa fica para o P1.
     """
-    return random.choice(NEGACOES_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto
+    return _sortear(NEGACOES_CANNED, seed)
 
 
 # Reengajamento proativo (07 §4.5): toque unico ao cliente que sumiu apos a cotacao, SEM
@@ -55,6 +64,7 @@ def escolher_reengajamento() -> str:
     return random.choice(REENGAJAMENTO_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto
 
 
-def escolher_canned_transcricao_falhou() -> str:
-    """Sorteia uma frase do pool de fallback de transcricao (06 §1.4)."""
-    return random.choice(TRANSCRICAO_FALHOU_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto
+def escolher_canned_transcricao_falhou(seed: str | None = None) -> str:
+    """Sorteia uma frase do pool de fallback de transcricao (06 §1.4). `seed`=turno_id p/ replay
+    determinístico (ver `_sortear`)."""
+    return _sortear(TRANSCRICAO_FALHOU_CANNED, seed)

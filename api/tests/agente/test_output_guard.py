@@ -350,26 +350,22 @@ def _judge_resultado(
 async def test_julgar_aup_refusal_levanta_inseguro(monkeypatch: Any) -> None:
     # judge recusou (stop_reason=refusal) -> sem veredito confiavel -> _JudgeInseguro.
     res = _judge_resultado("refusal", parsed=None)
-    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
+    monkeypatch.setattr("barra.core.llm.criar_chat_deepseek", lambda s, **kw: _FakeJudgeChat(res))
     with pytest.raises(mod._JudgeInseguro):
         await mod._julgar_aup(
             "texto qualquer",
-            SimpleNamespace(
-                output_guard_provider="anthropic", output_guard_modelo="claude-haiku-4-5"
-            ),
+            SimpleNamespace(deepseek_model_chat="deepseek-v4-flash"),
         )
 
 
 async def test_julgar_aup_parse_error_levanta_inseguro(monkeypatch: Any) -> None:
     # parse falhou (parsing_error nao-None), mesmo com stop_reason normal -> _JudgeInseguro.
     res = _judge_resultado("tool_use", parsed=None, parsing_error=ValueError("schema"))
-    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
+    monkeypatch.setattr("barra.core.llm.criar_chat_deepseek", lambda s, **kw: _FakeJudgeChat(res))
     with pytest.raises(mod._JudgeInseguro):
         await mod._julgar_aup(
             "texto qualquer",
-            SimpleNamespace(
-                output_guard_provider="anthropic", output_guard_modelo="claude-haiku-4-5"
-            ),
+            SimpleNamespace(deepseek_model_chat="deepseek-v4-flash"),
         )
 
 
@@ -377,10 +373,10 @@ async def test_julgar_aup_ok_retorna_veredito(monkeypatch: Any) -> None:
     # caminho feliz: stop_reason=tool_use + parsed valido -> devolve o veredito.
     veredito = mod._VeredictoAup(viola=False, motivo="nenhum")
     res = _judge_resultado("tool_use", parsed=veredito)
-    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
+    monkeypatch.setattr("barra.core.llm.criar_chat_deepseek", lambda s, **kw: _FakeJudgeChat(res))
     out = await mod._julgar_aup(
         "texto qualquer",
-        SimpleNamespace(output_guard_provider="anthropic", output_guard_modelo="claude-haiku-4-5"),
+        SimpleNamespace(deepseek_model_chat="deepseek-v4-flash"),
     )
     assert out.viola is False
 
@@ -390,56 +386,65 @@ async def test_so03_judge_refusal_no_guard_default_seguro_bloqueia(monkeypatch: 
     cap = _Capturador()
     monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     res = _judge_resultado("refusal", parsed=None)
-    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
+    monkeypatch.setattr("barra.core.llm.criar_chat_deepseek", lambda s, **kw: _FakeJudgeChat(res))
     out = await mod.output_guard(_state("texto limpo mas o judge recusa"), _runtime())  # type: ignore[arg-type]
     assert _bloqueou(out)
     assert cap.chamadas[0]["observacao"] == "aup_saida_judge_falhou"
 
 
-def _settings_judge_openrouter() -> SimpleNamespace:
-    return SimpleNamespace(
-        output_guard_provider="openrouter",
-        openrouter_model_judge="vendor/modelo",
-        output_guard_modelo="claude-haiku-4-5",
-        openrouter_quantizations=["fp8"],
+async def test_julgar_aup_instrumenta_tokens_do_judge(monkeypatch: Any) -> None:
+    """custo do judge (bughunt): o LLM-judge queima tokens a cada bolha. Agora a resposta crua e
+    instrumentada em AGENTE_TURNO_TOKENS sob o label do PROPRIO modelo do judge (nao polui o
+    write-rate do chat #1). Mede o DELTA na serie input do modelo do judge."""
+    from prometheus_client import REGISTRY
+
+    def _tokens(modelo: str, tipo: str) -> float:
+        return (
+            REGISTRY.get_sample_value("agente_turno_tokens_total", {"modelo": modelo, "tipo": tipo})
+            or 0.0
+        )
+
+    veredito = mod._VeredictoAup(viola=False, motivo="nenhum")
+    raw = AIMessage(
+        content="",
+        response_metadata={"finish_reason": "stop"},
+        usage_metadata={"input_tokens": 100, "output_tokens": 20, "total_tokens": 120},
     )
+    res = {"raw": raw, "parsed": veredito, "parsing_error": None}
+    monkeypatch.setattr("barra.core.llm.criar_chat_deepseek", lambda s, **kw: _FakeJudgeChat(res))
+    settings = SimpleNamespace(
+        deepseek_api_key="sk-test",
+        deepseek_model_chat="deepseek-v4-flash",
+    )
+    antes = _tokens("deepseek-v4-flash", "input")
+    out = await mod._julgar_aup("texto qualquer", settings)
+    assert out.viola is False
+    assert _tokens("deepseek-v4-flash", "input") == antes + 100  # tokens do judge contabilizados
 
 
-async def test_julgar_aup_openrouter_content_filter_levanta_inseguro(monkeypatch: Any) -> None:
-    # Provider OpenRouter: o motivo de parada vem como finish_reason; content_filter (recusa do
-    # provider) -> sem veredito confiavel -> _JudgeInseguro (default seguro do caller). Caminho de
-    # SEGURANCA: um modelo que modera conteudo adulto NAO pode liberar a bolha por engano.
-    res = _judge_resultado("content_filter", parsed=None, chave="finish_reason")
-    monkeypatch.setattr(
-        "barra.core.llm.criar_chat_openrouter",
-        lambda s, *, modelo, **kwargs: _FakeJudgeChat(res),
+async def test_julgar_aup_instrumenta_mesmo_inseguro(monkeypatch: Any) -> None:
+    """O judge gastou tokens mesmo quando o veredito vem inseguro (refusal) -> instrumenta ANTES de
+    levantar _JudgeInseguro (custo nao some so porque o veredito foi descartado)."""
+    from prometheus_client import REGISTRY
+
+    def _tokens(modelo: str, tipo: str) -> float:
+        return (
+            REGISTRY.get_sample_value("agente_turno_tokens_total", {"modelo": modelo, "tipo": tipo})
+            or 0.0
+        )
+
+    raw = AIMessage(
+        content="",
+        response_metadata={"stop_reason": "refusal"},
+        usage_metadata={"input_tokens": 50, "output_tokens": 0, "total_tokens": 50},
     )
+    res = {"raw": raw, "parsed": None, "parsing_error": None}
+    monkeypatch.setattr("barra.core.llm.criar_chat_deepseek", lambda s, **kw: _FakeJudgeChat(res))
+    settings = SimpleNamespace(deepseek_model_chat="deepseek-v4-flash")
+    antes = _tokens("deepseek-v4-flash", "input")
     with pytest.raises(mod._JudgeInseguro):
-        await mod._julgar_aup("texto qualquer", _settings_judge_openrouter())
-
-
-async def test_julgar_aup_openrouter_length_levanta_inseguro(monkeypatch: Any) -> None:
-    # finish_reason=length (truncamento OpenAI) tambem invalida o veredito -> _JudgeInseguro.
-    res = _judge_resultado("length", parsed=None, chave="finish_reason")
-    monkeypatch.setattr(
-        "barra.core.llm.criar_chat_openrouter",
-        lambda s, *, modelo, **kwargs: _FakeJudgeChat(res),
-    )
-    with pytest.raises(mod._JudgeInseguro):
-        await mod._julgar_aup("texto qualquer", _settings_judge_openrouter())
-
-
-async def test_julgar_aup_openrouter_ok_retorna_veredito(monkeypatch: Any) -> None:
-    # finish_reason=stop + parsed valido -> devolve o veredito (prova que a rota OpenRouter le
-    # finish_reason e aceita parada normal).
-    veredito = mod._VeredictoAup(viola=True, motivo="ia_self")
-    res = _judge_resultado("stop", parsed=veredito, chave="finish_reason")
-    monkeypatch.setattr(
-        "barra.core.llm.criar_chat_openrouter",
-        lambda s, *, modelo, **kwargs: _FakeJudgeChat(res),
-    )
-    out = await mod._julgar_aup("texto qualquer", _settings_judge_openrouter())
-    assert out.viola is True
+        await mod._julgar_aup("texto", settings)
+    assert _tokens("deepseek-v4-flash", "input") == antes + 50  # instrumentou antes de levantar
 
 
 async def test_julgar_aup_deepseek_direct_ok_retorna_veredito(monkeypatch: Any) -> None:
@@ -451,7 +456,6 @@ async def test_julgar_aup_deepseek_direct_ok_retorna_veredito(monkeypatch: Any) 
         "barra.core.llm.criar_chat_deepseek", lambda s, **kwargs: _FakeJudgeChat(res)
     )
     settings = SimpleNamespace(
-        output_guard_provider="deepseek",
         deepseek_api_key="sk-test",
         deepseek_model_chat="deepseek-v4-flash",
     )
@@ -499,6 +503,32 @@ async def test_a3_vazamento_na_primeira_passagem_react_bloqueia_e_zera_o_turno(
     assert {m.id for m in msgs} == {"a1", "a2"}
     assert all(m.content == "" for m in msgs)
     assert cap.chamadas[0]["observacao"].startswith("output_leak_outro_cliente")
+
+
+async def test_bloqueio_preserva_usage_e_response_metadata_para_custo(monkeypatch: Any) -> None:
+    """#4 (bughunt): ao barrar, o guard zera o `content` MAS preserva usage_metadata e
+    response_metadata. O reducer troca a AIMessage pelo id, e o coordenador le `resultado["messages"]`
+    p/ acumular o custo do turno (`custo_chat_turno_brl` filtra por usage_metadata != None) e
+    precificar pela tabela do modelo (response_metadata.model_name). Sem isso, um turno BARRADO que
+    queimou tokens entrava no custo como ZERO. A bolha segue vazia -> nada e despachado."""
+    from barra.agente._custo import custo_chat_turno_brl
+
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    bolha = AIMessage(
+        content="na verdade sou uma IA, me desculpa amor",
+        id="a1",
+        usage_metadata={"input_tokens": 1000, "output_tokens": 200, "total_tokens": 1200},
+        response_metadata={"model_name": "claude-sonnet-4-6"},
+    )
+    state = {"messages": [HumanMessage(content="oi", id="h1"), bolha]}
+    res = await mod.output_guard(state, _runtime())  # type: ignore[arg-type]
+    assert _bloqueou(res)  # barrou + content vazio (nenhuma bolha sai)
+    blank = (res.update or {})["messages"][0]
+    assert blank.content == ""
+    assert blank.usage_metadata == bolha.usage_metadata  # usage preservado
+    assert blank.response_metadata.get("model_name") == "claude-sonnet-4-6"  # modelo preservado
+    assert custo_chat_turno_brl([blank], 5.0) > 0  # o custo do turno barrado agora e contabilizado
 
 
 async def test_a3_aimessage_historica_nao_aciona_o_guard(monkeypatch: Any) -> None:

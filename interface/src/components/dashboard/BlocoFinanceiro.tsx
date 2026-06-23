@@ -39,7 +39,7 @@ function LinhaWaterfall({
   const interativo = Boolean(onClick)
   const baseClass = "grid grid-cols-[140px_1fr_140px] items-center gap-3 rounded-md px-2 py-2"
   const interactiveClass = interativo
-    ? "cursor-pointer transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
+    ? "cursor-pointer transition-colors hover:bg-surface-hover focus-visible:bg-surface-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     : ""
   return (
     <div
@@ -132,7 +132,7 @@ export function BlocoFinanceiro({
         ariaLabel="Abrir lista de fechamentos com faturamento líquido do período"
       />
 
-      <div className="flex flex-col gap-1 rounded-lg bg-card p-4 ring-1 ring-foreground/10">
+      <div className="flex flex-col gap-1 rounded-lg bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
         <h3 className="px-2 pb-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
           Decomposição do bruto
         </h3>

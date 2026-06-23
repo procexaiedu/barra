@@ -103,7 +103,7 @@ export function DadosCliente({
   return (
     <div
       aria-label="Dados do cliente"
-      className="rounded-lg border border-border bg-card"
+      className="rounded-lg border border-border bg-card shadow-elev-1 ring-1 ring-border-subtle"
     >
       {(onEditarCliente || podeArquivar) && (
         <div className="flex items-center justify-between gap-2 border-b border-border px-5 py-3">
@@ -146,7 +146,7 @@ export function DadosCliente({
           </div>
         </div>
       )}
-      <div className="grid grid-cols-4 divide-x divide-border">
+      <div className="grid grid-cols-2 divide-x divide-border sm:grid-cols-4">
         <Metrica label="Fechados" icon={CheckCircle2}>
           <span className="font-mono text-2xl font-semibold leading-none tabular-nums text-text-primary">
             {fechados.length > 0 ? fechados.length : "—"}
@@ -171,12 +171,13 @@ export function DadosCliente({
 
       <div className="border-t border-border">
         <div className="px-5 pt-3 pb-1">
-          <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+          <h2 className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+            <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
             Perfil do cliente
-          </span>
+          </h2>
         </div>
         <div className="divide-y divide-border">
-          <div className="grid grid-cols-3 divide-x divide-border">
+          <div className="grid grid-cols-1 divide-x divide-border sm:grid-cols-3">
             <Metrica label="Último fechamento" icon={Clock}>
               {ultimoFechamentoEm ? (
                 <span className="text-sm text-text-primary">
@@ -204,7 +205,7 @@ export function DadosCliente({
               </span>
             </Metrica>
           </div>
-          <div className="grid grid-cols-3 divide-x divide-border">
+          <div className="grid grid-cols-1 divide-x divide-border sm:grid-cols-3">
             <Metrica label="Programa preferido" icon={Package}>
               <span className="text-sm text-text-primary">
                 {cliente.programa_preferido?.nome ?? "—"}
@@ -287,9 +288,10 @@ function PerfilFisicoSecao({
   return (
     <div className="border-t border-border">
       <div className="px-5 pt-3 pb-1">
-        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        <h2 className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+          <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
           Perfil físico
-        </span>
+        </h2>
       </div>
       <div className="grid grid-cols-2 divide-x divide-border">
         <div className="flex flex-col gap-2 px-5 py-4">

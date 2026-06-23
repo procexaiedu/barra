@@ -44,9 +44,10 @@ export function LinhaTempoPix({ eventos }: { eventos: EventoPix[] }) {
   return (
     <section
       aria-label="Histórico do Pix"
-      className="rounded-lg bg-card ring-1 ring-foreground/10"
+      className="rounded-lg bg-card shadow-elev-1 ring-1 ring-border-subtle"
     >
-      <h3 className="px-3 pt-3 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <h3 className="flex items-center gap-2 px-3 pt-3 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
         Histórico
       </h3>
       {eventos.length === 0 ? (
@@ -80,7 +81,7 @@ export function LinhaTempoPix({ eventos }: { eventos: EventoPix[] }) {
                         {visual.label}
                       </p>
                       <span className="text-xs text-text-muted">· {autorEventoLabel(evt.autor)}</span>
-                      <span className="ml-auto text-xs text-text-muted">
+                      <span className="ml-auto font-mono text-xs tabular-nums text-text-muted">
                         {formatDataHora(evt.created_at)}
                       </span>
                     </div>

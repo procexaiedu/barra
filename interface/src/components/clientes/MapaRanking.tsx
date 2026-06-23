@@ -75,12 +75,13 @@ export function MapaRanking({
     <aside
       aria-label="Bairros que mais aparecem no mapa"
       className={cn(
-        "flex h-full w-[240px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card",
+        "flex h-full w-[240px] shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-card shadow-elev-1 ring-1 ring-border-subtle",
         className
       )}
     >
       <div className="border-b border-border px-3 py-2">
-        <div className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-secondary">
+        <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-[0.08em] text-text-secondary">
+          <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
           Top <span className="font-mono tabular-nums">{TOP_N}</span> bairros
         </div>
         <div className="text-[11px] text-text-muted">ordenado por {rotulo}</div>
@@ -97,7 +98,7 @@ export function MapaRanking({
                 type="button"
                 onClick={() => onSelectBairro(item.chave)}
                 className={cn(
-                  "flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "flex w-full items-center gap-2 px-3 py-2 text-left text-[12px] transition-colors hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                 )}
               >
                 <span className="w-5 shrink-0 font-mono tabular-nums text-text-muted">

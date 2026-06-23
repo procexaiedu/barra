@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
 from barra.agente.ferramentas.extracao import registrar_extracao
 from barra.agente.nos.llm import no_llm
@@ -268,3 +268,222 @@ async def test_texto_mais_tool_de_leitura_nao_curto_circuita() -> None:
 
     assert cmd.goto == "tools"
     assert "_resposta_inline_concluida" not in cmd.update  # nao curto-circuita
+
+
+def _tool_erro(tool_call_id: str = "ex1") -> ToolMessage:
+    """ToolMessage de erro recuperavel (ConflitoAgenda -> ToolException -> status=error)."""
+    return ToolMessage(
+        content=(
+            "ERRO: o horário escolhido já está reservado para a modelo. "
+            "Ofereça outro horário ao cliente."
+        ),
+        tool_call_id=tool_call_id,
+        status="error",
+    )
+
+
+async def test_forcada_com_erro_recuperavel_remove_falsa_confirmacao() -> None:
+    """HIGH (bughunt #1): pos-`tools`, a extracao FORCADA errou recuperavel (ConflitoAgenda) -> a
+    transacao reverteu (sem bloqueio). O `resp` (texto que confirmou o horario, SEM tool_call) esta
+    numa msg separada do `forcado` que errou, entao extrair_texto_do_turno NAO o filtraria -> iria
+    ao cliente como FALSA CONFIRMACAO. O guard remove o rascunho stale -> turno fecha mudo."""
+    chat = _FakeChat(_texto_final(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    resp = AIMessage(
+        id="resp-1",
+        content="combinado, te espero às 22h",  # falsa confirmacao
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        tool_calls=[],
+    )
+    forcado = AIMessage(
+        id="forc-1",
+        content="",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        tool_calls=[{"name": "registrar_extracao", "args": {}, "id": "ex1", "type": "tool_call"}],
+    )
+    state = {
+        "messages": [HumanMessage(content="22h"), resp, forcado, _tool_erro("ex1")],
+        "_extracao_forcada": True,
+    }
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    assert chat.normal.chamadas == []  # NAO reinvoca (este passe nao faz auto-reoferta)
+    ids_removidos = {m.id for m in cmd.update["messages"]}
+    assert "resp-1" in ids_removidos  # falsa confirmacao removida
+    assert "forc-1" not in ids_removidos  # forcado (tem tool_call) preservado
+
+
+async def test_inline_com_erro_recuperavel_fecha_sem_remover_texto_inline() -> None:
+    """HIGH (bughunt #2): inline (texto+extracao na MESMA msg) errou recuperavel -> fecha sem
+    reinvocar; o texto inline carrega o proprio tool_call que errou, entao extrair_texto_do_turno
+    ja o filtra downstream (cliente nao recebe a falsa confirmacao). Aqui remocoes fica vazio."""
+    chat = _FakeChat(_texto_mais_extracao(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    inline = AIMessage(
+        id="inline-1",
+        content="combinado, te espero às 22h",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        tool_calls=[{"name": "registrar_extracao", "args": {}, "id": "ex1", "type": "tool_call"}],
+    )
+    state = {
+        "messages": [HumanMessage(content="22h"), inline, _tool_erro("ex1")],
+        "_resposta_inline_concluida": True,
+    }
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    assert chat.normal.chamadas == []
+    ids_removidos = {m.id for m in (cmd.update or {}).get("messages", [])}
+    assert (
+        "inline-1" not in ids_removidos
+    )  # tem tool_call -> filtrado downstream, nao removido aqui
+
+
+async def test_forcada_com_sucesso_nao_remove_texto() -> None:
+    """Regressao: extracao forcada com SUCESSO (ToolMessage status default) -> curto-circuito normal,
+    NAO remove o texto (ele e a resposta legitima do turno). Blast radius do fix = so o caso de erro."""
+    chat = _FakeChat(_texto_final(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    resp = AIMessage(
+        id="resp-1",
+        content="às 10h te serve?",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        tool_calls=[],
+    )
+    forcado = AIMessage(
+        id="forc-1",
+        content="",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        tool_calls=[{"name": "registrar_extracao", "args": {}, "id": "ex1", "type": "tool_call"}],
+    )
+    state = {
+        "messages": [
+            HumanMessage(content="10h"),
+            resp,
+            forcado,
+            ToolMessage(content="ok", tool_call_id="ex1"),
+        ],
+        "_extracao_forcada": True,
+    }
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    assert not (cmd.update or {}).get("messages")  # nada removido
+
+
+# ============================================================================
+# Auto-reoferta (#1/#2 follow-up, settings.reoferta_automatica_habilitada): em vez de fechar MUDO
+# num erro recuperavel pos-extracao, a IA reoferta um horario. One-shot via _reoferta_tentada.
+# ============================================================================
+
+
+def _resp_reoferta() -> AIMessage:
+    """Reoferta gerada na reentrada: texto client-facing, sem tool_call."""
+    return AIMessage(
+        content="ah amor, 22h não vai dar; 23h te serve?",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        response_metadata={"stop_reason": "end_turn"},
+        tool_calls=[],
+    )
+
+
+def _forcado_msg() -> AIMessage:
+    return AIMessage(
+        id="forc-1",
+        content="",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        tool_calls=[{"name": "registrar_extracao", "args": {}, "id": "ex1", "type": "tool_call"}],
+    )
+
+
+async def test_reoferta_off_forcada_erro_fecha_mudo() -> None:
+    """flag OFF (default): erro recuperavel pos-extracao fecha MUDO, sem reofertar -- comportamento
+    atual preservado (silencio > reserva fantasma)."""
+    chat = _FakeChat(_texto_final(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    resp = AIMessage(id="resp-1", content="te espero às 22h", usage_metadata=_USAGE, tool_calls=[])  # type: ignore[arg-type]
+    state = {
+        "messages": [HumanMessage(content="22h"), resp, _forcado_msg(), _tool_erro("ex1")],
+        "_extracao_forcada": True,
+    }
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"  # mute, NAO reoferta
+    assert "resp-1" in {m.id for m in cmd.update["messages"]}  # falsa confirmacao removida
+    assert chat.normal.chamadas == []  # nao reinvoca
+
+
+async def test_reoferta_on_forcada_volta_pro_llm_limpando_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """flag ON: erro recuperavel forcado -> volta ao no llm (goto=llm), limpa os guards, marca
+    _reoferta_tentada e remove o rascunho stale (falsa confirmacao). NAO reinvoca neste passe."""
+    monkeypatch.setattr(get_settings(), "reoferta_automatica_habilitada", True)
+    chat = _FakeChat(_texto_final(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    resp = AIMessage(id="resp-1", content="te espero às 22h", usage_metadata=_USAGE, tool_calls=[])  # type: ignore[arg-type]
+    state = {
+        "messages": [HumanMessage(content="22h"), resp, _forcado_msg(), _tool_erro("ex1")],
+        "_extracao_forcada": True,
+    }
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "llm"
+    assert cmd.update["_reoferta_tentada"] is True
+    assert cmd.update["_extracao_forcada"] is False
+    assert cmd.update["_resposta_inline_concluida"] is False
+    ids_removidos = {m.id for m in cmd.update["messages"]}
+    assert "resp-1" in ids_removidos  # stale removido (sai das mensagens E nao vai ao cliente)
+    assert "forc-1" not in ids_removidos  # forcado (tem tool_call) preservado p/ a re-invocacao
+    assert chat.normal.chamadas == []  # a re-invocacao acontece na REENTRADA, nao neste passe
+
+
+async def test_reoferta_reentrada_reinvoca_e_reoferta(monkeypatch: pytest.MonkeyPatch) -> None:
+    """flag ON, reentrada pos-reoferta (guards limpos, _reoferta_tentada=True, stale ja removido):
+    o fluxo normal reinvoca o modelo (com as msgs validas) e ele REOFERTA. Sem re-forcamento (a
+    extracao que errou ja conta em _extraiu_no_turno)."""
+    monkeypatch.setattr(get_settings(), "reoferta_automatica_habilitada", True)
+    chat = _FakeChat(_resp_reoferta(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    state = {
+        "messages": [HumanMessage(content="22h"), _forcado_msg(), _tool_erro("ex1")],
+        "_reoferta_tentada": True,
+    }
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    assert chat.normal.chamadas == [state["messages"]]  # reinvocou com as msgs limpas (validas)
+    assert cmd.update["messages"] == [chat.normal._resp]  # a reoferta vai ao cliente
+    assert chat.forcado.chamadas == []  # nao re-forcou (ja extraiu no turno)
+
+
+async def test_reoferta_one_shot_segundo_erro_fecha_mudo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """flag ON mas _reoferta_tentada ja True (a reoferta TAMBEM errou): NAO reoferta de novo,
+    fecha MUDO. Bounded: no maximo uma reoferta por turno."""
+    monkeypatch.setattr(get_settings(), "reoferta_automatica_habilitada", True)
+    chat = _FakeChat(_texto_final(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    inline = AIMessage(
+        id="re-1",
+        content="23h então",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        tool_calls=[{"name": "registrar_extracao", "args": {}, "id": "ex2", "type": "tool_call"}],
+    )
+    state = {
+        "messages": [HumanMessage(content="22h"), inline, _tool_erro("ex2")],
+        "_resposta_inline_concluida": True,
+        "_reoferta_tentada": True,
+    }
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"  # mute, nao reoferta de novo
+    assert chat.normal.chamadas == []
+    assert not {m.id for m in (cmd.update or {}).get("messages", [])}  # inline filtrado downstream

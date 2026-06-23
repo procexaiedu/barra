@@ -100,7 +100,7 @@ async def test_gate_de_pendencia_sem_mensagem_nova_nao_invoca_grafo(
         "redis": redis,
         "db_pool": None,
         "graph": graph,
-        "settings": type("S", (), {"anthropic_modelo_principal": "claude-test"})(),
+        "settings": type("S", (), {"deepseek_model_chat": "deepseek-test"})(),
         "job_id": "job-varredura",
         "score": 1_700_000_000_000,
     }

@@ -24,7 +24,7 @@ from typing import Any
 
 from langgraph.graph import START, StateGraph
 
-from barra.core.llm import criar_chat_anthropic, criar_chat_deepseek, criar_chat_openrouter
+from barra.core.llm import criar_chat_deepseek
 from barra.settings import Settings, get_settings
 
 from .contexto import ContextAgente
@@ -41,56 +41,23 @@ from .nos import (
 
 
 def _criar_chat_principal(settings: Settings) -> Any:
-    """Chat principal (#1) pelo provider em settings.llm_chat_provider.
+    """Chat principal (#1): ChatOpenAI DIRETO na API DeepSeek (api.deepseek.com).
 
-    `deepseek` -> ChatOpenAI DIRETO na API DeepSeek (cache automático garantido + modelo/quant
-    cravados; preferido em escala). thinking travado em disabled (extra_body), só passa `temperature`.
-    `openrouter` -> ChatOpenAI no pool OpenRouter (id em openrouter_model_chat), SEM
-    `require_parameters` (o deepseek-v4-flash dá 404 com ele, mesmo honrando tool_choice), com
-    `reasoning_off` (voz vem da persona), `temperature` e piso de `quantizations`.
-    `anthropic` (default) -> Sonnet via criar_chat_anthropic. Devolve um BaseChatModel; o nó llm só
-    usa bind_tools/ainvoke/nome_modelo, espelhados pelos wrappers.
+    DeepSeek-only (sem alternativa de provider): cache automático garantido + modelo/quant cravados.
+    thinking travado em disabled (extra_body), só passa `temperature` (1.3). Devolve um BaseChatModel;
+    o nó llm só usa bind_tools/ainvoke/nome_modelo.
     """
-    if settings.llm_chat_provider == "deepseek":
-        return criar_chat_deepseek(settings, temperature=settings.chat_temperature)
-    if settings.llm_chat_provider == "openrouter":
-        assert settings.openrouter_model_chat is not None  # garantido pelo model_validator
-        return criar_chat_openrouter(
-            settings,
-            modelo=settings.openrouter_model_chat,
-            require_parameters=False,
-            reasoning_off=True,
-            temperature=settings.chat_temperature,
-            quantizations=settings.openrouter_quantizations,
-        )
-    return criar_chat_anthropic(settings)
+    return criar_chat_deepseek(settings, temperature=settings.chat_temperature)
 
 
 def _criar_chat_extracao_barata(settings: Settings) -> Any:
-    """Chat da extracao forcada barata (#2) pelo provider em settings.extracao_provider.
+    """Chat da extracao forcada barata (#2): ChatOpenAI DIRETO na API DeepSeek (deepseek_model_chat).
 
-    `deepseek` -> ChatOpenAI DIRETO na API DeepSeek (deepseek_model_chat). thinking travado em
-    disabled (extra_body) — nao corrompe o structured output da extracao (tool_choice) e dispensa
-    reasoning_off; o cache automatico do DeepSeek barateia o prefixo curto (system minimo + janela).
-    `openrouter` -> ChatOpenAI (id em openrouter_model_extracao; settings valida que esta setado).
-    `anthropic` -> Haiku via ChatAnthropic com com_effort=False. Devolve um BaseChatModel; o no
-    llm so usa bind_tools/ainvoke/.model_name|.model, espelhados pelos dois wrappers.
+    DeepSeek-only. thinking travado em disabled (extra_body) — nao corrompe o structured output da
+    extracao (tool_choice); o cache automatico do DeepSeek barateia o prefixo curto (system minimo +
+    janela). Devolve um BaseChatModel; o no llm so usa bind_tools/ainvoke/.model.
     """
-    if settings.extracao_provider == "deepseek":
-        return criar_chat_deepseek(settings)
-    if settings.extracao_provider == "openrouter":
-        assert settings.openrouter_model_extracao is not None  # garantido pelo model_validator
-        # reasoning_off: a extracao forcada e structured output (tool_choice) — o thinking mode do
-        # DeepSeek V4 corrompe structured output (vllm#41132) alem de custar 2-5x latencia. quant:
-        # mesmo piso de qualidade do chat. require_parameters fica True (default): garante provedor
-        # que honra tool_choice.
-        return criar_chat_openrouter(
-            settings,
-            modelo=settings.openrouter_model_extracao,
-            reasoning_off=True,
-            quantizations=settings.openrouter_quantizations,
-        )
-    return criar_chat_anthropic(settings, modelo=settings.extracao_modelo, com_effort=False)
+    return criar_chat_deepseek(settings)
 
 
 def build_graph(settings: Settings | None = None, checkpointer: Any | None = None) -> Any:
@@ -98,7 +65,7 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
 
     Args:
         settings: configuracao da app. None -> get_settings() (09 §4.5). Usada para construir
-            o ChatAnthropic (criar_chat_anthropic) injetado no no llm via factory no_llm.
+            o chat DeepSeek (criar_chat_deepseek) injetado no no llm via factory no_llm.
         checkpointer: AsyncPostgresSaver. None no P0 (01 §6.7); reservado p/ P1.
 
     Returns:
@@ -108,10 +75,8 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
         settings = get_settings()
     chat = _criar_chat_principal(settings)
     # Extracao forcada barata (settings.extracao_no_modelo_barato): chat injetado no no llm. None
-    # quando desligado -> o no forca no Sonnet com prefixo inteiro (comportamento atual). O provider
-    # e por-chamada (settings.extracao_provider): `openrouter` usa ChatOpenAI (id em
-    # openrouter_model_extracao); `anthropic` (default) usa Haiku via ChatAnthropic com com_effort
-    # =False (Haiku nao aceita `effort`, igual ao judge do output_guard).
+    # quando desligado -> o no forca com o prefixo inteiro. Sempre DeepSeek V4 Flash direto
+    # (criar_chat_deepseek), igual ao chat #1; o barateamento vem da JANELA minima, nao de outro modelo.
     chat_extracao_barata = (
         _criar_chat_extracao_barata(settings) if settings.extracao_no_modelo_barato else None
     )

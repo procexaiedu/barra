@@ -96,6 +96,32 @@ groups:
             segredo_agenda = vazamento chegando ao cliente sem o guard barrar; formato_bolha =
             regressao de chunking/template. Confirmar no runner offline (gate de verdade) e logs.
 
+      # Complemento RAPIDO do alerta acima (multi-window). O <0.95/30m pega EROSAO lenta; um CRATER
+      # subito (pass-rate desabando em minutos = regressao de prompt recem-deployada, provider
+      # trocado, prefixo quebrado) precisa de janela curta + limiar mais fundo + severity critical.
+      # Burn-rate multi-window classico (14.4x) e calibrado p/ SLO de disponibilidade alta (99.9%);
+      # sobre um objetivo de QUALIDADE de 0.95 o 14.4x viraria limiar absurdo (>0.72 de falha),
+      # entao usamos a IDEIA multi-window (rapido+profundo vs lento+raso) calibrada ao objetivo
+      # real: <0.85 em 10m. Sem amostra na janela, 0/0 -> serie ausente, nao dispara (nao alarme
+      # de silencio), igual ao alerta de erosao.
+      - alert: AgenteEvalOnlineDespencou
+        expr: |
+          sum by (suite) (rate(agente_eval_pass_rate_sum[10m]))
+          /
+          sum by (suite) (rate(agente_eval_pass_rate_count[10m]))
+          < 0.85
+        for: 10m
+        labels:
+          severity: critical
+          dimensao: seguranca
+        annotations:
+          summary: "Pass-rate do eval online DESPENCOU abaixo de 0.85 (suite {{ $labels.suite }})"
+          description: >
+            media de agente_eval_pass_rate{suite={{ $labels.suite }}} = {{ $value | printf
+            "%.2f" }} nos ultimos 10m — queda RAPIDA (vs o <0.95/30m de erosao lenta). Suspeitar de
+            deploy recente de prompt / provider trocado / prefixo quebrado: confirmar no runner
+            offline (gate de verdade) e considerar rollback.
+
       # Disponibilidade da Etapa 2 do guard: judge de AUP falhando por infra -> default seguro
       # bloqueia+escala, mas a checagem de AUP de saida fica CEGA e a IA fica muda demais. Spike
       # sustentado = judge/credito/rede degradado — distinto de viola real (resultado=violou).
@@ -176,6 +202,27 @@ groups:
           description: >
             p95(agente_turno_duracao_seconds{tipo_turno={{ $labels.tipo_turno }}}) =
             {{ $value | printf "%.1f" }}s nos ultimos 10m.
+
+      # Cauda (p99) do turno — complemento do p95 acima. O p95 mascara o pior 5% (timeouts perto
+      # dos 60s por ainvoke, audio-Whisper lento, drain longo); o p99 pega a deriva de CAUDA que
+      # degrada a experiencia de uma minoria antes de mover o p95. Limiar 40s = proposta inicial
+      # (~2x o p95, abaixo do teto de 60s do asyncio.wait_for) — tuning do operador pos-go-live.
+      - alert: AgenteLatenciaTurnoP99Alta
+        expr: |
+          histogram_quantile(
+            0.99,
+            sum(rate(agente_turno_duracao_seconds_bucket[10m])) by (le, tipo_turno)
+          ) > 40
+        for: 10m
+        labels:
+          severity: warning
+          dimensao: latencia
+        annotations:
+          summary: "p99 de latencia do turno do agente acima de 40s (deriva de cauda)"
+          description: >
+            p99(agente_turno_duracao_seconds{tipo_turno={{ $labels.tipo_turno }}}) =
+            {{ $value | printf "%.1f" }}s nos ultimos 10m. Cauda perto do teto de 60s por
+            iteracao — checar drain longo / round-trips llm<->tools / provider lento nos traces.
 
       # OBS-02 sinal 3 (complemento HTTP) — p95 de latencia da API por rota.
       - alert: BarraHttpLatenciaP95Alta

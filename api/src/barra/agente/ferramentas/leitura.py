@@ -45,6 +45,7 @@ async def consultar_agenda(
         AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "janela_excedida").inc()
         raise ToolException("ERRO: janela máxima é 14 dias. Refine sua consulta.")
 
+    atendimento_id = runtime.context.atendimento_id
     async with pool.connection() as conn:
         res = await conn.execute(
             """
@@ -53,10 +54,18 @@ async def consultar_agenda(
              WHERE modelo_id = %s
                AND estado IN ('bloqueado', 'em_atendimento')
                AND inicio::date BETWEEN %s AND %s
+               AND (%s::uuid IS NULL OR atendimento_id IS DISTINCT FROM %s::uuid)
              ORDER BY inicio
              LIMIT %s
             """,
-            (modelo_id, di, df, _MAX_BLOQUEIOS + 1),
+            # Exclui o bloqueio do PROPRIO atendimento (paridade com o contexto de 48h em
+            # prepare_context._resolver_variaveis): sem checkpointer a IA nao lembra que reservou esse
+            # slot pra ESTE cliente -- se o visse como "ocupado" aplicaria a conduta de
+            # indisponibilidade (desculpa + reoferta) contra o horario que ela mesma reservou. A
+            # janela da tool cobre datas >48h, justo onde mora um bloqueio_previo distante. `IS
+            # DISTINCT FROM` preserva avulsos (atendimento_id NULL); o gate `%s IS NULL` mantem tudo
+            # quando nao ha atendimento no contexto. A nao-sobreposicao real segue no criar_bloqueio_previo.
+            (modelo_id, di, df, atendimento_id, atendimento_id, _MAX_BLOQUEIOS + 1),
         )
         rows = await res.fetchall()
     if not rows:

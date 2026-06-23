@@ -1,14 +1,15 @@
 """Factories de cliente do chat (docs/agente/03 §6.2).
 
-criar_chat_anthropic(): wrapper langchain-anthropic 1.x (ChatAnthropic) usado pelo nó llm —
-    thinking disabled + effort=low (suportado pelo Sonnet 4.6).
-criar_chat_openrouter(): wrapper langchain-openai (ChatOpenAI) apontado p/ o OpenRouter, usado
-    pelas chamadas baratas que podem sair da Anthropic (extração forçada #2, judge de AUP #3)
-    quando o provider correspondente está em `openrouter`. Mesma interface a jusante
-    (bind_tools/with_structured_output/ainvoke), formato de saída diferente no metadata.
+criar_chat_deepseek(): wrapper langchain-openai (ChatOpenAI) DIRETO na API DeepSeek
+    (api.deepseek.com) — o ÚNICO provider dos 3 caminhos de texto do agente ao vivo (chat #1,
+    extração forçada #2, judge de AUP #3), com thinking travado em disabled. Mesma interface a
+    jusante (bind_tools/with_structured_output/ainvoke).
+criar_chat_anthropic(): wrapper langchain-anthropic 1.x (ChatAnthropic). NÃO serve o agente ao
+    vivo (DeepSeek-only); sobra para o LLM-judge dos evals (api/evals/) e o preaquecimento dormente
+    da infra de cache_control (ver agente/llm.py, settings.cache_control_anthropic).
 criar_anthropic_client(): raw SDK anthropic 0.97 (dispensável no P0; vision do Pix vai por OpenRouter).
 
-A montagem dos 4 breakpoints de cache_control vive em agente/llm.py:
+A montagem dos 4 breakpoints de cache_control (DORMENTE sob DeepSeek) vive em agente/llm.py:
     - BP_TOOLS: `build_tools_para_bind` (cache_control na ultima tool)
     - BP_GERAL: `build_system_messages` (persona+regras+FAQ fundidos)
     - BP_MODELO: `build_system_messages` (identidade+programas por-modelo, opcional)
@@ -31,7 +32,11 @@ from barra.settings import Settings
 # - INSEGURA: além de truncada, recusa do provider -> veredito do judge não é confiável
 #   (default seguro: bloqueia+escala). `content_filter`/`refusal` são as recusas OpenAI/Anthropic.
 PARADA_TRUNCADA = frozenset({"max_tokens", "model_context_window_exceeded", "length"})
-PARADA_INSEGURA = PARADA_TRUNCADA | frozenset({"refusal", "content_filter"})
+# RECUSA: safety filter do provider -> `refusal` (Anthropic) / `content_filter` (OpenAI/OpenRouter).
+# Vocabulario canonico unico: lido pelo no llm E pelo coordenador (reclassificacao de exaustao),
+# sempre via motivo_parada (provider-agnostico), nunca pelo campo cru stop_reason/finish_reason.
+PARADA_RECUSA = frozenset({"refusal", "content_filter"})
+PARADA_INSEGURA = PARADA_TRUNCADA | PARADA_RECUSA
 
 
 def motivo_parada(response_metadata: dict[str, Any] | None) -> str | None:
@@ -76,76 +81,13 @@ def criar_chat_anthropic(
     )
 
 
-def criar_chat_openrouter(
-    settings: Settings,
-    *,
-    modelo: str,
-    require_parameters: bool = True,
-    reasoning_off: bool = False,
-    temperature: float | None = None,
-    quantizations: list[str] | None = None,
-) -> ChatOpenAI:
-    """Wrapper LangChain do ChatOpenAI apontado p/ o OpenRouter (base_url OpenAI-compatível).
-
-    Espelha `criar_chat_anthropic` para as chamadas que podem trocar de provider (chat #1,
-    extração forçada #2, judge de AUP #3): mesma interface a jusante (bind_tools,
-    with_structured_output, ainvoke). NÃO aceita `thinking`/`effort` (parâmetros Anthropic) —
-    omitidos.
-
-    `require_parameters` (default True): `provider.require_parameters=true` (via extra_body,
-    espelha pix.py) força o roteamento dinâmico do OpenRouter a um provider que honra
-    tool_choice/json_schema, em vez de cair num provider que os ignora silenciosamente. As
-    chamadas baratas #2/#3 dependem disso. **Alguns modelos não têm provider que satisfaça o
-    flag** (ex.: `deepseek-v4-flash` → 404 "no endpoints" sempre, mesmo honrando tool_choice):
-    para o chat #1 nesses modelos, passar `require_parameters=False`.
-
-    `reasoning_off` (default False): quando True, desliga o reasoning do modelo via
-    `reasoning.enabled=false` (campo unificado do OpenRouter) — espelha o `effort=low` deliberado
-    do Sonnet no chat (a voz vem da persona, não do reasoning; corta latência/custo de modelos
-    de raciocínio como o DeepSeek V4 Flash).
-
-    `temperature` (default None): quando setada, vai pro request; None omite (default do provider).
-    Só o chat #1 passa um valor (1.3, recomendação DeepSeek p/ chat) — as chamadas baratas #2/#3
-    chamam sem, ficando determinísticas. **Só tem efeito com `reasoning_off=True`**: o thinking mode
-    do DeepSeek ignora temperature/top_p (langchain omite o campo quando None).
-
-    `quantizations` (default None): piso de qualidade do roteamento OpenRouter — restringe os
-    provedores aos níveis de quantização listados (`provider.quantizations`, ex.: ["fp8"]). O
-    `deepseek-v4-flash` é servido em FP4/FP8/Unknown por ~18 provedores; sem piso, o roteamento pode
-    cair num FP4 que degrada a voz/structured output de forma imprevisível. None = sem restrição.
-
-    `modelo` é obrigatório (o id OpenRouter do candidato): a factory só é chamada quando o
-    provider correspondente está em `openrouter`, e o settings valida que o id está setado.
-    """
-    provider: dict[str, Any] = {}
-    if require_parameters:
-        provider["require_parameters"] = True
-    if quantizations:
-        provider["quantizations"] = list(quantizations)
-    extra_body: dict[str, Any] = {}
-    if provider:
-        extra_body["provider"] = provider
-    if reasoning_off:
-        extra_body["reasoning"] = {"enabled": False}
-    return ChatOpenAI(
-        model=modelo,
-        api_key=settings.openrouter_api_key,
-        base_url="https://openrouter.ai/api/v1",
-        max_tokens=settings.anthropic_max_tokens,
-        temperature=temperature,  # None -> langchain omite (default do provider)
-        max_retries=2,
-        timeout=60.0,
-        extra_body=extra_body,
-    )
-
-
 def criar_chat_deepseek(
     settings: Settings, *, modelo: str | None = None, temperature: float | None = None
 ) -> ChatOpenAI:
     """Wrapper do ChatOpenAI apontado DIRETO p/ a API DeepSeek (api.deepseek.com), OpenAI-compatível.
 
-    Usado pelo chat #1 (llm_chat_provider=deepseek) e pelo judge de AUP (output_guard_provider=
-    deepseek): vai direto no DeepSeek (não no pool do OpenRouter) por dois motivos que pesam em escala
+    Único provider dos 3 caminhos de texto do agente ao vivo (chat #1, extração forçada #2 e judge
+    de AUP #3): vai direto no DeepSeek (não no pool do OpenRouter) por dois motivos que pesam em escala
     — (1) o cache automático de prefixo só existe no endpoint oficial, e o prefixo byte-idêntico fica
     quente (chat: BP_GERAL global; judge: o system aup_saida.md repetido antes de cada bolha), ~98%
     mais barato no hit; (2) crava modelo/quantização, sem a roleta de FP4 do load-balance.

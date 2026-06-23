@@ -815,9 +815,12 @@ export function DialogBloqueio({
 
             {/* Seção expansível: criação rápida de atendimento */}
             {criandoAtendimento && (
-              <div className="space-y-3 rounded-lg border border-border bg-surface p-3">
+              <div className="space-y-3 rounded-lg border border-border bg-surface p-3 shadow-elev-1 ring-1 ring-border-subtle">
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-semibold text-text-primary">Novo atendimento</p>
+                  <h2 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+                    <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+                    Novo atendimento
+                  </h2>
                   <button
                     type="button"
                     onClick={voltarParaBusca}
@@ -1003,7 +1006,7 @@ export function DialogBloqueio({
 
             {/* Card de info do atendimento vinculado */}
             {atendimentoDisplay && (
-              <div className="overflow-hidden rounded-lg border border-border bg-surface">
+              <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-elev-1 ring-1 ring-border-subtle">
                 <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
                   <span className="font-mono text-xs text-text-muted">
                     #{atendimentoDisplay.numero_curto}
@@ -1073,10 +1076,11 @@ export function DialogBloqueio({
             <div className="space-y-5">
 
             {/* Seção: Horário */}
-            <section className="rounded-lg border border-border bg-surface p-4">
-              <p className="mb-4 text-xs font-semibold uppercase tracking-wider text-text-muted">
+            <section className="rounded-lg border border-border bg-surface p-4 shadow-elev-1 ring-1 ring-border-subtle">
+              <h2 className="mb-4 flex items-center gap-2.5 text-xs font-semibold uppercase tracking-wider text-text-primary">
+                <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
                 Horário
-              </p>
+              </h2>
               <div className="space-y-3">
                 <div>
                   <Label htmlFor="agenda-data">Data</Label>
@@ -1138,10 +1142,11 @@ export function DialogBloqueio({
             </section>
 
             {/* Seção: Observação */}
-            <section className="rounded-lg border border-border bg-surface p-4">
-              <Label htmlFor="agenda-observacao" className="text-xs font-semibold uppercase tracking-wider text-text-muted">
-                Observação
-              </Label>
+            <section className="rounded-lg border border-border bg-surface p-4 shadow-elev-1 ring-1 ring-border-subtle">
+              <h2 className="mb-3 flex items-center gap-2.5 text-xs font-semibold uppercase tracking-wider text-text-primary">
+                <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+                <label htmlFor="agenda-observacao">Observação</label>
+              </h2>
               <textarea
                 id="agenda-observacao"
                 value={form.observacao}

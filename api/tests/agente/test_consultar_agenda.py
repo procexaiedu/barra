@@ -35,10 +35,11 @@ _chamar = consultar_agenda.coroutine  # type: ignore[attr-defined]
 
 
 class _Ctx:
-    """ContextAgente minimo: a tool so le db_pool e modelo_id (evita montar o dataclass real)."""
+    """ContextAgente minimo: a tool le db_pool, modelo_id e atendimento_id (evita o dataclass real)."""
 
-    def __init__(self, pool: Any, modelo_id: str) -> None:
+    def __init__(self, pool: Any, modelo_id: str, atendimento_id: str | None = None) -> None:
         self.db_pool, self.modelo_id = pool, modelo_id
+        self.atendimento_id = atendimento_id
 
 
 class _Runtime:
@@ -141,6 +142,55 @@ async def test_consultar_agenda_abaixo_do_teto_sem_sufixo() -> None:
     )
     assert out.count("\n- ") == 2
     assert "há mais" not in out
+
+
+class _CapturaConn:
+    """Captura o SQL e os params do execute (sem DB) p/ checar o filtro de own-block."""
+
+    def __init__(self) -> None:
+        self.sql: str | None = None
+        self.params: tuple[Any, ...] | None = None
+
+    async def execute(self, sql: str, params: tuple[Any, ...]) -> _FakeRowsResult:
+        self.sql, self.params = sql, params
+        return _FakeRowsResult([])
+
+
+class _CapturaPool:
+    def __init__(self, conn: _CapturaConn) -> None:
+        self._conn = conn
+
+    @asynccontextmanager
+    async def connection(self) -> Any:
+        yield self._conn
+
+
+async def test_consultar_agenda_exclui_bloqueio_do_proprio_atendimento() -> None:
+    """bughunt: a tool exclui o bloqueio do PROPRIO atendimento (paridade com o contexto de 48h do
+    prepare_context) — senao a IA recusaria o slot que ela mesma reservou pra ESTE cliente (datas
+    >48h, onde mora um bloqueio_previo distante)."""
+    conn = _CapturaConn()
+    aid = "11111111-1111-1111-1111-111111111111"
+    out = await _chamar(
+        data_inicio=date(2026, 6, 1),
+        data_fim=date(2026, 6, 7),
+        runtime=_Runtime(_Ctx(_CapturaPool(conn), "m1", atendimento_id=aid)),
+    )
+    assert conn.sql is not None and "atendimento_id IS DISTINCT FROM" in conn.sql
+    assert conn.params is not None and conn.params.count(aid) == 2  # gate IS NULL + exclusao
+    assert "Sem bloqueios" in out  # _CapturaConn devolve vazio
+
+
+async def test_consultar_agenda_sem_atendimento_no_contexto_mantem_todos() -> None:
+    """Sem atendimento no contexto (atendimento_id None): o gate `%s::uuid IS NULL` mantem todos os
+    bloqueios (nao exclui nada) -- nao quebra o fluxo do webhook fino."""
+    conn = _CapturaConn()
+    await _chamar(
+        data_inicio=date(2026, 6, 1),
+        data_fim=date(2026, 6, 7),
+        runtime=_Runtime(_Ctx(_CapturaPool(conn), "m1", atendimento_id=None)),
+    )
+    assert conn.params is not None and conn.params.count(None) == 2  # ambos os %s do gate = None
 
 
 # --- needs_db: leitura real contra o Postgres self-hosted, ROLLBACK sempre (espelha test_repo) ---

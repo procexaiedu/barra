@@ -54,7 +54,7 @@ export function BoardTarefas({ tarefas, onEditar, onExcluir, onMoverStatus }: Pr
               setSobre(null)
             }}
             className={cn(
-              "flex min-h-[160px] flex-col gap-2 rounded-lg border bg-muted p-2.5 transition-all duration-150",
+              "flex min-h-[160px] flex-col gap-2 rounded-lg border bg-muted p-2.5 shadow-elev-1 transition-all duration-150",
               alvo
                 ? "border-border-brand bg-accent/40 ring-1 ring-gold-500/40"
                 : "border-border",
@@ -82,8 +82,8 @@ export function BoardTarefas({ tarefas, onEditar, onExcluir, onMoverStatus }: Pr
                   onDragEnd={() => { setArrastando(null); setHandleAtivo(null) }}
                   style={{ animationDelay: `${Math.min(i, 10) * 30}ms`, animationFillMode: "backwards" }}
                   className={cn(
-                    "group relative overflow-hidden rounded-lg bg-card py-2.5 pl-7 pr-2.5 ring-1 ring-foreground/10 transition-colors duration-150 animate-in fade-in-0 slide-in-from-bottom-1",
-                    "hover:bg-surface-hover",
+                    "group relative overflow-hidden rounded-lg bg-card py-2.5 pl-7 pr-2.5 ring-1 ring-border-subtle shadow-elev-1 transition-all duration-150 animate-in fade-in-0 slide-in-from-bottom-1",
+                    "hover:-translate-y-px hover:shadow-elev-2 hover:ring-border-brand/40 hover:bg-surface-hover",
                     arrastando === t.id && "opacity-50 ring-gold-500/50",
                   )}
                 >

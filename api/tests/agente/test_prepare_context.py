@@ -60,13 +60,32 @@ def _linhas_desc() -> list[dict[str, Any]]:
     ]
 
 
+@pytest.fixture
+def _provider_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pina o branch Anthropic para os testes de cache_control da janela.
+
+    A marcação `cache_control` ephemeral só existe no caminho Anthropic (cache do DeepSeek é
+    automático, sem blocos — prepare_context.py:119). O default do projeto é `deepseek`
+    (settings.py), então estes testes precisam fixar o provider p/ serem herméticos vs `.env`.
+    """
+    import importlib
+
+    # `from barra.agente.nos import prepare_context` devolve a FUNÇÃO (reexport do __init__ sombreia
+    # o submódulo de mesmo nome) — import_module pega o módulo real p/ monkeypatch do get_settings.
+    _pc = importlib.import_module("barra.agente.nos.prepare_context")
+    # cache_control_anthropic liga a infra de cache_control (DORMENTE em prod, que e DeepSeek-only):
+    # e o gate dos guard-rails de prefixo byte-identico exercitados por estes testes.
+    anthropic = _pc.get_settings().model_copy(update={"cache_control_anthropic": True})
+    monkeypatch.setattr(_pc, "get_settings", lambda: anthropic)
+
+
 def test_ia_pausada_retorna_command_end() -> None:
     res = asyncio.run(prepare_context({"messages": []}, _runtime(ia_pausada=True)))
     assert isinstance(res, Command)
     assert res.goto == END
 
 
-def test_caminho_normal_2_system_mais_janela_cronologica() -> None:
+def test_caminho_normal_2_system_mais_janela_cronologica(_provider_anthropic: None) -> None:
     res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_desc())))
     assert isinstance(res, Command)
     assert res.goto == "intercept_disclosure"
@@ -107,7 +126,7 @@ def _linhas_n(n: int) -> list[dict[str, Any]]:
     ]
 
 
-def test_bp_janela_saturada_cai_para_ttl_5m() -> None:
+def test_bp_janela_saturada_cai_para_ttl_5m(_provider_anthropic: None) -> None:
     # Janela no LIMIT 20: a cabeça desliza no turno seguinte (prefixo de messages muda) → o
     # write do BP_JANELA nunca vira read inter-turno; o mark fica só pelo reuso intra-turno e
     # cai p/ 5m (write 1.25x) — cache_control SEM campo ttl (formato default ephemeral).
@@ -118,7 +137,7 @@ def test_bp_janela_saturada_cai_para_ttl_5m() -> None:
     assert penultima.content[0]["cache_control"] == {"type": "ephemeral"}
 
 
-def test_bp_janela_append_only_mantem_ttl_modelo() -> None:
+def test_bp_janela_append_only_mantem_ttl_modelo(_provider_anthropic: None) -> None:
     # Janela abaixo do LIMIT (append-only no próximo turno): TTL segue cache_ttl_modelo —
     # mesmo cache_control do bloco BP_MODELO (msgs[1]), que usa a mesma setting.
     res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_n(19))))
@@ -191,7 +210,7 @@ def test_traduzir_direcao_desconhecida_levanta() -> None:
         raise AssertionError("esperava ValueError para direcao fora do enum")
 
 
-@pytest.mark.needs_key  # build_graph() -> criar_chat_anthropic() exige ANTHROPIC_API_KEY
+@pytest.mark.needs_key  # build_graph() -> criar_chat_deepseek() exige DEEPSEEK_API_KEY
 def test_grafo_pausa_encerra_antes_do_llm() -> None:
     # Prova a coordenacao graph.py <-> prepare_context: sem aresta estatica de saida, a pausa
     # (Command(goto=END)) encerra o turno sem fan-out p/ intercept_disclosure/llm (sem AIMessage).

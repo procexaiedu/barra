@@ -602,7 +602,7 @@ export function GradeSemanal({
         },
       }}
     >
-      <section aria-label="Grade de horários" className="relative overflow-hidden rounded-lg border border-border bg-card">
+      <section aria-label="Grade de horários" className="relative overflow-hidden rounded-lg border border-border bg-card shadow-elev-1 ring-1 ring-border-subtle">
         {/* Header: nomes dos dias + datas */}
         <div
           className="grid border-b border-border bg-card"
@@ -724,7 +724,7 @@ export function GradeSemanal({
           <div
             data-slot="drag-overlay"
             className={cn(
-              "rounded px-1.5 py-0.5 shadow-md transition-colors",
+              "rounded px-1.5 py-0.5 shadow-elev-3 transition-colors",
               estiloCardCompleto(bloqueioArrastando),
               conflitoAtivo && "motion-safe:animate-pulse ring-2 ring-danger-500 bg-danger-500/10",
             )}

@@ -30,7 +30,7 @@ export function ToolbarAgenda({
   const cancelados = bloqueios.filter((b) => b.estado === "cancelado").length
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-2">
+    <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-card p-2 shadow-elev-1 ring-1 ring-border-subtle">
       <div className="flex items-center gap-1">
         <Button variant="ghost" size="icon" onClick={onAnterior} aria-label="Período anterior">
           <ChevronLeft />
@@ -78,7 +78,7 @@ export function ToolbarAgenda({
 
       {/* Resumo de bloqueios: recolhido à direita da barra; cor reservada só ao
           número "ao vivo" (Em atendimento) — eco do ponto verde da grade. */}
-      <dl className="flex w-full divide-x divide-border overflow-hidden rounded-lg border border-border bg-muted sm:ml-auto sm:w-auto sm:shrink-0">
+      <dl className="flex w-full divide-x divide-border overflow-hidden rounded-lg border border-border bg-muted ring-1 ring-border-subtle sm:ml-auto sm:w-auto sm:shrink-0">
         <ResumoItem label="Bloqueios ativos" value={ativos} />
         <ResumoItem label="Em atendimento" value={emAtendimento} live={emAtendimento > 0} />
         <ResumoItem label="Cancelados" value={cancelados} muted={cancelados === 0} />

@@ -232,7 +232,7 @@ function ClientesInner() {
           />
           <ResumoClientes resumo={crm.resumo} status={crm.resumoStatus} />
           {bairroFiltro && (
-            <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-text-secondary">
+            <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-text-secondary shadow-elev-1 ring-1 ring-border-subtle">
               <span>
                 Bairro:{" "}
                 <strong className="font-medium text-text-primary">{bairroFiltro}</strong>
@@ -390,7 +390,7 @@ function Toolbar({
 }) {
   if (loading) {
     return (
-      <div aria-busy="true" className="grid grid-cols-[minmax(260px,1fr)_140px_180px] gap-3">
+      <div aria-busy="true" className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(260px,1fr)_140px_180px]">
         {Array.from({ length: 3 }).map((_, index) => (
           <div key={index} className="flex flex-col gap-1.5">
             <Skeleton className="h-3.5 w-16 rounded-md" />
@@ -416,7 +416,10 @@ function Toolbar({
       />
       <FiltroPeriodo value={periodo} onChange={onPeriodoChange} />
       <div className="flex flex-col gap-1">
-        <span className="text-xs font-medium text-text-muted">Modelo</span>
+        <span className="flex items-center gap-1.5 text-xs font-medium text-text-muted">
+          <span className="h-2.5 w-0.5 rounded-full bg-gold-500/70" aria-hidden />
+          Modelo
+        </span>
         <FiltroModelo value={modeloIds} onChange={onModeloChange} />
       </div>
       <PainelFiltros

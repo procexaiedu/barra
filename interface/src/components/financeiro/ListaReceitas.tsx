@@ -100,7 +100,7 @@ export function ListaReceitas({
     return (
       <div
         aria-busy="true"
-        className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10"
+        className="overflow-hidden rounded-lg bg-card ring-1 ring-border-subtle shadow-elev-1"
       >
         <Skeleton className="h-9 w-full rounded-none" />
         {Array.from({ length: 6 }).map((_, i) => (
@@ -143,7 +143,7 @@ export function ListaReceitas({
       role="listbox"
       aria-label="Receitas agrupadas por dia"
       aria-multiselectable="false"
-      className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10"
+      className="overflow-hidden rounded-lg bg-card ring-1 ring-border-subtle shadow-elev-1 rise-in"
     >
       {grupos.map((g) => (
         <Fragment key={g.dia}>
@@ -186,8 +186,9 @@ function DiaBanner({ grupo }: { grupo: GrupoDia }) {
       aria-label={`${grupo.rotulo} — ${grupo.items.length} ${plural}`}
       className="flex items-center justify-between gap-4 border-b border-border bg-muted/40 px-4 py-2"
     >
-      <div className="flex items-baseline gap-3">
-        <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-text-brand">
+      <div className="flex items-center gap-3">
+        <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-text-primary">
+          <span className="h-2.5 w-0.5 rounded-full bg-gold-500" aria-hidden />
           {grupo.rotulo}
         </span>
         <span className="text-[11px] text-text-muted">
@@ -236,10 +237,10 @@ function LinhaReceita({
           onClick()
         }
       }}
-      className={`group grid cursor-pointer grid-cols-[3.5rem_minmax(0,1fr)_8rem_minmax(8rem,9rem)] items-center gap-x-4 border-b border-border/60 px-4 py-2.5 transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+      className={`group grid cursor-pointer grid-cols-[3.5rem_minmax(0,1fr)_8rem_minmax(8rem,9rem)] items-center gap-x-4 border-b border-border/60 py-2.5 transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
         selected
-          ? "bg-gold-500/10"
-          : "hover:bg-accent"
+          ? "border-l-2 border-l-gold-500 bg-gold-500/10 pl-[calc(1rem-2px)] pr-4"
+          : "px-4 hover:bg-surface-hover"
       }`}
     >
       {/* col 1: hora + chevron quando selecionado, # logo abaixo */}
@@ -430,7 +431,7 @@ function FooterTotal({
           {truncado ? `Mostrando ${n} ${plural}` : `Total · ${n} ${plural}`}
         </span>
         <div className="flex items-baseline gap-3 font-mono text-xs tabular-nums">
-          <span className="font-semibold text-text-primary">
+          <span className="font-semibold text-gold-700">
             {formatBRL(bruto)}
           </span>
           <span className="text-text-muted">

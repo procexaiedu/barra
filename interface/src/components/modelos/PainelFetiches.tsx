@@ -58,15 +58,18 @@ export function PainelFetiches({
 
   return (
     <div className="grid gap-4 xl:grid-cols-2">
-      <section className="overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10">
+      <section className="overflow-hidden rounded-lg bg-card shadow-elev-1 ring-1 ring-border-subtle">
         <header className="flex items-baseline justify-between gap-4 border-b border-border px-4 py-3">
           <div>
-            <h2 className="text-sm font-semibold text-text-primary">Fetiches</h2>
-            <p className="text-xs text-text-muted">
+            <h2 className="flex items-center gap-2.5 text-sm font-semibold text-text-primary">
+              <span className="h-3.5 w-1 rounded-full bg-gold-500" aria-hidden />
+              Fetiches
+            </h2>
+            <p className="pl-[14px] text-xs text-text-muted">
               Todos os fetiches da agência. Cada modelo escolhe os dela no perfil.
             </p>
           </div>
-          <span className="text-xs text-text-muted">{fetiches.length}</span>
+          <span className="font-mono tabular-nums text-xs text-text-muted">{fetiches.length}</span>
         </header>
 
         {fetiches.length === 0 ? (
@@ -101,8 +104,9 @@ export function PainelFetiches({
         </div>
       </section>
 
-      <aside className="h-fit rounded-lg bg-card p-5 ring-1 ring-foreground/10">
-        <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+      <aside className="h-fit rounded-lg bg-card p-5 shadow-elev-1 ring-1 ring-border-subtle">
+        <h2 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.08em] text-text-muted">
+          <span className="h-3 w-0.5 rounded-full bg-gold-500/60" aria-hidden />
           Como funciona
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-text-secondary">

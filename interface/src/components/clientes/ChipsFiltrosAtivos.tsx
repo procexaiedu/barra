@@ -91,7 +91,7 @@ export function ChipsFiltrosAtivos({
       </span>
       {totalSemLocalizacao > 0 && (
         <span
-          className="rounded-full border border-border bg-card px-3 py-0.5"
+          className="rounded-full border border-border bg-card px-3 py-0.5 shadow-elev-1"
           title="Clientes que existem nos filtros mas ainda não têm endereço cadastrado em nenhum atendimento externo."
         >
           <span className="font-mono tabular-nums">{totalSemLocalizacao}</span> sem endereço

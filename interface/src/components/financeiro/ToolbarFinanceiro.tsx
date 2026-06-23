@@ -61,8 +61,9 @@ function SegForma({
       onClick={onClick}
       className={cn(
         "rounded-md px-2 py-1 text-xs font-medium capitalize transition-all duration-150",
-        "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
+        "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm aria-[pressed=true]:ring-1 aria-[pressed=true]:ring-border-subtle",
         "text-text-muted hover:text-text-primary",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
       )}
     >
       {children}

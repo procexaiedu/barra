@@ -22,11 +22,12 @@ export function HistoricoAtendimentosConversa({
     <>
       <section
         aria-label="Histórico de atendimentos da conversa"
-        className="rounded-lg border border-border bg-card p-5"
+        className="rounded-lg border border-border bg-card p-5 shadow-elev-1 ring-1 ring-border-subtle"
       >
-        <p className="mb-4 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        <h2 className="mb-4 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+          <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
           Histórico
-        </p>
+        </h2>
         {itens.length === 0 ? (
           <p className="text-[13px] text-text-muted">
             Nenhum atendimento registrado ainda nesta conversa.

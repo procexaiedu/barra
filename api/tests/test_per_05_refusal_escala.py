@@ -21,8 +21,10 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 from uuid import UUID, uuid4
 
+import httpx
 import pytest
 from langchain_core.messages import AIMessage
+from openai import APITimeoutError as OpenAIAPITimeoutError
 
 from barra.dominio.escaladas.modelos import TipoEscalada
 from barra.workers.coordenador import escalar_por_exaustao, processar_turno
@@ -172,7 +174,7 @@ class _FakeGraphTruncado:
 
 
 class _FakeSettings:
-    anthropic_modelo_principal = "claude-test"
+    deepseek_model_chat = "deepseek-test"
     usd_brl_cotacao = 5.5  # lido pelo acumulo de custo do turno (passo 5a')
 
 
@@ -242,6 +244,97 @@ async def test_coordenador_truncado_escala_modelo_truncado_sem_bolha() -> None:
         c for c in redis.enqueue_job.call_args_list if c.args and c.args[0] == "enviar_turno"
     ]
     assert enviados == []
+
+
+# ============================================================================
+# Provider NAO-Anthropic (DeepSeek/OpenRouter): a recusa/truncamento chega como `finish_reason`,
+# nao `stop_reason`. Antes o coordenador lia o campo CRU stop_reason e essas guardas nao disparavam;
+# agora le via motivo_parada (provider-agnostico) -> escala igual ao Anthropic.
+# ============================================================================
+
+
+class _FakeGraphRefusalFinishReason:
+    async def ainvoke(self, *_a: Any, **_k: Any) -> dict[str, Any]:
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    usage_metadata=_USAGE,  # type: ignore[arg-type]
+                    response_metadata={"finish_reason": "content_filter"},
+                )
+            ]
+        }
+
+
+class _FakeGraphTruncadoFinishReason:
+    async def ainvoke(self, *_a: Any, **_k: Any) -> dict[str, Any]:
+        return {
+            "messages": [
+                AIMessage(
+                    content="",
+                    usage_metadata=_USAGE,  # type: ignore[arg-type]
+                    response_metadata={"finish_reason": "length"},
+                    tool_calls=[
+                        {"name": "consultar_agenda", "args": {}, "id": "tc1", "type": "tool_call"}
+                    ],
+                )
+            ]
+        }
+
+
+async def test_coordenador_refusal_finish_reason_openrouter_escala() -> None:
+    """content_filter via finish_reason (DeepSeek/OpenRouter) -> escala modelo_recusou."""
+    redis = _FakeRedis()
+    with (
+        patch("barra.workers.coordenador.adquirir_lock", _lock_noop),
+        patch("barra.workers.coordenador.escalar_por_exaustao", new=AsyncMock()) as mock_escalar,
+    ):
+        await processar_turno(
+            _ctx_coord(redis, _FakeGraphRefusalFinishReason()), conversa_id=_CONV_ID
+        )
+    mock_escalar.assert_awaited_once()
+    assert mock_escalar.await_args.kwargs["motivo"] == "modelo_recusou"
+
+
+async def test_coordenador_truncado_finish_reason_openrouter_escala() -> None:
+    """length via finish_reason (OpenRouter) + tool_calls -> escala modelo_truncado."""
+    redis = _FakeRedis()
+    with (
+        patch("barra.workers.coordenador.adquirir_lock", _lock_noop),
+        patch("barra.workers.coordenador.escalar_por_exaustao", new=AsyncMock()) as mock_escalar,
+    ):
+        await processar_turno(
+            _ctx_coord(redis, _FakeGraphTruncadoFinishReason()), conversa_id=_CONV_ID
+        )
+    mock_escalar.assert_awaited_once()
+    assert mock_escalar.await_args.kwargs["motivo"] == "modelo_truncado"
+
+
+class _FakeGraphIndisponivelOpenAI:
+    """Grafo que levanta a indisponibilidade pelo SDK `openai` (chat #1 em DeepSeek/OpenRouter):
+    o no llm re-levanta `openai.*` (_EXCECOES_LLM cobre os dois SDKs) e o coordenador escala."""
+
+    async def ainvoke(self, *_a: Any, **_k: Any) -> dict[str, Any]:
+        raise OpenAIAPITimeoutError(request=httpx.Request("POST", "https://api.deepseek.com"))
+
+
+async def test_coordenador_excecao_openai_escala_modelo_indisponivel() -> None:
+    """Indisponibilidade via SDK openai (DeepSeek/OpenRouter) -> escala modelo_indisponivel.
+
+    Regressao: o `except` do coordenador cobria so os tipos `anthropic.*`; no provider default
+    (deepseek) a `openai.APITimeoutError` re-levantada pelo no llm caia no `except Exception: raise`
+    e matava o turno SEM escalar — cliente mudo, Fernando sem handoff.
+    """
+    redis = _FakeRedis()
+    with (
+        patch("barra.workers.coordenador.adquirir_lock", _lock_noop),
+        patch("barra.workers.coordenador.escalar_por_exaustao", new=AsyncMock()) as mock_escalar,
+    ):
+        await processar_turno(
+            _ctx_coord(redis, _FakeGraphIndisponivelOpenAI()), conversa_id=_CONV_ID
+        )
+    mock_escalar.assert_awaited_once()
+    assert mock_escalar.await_args.kwargs["motivo"] == "modelo_indisponivel"
 
 
 async def test_motivo_modelo_truncado_mapeia_bucket_infra() -> None:

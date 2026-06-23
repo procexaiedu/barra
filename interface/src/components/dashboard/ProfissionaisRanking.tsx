@@ -32,7 +32,7 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
             Profissionais mais procuradas
           </h2>
         </header>
-        <div className="flex flex-col items-center justify-center gap-3 rounded-lg bg-card px-6 py-10 text-center ring-1 ring-foreground/10">
+        <div className="flex flex-col items-center justify-center gap-3 rounded-lg bg-card px-6 py-10 text-center shadow-elev-1 ring-1 ring-border-subtle">
           <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
             <Users size={22} strokeWidth={1.75} className="text-text-muted" aria-hidden />
           </div>
@@ -72,8 +72,8 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
             <li
               key={p.modelo.id}
               className={cn(
-                "relative rounded-lg bg-card p-3 ring-1 ring-foreground/10",
-                destacada && "ring-text-brand/40",
+                "relative rounded-lg bg-card p-3 shadow-elev-1 ring-1 ring-border-subtle transition-all",
+                destacada && "ring-border-brand/40 shadow-elev-2",
                 temSelecao && !destacada && "opacity-55"
               )}
             >
@@ -134,11 +134,11 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
       </ul>
 
       {/* Desktop: tabela completa */}
-      <div className="hidden overflow-hidden rounded-lg bg-card ring-1 ring-foreground/10 md:block">
+      <div className="hidden overflow-hidden rounded-lg bg-card shadow-elev-1 ring-1 ring-border-subtle md:block">
         <table className="w-full border-collapse text-sm">
           <caption className="sr-only">Profissionais ordenadas por volume no período</caption>
           <thead>
-            <tr className="text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+            <tr className="border-b border-border-subtle text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
               <th className="px-4 py-3 text-left">Modelo</th>
               <th className="w-44 px-4 py-3 text-right">Volume</th>
               <th className="w-32 px-4 py-3 text-right">Fechamentos</th>
@@ -157,7 +157,7 @@ export function ProfissionaisRanking({ profissionais, modeloIdsSelecionadas }: P
                 <tr
                   key={p.modelo.id}
                   className={cn(
-                    "relative cursor-pointer border-t border-border/60 transition-colors hover:bg-accent has-[a:focus-visible]:bg-accent",
+                    "relative cursor-pointer border-t border-border-subtle transition-colors hover:bg-surface-hover has-[a:focus-visible]:bg-surface-hover",
                     destacada && "bg-text-brand/[0.07]",
                     temSelecao && !destacada && "opacity-55"
                   )}

@@ -92,11 +92,11 @@ function ColunaDroppable({
           <span className={cn("h-1.5 w-1.5 rounded-full", corEstado(coluna.estados[0]).ponto)} aria-hidden />
           {coluna.titulo}
         </h3>
-        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium tabular-nums text-text-muted">{items.length}</span>
+        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-mono font-medium tabular-nums text-text-muted">{items.length}</span>
       </div>
       <div
         ref={setNodeRef}
-        className={`flex min-h-[120px] flex-col gap-2 rounded-lg border p-2 transition-colors ${classeRealce}`}
+        className={`flex min-h-[120px] flex-col gap-2 rounded-lg border p-2 ring-1 ring-border-subtle transition-colors ${classeRealce}`}
       >
         {items.map((item) => (
           <DraggableCard key={item.id} item={item} onCardClick={onCardClick} isTerminal={coluna.terminal} />
@@ -207,9 +207,9 @@ function ColunaMobile({
           <span className={cn("h-1.5 w-1.5 rounded-full", corEstado(coluna.estados[0]).ponto)} aria-hidden />
           {coluna.titulo}
         </h3>
-        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-medium tabular-nums text-text-muted">{items.length}</span>
+        <span className="rounded-full bg-accent px-2 py-0.5 text-[10px] font-mono font-medium tabular-nums text-text-muted">{items.length}</span>
       </div>
-      <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted p-2">
+      <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted p-2 ring-1 ring-border-subtle">
         {items.length === 0 && (
           <p className="px-2 py-4 text-center text-[11px] text-text-disabled">Nenhum atendimento</p>
         )}
@@ -353,7 +353,7 @@ export function KanbanBoard({
           <button
             type="button"
             onClick={onToggleEncerrados}
-            className="text-[11px] font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none"
+            className="text-[11px] font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             {mostrarEncerrados ? "Ocultar encerrados" : "Mostrar encerrados"}
           </button>
@@ -381,7 +381,7 @@ export function KanbanBoard({
           <button
             type="button"
             onClick={onToggleEncerrados}
-            className="text-[11px] font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none"
+            className="text-[11px] font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
             {mostrarEncerrados ? "Ocultar encerrados" : "Mostrar encerrados"}
           </button>

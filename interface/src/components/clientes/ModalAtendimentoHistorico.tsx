@@ -32,9 +32,10 @@ function Campo({ label, value }: { label: string; value: string }) {
 
 function SecaoHeader({ children }: { children: React.ReactNode }) {
   return (
-    <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+    <h2 className="mb-3 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+      <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
       {children}
-    </p>
+    </h2>
   )
 }
 
@@ -105,7 +106,7 @@ export function ModalAtendimentoHistorico({
           {/* Carregando */}
           {status === "loading" && (
             <div className="space-y-5">
-              <div className="rounded-lg border border-border bg-card p-4">
+              <div className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                 <Skeleton className="mb-3 h-2.5 w-20" />
                 <div className="grid grid-cols-2 gap-4">
                   {[0, 1, 2, 3].map((i) => (
@@ -116,7 +117,7 @@ export function ModalAtendimentoHistorico({
                   ))}
                 </div>
               </div>
-              <div className="rounded-lg border border-border bg-card p-4">
+              <div className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                 <Skeleton className="mb-3 h-2.5 w-24" />
                 <div className="grid grid-cols-2 gap-4">
                   {[0, 1].map((i) => (
@@ -127,7 +128,7 @@ export function ModalAtendimentoHistorico({
                   ))}
                 </div>
               </div>
-              <div className="rounded-lg border border-border bg-card p-4">
+              <div className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                 <Skeleton className="mb-3 h-2.5 w-16" />
                 <Skeleton className="h-7 w-32" />
               </div>
@@ -154,7 +155,7 @@ export function ModalAtendimentoHistorico({
           {status === "success" && detalhe && at && (
             <>
               {/* Identificação */}
-              <section className="rounded-lg border border-border bg-card p-4">
+              <section className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                 <SecaoHeader>Identificação</SecaoHeader>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                   <Campo label="Abertura" value={formatData(at.created_at)} />
@@ -176,7 +177,7 @@ export function ModalAtendimentoHistorico({
 
               {/* Localização & Serviço */}
               {temLocalizacao && (
-                <section className="rounded-lg border border-border bg-card p-4">
+                <section className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                   <SecaoHeader>Localização & Serviço</SecaoHeader>
                   <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                     <Campo label="Endereço" value={at.endereco ?? "—"} />
@@ -188,7 +189,7 @@ export function ModalAtendimentoHistorico({
               )}
 
               {/* Financeiro */}
-              <section className="rounded-lg border border-border bg-card p-4">
+              <section className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                 <SecaoHeader>Financeiro</SecaoHeader>
                 <div className="grid grid-cols-2 gap-x-6 gap-y-4">
                   <Campo
@@ -216,7 +217,7 @@ export function ModalAtendimentoHistorico({
 
               {/* Resultado */}
               {(isFechado || isPerdido) && (
-                <section className="rounded-lg border border-border bg-card p-4">
+                <section className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                   <SecaoHeader>Resultado</SecaoHeader>
                   {isFechado && (
                     <div className="flex items-center gap-3">
@@ -248,7 +249,7 @@ export function ModalAtendimentoHistorico({
 
               {/* Serviços */}
               {detalhe.servicos.length > 0 && (
-                <section className="rounded-lg border border-border bg-card p-4">
+                <section className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                   <SecaoHeader>Serviços</SecaoHeader>
                   <ul className="space-y-2">
                     {detalhe.servicos.map((sv) => (
@@ -273,7 +274,7 @@ export function ModalAtendimentoHistorico({
 
               {/* Fetiches (composição — preço incluso ou extra) */}
               {(detalhe.fetiches ?? []).length > 0 && (
-                <section className="rounded-lg border border-border bg-card p-4">
+                <section className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                   <SecaoHeader>Fetiches</SecaoHeader>
                   <ul className="space-y-2">
                     {detalhe.fetiches.map((f) => (
@@ -288,7 +289,7 @@ export function ModalAtendimentoHistorico({
 
               {/* Resumo (campo 'Próxima Ação' obsoleto no MVP — task 0855ee14) */}
               {at.resumo_operacional && (
-                <section className="rounded-lg border border-border bg-card p-4">
+                <section className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                   <SecaoHeader>Contexto operacional</SecaoHeader>
                   <div>
                     <p className="mb-1 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
@@ -300,7 +301,7 @@ export function ModalAtendimentoHistorico({
               )}
 
               {/* Conversa */}
-              <section className="rounded-lg border border-border bg-card p-4">
+              <section className="rounded-lg border border-border bg-card p-4 shadow-elev-1 ring-1 ring-border-subtle">
                 <SecaoHeader>Conversa</SecaoHeader>
                 <HistoricoMensagens mensagens={detalhe.mensagens} />
               </section>

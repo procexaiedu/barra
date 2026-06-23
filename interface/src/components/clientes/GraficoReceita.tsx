@@ -29,11 +29,12 @@ export function GraficoReceita({ historico }: { historico: AtendimentoHistoricoI
     return (
       <section
         aria-label="Gráfico de receita acumulada"
-        className="rounded-lg border border-border bg-card p-5"
+        className="rounded-lg border border-border bg-card p-5 shadow-elev-1 ring-1 ring-border-subtle"
       >
-        <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        <h2 className="mb-3 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+          <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
           Receita acumulada
-        </p>
+        </h2>
         <div className="flex h-[140px] flex-col items-center justify-center gap-1.5 text-center">
           <p className="text-sm text-text-primary">
             Receita acumulada disponível a partir de 2 fechamentos.
@@ -80,10 +81,11 @@ export function GraficoReceita({ historico }: { historico: AtendimentoHistoricoI
   const yTicks = [0.25, 0.5, 0.75, 1] as const
 
   return (
-    <section aria-label="Gráfico de receita acumulada" className="rounded-lg border border-border bg-card p-5">
-      <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+    <section aria-label="Gráfico de receita acumulada" className="rounded-lg border border-border bg-card p-5 shadow-elev-1 ring-1 ring-border-subtle">
+      <h2 className="mb-3 flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.08em] text-text-muted">
+        <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
         Receita acumulada
-      </p>
+      </h2>
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ overflow: "visible" }}>
         {/* Grid lines */}
         {yTicks.map((t) => (

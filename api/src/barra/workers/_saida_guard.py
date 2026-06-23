@@ -16,6 +16,7 @@ DIRETO, pulando o guard. Além disso, o `output_guard` não redige PII. Estas fu
 
 from __future__ import annotations
 
+import random
 import re
 from collections.abc import Callable
 
@@ -116,14 +117,24 @@ def redigir_pii_eco(texto: str, tokens_cliente: set[str]) -> tuple[str, list[str
 # RARO (10,7% das bolhas, 94,7% delas com exatamente 1), de vocabulário minúsculo e afetivo
 # (🥰 😊 dominam), concentrado na ABERTURA e ausente na venda dura (1% na sondagem). O modelo, por
 # format-bias de RLHF ("From Lists to Emojis", ACL 2025), tende a saturar (E2E rig Lucia: 32%, só
-# 🥰 repetido). Esta rede determinística crava o whitelist e seca a venda; a DISTRIBUIÇÃO/frequência
-# ao longo da conversa é alavanca de prompt (persona.md), fora do alcance desta função stateless.
+# 🥰 repetido). Esta rede crava o whitelist e seca a venda; e como o prompt sozinho não basta (o
+# DeepSeek satura mesmo instruído na persona.md), também afina a FREQUÊNCIA nos atos não-secos via
+# sorteio per-bolha calibrado ao corpus (_EMOJI_KEEP_POR_ATO abaixo), seguindo stateless.
 
 # Whitelist de voz: os dois únicos emoji que a persona usa (persona.md <voz>).
 _EMOJI_PERMITIDOS = frozenset({"🥰", "😊"})
 
 # Atos em que o Vendedor humano NÃO usa emoji (persona.md: "da cotação em diante é tudo seco").
 _ATOS_SECOS = frozenset({"cotacao", "sondagem", "desconto", "logistica"})
+
+# Trava de frequência nos atos NÃO-secos: mantém o emoji da bolha só com esta probabilidade,
+# calibrada (keep = taxa_alvo_corpus / baseline_DeepSeek, medição 2026-06-22 sobre 765 bolhas) p/
+# trazer a frequência do agente à do corpus humano (perfil_estilo_por_momento.json: saudação 27%,
+# outro 9%). Os atos secos já zeram via _ATOS_SECOS; ato fora do dict = 1.0 (sem thinning).
+_EMOJI_KEEP_POR_ATO = {"saudacao": 0.57, "outro": 0.34}
+
+# RNG padrão do thinning (sorteio per-bolha). Injetável nos testes p/ determinismo.
+_RNG = random.Random()  # noqa: S311 — uso cosmético (thinning de emoji), não criptográfico
 
 # Faixas Unicode de emoji (mesmo recorte da estilometria do corpus). Inclui pictographs/emoticons,
 # símbolos & dingbats, setas, estrelas suplementares, seletores de variação e bandeiras.
@@ -139,17 +150,22 @@ _EMOJI = re.compile(
 )
 
 
-def _normalizar_bolha(bolha: str) -> str:
-    """Aplica whitelist + máx-1 + seca-na-venda a UMA bolha. Não injeta emoji que o modelo não pôs."""
+def _normalizar_bolha(bolha: str, rng: random.Random | None = None) -> str:
+    """Aplica whitelist + máx-1 + seca-na-venda + trava-de-frequência a UMA bolha. Não injeta emoji que o modelo não pôs."""
     matches = list(_EMOJI.finditer(bolha))
     if not matches:
         return bolha
-    if rotular_turno(bolha) in _ATOS_SECOS:
+    ato = rotular_turno(bolha)
+    if ato in _ATOS_SECOS:
         manter = -1  # ato seco → remove todos
     else:
         # mantém só o ÚLTIMO emoji do whitelist (o corpus usa emoji como sufixo); o resto cai.
         permitidos = [i for i, m in enumerate(matches) if m.group() in _EMOJI_PERMITIDOS]
         manter = permitidos[-1] if permitidos else -1
+        # trava de FREQUÊNCIA: o teto por-bolha não basta (o DeepSeek satura). Mantém o emoji só com
+        # prob _EMOJI_KEEP_POR_ATO[ato], calibrada à taxa do corpus humano naquele ato.
+        if manter >= 0 and (rng or _RNG).random() >= _EMOJI_KEEP_POR_ATO.get(ato, 1.0):
+            manter = -1
     partes: list[str] = []
     fim = 0
     for i, m in enumerate(matches):
@@ -165,10 +181,10 @@ def _normalizar_bolha(bolha: str) -> str:
     return texto.strip()
 
 
-def normalizar_emoji_voz(chunks: list[str]) -> list[str]:
+def normalizar_emoji_voz(chunks: list[str], rng: random.Random | None = None) -> list[str]:
     """Normaliza o emoji de cada bolha do turno. Descarta bolha que ficou vazia (era só emoji fora
     do whitelist); se isso esvaziar o turno inteiro, devolve os chunks originais (não engole o turno).
     """
-    out = [_normalizar_bolha(c) for c in chunks]
+    out = [_normalizar_bolha(c, rng) for c in chunks]
     nao_vazios = [c for c in out if c.strip()]
     return nao_vazios or chunks

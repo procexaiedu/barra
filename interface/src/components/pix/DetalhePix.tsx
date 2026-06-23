@@ -76,7 +76,7 @@ export function DetalhePix({
   if (detalhe === null) {
     return (
       <section aria-label="Detalhe do Pix">
-        <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-lg bg-card px-6 py-10 text-center ring-1 ring-foreground/10">
+        <div className="flex min-h-[220px] flex-col items-center justify-center gap-3 rounded-lg bg-card px-6 py-10 text-center shadow-elev-1 ring-1 ring-border-subtle">
           <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
             <ReceiptText size={22} strokeWidth={1.75} className="text-text-muted" />
           </div>
@@ -99,14 +99,14 @@ export function DetalhePix({
 
   return (
     <section aria-label="Detalhe do Pix" className="flex flex-col gap-3">
-      <header className="rounded-lg bg-card p-5 ring-1 ring-foreground/10">
+      <header className="rounded-lg bg-card p-5 shadow-elev-1 ring-1 ring-border-subtle">
         <div className="flex flex-wrap items-center gap-3">
           <Badge variant={badge.variant}>{badge.label}</Badge>
           <span className="ml-auto text-xs text-text-muted">
             Recebido {formatTempoRelativo(detalhe.pix.created_at)}
           </span>
         </div>
-        <h2 className="mt-3 break-words text-[22px] font-semibold leading-[30px] text-text-primary">
+        <h2 className="mt-3 break-words font-serif text-[22px] font-semibold leading-[30px] text-text-primary">
           {cliente}
         </h2>
         <p className="mt-1 text-[13px] text-text-muted">

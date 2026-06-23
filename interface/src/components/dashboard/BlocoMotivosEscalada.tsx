@@ -109,7 +109,7 @@ export function BlocoMotivosEscalada({ data, onAbrirTodas }: Props) {
           <span className="font-mono tabular-nums">{data.total}</span> no período
         </span>
       </header>
-      <div className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
+      <div className="rounded-lg bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle">
         {data.total === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 px-6 py-10 text-center">
             <div className="flex size-11 items-center justify-center rounded-full bg-muted ring-1 ring-border-subtle">
@@ -186,7 +186,7 @@ export function BlocoMotivosEscalada({ data, onAbrirTodas }: Props) {
                       className={cn(
                         "grid w-full grid-cols-[14px_1fr_36px_52px] items-center gap-2 rounded-md py-1 pl-1 pr-2 text-left",
                         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-                        inativo ? "opacity-50" : "transition-colors hover:bg-accent"
+                        inativo ? "opacity-50" : "transition-colors hover:bg-surface-hover"
                       )}
                       aria-label={`${d.rotulo}: ${d.contagem} escalas`}
                     >
@@ -224,11 +224,11 @@ export function BlocoMotivosEscalada({ data, onAbrirTodas }: Props) {
         )}
 
         {data.total > 0 ? (
-          <div className="mt-3 flex items-center justify-end border-t border-foreground/5 pt-3">
+          <div className="mt-3 flex items-center justify-end border-t border-border-subtle pt-3">
             <button
               type="button"
               onClick={onAbrirTodas}
-              className="text-xs font-medium text-text-muted underline-offset-2 hover:text-text-primary hover:underline focus-visible:text-text-primary focus-visible:underline focus-visible:outline-none"
+              className="text-xs font-medium text-text-muted underline-offset-2 transition-colors hover:text-text-primary hover:underline focus-visible:text-text-primary focus-visible:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
             >
               Ver lista completa
             </button>

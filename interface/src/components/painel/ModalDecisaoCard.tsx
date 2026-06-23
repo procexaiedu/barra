@@ -718,7 +718,7 @@ function HeroKPI({
   }
 
   return (
-    <div className="overflow-hidden rounded-md border border-border bg-muted">
+    <div className="overflow-hidden rounded-md border border-border bg-muted shadow-elev-1">
       <div className="flex flex-wrap items-end justify-between gap-3 px-6 py-5">
         <div className="min-w-0 flex-1">
           <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-text-muted">
@@ -749,7 +749,7 @@ function HeroKPI({
           label="Pausada"
           icone={<Clock size={11} strokeWidth={1.75} className="text-text-muted" />}
         >
-          {formatTempoRelativo(card.ia_pausada_em)}
+          <span className="font-mono tabular-nums">{formatTempoRelativo(card.ia_pausada_em)}</span>
         </StatTile>
         <StatTile
           label="Cliente"
@@ -768,21 +768,21 @@ function HeroKPI({
             label="Previsão término"
             icone={<CalendarClock size={11} strokeWidth={1.75} className="text-info-500" />}
           >
-            {formatHorario(card.previsao_termino)}
+            <span className="font-mono tabular-nums">{formatHorario(card.previsao_termino)}</span>
           </StatTile>
         ) : valorAcordado != null && !isPix ? (
           <StatTile
             label="Valor acordado"
             icone={<ReceiptText size={11} strokeWidth={1.75} className="text-gold-500" />}
           >
-            {formatBRL(valorAcordado)}
+            <span className="font-mono tabular-nums">{formatBRL(valorAcordado)}</span>
           </StatTile>
         ) : (
           <StatTile
             label="Atendimento"
             icone={<Target size={11} strokeWidth={1.75} className="text-text-muted" />}
           >
-            #{card.numero_curto}
+            <span className="font-mono tabular-nums">#{card.numero_curto}</span>
           </StatTile>
         )}
       </div>
@@ -829,7 +829,7 @@ function SecaoBloco({
   return (
     <section
       className={cn(
-        "rounded-md border p-4",
+        "rounded-md border p-4 shadow-elev-1",
         highlight ? "border-warn-500/40 bg-warn-500/5" : "border-border bg-card",
       )}
     >
@@ -868,7 +868,7 @@ function DefRow({
       <dt className="text-text-muted">{label}</dt>
       <dd
         className={cn(
-          "text-text-primary",
+          "font-mono tabular-nums text-text-primary",
           destaque && "font-medium",
           warn && "text-warn-500",
         )}

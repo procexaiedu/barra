@@ -28,7 +28,7 @@ export function PainelFiltros({
         <SlidersHorizontal size={15} strokeWidth={1.5} className="text-text-muted" />
         Filtros
         {ativos > 0 && (
-          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[11px] font-semibold tabular-nums text-on-brand">
+          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-gold-500 px-1 text-[11px] font-semibold tabular-nums text-on-brand">
             {ativos}
           </span>
         )}

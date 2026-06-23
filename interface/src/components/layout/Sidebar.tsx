@@ -58,7 +58,7 @@ export function Sidebar() {
           )}
         >
           {!collapsed && (
-            <span className="font-serif text-[28px] font-medium text-gold-500 whitespace-nowrap">
+            <span className="font-serif text-[28px] font-medium text-aurum whitespace-nowrap tracking-[0.01em]">
               Elite Baby
             </span>
           )}
@@ -89,11 +89,11 @@ export function Sidebar() {
                 const Icon = item.icon
                 const active = isActive(item.href)
                 const linkClass = cn(
-                  "flex h-10 items-center rounded-md py-2 text-sm transition-colors",
+                  "relative flex h-10 items-center rounded-md py-2 text-sm transition-all",
                   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
                   collapsed ? "w-full justify-center px-0" : "gap-3 px-3",
                   active
-                    ? "bg-accent text-text-brand"
+                    ? "text-text-brand font-medium [background-image:var(--gradient-gold-soft)] before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-gold-500 before:content-['']"
                     : "text-text-secondary hover:bg-accent hover:text-text-primary"
                 )
 

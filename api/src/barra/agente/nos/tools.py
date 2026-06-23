@@ -13,8 +13,8 @@ M5e: registra `enviar_midia`. Como ela pode ser chamada VARIAS vezes no mesmo tu
     como defesa contra LLM forjar -- doc oficial em langgraph 1.x). `runtime.tool_call_id`
     muda no replay (quebraria a PK) e `runtime.state["midia_idx"]` carrega o MESMO valor
     p/ todas as chamadas do turno (o State so consolida no fim do no), entao o indice por
-    ordem de aparicao no array `tool_calls` da AIMessage e a unica fonte deterministica
-    (04 §3.3 nota).
+    ordem de aparicao das `enviar_midia` em TODAS as AIMessages do turno e a unica fonte
+    deterministica (04 §3.3 nota; ordinal GLOBAL p/ nao colidir entre passagens ReAct).
 """
 
 from typing import Any
@@ -35,10 +35,12 @@ class _ToolNodeComMidiaIdx(ToolNode):
     secretos (`call_idx`, `tool_call_id`, etc.). A injecao tem de entrar em `injected_args`
     (valores "trusted"), exatamente no mesmo ponto onde state/store/runtime sao injetados.
 
-    Calcula `call_idx` pela posicao ordinal da chamada no array `tool_calls` da ultima
-    AIMessage do State -- determinismo total, sem estado mutavel compartilhado, replay-safe:
-    no replay o State nasce do zero, a mesma AIMessage produz os mesmos `call_idx` 0..N-1
-    e o ON CONFLICT do `_executar_idempotente` deduplica.
+    Calcula `call_idx` pela posicao ordinal GLOBAL da chamada entre TODAS as `enviar_midia`
+    do turno (varrendo as AIMessages do State em ordem) -- determinismo total, sem estado
+    mutavel compartilhado, replay-safe: no replay o State nasce do zero, as mesmas AIMessages
+    produzem os mesmos `call_idx` 0..N-1 e o ON CONFLICT do `_executar_idempotente` deduplica.
+    O ordinal e GLOBAL (nao por-AIMessage) p/ nao colidir quando `enviar_midia` reaparece em
+    passagens ReAct distintas do mesmo turno (ver `_calcular_call_idx_midia`).
 
     "Unordered" no doc oficial e sobre EXECUCAO paralela (asyncio.gather no `_afunc`) --
     nao sobre posicao no array `tool_calls`, que e estavel (04 §3.3 nota).
@@ -57,9 +59,19 @@ class _ToolNodeComMidiaIdx(ToolNode):
 
 
 def _calcular_call_idx_midia(tool_runtime: Any, this_call_id: str) -> int:
-    """Posicao ordinal desta chamada de `enviar_midia` entre as `enviar_midia` da ULTIMA
-    AIMessage do State. Determinismo: depende so do conteudo do State (replay-safe). Sem
-    estado mutavel compartilhado (compativel com `asyncio.gather` do `_afunc`)."""
+    """Posicao ordinal GLOBAL desta chamada de `enviar_midia` entre TODAS as `enviar_midia`
+    geradas no turno -- varre as AIMessages do State em ordem, nao so a ultima. Determinismo:
+    depende so do conteudo do State (replay-safe). Sem estado mutavel compartilhado (compativel
+    com `asyncio.gather` do `_afunc`).
+
+    Por que GLOBAL e nao por-AIMessage: no ReAct `enviar_midia` pode reaparecer em PASSAGENS
+    distintas do MESMO turno (AIMessages distintas) -- ex.: manda 1 foto, ve o resultado, decide
+    mandar outra. Um ordinal local a cada AIMessage reiniciaria em 0 na 2a passagem e colidiria a
+    PK `(turno_id, 'enviar_midia', call_idx)`: o ON CONFLICT do `_executar_idempotente` descartaria
+    a foto da 2a passagem em silencio. O ordinal global mantem `call_idx` unico no turno. AIMessages
+    historicas re-injetadas pelo prepare_context nao carregam tool_calls (so content+id), entao nao
+    inflam a contagem -- varrer todas e seguro.
+    """
     state = getattr(tool_runtime, "state", None)
     if state is None:
         return 0
@@ -68,15 +80,15 @@ def _calcular_call_idx_midia(tool_runtime: Any, this_call_id: str) -> int:
     )
     if not mensagens:
         return 0
-    ultima = mensagens[-1]
-    if not isinstance(ultima, AIMessage):
-        return 0
     idx = 0
-    for tc in ultima.tool_calls or []:
-        if tc.get("id") == this_call_id:
-            return idx
-        if tc.get("name") == "enviar_midia":
-            idx += 1
+    for m in mensagens:
+        if not isinstance(m, AIMessage):
+            continue
+        for tc in m.tool_calls or []:
+            if tc.get("id") == this_call_id:
+                return idx
+            if tc.get("name") == "enviar_midia":
+                idx += 1
     return idx
 
 

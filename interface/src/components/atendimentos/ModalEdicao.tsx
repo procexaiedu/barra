@@ -474,10 +474,11 @@ export function ModalEdicao({
                           setRemovidos((prev) => new Set([...prev, s.id]))
                           setProgramasMexidos(true)
                         }}
-                        className="text-text-muted transition-colors hover:text-text-primary"
+                        aria-label={`Remover ${s.nome}`}
+                        className="text-text-muted transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         disabled={submitting}
                       >
-                        <X size={14} />
+                        <X size={14} aria-hidden />
                       </button>
                     </div>
                   </div>
@@ -491,10 +492,11 @@ export function ModalEdicao({
                         setAdicionados((prev) => prev.filter((_, j) => j !== i))
                         setProgramasMexidos(true)
                       }}
-                      className="text-text-muted transition-colors hover:text-text-primary"
+                      aria-label={`Remover ${a.label}`}
+                      className="text-text-muted transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       disabled={submitting}
                     >
-                      <X size={14} />
+                      <X size={14} aria-hidden />
                     </button>
                   </div>
                 ))}
@@ -533,10 +535,11 @@ export function ModalEdicao({
                       <button
                         type="button"
                         onClick={() => setRemovidosFet((prev) => new Set([...prev, f.id]))}
-                        className="text-text-muted transition-colors hover:text-text-primary"
+                        aria-label={`Remover fetiche ${f.nome}`}
+                        className="text-text-muted transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         disabled={submitting}
                       >
-                        <X size={14} />
+                        <X size={14} aria-hidden />
                       </button>
                     </div>
                   </div>
@@ -549,10 +552,11 @@ export function ModalEdicao({
                       <button
                         type="button"
                         onClick={() => setAdicionadosFet((prev) => prev.filter((_, j) => j !== i))}
-                        className="text-text-muted transition-colors hover:text-text-primary"
+                        aria-label={`Remover fetiche ${a.nome}`}
+                        className="text-text-muted transition-colors hover:text-text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         disabled={submitting}
                       >
-                        <X size={14} />
+                        <X size={14} aria-hidden />
                       </button>
                     </div>
                   </div>

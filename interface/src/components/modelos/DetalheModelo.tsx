@@ -106,7 +106,7 @@ export function DetalheModelo({
 
   return (
     <section aria-label="Detalhe da modelo" className="flex min-w-0 flex-col gap-4">
-      <Card className="px-4">
+      <Card className="px-4 shadow-elev-1">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-3">
             <FotoPerfil url={modelo.foto_perfil_url} nome={modelo.nome} size="sm" />

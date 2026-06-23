@@ -55,7 +55,7 @@ export function ProgramasModelo({
   const grupos = useMemo(() => agruparPorPrograma(vinculados), [vinculados])
 
   return (
-    <section className="rounded-lg bg-card p-6 ring-1 ring-foreground/10">
+    <section className="rounded-lg bg-card p-6 shadow-elev-1 ring-1 ring-border-subtle">
       <header className="mb-5 flex items-start justify-between gap-4">
         <div>
           <h2 className="flex items-center gap-2.5 text-base font-semibold text-text-primary">
@@ -158,9 +158,12 @@ function GrupoPrograma({
   onDesvincular: (programaId: string, duracaoId: string) => Promise<void>
 }) {
   return (
-    <div className="overflow-hidden rounded-md border border-border">
+    <div className="overflow-hidden rounded-md border border-border shadow-elev-1">
       <div className="border-b border-border bg-muted px-4 py-2.5">
-        <h3 className="text-sm font-semibold text-text-primary">{grupo.nome}</h3>
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+          <span className="h-3 w-0.5 rounded-full bg-gold-500/70" aria-hidden />
+          {grupo.nome}
+        </h3>
       </div>
       <ul className="divide-y divide-border">
         {grupo.linhas.map((linha) => (
@@ -230,7 +233,7 @@ function LinhaServico({
   }
 
   return (
-    <li className="flex items-center justify-between gap-3 px-4 py-2.5">
+    <li className="flex items-center justify-between gap-3 px-4 py-2.5 transition-colors hover:bg-surface-hover">
       <span className="w-28 shrink-0 text-sm text-text-secondary">{linha.duracao_nome}</span>
 
       <div className="ml-auto flex items-center gap-2">
@@ -354,8 +357,11 @@ function FetichesSubBloco({
   return (
     <div className="mt-6 border-t border-border pt-5">
       <div className="mb-3">
-        <h3 className="text-sm font-semibold text-text-primary">Fetiches</h3>
-        <p className="mt-1 text-xs text-text-muted">
+        <h3 className="flex items-center gap-2.5 text-sm font-semibold text-text-primary">
+          <span className="h-3.5 w-1 rounded-full bg-gold-500" aria-hidden />
+          Fetiches
+        </h3>
+        <p className="mt-1 pl-[14px] text-xs text-text-muted">
           O que ela faz. Deixe o preço em branco para incluso, ou informe um valor de extra.
         </p>
       </div>
@@ -501,7 +507,7 @@ function LinhaFetiche({
   }
 
   return (
-    <li className="flex items-center justify-between gap-3 px-4 py-2.5">
+    <li className="flex items-center justify-between gap-3 px-4 py-2.5 transition-colors hover:bg-surface-hover">
       <span className="text-sm text-text-secondary">{linha.nome}</span>
 
       <div className="ml-auto flex items-center gap-2">

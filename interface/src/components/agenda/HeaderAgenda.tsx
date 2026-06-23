@@ -68,9 +68,9 @@ export function HeaderAgenda({
                 aria-pressed={visao === item.value}
                 onClick={() => onVisaoChange(item.value)}
                 className={cn(
-                  "rounded-md px-3 py-1 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                  "relative rounded-md px-3 py-1 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   visao === item.value
-                    ? "bg-card text-text-primary shadow-sm"
+                    ? "bg-card text-text-primary shadow-sm after:absolute after:inset-x-2 after:-bottom-px after:h-px after:rounded-full after:bg-gold-500"
                     : "text-text-muted hover:text-text-primary",
                 )}
               >

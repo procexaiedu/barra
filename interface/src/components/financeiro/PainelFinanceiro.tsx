@@ -115,8 +115,8 @@ export function PainelFinanceiro({
       )}
 
       {janela && (
-        <div className="font-mono text-[11px] tabular-nums text-text-muted">
-          deltas vs {janela.de} → {janela.ate}
+        <div className="inline-flex items-center gap-1.5 rounded-sm bg-muted/40 px-2 py-0.5 font-mono text-[10.5px] tabular-nums text-text-muted">
+          deltas vs <span className="text-text-secondary">{janela.de} → {janela.ate}</span>
         </div>
       )}
 

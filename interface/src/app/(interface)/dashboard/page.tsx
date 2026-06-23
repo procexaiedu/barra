@@ -78,7 +78,7 @@ function DashboardInner() {
         <div
           aria-busy={dashboard.isRefreshing}
           className={cn(
-            "flex flex-col gap-8 transition-opacity duration-150",
+            "rise-in flex flex-col gap-8 transition-opacity duration-150",
             dashboard.isRefreshing ? "pointer-events-none opacity-60" : ""
           )}
         >

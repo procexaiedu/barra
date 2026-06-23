@@ -76,13 +76,14 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
 
   return (
     <Card className="p-4">
-      <div className="mb-4 flex items-center gap-2">
-        <ReceiptText size={18} strokeWidth={1.75} className="text-gold-500" />
+      <div className="mb-4 flex items-center gap-2.5">
+        <span className="h-4 w-1 rounded-full bg-gold-500" aria-hidden />
+        <ReceiptText size={15} strokeWidth={1.75} className="text-gold-500" />
         <h2 className="text-base font-semibold text-text-primary">Resumo do atendimento</h2>
       </div>
 
       {/* Meta compacta — estado e valor vivem no header; aqui só tipo, quando e, se divergir, o acordado */}
-      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md bg-muted px-4 py-2.5">
+      <div className="mb-4 flex flex-wrap items-center gap-x-6 gap-y-2 rounded-md bg-muted px-4 py-2.5 ring-1 ring-border-subtle">
         <MetaInline label="Tipo" icone={<Target size={13} strokeWidth={1.75} className="text-info-500" />}>
           {atendimento.tipo_atendimento
             ? tipoLabel[atendimento.tipo_atendimento]
@@ -323,7 +324,8 @@ function Secao({
   return (
     <div className={cn("mt-4", !semDivisor && "border-t border-border pt-4")}>
       {titulo && (
-        <h3 className="mb-2.5 flex items-center gap-1.5 text-[13px] font-semibold text-text-primary">
+        <h3 className="mb-2.5 flex items-center gap-2 text-[13px] font-semibold text-text-primary">
+          <span className="h-3.5 w-1 shrink-0 rounded-full bg-gold-500" aria-hidden />
           {icone}
           <span>{titulo}</span>
         </h3>

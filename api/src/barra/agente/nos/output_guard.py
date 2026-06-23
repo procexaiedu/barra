@@ -33,6 +33,7 @@ from barra.settings import get_settings
 
 from .._canned import NEGACOES_CANNED
 from .._defesa import escalar_defesa
+from .._instrumentar import instrumentar_tokens
 from .._texto_turno import extrair_texto_do_turno, mensagens_do_turno
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
@@ -95,10 +96,39 @@ class _VeredictoAup(BaseModel):
     )
 
 
+# Vocativos afetuosos comuns no atendimento (a persona usa "amor", "vida", "gata"...). Se uma modelo
+# for cadastrada com um nome-de-guerra que COINCIDE com um deles, inclui-lo na negativa cross-modelo
+# barraria toda bolha de OUTRA modelo que use o vocativo -> falso-positivo + escalada espuria. O `>=4`
+# ja filtra nome curto/comum; isto cobre o residual de >=4 chars. Tradeoff aceito: nao se caca o
+# vazamento raro cujo nome-alvo seja exatamente um vocativo, em troca de nao quebrar a fala
+# client-facing (que usa esses termos a cada bolha). A Etapa 2 (judge AUP) segue de backstop.
+_VOCATIVOS_COMUNS = frozenset(
+    {
+        "amor",
+        "vida",
+        "gata",
+        "gato",
+        "linda",
+        "lindo",
+        "anjo",
+        "bebe",
+        "bebê",
+        "delicia",
+        "delícia",
+        "querido",
+        "querida",
+        "gostoso",
+        "gostosa",
+        "princesa",
+    }
+)
+
+
 async def _nomes_outras_modelos(conn: Any, modelo_id: str) -> list[str]:
     """Nomes/numeros de OUTRAS modelos (negativa cross-modelo) -- montada do banco, nao do prompt.
 
-    So nomes com >=4 chars (evita falso-positivo de nome curto/comum em texto coloquial).
+    So nomes com >=4 chars que NAO sejam vocativos afetuosos comuns (`_VOCATIVOS_COMUNS`): ambos
+    evitam falso-positivo de nome curto/comum em texto coloquial.
     """
     res = await conn.execute(
         "SELECT nome, numero_whatsapp FROM barravips.modelos WHERE id <> %s",
@@ -107,7 +137,7 @@ async def _nomes_outras_modelos(conn: Any, modelo_id: str) -> list[str]:
     termos: list[str] = []
     for r in await res.fetchall():
         nome = (r.get("nome") or "").strip()
-        if len(nome) >= 4:
+        if len(nome) >= 4 and nome.lower() not in _VOCATIVOS_COMUNS:
             termos.append(nome)
         numero = (r.get("numero_whatsapp") or "").strip()
         if len(numero) >= 6:
@@ -171,11 +201,12 @@ def _scan_vazamento(texto: str, termos_cross: list[str]) -> str | None:
 
 
 async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
-    """Etapa 2: LLM-judge de AUP (Haiku/OpenRouter, structured output). Prompt em aup_saida.md.
+    """Etapa 2: LLM-judge de AUP no DeepSeek V4 Flash direto (structured output). Prompt em aup_saida.md.
 
-    Provider por settings.output_guard_provider: `anthropic` (default, Haiku via ChatAnthropic) ou
-    `openrouter` (ChatOpenAI). No ChatOpenAI o structured output usa function-calling explicito
-    (`method`), mais robusto que json_schema no roteamento dinamico do OpenRouter.
+    DeepSeek-only (igual ao chat #1 e a extracao): ChatOpenAI direto na API DeepSeek, com thinking
+    travado em disabled (o thinking mode do V4 corromperia o structured output — vllm#41132) e o
+    structured output por function-calling explicito (`method="function_calling"`). Cacheia o prefixo
+    aup_saida.md (o mesmo system antes de CADA bolha).
 
     SO-03: `include_raw` expoe o motivo de parada da PROPRIA resposta do judge. Recusa
     (refusal/content_filter), truncamento (max_tokens/length) ou falha de parse nao produzem
@@ -183,37 +214,15 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
     escala), em vez de aceitar um `viola=False` espurio. `motivo_parada`/`PARADA_INSEGURA` unificam
     os vocabularios Anthropic (stop_reason) e OpenAI/OpenRouter (finish_reason).
     """
-    from barra.core.llm import (
-        PARADA_INSEGURA,
-        criar_chat_anthropic,
-        criar_chat_deepseek,
-        criar_chat_openrouter,
-        motivo_parada,
-    )
+    from barra.core.llm import PARADA_INSEGURA, criar_chat_deepseek, motivo_parada
 
-    if settings.output_guard_provider == "deepseek":
-        # direct DeepSeek (V4 Flash, thinking travado em disabled): cacheia o prefixo aup_saida.md (o
-        # mesmo system antes de CADA bolha) e crava modelo/quant — sem roleta do pool nem risco de
-        # thinking corromper o veredito (vllm#41132). method="function_calling" mantido.
-        chat = criar_chat_deepseek(settings).with_structured_output(
-            _VeredictoAup, include_raw=True, method="function_calling"
-        )
-    elif settings.output_guard_provider == "openrouter":
-        assert settings.openrouter_model_judge is not None  # garantido pelo model_validator
-        # method="function_calling" explicito: mais robusto que json_schema no roteamento OpenRouter.
-        # reasoning_off: o veredito e structured output e o thinking mode do DeepSeek V4 corrompe
-        # structured output (vllm#41132) — alem de 2-5x latencia num caminho que roda antes de CADA
-        # bolha. quant: piso de qualidade do roteamento (consistencia da classificacao de seguranca).
-        chat = criar_chat_openrouter(
-            settings,
-            modelo=settings.openrouter_model_judge,
-            reasoning_off=True,
-            quantizations=settings.openrouter_quantizations,
-        ).with_structured_output(_VeredictoAup, include_raw=True, method="function_calling")
-    else:
-        chat = criar_chat_anthropic(
-            settings, modelo=settings.output_guard_modelo, com_effort=False
-        ).with_structured_output(_VeredictoAup, include_raw=True)
+    # DeepSeek-only (V4 Flash, thinking travado em disabled): cacheia o prefixo aup_saida.md (o mesmo
+    # system antes de CADA bolha) e crava modelo/quant — sem roleta do pool nem risco de thinking
+    # corromper o veredito (vllm#41132). method="function_calling" explicito (mais robusto que json_schema).
+    modelo_judge = settings.deepseek_model_chat
+    chat = criar_chat_deepseek(settings).with_structured_output(
+        _VeredictoAup, include_raw=True, method="function_calling"
+    )
     mensagens = [
         {"role": "system", "content": render_aup_saida()},
         {"role": "user", "content": f"MENSAGEM A AVALIAR:\n{texto}"},
@@ -221,6 +230,12 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
     resultado = await chat.ainvoke(mensagens)
     assert isinstance(resultado, dict)
     bruto = resultado.get("raw")
+    # CUSTO: o judge roda antes de CADA bolha e queima tokens (DeepSeek V4 Flash) que antes nao
+    # entravam em nenhuma metrica. Instrumenta sob o label do PROPRIO modelo do judge. ANTES do
+    # check de parada -- o token gastou mesmo quando o veredito vem inseguro (refusal/truncado/parse)
+    # e cai no _JudgeInseguro.
+    if bruto is not None:
+        instrumentar_tokens(bruto, modelo_judge)
     parada = motivo_parada(getattr(bruto, "response_metadata", None))
     if resultado.get("parsing_error") is not None or parada in PARADA_INSEGURA:
         raise _JudgeInseguro(f"judge sem veredito confiavel (parada={parada})")
@@ -275,7 +290,21 @@ async def output_guard(
 
     # bloqueio = substitui TODAS as AIMessages do turno por vazias (mesmo id -> reducer troca);
     # zerar so a ultima deixaria o texto da 1a passagem vivo p/ o coordenador despachar.
-    vazias = [AIMessage(id=m.id, content="") for m in msgs_turno]
+    # PRESERVA usage_metadata + response_metadata: o reducer troca o objeto pelo id, e o coordenador
+    # le `resultado["messages"]` para acumular o custo do turno (`custo_chat_turno_brl`, que filtra por
+    # usage_metadata != None) e precificar pela tabela do modelo (response_metadata.model_name). Sem
+    # isso, um turno BARRADO pelo guard queimou tokens mas entrava no custo_ia_brl como ZERO. O content
+    # segue vazio -> nenhuma bolha sai; sem tool_calls copiados, o check de truncamento (coordenador
+    # 5c, exige tool_calls) nao re-dispara.
+    vazias = [
+        AIMessage(
+            id=m.id,
+            content="",
+            usage_metadata=m.usage_metadata,
+            response_metadata=m.response_metadata,
+        )
+        for m in msgs_turno
+    ]
 
     # Etapa 1: scan deterministico (incl. negativa cross-modelo do banco) sobre texto + legendas.
     motivo = _scan_vazamento(texto_guard, termos_cross)
