@@ -65,10 +65,11 @@ class FakeConn:
         if "FROM barravips.comprovantes_pix" in query:
             return _Result([{"n": 0}])
 
-        # _fechamentos
+        # _fechamentos (JOIN LATERAL: ancora dedupada de fechado_registrado — ADR 0011, exigir o
+        # LATERAL aqui trava regressao do dedup que evita inflar os SUM sob correcao Perdido->Fechado)
         if (
             "FROM barravips.atendimentos a" in query
-            and "JOIN barravips.eventos e" in query
+            and "JOIN LATERAL" in query
             and "fechado_registrado" in query
             and "valor_liquido" in query
         ):

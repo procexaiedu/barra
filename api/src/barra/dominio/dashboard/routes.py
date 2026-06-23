@@ -409,7 +409,20 @@ async def _fechamentos(
             WHERE a.percentual_repasse_snapshot IS NULL
           )::int AS contagem_sem_snapshot
           FROM barravips.atendimentos a
-          JOIN barravips.eventos e ON e.atendimento_id = a.id
+          JOIN LATERAL (
+            -- Ancora dedupada: 1 fechado_registrado por atendimento (o mais recente). Sem isso,
+            -- atendimentos com 2+ eventos `fechado_registrado` (correcao Fechado->Perdido->Fechado
+            -- em escaladas/service._corrigir_registro) gerariam N linhas e inflariam os SUM de valor;
+            -- COUNT(DISTINCT a.id) mascarava (contagem certa, dinheiro inflado). Espelha o dedup do
+            -- modulo financeiro (financeiro/repo.py) -> bloco do dashboard e tela do modulo mostram o
+            -- MESMO numero (ADR 0011, nao-negociavel). `tipo` no SELECT mantem valido o filtro externo.
+            SELECT created_at, tipo
+              FROM barravips.eventos
+             WHERE atendimento_id = a.id
+               AND tipo = 'fechado_registrado'
+             ORDER BY created_at DESC
+             LIMIT 1
+          ) e ON true
          WHERE a.estado = 'Fechado'
            AND e.tipo = 'fechado_registrado'
            AND e.created_at >= %s AND e.created_at <= %s
@@ -725,7 +738,17 @@ async def _profissionais(
                    (a.valor_final / (1 + COALESCE(a.taxa_cartao_snapshot, 0) / 100)) * COALESCE(a.percentual_repasse_snapshot, 0) / 100
                  ), 0)::numeric AS valor_repasse_modelo
             FROM barravips.atendimentos a
-            JOIN barravips.eventos e ON e.atendimento_id = a.id
+            JOIN LATERAL (
+              -- Ancora dedupada (ver _fechamentos): 1 fechado_registrado/atendimento p/ nao inflar
+              -- os SUM de valor sob correcao Fechado->Perdido->Fechado. COUNT(DISTINCT) ja era imune;
+              -- as somas de dinheiro nao. Espelha financeiro/repo.py (ADR 0011, mesmo numero).
+              SELECT created_at, tipo
+                FROM barravips.eventos
+               WHERE atendimento_id = a.id
+                 AND tipo = 'fechado_registrado'
+               ORDER BY created_at DESC
+               LIMIT 1
+            ) e ON true
            WHERE a.estado = 'Fechado'
              AND e.tipo = 'fechado_registrado'
              AND e.created_at >= %s AND e.created_at <= %s {filtro_modelo_fech}
@@ -1003,10 +1026,20 @@ async def _serie_financeiro(
         dados AS (
           SELECT date_trunc(%s, e.created_at) AS bucket,
                  COALESCE(SUM({expressao}), 0)::numeric AS valor
-            FROM barravips.eventos e
-            JOIN barravips.atendimentos a ON a.id = e.atendimento_id
-           WHERE e.tipo = 'fechado_registrado'
-             AND a.estado = 'Fechado'
+            FROM barravips.atendimentos a
+            JOIN LATERAL (
+              -- Ancora dedupada (ver _fechamentos): 1 fechado_registrado/atendimento, senao a
+              -- soma da sparkline infla sob correcao Fechado->Perdido->Fechado. Espelha o dedup do
+              -- modulo financeiro (financeiro/repo.py) -> sparkline e modulo batem (ADR 0011).
+              SELECT created_at, tipo
+                FROM barravips.eventos
+               WHERE atendimento_id = a.id
+                 AND tipo = 'fechado_registrado'
+               ORDER BY created_at DESC
+               LIMIT 1
+            ) e ON true
+           WHERE a.estado = 'Fechado'
+             AND e.tipo = 'fechado_registrado'
              {filtro_modelo}
            GROUP BY 1
         )
