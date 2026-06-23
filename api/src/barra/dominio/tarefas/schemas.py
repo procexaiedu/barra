@@ -1,9 +1,8 @@
 """DTOs HTTP do Módulo de Tarefas (ADR 0017).
 
 Tarefas internas da operação (estilo ClickUp), painel-only. Ator
-(criador/responsável) é polimórfico `(tipo, id)` — ver `tarefa_ator_tipo`. No P0
-só `usuario`/`modelo` são resolvíveis (a tabela `vendedores` do ADR 0012 ainda
-não existe); `vendedor` fica reservado no enum para quando entrar.
+(criador/responsável) é polimórfico `(tipo, id)` — ver `tarefa_ator_tipo`.
+`usuario`/`modelo`/`vendedor` (ADR 0012) são todos resolvíveis.
 """
 
 from __future__ import annotations

@@ -89,6 +89,8 @@ class ModeloCreate(BaseModel):
     numero_whatsapp: str
     valor_padrao: Decimal = Field(ge=0)
     percentual_repasse: Decimal | None = Field(default=None, ge=0, le=100)
+    # Vendedor padrão (ADR 0012): o atendimento herda na criação. NULL = IA conduz (sem comissão).
+    vendedor_id: UUID | None = None
     chave_pix: str | None = None
     titular_chave: str | None = None
     idiomas: list[str] = Field(default_factory=lambda: ["pt-BR"])
@@ -121,6 +123,8 @@ class ModeloPatch(BaseModel):
     numero_whatsapp: str | None = None
     valor_padrao: Decimal | None = Field(default=None, ge=0)
     percentual_repasse: Decimal | None = Field(default=None, ge=0, le=100)
+    # Vendedor padrão (ADR 0012). Enviar null limpa (IA conduz, sem comissão).
+    vendedor_id: UUID | None = None
     chave_pix: str | None = None
     titular_chave: str | None = None
     idiomas: list[str] | None = None

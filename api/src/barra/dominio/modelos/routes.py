@@ -225,11 +225,13 @@ async def criar_modelo(
               tipo_atendimento_aceito, tipo_fisico,
               rg, cpf, endereco_residencial_formatado, place_id_residencial,
               cor_pele, cor_cabelo, altura_cm, tamanho_pe,
-              peso_kg, cintura_cm, signo, instagram, email
+              peso_kg, cintura_cm, signo, instagram, email,
+              vendedor_id
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s,
-                    %s, %s, %s, %s, %s)
+                    %s, %s, %s, %s, %s,
+                    %s)
             RETURNING *
             """,
             (
@@ -261,6 +263,7 @@ async def criar_modelo(
                 body.signo,
                 body.instagram,
                 body.email,
+                body.vendedor_id,
             ),
         )
     except UniqueViolation as exc:

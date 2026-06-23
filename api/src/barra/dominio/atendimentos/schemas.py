@@ -19,6 +19,11 @@ class DevolverRequest(BaseModel):
 
 class FecharRequest(BaseModel):
     valor_final: Decimal = Field(ge=0)
+    # Taxa de cartão (ADR 0013): percentual cobrado por cima do serviço quando o pagamento
+    # é no cartão. None = sem taxa (pix/dinheiro ou cartão isento). O snapshot preserva o
+    # histórico se o default mudar; a UI sugere `settings.taxa_cartao_padrao_pct`. O comando
+    # do grupo (`fechado [valor]`) não envia taxa — Fernando ajusta depois no painel (correção).
+    taxa_cartao_snapshot: Decimal | None = Field(default=None, ge=0, le=100)
 
 
 class PerderRequest(BaseModel):
@@ -35,6 +40,9 @@ class PerderRequest(BaseModel):
 class CorrigirRegistroRequest(BaseModel):
     novo_resultado: Literal["Fechado", "Perdido"]
     valor_final: Decimal | None = Field(default=None, ge=0)
+    # Taxa de cartão (ADR 0013): ajustada na correção do painel (recalcula o financeiro).
+    # None = sem taxa. Só faz sentido com novo_resultado=Fechado.
+    taxa_cartao_snapshot: Decimal | None = Field(default=None, ge=0, le=100)
     motivo: (
         Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None
     ) = None

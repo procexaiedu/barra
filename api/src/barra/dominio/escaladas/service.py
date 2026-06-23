@@ -129,13 +129,20 @@ async def _registrar_fechado(
            SET estado = 'Fechado',
                valor_final = %s,
                percentual_repasse_snapshot = COALESCE(percentual_repasse_snapshot, %s),
+               taxa_cartao_snapshot = %s,
                ia_pausada = false,
                ia_pausada_motivo = NULL,
                responsavel_atual = 'Fernando',
                fonte_decisao_ultima_transicao = %s
          WHERE id = %s
         """,
-        (Decimal(str(valor)), atendimento["percentual_repasse"], _fonte(origem), atendimento["id"]),
+        (
+            Decimal(str(valor)),
+            atendimento["percentual_repasse"],
+            payload.get("taxa_cartao_snapshot"),
+            _fonte(origem),
+            atendimento["id"],
+        ),
     )
     await _evento(
         conn,
@@ -235,6 +242,7 @@ async def _corrigir_registro(
         UPDATE barravips.atendimentos
            SET estado = %s,
                valor_final = %s,
+               taxa_cartao_snapshot = %s,
                motivo_perda = %s,
                motivo_perda_obs = %s,
                fonte_decisao_ultima_transicao = %s
@@ -243,6 +251,7 @@ async def _corrigir_registro(
         (
             novo,
             payload.get("valor_final"),
+            payload.get("taxa_cartao_snapshot"),
             payload.get("motivo"),
             payload.get("observacao"),
             _fonte(origem),

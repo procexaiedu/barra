@@ -1,10 +1,9 @@
 """SQL puro psycopg3 do Módulo de Tarefas (ADR 0017 / 0002).
 
 Ator (criador/responsável) é polimórfico `(tipo, id)` sem FK. A resolução do
-nome é feita na leitura por LEFT JOIN condicional por tipo. No P0 só
-`usuario`/`modelo` são resolvidos — a tabela `vendedores` (ADR 0012) ainda não
-existe; quando entrar, adicionar o JOIN/branch de `vendedor` aqui e o ramo no
-`UNION ALL` de `listar_responsaveis`.
+nome é feita na leitura por LEFT JOIN condicional por tipo. `usuario`/`modelo`/
+`vendedor` (ADR 0012) são resolvidos no `_SELECT_BASE` e ofertados no `UNION ALL`
+de `listar_responsaveis`.
 """
 
 from __future__ import annotations
@@ -38,18 +37,22 @@ _SELECT_BASE = """
       t.atribuido_id,
       t.concluida_em, t.created_at, t.updated_at,
       CASE t.criado_por_tipo
-        WHEN 'usuario' THEN cu.nome
-        WHEN 'modelo'  THEN cm.nome
+        WHEN 'usuario'  THEN cu.nome
+        WHEN 'modelo'   THEN cm.nome
+        WHEN 'vendedor' THEN cv.nome
       END AS criado_por_nome,
       CASE t.atribuido_tipo
-        WHEN 'usuario' THEN au.nome
-        WHEN 'modelo'  THEN am.nome
+        WHEN 'usuario'  THEN au.nome
+        WHEN 'modelo'   THEN am.nome
+        WHEN 'vendedor' THEN av.nome
       END AS atribuido_nome
       FROM barravips.tarefas t
-      LEFT JOIN barravips.usuarios cu ON t.criado_por_tipo = 'usuario' AND cu.id = t.criado_por_id
-      LEFT JOIN barravips.modelos  cm ON t.criado_por_tipo = 'modelo'  AND cm.id = t.criado_por_id
-      LEFT JOIN barravips.usuarios au ON t.atribuido_tipo  = 'usuario' AND au.id = t.atribuido_id
-      LEFT JOIN barravips.modelos  am ON t.atribuido_tipo  = 'modelo'  AND am.id = t.atribuido_id
+      LEFT JOIN barravips.usuarios   cu ON t.criado_por_tipo = 'usuario'  AND cu.id = t.criado_por_id
+      LEFT JOIN barravips.modelos    cm ON t.criado_por_tipo = 'modelo'   AND cm.id = t.criado_por_id
+      LEFT JOIN barravips.vendedores cv ON t.criado_por_tipo = 'vendedor' AND cv.id = t.criado_por_id
+      LEFT JOIN barravips.usuarios   au ON t.atribuido_tipo  = 'usuario'  AND au.id = t.atribuido_id
+      LEFT JOIN barravips.modelos    am ON t.atribuido_tipo  = 'modelo'   AND am.id = t.atribuido_id
+      LEFT JOIN barravips.vendedores av ON t.atribuido_tipo  = 'vendedor' AND av.id = t.atribuido_id
 """
 
 
@@ -219,13 +222,15 @@ async def excluir(conn: AsyncConnection[Any], tarefa_id: UUID) -> bool:
 
 async def listar_responsaveis(conn: AsyncConnection[Any]) -> list[ResponsavelOpcao]:
     """Universo do seletor de responsável (rótulo). usuarios ativos + modelos não
-    inativas. `vendedor` entra quando a tabela do ADR 0012 existir.
+    inativas + vendedores ativos (ADR 0012).
     """
     result = await conn.execute(
         """
         SELECT 'usuario' AS tipo, id, nome FROM barravips.usuarios WHERE ativo
         UNION ALL
         SELECT 'modelo' AS tipo, id, nome FROM barravips.modelos WHERE status <> 'inativa'
+        UNION ALL
+        SELECT 'vendedor' AS tipo, id, nome FROM barravips.vendedores WHERE ativo
         ORDER BY tipo, nome
         """
     )

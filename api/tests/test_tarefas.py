@@ -1,8 +1,8 @@
 """Módulo de Tarefas (ADR 0017) — rotas /v1/tarefas com FakeConn.
 
 Cobre criação, validação do responsável polimórfico, filtro de prazo em BRT,
-sincronização de concluida_em, 404 e o universo do seletor (usuarios + modelos,
-sem vendedores enquanto a tabela do ADR 0012 não existir).
+sincronização de concluida_em, 404 e o universo do seletor (usuarios + modelos +
+vendedores, ADR 0012).
 """
 
 from datetime import UTC, datetime
@@ -16,7 +16,9 @@ from barra.main import app
 
 
 class _Result:
-    def __init__(self, rows: list[dict[str, Any]] | None = None, rowcount: int | None = None) -> None:
+    def __init__(
+        self, rows: list[dict[str, Any]] | None = None, rowcount: int | None = None
+    ) -> None:
         self.rows = rows or []
         self.rowcount = rowcount if rowcount is not None else len(self.rows)
 
@@ -38,7 +40,9 @@ def _override(conn: object):
     return _gen
 
 
-def _tarefa_row(tarefa_id: UUID, *, status: str = "a_fazer", atribuido: bool = True) -> dict[str, Any]:
+def _tarefa_row(
+    tarefa_id: UUID, *, status: str = "a_fazer", atribuido: bool = True
+) -> dict[str, Any]:
     return {
         "id": tarefa_id,
         "titulo": "Carregar telefones",
@@ -61,7 +65,9 @@ def _tarefa_row(tarefa_id: UUID, *, status: str = "a_fazer", atribuido: bool = T
 class FakeConn:
     """Fake conn configurável: registra os executes e responde por substring."""
 
-    def __init__(self, tarefa_id: UUID | None = None, *, update_rowcount: int = 1, delete_rowcount: int = 1) -> None:
+    def __init__(
+        self, tarefa_id: UUID | None = None, *, update_rowcount: int = 1, delete_rowcount: int = 1
+    ) -> None:
         self.tarefa_id = tarefa_id or uuid4()
         self.update_rowcount = update_rowcount
         self.delete_rowcount = delete_rowcount
@@ -78,10 +84,13 @@ class FakeConn:
         if "FROM barravips.tarefas t" in query:  # _SELECT_BASE (obter/listar)
             return _Result([_tarefa_row(self.tarefa_id)])
         if "barravips.usuarios" in query and "UNION ALL" in query:  # listar_responsaveis
-            return _Result([
-                {"tipo": "usuario", "id": uuid4(), "nome": "Fernando"},
-                {"tipo": "modelo", "id": uuid4(), "nome": "Aline"},
-            ])
+            return _Result(
+                [
+                    {"tipo": "usuario", "id": uuid4(), "nome": "Fernando"},
+                    {"tipo": "modelo", "id": uuid4(), "nome": "Aline"},
+                    {"tipo": "vendedor", "id": uuid4(), "nome": "João"},
+                ]
+            )
         return _Result([])
 
 
@@ -171,7 +180,8 @@ def test_excluir_inexistente_retorna_404() -> None:
         app.dependency_overrides.pop(get_conn, None)
 
 
-def test_responsaveis_usuarios_e_modelos_sem_vendedores() -> None:
+def test_responsaveis_inclui_vendedores() -> None:
+    # ADR 0012: a tabela vendedores existe → o seletor oferta usuario + modelo + vendedor.
     conn = FakeConn()
     app.dependency_overrides[get_conn] = _override(conn)
     try:
@@ -179,8 +189,8 @@ def test_responsaveis_usuarios_e_modelos_sem_vendedores() -> None:
             r = client.get("/v1/tarefas/responsaveis", headers=_token())
         assert r.status_code == 200
         tipos = {item["tipo"] for item in r.json()["items"]}
-        assert tipos == {"usuario", "modelo"}
+        assert tipos == {"usuario", "modelo", "vendedor"}
         query = next(q for q, _ in conn.executes if "UNION ALL" in q)
-        assert "barravips.vendedores" not in query
+        assert "barravips.vendedores" in query
     finally:
         app.dependency_overrides.pop(get_conn, None)

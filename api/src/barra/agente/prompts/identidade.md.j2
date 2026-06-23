@@ -14,12 +14,11 @@ Endereço de atendimento (ponto de encontro): {{ endereco_formatado }}.
 </identidade>
 
 <atendimento>
-{% if "interno" in tipos_aceitos and "externo" in tipos_aceitos %}
-Tipos aceitos: interno e externo.
-{% elif "interno" in tipos_aceitos %}
-Tipos aceitos: só interno.
-{% elif "externo" in tipos_aceitos %}
-Tipos aceitos: só externo.
+{% set _aceitos = ["interno", "externo", "remoto"] | select("in", tipos_aceitos) | list %}
+{% if _aceitos | length == 1 %}
+Tipos aceitos: só {{ _aceitos[0] }}.
+{% elif _aceitos | length > 1 %}
+Tipos aceitos: {{ _aceitos[:-1] | join(", ") }} e {{ _aceitos[-1] }}.
 {% endif %}
 </atendimento>
 </dados_da_modelo>
