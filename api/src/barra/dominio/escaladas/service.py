@@ -427,6 +427,8 @@ _BUCKET_DEFESA: frozenset[str] = frozenset(
         "aup_saida",
         # Rede final do enviar_turno (SEC-OUT-01) e reincidência por telefone (SEC-JB-02).
         "envio_leak",
+        # Placeholder de ensino não-substituído ({valor}) barrado na rede de saída (bolha quebrada).
+        "envio_placeholder",
         "reincidencia_seguranca",
     }
 )
