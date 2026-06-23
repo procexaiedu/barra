@@ -856,7 +856,7 @@ async def _profissionais(
         )
         -- fechamentos/valor exibidos = com evento na janela + importados (sem data); a TAXA
         -- de conversão (no Python) usa só `fechamentos_periodo`, pois não há perdas importadas
-        -- e contar os importados como fechados infla a conversão para ~100% (enganoso).
+        -- e contar os importados como fechados infla a conversão para quase tudo (enganoso).
         SELECT m.id AS modelo_id, m.nome AS modelo_nome,
                COALESCE(v.volume, 0)::int AS volume,
                COALESCE(f.contagem, 0)::int AS fechamentos_periodo,
