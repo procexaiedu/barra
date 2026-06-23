@@ -365,7 +365,10 @@ async def test_consultar_agenda_nao_traz_bloqueio_do_par_b(
 
 
 class _CtxAgenda:
-    """ContextAgente mínimo p/ a tool (lê só db_pool e modelo_id)."""
+    """ContextAgente mínimo p/ a tool (lê db_pool, modelo_id e atendimento_id)."""
 
     def __init__(self, pool: Any, modelo_id: str) -> None:
         self.db_pool, self.modelo_id = pool, modelo_id
+        # consultar_agenda exclui o bloqueio do PRÓPRIO atendimento (ADR 0028); aqui os
+        # bloqueios de teste são avulsos (atendimento_id NULL), então qualquer UUID serve.
+        self.atendimento_id = str(uuid4())
