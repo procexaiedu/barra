@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 StatusTarefa = Literal["a_fazer", "fazendo", "feita"]
 PrioridadeTarefa = Literal["baixa", "media", "alta"]
 AtorTipo = Literal["usuario", "modelo", "vendedor"]
-PrazoFiltro = Literal["hoje", "semana", "atrasadas", "todos"]
+PrazoFiltro = Literal["hoje", "semana", "atrasadas", "hoje_e_atrasadas", "todos"]
 
 
 class AtorRef(BaseModel):

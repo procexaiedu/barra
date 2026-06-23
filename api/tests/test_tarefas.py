@@ -141,6 +141,21 @@ def test_listar_prazo_hoje_filtra_por_brt() -> None:
         app.dependency_overrides.pop(get_conn, None)
 
 
+def test_listar_prazo_hoje_e_atrasadas_une_os_dois_ramos() -> None:
+    # Widget "Tarefas de hoje" (ADR 0017): prazo de hoje + atrasadas nao-feitas num so filtro.
+    conn = FakeConn()
+    app.dependency_overrides[get_conn] = _override(conn)
+    try:
+        with TestClient(app) as client:
+            r = client.get("/v1/tarefas?prazo=hoje_e_atrasadas", headers=_token())
+        assert r.status_code == 200
+        select = next(q for q, _ in conn.executes if "FROM barravips.tarefas t" in q)
+        assert "t.prazo =" in select  # ramo de hoje
+        assert "t.prazo <" in select and "t.status <> 'feita'" in select  # ramo de atrasadas
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
 def test_patch_status_feita_seta_concluida_em() -> None:
     tid = uuid4()
     conn = FakeConn(tid)
