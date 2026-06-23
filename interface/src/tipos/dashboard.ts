@@ -81,6 +81,19 @@ export interface FunilCoorte {
   perdidos_total: number
 }
 
+// Métrica de norte: das threads COTADAS na janela (coorte por cotacao_enviada_em),
+// quantas fecharam e quanto renderam por thread cotada. `*_pct`/`r_por_thread` são
+// null quando não houve cotação no período. Espelho de _norte_cotacao (dashboard/routes.py).
+export interface NorteCotacao {
+  cotadas: number
+  fechadas: number
+  em_aberto: number // cotadas ainda não decididas (sub-contam a conversão até decidirem)
+  conversao_cotada_para_fechado_pct: number | null
+  receita_bruta_brl: number
+  r_por_thread_cotada_brl: number | null
+  nota: string
+}
+
 export interface PerdaPorMotivoLinha {
   motivo: MotivoPerda
   contagem: number
@@ -124,6 +137,14 @@ export interface ProfissionalRanking {
   n_referencia?: number
 }
 
+// Fechados importados sem evento `fechado_registrado` (sem data — histórico do caderno
+// do vendedor). Ficam fora de todo recorte por período (regime caixa, ADR 0011); este
+// balde os totaliza para não somirem do dashboard. Espelha _importados_sem_data (backend).
+export interface ImportadosSemData {
+  contagem: number
+  valor_bruto_brl: number
+}
+
 export interface DashboardResumo {
   filtro_aplicado: FiltroAplicado
   janela_comparacao: JanelaComparacao | null
@@ -133,9 +154,11 @@ export interface DashboardResumo {
   financeiro: FinanceiroBloco
   financeiro_periodo_anterior: FinanceiroBloco | null
   funil: FunilCoorte
+  norte_cotacao: NorteCotacao
   perdas_por_motivo: PerdaPorMotivoLinha[]
   motivos_escalada: MotivosEscalada
   profissionais: ProfissionalRanking[]
+  importados_sem_data: ImportadosSemData
   servidor_em: string
 }
 

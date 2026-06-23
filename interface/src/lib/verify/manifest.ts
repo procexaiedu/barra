@@ -2,6 +2,7 @@ import { rodarSpec, type ResultadoInvariante, type Spec } from "./spec"
 import { specFunil } from "./specs/funil"
 import { specKanban } from "./specs/kanban"
 import { specMapa } from "./specs/mapa"
+import { specNorte } from "./specs/norte"
 
 // Registro central das specs de verificação agent-native. Lido pelo dashboard
 // (/verificacao), pelo spec headless (pnpm verify) e pela doc do agente.
@@ -30,4 +31,5 @@ export const manifesto: EntradaManifesto[] = [
   registrar(specFunil),
   registrar(specMapa),
   registrar(specKanban),
+  registrar(specNorte),
 ]

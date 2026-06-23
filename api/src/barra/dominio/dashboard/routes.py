@@ -27,6 +27,7 @@ from barra.core.janela import (
 )
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.dominio.financeiro.calculos import VALOR_SERVICO_SQL as _VS
+from barra.dominio.financeiro.repo import importados_sem_data as _importados_sem_data
 
 router = APIRouter(dependencies=[Depends(get_user)])
 
@@ -48,10 +49,16 @@ async def dashboard(
     kpis_periodo = await _kpis(conn, janela, modelo_id)
     kpis_anterior = await _kpis(conn, janela_anterior, modelo_id) if janela_anterior else None
     funil = await _funil_coorte(conn, janela, modelo_id)
+    norte = await _norte_cotacao(conn, janela, modelo_id)
     perdas = await _perdas_por_motivo(conn, janela, modelo_id)
     escalada_top = await _motivos_escalada_top(conn, janela, modelo_id)
     profissionais = await _profissionais(conn, janela)
     roi = await _roi(conn, janela, modelo_id)
+    # Fechados importados sem evento `fechado_registrado` (sem data — ex.: histórico do
+    # caderno do vendedor). O regime caixa (ADR 0011) ancora receita no evento, então eles
+    # ficam FORA de todo recorte por período acima. Espelhamos o balde do Financeiro
+    # (financeiro/repo.importados_sem_data) para não somirem do dashboard.
+    imp_contagem, imp_bruto = await _importados_sem_data(conn, modelo_id)
 
     agora = datetime.now(BRT)
 
@@ -70,10 +77,12 @@ async def dashboard(
             _financeiro_bloco(kpis_anterior) if kpis_anterior else None
         ),
         "funil": funil,
+        "norte_cotacao": norte,
         "perdas_por_motivo": perdas,
         "motivos_escalada": escalada_top,
         "profissionais": profissionais,
         "roi_ia": roi,
+        "importados_sem_data": {"contagem": imp_contagem, "valor_bruto_brl": imp_bruto},
         "servidor_em": agora.isoformat(),
     }
 
@@ -590,6 +599,61 @@ async def _funil_coorte(
         {"id": "Fechado", "coorte": int(row.get("coorte_fechado", 0) or 0), "perdas": 0},
     ]
     return {"topo": topo, "etapas": etapas, "perdidos_total": perda_q + perda_a + perda_e}
+
+
+async def _norte_cotacao(
+    conn: AsyncConnection[Any],
+    janela: Janela,
+    modelo_id: list[UUID] | None,
+) -> dict[str, Any]:
+    """Métrica de norte: das threads COTADAS na janela, quantas fecharam e quanto renderam por
+    thread cotada (conversão cotada→Fechado% + R$/thread).
+
+    Coorte ancorada em ``cotacao_enviada_em`` (carimbado quando a IA apresenta o preço, ADR 0022),
+    não em ``created_at``: o denominador é "lead que recebeu cotação", o sinal mais limpo de
+    intenção real. ``estado = 'Fechado'`` lê o desfecho atual (como o funil de coorte), então
+    coortes recentes ainda têm atendimentos ``em_aberto`` que sub-contam a conversão até decidirem.
+    ``valor_final`` é por-atendimento (1 linha), então a receita não precisa do dedup por evento
+    de ``_fechamentos``. Só ``Fechado`` entra na receita.
+    """
+    params: list[Any] = [janela.inicio, janela.fim]
+    filtro_modelo = ""
+    if modelo_id:
+        filtro_modelo = "AND a.modelo_id = ANY(%s)"
+        params.append(modelo_id)
+
+    result = await conn.execute(
+        f"""
+        SELECT
+          COUNT(*)::int AS cotadas,
+          COUNT(*) FILTER (WHERE a.estado = 'Fechado')::int AS fechadas,
+          COUNT(*) FILTER (WHERE a.estado NOT IN ('Fechado', 'Perdido'))::int AS em_aberto,
+          COALESCE(SUM(a.valor_final) FILTER (WHERE a.estado = 'Fechado'), 0)::numeric AS receita_bruta
+          FROM barravips.atendimentos a
+         WHERE a.cotacao_enviada_em >= %s AND a.cotacao_enviada_em <= %s
+           {filtro_modelo}
+        """,
+        params,
+    )
+    row = await result.fetchone() or {}
+    cotadas = int(row.get("cotadas", 0) or 0)
+    fechadas = int(row.get("fechadas", 0) or 0)
+    em_aberto = int(row.get("em_aberto", 0) or 0)
+    receita_bruta = float(row.get("receita_bruta", 0) or 0)
+    return {
+        "cotadas": cotadas,
+        "fechadas": fechadas,
+        "em_aberto": em_aberto,
+        "conversao_cotada_para_fechado_pct": (
+            round(fechadas / cotadas * 100, 1) if cotadas else None
+        ),
+        "receita_bruta_brl": round(receita_bruta, 2),
+        "r_por_thread_cotada_brl": (round(receita_bruta / cotadas, 2) if cotadas else None),
+        "nota": (
+            "coorte ancorada em cotacao_enviada_em (lead que recebeu preço); estado=Fechado é o "
+            "desfecho atual, então coortes recentes sub-contam a conversão enquanto há em_aberto"
+        ),
+    }
 
 
 async def _perdas_por_motivo(

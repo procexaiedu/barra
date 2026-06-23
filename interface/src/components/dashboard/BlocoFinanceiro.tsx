@@ -1,7 +1,12 @@
 "use client"
 
 import { Wallet } from "lucide-react"
-import type { FinanceiroBloco, KpisFechamentos, SerieTemporalPonto } from "@/tipos/dashboard"
+import type {
+  FinanceiroBloco,
+  ImportadosSemData,
+  KpisFechamentos,
+  SerieTemporalPonto,
+} from "@/tipos/dashboard"
 import { formatBRL } from "@/lib/formatters"
 import { IndicadorTendencia } from "./IndicadorTendencia"
 import type { TipoMetricaModal } from "./ModalListaAtendimentos"
@@ -14,6 +19,7 @@ interface Props {
   fechamentos: KpisFechamentos
   onAbrirLista?: (tipo: TipoMetricaModal) => void
   serieLiquido?: SerieTemporalPonto[]
+  importadosSemData?: ImportadosSemData
 }
 
 interface LinhaWaterfallProps {
@@ -82,6 +88,7 @@ export function BlocoFinanceiro({
   fechamentos,
   onAbrirLista,
   serieLiquido,
+  importadosSemData,
 }: Props) {
   const total = Math.max(
     financeiro.valor_bruto_brl,
@@ -177,6 +184,17 @@ export function BlocoFinanceiro({
           </>
         ) : null}
       </p>
+
+      {importadosSemData && importadosSemData.contagem > 0 ? (
+        <p className="rounded-md bg-muted/50 px-3 py-2 text-xs text-text-muted ring-1 ring-border-subtle">
+          <span className="font-medium text-text-secondary">
+            {importadosSemData.contagem} fechamento(s) importado(s) sem data
+          </span>{" "}
+          — {formatBRL(importadosSemData.valor_bruto_brl)} bruto. Histórico sem registro de
+          fechamento datado, por isso fora do recorte por período acima (conta no volume, não no
+          financeiro do período).
+        </p>
+      ) : null}
       </div>
     </section>
   )

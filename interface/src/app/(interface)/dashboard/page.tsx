@@ -6,6 +6,7 @@ import { BannerErro } from "@/components/layout/BannerErro"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BlocoFinanceiro } from "@/components/dashboard/BlocoFinanceiro"
 import { BlocoMotivosEscalada } from "@/components/dashboard/BlocoMotivosEscalada"
+import { BlocoNorteCotacao } from "@/components/dashboard/BlocoNorteCotacao"
 import { BlocoPerdasPorMotivo } from "@/components/dashboard/BlocoPerdasPorMotivo"
 import { BulletEscaladas } from "@/components/dashboard/BulletEscaladas"
 import { FunilVendas } from "@/components/dashboard/FunilVendas"
@@ -269,10 +270,14 @@ function DashboardConteudo({
         fechamentos={kpis.fechamentos}
         onAbrirLista={onAbrirMetrica}
         serieLiquido={series.liquido?.pontos}
+        importadosSemData={data.importados_sem_data}
       />
 
       {/* Seção 4 — Funil de vendas por coorte (4 etapas; perdas como saída lateral) */}
       <FunilVendas funil={data.funil} />
+
+      {/* Seção 4.5 — Norte: cotada→fechado + R$/thread (coorte por cotação) */}
+      <BlocoNorteCotacao norte={data.norte_cotacao} />
 
       {/* Seção 5 — Diagnóstico (perdas + escaladas) */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">

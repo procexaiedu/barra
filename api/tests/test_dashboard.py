@@ -35,10 +35,12 @@ class FakeConn:
         atendimentos: list[dict[str, Any]] | None = None,
         modelos: list[dict[str, Any]] | None = None,
         custo_ia: float = 0.0,
+        importados_sem_data: tuple[int, float] = (0, 0.0),
     ) -> None:
         self.atendimentos = atendimentos or []
         self.modelos = modelos or []
         self.custo_ia = custo_ia
+        self.importados_sem_data = importados_sem_data
         self.last_queries: list[str] = []
 
     @asynccontextmanager
@@ -93,6 +95,10 @@ class FakeConn:
         if "FROM com_rank" in query:
             return _Result([self._funil_coorte(modelo_filtro)])
 
+        # _norte_cotacao (coorte por cotacao_enviada_em)
+        if "cotacao_enviada_em" in query:
+            return _Result([self._agregar_norte(modelo_filtro)])
+
         # _perdas_por_motivo
         if "motivo_perda" in query and "GROUP BY a.motivo_perda" in query:
             return _Result([])
@@ -104,6 +110,11 @@ class FakeConn:
         # _roi — custo de chat acumulado (atendimentos.custo_ia_brl)
         if "SUM(a.custo_ia_brl)" in query:
             return _Result([{"custo_ia": self.custo_ia}])
+
+        # importados_sem_data (financeiro/repo) — Fechados sem evento fechado_registrado
+        if "NOT EXISTS" in query and "fechado_registrado" in query:
+            contagem, bruto = self.importados_sem_data
+            return _Result([{"contagem": contagem, "valor_bruto": Decimal(str(bruto))}])
 
         return _Result([])
 
@@ -204,6 +215,27 @@ class FakeConn:
             "perda_execucao": sum(1 for e, r in ranks if e == "Perdido" and r == 3),
         }
 
+    def _agregar_norte(self, modelo_filtro: set[UUID] | None) -> dict[str, Any]:
+        """Espelha o SQL de _norte_cotacao: coorte = atendimentos com cotacao_enviada_em setado."""
+        cotadas = [
+            a
+            for a in self.atendimentos
+            if a.get("cotacao_enviada_em") is not None
+            and (modelo_filtro is None or a["modelo_id"] in modelo_filtro)
+        ]
+        fechadas = [a for a in cotadas if a["estado"] == "Fechado"]
+        em_aberto = [a for a in cotadas if a["estado"] not in ("Fechado", "Perdido")]
+        receita = sum(
+            (Decimal(str(a["valor_final"])) for a in fechadas if a["valor_final"] is not None),
+            Decimal("0"),
+        )
+        return {
+            "cotadas": len(cotadas),
+            "fechadas": len(fechadas),
+            "em_aberto": len(em_aberto),
+            "receita_bruta": receita,
+        }
+
     def _linhas_profissionais(self, modelo_filtro: set[UUID] | None) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for m in self.modelos:
@@ -291,6 +323,19 @@ def _atend(modelo_id: UUID, estado: str) -> dict[str, Any]:
         "valor_final": None,
         "percentual_repasse_snapshot": None,
         "created_at": datetime.now(UTC),
+    }
+
+
+def _cotado(modelo_id: UUID, estado: str, valor: str | None) -> dict[str, Any]:
+    """Atendimento COTADO (cotacao_enviada_em setado) num estado dado — fixture do norte."""
+    return {
+        "id": uuid4(),
+        "modelo_id": modelo_id,
+        "estado": estado,
+        "valor_final": Decimal(valor) if valor is not None else None,
+        "percentual_repasse_snapshot": None,
+        "created_at": datetime.now(UTC),
+        "cotacao_enviada_em": datetime.now(UTC),
     }
 
 
@@ -542,3 +587,52 @@ def test_roi_ia_expoe_custo_acumulado() -> None:
     assert roi["custo_ia_brl"] == 12.35
     assert roi["custo_ia_por_fechado_brl"] is None
     assert "Sonnet" in roi["nota_custo_ia"]
+
+
+def test_importados_sem_data_expoe_balde() -> None:
+    # Fechados importados sem evento `fechado_registrado` (histórico do caderno do vendedor)
+    # ficam fora do recorte por período (regime caixa, ADR 0011). O dashboard espelha o balde
+    # do Financeiro para eles não somirem — aparecem no volume, não no financeiro do período.
+    conn = FakeConn(importados_sem_data=(384, 235080.0))
+    _instalar_override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/dashboard", params={"periodo": "7d"}, headers=_token())
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+    assert response.status_code == 200
+    bloco = response.json()["importados_sem_data"]
+    assert bloco["contagem"] == 384
+    assert bloco["valor_bruto_brl"] == 235080.0
+
+
+def test_norte_cotacao_conversao_e_receita_por_thread() -> None:
+    """Norte: das threads cotadas, % que fechou + R$/thread cotada (denominador = cotadas)."""
+    m = uuid4()
+    conn = FakeConn(
+        atendimentos=[
+            _cotado(m, "Fechado", "400"),
+            _cotado(m, "Fechado", "600"),
+            _cotado(m, "Perdido", None),
+            _cotado(m, "Qualificado", None),  # cotado, ainda em aberto
+            _atend(m, "Triagem"),  # NÃO cotou → fora do denominador
+        ],
+        modelos=[{"id": m, "nome": "Alice"}],
+    )
+
+    _instalar_override(conn)
+    try:
+        with TestClient(app) as client:
+            response = client.get("/v1/dashboard", params={"periodo": "7d"}, headers=_token())
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+    assert response.status_code == 200
+    norte = response.json()["norte_cotacao"]
+    assert norte["cotadas"] == 4  # 2 fechado + 1 perdido + 1 qualificado (Triagem não cotou)
+    assert norte["fechadas"] == 2
+    assert norte["em_aberto"] == 1  # o Qualificado
+    assert norte["conversao_cotada_para_fechado_pct"] == 50.0  # 2/4
+    assert norte["receita_bruta_brl"] == 1000.00  # 400 + 600
+    assert norte["r_por_thread_cotada_brl"] == 250.00  # 1000 / 4
