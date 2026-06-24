@@ -151,8 +151,17 @@ async def evolution_webhook(
     authorization: str | None = Header(default=None),
 ) -> dict[str, str]:
     settings = request.app.state.settings
-    provided = x_webhook_token or (
-        authorization.removeprefix("Bearer ").strip() if authorization else None
+    # O token chega por header (`X-Webhook-Token` ou `Authorization: Bearer`) quando a Evolution
+    # entrega direto na Barra. Com o webhook-router no meio (instancia -> router -> Barra) o header
+    # de auth NAO e repassado e o modal do router so guarda Nome+URL (sem campo de header), entao
+    # aceitamos o token tambem via `?token=` na query — o unico canal de credencial que o router
+    # preserva. Tradeoff conhecido: a query entra no access log do uvicorn; aceitavel aqui porque o
+    # token e interno (== EVOLUTION_API_KEY, ja em texto no env do stack) e o trafego e na rede
+    # overlay privada do Swarm. O caminho limpo de longo prazo e o router repassar o header.
+    provided = (
+        x_webhook_token
+        or (authorization.removeprefix("Bearer ").strip() if authorization else None)
+        or request.query_params.get("token")
     )
     if settings.evolution_webhook_token and (
         provided is None or not hmac.compare_digest(provided, settings.evolution_webhook_token)
