@@ -223,6 +223,10 @@ async def _h_turno(request: Request) -> JSONResponse:
         # (UPDATEs do grafo + msg do cliente + bolha da IA) -> aparece no painel /observabilidade.
         await gravar_resposta_ia(s.conn, s.cen, r.texto)
         await s.conn.commit()
+    else:
+        # Janela FIEL mesmo sem persistir: grava a bolha da IA na transacao efemera (sem commit, o
+        # /fim da ROLLBACK) -> o proximo /turno a ve e o agente nao re-cumprimenta/re-cota amnesico.
+        await gravar_resposta_ia(s.conn, s.cen, r.texto)
     return JSONResponse(
         {
             "i": s.i,

@@ -26,6 +26,7 @@ from evals.harness import Cenario, ResultadoTurno, rodar_turno, seedar
 
 from .cliente import ClienteSimulado
 from .perfil import ESTADOS_CONDUZIDOS, PerfilCaso, perfil_para_fixture
+from .persistencia import gravar_resposta_ia
 
 
 @dataclass
@@ -105,6 +106,12 @@ async def rodar_e2e(
         res.trajetoria.append(r.estado_final)
         if pos_turno is not None:
             await pos_turno(conn, cen, r)
+        else:
+            # Janela FIEL: sem o worker de envio (so roda em prod), a bolha da IA nao entra em
+            # `mensagens` sozinha -> o proximo turno nao a veria e o agente correria AMNESICO
+            # (re-cumprimenta/re-cota a cada turno). Grava na MESMA transacao efemera (ROLLBACK do
+            # caller descarta). gravar_resposta_ia pula texto vazio (turno sem fala / pausa).
+            await gravar_resposta_ia(conn, cen, r.texto)
 
         if _estado(r) in ESTADOS_CONDUZIDOS:
             res.desfecho_conducao = "conduziu"
