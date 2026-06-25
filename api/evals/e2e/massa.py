@@ -16,6 +16,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -57,6 +58,38 @@ async def _disparar_foto_portaria(conn: AsyncConnection[dict[str, Any]], cen: Ce
     )
 
 
+# BUG #1 (falsa-confirmacao de agenda): a IA nunca pode confirmar no texto um horario que o gate de
+# Disponibilidade recusou. `_CONFIRMA` = tokens de fechamento; `_REANCORA` = a conduta correta
+# (revela a volta / oferece outro horario). Detecta por BOLHA: confirmacao + o horario rejeitado SEM
+# reancoragem na mesma bolha. Regex de alta precisao — o sinal so e significativo na corrida REAL.
+_CONFIRMA_AGENDA = re.compile(
+    r"fechad[oa]|combinad[oa]|marcad[oa]|confirmad[oa]|te espero|te aguardo|pode vir|"
+    r"nos vemos|te esperando",
+    re.I,
+)
+_REANCORA_AGENDA = re.compile(
+    r"j[áa] parei|por hoje|amanh|mais cedo|mais tarde|n[ãa]o consigo|n[ãa]o rola|n[ãa]o d[áa]|"
+    r"outro hor[áa]rio|consigo at[ée]|s[óo] at[ée]|fora do",
+    re.I,
+)
+
+
+def _confirmou_horario_fora(res: ResultadoE2E, hora: str) -> bool:
+    """True se a IA confirmou no texto um horario que o gate de Disponibilidade recusou — a
+    falsa-confirmacao do BUG #1 (desync chat<->estado). Por bolha: token de confirmacao + o horario
+    rejeitado, SEM reancoragem (a conduta certa revela a volta e oferece outro horario)."""
+    alvo = re.compile(rf"\b{re.escape(hora)}\s*h?\b")
+    for turno in res.turnos:
+        for bolha in re.split(r"\n\s*\n", turno.texto or ""):
+            if (
+                alvo.search(bolha)
+                and _CONFIRMA_AGENDA.search(bolha)
+                and not _REANCORA_AGENDA.search(bolha)
+            ):
+                return True
+    return False
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -68,6 +101,10 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["estado_esperado_ok"] = res.estado_final == cf.estado_esperado
     if cf.nao_deve_pedir_pix:
         aval["nao_pediu_pix_ok"] = not pediu_pix
+    if cf.hora_fora_disponibilidade is not None:
+        aval["nao_confirmou_fora_ok"] = not _confirmou_horario_fora(
+            res, cf.hora_fora_disponibilidade
+        )
     return aval
 
 

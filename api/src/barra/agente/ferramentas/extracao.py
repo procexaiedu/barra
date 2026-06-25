@@ -276,7 +276,8 @@ async def registrar_extracao(
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "fora_disponibilidade").inc()
             raise ToolException(
                 "ERRO: o horário pedido cai FORA do seu período de trabalho — o sistema não "
-                "reserva. Siga sua conduta de período de trabalho: assuma que está fora, diga "
+                "reserva, então NUNCA diga ao cliente que fechou ou confirmou esse horário. "
+                "Siga sua conduta de período de trabalho: assuma que está fora, diga "
                 "quando volta e ofereça a primeira data/horário dentro do período (veja "
                 "<periodo_de_trabalho> no contexto) — depois registre de novo."
             ) from None

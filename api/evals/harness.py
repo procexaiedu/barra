@@ -260,6 +260,17 @@ async def _seed_modelo(conn: AsyncConnection[dict[str, Any]], spec: dict[str, An
     )
     for prog in spec.get("programas") or []:
         await _seed_programa(conn, modelo_id, prog)
+    # Disponibilidade (ADR 0005) — opcional; sem a chave o modelo e reservavel sempre (preserva os
+    # casos existentes). Cada regra: dia_semana (DOW Postgres 0=dom) + janela, valida desde -7d.
+    for regra in spec.get("disponibilidade") or []:
+        await conn.execute(
+            """
+            INSERT INTO barravips.modelo_disponibilidade
+                (id, modelo_id, data_inicio, dia_semana, hora_inicio, hora_fim)
+            VALUES (%s, %s, current_date - 7, %s, %s, %s)
+            """,
+            (uuid4(), modelo_id, regra["dia_semana"], regra["hora_inicio"], regra["hora_fim"]),
+        )
     return modelo_id
 
 

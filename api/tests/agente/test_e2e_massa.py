@@ -79,3 +79,24 @@ async def test_rodar_massa_foto_portaria_fake(
     assert r["estado_final"] == "Em_execucao", r
     assert r["avaliacao"].get("estado_esperado_ok") is True, r
     assert not r["violacoes"], r
+
+
+async def test_rodar_massa_agenda_borda_fora_fake(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Encanamento do cenario agenda_borda_fora com graph fake: o seed de modelo_disponibilidade
+    (janela 10-23h) nao quebra e o veredito traz o check `nao_confirmou_fora_ok`. O VALOR do check so
+    e significativo na corrida REAL (o fake nao confirma horario); aqui guardamos o plumbing (§0)."""
+    from evals.e2e import cenarios as cmod
+    from evals.e2e import massa as mmod
+    from evals.e2e.sessao import _graph_fake
+
+    so_borda = [c for c in cmod.cenarios() if c.nome == "agenda_borda_fora"]
+    monkeypatch.setattr(mmod, "cenarios", lambda: so_borda)
+
+    resultados = await rodar_massa(conn, _graph_fake(), k=1, run_tag=None)
+
+    assert len(resultados) == 1, resultados
+    r = resultados[0]
+    assert r["cenario"] == "agenda_borda_fora"
+    assert "nao_confirmou_fora_ok" in r["avaliacao"], r

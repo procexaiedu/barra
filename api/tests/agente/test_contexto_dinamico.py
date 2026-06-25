@@ -311,6 +311,32 @@ async def test_horario_minimo_renderiza_quando_dentro_da_disponibilidade(
 
 
 @pytest.mark.needs_db
+async def test_periodo_de_trabalho_marca_fim_como_encerramento(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # Regressão (falsa-confirmação na borda): com Disponibilidade cadastrada, a <observacao> do
+    # <periodo_de_trabalho> precisa deixar EXPLÍCITO que o hora_fim é o encerramento, não um
+    # horário reservável — senão o modelo lê fim="23:00" e confirma um pedido das 23h (que o gate
+    # `t < hora_fim` recusa), criando desync chat↔estado.
+    modelo_id, ctx = await _montar_ctx_com_bloqueio(conn)
+    await _seed_disponibilidade(
+        conn, modelo_id, dia_semana=0, hora_inicio="10:00", hora_fim="23:00"
+    )
+    for dow in range(1, 7):
+        await _seed_disponibilidade(
+            conn, modelo_id, dia_semana=dow, hora_inicio="10:00", hora_fim="23:00"
+        )
+
+    res = await prepare_context({"messages": []}, FakeRuntime(ctx))
+    assert isinstance(res, Command)
+    ultimo_human = [m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1]
+    conteudo = str(ultimo_human.content)
+    assert "<periodo_de_trabalho>" in conteudo
+    assert "quando você ENCERRA" in conteudo
+    assert "trate como expediente encerrado" in conteudo
+
+
+@pytest.mark.needs_db
 async def test_proximo_livre_ausente_fora_da_disponibilidade(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
