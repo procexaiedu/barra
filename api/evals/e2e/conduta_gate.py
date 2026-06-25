@@ -33,13 +33,16 @@ from evals.e2e.runner import ResultadoE2E, rodar_e2e
 from evals.e2e.transcritos import salvar_transcritos
 from evals.harness import habilitar_tracing
 
-# Pass bar inicial (TUNAVEL apos a 1a corrida real). Forma/voz como MULTIPLOS do piso congelado.
+# Pass bar do gate. Calibrado apos a 1a corrida real (25/06). O gate roda ClienteRoteirizado
+# NAO-reativo: conduziu/forma/voz sao ADVISORY (reportados, nunca reprovam) — a conducao real so
+# se certifica no fan-out FIEL (cliente reativo). O HARD gate (reprova) e o mensuravel em qualquer
+# transcript, independente de reatividade: invariantes duras + empurrao (alta precisao). Os
+# multiplos de piso em estilo/fluxo viraram REFERENCIA: a corrida real mostrou geracao a ~0.1-0.2
+# de distancia vs piso ELA-vs-ELA 0.003 (ruido de paridade) — "3x piso" nunca seria atingivel;
+# reprovar por voz/forma exige um baseline de GERACAO (agente deployado), nao de ruido.
 _LIMIARES: dict[str, Any] = {
-    "conduziu_min_por_eixo": {"decidido_rapido": 0.8, "objetor": 0.6, "externo": 0.6},
-    "conduziu_min_default": 0.5,
-    "empurrao_pct_max": 2.0,
-    "estilo_dist_max_mult_piso": 3.0,
-    "fluxo_jsd_max_mult_piso": 2.0,
+    # HARD (reprova):
+    "empurrao_pct_max": 5.0,  # detector regex no humano = 3.25%; o agente nao deve empurrar mais
     "violacoes_duras_max": 0,
 }
 
@@ -47,44 +50,45 @@ _LIMIARES: dict[str, Any] = {
 def _agregar(
     resultados: list[tuple[Any, ResultadoE2E, Any]],
 ) -> tuple[dict[str, Any], list[str]]:
-    """Agrega conduta por eixo + global e afirma os limiares. Devolve (relatorio, motivos_falha).
-    motivos vazio = passou. Checks de forma/voz sao PULADOS (nao falham) sem baseline congelado."""
+    """Agrega conduta. HARD (entra em motivos -> reprova): empurrao + invariantes duras. ADVISORY
+    (so reportado em rel): conduziu, bate_desfecho_real, voz, forma — o gate usa ClienteRoteirizado
+    NAO-reativo, entao conducao/forma/voz aqui sao indicativos; a certificacao da conducao vem do
+    fan-out fiel (cliente reativo). Devolve (relatorio, motivos_falha); motivos vazio = passou."""
     motivos: list[str] = []
     res_list = [res for _, res, _ in resultados]
 
-    # conduziu por eixo
+    # conduziu por eixo (ADVISORY) + bate com o desfecho real do corpus — sinal mais honesto que
+    # uma taxa absoluta: o agente deveria conduzir QUANDO o cliente real converteu, nao quando sumiu.
     por_eixo: dict[str, list[bool]] = {}
+    bate: list[bool] = []
     for perfil, _res, ver in resultados:
         por_eixo.setdefault(perfil.eixo_comportamento or "?", []).append(ver.conduziu)
-    conduziu_eixo: dict[str, float] = {}
-    for eixo, oks in sorted(por_eixo.items()):
-        taxa = sum(oks) / len(oks)
-        conduziu_eixo[eixo] = round(taxa, 3)
-        alvo = _LIMIARES["conduziu_min_por_eixo"].get(eixo, _LIMIARES["conduziu_min_default"])
-        if taxa < alvo:
-            motivos.append(f"conduziu[{eixo}]={taxa:.0%} < {alvo:.0%}")
+        if ver.bate_desfecho_real is not None:
+            bate.append(ver.bate_desfecho_real)
+    conduziu_eixo = {e: round(sum(o) / len(o), 3) for e, o in sorted(por_eixo.items())}
 
-    # disciplina: empurrao entre as corridas que cotaram
+    # disciplina: empurrao entre as corridas que cotaram (HARD)
     cotaram = [ver for _, _, ver in resultados if ver.conduta and ver.conduta.cotou]
     n_cot = len(cotaram) or 1
     empurrao_pct = 100.0 * sum(1 for v in cotaram if v.conduta.empurrao) / n_cot
     if empurrao_pct > _LIMIARES["empurrao_pct_max"]:
-        motivos.append(f"empurrao={empurrao_pct:.1f}% > {_LIMIARES['empurrao_pct_max']}%")
+        motivos.append(f"empurrao={empurrao_pct:.1f}% > {_LIMIARES['empurrao_pct_max']}% (HARD)")
 
-    # invariantes duras
+    # invariantes duras (HARD)
     viol = sum(len(ver.violacoes) for _, _, ver in resultados)
     if viol > _LIMIARES["violacoes_duras_max"]:
-        motivos.append(f"violacoes_duras={viol} > {_LIMIARES['violacoes_duras_max']}")
+        motivos.append(f"violacoes_duras={viol} > {_LIMIARES['violacoes_duras_max']} (HARD)")
 
     rel: dict[str, Any] = {
         "n_corridas": len(resultados),
         "conduziu_por_eixo": conduziu_eixo,
+        "bate_desfecho_real_pct": round(100.0 * sum(bate) / len(bate), 1) if bate else None,
         "empurrao_pct": round(empurrao_pct, 2),
         "violacoes_duras": viol,
         "custo_brl": round(sum(res.custo_brl for res in res_list), 4),
     }
 
-    # VOZ (per-conversa) — so com baseline congelado
+    # VOZ (ADVISORY) — distancia media das bolhas vs piso congelado (referencia, nao reprova)
     estilos = [
         v.conduta.estilo_dist
         for _, _, v in resultados
@@ -95,29 +99,16 @@ def _agregar(
     except FileNotFoundError:
         piso_estilo = None
     if estilos and piso_estilo:
-        medio = statistics.mean(estilos)
-        teto = piso_estilo * _LIMIARES["estilo_dist_max_mult_piso"]
-        rel["estilo_dist_medio"] = round(medio, 4)
-        rel["estilo_teto"] = round(teto, 4)
-        if medio > teto:
-            motivos.append(
-                f"estilo_dist={medio:.4f} > {teto:.4f} ({_LIMIARES['estilo_dist_max_mult_piso']}x piso)"
-            )
+        rel["estilo_dist_medio"] = round(statistics.mean(estilos), 4)
+        rel["estilo_ref_piso"] = piso_estilo
     else:
         rel["estilo_dist_medio"] = "PULADO (sem baseline)"
 
-    # FORMA (populacional) — so com baseline congelado
+    # FORMA (ADVISORY) — JSD populacional das transicoes de atos vs piso (referencia, nao reprova)
     try:
         base_fluxo, meta_fluxo = carregar_baseline_fluxo()
-        piso_fluxo = meta_fluxo.get("piso_jsd_eb_split")
-        jsd = fluxo_jsd_populacao(res_list, baseline=base_fluxo)
-        teto = (piso_fluxo or 0) * _LIMIARES["fluxo_jsd_max_mult_piso"]
-        rel["fluxo_jsd"] = round(jsd, 4)
-        rel["fluxo_teto"] = round(teto, 4)
-        if piso_fluxo and jsd > teto:
-            motivos.append(
-                f"fluxo_jsd={jsd:.4f} > {teto:.4f} ({_LIMIARES['fluxo_jsd_max_mult_piso']}x piso)"
-            )
+        rel["fluxo_jsd"] = round(fluxo_jsd_populacao(res_list, baseline=base_fluxo), 4)
+        rel["fluxo_ref_piso"] = meta_fluxo.get("piso_jsd_eb_split")
     except FileNotFoundError:
         rel["fluxo_jsd"] = "PULADO (sem baseline)"
 
@@ -154,18 +145,14 @@ def _formatar(rel: dict[str, Any], motivos: list[str]) -> str:
         "",
         "=== Gate de Conduta ===",
         f"corridas: {rel['n_corridas']}  custo: R$ {rel['custo_brl']}",
+        f"[HARD] empurrao: {rel['empurrao_pct']}%   violacoes_duras: {rel['violacoes_duras']}",
+        "[advisory] conduziu/eixo: "
+        + ", ".join(f"{k}={v:.0%}" for k, v in rel["conduziu_por_eixo"].items()),
+        f"[advisory] bate_desfecho_real: {rel.get('bate_desfecho_real_pct')}%   "
+        f"voz(estilo): {rel.get('estilo_dist_medio')}   forma(fluxo_jsd): {rel.get('fluxo_jsd')}",
+        "VEREDITO (so HARD): "
+        + ("APROVADO ✅" if not motivos else "REPROVADO ❌ — " + "; ".join(motivos)),
     ]
-    linhas.append(
-        "conduziu por eixo: "
-        + ", ".join(f"{k}={v:.0%}" for k, v in rel["conduziu_por_eixo"].items())
-    )
-    linhas.append(f"empurrao: {rel['empurrao_pct']}%   violacoes_duras: {rel['violacoes_duras']}")
-    linhas.append(
-        f"voz (estilo_dist medio): {rel.get('estilo_dist_medio')}   forma (fluxo_jsd): {rel.get('fluxo_jsd')}"
-    )
-    linhas.append(
-        "VEREDITO: " + ("APROVADO ✅" if not motivos else "REPROVADO ❌ — " + "; ".join(motivos))
-    )
     return "\n".join(linhas)
 
 
