@@ -148,14 +148,16 @@ class Settings(BaseSettings):
         description="Roteia a chamada FORCADA de registrar_extracao p/ uma janela minima (sem o prefixo geral), em vez do prefixo inteiro. Sempre DeepSeek V4 Flash. False = usa o prefixo inteiro (kill-switch sem deploy).",
     )
     # Auto-reoferta (#1/#2 follow-up): quando a extracao (forcada/inline) erra RECUPERAVEL
-    # (ConflitoAgenda etc.) ao criar o bloqueio previo, a IA reoferta UM horario alternativo em vez
-    # de fechar o turno MUDO. Volta ao proprio no llm (one-shot via _reoferta_tentada) p/ o modelo
-    # ver o erro no ToolMessage e reofertar; se a reoferta tambem errar, fecha mudo. Default OFF:
-    # muda o nó mais critico e precisa de validacao no simulador/ao vivo (gasta credito) antes de ON.
-    # Kill-switch sem deploy. False = comportamento atual (mute em erro recuperavel pos-extracao).
+    # (ConflitoAgenda/AntecedenciaInsuficiente/ForaDisponibilidade — qualquer ToolMessage status=error
+    # da reserva, ver _extracao_recente_errou) ao criar o bloqueio previo, a IA reoferta UM horario
+    # alternativo em vez de fechar o turno MUDO. Volta ao proprio no llm (one-shot via
+    # _reoferta_tentada) p/ o modelo ver o erro no ToolMessage e reofertar; se a reoferta tambem
+    # errar, fecha mudo. Default ON desde a validacao ao vivo (A/B DeepSeek 2026-06-25, caso interno
+    # sub-buffer): OFF silenciava o lead no turno do fechamento; ON reoferta o horario_minimo e
+    # conduz ate Aguardando_confirmacao. Kill-switch sem deploy. False = comportamento antigo (mute).
     reoferta_automatica_habilitada: bool = Field(
-        default=False,
-        description="Liga a auto-reoferta de horario quando a extracao erra recuperavel (ConflitoAgenda) ao reservar o slot, em vez de fechar o turno mudo. Volta ao no llm (one-shot) p/ o modelo reofertar. Default OFF — exige validacao no simulador/ao vivo antes de ligar (gasta credito; muda o no mais critico).",
+        default=True,
+        description="Liga a auto-reoferta de horario quando a extracao erra recuperavel (ConflitoAgenda/AntecedenciaInsuficiente/ForaDisponibilidade) ao reservar o slot, em vez de fechar o turno mudo. Volta ao no llm (one-shot) p/ o modelo reofertar. Default ON (validado ao vivo 2026-06-25). False = comportamento antigo (mute).",
     )
     # Output-guard de saida antes da bolha (AGENTE-OG / ADR 0016).
     output_guard_habilitado: bool = Field(
