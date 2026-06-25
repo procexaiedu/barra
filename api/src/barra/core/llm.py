@@ -5,15 +5,12 @@ criar_chat_deepseek(): wrapper langchain-openai (ChatOpenAI) DIRETO na API DeepS
     extração forçada #2, judge de AUP #3), com thinking travado em disabled. Mesma interface a
     jusante (bind_tools/with_structured_output/ainvoke).
 criar_chat_anthropic(): wrapper langchain-anthropic 1.x (ChatAnthropic). NÃO serve o agente ao
-    vivo (DeepSeek-only); sobra para o LLM-judge dos evals (api/evals/) e o preaquecimento dormente
-    da infra de cache_control (ver agente/llm.py, settings.cache_control_anthropic).
+    vivo (DeepSeek-only); sobra para o LLM-judge dos evals (api/evals/).
 criar_anthropic_client(): raw SDK anthropic 0.97 (dispensável no P0; vision do Pix vai por OpenRouter).
 
-A montagem dos 4 breakpoints de cache_control (DORMENTE sob DeepSeek) vive em agente/llm.py:
-    - BP_TOOLS: `build_tools_para_bind` (cache_control na ultima tool)
-    - BP_GERAL: `build_system_messages` (persona+regras+FAQ fundidos)
-    - BP_MODELO: `build_system_messages` (identidade+programas por-modelo, opcional)
-    - BP_JANELA: `marcar_cache_na_penultima` (cache na penultima msg da janela)
+A montagem do prefixo (BP_GERAL persona+regras+FAQ + BP_MODELO identidade/programas) vive em
+agente/llm.py (`build_system_messages`): SystemMessages de string pura, que o DeepSeek cacheia
+automaticamente no provider — sem cache_control.
 """
 
 from typing import Any

@@ -55,8 +55,9 @@ PRECO_OPENROUTER_USD_PER_MTOK: dict[str, dict[str, float]] = {
 # texto do agente: chat #1, extracao forcada #2 e judge de AUP #3. A API reporta
 # `model_name="deepseek-v4-flash"` (sem prefixo de provider; idem com o alias legado `deepseek-chat`,
 # que aposenta 2026-07-24). Tarifa oficial V4 Flash (deepseek.com 2026-06): input cache-miss $0.14, output $0.28,
-# cache-hit $0.0028 (50x mais barato que o miss). O cache do DeepSeek-direct e automatico e o
-# `usage_metadata` reporta a parcela cacheada em `input_token_details.cache_read` — `calcular_custo_brl`
+# cache-hit $0.0028 (50x mais barato que o miss). O cache do DeepSeek-direct e automatico; a parcela
+# cacheada chega em `input_token_details.cache_read` APOS a reinjecao de `cache_read_deepseek` (ver
+# abaixo: o langchain-openai nao mapeia o campo nativo do DeepSeek) — `calcular_custo_brl`
 # desconta o cache_read do input cheio (input_nao_cacheado) e o cobra a `cache_read`. Sem chaves de
 # write (ephemeral_*): o DeepSeek nao cobra escrita de cache.
 PRECO_DEEPSEEK_USD_PER_MTOK: dict[str, float] = {

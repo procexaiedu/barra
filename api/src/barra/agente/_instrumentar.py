@@ -22,7 +22,9 @@ def instrumentar_tokens(resp: Any, modelo: str) -> None:
     e observa AGENTE_CUSTO_TURNO_BRL para UMA resposta de LLM.
 
     WRITE vem de `ephemeral_5m+ephemeral_1h`, NUNCA de `cache_creation` (no langchain-anthropic
-    1.4.3 esse campo vem sempre 0 -- spike 2026-05-24). `modelo` e o nome do modelo (claude-sonnet-4-6,
+    1.4.3 esse campo vem sempre 0 -- spike 2026-05-24). Sob DeepSeek essas chaves Anthropic ausentam
+    no usage_metadata -> write=0, que e o valor CORRETO (o DeepSeek nao cobra escrita de cache; so o
+    cache_read importa, reinjetado abaixo). `modelo` e o nome do modelo (claude-sonnet-4-6,
     claude-haiku-4-5, deepseek-v4-flash, id OpenRouter), nao o modelo_id da agencia: misturar quebra
     o tripwire de write-rate. `getattr` porque usage_metadata so existe em AIMessage, nao em
     BaseMessage -- e deixa o duck-typing servir o judge (raw do structured output) sem import de langchain.

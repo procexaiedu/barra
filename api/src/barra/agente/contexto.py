@@ -33,9 +33,3 @@ class ContextAgente:
     atendimento_id: str
     cliente_id: str
     turno_id: str
-    # Liga o `cache_control` de BP_MODELO e BP_JANELA — blocos que só se amortizam em tráfego real
-    # (multi-turn / repetido por-modelo). False quando cada `ainvoke` é single-turn isolada (IDs
-    # novos por turno, sem reuso inter-turno): aí esses dois seriam SEMPRE write e nunca read —
-    # write premium puro. O prefixo global (tools + BP_GERAL) segue cacheado de qualquer forma.
-    # Default True; em prod nada seta False.
-    cache_modelo_e_janela: bool = True

@@ -1,6 +1,6 @@
 """build_graph() compoe os nos em StateGraph (sem checkpointer no P0).
 
-Grafo de 6 nos; o no llm e real (chama Sonnet 4.6) e o roteamento e por Command(goto=...) --
+Grafo de 6 nos; o no llm e real (chama DeepSeek V4 Flash) e o roteamento e por Command(goto=...) --
 nao por arestas condicionais nem flags de state (09 §4.1). Wiring:
     START -(estatica)-> prepare_context -(Command)-> intercept_disclosure | END
           intercept_disclosure -(Command)-> llm -(Command)-> tools | post_process
