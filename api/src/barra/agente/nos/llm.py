@@ -187,7 +187,8 @@ def no_llm(
     )
     # Auto-reoferta (settings.reoferta_automatica_habilitada): quando ligada, um erro RECUPERAVEL na
     # extracao (ConflitoAgenda etc.) volta ao no llm p/ o modelo reofertar um horario, em vez de
-    # fechar mudo. Lido na construcao (kill-switch, igual `forca_ligada`); default OFF.
+    # fechar mudo. Lido na construcao (kill-switch, igual `forca_ligada`); default ON (validado
+    # ao vivo 2026-06-25).
     reoferta_ligada = settings.reoferta_automatica_habilitada
 
     async def llm(

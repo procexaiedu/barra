@@ -282,11 +282,14 @@ def _tool_erro(tool_call_id: str = "ex1") -> ToolMessage:
     )
 
 
-async def test_forcada_com_erro_recuperavel_remove_falsa_confirmacao() -> None:
+async def test_forcada_com_erro_recuperavel_remove_falsa_confirmacao(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """HIGH (bughunt #1): pos-`tools`, a extracao FORCADA errou recuperavel (ConflitoAgenda) -> a
     transacao reverteu (sem bloqueio). O `resp` (texto que confirmou o horario, SEM tool_call) esta
     numa msg separada do `forcado` que errou, entao extrair_texto_do_turno NAO o filtraria -> iria
     ao cliente como FALSA CONFIRMACAO. O guard remove o rascunho stale -> turno fecha mudo."""
+    monkeypatch.setattr(get_settings(), "reoferta_automatica_habilitada", False)
     chat = _FakeChat(_texto_final(), _extracao())
     node = no_llm(chat, [registrar_extracao])
     resp = AIMessage(
@@ -315,10 +318,13 @@ async def test_forcada_com_erro_recuperavel_remove_falsa_confirmacao() -> None:
     assert "forc-1" not in ids_removidos  # forcado (tem tool_call) preservado
 
 
-async def test_inline_com_erro_recuperavel_fecha_sem_remover_texto_inline() -> None:
+async def test_inline_com_erro_recuperavel_fecha_sem_remover_texto_inline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """HIGH (bughunt #2): inline (texto+extracao na MESMA msg) errou recuperavel -> fecha sem
     reinvocar; o texto inline carrega o proprio tool_call que errou, entao extrair_texto_do_turno
     ja o filtra downstream (cliente nao recebe a falsa confirmacao). Aqui remocoes fica vazio."""
+    monkeypatch.setattr(get_settings(), "reoferta_automatica_habilitada", False)
     chat = _FakeChat(_texto_mais_extracao(), _extracao())
     node = no_llm(chat, [registrar_extracao])
     inline = AIMessage(
@@ -400,9 +406,10 @@ def _forcado_msg() -> AIMessage:
     )
 
 
-async def test_reoferta_off_forcada_erro_fecha_mudo() -> None:
-    """flag OFF (default): erro recuperavel pos-extracao fecha MUDO, sem reofertar -- comportamento
-    atual preservado (silencio > reserva fantasma)."""
+async def test_reoferta_off_forcada_erro_fecha_mudo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """flag OFF (pinado explicitamente): erro recuperavel pos-extracao fecha MUDO, sem reofertar --
+    comportamento antigo preservado pelo kill-switch (silencio > reserva fantasma)."""
+    monkeypatch.setattr(get_settings(), "reoferta_automatica_habilitada", False)
     chat = _FakeChat(_texto_final(), _extracao())
     node = no_llm(chat, [registrar_extracao])
     resp = AIMessage(id="resp-1", content="te espero às 22h", usage_metadata=_USAGE, tool_calls=[])  # type: ignore[arg-type]
@@ -416,6 +423,25 @@ async def test_reoferta_off_forcada_erro_fecha_mudo() -> None:
     assert cmd.goto == "post_process"  # mute, NAO reoferta
     assert "resp-1" in {m.id for m in cmd.update["messages"]}  # falsa confirmacao removida
     assert chat.normal.chamadas == []  # nao reinvoca
+
+
+async def test_reoferta_on_e_o_default() -> None:
+    """Trava o DEFAULT ON (sem monkeypatch): erro recuperavel forcado reoferta (goto=llm) com os
+    settings de fabrica. Se o default reverter p/ False, este teste pega -- senao todos os testes
+    do flag pinam o valor e nenhum assertaria o default real (code-review 2026-06-25)."""
+    assert get_settings().reoferta_automatica_habilitada is True  # contrato do default
+    chat = _FakeChat(_texto_final(), _extracao())
+    node = no_llm(chat, [registrar_extracao])
+    resp = AIMessage(id="resp-1", content="te espero às 22h", usage_metadata=_USAGE, tool_calls=[])  # type: ignore[arg-type]
+    state = {
+        "messages": [HumanMessage(content="22h"), resp, _forcado_msg(), _tool_erro("ex1")],
+        "_extracao_forcada": True,
+    }
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "llm"  # reoferta por default, NAO mute
+    assert cmd.update["_reoferta_tentada"] is True
 
 
 async def test_reoferta_on_forcada_volta_pro_llm_limpando_stale(
