@@ -35,6 +35,7 @@ class ResultadoE2E:
     perfil_nome: str
     trajetoria: list[dict[str, Any]]  # estado_final {estado, pix_status, ia_pausada} por turno
     turnos: list[ResultadoTurno] = field(default_factory=list)  # resultado bruto (auditoria)
+    turnos_cliente: list[str] = field(default_factory=list)  # fala do cliente que gerou turnos[i]
     desfecho_conducao: str = "max_turnos"  # conduziu | pausou_handoff | cliente_sumiu | max_turnos
     estado_final: str | None = None
     desfecho_real: str | None = None  # rotulo do corpus (comparacao)
@@ -91,6 +92,7 @@ async def rodar_e2e(
     turno_cliente: str | None = perfil.abertura
     for _ in range(max_turnos):
         assert turno_cliente is not None
+        res.turnos_cliente.append(turno_cliente)  # paralelo a res.turnos (mesmo indice)
         r = await rodar_turno(
             conn,
             cen,

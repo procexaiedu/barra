@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from psycopg import AsyncConnection
 
@@ -20,6 +20,9 @@ from barra.agente.nos.output_guard import (
 
 from .perfil import PerfilCaso
 from .runner import ResultadoE2E
+
+if TYPE_CHECKING:
+    from evals.conduta import CondutaScore
 
 
 @dataclass
@@ -32,6 +35,10 @@ class VeredictoE2E:
     n_turnos: int
     custo_brl: float
     violacoes: list[str] = field(default_factory=list)
+    # Conduta de venda por-conversa (voz + disciplina). Informativo: o pass/fail de conduta e' por
+    # TAXA, decidido no agregado do gate (evals.e2e.conduta_gate), nao por corrida — `ok` segue so
+    # a linha de chegada + invariantes DURAS.
+    conduta: CondutaScore | None = None
 
     @property
     def ok(self) -> bool:
@@ -41,6 +48,7 @@ class VeredictoE2E:
 
 def avaliar_e2e(res: ResultadoE2E, perfil: PerfilCaso) -> VeredictoE2E:
     from evals.checks import _texto_e_args
+    from evals.conduta import avaliar_conduta
     from evals.sequencia import avaliar_sequencia
 
     violacoes: list[str] = []
@@ -70,6 +78,7 @@ def avaliar_e2e(res: ResultadoE2E, perfil: PerfilCaso) -> VeredictoE2E:
         n_turnos=res.n_turnos,
         custo_brl=round(res.custo_brl, 6),
         violacoes=violacoes,
+        conduta=avaliar_conduta(res),
     )
 
 

@@ -1,4 +1,4 @@
-.PHONY: dev worker test test-llm lint format typecheck migrate sync evals
+.PHONY: dev worker test test-llm lint format typecheck migrate sync evals gate-conduta
 
 sync:
 	uv sync
@@ -24,6 +24,13 @@ evals:
 # Dashboard de regressao do gate: serie historica (pass-rate/custo/write-rate/p95 por execucao).
 evals-tendencia:
 	uv run python -m evals.relatorio
+
+# Gate de CONDUTA (Camada 2): o agente conduz a venda como o Vendedor (forma+voz+disciplina) e
+# chega a confirmacao? Roda o nucleo estratificado contra o grafo real e afirma a pass bar.
+# `make gate-conduta ARGS="--fake"` valida o encanamento sem credito; real exige E2E_AUTORIZADO=1
+# + TEST_DATABASE_URL + baselines gerados (evals/baselines/README.md) -> §0.
+gate-conduta:
+	uv run python -m evals.e2e.conduta_gate $(ARGS)
 
 lint:
 	uv run ruff check .
