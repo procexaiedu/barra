@@ -7,10 +7,12 @@ consumido no M2. Templates Jinja ficam em `prompts/`.
 """
 
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
@@ -56,8 +58,30 @@ def _idioma_humano(codigo: str) -> str:
     return _NOMES_IDIOMAS.get(codigo, codigo)
 
 
+# Mesmo fuso (America/Sao_Paulo) que o SQL usa para `agora`/`hoje` no mesmo bloco <agenda>
+# (prepare_context: `current_timestamp AT TIME ZONE 'America/Sao_Paulo'`). Os datetimes de agenda
+# (horario_minimo, bloqueios) chegam aware-UTC do psycopg/proximo_livre — o cálculo roda em UTC
+# (comparação com blocos é por instante), mas o cliente lê em horário local. Converter só aqui, na
+# fronteira de render, com o MESMO ZoneInfo do âncora: sem isso a hora sai +3h e a IA recusa
+# horários válidos da tarde; um offset fixo divergiria do âncora se o DST voltasse.
+_FUSO_BR = ZoneInfo("America/Sao_Paulo")
+
+
+def _brt(dt: datetime | None, fmt: str) -> str:
+    """Formata um datetime de agenda em horário de Brasília para o contexto do turno.
+
+    Aware (current_timestamp / proximo_livre preservam o tzinfo da sessão, UTC) é convertido;
+    naive é assumido já-local. None vira string vazia (os blocos do template já guardam com `if`)."""
+    if dt is None:
+        return ""
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(_FUSO_BR)
+    return dt.strftime(fmt)
+
+
 _env.filters["brl"] = brl
 _env.filters["idioma_humano"] = _idioma_humano
+_env.filters["brt"] = _brt
 
 
 @dataclass(frozen=True)
@@ -94,8 +118,9 @@ def render_persona(desconto_max_pct: float | None = None) -> str:
 def render_prefixo_geral(desconto_max_pct: float | None = None) -> str:
     """BP_GERAL — persona+regras num único bloco system byte-idêntico p/ todas.
 
-    BP_GERAL ocupa um único breakpoint de cache; os outros 3 ficam p/ BP_TOOLS, BP_MODELO e o
-    cache da janela de mensagens (`agente/llm.py:marcar_cache_na_penultima`).
+    É o prefixo geral global: byte-idêntico entre todas as modelos, ele e o BP_MODELO formam o
+    prefixo que o DeepSeek cacheia automaticamente no provider (a disciplina de byte-identidade é
+    o que mantém o cache quente).
 
     Caller único: `prepare_context.py`. Testes que precisam reproduzir o conteúdo do bloco geral
     devem chamar esta função (não montar a string fora — risco de byte-drift).

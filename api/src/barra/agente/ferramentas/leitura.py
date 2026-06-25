@@ -1,6 +1,7 @@
 """Tools de leitura do agente. P0 tem só consultar_agenda (04 §2.1, §2.2)."""
 
 from datetime import date
+from zoneinfo import ZoneInfo
 
 from langchain_core.tools import ToolException, tool
 from langgraph.prebuilt import ToolRuntime
@@ -12,6 +13,13 @@ from ..contexto import ContextAgente
 # AGT-07: teto de itens no retorno da agenda. A janela ja e capada por 14 dias, mas um periodo
 # denso poderia devolver dezenas de bloqueios e inflar o contexto/tokens do turno.
 _MAX_BLOQUEIOS = 50
+
+# Fuso da operacao. `inicio`/`fim` sao timestamptz aware-UTC (psycopg, sessao UTC); a modelo/cliente
+# pensam e o LLM passa as datas (data_inicio/data_fim) em horario local. Tanto o FILTRO por dia
+# quanto o RENDER convertem para America/Sao_Paulo, senao um bloqueio de 22:30 BRT (01:30Z do dia
+# seguinte) cai no dia UTC errado -> excluido da consulta do dia certo (risco de double-booking) e
+# reportado +3h. Mesmo fuso usado no contexto de 48h (prepare_context, AT TIME ZONE).
+_FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
 
 @tool
@@ -53,7 +61,7 @@ async def consultar_agenda(
               FROM barravips.bloqueios
              WHERE modelo_id = %s
                AND estado IN ('bloqueado', 'em_atendimento')
-               AND inicio::date BETWEEN %s AND %s
+               AND (inicio AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN %s AND %s
                AND (%s::uuid IS NULL OR atendimento_id IS DISTINCT FROM %s::uuid)
              ORDER BY inicio
              LIMIT %s
@@ -73,7 +81,7 @@ async def consultar_agenda(
     # AGT-07: corta no teto e sinaliza o truncamento (pega 1 a mais p/ detectar sem COUNT).
     truncado = len(rows) > _MAX_BLOQUEIOS
     linhas = [
-        f"- {r['inicio']:%a %d/%m %H:%M} - {r['fim']:%H:%M} (ocupado)"
+        f"- {r['inicio'].astimezone(_FUSO_BR):%a %d/%m %H:%M} - {r['fim'].astimezone(_FUSO_BR):%H:%M} (ocupado)"
         for r in rows[:_MAX_BLOQUEIOS]
     ]
     texto = "Bloqueios:\n" + "\n".join(linhas)
