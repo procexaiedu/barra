@@ -30,7 +30,6 @@ def _settings_stub(log_level: str = "INFO") -> Any:
         langchain_tracing_v2=False,
         openrouter_api_key=None,
         openai_api_key=None,
-        preaquecer_cache_no_startup=False,
         database_url="postgresql://x",
     )
 

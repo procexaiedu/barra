@@ -1,0 +1,9 @@
+{
+  "__meta__": {
+    "fonte": "detector regex (evals.conduta.tem_empurrao) sobre turnos de cotacao humanos",
+    "n_cotacoes": 461,
+    "ref_humano_judge_pct": 26.0,
+    "ref_v1_pct": 0.3
+  },
+  "baseline_humano_pct": 3.25
+}

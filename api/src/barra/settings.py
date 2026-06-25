@@ -108,24 +108,12 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_model_audio_transcribe: str = "whisper-1"
 
-    # TTL de cache por bloco da infra de cache_control Anthropic (DORMENTE sob DeepSeek; ver
-    # cache_control_anthropic abaixo): cache_ttl_geral (BP1/BP2) não pode ser mais curto que
-    # cache_ttl_modelo (BP3) — a Anthropic exige o TTL mais longo antes do mais curto (03 §1/§5).
-    cache_ttl_geral: str = "1h"
-    cache_ttl_modelo: str = "1h"
-    # thinking/effort: parametros do ChatAnthropic (so o preaquecimento dormente e os evals usam).
+    # thinking/effort: parametros do ChatAnthropic (so os evals usam).
     anthropic_thinking: Literal["enabled", "disabled"] = "disabled"
     anthropic_effort: Literal["low", "medium", "high"] = "low"
-    # Teto de tokens da resposta — compartilhado por TODAS as factories de chat (DeepSeek, e o
-    # Anthropic dormente). Guard-rail (~1024): tom e tamanho vem da persona, nao deste limite.
+    # Teto de tokens da resposta — compartilhado por TODAS as factories de chat (DeepSeek e o
+    # Anthropic dos evals). Guard-rail (~1024): tom e tamanho vem da persona, nao deste limite.
     anthropic_max_tokens: int = 1024
-    # Infra de cache_control da Anthropic (BP_TOOLS/GERAL/MODELO/JANELA + preaquecimento): DORMENTE
-    # no P0 porque o chat e DeepSeek-direct (cacheia o prefixo automaticamente, sem cache_control
-    # ephemeral — que ate quebraria o roteamento OpenAI-compativel). Mantida ligavel (default False)
-    # p/ um eventual A/B de chat Anthropic e exercitada pelos guard-rails de prefixo
-    # (test_prepare_context). Consumido pelo no llm (bind de tools), prepare_context (system/
-    # BP_MODELO/BP_JANELA) e pelo preaquecimento do worker.
-    cache_control_anthropic: bool = False
 
     # Fonte unica do alvo de custo por turno (CUSTO-06). Antes o numero estava duplicado em
     # comentarios/help de core/metrics.py, agente/nos/llm.py e _custo.py; agora todos apontam
@@ -146,23 +134,6 @@ class Settings(BaseSettings):
         description="Cotacao USD->BRL usada p/ converter o custo estimado do turno do agente.",
     )
 
-    # Strict mode em tools (doc oficial Anthropic `strict-tool-use`): grammar-constrained
-    # decoding + cache de grammar 24h. Master-switch do strict PER-TOOL: quando True, aplica strict
-    # SO as tools de `STRICT_TOOLS` (`agente/ferramentas/__init__.py` — hoje {"escalar"}), nao a
-    # todas. O default ANTES era False porque o strict GLOBAL estourava "Schema is too complex"
-    # (limite somado em todas as tools strict da request); per-tool no `escalar` (1 enum de
-    # roteamento + 2 strings, apos `_sanitizar_para_strict` remover min/maxLength) cabe nos limites
-    # e foi VALIDADO contra a API real (2026-05-28: 200 OK, sem 400). `registrar_extracao` (~15
-    # campos, muitos union types `X | None`) fica FORA de STRICT_TOOLS ate o schema ser enxugado
-    # (limite de 16 union types). Setar False mata o strict sem deploy (kill-switch).
-    anthropic_strict_tools: bool = Field(
-        default=True,
-        description="Master-switch do strict PER-TOOL (STRICT_TOOLS em ferramentas/__init__.py). False desliga.",
-    )
-    preaquecer_cache_no_startup: bool = Field(
-        default=True,
-        description="Pre-aquece o prefixo global de cache (tools+BP_GERAL) com 1 request no startup do worker, evitando o burst de cache writes a 2x apos deploy de prompt ou gap > TTL (pesquisa §1.7 / 03 §4.5).",
-    )
     forcar_extracao_por_turno: bool = Field(
         default=True,
         description="Fallback deterministico (#2): quando o LLM encerra o turno sem chamar registrar_extracao, forca 1 chamada (tool_choice) antes de fechar o turno, garantindo que a FSM nao defase. Custa 1 request extra so nos turnos onde o modelo esqueceu. False = comportamento dependente da boa vontade do LLM (kill-switch sem deploy).",

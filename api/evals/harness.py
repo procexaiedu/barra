@@ -515,7 +515,6 @@ async def rodar_turno(
         atendimento_id=str(cen.atendimento_id),
         cliente_id=str(cen.cliente_id),
         turno_id=str(uuid4()),
-        cache_modelo_e_janela=False,  # turno isolado: BP_MODELO/JANELA seriam write puro
     )
     # Observabilidade: trace Langfuse (ADR 0019) quando habilitado (`habilitar_tracing`), escopado
     # por modelo/atendimento — o MESMO caminho de prod. Tags extras marcam que o trace e do gate.

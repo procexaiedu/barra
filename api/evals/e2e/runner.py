@@ -26,6 +26,7 @@ from evals.harness import Cenario, ResultadoTurno, rodar_turno, seedar
 
 from .cliente import ClienteSimulado
 from .perfil import ESTADOS_CONDUZIDOS, PerfilCaso, perfil_para_fixture
+from .persistencia import gravar_resposta_ia
 
 
 @dataclass
@@ -35,6 +36,7 @@ class ResultadoE2E:
     perfil_nome: str
     trajetoria: list[dict[str, Any]]  # estado_final {estado, pix_status, ia_pausada} por turno
     turnos: list[ResultadoTurno] = field(default_factory=list)  # resultado bruto (auditoria)
+    turnos_cliente: list[str] = field(default_factory=list)  # fala do cliente que gerou turnos[i]
     desfecho_conducao: str = "max_turnos"  # conduziu | pausou_handoff | cliente_sumiu | max_turnos
     estado_final: str | None = None
     desfecho_real: str | None = None  # rotulo do corpus (comparacao)
@@ -91,6 +93,7 @@ async def rodar_e2e(
     turno_cliente: str | None = perfil.abertura
     for _ in range(max_turnos):
         assert turno_cliente is not None
+        res.turnos_cliente.append(turno_cliente)  # paralelo a res.turnos (mesmo indice)
         r = await rodar_turno(
             conn,
             cen,
@@ -103,6 +106,12 @@ async def rodar_e2e(
         res.trajetoria.append(r.estado_final)
         if pos_turno is not None:
             await pos_turno(conn, cen, r)
+        else:
+            # Janela FIEL: sem o worker de envio (so roda em prod), a bolha da IA nao entra em
+            # `mensagens` sozinha -> o proximo turno nao a veria e o agente correria AMNESICO
+            # (re-cumprimenta/re-cota a cada turno). Grava na MESMA transacao efemera (ROLLBACK do
+            # caller descarta). gravar_resposta_ia pula texto vazio (turno sem fala / pausa).
+            await gravar_resposta_ia(conn, cen, r.texto)
 
         if _estado(r) in ESTADOS_CONDUZIDOS:
             res.desfecho_conducao = "conduziu"

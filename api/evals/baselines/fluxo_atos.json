@@ -1,0 +1,43 @@
+{
+  "__meta__": {
+    "fonte": "corpus.turnos from_me (threads tem_valor, nao-ops, 2..10 cli)",
+    "n_threads": 461,
+    "piso_jsd_eb_split": 0.0318
+  },
+  "transicoes": {
+    "cotacao>cotacao": 59,
+    "cotacao>logistica": 27,
+    "cotacao>midia": 54,
+    "cotacao>outro": 214,
+    "cotacao>saudacao": 14,
+    "cotacao>sondagem": 33,
+    "logistica>cotacao": 3,
+    "logistica>logistica": 1,
+    "logistica>midia": 4,
+    "logistica>outro": 13,
+    "logistica>saudacao": 2,
+    "midia>cotacao": 85,
+    "midia>logistica": 6,
+    "midia>midia": 12,
+    "midia>outro": 108,
+    "midia>sondagem": 13,
+    "outro>cotacao": 335,
+    "outro>logistica": 14,
+    "outro>midia": 130,
+    "outro>outro": 476,
+    "outro>saudacao": 51,
+    "outro>sondagem": 72,
+    "saudacao>cotacao": 43,
+    "saudacao>logistica": 1,
+    "saudacao>midia": 25,
+    "saudacao>outro": 225,
+    "saudacao>saudacao": 22,
+    "saudacao>sondagem": 39,
+    "sondagem>cotacao": 53,
+    "sondagem>logistica": 1,
+    "sondagem>midia": 24,
+    "sondagem>outro": 78,
+    "sondagem>saudacao": 1,
+    "sondagem>sondagem": 4
+  }
+}

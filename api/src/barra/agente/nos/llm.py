@@ -3,7 +3,7 @@
 No real -- chama o chat principal (#1) bindado com as tools e roteia por Command(goto=...). O chat
     e DeepSeek V4 Flash direto via ChatOpenAI (criar_chat_deepseek); o no le motivo de parada/nome
     do modelo de forma unificada (motivo_parada/nome_modelo, core.llm) -- codigo provider-agnostico,
-    nao campos Anthropic crus, mantido p/ a infra de cache dormente. Sem modelo de
+    nao campos Anthropic crus. Sem modelo de
     fallback: 429/5xx/timeout sobem como excecao (retry ja foi do SDK, max_retries) e, na exaustao,
     escalam para Fernando via escalar_por_exaustao (TODO M3f; 01 §2.6). O check de parada
     (refusal/max_tokens chegam em 200 OK, nao como excecao) vive dentro do try/except. Sem effort
@@ -39,8 +39,6 @@ from .._instrumentar import instrumentar_tokens
 from .._texto_turno import mensagens_do_turno, texto_da_mensagem
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
-from ..ferramentas import INPUT_EXAMPLES, STRICT_TOOLS
-from ..llm import build_tools_para_bind
 
 logger = logging.getLogger(__name__)
 
@@ -145,12 +143,9 @@ def no_llm(
     """Factory: liga o chat principal (#1) + catalogo de tools ao no llm.
 
     O chat e injetado por build_graph (09 §4.5) para nao reconstruir o cliente a cada invocacao.
-    Chat = DeepSeek V4 Flash direto (ChatOpenAI). O codigo segue provider-agnostico: o ramo
-    cache_control_anthropic (bind com `cache_control` na ULTIMA tool, doc oficial
-    tool-use-with-prompt-caching) fica DORMENTE no P0 (DeepSeek-direct cacheia automatico e o
-    `cache_control` ephemeral quebraria o roteamento OpenAI-compativel): binda as BaseTool cruas
-    (sem convert/strict/input_examples). Lista vazia
-    (P0 pre-M1) -> passa direto. Mudanca em qualquer tool invalida tools+system+messages (hierarquia).
+    Chat = DeepSeek V4 Flash direto (ChatOpenAI): binda as BaseTool cruas no schema
+    function-calling OpenAI (o cache de prefixo e automatico no provider, sem `cache_control`).
+    Lista vazia (P0 pre-M1) -> passa direto.
 
     `chat_extracao_barata` (settings.extracao_no_modelo_barato): quando injetado, a chamada
     FORCADA de registrar_extracao roda nesse chat barato (Haiku) ligado SO a tool de extracao e
@@ -158,37 +153,21 @@ def no_llm(
     hoje sao so extracao. None (default) -> caminho inalterado (forca no chat principal c/ prefixo).
     """
     settings = get_settings()
-    # cache_control e Anthropic-only (ephemeral): so no caminho Anthropic. No OpenRouter binda
-    # BaseTool cru — o `convert_to_anthropic_tool`/strict/input_examples nao se aplicam e o
-    # cache_control quebraria o roteamento do OpenRouter (eval teste_v4flash_cenario1).
-    if settings.cache_control_anthropic:
-        # strict PER-TOOL (STRICT_TOOLS = {"escalar"}); master-switch anthropic_strict_tools desliga
-        # tudo sem deploy. input_examples sempre injetados (ajudam tool-calling, custo no cache de
-        # tools pago 1x). Ambos byte-identicos p/ todas as modelos (invariante de prefixo).
-        tools_para_bind: Sequence[Any] = build_tools_para_bind(
-            tools,
-            ttl=settings.cache_ttl_geral,
-            strict_tools=STRICT_TOOLS if settings.anthropic_strict_tools else frozenset(),
-            exemplos=INPUT_EXAMPLES,
-        )
-    else:
-        tools_para_bind = tools
-    chat_bound = chat.bind_tools(tools_para_bind)
+    # DeepSeek-direct: binda as BaseTool cruas no schema function-calling OpenAI; o cache de prefixo
+    # e automatico no provider. Lista vazia (P0 pre-M1) -> bind_tools([]) e no-op.
+    chat_bound = chat.bind_tools(tools)
     # Fallback deterministico de extracao (#2): 2o bind que FORCA registrar_extracao via
-    # tool_choice (doc oficial `tool-use` / langchain-anthropic bind_tools). So existe quando a
+    # tool_choice (doc oficial `tool-use` / langchain bind_tools). So existe quando a
     # tool esta no catalogo e o kill-switch esta ligado -- em M0/testes (TOOLS=[]) fica None e o
     # caminho de forcamento some, sem tocar o bind normal nem o cache do prefixo (tool_choice e
     # parametro de request do 2o bind, nao altera o prefixo cacheado tools+system do 1o).
     nomes_tools = {t.name for t in tools}
     forca_ligada = _TOOL_EXTRACAO in nomes_tools and settings.forcar_extracao_por_turno
-    chat_forcado = (
-        chat.bind_tools(tools_para_bind, tool_choice=_TOOL_EXTRACAO) if forca_ligada else None
-    )
-    # Bind barato da extracao forcada (settings.extracao_no_modelo_barato): liga o chat Haiku SO a
-    # tool de extracao (nao o catalogo todo) com tool_choice. Sem cache_control nas tools — o
-    # prefixo barato e curto (system minimo + janela), nao ha 14,7k a cachear. `tool_extracao` e
-    # a propria BaseTool achada por nome (o convert/strict do build_tools_para_bind nao importa
-    # aqui: e 1 tool so e nao compartilha o prefixo cacheado do Sonnet).
+    chat_forcado = chat.bind_tools(tools, tool_choice=_TOOL_EXTRACAO) if forca_ligada else None
+    # Bind barato da extracao forcada (settings.extracao_no_modelo_barato): liga o chat barato SO a
+    # tool de extracao (nao o catalogo todo) com tool_choice. O prefixo barato e curto (system
+    # minimo + janela), nao ha 14,7k a cachear. `tool_extracao` e a propria BaseTool achada por
+    # nome (e 1 tool so e nao compartilha o prefixo do chat principal).
     tool_extracao = next((t for t in tools if t.name == _TOOL_EXTRACAO), None)
     chat_forcado_barato = (
         chat_extracao_barata.bind_tools([tool_extracao], tool_choice=_TOOL_EXTRACAO)

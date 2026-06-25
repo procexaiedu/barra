@@ -60,39 +60,19 @@ def _linhas_desc() -> list[dict[str, Any]]:
     ]
 
 
-@pytest.fixture
-def _provider_anthropic(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pina o branch Anthropic para os testes de cache_control da janela.
-
-    A marcação `cache_control` ephemeral só existe no caminho Anthropic (cache do DeepSeek é
-    automático, sem blocos — prepare_context.py:119). O default do projeto é `deepseek`
-    (settings.py), então estes testes precisam fixar o provider p/ serem herméticos vs `.env`.
-    """
-    import importlib
-
-    # `from barra.agente.nos import prepare_context` devolve a FUNÇÃO (reexport do __init__ sombreia
-    # o submódulo de mesmo nome) — import_module pega o módulo real p/ monkeypatch do get_settings.
-    _pc = importlib.import_module("barra.agente.nos.prepare_context")
-    # cache_control_anthropic liga a infra de cache_control (DORMENTE em prod, que e DeepSeek-only):
-    # e o gate dos guard-rails de prefixo byte-identico exercitados por estes testes.
-    anthropic = _pc.get_settings().model_copy(update={"cache_control_anthropic": True})
-    monkeypatch.setattr(_pc, "get_settings", lambda: anthropic)
-
-
 def test_ia_pausada_retorna_command_end() -> None:
     res = asyncio.run(prepare_context({"messages": []}, _runtime(ia_pausada=True)))
     assert isinstance(res, Command)
     assert res.goto == END
 
 
-def test_caminho_normal_2_system_mais_janela_cronologica(_provider_anthropic: None) -> None:
+def test_caminho_normal_2_system_mais_janela_cronologica() -> None:
     res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_desc())))
     assert isinstance(res, Command)
     assert res.goto == "intercept_disclosure"
     msgs = res.update["messages"]
-    # 2 SystemMessage (BP_GERAL fundido + BP_MODELO por-modelo) + 3 da janela. BP_JANELA marca
-    # cache na PENULTIMA da janela: msgs[3] (AIMessage "oi amor") vira content blocks; msgs[4]
-    # (modelo_manual, ultima da janela) fica string volatil (sem cache).
+    # 2 SystemMessage (BP_GERAL fundido + BP_MODELO por-modelo) + 3 da janela, todas string pura
+    # (cache do DeepSeek é automático no provider, sem marcador).
     assert isinstance(msgs[0], SystemMessage)
     assert isinstance(msgs[1], SystemMessage)
     assert len(msgs) == 5
@@ -100,12 +80,10 @@ def test_caminho_normal_2_system_mais_janela_cronologica(_provider_anthropic: No
     assert isinstance(msgs[2], HumanMessage)
     assert msgs[2].content.startswith("ola")
     assert "<situacao_do_atendimento" in msgs[2].content
-    # msgs[3] = penultima da janela = AIMessage "oi amor", agora COM cache_control (lista)
+    # msgs[3] = penultima da janela = AIMessage "oi amor", string pura (sem marcação de cache)
     assert isinstance(msgs[3], AIMessage)
-    assert isinstance(msgs[3].content, list)
-    assert msgs[3].content[0]["text"] == "oi amor, tudo bem?"  # type: ignore[index]
-    assert msgs[3].content[0]["cache_control"]["type"] == "ephemeral"  # type: ignore[index]
-    # msgs[4] = ultima da janela = modelo_manual, AIMessage com prefixo, content STRING (sem cache)
+    assert msgs[3].content == "oi amor, tudo bem?"
+    # msgs[4] = ultima da janela = modelo_manual, AIMessage com prefixo, content STRING
     assert isinstance(msgs[4], AIMessage)
     assert msgs[4].content == "[mensagem manual da modelo]: deixa que eu respondo"
 
@@ -126,27 +104,14 @@ def _linhas_n(n: int) -> list[dict[str, Any]]:
     ]
 
 
-def test_bp_janela_saturada_cai_para_ttl_5m(_provider_anthropic: None) -> None:
-    # Janela no LIMIT 20: a cabeça desliza no turno seguinte (prefixo de messages muda) → o
-    # write do BP_JANELA nunca vira read inter-turno; o mark fica só pelo reuso intra-turno e
-    # cai p/ 5m (write 1.25x) — cache_control SEM campo ttl (formato default ephemeral).
+def test_janela_sai_como_string_pura() -> None:
+    # Sem marcação de cache (DeepSeek cacheia o prefixo automaticamente): toda mensagem da janela
+    # — inclusive a penúltima — fica string pura. A última HumanMessage carrega o contexto
+    # dinâmico volátil, mas segue str. Nenhum content-block no caminho que roda em prod.
     res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_n(20))))
     assert isinstance(res, Command)
-    penultima = res.update["messages"][-2]
-    assert isinstance(penultima.content, list)
-    assert penultima.content[0]["cache_control"] == {"type": "ephemeral"}
-
-
-def test_bp_janela_append_only_mantem_ttl_modelo(_provider_anthropic: None) -> None:
-    # Janela abaixo do LIMIT (append-only no próximo turno): TTL segue cache_ttl_modelo —
-    # mesmo cache_control do bloco BP_MODELO (msgs[1]), que usa a mesma setting.
-    res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_n(19))))
-    assert isinstance(res, Command)
-    msgs = res.update["messages"]
-    cc_modelo = msgs[1].content[0]["cache_control"]
-    penultima = msgs[-2]
-    assert isinstance(penultima.content, list)
-    assert penultima.content[0]["cache_control"] == cc_modelo
+    for m in res.update["messages"]:
+        assert isinstance(m.content, str)
 
 
 def test_atendimento_id_none_pula_gate() -> None:
@@ -157,7 +122,6 @@ def test_atendimento_id_none_pula_gate() -> None:
     assert res.goto == "intercept_disclosure"
     # 2 system (BP_GERAL + BP_MODELO) + 1 HumanMessage: janela vazia, contexto dinamico anexa
     # novo HumanMessage no fim. BP_MODELO carrega por modelo_id mesmo com atendimento_id None.
-    # BP_JANELA no-op (janela so com 1 msg, sem penultima).
     msgs = res.update["messages"]
     assert len(msgs) == 3
     assert isinstance(msgs[0], SystemMessage)

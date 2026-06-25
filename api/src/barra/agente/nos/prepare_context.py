@@ -9,25 +9,24 @@ M0-T4:
     2. Prefixo system: BP_GERAL fundido (persona+regras+FAQ) via build_system_messages.
     3. Janela deslizante 20 (02 §4), traduzida para HumanMessage/AIMessage, em ordem
        cronologica, isolada pelo par (cliente_id, modelo_id) JUNTOS (agente/CLAUDE.md).
-       BP_JANELA: cache_control na penultima mensagem (`marcar_cache_na_penultima`).
+       Append-only (ORDER BY created_at, id): o prefixo da janela sai byte-identico entre turnos
+       enquanto a cabeca nao desliza -> o cache do DeepSeek (automatico no provider) da hit.
 
 M1-T2:
     4. Contexto dinamico (02 §5): estado do atendimento + cliente + agenda 48h resolvidos por
        queries (reusando a mesma conexao) e concatenados no ULTIMO HumanMessage da janela
-       (a msg atual do cliente), DEPOIS do prefixo cacheavel ("stable first, volatile last").
-       SEM `cache_control` -- texto volatil, fora do prefixo (03 §3.4/§4.4).
+       (a msg atual do cliente), DEPOIS do prefixo estavel ("stable first, volatile last") — o
+       dado volatil so na ultima HumanMessage mantem o prefixo (e o cache) quente (03 §3.4/§4.4).
 
 M2-T1 (este escopo):
-    5. BP3 por-modelo (03 §2/§3.3): identidade (nome/idade/idiomas/localizacao/tipos_aceitos) +
-       programas/precos do modelo_id, montados na MESMA conexao e passados como 3º bloco system
-       (cacheado por `ttl_modelo`), DEPOIS dos blocos GERAIS BP1/BP2. POR-MODELO, nao por par.
+    5. BP_MODELO por-modelo (03 §2/§3.3): identidade (nome/idade/idiomas/localizacao/tipos_aceitos) +
+       programas/precos do modelo_id, montados na MESMA conexao e passados como SystemMessage
+       proprio, DEPOIS do bloco GERAL. POR-MODELO, nao por par.
 
 M3g (este escopo):
     2b. Classificacao de disclosure/jailbreak (10 §8): regex sobre a cauda de HumanMessages
         da janela; grava (_categoria/_confianca) no state para o intercept_disclosure rotear
         canned/escala/llm. Sem nova query.
-
-Adiado: cache condicional da cauda (BP4, P1, 03 §4.4).
 """
 
 import hashlib
@@ -49,7 +48,7 @@ from barra.settings import get_settings
 from .._classificador import classificar_janela
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
-from ..llm import build_system_messages, marcar_cache_na_penultima
+from ..llm import build_system_messages
 from ..persona import (
     IdentidadeModelo,
     render_bp3,
@@ -111,40 +110,14 @@ async def prepare_context(
         #    para histórico do cliente, já filtrado por cliente+modelo na janela e no contexto).
         modelo_md = await _carregar_bp3(conn, ctx.modelo_id)
 
-    # 5. BP_JANELA (cache na penúltima): aproveita o slot liberado pela fusão BP_GERAL (antes
-    #    era BP1+BP2 separados). Só efetivo com janela ≥ 2; a última msg fica volátil (contexto
-    #    dinâmico + reminder), penúltima entra no cache. TTL ≤ `cache_ttl_modelo` (último
-    #    breakpoint do array — respeita "TTL maior antes do menor" da Anthropic).
-    settings = get_settings()
-    # cache_control ephemeral é Anthropic-only e DORMENTE no P0: o chat é DeepSeek-direct (cacheia o
-    # prefixo automaticamente; o cache_control ephemeral até quebraria o roteamento OpenAI-compatível)
-    # -> settings.cache_control_anthropic=False desliga os 4 breakpoints (tools no nó llm;
-    # system/BP_MODELO/BP_JANELA aqui).
-    cache_anthropic = settings.cache_control_anthropic
-    # BP_JANELA + BP_MODELO só se amortizam em tráfego real (multi-turn / repetido por-modelo).
-    # Com `ctx.cache_modelo_e_janela=False` (cada `ainvoke` single-turn isolada, IDs novos) esses
-    # dois blocos seriam só write nunca read — desliga o cache_control deles. BP_GERAL/tools
-    # (prefixo global) seguem cacheados de qualquer forma (só no caminho Anthropic).
-    cache_blocos = ctx.cache_modelo_e_janela and cache_anthropic
-    ttl_modelo = settings.cache_ttl_modelo if cache_blocos else None
-    if cache_blocos:
-        # Janela SATURADA (LIMIT 20 da query atingido): no próximo turno a cabeça desliza e o
-        # prefixo de messages muda desde o 1º bloco → o write do BP_JANELA nunca vira read
-        # inter-turno. O mark continua valendo pelo reuso INTRA-turno (loop de tools / extração
-        # forçada releem o mesmo prefixo segundos depois), então cai para TTL 5m: write 1.25x
-        # em vez de 2x (1h) sobre a janela inteira re-escrita a cada turno. Janela ainda
-        # append-only (< 20) mantém o TTL longo — o read do turno seguinte paga o prêmio.
-        ttl_janela = "5m" if len(linhas) >= 20 else settings.cache_ttl_modelo
-        mensagens = marcar_cache_na_penultima(mensagens, ttl=ttl_janela)
-
-    # 6. Prefixo system: BP_GERAL fundido (persona+regras+FAQ byte-idêntico p/ todas —
-    #    agente/CLAUDE.md) + BP_MODELO. Ordem estável: geral antes do por-modelo (invariante).
+    # 5. Prefixo system: BP_GERAL fundido (persona+regras+FAQ byte-idêntico p/ todas —
+    #    agente/CLAUDE.md) + BP_MODELO. Ordem estável: geral antes do por-modelo (invariante de
+    #    prefixo). O cache do prefixo é automático no DeepSeek (sem marcador): a disciplina que o
+    #    mantém quente é o prefixo byte-idêntico (geral global, por-modelo estável, dado dinâmico/
+    #    reminder só na última HumanMessage, janela append-only) — não há marcação de cache aqui.
     system_msgs = build_system_messages(
         geral_md=render_prefixo_geral(),
-        ttl_geral=settings.cache_ttl_geral,
         modelo_md=modelo_md,
-        ttl_modelo=ttl_modelo,
-        cache=cache_anthropic,
     )
     return Command(
         goto="intercept_disclosure",

@@ -313,3 +313,28 @@ async def test_janela_sem_bloqueios_disponibilidade_total(
         runtime=_Runtime(_Ctx(_PoolDeUmaConexao(conn), str(modelo_id))),
     )
     assert "Nenhum horário ocupado" in out
+
+
+@pytest.mark.needs_db
+async def test_filtra_e_renderiza_por_dia_brt_na_borda_de_meia_noite(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Borda de TZ: bloqueio às 22:30 BRT é armazenado em 01:30Z do dia seguinte. O filtro e o
+    render usam America/Sao_Paulo, então quem pergunta pelo DIA BRT correto o encontra (e o vê em
+    BRT). Com o antigo `inicio::date` (UTC) o bloqueio caía no dia seguinte e sumia da consulta do
+    dia certo -> a IA reportava o slot como livre (risco de double-booking)."""
+    modelo_id = await _seed_modelo(conn)
+    await _inserir_bloqueio(
+        conn,
+        modelo_id=modelo_id,
+        inicio=datetime(2026, 6, 26, 1, 30, tzinfo=UTC),  # 25/06 22:30 BRT
+        fim=datetime(2026, 6, 26, 2, 30, tzinfo=UTC),  # 25/06 23:30 BRT
+        estado="bloqueado",
+    )
+    out = await _chamar(
+        data_inicio=date(2026, 6, 25),  # dia BRT do bloqueio
+        data_fim=date(2026, 6, 25),
+        runtime=_Runtime(_Ctx(_PoolDeUmaConexao(conn), str(modelo_id))),
+    )
+    assert "25/06 22:30" in out and "(ocupado)" in out  # achado e renderizado em BRT
+    assert "26/06" not in out and "01:30" not in out  # nunca no dia/hora UTC

@@ -195,8 +195,9 @@ async def _inserir_bloqueio_48h(c: AsyncConnection[dict[str, Any]], modelo_id: U
 def _texto_de_mensagens(msgs: list[BaseMessage]) -> str:
     """Achata o conteúdo de TODAS as mensagens do contexto montado (system + janela + cauda).
 
-    A penúltima da janela vira blocos de conteúdo (list) por `marcar_cache_na_penultima`; as demais
-    são string. Junta tudo p/ buscar o canário em qualquer parte do prompt entregue ao LLM.
+    Todas as mensagens saem como string pura (cache do DeepSeek é automático, sem content-blocks);
+    o ramo `list` fica defensivo. Junta tudo p/ buscar o canário em qualquer parte do prompt
+    entregue ao LLM.
     """
     partes: list[str] = []
     for m in msgs:

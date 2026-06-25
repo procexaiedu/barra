@@ -23,7 +23,6 @@ from arq.cron import CronJob
 from openai import AsyncOpenAI
 
 from barra.agente.graph import build_graph
-from barra.agente.llm import preaquecer_prefixo_global
 from barra.core.db import criar_pool, fechar_pool
 from barra.core.evolution import EvolutionClient
 from barra.core.logging import setup_logging
@@ -148,7 +147,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     if settings.ambiente != "teste":
         from prometheus_client import start_http_server
 
-        # best-effort (igual ao preaquecimento abaixo): metricas nunca podem impedir o worker
+        # best-effort (igual ao vision_client=None abaixo): metricas nunca podem impedir o worker
         # de subir — ex.: :9091 ja ocupada por outro worker no mesmo host/netns.
         try:
             start_http_server(9091)
@@ -183,16 +182,6 @@ async def startup(ctx: dict[str, Any]) -> None:
         )
     else:
         ctx["openai_client"] = None
-    # Pre-aquece o prefixo global de cache (tools+BP_GERAL) com 1 request: o restart do worker
-    # no deploy de prompt e o gancho natural. Best-effort — falha de rede/API/sem chave nunca
-    # pode impedir o worker de subir (espelha o vision_client=None acima). So no chat Anthropic:
-    # o preaquecimento escreve cache_control ephemeral (Anthropic-only); no OpenRouter/DeepSeek o
-    # cache e automatico no provider, nao ha prefixo a pre-escrever.
-    if settings.preaquecer_cache_no_startup and settings.cache_control_anthropic:
-        try:
-            await preaquecer_prefixo_global(settings)
-        except Exception:
-            logger.warning("preaquecimento_cache_falhou", exc_info=True)
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
