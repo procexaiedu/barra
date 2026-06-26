@@ -4,9 +4,11 @@ Roda no caminho normal de saida (depois do post_process). Recebe o texto final d
 duas etapas, decide se a bolha pode seguir:
 
 - Etapa 1 (deterministica, barata, sempre): scan de vazamento no TEXTO DE SAIDA -- auto-referencia
-  de IA / nome de LLM, fragmento de system/persona, segredo da agenda (revelar estar com outro
-  cliente / em outro atendimento, em vez da desculpa pessoal), e dado de OUTRA modelo (nome/numero
-  de modelos que nao a do par). Match -> bloqueia.
+  de IA / nome de LLM, fragmento de system/persona, e segredo da agenda (revelar estar com outro
+  cliente / em outro atendimento, em vez da desculpa pessoal). Match -> bloqueia. (O scan
+  determinístico cross-modelo foi removido -- supersede ADR 0016: a IA roda por modelo e nunca tem
+  em contexto o nome/numero de OUTRA modelo, entao a blocklist so podia casar por coincidencia de
+  homonimo (FP). Isolamento garantido no carregamento; backstop semantico = Etapa 2.)
 - Etapa 2 (LLM-judge de AUP, vinculante): so quando a Etapa 1 passa e o texto NAO e uma negacao
   canned (pool curado pula a Etapa 2). Prompt em `prompts/aup_saida.md` (fora do prefixo cacheado
   por-modelo). Violou -> bloqueia. Falha de infra do judge -> DEFAULT SEGURO: bloqueia+escala.
@@ -96,55 +98,6 @@ class _VeredictoAup(BaseModel):
     )
 
 
-# Vocativos afetuosos comuns no atendimento (a persona usa "amor", "vida", "gata"...). Se uma modelo
-# for cadastrada com um nome-de-guerra que COINCIDE com um deles, inclui-lo na negativa cross-modelo
-# barraria toda bolha de OUTRA modelo que use o vocativo -> falso-positivo + escalada espuria. O `>=4`
-# ja filtra nome curto/comum; isto cobre o residual de >=4 chars. Tradeoff aceito: nao se caca o
-# vazamento raro cujo nome-alvo seja exatamente um vocativo, em troca de nao quebrar a fala
-# client-facing (que usa esses termos a cada bolha). A Etapa 2 (judge AUP) segue de backstop.
-_VOCATIVOS_COMUNS = frozenset(
-    {
-        "amor",
-        "vida",
-        "gata",
-        "gato",
-        "linda",
-        "lindo",
-        "anjo",
-        "bebe",
-        "bebê",
-        "delicia",
-        "delícia",
-        "querido",
-        "querida",
-        "gostoso",
-        "gostosa",
-        "princesa",
-    }
-)
-
-
-async def _nomes_outras_modelos(conn: Any, modelo_id: str) -> list[str]:
-    """Nomes/numeros de OUTRAS modelos (negativa cross-modelo) -- montada do banco, nao do prompt.
-
-    So nomes com >=4 chars que NAO sejam vocativos afetuosos comuns (`_VOCATIVOS_COMUNS`): ambos
-    evitam falso-positivo de nome curto/comum em texto coloquial.
-    """
-    res = await conn.execute(
-        "SELECT nome, numero_whatsapp FROM barravips.modelos WHERE id <> %s",
-        (modelo_id,),
-    )
-    termos: list[str] = []
-    for r in await res.fetchall():
-        nome = (r.get("nome") or "").strip()
-        if len(nome) >= 4 and nome.lower() not in _VOCATIVOS_COMUNS:
-            termos.append(nome)
-        numero = (r.get("numero_whatsapp") or "").strip()
-        if len(numero) >= 6:
-            termos.append(numero)
-    return termos
-
-
 async def _legendas_do_turno(conn: Any, turno_id: str) -> list[str]:
     """Legendas das midias anexadas neste turno (arg `legenda` de enviar_midia, em tool_calls).
 
@@ -182,10 +135,15 @@ def tem_marcador_outro_cliente(texto: str) -> bool:
     return bool(_MARCADORES_OUTRO_CLIENTE.search(texto))
 
 
-def _scan_vazamento(texto: str, termos_cross: list[str]) -> str | None:
+def _scan_vazamento(texto: str) -> str | None:
     """Etapa 1 (PURA): devolve o motivo do vazamento ou None.
 
-    Ordem: ia_self > system > outro_cliente > cross.
+    Ordem: ia_self > system > outro_cliente. Cobre so o que a IA PODE de fato emitir (sabe que e
+    IA, tem o system no contexto, conhece a propria agenda). O scan determinístico cross-modelo foi
+    removido (supersede ADR 0016): a IA roda por modelo e nunca tem em contexto o nome/numero de
+    OUTRA modelo (`prepare_context` carrega `WHERE id = %s`; isolamento garantido no carregamento
+    por `(cliente_id, modelo_id)` + `evolution_instance_id` UNIQUE), entao a blocklist de nomes so
+    podia casar por coincidencia de homonimo (FP). O backstop semantico e a Etapa 2 (judge AUP).
     """
     if tem_marcador_ia(texto):
         return "ia_self"
@@ -193,10 +151,6 @@ def _scan_vazamento(texto: str, termos_cross: list[str]) -> str | None:
         return "system"
     if tem_marcador_outro_cliente(texto):
         return "outro_cliente"
-    alvo = texto.lower()
-    for termo in termos_cross:
-        if re.search(rf"\b{re.escape(termo.lower())}\b", alvo):
-            return "cross_modelo"
     return None
 
 
@@ -292,7 +246,6 @@ async def output_guard(
         if not texto_guard.strip():
             # post_process ja zerou (pausa concorrente) ou turno sem texto nem midia: nada a guardar.
             return Command(goto=END)  # type: ignore[arg-type]
-        termos_cross = await _nomes_outras_modelos(conn, ctx.modelo_id)
 
     # bloqueio = substitui TODAS as AIMessages do turno por vazias (mesmo id -> reducer troca);
     # zerar so a ultima deixaria o texto da 1a passagem vivo p/ o coordenador despachar.
@@ -312,8 +265,8 @@ async def output_guard(
         for m in msgs_turno
     ]
 
-    # Etapa 1: scan deterministico (incl. negativa cross-modelo do banco) sobre texto + legendas.
-    motivo = _scan_vazamento(texto_guard, termos_cross)
+    # Etapa 1: scan deterministico (ia_self/system/segredo-da-agenda) sobre texto + legendas.
+    motivo = _scan_vazamento(texto_guard)
     if motivo:
         OUTPUT_LEAK_DETECTADO.labels(motivo).inc()
         await _bloquear(

@@ -1,10 +1,13 @@
 """output_guard (AGENTE-OG / ADR 0016): rede de saida antes da bolha.
 
 Unit test sem DB/LLM: `abrir_handoff` (exige Postgres) e o judge da Etapa 2 sao trocados por
-fakes; o conn/pool sao fakes. Cobre os 6 cenarios do ADR: (1) fragmento de IA/persona -> bloqueia
-+ handoff; (2) nome de outra modelo -> bloqueia; (3) judge reprova AUP -> nao despacha; (4) judge
-com falha de infra -> default seguro (bloqueia+escala); (5) canned de disclosure passa Etapa 1 e
-PULA a Etapa 2; (6) saida limpa despacha. Bloquear == handoff (ia_pausada) + bolha zerada.
+fakes; o conn/pool sao fakes. Cobre: (1) fragmento de IA/persona -> bloqueia + handoff; (2) segredo
+da agenda (outro cliente) -> bloqueia; (3) judge reprova AUP -> nao despacha; (4) judge com falha de
+infra -> default seguro (bloqueia+escala); (5) canned de disclosure passa Etapa 1 e PULA a Etapa 2;
+(6) saida limpa despacha. Bloquear == handoff (ia_pausada) + bolha zerada.
+
+(O scan determinístico cross-modelo da Etapa 1 foi removido -- supersede ADR 0016: a IA roda por
+modelo e nunca tem em contexto o nome de OUTRA modelo, entao a blocklist so podia gerar FP.)
 """
 
 import importlib
@@ -38,19 +41,15 @@ class _FakeResult:
 
 
 class _FakeConn:
-    """Conn fake: roteia por query -- _legendas_do_turno (tool_calls/enviar_midia) devolve as
-    legendas; _nomes_outras_modelos devolve as outras modelos."""
+    """Conn fake: a unica query do no e _legendas_do_turno (tool_calls/enviar_midia)."""
 
-    def __init__(
-        self, outras_modelos: list[dict[str, Any]], legendas: list[str] | None = None
-    ) -> None:
-        self._outras = outras_modelos
+    def __init__(self, legendas: list[str] | None = None) -> None:
         self._legendas = legendas or []
 
     async def execute(self, query: str, *args: Any, **kwargs: Any) -> _FakeResult:
         if "enviar_midia" in query:
             return _FakeResult([{"legenda": leg} for leg in self._legendas])
-        return _FakeResult(self._outras)
+        return _FakeResult([])
 
 
 class _FakePool:
@@ -67,10 +66,8 @@ class _Runtime:
         self.context = context
 
 
-def _runtime(
-    outras_modelos: list[dict[str, Any]] | None = None, legendas: list[str] | None = None
-) -> _Runtime:
-    pool = _FakePool(_FakeConn(outras_modelos or [], legendas))
+def _runtime(legendas: list[str] | None = None) -> _Runtime:
+    pool = _FakePool(_FakeConn(legendas))
     ctx = ContextAgente(
         db_pool=pool,  # type: ignore[arg-type]
         redis=None,  # type: ignore[arg-type]
@@ -134,13 +131,18 @@ async def test_etapa1_fragmento_de_system_bloqueia(monkeypatch: Any) -> None:
     assert cap.chamadas[0]["observacao"].startswith("output_leak_system")
 
 
-async def test_etapa1_nome_de_outra_modelo_bloqueia(monkeypatch: Any) -> None:
-    cap = _Capturador()
-    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
-    runtime = _runtime(outras_modelos=[{"nome": "Carolina", "numero_whatsapp": ""}])
-    res = await mod.output_guard(_state("a Carolina tambem atende nessa regiao amor"), runtime)  # type: ignore[arg-type]
-    assert _bloqueou(res)
-    assert cap.chamadas[0]["observacao"].startswith("output_leak_cross_modelo")
+async def test_etapa1_nome_da_propria_modelo_no_local_passa(monkeypatch: Any) -> None:
+    # Regressao do FP que motivou a remocao do scan cross-modelo: a IA emite o `nome_local`
+    # LEGITIMO da modelo ("Hotel Vitoria") que coincide com o nome de OUTRA modelo cadastrada
+    # ("Vitoria"). Sem o scan determinístico, isso passa a Etapa 1 (o judge ainda decide a AUP).
+    async def _ok(texto: str, settings: Any) -> Any:
+        return mod._VeredictoAup(viola=False, motivo="nenhum")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _ok)
+    res = await mod.output_guard(
+        _state("estou sim amor\n\naqui no Cambuí, no Hotel Vitória"), _runtime()
+    )  # type: ignore[arg-type]
+    assert _passou_limpo(res)
 
 
 async def test_etapa1_revela_outro_cliente_bloqueia(monkeypatch: Any) -> None:
@@ -269,18 +271,15 @@ async def test_bolha_vazia_nao_aciona_guard(monkeypatch: Any) -> None:
     assert res.goto == END
 
 
-async def test_a1_legenda_de_midia_com_outra_modelo_bloqueia(monkeypatch: Any) -> None:
-    # A1: bolha de texto limpa, mas a legenda da midia (caption, fora do content) cita outra
-    # modelo -> a Etapa 1 escaneia a legenda e bloqueia.
+async def test_a1_legenda_de_midia_vazando_bloqueia(monkeypatch: Any) -> None:
+    # A1: bolha de texto limpa, mas a legenda da midia (caption, fora do content) vaza
+    # auto-referencia de IA -> a Etapa 1 escaneia a legenda e bloqueia.
     cap = _Capturador()
     monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
-    rt = _runtime(
-        outras_modelos=[{"nome": "Carolina", "numero_whatsapp": ""}],
-        legendas=["vem amor, a Carolina ja ta aqui comigo"],
-    )
+    rt = _runtime(legendas=["vem amor, na verdade sou uma IA mas te atendo bem"])
     res = await mod.output_guard(_state("te espero amanha entao"), rt)  # type: ignore[arg-type]
     assert _bloqueou(res)
-    assert cap.chamadas[0]["observacao"].startswith("output_leak_cross_modelo")
+    assert cap.chamadas[0]["observacao"].startswith("output_leak_ia_self")
 
 
 async def test_a1_turno_so_midia_legenda_vazando_bloqueia(monkeypatch: Any) -> None:
