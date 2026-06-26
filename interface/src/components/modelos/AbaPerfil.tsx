@@ -97,6 +97,7 @@ export function AbaPerfil({
   const [atendimento, setAtendimento] = useState({
     localizacao_operacional: modelo.localizacao_operacional ?? "",
     endereco_formatado: modelo.endereco_formatado,
+    nome_local: modelo.nome_local,
     latitude: modelo.latitude,
     longitude: modelo.longitude,
     place_id: modelo.place_id,
@@ -137,6 +138,7 @@ export function AbaPerfil({
   const dirtyAtendimento =
     atendimento.localizacao_operacional !== (modelo.localizacao_operacional ?? "") ||
     atendimento.endereco_formatado !== modelo.endereco_formatado ||
+    atendimento.nome_local !== modelo.nome_local ||
     atendimento.place_id !== modelo.place_id ||
     atendimento.idiomas !== modelo.idiomas.join(", ") ||
     atendimento.tipo_atendimento_aceito.join("|") !== modelo.tipo_atendimento_aceito.join("|")
@@ -458,6 +460,7 @@ export function AbaPerfil({
                   ...a,
                   localizacao_operacional: local.localizacao_curta,
                   endereco_formatado: local.endereco_formatado,
+                  nome_local: local.nome_local,
                   latitude: local.latitude,
                   longitude: local.longitude,
                   place_id: local.place_id,
@@ -468,6 +471,7 @@ export function AbaPerfil({
                   ...a,
                   localizacao_operacional: "",
                   endereco_formatado: null,
+                  nome_local: null,
                   latitude: null,
                   longitude: null,
                   place_id: null,
@@ -491,6 +495,7 @@ export function AbaPerfil({
           onClick={() => salvar("atendimento", {
             localizacao_operacional: atendimento.localizacao_operacional.trim() || null,
             endereco_formatado: atendimento.endereco_formatado,
+            nome_local: atendimento.nome_local,
             latitude: atendimento.latitude,
             longitude: atendimento.longitude,
             place_id: atendimento.place_id,

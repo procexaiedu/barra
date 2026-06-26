@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input"
 
 export interface LocalSelecionado {
   endereco_formatado: string
+  nome_local: string | null
   latitude: number
   longitude: number
   place_id: string
@@ -87,8 +88,13 @@ export function CampoLocalAutocomplete({
           }
           const loc = place.location
           if (!loc || !place.formattedAddress) return
+          // displayName é o nome do estabelecimento num POI (ex.: "Hotel Vitória"); num
+          // endereço puro ele costuma repetir a rua — aí descartamos pra não duplicar.
+          const nome = place.displayName ?? null
+          const nomeLocal = nome && !place.formattedAddress.startsWith(nome) ? nome : null
           onSelecionarRef.current({
             endereco_formatado: place.formattedAddress,
+            nome_local: nomeLocal,
             latitude: loc.lat(),
             longitude: loc.lng(),
             place_id: place.id,

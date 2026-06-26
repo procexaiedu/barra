@@ -10,7 +10,7 @@ from uuid import UUID
 # TTLs em segundos. `pending` > `debounce`: o drain do coordenador le `pending` apos o
 # turno (01 §4.3); `debounce` e a janela curta do `_defer_by` do enqueue.
 TTL_PENDING = 120
-TTL_DEBOUNCE = 10
+TTL_DEBOUNCE = 20
 
 
 def chave_pending(conversa_id: UUID | str) -> str:

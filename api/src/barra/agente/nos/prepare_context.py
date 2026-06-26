@@ -437,7 +437,7 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> str:
     res = await conn.execute(
         """
         SELECT nome, idade, idiomas, localizacao_operacional, tipo_atendimento_aceito,
-               endereco_formatado
+               endereco_formatado, nome_local
           FROM barravips.modelos
          WHERE id = %s
         """,
@@ -451,6 +451,7 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> str:
         localizacao_operacional=m.get("localizacao_operacional"),
         tipos_aceitos=m.get("tipo_atendimento_aceito") or [],
         endereco_formatado=m.get("endereco_formatado"),
+        nome_local=m.get("nome_local"),
     )
 
     res = await conn.execute(
