@@ -38,6 +38,7 @@ class _Ctx:
         self.redis = redis
         self.atendimento_id = "00000000-0000-0000-0000-000000000001"
         self.turno_id = "00000000-0000-0000-0000-000000000002"
+        self.agora_utc = None
 
 
 class _Runtime:

@@ -268,6 +268,8 @@ async def registrar_extracao_ia(
     conn: AsyncConnection[Any],
     atendimento_id: str,
     payload: dict[str, Any],
+    *,
+    agora: datetime | None = None,
 ) -> dict[str, Any]:
     """UPSERT do snapshot da IA + transicao de estado + bloqueio previo, na transacao do chamador.
 
@@ -387,13 +389,13 @@ async def registrar_extracao_ia(
             ):
                 from barra.dominio.agenda.service import criar_bloqueio_previo
 
-                await criar_bloqueio_previo(conn, atendimento=atendimento)
+                await criar_bloqueio_previo(conn, atendimento=atendimento, agora=agora)
                 if atendimento["tipo_atendimento"] == "interno":
                     resultado_extra["enviar_pin"] = True
 
     # 2b. Pix de deslocamento deterministico (externo-Uber): bloco independente da transicao deste
     #     turno — cobre a promocao direta E o pickup->Uber corrigido (ver docstring do helper).
-    await _solicitar_pix_deslocamento_se_aplicavel(conn, aid, resultado_extra)
+    await _solicitar_pix_deslocamento_se_aplicavel(conn, aid, resultado_extra, agora=agora)
 
     # 3. Aviso de saida (06 §5 + emenda §0 item 10): detectado pelo agente, nao por regex.
     #    So em interno em Aguardando_confirmacao e guardado por aviso_saida_em IS NULL
@@ -808,7 +810,11 @@ async def _escalar_modelo(
 
 
 async def _solicitar_pix_deslocamento_se_aplicavel(
-    conn: AsyncConnection[Any], atendimento_id: UUID, resultado_extra: dict[str, Any]
+    conn: AsyncConnection[Any],
+    atendimento_id: UUID,
+    resultado_extra: dict[str, Any],
+    *,
+    agora: datetime | None = None,
 ) -> None:
     """Solicitacao deterministica do Pix de deslocamento (substitui a tool `pedir_pix_deslocamento`).
 
@@ -847,7 +853,7 @@ async def _solicitar_pix_deslocamento_se_aplicavel(
     if a["bloqueio_id"] is None:
         from barra.dominio.agenda.service import criar_bloqueio_previo
 
-        await criar_bloqueio_previo(conn, atendimento=a)
+        await criar_bloqueio_previo(conn, atendimento=a, agora=agora)
     valor = get_settings().pix_deslocamento_valor
     await conn.execute(
         "UPDATE barravips.atendimentos SET pix_status = 'aguardando' "

@@ -335,6 +335,37 @@ def upsert_item_dataset(dataset: str, item_id: str, metadata: dict[str, Any]) ->
         logger.debug("upsert_dataset_falhou dataset=%s", dataset, exc_info=True)
 
 
+def linkar_item_run(
+    dataset: str,
+    item_id: str,
+    run_name: str,
+    trace_id: str | None,
+    *,
+    observation_id: str | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Amarra um item↔trace dentro de um dataset-RUN nomeado — a peça que faltava do trio:
+    `garantir_dataset` cria o dataset, `upsert_item_dataset` cria o item, ISTO vincula item, run e o
+    trace de UMA execução (run_name agrupa a corrida). Os scores do judge já vivem no trace
+    (`registrar_feedback_online`/`pontuar_no_langfuse`); aqui só ligamos o trace ao run. Best-effort:
+    no-op sem handler (tracing off — ex.: pytest/.env vazio) ou sem `trace_id` (turno sem escopo).
+    Exige `garantir_dataset` + `upsert_item_dataset` antes (o item precisa existir)."""
+    if _LANGFUSE_HANDLER is None or trace_id is None:
+        return
+    try:
+        from langfuse import get_client
+
+        get_client().api.dataset_run_items.create(
+            run_name=run_name,
+            dataset_item_id=item_id,
+            trace_id=trace_id,
+            observation_id=observation_id,
+            metadata=metadata,
+        )
+    except Exception:  # best-effort: telemetria nunca quebra o job
+        logger.debug("linkar_item_run_falhou dataset=%s run=%s", dataset, run_name, exc_info=True)
+
+
 def _tag_turno_id(event: dict[str, Any], hint: dict[str, Any]) -> dict[str, Any]:
     """before_send do Sentry: promove o `turno_id` a tag do evento (OBS-04).
 

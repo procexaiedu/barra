@@ -14,6 +14,7 @@ Nos leem `runtime: Runtime[ContextAgente]` (runtime.context); tools leem
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 
 from arq import ArqRedis
@@ -33,3 +34,7 @@ class ContextAgente:
     atendimento_id: str
     cliente_id: str
     turno_id: str
+    # Relogio do turno (clock injection). None (prod) -> prepare_context le current_timestamp do
+    # banco. Setado (harness fiel/replay) -> instante fixo: agenda/antecedencia/bordas viram
+    # deterministicas e o teste roda no MESMO codigo de prod (so a fonte de "agora" muda). Aware UTC.
+    agora_utc: datetime | None = None

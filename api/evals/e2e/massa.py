@@ -23,6 +23,7 @@ from uuid import uuid4
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
+from barra.core.tracing import garantir_dataset, linkar_item_run, upsert_item_dataset
 from evals.e2e.avaliacao import (
     avaliar_e2e,
     flush_langfuse,
@@ -34,6 +35,10 @@ from evals.e2e.cliente import ClienteRoteirizado
 from evals.e2e.persistencia import gravar_resposta_ia, seed_caso_persistente
 from evals.e2e.runner import ResultadoE2E, rodar_e2e
 from evals.harness import Cenario, ResultadoTurno, estado_pos_turno, habilitar_tracing
+
+# Dataset Langfuse dos cenarios e2e: cada perfil e um item estavel (id = perfil.nome); cada corrida
+# (`--dataset-run`) vira um dataset-RUN que linka os itens aos traces daquela execucao (ADR 0019).
+DATASET_E2E = "e2e_conducao"
 
 
 async def _disparar_foto_portaria(conn: AsyncConnection[dict[str, Any]], cen: Cenario) -> None:
@@ -125,13 +130,20 @@ async def rodar_massa(
     conn_eval: AsyncConnection[dict[str, Any]] | None = None,
     max_turnos: int = 10,
     persistir: bool = False,
+    dataset_run: str | None = None,
 ) -> list[dict[str, Any]]:
     """Roda os cenarios `k` vezes cada. `conn` seeda/conduz (ROLLBACK do caller, ou COMMIT por turno
     quando `persistir`); `conn_eval` (AUTOCOMMIT separada) recebe o veredito quando `run_tag` setado.
 
     `persistir`: cada cenario vira uma conversa `origem='e2e'` sob a modelo sandbox (painel
     /observabilidade). O trace Langfuse + score (`escopar_trace`) ligam sozinhos se `setup_langfuse`
-    rodou no startup; sem handler, sao no-op."""
+    rodou no startup; sem handler, sao no-op.
+
+    `dataset_run`: nome da corrida no dataset Langfuse `e2e_conducao`. Setado -> cada cenario vira um
+    item (id=perfil.nome) e o trace do ultimo turno e linkado a esse run (Fase 5). Best-effort/no-op
+    sem handler (tracing off)."""
+    if dataset_run:
+        garantir_dataset(DATASET_E2E)
     feitos: set[str] = set()
     if run_tag and conn_eval is not None:
         cur = await conn_eval.execute(
@@ -165,7 +177,16 @@ async def rodar_massa(
                 res.trajetoria.append(est)
             veredito = avaliar_e2e(res, cf.perfil)
             aval = _avaliar_cenario(cf, res)
-            await pontuar_no_langfuse(res.turnos[-1].trace_id if res.turnos else None, veredito)
+            trace_id = res.turnos[-1].trace_id if res.turnos else None
+            await pontuar_no_langfuse(trace_id, veredito)
+            if dataset_run:
+                # Item estavel por perfil; o trace (ja pontuado pelo judge) vira um item DESTE run.
+                upsert_item_dataset(
+                    DATASET_E2E, cf.perfil.nome, {"eixo": cf.perfil.eixo_comportamento}
+                )
+                await asyncio.to_thread(
+                    linkar_item_run, DATASET_E2E, cf.perfil.nome, dataset_run, trace_id
+                )
             if run_tag and conn_eval is not None:
                 await gravar_veredito(
                     conn_eval,
@@ -233,6 +254,7 @@ async def _main(args: argparse.Namespace) -> None:
             run_tag=args.run_tag,
             conn_eval=conn_eval,
             persistir=args.persistir,
+            dataset_run=args.dataset_run,
         )
     finally:
         if not args.persistir:
@@ -255,6 +277,10 @@ def main() -> None:
     )
     ap.add_argument(
         "--fake", action="store_true", help="chat mockado: valida o encanamento sem credito"
+    )
+    ap.add_argument(
+        "--dataset-run",
+        help="vincula cada cenario ao dataset Langfuse e2e_conducao sob este nome de run (Fase 5)",
     )
     args = ap.parse_args()
     if not os.environ.get("TEST_DATABASE_URL"):
