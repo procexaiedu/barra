@@ -85,7 +85,12 @@ async def existe_vizinho_no_buffer(
     return await res.fetchone() is not None
 
 
-async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict[str, Any]) -> None:
+async def criar_bloqueio_previo(
+    conn: AsyncConnection[Any],
+    *,
+    atendimento: dict[str, Any],
+    agora: datetime | None = None,
+) -> None:
     """Reserva o slot previo do atendimento (estado `bloqueado`, origem `ia`) e fecha a FK circular.
 
     inicio = (data_desejada ou hoje BRT) + horario_desejado; fim = inicio + (duracao_horas ou
@@ -100,8 +105,10 @@ async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict
     modelo_id = atendimento["modelo_id"]
     # Um unico `agora` p/ todo o booking: o default de data, o roll cross-midnight e o guard de
     # antecedencia leem o mesmo instante (sem o risco de `.date()` e o roll caírem em lados
-    # opostos da meia-noite por dois now() distintos).
-    agora = datetime.now(BRT)
+    # opostos da meia-noite por dois now() distintos). `agora` injetado (harness fiel/replay, clock
+    # injection — casa com ContextAgente.agora_utc) torna o booking deterministico; None (prod) le o
+    # relogio real. Normalizado p/ BRT — a aritmetica de data/sessao abaixo assume BRT.
+    agora = datetime.now(BRT) if agora is None else agora.astimezone(BRT)
     data = atendimento.get("data_desejada") or agora.date()
     horario = atendimento["horario_desejado"]
     if horario is None:

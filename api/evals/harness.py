@@ -406,14 +406,27 @@ async def _inserir_mensagem(
     conversa_id: UUID,
     direcao: str,
     texto: str,
+    tipo: str = "texto",
+    media_object_key: str | None = None,
 ) -> None:
+    """Insere uma linha em `mensagens` como prod grava. `tipo`/`media_object_key` default = texto
+    puro (retrocompat); 'imagem'/'audio' carregam o `conteudo` que o agente VE (caption da imagem /
+    transcricao do audio) — o STT/caption ja resolveram antes do turno (ver `traduzir_mensagens`)."""
     await conn.execute(
         """
         INSERT INTO barravips.mensagens
-            (id, conversa_id, direcao, tipo, conteudo, evolution_message_id)
-        VALUES (%s, %s, %s::barravips.direcao_mensagem_enum, 'texto', %s, %s)
+            (id, conversa_id, direcao, tipo, conteudo, media_object_key, evolution_message_id)
+        VALUES (%s, %s, %s::barravips.direcao_mensagem_enum, %s, %s, %s, %s)
         """,
-        (uuid4(), conversa_id, direcao, texto, f"test-evo-{uuid4().hex}"),
+        (
+            uuid4(),
+            conversa_id,
+            direcao,
+            tipo,
+            texto,
+            media_object_key,
+            f"test-evo-{uuid4().hex}",
+        ),
     )
 
 

@@ -100,3 +100,44 @@ async def test_rodar_massa_agenda_borda_fora_fake(
     r = resultados[0]
     assert r["cenario"] == "agenda_borda_fora"
     assert "nao_confirmou_fora_ok" in r["avaliacao"], r
+
+
+def test_linkar_item_run_noop_sem_handler(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Fase 5: sem handler Langfuse (tracing off — pytest/.env vazio) o link e no-op puro: nao
+    levanta nem toca a rede, mesmo com trace_id setado. Mesma disciplina best-effort das outras
+    funcoes de dataset (garantir/upsert). Forca o handler=None (outro teste da suite pode te-lo
+    ligado num global e nao restaurado) p/ o no-op ser testado de forma isolada."""
+    from barra.core import tracing
+
+    monkeypatch.setattr(tracing, "_LANGFUSE_HANDLER", None)
+    # nao deve levantar nem retornar nada (no-op)
+    assert tracing.linkar_item_run("e2e_conducao", "item-x", "run-1", "trace-abc") is None
+    # tambem no-op quando falta o trace_id (turno sem escopo)
+    assert tracing.linkar_item_run("e2e_conducao", "item-x", "run-1", None) is None
+
+
+async def test_rodar_massa_com_dataset_run_nao_quebra_sem_handler(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fase 5: passar `dataset_run` com o tracing OFF (sem chaves Langfuse) e seguro — garantir/
+    upsert/link sao no-op e a corrida roda igual. Prova que a integracao nao acopla o eval ao
+    Langfuse. Graph fake, run_tag=None: sem credito e sem tocar prod (§0)."""
+    from evals.e2e import cenarios as cmod
+    from evals.e2e import massa as mmod
+    from evals.e2e.sessao import _graph_fake
+
+    from barra.core import tracing
+
+    # forca o tracing OFF (outro teste pode ter ligado o handler global): sem isso o `dataset_run`
+    # tentaria criar dataset/run REAIS no Langfuse de prod.
+    monkeypatch.setattr(tracing, "_LANGFUSE_HANDLER", None)
+
+    so_foto = [c for c in cmod.cenarios() if c.nome == "foto_portaria"]
+    monkeypatch.setattr(mmod, "cenarios", lambda: so_foto)
+
+    resultados = await rodar_massa(
+        conn, _graph_fake(), k=1, run_tag=None, dataset_run="run-de-teste"
+    )
+
+    assert len(resultados) == 1, resultados
+    assert resultados[0]["cenario"] == "foto_portaria"

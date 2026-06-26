@@ -31,8 +31,9 @@ M3g (este escopo):
 
 import hashlib
 import re
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
+from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langgraph.graph import END
@@ -58,6 +59,34 @@ from ..persona import (
     render_reminder,
 )
 from ._proximo_livre import proximo_livre
+
+# Mesmo fuso que o SQL usa (`current_timestamp AT TIME ZONE 'America/Sao_Paulo'`): quando o relogio
+# vem injetado (ContextAgente.agora_utc), derivamos a ancora BRT em Python com ESTE fuso p/ casar
+# byte-a-byte com o que o banco devolveria.
+_FUSO_BR = ZoneInfo("America/Sao_Paulo")
+
+
+async def _resolver_agora(
+    conn: AsyncConnection[Any], ctx: ContextAgente
+) -> tuple[datetime | None, datetime | None]:
+    """Ancora de tempo do turno: `(agora_brt_naive, agora_tz_utc)`.
+
+    `ctx.agora_utc` setado (harness fiel/replay) -> relogio fixo derivado dele; None (prod) ->
+    `current_timestamp` do banco, comportamento historico. Fonte UNICA: a query de bloqueios e a
+    ancora renderizada saem do MESMO instante (antes, `now()` na query e `current_timestamp` na
+    ancora podiam divergir por ms). `agora` = BRT naive (igual `... AT TIME ZONE`); `agora_tz` =
+    aware UTC (base do `horario_minimo` e das janelas de bloqueio).
+    """
+    if ctx.agora_utc is not None:
+        agora_tz = ctx.agora_utc if ctx.agora_utc.tzinfo else ctx.agora_utc.replace(tzinfo=UTC)
+        agora = agora_tz.astimezone(_FUSO_BR).replace(tzinfo=None)
+        return agora, agora_tz
+    res = await conn.execute(
+        "SELECT (current_timestamp AT TIME ZONE 'America/Sao_Paulo') AS agora, "
+        "current_timestamp AS agora_tz"
+    )
+    row = await res.fetchone()
+    return (row["agora"], row["agora_tz"]) if row else (None, None)
 
 
 async def prepare_context(
@@ -532,18 +561,23 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     # ⚠️ Janela de 48h espelhada em texto LLM-visível: `consultar_agenda` (DESC, ferramentas/
     # leitura.py) e o prompt `<tools_disponiveis>` (regras.md.j2) dizem "próximas 48h" pra ensinar
     # quando chamar a tool. Mudou aqui → atualize os dois, senão a DESC/prompt mentem em silêncio.
+    # Âncora de tempo do turno (clock injection, ContextAgente.agora_utc): fonte ÚNICA de "agora"
+    # p/ a janela de bloqueios E a âncora renderizada (data/hora/horario_minimo). Prod (agora_utc
+    # None) -> current_timestamp do banco; harness fiel/replay -> instante fixo.
+    agora, agora_tz = await _resolver_agora(conn, ctx)
+
     res = await conn.execute(
         """
         SELECT inicio, fim
           FROM barravips.bloqueios
          WHERE modelo_id = %s
            AND estado IN ('bloqueado', 'em_atendimento')
-           AND inicio >= now()
-           AND inicio < now() + interval '48 hours'
+           AND inicio >= %s
+           AND inicio < %s + interval '48 hours'
            AND (%s::uuid IS NULL OR atendimento_id IS DISTINCT FROM %s::uuid)
          ORDER BY inicio
         """,
-        (ctx.modelo_id, ctx.atendimento_id, ctx.atendimento_id),
+        (ctx.modelo_id, agora_tz, agora_tz, ctx.atendimento_id, ctx.atendimento_id),
     )
     bloqueios_raw = await res.fetchall()
 
@@ -564,14 +598,8 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     # absolutas em consultar_agenda e precisa tanto da âncora de "hoje" (04 §2.1) quanto da
     # hora atual para resolver tempo relativo do cliente ("daqui 1h", "agora"). `current_date`
     # sozinho vinha em UTC — off-by-one de dia à noite (BRT = UTC-3) — e sem a hora a IA
-    # chutava o horário do bloqueio. now() (UTC) nas janelas acima não muda; só a âncora que a
-    # IA lê passa a ser local.
-    res = await conn.execute(
-        "SELECT (current_timestamp AT TIME ZONE 'America/Sao_Paulo') AS agora, "
-        "current_timestamp AS agora_tz"
-    )
-    agora_row = await res.fetchone()
-    agora = agora_row["agora"] if agora_row else None
+    # chutava o horário do bloqueio. `agora`/`agora_tz` já vêm de `_resolver_agora` (fonte única;
+    # banco em prod, relógio injetado no harness) — a âncora que a IA lê é local.
     data_atual = agora.date() if agora is not None else None
     hora_atual = agora.strftime("%H:%M") if agora is not None else None
 
@@ -580,7 +608,6 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     # com `agora_tz` (aware, mesmo fuso dos bloqueios -> renderiza igual). None = now+buffer cai fora
     # da Disponibilidade (a IA cai na conduta de período de trabalho). O hard rule em
     # criar_bloqueio_previo é o backstop; aqui é só a âncora proativa.
-    agora_tz = agora_row["agora_tz"] if agora_row else None
     horario_minimo = (
         proximo_livre(agora_tz, bloqueios_raw, regras_disp, buffer_min)
         if agora_tz is not None

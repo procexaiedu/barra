@@ -222,6 +222,10 @@ async def registrar_extracao(
     pool = runtime.context.db_pool
     atendimento_id = runtime.context.atendimento_id
     turno_id = runtime.context.turno_id
+    # Relogio do turno (clock injection): None em prod (criar_bloqueio_previo le now() real);
+    # instante fixo no harness fiel/replay -> a reserva do slot fica deterministica e coerente
+    # com a ancora que a IA leu no contexto (ContextAgente.agora_utc).
+    agora = runtime.context.agora_utc
 
     # Revalida os args achatados no model interno (constraints ge/le, min/max_length, forbid).
     payload = ExtracaoPayload(
@@ -257,7 +261,7 @@ async def registrar_extracao(
                 "registrar_extracao",
                 0,
                 dados,
-                executor=lambda c, p: registrar_extracao_ia(c, atendimento_id, p),
+                executor=lambda c, p: registrar_extracao_ia(c, atendimento_id, p, agora=agora),
             )
         except ConflitoAgenda:
             # Erro recuperavel (04 §6): a transacao reverteu; instrua a IA a reofertar outro

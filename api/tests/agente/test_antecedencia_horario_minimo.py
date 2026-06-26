@@ -46,6 +46,7 @@ class _Ctx:
     db_pool = _FakePool()
     atendimento_id = "00000000-0000-0000-0000-000000000001"
     turno_id = "00000000-0000-0000-0000-000000000002"
+    agora_utc = None
 
 
 class _Runtime:

@@ -351,6 +351,10 @@ async def processar_turno(
                     atendimento_id=str(atendimento["id"]),
                     cliente_id=str(atendimento["cliente_id"]),
                     turno_id=turno_id,
+                    # Clock injection: ausente no ctx do worker real (-> None -> relogio do banco,
+                    # prod inalterada); o harness fiel injeta `agora_override` p/ fixar o relogio do
+                    # turno e tornar agenda/bordas deterministicas.
+                    agora_utc=ctx.get("agora_override"),
                 )
                 entrada: dict[str, Any] = {"messages": []}
 
