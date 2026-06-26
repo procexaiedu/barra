@@ -94,9 +94,11 @@ async def criar_bloqueio_previo(
     """Reserva o slot previo do atendimento (estado `bloqueado`, origem `ia`) e fecha a FK circular.
 
     inicio = (data_desejada ou hoje BRT) + horario_desejado; fim = inicio + (duracao_horas ou
-    DURACAO_PADRAO_HORAS). Buffer de preparo/intervalo (ADR 0025, `agenda_buffer_min`) e regra DURA:
-    antecedencia minima (inicio < now + buffer -> `AntecedenciaInsuficiente`) e gap entre
-    atendimentos (vizinho ativo dentro do buffer -> `ConflitoAgenda`). Serializa o booking por modelo
+    DURACAO_PADRAO_HORAS). Buffer de preparo/intervalo (ADR 0025 + emenda 2026-06-26) e regra DURA:
+    antecedencia minima por DESLOCAMENTO (sem deslocamento da modelo -> `agenda_antecedencia_sem_
+    deslocamento_min`, ~0; externo-Uber -> `agenda_buffer_min`; inicio < now + antecedencia ->
+    `AntecedenciaInsuficiente`) e gap entre atendimentos (vizinho ativo dentro de `agenda_buffer_min`
+    -> `ConflitoAgenda`, todos os tipos). Serializa o booking por modelo
     com `pg_advisory_xact_lock` (mesmo padrao do trigger gen_numero_curto, 0001_schema_inicial.sql:193);
     a EXCLUDE `bloqueios_sem_sobreposicao` (0001:515) e o backstop de sobreposicao real. Cada erro
     recuperavel reverte o turno e a tool reoferta (ConflitoAgenda) ou ancora no horario_minimo
@@ -157,13 +159,22 @@ async def criar_bloqueio_previo(
     if not regras_cobrem(regras, inicio):
         raise ForaDisponibilidade("Inicio do bloqueio fora da disponibilidade da modelo.")
 
-    # Antecedencia minima (ADR 0025): a IA nunca reserva dentro do buffer de preparo a partir de
-    # agora. Casa com o <horario_minimo> do contexto (arredonda_acima(now + buffer)); aqui o teto e
-    # cru (now + buffer), pois qualquer inicio >= horario_minimo ja o satisfaz. Nao precisa do lock.
-    buffer = get_settings().agenda_buffer_min
-    if inicio < agora + timedelta(minutes=buffer):
+    # Antecedencia minima (ADR 0025 + emenda 2026-06-26): a IA nunca reserva dentro da antecedencia
+    # a partir de agora. Casa com o <horario_minimo> do contexto (arredonda_acima(now + antecedencia));
+    # aqui o teto e cru, pois qualquer inicio >= horario_minimo ja o satisfaz. Por DESLOCAMENTO: quem
+    # NAO se desloca (interno, remoto, externo-pickup/cliente_busca) recebe agora como o humano
+    # (antecedencia ~0); o externo-Uber (modelo se desloca + Pix) mantem o piso = agenda_buffer_min.
+    # O gap entre atendimentos (existe_vizinho_no_buffer, abaixo) segue agenda_buffer_min p/ todos.
+    s = get_settings()
+    buffer = s.agenda_buffer_min
+    sem_deslocamento = atendimento.get("tipo_atendimento") in (
+        "interno",
+        "remoto",
+    ) or atendimento.get("cliente_busca")
+    antecedencia = s.agenda_antecedencia_sem_deslocamento_min if sem_deslocamento else buffer
+    if inicio < agora + timedelta(minutes=antecedencia):
         raise AntecedenciaInsuficiente(
-            "Inicio dentro do buffer de preparo a partir de agora (now + buffer)."
+            "Inicio dentro da antecedencia minima a partir de agora (now + antecedencia)."
         )
 
     # Advisory lock por modelo serializa o booking entre conversas distintas da MESMA modelo

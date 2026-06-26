@@ -25,10 +25,14 @@ DESFECHOS_PERDIDOS = ("perdido_sumiu", "perdido_objecao")
 _TIPO_PROXY: dict[str, str] = {"interno": "interno", "externo": "externo"}
 
 _PERSONA_TMPL = """\
-Cliente real da operação (desfecho observado: {desfecho}). Reproduza ESTE cliente: o mesmo jeito \
-de escrever, o mesmo nível de decisão e as MESMAS objeções que ele levantou — não seja mais fácil \
-nem mais difícil do que ele foi. Falas reais dele, na ordem em que mandou:
-{falas}"""
+Cliente real da operação (desfecho observado: {desfecho}). Você é ESTE cliente. Abaixo está a \
+conversa ORIGINAL dele com o vendedor (V = vendedor; VOCÊ = as suas falas). Cada fala SUA foi uma \
+REAÇÃO ao que o vendedor disse logo antes — repare no gatilho de cada uma (ex.: você só disse que \
+era "pertinho" depois que ele passou o endereço). Reencene este cliente: o mesmo jeito de escrever, \
+as mesmas decisões e objeções, sem ser mais fácil nem mais difícil do que ele foi.
+
+CONVERSA ORIGINAL (referência do seu comportamento):
+{transcript}"""
 
 
 async def extrair_perfis(
@@ -73,7 +77,8 @@ async def extrair_perfis(
         falas = await _falas_do_cliente(conn, th["instancia"], th["remote_jid"])
         if len(falas) < min_cli:
             continue
-        perfis.append(_montar(th, falas))
+        transcript = await _transcript_real(conn, th["instancia"], th["remote_jid"])
+        perfis.append(_montar(th, falas, transcript=transcript))
     return perfis
 
 
@@ -98,7 +103,8 @@ async def extrair_perfil_por_ref(
     falas = await _falas_do_cliente(conn, th["instancia"], th["remote_jid"])
     if not falas:
         return None
-    return _montar(th, falas)
+    transcript = await _transcript_real(conn, th["instancia"], th["remote_jid"])
+    return _montar(th, falas, transcript=transcript)
 
 
 async def _falas_do_cliente(
@@ -117,16 +123,53 @@ async def _falas_do_cliente(
     return [str(r["texto"]).strip() for r in await res.fetchall()]
 
 
-def _montar(th: dict[str, Any], falas: list[str], eixo: str = "") -> PerfilCaso:
-    numeradas = "\n".join(f"{i + 1}. {f}" for i, f in enumerate(falas))
+async def _transcript_real(
+    conn: AsyncConnection[dict[str, Any]], instancia: str, remote_jid: str
+) -> list[tuple[str, str]]:
+    """Transcript real COMPLETO (V = vendedor/from_me, C = cliente), em ordem. Da ao cliente-LLM o
+    GATILHO de cada fala dele (o que o vendedor disse antes); sem isso ele cola falas no vacuo.
+    Turnos so-midia viram '[mídia]' — preservam a posicao (o gatilho pode ser uma foto)."""
+    res = await conn.execute(
+        """
+        SELECT from_me, texto FROM corpus.turnos
+        WHERE instancia = %s AND remote_jid = %s
+        ORDER BY turno_idx
+        """,
+        (instancia, remote_jid),
+    )
+    out: list[tuple[str, str]] = []
+    for r in await res.fetchall():
+        lado = "V" if r["from_me"] else "C"
+        txt = (str(r["texto"]).strip() if r["texto"] else "") or "[mídia]"
+        out.append((lado, txt))
+    return out
+
+
+def _render_transcript(transcript: list[tuple[str, str]]) -> str:
+    """Conversa original pareada (V = vendedor, VOCÊ = cliente) — deixa visível o gatilho de cada
+    fala do cliente para o cliente-LLM nao colar fala no vacuo."""
+    return "\n".join(
+        ("V" if lado == "V" else "VOCÊ") + ": " + txt.replace("\n", " / ")
+        for lado, txt in transcript
+    )
+
+
+def _montar(
+    th: dict[str, Any],
+    falas: list[str],
+    eixo: str = "",
+    transcript: list[tuple[str, str]] | None = None,
+) -> PerfilCaso:
     desfecho = th["desfecho_proxy"]
     ref = f"{th['instancia']}:{th['remote_jid']}"
+    # Sem transcript pareado, degrada para so-cliente (ainda util, mas sem os gatilhos do vendedor).
+    transcript = transcript or [("C", f) for f in falas]
     return PerfilCaso(
         nome=f"{eixo or desfecho}:{ref}",
         abertura=falas[0],
         modelo=MODELO_SINTETICA,
         roteiro_cliente=falas[1:],
-        persona=_PERSONA_TMPL.format(desfecho=desfecho, falas=numeradas),
+        persona=_PERSONA_TMPL.format(desfecho=desfecho, transcript=_render_transcript(transcript)),
         tipo_esperado=_TIPO_PROXY.get(th["tipo_atendimento_proxy"]),
         desfecho_real=desfecho,
         label_bin=th["label_bin"],
@@ -192,7 +235,8 @@ async def extrair_nucleo(
             falas = await _falas_do_cliente(conn, th["instancia"], th["remote_jid"])
             if len(falas) < min_cli:
                 continue
+            transcript = await _transcript_real(conn, th["instancia"], th["remote_jid"])
             vistos.add(ref)
-            perfis.append(_montar(th, falas, eixo=eixo))
+            perfis.append(_montar(th, falas, eixo=eixo, transcript=transcript))
             n += 1
     return perfis

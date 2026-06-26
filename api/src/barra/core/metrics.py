@@ -165,12 +165,22 @@ REINCIDENCIA_SEGURANCA = Counter(
 OUTPUT_LEAK_DETECTADO = Counter(
     "agente_output_leak_total",
     "Vazamentos barrados pela Etapa 1 do output-guard (10 §; ADR 0016), por motivo",
-    ["motivo"],  # persona | system | ia_self | cross_modelo
+    [
+        "motivo"
+    ],  # ia_self | system | outro_cliente | raciocinio (legenda; texto e saneado no Estagio 0)
 )
 AUP_SAIDA_BLOQUEADO = Counter(
     "agente_aup_saida_bloqueado_total",
     "Bolhas barradas pela Etapa 2 (LLM-judge de AUP) do output-guard, por resultado",
     ["resultado"],  # violou | judge_falhou (default seguro: bloqueia+escala)
+)
+# Estagio 0 do output-guard: vazamento de RACIOCINIO (meta-fala) saneado antes do envio. Acao =
+# SANEAR (stripar a bolha de raciocinio, manter a fala real), nao barrar -> metrica propria, fora do
+# leak-rate. `acao`: saneado (sobrou fala real) | mudo (turno 100%-leak, nada despachado).
+OUTPUT_RACIOCINIO_SANEADO = Counter(
+    "agente_output_raciocinio_saneado_total",
+    "Turnos com vazamento de raciocinio saneado pelo Estagio 0 do output-guard, por acao",
+    ["acao"],  # saneado | mudo
 )
 # 05 §2: sentenca unica > 600 chars sai inteira no chunk; sinal de prompt que ignorou o
 # \n\n instruido (regressao de prompt), NAO erro de envio.

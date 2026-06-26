@@ -31,21 +31,30 @@ def proximo_livre(
     blocos: list[dict[str, Any]],
     regras_disp: list[dict[str, Any]],
     buffer_min: int,
+    *,
+    lead_min: int | None = None,
 ) -> datetime | None:
     """Próximo horário reservável após `fim`, ou None se não couber na Disponibilidade.
 
-    `cand` = `fim` + buffer, arredondado pra cima na meia-hora. Pula um bloqueio seguinte se `cand`
+    `cand` = `fim` + `lead`, arredondado pra cima na meia-hora. Pula um bloqueio seguinte se `cand`
     cair DENTRO dele OU dentro do buffer ANTES dele (ADR 0025: gap >= buffer dos dois lados — a
     adjacência `fim == inicio`, e tudo a menos de um buffer, não é reservável); some o buffer e
     re-arredonda, cobrindo cadeias consecutivas. Só retorna se o início cair numa janela de
     Disponibilidade (sem regra = sempre disponível).
 
+    `lead_min` (emenda ADR 0025, 2026-06-26) separa o offset inicial do gap entre atendimentos:
+    `lead` = offset a partir de `fim` (default = `buffer_min`, retrocompatível); `buffer_min` = o
+    gap em torno dos vizinhos, sempre. O `horario_minimo` (lead a partir de AGORA) passa a
+    antecedência por-tipo aqui (sem deslocamento da modelo -> ~0); o `proximo_livre` por-bloqueio
+    (lead a partir do fim de um compromisso = gap entre atendimentos) mantém o default.
+
     É camada de conversa: oferece o início respeitando o buffer dos dois lados, como a reserva
     exige (`existe_vizinho_no_buffer`, ADR 0025). A reserva re-valida na criação (sobreposição +
     buffer + a duração efetiva, que este pré-cálculo não conhece).
     """
+    lead = timedelta(minutes=buffer_min if lead_min is None else lead_min)
     buffer = timedelta(minutes=buffer_min)
-    cand = _arredonda_meia_hora_acima(fim + buffer)
+    cand = _arredonda_meia_hora_acima(fim + lead)
     for _ in range(len(blocos) + 1):
         # Conflita se `cand` cai DENTRO do bloco ou no buffer ANTES dele (gap < buffer). O `>`
         # estrito deixa a adjacência de gap == buffer reservável (espelha `i2 < new.fim + buffer`

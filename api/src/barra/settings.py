@@ -239,9 +239,22 @@ class Settings(BaseSettings):
         ge=0,
         description=(
             "Buffer em minutos de preparo/intervalo ao redor de um bloqueio (ADR 0025). Regra DURA "
-            "da reservabilidade: antecedência mínima (inicio >= now + buffer) e gap entre "
-            "atendimentos (>= buffer) em criar_bloqueio_previo; e a sugestão do próximo slot "
-            "adjacente (proximo_livre + horario_minimo) no contexto dinâmico. Global."
+            "da reservabilidade: gap entre atendimentos (>= buffer, todos os tipos) em "
+            "criar_bloqueio_previo + skip de vizinho no proximo_livre; e a antecedência mínima do "
+            "externo-Uber (inicio >= now + buffer). Antecedência dos tipos sem deslocamento da "
+            "modelo usa agenda_antecedencia_sem_deslocamento_min (emenda ADR 0025, 2026-06-26). "
+            "Global."
+        ),
+    )
+    agenda_antecedencia_sem_deslocamento_min: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Antecedência mínima (min) para reservar quando a modelo NÃO se desloca — interno, "
+            "remoto e externo-pickup (cliente_busca) — emenda ADR 0025 (2026-06-26). Casa o "
+            "comportamento do vendedor humano (recebe agora com a modelo ociosa) em vez de adiar "
+            "por preparo a frio. O gap entre atendimentos segue agenda_buffer_min; só o "
+            "externo-Uber mantém a antecedência = agenda_buffer_min. Global."
         ),
     )
     operacao_hora_inicio: int = Field(

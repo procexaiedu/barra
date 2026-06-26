@@ -328,6 +328,84 @@ async def test_remoto_horario_cria_bloqueio_sem_pin(
 
 
 @pytest.mark.needs_db
+async def test_imediato_sem_horario_assume_horario_minimo(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """#4: urgencia=imediato SEM horario_desejado, em remoto (sem-deslocamento), assume o
+    `horario_minimo` (cedo agenda-coerente) e promove a Aguardando_confirmacao + bloqueio — em vez
+    de ficar preso em Qualificado -> Perdido. `agora`/`horario_minimo` fixos -> determinístico."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        aceita=["remoto"],
+        estado="Qualificado",
+        tipo_atendimento="remoto",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    agora = datetime(2026, 12, 1, 9, 0, tzinfo=BRT)
+    horario_minimo = datetime(2026, 12, 1, 9, 30, tzinfo=BRT)
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"urgencia": "imediato", "proxima_acao_esperada": "reservar a chamada"},
+        agora=agora,
+        horario_minimo=horario_minimo,
+    )
+
+    assert resultado["novo_estado"] == "Aguardando_confirmacao"
+    res = await conn.execute(
+        "SELECT estado::text AS estado, horario_desejado, bloqueio_id "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Aguardando_confirmacao"
+    assert a["horario_desejado"] == time(9, 30)  # assumiu o horario_minimo, não o now cru
+    assert a["bloqueio_id"] is not None
+
+
+@pytest.mark.needs_db
+async def test_imediato_externo_uber_nao_auto_reserva(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """#4 gate (c): externo-Uber (a modelo se desloca) com imediato SEM horario NÃO auto-crava —
+    fica sem reserva (trilha reoferta->confirma->Pix), pra não disparar uma cobrança de Pix a partir
+    de um 'imediato' que veio de condicional ('agora mesmo se der')."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        aceita=["externo"],
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    agora = datetime(2026, 12, 1, 9, 0, tzinfo=BRT)
+    horario_minimo = datetime(2026, 12, 1, 9, 30, tzinfo=BRT)
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"urgencia": "imediato", "proxima_acao_esperada": "x"},
+        agora=agora,
+        horario_minimo=horario_minimo,
+    )
+
+    assert resultado["novo_estado"] is None  # gate sem-deslocamento: não preencheu horário
+    res = await conn.execute(
+        "SELECT estado::text AS estado, horario_desejado, bloqueio_id "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Qualificado"
+    assert a["horario_desejado"] is None
+    assert a["bloqueio_id"] is None
+
+
+@pytest.mark.needs_db
 async def test_valor_abaixo_do_piso_escala(conn: AsyncConnection[dict[str, Any]]) -> None:
     modelo_id, atendimento_id = await _seed_par(
         conn, estado="Qualificado", tipo_atendimento="externo", intencao="agendamento"

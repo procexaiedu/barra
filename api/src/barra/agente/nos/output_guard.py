@@ -30,13 +30,17 @@ from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from barra.core.db import conexao
-from barra.core.metrics import AUP_SAIDA_BLOQUEADO, OUTPUT_LEAK_DETECTADO
+from barra.core.metrics import (
+    AUP_SAIDA_BLOQUEADO,
+    OUTPUT_LEAK_DETECTADO,
+    OUTPUT_RACIOCINIO_SANEADO,
+)
 from barra.settings import get_settings
 
 from .._canned import NEGACOES_CANNED
 from .._defesa import escalar_defesa
 from .._instrumentar import instrumentar_tokens
-from .._texto_turno import extrair_texto_do_turno, mensagens_do_turno
+from .._texto_turno import extrair_texto_do_turno, mensagens_do_turno, texto_da_mensagem
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..persona import render_aup_saida
@@ -89,12 +93,37 @@ _MARCADORES_OUTRO_CLIENTE = re.compile(
 )
 
 
+# Vazamento de RACIOCINIO: o chat #1 (thinking disabled, temp 1.3) as vezes derrama a cadeia de
+# raciocinio no canal `content` em vez de conversar -- meta-fala que entrega a IA. Marcas (handoff
+# 2026-06-26): planejamento em 1a pessoa ("meu proximo passo"), 3a pessoa sobre o cliente ("o
+# cliente demonstrou"), vocab de maquina de estado ("em triagem", "avancou"), lista de analise ("a
+# situacao mostra: -"). Conservador no que casa -- na duvida o judge (Etapa 2) e a rede fail-closed.
+_MARCADORES_RACIOCINIO = re.compile(
+    r"\b("
+    r"meu pr[óo]ximo passo|minha (resposta|interven[çc][ãa]o|fala) (suavizou|sobre)"
+    r"|o cliente (demonstrou|quer saber|menciona|pediu)|claro interesse dele"
+    r"|em triagem|triagem avan[çc]ou|a (situa[çc][ãa]o|conversa) (mostra|fluiu)"
+    # fragmento de scratchpad: planejamento em voz alta / auto-correcao quebrada. Combos unicos
+    # (nao "faz sentido" solto, que e fala legitima): "faz sentido na sequencia", a run-on
+    # "entao.opa devagar", "preparado, entao".
+    r"|faz sentido na sequ[êe]ncia|ent[ãa]o\.?\s*opa|preparado,? ent[ãa]o"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def tem_marcador_raciocinio(texto: str) -> bool:
+    """True se o texto e meta-fala/raciocinio vazado (planejamento, 3a pessoa sobre o cliente,
+    vocab de maquina de estado, lista de analise) em vez de fala client-facing (PURO)."""
+    return bool(_MARCADORES_RACIOCINIO.search(texto))
+
+
 class _VeredictoAup(BaseModel):
     """Saida estruturada da Etapa 2 (judge de AUP vinculante)."""
 
     viola: bool = Field(description="true se a bolha deve ser BARRADA (viola a AUP)")
     motivo: str = Field(
-        description="rotulo curto: ia_self|system_leak|cross_modelo|aup_dura|nenhum"
+        description="rotulo curto: ia_self|system_leak|cross_modelo|aup_dura|reasoning_leak|nenhum"
     )
 
 
@@ -135,15 +164,56 @@ def tem_marcador_outro_cliente(texto: str) -> bool:
     return bool(_MARCADORES_OUTRO_CLIENTE.search(texto))
 
 
+def _sanear_raciocinio(msgs_turno: list[AIMessage], texto: str) -> tuple[str, list[AIMessage]]:
+    """Estagio 0: strippa as bolhas de RACIOCINIO vazado do texto do turno, mantendo a fala real.
+
+    O texto ao cliente e o agregado do turno separado por `\\n\\n` (`extrair_texto_do_turno`), e o
+    chunker quebra na mesma marca -- entao cada `\\n\\n` e uma bolha. Descarta as bolhas que sao
+    meta-fala (`tem_marcador_raciocinio`) e devolve (texto_saneado, AIMessages reescritas).
+
+    O coordenador RE-deriva o texto via `extrair_texto_do_turno(messages)` -- nao le um output do
+    guard -- entao o saneamento precisa viver NAS mensagens. Reescreve so as AIMessages cujo content
+    tinha bolha de raciocinio (split/strip/rejoin do proprio content), preservando id/usage/
+    response_metadata/tool_calls: o reducer troca pelo id, o `extrair` junta os contents limpos e
+    rende exatamente o texto_saneado (bolha nao cruza fronteira de mensagem -> strip e distributivo).
+    Turno sem raciocinio -> (texto, []) (no-op, comportamento de hoje).
+    """
+    texto_saneado = "\n\n".join(b for b in texto.split("\n\n") if not tem_marcador_raciocinio(b))
+    if texto_saneado == texto:
+        return texto, []
+    reescritas: list[AIMessage] = []
+    for m in msgs_turno:
+        original = texto_da_mensagem(m)
+        if not original:
+            continue
+        limpo = "\n\n".join(b for b in original.split("\n\n") if not tem_marcador_raciocinio(b))
+        if limpo != original:
+            reescritas.append(
+                AIMessage(
+                    id=m.id,
+                    content=limpo,
+                    tool_calls=m.tool_calls,
+                    usage_metadata=m.usage_metadata,
+                    response_metadata=m.response_metadata,
+                )
+            )
+    return texto_saneado, reescritas
+
+
 def _scan_vazamento(texto: str) -> str | None:
     """Etapa 1 (PURA): devolve o motivo do vazamento ou None.
 
-    Ordem: ia_self > system > outro_cliente. Cobre so o que a IA PODE de fato emitir (sabe que e
-    IA, tem o system no contexto, conhece a propria agenda). O scan determinístico cross-modelo foi
-    removido (supersede ADR 0016): a IA roda por modelo e nunca tem em contexto o nome/numero de
-    OUTRA modelo (`prepare_context` carrega `WHERE id = %s`; isolamento garantido no carregamento
-    por `(cliente_id, modelo_id)` + `evolution_instance_id` UNIQUE), entao a blocklist de nomes so
-    podia casar por coincidencia de homonimo (FP). O backstop semantico e a Etapa 2 (judge AUP).
+    Ordem: ia_self > system > outro_cliente > raciocinio. Cobre so o que a IA PODE de fato emitir
+    (sabe que e IA, tem o system no contexto, conhece a propria agenda). O scan determinístico
+    cross-modelo foi removido (supersede ADR 0016): a IA roda por modelo e nunca tem em contexto o
+    nome/numero de OUTRA modelo (`prepare_context` carrega `WHERE id = %s`; isolamento garantido no
+    carregamento por `(cliente_id, modelo_id)` + `evolution_instance_id` UNIQUE), entao a blocklist
+    de nomes so podia casar por coincidencia de homonimo (FP). O backstop semantico e a Etapa 2.
+
+    `raciocinio` aqui e a rede para a LEGENDA de midia (que o Estagio 0 nao saneia -- ela e arg de
+    tool no DB, nao content de mensagem reescrivivel): legenda com meta-fala -> barra o turno, igual
+    a qualquer outro leak em legenda. O texto ja chega aqui SANEADO (Estagio 0 strippou as bolhas de
+    raciocinio com o mesmo regex), entao esta checagem nunca re-barra o texto -- so a legenda.
     """
     if tem_marcador_ia(texto):
         return "ia_self"
@@ -151,6 +221,8 @@ def _scan_vazamento(texto: str) -> str | None:
         return "system"
     if tem_marcador_outro_cliente(texto):
         return "outro_cliente"
+    if tem_marcador_raciocinio(texto):
+        return "raciocinio"
     return None
 
 
@@ -187,21 +259,35 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
     # nº de bolhas (o judge roda antes de CADA bolha). Mantemos o trace legivel; os tokens do judge
     # seguem instrumentados via Prometheus (abaixo, le do `bruto`, independe de callbacks) e o caso
     # inseguro continua logado + metrica. Nao afeta o parsing (callbacks sao so telemetria).
-    resultado = await chat.ainvoke(mensagens, config={"callbacks": []})
-    assert isinstance(resultado, dict)
-    bruto = resultado.get("raw")
-    # CUSTO: o judge roda antes de CADA bolha e queima tokens (DeepSeek V4 Flash) que antes nao
-    # entravam em nenhuma metrica. Instrumenta sob o label do PROPRIO modelo do judge. ANTES do
-    # check de parada -- o token gastou mesmo quando o veredito vem inseguro (refusal/truncado/parse)
-    # e cai no _JudgeInseguro.
-    if bruto is not None:
-        instrumentar_tokens(bruto, modelo_judge)
-    parada = motivo_parada(getattr(bruto, "response_metadata", None))
-    if resultado.get("parsing_error") is not None or parada in PARADA_INSEGURA:
-        raise _JudgeInseguro(f"judge sem veredito confiavel (parada={parada})")
-    veredito = resultado.get("parsed")
-    assert isinstance(veredito, _VeredictoAup)
-    return veredito
+    # Retry 1x SO no parsing_error (parse transitorio, temp default do judge): PARADA_INSEGURA
+    # (refusal/truncamento) e sinal de seguranca real -> default-seguro imediato, sem retry (a 2a
+    # tentativa nao reverteria um filtro do provider). O log distingue os dois gatilhos: a msg
+    # antiga so citava `parada` e culpava o `tool_calls` (finish_reason normal de function-calling),
+    # mascarando que o gatilho real era o `parsing_error`.
+    parada: str | None = None
+    for tentativa in (1, 2):
+        resultado = await chat.ainvoke(mensagens, config={"callbacks": []})
+        assert isinstance(resultado, dict)
+        bruto = resultado.get("raw")
+        # CUSTO: o judge roda antes de CADA bolha e queima tokens (DeepSeek V4 Flash). Instrumenta
+        # sob o label do PROPRIO modelo do judge, ANTES do check de parada e em CADA tentativa -- o
+        # token gastou mesmo no veredito inseguro (refusal/truncado/parse) e no retry.
+        if bruto is not None:
+            instrumentar_tokens(bruto, modelo_judge)
+        parada = motivo_parada(getattr(bruto, "response_metadata", None))
+        if parada in PARADA_INSEGURA:
+            raise _JudgeInseguro(
+                f"judge sem veredito confiavel (parsing_error=False, parada={parada})"
+            )
+        if resultado.get("parsing_error") is None:
+            veredito = resultado.get("parsed")
+            assert isinstance(veredito, _VeredictoAup)
+            return veredito
+        if tentativa == 1:
+            logger.warning(
+                "output_guard judge parse falhou (tentativa 1, parada=%s) -> retry", parada
+            )
+    raise _JudgeInseguro(f"judge sem veredito confiavel (parsing_error=True, parada={parada})")
 
 
 async def _bloquear(ctx: ContextAgente, *, observacao: str, resumo: str, metric_key: str) -> None:
@@ -237,6 +323,17 @@ async def output_guard(
     msgs_turno = mensagens_do_turno(state["messages"])
     texto = extrair_texto_do_turno(state["messages"])
 
+    # Estagio 0 (non-disclosure, tolerancia-zero): SANEIA o raciocinio vazado -- strippa as bolhas de
+    # meta-fala (que entregam a IA) e mantem a fala real. O texto saneado segue p/ a Etapa 1/2 (scan
+    # + judge rodam no que VAI ao cliente). `msgs_saneadas` (AIMessages reescritas) viaja nos returns
+    # de passagem: o coordenador re-deriva o texto das mensagens, entao o strip precisa estar nelas.
+    # Turno 100%-raciocinio -> texto vazio -> mudo (silencio > disclosure). NAO escala (leak saneado
+    # nao e brecha como ia_self): se algo com cara de raciocinio SOBREVIVER, a Etapa 2 fecha.
+    texto, msgs_saneadas = _sanear_raciocinio(msgs_turno, texto)
+    update_saneamento: dict[str, Any] = {"messages": msgs_saneadas} if msgs_saneadas else {}
+    if msgs_saneadas:
+        OUTPUT_RACIOCINIO_SANEADO.labels("saneado" if texto.strip() else "mudo").inc()
+
     # A legenda da midia (arg `legenda` de enviar_midia) sai ao cliente como caption FORA da bolha
     # de texto -- precisa passar pelo MESMO scan/judge, senao escaparia do guard (A1). Coletada
     # ANTES do early-return de texto vazio p/ cobrir tambem turno so-midia.
@@ -244,8 +341,10 @@ async def output_guard(
         legendas = await _legendas_do_turno(conn, ctx.turno_id)
         texto_guard = "\n".join(p for p in (texto, *legendas) if p.strip())
         if not texto_guard.strip():
-            # post_process ja zerou (pausa concorrente) ou turno sem texto nem midia: nada a guardar.
-            return Command(goto=END)  # type: ignore[arg-type]
+            # post_process ja zerou (pausa concorrente), turno sem texto/midia, OU o Estagio 0 saneou
+            # o turno inteiro (mudo): nada a guardar. Carrega `msgs_saneadas` p/ o coordenador nao
+            # re-derivar o texto cru (com o raciocinio) das mensagens originais.
+            return Command(goto=END, update=update_saneamento)  # type: ignore[arg-type]
 
     # bloqueio = substitui TODAS as AIMessages do turno por vazias (mesmo id -> reducer troca);
     # zerar so a ultima deixaria o texto da 1a passagem vivo p/ o coordenador despachar.
@@ -277,10 +376,10 @@ async def output_guard(
     # Negacao canned (pool curado): pula a Etapa 2 (texto ja confiavel). So sem midia -- uma
     # legenda precisa sempre passar pela Etapa 2, mesmo que a bolha de texto seja canned.
     if not legendas and texto.strip() in NEGACOES_CANNED:
-        return Command(goto=END)  # type: ignore[arg-type]
+        return Command(goto=END, update=update_saneamento)  # type: ignore[arg-type]
 
     if not settings.output_guard_judge_habilitado:
-        return Command(goto=END)  # type: ignore[arg-type]
+        return Command(goto=END, update=update_saneamento)  # type: ignore[arg-type]
 
     # Etapa 2: LLM-judge de AUP vinculante sobre texto + legendas. Falha de infra -> default seguro.
     try:
@@ -303,4 +402,4 @@ async def output_guard(
         )
         return Command(goto=END, update={"messages": vazias})  # type: ignore[arg-type]
 
-    return Command(goto=END)  # type: ignore[arg-type]
+    return Command(goto=END, update=update_saneamento)  # type: ignore[arg-type]
