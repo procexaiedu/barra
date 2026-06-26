@@ -10,6 +10,8 @@ State minimalista: `messages` + campos transitorios por-invocacao. Deps de runti
 Ver docs/agente/04-tools.md §1.1, 01-arquitetura.md §2.3/§4.3 e 02-estado-fluxo.md §6.
 """
 
+from datetime import datetime
+
 from langgraph.graph import MessagesState
 
 
@@ -46,6 +48,14 @@ class EstadoAgente(MessagesState):
         ligada, o guard volta ao proprio no llm p/ o modelo REOFERTAR um horario em vez de fechar
         mudo, e seta este flag. Se a reoferta tambem errar, a reentrada cai no MUTE (sem reofertar de
         novo) -- silencio > reserva fantasma. Nasce ausente a cada `ainvoke` (sem checkpointer).
+    horario_minimo: o quanto antes a IA pode oferecer p/ um pedido imediato hoje (= o `<horario_minimo>`
+        do contexto dinamico), computado por prepare_context (proximo_livre). `None` = now+buffer cai
+        fora da Disponibilidade -> NAO ha horario valido mais tarde hoje. A tool `registrar_extracao`
+        le este campo (`runtime.state.get`) p/ desambiguar a conduta de `AntecedenciaInsuficiente`:
+        com valor, ancora no horario_minimo ("me arrumo, a partir das X"); `None`, cai na conduta de
+        periodo de trabalho ("por hoje ja parei, amanha"). Sem ele a tool mandaria ancorar num
+        horario_minimo inexistente e a IA inventaria um horario fora da janela. Reusa o VALOR ja
+        renderizado (nao recomputa). Nasce ausente a cada `ainvoke` (sem checkpointer).
     """
 
     midia_idx: int
@@ -54,3 +64,4 @@ class EstadoAgente(MessagesState):
     _extracao_forcada: bool
     _resposta_inline_concluida: bool
     _reoferta_tentada: bool
+    horario_minimo: datetime | None
