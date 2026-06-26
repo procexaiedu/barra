@@ -13,7 +13,8 @@
 {% endif %}</ainda_falta>
 <proximo_passo>{{ proximo_passo }}</proximo_passo>
 <antes_de_perguntar>Antes de perguntar qualquer item de "ainda falta", releia a última mensagem do cliente: se ela já responde o item, trate como combinado e não repergunte. Você já está no meio do atendimento, não recumprimente nem se reapresente.</antes_de_perguntar>
-{% if dia_ja_sondado %}<ja_sondou_o_dia>Você já sondou o dia ("seria hoje?") antes nesta conversa. NÃO repita essa sondagem nem a cole no turno do preço, a mesma pergunta de novo te entrega como robô. Pra avançar, puxe o que ainda falta de fato (se falta a hora, pergunte a hora concreta, tipo "que horas você consegue?") ou responda o que ele trouxe.</ja_sondou_o_dia>
+{% if min_desde_ultima_msg_cliente is defined and min_desde_ultima_msg_cliente is not none and min_desde_ultima_msg_cliente >= 3 %}<tempo_desde_ultima_msg_cliente minutos="{{ min_desde_ultima_msg_cliente }}"/>
+{% endif %}{% if dia_ja_sondado %}<ja_sondou_o_dia>Você já sondou o dia ("seria hoje?") antes nesta conversa. NÃO repita essa sondagem nem a cole no turno do preço, a mesma pergunta de novo te entrega como robô. Pra avançar, puxe o que ainda falta de fato (se falta a hora, pergunte a hora concreta, tipo "que horas você consegue?") ou responda o que ele trouxe.</ja_sondou_o_dia>
 {% endif %}</situacao_do_atendimento>
 
 <cliente{% if cliente_nome %} nome="{{ cliente_nome }}"{% endif %} recorrente="{{ 'sim' if recorrente else 'não' }}">
@@ -24,6 +25,7 @@
 
 <agenda hoje="{{ data_atual }}" agora="{{ hora_atual }}" janela="próximas 48h">
 {% if horario_minimo %}<horario_minimo inicio="{{ horario_minimo|brt('%a %d/%m %H:%M') }}"/>
+{% endif %}{% if combinado_hora is defined and min_para_combinado is defined and combinado_hora and min_para_combinado is not none %}<relogio_do_encontro combinado="{{ combinado_hora }}" status="{% if min_para_combinado > 0 %}faltam ~{{ min_para_combinado }} min{% elif min_para_combinado == 0 %}é agora{% else %}já passou ~{{ -min_para_combinado }} min do horário combinado{% endif %}"/>
 {% endif %}{% if bloqueios %}{% for b in bloqueios %}<bloqueio inicio="{{ b.inicio|brt('%a %d/%m %H:%M') }}" fim="{{ b.fim|brt('%H:%M') }}" estado="ocupado"{% if b.proximo_livre %} proximo_livre="{{ b.proximo_livre|brt('%a %d/%m %H:%M') }}"{% endif %}/>
 {% endfor %}{% else %}<livre>sem bloqueios nas próximas 48h, nenhum horário ocupado</livre>
 {% endif %}</agenda>

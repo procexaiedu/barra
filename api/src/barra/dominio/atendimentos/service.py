@@ -7,6 +7,7 @@ from datetime import date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any, Literal, cast
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from psycopg import AsyncConnection
 from psycopg.errors import ExclusionViolation
@@ -15,6 +16,10 @@ from barra.core.errors import ConflitoEstado
 from barra.settings import get_settings
 
 Origem = Literal["webhook", "painel_fernando"]
+
+# Mesmo fuso que prepare_context usa: o horario_minimo chega aware (UTC) e o horario_desejado é
+# gravado como hora LOCAL (prepare_context combina com tzinfo=_FUSO_BR ao reler).
+_FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
 
 @dataclass(frozen=True)
@@ -270,6 +275,7 @@ async def registrar_extracao_ia(
     payload: dict[str, Any],
     *,
     agora: datetime | None = None,
+    horario_minimo: datetime | None = None,
 ) -> dict[str, Any]:
     """UPSERT do snapshot da IA + transicao de estado + bloqueio previo, na transacao do chamador.
 
@@ -346,6 +352,43 @@ async def registrar_extracao_ia(
             "mensagem": "Tipo de atendimento que a modelo nao realiza: escalado, tipo nao gravado.",
             "novo_estado": None,
         }
+
+    # Fallback de tempo imediato (#4): a extração às vezes grava urgencia=imediato SEM
+    # `horario_desejado` (o LLM hesita num condicional tipo "agora mesmo se der"), e sem horário a
+    # FSM não cria o bloqueio prévio -> fica Qualificado -> Perdido. Assume o `horario_minimo` (o
+    # cedo agenda-coerente que a IA já oferece: arredonda_acima(now + antecedência), respeitando
+    # bloqueios/Disponibilidade) — NÃO o `now` cru, que a guarda estrita de antecedência rejeitaria
+    # (inicio < now). Age sobre o `urgencia` estruturado, não lê texto do cliente. Gates:
+    #  (a) `horario_minimo` None (now+antecedência fora da Disponibilidade) -> não força; a IA cai
+    #      na conduta de período de trabalho.
+    #  (b) só destrava a reserva INICIAL — se já há bloqueio prévio, NÃO injeta: sobrescrever
+    #      orfanaria o bloqueio sem escalar (a branch 12 / _reagendamento_pos_bloqueio cobre o
+    #      reagendamento real, com horário explícito do cliente).
+    #  (c) só SEM-deslocamento (interno/remoto/pickup): no externo-Uber, auto-cravar horário a
+    #      partir de um "imediato" condicional dispararia uma cobrança de Pix sem o cliente
+    #      confirmar — esse fica na trilha reoferta(horario_minimo)->confirma->Pix. Tipo efetivo =
+    #      o deste turno (payload) ou o já gravado.
+    # horario_minimo chega aware (UTC); grava-se a hora LOCAL (BRT). Resta uma race rara (~lat/30min)
+    # quando o turno cruza um boundary :30: cai em AntecedenciaInsuficiente, recuperável (reoferta).
+    if (
+        payload.get("urgencia") == "imediato"
+        and payload.get("horario_desejado") is None
+        and "horario_desejado" not in limpar
+        and horario_minimo is not None
+    ):
+        res = await conn.execute(
+            "SELECT bloqueio_id, tipo_atendimento, cliente_busca "
+            "FROM barravips.atendimentos WHERE id = %s",
+            (aid,),
+        )
+        row = await res.fetchone()
+        if row is not None and row["bloqueio_id"] is None:
+            tipo_ef = payload.get("tipo_atendimento") or row["tipo_atendimento"]
+            busca_ef = payload.get("cliente_busca")
+            if busca_ef is None:
+                busca_ef = row["cliente_busca"]
+            if tipo_ef in ("interno", "remoto") or busca_ef:
+                payload["horario_desejado"] = horario_minimo.astimezone(_FUSO_BR).time()
 
     # 1. UPSERT por COALESCE: so campos nao-nulos sobrescrevem; `limpar` forca NULL e tem
     #    PRECEDENCIA sobre o payload (cliente recuou). `sinais_qualificacao` faz merge jsonb.

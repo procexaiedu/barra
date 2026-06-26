@@ -225,3 +225,25 @@ async def test_audio_sem_transcricao_o_agente_ve_placeholder(
     # busca na janela inteira (ordem cliente-vs-IA nao estavel no seed, ver teste da imagem)
     textos = [str(m.content) for m in await _janela_do_agente(conn, cen)]
     assert "[áudio que não consegui ouvir]" in textos
+
+
+async def test_seedar_semeia_midia_em_todas_as_tags(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Fidelidade (#1): toda modelo seedada tem foto E vídeo aprovados em CADA tag, pra que
+    `enviar_midia` nunca falhe/loope no harness — em prod a modelo sempre tem mídia (a mídia-prova
+    é o núcleo da venda). Sem isto a fixture vazia fazia o LLM re-tentar tags até
+    GraphRecursionError (loop que era artefato do harness, não bug do agente)."""
+    cen = await seedar(
+        conn,
+        {"cenario": {"modelo": {"nome": "Mia"}, "atendimento": {"estado": "Triagem"}}},
+    )
+    res = await conn.execute(
+        "SELECT tag, tipo, count(*) AS n FROM barravips.modelo_midia "
+        "WHERE modelo_id = %s AND aprovada GROUP BY tag, tipo",
+        (cen.modelo_id,),
+    )
+    cobertura = {(r["tag"], r["tipo"]) for r in await res.fetchall()}
+    for tag in ("apresentacao", "corpo", "lifestyle", "evento"):
+        assert (tag, "foto") in cobertura, f"sem foto aprovada na tag {tag}"
+        assert (tag, "video") in cobertura, f"sem vídeo aprovado na tag {tag}"

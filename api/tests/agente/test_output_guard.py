@@ -539,6 +539,100 @@ async def test_bloqueio_preserva_usage_e_response_metadata_para_custo(monkeypatc
     assert custo_chat_turno_brl([blank], 5.0) > 0  # o custo do turno barrado agora e contabilizado
 
 
+# ============================================================================
+# Estagio 0: saneamento de RACIOCINIO vazado (non-disclosure, tolerancia-zero).
+# Acao = SANEAR (stripar a bolha de raciocinio, manter a fala real); turno 100%-leak -> mudo.
+# ============================================================================
+
+# uma bolha de raciocinio real (terminal_8.json) e uma fala real legitima.
+_LEAK = "Hmm, pensando por partes: o cliente demonstrou interesse. Triagem avançou, mas precisa do meu próximo passo."
+_FALA = "amanha de noite fica otimo amor, te espero aqui na Barra"
+
+
+async def test_estagio0_saneia_bolha_de_raciocinio_e_mantem_a_fala(monkeypatch: Any) -> None:
+    # Turno misto: a fala real e uma bolha de raciocinio na mesma AIMessage (split \n\n). O guard
+    # strippa SO a bolha de raciocinio e despacha a fala real -- o judge ve so o texto saneado.
+    visto: dict[str, str] = {}
+
+    async def _judge(texto: str, settings: Any) -> Any:
+        visto["texto"] = texto
+        return mod._VeredictoAup(viola=False, motivo="nenhum")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _judge)
+    res = await mod.output_guard(_state(f"{_FALA}\n\n{_LEAK}"), _runtime())  # type: ignore[arg-type]
+    # passou (nao bloqueou), mas com a AIMessage reescrita: so a fala real sobrou.
+    assert res.goto == END
+    msgs = (res.update or {}).get("messages", [])
+    assert msgs and msgs[0].id == "a1"
+    assert msgs[0].content == _FALA  # bolha de raciocinio strippada
+    assert _LEAK not in visto["texto"] and _FALA in visto["texto"]  # judge so viu o saneado
+
+
+async def test_estagio0_coordenador_redespacha_o_texto_saneado(monkeypatch: Any) -> None:
+    # Contrato load-bearing: o coordenador NAO le um output do guard -- ele re-deriva o texto via
+    # extrair_texto_do_turno das mensagens (mescladas pelo reducer por id). Aplica o update do guard
+    # sobre o state original (simula o reducer) e confirma que o re-extrai rende SO a fala real.
+    from barra.agente._texto_turno import extrair_texto_do_turno
+
+    async def _ok(texto: str, settings: Any) -> Any:
+        return mod._VeredictoAup(viola=False, motivo="nenhum")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _ok)
+    state = _state(f"{_FALA}\n\n{_LEAK}")
+    res = await mod.output_guard(state, _runtime())  # type: ignore[arg-type]
+    # reducer: troca a AIMessage pelo id (a1).
+    por_id = {m.id: m for m in (res.update or {}).get("messages", [])}
+    merged = [por_id.get(m.id, m) for m in state["messages"]]
+    assert (
+        extrair_texto_do_turno(merged) == _FALA
+    )  # prod despacharia so o saneado, sem o raciocinio
+
+
+async def test_estagio0_turno_inteiro_de_raciocinio_fica_mudo(monkeypatch: Any) -> None:
+    # Turno 100%-leak (o caso real do terminal_8): nada legitimo sobra -> mudo. Nenhuma bolha sai,
+    # o judge nem roda. Leak saneado NAO e escalada -> sem handoff.
+    async def _nao_chamar(texto: str, settings: Any) -> Any:
+        raise AssertionError("judge nao deveria rodar num turno 100%-leak (mudo)")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _nao_chamar)
+    res = await mod.output_guard(
+        _state(f"{_LEAK}\n\nFaz sentido na sequência... então.opa."), _runtime()
+    )  # type: ignore[arg-type]
+    assert res.goto == END
+    msgs = (res.update or {}).get("messages", [])
+    assert msgs and all(m.content == "" for m in msgs)  # tudo zerado -> nada despacha
+
+
+async def test_estagio0_legenda_com_raciocinio_bloqueia(monkeypatch: Any) -> None:
+    # A legenda da midia nao e saneavel (e arg de tool no DB, nao content de mensagem). Coerente com
+    # o tratamento de QUALQUER leak em legenda (ia_self etc. ja bloqueiam): raciocinio na legenda ->
+    # a Etapa 1 barra o turno. Sem isso, com o judge OFF, uma legenda de raciocinio iria intacta.
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    rt = _runtime(legendas=["o cliente demonstrou interesse, meu próximo passo é fechar"])
+    res = await mod.output_guard(_state("olha que delicia de foto amor"), rt)  # type: ignore[arg-type]
+    assert _bloqueou(res)
+    assert cap.chamadas[0]["observacao"].startswith("output_leak_raciocinio")
+
+
+async def test_estagio0_judge_fecha_raciocinio_que_escapou_do_regex(monkeypatch: Any) -> None:
+    # Defense-in-depth: fraseado de raciocinio que o regex NAO pega (saneamento no-op) chega ao
+    # judge, que retorna reasoning_leak -> bloqueia + escala (fail-closed). Backstop da tolerancia-zero.
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+
+    async def _viola(texto: str, settings: Any) -> Any:
+        return mod._VeredictoAup(viola=True, motivo="reasoning_leak")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _viola)
+    # fraseado novo, sem os n-gramas do regex -> passa o saneamento intacto, o judge e quem barra.
+    res = await mod.output_guard(
+        _state("deixa eu estruturar a logica do atendimento aqui"), _runtime()
+    )  # type: ignore[arg-type]
+    assert _bloqueou(res)
+    assert cap.chamadas[0]["observacao"] == "aup_saida_reasoning_leak"
+
+
 async def test_a3_aimessage_historica_nao_aciona_o_guard(monkeypatch: Any) -> None:
     """AIMessage re-injetada do banco (sem usage_metadata) nao e deste turno: nem deve ser
     escaneada (ja foi ao cliente) nem pode causar bloqueio/escalada espuria."""

@@ -226,6 +226,10 @@ async def registrar_extracao(
     # instante fixo no harness fiel/replay -> a reserva do slot fica deterministica e coerente
     # com a ancora que a IA leu no contexto (ContextAgente.agora_utc).
     agora = runtime.context.agora_utc
+    # horario_minimo (cedo agenda-coerente, resolvido pelo prepare_context e lido tambem abaixo no
+    # handler de AntecedenciaInsuficiente): ancora o fallback de tempo imediato (#4) no dominio. O
+    # `now` cru nao passaria a guarda estrita de antecedencia; o horario_minimo, sim (por construcao).
+    horario_minimo = runtime.state.get("horario_minimo")
 
     # Revalida os args achatados no model interno (constraints ge/le, min/max_length, forbid).
     payload = ExtracaoPayload(
@@ -261,7 +265,9 @@ async def registrar_extracao(
                 "registrar_extracao",
                 0,
                 dados,
-                executor=lambda c, p: registrar_extracao_ia(c, atendimento_id, p, agora=agora),
+                executor=lambda c, p: registrar_extracao_ia(
+                    c, atendimento_id, p, agora=agora, horario_minimo=horario_minimo
+                ),
             )
         except ConflitoAgenda:
             # Erro recuperavel (04 §6): a transacao reverteu; instrua a IA a reofertar outro

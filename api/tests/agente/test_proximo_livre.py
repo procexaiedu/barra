@@ -70,6 +70,28 @@ def test_buffer_em_hora_cheia_cai_na_meia() -> None:
     assert proximo_livre(_dt(SEG, 22, 0), [], [], 30) == _dt(SEG, 22, 30)
 
 
+# --- proximo_livre: lead_min separa offset-de-agora do gap (emenda ADR 0025) ----
+
+
+def test_lead_min_zero_oferece_agora_arredondado() -> None:
+    # Emenda 2026-06-26: horario_minimo dos tipos sem deslocamento usa lead_min=0 -> offset de AGORA
+    # = ~0 (recebe já), só o arredondamento social. fim(=agora) 20:10 -> 20:30 (não 20:40 do buffer).
+    assert proximo_livre(_dt(SEG, 20, 10), [], [], 30, lead_min=0) == _dt(SEG, 20, 30)
+
+
+def test_lead_min_default_mantem_buffer() -> None:
+    # Sem lead_min (proximo_livre por-bloqueio): offset = buffer_min, comportamento intacto.
+    # fim 20:10 + 30 = 20:40 -> arredonda social pra cima = 21:00.
+    assert proximo_livre(_dt(SEG, 20, 10), [], [], 30) == _dt(SEG, 21, 0)
+
+
+def test_lead_min_zero_ainda_respeita_gap_do_vizinho() -> None:
+    # O lead encurta SÓ o offset-de-agora; o gap em torno dos vizinhos segue buffer_min (30).
+    # cand 20:30 (lead 0) com bloco 20:45-22:00 -> gap 15min < 30 -> pula o bloco -> 22:00+30 = 22:30.
+    blocos = [_bloco(_dt(SEG, 20, 45), _dt(SEG, 22, 0))]
+    assert proximo_livre(_dt(SEG, 20, 10), blocos, [], 30, lead_min=0) == _dt(SEG, 22, 30)
+
+
 # --- proximo_livre: pula bloqueios seguintes -------------------------------
 
 

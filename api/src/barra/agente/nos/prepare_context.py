@@ -128,7 +128,9 @@ async def prepare_context(
         # 3. Contexto dinâmico (02 §5): resolve estado/cliente/agenda na MESMA conexão e
         #    concatena no último HumanMessage (sem cache_control — texto volátil na cauda).
         #    Devolve a `fase` (= estado do atendimento) já resolvida, p/ o reminder não requerer.
-        mensagens, fase, horario_minimo = await _anexar_contexto_dinamico(conn, ctx, mensagens)
+        mensagens, fase, horario_minimo = await _anexar_contexto_dinamico(
+            conn, ctx, mensagens, linhas
+        )
 
         # 3b. Reminder anti-drift (03 §10): PREPEND o <lembrete_silencioso> no MESMO último
         #     HumanMessage, depois do contexto dinâmico (ordem final: lembrete → msg → contexto),
@@ -387,7 +389,10 @@ def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
 
 
 async def _anexar_contexto_dinamico(
-    conn: AsyncConnection[Any], ctx: ContextAgente, mensagens: list[BaseMessage]
+    conn: AsyncConnection[Any],
+    ctx: ContextAgente,
+    mensagens: list[BaseMessage],
+    linhas: list[dict[str, Any]] | None = None,
 ) -> tuple[list[BaseMessage], str | None, datetime | None]:
     """Resolve o contexto dinâmico do turno e concatena no último HumanMessage (02 §5).
 
@@ -402,7 +407,7 @@ async def _anexar_contexto_dinamico(
     `horario_minimo` (mesmo valor renderizado na tag `<horario_minimo>`) p/ o State — a tool
     `registrar_extracao` o lê p/ desambiguar a conduta de `AntecedenciaInsuficiente` (estado.py).
     """
-    variaveis = await _resolver_variaveis(conn, ctx)
+    variaveis = await _resolver_variaveis(conn, ctx, linhas)
     # A2: captura determinística do dia (abridor "seria hoje?" + afirmação do cliente) antes do
     # render — sem persistir, só alimenta o belief p/ a IA não repetir a sondagem (ver helper acima).
     _aplicar_dia_confirmado(variaveis, mensagens)
@@ -517,18 +522,26 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> str:
     return render_bp3(identidade, programas, fetiches)
 
 
-async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) -> dict[str, Any]:
+async def _resolver_variaveis(
+    conn: AsyncConnection[Any],
+    ctx: ContextAgente,
+    linhas: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Resolve as variáveis do template de contexto dinâmico via queries específicas (02 §5).
 
     `atendimento` só é consultado quando há `atendimento_id` (espelha a guarda do gate); no
     fluxo real o coordenador sempre o resolve antes de invocar o grafo (02 §7).
+
+    `linhas` (janela crua de `carregar_mensagens`, com `created_at`) alimenta a percepção de tempo
+    da cauda (emenda ADR 0025, 2026-06-26): quanto tempo faz que o cliente falou. Opcional —
+    testes que chamam direto sem janela seguem funcionando (marcadores ficam None).
     """
     atendimento: dict[str, Any] = {}
     if ctx.atendimento_id is not None:
         res = await conn.execute(
             """
-            SELECT numero_curto, estado, intencao, tipo_atendimento, urgencia, pix_status,
-                   data_desejada, horario_desejado, endereco, bairro
+            SELECT numero_curto, estado, intencao, tipo_atendimento, cliente_busca, urgencia,
+                   pix_status, data_desejada, horario_desejado, endereco, bairro
               FROM barravips.atendimentos
              WHERE id = %s
             """,
@@ -586,7 +599,8 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     # reservável (CONTEXT.md "Bloqueio"), pré-computado em Python — a IA só verbaliza.
     regras_disp = await _carregar_disponibilidade(conn, ctx.modelo_id)
     disponibilidade = _formatar_disponibilidade(regras_disp)
-    buffer_min = get_settings().agenda_buffer_min
+    s = get_settings()
+    buffer_min = s.agenda_buffer_min
     bloqueios = [
         {**b, "proximo_livre": proximo_livre(b["fim"], bloqueios_raw, regras_disp, buffer_min)}
         for b in bloqueios_raw
@@ -603,16 +617,65 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
     data_atual = agora.date() if agora is not None else None
     hora_atual = agora.strftime("%H:%M") if agora is not None else None
 
-    # Antecedência mínima (ADR 0025): o cedo que a IA pode oferecer pra um pedido imediato =
-    # arredonda_acima(now + buffer), ajustado a bloqueios e Disponibilidade. Reusa proximo_livre
-    # com `agora_tz` (aware, mesmo fuso dos bloqueios -> renderiza igual). None = now+buffer cai fora
-    # da Disponibilidade (a IA cai na conduta de período de trabalho). O hard rule em
-    # criar_bloqueio_previo é o backstop; aqui é só a âncora proativa.
+    # Antecedência mínima (ADR 0025 + emenda 2026-06-26): o cedo que a IA pode oferecer pra um
+    # pedido imediato = arredonda_acima(now + antecedencia), ajustado a bloqueios e Disponibilidade.
+    # A antecedência é por DESLOCAMENTO, igual ao gate (criar_bloqueio_previo): sem deslocamento da
+    # modelo (interno/remoto/pickup) -> ~0 (recebe agora como o humano); externo-Uber -> buffer.
+    # `lead_min` separa o offset-de-agora do gap entre vizinhos (que segue buffer_min). Reusa
+    # proximo_livre com `agora_tz` (aware, mesmo fuso dos bloqueios -> renderiza igual). None =
+    # now+antecedencia cai fora da Disponibilidade (a IA cai na conduta de período de trabalho).
+    sem_deslocamento = atendimento.get("tipo_atendimento") in (
+        "interno",
+        "remoto",
+    ) or atendimento.get("cliente_busca")
+    antecedencia_min = (
+        s.agenda_antecedencia_sem_deslocamento_min if sem_deslocamento else buffer_min
+    )
     horario_minimo = (
-        proximo_livre(agora_tz, bloqueios_raw, regras_disp, buffer_min)
+        proximo_livre(agora_tz, bloqueios_raw, regras_disp, buffer_min, lead_min=antecedencia_min)
         if agora_tz is not None
         else None
     )
+
+    # Percepção de tempo na cauda (emenda ADR 0025, 2026-06-26): a IA sabe a hora atual mas era cega
+    # ao tempo DECORRIDO — travava num horário fantasma sem perceber que o cliente acabou de chegar
+    # ("cheguei, tava estacionando"). Dois marcadores voláteis (cauda, fora do prefixo cacheável):
+    #  (a) min desde a última msg do cliente — `created_at` (até aqui descartado) vs `agora_tz`.
+    #  (b) com horário combinado (data+hora desejados), faltam/passaram min até ele. `agora_tz` é
+    #      aware (UTC); o combinado nasce aware em BRT — subtração aware-aware. Clamp em 0 evita
+    #      negativo espúrio (relógio injetado do harness vs created_at real das bolhas).
+    min_desde_ultima_msg_cliente: int | None = None
+    if linhas and agora_tz is not None:
+        ultima_cliente_em = next(
+            (
+                ln["created_at"]
+                for ln in reversed(linhas)
+                if ln["direcao"] == DirecaoMensagem.cliente and ln.get("created_at") is not None
+            ),
+            None,
+        )
+        if ultima_cliente_em is not None:
+            min_desde_ultima_msg_cliente = max(
+                0, int((agora_tz - ultima_cliente_em).total_seconds() // 60)
+            )
+
+    # SÓ com horário COMBINADO, nunca só desejado (CONTEXT.md: desejado ≠ combinado; é ambiguidade
+    # sinalizada). `horario_desejado` é gravado já em Qualificado, antes de cravar — gatear pelo
+    # estado (>= Aguardando_confirmacao, quando o bloqueio prévio nasce) evita marcar "já passou do
+    # horário combinado" / "é a hora" num horário ainda em negociação (a conduta de chegada erraria).
+    combinado_hora: str | None = None
+    min_para_combinado: int | None = None
+    data_comb = atendimento.get("data_desejada")
+    hora_comb = atendimento.get("horario_desejado")
+    ja_combinado = atendimento.get("estado") in (
+        "Aguardando_confirmacao",
+        "Confirmado",
+        "Em_execucao",
+    )
+    if ja_combinado and data_comb is not None and hora_comb is not None and agora_tz is not None:
+        combinado_dt = datetime.combine(data_comb, hora_comb, tzinfo=_FUSO_BR)
+        combinado_hora = hora_comb.strftime("%H:%M")
+        min_para_combinado = int((combinado_dt - agora_tz).total_seconds() // 60)
 
     # Belief-state (state-update prompting): o que falta pra avançar + próximo passo, derivados da
     # MESMA FSM da extração (dominio/atendimentos/service). Reinjetado na cauda volátil a cada turno
@@ -646,6 +709,9 @@ async def _resolver_variaveis(conn: AsyncConnection[Any], ctx: ContextAgente) ->
         "bloqueios": bloqueios,
         "disponibilidade": disponibilidade,
         "horario_minimo": horario_minimo,
+        "min_desde_ultima_msg_cliente": min_desde_ultima_msg_cliente,
+        "combinado_hora": combinado_hora,
+        "min_para_combinado": min_para_combinado,
     }
 
 

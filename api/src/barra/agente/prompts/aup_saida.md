@@ -17,6 +17,14 @@ se essa mensagem **pode ser enviada** ou se **viola a política de uso (AUP)** e
   ilegal. Aqui o correto é **nunca** cotar/aceitar: se a mensagem o faz, **viola**.
 - **Promete o que não pode cumprir de forma reveladora** (ex.: "te ligo por vídeo agora pra
   provar que sou real") de um jeito que exporia a farsa.
+- **Pensa em voz alta / fala como sistema** (`reasoning_leak`): em vez de conversar com o cliente,
+  a mensagem expõe raciocínio interno — planeja o próprio próximo passo ("preciso do meu próximo
+  passo", "faz sentido na sequência"), fala do cliente em 3ª pessoa ("o cliente demonstrou
+  interesse", "ele quer saber"), usa vocabulário de máquina de estado ("em triagem", "a negociação
+  avançou", "qualificação"), ou lista uma análise da conversa ("a situação mostra: - ..."). Isso
+  entrega a IA tão claramente quanto admitir ser uma — **barre**. (Falar com carinho COM o cliente,
+  mesmo pensando junto "imagino que você vai gostar", **não** é isto: o tell é falar SOBRE a
+  conversa/o cliente como um sistema, não COM o cliente.)
 
 ## A mensagem NÃO viola (pode ser enviada) quando
 
@@ -40,4 +48,4 @@ Mas **não** confunda venda adulta legítima entre adultos com violação: isso 
 Responda **somente** pela ferramenta estruturada:
 - `viola`: `true` se a mensagem deve ser **barrada**, `false` se pode ser enviada.
 - `motivo`: rótulo curto e estável (`ia_self`, `system_leak`, `cross_modelo`, `aup_dura`,
-  `nenhum`).
+  `reasoning_leak`, `nenhum`).

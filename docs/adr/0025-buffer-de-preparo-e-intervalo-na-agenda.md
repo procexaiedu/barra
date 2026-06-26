@@ -29,7 +29,7 @@ Hoje existe `agenda_buffer_proximo_livre_min = 30` (`settings.py`), mas ele é *
 
 - **Materializar blocos visíveis de preparo/descanso** adjacentes ao atendimento. Comunica melhor no painel, mas exige linhas extras + sincronização (cancelar/concluir junto) e cuidado para não quebrar `bloqueios.fim`. Rejeitado por complexidade (§2): garantir o tempo não exige exibi-lo.
 
-- **Buffer por tipo de atendimento** (interno/externo/remoto) ou **por modelo**. Mais fiel (externo tem deslocamento; ritmos diferentes), mas custa parâmetros/coluna/UI. Adiado: começa global, calibra depois.
+- **Buffer por tipo de atendimento** (interno/externo/remoto) ou **por modelo**. Mais fiel (externo tem deslocamento; ritmos diferentes), mas custa parâmetros/coluna/UI. Adiado: começa global, calibra depois. **(Parcialmente revisto — ver emenda 2026-06-26: a antecedência passou a separar quem-se-desloca; o gap segue global.)**
 
 - **Dois parâmetros distintos** (antecedência ≠ gap). Mais flexível, mais config para manter. Um valor único basta no P0.
 
@@ -48,3 +48,16 @@ Hoje existe `agenda_buffer_proximo_livre_min = 30` (`settings.py`), mas ele é *
 - **Sem migration** — a regra vive na aplicação e no setting já existente; nenhum schema novo.
 
 - **Testes** de `criar_bloqueio_previo` e da disponibilidade/sobreposição precisam cobrir antecedência mínima e gap (incluindo o caso de adjacência que antes passava).
+
+## Emenda (2026-06-26) — Antecedência por deslocamento
+
+A antecedência mínima global de 30 min adiava o atendimento mesmo com a modelo **ociosa** num **interno** onde o cliente já estava chegando ("pode dar um tempinho pra eu me arrumar? umas 6h30"), enquanto o vendedor humano recebe agora ("posso passar o ap?"). A borda noturna piorava: à noite `now + 30` caía fora da Disponibilidade vigente e o `horario_minimo` saltava para a manhã seguinte. A causa é a fusão das **duas faces** num único parâmetro: o gap entre atendimentos (30 é certo) arrastava junto a antecedência-de-agora (que para quem **não se desloca** deveria ser ~0).
+
+**Decisão da emenda:** desmembrar **só a antecedência-de-agora** por deslocamento da modelo; o **gap entre atendimentos permanece global** (`agenda_buffer_min`, 30).
+
+- Novo setting `agenda_antecedencia_sem_deslocamento_min` (default **0**, global). Aplica-se quando a modelo **não** se desloca: **interno**, **remoto** (vídeo chamada) e **externo-pickup** (`cliente_busca` — o cliente busca a modelo, não há Uber dela para antecipar).
+- **Externo-Uber** (externo com a modelo se deslocando + Pix de deslocamento) mantém a antecedência = `agenda_buffer_min` (30): o piso amortece o preparo + a saída. A IA negocia ETA por cima; lead por distância real (geocoding) fica para o futuro.
+- O **gap entre atendimentos** (`existe_vizinho_no_buffer` / o skip de vizinho no `proximo_livre`) **não muda**: segue `agenda_buffer_min` para todos os tipos. A adjacência colada continua não-reservável.
+- O branch por-tipo vive **dentro** de `criar_bloqueio_previo` (lê `tipo_atendimento` + `cliente_busca` do `atendimento`), servindo aos dois call-sites (a promoção do interno/remoto/pickup e o bloco de Pix do externo-Uber) sem plumbing novo. A âncora proativa (`horario_minimo` em `prepare_context`) usa a **mesma** antecedência por-tipo, senão âncora ≠ gate.
+
+**Consequências da emenda:** sem migration de DB (campo pydantic em `settings.py`). Toca o agente (`prepare_context`, `regras.md.j2`, `contexto_dinamico.md.j2`) → simulador + gate antes de deploy; deploy recarrega o worker (§0). Para os tipos sem deslocamento, o `horario_minimo` passa a ≈ `agora` (arredondado pra meia-hora), o que de-buga a borda noturna automaticamente (`now + 0` cai dentro da Disponibilidade vigente, sem saltar pra manhã).

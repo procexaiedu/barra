@@ -179,7 +179,7 @@ def _metricas_tokens(mensagens: list[BaseMessage], cotacao_usd_brl: float) -> Me
     """Soma tokens/custo das AIMessages GERADAS no turno (usage_metadata != None). Reusa a mesma
     extracao do no llm (`_instrumentar_tokens`) e o custo de `_custo.calcular_custo_brl` — fonte
     unica, byte-fiel ao que prod contabiliza no Prometheus."""
-    from barra.agente._custo import calcular_custo_brl
+    from barra.agente._custo import _modelo_da_mensagem, calcular_custo_brl
 
     m = Metricas()
     for msg in mensagens:
@@ -194,7 +194,10 @@ def _metricas_tokens(mensagens: list[BaseMessage], cotacao_usd_brl: float) -> Me
             (det.get("ephemeral_5m_input_tokens", 0) or 0)
             + (det.get("ephemeral_1h_input_tokens", 0) or 0)
         )
-        m.custo_brl += calcular_custo_brl(um, cotacao_usd_brl)
+        # model_name por mensagem: sem isso cai no fallback Sonnet ($3/$15) e infla ~21x o input /
+        # ~54x o output sobre o DeepSeek V4 Flash ($0,14/$0,28) que o agente ao vivo roda — mesma
+        # tabela que `custo_chat_turno_brl` (coordenador) e `_instrumentar` (Prometheus) usam.
+        m.custo_brl += calcular_custo_brl(um, cotacao_usd_brl, model_name=_modelo_da_mensagem(msg))
     return m
 
 
@@ -271,7 +274,32 @@ async def _seed_modelo(conn: AsyncConnection[dict[str, Any]], spec: dict[str, An
             """,
             (uuid4(), modelo_id, regra["dia_semana"], regra["hora_inicio"], regra["hora_fim"]),
         )
+    await _seed_midias(conn, modelo_id)
     return modelo_id
+
+
+# Tags do enviar_midia (ferramentas/midia.py: TagMidia). Cobertas TODAS, foto e video, p/ que
+# qualquer (tag, tipo) que o LLM peça case — em prod a modelo SEMPRE tem mídia pra mandar.
+_TAGS_MIDIA = ("apresentacao", "corpo", "lifestyle", "evento")
+
+
+async def _seed_midias(conn: AsyncConnection[dict[str, Any]], modelo_id: UUID) -> None:
+    """Semeia uma foto E um vídeo aprovados em CADA tag — fidelidade a prod, onde a modelo sempre
+    tem mídia (a mídia-prova é o núcleo da venda). Sem isto, `enviar_midia` falha em toda tag e o
+    LLM re-tenta combinações até o recursion_limit (loop que é artefato do harness, não existe em
+    prod). `ultimo_envio_em` NULL -> NULLS FIRST escolhe estas primeiro na rotação."""
+    for tag in _TAGS_MIDIA:
+        for tipo, ext in (("foto", "jpg"), ("video", "mp4")):
+            mid = uuid4()
+            await conn.execute(
+                """
+                INSERT INTO barravips.modelo_midia
+                    (id, modelo_id, tipo, tag, bucket, object_key, aprovada, ultimo_envio_em,
+                     created_at)
+                VALUES (%s, %s, %s, %s, 'media', %s, true, NULL, now())
+                """,
+                (mid, modelo_id, tipo, tag, f"media/{mid}.{ext}"),
+            )
 
 
 async def _seed_programa(
