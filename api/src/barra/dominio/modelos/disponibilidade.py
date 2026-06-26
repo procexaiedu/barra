@@ -78,6 +78,56 @@ def regras_cobrem(regras: list[dict[str, Any]], instante: datetime) -> bool:
     return any(_regra_cobre(regra, loc) for regra in regras)
 
 
+def fim_sessao(regras: list[dict[str, Any]], agora: datetime) -> datetime | None:
+    """Fim (datetime BRT) da janela de Disponibilidade que cobre `agora`; None se `agora` não cai
+    em nenhuma janela ou a lista é vazia (disponível sempre — sem fronteira; o chamador trata).
+
+    Usado pelo roll cross-midnight de `criar_bloqueio_previo`: um horário combinado anterior a
+    `agora` no mesmo dia civil mas dentro da MESMA sessão de trabalho ainda aberta (janela que
+    atravessa a meia-noite, ex.: 10:00-04:00) pertence ao dia seguinte — a extração ancora "hoje"
+    na data enquanto o `horario_minimo` já é do dia seguinte (00:30 às 23:55). `fim_sessao` dá a
+    fronteira que distingue esse caso (encerra Sex 04:00 → 00:30 ainda cabe) de um horário
+    genuinamente passado (22:00 às 23:55 → fora da sessão). Várias regras cobrindo `agora` → o fim
+    mais tarde (união)."""
+    if not regras:
+        return None
+    loc = (agora if agora.tzinfo else agora.replace(tzinfo=BRT)).astimezone(BRT)
+    fins: list[datetime] = []
+    for regra in regras:
+        if not _regra_cobre(regra, loc):
+            continue
+        hora_inicio: time = regra["hora_inicio"]
+        hora_fim: time = regra["hora_fim"]
+        cruza_meia_noite = hora_fim <= hora_inicio
+        if cruza_meia_noite and loc.time() >= hora_inicio:
+            # `agora` está na parte ANTES da meia-noite: a janela só encerra no dia civil seguinte.
+            fim = datetime.combine(loc.date() + timedelta(days=1), hora_fim, tzinfo=BRT)
+        else:
+            # janela do mesmo dia OU transbordo pós-meia-noite: encerra no próprio dia de `loc`.
+            fim = datetime.combine(loc.date(), hora_fim, tzinfo=BRT)
+        fins.append(fim)
+    return max(fins) if fins else None
+
+
+async def carregar_regras_disponibilidade(
+    conn: AsyncConnection[Any], modelo_id: UUID
+) -> list[dict[str, Any]]:
+    """Regras cruas de Disponibilidade da modelo (parte de I/O de `modelo_disponivel_em`).
+
+    Extraída para que o chamador que precisa das regras para MAIS de uma checagem no mesmo turno
+    (cobertura + `fim_sessao` do roll cross-midnight em `criar_bloqueio_previo`) não bata o banco
+    duas vezes."""
+    res = await conn.execute(
+        """
+        SELECT data_inicio, data_fim, dia_semana, hora_inicio, hora_fim
+          FROM barravips.modelo_disponibilidade
+         WHERE modelo_id = %s
+        """,
+        (modelo_id,),
+    )
+    return await res.fetchall()
+
+
 async def modelo_disponivel_em(
     conn: AsyncConnection[Any], modelo_id: UUID, instante: datetime
 ) -> bool:
@@ -87,15 +137,7 @@ async def modelo_disponivel_em(
     Valida apenas o instante de início — o fim pode estender além (Pernoite dura 12h e
     estoura janelas menores).
     """
-    res = await conn.execute(
-        """
-        SELECT data_inicio, data_fim, dia_semana, hora_inicio, hora_fim
-          FROM barravips.modelo_disponibilidade
-         WHERE modelo_id = %s
-        """,
-        (modelo_id,),
-    )
-    return regras_cobrem(await res.fetchall(), instante)
+    return regras_cobrem(await carregar_regras_disponibilidade(conn, modelo_id), instante)
 
 
 async def bloqueios_futuros_fora(

@@ -11,7 +11,11 @@ from typing import Any
 from psycopg import AsyncConnection
 from psycopg.errors import ExclusionViolation
 
-from barra.dominio.modelos.disponibilidade import modelo_disponivel_em
+from barra.dominio.modelos.disponibilidade import (
+    carregar_regras_disponibilidade,
+    fim_sessao,
+    regras_cobrem,
+)
 from barra.settings import get_settings
 
 # Offset fixo -03:00 (espelha dominio/painel e dominio/dashboard); o horario_desejado do
@@ -94,7 +98,11 @@ async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict
     (AntecedenciaInsuficiente).
     """
     modelo_id = atendimento["modelo_id"]
-    data = atendimento.get("data_desejada") or datetime.now(BRT).date()
+    # Um unico `agora` p/ todo o booking: o default de data, o roll cross-midnight e o guard de
+    # antecedencia leem o mesmo instante (sem o risco de `.date()` e o roll caírem em lados
+    # opostos da meia-noite por dois now() distintos).
+    agora = datetime.now(BRT)
+    data = atendimento.get("data_desejada") or agora.date()
     horario = atendimento["horario_desejado"]
     if horario is None:
         # Sem horario combinado a reserva nao tem inicio (datetime.combine(data, None) estouraria
@@ -107,18 +115,46 @@ async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict
     inicio = datetime.combine(data, horario, tzinfo=BRT)
     fim = inicio + timedelta(hours=float(duracao))
 
+    # Regras de Disponibilidade lidas uma vez: servem ao gate de cobertura E ao fim_sessao do roll
+    # cross-midnight abaixo (evita bater o banco duas vezes no mesmo turno).
+    regras = await carregar_regras_disponibilidade(conn, modelo_id)
+
+    # Roll cross-midnight (CONTEXT.md "Bloqueio"/borda da meia-noite): um horario combinado anterior a
+    # `agora` no mesmo dia civil mas dentro da MESMA sessao de trabalho ainda aberta (janela que cruza
+    # a meia-noite, ex.: 10:00-04:00) pertence ao DIA SEGUINTE — a extracao ancora "hoje" na data
+    # enquanto o <horario_minimo> ja e do dia seguinte (00:30 as 23:55). So rola com cobertura da mesma
+    # sessao (fim_sessao); horario genuinamente passado (22:00 as 23:55, fora da sessao) NAO rola e cai
+    # no guard de antecedencia (ancora no horario_minimo). `data_rolada` persiste a data corrigida no
+    # UPDATE da FK abaixo p/ o snapshot do atendimento nao divergir do bloqueio.
+    data_rolada = False
+    if inicio < agora:
+        alvo = inicio + timedelta(days=1)
+        fim_da_sessao = fim_sessao(regras, agora)
+        if fim_da_sessao is not None:
+            mesma_sessao = agora <= alvo <= fim_da_sessao
+        elif not regras:
+            # Modelo sem regras (disponivel sempre): sem fronteira de sessao, limita o roll ao rabo
+            # tipico de cross-midnight (<= 6h apos agora) p/ nao rolar um horario realmente passado.
+            mesma_sessao = agora <= alvo <= agora + timedelta(hours=6)
+        else:
+            # `agora` fora de qualquer janela: nao ha sessao aberta p/ continuar — nao rola.
+            mesma_sessao = False
+        if mesma_sessao:
+            data, inicio, fim = alvo.date(), alvo, alvo + timedelta(hours=float(duracao))
+            data_rolada = True
+
     # Trava dura (ADR 0005): a IA nunca cria bloqueio fora da Disponibilidade. Valida so o
     # INICIO (o fim pode estourar a janela — Pernoite); modelo sem regra e reservavel sempre.
     # O painel nao passa por aqui (POST/PATCH /bloqueios tem INSERT proprio com o override
     # confirmar_fora_disponibilidade, exclusivo de Fernando).
-    if not await modelo_disponivel_em(conn, modelo_id, inicio):
+    if not regras_cobrem(regras, inicio):
         raise ForaDisponibilidade("Inicio do bloqueio fora da disponibilidade da modelo.")
 
     # Antecedencia minima (ADR 0025): a IA nunca reserva dentro do buffer de preparo a partir de
     # agora. Casa com o <horario_minimo> do contexto (arredonda_acima(now + buffer)); aqui o teto e
     # cru (now + buffer), pois qualquer inicio >= horario_minimo ja o satisfaz. Nao precisa do lock.
     buffer = get_settings().agenda_buffer_min
-    if inicio < datetime.now(BRT) + timedelta(minutes=buffer):
+    if inicio < agora + timedelta(minutes=buffer):
         raise AntecedenciaInsuficiente(
             "Inicio dentro do buffer de preparo a partir de agora (now + buffer)."
         )
@@ -146,10 +182,18 @@ async def criar_bloqueio_previo(conn: AsyncConnection[Any], *, atendimento: dict
         row = await res.fetchone()
         assert row is not None
         # Back-link da FK circular: sem ele o trigger sync_bloqueio_estado e os crons de
-        # agenda (que leem atendimentos.bloqueio_id) nunca tocam neste bloqueio.
-        await conn.execute(
-            "UPDATE barravips.atendimentos SET bloqueio_id = %s WHERE id = %s",
-            (row["id"], atendimento["id"]),
-        )
+        # agenda (que leem atendimentos.bloqueio_id) nunca tocam neste bloqueio. Quando o roll
+        # cross-midnight corrigiu a data, persiste data_desejada junto p/ snapshot == bloqueio.
+        if data_rolada:
+            await conn.execute(
+                "UPDATE barravips.atendimentos SET bloqueio_id = %s, data_desejada = %s "
+                "WHERE id = %s",
+                (row["id"], inicio.date(), atendimento["id"]),
+            )
+        else:
+            await conn.execute(
+                "UPDATE barravips.atendimentos SET bloqueio_id = %s WHERE id = %s",
+                (row["id"], atendimento["id"]),
+            )
     except ExclusionViolation as exc:
         raise ConflitoAgenda("Slot ja reservado por outra conversa.") from exc

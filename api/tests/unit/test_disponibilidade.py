@@ -22,6 +22,7 @@ from barra.dominio.modelos.disponibilidade import (
     _dow_postgres,
     _regra_cobre,
     bloqueios_futuros_fora,
+    fim_sessao,
     modelo_disponivel_em,
 )
 
@@ -45,6 +46,54 @@ def _regra(
 # 2026-05-15 é sexta-feira; deriva o dia da semana pelo helper p/ não hardcodar DOW.
 _SEX = datetime(2026, 5, 15, 18, 0)
 _DOW_SEX = _dow_postgres(_SEX)
+
+# 2026-06-25 é quinta-feira (a corrida do bug da borda da meia-noite); 26/06 é sexta.
+_QUI = datetime(2026, 6, 25, 23, 55, tzinfo=BRT)
+_DOW_QUI = _dow_postgres(_QUI)
+
+
+def _regra_madrugada() -> dict[str, Any]:
+    """Qui 10:00-04:00: janela que cruza a meia-noite (a sessão de quinta encerra Sex 04:00)."""
+    return _regra(date(2026, 6, 1), None, _DOW_QUI, time(10, 0), time(4, 0))
+
+
+def test_fim_sessao_cross_midnight_antes_da_meia_noite() -> None:
+    # `agora` 23:55 de Qui (parte antes da meia-noite da janela 10-04): encerra Sex 04:00.
+    assert fim_sessao([_regra_madrugada()], _QUI) == datetime(2026, 6, 26, 4, 0, tzinfo=BRT)
+
+
+def test_fim_sessao_cross_midnight_no_transbordo() -> None:
+    # `agora` 00:30 de Sex cai no transbordo da regra de Qui: a mesma sessão encerra Sex 04:00.
+    agora = datetime(2026, 6, 26, 0, 30, tzinfo=BRT)
+    assert fim_sessao([_regra_madrugada()], agora) == datetime(2026, 6, 26, 4, 0, tzinfo=BRT)
+
+
+def test_fim_sessao_agora_fora_da_janela() -> None:
+    # 06:00 de Qui está fora de 10-04 (nenhuma regra cobre): sem sessão aberta.
+    agora = datetime(2026, 6, 25, 6, 0, tzinfo=BRT)
+    assert fim_sessao([_regra_madrugada()], agora) is None
+
+
+def test_fim_sessao_sem_regras_e_none() -> None:
+    # Lista vazia (disponível sempre): sem fronteira de sessão — o chamador trata.
+    assert fim_sessao([], _QUI) is None
+
+
+def test_fim_sessao_janela_normal_sem_cruzar() -> None:
+    # Janela 14:00-22:00 do mesmo dia: encerra no próprio dia.
+    regras = [_regra(date(2026, 6, 1), None, _DOW_QUI, time(14, 0), time(22, 0))]
+    agora = datetime(2026, 6, 25, 15, 0, tzinfo=BRT)
+    assert fim_sessao(regras, agora) == datetime(2026, 6, 25, 22, 0, tzinfo=BRT)
+
+
+def test_fim_sessao_uniao_pega_o_fim_mais_tarde() -> None:
+    # Duas regras cobrindo `agora` (14-22 e 10-04): a sessão vai até o fim mais tarde (Sex 04:00).
+    regras = [
+        _regra(date(2026, 6, 1), None, _DOW_QUI, time(14, 0), time(22, 0)),
+        _regra_madrugada(),
+    ]
+    agora = datetime(2026, 6, 25, 20, 0, tzinfo=BRT)
+    assert fim_sessao(regras, agora) == datetime(2026, 6, 26, 4, 0, tzinfo=BRT)
 
 
 def test_janela_normal_dentro() -> None:
