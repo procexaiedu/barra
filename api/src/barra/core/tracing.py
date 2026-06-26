@@ -250,6 +250,42 @@ def registrar_feedback_online(trace_id: str | None, name: str, score: float) -> 
         logger.debug("feedback_online_falhou name=%s", name, exc_info=True)
 
 
+def resumir_trace_turno(
+    span: Any,
+    *,
+    entrada: list[str],
+    resposta: str,
+    desfecho: dict[str, Any],
+    level: str = "DEFAULT",
+) -> None:
+    """Popula input/output/metadata/level do trace do turno p/ leitura de relance (ADR 0019).
+
+    Sem isto o trace nasce com `input`/`output` nulos: quem opera (Claude Code via MCP, ou o
+    painel) e obrigado a abrir as ~20 observations do LangChain e garimpar a msg do cliente, a
+    resposta e a mecanica (extracao/erro/reoferta). Aqui o ROOT span vira autossuficiente: a
+    msg do cliente no `input`, a resposta + o `desfecho` (de `desfecho_do_turno`) no `output`, e
+    `level=WARNING` nos turnos com erro de extracao/recusa -- filtravel.
+
+    `span` e o LangfuseSpan ativo (`None` quando o tracing esta off -> no-op) e e o ROOT
+    observation do trace: o Langfuse deriva o input/output do TRACE do root span, entao um
+    `update` aqui ja popula o nivel de trace que o painel/MCP leem (sem o `set_trace_io` legado,
+    deprecado no SDK 4.x). Conteudo de mensagem so entra aqui pq o Langfuse self-hosted ja e o
+    perimetro de PII do projeto (ADR 0019, sem masking) -- o mesmo texto ja vive nas observations
+    do grafo. Best-effort: a telemetria nunca derruba o turno.
+    """
+    if span is None:
+        return
+    try:
+        span.update(
+            input=entrada,
+            output={"resposta_ia": resposta, "desfecho": desfecho},
+            metadata={"desfecho": desfecho},
+            level=level,
+        )
+    except Exception:  # best-effort: telemetria nunca quebra o turno
+        logger.debug("resumir_trace_turno_falhou", exc_info=True)
+
+
 def registrar_score_agregado(nome: str, valor: float, *, janela: str = "") -> None:
     """Anexa um score AGREGADO (ex.: JSD do sensor de fluxo) a um trace sintético do Langfuse.
 

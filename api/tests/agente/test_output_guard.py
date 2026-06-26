@@ -318,7 +318,8 @@ class _FakeStructured:
     def __init__(self, resultado: dict[str, Any]) -> None:
         self._r = resultado
 
-    async def ainvoke(self, _mensagens: Any) -> dict[str, Any]:
+    async def ainvoke(self, _mensagens: Any, config: Any = None) -> dict[str, Any]:
+        # config=[] (callbacks cortados p/ nao tracear o sub-chain do judge) — o real aceita config.
         return self._r
 
 
