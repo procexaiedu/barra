@@ -8,8 +8,10 @@ levanta NotImplementedError e o job so falharia 5x. O `.coroutine` e a corrotina
 """
 
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock
+from zoneinfo import ZoneInfo
 
 import pytest
 from langchain_core.tools import ToolException
@@ -39,8 +41,9 @@ class _Ctx:
 
 
 class _Runtime:
-    def __init__(self, ctx: _Ctx) -> None:
+    def __init__(self, ctx: _Ctx, state: dict[str, Any] | None = None) -> None:
         self.context = ctx
+        self.state = state if state is not None else {}
 
 
 async def test_enviar_pin_nao_enfileira_loc_pin(monkeypatch: Any) -> None:
@@ -65,7 +68,8 @@ async def test_enviar_pin_nao_enfileira_loc_pin(monkeypatch: Any) -> None:
 
 async def test_antecedencia_insuficiente_vira_toolexception(monkeypatch: Any) -> None:
     """ADR 0025: AntecedenciaInsuficiente do domínio vira erro recuperável (ToolException) que
-    instrui a IA a ancorar no <horario_minimo>, sem crashar o turno."""
+    instrui a IA a ancorar no <horario_minimo>, sem crashar o turno. Requer `horario_minimo` no
+    State (há horário válido hoje); o ramo `None` está em test_antecedencia_horario_minimo.py."""
 
     async def _raise(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise AntecedenciaInsuficiente("cedo demais")
@@ -75,8 +79,9 @@ async def test_antecedencia_insuficiente_vira_toolexception(monkeypatch: Any) ->
     redis = AsyncMock()
     redis.enqueue_job = AsyncMock()
 
+    state = {"horario_minimo": datetime(2026, 6, 25, 23, 30, tzinfo=ZoneInfo("America/Sao_Paulo"))}
     with pytest.raises(ToolException, match=r"^ERRO:.*horario_minimo"):
         await _chamar(
             proxima_acao_esperada="confirmar horario",
-            runtime=_Runtime(_Ctx(redis)),
+            runtime=_Runtime(_Ctx(redis), state),
         )

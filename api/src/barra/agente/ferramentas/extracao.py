@@ -288,6 +288,20 @@ async def registrar_extracao(
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels(
                 "registrar_extracao", "antecedencia_insuficiente"
             ).inc()
+            # Desambiguação (ADR 0025/0005): quando `horario_minimo` é None (now+buffer cai fora da
+            # Disponibilidade), NÃO há horário válido mais tarde hoje — mandar "ofereça o
+            # <horario_minimo>" apontaria pra uma tag ausente e a IA inventaria um horário fora da
+            # janela. Cai na conduta de período de trabalho ("por hoje já parei, amanhã"). Texto
+            # NEUTRO de propósito: o None pode vir de fim de janela OU de bloqueio ocupando o resto
+            # do dia, então NÃO afirma "está de folga / não há outro cliente a esconder" (seria
+            # falso no 2º caso) — só referencia a conduta e a 1ª data do próximo período.
+            if runtime.state.get("horario_minimo") is None:
+                raise ToolException(
+                    "ERRO: não há horário válido ainda hoje — então NUNCA diga ao cliente que "
+                    "fechou ou confirmou um horário pra hoje. Siga sua conduta de período de "
+                    "trabalho: ancore a volta na primeira data/horário do próximo período (veja "
+                    "<periodo_de_trabalho> no contexto) — depois registre de novo."
+                ) from None
             raise ToolException(
                 "ERRO: esse horário é cedo demais — você precisa de um tempinho pra se arrumar. "
                 "Ofereça ao cliente o horário de <horario_minimo> do seu contexto (numa hora leve e "

@@ -31,6 +31,7 @@ M3g (este escopo):
 
 import hashlib
 import re
+from datetime import datetime
 from typing import Any, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -98,7 +99,7 @@ async def prepare_context(
         # 3. Contexto dinâmico (02 §5): resolve estado/cliente/agenda na MESMA conexão e
         #    concatena no último HumanMessage (sem cache_control — texto volátil na cauda).
         #    Devolve a `fase` (= estado do atendimento) já resolvida, p/ o reminder não requerer.
-        mensagens, fase = await _anexar_contexto_dinamico(conn, ctx, mensagens)
+        mensagens, fase, horario_minimo = await _anexar_contexto_dinamico(conn, ctx, mensagens)
 
         # 3b. Reminder anti-drift (03 §10): PREPEND o <lembrete_silencioso> no MESMO último
         #     HumanMessage, depois do contexto dinâmico (ordem final: lembrete → msg → contexto),
@@ -125,6 +126,7 @@ async def prepare_context(
             "messages": [*system_msgs, *mensagens],
             "_categoria": categoria,
             "_confianca": confianca,
+            "horario_minimo": horario_minimo,
         },
     )
 
@@ -357,7 +359,7 @@ def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
 
 async def _anexar_contexto_dinamico(
     conn: AsyncConnection[Any], ctx: ContextAgente, mensagens: list[BaseMessage]
-) -> tuple[list[BaseMessage], str | None]:
+) -> tuple[list[BaseMessage], str | None, datetime | None]:
     """Resolve o contexto dinâmico do turno e concatena no último HumanMessage (02 §5).
 
     O contexto dinâmico (estado do atendimento, cliente, agenda das próximas 48h, data atual)
@@ -367,7 +369,9 @@ async def _anexar_contexto_dinamico(
 
     Concatena no ÚLTIMO HumanMessage (a msg atual do cliente). Defesa: se a janela não tiver
     nenhum HumanMessage, anexa o contexto como novo HumanMessage no fim. Devolve também a `fase`
-    (= `estado` do atendimento) já resolvida, p/ o reminder (03 §10) reusar sem nova query.
+    (= `estado` do atendimento) já resolvida, p/ o reminder (03 §10) reusar sem nova query, e o
+    `horario_minimo` (mesmo valor renderizado na tag `<horario_minimo>`) p/ o State — a tool
+    `registrar_extracao` o lê p/ desambiguar a conduta de `AntecedenciaInsuficiente` (estado.py).
     """
     variaveis = await _resolver_variaveis(conn, ctx)
     # A2: captura determinística do dia (abridor "seria hoje?" + afirmação do cliente) antes do
@@ -378,14 +382,15 @@ async def _anexar_contexto_dinamico(
     variaveis["dia_ja_sondado"] = _ja_sondou_o_dia(mensagens)
     texto = render_contexto_dinamico(**variaveis)
     fase = variaveis["estado"]
+    horario_minimo = variaveis["horario_minimo"]
 
     for i in range(len(mensagens) - 1, -1, -1):
         msg = mensagens[i]
         if isinstance(msg, HumanMessage):
             anexadas = list(mensagens)
             anexadas[i] = HumanMessage(content=f"{msg.content}\n\n{texto}", id=msg.id)
-            return anexadas, fase
-    return [*mensagens, HumanMessage(content=texto)], fase
+            return anexadas, fase, horario_minimo
+    return [*mensagens, HumanMessage(content=texto)], fase, horario_minimo
 
 
 def _precisa_reminder(historico: list[BaseMessage]) -> bool:
