@@ -11,6 +11,23 @@ status: accepted
 > (que seta `ia_pausada=true`, detectado pelo cinto-suspensório do coordenador) + bolha zerada.
 > Decisões e etapas abaixo valem como implementadas.
 
+> **Supersessão parcial (2026-06-26): o scan determinístico cross-modelo da Etapa 1 foi removido.**
+> A Etapa 1 prometia (item c) barrar "qualquer nome/JID de outra modelo" via uma blocklist montada
+> de `barravips.modelos WHERE id <> modelo_id`. Na prática isso era **net-negativo**: a IA roda por
+> modelo e o `prepare_context` carrega só `WHERE id = %s` — ela **nunca tem em contexto** o
+> nome/número de outra modelo, então a blocklist de nomes (primeiros-nomes brasileiros = palavras
+> comuns) só podia casar por **coincidência de homônimo** (FP), nunca por leak real. Em 2026-06-26
+> isso pausou um atendimento ao vivo: a IA disse o `nome_local` legítimo da própria modelo ("Hotel
+> Vitória") e colidiu com outra modelo cadastrada como "Vitória" → `output_leak_cross_modelo`,
+> turno zerado, handoff. A parte "dado de cliente do par errado" nunca chegou a ser implementada.
+> O **isolamento por par é garantido na camada certa** — o carregamento (`WHERE cliente_id AND
+> modelo_id`, canary `test_f0_3_canary_cross_modelo.py`) e `evolution_instance_id` UNIQUE — e o
+> **backstop semântico de saída** permanece na Etapa 2 (judge AUP, que pode rotular `cross_modelo`
+> sem blocklist). A Etapa 1 mantém o que a IA **pode de fato emitir**: auto-referência de IA,
+> fragmento de system/persona e segredo da agenda ("estou com outro cliente"). O teste de gate (2)
+> ("nome de outra modelo → bloqueada") foi substituído pelo seu inverso: o `nome_local` da própria
+> modelo passa a Etapa 1.
+
 Hoje a defesa do agente é toda de **entrada**: o `_classificador.py` casa 6 padrões fixos de jailbreak (`dan mode`, `developer/dev mode`, `ignore … instructions`, `esquece tudo … você`, `[system]`, `</persona>`) e 2 de disclosure sobre a cauda do cliente, e o `intercept_disclosure` roteia a partir disso. Não existe nenhuma checagem do **texto que a IA vai enviar** antes de despachar a humanização. O `post_process` (`api/src/barra/agente/nos/post_process.py:21-35`) só refaz o fetch de `ia_pausada` e zera a resposta em pausa concorrente; `humanizacao.py` (`api/src/barra/agente/humanizacao.py`) é um stub de uma linha — quem despacha a bolha não inspeciona conteúdo. Como a entrada do cliente é texto não-delimitado e a cobertura do regex é estreita por construção (lista fixa, sem variações de idioma/encoding/parafrase), um jailbreak que escape do classificador, um vazamento do system/persona, ou um vazamento de dado de outra modelo introduzido por uma tool/contexto sai **direto ao cliente**. Para um agente que produz conteúdo íntimo se passando por humana e cujo invariante de produto é o isolamento por par `(cliente, modelo)` + a persona GERAL, a ausência de qualquer rede de saída é gap de prontidão para produção: a falha não é detectável depois (a bolha já foi enviada como `fromMe` no número da modelo).
 
 ## Decisões
