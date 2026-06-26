@@ -266,14 +266,14 @@ async def criar_modelo(
             INSERT INTO barravips.modelos (
               nome, idade, numero_whatsapp, valor_padrao, percentual_repasse, chave_pix,
               titular_chave, idiomas, localizacao_operacional,
-              endereco_formatado, latitude, longitude, place_id,
+              endereco_formatado, nome_local, latitude, longitude, place_id,
               tipo_atendimento_aceito, tipo_fisico,
               rg, cpf, endereco_residencial_formatado, place_id_residencial,
               cor_pele, cor_cabelo, altura_cm, tamanho_pe,
               peso_kg, cintura_cm, signo, instagram, email,
               vendedor_id
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s)
@@ -290,6 +290,7 @@ async def criar_modelo(
                 body.idiomas,
                 body.localizacao_operacional,
                 body.endereco_formatado,
+                body.nome_local,
                 body.latitude,
                 body.longitude,
                 body.place_id,

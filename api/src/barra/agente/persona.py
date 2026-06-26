@@ -100,6 +100,9 @@ class IdentidadeModelo:
     # o residencial (`endereco_residencial_formatado`, PII sensível — a IA nunca lê). Default
     # None: modelo sem endereço cadastrado não renderiza a linha.
     endereco_formatado: str | None = None
+    # Nome do local do ponto de encontro (ex.: "Hotel Vitória"), do displayName do Google Places.
+    # A IA cita junto do endereço no interno. None quando não é estabelecimento nomeado.
+    nome_local: str | None = None
 
 
 @lru_cache(maxsize=8)
@@ -167,6 +170,7 @@ def render_identidade(m: IdentidadeModelo) -> str:
         localizacao_operacional=m.localizacao_operacional,
         tipos_aceitos=m.tipos_aceitos,
         endereco_formatado=m.endereco_formatado,
+        nome_local=m.nome_local,
     )
 
 

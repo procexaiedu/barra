@@ -96,6 +96,7 @@ class ModeloCreate(BaseModel):
     idiomas: list[str] = Field(default_factory=lambda: ["pt-BR"])
     localizacao_operacional: str | None = None
     endereco_formatado: str | None = None
+    nome_local: str | None = None
     latitude: Decimal | None = Field(default=None, ge=-90, le=90)
     longitude: Decimal | None = Field(default=None, ge=-180, le=180)
     place_id: str | None = None
@@ -130,6 +131,7 @@ class ModeloPatch(BaseModel):
     idiomas: list[str] | None = None
     localizacao_operacional: str | None = None
     endereco_formatado: str | None = None
+    nome_local: str | None = None
     latitude: Decimal | None = Field(default=None, ge=-90, le=90)
     longitude: Decimal | None = Field(default=None, ge=-180, le=180)
     place_id: str | None = None

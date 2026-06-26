@@ -86,6 +86,7 @@ export interface ModeloDetalhe {
   idiomas: string[]
   localizacao_operacional: string | null
   endereco_formatado: string | null
+  nome_local: string | null
   latitude: number | null
   longitude: number | null
   place_id: string | null
@@ -267,6 +268,7 @@ export interface PatchModeloInput {
   idiomas?: string[]
   localizacao_operacional?: string | null
   endereco_formatado?: string | null
+  nome_local?: string | null
   latitude?: number | null
   longitude?: number | null
   place_id?: string | null
