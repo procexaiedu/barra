@@ -190,3 +190,80 @@ def test_tool_com_erro_recuperavel_descarta_rascunho_da_passagem_re_tentada() ->
         _ai_real([]),  # passagem final vazia
     ]
     assert _extrair_texto_do_turno(messages) == "esse horário fechou amor, e domingo 22h? 🥰"
+
+
+# --- mensagens_cliente_do_turno + desfecho_do_turno (resumo do trace, observabilidade) ---
+
+from datetime import datetime  # noqa: E402
+
+from barra.agente._texto_turno import (  # noqa: E402
+    desfecho_do_turno as _desfecho_do_turno,
+)
+from barra.agente._texto_turno import (  # noqa: E402
+    mensagens_cliente_do_turno as _msgs_cliente,
+)
+
+
+def _ai_extrai(args: dict[str, Any], tc_id: str = "toolu_x") -> AIMessage:
+    """AIMessage do turno que chama registrar_extracao com `args`."""
+    return _ai_real(
+        [{"type": "tool_use", "id": tc_id, "name": "registrar_extracao", "input": args}],
+        tool_calls=[{"name": "registrar_extracao", "id": tc_id, "args": args, "type": "tool_call"}],
+    )
+
+
+def test_mensagens_cliente_do_turno_pega_contiguas_sem_lembrete() -> None:
+    """Input do trace: so as HumanMessages deste turno (antes da 1a AIMessage gerada), sem o
+    lembrete_silencioso nem o historico re-injetado."""
+    messages = [
+        SystemMessage(content="persona"),
+        HumanMessage(content="oi tudo bem?"),  # historico
+        _ai_historica("oi amor!"),  # historico (sem usage_metadata) -> corta aqui
+        HumanMessage(content="quero marcar pra hoje"),  # turno
+        HumanMessage(content="<lembrete_silencioso>seja você</lembrete_silencioso>"),  # injetado
+        _ai_real("claro vida, que horas?"),
+    ]
+    assert _msgs_cliente(messages) == ["quero marcar pra hoje"]
+
+
+def test_desfecho_do_turno_extracao_erro_e_flags() -> None:
+    """Desfecho: subset da extracao + erro de tool recuperavel + flags efemeros do State."""
+    args = {
+        "intencao": "agendamento",
+        "tipo_atendimento": "interno",
+        "valor_acordado": 800,
+        "horario_desejado": "00:30",
+        "cotacao_apresentada": True,
+        "proxima_acao_esperada": "aguardar contraproposta",  # verboso -> fora do desfecho
+    }
+    resultado = {
+        "messages": [
+            _ai_extrai(args, "toolu_e"),
+            ToolMessage(
+                content="ERRO: esse horário é cedo demais — ancore no horario_minimo.",
+                tool_call_id="toolu_e",
+                status="error",
+            ),
+            _ai_real("puxa, 00:30 foi em cima 😅 que tal 03:30?"),
+        ],
+        "_reoferta_tentada": True,
+        "horario_minimo": datetime(2026, 6, 26, 3, 30),
+    }
+    d = _desfecho_do_turno(resultado)
+    assert d["extracao"] == {
+        "intencao": "agendamento",
+        "tipo_atendimento": "interno",
+        "valor_acordado": 800,
+        "horario_desejado": "00:30",
+        "cotacao_apresentada": True,
+    }
+    assert d["erros_tool"] and d["erros_tool"][0].startswith("ERRO:")
+    assert d["reoferta_tentada"] is True
+    assert d["horario_minimo"] == "2026-06-26T03:30:00"
+    assert "proxima_acao_esperada" not in d["extracao"]
+
+
+def test_desfecho_do_turno_sem_extracao_fica_vazio() -> None:
+    """Turno so-conversa (sem registrar_extracao, sem erro, sem flags) -> desfecho vazio."""
+    resultado = {"messages": [_ai_real("oi amor, tudo sim 🥰")]}
+    assert _desfecho_do_turno(resultado) == {}

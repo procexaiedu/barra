@@ -35,7 +35,11 @@ from psycopg_pool import AsyncConnectionPool
 
 from barra.agente._canned import escolher_canned_transcricao_falhou
 from barra.agente._custo import custo_chat_turno_brl
-from barra.agente._texto_turno import extrair_texto_do_turno
+from barra.agente._texto_turno import (
+    desfecho_do_turno,
+    extrair_texto_do_turno,
+    mensagens_cliente_do_turno,
+)
 from barra.agente.contexto import ContextAgente
 from barra.agente.nos.output_guard import (
     tem_marcador_ia,
@@ -53,7 +57,12 @@ from barra.core.metrics import (
     QUOTE_RESOLUCAO,
 )
 from barra.core.redis import LockBusy, adquirir_lock
-from barra.core.tracing import langfuse_handler, metadata_trace_turno, registrar_feedback_online
+from barra.core.tracing import (
+    langfuse_handler,
+    metadata_trace_turno,
+    registrar_feedback_online,
+    resumir_trace_turno,
+)
 from barra.settings import get_settings
 from barra.webhook.despacho import enfileirar_processar_turno
 from barra.workers._chunking import MAX_CHARS, chunk_texto
@@ -362,7 +371,7 @@ async def processar_turno(
                         as_type="span", name="turno", trace_context={"trace_id": trace_id_eval}
                     )
                 try:
-                    with span_ctx:
+                    with span_ctx as turno_span:
                         resultado = await asyncio.wait_for(
                             graph.ainvoke(
                                 entrada,
@@ -370,6 +379,18 @@ async def processar_turno(
                                 context=context,
                             ),
                             timeout=60.0,
+                        )
+                        # Observabilidade (ADR 0019): ainda com o span vivo, torna o ROOT span
+                        # autossuficiente — msg do cliente no input, resposta + desfecho (mecanica:
+                        # extracao/erro/reoferta) no output, level=WARNING se a extracao errou. Sem
+                        # isto o trace nasce input/output nulos e quem opera garimpa ~20 observations.
+                        desfecho_turno = desfecho_do_turno(resultado)
+                        resumir_trace_turno(
+                            turno_span,
+                            entrada=mensagens_cliente_do_turno(resultado["messages"]),
+                            resposta=extrair_texto_do_turno(resultado["messages"]),
+                            desfecho=desfecho_turno,
+                            level="WARNING" if desfecho_turno.get("erros_tool") else "DEFAULT",
                         )
                 except TimeoutError:
                     logger.error("graph_timeout turno_id=%s", turno_id)

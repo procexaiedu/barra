@@ -227,7 +227,13 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
         {"role": "system", "content": render_aup_saida()},
         {"role": "user", "content": f"MENSAGEM A AVALIAR:\n{texto}"},
     ]
-    resultado = await chat.ainvoke(mensagens)
+    # callbacks=[] corta a propagacao do CallbackHandler (Langfuse) herdado via contextvar do no:
+    # o sub-chain do `with_structured_output` (RunnableParallel<raw,parsed> + PydanticToolsParser +
+    # RunnableAssign + a generation do judge) seria ~8 spans de ruido NO TRACE, multiplicados pelo
+    # nº de bolhas (o judge roda antes de CADA bolha). Mantemos o trace legivel; os tokens do judge
+    # seguem instrumentados via Prometheus (abaixo, le do `bruto`, independe de callbacks) e o caso
+    # inseguro continua logado + metrica. Nao afeta o parsing (callbacks sao so telemetria).
+    resultado = await chat.ainvoke(mensagens, config={"callbacks": []})
     assert isinstance(resultado, dict)
     bruto = resultado.get("raw")
     # CUSTO: o judge roda antes de CADA bolha e queima tokens (DeepSeek V4 Flash) que antes nao

@@ -8,8 +8,9 @@ a ultima AIMessage enquanto o coordenador despachava o agregado do turno).
 """
 
 from collections.abc import Sequence
+from typing import Any
 
-from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
 
 def mensagens_do_turno(messages: Sequence[BaseMessage]) -> list[AIMessage]:
@@ -83,3 +84,85 @@ def extrair_texto_do_turno(messages: Sequence[BaseMessage]) -> str:
         if texto:
             partes.append(texto)
     return "\n\n".join(partes)
+
+
+_PREFIXO_LEMBRETE = "<lembrete_silencioso>"
+
+# Campos de `registrar_extracao` que resumem a leitura do turno (a "mecanica" que importa num
+# trace, sem PII). `proxima_acao_esperada`/`sinais_qualificacao` ficam de fora -- verbosos e nao
+# acionaveis de relance.
+_CAMPOS_EXTRACAO = (
+    "intencao",
+    "urgencia",
+    "tipo_atendimento",
+    "data_desejada",
+    "horario_desejado",
+    "valor_acordado",
+    "duracao_horas",
+    "cotacao_apresentada",
+)
+
+
+def mensagens_cliente_do_turno(messages: Sequence[BaseMessage]) -> list[str]:
+    """Texto das HumanMessages que dispararam o turno -- as contiguas imediatamente antes da 1a
+    AIMessage gerada agora, excluido o `<lembrete_silencioso>` injetado pelo prepare_context.
+
+    So para o `input` legivel do trace (observabilidade): da ao leitor o que o cliente disse neste
+    turno sem garimpar a janela re-injetada. Sem msgs do turno (ex.: turno so-tool), retorna [].
+    """
+    do_turno = mensagens_do_turno(messages)
+    if not do_turno:
+        return []
+    corte = messages.index(do_turno[0])
+    out: list[str] = []
+    for m in reversed(messages[:corte]):
+        if not isinstance(m, HumanMessage):
+            break  # bateu no historico (AIMessage/ToolMessage) -> fim das msgs deste turno
+        texto = m.content if isinstance(m.content, str) else str(m.content)
+        if texto.startswith(_PREFIXO_LEMBRETE):
+            continue
+        out.append(texto)
+    out.reverse()
+    return out
+
+
+def desfecho_do_turno(resultado: dict[str, Any]) -> dict[str, Any]:
+    """Resumo nao-PII da mecanica do turno p/ o metadata/output do trace (observabilidade).
+
+    Le o que o GRAFO produziu (nao o pos-processamento do coordenador): a extracao da ULTIMA
+    `registrar_extracao` do turno (subset acionavel), os erros de tool recuperaveis (ex.:
+    "ERRO: horario cedo demais"), e os flags efemeros do State (reoferta/forcada/disclosure/
+    horario_minimo). Tudo determinístico e sem conteudo de mensagem do cliente.
+    """
+    messages = resultado.get("messages", [])
+    desfecho: dict[str, Any] = {}
+
+    extracao: dict[str, Any] = {}
+    for m in mensagens_do_turno(messages):
+        for tc in m.tool_calls or []:
+            if tc.get("name") == "registrar_extracao":
+                args = tc.get("args") or {}
+                extracao = {c: args[c] for c in _CAMPOS_EXTRACAO if args.get(c) is not None}
+    if extracao:
+        desfecho["extracao"] = extracao
+
+    erros = [
+        str(m.content)
+        for m in messages
+        if isinstance(m, ToolMessage)
+        and (m.status == "error" or str(m.content).startswith("ERRO:"))
+    ]
+    if erros:
+        desfecho["erros_tool"] = erros
+
+    if resultado.get("_reoferta_tentada"):
+        desfecho["reoferta_tentada"] = True
+    if resultado.get("_extracao_forcada"):
+        desfecho["extracao_forcada"] = True
+    if resultado.get("_categoria"):
+        desfecho["disclosure"] = resultado["_categoria"]
+    hmin = resultado.get("horario_minimo")
+    if hmin is not None:
+        desfecho["horario_minimo"] = hmin.isoformat() if hasattr(hmin, "isoformat") else str(hmin)
+
+    return desfecho
