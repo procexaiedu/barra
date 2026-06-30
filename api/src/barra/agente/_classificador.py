@@ -56,6 +56,14 @@ PADROES_JAILBREAK = [
     r"\besquece tudo\b.*\bvoce\b",
     r"\[system\]",
     r"</persona>",
+    # Marcadores estruturais do proprio prompt forjados pelo cliente (injecao indireta): o texto
+    # cru do cliente entra na MESMA HumanMessage que o reminder, e <lembrete_silencioso> e um
+    # canal que <instrucoes_meta> manda OBEDECER. A tag legitima e sempre injetada pelo sistema
+    # DEPOIS desta classificacao (cauda limpa, prepare_context) e nunca e persistida em
+    # `mensagens` -- entao um <lembrete_silencioso> visto aqui so pode ter vindo do cliente: forja.
+    # normalizar() preserva <>/_ ; falso-positivo ~0 (ninguem digita esses marcadores em fala normal).
+    r"</?lembrete_silencioso>",
+    r"</?(conduta|instrucoes_meta)>",
 ]
 
 PADROES_PROVA = [

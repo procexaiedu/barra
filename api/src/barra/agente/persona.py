@@ -114,7 +114,10 @@ def render_persona(desconto_max_pct: float | None = None) -> str:
     """
     pct = get_settings().desconto_max_pct if desconto_max_pct is None else desconto_max_pct
     persona = _env.get_template("persona.md").render()
-    regras = _env.get_template("regras.md.j2").render(desconto_max_pct=pct)
+    regras = _env.get_template("regras.md.j2").render(
+        desconto_max_pct=pct,
+        pix_valor=brl(get_settings().pix_deslocamento_valor),
+    )
     return f"{persona}\n{regras}"
 
 
