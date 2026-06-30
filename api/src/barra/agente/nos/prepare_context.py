@@ -132,15 +132,17 @@ async def prepare_context(
             conn, ctx, mensagens, linhas
         )
 
-        # 3b. Reminder anti-drift (03 §10): PREPEND o <lembrete_silencioso> no MESMO último
-        #     HumanMessage, depois do contexto dinâmico (ordem final: lembrete → msg → contexto),
-        #     só com ≥8 AIMessages na janela. Volátil — fica na cauda, fora do prefixo cacheável.
-        mensagens = _injetar_reminder_se_necessario(mensagens, fase)
-
         # 4. BP_MODELO por-modelo (03 §2/§3.3): identidade + programas do modelo_id, reusando a
         #    conexão. É POR-MODELO (filtra modelo_id), não fura o isolamento por par (que vale
         #    para histórico do cliente, já filtrado por cliente+modelo na janela e no contexto).
-        modelo_md = await _carregar_bp3(conn, ctx.modelo_id)
+        #    Carregado ANTES do reminder p/ a âncora de identidade (3b) reusar o `nome` daqui.
+        modelo_md, modelo_nome = await _carregar_bp3(conn, ctx.modelo_id)
+
+        # 3b. Reminder anti-drift (03 §10): PREPEND o <lembrete_silencioso> no MESMO último
+        #     HumanMessage, depois do contexto dinâmico (ordem final: lembrete → msg → contexto),
+        #     só com ≥8 AIMessages na janela. Volátil — fica na cauda, fora do prefixo cacheável.
+        #     Reancora a identidade com o `nome` da modelo (continuidade de self, não menção a IA).
+        mensagens = _injetar_reminder_se_necessario(mensagens, fase, modelo_nome)
 
     # 5. Prefixo system: BP_GERAL fundido (persona+regras+FAQ byte-idêntico p/ todas —
     #    agente/CLAUDE.md) + BP_MODELO. Ordem estável: geral antes do por-modelo (invariante de
@@ -437,14 +439,15 @@ def _precisa_reminder(historico: list[BaseMessage]) -> bool:
 
 
 def _injetar_reminder_se_necessario(
-    historico: list[BaseMessage], fase: str | None
+    historico: list[BaseMessage], fase: str | None, nome: str | None = None
 ) -> list[BaseMessage]:
     """Prepende o <lembrete_silencioso> no último HumanMessage acima do limiar (03 §10).
 
     Combate persona drift em conversas longas. Vai no último HumanMessage (cauda volátil, sem
     cache_control); como roda DEPOIS de _anexar_contexto_dinamico, o conteúdo final fica
     lembrete → msg do cliente → contexto dinâmico, num único HumanMessage de cauda. `fase` é o
-    estado do atendimento (reusado do contexto dinâmico). Sem HumanMessage na janela → no-op.
+    estado do atendimento (reusado do contexto dinâmico). `nome` (da modelo) reancora a identidade
+    no reminder; None → o template omite a âncora. Sem HumanMessage na janela → no-op.
     """
     if not _precisa_reminder(historico):
         return historico
@@ -457,15 +460,18 @@ def _injetar_reminder_se_necessario(
         return historico
 
     ultima = historico[ultima_user_idx]
-    novo_conteudo = f"{render_reminder(fase).strip()}\n\n{ultima.content}"
+    novo_conteudo = f"{render_reminder(fase, nome).strip()}\n\n{ultima.content}"
     historico = list(historico)
     historico[ultima_user_idx] = HumanMessage(content=novo_conteudo, id=ultima.id)
     PERSONA_DRIFT_REMINDER.inc()
     return historico
 
 
-async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> str:
+async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> tuple[str, str]:
     """Monta o BP3 por-modelo: identidade + programas do modelo_id (03 §2.1/§3.3).
+
+    Devolve `(bp3_md, nome)`: o markdown do BP_MODELO e o `nome` da modelo (já lido aqui, sem
+    coluna/query extra) p/ a âncora de identidade do reminder reusar sem recarregar o registro.
 
     A coluna `tipo_atendimento_aceito` (banco) é mapeada para `tipos_aceitos` (dataclass). Os
     programas vêm do schema real (pós-0010): `modelo_programas`/`programas`/`duracoes` — a
@@ -519,7 +525,7 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> str:
         (modelo_id,),
     )
     fetiches = await res.fetchall()
-    return render_bp3(identidade, programas, fetiches)
+    return render_bp3(identidade, programas, fetiches), identidade.nome
 
 
 async def _resolver_variaveis(

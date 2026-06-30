@@ -76,3 +76,24 @@ BOLHAS_LEGITIMAS = [
 def test_nao_flagra_fala_legitima(bolha: str) -> None:
     # Falso-positivo: stripar fala real degrada a conversa. Nenhuma bolha legitima pode ser flagrada.
     assert mod.tem_marcador_raciocinio(bolha) is False
+
+
+# Placeholder de template nao preenchido: o chat cospe a chave literal do exemplo do prompt em vez do
+# dado real (amostra real: terminal_8c.json, cenario eb04 — "{valor} 1h no meu local"). Uma bolha com
+# `{token}` ASCII entrega a IA e nunca e fala valida; o Estagio 0 a descarta junto com o raciocinio.
+BOLHAS_COM_PLACEHOLDER = [
+    "{valor} 1h no meu local amor",
+    "te espero às {horario} amor 🥰",
+    "fico no {nome}, centro de Campinas",
+]
+
+
+@pytest.mark.parametrize("bolha", BOLHAS_COM_PLACEHOLDER)
+def test_detecta_placeholder_nao_preenchido(bolha: str) -> None:
+    assert mod.tem_placeholder_template(bolha) is True
+
+
+@pytest.mark.parametrize("bolha", BOLHAS_LEGITIMAS)
+def test_placeholder_nao_flagra_fala_legitima(bolha: str) -> None:
+    # Nenhuma fala real tem `{token}` ASCII — preco/horario/local saem como numero, nao como chave.
+    assert mod.tem_placeholder_template(bolha) is False

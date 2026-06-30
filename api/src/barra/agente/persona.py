@@ -141,15 +141,21 @@ def render_contexto_dinamico(**variaveis: Any) -> str:
     return _env.get_template("contexto_dinamico.md.j2").render(**variaveis)
 
 
-def render_reminder(fase: str | None) -> str:
+def render_reminder(fase: str | None, nome: str | None = None) -> str:
     """Reminder anti-drift (03 §10) — texto volátil, NÃO cacheável.
 
     Reinjeta o núcleo da voz perto do fim da janela em conversas longas, em primeira pessoa
     (sem meta-vocabulário tipo "a persona"/"IA"). O prepare_context o prepende ao último
     HumanMessage, dentro de <lembrete_silencioso> (coberto por <instrucoes_meta> em
     regras.md.j2), na cauda volátil — fora do prefixo cacheável.
+
+    `nome` (da modelo, vindo do BP_MODELO) reancora a IDENTIDADE no fim da janela longa, como
+    continuidade de self ("você, {nome} — mulher real, no seu WhatsApp"), sem nunca citar
+    "IA"/"robô" — mencionar a negação primaria o tópico (white-bear) e poderia AUMENTAR o
+    disclosure-leak. Por-modelo/volátil → fica na cauda, nunca no prefixo BP_GERAL byte-idêntico.
+    None → o template omite a âncora (comportamento histórico).
     """
-    return _env.get_template("reminder.md.j2").render(fase=fase)
+    return _env.get_template("reminder.md.j2").render(fase=fase, nome=nome)
 
 
 def render_aup_saida() -> str:

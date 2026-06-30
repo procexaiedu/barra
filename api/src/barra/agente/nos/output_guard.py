@@ -118,6 +118,24 @@ def tem_marcador_raciocinio(texto: str) -> bool:
     return bool(_MARCADORES_RACIOCINIO.search(texto))
 
 
+# Placeholder de template nao preenchido: o chat as vezes cospe a chave literal do exemplo do prompt
+# ("{valor} 1h no meu local") em vez de interpolar o dado real. Uma bolha com `{token}` ASCII nunca e
+# fala valida ao cliente -- e entrega a IA na cara. Escopo estreito (so {minusculas_e__}) p/ nao pegar
+# emoji/acento nem texto legitimo com chave.
+_RE_PLACEHOLDER = re.compile(r"\{[a-z_]+\}")
+
+
+def tem_placeholder_template(texto: str) -> bool:
+    """True se a bolha contem um placeholder de template nao preenchido (ex.: `{valor}`, `{horario}`)."""
+    return bool(_RE_PLACEHOLDER.search(texto))
+
+
+def _bolha_descartavel(b: str) -> bool:
+    """Bolha que o Estagio 0 strippa: raciocinio vazado OU placeholder de template nao preenchido.
+    As duas entregam a IA e nunca sao fala valida ao cliente."""
+    return tem_marcador_raciocinio(b) or tem_placeholder_template(b)
+
+
 class _VeredictoAup(BaseModel):
     """Saida estruturada da Etapa 2 (judge de AUP vinculante)."""
 
@@ -178,7 +196,7 @@ def _sanear_raciocinio(msgs_turno: list[AIMessage], texto: str) -> tuple[str, li
     rende exatamente o texto_saneado (bolha nao cruza fronteira de mensagem -> strip e distributivo).
     Turno sem raciocinio -> (texto, []) (no-op, comportamento de hoje).
     """
-    texto_saneado = "\n\n".join(b for b in texto.split("\n\n") if not tem_marcador_raciocinio(b))
+    texto_saneado = "\n\n".join(b for b in texto.split("\n\n") if not _bolha_descartavel(b))
     if texto_saneado == texto:
         return texto, []
     reescritas: list[AIMessage] = []
@@ -186,7 +204,7 @@ def _sanear_raciocinio(msgs_turno: list[AIMessage], texto: str) -> tuple[str, li
         original = texto_da_mensagem(m)
         if not original:
             continue
-        limpo = "\n\n".join(b for b in original.split("\n\n") if not tem_marcador_raciocinio(b))
+        limpo = "\n\n".join(b for b in original.split("\n\n") if not _bolha_descartavel(b))
         if limpo != original:
             reescritas.append(
                 AIMessage(

@@ -1,6 +1,6 @@
 <situacao_do_atendimento numero="#{{ numero_curto }}" estado="{{ estado }}">
 <ja_combinado>
-<tipo>{{ tipo_atendimento or '—' }}</tipo>
+<tipo>{{ tipo_atendimento or 'ainda não definido' }}</tipo>
 {% if data_desejada %}<dia>{{ data_desejada }}</dia>{% endif %}
 {% if horario_desejado %}<hora>{{ horario_desejado }}</hora>{% endif %}
 {% if endereco %}<local>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</local>{% endif %}

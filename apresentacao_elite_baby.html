@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Elite Baby · A solução e a entrega</title>
+<title>Elite Baby · O que entregamos e como funciona</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,400..600&family=Spectral:ital,wght@0,300;0,400;0,500;0,600;1,400&family=Spline+Sans+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
@@ -164,6 +164,26 @@
   .cm-reply{margin-top:6px;padding-top:12px;border-top:1px solid var(--line);font-size:14px;color:var(--cream)}
   .cm-reply b{color:var(--green)}
 
+  /* ---------- FLOWS (how each attendance runs) ---------- */
+  .flows{margin-top:46px;display:grid;grid-template-columns:repeat(2,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .fcard{background:var(--ink-2);padding:32px 30px;display:flex;flex-direction:column;gap:18px}
+  .fcard-h{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .fcard-h .fn{font-family:"Fraunces",serif;font-size:20px;font-weight:360;color:var(--cream)}
+  .fseq{display:flex;flex-direction:column}
+  .fseq .fs{display:grid;grid-template-columns:auto 1fr;gap:14px;padding:10px 0;
+    border-bottom:1px solid var(--line);align-items:baseline}
+  .fseq .fs:last-child{border-bottom:0}
+  .fseq .fs .fsn{font-family:"Spline Sans Mono",monospace;font-size:10px;color:var(--gold);letter-spacing:.1em}
+  .fseq .fs .fst{font-size:14px;color:var(--cream);line-height:1.45}
+  .fseq .fs .fst small{display:block;color:var(--muted-2);font-size:12.5px;margin-top:2px;line-height:1.4}
+  .fcard-note{font-size:12.5px;color:var(--muted);font-style:italic;line-height:1.5}
+  .guards{margin-top:30px;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
+    background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+  .guards .g{background:var(--ink-2);padding:24px 26px;font-size:13.5px;color:var(--muted);line-height:1.5}
+  .guards .g .gk{display:block;font-family:"Fraunces",serif;font-size:16px;color:var(--gold-bright);
+    margin-bottom:7px;font-weight:380}
+
   /* ---------- CAPABILITIES (what we built) ---------- */
   .caps{margin-top:46px;display:grid;grid-template-columns:repeat(3,1fr);gap:1px;
     background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
@@ -245,7 +265,7 @@
   @media(max-width:880px){
     .hero{grid-template-columns:1fr;gap:42px}
     .device{max-width:460px}
-    .caps,.pack{grid-template-columns:1fr}
+    .caps,.pack,.flows,.guards{grid-template-columns:1fr}
     .feat{grid-template-columns:1fr;gap:26px;padding:34px 26px}
     .conv{grid-template-columns:1fr}
     .force.left{border-radius:4px 4px 0 0;border:1px solid var(--line);border-bottom:0}
@@ -265,7 +285,7 @@
   <!-- ===== HERO ===== -->
   <header class="reveal show">
     <div class="kicker">
-      Elite Baby · A solução
+      Elite Baby · A entrega, e como funciona
       <span class="since">alinhamento · jun 2026</span>
     </div>
     <div class="hero">
@@ -382,6 +402,61 @@
         </div>
       </div>
 
+    </div>
+  </section>
+
+  <!-- ===== COMO FUNCIONA NA PRÁTICA ===== -->
+  <section class="reveal">
+    <div class="eyebrow">Como funciona na prática</div>
+    <h2>Cada tipo de encontro tem <em>seu fluxo</em>. A IA conhece todos.</h2>
+    <p class="sub">A operação não é uma só. O cliente vai até a modelo, a modelo se desloca, o cliente busca de carro, ou é tudo por vídeo. A IA conduz cada um até o ponto certo e <b>passa o bastão pra mão humana na hora exata</b>.</p>
+    <div class="flows">
+
+      <div class="fcard">
+        <div class="fcard-h"><span class="fn">🏠 Interno</span><span class="chip">cliente vai até ela</span></div>
+        <div class="fseq">
+          <div class="fs"><span class="fsn">01</span><span class="fst">IA passa só a região<small>o endereço do prédio só quando o horário fecha</small></span></div>
+          <div class="fs"><span class="fsn">02</span><span class="fst">Cliente avisa que saiu<small>card simples prepara a modelo, a IA segue respondendo</small></span></div>
+          <div class="fs"><span class="fsn">03</span><span class="fst">Foto da portaria chega<small>IA pausa, card "cliente chegou", a modelo assume</small></span></div>
+        </div>
+        <div class="fcard-note">Sem Pix. A unidade (apto) só a modelo passa — a IA nunca.</div>
+      </div>
+
+      <div class="fcard">
+        <div class="fcard-h"><span class="fn">🚗 Externo</span><span class="chip">a modelo se desloca</span></div>
+        <div class="fseq">
+          <div class="fs"><span class="fsn">01</span><span class="fst">IA combina horário e endereço do cliente</span></div>
+          <div class="fs"><span class="fsn">02</span><span class="fst">Pix do Uber antecipa a saída<small>card "saída confirmada", a IA pausa</small></span></div>
+          <div class="fs"><span class="fsn">03</span><span class="fst">Comprovante esquisito não trava<small>card sinaliza, Fernando revisa depois, a saída segue</small></span></div>
+        </div>
+        <div class="fcard-note">O endereço entra no mapa de clientes pra ler a demanda.</div>
+      </div>
+
+      <div class="fcard">
+        <div class="fcard-h"><span class="fn">🤝 Cliente busca</span><span class="chip">ele passa de carro</span></div>
+        <div class="fseq">
+          <div class="fs"><span class="fsn">01</span><span class="fst">Externo, mas sem Pix<small>não tem Uber dela pra antecipar</small></span></div>
+          <div class="fs"><span class="fsn">02</span><span class="fst">IA passa o ponto de encontro<small>rua e referência, nunca a porta</small></span></div>
+          <div class="fs"><span class="fsn">03</span><span class="fst">Na hora marcada, a IA pausa<small>card "cliente vem te buscar"</small></span></div>
+        </div>
+        <div class="fcard-note">O mesmo cuidado do externo, sem cobrança de deslocamento.</div>
+      </div>
+
+      <div class="fcard">
+        <div class="fcard-h"><span class="fn">🎥 Vídeo chamada</span><span class="chip">ao vivo, à distância</span></div>
+        <div class="fseq">
+          <div class="fs"><span class="fsn">01</span><span class="fst">Ninguém se desloca<small>sem local, sem Pix</small></span></div>
+          <div class="fs"><span class="fsn">02</span><span class="fst">IA cota e reserva o horário<small>como qualquer programa da tabela</small></span></div>
+          <div class="fs"><span class="fsn">03</span><span class="fst">Na hora, a IA pausa<small>card "hora da sua vídeo chamada", a modelo faz a chamada</small></span></div>
+        </div>
+        <div class="fcard-note">A IA combina e cobra; quem entra ao vivo é sempre a modelo.</div>
+      </div>
+
+    </div>
+    <div class="guards">
+      <div class="g"><span class="gk">Isolada por modelo</span>A IA na Manu nunca vê, cita ou cruza dado de cliente da Letícia. Cada número é um mundo.</div>
+      <div class="g"><span class="gk">Sempre passa o bastão</span>Quando precisa de julgamento humano — saída, segurança, golpe — ela pausa com resumo e próxima ação.</div>
+      <div class="g"><span class="gk">Sumiço não fica em aberto</span>Cliente que some vira <em>Perdido</em> sozinho, no tempo certo, sem a equipe caçar conversa parada.</div>
     </div>
   </section>
 
