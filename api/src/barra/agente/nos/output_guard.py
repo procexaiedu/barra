@@ -98,10 +98,17 @@ _MARCADORES_OUTRO_CLIENTE = re.compile(
 # 2026-06-26): planejamento em 1a pessoa ("meu proximo passo"), 3a pessoa sobre o cliente ("o
 # cliente demonstrou"), vocab de maquina de estado ("em triagem", "avancou"), lista de analise ("a
 # situacao mostra: -"). Conservador no que casa -- na duvida o judge (Etapa 2) e a rede fail-closed.
+# Ampliado (shadow 300, 2026-06-30): narracao meta em 3a pessoa reportando a fala do cliente ("Ele
+# perguntou 'X'", "o cliente acabou de responder com 'Y'") e meta do proprio processamento ("vou
+# continuar respondendo", "acabou de chegar no meio do texto") escapavam do Estagio 0. Padroes
+# testados contra 250 respostas validas (zero falso-positivo) + falas legitimas de 3o ("ele vai te
+# receber", "ela e minha amiga", "vou te responder rapidinho") que continuam NAO casando.
 _MARCADORES_RACIOCINIO = re.compile(
     r"\b("
     r"meu pr[óo]ximo passo|minha (resposta|interven[çc][ãa]o|fala) (suavizou|sobre)"
-    r"|o cliente (demonstrou|quer saber|menciona|pediu)|claro interesse dele"
+    r"|o cliente (demonstrou|quer saber|menciona|pediu|respondeu|acabou de)|claro interesse dele"
+    r"|(ele|ela) (perguntou|respondeu|disse|falou|mencionou|comentou)"
+    r"|vou continuar respondendo|acabou de chegar no meio|vou responder (normal|o valor|agora)"
     r"|em triagem|triagem avan[çc]ou|a (situa[çc][ãa]o|conversa) (mostra|fluiu)"
     # fragmento de scratchpad: planejamento em voz alta / auto-correcao quebrada. Combos unicos
     # (nao "faz sentido" solto, que e fala legitima): "faz sentido na sequencia", a run-on
