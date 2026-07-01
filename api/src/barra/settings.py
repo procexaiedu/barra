@@ -80,13 +80,16 @@ class Settings(BaseSettings):
     # no OpenRouter/OpenAI — o DeepSeek nao faz imagem/audio.
     deepseek_api_key: str | None = None
     deepseek_model_chat: str = "deepseek-v4-flash"
-    # Temperatura do chat #1 (DeepSeek V4 Flash direct). Recomendacao oficial DeepSeek p/ chat/traducao
-    # ~1.3 (vs ~1.0 default). So e honrada em modo non-thinking (a factory trava thinking:disabled via
-    # extra_body). Escopo: SO o chat #1 — extracao (#2) e judge (#3) chamam sem temperatura (determinismo).
+    # Temperatura do chat #1 (DeepSeek V4 Flash direct). A recomendacao oficial DeepSeek p/ chat/traducao
+    # e ~1.3, mas o experimento N-1 de 30/06 (300 pts, corpus real) mostrou 1.3 como CAUSA-RAIZ do garble:
+    # baixar p/ 0.7 corta as respostas problematicas 8.7%->2.7% (vazamento de raciocinio 3->0) E as perdas
+    # head-to-head 24%->16.7% (win-rate 74.9%->81.7%) — dominante nos dois eixos, sem degradar a voz.
+    # So e honrada em modo non-thinking (a factory trava thinking:disabled via extra_body). Escopo: SO o
+    # chat #1 — extracao (#2) e judge (#3) chamam sem temperatura (determinismo).
     chat_temperature: float = Field(
-        default=1.3,
+        default=0.7,
         ge=0.0,
-        description="Temperatura do chat #1 (DeepSeek V4 Flash). 1.3 = recomendacao oficial DeepSeek p/ chat; so vale non-thinking.",
+        description="Temperatura do chat #1 (DeepSeek V4 Flash). 0.7 = melhor ponto medido no exp N-1 30/06 (coerencia + head-to-head); so vale non-thinking.",
     )
     openrouter_model_vision_pix: str | None = None
     # TODO(M5-final): aposentar (sabatina 2026-05-23 §1.3 — STT migrou para OpenAI direto).
