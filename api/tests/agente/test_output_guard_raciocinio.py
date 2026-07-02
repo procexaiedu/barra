@@ -35,6 +35,23 @@ BOLHAS_VAZADAS = [
 ]
 
 
+# Vazamento de JARGAO DE TIPO / deducao narrada (bloqueador confirmado, avaliacao 2026-07-01,
+# eb04:100532349874202): o chat classificou o atendimento em voz alta ao cliente. O adverbio "ja"
+# entre "ele" e "falou" quebrava a adjacencia do regex antigo; o rotulo "interno" nao tinha token.
+BOLHAS_VAZADAS_TIPO = [
+    "ah ele já falou que é interno então, pode vir amor",
+    "ele já falou que é interno",
+    "que é interno então",
+    "ela ainda disse que quer 2h",
+]
+
+
+@pytest.mark.parametrize("bolha", BOLHAS_VAZADAS_TIPO)
+def test_detecta_jargao_de_tipo_e_adverbio(bolha: str) -> None:
+    # "ele JA falou" (adverbio) e "que e interno" (rotulo de dominio) tem que casar.
+    assert mod.tem_marcador_raciocinio(bolha) is True
+
+
 def test_detecta_a_bolha_canonica_de_raciocinio() -> None:
     # Tracer bullet: a bolha mais inequivoca (planejamento 1a pessoa + 3a pessoa sobre o cliente +
     # maquina de estado) tem que ser reconhecida como vazamento de raciocinio.
@@ -69,6 +86,9 @@ BOLHAS_LEGITIMAS = [
     "imagino que você vai gostar bastante 🥰",  # "imagino" sobre o cliente, em personagem
     "então normalmente eu atendo aqui no meu local",  # "então normal..." dentro de fala real
     "que horário fica bom pra você?",  # 2a pessoa (o proprio cliente), nao 3a
+    "ele vai te receber lá em cima amor",  # 3a legit (porteiro): verbo fora da lista
+    "ela é minha amiga, vem junto se quiser",  # 3a legit: "e" nao e verbo de fala
+    "é um ambiente bem reservado e interno amor",  # "interno" descritivo, sem "que e" nem "entao"
 ]
 
 
@@ -97,3 +117,51 @@ def test_detecta_placeholder_nao_preenchido(bolha: str) -> None:
 def test_placeholder_nao_flagra_fala_legitima(bolha: str) -> None:
     # Nenhuma fala real tem `{token}` ASCII — preco/horario/local saem como numero, nao como chave.
     assert mod.tem_placeholder_template(bolha) is False
+
+
+# Delimitador de EXEMPLO vazado: os few-shots de regras.md.j2/persona.md moldam a fala ideal com tags
+# de papel (<ela>, <cliente>, <exemplo>) + pares de contraste (<certo>/<errado>/<par>/<porque>). Sob
+# temp 0.7 o chat COPIA o fechamento colado a uma fala boa. Amostra real: terminal_B.json (cenarios
+# eb04:golpe e eb02:reengajamento, 2026-07-01). Diferente do raciocinio, a bolha e fala LEGITIMA com
+# residuo de molde -> o Estagio 0 strippa SO a substring da tag e mantem a fala (nao vira handoff nem
+# bolha vazia).
+BOLHAS_COM_TAG_EXEMPLO = [
+    ("o que você procura pra gente?</ela>", "o que você procura pra gente?"),  # real (eb04 golpe)
+    ("tudo bem sim, e você?</ela>", "tudo bem sim, e você?"),  # real (eb02 reengajamento)
+    ("<ela>600 1h no meu local amor", "600 1h no meu local amor"),
+    ("pode vir amor, te recebo já</cliente>", "pode vir amor, te recebo já"),
+    ("</exemplo>seria hoje amor?", "seria hoje amor?"),
+    ("não faço anal não amor</errado>", "não faço anal não amor"),
+]
+
+
+@pytest.mark.parametrize("bruta,limpa", BOLHAS_COM_TAG_EXEMPLO)
+def test_strippa_tag_de_exemplo_mantendo_a_fala(bruta: str, limpa: str) -> None:
+    # A tag de molde sai; a fala client-facing fica intacta (nao vira handoff nem bolha vazia).
+    assert mod._limpar_bolhas(bruta) == limpa
+
+
+def test_bolha_so_tag_de_exemplo_some() -> None:
+    # Bolha que e SO o delimitador (nada de fala) desaparece -- nao vai bolha vazia ao cliente.
+    assert mod._limpar_bolhas("</ela>") == ""
+    # E no meio de fala boa: a tag-only some sem deixar `\n\n` orfao.
+    assert mod._limpar_bolhas("boa fala amor\n\n</ela>") == "boa fala amor"
+
+
+@pytest.mark.parametrize("bolha", BOLHAS_LEGITIMAS)
+def test_limpar_bolhas_no_op_em_fala_legitima(bolha: str) -> None:
+    # Sem tag/raciocinio/placeholder o Estagio 0 nao toca a fala (curto-circuito texto_saneado==texto).
+    assert mod._limpar_bolhas(bolha) == bolha
+
+
+def test_sanear_reescreve_a_mensagem_com_tag_vazada() -> None:
+    # Caminho real do guard: a AIMessage com a tag no fim e reescrita (mesmo id, usage preservado) e o
+    # texto agregado sai limpo -- o coordenador re-deriva a fala limpa das mensagens, nao um output do
+    # guard. `</ela>` colado a uma fala boa NAO pode virar handoff nem sumir a fala.
+    from langchain_core.messages import AIMessage
+
+    msg = AIMessage(id="m1", content="tudo bem sim, e você?</ela>")
+    texto_saneado, reescritas = mod._sanear_raciocinio([msg], "tudo bem sim, e você?</ela>")
+    assert texto_saneado == "tudo bem sim, e você?"
+    assert [m.id for m in reescritas] == ["m1"]
+    assert reescritas[0].content == "tudo bem sim, e você?"
