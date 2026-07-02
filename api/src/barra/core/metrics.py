@@ -7,7 +7,7 @@ from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 try:
-    from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram
+    from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram
     from prometheus_client import generate_latest as _prometheus_generate_latest
 except ModuleNotFoundError:  # pragma: no cover
     CONTENT_TYPE_LATEST = "text/plain; version=0.0.4"
@@ -25,7 +25,10 @@ except ModuleNotFoundError:  # pragma: no cover
         def observe(self, *_: object) -> None:
             return None
 
-    Counter = Histogram = _Metric  # type: ignore[misc,assignment]
+        def set(self, *_: object) -> None:
+            return None
+
+    Counter = Gauge = Histogram = _Metric  # type: ignore[misc,assignment]
 
     def _generate_latest() -> bytes:
         return b""
@@ -34,6 +37,14 @@ else:
     def _generate_latest() -> bytes:
         return _prometheus_generate_latest()
 
+
+# Observabilidade da observabilidade (piloto de producao assistida): 1 = handler Langfuse ligado,
+# 0 = tracing off (chave ausente/auth falhou — provavel Env do stack zerado por redeploy git).
+# Alertavel no dashboard; o grito duro no boot e o `langfuse_obrigatorio` (settings).
+TRACING_LANGFUSE_LIGADO = Gauge(
+    "barra_tracing_langfuse_ligado",
+    "Tracing Langfuse ativo neste processo (1=handler ligado, 0=off)",
+)
 
 HTTP_REQUESTS = Counter(
     "barra_http_requests_total", "Total de requests", ["route", "method", "status"]
@@ -181,6 +192,23 @@ OUTPUT_RACIOCINIO_SANEADO = Counter(
     "agente_output_raciocinio_saneado_total",
     "Turnos com vazamento de raciocinio saneado pelo Estagio 0 do output-guard, por acao",
     ["acao"],  # saneado | mudo
+)
+# Gate pre-envio com regeneracao one-shot (producao assistida): turno sujo (leak no texto /
+# repeticao / 100%-raciocinio) re-gera a resposta 1x antes de cair no handoff/mudo.
+OUTPUT_REGEN = Counter(
+    "agente_output_regen_total",
+    "Regeneracoes one-shot do output-guard, por gatilho e resultado",
+    [
+        "gatilho",
+        "resultado",
+    ],  # gatilho: leak|repeticao|mudo; resultado: limpou|persistiu|indisponivel
+)
+# Detector deterministico de repeticao (rastro de papagaio): bolha quase identica a uma bolha
+# recente da propria IA. `acao`: dropada (bolha repetida removida, sobrou fala) | mudo (nada sobrou).
+OUTPUT_REPETICAO_DETECTADA = Counter(
+    "agente_output_repeticao_total",
+    "Bolhas repetidas barradas pelo detector de repeticao do output-guard, por acao",
+    ["acao"],  # dropada | mudo
 )
 # 05 §2: sentenca unica > 600 chars sai inteira no chunk; sinal de prompt que ignorou o
 # \n\n instruido (regressao de prompt), NAO erro de envio.

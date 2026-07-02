@@ -171,6 +171,14 @@ class Settings(BaseSettings):
         default=True,
         description="Liga a Etapa 2 (LLM-judge de AUP vinculante) do output_guard. False roda so a Etapa 1 (scan deterministico barato), util se o judge nao-calibrado causar over-refusal. Falha de infra do judge -> default seguro (bloqueia+escala), nunca configuravel p/ passar.",
     )
+    output_guard_regen_habilitado: bool = Field(
+        default=True,
+        description="Liga a regeneracao one-shot do output_guard (producao assistida): leak deterministico no TEXTO, bolha repetida ou turno 100%-raciocinio -> re-gera a resposta 1x com feedback antes de cair no handoff/mudo. False = comportamento antigo (bloqueia/handoff direto) — kill-switch sem deploy.",
+    )
+    output_guard_repeticao_habilitada: bool = Field(
+        default=True,
+        description="Liga o detector deterministico de repeticao do output_guard: bolha do turno quase identica a uma bolha recente da propria IA (rastro de papagaio). Detectou -> regenera (se regen ligada); persistiu -> dropa a bolha repetida (silencio > papagaio), sem handoff.",
+    )
     # O LLM-judge de AUP (#3, Etapa 2) roda SEMPRE no DeepSeek V4 Flash direto (criar_chat_deepseek):
     # cacheia o prefixo aup_saida.md (o mesmo system antes de CADA bolha) e crava modelo/quant. E
     # classificacao binaria (viola/nao), nao a voz da IA. CAMINHO DE SEGURANCA (ADR 0016): o
@@ -331,6 +339,10 @@ class Settings(BaseSettings):
     langfuse_public_key: str | None = None
     langfuse_secret_key: str | None = None
     langfuse_host: str = "https://langfuse.procexai.tech"
+    langfuse_obrigatorio: bool = Field(
+        default=False,
+        description="Trava de boot da observabilidade (piloto de producao assistida): True faz setup_langfuse LEVANTAR RuntimeError quando o tracing nao sobe (chave ausente/auth falhou), derrubando o boot da API/worker em vez de rodar cego — o cenario real e o redeploy git que zera o Env do stack e some com as chaves em silencio. Ligar via Env de PROD no go-live; default False preserva dev/teste (sem chaves) e o comportamento atual.",
+    )
 
     evolution_base_url: str = ""
     evolution_api_key: str = ""

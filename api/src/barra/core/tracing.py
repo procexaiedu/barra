@@ -176,9 +176,22 @@ def setup_langfuse(settings: Settings) -> Any | None:
     volta a ser legível e a proteção de PII migra do masking-no-egress p/ o controle de acesso ao
     Langfuse. O handler fica num global que o coordenador anexa aos callbacks do `graph.ainvoke`.
 
-    No-op (None) sem chaves, sem o pacote, ou se o auth falhar -- aí o turno roda sem tracing.
+    Sem chaves, sem o pacote, ou com auth falhando: com `langfuse_obrigatorio` (Env de prod,
+    piloto de produção assistida) LEVANTA RuntimeError — derrubar o boot é o grito visível na hora
+    do deploy, em vez de rodar cego depois de um redeploy git que zerou o Env do stack. Sem a
+    trava, segue no-op (None) e o turno roda sem tracing (dev/teste). O gauge
+    `barra_tracing_langfuse_ligado` (0/1) espelha o estado p/ o dashboard nos dois casos.
     """
+    from barra.core.metrics import TRACING_LANGFUSE_LIGADO
+
     handler = _ligar_langfuse_handler(settings)
+    TRACING_LANGFUSE_LIGADO.set(1 if handler is not None else 0)
+    if handler is None and settings.langfuse_obrigatorio:
+        raise RuntimeError(
+            "langfuse_obrigatorio=true e o tracing Langfuse nao subiu (chave ausente ou auth "
+            "falhou) — provavel Env do stack zerado por redeploy git. Restaure LANGFUSE_PUBLIC_KEY/"
+            "LANGFUSE_SECRET_KEY no Env do Portainer antes de subir (runbook infra/)."
+        )
     if handler is not None:
         logger.info(
             "langfuse_prod_ligado host=%s (self-hosted; PII na infra propria, sem masking)",

@@ -85,3 +85,24 @@ def test_langfuse_chave_ausente_loga_warning_de_boot(caplog: pytest.LogCaptureFi
         r.levelno == logging.WARNING and "langfuse_prod" in r.message and "ausente" in r.message
         for r in caplog.records
     )
+
+
+def test_langfuse_obrigatorio_derruba_o_boot_sem_tracing() -> None:
+    """Trava de boot da observabilidade (piloto de producao assistida): com
+    `langfuse_obrigatorio=true` (Env de prod), tracing que nao sobe (chave evaporada pelo redeploy
+    git) LEVANTA RuntimeError em vez de rodar cego — o deploy falha na hora, com humano olhando."""
+    settings = Settings(
+        langfuse_public_key="", langfuse_obrigatorio=True, langchain_tracing_v2=False
+    )
+    with pytest.raises(RuntimeError, match="langfuse_obrigatorio"):
+        tracing.setup_langfuse(settings)
+
+
+def test_langfuse_sem_trava_segue_no_op_e_zera_o_gauge() -> None:
+    """Default (dev/teste, sem chaves): comportamento atual preservado — None sem raise; o gauge
+    `barra_tracing_langfuse_ligado` espelha 0 p/ o dashboard."""
+    from prometheus_client import REGISTRY
+
+    settings = Settings(langfuse_public_key="", langchain_tracing_v2=False)
+    assert tracing.setup_langfuse(settings) is None
+    assert REGISTRY.get_sample_value("barra_tracing_langfuse_ligado") == 0.0

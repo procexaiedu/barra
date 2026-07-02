@@ -90,6 +90,18 @@ def _state(texto: str) -> dict[str, Any]:
     return {"messages": [HumanMessage(content="oi", id="h1"), bolha]}
 
 
+@pytest.fixture(autouse=True)
+def _sem_regen(monkeypatch: Any) -> None:
+    """Regen one-shot INDISPONIVEL por default: preserva o comportamento pre-regen (bloqueio/mudo
+    direto) que estes testes cobrem. Os fluxos DE regen vivem em test_output_guard_regen.py.
+    Sem isto, o gatilho sujo tentaria uma chamada REAL ao DeepSeek (criar_chat_deepseek)."""
+
+    async def _indisponivel(*args: Any, **kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(mod, "_regenerar", _indisponivel)
+
+
 class _Capturador:
     """Captura os kwargs de abrir_handoff (observacao/tipo) sem tocar DB."""
 
