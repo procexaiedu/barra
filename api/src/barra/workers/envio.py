@@ -35,7 +35,7 @@ from barra.settings import get_settings
 from barra.workers._cards import render_card
 from barra.workers._saida_guard import (
     extrair_tokens_pii,
-    normalizar_emoji_voz,
+    normalizar_emoji_voz_indexado,
     normalizar_travessao,
     redigir_pii_eco,
     tem_marcador_ia,
@@ -657,19 +657,32 @@ async def _bloquear_envio(
 
 
 async def _aplicar_saida_guard(
-    pool: AsyncConnectionPool[Any], conversa_id: str, conv: dict[str, Any], chunks: list[str]
-) -> list[str] | None:
-    """Rede final antes da bolha. Devolve os chunks (com PII do cliente redigida por eco, se houver)
-    ou None se o turno deve ser BLOQUEADO (vazamento de IA → handoff + bolha não sai)."""
+    pool: AsyncConnectionPool[Any],
+    conversa_id: str,
+    conv: dict[str, Any],
+    chunks: list[str],
+    quote_msg_ids: list[str | None],
+    quote_textos: list[str | None],
+) -> tuple[list[str], list[str | None], list[str | None]] | None:
+    """Rede final antes da bolha. Devolve `(chunks, quote_msg_ids, quote_textos)` — os chunks com PII
+    do cliente redigida por eco (se houver) e as listas de quote REALINHADAS ao descarte de bolha —
+    ou None se o turno deve ser BLOQUEADO (vazamento de IA → handoff + bolha não sai).
+
+    As três listas entram e saem PARALELAS: `normalizar_emoji_voz` pode descartar uma bolha vazia
+    (era só emoji), e sem realinhar o quote sairia na bolha errada (ou sumiria)."""
     # Camada de voz (independente do envio_guard de segurança): crava o whitelist de emoji {🥰,😊},
     # seca a venda e troca travessão por vírgula. Aplica em TODOS os caminhos (canned/reengajamento
     # inclusive), antes do resto.
     if get_settings().filtro_emoji_habilitado:
-        chunks = normalizar_emoji_voz(chunks)
+        # descarta bolha-só-emoji mantendo os quotes casados pelo ÍNDICE ORIGINAL da bolha.
+        mantidos = normalizar_emoji_voz_indexado(chunks)
+        chunks = [c for _, c in mantidos]
+        quote_msg_ids = [quote_msg_ids[i] for i, _ in mantidos]
+        quote_textos = [quote_textos[i] for i, _ in mantidos]
     if get_settings().filtro_travessao_habilitado:
-        chunks = normalizar_travessao(chunks)
+        chunks = normalizar_travessao(chunks)  # transform por-bolha, preserva a contagem
     if not get_settings().envio_guard_habilitado:
-        return chunks
+        return chunks, quote_msg_ids, quote_textos
     texto = "\n".join(chunks)
 
     # A1: auto-referência de IA → bloqueia o turno inteiro e escala (default seguro, A1).
@@ -700,17 +713,17 @@ async def _aplicar_saida_guard(
 
     # A2: redação por eco. Pre-check barato — sem shape de PII na saída, nem consulta o inbound.
     if not extrair_tokens_pii(texto):
-        return chunks
+        return chunks, quote_msg_ids, quote_textos
     tokens_cliente = await _pii_cliente_recente(pool, conversa_id)
     if not tokens_cliente:
-        return chunks
+        return chunks, quote_msg_ids, quote_textos
     redigidos: list[str] = []
     for chunk in chunks:
         novo, tipos = redigir_pii_eco(chunk, tokens_cliente)
         redigidos.append(novo)
         for tipo in tipos:
             ENVIO_PII_REDIGIDA.labels(tipo).inc()
-    return redigidos
+    return redigidos, quote_msg_ids, quote_textos
 
 
 async def enviar_turno(
@@ -751,12 +764,23 @@ async def enviar_turno(
     try:
         conv = await _carregar_destino(pool, conversa_id)
 
+        # Materializa as listas de quote ao tamanho dos chunks (None-fill) ANTES do guard, para que
+        # o descarte de bolha (emoji) as realinhe em conjunto e o loop indexe sem bounds-check.
+        qids: list[str | None] = [
+            quote_msg_ids[i] if quote_msg_ids and i < len(quote_msg_ids) else None
+            for i in range(len(chunks))
+        ]
+        qtxt: list[str | None] = [
+            quote_textos[i] if quote_textos and i < len(quote_textos) else None
+            for i in range(len(chunks))
+        ]
+
         # Rede final de saída (SEC-OUT-01/SEC-PII-02): cobre também os caminhos canned/reengajamento
         # que pulam o output_guard do grafo. Leak de IA → bloqueia o turno; PII do cliente → redige.
-        chunks_guard = await _aplicar_saida_guard(pool, conversa_id, conv, chunks)
-        if chunks_guard is None:
+        guard = await _aplicar_saida_guard(pool, conversa_id, conv, chunks, qids, qtxt)
+        if guard is None:
             return  # bolha barrada: handoff já aberto, nada sai (o finally observa a duração)
-        chunks = chunks_guard
+        chunks, qids, qtxt = guard
 
         conversa_uuid = UUID(conversa_id)
 
@@ -795,13 +819,10 @@ async def enviar_turno(
             )
             await asyncio.sleep(typing_ms / 1000)
 
-            # 4 + 5. POST (→ envios_evolution) e persistência em mensagens, na MESMA transação
-            quote_target = (
-                quote_msg_ids[idx] if quote_msg_ids and idx < len(quote_msg_ids) else None
-            )
-            quote_target_texto = (
-                quote_textos[idx] if quote_textos and idx < len(quote_textos) else None
-            )
+            # 4 + 5. POST (→ envios_evolution) e persistência em mensagens, na MESMA transação.
+            # qids/qtxt já vêm alinhados a `chunks` e do mesmo tamanho (materializados pré-guard).
+            quote_target = qids[idx]
+            quote_target_texto = qtxt[idx]
             async with pool.connection() as conn, conn.transaction():
                 mid = await evolution.enviar_texto(
                     conn=conn,
@@ -968,8 +989,9 @@ async def _enviar_midias(
                 # DEPOIS do POST: cliente recebia, transação revertia e o mark `midia:{idx}`
                 # não gravava (reprocesso reenviaria). O tipo de conteúdo vai em media_type.
                 tipo="midia",
-                # view-once p/ vídeo (Mídia exclusiva, 01 §6.13): efetivo só quando a Evolution
-                # self-host expuser o campo no sendMedia; ignorado até lá.
+                # view-once p/ vídeo (Mídia exclusiva, 01 §6.13): o cliente só injeta `viewOnce`
+                # no body sob o toggle `evolution_view_once` (off por padrão — a Evolution self-host
+                # oficial não expõe o campo no sendMedia). Sempre marcamos aqui; quem decide é o toggle.
                 view_once=(m["tipo"] == "video"),
                 atendimento_id=conv["atendimento_id"],
                 conversa_id=conversa_uuid,
