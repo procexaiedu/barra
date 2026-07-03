@@ -56,6 +56,10 @@ services:
       - LANGFUSE_HOST=https://langfuse.procexai.tech
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      # Trava de boot da observabilidade (piloto de producao assistida): tracing nao subiu
+      # (chave ausente/auth falhou) -> RuntimeError no startup, deploy falha na hora em vez
+      # de rodar cego. Cenario real: redeploy git sem Env zera LANGFUSE_PUBLIC/SECRET_KEY.
+      - LANGFUSE_OBRIGATORIO=true
       - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
       - EVOLUTION_INSTANCIA=lucia
@@ -147,6 +151,10 @@ services:
       - LANGFUSE_HOST=https://langfuse.procexai.tech
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      # Trava de boot da observabilidade (piloto de producao assistida): tracing nao subiu
+      # (chave ausente/auth falhou) -> RuntimeError no startup, deploy falha na hora em vez
+      # de rodar cego. Cenario real: redeploy git sem Env zera LANGFUSE_PUBLIC/SECRET_KEY.
+      - LANGFUSE_OBRIGATORIO=true
       - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
       - EVOLUTION_INSTANCIA=lucia
