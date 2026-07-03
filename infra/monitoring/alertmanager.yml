@@ -17,13 +17,11 @@ route:
 
 receivers:
   - name: barra-default
-    # Placeholder noop: o operador troca por um destino real (endpoint interno do painel
-    # ou um relay tipo Alertmanager->WhatsApp) e recria o Swarm config barra_alertmanager_yml.
-    # Com a url noop o Alertmanager sobe e agrupa, so nao entrega de verdade.
+    # Relay Alertmanager->WhatsApp: POST no endpoint da propria API (barra/api/alertas.py),
+    # que formata e entrega no numero de DEV via Evolution. O token e SEGREDO e o Alertmanager
+    # nao expande env no config -> este arquivo versionado (repo publico) leva o placeholder
+    # TROCAR_PELO_TOKEN; o Swarm config real (barra_alertmanager_yml_vN) e criado a partir
+    # daqui com o token substituido (mesmo valor de ALERTAS_WEBHOOK_TOKEN no Env do stack).
     webhook_configs:
-      - url: "http://localhost:9999/noop"
+      - url: "http://barra-api:8000/alertas/alertmanager?token=TROCAR_PELO_TOKEN"
         send_resolved: true
-    # Alternativa por e-mail (operador descomenta e preenche smtp_* no global + aqui):
-    # email_configs:
-    #   - to: "ops@procexai.tech"
-    #     send_resolved: true

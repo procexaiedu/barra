@@ -81,6 +81,10 @@ services:
       - CALIBRACAO_EMAIL_FERNANDO=fernando@procexai.tech
       - CALIBRACAO_EMAIL_SOCIA=elitebaby@procexai.tech
       - CALIBRACAO_EMAIL_PROCEX=contato@procexai.tech
+      # Relay Alertmanager->WhatsApp (canal dev de alertas): token do endpoint e numero de
+      # destino sao segredo/dado pessoal -> ${VAR} do Env do stack (repo publico, nada aqui).
+      - ALERTAS_WEBHOOK_TOKEN=${ALERTAS_WEBHOOK_TOKEN}
+      - ALERTAS_WHATSAPP_JID=${ALERTAS_WHATSAPP_JID}
     command: >
       sh -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates &&
       rm -rf /app/repo &&
@@ -205,7 +209,7 @@ services:
     configs:
       - source: barra_prometheus_yml_v1
         target: /etc/prometheus/prometheus.yml
-      - source: barra_alert_rules_yml_v2
+      - source: barra_alert_rules_yml_v3
         target: /etc/prometheus/alert.rules.yml
     volumes:
       - prometheus-barra-data:/prometheus
@@ -222,7 +226,7 @@ services:
       - --config.file=/etc/alertmanager/alertmanager.yml
       - --storage.path=/alertmanager
     configs:
-      - source: barra_alertmanager_yml_v2
+      - source: barra_alertmanager_yml_v3
         target: /etc/alertmanager/alertmanager.yml
     volumes:
       - alertmanager-barra-data:/alertmanager
@@ -267,9 +271,9 @@ volumes:
 configs:
   barra_prometheus_yml_v1:
     external: true
-  barra_alert_rules_yml_v2:
+  barra_alert_rules_yml_v3:
     external: true
-  barra_alertmanager_yml_v2:
+  barra_alertmanager_yml_v3:
     external: true
   barra_grafana_ds_yml_v1:
     external: true

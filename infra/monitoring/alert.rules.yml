@@ -240,3 +240,22 @@ groups:
           description: >
             p95(barra_http_request_duration_seconds{route={{ $labels.route }}}) =
             {{ $value | printf "%.2f" }}s nos ultimos 10m.
+
+  - name: piloto_rollback
+    rules:
+      # Producao assistida — gatilhos objetivos de rollback do piloto (workers/rollback_watch.py).
+      # O cron diario avalia a janela de 7d e seta o gauge (1=disparado); o alerta transporta o
+      # veredito ate o canal dev (WhatsApp via relay). A pausa da modelo e DECISAO HUMANA — este
+      # alerta nunca desliga nada. repeat_interval do Alertmanager (4h) re-lembra enquanto ativo.
+      - alert: PilotoGatilhoRollback
+        expr: barra_rollback_gatilho == 1
+        for: 1m
+        labels:
+          severity: critical
+          dimensao: piloto
+        annotations:
+          summary: "Gatilho de rollback do piloto disparado: {{ $labels.gatilho }}"
+          description: >
+            O vigia diario marcou o gatilho {{ $labels.gatilho }} na janela de 7 dias.
+            Ver o log ERROR ROLLBACK_GATILHO no barra-worker e o plano de producao
+            assistida; avaliar pausa do piloto (status da modelo) — decisao humana.

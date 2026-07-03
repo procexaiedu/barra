@@ -13,6 +13,7 @@ from arq.connections import RedisSettings
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from barra.api.alertas import router as alertas_router
 from barra.api.v1 import router as api_v1_router
 from barra.core.db import criar_pool, fechar_pool
 from barra.core.errors import instalar_handlers
@@ -122,6 +123,8 @@ def build_app() -> FastAPI:
     instalar_handlers(app)
     app.include_router(api_v1_router, prefix="/v1")
     app.include_router(webhook_router, prefix="/webhook")
+    # Relay Alertmanager→WhatsApp (canal dev): fora do /v1 (sem sessão; porta = token estático).
+    app.include_router(alertas_router, prefix="/alertas")
 
     @app.get("/health", include_in_schema=False)
     async def health() -> dict[str, str]:

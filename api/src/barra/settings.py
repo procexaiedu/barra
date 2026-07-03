@@ -359,6 +359,18 @@ class Settings(BaseSettings):
     evolution_base_url: str = ""
     evolution_api_key: str = ""
     evolution_webhook_token: str = ""
+    evolution_instancia: str = Field(
+        default="lucia",
+        description="Instância Evolution usada por envios de sistema fora da operação por modelo (ex.: relay de alertas). Env EVOLUTION_INSTANCIA (já presente no compose).",
+    )
+    alertas_webhook_token: str = Field(
+        default="",
+        description="Token do relay Alertmanager→WhatsApp (POST /alertas/alertmanager?token=...). Vazio = endpoint desligado (403). Segredo: vive no Env do stack, nunca no compose versionado (repo público).",
+    )
+    alertas_whatsapp_jid: str = Field(
+        default="",
+        description="Número/JID de DEV que recebe os alertas da stack por WhatsApp (canal dev do piloto — nunca Fernando/modelo). Vazio = relay aceita e só loga. Dado pessoal: vive no Env do stack.",
+    )
     midia_max_bytes: int = Field(
         default=25 * 1024 * 1024,
         description="Teto de bytes ao baixar mídia da Evolution; download aborta acima disso (defesa DoS).",
