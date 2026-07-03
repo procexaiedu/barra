@@ -59,7 +59,7 @@ multi-turn.
 - `lote.py` — monta o **núcleo de refs por eixo** (`extrair_nucleo`) com porta por item para o
   fan-out de sub-agentes; `--run-tag` pula refs já testadas (dedup via `corpus.eval_e2e`).
 - `cenarios.py` — **catálogo de cenários sintéticos de funcionalidade** (`CenarioFunc`): fluxos
-  que o corpus de venda não tem (externo c/Pix, pickup, remoto, desconto fora do piso,
+  que o corpus de venda não tem (externo c/Pix, remoto, desconto fora do piso,
   disclosure, jailbreak, foto de portaria), com `roteiro_cliente` fixo e expectativas (tool/estado).
 - `massa.py` — **runner em massa dos cenários** com `ClienteRoteirizado` (Python, sem sub-agente):
   seed → condução → pós-evento determinístico (foto de portaria via `handoff_foto_portaria_ia`,

@@ -546,7 +546,7 @@ async def _resolver_variaveis(
     if ctx.atendimento_id is not None:
         res = await conn.execute(
             """
-            SELECT numero_curto, estado, intencao, tipo_atendimento, cliente_busca, urgencia,
+            SELECT numero_curto, estado, intencao, tipo_atendimento, urgencia,
                    pix_status, data_desejada, horario_desejado, endereco, bairro
               FROM barravips.atendimentos
              WHERE id = %s
@@ -626,14 +626,11 @@ async def _resolver_variaveis(
     # Antecedência mínima (ADR 0025 + emenda 2026-06-26): o cedo que a IA pode oferecer pra um
     # pedido imediato = arredonda_acima(now + antecedencia), ajustado a bloqueios e Disponibilidade.
     # A antecedência é por DESLOCAMENTO, igual ao gate (criar_bloqueio_previo): sem deslocamento da
-    # modelo (interno/remoto/pickup) -> ~0 (recebe agora como o humano); externo-Uber -> buffer.
+    # modelo (interno/remoto) -> ~0 (recebe agora como o humano); externo-Uber -> buffer.
     # `lead_min` separa o offset-de-agora do gap entre vizinhos (que segue buffer_min). Reusa
     # proximo_livre com `agora_tz` (aware, mesmo fuso dos bloqueios -> renderiza igual). None =
     # now+antecedencia cai fora da Disponibilidade (a IA cai na conduta de período de trabalho).
-    sem_deslocamento = atendimento.get("tipo_atendimento") in (
-        "interno",
-        "remoto",
-    ) or atendimento.get("cliente_busca")
+    sem_deslocamento = atendimento.get("tipo_atendimento") in ("interno", "remoto")
     antecedencia_min = (
         s.agenda_antecedencia_sem_deslocamento_min if sem_deslocamento else buffer_min
     )

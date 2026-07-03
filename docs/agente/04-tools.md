@@ -230,11 +230,8 @@ async def registrar_extracao(
     - intencao=agendamento + dados mínimos (horario_desejado, tipo_atendimento) + estado=Triagem → Qualificado
     - tipo_atendimento=interno + horario_desejado + estado=Qualificado → Aguardando_confirmacao
       (cria bloqueio prévio E dispara o pin de endereço — side-effect, não tool; ver Notas)
-    - externo + cliente_busca=true + horario_desejado + estado=Qualificado → Aguardando_confirmacao
-      (pickup, ADR 0020: bloqueio prévio sem Pix nem pin; pausa vem do cron no horário)
-    - externo SEM cliente_busca NÃO é promovido aqui: só pedir_pix_deslocamento o leva lá
-      (invariante "externo sem cliente_busca em Aguardando_confirmacao ⟹ Pix solicitado";
-      ver 01 §6.1, emendada pelo ADR 0020)
+    - externo NÃO é promovido aqui: só pedir_pix_deslocamento o leva lá
+      (invariante "externo em Aguardando_confirmacao ⟹ Pix solicitado"; ver 01 §6.1)
 
     O campo proxima_acao_esperada (obrigatório) é exibido no painel para Fernando.
     Use `limpar` para ZERAR campos que o cliente retratou (ex.: desmarcou o horário) —
@@ -348,10 +345,8 @@ async def _decidir_transicao(conn, atendimento_id: str) -> str | None:
     if a["estado"] == "Qualificado" and a["tipo_atendimento"] == "interno" \
             and a["horario_desejado"] is not None:
         return "Aguardando_confirmacao"  # interno: bloqueio prévio criado em _aplicar_extracao
-    # externo+cliente_busca (pickup, ADR 0020) também promove aqui — bloqueio prévio sem Pix.
-    # externo SEM cliente_busca NÃO é promovido por extração — só pedir_pix_deslocamento promove
-    # (invariante: externo sem cliente_busca em Aguardando_confirmacao ⟹ Pix solicitado;
-    # ver 01 §6.1, 06 §2, ADR 0020)
+    # externo NÃO é promovido por extração — só pedir_pix_deslocamento promove
+    # (invariante: externo em Aguardando_confirmacao ⟹ Pix solicitado; ver 01 §6.1, 06 §2)
     return None
 ```
 
@@ -743,7 +738,8 @@ Tools de **enum/tipo crítico** entram com `strict: true` na `ToolParam` — o *
 
 **Como aplicar (verificado no SDK instalado — `anthropic 0.97.0`):**
 - `anthropic.types.ToolParam` **expõe `strict: bool`** (*"When true, guarantees schema validation on tool names and inputs"*) — verificado no `anthropic 0.97`. O chat roda via **`ChatAnthropic` (langchain-anthropic 1.x)** (`nos/llm.py`; o raw SDK 0.97 fica só para vision/STT), então o `strict` entra pelo caminho do langchain, que encaminha `strict` no `ToolParam` do mesmo endpoint. Marcar **por-tool** (`STRICT_TOOLS = {"escalar", "registrar_extracao"}`), não global: `bind_tools(strict=True)` ligaria strict em todas e pagaria latência de grammar nas 3 que não precisam. ⚠️ `langchain-anthropic` ainda **não está no `uv.lock`** (decisão "SDK hybrid" pendente) — ao adicioná-lo, confirmar que a versão propaga `strict` por-tool até o `ToolParam`.
-- **Status (GA — doc oficial `eferencia/structuredOUT.md`, auditoria 2026-05-24):** Structured Outputs (JSON outputs + strict tool use) são **GA, sem beta header**. O header antigo `structured-outputs-2025-11-13` ainda funciona num período de transição, mas é dispensável — não passar `betas=[...]` para isto. **Confirmar suporte do modelo** mesmo assim (Opus 4.7 / Sonnet 4.6 — ambos suportados).
+- **Status (GA — doc oficial `
+eferencia/structuredOUT.md`, auditoria 2026-05-24):** Structured Outputs (JSON outputs + strict tool use) são **GA, sem beta header**. O header antigo `structured-outputs-2025-11-13` ainda funciona num período de transição, mas é dispensável — não passar `betas=[...]` para isto. **Confirmar suporte do modelo** mesmo assim (Opus 4.7 / Sonnet 4.6 — ambos suportados).
 - ⚠️ **Incompatível com forced tool use neste projeto.** A doc oferece o combo "garantia de chamada" `tool_choice:{"type":"any"}` + strict, mas o chat roda com `effort` (extended thinking), e `tool_choice` `any`/`tool` **dá erro com extended thinking** — só `auto`/`none` são compatíveis. Strict garante a *forma* do input; a *decisão de chamar* segue por `tool_choice:auto` + prompt. Não "reforçar" com `any`. (Bônus: mudar `tool_choice` invalida o messages-cache — outro motivo para deixá-lo fixo em `auto`.)
 - **Higiene de schema:** strict compila o JSON Schema numa grammar; os schemas nested (`ExtracaoPayload`, `EscaladaPayload`) precisam de `additionalProperties: false` em **todos os níveis** — em Pydantic v2, `model_config = ConfigDict(extra="forbid")` em cada (sub)modelo, senão o compilador rejeita ou o cache de grammar não estabiliza. Validar os schemas gerados pelo Pydantic contra o compilador antes de confiar. ⚠️ Pydantic emite `Decimal`/`date`/`time` como `string`+`format`; conferir que a grammar do strict aceita os `format` usados (a doc usa `format: date`). Os SDKs nativos (Python/TS/Ruby/PHP) **transformam o schema automaticamente** (injetam `additionalProperties:false`, removem constraints não suportados, validam a resposta contra o schema original); como rodamos strict **via `langchain-anthropic`** (wrapper), confirmar que ele aplica a mesma transformação até o `ToolParam` — não assumir.
 - **Limites de complexidade (doc oficial §Schema complexity limits):** somados em **todos** os schemas `strict` de uma request — strict tools ≤ **20**, optional params ≤ **24**, **parâmetros com union type ≤ 16** (cada `X | None`/`anyOf` conta; são exponencialmente caros de compilar). No P0 só 2 tools strict; `registrar_extracao` (~15 campos) é o único que merece contagem: manter `Optional`/`X | None` abaixo de 16/24 (preferir `required` + default explícito a opcional). Estouro → 400 `"Schema is too complex for compilation"` ou timeout de compilação (180 s).

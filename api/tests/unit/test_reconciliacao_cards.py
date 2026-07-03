@@ -82,13 +82,12 @@ async def test_reconciliar_entrega_cards_orfaos(monkeypatch: pytest.MonkeyPatch)
 async def test_reconciliar_tipo_proprio_usa_card_proprio(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regressão (E2E ao vivo 2026-06-17, grupo Lucia): tipos com card PRÓPRIO não podem cair no
     card genérico `escalada` (🔔) — isso envenena a idempotência por owner e o card próprio nunca
-    sai. Cada tipo é reconciliado com o SEU card: `foto_portaria` → 🚪 chegada (+foto),
-    `cliente_busca` → 🤝 e `video_chamada` → 🎥 (go-time, ADR 0020/0021). O resto cai no `escalada`.
+    sai. Cada tipo é reconciliado com o SEU card: `foto_portaria` → 🚪 chegada (+foto) e
+    `video_chamada` → 🎥 (go-time, ADR 0021). O resto cai no `escalada`.
     """
     conn = _Conn(
         [
             {"id": "e1", "tipo": "foto_portaria", "atendimento_id": "a1"},
-            {"id": "e2", "tipo": "cliente_busca", "atendimento_id": "a2"},
             {"id": "e3", "tipo": "video_chamada", "atendimento_id": "a3"},
             {"id": "e4", "tipo": "fora_de_oferta", "atendimento_id": "a4"},
         ]
@@ -104,11 +103,10 @@ async def test_reconciliar_tipo_proprio_usa_card_proprio(monkeypatch: pytest.Mon
 
     n = await recon.reconciliar_cards_escalada(ctx)
 
-    assert n == 4
+    assert n == 3
     # Cada tipo com card próprio vai pro SEU card; só os sem card próprio caem no `escalada`.
     assert chamadas == [
         ("chegada", "e1", "a1"),
-        ("cliente_busca", "e2", "a2"),
         ("video_chamada", "e3", "a3"),
         ("escalada", "e4", "a4"),
     ]

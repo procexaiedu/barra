@@ -89,22 +89,14 @@ _DESC_TIPO_ATENDIMENTO = (
     "'vou no seu local', 'posso ir'. O endereço é o SEU ponto de encontro; SEM Pix.\n"
     "- 'externo' = VOCÊ vai até o cliente de uber (você se desloca): 'vem até mim', 'vem aqui', "
     "'você vem?', 'pode vir no meu endereço'. Pega o endereço DELE; tem Pix de deslocamento.\n"
-    "- 'externo' + cliente_busca=true (pickup): o cliente vai TE BUSCAR de carro — 'vou te "
-    "buscar', 'te pego', 'passo aí pra te pegar'. É externo, mas SEM Pix.\n"
-    "- 'remoto' = vídeo chamada, ninguém se desloca."
-)
-_DESC_CLIENTE_BUSCA = (
-    "True quando o atendimento é EXTERNO e o CLIENTE vem buscar você de carro (pickup — ADR "
-    "0020): não existe Pix de deslocamento nesse caso (o deslocamento não é seu). Registre "
-    "junto com tipo_atendimento='externo' e o horário: é o que reserva o slot e te pausa na "
-    "hora do encontro. NÃO marque quando você vai de uber até o cliente (aí o fluxo é o Pix). "
-    "Cliente recuou do pickup (vai te receber sem buscar / você vai de uber)? Mande false — "
-    "não use `limpar` para este campo."
+    "- 'remoto' = vídeo chamada, ninguém se desloca.\n"
+    "Cliente quer TE BUSCAR de carro ('vou te buscar', 'te pego')? Caso NÃO suportado — não "
+    "classifique como 'externo'; deixe o campo de fora (sua conduta redireciona e, se ele "
+    "insistir, escala)."
 )
 _DESC_ENDERECO = (
     "Endereço do CLIENTE / destino do atendimento (externo: onde ele está ou para onde vão — "
-    "vira a localização DELE no sistema). NUNCA grave aqui o SEU ponto de encontro: no pickup "
-    "(cliente_busca), só preencha se o cliente disser para onde vão."
+    "vira a localização DELE no sistema). NUNCA grave aqui o SEU ponto de encontro."
 )
 _DESC_COTACAO = (
     "Marque True SÓ no turno em que você APRESENTA o valor de um programa ao cliente "
@@ -147,7 +139,6 @@ class ExtracaoPayload(BaseModel):
     intencao: Literal["curiosidade", "cotacao", "agendamento"] | None = None
     urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None
     tipo_atendimento: Literal["interno", "externo", "remoto"] | None = None
-    cliente_busca: bool | None = None
     data_desejada: date | None = None
     horario_desejado: time | None = None
     duracao_horas: Decimal | None = Field(None, ge=0, le=48)
@@ -176,7 +167,6 @@ async def registrar_extracao(
         Literal["interno", "externo", "remoto"] | None,
         Field(description=_DESC_TIPO_ATENDIMENTO),
     ] = None,
-    cliente_busca: Annotated[bool | None, Field(description=_DESC_CLIENTE_BUSCA)] = None,
     data_desejada: Annotated[date | None, Field(description=_DESC_DATA)] = None,
     horario_desejado: Annotated[time | None, Field(description=_DESC_HORARIO)] = None,
     duracao_horas: Annotated[Decimal | None, Field(ge=0, le=48, description=_DESC_DURACAO)] = None,
@@ -214,9 +204,7 @@ async def registrar_extracao(
     # - intencao=agendamento + horario_desejado + tipo_atendimento + Triagem -> Qualificado
     # - tipo_atendimento=interno + horario_desejado + Qualificado -> Aguardando_confirmacao
     #   (cria bloqueio previo E dispara o pin de endereco — side-effect, nao tool)
-    # - externo+cliente_busca + horario_desejado + Qualificado -> Aguardando_confirmacao
-    #   (pickup, ADR 0020: bloqueio previo sem Pix; pausa vem do cron no horario)
-    # - externo SEM cliente_busca + horario_desejado + Qualificado -> Aguardando_confirmacao
+    # - externo + horario_desejado + Qualificado -> Aguardando_confirmacao
     #   (externo-Uber: side-effect deterministico cria bloqueio previo, marca pix_status e
     #    solicita o Pix — _solicitar_pix_deslocamento_se_aplicavel; a IA so escreve a bolha)
     pool = runtime.context.db_pool
@@ -236,7 +224,6 @@ async def registrar_extracao(
         intencao=intencao,
         urgencia=urgencia,
         tipo_atendimento=tipo_atendimento,
-        cliente_busca=cliente_busca,
         data_desejada=data_desejada,
         horario_desejado=horario_desejado,
         duracao_horas=duracao_horas,

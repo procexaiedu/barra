@@ -321,17 +321,16 @@ async def _card_chegada(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -
 # A escalada (criada por timeouts.confirmar_em_execucao na hora do encontro) só hospeda o
 # card_message_id; sem isto cairia no card genérico 🔔 escalada (reconciliacao._CARD_POR_TIPO).
 _CARD_POR_TIPO_GO_TIME: dict[str, str] = {
-    "cliente_busca": "cliente_busca",
     "video_chamada": "video_chamada",
 }
 
 
 async def _card_go_time(ctx: dict[str, Any], *, escalada_id: str, **_: Any) -> None:
-    """Card "go-time" de pickup (🤝) / vídeo chamada (🎥) no grupo de Coordenação (ADR 0020/0021).
+    """Card "go-time" de vídeo chamada (🎥) no grupo de Coordenação (ADR 0021).
 
     Não é Handoff: o gatilho é "chegou a hora", como 🚪 chegada / ✅ saída confirmada. A escalada
-    owner=modelo tipo='cliente_busca'/'video_chamada' só hospeda o `card_message_id`. Idempotência
-    por owner (= `_card_escalada`): só envia se `card_message_id IS NULL`; POST + UPDATE na MESMA
+    owner=modelo tipo='video_chamada' só hospeda o `card_message_id`. Idempotência por owner
+    (= `_card_escalada`): só envia se `card_message_id IS NULL`; POST + UPDATE na MESMA
     transação. O template sai de `_CARD_POR_TIPO_GO_TIME[tipo]`.
     """
     pool = ctx["db_pool"]
@@ -444,7 +443,6 @@ _RENDER_CARD: dict[str, Callable[..., Awaitable[None]]] = {
     "pix_validado": _card_pix,
     "pix_em_revisao": _card_pix,
     "chegada": _card_chegada,
-    "cliente_busca": _card_go_time,
     "video_chamada": _card_go_time,
     "aviso_saida": _card_aviso_saida,
     "loc_pin": _card_loc_pin,

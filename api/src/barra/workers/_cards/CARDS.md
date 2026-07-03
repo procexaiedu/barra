@@ -50,18 +50,16 @@ para o grupo (`card_escalada_vai_ao_grupo`, `dominio/escaladas/service.py`). Log
 | ⚠️ Pix duvidoso                 | 💰 valor do programa         |                     |
 | 🚪 Cliente chegou               | 💸 deslocamento (Pix)        |                     |
 | 🚗 Cliente saiu de casa         |                              |                     |
-| 🤝 Cliente vem te buscar        |                              |                     |
 | 🎥 Hora da vídeo chamada        |                              |                     |
 | 💵 Fechar atendimento           |                              |                     |
 | 📋 Pendências                   |                              |                     |
 
-Os dois últimos cards proativos (🤝 pickup, 🎥 vídeo chamada) são "go-time": disparam quando
-chega a hora do encontro (`timeouts.confirmar_em_execucao`, ADRs 0020/0021), como 🚪/✅ — **não
-são Handoff**. Eles são hospedados numa escalada `cliente_busca`/`video_chamada` (owner=modelo) só
-para guardar o `card_message_id`, mas renderizam pelo template próprio (`reconciliacao
-._CARD_POR_TIPO_ESCALADA`), nunca o 🔔 genérico.
+O card proativo 🎥 vídeo chamada é "go-time": dispara quando chega a hora do encontro
+(`timeouts.confirmar_em_execucao`, ADR 0021), como 🚪/✅ — **não é Handoff**. Ele é hospedado
+numa escalada `video_chamada` (owner=modelo) só para guardar o `card_message_id`, mas renderiza
+pelo template próprio (`reconciliacao._CARD_POR_TIPO_ESCALADA`), nunca o 🔔 genérico.
 
-## Os 9 tipos, no formato canônico
+## Os 8 tipos, no formato canônico
 
 ```
 🔔 *Handoff* · João · #42
@@ -92,11 +90,6 @@ Cliente pediu valor fora da tabela
 🚗 *Cliente saiu de casa* · João · #42
 🕒 chega ~22h
 Info · a IA segue conversando
-
-🤝 *Cliente vem te buscar* · João · #42
-📍 Rua X, ponto combinado
-🕒 22:00
-👉 Fica pronta, o cliente vem te buscar
 
 🎥 *Hora da vídeo chamada* · João · #42
 🕒 22:00

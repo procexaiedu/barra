@@ -24,13 +24,12 @@ _RECONCILIACAO_FOLGA_SEGUNDOS = 30
 
 # Card canônico por tipo de escalada. Cada tipo com card PRÓPRIO é reconciliado com o SEU card; o
 # resto (escalar tool, jailbreak, política) cai no card genérico de Handoff (`escalada`).
-# Próprios: `foto_portaria` → 🚪 chegada (+ foto); `cliente_busca`/`video_chamada` (pickup/remoto,
-# ADR 0020/0021) → 🤝/🎥 "go-time" (não são Handoff, e sim "chegou a hora"). Reconciliar qualquer
-# um deles com `escalada` mandaria o 🔔 genérico e envenenaria a idempotência por owner, deixando
-# o card próprio nunca sair (regressão `foto_portaria`, bug E2E 2026-06-17).
+# Próprios: `foto_portaria` → 🚪 chegada (+ foto); `video_chamada` (remoto, ADR 0021) → 🎥
+# "go-time" (não é Handoff, e sim "chegou a hora"). Reconciliar qualquer um deles com `escalada`
+# mandaria o 🔔 genérico e envenenaria a idempotência por owner, deixando o card próprio nunca
+# sair (regressão `foto_portaria`, bug E2E 2026-06-17).
 _CARD_POR_TIPO_ESCALADA = {
     "foto_portaria": "chegada",
-    "cliente_busca": "cliente_busca",
     "video_chamada": "video_chamada",
 }
 

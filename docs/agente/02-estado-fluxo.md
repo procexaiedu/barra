@@ -404,12 +404,10 @@ Reflete a **verdade técnica corrente** (esta spec); onde diverge de `mvp/04 §8
 | `Novo` | `Triagem` | extração com intenção mínima | `registrar_extracao` (`04 §3.1`) | — |
 | `Triagem` | `Qualificado` | extração: `intencao=agendamento` + horário + tipo | `registrar_extracao` | — |
 | `Qualificado` | `Aguardando_confirmacao` (interno) | extração: `tipo=interno` + horário | `registrar_extracao` | cria **bloqueio prévio** (advisory lock + EXCLUDE, branch 13) |
-| `Qualificado` | `Aguardando_confirmacao` (externo) | `pedir_pix_deslocamento` | tool pix (`04 §3.2`) | `pix_status=aguardando` + **bloqueio prévio** (branch 5). Invariante: externo **sem `cliente_busca`** nesse estado ⟹ Pix solicitado (emenda ADR 0020) |
-| `Qualificado` | `Aguardando_confirmacao` (externo-pickup, ADR 0020) | extração: `tipo=externo` + `cliente_busca=true` + horário | `registrar_extracao` | **bloqueio prévio** sem Pix (`pix_status` segue `nao_solicitado`); sem pin |
+| `Qualificado` | `Aguardando_confirmacao` (externo) | `pedir_pix_deslocamento` | tool pix (`04 §3.2`) | `pix_status=aguardando` + **bloqueio prévio** (branch 5). Invariante: externo nesse estado ⟹ Pix solicitado |
 | `Aguardando_confirmacao` | `Confirmado` (externo) | comprovante recebido — **validado OU duvidoso** | `validar_pix`→`atualizar_pix` (`06 §2.2`, `07 §5`) | `ia_pausada=true` (`modelo_em_atendimento`). Duvidoso: card sinaliza + fila Fernando. **Diverge do mvp** (Pix nunca trava, `01 §6.1`) |
 | `Aguardando_confirmacao` | `Em_execucao` (interno) | foto de portaria | `rotear_imagem`→`_handoff_foto_portaria` (sob lock, `06 §4`/branch 14), determinístico | `ia_pausada=true` (`modelo_em_atendimento`); bloqueio→`em_atendimento`; card "cliente chegou". IA é cega à imagem |
 | `Confirmado` | `Em_execucao` (externo) | horário previsto chega | cron/coordenador, determinístico | bloqueio→`em_atendimento` |
-| `Aguardando_confirmacao` | `Em_execucao` (externo-pickup, ADR 0020) | horário do encontro chega (`bloqueio.inicio`) | cron `confirmar_em_execucao`, determinístico | `ia_pausada=true` (`modelo_em_atendimento`); bloqueio→`em_atendimento`; escalada `cliente_busca` → card "Cliente vem te buscar" |
 | `Em_execucao` | `Fechado` | `fechado valor` / `finalizado valor` | grupo/painel (**fora do agente**) | bloqueio→`concluido`; financeiro |
 | qualquer (até `Em_execucao`) | `Perdido` | `perdido motivo` | grupo/painel | bloqueio→`cancelado` se ∉ {em_atendimento, concluido} |
 | pré-confirmação (`Novo`/`Triagem`/`Qualificado`/`Aguardando_confirmacao`) | `Perdido` | timeout 24h sem **mensagem do cliente** (IA/modelo não contam; `timeouts.py`) | cron `varrer_timeouts` (`07 §4`) | `motivo=sumiu`; bloqueio→`cancelado` |

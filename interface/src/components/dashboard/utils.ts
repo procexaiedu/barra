@@ -27,7 +27,6 @@ const ROTULOS_TIPO_ESCALADA: Record<TipoEscalada, string> = {
   fora_de_oferta: "Cliente pediu valor fora da tabela",
   comportamento_atipico: "Comportamento atípico antes de confirmar",
   indisponibilidade: "Sem agenda disponível",
-  cliente_busca: "Cliente vem te buscar",
   video_chamada: "Hora da vídeo chamada",
   outro: "Outro",
 }

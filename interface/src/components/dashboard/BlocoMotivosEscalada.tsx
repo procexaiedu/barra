@@ -25,7 +25,6 @@ const TIPOS_CANONICOS: TipoEscalada[] = [
   "fora_de_oferta",
   "comportamento_atipico",
   "indisponibilidade",
-  "cliente_busca",
   "video_chamada",
   "outro",
 ]
@@ -39,7 +38,6 @@ const COR_POR_TIPO: Record<TipoEscalada, string> = {
   fora_de_oferta: "var(--chart-1)",
   comportamento_atipico: "var(--chart-4)",
   indisponibilidade: "var(--chart-7)",
-  cliente_busca: "var(--chart-2)",
   video_chamada: "var(--chart-5)",
   outro: "var(--text-muted)",
 }

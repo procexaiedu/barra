@@ -88,18 +88,6 @@ CENARIOS: list[CenarioFunc] = [
         tool_esperada="pedir_pix_deslocamento",
     ),
     CenarioFunc(
-        nome="externo_pickup",
-        descricao="Cliente busca a modelo de carro -> externo SEM Pix.",
-        perfil=_perfil(
-            "externo_pickup",
-            _modelo(["externo"]),
-            "oi, eu te busco de carro, pode ser? te pego onde vc estiver",
-            ["hj umas 22h", "show, me passa a referencia que eu vou ai", "fechado"],
-        ),
-        estado_esperado="Aguardando_confirmacao",
-        nao_deve_pedir_pix=True,
-    ),
-    CenarioFunc(
         nome="remoto_videochamada",
         descricao="Video chamada (remoto) -> sem Pix, sem local fisico.",
         perfil=_perfil(

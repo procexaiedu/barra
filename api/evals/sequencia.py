@@ -40,7 +40,7 @@ class ReguaOrdem:
 
 # Regras v1. Ambas pegam algo que o SERVIDOR nao bloqueia deterministicamente no caminho da IA:
 #  R1 — a transicao p/ Aguardando_confirmacao e por tipo+horario, NAO pela cotacao (funil-vazamento).
-#  R2 — regression-guard do gate de Pix (nao cobre a nuance do pickup `cliente_busca`; ver docstring).
+#  R2 — regression-guard do gate de Pix (ver docstring).
 REGRAS_V1: list[ReguaOrdem] = [
     ReguaOrdem(
         "estado:Aguardando_confirmacao",

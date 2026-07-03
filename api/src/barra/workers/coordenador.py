@@ -541,9 +541,9 @@ async def processar_turno(
                         # a msg ao cliente (chave Pix, confirmacao) nao pode ser cancelada nem
                         # perdida. registrar_extracao so conta quando CAUSOU transicao (marcar toda
                         # registrar_extracao mataria o cancel) OU solicitou o Pix de deslocamento
-                        # (pix_solicitado; o pickup->Uber pede Pix sem nova transicao, novo_estado
-                        # NULL). O flag vai no PAYLOAD do job (05 §7), nao no Redis -- TTL pode
-                        # expirar antes da ultima retry com backoff.
+                        # (pix_solicitado pode ocorrer sem nova transicao, novo_estado NULL). O
+                        # flag vai no PAYLOAD do job (05 §7), nao no Redis -- TTL pode expirar
+                        # antes da ultima retry com backoff.
                         res = await conn.execute(
                             """
                             SELECT 1 FROM barravips.tool_calls

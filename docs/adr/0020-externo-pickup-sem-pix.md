@@ -1,8 +1,18 @@
 ---
-status: accepted
+status: descartado
 ---
 
 # Externo com pickup: cliente busca a modelo, sem Pix de deslocamento
+
+> **DESCARTADO (2026-07-03, Fernando/dev).** O subcaso pickup foi removido por completo do produto:
+> campo `cliente_busca` fora da extração e do upsert, branch do cron `confirmar_em_execucao`
+> removido, card 🤝 removido, cenário de eval removido. Conduta vigente quando o cliente quer
+> buscar a modelo de carro: a IA **redireciona** para os tipos suportados (interno, ou externo com
+> Pix dela indo de Uber) e, se ele insistir, **escala** (`politica_nova_necessaria`). Ver o verbete
+> "Atendimento interno, externo ou remoto" no CONTEXT.md. No banco de prod, a coluna
+> `atendimentos.cliente_busca` sai por migration própria de drop; o valor `cliente_busca` do
+> `tipo_escalada_enum` permanece (Postgres não remove valor de enum), inerte.
+> O texto abaixo é registro histórico da decisão original.
 
 No E2E de 10/06 o cliente fechou um pernoite dizendo que **buscaria a modelo de carro** ("te busco aí em 1h, manda seu endereço"). O domínio só conhecia dois roteiros: **interno** (cliente vai até a modelo; confirma por Foto de portaria) e **externo** (a modelo vai de Uber até o cliente; confirma por Pix de deslocamento). O pickup é **externo** — o atendimento acontece no local do cliente, conta para o Mapa de clientes — mas **não tem deslocamento da modelo**: não existe Uber para o Pix antecipar. A IA aplicou os dois scripts errados (segurou o endereço com fala de portaria de interno e pediu Pix de R$100), e mesmo com a conduta corrigida no prompt sobrou um buraco mecânico: **só `pedir_pix_deslocamento` promove externo** para `Aguardando_confirmacao` (criando o bloqueio prévio). Um pickup bem conduzido ficava parado em `Qualificado` para sempre — sem reserva de agenda, sem pausa da IA na hora do encontro, sem card à modelo.
 

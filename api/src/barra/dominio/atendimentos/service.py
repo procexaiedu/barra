@@ -256,7 +256,6 @@ _CAMPOS_UPSERT = (
     "intencao",
     "urgencia",
     "tipo_atendimento",
-    "cliente_busca",
     "data_desejada",
     "horario_desejado",
     "duracao_horas",
@@ -364,7 +363,7 @@ async def registrar_extracao_ia(
     #  (b) só destrava a reserva INICIAL — se já há bloqueio prévio, NÃO injeta: sobrescrever
     #      orfanaria o bloqueio sem escalar (a branch 12 / _reagendamento_pos_bloqueio cobre o
     #      reagendamento real, com horário explícito do cliente).
-    #  (c) só SEM-deslocamento (interno/remoto/pickup): no externo-Uber, auto-cravar horário a
+    #  (c) só SEM-deslocamento (interno/remoto): no externo-Uber, auto-cravar horário a
     #      partir de um "imediato" condicional dispararia uma cobrança de Pix sem o cliente
     #      confirmar — esse fica na trilha reoferta(horario_minimo)->confirma->Pix. Tipo efetivo =
     #      o deste turno (payload) ou o já gravado.
@@ -377,17 +376,13 @@ async def registrar_extracao_ia(
         and horario_minimo is not None
     ):
         res = await conn.execute(
-            "SELECT bloqueio_id, tipo_atendimento, cliente_busca "
-            "FROM barravips.atendimentos WHERE id = %s",
+            "SELECT bloqueio_id, tipo_atendimento FROM barravips.atendimentos WHERE id = %s",
             (aid,),
         )
         row = await res.fetchone()
         if row is not None and row["bloqueio_id"] is None:
             tipo_ef = payload.get("tipo_atendimento") or row["tipo_atendimento"]
-            busca_ef = payload.get("cliente_busca")
-            if busca_ef is None:
-                busca_ef = row["cliente_busca"]
-            if tipo_ef in ("interno", "remoto") or busca_ef:
+            if tipo_ef in ("interno", "remoto"):
                 payload["horario_desejado"] = horario_minimo.astimezone(_FUSO_BR).time()
 
     # 1. UPSERT por COALESCE: so campos nao-nulos sobrescrevem; `limpar` forca NULL e tem
@@ -421,23 +416,19 @@ async def registrar_extracao_ia(
         await _registrar_evento(conn, aid, "transicao_estado", {"para": hop})
         if hop == "Aguardando_confirmacao":
             atendimento = await _refetch_para_bloqueio(conn, aid)
-            # Interno, externo-pickup (cliente_busca, ADR 0020) e remoto (video chamada, ADR 0021)
-            # criam o bloqueio previo aqui. O externo-Uber tambem promove agora, mas seu bloqueio
-            # previo + Pix saem do bloco deterministico abaixo (_solicitar_pix_deslocamento_se_
-            # aplicavel) — por isso nao casa esta condicao. O pin de endereco e so do interno (no
-            # pickup o ponto de encontro vai por texto; remoto nao tem endereco algum).
-            if (
-                atendimento["tipo_atendimento"] in ("interno", "remoto")
-                or atendimento["cliente_busca"]
-            ):
+            # Interno e remoto (video chamada, ADR 0021) criam o bloqueio previo aqui. O
+            # externo-Uber tambem promove agora, mas seu bloqueio previo + Pix saem do bloco
+            # deterministico abaixo (_solicitar_pix_deslocamento_se_aplicavel) — por isso nao
+            # casa esta condicao. O pin de endereco e so do interno (remoto nao tem endereco).
+            if atendimento["tipo_atendimento"] in ("interno", "remoto"):
                 from barra.dominio.agenda.service import criar_bloqueio_previo
 
                 await criar_bloqueio_previo(conn, atendimento=atendimento, agora=agora)
                 if atendimento["tipo_atendimento"] == "interno":
                     resultado_extra["enviar_pin"] = True
 
-    # 2b. Pix de deslocamento deterministico (externo-Uber): bloco independente da transicao deste
-    #     turno — cobre a promocao direta E o pickup->Uber corrigido (ver docstring do helper).
+    # 2b. Pix de deslocamento deterministico (externo-Uber): bloco independente da transicao
+    #     deste turno — cobre tambem a promocao ja ocorrida em turno anterior (ver docstring).
     await _solicitar_pix_deslocamento_se_aplicavel(conn, aid, resultado_extra, agora=agora)
 
     # 3. Aviso de saida (06 §5 + emenda §0 item 10): detectado pelo agente, nao por regex.
@@ -505,9 +496,7 @@ def _montar_upsert(payload: dict[str, Any], limpar: set[str]) -> tuple[list[str]
     valores: list[Any] = []
     for campo in _CAMPOS_UPSERT:
         if campo in limpar:
-            # `cliente_busca` e a unica coluna NOT NULL do upsert (default false): retratacao
-            # via `limpar` volta ao default em vez de NULL (NotNullViolation derrubaria o turno).
-            sets.append(f"{campo} = false" if campo == "cliente_busca" else f"{campo} = NULL")
+            sets.append(f"{campo} = NULL")
         elif payload.get(campo) is not None:
             sets.append(f"{campo} = %s")
             valores.append(payload[campo])
@@ -557,8 +546,8 @@ class BeliefState:
 # subconjunto da entrada) e, com a FSM single-hop, atrasava o bloqueio um turno quando
 # intencao+tipo+horario chegavam juntos. `registrar_extracao_ia` agora itera ate o ponto-fixo
 # (multi-hop), entao Triagem->Qualificado->Aguardando_confirmacao ocorrem no MESMO turno.
-# TODO tipo com horario combinado promove a Aguardando_confirmacao (cliente_busca NAO e condicao
-# — a reserva/Pix do externo-Uber sai do bloco de Pix, nao daqui).
+# TODO tipo com horario combinado promove a Aguardando_confirmacao (a reserva/Pix do
+# externo-Uber sai do bloco de Pix, nao daqui).
 _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], str]]]] = {
     "Novo": (
         "Triagem",
@@ -668,8 +657,8 @@ async def _decidir_transicao(conn: AsyncConnection[Any], atendimento_id: UUID) -
     """Transicoes da extracao (02 §11 — fonte unica do lado do agente). Le o estado JA atualizado
     pelo UPSERT e delega a `_proxima_transicao` (mesma tabela que alimenta o belief-state). TODO
     tipo com horario combinado promove a Aguardando_confirmacao: interno (Foto de portaria),
-    externo-pickup (ADR 0020), remoto (video chamada, ADR 0021) e externo-Uber. A reserva de slot +
-    Pix do externo-Uber sai do bloco deterministico de Pix, nao aqui."""
+    remoto (video chamada, ADR 0021) e externo-Uber. A reserva de slot + Pix do externo-Uber sai
+    do bloco deterministico de Pix, nao aqui."""
     res = await conn.execute(
         "SELECT estado::text AS estado, intencao::text AS intencao, "
         "tipo_atendimento::text AS tipo_atendimento, horario_desejado "
@@ -861,12 +850,12 @@ async def _solicitar_pix_deslocamento_se_aplicavel(
 ) -> None:
     """Solicitacao deterministica do Pix de deslocamento (substitui a tool `pedir_pix_deslocamento`).
 
-    Externo-Uber (externo sem cliente_busca) pede o Pix assim que esta em Aguardando_confirmacao
-    com pix_status ainda 'nao_solicitado'. Roda como bloco INDEPENDENTE da transicao deste turno
-    (nao aninhado no `if novo_estado`): cobre tanto (a) a promocao direta — a transicao acabou de
-    levar a Aguardando_confirmacao — quanto (b) o pickup->Uber corrigido — cliente_busca vira false
-    num atendimento JA em Aguardando_confirmacao, sem nova transicao. Paridade com a tool antiga,
-    cujo `WHERE pix_status='nao_solicitado'` + guard `bloqueio_id is None` davam o mesmo efeito.
+    Externo (Uber) pede o Pix assim que esta em Aguardando_confirmacao com pix_status ainda
+    'nao_solicitado'. Roda como bloco INDEPENDENTE da transicao deste turno (nao aninhado no
+    `if novo_estado`): cobre tanto a promocao direta — a transicao acabou de levar a
+    Aguardando_confirmacao — quanto o atendimento que ja estava la sem Pix solicitado. Paridade
+    com a tool antiga, cujo `WHERE pix_status='nao_solicitado'` + guard `bloqueio_id is None`
+    davam o mesmo efeito.
 
     A chave Pix (string critico) NUNCA entra aqui (guard-rail de dado sensivel): so o valor fixo;
     o coordenador anexa a chave fresh do cadastro apos o texto da IA. `ConflitoAgenda`/
@@ -875,7 +864,7 @@ async def _solicitar_pix_deslocamento_se_aplicavel(
     """
     res = await conn.execute(
         "SELECT id, modelo_id, estado::text AS estado, "
-        "tipo_atendimento::text AS tipo_atendimento, cliente_busca, "
+        "tipo_atendimento::text AS tipo_atendimento, "
         "pix_status::text AS pix_status, bloqueio_id, "
         "data_desejada, horario_desejado, duracao_horas "
         "FROM barravips.atendimentos WHERE id = %s",
@@ -886,13 +875,12 @@ async def _solicitar_pix_deslocamento_se_aplicavel(
     if not (
         a["estado"] == "Aguardando_confirmacao"
         and a["tipo_atendimento"] == "externo"
-        and not a["cliente_busca"]
         and a["pix_status"] == "nao_solicitado"
     ):
         return
     # Bloqueio previo do externo-Uber: reserva o slot ao solicitar o Pix (simetrico aos demais
-    # tipos). Guard `is None` porque o pickup->Uber ja tem bloqueio (criado quando era pickup) —
-    # recriar estouraria a EXCLUDE `bloqueios_sem_sobreposicao` com ConflitoAgenda espurio.
+    # tipos). Guard `is None` para nao recriar bloqueio existente (estouraria a EXCLUDE
+    # `bloqueios_sem_sobreposicao` com ConflitoAgenda espurio).
     if a["bloqueio_id"] is None:
         from barra.dominio.agenda.service import criar_bloqueio_previo
 
@@ -912,7 +900,7 @@ async def _refetch_para_bloqueio(
     conn: AsyncConnection[Any], atendimento_id: UUID
 ) -> dict[str, Any]:
     res = await conn.execute(
-        "SELECT id, modelo_id, tipo_atendimento::text AS tipo_atendimento, cliente_busca, "
+        "SELECT id, modelo_id, tipo_atendimento::text AS tipo_atendimento, "
         "data_desejada, horario_desejado, duracao_horas "
         "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),

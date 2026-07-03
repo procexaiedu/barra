@@ -27,7 +27,7 @@ def _proxima_segunda() -> date:
     return hoje + timedelta(days=dias)
 
 
-def _atendimento(horario, data=None, *, tipo=None, cliente_busca=False):
+def _atendimento(horario, data=None, *, tipo=None):
     return {
         "id": "00000000-0000-0000-0000-000000000001",
         "modelo_id": "00000000-0000-0000-0000-000000000002",
@@ -35,7 +35,6 @@ def _atendimento(horario, data=None, *, tipo=None, cliente_busca=False):
         "horario_desejado": horario,
         "duracao_horas": 1,
         "tipo_atendimento": tipo,
-        "cliente_busca": cliente_busca,
     }
 
 
@@ -154,34 +153,27 @@ _DATA_AGORA = _AGORA.date()
 _DAQUI_10MIN = time(20, 10)
 
 
-@pytest.mark.parametrize(
-    ("tipo", "cliente_busca"),
-    [("interno", False), ("remoto", False), ("externo", True)],  # pickup = externo + cliente_busca
-)
-async def test_sem_deslocamento_recebe_agora_dentro_do_buffer(tipo, cliente_busca):
-    # interno/remoto/pickup: antecedência ~0 -> reserva um slot a 10 min de agora (o externo-Uber
+@pytest.mark.parametrize("tipo", ["interno", "remoto"])
+async def test_sem_deslocamento_recebe_agora_dentro_do_buffer(tipo):
+    # interno/remoto: antecedência ~0 -> reserva um slot a 10 min de agora (o externo-Uber
     # cairia em AntecedenciaInsuficiente). Casa o comportamento do vendedor humano (recebe já).
     conn = _Conn([])
     await criar_bloqueio_previo(
         conn,  # type: ignore[arg-type]
-        atendimento=_atendimento(
-            _DAQUI_10MIN, data=_DATA_AGORA, tipo=tipo, cliente_busca=cliente_busca
-        ),
+        atendimento=_atendimento(_DAQUI_10MIN, data=_DATA_AGORA, tipo=tipo),
         agora=_AGORA,
     )
     assert [q for q in conn.queries if "INSERT INTO barravips.bloqueios" in q]
 
 
 async def test_externo_uber_mantem_antecedencia_de_buffer():
-    # externo com a modelo se deslocando (cliente_busca=False): mantém o piso de 30 min -> um slot a
-    # 10 min de agora cai em AntecedenciaInsuficiente, sem INSERT.
+    # externo (a modelo se desloca): mantém o piso de 30 min -> um slot a 10 min de agora cai
+    # em AntecedenciaInsuficiente, sem INSERT.
     conn = _Conn([])
     with pytest.raises(AntecedenciaInsuficiente):
         await criar_bloqueio_previo(
             conn,  # type: ignore[arg-type]
-            atendimento=_atendimento(
-                _DAQUI_10MIN, data=_DATA_AGORA, tipo="externo", cliente_busca=False
-            ),
+            atendimento=_atendimento(_DAQUI_10MIN, data=_DATA_AGORA, tipo="externo"),
             agora=_AGORA,
         )
     assert [q for q in conn.queries if "INSERT INTO barravips.bloqueios" in q] == []
@@ -194,9 +186,7 @@ async def test_gap_de_30min_inalterado_para_sem_deslocamento():
     with pytest.raises(ConflitoAgenda):
         await criar_bloqueio_previo(
             conn,  # type: ignore[arg-type]
-            atendimento=_atendimento(
-                _DAQUI_10MIN, data=_DATA_AGORA, tipo="interno", cliente_busca=False
-            ),
+            atendimento=_atendimento(_DAQUI_10MIN, data=_DATA_AGORA, tipo="interno"),
             agora=_AGORA,
         )
     assert [q for q in conn.queries if "INSERT INTO barravips.bloqueios" in q] == []

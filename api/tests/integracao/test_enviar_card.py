@@ -245,11 +245,11 @@ async def test_enviar_card_escalada_lembrete_sem_resposta_posta(
 
 
 @pytest.mark.needs_db
-@pytest.mark.parametrize("tipo", ["cliente_busca", "video_chamada"])
+@pytest.mark.parametrize("tipo", ["video_chamada"])
 async def test_enviar_card_go_time_grava_id_e_idempotente(
     conn: AsyncConnection[dict[str, Any]], tipo: str
 ) -> None:
-    """Card "go-time" pickup/remoto (🤝/🎥, ADR 0020/0021): a escalada owner=modelo hospeda o
+    """Card "go-time" remoto (🎥, ADR 0021): a escalada owner=modelo hospeda o
     `card_message_id` e o renderer próprio (`_card_go_time`) posta no grupo com `contexto/tipo`
     aceitos pela CHECK de `envios_evolution`, gravando o id. Idempotente por owner: a 2ª execução
     não reenvia."""

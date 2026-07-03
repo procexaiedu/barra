@@ -58,7 +58,6 @@ def test_identidade_inclui_nome_e_idade() -> None:
 
 
 def test_endereco_formatado_exposto_como_ponto_de_encontro() -> None:
-    # ADR 0020: no pickup a IA precisa passar o endereço de atendimento (ponto de encontro).
     # Endereço presente → renderiza; ausente (ESTRANGEIRA) → linha some, sem "None" vazado.
     txt = render_identidade(CARIOCA)
     assert "Av. das Américas, 500 - Barra da Tijuca, Rio de Janeiro - RJ" in txt

@@ -71,9 +71,9 @@ def test_qualificado_completo_nada_falta_e_promove() -> None:
     assert b.slots_faltantes == []
 
 
-def test_externo_uber_promove_sem_cliente_busca() -> None:
-    # cliente_busca não é condição: externo com horário promove igual aos demais (espelha o
-    # comportamento histórico de _decidir_transicao).
+def test_externo_uber_promove_com_horario() -> None:
+    # externo com horário promove igual aos demais (espelha o comportamento histórico de
+    # _decidir_transicao).
     b = derivar_belief_state(
         estado="Qualificado",
         intencao="agendamento",

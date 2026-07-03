@@ -261,8 +261,8 @@ class Settings(BaseSettings):
         default=0,
         ge=0,
         description=(
-            "Antecedência mínima (min) para reservar quando a modelo NÃO se desloca — interno, "
-            "remoto e externo-pickup (cliente_busca) — emenda ADR 0025 (2026-06-26). Casa o "
+            "Antecedência mínima (min) para reservar quando a modelo NÃO se desloca — interno "
+            "e remoto — emenda ADR 0025 (2026-06-26). Casa o "
             "comportamento do vendedor humano (recebe agora com a modelo ociosa) em vez de adiar "
             "por preparo a frio. O gap entre atendimentos segue agenda_buffer_min; só o "
             "externo-Uber mantém a antecedência = agenda_buffer_min. Global."

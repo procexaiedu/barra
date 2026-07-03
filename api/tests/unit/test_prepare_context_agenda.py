@@ -105,7 +105,6 @@ async def test_marcadores_de_tempo_e_horario_minimo_por_tipo() -> None:
             "numero_curto": 1,
             "estado": "Aguardando_confirmacao",
             "tipo_atendimento": "interno",
-            "cliente_busca": False,
             "data_desejada": date(2026, 6, 29),
             "horario_desejado": time(20, 30),  # combinado p/ daqui 30 min
         }
@@ -154,7 +153,6 @@ async def test_relogio_do_encontro_so_com_horario_combinado_nao_desejado() -> No
             "numero_curto": 1,
             "estado": "Qualificado",
             "tipo_atendimento": "interno",
-            "cliente_busca": False,
             "data_desejada": date(2026, 6, 29),
             "horario_desejado": time(20, 30),
         }

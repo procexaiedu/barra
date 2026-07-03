@@ -2,7 +2,7 @@
 
 Catalogo P0 (4 tools): consultar_agenda, registrar_extracao, enviar_midia, escalar.
 Ver docs/agente/04-tools.md. O Pix de deslocamento NAO e tool: virou side-effect
-deterministico da extracao (externo sem cliente_busca + horario -> Aguardando_confirmacao
+deterministico da extracao (externo + horario -> Aguardando_confirmacao
 solicita o Pix; ver `dominio/atendimentos/service.py:_solicitar_pix_deslocamento_se_aplicavel`).
 
 NAO e tool: o pin de endereco do fluxo INTERNO e side-effect deterministico da
