@@ -266,6 +266,36 @@ async def test_quote_msg_ids_propaga_para_evolution_por_bolha() -> None:
     assert evolution.quote_textos == ["você faz anal?", None]
 
 
+async def test_quote_alinha_apos_guard_descartar_bolha_vazia() -> None:
+    """Regressão de alinhamento: uma bolha só-emoji (descartada por `normalizar_emoji_voz`) antes de
+    uma bolha com quote NÃO pode deslocar o quote para a bolha errada. O quote acompanha o CONTEÚDO,
+    não o índice cru pré-guard."""
+    turno_id, conversa_id = "turno-QA", str(uuid4())
+    conn = _FakeConn(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        # bolha 0 é só emoji fora do whitelist → o guard a descarta, encolhendo os chunks
+        chunks=["🔥", "faço sim vida"],
+        midias=[],
+        msg_ids_cliente=["evo-cliente-1"],
+        chars_inbound=10,
+        critico=False,
+        quote_msg_ids=[None, "evo-cliente-1"],
+        quote_textos=[None, "faz oral sem?"],
+    )
+
+    # só a bolha de conteúdo sai, e o quote segue ELA (não some nem cita a errada)
+    assert _so(evolution, "texto") == ["faço sim vida"]
+    assert evolution.quotes == ["evo-cliente-1"]
+    assert evolution.quote_textos == ["faz oral sem?"]
+
+
 async def test_sem_quote_msg_ids_mantem_compat() -> None:
     """Call site canned/reengajamento não passa quote_msg_ids: tudo sai sem quote."""
     turno_id, conversa_id = "turno-N", str(uuid4())

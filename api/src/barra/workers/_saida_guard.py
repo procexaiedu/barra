@@ -26,6 +26,7 @@ from barra.agente.nos.output_guard import tem_marcador_ia
 __all__ = [
     "extrair_tokens_pii",
     "normalizar_emoji_voz",
+    "normalizar_emoji_voz_indexado",
     "normalizar_travessao",
     "redigir_pii_eco",
     "tem_marcador_ia",
@@ -208,13 +209,25 @@ def _normalizar_bolha(bolha: str, rng: random.Random | None = None) -> str:
     return texto.strip()
 
 
+def normalizar_emoji_voz_indexado(
+    chunks: list[str], rng: random.Random | None = None
+) -> list[tuple[int, str]]:
+    """Igual a `normalizar_emoji_voz`, mas carrega o ÍNDICE ORIGINAL de cada bolha sobrevivente.
+
+    Existe para o envio manter listas PARALELAS (quote_msg_ids/quote_textos) alinhadas quando uma
+    bolha é descartada: sem o índice, o descarte de uma bolha-só-emoji deslocaria o quote para a
+    bolha errada (ou o apagaria). Devolve `[(idx_original, texto)]`; se o turno esvaziaria inteiro,
+    devolve os chunks originais indexados (não engole o turno)."""
+    out = [_normalizar_bolha(c, rng) for c in chunks]
+    mantidos = [(i, c) for i, c in enumerate(out) if c.strip()]
+    return mantidos or list(enumerate(chunks))
+
+
 def normalizar_emoji_voz(chunks: list[str], rng: random.Random | None = None) -> list[str]:
     """Normaliza o emoji de cada bolha do turno. Descarta bolha que ficou vazia (era só emoji fora
     do whitelist); se isso esvaziar o turno inteiro, devolve os chunks originais (não engole o turno).
     """
-    out = [_normalizar_bolha(c, rng) for c in chunks]
-    nao_vazios = [c for c in out if c.strip()]
-    return nao_vazios or chunks
+    return [c for _, c in normalizar_emoji_voz_indexado(chunks, rng)]
 
 
 # --- Normalização de travessão da voz (camada de calibração, não segurança) ---

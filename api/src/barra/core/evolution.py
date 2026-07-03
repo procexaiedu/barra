@@ -125,8 +125,11 @@ class EvolutionClient:
     ) -> str:
         """Espelha enviar_texto para mídia: POST /message/sendMedia → registra em
         envios_evolution → devolve evolution_message_id. O kwarg `view_once` (Mídia
-        exclusiva, 01 §6.13) é ACEITO mas NÃO entra no body: a Evolution v2 self-host
-        ainda não expõe o campo no sendMedia — ignorado até o suporte chegar.
+        exclusiva, 01 §6.13) só vira `viewOnce` no body quando `settings.evolution_view_once`
+        está ligado: a Evolution v2 self-host OFICIAL não expõe o campo no sendMedia (issue
+        #1651 fechada sem impl.), então por padrão (toggle off) o campo é omitido e o vídeo
+        vai normal — o fallback P0. Ligue o toggle só sob um build da Evolution que aceite
+        `viewOnce` (patch em docs/evolution-view-once.md).
 
         `quoted_text` segue a mesma regra do enviar_texto: a Evolution v2.3.6 ecoa
         `quoted.message.conversation` (não faz lookup pelo id), então sem ele o balão
@@ -139,6 +142,8 @@ class EvolutionClient:
         body: dict[str, Any] = {"number": remote_jid, "mediatype": media_type, "media": url}
         if caption:
             body["caption"] = _remover_markers_quote(caption)
+        if view_once and self.settings.evolution_view_once:
+            body["viewOnce"] = True
         if quoted_message_id:
             body["quoted"] = {
                 "key": {"id": quoted_message_id},

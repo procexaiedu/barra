@@ -67,6 +67,8 @@ async def test_enviar_midia_ignora_view_once_e_caption_none() -> None:
     route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
         return_value=httpx.Response(200, json={"key": {"id": "MID-2"}})
     )
+    # toggle off (default): view_once=True é aceito mas NÃO vai no body — a Evolution
+    # self-host oficial não expõe o campo no sendMedia (01 §6.13).
     await _client().enviar_midia(
         conn=RecordingConn(),
         instance_id="inst-1",
@@ -79,11 +81,57 @@ async def test_enviar_midia_ignora_view_once_e_caption_none() -> None:
         view_once=True,
     )
     body = json.loads(route.calls.last.request.content)
-    # view_once é aceito mas NÃO vai no body (self-host não expõe; 01 §6.13)
     assert "viewOnce" not in body
     assert "view_once" not in body
     # caption=None não entra no body
     assert "caption" not in body
+
+
+@respx.mock
+async def test_enviar_midia_injeta_viewonce_com_toggle_ligado() -> None:
+    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-3"}})
+    )
+    settings = Settings(
+        evolution_base_url=BASE, evolution_api_key="chave-teste", evolution_view_once=True
+    )
+    await EvolutionClient(settings).enviar_midia(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        url="https://minio.test/video.mp4",
+        caption=None,
+        media_type="video",
+        contexto="conversa_cliente",
+        tipo="video",
+        view_once=True,
+    )
+    body = json.loads(route.calls.last.request.content)
+    # toggle ligado + view_once=True → `viewOnce` entra no body (chave que a Baileys lê)
+    assert body["viewOnce"] is True
+
+
+@respx.mock
+async def test_enviar_midia_toggle_ligado_sem_view_once_nao_injeta() -> None:
+    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-4"}})
+    )
+    settings = Settings(
+        evolution_base_url=BASE, evolution_api_key="chave-teste", evolution_view_once=True
+    )
+    # foto (view_once=False): toggle ligado não força viewOnce — só vídeo pede.
+    await EvolutionClient(settings).enviar_midia(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        url="https://minio.test/foto.jpg",
+        caption=None,
+        media_type="image",
+        contexto="conversa_cliente",
+        tipo="image",
+        view_once=False,
+    )
+    assert "viewOnce" not in json.loads(route.calls.last.request.content)
 
 
 @respx.mock
