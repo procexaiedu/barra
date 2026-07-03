@@ -1,0 +1,8 @@
+📊 *Resumo da semana* · {{ modelo_nome }}
+{{ periodo }}
+
+💬 Conversas com cliente: *{{ conversas }}*
+🆕 Atendimentos novos: *{{ novos }}*
+✅ Fechados: *{{ fechados }}*{% if valor_fechado %} · {{ valor_fechado | moeda }}{% endif %}
+🤝 Handoffs abertos: *{{ handoffs }}*
+🛡️ Incidentes contidos pelo sistema: *{{ incidentes_contidos }}*

@@ -317,6 +317,18 @@ class Settings(BaseSettings):
         ge=1,
         description="Janela (dias, por avaliado_em) de turnos reprovados que o coletor de baixo score agrega a cada corrida.",
     )
+    judge_pos_envio_ativo: bool = Field(
+        default=True,
+        description="Liga o judge assíncrono PÓS-ENVIO em 100% dos turnos enviados (produção assistida, semana 1): job ARQ que pontua rastro-de-LLM/voz/conduta no DeepSeek e grava em julgamentos_turno + scores no Langfuse. Telemetria dev: nunca pausa a IA nem gera tarefa pro Fernando. Kill-switch via JUDGE_POS_ENVIO_ATIVO=false.",
+    )
+    digest_semanal_ativo: bool = Field(
+        default=True,
+        description="Liga o digest semanal automático pro Fernando (cron segunda de manhã): card no grupo de Coordenação de cada modelo ativa com conversas/fechados/handoffs/incidentes contidos da semana. Kill-switch via DIGEST_SEMANAL_ATIVO=false.",
+    )
+    rollback_watch_ativo: bool = Field(
+        default=True,
+        description="Liga o cron diário que monitora os gatilhos objetivos de rollback do piloto (incidentes não-contidos >=2/semana; >=3 conversas/semana com acusação-padrão; gate abortando >20% dos turnos). Só ALERTA (log ERROR + métrica + Sentry, canal dev): nunca pausa a modelo sozinho — o freio é humano. Kill-switch via ROLLBACK_WATCH_ATIVO=false.",
+    )
     pix_deslocamento_valor: Decimal = Field(
         default=Decimal("100.00"),
         description="Valor esperado do Pix de deslocamento, em BRL (06 §2.2/§0 item 6). Comparação é `valor >= esperado`: underpay → em_revisao; valor maior é aceito como validado.",

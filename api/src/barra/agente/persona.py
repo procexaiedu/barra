@@ -170,6 +170,15 @@ def render_aup_saida() -> str:
     return _env.get_template("aup_saida.md").render()
 
 
+def render_judge_pos_envio() -> str:
+    """Rubrica do judge PÓS-ENVIO (produção assistida, semana 1). Markdown puro, sem variável.
+
+    Prompt PRÓPRIO do judge de telemetria (workers/judge_pos_envio.py): NÃO interpola dado
+    por-modelo e NÃO entra em BP_GERAL/BP_MODELO — não afeta o cache hit-rate do chat principal.
+    """
+    return _env.get_template("judge_pos_envio.md").render()
+
+
 def render_identidade(m: IdentidadeModelo) -> str:
     """BP3 por-modelo — identidade óbvia + tipos_aceitos (programas concatenados à parte, §3.3)."""
     return _env.get_template("identidade.md.j2").render(

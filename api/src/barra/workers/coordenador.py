@@ -644,6 +644,28 @@ async def processar_turno(
                                     suite,
                                     score,
                                 )
+                        # Judge PÓS-ENVIO (produção assistida): 100% dos turnos com texto
+                        # despachado ganham um job assíncrono de telemetria (rastro/voz/conduta).
+                        # Defer curto p/ o envio humanizado terminar antes do julgamento;
+                        # _job_id estático deduplica re-execuções do turno. Best-effort: o
+                        # enqueue nunca derruba o turno já despachado.
+                        if chunks and get_settings().judge_pos_envio_ativo:
+                            try:
+                                await ctx["redis"].enqueue_job(
+                                    "julgar_turno_pos_envio",
+                                    conversa_id=conversa_id,
+                                    turno_id=turno_id,
+                                    chunks=chunks,
+                                    trace_id=trace_id_eval,
+                                    _job_id=f"judge_pos:{turno_id}",
+                                    _defer_by=120,
+                                )
+                            except Exception:
+                                logger.warning(
+                                    "judge_pos_envio enqueue falhou turno_id=%s",
+                                    turno_id,
+                                    exc_info=True,
+                                )
 
                 # 8. drena: chegou msg com o lock retido? re-roda sob o MESMO lock; senao sai.
                 if not await redis.get(f"pending:conv:{conversa_id}"):

@@ -8,6 +8,8 @@ Cron:
   - reengajar_silenciosos (toque proativo apos cotacao; default off): a cada 5 min
   - limpar_midias_vencidas (90d em estados terminais): diário 03:00
   - fluxo_drift (sensor de deriva de fluxo; observacional, default off): segunda 04:00
+  - rollback_watch (gatilhos objetivos de rollback do piloto; alerta dev): diário 05:00
+  - digest_semanal (resumo da semana pro Fernando no grupo de Coordenação): segunda 12:00
 
 Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes do envio.
 """
@@ -30,13 +32,16 @@ from barra.core.storage import criar_minio
 from barra.core.tracing import init_sentry, setup_langfuse
 from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
+from barra.workers.digest_semanal import enviar_digest_semanal
 from barra.workers.envio import MAX_TRIES_ENVIO, enviar_card, enviar_turno
 from barra.workers.fluxo_drift import medir_fluxo_drift
+from barra.workers.judge_pos_envio import julgar_turno_pos_envio
 from barra.workers.lembrete_valor import cobrar_valor_final
 from barra.workers.media import limpar_midias_vencidas, rotear_imagem, transcrever_audio
 from barra.workers.pix import validar_pix
 from barra.workers.reconciliacao import reconciliar_cards_escalada
 from barra.workers.revisao_baixo_score import coletar_baixo_score
+from barra.workers.rollback_watch import vigiar_gatilhos_rollback
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
@@ -128,6 +133,25 @@ async def cron_baixo_score(ctx: dict[str, Any]) -> int:
         return 0
     async with pool.connection() as conn:
         return await coletar_baixo_score(conn, settings)
+
+
+async def cron_digest_semanal(ctx: dict[str, Any]) -> int:
+    pool = ctx.get("db_pool")
+    evolution = ctx.get("evolution")
+    settings = ctx.get("settings")
+    if pool is None or evolution is None or settings is None:
+        return 0
+    async with pool.connection() as conn:
+        return await enviar_digest_semanal(conn, evolution, settings)
+
+
+async def cron_rollback_watch(ctx: dict[str, Any]) -> int:
+    pool = ctx.get("db_pool")
+    settings = ctx.get("settings")
+    if pool is None or settings is None:
+        return 0
+    async with pool.connection() as conn:
+        return await vigiar_gatilhos_rollback(conn, settings)
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -223,6 +247,10 @@ class WorkerSettings:
         # via keep_result. Mas keep_result global=3600 + _job_id estatico (transcricao:{evolution_message_id})
         # nao bloqueia retry — o evolution_message_id e unico por audio, entao nao ha re-enqueue.
         func(transcrever_audio),
+        # Judge PÓS-ENVIO (produção assistida): telemetria de 100% dos turnos enviados.
+        # max_tries=1: telemetria não re-queima crédito de LLM em falha (o turno fica sem
+        # julgamento e a métrica `indisponivel` registra).
+        func(julgar_turno_pos_envio, max_tries=1),
     ]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),
@@ -244,6 +272,10 @@ class WorkerSettings:
         cron(cron_fluxo_drift, name="fluxo_drift", weekday="mon", hour={4}, minute={0}),
         # Coletor de turnos reprovados → dataset de regressão (observacional, flag OFF): diário 04:30.
         cron(cron_baixo_score, name="baixo_score", hour={4}, minute={30}),
+        # Vigia dos gatilhos de rollback do piloto (janela 7d, alerta dev): diário 05:00 UTC.
+        cron(cron_rollback_watch, name="rollback_watch", hour={5}, minute={0}),
+        # Digest semanal pro Fernando no grupo de Coordenação: segunda 12:00 UTC (09:00 BRT).
+        cron(cron_digest_semanal, name="digest_semanal", weekday="mon", hour={12}, minute={0}),
     ]
     keep_result = 3600  # global; processar_turno sobrescreve p/ 0 via func(...) acima
     max_jobs = 10

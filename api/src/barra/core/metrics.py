@@ -210,6 +210,28 @@ OUTPUT_REPETICAO_DETECTADA = Counter(
     "Bolhas repetidas barradas pelo detector de repeticao do output-guard, por acao",
     ["acao"],  # dropada | mudo
 )
+# Judge assincrono POS-ENVIO (producao assistida, semana 1): 100% dos turnos enviados, telemetria.
+# `resultado`: ok (julgou, sem rastro) | rastro (incidente NAO-CONTIDO) | indisponivel (judge
+# falhou/recusou/parse) | pulado (ja julgado, dedupe) | nao_enviado (turno sem marcador de envio:
+# barrado pela rede final, cancelado ou ainda em transito -- nao e julgado).
+JUDGE_POS_ENVIO = Counter(
+    "agente_judge_pos_envio_total",
+    "Turnos julgados pelo judge pos-envio, por resultado",
+    ["resultado"],  # ok | rastro | indisponivel | pulado | nao_enviado
+)
+# Gatilhos objetivos de rollback do piloto (workers/rollback_watch.py): 1 = disparado na ultima
+# corrida do cron (janela 7d), 0 = ok. Gauge de proposito: reflete o estado corrente, nao acumula.
+ROLLBACK_GATILHO = Gauge(
+    "barra_rollback_gatilho",
+    "Gatilho de rollback do piloto disparado na janela de 7d (1=disparado)",
+    ["gatilho"],  # nao_contidos | acusacoes | taxa_gate
+)
+# Digest semanal pro Fernando (workers/digest_semanal.py), por resultado do envio.
+DIGEST_SEMANAL = Counter(
+    "barra_digest_semanal_total",
+    "Cards de digest semanal enviados no grupo de Coordenacao, por resultado",
+    ["resultado"],  # enviado | falha | pulado
+)
 # 05 §2: sentenca unica > 600 chars sai inteira no chunk; sinal de prompt que ignorou o
 # \n\n instruido (regressao de prompt), NAO erro de envio.
 CHUNK_OVERSIZE = Counter(
