@@ -27,7 +27,7 @@ MODELO_SINTETICA: dict[str, Any] = {
     "idade": 25,
     "tipo_atendimento_aceito": ["interno", "externo"],
     "localizacao_operacional": "Barra (Campinas-SP)",
-    "endereco_formatado": "Chácara da Barra, Campinas-SP",
+    "endereco_formatado": "Rua Latino Coelho, 421 - Chácara da Barra, Campinas-SP",
     "programas": [
         {"nome": "Encontro", "duracao_nome": "1 hora", "horas": 1, "preco": 400},
         {"nome": "Encontro", "duracao_nome": "2 horas", "horas": 2, "preco": 700},
