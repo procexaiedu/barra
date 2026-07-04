@@ -282,6 +282,60 @@ def test_em_revisao_pix_avanca_para_confirmado() -> None:
     assert result.estado == "Confirmado"
 
 
+def test_pix_remoto_validado_nao_transiciona_nem_pausa() -> None:
+    # ADR 0029: o Pix antecipado da video chamada so registra o pagamento — sem transicao
+    # (a hora da chamada transiciona pelo cron, ADR 0021) e sem pausar a IA (o cliente segue
+    # conversando ate a hora).
+    atendimento = _atendimento()
+    atendimento["tipo_atendimento"] = "remoto"
+    atendimento["pix_status"] = "aguardando"
+    atendimento["ia_pausada"] = False
+    conn = FakeConn(atendimento)
+
+    async def run():
+        return await aplicar_comando(
+            conn,
+            origem="pipeline_pix",
+            autor="sistema",
+            atendimento_id=conn.atendimento["id"],
+            comando="atualizar_pix",
+            payload={"decisao": "validado"},
+        )
+
+    result = asyncio.run(run())
+    assert result.pix_status == "validado"
+    assert result.estado == "Aguardando_confirmacao"
+    assert not any("ia_pausada = true" in q for q, _ in conn.executed)
+    assert not any(
+        "estado = " in q and "UPDATE barravips.atendimentos" in q for q, _ in conn.executed
+    )
+
+
+def test_pix_remoto_em_revisao_nao_transiciona_nem_pausa() -> None:
+    # Duvidoso no remoto: mesma regra do validado (nunca trava por Pix) — so pix_status muda;
+    # a duvidez vai no card e na fila de revisao de Fernando.
+    atendimento = _atendimento()
+    atendimento["tipo_atendimento"] = "remoto"
+    atendimento["pix_status"] = "aguardando"
+    atendimento["ia_pausada"] = False
+    conn = FakeConn(atendimento)
+
+    async def run():
+        return await aplicar_comando(
+            conn,
+            origem="pipeline_pix",
+            autor="sistema",
+            atendimento_id=conn.atendimento["id"],
+            comando="atualizar_pix",
+            payload={"decisao": "em_revisao", "motivo": "valor 150 < esperado 300"},
+        )
+
+    result = asyncio.run(run())
+    assert result.pix_status == "em_revisao"
+    assert result.estado == "Aguardando_confirmacao"
+    assert not any("ia_pausada = true" in q for q, _ in conn.executed)
+
+
 def test_recusar_pix_nao_reverte_estado() -> None:
     # Veredito 'invalido' do painel e registro financeiro/auditoria: nao reverte estado
     # nem despausa a IA (a modelo ja agiu sobre o card de em_revisao).

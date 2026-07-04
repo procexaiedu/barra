@@ -288,7 +288,8 @@ async def test_remoto_horario_cria_bloqueio_sem_pin(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
     """Remoto (video chamada, ADR 0021) promove como o interno: so pelo horario, cria o bloqueio
-    previo, mas SEM enviar_pin (nao ha endereco)."""
+    previo, mas SEM enviar_pin (nao ha endereco). Sem valor_acordado tambem NAO solicita o Pix
+    antecipado (ADR 0029: sem valor nao ha o que pedir — pix_status segue nao_solicitado)."""
     _, atendimento_id = await _seed_par(
         conn,
         aceita=["remoto"],
@@ -325,6 +326,58 @@ async def test_remoto_horario_cria_bloqueio_sem_pin(
     bloqueios = await res.fetchall()
     assert len(bloqueios) == 1
     assert bloqueios[0]["estado"] == "bloqueado"
+
+
+@pytest.mark.needs_db
+async def test_remoto_com_valor_solicita_pix_antecipado(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Remoto com valor acordado (ADR 0029): promove pelo horario E solicita o Pix antecipado
+    do VALOR DA CHAMADA (valor_acordado), nao o fixo de deslocamento — mesmo trilho do
+    externo-Uber (pix_status='aguardando', evento pix_solicitado, pix_valor no resultado p/ o
+    coordenador anexar a chave). O comprovante nao gateia (coberto em test_operacional)."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        aceita=["remoto"],
+        estado="Qualificado",
+        tipo_atendimento="remoto",
+        intencao="agendamento",
+        horario_desejado=time(20, 0),
+        data_desejada=date(2026, 12, 1),
+        duracao_horas=Decimal("1"),
+    )
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"valor_acordado": 300, "proxima_acao_esperada": "pedir o pix da chamada"},
+    )
+
+    assert resultado["novo_estado"] == "Aguardando_confirmacao"
+    assert resultado["pix_solicitado"] is True
+    assert Decimal(resultado["pix_valor"]) == Decimal("300")
+    # guard-rail: nem a chave nem o titular vazam pelo resultado da extracao.
+    assert "chave" not in resultado
+    assert "titular" not in resultado
+
+    res = await conn.execute(
+        "SELECT pix_status::text AS pix_status, bloqueio_id "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["pix_status"] == "aguardando"
+    assert a["bloqueio_id"] is not None
+
+    res = await conn.execute(
+        "SELECT payload FROM barravips.eventos "
+        "WHERE atendimento_id = %s AND tipo = 'pix_solicitado'",
+        (atendimento_id,),
+    )
+    ev = await res.fetchall()
+    assert len(ev) == 1
+    assert Decimal(ev[0]["payload"]["valor"]) == Decimal("300")
 
 
 @pytest.mark.needs_db

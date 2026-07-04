@@ -246,6 +246,8 @@ async def validar_pix(
             res = await conn.execute(
                 """
                 SELECT m.media_object_key,
+                       a.tipo_atendimento::text AS tipo_atendimento,
+                       a.valor_acordado,
                        mo.chave_pix     AS chave_pix_modelo,
                        mo.titular_chave AS titular_modelo
                   FROM barravips.mensagens m
@@ -269,6 +271,14 @@ async def validar_pix(
         object_key: str | None = ctx_row["media_object_key"]
         chave_modelo: str | None = ctx_row["chave_pix_modelo"]
         titular_modelo: str | None = ctx_row["titular_modelo"]
+        # Valor esperado do comprovante: externo antecipa o deslocamento FIXO; remoto antecipa
+        # o valor da chamada (`valor_acordado`, ADR 0029). Fallback no fixo se o remoto chegar
+        # sem valor acordado (nao deve ocorrer: a solicitacao do remoto exige valor_acordado).
+        valor_esperado = (
+            ctx_row["valor_acordado"]
+            if ctx_row["tipo_atendimento"] == "remoto" and ctx_row["valor_acordado"] is not None
+            else settings.pix_deslocamento_valor
+        )
 
         motivo_em_revisao: str | None = None
         motivo_bucket: str | None = None
@@ -348,8 +358,8 @@ async def validar_pix(
                     "legibilidade baixa: imagem cortada/desfocada ou campos ilegiveis"
                 )
                 motivo_bucket = "legibilidade"
-            elif extracao.valor is None or extracao.valor < settings.pix_deslocamento_valor:
-                motivo_em_revisao = f"valor extraido {extracao.valor} < esperado R${settings.pix_deslocamento_valor}"
+            elif extracao.valor is None or extracao.valor < valor_esperado:
+                motivo_em_revisao = f"valor extraido {extracao.valor} < esperado R${valor_esperado}"
                 motivo_bucket = "valor"
             elif (
                 chave_modelo
@@ -372,8 +382,9 @@ async def validar_pix(
         decisao_pipeline = "validado" if motivo_em_revisao is None else "em_revisao"
 
         # 5. persiste comprovante + aplica via porta unica de `escaladas.service`. timestamp_extraido
-        # gravado como NULL (drop §0 item 11). aplicar_comando avanca o atendimento para Confirmado
-        # + ia_pausada=true em ambos os branches (07 §5, ja implementado).
+        # gravado como NULL (drop §0 item 11). aplicar_comando avanca o atendimento EXTERNO para
+        # Confirmado + ia_pausada=true em ambos os branches (07 §5); no remoto so grava pix_status
+        # (ADR 0029 — a transicao/pausa do remoto pertence ao cron da hora da chamada).
         async with pool.connection() as conn, conn.transaction():
             inserido = await conn.execute(
                 """

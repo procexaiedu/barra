@@ -250,7 +250,8 @@ async def confirmar_em_execucao(conn: AsyncConnection[Any]) -> int:
     # pausa da IA (modelo_em_atendimento, como o Pix recebido faria no Uber) e a escalada tipo
     # 'video_chamada' hospeda o card "Hora da vídeo chamada", entregue pelo reconciliar_cards no
     # grupo de Coordenacao. Guard ia_pausada=false (nao re-pausa nem re-escala um atendimento ja
-    # pausado). Remoto nunca tem Pix (pix_status segue 'nao_solicitado'), entao nao filtra por ele.
+    # pausado). O Pix antecipado do remoto (ADR 0029) NAO gateia a transicao — nunca trava por
+    # Pix — entao nao filtra pix_status: na hora da chamada o card exibe o status e a modelo decide.
     async with conn.transaction():
         result = await conn.execute(
             """

@@ -155,12 +155,14 @@ async def _card_pix(
     comprovante_id: str,
     **_: Any,
 ) -> None:
-    """Card "saída confirmada" no grupo de Coordenação (06 §2.5).
+    """Card de comprovante Pix no grupo de Coordenação (06 §2.5).
 
-    `tipo='pix_validado'` e `tipo='pix_em_revisao'` partilham o mesmo renderer: o atendimento
-    ja esta `Confirmado` em ambos (Pix nunca trava, 01 §6.1); o template diferencia pela
-    presenca de `motivo_em_revisao` (sinaliza a duvidez para a modelo decidir antes de pedir
-    o Uber). Idempotência por owner: so envia se `comprovantes_pix.card_message_id IS NULL`.
+    `tipo='pix_validado'` e `tipo='pix_em_revisao'` partilham o mesmo renderer: o template
+    diferencia pela presenca de `motivo_em_revisao` (sinaliza a duvidez para a modelo decidir).
+    Externo: card "saída confirmada" (atendimento ja `Confirmado`; Pix nunca trava, 01 §6.1).
+    Remoto (ADR 0029): template proprio `pix_remoto` — o Pix e o pagamento da chamada, sem
+    "saída"/Uber/endereco e sem transicao. Idempotência por owner: so envia se
+    `comprovantes_pix.card_message_id IS NULL`.
     """
     pool = ctx["db_pool"]
     evolution: EvolutionClient = ctx["evolution"]
@@ -173,6 +175,7 @@ async def _card_pix(
                    cp.motivo_em_revisao,
                    cp.valor_extraido,
                    a.numero_curto, a.endereco, a.valor_acordado, a.conversa_id,
+                   a.tipo_atendimento::text AS tipo_atendimento,
                    (b.inicio AT TIME ZONE 'America/Sao_Paulo') AS bloqueio_inicio,
                    cl.nome AS cliente_nome,
                    mo.coordenacao_chat_id, mo.evolution_instance_id
@@ -190,7 +193,7 @@ async def _card_pix(
             return  # idempotência por owner: card já enviado
 
         texto = render_card(
-            "pix",
+            "pix_remoto" if cp["tipo_atendimento"] == "remoto" else "pix",
             numero_curto=cp["numero_curto"],
             cliente_nome=cp["cliente_nome"] or "cliente",
             endereco=cp["endereco"],
@@ -341,6 +344,7 @@ async def _card_go_time(ctx: dict[str, Any], *, escalada_id: str, **_: Any) -> N
             """
             SELECT e.tipo::text AS tipo, e.card_message_id, e.atendimento_id,
                    a.numero_curto, a.endereco, a.conversa_id,
+                   a.pix_status::text AS pix_status,
                    (b.inicio AT TIME ZONE 'America/Sao_Paulo') AS bloqueio_inicio,
                    cl.nome AS cliente_nome,
                    mo.coordenacao_chat_id, mo.evolution_instance_id
@@ -363,6 +367,7 @@ async def _card_go_time(ctx: dict[str, Any], *, escalada_id: str, **_: Any) -> N
             cliente_nome=e["cliente_nome"] or "cliente",
             endereco=e["endereco"],
             horario=e["bloqueio_inicio"],
+            pix_status=e["pix_status"],
         )
         async with conn.transaction():
             mid = await evolution.enviar_texto(

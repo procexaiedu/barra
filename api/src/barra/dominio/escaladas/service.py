@@ -324,48 +324,60 @@ async def _atualizar_pix(
     payload: dict[str, Any],
 ) -> ResultadoComando:
     decisao = payload.get("decisao")
-    # Pix nunca trava (01 §6.1, 07 §5): validado E em_revisao avancam o atendimento para
+    # Pix nunca trava (01 §6.1, 07 §5): validado E em_revisao avancam o atendimento externo para
     # Confirmado + ia_pausada (modelo_em_atendimento) — a mesma transicao do handoff de saida.
     # A duvidez de em_revisao e informativa: vai no card a modelo (sinaliza) e numa fila de
     # revisao de Fernando no painel (comprovantes_pix.decisao_final), sem pausar esperando ele.
+    # Remoto (ADR 0029): o Pix antecipado da video chamada so registra o pagamento — sem
+    # transicao (a hora da chamada transiciona pelo cron, ADR 0021) e sem pausar a IA (o
+    # cliente segue conversando ate a hora).
     if decisao == "validado":
-        # Guard defensivo: Pix de deslocamento so existe no fluxo externo.
-        estado = (
-            "Confirmado" if atendimento["tipo_atendimento"] == "externo" else atendimento["estado"]
-        )
-        await conn.execute(
-            """
-            UPDATE barravips.atendimentos
-               SET pix_status = 'validado',
-                   estado = %s,
-                   ia_pausada = true,
-                   ia_pausada_motivo = 'modelo_em_atendimento',
-                   responsavel_atual = 'modelo',
-                   fonte_decisao_ultima_transicao = %s
-             WHERE id = %s
-            """,
-            (estado, _fonte(origem), atendimento["id"]),
-        )
+        if atendimento["tipo_atendimento"] == "externo":
+            estado = "Confirmado"
+            await conn.execute(
+                """
+                UPDATE barravips.atendimentos
+                   SET pix_status = 'validado',
+                       estado = %s,
+                       ia_pausada = true,
+                       ia_pausada_motivo = 'modelo_em_atendimento',
+                       responsavel_atual = 'modelo',
+                       fonte_decisao_ultima_transicao = %s
+                 WHERE id = %s
+                """,
+                (estado, _fonte(origem), atendimento["id"]),
+            )
+        else:
+            estado = atendimento["estado"]
+            await conn.execute(
+                "UPDATE barravips.atendimentos SET pix_status = 'validado' WHERE id = %s",
+                (atendimento["id"],),
+            )
         await _evento(conn, atendimento["id"], "pix_status_mudado", origem, autor, payload)
         return ResultadoComando(atendimento["id"], estado, "validado")
 
     if decisao == "em_revisao":
-        estado = (
-            "Confirmado" if atendimento["tipo_atendimento"] == "externo" else atendimento["estado"]
-        )
-        await conn.execute(
-            """
-            UPDATE barravips.atendimentos
-               SET pix_status = 'em_revisao',
-                   estado = %s,
-                   ia_pausada = true,
-                   ia_pausada_motivo = 'modelo_em_atendimento',
-                   responsavel_atual = 'modelo',
-                   fonte_decisao_ultima_transicao = %s
-             WHERE id = %s
-            """,
-            (estado, _fonte(origem), atendimento["id"]),
-        )
+        if atendimento["tipo_atendimento"] == "externo":
+            estado = "Confirmado"
+            await conn.execute(
+                """
+                UPDATE barravips.atendimentos
+                   SET pix_status = 'em_revisao',
+                       estado = %s,
+                       ia_pausada = true,
+                       ia_pausada_motivo = 'modelo_em_atendimento',
+                       responsavel_atual = 'modelo',
+                       fonte_decisao_ultima_transicao = %s
+                 WHERE id = %s
+                """,
+                (estado, _fonte(origem), atendimento["id"]),
+            )
+        else:
+            estado = atendimento["estado"]
+            await conn.execute(
+                "UPDATE barravips.atendimentos SET pix_status = 'em_revisao' WHERE id = %s",
+                (atendimento["id"],),
+            )
         await _evento(conn, atendimento["id"], "pix_status_mudado", origem, autor, payload)
         return ResultadoComando(atendimento["id"], estado, "em_revisao")
 

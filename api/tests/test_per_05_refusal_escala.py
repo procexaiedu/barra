@@ -405,6 +405,8 @@ class _PixConn:
         self.execs: list[tuple[str, Any]] = []
         self._row = {
             "media_object_key": "conversas/x/m/abc.jpg",
+            "tipo_atendimento": "externo",
+            "valor_acordado": None,
             "chave_pix_modelo": "modelo@pix.example",
             "titular_modelo": "Maria Silva",
             "id": uuid4(),

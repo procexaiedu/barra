@@ -2,5 +2,9 @@
 
 {% if horario %}🕒 {{ horario.strftime('%H:%M') }}
 {% endif %}
+{% if pix_status == "validado" %}💸 Pix recebido
+{% elif pix_status == "em_revisao" %}⚠️ Pix duvidoso — o Fernando confere depois
+{% elif pix_status == "aguardando" %}❗ Pix não recebido
+{% endif %}
 
 👉 Hora de chamar o cliente no vídeo

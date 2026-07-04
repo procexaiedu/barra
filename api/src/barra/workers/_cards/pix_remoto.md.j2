@@ -1,0 +1,24 @@
+{% if decisao == "validado" %}
+✅ *Pix da vídeo chamada* · {{ cliente_nome }} · #{{ numero_curto }}
+
+{% if horario %}🕒 {{ horario.strftime('%H:%M') }}
+{% endif %}
+{% if valor_acordado %}💰 Combinado {{ valor_acordado | moeda }}
+{% endif %}
+{% if valor_extraido %}💸 Recebido {{ valor_extraido | moeda }}
+{% endif %}
+
+👉 Pix ok, chamada de pé pro horário
+{% else %}
+⚠️ *Pix duvidoso (vídeo chamada)* · {{ cliente_nome }} · #{{ numero_curto }}
+{{ motivo_em_revisao }}
+
+{% if horario %}🕒 {{ horario.strftime('%H:%M') }}
+{% endif %}
+{% if valor_acordado %}💰 Combinado {{ valor_acordado | moeda }}
+{% endif %}
+{% if valor_extraido %}💸 Recebido {{ valor_extraido | moeda }}
+{% endif %}
+
+👉 Você decide se faz a chamada — o Fernando confere depois, sem travar
+{% endif %}

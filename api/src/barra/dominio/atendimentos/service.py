@@ -848,16 +848,19 @@ async def _solicitar_pix_deslocamento_se_aplicavel(
     *,
     agora: datetime | None = None,
 ) -> None:
-    """Solicitacao deterministica do Pix de deslocamento (substitui a tool `pedir_pix_deslocamento`).
+    """Solicitacao deterministica do Pix (substitui a tool `pedir_pix_deslocamento`).
 
-    Externo (Uber) pede o Pix assim que esta em Aguardando_confirmacao com pix_status ainda
-    'nao_solicitado'. Roda como bloco INDEPENDENTE da transicao deste turno (nao aninhado no
-    `if novo_estado`): cobre tanto a promocao direta — a transicao acabou de levar a
-    Aguardando_confirmacao — quanto o atendimento que ja estava la sem Pix solicitado. Paridade
-    com a tool antiga, cujo `WHERE pix_status='nao_solicitado'` + guard `bloqueio_id is None`
-    davam o mesmo efeito.
+    Externo (Uber) pede o Pix de deslocamento (valor fixo) assim que esta em
+    Aguardando_confirmacao com pix_status ainda 'nao_solicitado'. Remoto (ADR 0029) pede o Pix
+    antecipado do VALOR DA CHAMADA (`valor_acordado`) no mesmo gate — com a condicao extra de
+    ja haver valor acordado (sem ele nao ha o que pedir). Roda como bloco INDEPENDENTE da
+    transicao deste turno (nao aninhado no `if novo_estado`): cobre tanto a promocao direta —
+    a transicao acabou de levar a Aguardando_confirmacao — quanto o atendimento que ja estava
+    la sem Pix solicitado (no remoto, isso inclui o turno em que a extracao finalmente grava o
+    `valor_acordado`). Paridade com a tool antiga, cujo `WHERE pix_status='nao_solicitado'` +
+    guard `bloqueio_id is None` davam o mesmo efeito.
 
-    A chave Pix (string critico) NUNCA entra aqui (guard-rail de dado sensivel): so o valor fixo;
+    A chave Pix (string critico) NUNCA entra aqui (guard-rail de dado sensivel): so o valor;
     o coordenador anexa a chave fresh do cadastro apos o texto da IA. `ConflitoAgenda`/
     `ForaDisponibilidade` de `criar_bloqueio_previo` propagam — a casca da tool (extracao.py) as
     converte em erro recuperavel e a transacao reverte tudo atomicamente.
@@ -866,7 +869,7 @@ async def _solicitar_pix_deslocamento_se_aplicavel(
         "SELECT id, modelo_id, estado::text AS estado, "
         "tipo_atendimento::text AS tipo_atendimento, "
         "pix_status::text AS pix_status, bloqueio_id, "
-        "data_desejada, horario_desejado, duracao_horas "
+        "data_desejada, horario_desejado, duracao_horas, valor_acordado "
         "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
@@ -874,9 +877,11 @@ async def _solicitar_pix_deslocamento_se_aplicavel(
     assert a is not None
     if not (
         a["estado"] == "Aguardando_confirmacao"
-        and a["tipo_atendimento"] == "externo"
+        and a["tipo_atendimento"] in ("externo", "remoto")
         and a["pix_status"] == "nao_solicitado"
     ):
+        return
+    if a["tipo_atendimento"] == "remoto" and a["valor_acordado"] is None:
         return
     # Bloqueio previo do externo-Uber: reserva o slot ao solicitar o Pix (simetrico aos demais
     # tipos). Guard `is None` para nao recriar bloqueio existente (estouraria a EXCLUDE
@@ -885,7 +890,13 @@ async def _solicitar_pix_deslocamento_se_aplicavel(
         from barra.dominio.agenda.service import criar_bloqueio_previo
 
         await criar_bloqueio_previo(conn, atendimento=a, agora=agora)
-    valor = get_settings().pix_deslocamento_valor
+    # Externo antecipa o custo FIXO do deslocamento; remoto antecipa o VALOR DA CHAMADA
+    # (valor_acordado) — ADR 0029.
+    valor = (
+        a["valor_acordado"]
+        if a["tipo_atendimento"] == "remoto"
+        else get_settings().pix_deslocamento_valor
+    )
     await conn.execute(
         "UPDATE barravips.atendimentos SET pix_status = 'aguardando' "
         "WHERE id = %s AND pix_status = 'nao_solicitado'",

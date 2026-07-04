@@ -7,6 +7,11 @@ status: accepted
 > **Nota (2026-07-03):** o pickup (ADR 0020) foi **descartado** — as menções a ele abaixo são
 > contexto histórico da decisão; a mecânica do remoto descrita aqui permanece vigente por si só.
 
+> **Nota (2026-07-04):** a regra financeira ("sem fluxo no sistema no P0; a modelo combina o
+> pagamento manualmente") foi **emendada pelo ADR 0029** — o valor da vídeo chamada passa a ser
+> antecipado via Pix no trilho do deslocamento. A mecânica de **entrega** decidida aqui
+> (promoção pela extração, cron na hora, card go-time, pular `Confirmado`) permanece vigente.
+
 A v1 dos prompts (12/06) já **vende** vídeo chamada como um programa normal da tabela da modelo (`<video_chamada>` em `regras.md.j2`), mas a **entrega** — a modelo fazendo a chamada ao vivo na hora marcada — não tinha caminho mecânico. O domínio só conhecia dois roteiros de entrega, ambos presenciais: **interno** (cliente vai até a modelo; confirma por Foto de portaria) e **externo** (a modelo se desloca ou o cliente a busca; o externo-Uber antecipa o Pix de deslocamento). Vídeo chamada **não é nenhum dos dois**: ninguém se desloca, não há local físico, não entra no Mapa de clientes, não tem Foto de portaria nem Pix. Uma vídeo chamada bem vendida ficava parada em `Qualificado` para sempre — sem reserva de agenda, sem pausa da IA na hora, sem card à modelo (o mesmo buraco que o pickup tinha antes do ADR 0020).
 
 O ADR 0020 é o precedente direto: lá, um atendimento sem Pix é promovido pela extração (`Aguardando_confirmacao` + bloqueio prévio) e um cron pausa a IA no horário do encontro com um card na Coordenação por modelo. Vídeo chamada é o mesmo esqueleto **menos a presença física**. O ADR 0020 rejeitou criar um terceiro `tipo_atendimento` para o pickup com a justificativa de que "pickup ainda é externo (acontece na casa do cliente, conta para o Mapa)" — vídeo chamada é genuinamente *nenhum dos dois*, então o mesmo raciocínio agora aponta **a favor** de um terceiro valor.
