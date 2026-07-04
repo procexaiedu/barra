@@ -32,6 +32,10 @@ BOLHAS_VAZADAS = [
     "Faz sentido na sequência... Preparado, então.opa, devagar.",
     "Parece uma boa pergunta pra responder em triagem... mas na real, pode ser qualquer coisa: "
     "imagino que Fernando preparou essas lacunas diferentes pra dar mais variedade.",
+    # meta de espera pos-cotacao (eval 2026-07-03, terminal v2_3): comentario sobre a propria
+    # estrategia da cotacao saiu como bolha ao cliente.
+    "Agora é esperar ele reagir ao valor 😊",
+    "agora é só esperar",
 ]
 
 
@@ -89,6 +93,8 @@ BOLHAS_LEGITIMAS = [
     "ele vai te receber lá em cima amor",  # 3a legit (porteiro): verbo fora da lista
     "ela é minha amiga, vem junto se quiser",  # 3a legit: "e" nao e verbo de fala
     "é um ambiente bem reservado e interno amor",  # "interno" descritivo, sem "que e" nem "entao"
+    "vou te esperar aqui amor",  # esperar SEM "reagir" e sem "agora e": fala legitima
+    "te espero rs, me avisa quando sair",  # idem
 ]
 
 

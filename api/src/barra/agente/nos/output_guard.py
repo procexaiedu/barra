@@ -132,6 +132,10 @@ _MARCADORES_RACIOCINIO = re.compile(
     # (nao "faz sentido" solto, que e fala legitima): "faz sentido na sequencia", a run-on
     # "entao.opa devagar", "preparado, entao".
     r"|faz sentido na sequ[êe]ncia|ent[ãa]o\.?\s*opa|preparado,? ent[ãa]o"
+    # meta de espera pos-cotacao vazada (rodada de eval 2026-07-03): "Agora e esperar ele reagir
+    # ao valor" saiu como bolha ao cliente. Conservador: exige o combo esperar+reagir ou a forma
+    # "agora e (so) esperar"; "vou te esperar"/"te espero" (fala legitima) NAO casam.
+    r"|esperar (ele|ela) reagir|agora [ée] (s[óo] )?esperar"
     r")\b",
     re.IGNORECASE,
 )
