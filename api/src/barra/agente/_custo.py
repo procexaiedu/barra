@@ -240,3 +240,39 @@ def calcular_custo_brl(
         + cache_read * preco.get("cache_read", 0.0)
     ) / 1_000_000
     return usd * cotacao_usd_brl
+
+
+def modelos_para_langfuse() -> list[dict[str, Any]]:
+    """Definicoes de modelo p/ o Langfuse (ADR 0019) precificar o `total_cost` de cada generation.
+
+    Sem elas o Langfuse nao casa o `deepseek-v4-flash` que o CallbackHandler reporta -> `model_id`
+    nulo e `total_cost=0` em TODO trace (o usage/tokens ja chega certo, ate o cache_read separado;
+    falta so o pricing). Os precos DERIVAM das tabelas `PRECO_*` acima (fonte unica) -> sem drift:
+    mexeu na tarifa la em cima, o registro do Langfuse acompanha. Precos em USD por TOKEN
+    (as tabelas sao USD/MTok).
+
+    So `input`/`output`: o endpoint publico de modelo do Langfuse (`api.models.create`) nao aceita
+    preco por usage-type custom, entao o `input_cache_read` do DeepSeek fica NAO-precificado (parcela
+    ~3-4% do turno, 50x mais barata que o miss — o Langfuse a trata como gratis). O custo BRL PRECISO
+    (com cache) segue no Prometheus / `atendimentos.custo_ia_brl` via `calcular_custo_brl`; o
+    `total_cost` do Langfuse e o espelho de relance, nao a contabilidade.
+
+    Vision (Pix) e STT NAO entram: rodam fora do grafo, sem o CallbackHandler -> nao viram generation
+    no trace, logo registrar seus modelos seria pricing morto. Consumida no boot do worker e nos rigs
+    via `core.tracing.registrar_modelos_langfuse` (dado puro: `core/` nao importa `agente/`)."""
+    return [
+        {
+            "model_name": "deepseek-v4-flash",
+            # alias legado `deepseek-chat` aposenta 2026-07-24 (settings) — o pattern cobre ate la.
+            "match_pattern": r"(?i)^(deepseek-v4-flash|deepseek-chat)$",
+            "input_price": PRECO_DEEPSEEK_USD_PER_MTOK["input"] / 1_000_000,
+            "output_price": PRECO_DEEPSEEK_USD_PER_MTOK["output"] / 1_000_000,
+        },
+        {
+            "model_name": "claude-haiku-4-5",
+            # tolera o sufixo de data do Anthropic (claude-haiku-4-5-20251001).
+            "match_pattern": r"(?i)^claude-haiku-4-5(-\d{8})?$",
+            "input_price": PRECO_HAIKU_USD_PER_MTOK["input"] / 1_000_000,
+            "output_price": PRECO_HAIKU_USD_PER_MTOK["output"] / 1_000_000,
+        },
+    ]

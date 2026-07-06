@@ -24,12 +24,13 @@ from arq.connections import RedisSettings
 from arq.cron import CronJob
 from openai import AsyncOpenAI
 
+from barra.agente._custo import modelos_para_langfuse
 from barra.agente.graph import build_graph
 from barra.core.db import criar_pool, fechar_pool
 from barra.core.evolution import EvolutionClient
 from barra.core.logging import setup_logging
 from barra.core.storage import criar_minio
-from barra.core.tracing import init_sentry, setup_langfuse
+from barra.core.tracing import init_sentry, registrar_modelos_langfuse, setup_langfuse
 from barra.settings import Settings, get_settings
 from barra.workers.coordenador import processar_turno
 from barra.workers.digest_semanal import enviar_digest_semanal
@@ -164,8 +165,11 @@ async def startup(ctx: dict[str, Any]) -> None:
     # excecao do turno (integracao arq) com a tag turno_id (OBS-04); sem DSN e no-op.
     init_sentry(settings)
     # tracing Langfuse self-hosted (ADR 0019) — trace legível, PII na infra própria (sem masking);
-    # o coordenador anexa o handler global aos callbacks do graph.ainvoke. No-op sem chaves.
-    setup_langfuse(settings)
+    # o coordenador anexa o handler global aos callbacks do graph.ainvoke. No-op sem chaves. O grafo
+    # roda AQUI (worker), então é aqui que as generations nascem: registra os modelos p/ o Langfuse
+    # precificar o total_cost (senão fica 0) e nomeia o service.name do trace.
+    setup_langfuse(settings, servico="barra-worker")
+    registrar_modelos_langfuse(modelos_para_langfuse())
     # Expoe as metricas do worker (agente_turno_*, agente_custo_turno_brl) p/ scrape em :9091.
     # Guard por ambiente: nao sobe em teste (a suite reusa o processo e a porta colidiria).
     if settings.ambiente != "teste":

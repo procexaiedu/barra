@@ -48,6 +48,8 @@ def test_ids_surgem_como_metadata_e_tags_do_trace() -> None:
     assert meta["gen_ai.conversation.id"] == _ATENDIMENTO_ID
     # Langfuse (ADR 0019): agrupa a jornada por atendimento + replica as tags no nível do trace
     assert meta["langfuse_session_id"] == _ATENDIMENTO_ID
+    # user_id do trace = o cliente (usuário final da IA) — habilita o dashboard de usuários
+    assert meta["langfuse_user_id"] == _CLIENTE_ID
     assert "atendimento_id:" + _ATENDIMENTO_ID in meta["langfuse_tags"]
     assert "cliente_id:" + _CLIENTE_ID in meta["langfuse_tags"]
     assert "modelo_id:" + _MODELO_ID in run.tags

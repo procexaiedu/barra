@@ -239,10 +239,13 @@ async def test_contexto_dinamico_no_ultimo_humanmessage(
     assert "disponibilidade total" not in ultimo_human.content.lower()
 
     # prefixo cacheavel INTACTO: nenhum SystemMessage recebeu o texto do contexto dinamico.
+    # Casa a tag de FECHAMENTO </situacao_do_atendimento>: o bloco renderizado
+    # (contexto_dinamico.md.j2) sempre a emite, enquanto a prosa do prefixo (regras.md.j2) só
+    # menciona <situacao_do_atendimento> inline — a tag de abertura daria falso-positivo na prosa.
     systems = [m for m in msgs if isinstance(m, SystemMessage)]
     assert systems
     for s in systems:
-        assert "<situacao_do_atendimento" not in _texto_system(s)
+        assert "</situacao_do_atendimento>" not in _texto_system(s)
 
 
 async def _montar_ctx_com_bloqueio(

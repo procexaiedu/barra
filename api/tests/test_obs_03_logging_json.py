@@ -114,7 +114,8 @@ async def test_worker_startup_chama_setup_logging(
 
     monkeypatch.setattr(ws, "get_settings", _settings_stub)
     monkeypatch.setattr(ws, "init_sentry", lambda s: None)
-    monkeypatch.setattr(ws, "setup_langfuse", lambda s: None)
+    monkeypatch.setattr(ws, "setup_langfuse", lambda s, servico="barra": None)
+    monkeypatch.setattr(ws, "registrar_modelos_langfuse", lambda modelos: None)
     monkeypatch.setattr(ws, "criar_pool", _async_ret)
     monkeypatch.setattr(ws, "criar_minio", lambda s: MagicMock())
     monkeypatch.setattr(ws, "EvolutionClient", lambda s: MagicMock())

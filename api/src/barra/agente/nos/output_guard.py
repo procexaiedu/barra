@@ -202,7 +202,11 @@ def _limpar_bolhas(texto: str) -> str:
 # legitimamente) e similaridade >= _REPETICAO_LIMIAR; uma reformulacao real ("como te falei: <o
 # endereco>") ja cai abaixo do limiar. Janela = ultimas _REPETICAO_JANELA bolhas ja enviadas.
 _REPETICAO_LIMIAR = 0.90
-_REPETICAO_MIN = 25
+_REPETICAO_MIN = 25  # piso p/ match FUZZY (reformulacao parcial: "como te falei: <endereco>")
+# Piso menor p/ reenvio EXATO (ratio 1.0): a bolha de preco curta ("400 1h no meu local", 19 chars
+# normalizados) passava sob o piso fuzzy de 25 e o papagaio literal ia ao cliente (onda 1, finding
+# C). Ainda isenta saudacao/gracejo curto ("oi amor" 7, "boa tarde amor" 14) que repete legitimamente.
+_REPETICAO_MIN_VERBATIM = 15
 _REPETICAO_JANELA = 12
 
 _RE_NAO_PALAVRA = re.compile(r"[^\w\s]+")
@@ -231,16 +235,22 @@ def bolhas_repetidas(texto: str, historicas: Sequence[str]) -> list[str]:
     """Bolhas do turno quase identicas a uma bolha recente da propria IA -- ou a outra bolha
     anterior do MESMO turno (PURA; devolve as bolhas originais, nao normalizadas, p/ o drop).
 
-    Negacao canned repetida nao e rastro (pool curado, o cliente insistiu) -> isenta."""
-    vistas = [n for b in historicas if len(n := _normalizar_bolha(b)) >= _REPETICAO_MIN]
+    Reenvio EXATO (ratio 1.0) conta ja no piso menor (_REPETICAO_MIN_VERBATIM) -- pega a bolha de
+    preco curta que passava sob o piso fuzzy; match FUZZY segue exigindo _REPETICAO_MIN p/ nao
+    flagar saudacao curta reformulada. Negacao canned repetida nao e rastro (pool curado) -> isenta."""
+    vistas = [n for b in historicas if len(n := _normalizar_bolha(b)) >= _REPETICAO_MIN_VERBATIM]
     repetidas: list[str] = []
     for b in texto.split("\n\n"):
         if b.strip() in NEGACOES_CANNED:
             continue
         n = _normalizar_bolha(b)
-        if len(n) < _REPETICAO_MIN:
+        if len(n) < _REPETICAO_MIN_VERBATIM:
             continue
-        if any(SequenceMatcher(None, n, v).ratio() >= _REPETICAO_LIMIAR for v in vistas):
+        exato = n in vistas
+        fuzzy = len(n) >= _REPETICAO_MIN and any(
+            SequenceMatcher(None, n, v).ratio() >= _REPETICAO_LIMIAR for v in vistas
+        )
+        if exato or fuzzy:
             repetidas.append(b)
         vistas.append(n)
     return repetidas

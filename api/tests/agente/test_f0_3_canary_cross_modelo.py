@@ -310,7 +310,10 @@ async def test_montador_nao_traz_dado_do_par_b(conn: AsyncConnection[dict[str, A
     # Histórico do par B (atendimento Fechado) não pode ser contabilizado p/ o par A: o par A só
     # tem atendimento aberto (Novo), então o bloco <historico> (só renderizado com terminal no par)
     # NÃO pode aparecer. Vazaria como "fechou 1x (R$5k)" se a query do histórico furasse o par.
-    assert "<historico>" not in texto, (
+    # Casa a tag de FECHAMENTO: o bloco renderizado (contexto_dinamico.md.j2) sempre emite
+    # </historico>, enquanto a prosa do prompt (regras.md.j2) só menciona <historico> inline — usar
+    # a tag de abertura daria falso-positivo na prosa.
+    assert "</historico>" not in texto, (
         "VAZAMENTO: histórico de atendimento terminal do par B contado no par A"
     )
     # Agenda do par A sai livre: o bloqueio (par B / modelo B) não vazou nas próximas 48h.

@@ -22,6 +22,7 @@ from barra.core.metrics import (
     ENVIO_PII_REDIGIDA,
     ENVIO_RESULTADO,
     ENVIO_RETRIES,
+    QUOTE_MARCADOR_VAZADO,
 )
 from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import marcar_cotacao_enviada_por_texto
@@ -38,6 +39,7 @@ from barra.workers._saida_guard import (
     normalizar_emoji_voz_indexado,
     normalizar_travessao,
     redigir_pii_eco,
+    remover_marcador_quote,
     tem_marcador_ia,
     tem_placeholder_eco,
 )
@@ -673,6 +675,21 @@ async def _aplicar_saida_guard(
 
     As três listas entram e saem PARALELAS: `normalizar_emoji_voz` pode descartar uma bolha vazia
     (era só emoji), e sem realinhar o quote sairia na bolha errada (ou sumiria)."""
+    # Scrub anti-vazamento do marcador de reply [quote] (SEC-OUT): rede DURA, roda em TODOS os
+    # caminhos e antes de qualquer flag — o marker é sintaxe interna que denuncia a IA e não pode
+    # sair. O chunking já extrai o marker bem-formado no início da bolha; aqui pegamos o residual
+    # (malformado/fora de posição a 0.7). Scrub por-bolha; bolha que ficou vazia é descartada com o
+    # quote realinhado pelo ÍNDICE ORIGINAL, igual ao filtro de emoji abaixo.
+    limpos: list[tuple[int, str]] = []
+    for i, chunk in enumerate(chunks):
+        novo, removeu = remover_marcador_quote(chunk)
+        if removeu:
+            QUOTE_MARCADOR_VAZADO.inc()
+        if novo:
+            limpos.append((i, novo))
+    chunks = [c for _, c in limpos]
+    quote_msg_ids = [quote_msg_ids[i] for i, _ in limpos]
+    quote_textos = [quote_textos[i] for i, _ in limpos]
     # Camada de voz (independente do envio_guard de segurança): crava o whitelist de emoji {🥰,😊},
     # seca a venda e troca travessão por vírgula. Aplica em TODOS os caminhos (canned/reengajamento
     # inclusive), antes do resto.

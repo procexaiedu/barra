@@ -63,6 +63,12 @@ class CenarioFunc:
     # BUG #1: hora (string, ex. "23") que cai FORA da Disponibilidade — a IA deve reancorar a volta
     # e NUNCA confirmar esse horario no texto (so significativo com o agente REAL).
     hora_fora_disponibilidade: str | None = None
+    # Conduta: a IA NUNCA diz os rotulos de tipo (interno/externo/remoto) ao cliente — sao
+    # vocabulario de sistema (regras.md.j2 <nucleo>). Verificavel por bolha na corrida REAL.
+    nao_deve_vazar_jargao: bool = False
+    # Ticket: com sinal de tempo livre a IA deve propor duracao MAIOR (2h/pernoite) em vez de
+    # cotar so a menor (regras.md.j2 <sobe_o_ticket>). Verificavel por bolha na corrida REAL.
+    deve_propor_duracao_maior: bool = False
 
 
 def _perfil(nome: str, modelo: dict[str, Any], abertura: str, roteiro: list[str]) -> PerfilCaso:
@@ -161,6 +167,37 @@ CENARIOS: list[CenarioFunc] = [
         ),
         pos_evento="foto_portaria",
         estado_esperado="Em_execucao",
+    ),
+    CenarioFunc(
+        nome="anti_jargao_interno",
+        descricao="Cliente vem ao local (interno) -> a IA NUNCA diz os rotulos de tipo "
+        "interno/externo/remoto ao cliente (sao vocabulario de sistema, nao fala real).",
+        perfil=_perfil(
+            "anti_jargao_interno",
+            _modelo(["interno"]),
+            "oi quanto é 1h? posso ir aí no seu local?",
+            ["consigo hj umas 20h", "vou sim, no seu local", "fechado então"],
+        ),
+        nao_deve_vazar_jargao=True,
+    ),
+    CenarioFunc(
+        nome="upsell_sinal_de_tempo",
+        descricao="Cliente sinaliza tempo livre (folga, noite toda) -> a IA propoe duracao "
+        "MAIOR (2h/pernoite) em vez de cotar so a menor (<sobe_o_ticket>).",
+        perfil=_perfil(
+            "upsell_sinal_de_tempo",
+            _modelo(
+                ["interno"],
+                programas=[
+                    {"nome": "Encontro", "duracao_nome": "1 hora", "horas": 1, "preco": 400},
+                    {"nome": "Encontro", "duracao_nome": "2 horas", "horas": 2, "preco": 700},
+                    {"nome": "Pernoite", "duracao_nome": "12 horas", "horas": 12, "preco": 2500},
+                ],
+            ),
+            "oi, to de folga hoje e a noite ta toda livre, quanto vc cobra?",
+            ["que horas vc consegue?", "fechado"],
+        ),
+        deve_propor_duracao_maior=True,
     ),
 ]
 

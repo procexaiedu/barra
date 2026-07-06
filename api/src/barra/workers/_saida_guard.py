@@ -29,6 +29,7 @@ __all__ = [
     "normalizar_emoji_voz_indexado",
     "normalizar_travessao",
     "redigir_pii_eco",
+    "remover_marcador_quote",
     "tem_marcador_ia",
     "tem_placeholder_eco",
 ]
@@ -138,6 +139,29 @@ def tem_placeholder_eco(texto: str) -> bool:
     sem o dado (preço sem número), então o caller bloqueia+escala em vez de redigir. Não casa o
     marker [quote]/[quote: trecho] (já removido pelo chunking; 'quote' fora dos gatilhos)."""
     return bool(_PLACEHOLDER.search(texto))
+
+
+# --- Scrub do marcador de reply [quote] (SEC-OUT — sintaxe interna, nunca vai ao cliente) --------
+# O reply do WhatsApp (prova de humano) é sinalizado pela IA com [quote]/[quote: trecho] no INÍCIO
+# da bolha; o chunking (_chunking._strip_quote_prefix) extrai esse marker — bem-formado e ancorado —
+# para casar o reply e o remove do texto. Mas o DeepSeek a 0.7 às vezes o emite malformado
+# (`[quote trecho]` sem `:`, `[ quote ...]`) ou fora do início; aí o strip ancorado NÃO pega e, se
+# sair, o marcador DENUNCIA que é IA. Esta rede casa QUALQUER `[quote...]` em qualquer posição/forma
+# e remove só a substring (o texto da bolha é íntegro) — scrub, não bloqueio, ao contrário do
+# placeholder de ensino (que quebra a cotação). `\b` após `quote` evita casar a palavra "quotes".
+_MARKER_QUOTE = re.compile(r"\[\s*quote\b[^\]]*\]\s*", re.IGNORECASE)
+
+
+def remover_marcador_quote(texto: str) -> tuple[str, bool]:
+    """Remove todo marcador [quote]/[quote: trecho] (bem OU malformado, qualquer posição) do texto.
+
+    Devolve `(texto_limpo, removeu)`; `removeu=True` quando ao menos um marker foi tirado — sinal de
+    regressão de prompt/chunking (o strip ancorado deveria tê-lo pego antes desta rede), contado por
+    métrica no caller. O `.strip()` final fecha o buraco quando o marker era prefixo/sufixo isolado."""
+    limpo, n = _MARKER_QUOTE.subn("", texto)
+    if n == 0:
+        return texto, False
+    return limpo.strip(), True
 
 
 # --- Normalização de emoji da voz (camada de calibração, não segurança) -------
