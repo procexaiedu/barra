@@ -139,11 +139,19 @@ def setup_tracing(settings: Settings) -> Client | None:
 _LANGFUSE_HANDLER: Any | None = None
 
 
-def _ligar_langfuse_handler(settings: Settings) -> Any | None:
+def _ligar_langfuse_handler(settings: Settings, servico: str = "barra") -> Any | None:
     """Núcleo de `setup_langfuse`: faz a ponte das chaves p/ o `os.environ` (o SDK lê de lá;
     pydantic-settings carrega do .env mas não exporta), valida o auth e cacheia o `CallbackHandler`
     no global. `setdefault` não sobrescreve env real já presente. No-op (None) sem chaves, sem o
-    pacote, ou se o auth falhar."""
+    pacote, ou se o auth falhar.
+
+    Além das chaves, ancora dois eixos de filtragem do trace, setados ANTES do `get_client()` (o SDK
+    OTel os lê na criação do client, `setdefault` respeita override externo):
+    - `LANGFUSE_TRACING_ENVIRONMENT` = `settings.ambiente` (`desenvolvimento`/`teste`/`producao`):
+      separa o `environment` do trace, para o ruído dos rigs (replay/e2e, ambiente≠producao) não
+      contaminar as métricas do tráfego real de prod quando ele chegar.
+    - `OTEL_SERVICE_NAME` = `servico` (`barra-api`/`barra-worker`/`barra-evals`): troca o
+      `service.name=unknown_service` default por quem emitiu o trace (o grafo roda no worker)."""
     global _LANGFUSE_HANDLER
     if not settings.langfuse_public_key:
         logger.warning(
@@ -160,6 +168,8 @@ def _ligar_langfuse_handler(settings: Settings) -> Any | None:
     os.environ.setdefault("LANGFUSE_PUBLIC_KEY", settings.langfuse_public_key)
     os.environ.setdefault("LANGFUSE_SECRET_KEY", settings.langfuse_secret_key or "")
     os.environ.setdefault("LANGFUSE_HOST", settings.langfuse_host)
+    os.environ.setdefault("LANGFUSE_TRACING_ENVIRONMENT", settings.ambiente)
+    os.environ.setdefault("OTEL_SERVICE_NAME", servico)
     client = get_client()
     if not client.auth_check():
         logger.warning("langfuse_prod: auth_check falhou; tracing langfuse off")
@@ -168,8 +178,11 @@ def _ligar_langfuse_handler(settings: Settings) -> Any | None:
     return _LANGFUSE_HANDLER
 
 
-def setup_langfuse(settings: Settings) -> Any | None:
+def setup_langfuse(settings: Settings, *, servico: str = "barra") -> Any | None:
     """Liga o tracing Langfuse self-hosted de PRODUÇÃO (ADR 0019) e cacheia o CallbackHandler.
+
+    `servico` nomeia o emissor no `service.name` do trace (`barra-api`/`barra-worker`/`barra-evals`);
+    default `barra` para os callers que não distinguem (ex.: pytest).
 
     Substitui o `setup_tracing` (LangSmith + anonymizer) no `main.py`/worker. SEM masking: com o
     Langfuse na infra própria (mesmo perímetro de confiança do banco que já guarda a PII), o trace
@@ -184,7 +197,7 @@ def setup_langfuse(settings: Settings) -> Any | None:
     """
     from barra.core.metrics import TRACING_LANGFUSE_LIGADO
 
-    handler = _ligar_langfuse_handler(settings)
+    handler = _ligar_langfuse_handler(settings, servico)
     TRACING_LANGFUSE_LIGADO.set(1 if handler is not None else 0)
     if handler is None and settings.langfuse_obrigatorio:
         raise RuntimeError(
@@ -205,6 +218,38 @@ def langfuse_handler() -> Any | None:
     `graph.ainvoke`; None se `setup_langfuse` não foi chamado (default — ex.: pytest), garantindo
     que o Langfuse nunca traça fora do boot de main.py/worker."""
     return _LANGFUSE_HANDLER
+
+
+def registrar_modelos_langfuse(modelos: list[dict[str, Any]]) -> None:
+    """Registra no Langfuse as definições de modelo (nome + `match_pattern` + preços) p/ ele calcular
+    o `total_cost` de cada generation do trace (ADR 0019). Sem isto o `deepseek-v4-flash` que o
+    CallbackHandler reporta não casa nenhum modelo (`model_id` nulo) e o `total_cost` fica 0 em TODO
+    trace, mesmo com o `usage`/tokens corretos.
+
+    Recebe DADO PURO (`agente/_custo.modelos_para_langfuse()`) porque `core/` não importa `agente/`
+    (direção de deps, mesma razão de `metadata_trace_turno` receber `str`); o boot do worker e os rigs
+    fazem a ponte. Idempotente/best-effort: sem handler (tracing off — ex.: pytest) é no-op; modelo
+    que já existe (409) ou qualquer falha de rede vira log-e-segue — o custo no Langfuse é
+    nice-to-have e NUNCA pode derrubar o boot."""
+    if _LANGFUSE_HANDLER is None:
+        return
+    from langfuse import get_client
+    from langfuse.api import ModelUsageUnit
+
+    client = get_client()
+    for m in modelos:
+        try:
+            client.api.models.create(
+                model_name=str(m["model_name"]),
+                match_pattern=str(m["match_pattern"]),
+                unit=ModelUsageUnit.TOKENS,
+                input_price=m.get("input_price"),
+                output_price=m.get("output_price"),
+            )
+        except Exception:  # best-effort: 409 (já existe) ou erro de rede não derruba o boot
+            logger.debug(
+                "registrar_modelo_langfuse_falhou model=%s", m.get("model_name"), exc_info=True
+            )
 
 
 def metadata_trace_turno(modelo_id: str, atendimento_id: str, cliente_id: str) -> dict[str, Any]:
@@ -238,6 +283,12 @@ def metadata_trace_turno(modelo_id: str, atendimento_id: str, cliente_id: str) -
             # Langfuse (ADR 0019): agrupa os turnos da jornada por atendimento e replica as tags no
             # nível do trace; o CallbackHandler lê estas chaves do metadata do config.
             "langfuse_session_id": atendimento_id,
+            # `user_id` do trace = o cliente (quem conversa é o usuário final da IA). Habilita o
+            # dashboard de usuários do Langfuse (traces/custo por cliente). É o MESMO `cliente_id`
+            # que já vai como tag/metadata — mesma exposição, escopo de observabilidade (dev, self-
+            # hosted, mesmo perímetro do banco). A agregação por usuário no Langfuse é cross-modelo
+            # por natureza (como o Mapa de clientes é painel-only) e NUNCA é lida pela IA conversacional.
+            "langfuse_user_id": cliente_id,
             "langfuse_tags": tags,
         },
         "tags": tags,

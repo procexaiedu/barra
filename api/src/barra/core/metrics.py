@@ -210,6 +210,13 @@ OUTPUT_REPETICAO_DETECTADA = Counter(
     "Bolhas repetidas barradas pelo detector de repeticao do output-guard, por acao",
     ["acao"],  # dropada | mudo
 )
+# Marcador de reply [quote]/[quote: trecho] residual removido pela rede final antes do envio: o
+# chunking deveria te-lo extraido no inicio da bolha, entao cada scrub aqui e regressao de
+# prompt/chunking (marker malformado ou fora de posicao que denunciaria a IA se saisse ao cliente).
+QUOTE_MARCADOR_VAZADO = Counter(
+    "agente_quote_marcador_vazado_total",
+    "Marcadores [quote] residuais removidos pela rede de saida (scrub anti-vazamento)",
+)
 # Judge assincrono POS-ENVIO (producao assistida, semana 1): 100% dos turnos enviados, telemetria.
 # `resultado`: ok (julgou, sem rastro) | rastro (incidente NAO-CONTIDO) | indisponivel (judge
 # falhou/recusou/parse) | pulado (ja julgado, dedupe) | nao_enviado (turno sem marcador de envio:

@@ -616,8 +616,14 @@ async def rodar_turno(
 
 def habilitar_tracing() -> bool:
     """Liga o trace Langfuse de prod (ADR 0019) para os turnos do gate. Idempotente; retorna se
-    o handler ficou disponivel (precisa das envs LANGFUSE_* — senao no-op silencioso)."""
-    from barra.core.tracing import setup_langfuse
+    o handler ficou disponivel (precisa das envs LANGFUSE_* — senao no-op silencioso).
 
-    setup_langfuse(get_settings())
+    Os rigs rodam o grafo real (geram generations), entao registram os modelos p/ o total_cost do
+    trace (senao 0) e marcam o `service.name` como `barra-evals` — o environment (settings.ambiente)
+    ja separa do trafego de prod."""
+    from barra.agente._custo import modelos_para_langfuse
+    from barra.core.tracing import registrar_modelos_langfuse, setup_langfuse
+
+    setup_langfuse(get_settings(), servico="barra-evals")
+    registrar_modelos_langfuse(modelos_para_langfuse())
     return langfuse_handler() is not None

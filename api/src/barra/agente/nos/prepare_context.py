@@ -6,7 +6,7 @@ turno (sem checkpointer, 01 §6.7) a partir do Postgres.
 M0-T4:
     1. Gate de pausa (02 §1): le `ia_pausada` do atendimento. Pausado -> Command(goto=END),
        sem montar contexto. Sem flag `_pausada` no state (roteamento por Command, 09 §4.1).
-    2. Prefixo system: BP_GERAL fundido (persona+regras+FAQ) via build_system_messages.
+    2. Prefixo system: BP_GERAL fundido (persona+regras) via build_system_messages.
     3. Janela deslizante 20 (02 §4), traduzida para HumanMessage/AIMessage, em ordem
        cronologica, isolada pelo par (cliente_id, modelo_id) JUNTOS (agente/CLAUDE.md).
        Append-only (ORDER BY created_at, id): o prefixo da janela sai byte-identico entre turnos
@@ -144,7 +144,7 @@ async def prepare_context(
         #     Reancora a identidade com o `nome` da modelo (continuidade de self, não menção a IA).
         mensagens = _injetar_reminder_se_necessario(mensagens, fase, modelo_nome)
 
-    # 5. Prefixo system: BP_GERAL fundido (persona+regras+FAQ byte-idêntico p/ todas —
+    # 5. Prefixo system: BP_GERAL fundido (persona+regras byte-idêntico p/ todas —
     #    agente/CLAUDE.md) + BP_MODELO. Ordem estável: geral antes do por-modelo (invariante de
     #    prefixo). O cache do prefixo é automático no DeepSeek (sem marcador): a disciplina que o
     #    mantém quente é o prefixo byte-idêntico (geral global, por-modelo estável, dado dinâmico/

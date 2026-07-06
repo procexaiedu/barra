@@ -59,7 +59,9 @@ def build_app() -> FastAPI:
     settings = get_settings()
     setup_logging(settings)
     init_sentry(settings)
-    setup_langfuse(settings)
+    # A API não roda o grafo (o agente vive no worker), mas sobe o tracing p/ nomear o service.name
+    # e ancorar o environment; não registra modelos aqui (não gera generations). ADR 0019.
+    setup_langfuse(settings, servico="barra-api")
 
     app = FastAPI(
         title="Elite Baby API",

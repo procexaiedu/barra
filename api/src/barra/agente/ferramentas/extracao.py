@@ -20,7 +20,7 @@ from barra.dominio.agenda.service import (
     ConflitoAgenda,
     ForaDisponibilidade,
 )
-from barra.dominio.atendimentos.service import registrar_extracao_ia
+from barra.dominio.atendimentos.service import CotacaoAusente, registrar_extracao_ia
 
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
@@ -303,6 +303,16 @@ async def registrar_extracao(
                 "ERRO: esse horário é cedo demais — você precisa de um tempinho pra se arrumar. "
                 "Ofereça ao cliente o horário de <horario_minimo> do seu contexto (numa hora leve e "
                 "redonda, sem inventar minutos) — depois registre de novo."
+            ) from None
+        except CotacaoAusente:
+            # Guard onda 1 A: combinar horário sem preço dito. A transação reverteu; a IA precisa
+            # cotar antes de reservar o slot (o cliente não pode sair de casa sem saber o valor).
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "cotacao_ausente").inc()
+            raise ToolException(
+                "ERRO: você não disse o preço nesta conversa ainda, então NÃO pode combinar o "
+                "horário — o cliente marcaria o encontro sem saber o valor. Cote primeiro (diga o "
+                "valor com duração e local ao cliente) e registre com cotacao_apresentada=True; só "
+                "então reserve o horário. NUNCA diga que confirmou ou reservou um horário agora."
             ) from None
 
     # Pin de endereco (interno): NAO enfileirado enquanto o renderer `_card_loc_pin`

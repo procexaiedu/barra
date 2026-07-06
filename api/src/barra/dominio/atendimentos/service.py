@@ -17,6 +17,15 @@ from barra.settings import get_settings
 
 Origem = Literal["webhook", "painel_fernando"]
 
+
+class CotacaoAusente(Exception):
+    """Transicao para Aguardando_confirmacao barrada: o horario seria combinado sem o preco ter
+    aparecido em nenhum turno (`cotacao_enviada_em IS NULL`) e sem cotar neste (finding onda 1 A).
+    O cliente combinaria o encontro sem saber o valor -- <funil>: "encontro nunca fica combinado
+    com preco nunca dito". Recuperavel: a casca da tool (extracao.py) instrui a IA a cotar antes de
+    reservar o slot, no mesmo padrao de ConflitoAgenda/ForaDisponibilidade."""
+
+
 # Mesmo fuso que prepare_context usa: o horario_minimo chega aware (UTC) e o horario_desejado é
 # gravado como hora LOCAL (prepare_context combina com tzinfo=_FUSO_BR ao reler).
 _FUSO_BR = ZoneInfo("America/Sao_Paulo")
@@ -415,6 +424,15 @@ async def registrar_extracao_ia(
         )
         await _registrar_evento(conn, aid, "transicao_estado", {"para": hop})
         if hop == "Aguardando_confirmacao":
+            # Guard deterministico (finding onda 1 A): reservar o slot exige o preco ja dito.
+            # Combinar horario/endereco com cotacao_enviada_em NULL e sem cotar NESTE turno deixaria
+            # o cliente sair de casa sem saber o valor (<funil>: "encontro nunca fica combinado com
+            # preco nunca dito"). Barra a transicao (rollback, como ConflitoAgenda) e a casca da
+            # tool instrui a IA a cotar antes. Cotar-e-combinar no mesmo turno (cotacao_apresentada
+            # marca cotacao_enviada_em logo abaixo, bloco 4) e permitido: e o caso abencoado pelo
+            # proprio <funil> ("diga o valor junto da confirmacao").
+            if not payload.get("cotacao_apresentada") and not await _cotacao_ja_enviada(conn, aid):
+                raise CotacaoAusente
             atendimento = await _refetch_para_bloqueio(conn, aid)
             # Interno e remoto (video chamada, ADR 0021) criam o bloqueio previo aqui. O
             # externo-Uber tambem promove agora, mas seu bloqueio previo + Pix saem do bloco
@@ -775,11 +793,20 @@ async def _abaixo_do_piso(
     duracao, trata como abaixo do piso (escala). `desconto_max_pct=0` => piso = preco de tabela."""
     valor = Decimal(str(payload["valor_acordado"]))
     res = await conn.execute(
-        "SELECT modelo_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+        "SELECT modelo_id, duracao_horas FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
     )
     row = await res.fetchone()
     assert row is not None
-    preco_tabela = await _preco_tabela_min(conn, row["modelo_id"], payload.get("duracao_horas"))
+    # COALESCE da duracao: o payload deste turno tem precedencia (cliente pode ter mudado a
+    # duracao agora); senao usa a ja persistida na cotacao. Sem isso, um turno que registra so o
+    # `valor_acordado` sem reenviar a duracao (remoto/ADR 0029 no commit, ou o happy-path de
+    # desconto interno/externo) caia em duracao=None -> preco=None -> escala fora_de_oferta espurio.
+    # O guard roda ANTES do UPSERT deste turno, entao a leitura pega a duracao de turnos anteriores.
+    duracao = payload.get("duracao_horas")
+    if duracao is None:
+        duracao = row["duracao_horas"]
+    preco_tabela = await _preco_tabela_min(conn, row["modelo_id"], duracao)
     if preco_tabela is None:
         return True
     fator = Decimal("1") - Decimal(str(get_settings().desconto_max_pct))
@@ -1153,6 +1180,17 @@ async def marcar_aviso_saida(conn: AsyncConnection[Any], atendimento_id: UUID) -
         (atendimento_id,),
     )
     return result.rowcount > 0
+
+
+async def _cotacao_ja_enviada(conn: AsyncConnection[Any], atendimento_id: UUID) -> bool:
+    """True se `cotacao_enviada_em` ja esta setado -- o preco apareceu em algum turno (ADR 0022).
+    Guard da transicao para Aguardando_confirmacao (ver CotacaoAusente)."""
+    res = await conn.execute(
+        "SELECT cotacao_enviada_em IS NOT NULL AS ok FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    return bool(row and row["ok"])
 
 
 async def marcar_cotacao_enviada(conn: AsyncConnection[Any], atendimento_id: UUID) -> bool:

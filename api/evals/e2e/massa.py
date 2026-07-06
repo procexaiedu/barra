@@ -95,6 +95,22 @@ def _confirmou_horario_fora(res: ResultadoE2E, hora: str) -> bool:
     return False
 
 
+# Rotulos de tipo (interno/externo/remoto) sao vocabulario de sistema — a IA nunca os diz ao
+# cliente (regras.md.j2 <nucleo>). Duracao maior = o upsell por sinal de tempo livre (<sobe_o_ticket>).
+_RE_JARGAO = re.compile(r"\b(interno|externo|remoto)\b", re.I)
+_RE_DURACAO_MAIOR = re.compile(r"\b2\s*h(oras?)?\b|pernoite|noite (toda|inteira)", re.I)
+
+
+def _vazou_jargao(res: ResultadoE2E) -> bool:
+    """True se alguma bolha da IA usou os rotulos de tipo (interno/externo/remoto) ao cliente."""
+    return any(_RE_JARGAO.search(t.texto or "") for t in res.turnos)
+
+
+def _propos_duracao_maior(res: ResultadoE2E) -> bool:
+    """True se a IA propos uma duracao maior (2h/pernoite/noite toda) em algum turno."""
+    return any(_RE_DURACAO_MAIOR.search(t.texto or "") for t in res.turnos)
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -110,6 +126,10 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["nao_confirmou_fora_ok"] = not _confirmou_horario_fora(
             res, cf.hora_fora_disponibilidade
         )
+    if cf.nao_deve_vazar_jargao:
+        aval["sem_jargao_ok"] = not _vazou_jargao(res)
+    if cf.deve_propor_duracao_maior:
+        aval["propos_maior_ok"] = _propos_duracao_maior(res)
     return aval
 
 

@@ -15,6 +15,7 @@ from uuid import uuid4
 
 import pytest
 from fakeredis.aioredis import FakeRedis
+from prometheus_client import REGISTRY
 
 from barra.workers.envio import enviar_turno
 
@@ -535,3 +536,42 @@ async def test_nao_carimba_cotacao_sem_preco() -> None:
     )
 
     assert updates == []
+
+
+async def test_scrub_quote_residual_nao_vaza_e_realinha_o_reply() -> None:
+    """SEC-OUT ponta-a-ponta: um marcador [quote] residual (malformado, escapa do strip ancorado do
+    chunking) NUNCA chega ao cliente, o reply do WhatsApp segue casado na bolha certa, e a bolha que
+    era só o marker é descartada com as listas de quote realinhadas."""
+    turno_id, conversa_id = "turno-Q", str(uuid4())
+    conn = _FakeConn(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    antes = REGISTRY.get_sample_value("agente_quote_marcador_vazado_total") or 0.0
+
+    # bolha 0: limpa. bolha 1: marker MALFORMADO (sem ':') prefixando a fala que carrega o reply.
+    # bolha 2: SÓ o marker → vira vazia e é descartada (o reply dela cai junto).
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["oi amor", "[quote pode vir] pode vir sim", "[quote]"],
+        midias=[],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+        quote_msg_ids=[None, "evo-9", "evo-1"],
+        quote_textos=[None, "pode vir?", "sumiu"],
+    )
+
+    textos = _so(evolution, "texto")
+    # 1) nenhum [quote residual foi ao cliente; a bolha só-marker sumiu
+    assert textos == ["oi amor", "pode vir sim"]
+    assert not any("[quote" in t.lower() for t in textos)
+    # 2) o reply (quoted.key.id + conversation) seguiu casado na bolha "pode vir sim", não deslocou
+    assert evolution.quotes == [None, "evo-9"]
+    assert evolution.quote_textos == [None, "pode vir?"]
+    # 3) métrica contou os 2 markers raspados (bolha 1 + bolha 2)
+    depois = REGISTRY.get_sample_value("agente_quote_marcador_vazado_total") or 0.0
+    assert depois - antes == 2.0

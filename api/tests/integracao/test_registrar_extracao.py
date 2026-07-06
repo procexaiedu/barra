@@ -24,7 +24,7 @@ from psycopg.rows import dict_row
 
 from barra.agente.ferramentas._idempotencia import _executar_idempotente
 from barra.dominio.agenda.service import BRT, ConflitoAgenda
-from barra.dominio.atendimentos.service import registrar_extracao_ia
+from barra.dominio.atendimentos.service import CotacaoAusente, registrar_extracao_ia
 from barra.settings import get_settings
 
 # --- infra de DB real (ROLLBACK sempre) ------------------------------------------------------
@@ -105,15 +105,20 @@ async def _seed_atendimento(
     horario_desejado: time | None = None,
     data_desejada: date | None = None,
     duracao_horas: Decimal | None = None,
+    cotou: bool = True,
 ) -> UUID:
+    # cotou=True por padrao: quem combina horario (reach Aguardando_confirmacao) ja ouviu o preco —
+    # e a precondicao real do guard CotacaoAusente (finding onda 1 A). Testes que exercitam o guard
+    # passam cotou=False.
     atendimento_id = uuid4()
     await c.execute(
         """
         INSERT INTO barravips.atendimentos
             (id, cliente_id, modelo_id, conversa_id, estado, tipo_atendimento, intencao,
-             horario_desejado, data_desejada, duracao_horas)
+             horario_desejado, data_desejada, duracao_horas, cotacao_enviada_em)
         VALUES (%s, %s, %s, %s, %s::barravips.estado_atendimento_enum,
-                %s::barravips.tipo_atendimento_enum, %s::barravips.intencao_enum, %s, %s, %s)
+                %s::barravips.tipo_atendimento_enum, %s::barravips.intencao_enum, %s, %s, %s,
+                CASE WHEN %s THEN now() ELSE NULL END)
         """,
         (
             atendimento_id,
@@ -126,6 +131,7 @@ async def _seed_atendimento(
             horario_desejado,
             data_desejada,
             duracao_horas,
+            cotou,
         ),
     )
     return atendimento_id
@@ -237,6 +243,70 @@ async def test_interno_horario_cria_bloqueio_e_pin(conn: AsyncConnection[dict[st
 
 
 @pytest.mark.needs_db
+async def test_combinar_horario_sem_cotacao_barra_e_reverte(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Guard onda 1 A: combinar horario com cotacao_enviada_em NULL e sem cotar neste turno barra a
+    transicao (CotacaoAusente) e reverte tudo — o cliente marcaria o encontro sem saber o preco."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(14, 0),
+        data_desejada=date(2026, 12, 1),
+        duracao_horas=Decimal("2"),
+        cotou=False,
+    )
+    with pytest.raises(CotacaoAusente):
+        async with conn.transaction():
+            await registrar_extracao_ia(
+                conn, str(atendimento_id), {"proxima_acao_esperada": "combinar horario"}
+            )
+    res = await conn.execute(
+        "SELECT estado::text AS estado, bloqueio_id FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Qualificado"  # reverteu, nao avancou sem cotar
+    assert a["bloqueio_id"] is None
+
+
+@pytest.mark.needs_db
+async def test_cotar_e_combinar_no_mesmo_turno_avanca(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Caso abencoado pelo <funil> ("diga o valor junto da confirmacao"): sem cotacao previa mas com
+    cotacao_apresentada=True no mesmo turno, a transicao passa e o preco fica carimbado."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(14, 0),
+        data_desejada=date(2026, 12, 1),
+        duracao_horas=Decimal("2"),
+        cotou=False,
+    )
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"proxima_acao_esperada": "confirmar", "cotacao_apresentada": True},
+    )
+    assert resultado["novo_estado"] == "Aguardando_confirmacao"
+    res = await conn.execute(
+        "SELECT estado::text AS estado, cotacao_enviada_em "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Aguardando_confirmacao"
+    assert a["cotacao_enviada_em"] is not None  # carimbado no mesmo turno
+
+
+@pytest.mark.needs_db
 async def test_multihop_triagem_ate_aguardando_no_mesmo_turno(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
@@ -336,7 +406,7 @@ async def test_remoto_com_valor_solicita_pix_antecipado(
     do VALOR DA CHAMADA (valor_acordado), nao o fixo de deslocamento — mesmo trilho do
     externo-Uber (pix_status='aguardando', evento pix_solicitado, pix_valor no resultado p/ o
     coordenador anexar a chave). O comprovante nao gateia (coberto em test_operacional)."""
-    _, atendimento_id = await _seed_par(
+    modelo_id, atendimento_id = await _seed_par(
         conn,
         aceita=["remoto"],
         estado="Qualificado",
@@ -346,6 +416,11 @@ async def test_remoto_com_valor_solicita_pix_antecipado(
         data_desejada=date(2026, 12, 1),
         duracao_horas=Decimal("1"),
     )
+    # Programa de tabela para o guard do piso achar o preco: o payload do commit remoto so traz o
+    # `valor_acordado`, sem reenviar a duracao (ja persistida na cotacao). O COALESCE de duracao em
+    # `_abaixo_do_piso` pega a duracao persistida (1h) -> preco 300 -> valor 300 nao esta abaixo do
+    # piso (300*0.85). Sem o COALESCE, duracao=None -> preco=None -> escala fora_de_oferta (Finding E).
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("300"))
 
     resultado = await registrar_extracao_ia(
         conn,
@@ -505,6 +580,88 @@ async def test_valor_abaixo_do_piso_escala(conn: AsyncConnection[dict[str, Any]]
     assert esc["responsavel"] == "modelo"
     assert esc["tipo"] == "fora_de_oferta"
     assert esc["observacao"] == "fora_de_oferta"
+
+
+@pytest.mark.needs_db
+async def test_valor_no_piso_sem_duracao_no_payload_nao_escala(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Abrangencia do fix do Finding E: o commit que registra so o `valor_acordado` (sem reenviar a
+    duracao ja persistida na cotacao) NAO pode ser tratado como abaixo do piso. Vale para todo
+    trilho — aqui externo (happy-path de desconto), nao so o remoto. `_abaixo_do_piso` faz COALESCE
+    da duracao com a persistida (2h) e acha o preco 400 -> valor 400 esta acima do piso (400*0.85)."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        duracao_horas=Decimal("2"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("2"), preco=Decimal("400"))
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"valor_acordado": "400", "proxima_acao_esperada": "combinar a saida"},
+    )
+
+    # Nao escalou: o valor foi gravado e a IA segue conduzindo (sem handoff fora_de_oferta).
+    res = await conn.execute(
+        "SELECT valor_acordado, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] == Decimal("400")
+    assert a["ia_pausada"] is False
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s", (atendimento_id,)
+    )
+    esc = await res.fetchone()
+    assert esc is not None
+    assert esc["n"] == 0
+
+
+@pytest.mark.needs_db
+async def test_lowball_sem_duracao_no_payload_ainda_escala(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O COALESCE de duracao NAO enfraquece a deteccao de lowball: mesmo sem a duracao no payload,
+    o guard usa a persistida (2h, preco 1000, piso 850) e um valor_acordado=50 segue abaixo do piso
+    -> escala fora_de_oferta e nao grava o valor."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        duracao_horas=Decimal("2"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("2"), preco=Decimal("1000"))
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"valor_acordado": "50", "proxima_acao_esperada": "fechar com o cliente"},
+    )
+
+    assert resultado["novo_estado"] is None
+    res = await conn.execute(
+        "SELECT valor_acordado, ia_pausada, responsavel_atual::text AS responsavel_atual "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] is None
+    assert a["ia_pausada"] is True
+    assert a["responsavel_atual"] == "modelo"
+    res = await conn.execute(
+        "SELECT tipo::text AS tipo FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None
+    assert esc["tipo"] == "fora_de_oferta"
 
 
 @pytest.mark.needs_db
@@ -884,7 +1041,7 @@ async def test_sem_cotacao_apresentada_nao_carimba(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
     # Sem o flag (so registra intencao/sondagem), cotacao_enviada_em permanece NULL.
-    _, atendimento_id = await _seed_par(conn)  # estado Novo
+    _, atendimento_id = await _seed_par(conn, cotou=False)  # estado Novo, sem cotacao previa
     await registrar_extracao_ia(
         conn,
         str(atendimento_id),

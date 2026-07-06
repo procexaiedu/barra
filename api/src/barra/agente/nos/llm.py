@@ -68,8 +68,8 @@ _PARADA_RECUSA = PARADA_RECUSA
 _TOOL_EXTRACAO = "registrar_extracao"
 
 # Reducao de custo (settings.extracao_no_modelo_barato): system prompt MINIMO da extracao forcada
-# barata. Substitui o BP_GERAL (~14,7k tokens persona+regras+FAQ) — a extracao e nota interna
-# estruturada, nao gera texto ao cliente, entao nao precisa da voz nem do FAQ. As regras de cada
+# barata. Substitui o BP_GERAL (~14,7k tokens persona+regras) — a extracao e nota interna
+# estruturada, nao gera texto ao cliente, entao nao precisa da voz nem das regras client-facing. As regras de cada
 # campo ja viajam na descricao da tool (Annotated+Field); a hora atual e o periodo de trabalho
 # vem no contexto dinamico anexado a ULTIMA HumanMessage (preservada pelo strip).
 _SYSTEM_EXTRACAO_BARATA = (
@@ -83,7 +83,7 @@ _SYSTEM_EXTRACAO_BARATA = (
 def _janela_para_extracao_barata(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
     """Janela do turno SEM os blocos system gerais, prefixada pelo system minimo de extracao.
 
-    O ganho de custo vem exatamente de NAO enviar o BP_GERAL (persona+regras+FAQ) na chamada
+    O ganho de custo vem exatamente de NAO enviar o BP_GERAL (persona+regras) na chamada
     barata: troca ~14,7k tokens de prefixo por ~70. As mensagens da conversa (incluindo a ultima
     HumanMessage, que carrega o contexto dinamico/`<agenda agora=...>`) sao preservadas na ordem —
     a request continua comecando por user apos o system, valida na Anthropic.

@@ -138,8 +138,21 @@ def test_repeticao_flagra_bolha_quase_identica_ao_historico() -> None:
 
 
 def test_repeticao_nao_flagra_cumprimento_curto() -> None:
-    # "oi amor" repete legitimamente (abaixo de _REPETICAO_MIN chars normalizados).
+    # "oi amor" repete legitimamente (abaixo de _REPETICAO_MIN_VERBATIM chars normalizados).
     assert mod.bolhas_repetidas("oi amor", ["oi amor", _BOLHA_LONGA]) == []
+
+
+def test_repeticao_flagra_bolha_de_preco_curta_verbatim() -> None:
+    # onda 1 finding C: "400 1h no meu local" (19 chars normalizados) passava sob o piso fuzzy de
+    # 25 e o papagaio literal ia ao cliente. Reenvio EXATO agora conta pelo piso verbatim.
+    preco = "400 1h no meu local"
+    assert mod.bolhas_repetidas(preco, [preco]) == [preco]
+
+
+def test_repeticao_verbatim_isenta_saudacao_media() -> None:
+    # "boa tarde amor" (14 chars) segue isento mesmo verbatim: fica abaixo do piso verbatim (15),
+    # onde a repeticao de saudacao ainda e legitima.
+    assert mod.bolhas_repetidas("boa tarde amor", ["boa tarde amor"]) == []
 
 
 def test_repeticao_nao_flagra_reformulacao_real() -> None:

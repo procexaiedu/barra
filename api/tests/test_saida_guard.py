@@ -12,6 +12,7 @@ from barra.workers._saida_guard import (
     normalizar_emoji_voz,
     normalizar_travessao,
     redigir_pii_eco,
+    remover_marcador_quote,
     tem_marcador_ia,
     tem_placeholder_eco,
 )
@@ -229,3 +230,41 @@ def test_travessao_nao_toca_hifen_nem_en_dash() -> None:
 def test_travessao_no_op_sem_em_dash_e_preserva_bolhas() -> None:
     """Sem em-dash não muda nada; a contagem de bolhas é preservada (transform por-bolha)."""
     assert normalizar_travessao(["oi amor", "tudo bem?"]) == ["oi amor", "tudo bem?"]
+
+
+# --- Scrub do marcador [quote] residual (SEC-OUT) -------------------------------------------------
+def test_quote_scrub_bem_formado_no_inicio_e_removido() -> None:
+    """Marker bem-formado que o chunking deixou passar: removido, texto íntegro, sem buraco."""
+    assert remover_marcador_quote("[quote: atende casal] sim amor") == ("sim amor", True)
+
+
+def test_quote_scrub_puro_removido() -> None:
+    assert remover_marcador_quote("[quote] pode vir sim") == ("pode vir sim", True)
+
+
+def test_quote_scrub_malformado_sem_dois_pontos() -> None:
+    """`[quote trecho]` (sem `:`) escapa do strip ANCORADO do chunking — a rede final pega."""
+    assert remover_marcador_quote("[quote atende casal] sim amor") == ("sim amor", True)
+
+
+def test_quote_scrub_espaco_interno_e_caixa() -> None:
+    assert remover_marcador_quote("[ QUOTE : oi ] tudo bem?") == ("tudo bem?", True)
+
+
+def test_quote_scrub_fora_do_inicio_da_bolha() -> None:
+    """Marker no meio da bolha (o strip ancorado do chunking nunca pegaria) some sem duplicar espaço."""
+    assert remover_marcador_quote("bom [quote] dia amor") == ("bom dia amor", True)
+
+
+def test_quote_scrub_bolha_so_marker_vira_vazia() -> None:
+    """Bolha que era só o marker vira "" (o caller a descarta e realinha o quote)."""
+    assert remover_marcador_quote("[quote: oi]") == ("", True)
+
+
+def test_quote_scrub_sem_marker_nao_altera_e_nao_conta() -> None:
+    assert remover_marcador_quote("posso te atender amanhã?") == ("posso te atender amanhã?", False)
+
+
+def test_quote_scrub_nao_casa_palavra_quotes_em_colchete() -> None:
+    """`\\b` após 'quote' evita casar 'quotes' (não é o marker) — texto legítimo preservado."""
+    assert remover_marcador_quote("[quotes do dia]") == ("[quotes do dia]", False)
