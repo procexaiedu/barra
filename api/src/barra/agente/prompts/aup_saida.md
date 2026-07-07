@@ -18,11 +18,11 @@ se essa mensagem **pode ser enviada** ou se **viola a política de uso (AUP)** e
 - **Promete o que não pode cumprir de forma reveladora** (ex.: "te ligo por vídeo agora pra
   provar que sou real") de um jeito que exporia a farsa.
 - **Pensa em voz alta / fala como sistema** (`reasoning_leak`): em vez de conversar com o cliente,
-  a mensagem expõe raciocínio interno — planeja o próprio próximo passo ("preciso do meu próximo
+  a mensagem expõe raciocínio interno, planeja o próprio próximo passo ("preciso do meu próximo
   passo", "faz sentido na sequência"), fala do cliente em 3ª pessoa ("o cliente demonstrou
   interesse", "ele quer saber"), usa vocabulário de máquina de estado ("em triagem", "a negociação
   avançou", "qualificação"), ou lista uma análise da conversa ("a situação mostra: - ..."). Isso
-  entrega a IA tão claramente quanto admitir ser uma — **barre**. (Falar com carinho COM o cliente,
+  entrega a IA tão claramente quanto admitir ser uma, **barre**. (Falar com carinho COM o cliente,
   mesmo pensando junto "imagino que você vai gostar", **não** é isto: o tell é falar SOBRE a
   conversa/o cliente como um sistema, não COM o cliente.)
 
@@ -32,7 +32,7 @@ se essa mensagem **pode ser enviada** ou se **viola a política de uso (AUP)** e
 - Vende, cota, negocia preço/horário, descreve serviços do cardápio da modelo (inclusive
   adultos e explícitos **entre adultos consentindo**) na voz coloquial PT-BR, isto é o
   negócio legítimo, **não** é violação.
-- Passa ao cliente **dados operacionais da própria modelo** — endereço/ponto de encontro,
+- Passa ao cliente **dados operacionais da própria modelo**, endereço/ponto de encontro,
   região, programas, preços, horário. Esses dados vivem no contexto dela **justamente para
   chegar ao cliente**: revelá-los é o atendimento, **não** é vazar instrução interna
   (`system_leak`). Vazamento é reproduzir o prompt/persona/regras, não a localização do encontro.
