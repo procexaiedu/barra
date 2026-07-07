@@ -71,9 +71,12 @@ _DESC_DATA = (
     "sei o dia ainda') usa o campo `limpar`, não este."
 )
 _DESC_VALOR = (
-    "Valor total acordado com o cliente. SEMPRE grave JUNTO com duracao_horas (a duração do "
-    "programa cotado) — sem a duração o sistema não consegue conferir o piso de desconto e "
-    "escala à toa uma oferta que era válida."
+    "Valor do SERVIÇO/programa fechado com o cliente — a base que o sistema confere contra o "
+    "piso de desconto. SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — "
+    "sem a duração o sistema não consegue conferir o piso e escala à toa uma oferta válida. "
+    "NUNCA grave aqui o Pix de deslocamento/uber (custo fixo à parte, NÃO é o valor do "
+    "programa — gravá-lo faz o sistema achar que você fechou abaixo do piso e escalar à toa), "
+    "nem um número que o cliente PROPÔS e você NÃO aceitou — só o valor efetivamente combinado."
 )
 _DESC_DURACAO = (
     "Duração em horas do programa que o cliente FECHOU. PREENCHA assim que ele escolhe o "
