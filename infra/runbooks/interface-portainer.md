@@ -6,6 +6,15 @@ Tira o painel Next.js da Vercel (conta `procexais-projects`, projeto `barra`, do
 `infra/runbooks/stack-git-backed.md`. O serviço já está commitado em
 `infra/compose/stack.barra-portainer.yml`; este runbook é o **cutover do operador**.
 
+> ✅ **Executado em 2026-07-08.** Interface no ar em `https://elitebaby.procexai.tech` pelo
+> Portainer (cert Let's Encrypt válido), login OK (Supabase `db.procexai.tech`), chamadas à
+> `api-barra.procexai.tech` 200 sem erro de CORS. Detalhes reais divergentes do plano abaixo:
+> o DNS ficou como **CNAME `elitebaby` → `api-barra.procexai.tech`** (a Cloudflare não troca o
+> tipo de um registro inline, então manteve-se CNAME em vez de virar A → IP); e
+> `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` subiu **vazio** (Mapa de clientes usa markers legados até o
+> MAP_ID ser preenchido). Pendências: (a) preencher o MAP_ID; (b) cancelar o billing/projeto
+> na Vercel (ação do dono da conta).
+
 ## Como funciona (o que foi commitado)
 
 - **Mesmo padrão de api/worker (git-clone-no-boot):** imagem `node:22-bookworm-slim`, clona o
