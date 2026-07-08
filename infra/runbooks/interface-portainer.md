@@ -20,19 +20,22 @@ Tira o painel Next.js da Vercel (conta `procexais-projects`, projeto `barra`, do
 > `225d14cba5e607e320f9f214` em `procexai-interno`; (c) trocadas `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
 > (→ EliteBaby) e `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` (→ o novo) no Env do stack + redeploy. O
 > `ApiNotActivatedMapError` **sumiu** e os scripts do Google Maps carregam 200 com a key de
-> prod. **Mas o mapa ainda NÃO pinta os tiles** (fundo bege). Diagnóstico exaustivo (08/07):
-> testados Map ID **vetorial** (`225d14cba5e607e320f9f214`) E **raster**
-> (`225d14cba5e607e3cb888254`, o que ficou no Env) — em ambos o Google Maps carrega os scripts
-> (200) mas **não requisita nem renderiza tiles**; até um `new google.maps.Map()` montado à mão
-> no container do app executa **sem erro e sem renderizar nada** (`gm-style`/canvas/tiles = 0).
-> Como a config está 100% correta (key de prod EliteBaby com Maps JS API + Places, billing OK,
-> referrer certo, sem `ApiNotActivatedMapError`), a causa mais provável é **propagação lenta**
-> da adição da Maps JS API à key EliteBaby (feita 08/07) e/ou dos Map IDs novos no lado do
-> Google — pode levar de minutos a horas. **Recomendação:** re-testar `/(interface)/clientes`
-> e `/demo-mapa` após algumas horas; se persistir, investigar render do MapaClientes/deck.gl
-> num ciclo de dev. Autocomplete de endereço (Places) já deve funcionar. Map ID `750c...` no
-> projeto `barravips` (sem billing) ficou órfão — ignorar. Outra pendência: cancelar o
-> billing/projeto na Vercel.
+> prod. **Mapa RESOLVIDO (08/07):** era mesmo **propagação lenta do Google** da adição da Maps
+> JS API à key EliteBaby + dos Map IDs novos. Depois de propagar, os tiles pintam normalmente
+> em `/demo-mapa` (base + pins, zero erro) e em `/clientes` (mapa do Brasil completo). Sintoma
+> de warmup: no 1º load da sessão os tiles demoram ~30–40s (cache frio) e o fundo fica bege
+> nesse intervalo — não é bug, só esperar. Rede confirmou `mapConfigs:batchGet` (map_id raster
+> `225d14cba5e607e3cb888254`) e `GetViewportInfo` retornando 200. **Nada de config foi refeito
+> — estava certa desde a correção; só faltava propagar.** Map ID `750c...`/vetorial e o do
+> projeto `barravips` (sem billing) ficaram órfãos — ignorar.
+>
+> **Nota de dados (não é bug):** na aba Mapa de `/clientes`, prod mostra "0 clientes localizados
+> · 403 sem endereço" — os 403 clientes reais vieram do import de corpus **sem endereço externo
+> geocodificado** (sem lat/lng), então não há pins (só atendimento externo geocodificado plota,
+> ADR 0008). O motor do mapa funciona (provado no `/demo-mapa`, que usa pontos sintéticos).
+> Popular pins reais exige geocodificar os atendimentos externos — trabalho de dados à parte.
+>
+> Pendência restante: cancelar o billing/projeto na Vercel.
 
 ## Como funciona (o que foi commitado)
 
