@@ -11,9 +11,16 @@ Tira o painel Next.js da Vercel (conta `procexais-projects`, projeto `barra`, do
 > `api-barra.procexai.tech` 200 sem erro de CORS. Detalhes reais divergentes do plano abaixo:
 > o DNS ficou como **CNAME `elitebaby` → `api-barra.procexai.tech`** (a Cloudflare não troca o
 > tipo de um registro inline, então manteve-se CNAME em vez de virar A → IP); e
-> `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` subiu **vazio** (Mapa de clientes usa markers legados até o
-> MAP_ID ser preenchido). Pendências: (a) preencher o MAP_ID; (b) cancelar o billing/projeto
-> na Vercel (ação do dono da conta).
+> `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` **setado em 08/07**: criado um Map ID JS/Vector
+> `750c898623c189cc67865db7` no projeto Google Cloud **`barravips`** (mesmo projeto da API
+> key), gravado no Env do stack e redeployado. **PORÉM o mapa ainda não renderiza:** o console
+> acusa `ApiNotActivatedMapError` porque o projeto `barravips` **não tem conta de faturamento
+> vinculada** (`console.cloud.google.com/billing/linkedaccount?project=barravips` → "This
+> project has no billing account"). Sem billing, o Google Maps e o autocomplete de endereço
+> (Places) não funcionam — limitação pré-existente, não introduzida pela migração. **Ação do
+> dono da conta:** vincular um billing account ao projeto `barravips` (ação financeira, fora do
+> escopo do agente); feito isso, o mapa funciona sem mais nenhuma mudança. Outra pendência:
+> cancelar o billing/projeto na Vercel.
 
 ## Como funciona (o que foi commitado)
 
