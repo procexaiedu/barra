@@ -262,6 +262,52 @@ services:
     networks:
       - traefik_public
 
+  # Interface (painel Next.js) — migrada da Vercel para a stack (ver
+  # infra/runbooks/interface-portainer.md). Mesmo padrão git-clone-no-boot de
+  # api/worker (ADR 0018): imagem node base, clona o main, instala e builda no
+  # boot. Sem imagem versionada por ora — o cutover para GHCR é o DEPLOY-03,
+  # compartilhado com api/worker (billing dos Actions pendente).
+  #
+  # As NEXT_PUBLIC_* são embutidas no bundle do browser NO `next build`, então
+  # precisam estar no environment ANTES do build (é por isso que ficam aqui, e
+  # não injetadas em runtime como na api). API_URL e SUPABASE_URL são config
+  # não-sensível e ficam versionadas de propósito; as chaves (ANON_KEY, Google
+  # Maps) são ${VAR} resolvidas pelo Env do stack no Portainer — os valores vêm
+  # da aba Environment Variables (scope Production) da Vercel.
+  barra-interface:
+    image: node:22-bookworm-slim
+    working_dir: /app
+    environment:
+      - NEXT_PUBLIC_API_URL=https://api-barra.procexai.tech
+      - NEXT_PUBLIC_SUPABASE_URL=https://db.procexai.tech
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
+      - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}
+      - NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=${NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID}
+      - PORT=3000
+    command: >
+      sh -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates &&
+      npm install -g pnpm@10 &&
+      rm -rf /app/repo &&
+      git clone -b main https://${GITHUB_PAT}@github.com/procexaiedu/barra.git /app/repo &&
+      cd /app/repo/interface &&
+      pnpm install --frozen-lockfile --prod=false &&
+      pnpm build &&
+      pnpm start"
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+      labels:
+        - "traefik.enable=true"
+        - "traefik.http.routers.barra-interface.rule=Host(`elitebaby.procexai.tech`)"
+        - "traefik.http.routers.barra-interface.entrypoints=websecure"
+        - "traefik.http.routers.barra-interface.tls=true"
+        - "traefik.http.routers.barra-interface.tls.certresolver=le"
+        - "traefik.http.services.barra-interface.loadbalancer.server.port=3000"
+        - "traefik.docker.network=traefik_public"
+    networks:
+      - traefik_public
+
 volumes:
   redis-barra-data:
   prometheus-barra-data:

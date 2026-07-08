@@ -7,7 +7,9 @@ Stacks Docker usadas pelo deploy via Portainer.
   `infra/runbooks/stack-git-backed.md`). Inclui a stack de observabilidade do OBS-02
   (`prometheus-barra` + `alertmanager-barra` + `grafana-barra`), aditiva aos serviços de app.
   Só o Grafana publica via Traefik (`grafana-barra.procexai.tech`); Prometheus e Alertmanager
-  ficam internos à rede `traefik_public`.
+  ficam internos à rede `traefik_public`. Inclui também o `barra-interface` (painel Next.js
+  migrado da Vercel — `elitebaby.procexai.tech`), no mesmo padrão git-clone-no-boot de
+  api/worker; cutover em `infra/runbooks/interface-portainer.md`.
 - `stack.barra.yml`: esqueleto base/legado (Compose local, não é o que roda em produção).
 - `env/`: exemplos de variáveis por serviço, sem segredos.
 
@@ -18,7 +20,9 @@ O arquivo commitado usa placeholders `${VAR}`. Os valores reais vivem **fora do 
 - **Env vars do stack no Portainer** (Portainer DB): `DATABASE_URL`, `SUPABASE_ANON_KEY`,
   `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_JWT_SECRET`, `REDIS_PASSWORD`, `MINIO_ACCESS_KEY`,
   `ANTHROPIC_API_KEY`, `LANGCHAIN_API_KEY`, `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_TOKEN`,
-  `GRAFANA_ADMIN_PASSWORD`, `GITHUB_PAT`.
+  `GRAFANA_ADMIN_PASSWORD`, `GITHUB_PAT`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`,
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` (as três `NEXT_PUBLIC_*`
+  vêm da aba Environment Variables da Vercel; ver runbook da interface).
 - **Swarm secret** `minio_secret_key` (external), lido via `MINIO_SECRET_KEY_FILE`
   (`settings.py` suporta o padrão `*_FILE`). Criado pelo operador:
   `printf '%s' '<chave-minio>' | docker secret create minio_secret_key -`.
