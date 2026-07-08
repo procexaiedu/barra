@@ -11,16 +11,28 @@ Tira o painel Next.js da Vercel (conta `procexais-projects`, projeto `barra`, do
 > `api-barra.procexai.tech` 200 sem erro de CORS. Detalhes reais divergentes do plano abaixo:
 > o DNS ficou como **CNAME `elitebaby` → `api-barra.procexai.tech`** (a Cloudflare não troca o
 > tipo de um registro inline, então manteve-se CNAME em vez de virar A → IP); e
-> `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` **setado em 08/07**: criado um Map ID JS/Vector
-> `750c898623c189cc67865db7` no projeto Google Cloud **`barravips`** (mesmo projeto da API
-> key), gravado no Env do stack e redeployado. **PORÉM o mapa ainda não renderiza:** o console
-> acusa `ApiNotActivatedMapError` porque o projeto `barravips` **não tem conta de faturamento
-> vinculada** (`console.cloud.google.com/billing/linkedaccount?project=barravips` → "This
-> project has no billing account"). Sem billing, o Google Maps e o autocomplete de endereço
-> (Places) não funcionam — limitação pré-existente, não introduzida pela migração. **Ação do
-> dono da conta:** vincular um billing account ao projeto `barravips` (ação financeira, fora do
-> escopo do agente); feito isso, o mapa funciona sem mais nenhuma mudança. Outra pendência:
-> cancelar o billing/projeto na Vercel.
+> **Google Maps (08/07) — causa raiz corrigida.** A `AIzaSy...bwPs` do `.env` de dev era do
+> projeto Google Cloud **`barravips`, que NÃO tem billing** → `ApiNotActivatedMapError`. A key
+> de **produção** é outra: **"EliteBaby - Places API (GMaps)"** (`AIzaSyCRhU...`) no projeto
+> **`procexai-interno`** (COM billing, "My Billing Account"; referrer `elitebaby.procexai.tech/*`).
+> Correções aplicadas: (a) adicionada a **Maps JavaScript API** a essa key (só tinha Places
+> API New — por isso o autocomplete funcionava na Vercel mas o mapa não); (b) criado um Map ID
+> `225d14cba5e607e320f9f214` em `procexai-interno`; (c) trocadas `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
+> (→ EliteBaby) e `NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID` (→ o novo) no Env do stack + redeploy. O
+> `ApiNotActivatedMapError` **sumiu** e os scripts do Google Maps carregam 200 com a key de
+> prod. **Mas o mapa ainda NÃO pinta os tiles** (fundo bege). Diagnóstico exaustivo (08/07):
+> testados Map ID **vetorial** (`225d14cba5e607e320f9f214`) E **raster**
+> (`225d14cba5e607e3cb888254`, o que ficou no Env) — em ambos o Google Maps carrega os scripts
+> (200) mas **não requisita nem renderiza tiles**; até um `new google.maps.Map()` montado à mão
+> no container do app executa **sem erro e sem renderizar nada** (`gm-style`/canvas/tiles = 0).
+> Como a config está 100% correta (key de prod EliteBaby com Maps JS API + Places, billing OK,
+> referrer certo, sem `ApiNotActivatedMapError`), a causa mais provável é **propagação lenta**
+> da adição da Maps JS API à key EliteBaby (feita 08/07) e/ou dos Map IDs novos no lado do
+> Google — pode levar de minutos a horas. **Recomendação:** re-testar `/(interface)/clientes`
+> e `/demo-mapa` após algumas horas; se persistir, investigar render do MapaClientes/deck.gl
+> num ciclo de dev. Autocomplete de endereço (Places) já deve funcionar. Map ID `750c...` no
+> projeto `barravips` (sem billing) ficou órfão — ignorar. Outra pendência: cancelar o
+> billing/projeto na Vercel.
 
 ## Como funciona (o que foi commitado)
 
