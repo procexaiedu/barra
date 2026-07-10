@@ -63,6 +63,28 @@ async def test_enviar_midia_chama_sendmedia_e_grava_envio() -> None:
 
 
 @respx.mock
+async def test_enviar_midia_traduz_foto_para_image() -> None:
+    """Os callers reais (_enviar_midias, _card_chegada) passam `media_type='foto'` (o
+    midia_tipo_enum do dominio). A Evolution v2 sendMedia so aceita mediatype
+    image/video/document/audio — 'foto' cru dava 400 Bad Request e a midia nunca saia. O
+    cliente traduz 'foto'->'image' na fronteira."""
+    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
+        return_value=httpx.Response(200, json={"key": {"id": "MID-F"}})
+    )
+    await _client().enviar_midia(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        url="https://minio.test/foto.png",
+        caption=None,
+        media_type="foto",  # valor do dominio (midia_tipo_enum), NAO o da Evolution
+        contexto="conversa_cliente",
+        tipo="midia",
+    )
+    assert json.loads(route.calls.last.request.content)["mediatype"] == "image"
+
+
+@respx.mock
 async def test_enviar_midia_ignora_view_once_e_caption_none() -> None:
     route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
         return_value=httpx.Response(200, json={"key": {"id": "MID-2"}})
