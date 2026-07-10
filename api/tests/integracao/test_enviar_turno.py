@@ -194,6 +194,56 @@ async def test_ordem_texto_antes_de_midia() -> None:
         assert await redis.sismember(f"enviados:{turno_id}", membro)
 
 
+async def test_legenda_igual_a_bolha_e_dropada() -> None:
+    """Backstop legenda↔bolha: a linha de acompanhamento que já saiu como bolha de texto não
+    reaparece na legenda da mídia (senão o cliente vê a frase duplicada)."""
+    turno_id, conversa_id, midia_id = "turno-dedup", str(uuid4()), str(uuid4())
+    conn = _FakeConn(
+        _destino(), {midia_id: {"tipo": "foto", "bucket": "midia", "object_key": "k.jpg"}}
+    )
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["Vou te mandar uma foto rs", "Sou eu amor"],
+        midias=[{"midia_id": midia_id, "legenda": "Sou eu amor 🥰"}],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+    )
+
+    # legenda idêntica (normalizada) à bolha "Sou eu amor" → cai para None
+    assert _so(evolution, "midia") == [None]
+
+
+async def test_legenda_distinta_da_bolha_preservada() -> None:
+    """Legenda genuinamente diferente das bolhas segue intacta (dedupe é match exato normalizado)."""
+    turno_id, conversa_id, midia_id = "turno-keep", str(uuid4()), str(uuid4())
+    conn = _FakeConn(
+        _destino(), {midia_id: {"tipo": "foto", "bucket": "midia", "object_key": "k.jpg"}}
+    )
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["oi amor", "tudo bem?"],
+        midias=[{"midia_id": midia_id, "legenda": "Você vai gostar 🥰"}],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+    )
+
+    assert _so(evolution, "midia") == ["Você vai gostar 🥰"]
+
+
 async def test_cancela_turno_nao_critico() -> None:
     turno_id, conversa_id = "turno-A", str(uuid4())
     conn = _FakeConn(_destino(), {})
