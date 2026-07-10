@@ -1040,13 +1040,18 @@ async def _enviar_midias(
                 INSERT INTO barravips.mensagens
                   (conversa_id, atendimento_id, direcao, tipo, conteudo,
                    media_object_key, evolution_message_id)
-                VALUES (%s, %s, 'ia', %s, %s, %s, %s)
+                VALUES (%s, %s, 'ia', 'imagem', %s, %s, %s)
                 ON CONFLICT (evolution_message_id) DO NOTHING
                 """,
+                # `tipo` aqui é o enum de `mensagens` (tipo_mensagem_enum: texto/audio/imagem) — MESMO
+                # gotcha do envios_evolution acima: passar m["tipo"] ('foto'/'video') estourava o enum
+                # DEPOIS do POST (cliente recebia, a transação revertia, o mark `midia:{idx}` não
+                # gravava e o retry reenviava duplicado). A distinção foto/vídeo vive em
+                # `modelo_midia`/`envios_evolution`; aqui toda mídia de saída persiste como 'imagem'
+                # (o CHECK exige só media_object_key IS NOT NULL, satisfeito abaixo).
                 (
                     conversa_uuid,
                     conv["atendimento_id"],
-                    m["tipo"],
                     item.get("legenda") or "",
                     m["object_key"],
                     mid,

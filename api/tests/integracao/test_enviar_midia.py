@@ -26,12 +26,14 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from fakeredis.aioredis import FakeRedis
 from langchain_core.messages import AIMessage
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
 from barra.agente.contexto import ContextAgente
 from barra.agente.graph import build_graph
+from barra.workers.envio import _enviar_midias
 
 # --- LLM mockado ---------------------------------------------------------------------------
 
@@ -59,6 +61,16 @@ class _FakeChat:
         """Replay no mesmo grafo: volta ao script[0] e zera o historico de visoes."""
         self._i = 0
         self.vistas = []
+
+
+def _ai_1_midia(tag: str) -> AIMessage:
+    """AIMessage com UMA chamada de `enviar_midia` na `tag` pedida."""
+    return AIMessage(
+        content="ja te mando 😏",
+        tool_calls=[
+            {"name": "enviar_midia", "args": {"tag": tag}, "id": "call_1", "type": "tool_call"},
+        ],
+    )
 
 
 def _ai_2_midias(tag: str) -> AIMessage:
@@ -246,6 +258,23 @@ async def _seed_3_midias(
     return {"ja_velha": ja_velha, "recente": recente, "nunca": nunca}
 
 
+async def _seed_1_midia(
+    c: AsyncConnection[dict[str, Any]], modelo_id: UUID, *, tag: str, tipo: str = "foto"
+) -> UUID:
+    """Uma unica midia aprovada com a `tag` dada (sem `ultimo_envio_em` -> topo da rotacao)."""
+    midia_id = uuid4()
+    await c.execute(
+        """
+        INSERT INTO barravips.modelo_midia
+            (id, modelo_id, tipo, tag, bucket, object_key, aprovada, created_at)
+        VALUES (%s, %s, %s::barravips.midia_tipo_enum, %s, 'media', %s, true,
+                '2026-01-01T00:00:00+00:00')
+        """,
+        (midia_id, modelo_id, tipo, tag, f"media/{midia_id}.jpg"),
+    )
+    return midia_id
+
+
 def _contexto(
     pool: _PoolDeUmaConexao,
     *,
@@ -358,3 +387,179 @@ async def test_enviar_midia_rotacao_call_idx_e_idempotencia(
     )
     rec = await res.fetchone()
     assert rec is not None and rec["ultimo_envio_em"] == datetime(2026, 2, 1, tzinfo=UTC)
+
+
+async def _preparar_conversa(
+    conn: AsyncConnection[dict[str, Any]],
+) -> tuple[UUID, UUID, UUID]:
+    """Seeds comuns (modelo/cliente/conversa/atendimento/mensagem). Devolve
+    (modelo_id, cliente_id, atendimento_id)."""
+    await _garantir_coluna_ultimo_envio_em(conn)
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id
+    )
+    await _seed_mensagem(conn, conversa_id=conversa_id)
+    return modelo_id, cliente_id, atendimento_id
+
+
+async def _rodar_turno_1_midia(
+    conn: AsyncConnection[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    modelo_id: UUID,
+    cliente_id: UUID,
+    atendimento_id: UUID,
+    tag_pedida: str,
+) -> UUID | None:
+    """Roda um turno com UMA `enviar_midia(tag=tag_pedida)` e devolve o `midia_id` que a tool
+    escolheu (ou None se nenhuma foi anexada)."""
+    fake = _FakeChat([_ai_1_midia(tag_pedida), AIMessage(content="ta ai amor 😘")])
+    monkeypatch.setattr("barra.agente.graph.criar_chat_deepseek", lambda settings, **_kw: fake)
+
+    graph = build_graph()
+    turno_id = str(uuid4())
+    contexto = _contexto(
+        _PoolDeUmaConexao(conn),
+        modelo_id=modelo_id,
+        atendimento_id=atendimento_id,
+        cliente_id=cliente_id,
+        turno_id=turno_id,
+    )
+    await graph.ainvoke({"messages": []}, config={"recursion_limit": 18}, context=contexto)
+
+    res = await conn.execute(
+        """
+        SELECT payload->>'midia_id' AS midia_id
+          FROM barravips.tool_calls
+         WHERE turno_id = %s AND tool_name = 'enviar_midia'
+         ORDER BY call_idx
+        """,
+        (turno_id,),
+    )
+    linhas = await res.fetchall()
+    return UUID(linhas[0]["midia_id"]) if linhas else None
+
+
+@pytest.mark.needs_db
+async def test_enviar_midia_fallback_por_tipo_quando_tag_diverge(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mídia subida pelo painel com tag FORA do vocabulario do agente ('Sensual') ainda é enviada
+    quando o LLM pede uma tag que a modelo não tem ('apresentacao') — via fallback por tipo.
+    Sem o fallback a tool levantava ToolException e o cliente não recebia nada (loop → cap)."""
+    modelo_id, cliente_id, atendimento_id = await _preparar_conversa(conn)
+    foto = await _seed_1_midia(conn, modelo_id, tag="Sensual")  # tag estilo-painel, divergente
+
+    escolhida = await _rodar_turno_1_midia(
+        conn,
+        monkeypatch,
+        modelo_id=modelo_id,
+        cliente_id=cliente_id,
+        atendimento_id=atendimento_id,
+        tag_pedida="apresentacao",  # modelo NAO tem essa tag
+    )
+    assert escolhida == foto  # fallback pegou a unica foto aprovada do tipo
+
+
+@pytest.mark.needs_db
+async def test_enviar_midia_tag_case_insensitive(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Match de tag é case-insensitive: painel grava 'Corpo' (capitalizado), agente pede 'corpo'.
+    A foto 'Corpo' é escolhida pela tag (query direta), NÃO pela outra ('Sensual') via fallback —
+    prova que o `lower()` casa a tag pedida antes de relaxar a categoria."""
+    modelo_id, cliente_id, atendimento_id = await _preparar_conversa(conn)
+    # 'Sensual' é chamariz: a query direta (com filtro `lower(tag)='corpo'`) só enxerga a linha
+    # 'Corpo', então a escolha é determinística e prova o match por tag antes de qualquer fallback.
+    await _seed_1_midia(conn, modelo_id, tag="Sensual")
+    corpo = await _seed_1_midia(conn, modelo_id, tag="Corpo")
+
+    escolhida = await _rodar_turno_1_midia(
+        conn,
+        monkeypatch,
+        modelo_id=modelo_id,
+        cliente_id=cliente_id,
+        atendimento_id=atendimento_id,
+        tag_pedida="corpo",  # minusculo -> casa 'Corpo' via lower()
+    )
+    assert escolhida == corpo
+
+
+class _FakeMinioMidia:
+    def presigned_get_object(self, bucket: str, object_key: str, expires: Any = None) -> str:
+        return f"https://fake/{bucket}/{object_key}"
+
+
+class _FakeEvolutionMidia:
+    """Absorve `set_presence`/`enviar_midia` (a fase de mídia do worker); devolve um message_id
+    único por envio p/ o INSERT em `mensagens` não colidir no ON CONFLICT."""
+
+    async def set_presence(self, **_: Any) -> None:
+        return None
+
+    async def enviar_midia(self, *, caption: str | None = None, **_: Any) -> str:
+        return f"mid-{uuid4().hex}"
+
+
+@pytest.mark.needs_db
+async def test_fase_midia_persiste_mensagem_como_imagem(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fase de mídia do `enviar_turno` (`_enviar_midias`) persiste a mensagem de saída em
+    `barravips.mensagens`. O enum `tipo_mensagem_enum` só aceita texto/audio/imagem — inserir
+    `m["tipo"]` ('foto'/'video') estourava o enum DEPOIS do POST (cliente recebia, a transação
+    revertia, o mark `midia:{idx}` não gravava e o retry reenviava duplicado). Toda mídia de saída
+    persiste como 'imagem'. Este teste roda o INSERT REAL — o teste de `test_enviar_turno.py` usa
+    um fake-conn que engole o INSERT e não pegaria o enum."""
+
+    async def _noop_sleep(*_a: Any, **_k: Any) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _noop_sleep)
+    await _garantir_coluna_ultimo_envio_em(conn)
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id = await _seed_atendimento(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id
+    )
+    foto = await _seed_1_midia(conn, modelo_id, tag="corpo", tipo="foto")
+
+    ctx: dict[str, Any] = {
+        "redis": FakeRedis(),
+        "db_pool": _PoolDeUmaConexao(conn),
+        "minio": _FakeMinioMidia(),
+        "evolution": _FakeEvolutionMidia(),
+    }
+    conv = {
+        "evolution_instance_id": "inst-1",
+        "evolution_chat_id": "5521999@s.whatsapp.net",
+        "atendimento_id": atendimento_id,
+    }
+
+    # critico=True -> pula o cancel-on-new-message (não precisamos semear `turno_atual`).
+    ok = await _enviar_midias(
+        ctx,
+        str(conversa_id),
+        str(uuid4()),
+        [{"midia_id": str(foto), "legenda": "olha 😏"}],
+        conv,
+        critico=True,
+    )
+    assert ok is True
+
+    res = await conn.execute(
+        """
+        SELECT tipo::text AS tipo, media_object_key
+          FROM barravips.mensagens
+         WHERE conversa_id = %s AND direcao = 'ia'
+        """,
+        (conversa_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None  # sem o fix o INSERT estourava o enum e nada persistia
+    assert row["tipo"] == "imagem"
+    assert row["media_object_key"] == f"media/{foto}.jpg"
