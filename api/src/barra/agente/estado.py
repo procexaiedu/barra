@@ -48,6 +48,12 @@ class EstadoAgente(MessagesState):
         ligada, o guard volta ao proprio no llm p/ o modelo REOFERTAR um horario em vez de fechar
         mudo, e seta este flag. Se a reoferta tambem errar, a reentrada cai no MUTE (sem reofertar de
         novo) -- silencio > reserva fantasma. Nasce ausente a cada `ainvoke` (sem checkpointer).
+    _midia_esgotada: one-shot do cap de loop de `enviar_midia` (nos/llm.py). Quando a modelo nao tem
+        midia e o modelo insiste em `enviar_midia` (tag apos tag), o loop tools<->llm estouraria o
+        recursion_limit -> GraphRecursionError -> escalar_por_exaustao -> SILENCIO ao cliente (trace
+        8194e2c0). Ao ver >=2 `enviar_midia` com erro no turno, o no llm forca UMA resposta em texto
+        (chat sem tools) e fecha, setando este flag p/ nao re-disparar. Nasce ausente a cada
+        `ainvoke` (sem checkpointer).
     horario_minimo: o quanto antes a IA pode oferecer p/ um pedido imediato hoje (= o `<horario_minimo>`
         do contexto dinamico), computado por prepare_context (proximo_livre). `None` = now+buffer cai
         fora da Disponibilidade -> NAO ha horario valido mais tarde hoje. A tool `registrar_extracao`
@@ -64,4 +70,5 @@ class EstadoAgente(MessagesState):
     _extracao_forcada: bool
     _resposta_inline_concluida: bool
     _reoferta_tentada: bool
+    _midia_esgotada: bool
     horario_minimo: datetime | None

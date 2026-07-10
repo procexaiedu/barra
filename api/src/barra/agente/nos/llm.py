@@ -126,6 +126,28 @@ def _extracao_recente_errou(messages: Sequence[BaseMessage]) -> bool:
     return False
 
 
+# Cap do loop de `enviar_midia` (trace 8194e2c0): quantas chamadas de midia FALHARAM no turno antes
+# de o no fechar em texto. 2 = a modelo tentou 2 tags/tipos e nenhuma tinha midia -> nao ha o que
+# enviar; fechar agora poupa os ~7 super-steps restantes ate o recursion_limit.
+_LIMIAR_MIDIA_FALHA = 2
+
+
+def _midias_falharam_no_turno(messages: Sequence[BaseMessage]) -> int:
+    """Quantas `enviar_midia` FALHARAM (ToolMessage `status="error"`) neste turno.
+
+    So conta erro, nao envio bem-sucedido: o cap fecha o turno quando o modelo insiste em
+    `enviar_midia` sem midia disponivel e loopa. Turno-local: o prepare_context nao re-injeta
+    ToolMessages historicas (so AIMessages, sem tool_calls) -- ver nos/tools.py.
+    """
+    return sum(
+        1
+        for m in messages
+        if isinstance(m, ToolMessage)
+        and m.name == "enviar_midia"
+        and (m.status == "error" or str(m.content).startswith("ERRO:"))
+    )
+
+
 class _NoLLM(Protocol):
     """Forma do no llm aceita pelo StateGraph (runtime keyword-only, como langgraph espera)."""
 
@@ -174,6 +196,11 @@ def no_llm(
         if forca_ligada and chat_extracao_barata is not None and tool_extracao is not None
         else None
     )
+    # Fecha-em-texto do cap de midia (trace 8194e2c0): 3o bind com tool_choice="none" -> o modelo NAO
+    # pode pedir tool nesta chamada, responde em TEXTO. Cache-safe (tool_choice e param de request do
+    # bind, nao muda o prefixo cacheado tools+system, mesmo racional do chat_forcado). Lista vazia
+    # (M0/testes) -> usa o chat cru (sem tools ja garante texto).
+    chat_sem_tool_call = chat.bind_tools(tools, tool_choice="none") if tools else chat
     # nome do modelo p/ o label das metricas de token, nao o modelo_id da agencia (03 §4.2).
     # `nome_modelo` tolera os dois wrappers (.model do ChatAnthropic / .model_name do ChatOpenAI),
     # entao funciona p/ Sonnet e DeepSeek.
@@ -194,6 +221,23 @@ def no_llm(
     async def llm(
         state: EstadoAgente, runtime: Runtime[ContextAgente]
     ) -> Command[Literal["tools", "post_process", "llm"]]:
+        # Cap do loop de midia (trace 8194e2c0): o modelo pediu enviar_midia, a modelo nao tem midia,
+        # e ele tenta tag apos tag -> sem freio o loop tools<->llm estoura o recursion_limit ->
+        # GraphRecursionError -> escalar_por_exaustao -> SILENCIO ao cliente. Ao ver >=2 enviar_midia
+        # com erro no turno, forca UMA resposta em TEXTO (chat_sem_tool_call: tool_choice="none")
+        # e fecha. One-shot (_midia_esgotada) p/ nao re-disparar -- garante que o cliente recebe texto.
+        if not state.get("_midia_esgotada") and (
+            _midias_falharam_no_turno(state["messages"]) >= _LIMIAR_MIDIA_FALHA
+        ):
+            logger.warning(
+                "midia esgotada -> fecha em texto (turno_id=%s)", runtime.context.turno_id
+            )
+            resp = await chat_sem_tool_call.ainvoke(state["messages"])
+            instrumentar_tokens(resp, modelo_chat)
+            return Command(
+                goto="post_process",
+                update={"messages": [resp], "_midia_esgotada": True},
+            )
         # Reentrada pos-`tools` sem nada a reprocessar: NAO reinvocar o modelo -- fecharia uma 2a
         # bolha e custaria 1 request a toa. Fecha o turno direto no post_process (que ainda refaz o
         # gate de pausa). Dois caminhos setam esses guards na ida ao `tools`:
