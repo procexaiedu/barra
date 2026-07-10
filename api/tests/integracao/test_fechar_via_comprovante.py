@@ -202,10 +202,12 @@ async def test_fecha_com_valor_lido(conn: AsyncConnection[dict[str, Any]]) -> No
 
 @pytest.mark.needs_db
 async def test_ja_fechado_no_op(conn: AsyncConnection[dict[str, Any]]) -> None:
-    atendimento_id = await _seed_em_execucao(conn, estado="Fechado")
-    # Grava um valor_final que NAO pode ser sobrescrito pela 2a foto.
+    atendimento_id = await _seed_em_execucao(conn, estado="Em_execucao")
+    # Fecha com valor_final num UPDATE atomico (o constraint atendimentos_fechado_exige_valor_final
+    # rejeita 'Fechado' com valor nulo). Esse valor NAO pode ser sobrescrito pela 2a foto.
     await conn.execute(
-        "UPDATE barravips.atendimentos SET valor_final = 999 WHERE id = %s", (atendimento_id,)
+        "UPDATE barravips.atendimentos SET estado = 'Fechado', valor_final = 999 WHERE id = %s",
+        (atendimento_id,),
     )
     ctx = _ctx(
         conn, ExtracaoPix(valor=Decimal("1500.00"), plausibilidade_visual=True, confianca="alta")
