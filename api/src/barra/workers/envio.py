@@ -77,6 +77,25 @@ def _texto_tem_cotacao(texto: str) -> bool:
     return bool(_RE_PRECO_VALOR.search(texto) and _RE_PRECO_CONTEXTO.search(texto))
 
 
+# Dedupe legenda↔bolha (05 §5): o LLM às vezes emite a MESMA linha de acompanhamento da mídia
+# duas vezes — como bolha de texto do turno E como `legenda` da enviar_midia — e o cliente vê a
+# frase repetida (bolha "Sou eu amor" + foto com legenda "Sou eu amor 🥰"). A conduta manda UMA
+# linha (<midia>); aqui está o backstop determinístico: se a legenda, normalizada, bate com uma
+# bolha já enviada neste turno, a legenda cai (a bolha já disse a linha). Match EXATO normalizado
+# (só alfanumérico, sem emoji/pontuação/caixa) — conservador, não descarta legenda genuinamente
+# distinta do texto.
+_RE_NAO_ALFANUM = re.compile(r"[^0-9a-zà-ú]", re.I)
+
+
+def _norm_dedup(s: str) -> str:
+    return _RE_NAO_ALFANUM.sub("", s.lower())
+
+
+def _legenda_duplica_bolha(legenda: str, chunks: list[str]) -> bool:
+    n = _norm_dedup(legenda)
+    return bool(n) and any(_norm_dedup(c) == n for c in chunks)
+
+
 async def enviar_texto_job(
     conn: AsyncConnection[Any],
     client: EvolutionClient,
@@ -897,7 +916,7 @@ async def enviar_turno(
             # 7. jitter
             await asyncio.sleep(calcular_pausa_ms() / 1000)
 
-        if await _enviar_midias(ctx, conversa_id, turno_id, midias, conv, critico):
+        if await _enviar_midias(ctx, conversa_id, turno_id, midias, conv, critico, chunks):
             ENVIO_RESULTADO.labels("ok").inc()
     except Exception:
         job_try = ctx.get("job_try", 1)
@@ -971,10 +990,14 @@ async def _enviar_midias(
     midias: list[dict[str, Any]],
     conv: dict[str, Any],
     critico: bool,
+    chunks: list[str],
 ) -> bool:
     """Fase de mídia do MESMO job, depois de todos os chunks de texto (05 §5). A ordem é sempre
     texto→mídia; a legenda de cada mídia carrega o contexto dela. Devolve `False` se cancelou no
-    meio (não conta como envio 'ok')."""
+    meio (não conta como envio 'ok').
+
+    `chunks` são as bolhas de texto já enviadas neste turno — usadas só para o dedupe
+    legenda↔bolha (`_legenda_duplica_bolha`), que evita a frase de acompanhamento repetida."""
     redis = ctx["redis"]
     pool = ctx["db_pool"]
     minio = ctx["minio"]
@@ -1014,13 +1037,18 @@ async def _enviar_midias(
         url = minio.presigned_get_object(
             m["bucket"], m["object_key"], expires=timedelta(minutes=30)
         )
+        # Dedupe legenda↔bolha: se a linha de acompanhamento já saiu como bolha de texto neste
+        # turno, a legenda cai — senão o cliente vê a mesma frase duas vezes (bolha + caption).
+        legenda = item.get("legenda") or None
+        if legenda and _legenda_duplica_bolha(legenda, chunks):
+            legenda = None
         async with pool.connection() as conn, conn.transaction():
             mid = await evolution.enviar_midia(
                 conn=conn,
                 instance_id=conv["evolution_instance_id"],
                 remote_jid=conv["evolution_chat_id"],
                 url=url,
-                caption=item.get("legenda") or None,
+                caption=legenda,
                 media_type=m["tipo"],
                 contexto="conversa_cliente",
                 # `tipo` é o enum de envios_evolution (CHECK só aceita ia/card/confirmacao/
@@ -1028,10 +1056,12 @@ async def _enviar_midias(
                 # DEPOIS do POST: cliente recebia, transação revertia e o mark `midia:{idx}`
                 # não gravava (reprocesso reenviaria). O tipo de conteúdo vai em media_type.
                 tipo="midia",
-                # view-once p/ vídeo (Mídia exclusiva, 01 §6.13): o cliente só injeta `viewOnce`
-                # no body sob o toggle `evolution_view_once` (off por padrão — a Evolution self-host
-                # oficial não expõe o campo no sendMedia). Sempre marcamos aqui; quem decide é o toggle.
-                view_once=(m["tipo"] == "video"),
+                # view-once p/ TODA mídia da modelo — foto e vídeo (Mídia exclusiva, 01 §6.13;
+                # decisão do Fernando 2026-07-10: a foto exclusiva também vai como visualização
+                # única, não só o vídeo). O cliente só injeta `viewOnce` no body sob o toggle
+                # `evolution_view_once` (off por padrão — a Evolution self-host oficial não expõe o
+                # campo no sendMedia; exige o build/fork com o patch). Marcamos sempre; o toggle decide.
+                view_once=True,
                 atendimento_id=conv["atendimento_id"],
                 conversa_id=conversa_uuid,
             )
@@ -1052,7 +1082,7 @@ async def _enviar_midias(
                 (
                     conversa_uuid,
                     conv["atendimento_id"],
-                    item.get("legenda") or "",
+                    legenda or "",
                     m["object_key"],
                     mid,
                 ),

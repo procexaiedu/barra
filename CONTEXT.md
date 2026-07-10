@@ -156,7 +156,7 @@ Cobrança proativa e determinística do **Valor final** à modelo, na **Coordena
 _Avoid_: cobrança do cliente; confundir com **Reengajamento** (que é voltado ao cliente); interpretar a resposta por IA (no P0 é regex; NLP livre é **IA Admin** P1); confirmação dupla; criar estado novo; marcar `Perdido` automaticamente.
 
 **Mídia exclusiva**:
-Foto/vídeo da modelo enviado na venda com enquadramento de exclusividade — primeiro fotos, depois um vídeo "gravado ao vivo só para o cliente". Quando a plataforma (Evolution self-host) permitir, o vídeo vai como view-once; sem suporte, vai normal e a proteção fica para o P1.
+Foto/vídeo da modelo enviado na venda com enquadramento de exclusividade — primeiro fotos, depois um vídeo "gravado ao vivo só para o cliente". Quando a plataforma (Evolution self-host) permitir, **a mídia (foto e vídeo) vai como view-once** (decisão 2026-07-10 — a foto exclusiva também é protegida, não só o vídeo); sem suporte, vai normal e a proteção fica para o P1. Habilitar em prod exige o toggle `evolution_view_once` ligado sobre um build da Evolution com o patch de `viewOnce`.
 _Avoid_: vídeo antes de foto; expor que o vídeo "ao vivo" é pré-gravado; prometer view-once sem suporte da plataforma.
 
 **Vídeo chamada**:

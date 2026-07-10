@@ -81,7 +81,8 @@ replicando exatamente o que a Baileys faz no `generateWAMessageContent`:
 ```
 
 > Só image/video/audio aceitam view-once no WhatsApp. Documento não. Para o nosso uso
-> (vídeo da Mídia exclusiva) isso basta; se quiser barrar document, condicione também por `type`.
+> (foto e vídeo da Mídia exclusiva — decisão 2026-07-10) isso basta; se quiser barrar document,
+> condicione também por `type`.
 
 ### 3. Build e deploy da imagem patchada (runbook)
 
@@ -122,9 +123,9 @@ não tocam prod; os passos 5–8 tocam.**
 7. **Ligar o toggle no Barra**: `EVOLUTION_VIEW_ONCE=true` no Env da stack (api + worker) e
    `service update --force` nos dois serviços (o worker é quem envia a mídia — ver
    [[deploy_agente_roda_no_worker]]).
-8. **Verificar ao vivo**: mandar um vídeo pelo agente num chat de teste e confirmar no celular que
-   abre como visualização única; conferir o `envios_evolution`/trace do turno. Rollback = voltar a
-   `image: atendai/evolution-api:v2.3.7` + `EVOLUTION_VIEW_ONCE=false`.
+8. **Verificar ao vivo**: mandar uma foto (e um vídeo) pelo agente num chat de teste e confirmar no
+   celular que abre como visualização única; conferir o `envios_evolution`/trace do turno.
+   Rollback = voltar a `image: atendai/evolution-api:v2.3.7` + `EVOLUTION_VIEW_ONCE=false`.
 
 **Custo recorrente**: rebase do fork a cada upgrade da Evolution (o patch é pequeno e isolado).
 
@@ -135,10 +136,12 @@ O código do Barra já consome isto atrás de um toggle:
 - `settings.evolution_view_once` (**default `False`**).
 - `EvolutionClient.enviar_midia` injeta `body["viewOnce"] = True` **só** quando
   `view_once and settings.evolution_view_once` (`core/evolution.py`).
-- O worker `_enviar_midias` já passa `view_once=(tipo == "video")` (`workers/envio.py`).
+- O worker `_enviar_midias` passa `view_once=True` para **toda mídia — foto e vídeo**
+  (`workers/envio.py`; decisão 2026-07-10: a foto exclusiva também vai view-once). `image`/`video`
+  aceitam view-once no WhatsApp, então o patch cobre os dois.
 
 **Para ligar quando o fork estiver em prod:** setar `EVOLUTION_VIEW_ONCE=true` no Env da stack.
-Com o toggle off, nada muda — o vídeo vai normal (fallback P0).
+Com o toggle off, nada muda — a mídia vai normal (fallback P0).
 
 Fontes: [SendMediaDto / Evolution](https://github.com/EvolutionAPI/evolution-api) ·
 [Baileys `viewOnce`](https://baileys.wiki/docs/api/type-aliases/AnyMediaMessageContent/) ·
