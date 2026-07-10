@@ -139,7 +139,12 @@ class EvolutionClient:
                 "EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503
             )
 
-        body: dict[str, Any] = {"number": remote_jid, "mediatype": media_type, "media": url}
+        # Evolution v2 sendMedia exige mediatype ∈ {image, video, document, audio}; o dominio usa
+        # 'foto'/'video' (midia_tipo_enum). Traduz aqui, na fronteira Evolution: 'foto' cru dava
+        # 400 Bad Request (mediatype invalido) e a midia NUNCA saia (envios_evolution tipo='midia'
+        # ficou 0 em prod). 'video'/'document'/'audio' ja batem com a Evolution e passam intactos.
+        mediatype = "image" if media_type == "foto" else media_type
+        body: dict[str, Any] = {"number": remote_jid, "mediatype": mediatype, "media": url}
         if caption:
             body["caption"] = _remover_markers_quote(caption)
         if view_once and self.settings.evolution_view_once:
