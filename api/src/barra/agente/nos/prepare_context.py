@@ -547,7 +547,8 @@ async def _resolver_variaveis(
         res = await conn.execute(
             """
             SELECT numero_curto, estado, intencao, tipo_atendimento, urgencia,
-                   pix_status, data_desejada, horario_desejado, endereco, bairro
+                   pix_status, data_desejada, horario_desejado, endereco, bairro,
+                   cotacao_enviada_em
               FROM barravips.atendimentos
              WHERE id = %s
             """,
@@ -688,6 +689,7 @@ async def _resolver_variaveis(
         intencao=atendimento.get("intencao"),
         tipo_atendimento=atendimento.get("tipo_atendimento"),
         horario_desejado=atendimento.get("horario_desejado"),
+        cotacao_enviada=atendimento.get("cotacao_enviada_em") is not None,
     )
 
     return {

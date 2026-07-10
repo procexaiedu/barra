@@ -46,6 +46,8 @@ MotivoEscalada = Literal[
     "pedido_explicito_repetido",
     "prova_humanidade_persistente",
     "cross_modelo_fishing",
+    # Safety-critico (nucleo linha 7): menor de idade, ato sem consentimento ou ilegal.
+    "conteudo_ilegal",
     # Generico (fallback)
     "outro",
 ]

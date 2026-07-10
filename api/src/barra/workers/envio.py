@@ -55,7 +55,26 @@ MAX_TRIES_ENVIO = 3
 # Rede determinística do carimbo de cotação (ADR 0022): um chunk de saída com preço (R$ seguido
 # de dígito) ancora o reengajamento mesmo quando o LLM não marca `cotacao_apresentada`. Caminhos
 # canned/reengajamento passam por aqui sem preço no texto, então não disparam falso carimbo.
-RE_PRECO = re.compile(r"R\$\s?\d")
+# Backstop determinístico do ADR 0022: carimba `cotacao_enviada_em` quando o texto enviado tem
+# cara de cotação, cobrindo o LLM que esquece de marcar `cotacao_apresentada`. Dois caminhos:
+#  - "R$" seguido de dígito ("a hora fica R$800 amor") — inequívoco.
+#  - número seco (o formato REAL da persona, que fala o valor puro e até strippa o cifrão do Pix):
+#    "600 1h no meu local", "250 30minutos", "2h 900 + uber". Aqui exige-se um VALOR de 3-4
+#    dígitos JUNTO de um marcador de duração/local — os DOIS — pra não casar número de endereço
+#    ("rua ... 880", sem duração/"no meu local"). Carimbar à toa satisfaria o guard de
+#    CotacaoAusente e dispararia reengajamento sem cotação real.
+_RE_PRECO_RS = re.compile(r"R\$\s?\d")
+_RE_PRECO_VALOR = re.compile(r"\b\d{3,4}\b")
+_RE_PRECO_CONTEXTO = re.compile(
+    r"\b\d{1,2}\s?h\b|\b\d{1,2}\s?min|\bpernoite\b|no\s+(?:meu|seu)\s+local", re.I
+)
+
+
+def _texto_tem_cotacao(texto: str) -> bool:
+    """True se o texto enviado tem cara de cotação (R$+dígito, ou valor 3-4 díg. + duração/local)."""
+    if _RE_PRECO_RS.search(texto):
+        return True
+    return bool(_RE_PRECO_VALOR.search(texto) and _RE_PRECO_CONTEXTO.search(texto))
 
 
 async def enviar_texto_job(
@@ -868,7 +887,7 @@ async def enviar_turno(
                 # Carimbo determinístico da cotação (ADR 0022): na MESMA transação do envio,
                 # ancora o reengajamento só pelo que de fato saiu. Idempotente (guard IS NULL +
                 # estado) — repetir entre chunks/retries é no-op.
-                if conv["atendimento_id"] is not None and RE_PRECO.search(conteudo):
+                if conv["atendimento_id"] is not None and _texto_tem_cotacao(conteudo):
                     await marcar_cotacao_enviada_por_texto(conn, conv["atendimento_id"])
 
             # 6. MARK-AFTER-SEND: só agora idx conta como entregue (05 §4.3)

@@ -418,6 +418,7 @@ _TIPO_POR_MOTIVO: dict[str, TipoEscalada] = {
     "pedido_explicito_repetido": TipoEscalada.comportamento_atipico,
     "prova_humanidade_persistente": TipoEscalada.comportamento_atipico,
     "cross_modelo_fishing": TipoEscalada.comportamento_atipico,
+    "conteudo_ilegal": TipoEscalada.comportamento_atipico,
     "fora_de_oferta": TipoEscalada.fora_de_oferta,
     "horario_indisponivel": TipoEscalada.indisponibilidade,
     "reagendamento_pos_bloqueio": TipoEscalada.indisponibilidade,
@@ -433,6 +434,7 @@ _BUCKET_DEFESA: frozenset[str] = frozenset(
         "pedido_explicito_repetido",
         "prova_humanidade_persistente",
         "cross_modelo_fishing",
+        "conteudo_ilegal",
         "modelo_recusou",
         # AGENTE-OG (ADR 0016): output-guard bloqueou a bolha antes do envio — defesa ativa.
         "output_leak",

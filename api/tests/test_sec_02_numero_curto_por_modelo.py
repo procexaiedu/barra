@@ -93,7 +93,7 @@ async def test_comando_so_afeta_atendimento_da_modelo_dona_da_instance(monkeypat
 
     # Grupo da modelo A: comando #5 deve fechar o #5 da A, jamais o #5 da B.
     conn_a = FakeConn()
-    res_a = await routes._processar_grupo(conn_a, _request(), _msg("inst-a"))
+    res_a = await routes._processar_grupo(conn_a, _request(), _msg("inst-a"), None)
     assert res_a == {"status": "processed"}
     assert aplicados == [_ATEND_A]
     assert _ATEND_B not in aplicados
@@ -105,7 +105,7 @@ async def test_comando_so_afeta_atendimento_da_modelo_dona_da_instance(monkeypat
     # Grupo da modelo B: mesmo #5, mas resolve o atendimento da B.
     aplicados.clear()
     conn_b = FakeConn()
-    res_b = await routes._processar_grupo(conn_b, _request(), _msg("inst-b"))
+    res_b = await routes._processar_grupo(conn_b, _request(), _msg("inst-b"), None)
     assert res_b == {"status": "processed"}
     assert aplicados == [_ATEND_B]
     assert _ATEND_A not in aplicados
@@ -120,7 +120,7 @@ async def test_modelo_nao_resolvida_recusa_sem_afetar_atendimento(monkeypatch) -
     monkeypatch.setattr(routes, "aplicar_comando", _fake_aplicar)
 
     conn = FakeConn()
-    res = await routes._processar_grupo(conn, _request(), _msg("instance-desconhecida"))
+    res = await routes._processar_grupo(conn, _request(), _msg("instance-desconhecida"), None)
 
     # Instance sem modelo cadastrada: recusa, e nunca toca atendimento de ninguem.
     assert res == {"status": "unknown_instance"}

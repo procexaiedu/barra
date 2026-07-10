@@ -27,6 +27,14 @@ async def aplicar_timeout_longo(conn: AsyncConnection[Any]) -> int:
                WHERE a.estado IN ('Novo', 'Triagem', 'Qualificado', 'Aguardando_confirmacao')
                  AND a.ia_pausada = false
                  AND COALESCE(msg.ultima_cliente, a.created_at) < now() - interval '24 hours'
+                 -- Reserva FUTURA legítima (o prompt manda cravar encontro pra outro dia, com o
+                 -- ônus de confirmar no dia sobre o cliente): não mate o slot só porque ele ficou
+                 -- em silêncio até a data. Passado o horário sem comparecer, o bloqueio deixa de
+                 -- ser futuro e o timeout de 24h volta a valer.
+                 AND NOT EXISTS (
+                   SELECT 1 FROM barravips.bloqueios b
+                    WHERE b.id = a.bloqueio_id AND b.inicio > now()
+                 )
                FOR UPDATE OF a SKIP LOCKED
             ),
             upd AS (

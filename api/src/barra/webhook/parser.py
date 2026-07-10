@@ -204,10 +204,17 @@ def _media_base64(message: dict[str, Any]) -> str | None:
 
 
 def _quoted_id(message: dict[str, Any]) -> str | None:
-    ext = message.get("extendedTextMessage")
-    ctx = ext.get("contextInfo") if isinstance(ext, dict) else None
-    stanza = ctx.get("stanzaId") if isinstance(ctx, dict) else None
-    return str(stanza) if stanza else None
+    # O quote (contextInfo.stanzaId) vive DENTRO do *Message do tipo enviado: texto em
+    # extendedTextMessage, mas uma IMAGEM citando um card o traz em imageMessage.contextInfo. A
+    # modelo responde o card de fechamento COM a foto do comprovante (auto-baixa), entao ler so o
+    # extendedTextMessage perderia a ancora #N. Le os containers conhecidos, na ordem.
+    for chave in ("extendedTextMessage", "imageMessage", "audioMessage"):
+        sub = message.get(chave)
+        ctx = sub.get("contextInfo") if isinstance(sub, dict) else None
+        stanza = ctx.get("stanzaId") if isinstance(ctx, dict) else None
+        if stanza:
+            return str(stanza)
+    return None
 
 
 def _numero_curto(texto: str) -> int | None:

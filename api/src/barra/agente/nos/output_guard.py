@@ -159,6 +159,31 @@ def tem_placeholder_template(texto: str) -> bool:
     return bool(_RE_PLACEHOLDER.search(texto))
 
 
+# Sonda-de-balcao (tell de atendente de SAC): na ABERTURA, depois do cumprimento, o chat as vezes
+# solta um probe aberto "o que voce procura?" -- exatamente o lado <errado> do par de `persona.md`
+# e proibido em `regras.md.j2` (<abertura> nunca pergunta o que ele quer; <cotacao> nao cola sonda
+# no preco). A modelo conduz com ancora concreta ("Seria hoje?", "Esta em Campinas?"), nunca com o
+# balcao. ESTREITO de proposito: so o probe CRU. A forma CALOROSA ("me conta o que voce procura?",
+# com self-intro/convite) e voz legitima (fixtures reais) e NAO casa -- o `_RE_CONVITE_CALOROSO`
+# resgata a bolha. "me chamou" (voce me chamou) nao e convite e segue caindo no drop.
+_RE_SONDA_BALCAO = re.compile(
+    r"o que (voc[êe]|vc) (procura|busca|est[áa] (procurando|buscando)|deseja saber|gostaria de saber)"
+    r"|o que gostaria de saber"
+    r"|o que te traz (aqui|aq)\b"
+    r"|pode perguntar (o que quiser|[àa] vontade)"
+    r"|gosta de que tipo de (programa|servi[çc]o|atendimento)",
+    re.IGNORECASE,
+)
+_RE_CONVITE_CALOROSO = re.compile(r"\bme (conta|fala|diz|chamo)\b|\bmeu nome\b", re.IGNORECASE)
+
+
+def tem_sonda_balcao(texto: str) -> bool:
+    """True se a bolha e o probe CRU de balcao ("o que voce procura?" e as parafrases documentadas)
+    SEM o convite caloroso/self-intro que o torna fala legitima. Proibido na abertura/cotacao; a
+    forma calorosa ("me conta o que voce procura?") NAO casa e segue intacta."""
+    return bool(_RE_SONDA_BALCAO.search(texto)) and not _RE_CONVITE_CALOROSO.search(texto)
+
+
 # Delimitador de EXEMPLO vazando na bolha: os few-shots de `regras.md.j2`/`persona.md` moldam a fala
 # ideal com tags de papel (`<ela>...</ela>`, `<cliente>...</cliente>`, `<exemplo>`) e os pares de
 # contraste (`<certo>/<errado>/<par>/<porque>`). Sob decodificacao estocastica (temp 0.7) o chat as
@@ -171,9 +196,11 @@ _RE_TAG_EXEMPLO = re.compile(r"</?(?:ela|cliente|exemplo|certo|errado|par|porque
 
 
 def _bolha_descartavel(b: str) -> bool:
-    """Bolha que o Estagio 0 strippa: raciocinio vazado OU placeholder de template nao preenchido.
-    As duas entregam a IA e nunca sao fala valida ao cliente."""
-    return tem_marcador_raciocinio(b) or tem_placeholder_template(b)
+    """Bolha que o Estagio 0 strippa: raciocinio vazado, placeholder de template nao preenchido, OU
+    sonda-de-balcao crua ("o que voce procura?"). Nenhuma e fala valida ao cliente -- as duas
+    primeiras entregam a IA; a terceira e tell de SAC que a modelo nunca faz (a forma calorosa
+    escapa via `_RE_CONVITE_CALOROSO`, ver `tem_sonda_balcao`)."""
+    return tem_marcador_raciocinio(b) or tem_placeholder_template(b) or tem_sonda_balcao(b)
 
 
 def _limpar_bolhas(texto: str) -> str:

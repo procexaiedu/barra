@@ -132,7 +132,10 @@ def test_placeholder_nao_flagra_fala_legitima(bolha: str) -> None:
 # residuo de molde -> o Estagio 0 strippa SO a substring da tag e mantem a fala (nao vira handoff nem
 # bolha vazia).
 BOLHAS_COM_TAG_EXEMPLO = [
-    ("o que você procura pra gente?</ela>", "o que você procura pra gente?"),  # real (eb04 golpe)
+    (
+        "consigo sim amor, seria que horas?</ela>",
+        "consigo sim amor, seria que horas?",
+    ),  # fala legit c/ tag
     ("tudo bem sim, e você?</ela>", "tudo bem sim, e você?"),  # real (eb02 reengajamento)
     ("<ela>600 1h no meu local amor", "600 1h no meu local amor"),
     ("pode vir amor, te recebo já</cliente>", "pode vir amor, te recebo já"),
@@ -171,3 +174,47 @@ def test_sanear_reescreve_a_mensagem_com_tag_vazada() -> None:
     assert texto_saneado == "tudo bem sim, e você?"
     assert [m.id for m in reescritas] == ["m1"]
     assert reescritas[0].content == "tudo bem sim, e você?"
+
+
+# Sonda-de-balcao CRUA (tell de SAC): amostra real do harness (terminal_8b.json, 4/8 cenarios) --
+# depois do cumprimento a IA soltava o probe aberto, proibido na abertura (`regras.md.j2:<abertura>`)
+# e no par de `persona.md`. Estagio 0 dropa a bolha crua, deixando o cumprimento correto intacto.
+BOLHAS_SONDA_CRUA = [
+    "O que você procura ?",
+    "Vi que me chamou, o que você procura ?",  # "me chamou" != convite caloroso -> ainda cai
+    "o que você busca amor?",
+    "o que você está procurando?",
+    "o que gostaria de saber?",
+    "o que te traz aqui?",
+    "pode perguntar o que quiser 😊",
+    "gosta de que tipo de programa?",
+]
+
+
+@pytest.mark.parametrize("bolha", BOLHAS_SONDA_CRUA)
+def test_detecta_sonda_de_balcao_crua(bolha: str) -> None:
+    assert mod.tem_sonda_balcao(bolha) is True
+
+
+# Forma CALOROSA / self-intro: probe embrulhado num convite ("me conta") ou apresentacao ("me
+# chamo") e voz legitima -- decisao ja encodada nas fixtures BOLHAS_LEGITIMAS. NAO pode ser dropada.
+BOLHAS_SONDA_CALOROSA = [
+    "me chamo Manu rs, me conta o que você procura?",
+    "me conta o que você procura amor 🥰",
+    "me fala o que você busca que eu te ajudo",
+    "Me conta o que você quer saber?",  # "quer saber" nem esta no regex do probe
+]
+
+
+@pytest.mark.parametrize("bolha", BOLHAS_SONDA_CALOROSA)
+def test_nao_flagra_sonda_calorosa(bolha: str) -> None:
+    # Convite caloroso / self-intro resgata a bolha: fica intacta (assimetria a favor de preservar voz).
+    assert mod.tem_sonda_balcao(bolha) is False
+    assert mod._limpar_bolhas(bolha) == bolha
+
+
+def test_estagio0_dropa_sonda_mantendo_cumprimento() -> None:
+    # Caminho real da abertura: cumprimento em bolhas + o probe cru como ultima bolha. O Estagio 0
+    # dropa so o probe e devolve o cumprimento correto ("Oii / boa tarde amor / tudo bem sim").
+    turno = "Oii\n\nBoa tarde amor 🥰\n\nTudo bem sim\n\nO que você procura ?"
+    assert mod._limpar_bolhas(turno) == "Oii\n\nBoa tarde amor 🥰\n\nTudo bem sim"

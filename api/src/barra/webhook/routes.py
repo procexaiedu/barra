@@ -20,7 +20,12 @@ from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import garantir_conversa, listar_pendencias_modelo
 from barra.dominio.escaladas.service import Autor, aplicar_comando
 from barra.webhook.despacho import enfileirar_turno
-from barra.webhook.parser import MensagemEvolution, extrair_mensagem, parse_comando_grupo
+from barra.webhook.parser import (
+    MensagemEvolution,
+    _numero_curto,
+    extrair_mensagem,
+    parse_comando_grupo,
+)
 from barra.webhook.reset_teste import limpar_redis_modelo, resetar_modelo
 from barra.webhook.respostas import texto_confirmacao, texto_erro_comando, texto_erro_dominio
 from barra.workers._cards import render_card
@@ -223,7 +228,7 @@ async def evolution_webhook(
         if await _mensagem_ja_persistida(conn, msg.evolution_message_id):
             return {"status": "duplicate"}
         if await _eh_grupo_coordenacao(conn, settings, msg):
-            return await _processar_grupo(conn, request, msg)
+            return await _processar_grupo(conn, request, msg, midia)
         # Defesa em profundidade para mensagens de cliente: a instance precisa
         # estar cadastrada em barravips.modelos.evolution_instance_id, já que
         # o desenho do produto é 'uma instância Evolution por modelo'. Grupos
@@ -447,7 +452,9 @@ async def _eh_grupo_coordenacao(conn: Any, settings: Any, msg: MensagemEvolution
     return row is not None
 
 
-async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) -> dict[str, str]:
+async def _processar_grupo(
+    conn: Any, request: Request, msg: MensagemEvolution, midia: tuple[bytes, str] | None
+) -> dict[str, str]:
     settings = request.app.state.settings
     if await envio_existe(conn, msg.evolution_message_id):
         return {"status": "outbound_ignored"}
@@ -460,10 +467,27 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
     aguardando_valor = False
     if msg.quoted_message_id:
         quoted_numero, aguardando_valor = await _resolver_card(conn, msg.quoted_message_id)
+
+    # Comprovante de Pix como fechamento (auto-baixa): uma imagem no grupo respondendo o card (ou
+    # com #N na legenda) fecha o atendimento pelo valor lido no comprovante — augmenta o
+    # `fechado [valor]` de texto com OCR. Trilho proprio (o parser de texto nao le imagem).
+    if msg.tipo == "imagem":
+        return await _processar_comprovante_grupo(conn, request, msg, midia, autor, quoted_numero)
+
     comando = parse_comando_grupo(msg.texto, quoted_numero, aguardando_valor=aguardando_valor)
     if comando is None:
         return {"status": "ignored"}
+    return await _despachar_comando_grupo(request, conn, msg, comando, autor)
 
+
+async def _despachar_comando_grupo(
+    request: Request, conn: Any, msg: MensagemEvolution, comando: Any, autor: Autor
+) -> dict[str, str]:
+    """Aplica um `ComandoGrupo` ja parseado (de texto OU de legenda de comprovante) e responde.
+
+    Extraido de `_processar_grupo` para o caminho de imagem reusar quando a legenda ja traz um
+    comando completo ("valor digitado vence": `fechado 1500` na legenda nao aciona OCR)."""
+    settings = request.app.state.settings
     # Digest de pendencias (UX §6.4): comando sem `#N`, so leitura — lista o que aguarda a modelo
     # dona do grupo. Antes do gate de `#N` obrigatorio, que nao se aplica aqui.
     if comando.comando == "listar_pendencias":
@@ -500,7 +524,10 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
             atendimento_id=atendimento_id,
             comando=comando.comando,
             payload=comando.payload
-            | {"texto": msg.texto, "evolution_message_id": msg.evolution_message_id},
+            | {
+                "texto": msg.texto or msg.caption or "",
+                "evolution_message_id": msg.evolution_message_id,
+            },
         )
     except ErroDominio as exc:
         # Comando humano malformado/conflitante (ex.: `finalizado` em atendimento ja finalizado ->
@@ -538,6 +565,96 @@ async def _processar_grupo(conn: Any, request: Request, msg: MensagemEvolution) 
         tipo="confirmacao",
     )
     return {"status": "processed"}
+
+
+async def _processar_comprovante_grupo(
+    conn: Any,
+    request: Request,
+    msg: MensagemEvolution,
+    midia: tuple[bytes, str] | None,
+    autor: Autor,
+    quoted_numero: int | None,
+) -> dict[str, str]:
+    """Imagem no grupo de Coordenacao = comprovante de Pix -> auto-fechamento (auto-baixa).
+
+    Ancora EXPLICITA (CONTEXT "Card"/"Registro de resultado"): so fecha com quote no card ou #N na
+    legenda — nunca casa por horario/valor. "Valor digitado vence": se a legenda ja traz um comando
+    COMPLETO (`fechado 1500`, `perdido sumiu`), segue o trilho de texto sem OCR. Senao, resolve o
+    #N, sobe o comprovante ao MinIO e enfileira `fechar_via_comprovante` (OCR + fecha). Escopo: so
+    Pix — dinheiro/cartao seguem no `fechado [valor]` manual.
+    """
+    settings = request.app.state.settings
+
+    # "Valor digitado vence": legenda parseada SEM o caminho de "valor pelado" (aguardando_valor=
+    # False) — assim "#42" na legenda e ancora, nao o valor 42. So delega quando ha um comando
+    # completo; `fechado` sem valor cai no OCR (a foto tem o valor).
+    comando = parse_comando_grupo(msg.caption or "", quoted_numero, aguardando_valor=False)
+    if comando is not None and comando.comando in (
+        "registrar_fechado",
+        "registrar_perdido",
+        "devolver_para_ia",
+    ):
+        return await _despachar_comando_grupo(request, conn, msg, comando, autor)
+
+    numero = (_numero_curto(msg.caption) if msg.caption else None) or quoted_numero
+    if numero is None:
+        COMANDOS_GRUPO.labels("invalido").inc()
+        await _responder_grupo(settings, conn, msg, texto_erro_comando("numero_curto_ausente"))
+        return {"status": "invalid"}
+
+    modelo_id = await _modelo_por_instance(conn, msg.instance_id)
+    if modelo_id is None:
+        COMANDOS_GRUPO.labels("invalido").inc()
+        _logger.warning("comprovante_grupo_modelo_nao_resolvida instance=%s", msg.instance_id)
+        return {"status": "unknown_instance"}
+    atendimento_id = await _atendimento_por_numero(conn, numero, modelo_id)
+    if atendimento_id is None:
+        COMANDOS_GRUPO.labels("invalido").inc()
+        await _responder_grupo(
+            settings, conn, msg, texto_erro_comando("atendimento_nao_encontrado")
+        )
+        return {"status": "invalid"}
+
+    # Sem imagem utilizavel (falha de download/base64 ou MinIO off) nao ha o que ler: sem OCR nao
+    # da pra fabricar o valor_final (constraint), entao pede o valor por texto (nao e uma "rede"
+    # sobre valor lido — e a ausencia dele).
+    minio = getattr(request.app.state, "minio", None)
+    if midia is None or minio is None:
+        await _responder_grupo(settings, conn, msg, texto_erro_comando("valor_final_obrigatorio"))
+        return {"status": "invalid"}
+
+    # Sobe o comprovante ao MinIO (o grupo nao persiste em `mensagens`; chave por atendimento). O
+    # evolution_message_id vai sanitizado no path (mesmo cuidado anti-travessia do 1:1).
+    data, ct = midia
+    ext = _MIME_EXT.get(ct, ".jpg")
+    key = (
+        f"comprovantes_fechamento/{atendimento_id}/"
+        f"{_segmento_objeto_seguro(msg.evolution_message_id)}{ext}"
+    )
+    try:
+        await _upload_minio(
+            minio, settings.minio_bucket_media, key, data, ct or "application/octet-stream"
+        )
+    except Exception as exc:
+        _logger.warning("comprovante_upload_falhou key=%s erro=%s", key, type(exc).__name__)
+        WEBHOOK_ERRORS.labels("midia_upload").inc()
+        await _responder_grupo(settings, conn, msg, texto_erro_comando("valor_final_obrigatorio"))
+        return {"status": "invalid"}
+
+    # OCR + fechamento sao assincronos (OpenRouter nao pode segurar o webhook): o worker le o MinIO,
+    # extrai o valor e fecha pela porta unica, respondendo o grupo. _job_id por evolution_message_id
+    # dedup o evento duplicado do WhatsApp (multi-device).
+    arq = getattr(request.app.state, "arq", None)
+    if arq is not None:
+        await arq.enqueue_job(
+            "fechar_via_comprovante",
+            atendimento_id=str(atendimento_id),
+            object_key=key,
+            evolution_message_id=msg.evolution_message_id,
+            _job_id=f"fechar_comprovante:{msg.evolution_message_id}",
+        )
+    COMANDOS_GRUPO.labels("comprovante").inc()
+    return {"status": "comprovante_enfileirado"}
 
 
 async def _responder_pendencias(settings: Any, conn: Any, msg: MensagemEvolution) -> dict[str, str]:

@@ -538,6 +538,40 @@ async def test_nao_carimba_cotacao_sem_preco() -> None:
     assert updates == []
 
 
+async def test_carimba_cotacao_formato_numero_seco() -> None:
+    """A persona cota em número seco ("600 1h no meu local"), sem R$ (ADR 0022). O backstop
+    determinístico casa esse formato (valor 3-4 díg. + duração/local) — antes o regex exigia R$ e
+    ficava inerte, matando a rede do reengajamento e o guard de CotacaoAusente."""
+    turno_id, conversa_id = "turno-SEK", str(uuid4())
+    updates: list[str] = []
+
+    class _ConnCapta(_FakeConn):
+        async def execute(self, query: str, params: Any = None) -> _Result:
+            if "SET cotacao_enviada_em" in query:
+                updates.append(query)
+            return await super().execute(query, params)
+
+    conn = _ConnCapta(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        # bolha 0: cotação seca (carimba). bolha 1: endereço com número (NÃO carimba — sem
+        # duração/"no meu local", senão o "880" viraria falso-positivo de cotação).
+        chunks=["600 1h no meu local", "rua duque de caxias 880 amor"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert len(updates) == 1  # só a bolha da cotação, nunca a do endereço
+
+
 async def test_scrub_quote_residual_nao_vaza_e_realinha_o_reply() -> None:
     """SEC-OUT ponta-a-ponta: um marcador [quote] residual (malformado, escapa do strip ancorado do
     chunking) NUNCA chega ao cliente, o reply do WhatsApp segue casado na bolha certa, e a bolha que

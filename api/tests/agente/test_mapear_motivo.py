@@ -37,6 +37,8 @@ ESPERADO: dict[str, tuple[TipoEscalada, str, str]] = {
     "pedido_explicito_repetido": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
     "prova_humanidade_persistente": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
     "cross_modelo_fishing": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
+    # Safety-critico (menor/ilegal): comportamento_atipico, Fernando, defesa
+    "conteudo_ilegal": (TipoEscalada.comportamento_atipico, "Fernando", "defesa"),
     # Generico (default seguro)
     "outro": (TipoEscalada.outro, "Fernando", "capacidade"),
 }

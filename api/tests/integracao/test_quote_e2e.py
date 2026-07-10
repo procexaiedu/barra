@@ -48,6 +48,10 @@ def _sem_sleep(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 class _Result:
     def __init__(self, rows: list[dict[str, Any]]) -> None:
         self._rows = rows
+        # marcar_cotacao_enviada_por_texto lê result.rowcount (o carimbo do ADR 0022 dispara
+        # quando a bolha tem cara de cotação, ex. "800 1h no meu local"); o cursor real do
+        # psycopg expõe rowcount, então o fake também precisa.
+        self.rowcount = len(rows)
 
     async def fetchone(self) -> dict[str, Any] | None:
         return self._rows[0] if self._rows else None

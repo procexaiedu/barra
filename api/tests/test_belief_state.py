@@ -92,6 +92,80 @@ def test_estado_none_belief_neutro() -> None:
     assert b.proximo_passo == "conduzir o atendimento"
 
 
+# --- slot de cotação (conduta #4: preço do programa antes da logística) -------------------------
+
+
+def test_cotacao_ausente_vira_slot_liderando_em_qualificado() -> None:
+    # externo com horário já escolhido, mas o preço do programa NUNCA foi dito: sem o slot, o belief
+    # ficava mudo (slots vazio) e a IA saltava pro uber/Pix. Agora "dizer o preço do programa" lidera.
+    b = derivar_belief_state(
+        estado="Qualificado",
+        intencao="agendamento",
+        tipo_atendimento="externo",
+        horario_desejado=_HORA,
+        cotacao_enviada=False,
+    )
+    assert b.slots_faltantes == ["dizer o preço do programa"]
+
+
+def test_cotacao_enviada_nao_adiciona_slot() -> None:
+    b = derivar_belief_state(
+        estado="Qualificado",
+        intencao="agendamento",
+        tipo_atendimento="externo",
+        horario_desejado=_HORA,
+        cotacao_enviada=True,
+    )
+    assert "dizer o preço do programa" not in b.slots_faltantes
+    assert b.slots_faltantes == []
+
+
+def test_cotacao_slot_precede_os_demais_faltantes() -> None:
+    # ordem de cobrança: cotar antes do horário (funil: cotar -> fechar).
+    b = derivar_belief_state(
+        estado="Qualificado",
+        intencao="agendamento",
+        tipo_atendimento="externo",
+        horario_desejado=None,
+        cotacao_enviada=False,
+    )
+    assert b.slots_faltantes == ["dizer o preço do programa", "que horas ele quer"]
+
+
+def test_slot_tipo_nao_e_menu_de_formato() -> None:
+    # conduta #5: o label do slot de tipo NÃO pode ler como menu ("vem ou eu vou") — isso induz a
+    # IA a abrir o menu de formato (regras.md.j2:92 proíbe). Deve carregar o default-interno.
+    b = derivar_belief_state(
+        estado="Qualificado",
+        intencao="agendamento",
+        tipo_atendimento=None,
+        horario_desejado=_HORA,
+    )
+    (slot,) = b.slots_faltantes
+    assert "não pergunte o formato" in slot
+    assert "padrão" in slot and "seu local" in slot
+
+
+def test_cotacao_slot_so_em_triagem_e_qualificado() -> None:
+    # Novo (só "oi") não cobra preço ainda; Aguardando+ já passou pelo guard (cotação garantida).
+    novo = derivar_belief_state(
+        estado="Novo",
+        intencao=None,
+        tipo_atendimento=None,
+        horario_desejado=None,
+        cotacao_enviada=False,
+    )
+    assert "dizer o preço do programa" not in novo.slots_faltantes
+    triagem = derivar_belief_state(
+        estado="Triagem",
+        intencao="agendamento",
+        tipo_atendimento="externo",
+        horario_desejado=None,
+        cotacao_enviada=False,
+    )
+    assert "dizer o preço do programa" in triagem.slots_faltantes
+
+
 # --- consistência fonte-única (o teste-chave contra divergência) ---------------------------------
 
 _ESTADOS = ["Novo", "Triagem", "Qualificado", "Aguardando_confirmacao", "Confirmado", None]
@@ -107,8 +181,10 @@ _HORARIOS = [None, _HORA]
 def test_belief_consistente_com_fsm(
     estado: str | None, intencao: str | None, tipo: str | None, horario: time | None
 ) -> None:
+    # cotacao_enviada=True neutraliza o slot ortogonal de cotação (guard reativo, não pré-condição
+    # da FSM): este teste prova a consistência das pré-condições DA FSM com o belief.
     kwargs = dict(estado=estado, intencao=intencao, tipo_atendimento=tipo, horario_desejado=horario)
-    b = derivar_belief_state(**kwargs)  # type: ignore[arg-type]
+    b = derivar_belief_state(cotacao_enviada=True, **kwargs)  # type: ignore[arg-type]
     fsm = _proxima_transicao(**kwargs)  # type: ignore[arg-type]
     # 1. o belief reporta exatamente a transição da FSM (mesma fonte).
     assert b.proxima_transicao == fsm

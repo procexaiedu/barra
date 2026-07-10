@@ -76,20 +76,43 @@ _DESC_VALOR = (
     "sem a duração o sistema não consegue conferir o piso e escala à toa uma oferta válida. "
     "NUNCA grave aqui o Pix de deslocamento/uber (custo fixo à parte, NÃO é o valor do "
     "programa — gravá-lo faz o sistema achar que você fechou abaixo do piso e escalar à toa), "
-    "nem um número que o cliente PROPÔS e você NÃO aceitou — só o valor efetivamente combinado."
+    "nem um número que o cliente PROPÔS e você NÃO aceitou — só o valor efetivamente combinado. "
+    "Na vídeo chamada (remoto), gravar o valor_acordado é o que dispara o Pix antecipado da "
+    "chamada — sem ele o sistema não pede o Pix, então registre-o ao confirmar a chamada."
+)
+_DESC_INTENCAO = (
+    "Intenção do cliente NESTE ponto da conversa. 'curiosidade' = só perguntando, sem sinal de "
+    "marcar; 'cotacao' = quer saber preço/como funciona; 'agendamento' = quer MARCAR de fato "
+    "(deu horário, aceitou o valor, 'vamos marcar', 'pode ser hoje'). Suba para 'agendamento' "
+    "assim que ele demonstra querer marcar — é o que move o atendimento de Triagem para "
+    "Qualificado. Na dúvida entre 'cotacao' e 'agendamento' com sinal claro de marcar, use "
+    "'agendamento'."
+)
+_DESC_URGENCIA = (
+    "Urgência do encontro. 'imediato' = ele quer AGORA/já/hoje com pressa ('to afim agora', 'da "
+    "pra ser já?'); 'agendado' = marcou dia/hora futura; 'estimado' = deu janela vaga ('mais "
+    "tarde', 'à noite'); 'indefinido' = sem sinal de tempo. Marque 'imediato' quando ele tem "
+    "pressa — ativa a rede que ancora o horário mínimo pra já."
 )
 _DESC_DURACAO = (
-    "Duração em horas do programa que o cliente FECHOU. PREENCHA assim que ele escolhe o "
-    "pacote — é o que dimensiona o bloqueio na agenda; sem ela o sistema reserva só 1h por "
-    "padrão e pode subdimensionar o horário. Se você cotou mais de uma duração (ex.: 1h e 2h) "
-    "e o cliente ainda NÃO escolheu, a duração não está fechada — omita o campo até ele cravar, "
-    "não chute. Grave junto com valor_acordado quando ambos estiverem fechados."
+    "Duração em horas do PACOTE que o cliente fechou — a duração do programa no seu cardápio "
+    "(ex.: pernoite = 12h), NÃO a diferença de relógio entre o horário de início e o de fim que "
+    "vocês conversaram. Se ele fecha um pernoite e vocês falam 'das 22h às 6h', a duração é 12h "
+    "(o pacote), não 8h (o intervalo do relógio) — gravar o span do relógio faz o sistema não "
+    "encontrar o programa e escalar à toa uma oferta válida (abaixo do piso). PREENCHA assim que "
+    "ele escolhe o pacote — é o que dimensiona o bloqueio na agenda; sem ela o sistema reserva "
+    "só 1h por padrão e pode subdimensionar o horário. Se você cotou mais de uma duração "
+    "(ex.: 1h e 2h) e o cliente ainda NÃO escolheu, a duração não está fechada — omita o campo "
+    "até ele cravar, não chute. Grave junto com valor_acordado quando ambos estiverem fechados."
 )
 _DESC_TIPO_ATENDIMENTO = (
     "Quem se desloca. REGRA CRÍTICA de leitura: 'você/vc/te' na boca do CLIENTE se refere a "
     "VOCÊ (a modelo) — não inverta o sentido. Classifique pelo que o cliente diz:\n"
     "- 'interno' = o CLIENTE vem até você (ele se desloca): 'vou', 'vou aí', 'vou até você', "
-    "'vou no seu local', 'posso ir'. O endereço é o SEU ponto de encontro; SEM Pix.\n"
+    "'vou no seu local', 'posso ir'. É também o PADRÃO: quando o encontro está sendo combinado "
+    "no SEU local e ele NÃO sinalizou uber (você indo) nem chamada de vídeo, grave 'interno' "
+    "mesmo sem um verbo de deslocamento explícito — senão a reserva do horário não dispara e o "
+    "atendimento fica travado. O endereço é o SEU ponto de encontro; SEM Pix.\n"
     "- 'externo' = VOCÊ vai até o cliente de uber (você se desloca): 'vem até mim', 'vem aqui', "
     "'você vem?', 'pode vir no meu endereço'. Pega o endereço DELE; tem Pix de deslocamento.\n"
     "- 'remoto' = vídeo chamada, ninguém se desloca.\n"
@@ -164,8 +187,14 @@ class ExtracaoPayload(BaseModel):
 async def registrar_extracao(
     proxima_acao_esperada: Annotated[str, Field(min_length=3, max_length=240)],
     runtime: ToolRuntime[ContextAgente],
-    intencao: Literal["curiosidade", "cotacao", "agendamento"] | None = None,
-    urgencia: Literal["imediato", "agendado", "indefinido", "estimado"] | None = None,
+    intencao: Annotated[
+        Literal["curiosidade", "cotacao", "agendamento"] | None,
+        Field(description=_DESC_INTENCAO),
+    ] = None,
+    urgencia: Annotated[
+        Literal["imediato", "agendado", "indefinido", "estimado"] | None,
+        Field(description=_DESC_URGENCIA),
+    ] = None,
     tipo_atendimento: Annotated[
         Literal["interno", "externo", "remoto"] | None,
         Field(description=_DESC_TIPO_ATENDIMENTO),

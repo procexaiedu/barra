@@ -32,6 +32,7 @@ from barra.core.logging import setup_logging
 from barra.core.storage import criar_minio
 from barra.core.tracing import init_sentry, registrar_modelos_langfuse, setup_langfuse
 from barra.settings import Settings, get_settings
+from barra.workers.comprovante_fechamento import fechar_via_comprovante
 from barra.workers.coordenador import processar_turno
 from barra.workers.digest_semanal import enviar_digest_semanal
 from barra.workers.envio import MAX_TRIES_ENVIO, enviar_card, enviar_turno
@@ -247,6 +248,10 @@ class WorkerSettings:
         func(enviar_turno, max_tries=MAX_TRIES_ENVIO),  # humanização do turno (05 §1/§4)
         func(rotear_imagem),  # roteamento de imagem sob lock:conv (06 §2.1)
         func(validar_pix),  # validação de comprovante (06 §2.2); keep_result default
+        # Auto-fechamento por comprovante de Pix no grupo (auto-baixa). max_tries=1: o OCR não
+        # re-queima crédito de LLM em retry (erros de vision já são capturados e viram "sem valor";
+        # o fechamento em si é idempotente pelo guard de estado do _registrar_fechado).
+        func(fechar_via_comprovante, max_tries=1),
         # STT do agente (06 §1.3): fire-and-forget; sinalizacao via canal Redis (06 §1.4), nao
         # via keep_result. Mas keep_result global=3600 + _job_id estatico (transcricao:{evolution_message_id})
         # nao bloqueia retry — o evolution_message_id e unico por audio, entao nao ha re-enqueue.

@@ -577,7 +577,7 @@ _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], st
             (lambda *, intencao, **_: intencao == "agendamento", "ele querer mesmo marcar"),
             (
                 lambda *, tipo_atendimento, **_: tipo_atendimento is not None,
-                "se você vai até ele, ele vem até você ou é vídeo chamada",
+                "o tipo do encontro (padrão: ele vem no seu local; só uber/vídeo se ELE sinalizar — não pergunte o formato)",
             ),
         ],
     ),
@@ -587,7 +587,7 @@ _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], st
             (lambda *, horario_desejado, **_: horario_desejado is not None, "que horas ele quer"),
             (
                 lambda *, tipo_atendimento, **_: tipo_atendimento is not None,
-                "se você vai até ele, ele vem até você ou é vídeo chamada",
+                "o tipo do encontro (padrão: ele vem no seu local; só uber/vídeo se ELE sinalizar — não pergunte o formato)",
             ),
         ],
     ),
@@ -654,16 +654,27 @@ def derivar_belief_state(
     intencao: str | None,
     tipo_atendimento: str | None,
     horario_desejado: Any,
+    cotacao_enviada: bool = True,
 ) -> BeliefState:
     """Belief-state do turno: o que falta pra avancar + a frase-guia, das MESMAS pre-condicoes da
     FSM (fonte unica com `_proxima_transicao`). Reinjetado no contexto dinamico a cada turno para
-    cortar a re-pergunta multi-turn. `estado=None` (gate/webhook fino) -> belief neutro."""
+    cortar a re-pergunta multi-turn. `estado=None` (gate/webhook fino) -> belief neutro.
+
+    `cotacao_enviada`: a cotacao (preco do programa) NAO e uma pre-condicao da FSM em
+    `_PRECONDICOES_TRANSICAO` (ela e enforcada REATIVAMENTE no gate `CotacaoAusente` da transicao
+    Qualificado->Aguardando_confirmacao, service ~L434). Sem ela o belief ficava mudo sobre o preco
+    e a IA, em externo com horario ja escolhido, saltava pra logistica do uber/Pix sem nunca cotar
+    o programa (conduta #4, grupo de testes 10/07). Aqui a expomos como slot em Triagem/Qualificado
+    quando ainda nao foi dita — alinhando o belief ao que o guard ja enforça, e liderando a ordem de
+    cobranca (funil: cotar antes de fechar/logistica). Default True = neutro (nao cobra a toa)."""
     alvo, faltantes = _avaliar_precondicoes(
         estado=estado,
         intencao=intencao,
         tipo_atendimento=tipo_atendimento,
         horario_desejado=horario_desejado,
     )
+    if estado in ("Triagem", "Qualificado") and not cotacao_enviada:
+        faltantes = ["dizer o preço do programa", *faltantes]
     return BeliefState(
         proxima_transicao=alvo,
         slots_faltantes=faltantes,
