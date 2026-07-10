@@ -69,30 +69,10 @@ async def enviar_midia(
     async with pool.connection() as conn, conn.transaction():
         ja_no_turno = await _midias_do_turno(conn, turno_id)
 
-        # NULLS FIRST coloca midia nunca enviada no topo (preferencia por novidade);
-        # `created_at` desempata. `NOT (id = ANY(...))` exclui midias ja anexadas neste turno
-        # — duas chamadas da mesma tag no MESMO turno entregam fotos diferentes.
-        # `FOR UPDATE SKIP LOCKED`: duas `enviar_midia` da MESMA tag no mesmo turno rodam em paralelo
-        # (asyncio.gather do ToolNode `_afunc`) e, sem lock, AMBAS leem `ja_no_turno` vazio e escolhem
-        # a MESMA foto (TOCTOU) -> cliente recebe a foto repetida. O lock de linha serializa: a 1a
-        # trava sua foto, a 2a PULA a travada (SKIP LOCKED) e pega a proxima distinta. Esgotou (so
-        # fotos travadas / nenhuma sobrando) -> None, mesmo caminho de "indisponivel".
-        res = await conn.execute(
-            """
-            SELECT id, object_key
-              FROM barravips.modelo_midia
-             WHERE modelo_id = %s AND tag = %s AND tipo = %s AND aprovada = true
-               AND NOT (id = ANY(%s::uuid[]))
-             ORDER BY ultimo_envio_em NULLS FIRST, created_at
-             LIMIT 1
-             FOR UPDATE SKIP LOCKED
-            """,
-            (modelo_id, tag, tipo, ja_no_turno),
-        )
-        escolhida = await res.fetchone()
+        escolhida = await _selecionar_midia(conn, modelo_id, tag, tipo, ja_no_turno)
         if escolhida is None:
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("enviar_midia", "midia_indisponivel").inc()
-            raise ToolException(f"ERRO: nenhuma mídia tipo '{tipo}' disponível para a tag '{tag}'.")
+            raise ToolException(f"ERRO: nenhuma mídia tipo '{tipo}' disponível.")
 
         await _executar_idempotente(
             conn,
@@ -109,6 +89,70 @@ async def enviar_midia(
         )
 
     return f"{tipo.capitalize()} de '{tag}' anexada (enviada após o texto)."
+
+
+async def _selecionar_midia(
+    conn: AsyncConnection[Any],
+    modelo_id: str,
+    tag: TagMidia,
+    tipo: str,
+    ja_no_turno: list[str],
+) -> dict[str, Any] | None:
+    """Escolhe a midia a enviar: 1o tenta a `tag` pedida (case-insensitive); se a modelo nao tem
+    midia aprovada NAQUELA tag, cai para QUALQUER midia aprovada do `tipo` (fallback).
+
+    Por que o fallback: o vocabulario de tag do painel (onde Fernando/modelo sobe a midia, campo
+    livre — ex. 'Corpo', 'Sensual') e o do agente (o `Literal` TagMidia que o LLM escolhe —
+    'corpo', 'apresentacao') podem divergir. Exigir match EXATO de tag deixava o agente sem NADA a
+    enviar mesmo com fotos aprovadas no cadastro -> disparava o loop de `enviar_midia` sem midia
+    (cap em nos/llm.py, trace 8194e2c0) e o cliente nunca recebia a foto. O fallback mantem o
+    `tipo` (foto/video) — a conduta 'foto antes de video' segue respeitada — e so relaxa a
+    categoria: melhor mandar uma foto de outra tag do que nao mandar nada."""
+    escolhida = await _query_midia(conn, modelo_id, tipo, ja_no_turno, tag=tag)
+    if escolhida is not None:
+        return escolhida
+    return await _query_midia(conn, modelo_id, tipo, ja_no_turno, tag=None)
+
+
+async def _query_midia(
+    conn: AsyncConnection[Any],
+    modelo_id: str,
+    tipo: str,
+    ja_no_turno: list[str],
+    *,
+    tag: TagMidia | None,
+) -> dict[str, Any] | None:
+    """Uma linha de `modelo_midia` aprovada do `tipo`, a menos-recente-enviada, excluindo o que ja
+    saiu neste turno. `tag=None` ignora a tag (fallback por tipo); com `tag`, casa case-insensitive
+    (`lower`) — o painel grava a tag verbatim ('Corpo'), o agente pede minusculo ('corpo'), e sem
+    `lower` os dois nunca casariam.
+
+    `NULLS FIRST, created_at`: midia nunca enviada no topo (preferencia por novidade), `created_at`
+    desempata. `NOT (id = ANY(...))` exclui midias ja anexadas neste turno — duas chamadas no MESMO
+    turno entregam fotos diferentes. `FOR UPDATE SKIP LOCKED`: duas `enviar_midia` no mesmo turno
+    rodam em paralelo (asyncio.gather do ToolNode `_afunc`) e, sem lock, AMBAS leem `ja_no_turno`
+    vazio e escolhem a MESMA foto (TOCTOU) -> foto repetida. O lock de linha serializa: a 1a trava
+    sua foto, a 2a PULA a travada (SKIP LOCKED) e pega a proxima distinta. Esgotou -> None.
+
+    `filtro_tag` e string literal fixa (nao entra input do LLM), sem risco de injecao."""
+    filtro_tag = "AND lower(tag) = lower(%s)" if tag is not None else ""
+    params: list[Any] = [modelo_id, tipo, ja_no_turno]
+    if tag is not None:
+        params.append(tag)
+    res = await conn.execute(
+        f"""
+        SELECT id, object_key
+          FROM barravips.modelo_midia
+         WHERE modelo_id = %s AND tipo = %s AND aprovada = true
+           AND NOT (id = ANY(%s::uuid[]))
+           {filtro_tag}
+         ORDER BY ultimo_envio_em NULLS FIRST, created_at
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+        """,
+        params,
+    )
+    return await res.fetchone()
 
 
 async def _midias_do_turno(conn: AsyncConnection[Any], turno_id: str) -> list[str]:

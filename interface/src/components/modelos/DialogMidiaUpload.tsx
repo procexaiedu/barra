@@ -9,7 +9,10 @@ import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import type { TipoMidia, UploadUrlResponse } from "@/tipos/modelos"
 
-const TAGS_PREDEFINIDAS = ["Rosto", "Corpo", "Lingerie", "Sensual", "Vídeo"]
+// Vocabulario de tag que o AGENTE consulta (Literal TagMidia em api/.../ferramentas/midia.py):
+// a tool `enviar_midia` so pede por estas tags. Subir com outra tag faz o agente cair no fallback
+// por tipo (envia, mas sem targeting por categoria). Manter alinhado com o Literal do backend.
+const TAGS_PREDEFINIDAS = ["apresentacao", "corpo", "lifestyle", "evento"]
 
 export function DialogMidiaUpload({
   open,
