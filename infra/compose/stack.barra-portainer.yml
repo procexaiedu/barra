@@ -60,19 +60,10 @@ services:
       # (chave ausente/auth falhou) -> RuntimeError no startup, deploy falha na hora em vez
       # de rodar cego. Cenario real: redeploy git sem Env zera LANGFUSE_PUBLIC/SECRET_KEY.
       - LANGFUSE_OBRIGATORIO=true
-      - EVOLUTION_BASE_URL=https://evogo.procexai.tech
+      - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - EVOLUTION_INSTANCIA=elitebaby01
-      # Migração Evolution GO: EVOLUTION_WEBHOOK_TOKEN DEVE ser DISTINTO da EVOLUTION_API_KEY (que na
-      # EvoGo é a GLOBAL_API_KEY, com poder de criar/deletar instâncias). A EvoGo não manda header de
-      # auth no webhook; o token viaja em ?token= (aparece no access log) — reusar a chave global a
-      # vazaria. Trocar ambos no Env do stack no Portainer no cutover.
+      - EVOLUTION_INSTANCIA=lucia
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
-      # Direto (sem router): a barra seta o webhook da instância EvoGo para cá no /instance/connect.
-      - EVOLUTION_WEBHOOK_CALLBACK_URL=https://api-barra.procexai.tech/webhook/evolution
-      # Host do MinIO da EvoGo (mídia inbound WEBHOOK_FILES vem de host distinto do base_url) —
-      # liberado no anti-SSRF do download de mídia.
-      - 'EVOLUTION_MEDIA_HOSTS=["minioback.procexai.tech"]'
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
       - 'CORS_ORIGINS=["https://elitebaby.procexai.tech","https://barravips.procexai.tech","https://barra-nine.vercel.app","https://barra-procexais-projects.vercel.app","https://barra-git-main-procexais-projects.vercel.app","https://barra-vips.vercel.app"]'
@@ -168,19 +159,10 @@ services:
       # (chave ausente/auth falhou) -> RuntimeError no startup, deploy falha na hora em vez
       # de rodar cego. Cenario real: redeploy git sem Env zera LANGFUSE_PUBLIC/SECRET_KEY.
       - LANGFUSE_OBRIGATORIO=true
-      - EVOLUTION_BASE_URL=https://evogo.procexai.tech
+      - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - EVOLUTION_INSTANCIA=elitebaby01
-      # Migração Evolution GO: EVOLUTION_WEBHOOK_TOKEN DEVE ser DISTINTO da EVOLUTION_API_KEY (que na
-      # EvoGo é a GLOBAL_API_KEY, com poder de criar/deletar instâncias). A EvoGo não manda header de
-      # auth no webhook; o token viaja em ?token= (aparece no access log) — reusar a chave global a
-      # vazaria. Trocar ambos no Env do stack no Portainer no cutover.
+      - EVOLUTION_INSTANCIA=lucia
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
-      # Direto (sem router): a barra seta o webhook da instância EvoGo para cá no /instance/connect.
-      - EVOLUTION_WEBHOOK_CALLBACK_URL=https://api-barra.procexai.tech/webhook/evolution
-      # Host do MinIO da EvoGo (mídia inbound WEBHOOK_FILES vem de host distinto do base_url) —
-      # liberado no anti-SSRF do download de mídia.
-      - 'EVOLUTION_MEDIA_HOSTS=["minioback.procexai.tech"]'
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
       # Allowlist de teste: grupo cliente-teste + grupo de Coordenação (ver serviço da API).
