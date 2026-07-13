@@ -62,14 +62,18 @@ services:
       - LANGFUSE_OBRIGATORIO=true
       - EVOLUTION_BASE_URL=https://evogo.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - EVOLUTION_INSTANCIA=elitebaby01
-      # Migração Evolution GO: EVOLUTION_WEBHOOK_TOKEN DEVE ser DISTINTO da EVOLUTION_API_KEY (que na
-      # EvoGo é a GLOBAL_API_KEY, com poder de criar/deletar instâncias). A EvoGo não manda header de
-      # auth no webhook; o token viaja em ?token= (aparece no access log) — reusar a chave global a
-      # vazaria. Trocar ambos no Env do stack no Portainer no cutover.
+      - EVOLUTION_INSTANCIA=procex-teste
+      # Migração Evolution GO (via webhook-router, número procex-teste COMPARTILHADO): o
+      # EVOLUTION_WEBHOOK_TOKEN é o token que o router.procexai.tech anexa ao encaminhar pra cá
+      # (?token=), DISTINTO da EVOLUTION_API_KEY (que na EvoGo é a GLOBAL_API_KEY, cria/deleta
+      # instâncias). Trocar ambos no Env do stack no Portainer no cutover.
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
-      # Direto (sem router): a barra seta o webhook da instância EvoGo para cá no /instance/connect.
-      - EVOLUTION_WEBHOOK_CALLBACK_URL=https://api-barra.procexai.tech/webhook/evolution
+      # Via ROUTER: callback VAZIO de propósito. A procex-teste é compartilhada (o webhook dela
+      # aponta pro router, que faz fan-out pra 6 destinos); se a barra setasse webhookUrl próprio
+      # no /instance/connect, sobrescreveria o router e derrubaria os outros projetos. Com o
+      # callback vazio a barra nunca reescreve o webhook. NÃO clicar "Conectar WhatsApp" nessa
+      # instância no painel (força re-pareamento e desconecta o número já pareado).
+      - EVOLUTION_WEBHOOK_CALLBACK_URL=
       # Host do MinIO da EvoGo (mídia inbound WEBHOOK_FILES vem de host distinto do base_url) —
       # liberado no anti-SSRF do download de mídia.
       - 'EVOLUTION_MEDIA_HOSTS=["minioback.procexai.tech"]'
@@ -170,14 +174,18 @@ services:
       - LANGFUSE_OBRIGATORIO=true
       - EVOLUTION_BASE_URL=https://evogo.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - EVOLUTION_INSTANCIA=elitebaby01
-      # Migração Evolution GO: EVOLUTION_WEBHOOK_TOKEN DEVE ser DISTINTO da EVOLUTION_API_KEY (que na
-      # EvoGo é a GLOBAL_API_KEY, com poder de criar/deletar instâncias). A EvoGo não manda header de
-      # auth no webhook; o token viaja em ?token= (aparece no access log) — reusar a chave global a
-      # vazaria. Trocar ambos no Env do stack no Portainer no cutover.
+      - EVOLUTION_INSTANCIA=procex-teste
+      # Migração Evolution GO (via webhook-router, número procex-teste COMPARTILHADO): o
+      # EVOLUTION_WEBHOOK_TOKEN é o token que o router.procexai.tech anexa ao encaminhar pra cá
+      # (?token=), DISTINTO da EVOLUTION_API_KEY (que na EvoGo é a GLOBAL_API_KEY, cria/deleta
+      # instâncias). Trocar ambos no Env do stack no Portainer no cutover.
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
-      # Direto (sem router): a barra seta o webhook da instância EvoGo para cá no /instance/connect.
-      - EVOLUTION_WEBHOOK_CALLBACK_URL=https://api-barra.procexai.tech/webhook/evolution
+      # Via ROUTER: callback VAZIO de propósito. A procex-teste é compartilhada (o webhook dela
+      # aponta pro router, que faz fan-out pra 6 destinos); se a barra setasse webhookUrl próprio
+      # no /instance/connect, sobrescreveria o router e derrubaria os outros projetos. Com o
+      # callback vazio a barra nunca reescreve o webhook. NÃO clicar "Conectar WhatsApp" nessa
+      # instância no painel (força re-pareamento e desconecta o número já pareado).
+      - EVOLUTION_WEBHOOK_CALLBACK_URL=
       # Host do MinIO da EvoGo (mídia inbound WEBHOOK_FILES vem de host distinto do base_url) —
       # liberado no anti-SSRF do download de mídia.
       - 'EVOLUTION_MEDIA_HOSTS=["minioback.procexai.tech"]'

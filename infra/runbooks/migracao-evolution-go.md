@@ -5,6 +5,28 @@ A barra migrou o cliente WhatsApp da Evolution v2/v3 (Baileys) para a **Evolutio
 está na branch e verde no gate; este runbook cobre o **cutover em produção** — cada passo aqui
 atinge produção (CLAUDE.md §0) e exige autorização explícita do Fernando, frase a frase.
 
+## ⚠️ Variante ativa do piloto: `procex-teste` via router (número COMPARTILHADO)
+
+O cutover original abaixo é **direto** (barra seta o próprio webhook) na instância dedicada
+`elitebaby01`. O piloto atual usa outra topologia, porque não há celular para parear a
+`elitebaby01`: reaproveitamos a instância **`procex-teste`** (já pareada, `5519997858650`),
+que é **compartilhada** entre 6 projetos via `router.procexai.tech`. As diferenças que valem:
+
+- **Inbound via router, não direto.** O webhook da `procex-teste` aponta para
+  `https://router.procexai.tech/api/hook/procex-shared`, que faz fan-out para 6 destinos —
+  o da barra é `https://api-barra.procexai.tech/webhook/evolution?token=<EVOLUTION_WEBHOOK_TOKEN>`.
+- **`EVOLUTION_WEBHOOK_CALLBACK_URL` fica VAZIO.** Se a barra setasse o próprio webhook no
+  `/instance/connect`, sobrescreveria o do router e derrubaria os outros 5 projetos. Com o
+  callback vazio ela nunca reescreve o webhook. Corolário: **não clicar "Conectar WhatsApp"**
+  nessa instância no painel (o `connect immediate=True` força re-pareamento e desconecta o número).
+- **`EVOLUTION_WEBHOOK_TOKEN` = o token que o router anexa** ao encaminhar pra cá
+  (o `?token=` configurado no destino Elitebaby da rota `procex-shared`; **segredo — vive só no
+  Env do stack `barra-vips` no Portainer**, nunca aqui), ainda distinto da GLOBAL_API_KEY.
+- **`EVOLUTION_INSTANCIA=procex-teste`** e a modelo-piloto em prod precisa de
+  `modelos.evolution_instance_id = 'procex-teste'` — é o que casa o inbound (eventos de outra
+  instância chegam pelo número compartilhado mas são descartados como `unknown_instance`).
+- O resto (GLOBAL_API_KEY em `EVOLUTION_API_KEY`, `EVOLUTION_MEDIA_HOSTS`, smoke) segue igual.
+
 ## O que mudou no código (referência)
 
 - **Auth por instância**: operação (`/send/*`, `/message/*`, `/group/*`) é escopada pelo **token
