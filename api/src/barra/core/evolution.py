@@ -392,9 +392,16 @@ class EvolutionClient:
                 "(401). Confirme EVOLUTION_API_KEY.",
                 status_code=502,
             )
-        if response.status_code in {400, 403, 409}:
-            # Nome já em uso / instância já existe → idempotente: o connect seguinte resolve o
-            # token existente via /instance/all e recupera o QR.
+        # Instância já existe → idempotente: o connect seguinte resolve o token existente via
+        # /instance/all e recupera o QR. A EvoGo sinaliza "já existe" de forma inconsistente: além
+        # dos 400/403/409 clássicos, o /instance/create devolve **HTTP 500** com corpo
+        # `{"error":"instance already exists"}` (verificado ao vivo 12/07). Por isso casamos tanto
+        # os códigos conhecidos quanto a mensagem no corpo — sem tratar QUALQUER 500 como exists
+        # (mascararia erro real), só o que a EvoGo marca explicitamente como duplicado.
+        ja_existe = response.status_code in {400, 403, 409} or (
+            not response.is_success and "already exists" in response.text.lower()
+        )
+        if ja_existe:
             _logger.info(
                 "evolution_instance_create_ja_existe instance=%s status=%s",
                 instance_id,

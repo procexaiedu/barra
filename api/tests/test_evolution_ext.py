@@ -383,6 +383,27 @@ async def test_reresolve_token_no_401() -> None:
 
 
 @respx.mock
+async def test_criar_instancia_500_already_exists_e_idempotente() -> None:
+    """A EvoGo devolve HTTP 500 `{"error":"instance already exists"}` para nome duplicado — o
+    criar_instancia trata como idempotente (o connect seguinte resolve o token existente)."""
+    respx.post(f"{BASE}/instance/create").mock(
+        return_value=httpx.Response(500, json={"error": "instance already exists"})
+    )
+    res = await _client().criar_instancia("elitebaby01")
+    assert res["status"] == "exists"
+
+
+@respx.mock
+async def test_criar_instancia_500_generico_levanta() -> None:
+    """500 que NÃO é 'already exists' não pode ser mascarado como idempotente — propaga."""
+    respx.post(f"{BASE}/instance/create").mock(
+        return_value=httpx.Response(500, json={"error": "internal boom"})
+    )
+    with pytest.raises(httpx.HTTPStatusError):
+        await _client().criar_instancia("elitebaby01")
+
+
+@respx.mock
 async def test_instancia_inexistente_levanta() -> None:
     respx.get(f"{BASE}/instance/all").mock(
         return_value=httpx.Response(200, json={"data": [{"name": "outra", "token": "x"}]})
