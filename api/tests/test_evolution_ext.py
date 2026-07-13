@@ -1,29 +1,44 @@
-"""M4b — extensões do EvolutionClient: enviar_midia, marcar_lida, set_presence (05 §4/§5).
-
-Inclui o suporte a `quoted` em sendText/sendMedia (Evolution v2.3.6 / evolution_api_v3) —
-o agente humanizado passa o id da última msg do cliente quando uma bolha precisa sair
-com reply/citação (regras.md §<quote>).
-"""
+"""EvolutionClient sobre a Evolution GO (whatsmeow): envio de texto/mídia, markread, presença,
+status e info de grupo. A EvoGo escopa a operação pelo TOKEN da instância (header `apikey`),
+resolvido nome→token via GET /instance/all — então cada teste mocka /instance/all + o endpoint de
+operação (sem instância no path)."""
 
 import json
 
 import httpx
+import pytest
 import respx
 
-from barra.core.evolution import EvolutionClient
+from barra.core.evolution import EvolutionClient, limpar_cache_tokens
 from barra.settings import Settings
 
 BASE = "http://evolution.test"
+TOKEN = "tok-inst-1"
+
+
+@pytest.fixture(autouse=True)
+def _cache_limpo() -> None:
+    """O cache nome→token é módulo-level; zera antes de cada teste p/ não vazar tokens/instâncias
+    entre casos."""
+    limpar_cache_tokens()
 
 
 def _client() -> EvolutionClient:
-    settings = Settings(evolution_base_url=BASE, evolution_api_key="chave-teste")
+    settings = Settings(evolution_base_url=BASE, evolution_api_key="global-key")
     return EvolutionClient(settings)
 
 
+def _mock_instance_all(name: str = "inst-1", token: str = TOKEN) -> None:
+    respx.get(f"{BASE}/instance/all").mock(
+        return_value=httpx.Response(
+            200, json={"data": [{"name": name, "token": token, "connected": True}]}
+        )
+    )
+
+
 class RecordingConn:
-    """Conn mínima que registra as queries — prova que enviar_midia grava em
-    envios_evolution (registrar_envio chama conn.execute)."""
+    """Conn mínima que registra as queries — prova que enviar_* grava em envios_evolution
+    (registrar_envio chama conn.execute)."""
 
     def __init__(self) -> None:
         self.queries: list[tuple[str, object]] = []
@@ -33,198 +48,90 @@ class RecordingConn:
 
 
 @respx.mock
-async def test_enviar_midia_chama_sendmedia_e_grava_envio() -> None:
-    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-1"}})
+async def test_enviar_texto_resolve_token_e_chama_send_text() -> None:
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/send/text").mock(
+        return_value=httpx.Response(200, json={"id": "MID-1"})
     )
     conn = RecordingConn()
-    mid = await _client().enviar_midia(
+    mid = await _client().enviar_texto(
         conn=conn,
         instance_id="inst-1",
-        remote_jid="5521@s.whatsapp.net",
-        url="https://minio.test/foto.jpg",
-        caption="aqui, olha 😏",
-        media_type="image",
+        remote_jid="5521999@s.whatsapp.net",
+        texto="oi amor",
         contexto="conversa_cliente",
-        tipo="image",
+        tipo="texto",
     )
     assert mid == "MID-1"
-    assert route.called
     req = route.calls.last.request
-    assert json.loads(req.content) == {
-        "number": "5521@s.whatsapp.net",
-        "mediatype": "image",
-        "media": "https://minio.test/foto.jpg",
-        "caption": "aqui, olha 😏",
-    }
-    assert req.headers["apikey"] == "chave-teste"
-    # grava em envios_evolution (espelha enviar_texto)
+    # instância NÃO vai no path; number vira só os dígitos; auth é o TOKEN da instância.
+    assert json.loads(req.content) == {"number": "5521999", "text": "oi amor"}
+    assert req.headers["apikey"] == TOKEN
     assert any("INSERT INTO barravips.envios_evolution" in q for q, _ in conn.queries)
 
 
 @respx.mock
-async def test_enviar_midia_traduz_foto_para_image() -> None:
-    """Os callers reais (_enviar_midias, _card_chegada) passam `media_type='foto'` (o
-    midia_tipo_enum do dominio). A Evolution v2 sendMedia so aceita mediatype
-    image/video/document/audio — 'foto' cru dava 400 Bad Request e a midia nunca saia. O
-    cliente traduz 'foto'->'image' na fronteira."""
-    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-F"}})
+async def test_enviar_texto_grupo_mantem_jid() -> None:
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/send/text").mock(
+        return_value=httpx.Response(200, json={"id": "MID-G"})
     )
-    await _client().enviar_midia(
+    await _client().enviar_texto(
         conn=RecordingConn(),
         instance_id="inst-1",
-        remote_jid="5521@s.whatsapp.net",
-        url="https://minio.test/foto.png",
-        caption=None,
-        media_type="foto",  # valor do dominio (midia_tipo_enum), NAO o da Evolution
-        contexto="conversa_cliente",
-        tipo="midia",
+        remote_jid="123456@g.us",
+        texto="card",
+        contexto="grupo_coordenacao",
+        tipo="card",
     )
-    assert json.loads(route.calls.last.request.content)["mediatype"] == "image"
+    assert json.loads(route.calls.last.request.content)["number"] == "123456@g.us"
 
 
 @respx.mock
-async def test_enviar_midia_ignora_view_once_e_caption_none() -> None:
-    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-2"}})
-    )
-    # toggle off (default): view_once=True é aceito mas NÃO vai no body — a Evolution
-    # self-host oficial não expõe o campo no sendMedia (01 §6.13).
-    await _client().enviar_midia(
-        conn=RecordingConn(),
-        instance_id="inst-1",
-        remote_jid="5521@s.whatsapp.net",
-        url="https://minio.test/video.mp4",
-        caption=None,
-        media_type="video",
-        contexto="conversa_cliente",
-        tipo="video",
-        view_once=True,
-    )
-    body = json.loads(route.calls.last.request.content)
-    assert "viewOnce" not in body
-    assert "view_once" not in body
-    # caption=None não entra no body
-    assert "caption" not in body
-
-
-@respx.mock
-async def test_enviar_midia_injeta_viewonce_com_toggle_ligado() -> None:
-    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-3"}})
-    )
-    settings = Settings(
-        evolution_base_url=BASE, evolution_api_key="chave-teste", evolution_view_once=True
-    )
-    await EvolutionClient(settings).enviar_midia(
-        conn=RecordingConn(),
-        instance_id="inst-1",
-        remote_jid="5521@s.whatsapp.net",
-        url="https://minio.test/video.mp4",
-        caption=None,
-        media_type="video",
-        contexto="conversa_cliente",
-        tipo="video",
-        view_once=True,
-    )
-    body = json.loads(route.calls.last.request.content)
-    # toggle ligado + view_once=True → `viewOnce` entra no body (chave que a Baileys lê)
-    assert body["viewOnce"] is True
-
-
-@respx.mock
-async def test_enviar_midia_toggle_ligado_sem_view_once_nao_injeta() -> None:
-    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-4"}})
-    )
-    settings = Settings(
-        evolution_base_url=BASE, evolution_api_key="chave-teste", evolution_view_once=True
-    )
-    # foto (view_once=False): toggle ligado não força viewOnce — só vídeo pede.
-    await EvolutionClient(settings).enviar_midia(
-        conn=RecordingConn(),
-        instance_id="inst-1",
-        remote_jid="5521@s.whatsapp.net",
-        url="https://minio.test/foto.jpg",
-        caption=None,
-        media_type="image",
-        contexto="conversa_cliente",
-        tipo="image",
-        view_once=False,
-    )
-    assert "viewOnce" not in json.loads(route.calls.last.request.content)
-
-
-@respx.mock
-async def test_enviar_texto_anexa_quoted_quando_recebe_id() -> None:
-    route = respx.post(f"{BASE}/message/sendText/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-Q"}})
+async def test_enviar_texto_quoted_usa_message_id() -> None:
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/send/text").mock(
+        return_value=httpx.Response(200, json={"id": "MID-Q"})
     )
     await _client().enviar_texto(
         conn=RecordingConn(),
         instance_id="inst-1",
         remote_jid="5521@s.whatsapp.net",
-        texto="não tenho costume amor 😊",
-        contexto="conversa_cliente",
-        tipo="texto",
-        quoted_message_id="ABCDEF1234",
-    )
-    body = json.loads(route.calls.last.request.content)
-    # Sem quoted_text, conversation cai no fallback vazio (defesa; o balão fica sem
-    # o snippet, mas a setinha ainda aponta certo pelo key.id).
-    assert body["quoted"] == {"key": {"id": "ABCDEF1234"}, "message": {"conversation": ""}}
-    assert body["text"] == "não tenho costume amor 😊"
-
-
-@respx.mock
-async def test_enviar_texto_quoted_inclui_texto_real_no_conversation() -> None:
-    """Com quoted_text, o balão de reply renderiza o snippet: a Evolution v2.3.6 ecoa
-    `quoted.message.conversation` para o contextInfo (não faz lookup pelo id; verificado
-    2026-05-30 — sem isso o cliente vê citação vazia)."""
-    route = respx.post(f"{BASE}/message/sendText/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-QT"}})
-    )
-    await _client().enviar_texto(
-        conn=RecordingConn(),
-        instance_id="inst-1",
-        remote_jid="5521@s.whatsapp.net",
-        texto="não tenho costume amor 😊",
+        texto="faço sim vida",
         contexto="conversa_cliente",
         tipo="texto",
         quoted_message_id="ABCDEF1234",
         quoted_text="você faz anal?",
     )
     body = json.loads(route.calls.last.request.content)
-    assert body["quoted"] == {
-        "key": {"id": "ABCDEF1234"},
-        "message": {"conversation": "você faz anal?"},
-    }
+    # EvoGo resolve a citação pelo id (whatsmeow guarda a msg); não ecoa o texto como a v2.
+    assert body["quoted"] == {"messageId": "ABCDEF1234"}
 
 
 @respx.mock
 async def test_enviar_texto_sem_quoted_nao_inclui_chave() -> None:
-    route = respx.post(f"{BASE}/message/sendText/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-N"}})
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/send/text").mock(
+        return_value=httpx.Response(200, json={"id": "MID-N"})
     )
     await _client().enviar_texto(
         conn=RecordingConn(),
         instance_id="inst-1",
         remote_jid="5521@s.whatsapp.net",
-        texto="oi amor",
+        texto="oi",
         contexto="conversa_cliente",
         tipo="texto",
     )
-    body = json.loads(route.calls.last.request.content)
-    assert "quoted" not in body  # default não polui o payload
+    assert "quoted" not in json.loads(route.calls.last.request.content)
 
 
 @respx.mock
 async def test_enviar_texto_remove_marker_quote_residual() -> None:
-    """Rede de segurança: um `[quote...]` que escapou do chunk (marker no meio da linha,
-    sem linha em branco antes) NUNCA chega ao cliente — vazá-lo entrega que é uma IA."""
-    route = respx.post(f"{BASE}/message/sendText/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-R"}})
+    """Rede de segurança: um `[quote...]` que escapou do chunk NUNCA chega ao cliente — vazá-lo
+    entrega que é uma IA."""
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/send/text").mock(
+        return_value=httpx.Response(200, json={"id": "MID-R"})
     )
     await _client().enviar_texto(
         conn=RecordingConn(),
@@ -240,76 +147,110 @@ async def test_enviar_texto_remove_marker_quote_residual() -> None:
 
 
 @respx.mock
-async def test_enviar_midia_remove_marker_quote_do_caption() -> None:
-    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-MR"}})
+async def test_enviar_midia_chama_send_media_e_grava() -> None:
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/send/media").mock(
+        return_value=httpx.Response(200, json={"id": "MID-M"})
+    )
+    conn = RecordingConn()
+    mid = await _client().enviar_midia(
+        conn=conn,
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        url="https://minio.test/foto.jpg",
+        caption="aqui, olha 😏",
+        media_type="image",
+        contexto="conversa_cliente",
+        tipo="image",
+    )
+    assert mid == "MID-M"
+    body = json.loads(route.calls.last.request.content)
+    # EvoGo: `type` (não `mediatype`), `url` (não `media`), mídia por URL.
+    assert body == {
+        "number": "5521",
+        "type": "image",
+        "url": "https://minio.test/foto.jpg",
+        "caption": "aqui, olha 😏",
+    }
+    assert any("INSERT INTO barravips.envios_evolution" in q for q, _ in conn.queries)
+
+
+@respx.mock
+async def test_enviar_midia_traduz_foto_para_image() -> None:
+    """Os callers reais passam `media_type='foto'` (midia_tipo_enum do domínio); a EvoGo aceita
+    image/video/audio no `type`. Traduz 'foto'->'image' na fronteira."""
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/send/media").mock(
+        return_value=httpx.Response(200, json={"id": "MID-F"})
     )
     await _client().enviar_midia(
         conn=RecordingConn(),
         instance_id="inst-1",
         remote_jid="5521@s.whatsapp.net",
-        url="https://x/y.jpg",
-        caption="[quote: foto] essa sou eu amor",
-        media_type="image",
+        url="https://minio.test/foto.png",
+        caption=None,
+        media_type="foto",
         contexto="conversa_cliente",
         tipo="midia",
     )
     body = json.loads(route.calls.last.request.content)
-    assert "[quote" not in body["caption"].lower()
-    assert body["caption"] == "essa sou eu amor"
+    assert body["type"] == "image"
+    assert "caption" not in body  # caption=None não entra
 
 
 @respx.mock
-async def test_enviar_midia_anexa_quoted_quando_recebe_id() -> None:
-    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-Q2"}})
+async def test_enviar_midia_view_once_sempre_omitido() -> None:
+    """A EvoGo /send/media não expõe viewOnce; o kwarg é aceito por compat mas nunca vai no body,
+    mesmo com o toggle ligado (a mídia vai normal — mesmo comportamento do toggle-off na v2)."""
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/send/media").mock(
+        return_value=httpx.Response(200, json={"id": "MID-V"})
+    )
+    settings = Settings(
+        evolution_base_url=BASE, evolution_api_key="global-key", evolution_view_once=True
+    )
+    await EvolutionClient(settings).enviar_midia(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        url="https://minio.test/video.mp4",
+        caption=None,
+        media_type="video",
+        contexto="conversa_cliente",
+        tipo="video",
+        view_once=True,
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert "viewOnce" not in body and "view_once" not in body
+
+
+@respx.mock
+async def test_enviar_midia_quoted_usa_message_id() -> None:
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/send/media").mock(
+        return_value=httpx.Response(200, json={"id": "MID-Q2"})
     )
     await _client().enviar_midia(
         conn=RecordingConn(),
         instance_id="inst-1",
         remote_jid="5521@s.whatsapp.net",
         url="https://minio.test/foto.jpg",
-        caption="olha 😏",
+        caption="[quote: foto] essa sou eu",
         media_type="image",
         contexto="conversa_cliente",
         tipo="image",
         quoted_message_id="XYZ987",
     )
     body = json.loads(route.calls.last.request.content)
-    # sem quoted_text → fallback vazio (mesma regra do enviar_texto)
-    assert body["quoted"] == {"key": {"id": "XYZ987"}, "message": {"conversation": ""}}
+    assert body["quoted"] == {"messageId": "XYZ987"}
+    assert body["caption"] == "essa sou eu"  # marker [quote] removido do caption
 
 
 @respx.mock
-async def test_enviar_midia_quoted_inclui_texto_real_no_conversation() -> None:
-    """Com quoted_text, o sendMedia também preenche o snippet do balão (Evolution v2.3.6
-    ecoa quoted.message.conversation; sem isso, citação vazia)."""
-    route = respx.post(f"{BASE}/message/sendMedia/inst-1").mock(
-        return_value=httpx.Response(200, json={"key": {"id": "MID-QT2"}})
-    )
-    await _client().enviar_midia(
-        conn=RecordingConn(),
-        instance_id="inst-1",
-        remote_jid="5521@s.whatsapp.net",
-        url="https://minio.test/foto.jpg",
-        caption="olha 😏",
-        media_type="image",
-        contexto="conversa_cliente",
-        tipo="image",
-        quoted_message_id="XYZ987",
-        quoted_text="manda foto sua",
-    )
-    body = json.loads(route.calls.last.request.content)
-    assert body["quoted"] == {
-        "key": {"id": "XYZ987"},
-        "message": {"conversation": "manda foto sua"},
-    }
-
-
-@respx.mock
-async def test_marcar_lida_chama_endpoint_sem_gravar() -> None:
-    route = respx.post(f"{BASE}/chat/markMessageAsRead/inst-1").mock(
-        return_value=httpx.Response(200, json={"status": "ok"})
+async def test_marcar_lida_chama_markread_sem_gravar() -> None:
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/message/markread").mock(
+        return_value=httpx.Response(200, json={"message": "success"})
     )
     # marcar_lida nem recebe conn → estruturalmente não grava em envios_evolution
     await _client().marcar_lida(
@@ -317,20 +258,14 @@ async def test_marcar_lida_chama_endpoint_sem_gravar() -> None:
         remote_jid="5521@s.whatsapp.net",
         message_ids=["A", "B"],
     )
-    assert route.called
-    # Evolution v2.3.6 self-host exige `readMessages` em camelCase (fix em 6deb321).
-    assert json.loads(route.calls.last.request.content) == {
-        "readMessages": [
-            {"remoteJid": "5521@s.whatsapp.net", "fromMe": False, "id": "A"},
-            {"remoteJid": "5521@s.whatsapp.net", "fromMe": False, "id": "B"},
-        ]
-    }
+    assert json.loads(route.calls.last.request.content) == {"number": "5521", "id": ["A", "B"]}
 
 
 @respx.mock
-async def test_set_presence_chama_endpoint() -> None:
-    route = respx.post(f"{BASE}/chat/sendPresence/inst-1").mock(
-        return_value=httpx.Response(200, json={"status": "ok"})
+async def test_set_presence_chama_message_presence() -> None:
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/message/presence").mock(
+        return_value=httpx.Response(200, json={"message": "success"})
     )
     await _client().set_presence(
         instance_id="inst-1",
@@ -338,17 +273,33 @@ async def test_set_presence_chama_endpoint() -> None:
         presence="composing",
         delay_ms=1500,
     )
-    assert route.called
     assert json.loads(route.calls.last.request.content) == {
-        "number": "5521@s.whatsapp.net",
-        "presence": "composing",
-        "delay": 1500,
+        "number": "5521",
+        "state": "composing",
+        "isAudio": False,
     }
 
 
 @respx.mock
+async def test_set_presence_recording_marca_is_audio() -> None:
+    _mock_instance_all()
+    route = respx.post(f"{BASE}/message/presence").mock(
+        return_value=httpx.Response(200, json={"message": "success"})
+    )
+    await _client().set_presence(
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        presence="recording",
+        delay_ms=0,
+    )
+    body = json.loads(route.calls.last.request.content)
+    assert body["state"] == "composing" and body["isAudio"] is True
+
+
+@respx.mock
 async def test_set_presence_best_effort_engole_falha() -> None:
-    respx.post(f"{BASE}/chat/sendPresence/inst-1").mock(side_effect=httpx.ConnectError("down"))
+    _mock_instance_all()
+    respx.post(f"{BASE}/message/presence").mock(side_effect=httpx.ConnectError("down"))
     # best-effort (05 §4.1): falha de rede loga e segue, não estoura o turno
     await _client().set_presence(
         instance_id="inst-1",
@@ -356,3 +307,94 @@ async def test_set_presence_best_effort_engole_falha() -> None:
         presence="composing",
         delay_ms=1500,
     )
+
+
+@respx.mock
+async def test_estado_conexao_pascalcase_open() -> None:
+    _mock_instance_all()
+    respx.get(f"{BASE}/instance/status").mock(
+        return_value=httpx.Response(200, json={"data": {"Connected": True, "LoggedIn": True}})
+    )
+    assert await _client().estado_conexao("inst-1") == "open"
+
+
+@respx.mock
+async def test_estado_conexao_conectando_e_fechado() -> None:
+    _mock_instance_all()
+    respx.get(f"{BASE}/instance/status").mock(
+        return_value=httpx.Response(200, json={"data": {"Connected": True, "LoggedIn": False}})
+    )
+    assert await _client().estado_conexao("inst-1") == "connecting"
+
+
+@respx.mock
+async def test_buscar_grupo_info_normaliza_participants_pascalcase() -> None:
+    _mock_instance_all()
+    respx.post(f"{BASE}/group/info").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "data": {
+                    "Participants": [
+                        # JID vem como @lid (shape real da EvoGo); o telefone real é PhoneNumber.
+                        {"JID": "888@lid", "PhoneNumber": "5519@s.whatsapp.net", "LID": "888@lid"},
+                        {"PhoneNumber": "5521"},  # dígitos crus → recebe @s.whatsapp.net
+                    ]
+                }
+            },
+        )
+    )
+    info = await _client().buscar_grupo_info("inst-1", "123@g.us")
+    # prefere PhoneNumber (E.164 real), nunca o JID @lid — a verificação de Coordenação casa por
+    # dígitos do telefone.
+    assert info["participants"] == [
+        {"id": "5519@s.whatsapp.net"},
+        {"id": "5521@s.whatsapp.net"},
+    ]
+
+
+@respx.mock
+async def test_reresolve_token_no_401() -> None:
+    """Token em cache virou inválido (rotacionado) → 401 → re-resolve /instance/all e repete."""
+    all_route = respx.get(f"{BASE}/instance/all").mock(
+        side_effect=[
+            httpx.Response(200, json={"data": [{"name": "inst-1", "token": "velho"}]}),
+            httpx.Response(200, json={"data": [{"name": "inst-1", "token": "novo"}]}),
+        ]
+    )
+    send_route = respx.post(f"{BASE}/send/text").mock(
+        side_effect=[
+            httpx.Response(401, json={"error": "unauthorized"}),
+            httpx.Response(200, json={"id": "MID-OK"}),
+        ]
+    )
+    mid = await _client().enviar_texto(
+        conn=RecordingConn(),
+        instance_id="inst-1",
+        remote_jid="5521@s.whatsapp.net",
+        texto="oi",
+        contexto="conversa_cliente",
+        tipo="texto",
+    )
+    assert mid == "MID-OK"
+    assert all_route.call_count == 2  # resolveu de novo após o 401
+    assert send_route.call_count == 2
+    assert send_route.calls[-1].request.headers["apikey"] == "novo"
+
+
+@respx.mock
+async def test_instancia_inexistente_levanta() -> None:
+    respx.get(f"{BASE}/instance/all").mock(
+        return_value=httpx.Response(200, json={"data": [{"name": "outra", "token": "x"}]})
+    )
+    from barra.core.errors import ErroDominio
+
+    with pytest.raises(ErroDominio):
+        await _client().enviar_texto(
+            conn=RecordingConn(),
+            instance_id="inst-1",
+            remote_jid="5521@s.whatsapp.net",
+            texto="oi",
+            contexto="conversa_cliente",
+            tipo="texto",
+        )
