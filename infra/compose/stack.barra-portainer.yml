@@ -60,10 +60,23 @@ services:
       # (chave ausente/auth falhou) -> RuntimeError no startup, deploy falha na hora em vez
       # de rodar cego. Cenario real: redeploy git sem Env zera LANGFUSE_PUBLIC/SECRET_KEY.
       - LANGFUSE_OBRIGATORIO=true
-      - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
+      - EVOLUTION_BASE_URL=https://evogo.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - EVOLUTION_INSTANCIA=lucia
+      - EVOLUTION_INSTANCIA=procex-teste
+      # Migração Evolution GO (via webhook-router, número procex-teste COMPARTILHADO): o
+      # EVOLUTION_WEBHOOK_TOKEN é o token que o router.procexai.tech anexa ao encaminhar pra cá
+      # (?token=), DISTINTO da EVOLUTION_API_KEY (que na EvoGo é a GLOBAL_API_KEY, cria/deleta
+      # instâncias). Trocar ambos no Env do stack no Portainer no cutover.
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
+      # Via ROUTER: callback VAZIO de propósito. A procex-teste é compartilhada (o webhook dela
+      # aponta pro router, que faz fan-out pra 6 destinos); se a barra setasse webhookUrl próprio
+      # no /instance/connect, sobrescreveria o router e derrubaria os outros projetos. Com o
+      # callback vazio a barra nunca reescreve o webhook. NÃO clicar "Conectar WhatsApp" nessa
+      # instância no painel (força re-pareamento e desconecta o número já pareado).
+      - EVOLUTION_WEBHOOK_CALLBACK_URL=
+      # Host do MinIO da EvoGo (mídia inbound WEBHOOK_FILES vem de host distinto do base_url) —
+      # liberado no anti-SSRF do download de mídia.
+      - 'EVOLUTION_MEDIA_HOSTS=["minioback.procexai.tech"]'
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
       - 'CORS_ORIGINS=["https://elitebaby.procexai.tech","https://barravips.procexai.tech","https://barra-nine.vercel.app","https://barra-procexais-projects.vercel.app","https://barra-git-main-procexais-projects.vercel.app","https://barra-vips.vercel.app"]'
@@ -159,10 +172,23 @@ services:
       # (chave ausente/auth falhou) -> RuntimeError no startup, deploy falha na hora em vez
       # de rodar cego. Cenario real: redeploy git sem Env zera LANGFUSE_PUBLIC/SECRET_KEY.
       - LANGFUSE_OBRIGATORIO=true
-      - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
+      - EVOLUTION_BASE_URL=https://evogo.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - EVOLUTION_INSTANCIA=lucia
+      - EVOLUTION_INSTANCIA=procex-teste
+      # Migração Evolution GO (via webhook-router, número procex-teste COMPARTILHADO): o
+      # EVOLUTION_WEBHOOK_TOKEN é o token que o router.procexai.tech anexa ao encaminhar pra cá
+      # (?token=), DISTINTO da EVOLUTION_API_KEY (que na EvoGo é a GLOBAL_API_KEY, cria/deleta
+      # instâncias). Trocar ambos no Env do stack no Portainer no cutover.
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
+      # Via ROUTER: callback VAZIO de propósito. A procex-teste é compartilhada (o webhook dela
+      # aponta pro router, que faz fan-out pra 6 destinos); se a barra setasse webhookUrl próprio
+      # no /instance/connect, sobrescreveria o router e derrubaria os outros projetos. Com o
+      # callback vazio a barra nunca reescreve o webhook. NÃO clicar "Conectar WhatsApp" nessa
+      # instância no painel (força re-pareamento e desconecta o número já pareado).
+      - EVOLUTION_WEBHOOK_CALLBACK_URL=
+      # Host do MinIO da EvoGo (mídia inbound WEBHOOK_FILES vem de host distinto do base_url) —
+      # liberado no anti-SSRF do download de mídia.
+      - 'EVOLUTION_MEDIA_HOSTS=["minioback.procexai.tech"]'
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
       # Allowlist de teste: grupo cliente-teste + grupo de Coordenação (ver serviço da API).

@@ -23,6 +23,7 @@ from barra.webhook.despacho import enfileirar_turno
 from barra.webhook.parser import (
     MensagemEvolution,
     _numero_curto,
+    adaptar_webhook_go,
     extrair_mensagem,
     parse_comando_grupo,
 )
@@ -77,22 +78,32 @@ def _segmento_objeto_seguro(valor: str) -> str:
     return seguro[:119] + "_" + sufixo
 
 
-def _host_permitido(url: str, base_url: str) -> bool:
-    """A mídia só pode vir do mesmo host da Evolution (anti-SSRF). Sem base_url
-    configurada não há allowlist para validar → recusa (fail-closed)."""
-    if not base_url:
-        return False
+def _host_permitido(url: str, base_url: str, hosts_extra: list[str] | None = None) -> bool:
+    """A mídia só pode vir do host da Evolution ou de um host explicitamente permitido
+    (anti-SSRF). Sem base_url nem hosts_extra não há allowlist → recusa (fail-closed). O
+    `hosts_extra` cobre a Evolution GO, cuja mídia inbound (WEBHOOK_FILES) vem do MinIO dela, num
+    host distinto do `evolution_base_url` — configurado em `settings.evolution_media_hosts`."""
     alvo = urlsplit(url).hostname
-    permitido = urlsplit(base_url).hostname
-    if not alvo or not permitido:
+    if not alvo:
         return False
-    return alvo.lower() == permitido.lower()
+    alvo = alvo.lower()
+    permitidos: set[str] = set()
+    base_host = urlsplit(base_url).hostname if base_url else None
+    if base_host:
+        permitidos.add(base_host.lower())
+    for h in hosts_extra or []:
+        h = h.strip().lower()
+        if h:
+            permitidos.add(h)
+    return alvo in permitidos
 
 
-async def _baixar_midia(url: str, base_url: str, max_bytes: int) -> tuple[bytes, str] | None:
+async def _baixar_midia(
+    url: str, base_url: str, max_bytes: int, hosts_extra: list[str] | None = None
+) -> tuple[bytes, str] | None:
     # Loga só o host: a media_url da Evolution carrega path/token da mídia do cliente (PII);
     # tracing.py já a trata como PII no Sentry, então não pode vazar pelo logger da aplicação.
-    if not _host_permitido(url, base_url):
+    if not _host_permitido(url, base_url, hosts_extra):
         _logger.warning("download_midia_host_negado host=%s", urlsplit(url).hostname)
         return None
     # Teto de concorrência (anti-DoS): recusa cedo se já há _MAX_DOWNLOADS_MIDIA em voo,
@@ -186,6 +197,11 @@ async def evolution_webhook(
         raise ErroDominio("PAYLOAD_GRANDE", "Payload excede o limite.", status_code=413)
 
     payload = await request.json()
+    # Evolution GO (whatsmeow): converte o envelope CamelCase (`data.Info`/`data.Message`,
+    # `instanceName`, eventos `Message`/`Connection`) para o shape v2 que todo o resto do módulo
+    # já parseia. Payload v2 (ou não-Go) passa reto — compat durante a transição.
+    if isinstance(payload, dict):
+        payload = adaptar_webhook_go(payload)
 
     pool = getattr(request.app.state, "db_pool", None)
     if pool is None:
@@ -221,7 +237,10 @@ async def evolution_webhook(
             )
         elif msg.media_url:
             midia = await _baixar_midia(
-                msg.media_url, settings.evolution_base_url, settings.midia_max_bytes
+                msg.media_url,
+                settings.evolution_base_url,
+                settings.midia_max_bytes,
+                settings.evolution_media_hosts,
             )
 
     async with pool.connection() as conn:
