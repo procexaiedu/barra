@@ -169,7 +169,7 @@ class Settings(BaseSettings):
     )
     output_guard_judge_habilitado: bool = Field(
         default=True,
-        description="Liga a Etapa 2 (LLM-judge de AUP vinculante) do output_guard. False roda so a Etapa 1 (scan deterministico barato), util se o judge nao-calibrado causar over-refusal. Falha de infra do judge -> default seguro (bloqueia+escala), nunca configuravel p/ passar.",
+        description="Liga a Etapa 2 (LLM-judge de AUP vinculante) do output_guard. False roda so a Etapa 1 (scan deterministico barato), util se o judge nao-calibrado causar over-refusal. ATENCAO: a Etapa 1 so cobre ia_self/system/outro_cliente/raciocinio -- AUP DURA (ato com menor/sem consentimento/ilegal) e a promessa que revela a farsa NAO tem piso deterministico, sao 100% Etapa 2; com False essas classes ficam SEM barreira de saida (a rede final _saida_guard tambem nao cobre AUP). Desligue apenas pontualmente por over-refusal calibrado, nunca como config permanente em prod. Falha de infra do judge -> default seguro (bloqueia+escala), nunca configuravel p/ passar.",
     )
     output_guard_regen_habilitado: bool = Field(
         default=True,

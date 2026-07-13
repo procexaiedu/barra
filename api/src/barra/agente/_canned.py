@@ -37,7 +37,7 @@ NEGACOES_CANNED = [
 # OU {"ok": false} do worker) E o audio era a mensagem que disparou o turno. Tom da persona,
 # pede o cliente reformular por escrito sem expor o motivo tecnico.
 TRANSCRICAO_FALHOU_CANNED = [
-    "amor, não consegui ouvir teu áudio agora, me manda por escrito? 🥰",
+    "não consegui ouvir teu áudio agora, me manda por escrito amor? 🥰",
     "tô com problema no áudio aqui vida, consegue me escrever?",
     "não chegou direito teu áudio amor, escreve pra mim?",
 ]

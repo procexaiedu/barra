@@ -41,8 +41,12 @@ async def consultar_agenda(
 
     Returns:
         Uma linha por horário OCUPADO (dia e hora), ou a frase de que não há horário
-        ocupado no período — o que não aparece está livre. Se o horário que o cliente pediu
-        cair num bloqueio, siga sua conduta de indisponibilidade (nas suas regras).
+        ocupado no período. ATENÇÃO: ausência de bloqueio ≠ disponível — esta tool só lê
+        horários OCUPADOS, não o seu período de trabalho. Antes de oferecer um slot que
+        "aparece livre", cruze com <periodo_de_trabalho> no contexto: dia/hora fora das suas
+        regras é folga/viagem — trate como expediente encerrado e ancore a volta, NÃO ofereça
+        o horário. Se o horário que o cliente pediu cair num bloqueio, siga sua conduta de
+        indisponibilidade (nas suas regras).
     """
     # `format: "date"` no schema (params tipados `date`): o parse/validacao do YYYY-MM-DD roda na
     # camada de args (data invalida vira ToolMessage de erro do ToolNode, com o detalhe pydantic).
