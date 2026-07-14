@@ -449,6 +449,26 @@ class Settings(BaseSettings):
         ),
     )
 
+    feedback_rig_ack: bool = Field(
+        default=False,
+        description=(
+            "Liga o ACK de registro do rig de feedback: ao capturar uma mensagem com substância no "
+            "grupo `feedback_rig_grupo_jid`, agenda (debounce ~2 min, coalesce por grupo) uma resposta "
+            "curta citando a mensagem — o Fernando/Rossi vê que o feedback foi registrado. Best-effort, "
+            "não persiste em envios_evolution. Default False. Só faz efeito com `feedback_rig_grupo_jid` setado."
+        ),
+    )
+
+    github_webhook_secret: str | None = Field(
+        default=None,
+        description=(
+            "Secret HMAC do webhook do GitHub (`/webhook/github`, evento `issues`). Quando setado, o "
+            "fecho de uma issue que carrega o rodapé-máquina `feedback-rig` dispara o aviso de "
+            "'desenvolvido' citando a mensagem original do Rossi no grupo de feedback. Default None = "
+            "webhook desligado (eventos ignorados). Ferramenta de DEV, fora do fluxo de cliente."
+        ),
+    )
+
     sentry_dsn: str | None = None
 
     @model_validator(mode="after")

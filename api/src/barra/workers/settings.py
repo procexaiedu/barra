@@ -36,6 +36,7 @@ from barra.workers.comprovante_fechamento import fechar_via_comprovante
 from barra.workers.coordenador import processar_turno
 from barra.workers.digest_semanal import enviar_digest_semanal
 from barra.workers.envio import MAX_TRIES_ENVIO, enviar_card, enviar_turno
+from barra.workers.feedback_rig import enviar_ack_feedback_rig, enviar_aviso_desenvolvido
 from barra.workers.fluxo_drift import medir_fluxo_drift
 from barra.workers.judge_pos_envio import julgar_turno_pos_envio
 from barra.workers.lembrete_valor import cobrar_valor_final
@@ -260,6 +261,11 @@ class WorkerSettings:
         # max_tries=1: telemetria não re-queima crédito de LLM em falha (o turno fica sem
         # julgamento e a métrica `indisponivel` registra).
         func(julgar_turno_pos_envio, max_tries=1),
+        # Ack de registro do rig de feedback (deferido ~2 min, coalesce por grupo). max_tries=1:
+        # sinalização best-effort, não re-tenta.
+        func(enviar_ack_feedback_rig, max_tries=1),
+        # Aviso de "desenvolvido" (fecho de issue via webhook GitHub). max_tries=1: idem.
+        func(enviar_aviso_desenvolvido, max_tries=1),
     ]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),

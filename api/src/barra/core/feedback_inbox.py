@@ -18,12 +18,50 @@ quebrar o ack do webhook — é ferramenta de dev sobre a borda de ingestão de 
 
 from __future__ import annotations
 
+import json
 import logging
+import re
 from typing import Any
 
 logger = logging.getLogger(__name__)
 
 TRACE_NAME_INBOX = "feedback_rig_inbox"
+
+# Rodapé-máquina que a skill /processar-feedbacks embute no corpo da issue: liga a issue de volta à
+# mensagem de WhatsApp que originou o feedback. No fecho da issue, o webhook do GitHub lê isto e a
+# lucia responde citando a mensagem original (aviso de "desenvolvido"). JSON dentro de um comentário
+# HTML — invisível no GitHub renderizado, robusto a escaping.
+_RODAPE_RE = re.compile(r"<!--\s*feedback-rig:\s*(\{.*?\})\s*-->", re.DOTALL)
+_RODAPE_TEXTO_MAX = 120
+
+
+def montar_rodape_issue(*, message_id: str, remote_jid: str, texto: str) -> str:
+    """Monta o rodapé-máquina p/ a issue. `texto` é saneado (uma linha, truncado, sem `>`) — vira o
+    balão de citação do aviso de 'desenvolvido'; `-->`/quebra de linha quebrariam o comentário."""
+    snippet = re.sub(r"\s+", " ", (texto or "").replace(">", "")).strip()[:_RODAPE_TEXTO_MAX]
+    dados = {"message_id": message_id, "remote_jid": remote_jid, "texto": snippet}
+    return f"<!-- feedback-rig: {json.dumps(dados, ensure_ascii=False)} -->"
+
+
+def parse_rodape_issue(body: str | None) -> dict[str, str] | None:
+    """Extrai `{message_id, remote_jid, texto}` do rodapé-máquina no corpo da issue, ou None se
+    ausente/malformado. Best-effort: JSON inválido ou sem os campos-chave devolve None."""
+    if not body:
+        return None
+    m = _RODAPE_RE.search(body)
+    if not m:
+        return None
+    try:
+        dados = json.loads(m.group(1))
+    except (json.JSONDecodeError, ValueError):
+        return None
+    if not isinstance(dados, dict) or not dados.get("message_id") or not dados.get("remote_jid"):
+        return None
+    return {
+        "message_id": str(dados["message_id"]),
+        "remote_jid": str(dados["remote_jid"]),
+        "texto": str(dados.get("texto") or ""),
+    }
 
 
 def montar_inbox_payload(

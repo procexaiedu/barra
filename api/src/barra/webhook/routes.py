@@ -4,8 +4,10 @@ import binascii
 import hashlib
 import hmac
 import io
+import json
 import logging
 import re
+from datetime import timedelta
 from typing import Any, cast
 from urllib.parse import urlsplit
 from uuid import UUID
@@ -15,7 +17,11 @@ from fastapi import APIRouter, Header, Request
 
 from barra.core.errors import ErroDominio, JidNaoPermitido
 from barra.core.evolution import EvolutionClient, envio_existe
-from barra.core.feedback_inbox import emitir_feedback_inbox, montar_inbox_payload
+from barra.core.feedback_inbox import (
+    emitir_feedback_inbox,
+    montar_inbox_payload,
+    parse_rodape_issue,
+)
 from barra.core.metrics import COMANDOS_GRUPO, WEBHOOK_ERRORS
 from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import garantir_conversa, listar_pendencias_modelo
@@ -34,6 +40,11 @@ from barra.workers._cards import render_card
 router = APIRouter()
 
 _logger = logging.getLogger(__name__)
+
+# ACK de registro do rig de feedback: janela de debounce e piso de substância (texto abaixo disso
+# — 'blz', 'ok' — não arma o ack; mídia sempre arma). Ver `_capturar_feedback_rig`.
+_ACK_DEBOUNCE_S = 120
+_ACK_MIN_CHARS = 20
 
 # Teto de downloads de mídia concorrentes no processo da API. O download roda inline no
 # handler do webhook (antes de tocar o pool), então um burst de webhooks de mídia abriria N
@@ -207,7 +218,7 @@ async def evolution_webhook(
     # gate, senão cairia em JidNaoPermitido. Curto-circuita antes do fluxo de cliente: não persiste,
     # não abre pool, não decodifica mídia (base64 já vem no msg).
     if _eh_grupo_feedback(msg, settings):
-        return _capturar_feedback_rig(msg)
+        return await _capturar_feedback_rig(request, msg)
 
     if settings.jid_permitido and msg.remote_jid not in settings.jid_permitido:
         raise JidNaoPermitido()
@@ -943,10 +954,20 @@ def _eh_grupo_feedback(msg: MensagemEvolution, settings: Any) -> bool:
     )
 
 
-def _capturar_feedback_rig(msg: MensagemEvolution) -> dict[str, str]:
+def _feedback_tem_substancia(msg: MensagemEvolution) -> bool:
+    """Só arma o ACK de registro para mensagem com substância — mídia (print/áudio de feedback) ou
+    texto com um mínimo de caracteres. Evita responder a ruído de grupo ('blz', 'ok'). A captura do
+    trace segue indiscriminada (é barata; a skill filtra o que vira issue)."""
+    if msg.tipo != "texto":
+        return True
+    return len((msg.texto or "").strip()) >= _ACK_MIN_CHARS
+
+
+async def _capturar_feedback_rig(request: Request, msg: MensagemEvolution) -> dict[str, str]:
     """Deposita a mensagem do grupo de feedback como inbox no Langfuse e curto-circuita — não
     persiste no banco, não abre pool, não decodifica mídia (o base64 já vem inline no `msg`) e não
-    gasta LLM. O STT/vision do áudio/print roda dev-time na skill, não aqui."""
+    gasta LLM. O STT/vision do áudio/print roda dev-time na skill, não aqui. Se `feedback_rig_ack`
+    estiver ligado, agenda um ACK de registro (debounce ~2 min, best-effort)."""
     payload = montar_inbox_payload(
         message_id=msg.evolution_message_id,
         remote_jid=msg.remote_jid,
@@ -961,8 +982,75 @@ def _capturar_feedback_rig(msg: MensagemEvolution) -> dict[str, str]:
     _logger.info(
         "feedback_rig_capturado message_id=%s trace_id=%s", msg.evolution_message_id, trace_id
     )
+    settings = request.app.state.settings
+    arq = getattr(request.app.state, "arq", None)
+    if settings.feedback_rig_ack and arq is not None and _feedback_tem_substancia(msg):
+        # Debounce ~2 min coalescido por grupo (`_job_id` estático SET NX first-wins): o 1º feedback
+        # da rajada agenda o ack citando a própria mensagem; os seguintes na janela não duplicam.
+        try:
+            await arq.enqueue_job(
+                "enviar_ack_feedback_rig",
+                remote_jid=msg.remote_jid,
+                instance_id=msg.instance_id,
+                quoted_message_id=msg.evolution_message_id,
+                quoted_text=(msg.texto or msg.caption or ""),
+                _job_id=f"ack_fb:{msg.remote_jid}",
+                _defer_by=timedelta(seconds=_ACK_DEBOUNCE_S),
+            )
+        except Exception:
+            _logger.warning("feedback_rig_ack_enqueue_falhou", exc_info=True)
     # trace_id None (tracing off/erro) vira "" na resposta HTTP; o valor real fica no log acima.
     return {"status": "feedback_rig", "trace_id": trace_id or ""}
+
+
+@router.post("/github")
+async def github_webhook(
+    request: Request,
+    x_hub_signature_256: str | None = Header(default=None),
+    x_github_event: str | None = Header(default=None),
+) -> dict[str, str]:
+    """Webhook do GitHub p/ o loop de 'desenvolvido' do rig de feedback. No fecho de uma issue que
+    carrega o rodapé `feedback-rig`, a lucia responde citando a mensagem original do Rossi no grupo,
+    fechando o loop. Gate: `github_webhook_secret` (None = desligado, eventos ignorados). Fora do
+    fluxo de cliente; ferramenta de DEV. Idempotência: `_job_id=dev_fb:{message_id}` coalesce a
+    reentrega comum do GitHub num aviso só."""
+    settings = request.app.state.settings
+    if not settings.github_webhook_secret:
+        return {"status": "github_webhook_off"}
+
+    raw = await request.body()
+    esperado = (
+        "sha256="
+        + hmac.new(settings.github_webhook_secret.encode(), raw, hashlib.sha256).hexdigest()
+    )
+    if not x_hub_signature_256 or not hmac.compare_digest(esperado, x_hub_signature_256):
+        WEBHOOK_ERRORS.labels("github_auth").inc()
+        raise ErroDominio("WEBHOOK_NAO_AUTORIZADO", "Assinatura invalida.", status_code=401)
+
+    if x_github_event != "issues":
+        return {"status": "ignored"}
+    try:
+        payload = json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return {"status": "ignored"}
+    if payload.get("action") != "closed":
+        return {"status": "ignored"}
+
+    meta = parse_rodape_issue((payload.get("issue") or {}).get("body"))
+    if meta is None:
+        return {"status": "sem_rodape_feedback"}
+
+    arq = getattr(request.app.state, "arq", None)
+    if arq is not None:
+        await arq.enqueue_job(
+            "enviar_aviso_desenvolvido",
+            remote_jid=meta["remote_jid"],
+            instance_id=settings.evolution_instancia,
+            quoted_message_id=meta["message_id"],
+            quoted_text=meta["texto"],
+            _job_id=f"dev_fb:{meta['message_id']}",
+        )
+    return {"status": "aviso_desenvolvido"}
 
 
 async def _processar_reset_teste(

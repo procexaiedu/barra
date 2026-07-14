@@ -105,6 +105,39 @@ class EvolutionClient:
         ENVIOS_EVOLUTION.labels("sucesso").inc()
         return evolution_message_id
 
+    async def enviar_texto_avulso(
+        self,
+        *,
+        instance_id: str,
+        remote_jid: str,
+        texto: str,
+        quoted_message_id: str | None = None,
+        quoted_text: str | None = None,
+    ) -> str | None:
+        """Texto SEM persistir em `envios_evolution` — para mensagens fora do domínio.
+
+        O rig de feedback (skill /processar-feedbacks) é ferramenta de DEV desacoplada do domínio:
+        o ack de registro e o aviso de "desenvolvido" não são `conversa_cliente` nem
+        `grupo_coordenacao` (os únicos `contexto` que a tabela aceita), então não registramos. O
+        quote segue a regra do `enviar_texto` (a Evolution ecoa `quoted.message.conversation`).
+        Devolve o id do envio, ou None se a Evolution não estiver configurada.
+        """
+        if not self.settings.evolution_base_url:
+            return None
+        body: dict[str, Any] = {"number": remote_jid, "text": _remover_markers_quote(texto)}
+        if quoted_message_id:
+            body["quoted"] = {
+                "key": {"id": quoted_message_id},
+                "message": {"conversation": quoted_text or ""},
+            }
+        url = f"{self.settings.evolution_base_url.rstrip('/')}/message/sendText/{instance_id}"
+        headers = {"apikey": self.settings.evolution_api_key}
+        async with httpx.AsyncClient(timeout=20) as client:
+            response = await client.post(url, json=body, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+        return _extrair_message_id(data)
+
     async def enviar_midia(
         self,
         *,

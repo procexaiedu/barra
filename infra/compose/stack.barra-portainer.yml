@@ -66,9 +66,15 @@ services:
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
-      # Rollback temporário evo2/lucia: ingestão automática do rig de feedback (#93). Grupo
-      # "Feedbacks 💡" da lucia. JID (não segredo, como o de coordenação acima). Desligar = remover.
+      # Ingestão automática do rig de feedback (#93). Grupo "ProceX - Feedbacks EliteBaby" da lucia.
+      # JID (não é segredo, como o de coordenação acima). Desligar a captura = remover esta linha.
       - FEEDBACK_RIG_GRUPO_JID=120363426757729499@g.us
+      # ACK de registro: a lucia responde "anotei aqui" citando o feedback (debounce ~2 min). Só
+      # arma p/ mensagem com substância; não persiste em envios_evolution.
+      - FEEDBACK_RIG_ACK=true
+      # Secret HMAC do webhook do GitHub (/webhook/github) p/ o aviso de "desenvolvido" no fecho da
+      # issue. VALOR fica no Env do stack (Portainer), não aqui. Vazio = webhook desligado (seguro).
+      - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
       - 'CORS_ORIGINS=["https://elitebaby.procexai.tech","https://barravips.procexai.tech","https://barra-nine.vercel.app","https://barra-procexais-projects.vercel.app","https://barra-git-main-procexais-projects.vercel.app","https://barra-vips.vercel.app"]'
       - 'CORS_ORIGIN_REGEX=https://([a-z0-9-]+\.)*procexai\.tech|https://barra[a-z0-9-]*\.vercel\.app'
       # Allowlist de teste: pina o grupo cliente-teste E o grupo de Coordenação, senão o
@@ -168,9 +174,11 @@ services:
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
-      # Rollback temporário evo2/lucia: ingestão automática do rig de feedback (#93). Grupo
-      # "Feedbacks 💡" da lucia. JID (não segredo, como o de coordenação acima). Desligar = remover.
+      # Ingestão automática do rig de feedback (#93). Grupo "ProceX - Feedbacks EliteBaby" da lucia.
+      # JID (não é segredo, como o de coordenação acima). Desligar a captura = remover esta linha.
       - FEEDBACK_RIG_GRUPO_JID=120363426757729499@g.us
+      # ACK de registro (o job roda no worker; lê este gate). Ver serviço da API.
+      - FEEDBACK_RIG_ACK=true
       # Allowlist de teste: grupo cliente-teste + grupo de Coordenação (ver serviço da API).
       - 'JID_PERMITIDO=["120363423572479616@g.us","120363407815206369@g.us"]'
       - SENTRY_DSN=

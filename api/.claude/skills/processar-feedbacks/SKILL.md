@@ -161,7 +161,20 @@ manual (sem inbox), cheque o **trace ancorado** antes de filar.
 - **Acionável** → `gh issue create --repo procexaiedu/barra --label ready-for-agent` com o corpo do
   draft (Sintoma · Esperado · Contexto interno · Hipótese de código). Inclua o `trace_id` no corpo —
   torna a âncora rastreável e serve de cross-check da idempotência (buscável por `gh issue list --search`).
+  **Embuta também o rodapé-máquina `feedback-rig` no fim do corpo** — é o que liga a issue de volta à
+  mensagem de WhatsApp: no fecho da issue, o webhook `/webhook/github` lê o rodapé e a lucia responde
+  **automaticamente** citando a mensagem original do Rossi ("desenvolvido"). Gere o rodapé exato (o
+  webhook faz o parse dele) com o helper — passe o `message_id`/`remote_jid`/`texto` do trace de inbox:
+  ```
+  uv run python -c "from barra.core.feedback_inbox import montar_rodape_issue; print(montar_rodape_issue(message_id='<message_id>', remote_jid='<remote_jid>', texto='<primeira linha do feedback>'))"
+  ```
+  Cole a saída (um comentário HTML, invisível no GitHub renderizado) na última linha do `--body`.
 - **Elogio/ruído** → resumo leve na sessão, sem abrir issue.
+
+> **Loop automático (não precisa fazer à mão):** o **ack de registro** (a lucia responde "anotei
+> aqui 🙌" citando o feedback, com debounce ~2 min) e o **aviso de "desenvolvido"** (no fecho da
+> issue) rodam sozinhos pela barra quando `feedback_rig_ack`/`github_webhook_secret` estão ligados. O
+> reply-marcador manual da Seção 9 vira opcional — use só se quiser mandar o número da issue na hora.
 
 ### 8. Marcar idempotência no Langfuse
 O MCP é read-only; o write é via SDK (`langfuse.get_client().create_score`). Presença do score =
