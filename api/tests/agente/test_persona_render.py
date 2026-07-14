@@ -43,3 +43,21 @@ def test_contexto_dinamico_renderiza_agenda_em_brt() -> None:
     # bloqueio: hora E dia convertidos (01:30Z do 26/06 -> 22:30 BRT do 25/06)
     assert "25/06 22:30" in txt and "26/06 01:30" not in txt
     assert 'fim="23:30"' in txt
+
+
+def test_pix_deslocamento_so_no_externo() -> None:
+    """Pix de deslocamento existe só quando a modelo se desloca (externo). Como `pix_status` é
+    `NOT NULL DEFAULT 'nao_solicitado'`, o bloco renderizado sem filtro plantava um Pix pendente
+    ("ainda não pedido") num atendimento interno — e o rótulo `pix_deslocamento` mente no remoto
+    (lá o Pix antecipa o valor da chamada, ADR 0029, não o deslocamento). Só o externo mostra."""
+    base = dict(
+        numero_curto=1,
+        estado="Qualificado",
+        pix_status="ainda não pedido",
+        proximo_passo="combinar horário",
+    )
+    assert "pix_deslocamento" in render_contexto_dinamico(tipo_atendimento="externo", **base)
+    for tipo in ("interno", "remoto", None):
+        assert "pix_deslocamento" not in render_contexto_dinamico(tipo_atendimento=tipo, **base)
+    # variável ausente de todo (Undefined) também não renderiza nem quebra
+    assert "pix_deslocamento" not in render_contexto_dinamico(**base)

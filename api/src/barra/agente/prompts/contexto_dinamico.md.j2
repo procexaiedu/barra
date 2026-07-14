@@ -5,7 +5,7 @@
 {% if horario_desejado %}<hora>{{ horario_desejado }}</hora>{% endif %}
 {% if endereco %}<local>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</local>{% endif %}
 {% if urgencia %}<urgencia>{{ urgencia }}</urgencia>{% endif %}
-<pix_deslocamento>{{ pix_status }}</pix_deslocamento>
+{% if tipo_atendimento == 'externo' %}<pix_deslocamento>{{ pix_status }}</pix_deslocamento>{% endif %}
 </ja_combinado>
 <ainda_falta>
 {% if slots_faltantes %}{% for s in slots_faltantes %}<item>{{ s }}</item>
