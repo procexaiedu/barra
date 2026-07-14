@@ -32,6 +32,7 @@ export function ModalVisualizacao({
   onPerder,
   onAbrirEdicao,
   onCorrigir,
+  onExcluir,
   readOnly = false,
 }: {
   atendimentoId: string | null
@@ -41,6 +42,7 @@ export function ModalVisualizacao({
   onPerder?: (id: string, motivo: MotivoPerda, observacao: string | null) => Promise<void>
   onAbrirEdicao?: (detalhe: AtendimentoDetalheResponse) => void
   onCorrigir?: (id: string) => void
+  onExcluir?: (id: string) => Promise<void>
   readOnly?: boolean
 }) {
   const [detalhe, setDetalhe] = useState<AtendimentoDetalheResponse | null>(null)
@@ -97,6 +99,12 @@ export function ModalVisualizacao({
     setDetalhe((prev) => prev ? { ...prev, midias_internas: prev.midias_internas.filter((m) => m.id !== midiaId) } : prev)
   }, [])
 
+  const handleExcluir = useCallback(async (id: string) => {
+    if (!onExcluir) return
+    await onExcluir(id)
+    onClose()
+  }, [onExcluir, onClose])
+
   return (
     <Dialog open={!!atendimentoId} onOpenChange={(open) => { if (!open) onClose() }}>
       <DialogContent size="xl" className="overflow-hidden">
@@ -132,6 +140,7 @@ export function ModalVisualizacao({
             onUploadMidia={readOnly ? undefined : handleUploadMidia}
             onDeletarMidia={readOnly ? undefined : handleDeletarMidia}
             onCorrigir={readOnly || !detalhe || !onCorrigir ? undefined : () => onCorrigir(detalhe.atendimento.id)}
+            onExcluir={onExcluir ? handleExcluir : undefined}
             readOnly={readOnly}
           />
         </DialogBody>

@@ -687,6 +687,54 @@ async def corrigir_registro(
     return {"id": result.atendimento_id, "estado": result.estado}
 
 
+@router.delete("/{atendimento_id}", status_code=204)
+async def excluir_atendimento(
+    atendimento_id: UUID,
+    request: Request,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> None:
+    """Exclui um atendimento por completo (ação de gestão do painel).
+
+    Serviços, fetiches, mídias, comprovantes Pix e escaladas caem por CASCADE.
+    Mensagens/eventos da Conversa cliente sobrevivem (FK vira NULL — a thread do
+    par cliente-modelo persiste). O bloqueio vinculado é removido à mão: o CASCADE
+    dele é SET NULL, e deixá-lo viraria um bloqueio avulso travando a agenda.
+    """
+    at = await _fetch_one(
+        conn,
+        "SELECT id FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    if at is None:
+        raise NaoEncontrado("Atendimento")
+
+    # Chaves das mídias no MinIO para limpar depois do DELETE (o CASCADE só apaga
+    # as linhas; os objetos ficariam órfãos no bucket).
+    midias = await _fetch_all(
+        conn,
+        "SELECT media_object_key FROM barravips.atendimento_midias"
+        " WHERE atendimento_id = %s AND media_object_key IS NOT NULL",
+        (atendimento_id,),
+    )
+
+    await conn.execute(
+        "DELETE FROM barravips.bloqueios WHERE atendimento_id = %s", (atendimento_id,)
+    )
+    await conn.execute("DELETE FROM barravips.atendimentos WHERE id = %s", (atendimento_id,))
+
+    keys = [m["media_object_key"] for m in midias if m.get("media_object_key")]
+    if keys:
+        minio = getattr(request.app.state, "minio", None)
+        if minio is not None:
+            bucket = request.app.state.settings.minio_bucket_media
+            loop = asyncio.get_running_loop()
+            for key in keys:
+                try:
+                    await loop.run_in_executor(None, minio.remove_object, bucket, key)
+                except Exception as exc:
+                    _logger.warning("falha_remover_minio key=%s erro=%s", key, exc)
+
+
 @router.get("/{atendimento_id}/servicos")
 async def listar_servicos(
     atendimento_id: UUID,

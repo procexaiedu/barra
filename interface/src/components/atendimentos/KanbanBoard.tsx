@@ -118,22 +118,25 @@ function DraggableCard({
   onCardClick: (id: string) => void
   isTerminal: boolean
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+  const { listeners, setNodeRef, isDragging } = useDraggable({
     id: item.id,
     disabled: isTerminal,
     data: { item },
   })
 
+  // O card inteiro é a alça de arraste (listeners no root). A constraint de 8px
+  // do PointerSensor distingue clique-para-abrir de arraste, então não perdemos o
+  // onClick. Terminais não arrastam.
   return (
-    <div ref={setNodeRef} style={{ opacity: isDragging ? 0.3 : 1 }}>
-      <KanbanCard
-        item={item}
-        onClick={() => onCardClick(item.id)}
-        dragHandleProps={isTerminal ? {} : { ...attributes, ...listeners }}
-        arrastavel={!isTerminal}
-        isDragging={false}
-      />
-    </div>
+    <KanbanCard
+      ref={setNodeRef}
+      item={item}
+      onClick={() => onCardClick(item.id)}
+      dragHandleProps={isTerminal ? undefined : { ...listeners }}
+      arrastavel={!isTerminal}
+      isDragging={false}
+      style={{ opacity: isDragging ? 0.3 : 1 }}
+    />
   )
 }
 

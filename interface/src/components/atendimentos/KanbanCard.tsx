@@ -1,5 +1,6 @@
 "use client"
 
+import { forwardRef, type CSSProperties } from "react"
 import { GripVertical, PauseCircle } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
@@ -7,51 +8,48 @@ import { formatBRL, formatTempoRelativo, nomeCliente } from "@/lib/formatters"
 import type { AtendimentoListaItem } from "@/tipos/atendimentos"
 import { corEstado, urgenciaLabel } from "@/components/atendimentos/utils"
 
-export function KanbanCard({
-  item,
-  onClick,
-  dragHandleProps,
-  isDragging,
-  arrastavel,
-}: {
-  item: AtendimentoListaItem
-  onClick: () => void
-  dragHandleProps?: Record<string, unknown>
-  isDragging?: boolean
-  arrastavel?: boolean
-}) {
+export const KanbanCard = forwardRef<
+  HTMLDivElement,
+  {
+    item: AtendimentoListaItem
+    onClick: () => void
+    dragHandleProps?: Record<string, unknown>
+    isDragging?: boolean
+    arrastavel?: boolean
+    style?: CSSProperties
+  }
+>(function KanbanCard({ item, onClick, dragHandleProps, isDragging, arrastavel, style }, ref) {
   const cliente = nomeCliente(item.cliente.nome, item.cliente.telefone)
   const valorFinal = item.valor_final
   const valorExibido = valorFinal ?? item.valor_acordado
-  const mostrarAlca = arrastavel && dragHandleProps
 
   return (
     <div
+      ref={ref}
+      style={style}
+      {...dragHandleProps}
       className={cn(
         "relative rounded-lg border border-l-4 border-border bg-card p-3 shadow-elev-1 transition-all",
-        mostrarAlca && "pl-7",
+        arrastavel && "touch-none pl-7",
         corEstado(item.estado).faixa,
         isDragging
           ? "cursor-grabbing opacity-80 shadow-elev-2"
-          : "cursor-pointer hover:-translate-y-px hover:shadow-elev-2 hover:ring-1 hover:ring-border-brand/40"
+          : cn(
+              arrastavel ? "cursor-grab" : "cursor-pointer",
+              "hover:-translate-y-px hover:shadow-elev-2 hover:ring-1 hover:ring-border-brand/40"
+            )
       )}
       onClick={onClick}
       role="button"
       tabIndex={0}
       onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick() } }}
     >
-      {mostrarAlca && (
+      {arrastavel && (
         <span
-          {...dragHandleProps}
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Arrastar atendimento"
-          className={cn(
-            "absolute left-1 top-1/2 flex -translate-y-1/2 touch-none items-center rounded text-text-disabled",
-            "cursor-grab hover:text-text-muted active:cursor-grabbing",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          )}
+          aria-hidden
+          className="pointer-events-none absolute left-1 top-1/2 flex -translate-y-1/2 items-center rounded text-text-disabled"
         >
-          <GripVertical size={14} strokeWidth={1.5} aria-hidden />
+          <GripVertical size={14} strokeWidth={1.5} />
         </span>
       )}
       <div className="flex min-w-0 items-start justify-between gap-2">
@@ -100,4 +98,4 @@ export function KanbanCard({
       </div>
     </div>
   )
-}
+})

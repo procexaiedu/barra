@@ -2,6 +2,7 @@
 
 import { useRef, useMemo, useState } from "react"
 import Link from "next/link"
+import { toast } from "sonner"
 import { Clock, CreditCard, FileText, ImageOff, MessageSquare, Paperclip, Pencil, Plus, Trash2 } from "lucide-react"
 import type { ReactNode } from "react"
 import { Badge } from "@/components/ui/badge"
@@ -61,6 +62,7 @@ export function DetalheAtendimento({
   onDeletarMidia,
   onEditar,
   onCorrigir,
+  onExcluir,
   readOnly = false,
 }: {
   detalhe: AtendimentoDetalheResponse | null
@@ -74,6 +76,7 @@ export function DetalheAtendimento({
   onDeletarMidia?: (atendimentoId: string, midiaId: string) => Promise<void>
   onEditar?: () => void
   onCorrigir?: () => void
+  onExcluir?: (id: string) => Promise<void>
   readOnly?: boolean
 }) {
   if (status === "loading") return <DetalheSkeleton />
@@ -122,6 +125,14 @@ export function DetalheAtendimento({
               >
                 <Pencil size={14} strokeWidth={1.5} aria-hidden />
               </button>
+            )}
+            {onExcluir && (
+              <BotaoExcluir
+                atendimentoId={atendimento.id}
+                numeroCurto={atendimento.numero_curto}
+                estado={atendimento.estado}
+                onExcluir={onExcluir}
+              />
             )}
           </span>
         </div>
@@ -207,6 +218,65 @@ export function DetalheAtendimento({
         </div>
       </div>
     </section>
+  )
+}
+
+function BotaoExcluir({
+  atendimentoId,
+  numeroCurto,
+  estado,
+  onExcluir,
+}: {
+  atendimentoId: string
+  numeroCurto: number
+  estado: AtendimentoDetalheResponse["atendimento"]["estado"]
+  onExcluir: (id: string) => Promise<void>
+}) {
+  const [aberto, setAberto] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  async function confirmar() {
+    setLoading(true)
+    try {
+      await onExcluir(atendimentoId)
+      setAberto(false)
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Erro ao excluir atendimento")
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setAberto(true)}
+        title="Excluir atendimento"
+        aria-label="Excluir atendimento"
+        className="rounded p-1 text-text-muted transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Trash2 size={14} strokeWidth={1.5} aria-hidden />
+      </button>
+      <AlertDialog open={aberto} onOpenChange={(open) => !loading && setAberto(open)}>
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Excluir atendimento #{numeroCurto}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Remove em definitivo serviços, mídias e comprovantes deste atendimento, e libera o
+              horário na agenda.{estado === "Fechado" ? " Como está fechado, também sai do faturamento." : ""}{" "}
+              A conversa com o cliente é preservada. Esta ação não pode ser desfeita.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction variant="danger" onClick={confirmar} disabled={loading}>
+              {loading ? "Excluindo..." : "Excluir"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   )
 }
 
