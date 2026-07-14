@@ -8,8 +8,7 @@ a ponta.
 
 Cadeia exercida: texto do LLM (com marker `[quote: trecho]`) → `chunk_texto` (extrai o alvo) →
 `_resolver_quotes` (casa alvo↔msg do cliente) → `enviar_turno` (guard + despacho) →
-`EvolutionClient.enviar_texto` real → body `{quoted: {messageId}}` (Evolution GO resolve a
-citação pelo id guardado; não ecoa o texto como a v2).
+`EvolutionClient.enviar_texto` real → body `{quoted: {key.id, message.conversation}}`.
 """
 
 import asyncio
@@ -98,25 +97,21 @@ def _inbound(*msgs: tuple[str, str]) -> list[dict[str, Any]]:
 
 
 def _mock_evolution() -> respx.Router:
-    """Mocka os endpoints EvoGo que enviar_turno toca (resolução de token + markread + presença +
-    send/text); /send/text devolve um id único por chamada."""
+    """Mocka os 3 endpoints que enviar_turno toca; sendText devolve um id único por chamada."""
     router = respx.mock(base_url=BASE, assert_all_called=False)
-    router.get("/instance/all").mock(
-        return_value=httpx.Response(200, json={"data": [{"name": INST, "token": "tok"}]})
+    router.post("/chat/markMessageAsRead/" + INST).mock(
+        return_value=httpx.Response(200, json={"status": "ok"})
     )
-    router.post("/message/markread").mock(
-        return_value=httpx.Response(200, json={"message": "success"})
-    )
-    router.post("/message/presence").mock(
-        return_value=httpx.Response(200, json={"message": "success"})
+    router.post("/chat/sendPresence/" + INST).mock(
+        return_value=httpx.Response(200, json={"status": "ok"})
     )
     contador = {"n": 0}
 
     def _resposta(_req: httpx.Request) -> httpx.Response:
         contador["n"] += 1
-        return httpx.Response(200, json={"id": f"MID-{contador['n']}"})
+        return httpx.Response(200, json={"key": {"id": f"MID-{contador['n']}"}})
 
-    router.post("/send/text").mock(side_effect=_resposta)
+    router.post("/message/sendText/" + INST).mock(side_effect=_resposta)
     return router
 
 
@@ -153,7 +148,7 @@ async def _rodar_cadeia(texto_llm: str, inbound: list[dict[str, Any]]) -> list[d
         return [
             json.loads(call.request.content)
             for call in router.calls
-            if call.request.url.path.endswith("/send/text")
+            if call.request.url.path.endswith(f"/message/sendText/{INST}")
         ]
 
 
@@ -178,7 +173,10 @@ async def test_quote_trecho_casa_pergunta_no_meio_do_burst() -> None:
     # bolha 0: saudação, sem quote
     assert _quoted(bodies[0]) is None
     # bolha 1: cita a PERGUNTA (evo-2), com o texto real no conversation
-    assert _quoted(bodies[1]) == {"messageId": "evo-2"}
+    assert _quoted(bodies[1]) == {
+        "key": {"id": "evo-2"},
+        "message": {"conversation": "vc faz oral sem?"},
+    }
     assert "[quote" not in bodies[1]["text"].lower()  # marker nunca vaza ao cliente
     # bolha 2: cotação, sem quote
     assert _quoted(bodies[2]) is None
@@ -190,7 +188,10 @@ async def test_quote_puro_pega_ultima_mensagem_do_cliente() -> None:
     bodies = await _rodar_cadeia("[quote] tô sim amor", inbound)
 
     assert len(bodies) == 1
-    assert _quoted(bodies[0]) == {"messageId": "evo-2"}
+    assert _quoted(bodies[0]) == {
+        "key": {"id": "evo-2"},
+        "message": {"conversation": "responde vai"},
+    }
 
 
 async def test_quote_trecho_miss_faz_fallback_para_ultima() -> None:
@@ -198,7 +199,10 @@ async def test_quote_trecho_miss_faz_fallback_para_ultima() -> None:
     inbound = _inbound(("evo-1", "oi"), ("evo-2", "quanto é 2h?"))
     bodies = await _rodar_cadeia("[quote: nao existe esse texto] oi amor", inbound)
 
-    assert _quoted(bodies[0]) == {"messageId": "evo-2"}
+    assert _quoted(bodies[0]) == {
+        "key": {"id": "evo-2"},
+        "message": {"conversation": "quanto é 2h?"},
+    }
 
 
 async def test_quote_sobrevive_bolha_so_emoji_descartada_pelo_guard() -> None:
@@ -212,8 +216,14 @@ async def test_quote_sobrevive_bolha_so_emoji_descartada_pelo_guard() -> None:
 
     assert len(bodies) == 2  # a bolha-emoji não saiu
     # a citação de CADA bolha seguiu o conteúdo certo, apesar do descarte deslocar os índices
-    assert _quoted(bodies[0]) == {"messageId": "evo-1"}
-    assert _quoted(bodies[1]) == {"messageId": "evo-2"}
+    assert _quoted(bodies[0]) == {
+        "key": {"id": "evo-1"},
+        "message": {"conversation": "vc faz oral sem?"},
+    }
+    assert _quoted(bodies[1]) == {
+        "key": {"id": "evo-2"},
+        "message": {"conversation": "e quanto custa?"},
+    }
 
 
 async def test_sem_marker_nenhuma_bolha_cita() -> None:
