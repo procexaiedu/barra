@@ -200,6 +200,15 @@ async def evolution_webhook(
     msg = extrair_mensagem(payload)
     if msg is None:
         return {"status": "ignored"}
+
+    # Ingestão do rig de feedback (gate: settings.feedback_rig_grupo_jid): a mensagem do grupo de
+    # feedback vira inbox no Langfuse p/ a skill /processar-feedbacks. O grupo de feedback é um JID
+    # interno de dev, fora do jid_permitido (flag de teste da Fase 1.5) — por isso captura ANTES do
+    # gate, senão cairia em JidNaoPermitido. Curto-circuita antes do fluxo de cliente: não persiste,
+    # não abre pool, não decodifica mídia (base64 já vem no msg).
+    if _eh_grupo_feedback(msg, settings):
+        return _capturar_feedback_rig(msg)
+
     if settings.jid_permitido and msg.remote_jid not in settings.jid_permitido:
         raise JidNaoPermitido()
 
@@ -207,12 +216,6 @@ async def evolution_webhook(
     # transacional da modelo p/ recomeçar um teste do zero. Não persiste a mensagem.
     if _eh_reset_teste(msg, settings):
         return await _processar_reset_teste(pool, request, msg)
-
-    # Ingestão do rig de feedback (gate: settings.feedback_rig_grupo_jid): a mensagem do grupo de
-    # feedback vira inbox no Langfuse p/ a skill /processar-feedbacks. Curto-circuita antes do
-    # fluxo de cliente — não persiste, não abre pool, não decodifica mídia (base64 já vem no msg).
-    if _eh_grupo_feedback(msg, settings):
-        return _capturar_feedback_rig(msg)
 
     minio = getattr(request.app.state, "minio", None)
 

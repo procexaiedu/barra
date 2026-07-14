@@ -94,3 +94,45 @@ def test_capturar_curto_circuita_sem_levantar(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr("barra.core.tracing.langfuse_handler", lambda: None)
     resposta = _capturar_feedback_rig(_msg(tipo="imagem", texto="", media_base64="Zm9v"))
     assert resposta == {"status": "feedback_rig", "trace_id": ""}
+
+
+class _FakePoolFB:
+    """Pool mínimo só para o handler não abortar em 503 — o branch de feedback retorna antes de usá-lo."""
+
+    async def close(self) -> None:
+        return None
+
+
+def test_webhook_captura_feedback_antes_do_jid_permitido(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regressão de ordem: o grupo de feedback é capturado ANTES do gate `jid_permitido`.
+
+    Em prod o `jid_permitido` restringe o agente aos grupos de teste (Playground/Coordenação) e NÃO
+    inclui o grupo de feedback; se o gate rodasse primeiro, a mensagem cairia em `JidNaoPermitido` e
+    a ingestão nunca dispararia. Este teste fixa o grupo de feedback fora do allowlist e prova que
+    ele ainda é capturado.
+    """
+    from fastapi.testclient import TestClient
+
+    from barra.main import app
+
+    monkeypatch.setattr("barra.core.tracing.langfuse_handler", lambda: None)
+    settings = app.state.settings
+    monkeypatch.setattr(settings, "evolution_webhook_token", "")
+    monkeypatch.setattr(
+        settings, "jid_permitido", ["120363000000000000@g.us"]
+    )  # NÃO inclui o feedback
+    monkeypatch.setattr(settings, "feedback_rig_grupo_jid", JID_FEEDBACK)
+
+    payload = {
+        "instance": "lucia",
+        "data": {
+            "key": {"id": "FB-REGRESSAO-1", "remoteJid": JID_FEEDBACK},
+            "message": {"conversation": "esse horário a IA inventou"},
+        },
+    }
+    with TestClient(app) as client:
+        app.state.db_pool = _FakePoolFB()
+        response = client.post("/webhook/evolution", json=payload)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "feedback_rig"
