@@ -22,8 +22,6 @@ from typing import Any
 import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from barra.core.errors import ErroDominio
-from barra.core.evolution import EvolutionClient
 from barra.settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -76,13 +74,18 @@ async def receber_alertmanager(request: Request, token: str = Query(default=""))
         logger.warning("alerta recebido sem destino WhatsApp configurado: %s", texto)
         return {"ok": True, "entregue": False}
 
+    url = (
+        f"{settings.evolution_base_url.rstrip('/')}/message/sendText/{settings.evolution_instancia}"
+    )
     try:
-        await EvolutionClient(settings).enviar_texto_sem_registro(
-            instance_id=settings.evolution_instancia,
-            remote_jid=jid,
-            texto=texto,
-        )
-    except (httpx.HTTPError, ErroDominio) as exc:
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(
+                url,
+                json={"number": jid, "text": texto},
+                headers={"apikey": settings.evolution_api_key},
+            )
+            resp.raise_for_status()
+    except httpx.HTTPError as exc:
         # 502 -> o Alertmanager retenta na próxima janela de agrupamento.
         logger.error("alerta nao entregue no WhatsApp: %s", exc)
         raise HTTPException(status_code=502, detail="falha ao entregar no WhatsApp") from exc

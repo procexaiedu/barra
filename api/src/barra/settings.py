@@ -358,33 +358,6 @@ class Settings(BaseSettings):
 
     evolution_base_url: str = ""
     evolution_api_key: str = ""
-    evolution_media_hosts: Annotated[list[str], NoDecode] = Field(
-        default_factory=list,
-        description=(
-            "Hosts extras permitidos no download anti-SSRF de mídia inbound, além do host do "
-            "evolution_base_url. A Evolution GO entrega a mídia (WEBHOOK_FILES) do MinIO DELA, num "
-            "host distinto do base_url (ex.: minioback.procexai.tech) — adicione-o aqui em prod. "
-            "Vazio = só o host do base_url é aceito. Aceita lista JSON, CSV ou host único no env."
-        ),
-    )
-
-    @field_validator("evolution_media_hosts", mode="before")
-    @classmethod
-    def _parse_evolution_media_hosts(cls, v: object) -> object:
-        """Parser tolerante (campo `NoDecode`, recebe a string crua do env), espelhando
-        `jid_permitido`: vazio → []; lista JSON (`["a","b"]`) → parseada; senão CSV/host único
-        (`a.com,b.com` ou `a.com`) → lista. Sem isso, um valor cru no env viraria SettingsError."""
-        if v is None:
-            return []
-        if isinstance(v, str):
-            s = v.strip()
-            if not s:
-                return []
-            if s.startswith("["):
-                return json.loads(s)
-            return [h.strip() for h in s.split(",") if h.strip()]
-        return v
-
     evolution_webhook_token: str = ""
     evolution_instancia: str = Field(
         default="lucia",
