@@ -15,6 +15,7 @@ from fastapi import APIRouter, Header, Request
 
 from barra.core.errors import ErroDominio, JidNaoPermitido
 from barra.core.evolution import EvolutionClient, envio_existe
+from barra.core.feedback_inbox import emitir_feedback_inbox, montar_inbox_payload
 from barra.core.metrics import COMANDOS_GRUPO, WEBHOOK_ERRORS
 from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import garantir_conversa, listar_pendencias_modelo
@@ -222,6 +223,12 @@ async def evolution_webhook(
     # transacional da modelo p/ recomeçar um teste do zero. Não persiste a mensagem.
     if _eh_reset_teste(msg, settings):
         return await _processar_reset_teste(pool, request, msg)
+
+    # Ingestão do rig de feedback (gate: settings.feedback_rig_grupo_jid): a mensagem do grupo de
+    # feedback vira inbox no Langfuse p/ a skill /processar-feedbacks. Curto-circuita antes do
+    # fluxo de cliente — não persiste, não abre pool, não decodifica mídia (base64 já vem no msg).
+    if _eh_grupo_feedback(msg, settings):
+        return _capturar_feedback_rig(msg)
 
     minio = getattr(request.app.state, "minio", None)
 
@@ -938,6 +945,40 @@ def _eh_reset_teste(msg: MensagemEvolution, settings: Any) -> bool:
         and msg.texto.strip().lower() == "#reset"
         and msg.instance_id in settings.reset_teste_instances
     )
+
+
+def _eh_grupo_feedback(msg: MensagemEvolution, settings: Any) -> bool:
+    """Mensagem do grupo de feedback do rig (skill /processar-feedbacks). Gate por JID em
+    `settings.feedback_rig_grupo_jid` (None por padrão = desligado). Só NÃO-fromMe: pega o
+    comentário/áudio/print do Fernando e ignora o eco do reply-marcador postado pela própria IA
+    (senão a captura entraria em loop consigo mesma)."""
+    return (
+        settings.feedback_rig_grupo_jid is not None
+        and msg.remote_jid == settings.feedback_rig_grupo_jid
+        and not msg.from_me
+    )
+
+
+def _capturar_feedback_rig(msg: MensagemEvolution) -> dict[str, str]:
+    """Deposita a mensagem do grupo de feedback como inbox no Langfuse e curto-circuita — não
+    persiste no banco, não abre pool, não decodifica mídia (o base64 já vem inline no `msg`) e não
+    gasta LLM. O STT/vision do áudio/print roda dev-time na skill, não aqui."""
+    payload = montar_inbox_payload(
+        message_id=msg.evolution_message_id,
+        remote_jid=msg.remote_jid,
+        autor=msg.sender_jid,
+        tipo=msg.tipo,
+        texto=msg.texto,
+        caption=msg.caption,
+        media_base64=msg.media_base64,
+        media_mimetype=msg.media_mimetype,
+    )
+    trace_id = emitir_feedback_inbox(payload, message_id=msg.evolution_message_id)
+    _logger.info(
+        "feedback_rig_capturado message_id=%s trace_id=%s", msg.evolution_message_id, trace_id
+    )
+    # trace_id None (tracing off/erro) vira "" na resposta HTTP; o valor real fica no log acima.
+    return {"status": "feedback_rig", "trace_id": trace_id or ""}
 
 
 async def _processar_reset_teste(

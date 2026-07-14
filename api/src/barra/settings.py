@@ -465,6 +465,17 @@ class Settings(BaseSettings):
         ),
     )
 
+    feedback_rig_grupo_jid: str | None = Field(
+        default=None,
+        description=(
+            "JID (`...@g.us`) do grupo de feedback do rig (skill /processar-feedbacks). Quando "
+            "setado, o webhook captura as mensagens NÃO-fromMe desse grupo (comentário/áudio/print "
+            "do Fernando) e emite um inbox no Langfuse (`feedback_rig_inbox`), sem tocar o fluxo "
+            "de cliente — é a ingestão automática. Default None = desligado. Ferramenta de DEV: "
+            "aponte para o grupo de feedback numa instância de teste, nunca para um grupo real."
+        ),
+    )
+
     sentry_dsn: str | None = None
 
     @model_validator(mode="after")
