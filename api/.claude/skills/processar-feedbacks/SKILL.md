@@ -7,9 +7,7 @@ description: >-
   de DEV, fora da stack de prod: não redeploya, não gasta o trilho de crédito do agente ao vivo.
   Use quando o usuário disser "processa os feedbacks", "roda o /processar-feedbacks", "o Fernando
   mandou feedback do teste", ou pedir pra transformar um comentário cru sobre o agente em algo
-  acionável. Ancora o feedback ao trace real no Langfuse (não ao banco — o #reset apaga). v1
-  (#92): núcleo feedback → draft, um por vez, com o feedback FORNECIDO na sessão. Abrir issue +
-  idempotência no Langfuse + reply-marcador social no grupo é a Fase de I/O (#93).
+  acionável. Ancora o feedback ao trace real no Langfuse (não ao banco — o #reset apaga).
 ---
 
 # Processar feedbacks (rig do agente)
@@ -31,17 +29,22 @@ plano do Claude Code.
 
 ## Escopo e ingestão
 
-- **Núcleo (#92, Passos 1–5):** um feedback por vez → draft enriquecido na sessão. Demoável contra
-  um trace real de produção, **sem depender da `procex-teste`**.
+- **Núcleo (#92, Passos 1–5):** um feedback por vez → draft enriquecido. Demoável contra um trace
+  real de produção, **sem depender da `procex-teste`**.
 - **Fase de I/O (#93, seção final):** classificar, abrir `gh issue`/resumo, marcar idempotência no
   Langfuse e postar o reply-marcador social no grupo.
 
-> **Por que ingestão manual-leve, e não "ler o grupo".** A Evolution **GO** (whatsmeow, pra onde o
-> piloto migrou) **não serve histórico de mensagens** — inbound só chega pelo webhook (prod). Não há
-> pull do lado de dev. Então o **feedback é FORNECIDO na sessão**: você cola o comentário do Fernando
-> + anexa o print e aponta o arquivo de áudio (baixado do WhatsApp, 1 clique). Você já é o
-> humano-no-loop do gate de revisão — é a mesma sessão. A idempotência (que precisaria ler o grupo de
-> volta) mora no **Langfuse**, não no reply-marcador.
+> **Ingestão automática via inbox no Langfuse (#93).** A Evolution **GO** (whatsmeow) não serve
+> histórico de mensagens — não há pull do lado de dev. Mas o webhook da barra **já recebe** os
+> eventos do grupo de feedback (o router `procex-shared` faz fan-out da instância de teste sem
+> filtrar JID), então ele captura cada mensagem NÃO-fromMe do grupo e a deposita como trace
+> **`feedback_rig_inbox`** no Langfuse (`core/feedback_inbox.py`, gate `settings.feedback_rig_grupo_jid`).
+> O ganho decisivo: **áudio e print chegam em base64** — leitura + áudio resolvidos de uma vez. A
+> skill **lê o inbox** (Passo 0) em vez de o dev colar o feedback na sessão.
+>
+> **Fallback manual:** com o gate desligado (`feedback_rig_grupo_jid=None`) ou pra demoar sem a
+> `procex-teste`, o feedback é **FORNECIDO na sessão** (cola o comentário + aponta o print/áudio) e
+> você pula o Passo 0 — o resto do fluxo é idêntico.
 
 ## Antes de começar
 
@@ -49,15 +52,33 @@ plano do Claude Code.
 2. **`modelo_id` de teste** — resolva pela instância: `SELECT id FROM barravips.modelos WHERE evolution_instance_id = ANY(<reset_teste_instances>)`. É o filtro dos traces no Langfuse (tag `modelo_id:<uuid>`). No demo de #92 sem `procex-teste`, pegue o `modelo_id` de um trace real recente qualquer.
 3. **MCP `langfuse-traces`** conectado (fetch de traces/observações).
 
+## Passo 0 — Ler o inbox no Langfuse (ingestão automática)
+
+Pule este passo no **fallback manual** (feedback fornecido na sessão). Caso contrário, puxe o que o
+webhook capturou:
+
+1. Via MCP `langfuse-traces` `fetch_traces` com `name="feedback_rig_inbox"` (ou `tags="feedback_rig_inbox"`),
+   ordenado por tempo. Cada trace é **uma mensagem** do grupo de feedback; o payload está no
+   **`input`** do trace: `{message_id, remote_jid, autor, tipo, texto, caption, media_base64, media_mimetype}`.
+   O `timestamp` do trace é a hora do feedback (usado como `ts_feedback` na âncora, Passo 2).
+2. **Descarte os já processados:** um inbox com o score `feedback_rig_processado` (MCP `list_scores_v2`
+   com `name=feedback_rig_processado` + `trace_id=<inbox>`) já virou draft/issue — pule. Dedup extra
+   por `message_id` (redelivery multi-device usa o mesmo `trace_id` determinístico, então é raro).
+3. **Agrupe o feedback:** o Fernando manda o print e o comentário como **mensagens separadas** →
+   inbox traces separados. Junte os itens **consecutivos do mesmo `autor`** numa janela curta num
+   único "feedback": o print (`tipo=imagem`) dá o `texto_agente_print`, o áudio/texto (`tipo=audio`/`texto`)
+   dá o comentário. Marque **todos** os inbox do grupo como processados no fim (Passo 8).
+
 ## Passo 1 — Desmontar o feedback
 
-Separe o feedback cru em três insumos:
+Separe o feedback em três insumos. Os bytes vêm do **`media_base64` do inbox** (Passo 0) — decodifique
+em memória; no fallback manual, do arquivo local que você apontou.
 
-- **Áudio → STT.** Reusa a MESMA infra de STT do worker (OpenAI `whisper-1`, `settings.openai_model_audio_transcribe`) — a chamada que `workers/media.transcrever_audio` faz por dentro (`openai.audio.transcriptions.create`), sem o acoplamento a MinIO/DB/redis do job. Transcreva o arquivo local direto com `AsyncOpenAI` + a chave do `settings`. Não reimplemente STT, não use provider novo.
-- **Print → vision NATIVA.** Leia a imagem com a ferramenta **Read** (você tem vision nativa). Sem OCR/provider externo. Extraia a **fala do agente** que aparece no print — é o que ancora o turno.
-- **Texto** → use direto.
+- **Áudio → STT.** Reusa a MESMA infra de STT do worker (OpenAI `whisper-1`, `settings.openai_model_audio_transcribe`) — a chamada que `workers/media.transcrever_audio` faz por dentro (`openai.audio.transcriptions.create`), sem o acoplamento a MinIO/DB/redis do job. Transcreva os bytes direto com `AsyncOpenAI` + a chave do `settings`. Não reimplemente STT, não use provider novo.
+- **Print → vision NATIVA.** Decodifique o base64 num arquivo temporário e leia com a ferramenta **Read** (você tem vision nativa). Sem OCR/provider externo. Extraia a **fala do agente** que aparece no print — é o que ancora o turno.
+- **Texto** → use direto (`texto`/`caption` do inbox).
 
-Guarde: (a) `texto_agente_print` (a fala do agente extraída do print, via vision nativa), (b) o comentário do Fernando (transcrito/textual), (c) o **timestamp do feedback** (quando ele mandou).
+Guarde: (a) `texto_agente_print` (a fala do agente extraída do print, via vision nativa), (b) o comentário do Fernando (transcrito/textual), (c) o **timestamp do feedback** (o `timestamp` do inbox, ou quando ele mandou no fallback manual).
 
 ## Passo 2 — Ancorar ao trace (Langfuse)
 
@@ -128,15 +149,13 @@ ancorado também é valioso — vira nota de regressão/fixture, não issue.
 
 ## Fase de I/O (#93)
 
-Depois do draft, feche o loop. Ingestão é manual-leve (ver "Escopo e ingestão"): o feedback foi
-FORNECIDO na sessão — não se lê o grupo.
+Depois do draft, feche o loop.
 
 ### 6. Idempotência — checar antes de filar
-Cheque no Langfuse se o **trace ancorado** já tem o score-marcador `feedback_rig_processado` (MCP
-`list_scores_v2` com `name=feedback_rig_processado` + `trace_id=<...>`). Filtre por `trace_id`+`name`,
-**não** por environment: o score é escrito pelo ambiente de dev (`desenvolvimento`) sobre um trace de
-`producao`, então filtrar por environment o perderia. Se já tem → o turno já foi processado; **avise
-e pergunte** antes de duplicar (sob ingestão manual é raro, mas protege re-runs).
+Já filtrada no **Passo 0** (o inbox com score `feedback_rig_processado` é pulado). Filtre por
+`trace_id`+`name` no `list_scores_v2`, **não** por environment: o score sai como `desenvolvimento`
+sobre um inbox/turno que pode ser `producao`, então filtrar por environment o perderia. No fallback
+manual (sem inbox), cheque o **trace ancorado** antes de filar.
 
 ### 7. Saída
 - **Acionável** → `gh issue create --repo procexaiedu/barra --label ready-for-agent` com o corpo do
@@ -145,10 +164,11 @@ e pergunte** antes de duplicar (sob ingestão manual é raro, mas protege re-run
 - **Elogio/ruído** → resumo leve na sessão, sem abrir issue.
 
 ### 8. Marcar idempotência no Langfuse
-O MCP é read-only; o write é via SDK, reusando o helper existente (`registrar_feedback_online` →
-`create_score`). Presença do score = processado, cobre os dois baldes:
+O MCP é read-only; o write é via SDK (`langfuse.get_client().create_score`). Presença do score =
+processado, cobre os dois baldes. Marque **cada trace de inbox** do grupo (Passo 0) e, por robustez,
+o **trace ancorado** — todos com o mesmo `name`:
 ```
-uv run python -c "from barra.settings import Settings; from barra.core.tracing import setup_langfuse, registrar_feedback_online; setup_langfuse(Settings()); registrar_feedback_online('<trace_id>', 'feedback_rig_processado', 1.0)"
+uv run python -c "from barra.settings import Settings; from barra.core.tracing import setup_langfuse; from langfuse import get_client; setup_langfuse(Settings()); c=get_client(); c.create_score(name='feedback_rig_processado', value=1.0, trace_id='<trace_id>'); c.flush()"
 ```
 
 ### 9. Reply-marcador social (write-only, opcional)
@@ -174,6 +194,13 @@ marca de idempotência (essa é o score do Langfuse). ⚠️ Enviar a um grupo r
 Langfuse, use a fala do agente dele como `texto_agente_print`, e confirme que a âncora casa aquele
 `trace_id`, o slice interno sai correto, e o draft fica ancorado (com PERGUNTA onde o "esperado" não
 foi dado). Âncora ambígua deve parar e pedir desambiguação.
+
+**Ingestão (Passo 0):** round-trip do inbox — com `feedback_rig_grupo_jid` setado numa instância de
+teste, mande uma mensagem no grupo de feedback e confirme via MCP `fetch_traces name=feedback_rig_inbox`
+que o trace aparece com o payload (texto/base64) no `input`. O emitter é coberto por
+`tests/unit/test_feedback_inbox.py` (gate + payload + no-op com tracing off) e foi validado ao vivo
+contra o Langfuse. ⚠️ **Ligar a captura em prod** (setar o env `FEEDBACK_RIG_GRUPO_JID` no worker/api
+e redeployar) **atinge o pipeline de prod** — cai no CLAUDE.md §0, exige autorização frase a frase.
 
 **Fase de I/O (#93):** round-trip do marcador — escreva `feedback_rig_processado` num trace real
 (Passo 8) e confirme via MCP `list_scores_v2` que ele aparece e que o re-run pularia esse turno. O
