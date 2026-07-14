@@ -324,6 +324,14 @@ export function useAtendimentos(
     )
   }, [loadDetalhe, loadLista])
 
+  const excluir = useCallback(async (id: string) => {
+    const numero = numeroDe(id)
+    await api(`/v1/atendimentos/${id}`, { method: "DELETE" })
+    await loadLista("replace", false)
+    await loadResumo()
+    toast.success(`Atendimento #${numero ?? "?"} excluído`)
+  }, [loadLista, loadResumo, numeroDe])
+
   const moverEstado = useCallback(async (id: string, estado: EstadoKanbanDestino) => {
     setItems((current) =>
       current.map((item) => item.id === id ? { ...item, estado: estado as EstadoAtendimento } : item)
@@ -473,6 +481,7 @@ export function useAtendimentos(
     abrirCorrigir,
     fecharCorrigir,
     moverEstado,
+    excluir,
     editarDados,
     criarAtendimento,
     loadDetalhe,

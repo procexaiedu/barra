@@ -336,6 +336,10 @@ function CentralAtendimentosInner() {
               onDeletarMidia={atendimentos.deletarMidia}
               onEditar={() => setModalEdicao(atendimentos.detalhe)}
               onCorrigir={() => atendimentos.detalhe && atendimentos.abrirCorrigir(atendimentos.detalhe.atendimento.id)}
+              onExcluir={async (id) => {
+                await atendimentos.excluir(id)
+                setDetalheAberto(false)
+              }}
             />
           }
         />
@@ -382,6 +386,10 @@ function CentralAtendimentosInner() {
             onPerder={atendimentos.perder}
             onAbrirEdicao={(detalhe) => { setModalEdicao(detalhe); setModalId(null) }}
             onCorrigir={(id) => { setModalId(null); atendimentos.abrirCorrigir(id) }}
+            onExcluir={async (id) => {
+              await atendimentos.excluir(id)
+              if (mostrarEncerrados) await recarregarEncerrados()
+            }}
           />
         </div>
       )}
