@@ -1,10 +1,12 @@
 """Tools de leitura do agente. P0 tem só consultar_agenda (04 §2.1, §2.2)."""
 
 from datetime import date
+from typing import Annotated
 from zoneinfo import ZoneInfo
 
 from langchain_core.tools import ToolException, tool
 from langgraph.prebuilt import ToolRuntime
+from pydantic import Field
 
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
 
@@ -22,10 +24,17 @@ _MAX_BLOQUEIOS = 50
 _FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
 
+_DESC_DATA_INICIO = (
+    "Data inicial inclusiva (YYYY-MM-DD). Comece a partir do dia consultado (além das "
+    "próximas 48h), não a partir de hoje."
+)
+_DESC_DATA_FIM = "Data final inclusiva (YYYY-MM-DD). Máximo 14 dias após data_inicio."
+
+
 @tool
 async def consultar_agenda(
-    data_inicio: date,
-    data_fim: date,
+    data_inicio: Annotated[date, Field(description=_DESC_DATA_INICIO)],
+    data_fim: Annotated[date, Field(description=_DESC_DATA_FIM)],
     runtime: ToolRuntime[ContextAgente],
 ) -> str:
     """Consulta os bloqueios (horários OCUPADOS) da modelo entre data_inicio e data_fim.
@@ -34,19 +43,13 @@ async def consultar_agenda(
     APENAS quando o cliente perguntar por um dia além das próximas 48h (ex.: "tem horário sábado
     que vem?").
 
-    Args:
-        data_inicio: data inicial inclusiva, formato YYYY-MM-DD. Comece a partir do dia
-          consultado (além das próximas 48h), não a partir de hoje.
-        data_fim: data final inclusiva, formato YYYY-MM-DD. Máximo 14 dias após data_inicio.
-
     Returns:
         Uma linha por horário OCUPADO (dia e hora), ou a frase de que não há horário
         ocupado no período. ATENÇÃO: ausência de bloqueio ≠ disponível — esta tool só lê
         horários OCUPADOS, não o seu período de trabalho. Antes de oferecer um slot que
-        "aparece livre", cruze com <periodo_de_trabalho> no contexto: dia/hora fora das suas
-        regras é folga/viagem — trate como expediente encerrado e ancore a volta, NÃO ofereça
-        o horário. Se o horário que o cliente pediu cair num bloqueio, siga sua conduta de
-        indisponibilidade (nas suas regras).
+        "aparece livre", cruze com <periodo_de_trabalho> no contexto; fora dele, siga sua
+        conduta de período de trabalho. Horário pedido caindo num bloqueio: siga sua
+        conduta de indisponibilidade (nas suas regras).
     """
     # `format: "date"` no schema (params tipados `date`): o parse/validacao do YYYY-MM-DD roda na
     # camada de args (data invalida vira ToolMessage de erro do ToolNode, com o detalhe pydantic).

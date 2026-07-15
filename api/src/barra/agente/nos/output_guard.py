@@ -289,12 +289,17 @@ def _drop_bolhas(texto: str, remover: set[str]) -> str:
 
 
 class _VeredictoAup(BaseModel):
-    """Saida estruturada da Etapa 2 (judge de AUP vinculante)."""
+    """Saida estruturada da Etapa 2 (judge de AUP vinculante).
+
+    `motivo` e enum fechado (Literal): entra como constraint no schema do function-calling
+    (guia a geracao) e garante vocabulario estavel na telemetria (`aup_saida_{motivo}`).
+    Rotulo fora do vocabulario vira parsing_error -> retry 1x -> default seguro do caller.
+    """
 
     viola: bool = Field(description="true se a bolha deve ser BARRADA (viola a AUP)")
-    motivo: str = Field(
-        description="rotulo curto: ia_self|system_leak|cross_modelo|aup_dura|reasoning_leak|nenhum"
-    )
+    motivo: Literal[
+        "ia_self", "system_leak", "cross_modelo", "aup_dura", "reasoning_leak", "nenhum"
+    ] = Field(description="rotulo do porque; 'nenhum' quando viola=false")
 
 
 async def _legendas_do_turno(conn: Any, turno_id: str) -> list[str]:

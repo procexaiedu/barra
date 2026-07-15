@@ -22,6 +22,27 @@ Regra de **leitura** usada nos dois lados (ex.: "cliente diz 'você' = a modelo"
 
 **Dedup não é deleção grátis:** remover uma cláusula de DESC que duplica o prompt pode regredir se o reforço no ponto de uso for load-bearing (cf. sensibilidade do "seria hoje?") — gate por simulador/eval antes de tirar, nunca mecânico.
 
+## Graus de liberdade (onde uma regra nova deve morar)
+
+Ponte estreita → código; campo aberto → prosa. Conduta que exige exatidão determinística (correferência de data, próximo-livre, negação de disclosure sob ataque, idempotência) vira Python/canned/pré-computação; conduta conversacional com muitos caminhos válidos vira prosa no prompt. Sinal de alerta: se um caso novo só funciona quando enterrado numa description gigante de campo (cf. o workaround A2 da extração barata), ele está pedindo o trilho determinístico — mova pro código, não engorde a description.
+
+## Regras com eco multi-site
+
+Algumas condutas têm, de propósito, mais de um site (sanduíche primacy+recency do `<nucleo>`/`<nucleo_final>`, reminder anti-drift, judges autocontidos por serem outro contexto de LLM). Mudou a regra → toque TODOS os ecos; o site canônico define os termos:
+
+- **Empurrão sim/não pós-cotação** — canônico: `regras.md.j2` `<conducao_da_venda>` (Cotação). Ecos: `<nucleo>` linha 5, `<nucleo_final>`, `reminder.md.j2` (condensados), `judge_pos_envio.md` (autocontido).
+- **Exemplos de fala com número**: valores são ILUSTRATIVOS concretos (600/1000/500/150), nunca chave `{placeholder}` — chave literal já vazou em prod e exigiu patch no output_guard (`_RE_PLACEHOLDER`). O preâmbulo de `<exemplos>` carrega a instrução de substituição; mantenha novos exemplos nesse padrão.
+
+O gate do reminder (≥8 AIMessages, `_precisa_reminder`) é decisão de grilling 2026-05-23 (proativo > reativo a drift) — não converta para gate por sinal sem novo grilling.
+
+## Escala léxica de dureza nos prompts
+
+Auditada em 2026-07-15 e coerente — mantenha assim: **NUNCA em caps** só para linha dura do `<nucleo>` ou failure-mode comprovado em prod (hoje: sonda-de-balcão, preço inventado, segredo da agenda, menu de formato, unidade, chave Pix); **nunca/nada de** minúsculo para proibição comum; **"só quando/assim que"** para gate; **"prefira/pode"** para default derrotável. Um NUNCA novo em caps precisa se justificar nesse critério — caps banalizado dilui o sinal dos seis existentes.
+
+## Flags deterministicas de disciplina conversacional (padrão A2)
+
+Disciplina do tipo "X é UMA vez na conversa" não pode depender da janela de 20 msgs (o evento desliza pra fora e o LLM repete). Padrão: detecção determinística (regex sobre texto `normalizar()`ado) + tag instrutiva no belief. Instâncias: `<ja_sondou_o_dia>` (janela, `_ja_sondou_o_dia`) e `<ja_fez_contraproposta>` (atendimento INTEIRO via `mensagens.atendimento_id`, `_tem_contraproposta`). Nova disciplina one-shot → mesma receita, nunca prosa extra no BP_GERAL.
+
 ## Isolamento por par (cliente, modelo)
 
 Ver CONTEXT.md "IA por modelo". A IA da modelo A nunca enxerga histórico do mesmo cliente com a modelo B. Toda função que carrega contexto/histórico recebe `(cliente_id, modelo_id)` juntos; PR que carrega só por `cliente_id` está furando o isolamento — recuse.

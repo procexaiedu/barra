@@ -31,7 +31,9 @@ M3g (este escopo):
 
 import hashlib
 import re
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -48,6 +50,7 @@ from barra.dominio.conversas.modelos import DirecaoMensagem
 from barra.settings import get_settings
 
 from .._classificador import classificar_janela
+from .._normalizar import normalizar
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
@@ -390,6 +393,21 @@ def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
     )
 
 
+# Contraproposta de desconto ("Consigo 500 se você vier hoje 😊") — a disciplina é UMA na conversa
+# inteira (regras.md.j2 <desconto> 3), mas a memória dela vivia só na janela de 20 msgs: quando a
+# contraproposta desliza pra fora, o LLM pode ofertar uma segunda. Detecção determinística sobre
+# TODAS as falas da IA do atendimento (mensagens.atendimento_id, indexado) → <ja_fez_contraproposta>
+# no belief. Forma canônica treinada pelo prompt: "consigo" + preço (3+ dígitos). Não colide com o
+# resto do phrasebook: cotação é "600 1h no meu local" (sem "consigo"), hora é 1-2 dígitos + h
+# (barrada pelo \d{3,}) e a recusa "não consigo" cai no lookbehind (texto já normalizado, sem acento).
+_RE_CONTRAPROPOSTA = re.compile(r"(?<!nao )\bconsigo\s+(?:r\$\s*)?\d{3,}\b")
+
+
+def _tem_contraproposta(textos: Iterable[str]) -> bool:
+    """True se alguma fala da IA já carrega a contraproposta única de desconto (PURA)."""
+    return any(_RE_CONTRAPROPOSTA.search(normalizar(t)) for t in textos)
+
+
 async def _anexar_contexto_dinamico(
     conn: AsyncConnection[Any],
     ctx: ContextAgente,
@@ -543,18 +561,34 @@ async def _resolver_variaveis(
     testes que chamam direto sem janela seguem funcionando (marcadores ficam None).
     """
     atendimento: dict[str, Any] = {}
+    ja_fez_contraproposta = False
     if ctx.atendimento_id is not None:
         res = await conn.execute(
             """
             SELECT numero_curto, estado, intencao, tipo_atendimento, urgencia,
                    pix_status, data_desejada, horario_desejado, endereco, bairro,
-                   cotacao_enviada_em
+                   cotacao_enviada_em, valor_acordado, duracao_horas
               FROM barravips.atendimentos
              WHERE id = %s
             """,
             (ctx.atendimento_id,),
         )
         atendimento = await res.fetchone() or {}
+
+        # Falas da IA do atendimento INTEIRO (não só a janela de 20): memória durável da
+        # contraproposta única de desconto (ver _tem_contraproposta). `modelo_manual` fica de
+        # fora de propósito — a disciplina é da IA; desconto manual da modelo não a consome.
+        res = await conn.execute(
+            """
+            SELECT conteudo
+              FROM barravips.mensagens
+             WHERE atendimento_id = %s AND direcao = 'ia'
+             ORDER BY created_at
+             LIMIT 500
+            """,
+            (ctx.atendimento_id,),
+        )
+        ja_fez_contraproposta = _tem_contraproposta(r["conteudo"] for r in await res.fetchall())
 
     res = await conn.execute(
         """
@@ -579,7 +613,7 @@ async def _resolver_variaveis(
     # preserva os bloqueios avulsos (atendimento_id NULL); o gate `%s IS NULL` mantém todos os
     # bloqueios quando não há atendimento no contexto (fluxo do gate).
     # ⚠️ Janela de 48h espelhada em texto LLM-visível: `consultar_agenda` (DESC, ferramentas/
-    # leitura.py) e o prompt `<tools_disponiveis>` (regras.md.j2) dizem "próximas 48h" pra ensinar
+    # leitura.py) e o prompt `<ferramentas>` (regras.md.j2) dizem "próximas 48h" pra ensinar
     # quando chamar a tool. Mudou aqui → atualize os dois, senão a DESC/prompt mentem em silêncio.
     # Âncora de tempo do turno (clock injection, ContextAgente.agora_utc): fonte ÚNICA de "agora"
     # p/ a janela de bloqueios E a âncora renderizada (data/hora/horario_minimo). Prod (agora_utc
@@ -706,6 +740,12 @@ async def _resolver_variaveis(
         "horario_desejado": atendimento.get("horario_desejado"),
         "endereco": atendimento.get("endereco"),
         "bairro": atendimento.get("bairro"),
+        # Valor/duração FECHADOS no snapshot (a janela de 20 msgs desliza; sem isto a IA perde o
+        # acordo que saiu da janela e pode re-cotar/re-negociar). Só existem quando o domínio
+        # aceitou o acordo (guarda do piso) — render condicional no template.
+        "valor_fechado": _num_humano(atendimento.get("valor_acordado")),
+        "duracao_fechada": _num_humano(atendimento.get("duracao_horas")),
+        "ja_fez_contraproposta": ja_fez_contraproposta,
         "recorrente": conversa.get("recorrente", False),
         "observacoes_internas": conversa.get("observacoes_internas"),
         "ultimo_motivo_perda": conversa.get("ultimo_motivo_perda"),
@@ -738,6 +778,17 @@ def _pix_status_humano(status: str | None) -> str:
     if status is None:
         return "não aplicável"
     return _PIX_STATUS_HUMANO.get(status, status)
+
+
+def _num_humano(v: Decimal | None) -> str | None:
+    """Decimal do banco -> número seco pro template ("600.00" -> "600", "1.50" -> "1.5").
+
+    Expor "600.00" na cauda contamina a voz (a persona fala número seco, sem centavos);
+    normalize() + format 'f' tira zeros à direita sem notação científica.
+    """
+    if v is None:
+        return None
+    return format(v.normalize(), "f")
 
 
 async def _carregar_disponibilidade(

@@ -149,6 +149,28 @@ _DESC_LIMPAR = (
     "precedência sobre os demais campos. Zerar um campo apaga o valor anterior e pode "
     "reverter a qualificação do atendimento — na dúvida, não liste."
 )
+_DESC_BAIRRO = (
+    "Bairro/região do endereço do CLIENTE (par com `endereco`, atendimento externo), quando "
+    "ele informar. NUNCA grave aqui o bairro do SEU ponto de encontro. Omita se não disse."
+)
+_DESC_TIPO_LOCAL = (
+    "Tipo do local do encontro que o cliente descreveu quando VOCÊ vai até ele (externo): "
+    "'hotel', 'casa', 'apartamento'; 'outro' quando não se encaixa. Omita se não ficou claro."
+)
+_DESC_FORMA_PAGAMENTO = (
+    "Forma de pagamento que o cliente sinalizou pro programa: 'pix', 'dinheiro', ou 'outro' "
+    "(cartão e afins entram em 'outro'). Omita enquanto ele não disser."
+)
+_DESC_MOTIVO_PERDA = (
+    "Sinal de perda PROVÁVEL desta conversa: 'preco' = travou no valor, 'sumiu' = silêncio "
+    "prolongado, 'risco', 'indisponibilidade' = sem horário que sirva, 'fora_de_area', "
+    "'outro'. É só um candidato interno — NÃO encerra o atendimento nem muda sua conduta; "
+    "continue conduzindo normalmente."
+)
+_DESC_PROXIMA_ACAO = (
+    "Nota interna curta pro painel (Fernando): a próxima ação que você espera na conversa "
+    "(sua ou do cliente). NÃO é texto pro cliente."
+)
 
 
 class ExtracaoPayload(BaseModel):
@@ -187,7 +209,9 @@ class ExtracaoPayload(BaseModel):
 
 @tool
 async def registrar_extracao(
-    proxima_acao_esperada: Annotated[str, Field(min_length=3, max_length=240)],
+    proxima_acao_esperada: Annotated[
+        str, Field(min_length=3, max_length=240, description=_DESC_PROXIMA_ACAO)
+    ],
     runtime: ToolRuntime[ContextAgente],
     intencao: Annotated[
         Literal["curiosidade", "cotacao", "agendamento"] | None,
@@ -205,17 +229,24 @@ async def registrar_extracao(
     horario_desejado: Annotated[time | None, Field(description=_DESC_HORARIO)] = None,
     duracao_horas: Annotated[Decimal | None, Field(ge=0, le=48, description=_DESC_DURACAO)] = None,
     endereco: Annotated[str | None, Field(description=_DESC_ENDERECO)] = None,
-    bairro: str | None = None,
-    tipo_local: Literal["hotel", "casa", "apartamento", "outro"] | None = None,
-    forma_pagamento: Literal["pix", "dinheiro", "outro"] | None = None,
+    bairro: Annotated[str | None, Field(description=_DESC_BAIRRO)] = None,
+    tipo_local: Annotated[
+        Literal["hotel", "casa", "apartamento", "outro"] | None,
+        Field(description=_DESC_TIPO_LOCAL),
+    ] = None,
+    forma_pagamento: Annotated[
+        Literal["pix", "dinheiro", "outro"] | None,
+        Field(description=_DESC_FORMA_PAGAMENTO),
+    ] = None,
     valor_acordado: Annotated[Decimal | None, Field(ge=0, description=_DESC_VALOR)] = None,
     sinais_qualificacao: Annotated[
         SinaisQualificacao | None,
         Field(description="Sinais detectados na conversa — inclua só os True."),
     ] = None,
-    motivo_perda_candidato: (
-        Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None
-    ) = None,
+    motivo_perda_candidato: Annotated[
+        Literal["preco", "sumiu", "risco", "indisponibilidade", "fora_de_area", "outro"] | None,
+        Field(description=_DESC_MOTIVO_PERDA),
+    ] = None,
     aviso_saida_detectado: Annotated[bool, Field(description=_DESC_AVISO_SAIDA)] = False,
     cotacao_apresentada: Annotated[bool, Field(description=_DESC_COTACAO)] = False,
     limpar: Annotated[list[str] | None, Field(description=_DESC_LIMPAR)] = None,
@@ -230,8 +261,10 @@ async def registrar_extracao(
     sobrescrevem, nulos preservam o anterior. Para apagar um dado que o cliente retratou de
     fato, use o campo `limpar`.
 
-    `proxima_acao_esperada` (obrigatório) é uma nota interna exibida no painel para Fernando —
-    não é texto para o cliente.
+    Returns:
+        Confirmação interna do que o sistema gravou/avançou — nota sua, nunca repita ao
+        cliente. Se vier "ERRO: ...", o registro NÃO foi gravado: siga a instrução do erro,
+        corrija a fala E registre de novo neste turno.
     """
     # Transicoes de estado disparadas por esta tool (regra em registrar_extracao_ia):
     # - intencao=curiosidade/cotacao/agendamento + estado=Novo -> Triagem

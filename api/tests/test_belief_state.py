@@ -249,3 +249,32 @@ def test_render_dia_capturado_sai_de_ainda_falta_sem_as_none() -> None:
     assert "<hora>" not in out
     assert "às None" not in out
     assert "que horas ele quer" in out  # a hora ainda falta
+
+
+def test_render_valor_fechado_entra_no_ja_combinado() -> None:
+    # o acordo sobrevive ao deslize da janela de 20 msgs: valor/duração fechados aparecem no
+    # belief com a instrução de não re-cotar; sem acordo, a tag não renderiza.
+    out = _render(
+        "Qualificado",
+        tipo_atendimento="interno",
+        horario_desejado=_HORA,
+        valor_fechado="600",
+        duracao_fechada="1",
+    )
+    assert "<valor_fechado>600 (1h)" in out
+    assert "não re-cote" in out
+
+    sem = _render("Qualificado", tipo_atendimento="interno", horario_desejado=_HORA)
+    assert "<valor_fechado>" not in sem
+
+
+def test_num_humano_formata_decimal_seco() -> None:
+    # Decimal do banco -> número seco na cauda (voz fala "600", nunca "600.00").
+    from decimal import Decimal
+
+    from barra.agente.nos.prepare_context import _num_humano
+
+    assert _num_humano(Decimal("600.00")) == "600"
+    assert _num_humano(Decimal("1.50")) == "1.5"
+    assert _num_humano(Decimal("12")) == "12"
+    assert _num_humano(None) is None
