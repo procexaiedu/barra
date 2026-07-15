@@ -20,15 +20,24 @@ from prometheus_client import REGISTRY
 from barra.workers.envio import enviar_turno
 
 
+class _RngMantem:
+    """rng determinístico p/ os thinnings de voz (emoji/vocativo): 0.0 < keep → sempre mantém."""
+
+    def random(self) -> float:
+        return 0.0
+
+
 @pytest.fixture(autouse=True)
 def _sem_sleep(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Neutraliza os delays de timing (reading delay, typing, jitter, presence) — o teste valida
-    ordem/cancel/dedupe, não a cadência."""
+    """Neutraliza os delays de timing (reading delay, typing, jitter, presence) e o sorteio dos
+    thinnings de voz — o teste valida ordem/cancel/dedupe com texto EXATO, não a cadência nem a
+    calibração de frequência (essas têm testes próprios em test_saida_guard.py)."""
 
     async def _noop(*_a: Any, **_k: Any) -> None:
         return None
 
     monkeypatch.setattr(asyncio, "sleep", _noop)
+    monkeypatch.setattr("barra.workers._saida_guard._RNG", _RngMantem())
     yield
 
 

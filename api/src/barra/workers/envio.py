@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import math
 import random
 import re
 from collections.abc import Awaitable, Callable
@@ -38,6 +39,7 @@ from barra.workers._saida_guard import (
     extrair_tokens_pii,
     normalizar_emoji_voz_indexado,
     normalizar_travessao,
+    normalizar_vocativo_voz,
     redigir_pii_eco,
     remover_marcador_quote,
     tem_marcador_ia,
@@ -569,6 +571,27 @@ def calcular_reading_delay_ms(chars_inbound: int) -> int:
     return min(1500 + chars_inbound * 20, 9000)
 
 
+def amostrar_defer_humano_s(*, chars_inbound: int, elapsed_s: float) -> int:
+    """Defer 'humano' do job enviar_turno (05 §4.1): aproxima a latência de 1ª resposta do
+    Vendedor (corpus 2026-06-17: p25≈14s / p50≈40s, cauda log-normal pesada) adiando o JOB via
+    _defer_by — fora do job_timeout, sem segurar slot do worker. O grafo/cards/Pix já rodaram;
+    só a bolha ao cliente espera, e o cancel-on-new-message segue valendo na hora do fire.
+
+    A amostra é a latência TOTAL alvo desde a mensagem do cliente; desconta o que o pipeline já
+    gastou (debounce ~12s + fila + grafo, via elapsed_s) e o reading delay que o job ainda vai
+    dormir — com isso boa parte dos turnos sai com defer 0 (= comportamento atual, o piso).
+    Flag OFF (default) = 0. Teto em settings (hard bound 300s, ver envio_delay_humano_teto_s)."""
+    s = get_settings()
+    if not s.envio_delay_humano_habilitado:
+        return 0
+    alvo = random.lognormvariate(
+        math.log(s.envio_delay_humano_mediana_s), s.envio_delay_humano_sigma
+    )
+    alvo = min(alvo, float(s.envio_delay_humano_teto_s))
+    ja_gasto = elapsed_s + calcular_reading_delay_ms(chars_inbound) / 1000
+    return max(0, round(alvo - ja_gasto))
+
+
 def _redis_eq(valor: object, esperado: str) -> bool:
     """Compara um valor lido do Redis com uma str. A ArqRedis injetada em `ctx['redis']` não usa
     `decode_responses`, então `get` devolve bytes — decodifica antes (igual a core/redis.py:59)."""
@@ -739,6 +762,8 @@ async def _aplicar_saida_guard(
         quote_textos = [quote_textos[i] for i, _ in mantidos]
     if get_settings().filtro_travessao_habilitado:
         chunks = normalizar_travessao(chunks)  # transform por-bolha, preserva a contagem
+    if get_settings().filtro_vocativo_habilitado:
+        chunks = normalizar_vocativo_voz(chunks)  # transform por-bolha, preserva a contagem
     if not get_settings().envio_guard_habilitado:
         return chunks, quote_msg_ids, quote_textos
     texto = "\n".join(chunks)

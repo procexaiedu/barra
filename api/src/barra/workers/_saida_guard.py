@@ -283,3 +283,51 @@ def normalizar_travessao(chunks: list[str]) -> list[str]:
     """Troca o travessão (em-dash) por vírgula em cada bolha do turno (persona <voz>). Não toca o
     hífen ASCII nem o en-dash; preserva a contagem de bolhas (transform por-bolha, sem dropar)."""
     return [_normalizar_travessao_bolha(c) for c in chunks]
+
+
+# --- Normalização de vocativo da voz (camada de calibração, não segurança) -------
+# Estilometria por ato (2026-07-14, baseline sim_deepseek 434 bolhas vs perfil_estilo_por_momento):
+# o DeepSeek SATURA o vocativo "amor/vida" — ~2x a taxa do Vendedor humano fora da venda (outro
+# 48% vs 22%; saudação 55% vs 30%) mesmo com a persona mandando "uma a cada quatro bolhas". Mesma
+# classe do emoji: instrução certa + modelo desobediente → enforcement determinístico (padrão de
+# [_EMOJI_KEEP_POR_ATO]). Esta rede afina a FREQUÊNCIA removendo o vocativo TRAILING ("Consigo sim
+# amor", "Seria que horas amor ?") com sorteio per-bolha; vocativo no MEIO da frase ("Poxa amor
+# não consigo") nunca é tocado — removê-lo mudaria a gramática. Na cotação/sondagem o agente já
+# está no alvo ou ABAIXO do humano — ato fora do dict = keep 1.0 (sem thinning). Stateless; não
+# injeta vocativo que o modelo não pôs.
+_VOCATIVO_KEEP_POR_ATO = {"outro": 0.38, "saudacao": 0.52}
+
+# Vocativo colado no FIM da bolha (persona <voz>), tolerando cauda leve ("rs", "?", emoji da voz).
+# Exige \s+ antes do vocativo: bolha que É só o vocativo ("Amor ?") nunca casa — nada esvazia.
+# Lookbehinds (largura fixa) blindam "amor/vida" NÃO-vocativo: "meu amor"/"minha vida" (posse),
+# "é vida"/"de vida" (substantivo), "te amo amor" — nesses, remover mutilaria a frase.
+_RE_VOCATIVO_TRAILING = re.compile(
+    r"(?<!\bmeu)(?<!\bminha)(?<!\bde)(?<!\bé)(?<!\be)(?<!\bamo)"
+    r"\s+(?:amor|vida)(?P<cauda>(?:\s*(?:rs|\?|🥰|😊))*)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _normalizar_vocativo_bolha(bolha: str, rng: random.Random | None = None) -> str:
+    """Remove o vocativo trailing de UMA bolha com prob (1 - keep) do ato; preserva a cauda leve."""
+    m = _RE_VOCATIVO_TRAILING.search(bolha)
+    if not m:
+        return bolha
+    ato = rotular_turno(bolha)
+    keep = _VOCATIVO_KEEP_POR_ATO.get(ato, 1.0)
+    # keep 1.0 = ato fora do dict: nunca afina (curto-circuito; random() == 1.0 não pode stripar).
+    if keep >= 1.0 or (rng or _RNG).random() < keep:
+        return bolha
+    cauda = m.group("cauda").strip()
+    texto = bolha[: m.start()].rstrip(" ,")  # "Oi, amor" → "Oi", nunca vírgula pendurada
+    if not texto:
+        return bolha  # o que sobraria é vazio ("... , amor") — não mexe
+    if cauda:
+        texto = f"{texto} {cauda}"
+    return texto.strip()
+
+
+def normalizar_vocativo_voz(chunks: list[str], rng: random.Random | None = None) -> list[str]:
+    """Afina a frequência do vocativo trailing por ato (_VOCATIVO_KEEP_POR_ATO). Preserva a
+    contagem de bolhas (transform por-bolha; a bolha nunca esvazia — sempre sobra a frase)."""
+    return [_normalizar_vocativo_bolha(c, rng) for c in chunks]

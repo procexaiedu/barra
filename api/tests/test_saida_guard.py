@@ -268,3 +268,65 @@ def test_quote_scrub_sem_marker_nao_altera_e_nao_conta() -> None:
 def test_quote_scrub_nao_casa_palavra_quotes_em_colchete() -> None:
     """`\\b` após 'quote' evita casar 'quotes' (não é o marker) — texto legítimo preservado."""
     assert remover_marcador_quote("[quotes do dia]") == ("[quotes do dia]", False)
+
+
+# --- normalizar_vocativo_voz: thinning do vocativo trailing por ato ---------------------------
+
+
+def test_vocativo_trailing_removido_no_drop_preserva_cauda() -> None:
+    from barra.workers._saida_guard import normalizar_vocativo_voz
+
+    assert normalizar_vocativo_voz(["Consigo sim amor"], rng=_DROP) == ["Consigo sim"]
+    assert normalizar_vocativo_voz(["Seria que horas amor ?"], rng=_DROP) == ["Seria que horas ?"]
+    assert normalizar_vocativo_voz(["Pode sim vida rs"], rng=_DROP) == ["Pode sim rs"]
+
+
+def test_vocativo_mantido_no_keep() -> None:
+    from barra.workers._saida_guard import normalizar_vocativo_voz
+
+    assert normalizar_vocativo_voz(["Consigo sim amor"], rng=_KEEP) == ["Consigo sim amor"]
+
+
+def test_vocativo_no_meio_da_frase_nunca_tocado() -> None:
+    from barra.workers._saida_guard import normalizar_vocativo_voz
+
+    assert normalizar_vocativo_voz(["Poxa amor não consigo"], rng=_DROP) == [
+        "Poxa amor não consigo"
+    ]
+
+
+def test_vocativo_ato_fora_do_dict_keep_1() -> None:
+    """Cotação: o agente já está abaixo do humano — nunca afina (keep 1.0)."""
+    from barra.workers._saida_guard import normalizar_vocativo_voz
+
+    assert normalizar_vocativo_voz(["400 1h no meu local amor"], rng=_DROP) == [
+        "400 1h no meu local amor"
+    ]
+
+
+def test_vocativo_bolha_so_vocativo_nao_esvazia() -> None:
+    from barra.workers._saida_guard import normalizar_vocativo_voz
+
+    assert normalizar_vocativo_voz(["amor"], rng=_DROP) == ["amor"]
+    assert normalizar_vocativo_voz(["Amor ?"], rng=_DROP) == ["Amor ?"]
+
+
+def test_vocativo_sem_vocativo_no_op() -> None:
+    from barra.workers._saida_guard import normalizar_vocativo_voz
+
+    assert normalizar_vocativo_voz(["Oii", "Tudo bem ?"], rng=_DROP) == ["Oii", "Tudo bem ?"]
+
+
+def test_vocativo_nao_vocativo_nunca_tocado() -> None:
+    """'meu amor'/'é vida'/'te amo amor' não são vocativo trailing — remover mutilaria a frase."""
+    from barra.workers._saida_guard import normalizar_vocativo_voz
+
+    assert normalizar_vocativo_voz(["Oii meu amor"], rng=_DROP) == ["Oii meu amor"]
+    assert normalizar_vocativo_voz(["isso é vida rs"], rng=_DROP) == ["isso é vida rs"]
+    assert normalizar_vocativo_voz(["te amo amor"], rng=_DROP) == ["te amo amor"]
+
+
+def test_vocativo_com_virgula_nao_deixa_virgula_pendurada() -> None:
+    from barra.workers._saida_guard import normalizar_vocativo_voz
+
+    assert normalizar_vocativo_voz(["Oi, amor"], rng=_DROP) == ["Oi"]
