@@ -53,6 +53,7 @@ from barra.core.metrics import (
     AGENTE_EVAL_PASS_RATE,
     AGENTE_TURNO_DURACAO,
     AGENTE_TURNO_RESULTADO,
+    ENVIO_DEFER_HUMANO,
     LOCK_OCUPADO,
     QUOTE_RESOLUCAO,
 )
@@ -66,6 +67,7 @@ from barra.core.tracing import (
 from barra.settings import get_settings
 from barra.webhook.despacho import enfileirar_processar_turno
 from barra.workers._chunking import MAX_CHARS, chunk_texto
+from barra.workers.envio import amostrar_defer_humano_s
 
 logger = logging.getLogger(__name__)
 
@@ -312,6 +314,9 @@ async def processar_turno(
                         # canned e abortado -> cliente sem o aviso de audio falho.
                         await redis.set(f"turno_atual:{conversa_id}", turno_id, ex=600)
                         canned = escolher_canned_transcricao_falhou(seed=turno_id)
+                        # defer_humano=False: o cliente acabou de mandar um áudio e espera reação;
+                        # o pipeline já gastou debounce + BLPOP de 8s — adiar o aviso 40-90s por
+                        # cima leria como sumiço, não como humano.
                         await despachar_humanizacao(
                             ctx,
                             conversa_id,
@@ -321,6 +326,7 @@ async def processar_turno(
                             msg_ids_cliente=[],
                             chars_inbound=0,
                             critico=False,
+                            defer_humano=False,
                         )
                         # Encerra o turno atual; nao re-roda drain (canned ja respondeu).
                         break
@@ -509,7 +515,7 @@ async def processar_turno(
                     async with pool.connection() as conn:
                         res = await conn.execute(
                             """
-                            SELECT evolution_message_id, conteudo
+                            SELECT evolution_message_id, conteudo, created_at
                               FROM barravips.mensagens
                              WHERE conversa_id = %s AND direcao = 'cliente'
                                AND evolution_message_id IS NOT NULL
@@ -582,6 +588,9 @@ async def processar_turno(
 
                     msg_ids_cliente: list[str] = [r["evolution_message_id"] for r in inbound]
                     chars_inbound = sum(len(r["conteudo"] or "") for r in inbound)
+                    # inbound mais recente do turno: âncora do defer humano (05 §4.1) — o
+                    # sampler desconta o que o pipeline já gastou desde a msg do cliente.
+                    recebida_em = max((r["created_at"] for r in inbound), default=None)
 
                     chunks, quote_alvos = chunk_texto(texto)
                     # casa cada alvo de `[quote]` com (evolution_message_id, texto do balão) da
@@ -620,7 +629,7 @@ async def processar_turno(
                         # NB: metricas de tokens NAO sao emitidas aqui — o no llm ja emite
                         # AGENTE_TURNO_TOKENS (M2-T2, via ephemeral_5m+1h). Reemitir duplicaria a
                         # contagem e reintroduziria o bug do cache_creation=0 (auditoria 24-05).
-                        await despachar_humanizacao(
+                        defer_envio = await despachar_humanizacao(
                             ctx,
                             conversa_id,
                             turno_id,
@@ -631,6 +640,7 @@ async def processar_turno(
                             critico,
                             quote_msg_ids=quote_msg_ids,
                             quote_textos=quote_textos,
+                            recebida_em=recebida_em,
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
                         # EVAL-11: rubricas online amostradas (1 sorteio, 4 suites) -> Prometheus
@@ -658,7 +668,10 @@ async def processar_turno(
                                     chunks=chunks,
                                     trace_id=trace_id_eval,
                                     _job_id=f"judge_pos:{turno_id}",
-                                    _defer_by=120,
+                                    # acompanha o defer humano do envio: sem isso o judge
+                                    # dispararia antes do fire e leria `enviados:` vazio
+                                    # (nao_enviado, max_tries=1 = telemetria perdida).
+                                    _defer_by=120 + defer_envio,
                                 )
                             except Exception:
                                 logger.warning(
@@ -964,13 +977,31 @@ async def despachar_humanizacao(
     critico: bool,
     quote_msg_ids: list[str | None] | None = None,
     quote_textos: list[str | None] | None = None,
-) -> None:
+    recebida_em: datetime | None = None,
+    defer_humano: bool = True,
+) -> int:
     """Um unico job `enviar_turno` por turno (05 §1): percorre chunks e midias em ordem (07 §3.4).
 
     O job `enviar_turno` nasce no M4c; aqui so o despacho pelo NOME, com dedupe nativo via _job_id.
+    Quando `envio_delay_humano_habilitado`, adia o job via _defer_by (latência humana de resposta,
+    05 §4.1) descontando o que o pipeline já gastou desde `recebida_em` (inbound mais recente do
+    turno). Turno CRITICO nunca adia: ele pula o cancel-on-new-message no fire, então um crítico
+    deferido poderia sair DEPOIS da resposta do turno seguinte (inversão real) — e chave Pix /
+    confirmação não devem esperar. Retorna o defer aplicado (s), p/ o caller alinhar o judge.
     """
+    elapsed_s = (
+        max(0.0, (datetime.now(UTC) - recebida_em).total_seconds())
+        if recebida_em is not None
+        else 0.0
+    )
+    defer_s = (
+        0
+        if critico or not defer_humano
+        else amostrar_defer_humano_s(chars_inbound=chars_inbound, elapsed_s=elapsed_s)
+    )
+    extra: dict[str, Any] = {"_defer_by": defer_s} if defer_s > 0 else {}
     arq = ctx["redis"]  # em ARQ, ctx["redis"] e a ArqRedis e expoe enqueue_job
-    await arq.enqueue_job(
+    job = await arq.enqueue_job(
         "enviar_turno",
         conversa_id=conversa_id,
         turno_id=turno_id,
@@ -982,4 +1013,13 @@ async def despachar_humanizacao(
         quote_msg_ids=quote_msg_ids,
         quote_textos=quote_textos,
         _job_id=f"turno_envio:{turno_id}",
+        **extra,
     )
+    if job is None:
+        # Dedupe do retry (job `turno_envio:` já existe): o `enviar_turno` REAL ficou com o defer
+        # da 1ª tentativa, que esta amostra fresca desconhece. Devolve o TETO p/ a margem do judge
+        # nunca encolher; sem re-observar a métrica (o defer real já foi observado na 1ª vez).
+        s = get_settings()
+        return s.envio_delay_humano_teto_s if s.envio_delay_humano_habilitado else 0
+    ENVIO_DEFER_HUMANO.observe(defer_s)
+    return defer_s

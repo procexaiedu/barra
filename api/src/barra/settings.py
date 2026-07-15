@@ -201,6 +201,30 @@ class Settings(BaseSettings):
         default=True,
         description="Normaliza o travessao da bolha de saida (camada de voz, nao seguranca): troca o em-dash '—' por virgula (persona <voz>: 'nada de travessao... use virgula'), que o DeepSeek vaza mesmo instruido. Nao toca o hifen ASCII '-' nem o en-dash. Vale para todos os caminhos do enviar_turno. False = bolha sai como o modelo gerou (kill-switch sem deploy).",
     )
+    filtro_vocativo_habilitado: bool = Field(
+        default=True,
+        description="Afina a frequencia do vocativo 'amor/vida' trailing da bolha de saida (camada de voz, nao seguranca): o DeepSeek satura ~2x a taxa do Vendedor humano fora da venda mesmo instruido (estilometria por ato 2026-07-14); sorteio per-bolha calibrado ao corpus remove o vocativo do FIM da bolha nos atos saturados (saudacao/outro), nunca no meio da frase. Vale para todos os caminhos do enviar_turno. False = bolha sai como o modelo gerou (kill-switch sem deploy).",
+    )
+    envio_delay_humano_habilitado: bool = Field(
+        default=False,
+        description="Adia o job enviar_turno via _defer_by (camada de voz, nao seguranca) para aproximar a latencia de 1ª resposta do Vendedor humano (corpus: p25≈14s / p50≈40s, cauda log-normal) — hoje o agente responde em ≤~9s de leitura+digitacao, um tell de bot. O grafo/cards/Pix rodam sem atraso; so a bolha ao cliente espera, fora do job_timeout e sem segurar slot. Turno critico nunca adia (pula o cancel-on-new-message; adiar criaria inversao de ordem). False (default) = comportamento atual — kill-switch sem deploy.",
+    )
+    envio_delay_humano_mediana_s: float = Field(
+        default=40.0,
+        gt=0.0,
+        description="Mediana (s) da latencia-alvo de 1ª resposta quando envio_delay_humano_habilitado. p50 do Vendedor no corpus (mineracao 2026-06-17).",
+    )
+    envio_delay_humano_sigma: float = Field(
+        default=1.55,
+        gt=0.0,
+        description="Sigma da log-normal do delay humano. 1.55 fixa p25≈14s dada a mediana 40s (corpus).",
+    )
+    envio_delay_humano_teto_s: int = Field(
+        default=90,
+        ge=0,
+        le=300,
+        description="Teto operacional (s) do delay humano — trunca a cauda (p90 humano ≈8min e inviavel p/ venda). Hard bound 300: turno_atual/enviados tem EX=600 e o envio + retries (Retry defer 10*job_try, 3 tries) precisam caber dentro do TTL.",
+    )
     reincidencia_seguranca_limiar: int = Field(
         default=3,
         ge=1,

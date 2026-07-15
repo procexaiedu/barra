@@ -253,6 +253,11 @@ QUOTE_RESOLUCAO = Counter(
     ["resultado"],
 )
 # 05 §9: humanizacao de envio (job enviar_turno).
+ENVIO_DEFER_HUMANO = Histogram(
+    "agente_envio_defer_humano_segundos",
+    "Defer 'humano' aplicado ao enqueue do enviar_turno (05 §4.1); 0 = flag off/critico/ja-gasto",
+    buckets=(0, 5, 15, 30, 45, 60, 75, 90, 120, float("inf")),
+)
 ENVIO_DURACAO = Histogram(
     "agente_envio_turno_duracao_seconds",
     "Duracao do job enviar_turno inteiro (chunks + midias) (05 §9)",

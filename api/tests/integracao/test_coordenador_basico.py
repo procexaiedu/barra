@@ -228,6 +228,42 @@ async def test_coordenador_basico(conn: AsyncConnection[dict[str, Any]]) -> None
 
 
 @pytest.mark.needs_db
+async def test_defer_humano_no_envio_e_judge_alinhado(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Fio fim-a-fim do defer humano (05 §4.1): processar_turno despacha enviar_turno com
+    _defer_by e o judge pós-envio acompanha (120 + defer) — senão ele dispara antes do fire,
+    lê `enviados:` vazio e perde a telemetria (max_tries=1)."""
+    from barra.settings import get_settings as _gs
+    from barra.workers import coordenador as coord_mod
+
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    await _seed_msg_cliente_orfa(conn, conversa_id)
+
+    settings_judge_on = _gs().model_copy(update={"judge_pos_envio_ativo": True})
+    monkeypatch.setattr(coord_mod, "get_settings", lambda: settings_judge_on)
+    monkeypatch.setattr(coord_mod, "amostrar_defer_humano_s", lambda **_kw: 33)
+
+    redis = _redis_fake()
+    graph = _GrafoFake(texto="oi amor")
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis, graph)
+
+    await redis.set(f"pending:conv:{conversa_id}", "1")
+    await processar_turno(ctx, conversa_id=str(conversa_id))
+
+    calls = redis.enqueue_job.call_args_list
+    envios = [c for c in calls if c.args and c.args[0] == "enviar_turno"]
+    assert len(envios) == 1
+    assert envios[0].kwargs["_defer_by"] == 33
+
+    judges = [c for c in calls if c.args and c.args[0] == "julgar_turno_pos_envio"]
+    assert len(judges) == 1
+    assert judges[0].kwargs["_defer_by"] == 120 + 33
+
+
+@pytest.mark.needs_db
 async def test_drain_excede_max(conn: AsyncConnection[dict[str, Any]]) -> None:
     modelo_id = await _seed_modelo(conn)
     cliente_id = await _seed_cliente(conn)
