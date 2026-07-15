@@ -23,6 +23,7 @@ from typing import Annotated, Any, Literal
 from langchain_core.tools import InjectedToolArg, ToolException, tool
 from langgraph.prebuilt import ToolRuntime
 from psycopg import AsyncConnection
+from pydantic import Field
 
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
 
@@ -32,12 +33,26 @@ from ._idempotencia import _executar_idempotente
 TagMidia = Literal["apresentacao", "corpo", "lifestyle", "evento"]
 
 
+_DESC_TAG = (
+    "Categoria da mídia. O sistema escolhe QUAL item da tag (rotação: menos-recente-enviada), "
+    "evitando repetir — você não escolhe o item específico."
+)
+_DESC_LEGENDA = (
+    "Texto curto que vai como caption da mídia no WhatsApp. Omitir = sem caption; sobre "
+    "quando preencher, siga sua conduta de mídia (nas suas regras)."
+)
+_DESC_TIPO_MIDIA = (
+    '"foto" (default) ou "video" — qual mídia anexar. O vídeo vai como visualização única '
+    "quando a plataforma suportar."
+)
+
+
 @tool
 async def enviar_midia(
-    tag: TagMidia,
+    tag: Annotated[TagMidia, Field(description=_DESC_TAG)],
     runtime: ToolRuntime[ContextAgente],
-    legenda: str | None = None,
-    tipo: Literal["foto", "video"] = "foto",
+    legenda: Annotated[str | None, Field(description=_DESC_LEGENDA)] = None,
+    tipo: Annotated[Literal["foto", "video"], Field(description=_DESC_TIPO_MIDIA)] = "foto",
     call_idx: Annotated[int, InjectedToolArg] = 0,
 ) -> str:
     """Anexa uma mídia pré-aprovada da modelo (foto ou vídeo, escolhida pelo sistema) à resposta
@@ -47,15 +62,13 @@ async def enviar_midia(
     siga sua conduta de mídia (nas suas regras) para a ordem foto→vídeo. NÃO mande na saudação
     nem antes de qualquer qualificação.
 
-    Args:
-        tag: categoria da mídia. O sistema escolhe QUAL item da tag (rotação:
-             menos-recente-enviada), evitando repetir — você não escolhe o item específico.
-        legenda: opcional, texto curto que aparece junto da mídia no WhatsApp.
-        tipo: "foto" (default) ou "video" — qual mídia anexar. O vídeo vai como visualização
-              única quando a plataforma suportar.
-
     Pode ser chamada várias vezes no mesmo turno (ex.: 2 fotos da mesma tag);
     as mídias são enviadas após o texto.
+
+    Returns:
+        Confirmação de qual mídia foi anexada; ela vai ao cliente DEPOIS do seu texto. Não
+        descreva a mídia nem repita a legenda na bolha. Se vier "ERRO: ..." (mídia
+        indisponível), não prometa a foto/vídeo ao cliente — responda em texto e siga.
     """
     pool = runtime.context.db_pool
     modelo_id = runtime.context.modelo_id

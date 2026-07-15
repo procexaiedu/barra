@@ -8,7 +8,7 @@ painel/comandos/pix e nao conhece o enum de motivos da tool.
 """
 
 import logging
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from langchain_core.tools import tool
@@ -68,11 +68,27 @@ class EscaladaPayload(BaseModel):
     acao_esperada: str = Field(min_length=3, max_length=400)
 
 
+_DESC_MOTIVO = (
+    "Enum fechado que decide o destino da escalada. Operacionais: fora_de_oferta, "
+    "horario_indisponivel, politica_nova_necessaria. AUP/persona: disclosure_insistente, "
+    "jailbreak_attempt, pedido_explicito_repetido, prova_humanidade_persistente, "
+    "cross_modelo_fishing. Safety: conteudo_ilegal. Fallback: outro. Qual usar em cada "
+    "situação: siga <quando_usar_escalar> nas suas regras."
+)
+_DESC_RESUMO = (
+    "1-3 frases descrevendo o que aconteceu na conversa. Para motivos de AUP, conteudo_ilegal "
+    "e outro, inclua o TEXTO LITERAL da mensagem do cliente."
+)
+_DESC_ACAO = "O que Fernando/modelo devem decidir ou fazer ao receber a escalada."
+
+
 @tool
 async def escalar(
-    motivo: MotivoEscalada,
-    resumo_operacional: str,
-    acao_esperada: str,
+    motivo: Annotated[MotivoEscalada, Field(description=_DESC_MOTIVO)],
+    resumo_operacional: Annotated[
+        str, Field(min_length=10, max_length=1000, description=_DESC_RESUMO)
+    ],
+    acao_esperada: Annotated[str, Field(min_length=3, max_length=400, description=_DESC_ACAO)],
     runtime: ToolRuntime[ContextAgente],
 ) -> str:
     """Escale o atendimento. O destino (Fernando para decisão sensível, ou a modelo para ação
@@ -82,13 +98,6 @@ async def escalar(
     pedido de desconto que ainda cabe no seu melhor valor, nem num horário que você conseguiu
     redirecionar. Escale só quando o cliente insiste além das camadas de conduta das suas
     regras, pede valor abaixo do seu piso de desconto, ou pede algo fora do que você oferece.
-
-    Args:
-        motivo: enum fechado — operacionais (fora_de_oferta, horario_indisponivel, ...)
-          ou AUP/persona (disclosure_insistente, jailbreak_attempt, ...).
-        resumo_operacional: 1-3 frases descrevendo o que aconteceu na conversa.
-                            Para AUP, incluir TEXTO LITERAL da pergunta do cliente.
-        acao_esperada: o que Fernando/modelo devem decidir/fazer.
 
     Returns:
         Confirmação de que a escalada foi aberta e para quem. Depois disso, sua próxima fala

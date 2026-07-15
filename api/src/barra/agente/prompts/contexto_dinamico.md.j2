@@ -4,6 +4,7 @@
 {% if data_desejada %}<dia>{{ data_desejada }}</dia>{% endif %}
 {% if horario_desejado %}<hora>{{ horario_desejado }}</hora>{% endif %}
 {% if endereco %}<local>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</local>{% endif %}
+{% if valor_fechado %}<valor_fechado>{{ valor_fechado }}{% if duracao_fechada %} ({{ duracao_fechada }}h){% endif %} — valor já combinado com ele: não re-cote nem renegocie</valor_fechado>{% endif %}
 {% if urgencia %}<urgencia>{{ urgencia }}</urgencia>{% endif %}
 {% if tipo_atendimento == 'externo' %}<pix_deslocamento>{{ pix_status }}</pix_deslocamento>{% endif %}
 </ja_combinado>
@@ -14,7 +15,8 @@
 <proximo_passo>{{ proximo_passo }}</proximo_passo>
 <antes_de_perguntar>Antes de perguntar qualquer item de "ainda falta", releia a última mensagem do cliente: se ela já responde o item, trate como combinado e não repergunte. Você já está no meio do atendimento, não recumprimente nem se reapresente.</antes_de_perguntar>
 {% if min_desde_ultima_msg_cliente is defined and min_desde_ultima_msg_cliente is not none and min_desde_ultima_msg_cliente >= 3 %}<tempo_desde_ultima_msg_cliente minutos="{{ min_desde_ultima_msg_cliente }}"/>
-{% endif %}{% if dia_ja_sondado %}<ja_sondou_o_dia>Você já sondou o dia ("seria hoje?") antes nesta conversa. NÃO repita essa sondagem nem a cole no turno do preço, a mesma pergunta de novo te entrega como robô. Pra avançar, puxe o que ainda falta de fato (se falta a hora, proponha você um horário concreto da sua agenda pra ele confirmar, tipo "consigo às 14h, fecha?") ou responda o que ele trouxe.</ja_sondou_o_dia>
+{% endif %}{% if dia_ja_sondado %}<ja_sondou_o_dia>Você já sondou o dia ("seria hoje?") antes nesta conversa. NÃO repita essa sondagem nem a cole no turno do preço, a mesma pergunta de novo te entrega na hora. Pra avançar, puxe o que ainda falta de fato (se falta a hora, proponha você um horário concreto da sua agenda pra ele confirmar, tipo "consigo às 14h, fecha?") ou responda o que ele trouxe.</ja_sondou_o_dia>
+{% endif %}{% if ja_fez_contraproposta %}<ja_fez_contraproposta>Você já usou a sua ÚNICA contraproposta de desconto nesta conversa: o valor que você ofereceu é o seu melhor valor — não oferte outro desconto nem desça mais um centavo. Aceite ou avanço dele fecha no valor da mesa; pedido explícito abaixo, de novo: "Poxa amor não consigo" e, na insistência, escale com fora_de_oferta.</ja_fez_contraproposta>
 {% endif %}</situacao_do_atendimento>
 
 <cliente{% if cliente_nome %} nome="{{ cliente_nome }}"{% endif %} recorrente="{{ 'sim' if recorrente else 'não' }}">
