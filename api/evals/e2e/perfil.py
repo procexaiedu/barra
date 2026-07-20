@@ -47,6 +47,10 @@ class PerfilCaso:
     roteiro_cliente: list[str] = field(default_factory=list)
     # Persona/objecoes em linguagem natural — alimenta o ClienteLLM (corrida real, §0).
     persona: str = ""
+    # Falas reais do Vendedor (V:) no transcript original, uma por linha, no mesmo texto que o
+    # ClienteLLM ve na persona — lista de bloqueio p/ sanear_fala_cliente nao deixar o ClienteLLM
+    # copiar a voz do Vendedor (ver evals.e2e.extracao._montar).
+    linhas_vendedor: list[str] = field(default_factory=list)
     tipo_esperado: str | None = (
         None  # tipo_atendimento que o caso deveria fixar (interno/externo/remoto)
     )

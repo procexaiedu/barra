@@ -164,12 +164,22 @@ def _montar(
     ref = f"{th['instancia']}:{th['remote_jid']}"
     # Sem transcript pareado, degrada para so-cliente (ainda util, mas sem os gatilhos do vendedor).
     transcript = transcript or [("C", f) for f in falas]
+    # Falas reais do Vendedor, uma por linha (mesma granularidade que sanear_fala_cliente compara
+    # apos _bolhas() quebrar a fala do ClienteLLM linha a linha).
+    linhas_vendedor = [
+        linha.strip()
+        for lado, txt in transcript
+        if lado == "V"
+        for linha in txt.split("\n")
+        if linha.strip() and linha.strip() != "[mídia]"
+    ]
     return PerfilCaso(
         nome=f"{eixo or desfecho}:{ref}",
         abertura=falas[0],
         modelo=MODELO_SINTETICA,
         roteiro_cliente=falas[1:],
         persona=_PERSONA_TMPL.format(desfecho=desfecho, transcript=_render_transcript(transcript)),
+        linhas_vendedor=linhas_vendedor,
         tipo_esperado=_TIPO_PROXY.get(th["tipo_atendimento_proxy"]),
         desfecho_real=desfecho,
         label_bin=th["label_bin"],
