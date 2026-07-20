@@ -1,16 +1,16 @@
-"""Digest semanal pro Fernando — cron de segunda de manhã (produção assistida, semana 1).
+"""Digest diário pro Fernando — cron de manhã (produção assistida).
 
 Um card por modelo ativa no grupo de Coordenação dela (mesma porta do lembrete_valor:
-`modelos.coordenacao_chat_id` + `evolution.enviar_texto` tipo='card'), com a semana em números:
+`modelos.coordenacao_chat_id` + `evolution.enviar_texto` tipo='card'), com o dia em números:
 conversas com cliente, atendimentos novos, fechados (+valor), handoffs e incidentes CONTIDOS
 pelo sistema (defesas do gate/disclosure que viraram handoff sem chegar ao cliente). É o
-combinado do plano do piloto: Fernando recebe 1 resumo automático por semana — score ruim NUNCA
+combinado do plano do piloto: Fernando recebe 1 resumo automático por dia — score ruim NUNCA
 vira tarefa pra ele, então o card só informa, não pede ação. Os scores do judge pós-envio ficam
 de FORA do card de propósito: são telemetria dev (Langfuse/Prometheus) e o grupo de Coordenação
 também é lido pela modelo.
 
-Janela: 7 dias corridos até o momento do cron. Idempotência: dedupe por `envios_evolution`
-(payload card_kind='digest_semanal' + modelo_id na última ~semana) — reexecução do cron no mesmo
+Janela: 1 dia corrido até o momento do cron. Idempotência: dedupe por `envios_evolution`
+(payload card_kind='digest_semanal' + modelo_id nas últimas ~20h) — reexecução do cron no mesmo
 ciclo não reenvia. Best-effort por modelo: falha de um envio não aborta o lote.
 
 Fechados usam a MESMA âncora do dashboard (último evento `fechado_registrado` na janela), não o
@@ -33,7 +33,7 @@ from barra.workers._cards import render_card
 logger = logging.getLogger(__name__)
 
 CARD_KIND = "digest_semanal"
-_JANELA_DIAS = 7
+_JANELA_DIAS = 1
 
 _SQL_MODELOS = """
 SELECT id, nome, evolution_instance_id, coordenacao_chat_id
@@ -44,14 +44,14 @@ SELECT id, nome, evolution_instance_id, coordenacao_chat_id
  ORDER BY nome
 """
 
-# Dedupe: já mandamos o digest desta modelo neste ciclo? (6 dias cobre reexecução no mesmo dia
-# sem engolir o envio legítimo da semana seguinte.)
+# Dedupe: já mandamos o digest desta modelo neste ciclo? (20h cobre reexecução no mesmo dia
+# sem engolir o envio legítimo do dia seguinte.)
 _SQL_JA_ENVIADO = """
 SELECT 1
   FROM barravips.envios_evolution
  WHERE payload->>'card_kind' = %s
    AND payload->>'modelo_id' = %s
-   AND created_at >= now() - interval '6 days'
+   AND created_at >= now() - interval '20 hours'
  LIMIT 1
 """
 

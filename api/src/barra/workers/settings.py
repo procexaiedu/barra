@@ -9,7 +9,7 @@ Cron:
   - limpar_midias_vencidas (90d em estados terminais): diário 03:00
   - fluxo_drift (sensor de deriva de fluxo; observacional, default off): segunda 04:00
   - rollback_watch (gatilhos objetivos de rollback do piloto; alerta dev): diário 05:00
-  - digest_semanal (resumo da semana pro Fernando no grupo de Coordenação): segunda 12:00
+  - digest_semanal (resumo diário pro Fernando no grupo de Coordenação): diário 12:00
 
 Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes do envio.
 """
@@ -289,8 +289,8 @@ class WorkerSettings:
         cron(cron_baixo_score, name="baixo_score", hour={4}, minute={30}),
         # Vigia dos gatilhos de rollback do piloto (janela 7d, alerta dev): diário 05:00 UTC.
         cron(cron_rollback_watch, name="rollback_watch", hour={5}, minute={0}),
-        # Digest semanal pro Fernando no grupo de Coordenação: segunda 12:00 UTC (09:00 BRT).
-        cron(cron_digest_semanal, name="digest_semanal", weekday="mon", hour={12}, minute={0}),
+        # Digest diário pro Fernando no grupo de Coordenação: diário 12:00 UTC (09:00 BRT).
+        cron(cron_digest_semanal, name="digest_semanal", hour={12}, minute={0}),
     ]
     keep_result = 3600  # global; processar_turno sobrescreve p/ 0 via func(...) acima
     max_jobs = 10

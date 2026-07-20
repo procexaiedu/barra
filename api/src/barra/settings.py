@@ -347,7 +347,7 @@ class Settings(BaseSettings):
     )
     digest_semanal_ativo: bool = Field(
         default=True,
-        description="Liga o digest semanal automático pro Fernando (cron segunda de manhã): card no grupo de Coordenação de cada modelo ativa com conversas/fechados/handoffs/incidentes contidos da semana. Kill-switch via DIGEST_SEMANAL_ATIVO=false.",
+        description="Liga o digest diário automático pro Fernando (cron diário de manhã): card no grupo de Coordenação de cada modelo ativa com conversas/fechados/handoffs/incidentes contidos do dia. Kill-switch via DIGEST_SEMANAL_ATIVO=false.",
     )
     rollback_watch_ativo: bool = Field(
         default=True,
