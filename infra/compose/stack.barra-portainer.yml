@@ -60,10 +60,22 @@ services:
       # (chave ausente/auth falhou) -> RuntimeError no startup, deploy falha na hora em vez
       # de rodar cego. Cenario real: redeploy git sem Env zera LANGFUSE_PUBLIC/SECRET_KEY.
       - LANGFUSE_OBRIGATORIO=true
-      - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
+      - EVOLUTION_BASE_URL=https://evogo.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - EVOLUTION_INSTANCIA=lucia
+      - EVOLUTION_INSTANCIA=elitebaby01
+      # elitebaby01 é instância DEDICADA (não compartilhada como a procex-teste do piloto
+      # anterior) — pode receber webhook direto, sem indireção de router. EVOLUTION_WEBHOOK_TOKEN
+      # é escolhido por nós (não mais o token que um router anexaria), DISTINTO da
+      # EVOLUTION_API_KEY (que na EvoGo é a GLOBAL_API_KEY, cria/deleta instâncias).
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
+      # Callback direto: definir_webhook/_connect grava webhookUrl+subscribe no /instance/connect
+      # da elitebaby01 nesse endereço (token embutido em ?token= por _webhook_url). Diferente da
+      # procex-teste (compartilhada, callback vazio de propósito) — aqui é seguro reescrever o
+      # webhook porque a instância só serve este projeto.
+      - EVOLUTION_WEBHOOK_CALLBACK_URL=https://api-barra.procexai.tech/webhook/evolution
+      # Host do MinIO da EvoGo (mídia inbound WEBHOOK_FILES vem de host distinto do base_url) —
+      # liberado no anti-SSRF do download de mídia.
+      - 'EVOLUTION_MEDIA_HOSTS=["minioback.procexai.tech"]'
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
       # Ingestão automática do rig de feedback (#93). Grupo "ProceX - Feedbacks EliteBaby" da lucia.
@@ -168,10 +180,22 @@ services:
       # (chave ausente/auth falhou) -> RuntimeError no startup, deploy falha na hora em vez
       # de rodar cego. Cenario real: redeploy git sem Env zera LANGFUSE_PUBLIC/SECRET_KEY.
       - LANGFUSE_OBRIGATORIO=true
-      - EVOLUTION_BASE_URL=https://evolution3.procexai.tech
+      - EVOLUTION_BASE_URL=https://evogo.procexai.tech
       - EVOLUTION_API_KEY=${EVOLUTION_API_KEY}
-      - EVOLUTION_INSTANCIA=lucia
+      - EVOLUTION_INSTANCIA=elitebaby01
+      # elitebaby01 é instância DEDICADA (não compartilhada como a procex-teste do piloto
+      # anterior) — pode receber webhook direto, sem indireção de router. EVOLUTION_WEBHOOK_TOKEN
+      # é escolhido por nós (não mais o token que um router anexaria), DISTINTO da
+      # EVOLUTION_API_KEY (que na EvoGo é a GLOBAL_API_KEY, cria/deleta instâncias).
       - EVOLUTION_WEBHOOK_TOKEN=${EVOLUTION_WEBHOOK_TOKEN}
+      # Callback direto: definir_webhook/_connect grava webhookUrl+subscribe no /instance/connect
+      # da elitebaby01 nesse endereço (token embutido em ?token= por _webhook_url). Diferente da
+      # procex-teste (compartilhada, callback vazio de propósito) — aqui é seguro reescrever o
+      # webhook porque a instância só serve este projeto.
+      - EVOLUTION_WEBHOOK_CALLBACK_URL=https://api-barra.procexai.tech/webhook/evolution
+      # Host do MinIO da EvoGo (mídia inbound WEBHOOK_FILES vem de host distinto do base_url) —
+      # liberado no anti-SSRF do download de mídia.
+      - 'EVOLUTION_MEDIA_HOSTS=["minioback.procexai.tech"]'
       - EVOLUTION_GRUPO_COORDENACAO_JID=120363407815206369@g.us
       - EVOLUTION_FERNANDO_JIDS=[]
       # Ingestão automática do rig de feedback (#93). Grupo "ProceX - Feedbacks EliteBaby" da lucia.

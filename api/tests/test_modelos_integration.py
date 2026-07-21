@@ -215,6 +215,72 @@ def test_pausar_modelo_ja_pausada_retorna_409() -> None:
         app.dependency_overrides.pop(get_conn, None)
 
 
+def test_conectar_whatsapp_instancia_ja_conectada_nao_forca_repareamento(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Instancia ja existe na Evolution GO E ja esta open/logged-in (ex.: elitebaby01, pareada
+    fora do nosso fluxo) mas o nosso banco ainda nao registra evolution_status='conectado'
+    (guard de idempotencia no topo da rota nao pega esse caso). O bug corrigido: cair em
+    conectar_instancia (immediate=True) forcaria nova sessao de pareamento e desconectaria o
+    WhatsApp ja linkado. Deve reafirmar so o webhook (definir_webhook) e nao gerar QR."""
+    modelo_id = uuid4()
+    fake = FakeConnPausar(_modelo_row(modelo_id, evolution_instance_id="elitebaby01"))
+    # A row simulada por _modelo_row ja marca evolution_status='conectado' quando ha instance_id;
+    # forcamos 'pareando' para reproduzir o estado real (banco desatualizado) que expõe o bug.
+    fake.modelo_row["evolution_status"] = "pareando"
+
+    async def _override():
+        yield fake
+
+    conectar_chamado = False
+
+    async def _conectar_instancia(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        nonlocal conectar_chamado
+        conectar_chamado = True
+        return {"qrcode": "data:image/png;base64,fake", "code": "abc"}
+
+    definir_webhook_chamado = False
+
+    async def _definir_webhook(*_args: Any, **_kwargs: Any) -> bool:
+        nonlocal definir_webhook_chamado
+        definir_webhook_chamado = True
+        return True
+
+    monkeypatch.setattr(EvolutionClient, "criar_instancia", lambda *a, **k: _criada())
+    monkeypatch.setattr(EvolutionClient, "estado_conexao", lambda *a, **k: _estado_open())
+    monkeypatch.setattr(EvolutionClient, "conectar_instancia", _conectar_instancia)
+    monkeypatch.setattr(EvolutionClient, "definir_webhook", _definir_webhook)
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.post(
+                f"/v1/modelos/{modelo_id}/conectar-whatsapp", json={}, headers=_token()
+            )
+        assert response.status_code == 200, response.text
+        body = response.json()
+        assert body["status"] == "conectado"
+        assert body["qr_code"] is None
+        assert conectar_chamado is False
+        assert definir_webhook_chamado is True
+        _update_query, update_params = next(
+            (q, p)
+            for q, p in fake.executes
+            if "UPDATE barravips.modelos" in q and "evolution_instance_id" in q
+        )
+        assert "conectado" in tuple(update_params)
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+async def _criada() -> dict[str, Any]:
+    return {"status": "exists", "instance_id": "elitebaby01"}
+
+
+async def _estado_open() -> str:
+    return "open"
+
+
 def test_pausar_modelo_sucesso_mesmo_com_evolution_falhando(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
