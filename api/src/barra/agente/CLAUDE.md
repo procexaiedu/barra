@@ -8,7 +8,7 @@ Escopo: subsistema LangGraph que conduz a IA por modelo.
 
 ## Prompts são markdown, com Jinja onde há variável
 
-`prompts/persona.md` e `prompts/regras.md.j2` são a fonte de verdade. O plano (`persona.md`) é markdown puro; os que interpolam variável usam Jinja com sufixo `.md.j2` (ex.: `regras.md.j2` interpola `desconto_max_pct` no bloco `<desconto>` — ADR-0004; `docs/agente/09 §4.4`). Para mudar tom ou regra de negócio do agente, edite o markdown — não cole string nova em `graph.py`, `classificador.py` nem em nenhum nó. Strings de prompt hardcoded no código são bug.
+`prompts/persona.md` e `prompts/regras.md.j2` são a fonte de verdade. O plano (`persona.md`) é markdown puro; os que interpolam variável usam Jinja com sufixo `.md.j2` (ex.: `regras.md.j2` interpola `desconto_degrau_pct`/`desconto_teto_pct` no bloco `<desconto>` — ADR-0031, escalada de 2 rodadas; `docs/agente/09 §4.4`). Para mudar tom ou regra de negócio do agente, edite o markdown — não cole string nova em `graph.py`, `classificador.py` nem em nenhum nó. Strings de prompt hardcoded no código são bug.
 
 ## Fronteira conduta ↔ tool description
 
@@ -41,7 +41,7 @@ Auditada em 2026-07-15 e coerente — mantenha assim: **NUNCA em caps** só para
 
 ## Flags deterministicas de disciplina conversacional (padrão A2)
 
-Disciplina do tipo "X é UMA vez na conversa" não pode depender da janela de 20 msgs (o evento desliza pra fora e o LLM repete). Padrão: detecção determinística (regex sobre texto `normalizar()`ado) + tag instrutiva no belief. Instâncias: `<ja_sondou_o_dia>` (janela, `_ja_sondou_o_dia`) e `<ja_fez_contraproposta>` (atendimento INTEIRO via `mensagens.atendimento_id`, `_tem_contraproposta`). Nova disciplina one-shot → mesma receita, nunca prosa extra no BP_GERAL.
+Disciplina do tipo "X é UMA vez (ou até N vezes) na conversa" não pode depender da janela de 20 msgs (o evento desliza pra fora e o LLM repete). Padrão: detecção determinística (regex sobre texto `normalizar()`ado) + tag instrutiva no belief. Instâncias: `<ja_sondou_o_dia>` (janela, `_ja_sondou_o_dia`, one-shot) e `<ja_fez_contraproposta>` (atendimento INTEIRO via `mensagens.atendimento_id`, `_contar_contrapropostas` — ADR-0031, até 2 rodadas: a contagem, não só um bool, é o que muda de degrau pra teto). Nova disciplina one-shot ou multi-rodada → mesma receita, nunca prosa extra no BP_GERAL.
 
 ## Isolamento por par (cliente, modelo)
 

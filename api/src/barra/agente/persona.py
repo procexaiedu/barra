@@ -106,23 +106,30 @@ class IdentidadeModelo:
 
 
 @lru_cache(maxsize=8)
-def render_persona(desconto_max_pct: float | None = None) -> str:
+def render_persona(
+    desconto_degrau_pct: float | None = None, desconto_teto_pct: float | None = None
+) -> str:
     """BP1 geral (persona + regras) — sem variáveis por-modelo, idêntico para todas.
 
-    `desconto_max_pct` interpola o bloco <desconto> de `regras.md.j2` (ADR-0004): segue GERAL
-    porque é setting global, não por-modelo. None → lê de settings (`desconto_degrau_pct`, ADR-0031
-    — degrau intermediário; a escalada de 2 rodadas até `desconto_teto_pct` é issue à parte).
+    `desconto_degrau_pct`/`desconto_teto_pct` interpolam o bloco <desconto> de `regras.md.j2`
+    (ADR-0031: escalada de 2 rodadas — degrau na 1ª contraproposta, teto na 2ª e última): seguem
+    GERAL porque são settings globais, não por-modelo. None → lê de settings.
     """
-    pct = get_settings().desconto_degrau_pct if desconto_max_pct is None else desconto_max_pct
+    s = get_settings()
+    degrau = s.desconto_degrau_pct if desconto_degrau_pct is None else desconto_degrau_pct
+    teto = s.desconto_teto_pct if desconto_teto_pct is None else desconto_teto_pct
     persona = _env.get_template("persona.md").render()
     regras = _env.get_template("regras.md.j2").render(
-        desconto_max_pct=pct,
-        pix_valor=brl(get_settings().pix_deslocamento_valor),
+        desconto_degrau_pct=degrau,
+        desconto_teto_pct=teto,
+        pix_valor=brl(s.pix_deslocamento_valor),
     )
     return f"{persona}\n{regras}"
 
 
-def render_prefixo_geral(desconto_max_pct: float | None = None) -> str:
+def render_prefixo_geral(
+    desconto_degrau_pct: float | None = None, desconto_teto_pct: float | None = None
+) -> str:
     """BP_GERAL — persona+regras num único bloco system byte-idêntico p/ todas.
 
     É o prefixo geral global: byte-idêntico entre todas as modelos, ele e o BP_MODELO formam o
@@ -132,7 +139,7 @@ def render_prefixo_geral(desconto_max_pct: float | None = None) -> str:
     Caller único: `prepare_context.py`. Testes que precisam reproduzir o conteúdo do bloco geral
     devem chamar esta função (não montar a string fora — risco de byte-drift).
     """
-    return render_persona(desconto_max_pct)
+    return render_persona(desconto_degrau_pct, desconto_teto_pct)
 
 
 def render_contexto_dinamico(**variaveis: Any) -> str:

@@ -393,19 +393,23 @@ def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
     )
 
 
-# Contraproposta de desconto ("Consigo 500 se você vier hoje 😊") — a disciplina é UMA na conversa
-# inteira (regras.md.j2 <desconto> 3), mas a memória dela vivia só na janela de 20 msgs: quando a
-# contraproposta desliza pra fora, o LLM pode ofertar uma segunda. Detecção determinística sobre
-# TODAS as falas da IA do atendimento (mensagens.atendimento_id, indexado) → <ja_fez_contraproposta>
-# no belief. Forma canônica treinada pelo prompt: "consigo" + preço (3+ dígitos). Não colide com o
-# resto do phrasebook: cotação é "600 1h no meu local" (sem "consigo"), hora é 1-2 dígitos + h
-# (barrada pelo \d{3,}) e a recusa "não consigo" cai no lookbehind (texto já normalizado, sem acento).
+# Contraproposta de desconto ("Consigo 500 se você vier hoje 😊") — a disciplina é ATÉ DUAS na
+# conversa inteira (regras.md.j2 <desconto> 3/4, ADR-0031: degrau na 1ª, teto na 2ª e última), mas a
+# memória dela vivia só na janela de 20 msgs: quando a contraproposta desliza pra fora, o LLM pode
+# ofertar de novo. Detecção determinística sobre TODAS as falas da IA do atendimento
+# (mensagens.atendimento_id, indexado) → <ja_fez_contraproposta> no belief. Forma canônica treinada
+# pelo prompt: "consigo" + preço (3+ dígitos). Não colide com o resto do phrasebook: cotação é
+# "600 1h no meu local" (sem "consigo"), hora é 1-2 dígitos + h (barrada pelo \d{3,}) e a recusa
+# "não consigo" cai no lookbehind (texto já normalizado, sem acento).
 _RE_CONTRAPROPOSTA = re.compile(r"(?<!nao )\bconsigo\s+(?:r\$\s*)?\d{3,}\b")
 
 
-def _tem_contraproposta(textos: Iterable[str]) -> bool:
-    """True se alguma fala da IA já carrega a contraproposta única de desconto (PURA)."""
-    return any(_RE_CONTRAPROPOSTA.search(normalizar(t)) for t in textos)
+def _contar_contrapropostas(textos: Iterable[str]) -> int:
+    """Nº de linhas de `mensagens` (bolha/chunk enviado, não turno lógico) que carregam a
+    contraproposta de desconto (ADR-0031: até 2 por atendimento — degrau na 1ª, teto na 2ª e
+    última). Conta por linha (`search`, não `findall`): a frase canônica é curta e o chunker do
+    envio não a parte nem a repete dentro do mesmo turno, então bolha ≈ oferta na prática."""
+    return sum(1 for t in textos if _RE_CONTRAPROPOSTA.search(normalizar(t)))
 
 
 async def _anexar_contexto_dinamico(
@@ -561,7 +565,7 @@ async def _resolver_variaveis(
     testes que chamam direto sem janela seguem funcionando (marcadores ficam None).
     """
     atendimento: dict[str, Any] = {}
-    ja_fez_contraproposta = False
+    n_contrapropostas = 0
     if ctx.atendimento_id is not None:
         res = await conn.execute(
             """
@@ -575,9 +579,9 @@ async def _resolver_variaveis(
         )
         atendimento = await res.fetchone() or {}
 
-        # Falas da IA do atendimento INTEIRO (não só a janela de 20): memória durável da
-        # contraproposta única de desconto (ver _tem_contraproposta). `modelo_manual` fica de
-        # fora de propósito — a disciplina é da IA; desconto manual da modelo não a consome.
+        # Falas da IA do atendimento INTEIRO (não só a janela de 20): memória durável das até duas
+        # contrapropostas de desconto (ver _contar_contrapropostas). `modelo_manual` fica de fora
+        # de propósito — a disciplina é da IA; desconto manual da modelo não a consome.
         res = await conn.execute(
             """
             SELECT conteudo
@@ -588,7 +592,7 @@ async def _resolver_variaveis(
             """,
             (ctx.atendimento_id,),
         )
-        ja_fez_contraproposta = _tem_contraproposta(r["conteudo"] for r in await res.fetchall())
+        n_contrapropostas = _contar_contrapropostas(r["conteudo"] for r in await res.fetchall())
 
     res = await conn.execute(
         """
@@ -745,7 +749,7 @@ async def _resolver_variaveis(
         # aceitou o acordo (guarda do piso) — render condicional no template.
         "valor_fechado": _num_humano(atendimento.get("valor_acordado")),
         "duracao_fechada": _num_humano(atendimento.get("duracao_horas")),
-        "ja_fez_contraproposta": ja_fez_contraproposta,
+        "n_contrapropostas": n_contrapropostas,
         "recorrente": conversa.get("recorrente", False),
         "observacoes_internas": conversa.get("observacoes_internas"),
         "ultimo_motivo_perda": conversa.get("ultimo_motivo_perda"),
