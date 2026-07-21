@@ -172,11 +172,11 @@ export interface FeticheInput {
   ordem?: number
 }
 
-/** Fetiche que a modelo faz, com preço opcional (null = incluso). */
+/** Fetiche que a modelo faz. `pago` = extra cobrado (valor calculado no atendimento, ADR-0030); false = incluso. */
 export interface FeticheModeloVinculo {
   fetiche_id: string
   nome: string
-  preco: number | null
+  pago: boolean
 }
 
 export interface WhatsappStatusResponse {

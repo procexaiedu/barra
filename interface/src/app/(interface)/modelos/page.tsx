@@ -291,7 +291,7 @@ function ModelosConteudo() {
               onCriarDuracao={programas.criarDuracao}
               catalogoFetiches={fetiches.fetiches}
               onVincularFetiche={modelos.vincularFeticheModelo}
-              onAtualizarPrecoFetiche={modelos.atualizarPrecoFeticheModelo}
+              onAtualizarFetiche={modelos.atualizarFeticheModelo}
               onDesvincularFetiche={modelos.desvincularFeticheModelo}
               onCriarFetiche={fetiches.criarFetiche}
               onTrocarNumero={(numero) => setConfirmacao({ tipo: "trocar-numero", numero })}

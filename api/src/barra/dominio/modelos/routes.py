@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn, cast
 from uuid import UUID, uuid4
@@ -17,7 +18,7 @@ from barra.core.evolution import EvolutionClient
 from barra.core.storage import presigned_get, presigned_put, remove_object
 from barra.dominio.modelos.disponibilidade import bloqueios_futuros_fora
 from barra.dominio.modelos.schemas import (
-    AtualizarPrecoFeticheBody,
+    AtualizarFeticheBody,
     AtualizarPrecoProgramaBody,
     ConectarWhatsappRequest,
     DisponibilidadeReplace,
@@ -960,7 +961,7 @@ async def vincular_fetiche(
         ON CONFLICT (modelo_id, fetiche_id) DO UPDATE SET preco = EXCLUDED.preco
         RETURNING *
         """,
-        (modelo_id, body.fetiche_id, body.preco),
+        (modelo_id, body.fetiche_id, _preco_da_flag(body.pago)),
     )
     row = await result.fetchone()
     assert row is not None
@@ -968,10 +969,10 @@ async def vincular_fetiche(
 
 
 @router.patch("/{modelo_id}/fetiches/{fetiche_id}")
-async def atualizar_preco_fetiche(
+async def atualizar_fetiche(
     modelo_id: UUID,
     fetiche_id: UUID,
-    body: AtualizarPrecoFeticheBody,
+    body: AtualizarFeticheBody,
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     await _ensure_modelo(conn, modelo_id)
@@ -981,7 +982,7 @@ async def atualizar_preco_fetiche(
          WHERE modelo_id = %s AND fetiche_id = %s
         RETURNING *
         """,
-        (body.preco, modelo_id, fetiche_id),
+        (_preco_da_flag(body.pago), modelo_id, fetiche_id),
     )
     row = await result.fetchone()
     if row is None:
@@ -1214,6 +1215,19 @@ def _serializar_vinculo(
     }
 
 
+# Sentinel gravado em modelo_fetiches.preco quando pago=True (ADR-0030): o valor em si nunca é
+# lido pelo cálculo do extra — só a presença de NOT NULL importa (ver ADICIONAR_FETICHE em
+# dominio/atendimentos/routes.py). Precisa ser truthy: agente/prompts/fetiches.md.j2 ainda checa
+# `{% if f.preco %}` (Jinja) para decidir incluso/pago no contexto da IA — `Decimal("0")` é falsy
+# e inverteria a cotação. modelo_fetiches.preco segue NULL/NOT NULL na coluna (sem migration de
+# schema); a API pública nunca expõe nem aceita esse número, só o flag `pago`.
+_PRECO_PAGO_SENTINEL = Decimal("1")
+
+
+def _preco_da_flag(pago: bool) -> Decimal | None:
+    return _PRECO_PAGO_SENTINEL if pago else None
+
+
 async def _fetiches(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[str, Any]]:
     rows = await _all(
         conn,
@@ -1230,8 +1244,7 @@ async def _fetiches(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[st
         {
             "fetiche_id": str(row["fetiche_id"]),
             "nome": row["nome"],
-            # None = incluso (a modelo faz, sem custo extra).
-            "preco": float(row["preco"]) if row["preco"] is not None else None,
+            "pago": row["preco"] is not None,
         }
         for row in rows
     ]
@@ -1241,7 +1254,7 @@ def _serializar_vinculo_fetiche(vinculo: dict[str, Any], fetiche: dict[str, Any]
     return {
         "fetiche_id": str(vinculo["fetiche_id"]),
         "nome": fetiche["nome"],
-        "preco": float(vinculo["preco"]) if vinculo["preco"] is not None else None,
+        "pago": vinculo["preco"] is not None,
     }
 
 

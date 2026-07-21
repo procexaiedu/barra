@@ -110,19 +110,19 @@ export function PainelFetiches({
           Como funciona
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-text-secondary">
-          No perfil de cada modelo você marca quais ela faz e quanto cobra:
+          No perfil de cada modelo você marca quais ela faz e se são incluso ou pago:
         </p>
         <dl className="mt-4 space-y-3">
           <div className="flex items-start gap-3">
             <dt className="pt-0.5"><FeticheValor preco={null} /></dt>
             <dd className="text-sm leading-relaxed text-text-secondary">
-              Sem preço: <span className="text-text-primary">já incluso</span> no valor do programa.
+              Incluso: <span className="text-text-primary">já incluso</span> no valor do programa.
             </dd>
           </div>
           <div className="flex items-start gap-3">
             <dt className="pt-0.5"><FeticheValor preco={200} /></dt>
             <dd className="text-sm leading-relaxed text-text-secondary">
-              Com preço: a IA <span className="text-text-primary">cota como adicional</span> por cima do programa.
+              Pago: a IA <span className="text-text-primary">cota como adicional</span> — o valor é calculado a partir do programa vendido, não digitado.
             </dd>
           </div>
         </dl>

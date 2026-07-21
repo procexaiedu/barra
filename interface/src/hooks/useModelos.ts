@@ -83,10 +83,7 @@ function normalizarDetalhe(res: ModeloDetalheResponse): ModeloDetalheResponse {
       percentual_repasse: res.modelo.percentual_repasse === null ? null : Number(res.modelo.percentual_repasse),
     },
     programas: (res.programas ?? []).map((p) => ({ ...p, preco: Number(p.preco) })),
-    fetiches: (res.fetiches ?? []).map((f) => ({
-      ...f,
-      preco: f.preco === null ? null : Number(f.preco),
-    })),
+    fetiches: res.fetiches ?? [],
   }
 }
 
@@ -359,25 +356,25 @@ export function useModelos() {
   )
 
   const vincularFeticheModelo = useCallback(
-    async (feticheId: string, preco: number | null) => {
+    async (feticheId: string, pago: boolean) => {
       const id = selectedIdRef.current
       if (!id) return
       await api(`/v1/modelos/${id}/fetiches`, {
         method: "POST",
-        body: JSON.stringify({ fetiche_id: feticheId, preco }),
+        body: JSON.stringify({ fetiche_id: feticheId, pago }),
       })
       await loadDetalhe(id, false)
     },
     [loadDetalhe],
   )
 
-  const atualizarPrecoFeticheModelo = useCallback(
-    async (feticheId: string, preco: number | null) => {
+  const atualizarFeticheModelo = useCallback(
+    async (feticheId: string, pago: boolean) => {
       const id = selectedIdRef.current
       if (!id) return
       await api(`/v1/modelos/${id}/fetiches/${feticheId}`, {
         method: "PATCH",
-        body: JSON.stringify({ preco }),
+        body: JSON.stringify({ pago }),
       })
       await loadDetalhe(id, false)
     },
@@ -532,7 +529,7 @@ export function useModelos() {
     atualizarPrecoProgramaModelo,
     desvincularProgramaModelo,
     vincularFeticheModelo,
-    atualizarPrecoFeticheModelo,
+    atualizarFeticheModelo,
     desvincularFeticheModelo,
     listarMidia,
     criarUploadUrl,

@@ -6,8 +6,8 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { DialogAdicionarServicoModelo } from "@/components/modelos/DialogAdicionarServicoModelo"
-import { FeticheValor } from "@/components/comum/FeticheValor"
 import { formatBRL } from "@/lib/formatters"
+import { cn } from "@/lib/utils"
 import type {
   Duracao,
   DuracaoInput,
@@ -31,7 +31,7 @@ export function ProgramasModelo({
   catalogoFetiches,
   fetichesVinculados,
   onVincularFetiche,
-  onAtualizarPrecoFetiche,
+  onAtualizarFetiche,
   onDesvincularFetiche,
   onCriarFetiche,
 }: {
@@ -45,8 +45,8 @@ export function ProgramasModelo({
   onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
   catalogoFetiches: Fetiche[]
   fetichesVinculados: FeticheModeloVinculo[]
-  onVincularFetiche: (feticheId: string, preco: number | null) => Promise<void>
-  onAtualizarPrecoFetiche: (feticheId: string, preco: number | null) => Promise<void>
+  onVincularFetiche: (feticheId: string, pago: boolean) => Promise<void>
+  onAtualizarFetiche: (feticheId: string, pago: boolean) => Promise<void>
   onDesvincularFetiche: (feticheId: string) => Promise<void>
   onCriarFetiche: (input: FeticheInput) => Promise<Fetiche>
 }) {
@@ -115,7 +115,7 @@ export function ProgramasModelo({
         catalogo={catalogoFetiches}
         vinculados={fetichesVinculados}
         onVincular={onVincularFetiche}
-        onAtualizarPreco={onAtualizarPrecoFetiche}
+        onAtualizarFetiche={onAtualizarFetiche}
         onDesvincular={onDesvincularFetiche}
         onCriar={onCriarFetiche}
       />
@@ -287,26 +287,27 @@ function LinhaServico({
 }
 
 // ── Sub-bloco Fetiches ─────────────────────────────────────────────────────────
-// Fetiche é um extra sem duração, com preço opcional (incluso = sem custo). Vive dentro
-// da seção "Serviços e preços" (ADR 0014 revisado), separado das linhas de programa×duração.
+// Fetiche é um extra sem duração, marcado como incluso ou pago (ADR-0030): o valor do extra é
+// sempre calculado a partir do programa vendido no atendimento, nunca cadastrado aqui. Vive
+// dentro da seção "Serviços e preços", separado das linhas de programa×duração.
 
 function FetichesSubBloco({
   catalogo,
   vinculados,
   onVincular,
-  onAtualizarPreco,
+  onAtualizarFetiche,
   onDesvincular,
   onCriar,
 }: {
   catalogo: Fetiche[]
   vinculados: FeticheModeloVinculo[]
-  onVincular: (feticheId: string, preco: number | null) => Promise<void>
-  onAtualizarPreco: (feticheId: string, preco: number | null) => Promise<void>
+  onVincular: (feticheId: string, pago: boolean) => Promise<void>
+  onAtualizarFetiche: (feticheId: string, pago: boolean) => Promise<void>
   onDesvincular: (feticheId: string) => Promise<void>
   onCriar: (input: FeticheInput) => Promise<Fetiche>
 }) {
   const [selecionado, setSelecionado] = useState("")
-  const [precoNovo, setPrecoNovo] = useState("")
+  const [pagoNovo, setPagoNovo] = useState(false)
   const [novoNome, setNovoNome] = useState("")
   const [criandoNovo, setCriandoNovo] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -317,20 +318,14 @@ function FetichesSubBloco({
     [catalogo, vinculadosIds],
   )
 
-  const parsePreco = (txt: string): number | null => {
-    if (!txt.trim()) return null
-    const n = Number(txt.replace(",", "."))
-    return isNaN(n) || n < 0 ? null : n
-  }
-
   const adicionar = async () => {
     if (!selecionado) return
     setSubmitting(true)
     try {
-      await onVincular(selecionado, parsePreco(precoNovo))
+      await onVincular(selecionado, pagoNovo)
       toast.success("Fetiche adicionado")
       setSelecionado("")
-      setPrecoNovo("")
+      setPagoNovo(false)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao adicionar fetiche")
     } finally {
@@ -343,7 +338,7 @@ function FetichesSubBloco({
     setSubmitting(true)
     try {
       const novo = await onCriar({ nome: novoNome.trim() })
-      await onVincular(novo.id, null)
+      await onVincular(novo.id, false)
       toast.success("Fetiche criado e adicionado")
       setNovoNome("")
       setCriandoNovo(false)
@@ -362,7 +357,7 @@ function FetichesSubBloco({
           Fetiches
         </h3>
         <p className="mt-1 pl-[14px] text-xs text-text-muted">
-          O que ela faz. Deixe o preço em branco para incluso, ou informe um valor de extra.
+          O que ela faz. Marque incluso ou pago — o valor do extra é calculado automaticamente pelo programa vendido.
         </p>
       </div>
 
@@ -376,7 +371,7 @@ function FetichesSubBloco({
             <LinhaFetiche
               key={f.fetiche_id}
               linha={f}
-              onAtualizarPreco={onAtualizarPreco}
+              onAtualizarFetiche={onAtualizarFetiche}
               onDesvincular={onDesvincular}
             />
           ))}
@@ -395,19 +390,7 @@ function FetichesSubBloco({
               <option key={f.id} value={f.id}>{f.nome}</option>
             ))}
           </select>
-          <div className="relative">
-            <span className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-text-muted">R$</span>
-            <Input
-              type="number"
-              min={0}
-              step={50}
-              value={precoNovo}
-              onChange={(e) => setPrecoNovo(e.target.value)}
-              placeholder="extra"
-              className="h-9 w-28 bg-input pl-7 font-mono text-sm tabular-nums"
-              onKeyDown={(e) => { if (e.key === "Enter") adicionar() }}
-            />
-          </div>
+          <TogglePago pago={pagoNovo} onChange={setPagoNovo} />
           <Button variant="secondary" size="sm" onClick={adicionar} disabled={!selecionado || submitting}>
             {submitting ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} strokeWidth={1.5} />}
             Marcar
@@ -449,44 +432,61 @@ function FetichesSubBloco({
   )
 }
 
+/** Toggle incluso/pago — sem valor numérico (ADR-0030: o extra é sempre calculado, nunca cadastrado). */
+function TogglePago({
+  pago,
+  onChange,
+  disabled,
+}: {
+  pago: boolean
+  onChange: (pago: boolean) => void
+  disabled?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={pago}
+      aria-label={pago ? "Pago" : "Incluso"}
+      onClick={() => onChange(!pago)}
+      disabled={disabled}
+      className="flex items-center gap-2 disabled:opacity-60"
+    >
+      <span className={cn("text-[11px] font-medium tabular-nums", pago ? "text-text-brand" : "text-text-muted")}>
+        {pago ? "Pago" : "Incluso"}
+      </span>
+      <span
+        className={cn(
+          "inline-flex h-5 w-9 shrink-0 items-center rounded-full border transition-colors",
+          pago ? "border-border-brand/40 bg-gold-500/70" : "border-border-subtle bg-muted",
+        )}
+      >
+        <span
+          className={cn(
+            "h-3.5 w-3.5 rounded-full bg-card shadow transition-transform",
+            pago ? "translate-x-[18px]" : "translate-x-1",
+          )}
+        />
+      </span>
+    </button>
+  )
+}
+
 function LinhaFetiche({
   linha,
-  onAtualizarPreco,
+  onAtualizarFetiche,
   onDesvincular,
 }: {
   linha: FeticheModeloVinculo
-  onAtualizarPreco: (feticheId: string, preco: number | null) => Promise<void>
+  onAtualizarFetiche: (feticheId: string, pago: boolean) => Promise<void>
   onDesvincular: (feticheId: string) => Promise<void>
 }) {
-  const [editando, setEditando] = useState(false)
-  const [precoInput, setPrecoInput] = useState("")
   const [submitting, setSubmitting] = useState(false)
 
-  const abrirEdicao = () => {
-    setPrecoInput(linha.preco === null ? "" : String(linha.preco))
-    setEditando(true)
-  }
-
-  const cancelar = () => {
-    setEditando(false)
-    setPrecoInput("")
-  }
-
-  const confirmar = async () => {
-    let preco: number | null = null
-    if (precoInput.trim()) {
-      const n = Number(precoInput.replace(",", "."))
-      if (isNaN(n) || n < 0) {
-        toast.error("Informe um preço válido")
-        return
-      }
-      preco = n
-    }
+  const alternar = async (pago: boolean) => {
     setSubmitting(true)
     try {
-      await onAtualizarPreco(linha.fetiche_id, preco)
-      toast.success("Fetiche atualizado")
-      setEditando(false)
+      await onAtualizarFetiche(linha.fetiche_id, pago)
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Erro ao salvar")
     } finally {
@@ -510,49 +510,18 @@ function LinhaFetiche({
     <li className="flex items-center justify-between gap-3 px-4 py-2.5 transition-colors hover:bg-surface-hover">
       <span className="text-sm text-text-secondary">{linha.nome}</span>
 
-      <div className="ml-auto flex items-center gap-2">
-        {editando ? (
-          <>
-            <span className="text-xs text-text-muted">R$</span>
-            <Input
-              type="number"
-              min={0}
-              step={50}
-              value={precoInput}
-              onChange={(e) => setPrecoInput(e.target.value)}
-              placeholder="Incluso"
-              className="h-8 w-28 bg-input font-mono text-sm tabular-nums"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") confirmar()
-                if (e.key === "Escape") cancelar()
-              }}
-            />
-            <Button variant="primary" size="icon-sm" onClick={confirmar} disabled={submitting} aria-label="Salvar preço">
-              {submitting ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} strokeWidth={2} />}
-            </Button>
-            <Button variant="ghost" size="icon-sm" onClick={cancelar} disabled={submitting} aria-label="Cancelar">
-              <X size={14} strokeWidth={1.5} />
-            </Button>
-          </>
-        ) : (
-          <>
-            <FeticheValor preco={linha.preco} />
-            <Button variant="ghost" size="icon-sm" onClick={abrirEdicao} disabled={submitting} aria-label="Editar preço">
-              <Pencil size={14} strokeWidth={1.5} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={remover}
-              disabled={submitting}
-              aria-label="Remover fetiche"
-              className="hover:text-state-lost"
-            >
-              {submitting ? <Loader2 size={14} className="animate-spin" /> : <X size={14} strokeWidth={1.5} />}
-            </Button>
-          </>
-        )}
+      <div className="ml-auto flex items-center gap-3">
+        <TogglePago pago={linha.pago} onChange={alternar} disabled={submitting} />
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={remover}
+          disabled={submitting}
+          aria-label="Remover fetiche"
+          className="hover:text-state-lost"
+        >
+          {submitting ? <Loader2 size={14} className="animate-spin" /> : <X size={14} strokeWidth={1.5} />}
+        </Button>
       </div>
     </li>
   )

@@ -5,6 +5,7 @@ const PROGRAMA_NOVO = `E2E Serviço ${STAMP}`
 const DURACAO_NOVA = `E2E ${STAMP % 100000} min`
 const PRECO_1 = "800"
 const PRECO_EDITADO = "950"
+const FETICHE_NOVO = `E2E Fetiche ${STAMP}`
 
 async function abrirPrimeiraModelo(page: Page): Promise<void> {
   await page.goto("/modelos")
@@ -97,5 +98,45 @@ test.describe("card de serviços e modal — fluxo inline + edição + remoção
     const secDuracoes = page.locator("section", { hasText: /^Durações/ }).first()
     await expect(secProgramas.getByText(PROGRAMA_NOVO)).toBeVisible({ timeout: 10_000 })
     await expect(secDuracoes.getByText(DURACAO_NOVA)).toBeVisible({ timeout: 10_000 })
+  })
+})
+
+// Fetiches viram toggle incluso/pago no cadastro (ADR-0030, ticket 02) — sem campo de valor.
+test.describe("fetiches — toggle incluso/pago", () => {
+  test("cria fetiche, marca como pago pelo toggle e mantém o estado após recarregar", async ({ page }) => {
+    await abrirPrimeiraModelo(page)
+    const cardServicos = page
+      .getByRole("heading", { level: 2, name: "Serviços e preços" })
+      .locator("xpath=ancestor::section[1]")
+    const blocoFetiches = cardServicos
+      .locator("div", { has: page.getByRole("heading", { level: 3, name: "Fetiches" }) })
+      .first()
+
+    await blocoFetiches.getByRole("button", { name: /criar novo fetiche no catálogo/i }).click()
+    const inputNovoFetiche = blocoFetiches.getByPlaceholder(/nome do novo fetiche/i)
+    await inputNovoFetiche.fill(FETICHE_NOVO)
+    await blocoFetiches.getByRole("button", { name: /criar e marcar/i }).click()
+    await expect(inputNovoFetiche).toBeHidden({ timeout: 10_000 })
+
+    const linhaFetiche = blocoFetiches.locator("li").filter({ hasText: FETICHE_NOVO }).first()
+    await expect(linhaFetiche).toBeVisible({ timeout: 10_000 })
+
+    // Não há campo numérico de preço — só o toggle.
+    await expect(linhaFetiche.locator('input[type="number"]')).toHaveCount(0)
+
+    const toggle = linhaFetiche.getByRole("switch")
+    await expect(toggle).toHaveAttribute("aria-checked", "false")
+    await expect(linhaFetiche.getByText("Incluso")).toBeVisible()
+
+    await toggle.click()
+    await expect(toggle).toHaveAttribute("aria-checked", "true")
+    await expect(linhaFetiche.getByText("Pago")).toBeVisible()
+
+    await page.reload()
+    const linhaFeticheDepois = cardServicos.locator("li").filter({ hasText: FETICHE_NOVO }).first()
+    await expect(linhaFeticheDepois.getByRole("switch")).toHaveAttribute("aria-checked", "true", { timeout: 10_000 })
+
+    await linhaFeticheDepois.getByRole("button", { name: /remover fetiche/i }).click()
+    await expect(cardServicos.locator("li").filter({ hasText: FETICHE_NOVO })).toHaveCount(0, { timeout: 10_000 })
   })
 })

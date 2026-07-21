@@ -50,7 +50,7 @@ export function AbaPerfil({
   onCriarPrograma,
   onCriarDuracao,
   onVincularFetiche,
-  onAtualizarPrecoFetiche,
+  onAtualizarFetiche,
   onDesvincularFetiche,
   onCriarFetiche,
   onTrocarNumero,
@@ -72,8 +72,8 @@ export function AbaPerfil({
   onDesvincularPrograma: (programaId: string, duracaoId: string) => Promise<void>
   onCriarPrograma: (input: ProgramaInput) => Promise<Programa>
   onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
-  onVincularFetiche: (feticheId: string, preco: number | null) => Promise<void>
-  onAtualizarPrecoFetiche: (feticheId: string, preco: number | null) => Promise<void>
+  onVincularFetiche: (feticheId: string, pago: boolean) => Promise<void>
+  onAtualizarFetiche: (feticheId: string, pago: boolean) => Promise<void>
   onDesvincularFetiche: (feticheId: string) => Promise<void>
   onCriarFetiche: (input: FeticheInput) => Promise<Fetiche>
   onTrocarNumero: (numero: string) => void
@@ -517,7 +517,7 @@ export function AbaPerfil({
         catalogoFetiches={catalogoFetiches}
         fetichesVinculados={fetichesVinculados}
         onVincularFetiche={onVincularFetiche}
-        onAtualizarPrecoFetiche={onAtualizarPrecoFetiche}
+        onAtualizarFetiche={onAtualizarFetiche}
         onDesvincularFetiche={onDesvincularFetiche}
         onCriarFetiche={onCriarFetiche}
       />

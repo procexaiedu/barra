@@ -256,10 +256,10 @@ class FetichePatch(BaseModel):
 
 class VincularFeticheBody(BaseModel):
     fetiche_id: UUID
-    # None = incluso (a modelo faz, sem custo extra); preenchido = extra pago.
-    preco: Decimal | None = Field(default=None, ge=0)
+    # False = incluso (a modelo faz, sem custo extra); True = extra pago. O valor do extra é
+    # sempre calculado a partir do programa vendido no atendimento (ADR-0030), nunca cadastrado.
+    pago: bool = False
 
 
-class AtualizarPrecoFeticheBody(BaseModel):
-    # None zera o preço (vira "incluso"); preenchido define o extra.
-    preco: Decimal | None = Field(default=None, ge=0)
+class AtualizarFeticheBody(BaseModel):
+    pago: bool

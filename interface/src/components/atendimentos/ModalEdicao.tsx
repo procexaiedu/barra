@@ -43,7 +43,7 @@ interface ProgramaModelo {
 interface FeticheModelo {
   fetiche_id: string
   nome: string
-  preco: number | null
+  pago: boolean
 }
 
 function parseDecimal(input: string): number | null {
@@ -66,6 +66,24 @@ function formatHorasCampo(horas: number): string {
 
 const controlClassName =
   "h-10 w-full rounded-lg border border-input bg-input px-3 text-sm text-text-primary outline-none transition-colors placeholder:text-text-muted hover:border-border-strong focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+
+// Fetiche ainda não adicionado ao atendimento: o extra pago é sempre calculado a partir dos
+// programas vendidos (ADR-0030), então não há valor em R$ para mostrar antes de salvar — só o
+// flag incluso/pago (mesma pílula visual de FeticheValor, sem número).
+function FetichePagoBadge({ pago }: { pago: boolean }) {
+  if (!pago) {
+    return (
+      <span className="inline-flex items-center rounded-full border border-border-subtle bg-muted px-2 py-0.5 text-[11px] font-medium text-text-muted">
+        incluso
+      </span>
+    )
+  }
+  return (
+    <span className="inline-flex items-center rounded-full border border-border-brand/40 bg-gold-500/10 px-2 py-0.5 text-[11px] font-medium text-text-brand">
+      pago
+    </span>
+  )
+}
 
 export function ModalEdicao({
   detalhe,
@@ -117,7 +135,7 @@ export function ModalEdicao({
 
   const [fetichesModelo, setFetichesModelo] = useState<FeticheModelo[]>([])
   const [removidosFet, setRemovidosFet] = useState<Set<string>>(new Set())
-  const [adicionadosFet, setAdicionadosFet] = useState<{ fetiche_id: string; nome: string; preco: number | null }[]>([])
+  const [adicionadosFet, setAdicionadosFet] = useState<{ fetiche_id: string; nome: string; pago: boolean }[]>([])
   const [selecionadoFet, setSelecionadoFet] = useState("")
 
   const {
@@ -229,7 +247,7 @@ export function ModalEdicao({
     if (!selecionadoFet) return
     const fet = fetichesModelo.find((f) => f.fetiche_id === selecionadoFet)
     if (!fet) return
-    setAdicionadosFet((prev) => [...prev, { fetiche_id: fet.fetiche_id, nome: fet.nome, preco: fet.preco }])
+    setAdicionadosFet((prev) => [...prev, { fetiche_id: fet.fetiche_id, nome: fet.nome, pago: fet.pago }])
     setSelecionadoFet("")
   }
 
@@ -548,7 +566,7 @@ export function ModalEdicao({
                   <div key={i} className="flex items-center justify-between rounded-md border border-dashed border-border bg-muted px-3 py-2 text-sm">
                     <span className="text-text-primary">{a.nome}</span>
                     <div className="flex items-center gap-2">
-                      <FeticheValor preco={a.preco} />
+                      <FetichePagoBadge pago={a.pago} />
                       <button
                         type="button"
                         onClick={() => setAdicionadosFet((prev) => prev.filter((_, j) => j !== i))}
@@ -576,7 +594,7 @@ export function ModalEdicao({
                     <option value="">Adicionar fetiche…</option>
                     {fetichesDisponiveis.map((f) => (
                       <option key={f.fetiche_id} value={f.fetiche_id}>
-                        {f.nome}{f.preco === null ? "" : ` (+${formatBRL(f.preco)})`}
+                        {f.nome}{f.pago ? " (pago)" : ""}
                       </option>
                     ))}
                   </select>

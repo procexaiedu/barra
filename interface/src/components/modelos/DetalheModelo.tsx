@@ -49,7 +49,7 @@ export function DetalheModelo({
   onCriarDuracao,
   catalogoFetiches,
   onVincularFetiche,
-  onAtualizarPrecoFetiche,
+  onAtualizarFetiche,
   onDesvincularFetiche,
   onCriarFetiche,
   onTrocarNumero,
@@ -81,8 +81,8 @@ export function DetalheModelo({
   onCriarPrograma: (input: ProgramaInput) => Promise<Programa>
   onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
   catalogoFetiches: Fetiche[]
-  onVincularFetiche: (feticheId: string, preco: number | null) => Promise<void>
-  onAtualizarPrecoFetiche: (feticheId: string, preco: number | null) => Promise<void>
+  onVincularFetiche: (feticheId: string, pago: boolean) => Promise<void>
+  onAtualizarFetiche: (feticheId: string, pago: boolean) => Promise<void>
   onDesvincularFetiche: (feticheId: string) => Promise<void>
   onCriarFetiche: (input: FeticheInput) => Promise<Fetiche>
   onTrocarNumero: (numero: string) => void
@@ -168,7 +168,7 @@ export function DetalheModelo({
           onCriarPrograma={onCriarPrograma}
           onCriarDuracao={onCriarDuracao}
           onVincularFetiche={onVincularFetiche}
-          onAtualizarPrecoFetiche={onAtualizarPrecoFetiche}
+          onAtualizarFetiche={onAtualizarFetiche}
           onDesvincularFetiche={onDesvincularFetiche}
           onCriarFetiche={onCriarFetiche}
           onTrocarNumero={onTrocarNumero}
