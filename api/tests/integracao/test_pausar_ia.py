@@ -307,6 +307,19 @@ async def test_recorrencia_nasce_com_ia_ativa_apos_pausa_manual(
     )
     assert (await _ler_atendimento(conn, atendimento_anterior_id))["ia_pausada"] is True
 
+    # Recorrência (ADR-0032) só nasce depois que o anterior fecha — Fechado/Perdido são os únicos
+    # estados que não contam como "aberto" pro índice único `atendimentos_um_aberto_por_par`.
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET estado = 'Perdido'::barravips.estado_atendimento_enum,
+               motivo_perda = 'outro'::barravips.motivo_perda_enum,
+               motivo_perda_obs = 'teste'
+         WHERE id = %s
+        """,
+        (atendimento_anterior_id,),
+    )
+
     # Atendimento novo do mesmo par (cliente, modelo) — nasce com o default da coluna.
     novo_atendimento_id = await _seed_atendimento(
         conn,

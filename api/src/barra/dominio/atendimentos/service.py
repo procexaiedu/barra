@@ -855,6 +855,13 @@ async def _preco_tabela_min(
     return row["preco"] if row is not None else None
 
 
+def calcular_preco_extra_fetiche(preco_tabela: Decimal, duracao_horas: Decimal) -> Decimal:
+    """Preco do extra de um fetiche pago (ADR-0030): preco-hora efetivo do pacote vendido no
+    atendimento (preco de tabela / horas), somado uma vez por fetiche. Multi-hora usa esse
+    preco-hora, nao uma duracao-base de 1h (Pernoite 12h a R$3.600 -> +R$300, nao +R$3.600)."""
+    return preco_tabela / duracao_horas
+
+
 async def _escalar_modelo(
     conn: AsyncConnection[Any],
     atendimento_id: UUID,

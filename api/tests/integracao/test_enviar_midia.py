@@ -548,6 +548,7 @@ async def test_fase_midia_persiste_mensagem_como_imagem(
         [{"midia_id": str(foto), "legenda": "olha 😏"}],
         conv,
         critico=True,
+        chunks=[],
     )
     assert ok is True
 

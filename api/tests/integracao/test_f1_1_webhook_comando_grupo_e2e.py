@@ -68,6 +68,7 @@ class _FakeSettings:
     webhook_max_body_bytes = 1_000_000
     jid_permitido = None
     evolution_grupo_coordenacao_jid = None  # desligado: reconhecimento de grupo vem do DB
+    feedback_rig_grupo_jid = None  # desligado: não é o grupo de feedback
     evolution_fernando_jids: ClassVar[list[str]] = []
     reset_teste_instances: ClassVar[list[str]] = []
 
