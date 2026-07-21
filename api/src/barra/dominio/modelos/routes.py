@@ -404,11 +404,21 @@ async def conectar_whatsapp(
     # webhook já apontado para nosso backend. O POST /instance/create já devolve
     # o QR quando cria — só recorremos ao connect quando a instância já existia
     # (create respondeu 403 "name in use", sem QR no corpo).
+    ja_pareada = False
     try:
         criada = await client.criar_instancia(instance_id, numero=modelo.get("numero_whatsapp"))
-        resposta = (
-            criada if _extrair_qr_code(criada) else await client.conectar_instancia(instance_id)
-        )
+        if _extrair_qr_code(criada):
+            resposta = criada
+        elif await client.estado_conexao(instance_id) == "open":
+            # Instância já existe na Evolution E já está conectada/logada (ex.: elitebaby01,
+            # pareada fora do nosso fluxo) — nosso banco ainda não sabe disso (evolution_status
+            # só é setado abaixo), então o guard de idempotência no topo desta função não pega
+            # esse caso. NÃO chamar conectar_instancia aqui: immediate=True força nova sessão de
+            # pareamento e desconectaria o WhatsApp já linkado. Só reafirma o webhook abaixo.
+            resposta = criada
+            ja_pareada = True
+        else:
+            resposta = await client.conectar_instancia(instance_id)
     except httpx.HTTPStatusError as exc:
         raise ConflitoEstado(
             f"Evolution recusou a conexão (HTTP {exc.response.status_code}). "
@@ -421,17 +431,18 @@ async def conectar_whatsapp(
     # de postar CONNECTION_UPDATE/MESSAGES_UPSERT. Best-effort — não trava o
     # pareamento se a Evolution recusar.
     await client.definir_webhook(instance_id)
+    status_final = "conectado" if ja_pareada else "pareando"
     await conn.execute(
         """
         UPDATE barravips.modelos
            SET evolution_instance_id = %s,
-               evolution_status = 'pareando',
-               evolution_pareado_em = NULL
+               evolution_status = %s,
+               evolution_pareado_em = CASE WHEN %s THEN now() ELSE NULL END
          WHERE id = %s
         """,
-        (instance_id, modelo_id),
+        (instance_id, status_final, ja_pareada, modelo_id),
     )
-    return {"status": "pareando", "instance_id": instance_id, "qr_code": qr_code}
+    return {"status": status_final, "instance_id": instance_id, "qr_code": qr_code}
 
 
 @router.post("/{modelo_id}/desparear-whatsapp")

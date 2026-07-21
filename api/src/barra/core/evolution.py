@@ -218,18 +218,14 @@ class EvolutionClient:
         """
         if not self.settings.evolution_base_url:
             return None
-        body: dict[str, Any] = {"number": remote_jid, "text": _remover_markers_quote(texto)}
+        body: dict[str, Any] = {
+            "number": _numero_destino(remote_jid),
+            "text": _remover_markers_quote(texto),
+        }
         if quoted_message_id:
-            body["quoted"] = {
-                "key": {"id": quoted_message_id},
-                "message": {"conversation": quoted_text or ""},
-            }
-        url = f"{self.settings.evolution_base_url.rstrip('/')}/message/sendText/{instance_id}"
-        headers = {"apikey": self.settings.evolution_api_key}
-        async with httpx.AsyncClient(timeout=20) as client:
-            response = await client.post(url, json=body, headers=headers)
-            response.raise_for_status()
-            data = response.json()
+            body["quoted"] = _quoted_body(quoted_message_id)
+        response = await self._post_operacao(instance_id, "/send/text", body, timeout_s=20)
+        data = response.json()
         return _extrair_message_id(data)
 
     async def enviar_midia(

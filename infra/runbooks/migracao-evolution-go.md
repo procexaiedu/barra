@@ -5,12 +5,35 @@ A barra migrou o cliente WhatsApp da Evolution v2/v3 (Baileys) para a **Evolutio
 está na branch e verde no gate; este runbook cobre o **cutover em produção** — cada passo aqui
 atinge produção (CLAUDE.md §0) e exige autorização explícita do Fernando, frase a frase.
 
-## ⚠️ Variante ativa do piloto: `procex-teste` via router (número COMPARTILHADO)
+## ✅ Variante ativa (21/07): `elitebaby01` direta, sem router
 
-O cutover original abaixo é **direto** (barra seta o próprio webhook) na instância dedicada
-`elitebaby01`. O piloto atual usa outra topologia, porque não há celular para parear a
-`elitebaby01`: reaproveitamos a instância **`procex-teste`** (já pareada, `5519997858650`),
-que é **compartilhada** entre 6 projetos via `router.procexai.tech`. As diferenças que valem:
+`elitebaby01` está conectada na Evolution GO (celular pareado fora do nosso fluxo). Voltamos ao
+cutover **direto** original (barra seta o próprio webhook) — não mais via `procex-teste`
+compartilhada. `EVOLUTION_INSTANCIA=elitebaby01`, `EVOLUTION_WEBHOOK_CALLBACK_URL` aponta direto
+pra `https://api-barra.procexai.tech/webhook/evolution` (sem router no meio).
+
+**Gotcha corrigido nesta rodada**: como `elitebaby01` já estava `open`/logged-in ANTES do nosso
+banco saber (`modelos.evolution_instance_id` ainda NULL), o guard de idempotência do topo de
+`conectar_whatsapp` não pegava esse caso — cairia em `conectar_instancia` (`immediate=True`),
+que força nova sessão de pareamento e **desconectaria** o WhatsApp já linkado. Corrigido em
+`dominio/modelos/routes.py`: antes de chamar `conectar_instancia`, checa `estado_conexao` ao
+vivo; se já `open`, só reafirma o webhook (`definir_webhook`, `immediate=False`) e marca
+`evolution_status='conectado'` direto, sem gerar QR. Ver `test_modelos_integration.py::
+test_conectar_whatsapp_instancia_ja_conectada_nao_forca_repareamento`.
+
+**Passo manual que só o operador faz** (não dá pra automatizar sem UI): o painel não expõe campo
+pra setar `evolution_instance_id` num nome pré-existente — hoje só nasce vazio (cria
+`modelo-{id}`) ou já vem preenchido do cadastro. Pra apontar pra `elitebaby01`, precisa de um
+`UPDATE barravips.modelos SET evolution_instance_id='elitebaby01' WHERE id=...` (escrita em prod,
+autorização §0) ANTES de clicar "Conectar WhatsApp" no painel — só depois disso o guard acima
+entra em jogo e evita o re-pareamento.
+
+### Histórico: variante anterior (`procex-teste` via router, encerrada)
+
+Entre 13/07 e 21/07 o piloto rodou via **`procex-teste`** (já pareada, `5519997858650`), instância
+**compartilhada** entre 6 projetos via `router.procexai.tech`, porque não havia celular disponível
+pra parear a `elitebaby01` na época. Registro do que era diferente nessa variante (não se aplica
+mais, mas fica de referência caso precise repetir o padrão pra outra instância compartilhada):
 
 - **Inbound via router, não direto.** O webhook da `procex-teste` aponta para
   `https://router.procexai.tech/api/hook/procex-shared`, que faz fan-out para 6 destinos —
@@ -61,19 +84,23 @@ que é **compartilhada** entre 6 projetos via `router.procexai.tech`. As diferen
 > instâncias na EvoGo), reusá-la como token do webhook vazaria a chave de admin no log. Use um
 > segredo dedicado, sem privilégio de gestão, e rotacione-o à parte.
 
-## Passos do cutover (ordem)
+## Passos do cutover (ordem) — estado em 21/07: `elitebaby01` JÁ conectada, passos 1-2 pendentes
 
-1. **Deploy do código** (branch mergeada) no worker + api via `service update --force` (não
-   `restart`, por causa de worker órfão no Swarm).
-2. **Aplicar o Env** acima no stack `barra-vips`.
-3. **Provisionar a instância da modelo-piloto** na EvoGo. A `elitebaby01` já existe
-   (desconectada). No painel da barra, no perfil da modelo, garanta
-   `evolution_instance_id = 'elitebaby01'` e use **Conectar WhatsApp** → o backend chama
-   `/instance/connect` (seta webhook+subscribe) + `/instance/qr`.
-4. **Re-parear o número** — a modelo escaneia o QR no celular (passo FÍSICO; ninguém automatiza).
-   Confirmar `Connected`/`LoggedIn` (o webhook `Connection` promove para `conectado`).
-5. **Smoke ao vivo** (rig, número de teste): cliente manda "oi" → a IA responde; confere
-   `envios_evolution`/`mensagens` incrementando e o card no grupo de Coordenação.
+1. **Deploy do código** (branch `feat/evolution-go-elitebaby01`) no worker + api via
+   `service update --force` (não `restart`, por causa de worker órfão no Swarm).
+2. **Aplicar o Env** acima no stack `barra-vips` (`EVOLUTION_API_KEY` = GLOBAL_API_KEY da EvoGo,
+   `EVOLUTION_INSTANCIA=elitebaby01`, `EVOLUTION_WEBHOOK_CALLBACK_URL` direto — ver compose).
+3. **`UPDATE barravips.modelos SET evolution_instance_id='elitebaby01' WHERE id=<modelo>`** — só
+   depois disso o painel enxerga a instância certa (sem esse passo "Conectar WhatsApp" criaria
+   `modelo-{id}`, um nome novo, não `elitebaby01`).
+4. **"Conectar WhatsApp" no painel** — como `elitebaby01` já está `open`/logged-in na EvoGo (número
+   pareado fora do nosso fluxo, ~20/07), o fix desta rodada detecta isso via `estado_conexao` e
+   **pula `conectar_instancia`** (que forçaria novo QR e desconectaria o número já linkado) — só
+   reafirma o webhook. Não deve aparecer QR nem pedir novo pareamento. Se aparecer QR, PARAR: algo
+   mudou (instância desconectou) e reconectar aqui geraria um pareamento novo de verdade.
+5. **Smoke ao vivo** (grupo de teste interno, dentro do `JID_PERMITIDO` — NÃO abrir pra cliente
+   real nesta etapa): mensagem de teste → a IA responde; confere `envios_evolution`/`mensagens`
+   incrementando.
 
 ## Gaps que SÓ a verificação ao vivo fecha
 
