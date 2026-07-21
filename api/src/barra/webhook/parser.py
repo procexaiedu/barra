@@ -41,6 +41,125 @@ class ComandoGrupo:
     erro: str | None = None
 
 
+# --- Adaptador Evolution GO (whatsmeow) -> shape v2 (Baileys) ---------------------------------
+# A EvoGo NÃO é wire-compatible com a v2: eventos em CamelCase (`Message`/`SendMessage`/
+# `Connection`/`QR`), instância em `instanceName`, envelope `data.Info.{Chat,ID,IsFromMe,Sender,
+# SenderAlt}`. O CONTEÚDO (`data.Message.*`) é o MESMO formato WhatsApp da v2 (conversation,
+# imageMessage…), então convertemos só o ENVELOPE para o shape v2 e reusamos `extrair_mensagem` +
+# `_evento_normalizado` intactos (padrão adaptGoEvent). Payload que não é Go passa reto (compat
+# durante a transição).
+
+
+def _eh_payload_go(payload: dict[str, Any]) -> bool:
+    data = payload.get("data")
+    if isinstance(data, dict) and ("Info" in data or "Message" in data):
+        return True
+    if payload.get("instanceToken") is not None:
+        return True
+    if payload.get("instanceName") is not None and payload.get("instance") is None:
+        return True
+    ev = payload.get("event")
+    return isinstance(ev, str) and bool(ev) and ev[:1].isupper()
+
+
+def _estado_conexao_go(data: dict[str, Any]) -> str:
+    """Deriva o `state` (open/close/connecting) do evento Connection da EvoGo. O shape exato do
+    evento não é documentado; lemos os campos plausíveis (`state`/`status` string ou `Connected`
+    bool) de forma defensiva."""
+    for campo in ("state", "State", "status", "Status"):
+        valor = data.get(campo)
+        if isinstance(valor, str) and valor:
+            low = valor.lower()
+            if low in ("open", "connected", "online"):
+                return "open"
+            if low in ("close", "closed", "disconnected", "offline", "logged_out"):
+                return "close"
+            if low in ("connecting", "pairing"):
+                return "connecting"
+            return low
+    if "Connected" in data or "connected" in data:
+        return "open" if (data.get("Connected") or data.get("connected")) else "close"
+    return "unknown"
+
+
+def adaptar_webhook_go(payload: dict[str, Any]) -> dict[str, Any]:
+    """Converte um webhook da Evolution GO no shape v2 que o resto do módulo já parseia. Não-Go
+    (ou já v2) passa reto."""
+    if not isinstance(payload, dict) or not _eh_payload_go(payload):
+        return payload
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    assert isinstance(data, dict)
+    instance = payload.get("instanceName") or payload.get("instance")
+    ev_raw = str(payload.get("event") or "")
+    ev = ev_raw.replace("_", "").lower()
+    adaptado: dict[str, Any] = {"instance": instance}
+
+    if ev in ("message", "sendmessage"):
+        info = data.get("Info") if isinstance(data.get("Info"), dict) else {}
+        message = data.get("Message") if isinstance(data.get("Message"), dict) else {}
+        assert isinstance(info, dict) and isinstance(message, dict)
+        # Mídia inbound (WEBHOOK_FILES): a EvoGo anexa a mídia decifrada. O campo exato ainda não
+        # foi capturado ao vivo; copiamos os candidatos conhecidos (base64 no nível de `data`) para
+        # dentro da `message` p/ o `_media_base64`/download existentes acharem. Ver verificação viva.
+        b64 = data.get("base64") or data.get("Base64")
+        if isinstance(b64, str) and b64:
+            message = {**message, "base64": b64}
+        chat = info.get("Chat")
+        sender = info.get("Sender")
+        sender_alt = info.get("SenderAlt")
+        # E.164 real (para o ramo @lid do webhook): o telefone verdadeiro é o JID `@s.whatsapp.net`
+        # entre Sender/SenderAlt/Chat (SenderAlt costuma ser o `@lid`, invertido em relação à v2).
+        real = next(
+            (
+                j
+                for j in (sender, sender_alt, chat)
+                if isinstance(j, str) and j.endswith("@s.whatsapp.net")
+            ),
+            None,
+        )
+        eh_lid = isinstance(chat, str) and chat.endswith("@lid")
+        # `participant` alimenta `_autor_grupo` (reconhece Fernando por igualdade em fernando_jids,
+        # que são JIDs `@s.whatsapp.net`). Se o `Sender` do grupo vier como `@lid`, a igualdade
+        # falharia e o comando de Fernando (`ia assume`/`fechado`/`perdido`) seria descartado em
+        # silêncio. Preferimos o JID `@s.whatsapp.net` real entre Sender/SenderAlt.
+        participant_real = next(
+            (
+                j
+                for j in (sender, sender_alt)
+                if isinstance(j, str) and j.endswith("@s.whatsapp.net")
+            ),
+            sender,
+        )
+        adaptado["event"] = "messages.upsert"
+        adaptado["data"] = {
+            "key": {
+                "id": info.get("ID") or info.get("Id"),
+                "remoteJid": chat,
+                "fromMe": bool(info.get("IsFromMe")),
+                "participant": participant_real,
+                "remoteJidAlt": real if eh_lid else None,
+            },
+            "message": message,
+        }
+        return adaptado
+
+    if ev == "connection":
+        adaptado["event"] = "connection.update"
+        adaptado["data"] = {"state": _estado_conexao_go(data)}
+        return adaptado
+
+    if ev in ("qr", "qrcode"):
+        adaptado["event"] = "qrcode.updated"
+        adaptado["data"] = {}
+        return adaptado
+
+    # Evento Go sem tradução (Receipt, Presence, HistorySync…): repassa cru; o roteador do webhook
+    # cai no `extrair_mensagem` que devolve None (ignored) — nunca vira turno fantasma.
+    adaptado["event"] = ev_raw
+    adaptado["data"] = data
+    return adaptado
+
+
 def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
     raw_data = payload.get("data")
     data = cast(dict[str, Any], raw_data) if isinstance(raw_data, dict) else payload
