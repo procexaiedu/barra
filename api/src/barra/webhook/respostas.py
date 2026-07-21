@@ -30,6 +30,8 @@ def texto_confirmacao(comando: str, payload: dict[str, Any], numero_curto: int) 
         return f"✅ #{numero_curto} marcado como perdido · motivo: {payload['motivo']}"
     if comando == "devolver_para_ia":
         return f"✅ #{numero_curto} devolvido para a IA"
+    if comando == "pausar_ia":
+        return f"✅ #{numero_curto} IA pausada"
     return f"✅ #{numero_curto} registrado"  # defesa: comando sem eco próprio
 
 
@@ -37,7 +39,7 @@ def texto_confirmacao(comando: str, payload: dict[str, Any], numero_curto: int) 
 
 _ERRO_GENERICO = (
     "❓ Não consegui registrar. Fechar: *fechado 1500* · "
-    "Perder: *perdido sumiu* · Devolver à IA: *IA assume*"
+    "Perder: *perdido sumiu* · Devolver à IA: *IA assume* · Pausar a IA: *IA pausa*"
 )
 
 # Código do erro -> texto de recuperação (causa + como consertar + exemplo). Os 4 primeiros saem

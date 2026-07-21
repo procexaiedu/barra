@@ -202,6 +202,27 @@ def test_quote_pode_resolver_numero_curto() -> None:
     assert comando.numero_curto == 7
 
 
+def test_ia_pausa_sem_numero_curto_e_invalido() -> None:
+    comando = parse_comando_grupo("IA pausa")
+    assert comando is not None
+    assert comando.comando == "comando_invalido"
+    assert comando.numero_curto is None
+
+
+def test_ia_pausa_com_numero_curto_fora_de_card() -> None:
+    comando = parse_comando_grupo("IA pausa #8")
+    assert comando is not None
+    assert comando.comando == "pausar_ia"
+    assert comando.numero_curto == 8
+
+
+def test_ia_pausa_quote_resolve_numero_curto() -> None:
+    comando = parse_comando_grupo("IA pausa", quoted_numero_curto=7)
+    assert comando is not None
+    assert comando.comando == "pausar_ia"
+    assert comando.numero_curto == 7
+
+
 def test_texto_irrelevante_retorna_none() -> None:
     assert parse_comando_grupo("oi tudo bem #12") is None
     assert parse_comando_grupo("") is None

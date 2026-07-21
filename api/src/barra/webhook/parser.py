@@ -30,6 +30,7 @@ class MensagemEvolution:
 class ComandoGrupo:
     comando: Literal[
         "devolver_para_ia",
+        "pausar_ia",
         "registrar_fechado",
         "registrar_perdido",
         "listar_pendencias",
@@ -103,7 +104,7 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
 # erro 6.2 já os lista) nem afrouxa o `#N` obrigatório fora de resposta-quote ao lembrete.
 _FECHAMENTO = ("finalizado", "fechado", "fechei", "fechamos")
 _PERDA = ("perdido", "perdi", "nao rolou", "não rolou")
-_PREFIXOS_COMANDO = ("ia assume", *_FECHAMENTO, *_PERDA)
+_PREFIXOS_COMANDO = ("ia assume", "ia pausa", *_FECHAMENTO, *_PERDA)
 
 # Digest de pendencias (UX §6.4): comando sem `#N`, lido por igualdade exata (apos normalizar
 # espacos/caixa) p/ nao colidir com "qual o status do #5". Sinonimos acentuado/sem acento.
@@ -142,6 +143,14 @@ def parse_comando_grupo(
         if numero is None:
             return _invalido("Informe #N do atendimento.")
         return ComandoGrupo("devolver_para_ia", numero, {})
+
+    # Handoff manual (ADR-0032, spec 0003): Fernando/modelo pausam a IA por decisao livre, sem
+    # esperar um gatilho automatico do state machine. Mesma disciplina de "ia assume": quote de
+    # card resolve o #N; fora de contexto de card, `#N` e obrigatorio.
+    if lower.startswith("ia pausa"):
+        if numero is None:
+            return _invalido("Informe #N do atendimento.")
+        return ComandoGrupo("pausar_ia", numero, {})
 
     if lower.startswith(_FECHAMENTO):
         if numero is None:

@@ -28,6 +28,10 @@ def test_confirmacao_devolucao() -> None:
     assert texto_confirmacao("devolver_para_ia", {}, 12) == "✅ #12 devolvido para a IA"
 
 
+def test_confirmacao_pausar_ia() -> None:
+    assert texto_confirmacao("pausar_ia", {}, 8) == "✅ #8 IA pausada"
+
+
 def test_confirmacao_comando_desconhecido_tem_eco_defensivo() -> None:
     # Nunca silencioso: comando sem eco próprio ainda confirma com o #N.
     assert texto_confirmacao("xpto", {}, 9) == "✅ #9 registrado"
