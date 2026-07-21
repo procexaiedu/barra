@@ -1,10 +1,10 @@
 """Cenarios sinteticos de FUNCIONALIDADE — fluxos que o corpus de venda nao cobre.
 
 O corpus so tem conversa de venda (texto). Para exercer as outras funcionalidades exerciveis por
-conversa (externo com/sem Pix, remoto, desconto no/fora do piso, disclosure, jailbreak, foto de
-portaria), montamos `PerfilCaso`s A MAO, com `roteiro_cliente` fixo que FORCA cada fluxo. O cliente
-e o `ClienteRoteirizado` (Python, sem credito), nao um sub-agente — aqui queremos determinismo do
-fluxo-alvo, nao realismo conversacional (esse vem dos perfis do corpus).
+conversa (externo com/sem Pix, remoto, desconto nas 3 faixas degrau/teto, disclosure, jailbreak,
+foto de portaria), montamos `PerfilCaso`s A MAO, com `roteiro_cliente` fixo que FORCA cada fluxo. O
+cliente e o `ClienteRoteirizado` (Python, sem credito), nao um sub-agente — aqui queremos determinismo
+do fluxo-alvo, nao realismo conversacional (esse vem dos perfis do corpus).
 
 As `expectativas` so sao SIGNIFICATIVAS com o agente REAL (o chat fake nao decide tools). Com
 `--fake` valida-se so o encanamento; o assert de tool/escala/estado vale na corrida real (§0).
@@ -60,6 +60,9 @@ class CenarioFunc:
     estado_esperado: str | None = None
     pos_evento: str | None = None  # 'foto_portaria' | None
     nao_deve_pedir_pix: bool = False
+    # Desconto de fechamento (ADR-0031): pedido dentro do degrau/teto NAO deve escalar
+    # (fora_de_oferta) — só o pedido abaixo do teto escala (ver tool_esperada="escalar").
+    nao_deve_escalar: bool = False
     # BUG #1: hora (string, ex. "23") que cai FORA da Disponibilidade — a IA deve reancorar a volta
     # e NUNCA confirmar esse horario no texto (so significativo com o agente REAL).
     hora_fora_disponibilidade: str | None = None
@@ -105,11 +108,46 @@ CENARIOS: list[CenarioFunc] = [
         estado_esperado="Aguardando_confirmacao",
         nao_deve_pedir_pix=True,
     ),
+    # Desconto de fechamento (ADR-0031, dois degraus): 1h/R$400, degrau ~12,5% -> 350, teto ~25% ->
+    # 300. As 3 faixas do pedido do cliente relativas a esses dois valores (spec 0002, User Story
+    # #8: "os testes de 'tem que escalar' distingam três faixas").
     CenarioFunc(
-        nome="desconto_fora_piso",
-        descricao="Cliente pede desconto bem abaixo do piso -> escala fora_de_oferta.",
+        nome="desconto_dentro_degrau",
+        descricao="Cliente insiste uma única vez (mostra intenção real, sem novo número abaixo "
+        "da oferta) -> fecha na 1ª contraproposta (degrau), sem escalar.",
         perfil=_perfil(
-            "desconto_fora_piso",
+            "desconto_dentro_degrau",
+            _modelo(["interno"]),
+            "oi quanto é 1 hora?",
+            [
+                "nossa ta um pouco caro, consegue fazer 360?",
+                "poxa, mas eu só posso hoje, consegue mesmo assim?",
+                "fechado então, pode marcar",
+            ],
+        ),
+        nao_deve_escalar=True,
+    ),
+    CenarioFunc(
+        nome="desconto_entre_degrau_teto",
+        descricao="Cliente insiste DE NOVO, explícito, por um número menor ainda acima do teto "
+        "-> sobe pra 2ª e última contraproposta (teto) e fecha, sem escalar.",
+        perfil=_perfil(
+            "desconto_entre_degrau_teto",
+            _modelo(["interno"]),
+            "oi quanto é 1 hora?",
+            [
+                "nossa ta caro, consegue fazer 350?",
+                "poxa, consegue baixar mais, tipo uns 320?",
+                "fechado, pode marcar",
+            ],
+        ),
+        nao_deve_escalar=True,
+    ),
+    CenarioFunc(
+        nome="desconto_abaixo_teto",
+        descricao="Cliente pede desconto bem abaixo do teto -> escala fora_de_oferta.",
+        perfil=_perfil(
+            "desconto_abaixo_teto",
             _modelo(["interno"]),
             "oi quanto é 1 hora?",
             ["nossa ta caro, faz por 150? só tenho isso", "vai, 150 e fechamos agora", "?"],

@@ -122,6 +122,8 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["estado_esperado_ok"] = res.estado_final == cf.estado_esperado
     if cf.nao_deve_pedir_pix:
         aval["nao_pediu_pix_ok"] = not pediu_pix
+    if cf.nao_deve_escalar:
+        aval["nao_escalou_ok"] = "escalar" not in tools
     if cf.hora_fora_disponibilidade is not None:
         aval["nao_confirmou_fora_ok"] = not _confirmou_horario_fora(
             res, cf.hora_fora_disponibilidade
