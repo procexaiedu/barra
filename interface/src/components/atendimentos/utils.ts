@@ -38,6 +38,7 @@ export const motivoIaLabel: Record<IaPausadaMotivo, string> = {
   handoff_ia: "Aguardando você",
   modelo_em_atendimento: "Modelo atendendo",
   pausa_manual_operador: "Pausado manualmente",
+  modelo_pausada: "Cliente esperando",
 }
 
 const MOTIVO_ESCALADA_TEXTO: Record<IaPausadaMotivo, string> = {
@@ -45,6 +46,7 @@ const MOTIVO_ESCALADA_TEXTO: Record<IaPausadaMotivo, string> = {
   handoff_ia: "IA escalou para você",
   modelo_em_atendimento: "Modelo passou do tempo previsto",
   pausa_manual_operador: "Pausa manual do operador",
+  modelo_pausada: "Cliente ficou sem resposta durante a pausa da modelo",
 }
 
 const MOTIVO_TEXTO_LIVRE: Record<string, string> = {

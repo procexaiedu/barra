@@ -894,7 +894,7 @@ async def resolver_atendimento(
            ia_pausada, ia_pausada_motivo, responsavel_atual{col_braco})
         SELECT c.cliente_id, c.modelo_id, c.id, 'Novo', 'extracao_ia', m.vendedor_id,
                m.status <> 'ativa',
-               CASE WHEN m.status <> 'ativa' THEN 'modelo_em_atendimento'::barravips.ia_pausada_motivo_enum END,
+               CASE WHEN m.status <> 'ativa' THEN 'modelo_pausada'::barravips.ia_pausada_motivo_enum END,
                CASE WHEN m.status <> 'ativa' THEN 'modelo' ELSE 'IA' END::barravips.responsavel_atual_enum{sel_braco}
           FROM barravips.conversas c
           JOIN barravips.modelos m ON m.id = c.modelo_id

@@ -27,6 +27,7 @@ const TIPOS_CANONICOS: TipoEscalada[] = [
   "indisponibilidade",
   "video_chamada",
   "pausa_manual_operador",
+  "modelo_pausada",
   "outro",
 ]
 
@@ -41,6 +42,7 @@ const COR_POR_TIPO: Record<TipoEscalada, string> = {
   indisponibilidade: "var(--chart-7)",
   video_chamada: "var(--chart-5)",
   pausa_manual_operador: "var(--chart-6)",
+  modelo_pausada: "var(--chart-1)",
   outro: "var(--text-muted)",
 }
 

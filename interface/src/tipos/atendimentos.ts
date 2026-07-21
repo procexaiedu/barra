@@ -18,6 +18,7 @@ export type IaPausadaMotivo =
   | "modelo_em_atendimento"
   | "handoff_ia"
   | "pausa_manual_operador"
+  | "modelo_pausada"
 export type ResponsavelAtual = "IA" | "Fernando" | "modelo"
 export type MotivoPerda = "preco" | "sumiu" | "risco" | "indisponibilidade" | "fora_de_area" | "outro"
 export type DirecaoMensagem = "cliente" | "ia" | "modelo_manual"

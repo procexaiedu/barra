@@ -133,6 +133,7 @@ const BADGE_VARIANT: Record<IaPausadaMotivo, "revisao" | "handoff" | "info"> = {
   handoff_ia: "handoff",
   modelo_em_atendimento: "info",
   pausa_manual_operador: "handoff",
+  modelo_pausada: "info",
 }
 
 const BADGE_LABEL: Record<IaPausadaMotivo, string> = {
@@ -140,6 +141,7 @@ const BADGE_LABEL: Record<IaPausadaMotivo, string> = {
   handoff_ia: "Aguardando você",
   modelo_em_atendimento: "Modelo atendendo",
   pausa_manual_operador: "Pausado manualmente",
+  modelo_pausada: "Cliente esperando",
 }
 
 // ── componente principal ──────────────────────────────────────────────────────

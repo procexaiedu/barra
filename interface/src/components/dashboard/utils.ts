@@ -29,6 +29,7 @@ const ROTULOS_TIPO_ESCALADA: Record<TipoEscalada, string> = {
   indisponibilidade: "Sem agenda disponível",
   video_chamada: "Hora da vídeo chamada",
   pausa_manual_operador: "Pausa manual do operador",
+  modelo_pausada: "Cliente sem resposta durante a pausa da modelo",
   outro: "Outro",
 }
 

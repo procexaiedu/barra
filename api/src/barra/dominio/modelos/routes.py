@@ -16,6 +16,8 @@ from barra.api.deps import get_conn, get_user
 from barra.core.errors import ConflitoEstado, EntradaInvalida, ErroDominio, NaoEncontrado
 from barra.core.evolution import EvolutionClient
 from barra.core.storage import presigned_get, presigned_put, remove_object
+from barra.dominio.escaladas.modelos import TipoEscalada
+from barra.dominio.escaladas.service import abrir_handoff
 from barra.dominio.modelos.disponibilidade import bloqueios_futuros_fora
 from barra.dominio.modelos.schemas import (
     AtualizarFeticheBody,
@@ -549,7 +551,7 @@ async def pausar_modelo(
             """
             UPDATE barravips.atendimentos
                SET ia_pausada = true,
-                   ia_pausada_motivo = 'modelo_em_atendimento',
+                   ia_pausada_motivo = 'modelo_pausada',
                    responsavel_atual = 'modelo'
              WHERE modelo_id = %s
                AND estado NOT IN ('Fechado', 'Perdido')
@@ -595,17 +597,26 @@ async def ativar_modelo(
             "UPDATE barravips.modelos SET status = 'ativa' WHERE id = %s",
             (modelo_id,),
         )
-        pendentes = await _count(
-            conn,
-            """
-            SELECT count(*) FROM barravips.atendimentos
-             WHERE modelo_id = %s
-               AND estado NOT IN ('Fechado', 'Perdido')
-               AND ia_pausada = true
-               AND ia_pausada_motivo = 'modelo_em_atendimento'
-            """,
-            (modelo_id,),
-        )
+        presos = await _atendimentos_presos(conn, modelo_id)
+        # A volta do freio manual (issue #98). Reativar a modelo NAO solta a IA em lote: cada
+        # atendimento que ficou preso pela pausa vira um Handoff normal, com card no grupo de
+        # Coordenacao (entregue pelo cron `reconciliar_cards_escalada`, que varre escalada aberta
+        # sem card_message_id) e volta pela Devolucao de sempre — `IA assume`. Sem isso a IA
+        # simplesmente nunca voltava a responder e ninguem era avisado: cliente real no vacuo.
+        # `abrir_handoff` grava o motivo default `handoff_ia`, tirando o atendimento do balde
+        # `modelo_pausada` — reativar de novo nao reabre o mesmo card.
+        for preso in presos:
+            await abrir_handoff(
+                conn,
+                atendimento_id=preso["id"],
+                responsavel="modelo",
+                tipo=TipoEscalada.modelo_pausada,
+                resumo_operacional="Cliente ficou sem resposta enquanto voce estava pausada.",
+                acao_esperada="Retome a conversa com o cliente",
+                origem="painel",
+                autor="Fernando",
+            )
+        pendentes = len(presos)
         await _evento_modelo(
             conn,
             "modelo_reativada",
@@ -1352,6 +1363,27 @@ async def _count(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]
     row = await result.fetchone()
     assert row is not None
     return int(row["count"])
+
+
+async def _atendimentos_presos(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[str, Any]]:
+    """Atendimentos que ficaram parados por causa do freio manual da modelo (issue #98).
+
+    So o motivo `modelo_pausada` — o balde do freio (pausa em massa do endpoint + atendimento
+    NOVO que nasce pausado em `workers/coordenador.resolver_atendimento`). Nunca
+    `modelo_em_atendimento`, que e a modelo com o cliente agora (pos-Pix/pos-Foto de portaria).
+    """
+    result = await conn.execute(
+        """
+        SELECT id FROM barravips.atendimentos
+         WHERE modelo_id = %s
+           AND estado NOT IN ('Fechado', 'Perdido')
+           AND ia_pausada = true
+           AND ia_pausada_motivo = 'modelo_pausada'
+         ORDER BY created_at
+        """,
+        (modelo_id,),
+    )
+    return list(await result.fetchall())
 
 
 async def _evento_modelo(conn: AsyncConnection[Any], tipo: str, payload: dict[str, Any]) -> None:

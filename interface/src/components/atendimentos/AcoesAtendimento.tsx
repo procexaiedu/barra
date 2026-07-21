@@ -24,6 +24,7 @@ function motivoPausaLabel(motivo: AtendimentoOperacional["ia_pausada_motivo"]): 
   if (motivo === "handoff_ia") return "Aguardando você"
   if (motivo === "modelo_em_atendimento") return "Modelo atendendo"
   if (motivo === "pausa_manual_operador") return "Pausado manualmente"
+  if (motivo === "modelo_pausada") return "Cliente esperando"
   return "—"
 }
 

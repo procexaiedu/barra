@@ -101,7 +101,8 @@ async def painel_resumo(
         JOIN barravips.modelos m ON m.id = a.modelo_id
         WHERE a.ia_pausada = true
           AND a.ia_pausada_motivo IN
-              ('pix_em_revisao', 'modelo_em_atendimento', 'handoff_ia', 'pausa_manual_operador')
+              ('pix_em_revisao', 'modelo_em_atendimento', 'handoff_ia', 'pausa_manual_operador',
+               'modelo_pausada')
           {filtro_modelo_sql}
         ORDER BY a.updated_at ASC NULLS LAST
         """,
@@ -136,9 +137,12 @@ async def painel_resumo(
 
     ordem_motivo = {
         "pix_em_revisao": 0,
-        "pausa_manual_operador": 1,
-        "handoff_ia": 2,
-        "modelo_em_atendimento": 3,
+        # `modelo_pausada` e cliente esperando sem ninguem respondendo (issue #98): sobe perto do
+        # topo e — ao contrario de `modelo_em_atendimento` — nunca e filtrado da fila.
+        "modelo_pausada": 1,
+        "pausa_manual_operador": 2,
+        "handoff_ia": 3,
+        "modelo_em_atendimento": 4,
     }
     cards_destaque.sort(
         key=lambda c: (ordem_motivo.get(c["ia_pausada_motivo"], 9), c["ia_pausada_em"] or "")

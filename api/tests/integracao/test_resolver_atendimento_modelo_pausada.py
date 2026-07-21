@@ -84,6 +84,8 @@ async def test_modelo_nao_ativa_abre_atendimento_ja_pausado(
     novo = await resolver_atendimento(conn, await _seed_conversa(conn, status))
 
     assert novo["ia_pausada"] is True
-    # Mesmo motivo do endpoint de pausa — o card e a devolução para IA já sabem ler este.
-    assert novo["ia_pausada_motivo"] == "modelo_em_atendimento"
+    # Mesmo motivo do endpoint de pausa, e PRÓPRIO do freio (issue #98): `modelo_em_atendimento`
+    # significa "a modelo está com o cliente agora", e confundir os dois deixava a reativação sem
+    # como soltar só estes sem mexer em quem está legitimamente em execução.
+    assert novo["ia_pausada_motivo"] == "modelo_pausada"
     assert novo["responsavel_atual"] == "modelo"
