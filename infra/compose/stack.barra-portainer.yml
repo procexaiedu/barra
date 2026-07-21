@@ -89,9 +89,11 @@ services:
       - GITHUB_WEBHOOK_SECRET=${GITHUB_WEBHOOK_SECRET}
       - 'CORS_ORIGINS=["https://elitebaby.procexai.tech","https://barravips.procexai.tech","https://barra-nine.vercel.app","https://barra-procexais-projects.vercel.app","https://barra-git-main-procexais-projects.vercel.app","https://barra-vips.vercel.app"]'
       - 'CORS_ORIGIN_REGEX=https://([a-z0-9-]+\.)*procexai\.tech|https://barra[a-z0-9-]*\.vercel\.app'
-      # Allowlist de teste: pina o grupo cliente-teste E o grupo de Coordenação, senão o
-      # comando de fechamento no grupo (`finalizado`/`perdido`) levaria 403 na porta.
-      - 'JID_PERMITIDO=["120363423572479616@g.us","120363407815206369@g.us"]'
+      # Allowlist de TESTE da Fase 1.5 DESLIGADA (21/07) — elitebaby01 passa a atender qualquer
+      # cliente real do anúncio-teste. A lucia (Tatiane teste, outros projetos usam esse número)
+      # segue pausada (status='pausada') via o kill-switch oficial do domínio — não depende mais
+      # desta allowlist pra ficar muda.
+      - 'JID_PERMITIDO=[]'
       # Comando de TESTE `#reset` no grupo cliente-teste: zera o estado da modelo p/
       # recomeçar do zero. Só a instância de teste `lucia` — nunca uma modelo real.
       - 'RESET_TESTE_INSTANCES=["lucia"]'
@@ -247,7 +249,7 @@ services:
     configs:
       - source: barra_prometheus_yml_v1
         target: /etc/prometheus/prometheus.yml
-      - source: barra_alert_rules_yml_v3
+      - source: barra_alert_rules_yml_v4
         target: /etc/prometheus/alert.rules.yml
     volumes:
       - prometheus-barra-data:/prometheus
@@ -355,7 +357,7 @@ volumes:
 configs:
   barra_prometheus_yml_v1:
     external: true
-  barra_alert_rules_yml_v3:
+  barra_alert_rules_yml_v4:
     external: true
   barra_alertmanager_yml_v3:
     external: true
