@@ -110,9 +110,10 @@ def render_persona(desconto_max_pct: float | None = None) -> str:
     """BP1 geral (persona + regras) — sem variáveis por-modelo, idêntico para todas.
 
     `desconto_max_pct` interpola o bloco <desconto> de `regras.md.j2` (ADR-0004): segue GERAL
-    porque é setting global, não por-modelo. None → lê de settings (`desconto_max_pct`).
+    porque é setting global, não por-modelo. None → lê de settings (`desconto_degrau_pct`, ADR-0031
+    — degrau intermediário; a escalada de 2 rodadas até `desconto_teto_pct` é issue à parte).
     """
-    pct = get_settings().desconto_max_pct if desconto_max_pct is None else desconto_max_pct
+    pct = get_settings().desconto_degrau_pct if desconto_max_pct is None else desconto_max_pct
     persona = _env.get_template("persona.md").render()
     regras = _env.get_template("regras.md.j2").render(
         desconto_max_pct=pct,

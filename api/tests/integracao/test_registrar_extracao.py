@@ -24,7 +24,11 @@ from psycopg.rows import dict_row
 
 from barra.agente.ferramentas._idempotencia import _executar_idempotente
 from barra.dominio.agenda.service import BRT, ConflitoAgenda
-from barra.dominio.atendimentos.service import CotacaoAusente, registrar_extracao_ia
+from barra.dominio.atendimentos.service import (
+    CotacaoAusente,
+    _abaixo_do_piso,
+    registrar_extracao_ia,
+)
 from barra.settings import get_settings
 
 # --- infra de DB real (ROLLBACK sempre) ------------------------------------------------------
@@ -538,8 +542,8 @@ async def test_valor_abaixo_do_piso_escala(conn: AsyncConnection[dict[str, Any]]
     modelo_id, atendimento_id = await _seed_par(
         conn, estado="Qualificado", tipo_atendimento="externo", intencao="agendamento"
     )
-    # Preco de tabela 1000 na duracao de 2h; piso = 1000*(1-desconto_max_pct). valor_acordado=50
-    # fica abaixo de qualquer piso para desconto_max_pct realista (<0.95).
+    # Preco de tabela 1000 na duracao de 2h; piso = 1000*(1-desconto_teto_pct). valor_acordado=50
+    # fica abaixo de qualquer piso para desconto_teto_pct realista (<0.95).
     await _seed_programa(conn, modelo_id, horas=Decimal("2"), preco=Decimal("1000"))
 
     resultado = await registrar_extracao_ia(
@@ -662,6 +666,62 @@ async def test_lowball_sem_duracao_no_payload_ainda_escala(
     esc = await res.fetchone()
     assert esc is not None
     assert esc["tipo"] == "fora_de_oferta"
+
+
+# --- _abaixo_do_piso contra desconto_teto_pct (ADR-0031 — dois degraus) ----------------------
+
+
+@pytest.mark.needs_db
+async def test_abaixo_do_piso_dentro_do_teto_grava_normal(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Valor dentro do teto (desconto_teto_pct) NAO esta abaixo do piso -> grava normalmente."""
+    monkeypatch.setattr(get_settings(), "desconto_teto_pct", 0.3)
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        duracao_horas=Decimal("2"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("2"), preco=Decimal("1000"))
+    # piso = 1000 * (1 - 0.3) = 700; 750 esta acima do piso.
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "750"}) is False
+
+
+@pytest.mark.needs_db
+async def test_abaixo_do_piso_abaixo_do_teto_escala(
+    conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Valor abaixo do teto (desconto_teto_pct) escala (fora_de_oferta)."""
+    monkeypatch.setattr(get_settings(), "desconto_teto_pct", 0.3)
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        duracao_horas=Decimal("2"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("2"), preco=Decimal("1000"))
+    # piso = 1000 * (1 - 0.3) = 700; 650 esta abaixo do piso.
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "650"}) is True
+
+
+@pytest.mark.needs_db
+async def test_abaixo_do_piso_sem_programa_correspondente_escala(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Sem programa cadastrado na duracao do atendimento, `_preco_tabela_min` nao acha preco de
+    tabela -> trata como abaixo do piso (escala), mesmo com um valor_acordado alto."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        duracao_horas=Decimal("3"),
+    )
+    # Nenhum _seed_programa nessa duracao (3h) -> preco_tabela None.
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "10000"}) is True
 
 
 @pytest.mark.needs_db

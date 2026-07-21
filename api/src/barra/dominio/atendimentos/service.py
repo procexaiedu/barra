@@ -800,8 +800,9 @@ def _registra_valor(payload: dict[str, Any], limpar: set[str]) -> bool:
 async def _abaixo_do_piso(
     conn: AsyncConnection[Any], atendimento_id: UUID, payload: dict[str, Any]
 ) -> bool:
-    """Piso = preco_de_tabela x (1 - desconto_max_pct) (ADR-0004). Sem programa correspondente a
-    duracao, trata como abaixo do piso (escala). `desconto_max_pct=0` => piso = preco de tabela."""
+    """Piso = preco_de_tabela x (1 - desconto_teto_pct) (ADR-0031, teto da escalada de 2 rodadas).
+    Sem programa correspondente a duracao, trata como abaixo do piso (escala). `desconto_teto_pct=0`
+    => piso = preco de tabela."""
     valor = Decimal(str(payload["valor_acordado"]))
     res = await conn.execute(
         "SELECT modelo_id, duracao_horas FROM barravips.atendimentos WHERE id = %s",
@@ -820,7 +821,7 @@ async def _abaixo_do_piso(
     preco_tabela = await _preco_tabela_min(conn, row["modelo_id"], duracao)
     if preco_tabela is None:
         return True
-    fator = Decimal("1") - Decimal(str(get_settings().desconto_max_pct))
+    fator = Decimal("1") - Decimal(str(get_settings().desconto_teto_pct))
     return valor < preco_tabela * fator
 
 

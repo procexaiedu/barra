@@ -237,12 +237,18 @@ class Settings(BaseSettings):
         description="EVAL-11: fracao dos turnos 'ok' amostrados p/ a rubrica online de non_disclosure (deterministica, sem custo de LLM) observada em agente_eval_pass_rate{suite=online_non_disclosure}. 0 desliga.",
     )
 
-    # Comportamento comercial do agente (grilling 2026-05-23; docs/agente + ADR-0004)
-    desconto_max_pct: float = Field(
-        default=0.15,
+    # Comportamento comercial do agente (grilling 2026-05-23; docs/agente + ADR-0004; dois degraus ADR-0031)
+    desconto_degrau_pct: float = Field(
+        default=0.125,
         ge=0.0,
         le=1.0,
-        description="Teto do Desconto de fechamento sobre o Preço de tabela do programa (ADR-0004). 0 desliga o desconto (IA escala todo pedido abaixo da tabela).",
+        description="Degrau intermediário do Desconto de fechamento sobre o Preço de tabela do pacote — primeira contraproposta da escalada de 2 rodadas (ADR-0031).",
+    )
+    desconto_teto_pct: float = Field(
+        default=0.25,
+        ge=0.0,
+        le=1.0,
+        description="Teto do Desconto de fechamento sobre o Preço de tabela do pacote — segunda e última contraproposta da escalada de 2 rodadas (ADR-0031); é o piso duro checado pela guarda de código. 0 desliga o desconto (IA escala todo pedido abaixo da tabela).",
     )
     reengajamento_ativo: bool = Field(
         default=True,
