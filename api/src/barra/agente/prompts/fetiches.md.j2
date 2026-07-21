@@ -1,10 +1,14 @@
 <fetiches>
-{# Renderiza só a tabela de dado do BD (BP_MODELO). #}
+{# Renderiza só a tabela de dado do BD (BP_MODELO). Extra pago (ADR-0030): o valor não é lido
+   de `f.preco` (flag incluso/pago, ADR-0030 ticket 02) — é sempre calculado a partir do preço de
+   tabela do programa, uma linha por programa que a modelo oferece (precos_por_programa). #}
 {% if fetiches %}
 | Fetiche | Extra |
 |---------|-------|
-{% for f in fetiches %}| {{ f.nome }} | {% if f.preco %}+{{ f.preco | brl }}{% else %}incluso{% endif %} |
-{% endfor %}
+{% for f in fetiches %}{% if f.preco %}{% if precos_por_programa %}{% for pp in precos_por_programa %}| {{ f.nome }} | +{{ pp.extra | brl }} no {{ pp.nome }} ({{ pp.duracao_nome }}) |
+{% endfor %}{% else %}| {{ f.nome }} | pago (sem programa cadastrado p/ calcular) |
+{% endif %}{% else %}| {{ f.nome }} | incluso |
+{% endif %}{% endfor %}
 {% else %}
 (sem fetiches cadastrados)
 {% endif %}

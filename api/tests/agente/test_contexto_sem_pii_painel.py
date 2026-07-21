@@ -73,7 +73,11 @@ class _ConnGravador:
                 allrows=[],
             )
         if "modelo_programas" in query:
-            return _Res(allrows=[{"nome": "Programa", "duracao_nome": "1 hora", "preco": 500}])
+            return _Res(
+                allrows=[
+                    {"nome": "Programa", "duracao_nome": "1 hora", "duracao_horas": 1, "preco": 500}
+                ]
+            )
         if "modelo_fetiches" in query:
             return _Res(allrows=[{"nome": "fetiche", "preco": None}])
         # demais (atendimentos/conversas/clientes/bloqueios/disponibilidade/historico/agora):

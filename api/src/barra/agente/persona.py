@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
+from barra.dominio.atendimentos.service import calcular_preco_extra_fetiche
 from barra.settings import get_settings
 
 _env = Environment(
@@ -210,14 +211,31 @@ def render_programas(programas: list[dict[str, Any]]) -> str:
     return _env.get_template("programas.md.j2").render(programas=programas)
 
 
-def render_fetiches(fetiches: list[dict[str, Any]]) -> str:
-    """BP3 por-modelo — cardápio de fetiches que a modelo FAZ (ADR 0014 revisado).
+def render_fetiches(fetiches: list[dict[str, Any]], programas: list[dict[str, Any]]) -> str:
+    """BP3 por-modelo — cardápio de fetiches que a modelo FAZ (ADR 0030).
 
     Cada item é um fetiche vinculado, com preço opcional: `preco` None = incluso (faz sem custo
-    extra); preenchido = extra pago que a IA cota ("+R$X"). A ausência de um fetiche da lista
-    significa que ela NÃO faz — a IA recusa de forma aberta, sem lista de negativos no prompt.
-    A lista deve chegar ordenada de forma determinística (pré-req do cache — agente/CLAUDE.md)."""
-    return _env.get_template("fetiches.md.j2").render(fetiches=fetiches)
+    extra); preenchido = extra pago. O valor do extra deixou de ser lido de `preco` (ADR-0030):
+    é sempre calculado, uma linha por programa que a modelo oferece, com a mesma
+    `calcular_preco_extra_fetiche` usada no registro do atendimento (dominio/atendimentos) —
+    preço-hora efetivo do pacote, uniforme entre fetiches pagos. A ausência de um fetiche da
+    lista significa que ela NÃO faz — a IA recusa de forma aberta, sem lista de negativos no
+    prompt. Ambas as listas devem chegar ordenadas de forma determinística (pré-req do cache —
+    agente/CLAUDE.md): a combinação (fetiche x programa) sai na mesma ordem sempre, sem depender
+    do turno/conversa."""
+    precos_por_programa = [
+        {
+            "nome": p["nome"],
+            "duracao_nome": p["duracao_nome"],
+            "extra": calcular_preco_extra_fetiche(
+                Decimal(str(p["preco"])), Decimal(str(p["duracao_horas"]))
+            ),
+        }
+        for p in programas
+    ]
+    return _env.get_template("fetiches.md.j2").render(
+        fetiches=fetiches, precos_por_programa=precos_por_programa
+    )
 
 
 def render_bp3(
@@ -226,4 +244,7 @@ def render_bp3(
     fetiches: list[dict[str, Any]],
 ) -> str:
     """BP3 completo por-modelo: identidade + programas + fetiches concatenados (03 §2.3)."""
-    return f"{render_identidade(identidade)}\n{render_programas(programas)}\n{render_fetiches(fetiches)}"
+    return (
+        f"{render_identidade(identidade)}\n{render_programas(programas)}\n"
+        f"{render_fetiches(fetiches, programas)}"
+    )

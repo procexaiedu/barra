@@ -498,8 +498,11 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> tuple[str
     A coluna `tipo_atendimento_aceito` (banco) é mapeada para `tipos_aceitos` (dataclass). Os
     programas vêm do schema real (pós-0010): `modelo_programas`/`programas`/`duracoes` — a
     duração é entidade própria (`duracao_nome`), NÃO `programas.duracao_horas` (removida em
-    0009; a query do §3.3 está desatualizada). O `ORDER BY` é determinístico (pré-req do cache:
-    bytes estáveis no prefixo — agente/CLAUDE.md), espelhando o painel (dominio/modelos/routes).
+    0009; a query do §3.3 está desatualizada). `duracoes.horas` (numérica, migration
+    20260525181816) também é lida (`duracao_horas`) — `render_fetiches` (persona.py) usa junto
+    com `preco` para calcular o extra de cada fetiche pago por programa (ADR-0030). O `ORDER BY`
+    é determinístico (pré-req do cache: bytes estáveis no prefixo — agente/CLAUDE.md), espelhando
+    o painel (dominio/modelos/routes).
     """
     res = await conn.execute(
         """
@@ -523,7 +526,7 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> tuple[str
 
     res = await conn.execute(
         """
-        SELECT p.nome, d.nome AS duracao_nome, mp.preco
+        SELECT p.nome, d.nome AS duracao_nome, d.horas AS duracao_horas, mp.preco
           FROM barravips.modelo_programas mp
           JOIN barravips.programas p ON p.id = mp.programa_id
           JOIN barravips.duracoes d ON d.id = mp.duracao_id

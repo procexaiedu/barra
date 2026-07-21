@@ -39,15 +39,15 @@ ESTRANGEIRA = IdentidadeModelo(
 )
 
 PROGRAMAS: list[dict[str, Any]] = [
-    {"nome": "Massagem Relaxante", "duracao_nome": "1 hora", "preco": 800},
-    {"nome": "Massagem Relaxante", "duracao_nome": "2 horas", "preco": 1500},
-    {"nome": "Programa Completo", "duracao_nome": "2 horas", "preco": 2500},
+    {"nome": "Massagem Relaxante", "duracao_nome": "1 hora", "duracao_horas": 1, "preco": 800},
+    {"nome": "Massagem Relaxante", "duracao_nome": "2 horas", "duracao_horas": 2, "preco": 1500},
+    {"nome": "Programa Completo", "duracao_nome": "2 horas", "duracao_horas": 2, "preco": 2500},
 ]
 
-# preco None = incluso; preenchido = extra pago.
+# preco None = incluso; preenchido (qualquer valor, ignorado pelo cálculo — ADR-0030) = pago.
 FETICHES: list[dict[str, Any]] = [
     {"nome": "Beijo na boca", "preco": None},
-    {"nome": "Inversão", "preco": 200},
+    {"nome": "Inversão", "preco": 1},
 ]
 
 
@@ -79,11 +79,22 @@ def test_programas_tabela_uma_linha_por_combinacao() -> None:
 
 
 def test_fetiches_lista_extra_e_incluso() -> None:
-    txt = render_fetiches(FETICHES)
+    txt = render_fetiches(FETICHES, PROGRAMAS)
     assert "Beijo na boca" in txt
     assert "incluso" in txt  # preco None
     assert "Inversão" in txt
-    assert "+R$200" in txt  # preco preenchido, filtro brl
+    # extra pago (ADR-0030): calculado por programa (preço-hora efetivo), não lido de `preco`.
+    assert "+R$800 no Massagem Relaxante (1 hora)" in txt
+    assert "+R$750 no Massagem Relaxante (2 horas)" in txt  # 1500 / 2h
+    assert "+R$1.250 no Programa Completo (2 horas)" in txt  # 2500 / 2h
+
+
+def test_fetiches_pago_ignora_valor_cadastrado() -> None:
+    # ADR-0030: o valor de `f.preco` nunca é lido no cálculo — só a presença (pago/incluso)
+    # importa. Um sentinel "errado" (R$1) não vaza no valor calculado.
+    txt = render_fetiches(FETICHES, PROGRAMAS)
+    assert "+R$1 " not in txt
+    assert "+R$1\n" not in txt
 
 
 def test_render_bp3_concatena_identidade_programas_e_fetiches() -> None:
@@ -107,6 +118,22 @@ def test_build_system_messages_emite_2_blocos() -> None:
     assert "Bia" in modelo_texto
     assert "26" in modelo_texto
     assert "Programa Completo" in modelo_texto
+
+
+def test_fetiches_render_byte_identico_entre_modelos_com_mesmo_cadastro() -> None:
+    # Ticket 03 (spec 0001-fetiche-calculado): o preço por-programa é calculado no render, não no
+    # turno — duas modelos DISTINTAS (identidade diferente) com o MESMO cadastro de
+    # fetiches/programas produzem o MESMO bloco <fetiches>, e a mesma modelo produz o mesmo bloco
+    # em 2 renders sucessivos (não varia por turno/conversa).
+    bloco_a = render_fetiches(FETICHES, PROGRAMAS)
+    bloco_b = render_fetiches(FETICHES, PROGRAMAS)
+    assert bloco_a == bloco_b
+
+    bp3_carioca = render_bp3(CARIOCA, PROGRAMAS, FETICHES)
+    bp3_estrangeira = render_bp3(ESTRANGEIRA, PROGRAMAS, FETICHES)
+    fetiches_carioca = bp3_carioca.split("<fetiches>")[1]
+    fetiches_estrangeira = bp3_estrangeira.split("<fetiches>")[1]
+    assert fetiches_carioca == fetiches_estrangeira
 
 
 def test_guardrail_bp_geral_byte_identico_entre_modelos_string_pura() -> None:
