@@ -205,8 +205,8 @@ services:
       - FEEDBACK_RIG_GRUPO_JID=120363426757729499@g.us
       # ACK de registro (o job roda no worker; lê este gate). Ver serviço da API.
       - FEEDBACK_RIG_ACK=true
-      # Allowlist de teste: grupo cliente-teste + grupo de Coordenação (ver serviço da API).
-      - 'JID_PERMITIDO=["120363423572479616@g.us","120363407815206369@g.us"]'
+      # Allowlist de TESTE da Fase 1.5 DESLIGADA (21/07) — ver serviço da API pro motivo.
+      - 'JID_PERMITIDO=[]'
       - SENTRY_DSN=
     command: >
       sh -c "apt-get update && apt-get install -y --no-install-recommends git ca-certificates &&
@@ -249,7 +249,7 @@ services:
     configs:
       - source: barra_prometheus_yml_v1
         target: /etc/prometheus/prometheus.yml
-      - source: barra_alert_rules_yml_v4
+      - source: barra_alert_rules_yml_v3
         target: /etc/prometheus/alert.rules.yml
     volumes:
       - prometheus-barra-data:/prometheus
@@ -357,7 +357,7 @@ volumes:
 configs:
   barra_prometheus_yml_v1:
     external: true
-  barra_alert_rules_yml_v4:
+  barra_alert_rules_yml_v3:
     external: true
   barra_alertmanager_yml_v3:
     external: true
