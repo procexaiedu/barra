@@ -6,8 +6,9 @@ from uuid import uuid5
 from arq import ArqRedis
 from psycopg import AsyncConnection
 
-from barra.agente._canned import escolher_reengajamento
-from barra.core.metrics import REENGAJAMENTO, TIMEOUTS
+from barra.agente._canned import escolher_cancelamento_piloto, escolher_reengajamento
+from barra.core.metrics import PILOTO_CANCELAMENTO, REENGAJAMENTO, TIMEOUTS
+from barra.dominio.escaladas.service import aplicar_comando
 from barra.settings import Settings
 from barra.workers.coordenador import NS_TURNO
 
@@ -218,6 +219,130 @@ async def reengajar_silenciosos(
             _job_id=f"reengajo:{atendimento_id}",
         )
         REENGAJAMENTO.labels("enviado").inc()
+
+    return len(alvos)
+
+
+async def cancelar_piloto_teste(
+    conn: AsyncConnection[Any],
+    redis: ArqRedis,
+    settings: Settings,
+) -> int:
+    """Cancelamento automatico de seguranca do piloto de teste (ADR-0033, spec 0004).
+
+    O piloto roda sem modelo real (anuncio generico, sem intencao de atender ninguem de verdade) --
+    sem salvaguarda, um cliente real poderia negociar ate o horario combinado e mandar o Pix de
+    deslocamento por um encontro que nunca vai acontecer. 10min depois de um Atendimento entrar em
+    Aguardando_confirmacao (`aguardando_confirmacao_em`, carimbado na transicao -- ver
+    dominio/atendimentos/service.py -- e distinto de `bloqueios.inicio`, o horario do encontro em
+    si), cancela: desculpa generica ao cliente (sorteada, evita padrao identico repetido), marca o
+    Atendimento como Perdido (motivo `outro`) e pausa a IA (Handoff manual, ADR-0032).
+
+    Atomico: `FOR UPDATE OF a SKIP LOCKED` mantem o lock das linhas alvo pela transacao INTEIRA --
+    selecao, pausa da IA, marca de Perdido, cancelamento do bloqueio, eventos de auditoria e o
+    carimbo `piloto_cancelado_em` saem TODOS na mesma transacao. Sem isso, uma falha a meio-caminho
+    deixaria o atendimento marcado como "ja processado" (nunca mais reexaminado) sem de fato ter
+    sido cancelado/pausado -- justamente o cenario que o ADR-0033 existe pra evitar. So depois do
+    commit e que os efeitos de rede (mensagem ao cliente) saem, num loop separado: reenfileirar
+    um job idempotente (`_job_id` deterministico) e seguro se o processo cair antes do commit
+    (nada foi persistido) ou depois (o job so roda uma vez).
+
+    A pausa da IA roda ANTES de marcar Perdido: `aplicar_comando(pausar_ia)` recusa atendimento ja
+    finalizado (Fechado/Perdido). O UPDATE de Perdido, aqui, e feito DIRETO (nao via
+    `aplicar_comando(registrar_perdido)`) porque esse comando reativa a IA (`ia_pausada=false`) --
+    desfaria a pausa que acabamos de aplicar. Mesmo padrao dos demais timeouts (`aplicar_timeout_*`):
+    UPDATE direto + cancela o bloqueio vinculado + eventos de auditoria.
+    """
+    if not settings.piloto_auto_cancela_ativo:
+        PILOTO_CANCELAMENTO.labels("flag_off").inc()
+        return 0
+
+    async with conn.transaction():
+        result = await conn.execute(
+            """
+            SELECT a.id, a.conversa_id
+              FROM barravips.atendimentos a
+             WHERE a.estado = 'Aguardando_confirmacao'
+               AND a.aguardando_confirmacao_em IS NOT NULL
+               AND a.aguardando_confirmacao_em < now() - interval '10 minutes'
+               AND a.piloto_cancelado_em IS NULL
+             FOR UPDATE OF a SKIP LOCKED
+            """
+        )
+        alvos = await result.fetchall()
+
+        if not alvos:
+            PILOTO_CANCELAMENTO.labels("sem_alvo").inc()
+            return 0
+
+        for a in alvos:
+            atendimento_id = a["id"]
+
+            await aplicar_comando(
+                conn,
+                origem="cron",
+                autor="sistema",
+                atendimento_id=atendimento_id,
+                comando="pausar_ia",
+                payload={"observacao": "cancelamento automático — piloto de teste"},
+            )
+            await conn.execute(
+                """
+                UPDATE barravips.atendimentos
+                   SET estado = 'Perdido',
+                       motivo_perda = 'outro',
+                       motivo_perda_obs = 'cancelamento automático — piloto de teste',
+                       fonte_decisao_ultima_transicao = 'auto_cancelamento_piloto',
+                       piloto_cancelado_em = now()
+                 WHERE id = %s
+                """,
+                (atendimento_id,),
+            )
+            await conn.execute(
+                """
+                UPDATE barravips.bloqueios b
+                   SET estado = 'cancelado'
+                  FROM barravips.atendimentos a
+                 WHERE a.id = %s AND b.id = a.bloqueio_id
+                   AND b.estado NOT IN ('em_atendimento', 'concluido')
+                """,
+                (atendimento_id,),
+            )
+            await conn.execute(
+                """
+                INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
+                VALUES (%s, 'transicao_estado', 'cron', 'sistema',
+                        jsonb_build_object('de', 'Aguardando_confirmacao', 'para', 'Perdido',
+                                            'fonte', 'auto_cancelamento_piloto'))
+                """,
+                (atendimento_id,),
+            )
+            await conn.execute(
+                """
+                INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
+                VALUES (%s, 'perdido_registrado', 'cron', 'sistema',
+                        '{"fonte": "auto_cancelamento_piloto"}'::jsonb)
+                """,
+                (atendimento_id,),
+            )
+
+    for a in alvos:
+        atendimento_id = a["id"]
+        conversa_id = str(a["conversa_id"])
+        turno_id = str(uuid5(NS_TURNO, f"cancelamento_piloto:{atendimento_id}"))
+        await redis.set(f"turno_atual:{conversa_id}", turno_id, ex=600)
+        await redis.enqueue_job(
+            "enviar_turno",
+            conversa_id=conversa_id,
+            turno_id=turno_id,
+            chunks=[escolher_cancelamento_piloto()],
+            midias=[],
+            msg_ids_cliente=[],
+            chars_inbound=0,
+            critico=False,
+            _job_id=f"cancelamento_piloto:{atendimento_id}",
+        )
+        PILOTO_CANCELAMENTO.labels("enviado").inc()
 
     return len(alvos)
 

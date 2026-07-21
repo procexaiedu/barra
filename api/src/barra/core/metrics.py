@@ -68,6 +68,11 @@ REENGAJAMENTO = Counter(
     "Reengajamento proativo do cliente apos a cotacao (07 §4.5)",
     ["resultado"],  # enviado | flag_off | sem_alvo
 )
+PILOTO_CANCELAMENTO = Counter(
+    "barra_piloto_cancelamento_total",
+    "Cancelamento automatico de seguranca do piloto de teste (ADR-0033)",
+    ["resultado"],  # enviado | flag_off | sem_alvo
+)
 FLUXO_DRIFT = Counter(
     "barra_fluxo_drift_total",
     "Sensor de deriva de fluxo conversacional (contabilidade da corrida; JSD vai pro Langfuse)",

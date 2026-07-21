@@ -3,8 +3,10 @@ senao o texto despachado ao cliente divergiria do auditado/re-enviado. Teste pur
 """
 
 from barra.agente._canned import (
+    CANCELAMENTO_PILOTO_CANNED,
     NEGACOES_CANNED,
     TRANSCRICAO_FALHOU_CANNED,
+    escolher_cancelamento_piloto,
     escolher_canned_transcricao_falhou,
     escolher_negacao,
 )
@@ -29,3 +31,14 @@ def test_transcricao_falhou_deterministica_por_seed():
     s = "turno-xyz"
     assert escolher_canned_transcricao_falhou(seed=s) == escolher_canned_transcricao_falhou(seed=s)
     assert escolher_canned_transcricao_falhou(seed=s) in TRANSCRICAO_FALHOU_CANNED
+
+
+def test_cancelamento_piloto_pool_tem_mais_de_uma_frase():
+    # ADR-0033: evita regressao pro caso "desculpa unica" (padrao identico repetido).
+    assert len(CANCELAMENTO_PILOTO_CANNED) >= 3
+
+
+def test_cancelamento_piloto_sorteia_do_pool():
+    vistos = {escolher_cancelamento_piloto() for _ in range(50)}
+    assert len(vistos) > 1
+    assert vistos <= set(CANCELAMENTO_PILOTO_CANNED)

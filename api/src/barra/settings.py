@@ -359,6 +359,14 @@ class Settings(BaseSettings):
         default=True,
         description="Liga o cron diário que monitora os gatilhos objetivos de rollback do piloto (incidentes não-contidos >=2/semana; >=3 conversas/semana com acusação-padrão; gate abortando >20% dos turnos). Só ALERTA (log ERROR + métrica + Sentry, canal dev): nunca pausa a modelo sozinho — o freio é humano. Kill-switch via ROLLBACK_WATCH_ATIVO=false.",
     )
+    piloto_auto_cancela_ativo: bool = Field(
+        default=True,
+        description="Liga o cancelamento automático de segurança do piloto de teste (ADR-0033): "
+        "10min após um Atendimento entrar em Aguardando_confirmacao, cancela antes que qualquer "
+        "Pix de deslocamento seja pedido — o piloto roda sem modelo real, sem intenção de atender "
+        "ninguém de verdade. Ligado por padrão durante o piloto; desligue via "
+        "PILOTO_AUTO_CANCELA_ATIVO=false quando evoluir para atendimento real.",
+    )
     pix_deslocamento_valor: Decimal = Field(
         default=Decimal("100.00"),
         description="Valor esperado do Pix de deslocamento, em BRL (06 §2.2/§0 item 6). Comparação é `valor >= esperado`: underpay → em_revisao; valor maior é aceito como validado.",

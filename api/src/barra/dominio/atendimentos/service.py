@@ -424,6 +424,13 @@ async def registrar_extracao_ia(
         )
         await _registrar_evento(conn, aid, "transicao_estado", {"para": hop})
         if hop == "Aguardando_confirmacao":
+            # Ancora do cron cancelar_piloto_teste (ADR-0033): carimba a ENTRADA no estado
+            # (first-write-wins), distinta de bloqueios.inicio (o horario do encontro em si).
+            await conn.execute(
+                "UPDATE barravips.atendimentos SET aguardando_confirmacao_em = now() "
+                "WHERE id = %s AND aguardando_confirmacao_em IS NULL",
+                (aid,),
+            )
             # Guard deterministico (finding onda 1 A): reservar o slot exige o preco ja dito.
             # Combinar horario/endereco com cotacao_enviada_em NULL e sem cotar NESTE turno deixaria
             # o cliente sair de casa sem saber o valor (<funil>: "encontro nunca fica combinado com

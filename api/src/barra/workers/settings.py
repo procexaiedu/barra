@@ -3,6 +3,7 @@
 Cron:
   - timeout_longo (24h sem cliente): a cada 5 min
   - timeout_interno (45 min sem foto portaria, contado do mais tarde entre aviso de saida e horario combinado): a cada minuto
+  - cancelar_piloto_teste (10 min em Aguardando_confirmacao, cancelamento de seguranca do piloto; ADR-0033; default on): a cada minuto
   - confirmar_em_execucao (bloqueio.inicio <= now): a cada minuto
   - cobrar_valor_final (Lembrete de fechamento, ADR-0009; fim do atendimento): a cada minuto
   - reengajar_silenciosos (toque proativo apos cotacao; default off): a cada 5 min
@@ -48,6 +49,7 @@ from barra.workers.rollback_watch import vigiar_gatilhos_rollback
 from barra.workers.timeouts import (
     aplicar_timeout_interno,
     aplicar_timeout_longo,
+    cancelar_piloto_teste,
     confirmar_em_execucao,
     reengajar_silenciosos,
 )
@@ -103,6 +105,16 @@ async def cron_reengajar(ctx: dict[str, Any]) -> int:
         return 0
     async with pool.connection() as conn:
         return await reengajar_silenciosos(conn, redis, settings)
+
+
+async def cron_cancelar_piloto(ctx: dict[str, Any]) -> int:
+    pool = ctx.get("db_pool")
+    redis = ctx.get("redis")
+    settings = ctx.get("settings")
+    if pool is None or redis is None or settings is None:
+        return 0
+    async with pool.connection() as conn:
+        return await cancelar_piloto_teste(conn, redis, settings)
 
 
 async def cron_limpar_midias(ctx: dict[str, Any]) -> int:
@@ -269,6 +281,9 @@ class WorkerSettings:
     ]
     cron_jobs: ClassVar[list[CronJob]] = [
         cron(cron_timeout_interno, name="timeout_interno"),
+        # Janela de disparo estreita (10min fixos, ADR-0033) -> a cada minuto, mesmo padrao do
+        # timeout_interno.
+        cron(cron_cancelar_piloto, name="cancelar_piloto_teste"),
         cron(cron_confirmar_em_execucao, name="confirmar_em_execucao"),
         cron(cron_cobrar_valor_final, name="cobrar_valor_final"),
         cron(

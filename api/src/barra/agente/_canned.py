@@ -68,3 +68,19 @@ def escolher_canned_transcricao_falhou(seed: str | None = None) -> str:
     """Sorteia uma frase do pool de fallback de transcricao (06 §1.4). `seed`=turno_id p/ replay
     determinístico (ver `_sortear`)."""
     return _sortear(TRANSCRICAO_FALHOU_CANNED, seed)
+
+
+# Cancelamento automatico de seguranca do piloto de teste (ADR-0033): desculpa generica quando o
+# cron cancela um atendimento que chegou a Aguardando_confirmacao, antes de qualquer Pix ser
+# pedido. Pool varia p/ nao criar padrao identico repetido -- mesmo risco de denuncia/bloqueio de
+# WhatsApp por numero nao aquecido discutido no grilling do piloto.
+CANCELAMENTO_PILOTO_CANNED = [
+    "amor desculpa, surgiu um imprevisto aqui e não vou conseguir hoje 😔 te chamo outro dia?",
+    "vida perdão, deu uma coisa de última hora e não vai dar pra gente se ver agora rs",
+    "amor foi mal, tive um perrengue aqui e precisei desmarcar, mil desculpas 🙏",
+]
+
+
+def escolher_cancelamento_piloto() -> str:
+    """Sorteia uma desculpa do pool de cancelamento automatico do piloto (ADR-0033)."""
+    return random.choice(CANCELAMENTO_PILOTO_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto
