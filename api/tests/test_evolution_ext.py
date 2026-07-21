@@ -199,29 +199,35 @@ async def test_enviar_midia_traduz_foto_para_image() -> None:
 
 
 @respx.mock
-async def test_enviar_midia_view_once_sempre_omitido() -> None:
-    """A EvoGo /send/media não expõe viewOnce; o kwarg é aceito por compat mas nunca vai no body,
-    mesmo com o toggle ligado (a mídia vai normal — mesmo comportamento do toggle-off na v2)."""
+async def test_enviar_midia_view_once_sob_toggle() -> None:
+    """Mídia exclusiva: com o toggle ligado o body leva `viewOnce`; com ele desligado o campo é
+    omitido (a EvoGo oficial ignora o campo, então o default OFF mantém a mídia normal)."""
     _mock_instance_all()
     route = respx.post(f"{BASE}/send/media").mock(
         return_value=httpx.Response(200, json={"id": "MID-V"})
     )
-    settings = Settings(
-        evolution_base_url=BASE, evolution_api_key="global-key", evolution_view_once=True
-    )
-    await EvolutionClient(settings).enviar_midia(
-        conn=RecordingConn(),
-        instance_id="inst-1",
-        remote_jid="5521@s.whatsapp.net",
-        url="https://minio.test/video.mp4",
-        caption=None,
-        media_type="video",
-        contexto="conversa_cliente",
-        tipo="video",
-        view_once=True,
-    )
-    body = json.loads(route.calls.last.request.content)
-    assert "viewOnce" not in body and "view_once" not in body
+
+    async def _enviar(view_once_toggle: bool) -> dict[str, object]:
+        settings = Settings(
+            evolution_base_url=BASE,
+            evolution_api_key="global-key",
+            evolution_view_once=view_once_toggle,
+        )
+        await EvolutionClient(settings).enviar_midia(
+            conn=RecordingConn(),
+            instance_id="inst-1",
+            remote_jid="5521@s.whatsapp.net",
+            url="https://minio.test/video.mp4",
+            caption=None,
+            media_type="video",
+            contexto="conversa_cliente",
+            tipo="video",
+            view_once=True,
+        )
+        return dict(json.loads(route.calls.last.request.content))
+
+    assert (await _enviar(True))["viewOnce"] is True
+    assert "viewOnce" not in await _enviar(False)
 
 
 @respx.mock

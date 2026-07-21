@@ -124,8 +124,10 @@ Estes pontos foram implementados de forma defensiva a partir do playbook validad
 - **Contato frio → erro 463** (`NackCallerReachoutTimelocked`): o whatsmeow dá 463 no 1º disparo a
   contato que nunca falou com a instância. Não é bug da barra; o cliente esquenta ao mandar a 1ª
   msg. Relevante para reengajamento/reativação a frio — monitorar.
-- **view-once (Mídia exclusiva)**: o `/send/media` da EvoGo não expõe `viewOnce`; a mídia vai
-  normal (mesmo comportamento do toggle-off na v2). Proteção fica para quando/se a EvoGo suportar.
+- **view-once (Mídia exclusiva)**: o `/send/media` da EvoGo oficial não expõe `viewOnce`, então a
+  mídia vai normal e o campo enviado sob o toggle é ignorado. O patch da EvoGo que habilita está
+  pronto em `docs/patches/evolution-go-view-once.patch` (build/deploy pendentes, §0) —
+  ver `docs/evolution-view-once.md`.
 
 ## Rollback
 

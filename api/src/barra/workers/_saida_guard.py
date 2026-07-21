@@ -21,7 +21,11 @@ import re
 from collections.abc import Callable
 
 from barra.agente.fluxo import rotular_turno
-from barra.agente.nos.output_guard import tem_marcador_ia
+from barra.agente.nos.output_guard import (
+    _RE_PLACEHOLDER,
+    tem_marcador_ia,
+    tem_placeholder_template,
+)
 
 __all__ = [
     "extrair_tokens_pii",
@@ -124,12 +128,10 @@ def redigir_pii_eco(texto: str, tokens_cliente: set[str]) -> tuple[str, list[str
 # {palavra} dos exemplos e o colchete instrucional inventado ([insira a rua], [seu endereço]).
 # NÃO casa o marker [quote]/[quote: trecho] — o chunking já o removeu antes desta rede, e 'quote'
 # não está nos gatilhos do colchete. Match → o enviar_turno bloqueia o turno e escala (handoff).
-_PLACEHOLDER = re.compile(
-    r"\{[a-zà-ÿ_]{2,20}\}"  # {valor}, {horario}, {nome}, {duracao}, {endereco}, ...
-    r"|\[\s*(?:insira|inserir|coloque|preench\w*|adicione|informe|seu|sua|valor|"
-    r"hor[áa]rio|endere\w*|rua|bairro)\b[^\]]*\]",  # [insira a rua], [seu endereço], ...
-    re.IGNORECASE,
-)
+# O padrão vive no `output_guard` (fonte única): antes eram dois regexes divergentes e o Estágio 0
+# do grafo, com o estreito, deixava passar `{horário}`/`[insira ...]` — que morriam aqui como
+# handoff, sem a regeneração que o gate promete.
+_PLACEHOLDER = _RE_PLACEHOLDER
 
 
 def tem_placeholder_eco(texto: str) -> bool:
@@ -138,7 +140,7 @@ def tem_placeholder_eco(texto: str) -> bool:
     É uma cotação/fala QUEBRADA que não pode ir ao cliente: silenciar o token deixaria a bolha
     sem o dado (preço sem número), então o caller bloqueia+escala em vez de redigir. Não casa o
     marker [quote]/[quote: trecho] (já removido pelo chunking; 'quote' fora dos gatilhos)."""
-    return bool(_PLACEHOLDER.search(texto))
+    return tem_placeholder_template(texto)
 
 
 # --- Scrub do marcador de reply [quote] (SEC-OUT — sintaxe interna, nunca vai ao cliente) --------
@@ -179,6 +181,14 @@ _EMOJI_PERMITIDOS = frozenset({"🥰", "😊"})
 # Atos em que o Vendedor humano NÃO usa emoji (persona.md: "da cotação em diante é tudo seco").
 _ATOS_SECOS = frozenset({"cotacao", "sondagem", "desconto", "logistica"})
 
+# Carve-out da ÚNICA exceção que a persona declara (persona.md <voz>): a contraproposta de desconto
+# amarrada a fechar agora ("Consigo 500 se você vier hoje 😊") — ali o emoji aquece o fechamento.
+# Sem isto a exceção era inimplementável: o valor faz o `rotular_turno` cair em 'cotacao' (ato
+# seco) e TODO emoji sumia, contrariando o prompt em 3 sites (persona.md, <desconto>, <exemplos>).
+_RE_CONTRAPROPOSTA_FECHAMENTO = re.compile(
+    r"\bse\s+(?:voc[êe]\s+)?(?:vier|fechar|marcar|garantir|for)\b", re.IGNORECASE
+)
+
 # Trava de frequência nos atos NÃO-secos: mantém o emoji da bolha só com esta probabilidade,
 # calibrada (keep = taxa_alvo_corpus / baseline_DeepSeek, medição 2026-06-22 sobre 765 bolhas) p/
 # trazer a frequência do agente à do corpus humano (perfil_estilo_por_momento.json: saudação 27%,
@@ -208,7 +218,7 @@ def _normalizar_bolha(bolha: str, rng: random.Random | None = None) -> str:
     if not matches:
         return bolha
     ato = rotular_turno(bolha)
-    if ato in _ATOS_SECOS:
+    if ato in _ATOS_SECOS and not _RE_CONTRAPROPOSTA_FECHAMENTO.search(bolha):
         manter = -1  # ato seco → remove todos
     else:
         # mantém só o ÚLTIMO emoji do whitelist (o corpus usa emoji como sufixo); o resto cai.
@@ -216,7 +226,9 @@ def _normalizar_bolha(bolha: str, rng: random.Random | None = None) -> str:
         manter = permitidos[-1] if permitidos else -1
         # trava de FREQUÊNCIA: o teto por-bolha não basta (o DeepSeek satura). Mantém o emoji só com
         # prob _EMOJI_KEEP_POR_ATO[ato], calibrada à taxa do corpus humano naquele ato.
-        if manter >= 0 and (rng or _RNG).random() >= _EMOJI_KEEP_POR_ATO.get(ato, 1.0):
+        # keep 1.0 = ato fora do dict: nunca afina (curto-circuito; random() == 1.0 não pode tirar).
+        keep = _EMOJI_KEEP_POR_ATO.get(ato, 1.0)
+        if manter >= 0 and keep < 1.0 and (rng or _RNG).random() >= keep:
             manter = -1
     partes: list[str] = []
     fim = 0
@@ -298,13 +310,31 @@ def normalizar_travessao(chunks: list[str]) -> list[str]:
 _VOCATIVO_KEEP_POR_ATO = {"outro": 0.38, "saudacao": 0.52}
 
 # Vocativo colado no FIM da bolha (persona <voz>), tolerando cauda leve ("rs", "?", emoji da voz).
-# Exige \s+ antes do vocativo: bolha que É só o vocativo ("Amor ?") nunca casa — nada esvazia.
-# Lookbehinds (largura fixa) blindam "amor/vida" NÃO-vocativo: "meu amor"/"minha vida" (posse),
-# "é vida"/"de vida" (substantivo), "te amo amor" — nesses, remover mutilaria a frase.
+# Exige uma palavra + espaço antes do vocativo: bolha que É só o vocativo ("Amor ?") nunca casa —
+# nada esvazia.
 _RE_VOCATIVO_TRAILING = re.compile(
-    r"(?<!\bmeu)(?<!\bminha)(?<!\bde)(?<!\bé)(?<!\be)(?<!\bamo)"
-    r"\s+(?:amor|vida)(?P<cauda>(?:\s*(?:rs|\?|🥰|😊))*)\s*$",
+    r"(?P<antes>[^\W\d_]+)(?P<sep>\s*,?\s+)(?:amor|vida)(?P<cauda>(?:\s*(?:rs|\?|🥰|😊))*)\s*$",
     re.IGNORECASE,
+)
+
+# "amor"/"vida" NÃO-vocativo: quando o antecessor é determinante, preposição ou verbo que os rege,
+# a palavra é núcleo/objeto do sintagma ("um amor", "aproveita a vida", "fazer amor", "da vida") e
+# remover MUTILA a frase. Blocklist pelo token anterior — o vocativo real vem depois de oração
+# fechada ("Consigo sim amor", "Seria que horas amor ?"), nunca depois destes.
+_VOCATIVO_ANTECESSOR_NAO_VOCATIVO = frozenset(
+    (
+        # determinantes, quantificadores, adjetivos comuns
+        "o a os as um uma uns umas esse essa este esta aquele aquela isso isto aquilo "
+        "meu minha meus minhas seu sua seus suas nosso nossa teu tua "
+        "muito muita tanto tanta todo toda outro outra mesma mesmo qualquer algum alguma "
+        "nenhum nenhuma bom boa melhor pior grande puro pura primeiro primeira que quanta quanto "
+        # preposições e contrações
+        "de da do das dos na no nas nos em com por pra para pelo pela sem sobre até num numa "
+        # verbos/formas que tomam amor|vida como objeto
+        "amo ama amar amei fazer faço faz fazia fazendo fiz curto curte curtir curtindo "
+        "aproveita aproveitar aproveito tenho tem ter tinha teve é era foi são dá deu dar "
+        "muda mudou mudar vive viver vivo vivendo ganhar ganho desejo deseja gosto gosta"
+    ).split()
 )
 
 
@@ -313,13 +343,15 @@ def _normalizar_vocativo_bolha(bolha: str, rng: random.Random | None = None) -> 
     m = _RE_VOCATIVO_TRAILING.search(bolha)
     if not m:
         return bolha
+    if m.group("antes").lower() in _VOCATIVO_ANTECESSOR_NAO_VOCATIVO:
+        return bolha
     ato = rotular_turno(bolha)
     keep = _VOCATIVO_KEEP_POR_ATO.get(ato, 1.0)
     # keep 1.0 = ato fora do dict: nunca afina (curto-circuito; random() == 1.0 não pode stripar).
     if keep >= 1.0 or (rng or _RNG).random() < keep:
         return bolha
     cauda = m.group("cauda").strip()
-    texto = bolha[: m.start()].rstrip(" ,")  # "Oi, amor" → "Oi", nunca vírgula pendurada
+    texto = bolha[: m.start("sep")].rstrip(" ,")  # "Oi, amor" → "Oi", nunca vírgula pendurada
     if not texto:
         return bolha  # o que sobraria é vazio ("... , amor") — não mexe
     if cauda:

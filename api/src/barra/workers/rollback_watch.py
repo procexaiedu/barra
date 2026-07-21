@@ -15,10 +15,15 @@ os monitora é um cron, não um humano:
      judge infla a taxa, cheque a métrica antes de agir). Regen que LIMPOU não é abort — só o
      fallback que segurou o turno.
 
+Os 3 contam só CLIENTE REAL: conversa de grupo (`...@g.us`, o rig de teste) fica fora — provocar
+o agente no Playground é trabalho de dev, não sinal de piloto doente.
+
 Disparou => ALERTA no canal dev: log ERROR estruturado (a revisão diária grepa), gauge
 Prometheus `barra_rollback_gatilho` e Sentry (quando configurado). NUNCA pausa a modelo sozinho:
 o rollback em si (status da modelo) é decisão humana — este cron só garante que ninguém precisa
-ficar olhando dashboard pra saber que o critério bateu. Read-only no banco.
+ficar olhando dashboard pra saber que o critério bateu. Read-only no banco. Como o gauge vive no
+processo, o worker reavalia no boot (`workers/settings.startup`): sem isso todo force-update
+apagaria a série e um alerta ativo "resolveria" sozinho até a corrida seguinte.
 """
 
 from __future__ import annotations
@@ -36,7 +41,7 @@ from barra.settings import Settings
 logger = logging.getLogger(__name__)
 
 _JANELA_DIAS = 7
-# Limiares acordados no plano do piloto (grilling 02/07) — mudá-los é decisão de plano, não tuning.
+# Limiares do plano do piloto (ADR 0034) — mudá-los é decisão de plano, não tuning: emende o ADR.
 LIMIAR_NAO_CONTIDOS = 2
 LIMIAR_ACUSACOES = 3
 LIMIAR_TAXA_GATE = 0.20
@@ -44,22 +49,33 @@ LIMIAR_TAXA_GATE = 0.20
 # é semana de tráfego baixo — os gatilhos 1 e 2 continuam cobrindo o caso grave).
 _MIN_TURNOS_TAXA = 20
 
-_SQL_NAO_CONTIDOS = """
+# Conversa de CLIENTE REAL: `evolution_chat_id` de cliente é `<E.164>@s.whatsapp.net`; o rig de
+# teste (grupo Playground) é `...@g.us` e está no JID permitido, então vira conversa/mensagem/turno
+# julgado como qualquer outra. Sem este recorte, provocação adversarial do rig ("vc é robô?",
+# jailbreak de teste) contava como acusação de cliente e podia disparar rollback de um piloto
+# saudável. Vale nos 3 gatilhos — os números do piloto são sobre gente de verdade.
+_SO_CLIENTE_REAL = "c.evolution_chat_id NOT LIKE '%%@g.us'"
+
+_SQL_NAO_CONTIDOS = f"""
 SELECT count(*) AS n
-  FROM barravips.julgamentos_turno
- WHERE rastro_llm
-   AND julgado_em >= now() - make_interval(days => %s)
+  FROM barravips.julgamentos_turno j
+  JOIN barravips.conversas c ON c.id = j.conversa_id
+ WHERE j.rastro_llm
+   AND j.julgado_em >= now() - make_interval(days => %s)
+   AND {_SO_CLIENTE_REAL}
 """
 
 # Mensagens de cliente da janela p/ o scan de acusação (texto puro; mídia não acusa). LIMIT de
 # segurança bem acima do volume do piloto — estourar o teto indica que o scan precisa paginar.
-_SQL_MSGS_CLIENTE = """
-SELECT conversa_id, conteudo
-  FROM barravips.mensagens
- WHERE direcao = 'cliente'
-   AND conteudo <> ''
-   AND created_at >= now() - make_interval(days => %s)
- ORDER BY created_at
+_SQL_MSGS_CLIENTE = f"""
+SELECT m.conversa_id, m.conteudo
+  FROM barravips.mensagens m
+  JOIN barravips.conversas c ON c.id = m.conversa_id
+ WHERE m.direcao = 'cliente'
+   AND m.conteudo <> ''
+   AND m.created_at >= now() - make_interval(days => %s)
+   AND {_SO_CLIENTE_REAL}
+ ORDER BY m.created_at
  LIMIT 20000
 """
 
@@ -67,18 +83,29 @@ SELECT conversa_id, conteudo
 # enviar_turno (envio_leak/envio_placeholder) — nos dois casos o turno morreu antes do cliente.
 # O judge pós-envio pula turnos sem marcador de envio, então esses aborts também não entram no
 # denominador de julgados: somar aqui mantém o universo coerente.
-_SQL_GATE_ABORTS = """
+#
+# SUBCONTAGEM CONHECIDA (a taxa real é >= a medida, nunca <): a contagem é DB-only, e dois aborts
+# não deixam linha em `escaladas` — o abort sem `atendimento_id` (só loga) e o abort cujo handoff
+# já estava aberto (o INSERT tem guard de handoff aberto e não duplica). Fechá-la exige rastro
+# próprio em `eventos` (tipo novo = migration do enum). Enquanto isso, o gatilho erra para o lado
+# seguro: se ele disparou, disparou de verdade.
+_SQL_GATE_ABORTS = f"""
 SELECT count(*) AS n
-  FROM barravips.escaladas
- WHERE (observacao LIKE 'output\\_leak%%' OR observacao LIKE 'aup\\_saida%%'
-        OR observacao IN ('envio_leak', 'envio_placeholder'))
-   AND aberta_em >= now() - make_interval(days => %s)
+  FROM barravips.escaladas e
+  JOIN barravips.atendimentos a ON a.id = e.atendimento_id
+  JOIN barravips.conversas c ON c.id = a.conversa_id
+ WHERE (e.observacao LIKE 'output\\_leak%%' OR e.observacao LIKE 'aup\\_saida%%'
+        OR e.observacao IN ('envio_leak', 'envio_placeholder'))
+   AND e.aberta_em >= now() - make_interval(days => %s)
+   AND {_SO_CLIENTE_REAL}
 """
 
-_SQL_TURNOS_JULGADOS = """
+_SQL_TURNOS_JULGADOS = f"""
 SELECT count(*) AS n
-  FROM barravips.julgamentos_turno
- WHERE julgado_em >= now() - make_interval(days => %s)
+  FROM barravips.julgamentos_turno j
+  JOIN barravips.conversas c ON c.id = j.conversa_id
+ WHERE j.julgado_em >= now() - make_interval(days => %s)
+   AND {_SO_CLIENTE_REAL}
 """
 
 
@@ -140,7 +167,11 @@ async def vigiar_gatilhos_rollback(conn: AsyncConnection[Any], settings: Setting
     disparos = {
         "nao_contidos": nao_contidos >= LIMIAR_NAO_CONTIDOS,
         "acusacoes": acusacoes >= LIMIAR_ACUSACOES,
-        "taxa_gate": universo >= _MIN_TURNOS_TAXA and taxa_gate > LIMIAR_TAXA_GATE,
+        # `turnos > 0` é anti-alarme-falso de judge caído, não tuning do limiar: sem julgamento na
+        # janela o universo vira só aborts, a taxa sobe a 100% e o gatilho dispara medindo a saúde
+        # do judge, não a do gate. Na mesma janela `nao_contidos` deflaciona em silêncio — por isso
+        # o log/alerta abaixo carrega os julgados: quem lê o alerta precisa ver o denominador.
+        "taxa_gate": turnos > 0 and universo >= _MIN_TURNOS_TAXA and taxa_gate > LIMIAR_TAXA_GATE,
     }
     for gatilho, disparou in disparos.items():
         ROLLBACK_GATILHO.labels(gatilho).set(1.0 if disparou else 0.0)
@@ -156,7 +187,8 @@ async def vigiar_gatilhos_rollback(conn: AsyncConnection[Any], settings: Setting
     if disparos["taxa_gate"]:
         _alertar(
             "taxa_gate",
-            f"gate abortou {aborts}/{universo} turnos ({taxa_gate:.0%}, limiar {LIMIAR_TAXA_GATE:.0%})",
+            f"gate abortou {aborts}/{universo} turnos ({taxa_gate:.0%}, limiar "
+            f"{LIMIAR_TAXA_GATE:.0%}; {turnos} julgados na janela)",
         )
 
     logger.info(

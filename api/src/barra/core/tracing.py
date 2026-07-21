@@ -170,9 +170,17 @@ def _ligar_langfuse_handler(settings: Settings, servico: str = "barra") -> Any |
     os.environ.setdefault("LANGFUSE_HOST", settings.langfuse_host)
     os.environ.setdefault("LANGFUSE_TRACING_ENVIRONMENT", settings.ambiente)
     os.environ.setdefault("OTEL_SERVICE_NAME", servico)
-    client = get_client()
-    if not client.auth_check():
-        logger.warning("langfuse_prod: auth_check falhou; tracing langfuse off")
+    try:
+        # `auth_check()` do SDK só devolve False em AttributeError: 401, erro de rede e projeto
+        # ausente sobem como exceção. Sem o catch, telemetria quebrada derruba o boot da API/worker
+        # e o agente para de responder — o contrato aqui é degradar p/ None (a trava dura fica com
+        # `langfuse_obrigatorio`, que converte o None em RuntimeError com runbook).
+        client = get_client()
+        if not client.auth_check():
+            logger.warning("langfuse_prod: auth_check falhou; tracing langfuse off")
+            return None
+    except Exception:
+        logger.warning("langfuse_prod: auth_check levantou; tracing langfuse off", exc_info=True)
         return None
     _LANGFUSE_HANDLER = CallbackHandler()
     return _LANGFUSE_HANDLER

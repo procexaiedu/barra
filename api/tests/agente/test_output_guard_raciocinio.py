@@ -111,6 +111,10 @@ BOLHAS_COM_PLACEHOLDER = [
     "{valor} 1h no meu local amor",
     "te espero às {horario} amor 🥰",
     "fico no {nome}, centro de Campinas",
+    # Formas que so a rede final do envio pegava: chave acentuada e colchete instrucional. Desde a
+    # unificacao do padrao elas caem no Estagio 0 e ganham a regeneracao (antes: handoff seco).
+    "te espero às {horário} amor",
+    "é na [insira a rua] número 10",
 ]
 
 

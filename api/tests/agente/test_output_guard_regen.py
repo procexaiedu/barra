@@ -404,3 +404,19 @@ async def test_regenerar_recusa_ou_excecao_devolve_none(monkeypatch: Any) -> Non
         )
         is None
     )
+
+
+async def test_excecao_no_guard_deixa_o_turno_mudo(monkeypatch: Any) -> None:
+    """Fail-closed: o guard é a última defesa dentro do grafo, então falha DELE (DB fora, bug) não
+    pode virar passagem livre — as bolhas do turno vão zeradas para o coordenador."""
+
+    async def _explode(*a: Any, **kw: Any) -> Any:
+        raise RuntimeError("pool esgotado")
+
+    monkeypatch.setattr(mod, "_legendas_do_turno", _explode)
+    state = _state("consigo sim amor")
+
+    res = await mod.output_guard(state, _runtime())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    assert [m.content for m in res.update["messages"]] == [""]

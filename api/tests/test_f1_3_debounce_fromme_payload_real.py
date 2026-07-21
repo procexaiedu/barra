@@ -108,6 +108,11 @@ class _GrupoConn:
             return _Result([])  # grupo nao é dedupado por mensagens
         if "FROM barravips.envios_evolution WHERE evolution_message_id" in query:
             return _Result([{"?column?": 1}] if self._envio_existe else [])
+        if (
+            "SELECT status::text AS status FROM barravips.modelos WHERE evolution_instance_id"
+            in query
+        ):
+            return _Result([{"status": "ativa"}])  # _status_modelo_por_instance
         if "SELECT id FROM barravips.modelos WHERE evolution_instance_id" in query:
             return _Result([{"id": _MODELO_ID}])  # _modelo_por_instance
         if "FROM barravips.atendimentos" in query and "numero_curto" in query:

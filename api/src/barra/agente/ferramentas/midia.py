@@ -9,8 +9,9 @@ call_idx NAO migra para ToolRuntime"), nao pelo LLM: no replay reinicia em 0 -> 
 deduplica, sem reenvio. JAMAIS COUNT(*) no DB para esse indice — no replay COUNT(*) sobre as
 linhas ja persistidas geraria `call_idx` novos e a deduplicacao falharia.
 
-A selecao da foto roda ANTES de `_executar_idempotente`: no replay, o ON CONFLICT devolve o
-`payload` cacheado (mesmo `midia_id`) e a re-selecao desta chamada e descartada -- replay-safe.
+No replay, o `_ja_executada` corta a chamada ANTES da re-selecao: como a selecao exclui o que ja
+saiu no turno, um acervo pequeno ficaria sem candidata e o replay viraria erro num turno que ja
+tinha dado certo.
 
 Imports de `ContextAgente` em runtime (top-level), nao TYPE_CHECKING: `ToolRuntime[ContextAgente]`
 forca `get_type_hints(ContextAgente)` ao montar o args-schema; com forward refs nao resolviveis
@@ -28,7 +29,7 @@ from pydantic import Field
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
 
 from ..contexto import ContextAgente
-from ._idempotencia import _executar_idempotente
+from ._idempotencia import _executar_idempotente, _ja_executada
 
 TagMidia = Literal["apresentacao", "corpo", "lifestyle", "evento"]
 
@@ -60,7 +61,8 @@ async def enviar_midia(
 
     Use quando o cliente quer te ver, pede mais fotos ou quando uma foto ajuda a fechar a venda;
     siga sua conduta de mídia (nas suas regras) para a ordem foto→vídeo. NÃO mande na saudação
-    nem antes de qualquer qualificação.
+    nem antes de qualquer qualificação. Se o contexto marcar <ja_enviou_book>, NÃO chame de
+    novo — o book desta negociação já foi; redirecione seguindo sua conduta de mídia.
 
     Pode ser chamada várias vezes no mesmo turno (ex.: 2 fotos da mesma tag);
     as mídias são enviadas após o texto.
@@ -80,6 +82,12 @@ async def enviar_midia(
     # chamadas concorrentes da mesma tag. O `_executar_idempotente` abre `conn.transaction()` aninhado
     # (vira SAVEPOINT), inalterado.
     async with pool.connection() as conn, conn.transaction():
+        # Replay do turno (retry do ARQ / worker derrubado no meio do job): a chave ja existe e o
+        # efeito ja rodou. Sai ANTES da re-selecao — ela exclui a midia da 1a execucao e, com
+        # acervo pequeno, ficaria sem candidata e viraria ToolException num turno que deu certo.
+        if await _ja_executada(conn, turno_id, "enviar_midia", call_idx):
+            return f"{tipo.capitalize()} de '{tag}' anexada (enviada após o texto)."
+
         ja_no_turno = await _midias_do_turno(conn, turno_id)
 
         escolhida = await _selecionar_midia(conn, modelo_id, tag, tipo, ja_no_turno)

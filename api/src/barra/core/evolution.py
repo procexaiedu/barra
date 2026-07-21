@@ -253,9 +253,10 @@ class EvolutionClient:
         `media_type` do domínio ('foto'/'video'/'audio', midia_tipo_enum) é traduzido para o
         `type` que a EvoGo aceita (image/video/audio): 'foto'→'image'; os demais passam intactos.
 
-        `view_once` (Mídia exclusiva, 01 §6.13) NÃO é suportado pelo /send/media da EvoGo (o body
-        não expõe o campo) — mantido na assinatura por compat dos callers, mas o campo é sempre
-        omitido (a mídia vai normal, mesmo comportamento do toggle-off na v2). `quoted_text` idem:
+        `view_once` (Mídia exclusiva, 01 §6.13) só entra no body sob o toggle
+        `evolution_view_once` (default False): a EvoGo *oficial* não expõe `viewOnce` no
+        /send/media — o campo é ignorado no bind e a mídia vai normal —, então ligar o toggle
+        exige um build da EvoGo com o patch (docs/evolution-view-once.md). `quoted_text` idem:
         a EvoGo resolve a citação pelo id (não precisa do texto ecoado)."""
         if not self.settings.evolution_base_url:
             raise ErroDominio(
@@ -270,6 +271,8 @@ class EvolutionClient:
         }
         if caption:
             body["caption"] = _remover_markers_quote(caption)
+        if view_once and self.settings.evolution_view_once:
+            body["viewOnce"] = True
         if quoted_message_id:
             body["quoted"] = _quoted_body(quoted_message_id)
         response = await self._post_operacao(instance_id, "/send/media", body, timeout_s=30)

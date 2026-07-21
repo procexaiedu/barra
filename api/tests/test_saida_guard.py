@@ -104,6 +104,13 @@ def test_marcador_ia_detecta_admissao() -> None:
     assert not tem_marcador_ia("sou a Bia, prazer 😊")
 
 
+def test_marcador_ia_cobre_provider_de_prod_e_forma_feminina() -> None:
+    # O provider do agente ao vivo é o DeepSeek; a persona é feminina ("sou UMA assistente").
+    assert tem_marcador_ia("rodo no deepseek amor")
+    assert tem_marcador_ia("sou uma assistente virtual, desculpa")
+    assert tem_marcador_ia("sou um assistente virtual, desculpa")
+
+
 # --- normalizar_emoji_voz: whitelist {🥰,😊} + máx-1 + seca-na-venda ----------
 
 
@@ -124,6 +131,17 @@ def test_emoji_secado_na_cotacao_e_logistica() -> None:
     """Da cotação em diante é seco: bolha com preço ou logística perde o emoji (persona <voz>)."""
     assert normalizar_emoji_voz(["800 1h ou 1200 2h 🥰"]) == ["800 1h ou 1200 2h"]
     assert normalizar_emoji_voz(["te espero no endereço 🥰"]) == ["te espero no endereço"]
+
+
+def test_emoji_mantido_na_contraproposta_de_fechamento() -> None:
+    """Única exceção declarada na persona <voz>: a contraproposta amarrada a fechar agora mantém o
+    emoji, mesmo o valor rotulando a bolha como 'cotacao' (ato seco)."""
+    assert normalizar_emoji_voz(["Consigo 500 se você vier hoje 😊"], rng=_DROP) == [
+        "Consigo 500 se você vier hoje 😊"
+    ]
+    assert normalizar_emoji_voz(["Consigo 450 se fechar agora 😊"], rng=_DROP) == [
+        "Consigo 450 se fechar agora 😊"
+    ]
 
 
 def test_emoji_mantido_na_saudacao() -> None:
@@ -324,6 +342,25 @@ def test_vocativo_nao_vocativo_nunca_tocado() -> None:
     assert normalizar_vocativo_voz(["Oii meu amor"], rng=_DROP) == ["Oii meu amor"]
     assert normalizar_vocativo_voz(["isso é vida rs"], rng=_DROP) == ["isso é vida rs"]
     assert normalizar_vocativo_voz(["te amo amor"], rng=_DROP) == ["te amo amor"]
+
+
+def test_vocativo_nucleo_de_sintagma_nunca_tocado() -> None:
+    """Determinante/preposição/verbo antes de 'amor|vida' = núcleo do sintagma, não vocativo."""
+    from barra.workers._saida_guard import normalizar_vocativo_voz
+
+    intactas = [
+        "Você é um amor",
+        "Que amor rs",
+        "Adoro fazer amor",
+        "faço tudo com amor",
+        "Melhor coisa da vida rs",
+        "aproveita a vida",
+        "isso muda sua vida",
+        "curto muito essa vida",
+        "te desejo uma boa vida",
+        "trabalho por amor",
+    ]
+    assert normalizar_vocativo_voz(intactas, rng=_DROP) == intactas
 
 
 def test_vocativo_com_virgula_nao_deixa_virgula_pendurada() -> None:

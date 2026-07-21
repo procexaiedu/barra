@@ -113,3 +113,22 @@ async def test_disclosure_insistente_incrementa_escalada_bucket_defesa(monkeypat
     assert isinstance(res, Command)
     assert res.goto == END
     assert _valor_defesa("disclosure_insistente") == antes + 1
+
+
+def _valor_disclosure(resultado: str) -> float:
+    valor = REGISTRY.get_sample_value("agente_disclosure_attempt_total", {"resultado": resultado})
+    return valor or 0.0
+
+
+async def test_prova_humanidade_emite_sentinela_e_segue_pro_llm() -> None:
+    """Pedido de prova impossível (áudio/chamada) não muda o fluxo — quem responde é o LLM pelo
+    protocolo —, mas cada evento tem de aparecer na telemetria do piloto."""
+    runtime = _runtime(_FakePool(_FakeConn(0)))
+    antes = _valor_disclosure("passou_silenciosamente")
+    state = {"messages": [], "_categoria": "prova_humanidade_attempt", "_confianca": "alta"}
+
+    res = await mod.intercept_disclosure(state, runtime)  # type: ignore[arg-type]
+
+    assert isinstance(res, Command)
+    assert res.goto == "llm"
+    assert _valor_disclosure("passou_silenciosamente") == antes + 1

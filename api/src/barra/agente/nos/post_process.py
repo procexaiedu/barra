@@ -38,5 +38,20 @@ async def post_process(state: EstadoAgente, runtime: Runtime[ContextAgente]) -> 
     # vazia), nao so a ultima: na reentrada pos-tools o `[-1]` e uma ToolMessage, e quando ja houve
     # texto na 1a passagem (extracao/resposta inline) zerar so o ultimo deixaria essa fala viva p/ o
     # coordenador despachar APOS a pausa. Mesmo criterio (`mensagens_do_turno`) do output_guard.
-    vazias = [AIMessage(id=m.id, content="") for m in mensagens_do_turno(state["messages"])]
+    mensagens = mensagens_do_turno(state["messages"])
+
+    # Excecao: quando a pausa e do PROPRIO turno (`escalar`), o prompt manda deixar uma bolha de
+    # espera antes de chamar a tool -- zerar tudo faria toda escalada virar silencio ao cliente. O
+    # corte fica DEPOIS da AIMessage que carrega o tool_call: o que a IA escrever pos-escalar (a
+    # desobediencia que 04 §3.5 barra) continua descartado.
+    corte = next(
+        (
+            i
+            for i, m in enumerate(mensagens)
+            if any(tc.get("name") == "escalar" for tc in (m.tool_calls or []))
+        ),
+        None,
+    )
+    alvo = mensagens if corte is None else mensagens[corte + 1 :]
+    vazias = [AIMessage(id=m.id, content="") for m in alvo]
     return {"messages": vazias}

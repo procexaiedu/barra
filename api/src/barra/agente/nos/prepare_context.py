@@ -437,7 +437,13 @@ async def _anexar_contexto_dinamico(
     _aplicar_dia_confirmado(variaveis, mensagens)
     # Guard anti-repetição: se a sondagem "seria hoje?" já foi feita, o contexto dinâmico instrui a
     # IA a não recolá-la (o A2 acima só preenche o dia; não impede o LLM de repetir a frase).
-    variaveis["dia_ja_sondado"] = _ja_sondou_o_dia(mensagens)
+    # OR com a memória durável do atendimento (dia_ja_sondado_hist, _resolver_variaveis): a janela
+    # cobre a cauda recente (inclusive modelo_manual); o histórico cobre a sondagem que já deslizou
+    # pra fora das 20 msgs — sem o OR, conversa longa repetia a sondagem (a promessa do prompt é
+    # "UMA vez na conversa inteira", não na janela).
+    variaveis["dia_ja_sondado"] = variaveis.get("dia_ja_sondado_hist", False) or _ja_sondou_o_dia(
+        mensagens
+    )
     texto = render_contexto_dinamico(**variaveis)
     fase = variaveis["estado"]
     horario_minimo = variaveis["horario_minimo"]
@@ -569,6 +575,8 @@ async def _resolver_variaveis(
     """
     atendimento: dict[str, Any] = {}
     n_contrapropostas = 0
+    dia_ja_sondado_hist = False
+    book_ja_enviado = False
     if ctx.atendimento_id is not None:
         res = await conn.execute(
             """
@@ -582,12 +590,15 @@ async def _resolver_variaveis(
         )
         atendimento = await res.fetchone() or {}
 
-        # Falas da IA do atendimento INTEIRO (não só a janela de 20): memória durável das até duas
-        # contrapropostas de desconto (ver _contar_contrapropostas). `modelo_manual` fica de fora
-        # de propósito — a disciplina é da IA; desconto manual da modelo não a consome.
+        # Falas da IA do atendimento INTEIRO (não só a janela de 20): memória durável das
+        # disciplinas one-shot/multi-rodada (padrão A2) — contrapropostas de desconto
+        # (_contar_contrapropostas), sondagem do dia (<ja_sondou_o_dia>) e book de mídia
+        # (<ja_enviou_book>; saída de mídia persiste como tipo='imagem' — workers/envio.py).
+        # `modelo_manual` fica de fora de propósito — a disciplina é da IA; ação manual da
+        # modelo não a consome. As três flags saem da MESMA leva de linhas, sem query extra.
         res = await conn.execute(
             """
-            SELECT conteudo
+            SELECT conteudo, tipo
               FROM barravips.mensagens
              WHERE atendimento_id = %s AND direcao = 'ia'
              ORDER BY created_at
@@ -595,7 +606,10 @@ async def _resolver_variaveis(
             """,
             (ctx.atendimento_id,),
         )
-        n_contrapropostas = _contar_contrapropostas(r["conteudo"] for r in await res.fetchall())
+        falas_ia = await res.fetchall()
+        n_contrapropostas = _contar_contrapropostas(r["conteudo"] or "" for r in falas_ia)
+        dia_ja_sondado_hist = any(_PROBE_DIA_HOJE.search(r["conteudo"] or "") for r in falas_ia)
+        book_ja_enviado = any(r.get("tipo") == "imagem" for r in falas_ia)
 
     res = await conn.execute(
         """
@@ -753,6 +767,11 @@ async def _resolver_variaveis(
         "valor_fechado": _num_humano(atendimento.get("valor_acordado")),
         "duracao_fechada": _num_humano(atendimento.get("duracao_horas")),
         "n_contrapropostas": n_contrapropostas,
+        # Memória durável do atendimento p/ as flags A2 (mesma leva de falas da IA acima):
+        # `dia_ja_sondado_hist` entra no OR com a janela em _anexar_contexto_dinamico;
+        # `book_ja_enviado` injeta <ja_enviou_book> direto no template.
+        "dia_ja_sondado_hist": dia_ja_sondado_hist,
+        "book_ja_enviado": book_ja_enviado,
         "recorrente": conversa.get("recorrente", False),
         "observacoes_internas": conversa.get("observacoes_internas"),
         "ultimo_motivo_perda": conversa.get("ultimo_motivo_perda"),

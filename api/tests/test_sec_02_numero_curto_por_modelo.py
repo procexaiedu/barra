@@ -53,6 +53,13 @@ class FakeConn:
         if "SELECT id FROM barravips.modelos WHERE evolution_instance_id" in query:
             modelo_id = self._modelo_por_instance.get(params[0])
             return _Result([{"id": modelo_id}] if modelo_id is not None else [])
+        if (
+            "SELECT status::text AS status FROM barravips.modelos WHERE evolution_instance_id"
+            in query
+        ):
+            # guard de status: neste fake, toda instance conhecida esta 'ativa'.
+            modelo_id = self._modelo_por_instance.get(params[0])
+            return _Result([{"status": "ativa"}] if modelo_id is not None else [])
         if "FROM barravips.atendimentos" in query:
             numero, modelo_id = params[0], params[1]
             atend = self._atend_por_chave.get((numero, modelo_id))

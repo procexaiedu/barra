@@ -45,9 +45,14 @@ class FakeConn:
         self.mensagens = mensagens or []
         self.aborts = aborts
         self.turnos = turnos
+        self.sqls: list[str] = []
 
     async def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> _Result:
-        if "WHERE rastro_llm" in sql:
+        # Os 4 SQLs juntam com `conversas` (recorte de cliente real, sem o rig `@g.us`), então o
+        # roteamento casa pela tabela-ALVO — `j.rastro_llm` separa os dois de julgamentos_turno.
+        self.sqls.append(sql)
+        assert "@g.us" in sql, f"SQL sem recorte de cliente real: {sql}"
+        if "j.rastro_llm" in sql:
             return _Result([{"n": self.nao_contidos}])
         if "FROM barravips.mensagens" in sql:
             return _Result(self.mensagens)
@@ -148,6 +153,21 @@ def test_taxa_gate_acima_de_20pct_dispara(monkeypatch: pytest.MonkeyPatch) -> No
     total = asyncio.run(vigiar_gatilhos_rollback(FakeConn(aborts=30, turnos=70), _settings()))
     assert total == 1 and alertas[0][0] == "taxa_gate"
     assert "30%" in alertas[0][1]
+
+
+def test_taxa_gate_sem_julgamento_nao_dispara(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Judge caído na janela: o universo vira só aborts e a taxa sobe a 100% — mediria a saúde do
+    # judge, não a do gate. Só dispara com julgamento na janela.
+    alertas = _capturar_alertas(monkeypatch)
+    total = asyncio.run(vigiar_gatilhos_rollback(FakeConn(aborts=30, turnos=0), _settings()))
+    assert total == 0 and alertas == []
+    assert _gauge("taxa_gate") == 0.0
+
+
+def test_taxa_gate_alerta_carrega_julgados(monkeypatch: pytest.MonkeyPatch) -> None:
+    alertas = _capturar_alertas(monkeypatch)
+    asyncio.run(vigiar_gatilhos_rollback(FakeConn(aborts=30, turnos=70), _settings()))
+    assert "70 julgados" in alertas[0][1]
 
 
 def test_taxa_gate_com_pouco_trafego_nao_dispara(monkeypatch: pytest.MonkeyPatch) -> None:

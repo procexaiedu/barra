@@ -164,6 +164,45 @@ Gerado por workflow de pré-launch (2026-06-01). Achados de drift B1/B2/B3 verif
 
 ---
 
+## BLOCO G — Abrir a porta para CLIENTE REAL (`JID_PERMITIDO`) — **o passo mais irreversível**
+
+> Hoje o tráfego real **não chega ao agente**: `JID_PERMITIDO` no compose lista só os 2 grupos de
+> teste (`120363423572479616@g.us` = rig; `120363407815206369@g.us` = Coordenação), e o webhook
+> rejeita qualquer outro remetente com `JidNaoPermitido` (`webhook/routes.py`). Toda mensagem de
+> cliente individual (`@s.whatsapp.net`) morre na borda.
+>
+> **Esvaziar `JID_PERMITIDO` é o cutover de verdade** — a partir daí qualquer número que escrever
+> para a modelo é atendido. É o único passo desta lista que não tem desfazer: a mensagem já saiu.
+> Os itens abaixo são pré-condições, não recomendações.
+
+- [ ] **G-1 — Gate de `modelos.status` deployado.** O atendimento NOVO só nasce pausado quando a
+  modelo não está `ativa` a partir do fix em `resolver_atendimento` (auditoria 2026-07-21). Sem
+  ele, uma modelo **pausada** volta a ser atendida pela IA no primeiro cliente novo — e o freio
+  do piloto (e todo o rollback) fica decorativo.
+  - Verificação: com a modelo `pausada`, mandar mensagem de um número novo e conferir
+    `SELECT ia_pausada, ia_pausada_motivo FROM barravips.atendimentos ORDER BY created_at DESC LIMIT 1;`
+  - Feito: `true` / `modelo_em_atendimento`.
+- [ ] **G-2 — Gatilhos de rollback acordados.** Os 3 gatilhos contam **só cliente real** (conversa
+  `@g.us` fica fora, senão provocação de dev no rig dispararia rollback). Consequência: enquanto
+  o tráfego for só de grupo, eles ficam **permanentemente em zero** — e zero aqui significa "sem
+  sinal", não "piloto saudável". Depois de abrir a porta, confirmar que voltaram a contar.
+  - Verificação: no dia seguinte ao primeiro cliente real,
+    `SELECT count(*) FROM barravips.julgamentos_turno j JOIN barravips.conversas c ON c.id = j.conversa_id WHERE c.evolution_chat_id NOT LIKE '%@g.us';`
+  - Feito: > 0 (há turno de cliente real na janela). Enquanto for 0, **não** leia o dashboard de
+    rollback como evidência de nada.
+- [ ] **G-3 — Cancelamento automático do piloto ligado** (ADR-0033), se o piloto ainda roda sem
+  modelo real. Sem ele, um cliente real pode chegar a mandar **Pix** por um encontro que ninguém
+  pretende cumprir.
+  - Feito: flag ligada e o timer de 10 min conferido contra o `agenda_buffer_min` real de prod.
+- [ ] **G-4 — Runbook de freio na mão.** Quem estiver de plantão sabe pausar sem procurar
+  ninguém: `infra/runbooks/pausar-piloto.md`.
+- [ ] **G-5 — Só então esvaziar a allowlist.** `JID_PERMITIDO=[]` no compose (api **e** worker),
+  redeploy **com** o `Env` preservado (redeploy git sem Env zera os segredos e derruba prod).
+  - ⏮ ROLLBACK: repor os 2 JIDs de teste e redeployar — fecha a porta em minutos, mas **não
+    desfaz** conversa já iniciada; os atendimentos abertos seguem vivos (use o BLOCO de pausa).
+
+---
+
 ## VERIFICAÇÃO DE FUMAÇA FINAL (ponta-a-ponta, antes de declarar GO)
 
 - [ ] **S-1 — Webhook → resposta:** mensagem de teste chega, debounce dispara, IA responde no número da modelo. (Confirmar créditos **DeepSeek** ativos — o agente ao vivo é DeepSeek V4 Flash direto; "créditos esgotados" deixa o agente mudo com 400. Anthropic só é exigida nos evals.)

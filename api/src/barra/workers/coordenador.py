@@ -505,13 +505,16 @@ async def processar_turno(
                     )
                     pos = await res.fetchone()
                 assert pos is not None
-                if pos["ia_pausada"] or pos["estado"] in ESTADOS_TERMINAIS:
+                # 7. extrai resposta + msgs do cliente do turno (read receipt, 05 §4.2).
+                #    `post_process` ja zerou TUDO quando a pausa veio de fora (Pix/foto); quando ela
+                #    e do PROPRIO turno (escalar) ele preserva a fala emitida ANTES do tool_call --
+                #    essa bolha precisa sair, senao toda escalada vira silencio ao cliente (o
+                #    descarte do pos-escalar, 04 §3.5, segue valendo).
+                texto = extrair_texto_do_turno(resultado["messages"])
+                if pos["estado"] in ESTADOS_TERMINAIS or (pos["ia_pausada"] and not texto):
                     logger.info("turno_descartado atendimento_id=%s", atendimento["id"])
                     AGENTE_TURNO_RESULTADO.labels("escalado").inc()
                 else:
-                    # 7. extrai resposta + msgs do cliente do turno (read receipt, 05 §4.2).
-                    texto = extrair_texto_do_turno(resultado["messages"])
-
                     async with pool.connection() as conn:
                         res = await conn.execute(
                             """
@@ -641,6 +644,9 @@ async def processar_turno(
                             quote_msg_ids=quote_msg_ids,
                             quote_textos=quote_textos,
                             recebida_em=recebida_em,
+                            # Turno que abriu a pausa (bolha de espera pre-`escalar`): nasce com
+                            # ia_pausada=true de proposito — o gate de pausa do fire nao vale.
+                            ignorar_pausa=bool(pos["ia_pausada"]),
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
                         # EVAL-11: rubricas online amostradas (1 sorteio, 4 suites) -> Prometheus
@@ -667,6 +673,11 @@ async def processar_turno(
                                     turno_id=turno_id,
                                     chunks=chunks,
                                     trace_id=trace_id_eval,
+                                    # Corte do contexto: agora é ANTES do envio, então toda
+                                    # bolha da IA daqui pra frente é deste turno. Sem ele o
+                                    # judge só sabia cortar por conteúdo — e a rede final
+                                    # transforma a bolha antes de persistir.
+                                    desde=datetime.now(UTC).isoformat(),
                                     _job_id=f"judge_pos:{turno_id}",
                                     # acompanha o defer humano do envio: sem isso o judge
                                     # dispararia antes do fire e leria `enviados:` vazio
@@ -872,11 +883,19 @@ async def resolver_atendimento(
 
     # Herda o vendedor padrão da modelo (ADR 0012): quando a IA conduz a modelo,
     # modelos.vendedor_id já é NULL → atendimento sem comissão, transição limpa.
+    # `modelos.status` liga/desliga a IA (CONTEXT.md): modelo pausada/inativa faz o atendimento
+    # NOVO nascer já pausado, com o mesmo motivo do POST /v1/modelos/{id}/pausar. Sem isso o
+    # freio manual vazava — o endpoint só pausa os atendimentos ABERTOS na hora, e cliente novo
+    # (ou recorrência depois de um terminal) voltava a ser atendido pela IA com a modelo pausada.
     res = await conn.execute(
         f"""
         INSERT INTO barravips.atendimentos
-          (cliente_id, modelo_id, conversa_id, estado, fonte_decisao_ultima_transicao, vendedor_id{col_braco})
-        SELECT c.cliente_id, c.modelo_id, c.id, 'Novo', 'extracao_ia', m.vendedor_id{sel_braco}
+          (cliente_id, modelo_id, conversa_id, estado, fonte_decisao_ultima_transicao, vendedor_id,
+           ia_pausada, ia_pausada_motivo, responsavel_atual{col_braco})
+        SELECT c.cliente_id, c.modelo_id, c.id, 'Novo', 'extracao_ia', m.vendedor_id,
+               m.status <> 'ativa',
+               CASE WHEN m.status <> 'ativa' THEN 'modelo_em_atendimento'::barravips.ia_pausada_motivo_enum END,
+               CASE WHEN m.status <> 'ativa' THEN 'modelo' ELSE 'IA' END::barravips.responsavel_atual_enum{sel_braco}
           FROM barravips.conversas c
           JOIN barravips.modelos m ON m.id = c.modelo_id
          WHERE c.id = %s
@@ -979,6 +998,7 @@ async def despachar_humanizacao(
     quote_textos: list[str | None] | None = None,
     recebida_em: datetime | None = None,
     defer_humano: bool = True,
+    ignorar_pausa: bool = False,
 ) -> int:
     """Um unico job `enviar_turno` por turno (05 §1): percorre chunks e midias em ordem (07 §3.4).
 
@@ -988,6 +1008,9 @@ async def despachar_humanizacao(
     turno). Turno CRITICO nunca adia: ele pula o cancel-on-new-message no fire, então um crítico
     deferido poderia sair DEPOIS da resposta do turno seguinte (inversão real) — e chave Pix /
     confirmação não devem esperar. Retorna o defer aplicado (s), p/ o caller alinhar o judge.
+
+    `ignorar_pausa` isenta o turno do gate de pausa no fire (`enviar_turno`) — só o turno que abriu
+    a própria pausa (bolha de espera pré-`escalar`) usa.
     """
     elapsed_s = (
         max(0.0, (datetime.now(UTC) - recebida_em).total_seconds())
@@ -1012,6 +1035,7 @@ async def despachar_humanizacao(
         critico=critico,
         quote_msg_ids=quote_msg_ids,
         quote_textos=quote_textos,
+        ignorar_pausa=ignorar_pausa,
         _job_id=f"turno_envio:{turno_id}",
         **extra,
     )

@@ -172,4 +172,10 @@ async def intercept_disclosure(
 
     # prova_humanidade_attempt, ambiguo (regex nao bate) ou None -> o LLM trata com os
     # protocolos few-shot de regras.md.j2 (10 §3, §4).
+    if categoria == "prova_humanidade_attempt":
+        # Metrica-sentinela do plano do piloto: pedido de prova impossivel (audio/chamada) nao
+        # muda o fluxo -- quem responde e o LLM pelo protocolo --, mas cada evento tem de aparecer
+        # na telemetria. Sem isto o `passou_silenciosamente` era um label documentado e nunca
+        # emitido, e o gatilho de rollback por acusacao so enxergava metade dos eventos.
+        DISCLOSURE_DETECTADO.labels("passou_silenciosamente").inc()
     return Command(goto="llm")

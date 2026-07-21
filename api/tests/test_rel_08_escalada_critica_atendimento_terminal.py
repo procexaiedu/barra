@@ -86,6 +86,7 @@ def _destino_terminal() -> dict[str, Any]:
         "evolution_instance_id": "inst-1",
         "evolution_chat_id": "5521999@s.whatsapp.net",
         "atendimento_id": None,
+        "ia_pausada": False,
     }
 
 

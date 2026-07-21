@@ -503,6 +503,18 @@ async def _processar_grupo(
         COMANDOS_GRUPO.labels("invalido").inc()
         return {"status": "ignored"}
 
+    # modelos.status <> 'ativa' e o kill-switch oficial da IA (CONTEXT.md "Modelo"). No caminho de
+    # cliente ele ja bloqueia via ia_pausada (workers/coordenador.py); aqui e o unico ponto comum a
+    # TODO comando/comprovante/digest de grupo, entao e o lugar certo pra garantir que nenhum envio
+    # de saida (confirmacao/erro/card) saia em nome de uma instance pausada — inclusive quando o
+    # grupo fisico e compartilhado com outro numero que nao deve responder por nos (ex.: lucia).
+    # Instance desconhecida (status None) NAO bloqueia aqui — segue pro unknown_instance de sempre
+    # mais adiante, que ja lida com esse caso.
+    status_modelo = await _status_modelo_por_instance(conn, msg.instance_id)
+    if status_modelo is not None and status_modelo != "ativa":
+        COMANDOS_GRUPO.labels("modelo_pausada").inc()
+        return {"status": "modelo_pausada"}
+
     quoted_numero: int | None = None
     aguardando_valor = False
     if msg.quoted_message_id:
@@ -922,6 +934,19 @@ async def _modelo_por_instance(conn: Any, instance_id: str | None) -> Any | None
         (instance_id,),
     )
     return row["id"] if row else None
+
+
+async def _status_modelo_por_instance(conn: Any, instance_id: str | None) -> str | None:
+    """`modelos.status` da instance, ou None se a instance nao resolve p/ nenhuma modelo (deixa o
+    unknown_instance de cada handler tratar esse caso, sem mudar aquele comportamento)."""
+    if not instance_id:
+        return None
+    row = await _one(
+        conn,
+        "SELECT status::text AS status FROM barravips.modelos WHERE evolution_instance_id = %s",
+        (instance_id,),
+    )
+    return cast(str, row["status"]) if row else None
 
 
 async def _atendimento_por_numero(conn: Any, numero_curto: int, modelo_id: Any) -> Any | None:

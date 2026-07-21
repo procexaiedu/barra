@@ -19,6 +19,7 @@ from barra.dominio.agenda.service import (
     AntecedenciaInsuficiente,
     ConflitoAgenda,
     ForaDisponibilidade,
+    HorarioNaoDefinido,
 )
 from barra.dominio.atendimentos.service import CotacaoAusente, registrar_extracao_ia
 
@@ -370,6 +371,17 @@ async def registrar_extracao(
                 "ERRO: esse horário é cedo demais — você precisa de um tempinho pra se arrumar. "
                 "Ofereça ao cliente o horário de <horario_minimo> do seu contexto (numa hora leve e "
                 "redonda, sem inventar minutos) — depois registre de novo."
+            ) from None
+        except HorarioNaoDefinido:
+            # Reserva pedida sem horario combinado (ex.: atendimento promovido no painel p/
+            # Aguardando_confirmacao com horario_desejado NULL). Erro RECUPERAVEL por contrato do
+            # proprio dominio — sem este catch a excecao sobe e MATA o turno (sem resposta e sem
+            # escalada), repetindo a cada mensagem do cliente.
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "horario_nao_definido").inc()
+            raise ToolException(
+                "ERRO: ainda não há horário combinado neste atendimento, então o sistema não "
+                "reservou nada — NUNCA diga ao cliente que confirmou. Combine o horário com ele e "
+                "registre `data_desejada` + `horario_desejado` no mesmo registro."
             ) from None
         except CotacaoAusente:
             # Guard onda 1 A: combinar horário sem preço dito. A transação reverteu; a IA precisa

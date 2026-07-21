@@ -259,3 +259,50 @@ groups:
             O vigia diario marcou o gatilho {{ $labels.gatilho }} na janela de 7 dias.
             Ver o log ERROR ROLLBACK_GATILHO no barra-worker e o plano de producao
             assistida; avaliar pausa do piloto (status da modelo) — decisao humana.
+
+      # O gauge acima e IN-PROCESS: some a cada force-update do barra-worker (todo deploy de
+      # prompt) e so e re-armado no boot + no cron das 05:00. Sem serie, um alerta que estava
+      # firing "resolve" sozinho — por isso o worker re-avalia os gatilhos no startup.
+
+  - name: piloto_supervisao_viva
+    rules:
+      # Os gatilhos do piloto so valem se a cadeia que os produz estiver viva. Estas 3 regras
+      # vigiam a PROPRIA supervisao: silencio aqui e indistinguivel de "tudo ok".
+      - alert: BarraServicoSemMetricas
+        expr: up{job=~"barra-.*"} == 0
+        for: 5m
+        labels:
+          severity: critical
+          dimensao: piloto
+        annotations:
+          summary: "Prometheus nao raspa {{ $labels.job }} ha 5m"
+          description: >
+            Sem scrape de {{ $labels.job }}, TODOS os gatilhos do piloto ficam cegos.
+            LIMITACAO CONHECIDA: o relay de alerta entrega via barra-api — se o job caido
+            for o proprio barra-api, este alerta nao se auto-entrega (cobre worker e
+            tracing). API muda exige checagem externa (Traefik/Portainer).
+      - alert: TracingLangfuseDesligado
+        expr: barra_tracing_langfuse_ligado == 0
+        for: 10m
+        labels:
+          severity: warning
+          dimensao: piloto
+        annotations:
+          summary: "Tracing Langfuse desligado no processo"
+          description: >
+            O agente esta rodando cego (sem trace do turno). Cenario tipico: redeploy git
+            que zerou o Env do stack. LANGFUSE_OBRIGATORIO=true derruba o BOOT, mas nao
+            cobre o Langfuse caindo com o processo ja de pe — que e o que esta regra pega.
+      - alert: JudgePosEnvioDegradado
+        expr: sum(rate(agente_judge_pos_envio_total{resultado="indisponivel"}[30m])) > 0
+        for: 30m
+        labels:
+          severity: warning
+          dimensao: piloto
+        annotations:
+          summary: "Judge pos-envio indisponivel de forma sustentada"
+          description: >
+            Judge sem veredito por 30m seguidos: a telemetria do piloto esta perdendo turnos.
+            Efeito nos gatilhos — `nao_contidos` deflaciona EM SILENCIO (direcao perigosa) e
+            a `taxa_gate` perde denominador. Checar credito/estabilidade do DeepSeek antes de
+            ler qualquer numero do rollback_watch.

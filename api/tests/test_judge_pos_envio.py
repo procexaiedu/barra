@@ -10,6 +10,7 @@ import asyncio
 from typing import Any
 
 import pytest
+from arq import Retry
 
 from barra.settings import get_settings
 from barra.workers import judge_pos_envio
@@ -44,6 +45,7 @@ class FakeConn:
         self.contexto = contexto or []
         self.tem_conversa = tem_conversa
         self.inserts: list[tuple[Any, ...]] = []
+        self.sql_contexto: str | None = None
 
     async def execute(self, sql: str, params: tuple[Any, ...] | None = None) -> _Result:
         if "INSERT INTO barravips.julgamentos_turno" in sql:
@@ -55,6 +57,7 @@ class FakeConn:
         if "FROM barravips.conversas" in sql:
             return _Result([{"modelo_id": MODELO}] if self.tem_conversa else [])
         if "FROM barravips.mensagens" in sql:
+            self.sql_contexto = sql
             return _Result(self.contexto)
         raise AssertionError(f"SQL inesperado: {sql}")
 
@@ -228,10 +231,12 @@ def test_so_julga_chunks_realmente_enviados(monkeypatch: pytest.MonkeyPatch) -> 
 
     monkeypatch.setattr(judge_pos_envio, "_julgar", _julgar_fake)
 
-    # nada enviado (rede final barrou / cancelado): pula sem julgar nem persistir
+    # nada enviado (rede final barrou / cancelado): pula sem julgar nem persistir. Na ÚLTIMA
+    # tentativa — antes disso o job se redá uma chance (o envio pode só estar demorando).
     conn = FakeConn()
     ctx = _ctx(conn)
     ctx["redis"] = _FakeRedis({"read"})
+    ctx["job_try"] = 2
     assert _rodar(ctx, ["bolha barrada"]) == 0
     assert prompts == [] and conn.inserts == []
 
@@ -241,6 +246,22 @@ def test_so_julga_chunks_realmente_enviados(monkeypatch: pytest.MonkeyPatch) -> 
     ctx2["redis"] = _FakeRedis({"read", "chunk:0"})
     assert _rodar(ctx2, ["saiu", "nao saiu"]) == 1
     assert prompts == ["saiu"] and len(conn2.inserts) == 1
+
+
+def test_sem_marcador_na_primeira_tentativa_retenta(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Marcador ausente na 1ª tentativa = envio pode só estar demorando; retenta (zero crédito)."""
+
+    async def _nunca(contexto: str, turno: str, settings: Any) -> VeredictoTurno:
+        raise AssertionError("não deveria chamar o LLM sem marcador de envio")
+
+    monkeypatch.setattr(judge_pos_envio, "_julgar", _nunca)
+    conn = FakeConn()
+    ctx = _ctx(conn)
+    ctx["redis"] = _FakeRedis({"read"})
+    ctx["job_try"] = 1
+    with pytest.raises(Retry):
+        _rodar(ctx, ["ainda saindo"])
+    assert conn.inserts == []
 
 
 def test_julgar_unit_chat_fake(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -267,3 +288,43 @@ def test_julgar_unit_chat_fake(monkeypatch: pytest.MonkeyPatch) -> None:
     mensagens = chamadas[0]
     assert mensagens[0]["role"] == "system" and "rastro_llm" in mensagens[0]["content"]
     assert "TURNO ENVIADO" in mensagens[1]["content"] and "oi amor" in mensagens[1]["content"]
+
+
+def test_desde_corta_o_contexto_por_tempo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Com `desde`, o próprio turno sai do contexto pelo INSTANTE, não pelo texto: a rede final
+    transforma a bolha antes de persistir (vocativo/emoji/travessão), então o match por conteúdo
+    quebrava e o turno voltava como se fosse repetição — falso `rastro_llm`."""
+
+    async def _julgar_fake(*a: Any, **kw: Any) -> VeredictoTurno:
+        return _veredito()
+
+    monkeypatch.setattr(judge_pos_envio, "_julgar", _julgar_fake)
+    conn = FakeConn()
+    ctx = _ctx(conn)
+    assert (
+        asyncio.run(
+            julgar_turno_pos_envio(
+                ctx,
+                conversa_id=CONVERSA,
+                turno_id="t1:0",
+                chunks=["consigo sim"],
+                desde="2026-07-21T20:00:00+00:00",
+            )
+        )
+        == 1
+    )
+    assert conn.sql_contexto is not None
+    assert "created_at >= %s" in conn.sql_contexto
+    assert "conteudo = ANY" not in conn.sql_contexto
+
+
+def test_sem_desde_usa_o_corte_por_conteudo(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Payload antigo (job enfileirado antes do deploy) não pode quebrar: cai no corte por texto."""
+
+    async def _julgar_fake(*a: Any, **kw: Any) -> VeredictoTurno:
+        return _veredito()
+
+    monkeypatch.setattr(judge_pos_envio, "_julgar", _julgar_fake)
+    conn = FakeConn()
+    assert _rodar(_ctx(conn), ["consigo sim"]) == 1
+    assert conn.sql_contexto is not None and "conteudo = ANY" in conn.sql_contexto

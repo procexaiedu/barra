@@ -146,6 +146,7 @@ def _destino() -> dict[str, Any]:
         "evolution_instance_id": "inst-1",
         "evolution_chat_id": "5521999@s.whatsapp.net",
         "atendimento_id": uuid4(),
+        "ia_pausada": False,
     }
 
 
@@ -668,3 +669,82 @@ async def test_scrub_quote_residual_nao_vaza_e_realinha_o_reply() -> None:
     # 3) métrica contou os 2 markers raspados (bolha 1 + bolha 2)
     depois = REGISTRY.get_sample_value("agente_quote_marcador_vazado_total") or 0.0
     assert depois - antes == 2.0
+
+
+async def test_legenda_com_rastro_e_dropada_sem_derrubar_a_midia() -> None:
+    """A legenda não passa pelo `_aplicar_saida_guard` (que só vê os chunks): as redes duras
+    rodam na hora do envio da mídia. Marcador de IA / placeholder derruba SÓ a caption — a foto
+    sai mesmo assim (a mídia é a entrega; a legenda é acessório)."""
+    turno_id, conversa_id, midia_id = "turno-legenda-guard", str(uuid4()), str(uuid4())
+    conn = _FakeConn(
+        _destino(), {midia_id: {"tipo": "foto", "bucket": "midia", "object_key": "k.jpg"}}
+    )
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["olha só"],
+        midias=[{"midia_id": midia_id, "legenda": "sou uma assistente virtual, olha a {foto}"}],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+    )
+
+    assert _so(evolution, "midia") == [None]
+    assert await redis.sismember(f"enviados:{turno_id}", "midia:0")
+
+
+async def test_pausa_concorrente_no_fire_cancela_o_turno() -> None:
+    """Com o defer humano o job dorme até ~90s; se a IA foi pausada nesse meio-tempo (Pix, foto de
+    portaria, handoff manual) a modelo já assumiu — a bolha não pode sair por cima dela. O
+    cancel-on-new-message não cobre: esses pipelines não tocam `turno_atual`."""
+    turno_id, conversa_id = "turno-pausado", str(uuid4())
+    destino = _destino()
+    destino["ia_pausada"] = True
+    conn = _FakeConn(destino, {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["me manda a foto da portaria amor"],
+        midias=[],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+    )
+
+    assert evolution.ordem == []
+
+
+async def test_turno_que_abriu_a_pausa_ignora_o_gate() -> None:
+    """Bolha de espera pré-`escalar`: o turno nasce com ia_pausada=true de propósito e precisa
+    sair, senão toda escalada vira silêncio ao cliente."""
+    turno_id, conversa_id = "turno-escalada", str(uuid4())
+    destino = _destino()
+    destino["ia_pausada"] = True
+    conn = _FakeConn(destino, {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["Um momento amor"],
+        midias=[],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+        ignorar_pausa=True,
+    )
+
+    assert _so(evolution, "texto") == ["Um momento amor"]

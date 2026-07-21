@@ -69,7 +69,7 @@ class _FakeConnMensagensPorAtendimento:
     async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> _Result:
         if "barravips.mensagens" in sql:
             conteudos = self._mensagens.get(params[0], [])
-            return _Result([{"conteudo": c} for c in conteudos])
+            return _Result([{"conteudo": c, "tipo": "texto"} for c in conteudos])
         return _Result([])
 
 

@@ -2,7 +2,7 @@
 
 Job ARQ enfileirado pelo coordenador logo após despachar a humanização (só turnos que realmente
 saíram ao cliente), com defer curto para o envio humanizado terminar. Pontua o turno no DeepSeek
-(mesmo padrão do judge de AUP do output_guard) em 3 eixos fixos do plano do piloto:
+(mesmo padrão do judge de AUP do output_guard) em 3 eixos fixos do plano do piloto (ADR 0034):
 
   - `rastro_llm` (bool)  — um cliente atento perceberia rastro de IA? true = incidente
                            NÃO-CONTIDO (o gate pré-envio não segurou);
@@ -25,6 +25,7 @@ import asyncio
 import logging
 from typing import Any
 
+from arq import Retry
 from pydantic import BaseModel, Field
 
 from barra.core.metrics import JUDGE_POS_ENVIO
@@ -36,6 +37,11 @@ logger = logging.getLogger(__name__)
 # Mensagens recentes da conversa que dão contexto ao eixo `conduta` (janela curta de propósito:
 # o judge avalia o turno, não a conversa inteira).
 _CONTEXTO_MENSAGENS = 10
+
+# Espelha o max_tries registrado em workers/settings.py: a 2ª tentativa existe só para o ramo
+# PRÉ-LLM (marcador de envio ainda ausente), que não gasta crédito. Depois do LLM nada retenta —
+# ARQ só re-executa em `Retry` explícito.
+_MAX_TRIES = 2
 
 
 class VeredictoTurno(BaseModel):
@@ -60,9 +66,23 @@ _SQL_MODELO_DA_CONVERSA = "SELECT modelo_id FROM barravips.conversas WHERE id = 
 # Contexto recente do par (mais novas primeiro; invertido no Python). Exclui as bolhas do PRÓPRIO
 # turno julgado (já persistidas pelo enviar_turno no momento em que o job roda, por causa do
 # defer): sem o filtro, o judge veria o turno duplicado (contexto + turno) e flagraria repetição
-# espúria. O match é por conteúdo (mensagens não tem turno_id), então uma bolha idêntica de turno
-# ANTERIOR também some do contexto — ponto cego aceito: nunca gera falso-positivo, e a repetição
-# literal real é coberta pelo detector determinístico do gate pré-envio (output_guard).
+# espúria — e a rubrica manda flagrar "repete quase idêntica uma bolha já mandada", ou seja, o
+# ruído cairia direto no `rastro_llm`, o gatilho de rollback mais sensível.
+#
+# O corte é TEMPORAL (`desde` = instante do enqueue, antes do envio): qualquer bolha da IA
+# persistida a partir dali é deste turno. O corte por CONTEÚDO abaixo é o fallback de payload
+# antigo — e era o bug: a rede final transforma a bolha (vocativo/emoji/travessão/PII) antes de
+# persistir, o match exato quebrava e o turno reaparecia no contexto como se fosse repetição.
+_SQL_CONTEXTO_DESDE = """
+SELECT direcao::text AS direcao, conteudo
+  FROM barravips.mensagens
+ WHERE conversa_id = %s
+   AND conteudo <> ''
+   AND NOT (direcao = 'ia' AND created_at >= %s)
+ ORDER BY created_at DESC, id DESC
+ LIMIT %s
+"""
+
 _SQL_CONTEXTO = """
 SELECT direcao::text AS direcao, conteudo
   FROM barravips.mensagens
@@ -133,6 +153,7 @@ async def julgar_turno_pos_envio(
     turno_id: str,
     chunks: list[str],
     trace_id: str | None = None,
+    desde: str | None = None,
 ) -> int:
     """Julga um turno já enviado e persiste a telemetria. Devolve 1 quando julgou, 0 caso contrário."""
     settings: Settings = ctx["settings"]
@@ -152,6 +173,12 @@ async def julgar_turno_pos_envio(
         marcadores = {m.decode() if isinstance(m, bytes | bytearray) else str(m) for m in marcados}
         chunks = [c for i, c in enumerate(chunks) if f"chunk:{i}" in marcadores]
         if not chunks:
+            # Sem marcador: ou o turno foi contido (nunca saiu — fim legítimo) ou o envio ainda
+            # não terminou (defer curto p/ turno longo). Como aqui NENHUM crédito foi gasto, uma
+            # segunda tentativa é de graça e desempata os dois casos; o `ja_julgado` protege o
+            # pós-LLM de duplicar. Só na última tentativa contamos como não-enviado.
+            if ctx.get("job_try", 1) < _MAX_TRIES:
+                raise Retry(defer=60)
             JUDGE_POS_ENVIO.labels("nao_enviado").inc()
             return 0
 
@@ -170,7 +197,10 @@ async def julgar_turno_pos_envio(
             logger.warning("judge_pos_envio conversa inexistente conversa_id=%s", conversa_id)
             return 0
         modelo_id = row["modelo_id"]
-        res = await conn.execute(_SQL_CONTEXTO, (conversa_id, chunks, _CONTEXTO_MENSAGENS))
+        if desde is not None:
+            res = await conn.execute(_SQL_CONTEXTO_DESDE, (conversa_id, desde, _CONTEXTO_MENSAGENS))
+        else:
+            res = await conn.execute(_SQL_CONTEXTO, (conversa_id, chunks, _CONTEXTO_MENSAGENS))
         recentes = list(await res.fetchall())
 
     # `modelo_manual` = a modelo (humana) escreveu no handoff; pro cliente, IA e modelo são a

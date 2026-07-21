@@ -454,10 +454,10 @@ class Settings(BaseSettings):
         default=False,
         description=(
             "Liga o envio de mídia como visualização única (Mídia exclusiva, 01 §6.13). Default "
-            "False porque a Evolution v2 self-host oficial NÃO expõe `viewOnce` no /message/sendMedia "
-            "(issue #1651 fechada sem impl.; SendMediaDto não tem o campo) — o body sairia com o "
-            "campo mas a Evolution o ignoraria. Só ligar quando estiver rodando um build da Evolution "
-            "que aceite `viewOnce` no sendMedia (ver docs/adr/ e o patch em docs/evolution-view-once.md)."
+            "False porque nenhuma das plataformas OFICIAIS expõe `viewOnce` no envio de mídia: a "
+            "Evolution v2 não tem o campo no SendMediaDto (issue #1651 fechada sem impl.) e a EvoGo "
+            "não tem no MediaStruct do /send/media — o body sai com o campo e a plataforma o ignora. "
+            "Só ligar sobre um build patchado (ver docs/evolution-view-once.md)."
         ),
     )
     cors_origins: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])

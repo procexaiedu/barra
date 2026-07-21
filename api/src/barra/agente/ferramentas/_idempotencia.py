@@ -16,6 +16,26 @@ from psycopg import AsyncConnection
 Executor = Callable[[AsyncConnection[Any], dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
+async def _ja_executada(
+    conn: AsyncConnection[Any],
+    turno_id: str,
+    tool_name: str,
+    call_idx: int,
+) -> bool:
+    """True se a chave `(turno_id, tool_name, call_idx)` ja foi gravada (replay do turno).
+
+    Para as tools cuja PREPARACAO do payload pode falhar no replay (ex.: `enviar_midia`, que
+    re-seleciona a midia excluindo o que ja saiu no turno e fica sem candidata): consultar antes
+    evita transformar um replay bem-sucedido em erro.
+    """
+    res = await conn.execute(
+        "SELECT 1 FROM barravips.tool_calls"
+        " WHERE turno_id = %s AND tool_name = %s AND call_idx = %s",
+        (turno_id, tool_name, call_idx),
+    )
+    return await res.fetchone() is not None
+
+
 async def _executar_idempotente(
     conn: AsyncConnection[Any],
     turno_id: str,

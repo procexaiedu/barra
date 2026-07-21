@@ -610,11 +610,12 @@ async def _carregar_destino(pool: AsyncConnectionPool[Any], conversa_id: str) ->
             """
             SELECT mo.evolution_instance_id AS evolution_instance_id,
                    c.evolution_chat_id      AS evolution_chat_id,
-                   a.id                      AS atendimento_id
+                   a.id                      AS atendimento_id,
+                   COALESCE(a.ia_pausada, false) AS ia_pausada
               FROM barravips.conversas c
               JOIN barravips.modelos mo ON mo.id = c.modelo_id
               LEFT JOIN LATERAL (
-                  SELECT id
+                  SELECT id, ia_pausada
                     FROM barravips.atendimentos
                    WHERE conversa_id = c.id AND estado NOT IN ('Fechado', 'Perdido')
                    ORDER BY created_at DESC
@@ -821,6 +822,7 @@ async def enviar_turno(
     critico: bool = False,
     quote_msg_ids: list[str | None] | None = None,
     quote_textos: list[str | None] | None = None,
+    ignorar_pausa: bool = False,
 ) -> None:
     """Envia um turno chunk-by-chunk e depois as mídias (05 §4).
 
@@ -834,6 +836,9 @@ async def enviar_turno(
     e carrega o conteúdo da mensagem citada de cada bolha — vai no `quoted.message.conversation`
     para o balão de reply renderizar o texto; sem ele, o WhatsApp mostra a citação vazia
     (a Evolution não faz lookup pelo id, verificado 2026-05-30).
+
+    `ignorar_pausa` é do turno que ABRIU a pausa (bolha de espera antes do `escalar`): ele nasce
+    com `ia_pausada=true` de propósito e não pode ser cancelado pelo gate de pausa abaixo.
     """
     redis = ctx["redis"]
     pool = ctx["db_pool"]
@@ -846,6 +851,16 @@ async def enviar_turno(
     conv: dict[str, Any] | None = None
     try:
         conv = await _carregar_destino(pool, conversa_id)
+
+        # Gate de pausa no FIRE (não só no despacho): com o defer humano o job dorme até ~90s, e
+        # nesse intervalo um pipeline sem lock (Pix, foto de portaria, handoff manual) pode pausar
+        # a IA — a modelo assume e a bolha da IA sairia por cima dela. O cancel-on-new-message não
+        # cobre: esses pipelines não tocam `turno_atual`. Crítico entrega sempre (chave Pix), e o
+        # turno que ABRIU a pausa passa por `ignorar_pausa`.
+        if not critico and not ignorar_pausa and conv["ia_pausada"]:
+            logger.info("turno_cancelado_pausa turno_id=%s", turno_id)
+            ENVIO_RESULTADO.labels("cancelado").inc()
+            return
 
         # Materializa as listas de quote ao tamanho dos chunks (None-fill) ANTES do guard, para que
         # o descarte de bolha (emoji) as realinhe em conjunto e o loop indexe sem bounds-check.
@@ -1067,6 +1082,18 @@ async def _enviar_midias(
         legenda = item.get("legenda") or None
         if legenda and _legenda_duplica_bolha(legenda, chunks):
             legenda = None
+        # A legenda não passa pelo `_aplicar_saida_guard` (que só vê os chunks de texto), então
+        # as redes duras são aplicadas aqui. Dropar SÓ a legenda, não abortar o turno: a mídia é
+        # a entrega, a caption é acessório — e sem ela o cliente recebe a foto em silêncio, o que
+        # é bem melhor que a bolha "sou uma IA" ou "{valor}" colada nela.
+        if legenda and get_settings().envio_guard_habilitado:
+            if tem_marcador_ia(legenda) or tem_placeholder_eco(legenda):
+                logger.warning(
+                    "legenda_barrada turno_id=%s midia_idx=%s",
+                    turno_id,
+                    idx,
+                )
+                legenda = None
         async with pool.connection() as conn, conn.transaction():
             mid = await evolution.enviar_midia(
                 conn=conn,
@@ -1084,8 +1111,8 @@ async def _enviar_midias(
                 # view-once p/ TODA mídia da modelo — foto e vídeo (Mídia exclusiva, 01 §6.13;
                 # decisão do Fernando 2026-07-10: a foto exclusiva também vai como visualização
                 # única, não só o vídeo). O cliente só injeta `viewOnce` no body sob o toggle
-                # `evolution_view_once` (off por padrão — a Evolution self-host oficial não expõe o
-                # campo no sendMedia; exige o build/fork com o patch). Marcamos sempre; o toggle decide.
+                # `evolution_view_once` (off por padrão — nenhuma plataforma oficial expõe o campo
+                # no envio de mídia; exige o build/fork com o patch). Marcamos sempre; o toggle decide.
                 view_once=True,
                 atendimento_id=conv["atendimento_id"],
                 conversa_id=conversa_uuid,

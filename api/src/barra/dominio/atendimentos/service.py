@@ -306,11 +306,11 @@ async def registrar_extracao_ia(
             conn,
             aid,
             motivo="reagendamento_pos_bloqueio",
-            resumo="Cliente quer mudar o horario de um atendimento ja reservado.",
-            acao="Realocar o bloqueio para o novo horario ou recusar com o cliente.",
+            resumo="Cliente quer mudar ou desmarcar o horario de um atendimento ja reservado.",
+            acao="Realocar ou cancelar o bloqueio conforme o cliente.",
         )
         return {
-            "mensagem": "Horario ja reservado: reagendamento escalado para a modelo.",
+            "mensagem": "Horario ja reservado: mudanca escalada para a modelo.",
             "novo_estado": None,
         }
     if veredito_reagendamento == "drift":
@@ -751,7 +751,13 @@ async def _reagendamento_pos_bloqueio(
     "mudanca" = reagendamento real -> escalar."""
     novo_horario = payload.get("horario_desejado")
     nova_data = payload.get("data_desejada")
-    if novo_horario is None and nova_data is None:
+    # `limpar` (recuo do cliente: "nao sei o dia ainda") tambem desfaz o horario combinado — sem
+    # isto o snapshot zerava e o bloqueio previo ficava orfao travando a agenda, exatamente o que
+    # a branch 12 existe pra impedir. Nao ha valor novo p/ medir drift: e sempre "mudanca".
+    limpando_horario = bool(
+        {"horario_desejado", "data_desejada"} & set(payload.get("limpar") or [])
+    )
+    if novo_horario is None and nova_data is None and not limpando_horario:
         return None
     res = await conn.execute(
         "SELECT estado::text AS estado, bloqueio_id, horario_desejado, data_desejada "
@@ -761,6 +767,8 @@ async def _reagendamento_pos_bloqueio(
     a = await res.fetchone()
     if a is None or a["estado"] != "Aguardando_confirmacao" or a["bloqueio_id"] is None:
         return None
+    if limpando_horario:
+        return "mudanca"
     if not (_difere(a["horario_desejado"], novo_horario) or _difere(a["data_desejada"], nova_data)):
         return None
     if _dentro_da_tolerancia(a["data_desejada"], a["horario_desejado"], nova_data, novo_horario):

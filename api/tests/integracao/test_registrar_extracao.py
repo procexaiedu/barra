@@ -897,6 +897,39 @@ async def test_reagendamento_pos_bloqueio_escala(conn: AsyncConnection[dict[str,
 
 
 @pytest.mark.needs_db
+async def test_limpar_horario_pos_bloqueio_escala(conn: AsyncConnection[dict[str, Any]]) -> None:
+    """Recuo do cliente ("nao sei o dia ainda") com bloqueio previo ativo: zerar o snapshot em
+    silencio deixaria o bloqueio orfao travando a agenda — cai na mesma branch 12."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(15, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+    )
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"limpar": ["data_desejada", "horario_desejado"]},
+    )
+
+    assert resultado["novo_estado"] is None
+    res = await conn.execute(
+        "SELECT horario_desejado, bloqueio_id, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["horario_desejado"] == time(15, 0)  # nao zerou sem tratar o bloqueio
+    assert a["bloqueio_id"] is not None
+    assert a["ia_pausada"] is True
+
+
+@pytest.mark.needs_db
 async def test_reagendamento_drift_dentro_da_tolerancia_nao_escala(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:

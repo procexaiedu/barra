@@ -82,6 +82,7 @@ def _destino() -> dict[str, Any]:
         "evolution_instance_id": "inst-1",
         "evolution_chat_id": "5521999@s.whatsapp.net",
         "atendimento_id": uuid4(),
+        "ia_pausada": False,
     }
 
 

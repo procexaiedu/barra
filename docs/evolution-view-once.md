@@ -1,148 +1,100 @@
-# Mídia de visualização única (view-once) via Evolution
+# Mídia de visualização única (view-once)
 
 Referência: **Mídia exclusiva** (CONTEXT.md), `docs/agente/01 §6.13`.
 
 ## Situação (verificada no código-fonte, jul/2026)
 
-A Evolution API v2 **oficial** (branch `main`, v2.3.7, `baileys@7.0.0-rc.9`) **não expõe**
-`viewOnce` no endpoint `POST /message/sendMedia`:
+Nenhuma das plataformas **oficiais** expõe view-once no envio de mídia:
 
-- `SendMediaDto` não tem o campo (`src/api/dto/sendMessage.dto.ts`).
-- O handler `mediaMessage()` → `prepareMediaMessage()` monta `{ imageMessage }` / `{ videoMessage }`
-  via `generateWAMessageFromContent` **sem** passar view-once
-  (`src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts`).
-- `gh search code "viewOnce"` no repo → só usos de **recebimento** (`ExtendedIMessageKey.isViewOnce`)
-  e o wrapper `viewOnceMessage` usado como **truque de renderização de botões** (PIX/nativos) —
-  nada de mídia efêmera de envio.
-- A feature ([issue #1651](https://github.com/evolution-foundation/evolution-api/issues/1651)) foi
-  **fechada sem implementação**.
-
-Logo: mandar `"viewOnce": true` no body do `sendMedia` na Evolution oficial é **ignorado**.
+- **EvoGo** (`evolution-foundation/evolution-go`, o que roda em prod hoje): `MediaStruct`
+  (`pkg/sendMessage/service/send_service.go`) não tem `viewOnce`, e o `/send/media` monta
+  `ImageMessage`/`VideoMessage` sem marcar view-once. Mandar o campo no body é **ignorado** no bind
+  do Gin. Não há endpoint de mensagem crua que permita contornar por fora.
+- **Evolution v2** (histórico, antes do cutover): `SendMediaDto` também não tem o campo e a
+  [issue #1651](https://github.com/evolution-foundation/evolution-api/issues/1651) foi fechada sem
+  implementação.
 
 ## Por que dá para resolver
 
-A **Baileys** (lib por baixo da Evolution) **suporta** view-once nativamente: quando o content tem
-`viewOnce: true`, ela envolve a mensagem em `{ viewOnceMessage: { message: m } }`
-(`Baileys/src/Utils/messages.ts:614`). Como a Evolution usa `generateWAMessageFromContent`
-(e **não** `generateWAMessageContent`, que é onde mora aquela lógica), o wrapper precisa ser
-aplicado manualmente. É um patch de ~2 pontos num **fork/build próprio da Evolution**.
+A **whatsmeow** (lib por baixo da EvoGo) expõe tudo o que o protocolo precisa: `ViewOnce *bool` em
+`ImageMessage`/`VideoMessage`/`AudioMessage` e o envelope `ViewOnceMessageV2 *FutureProofMessage`
+(`proto/waE2E`). Falta só a EvoGo aceitar o flag e aplicar — patch pequeno e isolado.
 
-## Patch do fork da Evolution
+## Patch da EvoGo (pronto)
 
-### 1. `src/api/dto/sendMessage.dto.ts`
+**`docs/patches/evolution-go-view-once.patch`** — aplicável com `git am` sobre
+`evolution-foundation/evolution-go`. Escrito e verificado sobre o HEAD `9337afc` (0.7.2):
+`go build ./...` e `go test ./pkg/sendMessage/...` verdes (inclui `view_once_test.go`, novo).
 
-Adicionar o campo em `MediaMessage` **e** em `SendMediaDto` (o handler passa um `SendMediaDto`
-para `prepareMediaMessage`, tipado como `MediaMessage`):
+O que ele faz:
 
-```diff
- export class MediaMessage {
-   mediatype: MediaType;
-   mimetype?: string;
-   caption?: string;
-   // for document
-   fileName?: string;
-   // url or base64
-   media: string;
-+  // envia como visualização única (WhatsApp view-once)
-+  viewOnce?: boolean;
- }
+1. `MediaStruct` ganha `ViewOnce bool \`json:"viewOnce,omitempty"\`` — o `/send/media` passa a
+   aceitar o campo em JSON; o handler também lê `viewOnce` no caminho multipart.
+2. `SendDataStruct` carrega o flag até o `SendMessage` centralizado.
+3. `applyViewOnce` marca o `viewOnce` interno **e** envolve em `ViewOnceMessageV2` (clientes atuais
+   renderizam o badge "1" pelo envelope; o campo interno é o que clientes antigos leem).
+
+Detalhe que importa: o wrap acontece **depois** do `ContextInfo` (quote, menções, forward), que o
+`SendMessage` resolve olhando `msg.ImageMessage`/`msg.VideoMessage` pelo `messageType`. Envolver
+antes deixaria esses ponteiros nil e mataria a citação. Tipos não-mídia e newsletter ignoram o flag.
+
+Aplicar:
+
+```bash
+git clone https://github.com/evolution-foundation/evolution-go.git evogo-fork
+cd evogo-fork && git am < <caminho>/docs/patches/evolution-go-view-once.patch
+go build ./... && go test ./pkg/sendMessage/...
 ```
 
-```diff
- export class SendMediaDto extends Metadata {
-   mediatype: MediaType;
-   mimetype?: string;
-   caption?: string;
-   // for document
-   fileName?: string;
-   // url or base64
-   media: string;
-+  // envia como visualização única (WhatsApp view-once)
-+  viewOnce?: boolean;
- }
-```
+Ideal é mandar como PR upstream — se entrar, o fork some e basta subir a tag nova.
 
-### 2. `src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts`
+## Build e deploy da imagem patchada (runbook)
 
-Em `prepareMediaMessage`, envolver o content no wrapper `viewOnceMessage` quando pedido —
-replicando exatamente o que a Baileys faz no `generateWAMessageContent`:
+Prod hoje: serviço Swarm **`evolution-go_evolution_go`**, imagem **`evoapicloud/evolution-go:latest`**,
+stack **`evolution-go`** — **separada** da `barra-vips`. As sessões vivem no Postgres da própria
+stack (`evolution-go_evogo_postgres`), não em volume de arquivos.
 
-```diff
--      return generateWAMessageFromContent(
--        '',
--        { [mediaType]: { ...prepareMedia[mediaType] } },
--        { userJid: this.instance.wuid },
--      );
-+      const mediaContent = { [mediaType]: { ...prepareMedia[mediaType] } };
-+      const finalContent = mediaMessage.viewOnce
-+        ? { viewOnceMessage: { message: mediaContent } }
-+        : mediaContent;
-+      return generateWAMessageFromContent('', finalContent, { userJid: this.instance.wuid });
-```
+> ⚠️ **A stack é compartilhada.** A mesma EvoGo serve `elitebaby01` (Barra), `procex-teste` e `wgr6`
+> — outros projetos. Reiniciar o serviço derruba as 3 instâncias por alguns segundos. Todo o deploy
+> recai na regra §0 do CLAUDE.md: autorização explícita, frase a frase, e janela combinada.
+> Os passos 1–3 (build/push) não tocam prod; 4–6 tocam.
 
-> Só image/video/audio aceitam view-once no WhatsApp. Documento não. Para o nosso uso
-> (foto e vídeo da Mídia exclusiva — decisão 2026-07-10) isso basta; se quiser barrar document,
-> condicione também por `type`.
-
-### 3. Build e deploy da imagem patchada (runbook)
-
-Prod hoje roda `atendai/evolution-api:v2.3.7` (`infra/compose/stack.barra.yml:52`), como **serviço Swarm**
-na stack `barra-vips`, com `env_file: ./env/evolution.env` e volume `evolution_data:/evolution/instances`
-(sessões das instâncias — preservar o path e a major version, senão corrompe as sessões conectadas).
-
-**Todo o deploy recai na regra §0 — autorização explícita, frase a frase. Os passos 1–4 (build/push)
-não tocam prod; os passos 5–8 tocam.**
-
-1. **Clonar na tag exata de prod** (paridade — não usar `main`):
+1. **Conferir a versão real de prod** antes de buildar — `latest` é tag móvel; parear com o commit
+   correspondente do upstream (o patch foi feito sobre 0.7.2) e rebasear se divergir.
+2. **Buildar** com tag própria e versionada pelo patch:
    ```bash
-   git clone --branch v2.3.7 --depth 1 https://github.com/EvolutionAPI/evolution-api.git evo-fork
-   cd evo-fork
+   docker build -t <registry>/evolution-go:0.7.2-viewonce1 .
    ```
-2. **Aplicar o patch** das seções 1 e 2 acima (3 pontos: 2 no DTO, 1 no service). Confira que os
-   alvos batem com a tag; se divergirem, aplique nos mesmos pontos lógicos (`prepareMediaMessage`
-   e `SendMediaDto`/`MediaMessage`).
-3. **Buildar a imagem** com tag própria e versionada pelo patch:
+3. **Push** para um registry alcançável pelos nós do Swarm (sem isso o Swarm não faz pull).
+4. **Trocar a imagem do serviço** — ⚠️ **NÃO** usar `StackGitRedeploy` (zera o Env da stack) nem
+   `docker restart` (deixa task órfã no Swarm):
    ```bash
-   docker build -t <registry>/evolution-api:v2.3.7-viewonce1 .
+   docker service update --image <registry>/evolution-go:0.7.2-viewonce1 --force evolution-go_evolution_go
    ```
-4. **Push para um registry acessível pelos nós do Swarm** (Docker Hub privado, GHCR, ou registry
-   próprio). Sem registry alcançável, o Swarm não faz pull em todos os nós.
-   ```bash
-   docker push <registry>/evolution-api:v2.3.7-viewonce1
-   ```
-5. **Trocar a imagem no compose** — `infra/compose/stack.barra.yml:52`:
-   ```yaml
-   image: <registry>/evolution-api:v2.3.7-viewonce1
-   ```
-6. **Redeploy do serviço** — ⚠️ **NÃO** usar `StackGitRedeploy` (zera o Env da stack e derruba prod)
-   nem `docker restart` (cria task órfã no Swarm). Usar update forçado do serviço com a nova imagem:
-   ```bash
-   docker service update --image <registry>/evolution-api:v2.3.7-viewonce1 --force barra-vips_evolution
-   ```
-   A instância reconecta do volume `evolution_data` (sessão preservada). Confirmar `1/1` replicas.
-7. **Ligar o toggle no Barra**: `EVOLUTION_VIEW_ONCE=true` no Env da stack (api + worker) e
-   `service update --force` nos dois serviços (o worker é quem envia a mídia — ver
-   [[deploy_agente_roda_no_worker]]).
-8. **Verificar ao vivo**: mandar uma foto (e um vídeo) pelo agente num chat de teste e confirmar no
-   celular que abre como visualização única; conferir o `envios_evolution`/trace do turno.
-   Rollback = voltar a `image: atendai/evolution-api:v2.3.7` + `EVOLUTION_VIEW_ONCE=false`.
+   Confirmar `1/1` replicas e as 3 instâncias reconectadas (`GET /instance/all` → `connected`).
+5. **Ligar o toggle no Barra**: `EVOLUTION_VIEW_ONCE=true` no Env da stack `barra-vips` (api +
+   worker) e `service update --force` nos dois — o worker é quem envia a mídia
+   (ver [[deploy_agente_roda_no_worker]]).
+6. **Verificar ao vivo**: mandar foto e vídeo pelo agente num chat de teste e confirmar no celular
+   que abrem como visualização única; conferir `envios_evolution` e o trace do turno.
 
-**Custo recorrente**: rebase do fork a cada upgrade da Evolution (o patch é pequeno e isolado).
+Rollback: `EVOLUTION_VIEW_ONCE=false` (instantâneo, sem tocar na EvoGo) e, se preciso, voltar a
+imagem para `evoapicloud/evolution-go:latest`.
 
-## Lado Barra (já pronto)
+**Custo recorrente**: rebase do fork a cada upgrade da EvoGo — some se o PR entrar upstream.
 
-O código do Barra já consome isto atrás de um toggle:
+## Lado Barra (pronto)
 
 - `settings.evolution_view_once` (**default `False`**).
 - `EvolutionClient.enviar_midia` injeta `body["viewOnce"] = True` **só** quando
-  `view_once and settings.evolution_view_once` (`core/evolution.py`).
+  `view_once and settings.evolution_view_once` (`core/evolution.py`); teste
+  `test_enviar_midia_view_once_sob_toggle`.
 - O worker `_enviar_midias` passa `view_once=True` para **toda mídia — foto e vídeo**
-  (`workers/envio.py`; decisão 2026-07-10: a foto exclusiva também vai view-once). `image`/`video`
-  aceitam view-once no WhatsApp, então o patch cobre os dois.
+  (`workers/envio.py`; decisão 2026-07-10: a foto exclusiva também vai view-once).
 
-**Para ligar quando o fork estiver em prod:** setar `EVOLUTION_VIEW_ONCE=true` no Env da stack.
-Com o toggle off, nada muda — a mídia vai normal (fallback P0).
+Com o toggle off nada muda — a mídia vai normal (fallback P0). Com ele ligado sobre a EvoGo
+**oficial**, o campo é ignorado (também inócuo): só a imagem patchada muda o comportamento.
 
-Fontes: [SendMediaDto / Evolution](https://github.com/EvolutionAPI/evolution-api) ·
-[Baileys `viewOnce`](https://baileys.wiki/docs/api/type-aliases/AnyMediaMessageContent/) ·
-[Baileys wrapper `messages.ts`](https://github.com/WhiskeySockets/Baileys/blob/master/src/Utils/messages.ts).
+Fontes: [evolution-go](https://github.com/evolution-foundation/evolution-go) ·
+[whatsmeow](https://pkg.go.dev/go.mau.fi/whatsmeow) ·
+[issue #1651 (Evolution v2)](https://github.com/evolution-foundation/evolution-api/issues/1651).

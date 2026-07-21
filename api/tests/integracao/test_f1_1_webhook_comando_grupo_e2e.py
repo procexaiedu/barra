@@ -143,15 +143,16 @@ def _capturar_respostas(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]
 
 
 async def _seed_modelo(
-    c: AsyncConnection[dict[str, Any]], *, instance: str, grupo_jid: str
+    c: AsyncConnection[dict[str, Any]], *, instance: str, grupo_jid: str, status: str = "ativa"
 ) -> UUID:
     modelo_id = uuid4()
     await c.execute(
         """
         INSERT INTO barravips.modelos
             (id, nome, idade, numero_whatsapp, valor_padrao, tipo_atendimento_aceito,
-             percentual_repasse, evolution_instance_id, coordenacao_chat_id)
-        VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[], %s, %s, %s)
+             percentual_repasse, evolution_instance_id, coordenacao_chat_id, status)
+        VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[], %s, %s, %s,
+                %s::barravips.modelo_status_enum)
         """,
         (
             modelo_id,
@@ -163,6 +164,7 @@ async def _seed_modelo(
             Decimal("40"),
             instance,
             grupo_jid,
+            status,
         ),
     )
     return modelo_id
@@ -421,3 +423,43 @@ async def test_f1_1_webhook_fechado_sem_valor_nao_encerra_e_da_ack(
     from barra.webhook.respostas import texto_erro_comando
 
     assert capturas == [(texto_erro_comando("valor_final_obrigatorio"), "erro_comando")]
+
+
+@pytest.mark.needs_db
+async def test_f1_1_webhook_grupo_modelo_pausada_nao_processa_nem_responde(
+    conn: AsyncConnection[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Guard de segurança: `modelos.status <> 'ativa'` bloqueia TODO comando de grupo (não só o
+    caminho de cliente) — nenhum comando é aplicado e nenhum envio de saída é tentado em nome da
+    instance pausada. Cenário real (21/07): duas instances (ex.: uma pausada de propósito por ser
+    recurso compartilhado com outros projetos) participam do MESMO grupo físico de Coordenação;
+    a pausada nunca pode 'responder' por causa do nosso sistema."""
+    capturas = _capturar_respostas(monkeypatch)
+    modelo_id = await _seed_modelo(conn, instance=_INSTANCE, grupo_jid=_GRUPO_JID, status="pausada")
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    atendimento_id, numero_curto = await _seed_atendimento_em_execucao(
+        conn, cliente_id=cliente_id, modelo_id=modelo_id, conversa_id=conversa_id
+    )
+    bloqueio_id = await _seed_bloqueio(conn, modelo_id=modelo_id, atendimento_id=atendimento_id)
+
+    resposta = await _chamar_webhook(
+        conn,
+        _payload_grupo(
+            instance=_INSTANCE,
+            grupo_jid=_GRUPO_JID,
+            texto=f"fechado 1500 #{numero_curto}",
+            message_id=f"cmd-modelo-pausada-{uuid4().hex}",
+        ),
+    )
+
+    assert resposta == {"status": "modelo_pausada"}
+
+    a = await _ler_atendimento(conn, atendimento_id)
+    assert a["estado"] == "Em_execucao"
+    assert a["valor_final"] is None
+    assert await _estado_bloqueio(conn, bloqueio_id) == "em_atendimento"
+    assert await _tem_evento(conn, atendimento_id, "fechado_registrado") is False
+    # nenhum envio de saída tentado — nem confirmação, nem erro, nem card.
+    assert capturas == []

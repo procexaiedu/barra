@@ -105,6 +105,23 @@ async def test_pausa_concorrente_zera_todas_as_aimessages_do_turno() -> None:
     assert zeradas == {"a1": "", "a2": ""}
 
 
+async def test_escalada_do_turno_preserva_bolha_de_espera_e_zera_o_pos_escalar() -> None:
+    """Pausa do PROPRIO turno (escalar): a fala emitida ANTES do tool_call sai ao cliente (senao
+    toda escalada vira silencio); o que a IA escrever DEPOIS segue descartado (04 §3.5)."""
+    a1 = _ai_turno("Um momento amor", "a1")
+    a1.tool_calls = [{"name": "escalar", "args": {}, "id": "tc1", "type": "tool_call"}]
+    state = {
+        "messages": [
+            HumanMessage(content="oi", id="h1"),
+            a1,
+            ToolMessage(content="escalada aberta", id="t1", tool_call_id="tc1"),
+            _ai_turno("ja te retorno", "a2"),  # desobediencia pos-escalar
+        ]
+    }
+    out = await mod.post_process(state, _runtime(ia_pausada=True))  # type: ignore[arg-type]
+    assert {m.id: m.content for m in out["messages"]} == {"a2": ""}
+
+
 async def test_sem_pausa_nao_zera() -> None:
     """ia_pausada=false: turno segue normal, post_process e no-op (nao mexe nas mensagens)."""
     state = {"messages": [HumanMessage(content="oi", id="h1"), _ai_turno("resposta", "a1")]}

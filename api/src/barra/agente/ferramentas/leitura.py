@@ -68,7 +68,11 @@ async def consultar_agenda(
               FROM barravips.bloqueios
              WHERE modelo_id = %s
                AND estado IN ('bloqueado', 'em_atendimento')
-               AND (inicio AT TIME ZONE 'America/Sao_Paulo')::date BETWEEN %s AND %s
+               -- Sobreposicao com a janela [data_inicio 00:00, data_fim+1 00:00) em BRT, nao so a
+               -- data do INICIO: pernoite (12h) atravessa a meia-noite e some se filtrado pelo
+               -- inicio -- a tool afirmaria "nenhum horario ocupado" num dia ocupado.
+               AND inicio < (%s::date + 1)::timestamp AT TIME ZONE 'America/Sao_Paulo'
+               AND fim > %s::date::timestamp AT TIME ZONE 'America/Sao_Paulo'
                AND (%s::uuid IS NULL OR atendimento_id IS DISTINCT FROM %s::uuid)
              ORDER BY inicio
              LIMIT %s
@@ -80,7 +84,7 @@ async def consultar_agenda(
             # janela da tool cobre datas >48h, justo onde mora um bloqueio_previo distante. `IS
             # DISTINCT FROM` preserva avulsos (atendimento_id NULL); o gate `%s IS NULL` mantem tudo
             # quando nao ha atendimento no contexto. A nao-sobreposicao real segue no criar_bloqueio_previo.
-            (modelo_id, di, df, atendimento_id, atendimento_id, _MAX_BLOQUEIOS + 1),
+            (modelo_id, df, di, atendimento_id, atendimento_id, _MAX_BLOQUEIOS + 1),
         )
         rows = await res.fetchall()
     if not rows:

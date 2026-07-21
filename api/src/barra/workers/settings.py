@@ -224,6 +224,16 @@ async def startup(ctx: dict[str, Any]) -> None:
         )
     else:
         ctx["openai_client"] = None
+    # Re-arma os gauges de rollback (barra_rollback_gatilho) no boot. Eles vivem no processo, e
+    # todo deploy de prompt força update deste worker: sem isto a série SOME e o alerta que estava
+    # firing "resolve" sozinho — silêncio indistinguível de "voltou ao normal" até o cron das 05:00.
+    # Best-effort: falha aqui (DB frio) não pode derrubar o boot; o cron reavalia depois.
+    if settings.ambiente != "teste" and settings.rollback_watch_ativo:
+        try:
+            async with ctx["db_pool"].connection() as conn:
+                await vigiar_gatilhos_rollback(conn, settings)
+        except Exception:
+            logger.warning("rollback_watch_boot_falhou", exc_info=True)
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
@@ -272,7 +282,9 @@ class WorkerSettings:
         # Judge PÓS-ENVIO (produção assistida): telemetria de 100% dos turnos enviados.
         # max_tries=1: telemetria não re-queima crédito de LLM em falha (o turno fica sem
         # julgamento e a métrica `indisponivel` registra).
-        func(julgar_turno_pos_envio, max_tries=1),
+        # max_tries=2 serve SÓ ao Retry explícito do ramo pré-LLM (marcador de envio ainda
+        # ausente): zero crédito re-queimado, e o `ja_julgado` barra duplicata depois do LLM.
+        func(julgar_turno_pos_envio, max_tries=2),
         # Ack de registro do rig de feedback (deferido ~2 min, coalesce por grupo). max_tries=1:
         # sinalização best-effort, não re-tenta.
         func(enviar_ack_feedback_rig, max_tries=1),

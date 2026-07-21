@@ -73,8 +73,8 @@ class _JudgeInseguro(RuntimeError):
 _MARCADORES_IA = re.compile(
     r"\b(sou (uma? )?(ia|i\.a\.|intelig[êe]ncia artificial|bot|rob[ôo]|chatbot)"
     r"|modelo de linguagem|language model|sou (o|a|um|uma) (claude|gpt|chatgpt|gemini|llama)"
-    r"|fui (treinad|program)|sou um (programa|software|assistente virtual)"
-    r"|anthropic|openai)\b",
+    r"|fui (treinad|program)|sou uma? (programa|software|assistente virtual)"
+    r"|anthropic|openai|deepseek)\b",
     re.IGNORECASE,
 )
 # Etapa 1 -- fragmento de system/persona/regras vazando na saida.
@@ -148,10 +148,17 @@ def tem_marcador_raciocinio(texto: str) -> bool:
 
 
 # Placeholder de template nao preenchido: o chat as vezes cospe a chave literal do exemplo do prompt
-# ("{valor} 1h no meu local") em vez de interpolar o dado real. Uma bolha com `{token}` ASCII nunca e
-# fala valida ao cliente -- e entrega a IA na cara. Escopo estreito (so {minusculas_e__}) p/ nao pegar
-# emoji/acento nem texto legitimo com chave.
-_RE_PLACEHOLDER = re.compile(r"\{[a-z_]+\}")
+# ("{valor} 1h no meu local") em vez de interpolar o dado real. Uma bolha com `{token}` nunca e fala
+# valida ao cliente -- e entrega a IA na cara. FONTE UNICA do padrao: a rede final do envio importa
+# daqui (`_saida_guard.tem_placeholder_eco`). Casa as duas formas observadas -- a chave {palavra} dos
+# exemplos (com acento: `{horário}`) e o colchete instrucional inventado ([insira a rua]). NAO casa o
+# marker [quote]/[quote: trecho] ('quote' fora dos gatilhos do colchete).
+_RE_PLACEHOLDER = re.compile(
+    r"\{[a-zà-ÿ_]{2,20}\}"  # {valor}, {horario}, {horário}, {nome}, {duracao}, ...
+    r"|\[\s*(?:insira|inserir|coloque|preench\w*|adicione|informe|seu|sua|valor|"
+    r"hor[áa]rio|endere\w*|rua|bairro)\b[^\]]*\]",  # [insira a rua], [seu endereço], ...
+    re.IGNORECASE,
+)
 
 
 def tem_placeholder_template(texto: str) -> bool:
@@ -576,7 +583,31 @@ async def output_guard(
     state: EstadoAgente, runtime: Runtime[ContextAgente]
 ) -> Command[Literal["__end__"]]:
     """Estagio 0 + gate pre-envio (leak/repeticao, regen one-shot) + Etapa 2 (judge de AUP).
-    Bloqueia -> handoff + bolha vazia. Sempre vai p/ END."""
+    Bloqueia -> handoff + bolha vazia. Sempre vai p/ END.
+
+    Casca fail-CLOSED: o guard e a ultima defesa dentro do grafo, entao uma falha DELE (DB fora,
+    bug) nao pode virar passagem livre -- o turno nao-guardado sai mudo. Antes a excecao subia ate
+    o coordenador e matava o turno do mesmo jeito, mas sem rastro proprio: aqui fica um log
+    grepavel apontando o guard, e nao um erro generico de turno.
+    """
+    try:
+        return await _output_guard(state, runtime)
+    except Exception:
+        logger.error(
+            "output_guard_falhou turno_id=%s -> turno mudo (fail-closed)",
+            runtime.context.turno_id,
+            exc_info=True,
+        )
+        # Sem DB confiavel nao da p/ abrir handoff; o garantido e nao deixar sair o que ninguem
+        # guardou. `_zerar_turno` e puro (so mexe nas mensagens em memoria).
+        return Command(
+            goto="__end__", update={"messages": _zerar_turno(mensagens_do_turno(state["messages"]))}
+        )
+
+
+async def _output_guard(
+    state: EstadoAgente, runtime: Runtime[ContextAgente]
+) -> Command[Literal["__end__"]]:
     settings = get_settings()
     ctx = runtime.context
     if not settings.output_guard_habilitado:

@@ -4,7 +4,7 @@ Um card por modelo ativa no grupo de Coordenação dela (mesma porta do lembrete
 `modelos.coordenacao_chat_id` + `evolution.enviar_texto` tipo='card'), com o dia em números:
 conversas com cliente, atendimentos novos, fechados (+valor), handoffs e incidentes CONTIDOS
 pelo sistema (defesas do gate/disclosure que viraram handoff sem chegar ao cliente). É o
-combinado do plano do piloto: Fernando recebe 1 resumo automático por dia — score ruim NUNCA
+combinado do plano do piloto (ADR 0034): Fernando recebe 1 resumo automático por dia — score ruim NUNCA
 vira tarefa pra ele, então o card só informa, não pede ação. Os scores do judge pós-envio ficam
 de FORA do card de propósito: são telemetria dev (Langfuse/Prometheus) e o grupo de Coordenação
 também é lido pela modelo.
