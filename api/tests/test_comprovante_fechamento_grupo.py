@@ -197,6 +197,34 @@ async def test_valor_digitado_vence(monkeypatch) -> None:
     assert aplicados[0]["payload"]["valor_final"] == Decimal("1500")
 
 
+async def test_ia_pausa_na_legenda_nao_aciona_ocr(monkeypatch) -> None:
+    """Paridade com `IA assume`/`fechado`: legenda com comando COMPLETO (`IA pausa #N`) pausa a
+    IA direto, SEM cair no OCR de comprovante (mesma disciplina do 'valor digitado vence')."""
+    aplicados: list[dict[str, Any]] = []
+
+    async def _fake_aplicar(conn: Any, **k: Any) -> None:
+        aplicados.append(k)
+
+    async def _fake_responder(*a: Any, **k: Any) -> None:
+        pass
+
+    monkeypatch.setattr(routes, "aplicar_comando", _fake_aplicar)
+    monkeypatch.setattr(routes, "_responder_grupo", _fake_responder)
+    minio, arq = FakeMinio(), FakeArq()
+    res = await routes._processar_comprovante_grupo(
+        FakeConn(),
+        _request(minio, arq),
+        _img(caption=f"IA pausa #{_NUMERO}"),
+        (b"\xff\xd8\xffimg", "image/jpeg"),
+        "Fernando",
+        None,
+    )
+    assert res == {"status": "processed"}
+    assert arq.jobs == []  # OCR nao acionado
+    assert len(aplicados) == 1
+    assert aplicados[0]["comando"] == "pausar_ia"
+
+
 async def test_sem_ancora_pede_numero(monkeypatch) -> None:
     """Sem quote e sem #N na legenda -> recuperacao (#N obrigatorio), nao enfileira."""
     respostas: list[str] = []

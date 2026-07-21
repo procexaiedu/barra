@@ -614,6 +614,7 @@ async def _processar_comprovante_grupo(
         "registrar_fechado",
         "registrar_perdido",
         "devolver_para_ia",
+        "pausar_ia",
     ):
         return await _despachar_comando_grupo(request, conn, msg, comando, autor)
 
