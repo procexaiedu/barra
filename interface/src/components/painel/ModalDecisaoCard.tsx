@@ -132,12 +132,14 @@ const BADGE_VARIANT: Record<IaPausadaMotivo, "revisao" | "handoff" | "info"> = {
   pix_em_revisao: "revisao",
   handoff_ia: "handoff",
   modelo_em_atendimento: "info",
+  pausa_manual_operador: "handoff",
 }
 
 const BADGE_LABEL: Record<IaPausadaMotivo, string> = {
   pix_em_revisao: "Pix em revisão",
   handoff_ia: "Aguardando você",
   modelo_em_atendimento: "Modelo atendendo",
+  pausa_manual_operador: "Pausado manualmente",
 }
 
 // ── componente principal ──────────────────────────────────────────────────────
@@ -318,7 +320,10 @@ export function ModalDecisaoCard({
   const comprovante = contexto?.comprovantes_pix[0] ?? null
   const mensagensOrdenadas = contexto ? [...contexto.mensagens.slice(0, 10)].reverse() : []
   const isPix = card?.ia_pausada_motivo === "pix_em_revisao"
-  const isHandoff = card?.ia_pausada_motivo === "handoff_ia"
+  // Pausa manual (ADR-0032) e handoff automatico da IA compartilham a mesma tela de decisao —
+  // ambos aguardam o operador decidir/devolver, so o gatilho que os abriu difere.
+  const isHandoff =
+    card?.ia_pausada_motivo === "handoff_ia" || card?.ia_pausada_motivo === "pausa_manual_operador"
   const isModeloAtendendo = card?.ia_pausada_motivo === "modelo_em_atendimento"
   const isEmExecucao = isModeloAtendendo && contexto?.atendimento.estado === "Em_execucao"
   const isConfirmado = isModeloAtendendo && contexto?.atendimento.estado === "Confirmado"

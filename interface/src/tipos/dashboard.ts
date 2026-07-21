@@ -13,6 +13,7 @@ export const TIPOS_ESCALADA = [
   "comportamento_atipico",
   "indisponibilidade",
   "video_chamada",
+  "pausa_manual_operador",
   "outro",
 ] as const
 

@@ -39,6 +39,8 @@ async def aplicar_comando(
 
         if comando == "devolver_para_ia":
             return await _devolver_para_ia(conn, atendimento, origem, autor, payload)
+        if comando == "pausar_ia":
+            return await _pausar_ia(conn, atendimento, origem, autor, payload)
         if comando == "registrar_fechado":
             return await _registrar_fechado(conn, atendimento, origem, autor, payload)
         if comando == "registrar_perdido":
@@ -106,6 +108,38 @@ async def _devolver_para_ia(
         (payload.get("usuario_id"), _canal(origem), atendimento["id"]),
     )
     await _evento(conn, atendimento["id"], "devolucao_para_ia", origem, autor, payload)
+    return ResultadoComando(atendimento["id"], atendimento["estado"], atendimento["pix_status"])
+
+
+async def _pausar_ia(
+    conn: AsyncConnection[Any],
+    atendimento: dict[str, Any],
+    origem: Origem,
+    autor: Autor,
+    payload: dict[str, Any],
+) -> ResultadoComando:
+    """Handoff manual (ADR-0032): Fernando/modelo pausa a IA por decisão livre, sem depender de
+    um gatilho automático do state machine (Pix, Foto de portaria). Reativa pela Devolução já
+    existente (`_devolver_para_ia`), que fecha a escalada aberta aqui.
+
+    Idempotente: reusa `abrir_handoff`, que não abre segunda escalada se já houver uma aberta —
+    pausar um atendimento já pausado (manual ou automaticamente) não quebra nem duplica.
+    """
+    if atendimento["estado"] in {"Fechado", "Perdido"}:
+        raise ConflitoEstado("Atendimento ja esta finalizado.")
+
+    await abrir_handoff(
+        conn,
+        atendimento_id=atendimento["id"],
+        responsavel="Fernando",
+        tipo=TipoEscalada.pausa_manual_operador,
+        resumo_operacional=payload.get("observacao") or "Pausa manual do operador.",
+        acao_esperada="Devolver para a IA quando puder retomar.",
+        origem=origem,
+        autor=autor,
+        observacao=payload.get("observacao"),
+        ia_pausada_motivo="pausa_manual_operador",
+    )
     return ResultadoComando(atendimento["id"], atendimento["estado"], atendimento["pix_status"])
 
 
@@ -502,6 +536,7 @@ async def abrir_handoff(
     autor: Autor,
     observacao: str | None = None,
     card_message_id: str | None = None,
+    ia_pausada_motivo: str = "handoff_ia",
 ) -> None:
     motivo_texto = observacao or rotulo_tipo_escalada(tipo)
     async with conn.transaction():
@@ -540,13 +575,13 @@ async def abrir_handoff(
             """
             UPDATE barravips.atendimentos
                SET ia_pausada = true,
-                   ia_pausada_motivo = 'handoff_ia',
+                   ia_pausada_motivo = %s,
                    responsavel_atual = %s,
                    motivo_escalada = %s,
                    proxima_acao_esperada = %s
              WHERE id = %s
             """,
-            (responsavel, motivo_texto, acao_esperada, atendimento_id),
+            (ia_pausada_motivo, responsavel, motivo_texto, acao_esperada, atendimento_id),
         )
         await _evento(
             conn,

@@ -1,4 +1,8 @@
-export type IaPausadaMotivo = 'pix_em_revisao' | 'modelo_em_atendimento' | 'handoff_ia'
+export type IaPausadaMotivo =
+  | 'pix_em_revisao'
+  | 'modelo_em_atendimento'
+  | 'handoff_ia'
+  | 'pausa_manual_operador'
 export type EstadoBloqueio = 'bloqueado' | 'em_atendimento' | 'concluido' | 'cancelado'
 export type OrigemBloqueio = 'ia' | 'painel_fernando' | 'manual'
 

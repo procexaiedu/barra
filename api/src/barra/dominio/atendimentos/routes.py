@@ -3,6 +3,7 @@ import io
 import json
 import logging
 from datetime import date
+from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -23,9 +24,14 @@ from barra.dominio.atendimentos.schemas import (
     EditarDadosRequest,
     FecharRequest,
     MidiaInternaResponse,
+    PausarRequest,
     PerderRequest,
 )
-from barra.dominio.atendimentos.service import garantir_atendimento_aberto, validar_transicao_painel
+from barra.dominio.atendimentos.service import (
+    calcular_preco_extra_fetiche,
+    garantir_atendimento_aberto,
+    validar_transicao_painel,
+)
 from barra.dominio.escaladas.service import aplicar_comando
 
 _logger = logging.getLogger(__name__)
@@ -569,6 +575,24 @@ async def devolver_atendimento(
     return {"id": result.atendimento_id, "estado": result.estado, "ia_pausada": False}
 
 
+@router.post("/{atendimento_id}/pausar")
+async def pausar_atendimento(
+    atendimento_id: UUID,
+    body: PausarRequest,
+    user: UsuarioAtual = Depends(get_user),
+    conn: AsyncConnection[Any] = Depends(get_conn),
+) -> dict[str, Any]:
+    result = await aplicar_comando(
+        conn,
+        origem="painel",
+        autor="Fernando",
+        atendimento_id=atendimento_id,
+        comando="pausar_ia",
+        payload={"observacao": body.observacao, "usuario_id": str(user.id)},
+    )
+    return {"id": result.atendimento_id, "estado": result.estado, "ia_pausada": True}
+
+
 @router.post("/{atendimento_id}/fechar")
 async def fechar_atendimento(
     atendimento_id: UUID,
@@ -841,8 +865,29 @@ async def adicionar_fetiche(
     )
     if mf is None:
         raise NaoEncontrado("Fetiche não vinculado à modelo")
-    # ON CONFLICT idempotente (mesmo motivo de adicionar_servico). preco_snapshot pode ser
-    # NULL (fetiche incluso) — snapshot do preço vinculado no momento do registro.
+    # NULL = incluso (sem custo extra). NOT NULL = pago — o valor cadastrado em si é ignorado
+    # (ADR-0030): o extra é sempre calculado a partir do(s) programa(s) vendidos no atendimento.
+    preco_extra: Decimal | None = None
+    if mf["preco"] is not None:
+        servicos = await _fetch_all(
+            conn,
+            """
+            SELECT ats.preco_snapshot, d.horas
+              FROM barravips.atendimento_servicos ats
+              JOIN barravips.duracoes d ON d.id = ats.duracao_id
+             WHERE ats.atendimento_id = %s
+            """,
+            (atendimento_id,),
+        )
+        if not servicos:
+            raise ConflitoEstado(
+                "nenhum_servico_vendido",
+                details={"atendimento_id": str(atendimento_id)},
+            )
+        preco_tabela = sum((s["preco_snapshot"] for s in servicos), Decimal("0"))
+        duracao_horas = max(s["horas"] for s in servicos)
+        preco_extra = calcular_preco_extra_fetiche(preco_tabela, duracao_horas)
+    # ON CONFLICT idempotente (mesmo motivo de adicionar_servico).
     row = await _fetch_one(
         conn,
         """
@@ -852,7 +897,7 @@ async def adicionar_fetiche(
           SET atendimento_id = EXCLUDED.atendimento_id
         RETURNING id, fetiche_id, preco_snapshot, created_at
         """,
-        (atendimento_id, body.fetiche_id, mf["preco"]),
+        (atendimento_id, body.fetiche_id, preco_extra),
     )
     assert row is not None
     return row

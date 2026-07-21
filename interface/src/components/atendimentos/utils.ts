@@ -37,12 +37,14 @@ export const motivoIaLabel: Record<IaPausadaMotivo, string> = {
   pix_em_revisao: "Pix em revisão",
   handoff_ia: "Aguardando você",
   modelo_em_atendimento: "Modelo atendendo",
+  pausa_manual_operador: "Pausado manualmente",
 }
 
 const MOTIVO_ESCALADA_TEXTO: Record<IaPausadaMotivo, string> = {
   pix_em_revisao: "Pix duvidoso, precisa da sua decisão",
   handoff_ia: "IA escalou para você",
   modelo_em_atendimento: "Modelo passou do tempo previsto",
+  pausa_manual_operador: "Pausa manual do operador",
 }
 
 const MOTIVO_TEXTO_LIVRE: Record<string, string> = {

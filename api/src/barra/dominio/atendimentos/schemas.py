@@ -17,6 +17,10 @@ class DevolverRequest(BaseModel):
     observacao: str | None = None
 
 
+class PausarRequest(BaseModel):
+    observacao: str | None = None
+
+
 class FecharRequest(BaseModel):
     valor_final: Decimal = Field(ge=0)
     # Taxa de cartão (ADR 0013): o backend carimba taxa_cartao_snapshot a partir de

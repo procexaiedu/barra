@@ -13,7 +13,11 @@ export type EstadoAtendimento =
 
 export type TipoAtendimento = "interno" | "externo" | "remoto"
 export type Urgencia = "imediato" | "agendado" | "indefinido" | "estimado"
-export type IaPausadaMotivo = "pix_em_revisao" | "modelo_em_atendimento" | "handoff_ia"
+export type IaPausadaMotivo =
+  | "pix_em_revisao"
+  | "modelo_em_atendimento"
+  | "handoff_ia"
+  | "pausa_manual_operador"
 export type ResponsavelAtual = "IA" | "Fernando" | "modelo"
 export type MotivoPerda = "preco" | "sumiu" | "risco" | "indisponibilidade" | "fora_de_area" | "outro"
 export type DirecaoMensagem = "cliente" | "ia" | "modelo_manual"

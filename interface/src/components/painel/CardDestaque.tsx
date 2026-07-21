@@ -26,6 +26,7 @@ const BADGE_MAP: Record<IaPausadaMotivo, { variant: "revisao" | "handoff" | "inf
   pix_em_revisao:        { variant: "revisao", label: "Pix em revisão",   borderClass: "border-l-danger-500" },
   handoff_ia:            { variant: "handoff", label: "Aguardando você",  borderClass: "border-l-warn-500"   },
   modelo_em_atendimento: { variant: "info",    label: "Modelo atendendo", borderClass: "border-l-info-500"   },
+  pausa_manual_operador: { variant: "handoff", label: "Pausado manualmente", borderClass: "border-l-warn-500" },
 }
 
 function urgenciaClasse(iaEmAt: string): string {

@@ -100,7 +100,8 @@ async def painel_resumo(
         JOIN barravips.clientes c ON c.id = a.cliente_id
         JOIN barravips.modelos m ON m.id = a.modelo_id
         WHERE a.ia_pausada = true
-          AND a.ia_pausada_motivo IN ('pix_em_revisao', 'modelo_em_atendimento', 'handoff_ia')
+          AND a.ia_pausada_motivo IN
+              ('pix_em_revisao', 'modelo_em_atendimento', 'handoff_ia', 'pausa_manual_operador')
           {filtro_modelo_sql}
         ORDER BY a.updated_at ASC NULLS LAST
         """,
@@ -133,7 +134,12 @@ async def painel_resumo(
             }
         )
 
-    ordem_motivo = {"pix_em_revisao": 0, "handoff_ia": 1, "modelo_em_atendimento": 2}
+    ordem_motivo = {
+        "pix_em_revisao": 0,
+        "pausa_manual_operador": 1,
+        "handoff_ia": 2,
+        "modelo_em_atendimento": 3,
+    }
     cards_destaque.sort(
         key=lambda c: (ordem_motivo.get(c["ia_pausada_motivo"], 9), c["ia_pausada_em"] or "")
     )
