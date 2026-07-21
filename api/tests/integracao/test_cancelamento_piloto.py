@@ -228,7 +228,9 @@ async def test_cancela_apos_10min_perdido_pausa_ia_e_cancela_bloqueio(
     _args, kwargs = calls[0].args, calls[0].kwargs
     assert kwargs["conversa_id"] == str(conversa_id)
     assert kwargs["midias"] == []
-    assert kwargs["critico"] is False
+    # Critico: a desculpa nao pode ser cancelada pelo gate de pausa (a IA acabou de ser pausada)
+    # nem pelo cancel-on-new-message (o cliente esperando confirmacao costuma escrever no meio).
+    assert kwargs["critico"] is True
     assert len(kwargs["chunks"]) == 1
     assert kwargs["chunks"][0]
     assert kwargs["_job_id"] == f"cancelamento_piloto:{atendimento_id}"

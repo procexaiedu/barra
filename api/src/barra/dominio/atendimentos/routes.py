@@ -650,6 +650,16 @@ async def alterar_estado(
         "UPDATE barravips.atendimentos SET estado = %s WHERE id = %s",
         (body.estado, atendimento_id),
     )
+    if body.estado == "Aguardando_confirmacao":
+        # Mesma ancora que a transicao do agente carimba (ADR-0033, service.py): sem ela o
+        # atendimento promovido pelo kanban entra em Aguardando_confirmacao com
+        # `aguardando_confirmacao_em` NULL e o cron `cancelar_piloto_teste` NUNCA o alcanca —
+        # o cliente ficaria negociando um encontro que nao vai acontecer. First-write-wins.
+        await conn.execute(
+            "UPDATE barravips.atendimentos SET aguardando_confirmacao_em = now() "
+            "WHERE id = %s AND aguardando_confirmacao_em IS NULL",
+            (atendimento_id,),
+        )
     await conn.execute(
         "INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)"
         " VALUES (%s, 'transicao_estado', 'painel', 'Fernando', %s::jsonb)",

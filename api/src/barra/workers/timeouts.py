@@ -339,7 +339,15 @@ async def cancelar_piloto_teste(
             midias=[],
             msg_ids_cliente=[],
             chars_inbound=0,
-            critico=False,
+            # `critico=True`: o efeito de dominio JA foi commitado (Perdido + IA pausada + bloqueio
+            # cancelado) e nada mais vai falar com o cliente depois disto -- a desculpa TEM de sair.
+            # Sem isto, o `enviar_turno` cancelaria a bolha em dois pontos: (a) gate de pausa no
+            # fire (`ia_pausada`) e (b) cancel-on-new-message, que dispara se o cliente mandar
+            # qualquer mensagem entre o enqueue e o fire (o turno leva reading/typing delay) --
+            # justamente o cliente que esta esperando a confirmacao. Nos dois casos ele ficaria no
+            # vacuo, com o atendimento morto e a IA muda. Critico tambem faz a falha final do envio
+            # abrir handoff (dead-end, 05 §7) em vez de perder a desculpa em silencio.
+            critico=True,
             _job_id=f"cancelamento_piloto:{atendimento_id}",
         )
         PILOTO_CANCELAMENTO.labels("enviado").inc()
