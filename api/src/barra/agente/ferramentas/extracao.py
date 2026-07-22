@@ -64,6 +64,9 @@ _DESC_HORARIO = (
     "for em OUTRO dia (não hoje), grave data_desejada no MESMO turno junto com a hora — a "
     "reserva do slot usa os DOIS e, sem o dia, cai em HOJE (slot no dia errado). NÃO preencha em "
     "horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar. "
+    "CRÍTICO: se a hora foi VOCÊ que propôs ('consigo às 22h, fecha ?') e o cliente confirmou "
+    "('pode', 'fechou', 'isso', 'pode ser'), esse sim É o horário — grave-o, não espere ele "
+    "repetir o número. "
     "Depois de registrado, NÃO recalcule horário relativo nos turnos seguintes — omita o campo "
     "(o snapshot preserva o anterior); só reenvie se o CLIENTE pedir outro horário."
 )
