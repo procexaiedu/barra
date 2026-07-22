@@ -217,16 +217,21 @@ def render_fetiches(fetiches: list[dict[str, Any]], programas: list[dict[str, An
     prompt. Ambas as listas devem chegar ordenadas de forma determinística (pré-req do cache —
     agente/CLAUDE.md): a combinação (fetiche x programa) sai na mesma ordem sempre, sem depender
     do turno/conversa."""
-    precos_por_programa = [
-        {
-            "nome": p["nome"],
-            "duracao_nome": p["duracao_nome"],
-            "extra": calcular_preco_extra_fetiche(
-                Decimal(str(p["preco"])), Decimal(str(p["duracao_horas"]))
-            ),
-        }
-        for p in programas
-    ]
+    precos_por_programa = []
+    for p in programas:
+        extra = calcular_preco_extra_fetiche(
+            Decimal(str(p["preco"])), Decimal(str(p["duracao_horas"]))
+        )
+        precos_por_programa.append(
+            {
+                "nome": p["nome"],
+                "duracao_nome": p["duracao_nome"],
+                "extra": extra,
+                # Total pré-computado (programa + extra): a conta chega pronta no dado — o
+                # modelo copia, não soma (800+800 já saiu como "1200" em replay 22/07).
+                "total": Decimal(str(p["preco"])) + extra,
+            }
+        )
     return _env.get_template("fetiches.md.j2").render(
         fetiches=fetiches, precos_por_programa=precos_por_programa
     )

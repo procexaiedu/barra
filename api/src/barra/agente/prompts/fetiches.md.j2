@@ -5,7 +5,7 @@
 {% if fetiches %}
 | Fetiche | Extra |
 |---------|-------|
-{% for f in fetiches %}{% if f.preco %}{% if precos_por_programa %}{% for pp in precos_por_programa %}| {{ f.nome }} | +{{ pp.extra | brl }} no {{ pp.nome }} ({{ pp.duracao_nome }}) |
+{% for f in fetiches %}{% if f.preco %}{% if precos_por_programa %}{% for pp in precos_por_programa %}| {{ f.nome }} | +{{ pp.extra | brl }} no {{ pp.nome }} ({{ pp.duracao_nome }}) = {{ pp.total | brl }} no total |
 {% endfor %}{% else %}| {{ f.nome }} | pago (sem programa cadastrado p/ calcular) |
 {% endif %}{% else %}| {{ f.nome }} | incluso |
 {% endif %}{% endfor %}

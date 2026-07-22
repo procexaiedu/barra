@@ -655,6 +655,23 @@ async def _resolver_variaveis(
     )
     cliente = await res.fetchone() or {}
 
+    # Trilho determinístico do período longo (feedbacks 21-22/07: "pernoite 12h 2000"/"3h 800"
+    # inventados quando a tabela só tem 1h — prosa e armadilha não seguraram o example-bleed):
+    # quando a tabela não tem pacote de 6h+, o contexto declara que período longo NÃO existe
+    # (<sem_periodo_longo>). Determinístico (deriva do cadastro) e cache-safe (bytes estáveis
+    # enquanto o cadastro não muda; vive no contexto por-turno, nunca no prefixo).
+    res = await conn.execute(
+        """
+        SELECT COALESCE(MAX(d.horas), 0) AS max_horas
+          FROM barravips.modelo_programas mp
+          JOIN barravips.duracoes d ON d.id = mp.duracao_id
+         WHERE mp.modelo_id = %s
+        """,
+        (ctx.modelo_id,),
+    )
+    row_horas = await res.fetchone() or {}
+    tabela_max_horas = float(row_horas.get("max_horas") or 0)
+
     # Exclui o bloqueio do ATENDIMENTO ATUAL: sem checkpointer a IA não lembra que reservou esse
     # slot pra ESTE cliente (prompt reconstruído do zero todo turno) — se o visse na lista de
     # "ocupados" recusaria o próprio horário e re-negociaria com o cliente. O guard de overlap em
@@ -803,6 +820,10 @@ async def _resolver_variaveis(
         # Ponto de encontro gated por estado (<local_de_encontro>); None fora do gate.
         "local_endereco": local_endereco,
         "local_nome": local_nome,
+        # Trilho do período longo: tabela sem pacote de 6h+ -> <sem_periodo_longo> no contexto.
+        # max==0 (cadastro vazio, estado anormal) não injeta — não é "sem período longo".
+        "tabela_max_horas": tabela_max_horas,
+        "sem_periodo_longo": 0 < tabela_max_horas < 6,
         "recorrente": conversa.get("recorrente", False),
         "observacoes_internas": conversa.get("observacoes_internas"),
         "ultimo_motivo_perda": conversa.get("ultimo_motivo_perda"),
