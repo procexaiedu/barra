@@ -21,7 +21,11 @@ from barra.dominio.agenda.service import (
     ForaDisponibilidade,
     HorarioNaoDefinido,
 )
-from barra.dominio.atendimentos.service import CotacaoAusente, registrar_extracao_ia
+from barra.dominio.atendimentos.service import (
+    CotacaoAusente,
+    ParPrecoDuracaoInvalido,
+    registrar_extracao_ia,
+)
 
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
@@ -211,7 +215,11 @@ class ExtracaoPayload(BaseModel):
 @tool
 async def registrar_extracao(
     proxima_acao_esperada: Annotated[
-        str, Field(min_length=3, max_length=240, description=_DESC_PROXIMA_ACAO)
+        # Sem max_length na assinatura de proposito: acima de 240 o texto e TRUNCADO no corpo
+        # (nota interna, cortar nao perde nada critico) em vez de estourar validacao -> retry do
+        # tool-call inteiro (ruido recorrente em prod; feedback piloto 21/07).
+        str,
+        Field(min_length=3, description=_DESC_PROXIMA_ACAO),
     ],
     runtime: ToolRuntime[ContextAgente],
     intencao: Annotated[
@@ -286,6 +294,10 @@ async def registrar_extracao(
     # handler de AntecedenciaInsuficiente): ancora o fallback de tempo imediato (#4) no dominio. O
     # `now` cru nao passaria a guarda estrita de antecedencia; o horario_minimo, sim (por construcao).
     horario_minimo = runtime.state.get("horario_minimo")
+
+    # Clamp antes da revalidacao: o model interno mantem max_length=240 como invariante; aqui o
+    # excesso vira truncamento silencioso (ver comentario na assinatura).
+    proxima_acao_esperada = proxima_acao_esperada[:240]
 
     # Revalida os args achatados no model interno (constraints ge/le, min/max_length, forbid).
     payload = ExtracaoPayload(
@@ -382,6 +394,20 @@ async def registrar_extracao(
                 "ERRO: ainda não há horário combinado neste atendimento, então o sistema não "
                 "reservou nada — NUNCA diga ao cliente que confirmou. Combine o horário com ele e "
                 "registre `data_desejada` + `horario_desejado` no mesmo registro."
+            ) from None
+        except ParPrecoDuracaoInvalido:
+            # Guarda do par preco x duracao (feedback piloto 21/07): a IA esticou a duracao por
+            # cima de um valor combinado pra OUTRA duracao ("3h 800" com tabela so de 1h). A
+            # transacao reverteu; a instrucao cobre os dois caminhos honestos (re-cotar pela
+            # tabela ou nao vender o periodo) — nunca improvisar preco.
+            AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "par_preco_duracao").inc()
+            raise ToolException(
+                "ERRO: essa duração não combina com o valor já acordado — o valor na mesa é de "
+                "OUTRA duração, e vender um período pelo preço de outro é prejuízo. Se a sua "
+                "tabela em <programas> tem o período, re-cote pelo preço DELA (diga o valor novo "
+                "ao cliente) e registre valor_acordado + duracao_horas JUNTOS; se NÃO tem, siga "
+                "sua conduta de período fora da tabela (ver <sobe_o_ticket>) — sem registrar "
+                "essa duração."
             ) from None
         except CotacaoAusente:
             # Guard onda 1 A: combinar horário sem preço dito. A transação reverteu; a IA precisa

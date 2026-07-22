@@ -126,7 +126,8 @@ Estes pontos foram implementados de forma defensiva a partir do playbook validad
   msg. Relevante para reengajamento/reativação a frio — monitorar.
 - **view-once (Mídia exclusiva)**: o `/send/media` da EvoGo oficial não expõe `viewOnce`, então a
   mídia vai normal e o campo enviado sob o toggle é ignorado. O patch da EvoGo que habilita está
-  pronto em `docs/patches/evolution-go-view-once.patch` (build/deploy pendentes, §0) —
+  pronto em `docs/patches/evolution-go-view-once-0.7.1.patch` (base = a versão em prod;
+  build/deploy pendentes, §0) —
   ver `docs/evolution-view-once.md`.
 
 ## Rollback

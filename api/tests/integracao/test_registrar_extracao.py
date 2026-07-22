@@ -26,6 +26,7 @@ from barra.agente.ferramentas._idempotencia import _executar_idempotente
 from barra.dominio.agenda.service import BRT, ConflitoAgenda
 from barra.dominio.atendimentos.service import (
     CotacaoAusente,
+    ParPrecoDuracaoInvalido,
     _abaixo_do_piso,
     registrar_extracao_ia,
 )
@@ -666,6 +667,110 @@ async def test_lowball_sem_duracao_no_payload_ainda_escala(
     esc = await res.fetchone()
     assert esc is not None
     assert esc["tipo"] == "fora_de_oferta"
+
+
+# --- guarda do par preco x duracao (feedback piloto 21/07 — "3h 800" com tabela so de 1h) ----
+
+
+@pytest.mark.needs_db
+async def test_duracao_muda_sem_valor_par_abaixo_do_piso_erro_recuperavel(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """A IA estica a duracao (1h -> 3h) sem re-cotar: o valor persistido (800, da 1h) fica abaixo
+    do piso pra duracao nova (sem programa de 3h na tabela -> abaixo por definicao). O registro
+    NAO grava e levanta ParPrecoDuracaoInvalido (erro recuperavel: a tool instrui a re-cotacao)."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("800"))
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET valor_acordado = 800 WHERE id = %s",
+        (atendimento_id,),
+    )
+
+    with pytest.raises(ParPrecoDuracaoInvalido):
+        await registrar_extracao_ia(
+            conn,
+            str(atendimento_id),
+            {"duracao_horas": "3", "proxima_acao_esperada": "fechar 3h com o cliente"},
+        )
+
+    # Nada gravado: duracao segue a da cotacao original.
+    res = await conn.execute(
+        "SELECT duracao_horas, valor_acordado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["duracao_horas"] == Decimal("1")
+    assert a["valor_acordado"] == Decimal("800")
+
+
+@pytest.mark.needs_db
+async def test_duracao_muda_com_par_valido_grava_normal(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Mudar a duracao com o valor persistido AINDA acima do piso da duracao nova nao dispara:
+    valor 1000 (preco cheio da 2h) cobre o piso da tabela de 2h."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("600"))
+    await _seed_programa(conn, modelo_id, horas=Decimal("2"), preco=Decimal("1000"))
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET valor_acordado = 1000 WHERE id = %s",
+        (atendimento_id,),
+    )
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"duracao_horas": "2", "proxima_acao_esperada": "combinar o horario"},
+    )
+
+    res = await conn.execute(
+        "SELECT duracao_horas FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["duracao_horas"] == Decimal("2")
+
+
+@pytest.mark.needs_db
+async def test_duracao_muda_sem_valor_persistido_nao_dispara(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Sem valor_acordado persistido nao ha par a conferir: registrar duracao nova segue livre
+    (a cotacao do periodo vem depois, pelo trilho normal)."""
+    _modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Triagem",
+        tipo_atendimento="interno",
+        intencao="cotacao",
+    )
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"duracao_horas": "3", "proxima_acao_esperada": "cotar o periodo pedido"},
+    )
+
+    res = await conn.execute(
+        "SELECT duracao_horas FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["duracao_horas"] == Decimal("3")
 
 
 # --- _abaixo_do_piso contra desconto_teto_pct (ADR-0031 — dois degraus) ----------------------

@@ -362,10 +362,20 @@ class Settings(BaseSettings):
     piloto_auto_cancela_ativo: bool = Field(
         default=True,
         description="Liga o cancelamento automático de segurança do piloto de teste (ADR-0033): "
-        "10min após um Atendimento entrar em Aguardando_confirmacao, cancela antes que qualquer "
-        "Pix de deslocamento seja pedido — o piloto roda sem modelo real, sem intenção de atender "
-        "ninguém de verdade. Ligado por padrão durante o piloto; desligue via "
+        "no interno, cancela quando o cliente avisa que saiu (Aviso de saída) ou perto do horário "
+        "combinado (PILOTO_CANCELA_ANTES_MIN antes de bloqueios.inicio) — feedback do Fernando "
+        "21/07: deixar o agendamento consolidar mede se o cliente iria marcar de verdade. No "
+        "externo/remoto segue 10min após Aguardando_confirmacao (o Pix é pedido no crava; o "
+        "invariante é cancelar antes de dinheiro em jogo). O piloto roda sem modelo real, sem "
+        "intenção de atender ninguém de verdade. Ligado por padrão durante o piloto; desligue via "
         "PILOTO_AUTO_CANCELA_ATIVO=false quando evoluir para atendimento real.",
+    )
+    piloto_cancela_antes_min: int = Field(
+        default=15,
+        ge=0,
+        description="Quantos minutos ANTES do horário combinado (bloqueios.inicio) o cancelamento "
+        "do piloto dispara num atendimento interno sem Aviso de saída. 0 = cancela só no horário. "
+        "Ajustável sem deploy enquanto Fernando calibra o gatilho.",
     )
     pix_deslocamento_valor: Decimal = Field(
         default=Decimal("100.00"),

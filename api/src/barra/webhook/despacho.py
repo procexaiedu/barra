@@ -22,7 +22,7 @@ async def enfileirar_processar_turno(
     *,
     aguardar_transcricao: bool = False,
     request_id: str | None = None,
-    defer_s: int = 12,
+    defer_s: int = 180,
 ) -> None:
     """Enqueue de `processar_turno` com coalesce first-wins + fallback de varredura.
 

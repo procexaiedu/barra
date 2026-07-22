@@ -232,11 +232,23 @@ async def cancelar_piloto_teste(
 
     O piloto roda sem modelo real (anuncio generico, sem intencao de atender ninguem de verdade) --
     sem salvaguarda, um cliente real poderia negociar ate o horario combinado e mandar o Pix de
-    deslocamento por um encontro que nunca vai acontecer. 10min depois de um Atendimento entrar em
-    Aguardando_confirmacao (`aguardando_confirmacao_em`, carimbado na transicao -- ver
-    dominio/atendimentos/service.py -- e distinto de `bloqueios.inicio`, o horario do encontro em
-    si), cancela: desculpa generica ao cliente (sorteada, evita padrao identico repetido), marca o
-    Atendimento como Perdido (motivo `outro`) e pausa a IA (Handoff manual, ADR-0032).
+    deslocamento por um encontro que nunca vai acontecer. Gatilho por tipo (feedback Fernando
+    21/07 -- cancelar 10min apos o crava matava o sinal de "iria marcar de verdade"):
+
+    - interno: deixa o agendamento consolidar e cancela quando o cliente avisa que saiu
+      (`aviso_saida_em`) OU perto do horario combinado (`bloqueios.inicio` menos
+      `piloto_cancela_antes_min`) -- o que vier primeiro. Sem Pix no interno, esperar e seguro.
+      O Aviso de saida e opcional: quem chega cedo sem avisar manda a Foto de portaria e transiciona
+      automatico pra Em_execucao (IA pausada) -- por isso o cron TAMBEM cancela Em_execucao interno
+      nao-processado (a desculpa sai na hora; `pausar_ia` e idempotente pra ja-pausado).
+    - externo/remoto: 10min depois de entrar em Aguardando_confirmacao
+      (`aguardando_confirmacao_em`, carimbado na transicao -- ver dominio/atendimentos/service.py
+      -- e distinto de `bloqueios.inicio`, o horario do encontro em si). Nesses tipos o crava
+      dispara solicitacao de Pix (deslocamento no externo, valor da chamada no remoto); o
+      invariante do ADR-0033 e cancelar antes de dinheiro em jogo, entao o cancelamento cedo fica.
+
+    Ao disparar, cancela: desculpa generica ao cliente (sorteada, evita padrao identico repetido),
+    marca o Atendimento como Perdido (motivo `outro`) e pausa a IA (Handoff manual, ADR-0032).
 
     Atomico: `FOR UPDATE OF a SKIP LOCKED` mantem o lock das linhas alvo pela transacao INTEIRA --
     selecao, pausa da IA, marca de Perdido, cancelamento do bloqueio, eventos de auditoria e o
@@ -258,16 +270,35 @@ async def cancelar_piloto_teste(
         return 0
 
     async with conn.transaction():
+        # LEFT JOIN: o bloqueio previo e criado na transicao p/ Aguardando_confirmacao, mas um
+        # atendimento sem bloqueio (borda) nao pode travar o cron dos demais -- no interno sem
+        # bloqueio o gatilho fica so no aviso de saida.
+        # O braco de Em_execucao interno fecha o furo da Foto de portaria (review 22/07): cliente
+        # que nao avisa e chega cedo manda a foto -> transicao automatica pra Em_execucao com IA
+        # pausada, fora do funil de Aguardando_confirmacao -- sem este braco ele ficaria na
+        # portaria sem desculpa, exatamente o cenario que o ADR-0033 existe pra evitar.
         result = await conn.execute(
             """
-            SELECT a.id, a.conversa_id
+            SELECT a.id, a.conversa_id, a.estado::text AS estado_anterior
               FROM barravips.atendimentos a
-             WHERE a.estado = 'Aguardando_confirmacao'
-               AND a.aguardando_confirmacao_em IS NOT NULL
-               AND a.aguardando_confirmacao_em < now() - interval '10 minutes'
+              LEFT JOIN barravips.bloqueios b ON b.id = a.bloqueio_id
+             WHERE a.aguardando_confirmacao_em IS NOT NULL
                AND a.piloto_cancelado_em IS NULL
+               AND (
+                     (a.estado = 'Aguardando_confirmacao' AND (
+                          (a.tipo_atendimento = 'interno' AND (
+                               a.aviso_saida_em IS NOT NULL
+                            OR (b.inicio IS NOT NULL
+                                AND b.inicio - make_interval(mins => %s) <= now())
+                          ))
+                       OR (a.tipo_atendimento IS DISTINCT FROM 'interno'
+                           AND a.aguardando_confirmacao_em < now() - interval '10 minutes')
+                     ))
+                  OR (a.estado = 'Em_execucao' AND a.tipo_atendimento = 'interno')
+                   )
              FOR UPDATE OF a SKIP LOCKED
-            """
+            """,
+            (settings.piloto_cancela_antes_min,),
         )
         alvos = await result.fetchall()
 
@@ -312,10 +343,10 @@ async def cancelar_piloto_teste(
                 """
                 INSERT INTO barravips.eventos (atendimento_id, tipo, origem, autor, payload)
                 VALUES (%s, 'transicao_estado', 'cron', 'sistema',
-                        jsonb_build_object('de', 'Aguardando_confirmacao', 'para', 'Perdido',
+                        jsonb_build_object('de', %s::text, 'para', 'Perdido',
                                             'fonte', 'auto_cancelamento_piloto'))
                 """,
-                (atendimento_id,),
+                (atendimento_id, a["estado_anterior"]),
             )
             await conn.execute(
                 """

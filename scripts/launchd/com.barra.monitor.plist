@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Vigia de prod: roda scripts/monitor_atendimentos.py a cada 5 min.
+
+  O launchd NAO herda o PATH do shell interativo, dai o PATH explicito abaixo — sem ele o estagio 2
+  nao acha o binario `claude` e todo tick morre no julgamento.
+
+  Instalar:
+    cp scripts/launchd/com.barra.monitor.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.barra.monitor.plist
+  Desligar:
+    launchctl unload ~/Library/LaunchAgents/com.barra.monitor.plist
+  Rodar agora, sem esperar o tick:
+    launchctl start com.barra.monitor
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.barra.monitor</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/farjallat/.local/bin/uv</string>
+    <string>run</string>
+    <string>--project</string>
+    <string>api</string>
+    <string>python</string>
+    <string>scripts/monitor_atendimentos.py</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/farjallat/barra</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>/Users/farjallat/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+
+  <key>StartInterval</key>
+  <integer>300</integer>
+
+  <!-- Nao roda no load: o primeiro tick e o marco zero e ele acontece no proximo intervalo. -->
+  <key>RunAtLoad</key>
+  <false/>
+
+  <key>StandardOutPath</key>
+  <string>/Users/farjallat/.barra-monitor/launchd.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/farjallat/.barra-monitor/launchd.err.log</string>
+</dict>
+</plist>

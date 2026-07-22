@@ -9,7 +9,9 @@ Nenhuma das plataformas **oficiais** expõe view-once no envio de mídia:
 - **EvoGo** (`evolution-foundation/evolution-go`, o que roda em prod hoje): `MediaStruct`
   (`pkg/sendMessage/service/send_service.go`) não tem `viewOnce`, e o `/send/media` monta
   `ImageMessage`/`VideoMessage` sem marcar view-once. Mandar o campo no body é **ignorado** no bind
-  do Gin. Não há endpoint de mensagem crua que permita contornar por fora.
+  do Gin. Confirmado também no **swagger vivo de prod** (`https://evogo.procexai.tech/swagger/doc.json`):
+  o `MediaStruct` publicado não tem o campo, nenhum dos 62 bodies de request menciona `viewOnce`, e
+  não há endpoint de mensagem crua que permita contornar por fora.
 - **Evolution v2** (histórico, antes do cutover): `SendMediaDto` também não tem o campo e a
   [issue #1651](https://github.com/evolution-foundation/evolution-api/issues/1651) foi fechada sem
   implementação.
@@ -22,9 +24,20 @@ A **whatsmeow** (lib por baixo da EvoGo) expõe tudo o que o protocolo precisa: 
 
 ## Patch da EvoGo (pronto)
 
-**`docs/patches/evolution-go-view-once.patch`** — aplicável com `git am` sobre
-`evolution-foundation/evolution-go`. Escrito e verificado sobre o HEAD `9337afc` (0.7.2):
-`go build ./...` e `go test ./pkg/sendMessage/...` verdes (inclui `view_once_test.go`, novo).
+Dois arquivos, ambos aplicáveis com `git am` e ambos verificados com `go build ./...` +
+`go test ./pkg/sendMessage/...` verdes (inclui o `view_once_test.go`, novo):
+
+| Patch | Base | Para quê |
+|---|---|---|
+| `docs/patches/evolution-go-view-once-0.7.1.patch` | tag `0.7.1` | **é o que vai pra prod** |
+| `docs/patches/evolution-go-view-once-0.7.2.patch` | HEAD `9337afc` (0.7.2) | PR upstream |
+
+**Por que 0.7.1**: comparando o swagger vivo de prod com o de cada tag, prod é **exatamente a
+0.7.1** (77 paths, diff vazio nos dois sentidos; a 0.7.2 tem 88 e a 0.7.0, 60). Buildar de `main`
+embutiria um upgrade 0.7.1→0.7.2 junto com o patch, nas três instâncias — risco que não faz parte
+do pedido. Note que a 0.7.1 ainda usa o **fork do whatsmeow da EvolutionAPI como submódulo**
+(`whatsmeow-lib`, `replace` no go.mod, e o Dockerfile copia esse diretório): clonar **sem**
+`--recurse-submodules` quebra o build. A 0.7.2 já migrou para o whatsmeow upstream.
 
 O que ele faz:
 
@@ -38,15 +51,16 @@ Detalhe que importa: o wrap acontece **depois** do `ContextInfo` (quote, mençõ
 `SendMessage` resolve olhando `msg.ImageMessage`/`msg.VideoMessage` pelo `messageType`. Envolver
 antes deixaria esses ponteiros nil e mataria a citação. Tipos não-mídia e newsletter ignoram o flag.
 
-Aplicar:
+Aplicar (é o que o `infra/scripts/build-evogo-viewonce.sh` faz, já com o `docker build`):
 
 ```bash
-git clone https://github.com/evolution-foundation/evolution-go.git evogo-fork
-cd evogo-fork && git am < <caminho>/docs/patches/evolution-go-view-once.patch
+git clone --recurse-submodules --branch 0.7.1 \
+  https://github.com/evolution-foundation/evolution-go.git evogo-fork
+cd evogo-fork && git am < <caminho>/docs/patches/evolution-go-view-once-0.7.1.patch
 go build ./... && go test ./pkg/sendMessage/...
 ```
 
-Ideal é mandar como PR upstream — se entrar, o fork some e basta subir a tag nova.
+Ideal é mandar o de 0.7.2 como PR upstream — se entrar, o fork some e basta subir a tag nova.
 
 ## Build e deploy da imagem patchada (runbook)
 
@@ -59,19 +73,23 @@ stack (`evolution-go_evogo_postgres`), não em volume de arquivos.
 > recai na regra §0 do CLAUDE.md: autorização explícita, frase a frase, e janela combinada.
 > Os passos 1–3 (build/push) não tocam prod; 4–6 tocam.
 
-1. **Conferir a versão real de prod** antes de buildar — `latest` é tag móvel; parear com o commit
-   correspondente do upstream (o patch foi feito sobre 0.7.2) e rebasear se divergir.
-2. **Buildar** com tag própria e versionada pelo patch:
+1. **Reconferir a versão de prod** antes de buildar — `latest` é tag móvel. Método: baixar
+   `https://evogo.procexai.tech/swagger/doc.json` e comparar o conjunto de paths com o
+   `docs/swagger.json` de cada tag do repo; a que der diff vazio é a versão. Em 21/07 deu **0.7.1**
+   (77 paths). Se tiver mudado, rebasear o patch na tag nova.
+2. **Buildar na própria VPS** (Swarm de 1 nó ⇒ imagem local basta, sem registry):
    ```bash
-   docker build -t <registry>/evolution-go:0.7.2-viewonce1 .
+   ./infra/scripts/build-evogo-viewonce.sh docs/patches/evolution-go-view-once-0.7.1.patch
    ```
-3. **Push** para um registry alcançável pelos nós do Swarm (sem isso o Swarm não faz pull).
+3. Só se um dia o Swarm tiver mais de um nó: push para um registry alcançável por todos.
 4. **Trocar a imagem do serviço** — ⚠️ **NÃO** usar `StackGitRedeploy` (zera o Env da stack) nem
    `docker restart` (deixa task órfã no Swarm):
    ```bash
-   docker service update --image <registry>/evolution-go:0.7.2-viewonce1 --force evolution-go_evolution_go
+   docker service update --image evolution-go:0.7.1-viewonce1 --force evolution-go_evolution_go
    ```
    Confirmar `1/1` replicas e as 3 instâncias reconectadas (`GET /instance/all` → `connected`).
+   O stack file segue apontando `latest`: um `StackUpdate` futuro reverteria a imagem — realinhar
+   o compose quando o patch virar definitivo.
 5. **Ligar o toggle no Barra**: `EVOLUTION_VIEW_ONCE=true` no Env da stack `barra-vips` (api +
    worker) e `service update --force` nos dois — o worker é quem envia a mídia
    (ver [[deploy_agente_roda_no_worker]]).

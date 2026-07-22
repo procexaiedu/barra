@@ -10,12 +10,15 @@ Gatilho ancorado em `aguardando_confirmacao_em` (carimbado na transicao para Agu
 
 Cobre:
   - flag_off: nao consulta/nao age, mesmo com atendimento elegivel.
-  - happy: entrou em Aguardando_confirmacao ha > 10min -> Perdido/outro + observacao de auditoria,
-    IA pausada (handoff aberto, ia_pausada=true), bloqueio cancelado, desculpa enfileirada.
-  - recente: entrou ha < 10min -> intacto.
+  - happy (externo): entrou em Aguardando_confirmacao ha > 10min -> Perdido/outro + observacao de
+    auditoria, IA pausada (handoff aberto, ia_pausada=true), bloqueio cancelado, desculpa enfileirada.
+  - recente (externo): entrou ha < 10min -> intacto.
   - ja_processado: `piloto_cancelado_em` ja setado -> idempotente, nao reprocessa.
   - sem_ancora: `aguardando_confirmacao_em` NULL (atendimento pre-existente sem o carimbo) -> intacto.
   - estado_errado: atendimento em outro estado (ex. Confirmado) -> fora de escopo do cron.
+  - interno (feedback Fernando 21/07): 10min sem aviso e horario longe -> intacto; aviso de saida
+    -> cancela na hora; inicio - piloto_cancela_antes_min <= now -> cancela; horario ainda alem da
+    antecedencia -> intacto.
 """
 
 from __future__ import annotations
@@ -88,14 +91,18 @@ async def _seed_atendimento(
     c: AsyncConnection[dict[str, Any]],
     *,
     estado: str = "Aguardando_confirmacao",
+    tipo_atendimento: str = "externo",
     aguardando_confirmacao_min_atras: float | None = 15,
+    aviso_saida_min_atras: float | None = None,
+    inicio_em_min: float = 60,
     piloto_cancelado: bool = False,
     bloqueio_estado: str = "bloqueado",
 ) -> tuple[UUID, UUID, UUID]:
     """Atendimento em `estado` (default Aguardando_confirmacao), com bloqueio vinculado.
 
     `aguardando_confirmacao_min_atras=None` deixa a coluna NULL (atendimento sem a ancora, ex.
-    pre-existente a migration). Devolve (atendimento_id, conversa_id, bloqueio_id)."""
+    pre-existente a migration). `inicio_em_min` posiciona o `bloqueios.inicio` relativo a agora
+    (gatilho interno "perto do horario"). Devolve (atendimento_id, conversa_id, bloqueio_id)."""
     modelo_id = await _seed_modelo(c)
     cliente_id = uuid4()
     await c.execute(
@@ -117,13 +124,19 @@ async def _seed_atendimento(
         else datetime.now(UTC) - timedelta(minutes=aguardando_confirmacao_min_atras)
     )
     piloto_cancelado_em = datetime.now(UTC) - timedelta(minutes=5) if piloto_cancelado else None
+    aviso_saida_em = (
+        None
+        if aviso_saida_min_atras is None
+        else datetime.now(UTC) - timedelta(minutes=aviso_saida_min_atras)
+    )
     await c.execute(
         """
         INSERT INTO barravips.atendimentos
             (id, cliente_id, modelo_id, conversa_id, estado, tipo_atendimento,
-             aguardando_confirmacao_em, piloto_cancelado_em, fonte_decisao_ultima_transicao)
+             aguardando_confirmacao_em, aviso_saida_em, piloto_cancelado_em,
+             fonte_decisao_ultima_transicao)
         VALUES (%s, %s, %s, %s, %s::barravips.estado_atendimento_enum,
-                'externo'::barravips.tipo_atendimento_enum, %s, %s, 'extracao_ia')
+                %s::barravips.tipo_atendimento_enum, %s, %s, %s, 'extracao_ia')
         """,
         (
             atendimento_id,
@@ -131,12 +144,14 @@ async def _seed_atendimento(
             modelo_id,
             conversa_id,
             estado,
+            tipo_atendimento,
             aguardando_em,
+            aviso_saida_em,
             piloto_cancelado_em,
         ),
     )
     bloqueio_id = uuid4()
-    inicio = datetime.now(UTC) + timedelta(hours=1)
+    inicio = datetime.now(UTC) + timedelta(minutes=inicio_em_min)
     await c.execute(
         """
         INSERT INTO barravips.bloqueios (id, modelo_id, atendimento_id, inicio, fim, estado, origem)
@@ -308,6 +323,149 @@ async def test_estado_fora_de_aguardando_confirmacao_nao_dispara(
     total = await cancelar_piloto_teste(conn, redis, _settings())
     assert total == 0
     assert redis.enqueue_job.call_args_list == []
+
+
+# --- gatilho por tipo (feedback Fernando 21/07): interno espera consolidar ---------------------
+
+
+@pytest.mark.needs_db
+async def test_interno_10min_sem_aviso_horario_longe_nao_dispara(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # O gatilho antigo (10min apos o crava) NAO vale mais pro interno: sem aviso de saida e com o
+    # horario longe, o agendamento fica vivo pra medir se o cliente iria marcar de verdade.
+    await _seed_atendimento(
+        conn,
+        tipo_atendimento="interno",
+        aguardando_confirmacao_min_atras=30,
+        inicio_em_min=120,
+    )
+    redis = _redis_fake()
+
+    total = await cancelar_piloto_teste(conn, redis, _settings())
+    assert total == 0
+    assert redis.enqueue_job.call_args_list == []
+
+
+@pytest.mark.needs_db
+async def test_interno_aviso_de_saida_cancela(conn: AsyncConnection[dict[str, Any]]) -> None:
+    # "quando o cliente falar que estiver a caminho ai voce cancela" — aviso presente dispara na
+    # hora, mesmo recem-cravado e com horario longe.
+    atendimento_id, _conversa_id, bloqueio_id = await _seed_atendimento(
+        conn,
+        tipo_atendimento="interno",
+        aguardando_confirmacao_min_atras=1,
+        aviso_saida_min_atras=0,
+        inicio_em_min=120,
+    )
+    redis = _redis_fake()
+
+    total = await cancelar_piloto_teste(conn, redis, _settings())
+    assert total == 1
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Perdido"
+    assert a["ia_pausada"] is True
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = %s", (bloqueio_id,)
+    )
+    b = await res.fetchone()
+    assert b is not None and b["estado"] == "cancelado"
+
+
+@pytest.mark.needs_db
+async def test_interno_perto_do_horario_cancela(conn: AsyncConnection[dict[str, Any]]) -> None:
+    # Sem aviso de saida, o fallback e "perto do horario": inicio em 10min com antecedencia de
+    # 15min (piloto_cancela_antes_min) ja dispara.
+    atendimento_id, _conversa_id, _bloqueio_id = await _seed_atendimento(
+        conn,
+        tipo_atendimento="interno",
+        aguardando_confirmacao_min_atras=1,
+        inicio_em_min=10,
+    )
+    redis = _redis_fake()
+
+    total = await cancelar_piloto_teste(conn, redis, _settings(piloto_cancela_antes_min=15))
+    assert total == 1
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None and a["estado"] == "Perdido"
+
+
+@pytest.mark.needs_db
+async def test_interno_horario_alem_da_antecedencia_nao_dispara(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    await _seed_atendimento(
+        conn,
+        tipo_atendimento="interno",
+        aguardando_confirmacao_min_atras=20,
+        inicio_em_min=30,
+    )
+    redis = _redis_fake()
+
+    total = await cancelar_piloto_teste(conn, redis, _settings(piloto_cancela_antes_min=15))
+    assert total == 0
+    assert redis.enqueue_job.call_args_list == []
+
+
+@pytest.mark.needs_db
+async def test_interno_em_execucao_foto_de_portaria_cancela(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    # Furo da Foto de portaria (review 22/07): cliente que nao avisa e chega cedo manda a foto ->
+    # Em_execucao automatico com IA pausada, fora do funil de Aguardando_confirmacao. O cron
+    # precisa alcanca-lo: desculpa na hora, Perdido, evento com o estado de origem real.
+    atendimento_id, _conversa_id, bloqueio_id = await _seed_atendimento(
+        conn,
+        estado="Em_execucao",
+        tipo_atendimento="interno",
+        aguardando_confirmacao_min_atras=2,
+        inicio_em_min=120,
+        bloqueio_estado="em_atendimento",
+    )
+    redis = _redis_fake()
+
+    total = await cancelar_piloto_teste(conn, redis, _settings())
+    assert total == 1
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, ia_pausada, piloto_cancelado_em "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Perdido"
+    assert a["ia_pausada"] is True
+    assert a["piloto_cancelado_em"] is not None
+
+    # Evento de transicao carrega o estado de origem real (nao o hardcoded antigo).
+    res = await conn.execute(
+        "SELECT payload FROM barravips.eventos "
+        "WHERE atendimento_id = %s AND tipo = 'transicao_estado'",
+        (atendimento_id,),
+    )
+    ev = await res.fetchone()
+    assert ev is not None and ev["payload"]["de"] == "Em_execucao"
+
+    # Bloqueio em_atendimento NAO e cancelado (mesma regra do Registro de resultado).
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = %s", (bloqueio_id,)
+    )
+    b = await res.fetchone()
+    assert b is not None and b["estado"] == "em_atendimento"
+
+    assert len(redis.enqueue_job.call_args_list) == 1
 
 
 # Anti-import-quebrado.

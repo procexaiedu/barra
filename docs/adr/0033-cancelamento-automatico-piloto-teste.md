@@ -10,8 +10,29 @@ O piloto de colocação da IA em produção (reunião 2026-07-20) roda sem uma m
 
 ## Decisão
 
-- **Gatilho:** quando o Atendimento entra em `Aguardando_confirmacao` (horário combinado cravado) — **antes** de qualquer Pix de deslocamento ser solicitado. Não espera `Confirmado`.
-- **Timer:** 10 minutos a partir do gatilho (worker agendado, mesmo padrão de outros timeouts determinísticos do domínio — Reengajamento, timeout interno ADR-0024). Com a antecedência mínima de agenda (`agenda_buffer_min`, ref. 30min, ADR-0025), o timer dispara antes de qualquer horário combinado legítimo chegar — a confirmar contra o valor real de produção antes do go-live.
+> **Emenda 2026-07-22 (feedback do Fernando no 1º dia real do piloto, 21/07 21:36):** cancelar 10min
+> após o crava matava o sinal que o piloto existe pra medir — "assim não dá pra saber se realmente
+> iria marcar; tem que marcar o horário e deixar chegar próximo, quando o cliente falar que estiver
+> a caminho aí você cancela". O gatilho passa a ser **por tipo**:
+>
+> - **interno** (sem Pix em jogo): deixa o agendamento consolidar; cancela no **Aviso de saída**
+>   ("estou indo") OU perto do horário combinado (`bloqueios.inicio − piloto_cancela_antes_min`,
+>   ref. 15min, configurável sem deploy) — o que vier primeiro. Como o Aviso de saída é opcional e
+>   a **Foto de portaria** transiciona automático para `Em_execucao`, o cron também cancela
+>   `Em_execucao` interno ainda não processado (a desculpa sai na hora, mesmo com IA já pausada).
+> - **externo/remoto**: mantém o timer original de 10min pós-`Aguardando_confirmacao`, porque
+>   nesses tipos o crava dispara a solicitação de Pix (deslocamento no externo, valor da chamada no
+>   remoto) e o invariante é cancelar antes de dinheiro trocar de mãos. **Pendência aberta com o
+>   Fernando:** suprimir a solicitação de Pix durante o piloto (permitindo cancelar perto do horário
+>   também no externo) ou manter o cancelamento cedo. Nota de honestidade: a solicitação sai NO
+>   crava, então mesmo o timer de 10min dispara com o pedido de Pix já enviado — o que o timer
+>   garante é cancelar antes do fluxo avançar (comprovante → `Confirmado`); cliente que paga em
+>   <10min escapa do funil (furo pré-existente, aceito no piloto).
+>
+> O restante do ADR (ao disparar, escopo, reversibilidade) permanece.
+
+- **Gatilho (original, superseded pela emenda acima):** quando o Atendimento entra em `Aguardando_confirmacao` (horário combinado cravado) — **antes** de qualquer Pix de deslocamento ser solicitado. Não espera `Confirmado`.
+- **Timer (original, superseded pela emenda acima):** 10 minutos a partir do gatilho (worker agendado, mesmo padrão de outros timeouts determinísticos do domínio — Reengajamento, timeout interno ADR-0024). Com a antecedência mínima de agenda (`agenda_buffer_min`, ref. 30min, ADR-0025), o timer dispara antes de qualquer horário combinado legítimo chegar — a confirmar contra o valor real de produção antes do go-live.
 - **Ao disparar:**
   1. Envia ao cliente uma desculpa genérica de cancelamento, sorteada de um pool pequeno (evita padrão idêntico repetido — mesmo risco de denúncia/bloqueio de WhatsApp por número não aquecido, discutido na reunião).
   2. Registra o Atendimento como `Perdido`, motivo `outro`, observação "cancelamento automático — piloto de teste".

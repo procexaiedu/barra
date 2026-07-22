@@ -26,6 +26,15 @@ class CotacaoAusente(Exception):
     reservar o slot, no mesmo padrao de ConflitoAgenda/ForaDisponibilidade."""
 
 
+class ParPrecoDuracaoInvalido(Exception):
+    """Registro de `duracao_horas` barrado: a duracao mudou NESTE turno sem re-cotacao e o
+    `valor_acordado` persistido (de outra duracao) ficaria abaixo do piso da tabela para a
+    duracao nova -- a IA vendendo "3h" pelo preco da 1h (feedback piloto 21/07, atendimento #10
+    da Tatiane). A guarda `_abaixo_do_piso` so roda quando o valor vem no payload; este e o furo
+    complementar. Recuperavel: a casca da tool instrui a IA a re-cotar pela tabela ou limpar o
+    valor, antes de a bolha sair."""
+
+
 # Mesmo fuso que prepare_context usa: o horario_minimo chega aware (UTC) e o horario_desejado é
 # gravado como hora LOCAL (prepare_context combina com tzinfo=_FUSO_BR ao reler).
 _FUSO_BR = ZoneInfo("America/Sao_Paulo")
@@ -338,6 +347,20 @@ async def registrar_extracao_ia(
             "mensagem": "Valor abaixo do piso de desconto: escalado para a modelo, valor nao gravado.",
             "novo_estado": None,
         }
+
+    # Guarda do par preco x duracao (feedback piloto 21/07): a duracao mudou neste turno SEM o
+    # valor vir junto -- o `valor_acordado` persistido e de outra duracao, e a guarda acima nao
+    # roda (so olha o payload). Sem isto a IA estica o periodo por cima do preco antigo ("3h 800"
+    # com tabela so de 1h) e o par nunca e conferido. Erro recuperavel (nao escalada): a bolha
+    # ainda nao saiu -- a IA corrige a fala e registra o par certo no mesmo turno.
+    if (
+        not _registra_valor(payload, limpar)
+        and payload.get("duracao_horas") is not None
+        and "duracao_horas" not in limpar
+        and "valor_acordado" not in limpar
+        and await _par_persistido_abaixo_do_piso(conn, aid, payload)
+    ):
+        raise ParPrecoDuracaoInvalido
 
     # Guarda do tipo de atendimento (CONTEXT.md "Atendimento interno vs externo",
     # defesa-em-profundidade sobre o prompt do BP3): tipo que a modelo nao aceita NAO e gravado
@@ -838,6 +861,28 @@ async def _abaixo_do_piso(
         return True
     fator = Decimal("1") - Decimal(str(get_settings().desconto_teto_pct))
     return valor < preco_tabela * fator
+
+
+async def _par_persistido_abaixo_do_piso(
+    conn: AsyncConnection[Any], atendimento_id: UUID, payload: dict[str, Any]
+) -> bool:
+    """Confere o par (valor_acordado JA persistido, duracao_horas do payload) contra o piso da
+    tabela. Sem valor persistido nao ha par a conferir (False). Reusa `_abaixo_do_piso` com um
+    payload sintetico -- mesma regra: sem programa na duracao nova, trata como abaixo (a IA nao
+    vende periodo fora da tabela)."""
+    res = await conn.execute(
+        "SELECT valor_acordado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None
+    if row["valor_acordado"] is None:
+        return False
+    return await _abaixo_do_piso(
+        conn,
+        atendimento_id,
+        {"valor_acordado": row["valor_acordado"], "duracao_horas": payload["duracao_horas"]},
+    )
 
 
 async def _preco_tabela_min(

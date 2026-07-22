@@ -7,10 +7,11 @@ os nomes de chave e TTLs consumidos por `webhook/despacho.py`.
 
 from uuid import UUID
 
-# TTLs em segundos. `pending` > `debounce`: o drain do coordenador le `pending` apos o
-# turno (01 §4.3); `debounce` e a janela curta do `_defer_by` do enqueue.
-TTL_PENDING = 120
-TTL_DEBOUNCE = 20
+# TTLs em segundos. `pending` > `debounce` > janela do `_defer_by` (180s): o drain do
+# coordenador le `pending` apos o turno (01 §4.3) e o gate de pendencia precisa achar a
+# chave viva quando o job deferido rodar; `debounce` cobre a janela do `_defer_by`.
+TTL_PENDING = 240
+TTL_DEBOUNCE = 200
 
 
 def chave_pending(conversa_id: UUID | str) -> str:

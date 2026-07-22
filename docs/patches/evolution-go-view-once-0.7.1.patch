@@ -1,0 +1,201 @@
+From 4639f22e8455e198cc7c3b6d1e004ada4c5014fa Mon Sep 17 00:00:00 2001
+From: Barra <dev@procexai.tech>
+Date: Tue, 21 Jul 2026 14:32:08 -0300
+Subject: [PATCH] feat(send/media): support viewOnce for image, video and audio
+
+Adds an optional `viewOnce` flag to POST /send/media (JSON and multipart).
+When set, the media message is marked with the inner `viewOnce` field and
+wrapped in `ViewOnceMessageV2`, which is what current WhatsApp clients render
+as the one-time-view badge.
+
+The wrap happens after ContextInfo (quote, mentions) is applied, so replies
+keep working. Non-media types and newsletters ignore the flag.
+---
+ pkg/sendMessage/handler/send_handler.go   |  6 ++-
+ pkg/sendMessage/service/send_service.go   | 43 ++++++++++++++++++
+ pkg/sendMessage/service/view_once_test.go | 53 +++++++++++++++++++++++
+ 3 files changed, 101 insertions(+), 1 deletion(-)
+ create mode 100644 pkg/sendMessage/service/view_once_test.go
+
+diff --git a/pkg/sendMessage/handler/send_handler.go b/pkg/sendMessage/handler/send_handler.go
+index 4d20e8b..b360be5 100644
+--- a/pkg/sendMessage/handler/send_handler.go
++++ b/pkg/sendMessage/handler/send_handler.go
+@@ -125,7 +125,9 @@ func (s *sendHandler) SendLink(ctx *gin.Context) {
+ 
+ // Send a media message
+ // @Summary Send a media message
+-// @Description Send a media message
++// @Description Send a media message.
++// @Description Set `viewOnce: true` to send image/video/audio as view-once (the message is
++// @Description wrapped in `ViewOnceMessageV2`; ignored for other types and for newsletters).
+ // @Tags Send Message
+ // @Accept json
+ // @Produce json
+@@ -176,6 +178,7 @@ func (s *sendHandler) SendMedia(ctx *gin.Context) {
+ 		}
+ 
+ 		mentionAll := ctx.PostForm("mentionAll") == "true"
++		viewOnce := ctx.PostForm("viewOnce") == "true"
+ 
+ 		var mentionedJID []string
+ 		// Accept multiple values (mentionedJid=x&mentionedJid=y) or a single
+@@ -223,6 +226,7 @@ func (s *sendHandler) SendMedia(ctx *gin.Context) {
+ 			MentionAll:   mentionAll,
+ 			MentionedJID: mentionedJID,
+ 			Quoted:       quoted,
++			ViewOnce:     viewOnce,
+ 		}
+ 
+ 		// Pass fileBytes to the send service
+diff --git a/pkg/sendMessage/service/send_service.go b/pkg/sendMessage/service/send_service.go
+index c6ecdcd..5491379 100644
+--- a/pkg/sendMessage/service/send_service.go
++++ b/pkg/sendMessage/service/send_service.go
+@@ -66,6 +66,7 @@ type SendDataStruct struct {
+ 	FormatJid    *bool
+ 	Quoted       QuotedStruct
+ 	MediaHandle  string
++	ViewOnce     bool
+ }
+ 
+ type QuotedStruct struct {
+@@ -111,6 +112,9 @@ type MediaStruct struct {
+ 	MentionAll   bool         `json:"mentionAll"`
+ 	FormatJid    *bool        `json:"formatJid,omitempty"`
+ 	Quoted       QuotedStruct `json:"quoted"`
++	// Send the media as view-once (image, video and audio only). WhatsApp hides it behind
++	// the "1" badge and drops it once the recipient opens it. Ignored for other types.
++	ViewOnce bool `json:"viewOnce,omitempty"`
+ }
+ 
+ type PollStruct struct {
+@@ -1169,6 +1173,7 @@ func (s *sendService) sendMediaFileWithRetry(data *MediaStruct, fileData []byte,
+ 			MentionedJID: data.MentionedJID,
+ 			FormatJid:    data.FormatJid,
+ 			MediaHandle:  uploaded.Handle,
++			ViewOnce:     data.ViewOnce,
+ 		})
+ 
+ 		if err != nil {
+@@ -1458,6 +1463,7 @@ func (s *sendService) sendMediaUrlWithRetry(data *MediaStruct, instance *instanc
+ 			MentionedJID: data.MentionedJID,
+ 			FormatJid:    data.FormatJid,
+ 			MediaHandle:  uploaded.Handle,
++			ViewOnce:     data.ViewOnce,
+ 		})
+ 
+ 		if err != nil {
+@@ -2018,6 +2024,36 @@ func (s *sendService) SendList(data *ListStruct, instance *instance_model.Instan
+ 	return message, nil
+ }
+ 
++// applyViewOnce marks an image/video/audio message as view-once and wraps it in the
++// ViewOnceMessageV2 envelope WhatsApp clients expect. Both are needed: the inner `viewOnce`
++// flag is what older clients read, the wrapper is what current iOS/Android/Web render as the
++// "1" badge. Any other message type is returned untouched (view-once is media-only).
++func applyViewOnce(msg *waE2E.Message, messageType string) *waE2E.Message {
++	switch messageType {
++	case "ImageMessage":
++		if msg.ImageMessage == nil {
++			return msg
++		}
++		msg.ImageMessage.ViewOnce = proto.Bool(true)
++	case "VideoMessage":
++		if msg.VideoMessage == nil {
++			return msg
++		}
++		msg.VideoMessage.ViewOnce = proto.Bool(true)
++	case "AudioMessage":
++		if msg.AudioMessage == nil {
++			return msg
++		}
++		msg.AudioMessage.ViewOnce = proto.Bool(true)
++	default:
++		return msg
++	}
++
++	return &waE2E.Message{
++		ViewOnceMessageV2: &waE2E.FutureProofMessage{Message: msg},
++	}
++}
++
+ func (s *sendService) SendMessage(instance *instance_model.Instance, msg *waE2E.Message, messageType string, data *SendDataStruct) (*MessageSendStruct, error) {
+ 	s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] SendMessage called for number: %s, type: %s", instance.Id, data.Number, messageType)
+ 
+@@ -2332,6 +2368,13 @@ func (s *sendService) SendMessage(instance *instance_model.Instance, msg *waE2E.
+ 		s.loggerWrapper.GetLogger(instance.Id).LogInfo("[%s] Newsletter detected, using MediaHandle: %s", instance.Id, data.MediaHandle)
+ 	}
+ 
++	// View-once: aplicado DEPOIS do ContextInfo (quote/menções), que é resolvido pelo
++	// `messageType` sobre o msg cru — envolver antes deixaria msg.ImageMessage nil e mataria a
++	// citação. Newsletter/canal não suporta view-once, então o flag é ignorado lá.
++	if data.ViewOnce && recipient.Server != "newsletter" {
++		msg = applyViewOnce(msg, messageType)
++	}
++
+ 	response, err := s.clientPointer[instance.Id].SendMessage(context.Background(), recipient, msg, sendExtra)
+ 	if err != nil {
+ 		s.loggerWrapper.GetLogger(instance.Id).LogError("[%s] Error sending message: %v", instance.Id, err)
+diff --git a/pkg/sendMessage/service/view_once_test.go b/pkg/sendMessage/service/view_once_test.go
+new file mode 100644
+index 0000000..e4df757
+--- /dev/null
++++ b/pkg/sendMessage/service/view_once_test.go
+@@ -0,0 +1,53 @@
++package send_service
++
++import (
++	"testing"
++
++	"go.mau.fi/whatsmeow/proto/waE2E"
++	"google.golang.org/protobuf/proto"
++)
++
++func TestApplyViewOnceWrapsImage(t *testing.T) {
++	msg := &waE2E.Message{ImageMessage: &waE2E.ImageMessage{
++		Caption: proto.String("hi"),
++		// ContextInfo is set before the wrap, so it must survive inside the envelope.
++		ContextInfo: &waE2E.ContextInfo{StanzaID: proto.String("QUOTED")},
++	}}
++
++	out := applyViewOnce(msg, "ImageMessage")
++
++	if out.ViewOnceMessageV2 == nil {
++		t.Fatal("expected the message to be wrapped in ViewOnceMessageV2")
++	}
++	inner := out.ViewOnceMessageV2.Message.GetImageMessage()
++	if !inner.GetViewOnce() {
++		t.Error("expected the inner ImageMessage to carry viewOnce=true")
++	}
++	if inner.GetContextInfo().GetStanzaID() != "QUOTED" {
++		t.Error("expected the quote ContextInfo to survive the wrap")
++	}
++}
++
++func TestApplyViewOnceWrapsVideoAndAudio(t *testing.T) {
++	video := applyViewOnce(&waE2E.Message{VideoMessage: &waE2E.VideoMessage{}}, "VideoMessage")
++	if !video.ViewOnceMessageV2.Message.GetVideoMessage().GetViewOnce() {
++		t.Error("expected video to be view-once")
++	}
++
++	audio := applyViewOnce(&waE2E.Message{AudioMessage: &waE2E.AudioMessage{}}, "AudioMessage")
++	if !audio.ViewOnceMessageV2.Message.GetAudioMessage().GetViewOnce() {
++		t.Error("expected audio to be view-once")
++	}
++}
++
++func TestApplyViewOnceIgnoresNonMedia(t *testing.T) {
++	msg := &waE2E.Message{DocumentMessage: &waE2E.DocumentMessage{}}
++
++	if out := applyViewOnce(msg, "DocumentMessage"); out.ViewOnceMessageV2 != nil {
++		t.Error("view-once is media-only; document must be sent untouched")
++	}
++	// A type/payload mismatch must not panic nor wrap an empty message.
++	if out := applyViewOnce(&waE2E.Message{}, "ImageMessage"); out.ViewOnceMessageV2 != nil {
++		t.Error("expected a nil ImageMessage to be returned untouched")
++	}
++}
+-- 
+2.50.1 (Apple Git-155)
+
