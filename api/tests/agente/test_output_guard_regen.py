@@ -233,6 +233,26 @@ async def test_mudo_por_saneamento_regen_limpou_despacha_a_nova(monkeypatch: Any
     assert msgs["regen1"] == "oi amor, me conta o que você procura?"
 
 
+async def test_sonda_regen_limpou_despacha_a_nova(monkeypatch: Any) -> None:
+    # Regressao (lead RNine, 22/07): a sonda era dropada em silencio no Estagio 0 e o turno saia so
+    # com o cumprimento, emperrando a conversa. Agora ela e gatilho de regen e a fala volta inteira.
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    _judge_ok(monkeypatch)
+    regen = _fake_regen("Tudo bem sim amor 🥰\n\nEstá aqui na cidade ?")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state("Tudo bem sim amor 🥰\n\nO que você procura ?"), _runtime()
+    )
+
+    assert regen.chamadas and regen.chamadas[0]["gatilho"] == "sonda"
+    msgs = _msgs_update(res)
+    assert msgs["a1"] == ""
+    assert msgs["regen1"] == "Tudo bem sim amor 🥰\n\nEstá aqui na cidade ?"
+    assert not cap.chamadas
+
+
 # --- fluxo: regen persistiu -----------------------------------------------------------------------
 
 
@@ -265,6 +285,24 @@ async def test_repeticao_persistiu_na_regen_fica_mudo_sem_handoff(monkeypatch: A
     assert not cap.chamadas  # repeticao NUNCA vira handoff: silencio > papagaio
     msgs = _msgs_update(res)
     assert msgs["a1"] == "" and msgs["regen1"] == ""
+
+
+async def test_sonda_persistiu_na_regen_dropa_so_o_probe(monkeypatch: Any) -> None:
+    # Reincidiu: cai no fallback de hoje (drop da bolha ofensora), mas o resto da fala sai.
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    _judge_ok(monkeypatch)
+    regen = _fake_regen("Tudo bem sim amor 🥰\n\nO que você busca ?")  # sonda de novo
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state("Tudo bem sim amor 🥰\n\nO que você procura ?"), _runtime()
+    )
+
+    assert not cap.chamadas  # sonda NUNCA vira handoff
+    msgs = _msgs_update(res)
+    assert msgs["a1"] == ""
+    assert msgs["regen1"] == "Tudo bem sim amor 🥰"
 
 
 # --- fluxo: regen desligada/indisponivel ----------------------------------------------------------

@@ -7,12 +7,12 @@ se a bolha pode seguir:
   mantendo a fala real.
 - Gate pre-envio (deterministico + regen one-shot, producao assistida): scan de vazamento no TEXTO
   DE SAIDA -- auto-referencia de IA / nome de LLM, fragmento de system/persona, segredo da agenda
-  (revelar estar com outro cliente) -- e detector de REPETICAO (bolha quase identica a uma bolha
-  recente da propria IA, rastro de papagaio). Turno sujo -> REGENERA 1x (chamada direta ao chat,
-  sem tools, com o rascunho descartado como feedback); persistiu -> fallback por gatilho: leak ->
-  bloqueia (handoff); repeticao -> dropa as bolhas repetidas (silencio > papagaio, sem handoff);
-  turno 100%-raciocinio -> mudo. Leak em LEGENDA de midia nao e regeneravel (ja persistida como
-  arg de tool) -> bloqueia direto. (O scan deterministico cross-modelo foi removido -- supersede
+  (revelar estar com outro cliente) --, detector de REPETICAO (bolha quase identica a uma bolha
+  recente da propria IA, rastro de papagaio) e SONDA-DE-BALCAO (o probe cru "o que voce procura?").
+  Turno sujo -> REGENERA 1x (chamada direta ao chat, sem tools, com o rascunho descartado como
+  feedback); persistiu -> fallback por gatilho: leak -> bloqueia (handoff); repeticao/sonda ->
+  dropa as bolhas ofensoras (silencio > papagaio/SAC, sem handoff); turno 100%-raciocinio -> mudo.
+  Leak em LEGENDA de midia nao e regeneravel (ja persistida como arg de tool) -> bloqueia direto. (O scan deterministico cross-modelo foi removido -- supersede
   ADR 0016: a IA roda por modelo e nunca tem em contexto o nome/numero de OUTRA modelo; isolamento
   garantido no carregamento; backstop semantico = judge.)
 - Etapa 2 (LLM-judge de AUP, vinculante): quando o gate passa e o texto NAO e uma negacao canned
@@ -47,6 +47,7 @@ from barra.core.metrics import (
     OUTPUT_RACIOCINIO_SANEADO,
     OUTPUT_REGEN,
     OUTPUT_REPETICAO_DETECTADA,
+    OUTPUT_SONDA_DETECTADA,
 )
 from barra.settings import get_settings
 
@@ -196,6 +197,16 @@ def tem_sonda_balcao(texto: str) -> bool:
     return bool(_RE_SONDA_BALCAO.search(texto)) and not _RE_CONVITE_CALOROSO.search(texto)
 
 
+def bolhas_sonda(texto: str) -> list[str]:
+    """Bolhas do turno que sao sonda-de-balcao crua (PURA; devolve as originais p/ o drop).
+
+    Vive no GATE, nao no Estagio 0: o drop mudo deixava o turno sem a pergunta que o modelo quis
+    fazer e a conversa parava (lead RNine, 22/07 -- "Tudo bem sim amor" sozinho, com a 2a bolha
+    comida). Como gatilho de regen, o chat reescreve o turno com a ancora concreta que a persona
+    manda usar; o drop de hoje vira so o fallback de quando a regen falha ou reincide."""
+    return [b for b in texto.split("\n\n") if tem_sonda_balcao(b)]
+
+
 # Promessa aberta "sem limite" (feedback Fernando, reuniao 22/07): quantidade de finalizacoes nao
 # se promete — "sem limite" deixa o servico aberto demais e nunca e fala valida da modelo. A prosa
 # em <girias_do_cliente> proibe, mas o chat re-emitiu a frase 2x no replay (white-bear); trilho
@@ -221,17 +232,13 @@ _RE_TAG_EXEMPLO = re.compile(r"</?(?:ela|cliente|exemplo|certo|errado|par|porque
 
 
 def _bolha_descartavel(b: str) -> bool:
-    """Bolha que o Estagio 0 strippa: raciocinio vazado, placeholder de template nao preenchido,
-    sonda-de-balcao crua ("o que voce procura?"), OU promessa aberta "sem limite". Nenhuma e fala
-    valida ao cliente -- as duas primeiras entregam a IA; a terceira e tell de SAC que a modelo
-    nunca faz (a forma calorosa escapa via `_RE_CONVITE_CALOROSO`, ver `tem_sonda_balcao`); a
-    quarta e promessa de quantidade que a operacao proibiu (reuniao 22/07)."""
-    return (
-        tem_marcador_raciocinio(b)
-        or tem_placeholder_template(b)
-        or tem_sonda_balcao(b)
-        or tem_promessa_sem_limite(b)
-    )
+    """Bolha que o Estagio 0 strippa: raciocinio vazado, placeholder de template nao preenchido, OU
+    promessa aberta "sem limite". Nenhuma e fala valida ao cliente -- as duas primeiras entregam a
+    IA; a terceira e promessa de quantidade que a operacao proibiu (reuniao 22/07).
+
+    A sonda-de-balcao NAO entra aqui: ela e fala do tipo certo dita do jeito errado, entao merece
+    regen (gatilho `sonda` do gate) em vez do drop mudo -- ver `bolhas_sonda`."""
+    return tem_marcador_raciocinio(b) or tem_placeholder_template(b) or tem_promessa_sem_limite(b)
 
 
 def _limpar_bolhas(texto: str) -> str:
@@ -441,7 +448,15 @@ _FEEDBACK_GATILHO = {
     ),
     "repeticao": "ela repetia quase igual algo que voce ja tinha mandado antes nesta conversa",
     "mudo": "ela era so raciocinio interno, sem nenhuma fala de verdade ao cliente",
+    "sonda": (
+        'ela perguntava de balcao o que ele queria ("o que voce procura?"), jeito de atendente '
+        "de SAC que voce nunca usa"
+    ),
 }
+_EXTRA_SONDA = (
+    ' Responda o que ele perguntou e, se for puxar, puxe com ancora concreta e fechada ("Esta '
+    'aqui na cidade ?", "Seria hoje ?") -- uma pergunta sua no turno, no maximo.'
+)
 _EXTRA_REPETICAO = (
     " Se tiver algo novo a dizer, diga de outro jeito (pode fazer referencia ao que ja falou); se "
     "nao tiver nada novo a acrescentar, devolva vazio -- silencio e melhor que repetir."
@@ -474,7 +489,7 @@ async def _regenerar(
 
     corte = messages.index(msgs_turno[0]) if msgs_turno else len(messages)
     janela = list(messages[:corte])
-    extra = _EXTRA_REPETICAO if gatilho == "repeticao" else ""
+    extra = {"repeticao": _EXTRA_REPETICAO, "sonda": _EXTRA_SONDA}.get(gatilho, "")
     feedback = (
         "<lembrete_silencioso>Sua ultima resposta foi descartada antes do envio: "
         f"{_FEEDBACK_GATILHO[gatilho]}.\n"
@@ -704,10 +719,15 @@ async def _output_guard(
         repetidas: list[str] = []
         if not motivo and settings.output_guard_repeticao_habilitada and texto.strip():
             repetidas = bolhas_repetidas(texto, historicas)
+        sondas: list[str] = []
+        if not motivo and not repetidas and texto.strip():
+            sondas = bolhas_sonda(texto)
         if motivo:
             gatilho = "leak"
         elif repetidas:
             gatilho = "repeticao"
+        elif sondas:
+            gatilho = "sonda"
         elif not texto.strip() and (saneou_tudo or nova_msg is not None):
             # turno 100%-raciocinio (t1) ou regen que devolveu vazio / foi toda saneada (t2).
             # Texto vazio SEM saneamento (turno so-midia) nao e mudo: cai no break e segue
@@ -761,10 +781,14 @@ async def _output_guard(
                 metric_key="output_leak",
             )
             return Command(goto=END, update={"messages": _zeradas_todas()})  # type: ignore[arg-type]
-        if gatilho == "repeticao":
-            conjunto = set(repetidas)
+        if gatilho in ("repeticao", "sonda"):
+            # Mesmo fallback p/ os dois: dropa a bolha ofensora e manda o resto (silencio >
+            # papagaio/SAC). So a metrica difere.
+            eh_rep = gatilho == "repeticao"
+            conjunto = set(repetidas if eh_rep else sondas)
             texto = _drop_bolhas(texto, conjunto)
-            OUTPUT_REPETICAO_DETECTADA.labels("dropada" if texto.strip() else "mudo").inc()
+            metrica = OUTPUT_REPETICAO_DETECTADA if eh_rep else OUTPUT_SONDA_DETECTADA
+            metrica.labels("dropada" if texto.strip() else "mudo").inc()
             if nova_msg is not None:
                 nova_msg = AIMessage(
                     id=nova_msg.id,

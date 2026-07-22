@@ -215,6 +215,14 @@ OUTPUT_REPETICAO_DETECTADA = Counter(
     "Bolhas repetidas barradas pelo detector de repeticao do output-guard, por acao",
     ["acao"],  # dropada | mudo
 )
+# Sonda-de-balcao ("o que voce procura?") barrada no GATE (nao mais dropada em silencio no Estagio
+# 0): o gatilho regenera 1x e so dropa se persistir -- a bolha dropada sem substituta deixava o
+# turno mudo e emperrava a conversa (lead RNine, 22/07).
+OUTPUT_SONDA_DETECTADA = Counter(
+    "agente_output_sonda_total",
+    "Bolhas de sonda-de-balcao barradas pelo output-guard apos a regen, por acao",
+    ["acao"],  # dropada | mudo
+)
 # Marcador de reply [quote]/[quote: trecho] residual removido pela rede final antes do envio: o
 # chunking deveria te-lo extraido no inicio da bolha, entao cada scrub aqui e regressao de
 # prompt/chunking (marker malformado ou fora de posicao que denunciaria a IA se saisse ao cliente).

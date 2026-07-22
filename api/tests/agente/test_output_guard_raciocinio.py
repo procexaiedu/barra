@@ -182,7 +182,7 @@ def test_sanear_reescreve_a_mensagem_com_tag_vazada() -> None:
 
 # Sonda-de-balcao CRUA (tell de SAC): amostra real do harness (terminal_8b.json, 4/8 cenarios) --
 # depois do cumprimento a IA soltava o probe aberto, proibido na abertura (`regras.md.j2:<abertura>`)
-# e no par de `persona.md`. Estagio 0 dropa a bolha crua, deixando o cumprimento correto intacto.
+# e no par de `persona.md`. Detecta no GATE (gatilho `sonda` -> regen); o Estagio 0 nao a toca.
 BOLHAS_SONDA_CRUA = [
     "O que você procura ?",
     "Vi que me chamou, o que você procura ?",  # "me chamou" != convite caloroso -> ainda cai
@@ -214,14 +214,22 @@ BOLHAS_SONDA_CALOROSA = [
 def test_nao_flagra_sonda_calorosa(bolha: str) -> None:
     # Convite caloroso / self-intro resgata a bolha: fica intacta (assimetria a favor de preservar voz).
     assert mod.tem_sonda_balcao(bolha) is False
+    assert mod.bolhas_sonda(bolha) == []
     assert mod._limpar_bolhas(bolha) == bolha
 
 
-def test_estagio0_dropa_sonda_mantendo_cumprimento() -> None:
-    # Caminho real da abertura: cumprimento em bolhas + o probe cru como ultima bolha. O Estagio 0
-    # dropa so o probe e devolve o cumprimento correto ("Oii / boa tarde amor / tudo bem sim").
+def test_estagio0_nao_toca_sonda() -> None:
+    # Regressao (lead RNine, 22/07): o Estagio 0 dropava a sonda em silencio e o turno saia mudo
+    # ("Tudo bem sim amor" sozinho), emperrando a conversa. Agora ela chega INTACTA ao gate, que
+    # regenera; o drop so acontece no fallback.
     turno = "Oii\n\nBoa tarde amor 🥰\n\nTudo bem sim\n\nO que você procura ?"
-    assert mod._limpar_bolhas(turno) == "Oii\n\nBoa tarde amor 🥰\n\nTudo bem sim"
+    assert mod._limpar_bolhas(turno) == turno
+
+
+def test_bolhas_sonda_isola_o_probe() -> None:
+    # O gate identifica SO a bolha ofensora -- o cumprimento sobrevive no fallback de drop.
+    turno = "Oii\n\nBoa tarde amor 🥰\n\nO que você procura ?"
+    assert mod.bolhas_sonda(turno) == ["O que você procura ?"]
 
 
 # Promessa aberta "sem limite" (reuniao 22/07): quantidade de finalizacoes nao se promete. O drop
