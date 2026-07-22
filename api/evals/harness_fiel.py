@@ -58,11 +58,13 @@ class EvolutionSpy:
         self.midias: list[dict[str, Any]] = []
         self.lidas: list[list[str]] = []
         self.presencas: list[str] = []
-        self._n = 0
 
     def _mid(self) -> str:
-        self._n += 1
-        return f"spy-mid-{self._n}"
+        # UNICO entre instancias: rodar_turno_fiel cria um spy POR TURNO, e um contador que
+        # reinicia ("spy-mid-1" de novo) colidia no ON CONFLICT (evolution_message_id) DO NOTHING
+        # do enviar_turno — as primeiras bolhas de cada turno seguinte sumiam da janela e o agente
+        # rodava com amnesia parcial das proprias falas (achado do replay prod dia-1, 22/07).
+        return f"spy-mid-{uuid4().hex}"
 
     async def marcar_lida(self, **kwargs: Any) -> None:
         self.lidas.append(kwargs.get("message_ids") or [])
@@ -237,7 +239,8 @@ async def rodar_turno_fiel(
             if name != "enviar_turno":
                 continue
             n_envio += 1
-            payload = {k: v for k, v in kwargs.items() if k != "_job_id"}
+            # Kwargs de infra do ARQ (_job_id, _defer_by...) nao sao parametros do enviar_turno.
+            payload = {k: v for k, v in kwargs.items() if not k.startswith("_")}
             await enviar_turno(ctx, **payload)
 
     estado = await estado_pos_turno(conn, cen.atendimento_id)

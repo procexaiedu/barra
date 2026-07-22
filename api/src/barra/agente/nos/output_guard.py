@@ -50,13 +50,18 @@ from barra.core.metrics import (
 )
 from barra.settings import get_settings
 
-from .._canned import NEGACOES_CANNED
+from .._canned import ESPERA_ESCALADA_CANNED, NEGACOES_CANNED
 from .._defesa import escalar_defesa
 from .._instrumentar import instrumentar_tokens
 from .._texto_turno import extrair_texto_do_turno, mensagens_do_turno, texto_da_mensagem
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..persona import render_aup_saida
+
+# Pools curados isentos das defesas de texto gerado (repeticao/judge de AUP): o conteudo e nosso,
+# nao do LLM. Negacoes de disclosure + bolha de espera da escalada de guarda (post_process) —
+# zerar ou regenerar a espera recriaria o vacuo que ela existe para matar.
+_CANNED_CURADAS = frozenset(NEGACOES_CANNED) | frozenset(ESPERA_ESCALADA_CANNED)
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +196,19 @@ def tem_sonda_balcao(texto: str) -> bool:
     return bool(_RE_SONDA_BALCAO.search(texto)) and not _RE_CONVITE_CALOROSO.search(texto)
 
 
+# Promessa aberta "sem limite" (feedback Fernando, reuniao 22/07): quantidade de finalizacoes nao
+# se promete — "sem limite" deixa o servico aberto demais e nunca e fala valida da modelo. A prosa
+# em <girias_do_cliente> proibe, mas o chat re-emitiu a frase 2x no replay (white-bear); trilho
+# deterministico, mesmo padrao da sonda-de-balcao. So fala da IA passa por aqui — mensagem do
+# cliente nao e afetada.
+_RE_PROMESSA_SEM_LIMITE = re.compile(r"\bsem limites?\b", re.IGNORECASE)
+
+
+def tem_promessa_sem_limite(texto: str) -> bool:
+    """True se a bolha promete quantidade aberta ("sem limite") — drop da bolha inteira."""
+    return bool(_RE_PROMESSA_SEM_LIMITE.search(texto))
+
+
 # Delimitador de EXEMPLO vazando na bolha: os few-shots de `regras.md.j2`/`persona.md` moldam a fala
 # ideal com tags de papel (`<ela>...</ela>`, `<cliente>...</cliente>`, `<exemplo>`) e os pares de
 # contraste (`<certo>/<errado>/<par>/<porque>`). Sob decodificacao estocastica (temp 0.7) o chat as
@@ -203,11 +221,17 @@ _RE_TAG_EXEMPLO = re.compile(r"</?(?:ela|cliente|exemplo|certo|errado|par|porque
 
 
 def _bolha_descartavel(b: str) -> bool:
-    """Bolha que o Estagio 0 strippa: raciocinio vazado, placeholder de template nao preenchido, OU
-    sonda-de-balcao crua ("o que voce procura?"). Nenhuma e fala valida ao cliente -- as duas
-    primeiras entregam a IA; a terceira e tell de SAC que a modelo nunca faz (a forma calorosa
-    escapa via `_RE_CONVITE_CALOROSO`, ver `tem_sonda_balcao`)."""
-    return tem_marcador_raciocinio(b) or tem_placeholder_template(b) or tem_sonda_balcao(b)
+    """Bolha que o Estagio 0 strippa: raciocinio vazado, placeholder de template nao preenchido,
+    sonda-de-balcao crua ("o que voce procura?"), OU promessa aberta "sem limite". Nenhuma e fala
+    valida ao cliente -- as duas primeiras entregam a IA; a terceira e tell de SAC que a modelo
+    nunca faz (a forma calorosa escapa via `_RE_CONVITE_CALOROSO`, ver `tem_sonda_balcao`); a
+    quarta e promessa de quantidade que a operacao proibiu (reuniao 22/07)."""
+    return (
+        tem_marcador_raciocinio(b)
+        or tem_placeholder_template(b)
+        or tem_sonda_balcao(b)
+        or tem_promessa_sem_limite(b)
+    )
 
 
 def _limpar_bolhas(texto: str) -> str:
@@ -275,7 +299,7 @@ def bolhas_repetidas(texto: str, historicas: Sequence[str]) -> list[str]:
     vistas = [n for b in historicas if len(n := _normalizar_bolha(b)) >= _REPETICAO_MIN_VERBATIM]
     repetidas: list[str] = []
     for b in texto.split("\n\n"):
-        if b.strip() in NEGACOES_CANNED:
+        if b.strip() in _CANNED_CURADAS:
             continue
         n = _normalizar_bolha(b)
         if len(n) < _REPETICAO_MIN_VERBATIM:
@@ -768,9 +792,10 @@ async def _output_guard(
         # Despacho da regen: zera as AIMessages originais do turno e anexa a regenerada.
         update_final = {"messages": [*vazias, nova_msg]}
 
-    # Negacao canned (pool curado): pula a Etapa 2 (texto ja confiavel). So sem midia -- uma
-    # legenda precisa sempre passar pela Etapa 2, mesmo que a bolha de texto seja canned.
-    if not legendas and texto.strip() in NEGACOES_CANNED:
+    # Canned curada (negacao de disclosure / espera de escalada): pula a Etapa 2 (texto ja
+    # confiavel). So sem midia -- uma legenda precisa sempre passar pela Etapa 2, mesmo que a
+    # bolha de texto seja canned.
+    if not legendas and texto.strip() in _CANNED_CURADAS:
         return Command(goto=END, update=update_final)  # type: ignore[arg-type]
 
     if not settings.output_guard_judge_habilitado:

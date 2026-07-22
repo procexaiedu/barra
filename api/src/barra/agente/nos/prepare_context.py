@@ -317,6 +317,22 @@ _AFIRMACOES_FORTES = frozenset({"sim", "isso", "claro", "aham", "uhum", "ahan"})
 # Estados onde o dia ainda pode estar em aberto; de Aguardando_confirmacao em diante não reabre.
 _ESTADOS_PRE_CONFIRMACAO = frozenset({"Novo", "Triagem", "Qualificado"})
 
+# Gate estrutural do endereço (análise prod 22/07): o ponto de encontro (interno) só entra no
+# contexto a partir de Qualificado — em Novo/Triagem a IA literalmente não tem o endereço para
+# vazar (o DeepSeek ignorou a prosa de degraus no 1º dia de prod e soltou rua+número em Triagem).
+# Por-turno e por-estado, então vive no contexto dinâmico (<local_de_encontro>), nunca no
+# BP_MODELO (prefixo cacheável não pode variar com o atendimento — agente/CLAUDE.md).
+_ESTADOS_COM_ENDERECO = frozenset(
+    {"Qualificado", "Aguardando_confirmacao", "Confirmado", "Em_execucao"}
+)
+
+
+def _libera_local_de_encontro(estado: str | None, tipo_atendimento: str | None) -> bool:
+    """True quando o ponto de encontro da modelo pode entrar no contexto do turno: encontro
+    sendo combinado (Qualificado+) e o cliente vindo até ela (interno). Externo usa o endereço
+    DO CLIENTE e remoto não tem local — nos dois o bloco fica fora."""
+    return estado in _ESTADOS_COM_ENDERECO and tipo_atendimento == "interno"
+
 
 def _texto_msg(msg: BaseMessage) -> str:
     return msg.content if isinstance(msg.content, str) else ""
@@ -512,8 +528,7 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> tuple[str
     """
     res = await conn.execute(
         """
-        SELECT nome, idade, idiomas, localizacao_operacional, tipo_atendimento_aceito,
-               endereco_formatado, nome_local
+        SELECT nome, idade, idiomas, localizacao_operacional, tipo_atendimento_aceito
           FROM barravips.modelos
          WHERE id = %s
         """,
@@ -526,8 +541,6 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> tuple[str
         idiomas=m.get("idiomas") or [],
         localizacao_operacional=m.get("localizacao_operacional"),
         tipos_aceitos=m.get("tipo_atendimento_aceito") or [],
-        endereco_formatado=m.get("endereco_formatado"),
-        nome_local=m.get("nome_local"),
     )
 
     res = await conn.execute(
@@ -577,6 +590,8 @@ async def _resolver_variaveis(
     n_contrapropostas = 0
     dia_ja_sondado_hist = False
     book_ja_enviado = False
+    local_endereco: str | None = None
+    local_nome: str | None = None
     if ctx.atendimento_id is not None:
         res = await conn.execute(
             """
@@ -610,6 +625,19 @@ async def _resolver_variaveis(
         n_contrapropostas = _contar_contrapropostas(r["conteudo"] or "" for r in falas_ia)
         dia_ja_sondado_hist = any(_PROBE_DIA_HOJE.search(r["conteudo"] or "") for r in falas_ia)
         book_ja_enviado = any(r.get("tipo") == "imagem" for r in falas_ia)
+
+        # Gate estrutural do endereço (<local_de_encontro>): só carrega o ponto de encontro da
+        # modelo quando o estado/tipo liberam (ver _libera_local_de_encontro).
+        if _libera_local_de_encontro(
+            atendimento.get("estado"), atendimento.get("tipo_atendimento")
+        ):
+            res = await conn.execute(
+                "SELECT endereco_formatado, nome_local FROM barravips.modelos WHERE id = %s",
+                (ctx.modelo_id,),
+            )
+            local = await res.fetchone() or {}
+            local_endereco = local.get("endereco_formatado")
+            local_nome = local.get("nome_local")
 
     res = await conn.execute(
         """
@@ -772,6 +800,9 @@ async def _resolver_variaveis(
         # `book_ja_enviado` injeta <ja_enviou_book> direto no template.
         "dia_ja_sondado_hist": dia_ja_sondado_hist,
         "book_ja_enviado": book_ja_enviado,
+        # Ponto de encontro gated por estado (<local_de_encontro>); None fora do gate.
+        "local_endereco": local_endereco,
+        "local_nome": local_nome,
         "recorrente": conversa.get("recorrente", False),
         "observacoes_internas": conversa.get("observacoes_internas"),
         "ultimo_motivo_perda": conversa.get("ultimo_motivo_perda"),

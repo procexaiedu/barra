@@ -285,6 +285,16 @@ _CAMPOS_UPSERT = (
     "proxima_acao_esperada",
 )
 
+# Mensagens devolvidas pelas guardas de `registrar_extracao_ia` que ESCALAM (abrem handoff e
+# pausam a IA) dentro da extracao — a "escalada silenciosa": a pausa faz o post_process descartar
+# o texto do turno, e sem tratamento o cliente fica no vacuo (caso do 1500/5h, prod 22/07). O
+# post_process (agente/nos) reconhece estas mensagens por igualdade EXATA para soltar uma bolha
+# canned de espera; mudou um texto de retorno abaixo, atualize o frozenset junto.
+_MSG_GUARD_REAGENDAMENTO = "Horario ja reservado: mudanca escalada para a modelo."
+_MSG_GUARD_PISO = "Valor abaixo do piso de desconto: escalado para a modelo, valor nao gravado."
+_MSG_GUARD_TIPO = "Tipo de atendimento que a modelo nao realiza: escalado, tipo nao gravado."
+MENSAGENS_GUARD_ESCALADA = frozenset({_MSG_GUARD_REAGENDAMENTO, _MSG_GUARD_PISO, _MSG_GUARD_TIPO})
+
 
 async def registrar_extracao_ia(
     conn: AsyncConnection[Any],
@@ -319,7 +329,7 @@ async def registrar_extracao_ia(
             acao="Realocar ou cancelar o bloqueio conforme o cliente.",
         )
         return {
-            "mensagem": "Horario ja reservado: mudanca escalada para a modelo.",
+            "mensagem": _MSG_GUARD_REAGENDAMENTO,
             "novo_estado": None,
         }
     if veredito_reagendamento == "drift":
@@ -344,7 +354,7 @@ async def registrar_extracao_ia(
             acao="Negociar manualmente com o cliente ou recusar.",
         )
         return {
-            "mensagem": "Valor abaixo do piso de desconto: escalado para a modelo, valor nao gravado.",
+            "mensagem": _MSG_GUARD_PISO,
             "novo_estado": None,
         }
 
@@ -380,7 +390,7 @@ async def registrar_extracao_ia(
             acao="Decidir com o cliente como seguir ou recusar.",
         )
         return {
-            "mensagem": "Tipo de atendimento que a modelo nao realiza: escalado, tipo nao gravado.",
+            "mensagem": _MSG_GUARD_TIPO,
             "novo_estado": None,
         }
 

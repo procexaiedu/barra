@@ -14,6 +14,11 @@ A premissa nova (decisão de produto, 18/06/2026): as modelos operam tipicamente
   - **(a) rua + número do prédio/hotel + ponto de referência** — leva à portaria. A **IA** passa quando há **intenção real e o encontro está sendo combinado** (`Qualificado` em diante). No 1º contato / mera sondagem de preço, fala **no máximo a região** (preserva o espírito do guard pré-fechamento do 0023 contra quem só sonda e some).
   - **(b) apartamento/quarto (a unidade)** — dada pela **modelo (humana)**, no celular dela, **depois** que a **Foto de portaria** chega. A **IA nunca emite a unidade.**
 
+> **Emenda 2026-07-22 (feedback Fernando, reunião pós-dia 1 de prod):** o nível (a) ganhou um degrau interno e um reforço estrutural, após a IA vazar rua+número em Triagem no 1º dia real (o DeepSeek ignorou a prosa):
+> - **Degrau do número:** em `Qualificado`, a IA passa **nome do hotel + rua SEM o número**; o **número** entra só quando o cliente **confirma que vai / avisa que saiu / pede para se organizar**. A unidade segue como (b). O degrau do número é prosa (o dado completo está disponível a partir de `Qualificado`) — deliberado, porque o subcaso "confirmou que vai" acontece no mesmo estado.
+> - **Gate estrutural:** o endereço saiu do BP_MODELO; entra no contexto do turno via bloco `<local_de_encontro>` **apenas** de `Qualificado` em diante e só no interno (`prepare_context._libera_local_de_encontro`). Em Novo/Triagem a IA **não tem** o endereço para vazar.
+> - **Enquadramento:** o local se vende como **hotel elegante, seguro e discreto** — "prédio", "sala" e "escritório" são proibidos na fala com o cliente.
+
 - **Por que é robusto e não repete a 2-fase do 0023:** a Foto de portaria pausa a IA (`ia_pausada=true`, `modelo_em_atendimento`) e a modelo assume. No instante em que a unidade é liberada, **a IA já está pausada e quem conduz é a humana** — a unidade sai dela naturalmente. Some a fragilidade que motivou o 0023 (o LLM anunciar "já te mando o número" e a sessão terminar sem mandar): a IA não tem o que lembrar de mandar.
 
 - **Sem campo novo no schema.** `barravips.modelos.endereco_formatado` já é nível-prédio (auditoria: 0 modelos embutem apto/quarto) e **deve permanecer assim**. A IA nunca interpola a unidade, então não há de onde vazá-la.

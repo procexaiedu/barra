@@ -1,5 +1,6 @@
 """Parser de payloads Evolution e comandos do grupo."""
 
+import math
 import re
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -187,6 +188,14 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
         media_mimetype = message["imageMessage"].get("mimetype")
         raw_caption = message["imageMessage"].get("caption")
         caption = str(raw_caption).strip() or None if raw_caption else None
+    elif "locationMessage" in message and not texto.strip():
+        # Pin de localizacao do WhatsApp: sem este ramo caia no gate de texto vazio (200
+        # 'ignored') e o agente respondia AS CEGAS a fala adjacente — em prod inventou
+        # distancia/ETA (trace dc0375ca, 22/07). Vira moldura de TEXTO na janela; a parte
+        # ideal (geocode reverso + distancia ate o ponto da modelo) fica para issue propria.
+        moldura = _moldura_localizacao(message["locationMessage"])
+        if moldura:
+            texto = moldura
     # WEBHOOK_BASE64 ligado: a Evolution entrega a midia ja DECIFRADA inline (a `url` aponta
     # pro CDN cifrado do WhatsApp, inutil sem a mediaKey). O campo varia por versao/tipo, entao
     # lemos os dois caminhos conhecidos: nivel da mensagem e dentro do *Message.
@@ -314,6 +323,38 @@ def _texto(message: dict[str, Any]) -> str | None:
     if isinstance(ext, dict) and ext.get("text"):
         return str(ext["text"])
     return None
+
+
+def _moldura_localizacao(loc: Any) -> str | None:
+    """Pin de localizacao -> moldura de texto para a janela do agente.
+
+    Coords sao coeridas a float (nunca a string crua do payload); nome/endereco do pin sao
+    dado do cliente com o mesmo nivel de confianca de texto digitado. Sem coords validas
+    devolve None e o evento segue o gate de texto vazio (ignored)."""
+    if not isinstance(loc, dict):
+        return None
+    lat_raw, lon_raw = loc.get("degreesLatitude"), loc.get("degreesLongitude")
+    if lat_raw is None or lon_raw is None:
+        return None
+    try:
+        lat, lon = float(lat_raw), float(lon_raw)
+    except (TypeError, ValueError):
+        return None
+    if not (math.isfinite(lat) and math.isfinite(lon)):
+        return None
+    # name/address sao string controlada pelo CLIENTE dentro de uma moldura que o prompt trata
+    # como confiavel: tira colchetes/angulares (nao fecham a moldura nem viram tag), colapsa
+    # whitespace (\n fabricaria linha com cara de bloco interno) e trunca.
+    partes = [
+        " ".join(re.sub(r"[\[\]<>]", "", str(loc[c])).split())[:120]
+        for c in ("name", "address")
+        if loc.get(c)
+    ]
+    rotulo = " — ".join(p for p in partes if p)
+    detalhe = f"{rotulo} · " if rotulo else ""
+    # Rotulo neutro de proposito: um pin fromMe (modelo em atendimento manual) entra na janela
+    # como fala DELA — "cliente enviou" mentiria; a direcao da mensagem ja diz quem mandou.
+    return f"[pin de localização: {detalhe}lat {lat:.6f}, long {lon:.6f}]"
 
 
 def _media_base64(message: dict[str, Any]) -> str | None:

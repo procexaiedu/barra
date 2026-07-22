@@ -50,7 +50,6 @@ MODELO_EXEMPLO = IdentidadeModelo(
     idiomas=["pt-BR", "en-US"],
     localizacao_operacional="Zona Sul, São Paulo",
     tipos_aceitos=["interno", "externo"],
-    endereco_formatado="Rua das Acácias (próx. metrô) — Moema",
 )
 
 PROGRAMAS_EXEMPLO = [

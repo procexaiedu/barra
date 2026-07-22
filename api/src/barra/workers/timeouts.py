@@ -1,5 +1,6 @@
 """Workers deterministicos de timeout e transicao cron."""
 
+import hashlib
 from typing import Any
 from uuid import uuid5
 
@@ -206,7 +207,14 @@ async def reengajar_silenciosos(
         atendimento_id = str(a["id"])
         conversa_id = str(a["conversa_id"])
         turno_id = str(uuid5(NS_TURNO, f"reengajo:{atendimento_id}"))
-        await redis.set(f"turno_atual:{conversa_id}", turno_id, ex=600)
+        # Espalhamento anti-rajada: a abertura da janela de operacao (quiet-hours) libera todos
+        # os represados da madrugada no MESMO tick do cron — N toques canned no mesmo segundo,
+        # com pool de 3 frases, e padrao de robo num numero nao aquecido (observado em prod
+        # 22/07: dois reengajos a 13:00:00.639Z). Jitter deterministico por atendimento (0-300s)
+        # espalha a rajada; o TTL do turno_atual acompanha para nao encurtar a janela de
+        # cancel-on-new-message que o enviar_turno checa antes de mandar.
+        jitter_s = int(hashlib.sha256(atendimento_id.encode()).hexdigest(), 16) % 301
+        await redis.set(f"turno_atual:{conversa_id}", turno_id, ex=600 + jitter_s)
         await redis.enqueue_job(
             "enviar_turno",
             conversa_id=conversa_id,
@@ -217,6 +225,7 @@ async def reengajar_silenciosos(
             chars_inbound=0,
             critico=False,
             _job_id=f"reengajo:{atendimento_id}",
+            _defer_by=jitter_s,
         )
         REENGAJAMENTO.labels("enviado").inc()
 

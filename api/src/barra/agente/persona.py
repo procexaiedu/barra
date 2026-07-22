@@ -97,13 +97,9 @@ class IdentidadeModelo:
     idiomas: list[str]
     localizacao_operacional: str | None
     tipos_aceitos: list[str]
-    # Endereço OPERACIONAL (ponto de encontro: cliente vem até você / te busca de carro). Não é
-    # o residencial (`endereco_residencial_formatado`, PII sensível — a IA nunca lê). Default
-    # None: modelo sem endereço cadastrado não renderiza a linha.
-    endereco_formatado: str | None = None
-    # Nome do local do ponto de encontro (ex.: "Hotel Vitória"), do displayName do Google Places.
-    # A IA cita junto do endereço no interno. None quando não é estabelecimento nomeado.
-    nome_local: str | None = None
+    # O endereço operacional (ponto de encontro) NÃO vive mais aqui (gate estrutural, análise
+    # prod 22/07): ele entra no contexto dinâmico via <local_de_encontro>, gated por estado
+    # (prepare_context._resolver_variaveis), pra IA não ter o endereço antes de Qualificado.
 
 
 @lru_cache(maxsize=8)
@@ -196,8 +192,6 @@ def render_identidade(m: IdentidadeModelo) -> str:
         idiomas=m.idiomas,
         localizacao_operacional=m.localizacao_operacional,
         tipos_aceitos=m.tipos_aceitos,
-        endereco_formatado=m.endereco_formatado,
-        nome_local=m.nome_local,
     )
 
 

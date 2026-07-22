@@ -21,7 +21,12 @@
 {% endif %}{% if book_ja_enviado %}<ja_enviou_book>Você já mandou o seu book nesta negociação (vale mesmo que o envio não apareça nas últimas mensagens): NÃO reenvie mídia — redirecione pro encontro ou pra vídeo chamada paga.</ja_enviou_book>
 {% endif %}</situacao_do_atendimento>
 
-<cliente{% if cliente_nome %} nome="{{ cliente_nome }}"{% endif %} recorrente="{{ 'sim' if recorrente else 'não' }}">
+{% if local_endereco %}<local_de_encontro>
+Seu ponto de encontro (ele vem até você): {% if local_nome %}{{ local_nome }} — {% endif %}{{ local_endereco }}.
+Passe em degraus (<tipos_de_encontro>): o nome do hotel e a rua SEM o número enquanto combinam; o número só quando ele confirmar que vai, avisar que saiu ou pedir pra se organizar; a unidade, NUNCA.
+</local_de_encontro>
+
+{% endif %}<cliente{% if cliente_nome %} nome="{{ cliente_nome }}"{% endif %} recorrente="{{ 'sim' if recorrente else 'não' }}">
 {% if historico_anteriores %}<historico>{{ historico_anteriores }}</historico>{% endif %}
 {% if ultimo_motivo_perda %}<ultimo_motivo_perda>{{ ultimo_motivo_perda }}</ultimo_motivo_perda>{% endif %}
 {% if observacoes_internas %}<observacoes_internas>{{ observacoes_internas }}</observacoes_internas>{% endif %}

@@ -27,7 +27,6 @@ CARIOCA = IdentidadeModelo(
     idiomas=["pt-BR"],
     localizacao_operacional="Barra da Tijuca",
     tipos_aceitos=["interno", "externo"],
-    endereco_formatado="Av. das Américas, 500 - Barra da Tijuca, Rio de Janeiro - RJ",
 )
 
 ESTRANGEIRA = IdentidadeModelo(
@@ -57,14 +56,15 @@ def test_identidade_inclui_nome_e_idade() -> None:
     assert "26" in txt
 
 
-def test_endereco_formatado_exposto_como_ponto_de_encontro() -> None:
-    # Endereço presente → renderiza; ausente (ESTRANGEIRA) → linha some, sem "None" vazado.
+def test_endereco_nunca_renderiza_no_bp_modelo() -> None:
+    # Gate estrutural (análise prod 22/07): o ponto de encontro saiu do BP_MODELO — só entra via
+    # <local_de_encontro> no contexto dinâmico, a partir de Qualificado. A região (1º contato)
+    # continua aqui; endereço/ponto de encontro, nunca.
     txt = render_identidade(CARIOCA)
-    assert "Av. das Américas, 500 - Barra da Tijuca, Rio de Janeiro - RJ" in txt
-    assert "ponto de encontro" in txt
-    sem_endereco = render_identidade(ESTRANGEIRA)
-    assert "ponto de encontro" not in sem_endereco
-    assert "None" not in sem_endereco
+    assert "Barra da Tijuca" in txt  # região segue no BP_MODELO
+    assert "ponto de encontro" not in txt
+    assert "Endereço" not in txt
+    assert "None" not in render_identidade(ESTRANGEIRA)
 
 
 def test_programas_tabela_uma_linha_por_combinacao() -> None:

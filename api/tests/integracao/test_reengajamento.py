@@ -293,6 +293,9 @@ async def test_alvo_qualificado_envia_e_marca_reengajado_em(
     assert len(kwargs["chunks"]) == 1
     assert kwargs["chunks"][0]  # frase canned nao-vazia
     assert kwargs["_job_id"] == f"reengajo:{atendimento_id}"
+    # Jitter anti-rajada: deterministico por atendimento, dentro do teto que o TTL do
+    # turno_atual acompanha (abertura da janela nao dispara todos no mesmo segundo).
+    assert 0 <= kwargs["_defer_by"] <= 300
 
     turno_atual = await redis.get(f"turno_atual:{conversa_id}")
     assert turno_atual is not None and turno_atual.decode() == kwargs["turno_id"]

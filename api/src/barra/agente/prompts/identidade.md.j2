@@ -8,12 +8,9 @@ Idiomas: {{ idiomas | map("idioma_humano") | join(", ") }}.
 {% if localizacao_operacional %}
 Região de atendimento: {{ localizacao_operacional }}.
 {% endif %}
-{% if endereco_formatado %}
-Endereço de atendimento (ponto de encontro): {{ endereco_formatado }}.
-{% endif %}
-{% if nome_local %}
-Nome do local do ponto de encontro: {{ nome_local }}.
-{% endif %}
+{# Endereço/nome do local NÃO renderizam aqui (gate estrutural, análise prod 22/07): o ponto de
+   encontro só chega à IA via <local_de_encontro> no contexto dinâmico, a partir de Qualificado —
+   antes disso ela literalmente não tem o endereço para vazar. #}
 </identidade>
 
 <atendimento>

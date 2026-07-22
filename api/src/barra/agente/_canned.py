@@ -84,3 +84,20 @@ CANCELAMENTO_PILOTO_CANNED = [
 def escolher_cancelamento_piloto() -> str:
     """Sorteia uma desculpa do pool de cancelamento automatico do piloto (ADR-0033)."""
     return random.choice(CANCELAMENTO_PILOTO_CANNED)  # noqa: S311 -- sorteio de copy, nao cripto
+
+
+# Bolha de espera da escalada silenciosa (analise prod 22/07): quando uma guarda de
+# `registrar_extracao_ia` escala (piso de desconto, tipo nao aceito, reagendamento pos-bloqueio),
+# a pausa descarta o texto que a IA ja tinha gerado e o cliente ficava no vacuo. O post_process
+# solta uma destas no lugar — curta, em personagem, sem prometer nada.
+ESPERA_ESCALADA_CANNED = [
+    "Deixa eu ver certinho e já te falo amor",
+    "Só um minutinho amor, já te falo",
+    "Deixa eu ver aqui e já te retorno vida",
+]
+
+
+def escolher_espera_escalada(seed: str | None = None) -> str:
+    """Sorteia uma bolha de espera da escalada silenciosa. `seed`=turno_id p/ replay
+    determinístico (ver `_sortear`)."""
+    return _sortear(ESPERA_ESCALADA_CANNED, seed)

@@ -388,6 +388,58 @@ def test_extrair_mensagem_texto_vazio_e_descartado() -> None:
         assert extrair_mensagem(payload) is None, message
 
 
+def test_extrair_mensagem_pin_de_localizacao_vira_moldura_de_texto() -> None:
+    # Pin de localizacao caia no gate de texto vazio (ignored) e o agente respondia as cegas a
+    # fala adjacente — em prod inventou distancia/ETA. Agora vira moldura de texto na janela.
+    payload = {
+        "instance": "barra-piloto",
+        "data": {
+            "key": {"id": "LOC1", "remoteJid": "5521999999999@s.whatsapp.net", "fromMe": False},
+            "message": {
+                "locationMessage": {
+                    "degreesLatitude": -22.901234,
+                    "degreesLongitude": -47.0621,
+                    "name": "Padaria Estrela",
+                    "address": "Rua Equador, 500",
+                },
+            },
+        },
+    }
+    msg = extrair_mensagem(payload)
+    assert msg is not None
+    assert msg.tipo == "texto"
+    assert "pin de localização" in msg.texto
+    assert "Padaria Estrela — Rua Equador, 500" in msg.texto
+    assert "lat -22.901234" in msg.texto and "long -47.062100" in msg.texto
+
+
+def test_extrair_mensagem_pin_sem_nome_so_coords() -> None:
+    payload = {
+        "instance": "barra-piloto",
+        "data": {
+            "key": {"id": "LOC2", "remoteJid": "5521@s.whatsapp.net", "fromMe": False},
+            "message": {
+                "locationMessage": {"degreesLatitude": "-22.9", "degreesLongitude": "-47.06"},
+            },
+        },
+    }
+    msg = extrair_mensagem(payload)
+    assert msg is not None
+    assert msg.texto == "[pin de localização: lat -22.900000, long -47.060000]"
+
+
+def test_extrair_mensagem_pin_sem_coords_validas_e_descartado() -> None:
+    # locationMessage sem coords numericas nao tem dado util -> segue o gate de texto vazio.
+    payload = {
+        "instance": "barra-piloto",
+        "data": {
+            "key": {"id": "LOC3", "remoteJid": "5521@s.whatsapp.net", "fromMe": False},
+            "message": {"locationMessage": {"name": "so nome, sem coords"}},
+        },
+    }
+    assert extrair_mensagem(payload) is None
+
+
 def test_extrair_mensagem_imagem_sem_base64_fica_none() -> None:
     # Sem WEBHOOK_BASE64 (ou bug #2375): base64 ausente -> None (cai no download host-locked).
     payload = {

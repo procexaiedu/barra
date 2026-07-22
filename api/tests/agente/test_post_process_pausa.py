@@ -17,7 +17,9 @@ from uuid import uuid4
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
+from barra.agente._canned import ESPERA_ESCALADA_CANNED
 from barra.agente.contexto import ContextAgente
+from barra.dominio.atendimentos.service import MENSAGENS_GUARD_ESCALADA
 
 # nos/__init__ reexporta a funcao post_process, sombreando o submodulo; importlib pega o modulo
 # real (memoria "nos/__init__ sombreia submodulo").
@@ -120,6 +122,44 @@ async def test_escalada_do_turno_preserva_bolha_de_espera_e_zera_o_pos_escalar()
     }
     out = await mod.post_process(state, _runtime(ia_pausada=True))  # type: ignore[arg-type]
     assert {m.id: m.content for m in out["messages"]} == {"a2": ""}
+
+
+async def test_escalada_de_guarda_na_extracao_solta_bolha_de_espera() -> None:
+    """Escalada silenciosa (análise prod 22/07, caso #10 1500/5h): a guarda do piso escala DENTRO
+    do registrar_extracao (sem tool `escalar`, logo sem bolha de espera) e a pausa descartava o
+    texto do turno — cliente no vácuo. O post_process zera as falas E solta uma canned de espera."""
+    a1 = _ai_turno("Poxa amor, 5h não tenho pacote assim", "a1")
+    a1.tool_calls = [{"name": "registrar_extracao", "args": {}, "id": "tc1", "type": "tool_call"}]
+    msg_guard = next(iter(MENSAGENS_GUARD_ESCALADA))
+    state = {
+        "messages": [
+            HumanMessage(content="faz 1500 as 5h?", id="h1"),
+            a1,
+            ToolMessage(content=msg_guard, id="t1", tool_call_id="tc1"),
+            _ai_turno("consigo sim amor", "a2"),  # pós-guard, descartada
+        ]
+    }
+    out = await mod.post_process(state, _runtime(ia_pausada=True))  # type: ignore[arg-type]
+    espera = out["messages"][-1]
+    # Falas do turno zeradas; a última mensagem é a bolha de espera canned, marcada como gerada
+    # neste turno (usage_metadata) pro coordenador despachá-la.
+    assert {m.id: m.content for m in out["messages"][:-1]} == {"a1": "", "a2": ""}
+    assert espera.content in ESPERA_ESCALADA_CANNED
+    assert espera.usage_metadata is not None
+
+
+async def test_pausa_de_pipeline_externo_segue_silenciosa() -> None:
+    """Pausa concorrente que NÃO nasce de guarda da extração (Pix/foto portaria): sem bolha de
+    espera — o card/fluxo próprio cuida do cliente; o turno segue zerado como sempre."""
+    state = {
+        "messages": [
+            HumanMessage(content="cheguei", id="h1"),
+            _ai_turno("te espero amor", "a1"),
+            ToolMessage(content="ok", id="t1", tool_call_id="tc1"),
+        ]
+    }
+    out = await mod.post_process(state, _runtime(ia_pausada=True))  # type: ignore[arg-type]
+    assert {m.id: m.content for m in out["messages"]} == {"a1": ""}
 
 
 async def test_sem_pausa_nao_zera() -> None:

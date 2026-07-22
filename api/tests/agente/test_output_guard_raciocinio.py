@@ -222,3 +222,21 @@ def test_estagio0_dropa_sonda_mantendo_cumprimento() -> None:
     # dropa so o probe e devolve o cumprimento correto ("Oii / boa tarde amor / tudo bem sim").
     turno = "Oii\n\nBoa tarde amor 🥰\n\nTudo bem sim\n\nO que você procura ?"
     assert mod._limpar_bolhas(turno) == "Oii\n\nBoa tarde amor 🥰\n\nTudo bem sim"
+
+
+# Promessa aberta "sem limite" (reuniao 22/07): quantidade de finalizacoes nao se promete. O drop
+# e da bolha inteira — a resposta canonica ("Sou sua no periodo combinado rs") em bolha separada
+# fica intacta.
+@pytest.mark.parametrize(
+    "bolha",
+    ["sem limite não", "Pode gozar sem limites amor", "É tudo sem limite no completo rs"],
+)
+def test_detecta_promessa_sem_limite(bolha: str) -> None:
+    assert mod.tem_promessa_sem_limite(bolha) is True
+
+
+def test_estagio0_dropa_sem_limite_mantendo_resposta_canonica() -> None:
+    turno = "Sou sua no período combinado rs\n\nsem limite não"
+    assert mod._limpar_bolhas(turno) == "Sou sua no período combinado rs"
+    # "limite" em fala legitima (sem a promessa) nao cai: recusa de desconto, por exemplo.
+    assert mod.tem_promessa_sem_limite("Poxa amor não consigo") is False
