@@ -4,7 +4,8 @@ Cobre o DoD sem tocar a API real (chat/vision FAKE) nem o banco (pool/conn mocka
 roda no gate `-m "not needs_key and not needs_db"`:
 
 (a) refusal do Sonnet (stop_reason=refusal, chega em 200 OK) ->
-    - no `no_llm`: loga stop_details.category e roteia para post_process (sem bolha crua);
+    - no `no_llm`: loga stop_details.category e roteia pelo ramo sem tool_call -> `extrair` (o resp
+      com o refusal segue no state; a bolha crua nunca sai);
     - no `processar_turno`: aciona escalar_por_exaustao(motivo="modelo_recusou") (bucket=defesa
       via mapping real), IA pausa e NENHUM enviar_turno e despachado ao cliente.
 (b) vision do Pix com finish_reason=max_tokens/refusal -> comprovante DUVIDOSO (em_revisao):
@@ -39,7 +40,7 @@ _USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 
 
 # ============================================================================
-# (a1) no_llm: refusal loga category e roteia para post_process
+# (a1) no_llm: refusal loga category e roteia pelo ramo sem tool_call (-> extrair)
 # ============================================================================
 
 
@@ -61,7 +62,7 @@ class _FakeChat:
         return _FakeChatBound(self._resp)
 
 
-async def test_no_llm_refusal_loga_categoria_e_roteia_post_process(
+async def test_no_llm_refusal_loga_categoria_e_roteia_extrair(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     from barra.agente.nos.llm import no_llm
@@ -77,8 +78,9 @@ async def test_no_llm_refusal_loga_categoria_e_roteia_post_process(
     with caplog.at_level(logging.WARNING, logger="barra.agente.nos.llm"):
         comando = await node({"messages": []}, runtime)  # type: ignore[arg-type]
 
-    # refusal sem tool_calls -> post_process (nao "tools"); o resp vai no state via `messages`.
-    assert comando.goto == "post_process"
+    # refusal sem tool_calls -> ramo normal (goto=extrair, 02 §4); o resp com o refusal segue no
+    # state via `messages` e o coordenador escala lendo a parada (nunca manda a bolha crua).
+    assert comando.goto == "extrair"
     enviado = comando.update["messages"][0]
     assert enviado.response_metadata["stop_reason"] == "refusal"
     # stop_details.category logado (sinal para auditoria do safety filter).

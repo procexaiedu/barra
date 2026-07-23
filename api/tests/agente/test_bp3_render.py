@@ -44,9 +44,11 @@ PROGRAMAS: list[dict[str, Any]] = [
 ]
 
 # preco None = incluso; preenchido (qualquer valor, ignorado pelo cálculo — ADR-0030) = pago.
+# cobra_por_pessoa (ADR-0035): False = ato (+preço-hora); True = casal/menage (dobra o pacote).
 FETICHES: list[dict[str, Any]] = [
-    {"nome": "Beijo na boca", "preco": None},
-    {"nome": "Inversão", "preco": 1},
+    {"nome": "Beijo na boca", "preco": None, "cobra_por_pessoa": False},
+    {"nome": "Inversão", "preco": 1, "cobra_por_pessoa": False},
+    {"nome": "Casal", "preco": 1, "cobra_por_pessoa": True},
 ]
 
 
@@ -81,12 +83,22 @@ def test_programas_tabela_uma_linha_por_combinacao() -> None:
 def test_fetiches_lista_extra_e_incluso() -> None:
     txt = render_fetiches(FETICHES, PROGRAMAS)
     assert "Beijo na boca" in txt
-    assert "incluso" in txt  # preco None
+    assert "Inclusos" in txt  # preco None
     assert "Inversão" in txt
-    # extra pago (ADR-0030): calculado por programa (preço-hora efetivo), não lido de `preco`.
-    assert "+R$800 no Massagem Relaxante (1 hora)" in txt
-    assert "+R$750 no Massagem Relaxante (2 horas)" in txt  # 1500 / 2h
-    assert "+R$1.250 no Programa Completo (2 horas)" in txt  # 2500 / 2h
+    # ato pago (ADR-0030): tabela ÚNICA por pacote, extra = preço-hora efetivo (não lido de `preco`).
+    assert "| Massagem Relaxante (1 hora) | +R$800 | R$1.600 |" in txt
+    assert "| Massagem Relaxante (2 horas) | +R$750 | R$2.250 |" in txt  # 1500 / 2h
+    assert "| Programa Completo (2 horas) | +R$1.250 | R$3.750 |" in txt  # 2500 / 2h
+
+
+def test_fetiches_por_pessoa_dobra_o_pacote() -> None:
+    # ADR-0035: casal/menage (cobra_por_pessoa=True) sai numa seção própria, dobrando o pacote —
+    # nunca no regime "+Extra" dos atos.
+    txt = render_fetiches(FETICHES, PROGRAMAS)
+    assert "Por pessoa" in txt
+    assert "Casal" in txt
+    assert "| Massagem Relaxante (1 hora) | R$1.600 |" in txt  # 800 * 2
+    assert "| Programa Completo (2 horas) | R$5.000 |" in txt  # 2500 * 2
 
 
 def test_fetiches_pago_ignora_valor_cadastrado() -> None:

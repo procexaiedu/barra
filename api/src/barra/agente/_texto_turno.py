@@ -131,7 +131,7 @@ def desfecho_do_turno(resultado: dict[str, Any]) -> dict[str, Any]:
 
     Le o que o GRAFO produziu (nao o pos-processamento do coordenador): a extracao da ULTIMA
     `registrar_extracao` do turno (subset acionavel), os erros de tool recuperaveis (ex.:
-    "ERRO: horario cedo demais"), e os flags efemeros do State (reoferta/forcada/disclosure/
+    "ERRO: horario cedo demais"), e os flags efemeros do State (reoferta/disclosure/
     horario_minimo). Tudo determinístico e sem conteudo de mensagem do cliente.
     """
     messages = resultado.get("messages", [])
@@ -157,8 +157,6 @@ def desfecho_do_turno(resultado: dict[str, Any]) -> dict[str, Any]:
 
     if resultado.get("_reoferta_tentada"):
         desfecho["reoferta_tentada"] = True
-    if resultado.get("_extracao_forcada"):
-        desfecho["extracao_forcada"] = True
     if resultado.get("_categoria"):
         desfecho["disclosure"] = resultado["_categoria"]
     hmin = resultado.get("horario_minimo")

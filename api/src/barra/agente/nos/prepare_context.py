@@ -31,7 +31,6 @@ M3g (este escopo):
 
 import hashlib
 import re
-from collections.abc import Iterable
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any, Literal
@@ -50,7 +49,7 @@ from barra.dominio.conversas.modelos import DirecaoMensagem
 from barra.settings import get_settings
 
 from .._classificador import classificar_janela
-from .._normalizar import normalizar
+from .._disciplina import _PROBE_DIA_HOJE
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
@@ -105,18 +104,18 @@ async def prepare_context(
     ctx = runtime.context
 
     async with conexao(ctx.db_pool) as conn:
-        # 1. Gate de pausa (02 §1): ia_pausada vive no atendimento. Pega pausa concorrente de
-        #    pipelines sem lock (Pix/foto portaria). Webhook fino (M3c) -> atendimento_id None
-        #    -> nada a pausar, segue o turno.
-        if ctx.atendimento_id is not None:
-            res = await conn.execute(
-                "SELECT ia_pausada FROM barravips.atendimentos WHERE id = %s",
-                (ctx.atendimento_id,),
-            )
-            row = await res.fetchone()
-            if row and row["ia_pausada"]:
-                # END e sys.intern("__end__") tipado `str` upstream; o Literal do retorno o cobre.
-                return Command(goto=END)  # type: ignore[arg-type]
+        # 1. Gate de pausa (02 §1) + dados do atendimento numa leitura só. `ia_pausada` vive no
+        #    atendimento (pega pausa concorrente de pipelines sem lock: Pix/foto portaria) junto do
+        #    resto que o contexto dinâmico consome — antes eram DUAS leituras da mesma PK. Webhook
+        #    fino (M3c) -> atendimento_id None -> {} (nada a pausar, segue o turno).
+        atendimento = (
+            await _carregar_atendimento(conn, ctx.atendimento_id)
+            if ctx.atendimento_id is not None
+            else {}
+        )
+        if atendimento.get("ia_pausada"):
+            # END e sys.intern("__end__") tipado `str` upstream; o Literal do retorno o cobre.
+            return Command(goto=END)  # type: ignore[arg-type]
 
         # 2. Janela deslizante (02 §4) — isolada pelo par (cliente, modelo).
         linhas = await carregar_mensagens(conn, ctx.cliente_id, ctx.modelo_id)
@@ -128,18 +127,35 @@ async def prepare_context(
         #     canned/escala/llm. Sem nova query — reusa a janela ja traduzida.
         categoria, confianca = classificar_janela(mensagens)
 
-        # 3. Contexto dinâmico (02 §5): resolve estado/cliente/agenda na MESMA conexão e
-        #    concatena no último HumanMessage (sem cache_control — texto volátil na cauda).
-        #    Devolve a `fase` (= estado do atendimento) já resolvida, p/ o reminder não requerer.
-        mensagens, fase, horario_minimo = await _anexar_contexto_dinamico(
-            conn, ctx, mensagens, linhas
-        )
-
-        # 4. BP_MODELO por-modelo (03 §2/§3.3): identidade + programas do modelo_id, reusando a
+        # 3. BP_MODELO por-modelo (03 §2/§3.3): identidade + programas do modelo_id, reusando a
         #    conexão. É POR-MODELO (filtra modelo_id), não fura o isolamento por par (que vale
         #    para histórico do cliente, já filtrado por cliente+modelo na janela e no contexto).
-        #    Carregado ANTES do reminder p/ a âncora de identidade (3b) reusar o `nome` daqui.
-        modelo_md, modelo_nome = await _carregar_bp3(conn, ctx.modelo_id)
+        #    Carregado ANTES do contexto dinâmico p/ (a) o reminder (3b) reusar o `nome`, (b) o
+        #    contexto reusar o `tabela_max_horas` derivado dos programas já lidos (elimina a query
+        #    agregada de MAX(horas)) e (c) o `endereco_formatado`/`nome_local` da MESMA leitura de
+        #    `modelos` alimentar o <local_de_encontro> (elimina a 2ª leitura da PK do modelo).
+        (
+            modelo_md,
+            modelo_nome,
+            tabela_max_horas,
+            local_endereco_raw,
+            local_nome_raw,
+        ) = await _carregar_bp3(conn, ctx.modelo_id)
+
+        # 4. Contexto dinâmico (02 §5): resolve cliente/agenda na MESMA conexão e concatena no
+        #    último HumanMessage (sem cache_control — texto volátil na cauda). Recebe o atendimento
+        #    já lido (1), o max_horas e o local já resolvidos (3). Devolve a `fase` (= estado do
+        #    atendimento) já resolvida, p/ o reminder não requerer.
+        mensagens, fase, horario_minimo = await _anexar_contexto_dinamico(
+            conn,
+            ctx,
+            mensagens,
+            linhas,
+            atendimento=atendimento,
+            tabela_max_horas=tabela_max_horas,
+            local_endereco_raw=local_endereco_raw,
+            local_nome_raw=local_nome_raw,
+        )
 
         # 3b. Reminder anti-drift (03 §10): PREPEND o <lembrete_silencioso> no MESMO último
         #     HumanMessage, depois do contexto dinâmico (ordem final: lembrete → msg → contexto),
@@ -285,8 +301,8 @@ def _spotlight_legenda(texto: str, msg_id: str) -> str:
 # (zero LLM, zero crédito) e assumimos hoje SÓ no render do belief, sem persistir: a agenda já usa hoje
 # por default (criar_bloqueio_previo: data = data_desejada or hoje), o estado real não diverge, e o
 # belief é artefato derivado recomputado todo turno. Gated por evidência: só dispara DEPOIS do "sim",
-# então não suprime o abridor no turno 1.
-_PROBE_DIA_HOJE = re.compile(r"\b(?:seria|é pra|pra|é) hoje\b", re.IGNORECASE)
+# então não suprime o abridor no turno 1. (`_PROBE_DIA_HOJE` vem de agente/_disciplina.py — mesma
+# fonte que o write-time usa p/ carimbar `dia_sondado_em`.)
 # Cliente citou OUTRO dia → não assume hoje (deixa a extração capturar o dia explícito).
 _TOKEN_OUTRO_DIA = re.compile(
     r"\b(amanh[ãa]|depois de amanh[ãa]|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|"
@@ -409,30 +425,16 @@ def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
     )
 
 
-# Contraproposta de desconto ("Consigo 500 se você vier hoje 😊") — a disciplina é ATÉ DUAS na
-# conversa inteira (regras.md.j2 <desconto> 3/4, ADR-0031: degrau na 1ª, teto na 2ª e última), mas a
-# memória dela vivia só na janela de 20 msgs: quando a contraproposta desliza pra fora, o LLM pode
-# ofertar de novo. Detecção determinística sobre TODAS as falas da IA do atendimento
-# (mensagens.atendimento_id, indexado) → <ja_fez_contraproposta> no belief. Forma canônica treinada
-# pelo prompt: "consigo" + preço (3+ dígitos). Não colide com o resto do phrasebook: cotação é
-# "600 1h no meu local" (sem "consigo"), hora é 1-2 dígitos + h (barrada pelo \d{3,}) e a recusa
-# "não consigo" cai no lookbehind (texto já normalizado, sem acento).
-_RE_CONTRAPROPOSTA = re.compile(r"(?<!nao )\bconsigo\s+(?:r\$\s*)?\d{3,}\b")
-
-
-def _contar_contrapropostas(textos: Iterable[str]) -> int:
-    """Nº de linhas de `mensagens` (bolha/chunk enviado, não turno lógico) que carregam a
-    contraproposta de desconto (ADR-0031: até 2 por atendimento — degrau na 1ª, teto na 2ª e
-    última). Conta por linha (`search`, não `findall`): a frase canônica é curta e o chunker do
-    envio não a parte nem a repete dentro do mesmo turno, então bolha ≈ oferta na prática."""
-    return sum(1 for t in textos if _RE_CONTRAPROPOSTA.search(normalizar(t)))
-
-
 async def _anexar_contexto_dinamico(
     conn: AsyncConnection[Any],
     ctx: ContextAgente,
     mensagens: list[BaseMessage],
     linhas: list[dict[str, Any]] | None = None,
+    *,
+    atendimento: dict[str, Any] | None = None,
+    tabela_max_horas: float = 0.0,
+    local_endereco_raw: str | None = None,
+    local_nome_raw: str | None = None,
 ) -> tuple[list[BaseMessage], str | None, datetime | None]:
     """Resolve o contexto dinâmico do turno e concatena no último HumanMessage (02 §5).
 
@@ -441,13 +443,25 @@ async def _anexar_contexto_dinamico(
     conexão já aberta. As queries de conversa/histórico filtram pelo par (cliente, modelo)
     JUNTOS (isolamento — agente/CLAUDE.md).
 
+    `atendimento` (row já lido pelo gate), `tabela_max_horas` e `local_endereco_raw`/`local_nome_raw`
+    (derivados/lidos em `_carregar_bp3`) chegam prontos p/ evitar re-leituras da mesma PK. Nos
+    testes que chamam direto sem eles, os defaults valem (atendimento vazio, sem local, max 0).
+
     Concatena no ÚLTIMO HumanMessage (a msg atual do cliente). Defesa: se a janela não tiver
     nenhum HumanMessage, anexa o contexto como novo HumanMessage no fim. Devolve também a `fase`
     (= `estado` do atendimento) já resolvida, p/ o reminder (03 §10) reusar sem nova query, e o
     `horario_minimo` (mesmo valor renderizado na tag `<horario_minimo>`) p/ o State — a tool
     `registrar_extracao` o lê p/ desambiguar a conduta de `AntecedenciaInsuficiente` (estado.py).
     """
-    variaveis = await _resolver_variaveis(conn, ctx, linhas)
+    variaveis = await _resolver_variaveis(
+        conn,
+        ctx,
+        linhas,
+        atendimento=atendimento,
+        tabela_max_horas=tabela_max_horas,
+        local_endereco_raw=local_endereco_raw,
+        local_nome_raw=local_nome_raw,
+    )
     # A2: captura determinística do dia (abridor "seria hoje?" + afirmação do cliente) antes do
     # render — sem persistir, só alimenta o belief p/ a IA não repetir a sondagem (ver helper acima).
     _aplicar_dia_confirmado(variaveis, mensagens)
@@ -511,11 +525,19 @@ def _injetar_reminder_se_necessario(
     return historico
 
 
-async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> tuple[str, str]:
+async def _carregar_bp3(
+    conn: AsyncConnection[Any], modelo_id: str
+) -> tuple[str, str, float, str | None, str | None]:
     """Monta o BP3 por-modelo: identidade + programas do modelo_id (03 §2.1/§3.3).
 
-    Devolve `(bp3_md, nome)`: o markdown do BP_MODELO e o `nome` da modelo (já lido aqui, sem
-    coluna/query extra) p/ a âncora de identidade do reminder reusar sem recarregar o registro.
+    Devolve `(bp3_md, nome, tabela_max_horas, endereco_formatado, nome_local)`:
+    - `bp3_md`/`nome`: o markdown do BP_MODELO e o `nome` da modelo (p/ a âncora de identidade do
+      reminder reusar sem recarregar o registro);
+    - `tabela_max_horas`: MAX das horas dos programas, derivado das linhas JÁ lidas aqui (elimina a
+      query agregada `SELECT MAX(d.horas)` que `_resolver_variaveis` fazia à parte); 0 se sem tabela;
+    - `endereco_formatado`/`nome_local`: o ponto de encontro da modelo, lido na MESMA leitura de
+      `modelos` (elimina a 2ª leitura da PK). Só CRU — o gate por estado/tipo (<local_de_encontro>)
+      é aplicado em `_resolver_variaveis`; NÃO entram no markdown (prefixo cacheável não tem endereço).
 
     A coluna `tipo_atendimento_aceito` (banco) é mapeada para `tipos_aceitos` (dataclass). Os
     programas vêm do schema real (pós-0010): `modelo_programas`/`programas`/`duracoes` — a
@@ -528,7 +550,8 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> tuple[str
     """
     res = await conn.execute(
         """
-        SELECT nome, idade, idiomas, localizacao_operacional, tipo_atendimento_aceito
+        SELECT nome, idade, idiomas, localizacao_operacional, tipo_atendimento_aceito,
+               endereco_formatado, nome_local
           FROM barravips.modelos
          WHERE id = %s
         """,
@@ -560,7 +583,7 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> tuple[str
     # opcional (NULL = incluso). Ordem determinística (pré-req do cache, igual aos programas).
     res = await conn.execute(
         """
-        SELECT f.nome, mf.preco
+        SELECT f.nome, mf.preco, f.cobra_por_pessoa
           FROM barravips.modelo_fetiches mf
           JOIN barravips.fetiches f ON f.id = mf.fetiche_id
          WHERE mf.modelo_id = %s
@@ -569,75 +592,79 @@ async def _carregar_bp3(conn: AsyncConnection[Any], modelo_id: str) -> tuple[str
         (modelo_id,),
     )
     fetiches = await res.fetchall()
-    return render_bp3(identidade, programas, fetiches), identidade.nome
+    # MAX das horas derivado das linhas já lidas (antes era uma query agregada à parte em
+    # _resolver_variaveis). `duracao_horas` é numérica; float() casa com o `tabela_max_horas` que
+    # o contexto dinâmico esperava. Sem programas -> 0.0 (mesmo default do COALESCE(MAX,0) antigo).
+    tabela_max_horas = max((float(p["duracao_horas"]) for p in programas), default=0.0)
+    return (
+        render_bp3(identidade, programas, fetiches),
+        identidade.nome,
+        tabela_max_horas,
+        m.get("endereco_formatado"),
+        m.get("nome_local"),
+    )
+
+
+async def _carregar_atendimento(conn: AsyncConnection[Any], atendimento_id: str) -> dict[str, Any]:
+    """Leitura ÚNICA do atendimento p/ o turno: gate de pausa (`ia_pausada`) + os campos que o
+    contexto dinâmico consome + as 3 flags de disciplina materializadas (padrão A2). Antes eram
+    duas leituras da mesma PK (o gate lia só `ia_pausada`, `_resolver_variaveis` relia o resto) e a
+    query de 500 falas da IA derivava as flags por regex a cada turno — agora `n_contrapropostas`/
+    `dia_sondado_em`/`book_enviado_em` já vêm carimbadas pelo write-time (workers/envio.py).
+    """
+    res = await conn.execute(
+        """
+        SELECT ia_pausada, numero_curto, estado, intencao, tipo_atendimento, urgencia,
+               pix_status, data_desejada, horario_desejado, endereco, bairro,
+               cotacao_enviada_em, valor_acordado, duracao_horas,
+               n_contrapropostas, dia_sondado_em, book_enviado_em
+          FROM barravips.atendimentos
+         WHERE id = %s
+        """,
+        (atendimento_id,),
+    )
+    return await res.fetchone() or {}
 
 
 async def _resolver_variaveis(
     conn: AsyncConnection[Any],
     ctx: ContextAgente,
     linhas: list[dict[str, Any]] | None = None,
+    *,
+    atendimento: dict[str, Any] | None = None,
+    tabela_max_horas: float = 0.0,
+    local_endereco_raw: str | None = None,
+    local_nome_raw: str | None = None,
 ) -> dict[str, Any]:
     """Resolve as variáveis do template de contexto dinâmico via queries específicas (02 §5).
 
-    `atendimento` só é consultado quando há `atendimento_id` (espelha a guarda do gate); no
-    fluxo real o coordenador sempre o resolve antes de invocar o grafo (02 §7).
+    `atendimento` (row já lido pelo gate em `_carregar_atendimento`) traz estado/agenda + as 3
+    flags de disciplina materializadas (`n_contrapropostas`/`dia_sondado_em`/`book_enviado_em`) —
+    não relê a PK nem varre as 500 falas da IA. `tabela_max_horas` e `local_endereco_raw`/
+    `local_nome_raw` vêm de `_carregar_bp3` (MAX derivado dos programas já lidos + a MESMA leitura
+    de `modelos`). Defaults ({}, 0, None) mantêm os testes que chamam direto funcionando.
 
     `linhas` (janela crua de `carregar_mensagens`, com `created_at`) alimenta a percepção de tempo
     da cauda (emenda ADR 0025, 2026-06-26): quanto tempo faz que o cliente falou. Opcional —
     testes que chamam direto sem janela seguem funcionando (marcadores ficam None).
     """
-    atendimento: dict[str, Any] = {}
-    n_contrapropostas = 0
-    dia_ja_sondado_hist = False
-    book_ja_enviado = False
+    atendimento = atendimento or {}
+    # Flags de disciplina (padrão A2) já carimbadas no write-time (workers/envio.py): sem scan das
+    # 500 falas da IA por turno. `n_contrapropostas` é contador; as outras duas são timestamps
+    # first-write-wins -> presença = flag ligada. `dia_ja_sondado_hist` ainda entra no OR com o
+    # window-scan em _anexar_contexto_dinamico (cobre a fala do turno atual não persistida).
+    n_contrapropostas = atendimento.get("n_contrapropostas") or 0
+    dia_ja_sondado_hist = atendimento.get("dia_sondado_em") is not None
+    book_ja_enviado = atendimento.get("book_enviado_em") is not None
+
+    # Gate estrutural do endereço (<local_de_encontro>): o ponto de encontro (lido junto da
+    # identidade em _carregar_bp3) só entra no contexto quando o estado/tipo liberam (interno em
+    # Qualificado+, ver _libera_local_de_encontro). Fora do gate, fica None — como antes.
     local_endereco: str | None = None
     local_nome: str | None = None
-    if ctx.atendimento_id is not None:
-        res = await conn.execute(
-            """
-            SELECT numero_curto, estado, intencao, tipo_atendimento, urgencia,
-                   pix_status, data_desejada, horario_desejado, endereco, bairro,
-                   cotacao_enviada_em, valor_acordado, duracao_horas
-              FROM barravips.atendimentos
-             WHERE id = %s
-            """,
-            (ctx.atendimento_id,),
-        )
-        atendimento = await res.fetchone() or {}
-
-        # Falas da IA do atendimento INTEIRO (não só a janela de 20): memória durável das
-        # disciplinas one-shot/multi-rodada (padrão A2) — contrapropostas de desconto
-        # (_contar_contrapropostas), sondagem do dia (<ja_sondou_o_dia>) e book de mídia
-        # (<ja_enviou_book>; saída de mídia persiste como tipo='imagem' — workers/envio.py).
-        # `modelo_manual` fica de fora de propósito — a disciplina é da IA; ação manual da
-        # modelo não a consome. As três flags saem da MESMA leva de linhas, sem query extra.
-        res = await conn.execute(
-            """
-            SELECT conteudo, tipo
-              FROM barravips.mensagens
-             WHERE atendimento_id = %s AND direcao = 'ia'
-             ORDER BY created_at
-             LIMIT 500
-            """,
-            (ctx.atendimento_id,),
-        )
-        falas_ia = await res.fetchall()
-        n_contrapropostas = _contar_contrapropostas(r["conteudo"] or "" for r in falas_ia)
-        dia_ja_sondado_hist = any(_PROBE_DIA_HOJE.search(r["conteudo"] or "") for r in falas_ia)
-        book_ja_enviado = any(r.get("tipo") == "imagem" for r in falas_ia)
-
-        # Gate estrutural do endereço (<local_de_encontro>): só carrega o ponto de encontro da
-        # modelo quando o estado/tipo liberam (ver _libera_local_de_encontro).
-        if _libera_local_de_encontro(
-            atendimento.get("estado"), atendimento.get("tipo_atendimento")
-        ):
-            res = await conn.execute(
-                "SELECT endereco_formatado, nome_local FROM barravips.modelos WHERE id = %s",
-                (ctx.modelo_id,),
-            )
-            local = await res.fetchone() or {}
-            local_endereco = local.get("endereco_formatado")
-            local_nome = local.get("nome_local")
+    if _libera_local_de_encontro(atendimento.get("estado"), atendimento.get("tipo_atendimento")):
+        local_endereco = local_endereco_raw
+        local_nome = local_nome_raw
 
     res = await conn.execute(
         """
@@ -654,23 +681,6 @@ async def _resolver_variaveis(
         (ctx.cliente_id,),
     )
     cliente = await res.fetchone() or {}
-
-    # Trilho determinístico do período longo (feedbacks 21-22/07: "pernoite 12h 2000"/"3h 800"
-    # inventados quando a tabela só tem 1h — prosa e armadilha não seguraram o example-bleed):
-    # quando a tabela não tem pacote de 6h+, o contexto declara que período longo NÃO existe
-    # (<sem_periodo_longo>). Determinístico (deriva do cadastro) e cache-safe (bytes estáveis
-    # enquanto o cadastro não muda; vive no contexto por-turno, nunca no prefixo).
-    res = await conn.execute(
-        """
-        SELECT COALESCE(MAX(d.horas), 0) AS max_horas
-          FROM barravips.modelo_programas mp
-          JOIN barravips.duracoes d ON d.id = mp.duracao_id
-         WHERE mp.modelo_id = %s
-        """,
-        (ctx.modelo_id,),
-    )
-    row_horas = await res.fetchone() or {}
-    tabela_max_horas = float(row_horas.get("max_horas") or 0)
 
     # Exclui o bloqueio do ATENDIMENTO ATUAL: sem checkpointer a IA não lembra que reservou esse
     # slot pra ESTE cliente (prompt reconstruído do zero todo turno) — se o visse na lista de
@@ -816,7 +826,7 @@ async def _resolver_variaveis(
         "valor_fechado": _num_humano(atendimento.get("valor_acordado")),
         "duracao_fechada": _num_humano(atendimento.get("duracao_horas")),
         "n_contrapropostas": n_contrapropostas,
-        # Memória durável do atendimento p/ as flags A2 (mesma leva de falas da IA acima):
+        # Memória durável do atendimento p/ as flags A2 (colunas materializadas no write-time):
         # `dia_ja_sondado_hist` entra no OR com a janela em _anexar_contexto_dinamico;
         # `book_ja_enviado` injeta <ja_enviou_book> direto no template.
         "dia_ja_sondado_hist": dia_ja_sondado_hist,

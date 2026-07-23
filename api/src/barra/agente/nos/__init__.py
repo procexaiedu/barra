@@ -5,6 +5,7 @@ dict parcial do state. Deps de runtime/ids de escopo vem de `runtime.context` (0
 Skeleton M0: nos retornam {} (no-op). Implementacao real entra em M1+.
 """
 
+from .extrair import no_extrair
 from .intercept_disclosure import intercept_disclosure
 from .llm import no_llm
 from .output_guard import output_guard
@@ -14,6 +15,7 @@ from .tools import tools_node
 
 __all__ = [
     "intercept_disclosure",
+    "no_extrair",
     "no_llm",
     "output_guard",
     "post_process",

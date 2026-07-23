@@ -206,30 +206,31 @@ def render_programas(programas: list[dict[str, Any]]) -> str:
 
 
 def render_fetiches(fetiches: list[dict[str, Any]], programas: list[dict[str, Any]]) -> str:
-    """BP3 por-modelo — cardápio de fetiches que a modelo FAZ (ADR 0030).
+    """BP3 por-modelo — cardápio de fetiches que a modelo FAZ (ADR 0030 / ADR 0035).
 
-    Cada item é um fetiche vinculado, com preço opcional: `preco` None = incluso (faz sem custo
-    extra); preenchido = extra pago. O valor do extra deixou de ser lido de `preco` (ADR-0030):
-    é sempre calculado, uma linha por programa que a modelo oferece, com a mesma
-    `calcular_preco_extra_fetiche` usada no registro do atendimento (dominio/atendimentos) —
-    preço-hora efetivo do pacote, uniforme entre fetiches pagos. A ausência de um fetiche da
-    lista significa que ela NÃO faz — a IA recusa de forma aberta, sem lista de negativos no
-    prompt. Ambas as listas devem chegar ordenadas de forma determinística (pré-req do cache —
-    agente/CLAUDE.md): a combinação (fetiche x programa) sai na mesma ordem sempre, sem depender
-    do turno/conversa."""
+    Cada item é um fetiche vinculado, com `preco` (None = incluso; preenchido = pago) e a flag
+    `cobra_por_pessoa` (casal/menage). O valor do extra deixou de ser lido de `preco` (ADR-0030):
+    é sempre calculado do pacote, em DOIS regimes (ADR-0035):
+    - **ato** (default): preço-hora efetivo do pacote, uniforme entre atos — por isso a tabela sai
+      UMA vez e os atos entram como lista de nomes, sem repetir o extra por fetiche.
+    - **por-pessoa** (casal/menage): dobra o pacote (2 pessoas) — o `dobro` pré-computado.
+    A ausência de um fetiche da lista significa que ela NÃO faz — a IA recusa de forma aberta, sem
+    lista de negativos no prompt. As listas chegam ordenadas de forma determinística (pré-req do
+    cache — agente/CLAUDE.md): o bloco sai na mesma ordem sempre, sem depender do turno/conversa."""
     precos_por_programa = []
     for p in programas:
-        extra = calcular_preco_extra_fetiche(
-            Decimal(str(p["preco"])), Decimal(str(p["duracao_horas"]))
-        )
+        preco = Decimal(str(p["preco"]))
+        extra = calcular_preco_extra_fetiche(preco, Decimal(str(p["duracao_horas"])))
         precos_por_programa.append(
             {
                 "nome": p["nome"],
                 "duracao_nome": p["duracao_nome"],
                 "extra": extra,
-                # Total pré-computado (programa + extra): a conta chega pronta no dado — o
-                # modelo copia, não soma (800+800 já saiu como "1200" em replay 22/07).
-                "total": Decimal(str(p["preco"])) + extra,
+                # Totais pré-computados: a conta chega pronta no dado — o modelo copia, não soma
+                # (800+800 já saiu como "1200" em replay 22/07). `total` = pacote + extra do ato;
+                # `dobro` = pacote por-pessoa (casal/menage, 2 pessoas — ADR-0035).
+                "total": preco + extra,
+                "dobro": preco * 2,
             }
         )
     return _env.get_template("fetiches.md.j2").render(

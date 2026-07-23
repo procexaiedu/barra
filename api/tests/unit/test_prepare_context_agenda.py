@@ -84,15 +84,14 @@ async def test_resolver_variaveis_hora_local_e_exclui_bloqueio_atual() -> None:
 
 
 class _FakeConnComAtendimento:
-    """Devolve um atendimento interno com horário combinado; vazio no resto. `agora` vem do
-    ctx.agora_utc (clock injection), então não há query de relógio."""
+    """Vazio em todas as queries: o atendimento agora chega por kwarg em _resolver_variaveis (lido
+    uma vez pelo gate em prepare_context), não por query. `agora` vem do ctx.agora_utc (clock
+    injection), então também não há query de relógio."""
 
     def __init__(self, atendimento: dict[str, Any]) -> None:
         self.atendimento = atendimento
 
     async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> _Result:
-        if "barravips.atendimentos" in sql and "numero_curto" in sql:
-            return _Result([self.atendimento])
         return _Result([])
 
 
@@ -126,7 +125,9 @@ async def test_marcadores_de_tempo_e_horario_minimo_por_tipo() -> None:
         }
     ]
 
-    variaveis = await _resolver_variaveis(conn, ctx, linhas)  # type: ignore[arg-type]
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, linhas, atendimento=conn.atendimento
+    )
 
     # E: marcadores de tempo na cauda.
     assert variaveis["min_desde_ultima_msg_cliente"] == 5
@@ -167,7 +168,9 @@ async def test_relogio_do_encontro_so_com_horario_combinado_nao_desejado() -> No
         agora_utc=datetime(2026, 6, 29, 23, 0, tzinfo=UTC),
     )
 
-    variaveis = await _resolver_variaveis(conn, ctx, [])  # type: ignore[arg-type]
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, [], atendimento=conn.atendimento
+    )
 
     assert variaveis["combinado_hora"] is None
     assert variaveis["min_para_combinado"] is None

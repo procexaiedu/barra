@@ -1,15 +1,22 @@
 <fetiches>
-{# Renderiza só a tabela de dado do BD (BP_MODELO). Extra pago (ADR-0030): o valor não é lido
-   de `f.preco` (flag incluso/pago, ADR-0030 ticket 02) — é sempre calculado a partir do preço de
-   tabela do programa, uma linha por programa que a modelo oferece (precos_por_programa). #}
-{% if fetiches %}
-| Fetiche | Extra |
-|---------|-------|
-{% for f in fetiches %}{% if f.preco %}{% if precos_por_programa %}{% for pp in precos_por_programa %}| {{ f.nome }} | +{{ pp.extra | brl }} no {{ pp.nome }} ({{ pp.duracao_nome }}) = {{ pp.total | brl }} no total |
-{% endfor %}{% else %}| {{ f.nome }} | pago (sem programa cadastrado p/ calcular) |
-{% endif %}{% else %}| {{ f.nome }} | incluso |
-{% endif %}{% endfor %}
-{% else %}
-(sem fetiches cadastrados)
-{% endif %}
-</fetiches>
+{# DADO por-modelo (BP_MODELO). Três regimes (ADR-0030/0035): incluso (sem custo), ato pago
+   (+preço-hora do pacote, UNIFORME entre atos — depende só do pacote, não de qual fetiche, por
+   isso a tabela sai UMA vez e os atos entram como lista de nomes) e por-pessoa (casal/menage:
+   dobra o pacote, 2 pessoas). `precos_por_programa` (persona.py) traz extra/total/dobro prontos. #}
+{% set inclusos = fetiches | rejectattr('preco') | list -%}
+{% set atos = fetiches | selectattr('preco') | rejectattr('cobra_por_pessoa') | list -%}
+{% set por_pessoa = fetiches | selectattr('preco') | selectattr('cobra_por_pessoa') | list -%}
+{% if inclusos %}Inclusos (você faz sem custo extra): {{ inclusos | map(attribute='nome') | join(', ') }}.
+{% endif %}{% if atos %}Extras pagos — cada um soma o MESMO valor no pacote (vale pra qualquer um): {{ atos | map(attribute='nome') | join(', ') }}.
+{% if precos_por_programa %}| Pacote | Extra | Total com o extra |
+|--------|-------|-------------------|
+{% for pp in precos_por_programa %}| {{ pp.nome }} ({{ pp.duracao_nome }}) | +{{ pp.extra | brl }} | {{ pp.total | brl }} |
+{% endfor %}Cote sobre UM pacote (o que ele considera agora); dois extras somam "+Extra" duas vezes.
+{% else %}(sem programa cadastrado p/ calcular o extra)
+{% endif %}{% endif %}{% if por_pessoa %}Por pessoa — são 2 pessoas, DOBRA o pacote (não é o "+Extra" dos atos): {{ por_pessoa | map(attribute='nome') | join(', ') }}.
+{% if precos_por_programa %}| Pacote | Total com a 2ª pessoa |
+|--------|-----------------------|
+{% for pp in precos_por_programa %}| {{ pp.nome }} ({{ pp.duracao_nome }}) | {{ pp.dobro | brl }} |
+{% endfor %}{% else %}(sem programa cadastrado p/ calcular)
+{% endif %}{% endif %}{% if not inclusos and not atos and not por_pessoa %}(sem fetiches cadastrados)
+{% endif %}</fetiches>

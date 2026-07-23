@@ -15,6 +15,7 @@ from arq import Retry
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
+from barra.agente._disciplina import contem_contraproposta, contem_sondagem_dia
 from barra.core.errors import ErroDominio
 from barra.core.evolution import EvolutionClient
 from barra.core.metrics import (
@@ -26,7 +27,12 @@ from barra.core.metrics import (
     QUOTE_MARCADOR_VAZADO,
 )
 from barra.core.tracing import sentry_sdk
-from barra.dominio.atendimentos.service import marcar_cotacao_enviada_por_texto
+from barra.dominio.atendimentos.service import (
+    incrementar_contrapropostas,
+    marcar_book_enviado,
+    marcar_cotacao_enviada_por_texto,
+    marcar_dia_sondado,
+)
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.dominio.escaladas.service import (
     abrir_handoff,
@@ -934,20 +940,34 @@ async def enviar_turno(
                     quoted_message_id=quote_target,
                     quoted_text=quote_target_texto if quote_target else None,
                 )
-                await conn.execute(
+                cur = await conn.execute(
                     """
                     INSERT INTO barravips.mensagens
                       (conversa_id, atendimento_id, direcao, tipo, conteudo, evolution_message_id)
                     VALUES (%s, %s, 'ia', 'texto', %s, %s)
                     ON CONFLICT (evolution_message_id) DO NOTHING
+                    RETURNING 1
                     """,
                     (conversa_uuid, conv["atendimento_id"], conteudo, mid),
                 )
+                # RETURNING + ON CONFLICT DO NOTHING: linha só volta quando a bolha foi de fato
+                # inserida. Num retry (mesmo evolution_message_id) o conflito não retorna nada ->
+                # não recarimba nada (idempotência do contador de contrapropostas).
+                inseriu = await cur.fetchone() is not None
                 # Carimbo determinístico da cotação (ADR 0022): na MESMA transação do envio,
                 # ancora o reengajamento só pelo que de fato saiu. Idempotente (guard IS NULL +
                 # estado) — repetir entre chunks/retries é no-op.
                 if conv["atendimento_id"] is not None and _texto_tem_cotacao(conteudo):
                     await marcar_cotacao_enviada_por_texto(conn, conv["atendimento_id"])
+                # Flags de disciplina (padrão A2) carimbadas no write-time, na MESMA transação —
+                # prepare_context lê a coluna em vez de reescanear as falas da IA por turno. Só na
+                # 1ª inserção da bolha (`inseriu`): o contador não pode dobrar no retry. Detectores
+                # de agente/_disciplina.py (mesma fonte que o read-time usa na janela).
+                if inseriu and conv["atendimento_id"] is not None:
+                    if contem_contraproposta(conteudo):
+                        await incrementar_contrapropostas(conn, conv["atendimento_id"])
+                    if contem_sondagem_dia(conteudo):
+                        await marcar_dia_sondado(conn, conv["atendimento_id"])
 
             # 6. MARK-AFTER-SEND: só agora idx conta como entregue (05 §4.3)
             await redis.sadd(f"enviados:{turno_id}", f"chunk:{idx}")
@@ -1139,6 +1159,11 @@ async def _enviar_midias(
                     mid,
                 ),
             )
+            # Flag de disciplina (padrão A2): 1º book da negociação. Guard IS NULL (first-write-wins)
+            # já é idempotente sob retry, dispensa checar rowcount do INSERT. prepare_context lê a
+            # coluna em vez de reescanear as falas da IA (tipo='imagem') por turno.
+            if conv["atendimento_id"] is not None:
+                await marcar_book_enviado(conn, conv["atendimento_id"])
 
         await redis.sadd(f"enviados:{turno_id}", f"midia:{idx}")
         await redis.expire(f"enviados:{turno_id}", 600)

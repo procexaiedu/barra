@@ -139,7 +139,9 @@ async def test_uma_falha_de_midia_nao_dispara_o_cap() -> None:
 
     cmd = await node(state, _runtime())  # type: ignore[arg-type]
 
-    assert cmd.goto in ("tools", "post_process")  # fluxo normal
+    # fluxo normal: 1 falha não dispara o cap. O `_texto_normal()` do fake não tem tool_call ->
+    # ramo sem tool_call -> extrair (02 §4); o cap fecharia em post_process, mas não disparou.
+    assert cmd.goto == "extrair"
     assert chat.sem_tool.chamadas == []  # cap NÃO disparou
     assert "_midia_esgotada" not in (cmd.update or {})
 

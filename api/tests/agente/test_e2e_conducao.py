@@ -5,9 +5,9 @@ needs_db (DB real via TEST_DATABASE_URL, ROLLBACK sempre) mas NAO needs_key: o c
 um fake roteirizado, entao NAO gasta credito (§0). Prova o encanamento ponta-a-ponta: seed em
 `Novo` -> loop multi-turn -> transicoes persistem no DB -> parada na linha de chegada -> veredito.
 
-O fake conduz um caso interno: cada turno emite registrar_extracao (a tool real escreve o estado)
-e uma bolha de texto. `_decidir_transicao` avanca UM degrau por extracao
-(Novo->Triagem->Qualificado->Aguardando_confirmacao), por isso sao 3 turnos.
+O fake conduz um caso interno: por turno o llm emite a bolha de texto (sem tool_call) e o no
+`extrair` FORCA a registrar_extracao (a tool real escreve o estado). `_decidir_transicao` avanca
+UM degrau por extracao (Novo->Triagem->Qualificado->Aguardando_confirmacao), por isso sao 3 turnos.
 """
 
 from __future__ import annotations
@@ -85,9 +85,10 @@ class _BoundRoteirizado:
 
 
 class _ChatRoteirizado:
-    """Por turno do agente emite, na ordem: a extracao (vai p/ tools, ReAct volta ao llm) e a
-    bolha final (encerra). Cada `bind_tools` normal consome a proxima AIMessage da fila; o bind
-    forcado (tool_choice) nunca e usado porque todo turno ja chama registrar_extracao."""
+    """Por turno o agente consome 2 AIMessages da fila, na ordem: a BOLHA (chat #1, sem tool_call
+    -> roteia ao no `extrair`) e a EXTRAÇÃO forcada (o `extrair` binda registrar_extracao com
+    tool_choice e a executa inline). `bind_tools` (normal ou forcado) devolve o mesmo bound; a fila
+    serve as duas chamadas na ordem."""
 
     model = "claude-test-e2e"
 
@@ -117,13 +118,16 @@ def _sequencia_interno() -> list[AIMessage]:
     # NÃO pula etapas quando a info chega gradual e sobe os degraus na ordem; os dois últimos só
     # subiriam juntos se tipo+horário chegassem no MESMO turno. O runner para ao chegar em
     # Aguardando_confirmacao, então o 3o turno fecha a jornada.
+    # Ordem por turno (02 §4): a BOLHA (chat #1, sem tool_call -> `extrair`) e depois a EXTRAÇÃO
+    # (o `extrair` força registrar_extracao com tool_choice e a executa inline). Os args da extração
+    # por turno não mudam — só o preenchedor mudou de posição.
     return [
-        _extracao({**base, "cotacao_apresentada": True}),
         _bolha("oii amor, claro que atendo 😊 o encontro de 1h fica 400"),
-        _extracao(so_tipo),
+        _extracao({**base, "cotacao_apresentada": True}),
         _bolha("aaa que delícia, você vem aqui então 🥰"),
-        _extracao(completa),
+        _extracao(so_tipo),
         _bolha("amanhã 15h fica perfeito pra mim"),
+        _extracao(completa),
     ]
 
 

@@ -217,9 +217,10 @@ async def test_aviso_saida_marca_e_enfileira_card(
     )
     await _inserir_mensagem(conn, conversa_id=conversa_id)
 
-    # 1º AIMessage chama a tool com aviso; 2º responde texto curto (encerra o loop).
+    # Novo fluxo (02 §4): o llm responde texto (sem tool_call) -> `extrair`; o no `extrair` FORCA a
+    # extracao (2ª chamada do fake) que emite aviso_saida_detectado e a executa inline (card).
     fake = _FakeChat(
-        [_chama_extracao_com_aviso("call_1"), AIMessage(content="anotado, te espero por aqui 🥰")]
+        [AIMessage(content="anotado, te espero por aqui 🥰"), _chama_extracao_com_aviso("call_1")]
     )
     # Caminhos de texto sao DeepSeek-only -> _criar_chat_principal/extracao chamam criar_chat_deepseek;
     # mocka o factory com o fake p/ o teste não escapar pra API real (§0).

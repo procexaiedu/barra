@@ -37,18 +37,10 @@ class _Result:
 
 
 class _FakeConn:
-    """Serve o atendimento e a ficha da modelo; vazio no resto. Registra as queries feitas."""
-
-    def __init__(self, atendimento: dict[str, Any]) -> None:
-        self.atendimento = atendimento
-        self.calls: list[str] = []
+    """Vazio em tudo: atendimento e o local CRU (endereco_formatado/nome_local) chegam por kwarg —
+    o local é lido junto da identidade em _carregar_bp3 (fusão da leitura de `modelos`)."""
 
     async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> _Result:
-        self.calls.append(sql)
-        if "barravips.atendimentos" in sql and "numero_curto" in sql:
-            return _Result([self.atendimento])
-        if "endereco_formatado" in sql and "barravips.modelos" in sql:
-            return _Result([{"endereco_formatado": _ENDERECO, "nome_local": _HOTEL}])
         return _Result([])
 
 
@@ -64,9 +56,22 @@ def _ctx() -> ContextAgente:
     )
 
 
+async def _resolver(atendimento: dict[str, Any]) -> dict[str, Any]:
+    # O local CRU é SEMPRE passado (é lido junto da identidade); o gate por estado/tipo decide se
+    # ele entra no contexto. Provamos que o gate — não a ausência do dado — é o que protege.
+    return await _resolver_variaveis(
+        _FakeConn(),  # type: ignore[arg-type]
+        _ctx(),
+        atendimento=atendimento,
+        local_endereco_raw=_ENDERECO,
+        local_nome_raw=_HOTEL,
+    )
+
+
 async def test_qualificado_interno_injeta_local_de_encontro() -> None:
-    conn = _FakeConn({"numero_curto": 1, "estado": "Qualificado", "tipo_atendimento": "interno"})
-    variaveis = await _resolver_variaveis(conn, _ctx())  # type: ignore[arg-type]
+    variaveis = await _resolver(
+        {"numero_curto": 1, "estado": "Qualificado", "tipo_atendimento": "interno"}
+    )
     assert variaveis["local_endereco"] == _ENDERECO
     assert variaveis["local_nome"] == _HOTEL
 
@@ -77,17 +82,19 @@ async def test_qualificado_interno_injeta_local_de_encontro() -> None:
     assert "SEM o número" in saida  # instrução dos degraus junto do dado
 
 
-async def test_triagem_nao_carrega_nem_renderiza_endereco() -> None:
-    conn = _FakeConn({"numero_curto": 1, "estado": "Triagem", "tipo_atendimento": "interno"})
-    variaveis = await _resolver_variaveis(conn, _ctx())  # type: ignore[arg-type]
+async def test_triagem_nao_renderiza_endereco() -> None:
+    # Mesmo com o local CRU disponível (lido em _carregar_bp3), o gate o mantém FORA do contexto
+    # antes de Qualificado: a IA nunca o vê renderizado, então não há o que vazar.
+    variaveis = await _resolver(
+        {"numero_curto": 1, "estado": "Triagem", "tipo_atendimento": "interno"}
+    )
     assert variaveis["local_endereco"] is None
-    # A query da ficha nem roda: o endereço não entra no processo antes do gate.
-    assert not any("endereco_formatado" in sql for sql in conn.calls)
     assert "<local_de_encontro>" not in render_contexto_dinamico(**variaveis)
 
 
 async def test_externo_qualificado_nao_injeta_endereco_da_modelo() -> None:
-    conn = _FakeConn({"numero_curto": 1, "estado": "Qualificado", "tipo_atendimento": "externo"})
-    variaveis = await _resolver_variaveis(conn, _ctx())  # type: ignore[arg-type]
+    variaveis = await _resolver(
+        {"numero_curto": 1, "estado": "Qualificado", "tipo_atendimento": "externo"}
+    )
     assert variaveis["local_endereco"] is None
     assert "<local_de_encontro>" not in render_contexto_dinamico(**variaveis)

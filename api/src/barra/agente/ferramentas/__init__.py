@@ -1,6 +1,8 @@
 """Ferramentas (tools) do agente LangGraph.
 
-Catalogo P0 (4 tools): consultar_agenda, registrar_extracao, enviar_midia, escalar.
+Catalogo do chat #1 (`TOOLS`, 3 tools): consultar_agenda, enviar_midia, escalar. A
+`registrar_extracao` existe mas fica FORA de `TOOLS` -- o chat #1 nunca a chama; seu schema e
+bindado so no no `extrair` (a extracao roda sempre, pos-fala, num no proprio -- ver nos/extrair.py).
 Ver docs/agente/04-tools.md. O Pix de deslocamento NAO e tool: virou side-effect
 deterministico da extracao (externo + horario -> Aguardando_confirmacao
 solicita o Pix; ver `dominio/atendimentos/service.py:_solicitar_pix_deslocamento_se_aplicavel`).
@@ -19,19 +21,18 @@ via UI -> PATCH /modelos/{id}; ver `dominio/modelos/routes.py:prompt_preview` e
 from langchain_core.tools import BaseTool
 
 from .escalada import escalar
-from .extracao import registrar_extracao
 from .leitura import consultar_agenda
 from .midia import enviar_midia
 
 # Constante de modulo congelada, ordem fixa (invariante de prefixo -- agente/CLAUDE.md):
 # tools = posicao 0, byte-identico p/ TODAS as modelos. Proibido build_tools(modelo) ou
-# subsetting por modelo. M1 registra consultar_agenda (unica de leitura, 04 §2.2); M3 as
-# tools de escrita (registrar_extracao, escalar); M5e entra com enviar_midia ANTES de escalar.
-# Ordem canonica de 04 §4: leitura primeiro, escrita depois, `escalar` por ULTIMO. As tools
-# sao bindadas cruas (schema function-calling OpenAI) no DeepSeek, que cacheia o prefixo automatico.
+# subsetting por modelo. Ordem canonica de 04 §4: leitura primeiro, escrita depois, `escalar`
+# por ULTIMO. `registrar_extracao` NAO entra aqui (bindada so no no `extrair`); resta a de leitura
+# (consultar_agenda), a de midia (enviar_midia) e `escalar`. As tools sao bindadas cruas (schema
+# function-calling OpenAI) no DeepSeek, que cacheia o prefixo automatico. Remover registrar_extracao
+# do catalogo INVALIDA o cache de prefixo uma vez (o segmento tools muda de bytes) -- esperado.
 TOOLS: list[BaseTool] = [
     consultar_agenda,
-    registrar_extracao,
     enviar_midia,
     escalar,
 ]
