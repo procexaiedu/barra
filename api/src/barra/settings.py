@@ -148,7 +148,7 @@ class Settings(BaseSettings):
     )
     # Auto-reoferta (#1/#2 follow-up): quando a extracao (forcada/inline) erra RECUPERAVEL
     # (ConflitoAgenda/AntecedenciaInsuficiente/ForaDisponibilidade — qualquer ToolMessage status=error
-    # da reserva, ver _extracao_recente_errou) ao criar o bloqueio previo, a IA reoferta UM horario
+    # da reserva, ver _extracao_errou) ao criar o bloqueio previo, a IA reoferta UM horario
     # alternativo em vez de fechar o turno MUDO. Volta ao proprio no llm (one-shot via
     # _reoferta_tentada) p/ o modelo ver o erro no ToolMessage e reofertar; se a reoferta tambem
     # errar, fecha mudo. Default ON desde a validacao ao vivo (A/B DeepSeek 2026-06-25, caso interno

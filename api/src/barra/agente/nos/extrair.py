@@ -18,8 +18,8 @@ O fallback de desenho previsto no issue (extrair o corpo da tool para uma funcao
 Contrato de entrada: o no roda DEPOIS que o `llm` produziu a fala final do turno e a commitou como
 ULTIMA mensagem de `state["messages"]` (uma `AIMessage` sem tool_calls). A extracao forcada roda
 sobre a janela SEM essa fala final (preserva a semantica de nao ter dois assistants consecutivos).
-Os helpers `_janela_para_extracao_barata`, `_SYSTEM_EXTRACAO_BARATA` e `_extracao_recente_errou`
-vivem so aqui (saíram do `nos/llm.py` com a consolidacao deste ticket).
+Os helpers `_janela_para_extracao_barata` e `_SYSTEM_EXTRACAO_BARATA` vivem so aqui (saíram do
+`nos/llm.py` com a consolidacao deste ticket).
 """
 
 import logging
@@ -74,22 +74,13 @@ def _janela_para_extracao_barata(messages: Sequence[BaseMessage]) -> list[BaseMe
     return [SystemMessage(content=_SYSTEM_EXTRACAO_BARATA), *conversa]
 
 
-def _extracao_recente_errou(messages: Sequence[BaseMessage]) -> bool:
-    """True se a extracao recem-executada (bloco final de ToolMessages) trouxe erro RECUPERAVEL.
+def _extracao_errou(tool_message: ToolMessage) -> bool:
+    """True se a extracao inline trouxe erro RECUPERAVEL.
 
     ConflitoAgenda/ForaDisponibilidade/AntecedenciaInsuficiente viram ToolException
-    (handle_tool_error) -> ToolMessage `status="error"` (prefixo "ERRO:"). No no extrair a
-    execucao e inline: chama-se com `[tool_message]` (o resultado da unica execucao).
+    (handle_tool_error) -> ToolMessage `status="error"` (prefixo "ERRO:").
     """
-    achou_tool = False
-    for m in reversed(messages):
-        if isinstance(m, ToolMessage):
-            achou_tool = True
-            if m.status == "error" or str(m.content).startswith("ERRO:"):
-                return True
-        elif achou_tool:
-            break
-    return False
+    return tool_message.status == "error" or str(tool_message.content).startswith("ERRO:")
 
 
 async def _executar_inline(
@@ -214,7 +205,7 @@ def no_extrair(
         # e a canned de espera e solta la (o content bate MENSAGENS_GUARD_ESCALADA).
         registro: list[BaseMessage] = [forcado, tool_message]
 
-        if _extracao_recente_errou([tool_message]):
+        if _extracao_errou(tool_message):
             # Erro RECUPERAVEL (ConflitoAgenda etc.): a transacao reverteu, nenhum bloqueio nasceu. A
             # fala stale deste turno (falsa confirmacao "te espero as 22h", SEM tool_call) precisa
             # sumir -- iria ao cliente como reserva inexistente.
