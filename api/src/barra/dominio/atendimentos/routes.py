@@ -870,7 +870,12 @@ async def adicionar_fetiche(
         raise NaoEncontrado("Atendimento")
     mf = await _fetch_one(
         conn,
-        "SELECT preco FROM barravips.modelo_fetiches WHERE modelo_id=%s AND fetiche_id=%s",
+        """
+        SELECT mf.preco, f.cobra_por_pessoa
+          FROM barravips.modelo_fetiches mf
+          JOIN barravips.fetiches f ON f.id = mf.fetiche_id
+         WHERE mf.modelo_id = %s AND mf.fetiche_id = %s
+        """,
         (at["modelo_id"], body.fetiche_id),
     )
     if mf is None:
@@ -896,7 +901,9 @@ async def adicionar_fetiche(
             )
         preco_tabela = sum((s["preco_snapshot"] for s in servicos), Decimal("0"))
         duracao_horas = max(s["horas"] for s in servicos)
-        preco_extra = calcular_preco_extra_fetiche(preco_tabela, duracao_horas)
+        preco_extra = calcular_preco_extra_fetiche(
+            preco_tabela, duracao_horas, cobra_por_pessoa=mf["cobra_por_pessoa"]
+        )
     # ON CONFLICT idempotente (mesmo motivo de adicionar_servico).
     row = await _fetch_one(
         conn,

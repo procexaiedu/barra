@@ -46,6 +46,10 @@ _IDENTIDADE_PADRAO: dict[str, Any] = {
     "idiomas": ["pt-BR"],
     "localizacao_operacional": None,
     "tipo_atendimento_aceito": ["interno", "externo"],
+    # Lidos junto da identidade em _carregar_bp3 (fusão da leitura de `modelos`); CRUS aqui, o gate
+    # <local_de_encontro> por estado/tipo é aplicado em _resolver_variaveis.
+    "endereco_formatado": None,
+    "nome_local": None,
 }
 
 
@@ -58,6 +62,21 @@ _ATENDIMENTO_NOVO_PADRAO: dict[str, Any] = {
     "bloqueio_id": None,
     "duracao_horas": None,
 }
+
+
+# Row da leitura ÚNICA de atendimento em prepare_context (_carregar_atendimento): gate de pausa
+# (ia_pausada) + campos do contexto + as 3 flags de disciplina materializadas. Distinta do SELECT
+# dos executores de tool (_ATENDIMENTO_NOVO_PADRAO) pela presença de `numero_curto` — é assim que o
+# FakeConn desambigua da leitura só-`ia_pausada` do post_process.
+def _atendimento_prepare_padrao(ia_pausada: bool) -> dict[str, Any]:
+    return {
+        **_ATENDIMENTO_NOVO_PADRAO,
+        "ia_pausada": ia_pausada,
+        "numero_curto": None,
+        "n_contrapropostas": 0,
+        "dia_sondado_em": None,
+        "book_enviado_em": None,
+    }
 
 
 class FakeConn:
@@ -81,6 +100,11 @@ class FakeConn:
         yield
 
     async def execute(self, query: str, params: Any = None) -> _Result:
+        # Leitura ÚNICA do atendimento em prepare_context (gate + dados + flags): distinguida da
+        # leitura só-`ia_pausada` do post_process por conter `numero_curto`. CHECAR ANTES do
+        # `"ia_pausada" in query` (a query fundida também casa esse substring).
+        if "numero_curto" in query and "FROM barravips.atendimentos" in query:
+            return _Result([_atendimento_prepare_padrao(self._ia_pausada)])
         if "ia_pausada" in query:
             return _Result([{"ia_pausada": self._ia_pausada}])
         if "FROM barravips.mensagens" in query:

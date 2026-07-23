@@ -22,16 +22,10 @@ class _Result:
 
 
 class _FakeConn:
-    """Serve o atendimento e o MAX(horas) da tabela; vazio no resto."""
-
-    def __init__(self, max_horas: float) -> None:
-        self.max_horas = max_horas
+    """Vazio em tudo: o MAX(horas) da tabela agora chega por kwarg (derivado dos programas já lidos
+    em _carregar_bp3), não por query agregada própria."""
 
     async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> _Result:
-        if "barravips.atendimentos" in sql and "numero_curto" in sql:
-            return _Result([{"numero_curto": 1, "estado": "Triagem", "tipo_atendimento": None}])
-        if "MAX(d.horas)" in sql:
-            return _Result([{"max_horas": self.max_horas}])
         return _Result([])
 
 
@@ -47,8 +41,17 @@ def _ctx() -> ContextAgente:
     )
 
 
+async def _sem_periodo(max_horas: float) -> dict[str, Any]:
+    return await _resolver_variaveis(
+        _FakeConn(),  # type: ignore[arg-type]
+        _ctx(),
+        atendimento={"numero_curto": 1, "estado": "Triagem", "tipo_atendimento": None},
+        tabela_max_horas=max_horas,
+    )
+
+
 async def test_tabela_so_curta_injeta_sem_periodo_longo() -> None:
-    variaveis = await _resolver_variaveis(_FakeConn(1), _ctx())  # type: ignore[arg-type]
+    variaveis = await _sem_periodo(1)
     assert variaveis["sem_periodo_longo"] is True
     saida = render_contexto_dinamico(**variaveis)
     assert "<sem_periodo_longo>" in saida
@@ -57,18 +60,18 @@ async def test_tabela_so_curta_injeta_sem_periodo_longo() -> None:
 
 
 async def test_tabela_com_periodo_longo_nao_injeta() -> None:
-    variaveis = await _resolver_variaveis(_FakeConn(12), _ctx())  # type: ignore[arg-type]
+    variaveis = await _sem_periodo(12)
     assert variaveis["sem_periodo_longo"] is False
     assert "<sem_periodo_longo>" not in render_contexto_dinamico(**variaveis)
 
 
 async def test_seis_horas_ja_conta_como_periodo_longo() -> None:
-    variaveis = await _resolver_variaveis(_FakeConn(6), _ctx())  # type: ignore[arg-type]
+    variaveis = await _sem_periodo(6)
     assert variaveis["sem_periodo_longo"] is False
 
 
 async def test_cadastro_vazio_nao_injeta() -> None:
     # max 0 = modelo sem programas (estado anormal de cadastro) — não é "sem período longo".
-    variaveis = await _resolver_variaveis(_FakeConn(0), _ctx())  # type: ignore[arg-type]
+    variaveis = await _sem_periodo(0)
     assert variaveis["sem_periodo_longo"] is False
     assert "<sem_periodo_longo>" not in render_contexto_dinamico(**variaveis)
