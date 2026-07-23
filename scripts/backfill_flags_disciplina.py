@@ -25,7 +25,7 @@ import argparse
 import asyncio
 from typing import Any
 
-from psycopg import AsyncConnection
+from psycopg import AsyncConnection, Rollback
 from psycopg.rows import dict_row
 
 from barra.agente._disciplina import contem_contraproposta, contem_sondagem_dia
@@ -115,7 +115,7 @@ async def main() -> None:
 
             if args.dry_run:
                 print(f"{mudancas} atendimentos teriam flags (dry-run) — nada alterado.")
-                await conn.rollback()
+                raise Rollback
             else:
                 print(f"{mudancas} atendimentos com flags carimbadas de {len(atendimentos)} lidos.")
     finally:
