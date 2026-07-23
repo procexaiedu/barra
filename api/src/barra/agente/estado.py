@@ -33,21 +33,12 @@ class EstadoAgente(MessagesState):
         prepare_context (regex sobre a cauda da janela), lida pelo intercept_disclosure
         para rotear canned/escala/llm (10 §8). _confianca e a string "alta" (ou None) que
         `classificar_janela` retorna -- nao um float. Ausentes => sem deteccao.
-    _extracao_forcada: guard do fallback deterministico de extracao (#2, nos/llm.py). O no
-        llm o seta True ao forcar registrar_extracao no fim do turno; na reentrada pos-`tools`
-        ele fecha o turno (goto post_process) SEM reinvocar o modelo -- evita bolha dupla e
-        loop infinito de forcamento. Nasce ausente a cada `ainvoke` (sem checkpointer).
-    _resposta_inline_concluida: irmao inline do _extracao_forcada (nos/llm.py). O no llm o seta
-        True quando a 1a passagem ja emitiu texto ao cliente E so pediu registrar_extracao na
-        MESMA AIMessage (padrao do DeepSeek V4 Flash; o Sonnet responde OU extrai). O texto ao
-        cliente ja saiu antes da tool rodar, entao o resultado da extracao nao muda mais a fala
-        deste turno: o guard fecha no post_process sem reinvocar o modelo -- senao o DeepSeek
-        tagarela uma 2a bolha espuria (trace 022e0a70, 2026-06-18). Nasce ausente a cada `ainvoke`.
-    _reoferta_tentada: one-shot da auto-reoferta (nos/llm.py, settings.reoferta_automatica_habilitada).
-        Quando a extracao (forcada/inline) erra recuperavel (ConflitoAgenda etc.) e a reoferta esta
-        ligada, o guard volta ao proprio no llm p/ o modelo REOFERTAR um horario em vez de fechar
-        mudo, e seta este flag. Se a reoferta tambem errar, a reentrada cai no MUTE (sem reofertar de
-        novo) -- silencio > reserva fantasma. Nasce ausente a cada `ainvoke` (sem checkpointer).
+    _reoferta_tentada: one-shot da auto-reoferta (nos/extrair.py, settings.reoferta_automatica_habilitada).
+        Quando a extracao (executada inline no no `extrair`) erra recuperavel (ConflitoAgenda etc.) e
+        a reoferta esta ligada, o no volta ao llm p/ o modelo REOFERTAR um horario em vez de fechar
+        mudo, e seta este flag. Se a reoferta tambem errar (o llm reoferta, o llm roteia de novo ao
+        `extrair` e a 2a extracao erra), o `extrair` cai no MUTE (sem reofertar de novo) -- silencio >
+        reserva fantasma. Nasce ausente a cada `ainvoke` (sem checkpointer).
     _midia_esgotada: one-shot do cap de loop de `enviar_midia` (nos/llm.py). Quando a modelo nao tem
         midia e o modelo insiste em `enviar_midia` (tag apos tag), o loop tools<->llm estouraria o
         recursion_limit -> GraphRecursionError -> escalar_por_exaustao -> SILENCIO ao cliente (trace
@@ -67,8 +58,6 @@ class EstadoAgente(MessagesState):
     midia_idx: int
     _categoria: str | None
     _confianca: str | None
-    _extracao_forcada: bool
-    _resposta_inline_concluida: bool
     _reoferta_tentada: bool
     _midia_esgotada: bool
     horario_minimo: datetime | None

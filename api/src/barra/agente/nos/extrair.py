@@ -1,11 +1,11 @@
-"""No extrair (prova de conceito -- issue 01; NAO wired no grafo vivo).
+"""No extrair: caminho unico da extracao no grafo vivo (02 §4).
 
-Executa `registrar_extracao` INLINE (fora da aresta `tools`) para provar, ponta a ponta, o
-mecanismo que uma refatoracao futura vai adotar: model call forcado -> execucao da tool ->
-persistencia em `barravips.tool_calls` -> decisao de rota. O caminho VIVO nao muda neste ticket
--- `registrar_extracao` segue em `TOOLS` (nos/tools.py) e o fallback #2 segue em `nos/llm.py`. O
-objetivo e DE-RISCAR o footgun (injecao de `ToolRuntime[ContextAgente]` na execucao inline) antes
-de qualquer delecao.
+O llm conversa; este no le o estado. Quando o llm encerra o turno SEM tool_call (resposta final
+ao cliente), roteia para ca; a extracao roda SEMPRE, pos-fala: model call forcado ->
+`registrar_extracao` executada INLINE (fora da aresta `tools`) -> persistencia em
+`barravips.tool_calls` -> decisao de rota. `registrar_extracao` NAO esta em `TOOLS` -- seu schema e
+bindado so aqui; o chat #1 nunca a chama. Substitui o antigo fallback #2 + reentry-guards que
+viviam no `nos/llm.py`.
 
 DECISAO DE DESENHO (footgun): a injecao inline FUNCIONA. Construir um `ToolRuntime` a partir do
 `Runtime` do no e passa-lo em `args["runtime"]` para `tool.ainvoke` injeta corretamente
@@ -17,10 +17,9 @@ O fallback de desenho previsto no issue (extrair o corpo da tool para uma funcao
 
 Contrato de entrada: o no roda DEPOIS que o `llm` produziu a fala final do turno e a commitou como
 ULTIMA mensagem de `state["messages"]` (uma `AIMessage` sem tool_calls). A extracao forcada roda
-sobre a janela SEM essa fala final (preserva a semantica de nao ter dois assistants consecutivos,
-igual ao fallback #2). Os helpers `_janela_para_extracao_barata`, `_SYSTEM_EXTRACAO_BARATA` e
-`_extracao_recente_errou` sao copias das versoes de `nos/llm.py` (que segue usando as suas por
-enquanto -- a consolidacao vem num ticket posterior).
+sobre a janela SEM essa fala final (preserva a semantica de nao ter dois assistants consecutivos).
+Os helpers `_janela_para_extracao_barata`, `_SYSTEM_EXTRACAO_BARATA` e `_extracao_recente_errou`
+vivem so aqui (saíram do `nos/llm.py` com a consolidacao deste ticket).
 """
 
 import logging
@@ -49,10 +48,10 @@ from ..estado import EstadoAgente
 
 logger = logging.getLogger(__name__)
 
-# Nome da tool de escrita que persiste o snapshot do turno (copia de nos/llm.py).
+# Nome da tool de escrita que persiste o snapshot do turno.
 _TOOL_EXTRACAO = "registrar_extracao"
 
-# System prompt MINIMO da extracao forcada barata (copia de nos/llm.py): substitui o BP_GERAL
+# System prompt MINIMO da extracao forcada barata: substitui o BP_GERAL
 # (~14,7k tokens) -- a extracao e nota interna estruturada, nao gera texto ao cliente. As regras de
 # cada campo ja viajam na descricao da tool; a hora atual e o periodo de trabalho vem no contexto
 # dinamico anexado a ULTIMA HumanMessage (preservada pelo strip).
@@ -67,9 +66,9 @@ _SYSTEM_EXTRACAO_BARATA = (
 def _janela_para_extracao_barata(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
     """Janela do turno SEM os blocos system gerais, prefixada pelo system minimo de extracao.
 
-    Copia de nos/llm.py: o ganho de custo vem de NAO enviar o BP_GERAL na chamada barata. As
-    mensagens da conversa (incluindo a ultima HumanMessage, que carrega o contexto dinamico) sao
-    preservadas na ordem -- a request continua comecando por user apos o system.
+    O ganho de custo vem de NAO enviar o BP_GERAL na chamada barata. As mensagens da conversa
+    (incluindo a ultima HumanMessage, que carrega o contexto dinamico) sao preservadas na ordem
+    -- a request continua comecando por user apos o system.
     """
     conversa = [m for m in messages if not isinstance(m, SystemMessage)]
     return [SystemMessage(content=_SYSTEM_EXTRACAO_BARATA), *conversa]
@@ -78,9 +77,9 @@ def _janela_para_extracao_barata(messages: Sequence[BaseMessage]) -> list[BaseMe
 def _extracao_recente_errou(messages: Sequence[BaseMessage]) -> bool:
     """True se a extracao recem-executada (bloco final de ToolMessages) trouxe erro RECUPERAVEL.
 
-    Copia de nos/llm.py. ConflitoAgenda/ForaDisponibilidade/AntecedenciaInsuficiente viram
-    ToolException (handle_tool_error) -> ToolMessage `status="error"` (prefixo "ERRO:"). No no
-    extrair a execucao e inline: chama-se com `[tool_message]` (o resultado da unica execucao).
+    ConflitoAgenda/ForaDisponibilidade/AntecedenciaInsuficiente viram ToolException
+    (handle_tool_error) -> ToolMessage `status="error"` (prefixo "ERRO:"). No no extrair a
+    execucao e inline: chama-se com `[tool_message]` (o resultado da unica execucao).
     """
     achou_tool = False
     for m in reversed(messages):

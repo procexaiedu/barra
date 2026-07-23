@@ -36,13 +36,14 @@ from psycopg.rows import dict_row
 
 from barra.agente.contexto import ContextAgente
 from barra.agente.estado import EstadoAgente
-from barra.agente.ferramentas import TOOLS
+from barra.agente.ferramentas.extracao import registrar_extracao
 from barra.agente.nos.extrair import no_extrair
 from barra.dominio.agenda.service import BRT
 from barra.settings import get_settings
 
 _USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
-_TOOL_REAL = next(t for t in TOOLS if t.name == "registrar_extracao")
+# registrar_extracao saiu de TOOLS (bindada so no no `extrair`); importada direto p/ a execucao real.
+_TOOL_REAL = registrar_extracao
 
 
 # --- chat FAKE: forca uma AIMessage com o tool_call de registrar_extracao (args reais) --------

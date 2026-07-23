@@ -72,13 +72,15 @@ async def test_tool_use_truncado_nao_despacha_tool(
     assert "tool_use truncado" in caplog.text
 
 
-async def test_max_tokens_sem_tool_use_segue_normal() -> None:
-    """Regressao: truncamento de TEXTO (sem tool_use) ainda vai p/ post_process (so observa)."""
+async def test_max_tokens_sem_tool_use_vai_para_extrair() -> None:
+    """Truncamento de TEXTO (sem tool_use): so observa a metrica e segue o ramo sem tool_call ->
+    `extrair` (02 §4, a extracao le o estado pos-fala). Antes ia a post_process via o fallback #2,
+    hoje removido."""
     from barra.agente.nos.llm import no_llm
 
     node = no_llm(_FakeChat(_ai("max_tokens", com_tool=False)), [])
     comando = await node({"messages": []}, _runtime())  # type: ignore[arg-type]
-    assert comando.goto == "post_process"
+    assert comando.goto == "extrair"
 
 
 async def test_tool_use_completo_vai_para_tools() -> None:

@@ -137,10 +137,6 @@ class Settings(BaseSettings):
         description="Cotacao USD->BRL usada p/ converter o custo estimado do turno do agente.",
     )
 
-    forcar_extracao_por_turno: bool = Field(
-        default=True,
-        description="Fallback deterministico (#2): quando o LLM encerra o turno sem chamar registrar_extracao, forca 1 chamada (tool_choice) antes de fechar o turno, garantindo que a FSM nao defase. Custa 1 request extra so nos turnos onde o modelo esqueceu. False = comportamento dependente da boa vontade do LLM (kill-switch sem deploy).",
-    )
     # Reducao de custo: a extracao forcada e nota interna estruturada — nao precisa da persona/regras/
     # FAQ. Quando ON, a chamada FORCADA de registrar_extracao roteia p/ uma janela MINIMA (sem o
     # SystemMessage geral), em vez do prefixo inteiro; sempre no DeepSeek V4 Flash direto (igual ao

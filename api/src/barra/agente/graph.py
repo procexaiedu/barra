@@ -1,14 +1,17 @@
 """build_graph() compoe os nos em StateGraph (sem checkpointer no P0).
 
-Grafo de 6 nos; o no llm e real (chama DeepSeek V4 Flash) e o roteamento e por Command(goto=...) --
+Grafo de 7 nos; o no llm e real (chama DeepSeek V4 Flash) e o roteamento e por Command(goto=...) --
 nao por arestas condicionais nem flags de state (09 §4.1). Wiring:
     START -(estatica)-> prepare_context -(Command)-> intercept_disclosure | END
-          intercept_disclosure -(Command)-> llm -(Command)-> tools | post_process
+          intercept_disclosure -(Command)-> llm -(Command)-> tools | post_process | extrair
           tools -(estatica)-> llm   (loop ReAct)
+          extrair -(Command)-> post_process | llm   (extracao pos-fala; volta ao llm na reoferta)
           post_process -(estatica)-> output_guard -(Command)-> END   (ADR 0016, antes da bolha)
 O loop ReAct esta ATIVO a partir do M1: o llm roteia p/ "tools" (Command) quando ha tool_calls,
 o ToolNode executa as tools de TOOLS e devolve ao llm pela aresta "tools" -> "llm"; o teto e o
-`recursion_limit` (config de invocacao, nao constante aqui -- 03 §8, 09 §4.7).
+`recursion_limit` (config de invocacao, nao constante aqui -- 03 §8, 09 §4.7). Quando o llm encerra
+SEM tool_call (resposta final), roteia p/ "extrair" (02 §4): a extracao roda SEMPRE, pos-fala, num
+no proprio -- `registrar_extracao` saiu de TOOLS (o chat #1 nunca a chama; ver nos/extrair.py).
 
 Decisao 01 §6.7 (grilling 2026-05-22): SEM checkpointer no P0. O grafo compila com
 `builder.compile()` (checkpointer=None); o prompt e montado do zero a cada turno a partir
@@ -30,8 +33,10 @@ from barra.settings import Settings, get_settings
 from .contexto import ContextAgente
 from .estado import EstadoAgente
 from .ferramentas import TOOLS
+from .ferramentas.extracao import registrar_extracao
 from .nos import (
     intercept_disclosure,
+    no_extrair,
     no_llm,
     output_guard,
     post_process,
@@ -87,8 +92,13 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
 
     builder.add_node("prepare_context", prepare_context)
     builder.add_node("intercept_disclosure", intercept_disclosure)
-    builder.add_node("llm", no_llm(chat, TOOLS, chat_extracao_barata=chat_extracao_barata))
+    builder.add_node("llm", no_llm(chat, TOOLS))
     builder.add_node("tools", tools_node)
+    # No `extrair`: le o estado da negociacao pos-fala (02 §4). Forca 1 registrar_extracao, executa
+    # a tool INLINE (schema bindado so aqui -- registrar_extracao NAO esta em TOOLS) e decide a rota
+    # (post_process no sucesso/escalada canned; volta ao llm na reoferta de erro recuperavel). O bind
+    # barato (chat_extracao_barata) corta o BP_GERAL da chamada de extracao quando ligado.
+    builder.add_node("extrair", no_extrair(chat, chat_extracao_barata, registrar_extracao))
     builder.add_node("post_process", post_process)
     builder.add_node("output_guard", output_guard)
 

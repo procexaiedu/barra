@@ -81,7 +81,7 @@ def test_token_le_write_de_ephemeral_e_read_de_cache_read() -> None:
     )
     res = asyncio.run(no_llm(_FakeChat(resp, model=modelo), [])({"messages": []}, _runtime()))
 
-    assert res.goto == "post_process"  # sem tool_calls → resposta final
+    assert res.goto == "extrair"  # sem tool_calls → resposta final -> extrair (02 §4)
     assert _tokens(modelo, "input") == 100
     assert _tokens(modelo, "output") == 50
     assert _tokens(modelo, "cache_read") == 4000

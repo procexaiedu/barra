@@ -437,3 +437,10 @@ async def registrar_extracao(
         )
     mensagem: str = resultado["mensagem"]
     return mensagem
+
+
+# registrar_extracao fica FORA de `TOOLS` (bindada so no no `extrair`), entao o loop de
+# `handle_tool_error = True` em ferramentas/__init__.py NAO a cobre mais -- setado aqui
+# explicitamente p/ ConflitoAgenda/ForaDisponibilidade/etc. virarem ToolMessage(status="error")
+# (erro RECUPERAVEL que instrui a reoferta) em vez de estourar o turno.
+registrar_extracao.handle_tool_error = True

@@ -27,17 +27,12 @@ from psycopg.rows import dict_row
 
 from barra.agente.contexto import ContextAgente
 from barra.agente.graph import build_graph
-from barra.settings import get_settings
 
 # --- LLM mockado: scripts de AIMessages (sem chamar a API real) ------------------------------
-
-
-@pytest.fixture(autouse=True)
-def _sem_forca_extracao(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Isola este módulo da extração forçada (#2, default-ON): aqui o assunto é o loop ReAct, não
-    a força. Com a flag ligada, o turno sem auto-extração ganharia 1 ainvoke a mais (3 em vez de
-    2), defasando as asserções de contagem. A força tem teste dedicado em test_llm_forca_extracao."""
-    monkeypatch.setattr(get_settings(), "forcar_extracao_por_turno", False)
+#
+# NOTA (02 §4): a extração roda SEMPRE num nó próprio (`extrair`), pós-fala — não há kill-switch por
+# turno. Todo turno que fecha em texto ganha 1 ainvoke da extração forçada; por isso o caso feliz
+# abaixo espera 3 visões do fake (2 do loop ReAct + 1 da extração forçada, que descarta e fecha).
 
 
 class _FakeChat:
@@ -285,8 +280,10 @@ async def test_loop_executa_tool_e_retorna_aimessage(
     assert isinstance(final, AIMessage)
     assert final.content
 
-    # o llm foi chamado 2x; na 2a chamada VIU um ToolMessage com o resultado real de consultar_agenda.
-    assert len(fake.vistas) == 2
+    # o llm foi chamado 2x (2a chamada VIU o ToolMessage real de consultar_agenda) + 1 chamada
+    # FORCADA de extracao no no `extrair` pos-fala (02 §4): a 3ª visão é a janela da extracao. O
+    # forcado repete a fala (sem tool_call) -> `extrair` descarta e fecha, sem escrever no banco.
+    assert len(fake.vistas) == 3
     tool_msgs = [m for m in fake.vistas[1] if isinstance(m, ToolMessage)]
     assert len(tool_msgs) == 1
     assert tool_msgs[0].name == "consultar_agenda"
