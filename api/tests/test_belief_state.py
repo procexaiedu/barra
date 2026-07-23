@@ -238,17 +238,34 @@ def test_render_etapa_completa_diz_nada_falta() -> None:
 
 def test_render_dia_capturado_sai_de_ainda_falta_sem_as_none() -> None:
     # cliente confirmou o dia mas ainda não a hora: o dia entra em <ja_combinado>, só a hora fica
-    # em <ainda_falta>, e nada renderiza "às None" (regressão do split dia/hora).
+    # em <ainda_falta>, e nada renderiza "às None" (regressão do split dia/hora). Antes de
+    # Aguardando_confirmacao o horário é DESEJADO, não combinado (CONTEXT.md): o <dia> carrega o
+    # status "ainda não confirmado" enquanto `horario_ja_combinado` não vier True.
     out = _render(
         "Qualificado",
         tipo_atendimento="interno",
         data_desejada=date(2026, 6, 15),
         horario_desejado=None,
     )
-    assert "<dia>2026-06-15</dia>" in out
-    assert "<hora>" not in out
+    assert '<dia status="pedido dele, ainda não confirmado">2026-06-15</dia>' in out
+    assert "<hora" not in out
     assert "às None" not in out
     assert "que horas ele quer" in out  # a hora ainda falta
+
+
+def test_render_dia_hora_sem_status_quando_ja_combinado() -> None:
+    # A partir de Aguardando_confirmacao (bloqueio prévio criado), dia/hora são COMBINADOS:
+    # renderizam limpos, sem o status de negociação.
+    out = _render(
+        "Aguardando_confirmacao",
+        tipo_atendimento="interno",
+        data_desejada=date(2026, 6, 15),
+        horario_desejado=_HORA,
+        horario_ja_combinado=True,
+    )
+    assert "<dia>2026-06-15</dia>" in out
+    assert "<hora>15:00:00</hora>" in out
+    assert "ainda não confirmado" not in out
 
 
 def test_render_valor_fechado_entra_no_ja_combinado() -> None:

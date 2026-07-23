@@ -220,6 +220,28 @@ def tem_promessa_sem_limite(texto: str) -> bool:
     return bool(_RE_PROMESSA_SEM_LIMITE.search(texto))
 
 
+# Chave Pix inventada: "a chave certa e so a que o sistema anexa" (regras.md.j2 <nucleo> e
+# <tipos_de_encontro>) nao tinha rede mecanica — a proibicao era so prompt (auditoria editorial
+# 2026-07-23). Bolha da IA contendo o SHAPE de uma chave (e-mail, EVP/UUID, CPF formatado ou
+# 11+ digitos corridos) nunca e fala valida: chave digitada pelo modelo e inventada por definicao
+# (a real chega por side-effect do dominio, fora da bolha). Conservador de proposito — precos
+# (3-4 digitos), horas ("20:30") e numero de rua nao casam; telefone formatado com espacos escapa
+# (aceito: falso-negativo fica pro prompt, falso-positivo derrubaria fala legitima).
+_RE_CHAVE_PIX = re.compile(
+    r"[\w.+\-]+@[\w\-]+\.[\w.\-]{2,}"  # e-mail
+    r"|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b"  # chave aleatoria (EVP)
+    r"|(?<![\d.])\d{3}\.\d{3}\.\d{3}-\d{2}(?![\d.])"  # CPF formatado
+    r"|(?<!\d)\d{11,14}(?!\d)",  # CPF/telefone cru (11-14 digitos corridos)
+    re.IGNORECASE,
+)
+
+
+def tem_chave_pix(texto: str) -> bool:
+    """True se a bolha contem o shape de uma chave Pix (e-mail, EVP, CPF, telefone cru) — a IA
+    nunca digita chave (a certa e anexada pelo sistema); drop da bolha inteira."""
+    return bool(_RE_CHAVE_PIX.search(texto))
+
+
 # Delimitador de EXEMPLO vazando na bolha: os few-shots de `regras.md.j2`/`persona.md` moldam a fala
 # ideal com tags de papel (`<ela>...</ela>`, `<cliente>...</cliente>`, `<exemplo>`) e os pares de
 # contraste (`<certo>/<errado>/<par>/<porque>`). Sob decodificacao estocastica (temp 0.7) o chat as
@@ -232,13 +254,19 @@ _RE_TAG_EXEMPLO = re.compile(r"</?(?:ela|cliente|exemplo|certo|errado|par|porque
 
 
 def _bolha_descartavel(b: str) -> bool:
-    """Bolha que o Estagio 0 strippa: raciocinio vazado, placeholder de template nao preenchido, OU
-    promessa aberta "sem limite". Nenhuma e fala valida ao cliente -- as duas primeiras entregam a
-    IA; a terceira e promessa de quantidade que a operacao proibiu (reuniao 22/07).
+    """Bolha que o Estagio 0 strippa: raciocinio vazado, placeholder de template nao preenchido,
+    promessa aberta "sem limite", OU chave Pix digitada. Nenhuma e fala valida ao cliente -- as
+    duas primeiras entregam a IA; a terceira e promessa de quantidade que a operacao proibiu
+    (reuniao 22/07); a quarta e chave inventada (a real e anexada pelo sistema, nunca pela bolha).
 
     A sonda-de-balcao NAO entra aqui: ela e fala do tipo certo dita do jeito errado, entao merece
     regen (gatilho `sonda` do gate) em vez do drop mudo -- ver `bolhas_sonda`."""
-    return tem_marcador_raciocinio(b) or tem_placeholder_template(b) or tem_promessa_sem_limite(b)
+    return (
+        tem_marcador_raciocinio(b)
+        or tem_placeholder_template(b)
+        or tem_promessa_sem_limite(b)
+        or tem_chave_pix(b)
+    )
 
 
 def _limpar_bolhas(texto: str) -> str:
