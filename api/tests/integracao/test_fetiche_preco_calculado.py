@@ -95,11 +95,13 @@ async def _seed_atendimento(
     return atendimento_id
 
 
-async def _seed_fetiche(c: AsyncConnection[dict[str, Any]]) -> UUID:
+async def _seed_fetiche(
+    c: AsyncConnection[dict[str, Any]], *, cobra_por_pessoa: bool = False
+) -> UUID:
     fetiche_id = uuid4()
     await c.execute(
-        "INSERT INTO barravips.fetiches (id, nome) VALUES (%s, %s)",
-        (fetiche_id, f"Fetiche Teste {uuid4().hex[:8]}"),
+        "INSERT INTO barravips.fetiches (id, nome, cobra_por_pessoa) VALUES (%s, %s, %s)",
+        (fetiche_id, f"Fetiche Teste {uuid4().hex[:8]}", cobra_por_pessoa),
     )
     return fetiche_id
 
@@ -249,6 +251,34 @@ async def test_fetiche_pago_multiplos_servicos_soma_dividido_por_max_horas(
 
     # soma = 400 + 800 = 1200; MAX(horas) = 2 -> 600.
     assert row["preco_snapshot"] == Decimal("600.00")
+
+
+@pytest.mark.needs_db
+async def test_fetiche_por_pessoa_dobra_o_pacote(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Casal/menage (cobra_por_pessoa=true): 2 pessoas -> dobra o pacote. Extra = pacote inteiro
+    (não o preço-hora do regime ato). ADR-0035."""
+    atendimento_id, modelo_id = await _setup_atendimento(conn)
+    fetiche_id = await _seed_fetiche(conn, cobra_por_pessoa=True)
+    await _seed_modelo_fetiche(conn, modelo_id=modelo_id, fetiche_id=fetiche_id, pago=True)
+    programa_id = await _programa_id_qualquer(conn)
+    duracao_id = await _duracao_id_por_horas(conn, "2")
+    await _seed_atendimento_servico(
+        conn,
+        atendimento_id=atendimento_id,
+        programa_id=programa_id,
+        duracao_id=duracao_id,
+        preco_snapshot=Decimal("800"),
+    )
+
+    row = await adicionar_fetiche(
+        atendimento_id, AdicionarFeticheRequest(fetiche_id=fetiche_id), conn
+    )
+
+    # por-pessoa: dobra o pacote -> extra = 800 (o ato daria 800/2 = 400).
+    assert row["preco_snapshot"] == Decimal("800.00")
+    assert await _preco_snapshot_gravado(conn, atendimento_id) == Decimal("800.00")
 
 
 @pytest.mark.needs_db

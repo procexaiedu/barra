@@ -918,10 +918,20 @@ async def _preco_tabela_min(
     return row["preco"] if row is not None else None
 
 
-def calcular_preco_extra_fetiche(preco_tabela: Decimal, duracao_horas: Decimal) -> Decimal:
+def calcular_preco_extra_fetiche(
+    preco_tabela: Decimal, duracao_horas: Decimal, *, cobra_por_pessoa: bool = False
+) -> Decimal:
     """Preco do extra de um fetiche pago (ADR-0030): preco-hora efetivo do pacote vendido no
     atendimento (preco de tabela / horas), somado uma vez por fetiche. Multi-hora usa esse
-    preco-hora, nao uma duracao-base de 1h (Pernoite 12h a R$3.600 -> +R$300, nao +R$3.600)."""
+    preco-hora, nao uma duracao-base de 1h (Pernoite 12h a R$3.600 -> +R$300, nao +R$3.600).
+
+    `cobra_por_pessoa` (flag do catalogo global de fetiches, casal/menage) muda o regime: o
+    fetiche eh cobrado POR PESSOA -- 2 pessoas fixas -> DOBRA o pacote, entao o extra eh o
+    pacote INTEIRO (+preco_tabela), nao o preco-hora. Reabre o multiplicador que o ADR-0030
+    deixou em aberto ("reabrir se aparecer um fetiche que precise valer mais que os outros" --
+    ADR-0035). Em 1h os dois regimes coincidem (pacote == preco-hora); divergem de 2h em diante."""
+    if cobra_por_pessoa:
+        return preco_tabela
     return preco_tabela / duracao_horas
 
 
@@ -1322,3 +1332,52 @@ async def marcar_cotacao_enviada_por_texto(
         (atendimento_id,),
     )
     return result.rowcount > 0
+
+
+# --- Flags de disciplina conversacional (padrão A2), carimbadas no write-time ------------------
+# Writers PUROS (sem regex): quem decide SE carimbar é workers/envio.py, com os detectores de
+# agente/_disciplina.py — dominio/ não importa barra.agente (dominio/CLAUDE.md). Materializam em
+# barravips.atendimentos o que prepare_context antes derivava relendo TODAS as falas da IA do
+# atendimento (LIMIT 500) e reaplicando regex a cada turno.
+
+
+async def incrementar_contrapropostas(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
+    """+1 no contador de contrapropostas de desconto (ADR-0031: até 2 por atendimento).
+
+    Chamado só quando o INSERT da bolha em `mensagens` de fato inseriu (RETURNING no ON CONFLICT
+    DO NOTHING, workers/envio.py) — assim um retry de envio não dobra o contador. Uma bolha ≈ uma
+    oferta (o chunker não parte nem repete a frase canônica dentro do turno)."""
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET n_contrapropostas = n_contrapropostas + 1
+         WHERE id = %s
+        """,
+        (atendimento_id,),
+    )
+
+
+async def marcar_dia_sondado(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
+    """Carimba `dia_sondado_em=now()` na 1ª sondagem do dia ("seria hoje?"). Guard IS NULL
+    (first-write-wins): repetir entre bolhas/retries é no-op, preserva o 1º instante."""
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET dia_sondado_em = now()
+         WHERE id = %s AND dia_sondado_em IS NULL
+        """,
+        (atendimento_id,),
+    )
+
+
+async def marcar_book_enviado(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
+    """Carimba `book_enviado_em=now()` no 1º envio de mídia (book) da negociação. Guard IS NULL
+    (first-write-wins): o guard já torna idempotente sem checar rowcount do INSERT."""
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET book_enviado_em = now()
+         WHERE id = %s AND book_enviado_em IS NULL
+        """,
+        (atendimento_id,),
+    )
