@@ -37,7 +37,7 @@ O gate do reminder (≥8 AIMessages, `_precisa_reminder`) é decisão de grillin
 
 ## Escala léxica de dureza nos prompts
 
-Auditada em 2026-07-15 e coerente — mantenha assim: **NUNCA em caps** só para linha dura do `<nucleo>` ou failure-mode comprovado em prod (hoje: sonda-de-balcão, preço inventado, segredo da agenda, menu de formato, unidade, chave Pix); **nunca/nada de** minúsculo para proibição comum; **"só quando/assim que"** para gate; **"prefira/pode"** para default derrotável. Um NUNCA novo em caps precisa se justificar nesse critério — caps banalizado dilui o sinal dos seis existentes.
+Auditada em 2026-07-15 e coerente — mantenha assim: **NUNCA em caps** só para linha dura do `<nucleo>` ou failure-mode comprovado em prod (hoje: sonda-de-balcão, preço inventado, segredo da agenda, menu de formato, unidade, chave Pix, bairro/localização fora do cadastro — este último do cluster nao_contidos 23/07, alucinação de "Cambuí"); **nunca/nada de** minúsculo para proibição comum; **"só quando/assim que"** para gate; **"prefira/pode"** para default derrotável. Um NUNCA novo em caps precisa se justificar nesse critério — caps banalizado dilui o sinal dos existentes.
 
 ## Flags deterministicas de disciplina conversacional (padrão A2)
 

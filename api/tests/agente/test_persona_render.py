@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from barra.agente.persona import render_contexto_dinamico, render_persona
+from barra.agente.persona import render_contexto_dinamico, render_persona, render_reminder
 
 
 def test_render_persona_nao_vazio_e_estavel() -> None:
@@ -61,3 +61,26 @@ def test_pix_deslocamento_so_no_externo() -> None:
         assert "pix_deslocamento" not in render_contexto_dinamico(tipo_atendimento=tipo, **base)
     # variável ausente de todo (Undefined) também não renderiza nem quebra
     assert "pix_deslocamento" not in render_contexto_dinamico(**base)
+
+
+def test_coerencia_thread_longa_no_reminder() -> None:
+    """Fixes de coerência em thread longa (issue coerencia-thread-longa, cluster nao_contidos 23/07).
+
+    O reminder anti-drift é o eco condensado que só dispara em thread longa (>=8 falas da IA), a
+    condição exata dos dois incidentes. Ele deve carregar as duas âncoras: (a) não chutar bairro
+    fora do cadastro (#1 Cambuí) e (b) a última correção/recusa do cliente manda (#2 BDSM)."""
+    txt = render_reminder(fase="Triagem", nome="Tatiane")
+    assert "bairro" in txt  # #1: não inventar bairro
+    # #2: honrar a correção/recusa mais recente do cliente
+    assert "recus" in txt and "tirou da mesa" in txt
+
+
+def test_coerencia_thread_longa_no_canonico() -> None:
+    """Site canônico (regras.md.j2, dentro de render_persona) das mesmas duas âncoras — dispara
+    sempre, não só na thread longa (a disciplina multi-site do agente/CLAUDE.md: canônico define,
+    reminder ecoa)."""
+    txt = render_persona()
+    # #1: bairro chutado não vira endereço novo (linha do degrau de endereço)
+    assert "Cambuí" in txt and "bairro que ele chutar" in txt
+    # #2: o que ele acabou de recusar manda, não reintroduzir ato tirado da mesa
+    assert "tirou da mesa" in txt and "perdeu o fio" in txt
