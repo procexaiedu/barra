@@ -248,7 +248,7 @@ groups:
       # veredito ate o canal dev (WhatsApp via relay). A pausa da modelo e DECISAO HUMANA — este
       # alerta nunca desliga nada. repeat_interval do Alertmanager (4h) re-lembra enquanto ativo.
       - alert: PilotoGatilhoRollback
-        expr: barra_rollback_gatilho == 1
+        expr: last_over_time(barra_rollback_gatilho[15m]) == 1
         for: 1m
         labels:
           severity: critical
@@ -263,6 +263,15 @@ groups:
       # O gauge acima e IN-PROCESS: some a cada force-update do barra-worker (todo deploy de
       # prompt) e so e re-armado no boot + no cron das 05:00. Sem serie, um alerta que estava
       # firing "resolve" sozinho — por isso o worker re-avalia os gatilhos no startup.
+      #
+      # Re-armar no boot ENCURTA o buraco, mas nao o fecha: entre o worker morrer e o gauge voltar
+      # correm ~2min (bootstrap: apt + clone + uv sync), e a serie ausente fazia o alerta resolver
+      # e re-disparar a CADA deploy — um par RESOLVED/FIRING espurio no WhatsApp do Fernando, sem
+      # nada ter mudado no piloto. Por isso a expr le o ultimo valor CONHECIDO numa janela de 15m
+      # em vez do valor instantaneo: durante o gap ela sustenta o 1 anterior (nao resolve), e
+      # quando o gatilho cede de verdade o cron seta 0 e ela resolve na avaliacao seguinte (sem o
+      # atraso que um max_over_time imporia). Worker fora por mais de 15m nao fica cego: quem
+      # cobre esse caso e o BarraServicoSemMetricas (up == 0 por 5m), abaixo.
 
   - name: piloto_supervisao_viva
     rules:
