@@ -248,3 +248,40 @@ def test_estagio0_dropa_sem_limite_mantendo_resposta_canonica() -> None:
     assert mod._limpar_bolhas(turno) == "Sou sua no período combinado rs"
     # "limite" em fala legitima (sem a promessa) nao cai: recusa de desconto, por exemplo.
     assert mod.tem_promessa_sem_limite("Poxa amor não consigo") is False
+
+
+# Chave Pix digitada pela IA (auditoria editorial 2026-07-23): "a chave certa e so a que o sistema
+# anexa" era so prompt, sem rede mecanica. Bolha com shape de chave (e-mail, EVP, CPF, telefone
+# cru) e drop; fala legitima com numeros de venda (preco, hora, numero de rua) nao casa.
+@pytest.mark.parametrize(
+    "bolha",
+    [
+        "meu pix é ana.souza@gmail.com amor",
+        "chave aleatória: 1f2d3c4b-5a69-4e7d-8c9b-0a1b2c3d4e5f",
+        "pode mandar no cpf 123.456.789-00",
+        "meu número é 21984089974",
+        "Pix: 5521984089974",
+    ],
+)
+def test_detecta_chave_pix_digitada(bolha: str) -> None:
+    assert mod.tem_chave_pix(bolha) is True
+
+
+@pytest.mark.parametrize(
+    "bolha",
+    [
+        "600 1h no meu local",
+        "Posso confirmar às 20:30 ?",
+        "To no hotel sunny, na duque de caxias 880 amor",
+        "O uber ida e volta fica 150 amor, já te mando o pix",
+        "Podemos deixar marcado amanhã 15h ?",
+        "1500 3h, aproveitar bastante rs",
+    ],
+)
+def test_chave_pix_nao_flagra_fala_legitima(bolha: str) -> None:
+    assert mod.tem_chave_pix(bolha) is False
+
+
+def test_estagio0_dropa_chave_pix_mantendo_a_fala() -> None:
+    turno = "Já te mando o pix amor\n\nmeu pix é 21984089974"
+    assert mod._limpar_bolhas(turno) == "Já te mando o pix amor"

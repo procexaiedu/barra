@@ -1,8 +1,8 @@
-<situacao_do_atendimento numero="#{{ numero_curto }}" estado="{{ estado }}">
+<situacao_do_atendimento{% if numero_curto %} numero="#{{ numero_curto }}"{% endif %}{% if estado %} estado="{{ estado }}"{% endif %}>
 <ja_combinado>
 <tipo>{{ tipo_atendimento or 'ainda não definido' }}</tipo>
-{% if data_desejada %}<dia>{{ data_desejada }}</dia>{% endif %}
-{% if horario_desejado %}<hora>{{ horario_desejado }}</hora>{% endif %}
+{% if data_desejada %}<dia{% if not horario_ja_combinado %} status="pedido dele, ainda não confirmado"{% endif %}>{{ data_desejada }}</dia>{% endif %}
+{% if horario_desejado %}<hora{% if not horario_ja_combinado %} status="pedido dele, ainda não confirmado"{% endif %}>{{ horario_desejado }}</hora>{% endif %}
 {% if endereco %}<local>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</local>{% endif %}
 {% if valor_fechado %}<valor_fechado>{{ valor_fechado }}{% if duracao_fechada %} ({{ duracao_fechada }}h){% endif %} — valor já combinado com ele: não re-cote nem renegocie</valor_fechado>{% endif %}
 {% if urgencia %}<urgencia>{{ urgencia }}</urgencia>{% endif %}

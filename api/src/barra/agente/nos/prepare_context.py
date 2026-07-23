@@ -804,6 +804,10 @@ async def _resolver_variaveis(
         "pix_status": _pix_status_humano(atendimento.get("pix_status")),
         "data_desejada": atendimento.get("data_desejada"),
         "horario_desejado": atendimento.get("horario_desejado"),
+        # Mesmo booleano do <relogio_do_encontro>: antes de Aguardando_confirmacao o <dia>/<hora>
+        # renderiza com status "ainda não confirmado" — sem isto o bloco <ja_combinado> apresentava
+        # horário ainda DESEJADO como combinado (CONTEXT.md: desejado ≠ combinado).
+        "horario_ja_combinado": ja_combinado,
         "endereco": atendimento.get("endereco"),
         "bairro": atendimento.get("bairro"),
         # Valor/duração FECHADOS no snapshot (a janela de 20 msgs desliza; sem isto a IA perde o

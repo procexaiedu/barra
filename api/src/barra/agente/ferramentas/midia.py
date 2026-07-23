@@ -36,7 +36,8 @@ TagMidia = Literal["apresentacao", "corpo", "lifestyle", "evento"]
 
 _DESC_TAG = (
     "Categoria da mídia. O sistema escolhe QUAL item da tag (rotação: menos-recente-enviada), "
-    "evitando repetir — você não escolhe o item específico."
+    "evitando repetir — você não escolhe o item específico. Se a tag pedida não tem mídia "
+    "cadastrada, o sistema anexa de outra tag do mesmo tipo (a tag é preferência, não garantia)."
 )
 _DESC_LEGENDA = (
     "Texto curto que vai como caption da mídia no WhatsApp. Omitir = sem caption; sobre "
