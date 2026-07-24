@@ -363,3 +363,53 @@ def normalizar_vocativo_voz(chunks: list[str], rng: random.Random | None = None)
     """Afina a frequência do vocativo trailing por ato (_VOCATIVO_KEEP_POR_ATO). Preserva a
     contagem de bolhas (transform por-bolha; a bolha nunca esvazia — sempre sobra a frase)."""
     return [_normalizar_vocativo_bolha(c, rng) for c in chunks]
+
+
+# --- Interrogação da proposta de confirmação (camada de voz, não segurança) ---
+# Aqui o "?" não é estilo: é o que decide o SENTIDO da bolha. "Posso confirmar às 18h ?" propõe o
+# horário; sem o "?", o mesmo texto lê em PT-BR como "eu te confirmo às 18h" — promessa de retorno,
+# não proposta. Incidente prod #34 (Tatiane, 23/07 23:45 BRT = 24/07 UTC): saiu sem o "?", o cliente
+# respondeu "vou te avisando então" e o fechamento morreu ali. A perda é estocástica (5 emissões do
+# molde em prod, 4 com "?"), puxada pela regra forte da persona <voz> ("frase sua não termina em
+# ponto final") contra a permissão fraca da interrogação e pelo vocativo disputando o fim da bolha —
+# prompt a 0.7 não garante, então a rede crava. Gatilho estreito de propósito, casando a bolha de
+# ponta a ponta: o molde de proposta (posso/podemos/vamos [+ pronome] confirmar), em qualquer
+# posição — a bolha do incidente abriu com "Posso" por acaso, mas "Então posso confirmar às 18h" é
+# o mesmo erro — E o horário FECHANDO a bolha, tolerada só a cauda leve da voz (vocativo, "rs",
+# pontuação). É o fim no horário que separa a proposta ("Vamos confirmar 18h") da declarativa
+# ("Vamos confirmar 18h, te espero"), onde um "?" no fim inverteria o sentido do mesmo jeito.
+# Stateless; não injeta bolha nem muda a contagem.
+_RE_PROPOSTA_CONFIRMACAO = re.compile(
+    r"\b(?:posso|podemos|vamos)\s+(?:te\s+|lhe\s+)?confirmar\b"  # o molde do fechamento
+    r"[^?]*?"  # o miolo ("às", "amanhã", "então")
+    r"\d{1,2}\s*(?:h\d{0,2}|:\d{2})"  # o horário ("18h", "18h15", "17:30")
+    r"(?:\s*(?:amor|vida|rs|então|entao))*"  # cauda leve da voz
+    r"[.!…\s]*$",  # e nada mais até o fim da bolha
+    re.IGNORECASE,
+)
+
+# Pontuação de fim que a persona <voz> proíbe (mais o espaço à direita): some pra dar lugar ao "?",
+# que nunca sai como "18h.?".
+_FINAL_ARRASTAVEL = ".!… \t"
+
+
+def _restaurar_interrogacao_bolha(bolha: str) -> str:
+    """Devolve o "?" à proposta de confirmação que veio sem ele. No-op fora do molde (PURO)."""
+    if not _RE_PROPOSTA_CONFIRMACAO.search(bolha):
+        return bolha
+    # "?" em QUALQUER posição já faz a bolha ser pergunta — a cauda leve da voz pode vir depois
+    # dele ("Vamos confirmar 18h amor ? rs"), então testar só o fim marcaria a bolha errada.
+    if "?" in bolha:
+        return bolha
+    texto = bolha.rstrip(_FINAL_ARRASTAVEL)
+    if not texto:
+        return bolha
+    return f"{texto} ?"
+
+
+def restaurar_interrogacao_proposta(chunks: list[str]) -> list[str]:
+    """Crava o "?" na proposta de confirmação de horário ("Posso confirmar às 18h" → "... 18h ?").
+
+    Sem ele a bolha vira promessa de retorno e mata o fechamento (incidente #34). Preserva a
+    contagem de bolhas (transform por-bolha, sem dropar)."""
+    return [_restaurar_interrogacao_bolha(c) for c in chunks]

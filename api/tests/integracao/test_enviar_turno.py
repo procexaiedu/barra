@@ -491,6 +491,28 @@ async def test_normaliza_travessao_no_despacho() -> None:
     assert _so(evolution, "texto") == ["é na Rua das Flores, Chácara da Barra"]
 
 
+async def test_restaura_interrogacao_da_proposta_no_despacho() -> None:
+    """Regressão #34: proposta de horário sem "?" lê como promessa de retorno e mata o fechamento."""
+    turno_id, conversa_id = "turno-INTERROG", str(uuid4())
+    conn = _FakeConn(_destino(), {})
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["Posso confirmar às 18h"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+
+    assert _so(evolution, "texto") == ["Posso confirmar às 18h ?"]
+
+
 async def test_redige_pii_do_cliente_ecoada_na_bolha() -> None:
     """Cliente mandou o CPF; a IA repetiu → a rede mascara antes de sair (SEC-PII-02)."""
     turno_id, conversa_id = "turno-PII", str(uuid4())

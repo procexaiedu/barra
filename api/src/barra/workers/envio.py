@@ -48,6 +48,7 @@ from barra.workers._saida_guard import (
     normalizar_vocativo_voz,
     redigir_pii_eco,
     remover_marcador_quote,
+    restaurar_interrogacao_proposta,
     tem_marcador_ia,
     tem_placeholder_eco,
 )
@@ -771,6 +772,10 @@ async def _aplicar_saida_guard(
         chunks = normalizar_travessao(chunks)  # transform por-bolha, preserva a contagem
     if get_settings().filtro_vocativo_habilitado:
         chunks = normalizar_vocativo_voz(chunks)  # transform por-bolha, preserva a contagem
+    if get_settings().filtro_interrogacao_habilitado:
+        # por ÚLTIMO entre as camadas de voz: o filtro de vocativo pode reescrever o fim da bolha,
+        # e o "?" tem que ser a palavra final do que sai.
+        chunks = restaurar_interrogacao_proposta(chunks)  # transform por-bolha, preserva a contagem
     if not get_settings().envio_guard_habilitado:
         return chunks, quote_msg_ids, quote_textos
     texto = "\n".join(chunks)

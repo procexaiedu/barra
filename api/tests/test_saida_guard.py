@@ -367,3 +367,88 @@ def test_vocativo_com_virgula_nao_deixa_virgula_pendurada() -> None:
     from barra.workers._saida_guard import normalizar_vocativo_voz
 
     assert normalizar_vocativo_voz(["Oi, amor"], rng=_DROP) == ["Oi"]
+
+
+# --- restaurar_interrogacao_proposta: o "?" que decide o SENTIDO da proposta -------------------
+# Incidente prod #34 (24/07, Tatiane): a bolha saiu "Posso confirmar às 18h" sem o "?" e o cliente
+# leu como "te confirmo às 18h" — respondeu "vou te avisando então" e o fechamento morreu.
+
+
+def test_interrogacao_devolvida_a_proposta_sem_ponto() -> None:
+    """Regressão #34 (23/07): "Posso confirmar às 18h" sem "?" lê como promessa de retorno."""
+    from barra.workers._saida_guard import restaurar_interrogacao_proposta
+
+    assert restaurar_interrogacao_proposta(["Posso confirmar às 18h"]) == [
+        "Posso confirmar às 18h ?"
+    ]
+    assert restaurar_interrogacao_proposta(["Vamos confirmar 18h amor"]) == [
+        "Vamos confirmar 18h amor ?"
+    ]
+    assert restaurar_interrogacao_proposta(["podemos te confirmar 14h"]) == [
+        "podemos te confirmar 14h ?"
+    ]
+
+
+def test_interrogacao_pega_o_molde_com_prefixo() -> None:
+    """A bolha do incidente abria com "Posso" por acaso — o molde reincide atrás de um prefixo."""
+    from barra.workers._saida_guard import restaurar_interrogacao_proposta
+
+    assert restaurar_interrogacao_proposta(["Então posso confirmar às 18h"]) == [
+        "Então posso confirmar às 18h ?"
+    ]
+    assert restaurar_interrogacao_proposta(["Perfeito, vamos confirmar 18h amor"]) == [
+        "Perfeito, vamos confirmar 18h amor ?"
+    ]
+
+
+def test_interrogacao_so_quando_a_bolha_TERMINA_no_horario() -> None:
+    """Horário no meio = bolha declarativa; pôr "?" no fim dela inverteria o sentido do mesmo jeito."""
+    from barra.workers._saida_guard import restaurar_interrogacao_proposta
+
+    intactas = [
+        "Vamos confirmar 18h, te espero",
+        "Vamos confirmar 18h assim que você sair da reunião",
+    ]
+    assert restaurar_interrogacao_proposta(intactas) == intactas
+
+
+def test_interrogacao_no_op_quando_ja_tem() -> None:
+    from barra.workers._saida_guard import restaurar_interrogacao_proposta
+
+    ja_pergunta = ["Posso confirmar às 18h ?", "Vamos confirmar 18h amor ? rs"]
+    assert restaurar_interrogacao_proposta(ja_pergunta) == ja_pergunta
+
+
+def test_interrogacao_troca_ponto_final_proibido_pela_voz() -> None:
+    """persona <voz>: frase dela não termina em ponto nem exclamação — o "?" toma o lugar."""
+    from barra.workers._saida_guard import restaurar_interrogacao_proposta
+
+    assert restaurar_interrogacao_proposta(["Posso confirmar às 18h."]) == [
+        "Posso confirmar às 18h ?"
+    ]
+
+
+def test_interrogacao_so_no_molde_de_confirmacao() -> None:
+    """Afirmação legítima não vira pergunta: o gatilho é o verbo "confirmar" abrindo a bolha —
+    e só com HORÁRIO na bolha, que é o que faz dela uma proposta de hora (bolhas reais de prod)."""
+    from barra.workers._saida_guard import restaurar_interrogacao_proposta
+
+    intactas = [
+        "Consigo às 17:30",
+        "Podemos combinar 2h 1000, aproveitar bastante rs",
+        "Mas podemos fechar 18h numa boa",
+        "Confirmado",
+        "Me confirma de manhã amor",
+        "Pode me avisar quando sair da reunião que fica tranquilo",
+        "400 tá fechado, só confirmar",
+        "Se quiser fechar é só confirmar",
+        "13h amanhã confirmado",
+        "Vamos confirmar tudo pessoalmente",  # molde, mas sem hora: não é proposta de horário
+    ]
+    assert restaurar_interrogacao_proposta(intactas) == intactas
+
+
+def test_interrogacao_preserva_contagem_de_bolhas() -> None:
+    from barra.workers._saida_guard import restaurar_interrogacao_proposta
+
+    assert len(restaurar_interrogacao_proposta(["Oii", "Posso confirmar às 18h", "rs"])) == 3

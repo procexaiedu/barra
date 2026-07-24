@@ -200,6 +200,10 @@ class Settings(BaseSettings):
     filtro_vocativo_habilitado: bool = Field(
         default=True,
         description="Afina a frequencia do vocativo 'amor/vida' trailing da bolha de saida (camada de voz, nao seguranca): o DeepSeek satura ~2x a taxa do Vendedor humano fora da venda mesmo instruido (estilometria por ato 2026-07-14); sorteio per-bolha calibrado ao corpus remove o vocativo do FIM da bolha nos atos saturados (saudacao/outro), nunca no meio da frase. Vale para todos os caminhos do enviar_turno. False = bolha sai como o modelo gerou (kill-switch sem deploy).",
+    filtro_interrogacao_habilitado: bool = Field(
+        default=True,
+        description="Devolve o '?' a proposta de confirmacao de horario da bolha de saida (camada de voz, nao seguranca): 'Posso confirmar as 18h' sem o '?' le como promessa de retorno ('eu te confirmo as 18h') e mata o fechamento (incidente #34, 24/07) — o gatilho e estreito (molde posso/podemos/vamos confirmar + horario na bolha). Vale para todos os caminhos do enviar_turno. False = bolha sai como o modelo gerou (kill-switch sem deploy).",
+    )
     )
     envio_delay_humano_habilitado: bool = Field(
         default=False,
