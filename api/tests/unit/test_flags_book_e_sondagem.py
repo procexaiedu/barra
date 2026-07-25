@@ -83,7 +83,7 @@ async def test_or_janela_historico_injeta_tag_no_contexto() -> None:
         AIMessage(content="600 1h no meu local"),
         HumanMessage(content="e como funciona?"),
     ]
-    mensagens, _fase, _hm = await _anexar_contexto_dinamico(
+    mensagens, _fase, _hm, _pecas = await _anexar_contexto_dinamico(
         _FakeConnVazio(),  # type: ignore[arg-type]
         _ctx(),
         janela,

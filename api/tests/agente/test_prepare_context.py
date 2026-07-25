@@ -270,3 +270,29 @@ def test_evidencia_nao_persiste_apos_recuo() -> None:
     )
     assert isinstance(res, Command)
     assert res.update["horario_evidenciado"] is False
+
+
+# --- pecas do contexto no State (spec extracao-janela-dedicada) --------------------------------
+
+
+def test_pecas_do_turno_vao_ao_state_e_nao_ao_que_o_chat_recebe() -> None:
+    """As tres pecas (ancora temporal, bloco `<ja_registrado>` e conversa CRUA) sao publicadas no
+    State p/ a janela dedicada da extracao monta-las depois. O que o chat recebe nao muda: o bloco
+    NAO aparece em `messages` (a cauda segue msg do cliente + contexto dinamico)."""
+    rt = _runtime(mensagens=_linhas_desc())
+    rt.context.agora_utc = datetime(2026, 7, 25, 17, 30, tzinfo=UTC)  # = 14:30 em Brasilia
+
+    res = asyncio.run(prepare_context({"messages": []}, rt))
+
+    assert isinstance(res, Command)
+    assert res.update["agora_turno"] == datetime(2026, 7, 25, 14, 30)
+    assert res.update["ja_registrado"].startswith("<ja_registrado>")
+    assert all("<ja_registrado>" not in str(m.content) for m in res.update["messages"])
+    # A conversa crua e a janela como ela e: mesma ordem, sem o belief colado na cauda (o que
+    # `messages` ja nao permite separar).
+    crua = res.update["conversa_crua"]
+    assert [str(m.content) for m in crua] == [
+        "ola",
+        "oi amor, tudo bem?",
+        "[mensagem manual da modelo]: deixa que eu respondo",
+    ]

@@ -149,6 +149,36 @@ def render_contexto_dinamico(**variaveis: Any) -> str:
     return _env.get_template("contexto_dinamico.md.j2").render(**variaveis)
 
 
+def render_ja_registrado(**variaveis: Any) -> str:
+    """Bloco `<ja_registrado>` do turno (spec extracao-janela-dedicada) — texto volátil.
+
+    Estado que o sistema JÁ tem gravado, rotulado como estado do sistema (nunca como fala do
+    cliente) e com a instrução de delta. Renderizado no prepare_context a partir do MESMO
+    dicionário de `render_contexto_dinamico` — é o que garante que o que a IA lê e o que o
+    extrator lê não divergem. Não entra no que o chat recebe: viaja pelo State até a janela
+    dedicada da extração.
+    """
+    return _env.get_template("ja_registrado.md.j2").render(**variaveis)
+
+
+def render_ancora_extracao(agora: datetime | None) -> str:
+    """Âncora temporal da janela dedicada da extração (spec extracao-janela-dedicada).
+
+    O MÍNIMO que as descrições dos campos exigem para resolver tempo relativo ("agora", "daqui
+    1h", "amanhã"): elas apontam nominalmente para `<agenda hoje="..." agora="HH:MM">`, então a
+    âncora reusa a MESMA tag do contexto dinâmico — o resto do bloco `<agenda>` (bloqueios,
+    janelas livres, horário mínimo) é conduta de venda e fica fora do que o extrator lê.
+
+    `agora` é o `agora_turno` do State (BRT naive, resolvido no prepare_context); None (turno sem
+    relógio resolvido) → sem âncora.
+    """
+    if agora is None:
+        return ""
+    return _env.get_template("ancora_extracao.md.j2").render(
+        data_atual=agora.date(), hora_atual=agora.strftime("%H:%M")
+    )
+
+
 def render_reminder(fase: str | None, nome: str | None = None) -> str:
     """Reminder anti-drift (03 §10) — texto volátil, NÃO cacheável.
 

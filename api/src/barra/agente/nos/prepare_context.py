@@ -31,6 +31,7 @@ M3g (este escopo):
 
 import hashlib
 import re
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
@@ -63,6 +64,7 @@ from ..persona import (
     IdentidadeModelo,
     render_bp3,
     render_contexto_dinamico,
+    render_ja_registrado,
     render_prefixo_geral,
     render_reminder,
 )
@@ -73,6 +75,25 @@ from ._proximo_livre import proximo_livre
 # vem injetado (ContextAgente.agora_utc), derivamos a ancora BRT em Python com ESTE fuso p/ casar
 # byte-a-byte com o que o banco devolveria.
 _FUSO_BR = ZoneInfo("America/Sao_Paulo")
+
+
+@dataclass(frozen=True)
+class PecasDoTurno:
+    """Peças do contexto do turno que o State publica p/ a janela dedicada da extração (spec
+    extracao-janela-dedicada).
+
+    A cauda que o CHAT recebe é uma só mensagem inchada (lembrete → msg do cliente → contexto
+    dinâmico) e, depois de fundida, não há como separá-la. Em vez de reconstruir a janela da
+    extração a partir das linhas cruas, o `prepare_context` guarda aqui o que ela precisa —
+    mesmo padrão das outras marcas por-turno (`horario_evidenciado`, `recuo_detectado`), zero
+    query nova e zero chance de divergir do que a IA leu.
+
+    `agora`: âncora temporal do turno (BRT naive, a MESMA de onde saem `data_atual`/`hora_atual`
+    do contexto dinâmico). `ja_registrado`: o bloco de estado já renderizado.
+    """
+
+    agora: datetime | None
+    ja_registrado: str
 
 
 async def _resolver_agora(
@@ -127,6 +148,12 @@ async def prepare_context(
         # 2. Janela deslizante (02 §4) — isolada pelo par (cliente, modelo).
         linhas = await carregar_mensagens(conn, ctx.cliente_id, ctx.modelo_id)
         mensagens = traduzir_mensagens(linhas)
+        # A janela CRUA (antes da anexação do contexto dinâmico e do lembrete) é a conversa que a
+        # janela dedicada da extração recebe (spec extracao-janela-dedicada). Guardada aqui porque
+        # a anexação funde belief + msg do cliente num único HumanMessage e depois não há como
+        # separá-los. `_anexar_contexto_dinamico`/`_injetar_reminder_se_necessario` devolvem listas
+        # NOVAS (não mutam), então esta referência segue crua até o fim do turno.
+        conversa_crua = mensagens
 
         # 2b. Classificacao de disclosure/jailbreak (10 §8): regex sobre a cauda de
         #     HumanMessages da janela, ANTES de anexar contexto/reminder (cauda limpa). Grava
@@ -164,11 +191,18 @@ async def prepare_context(
         #     e pelo mesmo motivo do bloco acima.
         recuo_detectado = _recuo_no_turno(mensagens)
 
+        # 3e. Conversa CRUA (spec extracao-janela-dedicada): a janela do par como ela é, antes de
+        #     a anexação abaixo colar o contexto dinâmico e o lembrete na cauda. Vai ao State
+        #     porque essa fusão é irreversível — `messages` já sai com o belief dentro da última
+        #     fala do cliente, e é exatamente o que o extrator não pode ler como conversa. É a
+        #     MESMA lista (a anexação e o reminder copiam antes de mexer), sem query nova.
+        conversa_crua = mensagens
+
         # 4. Contexto dinâmico (02 §5): resolve cliente/agenda na MESMA conexão e concatena no
         #    último HumanMessage (sem cache_control — texto volátil na cauda). Recebe o atendimento
         #    já lido (1), o max_horas e o local já resolvidos (3). Devolve a `fase` (= estado do
-        #    atendimento) já resolvida, p/ o reminder não requerer.
-        mensagens, fase, horario_minimo = await _anexar_contexto_dinamico(
+        #    atendimento) já resolvida, p/ o reminder não requerer, e as `pecas` do turno.
+        mensagens, fase, horario_minimo, pecas = await _anexar_contexto_dinamico(
             conn,
             ctx,
             mensagens,
@@ -203,6 +237,9 @@ async def prepare_context(
             "horario_minimo": horario_minimo,
             "horario_evidenciado": horario_evidenciado,
             "recuo_detectado": recuo_detectado,
+            "agora_turno": pecas.agora,
+            "ja_registrado": pecas.ja_registrado,
+            "conversa_crua": conversa_crua,
         },
     )
 
@@ -565,7 +602,7 @@ async def _anexar_contexto_dinamico(
     tabela_max_horas: float = 0.0,
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
-) -> tuple[list[BaseMessage], str | None, datetime | None]:
+) -> tuple[list[BaseMessage], str | None, datetime | None, PecasDoTurno]:
     """Resolve o contexto dinâmico do turno e concatena no último HumanMessage (02 §5).
 
     O contexto dinâmico (estado do atendimento, cliente, agenda das próximas 48h, data atual)
@@ -579,9 +616,10 @@ async def _anexar_contexto_dinamico(
 
     Concatena no ÚLTIMO HumanMessage (a msg atual do cliente). Defesa: se a janela não tiver
     nenhum HumanMessage, anexa o contexto como novo HumanMessage no fim. Devolve também a `fase`
-    (= `estado` do atendimento) já resolvida, p/ o reminder (03 §10) reusar sem nova query, e o
+    (= `estado` do atendimento) já resolvida, p/ o reminder (03 §10) reusar sem nova query, o
     `horario_minimo` (mesmo valor renderizado na tag `<horario_minimo>`) p/ o State — a tool
-    `registrar_extracao` o lê p/ desambiguar a conduta de `AntecedenciaInsuficiente` (estado.py).
+    `registrar_extracao` o lê p/ desambiguar a conduta de `AntecedenciaInsuficiente` (estado.py) —
+    e as `PecasDoTurno`.
     """
     variaveis = await _resolver_variaveis(
         conn,
@@ -592,6 +630,11 @@ async def _anexar_contexto_dinamico(
         local_endereco_raw=local_endereco_raw,
         local_nome_raw=local_nome_raw,
     )
+    # Peças do turno p/ o State (PecasDoTurno): renderizadas AQUI, ANTES do A2 abaixo. O bloco
+    # <ja_registrado> descreve o que está GRAVADO, e o A2 assume o dia sem persistir — apresentar
+    # essa suposição como gravada faria o extrator omitir `data_desejada` ("não mudou") e o dia
+    # nunca chegaria ao banco. É a subextração, o erro simétrico do eco.
+    pecas = PecasDoTurno(agora=variaveis["agora"], ja_registrado=render_ja_registrado(**variaveis))
     # A2: captura determinística do dia (abridor "seria hoje?" + afirmação do cliente) antes do
     # render — sem persistir, só alimenta o belief p/ a IA não repetir a sondagem (ver helper acima).
     _aplicar_dia_confirmado(variaveis, mensagens)
@@ -613,8 +656,8 @@ async def _anexar_contexto_dinamico(
         if isinstance(msg, HumanMessage):
             anexadas = list(mensagens)
             anexadas[i] = HumanMessage(content=f"{msg.content}\n\n{texto}", id=msg.id)
-            return anexadas, fase, horario_minimo
-    return [*mensagens, HumanMessage(content=texto)], fase, horario_minimo
+            return anexadas, fase, horario_minimo, pecas
+    return [*mensagens, HumanMessage(content=texto)], fase, horario_minimo, pecas
 
 
 def _precisa_reminder(historico: list[BaseMessage]) -> bool:
@@ -977,12 +1020,20 @@ async def _resolver_variaveis(
     )
 
     return {
+        # Âncora CRUA do turno (BRT naive). O contexto dinâmico não a lê — ele usa `data_atual`/
+        # `hora_atual`, DERIVADAS dela; viaja aqui porque é a mesma âncora que a janela dedicada
+        # da extração precisa (PecasDoTurno), e sair da mesma fonte é o que impede divergência.
+        "agora": agora,
         "data_atual": data_atual,
         "hora_atual": hora_atual,
         "numero_curto": atendimento.get("numero_curto"),
         "estado": atendimento.get("estado"),
         "slots_faltantes": belief.slots_faltantes,
         "proximo_passo": belief.proximo_passo,
+        # O contexto dinâmico não renderiza a `intencao` crua (ela vira <ainda_falta>/<proximo_passo>
+        # via belief); vem no dicionário porque é um dos campos com eco medido em produção (71%) e
+        # o <ja_registrado> precisa dela p/ o extrator saber que já está registrada.
+        "intencao": atendimento.get("intencao"),
         "tipo_atendimento": atendimento.get("tipo_atendimento"),
         "urgencia": atendimento.get("urgencia"),
         "pix_status": _pix_status_humano(atendimento.get("pix_status")),

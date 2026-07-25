@@ -12,6 +12,7 @@ Ver docs/agente/04-tools.md §1.1, 01-arquitetura.md §2.3/§4.3 e 02-estado-flu
 
 from datetime import datetime
 
+from langchain_core.messages import BaseMessage
 from langgraph.graph import MessagesState
 
 
@@ -68,6 +69,13 @@ class EstadoAgente(MessagesState):
         `sinais_qualificacao.aceita_valor` no merge. Mesmo canal e mesmos motivos do
         `horario_evidenciado` (nasce no prepare_context, e consumido na extracao, nunca sai do
         payload). Nasce ausente a cada `ainvoke` (sem checkpointer).
+    agora_turno / ja_registrado / conversa_crua: as pecas do contexto do turno que a janela
+        DEDICADA da extracao monta (spec extracao-janela-dedicada) — ancora temporal (BRT naive),
+        bloco de estado ja renderizado e a janela do par ANTES da anexacao do contexto dinamico e
+        do lembrete (o que o extrator le como conversa; `messages` so tem a versao com o belief
+        colado na cauda, e depois de fundida nao ha como separa-la). Nascem no prepare_context
+        (`PecasDoTurno`, o PORQUE mora la), NAO entram em `messages` e nascem ausentes a cada
+        `ainvoke` (sem checkpointer).
     """
 
     midia_idx: int
@@ -78,3 +86,6 @@ class EstadoAgente(MessagesState):
     horario_minimo: datetime | None
     horario_evidenciado: bool
     recuo_detectado: bool
+    agora_turno: datetime | None
+    ja_registrado: str
+    conversa_crua: list[BaseMessage]

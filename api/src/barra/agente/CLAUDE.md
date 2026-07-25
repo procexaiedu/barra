@@ -31,6 +31,7 @@ Ponte estreita → código; campo aberto → prosa. Conduta que exige exatidão 
 Algumas condutas têm, de propósito, mais de um site (sanduíche primacy+recency do `<nucleo>`/`<nucleo_final>`, reminder anti-drift, judges autocontidos por serem outro contexto de LLM). Mudou a regra → toque TODOS os ecos; o site canônico define os termos:
 
 - **Empurrão sim/não pós-cotação** — canônico: `regras.md.j2` `<conducao_da_venda>` (Cotação). Ecos: `<nucleo>` linha 5, `<nucleo_final>`, `reminder.md.j2` (condensados), `judge_pos_envio.md` (autocontido).
+- **Estado do atendimento renderizado** — canônico: `contexto_dinamico.md.j2` `<ja_combinado>` (o que a IA lê). Eco: `ja_registrado.md.j2` (o que o EXTRATOR lê, via `PecasDoTurno` no State). Os dois saem do MESMO dicionário de variáveis de propósito — campo novo no belief entra nos dois, senão a IA e o extrator passam a ver estados diferentes. Rótulos divergem por papel: o eco marca proveniência (palpite × pedido dele, cotado × aceito) porque o extrator confunde memória com observação; o canônico marca conduta.
 - **Exemplos de fala com número**: valores são ILUSTRATIVOS concretos (600/1000/500/150), nunca chave `{placeholder}` — chave literal já vazou em prod e exigiu patch no output_guard (`_RE_PLACEHOLDER`). O preâmbulo de `<exemplos>` carrega a instrução de substituição; mantenha novos exemplos nesse padrão.
 
 O gate do reminder (≥8 AIMessages, `_precisa_reminder`) é decisão de grilling 2026-05-23 (proativo > reativo a drift) — não converta para gate por sinal sem novo grilling.
