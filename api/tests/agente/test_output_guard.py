@@ -39,6 +39,9 @@ class _FakeResult:
     async def fetchall(self) -> list[dict[str, Any]]:
         return self._rows
 
+    async def fetchone(self) -> dict[str, Any] | None:
+        return self._rows[0] if self._rows else None
+
 
 class _FakeConn:
     """Conn fake: a unica query do no e _legendas_do_turno (tool_calls/enviar_midia)."""

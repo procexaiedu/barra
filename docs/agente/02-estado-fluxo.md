@@ -108,7 +108,7 @@ class WorkerSettings:
 
 ## 4. Sliding window de mensagens
 
-Cada turno carrega as **20 últimas mensagens** da conversa (todas as direções: `cliente`, `ia`, `modelo_manual`).
+Cada turno carrega as **40 últimas mensagens** da conversa (todas as direções: `cliente`, `ia`, `modelo_manual`).
 
 > **Caveat (chunking infla a contagem):** cada resposta da IA é persistida como **uma linha por chunk** (`enviar_turno`, `05 §4.2`). Um turno de 3 chunks = 3 linhas `direcao='ia'`. Logo **20 linhas ≠ 20 turnos lógicos** — na prática são ~5-6 trocas de cliente de memória conversacional. Isso é aceito porque os **fatos duráveis** (horário, endereço, tipo, intenção) vivem no snapshot do `registrar_extracao` em `atendimentos.*` e são re-injetados no contexto dinâmico **todo turno**, independentemente da janela. Se o error analysis do piloto mostrar perda de memória, a saída é coalescer chunks consecutivos da IA — o que exigiria uma coluna de agrupamento (`turno_id`/`grupo_envio`) em `mensagens`, inexistente hoje; não antecipar (`CLAUDE.md §2`).
 
@@ -124,7 +124,7 @@ SELECT m.id,
   FROM barravips.mensagens m
  WHERE m.conversa_id = %s
  ORDER BY m.created_at DESC, m.id DESC
- LIMIT 20;
+ LIMIT 40;
 ```
 
 Resultado revertido em Python para ordem cronológica antes de virar `messages` na entrada do grafo. O desempate por `m.id` (uuidv7, time-ordered) garante ordem **determinística** mesmo com `created_at` empatado (picotadas no mesmo instante) — pré-requisito do render byte-idêntico exigido pelo cache (`agente/CLAUDE.md`).

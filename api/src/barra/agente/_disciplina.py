@@ -2,7 +2,7 @@
 
 Regex compartilhados entre o WRITE-TIME (workers/envio.py, que carimba as flags em
 barravips.atendimentos quando a IA fala) e o READ-TIME (agente/nos/prepare_context.py, que
-ainda varre a JANELA de 20 msgs p/ cobrir a fala do turno atual ainda não persistida). Manter
+ainda varre a JANELA deslizante p/ cobrir a fala do turno atual ainda não persistida). Manter
 os dois lados na MESMA fonte evita drift entre o que é carimbado e o que é lido.
 
 Fica em `agente/` (não em `dominio/`) porque depende de `normalizar` (agente/_normalizar.py) e
@@ -51,6 +51,52 @@ def contem_sondagem_dia(texto: str) -> bool:
     Sem `normalizar`: o regex já é case-insensitive e casa o "é" acentuado da forma canônica da
     persona."""
     return _PROBE_DIA_HOJE.search(texto) is not None
+
+
+# Palavra de lugar que qualquer endereco tem: nao distingue o ponto de encontro DELA de nenhum
+# outro, entao nao serve de evidencia de que ela entregou o endereco.
+_GENERICOS_DE_LUGAR = frozenset(
+    {"rua", "avenida", "av", "hotel", "residence", "apto", "apartamento", "predio", "casa"}
+)
+_SEPARADOR_TOKENS = re.compile(r"[^\wÀ-ÿ]+")
+
+
+def tokens_de_lugar(*campos: str | None) -> set[str]:
+    """Tokens normalizados dos campos de lugar do cadastro — o vocabulario de lugar da modelo.
+
+    Descarta token de ate 2 letras e puro digito: o "SP"/"291"/"13024-020" do endereco formatado
+    casaria com quase qualquer texto e furaria os detectores que dependem disto.
+    """
+    tokens: set[str] = set()
+    for campo in campos:
+        if campo:
+            tokens |= {t for t in _SEPARADOR_TOKENS.split(normalizar(campo)) if len(t) > 2}
+    return {t for t in tokens if not t.isdigit()}
+
+
+def tokens_do_endereco(
+    endereco: str | None, nome_local: str | None, regiao: str | None
+) -> set[str]:
+    """Tokens que so aparecem quando ela ENTREGA o ponto de encontro (nome do hotel, nome da rua).
+
+    Tira a REGIAO de proposito: dizer o bairro e o degrau ANTERIOR do <tipos_de_encontro> ("no
+    1o contato, so a regiao"), e a regiao esta contida no endereco formatado ("R. Santos Dumont,
+    291 - Cambui, Campinas") — sem descontar, um simples "aqui no Cambui" contaria como endereco
+    entregue. Tira tambem os genericos, que aparecem em qualquer endereco.
+    """
+    return tokens_de_lugar(endereco, nome_local) - tokens_de_lugar(regiao) - _GENERICOS_DE_LUGAR
+
+
+def contem_endereco_de_encontro(texto: str, tokens_endereco: set[str]) -> bool:
+    """True se a bolha ENTREGA o ponto de encontro (cita o nome do hotel ou o nome da rua).
+
+    A2 do endereco (atendimento #41, 24/07 10:03): a IA disse "Vem aqui então / Já sabe onde é" —
+    e so passou o endereco 7 minutos DEPOIS. "Ja passei o endereco" nao era fato rastreado em lugar
+    nenhum, e a janela deslizante e curta demais pra servir de memoria. Sem `tokens_endereco`
+    (cadastro sem endereco) nao ha o que detectar."""
+    if not tokens_endereco:
+        return False
+    return bool(set(_SEPARADOR_TOKENS.split(normalizar(texto))) & tokens_endereco)
 
 
 def contar_contrapropostas(textos: Iterable[str]) -> int:

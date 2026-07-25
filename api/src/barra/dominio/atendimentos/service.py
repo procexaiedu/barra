@@ -394,6 +394,16 @@ async def registrar_extracao_ia(
             "novo_estado": None,
         }
 
+    # Flip de tipo com slot ja reservado (#41, 24/07): o tipo combinado nao muda por um PEDIDO do
+    # cliente. Descarta o campo e audita — depois da guarda de tipo-aceito acima, que segue
+    # escalando o tipo que a modelo nao realiza (o cliente pedir algo impossivel merece escalada
+    # tenha bloqueio ou nao); o descarte cobre so o flip entre tipos que ela FAZ, que passava reto
+    # e disparava o Pix de deslocamento.
+    tipo_mantido = await _flip_de_tipo_pos_bloqueio(conn, aid, payload)
+    if tipo_mantido is not None:
+        payload = {k: v for k, v in payload.items() if k != "tipo_atendimento"}
+        payload["tipo_descartado"] = {"pedido": tipo_pedido, "mantido": tipo_mantido}
+
     # Fallback de tempo imediato (#4): a extração às vezes grava urgencia=imediato SEM
     # `horario_desejado` (o LLM hesita num condicional tipo "agora mesmo se der"), e sem horário a
     # FSM não cria o bloqueio prévio -> fica Qualificado -> Perdido. Assume o `horario_minimo` (o
@@ -835,6 +845,38 @@ async def _reagendamento_pos_bloqueio(
     if _dentro_da_tolerancia(a["data_desejada"], a["horario_desejado"], nova_data, novo_horario):
         return "drift"
     return "mudanca"
+
+
+async def _flip_de_tipo_pos_bloqueio(
+    conn: AsyncConnection[Any], atendimento_id: UUID, payload: dict[str, Any]
+) -> str | None:
+    """Tipo do payload que CONTRARIA o tipo ja combinado de um atendimento com bloqueio previo —
+    devolve o tipo persistido (o que continua valendo); None quando nao ha conflito.
+
+    Irma da branch 12 (`_reagendamento_pos_bloqueio`), no outro eixo: la o horario, aqui o tipo.
+    Reservado o slot, o tipo esta combinado — ele decide quem se desloca, se ha Pix, qual endereco
+    e como o atendimento fecha. O extrator, porem, gradua o PEDIDO do cliente como se fosse o
+    combinado: no #41 (24/07 10:19) o cliente insistiu que ela fosse ate ele e o payload veio
+    `tipo_atendimento=externo` com a propria prosa dizendo "estou recusando". O flip so precisava
+    ser gravado para `_solicitar_pix_deslocamento_se_aplicavel` (bloco independente da transicao)
+    cobrar um Pix de deslocamento de R$100 num encontro que seguia sendo no local dela.
+
+    Descarta em vez de escalar: a IA estava conduzindo certo (recusando), e escalar a pausaria no
+    meio da recusa. Mudanca real de tipo com slot reservado e renegociacao — sai pela conduta dela
+    (redireciona; na insistencia, `escalar`), nao por um campo de extracao."""
+    novo_tipo = payload.get("tipo_atendimento")
+    if not novo_tipo or "tipo_atendimento" in set(payload.get("limpar") or []):
+        return None
+    res = await conn.execute(
+        "SELECT bloqueio_id, tipo_atendimento::text AS tipo_atendimento "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    if a is None or a["bloqueio_id"] is None or a["tipo_atendimento"] is None:
+        return None
+    tipo_atual: str = a["tipo_atendimento"]
+    return tipo_atual if novo_tipo != tipo_atual else None
 
 
 def _dentro_da_tolerancia(data_atual: Any, hora_atual: Any, nova_data: Any, nova_hora: Any) -> bool:
@@ -1393,6 +1435,19 @@ async def marcar_dia_sondado(conn: AsyncConnection[Any], atendimento_id: UUID) -
         UPDATE barravips.atendimentos
            SET dia_sondado_em = now()
          WHERE id = %s AND dia_sondado_em IS NULL
+        """,
+        (atendimento_id,),
+    )
+
+
+async def marcar_endereco_enviado(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
+    """Carimba `endereco_enviado_em=now()` na 1a bolha em que a IA passa o ponto de encontro.
+    Guard IS NULL (first-write-wins): repetir entre bolhas/retries e no-op, preserva o 1o instante."""
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET endereco_enviado_em = now()
+         WHERE id = %s AND endereco_enviado_em IS NULL
         """,
         (atendimento_id,),
     )

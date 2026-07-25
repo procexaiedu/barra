@@ -228,6 +228,14 @@ OUTPUT_SONDA_DETECTADA = Counter(
     "Bolhas de sonda-de-balcao barradas pelo output-guard apos a regen, por acao",
     ["acao"],  # dropada | mudo
 )
+# Eco de regiao: a IA situou a modelo num bairro que nao e o do cadastro (o "centro" generico ou o
+# bairro que o CLIENTE chutou). Mesmo trilho da sonda -- regenera 1x, dropa a bolha se persistir.
+# Atendimento #41 (24/07): "Isso amor, aqui no centro" com o cadastro dizendo Cambui.
+OUTPUT_ECO_REGIAO_DETECTADO = Counter(
+    "agente_output_eco_regiao_total",
+    "Bolhas que situam a modelo fora da regiao cadastrada, barradas pelo output-guard, por acao",
+    ["acao"],  # dropada | mudo
+)
 # Marcador de reply [quote]/[quote: trecho] residual removido pela rede final antes do envio: o
 # chunking deveria te-lo extraido no inicio da bolha, entao cada scrub aqui e regressao de
 # prompt/chunking (marker malformado ou fora de posicao que denunciaria a IA se saisse ao cliente).

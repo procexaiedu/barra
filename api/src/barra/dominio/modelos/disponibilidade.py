@@ -151,6 +151,42 @@ def proxima_abertura(regras: list[dict[str, Any]], agora: datetime) -> datetime 
     return min(candidatos) if candidatos else None
 
 
+def sessoes_disponibilidade(
+    regras: list[dict[str, Any]], inicio: datetime, fim: datetime
+) -> list[tuple[datetime, datetime]]:
+    """Sessões de trabalho (pares início-fim, BRT) que cobrem parte de `[inicio, fim)`.
+
+    Materializa em intervalos o que as regras dizem por dia-da-semana + janela horária, para quem
+    precisa do POSITIVO da agenda (as janelas livres) e não só do gate ponto-a-ponto de
+    `regras_cobrem`. Uma sessão é um bloco contínuo de expediente: a janela 10:00-04:00 rende UMA
+    sessão de 18h por dia, não duas.
+
+    Sem regra = reservável sempre (CONTEXT.md "Disponibilidade") -> a própria faixa pedida, como
+    uma sessão só. Caminha alternando os dois primitivos já testados — `fim_sessao` fecha a sessão
+    que cobre o instante, `proxima_abertura` salta o vão até a próxima — e por isso herda a
+    semântica deles (incl. o transbordo pós-meia-noite, que segue a MESMA sessão).
+    """
+    if not regras:
+        return [(inicio, fim)]
+    out: list[tuple[datetime, datetime]] = []
+    t = inicio
+    # `t` cresce estritamente a cada volta (fim_sessao/proxima_abertura devolvem instante > t, e o
+    # `<= t` abaixo aborta se algum dia não devolverem) — o `while` termina sem contador de guarda.
+    while t < fim:
+        if regras_cobrem(regras, t):
+            fecha = fim_sessao(regras, t)
+            if fecha is None or fecha <= t:
+                break
+            out.append((t, min(fecha, fim)))
+            t = fecha
+        else:
+            abre = proxima_abertura(regras, t)
+            if abre is None or abre <= t:
+                break
+            t = abre
+    return out
+
+
 async def carregar_regras_disponibilidade(
     conn: AsyncConnection[Any], modelo_id: UUID
 ) -> list[dict[str, Any]]:

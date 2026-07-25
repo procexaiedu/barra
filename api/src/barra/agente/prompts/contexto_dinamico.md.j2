@@ -24,6 +24,7 @@
 {% if local_endereco %}<local_de_encontro>
 Seu ponto de encontro (ele vem até você): {% if local_nome %}{{ local_nome }} — {% endif %}{{ local_endereco }}.
 Passe em degraus (<tipos_de_encontro>): o nome do hotel e a rua SEM o número enquanto combinam; o número só quando ele confirmar que vai, avisar que saiu ou pedir pra se organizar; a unidade, NUNCA.
+{% if endereco_ja_enviado %}Você JÁ passou este endereço a ele nesta negociação.{% else %}Você AINDA NÃO passou este endereço a ele: não fale como se ele já soubesse onde é.{% endif %}
 </local_de_encontro>
 
 {% endif %}{% if sem_periodo_longo %}<sem_periodo_longo>
@@ -40,7 +41,8 @@ Sua tabela em <programas> vai até {{ '%g'|format(tabela_max_horas) }}h — pern
 <agenda hoje="{{ data_atual }}" agora="{{ hora_atual }}" janela="próximas 48h">
 {% if horario_minimo %}<horario_minimo inicio="{{ horario_minimo|brt('%a %d/%m %H:%M') }}"/>
 {% endif %}{% if proximo_horario %}<proximo_horario inicio="{{ proximo_horario|brt('%a %d/%m %H:%M') }}">Você não tem NENHUM horário pra oferecer antes deste — é o seu primeiro. Ancore nele, pela sua conduta de período de trabalho.</proximo_horario>
-{% endif %}{% if combinado_hora is defined and min_para_combinado is defined and combinado_hora and min_para_combinado is not none %}<relogio_do_encontro combinado="{{ combinado_hora }}" status="{% if min_para_combinado > 0 %}faltam ~{{ min_para_combinado }} min{% elif min_para_combinado == 0 %}é agora{% else %}já passou ~{{ -min_para_combinado }} min do horário combinado{% endif %}"/>
+{% endif %}{% if janelas_livres %}{% for j in janelas_livres %}<janela_livre de="{{ j[0]|brt('%a %d/%m %H:%M') }}" ate="{{ j[1]|brt('%a %d/%m %H:%M') }}"/>
+{% endfor %}{% endif %}{% if combinado_hora is defined and min_para_combinado is defined and combinado_hora and min_para_combinado is not none %}<relogio_do_encontro combinado="{{ combinado_hora }}" status="{% if min_para_combinado > 0 %}faltam ~{{ min_para_combinado }} min{% elif min_para_combinado == 0 %}é agora{% else %}já passou ~{{ -min_para_combinado }} min do horário combinado{% endif %}"/>
 {% endif %}{% if bloqueios %}{% for b in bloqueios %}<bloqueio inicio="{{ b.inicio|brt('%a %d/%m %H:%M') }}" fim="{{ b.fim|brt('%H:%M') }}" estado="ocupado"{% if b.proximo_livre %} proximo_livre="{{ b.proximo_livre|brt('%a %d/%m %H:%M') }}"{% endif %}/>
 {% endfor %}{% else %}<livre>sem bloqueios nas próximas 48h, nenhum horário ocupado</livre>
 {% endif %}</agenda>

@@ -43,6 +43,7 @@ from pydantic import BaseModel, Field
 from barra.core.db import conexao
 from barra.core.metrics import (
     AUP_SAIDA_BLOQUEADO,
+    OUTPUT_ECO_REGIAO_DETECTADO,
     OUTPUT_LEAK_DETECTADO,
     OUTPUT_RACIOCINIO_SANEADO,
     OUTPUT_REGEN,
@@ -53,7 +54,9 @@ from barra.settings import get_settings
 
 from .._canned import ESPERA_ESCALADA_CANNED, NEGACOES_CANNED
 from .._defesa import escalar_defesa
+from .._disciplina import tokens_de_lugar
 from .._instrumentar import instrumentar_tokens
+from .._normalizar import normalizar
 from .._texto_turno import extrair_texto_do_turno, mensagens_do_turno, texto_da_mensagem
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
@@ -247,6 +250,88 @@ def tem_chave_pix(texto: str) -> bool:
     return bool(_RE_CHAVE_PIX.search(texto))
 
 
+# Eco de REGIAO: o cliente chuta um bairro e a IA confirma como se fosse o dela. `regras.md.j2`
+# (<tipos_de_encontro>) proibe literalmente -- "a regiao que sai da sua boca e EXATAMENTE a do seu
+# <dados_da_modelo>, palavra por palavra: voce NUNCA a troca por um bairro vizinho, pelo 'centro'
+# generico nem pelo bairro do ponto que ELE citou" -- e mesmo assim, atendimento #41 (24/07 08:10):
+# cliente "atendimento centro", IA "Isso amor, aqui no centro", com o cadastro dizendo Cambui. A
+# proibicao era so prosa; este e o trilho.
+#
+# ESTREITO de proposito (mesma disciplina do `_RE_CHAVE_PIX`): so casa a forma de CONFIRMAR/situar
+# um lugar -- um abridor de confirmacao/locativo (isso/aqui/fico/moro/atendo/...) perto de um
+# "no/na/do/da" seguido de nome PROPRIO (maiuscula) ou do "centro" generico. "Vou te mandar no Pix"
+# nao tem abridor; "to no hotel na rua Santos Dumont" so tem substantivo comum minusculo. O que
+# escapar fica pro prompt: falso-positivo aqui derrubaria fala legitima.
+#
+# SEM `re.IGNORECASE`, e nao por descuido: a flag valeria tambem para a classe `[A-Z...]` da captura
+# e ANULARIA o teste de maiuscula que separa nome proprio de substantivo comum. Medido contra as 525
+# falas reais da IA em prod: com IGNORECASE, "mas sou eu mesma nas fotos", "no completo" e "no
+# periodo combinado" viravam ofensa. O abridor leva o `(?i:...)` inline, que e do que ele precisa.
+_RE_ECO_REGIAO = re.compile(
+    r"\b(?i:isso|aqui|fico|ficar|estou|est[oó]|t[ôo]|fica|sou|moro|atendo|atender)\b"
+    r"[\w\s,'-]{0,14}?"
+    r"\b(?i:n[oa]s?|d[oa]s?|em)\s+"
+    r"((?i:centr[oã]o?)|[A-ZÁÀÂÃÉÊÍÓÔÕÚÜÇ][\wÀ-ÿ]+(?:\s+[A-ZÁÀÂÃÉÊÍÓÔÕÚÜÇ][\wÀ-ÿ]+)?)",
+    re.UNICODE,
+)
+
+# Nome PROPRIO que nao e lugar: a captura acima pega qualquer maiuscula depois do locativo, e estes
+# aparecem na fala legitima dela ("fico no WhatsApp", "atendo no Hotel"). Comparados ja normalizados.
+_TERMOS_NAO_LUGAR = frozenset(
+    {
+        "hotel",
+        "rua",
+        "avenida",
+        "av",
+        "apto",
+        "apartamento",
+        "quarto",
+        "casa",
+        "local",
+        "predio",
+        "endereco",
+        "bairro",
+        "regiao",
+        "pix",
+        "whatsapp",
+        "zap",
+        "uber",
+        "carro",
+        "video",
+        "chamada",
+    }
+)
+
+
+def bolhas_eco_regiao(texto: str, permitidos: set[str]) -> list[str]:
+    """Bolhas do turno que situam a modelo num lugar FORA do cadastro dela (PURA; devolve as
+    originais p/ o drop).
+
+    `permitidos` = tokens normalizados do que ela pode dizer (regiao operacional, nome do local e
+    endereco). Vazio -> nada a comparar, nenhuma bolha casa: sem cadastro nao ha "fora do cadastro",
+    e inventar um veredito aqui derrubaria fala legitima de modelo com ficha incompleta.
+    """
+    if not permitidos:
+        return []
+    ofensoras: list[str] = []
+    for bolha in texto.split("\n\n"):
+        for bruto in _RE_ECO_REGIAO.findall(bolha):
+            tokens = set(normalizar(bruto).split())
+            if tokens & _TERMOS_NAO_LUGAR or _cobre_o_cadastro(tokens, permitidos):
+                continue
+            ofensoras.append(bolha)
+            break
+    return ofensoras
+
+
+def _cobre_o_cadastro(tokens: set[str], permitidos: set[str]) -> bool:
+    """True se algum token capturado e o lugar do cadastro — por PREFIXO, nao por igualdade.
+
+    O prefixo cobre o apelido/diminutivo que ela usa de verdade na conversa: "To no Cambuizinho"
+    (fala real de prod) e o Cambui do cadastro, nao um bairro inventado."""
+    return any(t.startswith(p) or p.startswith(t) for t in tokens for p in permitidos)
+
+
 # Delimitador de EXEMPLO vazando na bolha: os few-shots de `regras.md.j2`/`persona.md` moldam a fala
 # ideal com tags de papel (`<ela>...</ela>`, `<cliente>...</cliente>`, `<exemplo>`) e os pares de
 # contraste (`<certo>/<errado>/<par>/<porque>`). Sob decodificacao estocastica (temp 0.7) o chat as
@@ -389,6 +474,32 @@ async def _legendas_do_turno(conn: Any, turno_id: str) -> list[str]:
     return [leg for r in await res.fetchall() if (leg := (r.get("legenda") or "").strip())]
 
 
+async def _lugares_permitidos(conn: Any, ctx: ContextAgente) -> set[str]:
+    """Vocabulario de lugar do cadastro da modelo, p/ o detector de eco de regiao.
+
+    Vazio (= detector desligado) em dois casos: cadastro sem nenhum campo de lugar, e atendimento
+    EXTERNO — no externo quem se desloca e ela, entao falar do bairro DELE ("vou ai no Cambui") e a
+    fala certa, e o cadastro dela nao e a referencia. Uma leitura so, na conexao que o guard ja
+    abriu p/ as legendas.
+    """
+    res = await conn.execute(
+        """
+        SELECT mo.localizacao_operacional, mo.nome_local, mo.endereco_formatado,
+               a.tipo_atendimento::text AS tipo_atendimento
+          FROM barravips.modelos mo
+          LEFT JOIN barravips.atendimentos a ON a.id = %s
+         WHERE mo.id = %s
+        """,
+        (ctx.atendimento_id, ctx.modelo_id),
+    )
+    row = await res.fetchone()
+    if row is None or row["tipo_atendimento"] == "externo":
+        return set()
+    return tokens_de_lugar(
+        row["localizacao_operacional"], row["nome_local"], row["endereco_formatado"]
+    )
+
+
 def tem_marcador_ia(texto: str) -> bool:
     """True se o texto contem auto-referencia de IA / nome de LLM (PURO).
 
@@ -484,6 +595,10 @@ _FEEDBACK_GATILHO = {
     "sonda": (
         'ela perguntava de balcao o que ele queria ("o que voce procura?"), jeito de atendente '
         "de SAC que voce nunca usa"
+    ),
+    "regiao": (
+        "ela te colocava num bairro que nao e o seu -- refaca dizendo a sua regiao, a do seu "
+        "cadastro, pela sua conduta de local de encontro"
     ),
 }
 _EXTRA_SONDA = (
@@ -709,6 +824,7 @@ async def _output_guard(
     # ANTES do early-return de texto vazio p/ cobrir tambem turno so-midia.
     async with conexao(ctx.db_pool) as conn:
         legendas = await _legendas_do_turno(conn, ctx.turno_id)
+        permitidos_lugar = await _lugares_permitidos(conn, ctx)
 
     if not texto.strip() and not legendas and not saneou_tudo:
         # post_process ja zerou (pausa concorrente) ou turno sem texto/midia: nada a guardar.
@@ -755,12 +871,17 @@ async def _output_guard(
         sondas: list[str] = []
         if not motivo and not repetidas and texto.strip():
             sondas = bolhas_sonda(texto)
+        ecos: list[str] = []
+        if not motivo and not repetidas and not sondas and texto.strip():
+            ecos = bolhas_eco_regiao(texto, permitidos_lugar)
         if motivo:
             gatilho = "leak"
         elif repetidas:
             gatilho = "repeticao"
         elif sondas:
             gatilho = "sonda"
+        elif ecos:
+            gatilho = "regiao"
         elif not texto.strip() and (saneou_tudo or nova_msg is not None):
             # turno 100%-raciocinio (t1) ou regen que devolveu vazio / foi toda saneada (t2).
             # Texto vazio SEM saneamento (turno so-midia) nao e mudo: cai no break e segue
@@ -814,13 +935,17 @@ async def _output_guard(
                 metric_key="output_leak",
             )
             return Command(goto=END, update={"messages": _zeradas_todas()})  # type: ignore[arg-type]
-        if gatilho in ("repeticao", "sonda"):
-            # Mesmo fallback p/ os dois: dropa a bolha ofensora e manda o resto (silencio >
-            # papagaio/SAC). So a metrica difere.
-            eh_rep = gatilho == "repeticao"
-            conjunto = set(repetidas if eh_rep else sondas)
+        if gatilho in ("repeticao", "sonda", "regiao"):
+            # Mesmo fallback p/ os tres: dropa a bolha ofensora e manda o resto (silencio >
+            # papagaio/SAC/bairro inventado). So a metrica difere.
+            ofensoras = {"repeticao": repetidas, "sonda": sondas, "regiao": ecos}[gatilho]
+            conjunto = set(ofensoras)
             texto = _drop_bolhas(texto, conjunto)
-            metrica = OUTPUT_REPETICAO_DETECTADA if eh_rep else OUTPUT_SONDA_DETECTADA
+            metrica = {
+                "repeticao": OUTPUT_REPETICAO_DETECTADA,
+                "sonda": OUTPUT_SONDA_DETECTADA,
+                "regiao": OUTPUT_ECO_REGIAO_DETECTADO,
+            }[gatilho]
             metrica.labels("dropada" if texto.strip() else "mudo").inc()
             if nova_msg is not None:
                 nova_msg = AIMessage(

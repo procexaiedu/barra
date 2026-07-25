@@ -15,7 +15,12 @@ from arq import Retry
 from psycopg import AsyncConnection
 from psycopg_pool import AsyncConnectionPool
 
-from barra.agente._disciplina import contem_contraproposta, contem_sondagem_dia
+from barra.agente._disciplina import (
+    contem_contraproposta,
+    contem_endereco_de_encontro,
+    contem_sondagem_dia,
+    tokens_do_endereco,
+)
 from barra.core.errors import ErroDominio
 from barra.core.evolution import EvolutionClient
 from barra.core.metrics import (
@@ -32,6 +37,7 @@ from barra.dominio.atendimentos.service import (
     marcar_book_enviado,
     marcar_cotacao_enviada_por_texto,
     marcar_dia_sondado,
+    marcar_endereco_enviado,
 )
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.dominio.escaladas.service import (
@@ -611,11 +617,15 @@ def _redis_eq(valor: object, esperado: str) -> bool:
 
 async def _carregar_destino(pool: AsyncConnectionPool[Any], conversa_id: str) -> dict[str, Any]:
     """Destino do envio: instância da modelo, chat do cliente e o atendimento aberto da conversa.
-    `evolution_instance_id` vive em `modelos`; `evolution_chat_id` em `conversas`."""
+    `evolution_instance_id` vive em `modelos`; `evolution_chat_id` em `conversas`. Traz junto os
+    campos de lugar do cadastro (mesma leitura) p/ o carimbo A2 de `endereco_enviado_em`."""
     async with pool.connection() as conn:
         res = await conn.execute(
             """
             SELECT mo.evolution_instance_id AS evolution_instance_id,
+                   mo.endereco_formatado    AS endereco_formatado,
+                   mo.nome_local            AS nome_local,
+                   mo.localizacao_operacional AS localizacao_operacional,
                    c.evolution_chat_id      AS evolution_chat_id,
                    a.id                      AS atendimento_id,
                    COALESCE(a.ia_pausada, false) AS ia_pausada
@@ -973,6 +983,15 @@ async def enviar_turno(
                         await incrementar_contrapropostas(conn, conv["atendimento_id"])
                     if contem_sondagem_dia(conteudo):
                         await marcar_dia_sondado(conn, conv["atendimento_id"])
+                    if contem_endereco_de_encontro(
+                        conteudo,
+                        tokens_do_endereco(
+                            conv["endereco_formatado"],
+                            conv["nome_local"],
+                            conv["localizacao_operacional"],
+                        ),
+                    ):
+                        await marcar_endereco_enviado(conn, conv["atendimento_id"])
 
             # 6. MARK-AFTER-SEND: só agora idx conta como entregue (05 §4.3)
             await redis.sadd(f"enviados:{turno_id}", f"chunk:{idx}")

@@ -136,7 +136,11 @@ _DESC_TIPO_ATENDIMENTO = (
     "- 'remoto' = vídeo chamada, ninguém se desloca.\n"
     "Cliente quer TE BUSCAR de carro ('vou te buscar', 'te pego')? Caso NÃO suportado — não "
     "classifique como 'externo'; deixe o campo de fora (sua conduta redireciona e, se ele "
-    "insistir, escala)."
+    "insistir, escala).\n"
+    "Este campo é o que está COMBINADO, não o que ele PEDIU: se o tipo já foi acertado e ele "
+    "tenta puxar para outro ('vem aqui em casa então') enquanto você recusa, deixe o campo de "
+    "fora — trocá-lo aqui é o que faz o sistema cobrar Pix de deslocamento de um encontro que "
+    "continua sendo no seu local."
 )
 _DESC_ENDERECO = (
     "Endereço do CLIENTE / destino do atendimento (externo: onde ele está ou para onde vão — "

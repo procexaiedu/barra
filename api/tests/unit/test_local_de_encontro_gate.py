@@ -98,3 +98,30 @@ async def test_externo_qualificado_nao_injeta_endereco_da_modelo() -> None:
     )
     assert variaveis["local_endereco"] is None
     assert "<local_de_encontro>" not in render_contexto_dinamico(**variaveis)
+
+
+async def test_status_diz_que_o_endereco_ainda_nao_foi_passado() -> None:
+    # #41 (24/07 10:03): a IA disse "Já sabe onde é" — e o endereço só saiu 7 min DEPOIS. O bloco
+    # trazia o endereço mas nunca dizia se ele já tinha sido entregue.
+    variaveis = await _resolver(
+        {"numero_curto": 41, "estado": "Qualificado", "tipo_atendimento": "interno"}
+    )
+    assert variaveis["endereco_ja_enviado"] is False
+    saida = render_contexto_dinamico(**variaveis)
+    assert "AINDA NÃO passou este endereço" in saida
+    assert "não fale como se ele já soubesse onde é" in saida
+
+
+async def test_status_reconhece_o_endereco_ja_passado() -> None:
+    variaveis = await _resolver(
+        {
+            "numero_curto": 41,
+            "estado": "Qualificado",
+            "tipo_atendimento": "interno",
+            "endereco_enviado_em": datetime(2026, 7, 24, 13, 10, tzinfo=UTC),
+        }
+    )
+    assert variaveis["endereco_ja_enviado"] is True
+    saida = render_contexto_dinamico(**variaveis)
+    assert "JÁ passou este endereço" in saida
+    assert "AINDA NÃO" not in saida

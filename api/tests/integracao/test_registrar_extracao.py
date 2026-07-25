@@ -1310,3 +1310,80 @@ async def test_intencao_sobe_normalmente(conn: AsyncConnection[dict[str, Any]]) 
     a = await res.fetchone()
     assert a is not None
     assert a["intencao"] == "agendamento"
+
+
+@pytest.mark.needs_db
+async def test_flip_de_tipo_pos_bloqueio_nao_grava_nem_cobra_pix(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """#41 (24/07 10:19): interno ja combinado, com slot reservado; o cliente insiste que ela va
+    ate ele e o extrator grava `tipo_atendimento=externo` — a propria prosa do payload dizia
+    "estou recusando". Bastava o flip ser gravado para o bloco deterministico de Pix (independente
+    da transicao) cobrar R$100 de deslocamento num encontro que seguia sendo no local dela."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(20, 0),
+        data_desejada=date(2026, 12, 1),
+        duracao_horas=Decimal("1"),
+    )
+    # 1º turno: crava o horario -> Aguardando_confirmacao + bloqueio previo (o tipo fica combinado).
+    await registrar_extracao_ia(
+        conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar o encontro"}
+    )
+    res = await conn.execute(
+        "SELECT bloqueio_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    assert (await res.fetchone() or {})["bloqueio_id"] is not None
+
+    # 2º turno: o pedido dele chega como tipo_atendimento=externo. A modelo ACEITA externo — a
+    # guarda de tipo-aceito passa reto, e era por aqui que o flip entrava.
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"tipo_atendimento": "externo", "proxima_acao_esperada": "recusando ir ate ele"},
+    )
+
+    assert "pix_solicitado" not in resultado
+    res = await conn.execute(
+        "SELECT tipo_atendimento::text AS tipo, pix_status::text AS pix_status "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["tipo"] == "interno"  # o combinado continua valendo
+    assert a["pix_status"] != "aguardando"
+
+    # O descarte fica auditavel no evento (mesmo principio do drift_descartado da branch 12).
+    res = await conn.execute(
+        "SELECT payload FROM barravips.eventos "
+        "WHERE atendimento_id = %s AND tipo = 'extracao_registrada' ORDER BY created_at",
+        (atendimento_id,),
+    )
+    eventos = await res.fetchall()
+    assert eventos[-1]["payload"]["tipo_descartado"] == {
+        "pedido": "externo",
+        "mantido": "interno",
+    }
+
+
+@pytest.mark.needs_db
+async def test_tipo_sem_bloqueio_ainda_e_gravado(conn: AsyncConnection[dict[str, Any]]) -> None:
+    """O descarte e ESTREITO: sem slot reservado o tipo ainda esta sendo decidido, e a extracao
+    continua sendo quem o grava (senao o atendimento nunca sai da triagem)."""
+    _, atendimento_id = await _seed_par(conn, estado="Triagem", intencao="cotacao")
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"tipo_atendimento": "externo", "proxima_acao_esperada": "pegar o endereco dele"},
+    )
+
+    res = await conn.execute(
+        "SELECT tipo_atendimento::text AS tipo FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    assert (await res.fetchone() or {})["tipo"] == "externo"

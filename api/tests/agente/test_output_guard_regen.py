@@ -43,6 +43,9 @@ class _FakeResult:
     async def fetchall(self) -> list[dict[str, Any]]:
         return self._rows
 
+    async def fetchone(self) -> dict[str, Any] | None:
+        return self._rows[0] if self._rows else None
+
 
 class _FakeConn:
     def __init__(self, legendas: list[str] | None = None) -> None:

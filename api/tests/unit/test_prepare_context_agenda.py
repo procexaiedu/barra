@@ -337,3 +337,70 @@ async def test_relogio_do_encontro_so_com_horario_combinado_nao_desejado() -> No
     assert variaveis["combinado_hora"] is None
     assert variaveis["min_para_combinado"] is None
     assert "<relogio_do_encontro" not in render_contexto_dinamico(**variaveis)
+
+
+async def test_janelas_livres_expoem_a_manha_vaga_do_41() -> None:
+    # O POSITIVO que faltava: mesmo cenário do #41 (dia vago, um bloqueio 16-17). Antes, "quando
+    # estou livre" era uma subtração que a IA tinha de fazer sobre a lista de ocupados — e ela
+    # errou, anunciando o 17:30 como o horário do dia. Agora a manhã inteira sai escrita.
+    conn = _FakeConnAgenda(
+        regras=_regras_10_as_04(),
+        bloqueios=[_bloqueio(19, 20)],  # 16:00-17:00 BRT
+        atendimento={"numero_curto": 41, "estado": "Triagem", "tipo_atendimento": None},
+    )
+    ctx = _ctx_em(datetime(2026, 7, 24, 8, 10, tzinfo=UTC))  # 05:10 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, [], atendimento=conn.atendimento
+    )
+
+    janelas = [
+        (i.astimezone(BRT).strftime("%d/%m %H:%M"), f.astimezone(BRT).strftime("%d/%m %H:%M"))
+        for i, f in variaveis["janelas_livres"]
+    ]
+    assert janelas[0] == ("24/07 10:00", "24/07 15:30")
+    assert janelas[1] == ("24/07 17:30", "25/07 04:00")
+
+    saida = render_contexto_dinamico(**variaveis)
+    assert '<janela_livre de="Fri 24/07 10:00" ate="Fri 24/07 15:30"/>' in saida
+
+
+async def test_janelas_livres_nao_comecam_antes_da_antecedencia() -> None:
+    # Externo (com deslocamento) às 15:00 BRT: a 1ª janela não pode abrir antes do que o
+    # `horario_minimo` já permite — senão a lista ofereceria um horário que a reserva recusa.
+    conn = _FakeConnAgenda(
+        regras=_regras_10_as_04(),
+        bloqueios=[],
+        atendimento={"numero_curto": 41, "estado": "Triagem", "tipo_atendimento": "externo"},
+    )
+    ctx = _ctx_em(datetime(2026, 7, 24, 18, 0, tzinfo=UTC))  # 15:00 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, [], atendimento=conn.atendimento
+    )
+
+    primeira_janela = variaveis["janelas_livres"][0][0]
+    assert primeira_janela == variaveis["horario_minimo"]
+    assert primeira_janela.astimezone(BRT).strftime("%H:%M") == "15:30"
+
+
+async def test_sem_janela_livre_a_tag_some() -> None:
+    # Agenda inteira tomada nas 48h: nenhuma janela a anunciar (e nada de tag vazia no prompt).
+    conn = _FakeConnAgenda(
+        regras=_regras_10_as_04(),
+        bloqueios=[
+            {
+                "inicio": datetime(2026, 7, 24, 0, 0, tzinfo=UTC),
+                "fim": datetime(2026, 7, 27, 0, 0, tzinfo=UTC),
+            }
+        ],
+        atendimento={"numero_curto": 41, "estado": "Triagem", "tipo_atendimento": "interno"},
+    )
+    ctx = _ctx_em(datetime(2026, 7, 24, 18, 0, tzinfo=UTC))  # 15:00 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, [], atendimento=conn.atendimento
+    )
+
+    assert variaveis["janelas_livres"] == []
+    assert "<janela_livre" not in render_contexto_dinamico(**variaveis)

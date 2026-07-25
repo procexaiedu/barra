@@ -25,6 +25,7 @@ from barra.dominio.modelos.disponibilidade import (
     fim_sessao,
     modelo_disponivel_em,
     proxima_abertura,
+    sessoes_disponibilidade,
 )
 
 
@@ -424,3 +425,53 @@ def test_proxima_abertura_naive_assume_brt() -> None:
     assert proxima_abertura(regras, datetime(2026, 6, 25, 5, 10)) == datetime(
         2026, 6, 25, 10, 0, tzinfo=BRT
     )
+
+
+# ---------------------------------------------------------------------------
+# sessoes_disponibilidade — o POSITIVO da agenda (base das janelas livres, #41)
+# ---------------------------------------------------------------------------
+
+
+def test_sessoes_janela_que_cruza_meia_noite_e_uma_so() -> None:
+    # 10:00-04:00 é UMA sessão de 18h por dia, não duas (o transbordo segue a mesma sessão).
+    regras = _regras_todo_dia(time(10, 0), time(4, 0))
+    inicio = datetime(2026, 6, 25, 10, 0, tzinfo=BRT)
+    fim = datetime(2026, 6, 26, 10, 0, tzinfo=BRT)
+    assert sessoes_disponibilidade(regras, inicio, fim) == [
+        (inicio, datetime(2026, 6, 26, 4, 0, tzinfo=BRT))
+    ]
+
+
+def test_sessoes_comeca_no_meio_do_expediente() -> None:
+    # `inicio` dentro da janela: a 1ª sessão começa no próprio `inicio`, não na abertura.
+    regras = _regras_todo_dia(time(10, 0), time(18, 0))
+    inicio = datetime(2026, 6, 25, 14, 30, tzinfo=BRT)
+    fim = datetime(2026, 6, 26, 12, 0, tzinfo=BRT)
+    assert sessoes_disponibilidade(regras, inicio, fim) == [
+        (inicio, datetime(2026, 6, 25, 18, 0, tzinfo=BRT)),
+        (datetime(2026, 6, 26, 10, 0, tzinfo=BRT), fim),
+    ]
+
+
+def test_sessoes_fora_do_expediente_salta_pra_abertura() -> None:
+    # `inicio` no vão entre sessões: a 1ª sessão é a próxima abertura.
+    regras = _regras_todo_dia(time(10, 0), time(18, 0))
+    inicio = datetime(2026, 6, 25, 5, 0, tzinfo=BRT)
+    fim = datetime(2026, 6, 25, 23, 0, tzinfo=BRT)
+    assert sessoes_disponibilidade(regras, inicio, fim) == [
+        (datetime(2026, 6, 25, 10, 0, tzinfo=BRT), datetime(2026, 6, 25, 18, 0, tzinfo=BRT))
+    ]
+
+
+def test_sessoes_sem_regras_e_a_faixa_inteira() -> None:
+    # Sem regra = reservável sempre: a faixa pedida vira uma sessão só.
+    inicio = datetime(2026, 6, 25, 5, 0, tzinfo=BRT)
+    fim = datetime(2026, 6, 27, 5, 0, tzinfo=BRT)
+    assert sessoes_disponibilidade([], inicio, fim) == [(inicio, fim)]
+
+
+def test_sessoes_sem_nenhuma_regra_vigente_e_vazio() -> None:
+    # Regra encerrada: não há sessão no horizonte (e o `while` não gira à toa).
+    regras = [_regra(date(2026, 6, 1), date(2026, 6, 24), _DOW_SEX, time(14, 0), time(22, 0))]
+    inicio = datetime(2026, 6, 25, 5, 0, tzinfo=BRT)
+    assert sessoes_disponibilidade(regras, inicio, inicio + timedelta(days=2)) == []

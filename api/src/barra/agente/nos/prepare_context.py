@@ -7,7 +7,7 @@ M0-T4:
     1. Gate de pausa (02 §1): le `ia_pausada` do atendimento. Pausado -> Command(goto=END),
        sem montar contexto. Sem flag `_pausada` no state (roteamento por Command, 09 §4.1).
     2. Prefixo system: BP_GERAL fundido (persona+regras) via build_system_messages.
-    3. Janela deslizante 20 (02 §4), traduzida para HumanMessage/AIMessage, em ordem
+    3. Janela deslizante (02 §4; `_JANELA_MENSAGENS`), traduzida para HumanMessage/AIMessage, em ordem
        cronologica, isolada pelo par (cliente_id, modelo_id) JUNTOS (agente/CLAUDE.md).
        Append-only (ORDER BY created_at, id): o prefixo da janela sai byte-identico entre turnos
        enquanto a cabeca nao desliza -> o cache do DeepSeek (automatico no provider) da hit.
@@ -31,7 +31,7 @@ M3g (este escopo):
 
 import hashlib
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
@@ -61,6 +61,7 @@ from ..persona import (
     render_prefixo_geral,
     render_reminder,
 )
+from ._janelas_livres import janelas_livres
 from ._proximo_livre import proximo_livre
 
 # Mesmo fuso que o SQL usa (`current_timestamp AT TIME ZONE 'America/Sao_Paulo'`): quando o relogio
@@ -194,10 +195,25 @@ async def prepare_context(
     )
 
 
+# Tamanho da janela deslizante. 20 era o valor do P0 (02 §4), com o caveat ja escrito la: o
+# chunking persiste UMA LINHA POR BOLHA, entao 20 linhas ~ 5-6 trocas de cliente. O caveat previa
+# revisar "se o error analysis do piloto mostrar perda de memoria" — mostrou. Atendimento #41
+# (24/07, 77 msgs): no turno das 10:03 a janela de 20 comecava as 09:31 e ja tinha perdido a
+# cotacao ("400 1h no meu local"), o horario que ela mesma anunciara e QUATRO recusas de preco; a
+# IA so tinha o belief. Com 40 o corte cai as 08:20 e a negociacao inteira cabe.
+#
+# Custo: a mensagem media do corpus tem ~30 chars, entao 20 linhas a mais sao ~200 tokens/turno —
+# e a janela e append-only, logo uma janela MAIOR desliza MENOS e o prefixo cacheado dura mais.
+# A outra saida que o 02 §4 sugere (coalescer chunks consecutivos da IA, para 40 linhas virarem 40
+# turnos logicos) continua disponivel se 40 nao bastar; custa uma coluna de agrupamento em
+# `mensagens` e nao se antecipa (CLAUDE.md §2).
+_JANELA_MENSAGENS = 40
+
+
 async def carregar_mensagens(
     conn: AsyncConnection[Any], cliente_id: str, modelo_id: str
 ) -> list[dict[str, Any]]:
-    """Janela deslizante 20 do par (cliente, modelo), em ordem cronologica (02 §4.1/§4.2).
+    """Janela deslizante do par (cliente, modelo), em ordem cronologica (02 §4.1/§4.2).
 
     Deriva conversa_id pelo par (cliente_id, modelo_id) JUNTOS (isolamento, agente/CLAUDE.md):
     a IA da modelo A nunca le historico do mesmo cliente com a modelo B. O `ORDER BY
@@ -211,9 +227,9 @@ async def carregar_mensagens(
           JOIN barravips.conversas c ON c.id = m.conversa_id
          WHERE c.cliente_id = %s AND c.modelo_id = %s
          ORDER BY m.created_at DESC, m.id DESC
-         LIMIT 20
+         LIMIT %s
         """,
-        (cliente_id, modelo_id),
+        (cliente_id, modelo_id, _JANELA_MENSAGENS),
     )
     linhas = await res.fetchall()
     linhas.reverse()  # cronologico (mais antiga primeiro) p/ entrada do grafo
@@ -653,14 +669,15 @@ async def _carregar_atendimento(conn: AsyncConnection[Any], atendimento_id: str)
     contexto dinâmico consome + as 3 flags de disciplina materializadas (padrão A2). Antes eram
     duas leituras da mesma PK (o gate lia só `ia_pausada`, `_resolver_variaveis` relia o resto) e a
     query de 500 falas da IA derivava as flags por regex a cada turno — agora `n_contrapropostas`/
-    `dia_sondado_em`/`book_enviado_em` já vêm carimbadas pelo write-time (workers/envio.py).
+    `dia_sondado_em`/`book_enviado_em`/`endereco_enviado_em` já vêm carimbadas pelo write-time
+    (workers/envio.py).
     """
     res = await conn.execute(
         """
         SELECT ia_pausada, numero_curto, estado, intencao, tipo_atendimento, urgencia,
                pix_status, data_desejada, horario_desejado, endereco, bairro,
                cotacao_enviada_em, valor_acordado, duracao_horas, sinais_qualificacao,
-               n_contrapropostas, dia_sondado_em, book_enviado_em
+               n_contrapropostas, dia_sondado_em, book_enviado_em, endereco_enviado_em
           FROM barravips.atendimentos
          WHERE id = %s
         """,
@@ -699,6 +716,7 @@ async def _resolver_variaveis(
     n_contrapropostas = atendimento.get("n_contrapropostas") or 0
     dia_ja_sondado_hist = atendimento.get("dia_sondado_em") is not None
     book_ja_enviado = atendimento.get("book_enviado_em") is not None
+    endereco_ja_enviado = atendimento.get("endereco_enviado_em") is not None
 
     # Gate estrutural do endereço (<local_de_encontro>): o ponto de encontro (lido junto da
     # identidade em _carregar_bp3) só entra no contexto quando o estado/tipo liberam (interno em
@@ -815,6 +833,26 @@ async def _resolver_variaveis(
                 abertura, bloqueios_raw, regras_disp, buffer_min, lead_min=0
             )
 
+    # O POSITIVO da agenda (#41, 24/07): as janelas em que ela pode marcar, já descontados
+    # bloqueios e buffer. Até aqui o <agenda> só dava o NEGATIVO (a lista de ocupados) e dois
+    # horários-âncora — deduzir "quando estou livre" disso é subtração, e a IA errou feio: com o
+    # dia vago desde as 10h ela anunciou o `proximo_livre` de um bloqueio da tarde como o único
+    # horário do dia. Começa em agora+antecedência (não em `agora`) pra não anunciar janela que o
+    # `horario_minimo` já descartou; as duas âncoras saem da MESMA aritmética (`proximo_livre` /
+    # `sessoes_disponibilidade` + buffer) e por isso não contradizem esta lista — a redundância é
+    # de PAPEL (âncora instrutiva vs. mapa), não de cálculo.
+    janelas = (
+        janelas_livres(
+            agora_tz + timedelta(minutes=antecedencia_min),
+            agora_tz + timedelta(hours=48),
+            bloqueios_raw,
+            regras_disp,
+            buffer_min,
+        )
+        if agora_tz is not None
+        else []
+    )
+
     # Percepção de tempo na cauda (emenda ADR 0025, 2026-06-26): a IA sabe a hora atual mas era cega
     # ao tempo DECORRIDO — travava num horário fantasma sem perceber que o cliente acabou de chegar
     # ("cheguei, tava estacionando"). Dois marcadores voláteis (cauda, fora do prefixo cacheável):
@@ -899,9 +937,12 @@ async def _resolver_variaveis(
         # `book_ja_enviado` injeta <ja_enviou_book> direto no template.
         "dia_ja_sondado_hist": dia_ja_sondado_hist,
         "book_ja_enviado": book_ja_enviado,
-        # Ponto de encontro gated por estado (<local_de_encontro>); None fora do gate.
+        # Ponto de encontro gated por estado (<local_de_encontro>); None fora do gate. O
+        # `endereco_ja_enviado` diz se ele JÁ recebeu — sem isso a IA fala como se ele soubesse
+        # onde é ("Já sabe onde é", #41) sobre um endereço que ela ainda não passou.
         "local_endereco": local_endereco,
         "local_nome": local_nome,
+        "endereco_ja_enviado": endereco_ja_enviado,
         # Trilho do período longo: tabela sem pacote de 6h+ -> <sem_periodo_longo> no contexto.
         # max==0 (cadastro vazio, estado anormal) não injeta — não é "sem período longo".
         "tabela_max_horas": tabela_max_horas,
@@ -915,6 +956,7 @@ async def _resolver_variaveis(
         "disponibilidade": disponibilidade,
         "horario_minimo": horario_minimo,
         "proximo_horario": proximo_horario,
+        "janelas_livres": janelas,
         "min_desde_ultima_msg_cliente": min_desde_ultima_msg_cliente,
         "combinado_hora": combinado_hora,
         "min_para_combinado": min_para_combinado,
