@@ -8,11 +8,18 @@ tests/integracao/test_extrair_inline.py (needs_db). Roda no gate `-m "not needs_
 
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, RemoveMessage, ToolMessage
+from langchain_core.messages import (
+    AIMessage,
+    HumanMessage,
+    RemoveMessage,
+    SystemMessage,
+    ToolMessage,
+)
 
 from barra.agente.nos.extrair import no_extrair
 from barra.dominio.atendimentos.service import _MSG_GUARD_PISO
@@ -237,8 +244,6 @@ async def test_erro_recuperavel_segunda_falha_fecha_mudo() -> None:
 async def test_extracao_barata_roda_sem_system_geral() -> None:
     """chat_extracao_barata injetado -> forca no barato sobre a janela SEM o SystemMessage geral
     (system minimo de extracao no lugar), a fala final excluida."""
-    from langchain_core.messages import SystemMessage
-
     chat = _FakeChat(_forcado())  # nao usado p/ a extracao (barato tem prioridade)
     barato = _FakeChat(_forcado())
     tool = _FakeToolExtracao(_tool_ok())
@@ -256,6 +261,154 @@ async def test_extracao_barata_roda_sem_system_geral() -> None:
     assert len(systems) == 1 and systems[0].content != system.content  # system minimo
     assert HumanMessage(content="22h") in janela
     assert _fala() not in janela  # a fala final foi excluida da janela de extracao
+
+
+# --- janela DEDICADA da extracao (spec extracao-janela-dedicada) ------------------------------
+
+
+def _state_com_pecas(cauda_do_chat: str) -> dict[str, Any]:
+    """State como o prepare_context o deixa: `messages` com a cauda INCHADA (lembrete + msg do
+    cliente + contexto dinamico, fundidos) e as pecas da janela dedicada em canais proprios. Os
+    `id` sao os do banco (uuid da linha em `mensagens`), como `traduzir_mensagens` os poe."""
+    return {
+        "messages": [
+            SystemMessage(content="PERSONA GIGANTE ~14k tokens"),
+            HumanMessage(content="e quanto fica?", id="m1"),
+            AIMessage(content="600 amor 🥰", id="m2", usage_metadata=_USAGE),  # type: ignore[arg-type]
+            HumanMessage(content=cauda_do_chat, id="m3"),
+            _fala(),
+        ],
+        "conversa_crua": [
+            HumanMessage(content="e quanto fica?", id="m1"),
+            AIMessage(content="600 amor 🥰", id="m2", usage_metadata=_USAGE),  # type: ignore[arg-type]
+            HumanMessage(content="vc faz massagem?", id="m3"),
+        ],
+        "agora_turno": datetime(2026, 7, 25, 14, 30),
+        "ja_registrado": "<ja_registrado>\n<tipo>interno</tipo>\n</ja_registrado>\n",
+    }
+
+
+async def test_janela_dedicada_troca_a_cauda_inchada_pela_conversa_crua() -> None:
+    """A extracao recebe a conversa CRUA + a cauda de estado, nunca a mensagem inchada do chat: o
+    contexto dinamico e o lembrete de persona (de onde o extrator copiava os proprios campos) nao
+    chegam nela."""
+    barato = _FakeChat(_forcado())
+    tool = _FakeToolExtracao(_tool_ok())
+    node = no_extrair(_FakeChat(_forcado()), barato, tool)  # type: ignore[arg-type]
+    inchada = (
+        "<lembrete_silencioso>segure firme quem você é</lembrete_silencioso>\n\n"
+        "vc faz massagem?\n\n"
+        "<situacao_do_atendimento><ja_combinado><tipo>interno</tipo></ja_combinado>"
+        "<proximo_passo>confirmar o horário</proximo_passo></situacao_do_atendimento>"
+    )
+
+    cmd = await node(_state_com_pecas(inchada), _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    texto = "\n".join(str(m.content) for m in barato.forcado.chamadas[0])
+    assert "vc faz massagem?" in texto  # a fala do cliente sobrevive, crua
+    assert "<lembrete_silencioso>" not in texto
+    assert "<situacao_do_atendimento>" not in texto
+    assert "<proximo_passo>" not in texto
+
+
+async def test_janela_dedicada_poe_ancora_e_estado_na_cauda() -> None:
+    """Ancora temporal + `<ja_registrado>` numa unica HumanMessage no FIM: o prefixo (system +
+    conversa append-only) fica estavel e o bloco volatil vai na cauda."""
+    barato = _FakeChat(_forcado())
+    node = no_extrair(_FakeChat(_forcado()), barato, _FakeToolExtracao(_tool_ok()))  # type: ignore[arg-type]
+
+    await node(_state_com_pecas("vc faz massagem?"), _runtime())  # type: ignore[arg-type]
+
+    janela = barato.forcado.chamadas[0]
+    cauda = str(janela[-1].content)
+    assert isinstance(janela[-1], HumanMessage)
+    assert '<agenda hoje="2026-07-25" agora="14:30"/>' in cauda
+    assert "<ja_registrado>" in cauda
+    # o bloco fica SO na cauda: a conversa que o precede nao carrega estado nenhum
+    assert all("<ja_registrado>" not in str(m.content) for m in janela[:-1])
+
+
+async def test_janela_dedicada_vale_tambem_sem_o_modelo_barato() -> None:
+    """Kill-switch do modelo barato desligado: muda o prefixo (o BP_GERAL do chat volta), nao a
+    dieta da extracao — a conversa segue crua e a cauda de estado segue no fim."""
+    chat = _FakeChat(_forcado())
+    node = no_extrair(chat, None, _FakeToolExtracao(_tool_ok()))  # type: ignore[arg-type]
+
+    await node(_state_com_pecas("vc faz massagem?\n\n<situacao_do_atendimento/>"), _runtime())  # type: ignore[arg-type]
+
+    janela = chat.forcado.chamadas[0]
+    assert isinstance(janela[0], SystemMessage)
+    assert "PERSONA GIGANTE" in str(janela[0].content)  # prefixo do chat preservado
+    texto = "\n".join(str(m.content) for m in janela)
+    assert "<situacao_do_atendimento" not in texto
+    assert "<ja_registrado>" in str(janela[-1].content)
+
+
+async def test_prefixo_da_janela_dedicada_e_estavel_entre_turnos() -> None:
+    """A disciplina de bytes que motiva a cauda: com a conversa append-only, a janela do turno
+    seguinte COMECA com a janela do turno anterior menos a cauda — o volátil (âncora + estado)
+    fica todo no fim, então o prefixo da chamada barata sai byte-idêntico e o cache casa."""
+    barato = _FakeChat(_forcado())
+    node = no_extrair(_FakeChat(_forcado()), barato, _FakeToolExtracao(_tool_ok()))  # type: ignore[arg-type]
+    turno1 = _state_com_pecas("vc faz massagem?")
+    turno2 = _state_com_pecas("e às 22h?")
+    turno2["conversa_crua"] = [
+        *turno1["conversa_crua"],
+        AIMessage(content="Faço sim amor 🥰", id="m4", usage_metadata=_USAGE),  # type: ignore[arg-type]
+        HumanMessage(content="e às 22h?", id="m5"),
+    ]
+    turno2["agora_turno"] = datetime(2026, 7, 25, 14, 35)
+    turno2["ja_registrado"] = (
+        "<ja_registrado>\n<tipo>interno</tipo>\n<hora>22:00</hora>\n</ja_registrado>\n"
+    )
+
+    await node(turno1, _runtime())  # type: ignore[arg-type]
+    await node(turno2, _runtime())  # type: ignore[arg-type]
+
+    def _bytes(janela: list[Any]) -> list[str]:
+        return [f"{m.type}:{m.content}" for m in janela]
+
+    prefixo_turno1 = _bytes(barato.forcado.chamadas[0])[:-1]  # tudo menos a cauda
+    assert _bytes(barato.forcado.chamadas[1])[: len(prefixo_turno1)] == prefixo_turno1
+
+
+async def test_reoferta_ve_o_registro_de_erro_da_primeira_extracao() -> None:
+    """A auto-reoferta (`extrair` -> `llm` -> `extrair`) depende de o extrator VER que o horário
+    conflitou: sem o par AIMessage+ToolMessage do erro ele repetiria o mesmo horário e o turno
+    fecharia mudo. A conversa crua é a janela do BANCO — o que o turno produziu depois dela entra
+    logo após, antes da cauda de estado."""
+    barato = _FakeChat(_forcado())
+    node = no_extrair(_FakeChat(_forcado()), barato, _FakeToolExtracao(_tool_ok()))  # type: ignore[arg-type]
+    state = _state_com_pecas("vc faz massagem?")
+    erro = ToolMessage(
+        content="ERRO: o horário escolhido já está reservado para a modelo. Ofereça outro.",
+        tool_call_id="ex1",
+        name="registrar_extracao",
+        id="tm-1",
+        status="error",
+    )
+    state["messages"] = [*state["messages"][:-1], _forcado(), erro, _fala(id_="resp-2")]
+    state["_reoferta_tentada"] = True
+
+    await node(state, _runtime())  # type: ignore[arg-type]
+
+    janela = barato.forcado.chamadas[0]
+    assert erro in janela  # o extrator vê o conflito
+    assert "<ja_registrado>" in str(janela[-1].content)  # e o estado segue sendo a última coisa
+
+
+async def test_sem_pecas_no_state_cai_na_janela_recebida() -> None:
+    """Sem as pecas (no alcancado fora do fluxo do prepare_context): comportamento antigo — janela
+    recebida sem os blocos system e sem cauda. Nunca uma extracao sem conversa."""
+    barato = _FakeChat(_forcado())
+    node = no_extrair(_FakeChat(_forcado()), barato, _FakeToolExtracao(_tool_ok()))  # type: ignore[arg-type]
+    state = {"messages": [SystemMessage(content="PERSONA"), HumanMessage(content="22h"), _fala()]}
+
+    await node(state, _runtime())  # type: ignore[arg-type]
+
+    janela = barato.forcado.chamadas[0]
+    assert [str(m.content) for m in janela[1:]] == ["22h"]
 
 
 # --- o no nao julga mais `intencao` (spec extracao-promocao-intencao) -------------------------

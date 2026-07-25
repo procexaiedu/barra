@@ -148,12 +148,6 @@ async def prepare_context(
         # 2. Janela deslizante (02 §4) — isolada pelo par (cliente, modelo).
         linhas = await carregar_mensagens(conn, ctx.cliente_id, ctx.modelo_id)
         mensagens = traduzir_mensagens(linhas)
-        # A janela CRUA (antes da anexação do contexto dinâmico e do lembrete) é a conversa que a
-        # janela dedicada da extração recebe (spec extracao-janela-dedicada). Guardada aqui porque
-        # a anexação funde belief + msg do cliente num único HumanMessage e depois não há como
-        # separá-los. `_anexar_contexto_dinamico`/`_injetar_reminder_se_necessario` devolvem listas
-        # NOVAS (não mutam), então esta referência segue crua até o fim do turno.
-        conversa_crua = mensagens
 
         # 2b. Classificacao de disclosure/jailbreak (10 §8): regex sobre a cauda de
         #     HumanMessages da janela, ANTES de anexar contexto/reminder (cauda limpa). Grava

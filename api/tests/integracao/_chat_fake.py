@@ -18,13 +18,18 @@ _USAGE = {"input_tokens": 10, "output_tokens": 8, "total_tokens": 18}
 
 class _Extrator:
     """O bind forçado (`tool_choice=registrar_extracao`) do nó `extrair`: devolve os args da
-    extração do turno. Esgotado o roteiro, repete o último (turnos extras não quebram o teste)."""
+    extração do turno. Esgotado o roteiro, repete o último (turnos extras não quebram o teste).
+
+    Guarda as janelas recebidas: é por elas que se afirma o que o EXTRATOR passou a ler — janela
+    dedicada, não a do chat (spec extracao-janela-dedicada)."""
 
     def __init__(self, roteiro: list[dict[str, Any]]) -> None:
         self._roteiro = roteiro
         self._i = 0
+        self.janelas: list[list[BaseMessage]] = []
 
-    async def ainvoke(self, _messages: Any) -> AIMessage:
+    async def ainvoke(self, messages: Any) -> AIMessage:
+        self.janelas.append(list(messages))
         args = self._roteiro[min(self._i, len(self._roteiro) - 1)]
         self._i += 1
         return AIMessage(
@@ -54,6 +59,7 @@ class ChatRoteirizado:
         self._i = 0
         self._extrator = _Extrator(extracoes)
         self.janelas: list[list[BaseMessage]] = []
+        self.janelas_extracao = self._extrator.janelas
 
     def bind_tools(self, _tools: Any, *, tool_choice: Any = None, **_kw: Any) -> Any:
         return self._extrator if tool_choice == "registrar_extracao" else self
@@ -68,3 +74,9 @@ class ChatRoteirizado:
         """A janela inteira do último turno, concatenada — inclui os blocos que o contexto dinâmico
         anexou na última HumanMessage (é onde vive o `<local_de_encontro>`)."""
         return "\n".join(str(m.content) for m in self.janelas[-1])
+
+    def janela_da_ultima_extracao(self) -> str:
+        """A janela que o EXTRATOR recebeu no último turno, concatenada. Distinta da do chat: é a
+        janela dedicada (conversa crua + âncora + `<ja_registrado>` na cauda) — `janelas_extracao`
+        guarda as mensagens, p/ separar a conversa da cauda."""
+        return "\n".join(str(m.content) for m in self.janelas_extracao[-1])

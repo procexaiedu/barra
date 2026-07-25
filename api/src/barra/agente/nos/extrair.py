@@ -18,8 +18,11 @@ O fallback de desenho previsto no issue (extrair o corpo da tool para uma funcao
 Contrato de entrada: o no roda DEPOIS que o `llm` produziu a fala final do turno e a commitou como
 ULTIMA mensagem de `state["messages"]` (uma `AIMessage` sem tool_calls). A extracao forcada roda
 sobre a janela SEM essa fala final (preserva a semantica de nao ter dois assistants consecutivos).
-Os helpers `_janela_para_extracao_barata` e `_SYSTEM_EXTRACAO_BARATA` vivem so aqui (saíram do
+Os helpers `_janela_para_extracao` e `_SYSTEM_EXTRACAO_BARATA` vivem so aqui (saíram do
 `nos/llm.py` com a consolidacao deste ticket).
+
+A janela da extracao NAO e a do chat: ela e montada aqui a partir das pecas que o prepare_context
+publica no State (`conversa_crua`/`agora_turno`/`ja_registrado`) — ver `_janela_para_extracao`.
 """
 
 import logging
@@ -30,6 +33,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
+    HumanMessage,
     RemoveMessage,
     SystemMessage,
     ToolMessage,
@@ -45,6 +49,7 @@ from barra.settings import get_settings
 from .._instrumentar import instrumentar_tokens
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
+from ..persona import render_ancora_extracao
 
 logger = logging.getLogger(__name__)
 
@@ -53,25 +58,71 @@ _TOOL_EXTRACAO = "registrar_extracao"
 
 # System prompt MINIMO da extracao forcada barata: substitui o BP_GERAL
 # (~14,7k tokens) -- a extracao e nota interna estruturada, nao gera texto ao cliente. As regras de
-# cada campo ja viajam na descricao da tool; a hora atual e o periodo de trabalho vem no contexto
-# dinamico anexado a ULTIMA HumanMessage (preservada pelo strip).
+# cada campo ja viajam na descricao da tool; a hora atual vem na ancora da cauda.
 _SYSTEM_EXTRACAO_BARATA = (
     "Voce le uma conversa entre uma acompanhante e um cliente e registra o ESTADO da negociacao "
     "chamando a ferramenta registrar_extracao. Voce NAO responde ao cliente e NAO inventa dados: "
     "registre apenas o que esta claro na conversa. As regras de cada campo estao na descricao da "
-    "ferramenta. A hora atual e o periodo de trabalho vem no contexto da ultima mensagem."
+    "ferramenta. A hora atual e o que ja esta registrado vem na ultima mensagem."
 )
 
 
-def _janela_para_extracao_barata(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
-    """Janela do turno SEM os blocos system gerais, prefixada pelo system minimo de extracao.
+def _janela_para_extracao(
+    messages: Sequence[BaseMessage], state: EstadoAgente, *, system_minimo: bool
+) -> list[BaseMessage]:
+    """Janela DEDICADA da extracao (spec extracao-janela-dedicada): CONSTRUTIVA, nao subtrativa.
 
-    O ganho de custo vem de NAO enviar o BP_GERAL na chamada barata. As mensagens da conversa
-    (incluindo a ultima HumanMessage, que carrega o contexto dinamico) sao preservadas na ordem
-    -- a request continua comecando por user apos o system.
+    Antes a janela era a do chat com as SystemMessages removidas — e o strip preservava justamente
+    a mensagem onde o belief inteiro e o lembrete de persona estao colados, entao o extrator lia,
+    como se fosse fala do cliente, os valores dos campos que devia preencher (tipo reafirmado em
+    TODOS os turnos do #34/#41; o palpite de horario do #25 voltando no payload por tres turnos).
+    Agora ela e montada com exatamente tres coisas:
+
+      1. `conversa_crua` do State — a janela do par ANTES da anexacao do contexto dinamico e do
+         lembrete (prepare_context). Prefixo append-only: byte-identico entre turnos.
+      2. a `ancora` temporal (as descricoes dos campos resolvem tempo relativo contra ela);
+      3. o bloco `<ja_registrado>`, na CAUDA — estado do sistema rotulado (palpite x pedido dele,
+         cotado x aceito) com a instrucao de delta: registre um campo so se ELE MUDOU.
+
+    `system_minimo` troca o BP_GERAL pelo system barato (o ganho de custo da chamada barata); com
+    o kill-switch `extracao_no_modelo_barato` desligado, os SystemMessages do chat sao preservados
+    e so a conversa/cauda mudam.
+
+    A conversa crua e a janela do BANCO; o que o TURNO produziu depois dela (o par
+    AIMessage+ToolMessage da 1a extracao) entra logo apos — e o registro do ERRO recuperavel e o
+    que faz a AUTO-REOFERTA funcionar: na 2a passagem (`extrair` -> `llm` -> `extrair`) o extrator
+    precisa ver que 22h conflitou, senao repete o mesmo horario e o turno fecha mudo.
+
+    Sem `conversa_crua` no State (o no alcancado fora do fluxo do prepare_context) cai na janela
+    recebida sem os blocos system — o comportamento antigo, nunca uma extracao sem conversa.
     """
-    conversa = [m for m in messages if not isinstance(m, SystemMessage)]
-    return [SystemMessage(content=_SYSTEM_EXTRACAO_BARATA), *conversa]
+    prefixo: list[BaseMessage] = (
+        [SystemMessage(content=_SYSTEM_EXTRACAO_BARATA)]
+        if system_minimo
+        else [m for m in messages if isinstance(m, SystemMessage)]
+    )
+    crua = state.get("conversa_crua")
+    sem_system = [m for m in messages if not isinstance(m, SystemMessage)]
+    if crua is None:
+        return [*prefixo, *sem_system, *_cauda_do_estado(state)]
+    do_banco = {m.id for m in crua}
+    do_turno = [m for m in sem_system if m.id not in do_banco]
+    return [*prefixo, *crua, *do_turno, *_cauda_do_estado(state)]
+
+
+def _cauda_do_estado(state: EstadoAgente) -> list[BaseMessage]:
+    """Ancora temporal + bloco `<ja_registrado>` numa unica HumanMessage de CAUDA.
+
+    Na cauda de proposito: o volatil depois do estavel deixa o prefixo (system + conversa
+    append-only) byte-identico entre turnos — antes a conversa terminava numa mensagem inchada que
+    mudava todo turno. Peca vazia (turno sem relogio/bloco resolvidos) -> nenhuma cauda.
+    """
+    partes = [
+        parte
+        for parte in (render_ancora_extracao(state.get("agora_turno")), state.get("ja_registrado"))
+        if parte
+    ]
+    return [HumanMessage(content="\n\n".join(parte.strip() for parte in partes))] if partes else []
 
 
 def _extracao_errou(tool_message: ToolMessage) -> bool:
@@ -173,13 +224,18 @@ def no_extrair(
         )
         janela = mensagens[:-1] if fala is not None else mensagens
 
-        # Chamada forcada: barato (janela sem o BP_GERAL) ou principal (janela crua). Instrumenta
-        # sob o label do modelo usado (barato NAO polui o write-rate do principal).
+        # Chamada forcada sobre a janela DEDICADA (conversa crua + ancora + <ja_registrado>): no
+        # barato ela vem com o system minimo no lugar do BP_GERAL. Instrumenta sob o label do
+        # modelo usado (barato NAO polui o write-rate do principal).
         if chat_forcado_barato is not None:
-            forcado = await chat_forcado_barato.ainvoke(_janela_para_extracao_barata(janela))
+            forcado = await chat_forcado_barato.ainvoke(
+                _janela_para_extracao(janela, state, system_minimo=True)
+            )
             instrumentar_tokens(forcado, modelo_extracao_barata)
         else:
-            forcado = await chat_forcado.ainvoke(janela)
+            forcado = await chat_forcado.ainvoke(
+                _janela_para_extracao(janela, state, system_minimo=False)
+            )
             instrumentar_tokens(forcado, modelo_chat)
 
         # Guard de qualidade: truncou (args incompletos) ou nao saiu tool_call -> descarta o forcado
