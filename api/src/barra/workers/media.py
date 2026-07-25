@@ -1,7 +1,7 @@
 """Pipelines de midia (06 §1, §2).
 
 - `limpar_midias_vencidas`: cron diario que apaga objetos MinIO de atendimentos terminais (>90d).
-- `transcrever_audio`: STT via OpenAI Whisper (06 §1.3). Le o objeto MinIO (gravado pelo webhook
+- `transcrever_audio`: STT via OpenRouter (06 §1.3). Le o objeto MinIO (gravado pelo webhook
   fino), transcreve, faz UPDATE em `mensagens.conteudo` e sinaliza o canal Redis
   `transcricao:{conversa_id}` para o coordenador acordar do BLPOP (06 §1.4).
 - `rotear_imagem`: decide o destino de uma imagem entrante sob `lock:conv` (06 §2.1) — Pix,
@@ -9,12 +9,12 @@
 """
 
 import asyncio
-import io
+import base64
 import json
 import logging
 from datetime import timedelta
 from time import perf_counter
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from openai import APIError, AsyncOpenAI
@@ -39,9 +39,42 @@ except ModuleNotFoundError:  # pragma: no cover
 logger = logging.getLogger(__name__)
 
 
-# Falhas na fase de download/Whisper que valem retry do ARQ. Esgotado o retry, grava placeholder
+# Falhas na fase de download/transcricao que valem retry do ARQ. Esgotado o retry, grava placeholder
 # em mensagens.conteudo (06 §1.5) — o `_falha_definitiva` chama-se a partir do `except` final.
 _AUDIO_PLACEHOLDER = "[audio que nao consegui ouvir]"
+
+# Modelo de STT quando `settings.openrouter_model_audio_transcribe` nao vem do Env (o compose
+# repassa a var e ela chega VAZIA se o Portainer nao a define) — mesmo padrao do vision em pix.py.
+# Gemini 3.1 Flash Lite escolhido por bancada com os 2 audios reais do piloto (24/07), 3 rodadas
+# por modelo: R$0,0016/audio, 1,7s e saida IDENTICA nas 3 rodadas. Os dois eixos que decidiram:
+#  - fidelidade em entidade nomeada: capta o vocativo "Tati" (o cliente chamando a modelo, que se
+#    chama Tatiane) onde a familia 2.5 ouve "ta" — proxy do que mais importa em audio de venda
+#    (nome, valor, horario). A referencia forte diverge no ponto (2.5-pro le "ta", 3.1-pro le
+#    "Tati"), mas o contexto da conversa decide a favor de "Tati".
+#  - ESTABILIDADE: 3.5-flash-lite devolveu 3 transcricoes DIFERENTES em 3 rodadas do mesmo audio
+#    ("Claudi"/"Claudio I"/"Claudio ai") mesmo com temperature=0 — descartado apesar de barato.
+# Descartados tambem: 3.5-flash e 3.6-flash (4,5s, ~R$0,033 — 20x mais caro por ganho nenhum),
+# gpt-audio-mini e voxtral (recusam ogg/opus, 400 do provider).
+_MODELO_STT_PADRAO = "google/gemini-3.1-flash-lite"
+
+# O modelo de STT do OpenRouter e' um chat multimodal, nao um endpoint de transcricao: sem
+# instrucao firme ele COMENTA o audio ("o audio diz que...") ou traduz. O marcador de silencio
+# evita que ele invente fala onde nao ha (audio mudo/ruido) -- vira falha definitiva no caller.
+_SEM_FALA = "(sem fala)"
+_PROMPT_STT = (
+    "Transcreva literalmente este audio em portugues do Brasil. "
+    "Responda APENAS com a transcricao, sem aspas, sem comentarios, sem traduzir. "
+    f"Se nao houver fala audivel, responda exatamente: {_SEM_FALA}"
+)
+
+# `format` do content part `input_audio`, derivado da extensao do objeto no MinIO (o WhatsApp
+# manda ogg/opus; mp3/m4a aparecem em audio encaminhado). Desconhecido -> ogg, o caso dominante.
+_FORMATO_AUDIO: dict[str, str] = {".ogg": "ogg", ".mp3": "mp3", ".m4a": "m4a", ".wav": "wav"}
+
+
+def _formato_audio(object_key: str) -> str:
+    _, _, ext = object_key.rpartition(".")
+    return _FORMATO_AUDIO.get(f".{ext.lower()}", "ogg")
 
 
 async def limpar_midias_vencidas(
@@ -286,7 +319,7 @@ async def transcrever_audio(
     mensagem_id: str,
     evolution_message_id: str,
 ) -> None:
-    """Transcreve um audio do cliente via OpenAI Whisper (06 §1.3).
+    """Transcreve um audio do cliente via OpenRouter (06 §1.3).
 
     Pre-requisitos: a mensagem `tipo='audio'` ja foi persistida pelo webhook fino, com
     `media_object_key` apontando para um objeto OGG no MinIO (`conversas/{conversa_id}/...`).
@@ -295,6 +328,8 @@ async def transcrever_audio(
     Fim do job:
       - sucesso -> UPDATE `mensagens.conteudo` com a transcricao + nota; LPUSH no canal
         `transcricao:{conversa_id}` com `{"ok": true, "mensagem_id": ...}` (EXPIRE 30s).
+      - audio sem fala (ou modelo devolvendo vazio) -> falha definitiva, sem retry: nao ha
+        transcricao a entregar e retentar so queimaria tokens no mesmo silencio.
       - falha -> deixa o ARQ retentar (APIError 5xx, rede). Esgotado, `_falha_definitiva` grava
         o placeholder e sinaliza `{"ok": false}` para o coordenador responder canned (06 §1.4).
     """
@@ -302,7 +337,7 @@ async def transcrever_audio(
     redis = ctx["redis"]
     minio = ctx.get("minio")
     settings = ctx["settings"]
-    openai_client: AsyncOpenAI | None = ctx.get("openai_client")
+    audio_client: AsyncOpenAI | None = ctx.get("audio_client")
 
     inicio = perf_counter()
 
@@ -328,13 +363,13 @@ async def transcrever_audio(
     conversa_id = str(row["conversa_id"])
     object_key = row["media_object_key"]
 
-    if minio is None or openai_client is None or not settings.openai_api_key:
+    if minio is None or audio_client is None or not settings.openrouter_api_key:
         # ambiente sem provider configurado: assina falha definitiva, sem retry (06 §1.5).
         logger.error(
-            "transcricao_sem_provider mensagem_id=%s minio=%s openai=%s",
+            "transcricao_sem_provider mensagem_id=%s minio=%s audio_client=%s",
             mensagem_id,
             minio is not None,
-            openai_client is not None,
+            audio_client is not None,
         )
         TRANSCRICAO_RESULTADO.labels("erro_provider").inc()
         await _falha_definitiva(pool, redis, mensagem_id=mensagem_id, conversa_id=conversa_id)
@@ -354,14 +389,32 @@ async def transcrever_audio(
         # via try/except dele. Aqui re-lanca.
         raise
 
-    # 3. chama Whisper. O cliente foi criado com timeout=60 + max_retries=3 no startup; estouros
-    #    finais (APIError 5xx persistente) sobem como excecao e o ARQ retenta o job inteiro.
+    # 3. transcreve. O OpenRouter nao tem /audio/transcriptions: manda-se o audio como content
+    #    part `input_audio` (base64) num chat completions multimodal. O cliente foi criado com
+    #    timeout=60 + max_retries=3 no startup; estouros finais (APIError 5xx persistente) sobem
+    #    como excecao e o ARQ retenta o job inteiro.
+    modelo_stt = settings.openrouter_model_audio_transcribe or _MODELO_STT_PADRAO
+    # `cast`: o TypedDict do SDK tipa `input_audio.format` como Literal["wav","mp3"] (o que a
+    # OpenAI aceita), mas o OpenRouter aceita ogg/opus — o formato do WhatsApp. O wire e' JSON:
+    # o campo viaja igual; so a anotacao do SDK e' estreita demais para este provider.
+    conteudo_stt = cast(
+        Any,
+        [
+            {"type": "text", "text": _PROMPT_STT},
+            {
+                "type": "input_audio",
+                "input_audio": {
+                    "data": base64.standard_b64encode(audio_bytes).decode("ascii"),
+                    "format": _formato_audio(object_key),
+                },
+            },
+        ],
+    )
     try:
-        resposta = await openai_client.audio.transcriptions.create(
-            file=("audio.ogg", io.BytesIO(audio_bytes), "audio/ogg"),
-            model=settings.openai_model_audio_transcribe,
-            language="pt",
-            response_format="verbose_json",  # whisper-1 inclui .duration aqui (06 §1.3)
+        resposta = await audio_client.chat.completions.create(
+            model=modelo_stt,
+            messages=[{"role": "user", "content": conteudo_stt}],
+            temperature=0,
         )
     except APIError:
         logger.exception("transcricao_provider_erro mensagem_id=%s", mensagem_id)
@@ -369,14 +422,22 @@ async def transcrever_audio(
         TRANSCRICAO_DURACAO.observe(perf_counter() - inicio)
         raise
 
-    texto = (resposta.text or "").strip()
-    duracao_audio = float(getattr(resposta, "duration", 0.0) or 0.0)
-    # CUSTO-02: custo de STT = duracao x tarifa por-minuto do Whisper (tarifa em _custo.py,
-    # PENDENTE de confirmacao). Label = nome do modelo de STT (mesmo criterio do chat/vision).
-    AGENTE_CUSTO_STT_BRL.labels(settings.openai_model_audio_transcribe).observe(
-        calcular_custo_stt_brl(duracao_audio, settings.usd_brl_cotacao)
+    # CUSTO-02: observa o custo ANTES de checar o conteudo -- transcricao vazia tambem queimou
+    # tokens. Label = nome do modelo de STT (mesmo criterio do chat/vision).
+    AGENTE_CUSTO_STT_BRL.labels(modelo_stt).observe(
+        calcular_custo_stt_brl(getattr(resposta, "usage", None), settings.usd_brl_cotacao)
     )
-    nota = f"\n_(originalmente audio, {round(duracao_audio)}s)_"
+    escolhas = getattr(resposta, "choices", None) or []
+    texto = (escolhas[0].message.content or "").strip() if escolhas else ""
+    if not texto or _SEM_FALA in texto.lower():
+        # Audio sem fala (ou modelo devolvendo vazio/recusa): nao ha transcricao a entregar --
+        # mesmo desfecho do retry esgotado, canned "me manda por escrito" (06 §1.5).
+        logger.warning("transcricao_vazia mensagem_id=%s modelo=%s", mensagem_id, modelo_stt)
+        TRANSCRICAO_RESULTADO.labels("vazio").inc()
+        await _falha_definitiva(pool, redis, mensagem_id=mensagem_id, conversa_id=conversa_id)
+        TRANSCRICAO_DURACAO.observe(perf_counter() - inicio)
+        return
+    nota = "\n_(originalmente audio)_"
 
     # 4. UPDATE conteudo + sinaliza canal.
     async with pool.connection() as conn:
@@ -389,9 +450,10 @@ async def transcrever_audio(
     TRANSCRICAO_RESULTADO.labels("ok").inc()
     TRANSCRICAO_DURACAO.observe(perf_counter() - inicio)
     logger.info(
-        "transcricao_ok mensagem_id=%s duracao_audio=%.1fs duracao_job=%.2fs",
+        "transcricao_ok mensagem_id=%s modelo=%s chars=%d duracao_job=%.2fs",
         mensagem_id,
-        duracao_audio,
+        modelo_stt,
+        len(texto),
         perf_counter() - inicio,
     )
 

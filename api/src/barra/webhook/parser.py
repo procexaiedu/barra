@@ -188,12 +188,16 @@ def extrair_mensagem(payload: dict[str, Any]) -> MensagemEvolution | None:
         media_mimetype = message["imageMessage"].get("mimetype")
         raw_caption = message["imageMessage"].get("caption")
         caption = str(raw_caption).strip() or None if raw_caption else None
-    elif "locationMessage" in message and not texto.strip():
+    elif not texto.strip() and (
+        loc := message.get("locationMessage") or message.get("liveLocationMessage")
+    ):
         # Pin de localizacao do WhatsApp: sem este ramo caia no gate de texto vazio (200
         # 'ignored') e o agente respondia AS CEGAS a fala adjacente — em prod inventou
         # distancia/ETA (trace dc0375ca, 22/07). Vira moldura de TEXTO na janela; a parte
         # ideal (geocode reverso + distancia ate o ponto da modelo) fica para issue propria.
-        moldura = _moldura_localizacao(message["locationMessage"])
+        # `liveLocationMessage` (localizacao em tempo real) carrega as mesmas coords e cai aqui
+        # tambem: a janela recebe a posicao do momento, sem acompanhar as atualizacoes.
+        moldura = _moldura_localizacao(loc)
         if moldura:
             texto = moldura
     # WEBHOOK_BASE64 ligado: a Evolution entrega a midia ja DECIFRADA inline (a `url` aponta

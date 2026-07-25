@@ -555,28 +555,56 @@ def _montar_upsert(payload: dict[str, Any], limpar: set[str]) -> tuple[list[str]
     for campo in _CAMPOS_UPSERT:
         if campo in limpar:
             sets.append(f"{campo} = NULL")
+        elif campo == "intencao" and payload.get(campo) is not None:
+            # `intencao` e MONOTONICA: o COALESCE incremental deixaria o extrator barato REBAIXAR
+            # 'agendamento' -> 'cotacao' num turno seguinte (foi o que manteve o #35 preso em
+            # Triagem, 24/07), e com ele volta o slot "ele querer mesmo marcar" no belief. Quem
+            # desqualifica e o RECUO explicito do cliente, que ja tem canal proprio: `limpar`
+            # (ramo acima, tem precedencia) — a DESC do campo inclusive avisa que zerar "pode
+            # reverter a qualificacao". Mesmo principio do merge de `sinais_qualificacao`, que so
+            # adiciona True e nunca rebaixa um sinal ja gravado.
+            sets.append("intencao = CASE WHEN intencao = 'agendamento' THEN intencao ELSE %s END")
+            valores.append(payload[campo])
         elif payload.get(campo) is not None:
             sets.append(f"{campo} = %s")
             valores.append(payload[campo])
-    sinais = _sinais_qualificacao_derivados(payload, limpar)
+    sinais = _sinais_qualificacao_do_turno(payload, limpar)
     if sinais:
         sets.append("sinais_qualificacao = sinais_qualificacao || %s::jsonb")
         valores.append(json.dumps(sinais))
     return sets, valores
 
 
-def _sinais_qualificacao_derivados(payload: dict[str, Any], limpar: set[str]) -> dict[str, Any]:
-    """Sinais de qualificacao a mergear no JSONB (`||`). Parte do que o LLM passou e DERIVA
-    deterministicamente os dois sinais redundantes com campo estruturado — `valor_acordado` =>
-    `aceita_valor`, `horario_desejado` => `informa_horario` — que o LLM as vezes esquece de marcar
-    (defasagem do diagnostico E2E #5, 2026-06-09). O campo estruturado e a fonte confiavel (o
-    abaixo-do-piso nem grava `valor_acordado`; a docstring de `horario_desejado` so manda preencher
-    com hora concreta); o boolean apenas o espelha. Nao deriva ao `limpar` o campo (cliente recuou)
-    e o merge `||` so adiciona True — nunca rebaixa um sinal ja gravado."""
+def _sinais_qualificacao_do_turno(payload: dict[str, Any], limpar: set[str]) -> dict[str, Any]:
+    """Sinais de qualificacao a mergear no JSONB (`||`). Parte do que o LLM passou, DERIVA
+    `horario_desejado` => `informa_horario` (que o LLM as vezes esquece de marcar — defasagem do
+    diagnostico E2E #5, 2026-06-09) e REBAIXA o que o cliente retratou. O campo estruturado e a
+    fonte confiavel (a docstring de `horario_desejado` so manda preencher com hora concreta); o
+    boolean o espelha.
+
+    Os dois campos sao ASSIMETRICOS de proposito, e por isso nao viram um mapa campo->sinal:
+    `horario_desejado` espelha nos dois sentidos, `valor_acordado` so rebaixa.
+
+    `valor_acordado` NAO deriva `aceita_valor` (atendimento #41, 24/07). A derivacao nasceu quando
+    `valor_acordado` significava "valor fechado", mas na pratica ele e gravado JA NA COTACAO (e o
+    guard do piso depende disso) — entao derivar aceite dele marcava "valor ja combinado" no MESMO
+    turno em que a IA cotou. Efeito medido: o belief passava a mandar "nao re-cote nem renegocie",
+    a escada do <desconto> nunca engatava (`n_contrapropostas` ficou em 0 com o cliente pedindo
+    desconto 7x) e o horario era cravado sobre um valor que o cliente nunca topou. Quem separa
+    cotado de aceito e so o sinal EXPLICITO do extrator.
+
+    `limpar` REBAIXA o sinal a False em vez de omiti-lo, e tem precedencia sobre o payload (mesmo
+    principio do UPSERT). Omitir deixava o merge `||` como latch de mao unica: um `aceita_valor`
+    True gravado por engano nunca mais saia, e nem o Recuo pos-objecao (`<conducao_da_venda>`, que
+    manda `limpar` o `valor_acordado`) reabria a escada do desconto."""
     sinais = dict(payload.get("sinais_qualificacao") or {})
-    if "valor_acordado" not in limpar and payload.get("valor_acordado") is not None:
-        sinais["aceita_valor"] = True
-    if "horario_desejado" not in limpar and payload.get("horario_desejado") is not None:
+    # So rebaixa: `valor_acordado` e gravado na cotacao, entao presenca dele nunca prova aceite.
+    if "valor_acordado" in limpar:
+        sinais["aceita_valor"] = False
+    # Espelha nos dois sentidos.
+    if "horario_desejado" in limpar:
+        sinais["informa_horario"] = False
+    elif payload.get("horario_desejado") is not None:
         sinais["informa_horario"] = True
     return sinais
 

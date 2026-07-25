@@ -428,6 +428,27 @@ def test_extrair_mensagem_pin_sem_nome_so_coords() -> None:
     assert msg.texto == "[pin de localização: lat -22.900000, long -47.060000]"
 
 
+def test_extrair_mensagem_live_location_vira_moldura_de_texto() -> None:
+    # Localizacao em tempo real carrega as mesmas coords; sem este ramo caia no gate de texto
+    # vazio (ignored) e o agente respondia as cegas a fala adjacente, igual ao pin comum.
+    payload = {
+        "instance": "barra-piloto",
+        "data": {
+            "key": {"id": "LIVE1", "remoteJid": "5521@s.whatsapp.net", "fromMe": False},
+            "message": {
+                "liveLocationMessage": {
+                    "degreesLatitude": -22.9,
+                    "degreesLongitude": -47.06,
+                    "caption": "to indo",
+                },
+            },
+        },
+    }
+    msg = extrair_mensagem(payload)
+    assert msg is not None
+    assert msg.texto == "[pin de localização: lat -22.900000, long -47.060000]"
+
+
 def test_extrair_mensagem_pin_sem_coords_validas_e_descartado() -> None:
     # locationMessage sem coords numericas nao tem dado util -> segue o gate de texto vazio.
     payload = {

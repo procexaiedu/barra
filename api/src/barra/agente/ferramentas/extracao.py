@@ -39,7 +39,15 @@ class SinaisQualificacao(BaseModel):
     informa_horario: bool = Field(False, description="cliente disse um horário concreto que quer")
     informa_local: bool = Field(False, description="cliente informou bairro/endereço/tipo de local")
     aceita_valor: bool = Field(
-        False, description="cliente concordou com o valor cotado (não apenas perguntou o preço)"
+        False,
+        description=(
+            "cliente ACEITOU o valor cotado — o sim dele, explícito ('pode ser', 'fechou', "
+            "'vamos marcar') ou o avanço que equivale a sim (siga a sua conduta de <desconto>). "
+            "NÃO marque por ter cotado, nem por cortesia ou reconhecimento ('obrigado', 'ok', "
+            "'entendi', 'blz'), nem por ele só perguntar o preço: agradecer não é aceitar. Este "
+            "é o ÚNICO sinal de aceite — gravar `valor_acordado` não o infere — e ele fecha a "
+            "negociação de preço, então marcá-lo cedo trava a sua escada de desconto."
+        ),
     )
     envia_pix: bool = Field(
         False, description="cliente alegou ter enviado o Pix ou mandou comprovante"

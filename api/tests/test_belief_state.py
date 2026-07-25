@@ -276,6 +276,7 @@ def test_render_valor_fechado_entra_no_ja_combinado() -> None:
         tipo_atendimento="interno",
         horario_desejado=_HORA,
         valor_fechado="600",
+        valor_aceito=True,
         duracao_fechada="1",
     )
     assert "<valor_fechado>600 (1h)" in out
@@ -283,6 +284,25 @@ def test_render_valor_fechado_entra_no_ja_combinado() -> None:
 
     sem = _render("Qualificado", tipo_atendimento="interno", horario_desejado=_HORA)
     assert "<valor_fechado>" not in sem
+    assert "<valor_cotado>" not in sem
+
+
+def test_render_valor_cotado_sem_aceite_nao_vira_combinado() -> None:
+    # `valor_acordado` é gravado JÁ NA COTAÇÃO (base do guard do piso), então sozinho não prova
+    # acordo: sem `aceita_valor` o belief tem que dizer "cotado, ele não aceitou" — anunciar
+    # "valor já combinado" fazia a IA pular a defesa de preço e cravar horário (#38, 24/07).
+    out = _render(
+        "Triagem",
+        tipo_atendimento="interno",
+        horario_desejado=None,
+        valor_fechado="400",
+        valor_aceito=False,
+        duracao_fechada="1",
+    )
+    assert "<valor_cotado>400 (1h)" in out
+    assert "AINDA NÃO aceitou" in out
+    assert "<valor_fechado>" not in out
+    assert "já combinado com ele" not in out
 
 
 def test_num_humano_formata_decimal_seco() -> None:

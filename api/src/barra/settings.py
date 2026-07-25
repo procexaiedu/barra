@@ -92,7 +92,15 @@ class Settings(BaseSettings):
         description="Temperatura do chat #1 (DeepSeek V4 Flash). 0.7 = melhor ponto medido no exp N-1 30/06 (coerencia + head-to-head); so vale non-thinking.",
     )
     openrouter_model_vision_pix: str | None = None
-    # TODO(M5-final): aposentar (sabatina 2026-05-23 §1.3 — STT migrou para OpenAI direto).
+    # STT do agente (06 §1.3) — volta ao OpenRouter. O plano antigo (Whisper direto da OpenAI)
+    # nunca saiu do papel em prod: o compose jamais passou OPENAI_API_KEY, entao TODO audio de
+    # cliente morria em `transcricao_sem_provider` e o cliente ouvia o canned "me manda por
+    # escrito" (24/07). O OpenRouter ja tem chave viva (mesma do vision do Pix) e NAO expoe
+    # `/audio/transcriptions`: transcricao roda por chat completions com um content part
+    # `input_audio` (base64; ogg/opus do WhatsApp aceito). O default NAO mora aqui, e sim no ponto
+    # de uso (`media.py:_MODELO_STT_PADRAO`, espelhando `openrouter_model_vision_pix` no pix.py):
+    # o compose passa `OPENROUTER_MODEL_AUDIO_TRANSCRIBE=${...}` e, sem a var no Env, o valor chega
+    # VAZIO — um default aqui seria sobrescrito por "" e a chamada sairia sem modelo (400).
     openrouter_model_audio_transcribe: str | None = None
     # Anthropic sobrevive APENAS para o LLM-judge dos evals (EVAL-02; api/evals/) e o preaquecimento
     # dormente — os 3 caminhos de texto do agente ao vivo (chat/extracao/judge de AUP) sao DeepSeek-only.
@@ -103,13 +111,6 @@ class Settings(BaseSettings):
     # um modelo diferente (ex. "claude-opus-4-8") mitiga: pesos distintos reduzem o vies. Cross-
     # familia real (GPT/Gemini via OpenRouter) e o alvo final, exige wiring de provider -> P1.
     anthropic_modelo_judge: str | None = None
-
-    # STT do agente (06 §1.3): Whisper direto da OpenAI. Sai do OpenRouter porque o hop
-    # extra nao compensa num STT critico de baixa latencia sob o orcamento de 8s (sabatina
-    # 2026-05-23 §1.3). Default whisper-1 porque a resposta verbose_json inclui .duration
-    # nativamente; gpt-4o-mini-transcribe exigiria calculo local de duracao.
-    openai_api_key: str | None = None
-    openai_model_audio_transcribe: str = "whisper-1"
 
     # thinking/effort: parametros do ChatAnthropic (so os evals usam).
     anthropic_thinking: Literal["enabled", "disabled"] = "disabled"
@@ -200,10 +201,10 @@ class Settings(BaseSettings):
     filtro_vocativo_habilitado: bool = Field(
         default=True,
         description="Afina a frequencia do vocativo 'amor/vida' trailing da bolha de saida (camada de voz, nao seguranca): o DeepSeek satura ~2x a taxa do Vendedor humano fora da venda mesmo instruido (estilometria por ato 2026-07-14); sorteio per-bolha calibrado ao corpus remove o vocativo do FIM da bolha nos atos saturados (saudacao/outro), nunca no meio da frase. Vale para todos os caminhos do enviar_turno. False = bolha sai como o modelo gerou (kill-switch sem deploy).",
+    )
     filtro_interrogacao_habilitado: bool = Field(
         default=True,
         description="Devolve o '?' a proposta de confirmacao de horario da bolha de saida (camada de voz, nao seguranca): 'Posso confirmar as 18h' sem o '?' le como promessa de retorno ('eu te confirmo as 18h') e mata o fechamento (incidente #34, 24/07) — o gatilho e estreito (molde posso/podemos/vamos confirmar + horario na bolha). Vale para todos os caminhos do enviar_turno. False = bolha sai como o modelo gerou (kill-switch sem deploy).",
-    )
     )
     envio_delay_humano_habilitado: bool = Field(
         default=False,
@@ -433,6 +434,20 @@ class Settings(BaseSettings):
             return [h.strip() for h in s.split(",") if h.strip()]
         return v
 
+    evogo_media_bucket: str = Field(
+        default="evolution-go",
+        description=(
+            "Bucket do MinIO onde a Evolution GO deposita a mídia inbound JÁ DECIFRADA, com key "
+            "`<evogo_media_prefix><evolution_message_id>.<ext>`. É a ÚNICA porta da mídia recebida "
+            "na EvoGo: o webhook dela não traz base64 inline (WEBHOOK_BASE64 é da v2/Baileys) e a "
+            "`url` do payload aponta pro CDN cifrado do WhatsApp, inútil sem a mediaKey. Vazio = "
+            "fallback desligado (só base64/download, comportamento da v2)."
+        ),
+    )
+    evogo_media_prefix: str = Field(
+        default="evolution-go-medias/",
+        description="Prefixo das keys de mídia inbound dentro do `evogo_media_bucket`.",
+    )
     evolution_webhook_token: str = ""
     evolution_instancia: str = Field(
         default="lucia",

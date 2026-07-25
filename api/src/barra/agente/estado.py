@@ -53,6 +53,12 @@ class EstadoAgente(MessagesState):
         periodo de trabalho ("por hoje ja parei, amanha"). Sem ele a tool mandaria ancorar num
         horario_minimo inexistente e a IA inventaria um horario fora da janela. Reusa o VALOR ja
         renderizado (nao recomputa). Nasce ausente a cada `ainvoke` (sem checkpointer).
+    sondagem_aceita: a janela evidencia a correferencia "IA sondou o dia + cliente afirmou"
+        (`_confirmou_dia_hoje`, prepare_context) -- ele respondeu "sim" a "seria hoje/agora ?".
+        Computado no MESMO ponto que alimenta o A2 do belief; o no `extrair` o le p/ aplicar o piso
+        de `intencao` (`_aplicar_piso_intencao`). Vive no State pelo mesmo motivo que
+        `horario_minimo`: nasce no prepare_context e e consumido depois, sem recomputar nem acoplar
+        no->no. Nasce ausente a cada `ainvoke` (sem checkpointer).
     """
 
     midia_idx: int
@@ -61,3 +67,4 @@ class EstadoAgente(MessagesState):
     _reoferta_tentada: bool
     _midia_esgotada: bool
     horario_minimo: datetime | None
+    sondagem_aceita: bool

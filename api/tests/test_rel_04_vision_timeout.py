@@ -40,20 +40,34 @@ async def test_vision_client_tem_timeout_e_retries(
     assert vision_client.max_retries == 3  # type: ignore[attr-defined]
 
 
-async def test_vision_client_espelha_openai_client(
+async def test_audio_client_compartilha_o_cliente_do_vision(
     monkeypatch: pytest.MonkeyPatch, _stub_recursos: None
 ) -> None:
-    # Os dois clientes do worker (vision via OpenRouter, STT via OpenAI) devem ter a mesma
-    # politica de timeout/retry — nenhum pode pendurar o slot do worker ate o job_timeout.
+    # Vision (Pix) e STT falam com o MESMO endpoint OpenRouter — um cliente so, entao a politica
+    # de timeout/retry nao pode divergir entre eles (nenhum pendura o slot ate o job_timeout).
     monkeypatch.setattr(
         worker_settings,
         "get_settings",
-        lambda: Settings(ambiente="teste", openrouter_api_key="sk-vision", openai_api_key="sk-stt"),
+        lambda: Settings(ambiente="teste", openrouter_api_key="sk-openrouter"),
     )
     ctx: dict[str, object] = {}
     await worker_settings.startup(ctx)
 
-    vision_client = ctx["vision_client"]
-    openai_client = ctx["openai_client"]
-    assert vision_client.timeout == openai_client.timeout  # type: ignore[attr-defined]
-    assert vision_client.max_retries == openai_client.max_retries  # type: ignore[attr-defined]
+    assert ctx["audio_client"] is ctx["vision_client"]
+
+
+async def test_sem_chave_openrouter_nao_ha_cliente_de_audio_nem_vision(
+    monkeypatch: pytest.MonkeyPatch, _stub_recursos: None
+) -> None:
+    # Sem chave, o SDK rejeitaria api_key vazia no construtor: os dois ficam None e os jobs
+    # degradam (Pix em_revisao, STT falha definitiva) em vez de derrubar o boot do worker.
+    monkeypatch.setattr(
+        worker_settings,
+        "get_settings",
+        lambda: Settings(ambiente="teste", openrouter_api_key=None),
+    )
+    ctx: dict[str, object] = {}
+    await worker_settings.startup(ctx)
+
+    assert ctx["vision_client"] is None
+    assert ctx["audio_client"] is None

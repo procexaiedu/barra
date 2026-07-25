@@ -99,7 +99,12 @@ _MARCADORES_OUTRO_CLIENTE = re.compile(
     r"\b("
     r"outr[oa]s? clientes?"
     r"|com (um|uma|outr[oa]|mais um[a]?) cliente"
-    r"|com (outr[oa]|mais um[a]?) pessoa"
+    # "com outra pessoa" SOLTO nao e vazamento: no dominio e quase sempre a recusa do terceiro
+    # que o cliente quer trazer ("nao faco assim com outra pessoa" -- <menage>). Solto, barrou a
+    # recusa correta DUAS vezes e matou o lead #36 (24/07). Agora so casa a AFIRMACAO de estado
+    # ("to ocupada com outra pessoa"): exige o "to/estou" antes e nenhum "nao" no meio, o que
+    # deixa passar a recusa e continua barrando a admissao.
+    r"|(t[ôo]|estou)(?:(?!\bn[ãa]o\b)[^.!?\n]){0,15}com (outr[oa]|mais um[a]?) pessoa"
     r"|(t[ôo]|estou|tenho|t[ôo] com|estou com) (um |uma |o |a |outr[oa] )?cliente"
     # "estou atendendo agora" -- atende ALGUEM. O lookahead protege "te/voce atendendo" (o
     # PROPRIO cliente, fala legitima): so vaza quando o objeto NAO e o interlocutor.

@@ -190,3 +190,82 @@ def test_grafo_pausa_encerra_antes_do_llm() -> None:
     )
     estado = asyncio.run(graph.ainvoke({"messages": []}, context=ctx))
     assert estado["messages"] == []
+
+
+# --- piso de intencao: a correferencia vai ao State (#35, 24/07) ------------------------------
+
+
+def _linhas_sondagem_aceita() -> list[dict[str, Any]]:
+    """DESC (mais nova primeiro): a IA sondou "Seria agora ?" e o cliente respondeu "sim"."""
+    base = datetime(2026, 7, 24, 2, 17, tzinfo=UTC)
+    nova_primeiro = [
+        ("cliente", "sim", base + timedelta(minutes=2)),
+        ("ia", "Seria agora ?", base + timedelta(minutes=1)),
+        ("cliente", "tá atendendo?", base),
+    ]
+    return [
+        {
+            "id": uuid4(),
+            "direcao": direcao,
+            "tipo": "texto",
+            "conteudo": conteudo,
+            "media_object_key": None,
+            "created_at": ts,
+        }
+        for direcao, conteudo, ts in nova_primeiro
+    ]
+
+
+def test_sondagem_aceita_vai_ao_state() -> None:
+    """A correferencia "sondagem + sim" e publicada no State p/ o no `extrair` aplicar o piso de
+    `intencao`. REGRESSAO DE ORDEM: o "sim" e o ULTIMO HumanMessage, entao recebe o contexto
+    dinamico concatenado na cauda -- se a deteccao rodasse DEPOIS da anexacao ele deixaria de ser
+    uma "afirmacao curta" e a flag viria False."""
+    res = asyncio.run(
+        prepare_context({"messages": []}, _runtime(mensagens=_linhas_sondagem_aceita()))
+    )
+    assert isinstance(res, Command)
+    assert res.update["sondagem_aceita"] is True
+    # o "sim" de fato carrega o contexto dinamico (prova que a anexacao aconteceu na mesma msg)
+    ultimo_humano = [m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1]
+    assert ultimo_humano.content.startswith("sim")
+    assert "<situacao_do_atendimento" in ultimo_humano.content
+
+
+def test_sondagem_aceita_falsa_sem_correferencia() -> None:
+    """Janela sem o par sondagem+afirmacao -> flag False (o julgamento do extrator prevalece)."""
+    res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_desc())))
+    assert isinstance(res, Command)
+    assert res.update["sondagem_aceita"] is False
+
+
+def _linhas_sondagem_com_recuo() -> list[dict[str, Any]]:
+    """DESC: sondagem aceita LA ATRAS, mas o cliente ja recuou depois ("ainda nao vai dar")."""
+    base = datetime(2026, 7, 24, 2, 17, tzinfo=UTC)
+    nova_primeiro = [
+        ("cliente", "ainda não vai dar, te chamo depois", base + timedelta(minutes=9)),
+        ("ia", "400 1h no meu local amor", base + timedelta(minutes=8)),
+        ("cliente", "sim", base + timedelta(minutes=2)),
+        ("ia", "Seria agora ?", base + timedelta(minutes=1)),
+    ]
+    return [
+        {
+            "id": uuid4(),
+            "direcao": direcao,
+            "tipo": "texto",
+            "conteudo": conteudo,
+            "media_object_key": None,
+            "created_at": ts,
+        }
+        for direcao, conteudo, ts in nova_primeiro
+    ]
+
+
+def test_sondagem_aceita_nao_persiste_apos_recuo() -> None:
+    """A LIMITACAO resolvida: o piso e EVENTO, nao estado. Um "sim" de turnos atras nao pode seguir
+    forcando `agendamento` depois de o cliente recuar -- so a afirmacao do burst ATUAL conta."""
+    res = asyncio.run(
+        prepare_context({"messages": []}, _runtime(mensagens=_linhas_sondagem_com_recuo()))
+    )
+    assert isinstance(res, Command)
+    assert res.update["sondagem_aceita"] is False

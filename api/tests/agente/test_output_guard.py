@@ -210,6 +210,26 @@ async def test_etapa1_atender_o_proprio_cliente_passa(monkeypatch: Any, texto: s
     assert _passou_limpo(res)
 
 
+# Anti falso-positivo do #36 (24/07): "com outra pessoa" na RECUSA do terceiro que o cliente quer
+# trazer (<menage>) e fala legitima e frequente -- o scan solto barrou as duas geracoes do turno e
+# o atendimento morreu em handoff. So a AFIRMACAO de estado ("to ocupada com outra pessoa") vaza.
+@pytest.mark.parametrize(
+    "texto",
+    [
+        "amor nao faco assim com outra pessoa nao",
+        "nao faco programa com outra pessoa, so se for voce mesmo",
+        "so com voce amor, nao rola com mais uma pessoa junto",
+    ],
+)
+async def test_etapa1_recusa_de_terceiro_passa(monkeypatch: Any, texto: str) -> None:
+    async def _ok(t: str, settings: Any) -> Any:
+        return mod._VeredictoAup(viola=False, motivo="nenhum")
+
+    monkeypatch.setattr(mod, "_julgar_aup", _ok)
+    res = await mod.output_guard(_state(texto), _runtime())  # type: ignore[arg-type]
+    assert _passou_limpo(res)
+
+
 async def test_etapa1_desculpa_pessoal_no_bloqueio_passa(monkeypatch: Any) -> None:
     # Falso-positivo a evitar: a desculpa pessoal LEGITIMA (salao, "te atendendo") nao menciona
     # outro cliente -> passa a Etapa 1 (o judge da Etapa 2 ainda decide a AUP).

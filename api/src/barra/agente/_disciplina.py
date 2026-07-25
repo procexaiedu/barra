@@ -20,7 +20,17 @@ from ._normalizar import normalizar
 # A2 (captura determinística do dia): o abridor social "seria hoje?" (persona.md:32). Detectar que
 # a sondagem já foi feita (write-time carimba `dia_sondado_em`; read-time varre a janela) impede a
 # IA de recolar a frase no turno do preço (persona.md:18, regras.md.j2:17 proíbem).
-_PROBE_DIA_HOJE = re.compile(r"\b(?:seria|é pra|pra|é) hoje\b", re.IGNORECASE)
+# Cobre a FAMÍLIA "hoje" E "agora": o prompt trata as duas como a MESMA sondagem ("«seria hoje?»,
+# «seria agora?» é UMA vez na conversa inteira" — persona <voz>; regras.md.j2:35 e :44), mas o
+# regex só via "hoje" e o gate ficava cego na variante de imediatismo. Atendimento #35 (24/07,
+# 02:17-05:25): a IA sondou "Seria agora ?", nunca disse "hoje", `dia_sondado_em` ficou NULL, o
+# <ja_sondou_o_dia> nunca entrou no contexto e ela recolou o empurrão 3x ("Vem agora ?") — o
+# cliente lê como ansiedade. O verbo entra na alternância porque a paráfrase que o modelo produz é
+# verbal ("Vem agora ?", "Pode vir agora ?"), não só o "seria". "vier" (da contraproposta "Consigo
+# 500 se você vier hoje") NÃO casa: `\bvir\b` exige fronteira de palavra depois do "r".
+_PROBE_DIA_HOJE = re.compile(
+    r"\b(?:seria|é pra|pra|é|vem|vir|vamos)\s+(?:hoje|agora)\b", re.IGNORECASE
+)
 
 # Contraproposta de desconto ("Consigo 500 se você vier hoje 😊") — a disciplina é ATÉ DUAS na
 # conversa inteira (regras.md.j2 <desconto> 3/4, ADR-0031: degrau na 1ª, teto na 2ª e última).
@@ -37,8 +47,9 @@ def contem_contraproposta(texto: str) -> bool:
 
 
 def contem_sondagem_dia(texto: str) -> bool:
-    """True se a bolha carrega a sondagem do dia ("seria hoje?"). Sem `normalizar`: o regex já é
-    case-insensitive e casa o "é" acentuado da forma canônica da persona."""
+    """True se a bolha carrega a sondagem do dia ("seria hoje?", "seria agora?", "vem agora?").
+    Sem `normalizar`: o regex já é case-insensitive e casa o "é" acentuado da forma canônica da
+    persona."""
     return _PROBE_DIA_HOJE.search(texto) is not None
 
 

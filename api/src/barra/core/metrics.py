@@ -57,6 +57,11 @@ COMANDOS_GRUPO = Counter("barra_comandos_grupo_total", "Comandos do grupo", ["re
 PIX = Counter("barra_pix_total", "Decisoes Pix", ["resultado"])
 ENVIOS_EVOLUTION = Counter("barra_envios_evolution_total", "Envios Evolution", ["resultado"])
 WEBHOOK_ERRORS = Counter("barra_webhook_errors_total", "Erros de webhook", ["tipo"])
+WEBHOOK_DESCARTES = Counter(
+    "barra_webhook_descartes_total",
+    "Mensagens descartadas na borda (parser nao reconheceu o tipo)",
+    ["tipo"],  # nome do campo *Message do payload: locationMessage, contactMessage, ...
+)
 TIMEOUTS = Counter("barra_timeouts_total", "Timeouts aplicados", ["tipo"])
 LEMBRETE_VALOR = Counter(
     "barra_lembrete_valor_total",

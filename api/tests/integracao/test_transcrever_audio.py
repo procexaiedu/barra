@@ -1,13 +1,14 @@
 """M5a — `transcrever_audio` contra o Postgres real (06 §1.3).
 
 Exercita o job inteiro: le `mensagens.media_object_key` do banco, baixa do MinIO (mockado em
-memoria), chama o Whisper (OpenAI mockado por classe fake), faz `UPDATE mensagens.conteudo` e
+memoria), transcreve (OpenRouter mockado por classe fake), faz `UPDATE mensagens.conteudo` e
 sinaliza o canal Redis `transcricao:{conversa_id}`. Tambem cobre o coordenador (`aguardar_transcricoes`):
 ok=true vs timeout vs ok=false.
 
-`needs_db` (Postgres self-hosted; ROLLBACK no teardown). OpenAI/MinIO/Redis sao fakes.
+`needs_db` (Postgres self-hosted; ROLLBACK no teardown). OpenRouter/MinIO/Redis sao fakes.
 """
 
+import base64
 import json
 import os
 from collections.abc import AsyncIterator
@@ -30,35 +31,42 @@ pytestmark = pytest.mark.needs_db
 # --- fakes -----------------------------------------------------------------------------------
 
 
-class _FakeOpenAIResponse:
-    """Mimic verbose_json shape: .text + .duration."""
-
-    def __init__(self, texto: str, duracao: float) -> None:
-        self.text = texto
-        self.duration = duracao
+class _FakeUsage:
+    def __init__(self, prompt_tokens: int = 400, completion_tokens: int = 12) -> None:
+        self.prompt_tokens = prompt_tokens
+        self.completion_tokens = completion_tokens
 
 
-class _FakeTranscriptions:
-    def __init__(self, parent: "_FakeOpenAI") -> None:
+class _FakeChatResponse:
+    """Mimic do chat completions do OpenRouter: .choices[0].message.content + .usage."""
+
+    def __init__(self, texto: str) -> None:
+        mensagem = type("_Msg", (), {"content": texto})()
+        self.choices = [type("_Escolha", (), {"message": mensagem})()]
+        self.usage = _FakeUsage()
+
+
+class _FakeCompletions:
+    def __init__(self, parent: "_FakeOpenRouter") -> None:
         self._parent = parent
 
-    async def create(self, **kwargs: Any) -> _FakeOpenAIResponse:
+    async def create(self, **kwargs: Any) -> _FakeChatResponse:
         self._parent.chamadas.append(kwargs)
         return self._parent.resposta
 
 
-class _FakeAudio:
-    def __init__(self, parent: "_FakeOpenAI") -> None:
-        self.transcriptions = _FakeTranscriptions(parent)
+class _FakeChat:
+    def __init__(self, parent: "_FakeOpenRouter") -> None:
+        self.completions = _FakeCompletions(parent)
 
 
-class _FakeOpenAI:
-    """Stand-in para AsyncOpenAI: expoe `.audio.transcriptions.create(...)`."""
+class _FakeOpenRouter:
+    """Stand-in para AsyncOpenAI apontado ao OpenRouter: expoe `.chat.completions.create(...)`."""
 
-    def __init__(self, resposta: _FakeOpenAIResponse) -> None:
+    def __init__(self, resposta: _FakeChatResponse) -> None:
         self.resposta = resposta
         self.chamadas: list[dict[str, Any]] = []
-        self.audio = _FakeAudio(self)
+        self.chat = _FakeChat(self)
 
 
 class _FakeMinioResponse:
@@ -187,8 +195,8 @@ def _settings_fake() -> Any:
 
     class _S:
         minio_bucket_media = "media"
-        openai_api_key = "sk-fake"
-        openai_model_audio_transcribe = "whisper-1"
+        openrouter_api_key = "sk-fake"
+        openrouter_model_audio_transcribe = "google/gemini-2.5-flash"
         usd_brl_cotacao = 5.50
 
     return _S()
@@ -205,14 +213,14 @@ async def test_transcricao_ok_atualiza_conteudo_e_sinaliza_canal(
     pool = _PoolDeUmaConexao(conn)
     redis: Any = FakeRedis()
     minio = _FakeMinio({object_key: b"fake-ogg-bytes"})
-    openai = _FakeOpenAI(_FakeOpenAIResponse(texto="oi amor, tudo bem?", duracao=4.2))
+    openrouter = _FakeOpenRouter(_FakeChatResponse(texto="oi amor, tudo bem?"))
 
     ctx: dict[str, Any] = {
         "db_pool": pool,
         "redis": redis,
         "minio": minio,
         "settings": _settings_fake(),
-        "openai_client": openai,
+        "audio_client": openrouter,
     }
 
     await transcrever_audio(
@@ -221,12 +229,11 @@ async def test_transcricao_ok_atualiza_conteudo_e_sinaliza_canal(
         evolution_message_id="test-evo-id",
     )
 
-    # 1. conteudo atualizado com transcricao + nota de duracao
+    # 1. conteudo atualizado com transcricao + nota
     conteudo = await _conteudo_de(conn, mensagem_id)
     assert conteudo is not None
     assert "oi amor, tudo bem?" in conteudo
     assert "originalmente audio" in conteudo
-    assert "4s" in conteudo  # round(4.2) == 4
 
     # 2. canal sinalizado com ok=true
     chave = f"transcricao:{conversa_id}"
@@ -238,10 +245,14 @@ async def test_transcricao_ok_atualiza_conteudo_e_sinaliza_canal(
     assert payload["ok"] is True
     assert payload["mensagem_id"] == str(mensagem_id)
 
-    # 3. Whisper foi chamado com o modelo configurado
-    assert len(openai.chamadas) == 1
-    assert openai.chamadas[0]["model"] == "whisper-1"
-    assert openai.chamadas[0]["language"] == "pt"
+    # 3. o STT foi chamado com o modelo configurado e o audio como content part `input_audio`
+    assert len(openrouter.chamadas) == 1
+    chamada = openrouter.chamadas[0]
+    assert chamada["model"] == "google/gemini-2.5-flash"
+    partes = chamada["messages"][0]["content"]
+    audio = next(p for p in partes if p["type"] == "input_audio")
+    assert audio["input_audio"]["format"] == "ogg"  # extensao do object_key
+    assert base64.standard_b64decode(audio["input_audio"]["data"]) == b"fake-ogg-bytes"
 
 
 async def test_aguardar_transcricoes_le_sinal_ok(
@@ -284,7 +295,7 @@ async def test_aguardar_transcricoes_falha_definitiva_do_worker(
 async def test_transcricao_sem_provider_marca_falha_definitiva(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
-    """Sem AsyncOpenAI/chave configurada, grava placeholder e sinaliza ok=false (06 §1.5)."""
+    """Sem cliente/chave do OpenRouter, grava placeholder e sinaliza ok=false (06 §1.5)."""
     _, _, conversa_id, mensagem_id = await _seed_par_completo(conn)
     pool = _PoolDeUmaConexao(conn)
     redis: Any = FakeRedis()
@@ -294,7 +305,7 @@ async def test_transcricao_sem_provider_marca_falha_definitiva(
         "redis": redis,
         "minio": _FakeMinio({}),
         "settings": _settings_fake(),
-        "openai_client": None,  # provider ausente
+        "audio_client": None,  # provider ausente
     }
 
     await transcrever_audio(

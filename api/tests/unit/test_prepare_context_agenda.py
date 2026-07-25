@@ -145,6 +145,168 @@ async def test_marcadores_de_tempo_e_horario_minimo_por_tipo() -> None:
     assert 'minutos="5"' in saida
 
 
+class _FakeConnAgenda:
+    """Roteia por SQL: devolve as regras de Disponibilidade e os bloqueios; vazio no resto."""
+
+    def __init__(
+        self,
+        regras: list[dict[str, Any]],
+        bloqueios: list[dict[str, Any]],
+        atendimento: dict[str, Any],
+    ) -> None:
+        self.regras = regras
+        self.bloqueios = bloqueios
+        self.atendimento = atendimento
+
+    async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> _Result:
+        if "modelo_disponibilidade" in sql:
+            return _Result(self.regras)
+        if "barravips.bloqueios" in sql:
+            return _Result(self.bloqueios)
+        return _Result([])
+
+
+def _ctx_em(agora_utc: datetime) -> ContextAgente:
+    return ContextAgente(
+        db_pool=None,  # type: ignore[arg-type]
+        redis=None,  # type: ignore[arg-type]
+        modelo_id="11111111-1111-1111-1111-111111111111",
+        atendimento_id="22222222-2222-2222-2222-222222222222",
+        cliente_id="33333333-3333-3333-3333-333333333333",
+        turno_id="t",
+        agora_utc=agora_utc,
+    )
+
+
+# Cadastro real do #41: expediente 10:00-04:00 todos os dias.
+def _regras_10_as_04() -> list[dict[str, Any]]:
+    return [
+        {
+            "data_inicio": date(2026, 7, 21),
+            "data_fim": None,
+            "dia_semana": dow,
+            "hora_inicio": time(10, 0),
+            "hora_fim": time(4, 0),
+        }
+        for dow in range(7)
+    ]
+
+
+def _bloqueio(inicio_h: int, fim_h: int) -> dict[str, Any]:
+    """Bloqueio do dia 24/07 em horas UTC (BRT = UTC-3)."""
+    return {
+        "inicio": datetime(2026, 7, 24, inicio_h, 0, tzinfo=UTC),
+        "fim": datetime(2026, 7, 24, fim_h, 0, tzinfo=UTC),
+    }
+
+
+async def test_proximo_horario_ancora_quando_horario_minimo_some() -> None:
+    # Atendimento #41 (24/07): cliente chegou às 05:10 BRT, expediente 10:00-04:00 -> `agora` está
+    # FORA, `horario_minimo` vira None e a tag some. Antes do fix, o único horário concreto que
+    # sobrava no <agenda> era o `proximo_livre` do bloqueio das 16:00-17:00 (= 17:30) — e a IA o
+    # vendeu como "17:30 é o horário que tenho livre hoje", com o dia livre desde as 10h.
+    conn = _FakeConnAgenda(
+        regras=_regras_10_as_04(),
+        bloqueios=[_bloqueio(19, 20)],  # 16:00-17:00 BRT
+        atendimento={"numero_curto": 41, "estado": "Triagem", "tipo_atendimento": None},
+    )
+    ctx = _ctx_em(datetime(2026, 7, 24, 8, 10, tzinfo=UTC))  # 05:10 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, [], atendimento=conn.atendimento
+    )
+
+    assert variaveis["horario_minimo"] is None  # o silêncio que causou o bug
+    proximo = variaveis["proximo_horario"]
+    assert proximo is not None
+    assert proximo.astimezone(BRT).strftime("%d/%m %H:%M") == "24/07 10:00"
+
+    saida = render_contexto_dinamico(**variaveis)
+    assert 'inicio="Fri 24/07 10:00"' in saida
+    assert "é o seu primeiro" in saida
+    # O 17:30 do bloqueio segue no contexto (a IA precisa saber que a tarde tem um buraco) — mas
+    # agora ele não é mais o único horário concreto do <agenda>.
+    assert 'proximo_livre="Fri 24/07 17:30"' in saida
+
+
+async def test_proximo_horario_respeita_bloqueio_em_cima_da_abertura() -> None:
+    # A abertura crua (10:00) está OCUPADA: anunciá-la ofereceria um horário já vendido. O valor
+    # passa pela mesma aritmética do `horario_minimo` (bloqueio + buffer de 30min) -> 12:30.
+    conn = _FakeConnAgenda(
+        regras=_regras_10_as_04(),
+        bloqueios=[_bloqueio(13, 15)],  # 10:00-12:00 BRT, bem em cima da abertura
+        atendimento={"numero_curto": 41, "estado": "Triagem", "tipo_atendimento": None},
+    )
+    ctx = _ctx_em(datetime(2026, 7, 24, 8, 10, tzinfo=UTC))  # 05:10 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, [], atendimento=conn.atendimento
+    )
+
+    proximo = variaveis["proximo_horario"]
+    assert proximo is not None
+    assert proximo.astimezone(BRT).strftime("%d/%m %H:%M") == "24/07 12:30"
+
+
+async def test_proximo_horario_cobre_o_fim_do_periodo_de_trabalho() -> None:
+    # Zona morta: 03:50 numa janela 10:00-04:00 é `agora` COBERTO (transbordo do dia anterior), mas
+    # sem nenhum slot até o encerramento das 04:00 -> `horario_minimo` é None do mesmo jeito. Se o
+    # gate fosse "está fora do período de trabalho", este caso ficaria sem sinal — o mesmo silêncio
+    # do #41, uma hora antes de o cliente dele chegar.
+    conn = _FakeConnAgenda(
+        regras=_regras_10_as_04(),
+        bloqueios=[],
+        atendimento={"numero_curto": 41, "estado": "Triagem", "tipo_atendimento": "interno"},
+    )
+    ctx = _ctx_em(datetime(2026, 7, 24, 6, 50, tzinfo=UTC))  # 03:50 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, [], atendimento=conn.atendimento
+    )
+
+    assert variaveis["horario_minimo"] is None
+    proximo = variaveis["proximo_horario"]
+    assert proximo is not None
+    assert proximo.astimezone(BRT).strftime("%d/%m %H:%M") == "24/07 10:00"
+
+
+async def test_proximo_horario_ausente_quando_ha_horario_minimo() -> None:
+    # Dentro da janela e com slot (15:00 BRT): a tag não aparece — quem ancora é o <horario_minimo>.
+    conn = _FakeConnAgenda(
+        regras=_regras_10_as_04(),
+        bloqueios=[],
+        atendimento={"numero_curto": 41, "estado": "Triagem", "tipo_atendimento": "interno"},
+    )
+    ctx = _ctx_em(datetime(2026, 7, 24, 18, 0, tzinfo=UTC))  # 15:00 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, [], atendimento=conn.atendimento
+    )
+
+    assert variaveis["horario_minimo"] is not None
+    assert variaveis["proximo_horario"] is None
+    assert "<proximo_horario" not in render_contexto_dinamico(**variaveis)
+
+
+async def test_proximo_horario_ausente_sem_disponibilidade_cadastrada() -> None:
+    # Modelo sem regra é reservável SEMPRE (CONTEXT.md "Disponibilidade"): `horario_minimo` nunca
+    # falta, então a tag não nasce. Guarda contra um cadastro vazio virar "não tenho horário".
+    conn = _FakeConnAgenda(
+        regras=[],
+        bloqueios=[],
+        atendimento={"numero_curto": 41, "estado": "Triagem", "tipo_atendimento": "interno"},
+    )
+    ctx = _ctx_em(datetime(2026, 7, 24, 8, 10, tzinfo=UTC))  # 05:10 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, ctx, [], atendimento=conn.atendimento
+    )
+
+    assert variaveis["horario_minimo"] is not None
+    assert variaveis["proximo_horario"] is None
+    assert "<proximo_horario" not in render_contexto_dinamico(**variaveis)
+
+
 async def test_relogio_do_encontro_so_com_horario_combinado_nao_desejado() -> None:
     # CONTEXT.md: desejado ≠ combinado. Em Qualificado o horário ainda está em negociação — o relógio
     # do encontro NÃO pode renderizar (senão a conduta de chegada trataria um horário só-desejado e

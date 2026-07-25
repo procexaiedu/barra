@@ -1251,3 +1251,62 @@ async def test_sem_cotacao_apresentada_nao_carimba(
     a = await res.fetchone()
     assert a is not None
     assert a["cotacao_enviada_em"] is None
+
+
+@pytest.mark.needs_db
+async def test_intencao_nao_rebaixa_de_agendamento(conn: AsyncConnection[dict[str, Any]]) -> None:
+    """`intencao` e MONOTONICA: o COALESCE incremental deixava o extrator barato rebaixar
+    'agendamento' -> 'cotacao' no turno seguinte, devolvendo o slot "ele querer mesmo marcar" ao
+    belief e prendendo o atendimento em Triagem (#35, 24/07)."""
+    _, atendimento_id = await _seed_par(conn, estado="Triagem", intencao="agendamento")
+
+    await registrar_extracao_ia(
+        conn, str(atendimento_id), {"intencao": "cotacao", "proxima_acao_esperada": "cotar"}
+    )
+
+    res = await conn.execute(
+        "SELECT intencao::text AS intencao FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["intencao"] == "agendamento"  # nao rebaixou
+
+
+@pytest.mark.needs_db
+async def test_intencao_rebaixa_com_limpar_explicito(conn: AsyncConnection[dict[str, Any]]) -> None:
+    """O canal do RECUO continua aberto: `limpar` tem precedencia sobre a monotonicidade -- e o
+    jeito de o cliente que desmarcou desqualificar o atendimento (DESC do campo)."""
+    _, atendimento_id = await _seed_par(conn, estado="Triagem", intencao="agendamento")
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"limpar": ["intencao"], "proxima_acao_esperada": "cliente recuou"},
+    )
+
+    res = await conn.execute(
+        "SELECT intencao::text AS intencao FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["intencao"] is None
+
+
+@pytest.mark.needs_db
+async def test_intencao_sobe_normalmente(conn: AsyncConnection[dict[str, Any]]) -> None:
+    """Monotonicidade nao trava a SUBIDA: cotacao -> agendamento grava normal."""
+    _, atendimento_id = await _seed_par(conn, estado="Triagem", intencao="cotacao")
+
+    await registrar_extracao_ia(
+        conn, str(atendimento_id), {"intencao": "agendamento", "proxima_acao_esperada": "fechar"}
+    )
+
+    res = await conn.execute(
+        "SELECT intencao::text AS intencao FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["intencao"] == "agendamento"

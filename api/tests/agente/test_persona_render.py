@@ -80,7 +80,10 @@ def test_coerencia_thread_longa_no_canonico() -> None:
     sempre, não só na thread longa (a disciplina multi-site do agente/CLAUDE.md: canônico define,
     reminder ecoa)."""
     txt = render_persona()
-    # #1: bairro chutado não vira endereço novo (linha do degrau de endereço)
-    assert "Cambuí" in txt and "bairro que ele chutar" in txt
+    # #1: bairro chutado não vira endereço novo (linha do degrau de endereço). A âncora não cita
+    # mais um bairro REAL da operação: usar "Cambuí" (bairro cadastrado da Tatiane) como exemplo
+    # de chute do cliente contaminava a fala — em prod ela respondeu "centro" com Cambuí no
+    # cadastro (#36, 24/07). O exemplo agora é ilustrativo de outra cidade.
+    assert "bairro que ele chutar" in txt.lower() and "palavra por palavra" in txt
     # #2: o que ele acabou de recusar manda, não reintroduzir ato tirado da mesa
     assert "tirou da mesa" in txt and "perdeu o fio" in txt

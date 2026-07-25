@@ -47,6 +47,13 @@ def test_variantes_do_probe():
         assert _confirmou_dia_hoje(msgs) is True, probe
 
 
+def test_probe_na_variante_agora_confirma_o_dia():
+    # #35 (24/07): "Seria agora ?" + "sim" é o mesmo par de correferência que "seria hoje ?" — o
+    # cliente cravou o dia e o belief tem que trazê-lo em <ja_combinado>.
+    for probe in ("Seria agora ?", "Vem agora ?"):
+        assert _confirmou_dia_hoje([_ia(probe), _cli("sim")]) is True, probe
+
+
 def test_afirmacao_com_vocativo():
     msgs = [_ia("seria hoje? 😊"), _cli("sim amor")]
     assert _confirmou_dia_hoje(msgs) is True
@@ -171,6 +178,18 @@ def test_ja_sondou_detecta_probe_da_ia():
 def test_ja_sondou_variantes_do_probe():
     for probe in ("é pra hoje?", "pra hoje?", "é hoje?", "seria hoje amor?"):
         assert _ja_sondou_o_dia([_ia(probe), _cli("oi")]) is True, probe
+
+
+def test_ja_sondou_variante_agora():
+    # Regressão do atendimento #35 (24/07): a IA sondou "Seria agora ?" e nunca disse "hoje" — o
+    # regex só via "hoje", o guard nunca ligou e ela recolou o empurrão 3x ("Vem agora ?").
+    for probe in ("Seria agora ?", "Vem agora ?", "Pode vir agora amor", "seria pra agora?"):
+        assert _ja_sondou_o_dia([_ia(probe), _cli("oi")]) is True, probe
+
+
+def test_ja_sondou_ignora_contraproposta_com_hoje():
+    # "vier hoje" é a contraproposta do <desconto>, não a sondagem: `\bvir\b` não casa "vier".
+    assert _ja_sondou_o_dia([_ia("Consigo 500 se você vier hoje 😊"), _cli("oi")]) is False
 
 
 def test_ja_sondou_falso_no_turno_de_abertura():

@@ -24,6 +24,7 @@ from barra.dominio.modelos.disponibilidade import (
     bloqueios_futuros_fora,
     fim_sessao,
     modelo_disponivel_em,
+    proxima_abertura,
 )
 
 
@@ -355,3 +356,71 @@ async def test_rota_put_get_disponibilidade(conn: AsyncConnection[dict[str, Any]
     # PUT idempotente / replace-all: salvar lista vazia limpa tudo.
     vazio = await substituir_disponibilidade(modelo_id, DisponibilidadeReplace(regras=[]), conn)
     assert vazio["regras"] == []
+
+
+# --- proxima_abertura (atendimento #41, 24/07) -------------------------------------------------
+# Contrato ESTRITO: a próxima janela a ABRIR, nunca o próprio `agora`. Quem consome é o contexto
+# dinâmico do agente — narrativa do incidente em `agente/nos/prepare_context.py`.
+
+
+def _regras_todo_dia(hora_inicio: time, hora_fim: time) -> list[dict[str, Any]]:
+    """Uma regra por dia da semana — o cadastro real da modelo do #41 (10:00-04:00, todo dia)."""
+    return [_regra(date(2026, 6, 1), None, dow, hora_inicio, hora_fim) for dow in range(7)]
+
+
+def test_proxima_abertura_no_caso_do_41() -> None:
+    # 05:10 de Qui, expediente 10:00-04:00 todo dia: abre às 10:00 do MESMO dia.
+    agora = datetime(2026, 6, 25, 5, 10, tzinfo=BRT)
+    regras = _regras_todo_dia(time(10, 0), time(4, 0))
+    assert proxima_abertura(regras, agora) == datetime(2026, 6, 25, 10, 0, tzinfo=BRT)
+
+
+def test_proxima_abertura_depois_do_fim_rola_pro_dia_seguinte() -> None:
+    # Expediente 10:00-18:00; 22:00 de Qui já encerrou: abre às 10:00 de Sex.
+    agora = datetime(2026, 6, 25, 22, 0, tzinfo=BRT)
+    regras = _regras_todo_dia(time(10, 0), time(18, 0))
+    assert proxima_abertura(regras, agora) == datetime(2026, 6, 26, 10, 0, tzinfo=BRT)
+
+
+def test_proxima_abertura_dentro_da_janela_da_a_abertura_seguinte() -> None:
+    # Contrato estrito: 15:00 já está DENTRO da janela de Qui, mas a próxima ABERTURA é a de Sex.
+    # Devolver o próprio `agora` faria a função responder duas perguntas com o mesmo valor.
+    agora = datetime(2026, 6, 25, 15, 0, tzinfo=BRT)
+    regras = _regras_todo_dia(time(10, 0), time(4, 0))
+    assert proxima_abertura(regras, agora) == datetime(2026, 6, 26, 10, 0, tzinfo=BRT)
+
+
+def test_proxima_abertura_no_transbordo_pos_meia_noite() -> None:
+    # 03:50 de Sex é o transbordo da janela de Qui (10:00-04:00) — encerra em 10 min. O transbordo
+    # NÃO é abertura nova, então a resposta é a abertura de Sex às 10:00. Esta é a zona morta que
+    # o contrato antigo (devolver `agora` por estar coberto) deixava sem sinal nenhum.
+    agora = datetime(2026, 6, 26, 3, 50, tzinfo=BRT)
+    regras = _regras_todo_dia(time(10, 0), time(4, 0))
+    assert proxima_abertura(regras, agora) == datetime(2026, 6, 26, 10, 0, tzinfo=BRT)
+
+
+def test_proxima_abertura_pula_dias_sem_regra() -> None:
+    # Só sexta 14:00-22:00: de uma quinta 06:00, a abertura é a sexta seguinte às 14h.
+    regras = [_regra(date(2026, 6, 1), None, _DOW_SEX, time(14, 0), time(22, 0))]
+    agora = datetime(2026, 6, 25, 6, 0, tzinfo=BRT)
+    assert proxima_abertura(regras, agora) == datetime(2026, 6, 26, 14, 0, tzinfo=BRT)
+
+
+def test_proxima_abertura_respeita_data_fim() -> None:
+    # Regra encerrada ontem: não há abertura dentro do horizonte.
+    regras = [_regra(date(2026, 6, 1), date(2026, 6, 24), _DOW_SEX, time(14, 0), time(22, 0))]
+    agora = datetime(2026, 6, 25, 6, 0, tzinfo=BRT)
+    assert proxima_abertura(regras, agora) is None
+
+
+def test_proxima_abertura_sem_regras_e_none() -> None:
+    # Sem regra = reservável sempre (CONTEXT.md "Disponibilidade"): não há abertura a anunciar.
+    assert proxima_abertura([], _QUI) is None
+
+
+def test_proxima_abertura_naive_assume_brt() -> None:
+    # Mesma convenção de `regras_cobrem`/`fim_sessao`: naive é lido como BRT.
+    regras = _regras_todo_dia(time(10, 0), time(4, 0))
+    assert proxima_abertura(regras, datetime(2026, 6, 25, 5, 10)) == datetime(
+        2026, 6, 25, 10, 0, tzinfo=BRT
+    )

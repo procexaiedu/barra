@@ -4,7 +4,7 @@
 {% if data_desejada %}<dia{% if not horario_ja_combinado %} status="pedido dele, ainda não confirmado"{% endif %}>{{ data_desejada }}</dia>{% endif %}
 {% if horario_desejado %}<hora{% if not horario_ja_combinado %} status="pedido dele, ainda não confirmado"{% endif %}>{{ horario_desejado }}</hora>{% endif %}
 {% if endereco %}<local>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</local>{% endif %}
-{% if valor_fechado %}<valor_fechado>{{ valor_fechado }}{% if duracao_fechada %} ({{ duracao_fechada }}h){% endif %} — valor já combinado com ele: não re-cote nem renegocie</valor_fechado>{% endif %}
+{% if valor_fechado and valor_aceito %}<valor_fechado>{{ valor_fechado }}{% if duracao_fechada %} ({{ duracao_fechada }}h){% endif %} — valor já combinado com ele: não re-cote nem renegocie</valor_fechado>{% elif valor_fechado %}<valor_cotado>{{ valor_fechado }}{% if duracao_fechada %} ({{ duracao_fechada }}h){% endif %} — preço que VOCÊ já cotou e ele AINDA NÃO aceitou: não cote outro número nem repita este solto, mas também não o trate como fechado ("combinado", "fechamos", "confirmado" não cabem ainda, e o horário não se crava sobre um valor que ele não topou). O que falta é o sim dele; se ele objetar preço, vale a escada do <desconto></valor_cotado>{% endif %}
 {% if urgencia %}<urgencia>{{ urgencia }}</urgencia>{% endif %}
 {% if tipo_atendimento == 'externo' %}<pix_deslocamento>{{ pix_status }}</pix_deslocamento>{% endif %}
 </ja_combinado>
@@ -39,6 +39,7 @@ Sua tabela em <programas> vai até {{ '%g'|format(tabela_max_horas) }}h — pern
 
 <agenda hoje="{{ data_atual }}" agora="{{ hora_atual }}" janela="próximas 48h">
 {% if horario_minimo %}<horario_minimo inicio="{{ horario_minimo|brt('%a %d/%m %H:%M') }}"/>
+{% endif %}{% if proximo_horario %}<proximo_horario inicio="{{ proximo_horario|brt('%a %d/%m %H:%M') }}">Você não tem NENHUM horário pra oferecer antes deste — é o seu primeiro. Ancore nele, pela sua conduta de período de trabalho.</proximo_horario>
 {% endif %}{% if combinado_hora is defined and min_para_combinado is defined and combinado_hora and min_para_combinado is not none %}<relogio_do_encontro combinado="{{ combinado_hora }}" status="{% if min_para_combinado > 0 %}faltam ~{{ min_para_combinado }} min{% elif min_para_combinado == 0 %}é agora{% else %}já passou ~{{ -min_para_combinado }} min do horário combinado{% endif %}"/>
 {% endif %}{% if bloqueios %}{% for b in bloqueios %}<bloqueio inicio="{{ b.inicio|brt('%a %d/%m %H:%M') }}" fim="{{ b.fim|brt('%H:%M') }}" estado="ocupado"{% if b.proximo_livre %} proximo_livre="{{ b.proximo_livre|brt('%a %d/%m %H:%M') }}"{% endif %}/>
 {% endfor %}{% else %}<livre>sem bloqueios nas próximas 48h, nenhum horário ocupado</livre>

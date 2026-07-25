@@ -109,6 +109,48 @@ def fim_sessao(regras: list[dict[str, Any]], agora: datetime) -> datetime | None
     return max(fins) if fins else None
 
 
+# Horizonte da busca da próxima abertura: 8 dias cobre a semana inteira + o dia corrente, então
+# qualquer regra semanal ainda vigente aparece. Regra já encerrada (`data_fim` no passado) não tem
+# volta — devolve None, e o chamador simplesmente não anuncia nada.
+_HORIZONTE_ABERTURA_DIAS = 8
+
+
+def proxima_abertura(regras: list[dict[str, Any]], agora: datetime) -> datetime | None:
+    """Próximo instante >= `agora` em que uma janela de Disponibilidade ABRE (datetime BRT).
+
+    Contrato ESTRITO — é a próxima abertura, não "quando ela volta a estar livre": se `agora` já
+    cai numa janela, o retorno é a abertura SEGUINTE (15:00 numa janela 10:00-04:00 -> 10:00 de
+    amanhã), nunca o próprio `agora`. Cabe ao chamador decidir o que fazer com isso; devolver
+    `agora` faria a função responder duas perguntas diferentes com o mesmo valor, e foi o que criou
+    uma zona morta no FIM do expediente (`agora` coberto pelo transbordo das 03:50, mas sem nenhum
+    slot até o encerramento das 04:00 — nem a abertura seguinte, nem sinal nenhum).
+
+    Sem regra (disponível sempre — CONTEXT.md "Disponibilidade") ou nenhuma abertura dentro do
+    horizonte -> None: não há "próxima abertura" a anunciar.
+
+    Só considera o INÍCIO de cada janela (`hora_inicio`); o transbordo pós-meia-noite de uma janela
+    que já começou não é abertura nova — é a mesma sessão seguindo, e `fim_sessao` é quem a fecha.
+
+    Nasceu do atendimento #41 (24/07) — a narrativa completa está no chamador
+    (`agente/nos/prepare_context.py`, bloco `proximo_horario`).
+    """
+    if not regras:
+        return None
+    loc = (agora if agora.tzinfo else agora.replace(tzinfo=BRT)).astimezone(BRT)
+    candidatos: list[datetime] = []
+    for offset in range(_HORIZONTE_ABERTURA_DIAS):
+        dia = loc.date() + timedelta(days=offset)
+        for regra in regras:
+            if regra["dia_semana"] != _dow_postgres(datetime.combine(dia, time())):
+                continue
+            if not _no_periodo(dia, regra["data_inicio"], regra["data_fim"]):
+                continue
+            inicio = datetime.combine(dia, regra["hora_inicio"], tzinfo=BRT)
+            if inicio >= loc:
+                candidatos.append(inicio)
+    return min(candidatos) if candidatos else None
+
+
 async def carregar_regras_disponibilidade(
     conn: AsyncConnection[Any], modelo_id: UUID
 ) -> list[dict[str, Any]]:

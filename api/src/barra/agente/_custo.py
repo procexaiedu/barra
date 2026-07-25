@@ -107,14 +107,18 @@ def _tabela_preco(model_name: str | None) -> dict[str, float]:
 #    (settings.openrouter_model_vision_pix; default "google/gemini-3-flash-preview" em pix.py),
 #    entao adotamos a tabela publica do Gemini 3 Flash (input $0.50 / output $3.00). Se o
 #    operador fixar outro modelo no OpenRouter, ajustar aqui.
-#  - TARIFA_STT_USD_POR_MINUTO: Whisper-1 da OpenAI e faturado por minuto de audio
-#    (referencia publica $0.006/min). Confirmar a alic. real / eventual desconto antes de tratar
-#    como custo fechado.
+#  - PRECO_STT_USD_PER_MTOK: o STT tambem roteia pelo OpenRouter, por chat completions com
+#    `input_audio` (settings.openrouter_model_audio_transcribe; default "google/gemini-3.1-flash-lite"
+#    em media.py) — faturado por TOKEN, nao por minuto de audio. Tabela publica do Gemini 3.1 Flash
+#    Lite: audio de entrada $0.50 / output $1.50. Se o operador fixar outro modelo, ajustar aqui.
 PRECO_VISION_USD_PER_MTOK: dict[str, float] = {
     "input": 0.50,
     "output": 3.00,
 }
-TARIFA_STT_USD_POR_MINUTO: float = 0.006
+PRECO_STT_USD_PER_MTOK: dict[str, float] = {
+    "input": 0.50,
+    "output": 1.50,
+}
 
 
 def calcular_custo_vision_brl(usage: Any, cotacao_usd_brl: float) -> float:
@@ -136,15 +140,20 @@ def calcular_custo_vision_brl(usage: Any, cotacao_usd_brl: float) -> float:
     return usd * cotacao_usd_brl
 
 
-def calcular_custo_stt_brl(duracao_segundos: float, cotacao_usd_brl: float) -> float:
-    """Custo em BRL de UMA transcricao Whisper a partir da duracao do audio (faturado por minuto).
+def calcular_custo_stt_brl(usage: Any, cotacao_usd_brl: float) -> float:
+    """Custo em BRL de UMA transcricao a partir do `usage` do chat completions do OpenRouter.
 
-    `duracao_segundos` vem do `resposta.duration` do verbose_json do Whisper-1 (ja lida em
-    media.py). Duracao <= 0 (audio nao medido / fake) -> 0.0.
+    Mesma forma do vision (o STT tambem e' chat completions, com um content part `input_audio`):
+    `usage=None` (fake de teste sem usage) -> 0.0. Os tokens de audio entram no `prompt_tokens`.
     """
-    if duracao_segundos <= 0:
+    if usage is None:
         return 0.0
-    return (duracao_segundos / 60.0) * TARIFA_STT_USD_POR_MINUTO * cotacao_usd_brl
+    prompt_t: int = getattr(usage, "prompt_tokens", 0) or 0
+    completion_t: int = getattr(usage, "completion_tokens", 0) or 0
+    usd: float = (
+        prompt_t * PRECO_STT_USD_PER_MTOK["input"] + completion_t * PRECO_STT_USD_PER_MTOK["output"]
+    ) / 1_000_000
+    return usd * cotacao_usd_brl
 
 
 def custo_por_atendimento_brl(chat_brl: float, stt_brl: float, vision_brl: float) -> float:

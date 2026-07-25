@@ -46,6 +46,7 @@ from barra.core.db import conexao
 from barra.core.metrics import PERSONA_DRIFT_REMINDER
 from barra.dominio.atendimentos.service import derivar_belief_state
 from barra.dominio.conversas.modelos import DirecaoMensagem
+from barra.dominio.modelos.disponibilidade import proxima_abertura
 from barra.settings import get_settings
 
 from .._classificador import classificar_janela
@@ -142,6 +143,15 @@ async def prepare_context(
             local_nome_raw,
         ) = await _carregar_bp3(conn, ctx.modelo_id)
 
+        # 3c. Piso de intenção (#35, 24/07): a MESMA correferência que alimenta o A2 do belief
+        #     ("seria hoje/agora ?" + "sim") vai ao State p/ o nó `extrair` corrigir o julgamento do
+        #     extrator barato. Computado AQUI, ANTES da anexação: o contexto dinâmico é concatenado
+        #     no último HumanMessage, e uma afirmação curta que seja a msg ATUAL ("sim") deixaria de
+        #     ser "curta" depois de receber o bloco na cauda. Restrito ao burst ATUAL (não à janela
+        #     inteira, como o A2): o piso é evento, não estado — senão um "sim" antigo seguiria
+        #     forçando `agendamento` depois de o cliente recuar.
+        sondagem_aceita = _sondagem_aceita_no_turno(mensagens)
+
         # 4. Contexto dinâmico (02 §5): resolve cliente/agenda na MESMA conexão e concatena no
         #    último HumanMessage (sem cache_control — texto volátil na cauda). Recebe o atendimento
         #    já lido (1), o max_horas e o local já resolvidos (3). Devolve a `fase` (= estado do
@@ -179,6 +189,7 @@ async def prepare_context(
             "_categoria": categoria,
             "_confianca": confianca,
             "horario_minimo": horario_minimo,
+            "sondagem_aceita": sondagem_aceita,
         },
     )
 
@@ -368,6 +379,38 @@ def _e_afirmacao_curta(texto: str) -> bool:
     if not norm:
         return False
     return norm in _AFIRMACOES or norm.split()[0] in _AFIRMACOES_FORTES
+
+
+def _sondagem_aceita_no_turno(mensagens: list[BaseMessage]) -> bool:
+    """True se a afirmação que aceita a sondagem do dia está no burst ATUAL (a fala deste turno),
+    não em qualquer ponto da janela.
+
+    Diferença deliberada para `_confirmou_dia_hoje` (que varre a janela inteira e por isso segue
+    valendo depois de o cliente recuar): o piso de `intencao` é um EVENTO — "ele acabou de dizer
+    sim" —, não um estado permanente. Restringir ao burst atual é o que impede um "sim" de dez
+    turnos atrás de continuar forçando `agendamento` depois de um "ainda não vai dar". O efeito de
+    ter disparado uma vez não se perde: a FSM não regride, então o `estado` promovido (e o
+    <local_de_encontro> que ele destrava) persiste sozinho — quem preserva a `intencao` entre
+    turnos é a monotonicidade do UPSERT (dominio/atendimentos/service.py `_montar_upsert`).
+    """
+    # Burst atual = HumanMessages contíguas no fim da janela (o cliente pode mandar várias bolhas).
+    i = len(mensagens)
+    while i > 0 and isinstance(mensagens[i - 1], HumanMessage):
+        i -= 1
+    burst = mensagens[i:]
+    if not burst:  # último turno não é do cliente -> não há afirmação nova
+        return False
+    if any(_TOKEN_OUTRO_DIA.search(_texto_msg(m).lower()) for m in burst):
+        return False
+    if not any(_e_afirmacao_curta(_texto_msg(m)) for m in burst):
+        return False
+    # Sondagem tem que estar nas bolhas contíguas da IA imediatamente antes do burst.
+    j = i - 1
+    while j >= 0 and isinstance(mensagens[j], AIMessage):
+        if _PROBE_DIA_HOJE.search(_texto_msg(mensagens[j])):
+            return True
+        j -= 1
+    return False
 
 
 def _confirmou_dia_hoje(mensagens: list[BaseMessage]) -> bool:
@@ -616,7 +659,7 @@ async def _carregar_atendimento(conn: AsyncConnection[Any], atendimento_id: str)
         """
         SELECT ia_pausada, numero_curto, estado, intencao, tipo_atendimento, urgencia,
                pix_status, data_desejada, horario_desejado, endereco, bairro,
-               cotacao_enviada_em, valor_acordado, duracao_horas,
+               cotacao_enviada_em, valor_acordado, duracao_horas, sinais_qualificacao,
                n_contrapropostas, dia_sondado_em, book_enviado_em
           FROM barravips.atendimentos
          WHERE id = %s
@@ -751,6 +794,27 @@ async def _resolver_variaveis(
         else None
     )
 
+    # Fallback do horário a oferecer (#41, 24/07). `horario_minimo` é None sempre que NADA cabe na
+    # janela imediata — e aí a tag <horario_minimo> some do prompt EM SILÊNCIO, deixando o contexto
+    # sem nenhum horário próprio pra IA ancorar. No #41 o único número concreto que sobrou no
+    # <agenda> foi o `proximo_livre` de um bloqueio da tarde, e ela o vendeu como "17:30 é o horário
+    # que tenho livre hoje" — com o dia livre desde as 10h. A conduta de período de trabalho
+    # (<agenda>, regras.md.j2) já mandava ancorar a volta; faltava o DADO.
+    #
+    # Não gateia por "estar fora do período de trabalho": as três causas do None convergem na mesma
+    # necessidade (um horário pra ancorar) e distinguir criava zona morta — no FIM do expediente
+    # (03:50 numa janela que encerra 04:00) `agora` ainda está coberto, mas não há slot nenhum.
+    # Passa pela MESMA aritmética do `horario_minimo` (bloqueios + buffer + Disponibilidade, via
+    # `proximo_livre`): anunciar a abertura crua ofereceria um horário já ocupado quando existe
+    # bloqueio em cima dela. `lead_min=0` porque a abertura já é o começo do que é reservável.
+    proximo_horario: datetime | None = None
+    if agora_tz is not None and horario_minimo is None:
+        abertura = proxima_abertura(regras_disp, agora_tz)
+        if abertura is not None:
+            proximo_horario = proximo_livre(
+                abertura, bloqueios_raw, regras_disp, buffer_min, lead_min=0
+            )
+
     # Percepção de tempo na cauda (emenda ADR 0025, 2026-06-26): a IA sabe a hora atual mas era cega
     # ao tempo DECORRIDO — travava num horário fantasma sem perceber que o cliente acabou de chegar
     # ("cheguei, tava estacionando"). Dois marcadores voláteis (cauda, fora do prefixo cacheável):
@@ -820,10 +884,14 @@ async def _resolver_variaveis(
         "horario_ja_combinado": ja_combinado,
         "endereco": atendimento.get("endereco"),
         "bairro": atendimento.get("bairro"),
-        # Valor/duração FECHADOS no snapshot (a janela de 20 msgs desliza; sem isto a IA perde o
-        # acordo que saiu da janela e pode re-cotar/re-negociar). Só existem quando o domínio
-        # aceitou o acordo (guarda do piso) — render condicional no template.
+        # Valor/duração no snapshot (a janela de 20 msgs desliza; sem isto a IA perde o acordo que
+        # saiu da janela e pode re-cotar/re-negociar). `valor_acordado` é gravado JÁ NA COTAÇÃO
+        # (é a base que o guard confere contra o piso de desconto, `_DESC_VALOR`), então sozinho
+        # ele NÃO prova acordo: quem separa cotado de aceito é `sinais_qualificacao.aceita_valor`.
+        # Sem essa distinção o belief anunciava "valor já combinado" logo depois de a IA cotar, e
+        # ela pulava a defesa de preço/escada de desconto pra cravar horário (#38, 24/07).
         "valor_fechado": _num_humano(atendimento.get("valor_acordado")),
+        "valor_aceito": bool((atendimento.get("sinais_qualificacao") or {}).get("aceita_valor")),
         "duracao_fechada": _num_humano(atendimento.get("duracao_horas")),
         "n_contrapropostas": n_contrapropostas,
         # Memória durável do atendimento p/ as flags A2 (colunas materializadas no write-time):
@@ -846,6 +914,7 @@ async def _resolver_variaveis(
         "bloqueios": bloqueios,
         "disponibilidade": disponibilidade,
         "horario_minimo": horario_minimo,
+        "proximo_horario": proximo_horario,
         "min_desde_ultima_msg_cliente": min_desde_ultima_msg_cliente,
         "combinado_hora": combinado_hora,
         "min_para_combinado": min_para_combinado,

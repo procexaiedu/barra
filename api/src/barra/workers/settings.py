@@ -207,23 +207,21 @@ async def startup(ctx: dict[str, Any]) -> None:
     # validar_pix lida com vision_client=None levantando ao ser chamado (nao deveria sem chave).
     # timeout 60s + 3 retries (espelha o openai_client abaixo, REL-04): vision pendurado nao pode
     # segurar o slot do worker ate o job_timeout=400s.
-    if settings.openrouter_api_key:
-        ctx["vision_client"] = AsyncOpenAI(
+    # O STT (transcrever_audio, 06 §1.3) fala com o MESMO endpoint: no OpenRouter a transcricao
+    # e' chat completions com um content part `input_audio`, nao um /audio/transcriptions. Mesma
+    # chave, mesmo timeout e mesma politica de retry -> um cliente so, exposto pelos dois nomes.
+    openrouter_client = (
+        AsyncOpenAI(
             api_key=settings.openrouter_api_key,
             base_url="https://openrouter.ai/api/v1",
             timeout=60.0,
             max_retries=3,
         )
-    else:
-        ctx["vision_client"] = None
-    # Cliente OpenAI compartilhado entre invocacoes de transcrever_audio (06 §1.3): timeout 60s
-    # + 3 retries automaticos no SDK; 5xx persistente sobe como APIError e o ARQ retenta o job.
-    if settings.openai_api_key:
-        ctx["openai_client"] = AsyncOpenAI(
-            api_key=settings.openai_api_key, timeout=60.0, max_retries=3
-        )
-    else:
-        ctx["openai_client"] = None
+        if settings.openrouter_api_key
+        else None
+    )
+    ctx["vision_client"] = openrouter_client
+    ctx["audio_client"] = openrouter_client
     # Re-arma os gauges de rollback (barra_rollback_gatilho) no boot. Eles vivem no processo, e
     # todo deploy de prompt força update deste worker: sem isto a série SOME e o alerta que estava
     # firing "resolve" sozinho — silêncio indistinguível de "voltou ao normal" até o cron das 05:00.

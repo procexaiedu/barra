@@ -256,3 +256,65 @@ async def test_extracao_barata_roda_sem_system_geral() -> None:
     assert len(systems) == 1 and systems[0].content != system.content  # system minimo
     assert HumanMessage(content="22h") in janela
     assert _fala() not in janela  # a fala final foi excluida da janela de extracao
+
+
+# --- piso deterministico de `intencao` (#35, 24/07) -------------------------------------------
+
+
+async def test_piso_sobe_intencao_quando_sondagem_foi_aceita() -> None:
+    """Janela prova "seria hoje/agora ?" + "sim" (sondagem_aceita no State) e o extrator barato
+    gravou 'cotacao' -> o no corrige p/ 'agendamento' ANTES de executar a tool. Sem isso o belief
+    repete "ele querer mesmo marcar" todo turno e o estado nunca sai de Triagem (#35)."""
+    chat = _FakeChat(_forcado())
+    tool = _FakeToolExtracao(_tool_ok())
+    node = no_extrair(chat, None, tool)  # type: ignore[arg-type]
+    state = {
+        "messages": [HumanMessage(content="sim"), _fala()],
+        "sondagem_aceita": True,
+    }
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    # a tool recebeu a intencao ja corrigida
+    assert tool.chamadas[0]["args"]["intencao"] == "agendamento"
+    # e a AIMessage forcada do registro reflete o que foi persistido (auditoria bate com o banco)
+    assert chat.forcado._forcado.tool_calls[0]["args"]["intencao"] == "agendamento"
+
+
+async def test_piso_nao_dispara_sem_sondagem_aceita() -> None:
+    """Sem a correferencia na janela o julgamento do extrator vale: 'cotacao' segue 'cotacao'."""
+    chat = _FakeChat(_forcado())
+    tool = _FakeToolExtracao(_tool_ok())
+    node = no_extrair(chat, None, tool)  # type: ignore[arg-type]
+    state = {"messages": [HumanMessage(content="quanto é?"), _fala()]}  # flag ausente no State
+
+    await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert tool.chamadas[0]["args"]["intencao"] == "cotacao"
+
+
+def test_piso_so_sobe_nunca_rebaixa() -> None:
+    """O piso e um MINIMO: o que o extrator julgou igual ou acima de 'agendamento' fica intacto."""
+    from barra.agente.nos.extrair import _aplicar_piso_intencao
+
+    tc = {"args": {"intencao": "agendamento"}}
+    assert _aplicar_piso_intencao(tc, True) is False
+    assert tc["args"]["intencao"] == "agendamento"
+
+
+def test_piso_tolera_args_ausentes() -> None:
+    """Defesa: tool_call malformado (args nao-dict) nao explode o turno -- so nao aplica o piso."""
+    from barra.agente.nos.extrair import _aplicar_piso_intencao
+
+    assert _aplicar_piso_intencao({"args": None}, True) is False
+    assert _aplicar_piso_intencao({}, True) is False
+
+
+def test_piso_sobe_intencao_ausente() -> None:
+    """Extrator omitiu `intencao` mas a janela prova o aceite -> vira 'agendamento'."""
+    from barra.agente.nos.extrair import _aplicar_piso_intencao
+
+    tc: dict[str, Any] = {"args": {"horario_desejado": "22:00"}}
+    assert _aplicar_piso_intencao(tc, True) is True
+    assert tc["args"]["intencao"] == "agendamento"

@@ -22,7 +22,7 @@ from barra.core.feedback_inbox import (
     montar_inbox_payload,
     parse_rodape_issue,
 )
-from barra.core.metrics import COMANDOS_GRUPO, WEBHOOK_ERRORS
+from barra.core.metrics import COMANDOS_GRUPO, WEBHOOK_DESCARTES, WEBHOOK_ERRORS
 from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import garantir_conversa, listar_pendencias_modelo
 from barra.dominio.escaladas.service import Autor, aplicar_comando
@@ -162,6 +162,82 @@ def _decodificar_base64(b64: str, mimetype: str | None, max_bytes: int) -> tuple
     return raw, ct
 
 
+# A EvoGo sobe a mídia decifrada no MinIO dela ANTES de disparar o webhook, mas por pouco (~50ms
+# medidos em prod, 24/07). Uma segunda olhada depois desta espera cobre a corrida; no caso feliz o
+# objeto já está lá e ela nunca acontece.
+_ESPERA_MIDIA_EVOGO_S = 0.5
+
+
+def _ler_midia_evogo(
+    minio: Any, bucket: str, prefix: str, message_id: str, max_bytes: int
+) -> tuple[bytes, str] | None:
+    """Lê a mídia inbound já DECIFRADA do bucket da Evolution GO (sync — roda em executor).
+
+    A EvoGo não entrega base64 inline nem URL baixável: ela decifra a mídia e a sobe no MinIO com
+    key `<prefix><evolution_message_id>.<ext>`. A extensão varia (ogg/jpg/webp), então resolvemos
+    por PREFIXO em vez de adivinhar. Devolve `(bytes, content_type)` como `_baixar_midia`.
+    """
+    objetos = list(minio.list_objects(bucket, prefix=f"{prefix}{message_id}.", recursive=True))
+    if not objetos:
+        return None
+    obj = objetos[0]
+    if obj.size is not None and obj.size > max_bytes:
+        _logger.warning("midia_evogo_excede_limite key=%s limite=%d", obj.object_name, max_bytes)
+        return None
+    resp = minio.get_object(bucket, obj.object_name)
+    try:
+        # Lê no máximo max_bytes+1 (o extra denuncia o estouro): o `size` da listagem já barra o
+        # caso normal, mas se ele vier ausente não podemos puxar um objeto gigante pra memória.
+        dados = resp.read(max_bytes + 1)
+        cabecalhos = getattr(resp, "headers", None) or {}
+    finally:
+        resp.close()
+        resp.release_conn()
+    if len(dados) > max_bytes:
+        _logger.warning("midia_evogo_excede_limite key=%s limite=%d", obj.object_name, max_bytes)
+        return None
+    ct = (cabecalhos.get("content-type") or "").split(";")[0].strip().lower()
+    return dados, ct
+
+
+async def _buscar_midia_evogo(
+    minio: Any, settings: Any, msg: MensagemEvolution
+) -> tuple[bytes, str] | None:
+    """Fallback de mídia inbound da Evolution GO: busca no bucket dela (ver `_ler_midia_evogo`)."""
+    if _ID_OBJETO_INSEGURO.search(msg.evolution_message_id):
+        # O id é 100% controlado pelo remetente e entra no prefixo da listagem; ids reais do
+        # WhatsApp são alfanuméricos, então recusamos em vez de sanitizar (a key na EvoGo usa o
+        # id CRU — um id sanitizado não acharia objeto nenhum).
+        _logger.warning("midia_evogo_id_invalido tipo=%s", msg.tipo)
+        return None
+    for tentativa in (1, 2):
+        try:
+            midia = await asyncio.to_thread(
+                _ler_midia_evogo,
+                minio,
+                settings.evogo_media_bucket,
+                settings.evogo_media_prefix,
+                msg.evolution_message_id,
+                settings.midia_max_bytes,
+            )
+        except Exception as exc:
+            # Bucket inexistente, credencial sem policy nele, MinIO fora: degrada para o
+            # comportamento antigo (mensagem vira 'texto'). Nunca 500 no webhook — a Evolution
+            # trata erro como falha de entrega e reenviaria em loop.
+            _logger.warning("midia_evogo_erro erro=%s", type(exc).__name__)
+            WEBHOOK_ERRORS.labels("midia_evogo").inc()
+            return None
+        if midia is not None:
+            return midia
+        if tentativa == 1:
+            await asyncio.sleep(_ESPERA_MIDIA_EVOGO_S)
+    _logger.warning(
+        "midia_evogo_ausente evolution_id=%s tipo=%s", msg.evolution_message_id, msg.tipo
+    )
+    WEBHOOK_ERRORS.labels("midia_evogo").inc()
+    return None
+
+
 async def _upload_minio(minio: Any, bucket: str, key: str, data: bytes, content_type: str) -> None:
     loop = asyncio.get_running_loop()
     await loop.run_in_executor(
@@ -226,6 +302,7 @@ async def evolution_webhook(
 
     msg = extrair_mensagem(payload)
     if msg is None:
+        _registrar_descarte(payload)
         return {"status": "ignored"}
 
     # Ingestão do rig de feedback (gate: settings.feedback_rig_grupo_jid): a mensagem do grupo de
@@ -263,6 +340,11 @@ async def evolution_webhook(
                 settings.midia_max_bytes,
                 settings.evolution_media_hosts,
             )
+        if midia is None and settings.evogo_media_bucket:
+            # EvoGo: nenhum dos dois caminhos acima existe — nem base64 inline nem URL baixável.
+            # A mídia decifrada mora no bucket dela; sem este fallback toda mídia inbound (áudio,
+            # comprovante de Pix, Foto de portaria) degradava para 'texto' vazio.
+            midia = await _buscar_midia_evogo(minio, settings, msg)
 
     async with pool.connection() as conn:
         if await _mensagem_ja_persistida(conn, msg.evolution_message_id):
@@ -365,6 +447,24 @@ async def _resolver_mensagem_id(pool: Any, evolution_message_id: str) -> UUID | 
             (evolution_message_id,),
         )
     return row["id"] if row else None
+
+
+def _registrar_descarte(payload: dict[str, Any]) -> None:
+    """Telemetria do descarte na borda (`extrair_mensagem` -> None).
+
+    O ramo devolvia 200 'ignored' MUDO: tipo que o parser nao reconhece (pin sem coords, vCard,
+    enquete, tipo novo do WhatsApp) sumia sem log nem metrica, e a operacao so via um "Mensagem
+    nao suportada" no celular -- sem nada do lado de ca para dizer o que era (analise do #36,
+    24/07). Registra so o NOME do campo (`locationMessage`, `contactMessage`...), nunca o
+    conteudo: e telemetria de borda hostil, nao dump de payload de cliente.
+    """
+    data = payload.get("data")
+    message = data.get("message") if isinstance(data, dict) else None
+    chaves = sorted(k for k in message) if isinstance(message, dict) else []
+    # Label de cardinalidade contida: o 1o campo `*Message` do payload nomeia o tipo.
+    tipo = next((k for k in chaves if k.endswith("Message")), "sem_message")
+    WEBHOOK_DESCARTES.labels(tipo).inc()
+    _logger.info("webhook_mensagem_descartada tipo=%s campos=%s", tipo, ",".join(chaves))
 
 
 def _evento_normalizado(payload: dict[str, Any]) -> str | None:
