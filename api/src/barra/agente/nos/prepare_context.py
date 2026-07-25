@@ -52,6 +52,7 @@ from barra.settings import get_settings
 from .._classificador import classificar_janela
 from .._disciplina import (
     _PROBE_DIA_HOJE,
+    classificar_recuo,
     contem_hora_explicita,
     contem_sondagem_imediatismo,
 )
@@ -157,6 +158,12 @@ async def prepare_context(
         #     seja a msg ATUAL ("Perfeito") deixaria de ser "curta" com o bloco concatenado.
         horario_evidenciado = _horario_evidenciado_no_turno(mensagens)
 
+        # 3d. Recuo do cliente (spec extracao-aceite-hibrido): o burst dele retrata o aceite? Vai
+        #     ao State p/ a extração REBAIXAR `aceita_valor` — sem isso o sinal só sobe e o preço
+        #     fica marcado como fechado sobre um cliente que disse "Não" (#19). Mesma janela LIMPA
+        #     e pelo mesmo motivo do bloco acima.
+        recuo_detectado = _recuo_no_turno(mensagens)
+
         # 4. Contexto dinâmico (02 §5): resolve cliente/agenda na MESMA conexão e concatena no
         #    último HumanMessage (sem cache_control — texto volátil na cauda). Recebe o atendimento
         #    já lido (1), o max_horas e o local já resolvidos (3). Devolve a `fase` (= estado do
@@ -195,6 +202,7 @@ async def prepare_context(
             "_confianca": confianca,
             "horario_minimo": horario_minimo,
             "horario_evidenciado": horario_evidenciado,
+            "recuo_detectado": recuo_detectado,
         },
     )
 
@@ -461,6 +469,34 @@ def _horario_evidenciado_no_turno(mensagens: list[BaseMessage]) -> bool:
     return any(
         contem_hora_explicita(_texto_msg(m)) or contem_sondagem_imediatismo(_texto_msg(m))
         for m in _bolhas_ia_antes_do_burst(mensagens, i)
+    )
+
+
+def _recuo_no_turno(mensagens: list[BaseMessage]) -> bool:
+    """True se o burst ATUAL do cliente carrega um recuo (`classificar_recuo`, agente/_disciplina).
+
+    Mesma mecânica de janela do horário evidenciado: o burst dele + as bolhas contíguas da IA
+    imediatamente antes (o antecedente da negativa). EVENTO do turno, não estado — restrito ao
+    burst atual porque um "hoje não consigo" de dez turnos atrás não rebaixa o aceite que veio
+    DEPOIS dele.
+
+    Por que NÃO é write-time como as flags A2 (agente/CLAUDE.md), pelo mesmo motivo do horário
+    evidenciado: aquelas rastreiam o que a IA já fez (carimbáveis quando ela fala); esta lê a fala
+    do CLIENTE e é consumida no MESMO turno, pelo `extrair`.
+
+    Computado sobre a janela LIMPA, antes da anexação do contexto dinâmico — depois dela a cauda do
+    último HumanMessage carrega o belief e a negativa curta deixaria de ser curta.
+    """
+    i = _burst_do_cliente(mensagens)
+    burst = mensagens[i:]
+    if not burst:  # último a falar não foi ele -> nada novo a retratar
+        return False
+    return (
+        classificar_recuo(
+            [_texto_msg(m) for m in burst],
+            [_texto_msg(m) for m in _bolhas_ia_antes_do_burst(mensagens, i)],
+        )
+        is not None
     )
 
 

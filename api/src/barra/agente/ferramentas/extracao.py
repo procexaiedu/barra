@@ -313,6 +313,10 @@ async def registrar_extracao(
     # CLIENTE que sustenta o horario (detector deterministico do prepare_context, estado.py). NAO
     # sai do payload de proposito — o payload e o canal contaminado pelo eco do belief.
     horario_evidenciado = bool(runtime.state.get("horario_evidenciado"))
+    # Recuo do cliente (agente/_disciplina, o porque mora la): mesmo canal e mesmo motivo do acima —
+    # veredito do detector deterministico do TURNO, nunca do payload. O dominio o usa p/ REBAIXAR
+    # `aceita_valor` no merge dos sinais; o `valor_acordado` fica de pe.
+    recuo_detectado = bool(runtime.state.get("recuo_detectado"))
 
     # Clamp antes da revalidacao: o model interno mantem max_length=240 como invariante; aqui o
     # excesso vira truncamento silencioso (ver comentario na assinatura).
@@ -358,6 +362,7 @@ async def registrar_extracao(
                     agora=agora,
                     horario_minimo=horario_minimo,
                     horario_evidenciado=horario_evidenciado,
+                    recuo_detectado=recuo_detectado,
                 ),
             )
         except ConflitoAgenda:

@@ -304,12 +304,17 @@ async def registrar_extracao_ia(
     agora: datetime | None = None,
     horario_minimo: datetime | None = None,
     horario_evidenciado: bool = False,
+    recuo_detectado: bool = False,
 ) -> dict[str, Any]:
     """UPSERT do snapshot da IA + transicao de estado + bloqueio previo, na transacao do chamador.
 
     `horario_evidenciado` e o veredito do detector deterministico do TURNO (prepare_context): a
     janela tem fala do cliente que sustenta o horario. Nunca vem do payload — o payload e o canal
     contaminado pelo eco do belief (ver `_marca_horario_evidenciado`).
+
+    `recuo_detectado` e o veredito do OUTRO detector do turno (mesma origem, mesmo motivo): o
+    cliente retratou o aceite. Rebaixa `aceita_valor` no merge dos sinais (ver
+    `_sinais_qualificacao_do_turno`); nao toca o `valor_acordado`, que segue gravado.
 
     Roda SEM abrir transacao propria: a tool ja envelopa esta chamada em `_executar_idempotente`
     (uma transacao), entao snapshot + transicao + bloqueio sao atomicos (o advisory lock + a
@@ -444,7 +449,7 @@ async def registrar_extracao_ia(
 
     # 1. UPSERT por COALESCE: so campos nao-nulos sobrescrevem; `limpar` forca NULL e tem
     #    PRECEDENCIA sobre o payload (cliente recuou). `sinais_qualificacao` faz merge jsonb.
-    sets, valores = _montar_upsert(payload, limpar)
+    sets, valores = _montar_upsert(payload, limpar, recuo_detectado=recuo_detectado)
     _marca_horario_evidenciado(sets, valores, payload, limpar, horario_evidenciado)
     if not sets:
         return {"mensagem": "Nenhum campo novo para registrar.", "novo_estado": None}
@@ -565,7 +570,9 @@ async def _aviso_saida_aplicavel(conn: AsyncConnection[Any], atendimento_id: UUI
     return bool(a["estado"] == "Aguardando_confirmacao" and a["tipo_atendimento"] == "interno")
 
 
-def _montar_upsert(payload: dict[str, Any], limpar: set[str]) -> tuple[list[str], list[Any]]:
+def _montar_upsert(
+    payload: dict[str, Any], limpar: set[str], *, recuo_detectado: bool = False
+) -> tuple[list[str], list[Any]]:
     """Monta os pares SET do UPSERT. `limpar` forca NULL e vence o payload; demais campos so
     entram quando nao-nulos (COALESCE incremental). Os nomes vem de `_CAMPOS_UPSERT` (constante,
     nunca input do cliente) — f-string de coluna segue o padrao de dominio/agenda/routes.py."""
@@ -587,7 +594,7 @@ def _montar_upsert(payload: dict[str, Any], limpar: set[str]) -> tuple[list[str]
         elif payload.get(campo) is not None:
             sets.append(f"{campo} = %s")
             valores.append(payload[campo])
-    sinais = _sinais_qualificacao_do_turno(payload, limpar)
+    sinais = _sinais_qualificacao_do_turno(payload, limpar, recuo_detectado=recuo_detectado)
     if sinais:
         sets.append("sinais_qualificacao = sinais_qualificacao || %s::jsonb")
         valores.append(json.dumps(sinais))
@@ -668,7 +675,9 @@ async def _promover_intencao_por_evidencia(
     )
 
 
-def _sinais_qualificacao_do_turno(payload: dict[str, Any], limpar: set[str]) -> dict[str, Any]:
+def _sinais_qualificacao_do_turno(
+    payload: dict[str, Any], limpar: set[str], *, recuo_detectado: bool = False
+) -> dict[str, Any]:
     """Sinais de qualificacao a mergear no JSONB (`||`). Parte do que o LLM passou, DERIVA
     `horario_desejado` => `informa_horario` (que o LLM as vezes esquece de marcar — defasagem do
     diagnostico E2E #5, 2026-06-09) e REBAIXA o que o cliente retratou. O campo estruturado e a
@@ -689,10 +698,16 @@ def _sinais_qualificacao_do_turno(payload: dict[str, Any], limpar: set[str]) -> 
     `limpar` REBAIXA o sinal a False em vez de omiti-lo, e tem precedencia sobre o payload (mesmo
     principio do UPSERT). Omitir deixava o merge `||` como latch de mao unica: um `aceita_valor`
     True gravado por engano nunca mais saia, e nem o Recuo pos-objecao (`<conducao_da_venda>`, que
-    manda `limpar` o `valor_acordado`) reabria a escada do desconto."""
+    manda `limpar` o `valor_acordado`) reabria a escada do desconto.
+
+    `recuo_detectado` (detector deterministico do turno; o porque mora em agente/_disciplina)
+    rebaixa pelo MESMO motivo, sem depender de o extrator emitir `limpar`. Ele VENCE o aceite
+    marcado no mesmo turno: falso positivo do detector so reabre a escada do desconto, enquanto o
+    aceite falso trava a venda. Rebaixa SO o sinal — o `valor_acordado` fica gravado (e a base que
+    o guard do piso confere), e o belief volta a apresenta-lo como cotado."""
     sinais = dict(payload.get("sinais_qualificacao") or {})
     # So rebaixa: `valor_acordado` e gravado na cotacao, entao presenca dele nunca prova aceite.
-    if "valor_acordado" in limpar:
+    if "valor_acordado" in limpar or recuo_detectado:
         sinais["aceita_valor"] = False
     # Espelha nos dois sentidos.
     if "horario_desejado" in limpar:

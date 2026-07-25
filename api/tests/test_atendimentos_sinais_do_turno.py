@@ -70,6 +70,30 @@ def test_limpar_vence_o_aceite_que_o_llm_passou_no_mesmo_turno() -> None:
     assert sinais == {"aceita_valor": False}
 
 
+def test_recuo_detectado_rebaixa_aceita_valor() -> None:
+    # Recuo determinístico do turno (#19: "Não" apos "Podemos confirmar 18h ?"): o aceite desce
+    # mesmo quando o extrator nao repete o sinal — o merge `||` sobrescreve chave explicita.
+    assert _sinais_qualificacao_do_turno({}, set(), recuo_detectado=True) == {"aceita_valor": False}
+
+
+def test_recuo_vence_o_aceite_que_o_llm_marcou_no_mesmo_turno() -> None:
+    # Precedencia: aceite marcado + recuo detectado no mesmo turno -> o recuo vence. Falso positivo
+    # do detector so reabre a escada do desconto; falso aceite trava a venda.
+    sinais = _sinais_qualificacao_do_turno(
+        {"sinais_qualificacao": {"aceita_valor": True}}, set(), recuo_detectado=True
+    )
+    assert sinais == {"aceita_valor": False}
+
+
+def test_recuo_nao_mexe_nos_outros_sinais() -> None:
+    # Escopo do rebaixamento e SO o aceite: o resto do turno (e o `valor_acordado`, que nem sinal e)
+    # segue intacto.
+    sinais = _sinais_qualificacao_do_turno(
+        {"valor_acordado": "800", "horario_desejado": "22:00:00"}, set(), recuo_detectado=True
+    )
+    assert sinais == {"informa_horario": True, "aceita_valor": False}
+
+
 def test_sem_campo_nem_sinal_fica_vazio() -> None:
     assert _sinais_qualificacao_do_turno({"proxima_acao_esperada": "x"}, set()) == {}
 

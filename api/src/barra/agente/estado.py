@@ -62,6 +62,12 @@ class EstadoAgente(MessagesState):
         prepare_context, e consumido no `extrair`, sem recomputar nem acoplar no->no) e NUNCA sai
         do payload da extracao — esse e o canal contaminado pelo eco do belief. Nasce ausente a
         cada `ainvoke` (sem checkpointer).
+    recuo_detectado: o burst do CLIENTE no turno carrega um recuo (`_recuo_no_turno`,
+        prepare_context / `classificar_recuo`, _disciplina — o PORQUE mora la). A tool
+        `registrar_extracao` o le e o repassa ao dominio, que REBAIXA
+        `sinais_qualificacao.aceita_valor` no merge. Mesmo canal e mesmos motivos do
+        `horario_evidenciado` (nasce no prepare_context, e consumido na extracao, nunca sai do
+        payload). Nasce ausente a cada `ainvoke` (sem checkpointer).
     """
 
     midia_idx: int
@@ -71,3 +77,4 @@ class EstadoAgente(MessagesState):
     _midia_esgotada: bool
     horario_minimo: datetime | None
     horario_evidenciado: bool
+    recuo_detectado: bool

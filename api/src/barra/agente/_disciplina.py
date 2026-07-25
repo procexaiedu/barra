@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
+from typing import Literal
 
 from ._normalizar import normalizar
 
@@ -136,6 +137,120 @@ def contem_endereco_de_encontro(texto: str, tokens_endereco: set[str]) -> bool:
     if not tokens_endereco:
         return False
     return bool(set(_SEPARADOR_TOKENS.split(normalizar(texto))) & tokens_endereco)
+
+
+# Recuo do cliente (spec extracao-aceite-hibrido) — SITE CANÔNICO do porquê; os outros pontos da
+# cadeia (estado.py, ferramentas/extracao.py, dominio/atendimentos/service.py) referenciam daqui.
+#
+# É a fala que REABRE a negociação de preço, e com ela a escada do <desconto>. O vocabulário é o do
+# `regras.md.j2` <conducao_da_venda> ("Recuo pós-objeção": "Ainda não", "estou analisando", "vou
+# ver", "te chamo antes"), inclusive a distinção que ele já faz do "vou te avisando" — quem diz
+# isso JÁ quer, só não manda no relógio. O prompt é a fonte das formas: mudou a fala de lá, revise
+# `_PEDE_FECHAMENTO`/`_NAO_E_RECUO` aqui, senão o detector fica cego em silêncio.
+#
+# Existe porque o único canal de retratação era o campo `limpar`, que o extrator usou 2 vezes em
+# 531 extrações: na prática o aceite só subia. No #19 o cliente respondeu "Não" ao "Podemos
+# confirmar 18h ?" e o atendimento seguiu com o preço marcado como aceito — o belief passa a
+# mandar "não re-cote nem renegocie" e a venda morre sem nunca oferecer o degrau.
+
+# Lista negativa — NUNCA é recuo: "vou te avisando", "te aviso quando sair", "me confirma". Age
+# sobre a família CONDICIONAL abaixo, que é onde o vocabulário colide de fato ("te aviso quando eu
+# puder" é aviso, não recuo). Recuo EXPLÍCITO na mesma bolha vence o veto: quem escreve "hoje não
+# consigo, te aviso quando der" recuou, e no WhatsApp as duas coisas cabem numa bolha só.
+_NAO_E_RECUO = re.compile(r"\b(?:te avis|vou avisando|me confirma|te confirmo)")
+
+# Recuo AUTÔNOMO explícito: a fala se basta, não precisa de correferência nem sobrevive a veto.
+_RECUO_AUTONOMO = re.compile(
+    # deliberação ("vou ver", "estou analisando", "depois eu vejo")
+    r"\bvou (?:ver|pensar|analisar|dar uma olhada)\b"
+    # "vendo" fica de FORA desta família: "to vendo" é o cliente olhando as fotos tanto quanto
+    # deliberando, e o par "deixa eu ver"/"vou ver" já cobre a deliberação sem essa ambiguidade.
+    r"|\b(?:estou|to) (?:analisando|pensando)\b"
+    r"|\bdeixa eu (?:ver|pensar)\b"
+    r"|\bdepois eu (?:vejo|penso|falo)\b"
+    # impossibilidade agora ("hoje não consigo" — #27)
+    r"|\b(?:hoje|agora) nao (?:consigo|posso|da|vai dar|rola)\b"
+    r"|\bnao (?:consigo|posso|vou conseguir|vai dar|da) (?:hoje|agora)\b"
+    # adiamento para um futuro indefinido ("esperar começo do mês" — #20)
+    r"|\b(?:mes|semana) que vem\b|\bprox(?:imo mes|ima semana)\b"
+    r"|\b(?:comeco|inicio) do mes\b"
+    r"|\bmais (?:pra|para) frente\b"
+    r"|\boutro dia\b|\boutra hora\b"
+    # retorno diferido — só as formas do prompt ("te chamo antes"). "te chamo/te ligo" solto NÃO
+    # entra: "te chamo quando sair de casa" é a mesma coisa que "te aviso quando sair", que a lista
+    # negativa protege (o #34 com outro verbo).
+    r"|\bte (?:chamo|ligo) (?:antes|depois)\b"
+)
+
+# Recuo CONDICIONAL ("quando eu tiver"): mesma classe, mas derrotável pela lista negativa. O sujeito
+# "eu" é exigido porque sem ele a forma é pedido, não recuo — "me manda quando puder" é o cliente
+# pedindo mídia, e rebaixaria o aceite à toa.
+_RECUO_CONDICIONAL = re.compile(
+    r"\bquando eu (?:tiver|puder|der|conseguir)\b|\bassim que eu (?:puder|der|conseguir)\b"
+)
+
+# Negativa CURTA do cliente — conjunto fechado, como as afirmações do detector de horário. Fechado
+# de propósito: "Não conheço" (#24, respondendo a "Campinas ?") começa igual e não é recuo, então
+# um prefixo genérico de "não" rebaixaria o aceite por qualquer negativa de conversa. "ainda não"
+# mora AQUI, e não no recuo autônomo, pelo mesmo motivo: o prompt o cita como resposta À proposta
+# ("Ainda não" depois da sua proposta), e solto ele reabre o #24 ("ainda não conheço, mas topo").
+_NEGATIVAS_CURTAS = frozenset(
+    {
+        "nao",
+        "nao nao",
+        "agora nao",
+        "hoje nao",
+        "ainda nao",
+        "acho que nao",
+        "melhor nao",
+        "nao posso",
+        "nao consigo",
+        "nao da",
+        "nao vai dar",
+        "nao obrigado",
+        "nao por enquanto",
+    }
+)
+_SO_LETRAS = re.compile(r"[^a-z ]+")
+
+# Bolha da IA que PEDE o fechamento — o antecedente que dá sentido ao "não" isolado. Formas
+# canônicas do prompt ("Posso confirmar às 18h ?", "Consigo às 22h, fecha ?", "Confirmado ?",
+# "Fechamos 15h então ?"). O "?" é exigido porque o empurrão de fechamento sempre acaba em "?"
+# (<conducao_da_venda>) — sem ele a bolha é promessa, não proposta.
+_PEDE_FECHAMENTO = re.compile(
+    r"\b(?:confirmar|confirmado|confirmamos|fecha|fechamos|fechado|marcado|marcamos|reservo)\b"
+    r"[^?]*\?"  # o empurrão de fechamento SEMPRE acaba em "?"; sem ele a bolha é promessa
+)
+
+
+def _e_negativa_curta(texto_normalizado: str) -> bool:
+    """True se a bolha é uma negativa curta do conjunto fechado ("não", "agora não", "acho que
+    não"). Reduz a alpha+espaço antes de comparar: descarta emoji e pontuação ("Não 😕" → "nao")."""
+    return " ".join(_SO_LETRAS.sub(" ", texto_normalizado).split()) in _NEGATIVAS_CURTAS
+
+
+def classificar_recuo(
+    falas_cliente: Iterable[str], bolhas_ia: Iterable[str]
+) -> Literal["autonomo", "correferenciado"] | None:
+    """Classifica o recuo do cliente no turno; `None` = não recuou.
+
+    `falas_cliente` são as bolhas do burst ATUAL dele; `bolhas_ia` as bolhas contíguas da IA
+    imediatamente antes — o antecedente ao qual a negativa se refere.
+
+    Duas classes, porque o "não" isolado é ambíguo demais para valer sozinho (#24: "Não conheço"
+    respondendo a "Campinas ?"): o recuo AUTÔNOMO se basta na fala dele; a negativa
+    CORREFERENCIADA só conta colada num pedido de fechamento da IA.
+    """
+    falas = [normalizar(t) for t in falas_cliente]
+    for fala in falas:
+        if _RECUO_AUTONOMO.search(fala):
+            return "autonomo"
+        if _RECUO_CONDICIONAL.search(fala) and not _NAO_E_RECUO.search(fala):
+            return "autonomo"
+    pediu_fechamento = any(_PEDE_FECHAMENTO.search(normalizar(b)) for b in bolhas_ia)
+    if pediu_fechamento and any(_e_negativa_curta(t) for t in falas):
+        return "correferenciado"
+    return None
 
 
 def contar_contrapropostas(textos: Iterable[str]) -> int:
