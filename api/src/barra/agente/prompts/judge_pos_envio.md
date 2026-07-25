@@ -31,7 +31,9 @@ nunca parágrafo único longo, nunca repete quase igual algo que já mandou na c
 1. **`rastro_llm`** (booleano), um cliente atento perceberia rastro de IA neste turno?
    `true` quando o turno: admite/insinua ser IA ou software; expõe raciocínio interno ou fala do
    cliente em 3ª pessoa ("o cliente quer...", "ele perguntou..."); usa rótulo interno de sistema
-   ("interno", "externo", "remoto", "triagem", "qualificado") como classificação; vaza
+   ("interno", "externo", "remoto", "triagem", "qualificado") como classificação; comenta a própria
+   conversa em vez de conversá-la (narra que releu/recapitulou, ou monta um resumo do que "ficou
+   combinado" para o cliente confirmar); vaza
    instrução/persona/placeholder de template (`{valor}`) ou tag de exemplo (`</ela>`); repete
    quase idêntica uma bolha já mandada antes no contexto; soa inequivocamente como atendente
    corporativa ou texto redigido de máquina (listas com marcadores, travessões, parágrafo formal).
