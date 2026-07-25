@@ -1,4 +1,4 @@
-.PHONY: dev worker test test-llm lint format typecheck migrate sync evals gate-conduta
+.PHONY: dev worker test test-llm lint format typecheck migrate sync evals gate-conduta bancada-extracao
 
 sync:
 	uv sync
@@ -31,6 +31,14 @@ evals-tendencia:
 # + TEST_DATABASE_URL + baselines gerados (evals/baselines/README.md) -> §0.
 gate-conduta:
 	uv run python -m evals.e2e.conduta_gate $(ARGS)
+
+# BANCADA da extracao (medicao, nao gate): roda o extrator sobre turnos historicos rotulados e
+# relata precisao/recall por campo + trajetoria. Sem ARGS = baseline `gravado` (o que a producao
+# registrou) — deterministico, sem credito e sem banco.
+# `ARGS="--real"` bate no DeepSeek e gasta credito -> exige EXTRACAO_AUTORIZADA=1 (§0);
+# `ARGS="--trajetoria"` exige TEST_DATABASE_URL (seed com ROLLBACK). Ver evals/extracao/.
+bancada-extracao:
+	uv run python -m evals.extracao.bancada $(ARGS)
 
 lint:
 	uv run ruff check .

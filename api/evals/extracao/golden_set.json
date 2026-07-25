@@ -1,0 +1,338 @@
+{
+  "meta": {
+    "origem": ".scratch/extracao-eval-offline/golden-set-inicial.md",
+    "rotulagem": "humana (25/07), sobre as Conversas cliente reais dos Atendimentos #8, #9, #19, #20, #21, #24, #25, #27, #34, #35 e #41",
+    "limites": [
+      "dez dias de tráfego (21-24/07 no recorte rotulado)",
+      "uma modelo",
+      "piloto com cancelamento automático ligado"
+    ],
+    "notas": [
+      "`conversa` é o RECORTE citado na rotulagem humana (as falas que sustentam o rótulo), não a janela inteira do turno: a janela fiel vem da reconstrução por replay (`replay.py`, exige o banco).",
+      "`agora` é aproximado — ancora o tempo relativo da janela; o instante fiel de cada turno também vem do replay.",
+      "`registrado` é o snapshot que o turno leu (o que vira o bloco <ja_registrado>), com só os campos que a rotulagem sustenta.",
+      "`gravado` é o payload que a PRODUÇÃO registrou naquele turno — serve de baseline sem crédito (extrator `gravado`).",
+      "`rotulo` traz só os campos rotulados: campo ausente não é medido; `null` significa rotulado como AUSENTE.",
+      "O aceite do #38 e o eco de horário do #25 ficaram de fora: a rotulagem descreve as falas ('sobre fetiche, nenhuma menção a preço'; 'nenhuma menção a horário') sem citá-las, e inventar fala corromperia o gabarito. Entram quando o replay trouxer a conversa fiel.",
+      "O rótulo do tipo do encontro só existe onde a rotulagem o sustenta: nos turnos de eco, `tipo_atendimento: null` é o 'não reenviar' da própria tabela de eco. O turno em que o tipo é estabelecido pela primeira vez não está rotulado.",
+      "Falta a amostra aleatória de turnos decisivos fora dos modos de falha conhecidos (mesmo pendente registrado na rotulagem inicial)."
+    ]
+  },
+  "itens": [
+    {
+      "id": "41-cortesia",
+      "atendimento": 41,
+      "descricao": "cortesia ('obrigado') não é aceite de valor",
+      "agora": "2026-07-24T10:03:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "quanto PG"},
+        {"de": "cliente", "texto": "obrigado"}
+      ],
+      "registrado": {
+        "tipo_atendimento": "interno",
+        "valor_acordado": "400",
+        "duracao_horas": "1",
+        "aceita_valor": false
+      },
+      "gravado": {
+        "sinais_qualificacao": {"aceita_valor": true},
+        "tipo_atendimento": "interno"
+      },
+      "rotulo": {"aceita_valor": false, "reenvio_esperado": false}
+    },
+    {
+      "id": "34-aceite",
+      "atendimento": 34,
+      "descricao": "cliente marca o encontro sobre o valor cotado — aceite real",
+      "agora": "2026-07-24T16:40:00-03:00",
+      "conversa": [
+        {"de": "ia", "texto": "Consigo às 17:30"},
+        {"de": "cliente", "texto": "Tipo 18h, 18h15"}
+      ],
+      "registrado": {"tipo_atendimento": "interno", "aceita_valor": false},
+      "gravado": {
+        "sinais_qualificacao": {"aceita_valor": true},
+        "tipo_atendimento": "interno"
+      },
+      "rotulo": {"aceita_valor": true, "reenvio_esperado": false}
+    },
+    {
+      "id": "27-adiamento",
+      "atendimento": 27,
+      "descricao": "adiamento explícito: não é aceite e rebaixa o que já estava marcado",
+      "agora": "2026-07-23T20:10:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "Hoje não consigo, te mando msg mais pra frente"}
+      ],
+      "registrado": {"tipo_atendimento": "interno", "aceita_valor": true},
+      "gravado": {"sinais_qualificacao": {"aceita_valor": true}},
+      "rotulo": {"aceita_valor": false, "recuo": true}
+    },
+    {
+      "id": "24-sondagem",
+      "atendimento": 24,
+      "descricao": "sondagem de logística sem proposta recusada antes não é aceite",
+      "agora": "2026-07-22T14:20:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "Tem fotos"},
+        {"de": "cliente", "texto": "E liberal?"},
+        {"de": "cliente", "texto": "Aonde atende"}
+      ],
+      "registrado": {"tipo_atendimento": "interno", "aceita_valor": false},
+      "gravado": {"sinais_qualificacao": {"aceita_valor": true}},
+      "rotulo": {"aceita_valor": false}
+    },
+    {
+      "id": "21-releitura",
+      "atendimento": 21,
+      "descricao": "fala que não trata de valor",
+      "agora": "2026-07-22T11:00:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "Le de novo com calma gata"},
+        {"de": "cliente", "texto": "Acho que é melhor"}
+      ],
+      "registrado": {"aceita_valor": false},
+      "gravado": {"sinais_qualificacao": {"aceita_valor": true}},
+      "rotulo": {"aceita_valor": false}
+    },
+    {
+      "id": "20-adiamento",
+      "atendimento": 20,
+      "descricao": "adiamento explícito por dinheiro — recuo, não aceite",
+      "agora": "2026-07-22T09:30:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "Quero muito ir mas nao quero te ofender... tenho que esperar começo do mês. Pode ser?"}
+      ],
+      "registrado": {"aceita_valor": true},
+      "gravado": {"sinais_qualificacao": {"aceita_valor": true}},
+      "rotulo": {"aceita_valor": false, "recuo": true}
+    },
+    {
+      "id": "19-hesitacao",
+      "atendimento": 19,
+      "descricao": "hesitação sobre o período do dia não é aceite",
+      "agora": "2026-07-21T15:10:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "Hummm"},
+        {"de": "cliente", "texto": "Pretendo...mais para o final do dia"}
+      ],
+      "registrado": {"aceita_valor": false},
+      "gravado": {"sinais_qualificacao": {"aceita_valor": true}},
+      "rotulo": {"aceita_valor": false}
+    },
+    {
+      "id": "9-pergunta-preco",
+      "atendimento": 9,
+      "descricao": "pergunta sobre preço não é aceite de preço",
+      "agora": "2026-07-21T13:00:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "É o mesmo vl"},
+        {"de": "cliente", "texto": "O normal o que seria"}
+      ],
+      "registrado": {"aceita_valor": false},
+      "gravado": {"sinais_qualificacao": {"aceita_valor": true}},
+      "rotulo": {"aceita_valor": false}
+    },
+    {
+      "id": "8-logistica",
+      "atendimento": 8,
+      "descricao": "pergunta de logística sem proposta recusada antes não é aceite",
+      "agora": "2026-07-21T12:00:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "Rua gata seria do seu local dlc ?"}
+      ],
+      "registrado": {"tipo_atendimento": "interno", "aceita_valor": false},
+      "gravado": {"sinais_qualificacao": {"aceita_valor": true}},
+      "rotulo": {"aceita_valor": false}
+    },
+    {
+      "id": "19-negativa",
+      "atendimento": 19,
+      "descricao": "negativa correferenciada ao pedido de confirmação — rebaixa o aceite",
+      "agora": "2026-07-21T17:30:00-03:00",
+      "conversa": [
+        {"de": "ia", "texto": "Podemos confirmar 18h ?"},
+        {"de": "cliente", "texto": "Não"}
+      ],
+      "registrado": {"tipo_atendimento": "interno", "aceita_valor": true},
+      "gravado": {"intencao": "cotacao"},
+      "rotulo": {"recuo": true, "intencao": "cotacao"}
+    },
+    {
+      "id": "34-avisando",
+      "atendimento": 34,
+      "descricao": "lista negativa do recuo: ele quer, só não manda no relógio",
+      "agora": "2026-07-24T16:50:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "Perfeito, vou te avisando então"}
+      ],
+      "registrado": {
+        "tipo_atendimento": "interno",
+        "horario_desejado": "18:00",
+        "horario_evidenciado": true,
+        "aceita_valor": true
+      },
+      "gravado": {},
+      "rotulo": {"recuo": false}
+    },
+    {
+      "id": "24-nao-conheco",
+      "atendimento": 24,
+      "descricao": "negativa sem correferência de fechamento não rebaixa o aceite",
+      "agora": "2026-07-22T14:30:00-03:00",
+      "conversa": [
+        {"de": "ia", "texto": "Campinas?"},
+        {"de": "cliente", "texto": "Não conheço"}
+      ],
+      "registrado": {"tipo_atendimento": "interno"},
+      "gravado": {},
+      "rotulo": {"recuo": false}
+    },
+    {
+      "id": "34-horario",
+      "atendimento": 34,
+      "descricao": "horário proposto pela IA e confirmado pelo cliente — evidenciado, e a intenção é de agendamento",
+      "agora": "2026-07-24T16:45:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "Você tem horário amanhã?"},
+        {"de": "cliente", "texto": "No final de tarde"},
+        {"de": "ia", "texto": "Consigo às 17:30"},
+        {"de": "cliente", "texto": "Tipo 18h, 18h15"},
+        {"de": "ia", "texto": "Posso confirmar às 18h"},
+        {"de": "cliente", "texto": "Perfeito"}
+      ],
+      "registrado": {"tipo_atendimento": "interno", "aceita_valor": true},
+      "gravado": {"horario_desejado": "18:00", "intencao": "cotacao"},
+      "rotulo": {
+        "horario_desejado": "18:00",
+        "horario_evidenciado": true,
+        "intencao": "agendamento"
+      }
+    },
+    {
+      "id": "24-horario",
+      "atendimento": 24,
+      "descricao": "hora explícita do cliente — evidenciada, intenção de agendamento",
+      "agora": "2026-07-22T14:35:00-03:00",
+      "conversa": [
+        {"de": "ia", "texto": "Que horas você pensa em vir amor ?"},
+        {"de": "cliente", "texto": "Umas 16 horas"}
+      ],
+      "registrado": {"tipo_atendimento": "interno"},
+      "gravado": {"horario_desejado": "16:00", "intencao": "agendamento"},
+      "rotulo": {
+        "horario_desejado": "16:00",
+        "horario_evidenciado": true,
+        "intencao": "agendamento"
+      }
+    },
+    {
+      "id": "35-sondagem-aceita",
+      "atendimento": 35,
+      "descricao": "sondagem de imediatismo aceita: número sintético, intenção real",
+      "agora": "2026-07-23T02:25:00-03:00",
+      "conversa": [
+        {"de": "ia", "texto": "Seria agora ?"},
+        {"de": "cliente", "texto": "sim"}
+      ],
+      "registrado": {"tipo_atendimento": "interno"},
+      "gravado": {"horario_desejado": "02:25", "intencao": "cotacao"},
+      "rotulo": {"horario_evidenciado": true, "intencao": "agendamento"}
+    },
+    {
+      "id": "25-sonda-ignorada",
+      "atendimento": 25,
+      "descricao": "sondagem ignorada: o horário é palpite do sistema, não pedido dele",
+      "agora": "2026-07-23T02:00:00-03:00",
+      "conversa": [
+        {"de": "ia", "texto": "Seria agora ?"},
+        {"de": "cliente", "texto": "Atende mas de um?"}
+      ],
+      "registrado": {"tipo_atendimento": "interno"},
+      "gravado": {"horario_desejado": "02:00", "intencao": "cotacao"},
+      "rotulo": {"horario_evidenciado": false, "intencao": "cotacao"}
+    },
+    {
+      "id": "41-eco-tipo",
+      "atendimento": 41,
+      "descricao": "eco: o tipo já registrado volta no payload sem nada novo na conversa",
+      "agora": "2026-07-24T10:30:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "vc melhora no valor eu vou"}
+      ],
+      "registrado": {
+        "tipo_atendimento": "interno",
+        "valor_acordado": "400",
+        "duracao_horas": "1",
+        "aceita_valor": false
+      },
+      "gravado": {"tipo_atendimento": "interno"},
+      "rotulo": {"reenvio_esperado": false, "tipo_atendimento": null}
+    },
+    {
+      "id": "34-eco-tipo",
+      "atendimento": 34,
+      "descricao": "eco: pergunta sobre outro serviço reenvia o tipo já registrado",
+      "agora": "2026-07-24T16:20:00-03:00",
+      "conversa": [
+        {"de": "cliente", "texto": "Você faz chamada de vídeo também ?"}
+      ],
+      "registrado": {"tipo_atendimento": "interno"},
+      "gravado": {"tipo_atendimento": "interno"},
+      "rotulo": {"reenvio_esperado": false, "tipo_atendimento": null}
+    }
+  ],
+  "trajetorias": [
+    {
+      "id": "34-funil",
+      "atendimento": 34,
+      "descricao": "cliente crava 18h sobre o valor cotado: o funil precisa sair de Novo e chegar a Aguardando_confirmacao. Agenda e datas são SINTÉTICAS (declaradas) — o instante real do #34 não é reproduzível offline, porque agenda e bloqueios mudaram desde então.",
+      "cenario": {
+        "modelo": {
+          "nome": "Lia",
+          "tipo_atendimento_aceito": ["interno", "externo"],
+          "programas": [
+            {"nome": "Encontro", "duracao_nome": "1 hora", "horas": 1, "ordem": 1, "preco": 400}
+          ]
+        },
+        "atendimento": {"estado": "Novo", "cotacao_enviada": true}
+      },
+      "estados": ["Triagem", "Aguardando_confirmacao"],
+      "turnos": [
+        {
+          "id": "34-funil-t1",
+          "atendimento": 34,
+          "descricao": "primeiro contato: quer saber de horário, ainda sem nada cravado",
+          "agora": "2026-12-01T14:00:00-03:00",
+          "conversa": [
+            {"de": "cliente", "texto": "Você tem horário amanhã?"},
+            {"de": "cliente", "texto": "No final de tarde"}
+          ],
+          "registrado": {},
+          "gravado": {"intencao": "cotacao"},
+          "rotulo": {"intencao": "cotacao"}
+        },
+        {
+          "id": "34-funil-t2",
+          "atendimento": 34,
+          "descricao": "a IA propõe 18h e ele confirma: horário evidenciado, encontro no local dela",
+          "agora": "2026-12-01T14:05:00-03:00",
+          "conversa": [
+            {"de": "ia", "texto": "Consigo às 17:30"},
+            {"de": "cliente", "texto": "Tipo 18h, 18h15"},
+            {"de": "ia", "texto": "Posso confirmar às 18h"},
+            {"de": "cliente", "texto": "Perfeito"}
+          ],
+          "registrado": {"intencao": "cotacao"},
+          "gravado": {
+            "intencao": "agendamento",
+            "tipo_atendimento": "interno",
+            "data_desejada": "2026-12-01",
+            "horario_desejado": "18:00"
+          },
+          "rotulo": {"intencao": "agendamento", "horario_desejado": "18:00"}
+        }
+      ]
+    }
+  ]
+}
