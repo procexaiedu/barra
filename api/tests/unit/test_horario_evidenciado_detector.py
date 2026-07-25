@@ -86,7 +86,7 @@ def test_gatilho_sondagem_de_imediatismo_aceita():
 def test_sondagem_do_dia_aceita_nao_evidencia_a_hora():
     # "Seria hoje ?" + "sim" crava o DIA, não a HORA: aceitar isso carimbaria evidência sobre o
     # horário que o fallback sintetizou — o #25 voltando por outra porta. (O par segue valendo p/
-    # a captura do dia e p/ o piso de intenção, que leem `sondagem_aceita`.)
+    # a captura do dia, `_confirmou_dia_hoje`.)
     msgs = [_ia("Seria hoje ?"), _cli("sim")]
     assert _horario_evidenciado_no_turno(msgs) is False
 

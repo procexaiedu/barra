@@ -22,9 +22,9 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from _chat_fake import ChatRoteirizado
 from evals.harness import seedar
 from evals.harness_fiel import rodar_turno_fiel
-from langchain_core.messages import AIMessage
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
@@ -34,60 +34,11 @@ from barra.settings import get_settings
 
 pytestmark = pytest.mark.needs_db
 
-_USAGE = {"input_tokens": 10, "output_tokens": 8, "total_tokens": 18}
 # Relógio do turno (clock injection): 00:30, com o dia inteiro livre à frente — TODOS os horários
 # dos cenários (02:00, 16:00, 18:00) caem no futuro, então a reserva do slot não esbarra em
 # antecedência mínima nem em bloqueio (a modelo seedada não tem regra de Disponibilidade).
 _AGORA = datetime(2026, 12, 1, 0, 30, tzinfo=BRT)
 _HOJE = "2026-12-01"
-
-
-# --- chat FAKE roteirizado: a fala do turno + os args da extração forçada --------------------
-
-
-class _Extrator:
-    """O bind forçado (`tool_choice=registrar_extracao`) do nó `extrair`."""
-
-    def __init__(self, roteiro: list[dict[str, Any]]) -> None:
-        self._roteiro = roteiro
-        self._i = 0
-
-    async def ainvoke(self, _messages: Any) -> AIMessage:
-        args = self._roteiro[min(self._i, len(self._roteiro) - 1)]
-        self._i += 1
-        return AIMessage(
-            content="",
-            usage_metadata=_USAGE,  # type: ignore[arg-type]
-            response_metadata={"finish_reason": "tool_calls"},
-            tool_calls=[
-                {
-                    "name": "registrar_extracao",
-                    "args": args,
-                    "id": f"ex{self._i}",
-                    "type": "tool_call",
-                }
-            ],
-        )
-
-
-class _ChatRoteirizado:
-    """Substitui o DeepSeek nos dois papéis do turno: a fala do nó `llm` (sem tool_call, roteia p/
-    `extrair`) e a extração forçada (distinguida pelo `tool_choice` no bind)."""
-
-    model = "deepseek-fake"
-
-    def __init__(self, falas: list[str], extracoes: list[dict[str, Any]]) -> None:
-        self._falas = falas
-        self._i = 0
-        self._extrator = _Extrator(extracoes)
-
-    def bind_tools(self, _tools: Any, *, tool_choice: Any = None, **_kw: Any) -> Any:
-        return self._extrator if tool_choice == "registrar_extracao" else self
-
-    async def ainvoke(self, _messages: Any) -> AIMessage:
-        fala = self._falas[min(self._i, len(self._falas) - 1)]
-        self._i += 1
-        return AIMessage(content=fala, usage_metadata=_USAGE)  # type: ignore[arg-type]
 
 
 @pytest_asyncio.fixture
@@ -153,7 +104,7 @@ async def test_34_hora_explicita_e_confirmacao_evidenciam(
     """#34: o cliente dá a hora ("Tipo 18h, 18h15"), a IA confirma e ele fecha ("Perfeito") — o
     horário é dele do começo ao fim e a marca não cai no turno da confirmação."""
     cen = await _cenario(conn)
-    chat = _ChatRoteirizado(
+    chat = ChatRoteirizado(
         ["Posso confirmar às 18h amor 🥰", "Perfeito, te espero 🥰"],
         [
             {
@@ -184,7 +135,7 @@ async def test_24_hora_explicita_do_cliente_evidencia(
 ) -> None:
     """#24: "Umas 16 horas" — hora explícita numa fala do cliente."""
     cen = await _cenario(conn)
-    chat = _ChatRoteirizado(
+    chat = ChatRoteirizado(
         ["Fechou amor, 16h 🥰"],
         [
             {
@@ -227,7 +178,7 @@ async def test_35_sondagem_aceita_evidencia_horario_sintetico(
             ],
         },
     )
-    chat = _ChatRoteirizado(
+    chat = ChatRoteirizado(
         ["Que delícia, te espero 🥰"],
         [
             {
@@ -270,7 +221,7 @@ async def test_25_sondagem_ignorada_grava_horario_sem_evidencia(
             ],
         },
     )
-    chat = _ChatRoteirizado(
+    chat = ChatRoteirizado(
         ["Faço sim amor 🥰"],
         [
             {
@@ -304,7 +255,7 @@ async def test_promocao_tardia_sobe_a_marca_sem_o_valor_mudar(
         "SET horario_desejado = %s, data_desejada = %s, horario_evidenciado = false WHERE id = %s",
         (time(2, 0), _AGORA.date(), cen.atendimento_id),
     )
-    chat = _ChatRoteirizado(
+    chat = ChatRoteirizado(
         ["Combinado então amor 🥰"],
         [
             {
@@ -336,7 +287,7 @@ async def test_eco_do_belief_nao_derruba_nem_valida_a_marca(
         "SET horario_desejado = %s, data_desejada = %s, horario_evidenciado = true WHERE id = %s",
         (time(16, 0), _AGORA.date(), cen.atendimento_id),
     )
-    chat = _ChatRoteirizado(
+    chat = ChatRoteirizado(
         ["Faço sim amor 🥰"],
         [
             {
@@ -368,7 +319,7 @@ async def test_valor_novo_sem_evidencia_derruba_a_marca(
         "SET horario_desejado = %s, data_desejada = %s, horario_evidenciado = true WHERE id = %s",
         (time(16, 0), _AGORA.date(), cen.atendimento_id),
     )
-    chat = _ChatRoteirizado(
+    chat = ChatRoteirizado(
         ["Te espero 🥰"],
         [
             {

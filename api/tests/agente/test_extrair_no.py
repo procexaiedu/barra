@@ -258,63 +258,22 @@ async def test_extracao_barata_roda_sem_system_geral() -> None:
     assert _fala() not in janela  # a fala final foi excluida da janela de extracao
 
 
-# --- piso deterministico de `intencao` (#35, 24/07) -------------------------------------------
+# --- o no nao julga mais `intencao` (spec extracao-promocao-intencao) -------------------------
 
 
-async def test_piso_sobe_intencao_quando_sondagem_foi_aceita() -> None:
-    """Janela prova "seria hoje/agora ?" + "sim" (sondagem_aceita no State) e o extrator barato
-    gravou 'cotacao' -> o no corrige p/ 'agendamento' ANTES de executar a tool. Sem isso o belief
-    repete "ele querer mesmo marcar" todo turno e o estado nunca sai de Triagem (#35)."""
+async def test_no_repassa_a_intencao_do_extrator_sem_corrigir() -> None:
+    """O piso de `intencao` que vivia aqui foi absorvido pela derivacao por evidencia, no dominio
+    (dominio/atendimentos/service.py): mesmo com a janela evidenciando o horario, o no repassa
+    INTACTO o que o extrator julgou — quem promove e o dominio, lendo a marca (regressao em
+    tests/integracao/test_promocao_intencao.py)."""
     chat = _FakeChat(_forcado())
     tool = _FakeToolExtracao(_tool_ok())
     node = no_extrair(chat, None, tool)  # type: ignore[arg-type]
-    state = {
-        "messages": [HumanMessage(content="sim"), _fala()],
-        "sondagem_aceita": True,
-    }
+    state = {"messages": [HumanMessage(content="sim"), _fala()], "horario_evidenciado": True}
 
     cmd = await node(state, _runtime())  # type: ignore[arg-type]
 
     assert cmd.goto == "post_process"
-    # a tool recebeu a intencao ja corrigida
-    assert tool.chamadas[0]["args"]["intencao"] == "agendamento"
-    # e a AIMessage forcada do registro reflete o que foi persistido (auditoria bate com o banco)
-    assert chat.forcado._forcado.tool_calls[0]["args"]["intencao"] == "agendamento"
-
-
-async def test_piso_nao_dispara_sem_sondagem_aceita() -> None:
-    """Sem a correferencia na janela o julgamento do extrator vale: 'cotacao' segue 'cotacao'."""
-    chat = _FakeChat(_forcado())
-    tool = _FakeToolExtracao(_tool_ok())
-    node = no_extrair(chat, None, tool)  # type: ignore[arg-type]
-    state = {"messages": [HumanMessage(content="quanto é?"), _fala()]}  # flag ausente no State
-
-    await node(state, _runtime())  # type: ignore[arg-type]
-
     assert tool.chamadas[0]["args"]["intencao"] == "cotacao"
-
-
-def test_piso_so_sobe_nunca_rebaixa() -> None:
-    """O piso e um MINIMO: o que o extrator julgou igual ou acima de 'agendamento' fica intacto."""
-    from barra.agente.nos.extrair import _aplicar_piso_intencao
-
-    tc = {"args": {"intencao": "agendamento"}}
-    assert _aplicar_piso_intencao(tc, True) is False
-    assert tc["args"]["intencao"] == "agendamento"
-
-
-def test_piso_tolera_args_ausentes() -> None:
-    """Defesa: tool_call malformado (args nao-dict) nao explode o turno -- so nao aplica o piso."""
-    from barra.agente.nos.extrair import _aplicar_piso_intencao
-
-    assert _aplicar_piso_intencao({"args": None}, True) is False
-    assert _aplicar_piso_intencao({}, True) is False
-
-
-def test_piso_sobe_intencao_ausente() -> None:
-    """Extrator omitiu `intencao` mas a janela prova o aceite -> vira 'agendamento'."""
-    from barra.agente.nos.extrair import _aplicar_piso_intencao
-
-    tc: dict[str, Any] = {"args": {"horario_desejado": "22:00"}}
-    assert _aplicar_piso_intencao(tc, True) is True
-    assert tc["args"]["intencao"] == "agendamento"
+    # a flag do State segue chegando na tool (e dali ao dominio), so nao mexe mais na intencao aqui
+    assert tool.chamadas[0]["args"]["runtime"].state["horario_evidenciado"] is True

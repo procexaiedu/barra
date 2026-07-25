@@ -148,21 +148,13 @@ async def prepare_context(
             local_nome_raw,
         ) = await _carregar_bp3(conn, ctx.modelo_id)
 
-        # 3c. Piso de intenção (#35, 24/07): a MESMA correferência que alimenta o A2 do belief
-        #     ("seria hoje/agora ?" + "sim") vai ao State p/ o nó `extrair` corrigir o julgamento do
-        #     extrator barato. Computado AQUI, ANTES da anexação: o contexto dinâmico é concatenado
-        #     no último HumanMessage, e uma afirmação curta que seja a msg ATUAL ("sim") deixaria de
-        #     ser "curta" depois de receber o bloco na cauda. Restrito ao burst ATUAL (não à janela
-        #     inteira, como o A2): o piso é evento, não estado — senão um "sim" antigo seguiria
-        #     forçando `agendamento` depois de o cliente recuar.
-        sondagem_aceita = _sondagem_aceita_no_turno(mensagens)
-
-        # 3d. Proveniência do horário (spec extracao-proveniencia-horario): a janela tem fala do
+        # 3c. Proveniência do horário (spec extracao-proveniencia-horario): a janela tem fala do
         #     CLIENTE que sustenta o horário? Vai ao State p/ o `extrair` carimbar
-        #     `horario_evidenciado` junto com a gravação do horário. Computado AQUI pelo mesmo
-        #     motivo do piso acima — depois da anexação, o contexto dinâmico (que carrega agenda e
-        #     <horario_minimo>) colaria HORAS na cauda do último HumanMessage e o detector as leria
-        #     como fala do cliente.
+        #     `horario_evidenciado` junto com a gravação do horário — e é o que promove a `intencao`
+        #     a 'agendamento' no domínio. Computado AQUI, ANTES da anexação: depois dela o contexto
+        #     dinâmico (que carrega agenda e <horario_minimo>) colaria HORAS na cauda do último
+        #     HumanMessage e o detector as leria como fala do cliente; e uma confirmação curta que
+        #     seja a msg ATUAL ("Perfeito") deixaria de ser "curta" com o bloco concatenado.
         horario_evidenciado = _horario_evidenciado_no_turno(mensagens)
 
         # 4. Contexto dinâmico (02 §5): resolve cliente/agenda na MESMA conexão e concatena no
@@ -202,7 +194,6 @@ async def prepare_context(
             "_categoria": categoria,
             "_confianca": confianca,
             "horario_minimo": horario_minimo,
-            "sondagem_aceita": sondagem_aceita,
             "horario_evidenciado": horario_evidenciado,
         },
     )
@@ -413,33 +404,6 @@ def _e_afirmacao_curta(texto: str) -> bool:
     return norm in _AFIRMACOES or norm.split()[0] in _AFIRMACOES_FORTES
 
 
-def _sondagem_aceita_no_turno(mensagens: list[BaseMessage]) -> bool:
-    """True se a afirmação que aceita a sondagem do dia está no burst ATUAL (a fala deste turno),
-    não em qualquer ponto da janela.
-
-    Diferença deliberada para `_confirmou_dia_hoje` (que varre a janela inteira e por isso segue
-    valendo depois de o cliente recuar): o piso de `intencao` é um EVENTO — "ele acabou de dizer
-    sim" —, não um estado permanente. Restringir ao burst atual é o que impede um "sim" de dez
-    turnos atrás de continuar forçando `agendamento` depois de um "ainda não vai dar". O efeito de
-    ter disparado uma vez não se perde: a FSM não regride, então o `estado` promovido (e o
-    <local_de_encontro> que ele destrava) persiste sozinho — quem preserva a `intencao` entre
-    turnos é a monotonicidade do UPSERT (dominio/atendimentos/service.py `_montar_upsert`).
-    """
-    # Burst atual = HumanMessages contíguas no fim da janela (o cliente pode mandar várias bolhas).
-    i = _burst_do_cliente(mensagens)
-    burst = mensagens[i:]
-    if not burst:  # último turno não é do cliente -> não há afirmação nova
-        return False
-    if any(_TOKEN_OUTRO_DIA.search(_texto_msg(m).lower()) for m in burst):
-        return False
-    if not any(_e_afirmacao_curta(_texto_msg(m)) for m in burst):
-        return False
-    # Sondagem tem que estar nas bolhas contíguas da IA imediatamente antes do burst.
-    return any(
-        _PROBE_DIA_HOJE.search(_texto_msg(m)) for m in _bolhas_ia_antes_do_burst(mensagens, i)
-    )
-
-
 def _burst_do_cliente(mensagens: list[BaseMessage]) -> int:
     """Índice onde começa o burst ATUAL do cliente (HumanMessages contíguas no fim da janela);
     `len(mensagens)` quando o último a falar não foi ele."""
@@ -470,14 +434,15 @@ def _horario_evidenciado_no_turno(mensagens: list[BaseMessage]) -> bool:
       3. o mesmo par, com a bolha da IA sendo a sondagem de IMEDIATISMO ("Seria agora ?" → "sim"
          — #35): o número vem do fallback, mas a intenção é dele.
 
-    O gatilho 3 usa `contem_sondagem_imediatismo`, NÃO o `sondagem_aceita` do State: aquele bool
-    também acende no "seria hoje ?" (mesma família no prompt), que crava o DIA e não a HORA —
+    O gatilho 3 usa `contem_sondagem_imediatismo`, NÃO a família inteira de sondagem do dia
+    (`_PROBE_DIA_HOJE`, que também acende no "seria hoje ?"): aquele par crava o DIA e não a HORA —
     aceitá-lo carimbaria evidência sobre um horário que o fallback sintetizou, reabrindo o #25.
 
-    EVENTO do turno, não estado — igual ao piso de intenção e pelo mesmo motivo: quem preserva a
-    marca entre turnos é a coluna `horario_evidenciado` (o valor só perde a evidência quando MUDA
-    sem evidência nova, dominio/atendimentos/service.py). Restrito ao burst atual, uma hora dita
-    dez turnos atrás não revalida o palpite que o sistema gravou depois.
+    EVENTO do turno, não estado: quem preserva a marca entre turnos é a coluna
+    `horario_evidenciado` (o valor só perde a evidência quando MUDA sem evidência nova,
+    dominio/atendimentos/service.py). Restrito ao burst atual, uma hora dita dez turnos atrás não
+    revalida o palpite que o sistema gravou depois — e, como a evidência também promove a
+    `intencao`, um "sim" antigo não segue forçando `agendamento` depois de o cliente recuar.
 
     Por que NÃO é write-time como as flags A2 (agente/CLAUDE.md): aquelas rastreiam o que a IA já
     fez (carimbáveis quando ela fala); esta lê a fala do CLIENTE e é consumida no MESMO turno, pelo

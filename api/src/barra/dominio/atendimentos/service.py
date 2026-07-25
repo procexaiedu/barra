@@ -455,6 +455,9 @@ async def registrar_extracao_ia(
         valores,
     )
 
+    # 1b. Promocao da intencao por EVIDENCIA, ANTES da FSM ler a linha.
+    await _promover_intencao_por_evidencia(conn, aid, limpar)
+
     # 2. Transicao de estado (02 §11) + side-effects deterministicos. MULTI-HOP: itera ate o
     #    ponto-fixo, aplicando cada hop + seu side-effect. Quando intencao+tipo+horario chegam no
     #    mesmo turno, Triagem->Qualificado->Aguardando_confirmacao ocorrem juntos e o bloqueio
@@ -623,6 +626,46 @@ def _marca_horario_evidenciado(
             "THEN false ELSE horario_evidenciado END"
         )
         valores.append(payload["horario_desejado"])
+
+
+async def _promover_intencao_por_evidencia(
+    conn: AsyncConnection[Any], atendimento_id: UUID, limpar: set[str]
+) -> None:
+    """Horario desejado presente E evidenciado => `intencao` sobe p/ 'agendamento'
+    (spec extracao-promocao-intencao).
+
+    `intencao` e o campo mais subjetivo do snapshot e quem o preenche e o extrator barato, que erra
+    sistematicamente PARA BAIXO: em producao, 9 atendimentos tinham o cliente com aceite de valor e
+    a intencao abaixo de agendamento, contra 4 com 'agendamento' gravado. O #34 e o retrato — tipo
+    interno, 18:00 combinado, aceite real, e preso em `Triagem`; e ficar em Triagem nao e rotulo,
+    porque o <local_de_encontro> so entra no contexto a partir de `Qualificado` (o #27 mostra o
+    custo: sem o endereco cadastrado, a IA respondeu "onde e?" com um bairro inventado).
+
+    Derivar de FATO em vez de julgamento e o mesmo padrao que `_sinais_qualificacao_do_turno` ja
+    aplica ao espelhar `horario_desejado` em `informa_horario`. O gatilho e a EVIDENCIA (nao o
+    aceite de valor, ruidoso demais: 1 verdadeiro em 10 no corpus) justamente porque sem ela um
+    horario fantasma — o palpite que o fallback de tempo imediato gravou no #25 — viraria reserva.
+    Absorve o piso pontual que vivia no no `extrair`: o aceite da sondagem passa a ser so mais uma
+    fonte de evidencia de horario, nao regra propria.
+
+    Roda DEPOIS do UPSERT e ANTES da FSM, sobre a linha JA atualizada: o predicado le o horario e a
+    marca como ficaram, sem reimplementar em Python a transicao que `_marca_horario_evidenciado`
+    expressa em SQL. Por ler a MARCA (e nao so a evidencia deste turno), tambem promove o
+    atendimento cujo horario o operador carimbou pelo painel e o que ja nascera evidenciado num
+    turno anterior — a cada turno o predicado e reavaliado.
+
+    As pre-condicoes da FSM NAO mudam (fonte unica com o belief-state); muda so como a intencao
+    chega ate elas. `limpar` vence, como no resto do UPSERT: com a retratacao explicita do cliente
+    no turno, a promocao nao desfaz a desqualificacao que ele acabou de pedir.
+    """
+    if "intencao" in limpar:
+        return
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET intencao = 'agendamento' "
+        "WHERE id = %s AND horario_desejado IS NOT NULL AND horario_evidenciado "
+        "AND intencao IS DISTINCT FROM 'agendamento'",
+        (atendimento_id,),
+    )
 
 
 def _sinais_qualificacao_do_turno(payload: dict[str, Any], limpar: set[str]) -> dict[str, Any]:

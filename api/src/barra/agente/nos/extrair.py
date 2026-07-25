@@ -74,44 +74,6 @@ def _janela_para_extracao_barata(messages: Sequence[BaseMessage]) -> list[BaseMe
     return [SystemMessage(content=_SYSTEM_EXTRACAO_BARATA), *conversa]
 
 
-# Valores de `intencao` abaixo de "agendamento" na escala do campo (ferramentas/extracao.py): o
-# piso só SOBE, nunca rebaixa o que o extrator julgou.
-_INTENCAO_ABAIXO_DE_AGENDAMENTO = (None, "curiosidade", "cotacao")
-
-
-def _aplicar_piso_intencao(tool_call: dict[str, Any], sondagem_aceita: bool) -> bool:
-    """Sobe `intencao` p/ 'agendamento' quando a janela PROVA que o cliente aceitou a sondagem do
-    dia ("seria hoje/agora ?" + "sim") e o extrator barato julgou abaixo disso. Muta os args do
-    tool_call in-place; devolve True se corrigiu.
-
-    Por que determinístico e não mais prosa na description: a DESC do campo já diz "'agendamento' =
-    quer MARCAR de fato (deu horário, aceitou o valor, 'vamos marcar', 'pode ser hoje')" e "na
-    dúvida (...) use 'agendamento'" -- e o extrator VIU o par "Seria agora ?" / "sim" na janela (o
-    system dele é mínimo, mas a conversa vai INTEIRA -- conferido no trace f474bac2, 5.427 tokens)
-    e ainda assim gravou 'cotacao' nos 5 turnos do #35 (24/07). Não é falta de contexto, é
-    julgamento; engordar a description é o anti-padrão que o agente/CLAUDE.md nomeia ("se um caso
-    novo só funciona quando enterrado numa description gigante, ele está pedindo o trilho
-    determinístico"). A correferência é a MESMA que o A2 já usa p/ cravar o dia no belief; aqui ela
-    move também a intenção, que é o que destrava `Triagem -> Qualificado` e, com ele, o
-    <local_de_encontro> (em Triagem a IA literalmente não tem o endereço p/ responder "onde é" --
-    gate `_ESTADOS_COM_ENDERECO`).
-
-    Efeito de cascata ACEITO: `registrar_extracao_ia` itera até o ponto-fixo, então com horário e
-    tipo já extraídos o atendimento pode seguir p/ `Aguardando_confirmacao` no mesmo turno, criando
-    o bloqueio prévio. Não é comportamento novo (é o que já ocorre quando o extrator acerta a
-    intenção) -- só mais frequente; sumiço do cliente cai no timeout de 24h, que cancela o bloqueio.
-    """
-    if not sondagem_aceita:
-        return False
-    args = tool_call.get("args")
-    if not isinstance(args, dict):
-        return False
-    if args.get("intencao") not in _INTENCAO_ABAIXO_DE_AGENDAMENTO:
-        return False
-    args["intencao"] = "agendamento"
-    return True
-
-
 def _extracao_errou(tool_message: ToolMessage) -> bool:
     """True se a extracao inline trouxe erro RECUPERAVEL.
 
@@ -231,16 +193,6 @@ def no_extrair(
                 runtime.context.turno_id,
             )
             return Command(goto="post_process")
-
-        # Piso deterministico de `intencao` ANTES da execucao: corrige o julgamento do extrator
-        # barato quando a janela prova o aceite da sondagem do dia (#35, 24/07). Muta os args do
-        # tool_call, entao a AIMessage `forcado` que entra no `registro` ja reflete o que foi de
-        # fato persistido -- historico e auditoria batem com o banco.
-        if _aplicar_piso_intencao(tool_calls[0], bool(state.get("sondagem_aceita"))):
-            logger.info(
-                "piso de intencao aplicado (sondagem aceita na janela) turno_id=%s",
-                runtime.context.turno_id,
-            )
 
         # Execucao INLINE de registrar_extracao (footgun provado): a tool persiste em
         # barravips.tool_calls, aplica a FSM e enfileira o card de aviso de saida por dentro.

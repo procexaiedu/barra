@@ -166,6 +166,20 @@ def test_cotacao_slot_so_em_triagem_e_qualificado() -> None:
     assert "dizer o preço do programa" in triagem.slots_faltantes
 
 
+def test_precondicoes_de_triagem_seguem_pedindo_intencao_e_nao_evidencia() -> None:
+    """A promoção por evidência (spec extracao-promocao-intencao) muda COMO a `intencao` chega ao
+    banco, não a tabela de pré-condições: com horário gravado mas intenção abaixo de agendamento, a
+    FSM continua barrando — e o belief, que lê a MESMA tabela, continua cobrando o mesmo slot.
+    Preserva a fonte única entre os dois; a evidência nunca entra aqui como predicado."""
+    kwargs = dict(
+        estado="Triagem", intencao="cotacao", tipo_atendimento="interno", horario_desejado=_HORA
+    )
+    assert _proxima_transicao(**kwargs) is None  # type: ignore[arg-type]
+    belief = derivar_belief_state(**kwargs)  # type: ignore[arg-type]
+    assert belief.proxima_transicao is None
+    assert "ele querer mesmo marcar" in belief.slots_faltantes
+
+
 # --- consistência fonte-única (o teste-chave contra divergência) ---------------------------------
 
 _ESTADOS = ["Novo", "Triagem", "Qualificado", "Aguardando_confirmacao", "Confirmado", None]

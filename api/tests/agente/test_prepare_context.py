@@ -192,10 +192,10 @@ def test_grafo_pausa_encerra_antes_do_llm() -> None:
     assert estado["messages"] == []
 
 
-# --- piso de intencao: a correferencia vai ao State (#35, 24/07) ------------------------------
+# --- evidencia do horario: a correferencia vai ao State (#35, 24/07) --------------------------
 
 
-def _linhas_sondagem_aceita() -> list[dict[str, Any]]:
+def _linhas_sondagem_imediatismo_aceita() -> list[dict[str, Any]]:
     """DESC (mais nova primeiro): a IA sondou "Seria agora ?" e o cliente respondeu "sim"."""
     base = datetime(2026, 7, 24, 2, 17, tzinfo=UTC)
     nova_primeiro = [
@@ -216,27 +216,28 @@ def _linhas_sondagem_aceita() -> list[dict[str, Any]]:
     ]
 
 
-def test_sondagem_aceita_vai_ao_state() -> None:
-    """A correferencia "sondagem + sim" e publicada no State p/ o no `extrair` aplicar o piso de
-    `intencao`. REGRESSAO DE ORDEM: o "sim" e o ULTIMO HumanMessage, entao recebe o contexto
-    dinamico concatenado na cauda -- se a deteccao rodasse DEPOIS da anexacao ele deixaria de ser
-    uma "afirmacao curta" e a flag viria False."""
+def test_evidencia_do_horario_vai_ao_state() -> None:
+    """A correferencia "sondagem de imediatismo + sim" e publicada no State p/ o no `extrair`
+    carimbar a evidencia (e, com ela, promover a `intencao` no dominio). REGRESSAO DE ORDEM: o
+    "sim" e o ULTIMO HumanMessage, entao recebe o contexto dinamico concatenado na cauda -- se a
+    deteccao rodasse DEPOIS da anexacao ele deixaria de ser uma "afirmacao curta" (e o bloco ainda
+    coleria HORAS na cauda) e a flag viria errada."""
     res = asyncio.run(
-        prepare_context({"messages": []}, _runtime(mensagens=_linhas_sondagem_aceita()))
+        prepare_context({"messages": []}, _runtime(mensagens=_linhas_sondagem_imediatismo_aceita()))
     )
     assert isinstance(res, Command)
-    assert res.update["sondagem_aceita"] is True
+    assert res.update["horario_evidenciado"] is True
     # o "sim" de fato carrega o contexto dinamico (prova que a anexacao aconteceu na mesma msg)
     ultimo_humano = [m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1]
     assert ultimo_humano.content.startswith("sim")
     assert "<situacao_do_atendimento" in ultimo_humano.content
 
 
-def test_sondagem_aceita_falsa_sem_correferencia() -> None:
-    """Janela sem o par sondagem+afirmacao -> flag False (o julgamento do extrator prevalece)."""
+def test_evidencia_falsa_sem_correferencia() -> None:
+    """Janela sem o par sondagem+afirmacao -> flag False (nada sustenta um horario)."""
     res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_desc())))
     assert isinstance(res, Command)
-    assert res.update["sondagem_aceita"] is False
+    assert res.update["horario_evidenciado"] is False
 
 
 def _linhas_sondagem_com_recuo() -> list[dict[str, Any]]:
@@ -261,11 +262,11 @@ def _linhas_sondagem_com_recuo() -> list[dict[str, Any]]:
     ]
 
 
-def test_sondagem_aceita_nao_persiste_apos_recuo() -> None:
-    """A LIMITACAO resolvida: o piso e EVENTO, nao estado. Um "sim" de turnos atras nao pode seguir
-    forcando `agendamento` depois de o cliente recuar -- so a afirmacao do burst ATUAL conta."""
+def test_evidencia_nao_persiste_apos_recuo() -> None:
+    """A evidencia e EVENTO, nao estado. Um "sim" de turnos atras nao pode seguir sustentando o
+    horario (nem, por ele, a `intencao`) depois de o cliente recuar -- so o burst ATUAL conta."""
     res = asyncio.run(
         prepare_context({"messages": []}, _runtime(mensagens=_linhas_sondagem_com_recuo()))
     )
     assert isinstance(res, Command)
-    assert res.update["sondagem_aceita"] is False
+    assert res.update["horario_evidenciado"] is False
