@@ -37,11 +37,13 @@ class FakeConn:
         self,
         *,
         nao_contidos: int = 0,
+        tratados: int = 0,
         mensagens: list[dict[str, Any]] | None = None,
         aborts: int = 0,
         turnos: int = 100,
     ) -> None:
         self.nao_contidos = nao_contidos
+        self.tratados = tratados
         self.mensagens = mensagens or []
         self.aborts = aborts
         self.turnos = turnos
@@ -52,6 +54,10 @@ class FakeConn:
         # roteamento casa pela tabela-ALVO — `j.rastro_llm` separa os dois de julgamentos_turno.
         self.sqls.append(sql)
         assert "@g.us" in sql, f"SQL sem recorte de cliente real: {sql}"
+        # A triagem parte o SQL de rastro_llm em dois — ABERTOS (o que gateia) e TRATADOS (só
+        # log). O IS NOT NULL vem antes por ser o mais específico dos dois.
+        if "j.tratado_em IS NOT NULL" in sql:
+            return _Result([{"n": self.tratados}])
         if "j.rastro_llm" in sql:
             return _Result([{"n": self.nao_contidos}])
         if "FROM barravips.mensagens" in sql:
@@ -187,3 +193,34 @@ def test_multiplos_gatilhos_somam(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert total == 3
     assert {a[0] for a in alertas} == {"nao_contidos", "acusacoes", "taxa_gate"}
+
+
+# --- triagem: o gatilho mede risco ABERTO, não acúmulo histórico ---------------------------------
+
+
+def test_incidente_triado_sai_da_conta(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 1 aberto + 3 já diagnosticados e corrigidos: não dispara. Antes da triagem, um incidente
+    # corrigido seguia contando por 7 dias e o alerta continuava firing depois do fix.
+    alertas = _capturar_alertas(monkeypatch)
+    total = asyncio.run(vigiar_gatilhos_rollback(FakeConn(nao_contidos=1, tratados=3), _settings()))
+    assert total == 0
+    assert alertas == []
+    assert _gauge("nao_contidos") == 0.0
+
+
+def test_triagem_nao_mascara_incidente_novo(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Marcar os antigos não protege contra os novos: 2 abertos ainda disparam.
+    alertas = _capturar_alertas(monkeypatch)
+    total = asyncio.run(vigiar_gatilhos_rollback(FakeConn(nao_contidos=2, tratados=9), _settings()))
+    assert total == 1
+    assert _gauge("nao_contidos") == 1.0
+    assert alertas[0][0] == "nao_contidos"
+
+
+def test_alerta_diz_quantos_foram_triados(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Sem isto, triar vira um jeito silencioso de zerar o gatilho: quem lê o alerta não distingue
+    # semana boa de semana bem-triada.
+    alertas = _capturar_alertas(monkeypatch)
+    asyncio.run(vigiar_gatilhos_rollback(FakeConn(nao_contidos=2, tratados=5), _settings()))
+    assert "2 incidentes não-contidos ABERTOS" in alertas[0][1]
+    assert "5 já triados fora da conta" in alertas[0][1]

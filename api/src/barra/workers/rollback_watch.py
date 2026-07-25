@@ -4,7 +4,13 @@ O plano do piloto fixou 3 gatilhos OBJETIVOS de rollback (janela deslizante de 7
 os monitora é um cron, não um humano:
 
   1. `nao_contidos`  — >= 2 incidentes críticos NÃO-CONTIDOS/semana: turnos JÁ enviados em que o
-     judge pós-envio viu rastro de LLM (`julgamentos_turno.rastro_llm`).
+     judge pós-envio viu rastro de LLM (`julgamentos_turno.rastro_llm`) e que ainda NÃO foram
+     triados (`tratado_em IS NULL`). A triagem existe porque o gatilho mede risco ABERTO, não
+     acúmulo histórico: sem ela, um incidente diagnosticado e corrigido seguia contando até
+     envelhecer 7 dias, e o alerta continuava disparando depois do fix — alerta que não some
+     quando o problema some para de ser lido. Marcar é escrita em prod e exige justificativa
+     (`tratado_nota`); o log sempre carrega quantos foram suprimidos, para a triagem não virar
+     um jeito silencioso de zerar o gatilho.
   2. `acusacoes`     — >= 3 conversas/semana com acusação-padrão do cliente ("é robô?", pedido de
      prova impossível): regexes do `agente/_classificador` (fonte única, determinístico, sem
      custo de LLM) sobre as mensagens de cliente da janela.
@@ -61,6 +67,20 @@ SELECT count(*) AS n
   FROM barravips.julgamentos_turno j
   JOIN barravips.conversas c ON c.id = j.conversa_id
  WHERE j.rastro_llm
+   AND j.tratado_em IS NULL
+   AND j.julgado_em >= now() - make_interval(days => %s)
+   AND {_SO_CLIENTE_REAL}
+"""
+
+# O que a triagem tirou da conta. Só observabilidade — nunca gateia nada; existe para o log dizer
+# "2 abertos, 3 tratados" em vez de só "2", senão marcar incidente vira um jeito silencioso de
+# desligar o gatilho e ninguém percebe a diferença entre semana boa e semana bem-triada.
+_SQL_NAO_CONTIDOS_TRATADOS = f"""
+SELECT count(*) AS n
+  FROM barravips.julgamentos_turno j
+  JOIN barravips.conversas c ON c.id = j.conversa_id
+ WHERE j.rastro_llm
+   AND j.tratado_em IS NOT NULL
    AND j.julgado_em >= now() - make_interval(days => %s)
    AND {_SO_CLIENTE_REAL}
 """
@@ -153,6 +173,7 @@ async def vigiar_gatilhos_rollback(conn: AsyncConnection[Any], settings: Setting
         return 0
 
     nao_contidos = await _contar(conn, _SQL_NAO_CONTIDOS)
+    tratados = await _contar(conn, _SQL_NAO_CONTIDOS_TRATADOS)
 
     res = await conn.execute(_SQL_MSGS_CLIENTE, (_JANELA_DIAS,))
     acusacoes = contar_conversas_com_acusacao(list(await res.fetchall()))
@@ -178,7 +199,9 @@ async def vigiar_gatilhos_rollback(conn: AsyncConnection[Any], settings: Setting
 
     if disparos["nao_contidos"]:
         _alertar(
-            "nao_contidos", f"{nao_contidos} incidentes não-contidos (limiar {LIMIAR_NAO_CONTIDOS})"
+            "nao_contidos",
+            f"{nao_contidos} incidentes não-contidos ABERTOS (limiar {LIMIAR_NAO_CONTIDOS}"
+            f"; {tratados} já triados fora da conta)",
         )
     if disparos["acusacoes"]:
         _alertar(
@@ -192,8 +215,9 @@ async def vigiar_gatilhos_rollback(conn: AsyncConnection[Any], settings: Setting
         )
 
     logger.info(
-        "rollback_watch nao_contidos=%d acusacoes=%d gate=%d/%d disparados=%d",
+        "rollback_watch nao_contidos=%d (tratados=%d) acusacoes=%d gate=%d/%d disparados=%d",
         nao_contidos,
+        tratados,
         acusacoes,
         aborts,
         universo,
