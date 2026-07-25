@@ -50,7 +50,11 @@ from barra.dominio.modelos.disponibilidade import proxima_abertura
 from barra.settings import get_settings
 
 from .._classificador import classificar_janela
-from .._disciplina import _PROBE_DIA_HOJE
+from .._disciplina import (
+    _PROBE_DIA_HOJE,
+    contem_hora_explicita,
+    contem_sondagem_imediatismo,
+)
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
@@ -153,6 +157,14 @@ async def prepare_context(
         #     forçando `agendamento` depois de o cliente recuar.
         sondagem_aceita = _sondagem_aceita_no_turno(mensagens)
 
+        # 3d. Proveniência do horário (spec extracao-proveniencia-horario): a janela tem fala do
+        #     CLIENTE que sustenta o horário? Vai ao State p/ o `extrair` carimbar
+        #     `horario_evidenciado` junto com a gravação do horário. Computado AQUI pelo mesmo
+        #     motivo do piso acima — depois da anexação, o contexto dinâmico (que carrega agenda e
+        #     <horario_minimo>) colaria HORAS na cauda do último HumanMessage e o detector as leria
+        #     como fala do cliente.
+        horario_evidenciado = _horario_evidenciado_no_turno(mensagens)
+
         # 4. Contexto dinâmico (02 §5): resolve cliente/agenda na MESMA conexão e concatena no
         #    último HumanMessage (sem cache_control — texto volátil na cauda). Recebe o atendimento
         #    já lido (1), o max_horas e o local já resolvidos (3). Devolve a `fase` (= estado do
@@ -191,6 +203,7 @@ async def prepare_context(
             "_confianca": confianca,
             "horario_minimo": horario_minimo,
             "sondagem_aceita": sondagem_aceita,
+            "horario_evidenciado": horario_evidenciado,
         },
     )
 
@@ -353,10 +366,13 @@ _AFIRMACOES = frozenset(
         "é",
         "eh",
         "sim sim",
+        # "perfeito" fecha a correferência do #34 ("Posso confirmar às 18h" → "Perfeito"), e vale
+        # igual para o dia — é aceite, não recuo.
+        "perfeito",
     }
 )
 # Primeira palavra forte o bastante p/ valer mesmo seguida de vocativo ("sim amor", "claro vida").
-_AFIRMACOES_FORTES = frozenset({"sim", "isso", "claro", "aham", "uhum", "ahan"})
+_AFIRMACOES_FORTES = frozenset({"sim", "isso", "claro", "aham", "uhum", "ahan", "perfeito"})
 # Estados onde o dia ainda pode estar em aberto; de Aguardando_confirmacao em diante não reabre.
 _ESTADOS_PRE_CONFIRMACAO = frozenset({"Novo", "Triagem", "Qualificado"})
 
@@ -410,9 +426,7 @@ def _sondagem_aceita_no_turno(mensagens: list[BaseMessage]) -> bool:
     turnos é a monotonicidade do UPSERT (dominio/atendimentos/service.py `_montar_upsert`).
     """
     # Burst atual = HumanMessages contíguas no fim da janela (o cliente pode mandar várias bolhas).
-    i = len(mensagens)
-    while i > 0 and isinstance(mensagens[i - 1], HumanMessage):
-        i -= 1
+    i = _burst_do_cliente(mensagens)
     burst = mensagens[i:]
     if not burst:  # último turno não é do cliente -> não há afirmação nova
         return False
@@ -421,12 +435,68 @@ def _sondagem_aceita_no_turno(mensagens: list[BaseMessage]) -> bool:
     if not any(_e_afirmacao_curta(_texto_msg(m)) for m in burst):
         return False
     # Sondagem tem que estar nas bolhas contíguas da IA imediatamente antes do burst.
-    j = i - 1
+    return any(
+        _PROBE_DIA_HOJE.search(_texto_msg(m)) for m in _bolhas_ia_antes_do_burst(mensagens, i)
+    )
+
+
+def _burst_do_cliente(mensagens: list[BaseMessage]) -> int:
+    """Índice onde começa o burst ATUAL do cliente (HumanMessages contíguas no fim da janela);
+    `len(mensagens)` quando o último a falar não foi ele."""
+    i = len(mensagens)
+    while i > 0 and isinstance(mensagens[i - 1], HumanMessage):
+        i -= 1
+    return i
+
+
+def _bolhas_ia_antes_do_burst(mensagens: list[BaseMessage], inicio_burst: int) -> list[AIMessage]:
+    """Bolhas contíguas da IA imediatamente ANTES do burst do cliente — o antecedente ao qual a
+    afirmação curta dele se refere (a IA quebra a fala em várias bolhas)."""
+    j = inicio_burst - 1
+    bolhas: list[AIMessage] = []
     while j >= 0 and isinstance(mensagens[j], AIMessage):
-        if _PROBE_DIA_HOJE.search(_texto_msg(mensagens[j])):
-            return True
+        bolhas.append(mensagens[j])  # type: ignore[arg-type]
         j -= 1
-    return False
+    return bolhas
+
+
+def _horario_evidenciado_no_turno(mensagens: list[BaseMessage]) -> bool:
+    """True se a janela do turno EVIDENCIA o horário: existe fala do cliente que o sustenta.
+
+    Os três gatilhos da spec (extracao-proveniencia-horario), todos no corpus de produção:
+      1. hora explícita numa bolha do burst atual do cliente ("Umas 16 horas" — #24);
+      2. confirmação curta do cliente logo após bolha da IA que contém hora ("Posso confirmar às
+         18h" → "Perfeito" — #34); mesma mecânica de correferência já usada para o dia;
+      3. o mesmo par, com a bolha da IA sendo a sondagem de IMEDIATISMO ("Seria agora ?" → "sim"
+         — #35): o número vem do fallback, mas a intenção é dele.
+
+    O gatilho 3 usa `contem_sondagem_imediatismo`, NÃO o `sondagem_aceita` do State: aquele bool
+    também acende no "seria hoje ?" (mesma família no prompt), que crava o DIA e não a HORA —
+    aceitá-lo carimbaria evidência sobre um horário que o fallback sintetizou, reabrindo o #25.
+
+    EVENTO do turno, não estado — igual ao piso de intenção e pelo mesmo motivo: quem preserva a
+    marca entre turnos é a coluna `horario_evidenciado` (o valor só perde a evidência quando MUDA
+    sem evidência nova, dominio/atendimentos/service.py). Restrito ao burst atual, uma hora dita
+    dez turnos atrás não revalida o palpite que o sistema gravou depois.
+
+    Por que NÃO é write-time como as flags A2 (agente/CLAUDE.md): aquelas rastreiam o que a IA já
+    fez (carimbáveis quando ela fala); esta lê a fala do CLIENTE e é consumida no MESMO turno, pelo
+    `extrair`, junto da gravação do horário. Nunca deriva do payload da extração — é justamente o
+    canal contaminado pelo eco do belief (o extrator relê o horário colado na cauda e o devolve
+    como observação nova).
+    """
+    i = _burst_do_cliente(mensagens)
+    burst = mensagens[i:]
+    if not burst:  # último turno não é do cliente -> não há fala nova a sustentar o horário
+        return False
+    if any(contem_hora_explicita(_texto_msg(m)) for m in burst):
+        return True
+    if not any(_e_afirmacao_curta(_texto_msg(m)) for m in burst):
+        return False
+    return any(
+        contem_hora_explicita(_texto_msg(m)) or contem_sondagem_imediatismo(_texto_msg(m))
+        for m in _bolhas_ia_antes_do_burst(mensagens, i)
+    )
 
 
 def _confirmou_dia_hoje(mensagens: list[BaseMessage]) -> bool:
@@ -677,7 +747,8 @@ async def _carregar_atendimento(conn: AsyncConnection[Any], atendimento_id: str)
         SELECT ia_pausada, numero_curto, estado, intencao, tipo_atendimento, urgencia,
                pix_status, data_desejada, horario_desejado, endereco, bairro,
                cotacao_enviada_em, valor_acordado, duracao_horas, sinais_qualificacao,
-               n_contrapropostas, dia_sondado_em, book_enviado_em, endereco_enviado_em
+               n_contrapropostas, dia_sondado_em, book_enviado_em, endereco_enviado_em,
+               horario_evidenciado
           FROM barravips.atendimentos
          WHERE id = %s
         """,
@@ -920,6 +991,15 @@ async def _resolver_variaveis(
         # renderiza com status "ainda não confirmado" — sem isto o bloco <ja_combinado> apresentava
         # horário ainda DESEJADO como combinado (CONTEXT.md: desejado ≠ combinado).
         "horario_ja_combinado": ja_combinado,
+        # Proveniência do horário (marca persistida, carimbada no turno anterior pelo detector ou
+        # pelo painel): falso => o <hora> renderiza "palpite seu, ele não confirmou" em vez de
+        # "pedido dele". Lê SÓ a coluna, sem OR com o detector deste turno: o bloco descreve o
+        # estado do atendimento como ele está ANTES da extração — o horário renderizado também é
+        # o do turno anterior, então marca e valor ficam coerentes.
+        # Sem backfill (spec), todo atendimento aberto ANTES da migration entra como não-evidenciado
+        # até a próxima fala com hora — por isso o status manda CONFIRMAR o horário, não descartá-lo:
+        # confirmar um horário de fato combinado é inócuo; tratar um palpite como combinado é o #25.
+        "horario_evidenciado": bool(atendimento.get("horario_evidenciado")),
         "endereco": atendimento.get("endereco"),
         "bairro": atendimento.get("bairro"),
         # Valor/duração no snapshot (a janela de 20 msgs desliza; sem isto a IA perde o acordo que

@@ -59,6 +59,13 @@ class EstadoAgente(MessagesState):
         de `intencao` (`_aplicar_piso_intencao`). Vive no State pelo mesmo motivo que
         `horario_minimo`: nasce no prepare_context e e consumido depois, sem recomputar nem acoplar
         no->no. Nasce ausente a cada `ainvoke` (sem checkpointer).
+    horario_evidenciado: a janela do turno tem fala do CLIENTE que sustenta o horario
+        (`_horario_evidenciado_no_turno`, prepare_context): hora explicita dele, confirmacao curta
+        sobre a hora que a IA propos, ou o aceite da sondagem de imediatismo. A tool
+        `registrar_extracao` o le e o repassa ao dominio, que carimba
+        `atendimentos.horario_evidenciado`. Vive no State pelo mesmo motivo que `sondagem_aceita`
+        (nasce no prepare_context, e consumido no `extrair`) e NUNCA sai do payload da extracao —
+        esse e o canal contaminado pelo eco do belief. Nasce ausente a cada `ainvoke`.
     """
 
     midia_idx: int
@@ -68,3 +75,4 @@ class EstadoAgente(MessagesState):
     _midia_esgotada: bool
     horario_minimo: datetime | None
     sondagem_aceita: bool
+    horario_evidenciado: bool

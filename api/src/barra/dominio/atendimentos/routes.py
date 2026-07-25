@@ -689,6 +689,11 @@ async def editar_dados(
     campos = body.model_dump(exclude_none=True)
     if campos:
         set_clausulas = ", ".join(f"{campo} = %s" for campo in campos)
+        # Proveniência do horário (spec extracao-proveniencia-horario): horário posto pelo operador
+        # nasce EVIDENCIADO — ele combinou por fora e sabe que é verdade (fonte forte). Só quando o
+        # horário é o campo editado: carimbar em qualquer edição validaria um palpite do sistema.
+        if "horario_desejado" in campos:
+            set_clausulas += ", horario_evidenciado = true"
         valores: list[Any] = [str(v) if hasattr(v, "isoformat") else v for v in campos.values()]
         valores.append(atendimento_id)
         await conn.execute(

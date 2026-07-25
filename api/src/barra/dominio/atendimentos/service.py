@@ -303,8 +303,13 @@ async def registrar_extracao_ia(
     *,
     agora: datetime | None = None,
     horario_minimo: datetime | None = None,
+    horario_evidenciado: bool = False,
 ) -> dict[str, Any]:
     """UPSERT do snapshot da IA + transicao de estado + bloqueio previo, na transacao do chamador.
+
+    `horario_evidenciado` e o veredito do detector deterministico do TURNO (prepare_context): a
+    janela tem fala do cliente que sustenta o horario. Nunca vem do payload — o payload e o canal
+    contaminado pelo eco do belief (ver `_marca_horario_evidenciado`).
 
     Roda SEM abrir transacao propria: a tool ja envelopa esta chamada em `_executar_idempotente`
     (uma transacao), entao snapshot + transicao + bloqueio sao atomicos (o advisory lock + a
@@ -440,6 +445,7 @@ async def registrar_extracao_ia(
     # 1. UPSERT por COALESCE: so campos nao-nulos sobrescrevem; `limpar` forca NULL e tem
     #    PRECEDENCIA sobre o payload (cliente recuou). `sinais_qualificacao` faz merge jsonb.
     sets, valores = _montar_upsert(payload, limpar)
+    _marca_horario_evidenciado(sets, valores, payload, limpar, horario_evidenciado)
     if not sets:
         return {"mensagem": "Nenhum campo novo para registrar.", "novo_estado": None}
     valores.append(aid)
@@ -583,6 +589,40 @@ def _montar_upsert(payload: dict[str, Any], limpar: set[str]) -> tuple[list[str]
         sets.append("sinais_qualificacao = sinais_qualificacao || %s::jsonb")
         valores.append(json.dumps(sinais))
     return sets, valores
+
+
+def _marca_horario_evidenciado(
+    sets: list[str],
+    valores: list[Any],
+    payload: dict[str, Any],
+    limpar: set[str],
+    evidenciado: bool,
+) -> None:
+    """Anexa ao UPSERT a transicao da marca `horario_evidenciado` (spec proveniencia-do-horario).
+    Muta `sets`/`valores` in-place; nada a anexar => nao toca a coluna.
+
+        false -> true : SEMPRE que o detector do turno achou evidencia, mesmo com o VALOR igual
+                        (o cliente confirmando depois o palpite do sistema conta — #25 -> "pode
+                        ser 2h entao");
+        true  -> false: so quando o VALOR muda sem evidencia nova (fallback de tempo imediato,
+                        eco do belief, ou o horario sendo limpo);
+        true  -> true : valor muda COM evidencia (o `evidenciado` vence, primeiro ramo).
+
+    A comparacao e com o valor JA PERSISTIDO (`IS DISTINCT FROM`, dentro do proprio UPDATE): o eco
+    do belief regrava o mesmo horario, e regravar o mesmo numero nao e mudanca — nao derruba a
+    marca nem se auto-valida.
+    """
+    if evidenciado:
+        sets.append("horario_evidenciado = true")
+    elif "horario_desejado" in limpar:
+        # Horario apagado (cliente recuou): nao ha valor a sustentar, a marca cai junto.
+        sets.append("horario_evidenciado = false")
+    elif payload.get("horario_desejado") is not None:
+        sets.append(
+            "horario_evidenciado = CASE WHEN horario_desejado IS DISTINCT FROM %s::time "
+            "THEN false ELSE horario_evidenciado END"
+        )
+        valores.append(payload["horario_desejado"])
 
 
 def _sinais_qualificacao_do_turno(payload: dict[str, Any], limpar: set[str]) -> dict[str, Any]:

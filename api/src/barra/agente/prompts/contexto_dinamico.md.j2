@@ -2,7 +2,7 @@
 <ja_combinado>
 <tipo>{{ tipo_atendimento or 'ainda não definido' }}</tipo>
 {% if data_desejada %}<dia{% if not horario_ja_combinado %} status="pedido dele, ainda não confirmado"{% endif %}>{{ data_desejada }}</dia>{% endif %}
-{% if horario_desejado %}<hora{% if not horario_ja_combinado %} status="pedido dele, ainda não confirmado"{% endif %}>{{ horario_desejado }}</hora>{% endif %}
+{% if horario_desejado %}<hora{% if not horario_evidenciado %} status="palpite seu, ele não confirmou — confirme o horário com ele antes de tratar como combinado"{% elif not horario_ja_combinado %} status="pedido dele, ainda não confirmado"{% endif %}>{{ horario_desejado }}</hora>{% endif %}
 {% if endereco %}<local>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</local>{% endif %}
 {% if valor_fechado and valor_aceito %}<valor_fechado>{{ valor_fechado }}{% if duracao_fechada %} ({{ duracao_fechada }}h){% endif %} — valor já combinado com ele: não re-cote nem renegocie</valor_fechado>{% elif valor_fechado %}<valor_cotado>{{ valor_fechado }}{% if duracao_fechada %} ({{ duracao_fechada }}h){% endif %} — preço que VOCÊ já cotou e ele AINDA NÃO aceitou: não cote outro número nem repita este solto, mas também não o trate como fechado ("combinado", "fechamos", "confirmado" não cabem ainda, e o horário não se crava sobre um valor que ele não topou). O que falta é o sim dele; se ele objetar preço, vale a escada do <desconto></valor_cotado>{% endif %}
 {% if urgencia %}<urgencia>{{ urgencia }}</urgencia>{% endif %}

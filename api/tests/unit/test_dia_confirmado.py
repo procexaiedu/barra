@@ -36,7 +36,19 @@ def test_abridor_seria_hoje_mais_sim():
 
 
 def test_variantes_de_afirmacao():
-    for resp in ("isso", "pode ser", "claro", "aham", "uhum", "é", "sim sim", "Pode ser!"):
+    # "perfeito" entrou com a proveniência do horário (#34: "Posso confirmar às 18h" → "Perfeito")
+    # e vale igual aqui — o conjunto de afirmações é compartilhado de propósito: é aceite, não recuo.
+    for resp in (
+        "isso",
+        "pode ser",
+        "claro",
+        "aham",
+        "uhum",
+        "é",
+        "sim sim",
+        "Pode ser!",
+        "perfeito",
+    ):
         msgs = [_ia("seria hoje?"), _cli(resp)]
         assert _confirmou_dia_hoje(msgs) is True, resp
 

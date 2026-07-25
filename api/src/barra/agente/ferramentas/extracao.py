@@ -309,6 +309,10 @@ async def registrar_extracao(
     # handler de AntecedenciaInsuficiente): ancora o fallback de tempo imediato (#4) no dominio. O
     # `now` cru nao passaria a guarda estrita de antecedencia; o horario_minimo, sim (por construcao).
     horario_minimo = runtime.state.get("horario_minimo")
+    # Proveniencia do horario (spec extracao-proveniencia-horario): a janela do turno tem fala do
+    # CLIENTE que sustenta o horario (detector deterministico do prepare_context, estado.py). NAO
+    # sai do payload de proposito — o payload e o canal contaminado pelo eco do belief.
+    horario_evidenciado = bool(runtime.state.get("horario_evidenciado"))
 
     # Clamp antes da revalidacao: o model interno mantem max_length=240 como invariante; aqui o
     # excesso vira truncamento silencioso (ver comentario na assinatura).
@@ -348,7 +352,12 @@ async def registrar_extracao(
                 0,
                 dados,
                 executor=lambda c, p: registrar_extracao_ia(
-                    c, atendimento_id, p, agora=agora, horario_minimo=horario_minimo
+                    c,
+                    atendimento_id,
+                    p,
+                    agora=agora,
+                    horario_minimo=horario_minimo,
+                    horario_evidenciado=horario_evidenciado,
                 ),
             )
         except ConflitoAgenda:

@@ -28,9 +28,12 @@ from ._normalizar import normalizar
 # cliente lê como ansiedade. O verbo entra na alternância porque a paráfrase que o modelo produz é
 # verbal ("Vem agora ?", "Pode vir agora ?"), não só o "seria". "vier" (da contraproposta "Consigo
 # 500 se você vier hoje") NÃO casa: `\bvir\b` exige fronteira de palavra depois do "r".
-_PROBE_DIA_HOJE = re.compile(
-    r"\b(?:seria|é pra|pra|é|vem|vir|vamos)\s+(?:hoje|agora)\b", re.IGNORECASE
-)
+_VERBOS_SONDAGEM = r"(?:seria|é pra|pra|é|vem|vir|vamos)"
+_PROBE_DIA_HOJE = re.compile(rf"\b{_VERBOS_SONDAGEM}\s+(?:hoje|agora)\b", re.IGNORECASE)
+# Só a variante de IMEDIATISMO ("seria agora ?"). Aceitá-la crava a HORA (é agora), enquanto o
+# "seria hoje ?" crava só o DIA — a separação importa na proveniência do horário: um "sim" ao
+# "seria hoje ?" não sustenta o horário que o fallback sintetizou.
+_PROBE_AGORA = re.compile(rf"\b{_VERBOS_SONDAGEM}\s+agora\b", re.IGNORECASE)
 
 # Contraproposta de desconto ("Consigo 500 se você vier hoje 😊") — a disciplina é ATÉ DUAS na
 # conversa inteira (regras.md.j2 <desconto> 3/4, ADR-0031: degrau na 1ª, teto na 2ª e última).
@@ -51,6 +54,42 @@ def contem_sondagem_dia(texto: str) -> bool:
     Sem `normalizar`: o regex já é case-insensitive e casa o "é" acentuado da forma canônica da
     persona."""
     return _PROBE_DIA_HOJE.search(texto) is not None
+
+
+# Proveniência do horário (spec extracao-proveniencia-horario): a fala carrega uma HORA do relógio.
+# Dois formatos, porque "2h" sozinho é AMBÍGUO no domínio — a duração do programa se escreve igual
+# ao horário ("600 1h no meu local" é cotação; "quanto é 1h?" é duração):
+#  (a) hora com MINUTO ("17:30", "18h15") ou o literal meio-dia/meia-noite: nunca é duração;
+#  (b) hora cheia PRECEDIDA de marcador temporal ("às 18h", "umas 16 horas", "daqui 1h",
+#      "tipo 18h", "pode ser 2h"). Sem o marcador não conta — falso positivo aqui carimba
+#      evidência num horário que o cliente nunca pediu, que é justamente a falha do #25.
+_HORA = r"(?:[01]?\d|2[0-3])"
+_SUFIXO_HORA = r"(?:h|hs|hrs|horas?)\b"
+_RE_HORA_COM_MINUTO = re.compile(rf"\b{_HORA}\s*[:h]\s*[0-5]\d\b|\bmeio\s?dia\b|\bmeia\s?noite\b")
+_MARCADOR_TEMPORAL = (
+    r"(?:as|umas?|pelas?|por volta d(?:as|a|e)|daqui(?:\s+a)?|tipo|pode ser|seria|ate|"
+    r"depois d(?:as|e)|antes d(?:as|e))"
+)
+_RE_HORA_COM_MARCADOR = re.compile(rf"\b{_MARCADOR_TEMPORAL}\s+{_HORA}\s*{_SUFIXO_HORA}")
+
+
+def contem_sondagem_imediatismo(texto: str) -> bool:
+    """True se a bolha carrega a sondagem de IMEDIATISMO ("seria agora ?", "vem agora ?").
+
+    Recorte de `contem_sondagem_dia` usado pela proveniência do horário: aceitar "seria agora ?"
+    é o cliente dizendo QUE HORAS (agora); aceitar "seria hoje ?" só crava o dia."""
+    return _PROBE_AGORA.search(texto) is not None
+
+
+def contem_hora_explicita(texto: str) -> bool:
+    """True se a fala carrega uma hora do relógio ("Umas 16 horas", "18h15", "às 17:30").
+
+    `normalizar` antes do match: tira acento/caixa p/ "às"/"até" casarem sem acento. Usado nos
+    dois primeiros gatilhos do horário evidenciado (fala do cliente com hora; bolha da IA com
+    hora seguida de confirmação curta) — ver `_horario_evidenciado_no_turno` (nos/prepare_context).
+    """
+    t = normalizar(texto)
+    return _RE_HORA_COM_MINUTO.search(t) is not None or _RE_HORA_COM_MARCADOR.search(t) is not None
 
 
 # Palavra de lugar que qualquer endereco tem: nao distingue o ponto de encontro DELA de nenhum

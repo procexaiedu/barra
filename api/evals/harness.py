@@ -439,15 +439,20 @@ async def _inserir_mensagem(
 ) -> None:
     """Insere uma linha em `mensagens` como prod grava. `tipo`/`media_object_key` default = texto
     puro (retrocompat); 'imagem'/'audio' carregam o `conteudo` que o agente VE (caption da imagem /
-    transcricao do audio) — o STT/caption ja resolveram antes do turno (ver `traduzir_mensagens`)."""
+    transcricao do audio) — o STT/caption ja resolveram antes do turno (ver `traduzir_mensagens`).
+
+    SEM `id` explicito: deixa o default `barravips.uuidv7()` da tabela agir, como prod. Todas as
+    linhas do seed empatam em `created_at` (`now()` = transaction_timestamp na MESMA transacao) e o
+    desempate da janela e `id DESC` — com `uuid4()` a ordem cliente-vs-IA saia ALEATORIA, e todo
+    detector que le a cauda (correferencia do dia, aceite da sondagem, evidencia do horario) virava
+    flaky. `uuidv7` e time-ordered, entao a ordem de insercao vira a ordem da janela."""
     await conn.execute(
         """
         INSERT INTO barravips.mensagens
-            (id, conversa_id, direcao, tipo, conteudo, media_object_key, evolution_message_id)
-        VALUES (%s, %s, %s::barravips.direcao_mensagem_enum, %s, %s, %s, %s)
+            (conversa_id, direcao, tipo, conteudo, media_object_key, evolution_message_id)
+        VALUES (%s, %s::barravips.direcao_mensagem_enum, %s, %s, %s, %s)
         """,
         (
-            uuid4(),
             conversa_id,
             direcao,
             tipo,

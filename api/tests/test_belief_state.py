@@ -262,10 +262,26 @@ def test_render_dia_hora_sem_status_quando_ja_combinado() -> None:
         data_desejada=date(2026, 6, 15),
         horario_desejado=_HORA,
         horario_ja_combinado=True,
+        horario_evidenciado=True,
     )
     assert "<dia>2026-06-15</dia>" in out
     assert "<hora>15:00:00</hora>" in out
     assert "ainda não confirmado" not in out
+
+
+def test_render_hora_sem_evidencia_e_palpite_do_sistema() -> None:
+    # #25 (23/07): o horário veio do fallback de tempo imediato e o cliente nunca o pediu. O bloco
+    # de horário ganha o TERCEIRO status — sem ele a IA lê o palpite como "pedido dele" e conduz a
+    # venda em cima de um horário fantasma (spec extracao-proveniencia-horario).
+    out = _render(
+        "Aguardando_confirmacao",
+        tipo_atendimento="interno",
+        horario_desejado=_HORA,
+        horario_ja_combinado=True,
+        horario_evidenciado=False,
+    )
+    assert '<hora status="palpite seu, ele não confirmou' in out
+    assert 'status="pedido dele, ainda não confirmado">15:00:00' not in out
 
 
 def test_render_valor_fechado_entra_no_ja_combinado() -> None:
