@@ -103,17 +103,19 @@ Central inteligente de atendimento da agência Elite Baby. Cada modelo opera em 
 
 **Porta de entrada do domínio:** @CONTEXT.md (vocabulário, termos da operação Elite Baby e o que evitar). 
 
+## Agent skills
+
 ### Issue tracker
 
-Issues e PRDs vivem como GitHub issues em `procexaiedu/barra`, via `gh` CLI.
+Issues e specs (PRDs) vivem como markdown local em `.scratch/<feature>/`, não como GitHub issues. Ver `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Cinco papéis canônicos de triagem mapeados 1:1 para labels do GitHub (defaults).
+Cinco papéis canônicos de triagem, com os nomes default, gravados como linha `Status:` no arquivo do issue. Ver `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` + `docs/adr/` na raiz do repo.
+Single-context: `CONTEXT.md` + `docs/adr/` na raiz do repo. Ver `docs/agents/domain.md`.
 
 ## Gate de verificação
 

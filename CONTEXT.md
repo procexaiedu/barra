@@ -3,6 +3,10 @@
 Linguagem de domínio da central inteligente de atendimento da operação Elite Baby — mantém consistentes os termos entre produto, operação e implementação.
 
 > **Precedência:** reflete os ADRs vigentes (`docs/adr/`). Onde divergir de um ADR não-superseded, o ADR vence e este arquivo deve ser corrigido. Regra completa de fonte de verdade no `CLAUDE.md`.
+>
+> **Escopo deste arquivo:** o vocabulário **quente** — o que a IA usa e erra na conversa com o cliente. O resto do glossário mora em `docs/dominio/`, carregado sob demanda:
+> - `docs/dominio/operacao-e-financeiro.md` — **Operador**, **Vendedor**, **Comissão de vendedor**, **Coordenação por modelo**, **Card**, **Devolução para IA**, **Registro de resultado**, **Lembrete de fechamento**, **Valor final**, **Taxa de cartão**, **Combo de grupo**, **Modelo do canal**/**convidada**, mecânica completa do **Cancelamento automático do piloto**.
+> - `docs/dominio/painel-e-p1.md` — **Perfil físico preferido**, **Dados cadastrais da modelo**, **Mapa de clientes**, **Tarefa**, **IA Admin** (P1), **Reativação** (P1).
 
 ## Language
 
@@ -14,13 +18,9 @@ _Avoid_: confundir a entidade **Modelo** com o *model* do LLM ou com `modelos.py
 Pessoa que contata uma modelo pelo WhatsApp, identificada pelo **telefone** (E.164, único — dois números são dois clientes, sem dedup por pessoa). Entidade **global** (uma linha por número), mas o dado **operacional** — histórico, recorrência, observações — é **isolado por par cliente-modelo** na **Conversa cliente**, e a **IA por modelo** nunca o cruza entre modelos. Os poucos atributos **globais** (**Perfil físico preferido**, posição no **Mapa de clientes**) são **painel-only/Fernando**.
 _Avoid_: tratar histórico/recorrência/observações como globais (são por par); deduplicar por pessoa (a chave é o telefone); expor atributos globais à IA.
 
-**Operador**:
-Quem opera o **painel** — **Fernando** e a **sócia**, **permissão idêntica** (sem RBAC no P0; ambos `papel='fernando'`). Por convenção escreve-se **"Fernando"** para qualquer operador. Distinto do **Vendedor** (sem login) e do **Responsável** de **Tarefa** (rótulo de execução, sem login).
-_Avoid_: ler "Fernando" como exclusão da sócia; confundir com **Vendedor** ou **Responsável**; supor RBAC no P0.
-
 **Conversa cliente**:
 **Thread persistente** de um par cliente-modelo (uma por par) no número da modelo, onde a IA responde em nome dela até pausar para handoff e onde a modelo pode assumir manualmente. Guarda histórico, recorrência e observações; **sobrevive a vários atendimentos** ao longo do tempo. Continua gravando mesmo com IA pausada, sem alertar grupos nem criar indicador no painel.
-_Avoid_: chamar de chat da modelo ou atendimento humano; confundir com o **Atendimento** (a thread não é o ciclo comercial).
+_Avoid_: chamar de chat da modelo ou atendimento humano; confundir com o **Atendimento** (a thread não é o ciclo comercial); confundir com a **Coordenação por modelo** (grupo interno — ver `docs/dominio/operacao-e-financeiro.md`).
 
 **Atendimento**:
 Ciclo comercial de uma negociação cliente-modelo: nasce em `Novo`, percorre os **Estados do atendimento** e encerra em `Fechado`/`Perdido`. **No máximo um aberto por par** (terminais não restringem); recorrência abre um **novo** dentro da mesma **Conversa cliente**. Identificado por **número curto sequencial por modelo** (`#N`, usado nos comandos do grupo). Carrega o eixo **interno/externo**, **Valor final**, **Vendedor**, o **bloqueio** de agenda e o estado de pausa da IA. Recebe **Registro de resultado**, **Handoff**, **Pix de deslocamento** e timeouts.
@@ -47,53 +47,13 @@ Eixo (`tipo_atendimento`) que define quem se desloca — ou se ninguém se deslo
 A modelo declara os tipos que aceita (`tipo_atendimento_aceito[]`, pode ser mais de um); cada atendimento fixa exatamente um. A IA nunca negocia um tipo que a modelo não realiza.
 _Avoid_: tratar interno como localização do cliente; a IA revelar a **unidade** (apto/quarto) do interno (só a modelo passa, pós-Foto de portaria); passar rua+número do prédio antes de haver intenção real (no 1º contato/sondagem, só a região); exigir Pix de deslocamento no interno/remoto ou Foto de portaria no externo/remoto; travar o remoto pelo Pix antecipado (não gateia — ADR 0029); negociar o cliente buscando a modelo de carro (caso descartado — redirecionar e, na insistência, escalar); plotar interno ou remoto no Mapa; misturar remoto e presencial no mesmo atendimento.
 
-**Coordenação por modelo**:
-Grupo persistente com **2 participantes** — o número da modelo (operado pela IA) e Fernando. A IA envia cards/resumos acionáveis a partir do número da modelo; a modelo lê no próprio celular, sem identidade separada. Mensagens manuais da modelo entram como `fromMe` do mesmo número que a IA opera; o sistema distingue IA de modelo pelo originador real do envio.
-_Avoid_: grupo por atendimento; grupo de acompanhamento; identidade separada da modelo; grupo com IA + modelo + Fernando como três identidades.
-
 **IA por modelo**:
 Cada modelo opera no próprio número, atendida por uma IA cuja **persona (voz, jeito, conduta) e FAQ são gerais — compartilhadas entre todas**. Não se customiza a forma de responder por modelo: muda só **as coisas dela** (identidade óbvia, programas/preços, agenda, tipos aceitos). O dado do cliente (histórico, recorrência, observações) é **isolado por par** na **Conversa cliente**: a IA na modelo A nunca enxerga, cita ou se apoia em dado do cliente com a modelo B.
-_Avoid_: perfil único do cliente entre IAs; IA citando profissional contratada por outra modelo **fora do Combo de grupo** (única exceção, e só sob pedido do cliente); fundir histórico cross-modelo; customizar voz/persona/FAQ por modelo.
-
-**Combo de grupo**:
-Conjunto de **Atendimentos irmãos** nascidos de uma única negociação: **um mesmo cliente** contrata, na mesma janela e no mesmo endereço, **modelos distintas** — uma para cada homem do grupo dele (evento, despedida de solteiro, viagem a negócios). Não é um Atendimento: é o **laço** entre vários, e cada um deles segue com seu próprio estado, `#N`, valor e agenda. O cliente registrado em **todos** é o **comprador** (quem negociou); os outros homens que de fato encontram as convidadas **não viram dado no sistema** — mesma leitura do **Menage** caso (a), invertida. A negociação inteira acontece num único WhatsApp, o da **Modelo do canal**. Vale nos dois tipos presenciais, com uma restrição no **interno**: só compõem o combo convidadas que dividem o **mesmo endereço de encontro** do canal (o hotel, em unidades diferentes) — grupo espalhado por endereços distintos não é combo. Nunca no **remoto**. Morte de um irmão **não** derruba os outros (um amigo desistiu, os demais seguem); a exceção é o atendimento **do canal**, cuja perda cascateia o combo inteiro — quem negociou evaporou.
-_Avoid_: confundir com **Menage** (lá são 2+ pessoas com a MESMA modelo, um atendimento e preço dobrado; aqui é 1 modelo por pessoa, N atendimentos e N preços); registrar os amigos como Clientes; tratar o combo como um Atendimento com várias modelos; supor estado agregado próprio (o estado vive em cada Atendimento).
-
-**Modelo do canal** / **Modelo convidada**:
-Os dois papéis dentro de um **Combo de grupo**. A **Modelo do canal** é aquela cujo número o cliente procurou: é a única que conversa com ele, e a **IA por modelo** dela conduz a venda do combo inteiro — cota, fecha e reserva também as convidadas. A **Modelo convidada** é cada outra modelo incluída: **nunca fala com o cliente**, tem a agenda reservada pela IA do canal e fica sabendo pelo **Card** na sua própria **Coordenação por modelo**. Papel é por combo, não atributo da modelo: a mesma mulher é canal numa noite e convidada na outra. Cada convidada cobra o **Preço de tabela dela** (nunca o do canal), e a **Comissão de vendedor**/repasse seguem por atendimento, como sempre.
-_Avoid_: a convidada conversar com o cliente ou receber o contato dele; a IA do canal dar **Desconto de fechamento** sobre o preço da convidada (autoridade de preço é de cada uma); tratar canal/convidada como cadastro fixo da modelo; achar que o cliente vira dado da convidada além do próprio par.
-
-**Vendedor**:
-Pessoa que hoje opera o WhatsApp da modelo respondendo o cliente em nome dela (se passando por ela) — o **respondente humano** do número, papel que a **IA por modelo** assume aos poucos. Sem login no painel; é cadastro gerido por Fernando/sócia, com um **nível** (iniciante/intermediário/avançado) que define a **Comissão de vendedor**. Cada modelo tem um vendedor padrão; o atendimento o herda e Fernando pode sobrescrever quando outro cobriu o turno. Atendimento conduzido pela IA não tem vendedor.
-_Avoid_: tratar como login/usuário; confundir com a **modelo** (o vendedor se passa por ela); confundir com o papel `vendedor_read_only` (P1); atribuir vendedor a atendimento da IA.
-
-**Comissão de vendedor**:
-Percentual que o **Vendedor** recebe sobre os `Fechado` que conduziu, pelo seu **nível** (ref. 4/5/6%, configurável). Incide sobre o **valor líquido de taxa de cartão** (mesma base do repasse da modelo), nunca sobre o bruto inflado pela taxa; é custo **independente** do repasse (ambos saem do mesmo valor, não um do outro).
-_Avoid_: confundir com o repasse; calcular sobre o **Valor final** bruto quando há taxa; comissionar `Perdido` ou atendimento da IA.
+_Avoid_: perfil único do cliente entre IAs; IA citando profissional contratada por outra modelo **fora do Combo de grupo** (única exceção, e só sob pedido do cliente — ver `docs/dominio/operacao-e-financeiro.md`); fundir histórico cross-modelo; customizar voz/persona/FAQ por modelo.
 
 **Handoff**:
 Pausa da IA para Fernando decidir ou a modelo assumir a conversa no mesmo número, sempre com resumo e próxima ação; a IA só retoma por **Devolução** explícita. Disparado por gatilho **automático** do state machine (Pix, Foto de portaria, Lembrete de fechamento sem resposta) ou por **gatilho manual do operador** (Fernando/modelo decide pausar a IA para aquele cliente a qualquer momento, sem esperar um evento do domínio — ex.: resposta ruim da IA). Escopo sempre o **Atendimento** aberto no momento (não a Conversa cliente inteira); atendimento seguinte do mesmo par nasce com IA ativa de novo. Mensagens gravadas durante o handoff compõem resumo/auditoria mas não geram transição automática de estado.
-_Avoid_: humano genérico; tratar o gatilho manual como mudança de escopo (continua por Atendimento, não pausa a Conversa cliente inteira).
-
-**Card**:
-Mensagem estruturada e acionável que a IA envia na **Coordenação por modelo**, a partir do número da modelo — **resumo + próxima ação** — referente a um **Atendimento**. Unidade visível do **Handoff** e dos avisos proativos ("saída confirmada", "cliente chegou", **Lembrete de fechamento**). Age-se **respondendo (quote) o card**: `IA assume`, `finalizado/fechado [valor]`, `perdido [motivo]`. Comando **sem `#N`** só vale como resposta direta a um card; fora disso `#N` é obrigatório. Idempotência por `card_message_id` (por owner). Quando abre handoff que aguarda decisão humana, o registro é uma **Escalada**; mas há cards meramente informativos.
-_Avoid_: confundir com mensagem da **Conversa cliente** (o card vive no grupo interno); tratar todo card como Escalada/Handoff pendente; tratar como notificação passiva.
-
-**Devolução para IA**:
-Comando explícito que reativa a IA após handoff; registra autor, canal e horário. Formas: botão `Devolver para IA` no painel (Fernando); `IA assume` / `IA assume #N` no grupo (Fernando ou modelo); `finalizado [valor]` respondendo ao card, usado pela modelo ao encerrar — se há valor, registra `fechado valor` simultaneamente.
-_Avoid_: retomada automática.
-
-**Registro de resultado**:
-Encerramento explícito de um atendimento como fechado ou perdido, por Fernando ou modelo no grupo, ou por Fernando no painel; fechamento exige valor final. No grupo, só Fernando ou a modelo comandam; o comando da modelo é **efetivo imediatamente** (Fernando corrige depois no painel, recalculando financeiro e ajustando só o bloqueio vinculado — pede confirmação para alterar bloqueio já `em_atendimento`/`concluido`). Comando válido recebe confirmação curta no grupo; inválido/incompleto/ambíguo recebe erro curto e não altera nada. `fechado` sem valor ou `perdido` sem motivo não encerram — o sistema pede complemento.
-_Avoid_: inferência durante handoff.
-
-**Valor final**:
-Valor total bruto pago pelo cliente no atendimento fechado. Aceita formatos brasileiros no comando e é normalizado para decimal; valor ambíguo exige confirmação. O repasse da agência é calculado à parte pelo acordo da modelo (snapshot opcional no fechamento; se não cadastrado, fecha com repasse pendente/nulo).
-_Avoid_: confundir com repasse da agência ou comissão.
-
-**Taxa de cartão**:
-Acréscimo percentual (ref. 10%, configurável) cobrado **por cima** do valor do serviço no pagamento por cartão, para cobrir a maquininha; **isentável** por atendimento. O **Valor final** passa a incluir a taxa; o valor do serviço (base de repasse e **Comissão de vendedor**) é o **Valor final** menos a taxa. O custo real do gateway vive fora do sistema no P0. Ver ADR 0013.
-_Avoid_: incidir sobre o **Pix de deslocamento**; entrar na base de repasse/comissão; tratar a taxa como receita garantida.
+_Avoid_: humano genérico; tratar o gatilho manual como mudança de escopo (continua por Atendimento, não pausa a Conversa cliente inteira); a IA inferir resultado ou valor durante o handoff.
 
 **Motivo de perda**:
 Razão padronizada: `preco`, `sumiu`, `risco`, `indisponibilidade`, `fora_de_area` ou `outro`. Perdido exige exatamente um; `outro` exige observação curta.
@@ -153,15 +113,11 @@ _Avoid_: confundir com status, bloqueio ou horário de operação global; materi
 
 **Reengajamento**:
 Reabertura proativa **única** de um cliente que recebeu a cotação e silenciou — mensagem curta e calorosa (sem desconto) ~30 min depois, dentro do horário de operação. Gatilho ancorado no **evento real da cotação** (`cotacao_enviada_em`, carimbado quando a IA apresenta o preço): só em `Triagem`/`Qualificado`, com cotação apresentada e **nenhuma resposta do cliente desde então** — o relógio conta da cotação, não de proxy de intenção (ADR 0022). Não reseta o timeout de 24h (que conta da última msg do **cliente**): sem resposta, vira `Perdido` (`sumiu`). No P0 é desligável e começa o piloto **desligado**.
-_Avoid_: múltiplos toques; reabrir quem não chegou à cotação; desconto no toque; confundir com o timeout de 24h; confundir com a **Reativação** (campanha manual de cliente dormente, P1).
-
-**Lembrete de fechamento**:
-Cobrança proativa e determinística do **Valor final** à modelo, na **Coordenação por modelo**, quando o atendimento passou de `bloqueios.fim` e segue em `Em_execucao`. Reenvia em intervalos fixos até um máximo de toques; sem resposta, abre **Handoff** para Fernando (nunca marca `Perdido` por silêncio; permanece em `Em_execucao` até fechamento manual). A modelo fecha respondendo o card com o valor — mesma porta do `finalizado/fechado [valor]`, efetivo imediatamente. Não respeita quiet-hours.
-_Avoid_: cobrança do cliente; confundir com **Reengajamento** (que é voltado ao cliente); interpretar a resposta por IA (no P0 é regex; NLP livre é **IA Admin** P1); confirmação dupla; criar estado novo; marcar `Perdido` automaticamente.
+_Avoid_: múltiplos toques; reabrir quem não chegou à cotação; desconto no toque; confundir com o timeout de 24h; confundir com a **Reativação** (campanha manual de cliente dormente, P1 — ver `docs/dominio/painel-e-p1.md`).
 
 **Cancelamento automático do piloto**:
-Salvaguarda **temporária** do piloto de teste (sem modelo real, sem intenção de atender ninguém de verdade — ver ADR 0033, emendado 2026-07-22): gatilho **por tipo**. No **interno** (sem Pix), deixa o agendamento consolidar — o piloto mede se o cliente iria marcar de verdade — e cancela no **Aviso de saída** ou perto do horário combinado (`piloto_cancela_antes_min`, ref. 15min antes de `bloqueios.inicio`); como o Aviso é opcional e a **Foto de portaria** transiciona automático, o cron também cancela `Em_execucao` interno não-processado. No **externo/remoto**, mantém o timer de 10 minutos após `Aguardando_confirmacao`, porque o crava dispara a solicitação de Pix e o invariante é cancelar antes de dinheiro trocar de mãos (pendência aberta: suprimir o pedido de Pix no piloto e atrasar também o externo). Ao disparar: envia uma desculpa genérica ao cliente (sorteada de um pool pequeno, para não criar padrão idêntico repetido — mesmo risco de denúncia/bloqueio de WhatsApp por número não aquecido); registra o Atendimento como `Perdido` (motivo `outro`, observação "cancelamento automático — piloto de teste"); e pausa a IA para aquele Atendimento (**Handoff** manual). Controlado por flag de settings, ligada por padrão no piloto e **desligável sem deploy** quando ele evoluir para atendimento real.
-_Avoid_: deixar o fluxo avançar a `Confirmado` com Pix pago; cancelar o interno cedo demais (mata o sinal do piloto — feedback Fernando 21/07); desculpa idêntica sempre; deixar ligado permanentemente fora da fase de teste; confundir com **Reengajamento** (que reabre, não cancela) ou **Lembrete de fechamento** (que cobra valor, não cancela).
+Salvaguarda **temporária** do piloto de teste que mata o atendimento antes de ele virar encontro real: cancela por **tipo** (interno perto do horário combinado; externo/remoto 10 min após `Aguardando_confirmacao`, antes de o Pix ser pago), manda uma desculpa ao cliente, registra `Perdido` (`outro`) e pausa a IA. A IA **não** o menciona nem o antecipa na conversa. Definição completa, gatilhos e flags em `docs/dominio/operacao-e-financeiro.md`; ver ADR 0033 (emendado 2026-07-22).
+_Avoid_: deixar o fluxo avançar a `Confirmado` com Pix pago; cancelar o interno cedo demais (mata o sinal do piloto); deixar ligado permanentemente fora da fase de teste; confundir com **Reengajamento** (que reabre, não cancela) ou **Lembrete de fechamento** (que cobra valor, não cancela).
 
 **Mídia exclusiva**:
 Foto/vídeo da modelo enviado na venda com enquadramento de exclusividade — primeiro fotos, depois um vídeo "gravado ao vivo só para o cliente". Quando a plataforma (Evolution self-host) permitir, **a mídia (foto e vídeo) vai como view-once** (decisão 2026-07-10 — a foto exclusiva também é protegida, não só o vídeo); sem suporte, vai normal e a proteção fica para o P1. Habilitar em prod exige o toggle `evolution_view_once` ligado sobre um build da Evolution com o patch de `viewOnce`.
@@ -171,20 +127,13 @@ _Avoid_: vídeo antes de foto; expor que o vídeo "ao vivo" é pré-gravado; pro
 Serviço da modelo (programa em `modelo_programas`, com preço/duração) entregue como uma **chamada de vídeo ao vivo** que a **modelo (humana)** faz na hora marcada — é o único serviço **remoto** (ver **Atendimento … remoto**). A IA cota e combina como qualquer programa (valor, horário), reserva o slot, pede o **Pix antecipado do valor da chamada** (ADR 0029 — o sistema anexa a chave; comprovante não gateia) e pausa no horário com o card "Hora da sua vídeo chamada"; **não abre chamada no chat**. Distinta da **Mídia exclusiva** (foto/vídeo pré-gravado enviado por `enviar_midia`): vídeo chamada é interação ao vivo, não mídia. View-once/gravação não se aplicam. Ver ADR 0021.
 _Avoid_: confundir com **Mídia exclusiva** (mandar vídeo); a IA conduzir/abrir a chamada (quem faz é a modelo); tratar como interno/externo; cobrar Pix de **deslocamento** (o Pix do remoto antecipa o **valor da chamada** — ADR 0029); travar a chamada por Pix pendente; plotar no Mapa.
 
-**Painel-only / Fernando** (definições completas em `docs/dominio/painel-e-p1.md`):
-**Perfil físico preferido** (preferência do cliente, global, ADR 0006), **Dados cadastrais da modelo** (ficha pessoal; RG/CPF/endereço residencial são **PII sensível**, ADR 0007), **Mapa de clientes** (pins por atendimento **externo**, ADR 0008) e **Tarefa** (gestão interna, ADR 0017). Vários são cross-modelo por natureza — furariam o **isolamento por par** se a IA os lesse.
-_Avoid_: expor qualquer um deles à IA conversacional ou interpolar na persona; tratar RG/CPF/endereço residencial como dado não sensível; confundir **tipo físico** (balde de venda da modelo) com os **Dados cadastrais** ou com o **Perfil físico preferido** (que é do cliente); plotar interno no Mapa.
-
-**Fora do P0, planejado para P1** (definições em `docs/dominio/painel-e-p1.md`):
-**IA Admin** (grupo IA↔Fernando para alertas de exceção e comandos internos) e **Reativação** (campanha em massa, manual, que reabre clientes dormentes de uma modelo — respeitando o isolamento por par).
-_Avoid_: supor qualquer um dos dois como infra do P0; confundir a **Reativação** com o **Reengajamento** (automático, por atendimento aberto que silenciou pós-cotação).
-
 ## Relationships
 
 Só o que **não** é derivável das definições acima.
 
 **Hierarquia e isolamento**
 - cliente → **Conversa cliente** (1 por par) → **Atendimentos** (numerados `#N` por modelo). Cada conversa tem no máximo um atendimento aberto e acumula vários (recorrência).
+- O **Fetiche** é a única "coisa dela" que entra no contexto da IA na venda; **nível** do vendedor, ficha cadastral e **Perfil físico preferido** a IA nunca lê.
 - O **Perfil físico preferido** vive no nível do cliente (cross-modelo), ao contrário de histórico/recorrência/observações (por par) — por isso é painel-only.
 
 **Pix e fluxo interno (gatilhos de transição)**
@@ -197,25 +146,12 @@ Só o que **não** é derivável das definições acima.
 - Bloqueio fora da **Disponibilidade**: a IA nunca cria nem sugere (trava dura); Fernando vê aviso e pode forçar (override explícito).
 - Salvar **Disponibilidade** que deixa bloqueios futuros fora dela: salva e emite alerta não-bloqueante listando-os; nunca deleta/cancela bloqueio automaticamente.
 
-**Financeiro (`Fechado` é a base)**
-- Repasse da modelo e **Comissão de vendedor** são custos **independentes** sobre o mesmo valor líquido de taxa de cartão; nenhum desconta o outro; só `Fechado` contam (igual à receita do Módulo Financeiro).
-- Cada modelo tem **Vendedor** padrão (`modelos.vendedor_id`); o atendimento o herda e Fernando pode sobrescrever. Quando a IA assume a modelo, o padrão fica nulo e os atendimentos dela não geram comissão.
-- O **Fetiche** é a única "coisa dela" que entra no contexto da IA na venda; **nível**, ficha cadastral e **Perfil físico preferido** a IA nunca lê.
-
-## Example dialogue
-
-> **Dev:** "Quando o cliente manda o comprovante, a modelo precisa ler a conversa para entender?"
-> **Domain expert:** "Não. A IA está no número da modelo e responde o cliente. No handoff, ela para, manda o resumo no grupo, e a modelo escreve para o cliente no mesmo WhatsApp."
-
 ## Flagged ambiguities
 
-- **"Fernando"** = convenção para qualquer **Operador** (Fernando ou a sócia, permissão idêntica — ADR 0012); menções específicas seguem válidas onde o contexto deixa claro. Sem RBAC no P0.
 - **"grupo da modelo"**: conversa com cliente = **Conversa cliente**; grupo interno = **Coordenação por modelo**.
 - **"Pix confirmado"** ≠ revisão humana obrigatória nem bloqueio: o fluxo sempre avança; divergência marca `pix_status` (informativo) + fila assíncrona de Fernando.
 - **horário combinado vs desejado**: desejado = pedido não confirmado; combinado = confirmado e reservado.
 - **timeout interno** conta do **mais tarde** entre o envio do **Aviso de saída** (`aviso_saida_em`) e o **horário combinado** (`bloqueios.inicio`) — `GREATEST`, ADR 0024; avisar cedo não antecipa o `Perdido`.
 - **"reengajamento"** (termo solto) cobre dois conceitos distintos de propósito: o **Reengajamento** (P0, automático, toque único dentro de um atendimento aberto que silenciou ~30 min após a cotação) e a **Reativação** (P1, campanha manual de Fernando que reabre cliente dormente para um segundo atendimento). Automático×manual, por-atendimento×por-cliente.
 - **"desconto"**: deixou de ser sempre escalada — a IA concede **Desconto de fechamento** até o **Piso de desconto** numa única oferta; "escala em vez de negociar" vale só abaixo do piso.
-- **Perfil físico preferido** por linguagem natural pela IA: no P0 é painel-only (Fernando); a parte calculada é cross-modelo e furaria o isolamento por par — leitura/escrita por NL fica para a **IA Admin** (P1). É global do cliente; não confundir com as **observações** (por par).
-- **confirmação de valor pós-atendimento**: canal é a **Coordenação por modelo** (a modelo não tem DM separada), interpretação determinística (regex de `finalizado/fechado [valor]`); NLP livre é **IA Admin** (P1). Gatilho = `bloqueios.fim` + tolerância, não a entrada em `Em_execucao`. Ver **Lembrete de fechamento**.
-- **"a IA atende o cliente"** descreve o papel do agente (em construção), não nega o **Vendedor** humano de hoje — ambos ocupam o mesmo assento (respondente do número), um hoje, a outra no futuro. A comissão existe para a operação humana e some no atendimento da IA. Ver ADR 0012.
+- **"Fernando"** = convenção para qualquer **Operador** (Fernando ou a sócia, permissão idêntica — ADR 0012). Sem RBAC no P0.
