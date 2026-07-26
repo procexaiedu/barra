@@ -149,6 +149,15 @@ def adaptar_webhook_go(payload: dict[str, Any]) -> dict[str, Any]:
         adaptado["data"] = {"state": _estado_conexao_go(data)}
         return adaptado
 
+    # A EvoGo não manda um `Connection` genérico na queda: manda eventos próprios — `Disconnected`
+    # (socket caiu), `LoggedOut` (sessão morreu; `reason 403: primary device was logged out` exige
+    # reparear) e `QRTimeout` (esgotou os 5 QRs). Sem esta tradução eles caíam no `extrair_mensagem`
+    # → None (ignored) e o `evolution_status` da modelo ficava `conectado` com o número fora do ar.
+    if ev in ("connected", "disconnected", "loggedout", "qrtimeout"):
+        adaptado["event"] = "connection.update"
+        adaptado["data"] = {"state": "open" if ev == "connected" else "close"}
+        return adaptado
+
     if ev in ("qr", "qrcode"):
         adaptado["event"] = "qrcode.updated"
         adaptado["data"] = {}

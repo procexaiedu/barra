@@ -2,6 +2,8 @@
 ponta com `extrair_mensagem`. Garante que o envelope CamelCase da EvoGo vira o shape que o resto
 do módulo de webhook já parseia, e que payload v2/não-Go passa reto."""
 
+import pytest
+
 from barra.webhook.parser import adaptar_webhook_go, extrair_mensagem
 
 
@@ -93,6 +95,24 @@ def test_conexao_go_vira_connection_update() -> None:
 def test_conexao_go_connected_bool() -> None:
     payload = {"event": "Connection", "instanceName": "x", "data": {"Connected": False}}
     assert adaptar_webhook_go(payload)["data"]["state"] == "close"
+
+
+@pytest.mark.parametrize(
+    ("evento", "state"),
+    [
+        ("Connected", "open"),
+        ("Disconnected", "close"),
+        ("LoggedOut", "close"),
+        ("QRTimeout", "close"),
+    ],
+)
+def test_eventos_proprios_da_evogo_viram_connection_update(evento: str, state: str) -> None:
+    """A queda real chega como `Disconnected`/`LoggedOut`/`QRTimeout`, não como `Connection` —
+    sem tradução o status da modelo ficava `conectado` com o WhatsApp fora do ar."""
+    payload = {"event": evento, "instanceName": "elitebaby01", "data": {}}
+    adaptado = adaptar_webhook_go(payload)
+    assert adaptado["event"] == "connection.update"
+    assert adaptado["data"]["state"] == state
 
 
 def test_qrcode_go_vira_qrcode_updated() -> None:
