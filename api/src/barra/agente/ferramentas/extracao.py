@@ -38,13 +38,25 @@ class SinaisQualificacao(BaseModel):
 
     informa_horario: bool = Field(False, description="cliente disse um horário concreto que quer")
     informa_local: bool = Field(False, description="cliente informou bairro/endereço/tipo de local")
+    # AUTOCONTIDA de proposito (emenda a fronteira conduta<->DESC no agente/CLAUDE.md): quem le esta
+    # descricao e a chamada BARATA da extracao, que roda com janela minima e NAO recebe o BP_GERAL —
+    # entao "siga a sua conduta de <desconto>" apontava para um bloco que nunca chega. A regra do
+    # avanco-que-equivale-a-sim mora aqui inteira, com a condicao contextual que o prompt tem e a
+    # DESC nao tinha (pergunta de logistica so vale como sim DEPOIS da recusa de desconto).
     aceita_valor: bool = Field(
         False,
         description=(
             "cliente ACEITOU o valor cotado — o sim dele, explícito ('pode ser', 'fechou', "
-            "'vamos marcar') ou o avanço que equivale a sim (siga a sua conduta de <desconto>). "
+            "'vamos marcar') ou o avanço que só faz sentido se ele topou o preço: cravar o "
+            "horário do encontro DEPOIS de você ter cotado, ou aceitar o desconto que você "
+            "ofereceu. Pergunta de horário ou de logística ('que horas?', 'onde é?', 'como "
+            "chego?') só vale como sim DEPOIS de ele ter pedido desconto e você ter respondido — "
+            "recusando ('não consigo amor') ou com a sua contraproposta ('consigo 500 se vier "
+            "hoje') —, porque aí ela avança sobre o valor que ficou na mesa; sem essa troca na "
+            "conversa, pergunta é pergunta, não aceite. "
             "NÃO marque por ter cotado, nem por cortesia ou reconhecimento ('obrigado', 'ok', "
-            "'entendi', 'blz'), nem por ele só perguntar o preço: agradecer não é aceitar. Este "
+            "'entendi', 'blz'), nem por ele só perguntar o preço: agradecer não é aceitar. "
+            "Adiamento ('hoje não consigo', 'espero começo do mês') NÃO é aceite. Este "
             "é o ÚNICO sinal de aceite — gravar `valor_acordado` não o infere — e ele fecha a "
             "negociação de preço, então marcá-lo cedo trava a sua escada de desconto."
         ),

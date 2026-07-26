@@ -9,8 +9,8 @@ Tres implementacoes com a mesma forma (`(item, janela) -> payload`):
     forcado (`tool_choice`). Custa credito (§0) e so roda no alvo deliberado.
 
 As VARIANTES sao as decisoes em aberto do extrator, cada uma um eixo que a bancada liga/desliga:
-temperatura, presenca do bloco de estado registrado, descricao do aceite autocontida x
-referenciada e promocao de intencao derivada.
+temperatura, presenca do bloco de estado registrado, descricao do aceite autocontida (o que prod
+roda hoje) x referenciada e promocao de intencao derivada.
 """
 
 from __future__ import annotations
@@ -33,20 +33,17 @@ _TOOL_EXTRACAO = "registrar_extracao"
 # os payloads do golden set a omitem e a normalizacao a preenche com este placeholder.
 _ACAO_NAO_ROTULADA = "nao rotulada"
 
-# Descricao AUTOCONTIDA do aceite: a de producao delega a regra do avanco-que-equivale-a-sim para
-# "a sua conduta de <desconto>" — um bloco do BP_GERAL que a chamada barata da extracao NAO envia,
-# entao a referencia fica orfa. Esta versao diz a regra no proprio campo. Variante da bancada; a
-# troca em prod e outro ticket (08-descricao-autocontida-do-aceite).
-DESC_ACEITE_AUTOCONTIDA = (
+# Descricao REFERENCIADA do aceite: a que rodou em producao ate 25/07 (issue 08). Ela delega a
+# regra do avanco-que-equivale-a-sim para "a sua conduta de <desconto>" — um bloco do BP_GERAL que
+# a chamada barata da extracao NAO envia, entao a referencia fica orfa. Prod hoje e a AUTOCONTIDA
+# (o esquema sem override); esta e a variante de comparacao.
+DESC_ACEITE_REFERENCIADA = (
     "cliente ACEITOU o valor cotado — o sim dele, explícito ('pode ser', 'fechou', "
-    "'vamos marcar') ou o avanço que só faz sentido se ele topou o preço: marcar o horário do "
-    "encontro DEPOIS de você ter cotado, ou aceitar o desconto que você ofereceu. NÃO marque por "
-    "ter cotado, nem por cortesia ou reconhecimento ('obrigado', 'ok', 'entendi', 'blz'), nem por "
-    "ele só perguntar o preço: agradecer não é aceitar. Pergunta de logística (onde é, como "
-    "chega) não é aceite enquanto ele não tiver topado o valor. Adiamento ('hoje não consigo', "
-    "'espero começo do mês') NÃO é aceite. Este é o ÚNICO sinal de aceite — gravar "
-    "`valor_acordado` não o infere — e ele fecha a negociação de preço, então marcá-lo cedo trava "
-    "a sua escada de desconto."
+    "'vamos marcar') ou o avanço que equivale a sim (siga a sua conduta de <desconto>). "
+    "NÃO marque por ter cotado, nem por cortesia ou reconhecimento ('obrigado', 'ok', "
+    "'entendi', 'blz'), nem por ele só perguntar o preço: agradecer não é aceitar. Este "
+    "é o ÚNICO sinal de aceite — gravar `valor_acordado` não o infere — e ele fecha a "
+    "negociação de preço, então marcá-lo cedo trava a sua escada de desconto."
 )
 
 # Descricao PRE-PATCH do aceite: a linha unica que rodava ate 24/07 (commit d51454e), sem a regra
@@ -78,7 +75,9 @@ VARIANTES: dict[str, Variante] = {
     "base": Variante("base"),
     "temp-zero": Variante("temp-zero", temperatura=0.0),
     "sem-bloco-estado": Variante("sem-bloco-estado", bloco_estado=False),
-    "aceite-autocontido": Variante("aceite-autocontido", descricao_aceite=DESC_ACEITE_AUTOCONTIDA),
+    "aceite-referenciado": Variante(
+        "aceite-referenciado", descricao_aceite=DESC_ACEITE_REFERENCIADA
+    ),
     "sem-promocao-intencao": Variante("sem-promocao-intencao", promocao_intencao=False),
     # O patch de 24/07 (d51454e) subiu sem evidencia: a ultima extracao de producao aconteceu antes
     # dele. A variante reconstitui o comportamento ANTERIOR nas duas metades que o nivel campo

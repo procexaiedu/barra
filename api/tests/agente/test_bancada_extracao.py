@@ -19,6 +19,8 @@ from evals.extracao.golden import ItemGolden, carregar_golden
 from evals.extracao.relatorio import formatar
 from langchain_core.messages import BaseMessage
 
+from barra.agente.ferramentas.extracao import SinaisQualificacao
+
 # Golden mínimo: um item de aceite falso-positivo, um de aceite verdadeiro e um de eco. Os rótulos
 # são os mesmos modos de falha do corpus, no menor tamanho em que a conta é conferível à mão.
 _GOLDEN = {
@@ -203,6 +205,21 @@ def test_variante_pre_patch_24_07_usa_a_descricao_antiga_do_aceite() -> None:
     assert "agradecer não é aceitar" in depois
     assert "agradecer não é aceitar" not in antes
     assert "não apenas perguntou o preço" in antes
+
+
+def test_descricao_do_aceite_em_prod_e_autocontida() -> None:
+    """Quem lê a descrição do aceite é a chamada barata, que não recebe o BP_GERAL: uma referência
+    a bloco de prompt chega órfã. A regra inteira precisa estar no campo — inclusive a condição de
+    que pergunta de logística só vale como sim depois da recusa de desconto."""
+    prod = SinaisQualificacao.model_fields["aceita_valor"].description or ""
+    referenciada = VARIANTES["aceite-referenciado"].descricao_aceite or ""
+
+    assert "<desconto>" not in prod
+    # Os dois ramos da negociação de preço, porque o canônico não exige recusa: depois de um
+    # degrau concedido a pergunta de logística também é sim ao valor da mesa.
+    assert "recusando" in prod and "contraproposta" in prod
+    # A variante existe para a comparação: é a descrição órfã que rodava antes.
+    assert "<desconto>" in referenciada
 
 
 async def test_variante_sem_promocao_de_intencao_derruba_o_recall(golden: Any) -> None:
