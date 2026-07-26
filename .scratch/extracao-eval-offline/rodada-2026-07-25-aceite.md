@@ -8,7 +8,9 @@ Dado bruto: `rodada-2026-07-25-aceite.json` (ao lado).
 campos. Mas o ganho que ela existe para dar **não é medível neste golden set**, pela mesma razão que
 travou a pergunta 2 da rodada anterior: falta turno de cotação e a janela é recorte, não a janela
 fiel. O que a rodada acrescenta a favor da autocontida é indireto (zero eco contra 8,3%), e a n=3
-com temperatura 1.0 isso não é atribuível à mudança.
+com temperatura 1.0 isso não é atribuível à mudança. O **texto que subiu de fato** — corrigido pela
+revisão depois desta comparação — tem gate próprio no fim do relatório (§Gate no texto final): passa
+nos campos que a mudança governa, com um eco de sampling que não é distinguível de ruído em n=3.
 
 ## Configuração
 
@@ -30,13 +32,12 @@ ler a tabela como "o efeito da condição de logística" está lendo mais do que
 > (o que prod rodava então). Aqui a `base` é a **autocontida**. O nome é o mesmo, o baseline não —
 > números de `aceita_valor` não são comparáveis entre os dois relatórios.
 
-> ⚠️ **A `base` medida não é byte-idêntica ao que subiu.** A revisão de código, posterior à rodada,
-> mostrou que "só vale como sim depois de você já ter recusado baixar o preço" ficava mais estreita
-> que o canônico do `<desconto>` — que não exige recusa: depois de um degrau **concedido**, a
-> pergunta de logística também é sim ao valor da mesa. O texto que subiu diz os dois ramos
-> ("recusando… ou com a sua contraproposta…"). Como `aceita_valor` empatou em 0/0/1/8 nas duas
-> variantes — nenhum item do golden set discrimina esse campo —, a correção não muda nada do que
-> esta rodada conseguiu medir; mas o gate de regressão vale, à risca, para o texto medido.
+> ⚠️ **A `base` da comparação não é byte-idêntica ao que subiu.** A revisão de código, posterior à
+> rodada, mostrou que "só vale como sim depois de você já ter recusado baixar o preço" ficava mais
+> estreita que o canônico do `<desconto>` — que não exige recusa: depois de um degrau **concedido**,
+> a pergunta de logística também é sim ao valor da mesa. O texto que subiu diz os dois ramos
+> ("recusando… ou com a sua contraproposta…"). O **texto final foi medido à parte** — §Gate no texto
+> final, no fim deste relatório.
 
 - **`base`** — a descrição **autocontida**, que este ticket subiu para produção: a regra do
   avanço-que-equivale-a-sim escrita no campo, com a condição contextual ("pergunta de horário ou de
@@ -99,3 +100,41 @@ nenhum dos campos que já estavam bons — e não o de prova de melhoria, que es
    condição que a descrição agora enuncia depende de o extrator ver a negociação de preço, e a
    janela é deslizante. Sem `n_contrapropostas` no `<ja_registrado>`, a regra vale só enquanto a
    escada couber na janela.
+
+## Gate no texto final
+
+A comparação acima rodou sobre a primeira redação da autocontida. Depois da revisão de código, o
+texto que subiu passou a dizer os dois ramos da negociação de preço (recusa **ou** contraproposta).
+Rodada de gate sobre **esse** texto, autorizada à parte: `base` sozinha, 3 repetições, 54 chamadas,
+mesma configuração. Bruto em `rodada-2026-07-25-aceite-final.json`.
+
+| campo | texto final (54 chamadas) | comparação: autocontida v1 | referenciada |
+|---|---|---|---|
+| `aceita_valor` | recall 0.000 ±0.000 — 0/0/1/8 | 0/0/1/8 | 0/0/1/8 |
+| `intencao` | 1.000 ±0.000 | 1.000 ±0.000 | 0.889 ±0.157 |
+| `horario_desejado` | 1.000 ±0.000 | 1.000 ±0.000 | 1.000 ±0.000 |
+| `horario_evidenciado` | 1.000 ±0.000 | 1.000 ±0.000 | 1.000 ±0.000 |
+| `recuo` | 1.000 ±0.000 | 1.000 ±0.000 | 1.000 ±0.000 |
+| `tipo_atendimento` | precisão 0.000 — **0/1/0/1** | sem positivo previsto (0/0/0/2) | sem positivo previsto (0/0/0/2) |
+| eco | **8.3%** (1 em 12) | 0.0% | 8.3% (1 em 12) |
+
+**O gate passa nos campos que a mudança governa** — `aceita_valor` idêntico, e nenhum dos outros
+cinco perdeu nada.
+
+**Mas apareceu um eco, e com ele o falso positivo de `tipo_atendimento`.** Não é um "tudo verde"
+limpo, e vale dizer exatamente o que é: esse é o modo de falha que a rodada de temperatura já tinha
+caracterizado — com `temperature=1.0`, o extrator ocasionalmente reenvia um campo já no snapshot sem
+nada novo na conversa, e **quando isso acontece, produz falso positivo de `tipo_atendimento`**
+(§3 de `rodada-2026-07-25.md`: 3 ocorrências em 10 repetições com sampling, 0 em 5 com zero).
+
+Somando o que já rodou em temperatura 1.0 neste corpus: 1 eco em 5 repetições (25/07), 0 em 3
+(autocontida v1), 1 em 3 (referenciada), 1 em 3 (texto final). É a mesma taxa, atravessando
+variantes que não têm nada a ver com o campo `tipo_atendimento`. Atribuir esta ocorrência à
+cláusula nova, com n=3, seria ler ruído como sinal — mas afirmar o contrário com certeza também
+seria. O honesto: **não é distinguível de ruído neste n**, e a única forma de separar as duas
+leituras é o que a rodada anterior já recomendou.
+
+Isto **reforça a recomendação pendente** de cravar `temperature=0.0` na extração: enquanto ela não
+entra, cada rodada de gate carrega uma chance de ~1/3 de acender um falso positivo no campo cuja
+precisão manda (flip indevido de `tipo_atendimento` dispara Pix de deslocamento). A mudança é uma
+linha em `_criar_chat_extracao_barata` e continua fora deste ticket, sob a regra de produção (§0).
