@@ -119,3 +119,23 @@ def test_mensagem_de_instance_desconhecida_retorna_unknown() -> None:
     assert response.json() == {"status": "unknown_instance"}
     insert_msg = [q for (q, _) in conn.queries if "INSERT INTO barravips.mensagens" in q]
     assert insert_msg == []
+
+
+def test_loggedout_da_evogo_marca_desconectado() -> None:
+    """Payload real da queda de 26/07: a EvoGo manda `LoggedOut`, não `Connection` — antes da
+    tradução ele caía em `ignored` e a modelo ficava `conectado` com o WhatsApp fora do ar."""
+    _reset_settings()
+    conn = FakeConn()
+    payload = {
+        "event": "LoggedOut",
+        "instanceName": "elitebaby01",
+        "data": {"Reason": 403, "OnConnect": False},
+    }
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        response = client.post("/webhook/evolution", json=payload)
+    assert response.status_code == 200
+    assert response.json() == {"status": "connection_close"}
+    updates = [(q, p) for (q, p) in conn.queries if "UPDATE barravips.modelos" in q]
+    assert any("'desconectado'" in q for (q, _) in updates)
+    assert any(p == ("elitebaby01",) for (_, p) in updates)
