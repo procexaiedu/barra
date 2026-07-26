@@ -404,12 +404,12 @@ async def registrar_extracao_ia(
             "novo_estado": None,
         }
 
-    # Flip de tipo com slot ja reservado (#41, 24/07): o tipo combinado nao muda por um PEDIDO do
+    # Flip de tipo com horario ja cravado (#41, 24/07): o tipo combinado nao muda por um PEDIDO do
     # cliente. Descarta o campo e audita — depois da guarda de tipo-aceito acima, que segue
     # escalando o tipo que a modelo nao realiza (o cliente pedir algo impossivel merece escalada
-    # tenha bloqueio ou nao); o descarte cobre so o flip entre tipos que ela FAZ, que passava reto
-    # e disparava o Pix de deslocamento.
-    tipo_mantido = await _flip_de_tipo_pos_bloqueio(conn, aid, payload)
+    # tenha horario cravado ou nao); o descarte cobre so o flip entre tipos que ela FAZ, que
+    # passava reto e disparava o Pix de deslocamento (e o cancelamento do piloto, ADR-0033).
+    tipo_mantido = await _flip_de_tipo_pos_crava(conn, aid, payload)
     if tipo_mantido is not None:
         payload = {k: v for k, v in payload.items() if k != "tipo_atendimento"}
         payload["tipo_descartado"] = {"pedido": tipo_pedido, "mantido": tipo_mantido}
@@ -772,11 +772,25 @@ _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], st
 # Frase-guia de conduta por estado (o "para onde ir"); os itens concretos que faltam vao em
 # `slots_faltantes`. Estados sem transicao automatica (Aguardando_confirmacao+) recebem so a
 # frase informativa do que se espera ali.
+#
+# A frase tambem ROTEIA: ela nomeia a(s) fase(s) do `<conducao_da_venda>` que valem agora. O bloco
+# inteiro continua no BP_GERAL (prefixo cacheado) — fatiar de verdade nao da, porque o `extrair`
+# roda DEPOIS do `llm` (graph.py) e este `estado` e o do turno ANTERIOR: um prompt cortado por fase
+# chegaria sempre um turno atrasado e o cliente que pula o funil ("quanto e?" no primeiro oi) cairia
+# num prompt sem a fase que ele abriu. O que a cauda faz e apontar, nao amputar — por isso o
+# preambulo do bloco diz explicitamente que o funil nao e trilho.
+#
+# ECO MULTI-SITE (agente/CLAUDE.md): as tags citadas aqui TEM que existir em `regras.md.j2`.
+# Apontar pra uma tag que nao existe nao falha — o modelo so ignora, em silencio. Quem amarra e
+# `tests/unit/test_contrato_variaveis_contexto.py`.
 _PROXIMO_PASSO: dict[str, str] = {
-    "Novo": "entender o que ele procura e puxar pro encontro",
-    "Triagem": "fechar o que falta pra combinar o encontro",
-    "Qualificado": "confirmar os detalhes e seguir pro próximo passo do encontro",
-    "Aguardando_confirmacao": "conduzir a confirmação (pix, foto de portaria ou o horário combinado)",
+    # `Novo` e o unico estado em que o ponteiro pode ficar um turno atras do cliente: e a primeira
+    # fala dele, e o mais comum fora do trilho e ela ja vir pedindo preco ("oi, quanto custa ?").
+    # Dai a condicional: a `<abertura>` segue sendo a conduta, mas a pergunta dele abre a fase.
+    "Novo": "entender o que ele procura e puxar pro encontro — sua conduta agora é <abertura>; se a fala dele já pede preço, <cotacao> junto",
+    "Triagem": "fechar o que falta pra combinar o encontro — sua conduta agora é <apresentacao> e <cotacao>",
+    "Qualificado": "confirmar os detalhes e seguir pro próximo passo do encontro — sua conduta agora é <cotacao> e <fechamento>",
+    "Aguardando_confirmacao": "conduzir a confirmação (pix, foto de portaria ou o horário combinado) — sua conduta agora é <fechamento> e <enquanto_ele_nao_chega>",
     "Confirmado": "a modelo assume daqui; não reabra a negociação",
     "Em_execucao": "encontro em andamento; não reabra a negociação",
 }
@@ -945,10 +959,10 @@ async def _reagendamento_pos_bloqueio(
     return "mudanca"
 
 
-async def _flip_de_tipo_pos_bloqueio(
+async def _flip_de_tipo_pos_crava(
     conn: AsyncConnection[Any], atendimento_id: UUID, payload: dict[str, Any]
 ) -> str | None:
-    """Tipo do payload que CONTRARIA o tipo ja combinado de um atendimento com bloqueio previo —
+    """Tipo do payload que CONTRARIA o tipo ja combinado de um atendimento com o horario cravado —
     devolve o tipo persistido (o que continua valendo); None quando nao ha conflito.
 
     Irma da branch 12 (`_reagendamento_pos_bloqueio`), no outro eixo: la o horario, aqui o tipo.
@@ -959,19 +973,31 @@ async def _flip_de_tipo_pos_bloqueio(
     ser gravado para `_solicitar_pix_deslocamento_se_aplicavel` (bloco independente da transicao)
     cobrar um Pix de deslocamento de R$100 num encontro que seguia sendo no local dela.
 
+    O Pix nao era o unico dano: o mesmo flip vira o gatilho do cancelamento automatico do piloto
+    (ADR-0033) de braco. Fora do interno o cron mede 10min desde `aguardando_confirmacao_em` — no
+    #41 um carimbo de ~2h antes, ja vencido —, entao o tipo virar externo satisfaz a condicao
+    RETROATIVAMENTE e o cancelamento sai no tick seguinte, sem folga nenhuma: a desculpa canned
+    caiu na conversa 8s depois do flip, no meio da negociacao de preco.
+
     Descarta em vez de escalar: a IA estava conduzindo certo (recusando), e escalar a pausaria no
-    meio da recusa. Mudanca real de tipo com slot reservado e renegociacao — sai pela conduta dela
-    (redireciona; na insistencia, `escalar`), nao por um campo de extracao."""
+    meio da recusa. Mudanca real de tipo com horario cravado e renegociacao — sai pela conduta dela
+    (redireciona; na insistencia, `escalar`), nao por um campo de extracao.
+
+    Vale com bloqueio previo OU em `Aguardando_confirmacao` sem ele: o estado ja significa horario
+    combinado (o bloqueio e o efeito, nao a definicao), e e justamente o atendimento sem bloqueio
+    que o cron do piloto cancela na hora — o LEFT JOIN dele so exige o bloqueio no braco interno."""
     novo_tipo = payload.get("tipo_atendimento")
     if not novo_tipo or "tipo_atendimento" in set(payload.get("limpar") or []):
         return None
     res = await conn.execute(
-        "SELECT bloqueio_id, tipo_atendimento::text AS tipo_atendimento "
+        "SELECT bloqueio_id, estado::text AS estado, tipo_atendimento::text AS tipo_atendimento "
         "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
     a = await res.fetchone()
-    if a is None or a["bloqueio_id"] is None or a["tipo_atendimento"] is None:
+    if a is None or a["tipo_atendimento"] is None:
+        return None
+    if a["bloqueio_id"] is None and a["estado"] != "Aguardando_confirmacao":
         return None
     tipo_atual: str = a["tipo_atendimento"]
     return tipo_atual if novo_tipo != tipo_atual else None
@@ -1525,6 +1551,25 @@ async def incrementar_contrapropostas(conn: AsyncConnection[Any], atendimento_id
     )
 
 
+async def incrementar_perguntas_de_horario(
+    conn: AsyncConnection[Any], atendimento_id: UUID
+) -> None:
+    """+1 no contador de perguntas de horário SEM proposta ("Seria que horas ?").
+
+    Mesmo contrato de idempotência do contador de contrapropostas: só é chamado quando o INSERT da
+    bolha em `mensagens` de fato inseriu (RETURNING no ON CONFLICT DO NOTHING, workers/envio.py),
+    então o retry do envio não dobra a contagem. Contador, e não timestamp, porque a conduta tem
+    dois degraus (<ja_perguntou_o_horario>: propor na 1ª, não perguntar mais da 2ª em diante)."""
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET n_perguntas_de_horario = n_perguntas_de_horario + 1
+         WHERE id = %s
+        """,
+        (atendimento_id,),
+    )
+
+
 async def marcar_dia_sondado(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
     """Carimba `dia_sondado_em=now()` na 1ª sondagem do dia ("seria hoje?"). Guard IS NULL
     (first-write-wins): repetir entre bolhas/retries é no-op, preserva o 1º instante."""
@@ -1546,6 +1591,49 @@ async def marcar_endereco_enviado(conn: AsyncConnection[Any], atendimento_id: UU
         UPDATE barravips.atendimentos
            SET endereco_enviado_em = now()
          WHERE id = %s AND endereco_enviado_em IS NULL
+        """,
+        (atendimento_id,),
+    )
+
+
+async def marcar_amiga_ofertada(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
+    """Carimba `amiga_ofertada_em=now()` na 1a oferta da amiga (<menage>: uma vez por negociacao).
+    Guard IS NULL (first-write-wins): repetir entre bolhas/retries e no-op, preserva o 1o instante."""
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET amiga_ofertada_em = now()
+         WHERE id = %s AND amiga_ofertada_em IS NULL
+        """,
+        (atendimento_id,),
+    )
+
+
+async def marcar_foto_portaria_pedida(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
+    """Carimba `foto_portaria_pedida_em=now()` no 1o pedido do print da chegada ("Quando chegar me
+    manda uma foto da portaria amor"). Guard IS NULL (first-write-wins): repetir entre bolhas/
+    retries e no-op, preserva o 1o instante."""
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET foto_portaria_pedida_em = now()
+         WHERE id = %s AND foto_portaria_pedida_em IS NULL
+        """,
+        (atendimento_id,),
+    )
+
+
+async def marcar_motivo_resgate_perguntado(
+    conn: AsyncConnection[Any], atendimento_id: UUID
+) -> None:
+    """Carimba `motivo_resgate_perguntado_em=now()` na 1ª pergunta do motivo da despedida ("Poxa,
+    não gostou de mim ?" — o resgate do <desconto>, que é uma vez por negociação). Guard IS NULL
+    (first-write-wins): repetir entre bolhas/retries é no-op, preserva o 1º instante."""
+    await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET motivo_resgate_perguntado_em = now()
+         WHERE id = %s AND motivo_resgate_perguntado_em IS NULL
         """,
         (atendimento_id,),
     )

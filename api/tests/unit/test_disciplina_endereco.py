@@ -5,11 +5,12 @@ alimenta `endereco_enviado_em`, a memória durável que a janela de 20 msgs não
 """
 
 from barra.agente._disciplina import contem_endereco_de_encontro, tokens_do_endereco
+from barra.agente.nos.prepare_context import _endereco_sem_numero
+
+_CADASTRO_TATIANE = "R. Santos Dumont, 291 - Cambuí, Campinas - SP, 13024-020"
 
 # Cadastro real da Tatiane (nome_local NULL em prod) e o da Lucia (mesmo prédio, com nome).
-_TOKENS_TATIANE = tokens_do_endereco(
-    "R. Santos Dumont, 291 - Cambuí, Campinas - SP, 13024-020", None, "Cambuí, Campinas"
-)
+_TOKENS_TATIANE = tokens_do_endereco(_CADASTRO_TATIANE, None, "Cambuí, Campinas")
 _TOKENS_LUCIA = tokens_do_endereco(
     "R. Santos Dumont, 291 - Cambuí, Campinas - SP, 13024-020",
     "Vitória Hotel Residence Newport",
@@ -50,6 +51,16 @@ def test_numero_e_uf_nao_viram_evidencia() -> None:
     assert not contem_endereco_de_encontro("São 291 reais com o extra", _TOKENS_TATIANE)
     assert "291" not in _TOKENS_TATIANE
     assert "sp" not in _TOKENS_TATIANE
+
+
+def test_detector_funciona_nos_DOIS_degraus_do_endereco() -> None:
+    # Issue 05: em Qualificado a IA recebe o endereço SEM o número. O detector vê a mesma coisa
+    # nos dois degraus porque os tokens já descartam puro dígito — a bolha do degrau de baixo
+    # continua carimbando `endereco_enviado_em`.
+    sem_numero = _endereco_sem_numero(_CADASTRO_TATIANE)
+    assert sem_numero is not None and "291" not in sem_numero
+    assert tokens_do_endereco(sem_numero, None, "Cambuí, Campinas") == _TOKENS_TATIANE
+    assert contem_endereco_de_encontro("To no hotel na Santos Dumont amor", _TOKENS_TATIANE)
 
 
 def test_sem_cadastro_de_endereco_o_detector_fica_desligado() -> None:

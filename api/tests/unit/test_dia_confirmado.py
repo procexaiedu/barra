@@ -5,18 +5,44 @@ Unit puro (sem DB): exercita o detector `_confirmou_dia_hoje` e o aplicador in-m
 ver o bloco A2 em nos/prepare_context.py.
 """
 
+from dataclasses import replace
 from datetime import date
+from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from barra.agente.nos.prepare_context import (
-    _aplicar_dia_confirmado,
-    _confirmou_dia_hoje,
-    _ja_sondou_o_dia,
-)
+from barra.agente.contexto import ContextAgente
+from barra.agente.nos._contexto_do_turno import ContextoDoTurno
+from barra.agente.nos._janela_do_turno import _confirmou_dia_hoje, _ja_sondou_o_dia
+from barra.agente.nos.prepare_context import _aplicar_dia_confirmado, _resolver_variaveis
 from barra.agente.persona import render_contexto_dinamico
 
 HOJE = date(2026, 6, 16)
+
+
+class _FakeConnVazio:
+    """Vazio em tudo: o atendimento chega por kwarg, nenhuma query precisa responder."""
+
+    async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
+        class _R:
+            async def fetchone(self) -> None:
+                return None
+
+            async def fetchall(self) -> list[Any]:
+                return []
+
+        return _R()
+
+
+def _ctx() -> ContextAgente:
+    return ContextAgente(
+        db_pool=None,  # type: ignore[arg-type]
+        redis=None,  # type: ignore[arg-type]
+        modelo_id="11111111-1111-1111-1111-111111111111",
+        atendimento_id="22222222-2222-2222-2222-222222222222",
+        cliente_id="33333333-3333-3333-3333-333333333333",
+        turno_id="t",
+    )
 
 
 def _ia(texto: str) -> AIMessage:
@@ -139,44 +165,48 @@ def test_janela_vazia_ou_so_cliente():
     assert _confirmou_dia_hoje([_cli("sim")]) is False
 
 
-# --- _aplicar_dia_confirmado: muta variaveis só quando deve ---
+# --- _aplicar_dia_confirmado: corrige o contexto do turno só quando deve ---
 
 
-def _variaveis(**over):
-    base = {"data_desejada": None, "data_atual": HOJE, "estado": "Triagem"}
-    base.update(over)
-    return base
+async def _contexto(**over) -> ContextoDoTurno:
+    """Contexto do turno pela fábrica REAL (`_resolver_variaveis` com o conn vazio), ajustado nos
+    campos do caso. Construir o dataclass à mão aqui congelaria 40 campos que o teste não usa."""
+    base = await _resolver_variaveis(
+        _FakeConnVazio(),  # type: ignore[arg-type]
+        _ctx(),
+        atendimento={"estado": "Triagem"},
+    )
+    return replace(base, **{"data_desejada": None, "data_atual": HOJE, **over})
 
 
-def test_aplica_assume_hoje_quando_confirma():
-    v = _variaveis()
-    _aplicar_dia_confirmado(v, [_ia("seria hoje?"), _cli("sim")])
-    assert v["data_desejada"] == HOJE
+async def test_aplica_assume_hoje_quando_confirma():
+    v = _aplicar_dia_confirmado(await _contexto(), [_ia("seria hoje?"), _cli("sim")])
+    assert v.data_desejada == HOJE
 
 
-def test_nao_aplica_se_data_desejada_ja_setada():
+async def test_nao_aplica_se_data_desejada_ja_setada():
     futuro = date(2026, 6, 20)
-    v = _variaveis(data_desejada=futuro)
-    _aplicar_dia_confirmado(v, [_ia("seria hoje?"), _cli("sim")])
-    assert v["data_desejada"] == futuro
+    v = _aplicar_dia_confirmado(
+        await _contexto(data_desejada=futuro), [_ia("seria hoje?"), _cli("sim")]
+    )
+    assert v.data_desejada == futuro
 
 
-def test_nao_aplica_apos_confirmacao():
-    v = _variaveis(estado="Aguardando_confirmacao")
-    _aplicar_dia_confirmado(v, [_ia("seria hoje?"), _cli("sim")])
-    assert v["data_desejada"] is None
+async def test_nao_aplica_apos_confirmacao():
+    v = _aplicar_dia_confirmado(
+        await _contexto(estado="Aguardando_confirmacao"), [_ia("seria hoje?"), _cli("sim")]
+    )
+    assert v.data_desejada is None
 
 
-def test_nao_aplica_sem_evidencia():
-    v = _variaveis()
-    _aplicar_dia_confirmado(v, [_ia("quer uma foto?"), _cli("sim")])
-    assert v["data_desejada"] is None
+async def test_nao_aplica_sem_evidencia():
+    v = _aplicar_dia_confirmado(await _contexto(), [_ia("quer uma foto?"), _cli("sim")])
+    assert v.data_desejada is None
 
 
-def test_nao_aplica_com_data_atual_nula():
-    v = _variaveis(data_atual=None)
-    _aplicar_dia_confirmado(v, [_ia("seria hoje?"), _cli("sim")])
-    assert v["data_desejada"] is None
+async def test_nao_aplica_com_data_atual_nula():
+    v = _aplicar_dia_confirmado(await _contexto(data_atual=None), [_ia("seria hoje?"), _cli("sim")])
+    assert v.data_desejada is None
 
 
 # --- _ja_sondou_o_dia: guard anti-repetição da sondagem (fix da re-pergunta "seria hoje?") ---

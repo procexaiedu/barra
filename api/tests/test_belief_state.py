@@ -26,7 +26,10 @@ def test_novo_sem_intencao_falta_entender() -> None:
     )
     assert b.proxima_transicao is None
     assert b.slots_faltantes == ["o que ele procura"]
-    assert b.proximo_passo == "entender o que ele procura e puxar pro encontro"
+    # A frase-guia tambem ROTEIA: nomeia a fase do `<conducao_da_venda>` que vale no turno. Quem
+    # verifica que a tag citada existe no prompt e `unit/test_contrato_variaveis_contexto.py`.
+    assert b.proximo_passo.startswith("entender o que ele procura e puxar pro encontro")
+    assert "<abertura>" in b.proximo_passo
 
 
 def test_novo_com_intencao_promove_triagem() -> None:

@@ -22,8 +22,12 @@ from psycopg.rows import dict_row
 
 from barra.dominio.atendimentos.service import (
     incrementar_contrapropostas,
+    incrementar_perguntas_de_horario,
+    marcar_amiga_ofertada,
     marcar_book_enviado,
     marcar_dia_sondado,
+    marcar_foto_portaria_pedida,
+    marcar_motivo_resgate_perguntado,
 )
 
 pytestmark = pytest.mark.needs_db
@@ -81,7 +85,8 @@ async def _seed_atendimento(c: AsyncConnection[dict[str, Any]]) -> tuple[UUID, U
 
 async def _flags(c: AsyncConnection[dict[str, Any]], aid: UUID) -> dict[str, Any]:
     res = await c.execute(
-        "SELECT n_contrapropostas, dia_sondado_em, book_enviado_em "
+        "SELECT n_contrapropostas, n_perguntas_de_horario, dia_sondado_em, book_enviado_em, "
+        "amiga_ofertada_em, foto_portaria_pedida_em, motivo_resgate_perguntado_em "
         "FROM barravips.atendimentos WHERE id = %s",
         (aid,),
     )
@@ -93,28 +98,45 @@ async def test_writers_materializam_e_sao_idempotentes(
 ) -> None:
     aid, _ = await _seed_atendimento(conn)
 
-    # Contador: soma a cada chamada.
+    # Contadores: somam a cada chamada.
     await incrementar_contrapropostas(conn, aid)
     await incrementar_contrapropostas(conn, aid)
+    await incrementar_perguntas_de_horario(conn, aid)
     # Timestamps first-write-wins: 2ª chamada é no-op, preserva o 1º instante.
     await marcar_dia_sondado(conn, aid)
     await marcar_book_enviado(conn, aid)
+    await marcar_amiga_ofertada(conn, aid)
+    await marcar_foto_portaria_pedida(conn, aid)
+    await marcar_motivo_resgate_perguntado(conn, aid)
     f1 = await _flags(conn, aid)
     await marcar_dia_sondado(conn, aid)
     await marcar_book_enviado(conn, aid)
+    await marcar_amiga_ofertada(conn, aid)
+    await marcar_foto_portaria_pedida(conn, aid)
+    await marcar_motivo_resgate_perguntado(conn, aid)
     f2 = await _flags(conn, aid)
 
     assert f1["n_contrapropostas"] == 2
+    assert f1["n_perguntas_de_horario"] == 1
     assert f1["dia_sondado_em"] is not None
     assert f1["book_enviado_em"] is not None
+    assert f1["amiga_ofertada_em"] is not None
+    assert f1["foto_portaria_pedida_em"] is not None
+    assert f1["motivo_resgate_perguntado_em"] is not None
     assert f2["dia_sondado_em"] == f1["dia_sondado_em"]  # não recarimbou
     assert f2["book_enviado_em"] == f1["book_enviado_em"]
+    assert f2["amiga_ofertada_em"] == f1["amiga_ofertada_em"]
+    assert f2["foto_portaria_pedida_em"] == f1["foto_portaria_pedida_em"]
+    assert f2["motivo_resgate_perguntado_em"] == f1["motivo_resgate_perguntado_em"]
 
 
 async def _inserir_bolha_e_talvez_contar(
     c: AsyncConnection[dict[str, Any]], *, conversa_id: UUID, aid: UUID, evo_id: str, conteudo: str
 ) -> None:
-    """Replica o padrão de workers/envio.py: INSERT idempotente + incremento SÓ se inseriu."""
+    """Replica o padrão de workers/envio.py: INSERT idempotente + incremento SÓ se inseriu.
+
+    Os DOIS contadores (contraproposta e pergunta de horário) pendem do mesmo `inseriu` — é o
+    contrato que os torna idempotentes sob retry, e vale conferi-lo nos dois de uma vez."""
     cur = await c.execute(
         """
         INSERT INTO barravips.mensagens
@@ -128,6 +150,7 @@ async def _inserir_bolha_e_talvez_contar(
     inseriu = await cur.fetchone() is not None
     if inseriu:
         await incrementar_contrapropostas(conn=c, atendimento_id=aid)
+        await incrementar_perguntas_de_horario(conn=c, atendimento_id=aid)
 
 
 async def test_retry_do_envio_nao_dobra_o_contador(
@@ -144,4 +167,6 @@ async def test_retry_do_envio_nao_dobra_o_contador(
         conn, conversa_id=conversa_id, aid=aid, evo_id=evo_id, conteudo="Consigo 500 amor"
     )
 
-    assert (await _flags(conn, aid))["n_contrapropostas"] == 1
+    flags = await _flags(conn, aid)
+    assert flags["n_contrapropostas"] == 1
+    assert flags["n_perguntas_de_horario"] == 1

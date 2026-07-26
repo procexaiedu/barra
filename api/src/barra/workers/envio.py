@@ -18,6 +18,12 @@ from psycopg_pool import AsyncConnectionPool
 from barra.agente._disciplina import (
     contem_contraproposta,
     contem_endereco_de_encontro,
+    contem_escalada_da_amiga,
+    contem_hora_na_mesa,
+    contem_oferta_da_amiga,
+    contem_pedido_da_foto_de_portaria,
+    contem_pergunta_de_horario,
+    contem_pergunta_do_motivo_do_resgate,
     contem_sondagem_dia,
     tokens_do_endereco,
 )
@@ -34,10 +40,14 @@ from barra.core.metrics import (
 from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import (
     incrementar_contrapropostas,
+    incrementar_perguntas_de_horario,
+    marcar_amiga_ofertada,
     marcar_book_enviado,
     marcar_cotacao_enviada_por_texto,
     marcar_dia_sondado,
     marcar_endereco_enviado,
+    marcar_foto_portaria_pedida,
+    marcar_motivo_resgate_perguntado,
 )
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.dominio.escaladas.service import (
@@ -903,6 +913,17 @@ async def enviar_turno(
 
         conversa_uuid = UUID(conversa_id)
 
+        # Veto da oferta da amiga, medido sobre o TURNO (não bolha a bolha): o trilho de escalada do
+        # <menage> sai naturalmente em duas bolhas ("Tenho uma amiga sim amor" / "Deixa eu ver com
+        # ela e já te retorno amor"). Chunk a chunk, a 1ª carimbaria a oferta que a 2ª desmente —
+        # queimando um convite que ela nunca fez.
+        escalou_amiga = contem_escalada_da_amiga("\n".join(chunks))
+
+        # Mesmo motivo, para o contador de perguntas de horário: o turno canônico do
+        # <conducao_da_venda> ("Consigo às 21h amor" / "ou prefere que horas ?") sai partido em
+        # duas bolhas, e a 2ª sozinha contaria a pergunta que a 1ª já respondeu com um horário.
+        propos_horario = contem_hora_na_mesa("\n".join(chunks))
+
         # 0. read receipt + reading delay (lê antes de digitar, 05 §4.2). O membro "read" do set
         #    evita re-dormir o delay no retry; markAsRead em si já é idempotente. Roda ANTES do
         #    cancel: marcar lido é inócuo mesmo que o turno seja cancelado em seguida.
@@ -981,6 +1002,8 @@ async def enviar_turno(
                 if inseriu and conv["atendimento_id"] is not None:
                     if contem_contraproposta(conteudo):
                         await incrementar_contrapropostas(conn, conv["atendimento_id"])
+                    if not propos_horario and contem_pergunta_de_horario(conteudo):
+                        await incrementar_perguntas_de_horario(conn, conv["atendimento_id"])
                     if contem_sondagem_dia(conteudo):
                         await marcar_dia_sondado(conn, conv["atendimento_id"])
                     if contem_endereco_de_encontro(
@@ -992,6 +1015,12 @@ async def enviar_turno(
                         ),
                     ):
                         await marcar_endereco_enviado(conn, conv["atendimento_id"])
+                    if not escalou_amiga and contem_oferta_da_amiga(conteudo):
+                        await marcar_amiga_ofertada(conn, conv["atendimento_id"])
+                    if contem_pedido_da_foto_de_portaria(conteudo):
+                        await marcar_foto_portaria_pedida(conn, conv["atendimento_id"])
+                    if contem_pergunta_do_motivo_do_resgate(conteudo):
+                        await marcar_motivo_resgate_perguntado(conn, conv["atendimento_id"])
 
             # 6. MARK-AFTER-SEND: só agora idx conta como entregue (05 §4.3)
             await redis.sadd(f"enviados:{turno_id}", f"chunk:{idx}")

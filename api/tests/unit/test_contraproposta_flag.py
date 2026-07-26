@@ -81,7 +81,7 @@ async def _n_contrapropostas(atendimento: dict[str, Any]) -> int:
         ctx,
         atendimento=atendimento,
     )
-    return variaveis["n_contrapropostas"]
+    return variaveis.n_contrapropostas
 
 
 async def test_le_contador_da_coluna() -> None:

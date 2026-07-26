@@ -62,8 +62,8 @@ async def test_book_ja_enviado_le_coluna_e_reseta_na_recorrencia() -> None:
     com_book = await _resolver({"book_enviado_em": _TS})
     sem_book = await _resolver({})  # atendimento novo do mesmo par nasce sem a flag
 
-    assert com_book["book_ja_enviado"] is True
-    assert sem_book["book_ja_enviado"] is False
+    assert com_book.book_ja_enviado is True
+    assert sem_book.book_ja_enviado is False
 
 
 # --- sondagem do dia: coluna histórica ----------------------------------------------------------
@@ -73,8 +73,8 @@ async def test_sondagem_historica_le_coluna() -> None:
     sondou = await _resolver({"dia_sondado_em": _TS})
     nao_sondou = await _resolver({})
 
-    assert sondou["dia_ja_sondado_hist"] is True
-    assert nao_sondou["dia_ja_sondado_hist"] is False
+    assert sondou.dia_ja_sondado_hist is True
+    assert nao_sondou.dia_ja_sondado_hist is False
 
 
 async def test_or_janela_historico_injeta_tag_no_contexto() -> None:
@@ -83,7 +83,7 @@ async def test_or_janela_historico_injeta_tag_no_contexto() -> None:
         AIMessage(content="600 1h no meu local"),
         HumanMessage(content="e como funciona?"),
     ]
-    mensagens, _fase, _hm, _pecas = await _anexar_contexto_dinamico(
+    mensagens, _contexto, _pecas = await _anexar_contexto_dinamico(
         _FakeConnVazio(),  # type: ignore[arg-type]
         _ctx(),
         janela,

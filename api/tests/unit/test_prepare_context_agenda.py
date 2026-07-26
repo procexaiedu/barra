@@ -73,8 +73,8 @@ async def test_resolver_variaveis_hora_local_e_exclui_bloqueio_atual() -> None:
     variaveis = await _resolver_variaveis(conn, ctx)  # type: ignore[arg-type]
 
     # A: data + hora locais derivadas do timestamp em America/Sao_Paulo.
-    assert variaveis["data_atual"] == date(2026, 6, 5)
-    assert variaveis["hora_atual"] == "22:30"
+    assert variaveis.data_atual == date(2026, 6, 5)
+    assert variaveis.hora_atual == "22:30"
     assert any("America/Sao_Paulo" in sql for sql, _ in conn.calls)
 
     # B: a query de bloqueios exclui o atendimento atual e passa o id como parâmetro.
@@ -130,14 +130,14 @@ async def test_marcadores_de_tempo_e_horario_minimo_por_tipo() -> None:
     )
 
     # E: marcadores de tempo na cauda.
-    assert variaveis["min_desde_ultima_msg_cliente"] == 5
-    assert variaveis["combinado_hora"] == "20:30"
-    assert variaveis["min_para_combinado"] == 30
+    assert variaveis.min_desde_ultima_msg_cliente == 5
+    assert variaveis.combinado_hora == "20:30"
+    assert variaveis.min_para_combinado == 30
     # B: interno sem deslocamento + livre -> horario_minimo ancorado em ~agora (20:00), não +30.
-    assert variaveis["horario_minimo"].astimezone(BRT).strftime("%H:%M") == "20:00"
+    assert variaveis.horario_minimo.astimezone(BRT).strftime("%H:%M") == "20:00"
 
     # O template renderiza os dois marcadores na cauda.
-    saida = render_contexto_dinamico(**variaveis)
+    saida = render_contexto_dinamico(**variaveis.como_variaveis())
     assert "<relogio_do_encontro" in saida
     assert 'combinado="20:30"' in saida
     assert "faltam ~30 min" in saida
@@ -216,12 +216,12 @@ async def test_proximo_horario_ancora_quando_horario_minimo_some() -> None:
         conn, ctx, [], atendimento=conn.atendimento
     )
 
-    assert variaveis["horario_minimo"] is None  # o silêncio que causou o bug
-    proximo = variaveis["proximo_horario"]
+    assert variaveis.horario_minimo is None  # o silêncio que causou o bug
+    proximo = variaveis.proximo_horario
     assert proximo is not None
     assert proximo.astimezone(BRT).strftime("%d/%m %H:%M") == "24/07 10:00"
 
-    saida = render_contexto_dinamico(**variaveis)
+    saida = render_contexto_dinamico(**variaveis.como_variaveis())
     assert 'inicio="Fri 24/07 10:00"' in saida
     assert "é o seu primeiro" in saida
     # O 17:30 do bloqueio segue no contexto (a IA precisa saber que a tarde tem um buraco) — mas
@@ -243,7 +243,7 @@ async def test_proximo_horario_respeita_bloqueio_em_cima_da_abertura() -> None:
         conn, ctx, [], atendimento=conn.atendimento
     )
 
-    proximo = variaveis["proximo_horario"]
+    proximo = variaveis.proximo_horario
     assert proximo is not None
     assert proximo.astimezone(BRT).strftime("%d/%m %H:%M") == "24/07 12:30"
 
@@ -264,8 +264,8 @@ async def test_proximo_horario_cobre_o_fim_do_periodo_de_trabalho() -> None:
         conn, ctx, [], atendimento=conn.atendimento
     )
 
-    assert variaveis["horario_minimo"] is None
-    proximo = variaveis["proximo_horario"]
+    assert variaveis.horario_minimo is None
+    proximo = variaveis.proximo_horario
     assert proximo is not None
     assert proximo.astimezone(BRT).strftime("%d/%m %H:%M") == "24/07 10:00"
 
@@ -283,9 +283,9 @@ async def test_proximo_horario_ausente_quando_ha_horario_minimo() -> None:
         conn, ctx, [], atendimento=conn.atendimento
     )
 
-    assert variaveis["horario_minimo"] is not None
-    assert variaveis["proximo_horario"] is None
-    assert "<proximo_horario" not in render_contexto_dinamico(**variaveis)
+    assert variaveis.horario_minimo is not None
+    assert variaveis.proximo_horario is None
+    assert "<proximo_horario" not in render_contexto_dinamico(**variaveis.como_variaveis())
 
 
 async def test_proximo_horario_ausente_sem_disponibilidade_cadastrada() -> None:
@@ -302,9 +302,9 @@ async def test_proximo_horario_ausente_sem_disponibilidade_cadastrada() -> None:
         conn, ctx, [], atendimento=conn.atendimento
     )
 
-    assert variaveis["horario_minimo"] is not None
-    assert variaveis["proximo_horario"] is None
-    assert "<proximo_horario" not in render_contexto_dinamico(**variaveis)
+    assert variaveis.horario_minimo is not None
+    assert variaveis.proximo_horario is None
+    assert "<proximo_horario" not in render_contexto_dinamico(**variaveis.como_variaveis())
 
 
 async def test_relogio_do_encontro_so_com_horario_combinado_nao_desejado() -> None:
@@ -334,9 +334,9 @@ async def test_relogio_do_encontro_so_com_horario_combinado_nao_desejado() -> No
         conn, ctx, [], atendimento=conn.atendimento
     )
 
-    assert variaveis["combinado_hora"] is None
-    assert variaveis["min_para_combinado"] is None
-    assert "<relogio_do_encontro" not in render_contexto_dinamico(**variaveis)
+    assert variaveis.combinado_hora is None
+    assert variaveis.min_para_combinado is None
+    assert "<relogio_do_encontro" not in render_contexto_dinamico(**variaveis.como_variaveis())
 
 
 async def test_janelas_livres_expoem_a_manha_vaga_do_41() -> None:
@@ -356,12 +356,12 @@ async def test_janelas_livres_expoem_a_manha_vaga_do_41() -> None:
 
     janelas = [
         (i.astimezone(BRT).strftime("%d/%m %H:%M"), f.astimezone(BRT).strftime("%d/%m %H:%M"))
-        for i, f in variaveis["janelas_livres"]
+        for i, f in variaveis.janelas_livres
     ]
     assert janelas[0] == ("24/07 10:00", "24/07 15:30")
     assert janelas[1] == ("24/07 17:30", "25/07 04:00")
 
-    saida = render_contexto_dinamico(**variaveis)
+    saida = render_contexto_dinamico(**variaveis.como_variaveis())
     assert '<janela_livre de="Fri 24/07 10:00" ate="Fri 24/07 15:30"/>' in saida
 
 
@@ -379,8 +379,8 @@ async def test_janelas_livres_nao_comecam_antes_da_antecedencia() -> None:
         conn, ctx, [], atendimento=conn.atendimento
     )
 
-    primeira_janela = variaveis["janelas_livres"][0][0]
-    assert primeira_janela == variaveis["horario_minimo"]
+    primeira_janela = variaveis.janelas_livres[0][0]
+    assert primeira_janela == variaveis.horario_minimo
     assert primeira_janela.astimezone(BRT).strftime("%H:%M") == "15:30"
 
 
@@ -402,5 +402,5 @@ async def test_sem_janela_livre_a_tag_some() -> None:
         conn, ctx, [], atendimento=conn.atendimento
     )
 
-    assert variaveis["janelas_livres"] == []
-    assert "<janela_livre" not in render_contexto_dinamico(**variaveis)
+    assert variaveis.janelas_livres == []
+    assert "<janela_livre" not in render_contexto_dinamico(**variaveis.como_variaveis())

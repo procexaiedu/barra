@@ -1371,6 +1371,42 @@ async def test_flip_de_tipo_pos_bloqueio_nao_grava_nem_cobra_pix(
 
 
 @pytest.mark.needs_db
+async def test_flip_de_tipo_em_aguardando_sem_bloqueio_tambem_e_descartado(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Mesmo flip do #41 no atendimento sem bloqueio previo (borda): `Aguardando_confirmacao` ja
+    significa horario combinado, e e justamente esse o atendimento que o cron do piloto
+    (ADR-0033) cancela NA HORA — fora do interno ele so mede `aguardando_confirmacao_em`, que aqui
+    ja esta vencido, entao a virada de tipo dispara a desculpa canned no tick seguinte."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Aguardando_confirmacao",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(20, 0),
+        data_desejada=date(2026, 12, 1),
+        duracao_horas=Decimal("1"),
+    )
+    res = await conn.execute(
+        "SELECT bloqueio_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    assert (await res.fetchone() or {})["bloqueio_id"] is None
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"tipo_atendimento": "externo", "proxima_acao_esperada": "recusando ir ate ele"},
+    )
+
+    assert "pix_solicitado" not in resultado
+    res = await conn.execute(
+        "SELECT tipo_atendimento::text AS tipo FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    assert (await res.fetchone() or {})["tipo"] == "interno"
+
+
+@pytest.mark.needs_db
 async def test_tipo_sem_bloqueio_ainda_e_gravado(conn: AsyncConnection[dict[str, Any]]) -> None:
     """O descarte e ESTREITO: sem slot reservado o tipo ainda esta sendo decidido, e a extracao
     continua sendo quem o grava (senao o atendimento nunca sai da triagem)."""

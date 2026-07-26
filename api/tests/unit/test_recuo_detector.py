@@ -12,7 +12,7 @@ verdadeiro do corpus auditado, que um detector ingênuo de adiamento rebaixaria.
 from langchain_core.messages import AIMessage, HumanMessage
 
 from barra.agente._disciplina import classificar_recuo
-from barra.agente.nos.prepare_context import _recuo_no_turno
+from barra.agente.nos._janela_do_turno import _recuo_no_turno
 
 
 def _ia(texto: str) -> AIMessage:

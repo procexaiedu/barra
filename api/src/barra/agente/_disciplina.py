@@ -57,6 +57,87 @@ def contem_sondagem_dia(texto: str) -> bool:
     return _PROBE_DIA_HOJE.search(texto) is not None
 
 
+# Convite pra conhecer a amiga (regras.md.j2 <menage>): oferta de pós-venda que é UMA vez na
+# negociação. O convite sai no FIM (com a venda já fechada), que é justamente onde ele desliza pra
+# fora da janela de 20 msgs — sem a coluna materializada a IA reoferece.
+#
+# O corte é entre a oferta PROATIVA dela e a resposta de ESCALADA ("Deixa eu ver com ela e já te
+# retorno amor"), que a IA dá quando é o CLIENTE quem pede a dupla: escalada não é convite, e
+# carimbá-la calaria uma oferta que ela nunca fez. O possessivo é exigido nos verbos de trazer
+# ("chamar/trazer minha amiga") porque "trazer sua amiga" é a segunda pessoa DELE, o outro ramo do
+# <menage>. O determinante ("uma"/"minha") + o lookbehind mantêm a negativa do <fora_do_cardapio>
+# ("não tenho uma amiga pra levar") fora da oferta.
+_OFERTA_AMIGA = re.compile(
+    r"(?<!nao )\btenho (?:uma|a minha|minha) amiga\b"
+    r"|\bconhecer as duas\b"
+    r"|\bconhecer (?:a )?(?:uma|minha) amiga\b"
+    r"|\b(?:chamar|trazer|convidar) (?:a )?minha amiga\b"
+)
+# Escalada do pedido DELE — vence a oferta ("Tenho uma amiga sim amor" / "Deixa eu ver com ela"):
+# quem abriu o assunto foi o cliente, o trilho é escalar, não convidar. Vive numa função à parte
+# porque o veto é do TURNO, não da bolha: o chunker parte essa dupla em duas bolhas com facilidade,
+# e a 1ª sozinha carimbaria a oferta que a 2ª desmente.
+_ESCALADA_AMIGA = re.compile(
+    r"\bdeixa eu (?:ver|falar|combinar|checar) com (?:a )?(?:ela|minha amiga)\b"
+)
+
+
+def contem_escalada_da_amiga(texto: str) -> bool:
+    """True se o texto carrega a resposta de escalada do <menage> ("Deixa eu ver com ela amor").
+
+    Recebe o TURNO inteiro no write-time (workers/envio.py): é o veto da oferta."""
+    return _ESCALADA_AMIGA.search(normalizar(texto)) is not None
+
+
+def contem_oferta_da_amiga(texto: str) -> bool:
+    """True se a bolha CONVIDA o cliente pra conhecer a amiga (<menage>, oferta de pós-venda).
+
+    `normalizar` antes do match: tira acento/caixa p/ o lookbehind "não tenho" bater sem acento.
+    A escalada na MESMA bolha já veta aqui; partida entre bolhas, quem veta é o chamador com
+    `contem_escalada_da_amiga` sobre o turno."""
+    if contem_escalada_da_amiga(texto):
+        return False
+    return _OFERTA_AMIGA.search(normalizar(texto)) is not None
+
+
+# Pedido do print da chegada (<tipos_de_encontro>: "Quando chegar me manda uma foto da portaria
+# amor"). Sai UMA vez: pedido o print, a IA espera com presença curta e não recobra — "vai vir
+# mesmo ?"/"chega em quanto tempo ?" repetidos são, pelo próprio prompt, o que mais afasta nessa
+# fase. O pedido mora no FIM do combinado e desliza pra fora da janela justamente enquanto o
+# cliente não chega, que é quando a regra vale.
+#
+# Duas famílias, porque o pedido aparece com e sem a palavra "portaria":
+#  (a) foto/print PERTO de "portaria", nas duas ordens ("foto da portaria", "na portaria me manda
+#      uma foto") — a forma da despedida do combinado;
+#  (b) sem a palavra "portaria": pedido imperativo de foto E menção à chegada na MESMA bolha, em
+#      qualquer ordem ("me manda uma foto quando chegar", "quando você chegou me manda a foto") —
+#      é a forma que sai em resposta a "cheguei"/"to chegando", onde o contexto já está posto e o
+#      modelo omite "portaria". A ordem é livre de propósito: exigi-la deixava cega justamente a
+#      variante do turno em que a IA mais recobra.
+# O imperativo (`manda`, não `mandar`) é o que separa o PEDIDO da promessa dela ("quando chegar vou
+# te mandar uma foto", que é mídia do <midia>); a exigência de chegada/portaria mantém o book e o
+# comprovante do Pix fora.
+_FOTO = r"(?:foto|fotinha|print|imagem)\w*"
+_PORTARIA_COM_FOTO = re.compile(
+    rf"\b{_FOTO}\b[^\n]{{0,30}}\bportaria\b|\bportaria\b[^\n]{{0,30}}\b{_FOTO}\b"
+)
+_PEDIDO_DE_FOTO = re.compile(rf"\b(?:manda|mande|envia|envie)\b[^\n]{{0,20}}\b{_FOTO}\b")
+_MENCAO_DE_CHEGADA = re.compile(r"\bcheg(?:ar|ando|ou|uei|a)\b")
+
+
+def contem_pedido_da_foto_de_portaria(texto: str) -> bool:
+    """True se a bolha PEDE o print da chegada ("Quando chegar me manda uma foto da portaria").
+
+    `normalizar` antes do match: tira acento/caixa (o texto do modelo vem com "fotinha"/"imagem"
+    acentuados em volta). Alimenta `foto_portaria_pedida_em` no write-time — pedir continua
+    permitido (é o print, quando chega, que dispara o handoff implícito); o que a flag corta é a
+    RECOBRANÇA enquanto ele não chega."""
+    t = normalizar(texto)
+    if _PORTARIA_COM_FOTO.search(t):
+        return True
+    return bool(_PEDIDO_DE_FOTO.search(t) and _MENCAO_DE_CHEGADA.search(t))
+
+
 # Proveniência do horário (spec extracao-proveniencia-horario): a fala carrega uma HORA do relógio.
 # Dois formatos, porque "2h" sozinho é AMBÍGUO no domínio — a duração do programa se escreve igual
 # ao horário ("600 1h no meu local" é cotação; "quanto é 1h?" é duração):
@@ -91,6 +172,91 @@ def contem_hora_explicita(texto: str) -> bool:
     """
     t = normalizar(texto)
     return _RE_HORA_COM_MINUTO.search(t) is not None or _RE_HORA_COM_MARCADOR.search(t) is not None
+
+
+# Pergunta de horário SEM proposta ("Seria que horas ?", "Qual horário amor ?") — o empurrão que o
+# <conducao_da_venda> autoriza, e que vira loop quando o cliente desconversa (emoji, elogio, "que
+# bom rs"). A disciplina tem DOIS degraus (por isso contador, como `n_contrapropostas`, e não
+# timestamp): na 1ª repetição ela propõe um horário concreto; da 2ª em diante não pergunta mais.
+#
+# Dois cortes:
+#  (a) a "?" é exigida, como no `_PEDE_FECHAMENTO`: o empurrão de horário sempre acaba nela, e sem
+#      ela a bolha é outra coisa ("me avisa que horas você sai" é devolução do ônus, não pergunta);
+#  (b) fala que já põe uma HORA na mesa é PROPOSTA, não pergunta ("Consigo às 21h ou prefere que
+#      horas ?") — é exatamente o que a tag manda fazer no lugar da re-pergunta, e contá-la
+#      gastaria a disciplina no turno em que a IA acertou (ver `contem_hora_na_mesa`).
+# A sondagem do DIA ("seria hoje ?", "seria agora ?") não precisa de veto: ela tem flag própria
+# (`dia_sondado_em`) e vocabulário disjunto deste — o teste de fronteira é que segura isso.
+_PERGUNTA_DE_HORARIO = re.compile(r"\b(?:que|qual)\s+(?:hora|horas|horario|horarios)\b")
+
+# Hora CRUA, sem marcador temporal: "Podemos combinar 21h amor ?", "consigo 14h". É o buraco que
+# `contem_hora_explicita` deixa de propósito (lá o marcador é o que separa horário de DURAÇÃO,
+# "quanto é 1h ?") — e "combinar 21h" é justamente a fala que o prompt manda usar no lugar da
+# re-pergunta. Só é lida DENTRO do veto abaixo, onde errar para o lado largo custa um
+# falso-negativo benigno (o contador não anda) em vez de queimar o degrau num turno certo.
+_RE_HORA_CRUA = re.compile(rf"\b{_HORA}\s*{_SUFIXO_HORA}")
+
+
+def contem_hora_na_mesa(texto: str) -> bool:
+    """True se a fala põe uma HORA do relógio na mesa ("às 18h", "17:30", "combinar 21h").
+
+    Veto da pergunta de horário, nos dois níveis: por BOLHA (a proposta que emenda a pergunta) e
+    por TURNO em `workers/envio.py` — o chunker parte "Consigo às 21h amor" / "ou prefere que
+    horas ?" em duas bolhas com facilidade, e a 2ª sozinha contaria a pergunta que a 1ª já
+    respondeu com um horário."""
+    return contem_hora_explicita(texto) or _RE_HORA_CRUA.search(normalizar(texto)) is not None
+
+
+def contem_pergunta_de_horario(texto: str) -> bool:
+    """True se a bolha PERGUNTA o horário sem propor nenhum ("Seria que horas amor ?").
+
+    `normalizar` antes do match: tira acento/caixa p/ "horário" casar. Alimenta
+    `n_perguntas_de_horario` no write-time — perguntar continua permitido (é a alavanca de
+    fechamento do <conducao_da_venda>); o que o contador corta é a re-pergunta em loop."""
+    t = normalizar(texto)
+    if "?" not in t or contem_hora_na_mesa(t):
+        return False
+    return _PERGUNTA_DE_HORARIO.search(t) is not None
+
+
+# Pergunta do MOTIVO no resgate da despedida (<desconto>: "obrigado, fica pra próxima" ainda não é
+# perda — "Poxa, não gostou de mim ?"). Sai UMA vez: perguntar de novo deixa de ser resgate e vira
+# cobrança, e é justamente quando ele volta depois de um silêncio — com a pergunta já fora da janela
+# de 20 msgs — que a IA repete.
+#
+# Duas famílias, e o "?" é exigido nas duas (como no `_PERGUNTA_DE_HORARIO`): o resgate é pergunta,
+# e sem ela a bolha é outra coisa.
+#  (a) a NEGAÇÃO do gostar, ancorada NELA ("não gostou de mim ?", "não gostou mais de mim ?") — a
+#      forma canônica. O "de mim" é o que segura os dois falsos-positivos do mesmo trecho: a
+#      negação do OBJETO ("não curtiu as fotos ?" pós-book é venda, não resgate) e a negação
+#      embutida na contraproposta ("se você não gostou do valor consigo 500, fecha ?"). Carimbar
+#      qualquer uma calaria o resgate real da despedida, que é o que a flag existe pra proteger;
+#  (b) o motivo pedido com todas as letras ("posso saber o motivo ?", "qual o motivo ?"), mais as
+#      duas paráfrases que o modelo produz no lugar dela ("desistiu de mim ?", "foi alguma coisa
+#      que eu falei ?") — "desistiu" também ancorado nela, senão a cobrança da espera ("desistiu de
+#      vir ?") entra.
+# As duas vizinhas de trecho ficam de fora por construção: a recusa de desconto ("Poxa amor não
+# consigo") não é pergunta, e o empurrão de fechamento ("Podemos confirmar 21h ?") tem vocabulário
+# disjunto deste.
+_DE_MIM = r"[^\n]{0,10}\bde mim\b"
+_PERGUNTA_DO_MOTIVO = re.compile(
+    rf"\bnao (?:gostou|curtiu){_DE_MIM}"
+    r"|\b(?:o|algum) motivo\b"
+    rf"|\bdesistiu{_DE_MIM}"
+    r"|\bfoi (?:algo|alguma coisa) que eu\b"
+)
+
+
+def contem_pergunta_do_motivo_do_resgate(texto: str) -> bool:
+    """True se a bolha pergunta o MOTIVO da despedida ("Poxa, não gostou de mim ?").
+
+    `normalizar` antes do match: tira acento/caixa p/ "não" casar sem acento. Alimenta
+    `motivo_resgate_perguntado_em` no write-time — perguntar continua sendo o resgate do
+    <desconto>; o que a flag corta é a re-pergunta, inclusive quando ele volta depois de sumir."""
+    t = normalizar(texto)
+    if "?" not in t:
+        return False
+    return _PERGUNTA_DO_MOTIVO.search(t) is not None
 
 
 # Palavra de lugar que qualquer endereco tem: nao distingue o ponto de encontro DELA de nenhum

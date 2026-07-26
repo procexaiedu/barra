@@ -96,8 +96,8 @@ async def escalar(
 
     Quando NÃO usar: não escale na 1ª ou 2ª pergunta de disclosure (negue em personagem), num
     pedido de desconto que ainda cabe no seu melhor valor, nem num horário que você conseguiu
-    redirecionar. Escale só quando o cliente insiste além das camadas de conduta das suas
-    regras, pede valor abaixo do seu piso de desconto, ou pede algo fora do que você oferece.
+    redirecionar. Escale só quando o cliente insiste além do que suas regras mandam rebater,
+    pede valor abaixo do seu piso de desconto, ou pede algo fora do que você oferece.
 
     Returns:
         Confirmação de que a escalada foi aberta e para quem. Depois disso, sua próxima fala

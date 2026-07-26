@@ -11,7 +11,7 @@ Dois níveis:
 from langchain_core.messages import AIMessage, HumanMessage
 
 from barra.agente._disciplina import contem_hora_explicita
-from barra.agente.nos.prepare_context import _horario_evidenciado_no_turno
+from barra.agente.nos._janela_do_turno import _horario_evidenciado_no_turno
 
 
 def _ia(texto: str) -> AIMessage:

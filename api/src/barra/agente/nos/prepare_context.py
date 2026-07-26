@@ -31,7 +31,7 @@ M3g (este escopo):
 
 import hashlib
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal
@@ -51,12 +51,6 @@ from barra.dominio.modelos.disponibilidade import proxima_abertura
 from barra.settings import get_settings
 
 from .._classificador import classificar_janela
-from .._disciplina import (
-    _PROBE_DIA_HOJE,
-    classificar_recuo,
-    contem_hora_explicita,
-    contem_sondagem_imediatismo,
-)
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
@@ -67,6 +61,13 @@ from ..persona import (
     render_ja_registrado,
     render_prefixo_geral,
     render_reminder,
+)
+from ._contexto_do_turno import ContextoDoTurno
+from ._janela_do_turno import (
+    _confirmou_dia_hoje,
+    _horario_evidenciado_no_turno,
+    _ja_sondou_o_dia,
+    _recuo_no_turno,
 )
 from ._janelas_livres import janelas_livres
 from ._proximo_livre import proximo_livre
@@ -196,7 +197,7 @@ async def prepare_context(
         #    último HumanMessage (sem cache_control — texto volátil na cauda). Recebe o atendimento
         #    já lido (1), o max_horas e o local já resolvidos (3). Devolve a `fase` (= estado do
         #    atendimento) já resolvida, p/ o reminder não requerer, e as `pecas` do turno.
-        mensagens, fase, horario_minimo, pecas = await _anexar_contexto_dinamico(
+        mensagens, contexto, pecas = await _anexar_contexto_dinamico(
             conn,
             ctx,
             mensagens,
@@ -211,7 +212,7 @@ async def prepare_context(
         #     HumanMessage, depois do contexto dinâmico (ordem final: lembrete → msg → contexto),
         #     só com ≥8 AIMessages na janela. Volátil — fica na cauda, fora do prefixo cacheável.
         #     Reancora a identidade com o `nome` da modelo (continuidade de self, não menção a IA).
-        mensagens = _injetar_reminder_se_necessario(mensagens, fase, modelo_nome)
+        mensagens = _injetar_reminder_se_necessario(mensagens, contexto.estado, modelo_nome)
 
     # 5. Prefixo system: BP_GERAL fundido (persona+regras byte-idêntico p/ todas —
     #    agente/CLAUDE.md) + BP_MODELO. Ordem estável: geral antes do por-modelo (invariante de
@@ -228,7 +229,7 @@ async def prepare_context(
             "messages": [*system_msgs, *mensagens],
             "_categoria": categoria,
             "_confianca": confianca,
-            "horario_minimo": horario_minimo,
+            "horario_minimo": contexto.horario_minimo,
             "horario_evidenciado": horario_evidenciado,
             "recuo_detectado": recuo_detectado,
             "agora_turno": pecas.agora,
@@ -363,46 +364,6 @@ def _spotlight_legenda(texto: str, msg_id: str) -> str:
     )
 
 
-# A2 (captura determinística do dia — display-only): o abridor social "seria hoje?" (persona.md:32)
-# seguido de afirmação curta do cliente CONFIRMA que o encontro é hoje. Mas a extração forçada roda
-# no Haiku barato (nos/llm.py) e ele não faz essa correferência ("sim" → data_desejada=hoje) enterrada
-# na description do campo — então o belief não traz o dia em <ja_combinado> e a IA REPETE "seria hoje?"
-# no turno do preço (persona.md:18 e regras.md.j2:17 proíbem). Detectamos o par deterministicamente
-# (zero LLM, zero crédito) e assumimos hoje SÓ no render do belief, sem persistir: a agenda já usa hoje
-# por default (criar_bloqueio_previo: data = data_desejada or hoje), o estado real não diverge, e o
-# belief é artefato derivado recomputado todo turno. Gated por evidência: só dispara DEPOIS do "sim",
-# então não suprime o abridor no turno 1. (`_PROBE_DIA_HOJE` vem de agente/_disciplina.py — mesma
-# fonte que o write-time usa p/ carimbar `dia_sondado_em`.)
-# Cliente citou OUTRO dia → não assume hoje (deixa a extração capturar o dia explícito).
-_TOKEN_OUTRO_DIA = re.compile(
-    r"\b(amanh[ãa]|depois de amanh[ãa]|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado|domingo|"
-    r"semana|m[êe]s|dia \d+)\b",
-    re.IGNORECASE,
-)
-# Afirmação curta que confirma a sondagem (conjunto fechado; texto normalizado p/ alpha+espaço).
-_AFIRMACOES = frozenset(
-    {
-        "sim",
-        "isso",
-        "isso mesmo",
-        "isso ai",
-        "pode ser",
-        "pode",
-        "claro",
-        "com certeza",
-        "aham",
-        "ahan",
-        "uhum",
-        "é",
-        "eh",
-        "sim sim",
-        # "perfeito" fecha a correferência do #34 ("Posso confirmar às 18h" → "Perfeito"), e vale
-        # igual para o dia — é aceite, não recuo.
-        "perfeito",
-    }
-)
-# Primeira palavra forte o bastante p/ valer mesmo seguida de vocativo ("sim amor", "claro vida").
-_AFIRMACOES_FORTES = frozenset({"sim", "isso", "claro", "aham", "uhum", "ahan", "perfeito"})
 # Estados onde o dia ainda pode estar em aberto; de Aguardando_confirmacao em diante não reabre.
 _ESTADOS_PRE_CONFIRMACAO = frozenset({"Novo", "Triagem", "Qualificado"})
 
@@ -423,167 +384,83 @@ def _libera_local_de_encontro(estado: str | None, tipo_atendimento: str | None) 
     return estado in _ESTADOS_COM_ENDERECO and tipo_atendimento == "interno"
 
 
-def _texto_msg(msg: BaseMessage) -> str:
-    return msg.content if isinstance(msg.content, str) else ""
+# Segundo degrau do mesmo gate (issue 05): o número da rua só entra quando o encontro está de pé —
+# horário combinado, que é exatamente o que promove a Aguardando_confirmacao. Antes disso a IA
+# recebe o endereço já SEM o número. O prompt pedia que ela cortasse sozinha e o 1º dia de prod
+# mostrou que a prosa de degraus não segura o DeepSeek. O aviso de saída não precisa entrar na
+# conta: ele só é carimbado em interno + Aguardando_confirmacao (`_aviso_saida_aplicavel`), e o
+# estado nunca regride (`_TRANSICOES_PAINEL`) — quem avisou que saiu já está dentro do degrau.
+_ESTADOS_COM_NUMERO = frozenset({"Aguardando_confirmacao", "Confirmado", "Em_execucao"})
+
+# Número do logradouro no `endereco_formatado` do Google (formattedAddress): o SEGUNDO campo da
+# vírgula, dígitos com sufixo opcional de letra, colada ou com hífen ("291", "291A", "291-A") e
+# separador de milhar ("1.200"). O `(?![\w-])` no fim é o que impede o CEP ("13024-020") de ser
+# comido quando o endereço não tem número e o CEP ocupa esse campo.
+_RE_NUMERO_DO_LOGRADOURO = re.compile(
+    r"^\s*\d+(?:\.\d{3})*(?:\s*-\s*[A-Za-z]\b|[A-Za-z])?(?![\w-])\s*"
+)
+
+# CEP ("13024-020"/"13024020") é o único dígito que pode sobrar no endereço do degrau de baixo —
+# qualquer outro é número de rua que a remoção não reconheceu (ver `_endereco_sem_numero`).
+_RE_CEP = re.compile(r"\d{5}-?\d{3}")
 
 
-def _normalizar_afirmacao(texto: str) -> str:
-    """Reduz a alpha+espaço minúsculo (descarta emoji/pontuação): 'Sim 😊' → 'sim'."""
-    limpo = "".join(c for c in texto.lower() if c.isalpha() or c.isspace())
-    return " ".join(limpo.split())
+def _libera_numero_do_endereco(estado: str | None) -> bool:
+    """True quando o número da rua pode entrar no <local_de_encontro> (ver `_ESTADOS_COM_NUMERO`)."""
+    return estado in _ESTADOS_COM_NUMERO
 
 
-def _e_afirmacao_curta(texto: str) -> bool:
-    """True se a msg do cliente é uma afirmação curta de 'sim' SEM citar outro dia."""
-    if _TOKEN_OUTRO_DIA.search(texto.lower()):
-        return False
-    norm = _normalizar_afirmacao(texto)
-    if not norm:
-        return False
-    return norm in _AFIRMACOES or norm.split()[0] in _AFIRMACOES_FORTES
+def _endereco_do_degrau_sem_numero(endereco: str | None) -> str | None:
+    """O endereço como a IA o recebe antes de o encontro estar de pé — ou None quando o número não
+    pôde ser removido com segurança.
+
+    Fail-CLOSED de propósito: a tese do gate é "o que ela não recebe, ela não vaza", então cadastro
+    fora do formato do Google (texto livre legado, `0028_modelos_endereco_geo.sql`) sai do contexto
+    inteiro em vez de entrar com o número — a IA cai no degrau anterior e fala só a região, que é
+    conduta válida. Devolver o endereço intacto seria pior que antes: o bloco afirmaria "SEM o
+    número" com o número dentro."""
+    sem_numero = _endereco_sem_numero(endereco)
+    if sem_numero and any(c.isdigit() for c in _RE_CEP.sub("", sem_numero)):
+        return None
+    return sem_numero
 
 
-def _burst_do_cliente(mensagens: list[BaseMessage]) -> int:
-    """Índice onde começa o burst ATUAL do cliente (HumanMessages contíguas no fim da janela);
-    `len(mensagens)` quando o último a falar não foi ele."""
-    i = len(mensagens)
-    while i > 0 and isinstance(mensagens[i - 1], HumanMessage):
-        i -= 1
-    return i
+def _endereco_sem_numero(endereco: str | None) -> str | None:
+    """Tira o número do logradouro, preservando rua, bairro e cidade ("R. X, 291 - Cambuí, …" →
+    "R. X - Cambuí, …"). Endereço sem número (ou texto livre legado, sem vírgula) volta intacto —
+    quem decide se o resultado é seguro de entregar é `_endereco_do_degrau_sem_numero`."""
+    if not endereco:
+        return endereco
+    cabeca, sep, cauda = endereco.partition(",")
+    if not sep:
+        return endereco
+    campo, sep_cauda, resto_cauda = cauda.partition(",")
+    sem_numero = _RE_NUMERO_DO_LOGRADOURO.sub("", campo, count=1)
+    if sem_numero == campo:
+        return endereco
+    sem_numero = sem_numero.strip()
+    cauda_final = f",{resto_cauda}" if sep_cauda else ""
+    if not sem_numero:
+        return f"{cabeca.rstrip()}{cauda_final}"
+    # "- Cambuí" é a continuação do logradouro, não um campo novo: emenda com espaço, não com
+    # vírgula (senão sobra "R. X, - Cambuí").
+    juncao = " " if sem_numero.startswith("-") else ", "
+    return f"{cabeca.rstrip()}{juncao}{sem_numero}{cauda_final}"
 
 
-def _bolhas_ia_antes_do_burst(mensagens: list[BaseMessage], inicio_burst: int) -> list[AIMessage]:
-    """Bolhas contíguas da IA imediatamente ANTES do burst do cliente — o antecedente ao qual a
-    afirmação curta dele se refere (a IA quebra a fala em várias bolhas)."""
-    j = inicio_burst - 1
-    bolhas: list[AIMessage] = []
-    while j >= 0 and isinstance(mensagens[j], AIMessage):
-        bolhas.append(mensagens[j])  # type: ignore[arg-type]
-        j -= 1
-    return bolhas
-
-
-def _horario_evidenciado_no_turno(mensagens: list[BaseMessage]) -> bool:
-    """True se a janela do turno EVIDENCIA o horário: existe fala do cliente que o sustenta.
-
-    Os três gatilhos da spec (extracao-proveniencia-horario), todos no corpus de produção:
-      1. hora explícita numa bolha do burst atual do cliente ("Umas 16 horas" — #24);
-      2. confirmação curta do cliente logo após bolha da IA que contém hora ("Posso confirmar às
-         18h" → "Perfeito" — #34); mesma mecânica de correferência já usada para o dia;
-      3. o mesmo par, com a bolha da IA sendo a sondagem de IMEDIATISMO ("Seria agora ?" → "sim"
-         — #35): o número vem do fallback, mas a intenção é dele.
-
-    O gatilho 3 usa `contem_sondagem_imediatismo`, NÃO a família inteira de sondagem do dia
-    (`_PROBE_DIA_HOJE`, que também acende no "seria hoje ?"): aquele par crava o DIA e não a HORA —
-    aceitá-lo carimbaria evidência sobre um horário que o fallback sintetizou, reabrindo o #25.
-
-    EVENTO do turno, não estado: quem preserva a marca entre turnos é a coluna
-    `horario_evidenciado` (o valor só perde a evidência quando MUDA sem evidência nova,
-    dominio/atendimentos/service.py). Restrito ao burst atual, uma hora dita dez turnos atrás não
-    revalida o palpite que o sistema gravou depois — e, como a evidência também promove a
-    `intencao`, um "sim" antigo não segue forçando `agendamento` depois de o cliente recuar.
-
-    Por que NÃO é write-time como as flags A2 (agente/CLAUDE.md): aquelas rastreiam o que a IA já
-    fez (carimbáveis quando ela fala); esta lê a fala do CLIENTE e é consumida no MESMO turno, pelo
-    `extrair`, junto da gravação do horário. Nunca deriva do payload da extração — é justamente o
-    canal contaminado pelo eco do belief (o extrator relê o horário colado na cauda e o devolve
-    como observação nova).
-    """
-    i = _burst_do_cliente(mensagens)
-    burst = mensagens[i:]
-    if not burst:  # último turno não é do cliente -> não há fala nova a sustentar o horário
-        return False
-    if any(contem_hora_explicita(_texto_msg(m)) for m in burst):
-        return True
-    if not any(_e_afirmacao_curta(_texto_msg(m)) for m in burst):
-        return False
-    return any(
-        contem_hora_explicita(_texto_msg(m)) or contem_sondagem_imediatismo(_texto_msg(m))
-        for m in _bolhas_ia_antes_do_burst(mensagens, i)
-    )
-
-
-def _recuo_no_turno(mensagens: list[BaseMessage]) -> bool:
-    """True se o burst ATUAL do cliente carrega um recuo (`classificar_recuo`, agente/_disciplina).
-
-    Mesma mecânica de janela do horário evidenciado: o burst dele + as bolhas contíguas da IA
-    imediatamente antes (o antecedente da negativa). EVENTO do turno, não estado — restrito ao
-    burst atual porque um "hoje não consigo" de dez turnos atrás não rebaixa o aceite que veio
-    DEPOIS dele.
-
-    Por que NÃO é write-time como as flags A2 (agente/CLAUDE.md), pelo mesmo motivo do horário
-    evidenciado: aquelas rastreiam o que a IA já fez (carimbáveis quando ela fala); esta lê a fala
-    do CLIENTE e é consumida no MESMO turno, pelo `extrair`.
-
-    Computado sobre a janela LIMPA, antes da anexação do contexto dinâmico — depois dela a cauda do
-    último HumanMessage carrega o belief e a negativa curta deixaria de ser curta.
-    """
-    i = _burst_do_cliente(mensagens)
-    burst = mensagens[i:]
-    if not burst:  # último a falar não foi ele -> nada novo a retratar
-        return False
-    return (
-        classificar_recuo(
-            [_texto_msg(m) for m in burst],
-            [_texto_msg(m) for m in _bolhas_ia_antes_do_burst(mensagens, i)],
-        )
-        is not None
-    )
-
-
-def _confirmou_dia_hoje(mensagens: list[BaseMessage]) -> bool:
-    """True se a janela evidencia o abridor 'seria hoje?' (qualquer bolha da IA) respondido por uma
-    afirmação curta do cliente — determinístico, sem LLM. Antes de varrer as bolhas da IA, pula a
-    salva contígua do PRÓPRIO cliente: ele responde a pergunta composta 'tudo bem? seria hoje?' em
-    duas bolhas ('tudobem' + 'sim'), e a afirmação fica precedida pela sua própria bolha anterior,
-    não pela sondagem da IA (trace real 4837d789). Outro dia em qualquer bolha do burst → não assume
-    hoje (deixa a extração capturar o dia explícito)."""
-    for i, msg in enumerate(mensagens):
-        if not (isinstance(msg, HumanMessage) and _e_afirmacao_curta(_texto_msg(msg))):
-            continue
-        j = i - 1
-        # Pula a salva contígua do cliente (burst em bolhas separadas). Se alguma bolha do burst
-        # cita outro dia, aborta este par — não confirma hoje.
-        burst_cita_outro_dia = False
-        while j >= 0 and isinstance(mensagens[j], HumanMessage):
-            if _TOKEN_OUTRO_DIA.search(_texto_msg(mensagens[j]).lower()):
-                burst_cita_outro_dia = True
-            j -= 1
-        if burst_cita_outro_dia:
-            continue
-        # Varre as bolhas contíguas da IA que antecedem o burst, procurando a sondagem do dia.
-        while j >= 0 and isinstance(mensagens[j], AIMessage):
-            if _PROBE_DIA_HOJE.search(_texto_msg(mensagens[j])):
-                return True
-            j -= 1
-    return False
-
-
-def _aplicar_dia_confirmado(variaveis: dict[str, Any], mensagens: list[BaseMessage]) -> None:
+def _aplicar_dia_confirmado(
+    contexto: ContextoDoTurno, mensagens: list[BaseMessage]
+) -> ContextoDoTurno:
     """A2 (display-only): assume hoje no belief quando a janela confirma o dia e `data_desejada` está
-    null num estado pré-confirmação. Muta `variaveis` in-place; NÃO persiste (a agenda já usa hoje)."""
+    null num estado pré-confirmação. NÃO persiste (a agenda já usa hoje)."""
     if (
-        variaveis.get("data_desejada") is None
-        and variaveis.get("data_atual") is not None
-        and variaveis.get("estado") in _ESTADOS_PRE_CONFIRMACAO
+        contexto.data_desejada is None
+        and contexto.data_atual is not None
+        and contexto.estado in _ESTADOS_PRE_CONFIRMACAO
         and _confirmou_dia_hoje(mensagens)
     ):
-        variaveis["data_desejada"] = variaveis["data_atual"]
-
-
-def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
-    """True se a IA já emitiu a sondagem do dia ("seria hoje?") em alguma AIMessage da janela.
-
-    Guard anti-repetição (persona.md:18: a sondagem do "agora" é UMA vez). A re-pergunta vinha do
-    LLM recolando a frase de sondagem mais saliente da persona sempre que o belief sinaliza
-    agendamento em aberto — inclusive com o dia JÁ combinado (o A2 preenche `data_desejada`, mas o
-    <antes_de_perguntar> só cobre itens de <ainda_falta>, e o dia não está lá; trace prod 9db632c7).
-    Detectamos deterministicamente que a sondagem já foi feita (zero LLM, reusa `_PROBE_DIA_HOJE`)
-    para o contexto dinâmico instruir a NÃO recolá-la. No turno de abertura a janela ainda não tem a
-    sondagem (só a msg do cliente) → False, então não suprime o abridor social do primeiro turno."""
-    return any(
-        isinstance(m, AIMessage) and _PROBE_DIA_HOJE.search(_texto_msg(m)) for m in mensagens
-    )
+        return replace(contexto, data_desejada=contexto.data_atual)
+    return contexto
 
 
 async def _anexar_contexto_dinamico(
@@ -596,7 +473,7 @@ async def _anexar_contexto_dinamico(
     tabela_max_horas: float = 0.0,
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
-) -> tuple[list[BaseMessage], str | None, datetime | None, PecasDoTurno]:
+) -> tuple[list[BaseMessage], ContextoDoTurno, PecasDoTurno]:
     """Resolve o contexto dinâmico do turno e concatena no último HumanMessage (02 §5).
 
     O contexto dinâmico (estado do atendimento, cliente, agenda das próximas 48h, data atual)
@@ -609,13 +486,13 @@ async def _anexar_contexto_dinamico(
     testes que chamam direto sem eles, os defaults valem (atendimento vazio, sem local, max 0).
 
     Concatena no ÚLTIMO HumanMessage (a msg atual do cliente). Defesa: se a janela não tiver
-    nenhum HumanMessage, anexa o contexto como novo HumanMessage no fim. Devolve também a `fase`
-    (= `estado` do atendimento) já resolvida, p/ o reminder (03 §10) reusar sem nova query, o
-    `horario_minimo` (mesmo valor renderizado na tag `<horario_minimo>`) p/ o State — a tool
-    `registrar_extracao` o lê p/ desambiguar a conduta de `AntecedenciaInsuficiente` (estado.py) —
-    e as `PecasDoTurno`.
+    nenhum HumanMessage, anexa o contexto como novo HumanMessage no fim. Devolve também o
+    `ContextoDoTurno` FINAL (com as correções pós-query já aplicadas), de onde o chamador tira a
+    `fase` (= `estado`, que o reminder do 03 §10 reusa sem nova query) e o `horario_minimo` (mesmo
+    valor renderizado na tag `<horario_minimo>`) p/ o State — a tool `registrar_extracao` o lê p/
+    desambiguar a conduta de `AntecedenciaInsuficiente` (estado.py) — e as `PecasDoTurno`.
     """
-    variaveis = await _resolver_variaveis(
+    contexto = await _resolver_variaveis(
         conn,
         ctx,
         linhas,
@@ -628,30 +505,30 @@ async def _anexar_contexto_dinamico(
     # <ja_registrado> descreve o que está GRAVADO, e o A2 assume o dia sem persistir — apresentar
     # essa suposição como gravada faria o extrator omitir `data_desejada` ("não mudou") e o dia
     # nunca chegaria ao banco. É a subextração, o erro simétrico do eco.
-    pecas = PecasDoTurno(agora=variaveis["agora"], ja_registrado=render_ja_registrado(**variaveis))
+    pecas = PecasDoTurno(
+        agora=contexto.agora, ja_registrado=render_ja_registrado(**contexto.como_variaveis())
+    )
     # A2: captura determinística do dia (abridor "seria hoje?" + afirmação do cliente) antes do
     # render — sem persistir, só alimenta o belief p/ a IA não repetir a sondagem (ver helper acima).
-    _aplicar_dia_confirmado(variaveis, mensagens)
+    contexto = _aplicar_dia_confirmado(contexto, mensagens)
     # Guard anti-repetição: se a sondagem "seria hoje?" já foi feita, o contexto dinâmico instrui a
     # IA a não recolá-la (o A2 acima só preenche o dia; não impede o LLM de repetir a frase).
     # OR com a memória durável do atendimento (dia_ja_sondado_hist, _resolver_variaveis): a janela
     # cobre a cauda recente (inclusive modelo_manual); o histórico cobre a sondagem que já deslizou
     # pra fora das 20 msgs — sem o OR, conversa longa repetia a sondagem (a promessa do prompt é
     # "UMA vez na conversa inteira", não na janela).
-    variaveis["dia_ja_sondado"] = variaveis.get("dia_ja_sondado_hist", False) or _ja_sondou_o_dia(
-        mensagens
+    contexto = replace(
+        contexto, dia_ja_sondado=contexto.dia_ja_sondado_hist or _ja_sondou_o_dia(mensagens)
     )
-    texto = render_contexto_dinamico(**variaveis)
-    fase = variaveis["estado"]
-    horario_minimo = variaveis["horario_minimo"]
+    texto = render_contexto_dinamico(**contexto.como_variaveis())
 
     for i in range(len(mensagens) - 1, -1, -1):
         msg = mensagens[i]
         if isinstance(msg, HumanMessage):
             anexadas = list(mensagens)
             anexadas[i] = HumanMessage(content=f"{msg.content}\n\n{texto}", id=msg.id)
-            return anexadas, fase, horario_minimo, pecas
-    return [*mensagens, HumanMessage(content=texto)], fase, horario_minimo, pecas
+            return anexadas, contexto, pecas
+    return [*mensagens, HumanMessage(content=texto)], contexto, pecas
 
 
 def _precisa_reminder(historico: list[BaseMessage]) -> bool:
@@ -785,8 +662,10 @@ async def _carregar_atendimento(conn: AsyncConnection[Any], atendimento_id: str)
         SELECT ia_pausada, numero_curto, estado, intencao, tipo_atendimento, urgencia,
                pix_status, data_desejada, horario_desejado, endereco, bairro,
                cotacao_enviada_em, valor_acordado, duracao_horas, sinais_qualificacao,
-               n_contrapropostas, dia_sondado_em, book_enviado_em, endereco_enviado_em,
-               horario_evidenciado
+               n_contrapropostas, n_perguntas_de_horario,
+               dia_sondado_em, book_enviado_em, endereco_enviado_em,
+               amiga_ofertada_em, foto_portaria_pedida_em,
+               motivo_resgate_perguntado_em, horario_evidenciado
           FROM barravips.atendimentos
          WHERE id = %s
         """,
@@ -804,7 +683,7 @@ async def _resolver_variaveis(
     tabela_max_horas: float = 0.0,
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
-) -> dict[str, Any]:
+) -> ContextoDoTurno:
     """Resolve as variáveis do template de contexto dinâmico via queries específicas (02 §5).
 
     `atendimento` (row já lido pelo gate em `_carregar_atendimento`) traz estado/agenda + as 3
@@ -823,18 +702,29 @@ async def _resolver_variaveis(
     # first-write-wins -> presença = flag ligada. `dia_ja_sondado_hist` ainda entra no OR com o
     # window-scan em _anexar_contexto_dinamico (cobre a fala do turno atual não persistida).
     n_contrapropostas = atendimento.get("n_contrapropostas") or 0
+    n_perguntas_de_horario = atendimento.get("n_perguntas_de_horario") or 0
     dia_ja_sondado_hist = atendimento.get("dia_sondado_em") is not None
     book_ja_enviado = atendimento.get("book_enviado_em") is not None
     endereco_ja_enviado = atendimento.get("endereco_enviado_em") is not None
+    amiga_ja_ofertada = atendimento.get("amiga_ofertada_em") is not None
+    foto_portaria_ja_pedida = atendimento.get("foto_portaria_pedida_em") is not None
+    motivo_resgate_ja_perguntado = atendimento.get("motivo_resgate_perguntado_em") is not None
 
     # Gate estrutural do endereço (<local_de_encontro>): o ponto de encontro (lido junto da
     # identidade em _carregar_bp3) só entra no contexto quando o estado/tipo liberam (interno em
     # Qualificado+, ver _libera_local_de_encontro). Fora do gate, fica None — como antes.
     local_endereco: str | None = None
     local_nome: str | None = None
+    numero_liberado = _libera_numero_do_endereco(atendimento.get("estado"))
     if _libera_local_de_encontro(atendimento.get("estado"), atendimento.get("tipo_atendimento")):
-        local_endereco = local_endereco_raw
-        local_nome = local_nome_raw
+        local_endereco = (
+            local_endereco_raw
+            if numero_liberado
+            else _endereco_do_degrau_sem_numero(local_endereco_raw)
+        )
+        # Sem endereço entregável no degrau de baixo (fail-closed) o bloco inteiro não sai: nome do
+        # hotel sem rua não ajuda a IA e o `<local_de_encontro>` promete um endereço que não veio.
+        local_nome = local_nome_raw if local_endereco else None
 
     res = await conn.execute(
         """
@@ -1013,30 +903,30 @@ async def _resolver_variaveis(
         cotacao_enviada=atendimento.get("cotacao_enviada_em") is not None,
     )
 
-    return {
+    return ContextoDoTurno(
         # Âncora CRUA do turno (BRT naive). O contexto dinâmico não a lê — ele usa `data_atual`/
         # `hora_atual`, DERIVADAS dela; viaja aqui porque é a mesma âncora que a janela dedicada
         # da extração precisa (PecasDoTurno), e sair da mesma fonte é o que impede divergência.
-        "agora": agora,
-        "data_atual": data_atual,
-        "hora_atual": hora_atual,
-        "numero_curto": atendimento.get("numero_curto"),
-        "estado": atendimento.get("estado"),
-        "slots_faltantes": belief.slots_faltantes,
-        "proximo_passo": belief.proximo_passo,
+        agora=agora,
+        data_atual=data_atual,
+        hora_atual=hora_atual,
+        numero_curto=atendimento.get("numero_curto"),
+        estado=atendimento.get("estado"),
+        slots_faltantes=belief.slots_faltantes,
+        proximo_passo=belief.proximo_passo,
         # O contexto dinâmico não renderiza a `intencao` crua (ela vira <ainda_falta>/<proximo_passo>
         # via belief); vem no dicionário porque é um dos campos com eco medido em produção (71%) e
         # o <ja_registrado> precisa dela p/ o extrator saber que já está registrada.
-        "intencao": atendimento.get("intencao"),
-        "tipo_atendimento": atendimento.get("tipo_atendimento"),
-        "urgencia": atendimento.get("urgencia"),
-        "pix_status": _pix_status_humano(atendimento.get("pix_status")),
-        "data_desejada": atendimento.get("data_desejada"),
-        "horario_desejado": atendimento.get("horario_desejado"),
+        intencao=atendimento.get("intencao"),
+        tipo_atendimento=atendimento.get("tipo_atendimento"),
+        urgencia=atendimento.get("urgencia"),
+        pix_status=_pix_status_humano(atendimento.get("pix_status")),
+        data_desejada=atendimento.get("data_desejada"),
+        horario_desejado=atendimento.get("horario_desejado"),
         # Mesmo booleano do <relogio_do_encontro>: antes de Aguardando_confirmacao o <dia>/<hora>
         # renderiza com status "ainda não confirmado" — sem isto o bloco <ja_combinado> apresentava
         # horário ainda DESEJADO como combinado (CONTEXT.md: desejado ≠ combinado).
-        "horario_ja_combinado": ja_combinado,
+        horario_ja_combinado=ja_combinado,
         # Proveniência do horário (marca persistida, carimbada no turno anterior pelo detector ou
         # pelo painel): falso => o <hora> renderiza "palpite seu, ele não confirmou" em vez de
         # "pedido dele". Lê SÓ a coluna, sem OR com o detector deste turno: o bloco descreve o
@@ -1045,48 +935,61 @@ async def _resolver_variaveis(
         # Sem backfill (spec), todo atendimento aberto ANTES da migration entra como não-evidenciado
         # até a próxima fala com hora — por isso o status manda CONFIRMAR o horário, não descartá-lo:
         # confirmar um horário de fato combinado é inócuo; tratar um palpite como combinado é o #25.
-        "horario_evidenciado": bool(atendimento.get("horario_evidenciado")),
-        "endereco": atendimento.get("endereco"),
-        "bairro": atendimento.get("bairro"),
+        horario_evidenciado=bool(atendimento.get("horario_evidenciado")),
+        endereco=atendimento.get("endereco"),
+        bairro=atendimento.get("bairro"),
         # Valor/duração no snapshot (a janela de 20 msgs desliza; sem isto a IA perde o acordo que
         # saiu da janela e pode re-cotar/re-negociar). `valor_acordado` é gravado JÁ NA COTAÇÃO
         # (é a base que o guard confere contra o piso de desconto, `_DESC_VALOR`), então sozinho
         # ele NÃO prova acordo: quem separa cotado de aceito é `sinais_qualificacao.aceita_valor`.
         # Sem essa distinção o belief anunciava "valor já combinado" logo depois de a IA cotar, e
         # ela pulava a defesa de preço/escada de desconto pra cravar horário (#38, 24/07).
-        "valor_fechado": _num_humano(atendimento.get("valor_acordado")),
-        "valor_aceito": bool((atendimento.get("sinais_qualificacao") or {}).get("aceita_valor")),
-        "duracao_fechada": _num_humano(atendimento.get("duracao_horas")),
-        "n_contrapropostas": n_contrapropostas,
+        valor_fechado=_num_humano(atendimento.get("valor_acordado")),
+        valor_aceito=bool((atendimento.get("sinais_qualificacao") or {}).get("aceita_valor")),
+        duracao_fechada=_num_humano(atendimento.get("duracao_horas")),
+        n_contrapropostas=n_contrapropostas,
+        # Contador (não timestamp) porque a conduta tem dois degraus: na 1ª repetição ela propõe um
+        # horário concreto em vez de reperguntar; da 2ª em diante não pergunta mais.
+        n_perguntas_de_horario=n_perguntas_de_horario,
         # Memória durável do atendimento p/ as flags A2 (colunas materializadas no write-time):
         # `dia_ja_sondado_hist` entra no OR com a janela em _anexar_contexto_dinamico;
         # `book_ja_enviado` injeta <ja_enviou_book> direto no template.
-        "dia_ja_sondado_hist": dia_ja_sondado_hist,
-        "book_ja_enviado": book_ja_enviado,
+        dia_ja_sondado_hist=dia_ja_sondado_hist,
+        book_ja_enviado=book_ja_enviado,
+        # O convite pra conhecer a amiga (<menage>) é pós-venda: sai no FIM da negociação, quando
+        # já deslizou pra fora da janela — a coluna é a única memória dele.
+        amiga_ja_ofertada=amiga_ja_ofertada,
+        # O pedido do print da chegada sai uma vez e depois é espera: a coluna é o que separa
+        # "ainda não pedi" de "já pedi e ele não chegou" quando o pedido saiu da janela.
+        foto_portaria_ja_pedida=foto_portaria_ja_pedida,
+        # A pergunta do motivo no resgate da despedida também é uma vez — e o turno em que ela seria
+        # repetida é o da volta dele depois do silêncio, com a pergunta já fora da janela.
+        motivo_resgate_ja_perguntado=motivo_resgate_ja_perguntado,
         # Ponto de encontro gated por estado (<local_de_encontro>); None fora do gate. O
         # `endereco_ja_enviado` diz se ele JÁ recebeu — sem isso a IA fala como se ele soubesse
         # onde é ("Já sabe onde é", #41) sobre um endereço que ela ainda não passou.
-        "local_endereco": local_endereco,
-        "local_nome": local_nome,
-        "endereco_ja_enviado": endereco_ja_enviado,
+        local_endereco=local_endereco,
+        local_nome=local_nome,
+        numero_liberado=numero_liberado,
+        endereco_ja_enviado=endereco_ja_enviado,
         # Trilho do período longo: tabela sem pacote de 6h+ -> <sem_periodo_longo> no contexto.
         # max==0 (cadastro vazio, estado anormal) não injeta — não é "sem período longo".
-        "tabela_max_horas": tabela_max_horas,
-        "sem_periodo_longo": 0 < tabela_max_horas < 6,
-        "recorrente": conversa.get("recorrente", False),
-        "observacoes_internas": conversa.get("observacoes_internas"),
-        "ultimo_motivo_perda": conversa.get("ultimo_motivo_perda"),
-        "cliente_nome": cliente.get("nome"),
-        "historico_anteriores": historico,
-        "bloqueios": bloqueios,
-        "disponibilidade": disponibilidade,
-        "horario_minimo": horario_minimo,
-        "proximo_horario": proximo_horario,
-        "janelas_livres": janelas,
-        "min_desde_ultima_msg_cliente": min_desde_ultima_msg_cliente,
-        "combinado_hora": combinado_hora,
-        "min_para_combinado": min_para_combinado,
-    }
+        tabela_max_horas=tabela_max_horas,
+        sem_periodo_longo=0 < tabela_max_horas < 6,
+        recorrente=conversa.get("recorrente", False),
+        observacoes_internas=conversa.get("observacoes_internas"),
+        ultimo_motivo_perda=conversa.get("ultimo_motivo_perda"),
+        cliente_nome=cliente.get("nome"),
+        historico_anteriores=historico,
+        bloqueios=bloqueios,
+        disponibilidade=disponibilidade,
+        horario_minimo=horario_minimo,
+        proximo_horario=proximo_horario,
+        janelas_livres=janelas,
+        min_desde_ultima_msg_cliente=min_desde_ultima_msg_cliente,
+        combinado_hora=combinado_hora,
+        min_para_combinado=min_para_combinado,
+    )
 
 
 # dia_semana segue EXTRACT(DOW): 0=domingo .. 6=sábado (ADR 0005).
