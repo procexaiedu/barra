@@ -49,6 +49,11 @@ DESC_ACEITE_AUTOCONTIDA = (
     "a sua escada de desconto."
 )
 
+# Descricao PRE-PATCH do aceite: a linha unica que rodava ate 24/07 (commit d51454e), sem a regra
+# de cortesia e sem o "gravar `valor_acordado` nao o infere". Endurecer a descricao veio no MESMO
+# commit que tirou a derivacao, entao a variante pre-patch precisa das duas metades.
+DESC_ACEITE_PRE_PATCH = "cliente concordou com o valor cotado (não apenas perguntou o preço)"
+
 
 @dataclass(frozen=True)
 class Variante:
@@ -75,10 +80,17 @@ VARIANTES: dict[str, Variante] = {
     "sem-bloco-estado": Variante("sem-bloco-estado", bloco_estado=False),
     "aceite-autocontido": Variante("aceite-autocontido", descricao_aceite=DESC_ACEITE_AUTOCONTIDA),
     "sem-promocao-intencao": Variante("sem-promocao-intencao", promocao_intencao=False),
-    # O patch de 24/07 que subiu sem evidencia: antes dele, `valor_acordado` gravado DERIVAVA o
-    # aceite — e como o valor e gravado ja na cotacao, o aceite acendia no turno em que a IA cotou.
-    # A variante reintroduz a derivacao na LEITURA, entao a bancada mede quanto o patch valeu.
-    "aceite-derivado-24-07": Variante("aceite-derivado-24-07", aceite_derivado_do_valor=True),
+    # O patch de 24/07 (d51454e) subiu sem evidencia: a ultima extracao de producao aconteceu antes
+    # dele. A variante reconstitui o comportamento ANTERIOR nas duas metades que o nivel campo
+    # alcanca — (a) `valor_acordado` gravado DERIVAVA o aceite, e como o valor e gravado ja na
+    # cotacao, o aceite acendia no turno em que a IA cotou; (b) a descricao do campo era a linha
+    # unica, sem a regra de cortesia. A terceira metade (o `limpar` que passou a REBAIXAR em vez de
+    # omitir) mora no dominio e so aparece no nivel trajetoria.
+    "pre-patch-24-07": Variante(
+        "pre-patch-24-07",
+        descricao_aceite=DESC_ACEITE_PRE_PATCH,
+        aceite_derivado_do_valor=True,
+    ),
 }
 
 

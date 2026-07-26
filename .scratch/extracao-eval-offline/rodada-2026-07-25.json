@@ -1,0 +1,346 @@
+{
+  "meta": {
+    "extrator": "deepseek",
+    "repeticoes": 5,
+    "itens": 18,
+    "trajetorias": 0,
+    "limites": [
+      "dez dias de tráfego (21-24/07 no recorte rotulado)",
+      "uma modelo",
+      "piloto com cancelamento automático ligado"
+    ],
+    "origem_golden": ".scratch/extracao-eval-offline/golden-set-inicial.md"
+  },
+  "variantes": {
+    "base": {
+      "campos": {
+        "aceita_valor": {
+          "manda": "precisao",
+          "precisao": null,
+          "recall": {
+            "media": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 9,
+          "contagem": "0/0/1/8"
+        },
+        "intencao": {
+          "manda": "recall",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 5,
+          "contagem": "3/0/0/2"
+        },
+        "horario_desejado": {
+          "manda": "ambos",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 2,
+          "contagem": "2/0/0/0"
+        },
+        "horario_evidenciado": {
+          "manda": "ambos",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 4,
+          "contagem": "3/0/0/1"
+        },
+        "tipo_atendimento": {
+          "manda": "precisao",
+          "precisao": {
+            "media": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "desvio": 0.0,
+            "repeticoes": 1
+          },
+          "recall": null,
+          "n": 2,
+          "contagem": "0/0/0/2"
+        },
+        "recuo": {
+          "manda": "ambos",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 5,
+          "contagem": "3/0/0/2"
+        }
+      },
+      "eco": {
+        "itens": 4,
+        "reenvios": 0,
+        "pct": 5.0
+      },
+      "trajetorias": []
+    },
+    "temp-zero": {
+      "campos": {
+        "aceita_valor": {
+          "manda": "precisao",
+          "precisao": null,
+          "recall": {
+            "media": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 9,
+          "contagem": "0/0/1/8"
+        },
+        "intencao": {
+          "manda": "recall",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 5,
+          "contagem": "3/0/0/2"
+        },
+        "horario_desejado": {
+          "manda": "ambos",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 2,
+          "contagem": "2/0/0/0"
+        },
+        "horario_evidenciado": {
+          "manda": "ambos",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 4,
+          "contagem": "3/0/0/1"
+        },
+        "tipo_atendimento": {
+          "manda": "precisao",
+          "precisao": null,
+          "recall": null,
+          "n": 2,
+          "contagem": "0/0/0/2"
+        },
+        "recuo": {
+          "manda": "ambos",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 5,
+          "contagem": "3/0/0/2"
+        }
+      },
+      "eco": {
+        "itens": 4,
+        "reenvios": 0,
+        "pct": 0.0
+      },
+      "trajetorias": []
+    },
+    "pre-patch-24-07": {
+      "campos": {
+        "aceita_valor": {
+          "manda": "precisao",
+          "precisao": null,
+          "recall": {
+            "media": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 9,
+          "contagem": "0/0/1/8"
+        },
+        "intencao": {
+          "manda": "recall",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 5,
+          "contagem": "3/0/0/2"
+        },
+        "horario_desejado": {
+          "manda": "ambos",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 2,
+          "contagem": "2/0/0/0"
+        },
+        "horario_evidenciado": {
+          "manda": "ambos",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 4,
+          "contagem": "3/0/0/1"
+        },
+        "tipo_atendimento": {
+          "manda": "precisao",
+          "precisao": {
+            "media": 0.0,
+            "min": 0.0,
+            "max": 0.0,
+            "desvio": 0.0,
+            "repeticoes": 1
+          },
+          "recall": null,
+          "n": 2,
+          "contagem": "0/0/0/2"
+        },
+        "recuo": {
+          "manda": "ambos",
+          "precisao": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "recall": {
+            "media": 1.0,
+            "min": 1.0,
+            "max": 1.0,
+            "desvio": 0.0,
+            "repeticoes": 5
+          },
+          "n": 5,
+          "contagem": "3/0/0/2"
+        }
+      },
+      "eco": {
+        "itens": 4,
+        "reenvios": 0,
+        "pct": 10.0
+      },
+      "trajetorias": []
+    }
+  }
+}

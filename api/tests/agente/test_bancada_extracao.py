@@ -14,7 +14,7 @@ from typing import Any
 
 import pytest
 from evals.extracao.bancada import rodar_bancada
-from evals.extracao.extrator import VARIANTES, ExtratorRoteirizado
+from evals.extracao.extrator import VARIANTES, ExtratorRoteirizado, esquema_extracao
 from evals.extracao.golden import ItemGolden, carregar_golden
 from evals.extracao.relatorio import formatar
 from langchain_core.messages import BaseMessage
@@ -171,6 +171,38 @@ async def test_variante_sem_bloco_de_estado_muda_a_entrada_do_extrator(golden: A
     assert "<ja_registrado>" in cauda_com and "interno" in cauda_com
     assert "<ja_registrado>" not in cauda_sem
     assert '<agenda hoje="2026-07-24" agora="10:00"/>' in cauda_sem  # âncora do turno preservada
+
+
+async def test_variante_pre_patch_24_07_reconstitui_o_aceite_derivado_do_valor(golden: Any) -> None:
+    """O patch de 24/07 tirou a derivação do aceite a partir do `valor_acordado` — que é gravado já
+    na cotação. A variante reconstitui o comportamento anterior: o mesmo payload, que só cotou,
+    acende o aceite nos dois itens e o falso positivo da cortesia volta."""
+    so_cotou = {"a-cortesia": {"valor_acordado": "400"}, "b-aceite": {"valor_acordado": "400"}}
+    rel = await rodar_bancada(
+        golden,
+        lambda _v: ExtratorRoteirizado(so_cotou),
+        variantes=[VARIANTES["base"], VARIANTES["pre-patch-24-07"]],
+        repeticoes=1,
+    )
+
+    # pós-patch: cotar não marca aceite — nenhum positivo previsto (o de verdade vira falso negativo).
+    assert rel["variantes"]["base"]["campos"]["aceita_valor"]["contagem"] == "0/0/1/1"
+    # pré-patch: o aceite acende no turno em que a IA cotou e a cortesia vira falso positivo.
+    assert rel["variantes"]["pre-patch-24-07"]["campos"]["aceita_valor"]["contagem"] == "1/1/0/0"
+    assert rel["variantes"]["pre-patch-24-07"]["campos"]["aceita_valor"]["precisao"]["media"] == 0.5
+
+
+def test_variante_pre_patch_24_07_usa_a_descricao_antiga_do_aceite() -> None:
+    """A descrição endurecida veio no MESMO commit que tirou a derivação: uma variante que só
+    reintroduz a derivação mediria meio patch."""
+    antes = json.dumps(
+        esquema_extracao(VARIANTES["pre-patch-24-07"].descricao_aceite), ensure_ascii=False
+    )
+    depois = json.dumps(esquema_extracao(), ensure_ascii=False)
+
+    assert "agradecer não é aceitar" in depois
+    assert "agradecer não é aceitar" not in antes
+    assert "não apenas perguntou o preço" in antes
 
 
 async def test_variante_sem_promocao_de_intencao_derruba_o_recall(golden: Any) -> None:
