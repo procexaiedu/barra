@@ -44,14 +44,17 @@ SELECT id, nome, evolution_instance_id, coordenacao_chat_id
  ORDER BY nome
 """
 
-# Dedupe: já mandamos o digest desta modelo neste ciclo? (20h cobre reexecução no mesmo dia
-# sem engolir o envio legítimo do dia seguinte.)
+# Dedupe: já mandamos o digest desta modelo hoje? A janela tem de ser MAIOR que o espalhamento
+# dos disparos do dia (12h/15h/18h = 6h, para retentar quando a instância Evolution está fora) e
+# MENOR que a distância até o primeiro disparo do dia seguinte, mesmo se o card de hoje só saiu na
+# última retentativa (18h → 12h = 18h). 11h fica no meio: engole a retentativa redundante e nunca
+# engole o card do dia seguinte.
 _SQL_JA_ENVIADO = """
 SELECT 1
   FROM barravips.envios_evolution
  WHERE payload->>'card_kind' = %s
    AND payload->>'modelo_id' = %s
-   AND created_at >= now() - interval '20 hours'
+   AND created_at >= now() - interval '11 hours'
  LIMIT 1
 """
 

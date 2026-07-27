@@ -7,10 +7,11 @@ Cron:
   - confirmar_em_execucao (bloqueio.inicio <= now): a cada minuto
   - cobrar_valor_final (Lembrete de fechamento, ADR-0009; fim do atendimento): a cada minuto
   - reengajar_silenciosos (toque proativo apos cotacao; default off): a cada 5 min
+  - reconciliar_conexao (evolution_status x estado real na Evolution): a cada 2 min
   - limpar_midias_vencidas (90d em estados terminais): diário 03:00
   - fluxo_drift (sensor de deriva de fluxo; observacional, default off): segunda 04:00
   - rollback_watch (gatilhos objetivos de rollback do piloto; alerta dev): diário 05:00
-  - digest_semanal (resumo diário pro Fernando no grupo de Coordenação): diário 12:00
+  - digest_semanal (resumo diário pro Fernando no grupo de Coordenação): diário 12:00, retenta 15:00/18:00
 
 Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes do envio.
 """
@@ -34,6 +35,7 @@ from barra.core.storage import criar_minio
 from barra.core.tracing import init_sentry, registrar_modelos_langfuse, setup_langfuse
 from barra.settings import Settings, get_settings
 from barra.workers.comprovante_fechamento import fechar_via_comprovante
+from barra.workers.conexao_evolution import reconciliar_conexao_evolution
 from barra.workers.coordenador import processar_turno
 from barra.workers.digest_semanal import enviar_digest_semanal
 from barra.workers.envio import MAX_TRIES_ENVIO, enviar_card, enviar_turno
@@ -130,6 +132,15 @@ async def cron_reconciliar_cards(ctx: dict[str, Any]) -> int:
     # Rede de segurança contra handoff silencioso: entrega cards de escalada órfãos chamando
     # enviar_card inline (ctx tem db_pool + evolution). Ver workers/reconciliacao.py.
     return await reconciliar_cards_escalada(ctx)
+
+
+async def cron_reconciliar_conexao(ctx: dict[str, Any]) -> int:
+    pool = ctx.get("db_pool")
+    evolution = ctx.get("evolution")
+    if pool is None or evolution is None:
+        return 0
+    async with pool.connection() as conn:
+        return await reconciliar_conexao_evolution(conn, evolution)
 
 
 async def cron_fluxo_drift(ctx: dict[str, Any]) -> int:
@@ -308,14 +319,24 @@ class WorkerSettings:
         ),
         cron(cron_limpar_midias, name="limpar_midias", hour={3}, minute={0}),
         cron(cron_reconciliar_cards, name="reconciliar_cards"),
+        # Status de WhatsApp x Evolution (o painel lê um cache escrito só por webhook): a cada
+        # 2 min, 1 GET /instance/status por modelo com instância vinculada.
+        cron(
+            cron_reconciliar_conexao,
+            name="reconciliar_conexao",
+            minute=set(range(0, 60, 2)),
+        ),
         # Sensor de deriva de fluxo (observacional, flag default OFF): segunda 04:00 UTC, fora de pico.
         cron(cron_fluxo_drift, name="fluxo_drift", weekday="mon", hour={4}, minute={0}),
         # Coletor de turnos reprovados → dataset de regressão (observacional, flag OFF): diário 04:30.
         cron(cron_baixo_score, name="baixo_score", hour={4}, minute={30}),
         # Vigia dos gatilhos de rollback do piloto (janela 7d, alerta dev): diário 05:00 UTC.
         cron(cron_rollback_watch, name="rollback_watch", hour={5}, minute={0}),
-        # Digest diário pro Fernando no grupo de Coordenação: diário 12:00 UTC (09:00 BRT).
-        cron(cron_digest_semanal, name="digest_semanal", hour={12}, minute={0}),
+        # Digest diário pro Fernando no grupo de Coordenação: 12:00 UTC (09:00 BRT), com duas
+        # retentativas (15:00/18:00) porque o envio morre quando a instância Evolution da modelo
+        # está fora do ar — e um disparo único perdia o card do dia inteiro. Quem garante 1 card
+        # por dia é o dedupe de `enviar_digest_semanal` (11h), não a agenda.
+        cron(cron_digest_semanal, name="digest_semanal", hour={12, 15, 18}, minute={0}),
     ]
     keep_result = 3600  # global; processar_turno sobrescreve p/ 0 via func(...) acima
     max_jobs = 10

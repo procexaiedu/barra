@@ -132,6 +132,24 @@ def test_filtro_de_contidos_deriva_do_bucket_defesa_canonico() -> None:
     assert conn.params_handoffs["defesa"] == prefixos
 
 
+def test_retenta_no_mesmo_dia_e_dedupe_cobre_o_espalhamento() -> None:
+    """O card do dia não pode morrer com a instância Evolution fora do ar no primeiro disparo.
+
+    A agenda dispara 3x (12h/15h/18h) e quem garante 1 card por dia é a janela de dedupe: ela
+    tem de ser MAIOR que o espalhamento dos disparos (6h) e MENOR que a distância do último
+    disparo até o primeiro do dia seguinte (18h), senão come o card do dia seguinte.
+    """
+    from barra.workers.digest_semanal import _SQL_JA_ENVIADO
+    from barra.workers.settings import WorkerSettings
+
+    job = next(j for j in WorkerSettings.cron_jobs if j.name == "digest_semanal")
+    horas = sorted(job.hour or [])
+    assert horas == [12, 15, 18]
+
+    janela_h = int(_SQL_JA_ENVIADO.split("interval '")[1].split(" hours")[0])
+    assert horas[-1] - horas[0] < janela_h < 24 - (horas[-1] - horas[0])
+
+
 def test_falha_de_um_envio_nao_aborta_o_lote() -> None:
     outro = {**MODELO, "id": "44444444-4444-4444-8444-444444444444", "nome": "Bia"}
 
