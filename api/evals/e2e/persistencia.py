@@ -114,6 +114,12 @@ async def gravar_resposta_ia(
     o caller (sessao) commita o turno inteiro (UPDATEs do grafo + msg cliente + esta bolha).
 
     No harness o worker de envio nao roda, entao a resposta da IA nao chega a `mensagens` sozinha.
+
+    `id` vem do default `barravips.uuidv7()` (nunca `uuid4()`): `created_at` e `now()`, constante
+    dentro da transacao, e a corrida do gate nao commita por turno -> TODAS as mensagens empatam e
+    `carregar_mensagens` (ORDER BY created_at DESC, id DESC) desempata so por `id`. Com `uuid4()` a
+    conversa chegava EMBARALHADA ao modelo; o uuidv7 usa `clock_timestamp()` e volta a ser
+    cronologico. Mesma razao pela qual `evals/shadow/massa.py` ja usa a funcao.
     """
     if not texto.strip():
         return
@@ -121,9 +127,9 @@ async def gravar_resposta_ia(
         """
         INSERT INTO barravips.mensagens
             (id, conversa_id, atendimento_id, direcao, tipo, conteudo, evolution_message_id)
-        VALUES (%s, %s, %s, 'ia', 'texto', %s, %s)
+        VALUES (barravips.uuidv7(), %s, %s, 'ia', 'texto', %s, %s)
         """,
-        (uuid4(), cen.conversa_id, cen.atendimento_id, texto, f"e2e-ia-{uuid4().hex}"),
+        (cen.conversa_id, cen.atendimento_id, texto, f"e2e-ia-{uuid4().hex}"),
     )
 
 

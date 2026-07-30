@@ -46,18 +46,25 @@ async def _disparar_foto_portaria(conn: AsyncConnection[dict[str, Any]], cen: Ce
 
     No P0 qualquer imagem em Aguardando_confirmacao interno e foto de portaria (CONTEXT.md). Reusa
     `handoff_foto_portaria_ia` (mesmo caminho de workers/media.py). `media_object_key=None`.
+
+    `id` pelo default `barravips.uuidv7()` + `RETURNING` (nunca `uuid4()`), mesma razao de
+    `persistencia.gravar_resposta_ia`: sem commit por turno as mensagens empatam em `created_at` e
+    a janela desempata so por `id` — um id aleatorio joga esta linha p/ o meio da conversa.
     """
     from barra.dominio.atendimentos.service import handoff_foto_portaria_ia
 
-    msg_id = uuid4()
-    await conn.execute(
+    res = await conn.execute(
         """
         INSERT INTO barravips.mensagens
-            (id, conversa_id, direcao, tipo, conteudo, evolution_message_id)
-        VALUES (%s, %s, 'cliente', 'texto', %s, %s)
+            (conversa_id, direcao, tipo, conteudo, evolution_message_id)
+        VALUES (%s, 'cliente', 'texto', %s, %s)
+        RETURNING id
         """,
-        (msg_id, cen.conversa_id, "[foto portaria]", f"e2e-foto-{uuid4().hex}"),
+        (cen.conversa_id, "[foto portaria]", f"e2e-foto-{uuid4().hex}"),
     )
+    linha = await res.fetchone()
+    assert linha is not None  # RETURNING de um INSERT sempre devolve a linha
+    msg_id = linha["id"]
     await handoff_foto_portaria_ia(
         conn, atendimento_id=cen.atendimento_id, mensagem_id=msg_id, media_object_key=None
     )
