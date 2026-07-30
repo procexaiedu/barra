@@ -6,12 +6,12 @@ A causa é o desempate da consulta da janela: ela assume id time-ordered (uuidv7
 
 **Blocked by:** None — can start immediately.
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] a bolha da IA persistida pelo caminho do e2e recebe id time-ordered, como o caminho de massa do shadow já faz
 - [x] um teste amarra a ordem: dado um turno com 3 bolhas da IA, a janela renderizada devolve as 3 na ordem em que foram ditas
-- [ ] uma conversa de 8+ turnos no gate mostra a saudação em primeiro lugar na janela, não no meio — **depende da corrida paga do gate**
-- [ ] o resultado do `conduta_gate` pós-correção fica registrado num arquivo de baseline sob `.scratch/prompt-refactor/`, com data e commit — é o número contra o qual os tickets 03+ comparam — **arquivo criado, números pendentes da corrida paga**
+- [x] uma conversa de 8+ turnos no gate mostra a saudação em primeiro lugar na janela, não no meio
+- [x] o resultado do `conduta_gate` pós-correção fica registrado num arquivo de baseline sob `.scratch/prompt-refactor/`, com data e commit — é o número contra o qual os tickets 03+ comparam
 - [x] `make test` verde
 
 ---
@@ -47,3 +47,20 @@ não toca prompt, e por isso não há bloco/tag afetado nem eco multi-site envol
 `.scratch/prompt-refactor/baseline-conduta-gate.md` já existe com a estrutura pronta e os campos
 marcados `_(pendente)_`; o comando exato está lá. Enquanto não houver autorização frase a frase,
 o ticket fica `claimed`.
+
+**Fechamento (driver, 2026-07-30).** A corrida do gate foi autorizada pelo humano frase a frase e
+rodou: `E2E_AUTORIZADO=1 make gate-conduta ARGS="--por-eixo 2 --max-turnos 12"`, 12 corridas,
+R$ 0,0634, **VEREDITO APROVADO** (`empurrao 0,0%`, `violacoes_duras 0`). Números completos em
+`.scratch/prompt-refactor/baseline-conduta-gate.md`.
+
+Critério 3 provado no trace do 8º turno da conversa `externo:eb02:…` (Langfuse
+`f6d48c6f66a8a1645b9280820c90b3d9`): a janela chega com a saudação de abertura em PRIMEIRO lugar e
+a cotação depois — o sintoma exato que este ticket existia para matar. O mesmo trace mostra 97% de
+cache hit no prefixo.
+
+**Achado que o ticket 07 herda:** a corrida reproduziu a falha do 07 (modelo com `<fetiches>` vazio
+dizendo "Beijo na boca e oral sem camisinha já vem junto") e o gate marcou `violacoes_duras: 0` —
+o HARD não pega esse eixo. Registrado no baseline com o caminho do transcrito, para o 07 usar como
+cenário de regressão sem corrida paga nova.
+
+`Status: resolved` — os 4 critérios cumpridos.
