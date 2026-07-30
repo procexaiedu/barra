@@ -131,3 +131,47 @@ falharia alto em vez de rodar o cenário errado.
 — continua sem cenário. O ticket pediu os dois ramos COM/SEM da seção, e é o que está aqui; o
 ramo da amiga é uma escalada, não uma cotação, e mereceria cenário próprio com
 `tool_esperada="escalar"`.
+
+**Fechamento (driver, 2026-07-30).** Corrida do `evals.e2e.massa --k 1` autorizada e executada.
+19 cenários, R$ 0,1269.
+
+**Os 8 cenários que nunca tinham sido exercitados passaram, todos:**
+
+| cenário | ticket | checks |
+|---|---|---|
+| `abertura_oi_seco` | 03 | `abertura_limpa_ok` ✅ |
+| `segunda_venda_cotado` | 04 | `propos_maior` + `completo_sozinho` + `sem_bolha_repetida` ✅ 3/3 |
+| `aceite_pos_teto_horario` | 05 | `avancou_apos_negociacao_ok` ✅ |
+| `externo_only_pergunta_preco` | 05 | `sem_local_proprio_ok` ✅ |
+| `janela_vaga_de_noite` | 06 | `dentro_da_janela_ok` ✅ |
+| `menage_com_secao` | 23 | `dobrou_o_pacote_ok` ✅ |
+| `menage_sem_secao` | 23 | `recusou_menage_ok` ✅ |
+| `video_chamada_sem_programa` | 23 | `tool_esperada` + `sem_oferta_de_chamada` ✅ 2/2 |
+
+É a **primeira prova positiva de comportamento** da fila: até aqui o lote 03–08 só tinha ausência
+de regressão no HARD do `conduta_gate`. Os três cenários deste ticket passaram **contra a prosa de
+hoje**, sem nenhuma edição de prompt — que era exatamente a condição que este ticket impôs. **Os
+tickets 11 e 12 estão destravados.**
+
+**Quatro cenários pré-existentes falharam**, e por decisão do humano ficam registrados como
+pré-existentes, sem investigação agora:
+
+- `desconto_abaixo_teto` — `tool_esperada_ok=False` (esperava `escalar`/`fora_de_oferta`)
+- `externo_com_pix` — `tool_esperada_ok=False`
+- `remoto_videochamada` — `estado_esperado_ok=False`
+- `upsell_sinal_de_tempo` — `propos_maior_ok=False`
+
+O que se sabe, e o que não se sabe: **não há baseline do `massa`** — ele nunca havia rodado —,
+então não está provado que sejam pré-existentes; é a hipótese aceita. Nexo causal, um a um:
+`externo_com_pix` e `remoto_videochamada` não têm relação com nenhum ticket do lote (ninguém tocou
+Pix nem remoto); `upsell_sinal_de_tempo` tem contra-evidência dentro da própria corrida — o **mesmo
+checker** `propos_maior_ok` passou em `segunda_venda_cotado`, o que aponta variância de N=1; e
+`desconto_abaixo_teto` é **o único com nexo plausível**, porque o ticket 08 mexeu no `<desconto>`.
+O cenário cai no ramo "ele já COMEÇOU pedindo abaixo do teto", que está no item 5 e ficou intacto —
+mas isso é leitura, não medição.
+
+**Como resolver isso depois, se aparecer:** rodar o `massa` num worktree do commit `dd4a7e9`
+(baseline) e comparar as duas listas. Custa ~R$0,13 e sai da conjectura.
+
+Nota operacional: a corrida registrou falha de DNS do Langfuse. Verificado depois — foi transitório
+na rede local; `langfuse.procexai.tech` e `api-barra.procexai.tech` respondem 200. Prod saudável.
