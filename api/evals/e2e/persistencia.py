@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 from psycopg import AsyncConnection
 
+from barra.dominio.atendimentos.service import carimbar_cotacao_por_texto_enviado
 from evals.harness import Cenario, _seed_programa
 
 from .perfil import MODELO_SINTETICA, PerfilCaso
@@ -120,6 +121,12 @@ async def gravar_resposta_ia(
     `carregar_mensagens` (ORDER BY created_at DESC, id DESC) desempata so por `id`. Com `uuid4()` a
     conversa chegava EMBARALHADA ao modelo; o uuidv7 usa `clock_timestamp()` e volta a ser
     cronologico. Mesma razao pela qual `evals/shadow/massa.py` ja usa a funcao.
+
+    Aqui tambem roda o backstop de carimbo do ADR 0022 (`carimbar_cotacao_por_texto_enviado`,
+    a MESMA funcao que o worker de envio chama em prod): sem ele o harness gravava a bolha da
+    cotacao sem carimbar `cotacao_enviada_em`, o guard de `CotacaoAusente` barrava a confirmacao
+    que em prod passaria, e o validador de ordem acusava "confirmou sem ter cotado" em toda
+    conversa que a IA conduzia ate `Aguardando_confirmacao`.
     """
     if not texto.strip():
         return
@@ -131,6 +138,7 @@ async def gravar_resposta_ia(
         """,
         (cen.conversa_id, cen.atendimento_id, texto, f"e2e-ia-{uuid4().hex}"),
     )
+    await carimbar_cotacao_por_texto_enviado(conn, cen.atendimento_id, texto)
 
 
 async def limpar_sandbox(conn: AsyncConnection[dict[str, Any]]) -> int:

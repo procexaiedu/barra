@@ -1,6 +1,7 @@
 """Orquestracao do ciclo de vida de um atendimento aberto por par (cliente, modelo)."""
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -1509,6 +1510,47 @@ async def marcar_cotacao_enviada(conn: AsyncConnection[Any], atendimento_id: UUI
         (atendimento_id,),
     )
     return result.rowcount > 0
+
+
+# Backstop deterministico do ADR 0022: carimba `cotacao_enviada_em` quando o texto que a IA enviou
+# tem cara de cotacao, cobrindo o LLM que esquece de marcar `cotacao_apresentada`. Dois caminhos:
+#  - "R$" seguido de digito ("a hora fica R$800 amor") -- inequivoco.
+#  - numero seco (o formato REAL da persona, que fala o valor puro e ate strippa o cifrao do Pix):
+#    "600 1h no meu local", "250 30minutos", "2h 900 + uber". Aqui exige-se um VALOR de 3-4
+#    digitos JUNTO de um marcador de duracao/local -- os DOIS -- pra nao casar numero de endereco
+#    ("rua ... 880", sem duracao/"no meu local"). Carimbar a toa satisfaria o guard de
+#    CotacaoAusente e dispararia reengajamento sem cotacao real. Caminhos canned/reengajamento
+#    passam por aqui sem preco no texto, entao nao disparam falso carimbo.
+_RE_PRECO_RS = re.compile(r"R\$\s?\d")
+_RE_PRECO_VALOR = re.compile(r"\b\d{3,4}\b")
+_RE_PRECO_CONTEXTO = re.compile(
+    r"\b\d{1,2}\s?h\b|\b\d{1,2}\s?min|\bpernoite\b|no\s+(?:meu|seu)\s+local", re.I
+)
+
+
+def texto_tem_cotacao(texto: str) -> bool:
+    """True se o texto enviado tem cara de cotacao (R$+digito, ou valor 3-4 dig. + duracao/local).
+
+    Regra pura do backstop acima. Publica porque o harness e2e (`evals/`) reaplica EXATAMENTE esta
+    regra: o worker de envio nao roda la, e uma segunda copia do regex divergiria com o tempo.
+    """
+    if _RE_PRECO_RS.search(texto):
+        return True
+    return bool(_RE_PRECO_VALOR.search(texto) and _RE_PRECO_CONTEXTO.search(texto))
+
+
+async def carimbar_cotacao_por_texto_enviado(
+    conn: AsyncConnection[Any], atendimento_id: UUID, texto: str
+) -> bool:
+    """Aplica o backstop do ADR 0022 sobre UMA bolha que a IA enviou: decide pelo texto e carimba.
+
+    Ponto unico do par (decidir, carimbar) — chamado pelo worker de envio em prod e pelo caminho de
+    persistencia do harness e2e. Idempotente (o UPDATE tem guard IS NULL + gate de estado), entao
+    repetir entre chunks/retries e no-op. Devolve True so quando ESTE texto criou o carimbo.
+    """
+    if not texto_tem_cotacao(texto):
+        return False
+    return await marcar_cotacao_enviada_por_texto(conn, atendimento_id)
 
 
 async def marcar_cotacao_enviada_por_texto(

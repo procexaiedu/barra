@@ -39,11 +39,11 @@ from barra.core.metrics import (
 )
 from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import (
+    carimbar_cotacao_por_texto_enviado,
     incrementar_contrapropostas,
     incrementar_perguntas_de_horario,
     marcar_amiga_ofertada,
     marcar_book_enviado,
-    marcar_cotacao_enviada_por_texto,
     marcar_dia_sondado,
     marcar_endereco_enviado,
     marcar_foto_portaria_pedida,
@@ -77,30 +77,9 @@ logger = logging.getLogger(__name__)
 # nunca dispara e a escalada de envio crítico exaurido some em silêncio. Mude aqui, muda nos dois.
 MAX_TRIES_ENVIO = 3
 
-# Rede determinística do carimbo de cotação (ADR 0022): um chunk de saída com preço (R$ seguido
-# de dígito) ancora o reengajamento mesmo quando o LLM não marca `cotacao_apresentada`. Caminhos
-# canned/reengajamento passam por aqui sem preço no texto, então não disparam falso carimbo.
-# Backstop determinístico do ADR 0022: carimba `cotacao_enviada_em` quando o texto enviado tem
-# cara de cotação, cobrindo o LLM que esquece de marcar `cotacao_apresentada`. Dois caminhos:
-#  - "R$" seguido de dígito ("a hora fica R$800 amor") — inequívoco.
-#  - número seco (o formato REAL da persona, que fala o valor puro e até strippa o cifrão do Pix):
-#    "600 1h no meu local", "250 30minutos", "2h 900 + uber". Aqui exige-se um VALOR de 3-4
-#    dígitos JUNTO de um marcador de duração/local — os DOIS — pra não casar número de endereço
-#    ("rua ... 880", sem duração/"no meu local"). Carimbar à toa satisfaria o guard de
-#    CotacaoAusente e dispararia reengajamento sem cotação real.
-_RE_PRECO_RS = re.compile(r"R\$\s?\d")
-_RE_PRECO_VALOR = re.compile(r"\b\d{3,4}\b")
-_RE_PRECO_CONTEXTO = re.compile(
-    r"\b\d{1,2}\s?h\b|\b\d{1,2}\s?min|\bpernoite\b|no\s+(?:meu|seu)\s+local", re.I
-)
-
-
-def _texto_tem_cotacao(texto: str) -> bool:
-    """True se o texto enviado tem cara de cotação (R$+dígito, ou valor 3-4 díg. + duração/local)."""
-    if _RE_PRECO_RS.search(texto):
-        return True
-    return bool(_RE_PRECO_VALOR.search(texto) and _RE_PRECO_CONTEXTO.search(texto))
-
+# A rede determinística do carimbo de cotação (ADR 0022) vive em `dominio/atendimentos/service.py`
+# (`carimbar_cotacao_por_texto_enviado`), junto do UPDATE que ela dispara: o harness e2e reaplica a
+# MESMA regra ao gravar a bolha da IA, e uma segunda cópia do regex divergiria com o tempo.
 
 # Dedupe legenda↔bolha (05 §5): o LLM às vezes emite a MESMA linha de acompanhamento da mídia
 # duas vezes — como bolha de texto do turno E como `legenda` da enviar_midia — e o cliente vê a
@@ -993,8 +972,8 @@ async def enviar_turno(
                 # Carimbo determinístico da cotação (ADR 0022): na MESMA transação do envio,
                 # ancora o reengajamento só pelo que de fato saiu. Idempotente (guard IS NULL +
                 # estado) — repetir entre chunks/retries é no-op.
-                if conv["atendimento_id"] is not None and _texto_tem_cotacao(conteudo):
-                    await marcar_cotacao_enviada_por_texto(conn, conv["atendimento_id"])
+                if conv["atendimento_id"] is not None:
+                    await carimbar_cotacao_por_texto_enviado(conn, conv["atendimento_id"], conteudo)
                 # Flags de disciplina (padrão A2) carimbadas no write-time, na MESMA transação —
                 # prepare_context lê a coluna em vez de reescanear as falas da IA por turno. Só na
                 # 1ª inserção da bolha (`inseriu`): o contador não pode dobrar no retry. Detectores
