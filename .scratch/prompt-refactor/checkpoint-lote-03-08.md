@@ -71,3 +71,37 @@ Ou seja: o lote **melhorou a condução** e, ao melhorar, expôs um buraco que j
 O harness e2e precisa aplicar o backstop do ADR 0022 ao gravar a bolha da IA, como o ticket 01 fez
 com o `uuidv7()`. Sem isso, todo gate futuro que conduzir bem vai reprovar por esta violação —
 e o sinal HARD fica inutilizável justamente quando a conduta melhora.
+
+---
+
+## Segunda corrida — depois do ticket 22 (conserto do harness)
+
+Autorizada frase a frase, mesmos parâmetros. Commit `5ba74ac`. Transcritos:
+`evals/saidas/conduta-20260730-185347`. Custo R$ 0,0606.
+
+| métrica | classe | baseline `dd4a7e9` | checkpoint 1 `91b6413` | **checkpoint 2 `5ba74ac`** |
+|---|---|---|---|---|
+| `empurrao_pct` (≤5,0%) | **HARD** | 0,0% | 0,0% | **0,0%** |
+| `violacoes_duras` (0) | **HARD** | 0 | 1 ❌ | **0** ✅ |
+| `conduziu` `decidido_rapido` | advisory | 0% | 50% | **50%** |
+| `bate_desfecho_real_pct` | advisory | 83,3% | 91,7% | **91,7%** |
+| `estilo_dist_medio` (voz) | advisory | 0,2014 | 0,2118 | **0,2101** |
+| `fluxo_jsd` (forma) | advisory | 0,1985 | 0,2341 | **0,1896** |
+| veredito | — | APROVADO ✅ | REPROVADO ❌ | **APROVADO ✅** |
+
+**O diagnóstico se confirmou.** A única mudança entre as duas corridas do lote foi o ticket 22, que
+não toca conduta nenhuma — só faz o harness carimbar a cotação pelas mesmas regras de prod. A
+violação dura desapareceu e **todas as melhorias do lote permaneceram**, o que descarta a hipótese
+de que o checkpoint 1 tivesse mascarado uma regressão real.
+
+Leitura final do lote 03–08, contra o baseline:
+
+- **HARD**: mantido (`empurrao` 0,0%, `violacoes_duras` 0).
+- **Condução**: `decidido_rapido` de 0% para 50% — a IA passou a conduzir até
+  `Aguardando_confirmacao` num eixo em que antes não chegava.
+- **Desfecho**: `bate_desfecho_real` de 83,3% para 91,7% (+8,4 pp).
+- **Forma**: `fluxo_jsd` de 0,1985 para 0,1896 — abaixo do baseline, ou seja, mais perto da
+  distribuição humana de referência.
+- **Voz**: estável (0,2014 → 0,2101).
+
+Este checkpoint 2 passa a ser a **referência dos tickets 09+**.

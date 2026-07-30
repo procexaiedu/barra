@@ -8,7 +8,7 @@ Duas metades, e as duas neste ticket porque juntas é que entregam o comportamen
 
 **Blocked by:** 01
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] modelo sem linha "Inclusos" recebe apresentação só com estilo, sem lista de incluso
 - [x] modelo com linha "Inclusos" continua apresentando os itens dela, nominalmente
@@ -115,3 +115,9 @@ Duas observações que ficam registradas:
 2. `_inclusos_da_modelo` roda **uma query por turno**, incondicionalmente, dentro da conexão que o
    guard já abre — mesmo padrão do `_lugares_permitidos`, que já existia. Consistente com o repo,
    não é regressão, mas fica anotado.
+
+**Fechado no checkpoint (driver, 2026-07-30).** O `conduta_gate` rodou contra o baseline `dd4a7e9`
+e voltou **APROVADO** (`empurrao_pct 0,0%`, `violacoes_duras 0`), com o lote melhorando condução
+(`conduziu decidido_rapido` 0% → 50%), desfecho (`bate_desfecho_real` 83,3% → 91,7%) e forma
+(`fluxo_jsd` 0,1985 → 0,1896). Números e a comparação das duas corridas em
+`.scratch/prompt-refactor/checkpoint-lote-03-08.md`. `Status: resolved`.

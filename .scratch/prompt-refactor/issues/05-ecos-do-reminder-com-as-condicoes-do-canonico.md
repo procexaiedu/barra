@@ -8,7 +8,7 @@ Segundo: "o padrão é ele vir até você". Falso para a modelo que não recebe.
 
 **Blocked by:** 01
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] depois de recusa de desconto, "que horas?" avança o fechamento em vez de virar pergunta a responder
 - [x] depois de contraproposta, o mesmo — os dois ramos valem
@@ -128,3 +128,9 @@ Se o gate reprovar por aí, o site a atacar é `contexto_dinamico.md.j2`, não o
 
 Nota de commit: o commit carrega junto WIP do usuário em `regras.md.j2` e `reminder.md.j2` — mesma
 decisão registrada no ticket 03.
+
+**Fechado no checkpoint (driver, 2026-07-30).** O `conduta_gate` rodou contra o baseline `dd4a7e9`
+e voltou **APROVADO** (`empurrao_pct 0,0%`, `violacoes_duras 0`), com o lote melhorando condução
+(`conduziu decidido_rapido` 0% → 50%), desfecho (`bate_desfecho_real` 83,3% → 91,7%) e forma
+(`fluxo_jsd` 0,1985 → 0,1896). Números e a comparação das duas corridas em
+`.scratch/prompt-refactor/checkpoint-lote-03-08.md`. `Status: resolved`.

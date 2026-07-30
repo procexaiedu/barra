@@ -6,7 +6,7 @@ Verificação é o ponto: os dois gates de desconto que já existem precisam fic
 
 **Blocked by:** 01
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] duas rodadas de contraproposta, degrau e depois teto, seguem exatamente como hoje
 - [x] terceira insistência continua recebendo a recusa e escalando na insistência
@@ -96,3 +96,9 @@ da tag, segue verde sem alteração de expectativa).
 Critérios 1–3 cumpridos. **Critério 4 pendente**: os gates de desconto rodam no checkpoint do lote
 03–08. A regra do ticket vale na leitura do resultado — se algum só passar afrouxando asserção, o
 corte está errado e se reverte, não se ajusta o teste.
+
+**Fechado no checkpoint (driver, 2026-07-30).** O `conduta_gate` rodou contra o baseline `dd4a7e9`
+e voltou **APROVADO** (`empurrao_pct 0,0%`, `violacoes_duras 0`), com o lote melhorando condução
+(`conduziu decidido_rapido` 0% → 50%), desfecho (`bate_desfecho_real` 83,3% → 91,7%) e forma
+(`fluxo_jsd` 0,1985 → 0,1896). Números e a comparação das duas corridas em
+`.scratch/prompt-refactor/checkpoint-lote-03-08.md`. `Status: resolved`.

@@ -6,7 +6,7 @@ O desempate correto — o mínimo é piso, não proposta — não está escrito 
 
 **Blocked by:** 01
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] cliente que diz "de noite" com mínimo à tarde recebe proposta à noite
 - [x] cliente que não deu janela nenhuma continua recebendo o piso como primeiro horário
@@ -114,3 +114,9 @@ Critérios 1–3 cumpridos. **Critério 4 pendente**: `conduta_gate` roda uma ve
 Anotação para o ticket 19: a redação nova introduz um `ELE` em caps (ênfase de contraste, não
 proibição) além do `PISO`. Entra na varredura do 19 junto com os outros 151 — não é regressão, mas
 é uma linha a mais para aquele passe.
+
+**Fechado no checkpoint (driver, 2026-07-30).** O `conduta_gate` rodou contra o baseline `dd4a7e9`
+e voltou **APROVADO** (`empurrao_pct 0,0%`, `violacoes_duras 0`), com o lote melhorando condução
+(`conduziu decidido_rapido` 0% → 50%), desfecho (`bate_desfecho_real` 83,3% → 91,7%) e forma
+(`fluxo_jsd` 0,1985 → 0,1896). Números e a comparação das duas corridas em
+`.scratch/prompt-refactor/checkpoint-lote-03-08.md`. `Status: resolved`.

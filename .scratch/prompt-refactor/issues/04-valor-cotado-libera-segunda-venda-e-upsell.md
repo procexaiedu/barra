@@ -6,7 +6,7 @@ Depois deste ticket, com um valor cotado e não aceito na mesa, ela ainda: cota 
 
 **Blocked by:** 01
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] com valor cotado e não aceito, pergunta por "completo" recebe o valor do Completo sozinho na bolha
 - [x] com valor cotado e não aceito, "e 2h?" recebe o pacote maior da tabela
@@ -95,3 +95,9 @@ Critérios 1–4 cumpridos. **Critério 5 pendente**: o `conduta_gate` roda uma 
 03–08, contra o baseline de `dd4a7e9`. Ticket segue `claimed` até o checkpoint. Pendente também
 `evals.e2e.massa` (pago), que é o que observa os critérios 1–3 no transcrito via o cenário novo
 `segunda_venda_cotado`.
+
+**Fechado no checkpoint (driver, 2026-07-30).** O `conduta_gate` rodou contra o baseline `dd4a7e9`
+e voltou **APROVADO** (`empurrao_pct 0,0%`, `violacoes_duras 0`), com o lote melhorando condução
+(`conduziu decidido_rapido` 0% → 50%), desfecho (`bate_desfecho_real` 83,3% → 91,7%) e forma
+(`fluxo_jsd` 0,1985 → 0,1896). Números e a comparação das duas corridas em
+`.scratch/prompt-refactor/checkpoint-lote-03-08.md`. `Status: resolved`.

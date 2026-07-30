@@ -14,7 +14,7 @@ de marcar `cotacao_apresentada`.
 
 **Blocked by:** None — can start immediately.
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] a bolha da IA persistida pelo caminho do e2e passa pelo mesmo backstop de carimbo que o worker
       de envio aplica em prod — mesma regra, sem uma segunda cópia do regex divergindo com o tempo
@@ -89,3 +89,9 @@ dois sentidos — aceita o turno medido e **continua** acusando quando não houv
 
 Gate: `make lint` ✅, `make typecheck` ✅, `make test` ✅ (1829 passed, 239 skipped). Nenhum
 `needs_db` novo. Critério 4 pendente: é corrida paga do `conduta_gate`, autorização do humano.
+
+**Fechado no checkpoint (driver, 2026-07-30).** O `conduta_gate` rodou contra o baseline `dd4a7e9`
+e voltou **APROVADO** (`empurrao_pct 0,0%`, `violacoes_duras 0`), com o lote melhorando condução
+(`conduziu decidido_rapido` 0% → 50%), desfecho (`bate_desfecho_real` 83,3% → 91,7%) e forma
+(`fluxo_jsd` 0,1985 → 0,1896). Números e a comparação das duas corridas em
+`.scratch/prompt-refactor/checkpoint-lote-03-08.md`. `Status: resolved`.

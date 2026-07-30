@@ -6,7 +6,7 @@ Depois deste ticket: a instrução de não recumprimentar só aparece quando há
 
 **Blocked by:** 01 (sem a janela em ordem, o gate não distingue recumprimento legítimo de artefato de ordem)
 
-**Status:** claimed
+**Status:** resolved
 
 - [x] "oi" seco no primeiro contato recebe cumprimento em 2 bolhas, sem informação e sem cardápio
 - [x] a instrução de não recumprimentar continua aparecendo quando o atendimento já tem histórico
@@ -119,3 +119,9 @@ Nota de commit: o commit deste ticket carrega junto WIP do usuário em `nos/_jan
 `nos/prepare_context.py` (frente da marca de pausa, incidente 29/07) — os arquivos já estavam
 sujos e `git add -p` não roda neste ambiente. Decisão do humano, registrada também no corpo do
 commit.
+
+**Fechado no checkpoint (driver, 2026-07-30).** O `conduta_gate` rodou contra o baseline `dd4a7e9`
+e voltou **APROVADO** (`empurrao_pct 0,0%`, `violacoes_duras 0`), com o lote melhorando condução
+(`conduziu decidido_rapido` 0% → 50%), desfecho (`bate_desfecho_real` 83,3% → 91,7%) e forma
+(`fluxo_jsd` 0,1985 → 0,1896). Números e a comparação das duas corridas em
+`.scratch/prompt-refactor/checkpoint-lote-03-08.md`. `Status: resolved`.
