@@ -76,6 +76,12 @@ class CenarioFunc:
     # cardapio e sem sonda-de-balcao ("o que voce procura ?"), que a <abertura> proibe em caps.
     # Era o unico caso do funil sem cenario: todos os outros entram com pergunta colada ao oi.
     deve_abrir_so_com_cumprimento: bool = False
+    # Issue 04: com um valor JA cotado e nao aceito na mesa (a cauda renderiza <valor_cotado>), a
+    # pergunta pelo Completo ainda recebe o valor DELE, sozinho na bolha (<cotacao>, segunda venda).
+    deve_cotar_completo: bool = False
+    # Issue 04: repergunta de preco recebe o mesmo dado com OUTRAS palavras — bolha identica
+    # reenviada soa a robo travado (<retomada_pos_silencio>).
+    nao_deve_repetir_bolha_identica: bool = False
 
 
 def _perfil(nome: str, modelo: dict[str, Any], abertura: str, roteiro: list[str]) -> PerfilCaso:
@@ -252,6 +258,28 @@ CENARIOS: list[CenarioFunc] = [
             ["quanto é 1 hora?", "fechado então"],
         ),
         deve_abrir_so_com_cumprimento=True,
+    ),
+    CenarioFunc(
+        nome="segunda_venda_cotado",
+        descricao="Cotou a 1h e ele NAO aceitou (a cauda ja renderiza <valor_cotado>) -> a segunda "
+        "venda continua de pe: Completo pelo valor DELE, pacote maior no 'e 2h?' e a repergunta de "
+        "preco respondida com outras palavras.",
+        perfil=_perfil(
+            "segunda_venda_cotado",
+            _modelo(
+                ["interno"],
+                programas=[
+                    {"nome": "Encontro", "duracao_nome": "1 hora", "horas": 1, "preco": 400},
+                    {"nome": "Encontro", "duracao_nome": "2 horas", "horas": 2, "preco": 700},
+                    {"nome": "Completo", "duracao_nome": "1 hora", "horas": 1, "preco": 600},
+                ],
+            ),
+            "oi, quanto é 1 hora?",
+            ["tem completo?", "e 2h quanto fica?", "quanto era mesmo a 1h?", "fechado então"],
+        ),
+        deve_cotar_completo=True,
+        deve_propor_duracao_maior=True,
+        nao_deve_repetir_bolha_identica=True,
     ),
 ]
 

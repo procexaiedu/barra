@@ -137,6 +137,38 @@ def _abriu_so_com_cumprimento(res: ResultadoE2E) -> bool:
     return not (_RE_PRECO.search(primeiro) or _RE_SONDA_ABERTURA.search(primeiro))
 
 
+# Issue 04: com <valor_cotado> na cauda (cotou e ele nao aceitou), a segunda venda do Completo
+# continua de pe — e sai SOZINHA na bolha, um preco por vez (<cotacao>). O check e generico de
+# proposito (nao casa o preco do cenario): "nomeou o completo e deu UM unico numero de preco".
+_RE_COMPLETO = re.compile(r"\bcompleto\b", re.I)
+
+
+def _cotou_completo_sozinho(res: ResultadoE2E) -> bool:
+    """True se algum turno nomeou o Completo trazendo exatamente UM preco (nunca dois lado a lado)."""
+    return any(
+        _RE_COMPLETO.search(t.texto or "") and len(_RE_PRECO.findall(t.texto or "")) == 1
+        for t in res.turnos
+    )
+
+
+def _repetiu_bolha_identica(res: ResultadoE2E) -> bool:
+    """True se a IA reenviou uma bolha literalmente igual a outra ja dita (soa a robo travado).
+
+    Bolha = bloco separado por linha em branco no texto agregado do turno, como o worker de envio
+    fatia. Bolhas curtas de cortesia repetem legitimamente ("Oii", "amor"), entao so contam as com
+    3+ palavras — o alvo e a re-cotacao copiada ("600 1h no meu local" duas vezes)."""
+    vistas: set[str] = set()
+    for turno in res.turnos:
+        for bruta in (turno.texto or "").split("\n\n"):
+            bolha = " ".join(bruta.split()).casefold()
+            if len(bolha.split()) < 3:
+                continue
+            if bolha in vistas:
+                return True
+            vistas.add(bolha)
+    return False
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -160,6 +192,10 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["propos_maior_ok"] = _propos_duracao_maior(res)
     if cf.deve_abrir_so_com_cumprimento:
         aval["abertura_limpa_ok"] = _abriu_so_com_cumprimento(res)
+    if cf.deve_cotar_completo:
+        aval["completo_sozinho_ok"] = _cotou_completo_sozinho(res)
+    if cf.nao_deve_repetir_bolha_identica:
+        aval["sem_bolha_repetida_ok"] = not _repetiu_bolha_identica(res)
     return aval
 
 
