@@ -236,6 +236,15 @@ OUTPUT_ECO_REGIAO_DETECTADO = Counter(
     "Bolhas que situam a modelo fora da regiao cadastrada, barradas pelo output-guard, por acao",
     ["acao"],  # dropada | mudo
 )
+# Incluso fantasma: a IA declarou incluso um item que NAO esta na linha "Inclusos" do <fetiches>
+# da modelo. Mesmo trilho da sonda/regiao -- regenera 1x, dropa a bolha se persistir. Corrida do
+# conduta_gate (30/07): modelo com "(sem fetiches cadastrados)" e a IA copiando o exemplo da
+# conduta -- "Beijo na boca e oral sem camisinha ja vem junto".
+OUTPUT_INCLUSO_FANTASMA = Counter(
+    "agente_output_incluso_fantasma_total",
+    "Bolhas que declaram incluso item fora da linha 'Inclusos' do <fetiches>, por acao",
+    ["acao"],  # dropada | mudo
+)
 # Marcador de reply [quote]/[quote: trecho] residual removido pela rede final antes do envio: o
 # chunking deveria te-lo extraido no inicio da bolha, entao cada scrub aqui e regressao de
 # prompt/chunking (marker malformado ou fora de posicao que denunciaria a IA se saisse ao cliente).

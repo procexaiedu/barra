@@ -44,6 +44,7 @@ from barra.core.db import conexao
 from barra.core.metrics import (
     AUP_SAIDA_BLOQUEADO,
     OUTPUT_ECO_REGIAO_DETECTADO,
+    OUTPUT_INCLUSO_FANTASMA,
     OUTPUT_LEAK_DETECTADO,
     OUTPUT_RACIOCINIO_SANEADO,
     OUTPUT_REGEN,
@@ -150,6 +151,13 @@ _MARCADORES_RACIOCINIO = re.compile(
     # ao valor" saiu como bolha ao cliente. Conservador: exige o combo esperar+reagir ou a forma
     # "agora e (so) esperar"; "vou te esperar"/"te espero" (fala legitima) NAO casam.
     r"|esperar (ele|ela) reagir|agora [ée] (s[óo] )?esperar"
+    # acatamento de ERRO DE TOOL em voz alta (prod 29/07, conversa 019f8d10): a extracao devolveu
+    # "voce nao disse o preco ainda, cote primeiro" e o chat respondeu ao aviso como bolha ao
+    # cliente ("Ainda nao combinei o valor com ele. Vou cotar agora."). Duas marcas estreitas: o
+    # jargao do processo ("cotar", que ela nunca diz ao cliente -- ao cliente e "te passar o
+    # valor") e o ato de venda referido em 3a pessoa. "combinei com ela" da amiga do menage (sem
+    # objeto de venda) e "vou te passar o valor" seguem NAO casando.
+    r"|vou cotar|(combinei|cotei|acertei|fechei) o (valor|pre[çc]o|programa)[^.!?]{0,20} com (ele|ela)"
     r")\b",
     re.IGNORECASE,
 )
@@ -332,6 +340,152 @@ def _cobre_o_cadastro(tokens: set[str], permitidos: set[str]) -> bool:
     return any(t.startswith(p) or p.startswith(t) for t in tokens for p in permitidos)
 
 
+# Incluso FANTASMA: a IA declara incluso um item que NAO esta na linha "Inclusos" do <fetiches> da
+# modelo. `regras.md.j2` proibe em TRES sites (<apresentacao>, <fora_do_cardapio> e o preambulo de
+# <exemplos>) -- "'ta incluso' voce so diz de item que esta NOMINALMENTE na linha 'Inclusos' do seu
+# <fetiches> ... nem quando ele aparece num exemplo desta conduta" -- e as tres perderam para o
+# exemplo concreto: corrida do conduta_gate 30/07, modelo com "(sem fetiches cadastrados)", a IA
+# emitiu "Beijo na boca e oral sem camisinha ja vem junto 🥰", copia do <exemplo> de apresentacao.
+# A proibicao era so prosa; este e o trilho (mesma familia de `sonda`/`regiao`).
+#
+# ESTREITO de proposito, em quatro camadas, porque falso-positivo aqui derruba fala boa:
+#  1. so as formas de DECLARAR incluso ("ta incluso", "ja vem junto"); o verbo "inclui" fica de fora
+#     -- ele e a fala legitima do programa ("o normal ja inclui a penetracao", <girias_do_cliente>);
+#  2. claim NEGADO nao conta ("beijo na boca nao ta incluso" e recusa correta);
+#  3. bolha que fala de PROGRAMA/valor/logistica (`_TERMOS_NAO_FETICHE`) nao e claim de fetiche --
+#     "Tudo isso ta incluso no completo" e "O completo tem anal incluso amor" sao falas reais e
+#     prescritas, e o incluso do programa nao sai do <fetiches>;
+#  4. claim que nao NOMEIA nada (`_SEM_ITEM`: "Ja vem junto sim amor", resposta curta a uma pergunta
+#     do turno anterior) nao da p/ julgar -- sem item nomeado nao ha "fora da linha", e barrar ali
+#     mataria a bolha curta que e a voz dela.
+_RE_DECLARA_INCLUSO = re.compile(r"\b(inclus[oa]s?|incluid[oa]s?|(ja )?(vem|vao) junto)\b")
+_RE_NEGACAO_INCLUSO = re.compile(r"\b(nao|nem)\b")
+_JANELA_NEGACAO = 25  # chars antes do claim onde um "nao" o transforma em recusa (fala legitima)
+_RE_TOKENS_ITEM = re.compile(r"[^\w]+")
+
+# Palavra que faz o "incluso" ser do PROGRAMA (ou da logistica), nao de um item do <fetiches>:
+# o que o pacote de encontro traz -- penetracao no Normal, anal no Completo (<girias_do_cliente>) --
+# nunca dependeu da linha "Inclusos". Comparadas ja normalizadas.
+_TERMOS_NAO_FETICHE = frozenset(
+    {
+        "programa",
+        "programas",
+        "pacote",
+        "completo",
+        "normal",
+        "encontro",
+        "anal",
+        "penetracao",
+        "sexo",
+        "valor",
+        "preco",
+        "hora",
+        "horas",
+        "periodo",
+        "pernoite",
+        "deslocamento",
+        "uber",
+        "taxa",
+        "hotel",
+        "local",
+        "quarto",
+    }
+)
+# Token que NUNCA absolve, mesmo vindo do nome de um incluso dela. Ligacao ("sem" de "oral sem
+# camisinha" salvaria "carinho sem pressa") e a CAMISINHA: ela nunca e item incluso (<fora_do_
+# cardapio>: "nunca sai como 'incluso'"), e deixa-la no vocabulario faria "camisinha ta incluso"
+# passar em toda modelo que tem "oral sem camisinha" na linha.
+_FORA_DO_VOCABULARIO = frozenset(
+    {"com", "sem", "por", "para", "pra", "dos", "das", "nos", "nas", "uma", "camisinha"}
+)
+# Palavra que aparece no claim mas nao NOMEIA item: pronome, o proprio verbo do claim e o vocativo.
+# Bolha so com isto ("Ja vem junto sim amor") responde a pergunta do turno anterior e nao da p/
+# julgar sem o item — barra-la mataria a bolha curta que e a voz dela.
+_SEM_ITEM = frozenset(
+    {
+        "isso",
+        "isto",
+        "esse",
+        "essa",
+        "este",
+        "esta",
+        "tudo",
+        "junto",
+        "juntos",
+        "vem",
+        "vao",
+        "incluso",
+        "inclusa",
+        "inclusos",
+        "inclusas",
+        "incluido",
+        "incluida",
+        "incluidos",
+        "incluidas",
+        "amor",
+        "aqui",
+        "voce",
+        "minha",
+        "meus",
+        "minhas",
+        "tambem",
+        "claro",
+        "mesmo",
+        "sempre",
+        "ainda",
+        "muito",
+        "muita",
+    }
+)
+
+
+def tokens_de_incluso(*nomes: str | None) -> set[str]:
+    """Vocabulario normalizado dos fetiches INCLUSOS da modelo (a linha "Inclusos" do <fetiches>).
+
+    Descarta token de ate 2 letras e o que nunca absolve (`_FORA_DO_VOCABULARIO`).
+    """
+    tokens: set[str] = set()
+    for nome in nomes:
+        if nome:
+            tokens |= {t for t in _RE_TOKENS_ITEM.split(normalizar(nome)) if len(t) > 2}
+    return tokens - _FORA_DO_VOCABULARIO
+
+
+def _declara_incluso(normalizada: str) -> bool:
+    """True se a bolha AFIRMA que algo esta incluso (claim negado -- "nao ta incluso" -- nao conta)."""
+    for m in _RE_DECLARA_INCLUSO.finditer(normalizada):
+        antes = normalizada[max(0, m.start() - _JANELA_NEGACAO) : m.start()]
+        if _RE_NEGACAO_INCLUSO.search(antes):
+            continue
+        return True
+    return False
+
+
+def bolhas_incluso_fantasma(texto: str, inclusos: set[str]) -> list[str]:
+    """Bolhas do turno que declaram incluso um item FORA da linha "Inclusos" do <fetiches> (PURA;
+    devolve as originais p/ o drop).
+
+    `inclusos` = tokens normalizados dos nomes que a modelo tem como incluso. Ao contrario do eco de
+    regiao, o conjunto VAZIO nao desliga o detector -- e o caso medido: sem linha "Inclusos" no
+    bloco, NENHUM item pode ser declarado incluso (`<apresentacao>`: "sem essa linha no seu bloco a
+    apresentacao fica so no estilo, sem lista de incluso"). A bolha e absolvida por UM token que
+    seja da linha dela (generoso de proposito: "oral sem" abrevia "oral sem camisinha"), por falar
+    de programa/valor/logistica (`_TERMOS_NAO_FETICHE`) ou por nao nomear item nenhum (`_SEM_ITEM`).
+    """
+    ofensoras: list[str] = []
+    for bolha in texto.split("\n\n"):
+        n = normalizar(bolha)
+        if not _declara_incluso(n):
+            continue
+        tokens = set(_RE_TOKENS_ITEM.split(n))
+        if tokens & _TERMOS_NAO_FETICHE or tokens & inclusos:
+            continue
+        if not {t for t in tokens if len(t) > 3 and t not in _SEM_ITEM}:
+            continue
+        ofensoras.append(bolha)
+    return ofensoras
+
+
 # Delimitador de EXEMPLO vazando na bolha: os few-shots de `regras.md.j2`/`persona.md` moldam a fala
 # ideal com tags de papel (`<ela>...</ela>`, `<cliente>...</cliente>`, `<exemplo>`) e os pares de
 # contraste (`<certo>/<errado>/<par>/<porque>`). Sob decodificacao estocastica (temp 0.7) o chat as
@@ -500,6 +654,25 @@ async def _lugares_permitidos(conn: Any, ctx: ContextAgente) -> set[str]:
     )
 
 
+async def _inclusos_da_modelo(conn: Any, ctx: ContextAgente) -> set[str]:
+    """Vocabulario da linha "Inclusos" do <fetiches> (fetiche vinculado com `preco IS NULL`).
+
+    Mesmo recorte do `render_fetiches` (persona.py): `preco` NULL = incluso, preenchido = extra
+    pago. Vazio (modelo sem incluso nenhum) NAO desliga o detector -- e o caso da falha medida.
+    Uma leitura so, na conexao que o guard ja abriu p/ as legendas.
+    """
+    res = await conn.execute(
+        """
+        SELECT f.nome
+          FROM barravips.modelo_fetiches mf
+          JOIN barravips.fetiches f ON f.id = mf.fetiche_id
+         WHERE mf.modelo_id = %s AND mf.preco IS NULL
+        """,
+        (ctx.modelo_id,),
+    )
+    return tokens_de_incluso(*[r["nome"] for r in await res.fetchall()])
+
+
 def tem_marcador_ia(texto: str) -> bool:
     """True se o texto contem auto-referencia de IA / nome de LLM (PURO).
 
@@ -600,10 +773,18 @@ _FEEDBACK_GATILHO = {
         "ela te colocava num bairro que nao e o seu -- refaca dizendo a sua regiao, a do seu "
         "cadastro, pela sua conduta de local de encontro"
     ),
+    "incluso": (
+        'ela dizia que um item esta incluso sem ele estar na linha "Inclusos" do seu <fetiches> '
+        "-- item que nao esta la voce nao tem, e nao vira cortesia"
+    ),
 }
 _EXTRA_SONDA = (
     ' Responda o que ele perguntou e, se for puxar, puxe com ancora concreta e fechada ("Esta '
     'aqui na cidade ?", "Seria hoje ?") -- uma pergunta sua no turno, no maximo.'
+)
+_EXTRA_INCLUSO = (
+    " Responda pelo seu estilo e pelo que o programa e; sem essa linha no seu bloco a apresentacao"
+    " fica so no estilo, sem lista de incluso."
 )
 _EXTRA_REPETICAO = (
     " Se tiver algo novo a dizer, diga de outro jeito (pode fazer referencia ao que ja falou); se "
@@ -637,7 +818,11 @@ async def _regenerar(
 
     corte = messages.index(msgs_turno[0]) if msgs_turno else len(messages)
     janela = list(messages[:corte])
-    extra = {"repeticao": _EXTRA_REPETICAO, "sonda": _EXTRA_SONDA}.get(gatilho, "")
+    extra = {
+        "repeticao": _EXTRA_REPETICAO,
+        "sonda": _EXTRA_SONDA,
+        "incluso": _EXTRA_INCLUSO,
+    }.get(gatilho, "")
     feedback = (
         "<lembrete_silencioso>Sua ultima resposta foi descartada antes do envio: "
         f"{_FEEDBACK_GATILHO[gatilho]}.\n"
@@ -825,6 +1010,7 @@ async def _output_guard(
     async with conexao(ctx.db_pool) as conn:
         legendas = await _legendas_do_turno(conn, ctx.turno_id)
         permitidos_lugar = await _lugares_permitidos(conn, ctx)
+        inclusos_da_modelo = await _inclusos_da_modelo(conn, ctx)
 
     if not texto.strip() and not legendas and not saneou_tudo:
         # post_process ja zerou (pausa concorrente) ou turno sem texto/midia: nada a guardar.
@@ -874,6 +1060,9 @@ async def _output_guard(
         ecos: list[str] = []
         if not motivo and not repetidas and not sondas and texto.strip():
             ecos = bolhas_eco_regiao(texto, permitidos_lugar)
+        fantasmas: list[str] = []
+        if not motivo and not repetidas and not sondas and not ecos and texto.strip():
+            fantasmas = bolhas_incluso_fantasma(texto, inclusos_da_modelo)
         if motivo:
             gatilho = "leak"
         elif repetidas:
@@ -882,6 +1071,8 @@ async def _output_guard(
             gatilho = "sonda"
         elif ecos:
             gatilho = "regiao"
+        elif fantasmas:
+            gatilho = "incluso"
         elif not texto.strip() and (saneou_tudo or nova_msg is not None):
             # turno 100%-raciocinio (t1) ou regen que devolveu vazio / foi toda saneada (t2).
             # Texto vazio SEM saneamento (turno so-midia) nao e mudo: cai no break e segue
@@ -935,16 +1126,22 @@ async def _output_guard(
                 metric_key="output_leak",
             )
             return Command(goto=END, update={"messages": _zeradas_todas()})  # type: ignore[arg-type]
-        if gatilho in ("repeticao", "sonda", "regiao"):
-            # Mesmo fallback p/ os tres: dropa a bolha ofensora e manda o resto (silencio >
-            # papagaio/SAC/bairro inventado). So a metrica difere.
-            ofensoras = {"repeticao": repetidas, "sonda": sondas, "regiao": ecos}[gatilho]
+        if gatilho in ("repeticao", "sonda", "regiao", "incluso"):
+            # Mesmo fallback p/ os quatro: dropa a bolha ofensora e manda o resto (silencio >
+            # papagaio/SAC/bairro inventado/incluso que ela nao tem). So a metrica difere.
+            ofensoras = {
+                "repeticao": repetidas,
+                "sonda": sondas,
+                "regiao": ecos,
+                "incluso": fantasmas,
+            }[gatilho]
             conjunto = set(ofensoras)
             texto = _drop_bolhas(texto, conjunto)
             metrica = {
                 "repeticao": OUTPUT_REPETICAO_DETECTADA,
                 "sonda": OUTPUT_SONDA_DETECTADA,
                 "regiao": OUTPUT_ECO_REGIAO_DETECTADO,
+                "incluso": OUTPUT_INCLUSO_FANTASMA,
             }[gatilho]
             metrica.labels("dropada" if texto.strip() else "mudo").inc()
             if nova_msg is not None:
