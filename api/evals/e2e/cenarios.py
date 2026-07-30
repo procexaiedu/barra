@@ -82,6 +82,13 @@ class CenarioFunc:
     # Issue 04: repergunta de preco recebe o mesmo dado com OUTRAS palavras — bolha identica
     # reenviada soa a robo travado (<retomada_pos_silencio>).
     nao_deve_repetir_bolha_identica: bool = False
+    # Issue 05: DEPOIS da negociacao de preco (recusa ou contraproposta), a pergunta de horario
+    # dele e SIM ao valor na mesa — a IA crava o horario, sem repetir "nao consigo" nem re-cotar
+    # (<desconto>, o paragrafo do avanco-que-equivale-a-sim).
+    deve_avancar_apos_negociacao: bool = False
+    # Issue 05: modelo que so se desloca nunca oferece um local que nao tem — nem depois de o
+    # <lembrete_silencioso> entrar (>=8 turnos da IA), que e onde o eco afirmava o padrao interno.
+    nao_deve_oferecer_local_proprio: bool = False
 
 
 def _perfil(nome: str, modelo: dict[str, Any], abertura: str, roteiro: list[str]) -> PerfilCaso:
@@ -280,6 +287,44 @@ CENARIOS: list[CenarioFunc] = [
         deve_cotar_completo=True,
         deve_propor_duracao_maior=True,
         nao_deve_repetir_bolha_identica=True,
+    ),
+    CenarioFunc(
+        nome="aceite_pos_teto_horario",
+        descricao="Escada rodada ate o teto e recusada a 3a insistencia -> a pergunta de horario "
+        "DELE e o sim ao valor na mesa: a IA crava a hora, sem repetir 'nao consigo' nem re-cotar.",
+        perfil=_perfil(
+            "aceite_pos_teto_horario",
+            _modelo(["interno"]),
+            "oi quanto é 1 hora?",
+            [
+                "nossa ta caro, consegue fazer 350?",
+                "poxa, consegue baixar mais, tipo uns 320?",
+                "e por 280?",
+                "que horas você pode hoje ?",
+            ],
+        ),
+        deve_avancar_apos_negociacao=True,
+    ),
+    CenarioFunc(
+        nome="externo_only_pergunta_preco",
+        descricao="Modelo que SO se desloca + conversa longa (o <lembrete_silencioso> ja entrou) -> "
+        "a cotacao sai no formato dela indo, nunca 'no meu local' — local que ela nao tem.",
+        perfil=_perfil(
+            "externo_only_pergunta_preco",
+            _modelo(["externo"]),
+            "oi",
+            [
+                "tudo bem?",
+                "como funciona seu atendimento?",
+                "vc é daqui de campinas mesmo?",
+                "que legal, moro aqui perto tbm",
+                "vc atende hoje?",
+                "to pensando ainda",
+                "vc é mais alta ou baixinha?",
+                "quanto é 1 hora?",
+            ],
+        ),
+        nao_deve_oferecer_local_proprio=True,
     ),
 ]
 

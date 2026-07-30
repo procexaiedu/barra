@@ -169,6 +169,46 @@ def _repetiu_bolha_identica(res: ResultadoE2E) -> bool:
     return False
 
 
+# Issue 05: depois que a negociacao de preco rodou (recusa ou contraproposta), a pergunta de
+# horario dele e SIM ao valor na mesa — a IA crava a hora "sem repetir 'nao consigo' nem re-cotar"
+# (<desconto>). O check olha SO o turno que responde a essa pergunta (`turnos_cliente` e paralelo a
+# `turnos`), porque antes dela a mesma conduta seria erro (pergunta ainda e pergunta).
+_RE_PERGUNTA_HORARIO_CLIENTE = re.compile(r"que horas", re.I)
+_RE_HORA_PROPOSTA = re.compile(r"\b\d{1,2}\s*(?:h\b|:\d{2})", re.I)
+_RE_RECUSA_REPETIDA = re.compile(r"n[ãa]o consigo|n[ãa]o d[áa]\b|n[ãa]o rola", re.I)
+
+
+def _avancou_no_horario_apos_negociacao(res: ResultadoE2E) -> bool:
+    """True se, no turno que responde a pergunta de horario dele, a IA avancou o fechamento:
+    hora concreta na fala, sem repetir a recusa do desconto e sem re-cotar o preco."""
+    for i, fala in enumerate(res.turnos_cliente):
+        if not _RE_PERGUNTA_HORARIO_CLIENTE.search(fala):
+            continue
+        if i >= len(res.turnos):
+            return False
+        texto = res.turnos[i].texto or ""
+        return bool(
+            _RE_HORA_PROPOSTA.search(texto)
+            and not _RE_RECUSA_REPETIDA.search(texto)
+            and not _RE_PRECO.search(texto)
+        )
+    return False
+
+
+# Issue 05: "no meu local" pressupoe que ela recebe — a modelo que so se desloca nunca oferece um
+# local que nao tem (<cotacao>, 3o ramo do formato; <tipos_de_encontro>).
+_RE_LOCAL_PROPRIO = re.compile(
+    r"\bno meu local\b|\bmeu ap(?:artamento|to)?\b|\bminha casa\b|\bvem (?:aqui|at[ée] mim)\b|"
+    r"\bvenha at[ée] mim\b|\bte espero aqui\b",
+    re.I,
+)
+
+
+def _ofereceu_local_proprio(res: ResultadoE2E) -> bool:
+    """True se alguma bolha da IA ofereceu o local dela (proibido para quem so se desloca)."""
+    return any(_RE_LOCAL_PROPRIO.search(t.texto or "") for t in res.turnos)
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -196,6 +236,10 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["completo_sozinho_ok"] = _cotou_completo_sozinho(res)
     if cf.nao_deve_repetir_bolha_identica:
         aval["sem_bolha_repetida_ok"] = not _repetiu_bolha_identica(res)
+    if cf.deve_avancar_apos_negociacao:
+        aval["avancou_apos_negociacao_ok"] = _avancou_no_horario_apos_negociacao(res)
+    if cf.nao_deve_oferecer_local_proprio:
+        aval["sem_local_proprio_ok"] = not _ofereceu_local_proprio(res)
     return aval
 
 
