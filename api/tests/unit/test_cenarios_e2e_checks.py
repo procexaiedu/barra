@@ -14,8 +14,11 @@ import pytest
 from evals.e2e.massa import (
     _avancou_no_horario_apos_negociacao,
     _cotou_completo_sozinho,
+    _cotou_dobro_do_pacote,
     _ofereceu_local_proprio,
+    _ofereceu_video_chamada,
     _propos_dentro_da_janela,
+    _recusou_menage_sem_cotar,
     _repetiu_bolha_identica,
 )
 
@@ -105,3 +108,89 @@ def test_local_proprio_pega_a_oferta_de_quem_so_se_desloca() -> None:
     assert _ofereceu_local_proprio(_res("400 1h no meu local"))
     assert _ofereceu_local_proprio(_res("Vem aqui amor rs"))
     assert _ofereceu_local_proprio(_res("Te espero aqui, é bem tranquilo"))
+
+
+# --- Issue 23: menage (ADR-0035) e vídeo chamada fora da tabela (ADR-0021) -------------------
+
+_PEDIU_A_DOIS = "e se eu levar minha namorada junto, nós dois com você? quanto fica as 2h?"
+
+
+def test_dobro_do_pacote_reprova_o_preco_hora_dos_atos() -> None:
+    cotou = ("oi, quanto é 2 horas?", "700 as 2h no meu local amor")
+    # o certo: 2 pessoas = o pacote DOBRADO (700x2), na resposta ao pedido dele.
+    assert _cotou_dobro_do_pacote(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Faço sim amor\n\nPra vocês dois fica 1400 as 2h")), 700, 2
+    )
+    # "1.400" com separador de milhar e o mesmo numero.
+    assert _cotou_dobro_do_pacote(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Pra vocês dois fica 1.400 amor")), 700, 2
+    )
+    # o erro que o ADR-0035 nomeia: cotar pelo regime-ato (pacote + preco-hora = 700+350).
+    assert not _cotou_dobro_do_pacote(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Fica 1050 amor, 700 + 350 da sua namorada")), 700, 2
+    )
+    # o "+Extra" sozinho tambem e o regime errado.
+    assert not _cotou_dobro_do_pacote(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "É +350 pela sua namorada amor")), 700, 2
+    )
+    # trazer o dobro E o numero do ato na mesma bolha nao salva: ele viu os dois precos.
+    assert not _cotou_dobro_do_pacote(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Fica 1400, ou 1050 se for so uma hora dela")), 700, 2
+    )
+    # responder sem valor nenhum deixa o pedido dele sem cotacao.
+    assert not _cotou_dobro_do_pacote(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Faço sim amor, adoro rs")), 700, 2
+    )
+    # 1h faria dobro e preco-hora coincidirem: e erro de cenario, nao um check que passa em silencio.
+    with pytest.raises(ValueError):
+        _cotou_dobro_do_pacote(_dialogo((_PEDIU_A_DOIS, "1400 amor")), 400, 1)
+
+
+def test_menage_fora_do_cardapio_exige_recusa_sem_dobrar_nem_prometer_amiga() -> None:
+    cotou = ("oi, quanto é 2 horas?", "700 as 2h no meu local amor")
+    # sem a secao "Por pessoa": recusa aberta, e a venda dela segue de pe.
+    assert _recusou_menage_sem_cotar(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Não faço amor\n\nMas comigo seria que horas ?")),
+        [400, 700],
+    )
+    # cotar o dobro e justamente o que ela nao tem pra vender.
+    assert not _recusou_menage_sem_cotar(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Pra vocês dois fica 1400 amor")), [400, 700]
+    )
+    # aceitar sem recusar, mesmo sem numero, ja promete o que nao existe.
+    assert not _recusou_menage_sem_cotar(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Faço sim amor rs")), [400, 700]
+    )
+    # recusar agora e dobrar dois turnos depois e o mesmo erro, so mais tarde.
+    assert not _recusou_menage_sem_cotar(
+        _dialogo(
+            cotou,
+            (_PEDIU_A_DOIS, "Não faço amor"),
+            ("vai, faz um precinho pros dois", "Então pros dois fica 1400"),
+        ),
+        [400, 700],
+    )
+    # prometer amiga tambem esta fora: sem a secao, ela nao tem dupla pra oferecer.
+    assert not _recusou_menage_sem_cotar(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Não faço amor\n\nDeixa eu ver com ela e te retorno")),
+        [400, 700],
+    )
+    # a recusa de INDICAR outra (<fora_do_cardapio>) nao e promessa de amiga — continua passando.
+    assert _recusou_menage_sem_cotar(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Não faço amor\n\nNão indico não, só falo por mim rs")),
+        [400, 700],
+    )
+
+
+def test_oferta_de_chamada_distingue_a_oferta_da_recusa() -> None:
+    # a conduta de quem TEM a chamada na tabela — e o erro de quem nao tem.
+    assert _ofereceu_video_chamada(_res("Podemos fazer uma vídeo chamada amor"))
+    assert _ofereceu_video_chamada(_res("Faço chamada sim amor\n\nA de 30min fica 300"))
+    assert _ofereceu_video_chamada(_res("Te ligo agora amor rs"))
+    # a recusa certa CONTEM as mesmas palavras da oferta: sem o guarda de negacao, reprovaria ela.
+    assert not _ofereceu_video_chamada(_res("Não faço chamada amor\n\nMas te mando uma foto rs"))
+    assert not _ofereceu_video_chamada(_res("Chamada eu não faço amor"))
+    # falar de chamada sem oferecer nada tambem nao e oferta.
+    assert not _ofereceu_video_chamada(_res("Chamada de vídeo não entra no que eu faço"))
+    # e a bolha que nem toca no assunto, menos ainda.
+    assert not _ofereceu_video_chamada(_res("Te espero amor, é bem tranquilo aqui"))

@@ -263,6 +263,10 @@ async def _seed_modelo(conn: AsyncConnection[dict[str, Any]], spec: dict[str, An
     )
     for prog in spec.get("programas") or []:
         await _seed_programa(conn, modelo_id, prog)
+    # Fetiches (ADR 0014 revisado / 0030 / 0035) — opcional; sem a chave o bloco <fetiches> sai
+    # "(sem fetiches cadastrados)" (preserva os casos existentes).
+    for fet in spec.get("fetiches") or []:
+        await _seed_fetiche(conn, modelo_id, fet)
     # Disponibilidade (ADR 0005) — opcional; sem a chave o modelo e reservavel sempre (preserva os
     # casos existentes). Cada regra: dia_semana (DOW Postgres 0=dom) + janela, valida desde -7d.
     for regra in spec.get("disponibilidade") or []:
@@ -322,6 +326,44 @@ async def _seed_programa(
         "INSERT INTO barravips.modelo_programas (modelo_id, programa_id, duracao_id, preco) "
         "VALUES (%s, %s, %s, %s) ON CONFLICT DO NOTHING",
         (modelo_id, prog_id, dur_id, prog["preco"]),
+    )
+
+
+async def _seed_fetiche(
+    conn: AsyncConnection[dict[str, Any]], modelo_id: UUID, fet: dict[str, Any]
+) -> None:
+    """Vincula um fetiche do catalogo GLOBAL a modelo (`modelo_fetiches`).
+
+    `preco` None = incluso, preenchido = pago — e so a PRESENCA importa: o valor nao e lido
+    (ADR-0030 calcula o extra do pacote vendido). `cobra_por_pessoa` e propriedade do CATALOGO,
+    nao do vinculo (ADR-0035): e ela que separa a secao "Por pessoa" (casal/menage, dobra o
+    pacote) dos atos no `fetiches.md.j2`.
+
+    O get-or-create por nome reusa a linha curada do prod ("Casal"/"Menage" ja nascem com a flag
+    true pela migration 20260723064620) e NUNCA a atualiza — mas um nome existente com a flag
+    DIFERENTE da que o cenario pede renderia o bloco errado em silencio (o cenario de menage
+    passaria a testar o regime-ato). Entao isso falha alto, em vez de decorar.
+    """
+    quer_por_pessoa = bool(fet.get("cobra_por_pessoa", False))
+    fet_id = await _get_or_create(
+        conn,
+        "fetiches",
+        fet["nome"],
+        colunas={"ordem": fet.get("ordem", 0), "cobra_por_pessoa": quer_por_pessoa},
+    )
+    res = await conn.execute(
+        "SELECT cobra_por_pessoa FROM barravips.fetiches WHERE id = %s", (fet_id,)
+    )
+    linha = await res.fetchone() or {}
+    if bool(linha.get("cobra_por_pessoa")) != quer_por_pessoa:
+        raise RuntimeError(
+            f"catalogo global divergente: fetiche {fet['nome']!r} tem "
+            f"cobra_por_pessoa={linha.get('cobra_por_pessoa')!r}, cenario pede {quer_por_pessoa!r}"
+        )
+    await conn.execute(
+        "INSERT INTO barravips.modelo_fetiches (modelo_id, fetiche_id, preco) "
+        "VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
+        (modelo_id, fet_id, fet.get("preco")),
     )
 
 

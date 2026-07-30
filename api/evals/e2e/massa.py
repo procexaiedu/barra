@@ -238,6 +238,93 @@ def _propos_dentro_da_janela(res: ResultadoE2E, janela: str) -> bool:
     return False
 
 
+# Issue 23 (menage, ADR-0035). O pedido do cliente que abre os dois ramos: ele traz uma segunda
+# pessoa DELE. `_numeros` le valor em reais de dentro da fala — junta o separador de milhar antes
+# ("1.400" e "1 400" sao o mesmo 1400) e ignora numero de 1-2 digitos (hora, duracao, idade).
+_RE_PEDIDO_SEGUNDA_PESSOA = re.compile(
+    r"n[óo]s (?:dois|2)\b|(?:levar?|levo|trazer|trago|ir com|vir com)\s+\S*\s*"
+    r"(?:namorada|amiga|esposa|mulher|amigo|primo)|m[ée]nage|casal",
+    re.I,
+)
+_RE_NUM_REAIS = re.compile(r"\b\d{3,5}\b")
+
+
+def _numeros(texto: str) -> set[int]:
+    return {int(n) for n in _RE_NUM_REAIS.findall(re.sub(r"(?<=\d)[.\s](?=\d{3}\b)", "", texto))}
+
+
+def _cotou_dobro_do_pacote(res: ResultadoE2E, preco: int, horas: int) -> bool:
+    """True se o turno que responde a segunda pessoa cotou o DOBRO do pacote e nenhum numero do
+    regime-ato (<menage>: "o total dobrado, nunca o '+Extra' dos atos").
+
+    `horas` >= 2 e condicao do cenario, nao detalhe: em 1h o dobro e o preco-hora dao o MESMO
+    numero (ADR-0035) e um check assim passaria sem distinguir regime nenhum."""
+    if horas < 2:
+        raise ValueError(f"pacote de {horas}h nao distingue dobro de preco-hora (ADR-0035)")
+    extra_ato = round(preco / horas)
+    proibidos = {extra_ato, preco + extra_ato}
+    for i, fala in enumerate(res.turnos_cliente):
+        if not _RE_PEDIDO_SEGUNDA_PESSOA.search(fala) or i >= len(res.turnos):
+            continue
+        nums = _numeros(res.turnos[i].texto or "")
+        return preco * 2 in nums and not (nums & proibidos)
+    return False
+
+
+# Ramo SEM a secao: "'Não faço amor', sem cotar, sem dobrar nada e sem prometer amiga" (<menage>).
+# A promessa de amiga e so a AFIRMATIVA (trazer/ver com ela) — "não indico não amor" e a recusa
+# certa do <fora_do_cardapio> e nao pode contar como promessa.
+_RE_RECUSA_ABERTA = re.compile(
+    r"n[ãa]o fa[çc]o|n[ãa]o atendo|n[ãa]o rola|n[ãa]o tenho costume|n[ãa]o trabalho", re.I
+)
+_RE_PROMESSA_AMIGA = re.compile(
+    r"(?:vejo|ver|falo|falar|combino|combinar|pergunto|perguntar)\s+com\s+ela|"
+    r"(?:levo|trago|chamo|convido|tenho)\s+(?:uma|minha)\s+amiga|com\s+(?:uma|minha)\s+amiga",
+    re.I,
+)
+
+
+def _recusou_menage_sem_cotar(res: ResultadoE2E, precos: list[int]) -> bool:
+    """True se a IA recusou o menage no turno do pedido E em NENHUM turno dobrou um pacote ou
+    prometeu amiga. Os tres lados juntos: recusar e depois cotar o dobro tres turnos adiante e o
+    mesmo erro que cotar na hora."""
+    dobros = {p * 2 for p in precos}
+    for t in res.turnos:
+        texto = t.texto or ""
+        if _RE_PROMESSA_AMIGA.search(texto) or (_numeros(texto) & dobros):
+            return False
+    for i, fala in enumerate(res.turnos_cliente):
+        if _RE_PEDIDO_SEGUNDA_PESSOA.search(fala) and i < len(res.turnos):
+            return bool(_RE_RECUSA_ABERTA.search(res.turnos[i].texto or ""))
+    return False
+
+
+# Issue 23 (vídeo chamada, ADR-0021): sem o programa na tabela ela "não oferece, não cota e não
+# promete chamada nenhuma" (<tipos_de_encontro>). Por BOLHA, porque a negacao certa CONTEM as
+# mesmas palavras da oferta ("Não faço chamada amor") — sem o guarda de negacao o check reprovaria
+# justamente a conduta correta.
+_RE_OFERTA_CHAMADA = re.compile(
+    r"(?:podemos|posso|consigo|d[áa] pra|vamos|quer)\s+(?:fazer\s+)?(?:uma\s+)?"
+    r"(?:v[íi]deo\s*)?chamada|fa[çc]o\s+(?:uma\s+)?(?:v[íi]deo\s*)?chamada|"
+    r"te ligo|te chamo no v[íi]deo|chamada (?:fica|custa|sai|é)",
+    re.I,
+)
+_RE_NEGA_CHAMADA = re.compile(
+    r"n[ãa]o\s+(?:fa[çc]o|posso|consigo|rola|d[áa]|tenho)[^\n]{0,25}chamada|"
+    r"chamada[^\n]{0,20}n[ãa]o (?:fa[çc]o|rola|tem)",
+    re.I,
+)
+
+
+def _ofereceu_video_chamada(res: ResultadoE2E) -> bool:
+    """True se alguma bolha ofereceu/cotou chamada — a modelo que nao a tem na tabela nunca o faz."""
+    for turno in res.turnos:
+        for bolha in re.split(r"\n\s*\n", turno.texto or ""):
+            if _RE_OFERTA_CHAMADA.search(bolha) and not _RE_NEGA_CHAMADA.search(bolha):
+                return True
+    return False
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -271,6 +358,12 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["sem_local_proprio_ok"] = not _ofereceu_local_proprio(res)
     if cf.janela_vaga_do_cliente is not None:
         aval["dentro_da_janela_ok"] = _propos_dentro_da_janela(res, cf.janela_vaga_do_cliente)
+    if cf.menage_dobra_o_pacote is not None:
+        aval["dobrou_o_pacote_ok"] = _cotou_dobro_do_pacote(res, *cf.menage_dobra_o_pacote)
+    if cf.menage_fora_do_cardapio is not None:
+        aval["recusou_menage_ok"] = _recusou_menage_sem_cotar(res, cf.menage_fora_do_cardapio)
+    if cf.nao_deve_oferecer_video_chamada:
+        aval["sem_oferta_de_chamada_ok"] = not _ofereceu_video_chamada(res)
     return aval
 
 

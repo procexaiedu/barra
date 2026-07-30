@@ -27,10 +27,20 @@ _PROGRAMAS = [
 ]
 
 
+# Fetiches das duas modelos de menage (ADR-0030/0035). `preco` so marca PAGO (o valor nunca e
+# lido — o extra e calculado do pacote vendido); `cobra_por_pessoa` e a flag do catalogo GLOBAL que
+# faz o `fetiches.md.j2` abrir a secao "Por pessoa". A modelo COM tem as DUAS secoes de proposito:
+# assim os numeros do regime-ato (o "+Extra") existem no prompt dela, e cotar por eles vira erro de
+# ESCOLHA de linha, nao numero inventado.
+_FETICHE_ATO = {"nome": "Inversão", "preco": 350, "cobra_por_pessoa": False}
+_FETICHE_POR_PESSOA = {"nome": "Menage", "preco": 700, "cobra_por_pessoa": True}
+
+
 def _modelo(
     tipos: list[str],
     programas: list[dict[str, Any]] | None = None,
     disponibilidade: list[dict[str, Any]] | None = None,
+    fetiches: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     m: dict[str, Any] = {
         "nome": "Manu",
@@ -42,6 +52,8 @@ def _modelo(
     }
     if disponibilidade is not None:
         m["disponibilidade"] = disponibilidade
+    if fetiches is not None:
+        m["fetiches"] = fetiches
     return m
 
 
@@ -93,6 +105,19 @@ class CenarioFunc:
     # <horario_minimo> e PISO, nao a proposta pronta (<agenda>). O valor e a fala vaga do cliente
     # que abre a janela; o check olha SO o turno que responde a ela.
     janela_vaga_do_cliente: str | None = None
+    # Issue 23, menage ramo COM: a modelo tem a secao "Por pessoa" no <fetiches> -> a segunda
+    # pessoa DELE custa o DOBRO do pacote (2 pessoas — ADR-0035), nunca o preco-hora dos atos.
+    # Valor = (preco, horas) do pacote que a fala dele ancora; horas>=2 e obrigatorio, senao os
+    # dois regimes coincidem e o cenario passaria por acidente.
+    menage_dobra_o_pacote: tuple[int, int] | None = None
+    # Issue 23, menage ramo SEM: sem a secao "Por pessoa" o pedido e fora do cardapio como outro
+    # qualquer — recusa aberta, sem cotar, sem dobrar nada e sem prometer amiga (<menage>, 1o
+    # paragrafo). Valor = os precos de tabela dela, cujo dobro nao pode aparecer em turno nenhum.
+    menage_fora_do_cardapio: list[int] | None = None
+    # Issue 23, video chamada ramo SEM: ela nao esta nos <programas> -> a IA nao oferece, nao cota
+    # e nao promete chamada nenhuma; a prova de humanidade se resolve com FOTO (<tipos_de_encontro>,
+    # <protocolo_disclosure>). O lado positivo (mandou foto) e o `tool_esperada="enviar_midia"`.
+    nao_deve_oferecer_video_chamada: bool = False
 
 
 def _perfil(nome: str, modelo: dict[str, Any], abertura: str, roteiro: list[str]) -> PerfilCaso:
@@ -344,6 +369,62 @@ CENARIOS: list[CenarioFunc] = [
             ["pode ser de noite", "fechado então"],
         ),
         janela_vaga_do_cliente="de noite",
+    ),
+    CenarioFunc(
+        nome="menage_com_secao",
+        descricao="Modelo COM a secao 'Por pessoa' no <fetiches> + cliente que traz a namorada -> "
+        "cota o DOBRO do pacote de 2h (1400), nunca o '+Extra' do regime-ato (350/1050), e fecha "
+        "sozinha (a escalada e so do ramo da amiga DELA).",
+        perfil=_perfil(
+            "menage_com_secao",
+            # 2h/R$700 e o pacote que a fala dele ancora: em 1h dobro e preco-hora COINCIDEM
+            # (ADR-0035) e o cenario nao distinguiria os dois regimes. Com o ato junto no cardapio,
+            # os numeros errados (extra 350, total 1050) estao no prompt dela.
+            _modelo(["interno"], fetiches=[_FETICHE_ATO, _FETICHE_POR_PESSOA]),
+            "oi, quanto é 2 horas?",
+            [
+                "e se eu levar minha namorada junto, nós dois com você? quanto fica as 2h?",
+                "fechado então",
+            ],
+        ),
+        menage_dobra_o_pacote=(700, 2),
+        nao_deve_escalar=True,
+    ),
+    CenarioFunc(
+        nome="menage_sem_secao",
+        descricao="Modelo SEM a secao 'Por pessoa' (so fetiche-ato) + o MESMO pedido -> recusa "
+        "aberta, sem cotar, sem dobrar nada (800/1400) e sem prometer amiga.",
+        perfil=_perfil(
+            "menage_sem_secao",
+            # So o ato: o <fetiches> dela renderiza "Extras pagos" e NENHUMA secao "Por pessoa".
+            # (Os dobros proibidos sao 800 e 1400; 800 tambem e o total-com-ato da 1h — colisao
+            # inofensiva aqui porque o roteiro nunca pede o ato, mas nao reuse a lista as cegas.)
+            _modelo(["interno"], fetiches=[_FETICHE_ATO]),
+            "oi, quanto é 2 horas?",
+            [
+                "e se eu levar minha namorada junto, nós dois com você? quanto fica as 2h?",
+                "fechado então",
+            ],
+        ),
+        menage_fora_do_cardapio=[400, 700],
+    ),
+    CenarioFunc(
+        nome="video_chamada_sem_programa",
+        descricao="Modelo SEM vídeo chamada na tabela + pedido de prova por chamada -> ela nao "
+        "oferece chamada nenhuma e resolve a prova com FOTO (enviar_midia).",
+        perfil=_perfil(
+            "video_chamada_sem_programa",
+            # _PROGRAMAS = so Encontro 1h/2h: a vídeo chamada nao esta nos <programas> dela.
+            _modelo(["interno"]),
+            "oi, quanto é 1 hora?",
+            [
+                "quero ver se é você mesma, faz uma chamada de vídeo rapidinho ?",
+                "só uma chamadinha rápida pra eu ver que é você",
+                "fechado então",
+            ],
+        ),
+        tool_esperada="enviar_midia",
+        nao_deve_oferecer_video_chamada=True,
     ),
 ]
 
