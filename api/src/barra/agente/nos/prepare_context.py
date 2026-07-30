@@ -17,6 +17,8 @@ M1-T2:
        queries (reusando a mesma conexao) e concatenados no ULTIMO HumanMessage da janela
        (a msg atual do cliente), DEPOIS do prefixo estavel ("stable first, volatile last") — o
        dado volatil so na ultima HumanMessage mantem o prefixo (e o cache) quente (03 §3.4/§4.4).
+       DENTRO dessa mensagem a ordem e lembrete -> contexto dinamico -> fala do cliente: a fala
+       fica por ULTIMO (recency), senao o ultimo token antes de responder e instrucao (29/07).
 
 M2-T1 (este escopo):
     5. BP_MODELO por-modelo (03 §2/§3.3): identidade (nome/idade/idiomas/localizacao/tipos_aceitos) +
@@ -51,6 +53,7 @@ from barra.dominio.modelos.disponibilidade import proxima_abertura
 from barra.settings import get_settings
 
 from .._classificador import classificar_janela
+from .._texto_turno import _PREFIXO_ID_PAUSA
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
@@ -65,6 +68,7 @@ from ..persona import (
 from ._contexto_do_turno import ContextoDoTurno
 from ._janela_do_turno import (
     _confirmou_dia_hoje,
+    _conversa_em_andamento,
     _horario_evidenciado_no_turno,
     _ja_sondou_o_dia,
     _recuo_no_turno,
@@ -83,8 +87,8 @@ class PecasDoTurno:
     """Peças do contexto do turno que o State publica p/ a janela dedicada da extração (spec
     extracao-janela-dedicada).
 
-    A cauda que o CHAT recebe é uma só mensagem inchada (lembrete → msg do cliente → contexto
-    dinâmico) e, depois de fundida, não há como separá-la. Em vez de reconstruir a janela da
+    A cauda que o CHAT recebe é uma só mensagem inchada (lembrete → contexto dinâmico → msg do
+    cliente) e, depois de fundida, não há como separá-la. Em vez de reconstruir a janela da
     extração a partir das linhas cruas, o `prepare_context` guarda aqui o que ela precisa —
     mesmo padrão das outras marcas por-turno (`horario_evidenciado`, `recuo_detectado`), zero
     query nova e zero chance de divergir do que a IA leu.
@@ -209,7 +213,7 @@ async def prepare_context(
         )
 
         # 3b. Reminder anti-drift (03 §10): PREPEND o <lembrete_silencioso> no MESMO último
-        #     HumanMessage, depois do contexto dinâmico (ordem final: lembrete → msg → contexto),
+        #     HumanMessage, acima do contexto dinâmico (ordem final: lembrete → contexto → msg),
         #     só com ≥8 AIMessages na janela. Volátil — fica na cauda, fora do prefixo cacheável.
         #     Reancora a identidade com o `nome` da modelo (continuidade de self, não menção a IA).
         mensagens = _injetar_reminder_se_necessario(mensagens, contexto.estado, modelo_nome)
@@ -280,6 +284,32 @@ async def carregar_mensagens(
     return linhas
 
 
+# Gap de `created_at` a partir do qual duas bolhas vizinhas deixam de ser a mesma conversa e ganham
+# uma MARCA DE PAUSA entre elas (incidente prod 29/07, trace 06db4298). A janela sao as ultimas 40
+# msgs do PAR e cruza atendimentos de proposito (CONTEXT.md "Conversa cliente"), mas o `created_at`
+# morria aqui na traducao: 36 bolhas de 23/07 (terminando em "16h otimo") e um "Oi" de 29/07
+# chegaram ao modelo como conversa CONTIGUA — ele reciclou o horario de seis dias antes ("16h amanha
+# fechamos ?") e contradisse o belief do atendimento NOVO (que dizia `<abertura>`). 6h separa a
+# retomada depois de um dia/um sono da pausa DENTRO da mesma negociacao (a madrugada inteira do #35
+# segue contigua).
+_GAP_PAUSA = timedelta(hours=6)
+
+
+def _texto_marca_pausa(antes: datetime, depois: datetime) -> str:
+    """Conteudo da marca de pausa, no padrao dos outros placeholders em colchetes que a janela ja
+    carrega (`[imagem]`, `[audio que nao consegui ouvir]`). Em horas ate 48h; em dias acima.
+
+    Funcao PURA dos dois `created_at` vizinhos — NUNCA de "agora": a janela e prefixo cacheavel e o
+    texto tem que sair byte-identico entre turnos (invariante de prompt caching, agente/CLAUDE.md).
+    Um marcador que contasse o tempo ate agora mudaria a cada turno e faria o cache do DeepSeek
+    mirar a frio para TODAS as modelos.
+    """
+    horas = int((depois - antes).total_seconds() // 3600)
+    if horas < 48:
+        return f"[pausa de {horas}h na conversa]"
+    return f"[pausa de {horas // 24} dias na conversa]"
+
+
 def traduzir_mensagens(linhas: list[dict[str, Any]]) -> list[BaseMessage]:
     """Traduz linhas de `mensagens` para LangChain messages (02 §4.2).
 
@@ -289,9 +319,32 @@ def traduzir_mensagens(linhas: list[dict[str, Any]]) -> list[BaseMessage]:
     - modelo_manual -> AIMessage COM PREFIXO. A msg manual da modelo saiu no MESMO numero da
       IA (turno assistant), mas o prefixo a distingue para a IA nao se atribuir o que a
       modelo disse (decisao de estado, 02 §4.2).
+
+    Entre duas linhas separadas por `_GAP_PAUSA` entra uma marca de pausa (HumanMessage sintetica):
+    sem ela o `created_at` — lido na query e descartado aqui — nao chegava ao modelo, e a janela que
+    cruza atendimentos virava um fio contiguo (incidente 29/07).
     """
     out: list[BaseMessage] = []
+    anterior_em: datetime | None = None
     for linha in linhas:
+        criada_em = linha.get("created_at")
+        if (
+            anterior_em is not None
+            and criada_em is not None
+            and criada_em - anterior_em >= _GAP_PAUSA
+        ):
+            # id DETERMINISTICO derivado do id da bolha SEGUINTE (nunca None): a janela dedicada da
+            # extracao monta `do_banco = {m.id for m in crua}` e exclui do extrator o que nao esta
+            # la (`_janela_para_extracao`) — um None no conjunto passaria a excluir toda mensagem do
+            # turno sem id. O prefixo do id e o que faz `e_marca_pausa` reconhece-la.
+            out.append(
+                HumanMessage(
+                    content=_texto_marca_pausa(anterior_em, criada_em),
+                    id=f"{_PREFIXO_ID_PAUSA}{linha['id']}",
+                )
+            )
+        if criada_em is not None:
+            anterior_em = criada_em
         direcao = linha["direcao"]
         if direcao == DirecaoMensagem.cliente:
             conteudo = linha["conteudo"] or ""
@@ -485,8 +538,11 @@ async def _anexar_contexto_dinamico(
     (derivados/lidos em `_carregar_bp3`) chegam prontos p/ evitar re-leituras da mesma PK. Nos
     testes que chamam direto sem eles, os defaults valem (atendimento vazio, sem local, max 0).
 
-    Concatena no ÚLTIMO HumanMessage (a msg atual do cliente). Defesa: se a janela não tiver
-    nenhum HumanMessage, anexa o contexto como novo HumanMessage no fim. Devolve também o
+    Concatena no ÚLTIMO HumanMessage (a msg atual do cliente), ANTES da fala dele: a ordem final da
+    cauda é contexto dinâmico → fala do cliente (o lembrete é prependado depois, em
+    `_injetar_reminder_se_necessario`), para o último token antes da resposta ser o que ele disse e
+    não instrução (incidente 29/07). Defesa: se a janela não tiver nenhum HumanMessage, anexa o
+    contexto como novo HumanMessage no fim. Devolve também o
     `ContextoDoTurno` FINAL (com as correções pós-query já aplicadas), de onde o chamador tira a
     `fase` (= `estado`, que o reminder do 03 §10 reusa sem nova query) e o `horario_minimo` (mesmo
     valor renderizado na tag `<horario_minimo>`) p/ o State — a tool `registrar_extracao` o lê p/
@@ -517,8 +573,13 @@ async def _anexar_contexto_dinamico(
     # cobre a cauda recente (inclusive modelo_manual); o histórico cobre a sondagem que já deslizou
     # pra fora das 20 msgs — sem o OR, conversa longa repetia a sondagem (a promessa do prompt é
     # "UMA vez na conversa inteira", não na janela).
+    # Gate do "não recumprimente" do `<antes_de_perguntar>`: a frase só sai quando ELA já falou
+    # nesta parte da conversa. Sem a condição, a cauda — a última coisa lida antes da fala dele —
+    # proibia a abertura de 2 bolhas que a `<abertura>` prescreve para o "oi" seco.
     contexto = replace(
-        contexto, dia_ja_sondado=contexto.dia_ja_sondado_hist or _ja_sondou_o_dia(mensagens)
+        contexto,
+        dia_ja_sondado=contexto.dia_ja_sondado_hist or _ja_sondou_o_dia(mensagens),
+        conversa_em_andamento=_conversa_em_andamento(mensagens),
     )
     texto = render_contexto_dinamico(**contexto.como_variaveis())
 
@@ -526,7 +587,13 @@ async def _anexar_contexto_dinamico(
         msg = mensagens[i]
         if isinstance(msg, HumanMessage):
             anexadas = list(mensagens)
-            anexadas[i] = HumanMessage(content=f"{msg.content}\n\n{texto}", id=msg.id)
+            # Contexto ANTES da fala (recency, incidente prod 29/07 / trace 06db4298): na ordem
+            # anterior o "Oi" do cliente caía no offset 2.076 de 4.548 chars, com 2.470 chars de
+            # instrução DEPOIS dele — o último token antes de responder era uma `<observacao>` sobre
+            # fim de expediente, não a fala a responder. É a MESMA HumanMessage (mesmo `id`), nunca
+            # uma nova: id novo faria o belief vazar p/ a janela do extrator via `do_turno`
+            # (`_janela_para_extracao`, nos/extrair.py) — o bug que a janela dedicada corrigiu.
+            anexadas[i] = HumanMessage(content=f"{texto}\n\n{msg.content}", id=msg.id)
             return anexadas, contexto, pecas
     return [*mensagens, HumanMessage(content=texto)], contexto, pecas
 
@@ -547,7 +614,7 @@ def _injetar_reminder_se_necessario(
 
     Combate persona drift em conversas longas. Vai no último HumanMessage (cauda volátil, sem
     cache_control); como roda DEPOIS de _anexar_contexto_dinamico, o conteúdo final fica
-    lembrete → msg do cliente → contexto dinâmico, num único HumanMessage de cauda. `fase` é o
+    lembrete → contexto dinâmico → msg do cliente, num único HumanMessage de cauda. `fase` é o
     estado do atendimento (reusado do contexto dinâmico). `nome` (da modelo) reancora a identidade
     no reminder; None → o template omite a âncora. Sem HumanMessage na janela → no-op.
     """

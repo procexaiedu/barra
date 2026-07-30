@@ -95,9 +95,12 @@ class ContextoDoTurno:
     combinado_hora: str | None
     min_para_combinado: int | None
 
-    # Resolvido depois das queries, sobre a janela do turno — default para a construção não
-    # precisar antecipá-lo (ver `_anexar_contexto_dinamico`).
+    # Resolvidos depois das queries, sobre a janela do turno — default para a construção não
+    # precisar antecipá-los (ver `_anexar_contexto_dinamico`).
     dia_ja_sondado: bool = False
+    # Ela já falou nesta parte da conversa? Gate do "não recumprimente" do `<antes_de_perguntar>`:
+    # sem ele a cauda proibia, no ponto de recency máxima, a abertura que a `<abertura>` prescreve.
+    conversa_em_andamento: bool = False
 
     def como_variaveis(self) -> dict[str, Any]:
         """Dicionário para o `render(**variaveis)` dos templates. Raso de propósito: os valores

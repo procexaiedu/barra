@@ -787,7 +787,13 @@ _PROXIMO_PASSO: dict[str, str] = {
     # `Novo` e o unico estado em que o ponteiro pode ficar um turno atras do cliente: e a primeira
     # fala dele, e o mais comum fora do trilho e ela ja vir pedindo preco ("oi, quanto custa ?").
     # Dai a condicional: a `<abertura>` segue sendo a conduta, mas a pergunta dele abre a fase.
-    "Novo": "entender o que ele procura e puxar pro encontro — sua conduta agora é <abertura>; se a fala dele já pede preço, <cotacao> junto",
+    # O objetivo da fase e a intencao dele, mas a frase NAO pode nomea-lo com o lexico da sonda
+    # ("entender o que ele procura"): a `<abertura>` proibe a sonda-de-balcao "em nenhuma parafrase"
+    # (NUNCA em caps, agente/CLAUDE.md "Escala lexica de dureza") e esta e a fala que a cauda poe
+    # mais perto da resposta — descrever o alvo com o lexico proibido virava o probe na boca dela.
+    # Aqui a frase nomeia a ACAO da fase (parar e deixar ele abrir), nao o dado que falta; o dado
+    # continua dito uma vez, no <ainda_falta>, que e onde ele pertence.
+    "Novo": "deixar ele abrir o assunto e puxar pro encontro — sua conduta agora é <abertura>; se a fala dele já pede preço, <cotacao> junto",
     "Triagem": "fechar o que falta pra combinar o encontro — sua conduta agora é <apresentacao> e <cotacao>",
     "Qualificado": "confirmar os detalhes e seguir pro próximo passo do encontro — sua conduta agora é <cotacao> e <fechamento>",
     "Aguardando_confirmacao": "conduzir a confirmação (pix, foto de portaria ou o horário combinado) — sua conduta agora é <fechamento> e <enquanto_ele_nao_chega>",

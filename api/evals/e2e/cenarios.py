@@ -72,6 +72,10 @@ class CenarioFunc:
     # Ticket: com sinal de tempo livre a IA deve propor duracao MAIOR (2h/pernoite) em vez de
     # cotar so a menor (regras.md.j2 <sobe_o_ticket>). Verificavel por bolha na corrida REAL.
     deve_propor_duracao_maior: bool = False
+    # Issue 03 do refactor de prompt: no "oi" SECO o 1o turno e so o cumprimento — sem preco, sem
+    # cardapio e sem sonda-de-balcao ("o que voce procura ?"), que a <abertura> proibe em caps.
+    # Era o unico caso do funil sem cenario: todos os outros entram com pergunta colada ao oi.
+    deve_abrir_so_com_cumprimento: bool = False
 
 
 def _perfil(nome: str, modelo: dict[str, Any], abertura: str, roteiro: list[str]) -> PerfilCaso:
@@ -236,6 +240,18 @@ CENARIOS: list[CenarioFunc] = [
             ["que horas vc consegue?", "fechado"],
         ),
         deve_propor_duracao_maior=True,
+    ),
+    CenarioFunc(
+        nome="abertura_oi_seco",
+        descricao="'oi' SECO no primeiro contato -> so o cumprimento (sem preco, sem cardapio, sem "
+        "sonda-de-balcao); a pergunta dele so vem no turno seguinte.",
+        perfil=_perfil(
+            "abertura_oi_seco",
+            _modelo(["interno"]),
+            "oi",
+            ["quanto é 1 hora?", "fechado então"],
+        ),
+        deve_abrir_so_com_cumprimento=True,
     ),
 ]
 

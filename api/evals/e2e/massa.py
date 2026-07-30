@@ -118,6 +118,25 @@ def _propos_duracao_maior(res: ResultadoE2E) -> bool:
     return any(_RE_DURACAO_MAIOR.search(t.texto or "") for t in res.turnos)
 
 
+# Abertura do "oi" seco (regras.md.j2 <abertura>, item 1): so o cumprimento — nada de preco/cardapio
+# e nada de sonda-de-balcao ("o que voce procura ?"), que o <nucleo> proibe "em nenhuma parafrase".
+# O probe CRU ja tem backstop no output_guard; o que este check pega e a PARAFRASE, que passa por la.
+_RE_SONDA_ABERTURA = re.compile(
+    r"o que (voc[êe]|tu) (procura|busca|quer|deseja|precisa|ta procurando|est[áa] procurando)|"
+    r"(como|em que) (eu )?posso (te )?ajudar|o que te traz|me conta o que",
+    re.I,
+)
+_RE_PRECO = re.compile(r"\b\d{3,4}\b")
+
+
+def _abriu_so_com_cumprimento(res: ResultadoE2E) -> bool:
+    """True se o PRIMEIRO turno da IA foi so cumprimento: sem numero de preco e sem sonda."""
+    if not res.turnos:
+        return False
+    primeiro = res.turnos[0].texto or ""
+    return not (_RE_PRECO.search(primeiro) or _RE_SONDA_ABERTURA.search(primeiro))
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -139,6 +158,8 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["sem_jargao_ok"] = not _vazou_jargao(res)
     if cf.deve_propor_duracao_maior:
         aval["propos_maior_ok"] = _propos_duracao_maior(res)
+    if cf.deve_abrir_so_com_cumprimento:
+        aval["abertura_limpa_ok"] = _abriu_so_com_cumprimento(res)
     return aval
 
 

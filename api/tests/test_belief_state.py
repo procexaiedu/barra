@@ -28,7 +28,10 @@ def test_novo_sem_intencao_falta_entender() -> None:
     assert b.slots_faltantes == ["o que ele procura"]
     # A frase-guia tambem ROTEIA: nomeia a fase do `<conducao_da_venda>` que vale no turno. Quem
     # verifica que a tag citada existe no prompt e `unit/test_contrato_variaveis_contexto.py`.
-    assert b.proximo_passo.startswith("entender o que ele procura e puxar pro encontro")
+    # Ela nomeia a ACAO da fase, nao o dado que falta: descrever o alvo como "entender o que ele
+    # procura" punha o lexico da sonda-de-balcao (que a `<abertura>` proibe "em nenhuma parafrase")
+    # no texto mais proximo da resposta. O dado continua dito uma vez, no `slots_faltantes` acima.
+    assert b.proximo_passo.startswith("deixar ele abrir o assunto e puxar pro encontro")
     assert "<abertura>" in b.proximo_passo
 
 
