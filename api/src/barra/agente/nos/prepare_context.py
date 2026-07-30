@@ -164,13 +164,15 @@ async def prepare_context(
         #    conexão. É POR-MODELO (filtra modelo_id), não fura o isolamento por par (que vale
         #    para histórico do cliente, já filtrado por cliente+modelo na janela e no contexto).
         #    Carregado ANTES do contexto dinâmico p/ (a) o reminder (3b) reusar o `nome`, (b) o
-        #    contexto reusar o `tabela_max_horas` derivado dos programas já lidos (elimina a query
-        #    agregada de MAX(horas)) e (c) o `endereco_formatado`/`nome_local` da MESMA leitura de
-        #    `modelos` alimentar o <local_de_encontro> (elimina a 2ª leitura da PK do modelo).
+        #    contexto reusar o `tabela_max_horas` e o `sem_menage` derivados das linhas já lidas
+        #    (elimina a query agregada de MAX(horas) e uma 2ª leitura dos fetiches) e (c) o
+        #    `endereco_formatado`/`nome_local` da MESMA leitura de `modelos` alimentar o
+        #    <local_de_encontro> (elimina a 2ª leitura da PK do modelo).
         (
             modelo_md,
             modelo_nome,
             tabela_max_horas,
+            sem_menage,
             local_endereco_raw,
             local_nome_raw,
         ) = await _carregar_bp3(conn, ctx.modelo_id)
@@ -208,6 +210,7 @@ async def prepare_context(
             linhas,
             atendimento=atendimento,
             tabela_max_horas=tabela_max_horas,
+            sem_menage=sem_menage,
             local_endereco_raw=local_endereco_raw,
             local_nome_raw=local_nome_raw,
         )
@@ -524,6 +527,7 @@ async def _anexar_contexto_dinamico(
     *,
     atendimento: dict[str, Any] | None = None,
     tabela_max_horas: float = 0.0,
+    sem_menage: bool = False,
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
 ) -> tuple[list[BaseMessage], ContextoDoTurno, PecasDoTurno]:
@@ -534,9 +538,10 @@ async def _anexar_contexto_dinamico(
     conexão já aberta. As queries de conversa/histórico filtram pelo par (cliente, modelo)
     JUNTOS (isolamento — agente/CLAUDE.md).
 
-    `atendimento` (row já lido pelo gate), `tabela_max_horas` e `local_endereco_raw`/`local_nome_raw`
-    (derivados/lidos em `_carregar_bp3`) chegam prontos p/ evitar re-leituras da mesma PK. Nos
-    testes que chamam direto sem eles, os defaults valem (atendimento vazio, sem local, max 0).
+    `atendimento` (row já lido pelo gate), `tabela_max_horas`/`sem_menage` e `local_endereco_raw`/
+    `local_nome_raw` (derivados/lidos em `_carregar_bp3`) chegam prontos p/ evitar re-leituras da
+    mesma PK. Nos testes que chamam direto sem eles, os defaults valem (atendimento vazio, sem
+    local, max 0, sem tag de menage).
 
     Concatena no ÚLTIMO HumanMessage (a msg atual do cliente), ANTES da fala dele: a ordem final da
     cauda é contexto dinâmico → fala do cliente (o lembrete é prependado depois, em
@@ -554,6 +559,7 @@ async def _anexar_contexto_dinamico(
         linhas,
         atendimento=atendimento,
         tabela_max_horas=tabela_max_horas,
+        sem_menage=sem_menage,
         local_endereco_raw=local_endereco_raw,
         local_nome_raw=local_nome_raw,
     )
@@ -638,14 +644,17 @@ def _injetar_reminder_se_necessario(
 
 async def _carregar_bp3(
     conn: AsyncConnection[Any], modelo_id: str
-) -> tuple[str, str, float, str | None, str | None]:
+) -> tuple[str, str, float, bool, str | None, str | None]:
     """Monta o BP3 por-modelo: identidade + programas do modelo_id (03 §2.1/§3.3).
 
-    Devolve `(bp3_md, nome, tabela_max_horas, endereco_formatado, nome_local)`:
+    Devolve `(bp3_md, nome, tabela_max_horas, sem_menage, endereco_formatado, nome_local)`:
     - `bp3_md`/`nome`: o markdown do BP_MODELO e o `nome` da modelo (p/ a âncora de identidade do
       reminder reusar sem recarregar o registro);
     - `tabela_max_horas`: MAX das horas dos programas, derivado das linhas JÁ lidas aqui (elimina a
       query agregada `SELECT MAX(d.horas)` que `_resolver_variaveis` fazia à parte); 0 se sem tabela;
+    - `sem_menage`: a modelo NÃO tem a seção "Por pessoa" no `<fetiches>`, derivado das linhas de
+      fetiche já lidas aqui (mesmo motivo do MAX: nenhuma query nova). Vira o `<sem_menage>` da
+      cauda — o gate do `<menage>`, que era prosa no BP_GERAL (padrão `<sem_periodo_longo>`);
     - `endereco_formatado`/`nome_local`: o ponto de encontro da modelo, lido na MESMA leitura de
       `modelos` (elimina a 2ª leitura da PK). Só CRU — o gate por estado/tipo (<local_de_encontro>)
       é aplicado em `_resolver_variaveis`; NÃO entram no markdown (prefixo cacheável não tem endereço).
@@ -707,10 +716,16 @@ async def _carregar_bp3(
     # _resolver_variaveis). `duracao_horas` é numérica; float() casa com o `tabela_max_horas` que
     # o contexto dinâmico esperava. Sem programas -> 0.0 (mesmo default do COALESCE(MAX,0) antigo).
     tabela_max_horas = max((float(p["duracao_horas"]) for p in programas), default=0.0)
+    # Espelha EXATAMENTE o filtro `por_pessoa` do fetiches.md.j2 (`selectattr('preco')` +
+    # `selectattr('cobra_por_pessoa')`, os dois por truthiness): sem nenhum fetiche pago com a flag
+    # do catálogo, o <fetiches> dela não abre a seção "Por pessoa" e menage/casal não existe pra
+    # ela. Divergir daqui faria a cauda proibir o que a tabela dela oferece (ou o contrário).
+    sem_menage = not any(f.get("preco") and f.get("cobra_por_pessoa") for f in fetiches)
     return (
         render_bp3(identidade, programas, fetiches),
         identidade.nome,
         tabela_max_horas,
+        sem_menage,
         m.get("endereco_formatado"),
         m.get("nome_local"),
     )
@@ -748,6 +763,7 @@ async def _resolver_variaveis(
     *,
     atendimento: dict[str, Any] | None = None,
     tabela_max_horas: float = 0.0,
+    sem_menage: bool = False,
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
 ) -> ContextoDoTurno:
@@ -755,9 +771,11 @@ async def _resolver_variaveis(
 
     `atendimento` (row já lido pelo gate em `_carregar_atendimento`) traz estado/agenda + as 3
     flags de disciplina materializadas (`n_contrapropostas`/`dia_sondado_em`/`book_enviado_em`) —
-    não relê a PK nem varre as 500 falas da IA. `tabela_max_horas` e `local_endereco_raw`/
-    `local_nome_raw` vêm de `_carregar_bp3` (MAX derivado dos programas já lidos + a MESMA leitura
-    de `modelos`). Defaults ({}, 0, None) mantêm os testes que chamam direto funcionando.
+    não relê a PK nem varre as 500 falas da IA. `tabela_max_horas`, `sem_menage` e
+    `local_endereco_raw`/`local_nome_raw` vêm de `_carregar_bp3` (MAX e seção "Por pessoa"
+    derivados das linhas já lidas + a MESMA leitura de `modelos`). Defaults ({}, 0, False, None)
+    mantêm os testes que chamam direto funcionando — `sem_menage=False` é o mesmo default
+    conservador do `tabela_max_horas=0`: sem o dado do cardápio, a cauda não injeta a tag.
 
     `linhas` (janela crua de `carregar_mensagens`, com `created_at`) alimenta a percepção de tempo
     da cauda (emenda ADR 0025, 2026-06-26): quanto tempo faz que o cliente falou. Opcional —
@@ -1043,6 +1061,10 @@ async def _resolver_variaveis(
         # max==0 (cadastro vazio, estado anormal) não injeta — não é "sem período longo".
         tabela_max_horas=tabela_max_horas,
         sem_periodo_longo=0 < tabela_max_horas < 6,
+        # Mesmo trilho, para o menage: sem a seção "Por pessoa" no <fetiches> (derivada em
+        # _carregar_bp3), a cauda injeta <sem_menage> e o gate do <menage> deixa de ser prosa que
+        # toda modelo lê e descarta em todo turno.
+        sem_menage=sem_menage,
         recorrente=conversa.get("recorrente", False),
         observacoes_internas=conversa.get("observacoes_internas"),
         ultimo_motivo_perda=conversa.get("ultimo_motivo_perda"),

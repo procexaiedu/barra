@@ -77,6 +77,10 @@ class ContextoDoTurno:
     # Cardápio e cliente.
     tabela_max_horas: float
     sem_periodo_longo: bool
+    # Gate do <menage>, derivado do cardápio dela (mesma leitura de fetiches do BP_MODELO): sem a
+    # seção "Por pessoa" no <fetiches>, menage/casal não existe pra ela e a cauda injeta o
+    # <sem_menage>. É o padrão do `sem_periodo_longo` — a condição vira dado, não prosa.
+    sem_menage: bool
     recorrente: bool
     observacoes_internas: str | None
     ultimo_motivo_perda: str | None
