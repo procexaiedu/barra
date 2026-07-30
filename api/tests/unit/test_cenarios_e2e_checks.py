@@ -10,10 +10,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 from typing import Any
 
+import pytest
 from evals.e2e.massa import (
     _avancou_no_horario_apos_negociacao,
     _cotou_completo_sozinho,
     _ofereceu_local_proprio,
+    _propos_dentro_da_janela,
     _repetiu_bolha_identica,
 )
 
@@ -67,6 +69,33 @@ def test_avanco_pos_negociacao_exige_hora_sem_recusa_nem_re_cotacao() -> None:
     assert not _avancou_no_horario_apos_negociacao(
         _dialogo(escada, ("que horas você pode hoje ?", "Me fala o que prefere amor"))
     )
+
+
+def test_janela_vaga_exige_proposta_dentro_da_janela_dele() -> None:
+    pergunta = ("oi quanto é 1 hora?", "400 1h no meu local amor")
+    # o piso e as 14h, ele disse "de noite": a proposta cai na janela DELE.
+    assert _propos_dentro_da_janela(
+        _dialogo(pergunta, ("pode ser de noite", "Consigo às 21h, fecha ?")), "de noite"
+    )
+    # o bug: propor o piso, um horario que ele acabou de excluir.
+    assert not _propos_dentro_da_janela(
+        _dialogo(pergunta, ("pode ser de noite", "Consigo às 14h amor ?")), "de noite"
+    )
+    # misturar as duas nao salva: a diurna continua sendo hora que ele excluiu.
+    assert not _propos_dentro_da_janela(
+        _dialogo(pergunta, ("pode ser de noite", "Tenho 14h ou 21h amor")), "de noite"
+    )
+    # responder sem hora nenhuma deixa a janela dele sem proposta.
+    assert not _propos_dentro_da_janela(
+        _dialogo(pergunta, ("pode ser de noite", "Perfeito amor, me confirma")), "de noite"
+    )
+    # a DURACAO ("1h") nao e proposta de horario: nao conta de nenhum dos dois lados.
+    assert not _propos_dentro_da_janela(
+        _dialogo(pergunta, ("pode ser de noite", "A 1h fica 400 amor")), "de noite"
+    )
+    # janela sem faixa mapeada e erro de cenario, nao um check que passa em silencio.
+    with pytest.raises(ValueError):
+        _propos_dentro_da_janela(_dialogo(("oi", "Oii")), "quando der")
 
 
 def test_local_proprio_pega_a_oferta_de_quem_so_se_desloca() -> None:

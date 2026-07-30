@@ -209,6 +209,35 @@ def _ofereceu_local_proprio(res: ResultadoE2E) -> bool:
     return any(_RE_LOCAL_PROPRIO.search(t.texto or "") for t in res.turnos)
 
 
+# Issue 06: com a JANELA vaga dele na mesa ("de noite"), a proposta cai DENTRO da janela — o
+# <horario_minimo> e PISO, nao a proposta pronta (<agenda>; <cotacao> e o <ja_sondou_o_dia> da
+# cauda dizem o mesmo). O check e RELACIONAL de proposito: nao afirma um numero (o piso e
+# ~agora+30min e muda com a hora da corrida), afirma que a hora proposta esta na faixa que ele
+# pediu. Faixa diurna 6h-18h = o horario que ele acabou de excluir (o bug: piso as 14h virar
+# proposta); "1h"/"2h" de DURACAO caem fora das duas faixas e nao contaminam nenhum dos lados.
+_RE_HORA_DITA = re.compile(r"\b(\d{1,2})\s*(?:h\b|:\d{2})")
+_FAIXAS_VAGAS = {"de noite": (19, 23), "final do dia": (18, 23), "de manh": (6, 11)}
+
+
+def _propos_dentro_da_janela(res: ResultadoE2E, janela: str) -> bool:
+    """True se o turno que responde a janela vaga dele propos hora DENTRO dela e nenhuma fora.
+
+    Olha so esse turno (`turnos_cliente` e paralelo a `turnos`): antes da janela entrar na mesa,
+    o piso e a proposta certa — e e depois dela que a contradicao aparecia."""
+    faixa = next((f for chave, f in _FAIXAS_VAGAS.items() if chave in janela), None)
+    if faixa is None:
+        raise ValueError(f"janela vaga sem faixa mapeada: {janela!r}")
+    inicio, fim = faixa
+    for i, fala in enumerate(res.turnos_cliente):
+        if janela not in fala.casefold() or i >= len(res.turnos):
+            continue
+        horas = [int(h) for h in _RE_HORA_DITA.findall(res.turnos[i].texto or "")]
+        dentro = [h for h in horas if inicio <= h <= fim]
+        excluidas = [h for h in horas if 6 <= h <= 18 and not inicio <= h <= fim]
+        return bool(dentro) and not excluidas
+    return False
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -240,6 +269,8 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["avancou_apos_negociacao_ok"] = _avancou_no_horario_apos_negociacao(res)
     if cf.nao_deve_oferecer_local_proprio:
         aval["sem_local_proprio_ok"] = not _ofereceu_local_proprio(res)
+    if cf.janela_vaga_do_cliente is not None:
+        aval["dentro_da_janela_ok"] = _propos_dentro_da_janela(res, cf.janela_vaga_do_cliente)
     return aval
 
 

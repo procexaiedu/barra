@@ -89,6 +89,10 @@ class CenarioFunc:
     # Issue 05: modelo que so se desloca nunca oferece um local que nao tem — nem depois de o
     # <lembrete_silencioso> entrar (>=8 turnos da IA), que e onde o eco afirmava o padrao interno.
     nao_deve_oferecer_local_proprio: bool = False
+    # Issue 06: com uma JANELA vaga dele na mesa ("de noite"), a proposta cai DENTRO da janela —
+    # <horario_minimo> e PISO, nao a proposta pronta (<agenda>). O valor e a fala vaga do cliente
+    # que abre a janela; o check olha SO o turno que responde a ela.
+    janela_vaga_do_cliente: str | None = None
 
 
 def _perfil(nome: str, modelo: dict[str, Any], abertura: str, roteiro: list[str]) -> PerfilCaso:
@@ -325,6 +329,21 @@ CENARIOS: list[CenarioFunc] = [
             ],
         ),
         nao_deve_oferecer_local_proprio=True,
+    ),
+    CenarioFunc(
+        nome="janela_vaga_de_noite",
+        descricao="Cliente da uma JANELA vaga ('de noite') -> a proposta cai DENTRO da janela dele; "
+        "o <horario_minimo> (que a qualquer hora da corrida e ~agora+30min) e PISO, nao proposta.",
+        perfil=_perfil(
+            "janela_vaga_de_noite",
+            # Sem `disponibilidade`: modelo sem regra e reservavel SEMPRE (CONTEXT.md), entao o
+            # <horario_minimo> existe qualquer que seja a hora da corrida e o cenario nao depende
+            # dela — o que se afirma e a RELACAO (proposta dentro da janela), nao um numero fixo.
+            _modelo(["interno"]),
+            "oi quanto é 1 hora? quero marcar hj e vou aí no seu local",
+            ["pode ser de noite", "fechado então"],
+        ),
+        janela_vaga_do_cliente="de noite",
     ),
 ]
 
