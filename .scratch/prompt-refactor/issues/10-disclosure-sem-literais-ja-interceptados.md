@@ -6,7 +6,7 @@ Depois deste ticket o ponteiro cobre só os gatilhos que de fato chegam ao model
 
 **Blocked by:** 01
 
-**Status:** needs-triage
+**Status:** wontfix
 
 - [ ] pedido para ignorar instruções continua escalando com o mesmo motivo, pelo caminho determinístico
 - [ ] tag falsa imitando bloco interno, idem
@@ -103,3 +103,11 @@ redação, não os quatro literais — e é eixo A, não C.
 Nada foi editado em `regras.md.j2` nem em nenhum arquivo de `api/`. Verificação rodada mesmo assim,
 para registro do estado da árvore: `make lint` (All checks passed) · `make typecheck` (142 arquivos,
 sem issue) · `make test` (1829 passed, 239 skipped, 8 deselected). Nenhum eval pago rodado.
+
+**Triagem do humano (2026-07-30): `wontfix`.** 253 chars não pagam o buraco. O bloco está sob
+ataque ativo, e a verificação no código vivo mostrou que a prosa é a única defesa nas formulações
+portuguesas comuns — `PADROES_JAILBREAK` cobre praticamente só inglês e tag literal. O corte
+proposto trocaria volume por superfície de ataque no pior lugar possível.
+
+O achado sobre a cobertura do regex virou ticket próprio, fora desta fila:
+`.scratch/seguranca-jailbreak-ptbr/issues/01-padroes-de-jailbreak-em-portugues.md`.
