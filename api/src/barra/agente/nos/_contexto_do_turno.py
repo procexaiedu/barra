@@ -81,6 +81,11 @@ class ContextoDoTurno:
     # seção "Por pessoa" no <fetiches>, menage/casal não existe pra ela e a cauda injeta o
     # <sem_menage>. É o padrão do `sem_periodo_longo` — a condição vira dado, não prosa.
     sem_menage: bool
+    # Mesmo trilho para a vídeo chamada (ADR-0021/0029): sem o programa na tabela dela (as mesmas
+    # linhas de `modelo_programas` que o <programas> do BP_MODELO renderiza), a chamada não é dela
+    # e a cauda injeta o <sem_video_chamada> — a prosa que negava isso em quatro sites do BP_GERAL
+    # sai. Default conservador `False` (não injeta) igual aos dois acima.
+    sem_video_chamada: bool
     recorrente: bool
     observacoes_internas: str | None
     ultimo_motivo_perda: str | None

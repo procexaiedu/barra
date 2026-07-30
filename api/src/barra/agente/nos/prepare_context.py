@@ -53,6 +53,7 @@ from barra.dominio.modelos.disponibilidade import proxima_abertura
 from barra.settings import get_settings
 
 from .._classificador import classificar_janela
+from .._normalizar import normalizar
 from .._texto_turno import _PREFIXO_ID_PAUSA
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
@@ -164,15 +165,16 @@ async def prepare_context(
         #    conexão. É POR-MODELO (filtra modelo_id), não fura o isolamento por par (que vale
         #    para histórico do cliente, já filtrado por cliente+modelo na janela e no contexto).
         #    Carregado ANTES do contexto dinâmico p/ (a) o reminder (3b) reusar o `nome`, (b) o
-        #    contexto reusar o `tabela_max_horas` e o `sem_menage` derivados das linhas já lidas
-        #    (elimina a query agregada de MAX(horas) e uma 2ª leitura dos fetiches) e (c) o
-        #    `endereco_formatado`/`nome_local` da MESMA leitura de `modelos` alimentar o
-        #    <local_de_encontro> (elimina a 2ª leitura da PK do modelo).
+        #    contexto reusar o `tabela_max_horas`, o `sem_menage` e o `sem_video_chamada` derivados
+        #    das linhas já lidas (elimina a query agregada de MAX(horas), uma 2ª leitura dos
+        #    fetiches e uma dos programas) e (c) o `endereco_formatado`/`nome_local` da MESMA
+        #    leitura de `modelos` alimentar o <local_de_encontro> (elimina a 2ª leitura da PK).
         (
             modelo_md,
             modelo_nome,
             tabela_max_horas,
             sem_menage,
+            sem_video_chamada,
             local_endereco_raw,
             local_nome_raw,
         ) = await _carregar_bp3(conn, ctx.modelo_id)
@@ -211,6 +213,7 @@ async def prepare_context(
             atendimento=atendimento,
             tabela_max_horas=tabela_max_horas,
             sem_menage=sem_menage,
+            sem_video_chamada=sem_video_chamada,
             local_endereco_raw=local_endereco_raw,
             local_nome_raw=local_nome_raw,
         )
@@ -528,6 +531,7 @@ async def _anexar_contexto_dinamico(
     atendimento: dict[str, Any] | None = None,
     tabela_max_horas: float = 0.0,
     sem_menage: bool = False,
+    sem_video_chamada: bool = False,
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
 ) -> tuple[list[BaseMessage], ContextoDoTurno, PecasDoTurno]:
@@ -538,10 +542,10 @@ async def _anexar_contexto_dinamico(
     conexão já aberta. As queries de conversa/histórico filtram pelo par (cliente, modelo)
     JUNTOS (isolamento — agente/CLAUDE.md).
 
-    `atendimento` (row já lido pelo gate), `tabela_max_horas`/`sem_menage` e `local_endereco_raw`/
-    `local_nome_raw` (derivados/lidos em `_carregar_bp3`) chegam prontos p/ evitar re-leituras da
-    mesma PK. Nos testes que chamam direto sem eles, os defaults valem (atendimento vazio, sem
-    local, max 0, sem tag de menage).
+    `atendimento` (row já lido pelo gate), `tabela_max_horas`/`sem_menage`/`sem_video_chamada` e
+    `local_endereco_raw`/`local_nome_raw` (derivados/lidos em `_carregar_bp3`) chegam prontos p/
+    evitar re-leituras da mesma PK. Nos testes que chamam direto sem eles, os defaults valem
+    (atendimento vazio, sem local, max 0, sem tag de menage nem de vídeo chamada).
 
     Concatena no ÚLTIMO HumanMessage (a msg atual do cliente), ANTES da fala dele: a ordem final da
     cauda é contexto dinâmico → fala do cliente (o lembrete é prependado depois, em
@@ -560,6 +564,7 @@ async def _anexar_contexto_dinamico(
         atendimento=atendimento,
         tabela_max_horas=tabela_max_horas,
         sem_menage=sem_menage,
+        sem_video_chamada=sem_video_chamada,
         local_endereco_raw=local_endereco_raw,
         local_nome_raw=local_nome_raw,
     )
@@ -642,12 +647,27 @@ def _injetar_reminder_se_necessario(
     return historico
 
 
+def _e_video_chamada(nome_do_programa: str) -> bool:
+    """A linha do `<programas>` é a vídeo chamada (o único serviço REMOTO — ADR-0021)?
+
+    O gate do prompt sempre foi por NOME ("ela só existe se estiver nos seus <programas>", lido
+    pelo próprio LLM na tabela do BP_MODELO); aqui o mesmo julgamento vira dado, sobre as mesmas
+    linhas. O catálogo é curado e a palavra da operação é "chamada" (CONTEXT.md "Vídeo chamada",
+    card "Hora da vídeo chamada"): "Vídeo chamada", "Videochamada" e "Chamada de vídeo" casam
+    todas pelo substring, com ou sem acento (`normalizar`). Cadastro que a batize sem a palavra
+    ("Vídeo", só) NÃO casa — nesse caso a cauda a trata como ausente e a modelo recusa o que
+    vende; é o lado do erro que não promete ao cliente uma chamada que a tabela não tem.
+    """
+    return "chamada" in normalizar(nome_do_programa)
+
+
 async def _carregar_bp3(
     conn: AsyncConnection[Any], modelo_id: str
-) -> tuple[str, str, float, bool, str | None, str | None]:
+) -> tuple[str, str, float, bool, bool, str | None, str | None]:
     """Monta o BP3 por-modelo: identidade + programas do modelo_id (03 §2.1/§3.3).
 
-    Devolve `(bp3_md, nome, tabela_max_horas, sem_menage, endereco_formatado, nome_local)`:
+    Devolve `(bp3_md, nome, tabela_max_horas, sem_menage, sem_video_chamada, endereco_formatado,
+    nome_local)`:
     - `bp3_md`/`nome`: o markdown do BP_MODELO e o `nome` da modelo (p/ a âncora de identidade do
       reminder reusar sem recarregar o registro);
     - `tabela_max_horas`: MAX das horas dos programas, derivado das linhas JÁ lidas aqui (elimina a
@@ -655,6 +675,9 @@ async def _carregar_bp3(
     - `sem_menage`: a modelo NÃO tem a seção "Por pessoa" no `<fetiches>`, derivado das linhas de
       fetiche já lidas aqui (mesmo motivo do MAX: nenhuma query nova). Vira o `<sem_menage>` da
       cauda — o gate do `<menage>`, que era prosa no BP_GERAL (padrão `<sem_periodo_longo>`);
+    - `sem_video_chamada`: a vídeo chamada NÃO está nos `<programas>` dela, derivado das MESMAS
+      linhas de programa já lidas aqui. Vira o `<sem_video_chamada>` da cauda — o gate que era
+      prosa em quatro sites do BP_GERAL (ADR-0021/0029, mesmo padrão do `sem_menage`);
     - `endereco_formatado`/`nome_local`: o ponto de encontro da modelo, lido na MESMA leitura de
       `modelos` (elimina a 2ª leitura da PK). Só CRU — o gate por estado/tipo (<local_de_encontro>)
       é aplicado em `_resolver_variaveis`; NÃO entram no markdown (prefixo cacheável não tem endereço).
@@ -721,11 +744,13 @@ async def _carregar_bp3(
     # do catálogo, o <fetiches> dela não abre a seção "Por pessoa" e menage/casal não existe pra
     # ela. Divergir daqui faria a cauda proibir o que a tabela dela oferece (ou o contrário).
     sem_menage = not any(f.get("preco") and f.get("cobra_por_pessoa") for f in fetiches)
+    sem_video_chamada = not any(_e_video_chamada(p["nome"]) for p in programas)
     return (
         render_bp3(identidade, programas, fetiches),
         identidade.nome,
         tabela_max_horas,
         sem_menage,
+        sem_video_chamada,
         m.get("endereco_formatado"),
         m.get("nome_local"),
     )
@@ -764,6 +789,7 @@ async def _resolver_variaveis(
     atendimento: dict[str, Any] | None = None,
     tabela_max_horas: float = 0.0,
     sem_menage: bool = False,
+    sem_video_chamada: bool = False,
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
 ) -> ContextoDoTurno:
@@ -771,11 +797,12 @@ async def _resolver_variaveis(
 
     `atendimento` (row já lido pelo gate em `_carregar_atendimento`) traz estado/agenda + as 3
     flags de disciplina materializadas (`n_contrapropostas`/`dia_sondado_em`/`book_enviado_em`) —
-    não relê a PK nem varre as 500 falas da IA. `tabela_max_horas`, `sem_menage` e
-    `local_endereco_raw`/`local_nome_raw` vêm de `_carregar_bp3` (MAX e seção "Por pessoa"
-    derivados das linhas já lidas + a MESMA leitura de `modelos`). Defaults ({}, 0, False, None)
-    mantêm os testes que chamam direto funcionando — `sem_menage=False` é o mesmo default
-    conservador do `tabela_max_horas=0`: sem o dado do cardápio, a cauda não injeta a tag.
+    não relê a PK nem varre as 500 falas da IA. `tabela_max_horas`, `sem_menage`,
+    `sem_video_chamada` e `local_endereco_raw`/`local_nome_raw` vêm de `_carregar_bp3` (MAX, seção
+    "Por pessoa" e linha de vídeo chamada derivados das linhas já lidas + a MESMA leitura de
+    `modelos`). Defaults ({}, 0, False, None) mantêm os testes que chamam direto funcionando —
+    `sem_menage`/`sem_video_chamada=False` são o mesmo default conservador do `tabela_max_horas=0`:
+    sem o dado do cardápio, a cauda não injeta a tag.
 
     `linhas` (janela crua de `carregar_mensagens`, com `created_at`) alimenta a percepção de tempo
     da cauda (emenda ADR 0025, 2026-06-26): quanto tempo faz que o cliente falou. Opcional —
@@ -1065,6 +1092,10 @@ async def _resolver_variaveis(
         # _carregar_bp3), a cauda injeta <sem_menage> e o gate do <menage> deixa de ser prosa que
         # toda modelo lê e descarta em todo turno.
         sem_menage=sem_menage,
+        # E para a vídeo chamada: sem a linha dela no <programas> (derivada em _carregar_bp3), a
+        # cauda injeta <sem_video_chamada> — os quatro sites de prosa que negavam a chamada no
+        # BP_GERAL viram um só, positivo.
+        sem_video_chamada=sem_video_chamada,
         recorrente=conversa.get("recorrente", False),
         observacoes_internas=conversa.get("observacoes_internas"),
         ultimo_motivo_perda=conversa.get("ultimo_motivo_perda"),

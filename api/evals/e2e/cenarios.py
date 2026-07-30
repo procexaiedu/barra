@@ -147,7 +147,18 @@ CENARIOS: list[CenarioFunc] = [
         descricao="Video chamada (remoto) -> sem Pix, sem local fisico.",
         perfil=_perfil(
             "remoto_videochamada",
-            _modelo(["remoto"]),
+            # Issue 12: este e o ramo COM o programa, e ate aqui o cadastro nao o tinha (so
+            # `Encontro`) — o gate "ela so existe se estiver nos seus <programas>" era prosa e o
+            # LLM passava batido. Agora a ausencia vira a tag <sem_video_chamada> na cauda, entao a
+            # linha da chamada tem que EXISTIR na tabela dela, senao este cenario passa a medir o
+            # ramo SEM (que ja tem o seu, `video_chamada_sem_programa`).
+            _modelo(
+                ["remoto"],
+                programas=[
+                    *_PROGRAMAS,
+                    {"nome": "Vídeo chamada", "duracao_nome": "30 min", "horas": 0.5, "preco": 300},
+                ],
+            ),
             "vc faz chamada de video? queria marcar uma videochamada com vc",
             ["pode ser hj 21h", "1 hora ta bom", "fechado então"],
         ),
