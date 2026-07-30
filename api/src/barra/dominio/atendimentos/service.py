@@ -774,7 +774,10 @@ _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], st
 # `slots_faltantes`. Estados sem transicao automatica (Aguardando_confirmacao+) recebem so a
 # frase informativa do que se espera ali.
 #
-# A frase tambem ROTEIA: ela nomeia a(s) fase(s) do `<conducao_da_venda>` que valem agora. O bloco
+# A frase tambem ROTEIA: ela nomeia a(s) fase(s) do `<conducao_da_venda>` que valem agora — e, no
+# `Aguardando_confirmacao`, o `<tipos_de_encontro>`, que e onde a logistica da chegada (pedir a foto
+# da portaria, o Pix, o horario) esta escrita; a partir dali a conduta e logistica, nao funil, e o
+# proprio `<fechamento>` ja manda pra la. O bloco
 # inteiro continua no BP_GERAL (prefixo cacheado) — fatiar de verdade nao da, porque o `extrair`
 # roda DEPOIS do `llm` (graph.py) e este `estado` e o do turno ANTERIOR: um prompt cortado por fase
 # chegaria sempre um turno atrasado e o cliente que pula o funil ("quanto e?" no primeiro oi) cairia
@@ -795,9 +798,17 @@ _PROXIMO_PASSO: dict[str, str] = {
     # Aqui a frase nomeia a ACAO da fase (parar e deixar ele abrir), nao o dado que falta; o dado
     # continua dito uma vez, no <ainda_falta>, que e onde ele pertence.
     "Novo": "deixar ele abrir o assunto e puxar pro encontro — sua conduta agora é <abertura>; se a fala dele já pede preço, <cotacao> junto",
-    "Triagem": "fechar o que falta pra combinar o encontro — sua conduta agora é <apresentacao> e <cotacao>",
-    "Qualificado": "confirmar os detalhes e seguir pro próximo passo do encontro — sua conduta agora é <cotacao> e <fechamento>",
-    "Aguardando_confirmacao": "conduzir a confirmação (pix, foto de portaria ou o horário combinado) — sua conduta agora é <fechamento> e <enquanto_ele_nao_chega>",
+    # A volta depois do sumico e ortogonal a FSM (nenhum `estado` a marca), mas ela acontece nestes
+    # dois: a perda tipica e o silencio DEPOIS da cotacao, e e ai que ele reaparece. Ponteiro
+    # condicional, na forma que o `Novo` ja usa — a cauda aponta, nao amputa. Sem ele a
+    # `<retomada_pos_silencio>` nao era enderecada por nada (nem cross-ref interna, nem cauda).
+    "Triagem": "fechar o que falta pra combinar o encontro — sua conduta agora é <apresentacao> e <cotacao>; se ele sumiu e voltou agora, <retomada_pos_silencio> junto",
+    "Qualificado": "confirmar os detalhes e seguir pro próximo passo do encontro — sua conduta agora é <cotacao> e <fechamento>; se ele sumiu e voltou agora, <retomada_pos_silencio> junto",
+    # A espera pela chegada saiu do BP_GERAL: a flag A2 `<ja_pediu_a_foto_da_portaria>` carrega as
+    # mesmas falas de presenca e as mesmas proibicoes de cobranca, e so aparece quando ja houve
+    # pedido. O que restava aqui era o ponteiro pro trilho da chegada — que aponta direto pro site
+    # onde ele mora, o `<tipos_de_encontro>`.
+    "Aguardando_confirmacao": "conduzir a confirmação (pix, foto de portaria ou o horário combinado) — sua conduta agora é <fechamento> e <tipos_de_encontro>",
     "Confirmado": "a modelo assume daqui; não reabra a negociação",
     "Em_execucao": "encontro em andamento; não reabra a negociação",
 }
