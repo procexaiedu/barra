@@ -397,7 +397,7 @@ async def processar_turno(
                         desfecho_turno = desfecho_do_turno(resultado)
                         resumir_trace_turno(
                             turno_span,
-                            entrada=mensagens_cliente_do_turno(resultado["messages"]),
+                            entrada=mensagens_cliente_do_turno(resultado),
                             resposta=extrair_texto_do_turno(resultado["messages"]),
                             desfecho=desfecho_turno,
                             level="WARNING" if desfecho_turno.get("erros_tool") else "DEFAULT",
