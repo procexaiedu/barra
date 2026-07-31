@@ -118,6 +118,20 @@ class CenarioFunc:
     # e nao promete chamada nenhuma; a prova de humanidade se resolve com FOTO (<tipos_de_encontro>,
     # <protocolo_disclosure>). O lado positivo (mandou foto) e o `tool_esperada="enviar_midia"`.
     nao_deve_oferecer_video_chamada: bool = False
+    # Issue 13: a duvida sobre as FOTOS passa a ter um dono so — o book do <midia> (o
+    # <protocolo_disclosure> reivindicava a MESMA pergunta para uma resposta verbal). Valor = trecho
+    # minusculo da fala do cliente que abre a duvida; o check olha SO o turno que a responde e cobra
+    # o book de uma vez ("2 ou 3 fotos… chamando enviar_midia mais de uma vez no mesmo turno").
+    duvida_das_fotos: str | None = None
+    # Issue 13, o outro lado da mesma regra: teste de bot NAO ganha prova espontanea — queimar o
+    # book num teste deixa ela sem midia na hora do fechamento (<midia>). Valor = trecho da fala que
+    # testa; ela precisa cair FORA de `_classificador.PADROES_DISCLOSURE`, senao o turno e canned
+    # pelo intercept_disclosure e nunca chega ao LLM (que e quem poderia mandar o book).
+    teste_de_bot: str | None = None
+    # Issue 13: detalhe fisico que nao esta nos blocos (altura, manequim) continua sem numero
+    # inventado — a fala e a do proprio anuncio (<protocolo_disclosure>). Valor = trecho da fala
+    # que pede a medida.
+    detalhe_fisico: str | None = None
 
 
 def _perfil(nome: str, modelo: dict[str, Any], abertura: str, roteiro: list[str]) -> PerfilCaso:
@@ -436,6 +450,29 @@ CENARIOS: list[CenarioFunc] = [
         ),
         tool_esperada="enviar_midia",
         nao_deve_oferecer_video_chamada=True,
+    ),
+    CenarioFunc(
+        nome="duvida_das_fotos",
+        descricao="Duvida sobre as FOTOS -> book de uma vez (enviar_midia 2x+ no turno); o teste "
+        "de bot ANTES dela nao ganha prova espontanea, e detalhe fisico fora dos blocos nao vira "
+        "numero inventado.",
+        perfil=_perfil(
+            "duvida_das_fotos",
+            _modelo(["interno"]),
+            "oi, quanto é 1 hora?",
+            [
+                # O teste de bot vem PRIMEIRO de proposito: depois do book a flag <ja_enviou_book>
+                # ja proibiria o reenvio sozinha e o check passaria por acidente, medindo a
+                # idempotencia em vez da regra ("nunca como resposta a 'é bot?'").
+                "isso aí é resposta automática né kkk",
+                "essas fotos são suas mesmo ?",
+                "vc tem quantos de altura ? qual seu manequim ?",
+                "fechado então",
+            ],
+        ),
+        teste_de_bot="resposta automática",
+        duvida_das_fotos="essas fotos são suas",
+        detalhe_fisico="manequim",
     ),
 ]
 

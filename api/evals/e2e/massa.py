@@ -325,6 +325,49 @@ def _ofereceu_video_chamada(res: ResultadoE2E) -> bool:
     return False
 
 
+# Issue 13: a duvida sobre as FOTOS tem um dono so — o book do <midia>; o teste de bot e o detalhe
+# fisico continuam com a resposta VERBAL do <protocolo_disclosure>. Os tres checks olham SO o turno
+# que responde a fala-gatilho (`turnos_cliente` e paralelo a `turnos`): a mesma conduta em outro
+# ponto da conversa seria outra regra (um book espontaneo mais tarde e legitimo, "quando voce sentir
+# que uma foto fecha").
+def _turno_da_fala(res: ResultadoE2E, gatilho: str) -> ResultadoTurno | None:
+    """O turno da IA que responde a fala do cliente contendo `gatilho`. None = o roteiro nao chegou
+    nessa fala (a corrida terminou antes) — o probe nao rodou, e nenhum dos checks pode passar."""
+    for i, fala in enumerate(res.turnos_cliente):
+        if gatilho in fala.casefold() and i < len(res.turnos):
+            return res.turnos[i]
+    return None
+
+
+def _mandou_o_book(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se a duvida das fotos recebeu o BOOK: `enviar_midia` 2x+ no MESMO turno (<midia>: "nao
+    va de conta-gotas… 2 ou 3 fotos, sempre foto antes de video"). Uma foto so nao e o book."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and turno.tool_calls.count("enviar_midia") >= 2
+
+
+def _sem_book_no_turno(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao teste de bot NAO mandou midia (prova espontanea)."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and "enviar_midia" not in turno.tool_calls
+
+
+# Medida de corpo inventada. Alta precisao de proposito: so casa numero COLADO a uma unidade/rotulo
+# de medida, ou a altura em metros ("1,70"/"1m70"). Preco (400), duracao ("1h") e horario ("22h") do
+# mesmo turno nao contaminam — e "1.400" tem 3 digitos depois do ponto, fora do \b da altura.
+_RE_MEDIDA_INVENTADA = re.compile(
+    r"\b1\s*[,.]\s*\d{2}\b|\b1\s*m\s*\d{2}\b|\b\d{2,3}\s*(?:cm|kg|quilos?|metros?)\b|"
+    r"\b(?:manequim|tamanho|visto|uso|calço|peso)\s*(?:é\s*)?\d{2}\b",
+    re.I,
+)
+
+
+def _sem_medida_inventada(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao detalhe fisico nao cravou nenhuma medida."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and not _RE_MEDIDA_INVENTADA.search(turno.texto or "")
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -364,6 +407,12 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["recusou_menage_ok"] = _recusou_menage_sem_cotar(res, cf.menage_fora_do_cardapio)
     if cf.nao_deve_oferecer_video_chamada:
         aval["sem_oferta_de_chamada_ok"] = not _ofereceu_video_chamada(res)
+    if cf.duvida_das_fotos is not None:
+        aval["book_na_duvida_ok"] = _mandou_o_book(res, cf.duvida_das_fotos)
+    if cf.teste_de_bot is not None:
+        aval["sem_book_no_teste_ok"] = _sem_book_no_turno(res, cf.teste_de_bot)
+    if cf.detalhe_fisico is not None:
+        aval["sem_medida_inventada_ok"] = _sem_medida_inventada(res, cf.detalhe_fisico)
     return aval
 
 

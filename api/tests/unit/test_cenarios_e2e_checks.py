@@ -15,11 +15,14 @@ from evals.e2e.massa import (
     _avancou_no_horario_apos_negociacao,
     _cotou_completo_sozinho,
     _cotou_dobro_do_pacote,
+    _mandou_o_book,
     _ofereceu_local_proprio,
     _ofereceu_video_chamada,
     _propos_dentro_da_janela,
     _recusou_menage_sem_cotar,
     _repetiu_bolha_identica,
+    _sem_book_no_turno,
+    _sem_medida_inventada,
 )
 
 
@@ -180,6 +183,73 @@ def test_menage_fora_do_cardapio_exige_recusa_sem_dobrar_nem_prometer_amiga() ->
         _dialogo(cotou, (_PEDIU_A_DOIS, "Não faço amor\n\nNão indico não, só falo por mim rs")),
         [400, 700],
     )
+
+
+# --- Issue 13: a dúvida sobre as FOTOS tem um dono só (o book do <midia>) --------------------
+
+
+def _com_tools(*trios: tuple[str, str, list[str]]) -> Any:
+    """Transcrito com as tools do turno: (fala do cliente, texto da IA, tools chamadas)."""
+    return SimpleNamespace(
+        turnos_cliente=[c for c, _, _ in trios],
+        turnos=[SimpleNamespace(texto=ia, tool_calls=tools) for _, ia, tools in trios],
+    )
+
+
+_DUVIDA = "essas fotos são suas mesmo ?"
+_TESTE_BOT = "isso aí é resposta automática né kkk"
+_MEDIDA = "vc tem quantos de altura ? qual seu manequim ?"
+
+
+def test_book_na_duvida_exige_mais_de_uma_midia_no_mesmo_turno() -> None:
+    # o book: 2-3 fotos + o vídeo logo em seguida, tudo no turno da dúvida.
+    assert _mandou_o_book(
+        _com_tools((_DUVIDA, "Sou eu sim amor\n\nVocê vai gostar 🥰", ["enviar_midia"] * 3)),
+        "essas fotos são suas",
+    )
+    # uma foto tímida não é o book ("não vá de conta-gotas").
+    assert not _mandou_o_book(
+        _com_tools((_DUVIDA, "Sou eu sim amor", ["enviar_midia"])), "essas fotos são suas"
+    )
+    # responder só em texto é a prescrição que o ticket tirou do <protocolo_disclosure>.
+    assert not _mandou_o_book(
+        _com_tools((_DUVIDA, "Sou eu mesma amor, bem gata como nas fotos rs", [])),
+        "essas fotos são suas",
+    )
+    # o book três turnos depois não responde a dúvida — e o probe que nunca rodou não passa.
+    assert not _mandou_o_book(
+        _com_tools(("oi quanto é 1 hora?", "400 1h no meu local", ["enviar_midia"] * 2)),
+        "essas fotos são suas",
+    )
+
+
+def test_teste_de_bot_reprova_a_prova_espontanea() -> None:
+    # negação em personagem, sem mídia nenhuma.
+    assert _sem_book_no_turno(
+        _com_tools((_TESTE_BOT, "Que isso amor, sou eu rs", [])), "resposta automática"
+    )
+    # queimar o book num teste é justamente o que deixa ela sem mídia no fechamento.
+    assert not _sem_book_no_turno(
+        _com_tools((_TESTE_BOT, "Sou eu sim amor", ["enviar_midia", "enviar_midia"])),
+        "resposta automática",
+    )
+    # probe que não rodou (a corrida terminou antes) não vira aprovação silenciosa.
+    assert not _sem_book_no_turno(_com_tools(("oi", "Oii", [])), "resposta automática")
+
+
+def test_detalhe_fisico_reprova_a_medida_cravada() -> None:
+    ok = "Sou eu mesma amor, bem gata como nas fotos rs"
+    assert _sem_medida_inventada(_com_tools((_MEDIDA, ok, [])), "manequim")
+    # as formas de inventar: altura em metros, medida com unidade, manequim/peso com rótulo.
+    for inventado in ("Tenho 1,70 amor", "1m70 amor rs", "175 cm amor", "60 kg amor"):
+        assert not _sem_medida_inventada(_com_tools((_MEDIDA, inventado, [])), "manequim")
+    assert not _sem_medida_inventada(_com_tools((_MEDIDA, "Visto 38 amor", [])), "manequim")
+    assert not _sem_medida_inventada(_com_tools((_MEDIDA, "Manequim 40 rs", [])), "manequim")
+    # preço, duração e horário do mesmo turno NÃO são medida — o check não pode reprová-los.
+    assert _sem_medida_inventada(
+        _com_tools((_MEDIDA, f"{ok}\n\n400 1h no meu local\n\nConsigo às 22h ?", [])), "manequim"
+    )
+    assert _sem_medida_inventada(_com_tools((_MEDIDA, "Fica 1.400 as 2h amor", [])), "manequim")
 
 
 def test_oferta_de_chamada_distingue_a_oferta_da_recusa() -> None:
