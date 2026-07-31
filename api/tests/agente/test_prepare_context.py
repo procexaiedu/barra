@@ -76,9 +76,10 @@ def test_caminho_normal_2_system_mais_janela_cronologica() -> None:
     assert isinstance(msgs[0], SystemMessage)
     assert isinstance(msgs[1], SystemMessage)
     assert len(msgs) == 5
-    # msgs[2] = HumanMessage do cliente + contexto dinamico (ultimo HumanMessage da janela)
+    # msgs[2] = contexto dinamico + HumanMessage do cliente (ultimo HumanMessage da janela; a fala
+    # dele fica por ULTIMO na cauda -- incidente 29/07)
     assert isinstance(msgs[2], HumanMessage)
-    assert msgs[2].content.startswith("ola")
+    assert msgs[2].content.endswith("ola")
     assert "<situacao_do_atendimento" in msgs[2].content
     # msgs[3] = penultima da janela = AIMessage "oi amor", string pura (sem marcação de cache)
     assert isinstance(msgs[3], AIMessage)
@@ -229,7 +230,7 @@ def test_evidencia_do_horario_vai_ao_state() -> None:
     assert res.update["horario_evidenciado"] is True
     # o "sim" de fato carrega o contexto dinamico (prova que a anexacao aconteceu na mesma msg)
     ultimo_humano = [m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1]
-    assert ultimo_humano.content.startswith("sim")
+    assert ultimo_humano.content.endswith("sim")
     assert "<situacao_do_atendimento" in ultimo_humano.content
 
 

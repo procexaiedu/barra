@@ -47,6 +47,21 @@ def test_tem_empurrao_ignora_sondagem_do_dia() -> None:
     assert not tem_empurrao("te espero entao")
 
 
+def test_tem_empurrao_ignora_seria_agora_como_a_outra_metade_da_sondagem() -> None:
+    """'seria agora ?' e a MESMA sondagem do dia que 'seria hoje ?' — nao e urgencia colada.
+
+    A v1 do regex casava so a variante 'agora', penalizando no gate HARD a fala que <cotacao> e
+    <nucleo> item 5 prescrevem como empurrao sim/nao (pergunta de HORARIO, nao escassez). O resto
+    do repo ja trata as duas como uma coisa so via `dia_sondado_em`
+    (tests/unit/test_disciplina_pergunta_de_horario.py). Pressao de verdade continua casando.
+    """
+    assert not tem_empurrao("600 1h no meu local, seria agora ?")
+    assert not tem_empurrao("seria agora amor ?")
+    # o que E pressao segue pego:
+    assert tem_empurrao("600 1h, vamos agora?")
+    assert tem_empurrao("600 1h, fechamos agora")
+
+
 def test_empurrao_na_cotacao_olha_o_turno_do_preco() -> None:
     assert empurrao_na_cotacao(_res("oi tudo bem", "1h fica 400 amor")) == (True, False)
     assert empurrao_na_cotacao(_res("oi", "1h 400, vamos fechar?")) == (True, True)

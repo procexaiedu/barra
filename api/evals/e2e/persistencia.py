@@ -17,6 +17,7 @@ from uuid import UUID, uuid4
 
 from psycopg import AsyncConnection
 
+from barra.dominio.atendimentos.service import carimbar_cotacao_por_texto_enviado
 from evals.harness import Cenario, _seed_programa
 
 from .perfil import MODELO_SINTETICA, PerfilCaso
@@ -114,6 +115,18 @@ async def gravar_resposta_ia(
     o caller (sessao) commita o turno inteiro (UPDATEs do grafo + msg cliente + esta bolha).
 
     No harness o worker de envio nao roda, entao a resposta da IA nao chega a `mensagens` sozinha.
+
+    `id` vem do default `barravips.uuidv7()` (nunca `uuid4()`): `created_at` e `now()`, constante
+    dentro da transacao, e a corrida do gate nao commita por turno -> TODAS as mensagens empatam e
+    `carregar_mensagens` (ORDER BY created_at DESC, id DESC) desempata so por `id`. Com `uuid4()` a
+    conversa chegava EMBARALHADA ao modelo; o uuidv7 usa `clock_timestamp()` e volta a ser
+    cronologico. Mesma razao pela qual `evals/shadow/massa.py` ja usa a funcao.
+
+    Aqui tambem roda o backstop de carimbo do ADR 0022 (`carimbar_cotacao_por_texto_enviado`,
+    a MESMA funcao que o worker de envio chama em prod): sem ele o harness gravava a bolha da
+    cotacao sem carimbar `cotacao_enviada_em`, o guard de `CotacaoAusente` barrava a confirmacao
+    que em prod passaria, e o validador de ordem acusava "confirmou sem ter cotado" em toda
+    conversa que a IA conduzia ate `Aguardando_confirmacao`.
     """
     if not texto.strip():
         return
@@ -121,10 +134,11 @@ async def gravar_resposta_ia(
         """
         INSERT INTO barravips.mensagens
             (id, conversa_id, atendimento_id, direcao, tipo, conteudo, evolution_message_id)
-        VALUES (%s, %s, %s, 'ia', 'texto', %s, %s)
+        VALUES (barravips.uuidv7(), %s, %s, 'ia', 'texto', %s, %s)
         """,
-        (uuid4(), cen.conversa_id, cen.atendimento_id, texto, f"e2e-ia-{uuid4().hex}"),
+        (cen.conversa_id, cen.atendimento_id, texto, f"e2e-ia-{uuid4().hex}"),
     )
+    await carimbar_cotacao_por_texto_enviado(conn, cen.atendimento_id, texto)
 
 
 async def limpar_sandbox(conn: AsyncConnection[dict[str, Any]]) -> int:

@@ -28,7 +28,10 @@ def test_novo_sem_intencao_falta_entender() -> None:
     assert b.slots_faltantes == ["o que ele procura"]
     # A frase-guia tambem ROTEIA: nomeia a fase do `<conducao_da_venda>` que vale no turno. Quem
     # verifica que a tag citada existe no prompt e `unit/test_contrato_variaveis_contexto.py`.
-    assert b.proximo_passo.startswith("entender o que ele procura e puxar pro encontro")
+    # Ela nomeia a ACAO da fase, nao o dado que falta: descrever o alvo como "entender o que ele
+    # procura" punha o lexico da sonda-de-balcao (que a `<abertura>` proibe "em nenhuma parafrase")
+    # no texto mais proximo da resposta. O dado continua dito uma vez, no `slots_faltantes` acima.
+    assert b.proximo_passo.startswith("deixar ele abrir o assunto e puxar pro encontro")
     assert "<abertura>" in b.proximo_passo
 
 
@@ -336,6 +339,34 @@ def test_render_valor_cotado_sem_aceite_nao_vira_combinado() -> None:
     assert "AINDA NÃO aceitou" in out
     assert "<valor_fechado>" not in out
     assert "já combinado com ele" not in out
+
+
+def test_render_valor_cotado_trava_o_pacote_sem_travar_a_segunda_venda() -> None:
+    # A trava do valor cotado é por PACOTE, não por conversa: "não cote outro número nem repita
+    # este solto" (redação antiga) proibia, no ponto de recency máxima, as três condutas que a
+    # `<conduta>` prescreve — o Completo como segunda venda (`<cotacao>`), o pacote maior no
+    # "e 2h?" (`<sobe_o_ticket>`) e a repergunta de preço respondida com outras palavras
+    # (`<retomada_pos_silencio>`). O que a regra queria proibir — deriva de preço no MESMO pacote,
+    # número re-mandado sozinho e valor tratado como fechado — continua dito.
+    out = _render(
+        "Qualificado",
+        tipo_atendimento="interno",
+        horario_desejado=None,
+        valor_fechado="600",
+        valor_aceito=False,
+        duracao_fechada="1",
+    )
+    assert "não invente um segundo número para ESTE mesmo pacote" in out
+    assert "não re-mande este valor sozinho" in out
+    # as três portas que a cauda deixou de fechar, cada uma apontando a tag canônica da conduta
+    assert "<cotacao>" in out
+    assert "<sobe_o_ticket>" in out
+    assert "<retomada_pos_silencio>" in out
+    # e o valor cotado segue não sendo combinado
+    assert '"combinado", "fechamos", "confirmado" não cabem ainda' in out
+    assert "o horário não se crava sobre um valor que ele não topou" in out
+    # a proibição genérica que engolia a segunda venda saiu de vez
+    assert "não cote outro número" not in out
 
 
 def test_num_humano_formata_decimal_seco() -> None:

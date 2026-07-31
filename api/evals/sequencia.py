@@ -7,7 +7,11 @@ harness — e devolve violacoes de ordem, somadas as `violacoes` DURAS do veredi
 
 Regra = "A-antes-de-B": quando um evento `gatilho` ocorre, seu `requer_antes` tem de ter ocorrido
 em-ou-antes. Eventos derivados (sem captura nova):
-  - `cotacao_apresentada` — arg `cotacao_apresentada` truthy num `registrar_extracao`.
+  - `cotacao_apresentada` — arg `cotacao_apresentada` truthy num `registrar_extracao`, OU a bolha
+    do turno com cara de cotacao (`barra.dominio.atendimentos.service.texto_tem_cotacao`, a MESMA
+    regra do backstop do ADR 0022 que carimba `cotacao_enviada_em` no envio). O flag depende do LLM
+    lembrar de marca-lo; o backstop e justamente a rede para quando ele esquece, e sem ele o
+    validador acusava "confirmou sem ter cotado" numa conversa em que a IA disse o preco.
   - `tipo:<valor>`        — arg `tipo_atendimento` num `registrar_extracao` (ex.: `tipo:externo`).
   - `estado:<Nome>`       — TRANSICAO: `estado_final["estado"]` muda em relacao ao turno anterior.
   - `pix:solicitado`      — `estado_final["pix_status"]` deixa de ser `nao_solicitado`.
@@ -26,6 +30,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
+
+from barra.dominio.atendimentos.service import texto_tem_cotacao
 
 if TYPE_CHECKING:
     from evals.e2e.runner import ResultadoE2E
@@ -71,6 +77,10 @@ def derivar_eventos(res: ResultadoE2E) -> list[str]:
             tipo = args.get("tipo_atendimento")
             if tipo:
                 eventos.append(f"tipo:{tipo}")
+
+        # 1b) backstop do ADR 0022: a bolha com preco cota mesmo sem o flag do LLM (ver docstring).
+        if texto_tem_cotacao(t.texto or ""):
+            eventos.append("cotacao_apresentada")
 
         estado = (t.estado_final or {}).get("estado")
         # 2) transicao de estado (emite so na mudanca)

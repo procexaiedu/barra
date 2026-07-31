@@ -42,7 +42,12 @@ from evals.harness import habilitar_tracing
 # reprovar por voz/forma exige um baseline de GERACAO (agente deployado), nao de ruido.
 _LIMIARES: dict[str, Any] = {
     # HARD (reprova):
-    "empurrao_pct_max": 5.0,  # detector regex no humano = 3.25%; o agente nao deve empurrar mais
+    # detector regex no humano = 3.25%; o agente nao deve empurrar mais. ATENCAO: os 3.25% de
+    # `baselines/empurrao.json` foram medidos com a v1 do `_EMPURRAO_RE`, que ainda casava
+    # 'seria agora' (retirado — era a sondagem do dia, nao urgencia). O piso real do humano com o
+    # regex atual e MENOR; regerar o baseline na proxima corrida com corpus (`evals.baselines.
+    # gerar`, SELECT em corpus.*) e recalibrar este limiar para baixo. Ate la, 5.0 e conservador.
+    "empurrao_pct_max": 5.0,
     "violacoes_duras_max": 0,
 }
 

@@ -8,25 +8,33 @@ um fake roteirizado, entao NAO gasta credito (§0). Prova o encanamento ponta-a-
 O fake conduz um caso interno: por turno o llm emite a bolha de texto (sem tool_call) e o no
 `extrair` FORCA a registrar_extracao (a tool real escreve o estado). `_decidir_transicao` avanca
 UM degrau por extracao (Novo->Triagem->Qualificado->Aguardando_confirmacao), por isso sao 3 turnos.
+
+O segundo teste amarra a ORDEM da janela que esse mesmo caminho produz (as bolhas da IA voltam na
+ordem em que foram ditas) — pre-requisito de qualquer medicao de conduta feita sobre o harness.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 from collections.abc import AsyncIterator
 from datetime import date, timedelta
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
 from evals.e2e.avaliacao import avaliar_e2e
 from evals.e2e.cliente import ClienteRoteirizado
 from evals.e2e.perfil import PerfilCaso
+from evals.e2e.persistencia import gravar_resposta_ia
 from evals.e2e.runner import rodar_e2e
+from evals.harness import seedar
 from langchain_core.messages import AIMessage
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
+
+from barra.agente.nos.prepare_context import carregar_mensagens, traduzir_mensagens
 
 pytestmark = pytest.mark.needs_db
 
@@ -174,3 +182,40 @@ async def test_conduz_interno_novo_ate_aguardando_confirmacao(
     # Tokens 100% do fake (2 AIMessages x 3 turnos, _USAGE fixo) -> nenhuma chamada real a API (§0)
     assert sum(t.metricas.input_tokens for t in res.turnos) == 60
     assert sum(t.metricas.output_tokens for t in res.turnos) == 30
+
+
+async def test_bolhas_da_ia_voltam_na_ordem_em_que_foram_ditas(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """A janela que a IA le no e2e sai CRONOLOGICA: a saudacao vem antes da cotacao.
+
+    A corrida do harness nao commita por turno, entao `created_at` (default `now()` =
+    transaction_timestamp) e CONSTANTE e todas as mensagens do caso EMPATAM. O unico desempate de
+    `carregar_mensagens` (`ORDER BY created_at DESC, id DESC`) e o `id` — que so e cronologico
+    porque `gravar_resposta_ia` deixa o default `barravips.uuidv7()` da tabela agir. Com um
+    `uuid4()` ali a conversa chegava EMBARALHADA ao modelo (saudacao depois da cotacao).
+
+    `barravips.uuidv7()` tem resolucao de milissegundo (`clock_timestamp()`), por isso os inserts
+    sao espacados aqui; no caminho real quem os separa e a chamada ao LLM entre as bolhas.
+    """
+    cen = await seedar(
+        conn,
+        {
+            "cenario": {"modelo": {"nome": "Lia"}, "atendimento": {"estado": "Triagem"}},
+            "historico": [{"direcao": "cliente", "texto": "oi"}],
+        },
+    )
+    ditas = ["oii amor, tudo bem ? 😊", "o encontro de 1h fica 400", "seria que horas ?"]
+    for texto in ditas:
+        await gravar_resposta_ia(conn, cen, texto)
+        await asyncio.sleep(0.005)
+
+    linhas = await carregar_mensagens(conn, str(cen.cliente_id), str(cen.modelo_id))
+    janela = traduzir_mensagens(linhas)
+
+    # o que o modelo LE: as 3 bolhas na ordem em que foram ditas, saudacao em primeiro lugar.
+    assert [m.content for m in janela if isinstance(m, AIMessage)] == ditas
+    # o empate de `created_at` e real — sem ele o teste nao exercitaria o desempate por `id`.
+    assert len({linha["created_at"] for linha in linhas}) == 1
+    # ...e o desempate so e cronologico porque o id e time-ordered (uuidv7, nunca uuid4).
+    assert all(UUID(str(linha["id"])).version == 7 for linha in linhas)

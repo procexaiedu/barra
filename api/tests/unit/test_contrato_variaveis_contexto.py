@@ -85,6 +85,15 @@ async def test_contexto_dinamico_nao_le_variavel_que_ninguem_publica() -> None:
     assert not faltando, f"variáveis do contexto dinâmico sem fonte no dicionário: {faltando}"
 
 
+async def test_teto_de_desconto_e_publicado_e_lido_pela_cauda() -> None:
+    """Recorte nominal do teste acima para o campo que carrega VALOR, não instrução: o teto da
+    última contraproposta (ADR-0031) é pré-computado no `prepare_context` e renderizado dentro do
+    `<ja_fez_contraproposta n="1">`. Um rename só de um dos lados apagaria o número em silêncio — e
+    a IA voltaria a multiplicar o percentual de cabeça sem ninguém perceber."""
+    assert "teto_desconto" in await _variaveis_publicadas()
+    assert "teto_desconto" in _variaveis_do_template("contexto_dinamico.md.j2")
+
+
 async def test_ja_registrado_nao_le_variavel_que_ninguem_publica() -> None:
     """O que o EXTRATOR lê, do mesmo dicionário — é isso que impede a IA e o extrator de verem
     estados diferentes."""

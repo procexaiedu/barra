@@ -50,6 +50,29 @@ BOLHAS_VAZADAS_TIPO = [
 ]
 
 
+# Resposta ao ERRO DE TOOL narrada em voz alta (prod 29/07, conversa 019f8d10, 02:46 BRT): a
+# `registrar_extracao` devolveu "voce nao disse o preco ainda, cote primeiro" e o chat ACATOU o
+# aviso como bolha ao cliente. Familia distinta do planejamento: fala do cliente em 3a pessoa
+# ("com ele") e usa jargao do processo interno ("cotar"), que nao existem em fala client-facing.
+BOLHAS_VAZADAS_ERRO_TOOL = [
+    "Ainda não combinei o valor com ele. Vou cotar agora.",
+    "Ainda não combinei o valor com ele.",
+    "Vou cotar agora.",
+    "não cotei o programa com ele ainda",
+]
+
+
+@pytest.mark.parametrize("bolha", BOLHAS_VAZADAS_ERRO_TOOL)
+def test_detecta_acatamento_de_erro_de_tool(bolha: str) -> None:
+    assert mod.tem_marcador_raciocinio(bolha) is True
+
+
+def test_estagio0_dropa_acatamento_de_erro_mantendo_a_venda() -> None:
+    # O turno real: a meta-fala saiu na 1a bolha e a venda legitima nas duas seguintes.
+    turno = "Ainda não combinei o valor com ele. Vou cotar agora.\n\nPerfeito amor\n\nSeria o completo ou o normal ?"
+    assert mod._limpar_bolhas(turno) == "Perfeito amor\n\nSeria o completo ou o normal ?"
+
+
 @pytest.mark.parametrize("bolha", BOLHAS_VAZADAS_TIPO)
 def test_detecta_jargao_de_tipo_e_adverbio(bolha: str) -> None:
     # "ele JA falou" (adverbio) e "que e interno" (rotulo de dominio) tem que casar.
@@ -95,6 +118,8 @@ BOLHAS_LEGITIMAS = [
     "é um ambiente bem reservado e interno amor",  # "interno" descritivo, sem "que e" nem "entao"
     "vou te esperar aqui amor",  # esperar SEM "reagir" e sem "agora e": fala legitima
     "te espero rs, me avisa quando sair",  # idem
+    "combinei com ela que ela vem junto amor",  # menage: 3a legit, sem objeto de venda
+    "vou te passar o valor agora amor",  # o mesmo ato, dito ao cliente (2a pessoa)
 ]
 
 

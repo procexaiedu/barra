@@ -1,6 +1,7 @@
 """Orquestracao do ciclo de vida de um atendimento aberto por par (cliente, modelo)."""
 
 import json
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
@@ -773,7 +774,10 @@ _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], st
 # `slots_faltantes`. Estados sem transicao automatica (Aguardando_confirmacao+) recebem so a
 # frase informativa do que se espera ali.
 #
-# A frase tambem ROTEIA: ela nomeia a(s) fase(s) do `<conducao_da_venda>` que valem agora. O bloco
+# A frase tambem ROTEIA: ela nomeia a(s) fase(s) do `<conducao_da_venda>` que valem agora — e, no
+# `Aguardando_confirmacao`, o `<tipos_de_encontro>`, que e onde a logistica da chegada (pedir a foto
+# da portaria, o Pix, o horario) esta escrita; a partir dali a conduta e logistica, nao funil, e o
+# proprio `<fechamento>` ja manda pra la. O bloco
 # inteiro continua no BP_GERAL (prefixo cacheado) — fatiar de verdade nao da, porque o `extrair`
 # roda DEPOIS do `llm` (graph.py) e este `estado` e o do turno ANTERIOR: um prompt cortado por fase
 # chegaria sempre um turno atrasado e o cliente que pula o funil ("quanto e?" no primeiro oi) cairia
@@ -787,10 +791,27 @@ _PROXIMO_PASSO: dict[str, str] = {
     # `Novo` e o unico estado em que o ponteiro pode ficar um turno atras do cliente: e a primeira
     # fala dele, e o mais comum fora do trilho e ela ja vir pedindo preco ("oi, quanto custa ?").
     # Dai a condicional: a `<abertura>` segue sendo a conduta, mas a pergunta dele abre a fase.
-    "Novo": "entender o que ele procura e puxar pro encontro — sua conduta agora é <abertura>; se a fala dele já pede preço, <cotacao> junto",
-    "Triagem": "fechar o que falta pra combinar o encontro — sua conduta agora é <apresentacao> e <cotacao>",
-    "Qualificado": "confirmar os detalhes e seguir pro próximo passo do encontro — sua conduta agora é <cotacao> e <fechamento>",
-    "Aguardando_confirmacao": "conduzir a confirmação (pix, foto de portaria ou o horário combinado) — sua conduta agora é <fechamento> e <enquanto_ele_nao_chega>",
+    # O objetivo da fase e a intencao dele, mas a frase NAO pode nomea-lo com o lexico da sonda
+    # ("entender o que ele procura"): a `<abertura>` proibe a sonda-de-balcao "em nenhuma parafrase"
+    # (NUNCA em caps, agente/CLAUDE.md "Escala lexica de dureza") e esta e a fala que a cauda poe
+    # mais perto da resposta — descrever o alvo com o lexico proibido virava o probe na boca dela.
+    # Aqui a frase nomeia a ACAO da fase (parar e deixar ele abrir), nao o dado que falta; o dado
+    # continua dito uma vez, no <ainda_falta>, que e onde ele pertence.
+    "Novo": "deixar ele abrir o assunto e puxar pro encontro — sua conduta agora é <abertura>; se a fala dele já pede preço, <cotacao> junto",
+    # A volta depois do sumico e ortogonal a FSM (nenhum `estado` a marca), mas ela acontece nestes
+    # dois: a perda tipica e o silencio DEPOIS da cotacao, e e ai que ele reaparece. Ponteiro
+    # condicional, na forma que o `Novo` ja usa — a cauda aponta, nao amputa. Sem ele a
+    # `<retomada_pos_silencio>` nao era enderecada por nada (nem cross-ref interna, nem cauda).
+    "Triagem": "fechar o que falta pra combinar o encontro — sua conduta agora é <apresentacao> e <cotacao>; se ele sumiu e voltou agora, <retomada_pos_silencio> junto",
+    # Issue 17: aqui o que falta e a HORA (e ela que promove a Aguardando_confirmacao), e ate ele
+    # aceita-la o verbo dela e o de oferta (`<cotacao>`, "o verbo diz a fase"). "confirmar os
+    # detalhes" punha justamente o verbo proibido na fase que o proibe, no ponto de recency maxima.
+    "Qualificado": "combinar o horário com ele e seguir pro próximo passo do encontro — sua conduta agora é <cotacao> e <fechamento>; se ele sumiu e voltou agora, <retomada_pos_silencio> junto",
+    # A espera pela chegada saiu do BP_GERAL: a flag A2 `<ja_pediu_a_foto_da_portaria>` carrega as
+    # mesmas falas de presenca e as mesmas proibicoes de cobranca, e so aparece quando ja houve
+    # pedido. O que restava aqui era o ponteiro pro trilho da chegada — que aponta direto pro site
+    # onde ele mora, o `<tipos_de_encontro>`.
+    "Aguardando_confirmacao": "conduzir a confirmação (pix, foto de portaria ou o horário combinado) — sua conduta agora é <fechamento> e <tipos_de_encontro>",
     "Confirmado": "a modelo assume daqui; não reabra a negociação",
     "Em_execucao": "encontro em andamento; não reabra a negociação",
 }
@@ -1063,8 +1084,7 @@ async def _abaixo_do_piso(
     preco_tabela = await _preco_tabela_min(conn, row["modelo_id"], duracao)
     if preco_tabela is None:
         return True
-    fator = Decimal("1") - Decimal(str(get_settings().desconto_teto_pct))
-    return valor < preco_tabela * fator
+    return valor < piso_de_desconto(preco_tabela)
 
 
 async def _par_persistido_abaixo_do_piso(
@@ -1089,27 +1109,75 @@ async def _par_persistido_abaixo_do_piso(
     )
 
 
+def piso_de_desconto(preco_tabela: Decimal) -> Decimal:
+    """Menor valor que a IA oferta sozinha sobre um preco de tabela: `preco x (1 -
+    desconto_teto_pct)` (ADR-0031, teto da escalada de 2 rodadas). `desconto_teto_pct=0` =>
+    piso = preco de tabela.
+
+    SITE UNICO da conta, de proposito: quem JULGA a oferta da IA (`_abaixo_do_piso`) e quem
+    MOSTRA o numero a ela (o `<ja_fez_contraproposta n="1">` da cauda, via
+    `teto_de_contraproposta`) saem daqui. Duas implementacoes que concordam hoje divergem no
+    arredondamento amanha, e a divergencia aparece como escalada `fora_de_oferta` a toa em cima
+    de uma oferta que a propria cauda mandou fazer."""
+    return preco_tabela * (Decimal("1") - Decimal(str(get_settings().desconto_teto_pct)))
+
+
+async def teto_de_contraproposta(
+    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
+) -> Decimal | None:
+    """Valor ABSOLUTO da segunda e ultima contraproposta (ADR-0031) para a duracao em jogo — o
+    numero que a cauda mostra a IA em vez do percentual que ela multiplicava de cabeca.
+
+    `None` (a cauda nao injeta numero nenhum e a IA cai no percentual do `<desconto>`) quando:
+    - a duracao nao esta fechada, ou nao ha programa dela nessa duracao — nao ha preco de tabela;
+    - a duracao tem MAIS DE UM preco na tabela dela (ex.: "Padrao 1h 400" e "Casal 1h 700"). O
+      piso que o guard usa e o do programa mais BARATO de proposito (ADR-0004 §Decisao item 5:
+      minimiza falso-positivo de escalada), mas o teto que ela pode ofertar e sobre o "Preco de
+      tabela do pacote VENDIDO" (CONTEXT.md, Piso de desconto) — e o pacote nao esta gravado no
+      atendimento (`atendimento_servicos` so o painel escreve). Mostrar o piso do mais barato
+      como se fosse o teto dela mandaria a IA dar 25% em cima do pacote errado. Com um preco so
+      na duracao, as duas leituras sao o MESMO numero e a ambiguidade nao existe."""
+    if duracao_horas is None:
+        return None
+    precos = await _precos_tabela(conn, modelo_id, duracao_horas)
+    if precos is None or precos[0] != precos[1]:
+        return None
+    return piso_de_desconto(precos[0])
+
+
 async def _preco_tabela_min(
     conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
 ) -> Decimal | None:
     """Menor preco de tabela dos programas da modelo na duracao acordada (`duracoes.horas`).
     Usa o MENOR preco como base do piso (ADR-0004 §Decisao item 5): piso mais baixo => so escala
     quem esta abaixo ate do programa mais barato, minimizando falso-positivo."""
+    precos = await _precos_tabela(conn, modelo_id, duracao_horas)
+    return precos[0] if precos is not None else None
+
+
+async def _precos_tabela(
+    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
+) -> tuple[Decimal, Decimal] | None:
+    """`(menor, maior)` preco de tabela dos programas da modelo na duracao acordada
+    (`duracoes.horas`), ou None sem nenhum programa nessa duracao. O menor e a base do piso
+    (`_preco_tabela_min`); os dois juntos dizem se a duracao tem UM preco so, que e o que
+    `teto_de_contraproposta` precisa saber."""
     if duracao_horas is None:
         return None
     res = await conn.execute(
         """
-        SELECT mp.preco
+        SELECT min(mp.preco) AS menor, max(mp.preco) AS maior
           FROM barravips.modelo_programas mp
           JOIN barravips.duracoes d ON d.id = mp.duracao_id
          WHERE mp.modelo_id = %s AND d.horas = %s
-         ORDER BY mp.preco ASC
-         LIMIT 1
         """,
         (modelo_id, Decimal(str(duracao_horas))),
     )
     row = await res.fetchone()
-    return row["preco"] if row is not None else None
+    # Agregado sem GROUP BY devolve SEMPRE uma linha: sem programa na duracao ela vem com NULL.
+    if row is None or row["menor"] is None:
+        return None
+    return row["menor"], row["maior"]
 
 
 def calcular_preco_extra_fetiche(
@@ -1503,6 +1571,47 @@ async def marcar_cotacao_enviada(conn: AsyncConnection[Any], atendimento_id: UUI
         (atendimento_id,),
     )
     return result.rowcount > 0
+
+
+# Backstop deterministico do ADR 0022: carimba `cotacao_enviada_em` quando o texto que a IA enviou
+# tem cara de cotacao, cobrindo o LLM que esquece de marcar `cotacao_apresentada`. Dois caminhos:
+#  - "R$" seguido de digito ("a hora fica R$800 amor") -- inequivoco.
+#  - numero seco (o formato REAL da persona, que fala o valor puro e ate strippa o cifrao do Pix):
+#    "600 1h no meu local", "250 30minutos", "2h 900 + uber". Aqui exige-se um VALOR de 3-4
+#    digitos JUNTO de um marcador de duracao/local -- os DOIS -- pra nao casar numero de endereco
+#    ("rua ... 880", sem duracao/"no meu local"). Carimbar a toa satisfaria o guard de
+#    CotacaoAusente e dispararia reengajamento sem cotacao real. Caminhos canned/reengajamento
+#    passam por aqui sem preco no texto, entao nao disparam falso carimbo.
+_RE_PRECO_RS = re.compile(r"R\$\s?\d")
+_RE_PRECO_VALOR = re.compile(r"\b\d{3,4}\b")
+_RE_PRECO_CONTEXTO = re.compile(
+    r"\b\d{1,2}\s?h\b|\b\d{1,2}\s?min|\bpernoite\b|no\s+(?:meu|seu)\s+local", re.I
+)
+
+
+def texto_tem_cotacao(texto: str) -> bool:
+    """True se o texto enviado tem cara de cotacao (R$+digito, ou valor 3-4 dig. + duracao/local).
+
+    Regra pura do backstop acima. Publica porque o harness e2e (`evals/`) reaplica EXATAMENTE esta
+    regra: o worker de envio nao roda la, e uma segunda copia do regex divergiria com o tempo.
+    """
+    if _RE_PRECO_RS.search(texto):
+        return True
+    return bool(_RE_PRECO_VALOR.search(texto) and _RE_PRECO_CONTEXTO.search(texto))
+
+
+async def carimbar_cotacao_por_texto_enviado(
+    conn: AsyncConnection[Any], atendimento_id: UUID, texto: str
+) -> bool:
+    """Aplica o backstop do ADR 0022 sobre UMA bolha que a IA enviou: decide pelo texto e carimba.
+
+    Ponto unico do par (decidir, carimbar) — chamado pelo worker de envio em prod e pelo caminho de
+    persistencia do harness e2e. Idempotente (o UPDATE tem guard IS NULL + gate de estado), entao
+    repetir entre chunks/retries e no-op. Devolve True so quando ESTE texto criou o carimbo.
+    """
+    if not texto_tem_cotacao(texto):
+        return False
+    return await marcar_cotacao_enviada_por_texto(conn, atendimento_id)
 
 
 async def marcar_cotacao_enviada_por_texto(

@@ -134,6 +134,39 @@ def _extracao_errou(tool_message: ToolMessage) -> bool:
     return tool_message.status == "error" or str(tool_message.content).startswith("ERRO:")
 
 
+# Etiqueta de CANAL da copia do erro que vai ao contexto do chat na auto-reoferta (prod 29/07,
+# trace 06db4298): o ToolMessage de erro e uma ordem em 2a pessoa, em portugues, no mesmo registro
+# da fala -- e o chat obedeceu EM VOZ ALTA, para o cliente ("Ainda nao combinei o valor com ele. Vou
+# cotar agora." -- 3a pessoa, raciocinio puro; judge_rastro_llm 0.0 no turno). O `<ferramentas>` do
+# regras.md.j2 ja diz que retorno "ERRO:" e instrucao interna; o que faltava era dize-lo NO PONTO DE
+# USO, colado no texto que o modelo obedece. Nao e conduta client-facing (essa continua no
+# regras.md.j2): e mecanica de canal, code-side por natureza (agente/CLAUDE.md, "Fronteira conduta <->
+# tool description", categoria 1). Segue a moldura de `_cercar_dado_midia` (`[rotulo — …]\n{texto}`).
+_NOTA_INTERNA_PARA_O_CHAT = (
+    "ERRO: [nota interna do sistema — é instrução pra você, nunca fala ao cliente. Corrija o rumo "
+    "na próxima bolha: NUNCA copie nem comente esta nota, NUNCA diga que deu erro nem anuncie o "
+    'que vai fazer ("vou cotar", "vou verificar") — só faça. Fale COM ele, nunca SOBRE ele.]'
+)
+
+
+def _envelopar_nota_interna(tool_message: ToolMessage) -> ToolMessage:
+    """Copia do erro com a etiqueta de canal na frente -- so p/ o contexto do `llm` (auto-reoferta).
+
+    O corpo original segue INTACTO logo depois: o llm precisa ler o que deu errado p/ reofertar (e o
+    proposito do ramo -- ver `_janela_para_extracao`). Preserva `status="error"`, o prefixo "ERRO:" e
+    o `tool_call_id`: essa forma e contrato de tres consumidores que quebram em silencio se ela mudar
+    (`_extracao_errou` aqui, o descarte do rascunho superado em `extrair_texto_do_turno` -- que casa
+    por id -- e o `erros_tool` de `desfecho_do_turno`).
+
+    So a copia da reoferta e envelopada. No ramo mudo o ToolMessage nao chega a contexto de chat
+    nenhum (a regen do output_guard corta a janela ANTES das msgs do turno), entao a etiqueta la nao
+    protegeria nada e so diluiria o `erros_tool` do trace do desfecho mais comum.
+    """
+    return tool_message.model_copy(
+        update={"content": f"{_NOTA_INTERNA_PARA_O_CHAT}\n{tool_message.content}"}
+    )
+
+
 async def _executar_inline(
     tool_extracao: BaseTool,
     tool_call: dict[str, Any],
@@ -270,11 +303,16 @@ def no_extrair(
             )
             if reoferta_ligada and not state.get("_reoferta_tentada"):
                 # AUTO-REOFERTA (one-shot): volta ao no llm p/ o modelo ver o erro (no ToolMessage) e
-                # REOFERTAR. O registro entra no state (o llm precisa do par AIMessage+ToolMessage p/
-                # ler o erro) e a fala stale sai. _reoferta_tentada=True faz a 2a falha cair no mute.
+                # REOFERTAR. O par AIMessage+ToolMessage entra no state (e do que o llm le o erro) e a
+                # fala stale sai. _reoferta_tentada=True faz a 2a falha cair no mute. O erro vai
+                # ENVELOPADO: este e o unico ramo em que ele chega ao contexto do chat, que ja o leu
+                # como fala uma vez (ver `_envelopar_nota_interna`).
                 return Command(
                     goto="llm",
-                    update={"messages": [*registro, *remove_stale], "_reoferta_tentada": True},
+                    update={
+                        "messages": [forcado, _envelopar_nota_interna(tool_message), *remove_stale],
+                        "_reoferta_tentada": True,
+                    },
                 )
             # Reoferta desligada OU ja tentada (a reoferta tambem errou): fecha MUDO -- no dominio de
             # booking, silencio > reserva fantasma.

@@ -11,6 +11,8 @@ sao trocados por fakes; conn/pool fakes. Cobre:
   repetida (silencio > papagaio), sem handoff.
 - regen DESLIGADA (flag): leak volta ao comportamento antigo (bloqueio direto, sem chamada);
   repeticao dropa direto das mensagens originais.
+- incluso FANTASMA (item declarado incluso fora da linha "Inclusos" do <fetiches>): mesmo trilho da
+  sonda -- regenera 1x e, persistindo, dropa so a bolha; nunca handoff.
 - leak em LEGENDA e nao-regeneravel: bloqueia sem tentar regen.
 - judge (Etapa 2) roda tambem sobre o texto regenerado: viola -> bloqueia tudo.
 - `_regenerar` (unit): monta a janela ate ANTES do turno + lembrete; recusa/excecao -> None.
@@ -306,6 +308,46 @@ async def test_sonda_persistiu_na_regen_dropa_so_o_probe(monkeypatch: Any) -> No
     msgs = _msgs_update(res)
     assert msgs["a1"] == ""
     assert msgs["regen1"] == "Tudo bem sim amor 🥰"
+
+
+async def test_incluso_fantasma_e_gatilho_de_regen(monkeypatch: Any) -> None:
+    # Corrida do conduta_gate 30/07: modelo com "(sem fetiches cadastrados)" e a IA copiando a fala
+    # do exemplo. O _FakeConn nao devolve fetiche nenhum -> e exatamente o bloco vazio da falha.
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    _judge_ok(monkeypatch)
+    regen = _fake_regen("Sou bem tranquila\n\nEstilo namoradinha")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state("Carinhosa e atenciosa amor\n\nBeijo na boca e oral sem camisinha já vem junto 🥰"),
+        _runtime(),
+    )
+
+    assert regen.chamadas and regen.chamadas[0]["gatilho"] == "incluso"
+    msgs = _msgs_update(res)
+    assert msgs["a1"] == ""
+    assert msgs["regen1"] == "Sou bem tranquila\n\nEstilo namoradinha"
+    assert not cap.chamadas  # incluso fantasma NUNCA vira handoff
+
+
+async def test_incluso_persistiu_na_regen_dropa_so_a_bolha(monkeypatch: Any) -> None:
+    # Reincidiu: dropa a bolha do incluso e manda o resto (a apresentacao de estilo sobrevive).
+    cap = _Capturador()
+    monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
+    _judge_ok(monkeypatch)
+    regen = _fake_regen("Carinhosa e atenciosa amor\n\nBeijo na boca tá incluso amor")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(  # type: ignore[arg-type]
+        _state("Carinhosa e atenciosa amor\n\nBeijo na boca e oral sem camisinha já vem junto 🥰"),
+        _runtime(),
+    )
+
+    assert not cap.chamadas
+    msgs = _msgs_update(res)
+    assert msgs["a1"] == ""
+    assert msgs["regen1"] == "Carinhosa e atenciosa amor"
 
 
 # --- fluxo: regen desligada/indisponivel ----------------------------------------------------------

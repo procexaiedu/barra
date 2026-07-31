@@ -89,7 +89,8 @@ async def test_contexto_dinamico_segue_byte_identico_com_a_ancora_no_dicionario(
 
 
 async def test_bloco_nao_vaza_na_cauda_e_a_ordem_do_turno_segue_a_mesma() -> None:
-    """A cauda do chat continua sendo msg do cliente → contexto dinâmico, sem o bloco de estado."""
+    """A cauda do chat é contexto dinâmico → msg do cliente (a fala por último, 29/07), sem o
+    bloco de estado."""
     janela = [
         AIMessage(content="600 1h no meu local"),
         HumanMessage(content="e como funciona?"),
@@ -102,7 +103,8 @@ async def test_bloco_nao_vaza_na_cauda_e_a_ordem_do_turno_segue_a_mesma() -> Non
     )
     cauda = str(mensagens[-1].content)
 
-    assert cauda.startswith("e como funciona?\n\n<situacao_do_atendimento")
+    assert cauda.startswith("<situacao_do_atendimento")
+    assert cauda.endswith("\n\ne como funciona?")
     assert "<ja_registrado>" not in cauda
     assert pecas.ja_registrado.startswith("<ja_registrado>")
 

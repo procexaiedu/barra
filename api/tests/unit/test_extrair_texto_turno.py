@@ -212,18 +212,42 @@ def _ai_extrai(args: dict[str, Any], tc_id: str = "toolu_x") -> AIMessage:
     )
 
 
-def test_mensagens_cliente_do_turno_pega_contiguas_sem_lembrete() -> None:
-    """Input do trace: so as HumanMessages deste turno (antes da 1a AIMessage gerada), sem o
-    lembrete_silencioso nem o historico re-injetado."""
-    messages = [
-        SystemMessage(content="persona"),
-        HumanMessage(content="oi tudo bem?"),  # historico
-        _ai_historica("oi amor!"),  # historico (sem usage_metadata) -> corta aqui
-        HumanMessage(content="quero marcar pra hoje"),  # turno
-        HumanMessage(content="<lembrete_silencioso>seja você</lembrete_silencioso>"),  # injetado
-        _ai_real("claro vida, que horas?"),
-    ]
-    assert _msgs_cliente(messages) == ["quero marcar pra hoje"]
+def test_mensagens_cliente_do_turno_le_o_burst_da_conversa_crua() -> None:
+    """Input do trace: o burst final de HumanMessages da `conversa_crua` (janela LIMPA do State),
+    nao a cauda inchada de `messages` — que comeca pelo contexto dinamico e reportaria o belief
+    inteiro como fala do cliente (regressao da inversao da cauda, 29/07)."""
+    resultado = {
+        "conversa_crua": [
+            HumanMessage(content="oi tudo bem?", id="m1"),  # historico
+            _ai_historica("oi amor!"),  # corta aqui
+            HumanMessage(content="quero marcar", id="m3"),  # turno (burst)
+            HumanMessage(content="pra hoje", id="m4"),
+        ],
+        "messages": [
+            SystemMessage(content="persona"),
+            HumanMessage(content="<situacao_do_atendimento>...\n\npra hoje", id="m4"),
+            _ai_real("claro vida, que horas?"),
+        ],
+    }
+    assert _msgs_cliente(resultado) == ["quero marcar", "pra hoje"]
+
+
+def test_mensagens_cliente_do_turno_para_na_marca_de_pausa() -> None:
+    """A marca de pausa fecha o burst: a fala do outro lado do gap e de outro momento da Conversa
+    cliente, e a propria marca nao e fala de ninguem."""
+    resultado = {
+        "conversa_crua": [
+            HumanMessage(content="Posso confirmar amanhã 16h então ?", id="m1"),
+            HumanMessage(content="[pausa de 6 dias na conversa]", id="pausa-m2"),
+            HumanMessage(content="Oi", id="m2"),
+        ]
+    }
+    assert _msgs_cliente(resultado) == ["Oi"]
+
+
+def test_mensagens_cliente_do_turno_sem_conversa_crua() -> None:
+    """Turno que morreu no gate de pausa: sem `conversa_crua` no State -> nada a reportar."""
+    assert _msgs_cliente({"messages": []}) == []
 
 
 def test_desfecho_do_turno_extracao_erro_e_flags() -> None:

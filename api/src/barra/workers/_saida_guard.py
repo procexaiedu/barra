@@ -178,7 +178,10 @@ def remover_marcador_quote(texto: str) -> tuple[str, bool]:
 # Whitelist de voz: os dois únicos emoji que a persona usa (persona.md <voz>).
 _EMOJI_PERMITIDOS = frozenset({"🥰", "😊"})
 
-# Atos em que o Vendedor humano NÃO usa emoji (persona.md: "da cotação em diante é tudo seco").
+# Atos em que o Vendedor humano NÃO usa emoji (persona.md <voz>: "o que fica seco é a VENDA DURA:
+# bolha de preço, de horário, de logística e de negociação"). A persona fala em ATO, não em fase da
+# conversa, justamente porque e assim que esta rede mede — bolha de afeto no meio da venda (book,
+# recuo) cai em 'outro' e so passa pelo thinning de frequencia abaixo.
 _ATOS_SECOS = frozenset({"cotacao", "sondagem", "desconto", "logistica"})
 
 # Carve-out da ÚNICA exceção que a persona declara (persona.md <voz>): a contraproposta de desconto

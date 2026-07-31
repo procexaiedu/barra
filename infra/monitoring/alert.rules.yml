@@ -302,6 +302,29 @@ groups:
             O agente esta rodando cego (sem trace do turno). Cenario tipico: redeploy git
             que zerou o Env do stack. LANGFUSE_OBRIGATORIO=true derruba o BOOT, mas nao
             cobre o Langfuse caindo com o processo ja de pe — que e o que esta regra pega.
+      # Incidente 24-27/07: a instancia Evolution ficou 3 DIAS fora. O agente processava os
+      # turnos (trace no Langfuse) e cada resposta morria no envio — cliente sem resposta, e a
+      # desculpa do cancelamento do piloto (ADR-0033) evaporou. Nenhuma regra cobria isso: o
+      # apagao so apareceu numa leitura manual de conversa, dias depois. `falha_evolution` conta
+      # a falha FINAL nao-critica (a fala ao cliente que se perdeu) e `exaustao_critico` a
+      # critica (efeito ja commitado no banco sem a mensagem correspondente) — qualquer uma
+      # sustentada por 15m e apagao, nao soluco de rede.
+      # LIMITACAO CONHECIDA (mesma do BarraServicoSemMetricas acima, e pior aqui): o relay de
+      # alerta entrega via barra-api -> Evolution -> WhatsApp. Com a Evolution fora, ESTE alerta
+      # nao se auto-entrega. Fechar de verdade exige um canal fora da Evolution.
+      - alert: AgenteEnvioFalhandoEvolution
+        expr: |
+          sum(rate(agente_envio_resultado_total{resultado=~"falha_evolution|exaustao_critico"}[15m])) > 0
+        for: 15m
+        labels:
+          severity: critical
+          dimensao: piloto
+        annotations:
+          summary: "Envio ao cliente falhando de forma sustentada (Evolution)"
+          description: >
+            O agente esta respondendo e a resposta NAO chega ao cliente ha 15m. Checar
+            evolution_status da instancia (cron reconciliar_conexao) e o pareamento antes de
+            olhar prompt ou agente — no incidente 24-27/07 este foi o modo de falha real.
       - alert: JudgePosEnvioDegradado
         expr: sum(rate(agente_judge_pos_envio_total{resultado="indisponivel"}[30m])) > 0
         for: 30m

@@ -23,6 +23,7 @@ from uuid import uuid4
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
+from barra.agente.nos.output_guard import bolhas_incluso_fantasma
 from barra.core.tracing import garantir_dataset, linkar_item_run, upsert_item_dataset
 from evals.e2e.avaliacao import (
     avaliar_e2e,
@@ -46,18 +47,25 @@ async def _disparar_foto_portaria(conn: AsyncConnection[dict[str, Any]], cen: Ce
 
     No P0 qualquer imagem em Aguardando_confirmacao interno e foto de portaria (CONTEXT.md). Reusa
     `handoff_foto_portaria_ia` (mesmo caminho de workers/media.py). `media_object_key=None`.
+
+    `id` pelo default `barravips.uuidv7()` + `RETURNING` (nunca `uuid4()`), mesma razao de
+    `persistencia.gravar_resposta_ia`: sem commit por turno as mensagens empatam em `created_at` e
+    a janela desempata so por `id` — um id aleatorio joga esta linha p/ o meio da conversa.
     """
     from barra.dominio.atendimentos.service import handoff_foto_portaria_ia
 
-    msg_id = uuid4()
-    await conn.execute(
+    res = await conn.execute(
         """
         INSERT INTO barravips.mensagens
-            (id, conversa_id, direcao, tipo, conteudo, evolution_message_id)
-        VALUES (%s, %s, 'cliente', 'texto', %s, %s)
+            (conversa_id, direcao, tipo, conteudo, evolution_message_id)
+        VALUES (%s, 'cliente', 'texto', %s, %s)
+        RETURNING id
         """,
-        (msg_id, cen.conversa_id, "[foto portaria]", f"e2e-foto-{uuid4().hex}"),
+        (cen.conversa_id, "[foto portaria]", f"e2e-foto-{uuid4().hex}"),
     )
+    linha = await res.fetchone()
+    assert linha is not None  # RETURNING de um INSERT sempre devolve a linha
+    msg_id = linha["id"]
     await handoff_foto_portaria_ia(
         conn, atendimento_id=cen.atendimento_id, mensagem_id=msg_id, media_object_key=None
     )
@@ -111,6 +119,441 @@ def _propos_duracao_maior(res: ResultadoE2E) -> bool:
     return any(_RE_DURACAO_MAIOR.search(t.texto or "") for t in res.turnos)
 
 
+# Abertura do "oi" seco (regras.md.j2 <abertura>, item 1): so o cumprimento — nada de preco/cardapio
+# e nada de sonda-de-balcao ("o que voce procura ?"), que o <nucleo> proibe "em nenhuma parafrase".
+# O probe CRU ja tem backstop no output_guard; o que este check pega e a PARAFRASE, que passa por la.
+_RE_SONDA_ABERTURA = re.compile(
+    r"o que (voc[êe]|tu) (procura|busca|quer|deseja|precisa|ta procurando|est[áa] procurando)|"
+    r"(como|em que) (eu )?posso (te )?ajudar|o que te traz|me conta o que",
+    re.I,
+)
+_RE_PRECO = re.compile(r"\b\d{3,4}\b")
+
+
+def _abriu_so_com_cumprimento(res: ResultadoE2E) -> bool:
+    """True se o PRIMEIRO turno da IA foi so cumprimento: sem numero de preco e sem sonda."""
+    if not res.turnos:
+        return False
+    primeiro = res.turnos[0].texto or ""
+    return not (_RE_PRECO.search(primeiro) or _RE_SONDA_ABERTURA.search(primeiro))
+
+
+# Issue 04: com <valor_cotado> na cauda (cotou e ele nao aceitou), a segunda venda do Completo
+# continua de pe — e sai SOZINHA na bolha, um preco por vez (<cotacao>). O check e generico de
+# proposito (nao casa o preco do cenario): "nomeou o completo e deu UM unico numero de preco".
+_RE_COMPLETO = re.compile(r"\bcompleto\b", re.I)
+
+
+def _cotou_completo_sozinho(res: ResultadoE2E) -> bool:
+    """True se algum turno nomeou o Completo trazendo exatamente UM preco (nunca dois lado a lado)."""
+    return any(
+        _RE_COMPLETO.search(t.texto or "") and len(_RE_PRECO.findall(t.texto or "")) == 1
+        for t in res.turnos
+    )
+
+
+def _repetiu_bolha_identica(res: ResultadoE2E) -> bool:
+    """True se a IA reenviou uma bolha literalmente igual a outra ja dita (soa a robo travado).
+
+    Bolha = bloco separado por linha em branco no texto agregado do turno, como o worker de envio
+    fatia. Bolhas curtas de cortesia repetem legitimamente ("Oii", "amor"), entao so contam as com
+    3+ palavras — o alvo e a re-cotacao copiada ("600 1h no meu local" duas vezes)."""
+    vistas: set[str] = set()
+    for turno in res.turnos:
+        for bruta in (turno.texto or "").split("\n\n"):
+            bolha = " ".join(bruta.split()).casefold()
+            if len(bolha.split()) < 3:
+                continue
+            if bolha in vistas:
+                return True
+            vistas.add(bolha)
+    return False
+
+
+# Issue 05: depois que a negociacao de preco rodou (recusa ou contraproposta), a pergunta de
+# horario dele e SIM ao valor na mesa — a IA crava a hora "sem repetir 'nao consigo' nem re-cotar"
+# (<desconto>). O check olha SO o turno que responde a essa pergunta (`turnos_cliente` e paralelo a
+# `turnos`), porque antes dela a mesma conduta seria erro (pergunta ainda e pergunta).
+_RE_PERGUNTA_HORARIO_CLIENTE = re.compile(r"que horas", re.I)
+_RE_HORA_PROPOSTA = re.compile(r"\b\d{1,2}\s*(?:h\b|:\d{2})", re.I)
+_RE_RECUSA_REPETIDA = re.compile(r"n[ãa]o consigo|n[ãa]o d[áa]\b|n[ãa]o rola", re.I)
+
+
+def _avancou_no_horario_apos_negociacao(res: ResultadoE2E) -> bool:
+    """True se, no turno que responde a pergunta de horario dele, a IA avancou o fechamento:
+    hora concreta na fala, sem repetir a recusa do desconto e sem re-cotar o preco."""
+    for i, fala in enumerate(res.turnos_cliente):
+        if not _RE_PERGUNTA_HORARIO_CLIENTE.search(fala):
+            continue
+        if i >= len(res.turnos):
+            return False
+        texto = res.turnos[i].texto or ""
+        return bool(
+            _RE_HORA_PROPOSTA.search(texto)
+            and not _RE_RECUSA_REPETIDA.search(texto)
+            and not _RE_PRECO.search(texto)
+        )
+    return False
+
+
+# Issue 05: "no meu local" pressupoe que ela recebe — a modelo que so se desloca nunca oferece um
+# local que nao tem (<cotacao>, 3o ramo do formato; <tipos_de_encontro>).
+_RE_LOCAL_PROPRIO = re.compile(
+    r"\bno meu local\b|\bmeu ap(?:artamento|to)?\b|\bminha casa\b|\bvem (?:aqui|at[ée] mim)\b|"
+    r"\bvenha at[ée] mim\b|\bte espero aqui\b",
+    re.I,
+)
+
+
+def _ofereceu_local_proprio(res: ResultadoE2E) -> bool:
+    """True se alguma bolha da IA ofereceu o local dela (proibido para quem so se desloca)."""
+    return any(_RE_LOCAL_PROPRIO.search(t.texto or "") for t in res.turnos)
+
+
+# Issue 06: com a JANELA vaga dele na mesa ("de noite"), a proposta cai DENTRO da janela — o
+# <horario_minimo> e PISO, nao a proposta pronta (<agenda>; <cotacao> e o <ja_sondou_o_dia> da
+# cauda dizem o mesmo). O check e RELACIONAL de proposito: nao afirma um numero (o piso e
+# ~agora+30min e muda com a hora da corrida), afirma que a hora proposta esta na faixa que ele
+# pediu. Faixa diurna 6h-18h = o horario que ele acabou de excluir (o bug: piso as 14h virar
+# proposta); "1h"/"2h" de DURACAO caem fora das duas faixas e nao contaminam nenhum dos lados.
+_RE_HORA_DITA = re.compile(r"\b(\d{1,2})\s*(?:h\b|:\d{2})")
+_FAIXAS_VAGAS = {"de noite": (19, 23), "final do dia": (18, 23), "de manh": (6, 11)}
+
+
+def _propos_dentro_da_janela(res: ResultadoE2E, janela: str) -> bool:
+    """True se o turno que responde a janela vaga dele propos hora DENTRO dela e nenhuma fora.
+
+    Olha so esse turno (`turnos_cliente` e paralelo a `turnos`): antes da janela entrar na mesa,
+    o piso e a proposta certa — e e depois dela que a contradicao aparecia."""
+    faixa = next((f for chave, f in _FAIXAS_VAGAS.items() if chave in janela), None)
+    if faixa is None:
+        raise ValueError(f"janela vaga sem faixa mapeada: {janela!r}")
+    inicio, fim = faixa
+    for i, fala in enumerate(res.turnos_cliente):
+        if janela not in fala.casefold() or i >= len(res.turnos):
+            continue
+        horas = [int(h) for h in _RE_HORA_DITA.findall(res.turnos[i].texto or "")]
+        dentro = [h for h in horas if inicio <= h <= fim]
+        excluidas = [h for h in horas if 6 <= h <= 18 and not inicio <= h <= fim]
+        return bool(dentro) and not excluidas
+    return False
+
+
+# Issue 23 (menage, ADR-0035). O pedido do cliente que abre os dois ramos: ele traz uma segunda
+# pessoa DELE. `_numeros` le valor em reais de dentro da fala — junta o separador de milhar antes
+# ("1.400" e "1 400" sao o mesmo 1400) e ignora numero de 1-2 digitos (hora, duracao, idade).
+_RE_PEDIDO_SEGUNDA_PESSOA = re.compile(
+    r"n[óo]s (?:dois|2)\b|(?:levar?|levo|trazer|trago|ir com|vir com)\s+\S*\s*"
+    r"(?:namorada|amiga|esposa|mulher|amigo|primo)|m[ée]nage|casal",
+    re.I,
+)
+_RE_NUM_REAIS = re.compile(r"\b\d{3,5}\b")
+
+
+def _numeros(texto: str) -> set[int]:
+    return {int(n) for n in _RE_NUM_REAIS.findall(re.sub(r"(?<=\d)[.\s](?=\d{3}\b)", "", texto))}
+
+
+def _cotou_dobro_do_pacote(res: ResultadoE2E, preco: int, horas: int) -> bool:
+    """True se o turno que responde a segunda pessoa cotou o DOBRO do pacote e nenhum numero do
+    regime-ato (<menage>: "o total dobrado, nunca o '+Extra' dos atos").
+
+    `horas` >= 2 e condicao do cenario, nao detalhe: em 1h o dobro e o preco-hora dao o MESMO
+    numero (ADR-0035) e um check assim passaria sem distinguir regime nenhum."""
+    if horas < 2:
+        raise ValueError(f"pacote de {horas}h nao distingue dobro de preco-hora (ADR-0035)")
+    extra_ato = round(preco / horas)
+    proibidos = {extra_ato, preco + extra_ato}
+    for i, fala in enumerate(res.turnos_cliente):
+        if not _RE_PEDIDO_SEGUNDA_PESSOA.search(fala) or i >= len(res.turnos):
+            continue
+        nums = _numeros(res.turnos[i].texto or "")
+        return preco * 2 in nums and not (nums & proibidos)
+    return False
+
+
+# Ramo SEM a secao: "'Não faço amor', sem cotar, sem dobrar nada e sem prometer amiga" (<menage>).
+# A promessa de amiga e so a AFIRMATIVA (trazer/ver com ela) — "não indico não amor" e a recusa
+# certa do <fora_do_cardapio> e nao pode contar como promessa.
+_RE_RECUSA_ABERTA = re.compile(
+    r"n[ãa]o fa[çc]o|n[ãa]o atendo|n[ãa]o rola|n[ãa]o tenho costume|n[ãa]o trabalho", re.I
+)
+_RE_PROMESSA_AMIGA = re.compile(
+    r"(?:vejo|ver|falo|falar|combino|combinar|pergunto|perguntar)\s+com\s+ela|"
+    r"(?:levo|trago|chamo|convido|tenho)\s+(?:uma|minha)\s+amiga|com\s+(?:uma|minha)\s+amiga",
+    re.I,
+)
+
+
+def _recusou_menage_sem_cotar(res: ResultadoE2E, precos: list[int]) -> bool:
+    """True se a IA recusou o menage no turno do pedido E em NENHUM turno dobrou um pacote ou
+    prometeu amiga. Os tres lados juntos: recusar e depois cotar o dobro tres turnos adiante e o
+    mesmo erro que cotar na hora."""
+    dobros = {p * 2 for p in precos}
+    for t in res.turnos:
+        texto = t.texto or ""
+        if _RE_PROMESSA_AMIGA.search(texto) or (_numeros(texto) & dobros):
+            return False
+    for i, fala in enumerate(res.turnos_cliente):
+        if _RE_PEDIDO_SEGUNDA_PESSOA.search(fala) and i < len(res.turnos):
+            return bool(_RE_RECUSA_ABERTA.search(res.turnos[i].texto or ""))
+    return False
+
+
+# Issue 23 (vídeo chamada, ADR-0021): sem o programa na tabela ela "não oferece, não cota e não
+# promete chamada nenhuma" (<tipos_de_encontro>). Por BOLHA, porque a negacao certa CONTEM as
+# mesmas palavras da oferta ("Não faço chamada amor") — sem o guarda de negacao o check reprovaria
+# justamente a conduta correta.
+_RE_OFERTA_CHAMADA = re.compile(
+    r"(?:podemos|posso|consigo|d[áa] pra|vamos|quer)\s+(?:fazer\s+)?(?:uma\s+)?"
+    r"(?:v[íi]deo\s*)?chamada|fa[çc]o\s+(?:uma\s+)?(?:v[íi]deo\s*)?chamada|"
+    r"te ligo|te chamo no v[íi]deo|chamada (?:fica|custa|sai|é)",
+    re.I,
+)
+_RE_NEGA_CHAMADA = re.compile(
+    r"n[ãa]o\s+(?:fa[çc]o|posso|consigo|rola|d[áa]|tenho)[^\n]{0,25}chamada|"
+    r"chamada[^\n]{0,20}n[ãa]o (?:fa[çc]o|rola|tem)",
+    re.I,
+)
+
+
+def _ofereceu_video_chamada(res: ResultadoE2E) -> bool:
+    """True se alguma bolha ofereceu/cotou chamada — a modelo que nao a tem na tabela nunca o faz."""
+    for turno in res.turnos:
+        for bolha in re.split(r"\n\s*\n", turno.texto or ""):
+            if _RE_OFERTA_CHAMADA.search(bolha) and not _RE_NEGA_CHAMADA.search(bolha):
+                return True
+    return False
+
+
+# Issue 13: a duvida sobre as FOTOS tem um dono so — o book do <midia>; o teste de bot e o detalhe
+# fisico continuam com a resposta VERBAL do <protocolo_disclosure>. Os tres checks olham SO o turno
+# que responde a fala-gatilho (`turnos_cliente` e paralelo a `turnos`): a mesma conduta em outro
+# ponto da conversa seria outra regra (um book espontaneo mais tarde e legitimo, "quando voce sentir
+# que uma foto fecha").
+def _turno_da_fala(res: ResultadoE2E, gatilho: str) -> ResultadoTurno | None:
+    """O turno da IA que responde a fala do cliente contendo `gatilho`. None = o roteiro nao chegou
+    nessa fala (a corrida terminou antes) — o probe nao rodou, e nenhum dos checks pode passar."""
+    for i, fala in enumerate(res.turnos_cliente):
+        if gatilho in fala.casefold() and i < len(res.turnos):
+            return res.turnos[i]
+    return None
+
+
+def _mandou_o_book(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se a duvida das fotos recebeu o BOOK: `enviar_midia` 2x+ no MESMO turno (<midia>: "nao
+    va de conta-gotas… 2 ou 3 fotos, sempre foto antes de video"). Uma foto so nao e o book."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and turno.tool_calls.count("enviar_midia") >= 2
+
+
+def _sem_book_no_turno(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao teste de bot NAO mandou midia (prova espontanea)."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and "enviar_midia" not in turno.tool_calls
+
+
+# Medida de corpo inventada. Alta precisao de proposito: so casa numero COLADO a uma unidade/rotulo
+# de medida, ou a altura em metros ("1,70"/"1m70"). Preco (400), duracao ("1h") e horario ("22h") do
+# mesmo turno nao contaminam — e "1.400" tem 3 digitos depois do ponto, fora do \b da altura.
+_RE_MEDIDA_INVENTADA = re.compile(
+    r"\b1\s*[,.]\s*\d{2}\b|\b1\s*m\s*\d{2}\b|\b\d{2,3}\s*(?:cm|kg|quilos?|metros?)\b|"
+    r"\b(?:manequim|tamanho|visto|uso|calço|peso)\s*(?:é\s*)?\d{2}\b",
+    re.I,
+)
+
+
+def _sem_medida_inventada(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao detalhe fisico nao cravou nenhuma medida."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and not _RE_MEDIDA_INVENTADA.search(turno.texto or "")
+
+
+# Issue 14: com a legenda VAZIA, o enquadramento de exclusividade do video so tem um lugar onde
+# caber — a UNICA bolha que acompanha o book (<midia>). Os tres checks abaixo olham SO o turno da
+# fala-gatilho (mesma razao da issue 13: o book espontaneo mais tarde e outra regra).
+def _midias_do_turno(turno: ResultadoTurno) -> list[dict[str, Any]]:
+    """Args de cada `enviar_midia` do turno. `tool_calls` e `tool_args` sao paralelos por
+    construcao (`harness._coletar_tools`)."""
+    return [
+        args
+        for nome, args in zip(turno.tool_calls, turno.tool_args, strict=True)
+        if nome == "enviar_midia"
+    ]
+
+
+def _book_em_uma_bolha(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o book saiu como o <midia> manda: foto(s) ANTES do video no mesmo turno, UMA bolha
+    de texto e legenda vazia em todas as midias (a legenda repetiria a bolha no cliente)."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    midias = _midias_do_turno(turno)
+    tipos = [str(m.get("tipo") or "foto") for m in midias]
+    if len(midias) < 2 or "video" not in tipos or tipos.index("video") == 0:
+        return False
+    if any(str(m.get("legenda") or "").strip() for m in midias):
+        return False
+    bolhas = [b for b in re.split(r"\n\s*\n", turno.texto or "") if b.strip()]
+    return len(bolhas) == 1
+
+
+# O enquadramento que o <midia> prescreve ("Gravei um vídeo pra você 🥰" / "Gravei pensando em
+# você rs") e o seu oposto — revelar que o video e acervo, que e o que ele existe pra evitar.
+_RE_ENQUADRA_EXCLUSIVO = re.compile(
+    r"grav(?:ei|ando|adinho)\b[^\n]{0,40}\b(?:(?:pra|para)\s+(?:voc[êe]|vc|ti)|"
+    r"pensando em (?:voc[êe]|vc|ti))\b|\bs[óo]\s+(?:pra|para)\s+(?:voc[êe]|vc)\b",
+    re.I,
+)
+_RE_REVELA_ACERVO = re.compile(
+    r"\bacervo\b|j[áa] (?:tinha|tenho)\b[^\n]{0,25}grav|"
+    r"grav(?:ei|ado)\b[^\n]{0,20}(?:faz tempo|antes|outro dia)|v[íi]deo (?:antigo|velho|pronto)",
+    re.I,
+)
+
+
+def _enquadrou_o_video(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se a bolha do turno enquadrou o video como exclusividade SEM revelar que e acervo."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    texto = turno.texto or ""
+    return bool(_RE_ENQUADRA_EXCLUSIVO.search(texto)) and not _RE_REVELA_ACERVO.search(texto)
+
+
+# Data no passado. "agora"/"hoje de manhã" sao as respostas PRESCRITAS, entao so o passado casa; e
+# a proposta de encontro do mesmo turno ("Vem hoje amor", "amanhã") e futura, fora do regex.
+_RE_DATA_DO_VIDEO = re.compile(
+    r"\bontem\b|\banteontem\b|antes de ontem|semana passada|m[êe]s passado|ano passado|"
+    r"\b(?:faz|h[áa])\s+(?:\d+|umas?|uns|dois|duas|tr[êe]s)\s+"
+    r"(?:dias?|semanas?|meses|m[êe]s|anos?)\b|"
+    r"\bem (?:janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|"
+    r"novembro|dezembro)\b",
+    re.I,
+)
+
+
+def _sem_data_do_video(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se "quando você gravou?" nao recebeu data (<midia>: repete o enquadramento e volta
+    pro encontro)."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and not _RE_DATA_DO_VIDEO.search(turno.texto or "")
+
+
+# Issue 15 (<fetiches> vazio). A recusa CERTA e a de mulher, curta ("Não faço amor") e SO do item;
+# a errada e a que cresce e leva o encontro junto. Os dois usam "nao faco", entao o segundo regex e
+# estreito de proposito: so casa a recusa que nomeia o encontro/programa/"nada", ou o desmarque.
+_RE_RECUSA_LEVOU_O_ENCONTRO = re.compile(
+    r"n[ãa]o (?:vou|posso|consigo|d[áa] pra|rola) (?:te )?(?:atender|marcar|receber|encontrar)|"
+    r"n[ãa]o (?:fa[çc]o|atendo)\s+(?:nada|programa|encontro)|"
+    r"(?:melhor|vamos)\s+(?:a gente\s+)?(?:deixar (?:pra|para) (?:outra|outro)|cancelar|desmarcar)",
+    re.I,
+)
+
+
+def _recusou_o_ato_sem_levar_o_encontro(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao pedido de ato recusou aberto, SEM cotar preco nenhum (com o
+    bloco vazio "o que nao esta na lista nao existe por dinheiro nenhum") e SEM derrubar o encontro
+    (<fora_do_cardapio>: "a recusa cobre EXATAMENTE o item que ele pediu")."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    texto = turno.texto or ""
+    return (
+        bool(_RE_RECUSA_ABERTA.search(texto))
+        and not _numeros(texto)
+        and not _RE_RECUSA_LEVOU_O_ENCONTRO.search(texto)
+    )
+
+
+# "Só faço com camisinha amor" — afirmacao DIRETA. Qualquer forma dela contem "com camisinha"
+# ("sexo seguro com camisinha rs" inclusive); "sem camisinha" nao casa, entao o regex nao precisa de
+# guarda de negacao.
+_RE_CAMISINHA_DIRETA = re.compile(r"com camisinha", re.I)
+
+
+def _camisinha_direta_sem_incluso(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se a camisinha saiu como afirmacao direta e NENHUMA bolha da corrida declarou item
+    incluso — com o <fetiches> vazio nao ha linha "Inclusos", entao todo claim de incluso e
+    fantasma. Reusa o detector do output_guard (issue 07) com o conjunto VAZIO: e a mesma regra,
+    medida no resultado final (o guard ja regenera/dropa dentro do turno)."""
+    for turno in res.turnos:
+        if bolhas_incluso_fantasma(turno.texto or "", set()):
+            return False
+    turno_alvo = _turno_da_fala(res, gatilho)
+    return turno_alvo is not None and bool(_RE_CAMISINHA_DIRETA.search(turno_alvo.texto or ""))
+
+
+# Issue 16. Espelha `_RE_CONTRAPROPOSTA` (agente/_disciplina.py), o detector canonico da
+# contraproposta ("Consigo 500 se você vier hoje") — aqui com o VALOR capturado, e sobre o texto
+# CRU (o detector roda sobre `normalizar()`, por isso o "nao" dele nao tem acento e o daqui tem).
+# Mudou a forma canonica no prompt -> os dois sites mudam juntos.
+_RE_VALOR_OFERTADO = re.compile(r"(?<!n[ãa]o )\bconsigo\s+(?:r\$\s*)?(\d{3,5})\b", re.I)
+
+
+def _ofertou_abaixo_do_teto(res: ResultadoE2E, teto: int) -> bool:
+    """True se ALGUMA contraproposta da IA saiu abaixo do teto pre-computado (ADR-0031).
+
+    E o erro que a aritmetica de cabeca produzia e que a cauda passou a evitar: abaixo do piso quem
+    responde e a guarda de codigo (`fora_de_oferta`, `_abaixo_do_piso`), entao a venda vira handoff
+    em cima de uma oferta que a propria IA fez. Le so o numero que segue "consigo" — o valor
+    OFERTADO —, nao qualquer numero da bolha (ela pode ecoar o que o cliente pediu ao recusar)."""
+    return any(
+        int(valor) < teto
+        for turno in res.turnos
+        for valor in _RE_VALOR_OFERTADO.findall(turno.texto or "")
+    )
+
+
+# Issue 17: os dois "sins". O sim ao VALOR (ou a pergunta de horario que equivale a ele depois da
+# negociacao) abre a PROPOSTA de horario — que oferece e acaba em "?"; o verbo de confirmacao so
+# entra depois do sim dele a HORA, e ai vem com o nome logo atras (<cotacao> "o verbo diz a fase",
+# <fechamento>). Os dois checks olham SO o turno da fala-gatilho: cada bolha e a conduta certa no
+# turno do outro sim, entao medir a conversa inteira nao distinguiria acerto de erro.
+_RE_VERBO_DE_CONFIRMACAO = re.compile(
+    r"\b(?:posso|podemos|vamos)\s+(?:te\s+|lhe\s+)?confirmar\b|\bconfirmad[oa]\b|"
+    r"\b(?:confirmamos|fechamos)\b",
+    re.I,
+)
+# Confirmacao de uma palavra (persona.md <voz>: "Ok", "Perfeito") ou o verbo do <fechamento>. Aberta
+# de proposito: o que o check cobra e que ela FECHE, nao uma palavra especifica.
+_RE_CONFIRMACAO_CURTA = re.compile(
+    r"\b(?:confirmad[oa]|combinado|fechado|fechamos|confirmamos|perfeito|isso mesmo|ok|show)\b",
+    re.I,
+)
+_RE_PEDE_O_NOME = re.compile(r"\bseu nome\b|\bcomo (?:voc[êe] )?se chama\b", re.I)
+
+
+def _ofereceu_a_hora_sem_dar_por_combinada(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao sim dele ao VALOR poe a hora na mesa como PROPOSTA: hora
+    concreta, sem o verbo de confirmacao (ele ainda nao aceitou hora nenhuma) e com "?" em alguma
+    bolha — sem a interrogacao a proposta vira promessa de retorno e o encontro morre esperando."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    texto = turno.texto or ""
+    if _RE_VERBO_DE_CONFIRMACAO.search(texto) or not _RE_HORA_PROPOSTA.search(texto):
+        return False
+    return any(bolha.strip().endswith("?") for bolha in re.split(r"\n\s*\n", texto))
+
+
+def _confirmou_a_hora_e_pediu_o_nome(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao sim dele a HORA fechou (confirmacao curta ou o verbo) e ja
+    pediu o nome — o outro lado da mesma regra, e o unico ponto em que o verbo e dela."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    texto = turno.texto or ""
+    return bool(_RE_CONFIRMACAO_CURTA.search(texto) and _RE_PEDE_O_NOME.search(texto))
+
+
+def _nao_precificou_a_insistencia(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde a oferta de mais dinheiro nao devolveu numero nenhum
+    (<fora_do_cardapio>: "nao ceda nem precifique")."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and not _numeros(turno.texto or "")
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -124,6 +567,8 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["nao_pediu_pix_ok"] = not pediu_pix
     if cf.nao_deve_escalar:
         aval["nao_escalou_ok"] = "escalar" not in tools
+    if cf.teto_do_pacote is not None:
+        aval["contraproposta_no_teto_ok"] = not _ofertou_abaixo_do_teto(res, cf.teto_do_pacote)
     if cf.hora_fora_disponibilidade is not None:
         aval["nao_confirmou_fora_ok"] = not _confirmou_horario_fora(
             res, cf.hora_fora_disponibilidade
@@ -132,6 +577,45 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["sem_jargao_ok"] = not _vazou_jargao(res)
     if cf.deve_propor_duracao_maior:
         aval["propos_maior_ok"] = _propos_duracao_maior(res)
+    if cf.deve_abrir_so_com_cumprimento:
+        aval["abertura_limpa_ok"] = _abriu_so_com_cumprimento(res)
+    if cf.deve_cotar_completo:
+        aval["completo_sozinho_ok"] = _cotou_completo_sozinho(res)
+    if cf.nao_deve_repetir_bolha_identica:
+        aval["sem_bolha_repetida_ok"] = not _repetiu_bolha_identica(res)
+    if cf.deve_avancar_apos_negociacao:
+        aval["avancou_apos_negociacao_ok"] = _avancou_no_horario_apos_negociacao(res)
+    if cf.nao_deve_oferecer_local_proprio:
+        aval["sem_local_proprio_ok"] = not _ofereceu_local_proprio(res)
+    if cf.janela_vaga_do_cliente is not None:
+        aval["dentro_da_janela_ok"] = _propos_dentro_da_janela(res, cf.janela_vaga_do_cliente)
+    if cf.menage_dobra_o_pacote is not None:
+        aval["dobrou_o_pacote_ok"] = _cotou_dobro_do_pacote(res, *cf.menage_dobra_o_pacote)
+    if cf.menage_fora_do_cardapio is not None:
+        aval["recusou_menage_ok"] = _recusou_menage_sem_cotar(res, cf.menage_fora_do_cardapio)
+    if cf.nao_deve_oferecer_video_chamada:
+        aval["sem_oferta_de_chamada_ok"] = not _ofereceu_video_chamada(res)
+    if cf.duvida_das_fotos is not None:
+        aval["book_na_duvida_ok"] = _mandou_o_book(res, cf.duvida_das_fotos)
+    if cf.teste_de_bot is not None:
+        aval["sem_book_no_teste_ok"] = _sem_book_no_turno(res, cf.teste_de_bot)
+    if cf.detalhe_fisico is not None:
+        aval["sem_medida_inventada_ok"] = _sem_medida_inventada(res, cf.detalhe_fisico)
+    if cf.book_com_video is not None:
+        aval["book_uma_bolha_ok"] = _book_em_uma_bolha(res, cf.book_com_video)
+        aval["enquadramento_na_bolha_ok"] = _enquadrou_o_video(res, cf.book_com_video)
+    if cf.quando_gravou is not None:
+        aval["sem_data_do_video_ok"] = _sem_data_do_video(res, cf.quando_gravou)
+    if cf.ato_fora_do_cardapio is not None:
+        aval["recusou_o_ato_ok"] = _recusou_o_ato_sem_levar_o_encontro(res, cf.ato_fora_do_cardapio)
+    if cf.camisinha_sem_incluso is not None:
+        aval["camisinha_direta_ok"] = _camisinha_direta_sem_incluso(res, cf.camisinha_sem_incluso)
+    if cf.insistencia_com_dinheiro is not None:
+        aval["nao_precificou_ok"] = _nao_precificou_a_insistencia(res, cf.insistencia_com_dinheiro)
+    if cf.os_dois_sins is not None:
+        sim_ao_valor, sim_a_hora = cf.os_dois_sins
+        aval["ofereceu_a_hora_ok"] = _ofereceu_a_hora_sem_dar_por_combinada(res, sim_ao_valor)
+        aval["confirmou_e_pediu_o_nome_ok"] = _confirmou_a_hora_e_pediu_o_nome(res, sim_a_hora)
     return aval
 
 

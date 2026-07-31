@@ -5,6 +5,9 @@ prepare_context (AIMessages do banco, sem usage_metadata). Compartilhado pelo co
 (extrai o texto que vai ao cliente) e pelo output_guard (escaneia/zera EXATAMENTE o mesmo
 texto antes do envio) — duplicar o filtro nos dois lados ja divergiu uma vez (o guard so via
 a ultima AIMessage enquanto o coordenador despachava o agregado do turno).
+
+Mora aqui tambem a convencao da MARCA DE PAUSA da janela (`e_marca_pausa`): mesmo papel de
+fonte unica, para o pedaco injetado no historico nao ser confundido com fala de ninguem.
 """
 
 from collections.abc import Sequence
@@ -86,7 +89,23 @@ def extrair_texto_do_turno(messages: Sequence[BaseMessage]) -> str:
     return "\n\n".join(partes)
 
 
-_PREFIXO_LEMBRETE = "<lembrete_silencioso>"
+# Marca de pausa longa da janela: a HumanMessage SINTETICA que `traduzir_mensagens`
+# (nos/prepare_context) insere entre duas bolhas separadas por um gap grande de `created_at`. Nao e
+# fala de ninguem — e fronteira ESTRUTURAL — e quem a distingue e o PREFIXO DETERMINISTICO do id
+# (o conteudo e texto livre, o id nao). Mora neste modulo, e nao junto dos detectores que a
+# consomem (`nos/_janela_do_turno`), porque `nos/__init__` importa o `output_guard`, que importa
+# este modulo: a seta so pode apontar de `nos/` para ca.
+_PREFIXO_ID_PAUSA = "pausa-"
+
+
+def e_marca_pausa(msg: BaseMessage) -> bool:
+    """True se `msg` e a marca de pausa longa inserida na janela (ver `_PREFIXO_ID_PAUSA`).
+
+    Todo detector que caminha um burst contiguo de HumanMessages PARA nela: as bolhas do outro
+    lado sao de outro momento da Conversa cliente, nao fala do cliente agora.
+    """
+    return bool(msg.id) and str(msg.id).startswith(_PREFIXO_ID_PAUSA)
+
 
 # Campos de `registrar_extracao` que resumem a leitura do turno (a "mecanica" que importa num
 # trace, sem PII). `proxima_acao_esperada`/`sinais_qualificacao` ficam de fora -- verbosos e nao
@@ -103,25 +122,28 @@ _CAMPOS_EXTRACAO = (
 )
 
 
-def mensagens_cliente_do_turno(messages: Sequence[BaseMessage]) -> list[str]:
-    """Texto das HumanMessages que dispararam o turno -- as contiguas imediatamente antes da 1a
-    AIMessage gerada agora, excluido o `<lembrete_silencioso>` injetado pelo prepare_context.
+def mensagens_cliente_do_turno(resultado: dict[str, Any]) -> list[str]:
+    """Texto das falas do CLIENTE que dispararam o turno: o burst final de HumanMessages da
+    `conversa_crua` do State, parando na marca de pausa (`e_marca_pausa`).
 
     So para o `input` legivel do trace (observabilidade): da ao leitor o que o cliente disse neste
-    turno sem garimpar a janela re-injetada. Sem msgs do turno (ex.: turno so-tool), retorna [].
+    turno sem garimpar a janela re-injetada. Sem `conversa_crua` (turno que morreu no gate de
+    pausa), retorna [].
+
+    Le a `conversa_crua` e nao `messages` porque a cauda que o chat recebe e UMA HumanMessage
+    inchada de `contexto dinamico + fala do cliente` (`_anexar_contexto_dinamico`): filtrar por
+    prefixo de texto reportaria o belief inteiro como fala do cliente. A crua e a janela LIMPA,
+    publicada pelo prepare_context antes de qualquer anexacao — e foi este campo do trace que
+    permitiu diagnosticar o incidente de 29/07.
     """
-    do_turno = mensagens_do_turno(messages)
-    if not do_turno:
-        return []
-    corte = messages.index(do_turno[0])
+    crua: Sequence[BaseMessage] = resultado.get("conversa_crua") or []
     out: list[str] = []
-    for m in reversed(messages[:corte]):
-        if not isinstance(m, HumanMessage):
-            break  # bateu no historico (AIMessage/ToolMessage) -> fim das msgs deste turno
-        texto = m.content if isinstance(m.content, str) else str(m.content)
-        if texto.startswith(_PREFIXO_LEMBRETE):
-            continue
-        out.append(texto)
+    for m in reversed(crua):
+        # Mesma mecanica de `_burst_do_cliente` (nos/_janela_do_turno): para na 1a bolha que nao e
+        # dele (AIMessage) e na marca de pausa, que fecha o burst por ser de outro momento.
+        if not isinstance(m, HumanMessage) or e_marca_pausa(m):
+            break
+        out.append(m.content if isinstance(m.content, str) else str(m.content))
     out.reverse()
     return out
 

@@ -72,8 +72,11 @@ class Settings(BaseSettings):
     # no DeepSeek V4 Flash DIRETO (api.deepseek.com) — sem alternativa de provider. Preferido em
     # escala: garante o cache automatico de prefixo (so o endpoint oficial cacheia; o prefixo global
     # byte-identico fica quente -> 98% mais barato no hit) E crava modelo/quant (sem roleta de FP4 do
-    # load-balance OpenRouter). `deepseek-v4-flash` = id atual do V4 Flash (os aliases legados
-    # `deepseek-chat`/`deepseek-reasoner` saem em 2026-07-24 15:59 UTC). O id cru tem thinking LIGADO
+    # load-balance OpenRouter). `deepseek-v4-flash` = id unico do V4 Flash (os aliases legados
+    # `deepseek-chat`/`deepseek-reasoner` foram aposentados em 2026-07-24 15:59 UTC; hoje devolvem
+    # HTTP 400). O id NAO fixa snapshot: em 2026-07-31 o provider promoveu o V4 Flash oficial
+    # (`DeepSeek-V4-Flash-0731`, mesma arquitetura, post-training novo) atras do MESMO id — nao ha id
+    # datado p/ pinar, entao troca de peso chega sem deploy nosso. O id cru tem thinking LIGADO
     # por default (doc oficial: "the thinking toggle defaults to enabled") -> criar_chat_deepseek
     # passa `extra_body={"thinking": {"type": "disabled"}}` p/ travar non-thinking (preserva
     # structured output #2/#3 e a temperature 1.3 do chat #1). Vision (Pix OCR) e audio (STT) seguem

@@ -57,6 +57,11 @@ class ContextoDoTurno:
     # `dia_ja_sondado_hist` é a coluna crua; quem os templates leem é `dia_ja_sondado`, o OR dela
     # com o window-scan do turno (aplicado em `_anexar_contexto_dinamico`).
     n_contrapropostas: int
+    # Pendurado no contador acima, não é flag nova: o VALOR da última contraproposta (o teto),
+    # já calculado, para a IA parar de multiplicar o percentual de cabeça em cima da tabela.
+    # Sai da mesma função que JULGA a oferta dela (`teto_de_contraproposta`, atendimentos/service);
+    # None (o normal fora da 2ª rodada) = a cauda não injeta número e vale o <desconto> do BP_GERAL.
+    teto_desconto: str | None
     n_perguntas_de_horario: int
     dia_ja_sondado_hist: bool
     book_ja_enviado: bool
@@ -77,6 +82,19 @@ class ContextoDoTurno:
     # Cardápio e cliente.
     tabela_max_horas: float
     sem_periodo_longo: bool
+    # Gate do cardápio de ATOS, da mesma leitura de fetiches do BP_MODELO: sem nenhum vínculo em
+    # `modelo_fetiches` o <fetiches> dela sai "(sem fetiches cadastrados)" — não há extra a cotar
+    # nem linha "Inclusos", e a cauda injeta o <sem_fetiches>. Mesma família derivada do cardápio.
+    sem_fetiches: bool
+    # Gate do <menage>, derivado do cardápio dela (mesma leitura de fetiches do BP_MODELO): sem a
+    # seção "Por pessoa" no <fetiches>, menage/casal não existe pra ela e a cauda injeta o
+    # <sem_menage>. É o padrão do `sem_periodo_longo` — a condição vira dado, não prosa.
+    sem_menage: bool
+    # Mesmo trilho para a vídeo chamada (ADR-0021/0029): sem o programa na tabela dela (as mesmas
+    # linhas de `modelo_programas` que o <programas> do BP_MODELO renderiza), a chamada não é dela
+    # e a cauda injeta o <sem_video_chamada> — a prosa que negava isso em quatro sites do BP_GERAL
+    # sai. Default conservador `False` (não injeta) igual aos dois acima.
+    sem_video_chamada: bool
     recorrente: bool
     observacoes_internas: str | None
     ultimo_motivo_perda: str | None
@@ -95,9 +113,12 @@ class ContextoDoTurno:
     combinado_hora: str | None
     min_para_combinado: int | None
 
-    # Resolvido depois das queries, sobre a janela do turno — default para a construção não
-    # precisar antecipá-lo (ver `_anexar_contexto_dinamico`).
+    # Resolvidos depois das queries, sobre a janela do turno — default para a construção não
+    # precisar antecipá-los (ver `_anexar_contexto_dinamico`).
     dia_ja_sondado: bool = False
+    # Ela já falou nesta parte da conversa? Gate do "não recumprimente" do `<antes_de_perguntar>`:
+    # sem ele a cauda proibia, no ponto de recency máxima, a abertura que a `<abertura>` prescreve.
+    conversa_em_andamento: bool = False
 
     def como_variaveis(self) -> dict[str, Any]:
         """Dicionário para o `render(**variaveis)` dos templates. Raso de propósito: os valores

@@ -23,6 +23,7 @@ from .._disciplina import (
     contem_hora_explicita,
     contem_sondagem_imediatismo,
 )
+from .._texto_turno import e_marca_pausa
 
 # A2 (captura determinística do dia — display-only): o abridor social "seria hoje?" (persona.md:32)
 # seguido de afirmação curta do cliente CONFIRMA que o encontro é hoje. Mas a extração forçada roda
@@ -88,9 +89,18 @@ def _e_afirmacao_curta(texto: str) -> bool:
 
 def _burst_do_cliente(mensagens: list[BaseMessage]) -> int:
     """Índice onde começa o burst ATUAL do cliente (HumanMessages contíguas no fim da janela);
-    `len(mensagens)` quando o último a falar não foi ele."""
+    `len(mensagens)` quando o último a falar não foi ele.
+
+    PARA na marca de pausa: o burst é a fala contígua dele AGORA, e a marca é fronteira estrutural
+    entre dois momentos da Conversa cliente — uma bolha de seis dias atrás não é fala dele neste
+    turno (incidente 29/07, trace 06db4298). Sem isso a própria marca (HumanMessage sintética)
+    entraria no burst e os detectores a leriam como fala do cliente.
+    """
     i = len(mensagens)
-    while i > 0 and isinstance(mensagens[i - 1], HumanMessage):
+    while i > 0:
+        anterior = mensagens[i - 1]
+        if not isinstance(anterior, HumanMessage) or e_marca_pausa(anterior):
+            break
         i -= 1
     return i
 
@@ -180,8 +190,15 @@ def _confirmou_dia_hoje(mensagens: list[BaseMessage]) -> bool:
     salva contígua do PRÓPRIO cliente: ele responde a pergunta composta 'tudo bem? seria hoje?' em
     duas bolhas ('tudobem' + 'sim'), e a afirmação fica precedida pela sua própria bolha anterior,
     não pela sondagem da IA (trace real 4837d789). Outro dia em qualquer bolha do burst → não assume
-    hoje (deixa a extração capturar o dia explícito)."""
-    for i, msg in enumerate(mensagens):
+    hoje (deixa a extração capturar o dia explícito).
+
+    Só o trecho DEPOIS da última marca de pausa conta: um par "seria hoje ?" + "sim" de seis dias
+    atrás não fala do dia de HOJE (incidente 29/07, trace 06db4298), nem quando ele está inteiro no
+    trecho antigo, nem quando a afirmação nova responderia a uma sondagem do trecho antigo."""
+    inicio = next(
+        (i + 1 for i in range(len(mensagens) - 1, -1, -1) if e_marca_pausa(mensagens[i])), 0
+    )
+    for i, msg in enumerate(mensagens[inicio:], start=inicio):
         if not (isinstance(msg, HumanMessage) and _e_afirmacao_curta(_texto_msg(msg))):
             continue
         j = i - 1
@@ -189,6 +206,11 @@ def _confirmou_dia_hoje(mensagens: list[BaseMessage]) -> bool:
         # cita outro dia, aborta este par — não confirma hoje.
         burst_cita_outro_dia = False
         while j >= 0 and isinstance(mensagens[j], HumanMessage):
+            # A marca de pausa fecha o burst (mesma fronteira de `_burst_do_cliente`): ao parar
+            # nela, a varredura das bolhas da IA abaixo também não a atravessa (a marca não é
+            # AIMessage), então a sondagem do trecho antigo deixa de ser antecedente deste "sim".
+            if e_marca_pausa(mensagens[j]):
+                break
             if _TOKEN_OUTRO_DIA.search(_texto_msg(mensagens[j]).lower()):
                 burst_cita_outro_dia = True
             j -= 1
@@ -215,3 +237,26 @@ def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
     return any(
         isinstance(m, AIMessage) and _PROBE_DIA_HOJE.search(_texto_msg(m)) for m in mensagens
     )
+
+
+def _conversa_em_andamento(mensagens: list[BaseMessage]) -> bool:
+    """True se ELA já tem bolha nesta parte da conversa — varre de trás pra frente e PARA na marca
+    de pausa (mesma fronteira dos outros detectores).
+
+    Gate do "não recumprimente" da cauda (`contexto_dinamico.md.j2`, `<antes_de_perguntar>`). A
+    frase afirmava, sem condição, que a conversa já estava no meio — e é a última instrução que o
+    modelo lê antes da fala do cliente, então vencia a `<abertura>` do `regras.md.j2` no turno do
+    "oi" seco: o cumprimento em 2 bolhas sumia. Condicionada aqui, ela some no primeiro contato e
+    continua valendo assim que existe fala dela. A marca de pausa é a fronteira certa (e não
+    "qualquer AIMessage da janela") porque a janela cruza atendimentos: bolha de seis dias atrás não
+    faz o "oi" de agora ser meio de conversa — é abertura de novo (incidente 29/07).
+
+    `modelo_manual` conta: já vem traduzida para AIMessage em `traduzir_mensagens`, e do lado do
+    cliente uma bolha da modelo é fala dela igual.
+    """
+    for msg in reversed(mensagens):
+        if e_marca_pausa(msg):
+            return False
+        if isinstance(msg, AIMessage):
+            return True
+    return False
