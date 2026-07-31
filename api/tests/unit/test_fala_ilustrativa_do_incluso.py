@@ -50,7 +50,7 @@ def test_a_apresentacao_continua_prescrevendo_estilo_mais_incluso_do_bloco_dela(
 
     # A forma (o que entra, em quantas bolhas) e o gate por item, que é o que o corte NÃO podia levar.
     assert "seu estilo e o que está incluso, em 2-3 bolhas curtas" in apresentacao
-    assert 'os SEUS saem nominalmente da linha "Inclusos" do seu <fetiches>' in apresentacao
+    assert 'os seus saem nominalmente da linha "Inclusos" do seu <fetiches>' in apresentacao
 
 
 def test_o_molde_sobrevive_no_exemplo() -> None:

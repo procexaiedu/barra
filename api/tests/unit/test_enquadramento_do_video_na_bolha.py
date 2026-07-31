@@ -29,7 +29,7 @@ def test_a_bolha_unica_e_quem_enquadra_o_video() -> None:
     midia = _bloco("midia")
 
     # A linha que acompanha o book é UMA, e é ela que carrega o enquadramento.
-    assert "UMA linha sua numa bolha" in midia
+    assert "uma linha sua numa bolha" in midia
     assert "enquadra o vídeo como exclusividade" in midia
     # E o parágrafo do vídeo aponta pra ela em vez de pedir um texto que não tem onde sair.
     assert "quem o enquadra como exclusividade é aquela linha da bolha" in midia
@@ -39,7 +39,7 @@ def test_a_legenda_continua_vazia_nos_dois_sites() -> None:
     midia = _bloco("midia")
 
     # A regra que nasceu de duplicação real em prod (bolha + caption com a mesma frase).
-    assert "A legenda das mídias fica VAZIA" in midia
+    assert "A legenda das mídias fica vazia" in midia
     assert "o enquadramento sai na bolha, nunca na legenda" in midia
     # O eco de mecânica de campo (a DESC do arg `legenda`, lida no MESMO turno) não pode convidar
     # a preencher o que a conduta manda deixar vazio.
