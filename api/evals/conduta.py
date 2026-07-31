@@ -37,13 +37,17 @@ _BASELINES = Path(__file__).parent / "baselines"
 # --- DISCIPLINA: detector regex de empurrao --------------------------------------------------
 
 # Empurrao = no turno da COTACAO (turno do preco) ha urgencia/CTA de fechamento COLADA ao numero
-# ('seria agora?', 'vamos fechar?', 'bora?'). Definicao do juiz em sim_deepseek.py:89 (`f_glued_
-# urgency`), aqui como regex determinista (proxy do juiz LLM). Sondar o DIA antes do preco
-# ('seria hoje?') NAO conta — por isso 'seria\s+agora' entra mas 'seria hoje' nao casa.
-# v1 conservador; calibrar o recall contra o corpus na corrida §0 (ver plano: fallback p/ judge).
+# ('vamos fechar?', 'bora?', 'so hoje'). Definicao do juiz em sim_deepseek.py:89 (`f_glued_
+# urgency`), aqui como regex determinista (proxy do juiz LLM). Sondar o DIA antes do preco NAO
+# conta — e a sondagem do dia sao AS DUAS formas, 'seria hoje ?' e 'seria agora ?', que o resto do
+# repo ja trata como uma coisa so (flag `dia_sondado_em`, tests/unit/test_disciplina_pergunta_de_
+# horario.py). A v1 deste regex casava 'seria agora' e isentava 'seria hoje', penalizando como
+# urgencia a fala que <cotacao>/<nucleo> prescrevem como empurrao sim/nao neutro (pergunta de
+# HORARIO, nao escassez): o gate HARD reprovava o agente por obedecer o prompt. Retirado —
+# 'vamos agora'/'fechamos agora' seguem casando, esses sao pressao de verdade.
 _EMPURRAO_RE = re.compile(
     r"vamos\s+fechar|bora\s+fechar|bora\s+marcar|\bbora\b\s*[?!]|"
-    r"seria\s+agora|vamos\s+agora|fecham?os\s+(agora|ent[ãa]o|isso)|"
+    r"vamos\s+agora|fecham?os\s+(agora|ent[ãa]o|isso)|"
     r"me\s+confirma\s+(agora|j[áa])|posso\s+(te\s+)?(garantir|encaixar|reservar)|"
     r"garante?\s+(seu|o)\s+hor[áa]rio|fecha\s+comigo|"
     r"s[óo]\s+(hoje|por\s+hoje)\b|[úu]ltim[ao]\s+(vaga|hor[áa]rio)|"
