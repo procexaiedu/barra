@@ -4,11 +4,26 @@
 
 **Não é conserto de prompt** — é campo que falta. Por isso está fora do plano de reescrita.
 
-**Decisão que falta:** o caso é frequente o bastante para virar campo de extração e condição no trilho do Pix, ou o certo é a conduta parar de oferecer essa alternativa e escalar? A segunda opção é bem mais barata e pode ser o certo no P0.
+**Decisão tomada (dev, 31/07):** **somente a modelo pede o uber, por segurança.** Vale a segunda
+opção — a conduta para de aceitar o uber do cliente. Sem campo de extração, sem condição no trilho
+do Pix: o Pix determinístico do externo passa a estar sempre certo, porque não existe mais o caso
+em que ele estaria errado.
 
-**Blocked by:** None — mas precisa da decisão antes de virar trabalho.
+**Blocked by:** None.
 
-**Status:** needs-triage
+**Status:** ready-for-agent
+
+- [ ] a conduta deixa de aceitar o uber do cliente — o "pode deixar" do `<tipos_de_encontro>` sai
+- [ ] a recusa vem com fala de substituição (lição do incidente #36: proibir sem dar a fala é o que
+      cria o bug), e a insistência tem saída definida
+- [ ] o eco do `persona.md` e qualquer outro site que trate o uber do cliente acompanham
+- [ ] `CONTEXT.md`, verbete **Pix de deslocamento**, deixa de dizer que não há Pix quando o cliente
+      chama o próprio uber — hoje o texto contradiz esta decisão
+- [ ] a decisão de 10/07 (Fernando, grupo de testes) fica registrada como superada, com data
+
+**A redigir junto com o Fernando:** a fala revela a razão de segurança ou não? O caso vizinho — ele
+querer buscá-la de carro — é explicitamente sem dar a razão ("redirecione pros formatos que
+existem"). Manter as duas coerentes é preferível a inventar uma exceção.
 
 ---
 

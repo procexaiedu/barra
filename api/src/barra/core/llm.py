@@ -89,8 +89,12 @@ def criar_chat_deepseek(
     quente (chat: BP_GERAL global; judge: o system aup_saida.md repetido antes de cada bolha), ~98%
     mais barato no hit; (2) crava modelo/quantização, sem a roleta de FP4 do load-balance.
 
-    `modelo` (default settings.deepseek_model_chat = `deepseek-v4-flash`) é o id atual do V4 Flash;
-    os aliases legados `deepseek-chat`/`deepseek-reasoner` aposentam 2026-07-24 15:59 UTC. O id cru
+    `modelo` (default settings.deepseek_model_chat = `deepseek-v4-flash`) é o id único do V4 Flash;
+    os aliases legados `deepseek-chat`/`deepseek-reasoner` foram aposentados em 2026-07-24 15:59 UTC
+    (hoje HTTP 400). O id **não fixa snapshot** — em 2026-07-31 o provider promoveu o V4 Flash oficial
+    (`DeepSeek-V4-Flash-0731`, mesma arquitetura, post-training novo) atrás do mesmo id, e não existe
+    id datado para pinar: mudança de peso chega sem deploy nosso, então deriva de conduta se mede por
+    eval, não por diff. O id cru
     tem **thinking LIGADO por default** (doc oficial: "the thinking toggle defaults to enabled"),
     então a factory passa SEMPRE `extra_body={"thinking": {"type": "disabled"}}` p/ travar
     non-thinking — sem isso o thinking corromperia o structured output (extração #2/judge #3),
