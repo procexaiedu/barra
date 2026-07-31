@@ -45,7 +45,7 @@ from barra.workers.judge_pos_envio import julgar_turno_pos_envio
 from barra.workers.lembrete_valor import cobrar_valor_final
 from barra.workers.media import limpar_midias_vencidas, rotear_imagem, transcrever_audio
 from barra.workers.pix import validar_pix
-from barra.workers.reconciliacao import reconciliar_cards_escalada
+from barra.workers.reconciliacao import reconciliar_cards_escalada, reconciliar_desculpa_piloto
 from barra.workers.revisao_baixo_score import coletar_baixo_score
 from barra.workers.rollback_watch import vigiar_gatilhos_rollback
 from barra.workers.timeouts import (
@@ -132,6 +132,12 @@ async def cron_reconciliar_cards(ctx: dict[str, Any]) -> int:
     # Rede de segurança contra handoff silencioso: entrega cards de escalada órfãos chamando
     # enviar_card inline (ctx tem db_pool + evolution). Ver workers/reconciliacao.py.
     return await reconciliar_cards_escalada(ctx)
+
+
+async def cron_reconciliar_desculpa_piloto(ctx: dict[str, Any]) -> int:
+    # Backstop do ADR-0033: a desculpa do cancelamento é envio crítico, mas a janela de retry do
+    # `enviar_turno` (~30s) não cobre queda de instância. Ver workers/reconciliacao.py.
+    return await reconciliar_desculpa_piloto(ctx)
 
 
 async def cron_reconciliar_conexao(ctx: dict[str, Any]) -> int:
@@ -319,6 +325,7 @@ class WorkerSettings:
         ),
         cron(cron_limpar_midias, name="limpar_midias", hour={3}, minute={0}),
         cron(cron_reconciliar_cards, name="reconciliar_cards"),
+        cron(cron_reconciliar_desculpa_piloto, name="reconciliar_desculpa_piloto"),
         # Status de WhatsApp x Evolution (o painel lê um cache escrito só por webhook): a cada
         # 2 min, 1 GET /instance/status por modelo com instância vinculada.
         cron(
