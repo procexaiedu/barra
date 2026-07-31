@@ -1081,8 +1081,7 @@ async def _abaixo_do_piso(
     preco_tabela = await _preco_tabela_min(conn, row["modelo_id"], duracao)
     if preco_tabela is None:
         return True
-    fator = Decimal("1") - Decimal(str(get_settings().desconto_teto_pct))
-    return valor < preco_tabela * fator
+    return valor < piso_de_desconto(preco_tabela)
 
 
 async def _par_persistido_abaixo_do_piso(
@@ -1107,27 +1106,75 @@ async def _par_persistido_abaixo_do_piso(
     )
 
 
+def piso_de_desconto(preco_tabela: Decimal) -> Decimal:
+    """Menor valor que a IA oferta sozinha sobre um preco de tabela: `preco x (1 -
+    desconto_teto_pct)` (ADR-0031, teto da escalada de 2 rodadas). `desconto_teto_pct=0` =>
+    piso = preco de tabela.
+
+    SITE UNICO da conta, de proposito: quem JULGA a oferta da IA (`_abaixo_do_piso`) e quem
+    MOSTRA o numero a ela (o `<ja_fez_contraproposta n="1">` da cauda, via
+    `teto_de_contraproposta`) saem daqui. Duas implementacoes que concordam hoje divergem no
+    arredondamento amanha, e a divergencia aparece como escalada `fora_de_oferta` a toa em cima
+    de uma oferta que a propria cauda mandou fazer."""
+    return preco_tabela * (Decimal("1") - Decimal(str(get_settings().desconto_teto_pct)))
+
+
+async def teto_de_contraproposta(
+    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
+) -> Decimal | None:
+    """Valor ABSOLUTO da segunda e ultima contraproposta (ADR-0031) para a duracao em jogo — o
+    numero que a cauda mostra a IA em vez do percentual que ela multiplicava de cabeca.
+
+    `None` (a cauda nao injeta numero nenhum e a IA cai no percentual do `<desconto>`) quando:
+    - a duracao nao esta fechada, ou nao ha programa dela nessa duracao — nao ha preco de tabela;
+    - a duracao tem MAIS DE UM preco na tabela dela (ex.: "Padrao 1h 400" e "Casal 1h 700"). O
+      piso que o guard usa e o do programa mais BARATO de proposito (ADR-0004 §Decisao item 5:
+      minimiza falso-positivo de escalada), mas o teto que ela pode ofertar e sobre o "Preco de
+      tabela do pacote VENDIDO" (CONTEXT.md, Piso de desconto) — e o pacote nao esta gravado no
+      atendimento (`atendimento_servicos` so o painel escreve). Mostrar o piso do mais barato
+      como se fosse o teto dela mandaria a IA dar 25% em cima do pacote errado. Com um preco so
+      na duracao, as duas leituras sao o MESMO numero e a ambiguidade nao existe."""
+    if duracao_horas is None:
+        return None
+    precos = await _precos_tabela(conn, modelo_id, duracao_horas)
+    if precos is None or precos[0] != precos[1]:
+        return None
+    return piso_de_desconto(precos[0])
+
+
 async def _preco_tabela_min(
     conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
 ) -> Decimal | None:
     """Menor preco de tabela dos programas da modelo na duracao acordada (`duracoes.horas`).
     Usa o MENOR preco como base do piso (ADR-0004 §Decisao item 5): piso mais baixo => so escala
     quem esta abaixo ate do programa mais barato, minimizando falso-positivo."""
+    precos = await _precos_tabela(conn, modelo_id, duracao_horas)
+    return precos[0] if precos is not None else None
+
+
+async def _precos_tabela(
+    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
+) -> tuple[Decimal, Decimal] | None:
+    """`(menor, maior)` preco de tabela dos programas da modelo na duracao acordada
+    (`duracoes.horas`), ou None sem nenhum programa nessa duracao. O menor e a base do piso
+    (`_preco_tabela_min`); os dois juntos dizem se a duracao tem UM preco so, que e o que
+    `teto_de_contraproposta` precisa saber."""
     if duracao_horas is None:
         return None
     res = await conn.execute(
         """
-        SELECT mp.preco
+        SELECT min(mp.preco) AS menor, max(mp.preco) AS maior
           FROM barravips.modelo_programas mp
           JOIN barravips.duracoes d ON d.id = mp.duracao_id
          WHERE mp.modelo_id = %s AND d.horas = %s
-         ORDER BY mp.preco ASC
-         LIMIT 1
         """,
         (modelo_id, Decimal(str(duracao_horas))),
     )
     row = await res.fetchone()
-    return row["preco"] if row is not None else None
+    # Agregado sem GROUP BY devolve SEMPRE uma linha: sem programa na duracao ela vem com NULL.
+    if row is None or row["menor"] is None:
+        return None
+    return row["menor"], row["maior"]
 
 
 def calcular_preco_extra_fetiche(

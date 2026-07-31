@@ -57,6 +57,11 @@ class ContextoDoTurno:
     # `dia_ja_sondado_hist` é a coluna crua; quem os templates leem é `dia_ja_sondado`, o OR dela
     # com o window-scan do turno (aplicado em `_anexar_contexto_dinamico`).
     n_contrapropostas: int
+    # Pendurado no contador acima, não é flag nova: o VALOR da última contraproposta (o teto),
+    # já calculado, para a IA parar de multiplicar o percentual de cabeça em cima da tabela.
+    # Sai da mesma função que JULGA a oferta dela (`teto_de_contraproposta`, atendimentos/service);
+    # None (o normal fora da 2ª rodada) = a cauda não injeta número e vale o <desconto> do BP_GERAL.
+    teto_desconto: str | None
     n_perguntas_de_horario: int
     dia_ja_sondado_hist: bool
     book_ja_enviado: bool

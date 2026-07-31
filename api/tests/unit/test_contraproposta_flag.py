@@ -8,10 +8,12 @@ janela → LLM podia ofertar de novo. Agora a flag é MATERIALIZADA: `contar_con
 (não reescaneia as falas da IA) e o template injeta a tag instrutiva certa pra cada rodada.
 """
 
+from decimal import Decimal
 from typing import Any
 
 from barra.agente._disciplina import contar_contrapropostas
 from barra.agente.contexto import ContextAgente
+from barra.agente.nos._contexto_do_turno import ContextoDoTurno
 from barra.agente.nos.prepare_context import _resolver_variaveis
 from barra.agente.persona import render_contexto_dinamico
 
@@ -67,7 +69,23 @@ class _FakeConnVazio:
         return _R()
 
 
-async def _n_contrapropostas(atendimento: dict[str, Any]) -> int:
+class _FakeConnComTabela:
+    """Igual ao vazio, menos na query de preços da duração: a modelo tem UM preço (400) em 1h."""
+
+    async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
+        preco = Decimal("400") if "modelo_programas" in sql else None
+
+        class _R:
+            async def fetchone(self) -> dict[str, Any] | None:
+                return {"menor": preco, "maior": preco} if preco is not None else None
+
+            async def fetchall(self) -> list[Any]:
+                return []
+
+        return _R()
+
+
+async def _contexto(atendimento: dict[str, Any], conn: Any = None) -> ContextoDoTurno:
     ctx = ContextAgente(
         db_pool=None,  # type: ignore[arg-type]
         redis=None,  # type: ignore[arg-type]
@@ -76,12 +94,15 @@ async def _n_contrapropostas(atendimento: dict[str, Any]) -> int:
         cliente_id="33333333-3333-3333-3333-333333333333",
         turno_id="t",
     )
-    variaveis = await _resolver_variaveis(
-        _FakeConnVazio(),  # type: ignore[arg-type]
+    return await _resolver_variaveis(
+        conn or _FakeConnVazio(),  # type: ignore[arg-type]
         ctx,
         atendimento=atendimento,
     )
-    return variaveis.n_contrapropostas
+
+
+async def _n_contrapropostas(atendimento: dict[str, Any]) -> int:
+    return (await _contexto(atendimento)).n_contrapropostas
 
 
 async def test_le_contador_da_coluna() -> None:
@@ -92,6 +113,33 @@ async def test_atendimento_novo_zera() -> None:
     # Recorrência: atendimento novo nasce com a coluna no default 0 (row sem a chave → 0).
     assert await _n_contrapropostas({}) == 0
     assert await _n_contrapropostas({"n_contrapropostas": 0}) == 0
+
+
+# --- o VALOR da rodada que sobrou (issue 16) ----------------------------------------------------
+# O contador diz quantas contrapropostas restam; o teto diz QUANTO. Sai da mesma função que julga a
+# oferta (`teto_de_contraproposta`, dominio/atendimentos/service) — nunca de uma segunda conta.
+
+
+async def test_teto_sai_calculado_na_rodada_que_sobrou() -> None:
+    contexto = await _contexto(
+        {"n_contrapropostas": 1, "duracao_horas": Decimal("1")}, _FakeConnComTabela()
+    )
+    assert contexto.teto_desconto == "300"
+
+
+async def test_sem_duracao_fechada_nao_ha_teto_a_mostrar() -> None:
+    contexto = await _contexto({"n_contrapropostas": 1}, _FakeConnComTabela())
+    assert contexto.teto_desconto is None
+
+
+async def test_teto_so_na_segunda_rodada() -> None:
+    """n=0 não tem tag onde pendurar (e o número solto convidaria a ofertar antes de ele pedir);
+    n>=2 já esgotou a escada."""
+    for n in (0, 2, 3):
+        contexto = await _contexto(
+            {"n_contrapropostas": n, "duracao_horas": Decimal("1")}, _FakeConnComTabela()
+        )
+        assert contexto.teto_desconto is None
 
 
 # --- render do template -------------------------------------------------------------------------
@@ -117,6 +165,18 @@ def test_render_primeira_contraproposta_permite_segunda_rodada() -> None:
     out = _render(n_contrapropostas=1)
     assert '<ja_fez_contraproposta n="1">' in out
     assert "segunda" in out.lower() or "última" in out.lower()
+
+
+def test_render_leva_o_teto_calculado_quando_ele_existe() -> None:
+    out = _render(n_contrapropostas=1, teto_desconto="300")
+    assert "o teto, que é 300" in out
+    # o percentual e a política continuam fora da cauda (o cliente vê só a oferta).
+    assert "%" not in out
+
+
+def test_render_sem_teto_calculado_mantem_a_tag_como_antes() -> None:
+    out = _render(n_contrapropostas=1)
+    assert "o teto — antes de escalar com fora_de_oferta" in out
 
 
 def test_render_segunda_contraproposta_esgota_desconto() -> None:

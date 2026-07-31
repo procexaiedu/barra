@@ -47,7 +47,7 @@ from psycopg import AsyncConnection
 
 from barra.core.db import conexao
 from barra.core.metrics import PERSONA_DRIFT_REMINDER
-from barra.dominio.atendimentos.service import derivar_belief_state
+from barra.dominio.atendimentos.service import derivar_belief_state, teto_de_contraproposta
 from barra.dominio.conversas.modelos import DirecaoMensagem
 from barra.dominio.modelos.disponibilidade import proxima_abertura
 from barra.settings import get_settings
@@ -830,6 +830,19 @@ async def _resolver_variaveis(
     # window-scan em _anexar_contexto_dinamico (cobre a fala do turno atual não persistida).
     n_contrapropostas = atendimento.get("n_contrapropostas") or 0
     n_perguntas_de_horario = atendimento.get("n_perguntas_de_horario") or 0
+
+    # O NÚMERO da 2ª e última contraproposta, pré-computado (o contador acima já dizia QUANTAS
+    # sobraram; faltava QUANTO). Até aqui a IA recebia só o percentual (`<desconto>`, regras.md.j2)
+    # e multiplicava de cabeça sobre a tabela — erro pra baixo faz a guarda do piso escalar à toa
+    # uma oferta válida (`_DESC_VALOR`), erro pra cima entrega desconto tímido e perde a venda que
+    # a escada existe pra salvar. Sai da MESMA função que julga a oferta (atendimentos/service), e
+    # SÓ em n=1: em n=0 não há tag onde pendurar e o número solto convidaria a ofertar desconto
+    # antes de ele pedir; em n>=2 a escada acabou. A query extra só roda nessa rodada.
+    teto_desconto: str | None = None
+    if n_contrapropostas == 1:
+        teto_desconto = _num_humano(
+            await teto_de_contraproposta(conn, ctx.modelo_id, atendimento.get("duracao_horas"))
+        )
     dia_ja_sondado_hist = atendimento.get("dia_sondado_em") is not None
     book_ja_enviado = atendimento.get("book_enviado_em") is not None
     endereco_ja_enviado = atendimento.get("endereco_enviado_em") is not None
@@ -1075,6 +1088,8 @@ async def _resolver_variaveis(
         valor_aceito=bool((atendimento.get("sinais_qualificacao") or {}).get("aceita_valor")),
         duracao_fechada=_num_humano(atendimento.get("duracao_horas")),
         n_contrapropostas=n_contrapropostas,
+        # O valor da rodada que ainda resta (ver acima); None fora dela.
+        teto_desconto=teto_desconto,
         # Contador (não timestamp) porque a conduta tem dois degraus: na 1ª repetição ela propõe um
         # horário concreto em vez de reperguntar; da 2ª em diante não pergunta mais.
         n_perguntas_de_horario=n_perguntas_de_horario,

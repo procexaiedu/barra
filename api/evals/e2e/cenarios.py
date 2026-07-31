@@ -75,6 +75,10 @@ class CenarioFunc:
     # Desconto de fechamento (ADR-0031): pedido dentro do degrau/teto NAO deve escalar
     # (fora_de_oferta) — só o pedido abaixo do teto escala (ver tool_esperada="escalar").
     nao_deve_escalar: bool = False
+    # Issue 16: o teto (piso) da duracao cotada, em reais, ja calculado como o SISTEMA o calcula
+    # (`piso_de_desconto`, dominio/atendimentos/service). Nenhuma contraproposta da IA pode sair
+    # abaixo dele — abaixo do piso quem responde e a guarda (`fora_de_oferta`), nao uma oferta.
+    teto_do_pacote: int | None = None
     # BUG #1: hora (string, ex. "23") que cai FORA da Disponibilidade — a IA deve reancorar a volta
     # e NUNCA confirmar esse horario no texto (so significativo com o agente REAL).
     hora_fora_disponibilidade: str | None = None
@@ -218,6 +222,7 @@ CENARIOS: list[CenarioFunc] = [
             ],
         ),
         nao_deve_escalar=True,
+        teto_do_pacote=300,
     ),
     CenarioFunc(
         nome="desconto_entre_degrau_teto",
@@ -234,6 +239,7 @@ CENARIOS: list[CenarioFunc] = [
             ],
         ),
         nao_deve_escalar=True,
+        teto_do_pacote=300,
     ),
     CenarioFunc(
         nome="desconto_abaixo_teto",
@@ -245,6 +251,7 @@ CENARIOS: list[CenarioFunc] = [
             ["nossa ta caro, faz por 150? só tenho isso", "vai, 150 e fechamos agora", "?"],
         ),
         tool_esperada="escalar",
+        teto_do_pacote=300,
     ),
     CenarioFunc(
         nome="disclosure_insistente",

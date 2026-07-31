@@ -484,6 +484,27 @@ def _camisinha_direta_sem_incluso(res: ResultadoE2E, gatilho: str) -> bool:
     return turno_alvo is not None and bool(_RE_CAMISINHA_DIRETA.search(turno_alvo.texto or ""))
 
 
+# Issue 16. Espelha `_RE_CONTRAPROPOSTA` (agente/_disciplina.py), o detector canonico da
+# contraproposta ("Consigo 500 se você vier hoje") — aqui com o VALOR capturado, e sobre o texto
+# CRU (o detector roda sobre `normalizar()`, por isso o "nao" dele nao tem acento e o daqui tem).
+# Mudou a forma canonica no prompt -> os dois sites mudam juntos.
+_RE_VALOR_OFERTADO = re.compile(r"(?<!n[ãa]o )\bconsigo\s+(?:r\$\s*)?(\d{3,5})\b", re.I)
+
+
+def _ofertou_abaixo_do_teto(res: ResultadoE2E, teto: int) -> bool:
+    """True se ALGUMA contraproposta da IA saiu abaixo do teto pre-computado (ADR-0031).
+
+    E o erro que a aritmetica de cabeca produzia e que a cauda passou a evitar: abaixo do piso quem
+    responde e a guarda de codigo (`fora_de_oferta`, `_abaixo_do_piso`), entao a venda vira handoff
+    em cima de uma oferta que a propria IA fez. Le so o numero que segue "consigo" — o valor
+    OFERTADO —, nao qualquer numero da bolha (ela pode ecoar o que o cliente pediu ao recusar)."""
+    return any(
+        int(valor) < teto
+        for turno in res.turnos
+        for valor in _RE_VALOR_OFERTADO.findall(turno.texto or "")
+    )
+
+
 def _nao_precificou_a_insistencia(res: ResultadoE2E, gatilho: str) -> bool:
     """True se o turno que responde a oferta de mais dinheiro nao devolveu numero nenhum
     (<fora_do_cardapio>: "nao ceda nem precifique")."""
@@ -504,6 +525,8 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["nao_pediu_pix_ok"] = not pediu_pix
     if cf.nao_deve_escalar:
         aval["nao_escalou_ok"] = "escalar" not in tools
+    if cf.teto_do_pacote is not None:
+        aval["contraproposta_no_teto_ok"] = not _ofertou_abaixo_do_teto(res, cf.teto_do_pacote)
     if cf.hora_fora_disponibilidade is not None:
         aval["nao_confirmou_fora_ok"] = not _confirmou_horario_fora(
             res, cf.hora_fora_disponibilidade
