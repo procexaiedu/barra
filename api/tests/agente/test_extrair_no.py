@@ -21,7 +21,8 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
-from barra.agente.nos.extrair import no_extrair
+from barra.agente._texto_turno import desfecho_do_turno, extrair_texto_do_turno
+from barra.agente.nos.extrair import _envelopar_nota_interna, _extracao_errou, no_extrair
 from barra.dominio.atendimentos.service import _MSG_GUARD_PISO
 from barra.settings import get_settings
 
@@ -201,7 +202,11 @@ async def test_erro_recuperavel_reoferta_on_volta_pro_llm() -> None:
     assert cmd.goto == "llm"
     assert cmd.update["_reoferta_tentada"] is True
     msgs = cmd.update["messages"]
-    assert chat.forcado._forcado in msgs and tool._tm in msgs  # par p/ o llm ver o erro
+    # par p/ o llm ver o erro; o ToolMessage vai ENVELOPADO (mesmo tool_call_id, corpo na cauda)
+    assert chat.forcado._forcado in msgs
+    (tm,) = [m for m in msgs if isinstance(m, ToolMessage)]
+    assert tm.tool_call_id == tool._tm.tool_call_id
+    assert str(tm.content).endswith(str(tool._tm.content))
     remocoes = [m for m in msgs if isinstance(m, RemoveMessage)]
     assert [m.id for m in remocoes] == ["resp-1"]  # fala stale removida
 
@@ -236,6 +241,67 @@ async def test_erro_recuperavel_segunda_falha_fecha_mudo() -> None:
     assert cmd.goto == "post_process"  # mute, nao reoferta de novo
     remocoes = [m for m in cmd.update["messages"] if isinstance(m, RemoveMessage)]
     assert [m.id for m in remocoes] == ["resp-1"]
+
+
+# --- envelope de canal do erro que vai ao chat (prod 29/07, trace 06db4298) --------------------
+
+
+async def test_reoferta_envelopa_o_erro_como_nota_interna() -> None:
+    """O ToolMessage de erro e uma ordem em 2a pessoa no registro da fala; ao chegar ao contexto do
+    chat sem moldura, o chat a obedeceu EM VOZ ALTA ("Vou cotar agora."). A copia que vai ao `llm`
+    leva a etiqueta de nota interna ANTES do corpo -- que segue intacto na cauda, senao o llm nao
+    sabe o que reofertar."""
+    chat = _FakeChat(_forcado())
+    tool = _FakeToolExtracao(_tool_erro())
+    node = no_extrair(chat, None, tool)  # type: ignore[arg-type]
+    state = {"messages": [HumanMessage(content="22h"), _fala()]}
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "llm"
+    (tm,) = [m for m in cmd.update["messages"] if isinstance(m, ToolMessage)]
+    texto = str(tm.content)
+    assert texto.startswith("ERRO: [nota interna do sistema")
+    assert "nunca fala ao cliente" in texto
+    assert texto.endswith(str(_tool_erro().content))  # corpo do erro intacto, na cauda
+    assert str(tool._tm.content) == str(_tool_erro().content)  # o original nao foi mutado
+
+
+async def test_ramo_mudo_manda_o_erro_cru_ao_state() -> None:
+    """No mute o erro nao chega a contexto de chat nenhum -- vai cru, e o `erros_tool` do trace do
+    desfecho mais comum fica sem a etiqueta."""
+    chat = _FakeChat(_forcado())
+    tool = _FakeToolExtracao(_tool_erro())
+    node = no_extrair(chat, None, tool)  # type: ignore[arg-type]
+    state = {"messages": [HumanMessage(content="22h"), _fala()], "_reoferta_tentada": True}
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    assert tool._tm in cmd.update["messages"]
+
+
+def test_erro_envelopado_segue_casando_os_tres_consumidores() -> None:
+    """A FORMA e contrato: `status="error"`, prefixo "ERRO:" e `tool_call_id` sobrevivem ao envelope.
+    Sem eles, (1) `_extracao_errou` para de ver o erro, (2) `extrair_texto_do_turno` para de
+    descartar o rascunho superado pela retentativa -- a fala DUPLICA ao cliente -- e (3) o trace
+    perde `erros_tool`. Os tres quebram em silencio."""
+    envelopado = _envelopar_nota_interna(_tool_erro())
+
+    assert envelopado.status == "error"
+    assert str(envelopado.content).startswith("ERRO:")
+    assert envelopado.tool_call_id == "ex1"
+    assert _extracao_errou(envelopado) is True
+
+    rascunho = AIMessage(
+        id="draft",
+        content="combinado, te espero às 22h",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        tool_calls=[{"name": "registrar_extracao", "args": {}, "id": "ex1", "type": "tool_call"}],
+    )
+    assert extrair_texto_do_turno([rascunho, envelopado]) == ""  # (2) rascunho descartado por id
+    erros = desfecho_do_turno({"messages": [rascunho, envelopado]})["erros_tool"]
+    assert len(erros) == 1 and "já está reservado" in erros[0]  # (3) erro legivel no trace
 
 
 # --- extracao barata: janela sem o BP_GERAL --------------------------------------------------
