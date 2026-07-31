@@ -40,8 +40,9 @@ _DESC_TAG = (
     "cadastrada, o sistema anexa de outra tag do mesmo tipo (a tag é preferência, não garantia)."
 )
 _DESC_LEGENDA = (
-    "Texto curto que vai como caption da mídia no WhatsApp. Omitir = sem caption; sobre "
-    "quando preencher, siga sua conduta de mídia (nas suas regras)."
+    "Caption da mídia no WhatsApp. Deixe de fora: sua linha de acompanhamento (e o enquadramento "
+    "do vídeo) vai na BOLHA de texto do turno, como manda sua conduta de mídia — repetida aqui, "
+    "ela chega duplicada ao cliente."
 )
 _DESC_TIPO_MIDIA = (
     '"foto" (default) ou "video" — qual mídia anexar. O vídeo vai como visualização única '

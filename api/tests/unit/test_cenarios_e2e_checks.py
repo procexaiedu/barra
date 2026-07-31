@@ -13,8 +13,10 @@ from typing import Any
 import pytest
 from evals.e2e.massa import (
     _avancou_no_horario_apos_negociacao,
+    _book_em_uma_bolha,
     _cotou_completo_sozinho,
     _cotou_dobro_do_pacote,
+    _enquadrou_o_video,
     _mandou_o_book,
     _ofereceu_local_proprio,
     _ofereceu_video_chamada,
@@ -22,6 +24,7 @@ from evals.e2e.massa import (
     _recusou_menage_sem_cotar,
     _repetiu_bolha_identica,
     _sem_book_no_turno,
+    _sem_data_do_video,
     _sem_medida_inventada,
 )
 
@@ -250,6 +253,88 @@ def test_detalhe_fisico_reprova_a_medida_cravada() -> None:
         _com_tools((_MEDIDA, f"{ok}\n\n400 1h no meu local\n\nConsigo às 22h ?", [])), "manequim"
     )
     assert _sem_medida_inventada(_com_tools((_MEDIDA, "Fica 1.400 as 2h amor", [])), "manequim")
+
+
+# --- Issue 14: uma bolha, legenda vazia e o enquadramento do vídeo ---------------------------
+
+
+def _turno_do_book(fala: str, texto: str, *midias: dict[str, Any]) -> Any:
+    """Um turno com N `enviar_midia` (args na ordem) + a `registrar_extracao` que todo turno real
+    leva junto — o checker precisa filtrar pelo NOME da tool, não contar posições."""
+    nomes = ["registrar_extracao", *["enviar_midia"] * len(midias)]
+    args: list[dict[str, Any]] = [{"estado": "Qualificado"}, *midias]
+    return SimpleNamespace(
+        turnos_cliente=[fala],
+        turnos=[SimpleNamespace(texto=texto, tool_calls=nomes, tool_args=args)],
+    )
+
+
+_FOTO: dict[str, Any] = {"tag": "corpo", "tipo": "foto"}
+_VIDEO: dict[str, Any] = {"tag": "corpo", "tipo": "video"}
+_UMA_LINHA = "Gravei um vídeo pra você 🥰"
+
+
+def test_book_em_uma_bolha_exige_video_depois_da_foto_e_legenda_vazia() -> None:
+    # o book certo: fotos, o vídeo em seguida, UMA bolha e nenhuma legenda.
+    assert _book_em_uma_bolha(
+        _turno_do_book(_DUVIDA, _UMA_LINHA, _FOTO, _FOTO, _VIDEO), "essas fotos são suas"
+    )
+    # `tipo` omitido é foto (default da tool) — não pode virar vídeo por acidente.
+    assert not _book_em_uma_bolha(
+        _turno_do_book(_DUVIDA, _UMA_LINHA, {"tag": "corpo"}, {"tag": "corpo"}),
+        "essas fotos são suas",
+    )
+    # a legenda preenchida é a duplicação que a bolha única existe pra evitar.
+    assert not _book_em_uma_bolha(
+        _turno_do_book(_DUVIDA, _UMA_LINHA, _FOTO, {**_VIDEO, "legenda": "Gravei pra você rs"}),
+        "essas fotos são suas",
+    )
+    # duas bolhas: o prompt autorizou UMA linha.
+    assert not _book_em_uma_bolha(
+        _turno_do_book(_DUVIDA, f"Sou eu sim amor\n\n{_UMA_LINHA}", _FOTO, _VIDEO),
+        "essas fotos são suas",
+    )
+    # vídeo antes da foto inverte a ordem que o <midia> prescreve.
+    assert not _book_em_uma_bolha(
+        _turno_do_book(_DUVIDA, _UMA_LINHA, _VIDEO, _FOTO), "essas fotos são suas"
+    )
+    # probe que não rodou não vira aprovação silenciosa.
+    assert not _book_em_uma_bolha(_turno_do_book("oi", "Oii"), "essas fotos são suas")
+
+
+def test_enquadramento_do_video_mora_na_bolha_e_nao_entrega_o_acervo() -> None:
+    def _bolha(texto: str) -> Any:
+        return _turno_do_book(_DUVIDA, texto, _FOTO, _VIDEO)
+
+    assert _enquadrou_o_video(_bolha(_UMA_LINHA), "essas fotos são suas")
+    assert _enquadrou_o_video(_bolha("Gravei pensando em você rs"), "essas fotos são suas")
+    assert _enquadrou_o_video(_bolha("Fiz esse só pra você amor"), "essas fotos são suas")
+    # mídia crua: o vídeo sai sem o argumento que o justifica.
+    assert not _enquadrou_o_video(_bolha("Olha só amor 🥰"), "essas fotos são suas")
+    # e o enquadramento não sobrevive à revelação de que o vídeo é acervo.
+    assert not _enquadrou_o_video(
+        _bolha("Gravei pra você amor\n\nÉ um vídeo antigo mas você vai gostar"),
+        "essas fotos são suas",
+    )
+    assert not _enquadrou_o_video(
+        _bolha("Gravei pra você rs\n\nJá tinha gravado esse aqui"), "essas fotos são suas"
+    )
+
+
+def test_quando_gravou_nao_recebe_data() -> None:
+    quando = "e esse vídeo você gravou quando ?"
+    # a resposta prescrita: repete o enquadramento e volta pro encontro.
+    assert _sem_data_do_video(
+        _com_tools((quando, "Gravei pensando em você rs\n\nVem hoje amor ?", [])), "gravou quando"
+    )
+    assert _sem_data_do_video(_com_tools((quando, "Agora de manhã amor rs", [])), "gravou quando")
+    # a data no passado é o que entrega o acervo.
+    for datado in ("Gravei ontem amor", "Faz uns dias amor rs", "Foi semana passada rs"):
+        assert not _sem_data_do_video(_com_tools((quando, datado, [])), "gravou quando")
+    # a proposta de encontro do mesmo turno é FUTURA — não pode contaminar.
+    assert _sem_data_do_video(
+        _com_tools((quando, "Gravei pra você rs\n\nTe espero amanhã amor", [])), "gravou quando"
+    )
 
 
 def test_oferta_de_chamada_distingue_a_oferta_da_recusa() -> None:

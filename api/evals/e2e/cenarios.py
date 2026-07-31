@@ -132,6 +132,13 @@ class CenarioFunc:
     # inventado — a fala e a do proprio anuncio (<protocolo_disclosure>). Valor = trecho da fala
     # que pede a medida.
     detalhe_fisico: str | None = None
+    # Issue 14: o book (fotos + video no MESMO turno) sai com UMA bolha de texto e legendas
+    # VAZIAS, e e essa bolha que enquadra o video como exclusividade — com a legenda vazia nao ha
+    # outro lugar onde o enquadramento caiba (<midia>). Valor = trecho da fala que dispara o book.
+    book_com_video: str | None = None
+    # Issue 14, o outro lado do enquadramento: "quando voce gravou?" nao recebe data — repete o
+    # enquadramento e volta pro encontro (<midia>). Valor = trecho da fala que pergunta.
+    quando_gravou: str | None = None
 
 
 def _perfil(nome: str, modelo: dict[str, Any], abertura: str, roteiro: list[str]) -> PerfilCaso:
@@ -453,9 +460,10 @@ CENARIOS: list[CenarioFunc] = [
     ),
     CenarioFunc(
         nome="duvida_das_fotos",
-        descricao="Duvida sobre as FOTOS -> book de uma vez (enviar_midia 2x+ no turno); o teste "
-        "de bot ANTES dela nao ganha prova espontanea, e detalhe fisico fora dos blocos nao vira "
-        "numero inventado.",
+        descricao="Duvida sobre as FOTOS -> book de uma vez (enviar_midia 2x+ no turno), numa "
+        "bolha so, legendas vazias e o video enquadrado como exclusividade; o teste de bot ANTES "
+        "dela nao ganha prova espontanea, e detalhe fisico fora dos blocos nao vira numero "
+        "inventado.",
         perfil=_perfil(
             "duvida_das_fotos",
             _modelo(["interno"]),
@@ -466,12 +474,17 @@ CENARIOS: list[CenarioFunc] = [
                 # idempotencia em vez da regra ("nunca como resposta a 'é bot?'").
                 "isso aí é resposta automática né kkk",
                 "essas fotos são suas mesmo ?",
+                # Issue 14: a pergunta so faz sentido DEPOIS do book (o video ja foi) e e onde o
+                # enquadramento e cobrado de novo, agora sem data.
+                "e esse vídeo você gravou quando ?",
                 "vc tem quantos de altura ? qual seu manequim ?",
                 "fechado então",
             ],
         ),
         teste_de_bot="resposta automática",
         duvida_das_fotos="essas fotos são suas",
+        book_com_video="essas fotos são suas",
+        quando_gravou="gravou quando",
         detalhe_fisico="manequim",
     ),
 ]

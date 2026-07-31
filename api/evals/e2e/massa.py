@@ -368,6 +368,77 @@ def _sem_medida_inventada(res: ResultadoE2E, gatilho: str) -> bool:
     return turno is not None and not _RE_MEDIDA_INVENTADA.search(turno.texto or "")
 
 
+# Issue 14: com a legenda VAZIA, o enquadramento de exclusividade do video so tem um lugar onde
+# caber — a UNICA bolha que acompanha o book (<midia>). Os tres checks abaixo olham SO o turno da
+# fala-gatilho (mesma razao da issue 13: o book espontaneo mais tarde e outra regra).
+def _midias_do_turno(turno: ResultadoTurno) -> list[dict[str, Any]]:
+    """Args de cada `enviar_midia` do turno. `tool_calls` e `tool_args` sao paralelos por
+    construcao (`harness._coletar_tools`)."""
+    return [
+        args
+        for nome, args in zip(turno.tool_calls, turno.tool_args, strict=True)
+        if nome == "enviar_midia"
+    ]
+
+
+def _book_em_uma_bolha(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o book saiu como o <midia> manda: foto(s) ANTES do video no mesmo turno, UMA bolha
+    de texto e legenda vazia em todas as midias (a legenda repetiria a bolha no cliente)."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    midias = _midias_do_turno(turno)
+    tipos = [str(m.get("tipo") or "foto") for m in midias]
+    if len(midias) < 2 or "video" not in tipos or tipos.index("video") == 0:
+        return False
+    if any(str(m.get("legenda") or "").strip() for m in midias):
+        return False
+    bolhas = [b for b in re.split(r"\n\s*\n", turno.texto or "") if b.strip()]
+    return len(bolhas) == 1
+
+
+# O enquadramento que o <midia> prescreve ("Gravei um vídeo pra você 🥰" / "Gravei pensando em
+# você rs") e o seu oposto — revelar que o video e acervo, que e o que ele existe pra evitar.
+_RE_ENQUADRA_EXCLUSIVO = re.compile(
+    r"grav(?:ei|ando|adinho)\b[^\n]{0,40}\b(?:(?:pra|para)\s+(?:voc[êe]|vc|ti)|"
+    r"pensando em (?:voc[êe]|vc|ti))\b|\bs[óo]\s+(?:pra|para)\s+(?:voc[êe]|vc)\b",
+    re.I,
+)
+_RE_REVELA_ACERVO = re.compile(
+    r"\bacervo\b|j[áa] (?:tinha|tenho)\b[^\n]{0,25}grav|"
+    r"grav(?:ei|ado)\b[^\n]{0,20}(?:faz tempo|antes|outro dia)|v[íi]deo (?:antigo|velho|pronto)",
+    re.I,
+)
+
+
+def _enquadrou_o_video(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se a bolha do turno enquadrou o video como exclusividade SEM revelar que e acervo."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    texto = turno.texto or ""
+    return bool(_RE_ENQUADRA_EXCLUSIVO.search(texto)) and not _RE_REVELA_ACERVO.search(texto)
+
+
+# Data no passado. "agora"/"hoje de manhã" sao as respostas PRESCRITAS, entao so o passado casa; e
+# a proposta de encontro do mesmo turno ("Vem hoje amor", "amanhã") e futura, fora do regex.
+_RE_DATA_DO_VIDEO = re.compile(
+    r"\bontem\b|\banteontem\b|antes de ontem|semana passada|m[êe]s passado|ano passado|"
+    r"\b(?:faz|h[áa])\s+(?:\d+|umas?|uns|dois|duas|tr[êe]s)\s+"
+    r"(?:dias?|semanas?|meses|m[êe]s|anos?)\b|"
+    r"\bem (?:janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|"
+    r"novembro|dezembro)\b",
+    re.I,
+)
+
+
+def _sem_data_do_video(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se "quando você gravou?" nao recebeu data (<midia>: repete o enquadramento e volta
+    pro encontro)."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and not _RE_DATA_DO_VIDEO.search(turno.texto or "")
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -413,6 +484,11 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["sem_book_no_teste_ok"] = _sem_book_no_turno(res, cf.teste_de_bot)
     if cf.detalhe_fisico is not None:
         aval["sem_medida_inventada_ok"] = _sem_medida_inventada(res, cf.detalhe_fisico)
+    if cf.book_com_video is not None:
+        aval["book_uma_bolha_ok"] = _book_em_uma_bolha(res, cf.book_com_video)
+        aval["enquadramento_na_bolha_ok"] = _enquadrou_o_video(res, cf.book_com_video)
+    if cf.quando_gravou is not None:
+        aval["sem_data_do_video_ok"] = _sem_data_do_video(res, cf.quando_gravou)
     return aval
 
 
