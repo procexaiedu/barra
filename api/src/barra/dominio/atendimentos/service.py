@@ -803,7 +803,10 @@ _PROXIMO_PASSO: dict[str, str] = {
     # condicional, na forma que o `Novo` ja usa — a cauda aponta, nao amputa. Sem ele a
     # `<retomada_pos_silencio>` nao era enderecada por nada (nem cross-ref interna, nem cauda).
     "Triagem": "fechar o que falta pra combinar o encontro — sua conduta agora é <apresentacao> e <cotacao>; se ele sumiu e voltou agora, <retomada_pos_silencio> junto",
-    "Qualificado": "confirmar os detalhes e seguir pro próximo passo do encontro — sua conduta agora é <cotacao> e <fechamento>; se ele sumiu e voltou agora, <retomada_pos_silencio> junto",
+    # Issue 17: aqui o que falta e a HORA (e ela que promove a Aguardando_confirmacao), e ate ele
+    # aceita-la o verbo dela e o de oferta (`<cotacao>`, "o verbo diz a fase"). "confirmar os
+    # detalhes" punha justamente o verbo proibido na fase que o proibe, no ponto de recency maxima.
+    "Qualificado": "combinar o horário com ele e seguir pro próximo passo do encontro — sua conduta agora é <cotacao> e <fechamento>; se ele sumiu e voltou agora, <retomada_pos_silencio> junto",
     # A espera pela chegada saiu do BP_GERAL: a flag A2 `<ja_pediu_a_foto_da_portaria>` carrega as
     # mesmas falas de presenca e as mesmas proibicoes de cobranca, e so aparece quando ja houve
     # pedido. O que restava aqui era o ponteiro pro trilho da chegada — que aponta direto pro site

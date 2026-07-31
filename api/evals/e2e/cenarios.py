@@ -157,6 +157,12 @@ class CenarioFunc:
     # ceda nem precifique" e, no valor alto, escale (o `tool_esperada="escalar"` e a outra metade).
     # Valor = trecho da fala que oferece o dinheiro.
     insistencia_com_dinheiro: str | None = None
+    # Issue 17: os dois "sins" licenciam coisas diferentes. Valor = (fala em que ele aceita o VALOR
+    # sem dar hora, fala em que ele aceita a HORA proposta) — o par anda junto de proposito, porque
+    # o erro e usar o verbo de um no momento do outro: no primeiro turno ela OFERECE a hora e a
+    # proposta acaba em "?"; so no segundo entra a confirmacao, com o nome logo atras (<cotacao>,
+    # "o verbo diz a fase"; <fechamento>).
+    os_dois_sins: tuple[str, str] | None = None
 
 
 def _perfil(nome: str, modelo: dict[str, Any], abertura: str, roteiro: list[str]) -> PerfilCaso:
@@ -373,7 +379,9 @@ CENARIOS: list[CenarioFunc] = [
     CenarioFunc(
         nome="aceite_pos_teto_horario",
         descricao="Escada rodada ate o teto e recusada a 3a insistencia -> a pergunta de horario "
-        "DELE e o sim ao valor na mesa: a IA crava a hora, sem repetir 'nao consigo' nem re-cotar.",
+        "DELE e o sim ao valor na mesa: a IA crava a hora, sem repetir 'nao consigo' nem re-cotar. "
+        "Issue 17: e o mesmo turno em que os dois 'sins' se separam — aqui ela OFERECE a hora "
+        "(com '?'), e so no turno seguinte, quando ele aceita a hora, vem a confirmacao + o nome.",
         perfil=_perfil(
             "aceite_pos_teto_horario",
             _modelo(["interno"]),
@@ -383,9 +391,13 @@ CENARIOS: list[CenarioFunc] = [
                 "poxa, consegue baixar mais, tipo uns 320?",
                 "e por 280?",
                 "que horas você pode hoje ?",
+                # O sim a HORA, sem repetir o numero: qualquer que seja a hora que ela propos, este
+                # "pode ser" a aceita — e e ele, nao o aceite do valor, que licencia o verbo.
+                "pode ser, fechou",
             ],
         ),
         deve_avancar_apos_negociacao=True,
+        os_dois_sins=("que horas você pode", "pode ser, fechou"),
     ),
     CenarioFunc(
         nome="externo_only_pergunta_preco",

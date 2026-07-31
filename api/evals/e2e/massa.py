@@ -505,6 +505,48 @@ def _ofertou_abaixo_do_teto(res: ResultadoE2E, teto: int) -> bool:
     )
 
 
+# Issue 17: os dois "sins". O sim ao VALOR (ou a pergunta de horario que equivale a ele depois da
+# negociacao) abre a PROPOSTA de horario — que oferece e acaba em "?"; o verbo de confirmacao so
+# entra depois do sim dele a HORA, e ai vem com o nome logo atras (<cotacao> "o verbo diz a fase",
+# <fechamento>). Os dois checks olham SO o turno da fala-gatilho: cada bolha e a conduta certa no
+# turno do outro sim, entao medir a conversa inteira nao distinguiria acerto de erro.
+_RE_VERBO_DE_CONFIRMACAO = re.compile(
+    r"\b(?:posso|podemos|vamos)\s+(?:te\s+|lhe\s+)?confirmar\b|\bconfirmad[oa]\b|"
+    r"\b(?:confirmamos|fechamos)\b",
+    re.I,
+)
+# Confirmacao de uma palavra (persona.md <voz>: "Ok", "Perfeito") ou o verbo do <fechamento>. Aberta
+# de proposito: o que o check cobra e que ela FECHE, nao uma palavra especifica.
+_RE_CONFIRMACAO_CURTA = re.compile(
+    r"\b(?:confirmad[oa]|combinado|fechado|fechamos|confirmamos|perfeito|isso mesmo|ok|show)\b",
+    re.I,
+)
+_RE_PEDE_O_NOME = re.compile(r"\bseu nome\b|\bcomo (?:voc[êe] )?se chama\b", re.I)
+
+
+def _ofereceu_a_hora_sem_dar_por_combinada(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao sim dele ao VALOR poe a hora na mesa como PROPOSTA: hora
+    concreta, sem o verbo de confirmacao (ele ainda nao aceitou hora nenhuma) e com "?" em alguma
+    bolha — sem a interrogacao a proposta vira promessa de retorno e o encontro morre esperando."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    texto = turno.texto or ""
+    if _RE_VERBO_DE_CONFIRMACAO.search(texto) or not _RE_HORA_PROPOSTA.search(texto):
+        return False
+    return any(bolha.strip().endswith("?") for bolha in re.split(r"\n\s*\n", texto))
+
+
+def _confirmou_a_hora_e_pediu_o_nome(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao sim dele a HORA fechou (confirmacao curta ou o verbo) e ja
+    pediu o nome — o outro lado da mesma regra, e o unico ponto em que o verbo e dela."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    texto = turno.texto or ""
+    return bool(_RE_CONFIRMACAO_CURTA.search(texto) and _RE_PEDE_O_NOME.search(texto))
+
+
 def _nao_precificou_a_insistencia(res: ResultadoE2E, gatilho: str) -> bool:
     """True se o turno que responde a oferta de mais dinheiro nao devolveu numero nenhum
     (<fora_do_cardapio>: "nao ceda nem precifique")."""
@@ -570,6 +612,10 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["camisinha_direta_ok"] = _camisinha_direta_sem_incluso(res, cf.camisinha_sem_incluso)
     if cf.insistencia_com_dinheiro is not None:
         aval["nao_precificou_ok"] = _nao_precificou_a_insistencia(res, cf.insistencia_com_dinheiro)
+    if cf.os_dois_sins is not None:
+        sim_ao_valor, sim_a_hora = cf.os_dois_sins
+        aval["ofereceu_a_hora_ok"] = _ofereceu_a_hora_sem_dar_por_combinada(res, sim_ao_valor)
+        aval["confirmou_e_pediu_o_nome_ok"] = _confirmou_a_hora_e_pediu_o_nome(res, sim_a_hora)
     return aval
 
 

@@ -15,11 +15,13 @@ from evals.e2e.massa import (
     _avancou_no_horario_apos_negociacao,
     _book_em_uma_bolha,
     _camisinha_direta_sem_incluso,
+    _confirmou_a_hora_e_pediu_o_nome,
     _cotou_completo_sozinho,
     _cotou_dobro_do_pacote,
     _enquadrou_o_video,
     _mandou_o_book,
     _nao_precificou_a_insistencia,
+    _ofereceu_a_hora_sem_dar_por_combinada,
     _ofereceu_local_proprio,
     _ofereceu_video_chamada,
     _propos_dentro_da_janela,
@@ -429,3 +431,60 @@ def test_insistencia_com_dinheiro_nao_recebe_numero() -> None:
         _dialogo((_OFERECEU_DINHEIRO, "Por 2500 eu faço amor rs")), "pago 2000"
     )
     assert not _nao_precificou_a_insistencia(_dialogo(("oi", "Oii")), "pago 2000")
+
+
+# Issue 17: os dois "sins". `_SIM_AO_VALOR` é a pergunta de horário que, depois da negociação de
+# preço, equivale ao aceite (<desconto>); `_SIM_A_HORA` é o aceite da hora que ELA propôs — e é só
+# esse segundo que licencia o verbo de confirmação.
+_SIM_AO_VALOR = "que horas você pode hoje ?"
+_SIM_A_HORA = "pode ser, fechou"
+
+
+def test_o_sim_ao_valor_recebe_oferta_de_hora_com_interrogacao() -> None:
+    # a conduta certa: propõe a hora, com "?", sem dar por combinada.
+    assert _ofereceu_a_hora_sem_dar_por_combinada(
+        _dialogo((_SIM_AO_VALOR, "Consigo às 22h, fecha ?")), "que horas você pode"
+    )
+    assert _ofereceu_a_hora_sem_dar_por_combinada(
+        _dialogo((_SIM_AO_VALOR, "Perfeito\n\nPosso às 14h amor, fecha ?")), "que horas você pode"
+    )
+    # o bug do ticket: o verbo do <fechamento> num sim que ainda não é o da hora.
+    for verbo in (
+        "Posso confirmar às 22h ?",
+        "Vamos confirmar 14h amor ?",
+        "Fechamos 22h então ?",
+        "Confirmado 22h amor",
+    ):
+        assert not _ofereceu_a_hora_sem_dar_por_combinada(
+            _dialogo((_SIM_AO_VALOR, verbo)), "que horas você pode"
+        )
+    # sem a interrogação a proposta vira promessa de retorno ("te confirmo às 18h").
+    assert not _ofereceu_a_hora_sem_dar_por_combinada(
+        _dialogo((_SIM_AO_VALOR, "Consigo às 22h")), "que horas você pode"
+    )
+    # e responder sem hora nenhuma não é proposta.
+    assert not _ofereceu_a_hora_sem_dar_por_combinada(
+        _dialogo((_SIM_AO_VALOR, "Que bom amor rs")), "que horas você pode"
+    )
+    # probe que não rodou não vira aprovação silenciosa.
+    assert not _ofereceu_a_hora_sem_dar_por_combinada(
+        _dialogo(("oi", "Oii")), "que horas você pode"
+    )
+
+
+def test_o_sim_a_hora_recebe_confirmacao_e_o_nome() -> None:
+    assert _confirmou_a_hora_e_pediu_o_nome(
+        _dialogo((_SIM_A_HORA, "Confirmado\n\nQual seu nome amor?")), "pode ser, fechou"
+    )
+    assert _confirmou_a_hora_e_pediu_o_nome(
+        _dialogo((_SIM_A_HORA, "Perfeito\n\nComo você se chama amor ?")), "pode ser, fechou"
+    )
+    # fechar sem pedir o nome deixa a metade da regra de fora...
+    assert not _confirmou_a_hora_e_pediu_o_nome(
+        _dialogo((_SIM_A_HORA, "Confirmado amor")), "pode ser, fechou"
+    )
+    # ...e reofertar a hora que ele acabou de aceitar é não ter fechado nada.
+    assert not _confirmou_a_hora_e_pediu_o_nome(
+        _dialogo((_SIM_A_HORA, "Então às 22h ?")), "pode ser, fechou"
+    )
+    assert not _confirmou_a_hora_e_pediu_o_nome(_dialogo(("oi", "Oii")), "pode ser, fechou")
