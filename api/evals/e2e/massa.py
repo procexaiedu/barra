@@ -23,6 +23,7 @@ from uuid import uuid4
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
+from barra.agente.nos.output_guard import bolhas_incluso_fantasma
 from barra.core.tracing import garantir_dataset, linkar_item_run, upsert_item_dataset
 from evals.e2e.avaliacao import (
     avaliar_e2e,
@@ -439,6 +440,57 @@ def _sem_data_do_video(res: ResultadoE2E, gatilho: str) -> bool:
     return turno is not None and not _RE_DATA_DO_VIDEO.search(turno.texto or "")
 
 
+# Issue 15 (<fetiches> vazio). A recusa CERTA e a de mulher, curta ("Não faço amor") e SO do item;
+# a errada e a que cresce e leva o encontro junto. Os dois usam "nao faco", entao o segundo regex e
+# estreito de proposito: so casa a recusa que nomeia o encontro/programa/"nada", ou o desmarque.
+_RE_RECUSA_LEVOU_O_ENCONTRO = re.compile(
+    r"n[ãa]o (?:vou|posso|consigo|d[áa] pra|rola) (?:te )?(?:atender|marcar|receber|encontrar)|"
+    r"n[ãa]o (?:fa[çc]o|atendo)\s+(?:nada|programa|encontro)|"
+    r"(?:melhor|vamos)\s+(?:a gente\s+)?(?:deixar (?:pra|para) (?:outra|outro)|cancelar|desmarcar)",
+    re.I,
+)
+
+
+def _recusou_o_ato_sem_levar_o_encontro(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde ao pedido de ato recusou aberto, SEM cotar preco nenhum (com o
+    bloco vazio "o que nao esta na lista nao existe por dinheiro nenhum") e SEM derrubar o encontro
+    (<fora_do_cardapio>: "a recusa cobre EXATAMENTE o item que ele pediu")."""
+    turno = _turno_da_fala(res, gatilho)
+    if turno is None:
+        return False
+    texto = turno.texto or ""
+    return (
+        bool(_RE_RECUSA_ABERTA.search(texto))
+        and not _numeros(texto)
+        and not _RE_RECUSA_LEVOU_O_ENCONTRO.search(texto)
+    )
+
+
+# "Só faço com camisinha amor" — afirmacao DIRETA. Qualquer forma dela contem "com camisinha"
+# ("sexo seguro com camisinha rs" inclusive); "sem camisinha" nao casa, entao o regex nao precisa de
+# guarda de negacao.
+_RE_CAMISINHA_DIRETA = re.compile(r"com camisinha", re.I)
+
+
+def _camisinha_direta_sem_incluso(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se a camisinha saiu como afirmacao direta e NENHUMA bolha da corrida declarou item
+    incluso — com o <fetiches> vazio nao ha linha "Inclusos", entao todo claim de incluso e
+    fantasma. Reusa o detector do output_guard (issue 07) com o conjunto VAZIO: e a mesma regra,
+    medida no resultado final (o guard ja regenera/dropa dentro do turno)."""
+    for turno in res.turnos:
+        if bolhas_incluso_fantasma(turno.texto or "", set()):
+            return False
+    turno_alvo = _turno_da_fala(res, gatilho)
+    return turno_alvo is not None and bool(_RE_CAMISINHA_DIRETA.search(turno_alvo.texto or ""))
+
+
+def _nao_precificou_a_insistencia(res: ResultadoE2E, gatilho: str) -> bool:
+    """True se o turno que responde a oferta de mais dinheiro nao devolveu numero nenhum
+    (<fora_do_cardapio>: "nao ceda nem precifique")."""
+    turno = _turno_da_fala(res, gatilho)
+    return turno is not None and not _numeros(turno.texto or "")
+
+
 def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
     """Checa as expectativas do cenario sobre os turnos (so significativo com o agente REAL)."""
     tools = [t for turno in res.turnos for t in turno.tool_calls]
@@ -489,6 +541,12 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["enquadramento_na_bolha_ok"] = _enquadrou_o_video(res, cf.book_com_video)
     if cf.quando_gravou is not None:
         aval["sem_data_do_video_ok"] = _sem_data_do_video(res, cf.quando_gravou)
+    if cf.ato_fora_do_cardapio is not None:
+        aval["recusou_o_ato_ok"] = _recusou_o_ato_sem_levar_o_encontro(res, cf.ato_fora_do_cardapio)
+    if cf.camisinha_sem_incluso is not None:
+        aval["camisinha_direta_ok"] = _camisinha_direta_sem_incluso(res, cf.camisinha_sem_incluso)
+    if cf.insistencia_com_dinheiro is not None:
+        aval["nao_precificou_ok"] = _nao_precificou_a_insistencia(res, cf.insistencia_com_dinheiro)
     return aval
 
 

@@ -341,9 +341,9 @@ def _cobre_o_cadastro(tokens: set[str], permitidos: set[str]) -> bool:
 
 
 # Incluso FANTASMA: a IA declara incluso um item que NAO esta na linha "Inclusos" do <fetiches> da
-# modelo. `regras.md.j2` proibe em TRES sites (<apresentacao>, <fora_do_cardapio> e o preambulo de
+# modelo. `regras.md.j2` proibe em DOIS sites (<fora_do_cardapio> e o preambulo de
 # <exemplos>) -- "'ta incluso' voce so diz de item que esta NOMINALMENTE na linha 'Inclusos' do seu
-# <fetiches> ... nem quando ele aparece num exemplo desta conduta" -- e as tres perderam para o
+# <fetiches> ... nem quando ele aparece num exemplo desta conduta" -- e a prosa perdeu para o
 # exemplo concreto: corrida do conduta_gate 30/07, modelo com "(sem fetiches cadastrados)", a IA
 # emitiu "Beijo na boca e oral sem camisinha ja vem junto 🥰", copia do <exemplo> de apresentacao.
 # A proibicao era so prosa; este e o trilho (mesma familia de `sonda`/`regiao`).
@@ -467,8 +467,9 @@ def bolhas_incluso_fantasma(texto: str, inclusos: set[str]) -> list[str]:
 
     `inclusos` = tokens normalizados dos nomes que a modelo tem como incluso. Ao contrario do eco de
     regiao, o conjunto VAZIO nao desliga o detector -- e o caso medido: sem linha "Inclusos" no
-    bloco, NENHUM item pode ser declarado incluso (`<apresentacao>`: "sem essa linha no seu bloco a
-    apresentacao fica so no estilo, sem lista de incluso"). A bolha e absolvida por UM token que
+    bloco, NENHUM item pode ser declarado incluso (`<sem_fetiches>` na cauda, quando o <fetiches>
+    inteiro esta vazio; aqui o detector cobre tambem o cardapio so de extras PAGOS, que tem lista
+    mas nao tem linha "Inclusos" e por isso nao recebe a tag). A bolha e absolvida por UM token que
     seja da linha dela (generoso de proposito: "oral sem" abrevia "oral sem camisinha"), por falar
     de programa/valor/logistica (`_TERMOS_NAO_FETICHE`) ou por nao nomear item nenhum (`_SEM_ITEM`).
     """

@@ -106,7 +106,7 @@ async def test_com_o_programa_a_cauda_nao_diz_nada_de_chamada() -> None:
 
 
 async def _sem_video_chamada_do_cardapio(programas: list[dict[str, Any]]) -> bool:
-    _md, _nome, _max, _menage, sem_video_chamada, _end, _local = await _carregar_bp3(
+    _md, _nome, _max, _vazio, _menage, sem_video_chamada, _end, _local = await _carregar_bp3(
         _ConnCardapio(programas),  # type: ignore[arg-type]
         "11111111-1111-1111-1111-111111111111",
     )

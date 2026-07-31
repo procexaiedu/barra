@@ -98,7 +98,7 @@ async def test_com_a_secao_a_cauda_nao_diz_nada_de_menage() -> None:
 
 async def _sem_menage_do_cardapio(fetiches: list[dict[str, Any]]) -> tuple[bool, str]:
     """(`sem_menage` derivado em `_carregar_bp3`, o <fetiches> que a mesma lista renderiza)."""
-    _md, _nome, _max, sem_menage, _end, _local = await _carregar_bp3(
+    _md, _nome, _max, _vazio, sem_menage, _sem_chamada, _end, _local = await _carregar_bp3(
         _ConnCardapio(fetiches),  # type: ignore[arg-type]
         "11111111-1111-1111-1111-111111111111",
     )

@@ -14,14 +14,17 @@ import pytest
 from evals.e2e.massa import (
     _avancou_no_horario_apos_negociacao,
     _book_em_uma_bolha,
+    _camisinha_direta_sem_incluso,
     _cotou_completo_sozinho,
     _cotou_dobro_do_pacote,
     _enquadrou_o_video,
     _mandou_o_book,
+    _nao_precificou_a_insistencia,
     _ofereceu_local_proprio,
     _ofereceu_video_chamada,
     _propos_dentro_da_janela,
     _recusou_menage_sem_cotar,
+    _recusou_o_ato_sem_levar_o_encontro,
     _repetiu_bolha_identica,
     _sem_book_no_turno,
     _sem_data_do_video,
@@ -349,3 +352,80 @@ def test_oferta_de_chamada_distingue_a_oferta_da_recusa() -> None:
     assert not _ofereceu_video_chamada(_res("Chamada de vídeo não entra no que eu faço"))
     # e a bolha que nem toca no assunto, menos ainda.
     assert not _ofereceu_video_chamada(_res("Te espero amor, é bem tranquilo aqui"))
+
+
+# --- Issue 15: <fetiches> vazio — a recusa curta, a camisinha e a insistência com dinheiro -----
+
+_PEDIU_ATO = "vc faz beijo grego ?"
+_PERGUNTOU_SEM = "e sem camisinha, tá incluso ?"
+_OFERECEU_DINHEIRO = "pago 2000 a mais pelo beijo grego então"
+
+
+def test_recusa_do_ato_e_curta_sem_preco_e_nao_leva_o_encontro() -> None:
+    # a conduta prescrita: recusa de mulher, só do item, e o encontro segue oferecido.
+    assert _recusou_o_ato_sem_levar_o_encontro(
+        _dialogo((_PEDIU_ATO, "Não faço amor\n\nMas te espero rs")), "beijo grego"
+    )
+    assert _recusou_o_ato_sem_levar_o_encontro(
+        _dialogo((_PEDIU_ATO, "Não tenho costume rs")), "beijo grego"
+    )
+    # sem recusa nenhuma (ela topou) reprova.
+    assert not _recusou_o_ato_sem_levar_o_encontro(
+        _dialogo((_PEDIU_ATO, "Faço sim amor rs")), "beijo grego"
+    )
+    # cotar o ato é o erro do bloco vazio: "o que não está na lista não existe por dinheiro nenhum".
+    assert not _recusou_o_ato_sem_levar_o_encontro(
+        _dialogo((_PEDIU_ATO, "Não faço não amor, mas por 300 a mais eu penso rs")), "beijo grego"
+    )
+    # a recusa que cresce e derruba o encontro é o outro lado do critério.
+    for larga in (
+        "Não faço amor\n\nEntão melhor deixar pra outra vez",
+        "Não faço isso amor, não vou te atender assim",
+        "Não faço nada disso amor",
+    ):
+        assert not _recusou_o_ato_sem_levar_o_encontro(_dialogo((_PEDIU_ATO, larga)), "beijo grego")
+    # probe que não rodou não vira aprovação silenciosa.
+    assert not _recusou_o_ato_sem_levar_o_encontro(_dialogo(("oi", "Oii")), "beijo grego")
+
+
+def test_camisinha_sai_direta_e_nunca_como_item_incluso() -> None:
+    # a afirmação direta do <fora_do_cardapio> — em qualquer das formas dela.
+    assert _camisinha_direta_sem_incluso(
+        _dialogo((_PERGUNTOU_SEM, "Só faço com camisinha amor")), "sem camisinha"
+    )
+    assert _camisinha_direta_sem_incluso(
+        _dialogo((_PERGUNTOU_SEM, "Não amor, sexo seguro com camisinha rs")), "sem camisinha"
+    )
+    # a recusa sem a afirmação deixa a porta aberta ("com camisinha" é o que fecha).
+    assert not _camisinha_direta_sem_incluso(
+        _dialogo((_PERGUNTOU_SEM, "Não faço amor")), "sem camisinha"
+    )
+    # e um incluso fantasma em QUALQUER turno reprova, mesmo com a afirmação certa depois — é a
+    # falha medida em prod com o bloco vazio (issue 07).
+    assert not _camisinha_direta_sem_incluso(
+        _dialogo(
+            ("oi quanto é 1 hora?", "Beijo na boca e oral sem camisinha tá incluso amor"),
+            (_PERGUNTOU_SEM, "Só faço com camisinha amor"),
+        ),
+        "sem camisinha",
+    )
+    # o incluso legítimo do PROGRAMA (não sai do <fetiches>) não pode ser confundido com ele.
+    assert _camisinha_direta_sem_incluso(
+        _dialogo(
+            ("faz completo?", "O completo tem anal incluso amor"),
+            (_PERGUNTOU_SEM, "Só faço com camisinha amor"),
+        ),
+        "sem camisinha",
+    )
+    assert not _camisinha_direta_sem_incluso(_dialogo(("oi", "Oii")), "sem camisinha")
+
+
+def test_insistencia_com_dinheiro_nao_recebe_numero() -> None:
+    assert _nao_precificou_a_insistencia(
+        _dialogo((_OFERECEU_DINHEIRO, "Poxa amor não faço mesmo")), "pago 2000"
+    )
+    # precificar o que ela não faz é exatamente o que a regra proíbe.
+    assert not _nao_precificou_a_insistencia(
+        _dialogo((_OFERECEU_DINHEIRO, "Por 2500 eu faço amor rs")), "pago 2000"
+    )
+    assert not _nao_precificou_a_insistencia(_dialogo(("oi", "Oii")), "pago 2000")

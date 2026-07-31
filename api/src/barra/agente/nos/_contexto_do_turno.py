@@ -77,6 +77,10 @@ class ContextoDoTurno:
     # Cardápio e cliente.
     tabela_max_horas: float
     sem_periodo_longo: bool
+    # Gate do cardápio de ATOS, da mesma leitura de fetiches do BP_MODELO: sem nenhum vínculo em
+    # `modelo_fetiches` o <fetiches> dela sai "(sem fetiches cadastrados)" — não há extra a cotar
+    # nem linha "Inclusos", e a cauda injeta o <sem_fetiches>. Mesma família derivada do cardápio.
+    sem_fetiches: bool
     # Gate do <menage>, derivado do cardápio dela (mesma leitura de fetiches do BP_MODELO): sem a
     # seção "Por pessoa" no <fetiches>, menage/casal não existe pra ela e a cauda injeta o
     # <sem_menage>. É o padrão do `sem_periodo_longo` — a condição vira dado, não prosa.
