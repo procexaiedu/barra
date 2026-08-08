@@ -66,9 +66,9 @@ _Avoid_: a convidada conversar com o cliente ou receber o contato dele; a IA do 
 
 ## Salvaguarda do piloto (temporária)
 
-**Cancelamento automático do piloto**:
-Salvaguarda **temporária** do piloto de teste (sem modelo real, sem intenção de atender ninguém de verdade — ver ADR 0033, emendado 2026-07-22): gatilho **por tipo**. No **interno** (sem Pix), deixa o agendamento consolidar — o piloto mede se o cliente iria marcar de verdade — e cancela no **Aviso de saída** ou perto do horário combinado (`piloto_cancela_antes_min`, ref. 15min antes de `bloqueios.inicio`); como o Aviso é opcional e a **Foto de portaria** transiciona automático, o cron também cancela `Em_execucao` interno não-processado. No **externo/remoto**, mantém o timer de 10 minutos após `Aguardando_confirmacao`, porque o crava dispara a solicitação de Pix e o invariante é cancelar antes de dinheiro trocar de mãos (pendência aberta: suprimir o pedido de Pix no piloto e atrasar também o externo). Ao disparar: envia uma desculpa genérica ao cliente (sorteada de um pool pequeno, para não criar padrão idêntico repetido — mesmo risco de denúncia/bloqueio de WhatsApp por número não aquecido); registra o Atendimento como `Perdido` (motivo `outro`, observação "cancelamento automático — piloto de teste"); e pausa a IA para aquele Atendimento (**Handoff** manual). Controlado por flag de settings, ligada por padrão no piloto e **desligável sem deploy** quando ele evoluir para atendimento real.
-_Avoid_: deixar o fluxo avançar a `Confirmado` com Pix pago; cancelar o interno cedo demais (mata o sinal do piloto — feedback Fernando 21/07); desculpa idêntica sempre; deixar ligado permanentemente fora da fase de teste; confundir com **Reengajamento** (que reabre, não cancela) ou **Lembrete de fechamento** (que cobra valor, não cancela).
+**Cancelamento automático do piloto** (REMOVIDO em 2026-08-07, ADR-0036):
+Salvaguarda **temporária** do piloto de teste que, depois de o cliente confirmar o horário, matava o Atendimento antes de ele virar encontro real — desculpa genérica ao cliente, `Perdido` (`outro`) e IA pausada. Revogada: nenhum atendimento é cancelado automaticamente, o freio é humano (**Handoff** manual). Mecânica do que existiu: ADR 0033 + `docs/specs/0004`.
+_Avoid_: tratar como mecanismo vivo (não existe mais código nem flag); reintroduzir sem novo ADR.
 
 ## Ambiguidades sinalizadas (destes verbetes)
 

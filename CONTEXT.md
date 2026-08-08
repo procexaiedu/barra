@@ -5,7 +5,7 @@ Linguagem de domínio da central inteligente de atendimento da operação Elite 
 > **Precedência:** reflete os ADRs vigentes (`docs/adr/`). Onde divergir de um ADR não-superseded, o ADR vence e este arquivo deve ser corrigido. Regra completa de fonte de verdade no `CLAUDE.md`.
 >
 > **Escopo deste arquivo:** o vocabulário **quente** — o que a IA usa e erra na conversa com o cliente. O resto do glossário mora em `docs/dominio/`, carregado sob demanda:
-> - `docs/dominio/operacao-e-financeiro.md` — **Operador**, **Vendedor**, **Comissão de vendedor**, **Coordenação por modelo**, **Card**, **Devolução para IA**, **Registro de resultado**, **Lembrete de fechamento**, **Valor final**, **Taxa de cartão**, **Combo de grupo**, **Modelo do canal**/**convidada**, mecânica completa do **Cancelamento automático do piloto**.
+> - `docs/dominio/operacao-e-financeiro.md` — **Operador**, **Vendedor**, **Comissão de vendedor**, **Coordenação por modelo**, **Card**, **Devolução para IA**, **Registro de resultado**, **Lembrete de fechamento**, **Valor final**, **Taxa de cartão**, **Combo de grupo**, **Modelo do canal**/**convidada**.
 > - `docs/dominio/painel-e-p1.md` — **Perfil físico preferido**, **Dados cadastrais da modelo**, **Mapa de clientes**, **Tarefa**, **IA Admin** (P1), **Reativação** (P1).
 
 ## Language
@@ -114,10 +114,6 @@ _Avoid_: confundir com status, bloqueio ou horário de operação global; materi
 **Reengajamento**:
 Reabertura proativa **única** de um cliente que recebeu a cotação e silenciou — mensagem curta e calorosa (sem desconto) ~30 min depois, dentro do horário de operação. Gatilho ancorado no **evento real da cotação** (`cotacao_enviada_em`, carimbado quando a IA apresenta o preço): só em `Triagem`/`Qualificado`, com cotação apresentada e **nenhuma resposta do cliente desde então** — o relógio conta da cotação, não de proxy de intenção (ADR 0022). Não reseta o timeout de 24h (que conta da última msg do **cliente**): sem resposta, vira `Perdido` (`sumiu`). No P0 é desligável e começa o piloto **desligado**.
 _Avoid_: múltiplos toques; reabrir quem não chegou à cotação; desconto no toque; confundir com o timeout de 24h; confundir com a **Reativação** (campanha manual de cliente dormente, P1 — ver `docs/dominio/painel-e-p1.md`).
-
-**Cancelamento automático do piloto**:
-Salvaguarda **temporária** do piloto de teste que mata o atendimento antes de ele virar encontro real: cancela por **tipo** (interno perto do horário combinado; externo/remoto 10 min após `Aguardando_confirmacao`, antes de o Pix ser pago), manda uma desculpa ao cliente, registra `Perdido` (`outro`) e pausa a IA. A IA **não** o menciona nem o antecipa na conversa. Definição completa, gatilhos e flags em `docs/dominio/operacao-e-financeiro.md`; ver ADR 0033 (emendado 2026-07-22).
-_Avoid_: deixar o fluxo avançar a `Confirmado` com Pix pago; cancelar o interno cedo demais (mata o sinal do piloto); deixar ligado permanentemente fora da fase de teste; confundir com **Reengajamento** (que reabre, não cancela) ou **Lembrete de fechamento** (que cobra valor, não cancela).
 
 **Mídia exclusiva**:
 Foto/vídeo da modelo enviado na venda com enquadramento de exclusividade — primeiro fotos, depois um vídeo "gravado ao vivo só para o cliente". Quando a plataforma (Evolution self-host) permitir, **a mídia (foto e vídeo) vai como view-once** (decisão 2026-07-10 — a foto exclusiva também é protegida, não só o vídeo); sem suporte, vai normal e a proteção fica para o P1. Habilitar em prod exige o toggle `evolution_view_once` ligado sobre um build da Evolution com o patch de `viewOnce`.

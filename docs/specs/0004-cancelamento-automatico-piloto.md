@@ -1,5 +1,8 @@
 # Cancelamento automático de segurança do piloto de teste
 
+> **Revogada em 2026-08-07 (ADR-0036).** O mecanismo especificado aqui foi removido do código
+> e do schema; a spec fica como registro histórico.
+
 > Issue: [procexaiedu/barra#97](https://github.com/procexaiedu/barra/issues/97)
 
 ## Problem Statement

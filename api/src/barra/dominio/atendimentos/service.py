@@ -482,13 +482,6 @@ async def registrar_extracao_ia(
         )
         await _registrar_evento(conn, aid, "transicao_estado", {"para": hop})
         if hop == "Aguardando_confirmacao":
-            # Ancora do cron cancelar_piloto_teste (ADR-0033): carimba a ENTRADA no estado
-            # (first-write-wins), distinta de bloqueios.inicio (o horario do encontro em si).
-            await conn.execute(
-                "UPDATE barravips.atendimentos SET aguardando_confirmacao_em = now() "
-                "WHERE id = %s AND aguardando_confirmacao_em IS NULL",
-                (aid,),
-            )
             # Guard deterministico (finding onda 1 A): reservar o slot exige o preco ja dito.
             # Combinar horario/endereco com cotacao_enviada_em NULL e sem cotar NESTE turno deixaria
             # o cliente sair de casa sem saber o valor (<funil>: "encontro nunca fica combinado com
@@ -994,19 +987,12 @@ async def _flip_de_tipo_pos_crava(
     ser gravado para `_solicitar_pix_deslocamento_se_aplicavel` (bloco independente da transicao)
     cobrar um Pix de deslocamento de R$100 num encontro que seguia sendo no local dela.
 
-    O Pix nao era o unico dano: o mesmo flip vira o gatilho do cancelamento automatico do piloto
-    (ADR-0033) de braco. Fora do interno o cron mede 10min desde `aguardando_confirmacao_em` — no
-    #41 um carimbo de ~2h antes, ja vencido —, entao o tipo virar externo satisfaz a condicao
-    RETROATIVAMENTE e o cancelamento sai no tick seguinte, sem folga nenhuma: a desculpa canned
-    caiu na conversa 8s depois do flip, no meio da negociacao de preco.
-
     Descarta em vez de escalar: a IA estava conduzindo certo (recusando), e escalar a pausaria no
     meio da recusa. Mudanca real de tipo com horario cravado e renegociacao — sai pela conduta dela
     (redireciona; na insistencia, `escalar`), nao por um campo de extracao.
 
     Vale com bloqueio previo OU em `Aguardando_confirmacao` sem ele: o estado ja significa horario
-    combinado (o bloqueio e o efeito, nao a definicao), e e justamente o atendimento sem bloqueio
-    que o cron do piloto cancela na hora — o LEFT JOIN dele so exige o bloqueio no braco interno."""
+    combinado (o bloqueio e o efeito, nao a definicao)."""
     novo_tipo = payload.get("tipo_atendimento")
     if not novo_tipo or "tipo_atendimento" in set(payload.get("limpar") or []):
         return None

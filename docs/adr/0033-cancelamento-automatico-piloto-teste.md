@@ -1,8 +1,11 @@
 ---
-status: accepted
+status: superseded by ADR-0036
 ---
 
 # ADR-0033 — Cancelamento automático de segurança do piloto de teste
+
+> **Revogado em 2026-08-07 pelo ADR-0036:** o mecanismo saiu inteiro do código e do schema.
+> Nada abaixo descreve o sistema de hoje — fica como registro do que existiu no piloto.
 
 ## Contexto
 

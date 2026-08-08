@@ -1375,9 +1375,7 @@ async def test_flip_de_tipo_em_aguardando_sem_bloqueio_tambem_e_descartado(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
     """Mesmo flip do #41 no atendimento sem bloqueio previo (borda): `Aguardando_confirmacao` ja
-    significa horario combinado, e e justamente esse o atendimento que o cron do piloto
-    (ADR-0033) cancela NA HORA — fora do interno ele so mede `aguardando_confirmacao_em`, que aqui
-    ja esta vencido, entao a virada de tipo dispara a desculpa canned no tick seguinte."""
+    significa horario combinado, entao o tipo ja esta combinado mesmo sem o bloqueio."""
     _, atendimento_id = await _seed_par(
         conn,
         estado="Aguardando_confirmacao",
