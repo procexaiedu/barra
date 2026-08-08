@@ -115,7 +115,7 @@ O princípio que governa a implementação: **a LLM fala, o determinístico deci
 
 **13. Escopo por tipo.** Interno (com mesmo endereço) e externo. **Nunca remoto** — vídeo chamada em grupo não é o produto.
 
-**14. Flag de settings.** A feature nasce desligável sem deploy, como o **Reengajamento** e o **Cancelamento automático do piloto**. Enquanto o piloto (ADR 0033) estiver ligado, o cancelamento automático atinge os Atendimentos do combo pelas mesmas regras por tipo — o que na prática torna combo e piloto mutuamente exclusivos na operação.
+**14. Flag de settings.** A feature nasce desligável sem deploy, como o **Reengajamento**. (O **Cancelamento automático do piloto**, que tornaria combo e piloto mutuamente exclusivos, foi removido em 2026-08-07 — ADR-0036. Não há mais interação a considerar.)
 
 **15. Pendência aberta — Pix de deslocamento no combo externo.** Em decisão com o Fernando. O código amarra a escolha: a chave Pix é **por modelo** (`modelos.chave_pix`) e o OCR **valida a chave extraída contra a chave daquela modelo** (`dominio/pix/routes.py`). Um Pix único somado na chave do canal **bate no atendimento dela e falha nos das convidadas**. As três saídas — N Pix (uma chave por modelo, trilho atual intacto), Pix único somado (exige mudar matching e distribuição) ou deslocamento único com elas indo no mesmo carro (exige mesma região de origem no filtro) — têm custos diferentes de implementação. **O interno não depende disso e pode ser entregue primeiro.**
 

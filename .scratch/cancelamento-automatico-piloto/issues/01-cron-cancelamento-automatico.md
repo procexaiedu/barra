@@ -4,7 +4,9 @@
 
 **Blocked by:** `handoff-manual-operador` ticket 01 (comando `pausar_ia` na porta única de comandos operacionais) — este ticket chama esse comando para pausar a IA após o cancelamento.
 
-**Status:** ready-for-agent
+**Status:** wontfix
+
+**Revogado em 2026-08-07 (ADR-0036).** Foi implementado e rodou no piloto; o mecanismo inteiro saiu do código e do schema. Os critérios abaixo ficam como registro.
 
 - [ ] Novo cron determinístico segue o mesmo padrão dos crons de timeout já existentes (seleção atômica com trava contra execução concorrente, idempotente entre execuções).
 - [ ] Seleciona atendimentos em `Aguardando_confirmacao` com horário combinado cravado há mais de 10 minutos, ainda não processados por este cron.
