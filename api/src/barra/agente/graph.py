@@ -49,10 +49,16 @@ def _criar_chat_principal(settings: Settings) -> Any:
     """Chat principal (#1): ChatOpenAI DIRETO na API DeepSeek (api.deepseek.com).
 
     DeepSeek-only (sem alternativa de provider): cache automático garantido + modelo/quant cravados.
-    thinking travado em disabled (extra_body), só passa `temperature` (1.3). Devolve um BaseChatModel;
-    o nó llm só usa bind_tools/ainvoke/nome_modelo.
+    thinking segue `settings.deepseek_thinking_chat` (default "disabled" = prod; valores enabled são
+    o braço B do A/B de evals — .scratch/ab-thinking-chat). Em thinking a temperatura é omitida pela
+    factory (o provider a ignora). Devolve um BaseChatModel; o nó llm só usa bind_tools/ainvoke/
+    nome_modelo.
     """
-    return criar_chat_deepseek(settings, temperature=settings.chat_temperature)
+    return criar_chat_deepseek(
+        settings,
+        temperature=settings.chat_temperature,
+        thinking=settings.deepseek_thinking_chat,
+    )
 
 
 def _criar_chat_extracao_barata(settings: Settings) -> Any:

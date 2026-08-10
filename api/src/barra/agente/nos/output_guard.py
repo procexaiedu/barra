@@ -831,7 +831,13 @@ async def _regenerar(
         "Escreva agora, no seu jeito de sempre, a mensagem que vai ao cliente -- curta e natural, "
         f"sem o problema acima.{extra} Responda somente com a mensagem.</lembrete_silencioso>"
     )
-    chat = criar_chat_deepseek(settings, temperature=settings.chat_temperature)
+    # Mesmo regime de thinking do chat #1 (settings.deepseek_thinking_chat): a regen é fala da
+    # persona e, no braço B do A/B, a janela pode conter reasoning_content a devolver.
+    chat = criar_chat_deepseek(
+        settings,
+        temperature=settings.chat_temperature,
+        thinking=settings.deepseek_thinking_chat,
+    )
     try:
         resp = await chat.ainvoke([*janela, HumanMessage(content=feedback)])
     except Exception:
