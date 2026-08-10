@@ -6,8 +6,6 @@
 > exigem ação ao vivo (operador, prod, segredo, calibração humana) — o **código** das tasks já está na `main`.
 > Consolidado em 2026-06-01.
 >
-> Carrega também o **veredito GO/NO-GO** e o critério de **cutover** que o `docs/agente/08-evals.md` referencia.
->
 > O **passo-a-passo ordenado do operador** (comandos, rollback, dependências) vive em
 > `infra/runbooks/pre-launch-checklist.md` — este arquivo é o registro de pendências; aquele é o roteiro de execução.
 
@@ -89,5 +87,5 @@ O código está na `main` (branch `feat/evals-cutover-gate`); falta rodar/ligar:
 
 ---
 
-> **Nota:** o histórico completo das 44 tasks (com PRs/commits) está no git em
-> `docs/mvp/producao-roadmap-executavel.md` antes do commit de remoção. Esta lista é só o que falta ao vivo.
+> **Nota:** o histórico completo das 44 tasks (com PRs/commits) está no git, em
+> `docs/mvp/producao-roadmap-executavel.md` antes do commit que o removeu. Esta lista é só o que falta ao vivo.

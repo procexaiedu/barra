@@ -424,9 +424,7 @@ async def test_so03_judge_refusal_no_guard_default_seguro_bloqueia(monkeypatch: 
     cap = _Capturador()
     monkeypatch.setattr(mod_defesa, "abrir_handoff", cap)
     res = _judge_resultado("refusal", parsed=None)
-    # Mocka os factories que EXISTEM em core.llm (a consolidação deepseek-direct removeu o
-    # criar_chat_openrouter) — cobre qualquer provider configurável sob o default deepseek.
-    monkeypatch.setattr("barra.core.llm.criar_chat_anthropic", lambda s, **kw: _FakeJudgeChat(res))
+    # `criar_chat_deepseek` e a UNICA factory de chat que sobrou em core.llm.
     monkeypatch.setattr(
         "barra.core.llm.criar_chat_deepseek", lambda s, **kwargs: _FakeJudgeChat(res)
     )

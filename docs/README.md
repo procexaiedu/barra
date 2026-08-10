@@ -1,20 +1,20 @@
 # Docs
 
-Documentação viva do projeto. Portas de entrada do domínio: `CONTEXT.md` (raiz) e `mvp/00-indice.md`. Fonte de verdade segue a precedência do `CLAUDE.md` (ADRs vencem).
+Documentação viva do projeto. Porta de entrada do domínio: `CONTEXT.md` (raiz) + `adr/` — ver `agents/domain.md`. Fonte de verdade segue a precedência do `CLAUDE.md` (ADRs vencem).
 
 ## Pastas
 
-- `mvp/`: escopo, contexto de negócio, fluxos e interfaces do MVP.
 - `adr/`: decisões arquiteturais numeradas (normativo; nunca apagar — `superseded`).
-- `agente/`: design do agente LangGraph (arquitetura, estado, prompts, tools, evals).
-- `specs/`: specs completas das 7 telas do painel (fundação + tela-01..07).
-- `ux/`: guias UX por tela — jornada, blocos e dados, não implementação (complementa `specs/`).
-- `design/`: ponte domínio → visual (`dominio-visual.md`); complementa o `DESIGN.md` da raiz.
-- `backend/`: especificação de implementação do backend P0.
-- `historico/`: atas, drafts e materiais de referência não-normativos (inclui `schema_barravips.md` e `seed_spec.md`).
+- `dominio/`: o resto do glossário que não coube no `CONTEXT.md`, carregado sob demanda.
+- `agente/`: design do agente LangGraph (arquitetura, estado, prompts, tools, humanização, mídia, coordenador, corpus).
+- `agents/`: como as skills consomem este repo (domínio, issue tracker, labels de triagem, mapa do repo).
+- `mvp/`: plano original do MVP — contexto de negócio, escopo, módulos e fluxos operacionais.
+- `specs/`: specs (PRDs) numeradas de feature.
+- `feedbacks/`: feedback cru do Fernando sobre o agente, datado.
+- `patches/`: patches aplicados em dependências de terceiros (Evolution API).
 
 ## Arquivos
 
-- `estrutura-codebase.md`: árvore e convenções completas do monorepo.
+- `evolution-view-once.md`: suporte a `viewOnce` na Evolution self-host (ver `patches/`).
 
-> Runbooks operacionais ficam em `infra/runbooks/`.
+> Runbooks operacionais ficam em `infra/runbooks/`. Árvore e convenções do monorepo em `agents/repo-map.md`.

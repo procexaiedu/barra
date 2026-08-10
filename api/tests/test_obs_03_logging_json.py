@@ -27,7 +27,6 @@ def _settings_stub(log_level: str = "INFO") -> Any:
         log_level=log_level,
         ambiente="teste",
         sentry_dsn=None,
-        langchain_tracing_v2=False,
         openrouter_api_key=None,
         openai_api_key=None,
         database_url="postgresql://x",

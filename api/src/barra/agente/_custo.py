@@ -7,49 +7,13 @@ observar o Histogram `AGENTE_CUSTO_TURNO_BRL`. Preco em USD/MTok = constante de 
 settings — preco muda raro e queremos controle de versao no repo); atualizar aqui quando o
 provedor mexer na tarifa.
 
-Os 3 caminhos de texto do agente ao vivo (chat #1, extracao #2, judge #3) rodam em DeepSeek V4
-Flash direto -> `_tabela_preco` despacha pelo nome do modelo de cada AIMessage e usa a tarifa
-DeepSeek-direct (com cache). As tabelas Sonnet/Haiku sobrevivem para o LLM-judge dos evals e
-para o caso default (modelo desconhecido cai na tarifa Sonnet, conservadora).
+Os 3 caminhos de texto do agente (chat #1, extracao #2, judge #3) rodam em DeepSeek V4 Flash
+direto -> ha UMA tabela de chat (`PRECO_DEEPSEEK_USD_PER_MTOK`, com cache), usada tambem como
+default para modelo desconhecido. Vision (Pix) e STT tem tabelas proprias mais abaixo.
 """
 
 from collections.abc import Sequence
 from typing import Any
-
-# USD por milhao de tokens — Sonnet 4.6 (claude-sonnet-4-6).
-# Multiplicadores 1.25x (5m write), 2x (1h write), 0.1x (read) seguem a tabela oficial de
-# prompt caching (`build-with-claude/prompt-caching`).
-PRECO_USD_PER_MTOK: dict[str, float] = {
-    "input": 3.00,
-    "output": 15.00,
-    "cache_write_5m": 3.75,
-    "cache_write_1h": 6.00,
-    "cache_read": 0.30,
-}
-
-# USD por milhao de tokens — Haiku 4.5 (claude-haiku-4-5). Tabela publica $1 input / $5 output;
-# mesmos multiplicadores de cache (1.25x/2x/0.1x). Usado pela extracao forcada barata.
-PRECO_HAIKU_USD_PER_MTOK: dict[str, float] = {
-    "input": 1.00,
-    "output": 5.00,
-    "cache_write_5m": 1.25,
-    "cache_write_1h": 2.00,
-    "cache_read": 0.10,
-}
-
-# USD por milhao de tokens — modelos OpenRouter das chamadas baratas (#2 extracao, #3 judge) quando
-# o provider correspondente esta em `openrouter`. Keyed pelo id OpenRouter (ex.: "google/...").
-# Sem cache (essas chamadas nao reusam prefixo) -> so input/output. VAZIO ate o modelo ser
-# escolhido (pesquisa separada): enquanto vazio, um id OpenRouter cai na tabela Sonnet (superestima)
-# MAS sob label proprio do modelo -> NAO polui o tripwire de write-rate do Sonnet. Preencher com a
-# tarifa publica do candidato quando ele landar.
-# deepseek/deepseek-v4-flash: tarifa publica OpenRouter ($0.09 input / $0.18 output por MTok,
-# api/v1/models 2026-06-17). Sem cache nessas chamadas -> so input/output. So vale p/ o caminho
-# OpenRouter (model_name com prefixo "deepseek/"); o DeepSeek-direct reporta "deepseek-v4-flash"
-# sem prefixo e cai na PRECO_DEEPSEEK_USD_PER_MTOK abaixo (com cache).
-PRECO_OPENROUTER_USD_PER_MTOK: dict[str, dict[str, float]] = {
-    "deepseek/deepseek-v4-flash": {"input": 0.09, "output": 0.18},
-}
 
 # USD por milhao de tokens — DeepSeek V4 Flash DIRETO (api.deepseek.com), usado pelos 3 caminhos de
 # texto do agente: chat #1, extracao forcada #2 e judge de AUP #3. A API reporta
@@ -76,25 +40,18 @@ def cache_read_deepseek(response_metadata: dict[str, Any] | None) -> int:
     `calcular_custo_brl` cobraria 100% do input como miss ($0.14), super-estimando ~10x a parcela de
     input (o "92% cache hit" do Langfuse, que le o `token_usage` cru, divergiria do nosso BRL). O SDK
     OpenAI preserva o campo extra (CompletionUsage.model_config extra='allow'), entao ele sobrevive em
-    `response_metadata["token_usage"]`. Anthropic/OpenRouter nao tem essa chave -> 0 (no-op)."""
+    `response_metadata["token_usage"]`. Provider sem essa chave -> 0 (no-op)."""
     tu = (response_metadata or {}).get("token_usage") or {}
     valor = tu.get("prompt_cache_hit_tokens", 0)
     return int(valor) if valor else 0
 
 
 def _tabela_preco(model_name: str | None) -> dict[str, float]:
-    """Tabela de preco USD/MTok pelo nome do modelo. id OpenRouter conhecido -> sua tarifa; DeepSeek
-    -> tarifa DeepSeek-direct (com cache); Haiku -> tabela Haiku; qualquer outro (incl. None /
-    Sonnet) -> Sonnet (default seguro, o chat principal). Match por substring p/ tolerar sufixo de
-    data (`claude-haiku-4-5-20251001`) e variacoes de naming do DeepSeek (`deepseek-v4-flash`,
-    `deepseek-chat`)."""
-    if model_name and model_name in PRECO_OPENROUTER_USD_PER_MTOK:
-        return PRECO_OPENROUTER_USD_PER_MTOK[model_name]
-    if model_name and "deepseek" in model_name.lower():
-        return PRECO_DEEPSEEK_USD_PER_MTOK
-    if model_name and "haiku" in model_name.lower():
-        return PRECO_HAIKU_USD_PER_MTOK
-    return PRECO_USD_PER_MTOK
+    """Tabela de preco USD/MTok do chat. Existe UM provider de texto (DeepSeek V4 Flash direto),
+    entao a tabela DeepSeek serve tanto o caso conhecido quanto o default (`model_name=None` ou
+    modelo desconhecido). Mantida como funcao para o dia em que voltar a haver mais de um."""
+    del model_name  # um provider so; o parametro sobrevive na assinatura publica de calcular_custo_brl
+    return PRECO_DEEPSEEK_USD_PER_MTOK
 
 
 # --- Vision (Pix) e STT (Whisper) -------------------------------------------------------------
@@ -166,7 +123,7 @@ def custo_por_atendimento_brl(chat_brl: float, stt_brl: float, vision_brl: float
 
 
 def custo_chat_turno_brl(messages: Sequence[Any], cotacao_usd_brl: float) -> float:
-    """Custo de chat (Sonnet) do TURNO em BRL: soma `calcular_custo_brl` sobre as AIMessages
+    """Custo de chat do TURNO em BRL: soma `calcular_custo_brl` sobre as AIMessages
     GERADAS no turno (usage_metadata != None — mesma heuristica de extrair_texto_do_turno para
     ignorar as historicas re-injetadas pelo prepare_context, que vem sem usage).
 
@@ -183,9 +140,9 @@ def custo_chat_turno_brl(messages: Sequence[Any], cotacao_usd_brl: float) -> flo
 
 
 def _modelo_da_mensagem(m: Any) -> str | None:
-    """Nome Anthropic da AIMessage (`response_metadata.model_name`, com fallback `model`), p/
-    `custo_chat_turno_brl` precificar cada chamada do turno pela tabela do SEU modelo — a extracao
-    forcada e Haiku, o resto Sonnet. Duck-typing (sem import de langchain); None -> tabela Sonnet."""
+    """Nome do modelo da AIMessage (`response_metadata.model_name`, com fallback `model`), p/
+    `custo_chat_turno_brl` precificar cada chamada do turno pela tabela do SEU modelo. Hoje ha um
+    provider so (DeepSeek). Duck-typing (sem import de langchain); None -> tabela default."""
     meta = getattr(m, "response_metadata", None) or {}
     return meta.get("model_name") or meta.get("model")
 
@@ -193,11 +150,11 @@ def _modelo_da_mensagem(m: Any) -> str | None:
 def input_nao_cacheado(usage_metadata: dict[str, Any]) -> int:
     """Tokens de input FRESCO (preco cheio), separados da parcela cacheada.
 
-    langchain-anthropic 1.4.3 reporta `usage_metadata["input_tokens"]` como o TOTAL — base +
-    cache_read + cache_creation (`_create_usage_metadata` em chat_models.py:2286-2293: "Anthropic's
-    `input_tokens` excludes cached tokens, so we manually add cache_read and cache_creation"). Logo
-    o fresco e o resto apos descontar a leitura de cache e a escrita (ephemeral_5m/1h). Cobrar o
-    `input_tokens` cru a preco de input cheio dobra a conta do prefixo cacheado (~5x/turno).
+    O wrapper langchain reporta `usage_metadata["input_tokens"]` como o TOTAL — base + cache_read
+    (+ cache_creation, quando o provider a marca). Logo o fresco e o resto apos descontar a leitura
+    de cache e a escrita (chaves `ephemeral_5m/1h`, hoje sempre 0 no DeepSeek, que nao cobra escrita
+    de cache). Cobrar o `input_tokens` cru a preco de input cheio dobra a conta do prefixo cacheado
+    (~5x/turno).
     """
     det = usage_metadata.get("input_token_details") or {}
     cacheado = (
@@ -216,14 +173,12 @@ def calcular_custo_brl(
 ) -> float:
     """Custo estimado do turno em BRL a partir do `usage_metadata` da AIMessage.
 
-    `model_name` (nome Anthropic) escolhe a tabela de preco (`_tabela_preco`): Haiku para a
-    extracao forcada barata, Sonnet para o resto e para `None` (default seguro do chat principal).
+    `model_name` escolhe a tabela de preco (`_tabela_preco`); com um provider so (DeepSeek) ela e
+    sempre a mesma — o parametro sobrevive na assinatura para o dia em que voltar a haver escolha.
 
-    Le `input_token_details` no formato langchain-anthropic 1.4.3 (mapeamento assimetrico:
-    cache_read OK; write em `ephemeral_5m/1h`, NUNCA em `cache_creation`, memoria
-    auditoria_best_practices_agente). `input_tokens` vem como o TOTAL (inclui cache_read +
-    cache_creation), entao a parcela de input cheio e `input_nao_cacheado` — o resto, ja
-    descontados read/write; o cache entra so nas suas proprias tarifas (0.1x read, 1.25-2x write).
+    Le `input_token_details`: `input_tokens` vem como o TOTAL (inclui cache_read + a escrita, quando
+    o provider a marca em `ephemeral_5m/1h`), entao a parcela de input cheio e `input_nao_cacheado`
+    — o resto, ja descontados read/write; o cache entra so nas suas proprias tarifas.
 
     `usage_metadata=None` ou sem chaves esperadas -> 0.0 (turno sem custo medivel; o nao-key
     no nao quebra a metrica). Mesma defesa de `_instrumentar_tokens`.
@@ -237,10 +192,9 @@ def calcular_custo_brl(
     cache_read: int = det.get("cache_read", 0)
     cache_write_5m: int = det.get("ephemeral_5m_input_tokens", 0)
     cache_write_1h: int = det.get("ephemeral_1h_input_tokens", 0)
-    # input/output existem em toda tabela; as chaves de cache só nas tabelas Anthropic (Sonnet/
-    # Haiku). A tabela OpenRouter (ex.: deepseek/deepseek-v4-flash) é só input/output — o cache do
-    # DeepSeek é automático no provider, não marcado por nós — então `.get(..., 0.0)` evita KeyError
-    # (a parcela de cache fica 0 quando o modelo não a tarifa por aqui).
+    # input/output existem em toda tabela; as chaves de escrita de cache não (o DeepSeek não cobra
+    # escrita — o cache dele é automático no provider). `.get(..., 0.0)` evita KeyError e zera a
+    # parcela quando o modelo não a tarifa.
     usd: float = (
         input_t * preco["input"]
         + output_t * preco["output"]
@@ -276,12 +230,5 @@ def modelos_para_langfuse() -> list[dict[str, Any]]:
             "match_pattern": r"(?i)^(deepseek-v4-flash|deepseek-chat)$",
             "input_price": PRECO_DEEPSEEK_USD_PER_MTOK["input"] / 1_000_000,
             "output_price": PRECO_DEEPSEEK_USD_PER_MTOK["output"] / 1_000_000,
-        },
-        {
-            "model_name": "claude-haiku-4-5",
-            # tolera o sufixo de data do Anthropic (claude-haiku-4-5-20251001).
-            "match_pattern": r"(?i)^claude-haiku-4-5(-\d{8})?$",
-            "input_price": PRECO_HAIKU_USD_PER_MTOK["input"] / 1_000_000,
-            "output_price": PRECO_HAIKU_USD_PER_MTOK["output"] / 1_000_000,
         },
     ]

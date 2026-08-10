@@ -1,7 +1,8 @@
-"""no_llm: tratamento de stop_reason de truncamento (STOP-03/06) e log do id Anthropic (REL-OBS-02).
+"""no_llm: tratamento de parada por truncamento (STOP-03/06) e log do id do provider (REL-OBS-02).
 
-Sem API real (chat FAKE) nem banco: cobre o roteamento do no `llm` por stop_reason e os logs de
-correlacao com a Anthropic. Roda no gate `-m "not needs_key and not needs_db"`.
+Sem API real (chat FAKE) nem banco: cobre o roteamento do no `llm` por motivo de parada e os logs
+de correlacao com o provider (DeepSeek via SDK openai). Roda no gate
+`-m "not needs_key and not needs_db"`.
 """
 
 from __future__ import annotations
@@ -12,8 +13,8 @@ from typing import Any
 
 import httpx
 import pytest
-from anthropic import RateLimitError
 from langchain_core.messages import AIMessage
+from openai import RateLimitError
 
 _USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 _TOOL_CALL = {"name": "consultar_agenda", "args": {}, "id": "tc1", "type": "tool_call"}
@@ -92,7 +93,7 @@ async def test_tool_use_completo_vai_para_tools() -> None:
     assert comando.goto == "tools"
 
 
-async def test_refusal_loga_anthropic_msg_id(caplog: pytest.LogCaptureFixture) -> None:
+async def test_refusal_loga_msg_id_do_provider(caplog: pytest.LogCaptureFixture) -> None:
     """REL-OBS-02: refusal (200 OK) loga o id da mensagem do provider p/ correlacao/suporte."""
     from barra.agente.nos.llm import no_llm
 
@@ -136,14 +137,14 @@ async def test_finish_reason_content_filter_trata_como_recusa(
     assert "parada=recusa" in caplog.text
 
 
-async def test_erro_sdk_loga_anthropic_request_id(caplog: pytest.LogCaptureFixture) -> None:
-    """REL-OBS-02: erro do SDK (429/5xx) loga o request_id da Anthropic (header request-id)."""
+async def test_erro_sdk_loga_request_id_do_provider(caplog: pytest.LogCaptureFixture) -> None:
+    """REL-OBS-02: erro do SDK (429/5xx) loga o request_id do provider (header x-request-id)."""
     from barra.agente.nos.llm import no_llm
 
     http_resp = httpx.Response(
         429,
-        headers={"request-id": "req_XYZ789"},
-        request=httpx.Request("POST", "https://api.anthropic.com/v1/messages"),
+        headers={"x-request-id": "req_XYZ789"},
+        request=httpx.Request("POST", "https://api.deepseek.com/v1/chat/completions"),
     )
     exc = RateLimitError("rate limited", response=http_resp, body=None)
     node = no_llm(_FakeChat(None, exc=exc), [])
@@ -151,4 +152,4 @@ async def test_erro_sdk_loga_anthropic_request_id(caplog: pytest.LogCaptureFixtu
     with caplog.at_level(logging.WARNING, logger="barra.agente.nos.llm"):
         with pytest.raises(RateLimitError):  # erro propaga (escala no coordenador), mas loga antes
             await node({"messages": []}, _runtime())  # type: ignore[arg-type]
-    assert "anthropic_request_id=req_XYZ789" in caplog.text
+    assert "llm_request_id=req_XYZ789" in caplog.text

@@ -3,7 +3,7 @@
 No real -- chama o chat principal (#1) bindado com as tools e roteia por Command(goto=...). O chat
     e DeepSeek V4 Flash direto via ChatOpenAI (criar_chat_deepseek); o no le motivo de parada/nome
     do modelo de forma unificada (motivo_parada/nome_modelo, core.llm) -- codigo provider-agnostico,
-    nao campos Anthropic crus. Sem modelo de
+    nao campos crus do provider. Sem modelo de
     fallback: 429/5xx/timeout sobem como excecao (retry ja foi do SDK, max_retries) e, na exaustao,
     escalam para Fernando via escalar_por_exaustao (TODO M3f; 01 §2.6). O check de parada
     (refusal/max_tokens chegam em 200 OK, nao como excecao) vive dentro do try/except. Sem effort
@@ -20,15 +20,12 @@ import logging
 from collections.abc import Coroutine, Sequence
 from typing import Any, Literal, Protocol
 
-from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import BaseMessage, ToolMessage
 from langchain_core.tools import BaseTool
 from langgraph.runtime import Runtime
 from langgraph.types import Command
-from openai import APIStatusError as OpenAIAPIStatusError
-from openai import APITimeoutError as OpenAIAPITimeoutError
-from openai import RateLimitError as OpenAIRateLimitError
+from openai import APIStatusError, APITimeoutError, RateLimitError
 
 from barra.core.llm import PARADA_RECUSA, PARADA_TRUNCADA, motivo_parada, nome_modelo
 from barra.core.metrics import TURNO_TRUNCADO
@@ -40,15 +37,11 @@ from ..estado import EstadoAgente
 logger = logging.getLogger(__name__)
 
 # Indisponibilidade do provider (retry do SDK exausto / 5xx / timeout) -> escala. O chat e DeepSeek
-# via openai SDK; cobrimos tambem os tipos homonimos do SDK anthropic (infra de cache dormente/evals).
-# `request_id` existe nos dois.
+# via openai SDK (unico provider); `request_id` vem no header da resposta.
 _EXCECOES_LLM = (
     RateLimitError,
     APITimeoutError,
     APIStatusError,
-    OpenAIRateLimitError,
-    OpenAIAPITimeoutError,
-    OpenAIAPIStatusError,
 )
 
 # Recusa do provider (safety filter) -> escala sem mandar a bolha crua. Alias local do vocabulario
@@ -56,9 +49,9 @@ _EXCECOES_LLM = (
 _PARADA_RECUSA = PARADA_RECUSA
 
 # Truncamento da resposta (args de tool podem vir incompletos -> nao despachar; STOP-03/06): o
-# conjunto canonico vive em core.llm.PARADA_TRUNCADA (provider-aware: max_tokens/
-# model_context_window_exceeded da Anthropic + length do OpenAI/OpenRouter). Lido via motivo_parada
-# (stop_reason Anthropic | finish_reason OpenAI), nao do campo cru. Todos chegam em 200 OK.
+# conjunto canonico vive em core.llm.PARADA_TRUNCADA (provider-aware: `length` do OpenAI/DeepSeek
+# + o vocabulario legado max_tokens/model_context_window_exceeded). Lido via motivo_parada
+# (finish_reason | stop_reason), nao do campo cru. Todos chegam em 200 OK.
 
 # Cap do loop de `enviar_midia` (trace 8194e2c0): quantas chamadas de midia FALHARAM no turno antes
 # de o no fechar em texto. 2 = a modelo tentou 2 tags/tipos e nenhuma tinha midia -> nao ha o que
@@ -111,8 +104,7 @@ def no_llm(chat: BaseChatModel, tools: Sequence[BaseTool]) -> _NoLLM:
     # (sem tools ja garante texto).
     chat_sem_tool_call = chat.bind_tools(tools, tool_choice="none") if tools else chat
     # nome do modelo p/ o label das metricas de token, nao o modelo_id da agencia (03 §4.2).
-    # `nome_modelo` tolera os dois wrappers (.model do ChatAnthropic / .model_name do ChatOpenAI),
-    # entao funciona p/ Sonnet e DeepSeek.
+    # `nome_modelo` le .model_name do ChatOpenAI (com fallback .model p/ fakes de teste).
     modelo_chat = nome_modelo(chat)
 
     async def llm(
@@ -140,7 +132,7 @@ def no_llm(chat: BaseChatModel, tools: Sequence[BaseTool]) -> _NoLLM:
             resp = await chat_bound.ainvoke(state["messages"])
             instrumentar_tokens(resp, modelo_chat)
             # motivo de parada chega num 200 OK, nao como excecao. Lido provider-agnostico
-            # (stop_reason Anthropic | finish_reason OpenAI/OpenRouter) via motivo_parada:
+            # (finish_reason OpenAI/DeepSeek | stop_reason legado) via motivo_parada:
             parada = motivo_parada(resp.response_metadata)
             if parada in _PARADA_RECUSA:
                 # safety filter do provider -> escala p/ Fernando (sem fallback de modelo, 01 §2.6).
@@ -163,10 +155,10 @@ def no_llm(chat: BaseChatModel, tools: Sequence[BaseTool]) -> _NoLLM:
                 logger.warning("llm parada=%s (turno_id=%s)", parada, runtime.context.turno_id)
         except _EXCECOES_LLM as exc:
             # exaustao de retry do SDK / 5xx / timeout -> escala (sem fallback de modelo, 01 §2.6).
-            # REL-OBS-02: loga o request_id da Anthropic (header `request-id`, chave do ticket de
+            # REL-OBS-02: loga o request_id do provider (header `x-request-id`, chave do ticket de
             # suporte) -- presente em APIStatusError/RateLimitError; timeout sem resposta -> None.
             logger.warning(
-                "llm indisponivel: %s (turno_id=%s anthropic_request_id=%s)",
+                "llm indisponivel: %s (turno_id=%s llm_request_id=%s)",
                 type(exc).__name__,
                 runtime.context.turno_id,
                 getattr(exc, "request_id", None),

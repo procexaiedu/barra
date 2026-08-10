@@ -94,6 +94,16 @@ class Settings(BaseSettings):
         ge=0.0,
         description="Temperatura do chat #1 (DeepSeek V4 Flash). 0.7 = melhor ponto medido no exp N-1 30/06 (coerencia + head-to-head); so vale non-thinking.",
     )
+    # Thinking do DeepSeek SO no chat #1 (no llm + regen do output_guard) — alavanca do braco B do
+    # A/B de evals (.scratch/ab-thinking-chat): "low"/"high"/"max" = reasoning_effort do provider
+    # (guides/thinking_mode). Em thinking a temperatura e IGNORADA pelo provider (a factory a omite)
+    # e o custo dominante e latencia (tokens de raciocinio ~3x a resposta no trafego OpenRouter).
+    # Extracao (#2) e judge (#3) NAO leem este campo: thinking corromperia o structured output.
+    # Default = prod = "disabled"; nunca ligar em prod sem o A/B aprovado (§0 do CLAUDE.md).
+    deepseek_thinking_chat: Literal["disabled", "low", "high", "max"] = Field(
+        default="disabled",
+        description="Thinking do chat #1 (DeepSeek direct): disabled (prod) ou reasoning_effort low/high/max — so p/ o A/B de evals; extracao e judge ficam sempre disabled.",
+    )
     openrouter_model_vision_pix: str | None = None
     # STT do agente (06 §1.3) — volta ao OpenRouter. O plano antigo (Whisper direto da OpenAI)
     # nunca saiu do papel em prod: o compose jamais passou OPENAI_API_KEY, entao TODO audio de
@@ -105,22 +115,9 @@ class Settings(BaseSettings):
     # o compose passa `OPENROUTER_MODEL_AUDIO_TRANSCRIBE=${...}` e, sem a var no Env, o valor chega
     # VAZIO — um default aqui seria sobrescrito por "" e a chamada sairia sem modelo (400).
     openrouter_model_audio_transcribe: str | None = None
-    # Anthropic sobrevive APENAS para o LLM-judge dos evals (EVAL-02; api/evals/) e o preaquecimento
-    # dormente — os 3 caminhos de texto do agente ao vivo (chat/extracao/judge de AUP) sao DeepSeek-only.
-    anthropic_api_key: str | None = None
-    anthropic_modelo_principal: str = "claude-sonnet-4-6"
-    # Modelo do LLM-judge dos evals (EVAL-02). None -> usa o `anthropic_modelo_principal`, i.e. o
-    # MESMO modelo do agente sob teste -> vies de auto-concordancia (self-preference). Apontar p/
-    # um modelo diferente (ex. "claude-opus-4-8") mitiga: pesos distintos reduzem o vies. Cross-
-    # familia real (GPT/Gemini via OpenRouter) e o alvo final, exige wiring de provider -> P1.
-    anthropic_modelo_judge: str | None = None
-
-    # thinking/effort: parametros do ChatAnthropic (so os evals usam).
-    anthropic_thinking: Literal["enabled", "disabled"] = "disabled"
-    anthropic_effort: Literal["low", "medium", "high"] = "low"
-    # Teto de tokens da resposta — compartilhado por TODAS as factories de chat (DeepSeek e o
-    # Anthropic dos evals). Guard-rail (~1024): tom e tamanho vem da persona, nao deste limite.
-    anthropic_max_tokens: int = 1024
+    # Teto de tokens da resposta do chat (DeepSeek, unica factory). Guard-rail (~1024): tom e
+    # tamanho vem da persona, nao deste limite.
+    llm_max_tokens: int = 1024
 
     # Fonte unica do alvo de custo por turno (CUSTO-06). Antes o numero estava duplicado em
     # comentarios/help de core/metrics.py, agente/nos/llm.py e _custo.py; agora todos apontam
@@ -376,10 +373,6 @@ class Settings(BaseSettings):
         description="Percentual default da Taxa de cartão (ADR 0013), cobrado por cima do serviço no cartão. Isentável por atendimento; snapshot fica em atendimentos.taxa_cartao_snapshot.",
     )
 
-    langchain_tracing_v2: bool = False
-    langchain_api_key: str | None = None
-    langchain_project: str = "barra-vips-dev"
-
     # Langfuse self-hosted — tracing de PRODUÇÃO (ADR 0019; substituiu o LangSmith). Lido por
     # setup_langfuse; ausência das chaves = tracing langfuse off.
     langfuse_public_key: str | None = None
@@ -545,6 +538,64 @@ class Settings(BaseSettings):
     )
 
     sentry_dsn: str | None = None
+
+    # --- Canário de entrega fim-a-fim (workers/canario.py) ---------------------------------
+    # Sonda periódica que fecha o laço Barra → Evolution → WhatsApp → webhook → Barra. Desligado
+    # por default (JID + instância vazios): ligar manda mensagem REAL num WhatsApp real.
+    canario_jid: str = Field(
+        default="",
+        description=(
+            "Número/JID 1:1 de CONTROLE que recebe a sonda do canário de entrega (ex.: "
+            "`5519999999999@s.whatsapp.net` ou só os dígitos). Vazio = canário DESLIGADO. Precisa "
+            "ser um número de DEV, nunca cliente ou modelo: o canário manda uma linha inócua por "
+            "ciclo e o eco `fromMe` dela vira uma Conversa cliente inerte (direcao='modelo_manual', "
+            "sem atendimento, sem turno, sem crédito de LLM) — é justamente essa linha em "
+            "`barravips.mensagens` que prova que o WhatsApp entregou de verdade."
+        ),
+    )
+    canario_instance_id: str = Field(
+        default="",
+        description=(
+            "`modelos.evolution_instance_id` de onde a sonda do canário sai (a instância cuja "
+            "entrega se quer vigiar — a do piloto). Precisa estar CADASTRADA em `modelos`, senão o "
+            "webhook descarta o eco com `unknown_instance` e o canário acusa falha eterna. Vazio = "
+            "canário DESLIGADO."
+        ),
+    )
+    canario_intervalo_min: int = Field(
+        default=60,
+        ge=1,
+        le=60,
+        description=(
+            "Intervalo (min) entre sondas do canário; vira o set de minutos do cron ARQ "
+            "(`range(0, 60, N)`), então 60 = uma vez por hora em :00. Teto 60: o canário mede "
+            "apagão de dias, não soluço de rede — e cada ciclo é uma mensagem real."
+        ),
+    )
+    canario_prazo_eco_min: int = Field(
+        default=10,
+        ge=1,
+        description=(
+            "Prazo (min) para o eco `fromMe` da sonda voltar pelo webhook. Passou disso sem eco = "
+            "laço de entrega quebrado → métrica + log ERROR + Telegram. Mantenha bem abaixo do "
+            "`canario_intervalo_min` para o veredito de um ciclo fechar antes do próximo."
+        ),
+    )
+    canario_telegram_token: str = Field(
+        default="",
+        description=(
+            "Token do bot do Telegram que recebe o alerta do canário. É o canal FORA da Evolution: "
+            "o relay padrão de alerta entrega por WhatsApp via Evolution, então alerta sobre a "
+            "Evolution caída não se auto-entrega (apagão 24-27/07). Vazio = só métrica + log. "
+            "Segredo: vive no Env do stack, nunca no compose versionado."
+        ),
+    )
+    canario_telegram_chat_id: str = Field(
+        default="",
+        description=(
+            "chat_id do Telegram (DEV) que recebe o alerta do canário. Vazio = só métrica + log."
+        ),
+    )
 
     @model_validator(mode="after")
     def _validar_providers_llm(self) -> "Settings":

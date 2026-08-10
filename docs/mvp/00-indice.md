@@ -15,10 +15,8 @@ Cada arquivo cobre um domínio específico do plano. Carregue apenas os arquivos
 | [02-mvp-escopo.md](02-mvp-escopo.md) | Objetivos do MVP, princípios do produto, P0/P1, fora do escopo | Para decidir se algo entra no MVP ou não |
 | [03-modulos-sistema.md](03-modulos-sistema.md) | Central de Atendimentos, Agenda, IA de Atendimento, CRM, Mídia, Dashboard e IA Administrativa P1 | Para implementar qualquer módulo do sistema |
 | [04-fluxos-operacionais.md](04-fluxos-operacionais.md) | Fluxo geral, interno, externo (saída), agenda por áudio P1, perda por timeout, tipologia de cliente, mídia, máquina de estados | Para implementar lógica de conversa, agenda ou Pix |
-| [05-escalada-regras-ia.md](05-escalada-regras-ia.md) | Regras de escalada humana, handoff via grupo, regras gerais e bloqueios da IA | Para configurar a IA ou fluxo de handoff |
-| [06-dados-interfaces.md](06-dados-interfaces.md) | Entidades (Profissional, Cliente, Atendimento, Bloqueio) + telas | Para modelar banco e construir UI |
-| [07-stack-tecnica.md](07-stack-tecnica.md) | Stack escolhida (Python/FastAPI + LangGraph + Supabase/Postgres + MinIO + Next) | Para decisões de infraestrutura e hospedagem |
 
+> Escalada/handoff, modelagem de dados e stack **saíram deste plano**: a fonte de verdade passou a ser o código + `CONTEXT.md`, `docs/adr/`, `docs/agente/` (agente), `infra/sql/` (schema) e `infra/compose/` + `infra/runbooks/` (stack/infra).
 
 ## Definição em uma frase
 

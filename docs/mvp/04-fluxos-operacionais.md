@@ -1,6 +1,6 @@
 # 04 — Fluxos Operacionais
 
-Este documento descreve os fluxos de conversa, agenda e Pix do MVP. Não duplica modelagem de banco (`06-dados-interfaces.md`) nem regras de escalada/handoff em si (`05-escalada-regras-ia.md`); concentra a sequência operacional que a IA, o coordenador (5.2) e os humanos seguem em cada cenário.
+Este documento descreve os fluxos de conversa, agenda e Pix do MVP. Não duplica modelagem de banco (fonte de verdade: `infra/sql/`) nem regras de escalada/handoff em si (fonte de verdade: `CONTEXT.md` + `docs/adr/` + `api/src/barra/dominio/escaladas/`); concentra a sequência operacional que a IA, o coordenador (5.2) e os humanos seguem em cada cenário.
 
 ## 1. Fluxo geral de atendimento
 
@@ -8,7 +8,7 @@ Aplica-se a todo cliente que chega pelo Elite Baby, antes de o tipo de atendimen
 
 ### 1.1 Sequência canônica
 
-1. **Primeira mensagem do cliente** — Evolution dispara webhook → Coordenador (5.2) persiste mensagem bruta, aplica debounce (~3–5s) e adquire lock da conversa.
+1. **Primeira mensagem do cliente** — Evolution dispara webhook → Coordenador (5.2) persiste mensagem bruta, aplica debounce (**180s**, `webhook/despacho.py:defer_s`) e adquire lock da conversa.
 2. **Resolução determinística** — Coordenador identifica `cliente_id` por telefone; reusa atendimento aberto para `(cliente_id, modelo_id)` se houver um em estado ∉ {`Fechado`, `Perdido`}, senão cria novo em `Novo`.
 3. **Triagem pela IA** — IA de Atendimento (5.3) chama `consultar_cliente`, `consultar_agenda` e demais tools de leitura conforme necessário; resposta segue para Humanização (5.5).
 4. **Identificação de intenção** — IA classifica intenção (curiosidade/cotação/agendamento) e tipo de atendimento (interno ou externo). Quando o sinal é ambíguo, a IA pergunta naturalmente (sem pergunta de triagem rígida).
@@ -20,7 +20,7 @@ Aplica-se a todo cliente que chega pelo Elite Baby, antes de o tipo de atendimen
 
 ### 1.2 Princípios do fluxo geral
 
-- A IA conduz sozinha até a confirmação ou até bater num gatilho de escalada de `05-escalada-regras-ia.md`.
+- A IA conduz sozinha até a confirmação ou até bater num gatilho de escalada (ver **Handoff** no `CONTEXT.md`).
 - Toda transição de estado é registrada com `fonte_decisao` (extração da IA, evento de pipeline, comando humano ou timeout determinístico).
 - `ia_pausada=true` só é ativada por `escalar` da IA ou por `pix_em_revisao` do pipeline; mensagens entrantes durante pausa são gravadas em 5.1 sem indicador no painel.
 - Avaliação de local de saída é responsabilidade da modelo e de Fernando, fora do escopo da IA.
@@ -291,7 +291,7 @@ P1 introduz `classificador_p1` para transições inferidas por LLM (`03 §5.7`) 
 
 ### 9.2 Audit log
 
-Cada transição relevante gera entrada na tabela `eventos` (ver `06-dados-interfaces.md` e `07 §2.2`). Checkpointer LangGraph não substitui este log — é registro humano-legível separado.
+Cada transição relevante gera entrada na tabela `eventos` (DDL em `infra/sql/`). Checkpointer LangGraph não substitui este log — é registro humano-legível separado.
 
 ### 9.3 Mensagens durante `ia_pausada=true`
 

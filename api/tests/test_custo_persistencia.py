@@ -27,7 +27,7 @@ from barra.agente._custo import calcular_custo_brl, custo_chat_turno_brl
 from barra.workers.coordenador import acumular_custo_atendimento
 
 COTACAO = 5.50
-# input_tokens e o TOTAL do langchain-anthropic (fresco 1000 + read 5000 + write 300 = 6300).
+# input_tokens e o TOTAL do wrapper langchain (fresco 1000 + read 5000 + write 300 = 6300).
 _USAGE = {
     "input_tokens": 6300,
     "output_tokens": 200,
@@ -56,28 +56,21 @@ def test_turno_sem_usage_da_zero() -> None:
     assert custo_chat_turno_brl([], COTACAO) == 0.0
 
 
-def test_extracao_haiku_precificada_pela_tabela_haiku() -> None:
-    # Bug C: a AIMessage da extracao forcada roda em Haiku; custo_chat_turno_brl le o
-    # response_metadata.model_name e cobra pela tabela Haiku ($1/$5), nao a do Sonnet ($3/$15).
-    haiku = SimpleNamespace(
+def test_model_name_le_response_metadata_da_mensagem() -> None:
+    # custo_chat_turno_brl le o response_metadata.model_name de cada AIMessage p/ precificar cada
+    # chamada do turno pela tabela do SEU modelo. Hoje ha um provider so (DeepSeek), entao a tabela
+    # e a mesma — o que este teste pina e o CAMINHO (a leitura do model_name), nao a divergencia.
+    msg = SimpleNamespace(
         usage_metadata=_USAGE,
-        response_metadata={"model_name": "claude-haiku-4-5-20251001"},
+        response_metadata={"model_name": "deepseek-v4-flash"},
     )
-    sonnet = SimpleNamespace(
-        usage_metadata=_USAGE,
-        response_metadata={"model_name": "claude-sonnet-4-6"},
+    assert custo_chat_turno_brl([msg], COTACAO) == pytest.approx(
+        calcular_custo_brl(_USAGE, COTACAO, model_name="deepseek-v4-flash")
     )
-    custo_haiku = custo_chat_turno_brl([haiku], COTACAO)
-    custo_sonnet = custo_chat_turno_brl([sonnet], COTACAO)
-    # casa com o calculo direto pela tabela Haiku e fica abaixo do mesmo turno cobrado como Sonnet.
-    assert custo_haiku == pytest.approx(
-        calcular_custo_brl(_USAGE, COTACAO, model_name="claude-haiku-4-5-20251001")
-    )
-    assert 0 < custo_haiku < custo_sonnet
 
 
-def test_model_name_ausente_cai_em_sonnet() -> None:
-    # Sem response_metadata (fallback seguro), cobra como Sonnet — o chat principal.
+def test_model_name_ausente_cai_na_tabela_default() -> None:
+    # Sem response_metadata (fallback seguro), cobra pela tabela default (o unico provider).
     sem_meta = SimpleNamespace(usage_metadata=_USAGE)
     assert custo_chat_turno_brl([sem_meta], COTACAO) == pytest.approx(
         calcular_custo_brl(_USAGE, COTACAO)

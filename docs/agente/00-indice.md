@@ -18,8 +18,6 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 | [05-humanizacao.md](05-humanizacao.md) | Chunking, jitter/typing, dedupe, cancel-on-new-message, ordem texto/mídia, persistência saída | Implementando `agente/humanizacao.py` ou `workers/envio.py` |
 | [06-pipelines-midia.md](06-pipelines-midia.md) | Transcrição de áudio, OCR/vision para Pix, comportamento de imagem fora-fluxo | Implementando `workers/media.py` ou `workers/pix.py` |
 | [07-coordenador.md](07-coordenador.md) | Webhook → debounce → lock → resolução → invocação grafo → dispatch; cron de timeouts | Implementando `webhook/despacho.py`, `webhook/debounce.py`, `workers/timeouts.py` |
-| [08-evals.md](08-evals.md) | LangSmith datasets, cenários canônicos, métricas Prometheus, gate de pronto-pra-piloto | Escrevendo testes ou evals em `evals/` |
-| [08b-evals-pesquisa-producao.md](08b-evals-pesquisa-producao.md) | Pesquisa fact-checada de evals de produção (plano de cutover) | Planejando o cutover de evals |
 | [10-corpus-real-vendedor.md](10-corpus-real-vendedor.md) | Taxonomia de jogadas de venda **minerada e validada** do corpus real (71k msgs, eb01–04); frequência por modelo (validade convergente), anti-padrões quantificados + decisões de produto, candidato→veículo (regra/few-shot/FAQ); §11 motivo de perda, **§12 micro-cotação** (calor é a única alavanca; urgência colada prejudica), **§13 reengajamento** (40% revive; gap curto + pergunta leve vencem; tensões com a política do CONTEXT) | Antes de (re)escrever `prompts/persona.md`, `regras.md.j2`, `faq.md` a partir do comportamento real |
 | [10b-corpus-fewshots.md](10b-corpus-fewshots.md) | Banco de **few-shots reais** do Vendedor por jogada (35 exemplos abstraídos p/ o prompt compartilhado), calibrado por §12/§13, com veículo (persona/regra/faq) e itens ⚠ que dependem do Fernando | Ao escrever os blocos de few-shot de `prompts/*` — rodar `/domain-isolation-reviewer` no diff real |
 | [11-medicao-offline-flywheel.md](11-medicao-offline-flywheel.md) | **Conclusão do loop de medição offline** (12–13/06): prompt v1 escrito → eval set (`corpus.eval_*`) → v1 pontuado vs hold-out eb04. Achados: cotação não prediz conversão (κ≈0.07); **v1 já limpo do empurrão** (0.3% vs 26%); **reengajamento canned já ótimo** (gap/pergunta_leve validados, mídia-fria refutada). **GEPA sem alvo offline → próxima fronteira = A/B ao vivo** | Decidindo o próximo passo do agente (GEPA/A/B) ou reusando a eval suite p/ pontuar um prompt candidato |
@@ -30,10 +28,9 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 - **Modelo principal (chat):** `deepseek-v4-flash` (`settings.deepseek_model_chat`; aliases legados `deepseek-chat`/`deepseek-reasoner` aposentam 2026-07-24). **Sem modelo de fallback:** na exaustão/timeout o turno escala para Fernando via `escalar_por_exaustao` (`01 §2.6`).
 - **Modelo vision (Pix):** via **OpenRouter** (`llm_vision_provider="openrouter"`; cliente OpenAI-compatível + `response_format` json_schema, validação `ExtracaoPix` Pydantic manual — decisão grilling 2026-05-23, `06 §2.3`). DeepSeek não faz imagem.
 - **Modelo transcrição:** `whisper-1` direto na **OpenAI API** (DeepSeek não transcreve áudio), contido em `workers/media.py`.
-- **Anthropic (dormante):** `langchain-anthropic.ChatAnthropic` sobre `anthropic` **0.97** sobrevive só para o **LLM-judge dos evals** (`api/evals/`) e o preaquecimento de cache `cache_control` (`settings.cache_control_anthropic`, default off) — não serve o agente ao vivo.
 - **Orquestrador:** LangGraph **1.1.10** com **StateGraph custom** (decisão `01 §2.1` — `create_react_agent` foi deprecado na v1.0; rodamos v1.x). **Sem checkpointer no P0** — estado efêmero por turno, prompt montado do zero a partir do Postgres (decisão `02 §3`).
 - **Worker de turno:** ARQ + Redis (lock de conversa, dedupe, cancel-on-new-message).
-- **Tracing:** LangSmith desde o primeiro turno; metas em `08-evals.md §3`.
+- **Tracing:** **Langfuse self-hosted** (ADR 0019, `core/tracing.py:setup_langfuse`) — o LangSmith foi retirado.
 
 ## Decisões-chave (índice rápido)
 
@@ -73,7 +70,6 @@ Cada arquivo cobre **uma fronteira clara** do agente. Carregue apenas os arquivo
 | Pix vision via **OpenRouter** (json_schema + Pydantic manual; `messages.parse()` Anthropic-native preterido por **escolha de provider**, não limitação — segue válido na GA) | `06 §2.3` |
 | Lock Redis TTL 60s + heartbeat do worker (15s) | `07 §3.2` |
 | Cron timeouts a cada 5min | `07 §4` |
-| LangSmith datasets como eval primário | `08 §1` |
 | **Desconto de fechamento** até `desconto_max_pct` (one-shot no piso; reativo+proativo); guarda no código; reverte "IA não negocia" | `01 §6.11`, ADR-0004 |
 | **Reengajamento** proativo (1 toque ~30min pós-cotação, canned, sem desconto) via cron; P0 atrás de flag `reengajamento_ativo` | `01 §6.12`, `07 §4.5` |
 | **Mídia exclusiva** (foto→vídeo + narrativa "ao vivo"); view-once condicional ao suporte da Evolution (pré-req) | `01 §6.13`, `05 §5` |

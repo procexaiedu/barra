@@ -1,4 +1,4 @@
-"""TOOLS-02: 5xx/timeout persistente da API do LLM (Anthropic) vira escalada propria.
+"""TOOLS-02: 5xx/timeout persistente da API do LLM (SDK openai/DeepSeek) vira escalada propria.
 
 Cobre o DoD: um erro persistente da API do LLM durante `graph.ainvoke` no `processar_turno`
 escala como `motivo="modelo_indisponivel"` (em vez de cair no `except Exception` generico que
@@ -15,7 +15,7 @@ from uuid import UUID
 
 import httpx
 import pytest
-from anthropic import APIStatusError, APITimeoutError, RateLimitError
+from openai import APIStatusError, APITimeoutError, RateLimitError
 
 from barra.dominio.escaladas.modelos import TipoEscalada
 from barra.workers.coordenador import escalar_por_exaustao, processar_turno

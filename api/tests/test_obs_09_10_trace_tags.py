@@ -64,24 +64,6 @@ def test_gen_ai_conversation_id_e_o_atendimento() -> None:
     assert frag["metadata"][tracing._GEN_AI_CONVERSATION_ID] != _MODELO_ID
 
 
-def test_ids_sobrevivem_ao_anonymizer_sec10() -> None:
-    """Allowlist por chave: o backstop _VALOR_PII casaria um UUID cujo grupo final de 12 hex é
-    todo-dígito (~0.9%, e os UUIDs deste teste caem nesse caso) — sem a isenção, o discriminador
-    do trace iria mascarado ao LangSmith. Sob as chaves de ID o valor passa intacto.
-    """
-    # sanity: estes UUIDs disparam o backstop genérico (grupo final só de dígitos)
-    assert tracing._VALOR_PII.search(_MODELO_ID)
-    assert tracing._VALOR_PII.search(_ATENDIMENTO_ID)
-    assert tracing._VALOR_PII.search(_CLIENTE_ID)
-
-    for chave in ("modelo_id", "atendimento_id", "cliente_id", tracing._GEN_AI_CONVERSATION_ID):
-        assert tracing._mascarar(_MODELO_ID, [chave]) == _MODELO_ID
-        assert tracing._mascarar(_ATENDIMENTO_ID, [chave]) == _ATENDIMENTO_ID
-    assert tracing._mascarar(_CLIENTE_ID, ["cliente_id"]) == _CLIENTE_ID
-    # a isenção é por chave: o mesmo valor sob chave de PII continua mascarado
-    assert tracing._mascarar(_MODELO_ID, ["telefone"]) == tracing._MASCARA
-
-
 def test_fragmento_e_so_config_level_nao_toca_prefixo_cacheado() -> None:
     """Invariante de cache: o fragmento só contribui com metadata/tags (nível de config).
 

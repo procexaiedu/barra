@@ -1,7 +1,7 @@
 """Aceite: custo BRL por turno (docs/agente/03 §4.2; meta <=0.12 BRL/turno).
 
 Cobre:
-- calcular_custo_brl: funcao pura, le usage_metadata, aplica tabela Sonnet 4.6 + cotacao.
+- calcular_custo_brl: funcao pura, le usage_metadata, aplica a tabela DeepSeek + cotacao.
 - Robustez: usage_metadata=None retorna 0 (defesa, igual _instrumentar_tokens).
 - Integracao: o no llm observa o Histogram AGENTE_CUSTO_TURNO_BRL ao processar a AIMessage.
 """
@@ -16,7 +16,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from prometheus_client import REGISTRY
 
 from barra.agente._custo import (
-    PRECO_USD_PER_MTOK,
+    PRECO_DEEPSEEK_USD_PER_MTOK,
     cache_read_deepseek,
     calcular_custo_brl,
     input_nao_cacheado,
@@ -27,10 +27,10 @@ from barra.agente.nos.llm import no_llm
 COTACAO = 5.50
 
 
-def test_calcular_custo_brl_combina_4_componentes() -> None:
-    # input fresco=1k, output=500, cache_read=10k, cache_write_1h=2k. langchain-anthropic reporta
+def test_calcular_custo_brl_combina_os_componentes() -> None:
+    # input fresco=1k, output=500, cache_read=10k, write=2k. O wrapper langchain reporta
     # input_tokens como o TOTAL (fresco + read + write) = 13k; o custo desconta read/write e cobra
-    # so 1k a preco cheio. USD = 1k*3/1M + 500*15/1M + 10k*0.3/1M + 2k*6/1M = 0.0255. BRL = *5.5.
+    # so 1k a preco cheio. O DeepSeek NAO tarifa escrita de cache -> a parcela de write fica 0.
     um: dict[str, Any] = {
         "input_tokens": 13_000,
         "output_tokens": 500,
@@ -42,35 +42,31 @@ def test_calcular_custo_brl_combina_4_componentes() -> None:
     }
     custo = calcular_custo_brl(um, COTACAO)
     esperado_usd = (
-        1000 * PRECO_USD_PER_MTOK["input"]
-        + 500 * PRECO_USD_PER_MTOK["output"]
-        + 10_000 * PRECO_USD_PER_MTOK["cache_read"]
-        + 2000 * PRECO_USD_PER_MTOK["cache_write_1h"]
+        1000 * PRECO_DEEPSEEK_USD_PER_MTOK["input"]
+        + 500 * PRECO_DEEPSEEK_USD_PER_MTOK["output"]
+        + 10_000 * PRECO_DEEPSEEK_USD_PER_MTOK["cache_read"]
     ) / 1_000_000
     assert custo == pytest.approx(esperado_usd * COTACAO)
 
 
-def test_calcular_custo_brl_deepseek_tabela_2_chaves_sem_keyerror() -> None:
-    # Chat #1 em OpenRouter/DeepSeek: a tabela do slug é só input/output (cache automático no
-    # provider, não tarifado por nós). calcular_custo_brl não pode estourar KeyError ao acessar as
-    # chaves de cache — `.get(..., 0.0)` zera a parcela. Mesmo com cache_read no usage (langchain-
-    # openai pode reportar), a tarifa de cache fica 0 → custo = só input/output frescos.
+def test_calcular_custo_brl_sem_tarifa_de_write_nao_estoura_keyerror() -> None:
+    # A tabela do DeepSeek é só input/output/cache_read (o provider não cobra ESCRITA de cache).
+    # calcular_custo_brl não pode estourar KeyError ao acessar as chaves de write — `.get(..., 0.0)`
+    # zera a parcela. Modelo desconhecido cai na mesma tabela (default: um provider só).
     um: dict[str, Any] = {
         "input_tokens": 4600,  # total = 100 fresco + 4000 read + 500 write
         "output_tokens": 50,
         "input_token_details": {"cache_read": 4000, "ephemeral_1h_input_tokens": 500},
     }
-    custo = calcular_custo_brl(um, COTACAO, model_name="deepseek/deepseek-v4-flash")
-    esperado_usd = (100 * 0.09 + 50 * 0.18) / 1_000_000  # cache_read/write a 0.0
+    custo = calcular_custo_brl(um, COTACAO, model_name="modelo-desconhecido")
+    esperado_usd = (100 * 0.14 + 50 * 0.28 + 4000 * 0.0028) / 1_000_000  # write a 0.0
     assert custo == pytest.approx(esperado_usd * COTACAO)
 
 
 def test_calcular_custo_brl_deepseek_direct_usa_tabela_com_cache() -> None:
-    # Regressao: o DeepSeek-direct (api.deepseek.com) reporta `model_name="deepseek-v4-flash"` SEM
-    # prefixo de provider — antes do fix isso nao casava a key OpenRouter "deepseek/..." e caia na
-    # tabela Sonnet ($3/$15), inflando o custo ~30x. Agora o match por substring "deepseek" usa a
-    # tarifa direta (input $0.14, output $0.28, cache_read $0.0028): input fresco=943, cache_read=
-    # 11008, output=24 — o mesmo turno real do trace 33f01d3a (92% cache hit).
+    # O DeepSeek-direct (api.deepseek.com) reporta `model_name="deepseek-v4-flash"` e e tarifado a
+    # input $0.14, output $0.28, cache_read $0.0028: input fresco=943, cache_read=11008, output=24 —
+    # o mesmo turno real do trace 33f01d3a (92% cache hit), ~R$0,001.
     um: dict[str, Any] = {
         "input_tokens": 11_951,  # total = 943 fresco + 11008 read
         "output_tokens": 24,
@@ -79,8 +75,8 @@ def test_calcular_custo_brl_deepseek_direct_usa_tabela_com_cache() -> None:
     custo = calcular_custo_brl(um, COTACAO, model_name="deepseek-v4-flash")
     esperado_usd = (943 * 0.14 + 24 * 0.28 + 11_008 * 0.0028) / 1_000_000
     assert custo == pytest.approx(esperado_usd * COTACAO)
-    # e a um custo irrisorio (~R$0.001), nao a fantasia de Sonnet que o bug produzia.
-    assert calcular_custo_brl(um, COTACAO) > custo * 20  # default Sonnet >> DeepSeek direto
+    # sem model_name cai no MESMO default (um provider so) -> mesmo custo.
+    assert calcular_custo_brl(um, COTACAO) == pytest.approx(custo)
 
 
 def test_cache_read_deepseek_extrai_hit_do_token_usage() -> None:
@@ -90,8 +86,8 @@ def test_cache_read_deepseek_extrai_hit_do_token_usage() -> None:
     assert cache_read_deepseek(rm) == 11_008
 
 
-def test_cache_read_deepseek_ausente_ou_anthropic_retorna_zero() -> None:
-    # Anthropic/OpenRouter nao tem essa chave -> 0 (no-op). None/sem token_usage -> 0.
+def test_cache_read_deepseek_ausente_retorna_zero() -> None:
+    # Provider sem essa chave -> 0 (no-op). None/sem token_usage -> 0.
     assert cache_read_deepseek(None) == 0
     assert cache_read_deepseek({}) == 0
     assert cache_read_deepseek({"token_usage": {"prompt_tokens": 100}}) == 0
@@ -119,13 +115,13 @@ def test_custo_brl_com_cache_reinjetado_bate_o_direct() -> None:
 
 def test_calcular_custo_brl_so_cache_read_quase_zero() -> None:
     # Turno todo lendo do cache (steady state ideal): input_tokens (total) == cache_read, fresco=0.
-    # Paga so 0.1x p/ os 5k cacheados: 5k*0.3/1M = 0.0015 USD = ~0.008 BRL. Bem abaixo da meta 0.12.
+    # Paga so a tarifa de cache-hit p/ os 5k cacheados (50x mais barata que o miss) — irrisorio.
     um: dict[str, Any] = {
         "input_tokens": 5000,
         "output_tokens": 0,
         "input_token_details": {"cache_read": 5000},
     }
-    assert calcular_custo_brl(um, COTACAO) == pytest.approx(5000 * 0.30 / 1_000_000 * COTACAO)
+    assert calcular_custo_brl(um, COTACAO) == pytest.approx(5000 * 0.0028 / 1_000_000 * COTACAO)
 
 
 def test_input_nao_cacheado_desconta_read_e_write() -> None:
@@ -139,18 +135,17 @@ def test_input_nao_cacheado_desconta_read_e_write() -> None:
 
 def test_calcular_custo_brl_turno_quente_nao_dobra_o_cache() -> None:
     # Regressao do bug de medicao 5x: turno quente real (Langfuse). O prefixo cacheado (16855 read)
-    # NAO pode ser cobrado a preco de input cheio. input_tokens = 331+16855+457 = 17643 (total).
-    # USD correto = 331*3/1M + 2*15/1M + 16855*0.3/1M + 457*3.75/1M ≈ 0.00779.
+    # NAO pode ser cobrado a preco de input cheio. input_tokens = 331+16855+457 = 17643 (total);
+    # o write nao e tarifado pelo DeepSeek, entao so entram fresco + output + cache_read.
     um: dict[str, Any] = {
         "input_tokens": 17_643,
         "output_tokens": 2,
         "input_token_details": {"cache_read": 16_855, "ephemeral_5m_input_tokens": 457},
     }
     esperado_usd = (
-        331 * PRECO_USD_PER_MTOK["input"]
-        + 2 * PRECO_USD_PER_MTOK["output"]
-        + 16_855 * PRECO_USD_PER_MTOK["cache_read"]
-        + 457 * PRECO_USD_PER_MTOK["cache_write_5m"]
+        331 * PRECO_DEEPSEEK_USD_PER_MTOK["input"]
+        + 2 * PRECO_DEEPSEEK_USD_PER_MTOK["output"]
+        + 16_855 * PRECO_DEEPSEEK_USD_PER_MTOK["cache_read"]
     ) / 1_000_000
     assert calcular_custo_brl(um, COTACAO) == pytest.approx(esperado_usd * COTACAO)
     # Sanidade: bem abaixo do que daria a contagem dobrada (input_tokens cru a 3/1M ~ 5x).
@@ -166,7 +161,7 @@ def test_calcular_custo_brl_sem_detalhes_usa_so_input_output() -> None:
     # input_token_details ausente: cai pra contagem nua (sem cache).
     um: dict[str, Any] = {"input_tokens": 100, "output_tokens": 50}
     esperado_usd = (
-        100 * PRECO_USD_PER_MTOK["input"] + 50 * PRECO_USD_PER_MTOK["output"]
+        100 * PRECO_DEEPSEEK_USD_PER_MTOK["input"] + 50 * PRECO_DEEPSEEK_USD_PER_MTOK["output"]
     ) / 1_000_000
     assert calcular_custo_brl(um, COTACAO) == pytest.approx(esperado_usd * COTACAO)
 
@@ -204,10 +199,10 @@ def _runtime() -> FakeRuntime:
 
 
 def test_no_llm_observa_custo_brl_no_histogram() -> None:
-    # Label `modelo` (nome Anthropic) com nonce p/ isolar a serie do teste. Pos-turno: o
+    # Label `modelo` (nome do modelo) com nonce p/ isolar a serie do teste. Pos-turno: o
     # Histogram tem >= 1 sample no bucket "+Inf" (count cresce); o sample _sum cresce do que
     # observamos. Comparacao por delta (antes vs depois) p/ nao depender do estado global.
-    modelo = f"test-sonnet-{uuid4().hex}"
+    modelo = f"test-deepseek-{uuid4().hex}"
     um = {
         "input_tokens": 4600,  # total langchain = 100 fresco + 4000 read + 500 write
         "output_tokens": 50,

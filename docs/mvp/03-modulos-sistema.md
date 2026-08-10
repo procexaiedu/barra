@@ -140,7 +140,7 @@ Centralizar os ciclos comerciais em andamento e permitir operação assistida.
 - exibir cliente, canal, modelo de interesse e tipo de atendimento;
 - exibir urgência: `imediato`, `agendado`, `indefinido` ou `estimado`;
 - exibir motivo de escalada, motivo de perda e resumo operacional;
-- permitir registro de fechado/perdido conforme as regras canônicas de comando e correção definidas em `05-escalada-regras-ia.md`;
+- permitir registro de fechado/perdido conforme as regras canônicas de comando e correção (implementadas em `api/src/barra/webhook/` — comandos de grupo — e `dominio/escaladas/`);
 - oferecer botão `Devolver para IA` para atendimentos em handoff que podem retornar à condução automática da IA.
 
 #### Não é responsabilidade
@@ -377,7 +377,7 @@ Receber eventos do Evolution, gerenciar o ciclo de processamento de cada mensage
 
 - expor o endpoint HTTP que recebe webhook do Evolution e validar payload;
 - invocar 5.1 para persistir a mensagem bruta;
-- aplicar **debounce de entrada** (~3–5s, configurável): aguarda novas mensagens picotadas do cliente antes de disparar turno; se chegar nova, reinicia janela;
+- aplicar **debounce de entrada** (**180s**, `webhook/despacho.py:defer_s`): aguarda novas mensagens picotadas do cliente antes de disparar turno; se chegar nova, reinicia janela;
 - adquirir lock de conversa (`lock:conv:{conversa_id}`, Redis SETNX, TTL 15s); mensagens entrantes durante lock vão para `pending:conv:{conversa_id}`;
 - identificar cliente, conversa e atendimento de forma **determinística**: reusa atendimento aberto para `(cliente_id, modelo_id)` cujo estado ∉ {`Fechado`, `Perdido`}; senão cria novo em `Novo`. Sem LLM nesta etapa;
 - vincular mensagem persistida ao `atendimento_id` resolvido;
@@ -408,26 +408,19 @@ Conduzir o atendimento previsível dentro da persona autorizada, como agente ReA
 
 #### Arquitetura
 
-Agente **ReAct single-thread** com tools, implementado em LangGraph 0.4 sobre Anthropic Claude. O agente alterna iterações de raciocínio (LLM call) e ação (tool call) até decidir responder. Single-agent no P0; supervisor + sub-agentes ficam como porta aberta P1, sem mudança na interface 5.2 ↔ 5.3.
+Agente **ReAct single-thread** com tools, implementado em LangGraph sobre DeepSeek V4 Flash direto. O agente alterna iterações de raciocínio (LLM call) e ação (tool call) até decidir responder. Single-agent no P0; supervisor + sub-agentes ficam como porta aberta P1, sem mudança na interface 5.2 ↔ 5.3.
 
 #### Catálogo de tools (P0)
 
-**Leitura (sem efeito colateral):**
+O catálogo planejado aqui era de 9 tools; o que ficou é **3** — fonte de verdade: a constante `TOOLS` em `api/src/barra/agente/ferramentas/__init__.py`. As demais colapsaram no prompt (dado do cliente, Pix e FAQ chegam no contexto dinâmico / BP_GERAL, sem round-trip de tool) ou viraram trilho determinístico.
 
-- `consultar_agenda(data_inicio, data_fim)` — bloqueios + janelas livres da modelo;
-- `consultar_cliente(telefone)` — dados do par (cliente, modelo) atual no CRM (novo/recorrente nesta conversa, observações desta conversa, último motivo de perda do cliente com esta modelo); IA não acessa histórico de outras modelos (`04 §4.1`);
-- `consultar_faq(query)` — busca na FAQ da modelo;
-- `consultar_pix_status(atendimento_id)` — estado atual do Pix do atendimento corrente;
-- `consultar_midia(tag)` — lista mídias pré-aprovadas para a tag.
+- `consultar_agenda(...)` — leitura: bloqueios + janelas livres da modelo;
+- `enviar_midia(...)` — anexa mídia pré-aprovada à resposta do turno corrente; pode ser chamada múltiplas vezes;
+- `escalar(responsavel, motivo, resumo_operacional, acao_esperada)` — única porta de handoff; envia card no grupo de Coordenação por modelo e ativa `ia_pausada=true`. `responsavel ∈ {Fernando, modelo}`; canal e efeito de pausa são os mesmos.
 
-**Escrita / efeito operacional:**
+Fora de `TOOLS`, a **extração forçada** (`registrar_extracao`) é um nó próprio do grafo (`agente/nos/extrair.py`), não uma tool que o chat escolhe chamar: ela roda uma vez por turno, sempre, depois da fala.
 
-- `registrar_extracao(intencao, urgencia, tipo_atendimento, motivo_perda_candidato?, valor_sinalizado?, proxima_acao_esperada)` — uma vez por turno;
-- `pedir_pix_deslocamento(valor, chave_pix, titular)` — solicita Pix; coordenador atualiza `pix_status=aguardando` e atendimento → `Aguardando_confirmacao`;
-- `escalar(responsavel, motivo, resumo_operacional, acao_esperada)` — única porta de handoff; envia card no grupo de Coordenação por modelo e ativa `ia_pausada=true`. `responsavel ∈ {Fernando, modelo}`; canal e efeito de pausa são os mesmos;
-- `enviar_midia(midia_id, legenda?)` — anexa mídia pré-aprovada à resposta do turno corrente; pode ser chamada múltiplas vezes.
-
-Tools são **funções síncronas** no processo do coordenador. Tools de escrita são idempotentes via `turno_id`.
+Tools de escrita são idempotentes via `turno_id`.
 
 #### Saída do turno
 
@@ -438,7 +431,7 @@ Tools são **funções síncronas** no processo do coordenador. Tools de escrita
 #### Limites e checkpoint
 
 - Teto de **10 iterações** por turno. Critério de fim: (a) text content sem nova tool call, (b) `escalar` (turno aborta), (c) exaustão (escala automaticamente, sem mensagem ao cliente);
-- `AsyncPostgresSaver` grava checkpoint **ao fim de cada turno completo**; iterações intermediárias ficam apenas no LangSmith.
+- **Sem checkpointer no P0** (o grafo compila sem `checkpointer=`; `AsyncPostgresSaver` fica reservado p/ o P1): o estado vive no Postgres (`mensagens`/`eventos`) e o prompt é remontado do zero a cada turno. Observabilidade das iterações: **Langfuse self-hosted** (ADR 0019).
 
 #### System prompt
 
@@ -504,7 +497,7 @@ Nenhum outro módulo escreve diretamente em `ia_pausada`, estado de atendimento,
 
 Comando inválido (campo faltando, taxonomia errada, `#N` ambíguo) responde com erro curto no canal de origem e **não altera estado**.
 
-Sintaxe canônica do grupo (parser interno): `IA assume [#N]`, `finalizado [valor] [#N]`, `fechado [valor] #N`, `perdido [motivo] [obs?] #N`. Sem `#N` exige ser quote ao card. Detalhamento e exemplos em `05-escalada-regras-ia.md`.
+Sintaxe canônica do grupo (parser interno): `IA assume [#N]`, `finalizado [valor] [#N]`, `fechado [valor] #N`, `perdido [motivo] [obs?] #N`. Sem `#N` exige ser quote ao card. A gramática viva é o parser em `api/src/barra/webhook/`.
 
 #### Cards e confirmações no grupo
 
