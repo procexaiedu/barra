@@ -23,7 +23,6 @@ from typing import Any
 from uuid import UUID, uuid5
 
 import structlog
-from anthropic import APIStatusError, APITimeoutError, RateLimitError
 from langchain_core.messages import AIMessage
 from langfuse import Langfuse, get_client
 from langgraph.errors import GraphRecursionError
@@ -100,7 +99,19 @@ _DESCRICAO_EXAUSTAO: dict[str, str] = {
     ),
     "modelo_recusou": "o LLM recusou a geracao (safety filter do provider)",
     "modelo_truncado": "a resposta do LLM truncou (max_tokens/janela de contexto) com tool_use incompleto",
+    "erro_interno": "quebrou com uma excecao nao prevista no meio do turno (bug, nao falha de provider)",
 }
+
+# Janela NAO respondida da conversa: mensagens do cliente com `created_at` DEPOIS da ultima bolha
+# da IA. Predicado unico, usado em dois lugares — o read receipt/quote do passo 7 (QUAIS sao) e o
+# fallback do gate de pendencia (EXISTE alguma?). Por construcao ele ja e o anti-double-texting:
+# se a IA falou por ultimo, o resultado e vazio.
+_WHERE_INBOUND_NAO_RESPONDIDO = """
+     WHERE conversa_id = %s AND direcao = 'cliente'
+       AND created_at > COALESCE(
+             (SELECT max(created_at) FROM barravips.mensagens
+               WHERE conversa_id = %s AND direcao = 'ia'), 'epoch')
+"""
 
 
 def _formatar_bolha_pix(chave: str, titular: str | None, valor: Any) -> str:
@@ -234,14 +245,23 @@ async def processar_turno(
     # foi setado por enfileirar_turno, entao ao re-disparar o turno le a janela inteira.
     try:
         async with adquirir_lock(redis, f"lock:conv:{conversa_id}", ttl=60, heartbeat_interval=15):
-            # Gate de pendencia: sem `pending:conv` nao ha mensagem nova — outro job ja consumiu
-            # a janela (ex.: o de varredura, ver webhook/despacho.py). Rodar o grafo mesmo assim
-            # geraria double-texting: a janela termina na propria fala da IA e o LLM emendaria
-            # outra bolha. So no 1o loop; nos seguintes o passo 8 ja exige pending cheio.
+            # Gate de pendencia: sem `pending:conv` a hipotese e que outro job ja consumiu a
+            # janela (ex.: o de varredura, ver webhook/despacho.py) — rodar o grafo mesmo assim
+            # geraria double-texting: a janela terminaria na propria fala da IA e o LLM emendaria
+            # outra bolha. Mas o Redis e so COALESCING, nao fonte de verdade do "ha trabalho": o
+            # proprio turno apaga o `pending` ANTES de processar, entao toda retomada com ele ja
+            # limpo (retry pos-crash — o ARQ so retenta `Retry` explicito, mas o shutdown do
+            # worker re-enfileira —, varredura, TTL expirado) caia aqui e devolvia o cliente ao
+            # vacuo. Quem responde "ha trabalho?" e o BANCO. So no 1o loop; nos seguintes o passo
+            # 8 ja exige pending cheio.
             if not await redis.get(f"pending:conv:{conversa_id}"):
-                logger.info("turno_sem_pendencia conversa_id=%s", conversa_id)
-                AGENTE_TURNO_RESULTADO.labels("sem_pendencia").inc()
-                return
+                if not await _fallback_tem_trabalho(pool, redis, ctx, conv_uuid, conversa_id):
+                    logger.info("turno_sem_pendencia conversa_id=%s", conversa_id)
+                    AGENTE_TURNO_RESULTADO.labels("sem_pendencia").inc()
+                    return
+                logger.warning(
+                    "turno_recuperado_sem_pendencia conversa_id=%s", conversa_id
+                )  # inbound orfao: o Redis perdeu a janela, o banco a devolveu
             for loop_idx in range(MAX_DRAIN):  # DRAIN LOOP BOUNDED (01 §4.3)
                 # `ctx['score']` (timestamp ms do enqueue) e estavel no retry do MESMO job
                 # (preserva dedupe de envio) e UNICO entre turnos distintos (cada webhook
@@ -419,17 +439,13 @@ async def processar_turno(
                     AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
                     break
                 except (
-                    RateLimitError,
-                    APITimeoutError,
-                    APIStatusError,
                     OpenAIRateLimitError,
                     OpenAIAPITimeoutError,
                     OpenAIAPIStatusError,
                 ):
-                    # 5xx/timeout persistente da API do LLM (Anthropic OU DeepSeek/OpenRouter) — falha
-                    # de plataforma, nao bug do grafo. Os dois SDKs levantam tipos homonimos em modulos
-                    # distintos (anthropic vs openai); o no llm re-levanta AMBOS (_EXCECOES_LLM, nos/
-                    # llm.py) e aqui escalamos como modelo_indisponivel (bucket infra) em vez de cair no
+                    # 5xx/timeout persistente da API do LLM (DeepSeek/OpenRouter via SDK openai) — falha
+                    # de plataforma, nao bug do grafo. O no llm re-levanta esses tipos (_EXCECOES_LLM,
+                    # nos/llm.py) e aqui escalamos como modelo_indisponivel (bucket infra) em vez de cair no
                     # `except Exception` generico abaixo, que mataria o turno sem escalada (o ARQ NAO
                     # retenta excecao comum — so `Retry` explicito ou shutdown do worker).
                     logger.error("api_indisponivel turno_id=%s", turno_id)
@@ -439,7 +455,21 @@ async def processar_turno(
                     AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
                     break
                 except Exception:
+                    # Bug generico no grafo (nao 5xx do provider, que o ramo acima ja pegou). O ARQ
+                    # NAO retenta excecao comum, entao sem escalada aqui o turno morria em silencio:
+                    # cliente sem resposta e ninguem avisado. Escala ANTES de re-levantar, no mesmo
+                    # padrao dos ramos de exaustao — `abrir_handoff` e idempotente (nao abre segunda
+                    # escalada com uma aberta), entao o retry de shutdown nao duplica card. A
+                    # excecao original nunca e mascarada: se a propria escalada falhar, ela vira log
+                    # e o `raise` sai igual.
                     logger.exception("graph_erro turno_id=%s", turno_id)
+                    try:
+                        await escalar_por_exaustao(
+                            pool, atendimento["id"], turno_id, motivo="erro_interno"
+                        )
+                        AGENTE_TURNO_RESULTADO.labels("exaustao").inc()
+                    except Exception:
+                        logger.exception("escalada_erro_interno_falhou turno_id=%s", turno_id)
                     raise
                 finally:
                     AGENTE_TURNO_DURACAO.labels(modelo_chat, tipo_turno).observe(
@@ -517,14 +547,11 @@ async def processar_turno(
                 else:
                     async with pool.connection() as conn:
                         res = await conn.execute(
-                            """
+                            f"""
                             SELECT evolution_message_id, conteudo, created_at
                               FROM barravips.mensagens
-                             WHERE conversa_id = %s AND direcao = 'cliente'
+                            {_WHERE_INBOUND_NAO_RESPONDIDO}
                                AND evolution_message_id IS NOT NULL
-                               AND created_at > COALESCE(
-                                     (SELECT max(created_at) FROM barravips.mensagens
-                                       WHERE conversa_id = %s AND direcao = 'ia'), 'epoch')
                              ORDER BY created_at
                             """,
                             (conv_uuid, conv_uuid),
@@ -718,6 +745,63 @@ async def processar_turno(
             defer_s=2,
         )
         LOCK_OCUPADO.inc()
+
+
+def _turnos_deste_job(ctx: dict[str, Any]) -> set[str]:
+    """Todos os `turno_id` que ESTE job pode ter emitido — um por iteracao do drain.
+
+    O `turno_id` e deterministico por `(job_id, score, loop_idx)` (01 §6.7), entao o job retentado
+    recalcula exatamente os mesmos ids. Serve p/ distinguir "outro turno pegou a janela" de "sou eu
+    mesmo voltando de um crash".
+    """
+    return {str(uuid5(NS_TURNO, f"{ctx['job_id']}:{ctx['score']}:{i}")) for i in range(MAX_DRAIN)}
+
+
+async def _fallback_tem_trabalho(
+    pool: AsyncConnectionPool[Any],
+    redis: Any,
+    ctx: dict[str, Any],
+    conv_uuid: UUID,
+    conversa_id: str,
+) -> bool:
+    """`pending:conv` ausente — ainda assim ha turno a rodar? Quem responde e o BANCO.
+
+    Duas checagens, nesta ordem (a barata primeiro):
+
+    1. **Resposta em voo** — `enviar_turno` pode estar deferido (delay humano, ate
+       `envio_delay_humano_teto_s`) e a bolha da IA so vira linha em `mensagens` quando dispara;
+       nesse intervalo o banco ainda diria "inbound sem resposta" e responderiamos duas vezes.
+       `turno_atual:{conv}` (EX=600) marca quem pegou a janela: marcador de OUTRO turno => a
+       resposta e dele, nao ha o que fazer. Marcador deste job (ou ausente) => seguimos.
+    2. **Ha inbound nao respondido?** — `ha_inbound_nao_respondido`, o mesmo predicado da janela
+       do passo 7.
+
+    Buraco residual conhecido e ACEITO: crash entre o `delete(pending)` e o passo 3 (que grava o
+    `turno_atual`) com um marcador do turno ANTERIOR ainda vivo faz a retomada ser barrada aqui —
+    janela de milissegundos no turno de texto (resolver atendimento + gates), maior so no de audio
+    (BLPOP de 8s). Preferimos o silencio ao double-texting; a proxima mensagem do cliente recupera.
+    """
+    marcador = await redis.get(f"turno_atual:{conversa_id}")
+    if isinstance(marcador, (bytes, bytearray)):
+        marcador = marcador.decode("utf-8")
+    if marcador is not None and marcador not in _turnos_deste_job(ctx):
+        return False
+    async with pool.connection() as conn:
+        return await ha_inbound_nao_respondido(conn, conv_uuid)
+
+
+async def ha_inbound_nao_respondido(conn: AsyncConnection[Any], conversa_id: UUID) -> bool:
+    """Sobrou mensagem do cliente DEPOIS da ultima bolha da IA nesta conversa?
+
+    Fonte de verdade do gate de pendencia quando o Redis nao tem a janela. Usa o mesmo
+    `_WHERE_INBOUND_NAO_RESPONDIDO` do read receipt do passo 7 — logo, ja e o anti-double-texting:
+    com a IA tendo falado por ultimo o predicado nao casa nada e o gate fecha.
+    """
+    res = await conn.execute(
+        f"SELECT 1 FROM barravips.mensagens {_WHERE_INBOUND_NAO_RESPONDIDO} LIMIT 1",
+        (conversa_id, conversa_id),
+    )
+    return await res.fetchone() is not None
 
 
 async def aguardar_transcricoes(redis: Any, conversa_id: str, *, orcamento_s: int = 8) -> bool:

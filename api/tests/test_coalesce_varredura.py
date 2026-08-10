@@ -10,7 +10,9 @@ Cobre os dois lados do fix do re-enfileiramento perdido:
 
 2. Gate de pendência (workers/coordenador.py): a varredura pode rodar depois de outro job
    já ter consumido o pending; sem mensagem nova o coordenador NÃO invoca o grafo — a
-   janela termina na fala da IA e o LLM emendaria outra bolha (double-texting).
+   janela termina na fala da IA e o LLM emendaria outra bolha (double-texting). Desde o
+   fallback no banco, "sem mensagem nova" passou a ser pergunta ao Postgres (o Redis é só
+   coalescência): o gate só fecha quando o banco confirma que não sobrou inbound.
 """
 
 from contextlib import asynccontextmanager
@@ -85,11 +87,29 @@ async def _lock_noop(*_a: Any, **_k: Any) -> Any:
     yield None
 
 
+class _PoolSemInbound:
+    """Pool cujo unico uso possivel e a consulta do fallback do gate — e ela nao acha inbound."""
+
+    @asynccontextmanager
+    async def connection(self) -> Any:
+        yield _ConnSemInbound()
+
+
+class _ConnSemInbound:
+    async def execute(self, *_a: Any, **_k: Any) -> Any:
+        return _ResultVazio()
+
+
+class _ResultVazio:
+    async def fetchone(self) -> None:
+        return None
+
+
 async def test_gate_de_pendencia_sem_mensagem_nova_nao_invoca_grafo(
     monkeypatch: Any,
 ) -> None:
-    """Varredura/duplicado chegando depois de o pending ter sido consumido: retorna cedo,
-    sem tocar o banco nem o grafo (db_pool=None explode se for usado)."""
+    """Varredura/duplicado chegando depois de o pending ter sido consumido: o banco confirma
+    que nao sobrou inbound (a IA falou por ultimo) e o turno retorna cedo, sem tocar o grafo."""
     import barra.workers.coordenador as coord
 
     monkeypatch.setattr(coord, "adquirir_lock", _lock_noop)
@@ -98,7 +118,7 @@ async def test_gate_de_pendencia_sem_mensagem_nova_nao_invoca_grafo(
     graph = _GrafoContador()
     ctx: dict[str, Any] = {
         "redis": redis,
-        "db_pool": None,
+        "db_pool": _PoolSemInbound(),
         "graph": graph,
         "settings": type("S", (), {"deepseek_model_chat": "deepseek-test"})(),
         "job_id": "job-varredura",

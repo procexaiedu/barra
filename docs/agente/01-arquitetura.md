@@ -14,7 +14,7 @@ WhatsApp ─▶ Evolution ─▶ Webhook (FastAPI)
                           └─ se texto → enfileira `processar_turno` no ARQ (debounce key = conversa_id)
 
 ARQ worker `processar_turno`:
-  1. aguarda janela de debounce (~3-5s) para coalescer mensagens picotadas
+  1. aguarda janela de debounce (180s, `_defer_by` do enqueue em `webhook/despacho.py`) para coalescer mensagens picotadas
   2. adquire lock Redis SETNX `lock:conv:{conversa_id}` (TTL 60s + heartbeat)
   3. resolve/cria atendimento (regra determinística do mvp/03 §5.2)
   4. UPDATE mensagens.atendimento_id em mensagens órfãs da conversa
@@ -181,7 +181,7 @@ api/src/barra/
 │       └── escalada.py                ← escalar
 ├── webhook/
 │   ├── routes.py                      ← já existe; adicionar despacho para `processar_turno`
-│   ├── debounce.py                    ← marca conversa_id como "aguardando" no Redis com TTL = janela
+│   ├── debounce.py                    ← nomes de chave + TTLs (900s) da coalescência; TTL >> janela do `_defer_by` (180s)
 │   ├── despacho.py                    ← enfileira processar_turno; idempotência via dedupe key
 │   └── classificador.py               ← (opcional) regex só p/ métrica/log; a classificação que DIRIGE o intercept roda no grafo (agente/_classificador.py, decisão 2026-05-23)
 ├── workers/
@@ -221,11 +221,11 @@ async def enfileirar_turno(
 ) -> None:
     """Marca debounce + pendência e enfileira processar_turno respeitando coalescência."""
     # 1. marca pendência — lida pelo drain loop do coordenador (§4.3 passo 7)
-    await redis.set(f"pending:conv:{conversa_id}", evolution_message_id, ex=120)
+    await redis.set(f"pending:conv:{conversa_id}", evolution_message_id, ex=TTL_PENDING)
 
     # 2. registra última mensagem na janela de debounce
     chave = f"debounce:conv:{conversa_id}"
-    await redis.set(chave, evolution_message_id, ex=10)  # TTL > janela de debounce
+    await redis.set(chave, evolution_message_id, ex=TTL_DEBOUNCE)
 
     # 3. coalesce via _job_id estático: ARQ faz SET NX (o 1º vence; enqueues seguintes
     #    na janela são DESCARTADOS — não há "substituição"). O turno lê a sliding window
@@ -240,9 +240,11 @@ async def enfileirar_turno(
         conversa_id=str(conversa_id),
         aguardar_transcricao=aguardar_transcricao,
         _job_id=job_id,
-        _defer_by=timedelta(seconds=4),  # janela de debounce
+        _defer_by=timedelta(seconds=180),  # janela de debounce (`defer_s` de despacho.py)
     )
 ```
+
+> **Relação TTL × defer (`webhook/debounce.py`):** `TTL_PENDING`/`TTL_DEBOUNCE` (900s) precisam ser **bem maiores** que a janela do `_defer_by` (180s) — o job só roda 3 min depois do enqueue e o gate de pendência do coordenador exige `pending` vivo nessa hora. Margem apertada (eram 240s, 60s de folga) faz um worker fora do ar por poucos minutos perder a janela em silêncio. A rede embaixo disso é o **fallback no banco** do gate (§4.3): sem `pending`, o coordenador pergunta ao Postgres se existe mensagem do cliente posterior à última bolha da IA — o Redis é só coalescência, não fonte de verdade do "há trabalho".
 
 > **`processar_turno` precisa ser definido com `keep_result=0`** (na função/`WorkerSettings`, `07`). O `enqueue_job` deduplica pela *result key* além da *job key*: com o `keep_result` default de 3600s do ARQ, o re-enqueue do mesmo `_job_id` (drain loop, `07`) retornaria `None` silenciosamente por 1h após o turno terminar (`arq#416`/`#432`) — quebrando a coalescência. `keep_result=0` libera a chave assim que o job acaba.
 
@@ -326,6 +328,8 @@ async def processar_turno(
 
 > `ESTADOS_TERMINAIS = {"Fechado", "Perdido"}`; `NS_TURNO` é um namespace UUID fixo do módulo. O drain loop fecha a janela "mensagem chega com o turno rodando"; resta um intervalo sub-milissegundo entre o passo 7 e o retorno do job — recuperado pela próxima mensagem do cliente.
 
+> **Gate de pendência com fallback no banco.** O código shipado tem, antes do drain loop, um gate que hoje faz mais que o pseudocódigo acima: sem `pending:conv` ele **não** retorna direto — pergunta ao Postgres se existe mensagem `direcao='cliente'` posterior à última bolha da IA da conversa (mesmo predicado da janela de read receipt). O Redis é coalescência; a fonte de verdade do "há trabalho" é o banco, senão qualquer retomada com o `pending` já apagado (retry pós-crash, varredura, TTL expirado) deixa o cliente no vácuo. Esse predicado já é o anti-double-texting: se a IA falou por último, não há linha e o gate fecha. Um segundo guard cobre a resposta **em voo** (o `enviar_turno` pode estar deferido e a bolha ainda não virou linha em `mensagens`): o fallback só processa quando `turno_atual:{conv}` está ausente ou pertence a ESTE job — se outro turno recente pegou a janela, é dele a resposta.
+
 ### 4.4 Pós-turno (humanização)
 
 Implementada em `workers/envio.py`. Detalhes em `05-humanizacao.md`.
@@ -395,7 +399,7 @@ Itens onde a spec técnica do agente substitui ou refina a especificação de pr
 
 > **Estado vigente:** o provider do chat é hoje **DeepSeek V4 Flash direto** via `langchain-openai.ChatOpenAI` (`§2.5`). O histórico de idas e voltas abaixo (OpenRouter+Kimi → Anthropic Sonnet) fica como registro; a decisão StateGraph custom segue valendo.
 
-`mvp/07 §3` cita "Anthropic SDK 0.42 com prompt caching" como stack mas não prescreve provider. `docs/agente` 1.0 colocou OpenRouter + Kimi K2.6 como solução; a revisão 1.1 reverteu para Anthropic SDK direto + Sonnet 4.6; a stack vigente migrou em seguida para DeepSeek V4 Flash direto (`§2.5`), sempre sem modelo de fallback (`§2.6`).
+O antigo `mvp/07` (removido; ver git) citava "Anthropic SDK 0.42 com prompt caching" como stack mas não prescrevia provider. `docs/agente` 1.0 colocou OpenRouter + Kimi K2.6 como solução; a revisão 1.1 reverteu para Anthropic SDK direto + Sonnet 4.6; a stack vigente migrou em seguida para DeepSeek V4 Flash direto (`§2.5`), sempre sem modelo de fallback (`§2.6`).
 
 **Justificativa (revisão pós-QA 2026-05-02):**
 - Cache `cache_control` 4 breakpoints é nativo da Anthropic — sem caveats; via OpenRouter tinha comportamento incerto (`OpenRouterTeam/ai-sdk-provider#35`, `sst/opencode#1245`).
@@ -427,7 +431,7 @@ Versões anteriores usavam `AsyncPostgresSaver` (checkpoint por `thread_id`) + c
 
 ### 6.9 Persona/voz/FAQ gerais (override `mvp/` e `CONTEXT.md`)
 
-`mvp/03-modulos-sistema.md`, `mvp/07-stack-tecnica.md` e `docs/specs/tela-06-modelos.md` descrevem **persona e FAQ por modelo** (campos interpolados no template de persona por modelo; `modelo_faq.modelo_id` específico por modelo).
+`docs/specs/tela-06-modelos.md` (e os antigos `mvp/03`/`mvp/07` pré-correção; o `07` foi removido) descrevem **persona e FAQ por modelo** (campos interpolados no template de persona por modelo; `modelo_faq.modelo_id` específico por modelo).
 
 **Decisão (grilling 2026-05-22):** persona/voz/comportamento/conduta/FAQ são **gerais — compartilhadas entre todas as modelos**. As modelos respondem igual no WhatsApp; só variam **as coisas dela**: identidade óbvia (nome, idade, idiomas, localização), programas/preços e `tipos_aceitos`. A isolação de **dados do cliente** por par cliente-modelo permanece intacta. `CONTEXT.md` "IA por modelo" já foi atualizado; os docs de `mvp/` ficam como contexto histórico (esta spec é a verdade técnica corrente).
 
