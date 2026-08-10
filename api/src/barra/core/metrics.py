@@ -335,6 +335,31 @@ TRANSCRICAO_RESULTADO = Counter(
     "Resultado da transcricao (06 §1.3/§1.5): ok|erro_provider|timeout|sem_audio",
     ["resultado"],
 )
+# Canario de entrega fim-a-fim (workers/canario.py): sonda periodica que fecha o laco
+# Barra -> Evolution -> WhatsApp -> webhook -> Barra. Existe por causa do apagao 24-27/07, em que
+# a Evolution aceitou os POSTs por 3 dias sem entregar nada e TODA metrica ficou verde: as demais
+# medem o que a stack PRODUZIU, nao o que o WhatsApp ENTREGOU.
+CANARIO_ENTREGA = Counter(
+    "barra_canario_entrega_total",
+    "Ciclos do canario de entrega fim-a-fim, por resultado",
+    ["resultado"],  # ok | sem_eco | envio_falhou
+)
+# Gauge de proposito (mesmo padrao do ROLLBACK_GATILHO): 1 = ultimo ciclo VERIFICADO fechou o
+# laco, 0 = nao fechou. E' o que a regra de alerta le — um Counter que para de subir e ambiguo
+# (indistinguivel de canario desligado), um gauge em 0 e afirmativo.
+CANARIO_ENTREGA_OK = Gauge(
+    "barra_canario_entrega_ok",
+    "Ultimo ciclo verificado do canario fechou o laco de entrega (1=sim, 0=nao)",
+)
+# Eixo `conduta` do judge pos-envio (workers/judge_pos_envio.py). Ate aqui o eixo so existia em
+# `julgamentos_turno` e ninguem o consumia: conduta ruim levava horas/dias pra ser notada. Counter
+# por FAIXA (nao gauge de janela) de proposito: a janela vive na regra do Prometheus (tunavel sem
+# deploy), o `rate()` sobrevive a restart do worker e nenhum cron novo precisa varrer o banco.
+JUDGE_CONDUTA = Counter(
+    "agente_judge_conduta_total",
+    "Eixo `conduta` (1-5) do judge pos-envio, por faixa da nota",
+    ["faixa"],  # reprovada (1-2) | ok (3-5)
+)
 
 
 class MetricsMiddleware(BaseHTTPMiddleware):

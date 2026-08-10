@@ -28,7 +28,7 @@ from typing import Any
 from arq import Retry
 from pydantic import BaseModel, Field
 
-from barra.core.metrics import JUDGE_POS_ENVIO
+from barra.core.metrics import JUDGE_CONDUTA, JUDGE_POS_ENVIO
 from barra.core.tracing import registrar_feedback_online
 from barra.settings import Settings
 
@@ -230,6 +230,13 @@ async def julgar_turno_pos_envio(
                 veredito.comentario[:500],
             ),
         )
+
+    # O eixo `conduta` ficava SÓ em `julgamentos_turno` e ninguém o consumia — conduta ruim levava
+    # horas/dias pra ser percebida (na leitura manual de conversa). A faixa vira série Prometheus
+    # aqui, no ponto em que o veredito nasce: a janela e o limiar vivem na regra de alerta
+    # (`AgenteCondutaReprovada`), não em código. Corte 1-2 = reprovada (a nota é 1-5 e 3 é o
+    # "aceitável" da rubrica), então o alerta mede piora real, não rigor do judge.
+    JUDGE_CONDUTA.labels("reprovada" if veredito.conduta <= 2 else "ok").inc()
 
     if trace_id:
         # Mesmo trace do turno (trace_id determinístico por seed=turno_id no coordenador):

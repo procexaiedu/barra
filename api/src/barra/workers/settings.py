@@ -11,6 +11,7 @@ Cron:
   - fluxo_drift (sensor de deriva de fluxo; observacional, default off): segunda 04:00
   - rollback_watch (gatilhos objetivos de rollback do piloto; alerta dev): diário 05:00
   - digest_semanal (resumo diário pro Fernando no grupo de Coordenação): diário 12:00, retenta 15:00/18:00
+  - canario (sonda de entrega fim-a-fim Evolution->WhatsApp->webhook; default off): a cada canario_intervalo_min
 
 Idempotência: dedupe_key = (conversa_id, turno_id, chunk_idx) consultada antes do envio.
 """
@@ -33,6 +34,7 @@ from barra.core.logging import setup_logging
 from barra.core.storage import criar_minio
 from barra.core.tracing import init_sentry, registrar_modelos_langfuse, setup_langfuse
 from barra.settings import Settings, get_settings
+from barra.workers.canario import minutos_do_intervalo, rodar_canario
 from barra.workers.comprovante_fechamento import fechar_via_comprovante
 from barra.workers.conexao_evolution import reconciliar_conexao_evolution
 from barra.workers.coordenador import processar_turno
@@ -166,6 +168,19 @@ async def cron_rollback_watch(ctx: dict[str, Any]) -> int:
         return 0
     async with pool.connection() as conn:
         return await vigiar_gatilhos_rollback(conn, settings)
+
+
+async def cron_canario(ctx: dict[str, Any]) -> int:
+    # Canario de entrega fim-a-fim (workers/canario.py): default OFF (canario_jid vazio) e sai
+    # antes de qualquer I/O nesse caso. Precisa de redis (hash de pendentes) alem de db+evolution.
+    pool = ctx.get("db_pool")
+    redis = ctx.get("redis")
+    evolution = ctx.get("evolution")
+    settings = ctx.get("settings")
+    if pool is None or redis is None or evolution is None or settings is None:
+        return 0
+    async with pool.connection() as conn:
+        return await rodar_canario(conn, redis, evolution, settings)
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -322,6 +337,15 @@ class WorkerSettings:
         # está fora do ar — e um disparo único perdia o card do dia inteiro. Quem garante 1 card
         # por dia é o dedupe de `enviar_digest_semanal` (11h), não a agenda.
         cron(cron_digest_semanal, name="digest_semanal", hour={12, 15, 18}, minute={0}),
+        # Canario de entrega fim-a-fim: a cada `canario_intervalo_min` (default 60 -> minuto {0}).
+        # A agenda e lida do settings NO IMPORT (o ARQ congela cron_jobs na classe), entao mudar o
+        # intervalo exige restart do worker — aceitavel: e configuracao de infra, nao de runtime.
+        # Desligado (canario_jid vazio) o job roda e retorna 0 sem tocar rede nem banco.
+        cron(
+            cron_canario,
+            name="canario",
+            minute=minutos_do_intervalo(_settings.canario_intervalo_min),
+        ),
     ]
     keep_result = 3600  # global; processar_turno sobrescreve p/ 0 via func(...) acima
     max_jobs = 10

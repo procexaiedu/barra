@@ -11,6 +11,8 @@
 #   agente_output_leak_total{motivo}                motivo=ia_self|system|cross_modelo
 #   agente_aup_saida_bloqueado_total{resultado}     resultado=violou|judge_falhou
 #   agente_eval_pass_rate{suite}                    Histogram (_count/_sum); 1.0=passou (EVAL-11)
+#   barra_canario_entrega_ok                        Gauge 1/0 (canario de entrega fim-a-fim)
+#   agente_judge_conduta_total{faixa}               faixa=reprovada|ok (eixo conduta do judge)
 groups:
   - name: agente_defesa
     rules:
@@ -338,3 +340,59 @@ groups:
             Efeito nos gatilhos — `nao_contidos` deflaciona EM SILENCIO (direcao perigosa) e
             a `taxa_gate` perde denominador. Checar credito/estabilidade do DeepSeek antes de
             ler qualquer numero do rollback_watch.
+
+      # Fecho do apagao 24-27/07 pelo lado da PROVA (o AgenteEnvioFalhandoEvolution acima cobre o
+      # lado do ERRO): a Evolution aceitou POSTs por 3 dias sem entregar, e nenhuma metrica de
+      # "envio falhou" subiu porque nenhum envio falhou — eles sumiram DEPOIS do 200. O canario
+      # (workers/canario.py) manda uma sonda periodica pro numero de controle e so marca 1 quando
+      # o eco fromMe volta pelo webhook e vira linha em barravips.mensagens; 0 = laco quebrado em
+      # algum ponto entre Evolution, WhatsApp e o nosso webhook.
+      # last_over_time (mesmo motivo do PilotoGatilhoRollback): o gauge e in-process e some a cada
+      # force-update do worker; a janela sustenta o ultimo veredito conhecido em vez de resolver e
+      # re-disparar a cada deploy. Janela = 90m para cobrir o intervalo default do canario (60m)
+      # com folga; encurte junto se baixar canario_intervalo_min.
+      # Canario DESLIGADO (default) nao tem serie: a regra nao dispara, nao ha alarme de silencio.
+      # O alerta chega por Telegram direto do worker (canal fora da Evolution) ALEM desta regra —
+      # de proposito, porque o relay do Alertmanager entrega via Evolution e nao se auto-entrega.
+      - alert: CanarioEntregaSemEco
+        expr: last_over_time(barra_canario_entrega_ok[90m]) == 0
+        for: 5m
+        labels:
+          severity: critical
+          dimensao: piloto
+        annotations:
+          summary: "Canario de entrega sem eco: mensagem sai e nao chega"
+          description: >
+            A sonda do canario foi aceita pela Evolution e o eco fromMe NAO voltou pelo webhook
+            dentro do prazo. E o modo de falha do apagao 24-27/07 (3 dias, metricas verdes).
+            Ordem de checagem: pareamento/device da instancia na EvoGo (GET /instance/all,
+            campo `events` precisa ter SEND_MESSAGE) -> webhook da barra-api -> so entao agente.
+
+      # O eixo `conduta` do judge pos-envio so existia em julgamentos_turno e ninguem o consumia:
+      # conduta ruim (regressao de prompt, cardapio errado, negociacao fora do trilho) so aparecia
+      # numa leitura manual de conversa, horas ou dias depois. Aqui ela vira alerta ativo.
+      # Distincao importante: `rastro_llm` (gatilho de rollback) e sobre a IA se DENUNCIAR;
+      # `conduta` e sobre ela vender MAL sem se denunciar — nenhum gatilho existente pegava isso.
+      # Denominador minimo de 10 julgamentos/h evita alarme de amostra pequena (2 turnos numa
+      # madrugada). Limiar 20% e proposta inicial: tunar com a base de julgamentos do piloto.
+      - alert: AgenteCondutaReprovada
+        expr: |
+          (
+            sum(increase(agente_judge_conduta_total{faixa="reprovada"}[1h]))
+            /
+            sum(increase(agente_judge_conduta_total[1h]))
+            > 0.20
+          )
+          and
+          sum(increase(agente_judge_conduta_total[1h])) >= 10
+        for: 30m
+        labels:
+          severity: warning
+          dimensao: piloto
+        annotations:
+          summary: "Conduta comercial reprovada em mais de 20% dos turnos julgados"
+          description: >
+            {{ $value | humanizePercentage }} dos turnos da ultima hora levaram conduta 1-2 do
+            judge pos-envio. Nao e vazamento nem rastro de IA — e a IA vendendo mal (preco,
+            agenda, tipo de atendimento). Ler os `comentario` de julgamentos_turno da janela
+            antes de mexer em prompt.
