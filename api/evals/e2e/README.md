@@ -36,9 +36,11 @@ multi-turn.
 - `cliente.py` — `ClienteRoteirizado` (falas fixas, offline, sem crédito). **O cliente nunca
   é um 2º LLM** (decisão do dev): na corrida real o cliente é o **Claude Code** conduzindo via
   `sessao.py`. Só o agente usa a API.
-- `runner.py` — `rodar_e2e`: o loop multi-turn batch (reusa `harness.seedar`/`rodar_turno`),
-  com um `ClienteSimulado` (ex.: `ClienteRoteirizado` na validação offline). Para na linha de
-  chegada, em handoff, no sumiço do cliente ou em `max_turnos`.
+- `runner.py` — `rodar_e2e`: o loop multi-turn batch (`harness.seedar` + o **caminho fiel**
+  `harness_fiel.rodar_turno_auditado`, que passa por `processar_turno`/`enviar_turno` como o
+  WhatsApp), com um `ClienteSimulado` (ex.: `ClienteRoteirizado` na validação offline). Para na
+  linha de chegada, em handoff, no sumiço do cliente ou em `max_turnos`. **A bolha da IA é gravada
+  pelo próprio `enviar_turno`** — o runner não chama mais `gravar_resposta_ia` (seria duplicata).
 - `sessao.py` — **servidor de sessão turn-by-turn** (o cliente é o Claude Code). Segura a
   conexão e roda **um turno do agente por POST `/turno`**. `GET /perfil` devolve as falas reais
   p/ o Claude Code se ancorar. Dois modos no `/fim`: padrão **ROLLBACK** (nada commita);
@@ -47,8 +49,9 @@ multi-turn.
 - `persistencia.py` — **persiste a corrida no painel /observabilidade** (decisão: reusar o
   painel). Modelo sandbox fixa `🧪 E2E Sandbox`; cada caso vira uma conversa `origem='e2e'`
   (a migration `*_conversas_origem_e2e.sql` adiciona a coluna; o painel esconde e2e por padrão,
-  filtro "E2E" no toggle). A cada turno grava a bolha da IA em `mensagens` (o worker de envio
-  não roda no harness). `limpar_sandbox(conn)` apaga tudo da sandbox.
+  filtro "E2E" no toggle). `gravar_resposta_ia` segue servindo o `sessao.py` (que ainda roda pelo
+  `harness.rodar_turno` cru, sem worker de envio); no batch quem grava é o `enviar_turno`.
+  `limpar_sandbox(conn)` apaga tudo da sandbox.
 - `avaliacao.py` — `avaliar_e2e`: veredito determinístico (conduziu? vazou? bateu o
   desfecho real?). `gravar_veredito`: persiste a corrida em `corpus.eval_e2e` (conn AUTOCOMMIT
   separada, sobrevive ao rollback do seed; `run_tag` = registro de "já testado").
@@ -71,9 +74,10 @@ multi-turn.
 ## Observabilidade (Langfuse + scores)
 
 `sessao.py` e `massa.py` ligam o **trace Langfuse de prod** (ADR 0019) no startup via
-`harness.habilitar_tracing()` — no-op silencioso sem as envs `LANGFUSE_*`. O `rodar_turno` aceita
-`trace_tag` (marca os traces e2e como `"e2e"`, vs `"eval_gate"` do gate) e `escopar_trace` (cria um
-trace-id determinístico + span, padrão do `coordenador.py`, devolvido em `ResultadoTurno.trace_id`).
+`harness.habilitar_tracing()` — no-op silencioso sem as envs `LANGFUSE_*`. No caminho fiel quem
+escopa o span é o **próprio `coordenador.py`** (trace-id determinístico por `turno_id`, como prod);
+o `rodar_turno_auditado` só o recalcula e devolve em `ResultadoTurno.trace_id`. O `trace_tag`/
+`escopar_trace` sobrevivem apenas no `rodar_turno` cru (`sessao.py`, shadow).
 No fim de cada corrida, `avaliacao.pontuar_no_langfuse` empurra o veredito determinístico como
 **scores** no trace (`e2e_conduziu`, `e2e_sem_violacoes`, `e2e_bate_desfecho_real` — este só quando
 há desfecho real do corpus), e `flush_langfuse` garante a entrega. O Langfuse é **self-hosted**

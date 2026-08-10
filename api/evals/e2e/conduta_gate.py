@@ -138,7 +138,6 @@ async def rodar_gate(
             ClienteRoteirizado(perfil.roteiro_cliente),
             graph=graph,
             max_turnos=max_turnos,
-            escopar_trace=True,
         )
         resultados.append((perfil, res, avaliar_e2e(res, perfil)))
     rel, motivos = _agregar(resultados)

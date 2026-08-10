@@ -16,6 +16,7 @@ o caller. Este modulo so prepara o cenario, executa um turno e coleta o resultad
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
@@ -79,14 +80,22 @@ class PoolDeUmaConexao:
 
     `connection()` e um @asynccontextmanager (igual o pool real e o _PoolDeUmaConexao do teste):
     `core.db.conexao` faz `async with pool.connection() as conn`.
+
+    O emprestimo e SERIALIZADO por um asyncio.Lock: o ToolNode executa tool calls do mesmo turno
+    em paralelo (asyncio.gather) e duas `conn.transaction()` concorrentes na MESMA conexao
+    estouram OutOfOrderTransactionNesting (visto no braco B do A/B de thinking, 10/08 — thinking
+    emite multiplas tool calls por turno). Em prod o pool real da uma conexao por tool; aqui o
+    lock reproduz o isolamento sem abrir 2a conexao (a transacao unica do ROLLBACK e sagrada).
     """
 
     def __init__(self, conexao: AsyncConnection[dict[str, Any]]) -> None:
         self._conn = conexao
+        self._lock = asyncio.Lock()
 
     @asynccontextmanager
     async def connection(self) -> AsyncIterator[AsyncConnection[dict[str, Any]]]:
-        yield self._conn
+        async with self._lock:
+            yield self._conn
 
 
 # --- trajetoria: quais nos do grafo foram visitados (EVAL-08) --------------------------------

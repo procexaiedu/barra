@@ -24,6 +24,10 @@ Unicos desvios deliberados (nao da pra "ser igual" sem eles): o Evolution e capt
 e mecanica, nao a cadencia de digitacao). Custo: roda o graph real -> bate no LLM (DeepSeek) e cai
 no gate de credito (§0); para testar so a mecanica, injete um `graph` fake.
 
+Duas portas: `rodar_turno_fiel` devolve o que SAIU no WhatsApp (`ResultadoFiel`); `rodar_turno_
+auditado` devolve o `ResultadoTurno` do harness cru (trajetoria de nos, prompt montado, tools,
+metricas) por cima do MESMO caminho — e o que o gate de seguranca e o runner e2e consomem.
+
 Flags & temperatura: o harness le `get_settings()` real (mesmo objeto que o worker), entao NAO
 falsifica as flags que moldam a conduta — ele as herda. A `chat_temperature=1.3` (recomendacao
 DeepSeek) e MANTIDA de proposito: a fidelidade e por veredito de judge, nao por igualdade textual;
@@ -34,19 +38,31 @@ local pode ter, p.ex., `REENGAJAMENTO_ATIVO=false` enquanto o default/prod e Tru
 
 from dataclasses import dataclass
 from datetime import datetime
+from time import perf_counter
 from typing import Any
 from unittest.mock import patch
 from uuid import uuid4
 
 from fakeredis.aioredis import FakeRedis
+from langchain_core.messages import BaseMessage
 from psycopg import AsyncConnection
 
 from barra.agente.graph import build_graph
+from barra.core.tracing import langfuse_handler
 from barra.settings import get_settings
 from barra.webhook.debounce import chave_pending
 from barra.workers.coordenador import processar_turno
 from barra.workers.envio import enviar_turno
-from evals.harness import Cenario, PoolDeUmaConexao, _inserir_mensagem, estado_pos_turno
+from evals.harness import (
+    Cenario,
+    NodesVisitedHandler,
+    PoolDeUmaConexao,
+    ResultadoTurno,
+    _coletar_tools,
+    _inserir_mensagem,
+    _metricas_tokens,
+    estado_pos_turno,
+)
 
 
 class EvolutionSpy:
@@ -151,9 +167,10 @@ class BolhaCliente:
 def flags_relevantes(settings: Any) -> dict[str, Any]:
     """As settings que moldam a conduta/encanamento do turno e que, se divergirem entre o `.env`
     local e prod, fazem o harness mentir. Expostas no `ResultadoFiel` para a divergencia ser
-    detectavel; em prod os defaults sao 1.3 / True / True / False (ver `barra.settings`)."""
+    detectavel; em prod os defaults sao 0.7 / "disabled" / True / True / False (ver `barra.settings`)."""
     return {
         "chat_temperature": settings.chat_temperature,
+        "deepseek_thinking_chat": settings.deepseek_thinking_chat,
         "extracao_no_modelo_barato": settings.extracao_no_modelo_barato,
         "reengajamento_ativo": settings.reengajamento_ativo,
         "experimento_braco_ativo": settings.experimento_braco_ativo,
@@ -253,4 +270,111 @@ async def rodar_turno_fiel(
         presencas=evolution.presencas,
         n_jobs_envio=n_envio,
         flags=flags_relevantes(ctx["settings"]),
+    )
+
+
+class GraphAuditado:
+    """Proxy do grafo que devolve ao caminho fiel a auditoria que o `rodar_turno` cru dava de graca.
+
+    `processar_turno` monta o `config` do `ainvoke` POR DENTRO (thread_id, recursion_limit,
+    callbacks do Langfuse) — nao existe parametro por onde passar um callback de fora. Este proxy
+    intercepta a chamada e ANEXA (nunca substitui) o `NodesVisitedHandler` aos callbacks que o
+    coordenador montou: a trajetoria de nos e o PROMPT MONTADO — o canal interno onde o scan de
+    canary pega a query de isolamento furada mesmo quando o LLM nao repete o dado na bolha —
+    continuam auditaveis no caminho de prod.
+
+    Acumula por INVOCACAO porque o drain do coordenador pode rodar o grafo mais de uma vez sob o
+    mesmo lock: o turno auditado e a soma delas.
+    """
+
+    def __init__(self, graph: Any) -> None:
+        self.graph = graph
+        self.handler = NodesVisitedHandler()
+        self.mensagens: list[BaseMessage] = []
+        self.turno_ids: list[str] = []
+
+    def __getattr__(self, nome: str) -> Any:
+        # Qualquer outro atributo do grafo (o coordenador so chama `ainvoke`, mas o proxy nao
+        # pode estreitar a interface para quem injeta um grafo proprio).
+        return getattr(self.graph, nome)
+
+    async def ainvoke(
+        self, entrada: Any, *, config: Any = None, context: Any = None
+    ) -> dict[str, Any]:
+        cfg = dict(config or {})
+        cfg["callbacks"] = [*(cfg.get("callbacks") or []), self.handler]
+        turno_id = getattr(context, "turno_id", None)
+        if turno_id:
+            self.turno_ids.append(str(turno_id))
+        estado: dict[str, Any] = await self.graph.ainvoke(entrada, config=cfg, context=context)
+        self.mensagens.extend(estado.get("messages") or [])
+        return estado
+
+
+def _trace_id_do_turno(turno_ids: list[str]) -> str | None:
+    """O MESMO trace-id que o coordenador criou para o turno (`create_trace_id(seed=turno_id)`).
+
+    No caminho fiel quem escopa o span e o proprio coordenador (padrao de prod), entao nao ha
+    `escopar_trace` a pedir: o id e deterministico a partir do `turno_id` e so precisa ser
+    RECALCULADO aqui para ancorar o score online. None com o tracing desligado.
+    """
+    if not turno_ids or langfuse_handler() is None:
+        return None
+    from langfuse import Langfuse
+
+    return str(Langfuse.create_trace_id(seed=turno_ids[0]))
+
+
+async def rodar_turno_auditado(
+    conn: AsyncConnection[dict[str, Any]],
+    cen: Cenario,
+    turno_cliente: str | BolhaCliente | list[str | BolhaCliente],
+    *,
+    graph: Any | None = None,
+    agora: datetime | None = None,
+    aguardar_transcricao: bool = False,
+) -> ResultadoTurno:
+    """`rodar_turno_fiel` devolvendo o `ResultadoTurno` do harness cru — o insumo dos graders.
+
+    Ponte entre o caminho de prod (lock, coalescing, refusal, output-guard final, gravacao da
+    bolha) e tudo que ja consome `ResultadoTurno` (evals.checks, relatorio, sequencia, e2e). Duas
+    diferencas de conteudo em relacao ao `rodar_turno`, ambas na direcao da fidelidade:
+
+    - `texto` sao as bolhas que o cliente RECEBEU (pos output-guard final e chunking), juntadas por
+      "\\n\\n" — o separador de bolha que os detectores de prod assumem (`bolhas_*` fazem
+      `split("\\n\\n")`). O `rodar_turno` devolvia o rascunho pre-guard.
+    - `estado_final` sai do banco depois de `enviar_turno`, nao so depois do grafo.
+
+    Nao tem `escopar_trace`: no caminho fiel quem abre o span e o coordenador, sempre — o
+    `trace_id` e recalculado do `turno_id` (ver `_trace_id_do_turno`).
+    """
+    auditado = GraphAuditado(graph or build_graph())
+    t0 = perf_counter()
+    res = await rodar_turno_fiel(
+        conn,
+        cen,
+        turno_cliente,
+        graph=auditado,
+        agora=agora,
+        aguardar_transcricao=aguardar_transcricao,
+    )
+    latencia = perf_counter() - t0
+
+    nomes, args = _coletar_tools(auditado.mensagens)
+    metricas = _metricas_tokens(auditado.mensagens, get_settings().usd_brl_cotacao)
+    metricas.latencia_s = latencia
+    return ResultadoTurno(
+        texto="\n\n".join(t for t in res.textos if t.strip()),
+        tool_calls=nomes,
+        tool_args=args,
+        nodes=auditado.handler.nodes,
+        prompt_modelo=auditado.handler.prompt_modelo,
+        mensagens=auditado.mensagens,
+        estado_final={
+            "estado": res.estado,
+            "pix_status": res.pix_status,
+            "ia_pausada": res.ia_pausada,
+        },
+        metricas=metricas,
+        trace_id=_trace_id_do_turno(auditado.turno_ids),
     )

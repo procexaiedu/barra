@@ -51,21 +51,22 @@ def _evolution_offline() -> Generator[None, None, None]:
         settings.evolution_base_url = original
 
 
-def _tem_chave_anthropic() -> bool:
-    """Chave da Anthropic disponivel? Checa o env var e, como fallback, settings (le `.env`),
-    p/ `uv run pytest` com a chave so no `.env` nao pular os needs_key por engano (falso verde)."""
-    if os.environ.get("ANTHROPIC_API_KEY"):
+def _tem_chave_llm() -> bool:
+    """Chave do provider de LLM (DeepSeek, unico) disponivel? Checa o env var e, como fallback,
+    settings (le `.env`), p/ `uv run pytest` com a chave so no `.env` nao pular os needs_key por
+    engano (falso verde)."""
+    if os.environ.get("DEEPSEEK_API_KEY"):
         return True
     try:
         from barra.settings import get_settings
 
-        return bool(get_settings().anthropic_api_key)
+        return bool(get_settings().deepseek_api_key)
     except Exception:
         return False
 
 
 def _optou_por_credito() -> bool:
-    """Opt-in explicito p/ gastar credito Anthropic real nos `needs_key` (§0).
+    """Opt-in explicito p/ gastar credito de LLM real nos `needs_key` (§0).
 
     So `make test-llm` e `make evals` setam `RUN_LLM_TESTS`. Ter a chave no `.env` NAO basta:
     sem este opt-in, nenhuma selecao ad-hoc de pytest (`-m needs_db`, um arquivo, um diretorio)
@@ -77,7 +78,7 @@ def pytest_configure(config: pytest.Config) -> None:
     # --strict-markers esta ligado (pyproject addopts): registrar os markers aqui evita erro.
     config.addinivalue_line(
         "markers",
-        "needs_key: requer chave da Anthropic (chama a API real); pulado quando ausente.",
+        "needs_key: requer chave do provider de LLM (chama a API real); pulado quando ausente.",
     )
     config.addinivalue_line(
         "markers",
@@ -90,16 +91,16 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
 
     Os dois gates sao independentes: a suite padrao e a CI nao tocam a API nem o banco.
 
-    `needs_key` exige DUAS condicoes p/ rodar: chave da Anthropic E o opt-in `RUN_LLM_TESTS`
+    `needs_key` exige DUAS condicoes p/ rodar: chave do provider E o opt-in `RUN_LLM_TESTS`
     (so `make test-llm`/`make evals` setam). Ter a chave no `.env` NAO basta — assim nenhuma
     selecao ad-hoc (`-m needs_db`, um arquivo, um diretorio) gasta credito por engano (§0).
     """
-    sem_chave = not _tem_chave_anthropic()
+    sem_chave = not _tem_chave_llm()
     sem_optin = not _optou_por_credito()
     pular_db = not os.environ.get("TEST_DATABASE_URL")
-    skip_sem_chave = pytest.mark.skip(reason="sem chave da Anthropic: pulando testes needs_key")
+    skip_sem_chave = pytest.mark.skip(reason="sem chave de LLM: pulando testes needs_key")
     skip_sem_optin = pytest.mark.skip(
-        reason="needs_key gasta credito Anthropic real (§0): defina RUN_LLM_TESTS=1 "
+        reason="needs_key gasta credito de LLM real (§0): defina RUN_LLM_TESTS=1 "
         "(make test-llm / make evals) para rodar de proposito"
     )
     skip_db = pytest.mark.skip(reason="sem TEST_DATABASE_URL: pulando testes needs_db")

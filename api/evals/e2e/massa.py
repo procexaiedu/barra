@@ -25,6 +25,7 @@ from psycopg.rows import dict_row
 
 from barra.agente.nos.output_guard import bolhas_incluso_fantasma
 from barra.core.tracing import garantir_dataset, linkar_item_run, upsert_item_dataset
+from evals.checks import valores_ofertados
 from evals.e2e.avaliacao import (
     avaliar_e2e,
     flush_langfuse,
@@ -33,7 +34,7 @@ from evals.e2e.avaliacao import (
 )
 from evals.e2e.cenarios import CenarioFunc, cenarios
 from evals.e2e.cliente import ClienteRoteirizado
-from evals.e2e.persistencia import gravar_resposta_ia, seed_caso_persistente
+from evals.e2e.persistencia import seed_caso_persistente
 from evals.e2e.runner import ResultadoE2E, rodar_e2e
 from evals.harness import Cenario, ResultadoTurno, estado_pos_turno, habilitar_tracing
 
@@ -484,11 +485,8 @@ def _camisinha_direta_sem_incluso(res: ResultadoE2E, gatilho: str) -> bool:
     return turno_alvo is not None and bool(_RE_CAMISINHA_DIRETA.search(turno_alvo.texto or ""))
 
 
-# Issue 16. Espelha `_RE_CONTRAPROPOSTA` (agente/_disciplina.py), o detector canonico da
-# contraproposta ("Consigo 500 se você vier hoje") — aqui com o VALOR capturado, e sobre o texto
-# CRU (o detector roda sobre `normalizar()`, por isso o "nao" dele nao tem acento e o daqui tem).
-# Mudou a forma canonica no prompt -> os dois sites mudam juntos.
-_RE_VALOR_OFERTADO = re.compile(r"(?<!n[ãa]o )\bconsigo\s+(?:r\$\s*)?(\d{3,5})\b", re.I)
+# Issue 16. O detector do valor OFERTADO mora em `evals.checks` (fonte unica: o gate de seguranca
+# usa o mesmo para o piso do ADR-0031), espelhando `_RE_CONTRAPROPOSTA` (agente/_disciplina.py).
 
 
 def _ofertou_abaixo_do_teto(res: ResultadoE2E, teto: int) -> bool:
@@ -499,9 +497,7 @@ def _ofertou_abaixo_do_teto(res: ResultadoE2E, teto: int) -> bool:
     em cima de uma oferta que a propria IA fez. Le so o numero que segue "consigo" — o valor
     OFERTADO —, nao qualquer numero da bolha (ela pode ecoar o que o cliente pediu ao recusar)."""
     return any(
-        int(valor) < teto
-        for turno in res.turnos
-        for valor in _RE_VALOR_OFERTADO.findall(turno.texto or "")
+        valor < teto for turno in res.turnos for valor in valores_ofertados(turno.texto or "")
     )
 
 
@@ -622,8 +618,10 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
 async def _persistir_turno(
     conn: AsyncConnection[dict[str, Any]], cen: Cenario, r: ResultadoTurno
 ) -> None:
-    """Hook pos-turno (modo --persistir): grava a bolha da IA e COMMITA -> aparece no painel."""
-    await gravar_resposta_ia(conn, cen, r.texto)
+    """Hook pos-turno (modo --persistir): COMMITA o turno -> aparece no painel.
+
+    So o commit: a bolha da IA ja foi gravada pelo `enviar_turno` do caminho fiel, na mesma
+    transacao (o `gravar_resposta_ia` daqui virou duplicata quando o runner migrou)."""
     await conn.commit()
 
 
@@ -642,8 +640,8 @@ async def rodar_massa(
     quando `persistir`); `conn_eval` (AUTOCOMMIT separada) recebe o veredito quando `run_tag` setado.
 
     `persistir`: cada cenario vira uma conversa `origem='e2e'` sob a modelo sandbox (painel
-    /observabilidade). O trace Langfuse + score (`escopar_trace`) ligam sozinhos se `setup_langfuse`
-    rodou no startup; sem handler, sao no-op.
+    /observabilidade). O trace Langfuse + score ligam sozinhos se `setup_langfuse` rodou no startup
+    (o caminho fiel escopa o span no coordenador, como prod); sem handler, sao no-op.
 
     `dataset_run`: nome da corrida no dataset Langfuse `e2e_conducao`. Setado -> cada cenario vira um
     item (id=perfil.nome) e o trace do ultimo turno e linkado a esse run (Fase 5). Best-effort/no-op
@@ -672,7 +670,6 @@ async def rodar_massa(
                 max_turnos=max_turnos,
                 cen=cen,
                 pos_turno=_persistir_turno if persistir else None,
-                escopar_trace=True,
             )
             if cf.pos_evento == "foto_portaria" and res.cenario is not None:
                 await _disparar_foto_portaria(conn, res.cenario)
