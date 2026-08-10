@@ -115,8 +115,14 @@ _dump_*.txt
 # Export de contatos reais (PII de clientes); só local, nunca no repo.
 contacts*.csv
 
-# Artefatos de eval do corpus (contêm @lid de clientes reais — PII); só local, nunca no repo.
-scripts/eval_corpus/
+# Amostras de calibração dos judges (scripts/calibracao): carregam o texto das bolhas e o
+# contexto da conversa real. PII de cliente — só local, nunca no repo.
+amostra_calibracao*.csv
+*_calibracao_rotulada*.csv
+
+# O harness de eval do corpus (scripts/eval_corpus/) passou a ser VERSIONADO — só o código.
+# Os artefatos com @lid de clientes reais (PII) continuam fora do repo, agora pelo .gitignore
+# do próprio diretório, que separa código de dado arquivo a arquivo.
 
 # --- migracao entre maquinas (scripts locais) ---
 _migracao/

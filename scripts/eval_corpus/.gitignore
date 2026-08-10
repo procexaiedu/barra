@@ -1,0 +1,50 @@
+# O CÓDIGO deste diretório é versionado; o DADO não.
+#
+# Regra: nada que contenha conversa real de cliente entra no git. O corpus é chaveado pelo
+# `@lid` do WhatsApp (identificador pseudônimo de pessoa real) e as falas trazem nome, telefone,
+# endereço e valor. Os artefatos abaixo são todos REGENERÁVEIS a partir do `corpus.*` no
+# Postgres pelos próprios scripts versionados — o que se perde ao não versionar é tempo de
+# recomputo, não conhecimento.
+#
+# Ao adicionar arquivo novo, a pergunta é uma só: **isto contém fala de cliente?**
+# Se sim (ou na dúvida), ignore aqui.
+
+# --- Fichas e seleções de threads reais (PII direta: @lid, nome, telefone) ---
+/_dados_reais/
+fichas_threads.jsonl
+amostra_estilo_eb.json
+/_phrasebook/
+
+# --- Saídas geradas dos workflows (derivadas de conversa real) ---
+_auditoria_itens.json
+dossie_dados.json
+dossie_fidelidade.html
+v1_cotacoes_geradas.json
+v1_features_detectadas.json
+
+# --- Documentos que SÃO corpus destilado, não documentação de método ---
+# (falas verbatim do vendedor / índice de threads reais com @lid e resumo do que aconteceu)
+PHRASEBOOK.md
+ATLAS.md
+prompt_aderencia_falas.md
+
+# --- Rodadas locais: qualquer replay/eval despejado aqui ---
+*.jsonl
+*.csv
+/saidas/
+/out/
+*_resultado.json
+*_replay.json
+*_terminal*.json
+*.html
+
+# --- Ruído ---
+__pycache__/
+*.pyc
+
+# Exceções explícitas: perfis estilométricos são agregados NUMÉRICOS (histogramas, trigramas de
+# CARACTERE, taxas) — sem texto verbatim, sem identificador. São o congelado de referência da
+# métrica em `estilometria.py`; sem eles a métrica não é reprodutível.
+!perfil_estilo_corpus.json
+!perfil_estilo_abertura.json
+!perfil_estilo_por_momento.json
