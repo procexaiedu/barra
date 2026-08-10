@@ -16,15 +16,16 @@ A raiz cobre `dev`/`build`/`lint`. Aqui também há:
 |---|---|
 | `pnpm test` / `pnpm test:watch` | vitest (unit) |
 | `pnpm e2e` / `pnpm e2e:ui` | Playwright (e2e completo) |
-| `pnpm verify` | **gate de verificação** — Playwright `--project=verificacao` |
 
 `pnpm lint` é `eslint` (não `next lint`).
 
-## Verificação agent-native é o gate desta pasta
+## Verificação agent-native: só o contrato sobrou
 
-Padrão em `src/lib/verify/` (ver `contract.ts`). Um componente publica seu estado relevante no DOM via `emitirContrato("id", estado)` → atributo `data-verificacao` (JSON) + `data-verify`. Três superfícies — dashboard, agente pelo browser (Playwright MCP) e headless/CI — leem o blob de volta e rodam as **mesmas invariantes TS puras** (`src/lib/verify/specs/`).
+Padrão em `src/lib/verify/contract.ts`. Um componente publica seu estado relevante no DOM via `emitirContrato("id", estado)` → atributo `data-verificacao` (JSON) + `data-verify`, e quem verifica lê o blob em vez de raspar a UI.
 
-Mexeu numa superfície verificável (dashboard, mapa, funil)? Instrumente o contrato + spec e rode `pnpm verify` antes de considerar pronto — é a aplicação concreta do princípio §5 do CLAUDE.md raiz.
+**`pnpm verify` não existe mais.** O gate headless, o dashboard `/verificacao` e as invariantes (`specs/*.ts`) dependiam de **fixtures públicas** (`/verificacao/*`, `/demo-mapa`, `/painel-preview`) que eram bypass de auth no middleware, expostas em produção — removidas por auditoria de segurança. Detalhes e o caminho para reconstruir o gate **sem** rota pública: `docs/verificacao-agente.md`.
+
+Mexeu numa superfície verificável (dashboard, mapa, funil)? Mantenha o `emitirContrato` e verifique lendo o contrato na **rota autenticada real** (Playwright MCP / project `authed`) — é a aplicação concreta do princípio §5 do CLAUDE.md raiz. Nunca reabra rota pública para isso.
 
 ## `src/tipos/` é espelho manual do backend (por enquanto)
 

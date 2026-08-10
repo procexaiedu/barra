@@ -3,18 +3,19 @@
 //
 // Lança o Chromium do Playwright (já dependência do projeto via @playwright/test),
 // navega a uma rota, opcionalmente lê o contrato `data-verificacao` publicado no
-// DOM (mesmo contrato que `pnpm verify` valida) e salva um screenshot em disco.
+// DOM e salva um screenshot em disco.
 //
 // Uso (a partir de interface/, com `pnpm dev` já rodando em :3000):
 //   node .claude/skills/run-interface/driver.mjs <rota> [--out arquivo.png] [--contract <selector>] [--full]
 //
 // Exemplos:
-//   node .claude/skills/run-interface/driver.mjs /verificacao --out /tmp/barra-run/verificacao.png
-//   node .claude/skills/run-interface/driver.mjs /demo-mapa --out /tmp/barra-run/mapa.png --full
-//   node .claude/skills/run-interface/driver.mjs /verificacao/funil --contract '[data-verificacao]'
+//   node .claude/skills/run-interface/driver.mjs /login --out /tmp/barra-run/login.png
+//   node .claude/skills/run-interface/driver.mjs /login --full
 //
-// Rotas públicas (sem auth, liberadas no proxy.ts/middleware):
-//   /verificacao  /verificacao/funil  /verificacao/kanban  /demo-mapa  /painel-preview
+// ⚠️ A ÚNICA rota sem auth é /login. As fixtures públicas (/verificacao/*, /demo-mapa,
+// /painel-preview) foram removidas — eram bypass de auth exposto em produção. Todo o
+// resto redireciona para /login; para dirigir rota autenticada use o project `authed`
+// do Playwright (storageState em tests/e2e/.auth/state.json), não este driver.
 //
 // Variáveis: BASE_URL (default http://localhost:3000).
 
@@ -23,7 +24,7 @@ import { chromium } from "@playwright/test"
 const BASE = process.env.BASE_URL ?? "http://localhost:3000"
 
 const args = process.argv.slice(2)
-const rota = args.find((a) => !a.startsWith("--")) ?? "/verificacao"
+const rota = args.find((a) => !a.startsWith("--")) ?? "/login"
 const out = valorDe("--out") ?? `/tmp/barra-run/${rota.replace(/\W+/g, "_").replace(/^_|_$/g, "")}.png`
 const contrato = valorDe("--contract")
 const full = args.includes("--full")

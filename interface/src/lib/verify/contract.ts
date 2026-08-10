@@ -1,10 +1,10 @@
 // Contrato de verificação agent-native.
 //
 // Um componente publica seu estado relevante no DOM como um blob JSON num atributo
-// `data-verificacao` (+ `data-verify="<id>"` como seletor). As três superfícies de
-// verificação — dashboard human-readable, agente pelo browser (Playwright MCP) e
-// headless/CI — leem esse blob de volta e rodam as mesmas invariantes sobre ele.
-// O agente lê o estado publicado em vez de raspar a UI renderizada.
+// `data-verificacao` (+ `data-verify="<id>"` como seletor). O agente lê esse blob
+// pelo browser (Playwright MCP, no project `authed`) em vez de raspar a UI
+// renderizada. As fixtures públicas que existiam para isso foram removidas — eram
+// bypass de auth em produção —, então a leitura hoje é sempre em rota autenticada.
 
 export interface ContratoProps {
   "data-verify": string
@@ -28,8 +28,4 @@ export function lerContrato<T = unknown>(el: Element | null): T | null {
   } catch {
     return null
   }
-}
-
-export function seletorContrato(id: string): string {
-  return `[data-verify="${id}"]`
 }

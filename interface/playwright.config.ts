@@ -32,14 +32,8 @@ export default defineConfig({
       use: { ...devices["Desktop Chrome"] },
     },
     {
-      // Verificação agent-native: rotas /verificacao são públicas, sem storageState.
-      name: "verificacao",
-      testMatch: /verificacao\.spec\.ts/,
-      use: { ...devices["Desktop Chrome"] },
-    },
-    {
       name: "authed",
-      testIgnore: [/smoke\.spec\.ts/, /auth\.setup\.ts/, /verificacao\.spec\.ts/],
+      testIgnore: [/smoke\.spec\.ts/, /auth\.setup\.ts/],
       dependencies: ["setup"],
       use: {
         ...devices["Desktop Chrome"],
