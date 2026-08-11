@@ -71,11 +71,9 @@ function ModelosConteudo() {
   const detalhe = modelos.detalhe
   const modelo = detalhe?.modelo ?? null
   const conectado = modelo?.evolution_status === "conectado"
-  const esconderAdicionar =
-    view === "programas" ||
-    !conectado ||
-    modelo?.status === "pausada" ||
-    modelos.aba === "midia"
+  // Criar modelo não depende do estado da modelo selecionada (conexão, pausa,
+  // aba do detalhe): só faz sentido na listagem, onde a nova modelo aparece.
+  const esconderAdicionar = view !== "lista"
 
   // Status efetivo passado ao modal: deriva 'conectado' do detalhe quando o
   // modal já está aguardando o scan. Evita setState dentro de useEffect.
