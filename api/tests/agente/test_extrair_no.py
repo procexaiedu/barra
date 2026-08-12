@@ -166,7 +166,8 @@ async def test_forcado_truncado_descarta_e_fecha_com_fala() -> None:
     cmd = await node(state, _runtime())  # type: ignore[arg-type]
 
     assert cmd.goto == "post_process"
-    assert not cmd.update  # sem messages: a fala ja esta no state
+    # sem messages: a fala ja esta no state (o update so zera o disparo paralelo do turno)
+    assert "messages" not in (cmd.update or {})
     assert tool.chamadas == []  # tool NAO executada
 
 
@@ -180,7 +181,7 @@ async def test_forcado_sem_tool_call_descarta_e_fecha_com_fala() -> None:
     cmd = await node(state, _runtime())  # type: ignore[arg-type]
 
     assert cmd.goto == "post_process"
-    assert not cmd.update
+    assert "messages" not in (cmd.update or {})  # sem messages: a fala ja esta no state
     assert tool.chamadas == []
 
 

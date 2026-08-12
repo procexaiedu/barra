@@ -19,6 +19,7 @@ from typing import Any
 
 from barra.agente._disciplina import (
     contem_hora_na_mesa,
+    contem_hora_na_mesa_no_turno,
     contem_pergunta_de_horario,
     contem_sondagem_dia,
 )
@@ -66,6 +67,26 @@ def test_hora_na_mesa_cobre_as_formas_da_proposta_e_ignora_o_resto() -> None:
     assert contem_hora_na_mesa("Posso confirmar 17:30 ?")
     assert not contem_hora_na_mesa("Seria que horas amor ?")
     assert not contem_hora_na_mesa("Qual horário amor ?")
+
+
+def test_veto_do_turno_ignora_a_duracao_da_cotacao() -> None:
+    """P1-4c (diagnóstico 11/08): o veto era medido sobre o turno CONCATENADO, e o "1h" da cotação
+    ("400 1h no meu local") casava a hora crua — como todo turno de cotação carrega duração, o
+    contador ficou vetado para sempre (0 em 21 turnos medidos) e a disciplina anti-loop de horário
+    nunca existiu em produção."""
+    turno = ["400 1h no meu local", "Seria que horas hoje ?"]
+    assert not contem_hora_na_mesa_no_turno(turno)
+    # ... e a bolha da pergunta, por si, conta.
+    assert contem_pergunta_de_horario(turno[1])
+
+
+def test_veto_do_turno_preserva_a_proposta_partida_em_duas_bolhas() -> None:
+    # O que o veto por turno existe para proteger: o molde do <conducao_da_venda> sai partido pelo
+    # chunker e a 2ª bolha sozinha contaria a pergunta que a 1ª já respondeu com um horário.
+    assert contem_hora_na_mesa_no_turno(["Consigo às 21h amor", "ou prefere que horas ?"])
+    assert contem_hora_na_mesa_no_turno(["Podemos combinar 21h amor ?"])
+    # Cotação + proposta no mesmo turno: a duração some, o horário fica.
+    assert contem_hora_na_mesa_no_turno(["400 1h no meu local", "Consigo às 21h amor"])
 
 
 def test_afirmacao_sem_interrogacao_nao_conta() -> None:

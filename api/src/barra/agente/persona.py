@@ -16,7 +16,17 @@ from zoneinfo import ZoneInfo
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-from barra.dominio.atendimentos.service import calcular_preco_extra_fetiche
+# `e_video_chamada` DESCEU para `core/` (11/08/2026) e é reexportado aqui: o predicado tem
+# consumidor em `dominio/` (a leitura de tabela que alimenta a escada de desconto), e `dominio/`
+# não importa `barra.agente`. Quem já importava de `persona` (nos/prepare_context) não muda.
+from barra.core.catalogo import e_video_chamada as e_video_chamada  # reexport explícito (mypy)
+from barra.dominio.atendimentos.service import (
+    DURACAO_MINIMA_FETICHE_PAGO,
+    LinhaDeTabela,
+    aceita_fetiche_pago,
+    extra_de_fetiche,
+    preco_cadastrado_de_fetiche,
+)
 from barra.settings import get_settings
 
 _env = Environment(
@@ -67,22 +77,62 @@ def _idioma_humano(codigo: str) -> str:
 # horários válidos da tarde; um offset fixo divergiria do âncora se o DST voltasse.
 _FUSO_BR = ZoneInfo("America/Sao_Paulo")
 
+# Abreviações PT-BR fixas p/ o `%a` do filtro `brt` (índice = `date.weekday()`, 0=segunda).
+# `strftime("%a")` depende do locale do SO — no locale C (default de container) a <agenda> saía
+# "Tue 11/08"/"Thu 13/08" e a IA podia ecoar o inglês pro cliente. Mapa determinístico, sem
+# `setlocale` (que é global ao processo e racy com o worker async).
+_DIAS_SEMANA_PT = ("Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom")
+
 
 def _brt(dt: datetime | None, fmt: str) -> str:
     """Formata um datetime de agenda em horário de Brasília para o contexto do turno.
 
     Aware (current_timestamp / proximo_livre preservam o tzinfo da sessão, UTC) é convertido;
-    naive é assumido já-local. None vira string vazia (os blocos do template já guardam com `if`)."""
+    naive é assumido já-local. None vira string vazia (os blocos do template já guardam com `if`).
+    `%a` sai do mapa PT-BR fixo acima, nunca do locale."""
     if dt is None:
         return ""
     if dt.tzinfo is not None:
         dt = dt.astimezone(_FUSO_BR)
+    if "%a" in fmt:
+        fmt = fmt.replace("%a", _DIAS_SEMANA_PT[dt.weekday()])
     return dt.strftime(fmt)
+
+
+def _duracao_humana(minutos: int) -> str:
+    """Minutos -> duração curta pra IA verbalizar: acima de 2h vira horas arredondadas ("~36h"),
+    abaixo fica em minutos ("~45 min"). "faltam ~2156 min" (encontro de amanhã) é ilegível e a IA
+    repassaria o número cru ao cliente. Recebe o valor absoluto por dentro: o sinal (faltam /
+    já passou) é do template."""
+    m = abs(minutos)
+    if m > 120:
+        return f"~{round(m / 60)}h"
+    return f"~{m} min"
+
+
+def _duracao_de_pacote(horas: Any) -> str:
+    """Horas de um pacote da tabela -> como a persona FALA a duração: `0.5` → "30min", `1` → "1h",
+    `1.5` → "1h30".
+
+    Irmão do `_duracao_humana` (que é de MINUTOS, para o relógio do encontro) e distinto dele de
+    propósito: aqui a entrada é a coluna `duracoes.horas`, e o número não leva "~".
+
+    Existe desde que a tabela passou a ter duração fracionária (30min da Catarina, 11/08/2026):
+    os templates concatenavam "h" na variável crua e o pacote de meia hora sairia como "(0.5h)" —
+    número que a IA repassa ao cliente ("0,5h") em vez do "30min" que ele disse."""
+    valor = Decimal(str(horas))
+    minutos = int(valor * 60)
+    inteiras, resto = divmod(minutos, 60)
+    if inteiras == 0:
+        return f"{resto}min"
+    return f"{inteiras}h" if resto == 0 else f"{inteiras}h{resto:02d}"
 
 
 _env.filters["brl"] = brl
 _env.filters["idioma_humano"] = _idioma_humano
 _env.filters["brt"] = _brt
+_env.filters["duracao_humana"] = _duracao_humana
+_env.filters["duracao_de_pacote"] = _duracao_de_pacote
 
 
 @dataclass(frozen=True)
@@ -149,6 +199,28 @@ def render_contexto_dinamico(**variaveis: Any) -> str:
     return _env.get_template("contexto_dinamico.md.j2").render(**variaveis)
 
 
+def render_bloco_da_modelo(**variaveis: Any) -> str:
+    """Bloco ESTÁTICO por-modelo — 3ª SystemMessage do prefixo, CACHEÁVEL.
+
+    O que aqui entra é função só do CADASTRO dela (as tags `<sem_periodo_longo>`, `<sem_menage>`,
+    `<sem_video_chamada>`, `<sem_fetiches>` e o `<periodo_de_trabalho>`), nunca do turno: mesmo
+    atendimento, turno a turno, o texto sai byte-idêntico. Renderizava na cauda volátil junto do
+    contexto dinâmico e por isso era re-enviado como cache-MISS a cada turno — 66% do custo de
+    miss por turno era este conteúdo estático (diagnóstico por traces, 11/08). Aqui ele passa a
+    viver no prefixo `[BP_GERAL][BP_MODELO][bloco da modelo]`, que o DeepSeek cacheia
+    automaticamente.
+
+    Recebe o MESMO dicionário do `render_contexto_dinamico` (`ContextoDoTurno.como_variaveis()`),
+    pelo mesmo motivo do `<ja_registrado>` e do `<foco_do_turno>`: um rename de campo quebra o
+    contrato em `tests/unit/test_contrato_variaveis_contexto.py`, não em silêncio no prompt.
+
+    INVARIANTE: só entra aqui o que NÃO varia com o turno. `<cliente>` e `<local_de_encontro>`
+    ficam de fora por construção — o segundo é liberado por degrau de estado (ADR-0026), ou seja,
+    volátil por design; movê-lo congelaria o degrau no primeiro turno da conversa.
+    """
+    return _env.get_template("bloco_da_modelo.md.j2").render(**variaveis).strip()
+
+
 def render_ja_registrado(**variaveis: Any) -> str:
     """Bloco `<ja_registrado>` do turno (spec extracao-janela-dedicada) — texto volátil.
 
@@ -159,6 +231,21 @@ def render_ja_registrado(**variaveis: Any) -> str:
     dedicada da extração.
     """
     return _env.get_template("ja_registrado.md.j2").render(**variaveis)
+
+
+def render_foco_do_turno(**variaveis: Any) -> str:
+    """Bloco `<foco_do_turno>` (re-ancoragem por turno, rodada 3) — texto volátil, NÃO cacheável.
+
+    O que o burst ATUAL do cliente pede, detectado deterministicamente (`nos/_foco_do_turno.py`)
+    e devolvido ao modelo como DADO em posição de recência: as perguntas dele citadas, o endereço
+    literal quando ele pediu localização e o degrau libera, a rota do preço e a linha da tabela em
+    discussão. Vai entre o contexto dinâmico e a fala do cliente no último HumanMessage — a fala
+    continua por último (incidente 29/07). Renderiza VAZIO quando o turno não pede nada: conversa
+    sem pergunta nem pedido não paga token nenhum. Mesmo dicionário do contexto dinâmico
+    (`ContextoDoTurno.como_variaveis()`), pelo mesmo motivo do `<ja_registrado>`: um rename de
+    campo quebra o contrato em `test_foco_do_turno.py`, não em silêncio.
+    """
+    return _env.get_template("foco_do_turno.md.j2").render(**variaveis).strip()
 
 
 def render_ancora_extracao(agora: datetime | None) -> str:
@@ -179,7 +266,9 @@ def render_ancora_extracao(agora: datetime | None) -> str:
     )
 
 
-def render_reminder(fase: str | None, nome: str | None = None) -> str:
+def render_reminder(
+    fase: str | None, nome: str | None = None, fase_humana: str | None = None
+) -> str:
     """Reminder anti-drift (03 §10) — texto volátil, NÃO cacheável.
 
     Reinjeta o núcleo da voz perto do fim da janela em conversas longas, em primeira pessoa
@@ -192,8 +281,14 @@ def render_reminder(fase: str | None, nome: str | None = None) -> str:
     "IA"/"robô" — mencionar a negação primaria o tópico (white-bear) e poderia AUMENTAR o
     disclosure-leak. Por-modelo/volátil → fica na cauda, nunca no prefixo BP_GERAL byte-idêntico.
     None → o template omite a âncora (comportamento histórico).
+
+    `fase` (enum cru) segue guardando o `{% if fase %}` do template; `fase_humana` é o texto que ele
+    imprime (contrato F32 — só exibição). O chamador (prepare_context) humaniza; None → cai no
+    `fase` cru pela sua vez, mantendo o bloco íntegro se o mapa não cobrir o estado.
     """
-    return _env.get_template("reminder.md.j2").render(fase=fase, nome=nome)
+    return _env.get_template("reminder.md.j2").render(
+        fase=fase, nome=nome, fase_humana=fase_humana or fase
+    )
 
 
 def render_aup_saida() -> str:
@@ -235,37 +330,178 @@ def render_programas(programas: list[dict[str, Any]]) -> str:
     return _env.get_template("programas.md.j2").render(programas=programas)
 
 
+def _linhas_de_uma_hora(programas: list[dict[str, Any]]) -> dict[str, LinhaDeTabela]:
+    """A linha de 1 HORA de cada programa, por NOME — a base do extra de fetiche (ADR-0038).
+
+    Nome (e não `programa_id`) porque é o que o render tem em mãos e o que identifica o pacote na
+    tabela impressa. `preco_minimo` vai None de propósito: o `<fetiches>` é BP_MODELO, estático,
+    sempre no patamar CHEIO — o mínimo só muda valor em degrau/piso, que dependem da negociação
+    do turno e por isso não podem entrar no prefixo cacheável.
+    """
+    return {
+        p["nome"]: (Decimal(str(p["preco"])), None)
+        for p in programas
+        if p.get("duracao_horas") is not None
+        and Decimal(str(p["duracao_horas"])) == DURACAO_MINIMA_FETICHE_PAGO
+    }
+
+
+def _grupos_de_extra(
+    fetiches: list[dict[str, Any]], programas: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Agrupa os fetiches PAGOS de uma SEÇÃO pelo extra que cada um cobra, com a conta pronta.
+
+    Chave do grupo = o preço cadastrado (None = extra derivado da linha de 1h). Fetiches que
+    cobram o mesmo extra saem numa linha só de nomes com UMA tabela; com preços cadastrados
+    diferentes, cada valor ganha a sua. Ordem = a do cadastro (dict preserva inserção), pré-req
+    do cache do BP_MODELO.
+
+    `extra` do grupo é o valor único do extra — sob o ADR-0038 ele é UM número na maioria dos
+    cadastros (o extra é a 1h do programa e não muda com a duração). Fica None só quando a modelo
+    tem programas com 1h de preços diferentes (Normal 400 e Completo 600): aí o extra varia de
+    linha pra linha e o template volta a imprimir a coluna "Extra". `fonte` diz de onde o número
+    veio (`cadastro` ou `uma_hora`), que é o que a frase de cabeçalho precisa nomear.
+
+    Serve às DUAS seções (atos e composição) com a MESMA conta desde o ADR-0039: a 2ª pessoa
+    custa o que qualquer outro extra custa, então não há mais um `por_pessoa` que mude a
+    aritmética — as seções continuam separadas na saída porque são coisas diferentes de VENDER,
+    não porque custam diferente.
+
+    Linha OMITIDA quando `extra_de_fetiche` devolve None: pacote < 1h (decisão de 11/08/2026 — a
+    IA nunca pode LER "Normal (30 minutos) | R$650") e programa sem linha de 1h cadastrada
+    (fail-closed do ADR-0038 — sem a 1h não há extra a cotar naquele programa; desde o ADR-0039
+    isso vale também para a composição, que antes dispensava a 1h). Grupo que fica sem nenhuma
+    linha continua na lista; quem decide se a seção renderiza é o `tem_linhas_*` de
+    `render_fetiches` (senão sairia cabeçalho de tabela sem corpo).
+    """
+    uma_hora = _linhas_de_uma_hora(programas)
+    grupos: dict[Any, dict[str, Any]] = {}
+    for f in fetiches:
+        cadastrado = preco_cadastrado_de_fetiche(f.get("preco"))
+        grupo = grupos.setdefault(cadastrado, {"nomes": [], "extra": None, "linhas": []})
+        grupo["nomes"].append(f["nome"])
+    for cadastrado, grupo in grupos.items():
+        for p in programas:
+            preco = Decimal(str(p["preco"]))
+            extra = extra_de_fetiche(
+                uma_hora.get(p["nome"]),
+                p.get("duracao_horas"),
+                preco_cadastrado=cadastrado,
+            )
+            if extra is None:  # pacote < 1h, ou programa sem linha de 1h: não tem linha
+                continue
+            # Totais pré-computados, INCLUSIVE o de dois fetiches: a conta chega pronta no dado —
+            # o modelo copia, não soma (800+800 já saiu como "1200" em replay 22/07). É por isso
+            # que a coluna "+2 fetiches" existe em vez de uma frase mandando somar duas vezes.
+            grupo["linhas"].append(
+                {
+                    "pacote": f"{p['nome']} ({p['duracao_nome']})",
+                    "duracao_nome": p["duracao_nome"],
+                    "horas": Decimal(str(p["duracao_horas"])),
+                    "extra": extra,
+                    "total": preco + extra,
+                    "total_2": preco + extra * 2,
+                }
+            )
+        extras = {ln["extra"] for ln in grupo["linhas"]}
+        grupo["extra"] = extras.pop() if len(extras) == 1 else None
+        grupo["fonte"] = "cadastro" if cadastrado is not None else "uma_hora"
+    return [{**g, "nomes": ", ".join(g["nomes"])} for g in grupos.values()]
+
+
+def _nota_de_pacote_curto(
+    curtos: list[dict[str, Any]],
+    grupos: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    """Dado da instrução de conduta do pacote curto — None quando ela não deve renderizar.
+
+    A regra "menos de 1h não tem fetiche pago" (11/08/2026) tira a linha da tabela, mas sozinha
+    ela deixaria a IA sem fala: o cliente NA meia hora pede um ato pago e o bloco não tem número
+    nenhum pra ele. A conduta é upsell — ela faz o ato, só não naquela duração — e mora aqui, no
+    `<fetiches>`, e não em `regras.md.j2`: o BP_GERAL é byte-idêntico entre modelos e a maioria
+    não tem pacote curto; instrução por-modelo vive no bloco por-modelo.
+
+    Só existe com pacote curto E alguma linha paga impressa — sem os dois não há nem regra a
+    explicar nem número a cotar. O exemplo aponta a MENOR linha que o primeiro grupo pago
+    imprimiu ("a partir de..."), lida da própria linha: é o mesmo número que a tabela logo acima
+    mostrou, nunca um número novo (a IA não pode ler valor que não está na tabela dela).
+    """
+    if not curtos or not grupos or not grupos[0]["linhas"]:
+        return None
+    menor = min(grupos[0]["linhas"], key=lambda ln: ln["horas"])
+    return {
+        "curtos": ", ".join(f"{p['nome']} ({p['duracao_nome']})" for p in curtos),
+        "duracao": menor["duracao_nome"],
+        "total": menor["total"],
+        "fetiche": grupos[0]["nomes"].split(", ")[0],
+    }
+
+
 def render_fetiches(fetiches: list[dict[str, Any]], programas: list[dict[str, Any]]) -> str:
-    """BP3 por-modelo — cardápio de fetiches que a modelo FAZ (ADR 0030 / ADR 0035).
+    """BP3 por-modelo — cardápio de fetiches que a modelo FAZ (ADR 0030 / 0035 / 0038).
 
     Cada item é um fetiche vinculado, com `preco` (None = incluso; preenchido = pago) e a flag
-    `cobra_por_pessoa` (casal/menage). O valor do extra deixou de ser lido de `preco` (ADR-0030):
-    é sempre calculado do pacote, em DOIS regimes (ADR-0035):
-    - **ato** (default): preço-hora efetivo do pacote, uniforme entre atos — por isso a tabela sai
-      UMA vez e os atos entram como lista de nomes, sem repetir o extra por fetiche.
-    - **por-pessoa** (casal/menage): dobra o pacote (2 pessoas) — o `dobro` pré-computado.
+    `cobra_por_pessoa` (COMPOSIÇÃO — quem acompanha quem no encontro; desde 11/08/2026 há um item
+    por composição no catálogo, não mais o par ambíguo "Casal"/"Menage"). Incluso vs. pago
+    continua sendo `preco` NULL vs. NOT NULL;
+    o VALOR do extra pago tem dois regimes:
+    - **preço cadastrado** (fonte de verdade, decisão de 11/08/2026): o extra é o número do
+      painel, fixo em qualquer pacote — `preco_cadastrado_de_fetiche` separa o número real do
+      sentinel truthy que o painel grava só para dizer "pago" (`_PRECO_PAGO_SENTINEL`).
+    - **derivado** (ADR-0038, o cadastro de quase todo o prod): o extra é o preço da linha de 1
+      HORA do MESMO programa — também fixo em relação à duração do pacote, o que é justamente o
+      que permitiu trocar a coluna "Extra" por um número nomeado no cabeçalho.
+    Só programa PRESENCIAL entra: a vídeo chamada (ADR-0021) não carrega fetiche pago.
+    `cobra_por_pessoa` (composição) mantém a SEÇÃO própria, mas desde o ADR-0039 não tem mais
+    ARITMÉTICA própria: a 2ª pessoa custa o mesmo extra dos atos (o pacote não dobra, e o preço
+    cadastrado dela já é o total). A seção sobrevive porque a fala é outra — a coluna é "Total com
+    a 2ª pessoa", não "+2 fetiches" — e porque é ela que o `<sem_menage>` e o `composicao_em_pauta`
+    leem.
     A ausência de um fetiche da lista significa que ela NÃO faz — a IA recusa de forma aberta, sem
     lista de negativos no prompt. As listas chegam ordenadas de forma determinística (pré-req do
     cache — agente/CLAUDE.md): o bloco sai na mesma ordem sempre, sem depender do turno/conversa."""
-    precos_por_programa = []
-    for p in programas:
-        preco = Decimal(str(p["preco"]))
-        extra = calcular_preco_extra_fetiche(preco, Decimal(str(p["duracao_horas"])))
-        precos_por_programa.append(
-            {
-                "nome": p["nome"],
-                "duracao_nome": p["duracao_nome"],
-                "extra": extra,
-                # Totais pré-computados: a conta chega pronta no dado — o modelo copia, não soma
-                # (800+800 já saiu como "1200" em replay 22/07). `total` = pacote + extra do ato;
-                # `dobro` = pacote por-pessoa (casal/menage, 2 pessoas — ADR-0035).
-                "total": preco + extra,
-                "dobro": preco * 2,
-            }
-        )
+    # `cobra_por_pessoa` vence o preco NULL: composição "inclusa" não existe (CONTEXT.md,
+    # verbete Composição — cadastro assim é cadastro a corrigir); cai na seção "Por pessoa" com o extra
+    # derivado do `extra_de_fetiche` (a linha de 1h do programa), nunca nos Inclusos.
+    inclusos = [f for f in fetiches if not f.get("preco") and not f.get("cobra_por_pessoa")]
+    por_pessoa = [f for f in fetiches if f.get("cobra_por_pessoa")]
+    atos = [f for f in fetiches if f.get("preco") and not f.get("cobra_por_pessoa")]
+    pagos = atos + por_pessoa
+    # Fetiche pago só existe em programa PRESENCIAL: a vídeo chamada (único serviço remoto,
+    # ADR-0021) sai de TODAS as seções de extra, inclusive da nota de pacote curto. Exclusão
+    # ortogonal à da duração — a chamada de 60min da Catarina (R$600) tem `horas = 1` e passaria
+    # no `aceita_fetiche_pago`, virando "Vídeo chamada (1h) | R$1.000": fetiche pago numa chamada
+    # de vídeo, que não existe como produto. As linhas curtas dela também não viram a conduta de
+    # upsell ("a partir de 1 hora" apontaria a chamada de 1h).
+    presenciais = [p for p in programas if not e_video_chamada(p.get("nome", ""))]
+    curtos = [p for p in presenciais if not aceita_fetiche_pago(p.get("duracao_horas"))]
+    grupos_ato = _grupos_de_extra(atos, presenciais)
+    grupos_por_pessoa = _grupos_de_extra(por_pessoa, presenciais)
+    # Flag POR SEÇÃO, e não "a modelo tem pacote de 1h+": uma seção pode existir no cadastro e
+    # ficar sem NENHUMA linha, e cabeçalho de tabela sem uma linha embaixo é pior que o aviso de
+    # que não dá pra cotar. Desde o ADR-0039 as duas perdem linha pelos MESMOS dois motivos
+    # (pacote < 1h e programa sem linha de 1h), já filtrados em `_grupos_de_extra` — antes o
+    # por-pessoa sobrevivia sem a 1h, porque dobrava o pacote.
     return _env.get_template("fetiches.md.j2").render(
-        fetiches=fetiches, precos_por_programa=precos_por_programa
+        inclusos=inclusos,
+        grupos_ato=grupos_ato,
+        grupos_por_pessoa=grupos_por_pessoa,
+        tem_pagos=bool(pagos),
+        tem_linhas_ato=any(g["linhas"] for g in grupos_ato),
+        tem_linhas_por_pessoa=any(g["linhas"] for g in grupos_por_pessoa),
+        pacote_curto=_nota_de_pacote_curto(curtos, grupos_ato + grupos_por_pessoa),
     )
+
+
+def render_cardapio_fechado() -> str:
+    """Declaração closed-world do cardápio (rodada 3 do eval de substituição). Markdown puro.
+
+    O contrato "ausência = não faz" sempre existiu como docstring de `render_fetiches` — ou seja,
+    só o dev lia. Aqui ele vira texto que o MODELO lê, colado no dado a que se refere (fecha a
+    lista, em vez de uma proibição por lacuna — o anti-padrão que a família `<sem_*>` da cauda
+    conteve caso a caso). Estático e byte-idêntico entre modelos: não quebra o cache do BP_MODELO.
+    """
+    return _env.get_template("cardapio_fechado.md").render()
 
 
 def render_bp3(
@@ -273,8 +509,9 @@ def render_bp3(
     programas: list[dict[str, Any]],
     fetiches: list[dict[str, Any]],
 ) -> str:
-    """BP3 completo por-modelo: identidade + programas + fetiches concatenados (03 §2.3)."""
+    """BP3 completo por-modelo: identidade + programas + fetiches + fechamento do cardápio
+    (03 §2.3). O `<cardapio_fechado>` sai por último, DEPOIS das listas que ele fecha."""
     return (
         f"{render_identidade(identidade)}\n{render_programas(programas)}\n"
-        f"{render_fetiches(fetiches, programas)}"
+        f"{render_fetiches(fetiches, programas)}\n{render_cardapio_fechado()}"
     )

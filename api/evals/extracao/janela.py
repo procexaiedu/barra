@@ -74,6 +74,12 @@ def variaveis_do_bloco(snapshot: dict[str, Any]) -> dict[str, Any]:
 
     Mesmos nomes que `_resolver_variaveis` publica (o template e o de prod): `valor_fechado`/
     `duracao_fechada` vem do numero seco, e `valor_aceito` e o sinal que separa cotado de aceito.
+
+    `fetiches_do_cadastro` (os nomes canonicos do cardapio dela, que em prod o `prepare_context`
+    tira das linhas ja lidas pelo BP_MODELO) sai VAZIO por padrao: o golden set do replay nao
+    carrega o cadastro da modelo, entao a tag nao renderiza — o item que quiser medir a traducao
+    de vocabulario ("pegging" -> "Inversao") precisa por os nomes no proprio snapshot. Divida
+    assumida e explicita, no mesmo espirito do `aplicar_payload` (espelho, nao fonte de verdade).
     """
     return {
         "tipo_atendimento": snapshot.get("tipo_atendimento"),
@@ -87,6 +93,7 @@ def variaveis_do_bloco(snapshot: dict[str, Any]) -> dict[str, Any]:
         "valor_aceito": bool(snapshot.get("aceita_valor")),
         "duracao_fechada": _numero_seco(snapshot.get("duracao_horas")),
         "urgencia": snapshot.get("urgencia"),
+        "fetiches_do_cadastro": tuple(snapshot.get("fetiches_do_cadastro") or ()),
     }
 
 

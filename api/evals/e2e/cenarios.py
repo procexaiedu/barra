@@ -27,13 +27,18 @@ _PROGRAMAS = [
 ]
 
 
-# Fetiches das duas modelos de menage (ADR-0030/0035). `preco` so marca PAGO (o valor nunca e
-# lido — o extra e calculado do pacote vendido); `cobra_por_pessoa` e a flag do catalogo GLOBAL que
-# faz o `fetiches.md.j2` abrir a secao "Por pessoa". A modelo COM tem as DUAS secoes de proposito:
-# assim os numeros do regime-ato (o "+Extra") existem no prompt dela, e cotar por eles vira erro de
-# ESCOLHA de linha, nao numero inventado.
-_FETICHE_ATO = {"nome": "Inversão", "preco": 350, "cobra_por_pessoa": False}
-_FETICHE_POR_PESSOA = {"nome": "Menage", "preco": 700, "cobra_por_pessoa": True}
+# Fetiches das duas modelos de menage (ADR-0030/0038/0039). `preco` = 1 e o SENTINEL de flag pago
+# que o painel grava hoje (`_PRECO_PAGO_SENTINEL`) — e o cadastro de 100% do prod, e o extra sai do
+# calculo derivado: a linha de 1 HORA do programa. Era 350/700 aqui, valores decorativos sob o
+# ADR-0030; a revisao de 11/08/2026 fez preco cadastrado virar o extra de verdade, e manter
+# numeros ficticios apagaria justamente o regime derivado que estes cenarios existem para exercer.
+# O regime de preco cadastrado tem cobertura propria em tests/agente/test_bp3_render.py.
+# `cobra_por_pessoa` e a flag do catalogo GLOBAL que faz o `fetiches.md.j2` abrir a secao "Por
+# pessoa". A modelo COM tem as DUAS secoes de proposito: sob o ADR-0039 elas cobram o MESMO extra,
+# entao o que o cenario mede e se ela le a linha do pacote em pauta (700+400 = 1100) em vez de
+# reviver o dobro (1400), que o prompt nao diz mais em lugar nenhum.
+_FETICHE_ATO = {"nome": "Inversão", "preco": 1, "cobra_por_pessoa": False}
+_FETICHE_POR_PESSOA = {"nome": "Acompanhante dele — mulher", "preco": 1, "cobra_por_pessoa": True}
 
 
 def _modelo(
@@ -110,14 +115,16 @@ class CenarioFunc:
     # que abre a janela; o check olha SO o turno que responde a ela.
     janela_vaga_do_cliente: str | None = None
     # Issue 23, menage ramo COM: a modelo tem a secao "Por pessoa" no <fetiches> -> a segunda
-    # pessoa DELE custa o DOBRO do pacote (2 pessoas — ADR-0035), nunca o preco-hora dos atos.
-    # Valor = (preco, horas) do pacote que a fala dele ancora; horas>=2 e obrigatorio, senao os
-    # dois regimes coincidem e o cenario passaria por acidente.
-    menage_dobra_o_pacote: tuple[int, int] | None = None
+    # pessoa DELE soma o MESMO extra dos atos (a linha de 1h do programa — ADR-0039), e o DOBRO
+    # do pacote (o regime revogado do ADR-0035) e o numero proibido. Valor = (preco, horas,
+    # preco da 1h); horas>=2 e obrigatorio, senao pacote+1h == pacote x 2 e o cenario passaria
+    # por acidente sem distinguir regime nenhum.
+    menage_soma_o_extra: tuple[int, int, int] | None = None
     # Issue 23, menage ramo SEM: sem a secao "Por pessoa" o pedido e fora do cardapio como outro
-    # qualquer — recusa aberta, sem cotar, sem dobrar nada e sem prometer amiga (<menage>, 1o
-    # paragrafo). Valor = os precos de tabela dela, cujo dobro nao pode aparecer em turno nenhum.
-    menage_fora_do_cardapio: list[int] | None = None
+    # qualquer — recusa aberta, sem cotar nada e sem prometer amiga (<menage>, 1o paragrafo).
+    # Valor = (precos de tabela dela, preco da 1h): nem o dobro deles nem `preco + 1h` pode
+    # aparecer em turno nenhum.
+    menage_fora_do_cardapio: tuple[list[int], int] | None = None
     # Issue 23, video chamada ramo SEM: ela nao esta nos <programas> -> a IA nao oferece, nao cota
     # e nao promete chamada nenhuma; a prova de humanidade se resolve com FOTO (<tipos_de_encontro>,
     # <protocolo_disclosure>). O lado positivo (mandou foto) e o `tool_esperada="enviar_midia"`.
@@ -213,12 +220,25 @@ CENARIOS: list[CenarioFunc] = [
     # Desconto de fechamento (ADR-0031, dois degraus): 1h/R$400, degrau ~12,5% -> 350, teto ~25% ->
     # 300. As 3 faixas do pedido do cliente relativas a esses dois valores (spec 0002, User Story
     # #8: "os testes de 'tem que escalar' distingam três faixas").
+    #
+    # O ADR-0040 partiu essas faixas em duas famílias que antes eram uma só: NUMERO DELE acima do
+    # piso (fecha no número dele, sem escada) e OBJEÇÃO SEM NÚMERO (aí sim a escada dela roda). Os
+    # dois cenários abaixo cobrem uma cada — antes os dois mediam a escada com o cliente nomeando
+    # valores acima do piso, que hoje nem chega a abrir escada nenhuma.
+    #
+    # O ADR-0041 acrescentou a terceira: objeção sem número E SEM O DIA, com o valor em pauta sendo
+    # um SALTO sobre o que ele já ouviu (composição, extra pago, pacote maior). Ali a IA parou de
+    # interrogar o dia e passa a condicionar a oferta ("hoje X, outro dia Y"). Isso mudou o que o
+    # `desconto_entre_degrau_teto` media: o roteiro dele nunca dizia o dia, e sem o dia a escada
+    # NÃO abre — ele afirmava na descrição uma escada de duas rodadas que a corrida não podia
+    # produzir. O dia entrou no roteiro (para OUTRO dia, que é o regime de duas rodadas), e o caso
+    # sem-dia virou cenário próprio logo abaixo.
     CenarioFunc(
-        nome="desconto_dentro_degrau",
-        descricao="Cliente insiste uma única vez (mostra intenção real, sem novo número abaixo "
-        "da oferta) -> fecha na 1ª contraproposta (degrau), sem escalar.",
+        nome="desconto_valor_dele_serve",
+        descricao="Cliente nomeia um valor ACIMA do piso (360 sobre tabela 400, piso 300) -> a IA "
+        "fecha NO NÚMERO DELE, sem contraproposta própria e sem escalar (ADR-0040).",
         perfil=_perfil(
-            "desconto_dentro_degrau",
+            "desconto_valor_dele_serve",
             _modelo(["interno"]),
             "oi quanto é 1 hora?",
             [
@@ -228,24 +248,48 @@ CENARIOS: list[CenarioFunc] = [
             ],
         ),
         nao_deve_escalar=True,
-        teto_do_pacote=300,
+        # O teto vira o número DELE, não o piso da tabela: qualquer valor que a IA ofertar abaixo
+        # de 360 é desconto que ninguém pediu — é exatamente a perda que o ADR-0040 fecha.
+        teto_do_pacote=360,
     ),
     CenarioFunc(
         nome="desconto_entre_degrau_teto",
-        descricao="Cliente insiste DE NOVO, explícito, por um número menor ainda acima do teto "
-        "-> sobe pra 2ª e última contraproposta (teto) e fecha, sem escalar.",
+        descricao="Cliente objeta preço DUAS vezes sem nomear valor nenhum, com o encontro para "
+        "OUTRO dia -> a escada dela roda inteira (degrau e depois teto) e fecha, sem escalar.",
         perfil=_perfil(
             "desconto_entre_degrau_teto",
             _modelo(["interno"]),
             "oi quanto é 1 hora?",
             [
-                "nossa ta caro, consegue fazer 350?",
-                "poxa, consegue baixar mais, tipo uns 320?",
+                "nossa, ta caro demais pra mim",
+                # O dia ENTROU no roteiro (ADR-0041): sem ele a escada nunca abre e o cenário
+                # media uma conduta que a corrida não podia produzir. "Sexta" = outro dia, que é
+                # o único regime com DUAS rodadas (hoje vai direto ao piso, ADR-0031 + 11/08).
+                "seria pra sexta, consegue melhorar?",
+                "poxa, consegue melhorar mais um pouco?",
                 "fechado, pode marcar",
             ],
         ),
         nao_deve_escalar=True,
         teto_do_pacote=300,
+    ),
+    CenarioFunc(
+        nome="desconto_condicionado_ao_dia",
+        descricao="Objeção de preço e o valor em pauta dá um SALTO (ele traz uma segunda pessoa), "
+        "com o dia NUNCA dito -> a IA condiciona a oferta ao dia em vez de interrogar o dia "
+        "(ADR-0041). O que se mede aqui é a conduta não escalar; os DOIS números do par são "
+        "verificados nominalmente em tests/unit/test_piso_de_desconto.py, onde a tabela é fixa.",
+        perfil=_perfil(
+            "desconto_condicionado_ao_dia",
+            _modelo(["interno"], fetiches=[_FETICHE_POR_PESSOA]),
+            "oi quanto é 1 hora?",
+            [
+                "nossa, ta caro demais pra mim",
+                "e se eu levar minha namorada junto, quanto fica?",
+                "fechado, pode marcar",
+            ],
+        ),
+        nao_deve_escalar=True,
     ),
     CenarioFunc(
         nome="desconto_abaixo_teto",
@@ -438,13 +482,15 @@ CENARIOS: list[CenarioFunc] = [
     CenarioFunc(
         nome="menage_com_secao",
         descricao="Modelo COM a secao 'Por pessoa' no <fetiches> + cliente que traz a namorada -> "
-        "cota o DOBRO do pacote de 2h (1400), nunca o '+Extra' do regime-ato (350/1050), e fecha "
-        "sozinha (a escalada e so do ramo da amiga DELA).",
+        "cota o pacote de 2h + a linha de 1h (700+400 = 1100, ADR-0039), nunca o DOBRO do pacote "
+        "(1400, o regime revogado do ADR-0035), e fecha sozinha (a escalada e so do ramo da "
+        "amiga DELA).",
         perfil=_perfil(
             "menage_com_secao",
-            # 2h/R$700 e o pacote que a fala dele ancora: em 1h dobro e preco-hora COINCIDEM
-            # (ADR-0035) e o cenario nao distinguiria os dois regimes. Com o ato junto no cardapio,
-            # os numeros errados (extra 350, total 1050) estao no prompt dela.
+            # 2h/R$700 e o pacote que a fala dele ancora: em 1h `pacote + 1h` e `pacote x 2` dao o
+            # MESMO numero e o cenario nao distinguiria o regime novo do revogado. Com o ato junto
+            # no cardapio, as duas secoes existem no prompt dela — e, sob o ADR-0039, com o mesmo
+            # extra, que e justamente o que se quer provar que ela sabe ler.
             _modelo(["interno"], fetiches=[_FETICHE_ATO, _FETICHE_POR_PESSOA]),
             "oi, quanto é 2 horas?",
             [
@@ -452,18 +498,19 @@ CENARIOS: list[CenarioFunc] = [
                 "fechado então",
             ],
         ),
-        menage_dobra_o_pacote=(700, 2),
+        menage_soma_o_extra=(700, 2, 400),
         nao_deve_escalar=True,
     ),
     CenarioFunc(
         nome="menage_sem_secao",
         descricao="Modelo SEM a secao 'Por pessoa' (so fetiche-ato) + o MESMO pedido -> recusa "
-        "aberta, sem cotar, sem dobrar nada (800/1400) e sem prometer amiga.",
+        "aberta, sem cotar total de segunda pessoa nenhum (800/1400 pelo regime revogado, "
+        "800/1100 pelo do ADR-0039) e sem prometer amiga.",
         perfil=_perfil(
             "menage_sem_secao",
             # So o ato: o <fetiches> dela renderiza "Extras pagos" e NENHUMA secao "Por pessoa".
-            # (Os dobros proibidos sao 800 e 1400; 800 tambem e o total-com-ato da 1h — colisao
-            # inofensiva aqui porque o roteiro nunca pede o ato, mas nao reuse a lista as cegas.)
+            # (800 e ao mesmo tempo o dobro da 1h e o total-com-ato dela — colisao inofensiva
+            # aqui porque o roteiro nunca pede o ato, mas nao reuse a lista as cegas.)
             _modelo(["interno"], fetiches=[_FETICHE_ATO]),
             "oi, quanto é 2 horas?",
             [
@@ -471,7 +518,7 @@ CENARIOS: list[CenarioFunc] = [
                 "fechado então",
             ],
         ),
-        menage_fora_do_cardapio=[400, 700],
+        menage_fora_do_cardapio=([400, 700], 400),
     ),
     CenarioFunc(
         nome="video_chamada_sem_programa",

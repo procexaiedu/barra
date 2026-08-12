@@ -1,6 +1,7 @@
 """Porta unica para comandos operacionais sensiveis."""
 
 import json
+import logging
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Any, Literal
@@ -12,8 +13,16 @@ from barra.core.errors import ConflitoEstado, EntradaInvalida, NaoEncontrado
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.settings import get_settings
 
+logger = logging.getLogger(__name__)
+
 Origem = Literal["painel", "grupo_coordenacao", "pipeline_pix", "cron", "agente"]
 Autor = Literal["IA", "Fernando", "modelo", "sistema"]
+
+# Estados terminais do atendimento (CONTEXT.md, "Estados do atendimento"). Nenhum comando desta
+# porta unica tira um atendimento de la: uns recusam (ConflitoEstado), outros registram o dado
+# sem mover o estado (ver `_atualizar_pix`). A unica excecao do dominio e a Foto de portaria
+# ressuscitando um `auto_timeout_interno` (ADR 0027), que roda fora daqui.
+ESTADOS_TERMINAIS = frozenset({"Fechado", "Perdido"})
 
 
 @dataclass(frozen=True)
@@ -81,7 +90,7 @@ async def _devolver_para_ia(
     autor: Autor,
     payload: dict[str, Any],
 ) -> ResultadoComando:
-    if atendimento["estado"] in {"Fechado", "Perdido"}:
+    if atendimento["estado"] in ESTADOS_TERMINAIS:
         raise ConflitoEstado("Atendimento ja esta finalizado.")
     if not atendimento["ia_pausada"]:
         raise ConflitoEstado("Atendimento nao esta pausado.")
@@ -125,7 +134,7 @@ async def _pausar_ia(
     Idempotente: reusa `abrir_handoff`, que não abre segunda escalada se já houver uma aberta —
     pausar um atendimento já pausado (manual ou automaticamente) não quebra nem duplica.
     """
-    if atendimento["estado"] in {"Fechado", "Perdido"}:
+    if atendimento["estado"] in ESTADOS_TERMINAIS:
         raise ConflitoEstado("Atendimento ja esta finalizado.")
 
     await abrir_handoff(
@@ -155,7 +164,7 @@ async def _registrar_fechado(
         raise EntradaInvalida(
             "VALOR_FINAL_OBRIGATORIO", "Valor final obrigatorio.", {"campo": "valor_final"}
         )
-    if atendimento["estado"] in {"Fechado", "Perdido"}:
+    if atendimento["estado"] in ESTADOS_TERMINAIS:
         raise ConflitoEstado("Atendimento ja esta finalizado.")
 
     # Taxa de cartão (ADR 0013): o backend carimba o snapshot a partir do default em settings
@@ -189,6 +198,7 @@ async def _registrar_fechado(
             atendimento["id"],
         ),
     )
+    await _rastro_de_fetiche(conn, atendimento["id"])
     await _evento(
         conn,
         atendimento["id"],
@@ -225,7 +235,7 @@ async def _registrar_perdido(
             "Observacao obrigatoria para motivo outro.",
             {"campo": "observacao"},
         )
-    if atendimento["estado"] in {"Fechado", "Perdido"}:
+    if atendimento["estado"] in ESTADOS_TERMINAIS:
         raise ConflitoEstado("Atendimento ja esta finalizado.")
 
     await conn.execute(
@@ -330,6 +340,7 @@ async def _corrigir_registro(
     # invisível no módulo (que filtra por esse evento como data-âncora).
     # Reciprocamente para Perdido, mantém simetria de auditoria.
     if novo == "Fechado" and atendimento["estado"] != "Fechado":
+        await _rastro_de_fetiche(conn, atendimento["id"])
         await _evento(
             conn,
             atendimento["id"],
@@ -365,8 +376,29 @@ async def _atualizar_pix(
     # Remoto (ADR 0029): o Pix antecipado da video chamada so registra o pagamento — sem
     # transicao (a hora da chamada transiciona pelo cron, ADR 0021) e sem pausar a IA (o
     # cliente segue conversando ate a hora).
+    #
+    # ATENDIMENTO TERMINAL: decidir o COMPROVANTE e decidir o ATENDIMENTO sao coisas separadas.
+    # A fila de revisao e assincrona por design (o Pix nunca trava), entao o veredito de Fernando
+    # chega rotineiramente DEPOIS de o encontro ter acontecido e a modelo ter fechado no grupo.
+    # Nesse caso gravamos pix_status + evento (informacao legitima: auditoria financeira, timeline
+    # do cliente, fila do painel) mas NAO avancamos o atendimento: reverter `Fechado` para
+    # `Confirmado` sumiria com a venda do faturamento (dashboard/resumo filtram estado='Fechado'),
+    # reabriria o par contra o indice unico parcial `atendimentos_um_aberto_por_par` (bloqueando a
+    # recorrencia legitima, ou estourando UniqueViolation se ja existe um novo) e devolveria o
+    # zumbi ao `timeout_longo`, que o mataria de novo como Perdido/sumiu. Mesma regra ja aplicada
+    # ao veredito 'invalido' (grilling 2026-05-23): registro sim, reversao de estado nao.
+    terminal = atendimento["estado"] in ESTADOS_TERMINAIS
+    avanca = atendimento["tipo_atendimento"] == "externo" and not terminal
+    # Carimba no evento por que o avanco nao aconteceu — sem isso a timeline mostra
+    # "pix validado" num atendimento parado e ninguem sabe se foi bug ou guarda.
+    payload_evento = (
+        {**payload, "avanco_suprimido": "atendimento_terminal", "estado": atendimento["estado"]}
+        if terminal
+        else payload
+    )
+
     if decisao == "validado":
-        if atendimento["tipo_atendimento"] == "externo":
+        if avanca:
             estado = "Confirmado"
             await conn.execute(
                 """
@@ -387,11 +419,11 @@ async def _atualizar_pix(
                 "UPDATE barravips.atendimentos SET pix_status = 'validado' WHERE id = %s",
                 (atendimento["id"],),
             )
-        await _evento(conn, atendimento["id"], "pix_status_mudado", origem, autor, payload)
+        await _evento(conn, atendimento["id"], "pix_status_mudado", origem, autor, payload_evento)
         return ResultadoComando(atendimento["id"], estado, "validado")
 
     if decisao == "em_revisao":
-        if atendimento["tipo_atendimento"] == "externo":
+        if avanca:
             estado = "Confirmado"
             await conn.execute(
                 """
@@ -412,7 +444,7 @@ async def _atualizar_pix(
                 "UPDATE barravips.atendimentos SET pix_status = 'em_revisao' WHERE id = %s",
                 (atendimento["id"],),
             )
-        await _evento(conn, atendimento["id"], "pix_status_mudado", origem, autor, payload)
+        await _evento(conn, atendimento["id"], "pix_status_mudado", origem, autor, payload_evento)
         return ResultadoComando(atendimento["id"], estado, "em_revisao")
 
     if decisao == "invalido":
@@ -596,6 +628,29 @@ async def abrir_handoff(
                 "observacao": observacao,
                 "acao_esperada": acao_esperada,
             },
+        )
+
+
+async def _rastro_de_fetiche(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
+    """Materializa em `atendimento_fetiches` os extras que a conversa combinou (ADR-0030, pend. 4).
+
+    Import LOCAL: `dominio/atendimentos/service.py` importa esta porta (`abrir_handoff`) de volta,
+    tambem localmente — no topo os dois viravam ciclo.
+
+    Best-effort por decisao: o rastro e um BREAKDOWN para o painel, nunca motivo para reverter um
+    fechamento ja aceito (o dinheiro entrou). Roda em SAVEPOINT proprio, entao um erro de banco
+    aqui nao envenena a transacao do comando.
+    """
+    from barra.dominio.atendimentos.service import registrar_fetiches_do_fechamento
+
+    try:
+        async with conn.transaction():
+            await registrar_fetiches_do_fechamento(conn, atendimento_id)
+    except Exception:
+        logger.warning(
+            "rastro de fetiche do fechamento falhou; atendimento fechado mesmo assim",
+            extra={"atendimento_id": str(atendimento_id)},
+            exc_info=True,
         )
 
 

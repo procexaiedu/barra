@@ -21,6 +21,7 @@ from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
 from barra.dominio.atendimentos.service import (
+    gravar_valor_do_aceite,
     incrementar_contrapropostas,
     incrementar_perguntas_de_horario,
     marcar_amiga_ofertada,
@@ -170,3 +171,32 @@ async def test_retry_do_envio_nao_dobra_o_contador(
     flags = await _flags(conn, aid)
     assert flags["n_contrapropostas"] == 1
     assert flags["n_perguntas_de_horario"] == 1
+
+
+async def test_valor_do_aceite_move_a_mesa_e_e_idempotente(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """`gravar_valor_do_aceite` contra o Postgres real (ADR-0040).
+
+    É o único caminho por onde `valor_acordado` DESCE, e desce só até um número que o cliente
+    nomeou e que o piso já aprovou — quem julga é a `aceite_do_valor_dele`, antes, no
+    prepare_context. Aqui prova-se o que o SQL faz: sobrescreve a mesa (o caso vivo é 800 cotado →
+    700 aceito, e sem a sobrescrita a venda ficaria registrada pelo valor que ele recusou) e é
+    no-op quando o valor já é esse (o `IS DISTINCT FROM` — o mesmo turno pode dizer o número em
+    duas bolhas, e o retry do envio re-percorre os chunks)."""
+    aid, _ = await _seed_atendimento(conn)
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET valor_acordado = 800 WHERE id = %s", (aid,)
+    )
+
+    assert await gravar_valor_do_aceite(conn, aid, 700) is True
+    assert await _valor(conn, aid) == 700
+    # 2ª bolha do mesmo turno / retry: nada a mover.
+    assert await gravar_valor_do_aceite(conn, aid, 700) is False
+    assert await _valor(conn, aid) == 700
+
+
+async def _valor(c: AsyncConnection[dict[str, Any]], aid: UUID) -> int | None:
+    res = await c.execute("SELECT valor_acordado FROM barravips.atendimentos WHERE id = %s", (aid,))
+    row = await res.fetchone()
+    return None if row is None or row["valor_acordado"] is None else int(row["valor_acordado"])

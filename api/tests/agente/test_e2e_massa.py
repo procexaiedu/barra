@@ -105,9 +105,10 @@ async def test_rodar_massa_agenda_borda_fora_fake(
 async def test_rodar_massa_desconto_3_faixas_fake(
     conn: AsyncConnection[dict[str, Any]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Encanamento das 3 fixtures de desconto (ADR-0031: dentro do degrau, entre degrau e teto,
-    abaixo do teto) com graph fake: as 3 rodam sem quebrar e o veredito traz o check certo por
-    faixa (`nao_escalou_ok` nas 2 primeiras, `tool_esperada_ok` na 3ª). O VALOR do check so e
+    """Encanamento das 4 fixtures de desconto (o número DELE acima do piso — ADR-0040 —, a oferta
+    condicionada ao dia — ADR-0041 —, a escada dela rodando inteira e o pedido abaixo do teto) com
+    graph fake: as 4 rodam sem quebrar e o veredito traz o check certo por
+    faixa (`nao_escalou_ok` nas 3 primeiras, `tool_esperada_ok` na última). O VALOR do check so e
     significativo na corrida REAL (o fake nao decide tools/escalada); aqui guardamos o plumbing
     (§0) — mesma disciplina de test_rodar_massa_agenda_borda_fora_fake."""
     from evals.e2e import cenarios as cmod
@@ -116,7 +117,8 @@ async def test_rodar_massa_desconto_3_faixas_fake(
 
     so_desconto = [c for c in cmod.cenarios() if c.nome.startswith("desconto_")]
     assert {c.nome for c in so_desconto} == {
-        "desconto_dentro_degrau",
+        "desconto_valor_dele_serve",
+        "desconto_condicionado_ao_dia",
         "desconto_entre_degrau_teto",
         "desconto_abaixo_teto",
     }
@@ -126,7 +128,8 @@ async def test_rodar_massa_desconto_3_faixas_fake(
 
     por_cenario = {r["cenario"]: r for r in resultados}
     assert set(por_cenario) == {c.nome for c in so_desconto}
-    assert "nao_escalou_ok" in por_cenario["desconto_dentro_degrau"]["avaliacao"]
+    assert "nao_escalou_ok" in por_cenario["desconto_valor_dele_serve"]["avaliacao"]
+    assert "nao_escalou_ok" in por_cenario["desconto_condicionado_ao_dia"]["avaliacao"]
     assert "nao_escalou_ok" in por_cenario["desconto_entre_degrau_teto"]["avaliacao"]
     assert "tool_esperada_ok" in por_cenario["desconto_abaixo_teto"]["avaliacao"]
 

@@ -12,7 +12,7 @@ from typing import Any
 from uuid import uuid4
 
 import pytest
-from _fakes import FakeConn, FakePool, FakeRuntime
+from _fakes import _IDENTIDADE_PADRAO, FakeConn, FakePool, FakeRuntime, _Result
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 from langgraph.graph import END
 from langgraph.types import Command
@@ -66,27 +66,33 @@ def test_ia_pausada_retorna_command_end() -> None:
     assert res.goto == END
 
 
-def test_caminho_normal_2_system_mais_janela_cronologica() -> None:
+def test_caminho_normal_3_system_mais_janela_cronologica() -> None:
     res = asyncio.run(prepare_context({"messages": []}, _runtime(mensagens=_linhas_desc())))
     assert isinstance(res, Command)
     assert res.goto == "intercept_disclosure"
     msgs = res.update["messages"]
-    # 2 SystemMessage (BP_GERAL fundido + BP_MODELO por-modelo) + 3 da janela, todas string pura
-    # (cache do DeepSeek é automático no provider, sem marcador).
+    # 3 SystemMessage (BP_GERAL fundido + BP_MODELO por-modelo + bloco estático do cadastro) + 3
+    # da janela, todas string pura (cache do DeepSeek é automático no provider, sem marcador).
+    # O 3º bloco nasceu do hoist de custo (traces 11/08): o que só o cadastro dela decide
+    # (<sem_menage>/<sem_video_chamada>/<sem_fetiches>/<sem_periodo_longo>/<periodo_de_trabalho>)
+    # rendia na cauda volátil e pagava cache-MISS todo turno. Vem por ÚLTIMO no prefixo, para o
+    # par [geral][por-modelo] já quente no provider não mudar um byte.
     assert isinstance(msgs[0], SystemMessage)
     assert isinstance(msgs[1], SystemMessage)
-    assert len(msgs) == 5
-    # msgs[2] = contexto dinamico + HumanMessage do cliente (ultimo HumanMessage da janela; a fala
+    assert isinstance(msgs[2], SystemMessage)
+    assert "<periodo_de_trabalho>" in msgs[2].content
+    assert len(msgs) == 6
+    # msgs[3] = contexto dinamico + HumanMessage do cliente (ultimo HumanMessage da janela; a fala
     # dele fica por ULTIMO na cauda -- incidente 29/07)
-    assert isinstance(msgs[2], HumanMessage)
-    assert msgs[2].content.endswith("ola")
-    assert "<situacao_do_atendimento" in msgs[2].content
-    # msgs[3] = penultima da janela = AIMessage "oi amor", string pura (sem marcação de cache)
-    assert isinstance(msgs[3], AIMessage)
-    assert msgs[3].content == "oi amor, tudo bem?"
-    # msgs[4] = ultima da janela = modelo_manual, AIMessage com prefixo, content STRING
+    assert isinstance(msgs[3], HumanMessage)
+    assert msgs[3].content.endswith("ola")
+    assert "<situacao_do_atendimento" in msgs[3].content
+    # msgs[4] = penultima da janela = AIMessage "oi amor", string pura (sem marcação de cache)
     assert isinstance(msgs[4], AIMessage)
-    assert msgs[4].content == "[mensagem manual da modelo]: deixa que eu respondo"
+    assert msgs[4].content == "oi amor, tudo bem?"
+    # msgs[5] = ultima da janela = modelo_manual, AIMessage com prefixo, content STRING
+    assert isinstance(msgs[5], AIMessage)
+    assert msgs[5].content == "[mensagem manual da modelo]: deixa que eu respondo"
 
 
 def _linhas_n(n: int) -> list[dict[str, Any]]:
@@ -121,14 +127,16 @@ def test_atendimento_id_none_pula_gate() -> None:
     res = asyncio.run(prepare_context({"messages": []}, rt))
     assert isinstance(res, Command)
     assert res.goto == "intercept_disclosure"
-    # 2 system (BP_GERAL + BP_MODELO) + 1 HumanMessage: janela vazia, contexto dinamico anexa
-    # novo HumanMessage no fim. BP_MODELO carrega por modelo_id mesmo com atendimento_id None.
+    # 3 system (BP_GERAL + BP_MODELO + bloco estático do cadastro) + 1 HumanMessage: janela
+    # vazia, contexto dinamico anexa novo HumanMessage no fim. BP_MODELO e o bloco do cadastro
+    # carregam por modelo_id mesmo com atendimento_id None.
     msgs = res.update["messages"]
-    assert len(msgs) == 3
+    assert len(msgs) == 4
     assert isinstance(msgs[0], SystemMessage)
     assert isinstance(msgs[1], SystemMessage)
-    assert isinstance(msgs[2], HumanMessage)
-    assert "<situacao_do_atendimento" in msgs[2].content
+    assert isinstance(msgs[2], SystemMessage)
+    assert isinstance(msgs[3], HumanMessage)
+    assert "<situacao_do_atendimento" in msgs[3].content
 
 
 def test_traduzir_audio_sem_transcricao_vira_placeholder() -> None:
@@ -297,3 +305,77 @@ def test_pecas_do_turno_vao_ao_state_e_nao_ao_que_o_chat_recebe() -> None:
         "oi amor, tudo bem?",
         "[mensagem manual da modelo]: deixa que eu respondo",
     ]
+
+
+# --- carimbo do <local_de_encontro> no State (diagnostico 11/08, P0-1) --------------------------
+
+
+_ENDERECO_FAKE = "Av. Aquidabã, 130 - Centro, Campinas - SP"
+
+
+class _ConnComLocal(FakeConn):
+    """FakeConn com endereco no cadastro e o atendimento no estado/tipo que o gate pede."""
+
+    def __init__(self, *, estado: str, tipo: str | None, **kw: Any) -> None:
+        super().__init__(
+            ia_pausada=False,
+            mensagens=_linhas_desc(),
+            identidade={
+                **_IDENTIDADE_PADRAO,
+                "endereco_formatado": _ENDERECO_FAKE,
+                "nome_local": "Hotel Sirius",
+            },
+            **kw,
+        )
+        self._estado = estado
+        self._tipo = tipo
+
+    async def execute(self, query: str, params: Any = None) -> Any:
+        if "numero_curto" in query and "FROM barravips.atendimentos" in query:
+            res = await super().execute(query, params)
+            linha = await res.fetchone()
+            assert linha is not None
+            return _Result([{**linha, "estado": self._estado, "tipo_atendimento": self._tipo}])
+        return await super().execute(query, params)
+
+
+def _rt(conn: FakeConn) -> FakeRuntime:
+    return FakeRuntime(
+        ContextAgente(
+            db_pool=FakePool(conn),  # type: ignore[arg-type]
+            redis=None,  # type: ignore[arg-type]
+            modelo_id=str(uuid4()),
+            atendimento_id=str(uuid4()),
+            cliente_id=str(uuid4()),
+            turno_id=str(uuid4()),
+        )
+    )
+
+
+def test_carimbo_do_local_espelha_o_bloco_que_entrou_no_prompt() -> None:
+    """O State publica o ponto de encontro EXATAMENTE como o <local_de_encontro> o apresentou —
+    e o output_guard le esse carimbo em vez de reavaliar o gate com a linha ja pos-extracao."""
+    res = asyncio.run(
+        prepare_context({"messages": []}, _rt(_ConnComLocal(estado="Qualificado", tipo="interno")))
+    )
+
+    assert isinstance(res, Command)
+    carimbo = res.update["local_endereco_no_prompt"]
+    assert carimbo is not None
+    cauda = str([m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1].content)
+    assert "<local_de_encontro>" in cauda
+    # O carimbo e o texto do bloco, no degrau vigente (Qualificado: SEM o numero da rua).
+    assert carimbo == "Hotel Sirius — Av. Aquidabã - Centro, Campinas - SP"
+    assert carimbo.split(" — ")[1] in cauda
+
+
+def test_sem_bloco_no_prompt_o_carimbo_vem_vazio() -> None:
+    """Triagem: o gate segura o bloco, entao nao ha o que o guard possa cobrar."""
+    res = asyncio.run(
+        prepare_context({"messages": []}, _rt(_ConnComLocal(estado="Triagem", tipo="interno")))
+    )
+
+    assert isinstance(res, Command)
+    assert res.update["local_endereco_no_prompt"] is None
+    cauda = str([m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1].content)
+    assert "<local_de_encontro>" not in cauda

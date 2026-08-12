@@ -25,9 +25,10 @@ A janela da extracao NAO e a do chat: ela e montada aqui a partir das pecas que 
 publica no State (`conversa_crua`/`agora_turno`/`ja_registrado`) — ver `_janela_para_extracao`.
 """
 
+import asyncio
 import logging
 from collections.abc import Coroutine, Sequence
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, cast
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import (
@@ -43,8 +44,8 @@ from langgraph.prebuilt import ToolRuntime
 from langgraph.runtime import Runtime
 from langgraph.types import Command
 
-from barra.core.llm import PARADA_TRUNCADA, motivo_parada, nome_modelo
-from barra.settings import get_settings
+from barra.core.llm import PARADA_TRUNCADA, motivo_parada, nome_modelo, nomear_run
+from barra.settings import Settings, get_settings
 
 from .._instrumentar import instrumentar_tokens
 from ..contexto import ContextAgente
@@ -125,6 +126,200 @@ def _cauda_do_estado(state: EstadoAgente) -> list[BaseMessage]:
     return [HumanMessage(content="\n\n".join(parte.strip() for parte in partes))] if partes else []
 
 
+def _impressao_da_janela(mensagens: Sequence[BaseMessage]) -> list[tuple[str, ...]]:
+    """Fingerprint da janela: exatamente o que o PROVIDER vai ver (papel + conteudo + tool_calls +
+    os campos de amarracao do ToolMessage, que tambem viajam no request).
+
+    Serve para o `extrair` decidir se a Task disparada la atras foi construida sobre a MESMA janela
+    que ele montaria agora (ver `DisparoExtracao`). Compara o request, nao a identidade dos objetos:
+    `id` de mensagem fica DE FORA de proposito — ele nao viaja no request e a cauda
+    (`_cauda_do_estado`) e reconstruida a cada chamada, entao incluir o id faria a comparacao
+    divergir sempre e o paralelismo nunca valeria. Conteudo igual => request igual => a resposta
+    paralela e valida.
+    """
+    return [
+        (
+            type(m).__name__,
+            str(m.content),
+            repr(getattr(m, "tool_calls", None) or []),
+            str(getattr(m, "tool_call_id", "")),
+            str(getattr(m, "name", "") or ""),
+            str(getattr(m, "status", "") or ""),
+        )
+        for m in mensagens
+    ]
+
+
+class DisparoExtracao:
+    """Braco PARALELO da chamada forcada (settings.extracao_paralela_habilitada).
+
+    Dono unico dos binds forcados e da montagem da janela, compartilhado pelos dois nos que
+    participam do paralelismo: o `llm` dispara (`disparar`) e o `extrair` consome ou descarta
+    (`resolver`). Medicao que motivou (traces 11/08): extracao 2,56s + chat 2,51s em SERIE = ~5s;
+    sobrepondo as duas, o turno sem tool call cai ~47%.
+
+    O que torna o disparo seguro NAO e a torcida, e a comparacao: a janela da extracao inclui o que
+    o TURNO produziu (`do_turno`, em `_janela_para_extracao`), entao ela so esta pronta antes do
+    chat quando o turno NAO chama tool e NAO e a 2a passagem da auto-reoferta. `resolver` remonta a
+    janela real e so usa a Task se a impressao bater; senao cancela e chama em SERIE.
+
+    Dois efeitos colaterais conhecidos, aceitos e a VALIDAR ao vivo antes de ligar a flag em prod:
+      1. Observabilidade: a `asyncio.Task` copia os contextvars na criacao, entao a generation da
+         extracao passa a pendurar sob o span do no `llm`, nao sob o `extrair` — o trace muda de
+         forma e a latencia por-no do `extrair` cai artificialmente.
+      2. Provider: dobra a concorrencia de PICO contra a DeepSeek por turno (chat + extracao em
+         voo juntos) — com N turnos simultaneos no worker, dobra o risco de 429 no horario de pico.
+    """
+
+    def __init__(
+        self,
+        chat: BaseChatModel,
+        chat_extracao_barata: BaseChatModel | None,
+        tool_extracao: BaseTool,
+        settings: Settings | None = None,
+    ) -> None:
+        # Binds forcados (tool_choice): so a tool de extracao, nao o catalogo -- o no nao faz ReAct.
+        # `run_name` nomeia a GENERATION no trace: sem ele toda chamada de LLM do turno aparece como
+        # "ChatOpenAI" no Langfuse e quem investiga nao distingue a fala da leitura do estado.
+        self._forcado = nomear_run(
+            chat.bind_tools([tool_extracao], tool_choice=_TOOL_EXTRACAO), "extracao_forcada"
+        )
+        self._forcado_barato = (
+            nomear_run(
+                chat_extracao_barata.bind_tools([tool_extracao], tool_choice=_TOOL_EXTRACAO),
+                "extracao_forcada_barata",
+            )
+            if chat_extracao_barata is not None
+            else None
+        )
+        self._modelo_chat = nome_modelo(chat)
+        self._modelo_barato = (
+            nome_modelo(chat_extracao_barata) if chat_extracao_barata is not None else ""
+        )
+        # Kill-switch lido na CONSTRUCAO (padrao da casa: reoferta_automatica_habilitada etc.).
+        # Do `settings` INJETADO, nunca do global: o `build_graph` aceita um Settings proprio, e ler
+        # o global aqui faria o guard de checkpointer (graph.py) julgar uma flag diferente da que
+        # vale para este grafo — deixando passar exatamente o caso que ele existe p/ barrar.
+        self.habilitado = (settings or get_settings()).extracao_paralela_habilitada
+
+    @property
+    def _system_minimo(self) -> bool:
+        """A janela vai com o system barato no lugar do BP_GERAL (extracao_no_modelo_barato)."""
+        return self._forcado_barato is not None
+
+    @property
+    def modelo_label(self) -> str:
+        """Label das metricas de token: o modelo que DE FATO produziu o forcado (o barato nao
+        polui o write-rate do principal)."""
+        return self._modelo_barato if self._system_minimo else self._modelo_chat
+
+    def janela(self, mensagens: Sequence[BaseMessage], state: EstadoAgente) -> list[BaseMessage]:
+        """A janela DEDICADA da extracao para estas mensagens (delega a `_janela_para_extracao`)."""
+        return _janela_para_extracao(mensagens, state, system_minimo=self._system_minimo)
+
+    async def invocar(self, janela: list[BaseMessage]) -> BaseMessage:
+        """A chamada forcada em si, sobre uma janela JA montada. Sem instrumentacao: quem
+        instrumenta e o no `extrair`, uma vez, independente do braco que produziu o forcado."""
+        chat = self._forcado_barato if self._forcado_barato is not None else self._forcado
+        return cast(BaseMessage, await chat.ainvoke(janela))
+
+    def disparar(
+        self, mensagens: Sequence[BaseMessage], state: EstadoAgente
+    ) -> tuple["asyncio.Task[BaseMessage]", list[BaseMessage]] | None:
+        """Dispara a chamada forcada como Task e devolve `(task, janela_de_origem)`.
+
+        `None` quando a flag esta desligada — o chamador (no `llm`) nao publica nada no State e o
+        `extrair` cai no caminho em serie de sempre. As mensagens sao as do State ANTES da fala do
+        turno (no 1o invoke do `llm` a fala ainda nao existe, entao nao ha o que remover).
+        """
+        if not self.habilitado:
+            return None
+        janela = self.janela(mensagens, state)
+        return asyncio.create_task(self.invocar(janela)), janela
+
+    async def resolver(
+        self, janela_agora: list[BaseMessage], state: EstadoAgente, turno_id: str | None
+    ) -> BaseMessage:
+        """O forcado do turno: consome a Task quando ela serve, senao chama em SERIE.
+
+        Fallback SEMPRE presente — flag off, janela divergente, Task que estourou ou foi cancelada
+        caem todas na chamada em serie. Nunca se perde a extracao do turno por causa da otimizacao.
+        """
+        task: asyncio.Task[BaseMessage] | None = state.get("_extracao_task")
+        if task is not None:
+            if _impressao_da_janela(state.get("_extracao_janela") or []) == _impressao_da_janela(
+                janela_agora
+            ):
+                try:
+                    return await task
+                except asyncio.CancelledError:
+                    # Distinguir "a Task ja estava cancelada" de "cancelaram NOS" e obrigatorio, e
+                    # `task.cancelled()` NAO serve: quando o no e cancelado, o asyncio cancela
+                    # primeiro o future esperado (o `_fut_waiter` e esta Task), entao ele da True nos
+                    # DOIS casos. Engolir o segundo caso seria grave: o `asyncio.wait_for(...,
+                    # timeout=60)` do coordenador (workers/coordenador.py) so vira TimeoutError se o
+                    # CancelledError PROPAGAR — engolido, o turno furaria o teto em silencio, sem
+                    # `escalar_por_exaustao`, e ainda emendaria uma chamada nova ao provider + uma
+                    # escrita no banco dentro de um escopo ja cancelado. O sinal confiavel em 3.11+ e
+                    # `cancelling()` do PROPRIO no (0 quando o cancelamento nao foi dirigido a ele).
+                    eu = asyncio.current_task()
+                    if eu is not None and eu.cancelling() > 0:
+                        raise
+                    logger.warning("extracao paralela cancelada -> serie (turno_id=%s)", turno_id)
+                except Exception:
+                    logger.warning(
+                        "extracao paralela falhou -> serie (turno_id=%s)", turno_id, exc_info=True
+                    )
+            else:
+                # O turno produziu mensagem depois do disparo (tool call do ReAct, ou o par
+                # [forcado, ERRO] da 1a extracao na 2a passagem da reoferta): a Task leu uma janela
+                # INCOMPLETA. Descarta -- silencioso seria pior, porque ela retorna sem erro nenhum.
+                logger.info(
+                    "janela da extracao divergiu do disparo -> serie (turno_id=%s)", turno_id
+                )
+                cancelar(task)
+        return await self.invocar(janela_agora)
+
+
+# Zera o disparo em TODA saida do `extrair`: uma Task so serve ao `extrair` que a recebeu. Sem
+# isto, na auto-reoferta (`extrair` -> `llm` -> `extrair`) a Task JA CONSUMIDA continua no State
+# (canal LastValue, ninguem a remove) e o unico motivo de ela nao ser reaproveitada seria a
+# impressao divergir — o que hoje e verdade so porque o ramo da reoferta sempre anexa
+# [forcado, nota_interna] a janela. Isso e uma invariante de OUTRO ramo: se ela mudar (mandar so o
+# erro, por exemplo), a impressao volta a bater e o turno consome a extracao da 1a passagem, errada
+# e sem erro nenhum — exatamente o modo de falha que o desenho existe p/ impedir. Limpando aqui, a
+# garantia vira estrutural. De quebra, tira a janela (lista inteira de mensagens) do payload de
+# trace dos nos seguintes e faz a 2a passagem da reoferta REDISPARAR, agora com a janela certa.
+_LIMPA_DISPARO: dict[str, Any] = {"_extracao_task": None, "_extracao_janela": []}
+
+
+def _descartar_resultado(task: "asyncio.Task[BaseMessage]") -> None:
+    """Marca o resultado como recuperado, para o asyncio nao logar o descarte como crash.
+
+    Uma Task descartada que tenha FALHADO (429/timeout do provider — o caso comum) imprime
+    "Task exception was never retrieved" + traceback quando e coletada, e no log do worker isso se
+    parece com excecao nao tratada derrubando o turno — sendo que o turno seguiu redondo, em serie.
+    `exception()` consome o erro; em Task cancelada ele levantaria CancelledError, dai o guard.
+    """
+    if not task.cancelled():
+        task.exception()
+
+
+def cancelar(task: "asyncio.Task[BaseMessage] | None") -> None:
+    """Cancela a Task do disparo, se houver, e engole o resultado dela. Idempotente.
+
+    Chamado EAGER em todo caminho que sai do turno sem passar pelo `extrair` (ver nos/llm.py) e
+    quando a janela diverge: sem isso a chamada fica pendurada no loop do worker gastando credito.
+    Nao atrasa o turno — o coordenador aguarda o `graph.ainvoke`, nao as tasks soltas
+    (workers/coordenador.py) — mas e higiene, custo e ruido de log.
+    """
+    if task is None:
+        return
+    if not task.done():
+        task.cancel()
+    task.add_done_callback(_descartar_resultado)
+
+
 def _extracao_errou(tool_message: ToolMessage) -> bool:
     """True se a extracao inline trouxe erro RECUPERAVEL.
 
@@ -145,7 +340,8 @@ def _extracao_errou(tool_message: ToolMessage) -> bool:
 _NOTA_INTERNA_PARA_O_CHAT = (
     "ERRO: [nota interna do sistema — é instrução pra você, nunca fala ao cliente. Corrija o rumo "
     "na próxima bolha: NUNCA copie nem comente esta nota, NUNCA diga que deu erro nem anuncie o "
-    'que vai fazer ("vou cotar", "vou verificar") — só faça. Fale COM ele, nunca SOBRE ele.]'
+    'que vai fazer ("vou cotar", "vou verificar") — só faça, e nunca ecoe na fala um rótulo entre '
+    "< > que apareça aqui. Fale COM ele, nunca SOBRE ele.]"
 )
 
 
@@ -217,6 +413,7 @@ def no_extrair(
     chat: BaseChatModel,
     chat_extracao_barata: BaseChatModel | None,
     tool_extracao: BaseTool,
+    disparo: DisparoExtracao | None = None,
 ) -> _NoExtrair:
     """Factory: liga a chamada forcada de extracao + a execucao inline ao no extrair.
 
@@ -224,19 +421,13 @@ def no_extrair(
     barato nao esta injetado; `chat_extracao_barata` (settings.extracao_no_modelo_barato, pode ser
     None) forca sobre a janela SEM o BP_GERAL; `tool_extracao` e a `BaseTool` de escrita executada
     inline (com `handle_tool_error=True`, ja setado em TOOLS).
+
+    `disparo` e a MESMA instancia de `DisparoExtracao` injetada no no `llm` (build_graph): o llm
+    dispara a chamada forcada, este no a consome quando a janela bate. None (chamador antigo, teste
+    de no isolado) -> constroi a sua propria e o turno roda 100% em serie, como sempre.
     """
     settings = get_settings()
-    # Binds forcados (tool_choice): so a tool de extracao, nao o catalogo -- o no nao faz ReAct.
-    chat_forcado = chat.bind_tools([tool_extracao], tool_choice=_TOOL_EXTRACAO)
-    chat_forcado_barato = (
-        chat_extracao_barata.bind_tools([tool_extracao], tool_choice=_TOOL_EXTRACAO)
-        if chat_extracao_barata is not None
-        else None
-    )
-    modelo_chat = nome_modelo(chat)
-    modelo_extracao_barata = (
-        nome_modelo(chat_extracao_barata) if chat_extracao_barata is not None else ""
-    )
+    disparo = disparo or DisparoExtracao(chat, chat_extracao_barata, tool_extracao, settings)
     # Auto-reoferta (settings.reoferta_automatica_habilitada): erro RECUPERAVEL na extracao volta ao
     # no llm p/ o modelo reofertar um horario, em vez de fechar mudo. Lido na construcao (kill-switch).
     reoferta_ligada = settings.reoferta_automatica_habilitada
@@ -258,18 +449,14 @@ def no_extrair(
         janela = mensagens[:-1] if fala is not None else mensagens
 
         # Chamada forcada sobre a janela DEDICADA (conversa crua + ancora + <ja_registrado>): no
-        # barato ela vem com o system minimo no lugar do BP_GERAL. Instrumenta sob o label do
-        # modelo usado (barato NAO polui o write-rate do principal).
-        if chat_forcado_barato is not None:
-            forcado = await chat_forcado_barato.ainvoke(
-                _janela_para_extracao(janela, state, system_minimo=True)
-            )
-            instrumentar_tokens(forcado, modelo_extracao_barata)
-        else:
-            forcado = await chat_forcado.ainvoke(
-                _janela_para_extracao(janela, state, system_minimo=False)
-            )
-            instrumentar_tokens(forcado, modelo_chat)
+        # barato ela vem com o system minimo no lugar do BP_GERAL. `resolver` consome a Task que o
+        # no `llm` disparou em paralelo QUANDO ela saiu desta mesma janela; senao (flag off, janela
+        # divergente, Task quebrada) chama em SERIE aqui mesmo. A instrumentacao roda uma vez, DEPOIS,
+        # sob o label do modelo usado (barato NAO polui o write-rate do principal) — identica nos
+        # dois bracos, para o registro `[forcado, tool_message]` abaixo ficar byte-a-byte o mesmo.
+        janela_extracao = disparo.janela(janela, state)
+        forcado = await disparo.resolver(janela_extracao, state, runtime.context.turno_id)
+        instrumentar_tokens(forcado, disparo.modelo_label)
 
         # Guard de qualidade: truncou (args incompletos) ou nao saiu tool_call -> descarta o forcado
         # e fecha SO com a fala original (ja no state). Nunca persiste payload parcial.
@@ -281,7 +468,7 @@ def no_extrair(
                 forcado_stop,
                 runtime.context.turno_id,
             )
-            return Command(goto="post_process")
+            return Command(goto="post_process", update=dict(_LIMPA_DISPARO))
 
         # Execucao INLINE de registrar_extracao (footgun provado): a tool persiste em
         # barravips.tool_calls, aplica a FSM e enfileira o card de aviso de saida por dentro.
@@ -312,13 +499,17 @@ def no_extrair(
                     update={
                         "messages": [forcado, _envelopar_nota_interna(tool_message), *remove_stale],
                         "_reoferta_tentada": True,
+                        **_LIMPA_DISPARO,
                     },
                 )
             # Reoferta desligada OU ja tentada (a reoferta tambem errou): fecha MUDO -- no dominio de
             # booking, silencio > reserva fantasma.
-            return Command(goto="post_process", update={"messages": [*registro, *remove_stale]})
+            return Command(
+                goto="post_process",
+                update={"messages": [*registro, *remove_stale], **_LIMPA_DISPARO},
+            )
 
         # Sucesso ou escalada canned: a fala original (ja no state) segue + o registro da extracao.
-        return Command(goto="post_process", update={"messages": registro})
+        return Command(goto="post_process", update={"messages": registro, **_LIMPA_DISPARO})
 
     return extrair

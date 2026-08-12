@@ -49,7 +49,9 @@ def test_a_apresentacao_continua_prescrevendo_estilo_mais_incluso_do_bloco_dela(
     apresentacao = _bloco("apresentacao")
 
     # A forma (o que entra, em quantas bolhas) e o gate por item, que é o que o corte NÃO podia levar.
-    assert "seu estilo e o que está incluso, em 2-3 bolhas curtas" in apresentacao
+    # O teto de bolhas subiu de propósito aqui (CD-F25: a apresentação completa acompanha a abertura
+    # de duas portas), mas a prescrição "estilo + o que está incluso" continua sendo a forma.
+    assert "seu estilo e o que está incluso, em poucas bolhas curtas" in apresentacao
     assert 'os seus saem nominalmente da linha "Inclusos" do seu <fetiches>' in apresentacao
 
 

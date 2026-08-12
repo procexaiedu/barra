@@ -20,6 +20,7 @@ import asyncio
 from collections.abc import AsyncIterator
 from contextlib import AbstractContextManager, asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
+from datetime import datetime
 from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
@@ -28,10 +29,17 @@ from langchain_core.callbacks import BaseCallbackHandler
 from langchain_core.messages import BaseMessage
 from psycopg import AsyncConnection
 
-from barra.agente._texto_turno import extrair_texto_do_turno
+from barra.agente._texto_turno import (
+    desfecho_do_turno,
+    extrair_texto_do_turno,
+    mensagens_cliente_do_turno,
+    raciocinio_do_turno,
+    tags_do_turno,
+)
+from barra.agente._versao import regime_do_turno
 from barra.agente.contexto import ContextAgente
 from barra.agente.graph import build_graph
-from barra.core.tracing import langfuse_handler, metadata_trace_turno
+from barra.core.tracing import langfuse_handler, metadata_trace_turno, resumir_trace_turno
 from barra.settings import get_settings
 
 # --- fake redis (reincidencia de seguranca + enqueue de cards das tools) ---------------------
@@ -256,8 +264,8 @@ async def _seed_modelo(conn: AsyncConnection[dict[str, Any]], spec: dict[str, An
         """
         INSERT INTO barravips.modelos
             (id, nome, idade, numero_whatsapp, valor_padrao, tipo_atendimento_aceito,
-             localizacao_operacional, endereco_formatado)
-        VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[], %s, %s)
+             localizacao_operacional, endereco_formatado, nome_local)
+        VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[], %s, %s, %s)
         """,
         (
             modelo_id,
@@ -268,6 +276,7 @@ async def _seed_modelo(conn: AsyncConnection[dict[str, Any]], spec: dict[str, An
             tipos,
             spec.get("localizacao_operacional"),
             spec.get("endereco_formatado"),
+            spec.get("nome_local"),
         ),
     )
     for prog in spec.get("programas") or []:
@@ -343,15 +352,17 @@ async def _seed_fetiche(
 ) -> None:
     """Vincula um fetiche do catalogo GLOBAL a modelo (`modelo_fetiches`).
 
-    `preco` None = incluso, preenchido = pago — e so a PRESENCA importa: o valor nao e lido
-    (ADR-0030 calcula o extra do pacote vendido). `cobra_por_pessoa` e propriedade do CATALOGO,
-    nao do vinculo (ADR-0035): e ela que separa a secao "Por pessoa" (casal/menage, dobra o
-    pacote) dos atos no `fetiches.md.j2`.
+    `preco` None = incluso, preenchido = pago; o VALOR importa desde a revisao de 11/08/2026 do
+    ADR-0030 (numero de verdade = o extra; sentinel abaixo do minimo = cai no derivado, a linha de
+    1h do ADR-0038). `cobra_por_pessoa` e propriedade do CATALOGO, nao do vinculo (ADR-0035): e
+    ela que separa a secao "Por pessoa" (casal/menage) dos atos no `fetiches.md.j2` — desde o
+    ADR-0039 so como CLASSIFICACAO, porque as duas secoes cobram o mesmo extra.
 
-    O get-or-create por nome reusa a linha curada do prod ("Casal"/"Menage" ja nascem com a flag
-    true pela migration 20260723064620) e NUNCA a atualiza — mas um nome existente com a flag
+    O get-or-create por nome reusa a linha curada do prod (os quatro itens de COMPOSICAO ja
+    nascem com a flag true pela migration 20260811232000, que aposentou o par ambiguo
+    "Casal"/"Menage") e NUNCA a atualiza — mas um nome existente com a flag
     DIFERENTE da que o cenario pede renderia o bloco errado em silencio (o cenario de menage
-    passaria a testar o regime-ato). Entao isso falha alto, em vez de decorar.
+    perderia a secao "Por pessoa" inteira). Entao isso falha alto, em vez de decorar.
     """
     quer_por_pessoa = bool(fet.get("cobra_por_pessoa", False))
     fet_id = await _get_or_create(
@@ -602,6 +613,7 @@ async def rodar_turno(
     graph: Any | None = None,
     trace_tag: str = "eval_gate",
     escopar_trace: bool = False,
+    agora_utc: datetime | None = None,
 ) -> ResultadoTurno:
     """Insere a mensagem do cliente, roda UM `ainvoke` (gasta credito, §0) e coleta o resultado.
 
@@ -609,6 +621,9 @@ async def rodar_turno(
     `trace_tag` marca a origem do trace no Langfuse (gate vs e2e). `escopar_trace` embrulha o
     ainvoke num span com trace-id deterministico (padrao de prod, coordenador.py) e o devolve em
     `ResultadoTurno.trace_id` para ancorar o score online (`registrar_feedback_online`).
+    `agora_utc` (clock injection -> ContextAgente.agora_utc): ancora o "agora" do turno num
+    instante fixo — sem isso cada corrida ve o now() do banco na hora em que roda, e prefixos
+    reais com "hoje/amanha" mudam de sentido entre corridas (confound entre bracos de um A/B).
     """
     await _inserir_mensagem(
         conn, conversa_id=cen.conversa_id, direcao="cliente", texto=turno_cliente
@@ -623,6 +638,7 @@ async def rodar_turno(
         atendimento_id=str(cen.atendimento_id),
         cliente_id=str(cen.cliente_id),
         turno_id=str(uuid4()),
+        agora_utc=agora_utc,
     )
     # Observabilidade: trace Langfuse (ADR 0019) quando habilitado (`habilitar_tracing`), escopado
     # por modelo/atendimento — o MESMO caminho de prod. Tags extras marcam que o trace e do gate.
@@ -633,24 +649,46 @@ async def rodar_turno(
     if lf is not None:
         config["callbacks"].append(lf)
         meta = metadata_trace_turno(
-            str(cen.modelo_id), str(cen.atendimento_id), str(cen.cliente_id)
+            str(cen.modelo_id),
+            str(cen.atendimento_id),
+            str(cen.cliente_id),
+            # Mesmo carimbo de regime do coordenador: sem ele os traces de um grid A/B (thinking
+            # disabled x low x high) sao indistinguiveis entre si no painel.
+            regime=regime_do_turno(get_settings()),
         )
         meta["metadata"]["langfuse_tags"] = [*meta["metadata"]["langfuse_tags"], trace_tag]
         config["metadata"] = meta["metadata"]
         config["tags"] = [*meta["tags"], trace_tag]
-        if escopar_trace:
-            # trace-id deterministico (seed=turno_id) + span explicito: o CallbackHandler pendura
-            # o grafo nele e o mesmo id ancora o score online no /fim (padrao de coordenador.py).
-            from langfuse import Langfuse, get_client
+        # Span SEMPRE, com trace-id deterministico (seed=turno_id) — padrao de coordenador.py. Sem
+        # ele o CallbackHandler abria um trace ANONIMO (`name: ""`), o formato que enchia o projeto
+        # de traces impossiveis de achar. `escopar_trace` agora so decide se o id volta ao caller
+        # (quem vai ancorar score online); o trace nasce nomeado nos dois casos.
+        from langfuse import Langfuse, get_client
 
-            trace_id = Langfuse.create_trace_id(seed=ctx.turno_id)
-            span_ctx = get_client().start_as_current_observation(
-                as_type="span", name="turno_e2e", trace_context={"trace_id": trace_id}
-            )
+        trace_id_span = Langfuse.create_trace_id(seed=ctx.turno_id)
+        trace_id = trace_id_span if escopar_trace else None
+        span_ctx = get_client().start_as_current_observation(
+            as_type="span",
+            name=f"turno_{trace_tag}",
+            trace_context={"trace_id": trace_id_span},
+        )
 
     t0 = perf_counter()
-    with span_ctx:
+    with span_ctx as turno_span:
         estado = await graph.ainvoke({"messages": []}, config=config, context=ctx)
+        # Resumo do root span igual ao de prod (fala + desfecho + raciocinio + tags do que
+        # aconteceu): o trace de um rig fica tao legivel quanto o de um turno real.
+        if lf is not None:
+            desfecho_rig = desfecho_do_turno(estado)
+            resumir_trace_turno(
+                turno_span,
+                entrada=mensagens_cliente_do_turno(estado),
+                resposta=extrair_texto_do_turno(estado["messages"]),
+                desfecho=desfecho_rig,
+                raciocinio=raciocinio_do_turno(estado),
+                tags=[*config["tags"], *tags_do_turno(estado)],
+                level="WARNING" if desfecho_rig.get("erros_tool") else "DEFAULT",
+            )
     latencia = perf_counter() - t0
 
     mensagens: list[BaseMessage] = estado["messages"]
@@ -680,6 +718,9 @@ def habilitar_tracing() -> bool:
     from barra.agente._custo import modelos_para_langfuse
     from barra.core.tracing import registrar_modelos_langfuse, setup_langfuse
 
-    setup_langfuse(get_settings(), servico="barra-evals")
+    # `permitir_em_teste`: o rig e2e tambem roda sob pytest (AMBIENTE=teste), onde o setup_langfuse
+    # e no-op por padrao p/ nao encher o projeto de trace de LLM fake. Aqui o trace e o PRODUTO da
+    # corrida (dataset e2e_conducao, score do veredito), entao o opt-in e explicito.
+    setup_langfuse(get_settings(), servico="barra-evals", permitir_em_teste=True)
     registrar_modelos_langfuse(modelos_para_langfuse())
     return langfuse_handler() is not None

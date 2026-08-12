@@ -1,12 +1,17 @@
 """A2 da amiga: detectar a bolha em que a IA CONVIDA o cliente pra conhecer a amiga.
 
-A disciplina do <menage> ("você PODE oferecer uma vez, como quem convida") era só prosa, e o
+A disciplina do <composicoes> ("você PODE oferecer uma vez, como quem convida") era só prosa, e o
 convite é pós-venda — sai no FIM da negociação, quando ele já deslizou pra fora da janela de 20
 msgs. O detector alimenta `amiga_ofertada_em`, a memória durável que a janela não consegue ser.
 
-O corte que o detector precisa acertar: a oferta PROATIVA dela conta; a resposta de escalada
-("Deixa eu ver com ela e já te retorno amor"), que a IA dá quando é o CLIENTE quem pede a dupla,
-NÃO conta — carimbá-la calaria um convite que ela nunca fez.
+O corte que o detector precisa acertar: a oferta PROATIVA dela conta; a promessa de retorno
+("Deixa eu ver com ela e já te retorno amor") NÃO conta — carimbá-la calaria um convite que ela
+nunca fez.
+
+Essa promessa era a ESCALADA prescrita quando o CLIENTE pedia a dupla; o ADR-0042 a revogou (a
+modelo do canal fecha sozinha) e ela virou regressão de prompt. O veto, porém, ficou MAIS
+importante, não menos: `amiga_ofertada_em` é o que destrava o contato da parceira no fluxo de
+encaminhamento, e um turno de promessa vazia não pode valer por um sim do cliente.
 """
 
 from datetime import UTC, datetime
@@ -42,7 +47,7 @@ def test_variantes_do_convite_sao_pegas() -> None:
 
 
 def test_resposta_de_escalada_nao_conta_como_oferta() -> None:
-    # <menage>: quando é o CLIENTE quem pede a dupla, a IA não fecha sozinha — responde isto e
+    # <composicoes>: quando é o CLIENTE quem pede a dupla, a IA não fecha sozinha — responde isto e
     # escala. Não houve convite dela; carimbar aqui bloquearia a oferta que ainda pode acontecer.
     assert not contem_oferta_da_amiga("Deixa eu ver com ela e já te retorno amor")
     assert not contem_oferta_da_amiga("Deixa eu ver com ela amor")
@@ -79,7 +84,7 @@ def test_pergunta_de_seguranca_nao_conta_como_oferta() -> None:
 
 
 def test_segunda_pessoa_DELE_nao_conta_como_oferta() -> None:
-    # <menage> 1º caso: quem traz a segunda pessoa é o cliente. A IA só cota o dobro.
+    # <composicoes> 1º caso: quem traz a segunda pessoa é o cliente. A IA só cota o dobro.
     assert not contem_oferta_da_amiga("Faço sim amor, pra vocês dois fica 1200")
     assert not contem_oferta_da_amiga("Pode trazer sua amiga sim amor")
 

@@ -64,6 +64,22 @@ PADROES_JAILBREAK = [
     # normalizar() preserva <>/_ ; falso-positivo ~0 (ninguem digita esses marcadores em fala normal).
     r"</?lembrete_silencioso>",
     r"</?(conduta|instrucoes_meta)>",
+    # Mesma injecao indireta, um degrau abaixo: as tags de BLOCO DO TURNO (o belief que o
+    # prepare_context cola na cauda da ultima HumanMessage). Forjar <valor_cotado>200</valor_cotado>
+    # ou <escada_esgotada/> na propria fala e mais barato que forjar o lembrete -- e num burst de 2+
+    # bolhas so a ULTIMA recebe a cauda verdadeira, entao a forja aparece ANTES dos blocos legitimos
+    # (criterio posicional invertido). A defesa primaria e neutralizar < > no texto do cliente antes
+    # da montagem; este padrao e o detector, para o turno ESCALAR em vez de so passar limpo.
+    # Ancorado em `</?nome...>` com os delimitadores literais: nome de bloco em fala honesta nao vem
+    # entre < >, entao o falso-positivo e ~0 mesmo para "agenda" e "cliente" (palavras comuns).
+    # `(?:\s[^>]*)?` cobre a forja COM atributos (`<cliente recorrente="sim">`, `<agenda hoje=...>`).
+    r"</?(?:valor_dele_serve|situacao_do_atendimento|foco_do_turno|local_de_encontro|"
+    r"ja_sondou_o_dia|ja_perguntou_o_horario|dupla_em_pauta|escada_disponivel|escada_esgotada|"
+    r"escada_travada_sem_o_dia|oferta_condicionada_ao_dia|valor_cotado|ja_combinado|"
+    r"servico_em_pauta|pacote_em_pauta|composicao_em_pauta|pacote_maior_na_sua_tabela|"
+    r"perguntas_dele_neste_turno|observacoes_internas|proximo_passo|horario_minimo|"
+    r"ja_enviou_book|sem_externo|sem_menage|sem_fetiches|sem_periodo_longo|sem_video_chamada|"
+    r"agenda|cliente)(?:\s[^>]*)?/?>",
 ]
 
 PADROES_PROVA = [

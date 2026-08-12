@@ -15,6 +15,32 @@ from barra.webhook.debounce import (
     chave_pending,
 )
 
+# Janela de voz/coalescencia do turno: `processar_turno` so ACORDA `DEFER_TURNO_S` depois do
+# enqueue (9728a25, 22/07 — era 12s). Esta constante e a FONTE DE VERDADE do defer: tudo que o
+# turno deferido precisa achar VIVO ao acordar deriva dela (os TTLs do debounce, via o teste de
+# margem; o TTL do sinal de transcricao, via `ttl_sinal_transcricao_s`). Numero magico paralelo
+# a este ja custou o apagao do audio: o defer subiu 15x e o TTL de 30s do canal
+# `transcricao:{conversa_id}` ficou parado, entao TODO audio transcrito com sucesso virava a
+# canned "nao consegui ouvir" — o sinal morria ~150s antes de o leitor acordar.
+DEFER_TURNO_S = 180
+
+
+def ttl_sinal_transcricao_s(defer_s: int = DEFER_TURNO_S) -> int:
+    """TTL (s) do canal Redis `transcricao:{conversa_id}` (06 §1.4).
+
+    Produtor e consumidor do sinal vivem em relogios diferentes: `transcrever_audio` faz o LPUSH
+    poucos segundos depois de o audio chegar, mas quem faz o BLPOP e o `processar_turno`
+    DEFERIDO — so `defer_s` depois. Por isso o prazo do sinal NAO pode ser constante propria: e
+    funcao do defer, e mora ao lado dele para nao dessincronizar de novo.
+
+    Piso em `TTL_PENDING`: enquanto a pendencia do turno estiver viva o turno ainda pode rodar
+    (worker represado, deploy, retry do ARQ) e o sinal que ele vai ler precisa estar la; sinal
+    que sobreviva a pendencia nao serve pra ninguem. O `defer_s + 120` cobre quem suba o defer
+    acima do TTL do debounce sem mover os dois — o sinal continua cobrindo o proprio defer mais
+    o orcamento do BLPOP (8s em `coordenador.aguardar_transcricoes`), com folga de jitter.
+    """
+    return max(TTL_PENDING, defer_s + 120)
+
 
 async def enfileirar_processar_turno(
     arq: Any,
@@ -22,7 +48,7 @@ async def enfileirar_processar_turno(
     *,
     aguardar_transcricao: bool = False,
     request_id: str | None = None,
-    defer_s: int = 180,
+    defer_s: int = DEFER_TURNO_S,
 ) -> None:
     """Enqueue de `processar_turno` com coalesce first-wins + fallback de varredura.
 

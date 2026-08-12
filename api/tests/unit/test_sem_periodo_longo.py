@@ -7,7 +7,7 @@ from typing import Any
 
 from barra.agente.contexto import ContextAgente
 from barra.agente.nos.prepare_context import _resolver_variaveis
-from barra.agente.persona import render_contexto_dinamico
+from barra.agente.persona import render_bloco_da_modelo, render_contexto_dinamico
 
 
 class _Result:
@@ -50,19 +50,25 @@ async def _sem_periodo(max_horas: float) -> dict[str, Any]:
     )
 
 
+# Hoist de custo (diagnóstico de traces 11/08): a tag é função SÓ do cadastro dela e passou
+# a viver na 3ª SystemMessage do prefixo (`render_bloco_da_modelo`), cacheável — na cauda
+# volátil ela era re-enviada como cache-MISS a cada turno. O que o teste prova continua o
+# mesmo: a negação ativa CHEGA ao prompt final quando o cadastro não oferece.
 async def test_tabela_so_curta_injeta_sem_periodo_longo() -> None:
     variaveis = await _sem_periodo(1)
     assert variaveis.sem_periodo_longo is True
-    saida = render_contexto_dinamico(**variaveis.como_variaveis())
+    saida = render_bloco_da_modelo(**variaveis.como_variaveis())
     assert "<sem_periodo_longo>" in saida
     assert "até 1h" in saida
     assert "fora_de_oferta" in saida
+    # E saiu da cauda volátil (o que o hoist economiza).
+    assert "<sem_periodo_longo>" not in render_contexto_dinamico(**variaveis.como_variaveis())
 
 
 async def test_tabela_com_periodo_longo_nao_injeta() -> None:
     variaveis = await _sem_periodo(12)
     assert variaveis.sem_periodo_longo is False
-    assert "<sem_periodo_longo>" not in render_contexto_dinamico(**variaveis.como_variaveis())
+    assert "<sem_periodo_longo>" not in render_bloco_da_modelo(**variaveis.como_variaveis())
 
 
 async def test_seis_horas_ja_conta_como_periodo_longo() -> None:
@@ -74,4 +80,4 @@ async def test_cadastro_vazio_nao_injeta() -> None:
     # max 0 = modelo sem programas (estado anormal de cadastro) — não é "sem período longo".
     variaveis = await _sem_periodo(0)
     assert variaveis.sem_periodo_longo is False
-    assert "<sem_periodo_longo>" not in render_contexto_dinamico(**variaveis.como_variaveis())
+    assert "<sem_periodo_longo>" not in render_bloco_da_modelo(**variaveis.como_variaveis())

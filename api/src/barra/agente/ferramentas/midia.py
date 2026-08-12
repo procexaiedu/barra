@@ -27,6 +27,7 @@ from psycopg import AsyncConnection
 from pydantic import Field
 
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
+from barra.dominio.modelos.parcerias import carregar_parceria
 
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente, _ja_executada
@@ -48,6 +49,29 @@ _DESC_TIPO_MIDIA = (
     '"foto" (default) ou "video" — qual mídia anexar. O vídeo vai como visualização única '
     "quando a plataforma suportar."
 )
+_DESC_DE = (
+    '"eu" (default) — sua mídia. "parceira" — foto DELA, e só quando o seu contexto do turno '
+    "trouxer a tag da parceira. Foto dela não é o seu book: mandar a dela não gasta o seu."
+)
+# Retorno da tool (o ToolMessage que abre o 2º passe do ReAct). A 2ª metade existe porque esse
+# passe não tinha contrato nenhum: em `objetivo_rapido` t1 (trace 66b8161e) o modelo re-emitiu
+# "Seria que horas hoje amor ?" depois do retorno e o cliente recebeu a pergunta DUAS vezes — o
+# texto da 1ª passagem já está no turno e já vai ser despachado.
+_CONFIRMACAO = (
+    "{tipo} de '{tag}' anexada (enviada após o texto). O texto que você já escreveu neste turno "
+    "JÁ vai ao cliente: não repita nenhuma bolha dele. Se não tiver nada NOVO a dizer, responda "
+    "vazio — a mídia sai do mesmo jeito."
+)
+# Foto da PARCEIRA: mesma mecânica, conduta diferente. O lembrete do book existe porque a foto
+# dela chega ao cliente como qualquer outra e o modelo tende a tratar mídia enviada como "book
+# feito" — aqui o sistema garante que não é (o carimbo `book_enviado_em` não sai), e a instrução
+# alinha a fala com o que o sistema fez.
+_CONFIRMACAO_PARCEIRA = (
+    "{tipo} da sua parceira anexada (enviada após o texto). Ela NÃO é o seu book — o seu segue "
+    "disponível. O texto que você já escreveu neste turno JÁ vai ao cliente: não repita nenhuma "
+    "bolha dele, e não descreva a foto."
+)
+_ERRO_SEM_PARCEIRA = "ERRO: você não tem parceira cadastrada. Não prometa foto dela."
 
 
 @tool
@@ -56,23 +80,31 @@ async def enviar_midia(
     runtime: ToolRuntime[ContextAgente],
     legenda: Annotated[str | None, Field(description=_DESC_LEGENDA)] = None,
     tipo: Annotated[Literal["foto", "video"], Field(description=_DESC_TIPO_MIDIA)] = "foto",
+    de: Annotated[Literal["eu", "parceira"], Field(description=_DESC_DE)] = "eu",
     call_idx: Annotated[int, InjectedToolArg] = 0,
 ) -> str:
     """Anexa uma mídia pré-aprovada da modelo (foto ou vídeo, escolhida pelo sistema) à resposta
     do turno.
 
     Use quando o cliente quer te ver, pede mais fotos ou quando uma foto ajuda a fechar a venda;
-    siga sua conduta de mídia (nas suas regras) para a ordem foto→vídeo. NÃO mande na saudação
-    nem antes de qualquer qualificação. Se o contexto marcar <ja_enviou_book>, NÃO chame de
-    novo — o book desta negociação já foi; redirecione seguindo sua conduta de mídia.
+    siga sua conduta de mídia (nas suas regras) para a ordem foto→vídeo. Só com o valor na mesa:
+    nunca na saudação, e nunca antes de ele ter ouvido um preço seu. Se ELE pediu foto antes do
+    preço, cote e mande no MESMO turno, nesta ordem — o valor primeiro, a foto junto. Se o
+    contexto marcar <ja_enviou_book>, NÃO chame de novo — o book desta negociação já foi;
+    redirecione seguindo sua conduta de mídia.
+
+    Com `de="parceira"` a foto é DELA (só quando o seu contexto trouxer a tag da parceira):
+    <ja_enviou_book> não vale para ela e mandá-la não consome o SEU book.
 
     Pode ser chamada várias vezes no mesmo turno (ex.: 2 fotos da mesma tag);
     as mídias são enviadas após o texto.
 
     Returns:
-        Confirmação de qual mídia foi anexada; ela vai ao cliente DEPOIS do seu texto. Não
-        descreva a mídia nem repita a legenda na bolha. Se vier "ERRO: ..." (mídia
-        indisponível), não prometa a foto/vídeo ao cliente — responda em texto e siga.
+        Confirmação de qual mídia foi anexada; ela vai ao cliente DEPOIS do seu texto. O texto que
+        você JÁ escreveu neste turno também já vai ao cliente — não repita nenhuma bolha dele; se
+        não houver nada NOVO a dizer, responda vazio. Não descreva a mídia nem repita a legenda na
+        bolha. Se vier "ERRO: ..." (mídia indisponível), não prometa a foto/vídeo ao cliente —
+        responda em texto e siga.
     """
     pool = runtime.context.db_pool
     modelo_id = runtime.context.modelo_id
@@ -88,11 +120,23 @@ async def enviar_midia(
         # efeito ja rodou. Sai ANTES da re-selecao — ela exclui a midia da 1a execucao e, com
         # acervo pequeno, ficaria sem candidata e viraria ToolException num turno que deu certo.
         if await _ja_executada(conn, turno_id, "enviar_midia", call_idx):
-            return f"{tipo.capitalize()} de '{tag}' anexada (enviada após o texto)."
+            return _CONFIRMACAO.format(tipo=tipo.capitalize(), tag=tag)
+
+        # De QUEM é o acervo. `modelo_id` do contexto é sempre a modelo do CANAL; a foto da
+        # parceira exige trocar o dono da query, e só existe com a parceria ativa no cadastro
+        # (fail-closed: sem linha, a tool erra em vez de cair no acervo da própria modelo, que
+        # mandaria a foto errada com o rótulo da parceira).
+        dono_id = modelo_id
+        if de == "parceira":
+            parceria = await carregar_parceria(conn, modelo_id)
+            if parceria is None:
+                AGENTE_TOOL_ERRO_RECUPERAVEL.labels("enviar_midia", "sem_parceira").inc()
+                raise ToolException(_ERRO_SEM_PARCEIRA)
+            dono_id = parceria.parceira_id
 
         ja_no_turno = await _midias_do_turno(conn, turno_id)
 
-        escolhida = await _selecionar_midia(conn, modelo_id, tag, tipo, ja_no_turno)
+        escolhida = await _selecionar_midia(conn, dono_id, tag, tipo, ja_no_turno)
         if escolhida is None:
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("enviar_midia", "midia_indisponivel").inc()
             raise ToolException(f"ERRO: nenhuma mídia tipo '{tipo}' disponível.")
@@ -107,11 +151,16 @@ async def enviar_midia(
                 "tag": tag,
                 "tipo": tipo,
                 "legenda": legenda or "",
+                # Lido pelo `workers/envio.py` (via `workers/coordenador.py`) para NÃO carimbar
+                # `book_enviado_em` numa foto que não é o book dela — ver `_enviar_midias`.
+                "de": de,
             },
             executor=_registrar_envio_midia,
         )
 
-    return f"{tipo.capitalize()} de '{tag}' anexada (enviada após o texto)."
+    return (_CONFIRMACAO_PARCEIRA if de == "parceira" else _CONFIRMACAO).format(
+        tipo=tipo.capitalize(), tag=tag
+    )
 
 
 async def _selecionar_midia(
@@ -121,7 +170,9 @@ async def _selecionar_midia(
     tipo: str,
     ja_no_turno: list[str],
 ) -> dict[str, Any] | None:
-    """Escolhe a midia a enviar: 1o tenta a `tag` pedida (case-insensitive); se a modelo nao tem
+    """Escolhe a midia a enviar do acervo de `modelo_id` — que e a modelo do CANAL no caso normal
+    e a PARCEIRA quando a tool foi chamada com `de="parceira"` (ADR-0042; o unico ponto do agente
+    onde a query de midia sai do `ctx.modelo_id`). 1o tenta a `tag` pedida (case-insensitive); se nao tem
     midia aprovada NAQUELA tag, cai para QUALQUER midia aprovada do `tipo` (fallback).
 
     Por que o fallback: o vocabulario de tag do painel (onde Fernando/modelo sobe a midia, campo

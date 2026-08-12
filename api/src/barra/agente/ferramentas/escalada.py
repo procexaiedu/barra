@@ -79,7 +79,7 @@ _DESC_RESUMO = (
     "1-3 frases descrevendo o que aconteceu na conversa. Para motivos de AUP, conteudo_ilegal "
     "e outro, inclua o TEXTO LITERAL da mensagem do cliente."
 )
-_DESC_ACAO = "O que Fernando/modelo devem decidir ou fazer ao receber a escalada."
+_DESC_ACAO = "O que o responsável deve decidir ou fazer ao receber a escalada."
 
 
 @tool
@@ -91,17 +91,20 @@ async def escalar(
     acao_esperada: Annotated[str, Field(min_length=3, max_length=400, description=_DESC_ACAO)],
     runtime: ToolRuntime[ContextAgente],
 ) -> str:
-    """Escale o atendimento. O destino (Fernando para decisão sensível, ou a modelo para ação
+    """Escale o atendimento. O destino (a coordenação para decisão sensível, ou a modelo para ação
     operacional) é decidido pelo `motivo` — você não escolhe o responsável.
 
     Quando NÃO usar: não escale na 1ª ou 2ª pergunta de disclosure (negue em personagem), num
     pedido de desconto que ainda cabe no seu melhor valor, nem num horário que você conseguiu
     redirecionar. Escale só quando o cliente insiste além do que suas regras mandam rebater,
-    pede valor abaixo do seu piso de desconto, ou pede algo fora do que você oferece.
+    pede valor abaixo do seu teto de desconto, ou pede algo fora do que você oferece.
+
+    No preço a escalada é o ÚLTIMO degrau, nunca o primeiro: recuse em personagem, ofereça o
+    cartão e só então escale, se ele mantiver o número abaixo do seu teto de desconto.
 
     Returns:
         Confirmação de que a escalada foi aberta e para quem. Depois disso, sua próxima fala
-        só virá quando Fernando ou a modelo devolverem o atendimento para você — não escreva
+        só virá quando o responsável devolver o atendimento para você — não escreva
         mais texto neste turno.
     """
     pool = runtime.context.db_pool

@@ -10,6 +10,7 @@ from datetime import date, time
 
 import pytest
 
+from barra.agente.nos.prepare_context import _estado_humano, _tipo_humano
 from barra.agente.persona import render_contexto_dinamico
 from barra.dominio.atendimentos.service import (
     _PRECONDICOES_TRANSICAO,
@@ -229,6 +230,10 @@ def _render(estado: str, **over: object) -> str:
     return render_contexto_dinamico(
         numero_curto=7,
         estado=estado,
+        # F32: a exibição agora é o texto humano, computado a montante por `_resolver_variaveis` em
+        # prod; o helper reproduz isso para exercer o mesmo contrato que o template lê.
+        estado_humano=_estado_humano(estado),
+        tipo_humano=_tipo_humano(over.get("tipo_atendimento")),  # type: ignore[arg-type]
         slots_faltantes=b.slots_faltantes,
         proximo_passo=b.proximo_passo,
         pix_status="não aplicável",
@@ -243,12 +248,15 @@ def test_render_slot_vazio_aparece_explicito() -> None:
     assert "<situacao_do_atendimento" in out
     assert "<ja_combinado>" in out
     assert "<interno" not in out  # sanity: tipo vai dentro de <tipo>, não como tag própria
-    assert "<tipo>interno</tipo>" in out
+    # F32: a exibição do tipo é o texto humano, não o enum cru ("interno").
+    assert "<tipo>no seu local</tipo>" in out
     # o que falta NÃO é omitido — aparece como <item> dentro de <ainda_falta>.
     assert "<ainda_falta>" in out
     assert "que horas ele quer" in out
     assert "<proximo_passo>" in out
-    assert "releia a última mensagem do cliente" in out
+    # F46: o "releia a última mensagem" virou descrição de estado — o próximo passo agora afirma que
+    # a fala do cliente nesta janela MANDA sobre o estado anterior, sem prescrever o verbo de leitura.
+    assert "a fala dele MANDA" in out
 
 
 def test_render_etapa_completa_diz_nada_falta() -> None:
@@ -285,7 +293,8 @@ def test_render_dia_hora_sem_status_quando_ja_combinado() -> None:
         horario_evidenciado=True,
     )
     assert "<dia>2026-06-15</dia>" in out
-    assert "<hora>15:00:00</hora>" in out
+    # HH:MM, sem segundos: o `time` cru saía "15:00:00" e a IA não fala com segundos.
+    assert "<hora>15:00</hora>" in out
     assert "ainda não confirmado" not in out
 
 
@@ -293,6 +302,27 @@ def test_render_hora_sem_evidencia_e_palpite_do_sistema() -> None:
     # #25 (23/07): o horário veio do fallback de tempo imediato e o cliente nunca o pediu. O bloco
     # de horário ganha o TERCEIRO status — sem ele a IA lê o palpite como "pedido dele" e conduz a
     # venda em cima de um horário fantasma (spec extracao-proveniencia-horario).
+    # A REDAÇÃO mudou no diagnóstico de 11/08 (P0-2): `horario_evidenciado` é um regex de marcador
+    # temporal e falhou em 5 das 9 falas com hora dos traces ("hoje 21h", "fechou, 21h to ai"), e a
+    # afirmação categórica ("palpite seu, ele não confirmou") fez a IA re-ofertar uma hora que o
+    # cliente já tinha cravado 3 vezes. O status continua existindo, mas humilde: quem não viu foi o
+    # DETECTOR, e a janela vence o belief quando a fala dele já cravou a hora.
+    out = _render(
+        "Triagem",
+        intencao="curiosidade",
+        tipo_atendimento="interno",
+        horario_desejado=_HORA,
+        horario_evidenciado=False,
+    )
+    assert '<hora status="não confirmada pelo detector' in out
+    assert "já cravou esta hora, trate como combinada e não re-ofereça" in out
+    assert 'status="pedido dele, ainda não confirmado">15:00' not in out
+
+
+def test_render_hora_sem_evidencia_cala_na_etapa_ja_fechada() -> None:
+    # Trava de contradição do mesmo achado (P0-2): em Aguardando_confirmacao, com <ainda_falta>
+    # vazio, o bloco NÃO pode dizer "tudo desta etapa já está combinado" e "ele não confirmou a
+    # hora" no mesmo fôlego — o prompt se contradizia e o modelo obedecia o belief contra a janela.
     out = _render(
         "Aguardando_confirmacao",
         tipo_atendimento="interno",
@@ -300,8 +330,9 @@ def test_render_hora_sem_evidencia_e_palpite_do_sistema() -> None:
         horario_ja_combinado=True,
         horario_evidenciado=False,
     )
-    assert '<hora status="palpite seu, ele não confirmou' in out
-    assert 'status="pedido dele, ainda não confirmado">15:00:00' not in out
+    assert "<hora>15:00</hora>" in out
+    assert "palpite" not in out
+    assert "não confirmada pelo detector" not in out
 
 
 def test_render_valor_fechado_entra_no_ja_combinado() -> None:

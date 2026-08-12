@@ -10,8 +10,8 @@ Caso real (rig Lucia, 18/06/2026): #1 interno morreu por timeout; a Foto de port
 
 ## Decisão
 
-- Uma **Foto de portaria** que chega num par cujo interno mais recente é um `Perdido` por **`auto_timeout_interno`** **ressuscita** esse atendimento — volta a `Em_execucao`, `ia_pausada=true` (`modelo_em_atendimento`), reativa o bloqueio cancelado e emite o card "cliente chegou" — em vez de orfanar/fragmentar, **se e só se**:
-  - a morte foi **`auto_timeout_interno`** (não `Perdido` humano/explícito — decisão humana se respeita);
+- Uma **Foto de portaria** que chega num par cujo interno mais recente é um `Perdido` por **timeout automático** **ressuscita** esse atendimento — volta a `Em_execucao`, `ia_pausada=true` (`modelo_em_atendimento`), reativa o bloqueio cancelado e emite o card "cliente chegou" — em vez de orfanar/fragmentar, **se e só se**:
+  - a morte foi por **timeout automático** — `auto_timeout_interno` (45 min pós-horário, ADR 0024) **ou** `auto_timeout` (24 h de silêncio) — e **não** `Perdido` humano/explícito: o que se respeita é a decisão humana, não o mecanismo que a máquina usou. *(Emenda 11/08/2026: a redação original dizia só `auto_timeout_interno`. As duas mortes são automáticas e deixam rastro idêntico — `Perdido`/`sumiu` + bloqueio `cancelado` — e o `timeout_longo` alcança o interno agendado, então restringir a uma delas deixava a foto órfã com o cliente na portaria. O `timeout_longo` segue gravando a própria fonte, sem mentir sobre o mecanismo, para não contaminar auditoria nem as labels de métrica.)*
   - o **slot ainda está livre** (nenhum bloqueio ativo ocupou o horário depois do cancelamento — sem sobreposição);
   - ainda **dentro do `bloqueio.fim`** (o horário reservado não acabou).
 
@@ -29,7 +29,7 @@ Caso real (rig Lucia, 18/06/2026): #1 interno morreu por timeout; a Foto de port
 
 ## Consequences
 
-- **Exceção explícita ao invariante "`Perdido` é terminal"** (verbete *Estados do atendimento*): um `auto_timeout_interno` `Perdido` pode voltar a `Em_execucao` por sinal forte (foto) dentro do slot livre. É auto-transição, sem humano — registrado para não surpreender quem vir um `Perdido` virar `Em_execucao`.
+- **Exceção explícita ao invariante "`Perdido` é terminal"** (verbete *Estados do atendimento*): um `Perdido` por timeout automático pode voltar a `Em_execucao` por sinal forte (foto) dentro do slot livre. É auto-transição, sem humano — registrado para não surpreender quem vir um `Perdido` virar `Em_execucao`.
 
 - **Implementado** em `dominio/atendimentos/service.py::ressuscitar_interno_foto_portaria` (candidato + 4 efeitos atômicos numa transação) e no gatilho `workers/media.py::rotear_imagem` (ramo `atendimento is None`, antes do fora-fluxo, mais o helper `_ressurreicao_foto_portaria`). Não houve colisão real com a sessão paralela: o gate da foto vive em `media.py`/`atendimentos/service.py`, fora do diff de buffer/agenda dela. Cobertura `needs_db` em `tests/integracao/test_foto_portaria.py` (happy + 3 guardas: pós-`fim`, slot ocupado, `Perdido` humano).
 

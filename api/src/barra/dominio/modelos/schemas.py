@@ -6,6 +6,11 @@ from uuid import UUID
 
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
+# O piso do sentinel vem do contexto que LÊ a coluna (atendimentos): é ele que decide o que ainda
+# é flag e o que já é preço. Duplicar a constante aqui reabriria exatamente o skew que este
+# validador fecha — mesma razão de routes.py importar `abrir_handoff` de escaladas.
+from barra.dominio.atendimentos.service import PRECO_FETICHE_CADASTRADO_MINIMO
+
 CorPele = Literal["branca", "parda", "negra", "asiatica", "outra"]
 CorCabelo = Literal["loiro", "castanho", "preto", "ruivo", "colorido", "outro"]
 Signo = Literal[
@@ -238,10 +243,34 @@ class VincularProgramaBody(BaseModel):
     programa_id: UUID
     duracao_id: UUID
     preco: Decimal = Field(ge=0)
+    preco_minimo: Decimal | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _minimo_ate_o_preco(self) -> "VincularProgramaBody":
+        return _validar_preco_minimo(self)
 
 
 class AtualizarPrecoProgramaBody(BaseModel):
     preco: Decimal = Field(ge=0)
+    # Ausente = mantém o mínimo cadastrado (o PATCH é de preço); `null` explícito o remove. Sem a
+    # distinção, todo reajuste de preço apagaria em silêncio o piso da linha.
+    preco_minimo: Decimal | None = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def _minimo_ate_o_preco(self) -> "AtualizarPrecoProgramaBody":
+        return _validar_preco_minimo(self)
+
+
+def _validar_preco_minimo[T: (VincularProgramaBody, AtualizarPrecoProgramaBody)](body: T) -> T:
+    """Espelha em 400 o CHECK `modelo_programas_preco_minimo_ate_preco` da migration.
+
+    Piso acima do preço faria a escada clampada devolver um valor MAIOR que a tabela — a IA
+    cotaria mais caro justamente ao dar desconto. Sem isto o painel só descobriria no 500 do
+    banco.
+    """
+    if body.preco_minimo is not None and body.preco_minimo > body.preco:
+        raise ValueError("preco_minimo não pode ser maior que preco")
+    return body
 
 
 class FeticheCreate(BaseModel):
@@ -254,12 +283,35 @@ class FetichePatch(BaseModel):
     ordem: int | None = None
 
 
+def _recusar_faixa_de_sentinel(preco: Decimal | None) -> Decimal | None:
+    """Recusa o intervalo (0, piso) — a faixa que a LEITURA reinterpreta como flag, não valor.
+
+    `preco_cadastrado_de_fetiche` (dominio/atendimentos/service.py) trata qualquer número abaixo
+    de `PRECO_FETICHE_CADASTRADO_MINIMO` como o sentinel legado de "pago sem valor" e cai no
+    extra DERIVADO do pacote: um R$5 digitado hoje viraria, sem aviso, um extra do tamanho do
+    programa. `None`/`0` continuam valendo (viram incluso — `_preco_a_gravar` normaliza 0 → NULL).
+    """
+    if preco is not None and Decimal(0) < preco < PRECO_FETICHE_CADASTRADO_MINIMO:
+        raise ValueError(
+            f"preço entre R$0 e R${PRECO_FETICHE_CADASTRADO_MINIMO:.0f} é lido como o sentinel "
+            '"pago sem valor" e viraria um extra derivado do pacote. Use vazio (ou 0) para '
+            f"incluso, ou um valor a partir de R${PRECO_FETICHE_CADASTRADO_MINIMO:.0f}."
+        )
+    return preco
+
+
+# Extra cobrado por um fetiche (ADR-0030, revisão de 11/08/2026: o preço cadastrado voltou a ser a
+# fonte de verdade do extra, fixo, independente da duração do pacote). None/omitido = incluso — a
+# modelo faz sem custo extra. Fetiche pago sem preço cadastrado só existe em linhas legadas: quem
+# lê cai no cálculo derivado do programa (dominio/atendimentos/service.py).
+PrecoDeFetiche = Annotated[Decimal | None, Field(ge=0), AfterValidator(_recusar_faixa_de_sentinel)]
+
+
 class VincularFeticheBody(BaseModel):
     fetiche_id: UUID
-    # False = incluso (a modelo faz, sem custo extra); True = extra pago. O valor do extra é
-    # sempre calculado a partir do programa vendido no atendimento (ADR-0030), nunca cadastrado.
-    pago: bool = False
+    preco: PrecoDeFetiche = None
 
 
 class AtualizarFeticheBody(BaseModel):
-    pago: bool
+    # Obrigatório e explícito: `null` = incluso, número = o extra cobrado.
+    preco: PrecoDeFetiche

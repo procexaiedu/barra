@@ -49,13 +49,16 @@ def test_validator_ok_com_chave() -> None:
     assert s.deepseek_api_key == "sk-x"
 
 
-# --- thinking (braco B do A/B de evals — .scratch/ab-thinking-chat) ------------------------------
-# Prod nunca liga: default do knob e "disabled" e nenhum caminho passa `thinking` explicitamente
-# fora do chat #1 (graph._criar_chat_principal + regen do output_guard, ambos via settings).
+# --- thinking -----------------------------------------------------------------------------------
+# Desde 11/08/2026 o chat #1 raciocina em PROD: o default do knob e "low" e quem o le e so o chat #1
+# (graph._criar_chat_principal + regen do output_guard, ambos via settings). Extracao (#2) e judge
+# (#3) chamam a factory SEM o parametro, e o default dela ("disabled") os mantem non-thinking —
+# thinking corromperia o structured output. Estes dois testes travam esse par de defaults: se
+# alguem inverter um deles, a mudanca aparece aqui e nao em producao.
 
 
-def test_thinking_default_disabled_no_settings() -> None:
-    assert _settings().deepseek_thinking_chat == "disabled"
+def test_thinking_default_low_no_settings() -> None:
+    assert _settings().deepseek_thinking_chat == "low"
 
 
 def test_thinking_disabled_devolve_wrapper_puro() -> None:
@@ -99,6 +102,46 @@ def test_thinking_reinjeta_reasoning_content_no_payload() -> None:
     assert payload["messages"][1]["reasoning_content"] == "checando a agenda antes de responder"
     # As nao-assistant nunca ganham o campo.
     assert "reasoning_content" not in payload["messages"][0]
+
+
+def test_thinking_placeholder_em_tool_call_sem_reasoning_content() -> None:
+    # Regressao (eval braco B, 2026-08-10): o provider as vezes devolve rc VAZIO/ausente numa
+    # iteracao do loop de tool (tipico apos ToolMessage) -> additional_kwargs fica sem o campo e a
+    # iteracao seguinte reenviava a assistant(tool_calls) crua -> HTTP 400 "The `reasoning_content`
+    # in the thinking mode must be passed back". Sondagem contra a API real: `""` e aceito em toda
+    # posicao -> TODA assistant com tool_calls sem rc capturado ganha placeholder vazio.
+    from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+
+    chat = criar_chat_deepseek(_settings(), thinking="high")
+    mensagens = [
+        HumanMessage(content="quero marcar hoje"),
+        AIMessage(
+            content="",
+            # SEM reasoning_content em additional_kwargs (captura pulou rc vazio, ou mensagem
+            # re-hidratada do Postgres sem additional_kwargs).
+            tool_calls=[{"name": "consultar_agenda", "args": {}, "id": "call_1"}],
+        ),
+        ToolMessage(content="{}", tool_call_id="call_1"),
+    ]
+    payload = chat._get_request_payload(mensagens)
+    assert payload["messages"][1]["reasoning_content"] == ""
+
+
+def test_thinking_assistant_de_texto_sem_rc_nao_ganha_placeholder() -> None:
+    # Historico re-hidratado (barravips.mensagens -> AIMessage de texto puro, sem additional_kwargs)
+    # NAO precisa do campo (a API so o exige em assistant com tool_calls do loop aberto) -> o payload
+    # fica como esta, sem inflar o historico com placeholder.
+    from langchain_core.messages import AIMessage, HumanMessage
+
+    chat = criar_chat_deepseek(_settings(), thinking="high")
+    mensagens = [
+        HumanMessage(content="oi"),
+        AIMessage(content="oi amor, tudo bem?"),
+        HumanMessage(content="quero marcar hoje"),
+    ]
+    payload = chat._get_request_payload(mensagens)
+    assert payload["messages"][1]["role"] == "assistant"
+    assert "reasoning_content" not in payload["messages"][1]
 
 
 def test_thinking_captura_reasoning_content_da_resposta() -> None:

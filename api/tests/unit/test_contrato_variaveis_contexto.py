@@ -85,13 +85,69 @@ async def test_contexto_dinamico_nao_le_variavel_que_ninguem_publica() -> None:
     assert not faltando, f"variáveis do contexto dinâmico sem fonte no dicionário: {faltando}"
 
 
-async def test_teto_de_desconto_e_publicado_e_lido_pela_cauda() -> None:
-    """Recorte nominal do teste acima para o campo que carrega VALOR, não instrução: o teto da
-    última contraproposta (ADR-0031) é pré-computado no `prepare_context` e renderizado dentro do
-    `<ja_fez_contraproposta n="1">`. Um rename só de um dos lados apagaria o número em silêncio — e
-    a IA voltaria a multiplicar o percentual de cabeça sem ninguém perceber."""
-    assert "teto_desconto" in await _variaveis_publicadas()
-    assert "teto_desconto" in _variaveis_do_template("contexto_dinamico.md.j2")
+async def test_bloco_da_modelo_nao_le_variavel_que_ninguem_publica() -> None:
+    """Terceiro consumidor do MESMO dicionário: o bloco estático por-modelo, hoistado da cauda
+    para a 3ª SystemMessage do prefixo (otimização de custo, traces 11/08). Mesmo modo de falha —
+    variável renomeada renderiza vazia e a negação ativa (`<sem_menage>` & cia.) some do prompt
+    sem erro, agora num bloco que ninguém relê no diff da cauda."""
+    faltando = _variaveis_do_template("bloco_da_modelo.md.j2") - set(await _variaveis_publicadas())
+
+    assert not faltando, f"variáveis do bloco por-modelo sem fonte no dicionário: {faltando}"
+
+
+def test_bloco_da_modelo_nao_le_nada_que_varie_com_o_turno() -> None:
+    """A premissa do hoist, do lado do CONTRATO (o de bytes está em `test_bloco_da_modelo.py`):
+    o template só pode ler campos que saem do cadastro. Um campo por-turno lido aqui quebraria o
+    prefixo cacheável a cada turno — o bloco pagaria o mesmo miss da cauda de onde saiu."""
+    do_cadastro = {
+        "tabela_max_horas",
+        "sem_periodo_longo",
+        "sem_menage",
+        "sem_video_chamada",
+        "sem_externo",
+        "sem_fetiches",
+        "disponibilidade",
+    }
+
+    extras = _variaveis_do_template("bloco_da_modelo.md.j2") - do_cadastro
+
+    assert not extras, f"variável por-turno no bloco estático (quebra o cache do prefixo): {extras}"
+
+
+async def test_escada_de_desconto_e_publicada_e_lida_pela_cauda() -> None:
+    """Recorte nominal do teste acima para os campos que carregam VALOR e RODADA, não instrução: o
+    número da contraproposta disponível é pré-computado no `prepare_context` e o `escada_estado`
+    escolhe o bloco (a escada tem uma rodada com encontro hoje e duas nos outros dias). Um rename
+    só de um dos lados apagaria o número em silêncio — e a IA voltaria a multiplicar o percentual
+    de cabeça sem ninguém perceber. Conduta-only: a IA lê, o extrator NÃO — por isso os campos
+    entram aqui e não no `ja_registrado.md.j2` nem no espelho da bancada."""
+    publicadas = await _variaveis_publicadas()
+    do_template = _variaveis_do_template("contexto_dinamico.md.j2")
+
+    for campo in ("contraproposta_disponivel", "escada_estado", "preco_na_mesa"):
+        assert campo in publicadas, campo
+        assert campo in do_template, campo
+
+
+async def test_condutas_do_valor_de_11_08_sao_publicadas_e_lidas_pela_cauda() -> None:
+    """Mesmo recorte nominal, para os campos que o ADR-0041 acrescentou: o PAR da oferta
+    condicionada ao dia (os dois números, ou nenhum) e o pacote MAIOR da tabela, que sustenta
+    subir o tempo antes de descer o preço.
+
+    Os três blocos que dependem disso são silenciosos por construção — um rename só de um lado
+    apagaria o bloco do prompt sem erro nenhum, e a conduta voltaria a ser a revogada ("Seria
+    hoje ?") sem ninguém perceber."""
+    publicadas = await _variaveis_publicadas()
+    do_template = _variaveis_do_template("contexto_dinamico.md.j2")
+
+    for campo in (
+        "oferta_se_hoje",
+        "oferta_se_outro_dia",
+        "pacote_maior",
+        "tempo_dele_desconhecido",
+    ):
+        assert campo in publicadas, campo
+        assert campo in do_template, campo
 
 
 async def test_ja_registrado_nao_le_variavel_que_ninguem_publica() -> None:

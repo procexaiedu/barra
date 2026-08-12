@@ -150,8 +150,10 @@ def test_injetar_acima_do_limiar_so_no_ultimo_human() -> None:
     humans = [m for m in out if m.type == "human"]
     ultimo = humans[-1]
     # tag prependada (lembrete → msg do cliente), com a fase do atendimento.
+    # F32: a fase aparece humanizada no lembrete ("Qualificado" → "combinando o encontro"), não como
+    # enum cru — o texto que vai à IA não expõe o vocabulário interno de estado.
     assert str(ultimo.content).startswith("<lembrete_silencioso>")
-    assert "onde estamos: Qualificado" in str(ultimo.content)
+    assert "onde estamos: combinando o encontro" in str(ultimo.content)
     assert str(ultimo.content).endswith("ultima do cliente")
     # só o último HumanMessage recebe a tag; os demais e as AIMessages ficam intactos.
     assert all("<lembrete_silencioso>" not in str(m.content) for m in humans[:-1])

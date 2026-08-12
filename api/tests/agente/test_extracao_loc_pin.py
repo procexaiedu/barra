@@ -116,8 +116,9 @@ async def test_par_preco_duracao_invalido_vira_toolexception(monkeypatch: Any) -
 
 async def test_antecedencia_insuficiente_vira_toolexception(monkeypatch: Any) -> None:
     """ADR 0025: AntecedenciaInsuficiente do domínio vira erro recuperável (ToolException) que
-    instrui a IA a ancorar no <horario_minimo>, sem crashar o turno. Requer `horario_minimo` no
-    State (há horário válido hoje); o ramo `None` está em test_antecedencia_horario_minimo.py."""
+    instrui a IA a oferecer o primeiro horário liberado, sem crashar o turno. Requer `horario_minimo`
+    no State (há horário válido hoje); o ramo `None` está em test_antecedencia_horario_minimo.py.
+    Pós-F10 a nota guia por linguagem sem tag (não ecoa mais `<horario_minimo>`)."""
 
     async def _raise(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         raise AntecedenciaInsuficiente("cedo demais")
@@ -128,7 +129,7 @@ async def test_antecedencia_insuficiente_vira_toolexception(monkeypatch: Any) ->
     redis.enqueue_job = AsyncMock()
 
     state = {"horario_minimo": datetime(2026, 6, 25, 23, 30, tzinfo=ZoneInfo("America/Sao_Paulo"))}
-    with pytest.raises(ToolException, match=r"^ERRO:.*horario_minimo"):
+    with pytest.raises(ToolException, match=r"^ERRO:.*cedo demais"):
         await _chamar(
             proxima_acao_esperada="confirmar horario",
             runtime=_Runtime(_Ctx(redis), state),

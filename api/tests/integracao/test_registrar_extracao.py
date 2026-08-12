@@ -19,12 +19,14 @@ from uuid import UUID, uuid4
 
 import pytest
 import pytest_asyncio
+from prometheus_client import REGISTRY
 from psycopg import AsyncConnection
 from psycopg.rows import dict_row
 
 from barra.agente.ferramentas._idempotencia import _executar_idempotente
 from barra.dominio.agenda.service import BRT, ConflitoAgenda
 from barra.dominio.atendimentos.service import (
+    MENSAGENS_GUARD_ESCALADA,
     CotacaoAusente,
     ParPrecoDuracaoInvalido,
     _abaixo_do_piso,
@@ -143,9 +145,16 @@ async def _seed_atendimento(
 
 
 async def _seed_programa(
-    c: AsyncConnection[dict[str, Any]], modelo_id: UUID, *, horas: Decimal, preco: Decimal
-) -> None:
-    """Programa de tabela da modelo numa duracao (`duracoes.horas`) — base do piso (ADR-0004)."""
+    c: AsyncConnection[dict[str, Any]],
+    modelo_id: UUID,
+    *,
+    horas: Decimal,
+    preco: Decimal,
+    preco_minimo: Decimal | None = None,
+) -> tuple[UUID, UUID]:
+    """Programa de tabela da modelo numa duracao (`duracoes.horas`) — base do piso (ADR-0004).
+    `preco_minimo` e o piso ABSOLUTO da linha, que clampa a escada percentual (11/08/2026).
+    Devolve `(programa_id, duracao_id)` p/ quem precisa amarrar o servico VENDIDO ao pacote."""
     programa_id = uuid4()
     await c.execute(
         "INSERT INTO barravips.programas (id, nome, categoria) VALUES (%s, %s, NULL)",
@@ -158,11 +167,13 @@ async def _seed_programa(
     )
     await c.execute(
         """
-        INSERT INTO barravips.modelo_programas (modelo_id, programa_id, duracao_id, preco)
-        VALUES (%s, %s, %s, %s)
+        INSERT INTO barravips.modelo_programas
+               (modelo_id, programa_id, duracao_id, preco, preco_minimo)
+        VALUES (%s, %s, %s, %s, %s)
         """,
-        (modelo_id, programa_id, duracao_id, preco),
+        (modelo_id, programa_id, duracao_id, preco, preco_minimo),
     )
+    return programa_id, duracao_id
 
 
 async def _seed_par(
@@ -587,6 +598,332 @@ async def test_valor_abaixo_do_piso_escala(conn: AsyncConnection[dict[str, Any]]
     assert esc["observacao"] == "fora_de_oferta"
 
 
+# --- guarda do VALOR FANTASMA (validacao ao vivo 11/08, escada_val2) --------------------------
+#
+# Cenario vivo: tabela 400/1h; o cliente insistiu "vai amor, 300 e fecho agora", a IA RECUSOU
+# ("nao consigo por 300 nao") e a extracao gravou valor_acordado=300 + aceita_valor. O piso NAO
+# pega: 300 e exatamente o teto de 25% sobre 400 (ADR-0031). No turno seguinte o belief mostrou
+# "aceito por ele 300" e a IA capitulou. Aqui o campo tem que ser DESCARTADO (nao escalado).
+
+
+async def _seed_fala_da_ia(
+    c: AsyncConnection[dict[str, Any]], atendimento_id: UUID, texto: str
+) -> None:
+    """Fala PERSISTIDA da IA na conversa do atendimento — a fonte (c) do conjunto legitimo."""
+    res = await c.execute(
+        "SELECT conversa_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    row = await res.fetchone()
+    assert row is not None
+    await c.execute(
+        """
+        INSERT INTO barravips.mensagens (conversa_id, atendimento_id, direcao, tipo, conteudo,
+                                         evolution_message_id)
+        VALUES (%s, %s, 'ia', 'texto', %s, %s)
+        """,
+        (row["conversa_id"], atendimento_id, texto, f"test-msg-{uuid4().hex}"),
+    )
+
+
+def _valor_fantasma_total() -> float:
+    # Gotcha: `get_sample_value` NAO duplica o sufixo `_total` do Counter.
+    return REGISTRY.get_sample_value("agente_extracao_valor_fantasma_total") or 0.0
+
+
+@pytest.mark.needs_db
+async def test_valor_que_a_ia_nunca_ofertou_e_descartado(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O bug vivo: 300 e do CLIENTE, passa do piso e nunca saiu da boca da IA -> campo descartado,
+    `aceita_valor` do mesmo payload cai junto, o RESTO do payload e aplicado e o retorno ensina o
+    caminho certo. Nao escala: nao ha nada para a modelo decidir."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Triagem", tipo_atendimento="interno", intencao="cotacao"
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await _seed_fala_da_ia(conn, atendimento_id, "Fica 400 1h no meu local amor")
+    antes = _valor_fantasma_total()
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "valor_acordado": "300",
+            "duracao_horas": "1",
+            "bairro": "Meireles",
+            "sinais_qualificacao": {"aceita_valor": True, "responde_objetivamente": True},
+            "proxima_acao_esperada": "combinar o horario",
+        },
+    )
+
+    assert "descartado" in resultado["mensagem"].lower()
+    assert "300" in resultado["mensagem"]
+    assert _valor_fantasma_total() == antes + 1
+
+    res = await conn.execute(
+        "SELECT valor_acordado, duracao_horas, bairro, sinais_qualificacao, ia_pausada "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] is None
+    # O resto do payload seguiu gravando; so o aceite (inferido do mesmo evento falso) caiu.
+    assert a["duracao_horas"] == Decimal("1")
+    assert a["bairro"] == "Meireles"
+    assert a["sinais_qualificacao"].get("aceita_valor") is not True
+    assert a["sinais_qualificacao"]["responde_objetivamente"] is True
+    assert a["ia_pausada"] is False
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s", (atendimento_id,)
+    )
+    esc = await res.fetchone()
+    assert esc is not None and esc["n"] == 0
+
+    # Auditoria no evento, igual ao drift/tipo descartados.
+    res = await conn.execute(
+        "SELECT payload FROM barravips.eventos WHERE atendimento_id = %s AND tipo = %s",
+        (atendimento_id, "extracao_registrada"),
+    )
+    ev = await res.fetchone()
+    assert ev is not None
+    assert ev["payload"]["valor_descartado"]["proposto"] == 300
+
+
+@pytest.mark.needs_db
+async def test_valor_que_a_ia_ofertou_grava_normal(conn: AsyncConnection[dict[str, Any]]) -> None:
+    """O degrau que a IA OFERTOU num turno anterior e legitimo — a escada de desconto (ADR-0031)
+    tem que continuar fechando venda."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Triagem", tipo_atendimento="interno", intencao="cotacao"
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await _seed_fala_da_ia(conn, atendimento_id, "consigo 350 se vier hoje amor")
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "valor_acordado": "350",
+            "duracao_horas": "1",
+            "sinais_qualificacao": {"aceita_valor": True},
+            "proxima_acao_esperada": "combinar o horario",
+        },
+    )
+
+    res = await conn.execute(
+        "SELECT valor_acordado, sinais_qualificacao FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] == Decimal("350")
+    assert a["sinais_qualificacao"]["aceita_valor"] is True
+
+
+@pytest.mark.needs_db
+async def test_valor_ofertado_na_fala_deste_turno_grava_normal(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """`valor_acordado` e gravado JA NA COTACAO: o total com extra de fetiche (400 do pacote + 400
+    do extra, ADR-0030) nao esta na tabela nem no historico — so na bolha deste turno."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Triagem", tipo_atendimento="interno", intencao="cotacao"
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "valor_acordado": "800",
+            "duracao_horas": "1",
+            "proxima_acao_esperada": "combinar o horario",
+        },
+        fala_da_ia_no_turno="com o extra fica 800 amor, na 1h",
+    )
+
+    res = await conn.execute(
+        "SELECT valor_acordado FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None and a["valor_acordado"] == Decimal("800")
+
+
+@pytest.mark.needs_db
+@pytest.mark.parametrize(
+    "fala_do_aceite",
+    [
+        "Fechado 700 amor",
+        "Tabom, 700 entao / Te espero as 22h amor",
+        "Combinado 700 amor, consigo as 21h ?",
+        "Faco 700 sim amor",
+        "700 fechado entao / Seria que horas ?",
+        "Consigo 700 sim amor",
+    ],
+)
+async def test_aceite_do_valor_dele_grava_a_venda_em_forma_natural(
+    conn: AsyncConnection[dict[str, Any]], fala_do_aceite: str
+) -> None:
+    """ADR-0040 ponta a ponta: 2h da Catarina (800, piso absoluto 600), o cliente propos 700 e a IA
+    aceitou NO NUMERO DELE. O 700 nao esta na tabela e nunca foi ofertado por ela antes -- so a
+    fala DESTE turno o legitima.
+
+    A fala VARIA de propriedade nesta parametrizacao. A saida barata para esta guarda era prescrever
+    no prompt UMA frase canonica que o scanner ja lesse ("Consigo 700 sim amor"): foi recusada pelo
+    dono do produto, porque conduta prescrita como frase vira tique e uma frase com CARGA FUNCIONAL
+    puniria a IA por dizer a mesma coisa com outras palavras -- toda venda sairia com a mesma bolha.
+    Quem alargou foi o detector (`_RE_PRECO_CITADO`, ramo de fechamento), e este teste e a prova de
+    que o registro nao depende de nenhuma fala especifica.
+
+    Tem que passar por DUAS guardas na ordem: `_abaixo_do_piso` (700 >= 600, nao escala) e o valor
+    fantasma (700 saiu da boca dela neste turno, nao e descartado)."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Triagem", tipo_atendimento="interno", intencao="cotacao"
+    )
+    await _seed_programa(
+        conn, modelo_id, horas=Decimal("2"), preco=Decimal("800"), preco_minimo=Decimal("600")
+    )
+    antes = _valor_fantasma_total()
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "valor_acordado": "700",
+            "duracao_horas": "2",
+            "sinais_qualificacao": {"aceita_valor": True},
+            "proxima_acao_esperada": "combinar o horario",
+        },
+        fala_da_ia_no_turno=fala_do_aceite,
+    )
+
+    res = await conn.execute(
+        "SELECT valor_acordado, sinais_qualificacao FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] == Decimal("700")
+    assert a["sinais_qualificacao"]["aceita_valor"] is True
+    assert _valor_fantasma_total() == antes
+
+    # E nenhuma escalada: 700 esta acima do piso absoluto da linha, entao nao ha `fora_de_oferta`.
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s", (atendimento_id,)
+    )
+    esc = await res.fetchone()
+    assert esc is not None and esc["n"] == 0
+
+
+@pytest.mark.needs_db
+async def test_aceite_sem_o_numero_na_fala_continua_descartado(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O contrapeso do teste acima, e a razao pela qual o bloco do prompt exige que o numero
+    APARECA na bolha: "Tabom entao" sem numero nao prova aceite nenhum. Relaxar a guarda para
+    "qualquer numero do cliente acima do piso" reabriria o bug de 11/08 -- a IA RECUSOU 300 e o
+    extrator gravou 300, e 300 estava acima do piso. "Acima do piso" nunca foi prova de aceite."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Triagem", tipo_atendimento="interno", intencao="cotacao"
+    )
+    await _seed_programa(
+        conn, modelo_id, horas=Decimal("2"), preco=Decimal("800"), preco_minimo=Decimal("600")
+    )
+    antes = _valor_fantasma_total()
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "valor_acordado": "700",
+            "duracao_horas": "2",
+            "sinais_qualificacao": {"aceita_valor": True},
+            "proxima_acao_esperada": "combinar o horario",
+        },
+        fala_da_ia_no_turno="Tabom entao amor / Te espero as 22h",
+    )
+
+    assert "descartado" in resultado["mensagem"].lower()
+    assert _valor_fantasma_total() == antes + 1
+
+    res = await conn.execute(
+        "SELECT valor_acordado, sinais_qualificacao FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] is None
+    assert a["sinais_qualificacao"].get("aceita_valor") is not True
+
+
+@pytest.mark.needs_db
+async def test_recusa_no_historico_nao_legitima_o_valor(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """A fala que RECUSA o numero cita o numero — sem a leitura de negacao, a recusa do turno 3
+    legitimaria o mesmo 300 no turno 4 (foi exatamente assim que a IA capitulou ao vivo)."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Triagem", tipo_atendimento="interno", intencao="cotacao"
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await _seed_fala_da_ia(conn, atendimento_id, "Poxa amor, nao consigo por 300 nao")
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"valor_acordado": "300", "duracao_horas": "1", "proxima_acao_esperada": "seguir"},
+    )
+
+    res = await conn.execute(
+        "SELECT valor_acordado FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None and a["valor_acordado"] is None
+
+
+@pytest.mark.needs_db
+async def test_payload_sem_valor_passa_intocado(conn: AsyncConnection[dict[str, Any]]) -> None:
+    """A guarda so olha payload que REGISTRA valor: sem `valor_acordado` nada muda (nem a
+    mensagem de retorno, que o post_process compara por igualdade)."""
+    modelo_id, atendimento_id = await _seed_par(conn, estado="Triagem", intencao="cotacao")
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    antes = _valor_fantasma_total()
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"bairro": "Aldeota", "proxima_acao_esperada": "perguntar o horario"},
+    )
+
+    assert resultado["mensagem"] == "Extracao registrada."
+    assert _valor_fantasma_total() == antes
+
+
+@pytest.mark.needs_db
+async def test_valor_abaixo_do_piso_ainda_escala_em_vez_de_descartar(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Ordem das guardas: abaixo do piso continua ESCALANDO (ADR-0004 — o cliente insistindo num
+    numero baixo merece a modelo decidir). So o que PASSA do piso e nunca saiu da boca dela cai no
+    descarte silencioso."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Qualificado", tipo_atendimento="externo", intencao="agendamento"
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    antes = _valor_fantasma_total()
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"valor_acordado": "50", "duracao_horas": "1", "proxima_acao_esperada": "fechar"},
+    )
+
+    assert resultado["mensagem"] in MENSAGENS_GUARD_ESCALADA
+    assert _valor_fantasma_total() == antes
+
+
 @pytest.mark.needs_db
 async def test_valor_no_piso_sem_duracao_no_payload_nao_escala(
     conn: AsyncConnection[dict[str, Any]],
@@ -816,7 +1153,7 @@ async def test_abaixo_do_piso_abaixo_do_teto_escala(
 async def test_abaixo_do_piso_sem_programa_correspondente_escala(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
-    """Sem programa cadastrado na duracao do atendimento, `_preco_tabela_min` nao acha preco de
+    """Sem programa cadastrado na duracao do atendimento, `_piso_do_pacote` nao acha preco de
     tabela -> trata como abaixo do piso (escala), mesmo com um valor_acordado alto."""
     _, atendimento_id = await _seed_par(
         conn,
@@ -827,6 +1164,100 @@ async def test_abaixo_do_piso_sem_programa_correspondente_escala(
     )
     # Nenhum _seed_programa nessa duracao (3h) -> preco_tabela None.
     assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "10000"}) is True
+
+
+@pytest.mark.needs_db
+async def test_piso_absoluto_da_linha_vence_o_percentual(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O caso da Catarina (11/08/2026): pacote de 30min cadastrado como 250 = o MÍNIMO dela.
+    Os 25% do percentual global permitiriam 187,50; o `preco_minimo` corta em 250, e a guarda
+    escala qualquer valor abaixo disso em vez de gravar."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        duracao_horas=Decimal("0.5"),
+    )
+    await _seed_programa(
+        conn,
+        modelo_id,
+        horas=Decimal("0.5"),
+        preco=Decimal("250"),
+        preco_minimo=Decimal("250"),
+    )
+    # Sem o piso da linha, 200 passaria (fica acima dos 187,50 do percentual).
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "200"}) is True
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "250"}) is False
+
+
+@pytest.mark.needs_db
+async def test_duracao_com_dois_pacotes_julga_pelo_piso_MAIS_ALTO(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O furo que o piso por PACOTE fecha (o cadastro da Lucia e da Tatiane): duas linhas na mesma
+    duração (Normal 400 com piso 300, Completo 800 com piso 600) e nenhum serviço vendido gravado.
+    O piso da linha mais barata (ADR-0004 §Decisão item 5) deixava o Completo de 800 vendável a
+    300 — valor real da tabela, então o guard de saída também o aceitava: sem escalada e sem
+    rastro.
+
+    Aqui a conversa não tem NENHUMA fala da IA semeada, então a dedução do pacote pelo preço
+    cotado (11/08/2026) não tem o que ler e vale o FALLBACK: sem saber qual pacote é, o piso mais
+    alto — o único válido para os dois. A dedução em si está coberta, sem DB, em
+    tests/unit/test_piso_de_desconto.py."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    await _seed_programa(
+        conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"), preco_minimo=Decimal("300")
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("800"))
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "800"}) is False
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "600"}) is False
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "300"}) is True
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "280"}) is True
+
+
+@pytest.mark.needs_db
+async def test_servico_vendido_amarra_o_piso_ao_programa(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Com o pacote gravado em `atendimento_servicos` (o painel), a ambiguidade some: o piso é o
+    da linha DELE. Mesma tabela do teste acima — vendido o Normal, os 300 voltam a ser piso
+    legítimo; vendido o Completo, 300 escala."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    normal_id, duracao_id = await _seed_programa(
+        conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"), preco_minimo=Decimal("300")
+    )
+    completo_id, _ = await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("800"))
+    await conn.execute(
+        """
+        INSERT INTO barravips.atendimento_servicos
+               (atendimento_id, programa_id, duracao_id, preco_snapshot)
+        VALUES (%s, %s, %s, %s)
+        """,
+        (atendimento_id, normal_id, duracao_id, Decimal("400")),
+    )
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "300"}) is False
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "280"}) is True
+
+    await conn.execute(
+        "UPDATE barravips.atendimento_servicos SET programa_id = %s WHERE atendimento_id = %s",
+        (completo_id, atendimento_id),
+    )
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "300"}) is True
+    assert await _abaixo_do_piso(conn, atendimento_id, {"valor_acordado": "600"}) is False
 
 
 @pytest.mark.needs_db

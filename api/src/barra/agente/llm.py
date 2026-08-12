@@ -16,6 +16,7 @@ def build_system_messages(
     *,
     geral_md: str,
     modelo_md: str | None = None,
+    cadastro_md: str | None = None,
 ) -> list[SystemMessage]:
     """Blocos `system` (strings puras), na ordem de render (§1, §4).
 
@@ -23,6 +24,12 @@ def build_system_messages(
     modelos. Quando `modelo_md` é passado, emite um 2º bloco por-modelo (identidade + programas).
     A ordem é estável e CRÍTICA: geral antes do por-modelo, senão o prefixo deixa de ser global
     (§1, §4.3).
+
+    `cadastro_md` (`render_bloco_da_modelo`) é o 3º bloco, também por-modelo: as condutas que o
+    CADASTRO dela decide e o turno não muda (`<sem_menage>`, `<sem_video_chamada>`,
+    `<sem_fetiches>`, `<sem_periodo_longo>`, `<periodo_de_trabalho>`). Vinha na cauda volátil e
+    pagava cache-MISS todo turno. Entra DEPOIS do BP_MODELO de propósito: o prefixo
+    `[geral][por-modelo]` que já está quente no provider não muda um byte com esta adição.
 
     Strings puras: é o formato que RODA em prod sob DeepSeek (OpenAI-compatível, espera `content`
     string), cujo cache de prefixo é automático no provider — sem marcador `cache_control`.
@@ -36,4 +43,6 @@ def build_system_messages(
     mensagens = [SystemMessage(content=geral_md)]
     if modelo_md is not None:
         mensagens.append(SystemMessage(content=modelo_md))
+    if cadastro_md:
+        mensagens.append(SystemMessage(content=cadastro_md))
     return mensagens

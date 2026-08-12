@@ -1,7 +1,23 @@
 ---
-status: accepted
+status: superseded
+superseded-by: ADR-0039 (composição passa ao regime do ADR-0038 — o pacote não dobra mais)
 amends: ADR-0030 (reabre a alternativa "multiplicador por fetiche" que o 0030 deixou em aberto)
 ---
+
+> **SUPERADO em 2026-08-11 pelo ADR-0039.** O regime de PREÇO descrito aqui — por-pessoa = o pacote
+> inteiro (o pacote dobra), e o unitário × 2 com preço cadastrado — **não vale mais**. Composição
+> (casal/ménage) passou a somar exatamente o mesmo extra dos fetiches-ato: a linha de 1 HORA do
+> mesmo programa, no patamar vigente, fixa em relação à duração. Leia o ADR-0039 para a regra
+> corrente e para os números.
+>
+> O que **sobrevive** deste ADR: a coluna `barravips.fetiches.cobra_por_pessoa` no catálogo GLOBAL
+> (com Casal/Ménage marcados pela migration `20260723064620`) e a leitura de que casal/ménage é uma
+> coisa à parte no cardápio. Ela virou **classificação** — a seção "Por pessoa" do `<fetiches>`, o
+> `casal_em_pauta` e o gate `<sem_menage>` —, não mais regime de preço.
+>
+> **Nota anterior, de 2026-08-11 (ADR-0038), agora histórica:** ela dizia que este ADR seguia
+> "intocado" e que só o regime ATO havia mudado. Isso valeu por algumas horas; o ADR-0039 revisou
+> os dois juntos.
 
 # ADR-0035 — Fetiche "por pessoa" (casal/menage) dobra o pacote
 
@@ -61,3 +77,19 @@ correta é **dobra o pacote inteiro**, e as três fontes que dizem o contrário 
   pacote". Até lá, o registro/breakdown já dobra, mas a **fala da IA ainda cota preço-hora** — por
   isso o deploy só vale com a rodada de prompt junto.
 - `CONTEXT.md` (verbetes Fetiche/Menage) a ajustar para descrever os dois regimes.
+
+## Revisão 2026-08-11 — o "dobra" passa a incidir sobre o preço cadastrado
+
+A revisão de 11/08/2026 do ADR-0030 (ver lá) tornou o **preço cadastrado por fetiche** a fonte de
+verdade do extra. O regime "por pessoa" **não muda de intenção** — continua sendo "são 2 pessoas,
+cobra-se duas vezes" — só muda **sobre o que** ele incide:
+
+- **Com preço cadastrado**: o extra é `preco_cadastrado × 2` (o unitário cobrado pelas duas
+  pessoas). Consequência de cadastro a vigiar: o operador precisa cadastrar o valor **por
+  pessoa**, não o valor já dobrado — cadastrar R$700 num pacote de R$400 sai como +R$1.400.
+- **Sem preço cadastrado** (o caso de todo o prod hoje): nada muda — o extra é o **pacote
+  inteiro**, exatamente como este ADR decidiu, via `calcular_preco_extra_fetiche`.
+
+Ambos os caminhos passam por `extra_de_fetiche` (`dominio/atendimentos/service.py`), o site único
+da conta. A seção "Por pessoa" do `fetiches.md.j2` continua separada dos atos; a prosa "DOBRA o
+pacote" só sai no regime sem cadastro — com cadastro, a linha nomeia o valor.

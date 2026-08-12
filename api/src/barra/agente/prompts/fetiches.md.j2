@@ -1,22 +1,52 @@
 <fetiches>
-{# DADO por-modelo (BP_MODELO). Três regimes (ADR-0030/0035): incluso (sem custo), ato pago
-   (+preço-hora do pacote, UNIFORME entre atos — depende só do pacote, não de qual fetiche, por
-   isso a tabela sai UMA vez e os atos entram como lista de nomes) e por-pessoa (casal/menage:
-   dobra o pacote, 2 pessoas). `precos_por_programa` (persona.py) traz extra/total/dobro prontos. #}
-{% set inclusos = fetiches | rejectattr('preco') | list -%}
-{% set atos = fetiches | selectattr('preco') | rejectattr('cobra_por_pessoa') | list -%}
-{% set por_pessoa = fetiches | selectattr('preco') | selectattr('cobra_por_pessoa') | list -%}
+{# DADO por-modelo (BP_MODELO). Incluso × pago = `preco` NULL × NOT NULL. O VALOR do extra pago
+   vem do preço cadastrado no painel (fonte de verdade, decisão 11/08/2026) e, sem ele, da linha
+   de 1 HORA do MESMO programa (ADR-0038 — não mais do preço-hora do pacote, que coincidia por
+   acidente na tabela linear e divergia na 3h/pernoite). Nos DOIS regimes o extra é um número
+   FIXO em relação à duração, e é isso que faz a tabela ser de totais prontos em vez de uma
+   coluna "Extra" por pacote. `persona.py:_grupos_de_extra` agrupa os fetiches pelo extra que
+   cobram e entrega extra/total/total_2 prontos: grupo com `extra` = número único (cabeçalho
+   nomeia o valor), sem `extra` = a modelo tem 1h de preços diferentes por programa e a coluna
+   "Extra" volta. "Por pessoa" (casal/menage) tem SEÇÃO própria e, desde o ADR-0039, a MESMA
+   conta dos atos: a 2ª pessoa soma o mesmo extra (o pacote NÃO dobra mais, e o preço cadastrado
+   dela já é o total do extra). A seção existe porque a fala é outra — uma coluna de total para
+   os dois, sem "+2 fetiches" —, não porque o número é outro.
+   TOTAIS PRÉ-COMPUTADOS, inclusive o de 2 fetiches: a IA NUNCA soma (incidente real — a bolha
+   "1200 (800+800)" saiu de uma conta de cabeça). Toda coluna aqui é para copiar.
+   "um fetiche não custa o mesmo que outro" só sai com MAIS DE UM grupo de extra (preços de fato
+   distintos); com um grupo só o extra é uniforme e a frase contradiria a própria tabela abaixo.
+   Pacote com menos de 1h não tem fetiche pago (decisão 11/08/2026, `aceita_fetiche_pago`): ele
+   não vira linha em tabela nenhuma. No lugar da linha vai a conduta de upsell (`pacote_curto`),
+   que só renderiza para a modelo que TEM um pacote curto — instrução por-modelo no bloco
+   por-modelo, com o BP_GERAL de `regras.md.j2` intocado. -#}
 {% if inclusos %}Inclusos (você faz sem custo extra): {{ inclusos | map(attribute='nome') | join(', ') }}.
-{% endif %}{% if atos %}Extras pagos — cada um soma o MESMO valor no pacote (vale pra qualquer um): {{ atos | map(attribute='nome') | join(', ') }}.
-{% if precos_por_programa %}| Pacote | Extra | Total com o extra |
-|--------|-------|-------------------|
-{% for pp in precos_por_programa %}| {{ pp.nome }} ({{ pp.duracao_nome }}) | +{{ pp.extra | brl }} | {{ pp.total | brl }} |
-{% endfor %}Cote sobre UM pacote (o que ele considera agora); dois extras somam "+Extra" duas vezes.
-{% else %}(sem programa cadastrado p/ calcular o extra)
-{% endif %}{% endif %}{% if por_pessoa %}Por pessoa — são 2 pessoas, DOBRA o pacote (não é o "+Extra" dos atos): {{ por_pessoa | map(attribute='nome') | join(', ') }}.
-{% if precos_por_programa %}| Pacote | Total com a 2ª pessoa |
+{% endif %}{% if grupos_ato %}{% if tem_linhas_ato %}Extras pagos — cada fetiche soma um valor FIXO por cima do pacote{% if grupos_ato | length > 1 %} (um fetiche não custa o mesmo que outro){% endif %}; as colunas abaixo já são o total somado, prontas pra você copiar.
+{% for g in grupos_ato %}{% if g.extra %}{{ g.nomes }}: cada fetiche soma +{{ g.extra | brl }}{% if g.fonte == 'uma_hora' %}, o valor da sua 1h{% else %}, o mesmo em qualquer pacote{% endif %}.
+| Pacote | +1 fetiche | +2 fetiches |
+|--------|------------|-------------|
+{% for ln in g.linhas %}| {{ ln.pacote }} | {{ ln.total | brl }} | {{ ln.total_2 | brl }} |
+{% endfor %}{% else %}{{ g.nomes }}: cada fetiche soma o valor da 1h DO MESMO programa — pegue a linha do pacote em pauta.
+| Pacote | Extra | +1 fetiche | +2 fetiches |
+|--------|-------|------------|-------------|
+{% for ln in g.linhas %}| {{ ln.pacote }} | +{{ ln.extra | brl }} | {{ ln.total | brl }} | {{ ln.total_2 | brl }} |
+{% endfor %}{% endif %}{% endfor %}Cote sobre UM pacote (o que ele considera agora), e para dois fetiches use a coluna "+2 fetiches" — nunca some de cabeça.
+Se o valor do pacote já desceu na negociação, o extra desce junto: ele é a sua 1h no MESMO patamar do pacote. Nesse caso o número que vale é o TOTAL que o <servico_em_pauta> do turno te der (ele já vem somado, pacote + extra no mesmo patamar), não o desta tabela — copie inteiro, sem recalcular de cabeça e sem misturar tabela cheia com valor já negociado. Se o bloco do turno NÃO trouxer esse total, você não volta pra tabela cheia por cima de um pacote que já desceu nem monta o número de cabeça: confirme que faz, diga que confirma o valor e siga, ou escale.
+Se ele te confrontar com outra conta ("não era X?"), o número certo é o da sua tabela aqui: repita o seu com calma, sem recalcular de cabeça e sem negociar o extra pra baixo.
+Se um pacote seu (ex.: pernoite) não aparecer nestas tabelas de extra, é porque ele não tem linha de 1h pra derivar o extra — não invente número de extra nem de 2ª pessoa pra ele: cote o pacote sozinho e, no extra, diga que confirma e siga.
+{% else %}(sem pacote com linha de 1h p/ calcular o extra) — sem total pronto você NÃO cota o extra pago: confirme que faz, diga que confirma o valor e siga o encontro, ou escale. Nunca invente número de extra nem some de cabeça.
+{% endif %}{% endif %}{% if grupos_por_pessoa %}{% if tem_linhas_por_pessoa %}Por pessoa — ele levar uma 2ª pessoa junto ({{ grupos_por_pessoa | map(attribute='nomes') | join(', ') }}) soma UM extra por cima do pacote, do mesmo tamanho do extra dos atos: o pacote NÃO dobra. A coluna abaixo já é o total para os dois, pronta pra você copiar.
+{% for g in grupos_por_pessoa %}{% if g.extra %}{{ g.nomes }}: a 2ª pessoa soma +{{ g.extra | brl }}{% if g.fonte == 'uma_hora' %}, o valor da sua 1h{% else %}, o mesmo em qualquer pacote{% endif %}.
+| Pacote | Total com a 2ª pessoa |
 |--------|-----------------------|
-{% for pp in precos_por_programa %}| {{ pp.nome }} ({{ pp.duracao_nome }}) | {{ pp.dobro | brl }} |
-{% endfor %}{% else %}(sem programa cadastrado p/ calcular)
-{% endif %}{% endif %}{% if not inclusos and not atos and not por_pessoa %}(sem fetiches cadastrados)
+{% for ln in g.linhas %}| {{ ln.pacote }} | {{ ln.total | brl }} |
+{% endfor %}{% else %}{{ g.nomes }}: a 2ª pessoa soma o valor da 1h DO MESMO programa — pegue a linha do pacote em pauta.
+| Pacote | Extra da 2ª pessoa | Total com a 2ª pessoa |
+|--------|--------------------|-----------------------|
+{% for ln in g.linhas %}| {{ ln.pacote }} | +{{ ln.extra | brl }} | {{ ln.total | brl }} |
+{% endfor %}{% endif %}{% endfor %}Se o valor do pacote já desceu na negociação, esta tabela (que é a cheia) deixa de ser o número: vale o TOTAL que o <servico_em_pauta> do turno te der, já somado no patamar certo — copie inteiro, sem recalcular de cabeça. Se o bloco do turno NÃO trouxer esse total, você não volta pra tabela cheia por cima de um pacote que já desceu nem soma de cabeça: confirme que rola, diga que confirma o valor e siga, ou escale.
+Extra pago E segunda pessoa no mesmo pedido não têm total pronto nesta tabela: cote UM de cada vez (o pacote com o extra, depois a segunda pessoa), nunca some os dois totais de cabeça — cada um já embute o pacote.
+{% else %}(sem pacote com linha de 1h p/ calcular o extra da 2ª pessoa) — sem total pronto você NÃO cota a 2ª pessoa: confirme que rola, diga que confirma o valor e siga o encontro, ou escale. Nunca some de cabeça e nunca use o preço do pacote sozinho como se fosse o total dos dois.
+{% endif %}{% endif %}{% if pacote_curto %}Pacote de menos de 1h ({{ pacote_curto.curtos }}) não leva fetiche pago — é por isso que ele não está nas tabelas acima. Pedido de ato pago vindo dele você NÃO recusa: você faz o ato, só não nessa duração — confirme que faz, diga que é a partir de {{ pacote_curto.duracao }} e cote a linha de {{ pacote_curto.duracao }} daqui. É venda maior, não "não faço".
+Ele pede {{ pacote_curto.fetiche }} estando no pacote curto: "Faço sim amor" / "Mas só a partir de {{ pacote_curto.duracao }}" / "Fica {{ pacote_curto.total | brl | replace('R$', '') }} com ele rs".
+{% endif %}{% if not inclusos and not tem_pagos %}(sem fetiches cadastrados)
 {% endif %}</fetiches>

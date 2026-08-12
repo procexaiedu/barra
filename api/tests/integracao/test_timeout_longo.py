@@ -116,6 +116,36 @@ async def _seed_msg_cliente(
     )
 
 
+async def _seed_bloqueio(
+    c: AsyncConnection[dict[str, Any]],
+    atendimento_id: UUID,
+    *,
+    inicio: datetime,
+    fim: datetime,
+) -> UUID:
+    """Bloqueio previo 'bloqueado' vinculado ao atendimento (efeito de `criar_bloqueio_previo`)."""
+    res = await c.execute(
+        "SELECT modelo_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    row = await res.fetchone()
+    assert row is not None
+    bloqueio_id = uuid4()
+    await c.execute(
+        """
+        INSERT INTO barravips.bloqueios
+            (id, modelo_id, atendimento_id, inicio, fim, estado, origem)
+        VALUES (%s, %s, %s, %s, %s, 'bloqueado'::barravips.estado_bloqueio_enum,
+                'ia'::barravips.origem_bloqueio_enum)
+        """,
+        (bloqueio_id, row["modelo_id"], atendimento_id, inicio, fim),
+    )
+    await c.execute(
+        "UPDATE barravips.atendimentos SET bloqueio_id = %s WHERE id = %s",
+        (bloqueio_id, atendimento_id),
+    )
+    return bloqueio_id
+
+
 # --- testes integrados -----------------------------------------------------------------------
 
 
@@ -168,3 +198,97 @@ async def test_timeout_longo_ignora_msg_recente(
     )
     row = await res.fetchone()
     assert row is not None and row["estado"] == "Triagem"
+
+
+# --- ancora da reserva: a JANELA, nao o inicio dela ------------------------------------------
+
+
+@pytest.mark.needs_db
+async def test_timeout_longo_nao_mata_dentro_da_janela_reservada(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Bug pre-producao: com a guarda ancorada em `bloqueios.inicio > now()`, o atendimento
+    combinado ha mais de 24h (silencio ate a data e normal — o prompt manda cravar encontro
+    pra outro dia) morria no minuto exato do horario combinado, e o bloqueio era cancelado
+    junto. O cliente chegava, mandava a foto de portaria / o comprovante de Pix, e a prova
+    caia orfa. Aqui a janela reservada esta EM CURSO (inicio ja passou, fim ainda nao):
+    ninguem morre."""
+    atendimento_id, conversa_id = await _seed_atendimento(conn, estado="Aguardando_confirmacao")
+    await _seed_msg_cliente(conn, conversa_id, atendimento_id, horas_atras=30)
+    agora = datetime.now(UTC)
+    bloqueio_id = await _seed_bloqueio(
+        conn,
+        atendimento_id,
+        inicio=agora - timedelta(minutes=30),
+        fim=agora + timedelta(minutes=30),
+    )
+
+    await aplicar_timeout_longo(conn)
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None and row["estado"] == "Aguardando_confirmacao"
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = %s", (bloqueio_id,)
+    )
+    b = await res.fetchone()
+    assert b is not None and b["estado"] == "bloqueado"  # slot preservado
+
+
+@pytest.mark.needs_db
+async def test_timeout_longo_nao_mata_antes_da_janela_reservada(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Reserva FUTURA segue protegida (comportamento original preservado pela nova ancora:
+    `fim > now()` e superconjunto de `inicio > now()`)."""
+    atendimento_id, conversa_id = await _seed_atendimento(conn, estado="Aguardando_confirmacao")
+    await _seed_msg_cliente(conn, conversa_id, atendimento_id, horas_atras=30)
+    agora = datetime.now(UTC)
+    await _seed_bloqueio(
+        conn, atendimento_id, inicio=agora + timedelta(hours=5), fim=agora + timedelta(hours=7)
+    )
+
+    await aplicar_timeout_longo(conn)
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None and row["estado"] == "Aguardando_confirmacao"
+
+
+@pytest.mark.needs_db
+async def test_timeout_longo_mata_com_janela_reservada_vencida(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """A protecao da reserva expira com a propria reserva — nao existe atendimento imortal.
+    Janela ja terminada + 24h de silencio -> Perdido/sumiu e o slot e liberado."""
+    atendimento_id, conversa_id = await _seed_atendimento(conn, estado="Aguardando_confirmacao")
+    await _seed_msg_cliente(conn, conversa_id, atendimento_id, horas_atras=30)
+    agora = datetime.now(UTC)
+    bloqueio_id = await _seed_bloqueio(
+        conn, atendimento_id, inicio=agora - timedelta(hours=3), fim=agora - timedelta(hours=1)
+    )
+
+    await aplicar_timeout_longo(conn)
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, motivo_perda::text AS motivo_perda, "
+        "fonte_decisao_ultima_transicao::text AS fonte "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None
+    assert row["estado"] == "Perdido"
+    assert row["motivo_perda"] == "sumiu"
+    assert row["fonte"] == "auto_timeout"
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = %s", (bloqueio_id,)
+    )
+    b = await res.fetchone()
+    assert b is not None and b["estado"] == "cancelado"

@@ -35,6 +35,7 @@ from .estado import EstadoAgente
 from .ferramentas import TOOLS
 from .ferramentas.extracao import registrar_extracao
 from .nos import (
+    DisparoExtracao,
     intercept_disclosure,
     no_extrair,
     no_llm,
@@ -49,10 +50,10 @@ def _criar_chat_principal(settings: Settings) -> Any:
     """Chat principal (#1): ChatOpenAI DIRETO na API DeepSeek (api.deepseek.com).
 
     DeepSeek-only (sem alternativa de provider): cache automático garantido + modelo/quant cravados.
-    thinking segue `settings.deepseek_thinking_chat` (default "disabled" = prod; valores enabled são
-    o braço B do A/B de evals — .scratch/ab-thinking-chat). Em thinking a temperatura é omitida pela
-    factory (o provider a ignora). Devolve um BaseChatModel; o nó llm só usa bind_tools/ainvoke/
-    nome_modelo.
+    thinking segue `settings.deepseek_thinking_chat` — default "low", ou seja PROD e rigs raciocinam
+    antes de falar; "disabled" no Env volta ao regime non-thinking. Em thinking a temperatura é
+    omitida pela factory (o provider a ignora) e o teto de tokens vira `llm_max_tokens_thinking`.
+    Devolve um BaseChatModel; o nó llm só usa bind_tools/ainvoke/nome_modelo.
     """
     return criar_chat_deepseek(
         settings,
@@ -91,6 +92,19 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
     chat_extracao_barata = (
         _criar_chat_extracao_barata(settings) if settings.extracao_no_modelo_barato else None
     )
+    # Braco PARALELO da extracao (settings.extracao_paralela_habilitada): UMA instancia para os dois
+    # nos que participam -- o `llm` dispara a chamada forcada como asyncio.Task, o `extrair` a
+    # consome se a janela bater. Compartilhar a instancia e o que garante que os dois bracos montem
+    # a MESMA janela e usem o MESMO bind.
+    disparo = DisparoExtracao(chat, chat_extracao_barata, registrar_extracao, settings)
+    if checkpointer is not None and disparo.habilitado:
+        # O disparo guarda uma `asyncio.Task` no State (estado.py), que so e legitimo porque o P0
+        # compila sem checkpointer. Com saver ligado o serializer estoura no meio de um turno de
+        # producao -- melhor estourar aqui, na construcao do grafo.
+        raise ValueError(
+            "extracao_paralela_habilitada e incompativel com checkpointer: o State carrega uma "
+            "asyncio.Task nao-serializavel (_extracao_task). Desligue a flag ou tire a Task do State."
+        )
 
     # context_schema: deps de runtime + ids de escopo via Runtime Context API (04 §1.1).
     # Nao usar config["configurable"] p/ pool/redis (legado; quebra ao ligar checkpointer).
@@ -98,13 +112,13 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
 
     builder.add_node("prepare_context", prepare_context)
     builder.add_node("intercept_disclosure", intercept_disclosure)
-    builder.add_node("llm", no_llm(chat, TOOLS))
+    builder.add_node("llm", no_llm(chat, TOOLS, disparo))
     builder.add_node("tools", tools_node)
     # No `extrair`: le o estado da negociacao pos-fala (02 §4). Forca 1 registrar_extracao, executa
     # a tool INLINE (schema bindado so aqui -- registrar_extracao NAO esta em TOOLS) e decide a rota
     # (post_process no sucesso/escalada canned; volta ao llm na reoferta de erro recuperavel). O bind
     # barato (chat_extracao_barata) corta o BP_GERAL da chamada de extracao quando ligado.
-    builder.add_node("extrair", no_extrair(chat, chat_extracao_barata, registrar_extracao))
+    builder.add_node("extrair", no_extrair(chat, chat_extracao_barata, registrar_extracao, disparo))
     builder.add_node("post_process", post_process)
     builder.add_node("output_guard", output_guard)
 

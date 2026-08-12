@@ -27,6 +27,7 @@ from barra.dominio.atendimentos.service import (
     registrar_extracao_ia,
 )
 
+from .._texto_turno import extrair_texto_do_turno
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
 
@@ -79,7 +80,12 @@ _DESC_HORARIO = (
     "use-a. Disse tempo RELATIVO/imediato → calcule a partir da hora atual (vem em "
     "<agenda agora=\"HH:MM\"> no contexto): 'agora/já/imediato' = a hora atual; 'daqui N "
     "min/horas' = hora atual + N (ex.: agora=22:30 e cliente diz 'daqui 1h' → preencha "
-    "23:30; data_desejada=hoje, virando o dia se passar da meia-noite). É o que faz o "
+    "23:30; data_desejada=hoje, virando o dia se passar da meia-noite). O horário sai SEMPRE de "
+    "uma FALA desta janela — a hora que ELE pediu, ou a hora que VOCÊ ofereceu e ele aceitou. O "
+    'relógio (<agenda agora="HH:MM">) é só base de cálculo do tempo relativo que o CLIENTE '
+    "pediu; sozinho ele nunca é a resposta. Disponibilidade dita por VOCÊ ('estou livre agora', "
+    "'consigo já') NÃO é horário combinado — não grave a hora atual por causa dela. E se uma "
+    "hora concreta foi dita nesta janela, é ELA que vale, nunca a hora do relógio. É o que faz o "
     "atendimento AVANÇAR para Aguardando_confirmacao e te pausar na chegada. Se o encontro "
     "for em OUTRO dia (não hoje), grave data_desejada no MESMO turno junto com a hora — a "
     "reserva do slot usa os DOIS e, sem o dia, cai em HOJE (slot no dia errado). NÃO preencha em "
@@ -102,11 +108,14 @@ _DESC_DATA = (
 )
 _DESC_VALOR = (
     "Valor do SERVIÇO/programa fechado com o cliente — a base que o sistema confere contra o "
-    "piso de desconto. SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — "
-    "sem a duração o sistema não consegue conferir o piso e escala à toa uma oferta válida. "
+    "teto de desconto. SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — "
+    "sem a duração o sistema não consegue conferir o teto e escala à toa uma oferta válida. "
     "NUNCA grave aqui o Pix de deslocamento/uber (custo fixo à parte, NÃO é o valor do "
-    "programa — gravá-lo faz o sistema achar que você fechou abaixo do piso e escalar à toa), "
-    "nem um número que o cliente PROPÔS e você NÃO aceitou — só o valor efetivamente combinado. "
+    "programa — gravá-lo faz o sistema achar que você fechou além do teto de desconto e "
+    "escalar à toa), "
+    "nem um número que o cliente PROPÔS e você NÃO aceitou — só o valor efetivamente combinado "
+    "(o sistema DESCARTA valor que nunca saiu da SUA boca nesta conversa: para fechar num número "
+    "novo, oferte-o na sua fala primeiro). "
     "Na vídeo chamada (remoto), gravar o valor_acordado é o que dispara o Pix antecipado da "
     "chamada — sem ele o sistema não pede o Pix, então registre-o ao confirmar a chamada."
 )
@@ -119,10 +128,12 @@ _DESC_INTENCAO = (
     "'agendamento'."
 )
 _DESC_URGENCIA = (
-    "Urgência do encontro. 'imediato' = ele quer AGORA/já/hoje com pressa ('to afim agora', 'da "
-    "pra ser já?'); 'agendado' = marcou dia/hora futura; 'estimado' = deu janela vaga ('mais "
-    "tarde', 'à noite'); 'indefinido' = sem sinal de tempo. Marque 'imediato' quando ele tem "
-    "pressa — ativa a rede que ancora o horário mínimo pra já."
+    "Urgência do encontro. 'imediato' = é pra HOJE — agora/já ('to afim agora', 'da pra ser já?') "
+    "ou uma hora ainda por vir de hoje ('fechou, pode ser 20h' às 11h da manhã): hora futura DO "
+    "MESMO DIA continua 'imediato'; 'agendado' = marcou para OUTRO dia (amanhã, sexta, dia 12); "
+    "'estimado' = deu janela vaga ('mais tarde', 'à noite'); 'indefinido' = sem sinal de tempo. "
+    "O corte é o DIA, não o relógio — rebaixar o encontro de hoje para 'agendado' faz a conduta "
+    "tratá-lo como encontro de outro dia (pedir reconfirmação de manhã para uma noite que é hoje)."
 )
 _DESC_DURACAO = (
     "Duração em horas do PACOTE que o cliente fechou — a duração do programa no seu cardápio "
@@ -145,7 +156,11 @@ _DESC_TIPO_ATENDIMENTO = (
     "atendimento fica travado. O endereço é o SEU ponto de encontro; SEM Pix.\n"
     "- 'externo' = VOCÊ vai até o cliente de uber (você se desloca): 'vem até mim', 'vem aqui', "
     "'você vem?', 'pode vir no meu endereço'. Pega o endereço DELE; tem Pix de deslocamento.\n"
-    "- 'remoto' = vídeo chamada, ninguém se desloca.\n"
+    "- 'remoto' = vídeo chamada, ninguém se desloca. Só grave quando a chamada está sendo "
+    "COMBINADA (ele pediu para marcar ou topou uma chamada oferecida); ele só PERGUNTANDO se "
+    "você faz ('e vídeo chamada, vc faz?') é pergunta de serviço, não muda o tipo — deixe o "
+    "campo de fora (gravar remoto aqui faz o sistema tratar a negociação inteira como chamada "
+    "e escalar à toa quando ela não está na tabela).\n"
     "Cliente quer TE BUSCAR de carro ('vou te buscar', 'te pego')? Caso NÃO suportado — não "
     "classifique como 'externo'; deixe o campo de fora (sua conduta redireciona e, se ele "
     "insistir, escala).\n"
@@ -177,17 +192,24 @@ _DESC_AVISO_SAIDA = (
 _DESC_LIMPAR = (
     "Campos a ZERAR (NULL) quando o cliente RECUA/desmarca — ex.: disse um horário "
     "e depois 'não sei o dia ainda'. Nomes dos outros campos desta tool (ex.: "
-    "['data_desejada','horario_desejado']). Só o que o cliente retratou; tem "
-    "precedência sobre os demais campos. Zerar um campo apaga o valor anterior e pode "
-    "reverter a qualificação do atendimento — na dúvida, não liste."
+    "['data_desejada','horario_desejado']). Tem precedência sobre os demais campos. "
+    "Duas leituras diferentes, não confunda: campo que o cliente simplesmente não "
+    "mencionou neste turno NÃO entra aqui (silêncio não é retratação — omita o campo e o "
+    "anterior é preservado); campo GRAVADO que CONTRADIZ o que ele disse nesta conversa "
+    "entra sim — o gravado pode estar errado (foi você quem escreveu num turno anterior), "
+    "e o que vale é a fala dele. Se o valor certo é OUTRO, prefira reescrever o campo com "
+    "o valor certo; use `limpar` quando o certo é 'nada'."
 )
 _DESC_BAIRRO = (
     "Bairro/região do endereço do CLIENTE (par com `endereco`, atendimento externo), quando "
     "ele informar. NUNCA grave aqui o bairro do SEU ponto de encontro. Omita se não disse."
 )
 _DESC_TIPO_LOCAL = (
-    "Tipo do local do encontro que o cliente descreveu quando VOCÊ vai até ele (externo): "
-    "'hotel', 'casa', 'apartamento'; 'outro' quando não se encaixa. Omita se não ficou claro."
+    "Tipo do local do encontro que o cliente descreveu: 'hotel', 'motel', 'casa', 'apartamento'; "
+    "'outro' quando não se encaixa. Vale para o local DELE (externo, você vai até ele) e para o "
+    "lugar neutro que ele propõe ('vamos de motel?') — motel/lugar neutro que ELE escolhe segue a "
+    "conduta de EXTERNO (tipo_atendimento='externo', deslocamento por conta dele). Omita se não "
+    "ficou claro."
 )
 _DESC_FORMA_PAGAMENTO = (
     "Forma de pagamento que o cliente sinalizou pro programa: 'pix', 'dinheiro', ou 'outro' "
@@ -202,6 +224,19 @@ _DESC_MOTIVO_PERDA = (
 _DESC_PROXIMA_ACAO = (
     "Nota interna curta pro painel (Fernando): a próxima ação que você espera na conversa "
     "(sua ou do cliente). NÃO é texto pro cliente."
+)
+_DESC_FETICHES_EM_PAUTA = (
+    "Extras do SEU cardápio que entraram no pacote desta conversa — o que o cliente pediu e "
+    "você confirmou que faz (incluso ou pago). Use o nome EXATAMENTE como está na lista "
+    "<fetiches_do_cadastro> do bloco de estado (a tabela <fetiches> pode não estar visível "
+    "nesta janela; essa lista é a versão canônica dela), nunca a palavra do cliente "
+    "('pegging'/'strap' → o nome cadastrado, ex.: 'Inversão'); nome que não consta nessa "
+    "lista é DESCARTADO pelo sistema, então não invente nem traduza livre. Sem a lista no "
+    "contexto, registre só o que o cliente nomeou igual ao cadastro. "
+    "NÃO liste o que você RECUSOU ou não faz, "
+    "nem o que ele só perguntou de passagem e não entrou no combinado. É o rastro que diz ao "
+    "painel que parte do valor era extra — some ao registro anterior (não apaga), então "
+    "registrar de novo o mesmo nome não duplica."
 )
 
 
@@ -226,7 +261,7 @@ class ExtracaoPayload(BaseModel):
     duracao_horas: Decimal | None = Field(None, ge=0, le=48)
     endereco: str | None = None
     bairro: str | None = None
-    tipo_local: Literal["hotel", "casa", "apartamento", "outro"] | None = None
+    tipo_local: Literal["hotel", "motel", "casa", "apartamento", "outro"] | None = None
     forma_pagamento: Literal["pix", "dinheiro", "outro"] | None = None
     valor_acordado: Decimal | None = Field(None, ge=0)
     sinais_qualificacao: SinaisQualificacao = Field(default_factory=SinaisQualificacao)
@@ -236,6 +271,11 @@ class ExtracaoPayload(BaseModel):
     aviso_saida_detectado: bool = False
     cotacao_apresentada: bool = False
     limpar: list[str] = Field(default_factory=list)
+    # Sem coluna em `atendimentos` (como `motivo_perda_candidato`): fica no evento
+    # `extracao_registrada` e e lido de la no fechamento (dominio/atendimentos/service.py:
+    # `registrar_fetiches_do_fechamento`), que resolve os nomes contra o cadastro da modelo e
+    # grava `atendimento_fetiches` — pendencia 4 do ADR-0030, sem migration.
+    fetiches_em_pauta: list[str] = Field(default_factory=list)
     proxima_acao_esperada: str = Field(min_length=3, max_length=240)
 
 
@@ -267,7 +307,7 @@ async def registrar_extracao(
     endereco: Annotated[str | None, Field(description=_DESC_ENDERECO)] = None,
     bairro: Annotated[str | None, Field(description=_DESC_BAIRRO)] = None,
     tipo_local: Annotated[
-        Literal["hotel", "casa", "apartamento", "outro"] | None,
+        Literal["hotel", "motel", "casa", "apartamento", "outro"] | None,
         Field(description=_DESC_TIPO_LOCAL),
     ] = None,
     forma_pagamento: Annotated[
@@ -286,6 +326,9 @@ async def registrar_extracao(
     aviso_saida_detectado: Annotated[bool, Field(description=_DESC_AVISO_SAIDA)] = False,
     cotacao_apresentada: Annotated[bool, Field(description=_DESC_COTACAO)] = False,
     limpar: Annotated[list[str] | None, Field(description=_DESC_LIMPAR)] = None,
+    fetiches_em_pauta: Annotated[
+        list[str] | None, Field(description=_DESC_FETICHES_EM_PAUTA)
+    ] = None,
 ) -> str:
     """Registre o snapshot do que aprendeu nesta conversa. Chame UMA vez por turno, perto do fim.
 
@@ -329,6 +372,11 @@ async def registrar_extracao(
     # veredito do detector deterministico do TURNO, nunca do payload. O dominio o usa p/ REBAIXAR
     # `aceita_valor` no merge dos sinais; o `valor_acordado` fica de pe.
     recuo_detectado = bool(runtime.state.get("recuo_detectado"))
+    # Fala que a IA acabou de escrever (mesma agregacao que o output_guard escaneia): ainda NAO
+    # esta em `mensagens`, entao so por aqui o dominio enxerga o que ela ofertou NESTE turno —
+    # fonte (c) da guarda do valor fantasma. Sem isso a cotacao do proprio turno (o total com
+    # extra de fetiche, que nao esta na tabela) seria descartada como fantasma.
+    fala_da_ia_no_turno = extrair_texto_do_turno(runtime.state.get("messages") or [])
 
     # Clamp antes da revalidacao: o model interno mantem max_length=240 como invariante; aqui o
     # excesso vira truncamento silencioso (ver comentario na assinatura).
@@ -352,6 +400,7 @@ async def registrar_extracao(
         aviso_saida_detectado=aviso_saida_detectado,
         cotacao_apresentada=cotacao_apresentada,
         limpar=limpar or [],
+        fetiches_em_pauta=fetiches_em_pauta or [],
         proxima_acao_esperada=proxima_acao_esperada,
     )
     # exclude_defaults: campos com valor igual ao default ficam fora do dict (comparacao por
@@ -375,6 +424,7 @@ async def registrar_extracao(
                     horario_minimo=horario_minimo,
                     horario_evidenciado=horario_evidenciado,
                     recuo_detectado=recuo_detectado,
+                    fala_da_ia_no_turno=fala_da_ia_no_turno,
                 ),
             )
         except ConflitoAgenda:
@@ -397,12 +447,16 @@ async def registrar_extracao(
                 "reserva, então NUNCA diga ao cliente que fechou ou confirmou esse horário. "
                 "Siga sua conduta de período de trabalho: assuma que está fora, diga "
                 "quando volta e ofereça a primeira data/horário dentro do período (veja "
-                "<periodo_de_trabalho> no contexto) — depois registre de novo."
+                "<periodo_de_trabalho> no contexto) — só na fala, sem anunciar nada ao cliente."
             ) from None
         except AntecedenciaInsuficiente:
             # Buffer de preparo (ADR 0025): o horário pedido é cedo demais a partir de agora. NÃO
-            # é conflito com outro cliente — é tempo de se arrumar. Ancore no <horario_minimo> do
-            # contexto (já calculado), nunca num número inventado.
+            # é conflito com outro cliente — é tempo de se arrumar. A instrucao ancora no piso ja
+            # calculado (`horario_minimo` do State), nunca num numero inventado — mas SEM citar o
+            # nome da tag: quem le esta copia e o chat, e a persona proibe tag na fala (um eco
+            # vazaria "<horario_minimo>" ao cliente). O piso e meia-hora-granular por construcao
+            # (_proximo_livre.py), entao o texto manda arredondar PRA CIMA — sem isso a regra
+            # "hora leve e redonda" e o piso quebrado se contradizem e o modelo hesita (E1).
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels(
                 "registrar_extracao", "antecedencia_insuficiente"
             ).inc()
@@ -418,12 +472,13 @@ async def registrar_extracao(
                     "ERRO: não há horário válido ainda hoje — então NUNCA diga ao cliente que "
                     "fechou ou confirmou um horário pra hoje. Siga sua conduta de período de "
                     "trabalho: ancore a volta na primeira data/horário do próximo período (veja "
-                    "<periodo_de_trabalho> no contexto) — depois registre de novo."
+                    "<periodo_de_trabalho> no contexto) — só na fala, sem anunciar nada ao cliente."
                 ) from None
             raise ToolException(
                 "ERRO: esse horário é cedo demais — você precisa de um tempinho pra se arrumar. "
-                "Ofereça ao cliente o horário de <horario_minimo> do seu contexto (numa hora leve e "
-                "redonda, sem inventar minutos) — depois registre de novo."
+                "Na próxima bolha ofereça ao cliente o primeiro horário que o seu contexto libera; "
+                "se ele vier com minutos quebrados, arredonde PARA CIMA até a hora redonda "
+                "seguinte e ofereça essa — nunca antes dele, nunca um número inventado."
             ) from None
         except HorarioNaoDefinido:
             # Reserva pedida sem horario combinado (ex.: atendimento promovido no painel p/

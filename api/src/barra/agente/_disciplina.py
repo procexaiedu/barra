@@ -37,11 +37,47 @@ _PROBE_DIA_HOJE = re.compile(rf"\b{_VERBOS_SONDAGEM}\s+(?:hoje|agora)\b", re.IGN
 _PROBE_AGORA = re.compile(rf"\b{_VERBOS_SONDAGEM}\s+agora\b", re.IGNORECASE)
 
 # Contraproposta de desconto ("Consigo 500 se você vier hoje 😊") — a disciplina é ATÉ DUAS na
-# conversa inteira (regras.md.j2 <desconto> 3/4, ADR-0031: degrau na 1ª, teto na 2ª e última).
+# conversa inteira (regras.md.j2 <desconto> 5/6, ADR-0031: degrau na 1ª, teto na 2ª e última).
 # Forma canônica treinada pelo prompt: "consigo" + preço (3+ dígitos). Não colide com o resto do
 # phrasebook: cotação é "600 1h no meu local" (sem "consigo"), hora é 1-2 dígitos + h (barrada pelo
 # \d{3,}) e a recusa "não consigo" cai no lookbehind (texto já normalizado, sem acento).
-_RE_CONTRAPROPOSTA = re.compile(r"(?<!nao )\bconsigo\s+(?:r\$\s*)?\d{3,}\b")
+#
+# Ramo de ACEITE (ADR-0040): a rodada também é consumida quando quem nomeia o número é o CLIENTE e
+# ela só diz sim — e a fala natural desse sim ("Fechado 700 amor", "Tabom, 700 então") não tem
+# "consigo". Sem este ramo o contador não anda, a escada não esgota e a mesma conversa vira leilão
+# (700 → 650 → 620): o orçamento de rodadas é a ÚNICA coisa que segura isso. Prescrever a frase
+# "Consigo 700 sim amor" no prompt faria o contador andar de graça — foi recusado pelo dono do
+# produto (conduta prescrita como frase vira tique), então quem alarga é o detector.
+#
+# A fronteira que este ramo NÃO pode cruzar é a COTAÇÃO: "400 1h no meu local" não é contraproposta
+# nenhuma. Por isso (a) nenhum ramo casa número solto — o token de fechamento é obrigatório e vem
+# COLADO nele —, e (b) número seguido de duração está barrado por lookahead, que é o que separa o
+# aceite ("Fechado 700 amor") da cotação com muleta na frente ("Fechado, 400 1h no meu local").
+_TOKENS_DE_ACEITE = r"fechado|fechados|fechamos|combinado|tabom|ta bom|fecho|faco|topo"
+_SEM_DURACAO_COLADA = r"(?!\s*(?:\d{1,2}\s*h|h\b|hora|hr\b|min))"
+# O ELO entre "consigo" e o numero. Ate 11/08/2026 o ramo exigia o numero COLADO em "consigo", e a
+# fala que o dono do produto ditou para a oferta condicionada ao dia (ADR-0041) — "se vier hoje
+# consigo FAZER 600 uma hora" — nao casava: o contador nao andava, a escada nunca esgotava e a IA
+# repetia a mesma oferta para sempre. Medido em 11/08 no regex antigo: "consigo te fazer por 600",
+# "consigo deixar em 600" e "consigo fazer 600" davam False; so "consigo 600" dava True.
+#
+# O elo e OPCIONAL e fechado: verbo de concessao (com "te" opcional) e/ou preposicao. Nao afrouxa
+# nenhuma das duas fronteiras que o ramo tem de segurar:
+#  - a RECUSA ("nao consigo fazer 600") continua barrada pelo mesmo lookbehind, que morde antes do
+#    elo, no "consigo" — texto ja normalizado, sem acento;
+#  - a COTACAO ("400 1h no meu local", "Podemos combinar 2h 1000") nao tem "consigo" e nunca casou;
+#    e o upsell da conduta de subir o tempo ("consigo fazer 2h por 800") tambem nao casa, porque
+#    entre o elo e o numero de 3+ digitos entra a DURACAO — subir o ticket nao e desconto e nao
+#    pode consumir rodada da escada.
+_ELO_DO_CONSIGO = (
+    r"(?:(?:te\s+)?(?:fazer|deixar|colocar|baixar)(?:\s+(?:por|em|pra|para|a))?|por|em)\s+"
+)
+_RE_CONTRAPROPOSTA = re.compile(
+    rf"(?<!nao )\bconsigo\s+(?:{_ELO_DO_CONSIGO})?(?:r\$\s*)?\d{{3,}}\b"
+    rf"|(?<!nao )\b(?:{_TOKENS_DE_ACEITE})[,!]?\s+(?:por\s+|em\s+|r\$\s*)?\d{{3,}}\b"
+    + _SEM_DURACAO_COLADA
+    + r"|\b\d{3,}\b\s+(?:entao|fechado|fechamos|combinado)\b"
+)
 
 
 def contem_contraproposta(texto: str) -> bool:
@@ -57,7 +93,7 @@ def contem_sondagem_dia(texto: str) -> bool:
     return _PROBE_DIA_HOJE.search(texto) is not None
 
 
-# Convite pra conhecer a amiga (regras.md.j2 <menage>): oferta de pós-venda que é UMA vez na
+# Convite pra conhecer a amiga (regras.md.j2 <composicoes>): oferta de pós-venda que é UMA vez na
 # negociação. O convite sai no FIM (com a venda já fechada), que é justamente onde ele desliza pra
 # fora da janela de 20 msgs — sem a coluna materializada a IA reoferece.
 #
@@ -65,7 +101,7 @@ def contem_sondagem_dia(texto: str) -> bool:
 # retorno amor"), que a IA dá quando é o CLIENTE quem pede a dupla: escalada não é convite, e
 # carimbá-la calaria uma oferta que ela nunca fez. O possessivo é exigido nos verbos de trazer
 # ("chamar/trazer minha amiga") porque "trazer sua amiga" é a segunda pessoa DELE, o outro ramo do
-# <menage>. O determinante ("uma"/"minha") + o lookbehind mantêm a negativa do <fora_do_cardapio>
+# <composicoes>. O determinante ("uma"/"minha") + o lookbehind mantêm a negativa do <fora_do_cardapio>
 # ("não tenho uma amiga pra levar") fora da oferta.
 _OFERTA_AMIGA = re.compile(
     r"(?<!nao )\btenho (?:uma|a minha|minha) amiga\b"
@@ -73,24 +109,37 @@ _OFERTA_AMIGA = re.compile(
     r"|\bconhecer (?:a )?(?:uma|minha) amiga\b"
     r"|\b(?:chamar|trazer|convidar) (?:a )?minha amiga\b"
 )
-# Escalada do pedido DELE — vence a oferta ("Tenho uma amiga sim amor" / "Deixa eu ver com ela"):
-# quem abriu o assunto foi o cliente, o trilho é escalar, não convidar. Vive numa função à parte
-# porque o veto é do TURNO, não da bolha: o chunker parte essa dupla em duas bolhas com facilidade,
-# e a 1ª sozinha carimbaria a oferta que a 2ª desmente.
+# "Deixa eu ver com ela" — a fala da ESCALADA, que o `<composicoes>` prescrevia quando era o
+# CLIENTE quem pedia a dupla. O ADR-0042 REVOGOU essa escalada: hoje a modelo do canal fecha o
+# encontro das duas sozinha, e essa bolha não é mais conduta nenhuma — é regressão de prompt
+# (ilustrada no par de `<armadilhas_de_voz>` da persona), e o judge/telemetria a lê como tal.
+#
+# O detector CONTINUA vetando o carimbo de `amiga_ofertada_em`, e por um motivo que sobreviveu à
+# revogação: "Deixa eu ver com ela" promete um retorno, não CONVIDA. Carimbar a oferta ali marcaria
+# como aceito um convite que ela nunca fez — e é justamente `amiga_ofertada_em` que a tool
+# `envolver_parceira` exige para liberar o contato da parceira (o "aceite dele"). Sem o veto, um
+# turno de promessa vazia destravaria o encaminhamento do telefone.
+#
+# Vive numa função à parte porque o veto é do TURNO, não da bolha: o chunker parte essa dupla em
+# duas bolhas com facilidade, e a 1ª sozinha carimbaria a oferta que a 2ª desmente.
 _ESCALADA_AMIGA = re.compile(
     r"\bdeixa eu (?:ver|falar|combinar|checar) com (?:a )?(?:ela|minha amiga)\b"
 )
 
 
 def contem_escalada_da_amiga(texto: str) -> bool:
-    """True se o texto carrega a resposta de escalada do <menage> ("Deixa eu ver com ela amor").
+    """True se o texto carrega a promessa de retorno sobre a amiga ("Deixa eu ver com ela amor").
 
-    Recebe o TURNO inteiro no write-time (workers/envio.py): é o veto da oferta."""
+    Conduta REVOGADA pelo ADR-0042 (a modelo fecha a dupla sozinha); o detector sobrevive como veto
+    da oferta — promessa de retorno não é convite, e carimbar `amiga_ofertada_em` ali destravaria o
+    encaminhamento do contato sem que ele tivesse topado coisa nenhuma.
+
+    Recebe o TURNO inteiro no write-time (workers/envio.py)."""
     return _ESCALADA_AMIGA.search(normalizar(texto)) is not None
 
 
 def contem_oferta_da_amiga(texto: str) -> bool:
-    """True se a bolha CONVIDA o cliente pra conhecer a amiga (<menage>, oferta de pós-venda).
+    """True se a bolha CONVIDA o cliente pra conhecer a amiga (<composicoes>, oferta de pós-venda).
 
     `normalizar` antes do match: tira acento/caixa p/ o lookbehind "não tenho" bater sem acento.
     A escalada na MESMA bolha já veta aqui; partida entre bolhas, quem veta é o chamador com
@@ -154,6 +203,42 @@ _MARCADOR_TEMPORAL = (
 )
 _RE_HORA_COM_MARCADOR = re.compile(rf"\b{_MARCADOR_TEMPORAL}\s+{_HORA}\s*{_SUFIXO_HORA}")
 
+# Segunda geração do marcador (diagnóstico 11/08, P0-2): a lista fechada acima perdeu 5 das 9 falas
+# com hora dos traces ("hoje 21h", "pras 22h de hoje", "21h então rola", "fechou, 21h to ai", "hoje
+# 21h com a inversao entao") — e o belief então AFIRMA ao modelo "palpite seu, ele não confirmou"
+# sobre uma hora que o cliente cravou três vezes, mandando re-ofertar em plena fase de fechamento.
+# Duas famílias novas, ambas em contexto onde a leitura de DURAÇÃO não cabe:
+#  (c) marcador de DIA colado na hora ("hoje 21h", "sexta 22h", "dia 12 19h") — duração de programa
+#      não se prende a um dia;
+#  (d) hora colada a verbo de FECHAMENTO, nas duas ordens ("fechou, 21h to ai", "21h então rola") —
+#      quem fecha está cravando o relógio, não comprando N horas.
+# "pra/pras" entra junto porque é como se marca hora na fala real ("pras 22h de hoje").
+# As três são vetadas por CONTEXTO DE PREÇO na mesma bolha (`_RE_CONTEXTO_DE_PRECO`): é lá que o
+# empate hora-vs-duração vive ("600 1h no meu local", "quanto é 1h ?") e é o falso positivo que o
+# marcador fechado existia para evitar (#25 — carimbar evidência num horário que ninguém pediu).
+# O marcador ORIGINAL não passa por esse veto: "consigo 600 as 21h" é cotação COM hora do relógio.
+_MARCADOR_DE_DIA = (
+    r"(?:hoje|hj|amanha|dia \d{1,2}|segunda|terca|quarta|quinta|sexta|sabado|domingo)"
+)
+_RE_HORA_COM_DIA = re.compile(rf"\b{_MARCADOR_DE_DIA}[\s,]+(?:as\s+)?{_HORA}\s*{_SUFIXO_HORA}")
+_RE_HORA_COM_PRA = re.compile(rf"\bpras?\s+(?:as\s+)?{_HORA}\s*{_SUFIXO_HORA}")
+_VERBO_DE_FECHAMENTO = (
+    r"(?:fech(?:o|ou|ado|amos)|confirmad[oa]|marcad[oa]|combinado|to ai|tou ai|estou ai|"
+    r"rola|rolou|bora)"
+)
+_RE_HORA_COM_FECHAMENTO = re.compile(
+    rf"\b{_VERBO_DE_FECHAMENTO}\b[^\n]{{0,20}}\b{_HORA}\s*{_SUFIXO_HORA}"
+    rf"|\b{_HORA}\s*{_SUFIXO_HORA}[^\n]{{0,20}}\b{_VERBO_DE_FECHAMENTO}\b"
+)
+_RE_CONTEXTO_DE_PRECO = re.compile(
+    r"\b\d{3,4}\b|\bquanto\b|\bvalor(?:es)?\b|\bpreco\b|\bcusta\b|\bcobra\b|r\$"
+)
+
+# Duração escrita como hora DENTRO da cotação ("400 1h no meu local"): o mesmo recorte que o
+# `extrair_precos_citados` do output_guard usa p/ separar preço de duração, replicado aqui porque
+# `agente/nos/output_guard.py` importa ESTE módulo (importá-lo de volta fecharia o ciclo).
+_RE_DURACAO_COTADA = re.compile(rf"\b\d{{3,4}}\s+{_HORA}\s*{_SUFIXO_HORA}")
+
 
 def contem_sondagem_imediatismo(texto: str) -> bool:
     """True se a bolha carrega a sondagem de IMEDIATISMO ("seria agora ?", "vem agora ?").
@@ -164,14 +249,26 @@ def contem_sondagem_imediatismo(texto: str) -> bool:
 
 
 def contem_hora_explicita(texto: str) -> bool:
-    """True se a fala carrega uma hora do relógio ("Umas 16 horas", "18h15", "às 17:30").
+    """True se a fala carrega uma hora do relógio ("Umas 16 horas", "18h15", "às 17:30", "hoje
+    21h", "pras 22h de hoje", "fechou, 21h to ai").
 
-    `normalizar` antes do match: tira acento/caixa p/ "às"/"até" casarem sem acento. Usado nos
-    dois primeiros gatilhos do horário evidenciado (fala do cliente com hora; bolha da IA com
-    hora seguida de confirmação curta) — ver `_horario_evidenciado_no_turno` (nos/prepare_context).
+    `normalizar` antes do match: tira acento/caixa p/ "às"/"até"/"amanhã" casarem sem acento. Usado
+    nos dois primeiros gatilhos do horário evidenciado (fala do cliente com hora; bolha da IA com
+    hora seguida de confirmação curta) — ver `_horario_evidenciado_no_turno` (nos/_janela_do_turno).
+
+    As famílias LARGAS (dia, "pra/pras", verbo de fechamento) só valem fora de contexto de preço,
+    onde "1h" é duração e não relógio — ver o comentário dos regex.
     """
     t = normalizar(texto)
-    return _RE_HORA_COM_MINUTO.search(t) is not None or _RE_HORA_COM_MARCADOR.search(t) is not None
+    if _RE_HORA_COM_MINUTO.search(t) is not None or _RE_HORA_COM_MARCADOR.search(t) is not None:
+        return True
+    if _RE_CONTEXTO_DE_PRECO.search(t) is not None:
+        return False
+    return (
+        _RE_HORA_COM_DIA.search(t) is not None
+        or _RE_HORA_COM_PRA.search(t) is not None
+        or _RE_HORA_COM_FECHAMENTO.search(t) is not None
+    )
 
 
 # Pergunta de horário SEM proposta ("Seria que horas ?", "Qual horário amor ?") — o empurrão que o
@@ -205,6 +302,21 @@ def contem_hora_na_mesa(texto: str) -> bool:
     horas ?" em duas bolhas com facilidade, e a 2ª sozinha contaria a pergunta que a 1ª já
     respondeu com um horário."""
     return contem_hora_explicita(texto) or _RE_HORA_CRUA.search(normalizar(texto)) is not None
+
+
+def contem_hora_na_mesa_no_turno(bolhas: Iterable[str]) -> bool:
+    """`contem_hora_na_mesa` sobre o TURNO (lista de bolhas), IGNORANDO a duração da cotação.
+
+    O veto por turno existe porque o chunker parte "Consigo às 21h amor" / "ou prefere que horas ?"
+    em duas bolhas. Medido sobre o turno CONCATENADO, porém, a duração da cotação ("400 1h no meu
+    local") casava a hora crua e vetava o contador de todo turno que tem cotação — e como toda
+    cotação carrega duração, `n_perguntas_de_horario` deu 0 em 21 turnos medidos (diagnóstico
+    11/08, P1-4c): a disciplina anti-loop de horário nunca existiu em produção.
+
+    Duas correções na mesma função: avalia POR BOLHA (o contexto de preço de uma bolha não
+    contamina a vizinha) e tira a duração colada ao preço antes de olhar a hora crua.
+    """
+    return any(contem_hora_na_mesa(_RE_DURACAO_COTADA.sub(" ", normalizar(b))) for b in bolhas)
 
 
 def contem_pergunta_de_horario(texto: str) -> bool:
@@ -303,6 +415,85 @@ def contem_endereco_de_encontro(texto: str, tokens_endereco: set[str]) -> bool:
     if not tokens_endereco:
         return False
     return bool(set(_SEPARADOR_TOKENS.split(normalizar(texto))) & tokens_endereco)
+
+
+# Pedido de LOCALIZAÇÃO na fala do cliente (rodada 3 do eval, fase 1-E): "Manda a localização" /
+# "onde fica?" respondidos com "é bem discreto, você vai gostar" foram a pior célula persistente
+# do shadow (logística 57%). O detector alimenta o gatilho `endereco` do output_guard: cliente
+# pediu o ponto E o estágio já libera o <local_de_encontro> E a resposta não entregou nenhum token
+# do endereço → regenera pedindo a entrega. Fechado de propósito — só as formas inequívocas de
+# pedir o PONTO DE ENCONTRO: o imperativo de envio ("manda a localização/o endereço/a loc") e a
+# pergunta direta ("onde fica?", "onde você atende?", "qual o endereço?"). "seu local" solto NÃO
+# entra ("no meu local" é fala de cotação dos dois lados), nem "onde você mora" (residência ≠
+# ponto de encontro; PII que a IA nunca entrega).
+_RE_PEDIDO_DE_ENDERECO = re.compile(
+    r"\b(?:manda|mande|passa|passe|envia|envie|me da|me de)\b[^\n?]{0,24}"
+    r"\b(?:localizacao|endereco|loc)\b"
+    r"|\bonde (?:voce |vc )?(?:fica|atende|esta|e)\b"
+    r"|\bqual (?:e )?(?:o )?(?:endereco|local exato)\b"
+    r"|\bendereco\s*\?"
+    # Formas coloquiais medidas na triagem da rodada 4 (derrotas de logistica que o detector nao
+    # via): "proximo onde?", "qual rua/que rua (do seu local)", "nao conheco esse hotel" — todas
+    # inequivocas de quem quer o PONTO. "fica longe"/"e casa ou apartamento" ficam de fora AQUI de
+    # proposito (sao objecao de distancia/pergunta de acesso; a resposta boa pode nao ter token de
+    # endereco e o regen pressionaria a fala errada) — no foco (_foco_do_turno) elas entram, la o
+    # efeito e so injetar o dado.
+    r"|\bproximo\s+(?:de\s+|a\s+)?onde\b"
+    r"|\b(?:qual|que)\s+rua\b"
+    r"|\bnao\s+conhec[oe]\b[^\n?]{0,20}\b(?:hotel|lugar|local|rua|endereco)\b"
+)
+
+
+def contem_pedido_de_endereco(texto: str) -> bool:
+    """True se a fala do cliente PEDE o ponto de encontro ("manda a localização", "onde fica?").
+
+    `normalizar` antes do match: tira acento/caixa ("localização", "endereço"). Usado pelo
+    gatilho `endereco` do output_guard — o pedido é do burst ATUAL do cliente; pedido antigo já
+    foi respondido (ou cobrado) no turno em que saiu."""
+    return _RE_PEDIDO_DE_ENDERECO.search(normalizar(texto)) is not None
+
+
+# Pergunta-aberta-de-infos ("como funciona?", "me passa as infos") — a porta que o vendedor bom
+# responde com o pacote completo de uma vez (playbook do corpus) e a IA respondia curto + devolvia
+# pergunta (pitch 65% no shadow v2). O detector NÃO vira guard de completude (medir "pitch
+# completo" por regex é frágil): ele só acende o ponteiro condicional no <proximo_passo> da cauda
+# apontando o molde do <exemplo> de apresentação. Fechado: as formas de pedir a apresentação, sem
+# o vocabulário de preço ("quanto custa/qual o valor" é <cotacao>, tem trilho próprio).
+_RE_PEDIDO_DE_INFOS = re.compile(
+    r"\bcomo (?:funciona|que funciona|voce trabalha|vc trabalha)\b"
+    r"|\bcomo (?:esta|ta) funcionando\b"
+    r"|\b(?:manda|me passa|passa|me da|me de|me fala|quero|queria) (?:as |os |mais |umas )?"
+    r"(?:infos|informacao|informacoes|detalhes)\b"
+    r"|\b(?:quero|queria) saber (?:mais|tudo|como)\b"
+    r"|\bmais detalhes\b"
+    r"|\bo que (?:esta|ta) inclu[si]"
+    r"|\bquais (?:sao )?(?:seus|os seus|teus) servicos\b"
+)
+
+
+def contem_pedido_de_infos(texto: str) -> bool:
+    """True se a fala do cliente pede a APRESENTAÇÃO ("como funciona?", "me passa as infos").
+
+    `normalizar` antes do match: tira acento/caixa ("informações"). Alimenta o ponteiro
+    condicional de pitch no <proximo_passo> (prepare_context) — só cauda, nunca guard."""
+    return _RE_PEDIDO_DE_INFOS.search(normalizar(texto)) is not None
+
+
+# Saudação de PERÍODO ("bom dia"/"boa tarde"/"boa noite") — rodada 4 do eval: a IA respondia "Boa
+# noite" ao cliente que abriu com "boa tarde" (~5 derrotas). O espelhamento é determinístico: o
+# período correto a responder é O DELE, sem relógio nem LLM — quem detecta é o sistema, a IA só
+# fraseia. Alimenta o <foco_do_turno> (injeta a saudação dele como dado) e o gatilho `saudacao`
+# do output_guard (resposta com período CONFLITANTE regenera; pass-through se persistir).
+_RE_SAUDACAO_PERIODO = re.compile(r"\b(bom dia|boa tarde|boa noite)\b")
+
+
+def periodo_da_saudacao(texto: str) -> str | None:
+    """A saudação de período da fala ("bom dia"/"boa tarde"/"boa noite"), normalizada, ou None.
+
+    Primeira ocorrência vence ("boa tarde... boa noite pra você" é raro e a primeira é a saudação
+    de abertura). `normalizar` tira acento/caixa ("Bom Dia!!")."""
+    m = _RE_SAUDACAO_PERIODO.search(normalizar(texto))
+    return m.group(1) if m else None
 
 
 # Recuo do cliente (spec extracao-aceite-hibrido) — SITE CANÔNICO do porquê; os outros pontos da

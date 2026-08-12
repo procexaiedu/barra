@@ -21,6 +21,7 @@ from .._disciplina import (
     _PROBE_DIA_HOJE,
     classificar_recuo,
     contem_hora_explicita,
+    contem_pedido_de_infos,
     contem_sondagem_imediatismo,
 )
 from .._texto_turno import e_marca_pausa
@@ -61,10 +62,38 @@ _AFIRMACOES = frozenset(
         # "perfeito" fecha a correferência do #34 ("Posso confirmar às 18h" → "Perfeito"), e vale
         # igual para o dia — é aceite, não recuo.
         "perfeito",
+        # Fechos de negociação (F6, auditoria 11/08): "fechado então" era o aceite mais comum do
+        # corpus e NÃO estava aqui — sem ele o <ele_topou> não renderiza, o endereço não libera e a
+        # escada por dia atrasa um turno inteiro. Mesma família semântica das afirmações acima
+        # (aceite do que a IA acabou de propor), mesmo veto de `_TOKEN_OUTRO_DIA`.
+        "fechado",
+        "fechou",
+        "combinado",
+        "beleza",
+        "ok",
+        "bora",
     }
 )
 # Primeira palavra forte o bastante p/ valer mesmo seguida de vocativo ("sim amor", "claro vida").
-_AFIRMACOES_FORTES = frozenset({"sim", "isso", "claro", "aham", "uhum", "ahan", "perfeito"})
+# Os fechos entram aqui pelo mesmo motivo ("fechado então", "beleza amor"), MENOS "bora": em
+# posição de cabeça ele costuma abrir uma PROPOSTA dele ("bora marcar", "bora ver as fotos"), não
+# aceitar a da IA — sozinho ("bora", "bora sim") o conjunto exato acima já cobre.
+_AFIRMACOES_FORTES = frozenset(
+    {
+        "sim",
+        "isso",
+        "claro",
+        "aham",
+        "uhum",
+        "ahan",
+        "perfeito",
+        "fechado",
+        "fechou",
+        "combinado",
+        "beleza",
+        "ok",
+    }
+)
 
 
 def _texto_msg(msg: BaseMessage) -> str:
@@ -182,6 +211,22 @@ def _recuo_no_turno(mensagens: list[BaseMessage]) -> bool:
         )
         is not None
     )
+
+
+def _pediu_infos_no_burst(mensagens: list[BaseMessage]) -> bool:
+    """True se o burst ATUAL do cliente pede a apresentação ("como funciona?", "me passa as
+    infos" — `contem_pedido_de_infos`, agente/_disciplina).
+
+    EVENTO do turno, não estado: restrito ao burst atual porque o pedido de infos de dez turnos
+    atrás já foi respondido (ou cobrado) no turno em que saiu. Alimenta o ponteiro condicional de
+    pitch no `<proximo_passo>` da cauda (rodada 3 do eval: "me passa as infos" respondido curto +
+    pergunta devolvida foi padrão de derrota em apresentação) — só cauda, nunca guard: completude
+    de pitch não se mede por regex.
+
+    Computado sobre a janela LIMPA, antes da anexação do contexto dinâmico (mesmo motivo dos
+    vizinhos)."""
+    i = _burst_do_cliente(mensagens)
+    return any(contem_pedido_de_infos(_texto_msg(m)) for m in mensagens[i:])
 
 
 def _confirmou_dia_hoje(mensagens: list[BaseMessage]) -> bool:

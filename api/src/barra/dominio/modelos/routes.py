@@ -905,12 +905,16 @@ async def vincular_programa(
         raise NaoEncontrado("Duração")
     result = await conn.execute(
         """
-        INSERT INTO barravips.modelo_programas (modelo_id, programa_id, duracao_id, preco)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (modelo_id, programa_id, duracao_id) DO UPDATE SET preco = EXCLUDED.preco
+        INSERT INTO barravips.modelo_programas
+               (modelo_id, programa_id, duracao_id, preco, preco_minimo)
+        VALUES (%s, %s, %s, %s, %s)
+        ON CONFLICT (modelo_id, programa_id, duracao_id) DO UPDATE
+            SET preco = EXCLUDED.preco, preco_minimo = EXCLUDED.preco_minimo
         RETURNING *
         """,
-        (modelo_id, body.programa_id, body.duracao_id, body.preco),
+        # O vínculo é gravado inteiro (semântica de PUT): revincular sem `preco_minimo` LIMPA o
+        # piso, de propósito — quem quer só reajustar o preço usa o PATCH abaixo, que preserva.
+        (modelo_id, body.programa_id, body.duracao_id, body.preco, body.preco_minimo),
     )
     row = await result.fetchone()
     assert row is not None
@@ -926,14 +930,49 @@ async def atualizar_preco_programa(
     conn: AsyncConnection[Any] = Depends(get_conn),
 ) -> dict[str, Any]:
     await _ensure_modelo(conn, modelo_id)
-    result = await conn.execute(
-        """
-        UPDATE barravips.modelo_programas SET preco = %s
-         WHERE modelo_id = %s AND programa_id = %s AND duracao_id = %s
-        RETURNING *
-        """,
-        (body.preco, modelo_id, programa_id, duracao_id),
-    )
+    # `preco_minimo` omitido no corpo preserva o piso cadastrado; enviado (inclusive como `null`)
+    # sobrescreve. `model_fields_set` é o que separa os dois — sem ele, todo reajuste de preço
+    # apagaria o piso da linha em silêncio, e o guard voltaria a liberar os 25% cheios.
+    if "preco_minimo" in body.model_fields_set:
+        sql = """
+            UPDATE barravips.modelo_programas SET preco = %s, preco_minimo = %s
+             WHERE modelo_id = %s AND programa_id = %s AND duracao_id = %s
+            RETURNING *
+            """
+        params: tuple[Any, ...] = (
+            body.preco,
+            body.preco_minimo,
+            modelo_id,
+            programa_id,
+            duracao_id,
+        )
+    else:
+        # Preço novo abaixo do piso preservado violaria o CHECK da tabela e sairia como 500. O
+        # 422 aqui diz o que fazer: reenviar o `preco_minimo` junto.
+        atual = await _one(
+            conn,
+            """
+            SELECT preco_minimo FROM barravips.modelo_programas
+             WHERE modelo_id = %s AND programa_id = %s AND duracao_id = %s
+            """,
+            (modelo_id, programa_id, duracao_id),
+        )
+        if atual is None:
+            raise NaoEncontrado("Vínculo programa-modelo")
+        if atual["preco_minimo"] is not None and body.preco < atual["preco_minimo"]:
+            raise EntradaInvalida(
+                message=(
+                    "preco abaixo do preco_minimo cadastrado "
+                    f"({atual['preco_minimo']}): envie preco_minimo junto para ajustar os dois."
+                ),
+            )
+        sql = """
+            UPDATE barravips.modelo_programas SET preco = %s
+             WHERE modelo_id = %s AND programa_id = %s AND duracao_id = %s
+            RETURNING *
+            """
+        params = (body.preco, modelo_id, programa_id, duracao_id)
+    result = await conn.execute(sql, params)
     row = await result.fetchone()
     if row is None:
         raise NaoEncontrado("Vínculo programa-modelo")
@@ -983,7 +1022,7 @@ async def vincular_fetiche(
         ON CONFLICT (modelo_id, fetiche_id) DO UPDATE SET preco = EXCLUDED.preco
         RETURNING *
         """,
-        (modelo_id, body.fetiche_id, _preco_da_flag(body.pago)),
+        (modelo_id, body.fetiche_id, _preco_a_gravar(body.preco)),
     )
     row = await result.fetchone()
     assert row is not None
@@ -1004,7 +1043,7 @@ async def atualizar_fetiche(
          WHERE modelo_id = %s AND fetiche_id = %s
         RETURNING *
         """,
-        (_preco_da_flag(body.pago), modelo_id, fetiche_id),
+        (_preco_a_gravar(body.preco), modelo_id, fetiche_id),
     )
     row = await result.fetchone()
     if row is None:
@@ -1199,7 +1238,7 @@ async def _programas(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[s
     rows = await _all(
         conn,
         """
-        SELECT mp.programa_id, mp.duracao_id, mp.preco,
+        SELECT mp.programa_id, mp.duracao_id, mp.preco, mp.preco_minimo,
                p.nome, p.categoria,
                d.nome AS duracao_nome, d.ordem AS duracao_ordem, d.horas AS horas
           FROM barravips.modelo_programas mp
@@ -1219,6 +1258,10 @@ async def _programas(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[s
             "duracao_nome": row["duracao_nome"],
             "horas": float(row["horas"]) if row["horas"] is not None else None,
             "preco": float(row["preco"]),
+            # O piso da linha (ADR-0037) só saía no POST/PATCH: o painel gravava sem conseguir
+            # exibir, e por isso tratava "ausente" como desconhecido. Sem ele aqui, os pisos da
+            # Catarina (250/300/600/900/2000) ficam invisíveis para quem opera.
+            "preco_minimo": _preco_serializado(row["preco_minimo"]),
         }
         for row in rows
     ]
@@ -1234,27 +1277,26 @@ def _serializar_vinculo(
         "categoria": programa["categoria"],
         "duracao_nome": duracao["nome"],
         "preco": float(vinculo["preco"]),
+        "preco_minimo": _preco_serializado(vinculo.get("preco_minimo")),
     }
 
 
-# Sentinel gravado em modelo_fetiches.preco quando pago=True (ADR-0030): o valor em si nunca é
-# lido pelo cálculo do extra — só a presença de NOT NULL importa (ver ADICIONAR_FETICHE em
-# dominio/atendimentos/routes.py). Precisa ser truthy: agente/prompts/fetiches.md.j2 ainda checa
-# `{% if f.preco %}` (Jinja) para decidir incluso/pago no contexto da IA — `Decimal("0")` é falsy
-# e inverteria a cotação. modelo_fetiches.preco segue NULL/NOT NULL na coluna (sem migration de
-# schema); a API pública nunca expõe nem aceita esse número, só o flag `pago`.
-_PRECO_PAGO_SENTINEL = Decimal("1")
-
-
-def _preco_da_flag(pago: bool) -> Decimal | None:
-    return _PRECO_PAGO_SENTINEL if pago else None
+# modelo_fetiches.preco guarda o extra que o painel cadastrou (ADR-0030, revisão de 11/08/2026):
+# NULL = incluso, número = o extra cobrado, fixo. Zero vira NULL — "grátis" é incluso, e um
+# `Decimal("0")` gravado ficaria NOT NULL (logo "pago" para esta API) mas falsy no
+# `{% if f.preco %}` de agente/prompts/fetiches.md.j2, que renderizaria "incluso" para a IA.
+# Linhas antigas trazem o sentinel `1` da fase em que o painel só gravava a flag: a leitura trata
+# preço abaixo de PRECO_FETICHE_CADASTRADO_MINIMO como flag e cai no cálculo derivado
+# (dominio/atendimentos/service.py) — só a escrita mudou.
+def _preco_a_gravar(preco: Decimal | None) -> Decimal | None:
+    return preco if preco else None
 
 
 async def _fetiches(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[str, Any]]:
     rows = await _all(
         conn,
         """
-        SELECT mf.fetiche_id, mf.preco, f.nome
+        SELECT mf.fetiche_id, mf.preco, f.nome, f.cobra_por_pessoa
           FROM barravips.modelo_fetiches mf
           JOIN barravips.fetiches f ON f.id = mf.fetiche_id
          WHERE mf.modelo_id = %s
@@ -1266,7 +1308,14 @@ async def _fetiches(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[st
         {
             "fetiche_id": str(row["fetiche_id"]),
             "nome": row["nome"],
+            # `preco` é o extra cadastrado (None = incluso); `pago` continua derivado dele para as
+            # superfícies que só mostram a pílula incluso/pago.
+            "preco": _preco_serializado(row["preco"]),
             "pago": row["preco"] is not None,
+            # Fetiche por-pessoa (casal/ménage). ADR-0039: o `x 2` morreu — o valor digitado aqui
+            # é o TOTAL do extra pelas duas, igual ao de um ato. A flag segue indo ao painel para
+            # o aviso ao lado do campo (e para o front saber que a linha é de composição).
+            "cobra_por_pessoa": bool(row["cobra_por_pessoa"]),
         }
         for row in rows
     ]
@@ -1276,8 +1325,14 @@ def _serializar_vinculo_fetiche(vinculo: dict[str, Any], fetiche: dict[str, Any]
     return {
         "fetiche_id": str(vinculo["fetiche_id"]),
         "nome": fetiche["nome"],
+        "preco": _preco_serializado(vinculo["preco"]),
         "pago": vinculo["preco"] is not None,
+        "cobra_por_pessoa": bool(fetiche["cobra_por_pessoa"]),
     }
+
+
+def _preco_serializado(preco: Decimal | None) -> float | None:
+    return None if preco is None else float(preco)
 
 
 async def _servicos(conn: AsyncConnection[Any], modelo_id: UUID) -> list[dict[str, Any]]:

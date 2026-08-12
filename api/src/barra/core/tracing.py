@@ -81,7 +81,9 @@ def _ligar_langfuse_handler(settings: Settings, servico: str = "barra") -> Any |
     return _LANGFUSE_HANDLER
 
 
-def setup_langfuse(settings: Settings, *, servico: str = "barra") -> Any | None:
+def setup_langfuse(
+    settings: Settings, *, servico: str = "barra", permitir_em_teste: bool = False
+) -> Any | None:
     """Liga o tracing Langfuse self-hosted de PRODUÇÃO (ADR 0019) e cacheia o CallbackHandler.
 
     `servico` nomeia o emissor no `service.name` do trace (`barra-api`/`barra-worker`/`barra-evals`);
@@ -97,9 +99,19 @@ def setup_langfuse(settings: Settings, *, servico: str = "barra") -> Any | None:
     do deploy, em vez de rodar cego depois de um redeploy git que zerou o Env do stack. Sem a
     trava, segue no-op (None) e o turno roda sem tracing (dev/teste). O gauge
     `barra_tracing_langfuse_ligado` (0/1) espelha o estado p/ o dashboard nos dois casos.
+
+    `ambiente == "teste"` (o `conftest.py` o força) é NO-OP salvo `permitir_em_teste`: a suíte
+    constrói a app com as chaves reais do `.env`, e cada `TestClient` mandava para o Langfuse
+    self-hosted um trace de LLM FAKE — foi assim que nasceram os traces sem nome e o trace-monstro
+    de 300+ observations que o `e2e/massa` gerava sob pytest. Os rigs que QUEREM trace (harness,
+    e2e com dataset) passam `permitir_em_teste=True` e continuam emitindo, agora como `barra-evals`.
     """
     from barra.core.metrics import TRACING_LANGFUSE_LIGADO
 
+    if settings.ambiente == "teste" and not permitir_em_teste:
+        logger.debug("langfuse: no-op em ambiente=teste (use permitir_em_teste nos rigs)")
+        TRACING_LANGFUSE_LIGADO.set(0)
+        return None
     handler = _ligar_langfuse_handler(settings, servico)
     TRACING_LANGFUSE_LIGADO.set(1 if handler is not None else 0)
     if handler is None and settings.langfuse_obrigatorio:
@@ -155,7 +167,13 @@ def registrar_modelos_langfuse(modelos: list[dict[str, Any]]) -> None:
             )
 
 
-def metadata_trace_turno(modelo_id: str, atendimento_id: str, cliente_id: str) -> dict[str, Any]:
+def metadata_trace_turno(
+    modelo_id: str,
+    atendimento_id: str,
+    cliente_id: str,
+    *,
+    regime: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Fragmento de config (metadata + tags) que escopa o trace do turno por modelo/atendimento/cliente.
 
     Merge no config do `graph.ainvoke` (ex.: `config |= metadata_trace_turno(...)`): os IDs
@@ -170,18 +188,26 @@ def metadata_trace_turno(modelo_id: str, atendimento_id: str, cliente_id: str) -
     prefixo e não invalidam o cache (agente/CLAUDE.md "Prompt caching"). Por isso são dado por-turno
     legítimo aqui, e não no BP_MODELO.
 
-    Recebe `str` (não `ContextAgente`): `core/` não importa de `agente/` (direção de deps).
+    `regime` é o CONFIG que produziu o turno (`{"modelo_llm": ..., "thinking": ..., "prompts": ...}`,
+    montado pelo coordenador): vira metadata e tag `chave:valor`. Sem ele um trace não diz sob qual
+    regime rodou — e com o thinking indo a produção (`deepseek_thinking_chat` default "low") e a
+    árvore de prompts mudando toda semana, "qual conduta gerou esta fala?" só tem resposta se o
+    carimbo viajar junto. Tags de baixa cardinalidade: `thinking:low`, `prompts:ab12cd34`.
+
+    Recebe `str`/`dict` (não `ContextAgente`): `core/` não importa de `agente/` (direção de deps).
     """
     tags = [
         f"modelo_id:{modelo_id}",
         f"atendimento_id:{atendimento_id}",
         f"cliente_id:{cliente_id}",
     ]
+    tags += [f"{k}:{v}" for k, v in (regime or {}).items()]
     return {
         "metadata": {
             "modelo_id": modelo_id,
             "atendimento_id": atendimento_id,
             "cliente_id": cliente_id,
+            **(regime or {}),
             _GEN_AI_CONVERSATION_ID: atendimento_id,
             # Langfuse (ADR 0019): agrupa os turnos da jornada por atendimento e replica as tags no
             # nível do trace; o CallbackHandler lê estas chaves do metadata do config.
@@ -217,12 +243,37 @@ def registrar_feedback_online(trace_id: str | None, name: str, score: float) -> 
         logger.debug("feedback_online_falhou name=%s", name, exc_info=True)
 
 
+def _tagear_trace(span: Any, tags: list[str]) -> None:
+    """Acrescenta tags ao TRACE a partir do root span, já com o turno terminado.
+
+    As tags do `metadata_trace_turno` são conhecidas ANTES do `ainvoke` (escopo e regime); estas
+    dependem do que aconteceu (`agente._texto_turno.tags_do_turno`), então só existem aqui. O SDK 4.x
+    não expõe um `update_trace` público — o canal oficial é o atributo OTel `langfuse.trace.tags` no
+    span raiz, que é o mesmo que o `CallbackHandler` escreve ao ler `langfuse_tags` do config. Por
+    ser contrato de atributo (e não API tipada), roda best-effort: SDK futuro que renomeie a chave
+    degrada para trace sem estas tags, nunca para turno quebrado.
+
+    Recebe o conjunto COMPLETO de tags (escopo + regime + dinâmicas), não o incremento: escrever o
+    atributo é um `set`, e mandar só as novas apagaria as do `metadata_trace_turno` neste span.
+    """
+    try:
+        import json
+
+        from langfuse._client.attributes import LangfuseOtelSpanAttributes
+
+        span._otel_span.set_attribute(LangfuseOtelSpanAttributes.TRACE_TAGS, json.dumps(tags))
+    except Exception:  # best-effort: telemetria nunca quebra o turno
+        logger.debug("tagear_trace_falhou", exc_info=True)
+
+
 def resumir_trace_turno(
     span: Any,
     *,
     entrada: list[str],
     resposta: str,
     desfecho: dict[str, Any],
+    raciocinio: list[str] | None = None,
+    tags: list[str] | None = None,
     level: str = "DEFAULT",
 ) -> None:
     """Popula input/output/metadata/level do trace do turno p/ leitura de relance (ADR 0019).
@@ -239,16 +290,29 @@ def resumir_trace_turno(
     deprecado no SDK 4.x). Conteudo de mensagem so entra aqui pq o Langfuse self-hosted ja e o
     perimetro de PII do projeto (ADR 0019, sem masking) -- o mesmo texto ja vive nas observations
     do grafo. Best-effort: a telemetria nunca derruba o turno.
+
+    `raciocinio` (de `agente._texto_turno.raciocinio_do_turno`) e o `reasoning_content` das passagens
+    do chat #1 quando o thinking esta ligado (default de prod desde 11/08/2026). Entra no `output` ao
+    lado da fala porque e a EXPLICACAO dela: quem investiga uma resposta estranha quer ler, na mesma
+    tela, o que a IA pensou antes de escrever. Lista vazia (non-thinking) -> a chave nem aparece.
+
+    `tags` (de `tags_do_turno`) sao os sinais filtraveis do que aconteceu; vao para o TRACE via
+    `_tagear_trace`, somando-se as tags de escopo/regime que o config ja carregava.
     """
     if span is None:
         return
     try:
+        saida: dict[str, Any] = {"resposta_ia": resposta, "desfecho": desfecho}
+        if raciocinio:
+            saida["raciocinio"] = raciocinio
         span.update(
             input=entrada,
-            output={"resposta_ia": resposta, "desfecho": desfecho},
+            output=saida,
             metadata={"desfecho": desfecho},
             level=level,
         )
+        if tags:
+            _tagear_trace(span, tags)
     except Exception:  # best-effort: telemetria nunca quebra o turno
         logger.debug("resumir_trace_turno_falhou", exc_info=True)
 

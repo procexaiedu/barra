@@ -179,6 +179,13 @@ async def rodar_trajetoria(
                     agora=turno.agora,
                     horario_evidenciado=evidenciado,
                     recuo_detectado=recuo,
+                    # Guarda do valor fantasma: o cenario e semeado SEM historico em `mensagens`,
+                    # entao o dominio nao enxergaria nenhuma fala da IA e descartaria todo valor
+                    # fora da tabela (o degrau legitimo da escada, inclusive). As falas da IA da
+                    # trajetoria fazem o papel do historico persistido que prod tem.
+                    fala_da_ia_no_turno="\n\n".join(
+                        f.texto for f in turno.conversa if f.de == "ia"
+                    ),
                 )
         except _ERROS_RECUPERAVEIS:
             pass

@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogBody, DialogCloseButton, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { lerPrecoMinimo } from "@/lib/precoMinimo"
 import { cn } from "@/lib/utils"
 import type {
   Duracao,
@@ -13,6 +14,7 @@ import type {
   Programa,
   ProgramaInput,
   ProgramaModeloVinculo,
+  SalvarPrecoProgramaFn,
 } from "@/tipos/modelos"
 
 type PrecosMap = Record<string, Record<string, string>>
@@ -34,11 +36,13 @@ export function DialogAdicionarServicoModelo({
   onOpenChange: (open: boolean) => void
   onCriarPrograma: (input: ProgramaInput) => Promise<Programa>
   onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
-  onVincular: (programaId: string, duracaoId: string, preco: number) => Promise<void>
+  onVincular: SalvarPrecoProgramaFn
 }) {
   const [programasSelecionados, setProgramasSelecionados] = useState<string[]>([])
   const [duracoesPorPrograma, setDuracoesPorPrograma] = useState<Record<string, string[]>>({})
   const [precos, setPrecos] = useState<PrecosMap>({})
+  // Piso absoluto por linha (ADR-0037), opcional: vazio = a linha nasce sem mínimo.
+  const [minimos, setMinimos] = useState<PrecosMap>({})
   const [criandoPrograma, setCriandoPrograma] = useState(false)
   const [nomeProgramaNovo, setNomeProgramaNovo] = useState("")
   const [criandoDuracaoPara, setCriandoDuracaoPara] = useState<string | null>(null)
@@ -55,6 +59,7 @@ export function DialogAdicionarServicoModelo({
     setProgramasSelecionados([])
     setDuracoesPorPrograma({})
     setPrecos({})
+    setMinimos({})
     setCriandoPrograma(false)
     setNomeProgramaNovo("")
     setCriandoDuracaoPara(null)
@@ -76,6 +81,9 @@ export function DialogAdicionarServicoModelo({
       const nextPrecos = { ...precos }
       delete nextPrecos[id]
       setPrecos(nextPrecos)
+      const nextMinimos = { ...minimos }
+      delete nextMinimos[id]
+      setMinimos(nextMinimos)
     } else {
       setProgramasSelecionados([...programasSelecionados, id])
     }
@@ -88,13 +96,8 @@ export function DialogAdicionarServicoModelo({
         ...duracoesPorPrograma,
         [programaId]: atuais.filter((d) => d !== duracaoId),
       })
-      const nextPrecos = { ...precos }
-      if (nextPrecos[programaId]) {
-        const subset = { ...nextPrecos[programaId] }
-        delete subset[duracaoId]
-        nextPrecos[programaId] = subset
-      }
-      setPrecos(nextPrecos)
+      setPrecos(semADuracao(precos, programaId, duracaoId))
+      setMinimos(semADuracao(minimos, programaId, duracaoId))
     } else {
       setDuracoesPorPrograma({
         ...duracoesPorPrograma,
@@ -107,6 +110,13 @@ export function DialogAdicionarServicoModelo({
     setPrecos({
       ...precos,
       [programaId]: { ...(precos[programaId] ?? {}), [duracaoId]: valor },
+    })
+  }
+
+  const setMinimo = (programaId: string, duracaoId: string, valor: string) => {
+    setMinimos({
+      ...minimos,
+      [programaId]: { ...(minimos[programaId] ?? {}), [duracaoId]: valor },
     })
   }
 
@@ -155,20 +165,53 @@ export function DialogAdicionarServicoModelo({
     }
   }
 
-  const paresValidos = useMemo(() => {
-    const lista: { programaId: string; duracaoId: string; preco: number }[] = []
+  // Cada par marcado vira uma linha; só entra em `paresValidos` quem tem preço legível E mínimo
+  // aceitável (vazio conta como "sem mínimo"). `erroMinimo` alimenta o aviso embaixo do campo.
+  const linhas = useMemo(() => {
+    const lista: {
+      programaId: string
+      duracaoId: string
+      preco: number | null
+      precoMinimo: number | null
+      erroMinimo: string | null
+    }[] = []
     for (const pid of programasSelecionados) {
       for (const did of duracoesPorPrograma[pid] ?? []) {
         const raw = precos[pid]?.[did]?.trim() ?? ""
-        if (!raw) continue
-        const preco = Number(raw.replace(",", "."))
-        if (!isNaN(preco) && preco >= 0) {
-          lista.push({ programaId: pid, duracaoId: did, preco })
-        }
+        const preco = raw ? Number(raw.replace(",", ".")) : NaN
+        const precoValido = raw !== "" && !isNaN(preco) && preco >= 0
+        const lido = lerPrecoMinimo(minimos[pid]?.[did] ?? "", precoValido ? preco : Infinity)
+        lista.push({
+          programaId: pid,
+          duracaoId: did,
+          preco: precoValido ? preco : null,
+          precoMinimo: "erro" in lido ? null : lido.minimo,
+          erroMinimo: "erro" in lido ? lido.erro : null,
+        })
       }
     }
     return lista
-  }, [duracoesPorPrograma, precos, programasSelecionados])
+  }, [duracoesPorPrograma, minimos, precos, programasSelecionados])
+
+  const paresValidos = useMemo(
+    () =>
+      linhas.flatMap((l) =>
+        l.preco !== null && l.erroMinimo === null
+          ? [{
+              programaId: l.programaId,
+              duracaoId: l.duracaoId,
+              preco: l.preco,
+              precoMinimo: l.precoMinimo,
+            }]
+          : [],
+      ),
+    [linhas],
+  )
+
+  const totalErrosMinimo = useMemo(
+    () => linhas.filter((l) => l.erroMinimo !== null).length,
+    [linhas],
+  )
 
   const totalPares = useMemo(() => {
     let n = 0
@@ -187,7 +230,11 @@ export function DialogAdicionarServicoModelo({
     if (!podeSalvar) return
     setSubmitting(true)
     const resultados = await Promise.allSettled(
-      paresValidos.map((p) => onVincular(p.programaId, p.duracaoId, p.preco)),
+      // Sem mínimo digitado, o campo nem vai no corpo — no POST (semântica de PUT) omitir e mandar
+      // `null` dão no mesmo, e o corpo fica com o que o operador de fato preencheu.
+      paresValidos.map((p) =>
+        onVincular(p.programaId, p.duracaoId, p.preco, p.precoMinimo ?? undefined),
+      ),
     )
     const sucesso = resultados.filter((r) => r.status === "fulfilled").length
     const falhas = resultados.length - sucesso
@@ -396,15 +443,22 @@ export function DialogAdicionarServicoModelo({
 
                       {duracoesMarcadas.length > 0 && (
                         <div className="space-y-2 border-t border-border pt-3">
+                          <div className="flex items-center justify-end gap-2 text-[10px] font-medium uppercase tracking-[0.08em] text-text-muted">
+                            <span className="w-32 text-center">Preço (R$)</span>
+                            <span className="w-32 text-center">Mínimo (R$, opcional)</span>
+                          </div>
                           {duracoesMarcadas.map((did) => {
                             const dur = duracoes.find((d) => d.id === did)
                             if (!dur) return null
                             const valor = precos[pid]?.[did] ?? ""
+                            const minimo = minimos[pid]?.[did] ?? ""
+                            const erroMinimo = linhas.find(
+                              (l) => l.programaId === pid && l.duracaoId === did,
+                            )?.erroMinimo
                             return (
-                              <div key={did} className="flex items-center justify-between gap-3">
+                              <div key={did} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                                 <span className="text-sm text-text-secondary">{dur.nome}</span>
-                                <div className="flex items-center gap-2">
-                                  <span className="text-xs text-text-muted">R$</span>
+                                <div className="ml-auto flex items-center gap-2">
                                   <Input
                                     type="number"
                                     min={0}
@@ -412,12 +466,31 @@ export function DialogAdicionarServicoModelo({
                                     value={valor}
                                     onChange={(e) => setPreco(pid, did, e.target.value)}
                                     placeholder="0,00"
+                                    aria-label={`Preço de tabela — ${dur.nome}`}
+                                    className="h-9 w-32 bg-input font-mono text-sm tabular-nums"
+                                  />
+                                  <Input
+                                    type="number"
+                                    min={0}
+                                    step={50}
+                                    value={minimo}
+                                    onChange={(e) => setMinimo(pid, did, e.target.value)}
+                                    placeholder="sem mínimo"
+                                    aria-label={`Preço mínimo — ${dur.nome}`}
+                                    aria-invalid={erroMinimo ? true : undefined}
                                     className="h-9 w-32 bg-input font-mono text-sm tabular-nums"
                                   />
                                 </div>
+                                {erroMinimo && (
+                                  <p className="w-full text-right text-[11px] text-state-lost">{erroMinimo}</p>
+                                )}
                               </div>
                             )
                           })}
+                          <p className="pt-1 text-right text-[11px] leading-relaxed text-text-muted">
+                            Mínimo = o menor valor que a IA pode ofertar nessa linha. Vazio = sem
+                            piso; igual ao preço = a linha não desconta.
+                          </p>
                         </div>
                       )}
                     </div>
@@ -429,12 +502,14 @@ export function DialogAdicionarServicoModelo({
         </DialogBody>
 
         <DialogFooter className="justify-between gap-3 bg-muted">
-          <span className="text-xs text-text-muted">
+          <span className={cn("text-xs text-text-muted", totalErrosMinimo > 0 && "text-state-lost")}>
             {totalPares === 0
               ? "Selecione ao menos um serviço e duração."
-              : paresValidos.length === totalPares
-                ? `${totalPares} ${totalPares === 1 ? "linha pronta" : "linhas prontas"}`
-                : `${totalPares - paresValidos.length} ${totalPares - paresValidos.length === 1 ? "preço pendente" : "preços pendentes"}`}
+              : totalErrosMinimo > 0
+                ? `${totalErrosMinimo} ${totalErrosMinimo === 1 ? "linha com mínimo acima do preço" : "linhas com mínimo acima do preço"}`
+                : paresValidos.length === totalPares
+                  ? `${totalPares} ${totalPares === 1 ? "linha pronta" : "linhas prontas"}`
+                  : `${totalPares - paresValidos.length} ${totalPares - paresValidos.length === 1 ? "preço pendente" : "preços pendentes"}`}
           </span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={fechar} disabled={submitting}>
@@ -450,6 +525,14 @@ export function DialogAdicionarServicoModelo({
       </DialogContent>
     </Dialog>
   )
+}
+
+/** Copia o mapa preço/mínimo sem a duração desmarcada. */
+function semADuracao(mapa: PrecosMap, programaId: string, duracaoId: string): PrecosMap {
+  if (!mapa[programaId]) return mapa
+  const subset = { ...mapa[programaId] }
+  delete subset[duracaoId]
+  return { ...mapa, [programaId]: subset }
 }
 
 function Chip({

@@ -1,6 +1,6 @@
 """Aceite M0-T2 — render dos prompts BP1 (persona + regras) via Jinja."""
 
-from datetime import UTC, datetime
+from datetime import UTC, datetime, time
 
 from barra.agente.persona import render_contexto_dinamico, render_persona, render_reminder
 
@@ -43,6 +43,55 @@ def test_contexto_dinamico_renderiza_agenda_em_brt() -> None:
     # bloqueio: hora E dia convertidos (01:30Z do 26/06 -> 22:30 BRT do 25/06)
     assert "25/06 22:30" in txt and "26/06 01:30" not in txt
     assert 'fim="23:30"' in txt
+    # dia da semana determinístico em PT-BR (25/06/2026 = quinta): o `%a` do filtro sai do mapa
+    # fixo Seg..Dom, nunca do locale do SO — em locale C a <agenda> saía "Thu 25/06" e a IA podia
+    # ecoar o inglês pro cliente (traces 11/08).
+    assert "Qui 25/06 18:00" in txt
+    assert "Thu" not in txt
+
+
+def test_relogio_do_encontro_verbaliza_horas_quando_longe() -> None:
+    """Encontro de amanhã saía `status="faltam ~2156 min"` — ilegível, e a IA repassaria o número
+    cru. Acima de 2h o status vira horas arredondadas (filtro `duracao_humana`); perto do horário
+    continua em minutos (coberto em test_prepare_context_agenda)."""
+    base = dict(
+        numero_curto=1,
+        estado="Aguardando_confirmacao",
+        pix_status="não aplicável",
+        proximo_passo="confirmar a chegada",
+        combinado_hora="11:00",
+    )
+    txt = render_contexto_dinamico(min_para_combinado=2156, **base)
+    assert 'status="faltam ~36h"' in txt and "2156" not in txt
+    txt = render_contexto_dinamico(min_para_combinado=-180, **base)
+    assert "já passou ~3h do horário combinado" in txt
+
+
+def test_hora_desejada_renderiza_sem_segundos() -> None:
+    """`horario_desejado` é `time` e saía cru no <hora> ("22:00:00") — a IA não fala com segundos."""
+    txt = render_contexto_dinamico(
+        numero_curto=1,
+        estado="Qualificado",
+        pix_status="não aplicável",
+        proximo_passo="combinar horário",
+        horario_desejado=time(22, 0),
+        horario_evidenciado=True,
+    )
+    assert ">22:00</hora>" in txt
+    assert "22:00:00" not in txt
+
+
+def test_cliente_sem_notas_nao_emite_linhas_vazias() -> None:
+    """Sem histórico/observações/motivo, o <cliente> saía com 3-4 linhas em branco (cada `{% if %}`
+    falso deixava o \\n da linha). O bloco aperta para abrir e fechar direto."""
+    txt = render_contexto_dinamico(
+        numero_curto=1,
+        estado="Qualificado",
+        pix_status="não aplicável",
+        proximo_passo="combinar horário",
+        recorrente=False,
+    )
+    assert '<cliente recorrente="não">\n</cliente>' in txt
 
 
 def test_pix_deslocamento_so_no_externo() -> None:

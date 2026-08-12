@@ -222,11 +222,11 @@ async def test_proximo_horario_ancora_quando_horario_minimo_some() -> None:
     assert proximo.astimezone(BRT).strftime("%d/%m %H:%M") == "24/07 10:00"
 
     saida = render_contexto_dinamico(**variaveis.como_variaveis())
-    assert 'inicio="Fri 24/07 10:00"' in saida
+    assert 'inicio="Sex 24/07 10:00"' in saida
     assert "é o seu primeiro" in saida
     # O 17:30 do bloqueio segue no contexto (a IA precisa saber que a tarde tem um buraco) — mas
     # agora ele não é mais o único horário concreto do <agenda>.
-    assert 'proximo_livre="Fri 24/07 17:30"' in saida
+    assert 'proximo_livre="Sex 24/07 17:30"' in saida
 
 
 async def test_proximo_horario_respeita_bloqueio_em_cima_da_abertura() -> None:
@@ -362,7 +362,7 @@ async def test_janelas_livres_expoem_a_manha_vaga_do_41() -> None:
     assert janelas[1] == ("24/07 17:30", "25/07 04:00")
 
     saida = render_contexto_dinamico(**variaveis.como_variaveis())
-    assert '<janela_livre de="Fri 24/07 10:00" ate="Fri 24/07 15:30"/>' in saida
+    assert '<janela_livre de="Sex 24/07 10:00" ate="Sex 24/07 15:30"/>' in saida
 
 
 async def test_janelas_livres_nao_comecam_antes_da_antecedencia() -> None:

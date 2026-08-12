@@ -59,8 +59,10 @@ ENVIOS_EVOLUTION = Counter("barra_envios_evolution_total", "Envios Evolution", [
 WEBHOOK_ERRORS = Counter("barra_webhook_errors_total", "Erros de webhook", ["tipo"])
 WEBHOOK_DESCARTES = Counter(
     "barra_webhook_descartes_total",
-    "Mensagens descartadas na borda (parser nao reconheceu o tipo)",
-    ["tipo"],  # nome do campo *Message do payload: locationMessage, contactMessage, ...
+    "Mensagens descartadas de proposito na borda, antes de virar conversa",
+    # nome do campo *Message que o parser nao reconheceu (locationMessage, contactMessage, ...)
+    # OU o motivo do descarte deliberado: `grupo_nao_coordenacao`.
+    ["tipo"],
 )
 TIMEOUTS = Counter("barra_timeouts_total", "Timeouts aplicados", ["tipo"])
 LEMBRETE_VALOR = Counter(
@@ -104,6 +106,55 @@ AGENTE_TOOL_ERRO_RECUPERAVEL = Counter(
     "Tools do agente que retornaram um 'ERRO:' recuperavel ao LLM (instrui a IA a reagir, "
     "nao falha de turno). tool=nome da ferramenta, motivo=categoria curta e estavel.",
     ["tool", "motivo"],
+)
+# Valor fantasma (validacao ao vivo 11/08, escada_val2): a extracao gravou como `valor_acordado`
+# um numero que a IA NUNCA ofertou (o do cliente, recusado no mesmo turno). O dominio descarta o
+# campo -- este contador e o volume do descarte, que so deveria subir quando o extrator erra.
+AGENTE_EXTRACAO_VALOR_FANTASMA = Counter(
+    "agente_extracao_valor_fantasma_total",
+    "valor_acordado descartado: o numero nao esta na tabela da modelo nem saiu da boca da IA",
+)
+# Guarda do piso de desconto, agora amarrada ao PACOTE (programa x duracao). O furo que ela fecha
+# era mudo por construcao: com dois programas na mesma duracao (Normal 400 / Completo 800) o piso
+# de QUALQUER pacote de 1h era o da linha mais barata, entao fechar o Completo a 300 passava sem
+# escalada, sem log e sem metrica -- ninguem tinha como contar o que nao acontecia. As labels
+# separam o que o sistema SABE do que ele decidiu: `origem` diz de onde saiu o piso
+# (programa_vendido = `atendimento_servicos`; duracao_unica = a duracao tem um piso so;
+# preco_cotado = o pacote foi DEDUZIDO do preco que a IA ja cotou na conversa, que casa com uma
+# linha so da duracao; duracao_ambigua = pisos divergentes, nenhum programa identificado e a
+# deducao tambem nao resolveu, o fail-closed; sem_linha = sem tabela para o par) e `resultado` diz
+# se o valor passou (aceito) ou escalou.
+# `duracao_ambigua` subindo e o sinal de cadastro que precisa do painel escrevendo o servico
+# vendido -- e de escalada que a modelo vai ver. `preco_cotado` e a serie que mede se a deducao
+# esta pegando: ela caindo com `duracao_ambigua` subindo = a IA esta fechando sem cotar antes, ou
+# o scanner de fala parou de reconhecer a cotacao.
+AGENTE_PISO_PACOTE = Counter(
+    "agente_piso_pacote_total",
+    "Guarda do piso de desconto por pacote: de onde saiu o piso e o que ela decidiu",
+    ["origem", "resultado"],
+)
+# ADR-0040: o numero que o CLIENTE nomeia, quando fica acima do piso, fecha a venda no valor DELE
+# (e consome uma rodada da escada). `encontro` = hoje|outro_dia|dia_desconhecido; `decisao` = o
+# veredito da `aceite_do_valor_dele` (aceito | abaixo_do_piso | acima_da_mesa | ambiguo |
+# sem_valor | esgotada). Sem esta serie nao da para saber se a regra dispara em producao: o
+# caminho novo e SILENCIOSO por construcao (fail-closed cai na escada de sempre e nada no log
+# distingue "ele nao propos numero" de "o detector nao viu o numero dele"). `sem_valor` alto com
+# `aceito` no chao = o detector de fala perdendo a proposta; `ambiguo` alto = cadastro com dois
+# pacotes presenciais na mesma duracao.
+AGENTE_ACEITE_DO_CLIENTE = Counter(
+    "agente_aceite_do_cliente_total",
+    "Contraproposta do cliente acima do piso: o encontro e o veredito da decisao",
+    ["encontro", "decisao"],
+)
+# O SEGUNDO tempo do ADR-0040, no write-time: `aceito` acima diz que o sistema MANDOU aceitar; esta
+# serie diz se a venda chegou ao banco. `resultado` = gravado (a bolha despachada trouxe o numero
+# dele e `valor_acordado` virou ele) | sem_numero_na_bolha (ela nao disse o numero, ou disse dentro
+# de uma clausula negada -- nao ha aceite a gravar). O par e o unico jeito de ver o buraco que criou
+# esta porta: sem ele, "aceito" alto convivia com `valor_acordado` NULL e nada no log explicava.
+AGENTE_ACEITE_GRAVADO = Counter(
+    "agente_aceite_gravado_total",
+    "Aceite do valor do cliente lido da bolha despachada (write-time): gravou ou nao",
+    ["resultado"],
 )
 AGENTE_TURNO_TOKENS = Counter(
     "agente_turno_tokens_total",
@@ -155,7 +206,8 @@ LOCK_OCUPADO = Counter(
 ROTEAR_IMAGEM_DECISAO = Counter(
     "agente_rotear_imagem_decisao_total",
     "Decisao de roteamento de imagem sob lock:conv (06 §2.1): "
-    "pix|foto_portaria|foto_portaria_ressurreicao|fora_fluxo_legenda|silencio|lock_busy",
+    "pix|foto_portaria|foto_portaria_ressurreicao|aviso_pos_slot|aviso_pos_slot_sem_grupo|"
+    "fora_fluxo_legenda|silencio|lock_busy",
     ["decisao"],
 )
 # 10 §9: deteccao heuristica de disclosure/jailbreak no intercept_disclosure (M3g).
@@ -239,6 +291,46 @@ OUTPUT_INCLUSO_FANTASMA = Counter(
     "agente_output_incluso_fantasma_total",
     "Bolhas que declaram incluso item fora da linha 'Inclusos' do <fetiches>, por acao",
     ["acao"],  # dropada | mudo
+)
+# Servico fantasma (rodada 3 do eval, fase 1-E): a IA AFIRMOU fazer um servico de risco (anal,
+# natural...) fora do cadastro da modelo — closed-world: o que nao esta la ela nao faz. Mesmo
+# trilho da sonda/regiao/incluso — regenera 1x, dropa a bolha se persistir.
+OUTPUT_SERVICO_FANTASMA = Counter(
+    "agente_output_servico_fantasma_total",
+    "Bolhas que afirmam fazer servico de risco fora do cadastro da modelo, por acao",
+    ["acao"],  # dropada | mudo
+)
+# Preco fantasma (rodada 3 do eval, fase 1-E): a bolha citou valor fora do conjunto legitimo
+# (tabela + totais/dobros + degraus do desconto + valor na mesa + eco do numero do cliente).
+# Mesmo trilho — regenera 1x, dropa a bolha se persistir.
+OUTPUT_PRECO_FANTASMA = Counter(
+    "agente_output_preco_fantasma_total",
+    "Bolhas que citam preco fora do conjunto legitimo da modelo, por acao",
+    ["acao"],  # dropada | mudo
+)
+# Endereco sonegado (rodada 3 do eval, fase 1-E): o cliente pediu a localizacao, o estagio ja
+# libera o <local_de_encontro> e a resposta nao entregou nenhum token do endereco. Rede de
+# MELHORIA: regenera 1x pedindo a entrega; persistiu -> o texto segue como esta (pass-through).
+OUTPUT_ENDERECO_SONEGADO = Counter(
+    "agente_output_endereco_sonegado_total",
+    "Respostas a pedido de localizacao sem entrega do endereco, por acao",
+    ["acao"],  # persistiu | sem_regen
+)
+# Pedagio (rodada 4 do eval): resposta cuja UNICA substancia e empurrao vazio ("Seria hoje ?")
+# com pergunta do cliente pendente no burst — o empurrao acompanha o conteudo, nunca o substitui.
+# Mesma rede de MELHORIA do endereco: regenera 1x; persistiu -> pass-through.
+OUTPUT_PEDAGIO_DETECTADO = Counter(
+    "agente_output_pedagio_total",
+    "Respostas so-empurrao com pergunta do cliente pendente, por acao",
+    ["acao"],  # persistiu | sem_regen
+)
+# Saudacao conflitante (rodada 4 do eval): o cliente saudou com um periodo ("boa tarde") e a
+# resposta saudou com outro ("Boa noite") — espelhamento e deterministico, o periodo certo e o
+# DELE. Rede de MELHORIA: regenera 1x; persistiu -> pass-through.
+OUTPUT_SAUDACAO_CONFLITANTE = Counter(
+    "agente_output_saudacao_conflitante_total",
+    "Respostas com saudacao de periodo conflitante com a do cliente, por acao",
+    ["acao"],  # persistiu | sem_regen
 )
 # Marcador de reply [quote]/[quote: trecho] residual removido pela rede final antes do envio: o
 # chunking deveria te-lo extraido no inicio da bolha, entao cada scrub aqui e regressao de
@@ -359,6 +451,15 @@ JUDGE_CONDUTA = Counter(
     "agente_judge_conduta_total",
     "Eixo `conduta` (1-5) do judge pos-envio, por faixa da nota",
     ["faixa"],  # reprovada (1-2) | ok (3-5)
+)
+# Vazamento de DADO DURO (unidade/Pix/telefone) num turno JA enviado, medido pelo judge pos-envio
+# (campo booleano `vazou_dado_duro`). Ate aqui o sinal vivia so no prefixo `[dado]` do comentario:
+# grepavel, nunca contavel — o eixo real de vazamento nao tinha serie. Counter por faixa (sim|nao),
+# a janela mora na regra do Prometheus, `rate()` sobrevive a restart do worker.
+JUDGE_VAZAMENTO_DADO = Counter(
+    "agente_judge_vazamento_dado_total",
+    "Turnos enviados com vazamento de dado duro (unidade/Pix/telefone) visto pelo judge pos-envio",
+    ["faixa"],  # sim | nao
 )
 
 

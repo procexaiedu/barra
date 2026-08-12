@@ -110,23 +110,28 @@ export function PainelFetiches({
           Como funciona
         </h2>
         <p className="mt-3 text-sm leading-relaxed text-text-secondary">
-          No perfil de cada modelo você marca quais ela faz e se são incluso ou pago:
+          No perfil de cada modelo você marca quais ela faz e quanto cobra por cada um:
         </p>
         <dl className="mt-4 space-y-3">
           <div className="flex items-start gap-3">
             <dt className="pt-0.5"><FeticheValor preco={null} /></dt>
             <dd className="text-sm leading-relaxed text-text-secondary">
-              Incluso: <span className="text-text-primary">já incluso</span> no valor do programa.
+              Sem preço: <span className="text-text-primary">já incluso</span> no valor do programa.
             </dd>
           </div>
           <div className="flex items-start gap-3">
             <dt className="pt-0.5"><FeticheValor preco={200} /></dt>
             <dd className="text-sm leading-relaxed text-text-secondary">
-              Pago: a IA <span className="text-text-primary">cota como adicional</span> — o valor é calculado a partir do programa vendido, não digitado.
+              Com preço: a IA <span className="text-text-primary">cota esse valor como adicional</span> por cima do programa — fixo, independente da duração vendida.
             </dd>
           </div>
         </dl>
         <p className="mt-4 border-t border-border pt-4 text-xs leading-relaxed text-text-muted">
+          Fetiche de casal/ménage é a <span className="text-text-secondary">segunda pessoa</span>:
+          cadastre o valor TOTAL do extra pelas duas — a IA soma esse valor uma vez por cima do
+          programa, sem dobrar nada.
+        </p>
+        <p className="mt-2 text-xs leading-relaxed text-text-muted">
           Na conversa, a IA só oferece o que está marcado e recusa o resto com naturalidade.
         </p>
       </aside>

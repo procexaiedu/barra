@@ -1,4 +1,5 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
 from decimal import Decimal
 from uuid import uuid4
@@ -40,12 +41,21 @@ class FakeConn:
             self.atendimento["estado"] = "Fechado"
         if "UPDATE barravips.atendimentos" in query and "estado = 'Perdido'" in query:
             self.atendimento["estado"] = "Perdido"
+        # Fiel ao SQL real: o UPDATE que avança (`ia_pausada = true`) é outro comando que o
+        # UPDATE que só carimba o pix_status. Sem essa distinção o fake "avançava" mesmo quando
+        # o serviço não avançou — e um Fechado ressuscitado passaria batido.
         if "pix_status = 'validado'" in query:
             self.atendimento["pix_status"] = "validado"
-            self.atendimento["estado"] = "Confirmado"
+            if "ia_pausada = true" in query:
+                self.atendimento["estado"] = "Confirmado"
+                self.atendimento["ia_pausada"] = True
+                self.atendimento["responsavel_atual"] = "modelo"
         if "pix_status = 'em_revisao'" in query:
             self.atendimento["pix_status"] = "em_revisao"
-            self.atendimento["estado"] = "Confirmado"
+            if "ia_pausada = true" in query:
+                self.atendimento["estado"] = "Confirmado"
+                self.atendimento["ia_pausada"] = True
+                self.atendimento["responsavel_atual"] = "modelo"
         if "pix_status = 'invalido'" in query:
             self.atendimento["pix_status"] = "invalido"
         return _Result([])
@@ -355,3 +365,84 @@ def test_recusar_pix_nao_reverte_estado() -> None:
     assert result.pix_status == "invalido"
     assert result.estado == "Aguardando_confirmacao"
     assert not any("ia_pausada = false" in q for q, _ in conn.executed)
+
+
+# --- Pix aprovado depois de o atendimento morrer -------------------------------------------
+# A fila de revisão é assíncrona por design ("o Pix nunca trava"): Fernando dá o veredito dias
+# depois, quando o encontro já aconteceu e a modelo já fechou no grupo. Registrar a decisão do
+# COMPROVANTE é legítimo; ressuscitar o ATENDIMENTO não — reverter `Fechado`→`Confirmado` some
+# com a venda do faturamento (que filtra estado='Fechado'), reabre o par contra o índice único
+# parcial `atendimentos_um_aberto_por_par` e devolve o zumbi ao `timeout_longo`.
+
+
+def _atendimento_terminal(estado: str) -> dict:
+    at = _atendimento()
+    at["estado"] = estado
+    at["ia_pausada"] = False
+    at["responsavel_atual"] = "Fernando"
+    return at
+
+
+def _aplicar_pix(conn: "FakeConn", decisao: str, origem: str = "painel"):
+    async def run():
+        return await aplicar_comando(
+            conn,
+            origem=origem,  # type: ignore[arg-type]
+            autor="Fernando",
+            atendimento_id=conn.atendimento["id"],
+            comando="atualizar_pix",
+            payload={"decisao": decisao, "pix_id": "pix-1"},
+        )
+
+    return asyncio.run(run())
+
+
+@pytest.mark.parametrize("estado", ["Fechado", "Perdido"])
+@pytest.mark.parametrize("decisao", ["validado", "em_revisao"])
+def test_pix_em_atendimento_terminal_registra_sem_ressuscitar(estado: str, decisao: str) -> None:
+    conn = FakeConn(_atendimento_terminal(estado))
+
+    result = _aplicar_pix(conn, decisao)
+
+    # A decisão sobre o comprovante fica gravada...
+    assert result.pix_status == decisao
+    assert conn.atendimento["pix_status"] == decisao
+    # ...e o atendimento não se mexe: nem estado, nem pausa da IA, nem responsável.
+    assert result.estado == estado
+    assert conn.atendimento["estado"] == estado
+    assert conn.atendimento["ia_pausada"] is False
+    assert conn.atendimento["responsavel_atual"] == "Fernando"
+    updates = [q for q, _ in conn.executed if "UPDATE barravips.atendimentos" in q]
+    assert updates and not any("ia_pausada = true" in q for q in updates)
+    assert not any("estado = %s" in q for q in updates)
+    # Auditoria: o evento sai, carimbado com o motivo de não ter avançado.
+    eventos = [p for q, p in conn.executed if "INSERT INTO barravips.eventos" in q]
+    assert len(eventos) == 1
+    payload_evento = json.loads(eventos[0][4])  # type: ignore[index]
+    assert payload_evento["decisao"] == decisao
+    assert payload_evento["avanco_suprimido"] == "atendimento_terminal"
+    assert payload_evento["estado"] == estado
+
+
+@pytest.mark.parametrize("decisao", ["validado", "em_revisao"])
+def test_pix_em_atendimento_vivo_continua_avancando(decisao: str) -> None:
+    # Caminho feliz intacto (invariante "nunca trava por Pix"): externo vivo avança para
+    # Confirmado, pausa a IA e passa o bastão para a modelo, com o evento limpo.
+    conn = FakeConn(_atendimento())
+
+    result = _aplicar_pix(conn, decisao, origem="pipeline_pix")
+
+    assert result.estado == "Confirmado"
+    assert result.pix_status == decisao
+    assert conn.atendimento["ia_pausada"] is True
+    assert conn.atendimento["responsavel_atual"] == "modelo"
+    avanco = [
+        q
+        for q, _ in conn.executed
+        if "UPDATE barravips.atendimentos" in q and "ia_pausada = true" in q
+    ]
+    assert len(avanco) == 1
+    assert "responsavel_atual = 'modelo'" in avanco[0]
+    eventos = [p for q, p in conn.executed if "INSERT INTO barravips.eventos" in q]
+    payload_evento = json.loads(eventos[0][4])  # type: ignore[index]
+    assert "avanco_suprimido" not in payload_evento

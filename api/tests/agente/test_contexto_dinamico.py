@@ -209,9 +209,11 @@ async def test_contexto_dinamico_no_ultimo_humanmessage(
     assert res.goto == "intercept_disclosure"
     msgs = res.update["messages"]
 
-    # o contexto dinamico vive no ULTIMO HumanMessage, DEPOIS da msg do cliente.
+    # o contexto dinamico vive no ULTIMO HumanMessage, ANTES da msg do cliente — a fala dele é o
+    # ultimo trecho (recency, incidente 29/07; assert antigo esperava a ordem pre-incidente e este
+    # teste needs_db nao rodava sem TEST_DATABASE_URL).
     ultimo_human = [m for m in msgs if isinstance(m, HumanMessage)][-1]
-    assert ultimo_human.content.startswith("oi, tudo bem?")
+    assert ultimo_human.content.rstrip().endswith("oi, tudo bem?")
     assert "#7" in ultimo_human.content
     assert "Qualificado" in ultimo_human.content
     assert "externo" in ultimo_human.content
@@ -332,11 +334,16 @@ async def test_periodo_de_trabalho_marca_fim_como_encerramento(
 
     res = await prepare_context({"messages": []}, FakeRuntime(ctx))
     assert isinstance(res, Command)
-    ultimo_human = [m for m in res.update["messages"] if isinstance(m, HumanMessage)][-1]
-    conteudo = str(ultimo_human.content)
+    msgs = res.update["messages"]
+    # O <periodo_de_trabalho> é função SÓ do cadastro dela e foi hoistado da cauda volátil para a
+    # 3ª SystemMessage do prefixo (otimização de custo, traces 11/08): a conduta que este teste
+    # cobra é a mesma, só mudou o bloco em que ela viaja — e ela SAIU da cauda, que é a economia.
+    conteudo = "\n".join(_texto_system(m) for m in msgs if isinstance(m, SystemMessage))
+    ultimo_human = [m for m in msgs if isinstance(m, HumanMessage)][-1]
     assert "<periodo_de_trabalho>" in conteudo
     assert "quando você ENCERRA" in conteudo
     assert "trate como expediente encerrado" in conteudo
+    assert "<periodo_de_trabalho>" not in str(ultimo_human.content)
 
 
 @pytest.mark.needs_db

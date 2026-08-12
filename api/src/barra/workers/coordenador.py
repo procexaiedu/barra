@@ -16,6 +16,7 @@ import logging
 import random
 import re
 import unicodedata
+from collections.abc import Sequence
 from contextlib import AbstractContextManager, nullcontext
 from datetime import UTC, datetime
 from time import perf_counter
@@ -23,7 +24,7 @@ from typing import Any
 from uuid import UUID, uuid5
 
 import structlog
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langfuse import Langfuse, get_client
 from langgraph.errors import GraphRecursionError
 from openai import APIStatusError as OpenAIAPIStatusError
@@ -34,11 +35,16 @@ from psycopg_pool import AsyncConnectionPool
 
 from barra.agente._canned import escolher_canned_transcricao_falhou
 from barra.agente._custo import custo_chat_turno_brl
+from barra.agente._parceria import formatar_bolha_contato_parceira
 from barra.agente._texto_turno import (
     desfecho_do_turno,
     extrair_texto_do_turno,
     mensagens_cliente_do_turno,
+    mensagens_do_turno,
+    raciocinio_do_turno,
+    tags_do_turno,
 )
+from barra.agente._versao import regime_do_turno
 from barra.agente.contexto import ContextAgente
 from barra.agente.nos.output_guard import (
     tem_marcador_ia,
@@ -63,6 +69,8 @@ from barra.core.tracing import (
     registrar_feedback_online,
     resumir_trace_turno,
 )
+from barra.dominio.atendimentos.service import MENSAGENS_GUARD_ESCALADA
+from barra.dominio.modelos.parcerias import contato_da_parceira
 from barra.settings import get_settings
 from barra.webhook.despacho import enfileirar_processar_turno
 from barra.workers._chunking import MAX_CHARS, chunk_texto
@@ -219,6 +227,53 @@ def _resolver_quotes(
     return msg_ids, textos
 
 
+def pausa_aberta_por_este_turno(messages: Sequence[BaseMessage]) -> bool:
+    """A `ia_pausada=true` que o passo 6 relê foi aberta POR ESTE TURNO — ou veio de fora?
+
+    Discriminador do gate de pausa do envio (`ignorar_pausa`). O ESTADO DO BANCO não separa os
+    dois casos: `ia_pausada` é o mesmo bit quando o agente escalou de propósito (e precisa
+    entregar a bolha de espera) e quando um pipeline sem lock (foto de portaria, Pix, pausa manual
+    do operador) pausou no meio do turno — e nesse segundo caso a modelo humana já está assumindo,
+    então QUALQUER bolha da IA sai por cima dela.
+
+    Nem o `ia_pausada_motivo` serve: `abrir_handoff` grava `handoff_ia` tanto para o `escalar` da
+    IA quanto para o handoff MANUAL do operador (ADR-0032, `_pausar_ia`) — exatamente o caso
+    "a IA respondeu algo não legal, eu assumo agora", onde calar é obrigatório. E o snapshot de
+    `ia_pausada` no INÍCIO do turno também não: o gate do passo 2 garante que ele é sempre `false`
+    (turno já pausado nem roda), então "pausa nova" não distingue nada.
+
+    O que distingue é o RASTRO DO PRÓPRIO TURNO, lido do resultado do grafo — sem I/O, sem
+    depender de timing e com o mesmo critério que o `post_process` usa para decidir se preserva a
+    fala pré-`escalar` (agente/nos/post_process.py):
+
+    - `escalar` executada com SUCESSO neste turno (tool_call casada com a ToolMessage; erro
+      recuperável não conta — tool que falhou não abriu pausa nenhuma);
+    - guarda de `registrar_extracao` que escala por dentro (a "escalada silenciosa" do piso de
+      desconto / tipo não aceito / reagendamento), reconhecida pelo texto EXATO de
+      `MENSAGENS_GUARD_ESCALADA` — a mesma igualdade que o `post_process` usa.
+
+    Sem rastro => trata como pausa EXTERNA (falha para o lado seguro: na dúvida, não envia).
+    """
+    ids_escalar = {
+        tc["id"]
+        for m in mensagens_do_turno(messages)
+        for tc in (m.tool_calls or [])
+        if tc.get("name") == "escalar" and tc.get("id")
+    }
+    for m in messages:
+        if not isinstance(m, ToolMessage):
+            continue
+        conteudo = str(m.content)
+        if conteudo in MENSAGENS_GUARD_ESCALADA:
+            return True
+        # mesmo par de sinais de erro do `extrair_texto_do_turno` (status do ToolNode + prefixo
+        # "ERRO:" das tools com handle_tool_error).
+        errou = m.status == "error" or conteudo.startswith("ERRO:")
+        if m.tool_call_id in ids_escalar and not errou:
+            return True
+    return False
+
+
 async def processar_turno(
     ctx: dict[str, Any],
     *,
@@ -368,6 +423,10 @@ async def processar_turno(
                         str(atendimento["modelo_id"]),
                         str(atendimento["id"]),
                         str(atendimento["cliente_id"]),
+                        # Carimbo do REGIME que produziu este turno (modelo + thinking + hash dos
+                        # prompts): vira tag filtravel no trace — sem ele nao da p/ separar traces de
+                        # antes/depois de uma edicao de prompt nem de um flip de thinking.
+                        regime=regime_do_turno(settings),
                     ),
                 }
                 context = ContextAgente(
@@ -420,6 +479,14 @@ async def processar_turno(
                             entrada=mensagens_cliente_do_turno(resultado),
                             resposta=extrair_texto_do_turno(resultado["messages"]),
                             desfecho=desfecho_turno,
+                            # O raciocinio do thinking (default "low" em prod) ao lado da fala: e o
+                            # que explica a fala, e sem isto ficaria enterrado no additional_kwargs
+                            # de uma generation no meio do grafo.
+                            raciocinio=raciocinio_do_turno(resultado),
+                            # Tags do TRACE: as de escopo/regime (ja no config) MAIS as do que
+                            # aconteceu. Tem que ir o conjunto completo — escrever o atributo
+                            # substitui a lista, nao soma.
+                            tags=[*config["tags"], *tags_do_turno(resultado)],
                             level="WARNING" if desfecho_turno.get("erros_tool") else "DEFAULT",
                         )
                 except TimeoutError:
@@ -540,9 +607,25 @@ async def processar_turno(
                 #    e do PROPRIO turno (escalar) ele preserva a fala emitida ANTES do tool_call --
                 #    essa bolha precisa sair, senao toda escalada vira silencio ao cliente (o
                 #    descarte do pos-escalar, 04 §3.5, segue valendo).
+                #
+                #    MAS o `post_process` le `ia_pausada` ANTES do output_guard (que roda um judge
+                #    LLM): na janela de segundos entre os dois, um pipeline externo pode pausar e o
+                #    texto ja escapou do zeramento. Por isso o passo 6 rele — e aqui o descarte
+                #    passa a valer para TODA pausa que este turno nao abriu, com texto ou sem. Sem
+                #    isto o turno seguia despachando por cima da modelo que ja esta atendendo.
                 texto = extrair_texto_do_turno(resultado["messages"])
-                if pos["estado"] in ESTADOS_TERMINAIS or (pos["ia_pausada"] and not texto):
-                    logger.info("turno_descartado atendimento_id=%s", atendimento["id"])
+                escalou_neste_turno = pausa_aberta_por_este_turno(resultado["messages"])
+                pausa_externa = bool(pos["ia_pausada"]) and not escalou_neste_turno
+                if (
+                    pos["estado"] in ESTADOS_TERMINAIS
+                    or pausa_externa
+                    or (pos["ia_pausada"] and not texto)
+                ):
+                    logger.info(
+                        "turno_descartado atendimento_id=%s pausa_externa=%s",
+                        atendimento["id"],
+                        pausa_externa,
+                    )
                     AGENTE_TURNO_RESULTADO.labels("escalado").inc()
                 else:
                     async with pool.connection() as conn:
@@ -564,7 +647,11 @@ async def processar_turno(
                         res = await conn.execute(
                             """
                             SELECT payload->>'midia_id' AS midia_id,
-                                   payload->>'legenda'  AS legenda
+                                   payload->>'legenda'  AS legenda,
+                                   -- De QUEM é a mídia ('eu' | 'parceira', ADR-0042). Viaja até
+                                   -- `_enviar_midias` porque é lá que se decide NÃO carimbar
+                                   -- `book_enviado_em`: foto da parceira não é o book dela.
+                                   COALESCE(payload->>'de', 'eu') AS de
                               FROM barravips.tool_calls
                              WHERE turno_id = %s AND tool_name = 'enviar_midia'
                              ORDER BY call_idx
@@ -599,6 +686,29 @@ async def processar_turno(
                         # Só consultamos quando o turno é `critico`. Lemos chave/titular fresh do
                         # cadastro + o valor que a extração registrou, p/ anexar a bolha do Pix após
                         # o texto da IA.
+                        # Parceira (ADR-0042): o MESMO trilho da chave Pix, e pelo mesmo motivo —
+                        # o telefone dela é string crítica que não pode passar pelo LLM. A tool
+                        # `envolver_parceira` só registrou a intenção; o número é lido fresh aqui.
+                        # `contato_anexado` só é true no modo "encaminhar"; `card_parceira` só no
+                        # modo "dupla". Nunca os dois (o `modo` é único) — a leitura é do resultado
+                        # persistido, não de nada que o modelo tenha escrito.
+                        res = await conn.execute(
+                            """
+                            SELECT resultado->>'contato_anexado' = 'true' AS contato,
+                                   resultado->>'card_parceira'   = 'true' AS card
+                              FROM barravips.tool_calls
+                             WHERE turno_id = %s AND tool_name = 'envolver_parceira'
+                             LIMIT 1
+                            """,
+                            (turno_id,),
+                        )
+                        parceira_row = await res.fetchone()
+                        contato_parceira: tuple[str, str] | None = None
+                        if parceira_row and parceira_row.get("contato"):
+                            contato_parceira = await contato_da_parceira(
+                                conn, atendimento["modelo_id"]
+                            )
+
                         pix_row: dict[str, Any] | None = None
                         if critico:
                             res = await conn.execute(
@@ -652,6 +762,33 @@ async def processar_turno(
                         ]
                         quote_msg_ids = [*quote_msg_ids, None]
                         quote_textos = [*quote_textos, None]
+                    # Bolha determinística do CONTATO da parceira (fluxo A), última do turno e sem
+                    # quote — igual à do Pix. O número nunca esteve no prompt nem na saída do LLM:
+                    # ele nasce aqui, do cadastro. A rede anti-Pix do output_guard absolve
+                    # exatamente esta forma (`eh_bolha_de_contato_da_parceira`) e continua matando
+                    # chave inventada — ver `agente/_parceria.py`.
+                    if contato_parceira is not None:
+                        chunks = [
+                            *chunks,
+                            formatar_bolha_contato_parceira(*contato_parceira),
+                        ]
+                        quote_msg_ids = [*quote_msg_ids, None]
+                        quote_textos = [*quote_textos, None]
+                    # Card NÃO-BLOQUEANTE da dupla (fluxo B): a parceira pode estar `inativa` e sem
+                    # disponibilidade cadastrada, e a venda NÃO espera por isso — a modelo do canal
+                    # já cravou o horário. O card só PEDE ao Fernando confirmar. Best-effort, como
+                    # o judge pós-envio: `_job_id` estático deduplica o replay do turno, e uma
+                    # falha de enqueue não pode derrubar um turno que já foi resolvido.
+                    if parceira_row and parceira_row.get("card"):
+                        try:
+                            await redis.enqueue_job(
+                                "enviar_card",
+                                tipo="parceira_a_confirmar",
+                                atendimento_id=str(atendimento["id"]),
+                                _job_id=f"card:parceira:{atendimento['id']}",
+                            )
+                        except Exception:
+                            logger.exception("card_parceira_enqueue_falhou turno_id=%s", turno_id)
                     if not chunks and not midias:
                         logger.warning("turno_sem_resposta turno_id=%s", turno_id)
                         AGENTE_TURNO_RESULTADO.labels("ok_sem_resposta").inc()
@@ -671,9 +808,17 @@ async def processar_turno(
                             quote_msg_ids=quote_msg_ids,
                             quote_textos=quote_textos,
                             recebida_em=recebida_em,
-                            # Turno que abriu a pausa (bolha de espera pre-`escalar`): nasce com
-                            # ia_pausada=true de proposito — o gate de pausa do fire nao vale.
-                            ignorar_pausa=bool(pos["ia_pausada"]),
+                            # Isencao do gate de pausa do fire SO para o turno que abriu a PROPRIA
+                            # pausa (bolha de espera pre-`escalar` / canned da escalada silenciosa).
+                            # Derivado do rastro do turno, nao do bit do banco: `ia_pausada` sozinho
+                            # nao distingue "eu escalei" de "a foto de portaria chegou agora" e
+                            # mandava a IA falar por cima da modelo. Pausa externa nem chega aqui
+                            # (descartada acima); o `and` fica como cinto-suspensorio.
+                            ignorar_pausa=bool(pos["ia_pausada"]) and escalou_neste_turno,
+                            # Carimbo do `<valor_dele_serve>` (prepare_context -> State): o
+                            # write-time do envio o casa com a bolha despachada e grava a venda no
+                            # número DELE. Lido do State, não recomputado — ver `estado.py`.
+                            valor_dele_no_prompt=resultado.get("valor_dele_no_prompt"),
                         )
                         AGENTE_TURNO_RESULTADO.labels("ok").inc()
                         # EVAL-11: rubricas online amostradas (1 sorteio, 4 suites) -> Prometheus
@@ -1083,6 +1228,7 @@ async def despachar_humanizacao(
     recebida_em: datetime | None = None,
     defer_humano: bool = True,
     ignorar_pausa: bool = False,
+    valor_dele_no_prompt: int | None = None,
 ) -> int:
     """Um unico job `enviar_turno` por turno (05 §1): percorre chunks e midias em ordem (07 §3.4).
 
@@ -1093,8 +1239,15 @@ async def despachar_humanizacao(
     deferido poderia sair DEPOIS da resposta do turno seguinte (inversão real) — e chave Pix /
     confirmação não devem esperar. Retorna o defer aplicado (s), p/ o caller alinhar o judge.
 
+    `valor_dele_no_prompt` viaja intacto do State até o job: é o carimbo do `<valor_dele_serve>`
+    (ADR-0040), e o write-time do `enviar_turno` o transforma em `valor_acordado` quando a bolha
+    despachada de fato aceita o número dele. Aqui não se decide nada — só o transporte, como o
+    `critico`: quem julga a bolha é quem a envia.
+
     `ignorar_pausa` isenta o turno do gate de pausa no fire (`enviar_turno`) — só o turno que abriu
-    a própria pausa (bolha de espera pré-`escalar`) usa.
+    a própria pausa (bolha de espera pré-`escalar`) usa, e quem decide isso é
+    `pausa_aberta_por_este_turno`, não o bit `ia_pausada` do banco (que não distingue a pausa deste
+    turno da que um pipeline externo abriu no meio dele).
     """
     elapsed_s = (
         max(0.0, (datetime.now(UTC) - recebida_em).total_seconds())
@@ -1120,6 +1273,7 @@ async def despachar_humanizacao(
         quote_msg_ids=quote_msg_ids,
         quote_textos=quote_textos,
         ignorar_pausa=ignorar_pausa,
+        valor_dele_no_prompt=valor_dele_no_prompt,
         _job_id=f"turno_envio:{turno_id}",
         **extra,
     )

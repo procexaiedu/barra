@@ -48,3 +48,18 @@ A premissa nova (decisão de produto, 18/06/2026): as modelos operam tipicamente
 - **Output-guard (`aup_saida.md`):** a IA passa a emitir **menos** (rua+número, sem a unidade); o whitelist do ponto de encontro interno (memória `output_guard_falso_positivo_endereco_interno`) segue cobrindo rua+número sem reabrir o falso-positivo de `system_leak`.
 
 - **Sem migration.** Deploy exige recarregar o worker (`docker service update --force <stack>_barra-worker`; nunca `restart` em Swarm). §0: deploy em prod só com autorização explícita.
+
+## Nota 2026-08-11 — degrau-por-sinais (PENDENTE de decisão)
+
+O working tree de 11/08 introduziu `_interesse_demonstrado` (cotação na mesa + sinal de avanço
+no burst) antecipando o **bloco `<local_de_encontro>` sem número** mesmo antes de `Qualificado`,
+inclusive com `tipo_atendimento` ainda NULL (o diagnóstico por traces mostrou que exigir o tipo
+gravado tirava o bloco justo no turno em que o cliente escolhe o local — e o guard cobrava a
+entrega, induzindo endereço inventado; trace `648d7f6f…`). A revisão de domínio do mesmo dia
+conteve o alcance: o **número segue estrutural** (`Aguardando_confirmacao`+, esta decisão), e o
+interesse libera **no máximo o degrau sem número**.
+
+Fica PENDENTE de decisão do produto (Fernando): (a) ratificar o degrau-por-sinais para o bloco
+sem número (emenda a este ADR) ou revertê-lo ao gate por estágio puro; (b) antecipar ou não o
+número para `Qualificado`+interesse — o dado a favor é 8/56 derrotas de logística no shadow v4;
+o dado contra é a premissa deste ADR ("o que ela não recebe ela não vaza").

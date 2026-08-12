@@ -100,6 +100,9 @@ def _erros_persistentes() -> list[BaseException]:
 
 class _FakeSettings:
     deepseek_model_chat = "deepseek-test"
+    # Carimbo de regime que o coordenador poe no trace (metadata_trace_turno): o fake precisa do
+    # campo porque o config do turno le settings.deepseek_thinking_chat.
+    deepseek_thinking_chat = "low"
 
 
 def _ctx(exc: BaseException) -> dict[str, Any]:

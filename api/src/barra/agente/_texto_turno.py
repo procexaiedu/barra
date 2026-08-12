@@ -148,6 +148,31 @@ def mensagens_cliente_do_turno(resultado: dict[str, Any]) -> list[str]:
     return out
 
 
+def raciocinio_do_turno(resultado: dict[str, Any]) -> list[str]:
+    """Cadeias de raciocinio (`reasoning_content`) que o chat #1 produziu NESTE turno.
+
+    So existe em modo thinking (`settings.deepseek_thinking_chat` != "disabled", default "low"):
+    `core.llm._ChatDeepSeekThinking` captura o campo da resposta do DeepSeek em
+    `additional_kwargs["reasoning_content"]`, porque o wrapper langchain-openai nao o extrai. Em
+    non-thinking a lista sai vazia — o mesmo caminho serve aos dois regimes.
+
+    Uma entrada por passagem do LLM no turno (o loop ReAct chama de novo apos cada ToolMessage, e a
+    regen do output_guard adiciona a sua). Mesmo criterio de "gerado agora" das outras funcoes do
+    modulo (`mensagens_do_turno`): historico re-injetado nao tem `usage_metadata` e fica de fora.
+
+    Serve a observabilidade (`core.tracing.resumir_trace_turno` publica no root span do trace): o
+    raciocinio e a peca que explica POR QUE a fala saiu como saiu, e sem isto ele fica enterrado no
+    `additional_kwargs` de uma observation `ChatOpenAI` no meio do grafo. NUNCA vai para o cliente —
+    o `extrair_texto_do_turno` (o que e despachado) le `content`, nunca este campo.
+    """
+    fora: list[str] = []
+    for m in mensagens_do_turno(resultado.get("messages", [])):
+        rc = (m.additional_kwargs or {}).get("reasoning_content")
+        if isinstance(rc, str) and rc.strip():
+            fora.append(rc)
+    return fora
+
+
 def desfecho_do_turno(resultado: dict[str, Any]) -> dict[str, Any]:
     """Resumo nao-PII da mecanica do turno p/ o metadata/output do trace (observabilidade).
 
@@ -186,3 +211,34 @@ def desfecho_do_turno(resultado: dict[str, Any]) -> dict[str, Any]:
         desfecho["horario_minimo"] = hmin.isoformat() if hasattr(hmin, "isoformat") else str(hmin)
 
     return desfecho
+
+
+def tags_do_turno(resultado: dict[str, Any]) -> list[str]:
+    """Tags FILTRAVEIS do turno para o trace (Langfuse), derivadas do mesmo `desfecho_do_turno`.
+
+    As tags que ja existiam sao os IDs de escopo (modelo/atendimento/cliente): servem para SEGUIR um
+    caso que voce ja conhece, e nao para ACHAR casos. Estas sao de baixa cardinalidade e respondem a
+    pergunta inversa — "me mostra os turnos que sairam mudos", "os que erraram tool", "os de
+    agendamento" — que e como se investiga sem ter o UUID na mao.
+
+    Vocabulario (estavel; `docs/agente/12-observabilidade-langfuse.md` e o guia de consulta):
+      - `intencao:<valor>` / `sem_extracao` — a leitura que o turno fez do estado da negociacao.
+      - `sem_resposta` — nenhum texto saiu para o cliente (turno mudo: guard zerou, LLM devolveu
+        vazio, ou o turno morreu num gate). E o sintoma mais caro do agente.
+      - `erro_tool` — alguma tool devolveu erro recuperavel (ex.: "ERRO: horario cedo demais").
+      - `reoferta` — a auto-reoferta entrou.
+      - `disclosure:<categoria>` — o intercept de disclosure classificou a fala do cliente.
+    """
+    desfecho = desfecho_do_turno(resultado)
+    tags: list[str] = []
+    intencao = (desfecho.get("extracao") or {}).get("intencao")
+    tags.append(f"intencao:{intencao}" if intencao else "sem_extracao")
+    if not extrair_texto_do_turno(resultado.get("messages", [])).strip():
+        tags.append("sem_resposta")
+    if desfecho.get("erros_tool"):
+        tags.append("erro_tool")
+    if desfecho.get("reoferta_tentada"):
+        tags.append("reoferta")
+    if desfecho.get("disclosure"):
+        tags.append(f"disclosure:{desfecho['disclosure']}")
+    return tags

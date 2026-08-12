@@ -4,8 +4,10 @@ const STAMP = Date.now()
 const PROGRAMA_NOVO = `E2E Serviço ${STAMP}`
 const DURACAO_NOVA = `E2E ${STAMP % 100000} min`
 const PRECO_1 = "800"
+const MINIMO_1 = "600"
 const PRECO_EDITADO = "950"
 const FETICHE_NOVO = `E2E Fetiche ${STAMP}`
+const PRECO_FETICHE = "350"
 
 async function abrirPrimeiraModelo(page: Page): Promise<void> {
   await page.goto("/modelos")
@@ -49,9 +51,9 @@ test.describe("card de serviços e modal — fluxo inline + edição + remoção
     const chipDuracaoNova = blocoServicoNovo.getByRole("button", { name: new RegExp(DURACAO_NOVA, "i") })
     await expect(chipDuracaoNova).toHaveAttribute("aria-pressed", "true")
 
-    // Preço
-    const precoInput = blocoServicoNovo.locator('input[type="number"]').first()
-    await precoInput.fill(PRECO_1)
+    // Preço e mínimo (ADR-0037): a linha nasce com piso = 600 sobre um preço de 800.
+    await blocoServicoNovo.getByLabel(new RegExp(`^Preço de tabela — ${DURACAO_NOVA}$`)).fill(PRECO_1)
+    await blocoServicoNovo.getByLabel(new RegExp(`^Preço mínimo — ${DURACAO_NOVA}$`)).fill(MINIMO_1)
 
     // Salva
     await modal.getByRole("button", { name: /^adicionar/i }).click()
@@ -63,6 +65,19 @@ test.describe("card de serviços e modal — fluxo inline + edição + remoção
     }).first()
     await expect(grupoNovo).toBeVisible({ timeout: 10_000 })
     await expect(grupoNovo.getByText(DURACAO_NOVA).first()).toBeVisible()
+  })
+
+  // O piso vai gravado no POST, mas a LISTAGEM do backend (`_programas()` em
+  // api/dominio/modelos/routes.py) ainda não serializa `preco_minimo` — sem ele a pílula não tem
+  // o que desenhar. Reativar assim que o campo entrar no GET.
+  test.fixme("mostra o mínimo cadastrado na linha", async ({ page }) => {
+    await abrirPrimeiraModelo(page)
+    const cardServicos = page
+      .getByRole("heading", { level: 2, name: "Serviços e preços" })
+      .locator("xpath=ancestor::section[1]")
+    const linhaNova = cardServicos.locator("li").filter({ hasText: DURACAO_NOVA }).first()
+    await expect(linhaNova).toContainText(/mín\./)
+    await expect(linhaNova).toContainText(/600/)
   })
 
   test("edita preço e remove o vínculo", async ({ page }) => {
@@ -78,7 +93,10 @@ test.describe("card de serviços e modal — fluxo inline + edição + remoção
     await expect(linhaNova).toBeVisible({ timeout: 10_000 })
 
     await linhaNova.getByRole("button", { name: /editar preço/i }).click()
-    const inputEdit = linhaNova.locator('input[type="number"]')
+    // Reajuste que NÃO toca no mínimo: o campo fica como veio e o PATCH sai sem `preco_minimo`,
+    // preservando o piso cadastrado (ADR-0037).
+    const inputEdit = linhaNova.getByLabel("Preço de tabela")
+    await expect(linhaNova.getByLabel(/^Preço mínimo/)).toBeVisible()
     await inputEdit.fill(PRECO_EDITADO)
     await linhaNova.getByRole("button", { name: /salvar preço/i }).click()
     await expect(inputEdit).toBeHidden({ timeout: 10_000 })
@@ -101,9 +119,10 @@ test.describe("card de serviços e modal — fluxo inline + edição + remoção
   })
 })
 
-// Fetiches viram toggle incluso/pago no cadastro (ADR-0030, ticket 02) — sem campo de valor.
-test.describe("fetiches — toggle incluso/pago", () => {
-  test("cria fetiche, marca como pago pelo toggle e mantém o estado após recarregar", async ({ page }) => {
+// O cadastro do fetiche digita o PREÇO do extra (ADR-0030, revisão de 11/08/2026): campo vazio =
+// incluso, campo com valor = o extra cobrado, fixo.
+test.describe("fetiches — preço do extra", () => {
+  test("cria fetiche incluso, digita o preço do extra e mantém o valor após recarregar", async ({ page }) => {
     await abrirPrimeiraModelo(page)
     const cardServicos = page
       .getByRole("heading", { level: 2, name: "Serviços e preços" })
@@ -121,20 +140,17 @@ test.describe("fetiches — toggle incluso/pago", () => {
     const linhaFetiche = blocoFetiches.locator("li").filter({ hasText: FETICHE_NOVO }).first()
     await expect(linhaFetiche).toBeVisible({ timeout: 10_000 })
 
-    // Não há campo numérico de preço — só o toggle.
-    await expect(linhaFetiche.locator('input[type="number"]')).toHaveCount(0)
+    // Criado sem preço = incluso.
+    await expect(linhaFetiche.getByText("incluso")).toBeVisible()
 
-    const toggle = linhaFetiche.getByRole("switch")
-    await expect(toggle).toHaveAttribute("aria-checked", "false")
-    await expect(linhaFetiche.getByText("Incluso")).toBeVisible()
-
-    await toggle.click()
-    await expect(toggle).toHaveAttribute("aria-checked", "true")
-    await expect(linhaFetiche.getByText("Pago")).toBeVisible()
+    await linhaFetiche.getByRole("button", { name: /editar preço do fetiche/i }).click()
+    await linhaFetiche.locator('input[type="number"]').fill(PRECO_FETICHE)
+    await linhaFetiche.getByRole("button", { name: /salvar preço/i }).click()
+    await expect(linhaFetiche.getByText(/350,00/)).toBeVisible({ timeout: 10_000 })
 
     await page.reload()
     const linhaFeticheDepois = cardServicos.locator("li").filter({ hasText: FETICHE_NOVO }).first()
-    await expect(linhaFeticheDepois.getByRole("switch")).toHaveAttribute("aria-checked", "true", { timeout: 10_000 })
+    await expect(linhaFeticheDepois.getByText(/350,00/)).toBeVisible({ timeout: 10_000 })
 
     await linhaFeticheDepois.getByRole("button", { name: /remover fetiche/i }).click()
     await expect(cardServicos.locator("li").filter({ hasText: FETICHE_NOVO })).toHaveCount(0, { timeout: 10_000 })

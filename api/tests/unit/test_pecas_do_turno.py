@@ -204,3 +204,47 @@ async def test_bloco_carrega_a_instrucao_de_delta_com_a_excecao_da_proxima_acao(
     assert "NÃO fala do cliente" in bloco
     assert "só se ELE MUDOU" in bloco
     assert "proxima_acao_esperada" in bloco
+
+
+# --- (c) o vocabulário canônico do cardápio na janela do extrator (A2 11/08) ---------------------
+
+
+async def _pecas_com_cardapio(fetiches: list[dict[str, Any]]) -> str:
+    """O `<ja_registrado>` do turno com um cardápio de fetiches dado (o mesmo caminho de prod:
+    as linhas chegam por `cardapio_rows`, lidas uma vez pelo `_carregar_bp3`)."""
+    _msgs, _contexto, pecas = await _anexar_contexto_dinamico(
+        _FakeConnVazio(),  # type: ignore[arg-type]
+        _ctx(),
+        [HumanMessage(content="faz pegging ?")],
+        atendimento=_ATENDIMENTO,
+        cardapio_rows={"fetiches": fetiches, "programas": []},
+    )
+    return pecas.ja_registrado
+
+
+async def test_bloco_leva_os_nomes_do_cardapio_para_o_extrator() -> None:
+    """Com `extracao_no_modelo_barato` a janela da extração troca o BP_GERAL por um system mínimo:
+    a tabela <fetiches> não chega ao extrator e ele não tinha como traduzir "pegging" para o nome
+    cadastrado. `registrar_fetiches_do_fechamento` casa por nome exato e descarta o resto em
+    silêncio — sem a lista, a cobertura se perdia sem sinal nenhum."""
+    bloco = await _pecas_com_cardapio(
+        [
+            {"nome": "Inversão", "preco": 1, "cobra_por_pessoa": False},
+            {"nome": "Beijo grego", "preco": None, "cobra_por_pessoa": False},
+        ]
+    )
+
+    assert "<fetiches_do_cadastro" in bloco
+    assert ">Inversão, Beijo grego</fetiches_do_cadastro>" in bloco
+    # Não pode ser lido como "isto já foi registrado" (é o nome da tag que envolve o bloco).
+    assert "NÃO é o que já foi registrado" in bloco
+
+
+async def test_bloco_omite_a_tag_quando_a_modelo_nao_tem_fetiches() -> None:
+    """Fail-closed igual ao resto do bloco: sem cadastro, sem tag — nada de lista vazia sugerindo
+    ao extrator que o cardápio existe."""
+    assert "<fetiches_do_cadastro" not in await _pecas_com_cardapio([])
+    # Chamador sem `cardapio_rows` (teste antigo/caminho degradado) também não injeta nada.
+    assert "<fetiches_do_cadastro" not in render_ja_registrado(
+        **(await _variaveis()).como_variaveis()
+    )

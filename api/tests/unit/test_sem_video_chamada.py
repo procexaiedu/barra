@@ -14,12 +14,12 @@ from datetime import UTC, datetime
 from typing import Any
 
 from barra.agente.contexto import ContextAgente
-from barra.agente.nos.prepare_context import (
-    _carregar_bp3,
-    _e_video_chamada,
-    _resolver_variaveis,
+from barra.agente.nos.prepare_context import _carregar_bp3, _resolver_variaveis
+from barra.agente.persona import (
+    e_video_chamada,
+    render_bloco_da_modelo,
+    render_contexto_dinamico,
 )
-from barra.agente.persona import render_contexto_dinamico
 
 
 class _Result:
@@ -77,13 +77,22 @@ async def _contexto(sem_video_chamada: bool) -> Any:
     )
 
 
-# --- a tag na cauda -----------------------------------------------------------------------------
+# --- a tag no bloco ESTÁTICO por-modelo ---------------------------------------------------------
+#
+# Hoist de custo (diagnóstico de traces 11/08): a tag é função SÓ do cadastro dela — nunca do
+# turno — e passou da cauda volátil (re-enviada como cache-MISS a cada turno) para a 3ª
+# SystemMessage do prefixo, `render_bloco_da_modelo`, que o DeepSeek cacheia. O que estes testes
+# provam continua o mesmo e é o que importa pra segurança: a NEGAÇÃO ATIVA chega ao prompt final
+# quando o cadastro não oferece — só mudou o bloco em que ela viaja. Cada teste positivo checa
+# também que a tag SAIU da cauda (o byte que o hoist economiza).
 
 
 async def test_sem_o_programa_injeta_a_tag_com_a_recusa_e_a_saida() -> None:
-    saida = render_contexto_dinamico(**(await _contexto(True)).como_variaveis())
+    variaveis = (await _contexto(True)).como_variaveis()
+    saida = render_bloco_da_modelo(**variaveis)
 
     assert "<sem_video_chamada>" in saida
+    assert "<sem_video_chamada>" not in render_contexto_dinamico(**variaveis)
     # A recusa que o roteiro `video_chamada_sem_programa` cobra, com a guarda de negação do
     # checker: a fala é "Não faço chamada amor", não a oferta.
     assert "Não faço chamada amor" in saida
@@ -96,17 +105,30 @@ async def test_sem_o_programa_injeta_a_tag_com_a_recusa_e_a_saida() -> None:
     assert "não é fala sua" in saida
 
 
-async def test_com_o_programa_a_cauda_nao_diz_nada_de_chamada() -> None:
-    saida = render_contexto_dinamico(**(await _contexto(False)).como_variaveis())
+async def test_com_o_programa_o_prompt_nao_diz_nada_de_chamada() -> None:
+    variaveis = (await _contexto(False)).como_variaveis()
 
-    assert "<sem_video_chamada>" not in saida
+    assert "<sem_video_chamada>" not in render_bloco_da_modelo(**variaveis)
+    assert "<sem_video_chamada>" not in render_contexto_dinamico(**variaveis)
 
 
 # --- a condição: as MESMAS linhas de programa que o <programas> do BP_MODELO renderiza ----------
 
 
 async def _sem_video_chamada_do_cardapio(programas: list[dict[str, Any]]) -> bool:
-    _md, _nome, _max, _vazio, _menage, sem_video_chamada, _end, _local = await _carregar_bp3(
+    (
+        _md,
+        _nome,
+        _max,
+        _vazio,
+        _menage,
+        sem_video_chamada,
+        _externo,
+        _end,
+        _local,
+        _precos,
+        _cardapio,
+    ) = await _carregar_bp3(
         _ConnCardapio(programas),  # type: ignore[arg-type]
         "11111111-1111-1111-1111-111111111111",
     )
@@ -137,10 +159,10 @@ async def test_cardapio_vazio_mantem_a_tag() -> None:
 def test_as_variantes_de_cadastro_do_nome_casam() -> None:
     # O gate do prompt sempre foi por NOME, lido pelo LLM na tabela; a derivação casa o mesmo
     # julgamento, sem acento e sem caixa (`normalizar`).
-    assert _e_video_chamada("Vídeo chamada")
-    assert _e_video_chamada("Videochamada")
-    assert _e_video_chamada("Chamada de vídeo")
-    assert _e_video_chamada("CHAMADA DE VIDEO 30min")
-    assert not _e_video_chamada("Encontro")
-    assert not _e_video_chamada("Pernoite")
-    assert not _e_video_chamada("Jantar")
+    assert e_video_chamada("Vídeo chamada")
+    assert e_video_chamada("Videochamada")
+    assert e_video_chamada("Chamada de vídeo")
+    assert e_video_chamada("CHAMADA DE VIDEO 30min")
+    assert not e_video_chamada("Encontro")
+    assert not e_video_chamada("Pernoite")
+    assert not e_video_chamada("Jantar")

@@ -17,9 +17,7 @@ from barra.settings import Settings
 def test_settings_nao_tem_campo_de_tracing_morto() -> None:
     """Nenhum campo `langchain_*`/`langsmith_*` sobrevive: o LangSmith saiu inteiro."""
     relacionados = {
-        nome
-        for nome in Settings.model_fields
-        if any(t in nome for t in ("langchain", "langsmith"))
+        nome for nome in Settings.model_fields if any(t in nome for t in ("langchain", "langsmith"))
     }
     assert relacionados == set()
 
@@ -45,16 +43,42 @@ def test_setup_langfuse_ancora_environment_e_service_name(monkeypatch: pytest.Mo
         ambiente="teste",
         langfuse_public_key="pk-x",
         langfuse_secret_key="sk-x",
-
     )
     try:
-        handler = tracing.setup_langfuse(settings, servico="barra-worker")
+        # `permitir_em_teste`: com ambiente="teste" o setup é no-op por padrão (a suíte não enche o
+        # Langfuse de trace de LLM fake); aqui o alvo do teste é justamente a ancoragem, então o rig
+        # pede o opt-in — o mesmo que `evals.harness.habilitar_tracing` faz.
+        handler = tracing.setup_langfuse(settings, servico="barra-worker", permitir_em_teste=True)
         assert handler is not None
         assert os.environ["LANGFUSE_TRACING_ENVIRONMENT"] == "teste"
         assert os.environ["OTEL_SERVICE_NAME"] == "barra-worker"
     finally:  # o código cria via os.environ.setdefault (fora do monkeypatch) — limpa p/ não vazar
         os.environ.pop("LANGFUSE_TRACING_ENVIRONMENT", None)
         os.environ.pop("OTEL_SERVICE_NAME", None)
+
+
+def test_setup_langfuse_e_noop_em_ambiente_teste(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Higiene do projeto Langfuse: sob `ambiente="teste"` (o conftest o força) o setup é no-op.
+
+    A suíte constrói a app com as chaves reais do `.env`; sem esta trava cada TestClient mandava
+    para o Langfuse self-hosted um trace de LLM FAKE — a origem dos traces sem nome e do
+    trace-monstro de 300+ observations. Quem precisa de trace em teste (rigs) passa
+    `permitir_em_teste=True`.
+    """
+    import langfuse
+
+    def _explode() -> None:
+        raise AssertionError("nao deveria tocar o SDK em ambiente=teste")
+
+    monkeypatch.setattr(langfuse, "get_client", lambda: _explode(), raising=False)
+    monkeypatch.setattr(tracing, "_LANGFUSE_HANDLER", None, raising=False)
+
+    settings = Settings(
+        ambiente="teste",
+        langfuse_public_key="pk-x",
+        langfuse_secret_key="sk-x",
+    )
+    assert tracing.setup_langfuse(settings, servico="barra-api") is None
 
 
 def test_registrar_modelos_langfuse_cria_definicoes(monkeypatch: pytest.MonkeyPatch) -> None:

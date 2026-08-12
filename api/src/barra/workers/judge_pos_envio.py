@@ -7,7 +7,11 @@ saíram ao cliente), com defer curto para o envio humanizado terminar. Pontua o 
   - `rastro_llm` (bool)  — um cliente atento perceberia rastro de IA? true = incidente
                            NÃO-CONTIDO (o gate pré-envio não segurou);
   - `voz` (1-5)          — fidelidade à voz da persona;
-  - `conduta` (1-5)      — coerência de conduta comercial no contexto.
+  - `conduta` (1-5)      — coerência de conduta comercial no contexto;
+  - `vazou_dado_duro` (bool) — o turno escreveu na fala um dado que só o sistema anexa (número da
+                           unidade/Pix/telefone)? Eixo REAL de vazamento, separado do `rastro_llm`
+                           (não entrega a IA) e do prefixo `[dado]` no comentário (antes o único
+                           sinal, grepável mas não contável).
 
 Destinos: `barravips.julgamentos_turno` (fonte durável do rollback_watch e do digest semanal),
 scores no trace do Langfuse (`judge_rastro_llm`/`judge_voz`/`judge_conduta`, mesmo trace do turno)
@@ -28,7 +32,7 @@ from typing import Any
 from arq import Retry
 from pydantic import BaseModel, Field
 
-from barra.core.metrics import JUDGE_CONDUTA, JUDGE_POS_ENVIO
+from barra.core.metrics import JUDGE_CONDUTA, JUDGE_POS_ENVIO, JUDGE_VAZAMENTO_DADO
 from barra.core.tracing import registrar_feedback_online
 from barra.settings import Settings
 
@@ -55,6 +59,13 @@ class VeredictoTurno(BaseModel):
         ge=1,
         le=5,
         description="coerência de conduta comercial no contexto (1=incoerente, 5=impecável)",
+    )
+    vazou_dado_duro: bool = Field(
+        default=False,
+        description=(
+            "true se o turno escreveu na fala um DADO DURO que só o sistema anexa: número da "
+            "unidade (apartamento/quarto), chave Pix/dado bancário ou telefone"
+        ),
     )
     comentario: str = Field(default="", description="1 frase: o principal problema, ou 'ok'")
 
@@ -95,8 +106,8 @@ SELECT direcao::text AS direcao, conteudo
 
 _SQL_INSERT = """
 INSERT INTO barravips.julgamentos_turno
-  (turno_id, conversa_id, modelo_id, rastro_llm, voz, conduta, comentario)
-VALUES (%s, %s, %s, %s, %s, %s, %s)
+  (turno_id, conversa_id, modelo_id, rastro_llm, voz, conduta, vazou_dado_duro, comentario)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
 ON CONFLICT (turno_id) DO NOTHING
 """
 
@@ -227,6 +238,7 @@ async def julgar_turno_pos_envio(
                 veredito.rastro_llm,
                 veredito.voz,
                 veredito.conduta,
+                veredito.vazou_dado_duro,
                 veredito.comentario[:500],
             ),
         )
@@ -237,6 +249,21 @@ async def julgar_turno_pos_envio(
     # (`AgenteCondutaReprovada`), não em código. Corte 1-2 = reprovada (a nota é 1-5 e 3 é o
     # "aceitável" da rubrica), então o alerta mede piora real, não rigor do judge.
     JUDGE_CONDUTA.labels("reprovada" if veredito.conduta <= 2 else "ok").inc()
+
+    # Eixo REAL de vazamento de dado duro (unidade/Pix/telefone): agora um booleano do schema, não
+    # mais só o prefixo `[dado]` no comentário (grepável, nunca contável). A janela e o limiar vivem
+    # na regra de alerta; aqui só nasce a série, no ponto em que o veredito nasce.
+    JUDGE_VAZAMENTO_DADO.labels("sim" if veredito.vazou_dado_duro else "nao").inc()
+    if veredito.vazou_dado_duro:
+        # Vazamento de dado que só o sistema anexa chegou ao cliente — WARNING de propósito (a
+        # revisão diária do dev grepa isto), separado do `rastro_llm` porque NÃO entrega a IA.
+        logger.warning(
+            "judge_pos_envio VAZOU DADO DURO turno_id=%s conversa_id=%s conduta=%d: %s",
+            turno_id,
+            conversa_id,
+            veredito.conduta,
+            veredito.comentario,
+        )
 
     if trace_id:
         # Mesmo trace do turno (trace_id determinístico por seed=turno_id no coordenador):

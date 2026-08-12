@@ -158,13 +158,41 @@ export interface ProgramaModeloVinculo {
   duracao_nome: string
   categoria: string | null
   preco: number
+  /**
+   * Piso ABSOLUTO desta linha (ADR-0037): o menor valor que a IA pode ofertar neste par
+   * programa × duração. `null` = sem piso próprio (só o percentual global desconta);
+   * igual a `preco` = linha não descontável.
+   *
+   * Opcional porque o backend só serializa a coluna nas respostas de POST/PATCH de um vínculo —
+   * `_programas()` (api/dominio/modelos/routes.py), que alimenta GET /v1/modelos/{id} e
+   * GET /v1/modelos/{id}/programas, ainda não devolve o campo. Ausente = DESCONHECIDO, e a UI
+   * trata desconhecido diferente de `null` para não apagar piso alheio.
+   */
+  preco_minimo?: number | null
 }
 
-/** Fetiche do catálogo global (curado por Fernando, sem duração). */
+/**
+ * Grava uma linha da tabela de preços (vincular ou reajustar). `precoMinimo` OMITIDO (`undefined`)
+ * = não mexer no piso cadastrado; `null` = limpar o piso; número = gravar esse piso. A distinção é
+ * o que o backend lê via `model_fields_set` no PATCH.
+ */
+export type SalvarPrecoProgramaFn = (
+  programaId: string,
+  duracaoId: string,
+  preco: number,
+  precoMinimo?: number | null,
+) => Promise<void>
+
+/**
+ * Fetiche do catálogo global (curado por Fernando, sem duração). `cobra_por_pessoa` é casal/ménage
+ * — desde o ADR-0039 é só CLASSIFICAÇÃO (a seção "Por pessoa" que a IA lê), não regime de preço:
+ * o extra é o mesmo dos atos e o valor cadastrado é o TOTAL, somado uma vez.
+ */
 export interface Fetiche {
   id: string
   nome: string
   ordem: number
+  cobra_por_pessoa: boolean
 }
 
 export interface FeticheInput {
@@ -172,11 +200,18 @@ export interface FeticheInput {
   ordem?: number
 }
 
-/** Fetiche que a modelo faz. `pago` = extra cobrado (valor calculado no atendimento, ADR-0030); false = incluso. */
+/**
+ * Fetiche que a modelo faz. `preco` é o extra cobrado, cadastrado no painel e fixo — `null` =
+ * incluso (ADR-0030, revisão de 11/08/2026). `pago` é derivado (`preco !== null`) e continua
+ * existindo para as superfícies que só mostram a pílula incluso/pago.
+ */
 export interface FeticheModeloVinculo {
   fetiche_id: string
   nome: string
+  preco: number | null
   pago: boolean
+  /** ADR-0039: casal/ménage — o preço cadastrado é o TOTAL do extra, somado uma vez. */
+  cobra_por_pessoa: boolean
 }
 
 export interface WhatsappStatusResponse {

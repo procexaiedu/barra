@@ -317,26 +317,40 @@ export function useModelos() {
     return res
   }, [loadDetalhe])
 
+  // `precoMinimo` = piso absoluto da linha (ADR-0037). O POST grava o vínculo INTEIRO (semântica
+  // de PUT): revincular sem o piso o limpa — por isso o campo só entra no corpo quando o painel
+  // tem um valor para ele.
   const vincularProgramaModelo = useCallback(
-    async (programaId: string, duracaoId: string, preco: number) => {
+    async (programaId: string, duracaoId: string, preco: number, precoMinimo?: number | null) => {
       const id = selectedIdRef.current
       if (!id) return
       await api(`/v1/modelos/${id}/programas`, {
         method: "POST",
-        body: JSON.stringify({ programa_id: programaId, duracao_id: duracaoId, preco }),
+        body: JSON.stringify({
+          programa_id: programaId,
+          duracao_id: duracaoId,
+          preco,
+          ...(precoMinimo === undefined ? {} : { preco_minimo: precoMinimo }),
+        }),
       })
       await loadDetalhe(id, false)
     },
     [loadDetalhe],
   )
 
+  // O PATCH lê `model_fields_set`: `preco_minimo` AUSENTE preserva o piso cadastrado, `null`
+  // explícito o apaga. `undefined` aqui = não mandar a chave — é o que evita que um reajuste de
+  // preço zere em silêncio o piso da linha.
   const atualizarPrecoProgramaModelo = useCallback(
-    async (programaId: string, duracaoId: string, preco: number) => {
+    async (programaId: string, duracaoId: string, preco: number, precoMinimo?: number | null) => {
       const id = selectedIdRef.current
       if (!id) return
       await api(`/v1/modelos/${id}/programas/${programaId}/duracoes/${duracaoId}`, {
         method: "PATCH",
-        body: JSON.stringify({ preco }),
+        body: JSON.stringify({
+          preco,
+          ...(precoMinimo === undefined ? {} : { preco_minimo: precoMinimo }),
+        }),
       })
       await loadDetalhe(id, false)
     },
@@ -355,13 +369,14 @@ export function useModelos() {
     [loadDetalhe],
   )
 
+  // `preco` = extra cobrado por este fetiche (fixo, ADR-0030 rev. 11/08/2026); null = incluso.
   const vincularFeticheModelo = useCallback(
-    async (feticheId: string, pago: boolean) => {
+    async (feticheId: string, preco: number | null) => {
       const id = selectedIdRef.current
       if (!id) return
       await api(`/v1/modelos/${id}/fetiches`, {
         method: "POST",
-        body: JSON.stringify({ fetiche_id: feticheId, pago }),
+        body: JSON.stringify({ fetiche_id: feticheId, preco }),
       })
       await loadDetalhe(id, false)
     },
@@ -369,12 +384,12 @@ export function useModelos() {
   )
 
   const atualizarFeticheModelo = useCallback(
-    async (feticheId: string, pago: boolean) => {
+    async (feticheId: string, preco: number | null) => {
       const id = selectedIdRef.current
       if (!id) return
       await api(`/v1/modelos/${id}/fetiches/${feticheId}`, {
         method: "PATCH",
-        body: JSON.stringify({ pago }),
+        body: JSON.stringify({ preco }),
       })
       await loadDetalhe(id, false)
     },

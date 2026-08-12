@@ -351,6 +351,26 @@ async def evolution_webhook(
             return {"status": "duplicate"}
         if await _eh_grupo_coordenacao(conn, settings, msg):
             return await _processar_grupo(conn, request, msg, midia)
+        # Grupo que NAO e o de Coordenacao: descarta aqui, antes do ramo de cliente. Sem este
+        # gate o fluxo seguia adiante e `_resolver_identidade_cliente` fazia
+        # `remote_jid.split("@")[0]` no JID do grupo, gravando `120363…` em `clientes.telefone`
+        # (coluna `text`, sem CHECK de digitos) — cliente-fantasma, e a IA passava a VENDER
+        # dentro do grupo. Nao e hipotetico: a modelo opera no NUMERO PESSOAL dela, que ja vive
+        # em grupo de familia e de amigas, e o `jid_permitido` (flag de teste da Fase 1.5) esta
+        # vazio em prod, entao nada mais segurava.
+        #
+        # Mesmo criterio do ramo `@lid` sem `remoteJidAlt` logo abaixo, e pelo mesmo motivo:
+        # identificador opaco nao e telefone, e a chave do Cliente e o E.164 (CONTEXT "Cliente").
+        # Um grupo so entra pelo ramo de cima, batendo `modelos.coordenacao_chat_id`.
+        # 200 (nao 4xx) para a Evolution dar ack e nao reentregar em loop.
+        if msg.remote_jid.endswith("@g.us"):
+            WEBHOOK_DESCARTES.labels("grupo_nao_coordenacao").inc()
+            _logger.info(
+                "webhook_grupo_nao_coordenacao instance=%s remote_jid=%s",
+                msg.instance_id,
+                msg.remote_jid,
+            )
+            return {"status": "grupo_nao_coordenacao"}
         # Defesa em profundidade para mensagens de cliente: a instance precisa
         # estar cadastrada em barravips.modelos.evolution_instance_id, já que
         # o desenho do produto é 'uma instância Evolution por modelo'. Grupos

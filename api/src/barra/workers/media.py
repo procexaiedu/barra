@@ -5,7 +5,8 @@
   fino), transcreve, faz UPDATE em `mensagens.conteudo` e sinaliza o canal Redis
   `transcricao:{conversa_id}` para o coordenador acordar do BLPOP (06 §1.4).
 - `rotear_imagem`: decide o destino de uma imagem entrante sob `lock:conv` (06 §2.1) — Pix,
-  foto-portaria (handoff implicito), turno com legenda ou silencio.
+  foto-portaria (handoff implicito), ressurreicao (ADR 0027), aviso pos-slot, turno com
+  legenda ou silencio.
 """
 
 import asyncio
@@ -29,6 +30,11 @@ from barra.core.metrics import (
     TRANSCRICAO_RESULTADO,
 )
 from barra.core.redis import LockBusy, adquirir_lock
+
+# `webhook.despacho` e' quem sabe QUANDO o turno deferido acorda — e o TTL do sinal de
+# transcricao tem de derivar disso. Import de topo e' seguro: despacho so depende de
+# `webhook.debounce`, e `workers.coordenador` (importado logo abaixo) ja o puxa.
+from barra.webhook.despacho import ttl_sinal_transcricao_s
 from barra.workers.coordenador import resolver_atendimento_existente
 
 try:
@@ -75,6 +81,70 @@ _FORMATO_AUDIO: dict[str, str] = {".ogg": "ogg", ".mp3": "mp3", ".m4a": "m4a", "
 def _formato_audio(object_key: str) -> str:
     _, _, ext = object_key.rpartition(".")
     return _FORMATO_AUDIO.get(f".{ext.lower()}", "ogg")
+
+
+# --- Aviso de imagem que chega logo DEPOIS do slot reservado -----------------------------------
+# Backstop do ADR 0027, nao emenda dele. O ADR decidiu que a foto que chega passado o
+# `bloqueio.fim` NAO ressuscita o atendimento (a volta e recorrencia legitima, novo #N) — essa
+# decisao de produto fica de pe. O que nao pode ficar de pe e a CONSEQUENCIA: hoje essa imagem
+# cai no ramo `silencio` e ninguem avisa a modelo. Se o cliente chegou atrasado, tem uma PESSOA
+# na portaria dela e ela nao sabe; se foi um Pix pago em cima da hora, o comprovante fica orfao.
+# Aqui o silencio vira AVISO — escalada owner=modelo + card no grupo de Coordenacao — SEM tocar
+# no estado do atendimento (nao ressuscita, nao pausa a IA, nao reativa bloqueio).
+#
+# O criterio existe para separar "alguem na portaria" de RUIDO (selfie, meme, foto qualquer no
+# meio de conversa comum). Card demais treina a modelo a nao ler card, entao o gatilho e estreito:
+# so avisa quando existe, no MESMO par (a conversa e o par cliente-modelo), um atendimento que
+#   (a) morreu por timeout AUTOMATICO — `auto_timeout_interno` (ADR 0024) ou `auto_timeout`
+#       (24h de silencio). Perdido HUMANO/explicito nao gera aviso: decisao tomada se respeita,
+#       mesmo criterio que a ressurreicao usa;
+#   (b) tinha SLOT reservado (JOIN obrigatorio em `bloqueios`) — ou seja, houve horario combinado,
+#       nao so uma conversa que esfriou;
+#   (c) cujo `fim` JA passou (antes do `fim` quem responde e a ressurreicao do ADR 0027: os dois
+#       ramos sao disjuntos por construcao e nunca disputam a mesma imagem);
+#   (d) e passou HA POUCO (`_AVISO_POS_SLOT_GRACA_MIN`).
+# Uma imagem sem esse rastro — conversa sem atendimento nenhum, atendimento vivo, ou slot de
+# ontem — segue em silencio, exatamente como hoje.
+#
+# A graca e o unico numero arbitrario, e e deliberadamente curta: quem esta fisicamente na porta
+# chega EM VOLTA do horario, nao dias depois. 2h cobrem o atraso realista (o programa tipico dura
+# ~1h) e expiram sozinhas; alem disso a volta e outra visita, e um card dizendo "chegou uma imagem
+# dele" sobre um encontro de anteontem seria exatamente o ruido que queremos evitar.
+_AVISO_POS_SLOT_GRACA_MIN = 120
+
+# Marcador em `escaladas.observacao`: da idempotencia (o cliente manda 3 fotos seguidas, o grupo
+# recebe 1 card) e deixa o caso contavel no painel. `tipo` fica em 'outro' — a taxonomia de
+# `tipo_escalada_enum` e fechada e este caso nao e nenhum dos rotulos existentes; 'outro' com
+# texto descritivo em `observacao` e exatamente o uso previsto na migration 0039.
+_OBS_IMAGEM_POS_SLOT = "imagem_pos_slot"
+
+_MOTIVO_AVISO_POS_SLOT = "Imagem depois do fim do horário reservado"
+_RESUMO_AVISO_POS_SLOT = (
+    "Chegou uma imagem dele agora — o horário reservado já tinha sido encerrado "
+    "automaticamente por falta de resposta."
+)
+_ACAO_AVISO_POS_SLOT = "Confere no WhatsApp dele se tem alguém na sua portaria."
+
+# Candidato ao aviso. `b.fim <= now()` e' o que torna este ramo DISJUNTO da ressurreicao do
+# ADR 0027 (que exige `b.fim > now()`): a mesma imagem nunca cai nos dois.
+_SQL_CANDIDATO_AVISO_POS_SLOT = """
+    SELECT a.id AS atendimento_id, mo.coordenacao_chat_id
+      FROM barravips.atendimentos a
+      JOIN barravips.bloqueios b  ON b.id = a.bloqueio_id
+      JOIN barravips.modelos   mo ON mo.id = a.modelo_id
+     WHERE a.conversa_id = %s
+       AND a.estado = 'Perdido'
+       AND a.fonte_decisao_ultima_transicao IN ('auto_timeout_interno', 'auto_timeout')
+       AND b.fim <= now()
+       AND b.fim > now() - make_interval(mins => %s)
+       AND NOT EXISTS (
+         SELECT 1
+           FROM barravips.escaladas e
+          WHERE e.atendimento_id = a.id AND e.observacao = %s
+       )
+     ORDER BY a.created_at DESC
+     LIMIT 1
+"""
 
 
 async def limpar_midias_vencidas(
@@ -187,6 +257,7 @@ async def rotear_imagem(
                 ROTEAR_IMAGEM_DECISAO.labels("foto_portaria").inc()
                 return
 
+            decisao_aviso: str | None = None
             if atendimento is None and mensagem_uuid is not None:
                 # Ressurreicao interna (ADR 0027): a foto chegou DEPOIS de o timeout (ADR 0024)
                 # matar o #1 interno (Perdido/auto_timeout_interno) e cancelar o bloqueio —
@@ -199,17 +270,28 @@ async def rotear_imagem(
                     ROTEAR_IMAGEM_DECISAO.labels("foto_portaria_ressurreicao").inc()
                     return
 
+                # Passou do `bloqueio.fim`: o ADR 0027 (de proposito) nao ressuscita, mas o
+                # silencio deixaria uma pessoa na portaria sem ninguem saber. Avisa um humano
+                # sem mexer no estado — ver o bloco de comentario de `_AVISO_POS_SLOT_GRACA_MIN`.
+                decisao_aviso = await _avisar_imagem_pos_slot(
+                    ctx, conversa_id=conversa_id, mensagem_id=str(mensagem_uuid)
+                )
+
             if caption:
                 # Imagem fora-fluxo COM legenda: dispara turno (IA cega responde a legenda; 06 §3).
                 # Import tardio evita ciclo workers.media -> webhook.despacho -> webhook.parser.
                 from barra.webhook.despacho import enfileirar_turno
 
                 await enfileirar_turno(redis, UUID(conversa_id), mensagem_id)
-                ROTEAR_IMAGEM_DECISAO.labels("fora_fluxo_legenda").inc()
+                # O aviso e ortogonal a legenda (a IA responde ao texto; a modelo e avisada da
+                # chegada), mas a metrica conta UMA decisao por imagem: quando o aviso disparou,
+                # ele e a decisao mais forte e leva o label.
+                ROTEAR_IMAGEM_DECISAO.labels(decisao_aviso or "fora_fluxo_legenda").inc()
                 return
 
-            # Imagem pura fora-fluxo: IA fica calada (06 §3).
-            ROTEAR_IMAGEM_DECISAO.labels("silencio").inc()
+            # Imagem pura fora-fluxo: IA fica calada (06 §3) — salvo quando o aviso pos-slot
+            # disparou, e ai o silencio virou card no grupo.
+            ROTEAR_IMAGEM_DECISAO.labels(decisao_aviso or "silencio").inc()
 
     except LockBusy:
         await redis.enqueue_job(
@@ -313,6 +395,103 @@ async def _ressurreicao_foto_portaria(
     return True
 
 
+async def _avisar_imagem_pos_slot(
+    ctx: dict[str, Any],
+    *,
+    conversa_id: str,
+    mensagem_id: str,
+) -> str | None:
+    """Avisa a modelo de uma imagem que chegou logo DEPOIS do slot reservado morrer por timeout.
+
+    Reusa a maquinaria de escalada/card que ja existe: INSERT em `escaladas` (owner=modelo,
+    `tipo='outro'`, `observacao=_OBS_IMAGEM_POS_SLOT`) + job `enviar_card` tipo='escalada'.
+    NAO mexe no atendimento (o ADR 0027 decidiu que aqui e recorrencia legitima) — o objetivo e
+    so tirar o humano do escuro. O criterio do candidato esta em `_SQL_CANDIDATO_AVISO_POS_SLOT`
+    e justificado no comentario de `_AVISO_POS_SLOT_GRACA_MIN`.
+
+    Idempotencia em duas camadas: o `NOT EXISTS` sobre `escaladas.observacao` (o cliente manda 3
+    fotos seguidas -> 1 card) e o `_job_id` do ARQ. Chamado sob `lock:conv`, entao duas imagens da
+    mesma conversa nunca correm em paralelo aqui.
+
+    Sem grupo de Coordenacao (`coordenacao_chat_id` NULL — o estado da Catarina em prod hoje) NAO
+    ha para onde mandar o card: degrada com log de ERROR e label proprio na metrica, e
+    DELIBERADAMENTE nao grava a escalada. Gravar criaria uma escalada owner=modelo sem
+    `card_message_id`, que o cron `reconciliar_cards` re-tentaria a cada minuto batendo em
+    `remote_jid=None` -> AttributeError em loop, para sempre.
+
+    Devolve o label da decisao ('aviso_pos_slot' | 'aviso_pos_slot_sem_grupo') quando o caso
+    merece aviso, ou None quando nao merece (o chamador segue com o label de sempre).
+    """
+    pool = ctx["db_pool"]
+    redis = ctx["redis"]
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            _SQL_CANDIDATO_AVISO_POS_SLOT,
+            (UUID(conversa_id), _AVISO_POS_SLOT_GRACA_MIN, _OBS_IMAGEM_POS_SLOT),
+        )
+        alvo = await res.fetchone()
+        if alvo is None:
+            return None
+
+        atendimento_id = alvo["atendimento_id"]
+        if not alvo["coordenacao_chat_id"]:
+            logger.error(
+                "aviso_imagem_pos_slot_sem_grupo atendimento_id=%s conversa_id=%s mensagem_id=%s "
+                "-- imagem apos o fim do slot e a modelo nao tem grupo de Coordenacao: "
+                "ninguem sera avisado",
+                atendimento_id,
+                conversa_id,
+                mensagem_id,
+            )
+            return "aviso_pos_slot_sem_grupo"
+
+        res = await conn.execute(
+            """
+            INSERT INTO barravips.escaladas
+                (atendimento_id, responsavel, tipo, motivo, resumo_operacional,
+                 acao_esperada, observacao)
+            VALUES (%s, 'modelo', 'outro', %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (
+                atendimento_id,
+                _MOTIVO_AVISO_POS_SLOT,
+                _RESUMO_AVISO_POS_SLOT,
+                _ACAO_AVISO_POS_SLOT,
+                _OBS_IMAGEM_POS_SLOT,
+            ),
+        )
+        criada = await res.fetchone()
+    if criada is None:  # defensivo: INSERT sem RETURNING nao acontece no schema real
+        logger.error("aviso_imagem_pos_slot_sem_escalada atendimento_id=%s", atendimento_id)
+        return None
+
+    escalada_id = criada["id"]
+    # APOS o commit. Falha de enqueue nao pode derrubar o job: a escalada ja esta gravada com
+    # `card_message_id` NULL e o cron `reconciliar_cards` entrega o card como rede de seguranca
+    # (mesmo padrao da tool `escalar`).
+    try:
+        await redis.enqueue_job(
+            "enviar_card",
+            tipo="escalada",
+            escalada_id=str(escalada_id),
+            atendimento_id=str(atendimento_id),
+            _job_id=f"card:escalada:{escalada_id}",
+        )
+    except Exception:
+        logger.warning(
+            "aviso_imagem_pos_slot_enqueue_falhou escalada_id=%s", escalada_id, exc_info=True
+        )
+    logger.info(
+        "aviso_imagem_pos_slot atendimento_id=%s escalada_id=%s mensagem_id=%s",
+        atendimento_id,
+        escalada_id,
+        mensagem_id,
+    )
+    return "aviso_pos_slot"
+
+
 async def transcrever_audio(
     ctx: dict[str, Any],
     *,
@@ -327,7 +506,8 @@ async def transcrever_audio(
 
     Fim do job:
       - sucesso -> UPDATE `mensagens.conteudo` com a transcricao + nota; LPUSH no canal
-        `transcricao:{conversa_id}` com `{"ok": true, "mensagem_id": ...}` (EXPIRE 30s).
+        `transcricao:{conversa_id}` com `{"ok": true, "mensagem_id": ...}` (TTL derivado do
+        defer do turno — `ttl_sinal_transcricao_s`).
       - audio sem fala (ou modelo devolvendo vazio) -> falha definitiva, sem retry: nao ha
         transcricao a entregar e retentar so queimaria tokens no mesmo silencio.
       - falha -> deixa o ARQ retentar (APIError 5xx, rede). Esgotado, `_falha_definitiva` grava
@@ -471,7 +651,12 @@ def _baixar_minio(minio: Minio, bucket: str, object_key: str) -> bytes:
 async def _sinalizar_canal(
     redis: Any, conversa_id: str | None, mensagem_id: str, *, ok: bool
 ) -> None:
-    """LPUSH + EXPIRE 30s no canal `transcricao:{conversa_id}` (06 §1.4).
+    """LPUSH no canal `transcricao:{conversa_id}`, com TTL DERIVADO do defer do turno (06 §1.4).
+
+    O TTL nao e numero deste modulo: quem consome o sinal e o `processar_turno` deferido, entao
+    o prazo vem de `ttl_sinal_transcricao_s()` (webhook/despacho.py), ao lado do defer. Era
+    fixo em 30s e o defer virou 180s (9728a25): o sinal expirava antes de o coordenador acordar
+    e todo audio BEM transcrito caia na canned "nao consegui ouvir".
 
     Sem conversa_id (mensagem nao encontrada), nao ha como acordar coordenador; logamos e
     saimos — esse caminho so existe defensivamente.
@@ -480,7 +665,7 @@ async def _sinalizar_canal(
         return
     chave = f"transcricao:{conversa_id}"
     await redis.lpush(chave, json.dumps({"mensagem_id": mensagem_id, "ok": ok}))
-    await redis.expire(chave, 30)
+    await redis.expire(chave, ttl_sinal_transcricao_s())
 
 
 async def _falha_definitiva(pool: Any, redis: Any, *, mensagem_id: str, conversa_id: str) -> None:

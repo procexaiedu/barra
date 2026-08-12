@@ -1,6 +1,7 @@
 """Ferramentas (tools) do agente LangGraph.
 
-Catalogo do chat #1 (`TOOLS`, 3 tools): consultar_agenda, enviar_midia, escalar. A
+Catalogo do chat #1 (`TOOLS`, 4 tools): consultar_agenda, enviar_midia, envolver_parceira,
+escalar. A
 `registrar_extracao` existe mas fica FORA de `TOOLS` -- o chat #1 nunca a chama; seu schema e
 bindado so no no `extrair` (a extracao roda sempre, pos-fala, num no proprio -- ver nos/extrair.py).
 Ver docs/agente/04-tools.md. O Pix de deslocamento NAO e tool: virou side-effect
@@ -23,6 +24,7 @@ from langchain_core.tools import BaseTool
 from .escalada import escalar
 from .leitura import consultar_agenda
 from .midia import enviar_midia
+from .parceria import envolver_parceira
 
 # Constante de modulo congelada, ordem fixa (invariante de prefixo -- agente/CLAUDE.md):
 # tools = posicao 0, byte-identico p/ TODAS as modelos. Proibido build_tools(modelo) ou
@@ -34,6 +36,7 @@ from .midia import enviar_midia
 TOOLS: list[BaseTool] = [
     consultar_agenda,
     enviar_midia,
+    envolver_parceira,
     escalar,
 ]
 

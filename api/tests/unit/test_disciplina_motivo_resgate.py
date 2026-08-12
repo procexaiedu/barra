@@ -43,7 +43,7 @@ def test_variantes_da_pergunta_sao_pegas() -> None:
 
 
 def test_recusa_de_desconto_nao_conta_como_pergunta_do_motivo() -> None:
-    # <desconto> 5: mesma fase da conversa e o MESMO "Poxa amor" da forma canônica do resgate.
+    # <desconto> 6: mesma fase da conversa e o MESMO "Poxa amor" da forma canônica do resgate.
     assert not contem_pergunta_do_motivo_do_resgate("Poxa amor não consigo")
     assert not contem_pergunta_do_motivo_do_resgate(
         "Poxa amor não consigo, esse é meu melhor valor"

@@ -471,3 +471,64 @@ def test_webhook_cliente_lid_sem_alt_nao_grava_lid() -> None:
     assert response.status_code == 200
     assert response.json() == {"status": "lid_sem_telefone"}
     assert [q for q in conn.queries if "INSERT INTO barravips.clientes" in q] == []
+
+
+def test_webhook_grupo_que_nao_e_coordenacao_e_descartado() -> None:
+    """Grupo pessoal da modelo (familia, amigas) NAO pode virar cliente.
+
+    A modelo opera no proprio numero, que ja vive em grupos. Sem o gate, o JID `@g.us` que nao
+    bate `coordenacao_chat_id` seguia para o ramo de cliente e `_resolver_identidade_cliente`
+    gravava `120363…` como telefone — cliente-fantasma, e a IA respondendo oferta de programa
+    dentro do grupo da familia. Nada persiste e nenhum turno e enfileirado.
+    """
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.jid_permitido = None
+    settings.evolution_grupo_coordenacao_jid = None  # atalho global desligado
+    # grupo_por_banco=False: o JID nao e o grupo de Coordenacao de nenhuma modelo.
+    conn = FakeConn(mensagem_existe=False, envio_existe=False, grupo_por_banco=False)
+    arq = FakeArq()
+    payload = {
+        "instance": "elitebaby5",
+        "data": {
+            "key": {
+                "id": "MSG-GRUPO-FAMILIA-1",
+                "remoteJid": "120363999999999999@g.us",
+                "fromMe": False,
+            },
+            "message": {"conversation": "bom dia gente"},
+        },
+    }
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        app.state.arq = arq
+        response = client.post("/webhook/evolution", json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "grupo_nao_coordenacao"}
+    assert [q for q in conn.queries if "INSERT INTO barravips.clientes" in q] == []
+    assert [q for q in conn.queries if "INSERT INTO barravips.mensagens" in q] == []
+    assert arq.enqueued == []
+
+
+def test_webhook_grupo_de_coordenacao_segue_entrando_pelo_ramo_de_grupo() -> None:
+    """Contraprova do gate acima: o gate e' estreito e nao pode engolir o grupo de Coordenacao.
+
+    Mesmo formato de JID `@g.us`, mas batendo `modelos.coordenacao_chat_id` (grupo_por_banco):
+    tem de entrar no fluxo de grupo e ser processado como comando — nunca cair no descarte.
+    """
+    settings = app.state.settings
+    settings.evolution_webhook_token = ""
+    settings.jid_permitido = None
+    settings.evolution_grupo_coordenacao_jid = None
+    settings.evolution_fernando_jids = []
+    conn = FakeConn(mensagem_existe=False, envio_existe=False, grupo_por_banco=True)
+    arq = FakeArq()
+    with TestClient(app) as client:
+        app.state.db_pool = FakePool(conn)
+        app.state.arq = arq
+        response = client.post("/webhook/evolution", json=_payload_grupo("CMD-GRUPO-GATE-1"))
+
+    assert response.status_code == 200
+    assert response.json() != {"status": "grupo_nao_coordenacao"}
+    assert arq.enqueued == []

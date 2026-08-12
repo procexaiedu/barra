@@ -28,8 +28,10 @@ from barra.dominio.atendimentos.schemas import (
     PerderRequest,
 )
 from barra.dominio.atendimentos.service import (
-    calcular_preco_extra_fetiche,
+    aceita_fetiche_pago,
+    extra_de_fetiche,
     garantir_atendimento_aberto,
+    linha_de_uma_hora,
     validar_transicao_painel,
 )
 from barra.dominio.escaladas.service import aplicar_comando
@@ -865,24 +867,28 @@ async def adicionar_fetiche(
         raise NaoEncontrado("Atendimento")
     mf = await _fetch_one(
         conn,
+        # `fetiches.cobra_por_pessoa` saiu daqui com o ADR-0039: composicao deixou de ter
+        # aritmetica propria, entao o extra nao depende mais da flag e o JOIN nao tinha mais o que
+        # trazer. A flag continua existindo -- como CLASSIFICACAO, nas rotas de cardapio.
         """
-        SELECT mf.preco, f.cobra_por_pessoa
+        SELECT mf.preco
           FROM barravips.modelo_fetiches mf
-          JOIN barravips.fetiches f ON f.id = mf.fetiche_id
          WHERE mf.modelo_id = %s AND mf.fetiche_id = %s
         """,
         (at["modelo_id"], body.fetiche_id),
     )
     if mf is None:
         raise NaoEncontrado("Fetiche não vinculado à modelo")
-    # NULL = incluso (sem custo extra). NOT NULL = pago — o valor cadastrado em si é ignorado
-    # (ADR-0030): o extra é sempre calculado a partir do(s) programa(s) vendidos no atendimento.
+    # NULL = incluso (sem custo extra). NOT NULL = pago — o extra vem do preço cadastrado
+    # quando há um número de verdade na coluna (revisão 11/08/2026 do ADR-0030); o sentinel de
+    # flag cai no extra DERIVADO, que desde o ADR-0038 é a linha de 1h do programa vendido — a
+    # MESMA conta do render e do guard.
     preco_extra: Decimal | None = None
     if mf["preco"] is not None:
         servicos = await _fetch_all(
             conn,
             """
-            SELECT ats.preco_snapshot, d.horas
+            SELECT ats.programa_id, ats.preco_snapshot, d.horas
               FROM barravips.atendimento_servicos ats
               JOIN barravips.duracoes d ON d.id = ats.duracao_id
              WHERE ats.atendimento_id = %s
@@ -894,11 +900,37 @@ async def adicionar_fetiche(
                 "nenhum_servico_vendido",
                 details={"atendimento_id": str(atendimento_id)},
             )
-        preco_tabela = sum((s["preco_snapshot"] for s in servicos), Decimal("0"))
         duracao_horas = max(s["horas"] for s in servicos)
-        preco_extra = calcular_preco_extra_fetiche(
-            preco_tabela, duracao_horas, cobra_por_pessoa=mf["cobra_por_pessoa"]
+        # "A 1h do MESMO programa" só existe com UM serviço vendido: um pacote que é a soma de
+        # dois programas não tem um "mesmo programa". Fail-closed (o 409 abaixo), em vez de
+        # eleger um dos dois por conta própria.
+        uma_hora = (
+            await linha_de_uma_hora(conn, at["modelo_id"], servicos[0]["programa_id"])
+            if len(servicos) == 1
+            else None
         )
+        # `cobra_por_pessoa` NAO entra na conta desde o ADR-0039: composicao (casal/menage) e o
+        # mesmo extra dos atos, e o preco cadastrado dela ja e o TOTAL do extra (o `x 2` morreu).
+        preco_extra = extra_de_fetiche(
+            uma_hora,
+            duracao_horas,
+            preco_cadastrado=mf["preco"],
+        )
+        if preco_extra is None:
+            # Recusa explícita em vez de deixar o None seguir — `preco_snapshot` NULL nesta tabela
+            # significa "incluso", e o painel gravaria um extra pago como cortesia. Duas causas,
+            # nomeadas separadamente porque o conserto é outro: pacote < 1h (decisão 11/08/2026,
+            # não há o que cadastrar) e programa sem linha de 1h na tabela da modelo (ADR-0038 —
+            # cadastre a 1h dele, ou informe o extra a dedo).
+            raise ConflitoEstado(
+                "pacote_curto_sem_fetiche_pago"
+                if not aceita_fetiche_pago(duracao_horas)
+                else "sem_linha_de_uma_hora_para_o_extra",
+                details={
+                    "atendimento_id": str(atendimento_id),
+                    "duracao_horas": str(duracao_horas),
+                },
+            )
     # ON CONFLICT idempotente (mesmo motivo de adicionar_servico).
     row = await _fetch_one(
         conn,

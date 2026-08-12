@@ -25,6 +25,14 @@ M2-T1 (este escopo):
        programas/precos do modelo_id, montados na MESMA conexao e passados como SystemMessage
        proprio, DEPOIS do bloco GERAL. POR-MODELO, nao por par.
 
+Hoist do estatico por-modelo (otimizacao de custo, diagnostico de traces 11/08):
+    5b. 3o bloco system, `render_bloco_da_modelo`: as condutas que so o CADASTRO dela decide
+        (`<sem_menage>`, `<sem_video_chamada>`, `<sem_fetiches>`, `<sem_periodo_longo>`,
+        `<periodo_de_trabalho>`) rendiam na cauda volatil e pagavam cache-MISS a cada turno,
+        embora fossem byte-identicas turno a turno. Subiram para o prefixo, DEPOIS do BP_MODELO.
+        O que continua na cauda e o que muda com o turno — `<situacao_do_atendimento>`,
+        `<local_de_encontro>` (degrau por estado, ADR-0026), `<cliente>`, `<agenda>` e o foco.
+
 M3g (este escopo):
     2b. Classificacao de disclosure/jailbreak (10 §8): regex sobre a cauda de HumanMessages
         da janela; grava (_categoria/_confianca) no state para o intercept_disclosure rotear
@@ -34,9 +42,9 @@ M3g (este escopo):
 import hashlib
 import re
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime, timedelta
-from decimal import Decimal
-from typing import Any, Literal
+from datetime import UTC, date, datetime, time, timedelta
+from decimal import Decimal, InvalidOperation
+from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
@@ -46,32 +54,72 @@ from langgraph.types import Command
 from psycopg import AsyncConnection
 
 from barra.core.db import conexao
-from barra.core.metrics import PERSONA_DRIFT_REMINDER
-from barra.dominio.atendimentos.service import derivar_belief_state, teto_de_contraproposta
+from barra.core.metrics import AGENTE_ACEITE_DO_CLIENTE, PERSONA_DRIFT_REMINDER
+from barra.dominio.atendimentos.service import (
+    PRECO_MINIMO_SCAN,
+    Encontro,
+    LinhaDeTabela,
+    Patamar,
+    _linhas_da_duracao,
+    aceite_do_valor_dele,
+    contraproposta_da_escada,
+    derivar_belief_state,
+    estado_da_escada,
+    extra_de_fetiche,
+    extrair_precos_citados,
+    linha_de_uma_hora,
+    oferta_condicionada_ao_dia,
+    patamar_da_mesa_na_tabela,
+    patamar_vigente,
+    precos_ofertados_na_fala,
+    valor_no_patamar,
+)
 from barra.dominio.conversas.modelos import DirecaoMensagem
 from barra.dominio.modelos.disponibilidade import proxima_abertura
+from barra.dominio.modelos.parcerias import carregar_parceria
 from barra.settings import get_settings
 
 from .._classificador import classificar_janela
 from .._normalizar import normalizar
+from .._parceria import fluxo_da_parceira
 from .._texto_turno import _PREFIXO_ID_PAUSA
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
 from ..persona import (
     IdentidadeModelo,
+    brl,
+    e_video_chamada,
+    render_bloco_da_modelo,
     render_bp3,
     render_contexto_dinamico,
+    render_foco_do_turno,
     render_ja_registrado,
     render_prefixo_geral,
     render_reminder,
 )
 from ._contexto_do_turno import ContextoDoTurno
+from ._foco_do_turno import (
+    _textos_do_burst,
+    aceite_curto_no_burst,
+    composicao_na_janela,
+    duracao_dita_na_janela,
+    duracao_pedida_no_burst,
+    fetiches_na_janela,
+    fetiches_no_burst,
+    pediu_endereco_no_burst,
+    pediu_preco_no_burst,
+    pediu_restricoes_no_burst,
+    perguntas_do_burst,
+    rotulo_da_familia,
+    saudacao_do_burst,
+)
 from ._janela_do_turno import (
     _confirmou_dia_hoje,
     _conversa_em_andamento,
     _horario_evidenciado_no_turno,
     _ja_sondou_o_dia,
+    _pediu_infos_no_burst,
     _recuo_no_turno,
 )
 from ._janelas_livres import janelas_livres
@@ -81,6 +129,17 @@ from ._proximo_livre import proximo_livre
 # vem injetado (ContextAgente.agora_utc), derivamos a ancora BRT em Python com ESTE fuso p/ casar
 # byte-a-byte com o que o banco devolveria.
 _FUSO_BR = ZoneInfo("America/Sao_Paulo")
+
+
+def _em_brt(dt: datetime) -> datetime:
+    """Datetime da agenda em horário de Brasília — a MESMA regra do filtro `brt` (`persona.py:_brt`).
+
+    Aware (`current_timestamp` do banco, e o `proximo_livre`/`horario_minimo` que preservam o tzinfo
+    que receberam: UTC) é convertido; naive é assumido já-local (a âncora crua do turno). Existe
+    porque a formatação/comparação CRUA sobre a âncora aware saía em UTC — hora +3h e rótulo "hoje"
+    errado no `livre_agora` (correção 12/08).
+    """
+    return dt.astimezone(_FUSO_BR) if dt.tzinfo is not None else dt
 
 
 @dataclass(frozen=True)
@@ -177,8 +236,11 @@ async def prepare_context(
             sem_fetiches,
             sem_menage,
             sem_video_chamada,
+            sem_externo,
             local_endereco_raw,
             local_nome_raw,
+            precos_por_horas,
+            cardapio_rows,
         ) = await _carregar_bp3(conn, ctx.modelo_id)
 
         # 3c. Proveniência do horário (spec extracao-proveniencia-horario): a janela tem fala do
@@ -217,8 +279,11 @@ async def prepare_context(
             sem_fetiches=sem_fetiches,
             sem_menage=sem_menage,
             sem_video_chamada=sem_video_chamada,
+            sem_externo=sem_externo,
             local_endereco_raw=local_endereco_raw,
             local_nome_raw=local_nome_raw,
+            precos_por_horas=precos_por_horas,
+            cardapio_rows=cardapio_rows,
         )
 
         # 3b. Reminder anti-drift (03 §10): PREPEND o <lembrete_silencioso> no MESMO último
@@ -232,9 +297,16 @@ async def prepare_context(
     #    prefixo). O cache do prefixo é automático no DeepSeek (sem marcador): a disciplina que o
     #    mantém quente é o prefixo byte-idêntico (geral global, por-modelo estável, dado dinâmico/
     #    reminder só na última HumanMessage, janela append-only) — não há marcação de cache aqui.
+    #    O 3º bloco (`render_bloco_da_modelo`) é o que ANTES vinha na cauda: as condutas que só o
+    #    cadastro dela decide (`<sem_menage>`/`<sem_video_chamada>`/`<sem_fetiches>`/
+    #    `<sem_periodo_longo>`/`<periodo_de_trabalho>`). Byte-idêntico turno a turno para o mesmo
+    #    atendimento -> entra no prefixo cacheável em vez de pagar miss todo turno. Sai do MESMO
+    #    `contexto` do bloco volátil (nenhuma query nova) e vem por último para não mexer um byte
+    #    no prefixo [geral][por-modelo] já quente no provider.
     system_msgs = build_system_messages(
         geral_md=render_prefixo_geral(),
         modelo_md=modelo_md,
+        cadastro_md=render_bloco_da_modelo(**contexto.como_variaveis()),
     )
     return Command(
         goto="intercept_disclosure",
@@ -248,8 +320,54 @@ async def prepare_context(
             "agora_turno": pecas.agora,
             "ja_registrado": pecas.ja_registrado,
             "conversa_crua": conversa_crua,
+            # Carimbo do que o modelo DE FATO leu (estado.py explica o porquê): o gatilho
+            # `endereco` do output_guard lê isto em vez de reavaliar o gate com a linha pós-
+            # extração — o skew entre as duas leituras era o que fazia o guard cobrar um bloco
+            # ausente do prompt.
+            "local_endereco_no_prompt": _ponto_de_encontro_no_prompt(contexto),
+            # Mesmo padrão de carimbo, do outro bloco condicional que carrega NÚMERO: o valor que
+            # o <valor_dele_serve> mandou ela aceitar (ADR-0040). Quem lê é o write-time do envio
+            # — o `estado.py` explica por que o aceite não pode depender da extração.
+            "valor_dele_no_prompt": _valor_dele_no_prompt(contexto),
         },
     )
+
+
+def _valor_dele_no_prompt(contexto: ContextoDoTurno) -> int | None:
+    """O número que o `<valor_dele_serve>` deste turno mandou ela aceitar, ou None quando o bloco
+    NÃO entrou no prompt.
+
+    Espelha a condição do template (`contexto_dinamico.md.j2`), não só o campo: `aceite_do_valor_dele`
+    pode estar preenchido com a escada esgotada ou sem preço na mesa, e aí a tag não renderiza —
+    carimbar assim mesmo diria ao write-time que a IA leu uma ordem de aceitar que ela nunca leu.
+
+    O número volta a INT porque é assim que ele será comparado com o preço que saiu da bolha
+    (`precos_ofertados_na_fala`, atendimentos/service): a identidade do número na conversa é o
+    inteiro, centavos não fazem parte dela.
+    """
+    if contexto.escada_estado == "esgotada" or not contexto.preco_na_mesa:
+        return None
+    if not contexto.aceite_do_valor_dele:
+        return None
+    try:
+        return int(Decimal(contexto.aceite_do_valor_dele))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _ponto_de_encontro_no_prompt(contexto: ContextoDoTurno) -> str | None:
+    """O ponto de encontro como o `<local_de_encontro>` deste turno o apresentou, ou None quando o
+    bloco não entrou no prompt.
+
+    Monta o MESMO texto do template (`{local_nome} — {local_endereco}`), inclusive o degrau do
+    número: o consumidor é o lembrete da regen factual, que cola o dado literal — colar o endereço
+    CRU (com número) num turno cujo bloco saiu sem ele desfaria o degrau do gate por outra porta.
+    """
+    if not contexto.local_endereco:
+        return None
+    if contexto.local_nome:
+        return f"{contexto.local_nome} — {contexto.local_endereco}"
+    return contexto.local_endereco
 
 
 # Tamanho da janela deslizante. 20 era o valor do P0 (02 §4), com o caveat ja escrito la: o
@@ -426,6 +544,30 @@ def _spotlight_legenda(texto: str, msg_id: str) -> str:
     )
 
 
+# Sinais tipográficos parecidos com < >, mas que NENHUM bloco do turno usa (U+2039/U+203A).
+_ASPAS_ANGULARES = str.maketrans({"<": "‹", ">": "›"})
+
+
+def _neutralizar_tags(texto: str) -> str:
+    """Desarma tag FORJADA na fala do cliente, trocando `<`/`>` por `‹`/`›` (U+2039/U+203A).
+
+    A cauda do turno entrega blocos em XML-ish (`<situacao_do_atendimento>`, `<foco_do_turno>`,
+    `<local_de_encontro>`…) e o `regras.md.j2` diz que esses blocos são verdadeiros por virem do
+    sistema — mas a fala do cliente era concatenada CRUA logo depois deles, sem escape (o autoescape
+    do Jinja está desligado por design, e o spotlighting só cerca áudio/imagem). Um cliente que
+    digita `</valor_dele_serve>` ou `<foco_do_turno>` escreve, na mesma superfície, algo com a
+    mesma cara de um bloco do sistema — e num burst de 2+ bolhas a cauda só vai na ÚLTIMA, então a
+    tag forjada pode até aparecer ANTES dos blocos verdadeiros, invertendo o critério posicional.
+
+    Não removemos nada e não cercamos: a leitura do cliente continua íntegra (o glifo é visualmente
+    equivalente), só perde a capacidade de fingir estrutura — mesma filosofia do `_cercar_dado_midia`.
+    Aplicado SÓ na montagem do prompt do CHAT, sobre uma CÓPIA: a `conversa_crua` do State (que a
+    extração e o output_guard leem) e os detectores de `_disciplina`/`_classificador`, que rodam
+    antes desta função, seguem vendo o texto exatamente como ele chegou.
+    """
+    return texto.translate(_ASPAS_ANGULARES)
+
+
 # Estados onde o dia ainda pode estar em aberto; de Aguardando_confirmacao em diante não reabre.
 _ESTADOS_PRE_CONFIRMACAO = frozenset({"Novo", "Triagem", "Qualificado"})
 
@@ -439,11 +581,53 @@ _ESTADOS_COM_ENDERECO = frozenset(
 )
 
 
-def _libera_local_de_encontro(estado: str | None, tipo_atendimento: str | None) -> bool:
+def _libera_local_de_encontro(
+    estado: str | None, tipo_atendimento: str | None, *, interesse: bool = False
+) -> bool:
     """True quando o ponto de encontro da modelo pode entrar no contexto do turno: encontro
     sendo combinado (Qualificado+) e o cliente vindo até ela (interno). Externo usa o endereço
-    DO CLIENTE e remoto não tem local — nos dois o bloco fica fora."""
-    return estado in _ESTADOS_COM_ENDERECO and tipo_atendimento == "interno"
+    DO CLIENTE e remoto não tem local — nos dois o bloco fica fora.
+
+    `interesse` (rodada 6, ver `_interesse_demonstrado`) abre o gate mesmo com o estado atrás
+    (belief atrasado: cotação na mesa + sinal de avanço, mas a extração ainda não promoveu) —
+    a segurança não vem do estágio em si, vem do interesse demonstrado. Default False = degrau
+    por estágio, como sempre (fail-closed p/ todo chamador que não computa o sinal).
+
+    `tipo_atendimento` AINDA NÃO DEFINIDO (None) entra junto com o interesse (diagnóstico 11/08,
+    P0-1): interno é o default de negócio — o próprio `<ainda_falta>` diz "padrão: ele vem no seu
+    local" —, e é exatamente no turno em que o cliente escolhe o local que ele pede o endereço; a
+    extração só promove NULL→interno DEPOIS de o prompt já ter sido montado, então exigir o tipo
+    gravado tirava o bloco justo no turno que o precisa (o modelo inventou a rua). Externo/remoto
+    EXPLÍCITO segue bloqueando: lá o endereço é o do cliente, ou não há local."""
+    if tipo_atendimento not in ("interno", None):
+        return False
+    return (estado in _ESTADOS_COM_ENDERECO and tipo_atendimento == "interno") or (
+        interesse and tipo_atendimento in ("interno", None)
+    )
+
+
+def _interesse_demonstrado(
+    *,
+    preco_na_mesa: bool,
+    estado: str | None,
+    aceitou_no_burst: bool,
+    pediu_endereco_no_burst: bool,
+    horario_em_pauta: bool,
+) -> bool:
+    """Segurança da modelo, degrau por SINAIS e não por estágio fixo (rodada 6, autorizado):
+    o endereço completo (com número) só sai para quem demonstrou interesse real — preço já na
+    mesa E pelo menos um sinal de avanço (aceite curto, horário em discussão, o próprio pedido
+    de endereço DEPOIS da cotação, ou estado que já liberava). Quem pergunta o endereço cedo
+    demais (sem cotação) segue no comportamento de sempre: região e condução, nunca o número.
+    Todos os sinais são computados (belief write-time + detectores de burst) — na dúvida, False."""
+    if not preco_na_mesa:
+        return False
+    return (
+        estado in _ESTADOS_COM_ENDERECO
+        or aceitou_no_burst
+        or pediu_endereco_no_burst
+        or horario_em_pauta
+    )
 
 
 # Segundo degrau do mesmo gate (issue 05): o número da rua só entra quando o encontro está de pé —
@@ -467,8 +651,14 @@ _RE_NUMERO_DO_LOGRADOURO = re.compile(
 _RE_CEP = re.compile(r"\d{5}-?\d{3}")
 
 
-def _libera_numero_do_endereco(estado: str | None) -> bool:
-    """True quando o número da rua pode entrar no <local_de_encontro> (ver `_ESTADOS_COM_NUMERO`)."""
+def _libera_numero_do_endereco(estado: str | None, *, interesse: bool = False) -> bool:
+    """True quando o número da rua pode entrar no <local_de_encontro> (ver `_ESTADOS_COM_NUMERO`).
+
+    `interesse` (rodada 6) NÃO fura o degrau do número: a emenda de 25/07 do ADR-0026 fixa o
+    número como degrau ESTRUTURAL (Aguardando_confirmacao+) — "o que ela não recebe ela não
+    vaza". Interesse demonstrado antecipa só o BLOCO sem número (`_libera_local_de_encontro`);
+    antecipar o número em Qualificado (8/56 derrotas de logística no shadow v4) é decisão de
+    produto pendente — se aprovada, vira emenda ao ADR-0026 antes de voltar ao código."""
     return estado in _ESTADOS_COM_NUMERO
 
 
@@ -510,6 +700,47 @@ def _endereco_sem_numero(endereco: str | None) -> str | None:
     return f"{cabeca.rstrip()}{juncao}{sem_numero}{cauda_final}"
 
 
+def _encontro_do_turno(
+    data_desejada: date | None,
+    data_atual: date | None,
+    *,
+    estado: str | None,
+    confirmou_hoje: bool,
+    horario_desejado: time | None = None,
+    agora: datetime | None = None,
+) -> Encontro:
+    """O dia do encontro como a escada de desconto o enxerga (`Encontro`, atendimentos/service).
+
+    Duas fontes, na mesma ordem que o belief usa: a `data_desejada` GRAVADA e, quando ela ainda é
+    NULL num estado pré-confirmação, o A2 display-only da janela (`_confirmou_dia_hoje`: o abridor
+    "seria hoje?" + a afirmação dele). O A2 entra aqui porque é o turno EXATO em que a escada
+    decide — o cliente que acabou de dizer "hoje sim" no mesmo burst da objeção de preço teria a
+    escada travada em `dia_desconhecido` se dependêssemos só da coluna, que a extração deste turno
+    ainda não escreveu (ver `_aplicar_dia_confirmado`, que aplica o mesmo A2 ao <dia> do belief).
+
+    Data no PASSADO cai em `outro_dia` de propósito: é dado velho, e o regime lento é o
+    conservador — o desconto cheio de imediato existe só para a agenda de HOJE, que é ociosidade
+    que não volta.
+
+    Virada da madrugada (correção 12/08): a data de calendário `data_desejada` já é 12/08 para um
+    encontro às 00:30 marcado às 23:39 de 11/08, mas é a MESMA noite de trabalho — regime de HOJE,
+    não de `outro_dia`. Sem esta correção o encontro a 51 minutos ganhava a escada de DUAS rodadas
+    (degrau + piso) em vez da UMA (o piso de hoje). O critério é o mesmo `_e_ainda_hoje` que rotula
+    o dia humano (`_quando_do_encontro`), para os dois não divergirem na meia-noite.
+    """
+    if data_desejada is None:
+        if confirmou_hoje and data_atual is not None and estado in _ESTADOS_PRE_CONFIRMACAO:
+            return "hoje"
+        return "dia_desconhecido"
+    if data_atual is None:
+        return "dia_desconhecido"
+    if data_desejada == data_atual:
+        return "hoje"
+    if _e_ainda_hoje(data_desejada, data_atual, horario_desejado, agora):
+        return "hoje"
+    return "outro_dia"
+
+
 def _aplicar_dia_confirmado(
     contexto: ContextoDoTurno, mensagens: list[BaseMessage]
 ) -> ContextoDoTurno:
@@ -525,6 +756,76 @@ def _aplicar_dia_confirmado(
     return contexto
 
 
+# Madrugada da MESMA sessão de trabalho: a partir de que hora do relógio o encontro do dia seguinte
+# ainda é "esta noite" (o expediente atravessa a meia-noite — as janelas de Disponibilidade vão até
+# ~04:00), e até que hora do dia seguinte ele ainda é a mesma virada.
+_HORA_DA_NOITE = 18
+_FIM_DA_MADRUGADA = 6
+
+
+def _e_ainda_hoje(
+    data_desejada: date | None,
+    data_atual: date | None,
+    horario_desejado: time | None,
+    agora: datetime | None,
+) -> bool:
+    """A madrugada da MESMA noite de trabalho ainda é "hoje": o calendário virou, a noite não.
+
+    True quando o encontro cai no dia de calendário SEGUINTE mas dentro da mesma virada — é noite
+    agora (`agora.hour` >= 18h) e o encontro é na madrugada (`horario_desejado.hour` < 06h). É o
+    único critério da virada, e o MESMO para o RÓTULO humano (`_quando_do_encontro`) e para o
+    REGIME da escada de desconto (`_encontro_do_turno`): os dois leem daqui para não divergirem na
+    meia-noite (um sai "amanhã" e o outro "hoje" para o mesmo encontro a 51 minutos). Sem
+    `horario_desejado` (dia sem hora) ou fora desse cruzamento, é False — o calendário decide.
+
+    `agora`/`horario_desejado` são BRT-naive (a mesma âncora local que `data_atual` deriva): as
+    horas 18h/06h são do relógio de parede, não de UTC."""
+    if data_desejada is None or data_atual is None:
+        return False
+    dias = (data_desejada - data_atual).days
+    return (
+        dias == 1
+        and agora is not None
+        and agora.hour >= _HORA_DA_NOITE
+        and horario_desejado is not None
+        and horario_desejado.hour < _FIM_DA_MADRUGADA
+    )
+
+
+def _quando_do_encontro(
+    data_desejada: date | None,
+    data_atual: date | None,
+    horario_desejado: time | None,
+    agora: datetime | None,
+) -> str | None:
+    """Rótulo humano do dia do encontro ("hoje" | "ainda hoje (madrugada)" | "amanhã" | ...).
+
+    Até 12/08 esse rótulo nascia no template, por data-calendário pura ((data_desejada -
+    data_atual).days) — e mentia na virada da madrugada: encontro às 00:30 marcado às 23:39 tem
+    dias=1 e saía "amanhã", com a IA mandando "me confirma amanhã de manhã" para um encontro a 51
+    minutos dali. O calendário virou; a NOITE de trabalho, não.
+
+    O critério da virada é o `_e_ainda_hoje` compartilhado (é noite agora e o encontro é na
+    madrugada seguinte). Desde 12/08 a MESMA regra também move a escada de desconto
+    (`_encontro_do_turno` trata a madrugada como HOJE): rótulo e regime de preço leem do mesmo
+    helper justamente para não divergirem — a IA dizer "hoje" e a escada abrir DUAS rodadas de
+    outro_dia era a incoerência que esta unificação fecha. Sem `horario_desejado` (dia sem hora) ou
+    fora desse cruzamento, o rótulo é o do calendário, como antes.
+
+    None quando falta data (`data_desejada`/`data_atual`): o template não imprime o atributo.
+    """
+    if data_desejada is None or data_atual is None:
+        return None
+    dias = (data_desejada - data_atual).days
+    if dias == 0:
+        return "hoje"
+    if _e_ainda_hoje(data_desejada, data_atual, horario_desejado, agora):
+        return "ainda hoje (madrugada)"
+    if dias == 1:
+        return "amanhã"
+    return f"em {dias} dias" if dias > 1 else "já passou"
+
+
 async def _anexar_contexto_dinamico(
     conn: AsyncConnection[Any],
     ctx: ContextAgente,
@@ -536,8 +837,11 @@ async def _anexar_contexto_dinamico(
     sem_fetiches: bool = False,
     sem_menage: bool = False,
     sem_video_chamada: bool = False,
+    sem_externo: bool = False,
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
+    precos_por_horas: dict[float, list[Decimal]] | None = None,
+    cardapio_rows: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[list[BaseMessage], ContextoDoTurno, PecasDoTurno]:
     """Resolve o contexto dinâmico do turno e concatena no último HumanMessage (02 §5).
 
@@ -562,6 +866,19 @@ async def _anexar_contexto_dinamico(
     valor renderizado na tag `<horario_minimo>`) p/ o State — a tool `registrar_extracao` o lê p/
     desambiguar a conduta de `AntecedenciaInsuficiente` (estado.py) — e as `PecasDoTurno`.
     """
+    # Interesse demonstrado (rodada 6): computado AQUI porque este é o único ponto com o belief
+    # (`atendimento`) e a janela LIMPA (`mensagens`, antes da anexação) juntos. Os sinais de burst
+    # reusam os detectores do foco; os de belief são write-time (`cotacao_enviada_em` é carimbado
+    # na cotação). O resultado desce ao gate único do endereço em `_resolver_variaveis`.
+    _atend = atendimento or {}
+    interesse_no_endereco = _interesse_demonstrado(
+        preco_na_mesa=_atend.get("cotacao_enviada_em") is not None
+        or _atend.get("valor_acordado") is not None,
+        estado=_atend.get("estado"),
+        aceitou_no_burst=aceite_curto_no_burst(mensagens),
+        pediu_endereco_no_burst=pediu_endereco_no_burst(mensagens),
+        horario_em_pauta=_horario_evidenciado_no_turno(mensagens),
+    )
     contexto = await _resolver_variaveis(
         conn,
         ctx,
@@ -571,9 +888,31 @@ async def _anexar_contexto_dinamico(
         sem_fetiches=sem_fetiches,
         sem_menage=sem_menage,
         sem_video_chamada=sem_video_chamada,
+        sem_externo=sem_externo,
         local_endereco_raw=local_endereco_raw,
         local_nome_raw=local_nome_raw,
+        precos_por_horas=precos_por_horas,
+        interesse_no_endereco=interesse_no_endereco,
+        # A2 do dia (mesmo detector que o `_aplicar_dia_confirmado` abaixo usa no belief): a
+        # escada de desconto depende de o encontro ser HOJE, e o "hoje" que ele acabou de dizer
+        # ainda não está na coluna — a extração deste turno roda depois. Entra ANTES da resolução
+        # porque o número da contraproposta sai de lá.
+        dia_confirmado_hoje=_confirmou_dia_hoje(mensagens),
     )
+    # Vocabulário canônico do cardápio p/ a janela do EXTRATOR (A2 de 11/08): a janela dedicada da
+    # extração troca o BP_GERAL por um system mínimo (`extracao_no_modelo_barato`), então a tabela
+    # `<fetiches>` do BP_MODELO não chega lá e o extrator não tinha como traduzir "pegging" para
+    # "Inversão" — `registrar_fetiches_do_fechamento` casa por nome exato normalizado e descarta o
+    # resto em silêncio. Os nomes viajam no `<ja_registrado>`, ANTES do render das peças abaixo.
+    # Só o extrator os lê; o contexto dinâmico do chat já tem a tabela inteira. Zero query nova
+    # (linhas que o `_carregar_bp3` já leu) e fail-closed: sem `cardapio_rows`, tupla vazia.
+    if cardapio_rows is not None:
+        contexto = replace(
+            contexto,
+            fetiches_do_cadastro=tuple(
+                f["nome"] for f in (cardapio_rows.get("fetiches") or []) if f.get("nome")
+            ),
+        )
     # Peças do turno p/ o State (PecasDoTurno): renderizadas AQUI, ANTES do A2 abaixo. O bloco
     # <ja_registrado> descreve o que está GRAVADO, e o A2 assume o dia sem persistir — apresentar
     # essa suposição como gravada faria o extrator omitir `data_desejada` ("não mudou") e o dia
@@ -588,7 +927,7 @@ async def _anexar_contexto_dinamico(
     # IA a não recolá-la (o A2 acima só preenche o dia; não impede o LLM de repetir a frase).
     # OR com a memória durável do atendimento (dia_ja_sondado_hist, _resolver_variaveis): a janela
     # cobre a cauda recente (inclusive modelo_manual); o histórico cobre a sondagem que já deslizou
-    # pra fora das 20 msgs — sem o OR, conversa longa repetia a sondagem (a promessa do prompt é
+    # pra fora da janela (_JANELA_MENSAGENS) — sem o OR, conversa longa repetia a sondagem (a promessa do prompt é
     # "UMA vez na conversa inteira", não na janela).
     # Gate do "não recumprimente" do `<antes_de_perguntar>`: a frase só sai quando ELA já falou
     # nesta parte da conversa. Sem a condição, a cauda — a última coisa lida antes da fala dele —
@@ -597,8 +936,217 @@ async def _anexar_contexto_dinamico(
         contexto,
         dia_ja_sondado=contexto.dia_ja_sondado_hist or _ja_sondou_o_dia(mensagens),
         conversa_em_andamento=_conversa_em_andamento(mensagens),
+        # <foco_do_turno> (re-ancoragem por turno, rodada 3): o que o burst ATUAL pede, lido da
+        # janela LIMPA — depois da anexação o belief entraria na conta como fala do cliente.
+        perguntas_do_turno=perguntas_do_burst(mensagens),
+        pediu_endereco_no_turno=pediu_endereco_no_burst(mensagens),
+        pediu_preco_no_turno=pediu_preco_no_burst(mensagens),
+        saudacao_dele=saudacao_do_burst(mensagens),
+        aceitou_no_burst=aceite_curto_no_burst(mensagens),
+        # O rótulo do dia do encontro, resolvido em Python DEPOIS do A2 acima (que é quem preenche
+        # o `data_desejada` do "hoje" que ele acabou de dizer). Sai daqui e não do template porque
+        # o calendário sozinho mente na virada da madrugada — ver `_quando_do_encontro`.
+        quando_encontro=_quando_do_encontro(
+            contexto.data_desejada,
+            contexto.data_atual,
+            contexto.horario_desejado,
+            contexto.agora,
+        ),
+        # O número da cotação vigente quando o belief não tem nenhum: `preco_na_mesa` liga sem
+        # `valor_acordado` (só o aceite o grava) e sem `pacote_em_pauta` (só com duração gravada e
+        # linha única), e a tag <valor_cotado> renderizava vazia. Só neste cruzamento — com
+        # qualquer um dos dois presentes, quem ancora o número continua sendo o belief.
+        preco_cotado_valor=(
+            _preco_cotado_na_janela(mensagens)
+            if contexto.preco_na_mesa
+            and not contexto.valor_fechado
+            and contexto.pacote_em_pauta is None
+            else None
+        ),
     )
+    # Rodada 6b — closed-world do cardápio como DADO (recusa_limite/cotação 71%): fetiche/serviço
+    # mencionado no burst é resolvido contra o CADASTRO dela e entra no foco com o status pronto
+    # (incluso/extra/por-pessoa/no-Completo/fora); "alguma restrição?" leva os Inclusos nominais;
+    # primeira cotação com tabela de duas portas leva o menu pronto; casal na janela leva a nota
+    # da seção "Por pessoa". Fail-closed: sem `cardapio_rows` (chamador antigo/teste), nada injeta.
+    if cardapio_rows is not None:
+        familias = fetiches_no_burst(mensagens)
+        pediu_restr = pediu_restricoes_no_burst(mensagens)
+        fetiches_rows = cardapio_rows.get("fetiches") or []
+        # Dívida do ADR-0038: com fetiche pago em pauta E o preço já fora do patamar cheio, o
+        # total (pacote no patamar + extra no mesmo patamar) vem pré-computado — a tabela do
+        # `<fetiches>` é estática e só tem os totais da tabela CHEIA, e ela manda pegar o número
+        # "do bloco do turno". Sem isto, esse bloco não existia e a frase não tinha lastro.
+        # As duas queries só rodam nesse cruzamento (fetiche no burst + negociação já descida).
+        base_do_patamar = (
+            await _base_no_patamar(
+                conn,
+                ctx.modelo_id,
+                (atendimento or {}).get("duracao_horas"),
+                cast(Patamar, contexto.patamar_da_mesa),
+            )
+            if familias
+            else None
+        )
+        resolvidos = (
+            _resolver_fetiches_em_pauta(familias, cardapio_rows, base_do_patamar)
+            if familias
+            else ()
+        )
+        # A nota da janela só existe para o que o burst NÃO resolveu contra o cardápio (ver o
+        # comentário no `replace` abaixo). Quando ela vale E a negociação já saiu do cheio, o TOTAL
+        # das duas no patamar vem pré-computado (`composicao_total`) para o bloco CARREGAR o número
+        # em vez de cair no "não cota" — a mesma dívida do ADR-0038 que o `<servico_em_pauta>` já
+        # fecha para o `por_pessoa`. Só computa (uma query) quando a nota de fato vai renderizar.
+        composicao = (
+            not sem_menage
+            and not any(f.get("status") == "por_pessoa" for f in resolvidos)
+            and composicao_na_janela(mensagens)
+        )
+        composicao_total = (
+            await _composicao_total_no_patamar(
+                conn,
+                ctx.modelo_id,
+                (atendimento or {}).get("duracao_horas"),
+                cast(Patamar, contexto.patamar_da_mesa),
+                cardapio_rows,
+            )
+            if composicao
+            else None
+        )
+        contexto = replace(
+            contexto,
+            fetiches_em_pauta=resolvidos,
+            pediu_restricoes=pediu_restr,
+            inclusos_nomes=(
+                # cobra_por_pessoa nunca é "incluso", mesmo com preco NULL (CONTEXT.md, Composição).
+                tuple(
+                    f["nome"]
+                    for f in fetiches_rows
+                    if f.get("nome") and not f.get("preco") and not f.get("cobra_por_pessoa")
+                )
+                if pediu_restr
+                else ()
+            ),
+            menu_primeira_cotacao=(
+                _menu_primeira_cotacao(cardapio_rows.get("programas") or [])
+                if (
+                    contexto.pediu_preco_no_turno
+                    and (atendimento or {}).get("cotacao_enviada_em") is None
+                )
+                else None
+            ),
+            # A nota da janela só existe para o que o burst NÃO resolveu contra o cardápio: com um
+            # `por_pessoa` já em `<servico_em_pauta>` (com nome e total do item certo), a nota
+            # genérica só repetiria pior. O critério é o STATUS resolvido, não a presença da
+            # família: desde 11/08/2026 há família de composição que não resolve (dupla/dois
+            # casais, cuja conduta segue no `<composicoes>`), e para essas a nota continua valendo.
+            composicao_em_pauta=composicao,
+            composicao_total=composicao_total,
+        )
+        # --- Parceira (ADR-0042): o discriminante dos dois fluxos ---------------------------------
+        # Roda AQUI porque é o único ponto que tem juntos as três entradas: as famílias que o
+        # cliente pôs em pauta (regex), o status delas contra o CADASTRO dela e a autorização do
+        # par (uma query). Nenhuma é inferência do LLM — a tag que sai daqui é a única coisa que
+        # ele lê sobre a parceira, e ela nomeia UM fluxo.
+        #
+        # Sobre a JANELA, não sobre o burst (irmã da `composicao_em_pauta`, e pelo mesmo motivo):
+        # ele pergunta "faz anal?" num turno, ela oferece a amiga, e o turno do "quero sim" não tem
+        # família nenhuma. Lido do burst, o bloco sumiria exatamente no turno em que ele topou.
+        familias_pauta = fetiches_na_janela(mensagens)
+        if familias_pauta:
+            contexto = await _aplicar_parceira(
+                conn,
+                ctx.modelo_id,
+                contexto,
+                familias_pauta,
+                # Resolvido de novo quando a janela traz mais que o burst: o cruzamento com o
+                # cardápio tem de ser sobre as MESMAS famílias que o discriminante lê.
+                resolvidos
+                if familias_pauta == familias
+                else _resolver_fetiches_em_pauta(familias_pauta, cardapio_rows),
+            )
+    # Rodada 6 — a duração PEDIDA no burst re-ancora o <pacote_em_pauta> (derrota medida: cliente
+    # pede "3h" e a IA cota a linha de 1h; ou pede o pacote de dia com 1h fechada e a IA contradiz
+    # a própria oferta). A menção explícita DELE vence a duração do belief, com o MESMO fail-closed
+    # do resolver: só quando a tabela tem UM preço para aquela duração — senão, fica como estava.
+    dur_pedida = duracao_pedida_no_burst(mensagens)
+    if dur_pedida is not None and contexto.valor_fechado is not None:
+        # Com valor na mesa para a MESMA duração, quem ancora é o <valor_cotado> (docstring do
+        # resolver); a menção dele só re-ancora quando pede OUTRA duração (ex.: 1h fechada e ele
+        # pergunta o pacote do dia — contradizer a própria oferta foi derrota medida).
+        try:
+            if (
+                contexto.duracao_fechada is not None
+                and float(contexto.duracao_fechada) == dur_pedida
+            ):
+                dur_pedida = None
+        except ValueError:
+            dur_pedida = None
+    if dur_pedida is not None:
+        precos_da_pedida = (precos_por_horas or {}).get(dur_pedida, [])
+        horas_str, preco_str = (
+            _num_humano(Decimal(str(dur_pedida))),
+            _num_humano(precos_da_pedida[0] if precos_da_pedida else None),
+        )
+        if len(precos_da_pedida) == 1 and horas_str and preco_str:
+            contexto = replace(contexto, pacote_em_pauta={"horas": horas_str, "preco": preco_str})
+    # --- As duas condutas do VALOR que precisam do cardápio + da janela juntos (11/08/2026) -------
+    # Resolvidas aqui, e não em `_resolver_variaveis`, porque dependem do que só existe depois dele:
+    # `fetiches_em_pauta`/`composicao_em_pauta` (cardápio resolvido contra o burst) e a duração pedida.
+    #
+    # (1) Oferta condicionada ao dia (ADR-0041): com o dia desconhecido, a escada continua travada
+    #     — o que muda é a JOGADA. Em vez de interrogar ("Seria hoje ?"), a condição viaja dentro
+    #     da oferta, e para isso os DOIS números têm de vir calculados. Só no salto (ver
+    #     `_SaltoNaMesa`): fora dele vale o `<escada_travada_sem_o_dia>` de sempre.
+    # (2) Subir o tempo antes de descer o preço: dado (existe pacote maior; qual é; ele nunca disse
+    #     quanto tempo tem), nunca a pergunta pronta. Vale enquanto NENHUM desconto saiu — é a
+    #     jogada ANTERIOR à escada, não uma resposta a objeção.
+    duracao_em_pauta = dur_pedida if dur_pedida is not None else _atend.get("duracao_horas")
+    if duracao_em_pauta is None:
+        # Degrau 2 (objeção sem dígito de duração, "400 tá salgado, faz 300?"): a duração não vem
+        # nem do burst nem do belief, mas o VALOR proposto aponta a linha da tabela — o MESMO
+        # fallback da escada. Sem ele o <pacote_maior_na_sua_tabela> some no turno em que regras:155
+        # o pressupõe (subir o tempo antes de descer o preço). Fail-closed: None se o valor for
+        # ambíguo, e o bloco degrada como sempre.
+        duracao_em_pauta = _horas_da_linha_contraproposta(
+            _textos_do_burst(mensagens), precos_por_horas
+        )
+    if contexto.preco_na_mesa and contexto.n_contrapropostas == 0:
+        if contexto.escada_estado == "sem_dia" and not contexto.aceite_do_valor_dele:
+            salto = _salto_na_mesa(contexto, cardapio_rows, _atend.get("duracao_horas"), dur_pedida)
+            par = (
+                await _par_condicionado_ao_dia(conn, ctx.modelo_id, salto)
+                if salto is not None
+                else None
+            )
+            if par is not None:
+                contexto = replace(contexto, oferta_se_hoje=par[0], oferta_se_outro_dia=par[1])
+        if not contexto.aceite_do_valor_dele:
+            contexto = replace(
+                contexto,
+                pacote_maior=_pacote_maior_na_tabela(precos_por_horas, duracao_em_pauta),
+                tempo_dele_desconhecido=not duracao_dita_na_janela(mensagens),
+            )
+    # Ponteiro condicional de PITCH (rodada 3, fase 1-E): o burst atual pede a apresentação
+    # ("como funciona?", "me passa as infos") → o <proximo_passo> aponta o molde completo, na
+    # forma condicional que `_PROXIMO_PASSO` já usa ("se ele sumiu e voltou agora, ..."). Derrota
+    # medida no shadow v2 (pitch 65%): pedaço curto + pergunta devolvida onde o vendedor despeja o
+    # pacote de uma vez. Só cauda, nunca guard — completude de pitch não se mede por regex.
+    if _pediu_infos_no_burst(mensagens):
+        contexto = replace(
+            contexto,
+            proximo_passo=(
+                f"{contexto.proximo_passo}; ele acabou de pedir suas infos — apresente completo "
+                "de uma vez, pelo molde do <exemplo> de apresentação (seu jeito, o que o encontro "
+                "tem, sua região/local e o cache pela <cotacao>, sua disponibilidade), "
+                "respondendo antes de qualquer pergunta sua"
+            ),
+        )
     texto = render_contexto_dinamico(**contexto.como_variaveis())
+    # Bloco de foco entre o contexto e a fala: perguntas dele citadas como DADO + endereço/preço
+    # apontados quando pedidos. Vazio (o comum) → nenhum byte novo na cauda.
+    foco = render_foco_do_turno(**contexto.como_variaveis())
 
     for i in range(len(mensagens) - 1, -1, -1):
         msg = mensagens[i]
@@ -610,7 +1158,11 @@ async def _anexar_contexto_dinamico(
             # fim de expediente, não a fala a responder. É a MESMA HumanMessage (mesmo `id`), nunca
             # uma nova: id novo faria o belief vazar p/ a janela do extrator via `do_turno`
             # (`_janela_para_extracao`, nos/extrair.py) — o bug que a janela dedicada corrigiu.
-            anexadas[i] = HumanMessage(content=f"{texto}\n\n{msg.content}", id=msg.id)
+            # O <foco_do_turno> entra DEPOIS do contexto e ANTES da fala — a fala segue por último.
+            cauda = f"{texto}\n\n{foco}" if foco else texto
+            anexadas[i] = HumanMessage(
+                content=f"{cauda}\n\n{_neutralizar_tags(str(msg.content))}", id=msg.id
+            )
             return anexadas, contexto, pecas
     return [*mensagens, HumanMessage(content=texto)], contexto, pecas
 
@@ -646,34 +1198,35 @@ def _injetar_reminder_se_necessario(
         return historico
 
     ultima = historico[ultima_user_idx]
-    novo_conteudo = f"{render_reminder(fase, nome).strip()}\n\n{ultima.content}"
+    # F32: o reminder imprime a fase HUMANIZADA (só exibição); o `fase` cru segue guardando o
+    # `{% if fase %}` do template.
+    reminder = render_reminder(fase, nome, fase_humana=_estado_humano(fase)).strip()
+    novo_conteudo = f"{reminder}\n\n{ultima.content}"
     historico = list(historico)
     historico[ultima_user_idx] = HumanMessage(content=novo_conteudo, id=ultima.id)
     PERSONA_DRIFT_REMINDER.inc()
     return historico
 
 
-def _e_video_chamada(nome_do_programa: str) -> bool:
-    """A linha do `<programas>` é a vídeo chamada (o único serviço REMOTO — ADR-0021)?
-
-    O gate do prompt sempre foi por NOME ("ela só existe se estiver nos seus <programas>", lido
-    pelo próprio LLM na tabela do BP_MODELO); aqui o mesmo julgamento vira dado, sobre as mesmas
-    linhas. O catálogo é curado e a palavra da operação é "chamada" (CONTEXT.md "Vídeo chamada",
-    card "Hora da vídeo chamada"): "Vídeo chamada", "Videochamada" e "Chamada de vídeo" casam
-    todas pelo substring, com ou sem acento (`normalizar`). Cadastro que a batize sem a palavra
-    ("Vídeo", só) NÃO casa — nesse caso a cauda a trata como ausente e a modelo recusa o que
-    vende; é o lado do erro que não promete ao cliente uma chamada que a tabela não tem.
-    """
-    return "chamada" in normalizar(nome_do_programa)
-
-
 async def _carregar_bp3(
     conn: AsyncConnection[Any], modelo_id: str
-) -> tuple[str, str, float, bool, bool, bool, str | None, str | None]:
+) -> tuple[
+    str,
+    str,
+    float,
+    bool,
+    bool,
+    bool,
+    bool,
+    str | None,
+    str | None,
+    dict[float, list[Decimal]],
+    dict[str, list[dict[str, Any]]],
+]:
     """Monta o BP3 por-modelo: identidade + programas do modelo_id (03 §2.1/§3.3).
 
     Devolve `(bp3_md, nome, tabela_max_horas, sem_fetiches, sem_menage, sem_video_chamada,
-    endereco_formatado, nome_local)`:
+    sem_externo, endereco_formatado, nome_local, precos_por_horas, cardapio_rows)`:
     - `bp3_md`/`nome`: o markdown do BP_MODELO e o `nome` da modelo (p/ a âncora de identidade do
       reminder reusar sem recarregar o registro);
     - `tabela_max_horas`: MAX das horas dos programas, derivado das linhas JÁ lidas aqui (elimina a
@@ -683,7 +1236,7 @@ async def _carregar_bp3(
       "Inclusos", e a mecânica de extra/incluso do `<fora_do_cardapio>` colapsa na recusa curta;
     - `sem_menage`: a modelo NÃO tem a seção "Por pessoa" no `<fetiches>`, derivado das linhas de
       fetiche já lidas aqui (mesmo motivo do MAX: nenhuma query nova). Vira o `<sem_menage>` da
-      cauda — o gate do `<menage>`, que era prosa no BP_GERAL (padrão `<sem_periodo_longo>`);
+      cauda — o gate do `<composicoes>`, que era prosa no BP_GERAL (padrão `<sem_periodo_longo>`);
     - `sem_video_chamada`: a vídeo chamada NÃO está nos `<programas>` dela, derivado das MESMAS
       linhas de programa já lidas aqui. Vira o `<sem_video_chamada>` da cauda — o gate que era
       prosa em quatro sites do BP_GERAL (ADR-0021/0029, mesmo padrão do `sem_menage`);
@@ -748,16 +1301,42 @@ async def _carregar_bp3(
     # _resolver_variaveis). `duracao_horas` é numérica; float() casa com o `tabela_max_horas` que
     # o contexto dinâmico esperava. Sem programas -> 0.0 (mesmo default do COALESCE(MAX,0) antigo).
     tabela_max_horas = max((float(p["duracao_horas"]) for p in programas), default=0.0)
-    # Espelha EXATAMENTE o filtro `por_pessoa` do fetiches.md.j2 (`selectattr('preco')` +
-    # `selectattr('cobra_por_pessoa')`, os dois por truthiness): sem nenhum fetiche pago com a flag
-    # do catálogo, o <fetiches> dela não abre a seção "Por pessoa" e menage/casal não existe pra
+    # Espelha EXATAMENTE o filtro `por_pessoa` do render (persona.py): `cobra_por_pessoa` por
+    # truthiness, com ou sem preco — menage "incluso" não existe (CONTEXT.md). Sem nenhum fetiche
+    # com a flag, o <fetiches> dela não abre a seção "Por pessoa" e menage/casal não existe pra
     # ela. Divergir daqui faria a cauda proibir o que a tabela dela oferece (ou o contrário).
-    sem_menage = not any(f.get("preco") and f.get("cobra_por_pessoa") for f in fetiches)
+    sem_menage = not any(f.get("cobra_por_pessoa") for f in fetiches)
     # Mesmo espelho, um nível acima: o `fetiches.md.j2` só imprime "(sem fetiches cadastrados)"
     # quando as TRÊS seções saem vazias (inclusos + atos + por_pessoa cobrem a lista inteira), ou seja
     # exatamente quando não há vínculo nenhum. É o gate do <sem_fetiches> na cauda.
     sem_fetiches = not fetiches
-    sem_video_chamada = not any(_e_video_chamada(p["nome"]) for p in programas)
+    sem_video_chamada = not any(e_video_chamada(p["nome"]) for p in programas)
+    # Fechamento closed-world do formato externo (F16): "externo" fora dos tipos aceitos dela ->
+    # deslocamento/uber não existe no cardápio e o bloco_da_modelo injeta o <sem_externo>. Mesma
+    # família dos `sem_*` acima, derivada do cadastro (a lista já lida em `identidade`).
+    sem_externo = "externo" not in identidade.tipos_aceitos
+    # Preços por duração, das MESMAS linhas já lidas (nenhuma query nova): alimenta o
+    # <pacote_em_pauta> do foco do turno (`_resolver_variaveis`), que só usa a duração com UM
+    # preço — o mesmo fail-closed da escada de desconto (com dois, o pacote é ambíguo).
+    #
+    # Só linhas PRESENCIAIS, pela MESMA divisória da `_linhas_da_duracao(apenas_presenciais=True)`
+    # (dominio/atendimentos/service.py): OFERTA em negociação filtra o remoto, JULGAMENTO de venda
+    # já feita não. Os três consumidores deste dicionário são de oferta — o <pacote_em_pauta> por
+    # duração do belief, a re-ancoragem pela duração pedida no burst e a
+    # `_horas_da_linha_contraproposta` (fallback do degrau, que já alimenta uma escada
+    # `apenas_presenciais=True`). Sem o filtro, a chamada da Catarina (0.5h R$300 e 1h R$600, ao
+    # lado do Normal 250/400) fazia a duração ter DOIS preços e APAGAVA o bloco nos dois pacotes
+    # que mais vendem — mesma regressão de 11/08/2026 que matou a escada, pelo lado do prompt.
+    # Consequência aceita: quem pergunta "quanto a 1h?" pensando na chamada recebe o número
+    # presencial (400) — a chamada é a exceção NOMEADA ("chamada"/"vídeo") e ficar sem o bloco é
+    # pior que o número presencial. Filtrar NÃO afrouxa o fail-closed: duas linhas PRESENCIAIS na
+    # mesma duração (Normal + Completo) continuam ambíguas e continuam sem bloco.
+    # `or ""` = linha sem nome conta como PRESENCIAL, o lado que MANTÉM a linha (igual ao domínio).
+    precos_por_horas: dict[float, list[Decimal]] = {}
+    for p in programas:
+        if e_video_chamada(p.get("nome") or ""):
+            continue
+        precos_por_horas.setdefault(float(p["duracao_horas"]), []).append(p["preco"])
     return (
         render_bp3(identidade, programas, fetiches),
         identidade.nome,
@@ -765,8 +1344,450 @@ async def _carregar_bp3(
         sem_fetiches,
         sem_menage,
         sem_video_chamada,
+        sem_externo,
         m.get("endereco_formatado"),
         m.get("nome_local"),
+        precos_por_horas,
+        {"fetiches": fetiches, "programas": programas},
+    )
+
+
+# Casamento família do cliente → nome de fetiche do CADASTRO (normalizado): needles por família.
+# Espelha as expansões de `vocabulario_de_servicos` (output_guard): "natural" ↔ "oral sem
+# camisinha"; anal/grego sem fetiche próprio moram no programa Completo (<girias_do_cliente>).
+# "sem_camisinha" (penetração) fica sem needle DE PROPÓSITO: nunca é coberto — recusa sempre.
+_NEEDLES_CATALOGO: dict[str, tuple[str, ...]] = {
+    "anal": ("anal",),
+    "grego": ("grego",),
+    "oral_sem": ("oral sem", "natural"),
+    "beijo_na_boca": ("beijo na boca",),
+    "finalizar_oral": ("finalizar",),
+    "chuva_dourada": ("chuva", "dourada"),
+    "bdsm": ("bdsm", "dominacao"),
+    "inversao": ("invers", "pegging", "strap"),
+    # Composições — um needle POR ITEM do catálogo (11/08/2026). O travessão do rótulo do painel
+    # entra nas duas grafias porque `normalizar` (core/texto) dobra acento e caixa, não traço, e
+    # o painel pode gravar hífen: um item cadastrado com "-" tem de casar igual. "casal" continua
+    # aqui como needle da composição de mulher — é o nome ANTIGO do mesmo item (a migration
+    # 20260811232000 renomeia "Casal" no lugar, preservando id e vínculos), então um banco ainda
+    # não migrado resolve pelo nome velho em vez de cair em `fora`.
+    "acompanhante_mulher": ("dele — mulher", "dele - mulher", "casal"),
+    "acompanhante_homem": ("dele — homem", "dele - homem"),
+    "dupla_de_modelos": ("dupla",),
+    "dois_casais": ("dois casais",),
+    "voyeur": ("voyeur",),
+    "fisting": ("fisting",),
+    "sem_camisinha": (),
+}
+
+# `dupla_de_modelos`/`dois_casais` — as composições que envolvem OUTRA MODELO — eram detectadas mas
+# NÃO resolvidas contra o cardápio até o ADR-0042: enquanto o pedido levava a IA a escalar ("deixa
+# eu ver com ela" + `escalar(outro)`), injetar aqui um `fora` ("você não faz") contradiria a
+# escalada que ela devia fazer. Com a escalada revogada, a modelo do canal COTA e FECHA — e cotar
+# exige exatamente o que o resolver produz: o item da seção "Por pessoa" com o total das duas já
+# no patamar da negociação. Elas voltaram, portanto, para o regime de todo mundo, e o closed-world
+# volta a valer nos dois sentidos: sem o item no cardápio dela, `fora` é a resposta certa (e é ele
+# que impede o fluxo da parceira de armar uma venda sem preço — ver `_aplicar_parceira`).
+
+
+@dataclass(frozen=True)
+class _BaseDoPatamar:
+    """O pacote em pauta JÁ no patamar vigente da negociação + a linha de 1h do mesmo programa.
+
+    É o que falta para o total com fetiche ser pré-computado quando o preço já desceu (dívida do
+    ADR-0038): o `<fetiches>` por-modelo é estático (tabela cheia, pré-requisito do cache) e diz
+    "se o valor do pacote já desceu, o extra desce junto — o número que vale é o que o bloco do
+    turno te der". Sem este bloco, essa frase não tinha lastro: a IA ficava com a tabela cheia e
+    um valor negociado, e somar os dois é a conta de cabeça que o ADR proíbe.
+    """
+
+    patamar: Patamar
+    pacote: Decimal
+    horas: Decimal
+    linha_de_uma_hora: LinhaDeTabela | None
+
+
+async def _base_no_patamar(
+    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any, patamar: Patamar
+) -> _BaseDoPatamar | None:
+    """O pacote em pauta no patamar vigente, ou None quando não dá pra dizer QUAL pacote é.
+
+    Fail-closed pelo mesmo critério de todo o resto (`contraproposta_da_escada`,
+    `_piso_do_pacote`): só com UMA linha na duração — com duas, o pacote é ambíguo e um total
+    errado é pior que nenhum (a IA cai na tabela cheia do `<fetiches>`, que continua correta).
+    Patamar `cheio` não precisa de bloco nenhum: a tabela estática já é esse número.
+
+    Lê só as linhas PRESENCIAIS (`apenas_presenciais=True`): a pergunta aqui é a mesma da escada
+    ("qual é O pacote que está sendo negociado"), e o extra de fetiche que este bloco existe para
+    somar só existe em programa presencial. Sem o filtro, a vídeo chamada cadastrada na mesma
+    duração (Catarina, 1h: Normal 400 + chamada 600) fazia `len(linhas) == 2` e o bloco sumia da
+    1h — o pacote que mais vende ficava sem total com fetiche no patamar negociado.
+    """
+    if patamar == "cheio" or duracao_horas is None:
+        return None
+    linhas = await _linhas_da_duracao(conn, modelo_id, duracao_horas, apenas_presenciais=True)
+    if len(linhas) != 1:
+        return None
+    linha = linhas[0]
+    return _BaseDoPatamar(
+        patamar=patamar,
+        pacote=valor_no_patamar(linha["preco"], linha["preco_minimo"], patamar),
+        horas=Decimal(str(duracao_horas)),
+        linha_de_uma_hora=await linha_de_uma_hora(conn, modelo_id, linha["programa_id"]),
+    )
+
+
+def _total_com_fetiche(base: _BaseDoPatamar, match: dict[str, Any]) -> str | None:
+    """`pacote no patamar + extra no MESMO patamar`, formatado — o número que a IA copia.
+
+    O extra sai do site único (`extra_de_fetiche`, ADR-0038), com o `patamar` que ele já aceita:
+    o extra é a linha de 1h NAQUELE estágio, nunca o extra cheio multiplicado por um fator. Preço
+    CADASTRADO continua vencendo e NÃO acompanha o patamar (o operador digitou um valor, não uma
+    escada). `cobra_por_pessoa` não entra mais na conta (ADR-0039): composição soma o MESMO extra
+    dos atos — o total do `por_pessoa` e o do `extra` saem da mesma chamada, e o pacote não dobra.
+    None (sem linha de 1h, pacote < 1h) = sem número, a linha não sai — e desde o ADR-0039 isso
+    alcança a composição, que antes dispensava a 1h.
+    """
+    extra = extra_de_fetiche(
+        base.linha_de_uma_hora,
+        base.horas,
+        patamar=base.patamar,
+        preco_cadastrado=match.get("preco"),
+    )
+    return None if extra is None else brl(base.pacote + extra)
+
+
+async def _composicao_total_no_patamar(
+    conn: AsyncConnection[Any],
+    modelo_id: Any,
+    duracao_horas: Any,
+    patamar: Patamar,
+    cardapio_rows: dict[str, list[dict[str, Any]]],
+) -> str | None:
+    """O TOTAL das duas pessoas (pacote no patamar + o extra da 2ª pessoa no MESMO patamar) para o
+    <composicao_em_pauta> carregar o número quando a negociação já desceu do cheio.
+
+    Reaproveita a MESMA resolução do `por_pessoa` de <servico_em_pauta> (`_base_no_patamar` +
+    `_total_com_fetiche`), tratando QUALQUER linha `cobra_por_pessoa` como a 2ª pessoa: sob o
+    ADR-0039 toda composição soma o MESMO extra e o pacote NÃO dobra, então qual item exatamente
+    está em pauta é pergunta do cardápio, não do total (mesma tese do `_salto_na_mesa`).
+
+    None mantém o fallback conservador do bloco, e cada None é o comportamento certo:
+    - patamar `cheio` (`_base_no_patamar` devolve None SEM query): a tabela "Por pessoa" do
+      <fetiches> estático JÁ é esse número — o bloco aponta pra ela;
+    - sem item `cobra_por_pessoa`, ou pacote sem linha de 1h/duração ambígua: sem total pronto, o
+      bloco cai no "confirma que rola, confirma o valor e segue, ou escala" — nunca a tabela cheia
+      por cima de um pacote já descontado. A query extra só roda no cruzamento estreito (composição
+      na janela + negociação já fora do cheio), como as duas irmãs do `_base_no_patamar`."""
+    por_pessoa = next(
+        (f for f in (cardapio_rows.get("fetiches") or []) if f.get("cobra_por_pessoa")),
+        None,
+    )
+    if por_pessoa is None:
+        return None
+    base = await _base_no_patamar(conn, modelo_id, duracao_horas, patamar)
+    if base is None:
+        return None
+    return _total_com_fetiche(base, por_pessoa)
+
+
+def _resolver_fetiches_em_pauta(
+    familias: tuple[str, ...],
+    cardapio_rows: dict[str, list[dict[str, Any]]],
+    base: _BaseDoPatamar | None = None,
+) -> tuple[dict[str, str], ...]:
+    """Resolve cada família mencionada no burst contra o CADASTRO da modelo (closed-world).
+
+    Status: `incluso` (fetiche sem preço), `extra` (fetiche pago), `por_pessoa` (pago que é a 2ª
+    PESSOA — mesmo extra dos atos desde o ADR-0039; o status sobrevive porque a FALA é outra, não
+    porque o número é), `no_completo` (anal/grego sem fetiche próprio, mas com Completo na tabela — a segunda
+    porta do <girias_do_cliente>) ou `fora` (não está no cardápio → recusa com substituição).
+    O nome exibido é o do CADASTRO quando há match (dado real), o rótulo da família quando não há.
+
+    Cada COMPOSIÇÃO casa o SEU item do catálogo, e só ele (11/08/2026). Antes havia um fallback
+    "qualquer fetiche por-pessoa cobre casal/menage" que existia porque o catálogo tinha um item
+    ambíguo só; com um item por composição ele passou a ser o BUG — fazia "eu e um amigo" ser dado
+    por coberto pelo item de acompanhante MULHER, que é exatamente a promessa que a modelo que não
+    atende dois homens não pode fazer. Sem o fallback, a ausência do item vira `fora` e a recusa
+    sai do closed-world do cardápio, sem depender de nenhuma exceção em prosa.
+
+    `base` (só quando a negociação já desceu de patamar) acrescenta `total` aos pagos: o pacote no
+    patamar + o extra no MESMO patamar, pré-computado. É o que fecha a dívida do ADR-0038 — a
+    tabela do `<fetiches>` é estática e só tem os totais da tabela CHEIA.
+    """
+    fetiches = cardapio_rows.get("fetiches") or []
+    programas = cardapio_rows.get("programas") or []
+    tem_completo = any("completo" in normalizar(p["nome"] or "") for p in programas)
+    resolvidos: list[dict[str, str]] = []
+    for chave in familias:
+        needles = _NEEDLES_CATALOGO.get(chave, ())
+        match = next(
+            (
+                f
+                for f in fetiches
+                if f.get("nome") and any(n in normalizar(f["nome"]) for n in needles)
+            ),
+            None,
+        )
+        if match is not None:
+            # `cobra_por_pessoa` vence o preco NULL: a 2ª pessoa é paga "sem exceção 'incluso'"
+            # (CONTEXT.md, verbete Composição — cadastro incluso existe em prod e é cadastro a
+            # corrigir, não licença pra confirmar menage grátis).
+            if match.get("cobra_por_pessoa"):
+                status = "por_pessoa"
+            elif match.get("preco"):
+                status = "extra"
+            else:
+                status = "incluso"
+            item = {"nome": match["nome"], "status": status}
+            # Total pré-computado só para o que é PAGO e só com a negociação fora do cheio.
+            total = (
+                _total_com_fetiche(base, match)
+                if base is not None and status in ("extra", "por_pessoa")
+                else None
+            )
+            if total is not None:
+                item["total"] = total
+            resolvidos.append(item)
+        elif chave in ("anal", "grego") and tem_completo:
+            resolvidos.append({"nome": rotulo_da_familia(chave), "status": "no_completo"})
+        else:
+            resolvidos.append({"nome": rotulo_da_familia(chave), "status": "fora"})
+    return tuple(resolvidos)
+
+
+def _familias_fora_do_cardapio(
+    familias: tuple[str, ...], resolvidos: tuple[dict[str, str], ...]
+) -> frozenset[str]:
+    """As famílias do burst que o cadastro dela NÃO cobre — o lado "ela não faz" do discriminante
+    da parceira (ADR-0042). PURA.
+
+    Reconstitui o pareamento de `_resolver_fetiches_em_pauta`, que resolve UM item por família, na
+    ordem. A chave não sai do próprio resolver porque a forma dos itens é contrato com o
+    `foco_do_turno.md.j2`. `zip` sem `strict` é fail-closed de propósito: se algum dia as listas
+    divergirem, o pior resultado é um fluxo da parceira não armar — nunca armar sobre a família
+    errada.
+    """
+    return frozenset(
+        chave
+        for chave, item in zip(familias, resolvidos, strict=False)
+        if item.get("status") == "fora"
+    )
+
+
+async def _aplicar_parceira(
+    conn: AsyncConnection[Any],
+    modelo_id: str,
+    contexto: ContextoDoTurno,
+    familias: tuple[str, ...],
+    resolvidos: tuple[dict[str, str], ...],
+) -> ContextoDoTurno:
+    """Arma NO MÁXIMO um dos dois fluxos da parceira no contexto do turno (ADR-0042).
+
+    Uma query, e só quando o burst pôs alguma família em pauta. O discriminante
+    (`fluxo_da_parceira`) devolve um valor ou nenhum — daí o contexto sai com `parceira_fluxo`
+    preenchido por UM fluxo, e o template renderiza UMA tag. Não existe caminho que renderize as
+    duas.
+
+    Duas travas de leitura, espelhando as de write-time da tool `envolver_parceira`:
+    - encaminhamento já feito (`parceira_ja_encaminhada`) não rearma — a tag da trava, que já vem
+      do belief, é a única coisa que ele lê sobre o assunto;
+    - a negociação que virou DUPLA não vira encaminhamento depois (nem o contrário): quem já
+      entrou por um caminho não reabre pelo outro.
+    """
+    if contexto.parceira_ja_encaminhada and contexto.parceira_dupla_assumida:
+        return contexto  # estado impossível pelas travas; fail-closed em vez de escolher um
+    parceria = await carregar_parceria(conn, modelo_id)
+    decidido = fluxo_da_parceira(
+        familias,
+        familias_fora_do_cardapio=_familias_fora_do_cardapio(familias, resolvidos),
+        parceria=parceria,
+    )
+    if parceria is None or decidido is None:
+        return contexto
+    fluxo, chave = decidido
+    if fluxo == "encaminhamento" and (
+        contexto.parceira_ja_encaminhada or contexto.parceira_dupla_assumida
+    ):
+        return contexto
+    if fluxo == "dupla" and contexto.parceira_ja_encaminhada:
+        return contexto
+    # O aceite DELE é pré-requisito do fluxo A e vive no belief (`amiga_ja_ofertada`, carimbado no
+    # write-time do envio): sem ele a tag arma a OFERTA, não a entrega do contato. A tool recusa do
+    # mesmo jeito — aqui é o prompt não pedir o que o sistema não deixaria fazer.
+    return replace(
+        contexto,
+        parceira_nome=parceria.nome,
+        parceira_fluxo=fluxo,
+        parceira_ato=rotulo_da_familia(chave) if fluxo == "encaminhamento" else None,
+    )
+
+
+@dataclass(frozen=True)
+class _SaltoNaMesa:
+    """Por que o valor cotado AGORA é um SALTO sobre o que já estava na mesa — e o que o compõe.
+
+    Escopo da oferta condicionada ao dia (ADR-0041). A conduta NÃO vale para toda primeira
+    cotação: prometer "se vier hoje sai por X" a quem nunca reclamou de preço entregaria o teto
+    de desconto a todo cliente, que é exatamente a erosão que o ADR-0004 mandou monitorar. Vale
+    quando o número que ela está prestes a dizer é MAIOR do que o que ele já ouviu — composição
+    (casal/menage), fetiche pago, ou pacote de duração maior —, porque aí o salto é o que trava a
+    conversa e a condição é o que a destrava.
+
+    `horas` é a duração da linha que sustenta o salto; `extras` são as linhas de `modelo_fetiches`
+    que somam sobre ela. Com extras, o par condicionado tem de ser o TOTAL (pacote + extra no
+    MESMO patamar, ADR-0038) — mandar a IA somar o par do pacote com o extra é a conta de cabeça
+    que o ADR proíbe.
+    """
+
+    horas: Decimal
+    extras: tuple[dict[str, Any], ...]
+
+
+def _salto_na_mesa(
+    contexto: ContextoDoTurno,
+    cardapio_rows: dict[str, list[dict[str, Any]]] | None,
+    duracao_do_belief: Any,
+    duracao_pedida: float | None,
+) -> _SaltoNaMesa | None:
+    """O salto em pauta neste turno, ou None (e aí a oferta condicionada não vale — ver a classe).
+
+    Fail-closed em tudo: sem cardápio carregado, sem duração fechada ou sem sinal de salto,
+    devolve None e a cadeia da escada segue exatamente como estava (`<escada_travada_sem_o_dia>`).
+    """
+    fetiches = (cardapio_rows or {}).get("fetiches") or []
+    pagos = {
+        f["nome"]
+        for f in contexto.fetiches_em_pauta
+        if f.get("status") in ("extra", "por_pessoa") and f.get("nome")
+    }
+    extras = [f for f in fetiches if f.get("nome") in pagos]
+    # `composicao_em_pauta` é a composição citada na JANELA e não no burst (por construção ela não
+    # entra em `fetiches_em_pauta`). A linha que a cobra é a primeira "Por pessoa" do cardápio —
+    # QUALQUER uma serve para esta conta e continua servindo depois da taxonomia por composição
+    # (11/08/2026): o que se mede aqui é o TAMANHO do salto, e sob o ADR-0039 toda composição soma
+    # o mesmo extra. Qual item exatamente está em pauta é pergunta do cardápio, não do salto.
+    if contexto.composicao_em_pauta and not any(f.get("cobra_por_pessoa") for f in extras):
+        por_pessoa = next((f for f in fetiches if f.get("cobra_por_pessoa")), None)
+        if por_pessoa is not None:
+            extras.append(por_pessoa)
+    if extras and duracao_do_belief is not None:
+        return _SaltoNaMesa(horas=Decimal(str(duracao_do_belief)), extras=tuple(extras))
+    if (
+        duracao_pedida is not None
+        and duracao_do_belief is not None
+        and duracao_pedida > float(duracao_do_belief)
+    ):
+        return _SaltoNaMesa(horas=Decimal(str(duracao_pedida)), extras=())
+    return None
+
+
+async def _par_condicionado_ao_dia(
+    conn: AsyncConnection[Any], modelo_id: Any, salto: _SaltoNaMesa
+) -> tuple[str, str] | None:
+    """`(se for hoje, se for outro dia)` já formatado, ou None — os DOIS ou nenhum.
+
+    Sem extra, é o par da linha, do site único (`oferta_condicionada_ao_dia`). Com extra, é o par
+    do TOTAL: o pacote no patamar mais cada extra no MESMO patamar, pela mesma `_base_no_patamar`/
+    `extra_de_fetiche` que o `<fetiches>` do turno já usa. Nunca uma conta nova, e nunca meio par —
+    dizer só o número de hoje é o que faz a resposta dele ("então outro dia") parecer aumento.
+    """
+    if not salto.extras:
+        par = await oferta_condicionada_ao_dia(conn, modelo_id, salto.horas)
+        if par is None:
+            return None
+        se_hoje, se_outro_dia = par
+    else:
+        totais: list[Decimal] = []
+        for patamar in cast(tuple[Patamar, ...], ("piso", "degrau")):
+            base = await _base_no_patamar(conn, modelo_id, salto.horas, patamar)
+            if base is None:
+                return None
+            total = base.pacote
+            for f in salto.extras:
+                extra = extra_de_fetiche(
+                    base.linha_de_uma_hora,
+                    base.horas,
+                    patamar=patamar,
+                    preco_cadastrado=f.get("preco"),
+                )
+                if extra is None:
+                    return None
+                total += extra
+            totais.append(total)
+        se_hoje, se_outro_dia = totais[0], totais[1]
+        # Mesmo veto do site único: par colapsado (o clamp do `preco_minimo` igualou os estágios,
+        # ou o extra é cadastrado e não acompanha a escada) não condiciona nada.
+        if not se_hoje < se_outro_dia:
+            return None
+    hoje, outro = _num_humano(se_hoje), _num_humano(se_outro_dia)
+    return (hoje, outro) if hoje and outro else None
+
+
+def _pacote_maior_na_tabela(
+    precos_por_horas: dict[float, list[Decimal]] | None, duracao_em_pauta: Any
+) -> dict[str, str] | None:
+    """O pacote MAIOR imediatamente acima da duração em pauta, com o preço da tabela dela.
+
+    Dado da conduta de SUBIR O TEMPO antes de descer o preço (print de vendedora exemplar, 11/08):
+    ela não repete o número, sonda o tempo dele e vende 2h — o "valor especial" que não custou
+    nada, porque 800 é o preço CHEIO da 2h. O contexto entrega QUAL é o pacote; a fala é dela.
+
+    O imediatamente acima, não o maior de todos: pular de 1h para o pernoite não é subir o tempo,
+    é outra venda. Fail-closed pelo mesmo critério do `<pacote_em_pauta>` — a duração com mais de
+    um preço presencial é ambígua e o número errado é pior que nenhum.
+    """
+    if not precos_por_horas or duracao_em_pauta is None:
+        return None
+    maiores = sorted(h for h in precos_por_horas if h > float(duracao_em_pauta))
+    if not maiores:
+        return None
+    precos = precos_por_horas[maiores[0]]
+    if len(precos) != 1:
+        return None
+    horas, preco = _num_humano(Decimal(str(maiores[0]))), _num_humano(precos[0])
+    return {"horas": horas, "preco": preco} if horas and preco else None
+
+
+def _e_de_uma_hora(programa: dict[str, Any]) -> bool:
+    """A linha é a de 1h — a duração de referência da cotação (`<cotacao>`: "na 1h")."""
+    horas = programa.get("duracao_horas")
+    return horas is not None and Decimal(str(horas)) == Decimal("1")
+
+
+def _menu_primeira_cotacao(programas: list[dict[str, Any]]) -> str | None:
+    """O menu da primeira cotação quando a tabela é de DUAS portas (entrada + Completo).
+
+    Rodada 6b (cotação 71%): a vendedora real abre com as duas portas ("400 1h no meu local" /
+    "800 1h o completo") e o juiz cego premia; a IA cotava só a entrada. Fail-closed: só monta
+    com exatamente 2 programas presenciais (vídeo chamada fora) e um deles Completo — tabela
+    maior ou sem Completo segue a conduta padrão (um preço por vez).
+
+    A duração do menu é a de 1h, não a primeira da ordem da tabela: o `<cotacao>` manda cotar "o
+    programa mais em conta da sua tabela, NA 1H", e a 1h era a primeira só porque era a menor
+    cadastrada. Com um pacote curto na tabela (os 30min da Catarina, `ordem = 0`) a primeira
+    cotação abriria em "250 na 30 minutos" — o pacote de resgate virando a âncora da conversa e
+    derrubando o ticket de saída. Sem 1h na tabela, vale a primeira da ordem, como antes."""
+    linhas: dict[str, dict[str, Any]] = {}
+    for p in programas:
+        if p.get("nome") and not e_video_chamada(p["nome"]):
+            anterior = linhas.get(p["nome"])
+            if anterior is None or (
+                not _e_de_uma_hora(anterior) and _e_de_uma_hora(p)
+            ):  # 1h > 1ª duração da ordem
+                linhas[p["nome"]] = p
+    if len(linhas) != 2:
+        return None
+    completo = next((p for n, p in linhas.items() if "completo" in normalizar(n)), None)
+    entrada = next((p for n, p in linhas.items() if p is not completo), None)
+    if completo is None or entrada is None:
+        return None
+    pe, pc = _num_humano(entrada["preco"]), _num_humano(completo["preco"])
+    if not pe or not pc:
+        return None
+    return (
+        f"{pe} na {entrada['duracao_nome']} (entrada, sem rótulo na sua fala); "
+        f"Completo {pc} na {completo['duracao_nome']}"
     )
 
 
@@ -786,13 +1807,138 @@ async def _carregar_atendimento(conn: AsyncConnection[Any], atendimento_id: str)
                n_contrapropostas, n_perguntas_de_horario,
                dia_sondado_em, book_enviado_em, endereco_enviado_em,
                amiga_ofertada_em, foto_portaria_pedida_em,
-               motivo_resgate_perguntado_em, horario_evidenciado
+               motivo_resgate_perguntado_em, horario_evidenciado,
+               parceira_encaminhada_em, parceira_dupla_em
           FROM barravips.atendimentos
          WHERE id = %s
         """,
         (atendimento_id,),
     )
     return await res.fetchone() or {}
+
+
+# Contraproposta SEM contexto monetário: "faz 300?", "fecha em 350", "pago 500" — o
+# `extrair_precos_citados` do guard exige "R$"/"por"/"reais" (é afinado para a fala da IA) e
+# perde a fala canônica do cliente. Verbo de proposta + número sem sufixo de tempo cobre o resto.
+_SUFIXO_DE_TEMPO = r"(?!\s*(?:h\b|hs\b|hora|min|:))"
+_RE_CONTRAPROPOSTA_VERBAL = re.compile(
+    r"\b(?:faz|faco|faço|fecha|fecho|pago|paga|consigo|deixa|topa|aceita|sai)\s+"
+    r"(?:por\s+|em\s+|a\s+)?(\d{2,4})\b" + _SUFIXO_DE_TEMPO,
+    re.IGNORECASE,
+)
+# As duas famílias que o verbal não vê e que o próprio <desconto> cita nominalmente como gatilho
+# ("só tenho X"): POSSE/LIMITE (o número vem depois de um verbo de posse, não de proposta) e
+# POSICIONAL (o número vem ANTES do verbo). Medidas na mão em 11/08: sem elas o recall nas falas
+# que nomeiam valor fica em ~65%; com elas, ~85%.
+#
+# Recorte estreito de propósito — aqui falso-positivo custa CARO (aceitar um número que ele não
+# propôs, ADR-0040), enquanto falso-negativo só devolve o comportamento de hoje (a escada). Por
+# isso: (a) todo ramo exige token verbal COLADO no número, nunca número solto; (b) só 3-4 dígitos,
+# porque o piso de 100 já não salvaria "no máximo 90"; (c) "700?" e "é 700?" ficam de FORA, que é
+# a família genuinamente ambígua com hora e duração ("é 2 então ?").
+_RE_LIMITE_DO_CLIENTE = re.compile(
+    r"\b(?:s[óo]\s+)?(?:tenho|posso pagar|d[áa] pra pagar|d[áa] pra fazer|tem como)\s+"
+    r"(?:por\s+|r\$\s*)?(\d{3,4})\b" + _SUFIXO_DE_TEMPO + r"|"
+    r"\b(?:no m[áa]ximo|meu limite (?:é|e))\s+(?:por\s+|r\$\s*)?(\d{3,4})\b" + _SUFIXO_DE_TEMPO,
+    re.IGNORECASE,
+)
+_RE_VALOR_POSICIONAL = re.compile(
+    r"\b(\d{3,4})\s+(?:e\s+)?(?:fecha\b|fecho\b|fechamos\b|t[áa] bom\b|serve\b|fica bom\b)",
+    re.IGNORECASE,
+)
+
+
+def _valores_propostos_no_burst(textos_burst: list[str]) -> set[int]:
+    """Todo valor que o cliente NOMEIA no burst — o do contexto monetário (`extrair_precos_citados`,
+    que já aplica o piso) mais os dos três ramos verbais, esses com o piso aplicado aqui.
+
+    O piso de 100 no ramo verbal é o que impede hora de virar preço: "fecha 21" casa o verbal e
+    viraria uma proposta de R$21. Ele não existia enquanto o único consumidor era o
+    `_horas_da_linha_contraproposta` (que descarta valor acima de toda a tabela e sobrevive ao
+    ruído); com o aceite do ADR-0040 lendo a mesma função, um 21 solto valeria uma venda."""
+    valores: set[int] = set()
+    for texto in textos_burst:
+        valores |= extrair_precos_citados(texto)
+        for regex in (_RE_CONTRAPROPOSTA_VERBAL, _RE_LIMITE_DO_CLIENTE, _RE_VALOR_POSICIONAL):
+            for grupos in regex.findall(texto):
+                for bruto in grupos if isinstance(grupos, tuple) else (grupos,):
+                    if bruto and int(bruto) >= PRECO_MINIMO_SCAN:
+                        valores.add(int(bruto))
+    return valores
+
+
+def _valor_proposto_no_burst(textos_burst: list[str], ja_conhecidos: set[int]) -> int | None:
+    """O ÚNICO valor NOVO que o cliente nomeou no burst, ou None (fail-closed).
+
+    "Novo" = fora de `ja_conhecidos`, que são os preços da tabela dela: "400 tá salgado, faz 300?"
+    cita dois números e só o 300 é proposta — o 400 é eco do que ela mesma cotou. Mais de um valor
+    novo (ou nenhum) devolve None: com dois números na mesa não dá para saber qual é a oferta dele,
+    e chutar é aceitar um valor que ele não propôs.
+
+    Site único do "qual número ele disse": o fallback 2 da duração (`_horas_da_linha_contraproposta`)
+    e o aceite do ADR-0040 leem a MESMA resposta — se divergissem, a escada inferiria a linha por um
+    número e o aceite fecharia por outro."""
+    citados = _valores_propostos_no_burst(textos_burst) - ja_conhecidos
+    return citados.pop() if len(citados) == 1 else None
+
+
+def _horas_da_linha_contraproposta(
+    textos_burst: list[str], precos_por_horas: dict[float, list[Decimal]] | None
+) -> float | None:
+    """Fallback 2 do degrau: a duração da linha em negociação, inferida do VALOR proposto.
+
+    "400 tá salgado, faz 300?" não carrega dígito de duração (o fallback 1,
+    `duracao_pedida_no_burst`, é cego a ela — validação ao vivo de 11/08), mas o valor que o
+    cliente propôs aponta a linha: a de MENOR preço da tabela ACIMA do proposto (300 -> 400/1h;
+    1500 -> 2000/12h). Ecos da própria tabela ("400 tá salgado" cita o 400 cotado) são
+    descartados antes de decidir. Qualquer ambiguidade — nenhum valor novo citado, mais de um,
+    proposto acima de toda a tabela, ou a menor linha acima empatada em duas durações — devolve
+    None e o fail-closed do degrau segue valendo.
+    """
+    if not precos_por_horas:
+        return None
+    pares = [(p, h) for h, ps in precos_por_horas.items() for p in ps]
+    proposto = _valor_proposto_no_burst(textos_burst, {int(p) for p, _ in pares})
+    if proposto is None:
+        return None
+    acima = [(p, h) for p, h in pares if p > proposto]
+    if not acima:
+        return None
+    menor_preco = min(p for p, _ in acima)
+    horas = {h for p, h in acima if p == menor_preco}
+    return horas.pop() if len(horas) == 1 else None
+
+
+def _preco_cotado_na_janela(mensagens: list[BaseMessage]) -> str | None:
+    """O NÚMERO da última cotação que ELA pôs na mesa, lido da fala dela na janela.
+
+    Fecha o buraco medido em 11/08 (trace a6380499): `preco_na_mesa` liga por `cotacao_enviada_em`
+    (carimbado pelo backstop do ADR-0022 a partir do TEXTO enviado), mas `valor_acordado` só é
+    gravado no ACEITE — então no turno da objeção o <valor_cotado> abria a tag e renderizava VAZIO,
+    e a única âncora do número era a bolha antiga ainda dentro da janela. Quando ela desliza para
+    fora, a IA perde o próprio preço.
+
+    Fonte: a fala DELA (`AIMessage`) — o mesmo detector que o guard usa para saber o que ela
+    ofertou (`precos_ofertados_na_fala`: contexto monetário obrigatório e cláusula NEGADA
+    descartada, "não consigo por 300" não é oferta). Percorre do fim para o começo e para na
+    PRIMEIRA bolha dela que cita preço: é a cotação vigente, não a mais antiga.
+
+    Fail-closed como o resto da família: a bolha com DOIS números (o menu "400 1h; Completo 800")
+    devolve None em vez de escolher — cotação ambígua com número errado é pior que sem número, e o
+    template omite a tag. Turno atual não entra aqui (a janela é a do BANCO, antes da fala deste
+    turno), então não há o "valor fantasma" de reler a própria saída em elaboração.
+    """
+    for msg in reversed(mensagens):
+        if not isinstance(msg, AIMessage):
+            continue
+        texto = str(msg.content)
+        if not texto:
+            continue
+        ofertados = precos_ofertados_na_fala(texto)
+        if not ofertados:
+            continue
+        return str(ofertados.pop()) if len(ofertados) == 1 else None
+    return None
 
 
 async def _resolver_variaveis(
@@ -805,8 +1951,12 @@ async def _resolver_variaveis(
     sem_fetiches: bool = False,
     sem_menage: bool = False,
     sem_video_chamada: bool = False,
+    sem_externo: bool = False,
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
+    precos_por_horas: dict[float, list[Decimal]] | None = None,
+    interesse_no_endereco: bool = False,
+    dia_confirmado_hoje: bool = False,
 ) -> ContextoDoTurno:
     """Resolve as variáveis do template de contexto dinâmico via queries específicas (02 §5).
 
@@ -822,6 +1972,11 @@ async def _resolver_variaveis(
     `linhas` (janela crua de `carregar_mensagens`, com `created_at`) alimenta a percepção de tempo
     da cauda (emenda ADR 0025, 2026-06-26): quanto tempo faz que o cliente falou. Opcional —
     testes que chamam direto sem janela seguem funcionando (marcadores ficam None).
+
+    `dia_confirmado_hoje` é o veredito do A2 da janela (`_confirmou_dia_hoje`, computado em
+    `_anexar_contexto_dinamico`, que tem as mensagens): a escada de desconto depende de o encontro
+    ser hoje, e no turno da objeção a `data_desejada` do banco ainda não tem o "hoje" que o cliente
+    acabou de dizer. Default False = só a coluna manda (fail-closed: sem dia, sem desconto).
     """
     atendimento = atendimento or {}
     # Flags de disciplina (padrão A2) já carimbadas no write-time (workers/envio.py): sem scan das
@@ -831,32 +1986,59 @@ async def _resolver_variaveis(
     n_contrapropostas = atendimento.get("n_contrapropostas") or 0
     n_perguntas_de_horario = atendimento.get("n_perguntas_de_horario") or 0
 
-    # O NÚMERO da 2ª e última contraproposta, pré-computado (o contador acima já dizia QUANTAS
-    # sobraram; faltava QUANTO). Até aqui a IA recebia só o percentual (`<desconto>`, regras.md.j2)
-    # e multiplicava de cabeça sobre a tabela — erro pra baixo faz a guarda do piso escalar à toa
-    # uma oferta válida (`_DESC_VALOR`), erro pra cima entrega desconto tímido e perde a venda que
-    # a escada existe pra salvar. Sai da MESMA função que julga a oferta (atendimentos/service), e
-    # SÓ em n=1: em n=0 não há tag onde pendurar e o número solto convidaria a ofertar desconto
-    # antes de ele pedir; em n>=2 a escada acabou. A query extra só roda nessa rodada.
-    teto_desconto: str | None = None
-    if n_contrapropostas == 1:
-        teto_desconto = _num_humano(
-            await teto_de_contraproposta(conn, ctx.modelo_id, atendimento.get("duracao_horas"))
+    valor_aceito = bool((atendimento.get("sinais_qualificacao") or {}).get("aceita_valor"))
+    # Gate por COTAÇÃO na mesa, não por `valor_acordado`: a extração só grava valor_acordado no
+    # aceite, então no turno da objeção ("faz por 300?") ele é NULL por contrato e o degrau nunca
+    # renderizava (medido 0/21 no diagnóstico de 11/08 — trace a6380499). `cotacao_enviada_em` é o
+    # mesmo sinal que o output_guard usa como preco-na-mesa.
+    cotacao_na_mesa = (
+        atendimento.get("cotacao_enviada_em") is not None
+        or atendimento.get("valor_acordado") is not None
+    )
+    # <pacote_em_pauta> (foco do turno, rodada 3): a linha da tabela para a duração em discussão,
+    # SÓ quando há duração sem valor cotado E ela tem UM preço na tabela dela — o mesmo
+    # fail-closed da escada de desconto (dois preços = pacote ambíguo, número errado é pior
+    # que nenhum). Com `valor_acordado` gravado, quem ancora o número é o <valor_cotado>/<valor_
+    # fechado> do belief. Zero query nova: os preços vêm das linhas que o BP_MODELO já leu.
+    pacote_em_pauta: dict[str, str] | None = None
+    horas_em_pauta = atendimento.get("duracao_horas")
+    if atendimento.get("valor_acordado") is None and horas_em_pauta is not None:
+        precos = (precos_por_horas or {}).get(float(horas_em_pauta), [])
+        horas_str, preco_str = (
+            _num_humano(horas_em_pauta),
+            _num_humano(precos[0] if precos else None),
         )
+        if len(precos) == 1 and horas_str and preco_str:
+            pacote_em_pauta = {"horas": horas_str, "preco": preco_str}
     dia_ja_sondado_hist = atendimento.get("dia_sondado_em") is not None
     book_ja_enviado = atendimento.get("book_enviado_em") is not None
     endereco_ja_enviado = atendimento.get("endereco_enviado_em") is not None
     amiga_ja_ofertada = atendimento.get("amiga_ofertada_em") is not None
+    # Parceira (ADR-0042): carimbos duráveis, lidos como as outras flags A2. Independem do burst
+    # — a trava "uma vez" e o "esta venda já é das duas" valem em todo turno da negociação.
+    parceira_ja_encaminhada = atendimento.get("parceira_encaminhada_em") is not None
+    parceira_dupla_assumida = atendimento.get("parceira_dupla_em") is not None
     foto_portaria_ja_pedida = atendimento.get("foto_portaria_pedida_em") is not None
     motivo_resgate_ja_perguntado = atendimento.get("motivo_resgate_perguntado_em") is not None
 
     # Gate estrutural do endereço (<local_de_encontro>): o ponto de encontro (lido junto da
     # identidade em _carregar_bp3) só entra no contexto quando o estado/tipo liberam (interno em
-    # Qualificado+, ver _libera_local_de_encontro). Fora do gate, fica None — como antes.
+    # Qualificado+, ver _libera_local_de_encontro) OU quando o interesse foi demonstrado
+    # (rodada 6, `_interesse_demonstrado`: cotação na mesa + sinal de avanço). O interesse
+    # antecipa SÓ o bloco sem número: o degrau do NÚMERO é estrutural por estado
+    # (`_libera_numero_do_endereco` ignora `interesse` de propósito — emenda 25/07 do ADR-0026,
+    # "o que ela não recebe ela não vaza"); antecipá-lo para Qualificado é decisão de produto
+    # PENDENTE (nota de 11/08 no ADR-0026). Fora do gate, fica None — como antes.
     local_endereco: str | None = None
     local_nome: str | None = None
-    numero_liberado = _libera_numero_do_endereco(atendimento.get("estado"))
-    if _libera_local_de_encontro(atendimento.get("estado"), atendimento.get("tipo_atendimento")):
+    numero_liberado = _libera_numero_do_endereco(
+        atendimento.get("estado"), interesse=interesse_no_endereco
+    )
+    if _libera_local_de_encontro(
+        atendimento.get("estado"),
+        atendimento.get("tipo_atendimento"),
+        interesse=interesse_no_endereco,
+    ):
         local_endereco = (
             local_endereco_raw
             if numero_liberado
@@ -934,6 +2116,103 @@ async def _resolver_variaveis(
     data_atual = agora.date() if agora is not None else None
     hora_atual = agora.strftime("%H:%M") if agora is not None else None
 
+    # --- A escada de desconto deste turno (decisão do dono do produto, 11/08/2026) ---------------
+    # Resolvida AQUI, e não lá em cima com as outras flags, porque depende do `data_atual` que só
+    # nasce do `_resolver_agora` (fonte única do relógio): a escada agora pergunta se o encontro é
+    # HOJE. Hoje = ociosidade que não volta -> a primeira contraproposta já é o PISO e não há
+    # segunda; outro dia -> degrau e depois piso, como antes; dia ainda não dito -> nenhum número,
+    # a jogada é defender o valor e descobrir o dia (o degrau 1 do <desconto> já faz isso).
+    #
+    # O NÚMERO vem pré-computado da MESMA função que julga a oferta (atendimentos/service): até a
+    # issue 16 a IA recebia só o percentual e multiplicava de cabeça — erro pra baixo faz a guarda
+    # do piso escalar à toa uma oferta válida, erro pra cima entrega desconto tímido e perde a
+    # venda que a escada existe pra salvar.
+    encontro = _encontro_do_turno(
+        atendimento.get("data_desejada"),
+        data_atual,
+        estado=atendimento.get("estado"),
+        confirmou_hoje=dia_confirmado_hoje,
+        # Virada da madrugada: o encontro na madrugada da mesma noite é regime de HOJE, não a
+        # escada de outro_dia (mesmo par BRT-naive que o rótulo humano usa em `_quando_do_encontro`).
+        horario_desejado=atendimento.get("horario_desejado"),
+        agora=agora,
+    )
+    escada_estado = estado_da_escada(encontro, n_contrapropostas)
+    contraproposta_disponivel: str | None = None
+    aceite_dele: str | None = None
+    # Em n=0 o número só sai com cotação em aberto: é aí que a objeção de preço pode vir. Sem
+    # cotação não há objeção a responder e o número solto convidaria a ofertar desconto antes de
+    # ele pedir; com o valor aceito a negociação de preço acabou. Em n>=1 a escada já está aberta
+    # e o bloco da rodada carrega o número que sobrou. A query extra só roda nesses casos.
+    #
+    # `!= "esgotada"` (e não mais `in ("aberta", "ultima")`) porque o ACEITE do valor DELE também
+    # vive aqui e é independente do dia: `sem_dia` cala a oferta DELA, não o sim ao número DELE.
+    if escada_estado != "esgotada" and (
+        n_contrapropostas > 0 or (cotacao_na_mesa and not valor_aceito)
+    ):
+        horas_da_escada = atendimento.get("duracao_horas")
+        textos_burst = _textos_do_burst(traduzir_mensagens(linhas)) if linhas else []
+        if horas_da_escada is None and n_contrapropostas == 0 and linhas:
+            # Fallback de duração pelo burst: no turno da objeção `duracao_horas` costuma estar
+            # NULL (a extração ainda não gravou), mas "faz 300 a hora?" carrega a duração — sem o
+            # fallback a escada ficava fail-closed exatamente no turno que a precisa (re-run
+            # 11/08, trace 854fb661). Ambíguo dos dois lados -> None, e o fail-closed vale.
+            horas_da_escada = duracao_pedida_no_burst(traduzir_mensagens(linhas))
+            # Fallback 2 (validação ao vivo 11/08): "faz por 300 a hora?"/"faz 300?" não têm
+            # dígito de duração — o valor proposto identifica a linha em negociação.
+            if horas_da_escada is None:
+                horas_da_escada = _horas_da_linha_contraproposta(textos_burst, precos_por_horas)
+        # --- ADR-0040: o número que ELE nomeou vem ANTES do número dela --------------------------
+        # A ordem é a decisão: com um valor dele que serve, a escada NÃO é consultada (uma query a
+        # menos, não a mais) e o template renderiza um bloco só — a coexistência dos dois é
+        # impossível por construção, não por convenção.
+        aceite, motivo = await aceite_do_valor_dele(
+            conn,
+            ctx.modelo_id,
+            horas_da_escada,
+            valor_proposto=_valor_proposto_no_burst(
+                textos_burst,
+                {int(p) for ps in (precos_por_horas or {}).values() for p in ps},
+            ),
+            valor_da_mesa=atendimento.get("valor_acordado"),
+            encontro=encontro,
+            n_contrapropostas=n_contrapropostas,
+        )
+        AGENTE_ACEITE_DO_CLIENTE.labels(encontro, motivo).inc()
+        if aceite is not None:
+            aceite_dele = _num_humano(aceite)
+        elif escada_estado in ("aberta", "ultima"):
+            contraproposta_disponivel = _num_humano(
+                await contraproposta_da_escada(
+                    conn,
+                    ctx.modelo_id,
+                    horas_da_escada,
+                    encontro=encontro,
+                    n_contrapropostas=n_contrapropostas,
+                )
+            )
+
+    # O patamar em que o valor da mesa JÁ está — o extra de fetiche desce por ele (ADR-0038).
+    #
+    # Duas fontes, e a emenda de 11/08 (ADR-0040) é sobre qual manda. O contador de rodadas
+    # (`patamar_vigente`) só descreve o patamar enquanto TODOS os números saírem dela: aceitar os
+    # 700 DELE sobre uma tabela de 800 consome a rodada de hoje, e o contador passaria a dizer
+    # "piso" (600) numa mesa que está no degrau. O VALOR (`patamar_do_valor`) responde certo aí.
+    #
+    # O valor manda quando ele já saiu do preço cheio. Enquanto a mesa está no cheio ela não diz
+    # nada: `valor_acordado` é gravado só no ACEITE (não na cotação) e não acompanha a contraproposta que ela fez
+    # e ele ainda não aceitou — ali quem sabe é o contador. É o "nada regride": mesa intacta nunca
+    # puxa o patamar de volta pra cima de um desconto que já foi ofertado.
+    patamar_da_mesa: Patamar = patamar_vigente(encontro, n_contrapropostas)
+    patamar_do_que_esta_na_mesa = await patamar_da_mesa_na_tabela(
+        conn,
+        ctx.modelo_id,
+        atendimento.get("duracao_horas"),
+        atendimento.get("valor_acordado"),
+    )
+    if patamar_do_que_esta_na_mesa is not None and patamar_do_que_esta_na_mesa != "cheio":
+        patamar_da_mesa = patamar_do_que_esta_na_mesa
+
     # Antecedência mínima (ADR 0025 + emenda 2026-06-26): o cedo que a IA pode oferecer pra um
     # pedido imediato = arredonda_acima(now + antecedencia), ajustado a bloqueios e Disponibilidade.
     # A antecedência é por DESLOCAMENTO, igual ao gate (criar_bloqueio_previo): sem deslocamento da
@@ -991,6 +2270,27 @@ async def _resolver_variaveis(
         if agora_tz is not None
         else []
     )
+
+    # Rodada 6 — a disponibilidade concreta como DADO do foco: a mesma aritmética que alimenta
+    # <horario_minimo>/<proximo_horario> vira uma frase pronta ("livre hoje a partir de 22:00"),
+    # para o avanço do <foco_do_turno> sair com hora em vez de "seria hoje?" vago. Fail-closed:
+    # sem âncora nenhuma (agenda vazia/fechada), None e os blocos degradam para o avanço sem número.
+    #
+    # FUSO (correção 12/08): a âncora e o `agora_tz` são AWARE em UTC (`current_timestamp` do banco;
+    # `proximo_livre` preserva o tzinfo que recebe) — `strftime` cru sobre eles imprimia +3h ("livre
+    # hoje a partir de 01:00" para as 22:00 de Brasília), a comparação de `.date()` em UTC dizia
+    # "hoje" para a noite inteira do dia seguinte, e o `%w` do ramo else errava o dia da semana pelo
+    # mesmo motivo. Converte-se ANTES de formatar, com a MESMA regra do filtro `brt` que o <agenda>
+    # aplica (`persona.py:_brt`): aware -> BRT, naive já é local.
+    livre_agora: str | None = None
+    ancora_livre = horario_minimo or proximo_horario
+    if ancora_livre is not None and agora_tz is not None:
+        ancora_brt = _em_brt(ancora_livre)
+        hhmm = ancora_brt.strftime("%H:%M")
+        if ancora_brt.date() == _em_brt(agora_tz).date():
+            livre_agora = f"livre hoje a partir de {hhmm}"
+        else:
+            livre_agora = f"próximo livre: {_DIAS_SEMANA[int(ancora_brt.strftime('%w'))]} {hhmm}"
 
     # Percepção de tempo na cauda (emenda ADR 0025, 2026-06-26): a IA sabe a hora atual mas era cega
     # ao tempo DECORRIDO — travava num horário fantasma sem perceber que o cliente acabou de chegar
@@ -1052,8 +2352,15 @@ async def _resolver_variaveis(
         hora_atual=hora_atual,
         numero_curto=atendimento.get("numero_curto"),
         estado=atendimento.get("estado"),
+        # Só EXIBIÇÃO (contrato pinado F32): a lógica segue no `estado`/`tipo_atendimento` crus;
+        # estas humanizadas são o que os templates imprimem, para o enum não vazar na voz.
+        estado_humano=_estado_humano(atendimento.get("estado")),
+        tipo_humano=_tipo_humano(atendimento.get("tipo_atendimento")),
         slots_faltantes=belief.slots_faltantes,
         proximo_passo=belief.proximo_passo,
+        # A leitura mais fresca do que a conversa pede: gravada pela extração do turno ANTERIOR
+        # (obrigatória todo turno). O <proximo_passo> deriva do estado; esta vem da conversa.
+        acao_pendente=atendimento.get("proxima_acao_esperada"),
         # O contexto dinâmico não renderiza a `intencao` crua (ela vira <ainda_falta>/<proximo_passo>
         # via belief); vem no dicionário porque é um dos campos com eco medido em produção (71%) e
         # o <ja_registrado> precisa dela p/ o extrator saber que já está registrada.
@@ -1078,18 +2385,30 @@ async def _resolver_variaveis(
         horario_evidenciado=bool(atendimento.get("horario_evidenciado")),
         endereco=atendimento.get("endereco"),
         bairro=atendimento.get("bairro"),
-        # Valor/duração no snapshot (a janela de 20 msgs desliza; sem isto a IA perde o acordo que
-        # saiu da janela e pode re-cotar/re-negociar). `valor_acordado` é gravado JÁ NA COTAÇÃO
-        # (é a base que o guard confere contra o piso de desconto, `_DESC_VALOR`), então sozinho
-        # ele NÃO prova acordo: quem separa cotado de aceito é `sinais_qualificacao.aceita_valor`.
-        # Sem essa distinção o belief anunciava "valor já combinado" logo depois de a IA cotar, e
-        # ela pulava a defesa de preço/escada de desconto pra cravar horário (#38, 24/07).
+        # Valor/duração no snapshot (a janela de `_JANELA_MENSAGENS` desliza; sem isto a IA perde o
+        # acordo que saiu da janela e pode re-cotar/re-negociar). `valor_acordado` é gravado só no
+        # ACEITE (a extração não o preenche na cotação — medido 0/21 em 11/08, trace a6380499; ver
+        # o gate `cotacao_na_mesa` acima), e mesmo assim quem separa cotado de aceito é
+        # `sinais_qualificacao.aceita_valor`: o `valor_acordado` sozinho NÃO prova acordo, porque o
+        # painel/manual também o escreve. Sem essa distinção o belief anunciava "valor já
+        # combinado" logo depois de a IA cotar, e ela pulava a defesa de preço/escada de desconto
+        # pra cravar horário (#38, 24/07). O número da COTAÇÃO em aberto, quando esta coluna está
+        # NULL, vem do `preco_cotado_valor` (lido da fala dela na janela).
         valor_fechado=_num_humano(atendimento.get("valor_acordado")),
-        valor_aceito=bool((atendimento.get("sinais_qualificacao") or {}).get("aceita_valor")),
+        valor_aceito=valor_aceito,
         duracao_fechada=_num_humano(atendimento.get("duracao_horas")),
+        # A linha da tabela em discussão (ver resolução acima); None fora do caso estreito.
+        pacote_em_pauta=pacote_em_pauta,
         n_contrapropostas=n_contrapropostas,
-        # O valor da rodada que ainda resta (ver acima); None fora dela.
-        teto_desconto=teto_desconto,
+        # A escada deste encontro (ver a resolução acima): em que ponto ela está e QUANTO vale a
+        # próxima contraproposta. `escada_estado` é quem escolhe o bloco da cauda — o contador
+        # sozinho não sabe mais quantas rodadas existem (com encontro hoje é UMA).
+        escada_estado=escada_estado,
+        contraproposta_disponivel=contraproposta_disponivel,
+        aceite_do_valor_dele=aceite_dele,
+        encontro_do_dia=encontro,
+        patamar_da_mesa=patamar_da_mesa,
+        preco_na_mesa=cotacao_na_mesa and not valor_aceito,
         # Contador (não timestamp) porque a conduta tem dois degraus: na 1ª repetição ela propõe um
         # horário concreto em vez de reperguntar; da 2ª em diante não pergunta mais.
         n_perguntas_de_horario=n_perguntas_de_horario,
@@ -1098,9 +2417,14 @@ async def _resolver_variaveis(
         # `book_ja_enviado` injeta <ja_enviou_book> direto no template.
         dia_ja_sondado_hist=dia_ja_sondado_hist,
         book_ja_enviado=book_ja_enviado,
-        # O convite pra conhecer a amiga (<menage>) é pós-venda: sai no FIM da negociação, quando
+        # O convite pra conhecer a amiga (<composicoes>) é pós-venda: sai no FIM da negociação, quando
         # já deslizou pra fora da janela — a coluna é a única memória dele.
         amiga_ja_ofertada=amiga_ja_ofertada,
+        # Parceira (ADR-0042): o encaminhamento é UMA vez por atendimento e a dupla, uma vez
+        # assumida, não volta a ser escalada nem encaminhamento — as duas colunas são a memória
+        # que a janela não é, e são as mesmas travas que a tool `envolver_parceira` aplica no write.
+        parceira_ja_encaminhada=parceira_ja_encaminhada,
+        parceira_dupla_assumida=parceira_dupla_assumida,
         # O pedido do print da chegada sai uma vez e depois é espera: a coluna é o que separa
         # "ainda não pedi" de "já pedi e ele não chegou" quando o pedido saiu da janela.
         foto_portaria_ja_pedida=foto_portaria_ja_pedida,
@@ -1123,13 +2447,17 @@ async def _resolver_variaveis(
         # do <fora_do_cardapio> colapsa na recusa curta, sem a IA ter de derivá-la todo turno.
         sem_fetiches=sem_fetiches,
         # Mesmo trilho, para o menage: sem a seção "Por pessoa" no <fetiches> (derivada em
-        # _carregar_bp3), a cauda injeta <sem_menage> e o gate do <menage> deixa de ser prosa que
+        # _carregar_bp3), a cauda injeta <sem_menage> e o gate do <composicoes> deixa de ser prosa que
         # toda modelo lê e descarta em todo turno.
         sem_menage=sem_menage,
         # E para a vídeo chamada: sem a linha dela no <programas> (derivada em _carregar_bp3), a
         # cauda injeta <sem_video_chamada> — os quatro sites de prosa que negavam a chamada no
         # BP_GERAL viram um só, positivo.
         sem_video_chamada=sem_video_chamada,
+        # Mesmo trilho para o formato externo (F16): sem "externo" nos tipos aceitos dela
+        # (`tipo_atendimento_aceito`, derivado em _carregar_bp3), deslocamento/uber não existe no
+        # cardápio e o bloco_da_modelo injeta o <sem_externo>. Default conservador False (não injeta).
+        sem_externo=sem_externo,
         recorrente=conversa.get("recorrente", False),
         observacoes_internas=conversa.get("observacoes_internas"),
         ultimo_motivo_perda=conversa.get("ultimo_motivo_perda"),
@@ -1143,6 +2471,7 @@ async def _resolver_variaveis(
         min_desde_ultima_msg_cliente=min_desde_ultima_msg_cliente,
         combinado_hora=combinado_hora,
         min_para_combinado=min_para_combinado,
+        livre_agora=livre_agora,
     )
 
 
@@ -1164,6 +2493,41 @@ def _pix_status_humano(status: str | None) -> str:
     if status is None:
         return "não aplicável"
     return _PIX_STATUS_HUMANO.get(status, status)
+
+
+# Mapa enum estado/fase -> texto p/ a IA (mesmo motivo do pix_status): o enum cru
+# ("Aguardando_confirmacao") na cauda volátil faz a IA adivinhar o significado. Só EXIBIÇÃO — a
+# lógica segue lendo o campo cru (`estado in (...)`); estas vars vão a parte (contrato pinado).
+_ESTADO_HUMANO = {
+    "Novo": "conversa começando",
+    "Triagem": "conhecendo o que ele quer",
+    "Qualificado": "combinando o encontro",
+    "Aguardando_confirmacao": "aguardando ele confirmar",
+    "Confirmado": "encontro confirmado",
+    "Em_execucao": "encontro em andamento",
+    "Fechado": "atendimento fechado",
+    "Perdido": "atendimento perdido",
+}
+
+# Mapa enum tipo_atendimento -> texto p/ a IA. None fica None de propósito: o template aplica o
+# `or 'ainda não definido'` (o tipo ainda não escolhido não é um valor a humanizar).
+_TIPO_HUMANO = {
+    "interno": "no seu local",
+    "externo": "você indo até ele",
+    "remoto": "vídeo chamada",
+}
+
+
+def _estado_humano(estado: str | None) -> str | None:
+    if estado is None:
+        return None
+    return _ESTADO_HUMANO.get(estado, estado)
+
+
+def _tipo_humano(tipo: str | None) -> str | None:
+    if tipo is None:
+        return None
+    return _TIPO_HUMANO.get(tipo, tipo)
 
 
 def _num_humano(v: Decimal | None) -> str | None:

@@ -2,8 +2,10 @@
 
 criar_chat_deepseek(): wrapper langchain-openai (ChatOpenAI) DIRETO na API DeepSeek
     (api.deepseek.com) — o ÚNICO provider dos caminhos de texto do agente (chat #1,
-    extração forçada #2, judge de AUP #3), com thinking travado em disabled. Mesma interface a
-    jusante (bind_tools/with_structured_output/ainvoke). Única factory de chat do projeto.
+    extração forçada #2, judge de AUP #3). O chat #1 roda THINKING (`reasoning_effort`, default
+    "low"); extração e judge ficam travados em disabled (thinking corromperia o structured
+    output). Mesma interface a jusante (bind_tools/with_structured_output/ainvoke). Única
+    factory de chat do projeto.
 
 A montagem do prefixo (BP_GERAL persona+regras+FAQ + BP_MODELO identidade/programas) vive em
 agente/llm.py (`build_system_messages`): SystemMessages de string pura, que o DeepSeek cacheia
@@ -40,6 +42,21 @@ def motivo_parada(response_metadata: dict[str, Any] | None) -> str | None:
     return meta.get("stop_reason") or meta.get("finish_reason")
 
 
+def nomear_run(runnable: Any, nome: str) -> Any:
+    """Batiza a observation que este runnable gera no trace (`run_name` do LangChain).
+
+    Sem isso TODA chamada de LLM do turno aparece no Langfuse como uma generation "ChatOpenAI" — a
+    fala, a extração forçada e a regen do guard indistinguíveis a olho, e `fetch_observations(name=)`
+    inútil. Com nome, cada caminho é filtrável direto.
+
+    Tolerante por desenho: os fakes de chat dos testes implementam só `bind_tools`/`ainvoke`, não a
+    interface Runnable inteira. Sem `with_config`, devolve o objeto como veio — o nome é
+    observabilidade e nunca pode ser motivo de o grafo não montar.
+    """
+    with_config = getattr(runnable, "with_config", None)
+    return with_config({"run_name": nome}) if callable(with_config) else runnable
+
+
 def nome_modelo(chat: Any) -> str:
     """Nome do modelo do chat: `ChatOpenAI` expõe `.model_name` (o `.model` cobre fakes/wrappers
     que só o definem). Usado nos labels de métrica (token/custo por modelo)."""
@@ -47,15 +64,27 @@ def nome_modelo(chat: Any) -> str:
 
 
 class _ChatDeepSeekThinking(ChatOpenAI):
-    """ChatOpenAI + compat de thinking do DeepSeek-direct. SÓ o braço B do A/B de evals usa
-    (.scratch/ab-thinking-chat); prod roda thinking:disabled e nunca instancia esta classe.
+    """ChatOpenAI + compat de thinking do DeepSeek-direct. É a classe do chat #1 de PROD desde
+    11/08/2026 (`settings.deepseek_thinking_chat` default "low") e dos rigs; só some do caminho
+    quando alguém volta o regime para "disabled" pelo Env.
 
     Dois gaps do langchain-openai que o endpoint exige em modo thinking (doc oficial
     guides/thinking_mode): (1) `reasoning_content` da resposta não é extraído pelo wrapper
     ("use a provider-specific subclass", doc do pacote) -> captura p/ additional_kwargs;
-    (2) o campo precisa VOLTAR nas mensagens assistant dos turnos seguintes do loop de tool
-    call, senão HTTP 400 -> reinjeção no payload. Cobre só o caminho não-streaming (ainvoke),
-    o único que o agente usa.
+    (2) o campo precisa VOLTAR nas mensagens assistant do loop de tool call ABERTO, senão
+    HTTP 400 -> reinjeção no payload. Cobre só o caminho não-streaming (ainvoke), o único
+    que o agente usa.
+
+    Contrato REAL da API (sondado em 2026-08-10 contra api.deepseek.com): o 400 "The
+    `reasoning_content` in the thinking mode must be passed back" dispara quando QUALQUER
+    assistant COM tool_calls do loop de tool aberto (assistant+tool no rabo das messages)
+    vai sem o campo; assistant de texto puro do histórico e loops já fechados passam sem
+    ele, e `reasoning_content: ""` é aceito em todas as posições. O provider às vezes
+    devolve rc vazio/ausente numa iteração do loop (típico após ToolMessage) — sem
+    placeholder, a iteração seguinte reenviava essa assistant(tool_calls) sem o campo e o
+    turno morria em 400 (braço B do A/B, conversas multi-turno/longas). Por isso a
+    reinjeção garante o campo em TODA assistant com tool_calls: o capturado quando houver,
+    `""` quando não.
     """
 
     def _create_chat_result(
@@ -78,9 +107,16 @@ class _ChatDeepSeekThinking(ChatOpenAI):
         # strict=False: a conversao para payload e 1:1 hoje, mas um desalinhamento futuro nao
         # deve estourar o turno — no pior caso o campo nao volta e o provider acusa 400.
         for fonte, destino in zip(fontes, payload.get("messages") or [], strict=False):
+            if destino.get("role") != "assistant":
+                continue
             rc = getattr(fonte, "additional_kwargs", {}).get("reasoning_content")
-            if rc and destino.get("role") == "assistant":
+            if rc:
                 destino["reasoning_content"] = rc
+            elif destino.get("tool_calls"):
+                # assistant(tool_calls) sem rc capturado (provider devolveu vazio/ausente na
+                # iteração, ou mensagem re-hidratada sem additional_kwargs): a API exige o campo
+                # no loop aberto (400 sem ele) e aceita "" -> placeholder vazio.
+                destino["reasoning_content"] = ""
         return payload
 
 
@@ -106,17 +142,17 @@ def criar_chat_deepseek(
     id datado para pinar: mudança de peso chega sem deploy nosso, então deriva de conduta se mede por
     eval, não por diff. O id cru
     tem **thinking LIGADO por default** (doc oficial: "the thinking toggle defaults to enabled"),
-    então o default `thinking="disabled"` trava non-thinking via extra_body — thinking ligado
-    corromperia o structured output (extração #2/judge #3), ignoraria a `temperature` (chat #1) e
-    tomaria HTTP 400 nas tool calls sem a compat de `reasoning_content`. Não usa `reasoning_off`
-    nem `provider`/`quantizations` (conceitos do OpenRouter, não do endpoint direto).
-    `temperature` honrada (non-thinking); None = omite.
+    e o default `thinking="disabled"` DESTA factory trava non-thinking via extra_body para quem
+    chama sem argumento — extração #2 e judge #3, onde thinking corromperia o structured output.
+    Não usa `reasoning_off` nem `provider`/`quantizations` (conceitos do OpenRouter, não do
+    endpoint direto). `temperature` honrada (non-thinking); None = omite.
 
-    `thinking` != "disabled" ("low"/"high"/"max" = `reasoning_effort` do provider) é o braço B do
-    A/B de evals (.scratch/ab-thinking-chat): devolve `_ChatDeepSeekThinking` (compat de
-    `reasoning_content`) e OMITE a temperatura (o provider a ignora em thinking — doc oficial).
-    Nenhum caminho de prod passa o parâmetro; só o chat #1 o lê de
-    `settings.deepseek_thinking_chat` (default "disabled").
+    `thinking` != "disabled" ("low"/"high"/"max" = `reasoning_effort` do provider) devolve
+    `_ChatDeepSeekThinking` (compat de `reasoning_content` + teto de tokens próprio) e OMITE a
+    temperatura (o provider a ignora em thinking — doc oficial). Só o chat #1 passa o parâmetro,
+    lendo `settings.deepseek_thinking_chat` — default "low", isto é, PROD roda thinking desde
+    11/08/2026; o raciocínio capturado vira observável no trace via
+    `agente._texto_turno.raciocinio_do_turno`.
     """
     modelo = modelo or settings.deepseek_model_chat
     if thinking != "disabled":
@@ -124,7 +160,10 @@ def criar_chat_deepseek(
             model=modelo,
             api_key=settings.deepseek_api_key,
             base_url="https://api.deepseek.com",
-            max_tokens=settings.llm_max_tokens,
+            # Teto PRÓPRIO do thinking (`llm_max_tokens_thinking`): em thinking o `max_tokens` cobre
+            # a saída inteira — raciocínio + fala —, então o teto pensado só para a fala cortaria a
+            # bolha no meio do raciocínio (`finish_reason=length` -> turno truncado/vazio).
+            max_tokens=settings.llm_max_tokens_thinking,
             max_retries=2,
             timeout=60.0,
             extra_body={"thinking": {"type": "enabled"}, "reasoning_effort": thinking},

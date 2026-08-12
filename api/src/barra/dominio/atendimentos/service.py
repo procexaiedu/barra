@@ -1,11 +1,13 @@
 """Orquestracao do ciclo de vida de um atendimento aberto por par (cliente, modelo)."""
 
 import json
+import logging
 import re
+import unicodedata
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Literal, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
@@ -13,8 +15,12 @@ from zoneinfo import ZoneInfo
 from psycopg import AsyncConnection
 from psycopg.errors import ExclusionViolation
 
+from barra.core.catalogo import e_video_chamada
 from barra.core.errors import ConflitoEstado
+from barra.core.metrics import AGENTE_EXTRACAO_VALOR_FANTASMA, AGENTE_PISO_PACOTE
 from barra.settings import get_settings
+
+logger = logging.getLogger(__name__)
 
 Origem = Literal["webhook", "painel_fernando"]
 
@@ -306,6 +312,7 @@ async def registrar_extracao_ia(
     horario_minimo: datetime | None = None,
     horario_evidenciado: bool = False,
     recuo_detectado: bool = False,
+    fala_da_ia_no_turno: str | None = None,
 ) -> dict[str, Any]:
     """UPSERT do snapshot da IA + transicao de estado + bloqueio previo, na transacao do chamador.
 
@@ -316,6 +323,11 @@ async def registrar_extracao_ia(
     `recuo_detectado` e o veredito do OUTRO detector do turno (mesma origem, mesmo motivo): o
     cliente retratou o aceite. Rebaixa `aceita_valor` no merge dos sinais (ver
     `_sinais_qualificacao_do_turno`); nao toca o `valor_acordado`, que segue gravado.
+
+    `fala_da_ia_no_turno` e o texto que a IA acabou de escrever (ainda NAO esta em `mensagens`) —
+    entra como fonte (c) da guarda do valor fantasma, junto com o historico persistido. Vem do
+    State pela mesma porta dos dois detectores acima, e pelo mesmo motivo: o payload nao sabe o
+    que a IA falou no turno.
 
     Roda SEM abrir transacao propria: a tool ja envelopa esta chamada em `_executar_idempotente`
     (uma transacao), entao snapshot + transicao + bloqueio sao atomicos (o advisory lock + a
@@ -356,7 +368,9 @@ async def registrar_extracao_ia(
 
     # Guarda do piso de desconto (ADR-0004, defesa-em-profundidade sobre o prompt geral): valor
     # abaixo do piso NAO e gravado e dispara escalada fora_de_oferta para a modelo.
-    if _registra_valor(payload, limpar) and await _abaixo_do_piso(conn, aid, payload):
+    if _registra_valor(payload, limpar) and await _abaixo_do_piso(
+        conn, aid, payload, fala_da_ia_no_turno
+    ):
         await _escalar_modelo(
             conn,
             aid,
@@ -369,6 +383,29 @@ async def registrar_extracao_ia(
             "novo_estado": None,
         }
 
+    # Guarda do VALOR FANTASMA (validacao ao vivo 11/08; o porque inteiro esta em
+    # `_valores_ja_ofertados`): valor que a IA nunca ofertou nao e gravado. DEPOIS da guarda do
+    # piso de proposito — valor abaixo do piso continua ESCALANDO (ADR-0004: o cliente insistindo
+    # num numero baixo merece a modelo decidir), e so o que passa do piso mas nunca saiu da boca
+    # dela cai aqui. Descarte, nao escalada: nao ha nada para a modelo decidir, e a instrucao no
+    # retorno ensina o caminho certo (ofertar antes de fechar) ja no proximo turno.
+    aviso_fantasma = ""
+    if _registra_valor(payload, limpar):
+        legitimos = await _valores_ja_ofertados(conn, aid, fala_da_ia_no_turno)
+        fantasma = (
+            _valor_fora_do_conjunto(payload["valor_acordado"], legitimos) if legitimos else None
+        )
+        if fantasma is not None:
+            AGENTE_EXTRACAO_VALOR_FANTASMA.inc()
+            logger.warning(
+                "valor_acordado fantasma descartado no atendimento %s: proposto=%s legitimos=%s",
+                aid,
+                fantasma,
+                sorted(legitimos),
+            )
+            payload = _sem_valor_fantasma(payload, fantasma, legitimos)
+            aviso_fantasma = " " + _AVISO_VALOR_FANTASMA.format(fantasma=fantasma)
+
     # Guarda do par preco x duracao (feedback piloto 21/07): a duracao mudou neste turno SEM o
     # valor vir junto -- o `valor_acordado` persistido e de outra duracao, e a guarda acima nao
     # roda (so olha o payload). Sem isto a IA estica o periodo por cima do preco antigo ("3h 800"
@@ -379,7 +416,7 @@ async def registrar_extracao_ia(
         and payload.get("duracao_horas") is not None
         and "duracao_horas" not in limpar
         and "valor_acordado" not in limpar
-        and await _par_persistido_abaixo_do_piso(conn, aid, payload)
+        and await _par_persistido_abaixo_do_piso(conn, aid, payload, fala_da_ia_no_turno)
     ):
         raise ParPrecoDuracaoInvalido
 
@@ -453,7 +490,10 @@ async def registrar_extracao_ia(
     sets, valores = _montar_upsert(payload, limpar, recuo_detectado=recuo_detectado)
     _marca_horario_evidenciado(sets, valores, payload, limpar, horario_evidenciado)
     if not sets:
-        return {"mensagem": "Nenhum campo novo para registrar.", "novo_estado": None}
+        return {
+            "mensagem": "Nenhum campo novo para registrar." + aviso_fantasma,
+            "novo_estado": None,
+        }
     valores.append(aid)
     await conn.execute(
         f"UPDATE barravips.atendimentos SET {', '.join(sets)}, "
@@ -523,7 +563,11 @@ async def registrar_extracao_ia(
         await marcar_cotacao_enviada(conn, aid)
 
     await _registrar_evento(conn, aid, "extracao_registrada", payload)
-    return {"mensagem": "Extracao registrada.", "novo_estado": novo_estado, **resultado_extra}
+    return {
+        "mensagem": "Extracao registrada." + aviso_fantasma,
+        "novo_estado": novo_estado,
+        **resultado_extra,
+    }
 
 
 async def _tipo_aceito(conn: AsyncConnection[Any], atendimento_id: UUID, tipo: str) -> bool:
@@ -1047,14 +1091,26 @@ def _registra_valor(payload: dict[str, Any], limpar: set[str]) -> bool:
 
 
 async def _abaixo_do_piso(
-    conn: AsyncConnection[Any], atendimento_id: UUID, payload: dict[str, Any]
+    conn: AsyncConnection[Any],
+    atendimento_id: UUID,
+    payload: dict[str, Any],
+    fala_da_ia_no_turno: str | None = None,
 ) -> bool:
-    """Piso = preco_de_tabela x (1 - desconto_teto_pct) (ADR-0031, teto da escalada de 2 rodadas).
-    Sem programa correspondente a duracao, trata como abaixo do piso (escala). `desconto_teto_pct=0`
-    => piso = preco de tabela."""
+    """True quando o `valor_acordado` do payload fura o piso do PACOTE em jogo (=> escala
+    `fora_de_oferta`). O piso sai de `_piso_do_pacote` (par programa x duracao); sem piso
+    resolvido, escala -- fail-closed.
+
+    `fala_da_ia_no_turno` (a bolha que a IA acabou de escrever, ainda fora de `mensagens`) entra
+    porque a deducao do pacote le os precos COTADOS: o `valor_acordado` e gravado JA NA COTACAO,
+    entao no caso mais comum a unica cotacao existente e a deste turno.
+
+    Contabiliza SEMPRE em `AGENTE_PISO_PACOTE`: era justamente esta guarda que decidia em silencio
+    (o furo do piso por duracao nao deixava escalada, log nem metrica), entao a origem do piso e o
+    veredito viram serie -- e `origem="duracao_ambigua"` e o alarme de cadastro que o painel
+    precisa preencher."""
     valor = Decimal(str(payload["valor_acordado"]))
     res = await conn.execute(
-        "SELECT modelo_id, duracao_horas FROM barravips.atendimentos WHERE id = %s",
+        "SELECT modelo_id, duracao_horas, conversa_id FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
     row = await res.fetchone()
@@ -1067,14 +1123,171 @@ async def _abaixo_do_piso(
     duracao = payload.get("duracao_horas")
     if duracao is None:
         duracao = row["duracao_horas"]
-    preco_tabela = await _preco_tabela_min(conn, row["modelo_id"], duracao)
-    if preco_tabela is None:
-        return True
-    return valor < piso_de_desconto(preco_tabela)
+    piso, origem = await _piso_do_pacote(
+        conn,
+        atendimento_id,
+        row["modelo_id"],
+        duracao,
+        valor=valor,
+        conversa_id=row["conversa_id"],
+        fala_da_ia_no_turno=fala_da_ia_no_turno,
+    )
+    abaixo = piso is None or valor < piso
+    # Labels POSICIONAIS: o fallback sem `prometheus_client` (core/metrics) so aceita *args.
+    AGENTE_PISO_PACOTE.labels(origem, "escalado" if abaixo else "aceito").inc()
+    if abaixo and origem == "duracao_ambigua":
+        logger.warning(
+            "piso ambiguo no atendimento %s: valor=%s piso mais alto da duracao %s=%s "
+            "(nenhum servico vendido registrado)",
+            atendimento_id,
+            valor,
+            duracao,
+            piso,
+        )
+    return abaixo
+
+
+# De onde saiu o piso que julgou o valor -- label da `AGENTE_PISO_PACOTE` e, antes disso, o
+# vocabulario de quanto o sistema sabia do PACOTE na hora de julgar.
+OrigemDoPiso = Literal[
+    "programa_vendido", "preco_cotado", "duracao_unica", "duracao_ambigua", "sem_linha"
+]
+
+
+async def _piso_do_pacote(
+    conn: AsyncConnection[Any],
+    atendimento_id: UUID,
+    modelo_id: Any,
+    duracao_horas: Any,
+    *,
+    valor: Decimal | None = None,
+    conversa_id: Any = None,
+    fala_da_ia_no_turno: str | None = None,
+) -> tuple[Decimal | None, OrigemDoPiso]:
+    """O piso que vale para o pacote em jogo, amarrado ao par PROGRAMA x DURACAO, e de onde ele saiu.
+
+    O piso era o `piso_de_desconto` da linha MAIS BARATA da duracao (ADR-0004 §Decisao item 5,
+    escolhido para minimizar falso-positivo de escalada). Com um programa so por duracao as duas
+    leituras coincidem; com dois (Normal 400 / Completo 800 na 1h -- o cadastro da Lucia e da
+    Tatiane) o piso de QUALQUER pacote de 1h virava o do mais barato, e o Completo de 800 ficava
+    vendavel a 300. Duas camadas falhavam abertas juntas: 300 e um valor REAL da tabela, entao o
+    conjunto legitimo do output_guard tambem o aceitava -- venda abaixo do piso sem escalada,
+    sem log e sem metrica.
+
+    Inverter para o MAIS ALTO fechava esse furo, mas comprava um falso-positivo caro demais: com
+    piso ambiguo em 600, fechar o Normal pelo preco CHEIO de 400 escalava `fora_de_oferta`. Nao e
+    o caso raro -- e toda venda do pacote mais barato da duracao, o caso comum. Escalada em falso
+    a modelo resolve numa mensagem, sim, mas nao uma por venda normal: a modelo para de ler o
+    canal de escalada, e ai o furo volta por outra porta.
+
+    O desempate certo estava na conversa: a IA COTA antes de fechar (e so cota valor da tabela --
+    `<sobe_o_ticket>`), entao o preco que ela falou identifica o pacote. A escolha do piso, em
+    ordem de forca da evidencia:
+
+    1. **Programa VENDIDO** (`atendimento_servicos`, o unico lugar onde a identidade do pacote
+       esta gravada -- e so o painel escreve la): piso da linha (modelo x programa x duracao). Sem
+       linha para o par, `None` -- o pacote vendido nao existe nessa duracao.
+    2. **Duracao com um piso so**: nao ha o que deduzir e a deducao nao poderia mudar o numero --
+       curto-circuito antes de ler a conversa (e o cadastro da Catarina, a maioria das vendas:
+       nenhuma escalada nova e nenhuma query a mais).
+    3. **Preco COTADO** (`_piso_deduzido_do_cotado`): entre os precos que a IA ja falou nesta
+       conversa, os que casam com o `preco` de uma linha desta duracao apontam o pacote. Cotou 400
+       => Normal => piso 300 (fechar 400 passa, fechar 250 escala); cotou 800 => Completo => piso
+       600 (fechar 800 passa, fechar 300 escala -- o furo original, fechado).
+    4. **Fallback rigoroso**: deducao ambigua (cotou precos de mais de um pacote) ou nenhum preco
+       cotado que case -> o piso MAIS ALTO da duracao, valido para QUALQUER uma das linhas. Aqui o
+       fail-closed e barato porque o caso e raro, e e coerente com a cauda: a
+       `contraproposta_da_escada` tambem cala na duracao ambigua, entao a IA nunca RECEBEU o
+       desconto do pacote barato -- valor abaixo do piso mais alto ali e desconto de cabeca, nao
+       oferta que o sistema mandou fazer.
+
+    `None` (sem tabela para o par) sempre escala, como antes.
+
+    Le a duracao INTEIRA (`apenas_presenciais=False`), incluindo a vídeo chamada: aqui a pergunta
+    e sobre um atendimento que ja existe e que PODE ser a chamada. Uma chamada de 1h fechada em
+    550 (tabela 600, `preco_minimo` 600) tem de escalar; com a linha remota filtrada o piso viria
+    do Normal (300) e a venda passaria. A contrapartida -- a duracao fica ambigua quando a modelo
+    tem a chamada na mesma duracao -- e o fail-closed de sempre, e os itens 1/3 (servico vendido,
+    preco cotado) desfazem a ambiguidade nos casos que importam.
+    """
+    linhas = await _linhas_da_duracao(conn, modelo_id, duracao_horas, apenas_presenciais=False)
+    if not linhas:
+        return None, "sem_linha"
+    programa_id = await _programa_vendido(conn, atendimento_id)
+    if programa_id is not None:
+        vendida = [ln for ln in linhas if ln["programa_id"] == programa_id]
+        if not vendida:
+            return None, "sem_linha"
+        return piso_de_desconto(vendida[0]["preco"], vendida[0]["preco_minimo"]), "programa_vendido"
+    pisos = [piso_de_desconto(ln["preco"], ln["preco_minimo"]) for ln in linhas]
+    if len(set(pisos)) == 1:
+        return pisos[0], "duracao_unica"
+    cotados = await _precos_cotados_pela_ia(conn, conversa_id, fala_da_ia_no_turno)
+    deduzido = _piso_deduzido_do_cotado(linhas, cotados, valor)
+    if deduzido is not None:
+        return deduzido, "preco_cotado"
+    return max(pisos), "duracao_ambigua"
+
+
+def _piso_deduzido_do_cotado(
+    linhas: list[dict[str, Any]], cotados: set[int], valor: Decimal | None
+) -> Decimal | None:
+    """O piso da linha que os precos COTADOS identificam, ou `None` quando eles nao identificam
+    uma (o chamador cai no fallback rigoroso).
+
+    Candidata = linha cujo `preco` de tabela a IA cotou nesta conversa. Casa por INTEIRO, como o
+    resto do dominio faz com preco falado (`_valor_fora_do_conjunto`): o scanner da fala so devolve
+    inteiro, e centavos nao mudam a identidade do numero na conversa.
+
+    Duas candidatas de mesmo piso nao sao ambiguidade (dois programas de 400 na 1h): o numero e o
+    mesmo. Pisos divergentes entre candidatas = a IA cotou os dois pacotes na mesma conversa (o
+    cliente perguntou o preco dos dois). Ai a identidade do pacote so volta pelo valor FECHADO: se
+    ele e exatamente o `preco` de tabela de uma das candidatas, e essa linha vendida no CHEIO --
+    fechamento sem desconto nenhum, que uma guarda de piso de DESCONTO nao tem o que julgar. Fora
+    isso, ambiguo de verdade -> `None`.
+
+    O que a deducao NAO cobre, de proposito: preco cotado para OUTRA duracao que por coincidencia
+    e o `preco` de uma linha desta (tabelas em que o Normal de 2h custa o mesmo que o Completo de
+    1h). Ela erra para o lado permissivo so quando a coincidencia aponta a linha barata; o
+    desempate pelo valor cheio cobre o caso simetrico, e o painel gravando o servico vendido
+    (item 1) resolve os dois em definitivo."""
+    candidatas = [ln for ln in linhas if int(ln["preco"]) in cotados]
+    if not candidatas:
+        return None
+    pisos = {piso_de_desconto(ln["preco"], ln["preco_minimo"]) for ln in candidatas}
+    if len(pisos) == 1:
+        return pisos.pop()
+    no_cheio = {
+        piso_de_desconto(ln["preco"], ln["preco_minimo"])
+        for ln in candidatas
+        if valor is not None and ln["preco"] == valor
+    }
+    # Mesmo preco de tabela com minimos diferentes: vale o piso mais apertado, como em toda
+    # ambiguidade residual desta familia (ver `contraproposta_da_escada`).
+    return max(no_cheio) if no_cheio else None
+
+
+async def _programa_vendido(conn: AsyncConnection[Any], atendimento_id: UUID) -> Any | None:
+    """O `programa_id` do pacote vendido, quando o atendimento tem UM servico registrado.
+
+    `atendimento_servicos` e a unica materializacao da identidade do pacote (mesma base que o
+    `_base_do_pacote` do extra de fetiche prefere), e so o painel escreve nela -- o fechamento
+    conduzido pela IA nao passa por aqui. Mais de um servico = pacote que e a soma de dois: nao ha
+    "o programa" a que amarrar o piso, e quem chama cai na regra da duracao.
+    """
+    res = await conn.execute(
+        "SELECT programa_id FROM barravips.atendimento_servicos WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    linhas = await res.fetchall()
+    return linhas[0]["programa_id"] if len(linhas) == 1 else None
 
 
 async def _par_persistido_abaixo_do_piso(
-    conn: AsyncConnection[Any], atendimento_id: UUID, payload: dict[str, Any]
+    conn: AsyncConnection[Any],
+    atendimento_id: UUID,
+    payload: dict[str, Any],
+    fala_da_ia_no_turno: str | None = None,
 ) -> bool:
     """Confere o par (valor_acordado JA persistido, duracao_horas do payload) contra o piso da
     tabela. Sem valor persistido nao ha par a conferir (False). Reusa `_abaixo_do_piso` com um
@@ -1092,95 +1305,1067 @@ async def _par_persistido_abaixo_do_piso(
         conn,
         atendimento_id,
         {"valor_acordado": row["valor_acordado"], "duracao_horas": payload["duracao_horas"]},
+        fala_da_ia_no_turno,
     )
 
 
-def piso_de_desconto(preco_tabela: Decimal) -> Decimal:
+# --- Valor fantasma: o numero que a IA nunca ofertou (validacao ao vivo 11/08, escada_val2) -----
+#
+# O extrator gravou `valor_acordado=300` (+ `aceita_valor`) no turno em que a IA RECUSOU os 300 do
+# cliente ("Poxa amor, nao consigo por 300 nao"): o cliente "aceitou" o numero DELE MESMO. E o
+# extrator nao tem como saber da recusa — a janela da extracao exclui por contrato a fala da IA do
+# turno corrente (nos/extrair.py). No turno seguinte o belief mostrou "<valor status='aceito por
+# ele'>300</valor>" e a IA capitulou ("Isso amor, fechado nos 300"). O piso nao pegou: 300 era
+# exatamente o teto de 25% sobre a tabela de 400 (ADR-0031) — oferta valida, so que nunca ofertada.
+#
+# A `_DESC_VALOR` ja proibia em prosa ("nem um numero que o cliente PROPOS e voce NAO aceitou"). A
+# regra vira estrutural: so e `valor_acordado` aceitavel o numero que
+#   (a) esta na tabela da modelo (`modelo_programas.preco`/`preco_minimo`), ou
+#   (c) JA SAIU DA BOCA DA IA nesta conversa (falas persistidas + a fala DESTE turno).
+# Degrau/teto (ADR-0031) NAO entram por si: eles so valem depois de a IA os ter FALADO, o que ja
+# cai em (c) — e no caso vivo o proprio teto era o numero fantasma. (a) U (c) basta.
+#
+# Duas decisoes finas, as duas custaram o bug:
+#  - a fala do turno CORRENTE conta (ela vem do State, nao do banco). Sem ela, o fluxo normal
+#    quebraria: `valor_acordado` e gravado JA NA COTACAO (ver `_sinais_qualificacao_do_turno`), e o
+#    total com extra de fetiche (400 do pacote + 400 do extra = 800, ADR-0030) nao esta na tabela —
+#    so na bolha que acabou de ser escrita.
+#  - preco dentro de uma clausula NEGADA nao e oferta ("nao consigo por 300 nao"). Sem isso a
+#    recusa se legitimaria a si mesma no turno corrente e, pior, ficaria no banco legitimando o
+#    mesmo 300 nos turnos seguintes. E a licao do ven_004 pelo avesso: regex cego a negacao pune a
+#    resposta certa la, e aqui premiaria a errada. Por clausula (nao por janela de N chars) porque
+#    a negacao aparece dos DOIS lados em pt-BR ("nao consigo 300" e "consigo 300 nao").
+#
+# Fora do conjunto => o campo NAO e gravado (o resto do payload segue), `aceita_valor` do MESMO
+# payload cai junto (foi inferido do mesmo evento falso) e a tool devolve o descarte ao LLM.
+
+# Scanner de preco CITADO — mudou de casa (vinha de agente/nos/output_guard.py, que hoje o importa
+# daqui): o mesmo criterio que julga a BOLHA na saida julga aqui se o numero saiu da boca da IA.
+# ESTREITO de proposito — falso-positivo derruba cotacao boa. So conta o numero em CONTEXTO
+# monetario: "R$ 600", "600 reais", a cotacao canonica "600 1h"/"600 30min", a contraproposta
+# "consigo 500" e "por/fica/sai 600". Numero solto ("Av. Aquidaba 130"), horario ("18h", "17:30") e
+# duracao ("1h") nao casam. Piso de 100: taxa de uber/valores pequenos ficam fora (falso-negativo
+# aceito — o guard mira o preco de PROGRAMA).
+#
+# Ramo de FECHAMENTO (11/08/2026, ADR-0040): quando quem nomeia o numero e o CLIENTE e ela so diz
+# sim, a fala natural do aceite ("Fechado 700 amor", "Tabom, 700 entao") nao tem "R$", nem "por",
+# nem duracao colada — e sem ela o `_valores_ja_ofertados` descartava a venda inteira como valor
+# fantasma. A alternativa era prescrever no prompt UMA frase que o scanner ja lesse ("Consigo 700
+# sim amor"); foi recusada pelo dono do produto: conduta prescrita como frase vira tique (o "Seria
+# hoje ?" ja virou tique medido em prod) e uma frase com carga funcional pune toda variacao. Entao
+# o detector e que alarga — a fala fica livre, o token de fechamento e que precisa estar colado no
+# numero. Continua ESTREITO: o token de aceite e obrigatorio e o piso de 100 segue valendo.
+_RE_PRECO_CITADO = re.compile(
+    r"r\$\s*(\d[\d.]{2,6})"
+    r"|\b(\d[\d.]{2,6})\s*(?:reais|conto)\b"
+    r"|\b(\d{3,4})\s+(?:\d{1,2}\s*h(?:\d{2})?\b|\d{1,2}\s*(?:hora|hr)|meia hora|\d{2}\s*min)"
+    r"|\bconsigo\s+(?:r\$\s*)?(\d{1,2}\.\d{3}|\d{3,4})\b"
+    r"|\b(?:por|fica|sai)\s+(?:r\$\s*)?(\d{1,2}\.\d{3}|\d{3,4})\b"
+    r"|\b(?:fechado|fechados|fechamos|combinado|tabom|t[áa] bom|fecho|fa[çc]o|topo)[,!]?\s+"
+    r"(?:por\s+|em\s+|r\$\s*)?(\d{1,2}\.\d{3}|\d{3,4})\b"
+    r"|\b(\d{1,2}\.\d{3}|\d{3,4})\s+(?:ent[ãa]o|fechado|fechamos|combinado)\b"
+)
+PRECO_MINIMO_SCAN = 100
+# Fim de clausula: pontuacao que NAO esteja ENTRE digitos ("1.000", "400,00" seguem inteiros; o
+# "300, mas consigo 350" continua sendo duas clausulas). Sem essa guarda o split partiria o proprio
+# numero e o "1.000" sumiria do conjunto; com ela estreita demais, a recusa contaminaria a oferta
+# que vem logo depois dela na mesma bolha.
+_RE_FIM_DE_CLAUSULA = re.compile(r"(?<!\d)[.,]|[.,](?!\d)|[;:!?\n]")
+_RE_NEGACAO_NA_CLAUSULA = re.compile(r"\b(?:n[aã]o|nunca|nem|jamais)\b")
+# Falas da modelo lidas do historico. 50 e a mesma ordem de grandeza da janela do turno: negociacao
+# de preco vive nas ultimas trocas, e varrer a conversa inteira so encareceria a query.
+_JANELA_FALAS_DA_MODELO = 50
+
+
+def extrair_precos_citados(texto: str) -> set[int]:
+    """Valores monetarios que o texto CITA como preco (PURO; contexto monetario exigido).
+
+    Normalizar o texto no caller nao e usado aqui de proposito: o regex e case-insensitive por
+    construcao (digitos) e o "R$" precisa do cifrao cru. Separador de milhar ("1.000") e
+    colapsado antes do parse."""
+    valores: set[int] = set()
+    for grupos in _RE_PRECO_CITADO.findall(texto.lower()):
+        for bruto in grupos:
+            if not bruto:
+                continue
+            try:
+                valor = int(bruto.replace(".", ""))
+            except ValueError:
+                continue
+            if valor >= PRECO_MINIMO_SCAN:
+                valores.add(valor)
+    return valores
+
+
+def precos_ofertados_na_fala(texto: str) -> set[int]:
+    """Precos que a fala da modelo/IA OFERTA (PURO): `extrair_precos_citados` menos o que aparece
+    em clausula negada — "nao consigo por 300 nao" cita 300 e nao oferta nada."""
+    valores: set[int] = set()
+    for clausula in _RE_FIM_DE_CLAUSULA.split(texto.lower()):
+        if not _RE_NEGACAO_NA_CLAUSULA.search(clausula):
+            valores |= extrair_precos_citados(clausula)
+    return valores
+
+
+async def _valores_ja_ofertados(
+    conn: AsyncConnection[Any], atendimento_id: UUID, fala_do_turno: str | None
+) -> set[int]:
+    """Conjunto legitimo de `valor_acordado`: tabela da modelo U precos que ela/a IA ja ofertou.
+
+    Vazio = detector DESLIGADO (mesma convencao do `bolhas_preco_fantasma`): modelo sem nenhum
+    preco cadastrado nao tem "fora da tabela", e descartar tudo travaria a venda de um cadastro
+    incompleto. `modelo_manual` conta junto com `ia` — numero que o Fernando/a modelo digitou no
+    painel saiu da boca da modelo do mesmo jeito."""
+    res = await conn.execute(
+        "SELECT modelo_id, conversa_id FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    if row is None:
+        return set()
+    res = await conn.execute(
+        "SELECT preco, preco_minimo FROM barravips.modelo_programas WHERE modelo_id = %s",
+        (row["modelo_id"],),
+    )
+    legitimos = {
+        int(Decimal(str(r[coluna])))
+        for r in await res.fetchall()
+        for coluna in ("preco", "preco_minimo")
+        if r[coluna] is not None
+    }
+    if not legitimos:
+        return set()
+    return legitimos | await _precos_cotados_pela_ia(conn, row["conversa_id"], fala_do_turno)
+
+
+async def _precos_cotados_pela_ia(
+    conn: AsyncConnection[Any], conversa_id: Any, fala_do_turno: str | None
+) -> set[int]:
+    """Precos que sairam da BOCA da IA/modelo nesta conversa: janela de falas persistidas +, se
+    veio, a bolha deste turno (que ainda nao esta em `mensagens`).
+
+    E a metade "falada" do conjunto legitimo do valor fantasma -- `_valores_ja_ofertados` une isto
+    com a tabela da modelo. O piso do pacote precisa dela SOZINHA: unir a tabela ali equivaleria a
+    dizer que a IA cotou todos os pacotes, e a deducao do pacote (`_piso_deduzido_do_cotado`)
+    nunca identificaria nenhum. Sem `conversa_id` (chamador que nao a tem) sobra so a fala do
+    turno.
+
+    Oferta, nao citacao: `precos_ofertados_na_fala` ja tira o numero em clausula negada -- "nao
+    consigo por 300 nao" nao cota pacote nenhum."""
+    cotados: set[int] = set()
+    if conversa_id is not None:
+        res = await conn.execute(
+            """
+            SELECT conteudo FROM barravips.mensagens
+             WHERE conversa_id = %s AND direcao IN ('ia', 'modelo_manual') AND conteudo <> ''
+             ORDER BY created_at DESC, id DESC
+             LIMIT %s
+            """,
+            (conversa_id, _JANELA_FALAS_DA_MODELO),
+        )
+        for mensagem in await res.fetchall():
+            cotados |= precos_ofertados_na_fala(mensagem["conteudo"])
+    if fala_do_turno:
+        cotados |= precos_ofertados_na_fala(fala_do_turno)
+    return cotados
+
+
+def _valor_fora_do_conjunto(valor: Any, legitimos: set[int]) -> int | None:
+    """O valor como INTEIRO quando ele nao pertence ao conjunto legitimo; None quando pertence.
+
+    Case pelo inteiro: centavos nao mudam a identidade do numero na conversa ("350,00" e o 350 que
+    a IA falou). Chao e arredondamento entram os dois — 349,50 casa com 350 ofertado, e 349,49
+    casa com 349 (nenhum dos dois vale a pena escalar por um centavo)."""
+    try:
+        numero = Decimal(str(valor))
+    except (InvalidOperation, ValueError, TypeError):
+        return None
+    candidatos = {int(numero), int(numero.to_integral_value(rounding=ROUND_HALF_UP))}
+    return None if candidatos & legitimos else int(numero)
+
+
+def _sem_valor_fantasma(
+    payload: dict[str, Any], fantasma: int, legitimos: set[int]
+) -> dict[str, Any]:
+    """Payload sem o `valor_acordado` descartado: o resto segue gravando normalmente.
+
+    `aceita_valor` do MESMO payload cai junto — ele foi inferido do mesmo evento falso (o cliente
+    "aceitando" o proprio numero). Os outros sinais ficam. O `valor_descartado` viaja no evento
+    `extracao_registrada`, mesma auditoria do `drift_descartado`/`tipo_descartado`."""
+    limpo = {k: v for k, v in payload.items() if k != "valor_acordado"}
+    sinais = {k: v for k, v in (payload.get("sinais_qualificacao") or {}).items()}
+    sinais.pop("aceita_valor", None)
+    if sinais:
+        limpo["sinais_qualificacao"] = sinais
+    else:
+        limpo.pop("sinais_qualificacao", None)
+    limpo["valor_descartado"] = {"proposto": fantasma, "legitimos": sorted(legitimos)}
+    return limpo
+
+
+_AVISO_VALOR_FANTASMA = (
+    "AVISO: valor_acordado {fantasma} DESCARTADO — esse numero nunca foi ofertado por voce nesta "
+    "conversa (so vale preco da sua tabela ou valor que voce mesma falou), entao o sistema nao "
+    "gravou o valor nem o aceite. Se voce decidir aceitar esse valor, OFERTE-O na sua fala ao "
+    "cliente e registre no proximo turno."
+)
+
+
+def piso_de_desconto(preco_tabela: Decimal, preco_minimo: Decimal | None = None) -> Decimal:
     """Menor valor que a IA oferta sozinha sobre um preco de tabela: `preco x (1 -
-    desconto_teto_pct)` (ADR-0031, teto da escalada de 2 rodadas). `desconto_teto_pct=0` =>
-    piso = preco de tabela.
+    desconto_teto_pct)` (ADR-0031, teto da escalada de 2 rodadas), NUNCA abaixo do
+    `preco_minimo` cadastrado na linha. `desconto_teto_pct=0` => piso = preco de tabela.
 
     SITE UNICO da conta, de proposito: quem JULGA a oferta da IA (`_abaixo_do_piso`) e quem
-    MOSTRA o numero a ela (o `<ja_fez_contraproposta n="1">` da cauda, via
-    `teto_de_contraproposta`) saem daqui. Duas implementacoes que concordam hoje divergem no
+    MOSTRA o numero a ela (o bloco da escada na cauda, via `contraproposta_da_escada`) saem daqui. Duas implementacoes que concordam hoje divergem no
     arredondamento amanha, e a divergencia aparece como escalada `fora_de_oferta` a toa em cima
-    de uma oferta que a propria cauda mandou fazer."""
-    return preco_tabela * (Decimal("1") - Decimal(str(get_settings().desconto_teto_pct)))
+    de uma oferta que a propria cauda mandou fazer.
+
+    `preco_minimo` (11/08/2026, ao subir a Catarina) e o piso ABSOLUTO da linha, cadastrado em
+    `modelo_programas.preco_minimo`: o percentual global e uma regra da CASA, o minimo e uma
+    regra DESTA modelo neste pacote, e a regra mais apertada vence. Sem ele, um pacote curto
+    cadastrado justamente como "o minimo que eu faco" (Catarina: 250 nos 30min) seria descontado
+    pelos mesmos 25% e viraria 188 — o minimo que desconta nao e minimo. NULL preserva o
+    comportamento de antes: so o percentual manda."""
+    return _clampado(
+        preco_tabela * (Decimal("1") - Decimal(str(get_settings().desconto_teto_pct))),
+        preco_minimo,
+    )
 
 
-async def teto_de_contraproposta(
-    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
+def degrau_de_desconto(preco_tabela: Decimal, preco_minimo: Decimal | None = None) -> Decimal:
+    """Valor da PRIMEIRA contraproposta sobre um preco de tabela: `preco x (1 -
+    desconto_degrau_pct)` (ADR-0031, degrau da escalada de 2 rodadas), NUNCA abaixo do
+    `preco_minimo` da linha (mesma regra do `piso_de_desconto`, ver docstring dele).
+    `desconto_degrau_pct=0` => degrau = preco de tabela.
+
+    SITE UNICO da conta do degrau, irmao do `piso_de_desconto`: quem LEGITIMA o numero na saida
+    (`_valores_legitimos`, output_guard) e quem o MOSTRA a IA (o bloco da escada na cauda, via
+    `contraproposta_da_escada`) saem daqui — mesma razao do piso: duas contas que concordam hoje
+    divergem no arredondamento amanha, e o guard derruba a oferta que a cauda mandou fazer."""
+    return _clampado(
+        preco_tabela * (Decimal("1") - Decimal(str(get_settings().desconto_degrau_pct))),
+        preco_minimo,
+    )
+
+
+def _clampado(valor: Decimal, preco_minimo: Decimal | None) -> Decimal:
+    """Nao deixa a conta percentual furar o piso absoluto da linha. Sem minimo, passa direto."""
+    if preco_minimo is None:
+        return valor
+    return max(valor, Decimal(str(preco_minimo)))
+
+
+# Uma LINHA de tabela e o par `(preco, preco_minimo)` de `modelo_programas` (o piso absoluto da
+# linha, ADR-0037, pode ser NULL). Tudo que precifica um pacote trafega esse par junto -- preco
+# sem o minimo dele volta a permitir desconto por baixo do que a modelo cadastrou como minimo.
+LinhaDeTabela = tuple[Decimal, Decimal | None]
+
+# ESTAGIO da escada de desconto em que um valor esta -- discreto, nunca um percentual livre.
+# Sao os tres valores que a IA pode dizer sobre uma linha (ADR-0031 + ADR-0037): o preco cheio,
+# o degrau (primeira contraproposta) e o piso (a ultima). Existe como TIPO porque o extra de
+# fetiche acompanha o patamar do pacote (ADR-0038) e "acompanhar" tinha que ser uma escolha
+# entre tres valores, nao um fator multiplicativo -- ver `valor_no_patamar`.
+Patamar = Literal["cheio", "degrau", "piso"]
+PATAMARES: tuple[Patamar, ...] = ("cheio", "degrau", "piso")
+
+
+def valor_no_patamar(
+    preco_tabela: Decimal, preco_minimo: Decimal | None, patamar: Patamar
+) -> Decimal:
+    """O valor de UMA linha de tabela no estagio `patamar` da escada -- despacho, nao conta nova.
+
+    Os numeros saem dos sites unicos de sempre (`degrau_de_desconto`/`piso_de_desconto`, com o
+    clamp do `preco_minimo`); aqui so se escolhe QUAL deles. Existe para que "no mesmo patamar"
+    seja uma operacao nomeada: o extra de fetiche (ADR-0038) e o pacote precisam descer pela
+    MESMA escada, e a alternativa -- multiplicar o extra pelo fator `valor_negociado/preco` --
+    da numeros que nao existem em tabela nenhuma (na 3h da Catarina, com piso absoluto de 900
+    sobre 1000, o fator 0,9 faria o extra virar R$360; o patamar faz dele R$300, que e o piso da
+    1h dela).
+    """
+    if patamar == "degrau":
+        return degrau_de_desconto(preco_tabela, preco_minimo)
+    if patamar == "piso":
+        return piso_de_desconto(preco_tabela, preco_minimo)
+    return preco_tabela
+
+
+def patamar_do_valor(
+    preco_tabela: Decimal, preco_minimo: Decimal | None, valor_da_mesa: Decimal
+) -> Patamar:
+    """Em que patamar da escada um VALOR ja esta -- o inverso do `valor_no_patamar`, e a emenda do
+    ADR-0038 (11/08/2026): o patamar deixa de ser deduzido so do contador de rodadas.
+
+    `n_contrapropostas` carrega dois fatos que ate hoje coincidiam: quantas rodadas a IA gastou, e
+    em que estagio o valor da mesa esta. Eles deixam de coincidir quando o numero na mesa veio do
+    CLIENTE (ADR-0040): com tabela 800 e piso 600, aceitar os 700 DELE consome a rodada de hoje --
+    `patamar_vigente(hoje, 1)` diria `piso` e o extra de fetiche sairia a 600 em cima de um pacote
+    de 700. Aqui a resposta sai do proprio valor: `degrau`.
+
+    Definicao: o patamar MAIS RASO cujo valor e `<= valor_da_mesa`. Discreto e monotonico, nunca um
+    fator multiplicativo -- e exatamente o que o ADR-0038 rejeitou (multiplicar o extra por
+    `valor_negociado/preco` da numeros que nao existem em tabela nenhuma). Os numeros continuam
+    saindo dos sites unicos, via `valor_no_patamar`.
+
+    Em 800/600 (degrau 700, piso 600): 800 -> cheio; 750 -> degrau; 700 -> degrau; 650 -> piso;
+    600 -> piso. Valor abaixo do piso (nao deveria existir; a guarda `_abaixo_do_piso` escala)
+    devolve `piso`, que e o mais fundo que a escada conhece."""
+    for patamar in PATAMARES:
+        if valor_no_patamar(preco_tabela, preco_minimo, patamar) <= valor_da_mesa:
+            return patamar
+    return "piso"
+
+
+# O DIA do encontro, como a escada de desconto o enxerga (decisao do dono do produto, 11/08/2026).
+# Nao e uma data: e a unica distincao que muda a conduta comercial.
+Encontro = Literal["hoje", "outro_dia", "dia_desconhecido"]
+
+# A escada de desconto POR ENCONTRO -- os patamares que ela pode ofertar, em ordem.
+#
+# Agenda de hoje e ociosidade que nao volta: vale o desconto cheio de imediato, entao a primeira
+# (e unica) contraproposta ja e o PISO. Para outro dia nao ha pressa e ela negocia devagar: degrau,
+# depois piso, a escalada de 2 rodadas do ADR-0031. Enquanto o dia nao esta na mesa NAO se
+# desconta — nao ha "quantas rodadas" a decidir sem saber a qual regime a conversa pertence, e o
+# degrau 1 do `<desconto>` ja manda defender o valor e perguntar "Seria hoje ?": o fluxo natural
+# produz o dado de que a escada precisa.
+#
+# A ARITMETICA nao muda (`degrau_de_desconto`/`piso_de_desconto` seguem sites unicos); o que este
+# mapa decide e QUAL patamar a escada oferece primeiro, e quantas vezes.
+ESCADA_POR_ENCONTRO: dict[Encontro, tuple[Patamar, ...]] = {
+    "hoje": ("piso",),
+    "outro_dia": ("degrau", "piso"),
+    "dia_desconhecido": (),
+}
+
+# Em que ponto a escada esta, para a cauda escolher o bloco (e o prompt parar de afirmar "duas
+# contrapropostas" incondicionalmente -- com encontro hoje existe UMA).
+EstadoDaEscada = Literal["sem_dia", "aberta", "ultima", "esgotada"]
+
+
+def estado_da_escada(encontro: Encontro, n_contrapropostas: int) -> EstadoDaEscada:
+    """Onde a negociacao esta na escada deste encontro -- SITE UNICO do gating por rodada.
+
+    `sem_dia` = o dia nao esta na mesa: nenhum numero desce, a jogada e defender o valor e
+    descobrir o dia. `aberta` = ainda ha mais de uma contraproposta pela frente. `ultima` = a que
+    esta disponivel e a ultima. `esgotada` = acabou (aceite ou recusa; abaixo dela, escalada).
+    """
+    patamares = ESCADA_POR_ENCONTRO[encontro]
+    if not patamares:
+        return "sem_dia"
+    restantes = len(patamares) - max(n_contrapropostas, 0)
+    if restantes <= 0:
+        return "esgotada"
+    return "ultima" if restantes == 1 else "aberta"
+
+
+def patamar_da_contraproposta(encontro: Encontro, n_contrapropostas: int) -> Patamar | None:
+    """O patamar da PROXIMA contraproposta, ou None quando nao ha nenhuma a fazer."""
+    patamares = ESCADA_POR_ENCONTRO[encontro]
+    if not 0 <= n_contrapropostas < len(patamares):
+        return None
+    return patamares[n_contrapropostas]
+
+
+def patamar_vigente(encontro: Encontro, n_contrapropostas: int) -> Patamar:
+    """O patamar em que o valor na mesa JA esta -- o da ultima contraproposta feita, `cheio` antes
+    da primeira. E o que o extra de fetiche precisa para descer junto com o pacote (ADR-0038)."""
+    patamares = ESCADA_POR_ENCONTRO[encontro]
+    if n_contrapropostas <= 0 or not patamares:
+        return "cheio"
+    return patamares[min(n_contrapropostas, len(patamares)) - 1]
+
+
+# O veredito da `aceite_do_valor_dele` -- label da `AGENTE_ACEITE_DO_CLIENTE` e, antes disso, o
+# vocabulario de POR QUE o numero dele nao serviu. Tudo que nao e `aceito` cai na escada de sempre.
+MotivoDoAceite = Literal[
+    "aceito", "abaixo_do_piso", "acima_da_mesa", "ambiguo", "sem_valor", "esgotada"
+]
+
+
+async def aceite_do_valor_dele(
+    conn: AsyncConnection[Any],
+    modelo_id: Any,
+    duracao_horas: Any,
+    *,
+    valor_proposto: int | None,
+    valor_da_mesa: Decimal | None,
+    encontro: Encontro,
+    n_contrapropostas: int,
+) -> tuple[Decimal | None, MotivoDoAceite]:
+    """O valor que o CLIENTE nomeou, quando ele serve -- ou `None` e o motivo (ADR-0040).
+
+    A regra: numero DELE que cai em `[piso, valor_da_mesa)` fecha a venda NO NUMERO DELE, na hora.
+    O vendedor humano exemplar cotou 800, ouviu "faz 700" e fechou em 700; a escada respondia 600
+    (o piso), porque "faz por X" era so o GATILHO dela e o X era jogado fora. Dar desconto que o
+    cliente nao pediu, em toda negociacao em que ele nomeia um valor, e o prejuizo que esta funcao
+    fecha -- e ela nao inventa numero nenhum: o numero e o dele.
+
+    Irma da `contraproposta_da_escada` e com a mesma cascata fail-closed: le a tabela pela
+    `_linhas_de_tabela` (`apenas_presenciais=True`) e o piso pelo `piso_de_desconto`, exatamente
+    como a `_contraproposta_da_tabela`. NAO reusa o `_piso_do_pacote`: ele responde a pergunta da
+    venda JA FEITA (e traz a vídeo chamada junto, `apenas_presenciais=False`); aqui a pergunta e a
+    da OFERTA, e e a mesma razao pela qual `_linhas_de_tabela` existe separada.
+
+    `valor_da_mesa` = o `valor_acordado` do atendimento quando existe; `None` cai no `preco` da
+    linha unica (a cotacao em aberto). Depois de um aceite a mesa e o valor aceito, e um pedido
+    ainda mais baixo volta a ser candidato -- quem impede o leilao (700 -> 650 -> 620) NAO e o
+    piso, e o ORCAMENTO DE RODADAS: o aceite CONSUME uma rodada da escada (o chamador incrementa
+    `n_contrapropostas` pelo write-time, `_disciplina.contem_contraproposta`), entao com encontro
+    HOJE (uma rodada so) aceitar 700 esgota a escada e o proximo pedido recebe "Poxa amor nao
+    consigo".
+
+    `dia_desconhecido` e o buraco desse orcamento: `ESCADA_POR_ENCONTRO` e vazia e o
+    `estado_da_escada` devolve `sem_dia` para QUALQUER `n`, entao o contador nunca esgota. Ali a
+    regra e explicita: um aceite so (`n_contrapropostas == 0`). Aceitar o numero dele independe do
+    dia -- o dia decide quanto ELA desce, nao quanto ELE ofereceu.
+    """
+    esgotada = estado_da_escada(encontro, n_contrapropostas) == "esgotada" or (
+        encontro == "dia_desconhecido" and n_contrapropostas > 0
+    )
+    if esgotada:
+        return None, "esgotada"
+    if valor_proposto is None:
+        return None, "sem_valor"
+    linhas = await _linhas_de_tabela(conn, modelo_id, duracao_horas)
+    precos = {preco for preco, _ in linhas}
+    if len(precos) != 1:
+        return None, "ambiguo"
+    preco = next(iter(precos))
+    # Mesmo criterio da `_contraproposta_da_tabela` para duas linhas com o mesmo preco e minimos
+    # diferentes: vale o piso MAIS ALTO, o unico valido para qualquer uma delas.
+    piso = max(piso_de_desconto(preco, preco_minimo) for _, preco_minimo in linhas)
+    mesa = valor_da_mesa if valor_da_mesa is not None else preco
+    proposto = Decimal(valor_proposto)
+    if proposto >= mesa:
+        return None, "acima_da_mesa"
+    if proposto < piso:
+        return None, "abaixo_do_piso"
+    return proposto, "aceito"
+
+
+async def patamar_da_mesa_na_tabela(
+    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any, valor_da_mesa: Decimal | None
+) -> Patamar | None:
+    """O patamar do valor que esta na mesa, lido da TABELA (emenda do ADR-0038, ver
+    `patamar_do_valor`). `None` sem valor na mesa ou com a duracao ambigua -- o chamador cai no
+    `patamar_vigente`, que deriva do contador de rodadas.
+
+    Devolver `cheio` NAO significa "a negociacao esta no cheio": significa "a mesa nao se moveu"
+    (`valor_acordado` e gravado ja na cotacao e nao acompanha a contraproposta ainda nao aceita).
+    Quem le trata `cheio` como ausencia de resposta e fica com o contador -- ver o chamador."""
+    if valor_da_mesa is None:
+        return None
+    linhas = await _linhas_de_tabela(conn, modelo_id, duracao_horas)
+    precos = {preco for preco, _ in linhas}
+    if len(precos) != 1:
+        return None
+    preco = next(iter(precos))
+    # Duas linhas com o mesmo preco e minimos diferentes: o patamar mais RASO entre elas -- o extra
+    # nao pode descer mais do que a linha mais restritiva permite.
+    return min(
+        (patamar_do_valor(preco, preco_minimo, valor_da_mesa) for _, preco_minimo in linhas),
+        key=PATAMARES.index,
+    )
+
+
+async def contraproposta_da_escada(
+    conn: AsyncConnection[Any],
+    modelo_id: Any,
+    duracao_horas: Any,
+    *,
+    encontro: Encontro,
+    n_contrapropostas: int,
 ) -> Decimal | None:
-    """Valor ABSOLUTO da segunda e ultima contraproposta (ADR-0031) para a duracao em jogo — o
-    numero que a cauda mostra a IA em vez do percentual que ela multiplicava de cabeca.
+    """Valor ABSOLUTO da proxima contraproposta -- o numero que a cauda mostra a IA em vez do
+    percentual que ela multiplicava de cabeca (trace 11/08: 12,5% sobre 400 saiu "320", que nao e
+    degrau nem teto, e o guard derrubou a venda).
 
-    `None` (a cauda nao injeta numero nenhum e a IA cai no percentual do `<desconto>`) quando:
+    Encontro HOJE devolve o piso ja na primeira rodada e None na segunda (nao existe); outro dia
+    devolve degrau e depois piso; dia desconhecido nunca devolve numero.
+
+    `None` (a cauda nao injeta numero nenhum e vale a prosa do `<desconto>`) tambem quando:
     - a duracao nao esta fechada, ou nao ha programa dela nessa duracao — nao ha preco de tabela;
-    - a duracao tem MAIS DE UM preco na tabela dela (ex.: "Padrao 1h 400" e "Casal 1h 700"). O
-      piso que o guard usa e o do programa mais BARATO de proposito (ADR-0004 §Decisao item 5:
-      minimiza falso-positivo de escalada), mas o teto que ela pode ofertar e sobre o "Preco de
-      tabela do pacote VENDIDO" (CONTEXT.md, Piso de desconto) — e o pacote nao esta gravado no
-      atendimento (`atendimento_servicos` so o painel escreve). Mostrar o piso do mais barato
-      como se fosse o teto dela mandaria a IA dar 25% em cima do pacote errado. Com um preco so
-      na duracao, as duas leituras sao o MESMO numero e a ambiguidade nao existe."""
-    if duracao_horas is None:
+    - a duracao tem MAIS DE UM preco na tabela dela (ex.: "Normal 1h 400" e "Completo 1h 800"): a
+      oferta e sobre o "Preco de tabela do pacote VENDIDO" (CONTEXT.md, Piso de desconto) e o
+      pacote nao esta gravado no atendimento (`atendimento_servicos` so o painel escreve). Um
+      numero sobre o pacote errado e pior que nenhum — e o mesmo fail-closed que o
+      `_piso_do_pacote` aplica do lado de quem JULGA a oferta.
+    """
+    patamar = patamar_da_contraproposta(encontro, n_contrapropostas)
+    if patamar is None:
         return None
-    precos = await _precos_tabela(conn, modelo_id, duracao_horas)
-    if precos is None or precos[0] != precos[1]:
-        return None
-    return piso_de_desconto(precos[0])
+    return await _contraproposta_da_tabela(conn, modelo_id, duracao_horas, patamar)
 
 
-async def _preco_tabela_min(
-    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
-) -> Decimal | None:
-    """Menor preco de tabela dos programas da modelo na duracao acordada (`duracoes.horas`).
-    Usa o MENOR preco como base do piso (ADR-0004 §Decisao item 5): piso mais baixo => so escala
-    quem esta abaixo ate do programa mais barato, minimizando falso-positivo."""
-    precos = await _precos_tabela(conn, modelo_id, duracao_horas)
-    return precos[0] if precos is not None else None
-
-
-async def _precos_tabela(
+async def oferta_condicionada_ao_dia(
     conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
 ) -> tuple[Decimal, Decimal] | None:
-    """`(menor, maior)` preco de tabela dos programas da modelo na duracao acordada
-    (`duracoes.horas`), ou None sem nenhum programa nessa duracao. O menor e a base do piso
-    (`_preco_tabela_min`); os dois juntos dizem se a duracao tem UM preco so, que e o que
-    `teto_de_contraproposta` precisa saber."""
+    """O PAR `(se for hoje, se for outro dia)` da MESMA linha — irma da `contraproposta_da_escada`.
+
+    E a mesma escada de sempre lida de uma vez em vez de rodada a rodada: `ESCADA_POR_ENCONTRO`
+    ja diz que hoje vale o `piso` e outro dia comeca no `degrau`, entao o par e
+    `(piso, degrau)` — nesta ordem, porque o primeiro numero e o de HOJE.
+
+    Existe porque a conduta mudou (ADR-0041): com o dia ainda desconhecido, a IA parou de
+    interrogar ("Seria hoje ?") e passou a fazer a CONDICAO viajar dentro da oferta ("se vier
+    hoje X, outro dia Y"). Dizer os dois numeros exige ter os dois numeros: sem o par, o segundo
+    sairia de cabeca e a resposta dele ("entao outro dia") pareceria AUMENTO de preco.
+
+    Mesmo fail-closed do resto da familia — sem duracao fechada, sem programa nela, com mais de um
+    preco presencial na duracao ou com a linha nao descontavel devolve `None`, e a cauda cala.
+    Alem desses, um a mais que so este par tem: `piso == degrau` (o clamp do `preco_minimo`
+    colapsou os dois estagios) tambem devolve `None` — a oferta condicional com um numero so nao
+    condiciona nada, e prometer "hoje 380, outro dia 380" e teatro de desconto.
+    """
     if duracao_horas is None:
         return None
+    linhas = await _linhas_de_tabela(conn, modelo_id, duracao_horas)
+    precos = {preco for preco, _ in linhas}
+    if len(precos) != 1:
+        return None
+    preco = next(iter(precos))
+    # Mesmo criterio da `_contraproposta_da_tabela` para linhas de mesmo preco e minimos
+    # diferentes: vale a oferta MAIS ALTA, a unica valida para qualquer uma delas.
+    se_hoje = max(valor_no_patamar(preco, minimo, "piso") for _, minimo in linhas)
+    se_outro_dia = max(valor_no_patamar(preco, minimo, "degrau") for _, minimo in linhas)
+    if not se_hoje < se_outro_dia < preco:
+        return None
+    return se_hoje, se_outro_dia
+
+
+async def _contraproposta_da_tabela(
+    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any, patamar: Patamar
+) -> Decimal | None:
+    """A UNICA linha de tabela da duracao, no patamar pedido (fail-closed — sem duracao fechada,
+    sem programa nela ou com mais de um preco devolve None). A conta sai de `valor_no_patamar`,
+    que despacha para os sites unicos; as rodadas diferem SO no patamar.
+
+    Linha NAO DESCONTAVEL (`preco_minimo` = `preco`, ou percentual zerado) tambem devolve None:
+    a conta clampada devolveria o proprio preco de tabela, e mostra-lo a IA como contraproposta
+    a mandaria "oferecer" um desconto de zero real ("consigo 250 se fechar agora" em cima de uma
+    tabela de 250) — pior que nao ter numero, porque parece concessao e nao e. Sem numero, a
+    cauda cala e o <desconto> manda o que ja mandava: "Poxa amor nao consigo"."""
+    if duracao_horas is None:
+        return None
+    linhas = await _linhas_de_tabela(conn, modelo_id, duracao_horas)
+    precos = {preco for preco, _ in linhas}
+    if len(precos) != 1:
+        return None
+    preco = next(iter(precos))
+    # Mesmo preco em duas linhas (dois programas de 400 na 1h) nao e ambiguidade de VALOR — e o
+    # caso que o `min == max` de antes ja liberava. Ambiguidade de MINIMO, sim: sem saber qual
+    # dos dois ele leva, vale a oferta mais alta entre as linhas, que e a unica valida para
+    # QUALQUER uma delas.
+    valor = max(valor_no_patamar(preco, preco_minimo, patamar) for _, preco_minimo in linhas)
+    return valor if valor < preco else None
+
+
+async def _linhas_de_tabela(
+    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any
+) -> list[LinhaDeTabela]:
+    """Pares `(preco, preco_minimo)` dos programas PRESENCIAIS da modelo na duracao acordada, do
+    mais barato ao mais caro -- a `_linhas_da_duracao` sem a identidade do programa, para quem so
+    precifica.
+
+    Linha, nao agregado, porque o `preco_minimo` (piso absoluto do par programa x duracao) so faz
+    sentido colado ao preco dele: um `min(preco), min(preco_minimo)` misturaria o piso de um
+    pacote com o preco de outro.
+
+    `apenas_presenciais=True` fixo (nao e parametro) porque esta leitura tem UM proposito: montar
+    a OFERTA da escada de desconto, onde o pacote ainda esta sendo negociado. Quem julga uma venda
+    ja feita nao passa por aqui -- vai direto na `_linhas_da_duracao`, com `False` (ver a docstring
+    de la). Se um dia esta funcao ganhar um segundo consumidor com a outra semantica, o parametro
+    sobe para ca em vez de o `True` virar `False` para os dois."""
+    return [
+        (ln["preco"], ln["preco_minimo"])
+        for ln in await _linhas_da_duracao(conn, modelo_id, duracao_horas, apenas_presenciais=True)
+    ]
+
+
+async def _linhas_da_duracao(
+    conn: AsyncConnection[Any], modelo_id: Any, duracao_horas: Any, *, apenas_presenciais: bool
+) -> list[dict[str, Any]]:
+    """Linhas de tabela da modelo naquela duracao (`duracoes.horas`), do mais barato ao mais caro:
+    `{programa_id, preco, preco_minimo}` ja em `Decimal`. Lista vazia sem programa na duracao (ou
+    sem duracao fechada) -- a query nem roda.
+
+    SITE UNICO da leitura de tabela por duracao. A identidade do programa entrou junto quando o
+    extra passou a ser a linha de 1h DELE (ADR-0038) e virou obrigatoria quando o PISO passou a
+    ser o do par programa x duracao (`_piso_do_pacote`): preco sem saber de qual pacote e foi
+    exatamente o furo.
+
+    `apenas_presenciais` e OBRIGATORIO e nao tem default de proposito: a resposta certa depende da
+    PERGUNTA de quem le, e as duas familias de chamador querem coisas opostas. Sem ele (estado ate
+    11/08/2026) a vídeo chamada da Catarina, cadastrada nas MESMAS duracoes dos pacotes
+    presenciais (0.5h: Normal 250 e chamada 300; 1h: Normal 400 e chamada 600), fez toda a familia
+    "exige um preco so" cair no fail-closed e a escada de desconto MORREU na 1h.
+
+    - `True` -- "qual e O pacote PRESENCIAL desta duracao?". Pergunta da OFERTA, feita antes de
+      existir venda: a escada (`_linhas_de_tabela` -> `contraproposta_da_tabela`) e a base do
+      patamar (`nos/prepare_context._base_no_patamar`). Nao existe negociar desconto de vídeo
+      chamada -- ela e R$10/minuto com `preco_minimo = preco` (migration 20260811214743), nao
+      descontavel por construcao --, entao a linha dela nunca e a resposta e a presenca dela so
+      apagava a resposta certa. Filtrar aqui NAO afrouxa nada: as duracoes com dois pacotes
+      PRESENCIAIS (Normal + Completo) continuam ambiguas e continuam devolvendo None.
+    - `False` -- "quais linhas esta duracao tem, ponto". Pergunta de quem JULGA/REGISTRA um
+      atendimento que JA aconteceu e pode SER a vídeo chamada: `_piso_do_pacote` (o piso que julga
+      o `valor_acordado`) e `_base_do_pacote` (o snapshot do extra de fetiche do fechamento).
+      Filtrar aqui julgaria uma chamada de 600 contra o piso do Normal (300) e deixaria de escalar
+      uma venda remota abaixo do minimo dela -- exatamente o furo do ADR-0037, reaberto pelo lado
+      remoto.
+    """
+    if duracao_horas is None:
+        return []
     res = await conn.execute(
         """
-        SELECT min(mp.preco) AS menor, max(mp.preco) AS maior
+        SELECT mp.programa_id, p.nome, mp.preco, mp.preco_minimo
           FROM barravips.modelo_programas mp
           JOIN barravips.duracoes d ON d.id = mp.duracao_id
+          JOIN barravips.programas p ON p.id = mp.programa_id
          WHERE mp.modelo_id = %s AND d.horas = %s
+         ORDER BY mp.preco ASC
         """,
         (modelo_id, Decimal(str(duracao_horas))),
     )
-    row = await res.fetchone()
-    # Agregado sem GROUP BY devolve SEMPRE uma linha: sem programa na duracao ela vem com NULL.
-    if row is None or row["menor"] is None:
+    linhas = [
+        {
+            "programa_id": r["programa_id"],
+            "preco": Decimal(str(r["preco"])),
+            "preco_minimo": (
+                None if r["preco_minimo"] is None else Decimal(str(r["preco_minimo"]))
+            ),
+            # `or ""` = linha sem nome conta como PRESENCIAL, o lado que MANTEM a linha na leitura.
+            # Manter linha a mais so pode deixar a leitura mais fail-closed (duracao ambigua ->
+            # nenhum numero); descartar linha a mais e que inventaria oferta ou piso errado.
+            "nome": r.get("nome") or "",
+        }
+        for r in await res.fetchall()
+        if r["preco"] is not None
+    ]
+    if not apenas_presenciais:
+        return linhas
+    return [ln for ln in linhas if not e_video_chamada(ln["nome"])]
+
+
+# Piso do que conta como PRECO CADASTRADO em `modelo_fetiches.preco` (revisao de 2026-08-11 do
+# ADR-0030). A coluna foi reaproveitada como FLAG incluso/pago e o painel ainda grava um sentinel
+# truthy nela quando `pago=True` (`_PRECO_PAGO_SENTINEL = Decimal("1")`, dominio/modelos/routes.py;
+# a migration 20260720233000 gravou o mesmo 1 no Menage de prod) -- "coluna preenchida" NAO
+# significa "extra cadastrado". Abaixo deste piso a coluna esta dizendo "pago", nao um valor, e o
+# extra cai no calculo derivado do pacote. Nenhum extra real de fetiche e de R$10.
+PRECO_FETICHE_CADASTRADO_MINIMO = Decimal("10")
+
+
+def preco_cadastrado_de_fetiche(preco: Any) -> Decimal | None:
+    """O extra CADASTRADO do fetiche, ou None quando a coluna e so a flag pago/incluso.
+
+    None (incluso) e o sentinel de "pago sem valor" caem no mesmo balde -- quem distingue
+    incluso de pago continua sendo `preco IS NULL` vs NOT NULL, lido por quem chama
+    (render_fetiches, _resolver_fetiches_em_pauta, o guard). Aqui a pergunta e outra: "ha um
+    numero de verdade nesta coluna?".
+    """
+    if preco is None:
         return None
-    return row["menor"], row["maior"]
+    valor = Decimal(str(preco))
+    return valor if valor >= PRECO_FETICHE_CADASTRADO_MINIMO else None
+
+
+# Piso de DURACAO para existir fetiche pago (decisao do dono do produto, 11/08/2026, ao subir a
+# Catarina -- a tabela dela tem uma linha de 30 minutos, Normal a R$250). Pacote com menos de 1h
+# e enxuto: sem extras. Vale nos DOIS regimes (cadastrado e derivado) -- "menos de 1h nao tem
+# fetiche pago" e sobre a DURACAO, nao sobre a conta.
+#
+# Nasceu como defesa contra a formula antiga (preco-hora, ADR-0030), que em duracao fracionaria
+# INVERTIA: 250 / 0,5h = +R$500 sobre um pacote de R$250. Sob a formula nova (ADR-0038, o extra e
+# a linha de 1h) o absurdo aritmetico some -- o extra da meia hora seria os mesmos R$400 da 1h --
+# e a regra fica mais simples de justificar, nao menos: cobrar +R$400 de extra sobre um pacote de
+# R$250 e vender a meia hora como se fosse a hora. O caminho e o upsell (a conduta `pacote_curto`
+# do `<fetiches>`), nao o extra.
+DURACAO_MINIMA_FETICHE_PAGO = Decimal("1")
+
+
+def aceita_fetiche_pago(duracao_horas: Any) -> bool:
+    """True se um pacote dessa duracao pode carregar fetiche pago (>= 1h) -- SITE UNICO da regra.
+
+    Quem precisa do NUMERO chama `extra_de_fetiche`, que ja devolve None na duracao curta. Este
+    predicado e para quem filtra LINHA: o render do `<fetiches>` (que nao pode imprimir a linha
+    do pacote curto) e o `_valores_legitimos` do output_guard (que nao pode legitimar o total
+    dela). Duracao ausente e tratada como nao-elegivel -- fail-closed, como o resto do cardapio.
+    """
+    if duracao_horas is None:
+        return False
+    return Decimal(str(duracao_horas)) >= DURACAO_MINIMA_FETICHE_PAGO
+
+
+def extra_de_fetiche(
+    linha_de_uma_hora: LinhaDeTabela | None,
+    duracao_horas: Any,
+    *,
+    patamar: Patamar = "cheio",
+    preco_cadastrado: Any = None,
+) -> Decimal | None:
+    """Extra de UM fetiche pago sobre o pacote em pauta -- SITE UNICO da conta (render + painel).
+
+    Duas fontes, nesta ordem:
+    1. **preco CADASTRADO** no painel (`modelo_fetiches.preco` com numero de verdade, revisao de
+       11/08/2026 do ADR-0030): cadastro explicito manda, fixo, e NAO acompanha o patamar -- o
+       operador digitou um valor, nao uma escada.
+    2. **derivado da linha de 1h** (`calcular_preco_extra_fetiche`, ADR-0038): o extra e o preco
+       da 1 HORA do mesmo programa, no patamar vigente.
+
+    A duracao do pacote entra so como PORTA (`aceita_fetiche_pago`), nao mais como divisor: o
+    extra e o mesmo em 1h, 2h, 3h ou pernoite.
+
+    **REGIME UNICO desde o ADR-0039**: composicao (casal/menage, `cobra_por_pessoa`) nao tem mais
+    aritmetica propria -- a 2a pessoa custa o mesmo que qualquer outro extra, e o pacote NAO
+    dobra. Por isso nem `cobra_por_pessoa` nem `preco_pacote` sao parametros daqui: nao existe
+    mais nenhuma conta que dependa do preco do pacote. A flag continua no catalogo, mas como
+    CLASSIFICACAO (a secao "Por pessoa" do `<fetiches>`, o `composicao_em_pauta`, o gate
+    `<sem_menage>`), nunca como regime de preco. E preco CADASTRADO de composicao passou a ser o
+    TOTAL do extra (o `x 2` morreu junto): uma coluna, uma regra.
+
+    **None = nao existe extra nesta linha** -- nao e "extra zero". Acontece em duracao < 1h
+    (`aceita_fetiche_pago`) e quando o programa NAO TEM linha de 1h cadastrada (fail-closed: o
+    extra E a uma hora; sem ela, nao existe extra derivado a cotar). Cada chamador decide o que
+    fazer com a recusa, e o tipo obriga a decidir: o render OMITE a linha, o guard nao legitima
+    o total dela, o painel devolve 409 (gravar NULL diria "incluso") e o fechamento descarta o
+    fetiche com warning.
+    """
+    if not aceita_fetiche_pago(duracao_horas):
+        return None
+    cadastrado = preco_cadastrado_de_fetiche(preco_cadastrado)
+    if cadastrado is None:
+        return calcular_preco_extra_fetiche(
+            linha_de_uma_hora,
+            duracao_horas,
+            patamar=patamar,
+        )
+    return cadastrado
 
 
 def calcular_preco_extra_fetiche(
-    preco_tabela: Decimal, duracao_horas: Decimal, *, cobra_por_pessoa: bool = False
-) -> Decimal:
-    """Preco do extra de um fetiche pago (ADR-0030): preco-hora efetivo do pacote vendido no
-    atendimento (preco de tabela / horas), somado uma vez por fetiche. Multi-hora usa esse
-    preco-hora, nao uma duracao-base de 1h (Pernoite 12h a R$3.600 -> +R$300, nao +R$3.600).
+    linha_de_uma_hora: LinhaDeTabela | None,
+    duracao_horas: Any,
+    *,
+    patamar: Patamar = "cheio",
+) -> Decimal | None:
+    """Extra DERIVADO de um fetiche pago sem preco cadastrado (ADR-0038; `extra_de_fetiche` e o
+    site unico a chamar): **o preco da linha de 1 HORA do mesmo programa, no patamar vigente**.
+    Fixo em relacao a duracao do pacote -- 1 fetiche na 3h da Catarina soma os mesmos R$400 que
+    somaria na 1h dela.
 
-    `cobra_por_pessoa` (flag do catalogo global de fetiches, casal/menage) muda o regime: o
-    fetiche eh cobrado POR PESSOA -- 2 pessoas fixas -> DOBRA o pacote, entao o extra eh o
-    pacote INTEIRO (+preco_tabela), nao o preco-hora. Reabre o multiplicador que o ADR-0030
-    deixou em aberto ("reabrir se aparecer um fetiche que precise valer mais que os outros" --
-    ADR-0035). Em 1h os dois regimes coincidem (pacote == preco-hora); divergem de 2h em diante."""
-    if cobra_por_pessoa:
-        return preco_tabela
-    return preco_tabela / duracao_horas
+    POR QUE mudou (decisao do dono do produto, 11/08/2026, revisa o ADR-0030). A formula antiga
+    era preco-hora do pacote (`preco_tabela / horas`) e ela COINCIDIA POR ACIDENTE justamente
+    onde a tabela e linear -- 400/1h e 800/2h dao os mesmos R$400 -- o que a fez parecer certa
+    por um ano. Ela diverge onde o preco DEIXA de ser linear, que e o desenho normal de tabela
+    (pacote maior, preco-hora menor, ADR-0004): a 3h a R$1.000 daria +R$333 e o pernoite a
+    R$2.000 daria +R$333, cobrando pelo MESMO ato menos do que a 1h cobra. E o extra tambem nao
+    acompanhava o desconto -- pacote negociado para baixo com extra de tabela cheia produz um
+    total que nao existe em lugar nenhum.
+
+    PATAMAR e estagio, nao percentual (`valor_no_patamar`): o extra e o valor da 1h NAQUELE
+    estagio (cheio / degrau / piso), nunca o extra cheio multiplicado pelo fator do pacote. Na
+    3h da Catarina no piso o total e 900 + 300 = R$1.200, e nao 900 + 360 (o 0,9 da linha de 3h
+    aplicado ao extra) -- o 360 nao e preco de nada.
+
+    Sem `linha_de_uma_hora` (programa sem linha de 1h cadastrada) devolve None, fail-closed: o
+    extra E a uma hora. Sem ela nao ha o que derivar, e inventar uma base (preco-hora, o pacote
+    inteiro) e exatamente o que este ADR removeu.
+
+    COMPOSICAO (casal/menage, `cobra_por_pessoa`) passa por aqui como qualquer outro fetiche
+    desde o ADR-0039: a 2a pessoa custa a linha de 1h do mesmo programa, no patamar vigente, e o
+    pacote NAO dobra mais. Consequencia dura: composicao passou a DEPENDER da linha de 1h -- o
+    regime antigo (o pacote inteiro) funcionava sem ela e agora cai no mesmo None fail-closed dos
+    atos, no render, no guard, no painel e no fechamento.
+
+    Mudanca de conta aqui muda o render (`persona.py:_grupos_de_extra`) E o guard
+    (`output_guard.py:_valores_legitimos`) juntos, nunca um so."""
+    if not aceita_fetiche_pago(duracao_horas):
+        return None
+    if linha_de_uma_hora is None:
+        return None
+    preco_uma_hora, minimo_uma_hora = linha_de_uma_hora
+    return valor_no_patamar(preco_uma_hora, minimo_uma_hora, patamar)
+
+
+# -----------------------------------------------------------------------------
+# Rastro do fetiche no fechamento (pendencia 4 do ADR-0030)
+# -----------------------------------------------------------------------------
+
+# Travessao (U+2014), meia-risca (U+2013), hifen nao-separavel (U+2011), traco de figura
+# (U+2012) e sinal de menos (U+2212) -> hifen comum. Os cinco sao o que editor/Word produzem
+# num copy-paste do rotulo do painel.
+_TRACOS_PARA_HIFEN = {cp: "-" for cp in (0x2014, 0x2013, 0x2011, 0x2012, 0x2212)}
+
+
+def _chave_de_fetiche(nome: str) -> str:
+    """Forma canonica p/ casar o nome que a IA registrou com o nome CADASTRADO da modelo.
+
+    Sem acento, casefold, whitespace colapsado -- 'inversao' casa 'Inversão'. Duplica de
+    proposito a normalizacao de `agente/_normalizar.py` (mesmo motivo de core/ancora_feedback e
+    workers/coordenador): `dominio/` nao importa `barra.agente` (dominio/CLAUDE.md).
+
+    Traco dobrado tambem (11/08/2026), o que a normalizacao do agente NAO faz: os itens de
+    COMPOSICAO do catalogo tem travessao no rotulo ("Acompanhante dele — mulher") e nada obriga a
+    extracao a reproduzir U+2014 em vez de um hifen comum. Sem dobrar, "Acompanhante dele -
+    mulher" nao casaria a linha cadastrada e o fetiche sumiria do breakdown do atendimento em
+    silencio (so o warning do chamador). Dobrar aqui e barato e nao afrouxa nada: o casamento
+    continua sendo por nome inteiro contra `modelo_fetiches`, closed-world.
+    """
+    decomposto = unicodedata.normalize("NFKD", nome)
+    sem_acento = "".join(c for c in decomposto if not unicodedata.combining(c))
+    sem_traco = sem_acento.translate(_TRACOS_PARA_HIFEN)
+    return re.sub(r"\s+", " ", sem_traco.casefold()).strip()
+
+
+async def _nomes_de_fetiche_em_pauta(conn: AsyncConnection[Any], atendimento_id: UUID) -> list[str]:
+    """Os nomes que a extracao registrou na conversa, em ordem, sem repetir.
+
+    `fetiches_em_pauta` nao tem coluna em `atendimentos` (como `motivo_perda_candidato`): vive no
+    payload do evento `extracao_registrada`. A leitura e a UNIAO dos turnos, monotonica como
+    `intencao`/`sinais_qualificacao` -- a extracao manda o que esta em pauta NAQUELE turno e o
+    silencio dos turnos seguintes nao apaga o que ja foi pedido.
+    """
+    res = await conn.execute(
+        """
+        SELECT payload -> 'fetiches_em_pauta' AS nomes
+          FROM barravips.eventos
+         WHERE atendimento_id = %s
+           AND tipo = 'extracao_registrada'
+           AND payload -> 'fetiches_em_pauta' IS NOT NULL
+         ORDER BY created_at
+        """,
+        (atendimento_id,),
+    )
+    vistos: dict[str, str] = {}
+    for row in await res.fetchall():
+        nomes = row["nomes"]
+        if not isinstance(nomes, list):
+            continue
+        for nome in nomes:
+            if isinstance(nome, str) and _chave_de_fetiche(nome):
+                vistos.setdefault(_chave_de_fetiche(nome), nome)
+    return list(vistos.values())
+
+
+async def linha_de_uma_hora(
+    conn: AsyncConnection[Any], modelo_id: Any, programa_id: Any
+) -> LinhaDeTabela | None:
+    """A linha de 1 HORA daquele programa na tabela da modelo, ou None se ela nao existe.
+
+    E a base do extra derivado (ADR-0038). Chave composta de `modelo_programas` (modelo x
+    programa x duracao) => no maximo uma linha. `preco_minimo` vem junto porque o extra
+    acompanha o patamar (`valor_no_patamar`), e o patamar depende do piso absoluto da linha.
+    """
+    res = await conn.execute(
+        """
+        SELECT mp.preco, mp.preco_minimo
+          FROM barravips.modelo_programas mp
+          JOIN barravips.duracoes d ON d.id = mp.duracao_id
+         WHERE mp.modelo_id = %s AND mp.programa_id = %s AND d.horas = %s
+        """,
+        (modelo_id, programa_id, DURACAO_MINIMA_FETICHE_PAGO),
+    )
+    row = await res.fetchone()
+    if row is None or row["preco"] is None:
+        return None
+    return (
+        Decimal(str(row["preco"])),
+        None if row["preco_minimo"] is None else Decimal(str(row["preco_minimo"])),
+    )
+
+
+@dataclass(frozen=True)
+class BaseDoPacote:
+    """O pacote vendido, do jeito que a conta do extra precisa dele.
+
+    `horas` e a PORTA (`aceita_fetiche_pago`); `linha_de_uma_hora` e a base do extra derivado
+    (ADR-0038) e vem None quando nao da p/ dizer de QUAL programa o pacote e (varios servicos, ou
+    duracao com mais de uma linha) -- fail-closed, o fetiche pago sem cadastro e descartado com
+    warning.
+
+    O `preco` do pacote saiu daqui com o ADR-0039: ele so servia ao regime por-pessoa (que dobrava
+    o pacote) e, sem esse regime, nenhuma conta de extra depende mais do preco do pacote. O
+    fail-closed de preco AMBIGUO continua em `_base_do_pacote` -- ele nao existe para achar um
+    numero, e sim para saber se da p/ dizer QUAL pacote foi vendido.
+    """
+
+    horas: Decimal
+    linha_de_uma_hora: LinhaDeTabela | None
+
+
+async def _base_do_pacote(conn: AsyncConnection[Any], atendimento_id: UUID) -> BaseDoPacote | None:
+    """O pacote vendido (`BaseDoPacote`), ou None quando nao da p/ dizer qual e.
+
+    Prefere `atendimento_servicos` (a MESMA base do painel, `routes.py:adicionar_fetiche`); sem
+    servico registrado -- o caso normal do fechamento pela IA, que nao escreve nessa tabela --
+    deriva o PRECO DE TABELA de `modelo_programas` pela `duracao_horas` do atendimento, com as
+    mesmas condicoes fail-closed de `contraproposta_da_escada`: sem duracao fechada, sem programa
+    naquela duracao ou com mais de um preco na duracao devolve None (quem chama descarta com
+    warning).
+
+    A IDENTIDADE do programa e mais exigente que o preco: a linha de 1h so e resolvida quando ha
+    exatamente UM servico vendido (ou UMA linha na duracao), porque "a 1h do mesmo programa" nao
+    existe para um pacote que e a soma de dois. Preco ambiguo derruba tudo; programa ambiguo
+    derruba so o extra derivado.
+
+    `valor_acordado` NAO entra aqui, nunca: ele e o Valor final (ja pode conter extra e desconto),
+    e o CONTEXT.md proibe confundi-lo com Preco de tabela. Usa-lo como base inflaria o proprio
+    extra -- no caso do ADR-0030 (800 = pacote 400 + Inversao) a base sairia 800/1h.
+
+    So serve ao extra DERIVADO (fetiche pago sem preco cadastrado); com preco cadastrado o extra
+    nao depende disto.
+
+    Le a duracao INTEIRA (`apenas_presenciais=False`), pelo mesmo motivo do `_piso_do_pacote`: e
+    um atendimento JA fechado, que pode ser a vídeo chamada, e o numero que sai daqui vira
+    `preco_snapshot` gravado. Presumir o pacote presencial gravaria o breakdown de um pacote que
+    nao foi o vendido -- e o fail-closed (None => o ato pago sem cadastro e descartado com
+    warning) e a resposta certa quando a duracao tem mais de uma linha.
+    """
+    res = await conn.execute(
+        """
+        SELECT ats.programa_id, ats.preco_snapshot, d.horas
+          FROM barravips.atendimento_servicos ats
+          JOIN barravips.duracoes d ON d.id = ats.duracao_id
+         WHERE ats.atendimento_id = %s
+        """,
+        (atendimento_id,),
+    )
+    servicos = await res.fetchall()
+    res = await conn.execute(
+        "SELECT modelo_id, duracao_horas FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    atendimento = await res.fetchone()
+    if atendimento is None:
+        return None
+    programa_id: Any = None
+    if servicos:
+        horas = max(Decimal(str(s["horas"])) for s in servicos)
+        if len(servicos) == 1:
+            programa_id = servicos[0]["programa_id"]
+    else:
+        if atendimento["duracao_horas"] is None:
+            return None
+        # Fail-closed igual ao teto/degrau: a duracao precisa ter UM preco de tabela so, senao
+        # nao da p/ dizer QUAL pacote foi vendido. O preco em si ja nao vai para lugar nenhum
+        # (ADR-0039 tirou o `preco` da `BaseDoPacote`), mas a AMBIGUIDADE dele continua sendo
+        # motivo de recusa: duas linhas de precos diferentes na mesma duracao sao dois pacotes.
+        linhas = await _linhas_da_duracao(
+            conn,
+            atendimento["modelo_id"],
+            atendimento["duracao_horas"],
+            apenas_presenciais=False,
+        )
+        if not linhas or linhas[0]["preco"] != linhas[-1]["preco"]:
+            return None
+        horas = Decimal(str(atendimento["duracao_horas"]))
+        if len(linhas) == 1:
+            programa_id = linhas[0]["programa_id"]
+    if horas <= 0:
+        return None
+    uma_hora = (
+        None
+        if programa_id is None
+        else await linha_de_uma_hora(conn, atendimento["modelo_id"], programa_id)
+    )
+    return BaseDoPacote(horas=horas, linha_de_uma_hora=uma_hora)
+
+
+async def registrar_fetiches_do_fechamento(conn: AsyncConnection[Any], atendimento_id: UUID) -> int:
+    """Grava em `atendimento_fetiches` os extras que a conversa combinou. Devolve quantos entraram.
+
+    Pendencia 4 do ADR-0030 (achado 10c do diagnostico de 11/08/2026): `valor_acordado=800` com
+    `duracao_horas=1` chegava ao painel sem dizer que R$350 eram a Inversao. A extracao passou a
+    registrar `fetiches_em_pauta` (nomes do CADASTRO) e aqui, no fechamento, cada nome e resolvido
+    contra `modelo_fetiches` -- closed-world: nome que a modelo nao tem cadastrado e DESCARTADO
+    (warning), nunca inventa item. O `preco_snapshot` sai de `extra_de_fetiche`, o site unico que
+    o painel tambem usa, entao o breakdown bate com o que a IA cotou.
+
+    Idempotente por construcao: `ON CONFLICT DO NOTHING` sobre a UNIQUE (atendimento_id,
+    fetiche_id) -- reexecutar o fechamento nao duplica, e o vinculo que Fernando ja tenha feito a
+    mao no painel (com o preco que ELE decidiu) nao e sobrescrito.
+    """
+    nomes = await _nomes_de_fetiche_em_pauta(conn, atendimento_id)
+    if not nomes:
+        return 0
+    res = await conn.execute(
+        """
+        SELECT mf.fetiche_id, f.nome, mf.preco, f.cobra_por_pessoa
+          FROM barravips.atendimentos a
+          JOIN barravips.modelo_fetiches mf ON mf.modelo_id = a.modelo_id
+          JOIN barravips.fetiches f ON f.id = mf.fetiche_id
+         WHERE a.id = %s
+        """,
+        (atendimento_id,),
+    )
+    cardapio = {_chave_de_fetiche(r["nome"]): r for r in await res.fetchall()}
+    # Resolvida no maximo UMA vez, e so quando algum fetiche pago precisa do extra derivado
+    # (com preco cadastrado o extra nao depende do pacote).
+    base: BaseDoPacote | None = None
+    base_resolvida = False
+    gravados = 0
+    for nome in nomes:
+        item = cardapio.get(_chave_de_fetiche(nome))
+        if item is None:
+            # Alucinacao do extrator (ou fetiche que a modelo nao faz): silencio, so o warning.
+            logger.warning(
+                "fetiche_em_pauta fora do cadastro da modelo, descartado",
+                extra={"atendimento_id": str(atendimento_id), "nome": nome},
+            )
+            continue
+        preco_snapshot: Decimal | None = None
+        if item["preco"] is not None:
+            # NULL = incluso (snapshot NULL). NOT NULL = pago: o extra vem do preco cadastrado
+            # quando ha numero de verdade na coluna; o sentinel de flag cai no fallback derivado,
+            # que precisa do pacote vendido.
+            if preco_cadastrado_de_fetiche(item["preco"]) is None:
+                if not base_resolvida:
+                    base = await _base_do_pacote(conn, atendimento_id)
+                    base_resolvida = True
+                if base is None:
+                    logger.warning(
+                        "fetiche pago sem preco cadastrado e sem pacote p/ derivar, descartado",
+                        extra={"atendimento_id": str(atendimento_id), "nome": item["nome"]},
+                    )
+                    continue
+            preco_snapshot = extra_de_fetiche(
+                base.linha_de_uma_hora if base else None,
+                base.horas if base else DURACAO_MINIMA_FETICHE_PAGO,
+                preco_cadastrado=item["preco"],
+            )
+            if preco_snapshot is None:
+                # Sem extra a gravar, e gravar NULL aqui diria "incluso" no breakdown do painel.
+                # Duas causas, ambas fail-closed: pacote < 1h (decisao 11/08/2026) e programa sem
+                # linha de 1h p/ derivar o extra (ADR-0038) -- inclusive o pacote de programa
+                # ambiguo, que nem chega a ter uma 1h "do mesmo programa". Fica de fora do rastro,
+                # com o warning, como o pago sem pacote acima.
+                #
+                # CAMINHO NOVO desde o ADR-0039: a COMPOSICAO (`cobra_por_pessoa`) cai aqui
+                # tambem. No regime antigo o extra dela era o pacote inteiro e nao dependia da 1h,
+                # entao ela gravava mesmo em programa sem 1h cadastrada; agora ela e o mesmo extra
+                # dos atos e some pelo mesmo motivo. O `cobra_por_pessoa` do cardapio nao entra
+                # mais na conta -- fica so como classificacao.
+                logger.warning(
+                    "fetiche pago sem extra derivavel (pacote < 1h ou sem linha de 1h), descartado",
+                    extra={
+                        "atendimento_id": str(atendimento_id),
+                        "nome": item["nome"],
+                        "cobra_por_pessoa": bool(item["cobra_por_pessoa"]),
+                    },
+                )
+                continue
+        result = await conn.execute(
+            """
+            INSERT INTO barravips.atendimento_fetiches
+                   (atendimento_id, fetiche_id, preco_snapshot)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (atendimento_id, fetiche_id) DO NOTHING
+            """,
+            (atendimento_id, item["fetiche_id"], preco_snapshot),
+        )
+        gravados += result.rowcount
+    return gravados
 
 
 async def _escalar_modelo(
@@ -1409,7 +2594,7 @@ async def ressuscitar_interno_foto_portaria(
     mensagem_id: UUID,
     media_object_key: str | None,
 ) -> UUID | None:
-    """Ressuscita um interno auto_timeout_interno pela foto de portaria tardia (ADR 0027).
+    """Ressuscita um interno morto por timeout automatico, pela foto de portaria tardia (ADR 0027).
 
     A foto chegou DEPOIS de o timeout (ADR 0024) marcar o #1 interno como Perdido/sumiu e
     cancelar o bloqueio. Se o cliente literalmente chegou ao local, orfanar a prova de
@@ -1417,7 +2602,11 @@ async def ressuscitar_interno_foto_portaria(
 
     Reconecta o atendimento — volta a Em_execucao, ia_pausada=true (modelo_em_atendimento),
     reativa o bloqueio cancelado e abre a escalada owner do card 'chegada' — SE E SO SE:
-      - a morte foi `auto_timeout_interno` (Perdido humano se respeita);
+      - a morte foi por timeout AUTOMATICO — `auto_timeout_interno` (45min pos-horario, ADR
+        0024) ou `auto_timeout` (24h de silencio). O que se respeita e o Perdido HUMANO, nao o
+        mecanismo: as duas mortes deixam rastro identico e o timeout de 24h alcanca o interno
+        agendado, entao exigir so a primeira orfanava a foto com o cliente na portaria
+        (emenda 11/08/2026 ao ADR 0027);
       - o slot segue livre (nenhum bloqueio ativo ocupou a janela);
       - ainda dentro do `bloqueio.fim` (o horario reservado nao acabou).
     Fora disso devolve None e o chamador segue fora-fluxo: a volta e recorrencia legitima
@@ -1436,7 +2625,15 @@ async def ressuscitar_interno_foto_portaria(
                  WHERE a.conversa_id = %s
                    AND a.tipo_atendimento = 'interno'
                    AND a.estado = 'Perdido'
-                   AND a.fonte_decisao_ultima_transicao = 'auto_timeout_interno'
+                   -- O critério do ADR 0027 é "morte AUTOMÁTICA por timeout", não "qual cron":
+                   -- o que se respeita é o Perdido HUMANO/explícito. O `timeout_longo` (24h de
+                   -- silêncio) grava `auto_timeout` e o interno (ADR 0024) grava
+                   -- `auto_timeout_interno`; os dois deixam exatamente o mesmo rastro (Perdido/
+                   -- sumiu + bloqueio cancelado). Exigir só a fonte do interno deixava a foto de
+                   -- portaria órfã quando quem matou foi o cron de 24h. As guardas que fazem o
+                   -- filtro real continuam valendo: interno, bloqueio `cancelado`, dentro do
+                   -- `b.fim` e slot livre (NOT EXISTS + EXCLUDE como backstop).
+                   AND a.fonte_decisao_ultima_transicao IN ('auto_timeout_interno', 'auto_timeout')
                    AND b.estado = 'cancelado'
                    AND b.fim > now()
                    AND NOT EXISTS (
@@ -1646,6 +2843,46 @@ async def incrementar_contrapropostas(conn: AsyncConnection[Any], atendimento_id
     )
 
 
+async def gravar_valor_do_aceite(
+    conn: AsyncConnection[Any], atendimento_id: UUID, valor: int
+) -> bool:
+    """Grava `valor_acordado` = o valor que o CLIENTE nomeou e a IA ACEITOU na fala já despachada
+    (ADR-0040). Devolve True quando ESTA chamada moveu a mesa.
+
+    Irmão dos contadores acima e pelo mesmo motivo: o número da venda é decidido pela FALA DA IA do
+    próprio turno, e a extração é cega para ela por contrato (a janela dela exclui a fala do turno
+    corrente, `agente/nos/extrair.py`). No trace 93fa67dd a IA cotou 800, ele disse "faz 700 que eu
+    vou", ela fechou em 700 — e a extração, que só viu a fala DELE, registrou `aceita_valor` com
+    `proxima_acao_esperada="Avaliar a contraproposta de 700"`: do ponto de vista dela ainda não
+    havia aceite. `valor_acordado` ficou NULL e a venda de 700 não existiu no banco. Aqui o valor
+    entra pela porta determinística — sem LLM nenhum decidindo número, como manda o ADR-0037/0038.
+
+    Quem decide SE chamar é `workers/envio.py`, e o predicado tem DUAS pernas independentes
+    (nenhuma basta sozinha, e é o que separa aceite de menção):
+      (a) o `<valor_dele_serve>` deste turno rendeu ESTE número no prompt (`valor_dele_no_prompt`,
+          carimbado pelo prepare_context) — o sistema já provou, contra a tabela, que o número é
+          DELE e cai em `[piso, mesa)`;
+      (b) o número saiu como OFERTA na bolha que de fato foi despachada
+          (`precos_ofertados_na_fala`, que descarta cláusula negada).
+    Sem (a), "acima do piso" viraria prova de aceite — foi exatamente o bug do valor fantasma (a IA
+    RECUSOU 300, que estava acima do piso, e o extrator gravou 300). Sem (b), bastaria o sistema ter
+    MANDADO aceitar: ela pode ter recusado assim mesmo, e o que vale é o que o cliente leu.
+
+    Sobrescreve a mesa de propósito — é o único caminho por onde ela DESCE, e desce só até um número
+    que o cliente nomeou e que o piso já aprovou (o `aceite_do_valor_dele` exige `proposto < mesa` e
+    `proposto >= piso`). Idempotente por valor (`IS DISTINCT FROM`), e o chamador ainda o pendura no
+    `inseriu` do INSERT da bolha, como os contadores."""
+    res = await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET valor_acordado = %s
+         WHERE id = %s AND valor_acordado IS DISTINCT FROM %s
+        """,
+        (valor, atendimento_id, valor),
+    )
+    return res.rowcount > 0
+
+
 async def incrementar_perguntas_de_horario(
     conn: AsyncConnection[Any], atendimento_id: UUID
 ) -> None:
@@ -1692,7 +2929,7 @@ async def marcar_endereco_enviado(conn: AsyncConnection[Any], atendimento_id: UU
 
 
 async def marcar_amiga_ofertada(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:
-    """Carimba `amiga_ofertada_em=now()` na 1a oferta da amiga (<menage>: uma vez por negociacao).
+    """Carimba `amiga_ofertada_em=now()` na 1a oferta da amiga (<composicoes>: uma vez por negociacao).
     Guard IS NULL (first-write-wins): repetir entre bolhas/retries e no-op, preserva o 1o instante."""
     await conn.execute(
         """

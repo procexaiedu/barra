@@ -33,6 +33,7 @@ import type {
   Programa,
   ProgramaInput,
   ProgramaModeloVinculo,
+  SalvarPrecoProgramaFn,
 } from "@/tipos/modelos"
 
 export function AbaPerfil({
@@ -67,13 +68,13 @@ export function AbaPerfil({
   catalogoFetiches: Fetiche[]
   onDirtyChange: (dirty: boolean) => void
   onSalvar: (input: PatchModeloInput) => Promise<void>
-  onVincularPrograma: (programaId: string, duracaoId: string, preco: number) => Promise<void>
-  onAtualizarPrecoPrograma: (programaId: string, duracaoId: string, preco: number) => Promise<void>
+  onVincularPrograma: SalvarPrecoProgramaFn
+  onAtualizarPrecoPrograma: SalvarPrecoProgramaFn
   onDesvincularPrograma: (programaId: string, duracaoId: string) => Promise<void>
   onCriarPrograma: (input: ProgramaInput) => Promise<Programa>
   onCriarDuracao: (input: DuracaoInput) => Promise<Duracao>
-  onVincularFetiche: (feticheId: string, pago: boolean) => Promise<void>
-  onAtualizarFetiche: (feticheId: string, pago: boolean) => Promise<void>
+  onVincularFetiche: (feticheId: string, preco: number | null) => Promise<void>
+  onAtualizarFetiche: (feticheId: string, preco: number | null) => Promise<void>
   onDesvincularFetiche: (feticheId: string) => Promise<void>
   onCriarFetiche: (input: FeticheInput) => Promise<Fetiche>
   onTrocarNumero: (numero: string) => void

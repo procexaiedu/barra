@@ -214,7 +214,7 @@ async def test_etapa1_atender_o_proprio_cliente_passa(monkeypatch: Any, texto: s
 
 
 # Anti falso-positivo do #36 (24/07): "com outra pessoa" na RECUSA do terceiro que o cliente quer
-# trazer (<menage>) e fala legitima e frequente -- o scan solto barrou as duas geracoes do turno e
+# trazer (<composicoes>) e fala legitima e frequente -- o scan solto barrou as duas geracoes do turno e
 # o atendimento morreu em handoff. So a AFIRMACAO de estado ("to ocupada com outra pessoa") vaza.
 @pytest.mark.parametrize(
     "texto",

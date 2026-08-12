@@ -1,0 +1,12 @@
+👯 *Dupla vendida* · {{ cliente_nome }} · #{{ numero_curto }}
+
+A {{ modelo_nome }} fechou este encontro com a *{{ parceira_nome }}*{% if parceira_status and parceira_status != 'ativa' %} (cadastro: {{ parceira_status }}){% endif %}.
+
+{% if valor_acordado %}💰 {{ valor_acordado }} (as duas)
+{% endif %}
+{% if data_desejada %}📅 {{ data_desejada }}
+{% endif %}
+{% if horario_desejado %}🕒 {{ horario_desejado.strftime('%H:%M') }}
+{% endif %}
+
+👉 Confirma a {{ parceira_nome }} para esse horário. O cliente já está fechado — nada aqui trava a venda.

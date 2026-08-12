@@ -14,7 +14,7 @@ from barra.core.errors import ConflitoEstado, NaoEncontrado
 from barra.core.evolution import EvolutionClient
 from barra.core.metrics import PIX
 from barra.core.storage import presigned_get
-from barra.dominio.escaladas.service import aplicar_comando
+from barra.dominio.escaladas.service import ESTADOS_TERMINAIS, aplicar_comando
 from barra.dominio.pix.schemas import (
     AprovarPixRequest,
     ReabrirPixRequest,
@@ -274,7 +274,7 @@ async def aprovar_pix(
             """,
             (user.id, pix_id),
         )
-        await aplicar_comando(
+        resultado = await aplicar_comando(
             conn,
             origem="painel",
             autor="Fernando",
@@ -283,11 +283,26 @@ async def aprovar_pix(
             payload={"decisao": "validado", "pix_id": str(pix_id)},
         )
 
+    # A fila de revisão é assíncrona por design (o Pix nunca trava), então aprovar um
+    # comprovante de atendimento já `Fechado`/`Perdido` é rotina, não erro: a decisão sobre o
+    # COMPROVANTE fica gravada (200, o item sai da fila) e o ATENDIMENTO não se mexe —
+    # `aplicar_comando` devolve o estado real, lido sob `FOR UPDATE`.
+    atendimento_terminal = resultado.estado in ESTADOS_TERMINAIS
+    if atendimento_terminal:
+        _logger.info(
+            "pix_aprovado_atendimento_terminal pix=%s atendimento=%s estado=%s",
+            pix_id,
+            pix["atendimento_id"],
+            resultado.estado,
+        )
+
     # Notificação ao grupo de coordenação é best-effort: a aprovação já foi
     # persistida acima. Se a instância Evolution estiver desconectada/inválida,
     # logamos e seguimos — não faz sentido reverter decisão de negócio porque
     # o envio do card falhou.
-    if pix["coordenacao_chat_id"] and pix["evolution_instance_id"]:
+    # Em atendimento terminal o card é suprimido: "Saída confirmada #N" mandaria a modelo sair
+    # para um encontro que já aconteceu (ou que morreu como Perdido).
+    if not atendimento_terminal and pix["coordenacao_chat_id"] and pix["evolution_instance_id"]:
         client = EvolutionClient(request.app.state.settings)
         try:
             await client.enviar_texto(
@@ -309,7 +324,18 @@ async def aprovar_pix(
                 exc,
             )
     PIX.labels("validado").inc()
-    return {"id": pix_id, "decisao_final": "validado"}
+    return {
+        "id": pix_id,
+        "decisao_final": "validado",
+        # Devolve o estado do atendimento para o painel poder dizer o que aconteceu de fato
+        # ("comprovante validado; atendimento #N já está Fechado, estado não alterado") em vez
+        # de sugerir uma saída que não vai acontecer.
+        "atendimento": {
+            "id": pix["atendimento_id"],
+            "estado": resultado.estado,
+            "terminal": atendimento_terminal,
+        },
+    }
 
 
 @router.post("/{pix_id}/rejeitar")

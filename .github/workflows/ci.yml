@@ -1,6 +1,15 @@
 # CI minimo — juiz objetivo dos PRs (inclusive os gerados por agente noturno).
-# Roda mypy + pytest SEM TEST_DATABASE_URL nem ANTHROPIC_API_KEY: o conftest pula os
-# testes `needs_db`/`needs_key`, entao a CI nao toca o banco de producao nem a API real.
+# Roda mypy + pytest. `TEST_DATABASE_URL` **e** setado (service container `postgres:15`,
+# NUNCA prod), entao os testes `needs_db` RODAM aqui de verdade — este e o unico lugar
+# onde eles rodam, ja que a maquina de dev nao tem Postgres. `ANTHROPIC_API_KEY` fica de
+# fora: o conftest pula os `needs_key`, entao a CI nao gasta credito de LLM real.
+# (Ate 11/08/2026 estas 3 linhas diziam o oposto — "sem TEST_DATABASE_URL, needs_db pulados" —
+# resquicio de antes do service container. O comentario errado ja induziu auditoria e memoria
+# do projeto a concluir que o gate de banco nao existia. Corrigido junto com o achado abaixo.)
+# ATENCAO: um comentario correto nao garante execucao. Confira que o workflow REALMENTE roda
+# (`gh run list --workflow=ci.yml`): de 31/07 a 11/08/2026 todos os runs morreram em 3-10s com
+# "account is locked due to a billing issue" — gate inteiro (mypy + pytest + needs_db +
+# drift-check) desligado sem ninguem notar, porque falha por billing parece falha de teste.
 # Lint (ruff) fica fora daqui de proposito: ha divida de formatacao preexistente no repo;
 # o lint dos arquivos efetivamente tocados ja e garantido pelo hook .claude/hooks/ruff_format.py.
 name: ci

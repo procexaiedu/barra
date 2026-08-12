@@ -43,6 +43,26 @@ def test_hora_com_minuto_e_hora_cheia_com_marcador():
         assert contem_hora_explicita(fala) is True, fala
 
 
+def test_falas_reais_que_o_marcador_fechado_perdia() -> None:
+    """Diagnóstico 11/08 (P0-2): das 9 falas com hora dos traces, 5 não casavam a lista fechada de
+    marcadores — e o belief então AFIRMAVA "palpite seu, ele não confirmou" sobre uma hora que o
+    cliente cravou três vezes, mandando re-ofertar em plena fase de fechamento (agenda_local
+    t3-t5, traces 648d7f6f / a9f0378a / 95a9935e)."""
+    for fala in (
+        "pode ser no seu local então, hoje 21h. me passa o endereço",
+        "pras 22h de hoje",
+        "21h então rola",
+        "fechou, 21h to ai",
+        "hoje 21h com a inversao entao",
+    ):
+        assert contem_hora_explicita(fala) is True, fala
+
+
+def test_marcador_de_dia_cobre_amanha_e_dia_da_semana() -> None:
+    for fala in ("amanhã 14h", "sexta 22h", "dia 12 19h", "hj 20h"):
+        assert contem_hora_explicita(fala) is True, fala
+
+
 # --- contem_hora_explicita: negativos que enganam ---
 
 
@@ -58,6 +78,20 @@ def test_negativos_do_corpus():
         "vc topa menage?",
         "manda foto",
         "",
+    ):
+        assert contem_hora_explicita(fala) is False, fala
+
+
+def test_duracao_em_contexto_de_preco_nao_vira_horario() -> None:
+    """O empate hora-vs-duração é o que mantinha o marcador fechado (#25). As famílias LARGAS
+    (dia, "pra/pras", verbo de fechamento) são vetadas por contexto de preço na mesma bolha —
+    senão a cotação da IA ("600 1h no meu local, fechamos ?") passaria a evidenciar horário."""
+    for fala in (
+        "quanto pra 1h?",
+        "quanto é pra 2 horas?",
+        "600 1h no meu local, fechamos ?",
+        "o valor de 1h é 400, fechado ?",
+        "hoje o de 1h sai 400",
     ):
         assert contem_hora_explicita(fala) is False, fala
 

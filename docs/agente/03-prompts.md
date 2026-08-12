@@ -549,7 +549,7 @@ def build_system_messages(
 
 ## 6. Seleção de modelo (chat: DeepSeek V4 Flash direto; vision: OpenRouter — `06 §2.3`)
 
-> **Estado vigente (supersede o detalhamento Sonnet/Anthropic desta seção):** os 3 caminhos de texto rodam **DeepSeek V4 Flash direto** (`core/llm.py:criar_chat_deepseek`, `ChatOpenAI` → `api.deepseek.com`, `thinking=disabled`), não `criar_chat_anthropic`/Sonnet. Os settings reais hoje são `deepseek_api_key`/`deepseek_model_chat`; `anthropic_*` e `criar_chat_anthropic` sobrevivem só p/ o LLM-judge dos evals e o preaquecimento de cache (dormente). O pseudocódigo abaixo (incl. `ChatComRetry`, tabela Sonnet, `criar_anthropic_client`) é registro de design da época do Sonnet — fonte canônica corrente: `core/llm.py` + `settings.py` (`01 §2.5`).
+> **Estado vigente (supersede o detalhamento Sonnet/Anthropic desta seção):** os 3 caminhos de texto rodam **DeepSeek V4 Flash direto** (`core/llm.py:criar_chat_deepseek`, `ChatOpenAI` → `api.deepseek.com`), não `criar_chat_anthropic`/Sonnet. Desde 11/08/2026 o **chat #1 roda thinking** (`reasoning_effort=low` por default, `settings.deepseek_thinking_chat`); extração #2 e judge #3 seguem `thinking=disabled`. Os settings reais hoje são `deepseek_api_key`/`deepseek_model_chat`; `anthropic_*` e `criar_chat_anthropic` sobrevivem só p/ o LLM-judge dos evals e o preaquecimento de cache (dormente). O pseudocódigo abaixo (incl. `ChatComRetry`, tabela Sonnet, `criar_anthropic_client`) é registro de design da época do Sonnet — fonte canônica corrente: `core/llm.py` + `settings.py` (`01 §2.5`).
 
 ### 6.1 Configuração
 

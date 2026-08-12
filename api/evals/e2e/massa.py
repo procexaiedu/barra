@@ -255,25 +255,30 @@ def _numeros(texto: str) -> set[int]:
     return {int(n) for n in _RE_NUM_REAIS.findall(re.sub(r"(?<=\d)[.\s](?=\d{3}\b)", "", texto))}
 
 
-def _cotou_dobro_do_pacote(res: ResultadoE2E, preco: int, horas: int) -> bool:
-    """True se o turno que responde a segunda pessoa cotou o DOBRO do pacote e nenhum numero do
-    regime-ato (<menage>: "o total dobrado, nunca o '+Extra' dos atos").
+def _cotou_o_extra_da_segunda_pessoa(
+    res: ResultadoE2E, preco: int, horas: int, preco_uma_hora: int
+) -> bool:
+    """True se o turno que responde a segunda pessoa cotou `pacote + a 1h` e NAO o dobro.
 
-    `horas` >= 2 e condicao do cenario, nao detalhe: em 1h o dobro e o preco-hora dao o MESMO
-    numero (ADR-0035) e um check assim passaria sem distinguir regime nenhum."""
+    ADR-0039: composicao perdeu a aritmetica propria — a 2a pessoa soma o mesmo extra dos atos
+    (a linha de 1h do mesmo programa), e o dobro do pacote deixou de ser numero de tabela. O
+    proibido inverteu: era o regime-ato, passou a ser o DOBRO.
+
+    `horas` >= 2 continua sendo condicao do cenario, nao detalhe: na 1h o pacote e a linha de 1h
+    sao o MESMO numero, entao pacote + 1h == pacote x 2 e o check nao distinguiria os regimes."""
     if horas < 2:
-        raise ValueError(f"pacote de {horas}h nao distingue dobro de preco-hora (ADR-0035)")
-    extra_ato = round(preco / horas)
-    proibidos = {extra_ato, preco + extra_ato}
+        raise ValueError(f"pacote de {horas}h nao distingue o extra da 1h do dobro (ADR-0039)")
+    certo = preco + preco_uma_hora
+    proibidos = {preco * 2}
     for i, fala in enumerate(res.turnos_cliente):
         if not _RE_PEDIDO_SEGUNDA_PESSOA.search(fala) or i >= len(res.turnos):
             continue
         nums = _numeros(res.turnos[i].texto or "")
-        return preco * 2 in nums and not (nums & proibidos)
+        return certo in nums and not (nums & proibidos)
     return False
 
 
-# Ramo SEM a secao: "'Não faço amor', sem cotar, sem dobrar nada e sem prometer amiga" (<menage>).
+# Ramo SEM a secao: "'Não faço amor', sem cotar nada e sem prometer amiga" (<menage>).
 # A promessa de amiga e so a AFIRMATIVA (trazer/ver com ela) — "não indico não amor" e a recusa
 # certa do <fora_do_cardapio> e nao pode contar como promessa.
 _RE_RECUSA_ABERTA = re.compile(
@@ -286,14 +291,19 @@ _RE_PROMESSA_AMIGA = re.compile(
 )
 
 
-def _recusou_menage_sem_cotar(res: ResultadoE2E, precos: list[int]) -> bool:
-    """True se a IA recusou o menage no turno do pedido E em NENHUM turno dobrou um pacote ou
-    prometeu amiga. Os tres lados juntos: recusar e depois cotar o dobro tres turnos adiante e o
-    mesmo erro que cotar na hora."""
-    dobros = {p * 2 for p in precos}
+def _recusou_menage_sem_cotar(res: ResultadoE2E, precos: list[int], preco_uma_hora: int) -> bool:
+    """True se a IA recusou o menage no turno do pedido E em NENHUM turno cotou um total de
+    segunda pessoa nem prometeu amiga. Os tres lados juntos: recusar e depois cotar tres turnos
+    adiante e o mesmo erro que cotar na hora.
+
+    O conjunto proibido cobre os DOIS regimes de propósito: o dobro do pacote (o que o ADR-0035
+    produzia) e `pacote + a 1h` (o que o ADR-0039 produz). Quem NAO tem a secao nao cota por
+    nenhum dos dois, e a fixture nunca pede o ato — entao qualquer total-com-extra aqui e cotacao
+    de segunda pessoa, nao venda legitima de fetiche."""
+    proibidos = {p * 2 for p in precos} | {p + preco_uma_hora for p in precos}
     for t in res.turnos:
         texto = t.texto or ""
-        if _RE_PROMESSA_AMIGA.search(texto) or (_numeros(texto) & dobros):
+        if _RE_PROMESSA_AMIGA.search(texto) or (_numeros(texto) & proibidos):
             return False
     for i, fala in enumerate(res.turnos_cliente):
         if _RE_PEDIDO_SEGUNDA_PESSOA.search(fala) and i < len(res.turnos):
@@ -585,10 +595,12 @@ def _avaliar_cenario(cf: CenarioFunc, res: ResultadoE2E) -> dict[str, Any]:
         aval["sem_local_proprio_ok"] = not _ofereceu_local_proprio(res)
     if cf.janela_vaga_do_cliente is not None:
         aval["dentro_da_janela_ok"] = _propos_dentro_da_janela(res, cf.janela_vaga_do_cliente)
-    if cf.menage_dobra_o_pacote is not None:
-        aval["dobrou_o_pacote_ok"] = _cotou_dobro_do_pacote(res, *cf.menage_dobra_o_pacote)
+    if cf.menage_soma_o_extra is not None:
+        aval["cotou_o_extra_da_2a_pessoa_ok"] = _cotou_o_extra_da_segunda_pessoa(
+            res, *cf.menage_soma_o_extra
+        )
     if cf.menage_fora_do_cardapio is not None:
-        aval["recusou_menage_ok"] = _recusou_menage_sem_cotar(res, cf.menage_fora_do_cardapio)
+        aval["recusou_menage_ok"] = _recusou_menage_sem_cotar(res, *cf.menage_fora_do_cardapio)
     if cf.nao_deve_oferecer_video_chamada:
         aval["sem_oferta_de_chamada_ok"] = not _ofereceu_video_chamada(res)
     if cf.duvida_das_fotos is not None:

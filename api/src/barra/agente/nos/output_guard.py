@@ -29,7 +29,9 @@ ia_pausada apos o turno (cinto-suspensorio) e nao despacha. Roteamento SO por Co
 
 import logging
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
+from dataclasses import dataclass
+from decimal import ROUND_HALF_UP, Decimal
 from difflib import SequenceMatcher
 from typing import Any, Literal
 
@@ -44,24 +46,38 @@ from barra.core.db import conexao
 from barra.core.metrics import (
     AUP_SAIDA_BLOQUEADO,
     OUTPUT_ECO_REGIAO_DETECTADO,
+    OUTPUT_ENDERECO_SONEGADO,
     OUTPUT_INCLUSO_FANTASMA,
     OUTPUT_LEAK_DETECTADO,
+    OUTPUT_PEDAGIO_DETECTADO,
+    OUTPUT_PRECO_FANTASMA,
     OUTPUT_RACIOCINIO_SANEADO,
     OUTPUT_REGEN,
     OUTPUT_REPETICAO_DETECTADA,
+    OUTPUT_SAUDACAO_CONFLITANTE,
+    OUTPUT_SERVICO_FANTASMA,
     OUTPUT_SONDA_DETECTADA,
 )
+from barra.dominio.atendimentos.service import PRECO_MINIMO_SCAN, extrair_precos_citados
 from barra.settings import get_settings
 
 from .._canned import ESPERA_ESCALADA_CANNED, NEGACOES_CANNED
 from .._defesa import escalar_defesa
-from .._disciplina import tokens_de_lugar
+from .._disciplina import (
+    contem_endereco_de_encontro,
+    contem_pedido_de_endereco,
+    periodo_da_saudacao,
+    tokens_de_lugar,
+    tokens_do_endereco,
+)
 from .._instrumentar import instrumentar_tokens
 from .._normalizar import normalizar
+from .._parceria import eh_bolha_de_contato_da_parceira
 from .._texto_turno import extrair_texto_do_turno, mensagens_do_turno, texto_da_mensagem
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..persona import render_aup_saida
+from ._foco_do_turno import perguntas_do_burst
 
 # Pools curados isentos das defesas de texto gerado (repeticao/judge de AUP): o conteudo e nosso,
 # nao do LLM. Negacoes de disclosure + bolha de espera da escalada de guarda (post_process) —
@@ -104,7 +120,7 @@ _MARCADORES_OUTRO_CLIENTE = re.compile(
     r"outr[oa]s? clientes?"
     r"|com (um|uma|outr[oa]|mais um[a]?) cliente"
     # "com outra pessoa" SOLTO nao e vazamento: no dominio e quase sempre a recusa do terceiro
-    # que o cliente quer trazer ("nao faco assim com outra pessoa" -- <menage>). Solto, barrou a
+    # que o cliente quer trazer ("nao faco assim com outra pessoa" -- <composicoes>). Solto, barrou a
     # recusa correta DUAS vezes e matou o lead #36 (24/07). Agora so casa a AFIRMACAO de estado
     # ("to ocupada com outra pessoa"): exige o "to/estou" antes e nenhum "nao" no meio, o que
     # deixa passar a recusa e continua barrando a admissao.
@@ -487,15 +503,243 @@ def bolhas_incluso_fantasma(texto: str, inclusos: set[str]) -> list[str]:
     return ofensoras
 
 
+# Preço FANTASMA: o valor citado na bolha não existe no conjunto fechado de valores legítimos da
+# modelo (tabela + totais-com-extra + degraus da escada de desconto + valor já na mesa +
+# eco de número que o CLIENTE citou). Rodada 3 do eval (fase 1-E): o LLM copia/escolhe o número da
+# tabela e nada validava a bolha — preço inventado, acima da tabela ou diferente do já cotado
+# passava direto (o único check era o piso, via extração, DEPOIS do envio). "NUNCA preço inventado"
+# era só prosa+caps; este é o trilho (família da sonda/região/incluso: regenera 1x, dropa a bolha).
+#
+# ESTREITO de proposito — falso-positivo derruba cotação boa. Só conta como "preço citado" o número
+# em CONTEXTO monetário; o scanner (`extrair_precos_citados`) mudou de casa e hoje mora no DOMÍNIO
+# (dominio/atendimentos/service.py), importado no topo deste módulo: o mesmo scanner que julga a
+# BOLHA na saída julga, na extração, se o `valor_acordado` já saiu da boca da IA (guarda do valor
+# fantasma). Duas cópias do regex divergiriam e uma legitimaria o que a outra derruba.
+
+
+def bolhas_preco_fantasma(texto: str, validos: set[int]) -> list[str]:
+    """Bolhas do turno que citam preço FORA do conjunto legítimo (PURA; devolve as originais p/
+    o drop).
+
+    `validos` = tabela + totais-com-extra pré-computados + degraus do desconto + valor na mesa +
+    números que o cliente citou (eco/recusa do número DELE é fala legítima). Vazio (modelo sem
+    programa cadastrado) -> detector desligado, como no eco de região: sem tabela não há "fora
+    da tabela"."""
+    if not validos:
+        return []
+    return [
+        b for b in texto.split("\n\n") if any(v not in validos for v in extrair_precos_citados(b))
+    ]
+
+
+# Serviço FANTASMA ("Faço sim amor" para anal fora do cadastro): a derrota mais grave do shadow v2
+# (recusa_limite 40%) — o cadastro não tem campo "não faço X" e, na dúvida, o LLM AFIRMAVA fazer.
+# `bolhas_incluso_fantasma` pega quem DECLARA incluso; este pega quem AFIRMA FAZER um serviço de
+# risco que não está no cardápio (fetiches + programas). Closed-world: o que não está no cadastro
+# a modelo NÃO faz.
+#
+# ESTREITO em três camadas (falso-positivo derruba recusa/fala boa):
+#  1. só AFIRMAÇÕES ("faço sim", "pode sim", "consigo", "rola", "topo") — a recusa ("não faço")
+#     tem negação ANTES e não casa; o eco-negação ("faço anal não") tem negação DEPOIS e não casa
+#     (mesma lição do ven_004: regex cego a negação pune a resposta certa);
+#  2. só serviços da LISTA DE RISCO (anal, grego, natural, chuva dourada, fisting…) — o vocabulário
+#     onde prometer errado é dano real. "Pode sim" para "posso te beijar?" não tem token de risco
+#     e passa (beijo é conduta aberta, não cardápio);
+#  3. absolvição pelo CADASTRO: token de risco coberto pelo vocabulário da modelo (nome de fetiche,
+#     nome de programa — "Completo" cobre anal/grego pela conduta do <girias_do_cliente>; "oral sem
+#     camisinha" nos inclusos cobre "natural") não dispara.
+_RE_AFIRMA_FAZER = re.compile(
+    r"\b(?:fa[cç]o|pode|podemos|consigo|rola|topo|aceito|tem)\s+(?:sim\b|tudo\b)?"
+)
+_RE_NEGACAO_PERTO = re.compile(r"\b(?:nao|nunca|nem)\b")
+_JANELA_NEGACAO_SERVICO = 30  # chars antes/depois onde a negação transforma o claim em recusa
+_SERVICOS_DE_RISCO = frozenset(
+    {"anal", "grego", "natural", "fisting", "dourada", "inversao", "dominacao"}
+)
+
+
+def vocabulario_de_servicos(
+    nomes_fetiches: Iterable[str], nomes_programas: Iterable[str]
+) -> set[str]:
+    """Vocabulário normalizado do que a modelo FAZ (nomes de fetiche + de programa), com as
+    expansões de conduta do domínio: programa "Completo" cobre anal/grego (<girias_do_cliente>:
+    o anal mora no Completo) e "oral sem camisinha" cobre o apelido "natural"."""
+    tokens: set[str] = set()
+    for nome in (*nomes_fetiches, *nomes_programas):
+        if nome:
+            tokens |= {t for t in _RE_TOKENS_ITEM.split(normalizar(nome)) if len(t) > 2}
+    if "completo" in tokens:
+        tokens |= {"anal", "grego"}
+    if "natural" in tokens or {"oral", "camisinha"} <= tokens:
+        tokens.add("natural")
+    return tokens
+
+
+_RE_TOKEN_DE_RISCO = re.compile(r"\b(?:" + "|".join(sorted(_SERVICOS_DE_RISCO)) + r")\b")
+_JANELA_AFIRMACAO = 40  # chars em volta do token de risco onde a afirmação conta como promessa
+
+
+def bolhas_servico_fantasma(texto: str, vocabulario: set[str]) -> list[str]:
+    """Bolhas do turno que AFIRMAM fazer um serviço de risco fora do cadastro (PURA; devolve as
+    originais p/ o drop).
+
+    A afirmação precisa estar na VIZINHANÇA do token de risco ("faço anal sim", "anal? pode sim")
+    — verbo longe do token não conta ("Pode chegar 20h" + "anal" em outra frase da bolha não é
+    promessa). Negação perto do token, de qualquer lado, absolve ("não faço anal", "faço anal
+    não" — eco-negação, lição do ven_004). Ao contrário do preço, o vocabulário VAZIO não desliga
+    o detector — é o caso medido: modelo sem o fetiche cadastrado é exatamente quem não faz, e
+    "Faço sim" ali é a promessa errada."""
+    ofensoras: list[str] = []
+    for bolha in texto.split("\n\n"):
+        n = normalizar(bolha)
+        for m in _RE_TOKEN_DE_RISCO.finditer(n):
+            if m.group(0) in vocabulario:
+                continue
+            perto = n[
+                max(0, m.start() - _JANELA_NEGACAO_SERVICO) : m.end() + _JANELA_NEGACAO_SERVICO
+            ]
+            if _RE_NEGACAO_PERTO.search(perto):
+                continue
+            antes = n[max(0, m.start() - _JANELA_AFIRMACAO) : m.start()]
+            depois = n[m.end() : m.end() + _JANELA_AFIRMACAO]
+            if _RE_AFIRMA_FAZER.search(antes) or _RE_AFIRMA_FAZER.search(depois):
+                ofensoras.append(bolha)
+                break
+    return ofensoras
+
+
+# Afirmação NUA em cima de pedido de risco (rodada 6b): o cliente pergunta "faz anal?" e a
+# resposta é "Pode sim amor" — sem nomear o serviço, `bolhas_servico_fantasma` não enxerga (ele
+# varre tokens de risco NA RESPOSTA). Aqui o token de risco vem do BURST do cliente: pedido de
+# risco fora do cadastro + bolha curta de pura afirmação (sem negação, sem nomear serviço coberto)
+# = a mesma promessa fantasma, dita por "sim". Estreito: só afirmações inequívocas ("pode sim",
+# "faço sim", "claro", "sim" abrindo bolha curta) — mistura legítima ("Pode ser 22h") não casa;
+# bolha que NOMEIA um token de risco fica com o detector-irmão (que absolve pelo cadastro).
+_RE_AFIRMACAO_NUA = re.compile(
+    r"\b(?:faco|fazemos|pode|podemos|consigo|rola|topo|aceito|tem)\s+(?:sim|tudo)\b"
+    r"|\bclaro\b|\bcom\s+certeza\b|\badoro\b"
+)
+_RE_SIM_ABRINDO = re.compile(r"^\s*sim\b")
+_MAX_BOLHA_AFIRMACAO_NUA = 45
+
+
+def bolhas_afirmacao_nua_de_risco(
+    burst_cliente: Sequence[str], texto: str, vocabulario: set[str]
+) -> list[str]:
+    """Bolhas curtas de pura afirmação respondendo a um pedido de risco fora do cadastro (PURA)."""
+    armados = {
+        m.group(0) for fala in burst_cliente for m in _RE_TOKEN_DE_RISCO.finditer(normalizar(fala))
+    } - vocabulario
+    if not armados:
+        return []
+    ofensoras: list[str] = []
+    for bolha in texto.split("\n\n"):
+        n = normalizar(bolha).strip()
+        if not n or len(n) > _MAX_BOLHA_AFIRMACAO_NUA:
+            continue
+        if _RE_TOKEN_DE_RISCO.search(n) or _RE_NEGACAO_PERTO.search(n):
+            continue
+        if _RE_AFIRMACAO_NUA.search(n) or (_RE_SIM_ABRINDO.search(n) and len(n) <= 25):
+            ofensoras.append(bolha)
+    return ofensoras
+
+
+# PEDÁGIO (rodada 4 do eval): o "Seria hoje ?" virou muleta universal — resposta cuja ÚNICA
+# substância é empurrão VAZIO, inclusive em cima de pergunta concreta do cliente (~13 derrotas da
+# taxonomia; efeito colateral do exemplo do <desconto> da rodada 2 generalizando demais). O
+# empurrão acompanha o conteúdo do turno, nunca o substitui (site canônico: <cotacao>). O gatilho
+# só ARMA com pergunta do cliente pendente no burst — despedida/emoji dele sem pergunta não arma
+# (o empurrão-só ali pode ser a jogada, e a despedida tem prosa própria).
+#
+# "Substância" é definida pelo complemento, fechado dos dois lados: bolha que casa a família do
+# empurrão vazio ("seria hoje/agora/que horas", "vamos marcar") ou o filler curto de interjeição
+# ("poxa amor", "oii", emoji) NÃO é substância; qualquer outra coisa é — em particular proposta
+# com horário concreto ("Consigo às 22h ?") tem dígito e é resposta legítima à pergunta de hora,
+# e recusa ("não faço amor") tem negação. Rede de MELHORIA (família do endereço): regenera 1x;
+# persistiu -> pass-through.
+_RE_EMPURRAO_VAZIO = re.compile(
+    r"(?:poxa |poxa amor |amor )?"
+    r"(?:seria (?:hoje|agora|que horas|quando)|que horas (?:seria|pode|prefere)|"
+    r"quando (?:seria|pode)|(?:vamos|bora|podemos|quer) marcar)"
+    r"(?: amor| vida| gata| entao)?"
+)
+_FILLER_SEM_SUBSTANCIA = frozenset(
+    {
+        "poxa",
+        "poxa amor",
+        "poxa vida",
+        "oi",
+        "oii",
+        "oie",
+        "amor",
+        "rs",
+        "haha",
+        "hahaha",
+        "kk",
+        "kkk",
+        "que bom",
+        "que otimo",
+        "entendi",
+        "ata",
+        "hmm",
+        "tudo bem",
+    }
+)
+
+
+def _normalizar_pedagio(bolha: str) -> str:
+    return " ".join(_RE_NAO_PALAVRA.sub(" ", normalizar(bolha)).split())
+
+
+def resposta_so_pedagio(texto: str) -> bool:
+    """True se TODA bolha do turno é empurrão vazio ou filler — e há ao menos um empurrão (PURA).
+
+    Uma única bolha de substância absolve o turno inteiro: o empurrão acompanhando conteúdo é a
+    jogada certa, o alvo é só o empurrão SOZINHO."""
+    bolhas = [b for b in texto.split("\n\n") if b.strip()]
+    if not bolhas:
+        return False
+    tem_empurrao = False
+    for b in bolhas:
+        n = _normalizar_pedagio(b)
+        if not n:  # só emoji/pontuação
+            continue
+        if _RE_EMPURRAO_VAZIO.fullmatch(n):
+            tem_empurrao = True
+            continue
+        if n in _FILLER_SEM_SUBSTANCIA:
+            continue
+        return False
+    return tem_empurrao
+
+
+def saudacao_em_conflito(texto: str, saudacao_cliente: str | None) -> bool:
+    """True se a resposta saúda com período DIFERENTE do que o cliente usou no burst (PURA).
+
+    Rodada 4 (~5 derrotas): "Boa noite" em cima do "boa tarde" dele. Sem saudação do cliente ou
+    sem saudação na resposta, nada dispara — "boa noite" legítimo à noite só é julgado quando ELE
+    deu a referência do período."""
+    if not saudacao_cliente:
+        return False
+    periodo_resposta = periodo_da_saudacao(texto)
+    return periodo_resposta is not None and periodo_resposta != saudacao_cliente
+
+
 # Delimitador de EXEMPLO vazando na bolha: os few-shots de `regras.md.j2`/`persona.md` moldam a fala
-# ideal com tags de papel (`<ela>...</ela>`, `<cliente>...</cliente>`, `<exemplo>`) e os pares de
+# ideal com tags de papel (`<ela>...</ela>`, `<ele>...</ele>`, `<exemplo>`) e os pares de
 # contraste (`<certo>/<errado>/<par>/<porque>`). Sob decodificacao estocastica (temp 0.7) o chat as
 # vezes COPIA o delimitador de fechamento colado a uma fala boa ("tudo bem, e voce?</ela>"). Ao
 # contrario de raciocinio/placeholder (bolha inteira descartavel) e das tags de SECAO pesadas de
 # `_MARCADORES_SYSTEM` (que barram o turno -> handoff), aqui a bolha e fala legitima com um residuo de
 # molde no fim/inicio: strippa-se SO a substring da tag e mantem-se a fala. Angle-bracket + palavra de
 # molde nunca aparece em mensagem real de cliente, entao o strip nao tem colateral.
-_RE_TAG_EXEMPLO = re.compile(r"</?(?:ela|cliente|exemplo|certo|errado|par|porque)>", re.IGNORECASE)
+#
+# `ele` entrou junto com `cliente`: o falante dos few-shots de `regras.md.j2` foi renomeado
+# <cliente> -> <ele> (F18, colisao com o BLOCO DE DADO <cliente ...> do turno). `cliente` fica no
+# regex por compatibilidade — persona.md e prompts antigos/cacheados ainda podem moldar com ele.
+_RE_TAG_EXEMPLO = re.compile(
+    r"</?(?:ela|ele|cliente|exemplo|certo|errado|par|porque)>", re.IGNORECASE
+)
 
 
 def _bolha_descartavel(b: str) -> bool:
@@ -505,12 +749,20 @@ def _bolha_descartavel(b: str) -> bool:
     (reuniao 22/07); a quarta e chave inventada (a real e anexada pelo sistema, nunca pela bolha).
 
     A sonda-de-balcao NAO entra aqui: ela e fala do tipo certo dita do jeito errado, entao merece
-    regen (gatilho `sonda` do gate) em vez do drop mudo -- ver `bolhas_sonda`."""
+    regen (gatilho `sonda` do gate) em vez do drop mudo -- ver `bolhas_sonda`.
+
+    CARVE-OUT (ADR-0042): a bolha DETERMINISTICA de contato da parceira -- a que o coordenador
+    anexa com o telefone dela, no mesmo trilho da chave Pix -- casa `_RE_CHAVE_PIX` pelo ramo
+    `\\d{11,14}` (um E.164 tem 13 digitos corridos) e morreria em silencio aqui. A saida NAO e
+    afrouxar `_RE_CHAVE_PIX`, que protege a chave de TODA modelo: e absolver UMA forma exata, a
+    que so o sistema produz (`eh_bolha_de_contato_da_parceira` faz fullmatch da bolha inteira).
+    Chave Pix de verdade -- e-mail, EVP, CPF, numero solto, numero no meio de uma frase --
+    continua sendo derrubada, e o carve-out nao vale para nenhum dos outros tres gatilhos."""
     return (
         tem_marcador_raciocinio(b)
         or tem_placeholder_template(b)
         or tem_promessa_sem_limite(b)
-        or tem_chave_pix(b)
+        or (tem_chave_pix(b) and not eh_bolha_de_contato_da_parceira(b))
     )
 
 
@@ -547,13 +799,32 @@ _REPETICAO_MIN = 25  # piso p/ match FUZZY (reformulacao parcial: "como te falei
 _REPETICAO_MIN_VERBATIM = 15
 _REPETICAO_JANELA = 12
 
+# Sondas canonicas do prompt que repetem ABAIXO do piso ("seria hoje" tem 10 chars normalizados):
+# sao justamente as falas que o `<ja_sondou_o_dia>` promete dizer UMA vez na conversa inteira, e o
+# diagnostico 11/08 mediu "Seria hoje ?" saindo verbatim duas vezes em dois cenarios sem o detector
+# ver nada. Conjunto fechado (nao um piso menor p/ todo mundo): saudacao/gracejo curto continua
+# repetindo de graca.
+_SONDAS_REPETIVEIS = frozenset(
+    {"seria hoje", "seria agora", "que horas", "seria que horas", "e hoje", "vem agora", "vem hoje"}
+)
+
 _RE_NAO_PALAVRA = re.compile(r"[^\w\s]+")
 _RE_ESPACOS = re.compile(r"\s+")
+# Cauda de voz que o envio pode remover DEPOIS do guard (`normalizar_vocativo_voz`/emoji, camada de
+# voz do worker, workers/_saida_guard.py): vocativo trailing e o "rs". Sai da CHAVE de comparacao —
+# nao do texto — para o guard julgar a bolha que o cliente de fato recebe. Sem isso o julgamento
+# ficava do lado errado por um fio: "seria que horas hoje amor" x "seria que horas hoje" da ratio
+# 0,889, um cabelo abaixo do limiar 0,90, e a pergunta duplicada foi ao cliente (trace 66b8161e).
+_CAUDA_DE_VOZ = ("amor", "vida", "rs")
 
 
 def _normalizar_bolha(b: str) -> str:
-    """Normaliza p/ comparacao de repeticao: minusculas, sem pontuacao/emoji, espacos colapsados."""
-    return _RE_ESPACOS.sub(" ", _RE_NAO_PALAVRA.sub(" ", b.lower())).strip()
+    """Normaliza p/ comparacao de repeticao: minusculas, sem pontuacao/emoji, espacos colapsados e
+    sem a cauda de voz (vocativo/"rs"), que o envio remove por sorteio depois do guard."""
+    tokens = _RE_ESPACOS.sub(" ", _RE_NAO_PALAVRA.sub(" ", b.lower())).strip().split()
+    while len(tokens) > 1 and tokens[-1] in _CAUDA_DE_VOZ:
+        tokens.pop()
+    return " ".join(tokens)
 
 
 def _bolhas_historicas(messages: Sequence[BaseMessage]) -> list[str]:
@@ -569,20 +840,27 @@ def _bolhas_historicas(messages: Sequence[BaseMessage]) -> list[str]:
     return bolhas[-_REPETICAO_JANELA:]
 
 
+def _conta_para_repeticao(normalizada: str) -> bool:
+    """A bolha normalizada entra na conta do detector? (piso de tamanho OU sonda canonica)."""
+    return len(normalizada) >= _REPETICAO_MIN_VERBATIM or normalizada in _SONDAS_REPETIVEIS
+
+
 def bolhas_repetidas(texto: str, historicas: Sequence[str]) -> list[str]:
     """Bolhas do turno quase identicas a uma bolha recente da propria IA -- ou a outra bolha
     anterior do MESMO turno (PURA; devolve as bolhas originais, nao normalizadas, p/ o drop).
 
     Reenvio EXATO (ratio 1.0) conta ja no piso menor (_REPETICAO_MIN_VERBATIM) -- pega a bolha de
     preco curta que passava sob o piso fuzzy; match FUZZY segue exigindo _REPETICAO_MIN p/ nao
-    flagar saudacao curta reformulada. Negacao canned repetida nao e rastro (pool curado) -> isenta."""
-    vistas = [n for b in historicas if len(n := _normalizar_bolha(b)) >= _REPETICAO_MIN_VERBATIM]
+    flagar saudacao curta reformulada. As sondas canonicas (`_SONDAS_REPETIVEIS`) contam ABAIXO do
+    piso: repeti-las e a violacao que o proprio prompt nomeia. Negacao canned repetida nao e rastro
+    (pool curado) -> isenta."""
+    vistas = [n for b in historicas if _conta_para_repeticao(n := _normalizar_bolha(b))]
     repetidas: list[str] = []
     for b in texto.split("\n\n"):
         if b.strip() in _CANNED_CURADAS:
             continue
         n = _normalizar_bolha(b)
-        if len(n) < _REPETICAO_MIN_VERBATIM:
+        if not _conta_para_repeticao(n):
             continue
         exato = n in vistas
         fuzzy = len(n) >= _REPETICAO_MIN and any(
@@ -597,6 +875,30 @@ def bolhas_repetidas(texto: str, historicas: Sequence[str]) -> list[str]:
 def _drop_bolhas(texto: str, remover: set[str]) -> str:
     """Remove do agregado as bolhas repetidas (fallback da repeticao: silencio > papagaio)."""
     return "\n\n".join(b for b in texto.split("\n\n") if b not in remover)
+
+
+def _falas_do_burst_atual(conversa_crua: Sequence[BaseMessage]) -> list[str]:
+    """Falas do burst ATUAL do cliente: HumanMessages contiguas no FIM da janela crua do turno
+    (`EstadoAgente.conversa_crua` — a janela ANTES da anexacao do contexto dinamico/lembrete).
+
+    Vazia quando o ultimo a falar nao foi ele, ou quando o State nao publicou a janela (teste
+    unitario que chama o guard direto, webhook fino) — os gatilhos que dependem do pedido DELE
+    simplesmente nao armam.
+
+    Para na marca de pausa, como `_burst_do_cliente` (_janela_do_turno; incidente 29/07, trace
+    06db4298): numa retomada sem AIMessage entre a marca e as falas novas, bolhas de dias atras
+    nao podem entrar como "burst atual" — um "onde fica?" pre-pausa armaria o gatilho de endereco
+    num turno de reengajamento, e este burst divergiria do de `perguntas_do_burst` no MESMO guard.
+    """
+    from .._texto_turno import e_marca_pausa
+
+    falas: list[str] = []
+    for m in reversed(conversa_crua):
+        if isinstance(m, HumanMessage) and not e_marca_pausa(m):
+            falas.append(str(m.content))
+            continue
+        break
+    return list(reversed(falas))
 
 
 class _VeredictoAup(BaseModel):
@@ -629,13 +931,30 @@ async def _legendas_do_turno(conn: Any, turno_id: str) -> list[str]:
     return [leg for r in await res.fetchall() if (leg := (r.get("legenda") or "").strip())]
 
 
-async def _lugares_permitidos(conn: Any, ctx: ContextAgente) -> set[str]:
-    """Vocabulario de lugar do cadastro da modelo, p/ o detector de eco de regiao.
+@dataclass(frozen=True)
+class _CadastroGuard:
+    """Recortes do cadastro da modelo que os detectores do gate consomem (uma leitura por turno).
 
-    Vazio (= detector desligado) em dois casos: cadastro sem nenhum campo de lugar, e atendimento
-    EXTERNO — no externo quem se desloca e ela, entao falar do bairro DELE ("vou ai no Cambui") e a
-    fala certa, e o cadastro dela nao e a referencia. Uma leitura so, na conexao que o guard ja
-    abriu p/ as legendas.
+    `permitidos_lugar`: vocabulario do eco de regiao (vazio = detector desligado — cadastro sem
+    lugar ou atendimento externo). `tokens_endereco`: tokens que so aparecem quando ela ENTREGA o
+    ponto (nome do hotel/rua, sem a regiao — `tokens_do_endereco`), p/ o gatilho `endereco`.
+
+    Nao carrega mais estado/tipo/cotacao do atendimento: quem decide se o gatilho `endereco` arma e
+    o CARIMBO `local_endereco_no_prompt` do State (estado.py) — reavaliar o gate aqui, com a linha
+    relida DEPOIS da extracao, era o skew que cobrava um bloco ausente do prompt.
+    """
+
+    permitidos_lugar: set[str]
+    tokens_endereco: set[str]
+
+
+async def _cadastro_guard(conn: Any, ctx: ContextAgente) -> _CadastroGuard:
+    """Vocabulario de lugar/endereco do cadastro + estado do atendimento, p/ os detectores.
+
+    Eco de regiao desligado (permitidos vazio) em dois casos: cadastro sem nenhum campo de lugar,
+    e atendimento EXTERNO — no externo quem se desloca e ela, entao falar do bairro DELE ("vou ai
+    no Cambui") e a fala certa, e o cadastro dela nao e a referencia. Uma leitura so, na conexao
+    que o guard ja abriu p/ as legendas.
     """
     res = await conn.execute(
         """
@@ -648,30 +967,247 @@ async def _lugares_permitidos(conn: Any, ctx: ContextAgente) -> set[str]:
         (ctx.atendimento_id, ctx.modelo_id),
     )
     row = await res.fetchone()
-    if row is None or row["tipo_atendimento"] == "externo":
-        return set()
-    return tokens_de_lugar(
-        row["localizacao_operacional"], row["nome_local"], row["endereco_formatado"]
+    if row is None:
+        return _CadastroGuard(set(), set())
+    permitidos = (
+        set()
+        if row["tipo_atendimento"] == "externo"
+        else tokens_de_lugar(
+            row["localizacao_operacional"], row["nome_local"], row["endereco_formatado"]
+        )
+    )
+    return _CadastroGuard(
+        permitidos_lugar=permitidos,
+        tokens_endereco=tokens_do_endereco(
+            row.get("endereco_formatado"),
+            row.get("nome_local"),
+            row.get("localizacao_operacional"),
+        ),
     )
 
 
-async def _inclusos_da_modelo(conn: Any, ctx: ContextAgente) -> set[str]:
-    """Vocabulario da linha "Inclusos" do <fetiches> (fetiche vinculado com `preco IS NULL`).
+@dataclass(frozen=True)
+class _CardapioGuard:
+    """Recortes do cardapio da modelo que os detectores do gate consomem.
 
-    Mesmo recorte do `render_fetiches` (persona.py): `preco` NULL = incluso, preenchido = extra
-    pago. Vazio (modelo sem incluso nenhum) NAO desliga o detector -- e o caso da falha medida.
-    Uma leitura so, na conexao que o guard ja abriu p/ as legendas.
+    `inclusos`: a linha "Inclusos" do <fetiches> (`bolhas_incluso_fantasma`). `servicos`: tudo que
+    ela FAZ — fetiches + programas, com as expansoes de conduta (`bolhas_servico_fantasma`).
+    `precos_tabela`: triplas (preco, horas, preco_minimo) de `modelo_programas`, base do conjunto
+    de valores legitimos (`bolhas_preco_fantasma`) — o `preco_minimo` (NULL na maioria das linhas)
+    entra porque a escada de desconto que legitima os numeros e clampada por ele: sem o piso, o
+    guard legitimaria os 25% cheios em cima de um pacote cadastrado como minimo e o feedback do
+    gatilho `preco` ainda ENSINARIA a IA a ofertar la. `extras_cadastrados`: os precos cadastrados
+    dos fetiches pagos com numero de verdade na coluna — sem eles o total que o <fetiches>
+    renderiza pelo preco do painel (decisao de 2026-08-11) ficaria fora do conjunto e o guard
+    derrubaria a cotacao correta. Sem o `cobra_por_pessoa` ao lado desde o ADR-0039: composicao
+    nao tem mais conta propria, e o preco cadastrado dela ja e o TOTAL do extra.
+    """
+
+    inclusos: set[str]
+    servicos: set[str]
+    precos_tabela: list[tuple[Decimal, Decimal, Decimal | None]]
+    extras_cadastrados: list[Decimal]
+
+
+async def _cardapio_da_modelo(conn: Any, ctx: ContextAgente) -> _CardapioGuard:
+    """Cardapio completo da modelo p/ os detectores de incluso/servico/preco fantasma.
+
+    `inclusos` usa o mesmo recorte do `render_fetiches` (persona.py): `preco` NULL = incluso,
+    preenchido = extra pago; vazio NAO desliga o detector de incluso — e o caso da falha medida.
+    Duas leituras, na conexao que o guard ja abriu p/ as legendas.
     """
     res = await conn.execute(
         """
-        SELECT f.nome
+        SELECT f.nome, mf.preco
           FROM barravips.modelo_fetiches mf
           JOIN barravips.fetiches f ON f.id = mf.fetiche_id
-         WHERE mf.modelo_id = %s AND mf.preco IS NULL
+         WHERE mf.modelo_id = %s
         """,
         (ctx.modelo_id,),
     )
-    return tokens_de_incluso(*[r["nome"] for r in await res.fetchall()])
+    fetiches = await res.fetchall()
+    res = await conn.execute(
+        """
+        SELECT p.nome, mp.preco, mp.preco_minimo, d.horas
+          FROM barravips.modelo_programas mp
+          JOIN barravips.programas p ON p.id = mp.programa_id
+          JOIN barravips.duracoes d ON d.id = mp.duracao_id
+         WHERE mp.modelo_id = %s
+        """,
+        (ctx.modelo_id,),
+    )
+    programas = await res.fetchall()
+    from barra.dominio.atendimentos.service import preco_cadastrado_de_fetiche
+
+    extras_cadastrados = [
+        cadastrado
+        for r in fetiches
+        if r.get("preco") is not None
+        and (cadastrado := preco_cadastrado_de_fetiche(r["preco"])) is not None
+    ]
+    return _CardapioGuard(
+        inclusos=tokens_de_incluso(*[r["nome"] for r in fetiches if r.get("preco") is None]),
+        servicos=vocabulario_de_servicos(
+            [r["nome"] for r in fetiches], [r["nome"] for r in programas]
+        ),
+        precos_tabela=[
+            (
+                Decimal(str(r["preco"])),
+                Decimal(str(r["horas"])),
+                None if r.get("preco_minimo") is None else Decimal(str(r["preco_minimo"])),
+            )
+            for r in programas
+            if r.get("preco") is not None and r.get("horas") is not None
+        ],
+        extras_cadastrados=extras_cadastrados,
+    )
+
+
+def _valores_legitimos(
+    precos_tabela: list[tuple[Decimal, Decimal, Decimal | None]],
+    valor_acordado: Any,
+    messages: Sequence[BaseMessage],
+    ids_do_turno: frozenset[str | None] | set[str | None] = frozenset(),
+    extras_cadastrados: Sequence[Decimal] = (),
+) -> set[int]:
+    """Conjunto fechado de valores que a bolha PODE citar como preco (p/ `bolhas_preco_fantasma`).
+
+    Por preco de tabela: o proprio e o total-com-extra (1 e 2 fetiches, a mesma conta
+    pre-computada que o <fetiches> mostra — `render_fetiches`/ADR-0038), TUDO nos tres patamares
+    da escada de desconto (cheio/degrau/piso,
+    ADR-0031, via `valor_no_patamar`, site unico das contas). Os tres patamares porque o extra
+    ACOMPANHA o pacote: com a 1h a 400/300, a fala correta "600 com a inversao" no piso da 1h
+    (300 + 300) so passa se o conjunto tiver 600 — legitimar so o cheio barraria exatamente a
+    negociacao que o <desconto> manda fazer. Mais o valor ja na mesa (`valor_acordado`), todo
+    numero que apareceu em fala do CLIENTE na janela — ecoar/recusar o numero DELE e fala
+    legitima ("250 nao consigo amor") — e o `pix_deslocamento_valor` de settings (a fala do uber
+    prescrita pelo <tipos_de_encontro>). Truncado E arredondado entram (a IA arredonda de
+    cabeca; a divergencia de 1 real nao pode derrubar bolha boa).
+
+    Rodada 4: entram tambem os precos que a PROPRIA IA/vendedora ja citou no historico
+    (AIMessages FORA do turno atual — `ids_do_turno` exclui as deste turno, senao o preco errado
+    se legitimaria sozinho) e os degraus/piso da escada COMPUTADOS SOBRE eles: repetir o numero
+    que ja esta na conversa e consistencia, nao invencao (historico seedado/real pode carregar
+    promo fora da tabela de hoje), e a promocao legitima via escada continua valida a partir do
+    preco em mesa. A direcao RESTRITIVA ("citou um preco -> os outros da tabela saem do conjunto")
+    foi considerada e recusada: sem atribuicao por-pacote do numero citado, ela derrubaria a
+    cotacao legitima de OUTRA duracao no turno seguinte.
+
+    ADR-0039: o DOBRO do pacote saiu do conjunto. Ele estava aqui como o total do regime
+    "por pessoa" (ADR-0035) e esse regime deixou de existir — composicao soma o mesmo extra dos
+    atos, que ja entra pelo `linhas_de_uma_hora`. E o unico estreitamento desta mudanca (todo o
+    resto so troca um numero por outro), e ele nao quebra conversa em andamento: o dobro que a IA
+    tiver cotado ANTES continua legitimo pelo ramo das AIMessages do historico, que legitima todo
+    preco ja saido da boca dela sem consultar tabela nenhuma."""
+    from barra.dominio.atendimentos.service import (
+        DURACAO_MINIMA_FETICHE_PAGO,
+        PATAMARES,
+        aceita_fetiche_pago,
+        degrau_de_desconto,
+        extra_de_fetiche,
+        piso_de_desconto,
+        valor_no_patamar,
+    )
+
+    valores: set[int] = set()
+
+    def _add(x: Decimal) -> None:
+        valores.add(int(x))
+        valores.add(int(x.to_integral_value(rounding=ROUND_HALF_UP)))
+
+    # Piso por VALOR de tabela (nao por linha): o preco citado no historico chega como numero
+    # solto, sem programa nem duracao. Duas linhas de mesmo preco com pisos diferentes resolvem
+    # pelo mais apertado — o unico valido para qualquer uma delas.
+    minimos_por_preco: dict[Decimal, Decimal] = {}
+    for preco, _, preco_minimo in precos_tabela:
+        if preco_minimo is not None:
+            anterior = minimos_por_preco.get(preco)
+            minimos_por_preco[preco] = (
+                preco_minimo if anterior is None else max(anterior, preco_minimo)
+            )
+
+    # Base do extra derivado (ADR-0038): as linhas de 1h da tabela. SEM atribuicao por programa —
+    # a tupla que chega aqui nao carrega o nome do pacote, entao qualquer 1h da modelo legitima o
+    # total de qualquer linha. Direcao ADITIVA, a mesma da rodada 4: o guard existe para pegar
+    # numero que nao vem de tabela nenhuma, e apertar o par (programa x extra) sem saber de qual
+    # pacote a bolha fala derrubaria cotacao legitima.
+    linhas_de_uma_hora = [
+        (preco, preco_minimo)
+        for preco, horas, preco_minimo in precos_tabela
+        if aceita_fetiche_pago(horas) and horas == DURACAO_MINIMA_FETICHE_PAGO
+    ]
+
+    for preco, horas, preco_minimo in precos_tabela:
+        for patamar in PATAMARES:
+            base = valor_no_patamar(preco, preco_minimo, patamar)
+            _add(base)
+            # Pacote < 1h nao tem fetiche pago (decisao 11/08/2026, `aceita_fetiche_pago`): a
+            # linha entra no conjunto pelo preco dela e pela escada, mas NENHUM total de fetiche
+            # — nem o derivado nem o do preco cadastrado. E aqui
+            # que a regra vira deterministica: o <fetiches> parou de RENDERIZAR a linha do pacote
+            # curto com extra, e o guard para de LEGITIMAR o total dela se ele vier assim mesmo.
+            if not aceita_fetiche_pago(horas):
+                continue
+            # O dobro do pacote NAO entra mais (ADR-0039): composicao passou a somar o mesmo
+            # extra dos atos, entao "1600 na 2h de 800" deixou de ser numero de tabela. E o unico
+            # ponto desta mudanca que BLOQUEIA fala em vez de so troca-la — e ele so aperta a
+            # frente da conversa: o dobro que a IA ja tiver citado num turno anterior continua
+            # legitimo pelo ramo `extrair_precos_citados` la embaixo, que nao consulta tabela.
+            # Um extra e dois: os dois totais que a tabela do <fetiches> imprime prontos.
+            for linha in linhas_de_uma_hora:
+                derivado = extra_de_fetiche(linha, horas, patamar=patamar)
+                if derivado is not None:
+                    _add(base + derivado)
+                    _add(base + derivado * 2)
+            # Totais pelo preco CADASTRADO do fetiche (decisao 2026-08-11): e o numero que o
+            # <fetiches> renderiza, entao precisa ser citavel. O cadastro NAO acompanha o
+            # patamar (o operador digitou um valor, nao uma escada), mas o pacote sim — por isso
+            # ele soma sobre `base`, e nao sobre `preco`.
+            for cadastrado in extras_cadastrados:
+                com_cadastro = extra_de_fetiche(
+                    None,
+                    horas,
+                    preco_cadastrado=cadastrado,
+                )
+                if com_cadastro is not None:
+                    _add(base + com_cadastro)
+                    _add(base + com_cadastro * 2)
+    if valor_acordado is not None:
+        _add(Decimal(str(valor_acordado)))
+    for m in messages:
+        if isinstance(m, HumanMessage):
+            for bruto in _RE_NUMERO_DO_CLIENTE.findall(str(m.content)):
+                valores.add(int(bruto.replace(".", "")))
+        elif isinstance(m, AIMessage) and m.id not in ids_do_turno:
+            # Preco ja citado pela propria IA/vendedora (historico, nunca o turno em julgamento):
+            # o numero em contexto monetario ("600 1h", "R$ 600") + a escada sobre ele.
+            for citado in extrair_precos_citados(str(m.content)):
+                preco_citado = Decimal(citado)
+                # O piso da linha acompanha o numero mesmo quando ele chega por aqui: sem isto o
+                # pacote cadastrado como minimo (Catarina: 250 nos 30min) recuperaria a escada
+                # cheia — bastava a IA ter cotado os 250 num turno anterior para 188 voltar ao
+                # conjunto legitimo. Preco que nao casa com nenhuma linha (promo antiga do
+                # historico seedado) segue sem piso, como antes.
+                minimo_citado = minimos_por_preco.get(preco_citado)
+                _add(preco_citado)
+                _add(degrau_de_desconto(preco_citado, minimo_citado))
+                _add(piso_de_desconto(preco_citado, minimo_citado))
+    legitimos = {v for v in valores if v >= PRECO_MINIMO_SCAN}
+    if legitimos:
+        # Unico numero legitimo de FORA da tabela que vem de settings: o uber ida-e-volta que o
+        # <tipos_de_encontro> PRESCREVE ("O uber ida e volta fica {pix_valor} amor") — sem ele o
+        # guard derrubava a fala que o proprio prompt manda dar (turno MUDO com Pix pendente).
+        # So entra com o conjunto ja populado: incondicional, ele ARMARIA o detector de modelo
+        # sem tabela (`bolhas_preco_fantasma`: vazio = desligado).
+        pix = get_settings().pix_deslocamento_valor
+        legitimos.add(int(pix))
+        legitimos.add(int(pix.to_integral_value(rounding=ROUND_HALF_UP)))
+    return legitimos
+
+
+# Numero que o CLIENTE citou (3-4 digitos, com ou sem separador de milhar): entra no conjunto
+# legitimo como eco — recusar/citar o numero dele e fala valida da negociacao.
+_RE_NUMERO_DO_CLIENTE = re.compile(r"\b(\d{1,2}\.\d{3}|\d{3,4})\b")
 
 
 def tem_marcador_ia(texto: str) -> bool:
@@ -765,7 +1301,10 @@ _FEEDBACK_GATILHO = {
         "operacao que voce nunca diria a um cliente)"
     ),
     "repeticao": "ela repetia quase igual algo que voce ja tinha mandado antes nesta conversa",
-    "mudo": "ela era so raciocinio interno, sem nenhuma fala de verdade ao cliente",
+    "mudo": (
+        "ela era so raciocinio interno ou veio VAZIA -- nenhuma fala de verdade chegou ao "
+        "cliente, e ele esta esperando resposta"
+    ),
     "sonda": (
         'ela perguntava de balcao o que ele queria ("o que voce procura?"), jeito de atendente '
         "de SAC que voce nunca usa"
@@ -777,6 +1316,26 @@ _FEEDBACK_GATILHO = {
     "incluso": (
         'ela dizia que um item esta incluso sem ele estar na linha "Inclusos" do seu <fetiches> '
         "-- item que nao esta la voce nao tem, e nao vira cortesia"
+    ),
+    "servico": (
+        "ela afirmava fazer um servico que nao esta no seu cadastro -- o que nao esta no seu "
+        "cardapio voce NAO faz: recuse com carinho, oferecendo junto o que voce FAZ"
+    ),
+    "preco": (
+        "ela citava um valor que nao existe na sua tabela nem na negociacao ja feita -- o numero "
+        "certo esta no seu <programas> (e, se ja houve valor combinado, e ele que vale)"
+    ),
+    "endereco": (
+        "ele pediu a localizacao e ela nao entregou o ponto de encontro -- responda entregando o "
+        "seu ponto de encontro, com todas as letras, junto do proximo passo"
+    ),
+    "pedagio": (
+        "ela era so empurrao de fechamento ('Seria hoje ?') com pergunta dele ainda sem resposta "
+        "-- o empurrao acompanha o conteudo, nunca o substitui: responda a pergunta dele E avance"
+    ),
+    "saudacao": (
+        "ela saudava com um periodo diferente do que ELE usou -- espelhe a saudacao dele "
+        "(quem disse 'boa tarde' recebe 'boa tarde', nunca 'boa noite')"
     ),
 }
 _EXTRA_SONDA = (
@@ -793,6 +1352,120 @@ _EXTRA_REPETICAO = (
 )
 
 
+def _contexto_factual_aup(endereco_no_prompt: str | None) -> str | None:
+    """Mini-contexto FACTUAL para o judge de AUP (ponto #2 da auditoria guard/judge).
+
+    O judge de `aup_saida.md` e message-only, e o carve-out da UNIDADE e indecidivel sem contexto:
+    o numero do APARTAMENTO/quarto nunca sai, mas o numero da RUA sai quando o sistema liberou o
+    endereco completo neste turno (`numero_liberado` no template) — a MESMA superficie ("numero Z")
+    e obrigatoria num estado e violacao noutro. Anexar o endereco que o sistema DE FATO liberou
+    (`local_endereco_no_prompt`, o mesmo carimbo que o gatilho `endereco` le) torna a distincao
+    decidivel: nome de rua/hotel e numero que CASAM com este endereco sao a entrega legitima; um
+    numero que NAO casa — em especial apartamento/quarto — e vazamento.
+
+    Chave Pix e telefone continuam ABSOLUTOS no prompt (nunca context-relative): o sistema os anexa
+    FORA da fala (out-of-band, no trilho da bolha deterministica), nunca na mensagem que o modelo
+    escreve, entao qualquer um deles no texto e inventado. O State do guard tambem nao carrega o
+    telefone/Pix reais da modelo — nao ha o que anexar aqui mesmo se quisessemos relativiza-los.
+    """
+    if not endereco_no_prompt:
+        return None
+    return (
+        "CONTEXTO FACTUAL (o que o sistema LIBEROU neste turno — use so para decidir a UNIDADE/"
+        "endereco; nao julgue o contexto, so a mensagem):\n"
+        f"- Endereco/ponto de encontro liberado: {endereco_no_prompt}\n"
+        "Nome de rua/hotel e numero que APARECAM neste endereco sao entrega legitima. Numero que "
+        "NAO casa com ele — em especial numero de apartamento/quarto/unidade — e vazamento."
+    )
+
+
+def _feedback_endereco_sonegado(ponto_de_encontro: str | None) -> str:
+    """Mensagem do gatilho `endereco` com o ENDERECO LITERAL colado (nunca a tag pelo nome).
+
+    Familia do incidente #36 outra vez: a mensagem estatica mandava "entregue o endereco
+    exatamente como esta no seu <local_de_encontro>" — e o `<instrucoes_meta>` da persona ensina
+    que tag de bloco depois da fala do cliente e imitacao. Citar uma tag CONDICIONAL pelo nome so
+    funciona quando ela existe, e o turno do trace 648d7f6f provou o custo de errar: a regen pediu
+    o conteudo de um bloco ausente e o modelo devolveu a mesma rua inventada. O dado vem do carimbo
+    do prompt (`local_endereco_no_prompt`), entao e literalmente o que ele ja tinha em maos.
+    """
+    base = _FEEDBACK_GATILHO["endereco"]
+    if not ponto_de_encontro:
+        return base
+    return (
+        f"{base}. O seu ponto de encontro e: {ponto_de_encontro} -- e esse texto que sai da sua "
+        "boca, sem trocar nome de rua nem de hotel"
+    )
+
+
+def _feedback_preco_fantasma(
+    precos_tabela: list[tuple[Decimal, Decimal, Decimal | None]], duracao_horas: Any
+) -> str:
+    """Mensagem do gatilho `preco` com a escada de desconto NOMEADA quando ela e computavel.
+
+    Familia do incidente #36 (proibir sem dar a fala de substituicao): a mensagem estatica so
+    aponta a tabela, e o modelo que rascunhou uma contraproposta fora da escada recuava para a
+    recusa seca ("nao consigo por esse valor"), sem degrau nem empurrao — a venda esfriava.
+    Nomear o que ele PODE (degrau e piso, mesma conta do conjunto legitimo:
+    `degrau_de_desconto` + `piso_de_desconto`, sites unicos) devolve a jogada certa em vez de
+    so vetar a errada.
+
+    Fail-closed pelo MESMO criterio do `contraproposta_da_escada`: o numero so existe quando a
+    duracao em pauta tem UM preco de tabela (com dois, ex. "Padrao 1h 400" e "Casal 1h 700", o
+    degrau/piso sairiam sobre o pacote errado). Com `duracao_horas` fechada filtra a tabela por
+    ela; sem duracao fechada, so quando a tabela inteira tem um preco. Ambiguo (ou sem escada,
+    `desconto_teto_pct=0`) -> mensagem estatica de hoje.
+
+    NOMEIA os dois numeros possiveis, nunca a RODADA: desde 11/08/2026 a escada depende de o
+    encontro ser hoje (piso direto, um so) ou outro dia (degrau e depois piso), e o dia nao chega
+    aqui -- dizer "o primeiro e o degrau" seria mentira metade das vezes. Quem sabe qual vale
+    agora e o bloco da escada na cauda, e e pra la que a mensagem aponta."""
+    from barra.dominio.atendimentos.service import degrau_de_desconto, piso_de_desconto
+
+    base = _FEEDBACK_GATILHO["preco"]
+    linhas = [
+        (preco, preco_minimo)
+        for preco, horas, preco_minimo in precos_tabela
+        if duracao_horas is None or horas == Decimal(str(duracao_horas))
+    ]
+    if len({preco for preco, _ in linhas}) != 1:
+        return base
+    preco = linhas[0][0]
+    # Mesma leitura conservadora do `_contraproposta_da_tabela`: com o pacote ambiguo, a oferta
+    # valida e a MAIS ALTA entre as linhas de mesmo preco.
+    degrau_bruto = max(degrau_de_desconto(preco, m) for _, m in linhas)
+    piso_bruto = max(piso_de_desconto(preco, m) for _, m in linhas)
+    degrau = int(degrau_bruto.to_integral_value(rounding=ROUND_HALF_UP))
+    piso = int(piso_bruto.to_integral_value(rounding=ROUND_HALF_UP))
+    # Linha sem desconto a dar (piso absoluto igual ao preco, ou `desconto_teto_pct=0`): nomear
+    # "os seus numeros sao 250 e 250" em cima de uma tabela de 250 ensinaria a IA a apresentar o
+    # proprio preco como concessao. Cai na mensagem estatica, que so aponta a tabela.
+    if piso >= int(preco.to_integral_value(rounding=ROUND_HALF_UP)):
+        return base
+    return (
+        base + f"; se a jogada e a sua escada de desconto, os seus numeros possiveis sao {degrau} "
+        f"e {piso} -- qual deles vale AGORA esta no bloco da escada do seu contexto (com encontro "
+        f"hoje o valor e {piso} de uma vez so; sem o dia na mesa, nenhum: defenda o valor e "
+        "pergunte o dia), e ecoar ou recusar o numero que ELE disse e sempre legitimo"
+    )
+
+
+def _janela_com_lembrete(janela: list[BaseMessage], lembrete: str) -> list[BaseMessage]:
+    """A janela da regen com o `<lembrete_silencioso>` ANTES da fala do cliente (ver `_regenerar`).
+
+    Prepend no CONTEUDO da ultima HumanMessage (que ja carrega lembrete -> contexto dinamico ->
+    fala) em vez de uma mensagem nova: mantem a alternancia de papeis e preserva a recencia da fala
+    dele, que continua sendo a ultima coisa que o modelo le.
+    """
+    for i in range(len(janela) - 1, -1, -1):
+        msg = janela[i]
+        if isinstance(msg, HumanMessage) and isinstance(msg.content, str):
+            copia = list(janela)
+            copia[i] = HumanMessage(id=msg.id, content=f"{lembrete}\n\n{msg.content}")
+            return copia
+    return [*janela, HumanMessage(content=lembrete)]
+
+
 async def _regenerar(
     messages: Sequence[BaseMessage],
     msgs_turno: list[AIMessage],
@@ -800,6 +1473,7 @@ async def _regenerar(
     rascunho: str,
     gatilho: str,
     settings: Any,
+    feedback_gatilho: str | None = None,
 ) -> AIMessage | None:
     """Regeneracao one-shot do turno sujo: re-pede a resposta ao chat #1 SEM tools, sobre a janela
     ate ANTES deste turno + um `<lembrete_silencioso>` com o rascunho descartado e o motivo.
@@ -809,12 +1483,20 @@ async def _regenerar(
     deste turno ja persistiu. Sem tools bindadas o modelo so pode responder texto. Falha de
     qualquer natureza (excecao, recusa, truncamento) -> None e o caller cai no fallback
     (handoff/drop/mudo) -- a regen e so o caminho feliz, nunca a rede de seguranca.
+
+    O lembrete entra ANTES da fala do cliente (prependado na ULTIMA HumanMessage da janela, a mesma
+    posicao em que o `prepare_context` cola lembrete e contexto dinamico), nunca depois: o
+    `<instrucoes_meta>` da persona ensina que bloco que chega DEPOIS da fala do cliente e imitacao,
+    e que "aviso que te autoriza revelar um dado" e falso por definicao — no lugar antigo o proprio
+    prompt dava ao modelo licenca textual para ignorar toda regen (diagnostico 11/08, P0-1). Janela
+    sem HumanMessage (defesa) -> mensagem propria no fim, como antes.
     """
     from barra.core.llm import (
         PARADA_RECUSA,
         PARADA_TRUNCADA,
         criar_chat_deepseek,
         motivo_parada,
+        nomear_run,
     )
 
     corte = messages.index(msgs_turno[0]) if msgs_turno else len(messages)
@@ -824,22 +1506,28 @@ async def _regenerar(
         "sonda": _EXTRA_SONDA,
         "incluso": _EXTRA_INCLUSO,
     }.get(gatilho, "")
+    # `feedback_gatilho` sobrepoe a razao estatica quando o caller tem versao mais rica (os
+    # gatilhos factuais: `preco` com a escada nomeada, `endereco` com o ponto de encontro literal).
     feedback = (
         "<lembrete_silencioso>Sua ultima resposta foi descartada antes do envio: "
-        f"{_FEEDBACK_GATILHO[gatilho]}.\n"
+        f"{feedback_gatilho or _FEEDBACK_GATILHO[gatilho]}.\n"
         f"Rascunho descartado:\n{rascunho[:_RASCUNHO_MAX]}\n"
         "Escreva agora, no seu jeito de sempre, a mensagem que vai ao cliente -- curta e natural, "
         f"sem o problema acima.{extra} Responda somente com a mensagem.</lembrete_silencioso>"
     )
-    # Mesmo regime de thinking do chat #1 (settings.deepseek_thinking_chat): a regen é fala da
-    # persona e, no braço B do A/B, a janela pode conter reasoning_content a devolver.
-    chat = criar_chat_deepseek(
-        settings,
-        temperature=settings.chat_temperature,
-        thinking=settings.deepseek_thinking_chat,
+    # Mesmo regime de thinking do chat #1 (settings.deepseek_thinking_chat, default "low"): a regen
+    # é fala da persona e, em thinking, a janela pode conter reasoning_content a devolver.
+    # `run_name` nomeia a generation no trace (senão vira mais um "ChatOpenAI" indistinguível).
+    chat = nomear_run(
+        criar_chat_deepseek(
+            settings,
+            temperature=settings.chat_temperature,
+            thinking=settings.deepseek_thinking_chat,
+        ),
+        "guard_regen",
     )
     try:
-        resp = await chat.ainvoke([*janela, HumanMessage(content=feedback)])
+        resp = await chat.ainvoke(_janela_com_lembrete(janela, feedback))
     except Exception:
         logger.exception("output_guard regen indisponivel (gatilho=%s)", gatilho)
         return None
@@ -877,7 +1565,9 @@ def _scan_vazamento(texto: str) -> str | None:
     return None
 
 
-async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
+async def _julgar_aup(
+    texto: str, settings: Any, *, contexto_factual: str | None = None
+) -> _VeredictoAup:
     """Etapa 2: LLM-judge de AUP no DeepSeek V4 Flash direto (structured output). Prompt em aup_saida.md.
 
     DeepSeek-only (igual ao chat #1 e a extracao): ChatOpenAI direto na API DeepSeek, com thinking
@@ -900,9 +1590,19 @@ async def _julgar_aup(texto: str, settings: Any) -> _VeredictoAup:
     chat = criar_chat_deepseek(settings).with_structured_output(
         _VeredictoAup, include_raw=True, method="function_calling"
     )
+    # Mini-contexto FACTUAL (ponto #2 da auditoria guard/judge): o judge é message-only e o
+    # carve-out da UNIDADE é indecidível sem contexto — o número do apartamento/quarto nunca sai,
+    # mas o número da RUA sai quando o sistema liberou o endereço completo neste turno. Anexar o
+    # endereço que o sistema DE FATO liberou (`local_endereco_no_prompt`) torna a distinção
+    # decidível. None (turno sem endereço liberado) -> mensagem-only como antes.
+    conteudo_user = (
+        f"{contexto_factual}\n\nMENSAGEM A AVALIAR:\n{texto}"
+        if contexto_factual
+        else f"MENSAGEM A AVALIAR:\n{texto}"
+    )
     mensagens = [
         {"role": "system", "content": render_aup_saida()},
-        {"role": "user", "content": f"MENSAGEM A AVALIAR:\n{texto}"},
+        {"role": "user", "content": conteudo_user},
     ]
     # callbacks=[] corta a propagacao do CallbackHandler (Langfuse) herdado via contextvar do no:
     # o sub-chain do `with_structured_output` (RunnableParallel<raw,parsed> + PydanticToolsParser +
@@ -1016,10 +1716,72 @@ async def _output_guard(
     # ANTES do early-return de texto vazio p/ cobrir tambem turno so-midia.
     async with conexao(ctx.db_pool) as conn:
         legendas = await _legendas_do_turno(conn, ctx.turno_id)
-        permitidos_lugar = await _lugares_permitidos(conn, ctx)
-        inclusos_da_modelo = await _inclusos_da_modelo(conn, ctx)
+        cadastro = await _cadastro_guard(conn, ctx)
+        cardapio = await _cardapio_da_modelo(conn, ctx)
+        pausado = False
+        valor_acordado: Any = None
+        duracao_horas: Any = None
+        if ctx.atendimento_id is not None:
+            cur = await conn.execute(
+                "SELECT ia_pausada, valor_acordado, duracao_horas"
+                " FROM barravips.atendimentos WHERE id = %s",
+                (ctx.atendimento_id,),
+            )
+            row = await cur.fetchone()
+            pausado = bool(row and row["ia_pausada"])
+            valor_acordado = row.get("valor_acordado") if row else None
+            duracao_horas = row.get("duracao_horas") if row else None
+    permitidos_lugar = cadastro.permitidos_lugar
+    inclusos_da_modelo = cardapio.inclusos
+    # Scan sobre a janela CRUA quando o State a publicou: a ultima HumanMessage de `messages` e o
+    # contexto dinamico anexado, e numero injetado pelo sistema (logradouro, minutos de relogio)
+    # entraria no conjunto como "numero que o cliente citou". Fallback preserva o teste unitario
+    # que chama o guard direto sem janela.
+    valores_validos = _valores_legitimos(
+        cardapio.precos_tabela,
+        valor_acordado,
+        state.get("conversa_crua") or state["messages"],
+        ids_do_turno={m.id for m in msgs_turno},
+        extras_cadastrados=cardapio.extras_cadastrados,
+    )
+    # Gatilho `endereco` (rodada 3, fase 1-E): o cliente PEDIU a localizacao no burst atual e o
+    # `<local_de_encontro>` ESTEVE no prompt deste turno. A resposta que nao entregar nenhum token
+    # do endereco regenera 1x; persistindo, SEGUE como esta (pass-through: derrubar a bolha aqui
+    # silenciaria fala legitima — a rede e de melhoria, nao de bloqueio).
+    #
+    # Le o CARIMBO do prepare_context (`local_endereco_no_prompt`), nunca reavalia o gate: o guard
+    # roda DEPOIS da extracao e a linha relida ja pode ter promovido `tipo_atendimento` NULL->
+    # interno no meio do turno — o predicado dizia "libera" sobre um prompt que saiu SEM o bloco, e
+    # a regen cobrava um endereco que o modelo nao tinha (ele inventou a rua; trace 648d7f6f,
+    # agenda_local t3). Sem carimbo (State antigo/teste) o gatilho nao arma — fail-closed.
+    crua = state.get("conversa_crua") or []
+    burst_cliente = _falas_do_burst_atual(crua)
+    ha_pedido_de_endereco = any(contem_pedido_de_endereco(f) for f in burst_cliente)
+    endereco_no_prompt = state.get("local_endereco_no_prompt")
+    pediu_endereco = (
+        bool(endereco_no_prompt) and bool(cadastro.tokens_endereco) and ha_pedido_de_endereco
+    )
+    # Gatilhos `pedagio`/`saudacao` (rodada 4, mesma rede de melhoria do `endereco`): pergunta
+    # pendente e saudacao de periodo saem do burst cru — sem janela publicada, nao armam.
+    perguntas_pendentes = bool(perguntas_do_burst(list(crua)))
+    saudacao_cliente = next((p for p in (periodo_da_saudacao(f) for f in burst_cliente) if p), None)
 
-    if not texto.strip() and not legendas and not saneou_tudo:
+    # Silencio do MODELO (nao do guard): o turno rodou, nenhuma AIMessage falou nada, nada foi
+    # saneado, nenhuma tool de efeito rodou (so `registrar_extracao`) e a IA nao esta pausada --
+    # o modelo respondeu vazio e o cliente ficaria no vacuo (4,5% dos pontos do shadow, metade
+    # das derrotas em cotacao). Entra no gate como `mudo` (regen 1x; persistiu -> silencio, como
+    # antes). Turno com midia/escalada/pausa preserva o silencio de proposito.
+    silencio_modelo = (
+        bool(msgs_turno)
+        and not pausado
+        and all(
+            tc.get("name") == "registrar_extracao"
+            for m in msgs_turno
+            for tc in (getattr(m, "tool_calls", None) or [])
+        )
+    )
+
+    if not texto.strip() and not legendas and not saneou_tudo and not silencio_modelo:
         # post_process ja zerou (pausa concorrente) ou turno sem texto/midia: nada a guardar.
         return Command(goto=END, update=update_final)  # type: ignore[arg-type]
 
@@ -1056,6 +1818,45 @@ async def _output_guard(
             return vazias
         return [*vazias, *_zerar_turno([nova_msg])]
 
+    async def _recuperar_vazio(rascunho: str) -> AIMessage | None:
+        """Turno na iminencia de sair 100% VAZIO (drop esvaziou tudo / mudo persistiu): UMA regen
+        extra pelo trilho do mudo, aceita so se a bateria inteira de detectores re-aprovar.
+        Silencio por-bolha continua valendo (silencio > papagaio); silencio TOTAL nao — o cliente
+        fica no vacuo, a pior saida medida no shadow. Persistiu de novo -> None (silencio final,
+        comportamento anterior)."""
+        if not settings.output_guard_regen_habilitado:
+            return None
+        nova = await _regenerar(
+            state["messages"], msgs_turno, rascunho=rascunho, gatilho="mudo", settings=settings
+        )
+        t = _limpar_bolhas(texto_da_mensagem(nova)) if nova is not None else ""
+        aprovada = (
+            bool(t.strip())
+            and _scan_vazamento(t) is None
+            and not (settings.output_guard_repeticao_habilitada and bolhas_repetidas(t, historicas))
+            and not bolhas_sonda(t)
+            and not bolhas_eco_regiao(t, permitidos_lugar)
+            and not bolhas_incluso_fantasma(t, inclusos_da_modelo)
+            and not bolhas_servico_fantasma(t, cardapio.servicos)
+            # Sem esta linha, o pior caso do proprio detector escapava pelo trilho de
+            # recuperacao: "faz anal?" -> drop por `servico` -> regen "mudo" devolve "Pode sim"
+            # (sem o token de risco no texto) e a promessa fantasma sai ao cliente.
+            and not bolhas_afirmacao_nua_de_risco(burst_cliente, t, cardapio.servicos)
+            and not bolhas_preco_fantasma(t, valores_validos)
+        )
+        if not aprovada:
+            OUTPUT_REGEN.labels("vazio_recuperacao", "persistiu").inc()
+            return None
+        OUTPUT_REGEN.labels("vazio_recuperacao", "limpou").inc()
+        assert nova is not None
+        return AIMessage(
+            id=nova.id,
+            content=t,
+            usage_metadata=nova.usage_metadata
+            or UsageMetadata(input_tokens=0, output_tokens=0, total_tokens=0),
+            response_metadata=nova.response_metadata,
+        )
+
     for tentativa in (1, 2):
         motivo = _scan_vazamento(texto) if texto.strip() else None
         repetidas: list[str] = []
@@ -1070,6 +1871,42 @@ async def _output_guard(
         fantasmas: list[str] = []
         if not motivo and not repetidas and not sondas and not ecos and texto.strip():
             fantasmas = bolhas_incluso_fantasma(texto, inclusos_da_modelo)
+        limpo_ate_aqui = not motivo and not repetidas and not sondas and not ecos and not fantasmas
+        servicos_fant: list[str] = []
+        if limpo_ate_aqui and texto.strip():
+            servicos_fant = bolhas_servico_fantasma(texto, cardapio.servicos)
+            # Rodada 6b: o "sim" nu em cima de pedido de risco do burst é a mesma promessa.
+            servicos_fant += [
+                b
+                for b in bolhas_afirmacao_nua_de_risco(burst_cliente, texto, cardapio.servicos)
+                if b not in servicos_fant
+            ]
+        precos_fant: list[str] = []
+        if limpo_ate_aqui and not servicos_fant and texto.strip():
+            precos_fant = bolhas_preco_fantasma(texto, valores_validos)
+        endereco_sonegado = (
+            limpo_ate_aqui
+            and not servicos_fant
+            and not precos_fant
+            and pediu_endereco
+            and bool(texto.strip())
+            and not contem_endereco_de_encontro(texto, cadastro.tokens_endereco)
+        )
+        melhorias_limpas = (
+            limpo_ate_aqui and not servicos_fant and not precos_fant and not endereco_sonegado
+        )
+        pedagio = (
+            melhorias_limpas
+            and perguntas_pendentes
+            and bool(texto.strip())
+            and resposta_so_pedagio(texto)
+        )
+        saudacao_conflita = (
+            melhorias_limpas
+            and not pedagio
+            and bool(texto.strip())
+            and saudacao_em_conflito(texto, saudacao_cliente)
+        )
         if motivo:
             gatilho = "leak"
         elif repetidas:
@@ -1080,10 +1917,20 @@ async def _output_guard(
             gatilho = "regiao"
         elif fantasmas:
             gatilho = "incluso"
-        elif not texto.strip() and (saneou_tudo or nova_msg is not None):
-            # turno 100%-raciocinio (t1) ou regen que devolveu vazio / foi toda saneada (t2).
-            # Texto vazio SEM saneamento (turno so-midia) nao e mudo: cai no break e segue
-            # direto p/ o judge das legendas.
+        elif servicos_fant:
+            gatilho = "servico"
+        elif precos_fant:
+            gatilho = "preco"
+        elif endereco_sonegado:
+            gatilho = "endereco"
+        elif pedagio:
+            gatilho = "pedagio"
+        elif saudacao_conflita:
+            gatilho = "saudacao"
+        elif not texto.strip() and (saneou_tudo or silencio_modelo or nova_msg is not None):
+            # turno 100%-raciocinio (t1), silencio do modelo (t1) ou regen que devolveu vazio /
+            # foi toda saneada (t2). Texto vazio SEM saneamento (turno so-midia) nao e mudo:
+            # cai no break e segue direto p/ o judge das legendas.
             gatilho = "mudo"
         else:
             if nova_msg is not None:
@@ -1105,6 +1952,17 @@ async def _output_guard(
                 rascunho=texto if texto.strip() else texto_cru,
                 gatilho=gatilho,
                 settings=settings,
+                # Gatilho FACTUAL leva a razao ENRIQUECIDA, com o dado colado: preco fantasma
+                # recebe a escada nomeada (so vetar fazia o modelo recuar sem contraproposta) e
+                # endereco sonegado recebe o ponto de encontro literal do prompt (citar a tag
+                # condicional pelo nome e o que produziu a rua inventada) — familia do #36.
+                feedback_gatilho=(
+                    _feedback_preco_fantasma(cardapio.precos_tabela, duracao_horas)
+                    if gatilho == "preco"
+                    else _feedback_endereco_sonegado(endereco_no_prompt)
+                    if gatilho == "endereco"
+                    else None
+                ),
             )
             if nova is not None:
                 # O texto final vive na PROPRIA nova_msg (id novo, usage proprio): o coordenador
@@ -1133,14 +1991,30 @@ async def _output_guard(
                 metric_key="output_leak",
             )
             return Command(goto=END, update={"messages": _zeradas_todas()})  # type: ignore[arg-type]
-        if gatilho in ("repeticao", "sonda", "regiao", "incluso"):
-            # Mesmo fallback p/ os quatro: dropa a bolha ofensora e manda o resto (silencio >
-            # papagaio/SAC/bairro inventado/incluso que ela nao tem). So a metrica difere.
+        if gatilho in ("endereco", "pedagio", "saudacao"):
+            # Pass-through de proposito: as tres redes sao de MELHORIA (entregar o dado pedido,
+            # responder a pergunta antes do empurrao, espelhar o periodo dele), nao de bloqueio —
+            # derrubar a bolha aqui silenciaria fala legitima. Regen falhou/persistiu -> segue o
+            # texto como esta; so a metrica registra.
+            # "persistiu" exige regen TENTADA (nova_msg existe); com a regen desligada ou
+            # indisponivel na t1 nada foi tentado — "sem_regen" separa os dois no piloto.
+            {
+                "endereco": OUTPUT_ENDERECO_SONEGADO,
+                "pedagio": OUTPUT_PEDAGIO_DETECTADO,
+                "saudacao": OUTPUT_SAUDACAO_CONFLITANTE,
+            }[gatilho].labels("persistiu" if nova_msg is not None else "sem_regen").inc()
+            break
+        if gatilho in ("repeticao", "sonda", "regiao", "incluso", "servico", "preco"):
+            # Mesmo fallback p/ os seis: dropa a bolha ofensora e manda o resto (silencio >
+            # papagaio/SAC/bairro inventado/incluso que ela nao tem/promessa ou preco errado).
+            # So a metrica difere.
             ofensoras = {
                 "repeticao": repetidas,
                 "sonda": sondas,
                 "regiao": ecos,
                 "incluso": fantasmas,
+                "servico": servicos_fant,
+                "preco": precos_fant,
             }[gatilho]
             conjunto = set(ofensoras)
             texto = _drop_bolhas(texto, conjunto)
@@ -1149,8 +2023,16 @@ async def _output_guard(
                 "sonda": OUTPUT_SONDA_DETECTADA,
                 "regiao": OUTPUT_ECO_REGIAO_DETECTADO,
                 "incluso": OUTPUT_INCLUSO_FANTASMA,
+                "servico": OUTPUT_SERVICO_FANTASMA,
+                "preco": OUTPUT_PRECO_FANTASMA,
             }[gatilho]
             metrica.labels("dropada" if texto.strip() else "mudo").inc()
+            if not texto.strip() and not legendas:
+                recuperada = await _recuperar_vazio(texto_cru)
+                if recuperada is not None:
+                    texto = str(recuperada.content)
+                    nova_msg = recuperada
+                    break
             if nova_msg is not None:
                 nova_msg = AIMessage(
                     id=nova_msg.id,
@@ -1166,8 +2048,15 @@ async def _output_guard(
                 update_final = {"messages": _reescrever_turno(msgs_turno, _limpa_e_dropa)}
             break  # o que sobrou (se sobrou) ainda passa pelo judge
         # gatilho == "mudo": nada util a enviar -- silencio > raciocinio/papagaio. Com midia no
-        # turno as legendas ainda precisam do judge (break); sem midia fecha mudo aqui.
+        # turno as legendas ainda precisam do judge (break); sem midia, antes de fechar mudo,
+        # uma ultima tentativa de recuperacao (a falha da regen e estocastica) -- persistiu,
+        # fecha mudo como antes.
         if legendas:
+            break
+        recuperada = await _recuperar_vazio(texto_cru)
+        if recuperada is not None:
+            texto = str(recuperada.content)
+            nova_msg = recuperada
             break
         return Command(
             goto=END,  # type: ignore[arg-type]
@@ -1194,8 +2083,15 @@ async def _output_guard(
 
     # Etapa 2: LLM-judge de AUP vinculante sobre texto + legendas (inclusive texto REGENERADO --
     # a regen nao pula o judge). Falha de infra -> default seguro.
+    # Só anexa o kwarg quando HÁ contexto factual: sem endereço liberado a chamada fica
+    # byte-idêntica à message-only de antes (nada muda no caso comum, e o prefixo do judge segue
+    # cacheado). `_contexto_factual_aup` devolve None nesse caso.
+    contexto_factual = _contexto_factual_aup(endereco_no_prompt)
+    kwargs_judge: dict[str, Any] = (
+        {"contexto_factual": contexto_factual} if contexto_factual else {}
+    )
     try:
-        veredito = await _julgar_aup(texto_guard, settings)
+        veredito = await _julgar_aup(texto_guard, settings, **kwargs_judge)
     except Exception:
         logger.exception("output_guard judge falhou (turno_id=%s) -> default seguro", ctx.turno_id)
         AUP_SAIDA_BLOQUEADO.labels("judge_falhou").inc()

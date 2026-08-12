@@ -171,8 +171,14 @@ async def test_midia_esgotada_nao_passa_por_extrair() -> None:
 
 def test_registrar_extracao_fora_do_catalogo() -> None:
     """Invariante do ticket: `registrar_extracao` NAO esta em `TOOLS` (bindada so no `extrair`),
-    e as 3 tools restantes ficam na ordem fixa (invariante de prefixo)."""
-    assert [t.name for t in TOOLS] == ["consultar_agenda", "enviar_midia", "escalar"]
+    e as tools restantes ficam na ordem fixa (invariante de prefixo: leitura, escrita, `escalar`
+    por ultimo). `envolver_parceira` entrou no ADR-0042 — tool de ESCRITA, antes do `escalar`."""
+    assert [t.name for t in TOOLS] == [
+        "consultar_agenda",
+        "enviar_midia",
+        "envolver_parceira",
+        "escalar",
+    ]
     assert registrar_extracao.name == "registrar_extracao"
     assert registrar_extracao not in TOOLS
     # continua com handle_tool_error (setado explicitamente ao sair da lista iterada).

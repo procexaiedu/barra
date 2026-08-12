@@ -138,12 +138,15 @@ async def _seed_abort(
     observacao: str,
     aberta_em: datetime,
 ) -> None:
+    # `tipo` e NOT NULL desde a migration 0039 e o predicado do gate filtra so por `observacao`:
+    # 'outro' e o que a prod grava nestes aborts (`output_leak`/`envio_placeholder` nao estao em
+    # `_TIPO_POR_MOTIVO`, caem no default `TipoEscalada.outro`).
     await c.execute(
         """
         INSERT INTO barravips.escaladas
-            (atendimento_id, responsavel, motivo, resumo_operacional, acao_esperada,
+            (atendimento_id, responsavel, tipo, motivo, resumo_operacional, acao_esperada,
              observacao, aberta_em)
-        VALUES (%s, 'Fernando', 'defesa', 'r', 'a', %s, %s)
+        VALUES (%s, 'Fernando', 'outro', 'defesa', 'r', 'a', %s, %s)
         """,
         (atendimento_id, observacao, aberta_em),
     )

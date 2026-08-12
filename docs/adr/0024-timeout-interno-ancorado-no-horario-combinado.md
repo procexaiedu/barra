@@ -51,3 +51,13 @@ Caso real que motivou o ADR (rig Lucia, 18/06/2026, cenário "1. Interno — hap
 - **Sem migration** — mudança só de query no worker. Deploy exige recarregar o worker (`docker service update --force <stack>_barra-worker`; nunca `restart` em Swarm). §0: deploy em prod só com autorização explícita.
 
 - **Edge case `bloqueio_id` nulo:** no interno em `Aguardando_confirmacao` sempre há bloqueio prévio (criado na transição). Com `JOIN` simples, um atendimento sem bloqueio não dispararia este timeout (cairia no `timeout_longo`); comportamento aceitável.
+
+## Adendo — 11/08/2026: a guarda de reserva do `timeout_longo` ancora em `bloqueios.fim`
+
+Auditoria pré-produção (estreia da 1ª modelo real) encontrou uma interação entre este ADR e o timeout de 24 h que matava atendimento vivo.
+
+O `timeout_longo` protege quem tem reserva em pé com um `NOT EXISTS` sobre `bloqueios`. Essa guarda ancorava no **início** da reserva (`b.inicio > now()`), então a proteção caía **no minuto exato do horário combinado** — justamente quando o cliente chega. Dentro dos 5 min do cron o atendimento virava `Perdido`/`sumiu` e o bloqueio era cancelado; a **Foto de portaria** (interno), o **comprovante de Pix** (externo) e a **Vídeo chamada já paga** (remoto, ADR 0029) chegavam órfãos, sem card para a modelo. O caso é comum, não exótico: o prompt manda cravar encontro para outro dia, e o ônus de confirmar no dia é do cliente — 24 h de silêncio entre combinar e comparecer é o fluxo normal.
+
+**A âncora passa a ser a janela reservada (`b.fim > now()`).** Como `fim > inicio` sempre, a nova guarda é superconjunto estrito da antiga: não cria atendimento imortal — a proteção é limitada pela duração do slot e expira sozinha quando a janela termina, e quem nunca apareceu volta a morrer pelas 24 h de silêncio. Dentro da janela, quem mata o interno continua sendo o timeout de 45 min deste ADR — o único com ressurreição pela foto (ADR 0027).
+
+Sem migration; só mudança de query no worker. Ver a emenda correspondente no ADR 0027 (a ressurreição passou a aceitar as duas fontes de timeout automático).

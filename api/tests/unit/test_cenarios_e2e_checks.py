@@ -17,7 +17,7 @@ from evals.e2e.massa import (
     _camisinha_direta_sem_incluso,
     _confirmou_a_hora_e_pediu_o_nome,
     _cotou_completo_sozinho,
-    _cotou_dobro_do_pacote,
+    _cotou_o_extra_da_segunda_pessoa,
     _enquadrou_o_video,
     _mandou_o_book,
     _nao_precificou_a_insistencia,
@@ -121,58 +121,67 @@ def test_local_proprio_pega_a_oferta_de_quem_so_se_desloca() -> None:
     assert _ofereceu_local_proprio(_res("Te espero aqui, é bem tranquilo"))
 
 
-# --- Issue 23: menage (ADR-0035) e vídeo chamada fora da tabela (ADR-0021) -------------------
+# --- Issue 23: menage (ADR-0039) e vídeo chamada fora da tabela (ADR-0021) -------------------
 
 _PEDIU_A_DOIS = "e se eu levar minha namorada junto, nós dois com você? quanto fica as 2h?"
 
 
-def test_dobro_do_pacote_reprova_o_preco_hora_dos_atos() -> None:
+def test_extra_da_segunda_pessoa_reprova_o_dobro_do_pacote() -> None:
+    # ADR-0039: o certo e o proibido TROCARAM de lado. Tabela do cenario: 1h 400, 2h 700 -> a 2a
+    # pessoa soma a linha de 1h (400), total 1100. O dobro (1400) e o regime revogado.
     cotou = ("oi, quanto é 2 horas?", "700 as 2h no meu local amor")
-    # o certo: 2 pessoas = o pacote DOBRADO (700x2), na resposta ao pedido dele.
-    assert _cotou_dobro_do_pacote(
-        _dialogo(cotou, (_PEDIU_A_DOIS, "Faço sim amor\n\nPra vocês dois fica 1400 as 2h")), 700, 2
+    assert _cotou_o_extra_da_segunda_pessoa(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Faço sim amor\n\nPra vocês dois fica 1100 as 2h")),
+        700,
+        2,
+        400,
     )
-    # "1.400" com separador de milhar e o mesmo numero.
-    assert _cotou_dobro_do_pacote(
-        _dialogo(cotou, (_PEDIU_A_DOIS, "Pra vocês dois fica 1.400 amor")), 700, 2
+    # "1.100" com separador de milhar e o mesmo numero.
+    assert _cotou_o_extra_da_segunda_pessoa(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Pra vocês dois fica 1.100 amor")), 700, 2, 400
     )
-    # o erro que o ADR-0035 nomeia: cotar pelo regime-ato (pacote + preco-hora = 700+350).
-    assert not _cotou_dobro_do_pacote(
-        _dialogo(cotou, (_PEDIU_A_DOIS, "Fica 1050 amor, 700 + 350 da sua namorada")), 700, 2
+    # o erro que o ADR-0039 nomeia: reviver o dobro do pacote.
+    assert not _cotou_o_extra_da_segunda_pessoa(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Pra vocês dois fica 1400 amor")), 700, 2, 400
     )
-    # o "+Extra" sozinho tambem e o regime errado.
-    assert not _cotou_dobro_do_pacote(
-        _dialogo(cotou, (_PEDIU_A_DOIS, "É +350 pela sua namorada amor")), 700, 2
-    )
-    # trazer o dobro E o numero do ato na mesma bolha nao salva: ele viu os dois precos.
-    assert not _cotou_dobro_do_pacote(
-        _dialogo(cotou, (_PEDIU_A_DOIS, "Fica 1400, ou 1050 se for so uma hora dela")), 700, 2
+    # trazer o certo E o dobro na mesma bolha nao salva: ele viu os dois precos.
+    assert not _cotou_o_extra_da_segunda_pessoa(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Fica 1100, ou 1400 se ela ficar as 2h tambem")),
+        700,
+        2,
+        400,
     )
     # responder sem valor nenhum deixa o pedido dele sem cotacao.
-    assert not _cotou_dobro_do_pacote(
-        _dialogo(cotou, (_PEDIU_A_DOIS, "Faço sim amor, adoro rs")), 700, 2
+    assert not _cotou_o_extra_da_segunda_pessoa(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Faço sim amor, adoro rs")), 700, 2, 400
     )
-    # 1h faria dobro e preco-hora coincidirem: e erro de cenario, nao um check que passa em silencio.
+    # 1h faria `pacote + 1h` e `pacote x 2` coincidirem: erro de cenario, nao check que passa em
+    # silencio.
     with pytest.raises(ValueError):
-        _cotou_dobro_do_pacote(_dialogo((_PEDIU_A_DOIS, "1400 amor")), 400, 1)
+        _cotou_o_extra_da_segunda_pessoa(_dialogo((_PEDIU_A_DOIS, "800 amor")), 400, 1, 400)
 
 
-def test_menage_fora_do_cardapio_exige_recusa_sem_dobrar_nem_prometer_amiga() -> None:
+def test_menage_fora_do_cardapio_exige_recusa_sem_cotar_nem_prometer_amiga() -> None:
     cotou = ("oi, quanto é 2 horas?", "700 as 2h no meu local amor")
     # sem a secao "Por pessoa": recusa aberta, e a venda dela segue de pe.
     assert _recusou_menage_sem_cotar(
         _dialogo(cotou, (_PEDIU_A_DOIS, "Não faço amor\n\nMas comigo seria que horas ?")),
         [400, 700],
+        400,
     )
-    # cotar o dobro e justamente o que ela nao tem pra vender.
+    # cotar o dobro (regime revogado) e justamente o que ela nao tem pra vender.
     assert not _recusou_menage_sem_cotar(
-        _dialogo(cotou, (_PEDIU_A_DOIS, "Pra vocês dois fica 1400 amor")), [400, 700]
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Pra vocês dois fica 1400 amor")), [400, 700], 400
+    )
+    # e cotar pelo regime NOVO (700 + a 1h = 1100) tampouco: ela nao tem a secao.
+    assert not _recusou_menage_sem_cotar(
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Pra vocês dois fica 1100 amor")), [400, 700], 400
     )
     # aceitar sem recusar, mesmo sem numero, ja promete o que nao existe.
     assert not _recusou_menage_sem_cotar(
-        _dialogo(cotou, (_PEDIU_A_DOIS, "Faço sim amor rs")), [400, 700]
+        _dialogo(cotou, (_PEDIU_A_DOIS, "Faço sim amor rs")), [400, 700], 400
     )
-    # recusar agora e dobrar dois turnos depois e o mesmo erro, so mais tarde.
+    # recusar agora e cotar dois turnos depois e o mesmo erro, so mais tarde.
     assert not _recusou_menage_sem_cotar(
         _dialogo(
             cotou,
@@ -180,16 +189,19 @@ def test_menage_fora_do_cardapio_exige_recusa_sem_dobrar_nem_prometer_amiga() ->
             ("vai, faz um precinho pros dois", "Então pros dois fica 1400"),
         ),
         [400, 700],
+        400,
     )
     # prometer amiga tambem esta fora: sem a secao, ela nao tem dupla pra oferecer.
     assert not _recusou_menage_sem_cotar(
         _dialogo(cotou, (_PEDIU_A_DOIS, "Não faço amor\n\nDeixa eu ver com ela e te retorno")),
         [400, 700],
+        400,
     )
     # a recusa de INDICAR outra (<fora_do_cardapio>) nao e promessa de amiga — continua passando.
     assert _recusou_menage_sem_cotar(
         _dialogo(cotou, (_PEDIU_A_DOIS, "Não faço amor\n\nNão indico não, só falo por mim rs")),
         [400, 700],
+        400,
     )
 
 

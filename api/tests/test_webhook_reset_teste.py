@@ -94,11 +94,16 @@ class FakeArq:
         return None
 
 
-def _payload_reset(texto: str = "#reset") -> dict[str, Any]:
+def _payload_reset(
+    texto: str = "#reset", remote_jid: str = "120363000000000000@g.us"
+) -> dict[str, Any]:
+    """`remote_jid` default = grupo, que é onde o rig do `#reset` roda de verdade (instância
+    `lucia`). Para exercitar o caminho de mensagem COMUM é preciso um JID 1:1: grupo que não é o
+    de Coordenação é descartado na borda (`grupo_nao_coordenacao`) antes do ramo de cliente."""
     return {
         "instance": "barra",
         "data": {
-            "key": {"id": "MSG-RESET-1", "remoteJid": "120363000000000000@g.us"},
+            "key": {"id": "MSG-RESET-1", "remoteJid": remote_jid},
             "message": {"conversation": texto},
         },
     }
@@ -164,7 +169,10 @@ def test_webhook_reset_com_gate_desligado_e_mensagem_normal() -> None:
     with TestClient(app) as client:
         app.state.db_pool = FakePool(conn)
         app.state.arq = arq
-        response = client.post("/webhook/evolution", json=_payload_reset())
+        response = client.post(
+            "/webhook/evolution",
+            json=_payload_reset(remote_jid="5521988887777@s.whatsapp.net"),
+        )
 
     assert response.status_code == 200
     assert response.json() == {"status": "received"}

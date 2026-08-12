@@ -157,6 +157,7 @@ async def test_flags_efetivas_herdadas_de_settings(
         "extracao_no_modelo_barato",
         "reengajamento_ativo",
         "experimento_braco_ativo",
+        "deepseek_thinking_chat",
     }
 
 

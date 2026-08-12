@@ -92,7 +92,11 @@ async def test_horario_minimo_none_cai_em_periodo_de_trabalho(
 async def test_horario_minimo_presente_mantem_conduta_de_preparo(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """`horario_minimo` presente: conduta de preparo, ancorando no <horario_minimo>."""
+    """`horario_minimo` presente: conduta de preparo, guiando ao primeiro horário liberado.
+
+    Pós-F10: a nota NÃO ecoa mais a tag viva `<horario_minimo>` (um eco vazaria a tag ao
+    cliente, e a persona proíbe tag na fala) — guia por linguagem sem tag e manda arredondar
+    o piso quebrado pra cima."""
     monkeypatch.setattr(extracao_mod, "_executar_idempotente", _forcar_antecedencia)
     antes = _valor()
     with pytest.raises(ToolException) as exc:
@@ -103,7 +107,9 @@ async def test_horario_minimo_presente_mantem_conduta_de_preparo(
     msg = str(exc.value)
     assert msg.startswith("ERRO:")
     assert "cedo demais" in msg
-    assert "<horario_minimo>" in msg
+    # F10: guia ao primeiro horário liberado SEM ecoar a tag viva.
+    assert "<horario_minimo>" not in msg
+    assert "primeiro horário" in msg
     assert _valor() == antes + 1
 
 

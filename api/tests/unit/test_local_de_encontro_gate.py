@@ -16,8 +16,10 @@ from barra.agente.contexto import ContextAgente
 from barra.agente.nos.prepare_context import (
     _endereco_do_degrau_sem_numero,
     _endereco_sem_numero,
+    _interesse_demonstrado,
     _libera_local_de_encontro,
     _libera_numero_do_endereco,
+    _ponto_de_encontro_no_prompt,
     _resolver_variaveis,
 )
 from barra.agente.persona import render_contexto_dinamico
@@ -245,3 +247,106 @@ async def test_status_reconhece_o_endereco_ja_passado() -> None:
     saida = render_contexto_dinamico(**variaveis.como_variaveis())
     assert "JÁ passou este endereço" in saida
     assert "AINDA NÃO" not in saida
+
+
+# ---------------------------------------------------------------------------
+# Degrau por interesse demonstrado (rodada 6): a segurança não vem do estágio fixo,
+# vem da cotação na mesa + sinal de avanço — quem pergunta cedo demais segue sem o número.
+
+
+def test_interesse_demonstrado_exige_cotacao_na_mesa() -> None:
+    # Sem preço na mesa NENHUM sinal libera — pedido cedo nunca recebe o endereço completo.
+    assert not _interesse_demonstrado(
+        preco_na_mesa=False,
+        estado="Qualificado",
+        aceitou_no_burst=True,
+        pediu_endereco_no_burst=True,
+        horario_em_pauta=True,
+    )
+    # Com preço na mesa, cada sinal de avanço libera sozinho.
+    base: dict[str, Any] = {
+        "estado": "Triagem",
+        "aceitou_no_burst": False,
+        "pediu_endereco_no_burst": False,
+        "horario_em_pauta": False,
+    }
+    for sinal in (
+        {"estado": "Qualificado"},
+        {"aceitou_no_burst": True},
+        {"pediu_endereco_no_burst": True},
+        {"horario_em_pauta": True},
+    ):
+        assert _interesse_demonstrado(preco_na_mesa=True, **{**base, **sinal})
+    # Preço na mesa SEM nenhum sinal de avanço: comportamento atual, nada libera.
+    assert not _interesse_demonstrado(preco_na_mesa=True, **base)
+
+
+def test_gates_com_interesse() -> None:
+    # Interesse abre o BLOCO mesmo com o estado atrás — mas nunca no externo/remoto, e nunca o
+    # NÚMERO: o número é degrau ESTRUTURAL (Aguardando_confirmacao+, emenda 25/07 do ADR-0026);
+    # antecipá-lo por interesse é decisão de produto pendente (nota 11/08 no ADR-0026).
+    assert _libera_local_de_encontro("Triagem", "interno", interesse=True)
+    assert not _libera_local_de_encontro("Triagem", "externo", interesse=True)
+    assert not _libera_local_de_encontro("Qualificado", "remoto", interesse=True)
+    assert not _libera_numero_do_endereco("Qualificado", interesse=True)
+    assert _libera_numero_do_endereco("Aguardando_confirmacao", interesse=True)
+    # Default False = degrau por estágio, intacto (fail-closed p/ chamador sem o sinal).
+    assert not _libera_local_de_encontro("Triagem", "interno")
+    assert not _libera_numero_do_endereco("Qualificado")
+
+
+def test_tipo_indefinido_entra_com_interesse_demonstrado() -> None:
+    """P0-1 (diagnóstico 11/08): interno é o default de negócio — o próprio <ainda_falta> diz
+    "padrão: ele vem no seu local" — e a extração só promove NULL→interno DEPOIS de o prompt já
+    ter sido montado. Exigir o tipo GRAVADO tirava o bloco justo no turno em que o cliente escolhe
+    o local e pede o endereço (trace 648d7f6f: o modelo inventou a rua). Com interesse demonstrado
+    o tipo indefinido entra; sem interesse, nada muda."""
+    assert _libera_local_de_encontro("Qualificado", None, interesse=True)
+    assert _libera_local_de_encontro("Triagem", None, interesse=True)
+    assert not _libera_local_de_encontro("Qualificado", None)
+    assert not _libera_local_de_encontro("Aguardando_confirmacao", None)
+
+
+async def test_pos_cotacao_com_avanco_libera_o_bloco_sem_numero_em_qualificado() -> None:
+    # Interesse antecipa o BLOCO; o número segue estrutural (Aguardando_confirmacao+, ADR-0026 —
+    # antecipação em Qualificado é decisão de produto pendente, nota 11/08 no ADR).
+    variaveis = await _resolver_variaveis(
+        _FakeConn(),  # type: ignore[arg-type]
+        _ctx(),
+        atendimento={"numero_curto": 1, "estado": "Qualificado", "tipo_atendimento": "interno"},
+        local_endereco_raw=_ENDERECO,
+        local_nome_raw=_HOTEL,
+        interesse_no_endereco=True,
+    )
+    assert variaveis.local_endereco is not None
+    assert variaveis.numero_liberado is False
+
+
+def test_carimbo_do_prompt_espelha_o_bloco_renderizado() -> None:
+    """O carimbo que o State publica (`local_endereco_no_prompt`) é o MESMO texto do bloco — é ele
+    que o output_guard lê p/ decidir se cobra a entrega, e que a regen cola literalmente."""
+
+    class _Fake:
+        def __init__(self, endereco: str | None, nome: str | None) -> None:
+            self.local_endereco = endereco
+            self.local_nome = nome
+
+    assert _ponto_de_encontro_no_prompt(_Fake(None, _HOTEL)) is None  # type: ignore[arg-type]
+    assert (
+        _ponto_de_encontro_no_prompt(_Fake(_ENDERECO_SEM_NUMERO, _HOTEL))  # type: ignore[arg-type]
+        == f"{_HOTEL} — {_ENDERECO_SEM_NUMERO}"
+    )
+    # Sem nome de local, só o endereço — e sempre o do DEGRAU vigente (aqui, sem o número).
+    assert (
+        _ponto_de_encontro_no_prompt(_Fake(_ENDERECO_SEM_NUMERO, None))  # type: ignore[arg-type]
+        == _ENDERECO_SEM_NUMERO
+    )
+
+
+async def test_pos_cotacao_sem_sinal_de_avanco_mantem_o_degrau() -> None:
+    # `interesse_no_endereco` default False: Qualificado segue no degrau sem número, como sempre.
+    variaveis = await _resolver(
+        {"numero_curto": 1, "estado": "Qualificado", "tipo_atendimento": "interno"}
+    )
+    assert variaveis.local_endereco == _ENDERECO_SEM_NUMERO
+    assert variaveis.numero_liberado is False

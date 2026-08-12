@@ -19,7 +19,7 @@ from barra.agente._disciplina import (
     contem_contraproposta,
     contem_endereco_de_encontro,
     contem_escalada_da_amiga,
-    contem_hora_na_mesa,
+    contem_hora_na_mesa_no_turno,
     contem_oferta_da_amiga,
     contem_pedido_da_foto_de_portaria,
     contem_pergunta_de_horario,
@@ -27,9 +27,11 @@ from barra.agente._disciplina import (
     contem_sondagem_dia,
     tokens_do_endereco,
 )
+from barra.agente.persona import brl
 from barra.core.errors import ErroDominio
 from barra.core.evolution import EvolutionClient
 from barra.core.metrics import (
+    AGENTE_ACEITE_GRAVADO,
     AGENTE_ESCALADA,
     ENVIO_DURACAO,
     ENVIO_PII_REDIGIDA,
@@ -40,6 +42,7 @@ from barra.core.metrics import (
 from barra.core.tracing import sentry_sdk
 from barra.dominio.atendimentos.service import (
     carimbar_cotacao_por_texto_enviado,
+    gravar_valor_do_aceite,
     incrementar_contrapropostas,
     incrementar_perguntas_de_horario,
     marcar_amiga_ofertada,
@@ -48,9 +51,11 @@ from barra.dominio.atendimentos.service import (
     marcar_endereco_enviado,
     marcar_foto_portaria_pedida,
     marcar_motivo_resgate_perguntado,
+    precos_ofertados_na_fala,
 )
 from barra.dominio.escaladas.modelos import TipoEscalada, rotulo_tipo_escalada
 from barra.dominio.escaladas.service import (
+    ESTADOS_TERMINAIS,
     abrir_handoff,
     card_escalada_vai_ao_grupo,
     mapear_bucket,
@@ -220,6 +225,7 @@ async def _card_pix(
                    cp.valor_extraido,
                    a.numero_curto, a.endereco, a.valor_acordado, a.conversa_id,
                    a.tipo_atendimento::text AS tipo_atendimento,
+                   a.estado::text AS estado,
                    (b.inicio AT TIME ZONE 'America/Sao_Paulo') AS bloqueio_inicio,
                    cl.nome AS cliente_nome,
                    mo.coordenacao_chat_id, mo.evolution_instance_id
@@ -235,6 +241,21 @@ async def _card_pix(
         cp = await res.fetchone()
         if not cp or cp["card_message_id"]:
             return  # idempotência por owner: card já enviado
+
+        # ATENDIMENTO TERMINAL: nao mande a modelo sair para um encontro que ja aconteceu.
+        # Corrida rara mas real: o comprovante chega, o vision roda, e nesse meio-tempo o
+        # atendimento e fechado (`finalizado` no grupo) ou morto por timeout. O card "saída
+        # confirmada" chegaria depois do fato. Espelha a supressao que o caminho do painel ja
+        # faz em `dominio/pix/routes.py` (aprovar da fila de revisao): decidir o COMPROVANTE e
+        # decidir o ATENDIMENTO sao coisas separadas. O comprovante segue gravado (auditoria);
+        # so o card e' suprimido. Sem marcar `card_message_id`: nao ha reconciliacao varrendo
+        # `comprovantes_pix`, entao nada retenta em loop.
+        if cp["estado"] in ESTADOS_TERMINAIS:
+            logger.info(
+                "card_pix_suprimido_atendimento_terminal",
+                extra={"atendimento_id": atendimento_id, "estado": cp["estado"]},
+            )
+            return
 
         texto = render_card(
             "pix_remoto" if cp["tipo_atendimento"] == "remoto" else "pix",
@@ -487,8 +508,70 @@ async def _card_loc_pin(ctx: dict[str, Any], **_: Any) -> None:
     raise NotImplementedError("card de pin de localização será preenchido no M3d")
 
 
+async def _card_parceira(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -> None:
+    """Card NÃO-BLOQUEANTE da dupla vendida (fluxo B, ADR-0042).
+
+    A modelo do canal fechou o encontro com a parceira SOZINHA — sem escalada, sem esperar. A
+    parceira pode estar `inativa` e sem disponibilidade cadastrada: este card só PEDE ao Fernando
+    que a confirme, e a ausência de resposta não desfaz nada. Por isso não abre escalada, não pausa
+    a IA e não muda estado.
+
+    Idempotência por owner: o carimbo `parceira_dupla_em` já é first-write-wins, e o `_job_id`
+    estático do enqueue (coordenador) deduplica o replay do turno.
+    """
+    pool = ctx["db_pool"]
+    evolution: EvolutionClient = ctx["evolution"]
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT a.numero_curto, a.conversa_id, a.valor_acordado,
+                   a.data_desejada, a.horario_desejado,
+                   cl.nome AS cliente_nome,
+                   mo.nome AS modelo_nome, mo.coordenacao_chat_id, mo.evolution_instance_id,
+                   pa.nome AS parceira_nome, pa.status::text AS parceira_status
+              FROM barravips.atendimentos a
+              JOIN barravips.modelos  mo ON mo.id = a.modelo_id
+              JOIN barravips.clientes cl ON cl.id = a.cliente_id
+              JOIN barravips.modelo_parcerias p ON p.modelo_id = a.modelo_id AND p.ativo
+              JOIN barravips.modelos  pa ON pa.id = p.parceira_id
+             WHERE a.id = %s
+            """,
+            (UUID(atendimento_id),),
+        )
+        row = await res.fetchone()
+        if not row:
+            # Parceria desligada entre a venda e o card: nada a confirmar, e inventar um nome aqui
+            # seria pior que o silêncio. O carimbo do atendimento segue como rastro.
+            logger.warning("card_parceira_sem_parceria atendimento_id=%s", atendimento_id)
+            return
+
+        texto = render_card(
+            "parceira",
+            numero_curto=row["numero_curto"],
+            cliente_nome=row["cliente_nome"] or "cliente",
+            modelo_nome=row["modelo_nome"],
+            parceira_nome=row["parceira_nome"],
+            parceira_status=row["parceira_status"],
+            valor_acordado=brl(row["valor_acordado"]) if row["valor_acordado"] else None,
+            data_desejada=row["data_desejada"],
+            horario_desejado=row["horario_desejado"],
+        )
+        await evolution.enviar_texto(
+            conn=conn,
+            instance_id=row["evolution_instance_id"],
+            remote_jid=row["coordenacao_chat_id"],
+            texto=texto,
+            contexto="grupo_coordenacao",
+            tipo="card",
+            atendimento_id=UUID(atendimento_id),
+            conversa_id=row["conversa_id"],
+        )
+
+
 _RENDER_CARD: dict[str, Callable[..., Awaitable[None]]] = {
     "escalada": _card_escalada,
+    "parceira_a_confirmar": _card_parceira,
     "pix_validado": _card_pix,
     "pix_em_revisao": _card_pix,
     "chegada": _card_chegada,
@@ -635,6 +718,34 @@ async def _carregar_destino(pool: AsyncConnectionPool[Any], conversa_id: str) ->
     if row is None:
         raise ErroDominio("CONVERSA_NAO_ENCONTRADA", "Conversa nao encontrada.", status_code=404)
     return cast(dict[str, Any], row)
+
+
+async def _ia_pausada_agora(pool: AsyncConnectionPool[Any], atendimento_id: UUID | None) -> bool:
+    """Releitura pontual de `atendimentos.ia_pausada` (point-read por PK).
+
+    O gate de pausa do fire (`enviar_turno`) precisa ser reavaliado DENTRO do laço de bolhas: um
+    turno de 3 bolhas leva 15-30s (presence + typing + jitter por bolha) e os pipelines de handoff
+    (foto de portaria, Pix, pausa manual) podem pausar a IA no meio disso — o cancel-on-new-message
+    não cobre, porque nenhum deles toca `turno_atual`.
+
+    Por que BANCO e não Redis: o cancel-on-new-message só funciona porque o coordenador ESCREVE
+    `turno_atual`; nenhum pipeline de handoff escreve nada no Redis (verificado em workers/media.py,
+    workers/pix.py e dominio/escaladas/service.py — todos só commitam no Postgres). Um flag Redis
+    exigiria mudar esses escritores; enquanto isso não existir, o Postgres é a única fonte.
+
+    Custo: um SELECT por PK (índice primário, sem join — `_carregar_destino` é o de 3 tabelas),
+    no máximo uma vez por bolha (teto de 6 por turno, MAX_CHARS/chunking) e só nos turnos
+    não-críticos que não abriram a própria pausa. Contra um sleep de 1-5,5s por bolha, é ruído.
+    """
+    if atendimento_id is None:
+        return False
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            "SELECT ia_pausada FROM barravips.atendimentos WHERE id = %s",
+            (atendimento_id,),
+        )
+        row = await res.fetchone()
+    return bool(row and row["ia_pausada"])
 
 
 async def _atendimento_para_escalada(
@@ -833,6 +944,7 @@ async def enviar_turno(
     quote_msg_ids: list[str | None] | None = None,
     quote_textos: list[str | None] | None = None,
     ignorar_pausa: bool = False,
+    valor_dele_no_prompt: int | None = None,
 ) -> None:
     """Envia um turno chunk-by-chunk e depois as mídias (05 §4).
 
@@ -847,8 +959,18 @@ async def enviar_turno(
     para o balão de reply renderizar o texto; sem ele, o WhatsApp mostra a citação vazia
     (a Evolution não faz lookup pelo id, verificado 2026-05-30).
 
+    `valor_dele_no_prompt` é o carimbo do `<valor_dele_serve>` deste turno (ADR-0040): o número que
+    o sistema já provou ser DELE e caber em `[piso, mesa)`, e que o prompt mandou ela aceitar. Aqui
+    ele vira venda gravada quando — e só quando — a bolha DESPACHADA de fato o diz (ver
+    `gravar_valor_do_aceite`). `None` (default) nos call sites canned/reengajamento e em todo turno
+    sem o bloco: o caminho não arma. Vem no PAYLOAD do job, como `critico`, e não de uma releitura:
+    a decisão é sobre o prompt que a IA leu, e reavaliá-la aqui — depois de a extração já ter mexido
+    em `valor_acordado`/`n_contrapropostas` — daria outra resposta sobre uma fala que já saiu.
+
     `ignorar_pausa` é do turno que ABRIU a pausa (bolha de espera antes do `escalar`): ele nasce
-    com `ia_pausada=true` de propósito e não pode ser cancelado pelo gate de pausa abaixo.
+    com `ia_pausada=true` de propósito e não pode ser cancelado pelo gate de pausa abaixo. Quem
+    decide isso é o coordenador, pelo rastro do turno (`pausa_aberta_por_este_turno`) — nunca pelo
+    bit `ia_pausada` do banco, que é idêntico para a pausa aberta por um pipeline externo.
     """
     redis = ctx["redis"]
     pool = ctx["db_pool"]
@@ -867,7 +989,13 @@ async def enviar_turno(
         # a IA — a modelo assume e a bolha da IA sairia por cima dela. O cancel-on-new-message não
         # cobre: esses pipelines não tocam `turno_atual`. Crítico entrega sempre (chave Pix), e o
         # turno que ABRIU a pausa passa por `ignorar_pausa`.
-        if not critico and not ignorar_pausa and conv["ia_pausada"]:
+        #
+        # O mesmo predicado é reavaliado A CADA BOLHA (ver `_ia_pausada_agora`): aqui ele só
+        # responde "nunca ter começado"; o laço abaixo responde "parar antes da próxima". Uma
+        # entrega pela metade é ruim, mas continuar despejando bolhas em cima da modelo que já
+        # está atendendo o cliente é pior — e a bolha 1 já saiu, não dá para desenviar.
+        checar_pausa = not critico and not ignorar_pausa
+        if checar_pausa and conv["ia_pausada"]:
             logger.info("turno_cancelado_pausa turno_id=%s", turno_id)
             ENVIO_RESULTADO.labels("cancelado").inc()
             return
@@ -893,7 +1021,7 @@ async def enviar_turno(
         conversa_uuid = UUID(conversa_id)
 
         # Veto da oferta da amiga, medido sobre o TURNO (não bolha a bolha): o trilho de escalada do
-        # <menage> sai naturalmente em duas bolhas ("Tenho uma amiga sim amor" / "Deixa eu ver com
+        # <composicoes> sai naturalmente em duas bolhas ("Tenho uma amiga sim amor" / "Deixa eu ver com
         # ela e já te retorno amor"). Chunk a chunk, a 1ª carimbaria a oferta que a 2ª desmente —
         # queimando um convite que ela nunca fez.
         escalou_amiga = contem_escalada_da_amiga("\n".join(chunks))
@@ -901,7 +1029,14 @@ async def enviar_turno(
         # Mesmo motivo, para o contador de perguntas de horário: o turno canônico do
         # <conducao_da_venda> ("Consigo às 21h amor" / "ou prefere que horas ?") sai partido em
         # duas bolhas, e a 2ª sozinha contaria a pergunta que a 1ª já respondeu com um horário.
-        propos_horario = contem_hora_na_mesa("\n".join(chunks))
+        # Por BOLHA e sem a duração da cotação (`contem_hora_na_mesa_no_turno`): medido sobre o
+        # turno concatenado, o "1h" de "400 1h no meu local" vetava o contador em todo turno de
+        # cotação e a disciplina nunca chegou a andar em prod (diagnóstico 11/08, P1-4c).
+        propos_horario = contem_hora_na_mesa_no_turno(chunks)
+
+        # Alguma bolha DESPACHADA disse o número dele (ADR-0040)? Medido sobre o turno, escrito
+        # bolha a bolha — o aceite sai numa bolha só ("Tabom, 700 então") e o horário na seguinte.
+        aceite_na_bolha = False
 
         # 0. read receipt + reading delay (lê antes de digitar, 05 §4.2). O membro "read" do set
         #    evita re-dormir o delay no retry; markAsRead em si já é idempotente. Roda ANTES do
@@ -927,6 +1062,15 @@ async def enviar_turno(
             # 2. dedupe: retry do job re-percorre desde idx 0 e pula o que já entregou (05 §4.3)
             if await redis.sismember(f"enviados:{turno_id}", f"chunk:{idx}"):
                 continue
+
+            # 2.5 gate de pausa POR BOLHA: o `idx` anterior dormiu typing+jitter (1,8-8,3s) e o
+            #     read receipt dormiu o reading delay antes do idx 0 — nesse tempo o handoff pode
+            #     ter aberto. Depois do dedupe de propósito: bolha já entregue não precisa de
+            #     query. Roda ANTES do presence, senão a modelo veria "digitando…" da IA por cima.
+            if checar_pausa and await _ia_pausada_agora(pool, conv["atendimento_id"]):
+                logger.info("turno_interrompido_pausa turno_id=%s idx=%s", turno_id, idx)
+                ENVIO_RESULTADO.labels("cancelado").inc()
+                return
 
             # 3. presence composing
             typing_ms = calcular_typing_ms(conteudo)
@@ -1000,6 +1144,26 @@ async def enviar_turno(
                         await marcar_foto_portaria_pedida(conn, conv["atendimento_id"])
                     if contem_pergunta_do_motivo_do_resgate(conteudo):
                         await marcar_motivo_resgate_perguntado(conn, conv["atendimento_id"])
+                    # O VALOR da venda pela mesma porta das flags (ADR-0040): a bolha já está
+                    # despachada, e é ela que fecha em cima do número DELE. As duas pernas do
+                    # predicado — o carimbo do `<valor_dele_serve>` (o sistema provou o número
+                    # contra a tabela) e o número saindo como OFERTA nesta bolha — vivem no
+                    # docstring de `gravar_valor_do_aceite`. Sem `valor_dele_no_prompt` (todos
+                    # os call sites canned/reengajamento, e todo turno sem o bloco) isto nem
+                    # arma: é `None` e o `if` cai fora antes de escanear preço nenhum.
+                    if valor_dele_no_prompt is not None and valor_dele_no_prompt in (
+                        precos_ofertados_na_fala(conteudo)
+                    ):
+                        aceite_na_bolha = True
+                        logger.info(
+                            "aceite_do_valor_na_bolha turno_id=%s atendimento_id=%s valor=%s",
+                            turno_id,
+                            conv["atendimento_id"],
+                            valor_dele_no_prompt,
+                        )
+                        await gravar_valor_do_aceite(
+                            conn, conv["atendimento_id"], valor_dele_no_prompt
+                        )
 
             # 6. MARK-AFTER-SEND: só agora idx conta como entregue (05 §4.3)
             await redis.sadd(f"enviados:{turno_id}", f"chunk:{idx}")
@@ -1008,7 +1172,17 @@ async def enviar_turno(
             # 7. jitter
             await asyncio.sleep(calcular_pausa_ms() / 1000)
 
-        if await _enviar_midias(ctx, conversa_id, turno_id, midias, conv, critico, chunks):
+        # O turno inteiro saiu: fecha o par do ADR-0040 (o `aceito` da decisão x a venda no banco).
+        # Só depois do laço, e só quando o bloco de fato entrou no prompt — turno cancelado no meio
+        # sai por `return` e não conta, porque a bolha do aceite pode não ter chegado a sair.
+        if valor_dele_no_prompt is not None:
+            AGENTE_ACEITE_GRAVADO.labels(
+                "gravado" if aceite_na_bolha else "sem_numero_na_bolha"
+            ).inc()
+
+        if await _enviar_midias(
+            ctx, conversa_id, turno_id, midias, conv, critico, chunks, checar_pausa
+        ):
             ENVIO_RESULTADO.labels("ok").inc()
     except Exception:
         job_try = ctx.get("job_try", 1)
@@ -1075,6 +1249,20 @@ async def enviar_turno(
         ENVIO_DURACAO.observe(perf_counter() - inicio)
 
 
+def midia_conta_como_book(item: dict[str, Any]) -> bool:
+    """Esta mídia do turno é o BOOK da modelo (e portanto carimba `book_enviado_em`)? PURA.
+
+    Foto da PARCEIRA não é (ADR-0042). Sem esta pergunta, `marcar_book_enviado` carimbava QUALQUER
+    envio de mídia: mandar as fotos dela acenderia `<ja_enviou_book>` e bloquearia o book da
+    própria modelo pelo resto da negociação — justamente nos dois fluxos em que a foto da parceira
+    sai cedo (a dupla vende as duas; o encaminhamento mostra quem é ela).
+
+    `de` vem do payload da tool `enviar_midia`, via coordenador. Ausente (mídia gravada antes desta
+    mudança, ou caminho que não passa pela tool) = 'eu': o comportamento de sempre.
+    """
+    return item.get("de") != "parceira"
+
+
 async def _enviar_midias(
     ctx: dict[str, Any],
     conversa_id: str,
@@ -1083,13 +1271,18 @@ async def _enviar_midias(
     conv: dict[str, Any],
     critico: bool,
     chunks: list[str],
+    checar_pausa: bool = True,
 ) -> bool:
     """Fase de mídia do MESMO job, depois de todos os chunks de texto (05 §5). A ordem é sempre
     texto→mídia; a legenda de cada mídia carrega o contexto dela. Devolve `False` se cancelou no
     meio (não conta como envio 'ok').
 
     `chunks` são as bolhas de texto já enviadas neste turno — usadas só para o dedupe
-    legenda↔bolha (`_legenda_duplica_bolha`), que evita a frase de acompanhamento repetida."""
+    legenda↔bolha (`_legenda_duplica_bolha`), que evita a frase de acompanhamento repetida.
+
+    `checar_pausa` (turno não-crítico que NÃO abriu a própria pausa) reavalia `ia_pausada` por
+    mídia, pelo mesmo motivo do laço de texto: a foto é a bolha mais lenta do turno (presence
+    "recording" + 1,5s + upload) e é a que mais frequentemente sobra para depois do handoff."""
     redis = ctx["redis"]
     pool = ctx["db_pool"]
     minio = ctx["minio"]
@@ -1103,6 +1296,10 @@ async def _enviar_midias(
             return False
         if await redis.sismember(f"enviados:{turno_id}", f"midia:{idx}"):
             continue
+        if checar_pausa and await _ia_pausada_agora(pool, conv["atendimento_id"]):
+            logger.info("midia_interrompida_pausa turno_id=%s idx=%s", turno_id, idx)
+            ENVIO_RESULTADO.labels("cancelado").inc()
+            return False
 
         async with pool.connection() as conn:
             res = await conn.execute(
@@ -1194,7 +1391,9 @@ async def _enviar_midias(
             # Flag de disciplina (padrão A2): 1º book da negociação. Guard IS NULL (first-write-wins)
             # já é idempotente sob retry, dispensa checar rowcount do INSERT. prepare_context lê a
             # coluna em vez de reescanear as falas da IA (tipo='imagem') por turno.
-            if conv["atendimento_id"] is not None:
+            #
+            # Foto da PARCEIRA não é o book DELA (ADR-0042) — ver `midia_conta_como_book`.
+            if conv["atendimento_id"] is not None and midia_conta_como_book(item):
                 await marcar_book_enviado(conn, conv["atendimento_id"])
 
         await redis.sadd(f"enviados:{turno_id}", f"midia:{idx}")

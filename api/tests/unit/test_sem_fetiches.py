@@ -17,7 +17,7 @@ from typing import Any
 
 from barra.agente.contexto import ContextAgente
 from barra.agente.nos.prepare_context import _carregar_bp3, _resolver_variaveis
-from barra.agente.persona import render_contexto_dinamico
+from barra.agente.persona import render_bloco_da_modelo, render_contexto_dinamico
 
 
 class _Result:
@@ -75,13 +75,22 @@ async def _contexto(sem_fetiches: bool) -> Any:
     )
 
 
-# --- a tag na cauda -----------------------------------------------------------------------------
+# --- a tag no bloco ESTÁTICO por-modelo ---------------------------------------------------------
+#
+# Hoist de custo (diagnóstico de traces 11/08): a tag é função SÓ do cadastro dela — nunca do
+# turno — e passou da cauda volátil (re-enviada como cache-MISS a cada turno) para a 3ª
+# SystemMessage do prefixo, `render_bloco_da_modelo`, que o DeepSeek cacheia. O que estes testes
+# provam continua o mesmo e é o que importa pra segurança: a NEGAÇÃO ATIVA chega ao prompt final
+# quando o cadastro não oferece — só mudou o bloco em que ela viaja. Cada teste positivo checa
+# também que a tag SAIU da cauda (o byte que o hoist economiza).
 
 
 async def test_cardapio_vazio_injeta_a_tag_com_a_recusa_e_a_saida() -> None:
-    saida = render_contexto_dinamico(**(await _contexto(True)).como_variaveis())
+    variaveis = (await _contexto(True)).como_variaveis()
+    saida = render_bloco_da_modelo(**variaveis)
 
     assert "<sem_fetiches>" in saida
+    assert "<sem_fetiches>" not in render_contexto_dinamico(**variaveis)
     # (1) recusa curta de mulher, sem moralizar — a fala é a mesma do <fora_do_cardapio>.
     assert "Não faço amor" in saida
     assert "sem moralizar" in saida
@@ -108,15 +117,16 @@ async def test_a_tag_nao_engole_a_clausula_da_camisinha() -> None:
     assert "Só faço com camisinha amor" in render_prefixo_geral()
     assert "Camisinha não é item da sua lista" in render_prefixo_geral()
 
-    saida = render_contexto_dinamico(**(await _contexto(True)).como_variaveis())
+    saida = render_bloco_da_modelo(**(await _contexto(True)).como_variaveis())
     assert "Camisinha fica fora dessa conta" in saida
     assert "não é item de lista" in saida
 
 
-async def test_com_fetiches_a_cauda_nao_diz_nada_de_cardapio_vazio() -> None:
-    saida = render_contexto_dinamico(**(await _contexto(False)).como_variaveis())
+async def test_com_fetiches_o_prompt_nao_diz_nada_de_cardapio_vazio() -> None:
+    variaveis = (await _contexto(False)).como_variaveis()
 
-    assert "<sem_fetiches>" not in saida
+    assert "<sem_fetiches>" not in render_bloco_da_modelo(**variaveis)
+    assert "<sem_fetiches>" not in render_contexto_dinamico(**variaveis)
 
 
 # --- a condição: as MESMAS linhas de fetiche que o <fetiches> do BP_MODELO renderiza ------------
@@ -124,7 +134,19 @@ async def test_com_fetiches_a_cauda_nao_diz_nada_de_cardapio_vazio() -> None:
 
 async def _do_cardapio(fetiches: list[dict[str, Any]]) -> tuple[bool, str]:
     """(`sem_fetiches` derivado em `_carregar_bp3`, o BP_MODELO que a MESMA lista renderiza)."""
-    md, _nome, _max, sem_fetiches, _menage, _chamada, _end, _local = await _carregar_bp3(
+    (
+        md,
+        _nome,
+        _max,
+        sem_fetiches,
+        _menage,
+        _chamada,
+        _externo,
+        _end,
+        _local,
+        _precos,
+        _cardapio,
+    ) = await _carregar_bp3(
         _ConnCardapio(fetiches),  # type: ignore[arg-type]
         "11111111-1111-1111-1111-111111111111",
     )

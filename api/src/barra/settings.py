@@ -87,22 +87,29 @@ class Settings(BaseSettings):
     # e ~1.3, mas o experimento N-1 de 30/06 (300 pts, corpus real) mostrou 1.3 como CAUSA-RAIZ do garble:
     # baixar p/ 0.7 corta as respostas problematicas 8.7%->2.7% (vazamento de raciocinio 3->0) E as perdas
     # head-to-head 24%->16.7% (win-rate 74.9%->81.7%) — dominante nos dois eixos, sem degradar a voz.
-    # So e honrada em modo non-thinking (a factory trava thinking:disabled via extra_body). Escopo: SO o
-    # chat #1 — extracao (#2) e judge (#3) chamam sem temperatura (determinismo).
+    # So e honrada em modo non-thinking (a factory omite a temperatura quando thinking != disabled).
+    # Com o default de `deepseek_thinking_chat` em "low" (abaixo), este campo fica DORMENTE no chat #1
+    # — volta a valer assim que alguem puser DEEPSEEK_THINKING_CHAT=disabled. Escopo: SO o chat #1 —
+    # extracao (#2) e judge (#3) chamam sem temperatura (determinismo).
     chat_temperature: float = Field(
         default=0.7,
         ge=0.0,
-        description="Temperatura do chat #1 (DeepSeek V4 Flash). 0.7 = melhor ponto medido no exp N-1 30/06 (coerencia + head-to-head); so vale non-thinking.",
+        description="Temperatura do chat #1 (DeepSeek V4 Flash). 0.7 = melhor ponto medido no exp N-1 30/06 (coerencia + head-to-head); so vale non-thinking (dormente enquanto thinking != disabled).",
     )
-    # Thinking do DeepSeek SO no chat #1 (no llm + regen do output_guard) — alavanca do braco B do
-    # A/B de evals (.scratch/ab-thinking-chat): "low"/"high"/"max" = reasoning_effort do provider
-    # (guides/thinking_mode). Em thinking a temperatura e IGNORADA pelo provider (a factory a omite)
-    # e o custo dominante e latencia (tokens de raciocinio ~3x a resposta no trafego OpenRouter).
+    # Thinking do DeepSeek SO no chat #1 (no llm + regen do output_guard): "low"/"high"/"max" =
+    # reasoning_effort do provider (guides/thinking_mode). Em thinking a temperatura e IGNORADA pelo
+    # provider (a factory a omite) e o custo dominante e latencia (tokens de raciocinio ~3x a resposta).
     # Extracao (#2) e judge (#3) NAO leem este campo: thinking corromperia o structured output.
-    # Default = prod = "disabled"; nunca ligar em prod sem o A/B aprovado (§0 do CLAUDE.md).
+    #
+    # Default = "low" desde 11/08/2026 (decisao do dev): o raciocinio passa a fazer parte da conduta
+    # de prod E dos rigs, e vira observavel no trace (`core.tracing.resumir_trace_turno` publica o
+    # `reasoning_content` no root span). O sinal que embasa: `high` foi descartado 2x por fisica
+    # (p95 96,6s contra teto de produto de 60s) e `low` mediu p95 18-25s com qualidade equivalente —
+    # medicao PARCIAL (o grid de 50 atendimentos nao fechou o veredito). Reversivel sem deploy de
+    # codigo: DEEPSEEK_THINKING_CHAT=disabled no Env volta ao regime non-thinking + temperatura.
     deepseek_thinking_chat: Literal["disabled", "low", "high", "max"] = Field(
-        default="disabled",
-        description="Thinking do chat #1 (DeepSeek direct): disabled (prod) ou reasoning_effort low/high/max — so p/ o A/B de evals; extracao e judge ficam sempre disabled.",
+        default="low",
+        description="Thinking do chat #1 (DeepSeek direct): reasoning_effort low (prod desde 11/08/2026) / high / max, ou disabled p/ voltar ao regime non-thinking+temperatura. Extracao e judge ficam sempre disabled.",
     )
     openrouter_model_vision_pix: str | None = None
     # STT do agente (06 §1.3) — volta ao OpenRouter. O plano antigo (Whisper direto da OpenAI)
@@ -118,6 +125,12 @@ class Settings(BaseSettings):
     # Teto de tokens da resposta do chat (DeepSeek, unica factory). Guard-rail (~1024): tom e
     # tamanho vem da persona, nao deste limite.
     llm_max_tokens: int = 1024
+    # Teto usado NO LUGAR de `llm_max_tokens` quando o chat #1 roda thinking (a factory troca): em
+    # thinking o `max_tokens` cobre a saida INTEIRA — os tokens de raciocinio + a fala —, entao o
+    # teto de 1024 pensado so p/ a fala vira risco de `finish_reason=length` com a bolha cortada (ou
+    # vazia) no meio do raciocinio. 2048 da a folga do raciocinio sem afrouxar o guard-rail de
+    # tamanho da FALA, que continua vindo da persona. Nao muda nada em non-thinking.
+    llm_max_tokens_thinking: int = 2048
 
     # Fonte unica do alvo de custo por turno (CUSTO-06). Antes o numero estava duplicado em
     # comentarios/help de core/metrics.py, agente/nos/llm.py e _custo.py; agora todos apontam
@@ -146,6 +159,19 @@ class Settings(BaseSettings):
     extracao_no_modelo_barato: bool = Field(
         default=True,
         description="Roteia a chamada FORCADA de registrar_extracao p/ uma janela minima (sem o prefixo geral), em vez do prefixo inteiro. Sempre DeepSeek V4 Flash. False = usa o prefixo inteiro (kill-switch sem deploy).",
+    )
+    # Paralelismo da chamada forcada da extracao (medicao 11/08 em traces reais: extracao 2,56s +
+    # chat 2,51s, hoje em SERIE = ~5s por turno). A janela da extracao e a conversa CRUA + ancora +
+    # <ja_registrado> e exclui a fala do turno, entao no turno SEM tool call ela ja esta pronta antes
+    # de o chat responder: o no `llm` dispara a chamada como asyncio.Task e o no `extrair` a consome.
+    # NAO e "dispara e confia": a janela tambem carrega o que o TURNO produziu (`do_turno` em
+    # `_janela_para_extracao`) -- ToolMessages do loop ReAct e o par [forcado, ERRO] da 1a extracao na
+    # 2a passagem da auto-reoferta. Por isso o `extrair` remonta a janela real e compara com a de
+    # origem: igual -> await na Task; diferente -> cancela e chama em SERIE (o comportamento de hoje).
+    # Default OFF ate validacao ao vivo (ver o checklist no docstring de `DisparoExtracao`).
+    extracao_paralela_habilitada: bool = Field(
+        default=False,
+        description="Dispara a chamada FORCADA de registrar_extracao em paralelo com o chat (asyncio.Task no no llm, consumida no no extrair) quando a janela da extracao nao depende do que o turno produziu. Divergencia de janela, excecao ou cancelamento -> fallback para a chamada em serie. False = tudo em serie, como hoje (kill-switch sem deploy).",
     )
     # Auto-reoferta (#1/#2 follow-up): quando a extracao (forcada/inline) erra RECUPERAVEL
     # (ConflitoAgenda/AntecedenciaInsuficiente/ForaDisponibilidade — qualquer ToolMessage status=error

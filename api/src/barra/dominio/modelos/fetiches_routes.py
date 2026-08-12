@@ -16,6 +16,16 @@ def _serializar_fetiche(row: dict[str, Any]) -> dict[str, Any]:
         "id": str(row["id"]),
         "nome": row["nome"],
         "ordem": row["ordem"],
+        # COMPOSIÇÃO (quem acompanha quem no encontro). Desde o ADR-0039 é CLASSIFICAÇÃO, não
+        # regime de preço (o extra é o mesmo dos atos). Curado no catálogo global, não editável
+        # pelo painel — vai ao front só para o aviso ao lado do campo de preço, que hoje diz
+        # "digite o TOTAL do extra pelas duas".
+        # Desde 11/08/2026 há um item por composição (acompanhante dele mulher/homem, dupla de
+        # modelos, dois casais — migration 20260811232000) no lugar do par ambíguo "Casal"/
+        # "Menage": vincular/desvincular AQUI é o que diz o que cada modelo faz, e o que ela não
+        # tem vinculado a IA recusa sozinha (closed-world do `render_fetiches`). O painel é o
+        # único caminho para isso — a migration deliberadamente não cria vínculo nenhum.
+        "cobra_por_pessoa": bool(row["cobra_por_pessoa"]),
         "created_at": row["created_at"].isoformat(),
     }
 
@@ -54,9 +64,7 @@ async def editar_fetiche(
 ) -> dict[str, Any]:
     updates = body.model_dump(exclude_unset=True)
     if not updates:
-        result = await conn.execute(
-            "SELECT * FROM barravips.fetiches WHERE id = %s", (fetiche_id,)
-        )
+        result = await conn.execute("SELECT * FROM barravips.fetiches WHERE id = %s", (fetiche_id,))
         row = await result.fetchone()
         if row is None:
             raise NaoEncontrado("Fetiche")

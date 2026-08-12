@@ -28,13 +28,21 @@ async def aplicar_timeout_longo(conn: AsyncConnection[Any]) -> int:
                WHERE a.estado IN ('Novo', 'Triagem', 'Qualificado', 'Aguardando_confirmacao')
                  AND a.ia_pausada = false
                  AND COALESCE(msg.ultima_cliente, a.created_at) < now() - interval '24 hours'
-                 -- Reserva FUTURA legítima (o prompt manda cravar encontro pra outro dia, com o
+                 -- Reserva legítima em pé (o prompt manda cravar encontro pra outro dia, com o
                  -- ônus de confirmar no dia sobre o cliente): não mate o slot só porque ele ficou
-                 -- em silêncio até a data. Passado o horário sem comparecer, o bloqueio deixa de
-                 -- ser futuro e o timeout de 24h volta a valer.
+                 -- em silêncio até a data. A âncora é a JANELA reservada (`b.fim`), não o começo
+                 -- dela. Ancorada no INÍCIO da reserva, a proteção caía no minuto exato do
+                 -- horário combinado: dentro dos 5 min do cron o atendimento virava Perdido/sumiu e o
+                 -- bloqueio era cancelado bem na hora em que o cliente chega — a foto de portaria
+                 -- (interno), o comprovante de Pix (externo) e a vídeo chamada já paga (remoto,
+                 -- ADR 0029) caíam órfãs, com a modelo sem card. Com `b.fim` a proteção cobre a
+                 -- janela inteira e expira sozinha quando ela termina: quem nunca apareceu volta a
+                 -- morrer pelas 24h de silêncio (a proteção é limitada pela duração do slot, nunca
+                 -- perpétua). Dentro da janela, quem mata o interno é o timeout de 45 min do
+                 -- ADR 0024 — o único com ressurreição pela foto (ADR 0027).
                  AND NOT EXISTS (
                    SELECT 1 FROM barravips.bloqueios b
-                    WHERE b.id = a.bloqueio_id AND b.inicio > now()
+                    WHERE b.id = a.bloqueio_id AND b.fim > now()
                  )
                FOR UPDATE OF a SKIP LOCKED
             ),

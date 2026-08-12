@@ -149,9 +149,11 @@ async def _seed_atendimento_interno_timeout_perdido(
     conversa_id: UUID,
     inicio: datetime,
     fim: datetime,
+    fonte: str = "auto_timeout_interno",
 ) -> tuple[UUID, UUID]:
-    """Interno morto pelo timeout (ADR 0024): Perdido/sumiu/auto_timeout_interno + bloqueio
-    'cancelado'. Espelha o estado deixado por `aplicar_timeout_interno`. Devolve
+    """Interno morto por timeout automatico: Perdido/sumiu + bloqueio 'cancelado'. Espelha o
+    estado deixado por `aplicar_timeout_interno` (`auto_timeout_interno`, ADR 0024) ou por
+    `aplicar_timeout_longo` (`auto_timeout`, 24h de silencio) — `fonte` escolhe qual. Devolve
     (atendimento_id, bloqueio_id) para os testes de ressurreicao (ADR 0027)."""
     atendimento_id = uuid4()
     await c.execute(
@@ -164,7 +166,7 @@ async def _seed_atendimento_interno_timeout_perdido(
                 'interno'::barravips.tipo_atendimento_enum,
                 'nao_solicitado'::barravips.pix_status_enum, %s, %s, %s,
                 'sumiu'::barravips.motivo_perda_enum,
-                'auto_timeout_interno'::barravips.fonte_decisao_enum, %s)
+                %s::barravips.fonte_decisao_enum, %s)
         """,
         (
             atendimento_id,
@@ -174,6 +176,7 @@ async def _seed_atendimento_interno_timeout_perdido(
             inicio.date(),
             inicio.timetz(),
             Decimal((fim - inicio).total_seconds() / 3600),
+            fonte,
             inicio - timedelta(hours=1),
         ),
     )
@@ -517,11 +520,74 @@ async def test_ressurreicao_foto_tardia_reconecta_interno(
 
 
 @pytest.mark.needs_db
-async def test_ressurreicao_recusa_apos_bloqueio_fim(
+async def test_ressurreicao_aceita_morte_pelo_timeout_longo(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
-    """ADR 0027: passou do horario reservado (bloqueio.fim < now) -> nao ressuscita; a volta
-    e recorrencia legitima (novo #N), a foto cai em silencio."""
+    """Bug pre-producao: quem matou foi o `timeout_longo` (24h de silencio), que grava
+    `auto_timeout` — nao `auto_timeout_interno`. A ressurreicao exigia so a fonte do interno,
+    entao a foto de portaria que chegava depois ficava ORFA: pessoa real na portaria, modelo
+    sem card. O criterio do ADR 0027 e "morte automatica por timeout" (o que se respeita e o
+    Perdido HUMANO), e o resto das guardas segue valendo — aqui o slot esta livre e dentro do
+    `bloqueio.fim`, entao ressuscita."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    agora = datetime.now(UTC)
+    atendimento_id, bloqueio_id = await _seed_atendimento_interno_timeout_perdido(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        inicio=agora - timedelta(hours=1),
+        fim=agora + timedelta(hours=1),
+        fonte="auto_timeout",
+    )
+    _, evolution_id, _ = await _seed_msg_imagem(conn, conversa_id)
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+
+    await rotear_imagem(
+        ctx,
+        mensagem_id=evolution_id,
+        conversa_id=str(conversa_id),
+        media_url="https://evolution.test/portaria.jpg",
+        caption=None,
+    )
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, ia_pausada, motivo_perda "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Em_execucao"
+    assert a["ia_pausada"] is True
+    assert a["motivo_perda"] is None
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE id = %s",
+        (bloqueio_id,),
+    )
+    b = await res.fetchone()
+    assert b is not None and b["estado"] == "em_atendimento"
+
+    calls = redis.enqueue_job.call_args_list
+    assert len(calls) == 1
+    assert calls[0].kwargs["tipo"] == "chegada"
+    assert calls[0].kwargs["atendimento_id"] == str(atendimento_id)
+
+
+@pytest.mark.needs_db
+async def test_ressurreicao_recusa_apos_bloqueio_fim_mas_avisa(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """ADR 0027: passou do horario reservado (bloqueio.fim < now) -> NAO ressuscita; a volta e
+    recorrencia legitima (novo #N). A decisao de produto segue de pe — o que muda e a
+    consequencia: em vez de SILENCIO, a modelo recebe um aviso (escalada owner + card), porque
+    quem manda foto logo depois do slot que acabou de morrer por timeout costuma ser uma pessoa
+    parada na portaria dela. O atendimento continua Perdido e o bloqueio, cancelado."""
     modelo_id = await _seed_modelo(conn)
     cliente_id = await _seed_cliente(conn)
     conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
@@ -561,6 +627,152 @@ async def test_ressurreicao_recusa_apos_bloqueio_fim(
     b = await res.fetchone()
     assert b is not None
     assert b["estado"] == "cancelado"
+
+    # ...mas a modelo NAO fica no escuro: escalada owner=modelo com o marcador do aviso.
+    res = await conn.execute(
+        "SELECT id, responsavel::text AS responsavel, tipo::text AS tipo, observacao, "
+        "card_message_id FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None
+    assert esc["responsavel"] == "modelo"
+    assert esc["tipo"] == "outro"
+    assert esc["observacao"] == "imagem_pos_slot"
+    assert esc["card_message_id"] is None  # o card ainda vai sair (job/reconciliacao)
+
+    calls = redis.enqueue_job.call_args_list
+    assert len(calls) == 1
+    assert calls[0].args == ("enviar_card",)
+    assert calls[0].kwargs["tipo"] == "escalada"
+    assert calls[0].kwargs["escalada_id"] == str(esc["id"])
+
+
+@pytest.mark.needs_db
+async def test_aviso_pos_slot_ignora_slot_antigo(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Anti-ruido: slot que acabou ha muito tempo (fora da graca) nao gera aviso. Uma foto dias
+    depois e outra visita — card sobre encontro de anteontem e exatamente o ruido que treina a
+    modelo a nao ler card."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    agora = datetime.now(UTC)
+    atendimento_id, _ = await _seed_atendimento_interno_timeout_perdido(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        inicio=agora - timedelta(days=2, hours=2),
+        fim=agora - timedelta(days=2),
+    )
+    _, evolution_id, _ = await _seed_msg_imagem(conn, conversa_id)
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+
+    await rotear_imagem(
+        ctx,
+        mensagem_id=evolution_id,
+        conversa_id=str(conversa_id),
+        media_url=None,
+        caption=None,
+    )
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None and row["n"] == 0
+    assert redis.enqueue_job.call_args_list == []
+
+
+@pytest.mark.needs_db
+async def test_aviso_pos_slot_e_idempotente(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O cliente manda 3 fotos seguidas da portaria; o grupo recebe UM card. A idempotencia e o
+    `NOT EXISTS` sobre `escaladas.observacao` (e o `_job_id` do ARQ como segunda camada)."""
+    modelo_id = await _seed_modelo(conn)
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    agora = datetime.now(UTC)
+    atendimento_id, _ = await _seed_atendimento_interno_timeout_perdido(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        inicio=agora - timedelta(hours=2),
+        fim=agora - timedelta(minutes=20),
+    )
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+    for _ in range(3):
+        _, evolution_id, _ = await _seed_msg_imagem(conn, conversa_id)
+        await rotear_imagem(
+            ctx,
+            mensagem_id=evolution_id,
+            conversa_id=str(conversa_id),
+            media_url=None,
+            caption=None,
+        )
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas "
+        "WHERE atendimento_id = %s AND observacao = 'imagem_pos_slot'",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None and row["n"] == 1
+    assert len(redis.enqueue_job.call_args_list) == 1
+
+
+@pytest.mark.needs_db
+async def test_aviso_pos_slot_sem_grupo_nao_grava_escalada(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Modelo sem `coordenacao_chat_id` (estado da Catarina em prod hoje): nao ha para onde
+    mandar o card. Degrada sem gravar a escalada — uma escalada owner=modelo sem
+    `card_message_id` faria o cron `reconciliar_cards` re-tentar a cada minuto contra
+    `remote_jid=None` (AttributeError antes do POST), em loop infinito."""
+    modelo_id = await _seed_modelo(conn)
+    await conn.execute(
+        "UPDATE barravips.modelos SET coordenacao_chat_id = NULL WHERE id = %s",
+        (modelo_id,),
+    )
+    cliente_id = await _seed_cliente(conn)
+    conversa_id = await _seed_conversa(conn, cliente_id, modelo_id)
+    agora = datetime.now(UTC)
+    atendimento_id, _ = await _seed_atendimento_interno_timeout_perdido(
+        conn,
+        cliente_id=cliente_id,
+        modelo_id=modelo_id,
+        conversa_id=conversa_id,
+        inicio=agora - timedelta(hours=2),
+        fim=agora - timedelta(minutes=20),
+    )
+    _, evolution_id, _ = await _seed_msg_imagem(conn, conversa_id)
+
+    redis = _redis_fake()
+    ctx = _ctx(_PoolDeUmaConexao(conn), redis)
+
+    await rotear_imagem(
+        ctx,
+        mensagem_id=evolution_id,
+        conversa_id=str(conversa_id),
+        media_url=None,
+        caption=None,
+    )
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    assert row is not None and row["n"] == 0
     assert redis.enqueue_job.call_args_list == []
 
 

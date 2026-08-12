@@ -51,6 +51,13 @@ def instrumentar_tokens(resp: Any, modelo: str) -> None:
     AGENTE_TURNO_TOKENS.labels(modelo, "output").inc(um["output_tokens"])
     AGENTE_TURNO_TOKENS.labels(modelo, "cache_read").inc(read)
     AGENTE_TURNO_TOKENS.labels(modelo, "cache_write").inc(write)
+    # Serie `reasoning`: os tokens de raciocinio do thinking (chat #1, default "low" em prod). NAO e
+    # uma parcela extra — ela ja esta DENTRO de `output_tokens` (medido ao vivo 11/08: 270 output =
+    # 256 raciocinio + 14 de fala), entao o custo nao muda; a serie separada existe porque o peso do
+    # raciocinio e a variavel que decide se o thinking se paga. Ausente em non-thinking -> 0.
+    raciocinio = (um.get("output_token_details") or {}).get("reasoning", 0)
+    if raciocinio:
+        AGENTE_TURNO_TOKENS.labels(modelo, "reasoning").inc(raciocinio)
     # Custo BRL: tabela do PROPRIO modelo (`calcular_custo_brl` despacha por `modelo`) + cotacao
     # USD/BRL (settings). Observado pelo Histogram AGENTE_CUSTO_TURNO_BRL (meta em settings.custo_alvo_brl).
     AGENTE_CUSTO_TURNO_BRL.labels(modelo).observe(

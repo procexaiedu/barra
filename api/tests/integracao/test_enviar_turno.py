@@ -57,18 +57,23 @@ class _Result:
 
 
 class _FakeConn:
-    """Responde `_carregar_destino` (conversas), o lookup de mídia e o inbound do cliente
-    (rede de saída/PII); o resto (INSERT) vira vazio."""
+    """Responde `_carregar_destino` (conversas), o lookup de mídia, o inbound do cliente
+    (rede de saída/PII) e a releitura de pausa por bolha; o resto (INSERT) vira vazio."""
 
     def __init__(
         self,
         destino: dict[str, Any],
         midias: dict[str, dict[str, Any]],
         inbound: list[str] | None = None,
+        pausas: list[bool] | None = None,
     ) -> None:
         self._destino = destino
         self._midias = midias
         self._inbound = inbound or []
+        # `pausas` é a sequência que a RELEITURA por bolha (`_ia_pausada_agora`) enxerga, uma
+        # posição por consulta; esgotada, repete a última. None = nunca pausada.
+        self._pausas = list(pausas) if pausas else []
+        self.leituras_de_pausa = 0
 
     async def execute(self, query: str, params: Any = None) -> _Result:
         if "FROM barravips.conversas" in query:
@@ -78,6 +83,10 @@ class _FakeConn:
             return _Result([row] if row else [])
         if "FROM barravips.mensagens" in query and "direcao = 'cliente'" in query:
             return _Result([{"conteudo": c} for c in self._inbound])
+        if "SELECT ia_pausada FROM barravips.atendimentos" in query:
+            i = min(self.leituras_de_pausa, len(self._pausas) - 1)
+            self.leituras_de_pausa += 1
+            return _Result([{"ia_pausada": self._pausas[i] if self._pausas else False}])
         return _Result([])  # INSERT em mensagens
 
     @asynccontextmanager
@@ -770,3 +779,142 @@ async def test_turno_que_abriu_a_pausa_ignora_o_gate() -> None:
     )
 
     assert _so(evolution, "texto") == ["Um momento amor"]
+
+
+# --- gate de pausa DENTRO do laço de bolhas ---------------------------------------------------
+# Um turno de 3 bolhas leva 15-30s (presence + typing + jitter por bolha). O gate pré-laço só
+# responde "nunca ter começado"; sem reavaliar por bolha, o handoff abria na bolha 1 e as bolhas
+# 2 e 3 saíam por cima da modelo nos ~20s seguintes. O cancel-on-new-message não cobre: nenhum
+# pipeline de handoff toca `turno_atual`.
+
+
+async def test_pausa_no_meio_do_laco_interrompe_as_bolhas_seguintes() -> None:
+    turno_id, conversa_id = "turno-pausa-meio", str(uuid4())
+    # 1ª releitura (antes da bolha 0): ainda ativa. Da 2ª em diante: o handoff já commitou.
+    conn = _FakeConn(_destino(), {}, pausas=[False, True])
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["já te falo o endereço", "é na rua x, 100", "me avisa quando chegar"],
+        midias=[],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+    )
+
+    # a bolha 0 já tinha saído (não dá para desenviar); as seguintes NÃO saem.
+    assert _so(evolution, "texto") == ["já te falo o endereço"]
+    assert await redis.sismember(f"enviados:{turno_id}", "chunk:0")
+    assert not await redis.sismember(f"enviados:{turno_id}", "chunk:1")
+
+
+async def test_pausa_no_meio_do_laco_interrompe_a_midia() -> None:
+    """A foto é a bolha mais lenta do turno — e a que mais sobra para depois do handoff."""
+    turno_id, conversa_id, midia_id = "turno-pausa-midia", str(uuid4()), str(uuid4())
+    conn = _FakeConn(
+        _destino(),
+        {midia_id: {"tipo": "foto", "bucket": "midia", "object_key": "k.jpg"}},
+        pausas=[False, True],  # pausa entra depois da única bolha de texto
+    )
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["olha essa"],
+        midias=[{"midia_id": midia_id, "legenda": "sou eu 🥰"}],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+    )
+
+    assert _so(evolution, "texto") == ["olha essa"]
+    assert _so(evolution, "midia") == []
+    assert not await redis.sismember(f"enviados:{turno_id}", "midia:0")
+
+
+async def test_turno_que_abriu_a_pausa_entrega_a_canned_ate_o_fim() -> None:
+    """Regressão oposta: o turno que escalou de propósito vive o laço inteiro com
+    `ia_pausada=true` — a releitura por bolha NÃO pode calá-lo no meio da canned de espera."""
+    turno_id, conversa_id = "turno-escalada-multi", str(uuid4())
+    destino = _destino()
+    destino["ia_pausada"] = True
+    conn = _FakeConn(destino, {}, pausas=[True])
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["deixa eu ver aqui com ela", "já te falo amor"],
+        midias=[],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+        ignorar_pausa=True,
+    )
+
+    assert _so(evolution, "texto") == ["deixa eu ver aqui com ela", "já te falo amor"]
+    assert conn.leituras_de_pausa == 0  # isento: nem consulta o banco
+
+
+async def test_critico_entrega_tudo_mesmo_com_pausa_no_meio() -> None:
+    """Chave Pix / confirmação já commitada entrega sempre — mesma regra do cancel (05 §3)."""
+    turno_id, conversa_id = "turno-critico-pausa", str(uuid4())
+    conn = _FakeConn(_destino(), {}, pausas=[True])
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["chave pix: 123", "valor: R$ 60,00"],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=True,
+    )
+
+    assert _so(evolution, "texto") == ["chave pix: 123", "valor: R$ 60,00"]
+    assert conn.leituras_de_pausa == 0
+
+
+async def test_caminho_feliz_entrega_todas_as_bolhas_e_a_midia() -> None:
+    """Guarda do caminho feliz: com a IA ativa o turno inteiro sai, e a releitura por bolha custa
+    UMA consulta por bolha (texto + mídia), não uma por linha nem um join."""
+    turno_id, conversa_id, midia_id = "turno-feliz", str(uuid4()), str(uuid4())
+    conn = _FakeConn(
+        _destino(),
+        {midia_id: {"tipo": "foto", "bucket": "midia", "object_key": "k.jpg"}},
+        pausas=[False],
+    )
+    evolution = _FakeEvolution()
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+
+    await enviar_turno(
+        _ctx(conn, redis, evolution),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=["oi amor", "consigo sim", "que horas você prefere ?"],
+        midias=[{"midia_id": midia_id, "legenda": "sou eu 🥰"}],
+        msg_ids_cliente=["evo-1"],
+        chars_inbound=10,
+        critico=False,
+    )
+
+    assert _so(evolution, "texto") == ["oi amor", "consigo sim", "que horas você prefere ?"]
+    assert _so(evolution, "midia") == ["sou eu 🥰"]
+    assert conn.leituras_de_pausa == 4  # 3 bolhas + 1 mídia

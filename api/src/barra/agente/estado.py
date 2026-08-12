@@ -10,6 +10,7 @@ State minimalista: `messages` + campos transitorios por-invocacao. Deps de runti
 Ver docs/agente/04-tools.md §1.1, 01-arquitetura.md §2.3/§4.3 e 02-estado-fluxo.md §6.
 """
 
+import asyncio
 from datetime import datetime
 
 from langchain_core.messages import BaseMessage
@@ -76,6 +77,44 @@ class EstadoAgente(MessagesState):
         colado na cauda, e depois de fundida nao ha como separa-la). Nascem no prepare_context
         (`PecasDoTurno`, o PORQUE mora la), NAO entram em `messages` e nascem ausentes a cada
         `ainvoke` (sem checkpointer).
+    local_endereco_no_prompt: o ponto de encontro EXATAMENTE como o `<local_de_encontro>` deste
+        turno o apresentou ao modelo (nome do local + endereco no degrau vigente), ou None quando
+        o bloco NAO entrou no prompt. E um CARIMBO da decisao do prepare_context, nao um predicado
+        re-avaliavel: o `output_guard` decidia se cobrar a entrega do endereco reavaliando
+        `_libera_local_de_encontro` com a linha RELIDA depois da extracao, e no turno em que o
+        cliente escolhe "no seu local" a extracao promove NULL->interno no meio do turno — o prompt
+        saia sem o bloco e o guard exigia entregar um dado que o modelo nao tinha; ele inventou a
+        rua (trace 648d7f6f, agenda_local t3). Carimbando a decisao, o gatilho `endereco` so arma
+        sobre o que o modelo de fato leu, e o lembrete da regen cola o dado LITERAL daqui em vez de
+        citar uma tag condicional pelo nome. Nasce ausente a cada `ainvoke` (sem checkpointer).
+    valor_dele_no_prompt: o numero que o `<valor_dele_serve>` deste turno mandou ela ACEITAR
+        (ADR-0040), ou None quando o bloco NAO entrou no prompt. Carimbo da decisao do
+        prepare_context, pela mesma razao do `local_endereco_no_prompt` — e nao um predicado
+        re-avaliavel: quem o consome e o write-time (`workers/envio.py`), depois de o turno ja ter
+        andado (a extracao pode ter mexido em `valor_acordado`/`n_contrapropostas` no meio, e
+        reavaliar `aceite_do_valor_dele` la daria OUTRA resposta sobre a fala que ja saiu).
+        Existe porque o aceite do valor DELE e decidido pela FALA DA IA do proprio turno, e a
+        extracao e cega para ela por contrato (a janela dela exclui a fala do turno corrente,
+        nos/extrair.py): no trace 93fa67dd a IA aceitou "faz 700 que eu vou" em cima de 800 e o
+        `valor_acordado` ficou NULL, porque do ponto de vista do extrator ainda nao havia aceite
+        nenhum a registrar. Com o carimbo, o valor da venda vai pela mesma porta deterministica
+        que ja carimba `n_contrapropostas`: le a bolha DEPOIS de despachada. Nasce ausente a cada
+        `ainvoke` (sem checkpointer).
+    _extracao_task / _extracao_janela: o braco PARALELO da chamada forcada da extracao
+        (settings.extracao_paralela_habilitada, nos/extrair.py:`DisparoExtracao`). O no `llm`
+        dispara a chamada como `asyncio.Task` no comeco do turno e publica aqui a Task + a JANELA de
+        onde ela saiu; o no `extrair` remonta a janela real e so consome a Task se as duas baterem
+        (senao cancela e chama em serie). Nascem ausentes a cada `ainvoke`.
+
+        ⚠️ `_extracao_task` guarda um objeto NAO-SERIALIZAVEL (`asyncio.Task`) no State. Isso so e
+        legitimo porque o grafo compila SEM checkpointer (graph.py, decisao 01 §6.7): nada tenta
+        serializar o State. Ligar um checkpointer QUEBRA este campo (o serializer do saver estoura
+        no Task) — nesse dia, o campo tem de sair do State e virar registro por-turno fora dele
+        (ex.: dict keyed por `turno_id` no escopo da factory). O mesmo vale, em menor grau, para
+        `_extracao_janela` (lista de BaseMessage, serializavel, mas volumosa e redundante com
+        `messages`). O guard que torna isso barulhento em vez de silencioso vive em
+        `build_graph` (graph.py): ligar checkpointer COM a flag paralela levanta na construcao do
+        grafo, nao num turno de producao.
     """
 
     midia_idx: int
@@ -89,3 +128,7 @@ class EstadoAgente(MessagesState):
     agora_turno: datetime | None
     ja_registrado: str
     conversa_crua: list[BaseMessage]
+    local_endereco_no_prompt: str | None
+    valor_dele_no_prompt: int | None
+    _extracao_task: "asyncio.Task[BaseMessage] | None"
+    _extracao_janela: list[BaseMessage]
