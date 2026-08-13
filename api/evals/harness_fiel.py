@@ -74,13 +74,20 @@ class EvolutionSpy:
         self.midias: list[dict[str, Any]] = []
         self.lidas: list[list[str]] = []
         self.presencas: list[str] = []
+        # Os ids emitidos NESTE turno. Sao a unica alca do harness sobre as linhas que o
+        # `enviar_turno` (codigo de PROD) grava em `mensagens`: ele as insere com o DEFAULT `now()`
+        # e nao tem — nem deve ter — parametro de `created_at`. Com relogio injetado, o harness usa
+        # esta lista para reancorar essas linhas (ver `_ancorar_bolhas_da_ia`).
+        self.mids: list[str] = []
 
     def _mid(self) -> str:
         # UNICO entre instancias: rodar_turno_fiel cria um spy POR TURNO, e um contador que
         # reinicia ("spy-mid-1" de novo) colidia no ON CONFLICT (evolution_message_id) DO NOTHING
         # do enviar_turno — as primeiras bolhas de cada turno seguinte sumiam da janela e o agente
         # rodava com amnesia parcial das proprias falas (achado do replay prod dia-1, 22/07).
-        return f"spy-mid-{uuid4().hex}"
+        mid = f"spy-mid-{uuid4().hex}"
+        self.mids.append(mid)
+        return mid
 
     async def marcar_lida(self, **kwargs: Any) -> None:
         self.lidas.append(kwargs.get("message_ids") or [])
@@ -200,6 +207,28 @@ async def _noop(*_a: Any, **_k: Any) -> None:
     return None
 
 
+async def _ancorar_bolhas_da_ia(
+    conn: AsyncConnection[dict[str, Any]], mids: list[str], agora: datetime
+) -> None:
+    """Reancora no relogio injetado as linhas de `mensagens` que o `enviar_turno` acabou de gravar.
+
+    A fala do CLIENTE o harness insere (e ja nasce em `agora`), mas a resposta da IA e gravada pelo
+    codigo de prod, com o DEFAULT `now()` da tabela. Deixar as duas em relogios diferentes seria
+    PIOR que o bug original: a janela ordena por `created_at DESC, id DESC` (`carregar_mensagens`),
+    entao as bolhas da IA (no `now()` real) apareceriam ANTES de toda fala do cliente (no relogio
+    fixo, no futuro) e a conversa chegaria ao modelo embaralhada.
+
+    O UPDATE e casado pelos `evolution_message_id` que o proprio spy emitiu neste turno — nada de
+    heuristica por janela de tempo. As linhas voltam a EMPATAR com a fala do cliente do turno, e o
+    desempate segue sendo `id DESC` (uuidv7 time-ordered: a IA foi inserida depois, entao vem
+    depois). No-op sem relogio injetado — quem chama ja gateia por `agora is not None`.
+    """
+    await conn.execute(
+        "UPDATE barravips.mensagens SET created_at = %s WHERE evolution_message_id = ANY(%s)",
+        (agora, mids),
+    )
+
+
 async def rodar_turno_fiel(
     conn: AsyncConnection[dict[str, Any]],
     cen: Cenario,
@@ -216,8 +245,15 @@ async def rodar_turno_fiel(
     Uma str vira texto puro; `BolhaCliente` carrega midia (imagem com caption / audio transcrito,
     ver a sua fronteira). `graph` reusavel entre turnos (passe `build_graph()` uma vez); None ->
     constroi um. Com o graph real, bate no LLM (custa credito, §0); injete um fake p/ testar so a
-    mecanica. `agora` fixa o relogio do turno (clock injection). `conn` e a MESMA do seed (transacao;
-    ROLLBACK no caller).
+    mecanica. `conn` e a MESMA do seed (transacao; ROLLBACK no caller).
+
+    `agora` fixa o relogio do turno (clock injection) E ancora nele o `created_at` das mensagens do
+    turno — a fala do cliente no INSERT, a resposta da IA por reancoragem apos o envio (a linha e
+    gravada pelo codigo de prod, ver `_ancorar_bolhas_da_ia`). Sem esse par o turno "acontece" no
+    futuro fixo enquanto as bolhas nascem no `now()` do banco, e o agente le a diferenca como tempo
+    decorrido: no rig de 12/08 o PRIMEIRO turno de toda conversa nova ja chegava ao modelo com
+    `<tempo_desde_ultima_msg_cliente minutos="~10200"/>` — o eval inteiro exercitando retomada
+    pos-silencio. O historico do seed tem o mesmo dever: passe o MESMO `agora` a `seedar`.
     """
     entrada = [turno_cliente] if isinstance(turno_cliente, str | BolhaCliente) else turno_cliente
     bolhas = [BolhaCliente(b) if isinstance(b, str) else b for b in entrada]
@@ -231,6 +267,7 @@ async def rodar_turno_fiel(
             texto=bolha.conteudo,
             tipo=bolha.tipo,
             media_object_key=bolha.media_object_key,
+            created_at=agora,
         )
 
     redis = FakeArqRedis()
@@ -259,6 +296,9 @@ async def rodar_turno_fiel(
             # Kwargs de infra do ARQ (_job_id, _defer_by...) nao sao parametros do enviar_turno.
             payload = {k: v for k, v in kwargs.items() if not k.startswith("_")}
             await enviar_turno(ctx, **payload)
+
+    if agora is not None and evolution.mids:
+        await _ancorar_bolhas_da_ia(conn, evolution.mids, agora)
 
     estado = await estado_pos_turno(conn, cen.atendimento_id)
     return ResultadoFiel(

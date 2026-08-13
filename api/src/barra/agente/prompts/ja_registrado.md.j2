@@ -2,15 +2,20 @@
 <tipo>{{ tipo_atendimento or 'ainda não registrado' }}</tipo>
 {% if intencao %}<intencao>{{ intencao }}</intencao>
 {% endif %}{% if data_desejada %}<dia>{{ data_desejada }}</dia>
-{% endif %}{% if horario_desejado %}<hora origem="{% if horario_evidenciado %}ele pediu{% else %}palpite do sistema — o detector NÃO confirmou que este horário veio dele; se a fala dele nesta conversa já cravou esta hora, o horário É dele{% endif %}">{{ horario_desejado }}</hora>
+{% endif %}{% if horario_desejado %}<hora origem="{% if horario_evidenciado %}ele pediu{% else %}palpite do sistema — o detector NÃO confirmou que este horário veio dele; se a fala dele nesta conversa já cravou esta hora, o horário É dele{% endif %}">{{ horario_desejado.strftime('%H:%M') }}</hora>
 {% endif %}{% if endereco %}<local>{{ endereco }}{% if bairro %} ({{ bairro }}){% endif %}</local>
 {% endif %}{% if valor_fechado %}<valor status="{% if valor_aceito %}aceito por ele{% else %}apenas COTADO — ele ainda NÃO aceitou{% endif %}">{{ valor_fechado }}{% if duracao_fechada %} ({{ duracao_fechada|duracao_de_pacote }}){% endif %}</valor>
+{% elif duracao_fechada %}<duracao nota="pacote escolhido e o valor dele AINDA NÃO foi gravado — se a conversa já tem o preço deste pacote, registre `valor_acordado` agora">{{ duracao_fechada|duracao_de_pacote }}</duracao>
+{% endif %}{% if forma_pagamento %}<forma_pagamento>{{ forma_pagamento }}</forma_pagamento>
 {% endif %}{% if urgencia %}<urgencia>{{ urgencia }}</urgencia>
 {% endif %}{% if fetiches_do_cadastro %}<fetiches_do_cadastro nota="cardápio dela, NÃO é o que já foi registrado — é a lista canônica de nomes para o campo `fetiches_em_pauta`">{{ fetiches_do_cadastro | join(', ') }}</fetiches_do_cadastro>
 {% endif %}<como_ler>
 Isto é estado do sistema, NÃO fala do cliente: nada aqui foi dito por ele nesta conversa agora.
 Registre um campo só se ELE MUDOU nesta conversa. Se o que está acima continua valendo, omita o
 campo — o registro é incremental e o campo omitido preserva o que já está gravado.
+Campo que NÃO aparece aqui em cima está VAZIO no sistema: se a conversa já tem o dado, ele mudou de
+vazio para o valor — registre AGORA, mesmo que tenha sido dito num turno anterior. Omitir só
+preserva o que está escrito acima; num campo ausente, omitir perde o dado.
 Única exceção: `proxima_acao_esperada` é obrigatória e você a reescreve todo turno.
 </como_ler>
 </ja_registrado>

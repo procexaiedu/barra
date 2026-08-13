@@ -240,6 +240,10 @@ async def _cauda(janela: list[BaseMessage], *, com_lembrete: bool) -> str:
         _ctx(),
         janela,
         atendimento={"estado": "Novo", "numero_curto": 7},
+        # Cardápio vazio de propósito: a asserção é sobre a ORDEM dos pedaços da cauda (lembrete →
+        # contexto → fala) e sobre o id da HumanMessage. O conteúdo do cardápio não move nenhuma
+        # das duas coisas, e as falas ("oi amor", "Oi", "bolha N") não citam nada dele.
+        cardapio_rows={},
     )
     if com_lembrete:
         mensagens = _injetar_reminder_se_necessario(mensagens, contexto.estado, "Lucia")
@@ -279,6 +283,7 @@ async def test_cauda_preserva_o_id_da_msg_do_cliente() -> None:
         _ctx(),
         janela,
         atendimento={"estado": "Novo"},
+        cardapio_rows={},  # idem `_cauda`: o id da mensagem não depende do cardápio
     )
 
     assert mensagens[-1].id == "m1"

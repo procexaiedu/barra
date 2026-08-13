@@ -9,12 +9,68 @@ sem duplicar nem criar dependencia no<->no.
 `_custo.py` segue PURO (sem metrica): este modulo e a camada de telemetria que o consome.
 """
 
+from collections.abc import Iterator
+from contextlib import contextmanager
+from time import perf_counter
 from typing import Any
 
-from barra.core.metrics import AGENTE_CUSTO_TURNO_BRL, AGENTE_TURNO_TOKENS
+from barra.core.metrics import (
+    AGENTE_CUSTO_TURNO_BRL,
+    AGENTE_LLM_DURACAO,
+    AGENTE_MODELO_FINGERPRINT,
+    AGENTE_NO_DURACAO,
+    AGENTE_TURNO_TOKENS,
+)
 from barra.settings import get_settings
 
 from ._custo import cache_read_deepseek, calcular_custo_brl
+
+
+@contextmanager
+def medir_no(no: str) -> Iterator[None]:
+    """Cronometra UM no do grafo em `AGENTE_NO_DURACAO{no=...}`.
+
+    Context manager usado DENTRO do corpo do no, de proposito -- e nao um decorator aplicado em
+    `build_graph`. O LangGraph inspeciona a assinatura do callable para decidir se injeta
+    `runtime`/`config`, e um wrapper que nao a preserve exatamente faz o no receber os argumentos
+    errados em silencio (footgun ja tomado neste projeto com as factories kw-only). Um `with` no
+    corpo nao tem como mexer na assinatura.
+
+    Mede tambem o caminho que levanta: o `finally` registra a duracao mesmo quando o no estoura,
+    porque um no que falha DEPOIS de 30s e exatamente o caso que precisamos enxergar.
+    """
+    inicio = perf_counter()
+    try:
+        yield
+    finally:
+        AGENTE_NO_DURACAO.labels(no).observe(perf_counter() - inicio)
+
+
+@contextmanager
+def medir_llm(caminho: str) -> Iterator[None]:
+    """Cronometra UMA chamada de LLM em `AGENTE_LLM_DURACAO{caminho=...}`.
+
+    `caminho` (chat|extracao|judge_aup|regen|judge_pos_envio) e o corte que a label `modelo` nao
+    da: os tres caminhos do turno rodam o MESMO `deepseek-v4-flash`, entao em Prometheus eram
+    indistinguiveis -- so o Langfuse os separava, via `nomear_run`.
+    """
+    inicio = perf_counter()
+    try:
+        yield
+    finally:
+        AGENTE_LLM_DURACAO.labels(caminho).observe(perf_counter() - inicio)
+
+
+def registrar_fingerprint(resp: Any, modelo: str) -> None:
+    """Publica o `system_fingerprint` da resposta como serie de presenca (sempre 1).
+
+    O alias do DeepSeek e movel e nao ha snapshot para pinar (a API rejeita `-0731`/`-latest`),
+    entao a troca de pesos so pode ser DETECTADA depois do fato. Uma serie nova nascendo sob o
+    mesmo `modelo` e o sinal; `count by (modelo)` > 1 numa janela e o alerta.
+    """
+    fp = (getattr(resp, "response_metadata", None) or {}).get("system_fingerprint")
+    if fp:
+        AGENTE_MODELO_FINGERPRINT.labels(modelo, str(fp)).set(1)
 
 
 def instrumentar_tokens(resp: Any, modelo: str) -> None:
@@ -29,6 +85,9 @@ def instrumentar_tokens(resp: Any, modelo: str) -> None:
     o tripwire de write-rate. `getattr` porque usage_metadata so existe em AIMessage, nao em
     BaseMessage -- e deixa o duck-typing servir o judge (raw do structured output) sem import de langchain.
     """
+    # Antes do early-return: o fingerprint vale mesmo na resposta sem usage_metadata (o raw do
+    # structured output do judge), e e justamente onde uma troca de build passaria despercebida.
+    registrar_fingerprint(resp, modelo)
     um = getattr(resp, "usage_metadata", None)
     if not um:
         return

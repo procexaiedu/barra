@@ -82,11 +82,16 @@ def extrair_texto_do_turno(messages: Sequence[BaseMessage]) -> str:
             # rascunho superado por retentativa de tool-com-erro recuperavel. Premissa: no maximo
             # UMA tool de escrita com erro recuperavel por passagem -- as tools de mídia (fan-out
             # multi-call por turno) NAO retornam "ERRO:" agregavel a texto, entao nao acionam isto.
+            #
+            # A premissa e que o LLM RE-EMITE a fala. Quando ele COMPLEMENTA (raciocinando que a
+            # bolha anterior ja foi ao cliente), o turno perde o rascunho inteiro -- e por isso o
+            # texto de erro das tools MANDA re-emitir a fala completa (`parceria.py:_ERRO_*`).
             continue
         texto = texto_da_mensagem(m)
         if texto:
             partes.append(texto)
     return "\n\n".join(partes)
+
 
 
 # Marca de pausa longa da janela: a HumanMessage SINTETICA que `traduzir_mensagens`

@@ -596,7 +596,7 @@ async def test_carimba_cotacao_quando_chunk_tem_preco() -> None:
     )
 
     assert len(updates) == 1  # só o chunk com preço
-    assert "estado IN ('Triagem', 'Qualificado')" in updates[0][0]
+    assert "estado IN ('Novo', 'Triagem', 'Qualificado')" in updates[0][0]
 
 
 async def test_nao_carimba_cotacao_sem_preco() -> None:

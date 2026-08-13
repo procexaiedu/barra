@@ -24,13 +24,13 @@ class EstadoAgente(MessagesState):
     cada `ainvoke` e morrem com ele. Pausa (ia_pausada) NAO usa flag de State --
     prepare_context faz early exit via Command(goto=END) (02 §1).
 
-    midia_idx: contador determinístico de chamadas a `enviar_midia` no turno corrente.
-        Nasce 0 a cada `ainvoke` (sem checkpointer o State e efemero) e e injetado como
-        `call_idx` (InjectedToolArg) pelo no `tools`. Garante a idempotencia de
-        `enviar_midia` no replay -- reinicia em 0, entao o `ON CONFLICT` deduplica e
-        nao reenvia (jamais usar `COUNT(*)` no DB para isso). NAO e verdade duplicada do
-        Postgres, e sim estado de controle do loop -- por isso vive aqui, nao no ContextAgente.
-        Lido com `state.get("midia_idx", 0)`. Ver docs/agente/04-tools.md §3.3.
+    (O `call_idx` de `enviar_midia` NAO vive aqui. Existiu um campo `midia_idx` no State
+    prometendo ser esse contador, mas ele nunca chegou a ser escrito nem lido: a idempotencia
+    real e `nos/tools.py:_calcular_call_idx_midia`, que DERIVA o ordinal varrendo
+    `state["messages"]`. Um contador de State seria pior -- ele conta chamadas na ordem em que
+    o loop as executa, e a PK precisa do ordinal por `tool_call_id`, que e estavel no replay.
+    O campo foi removido em 12/08; a docstring o descrevia com semantica que o codigo nao tinha,
+    que e como o proximo leitor reintroduz o bug. Ver docs/agente/04-tools.md §3.3.)
     _categoria / _confianca: classificacao de disclosure/jailbreak gravada pelo
         prepare_context (regex sobre a cauda da janela), lida pelo intercept_disclosure
         para rotear canned/escala/llm (10 §8). _confianca e a string "alta" (ou None) que
@@ -41,6 +41,18 @@ class EstadoAgente(MessagesState):
         mudo, e seta este flag. Se a reoferta tambem errar (o llm reoferta, o llm roteia de novo ao
         `extrair` e a 2a extracao erra), o `extrair` cai no MUTE (sem reofertar de novo) -- silencio >
         reserva fantasma. Nasce ausente a cada `ainvoke` (sem checkpointer).
+    _mute_por_erro_de_tool: CARIMBO de que o `extrair` fechou o turno MUDO de proposito, porque a
+        extracao errou (guard de dominio: piso, tipo, reagendamento, cotacao ausente) e a reoferta
+        ja tinha sido gasta. E um carimbo, nao um predicado re-avaliavel: o `output_guard` roda
+        DEPOIS e nao tem como redescobrir o motivo -- a janela que ele monta p/ a regen
+        (`_janela_ate_a_fala_do_cliente`) corta na ultima HumanMessage e descarta, POR DESENHO, o
+        par [AIMessage forcada, ToolMessage] que carrega o erro.
+
+        Sem o carimbo, o gatilho `mudo` do guard via um turno sem texto, regenerava com o lembrete
+        generico ("sua resposta veio VAZIA, escreva de novo") e o modelo -- cego ao erro --
+        respondia "Confirmado amor", exatamente a reserva fantasma que o mute existe p/ impedir
+        (trace 71c7196e, 12/08: a reoferta tinha ACERTADO a cotacao e a regen a substituiu pela
+        confirmacao proibida). Nasce ausente a cada `ainvoke` (sem checkpointer).
     _midia_esgotada: one-shot do cap de loop de `enviar_midia` (nos/llm.py). Quando a modelo nao tem
         midia e o modelo insiste em `enviar_midia` (tag apos tag), o loop tools<->llm estouraria o
         recursion_limit -> GraphRecursionError -> escalar_por_exaustao -> SILENCIO ao cliente (trace
@@ -117,10 +129,10 @@ class EstadoAgente(MessagesState):
         grafo, nao num turno de producao.
     """
 
-    midia_idx: int
     _categoria: str | None
     _confianca: str | None
     _reoferta_tentada: bool
+    _mute_por_erro_de_tool: bool
     _midia_esgotada: bool
     horario_minimo: datetime | None
     horario_evidenciado: bool

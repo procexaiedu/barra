@@ -199,6 +199,67 @@ class EvolutionClient:
         ENVIOS_EVOLUTION.labels("sucesso").inc()
         return evolution_message_id
 
+    async def enviar_localizacao(
+        self,
+        *,
+        conn: AsyncConnection[Any],
+        instance_id: str,
+        remote_jid: str,
+        latitude: float,
+        longitude: float,
+        nome: str,
+        endereco: str,
+        contexto: str,
+        tipo: str,
+        atendimento_id: UUID | None = None,
+        conversa_id: UUID | None = None,
+    ) -> str:
+        """Pin de localização (`POST /send/location`) → registra em envios_evolution → devolve o id.
+
+        Espelha `enviar_texto`. Existe porque o ponto de encontro é dado ESTRUTURADO: um pin abre o
+        mapa no aparelho do cliente, e a IA não expressa isso como texto — então o sistema o despacha
+        por fora da fala (mesma decisão do card e da chave Pix, 04 §3.1).
+
+        Contrato conferido no swagger vivo da EvoGo (`/swagger/doc.json`, `LocationStruct`):
+        `{number, latitude, longitude, name, address}`. `name`/`address` são o rótulo que aparece no
+        balão — quem os monta é o caller, a partir do cadastro da modelo.
+        """
+        if not self.settings.evolution_base_url:
+            raise ErroDominio(
+                "EVOLUTION_INDISPONIVEL", "Evolution nao configurado.", status_code=503
+            )
+
+        body: dict[str, Any] = {
+            "number": _numero_destino(remote_jid),
+            "latitude": latitude,
+            "longitude": longitude,
+            "name": nome,
+            "address": endereco,
+        }
+        response = await self._post_operacao(instance_id, "/send/location", body, timeout_s=20)
+        data = response.json()
+
+        evolution_message_id = _extrair_message_id(data)
+        if not evolution_message_id:
+            ENVIOS_EVOLUTION.labels("falha").inc()
+            raise ErroDominio(
+                "EVOLUTION_RESPOSTA_INVALIDA", "Evolution nao retornou id.", status_code=502
+            )
+
+        await registrar_envio(
+            conn,
+            evolution_message_id=evolution_message_id,
+            instance_id=instance_id,
+            remote_jid=remote_jid,
+            contexto=contexto,
+            tipo=tipo,
+            atendimento_id=atendimento_id,
+            conversa_id=conversa_id,
+            payload=data,
+        )
+        ENVIOS_EVOLUTION.labels("sucesso").inc()
+        return evolution_message_id
+
     async def enviar_texto_avulso(
         self,
         *,

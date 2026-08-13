@@ -310,6 +310,13 @@ async def _precos_por_horas() -> dict[float, list[Decimal]]:
     return (await _carregar_bp3(_ConnBp3DaCatarina(), "catarina"))[9]  # type: ignore[arg-type]
 
 
+async def _cardapio() -> dict[str, list[dict[str, Any]]]:
+    """O cardápio da MESMA leitura que dá os preços (índice 10 do BP3), e não um dict inventado:
+    o ponto do arquivo é a tabela real da Catarina — a vídeo chamada cadastrada na mesma duração
+    do presencial —, então o cardápio que acompanha os preços tem de ser o dela também."""
+    return (await _carregar_bp3(_ConnBp3DaCatarina(), "catarina"))[10]  # type: ignore[arg-type]
+
+
 async def _foco_da_duracao(horas: str) -> tuple[dict[str, str] | None, str]:
     """(`pacote_em_pauta` resolvido, o <foco_do_turno> renderizado) para a duração em discussão."""
     _msgs, contexto, _pecas = await _anexar_contexto_dinamico(
@@ -318,6 +325,7 @@ async def _foco_da_duracao(horas: str) -> tuple[dict[str, str] | None, str]:
         [HumanMessage(content="quanto fica?", id="h1")],
         atendimento={"estado": "Triagem", "duracao_horas": Decimal(horas)},
         precos_por_horas=await _precos_por_horas(),
+        cardapio_rows=await _cardapio(),
     )
     return contexto.pacote_em_pauta, render_foco_do_turno(**contexto.como_variaveis())
 

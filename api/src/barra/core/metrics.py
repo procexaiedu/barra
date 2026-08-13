@@ -82,10 +82,54 @@ FLUXO_DRIFT = Counter(
 )
 
 # Metricas do agente LangGraph (ver docs/agente/08-evals.md)
+
+# Buckets de latencia dos caminhos LENTOS do agente (turno, no do grafo, chamada de LLM). Sao
+# EXPLICITOS porque o default do prometheus_client termina em 10s: com todo turno acima disso
+# caindo no +Inf, `histogram_quantile` devolve o ultimo bucket FINITO e o p95/p99 saturava em 10s.
+# Na pratica isso tornava os dois alertas de latencia (`AgenteLatenciaTurnoP95Alta` > 20s e
+# `AgenteLatenciaTurnoP99Alta` > 40s, infra/monitoring/alert.rules.yml) impossiveis de disparar --
+# um turno de 41,7s (pior caso medido no roteiro de 12/08) era reportado como 10s. O topo vai a
+# 120s de proposito: o teto de 60s do `asyncio.wait_for` cobre so o `graph.ainvoke`, e o turno
+# medido aqui inclui transcricao de audio e drain, que passam disso.
+_BUCKETS_LATENCIA_TURNO = (0.5, 1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, float("inf"))
+
 AGENTE_TURNO_DURACAO = Histogram(
     "agente_turno_duracao_seconds",
     "Duracao por turno (p50/p95/p99); split por tipo_turno p/ nao misturar texto e audio-Whisper (E5)",
     ["modelo", "tipo_turno"],
+    buckets=_BUCKETS_LATENCIA_TURNO,
+)
+# Latencia POR NO do grafo. O turno inteiro ja era medido; o que faltava era saber ONDE o tempo
+# vai -- se os 41,7s do pior caso foram prepare_context, um round-trip llm<->tools, a extracao
+# forcada ou o judge de AUP. Sem este corte, a unica alavanca contra o teto de 60s e adivinhacao.
+AGENTE_NO_DURACAO = Histogram(
+    "agente_no_duracao_seconds",
+    "Duracao de cada no do grafo LangGraph (prepare_context|intercept_disclosure|llm|tools|"
+    "extrair|post_process|output_guard)",
+    ["no"],
+    buckets=_BUCKETS_LATENCIA_TURNO,
+)
+# Latencia por CAMINHO de LLM. Os tres caminhos (chat #1, extracao forcada barata, judge de AUP)
+# rodam o MESMO modelo -- entao a label `modelo` de AGENTE_TURNO_TOKENS nao os separa e o custo de
+# cada um era indistinguivel em Prometheus (so no Langfuse, via `nomear_run`). Isto e o que permite
+# responder "o thinking=low se paga?" sem abrir trace a trace: o p95 do chat e o que o cliente
+# espera; o do judge e imposto fixo sobre TODA bolha.
+AGENTE_LLM_DURACAO = Histogram(
+    "agente_llm_duracao_seconds",
+    "Duracao de UMA chamada de LLM, por caminho (chat|extracao|judge_aup|judge_pos_envio|regen)",
+    ["caminho"],
+    buckets=_BUCKETS_LATENCIA_TURNO,
+)
+# Fingerprint do build que de fato respondeu. O DeepSeek NAO oferece snapshot pinavel -- a API
+# aceita so os aliases moveis `deepseek-v4-flash`/`-pro` (sondado em 12/08: `-0731` e `-latest`
+# sao rejeitados), e o provider ja trocou os pesos atras do mesmo id em 31/07. Como prevenir e
+# impossivel, resta DETECTAR: o `system_fingerprint` da resposta carrega build, quantizacao e data
+# (`fp_a18b46594c_prod0820_fp8_kvcache_20260402`). Gauge sempre em 1, com o valor na label: uma
+# troca de pesos faz nascer uma serie nova, e `count by (fingerprint)` > 1 e o alerta.
+AGENTE_MODELO_FINGERPRINT = Gauge(
+    "agente_modelo_fingerprint",
+    "Sempre 1; a informacao esta nas labels. Serie nova = o provider trocou o build sob o alias",
+    ["modelo", "fingerprint"],
 )
 AGENTE_TURNO_RESULTADO = Counter(
     "agente_turno_resultado_total",
@@ -113,6 +157,39 @@ AGENTE_TOOL_ERRO_RECUPERAVEL = Counter(
 AGENTE_EXTRACAO_VALOR_FANTASMA = Counter(
     "agente_extracao_valor_fantasma_total",
     "valor_acordado descartado: o numero nao esta na tabela da modelo nem saiu da boca da IA",
+)
+# Chamada FORCADA que voltou sem tool_call parseavel (medido ao vivo 12/08: ~3% dos turnos, com
+# `finish_reason=tool_calls` e o JSON dos args quebrado). O par de contadores separa o susto do
+# dano: `retentada` sobe sempre que a recuperacao entra em acao; `perdida` so quando nem a
+# retentativa trouxe payload — e ai o turno passou SEM registrar o que o cliente disse.
+AGENTE_EXTRACAO_RETENTADA = Counter(
+    "agente_extracao_retentada_total",
+    "extracao forcada sem tool_call util: chamada refeita uma vez sobre a mesma janela",
+)
+AGENTE_EXTRACAO_PERDIDA = Counter(
+    "agente_extracao_perdida_total",
+    "extracao do turno descartada (truncada ou sem tool_call mesmo apos a retentativa)",
+)
+# Chave do payload escrita com APELIDO e reconduzida ao campo do schema. Visto ao vivo em 12/08
+# (roteiro duas_portas): o modelo mandou `hora` no lugar de `horario_desejado`. A poda ao schema
+# salvava o turno de morrer no ValidationError, mas descartava a chave -- e com ela o horario do
+# encontro, em silencio. `campo` e o destino canonico, nao o apelido: o que interessa e QUAL dado
+# quase se perdeu, e o vocabulario errado do modelo e cauda longa.
+AGENTE_EXTRACAO_APELIDO = Counter(
+    "agente_extracao_apelido_total",
+    "chave do payload reconduzida ao campo do schema por apelido (ex.: hora -> horario_desejado)",
+    ["campo"],
+)
+# Campo do payload que o saneamento do `extrair` DESCARTOU por nao casar o schema (chave que nao
+# existe, enum que nao bate, tipo/limite que nao converte). Descartar e o certo -- a alternativa e o
+# `ValidationError` que mata o turno --, mas e uma perda MUDA de dado, e sem contador ninguem a ve:
+# um `horario_desejado` descartado por formato e a diferenca entre o encontro reservado e o
+# atendimento travado (foi assim que o eco de `17:00:00` passou dias invisivel). `campo` e a chave
+# canonica e `motivo` a familia da recusa -- os dois de cardinalidade fechada pelo schema da tool.
+AGENTE_EXTRACAO_CAMPO_DESCARTADO = Counter(
+    "agente_extracao_campo_descartado_total",
+    "campo do payload da extracao descartado no saneamento por nao casar o schema",
+    ["campo", "motivo"],
 )
 # Guarda do piso de desconto, agora amarrada ao PACOTE (programa x duracao). O furo que ela fecha
 # era mudo por construcao: com dois programas na mesma duracao (Normal 400 / Completo 800) o piso
@@ -155,6 +232,35 @@ AGENTE_ACEITE_GRAVADO = Counter(
     "agente_aceite_gravado_total",
     "Aceite do valor do cliente lido da bolha despachada (write-time): gravou ou nao",
     ["resultado"],
+)
+# Bloco do prompt do turno que DEGRADOU em silencio. O `prepare_context` tem quatro fail-closed
+# intencionais que devolvem None e apagam um bloco inteiro da cauda -- endereco do degrau sem
+# numero, base do pacote no patamar, <pacote_em_pauta> e o salto na mesa. Todos sao a decisao
+# certa (numero errado no prompt e pior que bloco nenhum), mas nenhum deles deixa rastro: um
+# cadastro fora de formato, uma duracao que virou ambigua ou um regex que parou de casar apagam a
+# mesma coisa que "este turno nao precisava do bloco", e a venda perdida nao tem como ser
+# explicada depois.
+#
+# FORMA: UM counter com label de desfecho (`presente`|`ausente`), nao dois counters. O contador so
+# do lado ausente e inutil para alertar -- a ausencia e LEGITIMA na maioria dos turnos (o
+# `<pacote_em_pauta>` quase nunca renderiza), entao o valor absoluto sobe junto com o TRAFEGO e nao
+# com a quebra. O sinal e a RAZAO ausente/(ausente+presente) por bloco, e com um unico nome de
+# serie o denominador e `sum by (bloco)` sem label de desfecho: uma divisao dentro da MESMA serie,
+# que nao vira vetor vazio quando um dos lados ainda nao existe (o join por nome de metrica, com
+# dois counters, some inteiro no primeiro dia de uma serie nova). Cardinalidade fixa: 4 blocos x 2
+# desfechos = 8 series.
+#
+# So conta quando o bloco foi DE FATO tentado: retorno precoce de "nao se aplica a este turno"
+# (patamar cheio, sem duracao no belief, sem endereco cadastrado) fica fora dos DOIS lados -- e
+# exatamente o ruido que a razao precisa nao ter para significar alguma coisa.
+#
+# O nome da constante fala da intencao (e a AUSENCIA que se caca); o nome da SERIE fala do que ela
+# conta de verdade (os dois lados), porque `..._ausente_total{desfecho="presente"}` seria uma
+# armadilha para quem escrever o PromQL depois.
+AGENTE_CONTEXTO_BLOCO_AUSENTE = Counter(
+    "agente_contexto_bloco_total",
+    "bloco do contexto do turno que resolveu ou degradou em silencio (fail-closed do prepare_context)",
+    ["bloco", "desfecho"],
 )
 AGENTE_TURNO_TOKENS = Counter(
     "agente_turno_tokens_total",

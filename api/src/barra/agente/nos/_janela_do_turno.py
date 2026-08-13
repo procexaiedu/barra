@@ -278,10 +278,19 @@ def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
     <antes_de_perguntar> só cobre itens de <ainda_falta>, e o dia não está lá; trace prod 9db632c7).
     Detectamos deterministicamente que a sondagem já foi feita (zero LLM, reusa `_PROBE_DIA_HOJE`)
     para o contexto dinâmico instruir a NÃO recolá-la. No turno de abertura a janela ainda não tem a
-    sondagem (só a msg do cliente) → False, então não suprime o abridor social do primeiro turno."""
-    return any(
-        isinstance(m, AIMessage) and _PROBE_DIA_HOJE.search(_texto_msg(m)) for m in mensagens
-    )
+    sondagem (só a msg do cliente) → False, então não suprime o abridor social do primeiro turno.
+
+    PARA na marca de pausa, como os detectores irmãos (`_conversa_em_andamento`,
+    `_confirmou_dia_hoje`): a janela de 40 cruza atendimentos. Varrendo-a inteira, uma sondagem de
+    seis dias atrás calava a sondagem no PRIMEIRO turno do atendimento novo — o oposto da conduta
+    de retomada, e o mesmo modo de falha do incidente 29/07. O caso legítimo ("já sondei NESTE
+    atendimento") continua coberto pelo OR com `dia_ja_sondado_hist`, que é por atendimento."""
+    for msg in reversed(mensagens):
+        if e_marca_pausa(msg):
+            return False
+        if isinstance(msg, AIMessage) and _PROBE_DIA_HOJE.search(_texto_msg(msg)):
+            return True
+    return False
 
 
 def _conversa_em_andamento(mensagens: list[BaseMessage]) -> bool:

@@ -212,3 +212,34 @@ async def criar_bloqueio_previo(
             )
     except ExclusionViolation as exc:
         raise ConflitoAgenda("Slot ja reservado por outra conversa.") from exc
+
+
+async def realocar_bloqueio_previo(
+    conn: AsyncConnection[Any],
+    *,
+    atendimento: dict[str, Any],
+    agora: datetime | None = None,
+) -> None:
+    """Move a reserva previa para o horario JA gravado no snapshot: cancela a antiga e recria.
+
+    Existe para um caso so, e estreito (ver `_reagendamento_pos_bloqueio`): o slot reservado veio de
+    um PALPITE (o fallback de tempo imediato, ou a hora que a IA ofereceu e ele nao respondeu) e o
+    cliente acabou de cravar a hora dele. Nao e reagendamento — e o primeiro agendamento de fato.
+
+    `cancelado` (e nao DELETE) porque a EXCLUDE `bloqueios_sem_sobreposicao` so conta os estados
+    ATIVOS: o slot velho e liberado e o historico do painel preserva o rastro. A recriacao passa por
+    `criar_bloqueio_previo` inteiro de proposito — disponibilidade, antecedencia, gap e EXCLUDE
+    valem para a hora nova como valeriam para qualquer outra. Se alguma barrar, a excecao propaga
+    (recuperavel): a transacao do turno reverte, o bloqueio antigo continua de pe e a IA reoferta.
+    """
+    await conn.execute(
+        "UPDATE barravips.bloqueios SET estado = 'cancelado', updated_at = now() "
+        "WHERE id = (SELECT bloqueio_id FROM barravips.atendimentos WHERE id = %s) "
+        "AND estado = 'bloqueado'",
+        (atendimento["id"],),
+    )
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET bloqueio_id = NULL WHERE id = %s",
+        (atendimento["id"],),
+    )
+    await criar_bloqueio_previo(conn, atendimento=atendimento, agora=agora)

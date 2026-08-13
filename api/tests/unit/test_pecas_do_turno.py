@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from barra.agente.contexto import ContextAgente
@@ -65,6 +66,15 @@ _ATENDIMENTO: dict[str, Any] = {
 }
 
 
+# Cardápio vazio de propósito nos testes da parte (a)/(b): eles medem a ORDEM da cauda, a âncora
+# temporal e a rotulagem do `<ja_registrado>` (palpite/cotado/delta) — nada disso lê o cadastro, e
+# nenhuma das falas cita fetiche ou serviço. A parte (c), que é justamente sobre o cardápio, passa
+# o dict populado (`_pecas_com_cardapio`). O `{}` é a afirmação "esta modelo não tem cadastro",
+# não a omissão que o default `None` permitia — ele apagava nove campos do `<foco_do_turno>` em
+# silêncio.
+_SEM_CARDAPIO: dict[str, list[dict[str, Any]]] = {}
+
+
 async def _variaveis(**over: Any) -> ContextoDoTurno:
     return await _resolver_variaveis(
         _FakeConnVazio(),  # type: ignore[arg-type]
@@ -100,6 +110,7 @@ async def test_bloco_nao_vaza_na_cauda_e_a_ordem_do_turno_segue_a_mesma() -> Non
         _ctx(),
         janela,
         atendimento=_ATENDIMENTO,
+        cardapio_rows=_SEM_CARDAPIO,
     )
     cauda = str(mensagens[-1].content)
 
@@ -118,6 +129,7 @@ async def test_pecas_trazem_a_ancora_do_turno_ja_resolvida() -> None:
         _ctx(),
         janela,
         atendimento=_ATENDIMENTO,
+        cardapio_rows=_SEM_CARDAPIO,
     )
     variaveis = await _variaveis()
 
@@ -192,6 +204,7 @@ async def test_bloco_nao_apresenta_como_gravado_o_dia_que_o_A2_so_assumiu() -> N
         _ctx(),
         janela,
         atendimento={**_ATENDIMENTO, "estado": "Triagem", "data_desejada": None},
+        cardapio_rows=_SEM_CARDAPIO,
     )
 
     assert "<dia>" not in pecas.ja_registrado
@@ -244,7 +257,21 @@ async def test_bloco_omite_a_tag_quando_a_modelo_nao_tem_fetiches() -> None:
     """Fail-closed igual ao resto do bloco: sem cadastro, sem tag — nada de lista vazia sugerindo
     ao extrator que o cardápio existe."""
     assert "<fetiches_do_cadastro" not in await _pecas_com_cardapio([])
-    # Chamador sem `cardapio_rows` (teste antigo/caminho degradado) também não injeta nada.
-    assert "<fetiches_do_cadastro" not in render_ja_registrado(
-        **(await _variaveis()).como_variaveis()
-    )
+
+
+async def test_chamador_sem_cardapio_nao_compila_mais() -> None:
+    """Sucessor do teste do "caminho degradado": ele existia para afirmar que um chamador SEM
+    `cardapio_rows` degradava em silêncio, e essa era exatamente a falha — o default `None` fazia
+    eval/harness/teste perderem nove campos do `<foco_do_turno>` (fetiches, inclusos, composição,
+    o bloco inteiro da parceira) sem um único erro.
+
+    Agora o argumento é obrigatório. mypy pega os chamadores do `src`, mas NÃO roda sobre `tests/`
+    (memória do repo) — sem esta afirmação em runtime, um teste novo voltaria a omitir o dict e
+    ninguém veria. Modelo sem cardápio continua sendo caso legítimo: passa `{}`."""
+    with pytest.raises(TypeError, match="cardapio_rows"):
+        await _anexar_contexto_dinamico(
+            _FakeConnVazio(),  # type: ignore[arg-type]
+            _ctx(),
+            [HumanMessage(content="faz pegging ?")],
+            atendimento=_ATENDIMENTO,
+        )  # type: ignore[call-arg]

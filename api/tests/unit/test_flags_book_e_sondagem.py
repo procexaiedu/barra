@@ -88,6 +88,9 @@ async def test_or_janela_historico_injeta_tag_no_contexto() -> None:
         _ctx(),
         janela,
         atendimento={"dia_sondado_em": _TS},
+        # Cardápio vazio de propósito: a tag `<ja_sondou_o_dia>` sai do OR entre a coluna
+        # `dia_sondado_em` e o scan da janela. Nenhum dos dois lados olha o cardápio.
+        cardapio_rows={},
     )
     cauda = str(mensagens[-1].content)
     assert "<ja_sondou_o_dia>" in cauda

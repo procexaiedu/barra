@@ -23,6 +23,8 @@ prepare_context (Command(goto=END), 02 §1). Devolucao via Devolucao para IA (co
 explicito, ver CONTEXT.md).
 """
 
+import functools
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from langgraph.graph import START, StateGraph
@@ -30,6 +32,7 @@ from langgraph.graph import START, StateGraph
 from barra.core.llm import criar_chat_deepseek
 from barra.settings import Settings, get_settings
 
+from ._instrumentar import medir_no
 from .contexto import ContextAgente
 from .estado import EstadoAgente
 from .ferramentas import TOOLS
@@ -44,6 +47,27 @@ from .nos import (
     prepare_context,
     tools_node,
 )
+
+
+def _cronometrado(nome: str, no: Callable[..., Awaitable[Any]]) -> Callable[..., Awaitable[Any]]:
+    """Envolve um no do grafo para medir sua duracao em `AGENTE_NO_DURACAO{no=nome}`.
+
+    `functools.wraps` NAO e cosmetico aqui: o LangGraph decide se injeta `runtime`/`config` lendo
+    `inspect.signature(func).parameters` (langgraph/_internal/_runnable.py). `signature` segue
+    `__wrapped__`, entao o wrapper preserva a injecao; sem o `wraps`, os nos passariam a receber
+    so `state` e o `runtime` sumiria em silencio. (`inspect.getfullargspec` NAO segue `__wrapped__`
+    -- se uma versao futura do LangGraph trocar de metodo, o teste do grafo pega.)
+
+    Vale para os 6 nos que sao FUNCAO; o `tools` e um `ToolNode` e se cronometra no proprio
+    `ainvoke` (nos/tools.py).
+    """
+
+    @functools.wraps(no)
+    async def _medido(*args: Any, **kwargs: Any) -> Any:
+        with medir_no(nome):
+            return await no(*args, **kwargs)
+
+    return _medido
 
 
 def _criar_chat_principal(settings: Settings) -> Any:
@@ -110,17 +134,24 @@ def build_graph(settings: Settings | None = None, checkpointer: Any | None = Non
     # Nao usar config["configurable"] p/ pool/redis (legado; quebra ao ligar checkpointer).
     builder = StateGraph(EstadoAgente, context_schema=ContextAgente)
 
-    builder.add_node("prepare_context", prepare_context)
-    builder.add_node("intercept_disclosure", intercept_disclosure)
-    builder.add_node("llm", no_llm(chat, TOOLS, disparo))
-    builder.add_node("tools", tools_node)
+    builder.add_node("prepare_context", _cronometrado("prepare_context", prepare_context))
+    builder.add_node(
+        "intercept_disclosure", _cronometrado("intercept_disclosure", intercept_disclosure)
+    )
+    builder.add_node("llm", _cronometrado("llm", no_llm(chat, TOOLS, disparo)))
+    builder.add_node("tools", tools_node)  # ToolNode: cronometra a si mesmo no `ainvoke`
     # No `extrair`: le o estado da negociacao pos-fala (02 §4). Forca 1 registrar_extracao, executa
     # a tool INLINE (schema bindado so aqui -- registrar_extracao NAO esta em TOOLS) e decide a rota
     # (post_process no sucesso/escalada canned; volta ao llm na reoferta de erro recuperavel). O bind
     # barato (chat_extracao_barata) corta o BP_GERAL da chamada de extracao quando ligado.
-    builder.add_node("extrair", no_extrair(chat, chat_extracao_barata, registrar_extracao, disparo))
-    builder.add_node("post_process", post_process)
-    builder.add_node("output_guard", output_guard)
+    builder.add_node(
+        "extrair",
+        _cronometrado(
+            "extrair", no_extrair(chat, chat_extracao_barata, registrar_extracao, disparo)
+        ),
+    )
+    builder.add_node("post_process", _cronometrado("post_process", post_process))
+    builder.add_node("output_guard", _cronometrado("output_guard", output_guard))
 
     builder.add_edge(START, "prepare_context")
     # prepare_context, intercept_disclosure e llm roteiam SO por Command(goto=...) -- sem aresta

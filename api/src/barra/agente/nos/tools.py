@@ -23,6 +23,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolNode
 
+from .._instrumentar import medir_no
 from ..ferramentas import TOOLS
 
 
@@ -45,6 +46,13 @@ class _ToolNodeComMidiaIdx(ToolNode):
     "Unordered" no doc oficial e sobre EXECUCAO paralela (asyncio.gather no `_afunc`) --
     nao sobre posicao no array `tool_calls`, que e estavel (04 §3.3 nota).
     """
+
+    async def ainvoke(self, input: Any, config: Any = None, **kwargs: Any) -> Any:
+        """So para cronometrar o no. O `tools` e o unico no do grafo que NAO e uma funcao (e um
+        `ToolNode`), entao fica de fora do wrapper de `build_graph` -- a medicao entra aqui.
+        """
+        with medir_no("tools"):
+            return await super().ainvoke(input, config, **kwargs)
 
     def _inject_tool_args(
         self,

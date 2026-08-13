@@ -6,6 +6,7 @@ estado + bloqueio previo interno + guarda do piso de desconto). O pin de enderec
 side-effect: enfileirado APOS o commit, simetrico ao card do escalar (Notas, 04 §3.1).
 """
 
+import logging
 from datetime import date, time
 from decimal import Decimal
 from typing import Annotated, Literal
@@ -30,6 +31,8 @@ from barra.dominio.atendimentos.service import (
 from .._texto_turno import extrair_texto_do_turno
 from ..contexto import ContextAgente
 from ._idempotencia import _executar_idempotente
+
+_logger = logging.getLogger(__name__)
 
 
 class SinaisQualificacao(BaseModel):
@@ -92,7 +95,14 @@ _DESC_HORARIO = (
     "horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar. "
     "CRÍTICO: se a hora foi VOCÊ que propôs ('consigo às 22h, fecha ?') e o cliente confirmou "
     "('pode', 'fechou', 'isso', 'pode ser'), esse sim É o horário — grave-o, não espere ele "
-    "repetir o número. "
+    "repetir o número. Mas se ele respondeu com OUTRA hora ('consigo às 2h, fecha ?' → 'fechou, "
+    "pode ser 20h'), quem vale é a hora DELE: a sua oferta foi trocada, não confirmada — grave a "
+    "dele, e o 'fechou' era do preço, não da sua hora. A hora que ELE crava vence a que está "
+    "gravada e vence a que você ofereceu, sempre. "
+    "E registre a hora dele COMO ELA FOI DITA, mesmo que pareça longe do relógio de agora, "
+    "improvável ou conflitante com o que já está no snapshot: aqui você anota o que foi dito, não "
+    "julga se faz sentido nem escolhe entre duas horas — deixar o campo de fora por dúvida é o "
+    "pior desfecho (sem hora o encontro não é reservado e o atendimento trava). "
     "Depois de registrado, NÃO recalcule horário relativo nos turnos seguintes — omita o campo "
     "(o snapshot preserva o anterior); só reenvie se o CLIENTE pedir outro horário."
 )
@@ -110,6 +120,10 @@ _DESC_VALOR = (
     "Valor do SERVIÇO/programa fechado com o cliente — a base que o sistema confere contra o "
     "teto de desconto. SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — "
     "sem a duração o sistema não consegue conferir o teto e escala à toa uma oferta válida. "
+    "Ele aceitando o que VOCÊ cotou ('fechado', 'isso', 'pode ser' — o mesmo momento em que você "
+    "marca `aceita_valor`), o valor é o PREÇO QUE VOCÊ COTOU para o pacote em pauta: grave-o no "
+    "turno do aceite, sem esperar ele repetir o número. Marcar o aceite e deixar este campo vazio "
+    "entrega ao painel um encontro marcado que ninguém sabe quanto custa. "
     "NUNCA grave aqui o Pix de deslocamento/uber (custo fixo à parte, NÃO é o valor do "
     "programa — gravá-lo faz o sistema achar que você fechou além do teto de desconto e "
     "escalar à toa), "
@@ -144,7 +158,11 @@ _DESC_DURACAO = (
     "ele escolhe o pacote — é o que dimensiona o bloqueio na agenda; sem ela o sistema reserva "
     "só 1h por padrão e pode subdimensionar o horário. Se você cotou mais de uma duração "
     "(ex.: 1h e 2h) e o cliente ainda NÃO escolheu, a duração não está fechada — omita o campo "
-    "até ele cravar, não chute. Grave junto com valor_acordado quando ambos estiverem fechados."
+    "até ele cravar, não chute. Mas ele fechar ('fechou', 'pode ser') sem repetir o número NÃO é "
+    "'não escolheu': vale a duração que ELE trouxe na conversa (a que ele perguntou, ou a única "
+    "que ele nomeou) — só fique sem gravar quando ele nunca nomeou nenhuma. "
+    "Grave junto com valor_acordado quando ambos estiverem fechados: fechamento gravado sem "
+    "duração e sem valor chega ao painel como um encontro marcado que ninguém sabe quanto custa."
 )
 _DESC_TIPO_ATENDIMENTO = (
     "Quem se desloca. REGRA CRÍTICA de leitura: 'você/vc/te' na boca do CLIENTE se refere a "
@@ -516,18 +534,35 @@ async def registrar_extracao(
                 "então reserve o horário. NUNCA diga que confirmou ou reservou um horário agora."
             ) from None
 
-    # Pin de endereco (interno): NAO enfileirado enquanto o renderer `_card_loc_pin`
-    # (workers/envio.py) ainda levanta NotImplementedError — o job so falharia 5x (M3d, 09 §4.3).
-    # O dominio segue setando `enviar_pin`; o enqueue volta junto com o renderer.
-    # Aviso de saida (06 §5): card 'cliente saiu de casa' sem owner — SETNX no renderer
-    # garante idempotencia inter-turnos; o _job_id aqui evita re-enfileirar no mesmo ARQ.
-    if resultado.get("enviar_aviso_saida"):
-        await runtime.context.redis.enqueue_job(
-            "enviar_card",
-            tipo="aviso_saida",
-            atendimento_id=atendimento_id,
-            _job_id=f"card:aviso_saida:{atendimento_id}",
-        )
+    # Side-effects APOS o commit, os dois com `_job_id` estatico (o ARQ deduplica o replay do turno)
+    # e idempotencia por owner no renderer (SETNX):
+    #   - pin de endereco (interno): a transicao interno -> Aguardando_confirmacao sinaliza
+    #     `enviar_pin` e o cliente recebe o ponto de encontro como localizacao, nao como texto
+    #     (04 §3.1). Ficou anos sem enfileirar porque o renderer era NotImplementedError; voltou
+    #     junto com ele (`workers/envio.py:_card_loc_pin`).
+    #   - aviso de saida (06 §5): card 'cliente saiu de casa' no grupo de Coordenacao.
+    #
+    # `try/except` pela MESMA razao de `escalada.py`: o efeito de dominio JA COMMITOU. Uma falha de
+    # Redis aqui derrubaria o turno inteiro (excecao nao-ToolException sobe pelo `graph.ainvoke`) e o
+    # cliente ficaria sem resposta por causa de um card — com o snapshot e o bloqueio ja gravados. O
+    # cron `reconciliar_cards` (workers/reconciliacao.py) e a rede: card atrasado e o pior caso.
+    for chave, tipo in (("enviar_pin", "loc_pin"), ("enviar_aviso_saida", "aviso_saida")):
+        if not resultado.get(chave):
+            continue
+        try:
+            await runtime.context.redis.enqueue_job(
+                "enviar_card",
+                tipo=tipo,
+                atendimento_id=atendimento_id,
+                _job_id=f"card:{tipo}:{atendimento_id}",
+            )
+        except Exception:
+            _logger.warning(
+                "registrar_extracao_enqueue_card_falhou tipo=%s atendimento_id=%s",
+                tipo,
+                atendimento_id,
+                exc_info=True,
+            )
     mensagem: str = resultado["mensagem"]
     return mensagem
 
@@ -537,3 +572,34 @@ async def registrar_extracao(
 # explicitamente p/ ConflitoAgenda/ForaDisponibilidade/etc. virarem ToolMessage(status="error")
 # (erro RECUPERAVEL que instrui a reoferta) em vez de estourar o turno.
 registrar_extracao.handle_tool_error = True
+
+
+def _erro_de_args(exc: Exception) -> str:
+    """A rede de baixo contra `ValidationError` nos args — o outro erro que MATA o turno.
+
+    As tools de `TOOLS` nao precisam disto: o `ToolNode` embrulha o `ValidationError` do parse de
+    args num `ToolInvocationError` (subclasse de `ToolException`) e o handler default o devolve como
+    ToolMessage. Esta tool NAO passa pelo ToolNode — `nos/extrair.py:_executar_inline` chama
+    `.ainvoke()` direto —, entao sem `handle_validation_error` o erro cru sobe pelo `graph.ainvoke`
+    e o cliente fica sem resposta por causa de um campo mal formatado numa nota interna.
+
+    A defesa de CIMA e `_podar_ao_schema`, que corrige/descarta campo por campo antes de invocar; o
+    que chega aqui e o que ela nao previu. Nao usamos `handle_validation_error = True` porque ele
+    devolveria o dump do pydantic ao modelo — texto longo, em ingles, com o payload inteiro dentro,
+    exatamente o tipo de conteudo que o chat ja ecoou em voz alta uma vez (trace 06db4298).
+
+    O texto e uma NOTA em 1a pessoa de sistema, nao uma ordem em 2a pessoa, pelo mesmo motivo. Ele
+    cai em `_extracao_errou` -> auto-reoferta one-shot: o modelo ve o erro e registra de novo.
+    """
+    _logger.warning("registrar_extracao com args invalidos: %s", exc, exc_info=True)
+    AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "args_invalidos").inc()
+    return (
+        "ERRO: o registro não foi gravado — um dos campos veio num formato que o sistema não "
+        "aceita. Chame registrar_extracao de novo neste turno com os MESMOS dados, cada campo no "
+        "formato do schema: horário como HH:MM, dia como YYYY-MM-DD, valor e duração como número "
+        "puro (sem 'R$', sem 'h', sem texto), lista como lista. Na dúvida sobre um campo, deixe-o "
+        "de fora — o anterior é preservado."
+    )
+
+
+registrar_extracao.handle_validation_error = _erro_de_args

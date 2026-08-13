@@ -215,8 +215,14 @@ async def test_contexto_dinamico_no_ultimo_humanmessage(
     ultimo_human = [m for m in msgs if isinstance(m, HumanMessage)][-1]
     assert ultimo_human.content.rstrip().endswith("oi, tudo bem?")
     assert "#7" in ultimo_human.content
-    assert "Qualificado" in ultimo_human.content
-    assert "externo" in ultimo_human.content
+    # O estado sai TRADUZIDO para a frase humana (`_ESTADO_LEGIVEL` em prepare_context), nunca com
+    # o nome tecnico: o rotulo do enum e vocabulario do painel, nao dela. O assert antigo esperava
+    # "Qualificado" e sobreviveu obsoleto ao commit que fez a traducao (80e623b) porque este teste
+    # e `needs_db` e a CI esta parada desde 31/07 — falhava na primeira corrida com banco.
+    assert "combinando o encontro" in ultimo_human.content
+    assert "Qualificado" not in ultimo_human.content
+    # mesma traducao do estado: `tipo_atendimento` sai como a frase, nao como o valor do enum.
+    assert "você indo até ele" in ultimo_human.content
     assert "Carlos" in ultimo_human.content
     # belief-state: Qualificado com tipo preenchido (externo) mas sem horario_desejado -> o item
     # faltante aparece EXPLICITO em <ainda_falta>, e o proximo passo determinístico vem do estado.

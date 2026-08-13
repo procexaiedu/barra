@@ -62,6 +62,10 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S"]
+# `_neutralizar_tags` troca < > por ‹ › (U+2039/U+203A) para desarmar tag forjada na fala do
+# cliente: a semelhanca visual com < > e o REQUISITO da defesa, nao um typo — o alerta de
+# caractere ambiguo mede exatamente o que se quer aqui.
+"src/barra/agente/nos/prepare_context.py" = ["RUF001", "RUF002"]
 
 [tool.mypy]
 python_version = "3.12"

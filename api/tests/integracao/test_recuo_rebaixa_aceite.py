@@ -83,6 +83,10 @@ async def _cenario(
             },
             "historico": historico or [],
         },
+        # MESMO relogio dos turnos: sem isto o historico nasce no `now()` do banco enquanto o turno
+        # "acontece" em `_AGORA`, e o agente le a diferenca como tempo decorrido (acima de 6h, como
+        # uma marca de pausa no meio de uma conversa que nunca parou).
+        agora=_AGORA,
     )
     await conn.execute(
         "UPDATE barravips.atendimentos SET valor_acordado = %s, duracao_horas = 1, "

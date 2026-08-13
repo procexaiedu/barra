@@ -32,13 +32,15 @@ _USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 class _FakeForcado:
     """Bind forcado fake: ainvoke devolve o AIMessage forcado fixo e registra as janelas recebidas."""
 
-    def __init__(self, forcado: AIMessage) -> None:
-        self._forcado = forcado
+    def __init__(self, forcado: AIMessage, *depois: AIMessage) -> None:
+        self._respostas = [forcado, *depois]
         self.chamadas: list[Any] = []
 
     async def ainvoke(self, messages: Any) -> AIMessage:
         self.chamadas.append(messages)
-        return self._forcado
+        # A ultima resposta se repete: um fake de UMA resposta segue como antes; com mais de uma,
+        # cada chamada consome a seguinte (a retentativa da extracao le a segunda).
+        return self._respostas[min(len(self.chamadas), len(self._respostas)) - 1]
 
 
 class _FakeChat:
@@ -46,8 +48,8 @@ class _FakeChat:
 
     model = "deepseek-test"
 
-    def __init__(self, forcado: AIMessage) -> None:
-        self.forcado = _FakeForcado(forcado)
+    def __init__(self, forcado: AIMessage, *depois: AIMessage) -> None:
+        self.forcado = _FakeForcado(forcado, *depois)
 
     def bind_tools(self, _tools: Any, *, tool_choice: Any = None, **_kw: Any) -> _FakeForcado:
         return self.forcado
@@ -131,7 +133,7 @@ async def test_sucesso_roteia_post_process_com_registro() -> None:
     cmd = await node(state, _runtime())  # type: ignore[arg-type]
 
     assert cmd.goto == "post_process"
-    assert cmd.update["messages"] == [chat.forcado._forcado, tool._tm]
+    assert cmd.update["messages"] == [chat.forcado._respostas[0], tool._tm]
     # a extracao rodou sobre a janela SEM a fala final (so a HumanMessage)
     assert chat.forcado.chamadas == [[HumanMessage(content="22h")]]
     assert len(tool.chamadas) == 1  # tool executada inline
@@ -149,7 +151,7 @@ async def test_escalada_canned_roteia_post_process() -> None:
     cmd = await node(state, _runtime())  # type: ignore[arg-type]
 
     assert cmd.goto == "post_process"
-    assert cmd.update["messages"] == [chat.forcado._forcado, tool._tm]
+    assert cmd.update["messages"] == [chat.forcado._respostas[0], tool._tm]
 
 
 # --- guard de qualidade: forcado truncado / sem tool_call -> post_process (so a fala) ---------
@@ -185,6 +187,22 @@ async def test_forcado_sem_tool_call_descarta_e_fecha_com_fala() -> None:
     assert tool.chamadas == []
 
 
+async def test_forcado_sem_tool_call_retenta_uma_vez_antes_de_descartar() -> None:
+    """Perder a extracao do turno e caro e assimetrico: o turno em que o cliente crava a hora passa
+    sem registro, o encontro nao e reservado e a conversa segue como se ele nao tivesse dito nada
+    (medido ao vivo em 12/08). Antes de descartar, a chamada e refeita UMA vez na mesma janela."""
+    chat = _FakeChat(_forcado(com_tool=False, stop="stop"), _forcado())
+    tool = _FakeToolExtracao(_tool_ok())
+    node = no_extrair(chat, None, tool)  # type: ignore[arg-type]
+    state = {"messages": [HumanMessage(content="22h"), _fala()]}
+
+    cmd = await node(state, _runtime())  # type: ignore[arg-type]
+
+    assert cmd.goto == "post_process"
+    assert len(chat.forcado.chamadas) == 2  # a retentativa aconteceu
+    assert len(tool.chamadas) == 1  # e o payload do turno foi registrado
+
+
 # --- erro recuperavel: auto-reoferta (goto=llm) e 2a falha (mute) -----------------------------
 
 
@@ -204,7 +222,7 @@ async def test_erro_recuperavel_reoferta_on_volta_pro_llm() -> None:
     assert cmd.update["_reoferta_tentada"] is True
     msgs = cmd.update["messages"]
     # par p/ o llm ver o erro; o ToolMessage vai ENVELOPADO (mesmo tool_call_id, corpo na cauda)
-    assert chat.forcado._forcado in msgs
+    assert chat.forcado._respostas[0] in msgs
     (tm,) = [m for m in msgs if isinstance(m, ToolMessage)]
     assert tm.tool_call_id == tool._tm.tool_call_id
     assert str(tm.content).endswith(str(tool._tm.content))
@@ -242,6 +260,11 @@ async def test_erro_recuperavel_segunda_falha_fecha_mudo() -> None:
     assert cmd.goto == "post_process"  # mute, nao reoferta de novo
     remocoes = [m for m in cmd.update["messages"] if isinstance(m, RemoveMessage)]
     assert [m.id for m in remocoes] == ["resp-1"]
+    # O carimbo que diz ao output_guard "este silencio e uma DECISAO, nao uma falha a recuperar".
+    # Sem ele o gatilho `mudo` regenera e o modelo responde "Confirmado amor" sobre uma reserva que
+    # nao existe (trace 71c7196e). O outro lado do contrato vive em test_output_guard_regen.py; o
+    # ELO entre os dois e `test_mute_por_erro_de_tool_viaja_do_extrair_ao_guard`, abaixo.
+    assert cmd.update["_mute_por_erro_de_tool"] is True
 
 
 # --- envelope de canal do erro que vai ao chat (prod 29/07, trace 06db4298) --------------------
@@ -497,3 +520,220 @@ async def test_no_repassa_a_intencao_do_extrator_sem_corrigir() -> None:
     assert tool.chamadas[0]["args"]["intencao"] == "cotacao"
     # a flag do State segue chegando na tool (e dali ao dominio), so nao mexe mais na intencao aqui
     assert tool.chamadas[0]["args"]["runtime"].state["horario_evidenciado"] is True
+
+
+# --- saneamento dos args do forcado (fronteira LLM -> tool) -----------------------------------
+
+
+def test_poda_campo_inventado_pelo_modelo() -> None:
+    """`extra="forbid"` no schema da extracao transforma campo inventado em ValidationError — que
+    NAO e ToolException, escapa do handle_tool_error e derruba o TURNO. Medido ao vivo em 12/08:
+    `sinais_qualificacao.fecha_valor` custou a resposta inteira ao cliente."""
+    from barra.agente.ferramentas.extracao import registrar_extracao
+    from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
+
+    schema = _schema_da_extracao(registrar_extracao)
+    assert schema is not None
+
+    args = _args_saneados(
+        {
+            "args": {
+                "proxima_acao_esperada": "aguardar o cliente",
+                "horario_desejado": "21:00",
+                "campo_que_nao_existe": 1,
+                "sinais_qualificacao": {"aceita_valor": True, "fecha_valor": True},
+            }
+        },
+        schema,
+    )
+
+    assert args == {
+        "proxima_acao_esperada": "aguardar o cliente",
+        "horario_desejado": "21:00",
+        "sinais_qualificacao": {"aceita_valor": True},
+    }
+
+
+def test_tool_chamada_sem_args_ganha_nota_interna_em_vez_de_derrubar_o_turno() -> None:
+    """O outro modo de falha do mesmo acidente: o forcado chama a tool com args vazios e o unico
+    campo obrigatorio falta. A nota interna e para o painel ler — nao vale um turno perdido."""
+    from barra.agente.ferramentas.extracao import registrar_extracao
+    from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
+
+    args = _args_saneados({"args": {}}, _schema_da_extracao(registrar_extracao))
+
+    assert len(args["proxima_acao_esperada"]) >= 3
+    assert set(args) == {"proxima_acao_esperada"}
+
+
+def test_reencaixa_sinal_achatado_no_topo() -> None:
+    """O modelo escreve `aceita_valor` no primeiro nivel em vez de dentro de `sinais_qualificacao`
+    (visto ao vivo em 12/08). Podar perderia o UNICO sinal de aceite do contrato — sem ele a escada
+    de desconto nao fecha e o atendimento nao avanca."""
+    from barra.agente.ferramentas.extracao import registrar_extracao
+    from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
+
+    args = _args_saneados(
+        {"args": {"proxima_acao_esperada": "fechar", "aceita_valor": True}},
+        _schema_da_extracao(registrar_extracao),
+    )
+
+    assert args["sinais_qualificacao"] == {"aceita_valor": True}
+
+
+def test_reencaixe_nao_sobrescreve_o_que_veio_no_lugar_certo() -> None:
+    from barra.agente.ferramentas.extracao import registrar_extracao
+    from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
+
+    args = _args_saneados(
+        {
+            "args": {
+                "proxima_acao_esperada": "fechar",
+                "aceita_valor": False,
+                "sinais_qualificacao": {"aceita_valor": True, "informa_horario": True},
+            }
+        },
+        _schema_da_extracao(registrar_extracao),
+    )
+
+    assert args["sinais_qualificacao"] == {"aceita_valor": True, "informa_horario": True}
+
+
+def test_typo_no_enum_e_corrigido_em_vez_de_derrubar_o_turno() -> None:
+    """Terceira variante do mesmo acidente: o modelo erra a grafia do PROPRIO enum ("imediatio",
+    medido ao vivo em 12/08) e o `Literal` levanta ValidationError — turno inteiro sem resposta por
+    uma letra. Caixa e acento entram no mesmo saneamento."""
+    from barra.agente.ferramentas.extracao import registrar_extracao
+    from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
+
+    schema = _schema_da_extracao(registrar_extracao)
+
+    assert _args_saneados({"args": {"urgencia": "imediatio"}}, schema)["urgencia"] == "imediato"
+    assert _args_saneados({"args": {"urgencia": "Imediato"}}, schema)["urgencia"] == "imediato"
+    assert (
+        _args_saneados({"args": {"motivo_perda_candidato": "preço"}}, schema)[
+            "motivo_perda_candidato"
+        ]
+        == "preco"
+    )
+
+
+def test_valor_fora_do_enum_sem_correspondente_e_descartado() -> None:
+    """Chutar semantica seria pior que perder o campo: "urgente" nao e typo de nada, e `interno` e
+    `externo` sao vizinhos perto demais para desempatar. Campo fora vale menos que o turno."""
+    from barra.agente.ferramentas.extracao import registrar_extracao
+    from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
+
+    schema = _schema_da_extracao(registrar_extracao)
+
+    assert "urgencia" not in _args_saneados({"args": {"urgencia": "urgente"}}, schema)
+    assert "tipo_local" not in _args_saneados({"args": {"tipo_local": "flat"}}, schema)
+
+
+def test_saneamento_de_enum_nao_toca_campo_de_texto_livre() -> None:
+    from barra.agente.ferramentas.extracao import registrar_extracao
+    from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
+
+    args = _args_saneados(
+        {"args": {"endereco": "rua interna, 20", "duracao_horas": "2.00", "urgencia": None}},
+        _schema_da_extracao(registrar_extracao),
+    )
+
+    assert args["endereco"] == "rua interna, 20"
+    assert args["duracao_horas"] == "2.00"
+    assert args["urgencia"] is None
+
+
+def test_recupera_tool_call_com_json_quebrado() -> None:
+    """`tool_choice` garante que o provider CHAMA a tool, nao que o JSON dos args chegue parseavel.
+    Com `finish_reason=tool_calls` e args malformados o LangChain devolve `.tool_calls` VAZIO e o
+    payload do turno se perdia inteiro — inclusive a hora que o cliente acabou de cravar."""
+    from barra.agente.nos.extrair import _tool_calls_uteis
+
+    forcado = AIMessage(
+        content="",
+        id="f1",
+        tool_calls=[],
+        invalid_tool_calls=[
+            {
+                "name": "registrar_extracao",
+                "args": '{"proxima_acao_esperada": "aguardar", "horario_desejado": "22:00"} lixo',
+                "id": "call_1",
+                "error": "Function args are not valid JSON",
+                "type": "invalid_tool_call",
+            }
+        ],
+    )
+
+    recuperados = _tool_calls_uteis(forcado)
+
+    assert len(recuperados) == 1
+    assert recuperados[0]["args"]["horario_desejado"] == "22:00"
+    assert recuperados[0]["id"] == "call_1"
+
+
+def test_tool_call_valido_tem_precedencia_sobre_o_invalido() -> None:
+    from barra.agente.nos.extrair import _tool_calls_uteis
+
+    forcado = AIMessage(
+        content="",
+        id="f1",
+        tool_calls=[{"name": "registrar_extracao", "args": {"a": 1}, "id": "ok"}],
+        invalid_tool_calls=[
+            {"name": "registrar_extracao", "args": "{}", "id": "ruim", "error": "x"}
+        ],
+    )
+
+    assert [tc["id"] for tc in _tool_calls_uteis(forcado)] == ["ok"]
+
+
+def test_apelido_de_campo_e_reconduzido_em_vez_de_descartado() -> None:
+    """`hora` -> `horario_desejado`: visto ao vivo em 12/08 (roteiro duas_portas).
+
+    Sem a recondução a poda ao schema salvava o turno mas jogava fora o horário do encontro --
+    o mesmo dano do payload perdido, num campo só e sem barulho nenhum.
+    """
+    from barra.agente.nos.extrair import _reconduzir_apelidos
+
+    propriedades = {"horario_desejado": {}, "valor_acordado": {}, "proxima_acao_esperada": {}}
+
+    assert _reconduzir_apelidos({"hora": "22:00"}, propriedades) == {"horario_desejado": "22:00"}
+    assert _reconduzir_apelidos({"valor": "400"}, propriedades) == {"valor_acordado": "400"}
+
+
+def test_apelido_ambiguo_nao_e_chutado() -> None:
+    """`tipo` casa com `tipo_atendimento` E `tipo_local` -- escrever no campo errado inventaria
+    fato ("ela vai até ele" x "o encontro é num motel"), então a chave segue para o descarte."""
+    from barra.agente.nos.extrair import _reconduzir_apelidos
+
+    propriedades = {"tipo_atendimento": {}, "tipo_local": {}}
+
+    assert _reconduzir_apelidos({"tipo": "externo"}, propriedades) == {"tipo": "externo"}
+
+
+def test_campo_no_lugar_certo_vence_o_apelido() -> None:
+    """O payload trouxe os dois: quem veio com o nome do schema manda, e o apelido não sobrescreve."""
+    from barra.agente.nos.extrair import _reconduzir_apelidos
+
+    args = {"horario_desejado": "21:00", "hora": "22:00"}
+
+    assert _reconduzir_apelidos(args, {"horario_desejado": {}})["horario_desejado"] == "21:00"
+
+
+def test_apelido_reconduzido_nao_escapa_da_poda() -> None:
+    """Reconduzir não pode reintroduzir o crash que a poda evita: o valor do apelido ainda passa
+    pelo alinhamento de enum/tipo depois."""
+    from barra.agente.ferramentas.extracao import registrar_extracao
+    from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
+
+    schema = _schema_da_extracao(registrar_extracao)
+    assert schema is not None
+
+    args = _args_saneados(
+        {"args": {"hora": "22h", "proxima_acao_esperada": "confirmar o horario"}}, schema
+    )
+
+    # "22h" veio no formato da FALA: reconduzido para o campo certo E coagido para o formato que o
+    # pydantic aceita como `time` -- as duas defesas em sequência, sem crash e sem perder a hora.
+    assert "hora" not in args
+    assert args["horario_desejado"] == "22:00"

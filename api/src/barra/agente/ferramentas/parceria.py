@@ -44,25 +44,65 @@ logger = logging.getLogger(__name__)
 
 ModoParceira = Literal["encaminhar", "dupla"]
 
+# Esta descricao viaja no SCHEMA das tools, ou seja, esta no contexto de TODO turno -- superficie
+# maior que a do retorno da tool, que o modelo so le depois de chamar. Vale aqui a mesma disciplina
+# de `_OK_ENCAMINHAR` abaixo: nada de mecanica do sistema ("o sistema manda o contato", "avisa a
+# coordenacao"), porque o modelo a narra ao cliente e o judge de AUP derruba a bolha.
 _DESC_MODO = (
-    '"dupla" — ele quer VOCÊS DUAS no mesmo encontro: você conduz e fecha sozinha, cota as duas '
-    "pela SUA tabela e o sistema avisa a coordenação. "
-    '"encaminhar" — ele quer um ato que você NÃO faz e topou falar com ela: o sistema manda o '
-    "contato dela e a venda passa a ser dela. Use o modo que o seu contexto do turno mandar; "
-    "nunca os dois."
+    '"dupla" — ele quer VOCÊS DUAS no mesmo encontro: você conduz e fecha sozinha, cotando as '
+    "duas pela SUA tabela. "
+    '"encaminhar" — ele quer um ato que você NÃO faz e topou falar com ela: a venda passa a ser '
+    "dela e você não cota mais nada. Use o modo que o seu contexto do turno mandar; nunca os dois."
 )
 
 # O que a tool devolve ao LLM. Sem número, sem valor: o retorno é instrução de conduta, e a única
 # forma de o telefone existir é a bolha que o sistema anexa depois.
+#
+# NÃO DESCREVA A MECÂNICA DO SISTEMA AQUI. Medido ao vivo (12/08, rig de tools, 2 de 6 conversas de
+# encaminhamento — traces 3a0363f6 e 610745d2): a versão anterior dizia "o sistema manda o telefone
+# dela numa bolha própria, depois da sua fala", e o modelo obedeceu narrando isso ao cliente ("A
+# Yasmin que faz amor, o contato dela já vai aí 🥰"). O judge de AUP leu o anúncio de uma entrega
+# que a fala não faz como `system_leak`, ZEROU a bolha e PAUSOU a IA (motivo `aup_saida_system_leak`)
+# — o cliente não recebeu nem a fala nem o contato, e a venda encaminhada morreu num handoff que
+# ninguém pediu. É o mecanismo da memória `conduta_nova_no_prompt_vira_tique`: o que se prescreve é
+# a INTENÇÃO da fala; o que o sistema faz por fora não é assunto do modelo. E como manda o incidente
+# #36, proibir sem dar o que dizer no lugar não basta — a primeira linha diz o que FAZER.
 _OK_ENCAMINHAR = (
-    "Contato da {nome} anexado ao turno — o sistema manda o telefone dela numa bolha própria, "
-    "depois da sua fala. NÃO escreva número nenhum e NÃO cote valor: preço, local e horário são "
-    "com ela agora. Feche a sua parte com naturalidade e não volte ao assunto."
+    "Feito. Encerre a sua parte com naturalidade, como quem passa a bola: daqui em diante quem "
+    "conversa com ele é a {nome}. NÃO escreva número nenhum, NÃO cote valor (preço, local e "
+    "horário são com ela) e NÃO anuncie que algo está sendo enviado nem comente como ele vai "
+    "receber o contato — isso não é assunto seu, e falar disso derruba a sua mensagem. Não volte "
+    "ao assunto depois."
 )
+# Mesma disciplina, e aqui o vazamento seria PIOR: narrar "a coordenação foi avisada" entrega a
+# existência de uma coordenação atrás dela. O que o modelo precisa saber é só que NÃO espera.
 _OK_DUPLA = (
-    "Encontro com as duas assumido por você. A coordenação já foi avisada para confirmar a "
-    "{nome} — você NÃO espera por isso: crave o horário normalmente. O valor das duas sai da SUA "
-    "tabela (o total da seção por pessoa) e o telefone dela NUNCA vai ao cliente."
+    "Encontro com as duas assumido por você: siga e crave o horário normalmente, sem esperar "
+    "confirmação de ninguém e sem prometer retorno. O valor das duas sai da SUA tabela (o total da "
+    "seção por pessoa) e o telefone dela NUNCA vai ao cliente. Não comente combinação interna, "
+    "conferência nem aviso a terceiros — na conversa existem você, ela e ele."
+)
+
+# Todo erro recuperável DESCARTA o texto que a IA já tinha escrito nesta passagem
+# (`_texto_turno.py:extrair_texto_do_turno`), porque o normal é ela reescrever a fala junto com a
+# retentativa e agregar as duas duplicaria a mensagem ao cliente. Mas a premissa "ela reescreve"
+# não se sustenta sozinha: medido em 12/08 (trace dcdc2de2, 1 de 5 repetições da mesma conversa), o
+# modelo raciocinou que a primeira bolha JÁ tinha ido ao cliente e só COMPLEMENTOU. O turno perdeu
+# a recusa ("Isso eu não faço amor") e sobrou o órfão "Quer o contato dela amor ?" — que, sozinho,
+# o judge de AUP reprova como `system_leak` de forma determinística (5/5 na reprodução), pausa a IA
+# e zera tudo. O cliente não recebeu nada.
+#
+# A correção é dizer a verdade a quem decide: a fala ainda não saiu. Sem descrever a mecânica (a
+# lição de `_OK_ENCAMINHAR` acima vale igual aqui) — só o fato que muda a decisão dela.
+#
+# SÓ no `_ERRO_SEM_ACEITE`, e não nos erros de recusa. Ali o rascunho perdido é a recusa + a oferta
+# da parceira, e reescrevê-lo inteiro é exatamente o certo. Nos outros três ("siga sem ela", "não
+# repita", "sem reabrir") o rascunho descartado é justamente a fala que envolvia a parceira: mandar
+# reescrever "tudo que você já tinha dito" contradiz a ordem do próprio erro, e a instrução mais
+# recente é a que o modelo tende a obedecer.
+_REESCREVA_TUDO = (
+    " O que você escreveu nesta resposta ainda NÃO chegou a ele: reescreva a mensagem INTEIRA "
+    "agora, com tudo que você já tinha dito, senão aquela parte se perde."
 )
 
 _ERRO_SEM_PARCEIRA = "ERRO: você não tem parceira cadastrada. Siga sem ela."
@@ -72,7 +112,7 @@ _ERRO_MODO_NAO_LIBERADO = (
 )
 _ERRO_SEM_ACEITE = (
     "ERRO: você ainda não ofereceu a sua parceira a ele nesta conversa, ou ele ainda não topou. "
-    "Ofereça primeiro e espere o sim — nenhum dado dela sai antes disso."
+    "Ofereça primeiro e espere o sim — nenhum dado dela sai antes disso." + _REESCREVA_TUDO
 )
 _ERRO_JA_ENCAMINHADA = (
     "ERRO: você já passou o contato dela nesta negociação. Não repita — siga a conversa."
@@ -99,8 +139,8 @@ async def envolver_parceira(
 
     Use SÓ quando o seu contexto trouxer a tag da parceira — ela diz qual dos dois modos vale.
     `dupla`: ele quer vocês duas e você fecha sozinha (nunca passe o contato dela).
-    `encaminhar`: ele quer algo que você não faz e topou falar com ela (o sistema manda o contato;
-    você não cota valor nenhum daí em diante).
+    `encaminhar`: ele quer algo que você não faz e topou falar com ela (a venda passa a ser dela;
+    você não escreve número nenhum e não cota valor daí em diante).
 
     Returns:
         Confirmação e a conduta que vale a partir daqui. Se vier "ERRO: ...", o arranjo não está
@@ -111,7 +151,10 @@ async def envolver_parceira(
     atendimento_id = runtime.context.atendimento_id
     turno_id = runtime.context.turno_id
 
-    if atendimento_id is None:
+    # `not` em vez de `is None`: `ContextAgente.atendimento_id` e `str` (nao-Optional), entao o
+    # `is None` era ramo morto para o type checker — e o caso real que resta e a string vazia.
+    if not atendimento_id:
+        _recusa("sem_atendimento")
         raise ToolException(_ERRO_SEM_ATENDIMENTO)
 
     async with pool.connection() as conn, conn.transaction():
@@ -135,6 +178,7 @@ async def envolver_parceira(
         )
         flags = await res.fetchone()
         if flags is None:
+            _recusa("sem_atendimento")
             raise ToolException(_ERRO_SEM_ATENDIMENTO)
 
         # Mutuamente exclusivos POR ATENDIMENTO: quem já entrou por um caminho não entra pelo

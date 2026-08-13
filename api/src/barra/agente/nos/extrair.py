@@ -26,8 +26,14 @@ publica no State (`conversa_crua`/`agora_turno`/`ja_registrado`) — ver `_janel
 """
 
 import asyncio
+import json
 import logging
+import re
+import unicodedata
 from collections.abc import Coroutine, Sequence
+from datetime import date
+from decimal import Decimal, InvalidOperation
+from difflib import SequenceMatcher
 from typing import Any, Literal, Protocol, cast
 
 from langchain_core.language_models import BaseChatModel
@@ -45,9 +51,15 @@ from langgraph.runtime import Runtime
 from langgraph.types import Command
 
 from barra.core.llm import PARADA_TRUNCADA, motivo_parada, nome_modelo, nomear_run
+from barra.core.metrics import (
+    AGENTE_EXTRACAO_APELIDO,
+    AGENTE_EXTRACAO_CAMPO_DESCARTADO,
+    AGENTE_EXTRACAO_PERDIDA,
+    AGENTE_EXTRACAO_RETENTADA,
+)
 from barra.settings import Settings, get_settings
 
-from .._instrumentar import instrumentar_tokens
+from .._instrumentar import instrumentar_tokens, medir_llm
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..persona import render_ancora_extracao
@@ -363,11 +375,483 @@ def _envelopar_nota_interna(tool_message: ToolMessage) -> ToolMessage:
     )
 
 
+def _propriedades(sub_schema: dict[str, Any], defs: dict[str, Any]) -> dict[str, Any] | None:
+    """As `properties` de um campo do JSON Schema, atravessando o `anyOf` do Optional e o `$ref`
+    que o pydantic gera para o objeto aninhado (`sinais_qualificacao` -> `$defs/…`)."""
+    candidatos = [sub_schema, *(a for a in sub_schema.get("anyOf") or [] if isinstance(a, dict))]
+    for candidato in candidatos:
+        ref = candidato.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            candidato = defs.get(ref.removeprefix("#/$defs/"), {})
+        if isinstance(candidato.get("properties"), dict):
+            return cast(dict[str, Any], candidato["properties"])
+    return None
+
+
+_ENUM_LIMIAR = 0.85
+# Limiar do apelido de CAMPO (`_reconduzir_apelidos`). Mais alto que o de enum: errar um valor de
+# enum reescreve um rotulo, errar o campo escreve o dado na coluna errada -- e "hora"/"valor"/"data"
+# ja entram pelo casamento por prefixo, sem depender do fuzzy.
+_APELIDO_LIMIAR = 0.90
+
+
+def _enum_permitido(sub_schema: dict[str, Any], defs: dict[str, Any]) -> list[str] | None:
+    """Os valores fechados que o campo aceita, ou `None` quando ele aceita texto livre.
+
+    Atravessa o `anyOf` do Optional (`{"anyOf": [{"enum": [...]}, {"type": "null"}]}`, a forma que o
+    pydantic gera para `Literal[...] | None`) e o `$ref`. Basta UM ramo aberto (`type: string`,
+    `number`) para o campo nao ter enum: `endereco` e `duracao_horas` nao sao domínio fechado.
+    """
+    candidatos = [sub_schema, *(a for a in sub_schema.get("anyOf") or [] if isinstance(a, dict))]
+    permitidos: list[str] = []
+    for candidato in candidatos:
+        ref = candidato.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            candidato = defs.get(ref.removeprefix("#/$defs/"), {})
+        enum = candidato.get("enum")
+        if isinstance(enum, list):
+            permitidos += [e for e in enum if isinstance(e, str)]
+        elif candidato is not sub_schema and candidato.get("type") not in (None, "null"):
+            return None
+    return permitidos or None
+
+
+def _sem_acento(texto: str) -> str:
+    decomposto = unicodedata.normalize("NFKD", texto.strip().lower())
+    return "".join(c for c in decomposto if not unicodedata.combining(c))
+
+
+def _valor_do_enum(valor: Any, permitidos: list[str]) -> Any | None:
+    """O valor canonico do enum, corrigindo caixa/acento/typo — `None` quando nao da p/ salvar.
+
+    O modelo erra a grafia do proprio enum ("imediatio" por "imediato", visto ao vivo em 12/08) e o
+    `Literal` levanta `ValidationError`, que derruba o turno inteiro (mesma familia de
+    `_podar_ao_schema`). Um typo de uma letra e recuperavel; o que nao casa com NENHUM valor — ou
+    casa com dois (`interno`/`externo` sao vizinhos perto demais para chutar) — e descartado.
+    """
+    if valor in permitidos:
+        return valor
+    if not isinstance(valor, str):
+        return None
+    alvo = _sem_acento(valor)
+    for permitido in permitidos:
+        if _sem_acento(permitido) == alvo:
+            return permitido
+    quase = [
+        p for p in permitidos if SequenceMatcher(None, alvo, _sem_acento(p)).ratio() >= _ENUM_LIMIAR
+    ]
+    return quase[0] if len(quase) == 1 else None
+
+
+# Sentinela de "nao da para converter" na coercao de tipos. `None` nao serve: `None` e um valor
+# LEGITIMO em todo campo Optional do schema (e o que preserva o anterior no UPSERT).
+_DESCARTAR = object()
+
+# Espelha o `min_length` de `proxima_acao_esperada` na assinatura da tool (ferramentas/extracao.py).
+# Duas cópias do numero é o preço de não importar a tool aqui; quem as amarra é
+# `test_min_proxima_acao_espelha_o_schema_da_tool` (tests/agente/test_extracao_args_invalidos.py),
+# que lê o `minLength` do schema em vez de repetir o número uma terceira vez.
+_MIN_PROXIMA_ACAO = 3
+
+
+def _formato_do_campo(sub_schema: dict[str, Any], defs: dict[str, Any]) -> tuple[str, ...]:
+    """Os `type`/`format` que o campo aceita, atravessando o `anyOf` do Optional e o `$ref`.
+
+    Devolve rotulos normalizados (`"date"`, `"time"`, `"number"`, `"array"`, `"object"`, `"string"`,
+    `"boolean"`) — a chave de despacho de `_coagir_valor`. O `null` do Optional fica de fora: quem
+    quer apagar campo usa `limpar`, nao `None`.
+    """
+    candidatos = [sub_schema, *(a for a in sub_schema.get("anyOf") or [] if isinstance(a, dict))]
+    rotulos: list[str] = []
+    for candidato in candidatos:
+        ref = candidato.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            candidato = defs.get(ref.removeprefix("#/$defs/"), {})
+        formato = candidato.get("format")
+        tipo = candidato.get("type")
+        if isinstance(candidato.get("properties"), dict):
+            rotulos.append("object")
+        elif isinstance(formato, str) and formato in ("date", "time", "date-time"):
+            rotulos.append(formato)
+        elif isinstance(tipo, str) and tipo != "null":
+            rotulos.append(tipo)
+    return tuple(dict.fromkeys(rotulos))
+
+
+# `"22h"`, `"22 h"`, `"22hs"`, `"22h30"`, `"22:30hs"`, `"22.30"`, `"22:00:00"` -> hora + minuto.
+# O sufixo de hora e o separador solto sao a forma como a pessoa FALA a hora -- e a forma que as
+# proprias descricoes da tool usam nos exemplos (`'22h'`, `'meio-dia'`), entao o extrator a copia.
+#
+# Os SEGUNDOS entram porque `HH:MM:SS` e o `repr` de um `datetime.time`, e o que o extrator le como
+# estado gravado sai desse formato: achado ao vivo (12/08, roteiro `dado_na_mesa`, sessao paralela) —
+# o `<ja_registrado>` imprimia `17:00:00`, o extrator ecoou `horario_desejado='17:00:00'` e o campo
+# era DESCARTADO em silencio. A raiz foi corrigida no template, mas a defesa fica: qualquer eco de
+# `time` volta a passar por aqui, e perder o horario e o pior desfecho do turno. Segundos != 0 sao
+# ignorados de proposito (a agenda e meia-hora-granular; nao existe encontro as 22:00:30).
+_RE_HORA_FALADA = re.compile(
+    r"^(\d{1,2})\s*(?:[:.h]\s*(\d{1,2}))?(?::\d{1,2})?\s*(?:h|hs|hrs|horas?)?$"
+)
+# Numero dentro de texto de dinheiro/duracao: "R$ 300", "300 reais", "1h", "1,5h", "2.500,00".
+_RE_NUMERO_SOLTO = re.compile(r"-?\d[\d.,]*")
+
+
+def _coagir_hora(bruto: str) -> str | None:
+    """`"22h"` -> `"22:00"`. `None` quando nao da para ler uma hora de relogio dali."""
+    m = _RE_HORA_FALADA.match(bruto.strip().lower().replace(" ", ""))
+    if m is None:
+        return None
+    hora, minuto = int(m.group(1)), int(m.group(2) or 0)
+    if hora == 24 and minuto == 0:  # "24h" = meia-noite, forma comum na fala
+        hora = 0
+    if not (0 <= hora <= 23 and 0 <= minuto <= 59):
+        return None
+    return f"{hora:02d}:{minuto:02d}"
+
+
+def _limites_do_campo(
+    sub_schema: dict[str, Any], defs: dict[str, Any]
+) -> tuple[Decimal | None, Decimal | None]:
+    """`(minimum, maximum)` do campo numerico, atravessando o `anyOf` do Optional e o `$ref`.
+
+    O pydantic pinta os limites SO no ramo `number` do `anyOf` (o ramo `string` do `Decimal` vem com
+    `pattern` e sem limite), mas o `ge`/`le` do `Field` vale para o valor FINAL, qualquer que tenha
+    sido o ramo — entao ler de qualquer ramo e correto e ler do primeiro que os tiver basta.
+    """
+    candidatos = [sub_schema, *(a for a in sub_schema.get("anyOf") or [] if isinstance(a, dict))]
+    for candidato in candidatos:
+        ref = candidato.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            candidato = defs.get(ref.removeprefix("#/$defs/"), {})
+        minimo, maximo = candidato.get("minimum"), candidato.get("maximum")
+        if minimo is not None or maximo is not None:
+            return (
+                Decimal(str(minimo)) if minimo is not None else None,
+                Decimal(str(maximo)) if maximo is not None else None,
+            )
+    return None, None
+
+
+def _numero_nos_limites(valor: Any, limites: tuple[Decimal | None, Decimal | None]) -> bool:
+    """O numero cabe no `ge`/`le` do campo? Fora dos limites o pydantic levanta e o turno morre.
+
+    Os dois casos reais: `valor_acordado` negativo (`ge=0`) e `duracao_horas` acima de 48 (o span do
+    relogio somado errado, ou horas de um pacote inventado). Descartar o campo custa um dado; deixar
+    passar custa a resposta ao cliente.
+    """
+    minimo, maximo = limites
+    if minimo is None and maximo is None:
+        return True
+    try:
+        numero = Decimal(str(valor))
+    except InvalidOperation:
+        return True  # nao e numero: quem julga e o pydantic, nao esta guarda
+    return not (
+        (minimo is not None and numero < minimo) or (maximo is not None and numero > maximo)
+    )
+
+
+def _coagir_numero(bruto: str) -> str | None:
+    """`"300 reais"`/`"R$ 1.200,50"`/`"1,5h"` -> a string decimal que o pydantic aceita.
+
+    Formato pt-BR: o ponto e separador de milhar e a virgula e decimal. Um numero negativo e
+    descartado (o `ge=0` do campo o rejeitaria de qualquer forma) e texto sem digito nenhum
+    ('pernoite') tambem — a duracao do pacote nao se adivinha do nome dele.
+    """
+    m = _RE_NUMERO_SOLTO.search(bruto)
+    if m is None:
+        return None
+    corpo = m.group(0)
+    if "," in corpo:
+        corpo = corpo.replace(".", "").replace(",", ".")
+    elif corpo.count(".") > 1:  # so separador de milhar ("2.500.000")
+        corpo = corpo.replace(".", "")
+    try:
+        valor = Decimal(corpo)
+    except InvalidOperation:
+        return None
+    return None if valor < 0 else str(valor)
+
+
+def _coagir_valor(
+    valor: Any,
+    rotulos: tuple[str, ...],
+    sub_props: dict[str, Any] | None,
+    limites: tuple[Decimal | None, Decimal | None] = (None, None),
+) -> Any:
+    """O valor no formato que o campo aceita, ou `_DESCARTAR` quando nao da para converter.
+
+    Só toca no que ESTA no formato errado: valor ja valido passa intocado (o `isinstance` de cada
+    ramo e a guarda). O criterio de conversao e o mesmo de `_valor_do_enum` — corrigir o barato,
+    descartar o resto, nunca chutar. `limites` cobre o outro jeito de o campo numerico derrubar o
+    turno: o formato certo com o valor FORA do `ge`/`le` (ver `_numero_nos_limites`).
+    """
+    if "number" in rotulos or "integer" in rotulos:
+        if isinstance(valor, str):
+            convertido = _coagir_numero(valor)
+            if convertido is None:
+                return _DESCARTAR
+            valor = convertido
+        if not _numero_nos_limites(valor, limites):
+            return _DESCARTAR
+        return valor
+    if "date" in rotulos and isinstance(valor, str):
+        # Data relativa ("amanha") NAO se resolve aqui de proposito: o `agora` que ancora o relativo
+        # vive no prompt (`<agenda hoje=...>`) e reconstrui-lo aqui duplicaria a fonte de verdade.
+        try:
+            date.fromisoformat(valor.strip())
+        except ValueError:
+            return _DESCARTAR
+        return valor.strip()
+    if "time" in rotulos and isinstance(valor, str):
+        return _coagir_hora(valor) or _DESCARTAR
+    if "array" in rotulos and isinstance(valor, str):
+        # `limpar`/`fetiches_em_pauta` com um nome so, escrito cru em vez de em lista.
+        limpo = valor.strip()
+        return [limpo] if limpo else _DESCARTAR
+    if "object" in rotulos and isinstance(valor, str) and sub_props:
+        # `sinais_qualificacao="aceita_valor"`: o nome do sinal no lugar do objeto. Vale converter
+        # porque `aceita_valor` e o UNICO sinal de aceite do contrato — o mesmo motivo que sustenta
+        # o `_reencaixar_achatados`. Só para campo booleano, e só com o nome exato do schema.
+        chave = _sem_acento(valor)
+        for nome, sub in sub_props.items():
+            if _sem_acento(nome) == chave and "boolean" in _formato_do_campo(sub, {}):
+                return {nome: True}
+        return _DESCARTAR
+    if "boolean" in rotulos and isinstance(valor, str):
+        marcado = _sem_acento(valor)
+        if marcado in ("true", "sim", "1", "yes"):
+            return True
+        if marcado in ("false", "nao", "0", "no"):
+            return False
+        return _DESCARTAR
+    return valor
+
+
+def _podar_ao_schema(
+    args: dict[str, Any], propriedades: dict[str, Any], defs: dict[str, Any] | None = None
+) -> tuple[dict[str, Any], list[str]]:
+    """Args do LLM alinhados ao schema: sem chave desconhecida, sem enum errado, sem tipo errado.
+
+    Os TRES modos de falha aqui sao o mesmo acidente com nomes diferentes, e todos custam o TURNO:
+    o schema da extracao e `extra="forbid"` (strict tool use, §7) e os campos sao tipados, entao
+    chave inventada (`sinais_qualificacao.fecha_valor`), enum com typo (`"imediatio"`) e valor no
+    formato da FALA (`horario_desejado="22h"`, `duracao_horas="12h"`, `limpar="horario_desejado"`)
+    todos viram `ValidationError` — que NAO e `ToolException`, escapa do `handle_tool_error` da
+    tool, sobe pelo `graph.ainvoke` e deixa o cliente sem resposta por causa de uma nota interna.
+    Todos vistos ao vivo (12/08). Alinhar antes de invocar troca o turno perdido por um campo
+    corrigido ou descartado, que e exatamente o que aquele campo vale.
+
+    Ordem dos tres passos: poda (a chave existe?) -> enum (o valor esta na lista?) -> tipo (o valor
+    esta no formato?). Enum antes de tipo porque campo de enum e `string` no schema e a coercao de
+    tipo nao teria o que fazer com ele.
+    """
+    defs = defs or {}
+    limpo: dict[str, Any] = {}
+    descartadas: list[str] = []
+    for chave, valor in args.items():
+        sub = propriedades.get(chave)
+        if sub is None:
+            descartadas.append(chave)
+            # Label FIXA aqui: o nome vem do modelo e e cauda longa infinita (uma serie Prometheus
+            # nova por invencao dele). O nome real fica no `logger.warning` de `_args_saneados`; a
+            # serie precisa so do volume. Nos outros dois ramos a chave e do SCHEMA, logo fechada.
+            AGENTE_EXTRACAO_CAMPO_DESCARTADO.labels("(fora_do_schema)", "chave_desconhecida").inc()
+            continue
+        sub_props = _propriedades(sub, defs) if isinstance(sub, dict) else None
+        if isinstance(valor, dict) and sub_props is not None:
+            valor, descartadas_do_filho = _podar_ao_schema(valor, sub_props, defs)
+            descartadas += [f"{chave}.{d}" for d in descartadas_do_filho]
+        permitidos = _enum_permitido(sub, defs) if isinstance(sub, dict) else None
+        if permitidos is not None and valor is not None:
+            canonico = _valor_do_enum(valor, permitidos)
+            if canonico is None:
+                descartadas.append(f"{chave}={valor!r}")
+                AGENTE_EXTRACAO_CAMPO_DESCARTADO.labels(chave, "enum_invalido").inc()
+                continue
+            if canonico != valor:
+                logger.info(
+                    "extracao com valor de enum corrigido: %s %r -> %r", chave, valor, canonico
+                )
+            valor = canonico
+        elif valor is not None and isinstance(sub, dict):
+            coagido = _coagir_valor(
+                valor, _formato_do_campo(sub, defs), sub_props, _limites_do_campo(sub, defs)
+            )
+            if coagido is _DESCARTAR:
+                descartadas.append(f"{chave}={valor!r}")
+                AGENTE_EXTRACAO_CAMPO_DESCARTADO.labels(chave, "formato_invalido").inc()
+                continue
+            if coagido != valor:
+                logger.info("extracao com tipo coagido: %s %r -> %r", chave, valor, coagido)
+                # Objeto reconstruido da string: poda o filho tambem (o schema do filho e forbid).
+                if isinstance(coagido, dict) and sub_props is not None:
+                    coagido, _ = _podar_ao_schema(coagido, sub_props, defs)
+            valor = coagido
+        limpo[chave] = valor
+    return limpo, descartadas
+
+
+def _tool_calls_uteis(forcado: BaseMessage) -> list[dict[str, Any]]:
+    """Os `tool_calls` da forcada — recuperando os que o LangChain rejeitou por JSON quebrado.
+
+    `tool_choice` garante que o provider VAI chamar a tool, mas nao que os args cheguem parseaveis:
+    com `finish_reason=tool_calls` e um JSON malformado, `.tool_calls` vem VAZIO e o payload inteiro
+    do turno se perdia. O texto cru fica em `.invalid_tool_calls[*]["args"]`; quando ele carrega um
+    objeto JSON valido (o erro comum e lixo DEPOIS do objeto), a chamada e recuperada de graca.
+    """
+    validos = list(getattr(forcado, "tool_calls", None) or [])
+    if validos:
+        return validos
+    recuperados: list[dict[str, Any]] = []
+    for invalida in getattr(forcado, "invalid_tool_calls", None) or []:
+        bruto = invalida.get("args")
+        if not isinstance(bruto, str) or invalida.get("name") != _TOOL_EXTRACAO:
+            continue
+        try:
+            args = json.loads(bruto[: bruto.rindex("}") + 1] if "}" in bruto else bruto)
+        except (ValueError, json.JSONDecodeError):
+            continue
+        if isinstance(args, dict):
+            recuperados.append(
+                {
+                    "name": _TOOL_EXTRACAO,
+                    "args": args,
+                    "id": invalida.get("id") or "recuperado",
+                    "type": "tool_call",
+                }
+            )
+    if recuperados:
+        logger.info("extracao recuperada de invalid_tool_calls (json quebrado no args)")
+    return recuperados
+
+
+def _reencaixar_achatados(
+    args: dict[str, Any], propriedades: dict[str, Any], defs: dict[str, Any]
+) -> dict[str, Any]:
+    """Devolve os campos do objeto aninhado que o modelo escreveu ACHATADOS no topo.
+
+    O erro e sistematico e caro: `aceita_valor` sai como chave de primeiro nivel em vez de dentro
+    de `sinais_qualificacao` (visto ao vivo em 12/08). Podar por poda perderia o UNICO sinal de
+    aceite do contrato — sem ele a escada de desconto nao fecha e o atendimento nao avanca. O
+    destino nao e chutado: e o pai cujo sub-schema declara aquela chave, e so quando o proprio
+    objeto nao trouxe o campo (o que o modelo pos no lugar certo sempre vence).
+    """
+    destino = {
+        chave_filha: pai
+        for pai, sub in propriedades.items()
+        for chave_filha in (_propriedades(sub, defs) or {})
+        if isinstance(sub, dict)
+    }
+    # Pai PREENCHIDO e nao-dict (o objeto veio como string JSON, p.ex.) bloqueia o reencaixe: o
+    # `else {}` que morava no laco abaixo descartava esse valor e o sobrescrevia com o achatado --
+    # `sinais_qualificacao='{"aceita_valor": true, ...}'` + `envia_pix` no topo virava
+    # `{"envia_pix": True}`, apagando em silencio o UNICO sinal de aceite e ainda logando sucesso.
+    # Trocar um ValidationError ruidoso pela perda muda do campo mais caro e o pior negocio possivel.
+    # Preservando o pai, ele segue para a coercao/validacao, que sabe o que fazer com ele.
+    achatados = {
+        k: v
+        for k, v in args.items()
+        if k not in propriedades
+        and k in destino
+        and (args.get(destino[k]) is None or isinstance(args.get(destino[k]), dict))
+    }
+    if not achatados:
+        return args
+    reencaixado = {k: v for k, v in args.items() if k not in achatados}
+    for chave, valor in achatados.items():
+        pai = destino[chave]
+        filho = dict(reencaixado.get(pai) or {})
+        filho.setdefault(chave, valor)
+        reencaixado[pai] = filho
+    logger.info("extracao com campos achatados reencaixados: %s", sorted(achatados))
+    return reencaixado
+
+
+def _schema_da_extracao(tool_extracao: BaseTool) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """`(properties, $defs)` do schema que o LLM ve — lido UMA vez, na construcao do no.
+
+    `None` quando a tool nao expoe schema (fakes de teste de no): sem schema nao ha o que podar, e
+    a garantia de `proxima_acao_esperada` continua valendo."""
+    modelo = getattr(tool_extracao, "tool_call_schema", None)
+    if modelo is None:
+        return None
+    gerar = getattr(modelo, "model_json_schema", None)
+    if gerar is None:  # schema declarado como dict cru (nao e o caso da tool de prod)
+        schema = cast(dict[str, Any], modelo)
+    else:
+        schema = cast(dict[str, Any], gerar())
+    return schema.get("properties") or {}, schema.get("$defs") or {}
+
+
+def _reconduzir_apelidos(args: dict[str, Any], propriedades: dict[str, Any]) -> dict[str, Any]:
+    """Leva ao campo certo a chave que o modelo escreveu com APELIDO (`hora` -> `horario_desejado`).
+
+    A poda ao schema salva o turno da morte por `ValidationError`, mas o preco dela e o dado: visto
+    ao vivo em 12/08 (roteiro duas_portas), o payload trouxe `hora` e a poda descartou -- o turno
+    respondeu normalmente e o HORARIO DO ENCONTRO sumiu em silencio, que e o mesmo dano do
+    `AGENTE_EXTRACAO_PERDIDA`, so que num campo. Apelidar campo e erro de vocabulario, nao de
+    intencao: o extrator sabia o que queria dizer.
+
+    Casamento pelo mesmo criterio conservador de `_valor_do_enum`: prefixo (em qualquer direcao) ou
+    fuzzy alto, e so quando bate em UM campo. `tipo` de proposito nao passa -- casa com
+    `tipo_atendimento` e `tipo_local` ao mesmo tempo, e chutar entre "ela vai ate ele" e "o encontro
+    e num motel" inventaria fato. Campo que ja veio no lugar certo vence o apelido, e o valor ainda
+    passa por `_podar_ao_schema` depois (enum/tipo), entao reconduzir nao reintroduz o crash.
+    """
+    candidatos = {k: v for k, v in args.items() if k not in propriedades}
+    if not candidatos:
+        return args
+    reconduzido = dict(args)
+    for chave, valor in candidatos.items():
+        alvos = [
+            campo
+            for campo in propriedades
+            if campo not in args
+            and (
+                campo.startswith(chave)
+                or chave.startswith(campo)
+                or SequenceMatcher(None, chave, campo).ratio() >= _APELIDO_LIMIAR
+            )
+        ]
+        if len(alvos) != 1:
+            continue
+        reconduzido.pop(chave)
+        reconduzido[alvos[0]] = valor
+        AGENTE_EXTRACAO_APELIDO.labels(alvos[0]).inc()
+        logger.info("extracao com campo reconduzido por apelido: %s -> %s", chave, alvos[0])
+    return reconduzido
+
+
+def _args_saneados(
+    tool_call: dict[str, Any], schema: tuple[dict[str, Any], dict[str, Any]] | None
+) -> dict[str, Any]:
+    """Os args do forcado prontos para a tool: alinhados ao schema + `proxima_acao_esperada` garantida.
+
+    Os modos de falha vistos ao vivo (12/08, 2 turnos em ~20 conversas) sao o mesmo acidente: o
+    payload nao casa com o schema e o `ValidationError` derruba o TURNO. Chave inventada, enum com
+    typo e valor no formato da fala moram em `_podar_ao_schema`; aqui fica o outro, a tool chamada
+    sem a unica obrigatoria. A nota interna ausente (ou curta demais para o `min_length=3` do campo,
+    que e o mesmo turno morto por outro caminho) vira um texto neutro — os demais campos do payload
+    (a hora, o valor) sao o que importa, e a nota e para o painel ler.
+    """
+    args = dict(tool_call.get("args") or {})
+    if schema is not None:
+        args = _reencaixar_achatados(args, schema[0], schema[1])
+        args = _reconduzir_apelidos(args, schema[0])
+        args, descartadas = _podar_ao_schema(args, schema[0], schema[1])
+        if descartadas:
+            logger.warning("extracao com campos fora do schema (descartados): %s", descartadas)
+    if len(str(args.get("proxima_acao_esperada") or "").strip()) < _MIN_PROXIMA_ACAO:
+        args["proxima_acao_esperada"] = "(o extrator nao registrou a proxima acao neste turno)"
+    return args
+
+
 async def _executar_inline(
     tool_extracao: BaseTool,
     tool_call: dict[str, Any],
     state: EstadoAgente,
     runtime: Runtime[ContextAgente],
+    schema: tuple[dict[str, Any], dict[str, Any]] | None = None,
 ) -> ToolMessage:
     """Executa `registrar_extracao` INLINE, injetando `ToolRuntime[ContextAgente]` na mao.
 
@@ -392,7 +876,7 @@ async def _executar_inline(
     )
     chamada = {
         "name": tool_call["name"],
-        "args": {**tool_call["args"], "runtime": tool_runtime},
+        "args": {**_args_saneados(tool_call, schema), "runtime": tool_runtime},
         "id": tool_call["id"],
         "type": "tool_call",
     }
@@ -428,6 +912,8 @@ def no_extrair(
     """
     settings = get_settings()
     disparo = disparo or DisparoExtracao(chat, chat_extracao_barata, tool_extracao, settings)
+    # Schema lido UMA vez (a montagem do JSON Schema do pydantic nao e barata p/ rodar por turno).
+    schema_da_tool = _schema_da_extracao(tool_extracao)
     # Auto-reoferta (settings.reoferta_automatica_habilitada): erro RECUPERAVEL na extracao volta ao
     # no llm p/ o modelo reofertar um horario, em vez de fechar mudo. Lido na construcao (kill-switch).
     reoferta_ligada = settings.reoferta_automatica_habilitada
@@ -455,24 +941,62 @@ def no_extrair(
         # sob o label do modelo usado (barato NAO polui o write-rate do principal) — identica nos
         # dois bracos, para o registro `[forcado, tool_message]` abaixo ficar byte-a-byte o mesmo.
         janela_extracao = disparo.janela(janela, state)
-        forcado = await disparo.resolver(janela_extracao, state, runtime.context.turno_id)
+        with medir_llm("extracao"):
+            forcado = await disparo.resolver(janela_extracao, state, runtime.context.turno_id)
         instrumentar_tokens(forcado, disparo.modelo_label)
 
         # Guard de qualidade: truncou (args incompletos) ou nao saiu tool_call -> descarta o forcado
         # e fecha SO com a fala original (ja no state). Nunca persiste payload parcial.
+        #
+        # Antes de descartar, DUAS recuperacoes — o custo de perder este payload e alto e assimetrico:
+        # o turno em que o cliente crava a hora ("pode ser 22h hoje") passa sem registro nenhum, o
+        # encontro nao e reservado e a conversa segue como se ele nao tivesse dito nada (medido ao
+        # vivo em 12/08). Primeiro o `invalid_tool_calls` (o provider mandou a chamada, o JSON dos
+        # args e que veio quebrado — o LangChain guarda o texto cru ali); depois UMA retentativa em
+        # serie da mesma janela. Só entao o descarte.
         forcado_stop = motivo_parada(forcado.response_metadata)
-        tool_calls = getattr(forcado, "tool_calls", None)
-        if forcado_stop in PARADA_TRUNCADA or not tool_calls:
+        tool_calls = _tool_calls_uteis(forcado)
+        if not tool_calls and forcado_stop not in PARADA_TRUNCADA:
             logger.warning(
-                "extracao forcada sem tool_call util (stop=%s turno_id=%s)",
+                "extracao forcada sem tool_call util (stop=%s turno_id=%s) -> retentando",
                 forcado_stop,
                 runtime.context.turno_id,
             )
+            AGENTE_EXTRACAO_RETENTADA.inc()
+            # `try/except` porque esta e uma SEGUNDA chamada ao provider num ponto onde antes o
+            # codigo so logava e seguia. `disparo.invocar` e `chat.ainvoke` cru: uma falha
+            # persistente do provider subiria pelo no ate o coordenador, que escala
+            # (`erro_interno`/`modelo_indisponivel`) e PAUSA a IA — trocando "perdi a extracao, o
+            # cliente foi atendido" por "cliente sem resposta e IA pausada". Cair no descarte logo
+            # abaixo mantem a retentativa estritamente nao-pior que nao ter retentativa nenhuma.
+            try:
+                with medir_llm("extracao_retry"):
+                    forcado = await disparo.invocar(janela_extracao)
+            except Exception:
+                logger.warning(
+                    "extracao retentada falhou no provider (turno_id=%s) -> descarta a extracao",
+                    runtime.context.turno_id,
+                    exc_info=True,
+                )
+                AGENTE_EXTRACAO_PERDIDA.inc()
+                return Command(goto="post_process", update=dict(_LIMPA_DISPARO))
+            instrumentar_tokens(forcado, disparo.modelo_label)
+            forcado_stop = motivo_parada(forcado.response_metadata)
+            tool_calls = _tool_calls_uteis(forcado)
+        if forcado_stop in PARADA_TRUNCADA or not tool_calls:
+            logger.warning(
+                "extracao forcada descartada (stop=%s turno_id=%s)",
+                forcado_stop,
+                runtime.context.turno_id,
+            )
+            AGENTE_EXTRACAO_PERDIDA.inc()
             return Command(goto="post_process", update=dict(_LIMPA_DISPARO))
 
         # Execucao INLINE de registrar_extracao (footgun provado): a tool persiste em
         # barravips.tool_calls, aplica a FSM e enfileira o card de aviso de saida por dentro.
-        tool_message = await _executar_inline(tool_extracao, tool_calls[0], state, runtime)
+        tool_message = await _executar_inline(
+            tool_extracao, tool_calls[0], state, runtime, schema_da_tool
+        )
 
         # Registro da extracao (AIMessage forcada + ToolMessage) espelha o que o ToolNode
         # adicionaria ao state no caminho vivo -- deixa o post_process/output_guard/coordenador com
@@ -504,9 +1028,19 @@ def no_extrair(
                 )
             # Reoferta desligada OU ja tentada (a reoferta tambem errou): fecha MUDO -- no dominio de
             # booking, silencio > reserva fantasma.
+            #
+            # `_mute_por_erro_de_tool` CARIMBA a decisao p/ o output_guard: sem ele o gatilho `mudo`
+            # do guard via so "turno sem texto", regenerava e o modelo -- que nao le o ToolMessage
+            # de erro, cortado da janela da regen por desenho -- respondia "Confirmado amor",
+            # justamente a reserva fantasma (trace 71c7196e, 12/08). O silencio aqui e uma decisao,
+            # nao uma falha a recuperar.
             return Command(
                 goto="post_process",
-                update={"messages": [*registro, *remove_stale], **_LIMPA_DISPARO},
+                update={
+                    "messages": [*registro, *remove_stale],
+                    "_mute_por_erro_de_tool": True,
+                    **_LIMPA_DISPARO,
+                },
             )
 
         # Sucesso ou escalada canned: a fala original (ja no state) segue + o registro da extracao.

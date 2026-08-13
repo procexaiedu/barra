@@ -1,10 +1,12 @@
-"""registrar_extracao: NAO enfileira o card loc_pin enquanto `_card_loc_pin` e NotImplemented.
+"""registrar_extracao: enfileira o card loc_pin quando o dominio sinaliza `enviar_pin`.
 
 Sem DB nem LLM: `_executar_idempotente` (o efeito de dominio) e mockado para devolver
-`enviar_pin=True` (o caminho do atendimento interno qualificado), provando que mesmo com o
-sinal ligado a tool nao enfileira `card:loc_pin` — o renderer em workers/envio.py ainda
-levanta NotImplementedError e o job so falharia 5x. O `.coroutine` e a corrotina crua do @tool
-(injeta o runtime fora do schema do LLM), espelhando test_consultar_agenda.py.
+`enviar_pin=True` (o caminho do atendimento interno qualificado). O par deste teste vive em
+`workers/envio.py:_card_loc_pin` — os dois lados ficaram anos desligados (o renderer era
+NotImplementedError, e por isso a tool NAO enfileirava; o efeito liquido era `enviar_pin` setado e
+ninguem consumindo, com o cliente do interno nunca recebendo o ponto de encontro como localizacao).
+O `.coroutine` e a corrotina crua do @tool (injeta o runtime fora do schema do LLM), espelhando
+test_consultar_agenda.py.
 """
 
 from contextlib import asynccontextmanager
@@ -48,8 +50,8 @@ class _Runtime:
         self.state = state if state is not None else {}
 
 
-async def test_enviar_pin_nao_enfileira_loc_pin(monkeypatch: Any) -> None:
-    """Mesmo com enviar_pin=True, nenhum job card:loc_pin e enfileirado (renderer NotImplemented)."""
+async def test_enviar_pin_enfileira_loc_pin(monkeypatch: Any) -> None:
+    """Com enviar_pin=True sai UM job card:loc_pin, com `_job_id` estatico (o ARQ deduplica replay)."""
 
     async def _fake_idempotente(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
         return {"enviar_pin": True, "mensagem": "ok"}
@@ -58,14 +60,43 @@ async def test_enviar_pin_nao_enfileira_loc_pin(monkeypatch: Any) -> None:
 
     redis = AsyncMock()
     redis.enqueue_job = AsyncMock()
+    ctx = _Ctx(redis)
+
+    out = await _chamar(
+        proxima_acao_esperada="confirmar saida do cliente",
+        runtime=_Runtime(ctx),
+    )
+
+    assert out == "ok"
+    pins = [c for c in redis.enqueue_job.call_args_list if c.kwargs.get("tipo") == "loc_pin"]
+    assert len(pins) == 1
+    assert pins[0].kwargs["atendimento_id"] == ctx.atendimento_id
+    assert pins[0].kwargs["_job_id"] == f"card:loc_pin:{ctx.atendimento_id}"
+
+
+async def test_enqueue_de_card_que_falha_nao_mata_o_turno(monkeypatch: Any) -> None:
+    """Redis fora NAO derruba o turno: o efeito de dominio JA commitou.
+
+    Era a assimetria com `escalada.py`, que sempre embrulhou o enqueue: aqui uma excecao de Redis
+    (nao-ToolException) subia pelo `graph.ainvoke` e o cliente ficava sem resposta por causa de um
+    card — com snapshot e bloqueio ja gravados. O cron `reconciliar_cards` entrega o card depois.
+    """
+
+    async def _fake_idempotente(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {"enviar_pin": True, "enviar_aviso_saida": True, "mensagem": "ok"}
+
+    monkeypatch.setattr(extracao, "_executar_idempotente", _fake_idempotente)
+
+    redis = AsyncMock()
+    redis.enqueue_job = AsyncMock(side_effect=ConnectionError("redis fora"))
 
     out = await _chamar(
         proxima_acao_esperada="confirmar saida do cliente",
         runtime=_Runtime(_Ctx(redis)),
     )
 
-    assert out == "ok"
-    assert not any(c.kwargs.get("tipo") == "loc_pin" for c in redis.enqueue_job.call_args_list)
+    assert out == "ok"  # a mensagem do dominio chega ao LLM mesmo com os dois cards perdidos
+    assert redis.enqueue_job.await_count == 2  # tentou os dois, nao parou no primeiro erro
 
 
 async def test_proxima_acao_longa_e_truncada_sem_erro(monkeypatch: Any) -> None:

@@ -161,9 +161,11 @@ def test_fluxo_feliz_persiste_e_pontua_trace(monkeypatch: pytest.MonkeyPatch) ->
     assert turno == "consigo hoje sim\n\nque horas amor?"
 
     assert len(conn.inserts) == 1
-    turno_id, conversa_id, modelo_id, rastro, voz, conduta, comentario = conn.inserts[0]
+    (turno_id, conversa_id, modelo_id, rastro, voz, conduta, dado_duro, comentario) = conn.inserts[
+        0
+    ]
     assert (turno_id, conversa_id, modelo_id) == ("t1:0", CONVERSA, MODELO)
-    assert (rastro, voz, conduta, comentario) == (False, 4, 5, "ok")
+    assert (rastro, voz, conduta, dado_duro, comentario) == (False, 4, 5, False, "ok")
 
     # 3 eixos no MESMO trace do turno
     assert scores == [

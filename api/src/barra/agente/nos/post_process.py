@@ -60,7 +60,21 @@ async def post_process(state: EstadoAgente, runtime: Runtime[ContextAgente]) -> 
         None,
     )
     alvo = mensagens if corte is None else mensagens[corte + 1 :]
-    vazias: list[AIMessage] = [AIMessage(id=m.id, content="") for m in alvo]
+    # PRESERVA usage_metadata + response_metadata, mesma invariante do `_zerar_turno` do
+    # output_guard: `add_messages` SUBSTITUI a mensagem de mesmo id (nao faz merge), entao recriar
+    # sem o usage apagava os tokens do turno do State. `custo_chat_turno_brl` soma justamente por
+    # `usage_metadata` -> dava 0 -> `acumular_custo_atendimento` virava no-op (exige custo > 0) e o
+    # turno pausado queimava DeepSeek sem entrar em `atendimentos.custo_ia_brl`. De quebra, sem o
+    # usage essas mensagens sumiam de `mensagens_do_turno` e o trace perdia desfecho/raciocinio.
+    vazias: list[AIMessage] = [
+        AIMessage(
+            id=m.id,
+            content="",
+            usage_metadata=m.usage_metadata,
+            response_metadata=m.response_metadata,
+        )
+        for m in alvo
+    ]
 
     if corte is None:
         # Escalada silenciosa (analise prod 22/07): quando a pausa nasce de uma GUARDA dentro do

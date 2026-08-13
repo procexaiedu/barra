@@ -23,6 +23,7 @@ from langchain_core.messages import BaseMessage
 
 from barra.agente._disciplina import periodo_da_saudacao
 
+from .._texto_turno import e_marca_pausa
 from ._janela_do_turno import _burst_do_cliente, _e_afirmacao_curta, _texto_msg
 
 # Conteúdo de mídia spotlighted (SEC-11/SEC-PI-03): transcrição de áudio e legenda de imagem
@@ -179,9 +180,15 @@ def duracao_dita_na_janela(mensagens: list[BaseMessage]) -> bool:
     Reusa os MESMOS regexes numéricos do `duracao_pedida_no_burst` — a divisória de propósito é a
     janela, não o vocabulário. Falso-positivo aqui só cala uma sondagem (falha benigna); um
     falso-negativo faria a IA perguntar o tempo que ele já disse, que é o tique a evitar.
+
+    A MARCA DE PAUSA é pulada: ela entra na janela como HumanMessage sintética
+    ("[pausa de 8h na conversa]", prepare_context._texto_marca_pausa) e o `_RE_DURACAO_HORAS`
+    casava o "8h" dela como se o cliente tivesse nomeado a duração. Toda marca de 6h a 47h
+    disparava — ou seja, quase toda conversa retomada, que é justamente onde a sondagem de tempo
+    mais importa. Falha benigna na teoria, sistemática na prática.
     """
     for m in mensagens:
-        if m.type != "human":
+        if m.type != "human" or e_marca_pausa(m):
             continue
         texto = _texto_msg(m)
         if not texto or _RE_SPOTLIGHT.search(texto):

@@ -133,21 +133,25 @@ async def escalar(
     # Falha de enqueue NAO pode quebrar a escalada (ja commitada): logamos e o cron
     # `reconciliar_cards` (workers/reconciliacao.py) entrega o card como rede de seguranca —
     # handoff silencioso e o pior caso.
+    #
+    # Sem `escalada_id` nao ha card: `abrir_handoff` nao criou nada porque o atendimento ja estava
+    # escalado, e o card daquela escalada ja foi entregue (o `_job_id` a deduplicaria de todo jeito).
     arq = runtime.context.redis  # ArqRedis: enqueue_job
-    try:
-        await arq.enqueue_job(
-            "enviar_card",
-            tipo="escalada",
-            escalada_id=str(resultado["escalada_id"]),
-            atendimento_id=atendimento_id,
-            _job_id=f"card:escalada:{resultado['escalada_id']}",
-        )
-    except Exception:
-        _logger.warning(
-            "escalar_enqueue_card_falhou escalada_id=%s",
-            resultado["escalada_id"],
-            exc_info=True,
-        )
+    if resultado.get("escalada_id"):
+        try:
+            await arq.enqueue_job(
+                "enviar_card",
+                tipo="escalada",
+                escalada_id=str(resultado["escalada_id"]),
+                atendimento_id=atendimento_id,
+                _job_id=f"card:escalada:{resultado['escalada_id']}",
+            )
+        except Exception:
+            _logger.warning(
+                "escalar_enqueue_card_falhou escalada_id=%s",
+                resultado["escalada_id"],
+                exc_info=True,
+            )
 
     return (
         f"Escalada aberta para {resultado['responsavel']}. Próxima fala virá quando "
@@ -158,10 +162,19 @@ async def escalar(
 async def _executar_handoff(
     conn: AsyncConnection[Any], atendimento_id: str, payload: dict[str, Any]
 ) -> dict[str, Any]:
-    """Wraps `abrir_handoff` via o mapping de motivo e devolve `escalada_id` + `responsavel`."""
+    """Wraps `abrir_handoff` via o mapping de motivo e devolve `escalada_id` + `responsavel`.
+
+    `abrir_handoff` e idempotente por escalada ABERTA e devolve `None` quando nao criou nada (ja
+    havia uma de pe). Esse caso NAO e sucesso disfarcado: nada do que a IA acabou de escrever foi
+    gravado, e antes ele passava despercebido — o codigo pegava o id pela escalada mais recente do
+    atendimento (a antiga), contava `AGENTE_ESCALADA` de um motivo que nao existia na tabela e
+    enfileirava o card com o `_job_id` daquela escalada, que o ARQ ja tinha entregado: a Coordenacao
+    nunca recebia o motivo novo. Agora o `None` e explicito, `reaproveitada` viaja no resultado (o
+    caller nao re-enfileira card) e a metrica so conta o que virou linha.
+    """
     motivo: str = payload["motivo"]
     tipo, responsavel = mapear_motivo(motivo)
-    await abrir_handoff(
+    escalada_id = await abrir_handoff(
         conn,
         atendimento_id=UUID(atendimento_id),
         responsavel=responsavel,
@@ -172,15 +185,31 @@ async def _executar_handoff(
         autor="IA",
         observacao=motivo,  # motivo LITERAL preservado (09 §4.3)
     )
-    # Metrica na camada do agente (NAO em abrir_handoff, compartilhada). Diverge de 04 §3.6
-    # ("abrir_handoff emite") — arbitro = codigo shipado. Dentro do executor idempotente: um
-    # replay do turno (mesma chave) nao reexecuta e nao re-conta.
+    if escalada_id is None:
+        # O atendimento JA esta com um responsavel. A conduta devolvida ao LLM e a mesma (nao
+        # escrever mais texto), mas nada foi contado e nenhum card sai.
+        _logger.info(
+            "escalar_reaproveitou_handoff_aberto atendimento_id=%s motivo=%s",
+            atendimento_id,
+            motivo,
+        )
+        res = await conn.execute(
+            "SELECT responsavel FROM barravips.escaladas"
+            " WHERE atendimento_id = %s AND fechada_em IS NULL"
+            " ORDER BY aberta_em DESC LIMIT 1",
+            (atendimento_id,),
+        )
+        row = await res.fetchone()
+        return {
+            "escalada_id": None,
+            "responsavel": (row or {}).get("responsavel") or responsavel,
+            "reaproveitada": True,
+        }
+    # Metrica na camada do agente (NAO em abrir_handoff, compartilhada). Dentro do executor
+    # idempotente: um replay do turno (mesma chave) nao reexecuta e nao re-conta.
     AGENTE_ESCALADA.labels(mapear_bucket(motivo), motivo).inc()
-    res = await conn.execute(
-        "SELECT id, responsavel FROM barravips.escaladas"
-        " WHERE atendimento_id = %s ORDER BY aberta_em DESC LIMIT 1",
-        (atendimento_id,),
-    )
-    row = await res.fetchone()
-    assert row is not None  # a escalada foi inserida nesta mesma transacao
-    return {"escalada_id": str(row["id"]), "responsavel": row["responsavel"]}
+    return {
+        "escalada_id": str(escalada_id),
+        "responsavel": responsavel,
+        "reaproveitada": False,
+    }

@@ -76,7 +76,13 @@ class Settings(BaseSettings):
     # `deepseek-chat`/`deepseek-reasoner` foram aposentados em 2026-07-24 15:59 UTC; hoje devolvem
     # HTTP 400). O id NAO fixa snapshot: em 2026-07-31 o provider promoveu o V4 Flash oficial
     # (`DeepSeek-V4-Flash-0731`, mesma arquitetura, post-training novo) atras do MESMO id — nao ha id
-    # datado p/ pinar, entao troca de peso chega sem deploy nosso. O id cru tem thinking LIGADO
+    # datado p/ pinar, entao troca de peso chega sem deploy nosso. RECONFIRMADO em 12/08 sondando a
+    # API: `GET /models` lista SO `deepseek-v4-flash` e `deepseek-v4-pro`, e tanto `-0731` quanto
+    # `-latest` sao rejeitados com HTTP 400 ("supported API model names are..."). Como pinar e
+    # impossivel, a defesa e DETECTAR: a resposta traz `system_fingerprint` com build/quantizacao
+    # (`fp_a18b46594c_prod0820_fp8_kvcache_20260402`), publicado em `AGENTE_MODELO_FINGERPRINT`
+    # (agente/_instrumentar.registrar_fingerprint) e vigiado por `AgenteModeloTrocouDeBuild`.
+    # O id cru tem thinking LIGADO
     # por default (doc oficial: "the thinking toggle defaults to enabled") -> criar_chat_deepseek
     # passa `extra_body={"thinking": {"type": "disabled"}}` p/ travar non-thinking (preserva
     # structured output #2/#3 e a temperature 1.3 do chat #1). Vision (Pix OCR) e audio (STT) seguem
@@ -145,6 +151,10 @@ class Settings(BaseSettings):
 
     # Cotacao USD->BRL p/ a metrica AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta em settings.custo_alvo_brl).
     # Reajustar por settings em vez de hardcoded p/ nao requerer deploy a cada flutuacao cambial.
+    # ATENCAO (auditado 12/08): o compose de prod NAO passa USD_BRL_COTACAO, entao producao roda
+    # neste default desde sempre. Toda comparacao de `AGENTE_CUSTO_TURNO_BRL` contra
+    # `custo_alvo_brl` (e o alerta `AgenteCustoTurnoAcimaDoAlvo`) esta ancorada num cambio
+    # congelado: o vies e silencioso e cresce com a distancia do valor real.
     usd_brl_cotacao: float = Field(
         default=5.50,
         gt=0.0,

@@ -104,7 +104,10 @@ async def test_bolha_do_e2e_carimba_a_cotacao_medida() -> None:
     query, params = conn.carimbos[0]
     # mesmos guards de prod: first-write-wins + só na fase de venda
     assert "cotacao_enviada_em IS NULL" in query
-    assert "estado IN ('Triagem', 'Qualificado')" in query
+    # `Novo` entra junto (12/08): a IA cota na PRIMEIRA bolha, quando o atendimento ainda nem saiu
+    # de `Novo` — sem ele o carimbo caía no vazio e o `CotacaoAusente` revertia o turno em que o
+    # cliente cravava a hora, dois turnos depois.
+    assert "estado IN ('Novo', 'Triagem', 'Qualificado')" in query
     assert params == (aid,)
 
 
