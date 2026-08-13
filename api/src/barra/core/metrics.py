@@ -242,6 +242,35 @@ AGENTE_ACEITE_GRAVADO = Counter(
     "Aceite do valor do cliente lido da bolha despachada (write-time): gravou ou nao",
     ["resultado"],
 )
+# Bloco do prompt do turno que DEGRADOU em silencio. O `prepare_context` tem quatro fail-closed
+# intencionais que devolvem None e apagam um bloco inteiro da cauda -- endereco do degrau sem
+# numero, base do pacote no patamar, <pacote_em_pauta> e o salto na mesa. Todos sao a decisao
+# certa (numero errado no prompt e pior que bloco nenhum), mas nenhum deles deixa rastro: um
+# cadastro fora de formato, uma duracao que virou ambigua ou um regex que parou de casar apagam a
+# mesma coisa que "este turno nao precisava do bloco", e a venda perdida nao tem como ser
+# explicada depois.
+#
+# FORMA: UM counter com label de desfecho (`presente`|`ausente`), nao dois counters. O contador so
+# do lado ausente e inutil para alertar -- a ausencia e LEGITIMA na maioria dos turnos (o
+# `<pacote_em_pauta>` quase nunca renderiza), entao o valor absoluto sobe junto com o TRAFEGO e nao
+# com a quebra. O sinal e a RAZAO ausente/(ausente+presente) por bloco, e com um unico nome de
+# serie o denominador e `sum by (bloco)` sem label de desfecho: uma divisao dentro da MESMA serie,
+# que nao vira vetor vazio quando um dos lados ainda nao existe (o join por nome de metrica, com
+# dois counters, some inteiro no primeiro dia de uma serie nova). Cardinalidade fixa: 4 blocos x 2
+# desfechos = 8 series.
+#
+# So conta quando o bloco foi DE FATO tentado: retorno precoce de "nao se aplica a este turno"
+# (patamar cheio, sem duracao no belief, sem endereco cadastrado) fica fora dos DOIS lados -- e
+# exatamente o ruido que a razao precisa nao ter para significar alguma coisa.
+#
+# O nome da constante fala da intencao (e a AUSENCIA que se caca); o nome da SERIE fala do que ela
+# conta de verdade (os dois lados), porque `..._ausente_total{desfecho="presente"}` seria uma
+# armadilha para quem escrever o PromQL depois.
+AGENTE_CONTEXTO_BLOCO_AUSENTE = Counter(
+    "agente_contexto_bloco_total",
+    "bloco do contexto do turno que resolveu ou degradou em silencio (fail-closed do prepare_context)",
+    ["bloco", "desfecho"],
+)
 AGENTE_TURNO_TOKENS = Counter(
     "agente_turno_tokens_total",
     "Tokens por turno por tipo: input|output|cache_read|cache_write. Rotulado por "

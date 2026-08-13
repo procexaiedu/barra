@@ -208,8 +208,12 @@ async def gerar_par_funil(
         "historico": [],
         "turno_cliente": ponto.turno_cliente,
     }
-    cen = await seedar(conn, fixture)
-    await _seed_historico_fiel(conn, cen, ponto.contexto)
+    # A MESMA ancora do turno tem de valer para o historico: com o clock injection a fala do
+    # cliente nasce em `agora_utc` (`_inserir_mensagem`), entao um contexto preso ao `now()` do
+    # banco poria o turno ATRAS dele sempre que a ancora estivesse no passado (o default do grid e
+    # "hoje 09:00 BRT" — toda corrida rodada depois das 09h).
+    cen = await seedar(conn, fixture, agora=agora_utc)
+    await _seed_historico_fiel(conn, cen, ponto.contexto, agora=agora_utc)
     t0 = time.monotonic()
     res = await rodar_turno(
         conn,

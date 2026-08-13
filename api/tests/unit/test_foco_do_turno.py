@@ -26,6 +26,14 @@ from barra.agente.persona import _env, render_foco_do_turno
 
 _AGORA_UTC = datetime(2026, 8, 10, 17, 30, tzinfo=UTC)
 
+# Cardápio vazio de propósito neste arquivo: os testes de injeção medem o `<pacote_em_pauta>` e a
+# re-ancoragem pela duração do burst, que saem de `precos_por_horas` (as linhas da TABELA), e o
+# degrau do endereço, que sai do estado. Nenhum deles lê `cardapio_rows` — o cardápio resolvido
+# contra o burst tem casa própria (test_foco_fetiches_e_menu.py, test_oferta_condicionada_ao_dia).
+# `{}` afirma "esta modelo não tem cadastro de fetiche/programa"; o antigo default `None` era a
+# omissão que apagava nove campos do foco sem erro nenhum.
+_SEM_CARDAPIO: dict[str, list[dict[str, Any]]] = {}
+
 
 class _FakeConnVazio:
     """Vazio em tudo: o atendimento chega por kwarg e o relógio vem injetado."""
@@ -328,6 +336,7 @@ async def test_foco_entra_entre_contexto_e_fala_e_a_fala_segue_por_ultimo() -> N
         atendimento={"estado": "Qualificado", "tipo_atendimento": "interno"},
         local_endereco_raw="Av. Aquidabã, 130 - Centro, Campinas",
         local_nome_raw="Hotel Sirius",
+        cardapio_rows=_SEM_CARDAPIO,
     )
     conteudo = anexadas[-1].content
     assert isinstance(conteudo, str)
@@ -354,6 +363,7 @@ async def test_sem_deteccao_a_cauda_sai_sem_foco() -> None:
         _ctx(),
         msgs,
         atendimento={"estado": "Novo"},
+        cardapio_rows=_SEM_CARDAPIO,
     )
     conteudo = anexadas[-1].content
     assert isinstance(conteudo, str)
@@ -368,6 +378,7 @@ async def test_pacote_em_pauta_resolvido_do_cardapio_com_um_preco() -> None:
         [HumanMessage(content="pode ser 1h então", id="h1")],
         atendimento={"estado": "Triagem", "duracao_horas": Decimal("1")},
         precos_por_horas={1.0: [Decimal("500.00")]},
+        cardapio_rows=_SEM_CARDAPIO,
     )
     assert contexto.pacote_em_pauta == {"horas": "1", "preco": "500"}
 
@@ -379,6 +390,7 @@ async def test_pacote_em_pauta_fail_closed_com_dois_precos_ou_valor_ja_cotado() 
         [HumanMessage(content="1h", id="h1")],
         atendimento={"estado": "Triagem", "duracao_horas": Decimal("1")},
         precos_por_horas={1.0: [Decimal("400"), Decimal("700")]},
+        cardapio_rows=_SEM_CARDAPIO,
     )
     assert ambiguo.pacote_em_pauta is None
 
@@ -392,6 +404,7 @@ async def test_pacote_em_pauta_fail_closed_com_dois_precos_ou_valor_ja_cotado() 
             "valor_acordado": Decimal("500"),
         },
         precos_por_horas={1.0: [Decimal("500")]},
+        cardapio_rows=_SEM_CARDAPIO,
     )
     assert ja_cotado.pacote_em_pauta is None
 
@@ -593,6 +606,7 @@ async def test_duracao_do_burst_reancora_o_pacote_em_pauta() -> None:
         [HumanMessage(content="quanto ficaria 3h?", id="h1")],
         atendimento={"estado": "Qualificado", "duracao_horas": Decimal("1")},
         precos_por_horas={1.0: [Decimal("500")], 3.0: [Decimal("1200")]},
+        cardapio_rows=_SEM_CARDAPIO,
     )
     # `origem="ele"` porque a TROCA veio do burst dele: ela ainda não disse 1200 (loop-massa r3,
     # prompt #3 — o <valor_cotado> rotulava esse número como "preço que VOCÊ já cotou").
@@ -611,6 +625,7 @@ async def test_duracao_do_burst_com_valor_fechado_de_outra_duracao_reancora() ->
             "valor_acordado": Decimal("500"),
         },
         precos_por_horas={1.0: [Decimal("500")], 6.0: [Decimal("3000")]},
+        cardapio_rows=_SEM_CARDAPIO,
     )
     assert contexto.pacote_em_pauta == {"horas": "6", "preco": "3000", "origem": "ele"}
 
@@ -622,6 +637,7 @@ async def test_duracao_do_burst_fail_closed_sem_preco_unico() -> None:
         [HumanMessage(content="quanto as 2h?", id="h1")],
         atendimento={"estado": "Triagem"},
         precos_por_horas={2.0: [Decimal("700"), Decimal("1400")]},
+        cardapio_rows=_SEM_CARDAPIO,
     )
     assert contexto.pacote_em_pauta is None
 

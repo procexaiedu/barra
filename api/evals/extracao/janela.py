@@ -14,6 +14,7 @@ segue sendo a fonte de verdade, e a trajetoria (nivel de impacto) roda contra EL
 
 from __future__ import annotations
 
+from datetime import time
 from decimal import Decimal
 from typing import Any
 
@@ -85,7 +86,7 @@ def variaveis_do_bloco(snapshot: dict[str, Any]) -> dict[str, Any]:
         "tipo_atendimento": snapshot.get("tipo_atendimento"),
         "intencao": snapshot.get("intencao"),
         "data_desejada": snapshot.get("data_desejada"),
-        "horario_desejado": snapshot.get("horario_desejado"),
+        "horario_desejado": _hora_seca(snapshot.get("horario_desejado")),
         "horario_evidenciado": bool(snapshot.get("horario_evidenciado")),
         "endereco": snapshot.get("endereco"),
         "bairro": snapshot.get("bairro"),
@@ -96,6 +97,21 @@ def variaveis_do_bloco(snapshot: dict[str, Any]) -> dict[str, Any]:
         "urgencia": snapshot.get("urgencia"),
         "fetiches_do_cadastro": tuple(snapshot.get("fetiches_do_cadastro") or ()),
     }
+
+
+def _hora_seca(valor: Any) -> time | None:
+    """Horario do snapshot (str "HH:MM"/"HH:MM:SS", `time`, None) no tipo que o template EXIGE.
+
+    O snapshot da bancada vem de JSON, entao a hora chega string; em prod ela vem do banco como
+    `time` (`contexto.horario_desejado`). Desde que o template passou a formatar com
+    `.strftime('%H:%M')` — a correcao do eco de `17:00:00` que fazia o extrator ecoar o repr do
+    `time` e o campo ser descartado em silencio — a string derruba a montagem da janela com
+    `UndefinedError`, e a bancada inteira para de rodar. Converter aqui mantem a bancada exercitando
+    o template DE PROD em vez de uma copia divergente.
+    """
+    if valor is None or isinstance(valor, time):
+        return valor
+    return time.fromisoformat(str(valor))
 
 
 def _numero_seco(valor: Any) -> str | None:

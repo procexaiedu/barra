@@ -71,6 +71,11 @@ async def _variaveis_publicadas() -> dict[str, Any]:
         _ctx(),
         [],
         atendimento={"estado": "Qualificado"},
+        # Cardápio vazio de propósito: o teste compara CONJUNTOS DE CHAVES (as variáveis que o
+        # template lê vs. as que o dicionário publica), e `como_variaveis()` publica toda chave do
+        # `ContextoDoTurno` independente de valor. Um cardápio populado mudaria os valores e
+        # nenhuma das chaves — não discriminaria nada a mais.
+        cardapio_rows={},
     )
     return contexto.como_variaveis()
 

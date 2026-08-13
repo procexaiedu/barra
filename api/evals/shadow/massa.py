@@ -23,6 +23,7 @@ import json
 import os
 import random
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any
 from uuid import uuid4
 
@@ -183,7 +184,11 @@ async def extrair_pontos_cotacao(
 
 
 async def _seed_historico_fiel(
-    conn: AsyncConnection[dict[str, Any]], cen: Any, contexto: list[dict[str, str]]
+    conn: AsyncConnection[dict[str, Any]],
+    cen: Any,
+    contexto: list[dict[str, str]],
+    *,
+    agora: datetime | None = None,
 ) -> None:
     """Insere o historico FIEL: `barravips.uuidv7()` + `created_at` crescente (mais antigo primeiro).
 
@@ -191,8 +196,12 @@ async def _seed_historico_fiel(
     `created_at DESC, id DESC`, mas o `_inserir_mensagem` do harness grava `now()` (empatado) +
     `uuid4()` (aleatorio) -> ordem aleatoria -> o agente recumprimenta/perde o fio (a "amnesia" do
     replay cru, ver replay_agente_fiel.py). Cada bolha aqui ganha um instante distinto no passado,
-    deixando o turno_cliente (inserido por rodar_turno com `now()`) como o mais recente.
-    """
+    deixando o turno_cliente (inserido por rodar_turno) como o mais recente.
+
+    `agora` = o MESMO relogio injetado que vai para o `rodar_turno`. Tem de ser o mesmo, senao o
+    embaralhamento volta pela outra ponta: com o clock injection o turno_cliente nasce em `agora`
+    (`_inserir_mensagem`) e, se o historico ficasse no `now()` do banco, uma ancora no PASSADO
+    (o grid usa "hoje 09:00 BRT", rodado a tarde) poria o turno atras do proprio historico."""
     n = len(contexto)
     for i, t in enumerate(contexto):
         seg = (n - i) * 2  # mais antigo = offset maior (mais no passado)
@@ -202,7 +211,7 @@ async def _seed_historico_fiel(
                 (id, conversa_id, atendimento_id, direcao, tipo, conteudo,
                  evolution_message_id, created_at)
             VALUES (barravips.uuidv7(), %s, %s, %s::barravips.direcao_mensagem_enum, 'texto', %s,
-                    %s, now() - make_interval(secs => %s))
+                    %s, COALESCE(%s::timestamptz, now()) - make_interval(secs => %s))
             """,
             (
                 cen.conversa_id,
@@ -210,6 +219,7 @@ async def _seed_historico_fiel(
                 t["direcao"],
                 t["texto"],
                 f"fiel-{uuid4().hex}",
+                agora,
                 seg,
             ),
         )

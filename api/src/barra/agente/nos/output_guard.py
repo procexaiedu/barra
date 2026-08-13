@@ -2664,6 +2664,18 @@ async def _output_guard(
 
     # Etapa 2: LLM-judge de AUP vinculante sobre texto + legendas (inclusive texto REGENERADO --
     # a regen nao pula o judge). Falha de infra -> default seguro.
+    #
+    # NAO isente aqui a bolha de contato da parceira. A tentacao aparece toda vez que um turno de
+    # encaminhamento e barrado com `system_leak` (12/08), e a leitura e sempre a mesma: "o judge
+    # reprovou um texto que o SISTEMA montou". Ele nao reprovou -- essa bolha NUNCA chega aqui. Ela
+    # nasce depois do grafo inteiro, no `workers/coordenador.py`, anexada aos `chunks` ja prontos; o
+    # que o guard ve e `extrair_texto_do_turno`, que so agrega AIMessage com `usage_metadata`, ou
+    # seja, producao do LLM. Um carve-out por FORMA de texto aqui seria pior que inutil: o
+    # `fullmatch` de `eh_bolha_de_contato_da_parceira` aceita 39 chars livres no slot do nome, entao
+    # o modelo -- que ve a forma canonica no proprio historico depois do 1o encaminhamento -- poderia
+    # escrever `contato da Yasmin, ela cobra 800: +5511987654321` e PULAR o judge inteiro.
+    # Quando um turno de encaminhamento e barrado, a causa esta na fala do modelo (narrar a entrega)
+    # e o conserto e no prompt -- ver `prompts/contexto_dinamico.md.j2` e `ferramentas/parceria.py`.
     # Só anexa o kwarg quando HÁ contexto factual: sem endereço liberado a chamada fica
     # byte-idêntica à message-only de antes (nada muda no caso comum, e o prefixo do judge segue
     # cacheado). `_contexto_factual_aup` devolve None nesse caso.

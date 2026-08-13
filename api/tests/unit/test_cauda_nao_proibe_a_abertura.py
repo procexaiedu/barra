@@ -60,6 +60,10 @@ async def _bloco(mensagens: list[BaseMessage], estado: str) -> str:
         _ctx(),
         mensagens,
         atendimento={"estado": estado},
+        # Cardápio vazio de propósito: o que se mede aqui é a abertura/recumprimento na cauda, que
+        # sai do detector de conversa em andamento — nenhuma das falas do arquivo cita fetiche,
+        # serviço ou composição, então nada do cardápio entraria no bloco de qualquer forma.
+        cardapio_rows={},
     )
     return "\n".join(str(m.content) for m in msgs)
 

@@ -22,6 +22,10 @@ from langchain_core.messages import BaseMessage
 from langchain_core.utils.function_calling import convert_to_openai_tool
 
 from barra.agente.ferramentas.extracao import ExtracaoPayload, registrar_extracao
+
+# Privados de proposito: a bancada so mede o que chega ao banco se exercitar o saneamento DE PROD,
+# nao uma copia dele (mesmo criterio de `janela.py`).
+from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
 from barra.core.llm import criar_chat_deepseek
 from barra.settings import get_settings
 
@@ -106,6 +110,12 @@ def normalizar_payload(args: dict[str, Any]) -> dict[str, Any]:
 
     Mesma revalidacao do corpo da tool (`ExtracaoPayload` + `model_dump(exclude_defaults=True)`):
     e o que garante que o payload do extrator real e o do golden set cheguem iguais ao replay.
+
+    O filtro do `runtime` continua aqui e continua sendo o ULTIMO a valer: o `ExtratorDeepSeek` ja
+    saneia antes (e a poda ao schema tira o `runtime`, que nao e campo do LLM), mas os extratores
+    `gravado`/`roteirizado` NAO passam por saneamento nenhum — tirar o filtro daqui deixaria essa
+    porta aberta. Descartar duas vezes e inofensivo (idempotente); descartar zero vez quebraria a
+    revalidacao com `extra="forbid"`.
     """
     dados = {k: v for k, v in args.items() if k != "runtime"}
     dados.setdefault("proxima_acao_esperada", _ACAO_NAO_ROTULADA)
@@ -172,7 +182,7 @@ class ExtratorDeepSeek:
     """O extrator de verdade: DeepSeek V4 Flash direto, bind forcado na `registrar_extracao`.
 
     ⚠️ §0: cada chamada gasta credito real. A tool NAO e executada (nada e escrito no banco) —
-    a bancada le os args da tool call, que e o que o nivel campo mede.
+    a bancada le os args da tool call, ja SANEADOS, que e o que o nivel campo mede.
     """
 
     nome = "deepseek"
@@ -182,10 +192,23 @@ class ExtratorDeepSeek:
         self._chat = chat.bind_tools(
             [esquema_extracao(variante.descricao_aceite)], tool_choice=_TOOL_EXTRACAO
         )
+        # Schema do saneamento lido UMA vez, como o `no_extrair` faz na factory: montar o JSON
+        # Schema do pydantic por item multiplicaria um custo que nao e do que se quer medir. A
+        # `descricao_aceite` da variante nao entra aqui de proposito — o saneamento olha estrutura
+        # (chaves, enums, tipos), nunca texto de descricao, entao o mesmo schema serve a todas.
+        self._schema = _schema_da_extracao(registrar_extracao)
 
     async def __call__(self, item: ItemGolden, janela: list[BaseMessage]) -> dict[str, Any]:
         resposta = await self._chat.ainvoke(janela)
         chamadas = getattr(resposta, "tool_calls", None) or []
         # Sem tool_call util (truncou/recusou): payload vazio — o mesmo efeito do guard do no
         # `extrair`, que descarta o forcado em vez de persistir payload parcial.
-        return dict(chamadas[0].get("args") or {}) if chamadas else {}
+        if not chamadas:
+            return {}
+        # Saneamento DE PROD antes de medir. Lendo os args CRUS a bancada media o que o LLM cuspiu,
+        # nao o que chega ao banco — e as duas coisas divergem justamente nos turnos que mais
+        # custam: `horario_desejado="22h"` e `aceita_valor` achatado no topo sao ValidationError no
+        # caminho vivo (o turno inteiro morre) e o no os RECUPERA, enquanto o enum com typo ele
+        # DESCARTA. Medir o cru pune o extrator por erro que o saneamento conserta e o absolve do
+        # campo que ele perde em silencio — nos dois sentidos, o numero nao descreve producao.
+        return _args_saneados(chamadas[0], self._schema)

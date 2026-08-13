@@ -54,7 +54,11 @@ from langgraph.types import Command
 from psycopg import AsyncConnection
 
 from barra.core.db import conexao
-from barra.core.metrics import AGENTE_ACEITE_DO_CLIENTE, PERSONA_DRIFT_REMINDER
+from barra.core.metrics import (
+    AGENTE_ACEITE_DO_CLIENTE,
+    AGENTE_CONTEXTO_BLOCO_AUSENTE,
+    PERSONA_DRIFT_REMINDER,
+)
 from barra.dominio.agenda.service import antecedencia_min_por_tipo
 from barra.dominio.atendimentos.service import (
     PRECO_MINIMO_SCAN,
@@ -674,6 +678,25 @@ def _libera_numero_do_endereco(estado: str | None, *, interesse: bool = False) -
     return estado in _ESTADOS_COM_NUMERO
 
 
+def _contar_bloco(bloco: str, *, presente: bool) -> None:
+    """Carimba o desfecho de um fail-closed do contexto (`AGENTE_CONTEXTO_BLOCO_AUSENTE`).
+
+    Os quatro fail-closed deste módulo apagam um bloco INTEIRO da cauda devolvendo None, e a
+    decisão é a certa — número errado no prompt é pior que bloco nenhum. O que não existia era o
+    sinal: nada distinguia "este turno não pedia o bloco" de "o cadastro/detector quebrou e o
+    bloco sumiu". Conta os DOIS lados porque só a razão ausente/(ausente+presente) por bloco tem
+    leitura (ver o comentário da métrica em core/metrics.py); o valor absoluto do lado ausente
+    acompanha o tráfego, não a quebra.
+
+    Chamar SÓ onde o bloco foi de fato tentado: o retorno precoce de "não se aplica" (patamar
+    cheio, belief sem duração, cadastro sem endereço) fica fora dos dois lados — é o ruído que
+    tornaria a razão ilegível."""
+    # Labels POSICIONAIS (ordem `bloco`, `desfecho`), como o resto do repo: o stub `_Metric` que
+    # o `core/metrics` instala quando `prometheus_client` não está no ambiente aceita só
+    # posicionais — com kwargs a métrica derrubaria o turno justamente onde ela não existe.
+    AGENTE_CONTEXTO_BLOCO_AUSENTE.labels(bloco, "presente" if presente else "ausente").inc()
+
+
 def _endereco_do_degrau_sem_numero(endereco: str | None) -> str | None:
     """O endereço como a IA o recebe antes de o encontro estar de pé — ou None quando o número não
     pôde ser removido com segurança.
@@ -684,9 +707,14 @@ def _endereco_do_degrau_sem_numero(endereco: str | None) -> str | None:
     conduta válida. Devolver o endereço intacto seria pior que antes: o bloco afirmaria "SEM o
     número" com o número dentro."""
     sem_numero = _endereco_sem_numero(endereco)
-    if sem_numero and any(c.isdigit() for c in _RE_CEP.sub("", sem_numero)):
-        return None
-    return sem_numero
+    seguro = not (sem_numero and any(c.isdigit() for c in _RE_CEP.sub("", sem_numero)))
+    # Só com endereço cadastrado o bloco foi tentado: sem cadastro não há degrau a degradar (o
+    # `<local_de_encontro>` já não sairia), e contar isso afogaria a razão em "ausente" legítimo.
+    # `bloco="local_de_encontro"` ausente subindo = cadastro fora do formato do Google, e a IA
+    # falando só a região onde deveria dar rua e bairro.
+    if endereco:
+        _contar_bloco("local_de_encontro", presente=seguro)
+    return sem_numero if seguro else None
 
 
 def _endereco_sem_numero(endereco: str | None) -> str | None:
@@ -853,7 +881,7 @@ async def _anexar_contexto_dinamico(
     local_endereco_raw: str | None = None,
     local_nome_raw: str | None = None,
     precos_por_horas: dict[float, list[Decimal]] | None = None,
-    cardapio_rows: dict[str, list[dict[str, Any]]] | None = None,
+    cardapio_rows: dict[str, list[dict[str, Any]]],
 ) -> tuple[list[BaseMessage], ContextoDoTurno, PecasDoTurno]:
     """Resolve o contexto dinâmico do turno e concatena no último HumanMessage (02 §5).
 
@@ -867,6 +895,16 @@ async def _anexar_contexto_dinamico(
     `_carregar_bp3`) chegam prontos p/ evitar re-leituras da mesma PK. Nos testes que chamam direto
     sem eles, os defaults valem (atendimento vazio, sem local, max 0, sem tag de cardápio vazio,
     de menage nem de vídeo chamada).
+
+    `cardapio_rows` é OBRIGATÓRIO (kw-only, sem default) e não aceita None: ele carrega NOVE campos
+    do `<foco_do_turno>` — `fetiches_do_cadastro`, `fetiches_em_pauta`, `inclusos_nomes`,
+    `pediu_restricoes`, `menu_primeira_cotacao`, `composicao_em_pauta`, `composicao_total`, o bloco
+    inteiro da parceira (ADR-0042) e a oferta condicionada ao dia (`_salto_na_mesa`). Enquanto ele
+    tinha default `None` a produção passava o dict e qualquer outro chamador (eval, harness, teste)
+    perdia os nove SEM um único erro — um prompt silenciosamente mais pobre, medido só como venda
+    perdida. Modelo sem cardápio existe e é dado legítimo: passe `{}` (ou as chaves com listas
+    vazias), nunca `None`. Chamador que não exercita cardápio nenhum passa `{}` explicitamente — o
+    `{}` é uma afirmação ("esta modelo não tem cardápio"), o default era uma omissão.
 
     Concatena no ÚLTIMO HumanMessage (a msg atual do cliente), ANTES da fala dele: a ordem final da
     cauda é contexto dinâmico → fala do cliente (o lembrete é prependado depois, em
@@ -917,14 +955,16 @@ async def _anexar_contexto_dinamico(
     # "Inversão" — `registrar_fetiches_do_fechamento` casa por nome exato normalizado e descarta o
     # resto em silêncio. Os nomes viajam no `<ja_registrado>`, ANTES do render das peças abaixo.
     # Só o extrator os lê; o contexto dinâmico do chat já tem a tabela inteira. Zero query nova
-    # (linhas que o `_carregar_bp3` já leu) e fail-closed: sem `cardapio_rows`, tupla vazia.
-    if cardapio_rows is not None:
-        contexto = replace(
-            contexto,
-            fetiches_do_cadastro=tuple(
-                f["nome"] for f in (cardapio_rows.get("fetiches") or []) if f.get("nome")
-            ),
-        )
+    # (linhas que o `_carregar_bp3` já leu). Incondicional desde que `cardapio_rows` virou
+    # obrigatório: cardápio vazio continua dando tupla vazia (e o `<ja_registrado>` omite a tag),
+    # mas isso agora é o CADASTRO dizendo que não há fetiche, não um chamador que esqueceu de
+    # passar o dict.
+    contexto = replace(
+        contexto,
+        fetiches_do_cadastro=tuple(
+            f["nome"] for f in (cardapio_rows.get("fetiches") or []) if f.get("nome")
+        ),
+    )
     # Peças do turno p/ o State (PecasDoTurno): renderizadas AQUI, ANTES do A2 abaixo. O bloco
     # <ja_registrado> descreve o que está GRAVADO, e o A2 assume o dia sem persistir — apresentar
     # essa suposição como gravada faria o extrator omitir `data_desejada` ("não mudou") e o dia
@@ -980,104 +1020,103 @@ async def _anexar_contexto_dinamico(
     # mencionado no burst é resolvido contra o CADASTRO dela e entra no foco com o status pronto
     # (incluso/extra/por-pessoa/no-Completo/fora); "alguma restrição?" leva os Inclusos nominais;
     # primeira cotação com tabela de duas portas leva o menu pronto; casal na janela leva a nota
-    # da seção "Por pessoa". Fail-closed: sem `cardapio_rows` (chamador antigo/teste), nada injeta.
-    if cardapio_rows is not None:
-        familias = fetiches_no_burst(mensagens)
-        pediu_restr = pediu_restricoes_no_burst(mensagens)
-        fetiches_rows = cardapio_rows.get("fetiches") or []
-        # Dívida do ADR-0038: com fetiche pago em pauta E o preço já fora do patamar cheio, o
-        # total (pacote no patamar + extra no mesmo patamar) vem pré-computado — a tabela do
-        # `<fetiches>` é estática e só tem os totais da tabela CHEIA, e ela manda pegar o número
-        # "do bloco do turno". Sem isto, esse bloco não existia e a frase não tinha lastro.
-        # As duas queries só rodam nesse cruzamento (fetiche no burst + negociação já descida).
-        base_do_patamar = (
-            await _base_no_patamar(
-                conn,
-                ctx.modelo_id,
-                (atendimento or {}).get("duracao_horas"),
-                cast(Patamar, contexto.patamar_da_mesa),
-            )
-            if familias
-            else None
+    # da seção "Por pessoa". Incondicional desde que `cardapio_rows` virou obrigatório: cardápio
+    # vazio simplesmente não resolve nada (o mesmo resultado de antes), só que agora isso é o
+    # CADASTRO falando, e não um chamador que passou None e apagou nove campos do foco.
+    familias = fetiches_no_burst(mensagens)
+    pediu_restr = pediu_restricoes_no_burst(mensagens)
+    fetiches_rows = cardapio_rows.get("fetiches") or []
+    # Dívida do ADR-0038: com fetiche pago em pauta E o preço já fora do patamar cheio, o
+    # total (pacote no patamar + extra no mesmo patamar) vem pré-computado — a tabela do
+    # `<fetiches>` é estática e só tem os totais da tabela CHEIA, e ela manda pegar o número
+    # "do bloco do turno". Sem isto, esse bloco não existia e a frase não tinha lastro.
+    # As duas queries só rodam nesse cruzamento (fetiche no burst + negociação já descida).
+    base_do_patamar = (
+        await _base_no_patamar(
+            conn,
+            ctx.modelo_id,
+            (atendimento or {}).get("duracao_horas"),
+            cast(Patamar, contexto.patamar_da_mesa),
         )
-        resolvidos = (
-            _resolver_fetiches_em_pauta(familias, cardapio_rows, base_do_patamar)
-            if familias
+        if familias
+        else None
+    )
+    resolvidos = (
+        _resolver_fetiches_em_pauta(familias, cardapio_rows, base_do_patamar) if familias else ()
+    )
+    # A nota da janela só existe para o que o burst NÃO resolveu contra o cardápio (ver o
+    # comentário no `replace` abaixo). Quando ela vale E a negociação já saiu do cheio, o TOTAL
+    # das duas no patamar vem pré-computado (`composicao_total`) para o bloco CARREGAR o número
+    # em vez de cair no "não cota" — a mesma dívida do ADR-0038 que o `<servico_em_pauta>` já
+    # fecha para o `por_pessoa`. Só computa (uma query) quando a nota de fato vai renderizar.
+    composicao = (
+        not sem_menage
+        and not any(f.get("status") == "por_pessoa" for f in resolvidos)
+        and composicao_na_janela(mensagens)
+    )
+    composicao_total = (
+        await _composicao_total_no_patamar(
+            conn,
+            ctx.modelo_id,
+            (atendimento or {}).get("duracao_horas"),
+            cast(Patamar, contexto.patamar_da_mesa),
+            cardapio_rows,
+        )
+        if composicao
+        else None
+    )
+    contexto = replace(
+        contexto,
+        fetiches_em_pauta=resolvidos,
+        pediu_restricoes=pediu_restr,
+        inclusos_nomes=(
+            # cobra_por_pessoa nunca é "incluso", mesmo com preco NULL (CONTEXT.md, Composição).
+            tuple(
+                f["nome"]
+                for f in fetiches_rows
+                if f.get("nome") and not f.get("preco") and not f.get("cobra_por_pessoa")
+            )
+            if pediu_restr
             else ()
-        )
-        # A nota da janela só existe para o que o burst NÃO resolveu contra o cardápio (ver o
-        # comentário no `replace` abaixo). Quando ela vale E a negociação já saiu do cheio, o TOTAL
-        # das duas no patamar vem pré-computado (`composicao_total`) para o bloco CARREGAR o número
-        # em vez de cair no "não cota" — a mesma dívida do ADR-0038 que o `<servico_em_pauta>` já
-        # fecha para o `por_pessoa`. Só computa (uma query) quando a nota de fato vai renderizar.
-        composicao = (
-            not sem_menage
-            and not any(f.get("status") == "por_pessoa" for f in resolvidos)
-            and composicao_na_janela(mensagens)
-        )
-        composicao_total = (
-            await _composicao_total_no_patamar(
-                conn,
-                ctx.modelo_id,
-                (atendimento or {}).get("duracao_horas"),
-                cast(Patamar, contexto.patamar_da_mesa),
-                cardapio_rows,
+        ),
+        menu_primeira_cotacao=(
+            _menu_primeira_cotacao(cardapio_rows.get("programas") or [])
+            if (
+                contexto.pediu_preco_no_turno
+                and (atendimento or {}).get("cotacao_enviada_em") is None
             )
-            if composicao
             else None
-        )
-        contexto = replace(
+        ),
+        # A nota da janela só existe para o que o burst NÃO resolveu contra o cardápio: com um
+        # `por_pessoa` já em `<servico_em_pauta>` (com nome e total do item certo), a nota
+        # genérica só repetiria pior. O critério é o STATUS resolvido, não a presença da
+        # família: desde 11/08/2026 há família de composição que não resolve (dupla/dois
+        # casais, cuja conduta segue no `<composicoes>`), e para essas a nota continua valendo.
+        composicao_em_pauta=composicao,
+        composicao_total=composicao_total,
+    )
+    # --- Parceira (ADR-0042): o discriminante dos dois fluxos ---------------------------------
+    # Roda AQUI porque é o único ponto que tem juntos as três entradas: as famílias que o
+    # cliente pôs em pauta (regex), o status delas contra o CADASTRO dela e a autorização do
+    # par (uma query). Nenhuma é inferência do LLM — a tag que sai daqui é a única coisa que
+    # ele lê sobre a parceira, e ela nomeia UM fluxo.
+    #
+    # Sobre a JANELA, não sobre o burst (irmã da `composicao_em_pauta`, e pelo mesmo motivo):
+    # ele pergunta "faz anal?" num turno, ela oferece a amiga, e o turno do "quero sim" não tem
+    # família nenhuma. Lido do burst, o bloco sumiria exatamente no turno em que ele topou.
+    familias_pauta = fetiches_na_janela(mensagens)
+    if familias_pauta:
+        contexto = await _aplicar_parceira(
+            conn,
+            ctx.modelo_id,
             contexto,
-            fetiches_em_pauta=resolvidos,
-            pediu_restricoes=pediu_restr,
-            inclusos_nomes=(
-                # cobra_por_pessoa nunca é "incluso", mesmo com preco NULL (CONTEXT.md, Composição).
-                tuple(
-                    f["nome"]
-                    for f in fetiches_rows
-                    if f.get("nome") and not f.get("preco") and not f.get("cobra_por_pessoa")
-                )
-                if pediu_restr
-                else ()
-            ),
-            menu_primeira_cotacao=(
-                _menu_primeira_cotacao(cardapio_rows.get("programas") or [])
-                if (
-                    contexto.pediu_preco_no_turno
-                    and (atendimento or {}).get("cotacao_enviada_em") is None
-                )
-                else None
-            ),
-            # A nota da janela só existe para o que o burst NÃO resolveu contra o cardápio: com um
-            # `por_pessoa` já em `<servico_em_pauta>` (com nome e total do item certo), a nota
-            # genérica só repetiria pior. O critério é o STATUS resolvido, não a presença da
-            # família: desde 11/08/2026 há família de composição que não resolve (dupla/dois
-            # casais, cuja conduta segue no `<composicoes>`), e para essas a nota continua valendo.
-            composicao_em_pauta=composicao,
-            composicao_total=composicao_total,
+            familias_pauta,
+            # Resolvido de novo quando a janela traz mais que o burst: o cruzamento com o
+            # cardápio tem de ser sobre as MESMAS famílias que o discriminante lê.
+            resolvidos
+            if familias_pauta == familias
+            else _resolver_fetiches_em_pauta(familias_pauta, cardapio_rows),
         )
-        # --- Parceira (ADR-0042): o discriminante dos dois fluxos ---------------------------------
-        # Roda AQUI porque é o único ponto que tem juntos as três entradas: as famílias que o
-        # cliente pôs em pauta (regex), o status delas contra o CADASTRO dela e a autorização do
-        # par (uma query). Nenhuma é inferência do LLM — a tag que sai daqui é a única coisa que
-        # ele lê sobre a parceira, e ela nomeia UM fluxo.
-        #
-        # Sobre a JANELA, não sobre o burst (irmã da `composicao_em_pauta`, e pelo mesmo motivo):
-        # ele pergunta "faz anal?" num turno, ela oferece a amiga, e o turno do "quero sim" não tem
-        # família nenhuma. Lido do burst, o bloco sumiria exatamente no turno em que ele topou.
-        familias_pauta = fetiches_na_janela(mensagens)
-        if familias_pauta:
-            contexto = await _aplicar_parceira(
-                conn,
-                ctx.modelo_id,
-                contexto,
-                familias_pauta,
-                # Resolvido de novo quando a janela traz mais que o burst: o cruzamento com o
-                # cardápio tem de ser sobre as MESMAS famílias que o discriminante lê.
-                resolvidos
-                if familias_pauta == familias
-                else _resolver_fetiches_em_pauta(familias_pauta, cardapio_rows),
-            )
     # Rodada 6 — a duração PEDIDA no burst re-ancora o <pacote_em_pauta> (derrota medida: cliente
     # pede "3h" e a IA cota a linha de 1h; ou pede o pacote de dia com 1h fechada e a IA contradiz
     # a própria oferta). A menção explícita DELE vence a duração do belief, com o MESMO fail-closed
@@ -1453,11 +1492,16 @@ async def _base_no_patamar(
     1h — o pacote que mais vende ficava sem total com fetiche no patamar negociado.
     """
     if patamar == "cheio" or duracao_horas is None:
+        # "Não se aplica", não "quebrou": fora dos dois lados do contador (ver `_contar_bloco`).
         return None
     linhas = await _linhas_da_duracao(conn, modelo_id, duracao_horas, apenas_presenciais=True)
     if len(linhas) != 1:
+        # Ausente aqui = a duração ficou ambígua no cadastro (duas linhas presenciais) ou não tem
+        # tabela: a IA cai na tabela cheia do `<fetiches>` e o total no patamar negociado some.
+        _contar_bloco("base_no_patamar", presente=False)
         return None
     linha = linhas[0]
+    _contar_bloco("base_no_patamar", presente=True)
     return _BaseDoPatamar(
         patamar=patamar,
         pacote=valor_no_patamar(linha["preco"], linha["preco_minimo"], patamar),
@@ -1700,14 +1744,22 @@ def _salto_na_mesa(
         por_pessoa = next((f for f in fetiches if f.get("cobra_por_pessoa")), None)
         if por_pessoa is not None:
             extras.append(por_pessoa)
+    # O chamador só chega aqui no cruzamento em que a oferta condicionada é a jogada do turno
+    # (preço na mesa, nenhuma contraproposta gasta e escada travada sem o dia): a chamada JÁ é o
+    # "o bloco foi tentado", então os dois lados contam. Ausente subindo = cardápio que não chegou
+    # ao nó, belief sem duração ou o detector de composição/fetiche parando de casar — e aí a IA
+    # volta a interrogar ("seria hoje?") em vez de embutir a condição na oferta.
     if extras and duracao_do_belief is not None:
+        _contar_bloco("salto_na_mesa", presente=True)
         return _SaltoNaMesa(horas=Decimal(str(duracao_do_belief)), extras=tuple(extras))
     if (
         duracao_pedida is not None
         and duracao_do_belief is not None
         and duracao_pedida > float(duracao_do_belief)
     ):
+        _contar_bloco("salto_na_mesa", presente=True)
         return _SaltoNaMesa(horas=Decimal(str(duracao_pedida)), extras=())
+    _contar_bloco("salto_na_mesa", presente=False)
     return None
 
 
@@ -2075,6 +2127,11 @@ async def _resolver_variaveis(
         )
         if len(precos) == 1 and horas_str and preco_str:
             pacote_em_pauta = {"horas": horas_str, "preco": preco_str}
+        # Dentro do `if`: fora dele o bloco nem se aplica (valor já cotado, ou nenhuma duração em
+        # discussão) — ver `_contar_bloco`. Ausente aqui = a duração do belief não tem UMA linha
+        # na tabela dela (cadastro ambíguo/vazio) e o `<pacote_em_pauta>` some do foco: a IA fica
+        # sem o número da linha em discussão bem no turno em que ele pergunta o preço.
+        _contar_bloco("pacote_em_pauta", presente=pacote_em_pauta is not None)
     dia_ja_sondado_hist = atendimento.get("dia_sondado_em") is not None
     book_ja_enviado = atendimento.get("book_enviado_em") is not None
     endereco_ja_enviado = atendimento.get("endereco_enviado_em") is not None

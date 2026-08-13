@@ -1399,3 +1399,28 @@ async def test_recuperacao_acumula_os_tokens_da_regen_que_ela_substitui(monkeypa
     assert final.usage_metadata is not None
     # as DUAS regens contam: a descartada (preco) + a que ficou (mudo).
     assert final.usage_metadata["total_tokens"] == _USAGE["total_tokens"] * 2
+
+
+def test_hora_nova_na_mesma_forma_de_pergunta_nao_e_papagaio() -> None:
+    """Trocar o horario ofertado e informacao NOVA, mesmo na forma de pergunta ja usada.
+
+    Regressao do turno mudo do roteiro `escada` (12/08, trace 273f46ca): o cliente aceitou os 300,
+    o gatilho `repeticao` armou por outra via e a regen ofertou 17h no lugar de 18h. "Consigo as
+    18h, fecha ?" x "Consigo as 17h, fecha ?" da ratio 0,95, e o piso de PERGUNTA (9) as flagrava
+    como papagaio -- a 2a tentativa acabou ali e o cliente que acabara de fechar nao recebeu nada.
+
+    O ramo de mesmos-numeros ja excluia numero diferente ("400 1h" x "700 2h"); o ramo de pergunta,
+    acrescentado depois, nao herdou a regra. Papagaio de verdade (a MESMA hora reformulada) e a
+    pergunta repetida SEM numero continuam caindo -- e o que os outros dois casos abaixo fixam."""
+    historicas = ["Consigo às 18h, fecha ?", "Qual seu nome ?"]
+
+    assert mod.bolhas_repetidas("Consigo às 17h, fecha ?", historicas) == []
+    assert mod.bolhas_repetidas("Consigo às 18h, fecha mesmo ?", historicas) == [
+        "Consigo às 18h, fecha mesmo ?"
+    ]
+    assert mod.bolhas_repetidas("E qual seu nome ?", historicas) == ["E qual seu nome ?"]
+
+    # ACRESCENTAR a hora tambem e dado novo: a guarda compara as listas inteiras, e nao "as duas
+    # tem numero e diferem" -- senao a bolha que finalmente CRAVA o horario cairia no fechamento.
+    vaga = ["Consigo te encaixar hoje a noite, fecha ?"]
+    assert mod.bolhas_repetidas("Consigo te encaixar hoje a noite as 21h, fecha ?", vaga) == []

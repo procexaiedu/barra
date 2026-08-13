@@ -92,6 +92,10 @@ async def _cenario(conn: AsyncConnection[dict[str, Any]], **atendimento: Any) ->
                 | atendimento,
             }
         },
+        # MESMO relogio dos turnos: sem isto o historico nasce no `now()` do banco enquanto o turno
+        # "acontece" em `_AGORA`, e o agente le a diferenca como tempo decorrido (acima de 6h, como
+        # uma marca de pausa no meio de uma conversa que nunca parou).
+        agora=_AGORA,
     )
 
 
@@ -177,6 +181,7 @@ async def test_35_sondagem_aceita_evidencia_horario_sintetico(
                 {"direcao": "ia", "texto": "Oii amor 🥰 Seria agora ?"},
             ],
         },
+        agora=_AGORA,  # historico no MESMO relogio do turno (ver `_cenario`)
     )
     chat = ChatRoteirizado(
         ["Que delícia, te espero 🥰"],
@@ -220,6 +225,7 @@ async def test_25_sondagem_ignorada_grava_horario_sem_evidencia(
                 {"direcao": "ia", "texto": "Oii amor 🥰 Seria agora ?"},
             ],
         },
+        agora=_AGORA,  # historico no MESMO relogio do turno (ver `_cenario`)
     )
     chat = ChatRoteirizado(
         ["Faço sim amor 🥰"],

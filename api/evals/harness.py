@@ -545,6 +545,7 @@ async def _inserir_mensagem(
     texto: str,
     tipo: str = "texto",
     media_object_key: str | None = None,
+    created_at: datetime | None = None,
 ) -> None:
     """Insere uma linha em `mensagens` como prod grava. `tipo`/`media_object_key` default = texto
     puro (retrocompat); 'imagem'/'audio' carregam o `conteudo` que o agente VE (caption da imagem /
@@ -554,12 +555,23 @@ async def _inserir_mensagem(
     linhas do seed empatam em `created_at` (`now()` = transaction_timestamp na MESMA transacao) e o
     desempate da janela e `id DESC` — com `uuid4()` a ordem cliente-vs-IA saia ALEATORIA, e todo
     detector que le a cauda (correferencia do dia, aceite da sondagem, evidencia do horario) virava
-    flaky. `uuidv7` e time-ordered, entao a ordem de insercao vira a ordem da janela."""
+    flaky. `uuidv7` e time-ordered, entao a ordem de insercao vira a ordem da janela.
+
+    `created_at` existe SO para o relogio injetado (`agora`): quem fixa o relogio do turno tem de
+    ancorar a linha nele tambem, senao a mensagem nasce no `now()` do banco (a hora em que alguem
+    rodou o eval) e o agente le a distancia entre os dois como tempo decorrido — medido em 12/12
+    conversas do rig de 12/08: `<tempo_desde_ultima_msg_cliente minutos="~10200"/>` no PRIMEIRO
+    turno de uma conversa nova, com o rig inteiro exercitando retomada pos-silencio. `None` (prod e
+    todo eval de relogio real) mantem o DEFAULT `now()` — e por isso o COALESCE, nao um SQL a
+    parte: as linhas seguem EMPATANDO em `created_at` (agora no instante injetado, antes no
+    transaction_timestamp) e o desempate segue sendo `id DESC`."""
     await conn.execute(
         """
         INSERT INTO barravips.mensagens
-            (conversa_id, direcao, tipo, conteudo, media_object_key, evolution_message_id)
-        VALUES (%s, %s::barravips.direcao_mensagem_enum, %s, %s, %s, %s)
+            (conversa_id, direcao, tipo, conteudo, media_object_key, evolution_message_id,
+             created_at)
+        VALUES (%s, %s::barravips.direcao_mensagem_enum, %s, %s, %s, %s,
+                COALESCE(%s::timestamptz, now()))
         """,
         (
             conversa_id,
@@ -568,17 +580,27 @@ async def _inserir_mensagem(
             texto,
             media_object_key,
             f"test-evo-{uuid4().hex}",
+            created_at,
         ),
     )
 
 
-async def seedar(conn: AsyncConnection[dict[str, Any]], fixture: dict[str, Any]) -> Cenario:
+async def seedar(
+    conn: AsyncConnection[dict[str, Any]], fixture: dict[str, Any], *, agora: datetime | None = None
+) -> Cenario:
     """Seed completo de uma fixture: par A (sempre) + par B opcional (isolamento) + historico.
 
     `fixture["cenario"]` = {modelo, atendimento, recorrente?, observacoes_internas?, par_b?, canary?}.
     `fixture["historico"]` = [{direcao, texto}] inserido antes do turno (mensagens passadas).
     `fixture["turno_cliente"]` e inserido por `rodar_turno`, nao aqui.
-    """
+
+    `agora` = o MESMO relogio injetado que o caller vai passar ao turno (`rodar_turno_fiel(agora=)`
+    / `rodar_turno(agora_utc=)`). Sem ele o historico nasce no `now()` do banco enquanto o turno
+    "acontece" no relogio fixo, e a distancia entre os dois vira tempo decorrido para o agente
+    (`<tempo_desde_ultima_msg_cliente>`) e, acima de 6h, uma MARCA DE PAUSA sintetica no meio de uma
+    conversa que nunca teve pausa (`_GAP_PAUSA`, prepare_context). Ancorando os dois no mesmo
+    instante o historico volta a EMPATAR com o turno — exatamente o que acontecia quando os dois
+    caiam no transaction_timestamp."""
     cen = fixture.get("cenario", {})
     cliente_id = await _seed_cliente(conn)
     modelo_id = await _seed_modelo(conn, cen.get("modelo", {}))
@@ -628,6 +650,7 @@ async def seedar(conn: AsyncConnection[dict[str, Any]], fixture: dict[str, Any])
                 conversa_id=conversa_b,
                 direcao=msg.get("direcao", "cliente"),
                 texto=msg["texto"],
+                created_at=agora,
             )
 
     for msg in fixture.get("historico", []):
@@ -636,6 +659,7 @@ async def seedar(conn: AsyncConnection[dict[str, Any]], fixture: dict[str, Any])
             conversa_id=conversa_id,
             direcao=msg.get("direcao", "cliente"),
             texto=msg["texto"],
+            created_at=agora,
         )
 
     return Cenario(
@@ -670,10 +694,16 @@ async def rodar_turno(
     `ResultadoTurno.trace_id` para ancorar o score online (`registrar_feedback_online`).
     `agora_utc` (clock injection -> ContextAgente.agora_utc): ancora o "agora" do turno num
     instante fixo — sem isso cada corrida ve o now() do banco na hora em que roda, e prefixos
-    reais com "hoje/amanha" mudam de sentido entre corridas (confound entre bracos de um A/B).
+    reais com "hoje/amanha" mudam de sentido entre corridas (confound entre bracos de um A/B). A
+    fala do cliente e gravada NESSE mesmo instante (ver `_inserir_mensagem`): ancorar so o relogio
+    deixava a mensagem no `now()` do banco e o agente lia a diferenca como tempo decorrido.
     """
     await _inserir_mensagem(
-        conn, conversa_id=cen.conversa_id, direcao="cliente", texto=turno_cliente
+        conn,
+        conversa_id=cen.conversa_id,
+        direcao="cliente",
+        texto=turno_cliente,
+        created_at=agora_utc,
     )
     if graph is None:
         graph = build_graph()

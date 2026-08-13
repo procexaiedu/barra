@@ -44,12 +44,15 @@ logger = logging.getLogger(__name__)
 
 ModoParceira = Literal["encaminhar", "dupla"]
 
+# Esta descricao viaja no SCHEMA das tools, ou seja, esta no contexto de TODO turno -- superficie
+# maior que a do retorno da tool, que o modelo so le depois de chamar. Vale aqui a mesma disciplina
+# de `_OK_ENCAMINHAR` abaixo: nada de mecanica do sistema ("o sistema manda o contato", "avisa a
+# coordenacao"), porque o modelo a narra ao cliente e o judge de AUP derruba a bolha.
 _DESC_MODO = (
-    '"dupla" — ele quer VOCÊS DUAS no mesmo encontro: você conduz e fecha sozinha, cota as duas '
-    "pela SUA tabela e o sistema avisa a coordenação. "
-    '"encaminhar" — ele quer um ato que você NÃO faz e topou falar com ela: o sistema manda o '
-    "contato dela e a venda passa a ser dela. Use o modo que o seu contexto do turno mandar; "
-    "nunca os dois."
+    '"dupla" — ele quer VOCÊS DUAS no mesmo encontro: você conduz e fecha sozinha, cotando as '
+    "duas pela SUA tabela. "
+    '"encaminhar" — ele quer um ato que você NÃO faz e topou falar com ela: a venda passa a ser '
+    "dela e você não cota mais nada. Use o modo que o seu contexto do turno mandar; nunca os dois."
 )
 
 # O que a tool devolve ao LLM. Sem número, sem valor: o retorno é instrução de conduta, e a única
@@ -80,6 +83,28 @@ _OK_DUPLA = (
     "conferência nem aviso a terceiros — na conversa existem você, ela e ele."
 )
 
+# Todo erro recuperável DESCARTA o texto que a IA já tinha escrito nesta passagem
+# (`_texto_turno.py:extrair_texto_do_turno`), porque o normal é ela reescrever a fala junto com a
+# retentativa e agregar as duas duplicaria a mensagem ao cliente. Mas a premissa "ela reescreve"
+# não se sustenta sozinha: medido em 12/08 (trace dcdc2de2, 1 de 5 repetições da mesma conversa), o
+# modelo raciocinou que a primeira bolha JÁ tinha ido ao cliente e só COMPLEMENTOU. O turno perdeu
+# a recusa ("Isso eu não faço amor") e sobrou o órfão "Quer o contato dela amor ?" — que, sozinho,
+# o judge de AUP reprova como `system_leak` de forma determinística (5/5 na reprodução), pausa a IA
+# e zera tudo. O cliente não recebeu nada.
+#
+# A correção é dizer a verdade a quem decide: a fala ainda não saiu. Sem descrever a mecânica (a
+# lição de `_OK_ENCAMINHAR` acima vale igual aqui) — só o fato que muda a decisão dela.
+#
+# SÓ no `_ERRO_SEM_ACEITE`, e não nos erros de recusa. Ali o rascunho perdido é a recusa + a oferta
+# da parceira, e reescrevê-lo inteiro é exatamente o certo. Nos outros três ("siga sem ela", "não
+# repita", "sem reabrir") o rascunho descartado é justamente a fala que envolvia a parceira: mandar
+# reescrever "tudo que você já tinha dito" contradiz a ordem do próprio erro, e a instrução mais
+# recente é a que o modelo tende a obedecer.
+_REESCREVA_TUDO = (
+    " O que você escreveu nesta resposta ainda NÃO chegou a ele: reescreva a mensagem INTEIRA "
+    "agora, com tudo que você já tinha dito, senão aquela parte se perde."
+)
+
 _ERRO_SEM_PARCEIRA = "ERRO: você não tem parceira cadastrada. Siga sem ela."
 _ERRO_MODO_NAO_LIBERADO = (
     "ERRO: este arranjo com a sua parceira não está liberado. Siga sem ela, pela sua conduta de "
@@ -87,7 +112,7 @@ _ERRO_MODO_NAO_LIBERADO = (
 )
 _ERRO_SEM_ACEITE = (
     "ERRO: você ainda não ofereceu a sua parceira a ele nesta conversa, ou ele ainda não topou. "
-    "Ofereça primeiro e espere o sim — nenhum dado dela sai antes disso."
+    "Ofereça primeiro e espere o sim — nenhum dado dela sai antes disso." + _REESCREVA_TUDO
 )
 _ERRO_JA_ENCAMINHADA = (
     "ERRO: você já passou o contato dela nesta negociação. Não repita — siga a conversa."
@@ -114,8 +139,8 @@ async def envolver_parceira(
 
     Use SÓ quando o seu contexto trouxer a tag da parceira — ela diz qual dos dois modos vale.
     `dupla`: ele quer vocês duas e você fecha sozinha (nunca passe o contato dela).
-    `encaminhar`: ele quer algo que você não faz e topou falar com ela (o sistema manda o contato;
-    você não cota valor nenhum daí em diante).
+    `encaminhar`: ele quer algo que você não faz e topou falar com ela (a venda passa a ser dela;
+    você não escreve número nenhum e não cota valor daí em diante).
 
     Returns:
         Confirmação e a conduta que vale a partir daqui. Se vier "ERRO: ...", o arranjo não está

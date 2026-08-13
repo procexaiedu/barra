@@ -13,6 +13,8 @@
 #   agente_eval_pass_rate{suite}                    Histogram (_count/_sum); 1.0=passou (EVAL-11)
 #   barra_canario_entrega_ok                        Gauge 1/0 (canario de entrega fim-a-fim)
 #   agente_judge_conduta_total{faixa}               faixa=reprovada|ok (eixo conduta do judge)
+#   agente_contexto_bloco_total{bloco,desfecho}     desfecho=presente|ausente; a RAZAO por bloco
+#                                                   e o sinal, nunca o valor absoluto do ausente
 groups:
   - name: agente_defesa
     rules:
@@ -178,6 +180,60 @@ groups:
             {{ $value }} system_fingerprints distintos para modelo={{ $labels.modelo }} na janela.
             O alias e movel: os pesos mudaram sem deploy nosso. Rodar `make evals` e o gate de
             conduta antes de assumir que a conduta continua a mesma.
+
+      # Bloco do prompt do turno que DEGRADOU em silencio. Os quatro fail-closed do prepare_context
+      # (`local_de_encontro`, `base_no_patamar`, `pacote_em_pauta`, `salto_na_mesa`) devolvem None e
+      # apagam um bloco INTEIRO da cauda. A decisao e a certa; o problema e que ela nao deixava
+      # rastro: um cadastro fora de formato, uma duracao que virou ambigua ou um regex que parou de
+      # casar apagam a mesma coisa que "este turno nao precisava do bloco", e o custo aparece como
+      # venda perdida sem explicacao.
+      #
+      # MUDANCA DE PATAMAR, nunca valor absoluto: a ausencia e LEGITIMA na maioria dos turnos (o
+      # `<pacote_em_pauta>` quase nunca renderiza) e cada bloco tem a sua linha de base — qualquer
+      # limiar fixo ou dispara sempre num bloco ou nunca no outro. A regra compara a razao da
+      # ultima 1h com a razao das 24h ANTERIORES (offset 1h, para a janela curta nao entrar na
+      # propria referencia) e dispara com +20 pontos percentuais. Isso pega o que interessa —
+      # deploy de prompt, migration de cadastro, provider mudando — e ignora o nivel de base.
+      # Denominador minimo (>= 20 avaliacoes na hora, com base >= 20 nas 24h) evita alarme de
+      # amostra pequena e evita disparar em bloco que so agora comecou a ser exercitado.
+      # Nao ha um lado "bom": a razao DESABANDO tambem e sinal (o fail-closed parou de fechar),
+      # mas ai o efeito e sobre o conteudo do prompt e nao sobre a ausencia — fica para o eval.
+      - alert: AgenteBlocoDoContextoSumindo
+        expr: |
+          (
+            (
+              sum by (bloco) (increase(agente_contexto_bloco_total{desfecho="ausente"}[1h]))
+              /
+              sum by (bloco) (increase(agente_contexto_bloco_total[1h]))
+            )
+            -
+            (
+              sum by (bloco) (increase(agente_contexto_bloco_total{desfecho="ausente"}[24h] offset 1h))
+              /
+              sum by (bloco) (increase(agente_contexto_bloco_total[24h] offset 1h))
+            )
+            > 0.20
+          )
+          and
+          sum by (bloco) (increase(agente_contexto_bloco_total[1h])) >= 20
+          and
+          sum by (bloco) (increase(agente_contexto_bloco_total[24h] offset 1h)) >= 20
+        for: 30m
+        labels:
+          severity: warning
+          dimensao: dado
+        annotations:
+          summary: "Bloco {{ $labels.bloco }} sumindo do prompt acima do patamar de sempre"
+          description: >
+            A razao ausente/(ausente+presente) do bloco {{ $labels.bloco }} subiu
+            {{ $value | humanizePercentage }} sobre a linha de base das ultimas 24h. O bloco esta
+            sumindo da cauda do turno SEM erro nenhum — a IA responde normalmente, com menos
+            contexto. Ordem de checagem por bloco: `local_de_encontro` -> endereco da modelo fora
+            do formato do Google (texto livre legado); `base_no_patamar`/`pacote_em_pauta` ->
+            cadastro com duas linhas presenciais na mesma duracao (pacote ambiguo) ou tabela
+            vazia; `salto_na_mesa` -> cardapio nao chegando ao no, ou o detector de
+            fetiche/composicao parando de casar. Correlacionar com o ultimo deploy de prompt e com
+            edicoes de cadastro no painel.
 
   - name: agente_custo
     rules:

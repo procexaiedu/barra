@@ -24,7 +24,12 @@ import pytest
 from pydantic import ValidationError
 
 from barra.agente.ferramentas.extracao import registrar_extracao
-from barra.agente.nos.extrair import _args_saneados, _schema_da_extracao
+from barra.agente.nos.extrair import (
+    _MIN_PROXIMA_ACAO,
+    _args_saneados,
+    _enum_permitido,
+    _schema_da_extracao,
+)
 
 _SCHEMA = _schema_da_extracao(registrar_extracao)
 _NOTA = "aguardar o cliente confirmar"
@@ -159,3 +164,56 @@ async def test_payload_absurdo_nao_estoura_a_tool() -> None:
 
     assert resultado.status == "error"
     assert str(resultado.content).startswith("ERRO:")
+
+
+# --- 4. os cadeados: o que amarra as DUAS copias do contrato -------------------------------------
+def test_min_proxima_acao_espelha_o_schema_da_tool() -> None:
+    """`_MIN_PROXIMA_ACAO` e uma copia do `min_length` da tool -- e ate hoje ninguem as amarrava.
+
+    O comentario de `nos/extrair.py` prometia que "o teste de regressao as amarra"; o teste nao
+    existia. Sem ele, subir o `min_length` em `ferramentas/extracao.py` faz o saneamento parar de
+    preencher a nota curta, e o turno volta a morrer por `ValidationError` -- pelo caminho que
+    esta suite inteira existe para fechar.
+    """
+    do_schema = _SCHEMA[0]["proxima_acao_esperada"]["minLength"]  # type: ignore[index]
+
+    assert _MIN_PROXIMA_ACAO == do_schema, (
+        f"_MIN_PROXIMA_ACAO={_MIN_PROXIMA_ACAO} divergiu do schema da tool ({do_schema}): "
+        "o saneamento vai gerar nota que a propria tool rejeita"
+    )
+
+
+def _enums_do_schema() -> list[tuple[str, list[str]]]:
+    """Todo campo de dominio fechado do payload, lido do schema -- nao de uma lista escrita a mao.
+
+    Varrer o schema em vez de enumerar casos e o que mantem o teste vivo quando alguem acrescenta
+    um campo: o enum novo entra na varredura sozinho, sem ninguem lembrar de vir aqui.
+    """
+    props, defs = _SCHEMA  # type: ignore[misc]
+    return [(nome, e) for nome, sub in props.items() if (e := _enum_permitido(sub, defs))]
+
+
+def test_todo_enum_do_schema_e_varrido() -> None:
+    """Guarda da guarda: se o schema deixar de expor enums, o teste abaixo passaria vazio."""
+    assert len(_enums_do_schema()) >= 6
+
+
+@pytest.mark.parametrize("campo,permitidos", _enums_do_schema())
+def test_typo_de_uma_letra_em_enum_nunca_mata_o_turno(campo: str, permitidos: list[str]) -> None:
+    """Para CADA valor de CADA enum, uma mutacao de 1 caractere: recupera ou descarta, nunca estoura.
+
+    O modelo erra a grafia do proprio enum ("imediatio" por "imediato", visto ao vivo em 12/08) e o
+    `Literal` levanta `ValidationError`, que derruba o turno inteiro. O que este teste fixa nao e
+    QUAL das duas saidas acontece -- recuperar o typo e descartar o campo sao ambas aceitaveis, e a
+    escolha e do limiar de similaridade. O que ele fixa e que a terceira saida (o turno morto) nao
+    existe para nenhum valor de nenhum enum.
+    """
+    for valor in permitidos:
+        # troca do 3o caractere: longe do comeco (que ancora o prefixo) e presente em todo valor.
+        mutado = valor[:2] + ("z" if valor[2] != "z" else "x") + valor[3:]
+        saneado = _sanear({campo: mutado, "proxima_acao_esperada": _NOTA})
+
+        assert _valida(saneado) == [], f"{campo}={mutado!r} passou o saneamento e mata o turno"
+        assert saneado.get(campo) in (None, *permitidos), (
+            f"{campo}={mutado!r} virou {saneado.get(campo)!r}, que nao esta no dominio"
+        )

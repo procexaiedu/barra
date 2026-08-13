@@ -25,13 +25,13 @@ class EstadoAgente(MessagesState):
     cada `ainvoke` e morrem com ele. Pausa (ia_pausada) NAO usa flag de State --
     prepare_context faz early exit via Command(goto=END) (02 §1).
 
-    midia_idx: contador determinístico de chamadas a `enviar_midia` no turno corrente.
-        Nasce 0 a cada `ainvoke` (sem checkpointer o State e efemero) e e injetado como
-        `call_idx` (InjectedToolArg) pelo no `tools`. Garante a idempotencia de
-        `enviar_midia` no replay -- reinicia em 0, entao o `ON CONFLICT` deduplica e
-        nao reenvia (jamais usar `COUNT(*)` no DB para isso). NAO e verdade duplicada do
-        Postgres, e sim estado de controle do loop -- por isso vive aqui, nao no ContextAgente.
-        Lido com `state.get("midia_idx", 0)`. Ver docs/agente/04-tools.md §3.3.
+    (O `call_idx` de `enviar_midia` NAO vive aqui. Existiu um campo `midia_idx` no State
+    prometendo ser esse contador, mas ele nunca chegou a ser escrito nem lido: a idempotencia
+    real e `nos/tools.py:_calcular_call_idx_midia`, que DERIVA o ordinal varrendo
+    `state["messages"]`. Um contador de State seria pior -- ele conta chamadas na ordem em que
+    o loop as executa, e a PK precisa do ordinal por `tool_call_id`, que e estavel no replay.
+    O campo foi removido em 12/08; a docstring o descrevia com semantica que o codigo nao tinha,
+    que e como o proximo leitor reintroduz o bug. Ver docs/agente/04-tools.md §3.3.)
     _categoria / _confianca: classificacao de disclosure/jailbreak gravada pelo
         prepare_context (regex sobre a cauda da janela), lida pelo intercept_disclosure
         para rotear canned/escala/llm (10 §8). _confianca e a string "alta" (ou None) que
@@ -157,7 +157,6 @@ class EstadoAgente(MessagesState):
         mensagens, ja que o proprio guard as zera. Nasce ausente a cada `ainvoke`.
     """
 
-    midia_idx: int
     _categoria: str | None
     _confianca: str | None
     _reoferta_tentada: bool

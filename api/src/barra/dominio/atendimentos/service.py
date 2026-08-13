@@ -523,6 +523,18 @@ async def registrar_extracao_ia(
         if preenchido is not None:
             payload = {**payload, "valor_acordado": preenchido}
 
+    # Fechamento SEM preco (medido ao vivo 12/08: 6 de 35 conversas): a extracao marca o aceite e
+    # grava a duracao, mas deixa `valor_acordado` NULL — o encontro chega ao painel marcado, com
+    # hora e pacote, e sem ninguem saber quanto custa. O preco nao e inventado aqui: e o da TABELA
+    # para a duracao fechada, e so vale se a IA de fato o COTOU nesta conversa (mesma fonte da
+    # guarda do valor fantasma logo acima). Sem negociacao no meio (`n_contrapropostas == 0`) nao
+    # ha ambiguidade possivel entre o preco cheio e um degrau ofertado — com ela, nao se preenche:
+    # quem decide qual numero ficou de pe e a conversa, nao um default.
+    if not _registra_valor(payload, limpar) and "valor_acordado" not in limpar:
+        preenchido = await _preco_cotado_do_pacote_fechado(conn, aid, payload, fala_da_ia_no_turno)
+        if preenchido is not None:
+            payload = {**payload, "valor_acordado": preenchido}
+
     # Guarda do par preco x duracao (feedback piloto 21/07): a duracao mudou neste turno SEM o
     # valor vir junto -- o `valor_acordado` persistido e de outra duracao, e a guarda acima nao
     # roda (so olha o payload). Sem isto a IA estica o periodo por cima do preco antigo ("3h 800"

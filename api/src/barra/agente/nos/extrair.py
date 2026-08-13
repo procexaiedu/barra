@@ -448,7 +448,9 @@ def _valor_do_enum(valor: Any, permitidos: list[str]) -> Any | None:
 _DESCARTAR = object()
 
 # Espelha o `min_length` de `proxima_acao_esperada` na assinatura da tool (ferramentas/extracao.py).
-# Duas cópias do numero é o preço de não importar a tool aqui; o teste de regressão as amarra.
+# Duas cópias do numero é o preço de não importar a tool aqui; quem as amarra é
+# `test_min_proxima_acao_espelha_o_schema_da_tool` (tests/agente/test_extracao_args_invalidos.py),
+# que lê o `minLength` do schema em vez de repetir o número uma terceira vez.
 _MIN_PROXIMA_ACAO = 3
 
 

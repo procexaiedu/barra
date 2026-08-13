@@ -41,6 +41,11 @@ _CADASTRO_MINIMO: dict[str, Any] = {
     "sem_fetiches": True,
     "sem_menage": True,
     "sem_video_chamada": True,
+    # Coerente com o `sem_fetiches=True` acima: o cardápio VAZIO é o mesmo cadastro visto pelo
+    # outro lado. Passar as chaves com listas vazias (e não omitir o argumento, que agora nem
+    # compila) é a afirmação "esta modelo não tem nada cadastrado" — que é justamente o caso que
+    # este arquivo exercita.
+    "cardapio_rows": {"fetiches": [], "programas": []},
 }
 
 
