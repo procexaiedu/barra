@@ -44,9 +44,9 @@ const TONS: Record<KpiTom, { valor: string; anel: string; chip: string }> = {
     chip: "bg-muted/50 text-text-muted",
   },
   brand: {
-    valor: "text-gold-700",
+    valor: "text-text-brand",
     anel: "ring-border-subtle",
-    chip: "bg-gold-700/10 text-gold-700",
+    chip: "bg-text-brand/10 text-text-brand",
   },
   warning: {
     valor: "text-warn-500",
@@ -95,12 +95,12 @@ export function KpiCard({
       : new Intl.NumberFormat("pt-BR").format(valor)
 
   const delta = computarDelta(valor, anterior)
-  const anel = destaque && tom === "brand" ? "ring-gold-500/40" : tons.anel
+  const anel = destaque && tom === "brand" ? "ring-border-brand/40" : tons.anel
   const temSparkline = Array.isArray(sparkline) && sparkline.length >= 2
   const corSpark =
     corSparkline ??
     (tom === "brand"
-      ? "var(--gold-500)"
+      ? "var(--chart-1)"
       : tom === "danger"
         ? "var(--danger-500)"
         : tom === "warning"

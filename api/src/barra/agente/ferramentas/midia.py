@@ -120,7 +120,13 @@ async def enviar_midia(
         # efeito ja rodou. Sai ANTES da re-selecao — ela exclui a midia da 1a execucao e, com
         # acervo pequeno, ficaria sem candidata e viraria ToolException num turno que deu certo.
         if await _ja_executada(conn, turno_id, "enviar_midia", call_idx):
-            return _CONFIRMACAO.format(tipo=tipo.capitalize(), tag=tag)
+            # Mesma confirmacao do caminho normal, inclusive na variante da parceira: devolver a
+            # generica aqui fazia a IA perder, SO no replay, o "ela NAO e o seu book" — e o modelo
+            # tende a tratar midia enviada como book gasto, entao a conduta divergia entre a 1a
+            # execucao e o retry do ARQ.
+            return (_CONFIRMACAO_PARCEIRA if de == "parceira" else _CONFIRMACAO).format(
+                tipo=tipo.capitalize(), tag=tag
+            )
 
         # De QUEM é o acervo. `modelo_id` do contexto é sempre a modelo do CANAL; a foto da
         # parceira exige trocar o dono da query, e só existe com a parceria ativa no cadastro
@@ -215,7 +221,7 @@ async def _query_midia(
         params.append(tag)
     res = await conn.execute(
         f"""
-        SELECT id, object_key
+        SELECT id
           FROM barravips.modelo_midia
          WHERE modelo_id = %s AND tipo = %s AND aprovada = true
            AND NOT (id = ANY(%s::uuid[]))

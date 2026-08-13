@@ -503,9 +503,95 @@ async def _card_aviso_saida(ctx: dict[str, Any], *, atendimento_id: str, **_: An
         )
 
 
-async def _card_loc_pin(ctx: dict[str, Any], **_: Any) -> None:
-    # TODO(M3d): pin de localização do endereço, enfileirado após `registrar_extracao` (09 §4.3).
-    raise NotImplementedError("card de pin de localização será preenchido no M3d")
+async def _card_loc_pin(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -> None:
+    """Pin do ponto de encontro, enviado ao CLIENTE quando o interno é reservado (04 §3.1).
+
+    O ÚNICO renderer do `_RENDER_CARD` que fala com o cliente e não com o grupo de Coordenação — ele
+    está aqui porque compartilha a mecânica (job ARQ pós-commit, idempotência por owner, bypass da
+    humanização), não a audiência. Um pin é dado estruturado: abre o mapa no aparelho dele, e a IA
+    não expressa isso como texto, então quem despacha é o sistema.
+
+    Ficou como `NotImplementedError` desde o M3d, e nesse período `registrar_extracao` deixou de
+    enfileirar o job para não queimar as 5 tentativas do ARQ contra um renderer morto — o efeito
+    líquido é que `enviar_pin` era setado pelo domínio e ninguém consumia: o cliente do atendimento
+    interno nunca recebeu o ponto de encontro como localização. Os dois lados voltam juntos.
+
+    Idempotência por owner igual à do `_card_aviso_saida`: SETNX com TTL de 24h. Cobre o replay do
+    ARQ e o re-percorrer da transição (o domínio pode sinalizar `enviar_pin` de novo se o
+    atendimento voltar a Aguardando_confirmacao). A marca é armada só depois de a linha ser lida e
+    validada, e desfeita se o envio falhar — quem não entregou o pin não gasta a chave.
+
+    Sem lat/long no cadastro, sai sem enviar: o CHECK do `0028_modelos_endereco_geo` garante que
+    latitude e longitude são NULL juntas, e mandar um pin em (0,0) seria pior que não mandar. O
+    endereço em texto continua chegando pela fala da IA.
+    """
+    pool = ctx["db_pool"]
+    redis = ctx["redis"]
+    evolution: EvolutionClient = ctx["evolution"]
+
+    chave = f"card:loc_pin:{atendimento_id}"
+
+    async with pool.connection() as conn:
+        res = await conn.execute(
+            """
+            SELECT c.evolution_chat_id, a.conversa_id,
+                   mo.nome AS modelo_nome, mo.nome_local, mo.latitude, mo.longitude,
+                   mo.endereco_formatado, mo.evolution_instance_id
+              FROM barravips.atendimentos a
+              JOIN barravips.modelos   mo ON mo.id = a.modelo_id
+              JOIN barravips.conversas c  ON c.id = a.conversa_id
+             WHERE a.id = %s
+            """,
+            (UUID(atendimento_id),),
+        )
+        a = await res.fetchone()
+        if not a:
+            return
+        if a["latitude"] is None or a["longitude"] is None:
+            logger.warning(
+                "card_loc_pin_sem_geo atendimento_id=%s (modelo sem latitude/longitude)",
+                atendimento_id,
+            )
+            return
+
+        # SETNX DEPOIS de carregar e validar a linha, e nao no inicio do job: a marca so pode ser
+        # gasta por uma tentativa que de fato chegou ao envio. Armada antes, um erro transitorio de
+        # banco no SELECT acima deixava a chave de pe por 24h e todo retry do ARQ voltava MUDO, e os
+        # dois returns acima (atendimento sumido, modelo ainda sem lat/long) tambem a consumiam — a
+        # modelo que ganha geo no cadastro depois nunca mais receberia o pin.
+        if not await redis.set(chave, "1", ex=86400, nx=True):
+            return  # ja enviado: replay do ARQ ou re-transicao do atendimento
+
+        try:
+            await evolution.enviar_localizacao(
+                conn=conn,
+                instance_id=a["evolution_instance_id"],
+                remote_jid=a["evolution_chat_id"],
+                latitude=float(a["latitude"]),
+                longitude=float(a["longitude"]),
+                # Rotulo do balao: o nome do local quando a modelo o cadastrou, senao o nome dela.
+                # NUNCA a unidade (apartamento/quarto) — e a mesma regra do `aup_saida.md`, e
+                # `nome_local` e campo de predio/hotel, nao de unidade.
+                nome=a["nome_local"] or a["modelo_nome"],
+                endereco=a["endereco_formatado"] or "",
+                # Vai para a CONVERSA do cliente, e o tipo e o de saida da IA —
+                # `envios_evolution.tipo` e um CHECK ('ia','card','confirmacao','erro_comando',
+                # 'midia') e 'card' e reservado ao grupo de Coordenacao.
+                contexto="conversa_cliente",
+                tipo="ia",
+                atendimento_id=UUID(atendimento_id),
+                conversa_id=a["conversa_id"],
+            )
+        except Exception:
+            # O SETNX marca "enviado" ANTES do envio; sem isto, uma falha da Evolution deixaria a
+            # chave armada por 24h e todo replay (ARQ ou re-transicao) retornaria mudo — o cliente
+            # ficaria sem o ponto de encontro sem nenhum sinal, e nao ha reconciliador para este
+            # tipo de card (`reconciliar_cards_escalada` cobre so escalada). Desfeita a marca, o
+            # SETNX volta a proteger apenas o replay do SUCESSO. Junto com o adiamento do SETNX
+            # acima, o invariante fica completo: NENHUM caminho que nao entregou o pin gasta a
+            # chave.
+            await redis.delete(chave)
+            raise
 
 
 async def _card_parceira(ctx: dict[str, Any], *, atendimento_id: str, **_: Any) -> None:
@@ -1123,6 +1209,22 @@ async def enviar_turno(
                 # 1ª inserção da bolha (`inseriu`): o contador não pode dobrar no retry. Detectores
                 # de agente/_disciplina.py (mesma fonte que o read-time usa na janela).
                 if inseriu and conv["atendimento_id"] is not None:
+                    # INVARIANTE DA ESCADA (ADR-0031 / CONTEXT.md "Insistência depois da última
+                    # rodada não gera nova oferta"): `n_contrapropostas` conta rodada JOGADA — bolha
+                    # que de fato SAIU ao cliente —, nunca rodada rascunhada. Uma contraproposta
+                    # zerada pelo `post_process` (escalada silenciosa), dropada pelo `output_guard`
+                    # ou barrada pelo `_aplicar_saida_guard` nem chega aqui, e um replay do turno
+                    # cai no `ON CONFLICT` (`inseriu=False`) — nos dois casos o contador NAO anda,
+                    # e e isso que mantem honesto o "depois da ultima rodada" de quem le o contador.
+                    # Quem consome isso sao DOIS leitores, e o segundo entrou na r3: a escada do
+                    # `prepare_context` e o gate do piso em `dominio/atendimentos/service`, que
+                    # desde `_insistiu_apos_a_escada` so escala `fora_de_oferta` com
+                    # `n_contrapropostas >= 1` (na rodada 0 o valor baixo e descartado em silencio,
+                    # com a escada intacta). E por isso que a regra deste site — so bolha que SAIU
+                    # anda com o contador — deixou de ser so contabilidade da escada: e ela que
+                    # separa "insistencia do cliente" de "rodada que o sistema nunca jogou", e uma
+                    # contraproposta zerada contando aqui acordaria a modelo por insistencia que
+                    # nao houve.
                     if contem_contraproposta(conteudo):
                         await incrementar_contrapropostas(conn, conv["atendimento_id"])
                     if not propos_horario and contem_pergunta_de_horario(conteudo):

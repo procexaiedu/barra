@@ -35,12 +35,19 @@ export function useObservabilidade(filtros: FiltrosObservabilidade) {
   const cursorRef = useRef<string | null>(null)
   const firstDone = useRef(false)
 
+  // Depende dos campos, nao do objeto: quem chama monta o literal de filtros a
+  // cada render, e sem isso a estabilidade de `load` (e do efeito) ficaria refem
+  // da memoizacao do React Compiler.
+  const { apenasNaoAvaliadas, origem } = filtros
+
   const load = useCallback(
     async (mode: "replace" | "append" = "replace") => {
       if (!firstDone.current && mode === "replace") setStatus("loading")
       try {
         const cursor = mode === "append" ? cursorRef.current : null
-        const res = await api<TurnosObservabilidadeResponse>(buildPath(filtros, cursor))
+        const res = await api<TurnosObservabilidadeResponse>(
+          buildPath({ apenasNaoAvaliadas, origem }, cursor),
+        )
         const recebidos = Array.isArray(res.items) ? res.items : []
         const novos = mode === "append" ? [...itemsRef.current, ...recebidos] : recebidos
         itemsRef.current = novos
@@ -55,7 +62,7 @@ export function useObservabilidade(filtros: FiltrosObservabilidade) {
         setError(e instanceof Error ? e.message : "Erro desconhecido")
       }
     },
-    [filtros],
+    [apenasNaoAvaliadas, origem],
   )
 
   const carregarMais = useCallback(() => {

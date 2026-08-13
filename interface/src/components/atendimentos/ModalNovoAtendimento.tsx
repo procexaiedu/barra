@@ -39,6 +39,13 @@ interface ModeloOpcao {
   nome: string
 }
 
+// `telefone_mascarado` já vem ofuscado do backend ("552*****8888") e formatTelefone
+// leria aquele "55" como DDI e o comeria ("2*****8888"), divergindo do DetalheCliente,
+// que mostra o mascarado cru. Só formata o que ainda é telefone legível.
+function exibirTelefone(valor: string): string {
+  return valor.includes("*") ? valor : formatTelefone(valor)
+}
+
 interface ModalNovoAtendimentoProps {
   open: boolean
   onClose: () => void
@@ -304,7 +311,7 @@ export function ModalNovoAtendimento({
                         </span>
                         <span className="font-mono text-xs text-text-muted">
                           {cliente.telefone_mascarado
-                            ? formatTelefone(cliente.telefone_mascarado)
+                            ? exibirTelefone(cliente.telefone_mascarado)
                             : ""}
                         </span>
                       </button>
@@ -316,7 +323,7 @@ export function ModalNovoAtendimento({
                 <p className="mt-1 text-xs text-text-muted">
                   Selecionado: {clienteSelecionado.nome ?? "Sem nome"} ·{" "}
                   {clienteSelecionado.telefone_mascarado
-                    ? formatTelefone(clienteSelecionado.telefone_mascarado)
+                    ? exibirTelefone(clienteSelecionado.telefone_mascarado)
                     : ""}
                 </p>
               )}

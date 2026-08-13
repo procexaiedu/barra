@@ -106,7 +106,7 @@ export function ListaReceitas({
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="grid grid-cols-[3.5rem_minmax(0,1fr)_8rem_minmax(8rem,9rem)] items-center gap-x-4 border-b border-border/60 px-4 py-2.5 last:border-b-0"
+            className="grid grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-x-4 border-b border-border/60 px-4 py-2.5 last:border-b-0 sm:grid-cols-[3.5rem_minmax(0,1fr)_8rem_minmax(8rem,9rem)]"
           >
             <Skeleton className="h-4 w-10 rounded-md" />
             <Skeleton className="h-4 w-40 rounded-md" />
@@ -237,9 +237,9 @@ function LinhaReceita({
           onClick()
         }
       }}
-      className={`group grid cursor-pointer grid-cols-[3.5rem_minmax(0,1fr)_8rem_minmax(8rem,9rem)] items-center gap-x-4 border-b border-border/60 py-2.5 transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset ${
+      className={`group grid cursor-pointer grid-cols-[3.5rem_minmax(0,1fr)_auto] items-center gap-x-4 border-b border-border/60 py-2.5 transition-colors last:border-b-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:grid-cols-[3.5rem_minmax(0,1fr)_8rem_minmax(8rem,9rem)] ${
         selected
-          ? "border-l-2 border-l-gold-500 bg-gold-500/10 pl-[calc(1rem-2px)] pr-4"
+          ? "border-l-2 border-l-state-active bg-state-active/10 pl-[calc(1rem-2px)] pr-4"
           : "px-4 hover:bg-surface-hover"
       }`}
     >
@@ -276,7 +276,10 @@ function LinhaReceita({
         </div>
       </div>
 
-      {/* col 3: magnitude bar */}
+      {/* col 3: magnitude bar — some abaixo de sm. `hidden` tira o item do grid
+          (display:none não ocupa trilha), por isso a trilha de 8rem também sai
+          do template abaixo de sm: se ficasse, reservaria a largura à toa e
+          esmagaria a coluna do cliente em telas de 375px. */}
       <div className="hidden sm:block">
         <MagnitudeBar pct={magnitude} bruto={linha.valor_bruto} maxBruto={maxBruto} />
       </div>
@@ -322,7 +325,7 @@ function MagnitudeBar({
           className="relative block h-[3px] w-full overflow-hidden rounded-full bg-border-subtle/40"
         >
           <span
-            className="absolute inset-y-0 left-0 rounded-full bg-[color:var(--gold-500)]"
+            className="absolute inset-y-0 left-0 rounded-full bg-[color:var(--chart-1)]"
             style={{ width }}
           />
         </span>
@@ -372,7 +375,7 @@ const FORMA_STYLE: Record<
 
 function FormaChip({ forma }: { forma: FormaPagamentoReceita | null }) {
   if (!forma) {
-    return <span className="text-text-disabled">—</span>
+    return <span className="text-text-muted">—</span>
   }
   const style = FORMA_STYLE[forma]
   return (
@@ -431,7 +434,7 @@ function FooterTotal({
           {truncado ? `Mostrando ${n} ${plural}` : `Total · ${n} ${plural}`}
         </span>
         <div className="flex items-baseline gap-3 font-mono text-xs tabular-nums">
-          <span className="font-semibold text-gold-700">
+          <span className="font-semibold text-text-brand">
             {formatBRL(bruto)}
           </span>
           <span className="text-text-muted">

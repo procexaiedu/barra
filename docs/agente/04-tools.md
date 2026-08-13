@@ -358,7 +358,11 @@ async def _decidir_transicao(conn, atendimento_id: str) -> str | None:
 - **Guarda do piso de desconto (ADR-0004).** Quando o payload traz `valor_acordado` **abaixo do piso** (`preço de tabela do programa × (1 − settings.desconto_max_pct)`), `registrar_extracao_ia` **não grava o valor** e abre `escalar(motivo="fora_de_oferta")` — defesa-em-profundidade sobre a regra do prompt (`03 §3.1 <desconto>`), que o LLM pode ignorar. O preço de tabela vem de `modelo_programas` pela duração acordada; sem programa correspondente, trata como abaixo do piso (escala). Com `desconto_max_pct=0` o piso é o próprio valor de tabela (qualquer abatimento escala). A regra do percentual vive no prompt geral; o valor mínimo nunca é exposto ao LLM.
 - **`input_examples` (avaliar nas evals `08`, cruzamento 2026-05-24).** A doc oficial recomenda o campo opcional `input_examples` para tools com nested/format-sensitive params — `registrar_extracao` (~15 campos, `sinais_qualificacao`, `limpar`) e `escalar` são o alvo exato. Custo ~100-200 tokens/exemplo, pagos 1x no prefixo cacheado (entra na tool definition, então precisa ser tão estável quanto o resto). Pré-req: confirmar que `langchain-anthropic` propaga `input_examples` (mesma pendência do `strict`, `§7`); cada exemplo deve validar contra o `input_schema` (senão a API retorna 400). Tratar como ajuste fino, não bloqueador.
 
-### 3.2 `pedir_pix_deslocamento()`
+### 3.2 `pedir_pix_deslocamento()` — REMOVIDA (histórico)
+
+> **Não existe mais como tool.** O Pix de deslocamento virou side-effect determinístico da extração
+> (ver §4). O bloco abaixo fica como registro do desenho anterior; `ferramentas/pix.py` foi apagado.
+
 
 ```python
 # api/src/barra/agente/ferramentas/pix.py
@@ -660,32 +664,87 @@ Motivos da família AUP (`disclosure_*`, `jailbreak_attempt`, `pedido_explicito_
 
 `abrir_handoff` em `dominio/escaladas/service.py` **deriva `responsavel` de `motivo`** (tabela `RESP[motivo]`): AUP-família + `politica_nova_necessaria`/`exaustao_iteracoes`/`timeout_grafo`/`modelo_recusou` → Fernando; `fora_de_oferta`/`horario_indisponivel`/`reagendamento_pos_bloqueio` → modelo; `outro` → Fernando (default seguro). Não há `responsavel` vindo da tool para contradizer (Q10, `§3.4`).
 
-**Bucket de métrica (branch 19, `08 §3.2`):** AUP-família = bucket **defesa** (desejável; spike = ataque); operacionais (`fora_de_oferta`, `horario_indisponivel`, `politica_nova_necessaria`, `reagendamento_pos_bloqueio`, `exaustao_iteracoes`, `timeout_grafo`) = bucket **capacidade** (é o que o gate de qualidade mede). `modelo_recusou` = bucket **defesa** (filtro de safety da API, não falha de capacidade do agente — não deve reprovar o gate de qualidade, mas spike merece investigação no domínio adulto). `abrir_handoff` emite `agente_escalada_total{bucket, motivo}`.
+**Bucket de métrica (branch 19, `08 §3.2`):** AUP-família = bucket **defesa** (desejável; spike = ataque); operacionais (`fora_de_oferta`, `horario_indisponivel`, `politica_nova_necessaria`, `reagendamento_pos_bloqueio`, `exaustao_iteracoes`, `timeout_grafo`) = bucket **capacidade** (é o que o gate de qualidade mede). `modelo_recusou` = bucket **defesa** (filtro de safety da API, não falha de capacidade do agente — não deve reprovar o gate de qualidade, mas spike merece investigação no domínio adulto).
+
+Quem **emite** `agente_escalada_total{bucket, motivo}` é a camada do agente (`ferramentas/escalada.py`), não `abrir_handoff` — esta é compartilhada com painel/comandos/Pix e não conhece o enum de motivos da tool. E ela só conta o que virou LINHA: `abrir_handoff` é idempotente por escalada ABERTA e devolve `None` quando não criou nada (o atendimento já estava com um responsável); nesse caso a tool não conta métrica e não enfileira card, porque o card daquela escalada já foi entregue.
 
 Detalhes em `03 §11` e `regras.md.j2` (`<protocolo_disclosure>`).
 
+### 3.7 `envolver_parceira(modo)` — os dois fluxos da parceira (ADR-0042)
+
+```python
+# api/src/barra/agente/ferramentas/parceria.py
+ModoParceira = Literal["encaminhar", "dupla"]
+
+@tool
+async def envolver_parceira(modo: ..., runtime: ToolRuntime[ContextAgente]) -> str
+```
+
+A tool **não decide** o fluxo: quem decide é o discriminante determinístico (`agente/_parceria.py:fluxo_da_parceira`), que roda no `prepare_context` e injeta no máximo UMA tag de conduta no contexto do turno. O `modo` que o LLM manda é validado contra o cadastro e contra os carimbos do atendimento; divergência vira `ToolException`.
+
+| | `encaminhar` (fluxo A) | `dupla` (fluxo B) |
+|---|---|---|
+| gatilho | ele quer um ATO que ela não faz | ele quer DUAS MULHERES |
+| quem fecha | a parceira (a IA sai da venda) | a modelo do canal, sozinha |
+| valor | **nenhum**, nunca | o total das duas, da tabela DELA |
+| telefone | anexado pelo SISTEMA, numa bolha própria | **nunca** |
+| carimbo | `atendimentos.parceira_encaminhada_em` | `atendimentos.parceira_dupla_em` |
+| resultado | `contato_anexado=True` | `card_parceira=True` |
+
+**As três travas duras vivem no write-time, não no prompt:** (1) whitelist do par — sem linha ativa em `modelo_parcerias` e sem a flag do modo pedido, nada acontece; (2) aceite dele antes de qualquer dado — `encaminhar` exige `amiga_ofertada_em` já carimbado, e esse carimbo é write-time do ENVIO, logo só existe num turno ANTERIOR (o contato nunca sai no mesmo turno da oferta); (3) uma vez por atendimento, e os dois modos são mutuamente exclusivos (cada um recusa se o carimbo do outro existe).
+
+O telefone **não passa pelo LLM em nenhum ponto**: a tool não o devolve. A bolha é montada pelo `workers/coordenador.py`, fresh do cadastro, depois do turno — o mesmo trilho da chave Pix. `agente/_parceria.py:eh_bolha_de_contato_da_parceira` é o carve-out que impede a rede anti-Pix do output_guard de comer essa bolha (um E.164 casa `\d{11,14}`).
+
+**Armadilha de redação, medida ao vivo (12/08/2026, traces `3a0363f6` e `610745d2`):** o retorno da tool NÃO pode descrever a mecânica do sistema. A versão anterior de `_OK_ENCAMINHAR` dizia "o sistema manda o telefone dela numa bolha própria, depois da sua fala", e o modelo obedeceu narrando isso ao cliente ("o contato dela já vai aí"); o judge de AUP leu o anúncio de uma entrega que a fala não faz como `system_leak`, zerou a bolha e PAUSOU a IA — em 2 de 6 conversas do fluxo. O retorno de tool é conduta: prescreve a INTENÇÃO da fala, nunca o que o sistema faz por fora.
+
+### 3.8 `enviar_midia(..., de="parceira")` — foto DELA
+
+Arg `de: Literal["eu","parceira"]`, default `"eu"`. Com `de="parceira"` a query de mídia troca de dono (`carregar_parceria(...).parceira_id`) — o único ponto do agente onde a busca de mídia sai do `ctx.modelo_id`. Fail-closed: sem parceria ativa a tool levanta `ToolException`, nunca cai no acervo da própria modelo (mandaria a foto errada com o rótulo da parceira).
+
+`<ja_enviou_book>` não vale para ela e mandar a dela **não consome o book** da modelo do canal: o `de` viaja no payload de `tool_calls` e `workers/envio.py` o lê para NÃO carimbar `book_enviado_em`. O retorno da tool muda junto (`_CONFIRMACAO_PARCEIRA`), inclusive no caminho de replay.
+
 ## 4. Registro centralizado das tools
+
+**Estado shipado** (conferido no código em 12/08/2026 — este bloco é o catálogo autoritativo; o que
+está acima nas subseções 3.x pode descrever formas anteriores):
 
 ```python
 # api/src/barra/agente/ferramentas/__init__.py
-from .leitura import consultar_agenda
-from .extracao import registrar_extracao
-from .pix import pedir_pix_deslocamento
-from .midia import enviar_midia
 from .escalada import escalar
+from .leitura import consultar_agenda
+from .midia import enviar_midia
+from .parceria import envolver_parceira
 
-TOOLS = [
-    consultar_agenda,        # leitura (única)
-    registrar_extracao,      # escrita
-    pedir_pix_deslocamento,
-    enviar_midia,
-    escalar,
-]  # 5 tools P0 (1 leitura + 4 escrita) — grilling 2026-05-23
+TOOLS: list[BaseTool] = [
+    consultar_agenda,        # leitura
+    enviar_midia,            # escrita
+    envolver_parceira,       # escrita (ADR-0042)
+    escalar,                 # sempre por ÚLTIMO
+]
 ```
 
-Ordem importa para o LLM (lista chega na ordem em `tools` da request); leitura primeiro, escrita depois — heurística de prompt engineering para favorecer chamadas seguras antes. `TOOLS` é constante de módulo congelada, ordem fixa e byte-idêntica entre todas as modelos (invariante de prefixo do cache, `agente/CLAUDE.md`).
+Duas diferenças em relação ao P0 original, ambas deliberadas:
 
-O breakpoint `cache_control: {"type": "ephemeral"}` pousa na **última** tool do array (`escalar`): cacheia todo o prefixo de definições, da primeira tool até ela (configurado no caminho do `bind_tools`, ver `03`). Corolário do invariante, confirmado pela doc oficial: **qualquer** edição em **qualquer** tool invalida o cache **inteiro** (`tools` → `system` → `messages`), não só a parte alterada — por isso a ordem byte-idêntica entre modelos não é cosmética, é o que mantém o cache hit.
+- **`registrar_extracao` NÃO está em `TOOLS`.** O chat #1 nunca a chama: a extração roda sempre,
+  pós-fala, num nó próprio (`nos/extrair.py`), onde o schema dela é bindado sozinho com
+  `tool_choice="registrar_extracao"` e a tool é executada INLINE. Consequência que importa: ela não
+  passa pelo `ToolNode`, então não herda o embrulho de `ValidationError` dele — por isso seta
+  `handle_validation_error` explicitamente (ver §6).
+- **`pedir_pix_deslocamento` não existe mais** (§3.2 abaixo é histórico). O Pix de deslocamento virou
+  side-effect determinístico da extração: `externo` + horário → `Aguardando_confirmacao` solicita o
+  Pix (`dominio/atendimentos/service.py:_solicitar_pix_deslocamento_se_aplicavel`). A IA só escreve a
+  bolha; a chave nunca passa pelo LLM.
+
+Ordem importa para o LLM (a lista chega na ordem em `tools` da request); leitura primeiro, escrita
+depois, `escalar` por último. `TOOLS` é constante de módulo congelada, ordem fixa e byte-idêntica
+entre todas as modelos (invariante de prefixo do cache, `agente/CLAUDE.md`) — inclusive
+`envolver_parceira`, que é bindada mesmo na modelo SEM parceira cadastrada: quem fecha a porta é a
+trava write-time da tool (fail-closed), não a ausência do schema. Subsetir por modelo quebraria o
+cache de prefixo e é proibido.
+
+Cache: o provedor de texto é DeepSeek, que cacheia o prefixo automaticamente (não há breakpoint
+`cache_control` a posicionar). Qualquer edição em qualquer tool muda os bytes do segmento `tools` e
+invalida o prefixo inteiro uma vez — é o custo esperado de mexer no catálogo, não uma regressão.
 
 ## 5. Migration auxiliar para `tool_calls`
 
@@ -724,6 +783,19 @@ LangGraph encapsula exceções de tool em `ToolMessage` com `status="error"`. A 
 - **Erro de rede** → não acontece nas tools do P0 (acesso só a Postgres/Redis locais; o envio externo via Evolution roda em workers, fora do loop de tools).
 
 A distinção importa para **observabilidade** (`08`): tratar todo erro como `"ERRO:"`-string mascararia falha de infra como sucesso. Com a separação acima, `status="error"` conta como falha real; `"ERRO:"`-string conta como round-trip de reformulação — buckets distintos nas métricas. (Resolve a "Nota (ponto baixo)" que aqui ficava em aberto: a doc dá o veredito, não é mais decisão de estilo.)
+
+### 6.1 Erro de ARGS: quem tem rede e quem não tinha
+
+`ValidationError` do pydantic **não é** `ToolException`, então `handle_tool_error` não o pega. Para as tools de `TOOLS` isso não é problema: o `ToolNode` embrulha o `ValidationError` do parse de args num `ToolInvocationError` (subclasse de `ToolException`) e o handler default o devolve como `ToolMessage`.
+
+Quem **não** ganha isso de graça é a tool executada fora do `ToolNode` — `registrar_extracao`, chamada inline por `nos/extrair.py:_executar_inline`. Medido em 12/08/2026: **11 formas de o modelo matar o turno inteiro** (cliente sem NENHUMA resposta) escrevendo um campo no formato da fala numa nota interna — `horario_desejado="22h"`, `duracao_horas="12h"`, `data_desejada="amanha"`, `limpar="horario_desejado"` (string no lugar de lista), `sinais_qualificacao="aceita_valor"`, `valor_acordado="300 reais"` ou negativo, `proxima_acao_esperada` com menos de 3 chars, `horario_desejado="17:00:00"` (o repr de `datetime.time`, que o próprio bloco `<ja_registrado>` ecoava).
+
+Duas camadas fecham isso, e elas resolvem coisas diferentes:
+
+1. **`nos/extrair.py:_podar_ao_schema`** (via `_args_saneados`) — alinha os args ao schema campo a campo, na ordem poda → enum → tipo: chave que o schema não conhece sai; enum com typo de uma letra é corrigido (`"imediatio"` → `"imediato"`); valor no formato da fala é COAGIDO quando dá (`"22h"` → `"22:00"`, `"R$ 1.200,50"` → `"1200.50"`, `"Inversão"` → `["Inversão"]`) e DESCARTADO quando não dá sem chutar (`"pernoite"` não é duração; `"amanha"` não é data — a âncora do relativo vive no prompt). É a camada que **preserva dado**, e cada descarte conta em `agente_extracao_campo_descartado_total{campo,motivo}` (sem ela o campo sumia em silêncio).
+2. **`registrar_extracao.handle_validation_error`** — a rede de baixo, para o que a camada 1 não previu: devolve um `"ERRO: ..."` instrutivo (nunca `True`, que devolveria o dump do pydantic ao modelo) e cai em `_extracao_errou` → auto-reoferta one-shot.
+
+Testes: `tests/agente/test_extracao_args_invalidos.py`.
 
 ## 7. Strict tool use (validação garantida de schema)
 

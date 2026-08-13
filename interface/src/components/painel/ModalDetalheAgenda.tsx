@@ -265,7 +265,7 @@ export function ModalDetalheAgenda({
                   titulo="Sobre este bloqueio"
                   icone={<Clock size={14} strokeWidth={1.75} className="text-text-muted" />}
                 >
-                  <p className="text-[14px] text-text-disabled">
+                  <p className="text-[14px] text-text-muted">
                     Sem cliente vinculado e sem observação. Tudo o que precisa saber está no resumo acima.
                   </p>
                 </SecaoBloco>

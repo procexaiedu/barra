@@ -1,7 +1,7 @@
 "use client"
 
 import { Check, ChevronDown } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { cn } from "@/lib/utils"
 import { formatBRL } from "@/lib/formatters"
@@ -608,6 +608,11 @@ export function LegendaDemandaNaoAtendida() {
 // backend como literal SQL `INTERVAL '90 days'`.
 export const RECENCIA_CUTOFF_DIAS = 90
 
+/** Espera entre a última tecla e o commit da faixa de R$. Sem isso cada caractere
+ *  digitado vira um GET do mapa (query pesada) e a resposta que chega por último
+ *  vence, não a que foi pedida por último. Mesmo valor do debounce da busca. */
+const VALOR_DEBOUNCE_MS = 300
+
 /** Filtro de faixa de R$ fechado por cliente (MAPA-11). Incide em `ag.valor_total`
  *  (cross-modelo). Ortogonal ao MAPA-8 e à lente MAPA-9: sempre aplicado, controles
  *  sempre habilitados. UI sinaliza min > max com `aria-invalid` e não chama
@@ -629,6 +634,13 @@ export function FiltroValorRange({
   const [minStr, setMinStr] = useState<string>(valorMin === null ? "" : String(valorMin))
   const [maxStr, setMaxStr] = useState<string>(valorMax === null ? "" : String(valorMax))
 
+  const commitTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    return () => {
+      if (commitTimer.current) clearTimeout(commitTimer.current)
+    }
+  }, [])
+
   const minNum = minStr === "" ? null : Number(minStr)
   const maxNum = maxStr === "" ? null : Number(maxStr)
   const invalido =
@@ -647,10 +659,14 @@ export function FiltroValorRange({
     ) {
       return
     }
-    onChange({
-      valorMin: next.min !== null && !Number.isNaN(next.min) ? next.min : null,
-      valorMax: next.max !== null && !Number.isNaN(next.max) ? next.max : null,
-    })
+    // Debounce: só o último valor digitado chega ao pai (e ao fetch do mapa).
+    if (commitTimer.current) clearTimeout(commitTimer.current)
+    commitTimer.current = setTimeout(() => {
+      onChange({
+        valorMin: next.min !== null && !Number.isNaN(next.min) ? next.min : null,
+        valorMax: next.max !== null && !Number.isNaN(next.max) ? next.max : null,
+      })
+    }, VALOR_DEBOUNCE_MS)
   }
 
   const rotulo =
@@ -732,6 +748,8 @@ export function FiltroValorRange({
           <button
             type="button"
             onClick={() => {
+              // Limpar é explícito: cancela o commit pendente e aplica na hora.
+              if (commitTimer.current) clearTimeout(commitTimer.current)
               setMinStr("")
               setMaxStr("")
               onChange({ valorMin: null, valorMax: null })

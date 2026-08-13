@@ -120,3 +120,24 @@ O detector determinístico é escolha deliberada sobre pedir a informação ao e
 No #25, o horário fantasma só não virou reserva porque a `intencao` ficou baixa por outro defeito. Ao consertar a promoção de intenção sem esta marca, esse freio acidental desaparece — motivo pelo qual esta spec deve ser implementada **antes ou junto** da promoção de intenção, nunca depois.
 
 O corpus que embasa a spec tem dez dias, uma modelo e tráfego de piloto com cancelamento automático ligado. Os casos servem como regressão; não provam cobertura do detector em tráfego real.
+
+---
+
+## Adendo 12/08/2026 — o freio ENTROU na tabela de pré-condições da FSM (decisão fora da letra desta spec)
+
+A spec irmã (`extracao-promocao-intencao`) prometia "as pré-condições da FSM não mudam", e esta
+listava como consumidores da marca só o belief e a promoção de intenção. **A rodada 1 do loop de
+massa (eixo objetor) provou o contorno**: o extrator escrevendo `intencao='agendamento'` por
+julgamento direto no payload passa por cima da promoção-por-evidência, e o hop
+`Qualificado→Aguardando_confirmacao` checava só a PRESENÇA de horário — a hora que a própria IA
+ofertou promovia o atendimento, reservava slot e armava Pix sem aceite (exatamente a US2).
+
+Por isso o predicado novo em `_PRECONDICOES_TRANSICAO["Qualificado"]`
+(`dominio/atendimentos/service.py`): horário presente e NÃO evidenciado → não promove, e o belief
+cobra "ele confirmar o horário que ficou na mesa". A fonte única FSM/belief foi preservada
+(`_avaliar_precondicoes` serve os dois); `horario_evidenciado` é kw-only sem default para caller
+esquecido falhar alto. **Não "corrija" isso de volta para a letra original da spec** — a garantia
+"palpite não vira reserva" só se sustenta na tabela, porque a tabela é o único ponto por onde
+TODOS os caminhos que produzem a promoção passam (inclusive o julgamento do LLM no campo
+`intencao`). Registrado também na revisão de domínio da rodada 1
+(`.scratch/loop-massa/rodadas/01/`) e na lição `specs-interligadas-garantia-contornada.md`.

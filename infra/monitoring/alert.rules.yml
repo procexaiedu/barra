@@ -140,6 +140,45 @@ groups:
             "%.3f" }}/s nos ultimos 15m. A Etapa 2 esta caindo p/ default seguro (bloqueia+escala)
             — checar credito/infra do judge (memoria "Anthropic creditos esgotados").
 
+      # A extracao do turno foi DESCARTADA (truncada, ou sem tool_call parseavel mesmo depois da
+      # retentativa). O dano e mudo por construcao: o turno responde normalmente ao cliente, mas o
+      # que ele disse — a hora que cravou, o valor que aceitou — nao entra no atendimento, e a
+      # conversa segue como se ele nao tivesse falado. Medido em ~3% dos turnos em 12/08 ANTES da
+      # retentativa; o alerta olha o que sobra DEPOIS dela. Alerta sobre `perdida` (o dano) e nao
+      # sobre `retentada` (o susto, que e justamente a recuperacao funcionando).
+      - alert: AgenteExtracaoPerdida
+        expr: sum(rate(agente_extracao_perdida_total[30m])) > 0.005
+        for: 30m
+        labels:
+          severity: warning
+          dimensao: dado
+        annotations:
+          summary: "Extracao do turno sendo descartada (o painel perde hora/valor em silencio)"
+          description: >
+            rate(agente_extracao_perdida_total) = {{ $value | printf "%.4f" }}/s nos ultimos 30m.
+            Turnos respondendo ao cliente SEM registrar o que ele disse. Comparar com
+            agente_extracao_retentada_total: se a retentativa tambem subiu, o provider esta
+            devolvendo tool_call quebrada; se so a perdida subiu, suspeitar do schema/janela.
+
+      # O DeepSeek nao tem snapshot pinavel (a API aceita so os aliases `deepseek-v4-flash`/`-pro`;
+      # `-0731` e `-latest` sao rejeitados — sondado em 12/08), e o provider JA trocou os pesos
+      # atras do mesmo id em 31/07. Como nao da p/ prevenir, detecta-se: cada build responde com um
+      # `system_fingerprint` proprio, publicado como serie de presenca. Duas series vivas para o
+      # mesmo alias na janela = a troca aconteceu. Nao e incidente por si — e a deixa para rodar o
+      # eval antes que a deriva de conduta apareca como queda de conversao.
+      - alert: AgenteModeloTrocouDeBuild
+        expr: count by (modelo) (agente_modelo_fingerprint) > 1
+        for: 15m
+        labels:
+          severity: warning
+          dimensao: qualidade
+        annotations:
+          summary: "O provider trocou o build do modelo sob o mesmo alias"
+          description: >
+            {{ $value }} system_fingerprints distintos para modelo={{ $labels.modelo }} na janela.
+            O alias e movel: os pesos mudaram sem deploy nosso. Rodar `make evals` e o gate de
+            conduta antes de assumir que a conduta continua a mesma.
+
   - name: agente_custo
     rules:
       # CUSTO-05 — WRITE-RATE de cache. Invariante de agente/CLAUDE.md: write-rate alto

@@ -7,6 +7,7 @@ import { useObservabilidade, type OrigemTurnos } from "@/hooks/useObservabilidad
 import { ListaConversas } from "@/components/observabilidade/ListaConversas"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Segmented, SegmentedItem } from "@/components/ui/segmented"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { cn } from "@/lib/utils"
@@ -24,24 +25,13 @@ export function PainelObservabilidade() {
     <>
       <section aria-label="Respostas do agente" className="flex flex-col gap-3">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-0.5 rounded-lg border border-border p-0.5">
+          <Segmented>
             {(["prod", "e2e"] as const).map((o) => (
-              <button
-                key={o}
-                type="button"
-                onClick={() => setOrigem(o)}
-                aria-pressed={origem === o}
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                  origem === o
-                    ? "[background-image:var(--gradient-gold-soft)] text-text-brand"
-                    : "text-text-muted hover:text-text-primary",
-                )}
-              >
+              <SegmentedItem key={o} onClick={() => setOrigem(o)} active={origem === o}>
                 {o === "prod" ? "Produção" : "E2E"}
-              </button>
+              </SegmentedItem>
             ))}
-          </div>
+          </Segmented>
           <button
             type="button"
             onClick={() => setApenasNaoAvaliadas((v) => !v)}

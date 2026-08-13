@@ -21,7 +21,31 @@ function clienteLegivel(bloqueio: BloqueioAgenda): string | null {
   return `#${at.numero_curto} · ${nome}`
 }
 
-export function AlertaConflito({ conflitos }: { conflitos: BloqueioAgenda[] }) {
+export function AlertaConflito({
+  conflitos,
+  erro = false,
+}: {
+  conflitos: BloqueioAgenda[]
+  /** a checagem de agenda falhou — lista vazia não é prova de horário livre */
+  erro?: boolean
+}) {
+  // Falha na checagem tem tratamento próprio: silêncio aqui viraria um "sem
+  // conflito" tranquilizador em cima de uma agenda que ninguém conseguiu ler.
+  if (erro) {
+    return (
+      <div className="rounded-lg border border-state-handoff/40 bg-state-handoff/10 px-3 py-2.5 text-xs">
+        <div className="flex items-center gap-1.5 font-medium text-state-handoff">
+          <AlertTriangle size={14} strokeWidth={2} />
+          <span>Não foi possível checar a agenda</span>
+        </div>
+        <p className="mt-1 leading-snug text-text-secondary">
+          A consulta de bloqueios falhou. Confira o horário na agenda antes de salvar — pode
+          haver sobreposição.
+        </p>
+      </div>
+    )
+  }
+
   if (conflitos.length === 0) return null
 
   return (

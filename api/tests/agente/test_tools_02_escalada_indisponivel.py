@@ -103,6 +103,9 @@ class _FakeSettings:
     # Carimbo de regime que o coordenador poe no trace (metadata_trace_turno): o fake precisa do
     # campo porque o config do turno le settings.deepseek_thinking_chat.
     deepseek_thinking_chat = "low"
+    # Teto do turno (asyncio.wait_for em volta do graph.ainvoke): virou setting em 12/08 p/
+    # ficar acima do teto por chamada de LLM (`llm_timeout_s`).
+    turno_timeout_s = 60.0
 
 
 def _ctx(exc: BaseException) -> dict[str, Any]:

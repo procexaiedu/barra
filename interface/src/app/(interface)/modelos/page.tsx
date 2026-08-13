@@ -400,7 +400,7 @@ function TabBtn({ active, onClick, children }: { active: boolean; onClick: () =>
       onClick={onClick}
       className={`relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
         active
-          ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gold-500"
+          ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-border-brand"
           : "text-text-muted hover:text-text-secondary"
       }`}
     >

@@ -21,6 +21,12 @@ export interface ConflitoAgendaInput {
 export interface ConflitoAgenda {
   conflitos: BloqueioAgenda[]
   carregando: boolean
+  /**
+   * A consulta de bloqueios falhou. Lista vazia aqui é ignorância, não garantia
+   * de agenda livre — quem consome precisa avisar que NÃO deu para checar, já
+   * que o PATCH do backend não valida sobreposição para servir de rede.
+   */
+  erro: boolean
 }
 
 /**
@@ -37,6 +43,7 @@ export function useConflitoAgenda({
 }: ConflitoAgendaInput): ConflitoAgenda {
   const [conflitos, setConflitos] = useState<BloqueioAgenda[]>([])
   const [carregando, setCarregando] = useState(false)
+  const [erro, setErro] = useState(false)
 
   const completo =
     Boolean(modelo_id) &&
@@ -55,6 +62,7 @@ export function useConflitoAgenda({
         if (cancelado) return
         setConflitos([])
         setCarregando(false)
+        setErro(false)
       }, 0)
       return () => {
         cancelado = true
@@ -82,11 +90,15 @@ export function useConflitoAgenda({
             ),
           )
           setCarregando(false)
+          setErro(false)
         })
         .catch(() => {
           if (cancelado) return
+          // Sem resposta não existe "sem conflito": marca o erro para o consumidor
+          // avisar. O flag só cai numa consulta que volte bem (ou período incompleto).
           setConflitos([])
           setCarregando(false)
+          setErro(true)
         })
     }, 300)
 
@@ -96,5 +108,5 @@ export function useConflitoAgenda({
     }
   }, [completo, modelo_id, data, horario, duracao_horas, excluir_bloqueio_id])
 
-  return { conflitos, carregando }
+  return { conflitos, carregando, erro }
 }

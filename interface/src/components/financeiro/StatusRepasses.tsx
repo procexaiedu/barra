@@ -45,7 +45,7 @@ export function StatusRepasses({
           Status de repasses
         </h3>
         {bruto > 0 && (
-          <span className="font-mono text-[10.5px] tabular-nums text-text-disabled">
+          <span className="font-mono text-[10.5px] tabular-nums text-text-muted">
             calculado = {pctDoBruto.toFixed(1)}% do bruto
           </span>
         )}
@@ -166,7 +166,7 @@ function Coluna({
         </span>
       )}
       {trailing && (
-        <span className="truncate font-mono text-[10.5px] text-text-disabled tabular-nums">
+        <span className="truncate font-mono text-[10.5px] text-text-muted tabular-nums">
           {trailing}
         </span>
       )}

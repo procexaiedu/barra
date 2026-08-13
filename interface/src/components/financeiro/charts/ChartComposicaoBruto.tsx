@@ -47,7 +47,7 @@ export function ChartComposicaoBruto({ resumo }: Props) {
         rotulo: "Líquido Elite Baby",
         valor: liquido,
         pct: bruto > 0 ? (liquido / bruto) * 100 : 0,
-        cor: "var(--gold-500)",
+        cor: "var(--chart-1)",
         descricao: "fica com a Elite Baby",
       },
       {
@@ -136,7 +136,7 @@ export function ChartComposicaoBruto({ resumo }: Props) {
                   >
                     {s.rotulo}
                   </span>
-                  <span className="block truncate text-[10.5px] text-text-disabled">
+                  <span className="block truncate text-[10.5px] text-text-muted">
                     {inativo ? "—" : s.descricao}
                   </span>
                 </span>

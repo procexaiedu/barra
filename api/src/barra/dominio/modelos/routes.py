@@ -40,6 +40,34 @@ PERSONA_TEMPLATE_PATH = Path(__file__).resolve().parents[2] / "agente" / "prompt
 _logger = logging.getLogger(__name__)
 
 
+# Chave de ordenação da lista: situação primeiro (ativa, pausada, resto), depois antiguidade.
+_ORDEM_STATUS_SQL = "CASE m.status WHEN 'ativa' THEN 0 WHEN 'pausada' THEN 1 ELSE 2 END"
+
+
+def _keyset_modelos(cursor: str) -> tuple[str, list[Any]]:
+    """Filtro de continuação da lista, a partir do cursor opaco.
+
+    A ordenação é composta e `created_at` não é monotônico dentro dela: uma modelo `inativa`
+    antiga vem DEPOIS de uma `ativa` recente. Um cursor só de `created_at` (o formato antigo)
+    pulava e repetia modelos na virada de situação, então ele carrega a mesma tupla que ordena
+    — (ordem da situação, created_at, id) — comparada lexicograficamente. O `id` desempata
+    `created_at` igual (cadastro em lote) e torna a paginação total.
+    """
+    partes = cursor.split("|")
+    try:
+        if len(partes) == 1:
+            # Cursor legado (só created_at), emitido antes do keyset composto: aceito para não
+            # quebrar as páginas em voo no deploy. Pode sair quando não houver mais nenhum.
+            return "m.created_at > %s", [datetime.fromisoformat(partes[0])]
+        ordem, criado_em, modelo_id = partes
+        return (
+            f"({_ORDEM_STATUS_SQL}, m.created_at, m.id) > (%s, %s, %s)",
+            [int(ordem), datetime.fromisoformat(criado_em), UUID(modelo_id)],
+        )
+    except ValueError as exc:
+        raise EntradaInvalida("CURSOR_INVALIDO", "cursor mal formado") from exc
+
+
 def _montar_filtros_modelos(
     *,
     status: str | None,
@@ -99,13 +127,15 @@ async def listar_modelos(
     )
 
     if cursor:
-        filtros.append("m.created_at > %s::timestamptz")
-        params.append(cursor)
+        keyset_sql, keyset_params = _keyset_modelos(cursor)
+        filtros.append(keyset_sql)
+        params.extend(keyset_params)
 
     where_sql = f"WHERE {' AND '.join(filtros)}" if filtros else ""
     result = await conn.execute(
         f"""
         SELECT m.*,
+               {_ORDEM_STATUS_SQL} AS ordem_status,
                coalesce(a.atendimentos_abertos, 0) AS atendimentos_abertos,
                coalesce(a.conversas_ia_pausada, 0) AS conversas_ia_pausada,
                e.ultimo_handoff_em
@@ -125,17 +155,26 @@ async def listar_modelos(
              WHERE at.modelo_id = m.id
           ) e ON true
           {where_sql}
-         ORDER BY CASE m.status WHEN 'ativa' THEN 0 WHEN 'pausada' THEN 1 ELSE 2 END,
-                  m.created_at ASC
+         ORDER BY {_ORDEM_STATUS_SQL},
+                  m.created_at ASC,
+                  m.id ASC
          LIMIT %s
         """,
         [*params, limit + 1],
     )
     rows = list(await result.fetchall())
+    # next_cursor sai da última linha EXIBIDA. rows[limit] era a linha extra do limit+1, que
+    # não entra na página; como o filtro do cursor é estrito (>), ela sumia das duas páginas.
+    tem_mais = len(rows) > limit
     page = rows[:limit]
+    ultimo = page[-1] if tem_mais and page else None
     return {
         "items": [_modelo_lista_item(request, row) for row in page],
-        "next_cursor": rows[limit]["created_at"].isoformat() if len(rows) > limit else None,
+        "next_cursor": (
+            f"{ultimo['ordem_status']}|{ultimo['created_at'].isoformat()}|{ultimo['id']}"
+            if ultimo
+            else None
+        ),
     }
 
 

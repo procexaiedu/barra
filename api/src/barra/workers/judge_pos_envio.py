@@ -119,13 +119,16 @@ class _JudgeIndisponivel(RuntimeError):
 async def _julgar(contexto: str, turno: str, settings: Settings) -> VeredictoTurno:
     """Veredito estruturado no DeepSeek (espelha `output_guard._julgar_aup`: thinking disabled,
     function_calling explícito, `include_raw` p/ checar a parada, retry 1x SÓ em parse)."""
-    from barra.agente._instrumentar import instrumentar_tokens
+    from barra.agente._instrumentar import instrumentar_tokens, medir_llm
     from barra.agente.persona import render_judge_pos_envio
     from barra.core.llm import PARADA_INSEGURA, criar_chat_deepseek, motivo_parada
 
-    chat = criar_chat_deepseek(settings).with_structured_output(
-        VeredictoTurno, include_raw=True, method="function_calling"
-    )
+    # `temperature=judge_temperature` (0.0) pelo mesmo motivo do judge de AUP: omitir o parametro
+    # deixa o provider em ~1.0 (a factory nao envia o campo quando None) e a telemetria de conduta
+    # passa a medir sorteio (loop-massa r3, achado 1 — a familia inteira dos 3 judges).
+    chat = criar_chat_deepseek(
+        settings, temperature=settings.judge_temperature
+    ).with_structured_output(VeredictoTurno, include_raw=True, method="function_calling")
     mensagens = [
         {"role": "system", "content": render_judge_pos_envio()},
         {
@@ -140,7 +143,8 @@ async def _julgar(contexto: str, turno: str, settings: Settings) -> VeredictoTur
     for tentativa in (1, 2):
         # callbacks=[]: job fora do grafo, sem trace próprio — o veredito entra como SCORE no
         # trace do turno (registrar_feedback_online), não como spans de sub-chain.
-        resultado = await chat.ainvoke(mensagens, config={"callbacks": []})
+        with medir_llm("judge_pos_envio"):
+            resultado = await chat.ainvoke(mensagens, config={"callbacks": []})
         assert isinstance(resultado, dict)
         bruto = resultado.get("raw")
         if bruto is not None:

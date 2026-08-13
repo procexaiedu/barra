@@ -59,13 +59,34 @@ async def listar_conversas(
                 )
                 params.extend([cursor_ts, cursor_ts, cursor_id])
         else:
-            filtros.append("cv.ultima_mensagem_em < %s::timestamptz")
-            params.append(cursor)
+            # "recente" ordena por (ultima_mensagem_em DESC NULLS LAST, id DESC), então o
+            # cursor precisa carregar a mesma tupla. Só o timestamp não bastava: conversas
+            # empatadas no mesmo instante sumiam (comparação estrita), e uma página que
+            # terminasse na faixa dos NULL zerava o cursor e encerrava a lista cedo.
+            c = json.loads(cursor) if cursor.startswith("{") else {"ts": cursor, "id": None}
+            cursor_ts, cursor_id = c["ts"], c["id"]
+            if cursor_id is None:
+                # Cursor legado (só timestamp): mantém o comportamento antigo.
+                filtros.append("cv.ultima_mensagem_em < %s::timestamptz")
+                params.append(cursor_ts)
+            elif cursor_ts is None:
+                # Já estamos na faixa dos sem-mensagem, que vem por último.
+                filtros.append("(cv.ultima_mensagem_em IS NULL AND cv.id < %s::uuid)")
+                params.append(cursor_id)
+            else:
+                filtros.append(
+                    "(cv.ultima_mensagem_em < %s::timestamptz"
+                    " OR (cv.ultima_mensagem_em = %s::timestamptz AND cv.id < %s::uuid)"
+                    " OR cv.ultima_mensagem_em IS NULL)"
+                )
+                params.extend([cursor_ts, cursor_ts, cursor_id])
     params.append(limit + 1)
     order_clause = (
         "ufem.ts ASC NULLS FIRST, cv.id ASC"
         if ordenar_por == "inatividade"
-        else "cv.ultima_mensagem_em DESC NULLS LAST, cv.created_at DESC"
+        # id (uuidv7) desempata no lugar de created_at: é único, monotônico no tempo — logo
+        # equivalente na prática — e é o que o cursor carrega.
+        else "cv.ultima_mensagem_em DESC NULLS LAST, cv.id DESC"
     )
     result = await conn.execute(
         f"""
@@ -116,7 +137,11 @@ async def listar_conversas(
             )
         else:
             ts = last["ultima_mensagem_em"]
-            next_cursor = ts.isoformat() if ts is not None else None
+            # Mesma tupla do ORDER BY. Antes, uma última linha sem mensagem devolvia
+            # next_cursor=None e a lista terminava com conversas por mostrar.
+            next_cursor = json.dumps(
+                {"ts": ts.isoformat() if ts is not None else None, "id": str(last["id"])}
+            )
     else:
         next_cursor = None
     rows = rows[:limit]
@@ -408,12 +433,16 @@ async def editar_conversa(
     return {"id": str(conversa_id), "observacoes_internas": valor}
 
 
-async def _one(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]) -> dict[str, Any] | None:
+async def _one(
+    conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]
+) -> dict[str, Any] | None:
     result = await conn.execute(query, params)
     return await result.fetchone()
 
 
-async def _all(conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+async def _all(
+    conn: AsyncConnection[Any], query: str, params: tuple[Any, ...]
+) -> list[dict[str, Any]]:
     result = await conn.execute(query, params)
     return list(await result.fetchall())
 

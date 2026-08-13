@@ -146,19 +146,29 @@ export function useClientesMapa(
   const [status, setStatus] = useState<Status>("idle")
   const [error, setError] = useState<string | null>(null)
   const primeiraCarga = useRef(true)
+  const abortRef = useRef<AbortController | null>(null)
 
   const path = buildMapaPath(filtros, mapa, incluirArquivados, lenteDemandaNaoAtendida)
 
   const carregar = useCallback(async () => {
+    // A query do mapa é pesada e filtros em sequência rápida (faixa de R$) empilham
+    // GETs sem ordem de resposta garantida — a última a responder venceria, não a
+    // última pedida. Aborta a anterior antes de disparar a nova.
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
     // Skeleton só na 1ª carga; refetch por filtro mantém os pontos atuais (sem flick).
     if (primeiraCarga.current) setStatus("loading")
     try {
-      const res = await api<MapaClientesResponse>(path)
+      const res = await api<MapaClientesResponse>(path, { signal: ctrl.signal })
       setData(res)
       setStatus("success")
       setError(null)
       primeiraCarga.current = false
     } catch (e) {
+      // Requisição abortada = superada por uma mais nova. Não é erro de tela: pintar
+      // o estado de erro aqui apagaria o mapa no meio da digitação.
+      if (ctrl.signal.aborted) return
       setStatus("error")
       setError(e instanceof Error ? e.message : "Erro desconhecido")
     }

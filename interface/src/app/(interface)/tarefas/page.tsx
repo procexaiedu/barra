@@ -10,6 +10,7 @@ import { ListaTarefas } from "@/components/tarefas/ListaTarefas"
 import { BoardTarefas } from "@/components/tarefas/BoardTarefas"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
+import { Segmented, SegmentedItem } from "@/components/ui/segmented"
 import { Skeleton } from "@/components/ui/skeleton"
 import { BannerErro } from "@/components/layout/BannerErro"
 import { PageHeader } from "@/components/layout/PageHeader"
@@ -61,23 +62,17 @@ function Segmento<T extends string>({
   onChange: (v: T) => void
 }) {
   return (
-    <div className="flex rounded-lg border border-border bg-muted p-0.5">
+    <Segmented>
       {opcoes.map((o) => (
-        <button
+        <SegmentedItem
           key={o.valor}
           onClick={() => onChange(o.valor)}
-          aria-pressed={valor === o.valor}
-          className={cn(
-            "rounded-md px-2.5 py-1 text-xs font-medium transition-all duration-150",
-            "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
-            "text-text-muted hover:text-text-primary",
-            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-          )}
+          active={valor === o.valor}
         >
           {o.label}
-        </button>
+        </SegmentedItem>
       ))}
-    </div>
+    </Segmented>
   )
 }
 
@@ -143,27 +138,22 @@ export default function TarefasPage() {
           icon: <Plus size={16} strokeWidth={1.5} />,
         }}
       >
-        <div className="flex rounded-lg border border-border bg-muted p-0.5">
+        <Segmented>
           {(["lista", "board"] as const).map((v) => {
             const Icon = v === "lista" ? LayoutList : LayoutGrid
             return (
-              <button
+              <SegmentedItem
                 key={v}
+                size="icon"
                 onClick={() => setVisao(v)}
                 aria-label={v === "lista" ? "Visão em lista" : "Visão em board"}
-                aria-pressed={visao === v}
-                className={cn(
-                  "rounded-md p-1.5 transition-all duration-150",
-                  "aria-[pressed=true]:bg-card aria-[pressed=true]:text-text-primary aria-[pressed=true]:shadow-sm",
-                  "text-text-muted hover:text-text-primary",
-                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                )}
+                active={visao === v}
               >
                 <Icon size={16} strokeWidth={1.5} />
-              </button>
+              </SegmentedItem>
             )
           })}
-        </div>
+        </Segmented>
       </PageHeader>
 
       <section aria-label="Tarefas" className="flex flex-col gap-3">

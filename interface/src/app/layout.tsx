@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next"
 import { Inter, JetBrains_Mono, Cormorant_Garamond } from "next/font/google"
-import { Toaster } from "sonner"
+import { Toaster } from "@/components/ui/sonner"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { ThemeProvider } from "@/components/theme-provider"
 import "./globals.css"
@@ -58,7 +58,9 @@ export default function RootLayout({
           <TooltipProvider>
             {children}
           </TooltipProvider>
-          <Toaster position="bottom-right" theme="system" richColors closeButton />
+          {/* Wrapper do design system: segue o ThemeToggle (useTheme) e pinta o
+              toast pelos tokens — por isso sem `theme` fixo e sem richColors. */}
+          <Toaster position="bottom-right" closeButton />
         </ThemeProvider>
       </body>
     </html>

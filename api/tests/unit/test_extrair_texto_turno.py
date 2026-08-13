@@ -291,3 +291,20 @@ def test_desfecho_do_turno_sem_extracao_fica_vazio() -> None:
     """Turno so-conversa (sem registrar_extracao, sem erro, sem flags) -> desfecho vazio."""
     resultado = {"messages": [_ai_real("oi amor, tudo sim 🥰")]}
     assert _desfecho_do_turno(resultado) == {}
+
+
+def test_desfecho_le_o_carimbo_do_state_quando_a_mensagem_foi_zerada() -> None:
+    """O carimbo (`_extracao_registrada`, posto pelo no `extrair` no sucesso) VENCE a varredura de
+    mensagens: no despacho da regen o output_guard zera as AIMessages do turno e a extracao sumia
+    do trace inteira (loop-massa r2). Sem carimbo, o fallback de varredura segue valendo."""
+    args = {"intencao": "cotacao", "valor_acordado": 400}
+    zerada = _ai_real("")  # a mensagem que o guard reescreveu: sem tool_calls, sem texto
+    assert _desfecho_do_turno({"messages": [zerada], "_extracao_registrada": args})["extracao"] == {
+        "intencao": "cotacao",
+        "valor_acordado": 400,
+    }
+    # fallback (State montado a mao / teste de no): a varredura das mensagens continua servindo
+    assert _desfecho_do_turno({"messages": [_ai_extrai(args)]})["extracao"] == {
+        "intencao": "cotacao",
+        "valor_acordado": 400,
+    }

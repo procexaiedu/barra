@@ -41,7 +41,7 @@ export function HeaderAgenda({
         </p>
         {proximo && (
           <p className="mt-1.5 flex items-center gap-1.5 text-sm text-text-muted">
-            <span className="text-text-disabled">Próximo</span>
+            <span className="text-text-muted">Próximo</span>
             <span className="font-mono font-medium tabular-nums text-text-primary">
               {formatHorario(proximo.inicio)}
             </span>
@@ -70,7 +70,7 @@ export function HeaderAgenda({
                 className={cn(
                   "relative rounded-md px-3 py-1 text-xs font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   visao === item.value
-                    ? "bg-card text-text-primary shadow-sm after:absolute after:inset-x-2 after:-bottom-px after:h-px after:rounded-full after:bg-gold-500"
+                    ? "bg-card text-text-primary shadow-sm after:absolute after:inset-x-2 after:-bottom-px after:h-px after:rounded-full after:bg-border-brand"
                     : "text-text-muted hover:text-text-primary",
                 )}
               >

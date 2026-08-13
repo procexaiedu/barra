@@ -195,6 +195,12 @@ def contem_pedido_da_foto_de_portaria(texto: str) -> bool:
 #      "tipo 18h", "pode ser 2h"). Sem o marcador não conta — falso positivo aqui carimba
 #      evidência num horário que o cliente nunca pediu, que é justamente a falha do #25.
 _HORA = r"(?:[01]?\d|2[0-3])"
+# Recorte INEQUÍVOCO da hora (13-23): nenhum pacote da tabela usa essas durações (o mais longo é o
+# pernoite de 12h), então neste intervalo "Nh" não pode ser lida como duração de programa. Definido
+# aqui, junto do `_HORA`, porque TRÊS gerações do detector dependem dele — a agenda dele ("consigo
+# só 22h"), o imperativo "fecha 20h" e o espelho hora→dia ("21h hj"). Cada uma dessas famílias
+# dispensa o marcador temporal, e é só o recorte que as mantém seguras.
+_HORA_INEQUIVOCA = r"(?:1[3-9]|2[0-3])"
 _SUFIXO_HORA = r"(?:h|hs|hrs|horas?)\b"
 _RE_HORA_COM_MINUTO = re.compile(rf"\b{_HORA}\s*[:h]\s*[0-5]\d\b|\bmeio\s?dia\b|\bmeia\s?noite\b")
 _MARCADOR_TEMPORAL = (
@@ -202,6 +208,19 @@ _MARCADOR_TEMPORAL = (
     r"depois d(?:as|e)|antes d(?:as|e))"
 )
 _RE_HORA_COM_MARCADOR = re.compile(rf"\b{_MARCADOR_TEMPORAL}\s+{_HORA}\s*{_SUFIXO_HORA}")
+# Offset relativo em MINUTOS ("daqui 30 min", "daqui uns 40 minutos", "daqui meia hora"): mesma
+# família do "daqui 1h" que o marcador acima já cobre — o extrator converte os dois em hora do
+# relógio (DESC do horario_desejado), então vetar só o de minutos gravava `horario_evidenciado=
+# false` num encontro que o cliente cravou (loop-massa r1, eixo decidido_rapido). "daqui" torna
+# a leitura de DURAÇÃO impossível por construção — duração de pacote não usa offset de chegada.
+# "daqui uma hora"/"daqui duas horas" entram pelo MESMO argumento que já grafou "meia hora" por
+# extenso — o fix parou no meio (loop-massa r3): a forma por extenso é tão comum quanto o "daqui 1h"
+# e ficava fora sem recorte que a justificasse. Colisão zero por construção: o "daqui" torna a
+# leitura de duração impossível ("quanto e uma hora?" e "uma hora 400" seguem falsos, medidos).
+_RE_OFFSET_MINUTOS = re.compile(
+    r"\bdaqui(?:\s+a)?(?:\s+u(?:ns|mas?))?\s+"
+    r"(?:\d{1,3}\s*(?:min|mins|minutos?)|meia\s+hora|(?:uma|duas|tres)\s+horas?)\b"
+)
 
 # Segunda geração do marcador (diagnóstico 11/08, P0-2): a lista fechada acima perdeu 5 das 9 falas
 # com hora dos traces ("hoje 21h", "pras 22h de hoje", "21h então rola", "fechou, 21h to ai", "hoje
@@ -221,6 +240,16 @@ _MARCADOR_DE_DIA = (
     r"(?:hoje|hj|amanha|dia \d{1,2}|segunda|terca|quarta|quinta|sexta|sabado|domingo)"
 )
 _RE_HORA_COM_DIA = re.compile(rf"\b{_MARCADOR_DE_DIA}[\s,]+(?:as\s+)?{_HORA}\s*{_SUFIXO_HORA}")
+# Espelho hora→dia ("21h hj", "21h hoje", "20h amanha"): no WhatsApp a hora vem antes do dia com a
+# mesma naturalidade, e o ramo acima só lia dia→hora — a fala do cliente E a bolha da IA do mesmo
+# turno usavam a ordem espelhada, e o "Blz" do turno seguinte caiu no vazio pelos dois lados
+# (loop-massa r3, eixo externo_a t5/t6).
+# Restrito a `_HORA_INEQUIVOCA` DE PROPÓSITO, e a assimetria com o ramo acima é medida: com o dia
+# ANTES, "hoje 2h" já lê como relógio; com o dia DEPOIS, "2h hoje"/"1h hoje"/"3h sexta"/"faz 2h
+# hoje?" leem como DURAÇÃO — no espelho largo os quatro acendiam.
+_RE_DIA_DEPOIS_DA_HORA = re.compile(
+    rf"\b{_HORA_INEQUIVOCA}\s*{_SUFIXO_HORA}[\s,]*(?:de\s+)?{_MARCADOR_DE_DIA}\b"
+)
 _RE_HORA_COM_PRA = re.compile(rf"\bpras?\s+(?:as\s+)?{_HORA}\s*{_SUFIXO_HORA}")
 _VERBO_DE_FECHAMENTO = (
     r"(?:fech(?:o|ou|ado|amos)|confirmad[oa]|marcad[oa]|combinado|to ai|tou ai|estou ai|"
@@ -230,8 +259,51 @@ _RE_HORA_COM_FECHAMENTO = re.compile(
     rf"\b{_VERBO_DE_FECHAMENTO}\b[^\n]{{0,20}}\b{_HORA}\s*{_SUFIXO_HORA}"
     rf"|\b{_HORA}\s*{_SUFIXO_HORA}[^\n]{{0,20}}\b{_VERBO_DE_FECHAMENTO}\b"
 )
+# O imperativo "fecha 20h" — eco literal do empurrão que o prompt manda a IA usar ("Consigo às 20h,
+# fecha ?" → "Fecha 20h"). Ele NÃO entra na alternância de `_VERBO_DE_FECHAMENTO` com as irmãs
+# porque lá a hora é o `_HORA` largo, e as irmãs já herdam a colisão com duração que existe hoje
+# ("fechamos 2h", "combinado 1h", "bora 2h" acendem em HEAD). Ramo próprio em 13-23 fecha o caso
+# (loop-massa r3, `remarcacao` t4) sem alargar a exposição: "fecha 2h"/"fecha 1h" seguem duração e
+# "fecha a porta" nunca teve hora para casar.
+_RE_HORA_COM_FECHA = re.compile(
+    rf"\bfecha\b[^\n]{{0,20}}\b{_HORA_INEQUIVOCA}\s*{_SUFIXO_HORA}"
+    rf"|\b{_HORA_INEQUIVOCA}\s*{_SUFIXO_HORA}[^\n]{{0,20}}\bfecha\b"
+)
 _RE_CONTEXTO_DE_PRECO = re.compile(
     r"\b\d{3,4}\b|\bquanto\b|\bvalor(?:es)?\b|\bpreco\b|\bcusta\b|\bcobra\b|r\$"
+)
+
+# Terceira geração (12/08, roteiro `remarcou`): o cliente REMARCANDO fala pela agenda dele, não
+# pela do relógio dela — "amor, deu ruim aqui, consigo só 22h. pode?" não tem marcador, não tem
+# dia, não tem verbo de fechamento, e por isso a remarcação era lida como hora NÃO evidenciada: a
+# hora nova não entrava e a conversa morria numa escalada (5 de 5 conversas do roteiro).
+# A ambiguidade hora-vs-duração some por CONSTRUÇÃO aqui: só conta hora de 13 a 23, que nenhum
+# pacote da tabela usa (o mais longo é o pernoite de 12h) — "consigo 2h" segue sendo duração.
+_VERBO_DE_POSSIBILIDADE = (
+    r"(?:consigo|so consigo|posso|da pra mim|chego|vou chegar|to livre|estou livre|me libero|"
+    r"pode|serve|da certo)"
+)
+_RE_HORA_DA_AGENDA_DELE = re.compile(
+    rf"\b{_VERBO_DE_POSSIBILIDADE}\b[^\n]{{0,14}}\b{_HORA_INEQUIVOCA}\s*{_SUFIXO_HORA}"
+    rf"|\b{_HORA_INEQUIVOCA}\s*{_SUFIXO_HORA}[^\n]{{0,14}}\b{_VERBO_DE_POSSIBILIDADE}\b"
+)
+
+# Quarta geração (loop-massa r3): a hora NUA depois do marcador ("as 8 da noite", "mais tarde,
+# umas 8"). O sufixo-h obrigatório do `_RE_HORA_COM_MARCADOR` é DESENHO e é load-bearing — com ele
+# opcional entram "umas 3 fotos", "me manda umas 10 fotos", "tenho umas 9 amigas". A extensão
+# segura tem DUAS condições, medidas contra essa família:
+#   (i) a hora fica em posição TERMINAL na bolha (o lookahead `(?!\s*[\wÀ-ÿ:])` é o que mata
+#       "umas 8 fotos" — e o `:` mantém "as 8:30" com o ramo de minuto, que é mais específico);
+#  (ii) há período do dia COLADO ("as 8 da noite") ou moldura temporal na MESMA bolha ("Tinha q ser
+#       mais tarde, umas 8", "hoje umas 8").
+# "umas 8" solto, sem moldura, segue de FORA: ali o desenho do módulo continua valendo, e é ele que
+# separa hora de quantidade ("me manda umas 20").
+_PERIODO_DO_DIA = r"d[ao]\s+(?:manha|tarde|noite|madrugada)"
+_RE_HORA_NUA_COM_PERIODO = re.compile(rf"\b{_MARCADOR_TEMPORAL}\s+{_HORA}\s+{_PERIODO_DO_DIA}\b")
+_RE_HORA_NUA_TERMINAL = re.compile(rf"\b{_MARCADOR_TEMPORAL}\s+{_HORA}(?!\s*[\wÀ-ÿ:])")
+_RE_MOLDURA_TEMPORAL = re.compile(
+    r"\b(?:hoje|hj|amanha|mais\s+tarde|mais\s+cedo|de\s+(?:manha|tarde|noite|madrugada)|"
+    r"a\s+(?:tarde|noite)|de\s+madrugada|que\s+horas|horario)\b"
 )
 
 # Duração escrita como hora DENTRO da cotação ("400 1h no meu local"): o mesmo recorte que o
@@ -250,24 +322,38 @@ def contem_sondagem_imediatismo(texto: str) -> bool:
 
 def contem_hora_explicita(texto: str) -> bool:
     """True se a fala carrega uma hora do relógio ("Umas 16 horas", "18h15", "às 17:30", "hoje
-    21h", "pras 22h de hoje", "fechou, 21h to ai").
+    21h", "21h hj", "pras 22h de hoje", "fechou, 21h to ai", "fecha 20h", "as 8 da noite").
 
     `normalizar` antes do match: tira acento/caixa p/ "às"/"até"/"amanhã" casarem sem acento. Usado
     nos dois primeiros gatilhos do horário evidenciado (fala do cliente com hora; bolha da IA com
     hora seguida de confirmação curta) — ver `_horario_evidenciado_no_turno` (nos/_janela_do_turno).
 
-    As famílias LARGAS (dia, "pra/pras", verbo de fechamento) só valem fora de contexto de preço,
-    onde "1h" é duração e não relógio — ver o comentário dos regex.
+    As famílias LARGAS (dia nas duas ordens, "pra/pras", verbo de fechamento, agenda dele, hora nua
+    terminal) só valem fora de contexto de preço, onde "1h" é duração e não relógio — ver o
+    comentário dos regex. As que dispensam marcador temporal são ainda restritas a
+    `_HORA_INEQUIVOCA`, onde a leitura de duração não cabe.
     """
     t = normalizar(texto)
-    if _RE_HORA_COM_MINUTO.search(t) is not None or _RE_HORA_COM_MARCADOR.search(t) is not None:
+    if (
+        _RE_HORA_COM_MINUTO.search(t) is not None
+        or _RE_HORA_COM_MARCADOR.search(t) is not None
+        or _RE_OFFSET_MINUTOS.search(t) is not None
+    ):
         return True
     if _RE_CONTEXTO_DE_PRECO.search(t) is not None:
         return False
     return (
         _RE_HORA_COM_DIA.search(t) is not None
+        or _RE_DIA_DEPOIS_DA_HORA.search(t) is not None
         or _RE_HORA_COM_PRA.search(t) is not None
         or _RE_HORA_COM_FECHAMENTO.search(t) is not None
+        or _RE_HORA_COM_FECHA.search(t) is not None
+        or _RE_HORA_DA_AGENDA_DELE.search(t) is not None
+        or _RE_HORA_NUA_COM_PERIODO.search(t) is not None
+        or (
+            _RE_HORA_NUA_TERMINAL.search(t) is not None
+            and _RE_MOLDURA_TEMPORAL.search(t) is not None
+        )
     )
 
 
@@ -462,9 +548,12 @@ def contem_pedido_de_endereco(texto: str) -> bool:
 _RE_PEDIDO_DE_INFOS = re.compile(
     r"\bcomo (?:funciona|que funciona|voce trabalha|vc trabalha)\b"
     r"|\bcomo (?:esta|ta) funcionando\b"
-    r"|\b(?:manda|me passa|passa|me da|me de|me fala|quero|queria) (?:as |os |mais |umas )?"
-    r"(?:infos|informacao|informacoes|detalhes)\b"
-    r"|\b(?:quero|queria) saber (?:mais|tudo|como)\b"
+    # "gostaria de" e o MESMO verbo dos ramos `quero|queria` em outro modo — e a forma mais comum
+    # do lead que chega pelo site ("Gostaria de informações sobre seu atendimento"), que ficava de
+    # fora por inconsistencia interna do proprio conjunto (loop-massa r2, eixos pre_cotacao/ghost).
+    r"|\b(?:manda|me passa|passa|me da|me de|me fala|quero|queria|gostaria de) "
+    r"(?:as |os |mais |umas )?(?:infos|informacao|informacoes|detalhes)\b"
+    r"|\b(?:quero|queria|gostaria de) saber (?:mais|tudo|como)\b"
     r"|\bmais detalhes\b"
     r"|\bo que (?:esta|ta) inclu[si]"
     r"|\bquais (?:sao )?(?:seus|os seus|teus) servicos\b"
@@ -539,6 +628,35 @@ _RECUO_AUTONOMO = re.compile(
     r"|\bte (?:chamo|ligo) (?:antes|depois)\b"
 )
 
+# OBJEÇÃO DE PREÇO — a família que faltava (loop-massa r3, achado 1 da refutação de extração:
+# `'Ta um pouco caro'`, `'faz 300'`, `'400 ta fora pra mim'`, `'250 e o maximo'` e
+# `'Nao consigo pagar isso'` devolviam TODOS `None`). Achar caro, dar lowball ou cravar um teto é o
+# CONTRÁRIO de aceite, e o rebaixamento do `aceita_valor` já tem caminho testado
+# (`recuo_detectado` → `_sinais_qualificacao_do_turno`): o que faltava era a fala chegar até ele.
+# Alargar aqui é o conserto barato — reescrever a DESC do extrator não teria evitado 4 dos 7
+# payloads falsos do corpus (o produtor ignorou cláusula que já existia).
+#
+# O efeito de um falso positivo é o MESMO benigno da família inteira: reabre a escada do desconto.
+# Ainda assim, todo ramo com número exige 3-4 dígitos (preço de programa; "faz 2 horas" não entra)
+# e o vocabulário de ACEITE fica fora por construção — "fechado 300", "300 as 20h ta fechado" e
+# "so pra confirmar: 300 na 1 hr" não têm token de objeção nenhum.
+_OBJECAO_DE_PRECO = re.compile(
+    # achar caro ("ta caro", "ta um pouco caro", "achei caro", "muito caro", "caro demais")
+    r"\b(?:ta|esta|e|eh|achei|ficou)\s+(?:um pouco |meio |muito |bem )?(?:caro|salgado)\b"
+    r"|\b(?:muito|meio|bem) (?:caro|salgado)\b"
+    r"|\bcaro (?:demais|pra mim)\b"
+    # lowball ("faz 300", "faz por 300")
+    r"|\bfa(?:z|co) (?:por )?\d{3,4}\b"
+    # teto ("250 e o maximo", "meu maximo e 250", "so tenho 300", "so consigo 300")
+    r"|\b\d{3,4} (?:e|eh) o (?:maximo|limite)\b"
+    r"|\b(?:meu )?(?:maximo|limite) (?:e|eh) (?:r\$ ?)?\d{3,4}\b"
+    r"|\bso (?:tenho|consigo pagar) (?:r\$ ?)?\d{3,4}\b"
+    # fora do orçamento / não pode pagar
+    r"|\b(?:ta|esta) fora (?:pra mim|do meu)\b|\bfora do meu orcamento\b"
+    r"|\bnao (?:consigo|posso|da pra) pagar\b"
+    r"|\bacima do (?:meu|que eu)\b"
+)
+
 # Recuo CONDICIONAL ("quando eu tiver"): mesma classe, mas derrotável pela lista negativa. O sujeito
 # "eu" é exigido porque sem ele a forma é pedido, não recuo — "me manda quando puder" é o cliente
 # pedindo mídia, e rebaixaria o aceite à toa.
@@ -596,11 +714,12 @@ def classificar_recuo(
 
     Duas classes, porque o "não" isolado é ambíguo demais para valer sozinho (#24: "Não conheço"
     respondendo a "Campinas ?"): o recuo AUTÔNOMO se basta na fala dele; a negativa
-    CORREFERENCIADA só conta colada num pedido de fechamento da IA.
+    CORREFERENCIADA só conta colada num pedido de fechamento da IA. A OBJEÇÃO DE PREÇO entra como
+    autônoma (a fala se basta) — ver `_OBJECAO_DE_PRECO`.
     """
     falas = [normalizar(t) for t in falas_cliente]
     for fala in falas:
-        if _RECUO_AUTONOMO.search(fala):
+        if _RECUO_AUTONOMO.search(fala) or _OBJECAO_DE_PRECO.search(fala):
             return "autonomo"
         if _RECUO_CONDICIONAL.search(fala) and not _NAO_E_RECUO.search(fala):
             return "autonomo"

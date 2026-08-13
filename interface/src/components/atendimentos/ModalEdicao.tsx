@@ -85,6 +85,22 @@ function FetichePagoBadge({ pago }: { pago: boolean }) {
   )
 }
 
+// Falha de rede no catálogo da modelo não pode se parecer com "modelo sem tabela
+// de preços": o aviso diz o que houve e oferece a nova tentativa ali mesmo.
+function AvisoCatalogo({ onTentarDeNovo }: { onTentarDeNovo: () => void }) {
+  return (
+    <div className="flex flex-col items-start gap-2 rounded-md border border-border bg-muted px-3 py-2">
+      <span className="text-xs leading-4 text-text-secondary">
+        A tabela de preços desta modelo não carregou. Programas e fetiches ficam indisponíveis
+        até ela vir.
+      </span>
+      <Button variant="secondary" size="sm" onClick={onTentarDeNovo}>
+        Tentar de novo
+      </Button>
+    </div>
+  )
+}
+
 export function ModalEdicao({
   detalhe,
   onClose,
@@ -133,6 +149,9 @@ export function ModalEdicao({
   const [adicionados, setAdicionados] = useState<{ programa_id: string; duracao_id: string; label: string }[]>([])
   const [selecionado, setSelecionado] = useState("")
 
+  const [catalogoStatus, setCatalogoStatus] = useState<"loading" | "success" | "error">("loading")
+  const [tentativaCatalogo, setTentativaCatalogo] = useState(0)
+
   const [fetichesModelo, setFetichesModelo] = useState<FeticheModelo[]>([])
   const [removidosFet, setRemovidosFet] = useState<Set<string>>(new Set())
   const [adicionadosFet, setAdicionadosFet] = useState<{ fetiche_id: string; nome: string; pago: boolean }[]>([])
@@ -148,15 +167,38 @@ export function ModalEdicao({
   } = useTiposLocal()
 
   const modeloId = detalhe?.modelo.id
+  // Catálogo (programas + fetiches) é tratado como uma coisa só: se ele não vier,
+  // o vazio precisa ser distinguível de "modelo sem tabela de preços" — daí o
+  // estado de erro em vez do catch mudo que havia aqui.
   useEffect(() => {
     if (!modeloId) return
-    api<ProgramaModelo[]>(`/v1/modelos/${modeloId}/programas`)
-      .then(setProgramasModelo)
-      .catch(() => {})
-    api<FeticheModelo[]>(`/v1/modelos/${modeloId}/fetiches`)
-      .then(setFetichesModelo)
-      .catch(() => {})
-  }, [modeloId])
+    let cancelado = false
+    Promise.all([
+      api<ProgramaModelo[]>(`/v1/modelos/${modeloId}/programas`),
+      api<FeticheModelo[]>(`/v1/modelos/${modeloId}/fetiches`),
+    ])
+      .then(([programas, fetiches]) => {
+        if (cancelado) return
+        setProgramasModelo(programas)
+        setFetichesModelo(fetiches)
+        setCatalogoStatus("success")
+      })
+      .catch(() => {
+        if (cancelado) return
+        setProgramasModelo([])
+        setFetichesModelo([])
+        setCatalogoStatus("error")
+      })
+    return () => {
+      cancelado = true
+    }
+  }, [modeloId, tentativaCatalogo])
+
+  const catalogoErro = catalogoStatus === "error"
+  const tentarCatalogoDeNovo = () => {
+    setCatalogoStatus("loading")
+    setTentativaCatalogo((n) => n + 1)
+  }
 
   // Calculado antes do hook de conflito para que o alerta de agenda enxergue a
   // duração efetiva (sugerida ou manual), e não a anterior.
@@ -180,14 +222,16 @@ export function ModalEdicao({
   })()
   // Após mexer nos programas e enquanto não houver edição manual, o campo reflete o
   // MAX. Antes disso, respeita a duração vinda do backend.
-  const recalculaDuracaoAutomaticamente = programasMexidos && !duracaoEditadaManual
+  // Sem catálogo não se recalcula nada: o valor/duração exibidos continuam os que
+  // vieram do backend em vez de derivar de uma tabela de preços que não foi lida.
+  const recalculaDuracaoAutomaticamente = programasMexidos && !duracaoEditadaManual && !catalogoErro
   const duracaoExibida =
     recalculaDuracaoAutomaticamente && duracaoCalculada !== null
       ? formatHorasCampo(duracaoCalculada)
       : duracao
 
   const duracaoHoras = parseDecimal(duracaoExibida) ?? 0
-  const { conflitos } = useConflitoAgenda({
+  const { conflitos, erro: erroConflito } = useConflitoAgenda({
     modelo_id: modeloId ?? null,
     data: dataDesejada,
     horario,
@@ -220,7 +264,7 @@ export function ModalEdicao({
 
   // Após mexer nos programas e enquanto não houver edição manual, o campo reflete
   // a soma (valor derivado). Antes disso, respeita o valor vindo do backend.
-  const recalculaAutomaticamente = programasMexidos && !valorEditadoManual
+  const recalculaAutomaticamente = programasMexidos && !valorEditadoManual && !catalogoErro
   const valorAcordadoExibido = recalculaAutomaticamente
     ? formatValorCampo(valorCalculado)
     : valorAcordado
@@ -518,9 +562,15 @@ export function ModalEdicao({
                     </button>
                   </div>
                 ))}
-                {servicosVisiveis.length === 0 && adicionados.length === 0 && disponiveis.length === 0 && (
-                  <span className="text-xs text-text-muted">Nenhum programa disponível para esta modelo.</span>
-                )}
+                {catalogoErro ? (
+                  <AvisoCatalogo onTentarDeNovo={tentarCatalogoDeNovo} />
+                ) : servicosVisiveis.length === 0 && adicionados.length === 0 && disponiveis.length === 0 ? (
+                  <span className="text-xs text-text-muted">
+                    {catalogoStatus === "loading"
+                      ? "Carregando programas…"
+                      : "Nenhum programa disponível para esta modelo."}
+                  </span>
+                ) : null}
               </div>
               {disponiveis.length > 0 && (
                 <div className="mt-1 flex gap-2">
@@ -579,8 +629,15 @@ export function ModalEdicao({
                     </div>
                   </div>
                 ))}
-                {fetichesVisiveis.length === 0 && adicionadosFet.length === 0 && fetichesDisponiveis.length === 0 && (
-                  <span className="text-xs text-text-muted">Nenhum fetiche marcado para esta modelo.</span>
+                {!catalogoErro
+                  && fetichesVisiveis.length === 0
+                  && adicionadosFet.length === 0
+                  && fetichesDisponiveis.length === 0 && (
+                  <span className="text-xs text-text-muted">
+                    {catalogoStatus === "loading"
+                      ? "Carregando fetiches…"
+                      : "Nenhum fetiche marcado para esta modelo."}
+                  </span>
                 )}
               </div>
               {fetichesDisponiveis.length > 0 && (
@@ -607,9 +664,9 @@ export function ModalEdicao({
           </ColunaSecao>
         </DialogBody>
 
-        {conflitos.length > 0 && (
+        {(conflitos.length > 0 || erroConflito) && (
           <div className="border-t border-border bg-muted px-8 pt-3">
-            <AlertaConflito conflitos={conflitos} />
+            <AlertaConflito conflitos={conflitos} erro={erroConflito} />
           </div>
         )}
 

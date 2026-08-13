@@ -10,7 +10,7 @@ from pydantic import Field
 from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
 
 from ..contexto import ContextAgente
-from ..persona import _brt
+from ..persona import JANELA_AGENDA_HORAS, _brt
 
 # AGT-07: teto de itens no retorno da agenda. A janela ja e capada por 14 dias, mas um periodo
 # denso poderia devolver dezenas de bloqueios e inflar o contexto/tokens do turno.
@@ -25,7 +25,7 @@ _MAX_BLOQUEIOS = 50
 
 _DESC_DATA_INICIO = (
     "Data inicial inclusiva (YYYY-MM-DD). Comece a partir do dia consultado (além das "
-    "próximas 48h), não a partir de hoje."
+    f"próximas {JANELA_AGENDA_HORAS}h), não a partir de hoje."
 )
 _DESC_DATA_FIM = "Data final inclusiva (YYYY-MM-DD). Máximo 14 dias após data_inicio."
 
@@ -55,6 +55,16 @@ async def consultar_agenda(
     pool = runtime.context.db_pool
     modelo_id = runtime.context.modelo_id
     di, df = data_inicio, data_fim
+    # Janela invertida ANTES do teto: `(df - di).days` fica NEGATIVO e passa por `> 14`, o SQL nao
+    # casa nada e a tool responde "Nenhum horário ocupado nesse período" — um falso "livre"
+    # FABRICADO, que a IA usa para oferecer um slot que pode estar ocupado (risco de double-booking).
+    # Um erro recuperavel aqui custa uma re-consulta; o falso negativo custa a agenda.
+    if df < di:
+        AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "janela_invertida").inc()
+        raise ToolException(
+            "ERRO: data_fim é ANTES de data_inicio, então nada foi consultado — não conclua que o "
+            "período está livre. Consulte de novo com data_inicio ≤ data_fim."
+        )
     if (df - di).days > 14:
         AGENTE_TOOL_ERRO_RECUPERAVEL.labels("consultar_agenda", "janela_excedida").inc()
         raise ToolException("ERRO: janela máxima é 14 dias. Refine sua consulta.")

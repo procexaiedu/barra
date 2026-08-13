@@ -1,7 +1,7 @@
 "use client"
 
 import { ExternalLink } from "lucide-react"
-import { Dialog, DialogCloseButton, DialogContent } from "@/components/ui/dialog"
+import { Dialog, DialogCloseButton, DialogContent, DialogTitle } from "@/components/ui/dialog"
 import type { MidiaItem } from "@/tipos/modelos"
 
 export function DialogVisualizarMidia({
@@ -14,6 +14,10 @@ export function DialogVisualizarMidia({
   return (
     <Dialog open={midia !== null} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[100vh] w-[100vw] items-center justify-center bg-ink-0 p-0">
+        {/* O visual é só a mídia; o título fica só para o leitor de tela nomear o popup. */}
+        <DialogTitle className="sr-only">
+          {`${midia?.tipo === "video" ? "Vídeo" : "Foto"}: ${midia?.tag || "sem tag"}`}
+        </DialogTitle>
         <div className="relative flex h-full w-full items-center justify-center">
           <div className="absolute right-4 top-4 z-10">
             <DialogCloseButton />

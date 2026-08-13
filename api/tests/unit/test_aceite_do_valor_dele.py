@@ -17,6 +17,7 @@ from typing import Any
 import pytest
 
 from barra.agente.nos.prepare_context import (
+    _ressalva_de_servico_no_burst,
     _valor_proposto_no_burst,
     _valores_propostos_no_burst,
 )
@@ -150,6 +151,7 @@ async def _decidir(
     encontro: Any = "hoje",
     n: int = 0,
     duracao: Any = 2,
+    condicionado: bool = False,
 ) -> tuple[Decimal | None, str]:
     return await aceite_do_valor_dele(
         _FakeConn(_CATARINA_2H if linhas is None else linhas),  # type: ignore[arg-type]
@@ -159,6 +161,7 @@ async def _decidir(
         valor_da_mesa=None if mesa is None else Decimal(mesa),
         encontro=encontro,
         n_contrapropostas=n,
+        condicionado=condicionado,
     )
 
 
@@ -296,3 +299,60 @@ async def test_patamar_da_mesa_na_tabela_e_fail_closed() -> None:
     assert await patamar_da_mesa_na_tabela(conn, "m1", 2, None) is None  # type: ignore[arg-type]
     ambigua = _FakeConn([_linha("400", "300", "p1"), _linha("800", "600", "p2")])
     assert await patamar_da_mesa_na_tabela(ambigua, "m1", 1, Decimal("700")) is None  # type: ignore[arg-type]
+
+
+# --- (4) a RESSALVA de serviço pendurada no número dele -----------------------------------------
+# Loop-massa r3, achado 10 da refutação de extração (a metade que faltava do fix 11). O cliente do
+# `negociacao_dura_b` t4 não propôs "300": propôs "300 COM 2 finalizações". O `<valor_dele_serve>`
+# manda aceitar o número DELE na hora e sem ressalva — e a condição, que ninguém conferiu contra
+# `<programas>`/`<fetiches>`, entrava no belief junto com o preço, com autoridade de registro do
+# sistema. A primeira metade do fix (`perguntas_do_burst`) só devolveu a condição ao CONTEXTO; o
+# caminho determinístico continuava cego a ela.
+
+_RESSALVA: list[tuple[str, bool]] = [
+    # o corpus: a condição vem depois do "?" e o número dela é a ressalva
+    ("Vc não consegue fazer 1 hr por 300$? Com 2 finalizações", True),
+    ("faz 300 com 2 gozadas?", True),
+    ("300 com finalização na boca?", True),
+    # famílias do cardápio (mesma tabela do <servico_em_pauta>, site único) — o alcance é
+    # exatamente o dela: "pra eu e minha esposa" casa `acompanhante_mulher`, "pra mim e minha
+    # esposa" não. Alargar aqui e não lá faria o aceite e o foco discordarem sobre a mesma fala.
+    ("da pra fazer 300 com beijo na boca?", True),
+    ("300 e vc faz anal?", True),
+    ("faz 300 pra eu e minha esposa?", True),
+    # número limpo: nada muda, o ADR-0040 segue valendo
+    ("faz 300?", False),
+    ("400 ta salgado demais, faz 300?", False),
+    ("só tenho 300 amor", False),
+    ("300 fecha?", False),
+    ("faz 300 com pix?", False),
+    ("300 com desconto pra hoje?", False),
+]
+
+
+@pytest.mark.parametrize(("fala", "esperado"), _RESSALVA, ids=[f for f, _ in _RESSALVA])
+def test_ressalva_de_servico_no_burst(fala: str, esperado: bool) -> None:
+    assert _ressalva_de_servico_no_burst([fala]) is esperado
+
+
+def test_ressalva_atravessa_bolhas_do_mesmo_burst() -> None:
+    """Mesma fronteira do detector do valor: o burst inteiro, não a última bolha — ele manda o
+    número numa e a condição na seguinte."""
+    assert _ressalva_de_servico_no_burst(["faz 300?", "com 2 finalizações"]) is True
+
+
+async def test_numero_com_ressalva_de_servico_nao_fecha_a_venda() -> None:
+    """O mesmo 700 que fecha sozinho não fecha com um serviço pendurado nele: sem conferir a
+    condição contra o cardápio, o aceite registraria uma promessa que ninguém validou. Fail-closed
+    na escada de sempre, como todo o resto da cascata."""
+    assert await _decidir(valor_proposto=700, mesa="800") == (Decimal("700"), "aceito")
+    assert await _decidir(valor_proposto=700, mesa="800", condicionado=True) == (
+        None,
+        "condicionado",
+    )
+
+
+async def test_ressalva_sem_numero_dele_continua_sendo_sem_valor() -> None:
+    """A ordem da cascata importa para a métrica: sem número não há proposta a condicionar, e
+    `sem_valor` continua medindo o detector de fala."""
+    assert await _decidir(valor_proposto=None, mesa="800", condicionado=True) == (None, "sem_valor")

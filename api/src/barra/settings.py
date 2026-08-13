@@ -76,7 +76,13 @@ class Settings(BaseSettings):
     # `deepseek-chat`/`deepseek-reasoner` foram aposentados em 2026-07-24 15:59 UTC; hoje devolvem
     # HTTP 400). O id NAO fixa snapshot: em 2026-07-31 o provider promoveu o V4 Flash oficial
     # (`DeepSeek-V4-Flash-0731`, mesma arquitetura, post-training novo) atras do MESMO id — nao ha id
-    # datado p/ pinar, entao troca de peso chega sem deploy nosso. O id cru tem thinking LIGADO
+    # datado p/ pinar, entao troca de peso chega sem deploy nosso. RECONFIRMADO em 12/08 sondando a
+    # API: `GET /models` lista SO `deepseek-v4-flash` e `deepseek-v4-pro`, e tanto `-0731` quanto
+    # `-latest` sao rejeitados com HTTP 400 ("supported API model names are..."). Como pinar e
+    # impossivel, a defesa e DETECTAR: a resposta traz `system_fingerprint` com build/quantizacao
+    # (`fp_a18b46594c_prod0820_fp8_kvcache_20260402`), publicado em `AGENTE_MODELO_FINGERPRINT`
+    # (agente/_instrumentar.registrar_fingerprint) e vigiado por `AgenteModeloTrocouDeBuild`.
+    # O id cru tem thinking LIGADO
     # por default (doc oficial: "the thinking toggle defaults to enabled") -> criar_chat_deepseek
     # passa `extra_body={"thinking": {"type": "disabled"}}` p/ travar non-thinking (preserva
     # structured output #2/#3 e a temperature 1.3 do chat #1). Vision (Pix OCR) e audio (STT) seguem
@@ -90,11 +96,50 @@ class Settings(BaseSettings):
     # So e honrada em modo non-thinking (a factory omite a temperatura quando thinking != disabled).
     # Com o default de `deepseek_thinking_chat` em "low" (abaixo), este campo fica DORMENTE no chat #1
     # — volta a valer assim que alguem puser DEEPSEEK_THINKING_CHAT=disabled. Escopo: SO o chat #1 —
-    # extracao (#2) e judge (#3) chamam sem temperatura (determinismo).
+    # extracao (#2) e os judges (#3, pos-envio) leem `judge_temperature` (abaixo).
     chat_temperature: float = Field(
         default=0.7,
         ge=0.0,
         description="Temperatura do chat #1 (DeepSeek V4 Flash). 0.7 = melhor ponto medido no exp N-1 30/06 (coerencia + head-to-head); so vale non-thinking (dormente enquanto thinking != disabled).",
+    )
+    # Temperatura dos caminhos CLASSIFICADORES (nao a voz): extracao forcada #2, judge de AUP #3 e
+    # judge pos-envio. Ate 12/08/2026 os tres chamavam a factory SEM o parametro, e o comentario
+    # daqui dizia que isso era "determinismo" — era o oposto. Verificado contra a lib instalada
+    # (langchain_openai 1.3.2): `ChatOpenAI(temperature=None)` NAO envia o campo, entao valia o
+    # default do provider (DeepSeek ~1.0) — a temperatura MAIS ALTA, num gate vinculante que roda
+    # em todo turno (loop-massa r3, achado 1: aprovacao com folga no lote e o turno vivo caindo
+    # numa cauda <2%). 0.0 nao muda o comportamento pretendido; so para de sortear.
+    # ATENCAO: temp 0 desloca a fronteira de decisao do judge (pode ficar sistematicamente mais
+    # rigido OU mais frouxo na borda) -> rodar o set de calibracao de kappa antes de considerar
+    # fechado. Knob para poder medir a fronteira sem deploy, nunca para "afrouxar o judge".
+    judge_temperature: float = Field(
+        default=0.0,
+        ge=0.0,
+        description="Temperatura da extracao forcada (#2) e dos judges (AUP #3, pos-envio). 0.0 = veredito reprodutivel; omitir o parametro (comportamento ate 12/08/2026) deixava o provider em ~1.0.",
+    )
+    # Teto de tempo POR CHAMADA de LLM (httpx timeout do ChatOpenAI, todas as chamadas da factory:
+    # chat #1, regen do guard, extracao #2, judges). Tem de ser ESTRITAMENTE MENOR que
+    # `turno_timeout_s` (o teto do grafo inteiro, abaixo): ate 12/08/2026 os dois eram literais
+    # 60.0 = 60.0, entao uma chamada pendurada nunca morria DENTRO do grafo — o `asyncio.wait_for`
+    # do coordenador estourava primeiro e o turno virava `timeout_grafo` -> handoff terminal, sem
+    # bolha, em vez de cair no fallback deterministico que o guard ja tem pronto (loop-massa r3,
+    # achado 3). O nó mais caro (output_guard: regen + judge) roda por ULTIMO e herda o que sobrou,
+    # entao a folga precisa ser generosa: 40 < 60 deixa ~20s de margem para o resto do turno.
+    # ATENCAO: o timeout e por TENTATIVA. A desigualdade so vale porque `max_retries` deixou de ser
+    # 2 fixo e passa por `core.llm.tentativas_que_cabem_no_turno` (40/60 -> 0 retentativa); com o 2
+    # fixo, um endpoint pendurado custava 3 x 40s e o turno morria por fora do grafo do mesmo jeito.
+    # Quem baixar este valor devolve as retentativas automaticamente — nao mexa no par sem ler la.
+    llm_timeout_s: float = Field(
+        default=40.0,
+        gt=0.0,
+        description="Timeout HTTP por chamada de LLM (criar_chat_deepseek). DEVE ser < turno_timeout_s, senao a chamada pendurada mata o turno inteiro por fora do grafo (sem fallback).",
+    )
+    # Teto do TURNO (asyncio.wait_for em volta do graph.ainvoke, workers/coordenador). Estourar
+    # aqui e terminal: escalada por exaustao (`timeout_grafo`) + IA pausada, sem bolha ao cliente.
+    turno_timeout_s: float = Field(
+        default=60.0,
+        gt=0.0,
+        description="Teto de tempo do grafo por turno (coordenador). Estourar = escalada timeout_grafo + IA pausada; mantenha llm_timeout_s folgadamente abaixo deste valor.",
     )
     # Thinking do DeepSeek SO no chat #1 (no llm + regen do output_guard): "low"/"high"/"max" =
     # reasoning_effort do provider (guides/thinking_mode). Em thinking a temperatura e IGNORADA pelo
@@ -145,6 +190,10 @@ class Settings(BaseSettings):
 
     # Cotacao USD->BRL p/ a metrica AGENTE_CUSTO_TURNO_BRL (03 §4.2; meta em settings.custo_alvo_brl).
     # Reajustar por settings em vez de hardcoded p/ nao requerer deploy a cada flutuacao cambial.
+    # ATENCAO (auditado 12/08): o compose de prod NAO passa USD_BRL_COTACAO, entao producao roda
+    # neste default desde sempre. Toda comparacao de `AGENTE_CUSTO_TURNO_BRL` contra
+    # `custo_alvo_brl` (e o alerta `AgenteCustoTurnoAcimaDoAlvo`) esta ancorada num cambio
+    # congelado: o vies e silencioso e cresce com a distancia do valor real.
     usd_brl_cotacao: float = Field(
         default=5.50,
         gt=0.0,
@@ -203,7 +252,7 @@ class Settings(BaseSettings):
         description="Liga o detector deterministico de repeticao do output_guard: bolha do turno quase identica a uma bolha recente da propria IA (rastro de papagaio). Detectou -> regenera (se regen ligada); persistiu -> dropa a bolha repetida (silencio > papagaio), sem handoff.",
     )
     # O LLM-judge de AUP (#3, Etapa 2) roda SEMPRE no DeepSeek V4 Flash direto (criar_chat_deepseek):
-    # cacheia o prefixo aup_saida.md (o mesmo system antes de CADA bolha) e crava modelo/quant. E
+    # cacheia o prefixo aup_saida.md (o mesmo system em toda chamada) e crava modelo/quant. E
     # classificacao binaria (viola/nao), nao a voz da IA. CAMINHO DE SEGURANCA (ADR 0016): o
     # default-seguro do _julgar_aup vale em qualquer veredito inconclusivo (refusal/truncado/parse).
     # Rede final de saida no enviar_turno (SEC-OUT-01/SEC-PII-02): cobre tambem os caminhos

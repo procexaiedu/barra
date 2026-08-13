@@ -68,12 +68,22 @@ export interface AtendimentosListaResponse {
 
 export interface MensagemAtendimento {
   id: string
+  /** Sempre preenchido nos payloads do painel (as duas consultas filtram por ele). */
+  atendimento_id: string
   direcao: DirecaoMensagem
   tipo: TipoMensagem
   conteudo: string
   media_object_key: string | null
   media_url?: string | null
   created_at: string
+}
+
+/** Página do histórico para trás (GET /atendimentos/{id}/mensagens).
+ *  `items` vem do mais recente para o mais antigo; `next_cursor` é "created_at|id"
+ *  da última mensagem exibida — null quando o começo da conversa foi alcançado. */
+export interface MensagensPaginaResponse {
+  items: MensagemAtendimento[]
+  next_cursor: string | null
 }
 
 export interface EventoAtendimento {

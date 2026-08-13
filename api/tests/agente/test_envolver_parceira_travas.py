@@ -121,6 +121,25 @@ async def test_modo_nao_liberado_recusa_sem_efeito() -> None:
     assert conn.updates == []
 
 
+async def test_toda_recusa_conta_metrica_inclusive_a_sem_atendimento() -> None:
+    """`sem_atendimento` era a UNICA das seis recusas que nao incrementava o contador — buraco cego:
+    a tool recusava e nao havia serie nenhuma dizendo que isso acontece em prod."""
+    from barra.core.metrics import AGENTE_TOOL_ERRO_RECUPERAVEL
+
+    antes = AGENTE_TOOL_ERRO_RECUPERAVEL.labels("envolver_parceira", "sem_atendimento")._value.get()
+    runtime, conn = _rt()
+    runtime.context.atendimento_id = ""  # sem negociacao aberta no contexto do turno
+
+    with pytest.raises(ToolException, match="sem negociação aberta"):
+        await _chamar(modo="dupla", runtime=runtime)
+
+    assert conn.updates == []
+    depois = AGENTE_TOOL_ERRO_RECUPERAVEL.labels(
+        "envolver_parceira", "sem_atendimento"
+    )._value.get()
+    assert depois == antes + 1
+
+
 # --- 2. aceite dele antes de qualquer dado dela ---------------------------------------------------
 
 
@@ -151,7 +170,11 @@ async def test_a_dupla_nao_exige_oferta_previa() -> None:
 
     retorno = await _chamar(modo="dupla", runtime=runtime)
 
-    assert "coordenação já foi avisada" in retorno
+    # O retorno diz o que ela FAZ (segue e crava, sem esperar), nao o que o SISTEMA faz. Contar ao
+    # modelo que "a coordenação já foi avisada" e o que o fez narrar isso ao cliente — leia o porque
+    # no comentario de `_OK_DUPLA` (medido ao vivo em 12/08, o judge de AUP barrou como system_leak).
+    assert "sem esperar confirmação de ninguém" in retorno
+    assert "coordenação" not in retorno.lower()
     assert "NUNCA vai ao cliente" in retorno
     assert any("parceira_dupla_em" in u for u in conn.updates)
 

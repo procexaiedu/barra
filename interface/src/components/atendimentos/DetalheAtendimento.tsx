@@ -412,7 +412,7 @@ function MidiasRecebidas({
                     ? <CreditCard size={14} strokeWidth={1.5} />
                     : <FileText size={14} strokeWidth={1.5} />}
                   <span className="truncate">{midia.nome}</span>
-                  <span className="font-sans text-text-disabled">{midia.subtitulo}</span>
+                  <span className="font-sans text-text-muted">{midia.subtitulo}</span>
                 </Link>
               )
             }
@@ -426,7 +426,7 @@ function MidiasRecebidas({
                 >
                   <FileText size={14} strokeWidth={1.5} />
                   <span className="truncate">{midia.nome}</span>
-                  <span className="font-sans text-text-disabled">{midia.subtitulo}</span>
+                  <span className="font-sans text-text-muted">{midia.subtitulo}</span>
                 </button>
                 {midia.pode_deletar && !readOnly && (
                   <button
@@ -552,7 +552,7 @@ function Eventos({ eventos }: { eventos: AtendimentoDetalheResponse["eventos"] }
         </div>
       ))}
       {visiveis.length === 0 && (
-        <p className="text-[13px] text-text-disabled">Sem marcos ainda — só atualizações internas da IA.</p>
+        <p className="text-[13px] text-text-muted">Sem marcos ainda — só atualizações internas da IA.</p>
       )}
       {telemetriaCount > 0 && (
         <button

@@ -7,7 +7,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle, CardFooter } from "@/components/ui/card"
-import { supabase } from "@/lib/supabase"
 import { toast } from "sonner"
 import { LogIn, Loader2 } from "lucide-react"
 
@@ -20,22 +19,15 @@ export default function Login() {
     setIsLoading(true)
 
     const formData = new FormData(e.currentTarget)
-    const email = String(formData.get("email") ?? "")
-    const password = String(formData.get("password") ?? "")
+    // Uma autenticação só: a server action grava os cookies de sessão (o
+    // @supabase/ssr os escreve sem httpOnly), então o client do browser lê a
+    // MESMA sessão. Autenticar de novo aqui criava sessão órfã e dobrava o
+    // consumo do rate limit por tentativa.
     const result = await loginAction(formData)
 
     if (result?.error) {
       toast.error("Falha na autenticação", {
         description: result.error,
-      })
-      setIsLoading(false)
-      return
-    }
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      toast.error("Falha na autenticação", {
-        description: error.message,
       })
       setIsLoading(false)
       return

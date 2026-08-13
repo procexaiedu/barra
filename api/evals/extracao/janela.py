@@ -92,6 +92,7 @@ def variaveis_do_bloco(snapshot: dict[str, Any]) -> dict[str, Any]:
         "valor_fechado": _numero_seco(snapshot.get("valor_acordado")),
         "valor_aceito": bool(snapshot.get("aceita_valor")),
         "duracao_fechada": _numero_seco(snapshot.get("duracao_horas")),
+        "forma_pagamento": snapshot.get("forma_pagamento"),
         "urgencia": snapshot.get("urgencia"),
         "fetiches_do_cadastro": tuple(snapshot.get("fetiches_do_cadastro") or ()),
     }

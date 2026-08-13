@@ -25,6 +25,18 @@ export function BolhaResposta({
   const [comentario, setComentario] = useState(av?.comentario ?? "")
   const [comentando, setComentando] = useState(Boolean(av?.comentario))
   const [salvando, setSalvando] = useState(false)
+  const [idExibido, setIdExibido] = useState(turno.resposta_ia_id)
+
+  // Defesa: se o React reaproveitar esta instancia para outro turno, o estado
+  // inicial nao roda de novo e a bolha exibiria a avaliacao do turno anterior —
+  // o que aqui vira ground-truth errado. Ressincroniza no proprio render.
+  if (idExibido !== turno.resposta_ia_id) {
+    setIdExibido(turno.resposta_ia_id)
+    setVeredito(av?.veredito ?? null)
+    setNota(av?.nota ?? null)
+    setComentario(av?.comentario ?? "")
+    setComentando(Boolean(av?.comentario))
+  }
 
   const salvar = async (v: VereditoAvaliacao, n: number | null, c: string) => {
     setSalvando(true)

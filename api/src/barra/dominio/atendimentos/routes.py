@@ -467,7 +467,7 @@ async def obter_atendimento(
         """
         SELECT * FROM barravips.mensagens
          WHERE atendimento_id = %s
-         ORDER BY created_at DESC
+         ORDER BY created_at DESC, id DESC
          LIMIT %s
         """,
         (atendimento_id, mensagens_limit),
@@ -557,6 +557,51 @@ async def obter_atendimento(
         "fetiches": fetiches,
         "midias_internas": _enriquecer_midias(midias_internas, request),
     }
+
+
+@router.get("/{atendimento_id}/mensagens")
+async def listar_mensagens_atendimento(
+    atendimento_id: UUID,
+    request: Request,
+    conn: AsyncConnection[Any] = Depends(get_conn),
+    limit: int = Query(50, ge=1, le=100),
+    cursor: str | None = None,
+) -> dict[str, Any]:
+    """Pagina o histórico para trás: o detalhe traz só o topo da conversa e o painel
+    usa este endpoint para alcançar o começo, que é o que o operador lê antes de
+    assumir o atendimento. Ordem igual à do detalhe (mais recente primeiro)."""
+    filtros = ["atendimento_id = %s"]
+    params: list[Any] = [atendimento_id]
+    if cursor:
+        # Cursor composto "timestamp|id": created_at sozinho não pagina quando há
+        # empate (o worker grava a rajada do turno no mesmo instante).
+        cursor_ts, _, cursor_id = cursor.partition("|")
+        if cursor_id:
+            filtros.append("(created_at, id) < (%s::timestamptz, %s::uuid)")
+            params.extend([cursor_ts, cursor_id])
+        else:
+            filtros.append("created_at < %s::timestamptz")
+            params.append(cursor_ts)
+    params.append(limit + 1)
+    rows = await _fetch_all(
+        conn,
+        f"""
+        SELECT * FROM barravips.mensagens
+         WHERE {" AND ".join(filtros)}
+         ORDER BY created_at DESC, id DESC
+         LIMIT %s
+        """,
+        tuple(params),
+    )
+    # tem_mais sai da contagem ANTES do truncate; next_cursor sai da última linha
+    # EXIBIDA — a linha extra do limit+1 nunca vira cursor (senão some 1 mensagem
+    # por página, com "<" estrito).
+    tem_mais = len(rows) > limit
+    rows = rows[:limit]
+    next_cursor = (
+        f"{rows[-1]['created_at'].isoformat()}|{rows[-1]['id']}" if tem_mais and rows else None
+    )
+    return {"items": _enriquecer_midias(rows, request), "next_cursor": next_cursor}
 
 
 @router.post("/{atendimento_id}/devolver")

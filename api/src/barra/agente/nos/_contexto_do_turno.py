@@ -269,6 +269,10 @@ class ContextoDoTurno:
     # flags A2 — e ambos são também travas de write-time na tool (`envolver_parceira`).
     parceira_ja_encaminhada: bool = False
     parceira_dupla_assumida: bool = False
+    # So o <ja_registrado> (janela da extracao) le: o extrator precisa saber que a forma de
+    # pagamento JA esta gravada — ela foi inventada e nunca revertida em prod (2x no diag 11/08),
+    # e campo invisivel no bloco de estado e campo que ninguem corrige.
+    forma_pagamento: str | None = None
 
     def como_variaveis(self) -> dict[str, Any]:
         """Dicionário para o `render(**variaveis)` dos templates. Raso de propósito: os valores

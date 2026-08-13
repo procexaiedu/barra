@@ -12,9 +12,14 @@ export const NIVEL_LABEL: Record<NivelModelo, string> = {
   C: "C",
 }
 
-/** Classes Tailwind do badge por nível (ouro/prata/bronze). */
+/**
+ * Classes do badge por nível (ouro/prata/bronze) sobre tokens semânticos — cor
+ * crua do Tailwind não troca entre os temas e afundava para ~1,2:1 no claro.
+ * O texto usa a escala `text-*`, que já é pareada com a superfície nos dois
+ * temas; a identidade do nível fica no fio e no fundo.
+ */
 export const NIVEL_BADGE_CLASS: Record<NivelModelo, string> = {
-  A: "border-amber-400/40 bg-amber-400/15 text-amber-300",
-  B: "border-slate-300/40 bg-slate-300/15 text-slate-200",
-  C: "border-orange-700/40 bg-orange-700/15 text-orange-400",
+  A: "border-border-brand/50 bg-state-active/15 text-text-brand",
+  B: "border-border-strong bg-surface-hover text-text-secondary",
+  C: "border-state-handoff/40 bg-state-handoff/15 text-text-secondary",
 }

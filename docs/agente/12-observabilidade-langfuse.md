@@ -21,7 +21,7 @@ O trace nasce autossuficiente: dá para entender o caso **sem abrir uma única o
 | `session_id` | `atendimento_id` — agrupa a negociação inteira em ordem |
 | `user_id` | `cliente_id` (UUID opaco, nunca o telefone) |
 | `input` | as bolhas do CLIENTE que dispararam o turno |
-| `output.resposta_ia` | o que foi despachado (pós output-guard e chunking) |
+| `output.resposta_ia` | o rascunho aprovado (pós output-guard e chunking), **PRÉ camada de voz do envio**: o `enviar_turno` roda em outro job, depois do resumo do trace, e ainda afina vocativo/emoji (`_saida_guard`) — e pode até bloquear o envio. Auditoria de VOZ não se faz por este campo; o texto entregue vive em `barravips.mensagens` |
 | `output.desfecho` | mecânica: extração, `erros_tool`, reoferta, disclosure, `horario_minimo` |
 | `output.raciocinio` | **o thinking**: o `reasoning_content` de cada passagem do chat #1 |
 | `level` | `WARNING` quando houve erro de tool no turno |
@@ -37,8 +37,11 @@ extraído pelo wrapper langchain-openai** — quem o captura é `_ChatDeepSeekTh
 tool_calls (senão HTTP 400).
 
 `raciocinio_do_turno()` promove esse campo ao `output` do trace: você lê **a fala e o que a IA
-pensou antes de escrevê-la na mesma tela**. Uma entrada por passagem do LLM (o loop ReAct chama de
-novo depois de cada tool; a regen do guard acrescenta a sua).
+pensou antes de escrevê-la na mesma tela**. Uma entrada por passagem do LLM **viva na janela** (o
+loop ReAct chama de novo depois de cada tool; a regen do guard acrescenta a sua) — a passagem
+descartada por erro recuperável de tool é removida da janela (`RemoveMessage`, nos/extrair.py) e o
+raciocínio DELA só existe na generation `chat_fala` correspondente: um turno com retry mostra 2
+`chat_fala` e 1 raciocínio no root.
 
 Duas coisas que o raciocínio **não** é:
 - não é o que vai ao cliente (`extrair_texto_do_turno` lê `content`, nunca este campo);
@@ -68,7 +71,10 @@ Tags de **desfecho** (`agente/_texto_turno.py:tags_do_turno`) — o que acontece
 | `reoferta` | a auto-reoferta entrou |
 | `disclosure:<categoria>` | o intercept classificou a fala do cliente |
 
-Tags de **origem** nos rigs: `eval_gate` · `e2e` · `funil`.
+Tags de **origem** nos rigs: `eval_gate` · `e2e` · `funil` — **só no harness cru** (`evals/
+harness.py`, que monta o config do trace). O rig pelo **caminho fiel** (`harness_fiel`, sessões
+e2e) passa pelo coordenador de prod: o trace sai `name="turno"`, sem tag de origem — separe por
+`service.name=barra-evals`/`environment`, ou pelo `trace_id` determinístico que a corrida devolve.
 
 ## 4. Observations: quem é quem dentro do turno
 

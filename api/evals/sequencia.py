@@ -2,8 +2,8 @@
 
 Complementa os graders POR TURNO de `checks.py` com a dimensao CROSS-TURN: o agente percorreu a
 conversa numa sequencia valida? Funcao pura e deterministica (sem DB/rede/LLM, como `checks.py`):
-le so `ResultadoE2E.turnos[i].{tool_calls,tool_args,estado_final}` — dados ja capturados pelo
-harness — e devolve violacoes de ordem, somadas as `violacoes` DURAS do veredito e2e.
+le so `ResultadoE2E.turnos[i].{tool_calls,tool_args,extracao,estado_final}` — dados ja capturados
+pelo harness — e devolve violacoes de ordem, somadas as `violacoes` DURAS do veredito e2e.
 
 Regra = "A-antes-de-B": quando um evento `gatilho` ocorre, seu `requer_antes` tem de ter ocorrido
 em-ou-antes. Eventos derivados (sem captura nova):
@@ -69,9 +69,21 @@ def derivar_eventos(res: ResultadoE2E) -> list[str]:
 
     for t in res.turnos:
         # 1) eventos de extracao primeiro (causa da transicao no mesmo turno)
-        for nome, args in zip(t.tool_calls, t.tool_args, strict=False):
-            if nome != "registrar_extracao":
-                continue
+        payloads = [
+            args
+            for nome, args in zip(t.tool_calls, t.tool_args, strict=False)
+            if nome == "registrar_extracao"
+        ]
+        # UNIAO com o CARIMBO do State: a varredura de `tool_calls` some inteira quando o
+        # output_guard regenera (`_zerar_turno` reescreve as AIMessages sem tool_calls, achado 12a
+        # da r3) — e um turno de fechamento sem `tipo:externo` fazia o validador acusar
+        # "pix solicitado sem tipo externo" numa corrida que extraiu o tipo. Uniao e nao
+        # substituicao porque o carimbo guarda so o ULTIMO payload do turno; evento repetido e
+        # inofensivo (as regras so perguntam "A ocorreu antes de B").
+        carimbo = t.extracao
+        if carimbo is not None and carimbo not in payloads:
+            payloads.append(carimbo)
+        for args in payloads:
             if args.get("cotacao_apresentada"):
                 eventos.append("cotacao_apresentada")
             tipo = args.get("tipo_atendimento")

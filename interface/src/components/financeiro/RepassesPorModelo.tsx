@@ -391,7 +391,7 @@ function TabelaSaldo({
               <th className="px-3 py-2.5 text-right font-medium">Bruto</th>
               <th className="px-3 py-2.5 text-right font-medium">Calculado</th>
               <th className="px-3 py-2.5 text-right font-medium">Pago</th>
-              <th className="border-l border-border/70 bg-gold-500/[0.04] px-3 py-2.5 text-right font-semibold text-gold-700">
+              <th className="border-l border-border/70 bg-gold-500/[0.04] px-3 py-2.5 text-right font-semibold text-text-brand">
                 Saldo
               </th>
               <th className="px-3 py-2.5 text-left font-medium">Pendência</th>
@@ -427,7 +427,7 @@ function TabelaSaldo({
                 <td className="px-3 py-2.5 text-right font-mono tabular-nums text-text-secondary">
                   {formatBRL(total.pago)}
                 </td>
-                <td className="border-l border-border/70 bg-gold-500/[0.04] px-3 py-2.5 text-right font-mono font-semibold tabular-nums text-gold-700">
+                <td className="border-l border-border/70 bg-gold-500/[0.04] px-3 py-2.5 text-right font-mono font-semibold tabular-nums text-text-brand">
                   {formatBRL(total.saldo)}
                 </td>
                 <td colSpan={2} className="px-3 py-2.5"></td>
@@ -471,8 +471,8 @@ function LinhaModelo({
   const corSaldo = saldoNegativo
     ? "text-danger-500"
     : saldoZerado
-      ? "text-text-disabled"
-      : "text-gold-700"
+      ? "text-text-muted"
+      : "text-text-brand"
 
   return (
     <tr
@@ -497,7 +497,7 @@ function LinhaModelo({
         className={cn(
           "px-3 py-2.5 text-right font-mono tabular-nums",
           saldo.valor_repasse_pago === 0
-            ? "text-text-disabled"
+            ? "text-text-muted"
             : "text-text-secondary",
         )}
       >
@@ -536,7 +536,7 @@ function LinhaModelo({
             </span>
           </button>
         ) : (
-          <span className="text-xs text-text-disabled">—</span>
+          <span className="text-xs text-text-muted">—</span>
         )}
       </td>
       <td className="px-3 py-2.5 text-right">

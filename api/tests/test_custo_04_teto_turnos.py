@@ -93,6 +93,9 @@ class _GrafoQueFalha:
 class _FakeSettings:
     deepseek_model_chat = "deepseek-test"
     usd_brl_cotacao = 5.5  # lido pelo acumulo de custo do turno (passo 5a')
+    # Teto do turno (asyncio.wait_for em volta do graph.ainvoke): virou setting em 12/08 p/
+    # ficar acima do teto por chamada de LLM (`llm_timeout_s`).
+    turno_timeout_s = 60.0
 
 
 @asynccontextmanager

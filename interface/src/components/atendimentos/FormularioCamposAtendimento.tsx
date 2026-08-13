@@ -128,6 +128,8 @@ export const FormularioCamposAtendimento = forwardRef<
   const [programasModelo, setProgramasModelo] = useState<ProgramaModelo[]>([])
   const [adicionados, setAdicionados] = useState<ProgramaAdicionado[]>([])
   const [selecionado, setSelecionado] = useState("")
+  const [catalogoStatus, setCatalogoStatus] = useState<"loading" | "success" | "error">("loading")
+  const [tentativaCatalogo, setTentativaCatalogo] = useState(0)
 
   const {
     tiposCombinados,
@@ -146,6 +148,7 @@ export const FormularioCamposAtendimento = forwardRef<
     setProgramasModelo([])
     setAdicionados([])
     setSelecionado("")
+    setCatalogoStatus("loading")
     setValorAcordado("")
     setValorEditadoManual(false)
     setDuracao("")
@@ -191,20 +194,28 @@ export const FormularioCamposAtendimento = forwardRef<
     ? formatHorasCampo(duracaoCalculada as number)
     : duracao
 
+  // Sem estado de erro, uma falha de rede aqui ficava idêntica a "modelo sem
+  // tabela de preços" — o catálogo vazio não dizia qual dos dois era.
   useEffect(() => {
     if (!modeloId) return
     let cancelado = false
     api<ProgramaModelo[]>(`/v1/modelos/${modeloId}/programas`)
       .then((res) => {
-        if (!cancelado) setProgramasModelo(res)
+        if (cancelado) return
+        setProgramasModelo(res)
+        setCatalogoStatus("success")
       })
       .catch(() => {
-        if (!cancelado) setProgramasModelo([])
+        if (cancelado) return
+        setProgramasModelo([])
+        setCatalogoStatus("error")
       })
     return () => {
       cancelado = true
     }
-  }, [modeloId])
+  }, [modeloId, tentativaCatalogo])
+
+  const catalogoErro = catalogoStatus === "error"
 
   const valorDecimalInvalido =
     valorAcordadoExibido.trim().length > 0 && parseDecimal(valorAcordadoExibido) === null
@@ -218,7 +229,7 @@ export const FormularioCamposAtendimento = forwardRef<
     ? periodoHerdado?.duracaoHoras ?? 0
     : parseDecimal(duracaoExibida) ?? 0
 
-  const { conflitos } = useConflitoAgenda({
+  const { conflitos, erro: erroConflito } = useConflitoAgenda({
     modelo_id: modeloId,
     data: periodoData,
     horario: periodoHorario,
@@ -509,13 +520,22 @@ export const FormularioCamposAtendimento = forwardRef<
               </button>
             </div>
           ))}
-          {adicionados.length === 0 && disponiveis.length === 0 && (
+          {catalogoErro ? (
+            <AvisoCatalogo
+              onTentarDeNovo={() => {
+                setCatalogoStatus("loading")
+                setTentativaCatalogo((n) => n + 1)
+              }}
+            />
+          ) : adicionados.length === 0 && disponiveis.length === 0 ? (
             <span className="text-xs text-text-muted">
-              {modeloId
-                ? "Nenhum programa disponível para esta modelo."
-                : "Selecione a modelo para listar programas."}
+              {!modeloId
+                ? "Selecione a modelo para listar programas."
+                : catalogoStatus === "loading"
+                  ? "Carregando programas…"
+                  : "Nenhum programa disponível para esta modelo."}
             </span>
-          )}
+          ) : null}
         </div>
         {disponiveis.length > 0 && (
           <div className="mt-1 flex gap-2">
@@ -566,7 +586,9 @@ export const FormularioCamposAtendimento = forwardRef<
           {colunaLocal}
           {colunaPagamento}
         </div>
-        {temConflito && <AlertaConflito conflitos={conflitos} />}
+        {(temConflito || erroConflito) && (
+          <AlertaConflito conflitos={conflitos} erro={erroConflito} />
+        )}
         {modalRemoverTipo}
       </div>
     )
@@ -579,15 +601,30 @@ export const FormularioCamposAtendimento = forwardRef<
         {colunaLocal}
         {colunaPagamento}
       </div>
-      {temConflito && (
+      {(temConflito || erroConflito) && (
         <div className="border-t border-border px-6 py-3">
-          <AlertaConflito conflitos={conflitos} />
+          <AlertaConflito conflitos={conflitos} erro={erroConflito} />
         </div>
       )}
       {modalRemoverTipo}
     </div>
   )
 })
+
+// Falha de rede no catálogo da modelo não pode se parecer com "modelo sem tabela
+// de preços": o aviso diz o que houve e oferece a nova tentativa ali mesmo.
+function AvisoCatalogo({ onTentarDeNovo }: { onTentarDeNovo: () => void }) {
+  return (
+    <div className="flex flex-col items-start gap-2 rounded-md border border-border bg-muted px-3 py-2">
+      <span className="text-xs leading-4 text-text-secondary">
+        A tabela de preços desta modelo não carregou. Programas ficam indisponíveis até ela vir.
+      </span>
+      <Button variant="secondary" size="sm" onClick={onTentarDeNovo}>
+        Tentar de novo
+      </Button>
+    </div>
+  )
+}
 
 function Campo({ label, children }: { label: string; children: React.ReactNode }) {
   return (

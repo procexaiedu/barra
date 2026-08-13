@@ -25,7 +25,10 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   })
 
   if (r.status === 401) {
-    await supabase.auth.signOut()
+    // Escopo local: o 401 é deste dispositivo. `signOut()` sem escopo revoga a
+    // sessão em TODOS os aparelhos — um token vencido no desktop derrubaria o
+    // celular da operadora junto.
+    await supabase.auth.signOut({ scope: 'local' })
     if (typeof window !== 'undefined') window.location.assign('/login')
     throw new ApiError(401, 'Sessão expirada')
   }
@@ -58,7 +61,8 @@ export async function apiFormData<T>(path: string, formData: FormData): Promise<
   })
 
   if (r.status === 401) {
-    await supabase.auth.signOut()
+    // Mesmo motivo do `api()`: escopo local, o 401 é só deste dispositivo.
+    await supabase.auth.signOut({ scope: 'local' })
     if (typeof window !== 'undefined') window.location.assign('/login')
     throw new ApiError(401, 'Sessão expirada')
   }

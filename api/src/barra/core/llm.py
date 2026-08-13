@@ -120,6 +120,28 @@ class _ChatDeepSeekThinking(ChatOpenAI):
         return payload
 
 
+def tentativas_que_cabem_no_turno(settings: Settings, *, teto: int = 2) -> int:
+    """`max_retries` que o ORÇAMENTO DO TURNO comporta — 0 quando só cabe uma tentativa.
+
+    O `timeout` do httpx é POR TENTATIVA, e o cliente OpenAI retenta timeout por conta própria. Com
+    `max_retries=2` fixo (estado até 12/08/2026), um endpoint pendurado custava até 3 x 40s num
+    único `ainvoke` e o `asyncio.wait_for(turno_timeout_s)` do coordenador matava o turno POR FORA
+    do grafo — `timeout_grafo` -> handoff terminal, cliente sem bolha —, que é exatamente o modo de
+    falha que o `llm_timeout_s < turno_timeout_s` da r3 existe para eliminar. A desigualdade valia
+    para UMA chamada e as retentativas a desfaziam em silêncio.
+
+    Derivado dos dois settings em vez de literal para que o invariante sobreviva a quem mexer nos
+    números: com 40/60 cabe uma tentativa (`max_retries=0`), e baixar o `llm_timeout_s` devolve as
+    retentativas sozinho. `teto` mantém o comportamento histórico como limite superior — isto aperta
+    o pior caso, nunca o afrouxa.
+
+    Cabe uma tentativa a MENOS do que a conta pura permitiria porque o SDK dorme entre elas
+    (backoff) e o resto do turno (nós determinísticos, DB, guard) também consome do mesmo teto.
+    """
+    cabem = int(settings.turno_timeout_s // settings.llm_timeout_s)
+    return max(0, min(teto, cabem - 2))  # -1 pela tentativa inicial, -1 de margem
+
+
 def criar_chat_deepseek(
     settings: Settings,
     *,
@@ -132,7 +154,7 @@ def criar_chat_deepseek(
     Único provider dos 3 caminhos de texto do agente ao vivo (chat #1, extração forçada #2 e judge
     de AUP #3): vai direto no DeepSeek (não no pool do OpenRouter) por dois motivos que pesam em escala
     — (1) o cache automático de prefixo só existe no endpoint oficial, e o prefixo byte-idêntico fica
-    quente (chat: BP_GERAL global; judge: o system aup_saida.md repetido antes de cada bolha), ~98%
+    quente (chat: BP_GERAL global; judge: o system aup_saida.md repetido a cada turno), ~98%
     mais barato no hit; (2) crava modelo/quantização, sem a roleta de FP4 do load-balance.
 
     `modelo` (default settings.deepseek_model_chat = `deepseek-v4-flash`) é o id único do V4 Flash;
@@ -145,7 +167,18 @@ def criar_chat_deepseek(
     e o default `thinking="disabled"` DESTA factory trava non-thinking via extra_body para quem
     chama sem argumento — extração #2 e judge #3, onde thinking corromperia o structured output.
     Não usa `reasoning_off` nem `provider`/`quantizations` (conceitos do OpenRouter, não do
-    endpoint direto). `temperature` honrada (non-thinking); None = omite.
+    endpoint direto). `temperature` honrada (non-thinking); None = OMITE o campo do payload, isto e,
+    vale o default do PROVIDER (DeepSeek ~1.0) — omissao NAO e determinismo: quem quer veredito
+    reprodutivel (extracao #2, judge de AUP #3, judge pos-envio) passa
+    `temperature=settings.judge_temperature` (0.0 por default).
+
+    `timeout` (httpx, por chamada) sai de `settings.llm_timeout_s` e tem de ficar ESTRITAMENTE
+    abaixo de `settings.turno_timeout_s` (teto do grafo, no coordenador): com os dois iguais — 60.0
+    literais nos dois lugares ate 12/08/2026 — a chamada pendurada estourava o TURNO por fora do
+    grafo (`timeout_grafo` -> handoff terminal, cliente sem bolha) em vez de morrer dentro dele,
+    onde o fallback deterministico do guard existe. O timeout é por TENTATIVA, então quem fecha o
+    invariante é o par com `max_retries`: ele vem de `tentativas_que_cabem_no_turno` (ver lá), não
+    do `2` fixo que multiplicava o pior caso por três.
 
     `thinking` != "disabled" ("low"/"high"/"max" = `reasoning_effort` do provider) devolve
     `_ChatDeepSeekThinking` (compat de `reasoning_content` + teto de tokens próprio) e OMITE a
@@ -164,8 +197,8 @@ def criar_chat_deepseek(
             # a saída inteira — raciocínio + fala —, então o teto pensado só para a fala cortaria a
             # bolha no meio do raciocínio (`finish_reason=length` -> turno truncado/vazio).
             max_tokens=settings.llm_max_tokens_thinking,
-            max_retries=2,
-            timeout=60.0,
+            max_retries=tentativas_que_cabem_no_turno(settings),
+            timeout=settings.llm_timeout_s,
             extra_body={"thinking": {"type": "enabled"}, "reasoning_effort": thinking},
         )
     return ChatOpenAI(
@@ -174,8 +207,8 @@ def criar_chat_deepseek(
         base_url="https://api.deepseek.com",
         max_tokens=settings.llm_max_tokens,
         temperature=temperature,
-        max_retries=2,
-        timeout=60.0,
+        max_retries=tentativas_que_cabem_no_turno(settings),
+        timeout=settings.llm_timeout_s,
         # thinking disabled explícito: o id cru `deepseek-v4-flash` liga thinking por default.
         extra_body={"thinking": {"type": "disabled"}},
     )

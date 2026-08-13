@@ -365,6 +365,29 @@ def test_render_encontro_hoje_anuncia_a_unica_contraproposta_no_piso() -> None:
     assert "ainda sobra uma última" not in out
 
 
+def test_render_dia_conhecido_sem_numero_proibe_a_conta_de_cabeca() -> None:
+    """O ramo que faltava (loop-massa r2, eixo objetor): dia CONHECIDO (`ultima`/`aberta`) e
+    `contraproposta_disponivel` None — o fail-closed a montante (duracao_horas NULL) apagava o
+    bloco inteiro e o modelo calculou 12,5% DE CABEÇA nos dois turnos de objeção, contra
+    `regras.md.j2` ("Sem número no contexto, vale a recusa educada, nunca uma conta sua"). O bloco
+    novo diz a INTENÇÃO (segurar o valor, mover para horário ou subir o tempo), nunca a fala."""
+    out = _render(n_contrapropostas=0, escada_estado="ultima", preco_na_mesa=True)
+    assert "<escada_sem_numero>" in out
+    assert "<escada_disponivel>" not in out
+    assert "não monta desconto de cabeça" in out
+    assert "<pacote_maior_na_sua_tabela>" in out
+    # nenhum número inventado e nenhuma fala pronta de desconto na cauda
+    assert "%" not in out
+    # e com o número calculado presente, quem fala continua sendo a <escada_disponivel>
+    com_numero = _render(
+        n_contrapropostas=0,
+        escada_estado="ultima",
+        preco_na_mesa=True,
+        contraproposta_disponivel="300",
+    )
+    assert "<escada_sem_numero>" not in com_numero
+
+
 def test_render_sem_o_dia_nao_mostra_numero_e_manda_sondar() -> None:
     out = _render(n_contrapropostas=0, escada_estado="sem_dia", preco_na_mesa=True)
     assert "<escada_travada_sem_o_dia>" in out

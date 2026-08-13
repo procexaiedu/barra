@@ -8,7 +8,7 @@ falhas diferentes). Cada item ja vem com a porta sugerida (base + indice) para o
 uma `sessao.py` por ref sem colisao. Com `--run-tag`, pula refs ja testadas naquele tag (dedup).
 
 Uso:
-    TEST_DATABASE_URL=... uv run python -m evals.e2e.lote --por-eixo 2 --porta-base 8800
+    DATABASE_URL=... uv run python -m evals.e2e.lote --por-eixo 2 --porta-base 8800
     # -> imprime um JSON [{ref, eixo, desfecho_real, tipo_esperado, porta, abertura}, ...] no stdout
 """
 
@@ -64,10 +64,12 @@ async def montar_lote(
 
 
 async def _main(args: argparse.Namespace) -> None:
+    # Corpus (threads/turnos) e o dedup (corpus.eval_e2e) vivem no Postgres de PROD; leitura pura.
     conn = await AsyncConnection.connect(
-        os.environ["TEST_DATABASE_URL"], autocommit=True, row_factory=dict_row
+        os.environ["DATABASE_URL"], autocommit=True, row_factory=dict_row
     )
     try:
+        await conn.execute("SET default_transaction_read_only = on")
         lote = await montar_lote(
             conn, por_eixo=args.por_eixo, porta_base=args.porta_base, run_tag=args.run_tag
         )
@@ -84,8 +86,8 @@ def main() -> None:
     ap.add_argument("--porta-base", type=int, default=8800, help="porta da 1ª sessão (incrementa)")
     ap.add_argument("--run-tag", help="pula refs ja testadas neste tag em corpus.eval_e2e (dedup)")
     args = ap.parse_args()
-    if not os.environ.get("TEST_DATABASE_URL"):
-        raise SystemExit("Defina TEST_DATABASE_URL (prod self-hosted; so SELECT aqui).")
+    if not os.environ.get("DATABASE_URL"):
+        raise SystemExit("Defina DATABASE_URL (prod; so SELECT aqui — corpus vive em prod).")
     asyncio.run(_main(args))
 
 

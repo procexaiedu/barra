@@ -50,7 +50,9 @@ class FakeConn:
         if "FOR UPDATE OF a" in query:
             return _Result([self.atendimento] if self.atendimento else [])
         if "INSERT INTO barravips.escaladas" in query:
-            return _Result([], rowcount=1)  # escalada aberta (nao havia uma ja aberta)
+            # `abrir_handoff` decide "criou ou reaproveitou" pelo `RETURNING id`, nao mais pelo
+            # rowcount: uma linha devolvida = escalada nova (nao havia uma ja aberta).
+            return _Result([{"id": uuid4()}], rowcount=1)
         return _Result([])
 
 

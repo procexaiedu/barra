@@ -106,14 +106,58 @@ def _normalizar_afirmacao(texto: str) -> str:
     return " ".join(limpo.split())
 
 
+# Cauda que DESFAZ a afirmação de cabeça forte ("claro que não", "beleza vou pensar"): negação ou
+# adiamento depois do "ok" viram outra fala — aceitar pela primeira palavra fabricava um "hoje"
+# que o cliente nunca confirmou (loop-massa r1, eixo explorador_ambiguo: "ok\nqual a sua altura?"
+# contado como aceite da sondagem de dia).
+_RE_CAUDA_QUE_DESFAZ = re.compile(
+    r"\b(?:n[ãa]o|vou|vamos|depois|pens(?:ar|o|a)|ver|vejo|talvez|sei\s+l[áa]|quem\s+sabe)\b"
+)
+
+# Cabeças de DOIS tokens ("tá bem então", "tá bom amor"): o aceite que faltava no léxico
+# (loop-massa r3, eixo remarcacao). Nenhuma das duas estruturas existentes resolve — o conjunto
+# EXATO não cobre a cauda ("Tá bem então") e a cabeça FORTE compara UM token, então pôr "tá" lá
+# seria desastroso ("tá caro", "tá longe", "tá difícil"). Daí a família própria.
+# As DUAS grafias entram porque `_normalizar_afirmacao` NÃO tira acento (só filtra por `isalpha`),
+# exatamente como já acontece com "é"/"eh" no conjunto exato.
+_AFIRMACOES_DE_DOIS_TOKENS = frozenset({"ta bem", "tá bem", "ta bom", "tá bom", "ta ok", "tá ok"})
+# A cauda destas cabeças é RESTRITA a vocativo/partícula — e é só isso que fecha a armadilha do
+# "bem" INTENSIFICADOR: com a cauda livre que as cabeças de um token usam, "tá bem caro", "ta bem
+# caro pra mim", "tá bem longe" e "tá bem apertado hoje" viravam aceite (medido).
+# "tudo bem" fica de FORA de propósito: é pergunta social (`_PERGUNTAS_SOCIAIS`, _foco_do_turno).
+_CAUDA_DE_VOCATIVO = frozenset({"amor", "vida", "linda", "gata", "então", "entao", "sim"})
+
+# Veto por FORMA (loop-massa r3): afirmação curta não carrega número. O `_normalizar_afirmacao`
+# descarta dígitos, e o estrago atinge os DOIS caminhos — "Fechado então\n200 as 20h" colapsava em
+# "fechado então" (cabeça forte) e "fechado 200" colapsava no próprio "fechado" do conjunto EXATO.
+# Contraproposta virava aceite de cabeça, fixando dia/hora que o cliente não confirmou. Nem
+# `_RE_CAUDA_QUE_DESFAZ` (negação/adiamento) nem `_TOKEN_OUTRO_DIA` cobriam número.
+# Perda aceita e nomeada: "fechado 20h" deixa de ser afirmação curta — mas
+# `contem_hora_explicita("fechado 20h")` é True, então o gatilho 1 cobre o turno de qualquer jeito.
+_RE_DIGITO = re.compile(r"\d")
+
+
 def _e_afirmacao_curta(texto: str) -> bool:
-    """True se a msg do cliente é uma afirmação curta de 'sim' SEM citar outro dia."""
-    if _TOKEN_OUTRO_DIA.search(texto.lower()):
+    """True se a msg do cliente é uma afirmação curta de 'sim' SEM citar outro dia nem número.
+
+    A cabeça forte ("sim amor", "fechado então") tolera só vocativo/partícula: pergunta na mesma
+    msg ("ok\\nqual a sua altura?"), negação ("claro que não") ou adiamento ("beleza vou pensar")
+    NÃO são aceite — o custo do falso positivo aqui é fixar dia/hora/endereço que o cliente nunca
+    confirmou, bem maior que o falso negativo (a extração LLM ainda captura o aceite verboso).
+    A cabeça de DOIS tokens ("tá bem") é mais apertada ainda: só vocativo depois dela."""
+    if _RE_DIGITO.search(texto) or _TOKEN_OUTRO_DIA.search(texto.lower()):
         return False
     norm = _normalizar_afirmacao(texto)
     if not norm:
         return False
-    return norm in _AFIRMACOES or norm.split()[0] in _AFIRMACOES_FORTES
+    if norm in _AFIRMACOES:
+        return True
+    tokens = norm.split()
+    if len(tokens) >= 2 and " ".join(tokens[:2]) in _AFIRMACOES_DE_DOIS_TOKENS:
+        return "?" not in texto and all(t in _CAUDA_DE_VOCATIVO for t in tokens[2:])
+    if tokens[0] not in _AFIRMACOES_FORTES:
+        return False
+    return "?" not in texto and _RE_CAUDA_QUE_DESFAZ.search(norm) is None
 
 
 def _burst_do_cliente(mensagens: list[BaseMessage]) -> int:
@@ -145,13 +189,34 @@ def _bolhas_ia_antes_do_burst(mensagens: list[BaseMessage], inicio_burst: int) -
     return bolhas
 
 
+# Faixa ABERTA na bolha da IA ("estou livre hoje a partir das 19:30", "estou livre depois das 22h",
+# "atendo das 14h as 23h"): é DISPONIBILIDADE dela, não proposta de horário. O gatilho 2 creditava
+# a hora do piso/intervalo a uma afirmação curta dele e a reserva nascia às 19:30 com a conversa
+# correndo em 20h (loop-massa r3, eixo remarcacao t3: "Isso, hoje mesmo" depois da bolha de
+# disponibilidade). É a MESMA fronteira que o gatilho 3 já documenta abaixo — "a partir das" é
+# PISO, não ponto, e aceitá-lo carimba evidência sobre um horário que ninguém propôs.
+#
+# O que desqualifica é o PISO/INTERVALO, não o verbo: "Estou livre às 20h, fecha ?" segue oferta
+# legítima, e o positivo pinado do #34 ("Posso confirmar às 18h" → "Perfeito") não é tocado.
+_RE_FAIXA_ABERTA = re.compile(
+    r"\ba partir d(?:as|a|e|o)\b|\bdepois d(?:as|e)\b|\bdas\b[^\n]{0,12}\b[àa]s\b",
+    re.IGNORECASE,
+)
+
+
+def _bolha_da_ia_propoe_hora(texto: str) -> bool:
+    """A bolha da IA põe uma hora como PROPOSTA (e não como faixa de disponibilidade)?"""
+    return contem_hora_explicita(texto) and _RE_FAIXA_ABERTA.search(texto) is None
+
+
 def _horario_evidenciado_no_turno(mensagens: list[BaseMessage]) -> bool:
     """True se a janela do turno EVIDENCIA o horário: existe fala do cliente que o sustenta.
 
     Os três gatilhos da spec (extracao-proveniencia-horario), todos no corpus de produção:
       1. hora explícita numa bolha do burst atual do cliente ("Umas 16 horas" — #24);
-      2. confirmação curta do cliente logo após bolha da IA que contém hora ("Posso confirmar às
-         18h" → "Perfeito" — #34); mesma mecânica de correferência já usada para o dia;
+      2. confirmação curta do cliente logo após bolha da IA que PROPÕE uma hora ("Posso confirmar
+         às 18h" → "Perfeito" — #34); mesma mecânica de correferência já usada para o dia. Faixa
+         aberta na bolha dela não conta (`_RE_FAIXA_ABERTA`): disponibilidade não é proposta;
       3. o mesmo par, com a bolha da IA sendo a sondagem de IMEDIATISMO ("Seria agora ?" → "sim"
          — #35): o número vem do fallback, mas a intenção é dele.
 
@@ -180,7 +245,7 @@ def _horario_evidenciado_no_turno(mensagens: list[BaseMessage]) -> bool:
     if not any(_e_afirmacao_curta(_texto_msg(m)) for m in burst):
         return False
     return any(
-        contem_hora_explicita(_texto_msg(m)) or contem_sondagem_imediatismo(_texto_msg(m))
+        _bolha_da_ia_propoe_hora(_texto_msg(m)) or contem_sondagem_imediatismo(_texto_msg(m))
         for m in _bolhas_ia_antes_do_burst(mensagens, i)
     )
 
@@ -262,8 +327,13 @@ def _confirmou_dia_hoje(mensagens: list[BaseMessage]) -> bool:
         if burst_cita_outro_dia:
             continue
         # Varre as bolhas contíguas da IA que antecedem o burst, procurando a sondagem do dia.
+        # Sonda DISJUNTIVA ("Seria hoje ou sábado ?") não conta: o "ok" do cliente responde à
+        # escolha, não ao "hoje" — o veto de outro-dia vale também para a bolha da SONDA, senão
+        # a disjunção da IA + afirmação curta fabricava <dia quando="hoje"> e armava a escada de
+        # desconto no regime errado (loop-massa r1, eixo explorador_ambiguo).
         while j >= 0 and isinstance(mensagens[j], AIMessage):
-            if _PROBE_DIA_HOJE.search(_texto_msg(mensagens[j])):
+            txt_ia = _texto_msg(mensagens[j])
+            if _PROBE_DIA_HOJE.search(txt_ia) and not _TOKEN_OUTRO_DIA.search(txt_ia.lower()):
                 return True
             j -= 1
     return False
@@ -278,10 +348,19 @@ def _ja_sondou_o_dia(mensagens: list[BaseMessage]) -> bool:
     <antes_de_perguntar> só cobre itens de <ainda_falta>, e o dia não está lá; trace prod 9db632c7).
     Detectamos deterministicamente que a sondagem já foi feita (zero LLM, reusa `_PROBE_DIA_HOJE`)
     para o contexto dinâmico instruir a NÃO recolá-la. No turno de abertura a janela ainda não tem a
-    sondagem (só a msg do cliente) → False, então não suprime o abridor social do primeiro turno."""
-    return any(
-        isinstance(m, AIMessage) and _PROBE_DIA_HOJE.search(_texto_msg(m)) for m in mensagens
-    )
+    sondagem (só a msg do cliente) → False, então não suprime o abridor social do primeiro turno.
+
+    PARA na marca de pausa, como os detectores irmãos (`_conversa_em_andamento`,
+    `_confirmou_dia_hoje`): a janela de 40 cruza atendimentos. Varrendo-a inteira, uma sondagem de
+    seis dias atrás calava a sondagem no PRIMEIRO turno do atendimento novo — o oposto da conduta
+    de retomada, e o mesmo modo de falha do incidente 29/07. O caso legítimo ("já sondei NESTE
+    atendimento") continua coberto pelo OR com `dia_ja_sondado_hist`, que é por atendimento."""
+    for msg in reversed(mensagens):
+        if e_marca_pausa(msg):
+            return False
+        if isinstance(msg, AIMessage) and _PROBE_DIA_HOJE.search(_texto_msg(msg)):
+            return True
+    return False
 
 
 def _conversa_em_andamento(mensagens: list[BaseMessage]) -> bool:

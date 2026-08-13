@@ -90,7 +90,7 @@ export function ChartReceitaDiaria({ serie }: Props) {
       hint={`${diasComReceita} de ${pontos.length} dia${pontos.length === 1 ? "" : "s"} com fechamento`}
       legenda={
         <div className="flex items-center gap-3 text-[11px] text-text-secondary">
-          <LegendaItem cor="var(--gold-500)" rotulo="Líquido" />
+          <LegendaItem cor="var(--chart-1)" rotulo="Líquido" />
           <LegendaItem cor="var(--chart-2)" rotulo="Repasse" />
           <LegendaItem cor="var(--text-secondary)" rotulo="Bruto acum." linha />
         </div>
@@ -104,7 +104,7 @@ export function ChartReceitaDiaria({ serie }: Props) {
             barCategoryGap={pontos.length > 31 ? "10%" : "20%"}
           >
             <CartesianGrid
-              stroke="var(--ink-300)"
+              stroke="var(--border-subtle)"
               strokeOpacity={0.5}
               strokeDasharray="2 4"
               vertical={false}
@@ -114,7 +114,7 @@ export function ChartReceitaDiaria({ serie }: Props) {
               interval={intervaloX}
               tick={{ fill: "var(--text-muted)", fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: "var(--ink-400)" }}
+              axisLine={{ stroke: "var(--border-strong)" }}
               minTickGap={8}
             />
             <YAxis
@@ -135,7 +135,7 @@ export function ChartReceitaDiaria({ serie }: Props) {
               width={64}
             />
             <RechartsTooltip
-              cursor={{ fill: "var(--ink-200)", fillOpacity: 0.4 }}
+              cursor={{ fill: "var(--surface-hover)", fillOpacity: 0.4 }}
               wrapperStyle={{ outline: "none" }}
               content={<TooltipReceitaDiaria />}
             />
@@ -144,7 +144,7 @@ export function ChartReceitaDiaria({ serie }: Props) {
               dataKey="liquido"
               stackId="receita"
               name="Líquido"
-              fill="var(--gold-500)"
+              fill="var(--chart-1)"
               isAnimationActive={false}
               radius={[0, 0, 0, 0]}
             />
@@ -185,13 +185,13 @@ function TooltipReceitaDiaria({
   if (!active || !payload?.length) return null
   const p = payload[0].payload
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-lg shadow-black/40">
+    <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-elev-2">
       <div className="mb-1 font-medium text-text-primary">{p.dia}</div>
       <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5">
         <dt className="text-text-muted">Bruto</dt>
         <dd className="text-right font-mono tabular-nums text-text-primary">{formatBRL(p.bruto)}</dd>
-        <dt className="text-gold-700">Líquido</dt>
-        <dd className="text-right font-mono tabular-nums text-gold-700">{formatBRL(p.liquido)}</dd>
+        <dt className="text-text-brand">Líquido</dt>
+        <dd className="text-right font-mono tabular-nums text-text-brand">{formatBRL(p.liquido)}</dd>
         <dt style={{ color: "var(--chart-2)" }}>Repasse</dt>
         <dd className="text-right font-mono tabular-nums" style={{ color: "var(--chart-2)" }}>
           {formatBRL(p.repasse)}
@@ -228,7 +228,7 @@ export function ChartShell({
             <span className="h-3 w-0.5 rounded-full bg-gold-500" aria-hidden />
             {titulo}
           </h3>
-          {hint && <span className="text-[11px] text-text-disabled">{hint}</span>}
+          {hint && <span className="text-[11px] text-text-muted">{hint}</span>}
         </div>
         {legenda}
       </header>

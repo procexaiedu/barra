@@ -76,6 +76,7 @@
   --color-state-active: var(--state-active);
   --color-state-paused: var(--state-paused);
   --color-state-info: var(--state-info);
+  --color-state-lost-on-soft: var(--state-lost-on-soft);
 
   --color-on-surface: var(--on-surface);
   --color-on-surface-muted: var(--on-surface-muted);
@@ -169,6 +170,9 @@
   --state-active:      var(--gold-300);
   --state-paused:      var(--ink-500);
   --state-info:        var(--info-500);
+  /* Par de texto do vermelho sobre o fundo /15 (badges "lost"/"revisão"): o
+     próprio --state-lost em cima do seu tint fica em ~3,8:1 no claro. */
+  --state-lost-on-soft: #B21E1E;
 
   --on-surface:        var(--text-primary);
   --on-surface-muted:  var(--text-muted);
@@ -265,6 +269,8 @@
   --state-active:      var(--gold-500);
   --state-paused:      var(--ink-600);
   --state-info:        var(--info-500);
+  /* No escuro o par inverte: vermelho clareado para sair dos ~3,3:1. */
+  --state-lost-on-soft: #EB5C5C;
 
   --on-surface:        var(--ink-900);
   --on-surface-muted:  var(--ink-700);

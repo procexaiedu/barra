@@ -1,3 +1,5 @@
+import { badgeForEstado } from "@/components/atendimentos/utils"
+import type { EstadoAtendimento as EstadoAtendimentoCanonico } from "@/tipos/atendimentos"
 import type {
   ChecagemPix,
   DecisaoFinal,
@@ -12,7 +14,7 @@ import type {
   TipoChave,
 } from "@/tipos/pix"
 
-type BadgeVariant = "active" | "paused" | "handoff" | "revisao" | "closed" | "lost"
+type BadgeVariant = "active" | "paused" | "handoff" | "info" | "revisao" | "closed" | "lost"
 
 export type StatusItemPix = "em_revisao" | "validado_auto" | "validado_manual" | "rejeitado"
 
@@ -119,9 +121,11 @@ export const estadoAtendimentoLabel: Record<string, string> = {
 }
 
 export function badgeForEstadoAtendimento(estado: EstadoAtendimento): BadgeVariant {
-  if (estado === "Fechado") return "closed"
-  if (estado === "Perdido") return "lost"
-  return "active"
+  // Mesma cor de estado do resto do painel (fonte única em
+  // `components/atendimentos/utils`). O DTO do Pix tem união aberta e ainda
+  // carrega `Aguardando_pix`, fora da canônica: aí cai no "em andamento".
+  const variante: BadgeVariant | undefined = badgeForEstado(estado as EstadoAtendimentoCanonico)
+  return variante ?? "active"
 }
 
 export function isAtendimentoTerminal(estado: EstadoAtendimento): boolean {

@@ -318,7 +318,9 @@ async def registrar_extracao_ia(
 
     `horario_evidenciado` e o veredito do detector deterministico do TURNO (prepare_context): a
     janela tem fala do cliente que sustenta o horario. Nunca vem do payload — o payload e o canal
-    contaminado pelo eco do belief (ver `_marca_horario_evidenciado`).
+    contaminado pelo eco do belief (ver `_marca_horario_evidenciado`). Aqui ele ainda passa por uma
+    conferencia que so o consumidor pode fazer: hora que a IA RECUSOU nesta fala nao evidencia
+    (`_hora_recusada_pela_ia`, e o comentario do passo 0b).
 
     `recuo_detectado` e o veredito do OUTRO detector do turno (mesma origem, mesmo motivo): o
     cliente retratou o aceite. Rebaixa `aceita_valor` no merge dos sinais (ver
@@ -342,7 +344,15 @@ async def registrar_extracao_ia(
     # Aguardando_confirmacao -> nao sobrescreve (deixaria o bloqueio orfao); escala p/ a modelo.
     # "drift" (diferenca <= tolerancia) NAO e pedido do cliente: a extração re-deriva horario
     # relativo ("daqui 1h") do `agora` de cada turno — descarta horario/data e segue o upsert.
-    veredito_reagendamento = await _reagendamento_pos_bloqueio(conn, aid, payload)
+    # "realoca"/"descarta": o horario reservado era PALPITE (nunca evidenciado por ele) — ver
+    # `_reagendamento_pos_bloqueio`.
+    veredito_reagendamento = await _reagendamento_pos_bloqueio(
+        conn, aid, payload, evidenciado_no_turno=horario_evidenciado
+    )
+    if veredito_reagendamento == "descarta":
+        payload = {
+            k: v for k, v in payload.items() if k not in ("horario_desejado", "data_desejada")
+        }
     if veredito_reagendamento == "mudanca":
         await _escalar_modelo(
             conn,
@@ -366,22 +376,104 @@ async def registrar_extracao_ia(
         # foi ignorado — divergência conversa vs bloqueio fica rastreável no histórico do painel.
         payload["drift_descartado"] = descartado
 
-    # Guarda do piso de desconto (ADR-0004, defesa-em-profundidade sobre o prompt geral): valor
-    # abaixo do piso NAO e gravado e dispara escalada fora_de_oferta para a modelo.
-    if _registra_valor(payload, limpar) and await _abaixo_do_piso(
-        conn, aid, payload, fala_da_ia_no_turno
+    # Numero pequeno demais para SER um preco: nao e o cliente pedindo barato, e a extracao lendo
+    # OUTRA coisa como valor — o caso vivo (12/08, `outro_dia`) foi "seria amanha a noite, umas 21h"
+    # virando `valor_acordado=21`. Sem este corte o numero cai na guarda do piso, que escala
+    # `fora_de_oferta` e PAUSA a IA: o cliente marcando o encontro recebeu "Deixa eu ver certinho e
+    # já te falo" e a conversa morreu ali. Descarte silencioso, como o valor fantasma — nao ha nada
+    # para a modelo decidir num numero que ninguem disse como preco.
+    #
+    # O corte e mais BAIXO que o `PRECO_MINIMO_SCAN` (100) do scanner da fala de proposito: aqui o
+    # falso positivo custa uma escalada legitima a menos, entao a regua fica onde nenhum programa
+    # cabe e toda hora do relogio cabe (0-24). Lowball de verdade ("faz 50?") segue escalando.
+    if _registra_valor(payload, limpar) and Decimal(str(payload["valor_acordado"])) < Decimal(
+        _VALOR_MINIMO_PLAUSIVEL
     ):
-        await _escalar_modelo(
-            conn,
+        logger.warning(
+            "valor_acordado implausivel descartado no atendimento %s: %s (< %s)",
             aid,
-            motivo="fora_de_oferta",
-            resumo="Cliente pediu valor abaixo do piso de desconto (ADR-0004).",
-            acao="Negociar manualmente com o cliente ou recusar.",
+            payload["valor_acordado"],
+            _VALOR_MINIMO_PLAUSIVEL,
         )
-        return {
-            "mensagem": _MSG_GUARD_PISO,
-            "novo_estado": None,
-        }
+        AGENTE_EXTRACAO_VALOR_FANTASMA.inc()
+        payload = {k: v for k, v in payload.items() if k != "valor_acordado"}
+
+    # Guarda do CARDAPIO de duracao — VEREDITO, calculado UMA vez (a leitura do cardapio e uma
+    # query) e aplicado em DOIS pontos. O porque das duas aplicacoes esta no sitio tardio, junto do
+    # bloco; aqui fica a parte que precisa acontecer ANTES do gate do piso.
+    #
+    # A DISJUNCAO que torna isso seguro: as duas guardas que este descarte pode atrapalhar sao
+    # mutuamente exclusivas por construcao. O gate do piso (logo abaixo) so roda com
+    # `_registra_valor(payload, limpar)` **True**; a guarda do par preco x duracao so roda com ele
+    # **False** ("a duracao mudou SEM o valor vir junto" e literalmente a condicao dela). Nunca as
+    # duas no mesmo turno. Entao descartar cedo no ramo COM valor nao pode encobrir a guarda do par
+    # — ela nao teria rodado de qualquer jeito — e e exatamente o ramo em que o silencio importa:
+    # `_abaixo_do_piso` faz `duracao = payload["duracao_horas"] or row[...]`, e uma duracao sem
+    # linha vira `sem_linha` -> `piso is None` -> `abaixo=True`, escalando `fora_de_oferta` sobre um
+    # valor que era exatamente o piso (o `objetor_a` #6).
+    #
+    # Caso de borda, nomeado: o valor pode ser descartado DEPOIS deste ponto (pelo proprio piso ou
+    # pelo valor fantasma), e ai a guarda do par passaria a caber num turno que entrou com valor.
+    # Nao ha perda de sinal — o turno ja volta com o aviso do piso/fantasma, que e corretivo pelo
+    # mesmo motivo que o `ParPrecoDuracaoInvalido` e —, e nada foi persistido.
+    duracao_off_menu = (
+        payload.get("duracao_horas") is not None
+        and "duracao_horas" not in limpar
+        and await _duracao_fora_do_cardapio(conn, aid, payload["duracao_horas"])
+    )
+    if duracao_off_menu and _registra_valor(payload, limpar):
+        payload = _sem_duracao_off_menu(payload, aid)
+
+    # Guarda do piso de desconto (ADR-0004, defesa-em-profundidade sobre o prompt geral): valor
+    # abaixo do piso NUNCA e gravado. O que a INSISTENCIA decide e se ele tambem escala.
+    #
+    # Ate a r3 escalava sempre, ja na RODADA 0 da escada — e a escalada pausa a IA, o `post_process`
+    # zera as AIMessages do turno e a contraproposta que o modelo tinha acabado de escrever morre
+    # sem ser jogada (`negociacao_dura_a` t6: a contraproposta CERTA de 300 perdida sobre um pedido
+    # de 200). O gate pre-emptava exatamente a jogada que ele deveria vir DEPOIS de esgotar: ADR-0031
+    # ("uma terceira insistencia nao gera nova oferta — escala"), o degrau 6 de `regras.md.j2` e o
+    # `<escada_disponivel>` do proprio turno poem a escalada no FIM da sequencia.
+    #
+    # Com a escada intacta o pedido baixo e o PRIMEIRO lance dele, nao insistencia: descarte
+    # silencioso (mesmo tratamento do valor fantasma logo abaixo), a escada segue viva e a IA
+    # responde com a contraproposta que o contexto ja lhe deu. Insistencia = rodada JOGADA, lida do
+    # `n_contrapropostas` (ver `_insistiu_apos_a_escada`).
+    if _registra_valor(payload, limpar):
+        insistiu = await _insistiu_apos_a_escada(conn, aid)
+        if await _abaixo_do_piso(conn, aid, payload, fala_da_ia_no_turno, insistiu=insistiu):
+            if insistiu:
+                await _escalar_modelo(
+                    conn,
+                    aid,
+                    motivo="fora_de_oferta",
+                    resumo="Cliente pediu valor abaixo do piso de desconto (ADR-0004).",
+                    acao="Negociar manualmente com o cliente ou recusar.",
+                )
+                return {
+                    "mensagem": _MSG_GUARD_PISO,
+                    "novo_estado": None,
+                }
+            logger.info(
+                "valor abaixo do piso descartado sem escalar no atendimento %s (escada intacta): %s",
+                aid,
+                payload["valor_acordado"],
+            )
+            # O `aceita_valor` do MESMO payload cai junto, pela simetria com `_sem_valor_fantasma`:
+            # o sinal foi inferido do mesmo evento ("fecho por 250 as 21h"), e o numero acabou de
+            # ser recusado -- ninguem aceitou nada. Deixa-lo vivo alimentava o backstop do pacote
+            # fechado (`_preco_cotado_do_pacote_fechado` le `aceita_valor` do turno), que gravaria
+            # o preco CHEIO da tabela como venda combinada logo depois de a guarda ter recusado o
+            # numero dele. Os outros sinais ficam.
+            payload = {k: v for k, v in payload.items() if k != "valor_acordado"}
+            sinais_sem_aceite = {
+                k: v
+                for k, v in (payload.get("sinais_qualificacao") or {}).items()
+                if k != "aceita_valor"
+            }
+            if sinais_sem_aceite:
+                payload["sinais_qualificacao"] = sinais_sem_aceite
+            else:
+                payload.pop("sinais_qualificacao", None)
 
     # Guarda do VALOR FANTASMA (validacao ao vivo 11/08; o porque inteiro esta em
     # `_valores_ja_ofertados`): valor que a IA nunca ofertou nao e gravado. DEPOIS da guarda do
@@ -397,14 +489,39 @@ async def registrar_extracao_ia(
         )
         if fantasma is not None:
             AGENTE_EXTRACAO_VALOR_FANTASMA.inc()
+            # Excecao do TOTAL anunciado: quando o numero descartado e a soma programa + Pix que a
+            # PROPRIA IA disse ("500 no total"), o "fechou" do cliente e real — so o numero e que
+            # nao pode ser gravado como preco de programa. O aceite fica, o preco de tabela entra
+            # pelo backstop do pacote fechado logo abaixo.
+            total_anunciado = await _total_anunciado_pela_ia(
+                conn, aid, fantasma, fala_da_ia_no_turno
+            )
             logger.warning(
-                "valor_acordado fantasma descartado no atendimento %s: proposto=%s legitimos=%s",
+                "valor_acordado fantasma descartado no atendimento %s: proposto=%s legitimos=%s "
+                "total_anunciado=%s",
                 aid,
                 fantasma,
                 sorted(legitimos),
+                total_anunciado,
             )
-            payload = _sem_valor_fantasma(payload, fantasma, legitimos)
-            aviso_fantasma = " " + _AVISO_VALOR_FANTASMA.format(fantasma=fantasma)
+            payload = _sem_valor_fantasma(
+                payload, fantasma, legitimos, preservar_aceite=total_anunciado
+            )
+            aviso_fantasma = " " + (
+                _AVISO_TOTAL_NAO_E_PRECO if total_anunciado else _AVISO_VALOR_FANTASMA
+            ).format(fantasma=fantasma)
+
+    # Fechamento SEM preco (medido ao vivo 12/08: 6 de 35 conversas): a extracao marca o aceite e
+    # grava a duracao, mas deixa `valor_acordado` NULL — o encontro chega ao painel marcado, com
+    # hora e pacote, e sem ninguem saber quanto custa. O preco nao e inventado aqui: e o da TABELA
+    # para a duracao fechada, e so vale se a IA de fato o COTOU nesta conversa (mesma fonte da
+    # guarda do valor fantasma logo acima). Sem negociacao no meio (`n_contrapropostas == 0`) nao
+    # ha ambiguidade possivel entre o preco cheio e um degrau ofertado — com ela, nao se preenche:
+    # quem decide qual numero ficou de pe e a conversa, nao um default.
+    if not _registra_valor(payload, limpar) and "valor_acordado" not in limpar:
+        preenchido = await _preco_cotado_do_pacote_fechado(conn, aid, payload, fala_da_ia_no_turno)
+        if preenchido is not None:
+            payload = {**payload, "valor_acordado": preenchido}
 
     # Guarda do par preco x duracao (feedback piloto 21/07): a duracao mudou neste turno SEM o
     # valor vir junto -- o `valor_acordado` persistido e de outra duracao, e a guarda acima nao
@@ -418,7 +535,58 @@ async def registrar_extracao_ia(
         and "valor_acordado" not in limpar
         and await _par_persistido_abaixo_do_piso(conn, aid, payload, fala_da_ia_no_turno)
     ):
-        raise ParPrecoDuracaoInvalido
+        # Antes de reverter: o upgrade de pacote em que a IA JA re-cotou na fala do turno ("2h fica
+        # 700") e o par so nao chega junto porque a extracao registra a duracao e esquece o valor.
+        # Medido ao vivo 12/08 (roteiro sobe_o_pacote, 4 de 5): a guarda revertia o turno, a
+        # auto-reoferta batia no mesmo erro e o cliente que estava DOBRANDO o ticket recebia
+        # silencio. O numero nao e escolhido aqui: precisa ser a unica linha da tabela para a
+        # duracao nova E ter saido da boca da IA nesta conversa (mesma fonte do valor fantasma).
+        recotado = await _preco_de_tabela_ja_cotado(conn, aid, payload, fala_da_ia_no_turno)
+        if recotado is None:
+            raise ParPrecoDuracaoInvalido
+        logger.info(
+            "par preco x duracao recotado pela tabela no atendimento %s: duracao=%s valor=%s",
+            aid,
+            payload["duracao_horas"],
+            recotado,
+        )
+        payload = {**payload, "valor_acordado": recotado}
+
+    # Guarda do CARDAPIO de duracao (loop-massa r3, achado 2 da refutacao de extracao): duracao sem
+    # linha na tabela DESTA modelo nao entra no snapshot. O caso vivo foi `objetor_a t2` — o cliente
+    # PERGUNTOU 30 min, a IA RECUSOU, e a extracao gravou `duracao_horas=0.5` mesmo assim. Dai em
+    # diante todo consumidor procura um pacote que nao existe: `_abaixo_do_piso` faz
+    # `duracao = payload["duracao_horas"] or row[...]` -> `_piso_do_pacote` -> `_linhas_da_duracao`
+    # vazio -> `(None, "sem_linha")` -> `abaixo = piso is None or ...` **True por `piso is None`**,
+    # e um 300 que era exatamente o piso vira escalada `fora_de_oferta`. A `contraproposta_da_escada`
+    # cala pelo mesmo motivo, essa em silencio (sem metrica nem tag).
+    #
+    # O defeito NAO e "0.5 e invalido" — meia hora e pacote legitimo (Catarina, `preco_minimo=250`,
+    # pinado em `test_piso_absoluto_da_linha_vence_o_percentual`). E "duracao sem linha na tabela
+    # DESTA modelo". Por isso o descarte le o cardapio dela, e nao uma lista fixa.
+    #
+    # Descarte SILENCIOSO (log, sem escalada): nao ha o que a modelo decidir sobre um pacote que ela
+    # nao vende, e quem recusa a duracao para o cliente e a conduta closed-world do prompt. O valor
+    # do turno segue seu caminho e passa a ser julgado contra a duracao PERSISTIDA, que e a que a
+    # cotacao de verdade usou.
+    #
+    # ORDEM (adjudicada na finalizacao da r3): no ramo SEM valor no payload, este descarte roda
+    # DEPOIS da guarda do par preco x duracao logo acima. Ele nasceu no topo da funcao e engolia a
+    # duracao nova ANTES de o par ser conferido — a IA esticava 1h -> 3h sem re-cotar, o `3` sumia
+    # em silencio e o `ParPrecoDuracaoInvalido` (erro RECUPERAVEL, que faz a IA re-cotar no MESMO
+    # turno) nunca era levantado. O descarte existe para impedir que duracao off-menu FLIPE
+    # cotacao/estado, nao para suprimir correcao: silenciar a duracao antes da guarda deixava a IA
+    # seguir com pauta velha sem saber que o cliente mudou de pacote — a familia de "duracao e a
+    # chave da escada". Com a guarda primeiro, par invalido levanta o erro recuperavel e NADA
+    # persiste (o objetivo do descarte e atingido por outra via); passando a guarda, o off-menu cai
+    # aqui como sempre.
+    #
+    # No ramo COM valor o descarte ja aconteceu la em cima, antes do gate do piso — ver o veredito
+    # `duracao_off_menu` e a DISJUNCAO documentada la. Este `if` e o segundo ponto de aplicacao do
+    # MESMO veredito, nao uma segunda leitura do cardapio: `"duracao_horas" in payload` e o que
+    # impede o descarte de rodar duas vezes.
+    if duracao_off_menu and "duracao_horas" in payload:
+        payload = _sem_duracao_off_menu(payload, aid)
 
     # Guarda do tipo de atendimento (CONTEXT.md "Atendimento interno vs externo",
     # defesa-em-profundidade sobre o prompt do BP3): tipo que a modelo nao aceita NAO e gravado
@@ -485,6 +653,28 @@ async def registrar_extracao_ia(
             if tipo_ef in ("interno", "remoto"):
                 payload["horario_desejado"] = horario_minimo.astimezone(_FUSO_BR).time()
 
+    # 0b. Hora RECUSADA nao evidencia (loop-massa r3, eixo retomada_pos_silencio t6). O detector de
+    #     janela prova que a hora saiu da BOCA DELE — e so isso. No t6 o cliente pediu 9h, a IA
+    #     respondeu "Poxa amor, 9h nao consigo / Pode ser as 10h ?" e o sistema carimbou evidencia,
+    #     promoveu o atendimento, reservou o slot as 09:00 e abriu o gate estrutural do numero do
+    #     endereco (ADR-0026) um turno cedo. O sinal media "ele pronunciou uma hora", nao "existe
+    #     horario combinado".
+    #
+    #     Mora AQUI, no consumidor, e nao na DESC do produtor: a DESC do `horario_desejado` manda
+    #     anotar a hora COMO ELA FOI DITA ("aqui voce anota o que foi dito, nao julga") e isso e
+    #     desenho — o VALOR continua gravado, e o snapshot segue dizendo o que o cliente pediu. O
+    #     que cai e so a MARCA, que e o que a tabela de pre-condicoes consulta para nao reservar
+    #     palpite. Tambem nao cabe no detector de janela (`_horario_evidenciado_no_turno`): a
+    #     recusa nasce na fala DELA, que so existe DEPOIS de o detector ter rodado.
+    #
+    #     Escopo deliberado: `_reagendamento_pos_bloqueio` (acima) segue com o veredito CRU do
+    #     turno. Rebaixa-lo la trocaria "realoca" por "mudanca" na remarcacao segura (decisao do
+    #     operador, 12/08) — escalada e IA pausada no turno do fechamento, o modo de falha que
+    #     matou 5 de 5 conversas do roteiro `remarcou`. Quem recusa hora fora da agenda dela na
+    #     realocacao continua sendo `realocar_bloqueio_previo` (ForaDisponibilidade, recuperavel).
+    if horario_evidenciado and _hora_recusada_pela_ia(payload, fala_da_ia_no_turno):
+        horario_evidenciado = False
+
     # 1. UPSERT por COALESCE: so campos nao-nulos sobrescrevem; `limpar` forca NULL e tem
     #    PRECEDENCIA sobre o payload (cliente recuou). `sinais_qualificacao` faz merge jsonb.
     sets, valores = _montar_upsert(payload, limpar, recuo_detectado=recuo_detectado)
@@ -504,13 +694,54 @@ async def registrar_extracao_ia(
     # 1b. Promocao da intencao por EVIDENCIA, ANTES da FSM ler a linha.
     await _promover_intencao_por_evidencia(conn, aid, limpar)
 
+    # 1c. Realocacao da reserva feita sobre PALPITE (ver `_reagendamento_pos_bloqueio`): o estado ja
+    #     e Aguardando_confirmacao, entao a FSM abaixo nao tem hop nenhum e nao criaria o bloqueio —
+    #     a reserva precisa ser movida aqui, com o snapshot ja gravado (a hora dele).
+    if veredito_reagendamento == "realoca":
+        from barra.dominio.agenda.service import realocar_bloqueio_previo
+
+        await realocar_bloqueio_previo(
+            conn, atendimento=await _refetch_para_bloqueio(conn, aid), agora=agora
+        )
+
+    # 1d. Remarcacao ABERTA (ver `_reagendamento_pos_bloqueio`): ele desmarcou sem dizer quando
+    #     remarca, o `limpar` acabou de zerar horario/data no snapshot e a reserva ficaria ORFA —
+    #     um encontro que ninguem tem travando a agenda da modelo. Solta a reserva aqui, com o
+    #     snapshot ja vazio, e REGRIDE o estado: `Aguardando_confirmacao` significa horario
+    #     combinado, e nao ha mais nenhum. A regressao nao e cosmetica — e o que reabre o hop da
+    #     FSM: sem ela o atendimento fica num estado sem transicao automatica e a hora que ele
+    #     cravar no proximo turno seria gravada SEM reserva nova (encontro marcado, slot livre pra
+    #     outra conversa). De `Qualificado` o caminho de sempre reserva de novo.
+    #
+    #     Regressao de estado e excecao no projeto (a FSM da extracao so avanca e o painel proibe
+    #     regredir por `validar_transicao_painel`): ela vale aqui porque a pre-condicao que
+    #     PROMOVEU o atendimento — a hora combinada — acabou de ser desfeita pelo proprio cliente.
+    #     O evento fica no audit log com o motivo.
+    libera_reserva = veredito_reagendamento == "libera"
+    if libera_reserva:
+        from barra.dominio.agenda.service import liberar_bloqueio_previo
+
+        await liberar_bloqueio_previo(conn, atendimento_id=aid)
+        await conn.execute(
+            "UPDATE barravips.atendimentos SET estado = 'Qualificado', "
+            "fonte_decisao_ultima_transicao = 'extracao_ia' "
+            "WHERE id = %s AND estado = 'Aguardando_confirmacao'",
+            (aid,),
+        )
+        await _registrar_evento(
+            conn, aid, "transicao_estado", {"para": "Qualificado", "motivo": "remarcacao_aberta"}
+        )
+
     # 2. Transicao de estado (02 §11) + side-effects deterministicos. MULTI-HOP: itera ate o
     #    ponto-fixo, aplicando cada hop + seu side-effect. Quando intencao+tipo+horario chegam no
     #    mesmo turno, Triagem->Qualificado->Aguardando_confirmacao ocorrem juntos e o bloqueio
     #    previo nasce no proprio turno do horario (sem a janela de um turno do single-hop). Termina
     #    sempre: cada hop avanca o estado e Aguardando_confirmacao+ nao tem transicao automatica.
     resultado_extra: dict[str, Any] = {}
-    novo_estado: str | None = None
+    # A soltura da reserva JA e uma transicao com efeito irreversivel neste turno: publica-la em
+    # `novo_estado` e o que marca o turno como CRITICO no coordenador (`_SQL_TURNO_CRITICO`) — um
+    # turno que liberou slot nao pode ser cancelado nem perdido. Um hop abaixo sobrescreve.
+    novo_estado: str | None = "Qualificado" if libera_reserva else None
     while True:
         hop = await _decidir_transicao(conn, aid)
         if hop is None:
@@ -543,6 +774,23 @@ async def registrar_extracao_ia(
                 if atendimento["tipo_atendimento"] == "interno":
                     resultado_extra["enviar_pin"] = True
 
+    # 2a-bis. Fechamento sem preco, SEGUNDO tempo: quando a promocao para Aguardando_confirmacao
+    #     acontece NESTE turno, o backstop do bloco 1 rodou cedo demais — o estado ainda era
+    #     Triagem e o extrator nao marcou `aceita_valor` no turno do "isso, fechado" (medido ao
+    #     vivo 12/08, roteiro outro_dia). Reavaliar depois do hop e a unica chance: o proximo
+    #     turno ja nao registra nada e o encontro fica marcado sem preco no painel. Mesmo criterio
+    #     de sempre (tabela com UMA linha para a duracao fechada, preco cotado pela IA, sem
+    #     contraproposta no meio) — o UPDATE tem guard IS NULL, entao nunca sobrescreve numero
+    #     combinado.
+    if novo_estado == "Aguardando_confirmacao":
+        preenchido = await _preco_cotado_do_pacote_fechado(conn, aid, payload, fala_da_ia_no_turno)
+        if preenchido is not None:
+            await conn.execute(
+                "UPDATE barravips.atendimentos SET valor_acordado = %s "
+                "WHERE id = %s AND valor_acordado IS NULL",
+                (preenchido, aid),
+            )
+
     # 2b. Pix de deslocamento deterministico (externo-Uber): bloco independente da transicao
     #     deste turno — cobre tambem a promocao ja ocorrida em turno anterior (ver docstring).
     await _solicitar_pix_deslocamento_se_aplicavel(conn, aid, resultado_extra, agora=agora)
@@ -562,9 +810,21 @@ async def registrar_extracao_ia(
     if payload.get("cotacao_apresentada"):
         await marcar_cotacao_enviada(conn, aid)
 
+    # A soltura da reserva viaja no retorno da tool: o ToolMessage fica no historico do grafo e e o
+    # que a IA le no turno seguinte, quando ele volta com o dia novo. NAO entra em
+    # `MENSAGENS_GUARD_ESCALADA` de proposito — isto e o oposto de uma escalada (nada pausa, nada
+    # vira card); a frase diz o ESTADO ("nao esta mais marcado") e a intencao, nunca a fala.
+    # `novo_estado` na condicao: se ele desmarcou E ja cravou o dia novo no MESMO turno, a FSM
+    # abaixo ja reservou de volta (o hop sobrescreveu "Qualificado") — dizer "nao esta mais
+    # marcado" ali seria falso.
+    aviso_reserva = (
+        " Reserva liberada: o encontro nao esta mais marcado — combine o dia novo com ele."
+        if libera_reserva and novo_estado == "Qualificado"
+        else ""
+    )
     await _registrar_evento(conn, aid, "extracao_registrada", payload)
     return {
-        "mensagem": "Extracao registrada." + aviso_fantasma,
+        "mensagem": "Extracao registrada." + aviso_reserva + aviso_fantasma,
         "novo_estado": novo_estado,
         **resultado_extra,
     }
@@ -671,6 +931,54 @@ def _marca_horario_evidenciado(
             "THEN false ELSE horario_evidenciado END"
         )
         valores.append(payload["horario_desejado"])
+
+
+async def retirar_horario_palpite(
+    conn: AsyncConnection[Any], atendimento_id: UUID | str, *, motivo: str
+) -> bool:
+    """A agenda RECUSOU o horario gravado e ele era PALPITE do sistema: apaga-o do snapshot.
+
+    Nasceu do P0 da prova r3 (`diagnostico_externo_a.md` Q3): o fallback de tempo imediato gravou
+    `horario_desejado=21:00` (palpite ancorado no `<horario_minimo>`), o cliente flipou o tipo para
+    externo, o piso subiu e a reserva passou a devolver `AntecedenciaInsuficiente`. O texto do erro
+    manda a IA NAO registrar a hora que vai ofertar — e obedecer e exatamente o que preserva o
+    veneno, porque o UPSERT e incremental por `COALESCE`: campo omitido mantem o valor velho. Seis
+    turnos re-tentaram a mesma reserva invalida. Um palpite do sistema que se torna invalido tem de
+    MORRER, nao travar a conversa.
+
+    Tres condicoes, todas necessarias:
+      - `horario_evidenciado IS NOT TRUE` — so palpite morre. Hora que saiu da BOCA do cliente
+        continua gravada (o snapshot tem de dizer o que ele pediu; quem a recusa e a conduta da
+        fala, nao um apagamento silencioso);
+      - `bloqueio_id IS NULL` — apagar a hora de um atendimento com reserva de pe deixaria o
+        bloqueio ORFAO (o mesmo medo que `liberar_bloqueio_previo` resolve na remarcacao aberta);
+      - `horario_desejado IS NOT NULL` — senao nao ha o que retirar (no-op idempotente).
+
+    NAO abre transacao: quem chama decide o escopo. No caminho real (a tool de extracao) ela roda
+    DEPOIS do rollback da tentativa, numa transacao propria — senao o proprio rollback que o erro
+    provoca desfaria a retirada. Devolve True quando de fato apagou.
+    """
+    aid = UUID(str(atendimento_id))
+    res = await conn.execute(
+        """
+        UPDATE barravips.atendimentos
+           SET horario_desejado = NULL,
+               horario_evidenciado = false,
+               fonte_decisao_ultima_transicao = 'extracao_ia'
+         WHERE id = %s
+           AND horario_desejado IS NOT NULL
+           AND horario_evidenciado IS NOT TRUE
+           AND bloqueio_id IS NULL
+        RETURNING id
+        """,
+        (aid,),
+    )
+    if await res.fetchone() is None:
+        return False
+    await _registrar_evento(
+        conn, aid, "correcao_registro", {"campo": "horario_desejado", "motivo": motivo}
+    )
+    return True
 
 
 async def _promover_intencao_por_evidencia(
@@ -800,6 +1108,19 @@ _PRECONDICOES_TRANSICAO: dict[str, tuple[str, list[tuple[Callable[..., bool], st
         [
             (lambda *, horario_desejado, **_: horario_desejado is not None, "que horas ele quer"),
             (
+                # Freio da spec extracao-proveniencia-horario (US2: "slot só reservado a partir de
+                # horário evidenciado"): horário presente mas NÃO evidenciado é palpite do sistema
+                # (a hora que a IA ofertou, o fallback de imediatismo, o eco do belief) — não
+                # promove nem reserva. O extrator escrevendo `intencao=agendamento` direto
+                # contornava a promoção-por-evidência e o palpite virava reserva + Pix
+                # (loop-massa r1, eixo objetor). Ausente o horário, o predicado é neutro (True):
+                # o que falta é a hora em si, cobrada pelo predicado acima.
+                lambda *, horario_desejado, horario_evidenciado, **_: (
+                    horario_desejado is None or bool(horario_evidenciado)
+                ),
+                "ele confirmar o horário que ficou na mesa",
+            ),
+            (
                 lambda *, tipo_atendimento, **_: tipo_atendimento is not None,
                 "o tipo do encontro (padrão: ele vem no seu local; só uber/vídeo se ELE sinalizar — não pergunte o formato)",
             ),
@@ -860,11 +1181,15 @@ def _avaliar_precondicoes(
     intencao: str | None,
     tipo_atendimento: str | None,
     horario_desejado: Any,
+    horario_evidenciado: bool,
 ) -> tuple[str | None, list[str]]:
     """Avalia as pre-condicoes do estado UMA vez: devolve (transicao-alvo ou None, rotulos
     faltantes). Avaliacao unica consumida por `_proxima_transicao` (a FSM) e `derivar_belief_state`
     (o belief) — a transicao dispara exatamente quando nao falta nada, entao a consistencia entre
-    FSM e belief e estrutural, nao so testada."""
+    FSM e belief e estrutural, nao so testada.
+
+    `horario_evidenciado` e kw-only SEM default de proposito: um caller esquecido falha alto em
+    vez de reabrir em silencio o caminho do horario-palpite virando reserva (spec proveniencia)."""
     entrada = _PRECONDICOES_TRANSICAO.get(estado or "")
     if entrada is None:
         return None, []
@@ -873,6 +1198,7 @@ def _avaliar_precondicoes(
         "intencao": intencao,
         "tipo_atendimento": tipo_atendimento,
         "horario_desejado": horario_desejado,
+        "horario_evidenciado": horario_evidenciado,
     }
     faltantes = [rotulo for pred, rotulo in predicados if not pred(**valores)]
     return (alvo if not faltantes else None), faltantes
@@ -884,6 +1210,7 @@ def _proxima_transicao(
     intencao: str | None,
     tipo_atendimento: str | None,
     horario_desejado: Any,
+    horario_evidenciado: bool,
 ) -> str | None:
     """Proximo estado da FSM da extracao, ou None. Substitui os if/elif inline com comportamento
     identico ao historico; fonte unica via `_avaliar_precondicoes`."""
@@ -892,6 +1219,7 @@ def _proxima_transicao(
         intencao=intencao,
         tipo_atendimento=tipo_atendimento,
         horario_desejado=horario_desejado,
+        horario_evidenciado=horario_evidenciado,
     )
     return alvo
 
@@ -902,6 +1230,7 @@ def derivar_belief_state(
     intencao: str | None,
     tipo_atendimento: str | None,
     horario_desejado: Any,
+    horario_evidenciado: bool,
     cotacao_enviada: bool = True,
 ) -> BeliefState:
     """Belief-state do turno: o que falta pra avancar + a frase-guia, das MESMAS pre-condicoes da
@@ -920,6 +1249,7 @@ def derivar_belief_state(
         intencao=intencao,
         tipo_atendimento=tipo_atendimento,
         horario_desejado=horario_desejado,
+        horario_evidenciado=horario_evidenciado,
     )
     if estado in ("Triagem", "Qualificado") and not cotacao_enviada:
         faltantes = ["dizer o preço do programa", *faltantes]
@@ -938,7 +1268,7 @@ async def _decidir_transicao(conn: AsyncConnection[Any], atendimento_id: UUID) -
     do bloco deterministico de Pix, nao aqui."""
     res = await conn.execute(
         "SELECT estado::text AS estado, intencao::text AS intencao, "
-        "tipo_atendimento::text AS tipo_atendimento, horario_desejado "
+        "tipo_atendimento::text AS tipo_atendimento, horario_desejado, horario_evidenciado "
         "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
@@ -949,6 +1279,7 @@ async def _decidir_transicao(conn: AsyncConnection[Any], atendimento_id: UUID) -
         intencao=a["intencao"],
         tipo_atendimento=a["tipo_atendimento"],
         horario_desejado=a["horario_desejado"],
+        horario_evidenciado=bool(a["horario_evidenciado"]),
     )
 
 
@@ -983,25 +1314,73 @@ _TOLERANCIA_DRIFT_HORARIO = timedelta(minutes=15)
 
 
 async def _reagendamento_pos_bloqueio(
-    conn: AsyncConnection[Any], atendimento_id: UUID, payload: dict[str, Any]
-) -> Literal["mudanca", "drift"] | None:
+    conn: AsyncConnection[Any],
+    atendimento_id: UUID,
+    payload: dict[str, Any],
+    *,
+    evidenciado_no_turno: bool = False,
+) -> Literal["mudanca", "drift", "realoca", "descarta", "libera"] | None:
     """Classifica a tentativa de mudar horario/data de um atendimento que ja esta em
     Aguardando_confirmacao COM bloqueio previo (branch 12). None = payload nao mexe em
     horario/data (ou nao ha bloqueio); "drift" = diferenca dentro da tolerancia (re-derivacao
     do horario relativo a partir do `agora` do turno, nao e pedido do cliente — descartar);
-    "mudanca" = reagendamento real -> escalar."""
+    "mudanca" = reagendamento real -> escalar.
+
+    PROVENIENCIA (12/08, medido ao vivo): reagendamento pressupoe que havia um horario COMBINADO, e
+    o que estava reservado nem sempre foi combinado com ninguem. Duas fontes enchem o
+    `horario_desejado` sem o cliente dizer hora: o fallback de tempo imediato (grava `horario_minimo`
+    quando `urgencia=imediato` chega sem hora) e a hora que a PROPRIA IA ofereceu e ele nao
+    respondeu. Nesses casos a marca `horario_evidenciado` fica false — e a primeira hora que ele
+    crava ("pode ser 21h hoje") caia aqui como "mudanca": escalada, IA pausada e a venda morrendo
+    em "Só um minutinho amor, já te falo" no turno do fechamento (3 de 5 conversas do roteiro de
+    escada, 12/08). Com o palpite reservado, entao:
+
+        ele evidenciou a hora nova E a modelo ainda nao foi acionada -> "realoca" (a reserva vai
+            para a hora DELE, sem escalar; acionada, vira "mudanca" — remarcacao segura vale
+            igual para o palpite);
+        so a DATA mudou, sem hora evidenciada -> "realoca" tambem, pelo mesmo criterio (data nao
+            tem marca de proveniencia; "melhor amanha" e fala DELE, entao a reserva-palpite
+            acompanha o dia dele — descarta-la a deixaria no dia velho, e escalar pausava a IA);
+        ninguem evidenciou nada -> "descarta" (a IA trocando o proprio palpite de turno em turno
+            nao move a agenda — e nao acorda a modelo por ruido dela).
+
+    REMARCACAO SEGURA (decisao do operador, 12/08): mesmo com a hora antiga COMBINADA por ele,
+    ele mudar de ideia enquanto a modelo ainda nao foi acionada e' ajuste de agenda, nao evento que
+    mereca acordar ninguem — escalar ali matava 5 de 5 conversas do roteiro `remarcou` ("Só um
+    minutinho amor, já te falo") e a hora nova nem era gravada. Realoca quando os TRES valem: a
+    hora nova saiu da boca DELE neste turno, o encontro ainda nao foi acionado (sem aviso de saida,
+    sem Pix em andamento/validado) e o atendimento nao passou de `Aguardando_confirmacao` (a partir
+    de `Confirmado` a modelo ja disse sim; dai muda so com ela). Cabimento na agenda nao e checado
+    aqui: quem recusa e' `criar_bloqueio_previo`, com ConflitoAgenda/ForaDisponibilidade — erros
+    recuperaveis que fazem a IA reofertar em vez de escalar.
+
+    Palpite so existe ANTES do primeiro sim; depois que ele confirma, `horario_evidenciado` fica
+    true — e ai vale a remarcacao segura acima, ou a escalada quando ela nao se aplica.
+
+    REMARCACAO ABERTA ("libera", prova r3 do loop de massa): ele desmarca SEM dizer quando remarca
+    ("hoje nao consigo mais linda, marco outro dia"), e o horario sai do snapshot pelo `limpar`.
+    Ate a r3 isso curto-circuitava em "mudanca" pelo medo — legitimo — de zerar o snapshot deixando
+    o bloqueio ORFAO travando a agenda. Mas escalar tambem nao remarca nada: pausa a IA, e no turno
+    seguinte o cliente volta com o dia novo ("me marca amanha 21h") e fala no vazio (eixo
+    `remarcacao`, t6->t7). O medo se resolve soltando a reserva JUNTO com o snapshot, nao acordando
+    a modelo: "libera" cancela o bloqueio explicitamente (`liberar_bloqueio_previo`) e devolve o
+    atendimento a `Qualificado`, de onde a FSM reserva de novo quando ele cravar o dia. Mesmo
+    criterio de sempre — com a modelo JA acionada (aviso de saida, Pix andando) a hora do card ja
+    organizou o lado dela e o recuo continua sendo evento dela: "mudanca"."""
     novo_horario = payload.get("horario_desejado")
     nova_data = payload.get("data_desejada")
     # `limpar` (recuo do cliente: "nao sei o dia ainda") tambem desfaz o horario combinado — sem
     # isto o snapshot zerava e o bloqueio previo ficava orfao travando a agenda, exatamente o que
-    # a branch 12 existe pra impedir. Nao ha valor novo p/ medir drift: e sempre "mudanca".
+    # a branch 12 existe pra impedir. Nao ha valor novo p/ medir drift: cai direto no veredito
+    # da remarcacao ABERTA (ver docstring), sem passar pelos ramos de comparacao.
     limpando_horario = bool(
         {"horario_desejado", "data_desejada"} & set(payload.get("limpar") or [])
     )
     if novo_horario is None and nova_data is None and not limpando_horario:
         return None
     res = await conn.execute(
-        "SELECT estado::text AS estado, bloqueio_id, horario_desejado, data_desejada "
+        "SELECT estado::text AS estado, bloqueio_id, horario_desejado, data_desejada, "
+        "horario_evidenciado, aviso_saida_em, pix_status::text AS pix_status "
         "FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
     )
@@ -1009,12 +1388,65 @@ async def _reagendamento_pos_bloqueio(
     if a is None or a["estado"] != "Aguardando_confirmacao" or a["bloqueio_id"] is None:
         return None
     if limpando_horario:
-        return "mudanca"
+        return "libera" if _modelo_ainda_nao_acionada(a) else "mudanca"
     if not (_difere(a["horario_desejado"], novo_horario) or _difere(a["data_desejada"], nova_data)):
         return None
     if _dentro_da_tolerancia(a["data_desejada"], a["horario_desejado"], nova_data, novo_horario):
         return "drift"
+    if not a["horario_evidenciado"]:
+        # Reserva-PALPITE. So a hora que ELE cravou neste turno move a reserva — e mesmo assim
+        # apenas enquanto a modelo nao foi acionada: com aviso de saida ou Pix andando, a hora do
+        # card ja pode ter organizado o lado dela, e mover em silencio dessincroniza os dois.
+        if evidenciado_no_turno:
+            return "realoca" if _modelo_ainda_nao_acionada(a) else "mudanca"
+        # Data nova sem hora evidenciada NAO e ruido da IA por padrao: "melhor amanha" sai da boca
+        # do cliente e data nao tem marca de proveniencia — descarta-la deixaria a reserva no dia
+        # velho com ele certo de que remarcou. Mas escalar (o comportamento pre-palpite) matava a
+        # conversa no fechamento: no eixo `explorador_ambiguo_a` da prova r3 a hora reservada era
+        # palpite da IA (21:30 proposto 2x, nunca aceito), ele pediu "amanha da?" e levou
+        # "Horario ja reservado: mudanca escalada para a modelo" + pausa. Mover uma reserva que
+        # NINGUEM combinou para o dia que ele pediu e ajuste de agenda — o mesmo criterio do ramo
+        # de cima decide: modelo ainda nao acionada realoca, acionada escala.
+        if _difere(a["data_desejada"], nova_data):
+            return "realoca" if _modelo_ainda_nao_acionada(a) else "mudanca"
+        return "descarta"
+    if evidenciado_no_turno and _modelo_ainda_nao_acionada(a):
+        return "realoca"
     return "mudanca"
+
+
+# Pix em andamento OU resolvido: qualquer um deles significa que o encontro saiu do papel — a
+# modelo (ou o Fernando) ja mexeu nele. `nao_solicitado` e `invalido` nao acionaram ninguem.
+_PIX_ACIONADO = frozenset({"aguardando", "enviado", "em_revisao", "validado"})
+
+
+def _modelo_ainda_nao_acionada(atendimento: dict[str, Any]) -> bool:
+    """A remarcacao pode ser resolvida pela IA sozinha? (parte da REMARCACAO SEGURA acima)"""
+    return (
+        atendimento["aviso_saida_em"] is None
+        and atendimento["pix_status"] not in _PIX_ACIONADO
+        and atendimento["estado"] == "Aguardando_confirmacao"
+    )
+
+
+def tipo_atendimento_congelado(*, bloqueio_id: Any, estado: str | None) -> bool:
+    """O `tipo_atendimento` ja esta COMBINADO e nao muda mais por pedido do cliente?
+
+    Reserva previa criada OU `Aguardando_confirmacao` sem ela: o estado ja significa horario
+    combinado (o bloqueio e o efeito, nao a definicao). Dai em diante `_flip_de_tipo_pos_crava`
+    (abaixo) DESCARTA o tipo novo do payload.
+
+    Publico porque o `prepare_context` consulta o MESMO predicado para decidir se o
+    `<horario_minimo>` do prompt pode usar o piso de antecedencia do tipo gravado ou tem de usar o
+    conservador (prova r3, `diagnostico_externo_a.md` Q2: o tipo flipou DENTRO do turno e a reserva
+    recusou a hora que o proprio prompt tinha liberado). Duas definicoes de "tipo congelado" em
+    dois arquivos e como a regua de antecedencia estava — divergem por construcao.
+
+    Recebe os DOIS campos soltos (e nao o row): o chamador tem de escrever
+    `atendimento.get("bloqueio_id")` na cara, senao o `test_contrato_select_atendimento` nao ve a
+    leitura e a coluna pode sumir do SELECT em silencio (a armadilha que aquele teste fecha).
+    """
+    return bloqueio_id is not None or estado == "Aguardando_confirmacao"
 
 
 async def _flip_de_tipo_pos_crava(
@@ -1048,7 +1480,7 @@ async def _flip_de_tipo_pos_crava(
     a = await res.fetchone()
     if a is None or a["tipo_atendimento"] is None:
         return None
-    if a["bloqueio_id"] is None and a["estado"] != "Aguardando_confirmacao":
+    if not tipo_atendimento_congelado(bloqueio_id=a["bloqueio_id"], estado=a["estado"]):
         return None
     tipo_atual: str = a["tipo_atendimento"]
     return tipo_atual if novo_tipo != tipo_atual else None
@@ -1090,11 +1522,83 @@ def _registra_valor(payload: dict[str, Any], limpar: set[str]) -> bool:
     return payload.get("valor_acordado") is not None and "valor_acordado" not in limpar
 
 
+def _sem_duracao_off_menu(payload: dict[str, Any], atendimento_id: UUID) -> dict[str, Any]:
+    """Payload sem a `duracao_horas` que a modelo nao vende, com o log do descarte.
+
+    Existe porque o descarte tem DOIS pontos de aplicacao em `registrar_extracao_ia` (antes do gate
+    do piso, no ramo COM valor; depois da guarda do par, no ramo sem) e o veredito e um so. Duas
+    copias do strip + log divergiriam no dia em que uma delas ganhasse metrica ou auditoria."""
+    logger.warning(
+        "duracao fora do cardapio descartada no atendimento %s: %s",
+        atendimento_id,
+        payload["duracao_horas"],
+    )
+    return {k: v for k, v in payload.items() if k != "duracao_horas"}
+
+
+async def _duracao_fora_do_cardapio(
+    conn: AsyncConnection[Any], atendimento_id: UUID, duracao_horas: Any
+) -> bool:
+    """A duracao nao tem NENHUMA linha na tabela desta modelo — e a modelo TEM tabela.
+
+    Le o cardapio pela `_linhas_da_duracao` (site unico), com `apenas_presenciais=False`: a
+    pergunta aqui e "esta duracao existe pra ela?", e a vídeo chamada conta como linha que existe.
+
+    O segundo teste e o que evita transformar CADASTRO INCOMPLETO em bloqueio: sem nenhuma linha
+    cadastrada nao ha menu contra o que julgar, e descartar ali travaria toda modelo em cadastro
+    pela metade — mesmo principio do "array vazio nao trava" da guarda de tipo."""
+    if duracao_horas is None:
+        return False
+    res = await conn.execute(
+        "SELECT modelo_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    row = await res.fetchone()
+    if row is None:
+        return False
+    if await _linhas_da_duracao(conn, row["modelo_id"], duracao_horas, apenas_presenciais=False):
+        return False
+    res = await conn.execute(
+        "SELECT 1 FROM barravips.modelo_programas WHERE modelo_id = %s LIMIT 1",
+        (row["modelo_id"],),
+    )
+    return await res.fetchone() is not None
+
+
+async def _insistiu_apos_a_escada(conn: AsyncConnection[Any], atendimento_id: UUID) -> bool:
+    """O cliente esta INSISTINDO — a IA ja JOGOU ao menos uma rodada da escada nesta conversa?
+
+    A distincao que faltava ao gate do piso (loop-massa r3, achado 2c). O comentario que justifica
+    a ordem piso-antes-de-fantasma invoca "o cliente insistindo num numero baixo merece a modelo
+    decidir" — mas nada checava a insistencia, e a escalada disparava na RODADA 0. Em
+    `negociacao_dura_a` t6 o modelo tinha gerado a contraproposta CERTA (300, amarrada a hoje) e a
+    guarda escalou sobre o pedido de 200: o `post_process` zerou a fala e a unica rodada da escada
+    morreu antes de ser jogada.
+
+    Todos os documentos vigentes poem a escalada no FIM da sequencia, nao no comeco: ADR-0031 ("uma
+    terceira insistencia nao gera nova oferta — escala"), o degrau 6 de `regras.md.j2` ("depois da
+    sua ultima contraproposta … se mesmo com o cartao ele insistir") e o proprio
+    `<escada_disponivel>` do turno ("na insistencia, escalada com fora_de_oferta").
+
+    `n_contrapropostas` e o contador certo porque conta rodada **JOGADA**: so
+    `workers/envio.py:1203` o incrementa, e so quando a bolha de fato entrou em `mensagens` —
+    rodada zerada pelo `post_process`, dropada pelo `output_guard`, barrada pelo guard de saida ou
+    perdida num replay que caiu no `ON CONFLICT` NAO andam com ele. Rodada rascunhada nao e
+    insistencia de ninguem."""
+    res = await conn.execute(
+        "SELECT n_contrapropostas FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    return row is not None and int(row["n_contrapropostas"] or 0) >= 1
+
+
 async def _abaixo_do_piso(
     conn: AsyncConnection[Any],
     atendimento_id: UUID,
     payload: dict[str, Any],
     fala_da_ia_no_turno: str | None = None,
+    *,
+    insistiu: bool = True,
 ) -> bool:
     """True quando o `valor_acordado` do payload fura o piso do PACOTE em jogo (=> escala
     `fora_de_oferta`). O piso sai de `_piso_do_pacote` (par programa x duracao); sem piso
@@ -1104,10 +1608,16 @@ async def _abaixo_do_piso(
     porque a deducao do pacote le os precos COTADOS: o `valor_acordado` e gravado JA NA COTACAO,
     entao no caso mais comum a unica cotacao existente e a deste turno.
 
+    `insistiu` NAO muda o veredito -- a pergunta desta funcao e so sobre o NUMERO. Ele entra para o
+    ROTULO da metrica: quem escala e o chamador, e com a escada intacta o valor abaixo do piso vira
+    descarte silencioso, nao escalada (`_insistiu_apos_a_escada`). Default `True` de proposito: quem
+    chama sem dizer nada esta perguntando so pelo numero e recebe o rotulo historico.
+
     Contabiliza SEMPRE em `AGENTE_PISO_PACOTE`: era justamente esta guarda que decidia em silencio
     (o furo do piso por duracao nao deixava escalada, log nem metrica), entao a origem do piso e o
     veredito viram serie -- e `origem="duracao_ambigua"` e o alarme de cadastro que o painel
-    precisa preencher."""
+    precisa preencher. Tres valores em `resultado` desde a r3: `aceito` (passou do piso),
+    `escalado` (furou COM insistencia) e `descartado` (furou na rodada 0 da escada)."""
     valor = Decimal(str(payload["valor_acordado"]))
     res = await conn.execute(
         "SELECT modelo_id, duracao_horas, conversa_id FROM barravips.atendimentos WHERE id = %s",
@@ -1134,7 +1644,11 @@ async def _abaixo_do_piso(
     )
     abaixo = piso is None or valor < piso
     # Labels POSICIONAIS: o fallback sem `prometheus_client` (core/metrics) so aceita *args.
-    AGENTE_PISO_PACOTE.labels(origem, "escalado" if abaixo else "aceito").inc()
+    if not abaixo:
+        resultado = "aceito"
+    else:
+        resultado = "escalado" if insistiu else "descartado"
+    AGENTE_PISO_PACOTE.labels(origem, resultado).inc()
     if abaixo and origem == "duracao_ambigua":
         logger.warning(
             "piso ambiguo no atendimento %s: valor=%s piso mais alto da duracao %s=%s "
@@ -1283,6 +1797,64 @@ async def _programa_vendido(conn: AsyncConnection[Any], atendimento_id: UUID) ->
     return linhas[0]["programa_id"] if len(linhas) == 1 else None
 
 
+def _e_remoto(payload: dict[str, Any], tipo_persistido: str | None) -> bool:
+    """O atendimento em jogo e REMOTO (vídeo chamada, ADR-0021)? Le o tipo deste TURNO primeiro --
+    o pivo para remoto costuma chegar no mesmo payload que fecha o pacote.
+
+    Existe por causa dos dois backstops de preco (`_preco_cotado_do_pacote_fechado` e
+    `_preco_de_tabela_ja_cotado`): os dois resolvem a linha pela `_linhas_de_tabela`, que e
+    `apenas_presenciais=True` FIXO e por desenho (a docstring de la diz "quem julga uma venda ja
+    feita nao passa por aqui"). Num cadastro com Normal 1h 400 e vídeo chamada 1h 150, a leitura
+    presencial devolve UMA linha -- a de 400 -- e o backstop gravaria 400 numa chamada de 150; dai
+    o `_solicitar_pix_deslocamento_se_aplicavel` cobra o Pix ANTECIPADO da chamada por 400.
+
+    Fail-closed, nao troca de fonte: no remoto o backstop simplesmente nao preenche. Com
+    `valor_acordado` NULL o pedido de Pix ja se segura sozinho (o proprio
+    `_solicitar_pix_deslocamento_se_aplicavel` volta sem cobrar), e quem grava o valor certo e a
+    extracao do turno seguinte. Trocar para `apenas_presenciais=False` seria o contrario: faria a
+    duracao com presencial + chamada virar ambigua para TODO mundo, apagando o backstop tambem no
+    caso presencial que ele existe para cobrir."""
+    return (payload.get("tipo_atendimento") or tipo_persistido) == "remoto"
+
+
+async def _preco_de_tabela_ja_cotado(
+    conn: AsyncConnection[Any],
+    atendimento_id: UUID,
+    payload: dict[str, Any],
+    fala_da_ia_no_turno: str | None,
+) -> Decimal | None:
+    """O preco a gravar junto da duracao NOVA quando ela sobe sem valor — ou `None` (nao salvar).
+
+    Irmao de `_preco_cotado_do_pacote_fechado`, no outro momento do funil: la o pacote fecha sem
+    preco nenhum; aqui o cliente TROCA de pacote e o valor gravado e do pacote antigo. As duas
+    condicoes que fazem disto uma leitura, e nao um chute: a tabela tem UMA linha para a duracao
+    nova (sem ambiguidade de programa) e esse preco JA SAIU DA BOCA DA IA nesta conversa
+    (`_precos_cotados_pela_ia`, incluindo a fala deste turno). Sem os dois, a guarda segue
+    revertendo — vender periodo por preco improvisado e o prejuizo que ela existe para impedir.
+    """
+    res = await conn.execute(
+        "SELECT modelo_id, conversa_id, tipo_atendimento::text AS tipo_atendimento "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    if a is None:
+        return None
+    if _e_remoto(payload, a["tipo_atendimento"]):
+        return None
+    precos = {
+        preco
+        for preco, _ in await _linhas_de_tabela(conn, a["modelo_id"], payload["duracao_horas"])
+    }
+    if len(precos) != 1:
+        return None
+    preco = next(iter(precos))
+    cotados = await _precos_cotados_pela_ia(conn, a["conversa_id"], fala_da_ia_no_turno)
+    if _valor_fora_do_conjunto(preco, cotados) is not None:
+        return None
+    return Decimal(preco)
+
+
 async def _par_persistido_abaixo_do_piso(
     conn: AsyncConnection[Any],
     atendimento_id: UUID,
@@ -1364,8 +1936,16 @@ _RE_PRECO_CITADO = re.compile(
     r"|\b(?:fechado|fechados|fechamos|combinado|tabom|t[áa] bom|fecho|fa[çc]o|topo)[,!]?\s+"
     r"(?:por\s+|em\s+|r\$\s*)?(\d{1,2}\.\d{3}|\d{3,4})\b"
     r"|\b(\d{1,2}\.\d{3}|\d{3,4})\s+(?:ent[ãa]o|fechado|fechamos|combinado)\b"
+    # "500 no total" NAO entra aqui (ramo revertido na revisao da r2, ver `totais_ditos_na_fala`):
+    # o total e programa + Pix do deslocamento, e o Pix NUNCA compoe o valor do programa
+    # (CONTEXT.md §Pix de deslocamento; a base de repasse dos ADR-0011/0012/0013 e o programa).
+    # Legitimar a soma aqui fazia o aceite seguinte gravar `valor_acordado=500` sobre uma tabela de
+    # 400 — inflando o repasse por dentro do proprio detector que existe p/ barrar numero inventado.
 )
 PRECO_MINIMO_SCAN = 100
+# Piso de plausibilidade do `valor_acordado` extraido: abaixo disto o numero nao e preco de
+# programa nenhum — e a hora do relogio (0-24) lida como valor. Ver o uso em `registrar_extracao_ia`.
+_VALOR_MINIMO_PLAUSIVEL = 30
 # Fim de clausula: pontuacao que NAO esteja ENTRE digitos ("1.000", "400,00" seguem inteiros; o
 # "300, mas consigo 350" continua sendo duas clausulas). Sem essa guarda o split partiria o proprio
 # numero e o "1.000" sumiria do conjunto; com ela estreita demais, a recusa contaminaria a oferta
@@ -1405,6 +1985,128 @@ def precos_ofertados_na_fala(texto: str) -> set[int]:
         if not _RE_NEGACAO_NA_CLAUSULA.search(clausula):
             valores |= extrair_precos_citados(clausula)
     return valores
+
+
+# Hora do relogio dentro de uma clausula ("9h", "as 22h", "9 horas"). Escrito aqui, e nao reusado
+# de `agente/_disciplina`, porque `dominio/` nao pode importar `barra.agente` (dominio/CLAUDE.md).
+_RE_HORA_NA_CLAUSULA = re.compile(r"\b(?:[àa]s\s+)?([01]?\d|2[0-3])\s*(?:h|hs|hrs|horas?)\b")
+# Recusa da modelo, no vocabulario do prompt ("Poxa amor, 9h nao consigo").
+_RE_RECUSA_DE_HORA = re.compile(
+    r"\b(?:n[ãa]o|nunca)\s+(?:consigo|posso|d[áa]|vai\s+dar|rola|tenho\s+como|atendo)\b"
+    r"|\bimposs[íi]vel\b"
+)
+# Mesmo veto do lado do agente (`_disciplina._RE_CONTEXTO_DE_PRECO`): com preco na clausula, o "Nh"
+# e DURACAO vendida e nao relogio — "nao consigo 250 na 1h" recusa o desconto, nao a 01:00.
+_RE_PRECO_NA_CLAUSULA = re.compile(r"\b\d{3,4}\b")
+
+
+def horas_recusadas_na_fala(texto: str) -> set[int]:
+    """Horas do relogio que a fala da modelo/IA RECUSA ("Poxa amor, 9h nao consigo") (PURO).
+
+    Irma de `precos_ofertados_na_fala` e com a MESMA mecanica de clausula: e o corte por
+    `_RE_FIM_DE_CLAUSULA` que impede a hora OFERTADA logo depois ("Pode ser as 10h ?") de entrar
+    junto com a recusada — as duas moram na mesma fala do turno, e uma janela de N caracteres
+    fundiria as duas."""
+    horas: set[int] = set()
+    for clausula in _RE_FIM_DE_CLAUSULA.split(texto.lower()):
+        if _RE_RECUSA_DE_HORA.search(clausula) and not _RE_PRECO_NA_CLAUSULA.search(clausula):
+            horas |= {int(h) for h in _RE_HORA_NA_CLAUSULA.findall(clausula)}
+    return horas
+
+
+def _hora_recusada_pela_ia(payload: dict[str, Any], fala_da_ia_no_turno: str | None) -> bool:
+    """A hora que este payload grava foi RECUSADA pela IA na fala DESTE turno?
+
+    Consumidor do detector acima. O `horario_desejado` chega como `time` (fallback de tempo
+    imediato) ou como string ISO ("09:00:00", `model_dump(mode="json")` da tool)."""
+    horario = payload.get("horario_desejado")
+    if horario is None or not fala_da_ia_no_turno:
+        return False
+    if isinstance(horario, time):
+        hora = horario.hour
+    else:
+        try:
+            hora = int(str(horario).split(":")[0])
+        except ValueError:
+            return False
+    return hora in horas_recusadas_na_fala(fala_da_ia_no_turno)
+
+
+# "500 no total": a SOMA que o cliente pede na cotacao externa ("Quanto fica no total ?") — programa
+# + Pix do deslocamento. Fica FORA do `_RE_PRECO_CITADO` de proposito (o total nao e preco de
+# programa, e legitima-lo como tal inflaria o repasse); mora aqui para o unico uso legitimo dele:
+# reconhecer que o `valor_acordado` descartado veio da soma que ELA anunciou — nesse caso o aceite
+# do cliente e REAL, so o numero e que esta errado. Mesmo piso de 100 do scanner de preco.
+_RE_TOTAL_DITO = re.compile(r"\b(\d{1,2}\.\d{3}|\d{3,4})\s+no total\b")
+
+
+def totais_ditos_na_fala(texto: str) -> set[int]:
+    """Somas que a fala anuncia como TOTAL do encontro (PURO) — programa + Pix do deslocamento.
+
+    NAO sao precos ofertados: o Pix do deslocamento nunca compoe o valor do programa (CONTEXT.md),
+    entao "500 no total" com a 1h a 400 nao autoriza gravar 400+100 como `valor_acordado`. Serve so
+    a `_sem_valor_fantasma`: o numero cai, o ACEITE fica. Clausula negada nao anuncia total nenhum
+    ("nao fecho 500 no total nao"), mesma regra do `precos_ofertados_na_fala`."""
+    valores: set[int] = set()
+    for clausula in _RE_FIM_DE_CLAUSULA.split(texto.lower()):
+        if _RE_NEGACAO_NA_CLAUSULA.search(clausula):
+            continue
+        for bruto in _RE_TOTAL_DITO.findall(clausula):
+            valor = int(bruto.replace(".", ""))
+            if valor >= PRECO_MINIMO_SCAN:
+                valores.add(valor)
+    return valores
+
+
+async def _preco_cotado_do_pacote_fechado(
+    conn: AsyncConnection[Any],
+    atendimento_id: UUID,
+    payload: dict[str, Any],
+    fala_da_ia_no_turno: str | None,
+) -> Decimal | None:
+    """O preco a gravar quando o aceite chega sem `valor_acordado` — ou `None` (nao preencher).
+
+    Condicoes, todas necessarias (ver o chamador): o cliente ACEITOU (sinal deste turno ou ja
+    gravado), o pacote esta fechado (`duracao_horas`), o valor ainda e NULL, a tabela tem UMA linha
+    para essa duracao, NAO houve contraproposta na conversa e o preco dessa linha saiu de fato da
+    boca da IA aqui. E o mesmo criterio da guarda do valor fantasma, na direcao oposta: la o numero
+    que ela nunca falou nao entra; aqui o que ela falou, e que ele topou, nao fica de fora.
+    """
+    sinais = payload.get("sinais_qualificacao") or {}
+    aceite_no_turno = bool(sinais.get("aceita_valor")) if isinstance(sinais, dict) else False
+    res = await conn.execute(
+        "SELECT modelo_id, conversa_id, duracao_horas, valor_acordado, n_contrapropostas, "
+        "estado::text AS estado, tipo_atendimento::text AS tipo_atendimento, "
+        "COALESCE((sinais_qualificacao->>'aceita_valor')::boolean, false) AS aceite_gravado "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    if a is None or a["valor_acordado"] is not None or a["n_contrapropostas"]:
+        return None
+    if _e_remoto(payload, a["tipo_atendimento"]):
+        return None
+    # `Aguardando_confirmacao` entra junto com o sinal explicito: o encontro so chega a esse estado
+    # com hora cravada e tipo definido — ninguem crava hora sobre um preco que nao topou, e o
+    # extrator as vezes simplesmente nao marca o sinal no turno do "isso, fechado".
+    if not (aceite_no_turno or a["aceite_gravado"] or a["estado"] == "Aguardando_confirmacao"):
+        return None
+    duracao = payload.get("duracao_horas") or a["duracao_horas"]
+    if duracao is None:
+        return None
+    precos = {preco for preco, _ in await _linhas_de_tabela(conn, a["modelo_id"], duracao)}
+    if len(precos) != 1:
+        return None
+    preco = next(iter(precos))
+    cotados = await _precos_cotados_pela_ia(conn, a["conversa_id"], fala_da_ia_no_turno)
+    if _valor_fora_do_conjunto(preco, cotados) is not None:
+        return None
+    logger.info(
+        "valor_acordado preenchido pelo preco cotado do pacote fechado (atendimento %s): %s",
+        atendimento_id,
+        preco,
+    )
+    return Decimal(preco)
 
 
 async def _valores_ja_ofertados(
@@ -1453,6 +2155,21 @@ async def _precos_cotados_pela_ia(
     Oferta, nao citacao: `precos_ofertados_na_fala` ja tira o numero em clausula negada -- "nao
     consigo por 300 nao" nao cota pacote nenhum."""
     cotados: set[int] = set()
+    for fala in await _falas_da_modelo(conn, conversa_id, fala_do_turno):
+        cotados |= precos_ofertados_na_fala(fala)
+    return cotados
+
+
+async def _falas_da_modelo(
+    conn: AsyncConnection[Any], conversa_id: Any, fala_do_turno: str | None
+) -> list[str]:
+    """A janela de falas da IA/modelo nesta conversa: as persistidas + a bolha DESTE turno (que
+    ainda nao esta em `mensagens`).
+
+    Fonte unica da janela p/ os dois scanners que julgam o que saiu da boca dela
+    (`_precos_cotados_pela_ia`, `_total_anunciado_pela_ia`) -- duas copias da mesma query divergem
+    no `LIMIT`/na direcao amanha e passam a julgar a mesma fala de formas diferentes."""
+    falas: list[str] = []
     if conversa_id is not None:
         res = await conn.execute(
             """
@@ -1463,11 +2180,35 @@ async def _precos_cotados_pela_ia(
             """,
             (conversa_id, _JANELA_FALAS_DA_MODELO),
         )
-        for mensagem in await res.fetchall():
-            cotados |= precos_ofertados_na_fala(mensagem["conteudo"])
+        falas.extend(m["conteudo"] for m in await res.fetchall())
     if fala_do_turno:
-        cotados |= precos_ofertados_na_fala(fala_do_turno)
-    return cotados
+        falas.append(fala_do_turno)
+    return falas
+
+
+async def _total_anunciado_pela_ia(
+    conn: AsyncConnection[Any], atendimento_id: UUID, valor: int, fala_do_turno: str | None
+) -> bool:
+    """O valor descartado e o TOTAL que a PROPRIA IA anunciou ("500 no total") nesta conversa?
+
+    Quando e, o aceite do cliente e REAL -- ele topou a soma que ela disse; o que esta errado e so
+    o numero, porque o Pix do deslocamento nao compoe o valor do programa (CONTEXT.md). Por isso
+    `_sem_valor_fantasma` preserva o `aceita_valor` neste caso, e o preco do programa entra pelo
+    backstop (`_preco_cotado_do_pacote_fechado`), que so grava preco de TABELA de fato cotado.
+
+    Rodada 2 do loop de massa: a resposta anterior a este sintoma foi alargar o scanner de preco
+    p/ "N no total" -- e ela legitimava a soma como preco de programa, gravando 500 sobre uma
+    tabela de 400 (revisao de dominio). O aceite e que precisava sobreviver, nao o numero."""
+    res = await conn.execute(
+        "SELECT conversa_id FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    row = await res.fetchone()
+    conversa_id = row["conversa_id"] if row is not None else None
+    return any(
+        valor in totais_ditos_na_fala(fala)
+        for fala in await _falas_da_modelo(conn, conversa_id, fala_do_turno)
+    )
 
 
 def _valor_fora_do_conjunto(valor: Any, legitimos: set[int]) -> int | None:
@@ -1485,16 +2226,22 @@ def _valor_fora_do_conjunto(valor: Any, legitimos: set[int]) -> int | None:
 
 
 def _sem_valor_fantasma(
-    payload: dict[str, Any], fantasma: int, legitimos: set[int]
+    payload: dict[str, Any], fantasma: int, legitimos: set[int], *, preservar_aceite: bool = False
 ) -> dict[str, Any]:
     """Payload sem o `valor_acordado` descartado: o resto segue gravando normalmente.
 
     `aceita_valor` do MESMO payload cai junto — ele foi inferido do mesmo evento falso (o cliente
     "aceitando" o proprio numero). Os outros sinais ficam. O `valor_descartado` viaja no evento
-    `extracao_registrada`, mesma auditoria do `drift_descartado`/`tipo_descartado`."""
+    `extracao_registrada`, mesma auditoria do `drift_descartado`/`tipo_descartado`.
+
+    `preservar_aceite` e a EXCECAO do total anunciado (`_total_anunciado_pela_ia`): o numero
+    descartado e a soma programa + Pix que ela mesma disse, entao o "fechou" do cliente aconteceu
+    de verdade — cai so o valor (o Pix nunca compoe o programa), e o preco entra pelo backstop do
+    pacote fechado. Sem isso, a venda dita com todas as letras saia sem valor E sem aceite."""
     limpo = {k: v for k, v in payload.items() if k != "valor_acordado"}
     sinais = {k: v for k, v in (payload.get("sinais_qualificacao") or {}).items()}
-    sinais.pop("aceita_valor", None)
+    if not preservar_aceite:
+        sinais.pop("aceita_valor", None)
     if sinais:
         limpo["sinais_qualificacao"] = sinais
     else:
@@ -1508,6 +2255,13 @@ _AVISO_VALOR_FANTASMA = (
     "conversa (so vale preco da sua tabela ou valor que voce mesma falou), entao o sistema nao "
     "gravou o valor nem o aceite. Se voce decidir aceitar esse valor, OFERTE-O na sua fala ao "
     "cliente e registre no proximo turno."
+)
+# Aviso do caso TOTAL (programa + Pix do deslocamento): o aceite FOI gravado, so o numero caiu.
+_AVISO_TOTAL_NAO_E_PRECO = (
+    "AVISO: valor_acordado {fantasma} DESCARTADO — esse e o TOTAL que voce anunciou (o programa "
+    "MAIS o Pix do deslocamento), e o Pix nunca entra no valor do programa. O aceite do cliente "
+    "FOI gravado; o valor a registrar e so o do programa. Se ele topou um preco de programa "
+    "diferente da sua tabela, registre esse numero sozinho no proximo turno."
 )
 
 
@@ -1678,7 +2432,13 @@ def patamar_vigente(encontro: Encontro, n_contrapropostas: int) -> Patamar:
 # O veredito da `aceite_do_valor_dele` -- label da `AGENTE_ACEITE_DO_CLIENTE` e, antes disso, o
 # vocabulario de POR QUE o numero dele nao serviu. Tudo que nao e `aceito` cai na escada de sempre.
 MotivoDoAceite = Literal[
-    "aceito", "abaixo_do_piso", "acima_da_mesa", "ambiguo", "sem_valor", "esgotada"
+    "aceito",
+    "abaixo_do_piso",
+    "acima_da_mesa",
+    "ambiguo",
+    "sem_valor",
+    "esgotada",
+    "condicionado",
 ]
 
 
@@ -1691,6 +2451,7 @@ async def aceite_do_valor_dele(
     valor_da_mesa: Decimal | None,
     encontro: Encontro,
     n_contrapropostas: int,
+    condicionado: bool = False,
 ) -> tuple[Decimal | None, MotivoDoAceite]:
     """O valor que o CLIENTE nomeou, quando ele serve -- ou `None` e o motivo (ADR-0040).
 
@@ -1718,6 +2479,14 @@ async def aceite_do_valor_dele(
     `estado_da_escada` devolve `sem_dia` para QUALQUER `n`, entao o contador nunca esgota. Ali a
     regra e explicita: um aceite so (`n_contrapropostas == 0`). Aceitar o numero dele independe do
     dia -- o dia decide quanto ELA desce, nao quanto ELE ofereceu.
+
+    `condicionado` (loop-massa r3, achado 10) e o unico sinal que nao vem de numero: True quando o
+    burst pendurou uma condicao de SERVICO no valor ("por 300? Com 2 finalizacoes"). O `int` sozinho
+    nao carrega ressalva, e o bloco que este retorno injeta manda aceitar "na hora, no valor DELE" e
+    sem ressalva -- entao a condicao entraria no belief como parte da venda fechada, sem nunca ter
+    sido conferida contra `<programas>`/`<fetiches>`. Fail-closed como o resto da cascata: o numero
+    dele so fecha sozinho quando vem sozinho. Quem detecta e `_ressalva_de_servico_no_burst`
+    (`agente/nos/prepare_context.py`), que le a janela crua -- o dominio nao a tem.
     """
     esgotada = estado_da_escada(encontro, n_contrapropostas) == "esgotada" or (
         encontro == "dia_desconhecido" and n_contrapropostas > 0
@@ -1726,6 +2495,10 @@ async def aceite_do_valor_dele(
         return None, "esgotada"
     if valor_proposto is None:
         return None, "sem_valor"
+    # DEPOIS do `sem_valor` de proposito: sem numero nao ha proposta a condicionar, e `sem_valor`
+    # continua medindo so o detector de fala (`AGENTE_ACEITE_DO_CLIENTE`).
+    if condicionado:
+        return None, "condicionado"
     linhas = await _linhas_de_tabela(conn, modelo_id, duracao_horas)
     precos = {preco for preco, _ in linhas}
     if len(precos) != 1:
@@ -2805,15 +3578,23 @@ async def marcar_cotacao_enviada_por_texto(
     Rede deterministica do ADR 0022: complementa o flag `cotacao_apresentada` da extracao, que
     depende do LLM lembrar de marca-lo (e nao marca quando lista a tabela inteira e trata como
     "aguardando escolha do programa"). Alem do guard IS NULL (first-write-wins), exige estado
-    `Triagem`/`Qualificado`: so a cotacao da fase de venda ancora o reengajamento; um `R$` que
+    ANTERIOR ao fechamento: so a cotacao da fase de venda ancora o reengajamento; um `R$` que
     aparece depois (ex.: reconfirmar valor em Aguardando_confirmacao) nao cria ancora espuria.
+
+    `Novo` entrou na lista em 12/08 (medido ao vivo): a IA cota na PRIMEIRA bolha da conversa
+    ("400 1h no meu local", antes de a extracao ter gravado intencao/tipo), e nesse instante o
+    atendimento ainda esta em `Novo` — o carimbo caia no vazio. Dois turnos depois, quando o
+    cliente cravava a hora, a transicao para `Aguardando_confirmacao` batia no guard
+    `CotacaoAusente` (preco "nunca dito"), a transacao inteira revertia e a HORA se perdia: a IA
+    dizia "Confirmado amor" com o banco sem reserva nenhuma. `Novo` e fase de venda como as
+    outras duas; o que o gate protege e o pos-fechamento.
     """
     result = await conn.execute(
         """
         UPDATE barravips.atendimentos
            SET cotacao_enviada_em = now()
          WHERE id = %s AND cotacao_enviada_em IS NULL
-           AND estado IN ('Triagem', 'Qualificado')
+           AND estado IN ('Novo', 'Triagem', 'Qualificado')
         """,
         (atendimento_id,),
     )

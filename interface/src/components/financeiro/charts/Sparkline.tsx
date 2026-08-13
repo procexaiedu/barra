@@ -141,7 +141,7 @@ export function Sparkline({
       </svg>
       {hover && (
         <div
-          className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-sm border border-border bg-card px-1.5 py-1 text-[10.5px] leading-tight shadow-md shadow-black/40"
+          className="pointer-events-none absolute z-10 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-sm border border-border bg-card px-1.5 py-1 text-[10.5px] leading-tight shadow-elev-2"
           style={{
             left: `${Math.min(96, Math.max(4, hover.xPct))}%`,
             top: -6,

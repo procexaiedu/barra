@@ -17,13 +17,17 @@ type Status = "loading" | "success" | "error"
 
 const BRT_OFFSET = "-03:00"
 
+// Içado para o módulo: `dataBrt` roda por bloqueio a cada render da grade (e por
+// frame durante o drag) — instanciar Intl a cada chamada custa caro.
+const DATA_BRT_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Sao_Paulo",
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+})
+
 function partsEmSaoPaulo(date: Date) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(date)
+  const parts = DATA_BRT_FMT.formatToParts(date)
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? ""
   return { ano: get("year"), mes: get("month"), dia: get("day") }
 }
@@ -129,6 +133,7 @@ export function useAgenda(opts?: { data?: string }) {
   const [status, setStatus] = useState<Status>("loading")
   const [error, setError] = useState<string | null>(null)
   const firstDone = useRef(false)
+  const cargaGenRef = useRef(0)
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeEvents = useRef(0)
   const router = useRouter()
@@ -139,16 +144,19 @@ export function useAgenda(opts?: { data?: string }) {
   )
 
   const carregar = useCallback(async () => {
+    const gen = ++cargaGenRef.current
     if (!firstDone.current) setStatus("loading")
     try {
       const params = new URLSearchParams({ inicio: periodo.inicio, fim: periodo.fim })
       if (modeloId) params.append("modelo_id", modeloId)
       const res = await api<AgendaResponse>(`/v1/agenda/bloqueios?${params.toString()}`)
+      if (gen !== cargaGenRef.current) return // resposta de outro período/modelo; descarta
       setAgenda(res)
       setStatus("success")
       setError(null)
       firstDone.current = true
     } catch (e) {
+      if (gen !== cargaGenRef.current) return
       if (!firstDone.current) setStatus("error")
       setError(e instanceof Error ? e.message : "Erro desconhecido")
     }

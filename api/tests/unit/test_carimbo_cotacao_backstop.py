@@ -104,7 +104,10 @@ async def test_bolha_do_e2e_carimba_a_cotacao_medida() -> None:
     query, params = conn.carimbos[0]
     # mesmos guards de prod: first-write-wins + só na fase de venda
     assert "cotacao_enviada_em IS NULL" in query
-    assert "estado IN ('Triagem', 'Qualificado')" in query
+    # `Novo` entra junto (12/08): a IA cota na PRIMEIRA bolha, quando o atendimento ainda nem saiu
+    # de `Novo` — sem ele o carimbo caía no vazio e o `CotacaoAusente` revertia o turno em que o
+    # cliente cravava a hora, dois turnos depois.
+    assert "estado IN ('Novo', 'Triagem', 'Qualificado')" in query
     assert params == (aid,)
 
 
@@ -134,6 +137,10 @@ def _turno(texto: str, *, estado: str, args: dict[str, Any] | None = None) -> An
         texto=texto,
         tool_calls=["registrar_extracao"] if args is not None else [],
         tool_args=[args] if args is not None else [],
+        # `extracao` (carimbo do State) e o campo que o `derivar_eventos` le junto dos tool_calls
+        # desde o fix do achado 12a — aqui o fake exercita o caminho SEM carimbo, que e o do
+        # backstop (o LLM nem marcou o flag).
+        extracao=None,
         estado_final={"estado": estado, "pix_status": "nao_solicitado", "ia_pausada": False},
     )
 

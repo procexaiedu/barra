@@ -147,6 +147,50 @@ def test_demais_falas_do_corpus_auditado_nao_recuam():
         assert classificar_recuo([fala], ["Podemos confirmar 18h ?"]) is None, fala
 
 
+def test_objecao_de_preco_e_recuo_autonomo():
+    """loop-massa r3, achado 1 da refutação de extração: achar caro, dar lowball ou cravar um teto
+    é o CONTRÁRIO de aceite, e todas estas falas devolviam `None` — o rebaixamento do
+    `aceita_valor` já tinha caminho testado (`recuo_detectado`), faltava a fala chegar até ele."""
+    for fala in (
+        "Ta um pouco caro",
+        "tá caro amor",
+        "achei caro",
+        "muito caro",
+        "caro demais",
+        "faz 300",
+        "faz por 300",
+        "Sério? Então faz 250 que eu chamo o uber agora",  # objetor_b t10
+        "400 ta fora pra mim",
+        "250 e o maximo",
+        "meu limite é 300",
+        "so tenho 300",
+        "Nao consigo pagar isso",
+        "ta acima do meu orçamento",
+    ):
+        assert classificar_recuo([fala], []) == "autonomo", fala
+
+
+def test_aceite_com_numero_nao_e_objecao_de_preco():
+    """A fronteira que a família não pode cruzar: o vocabulário do ACEITE carrega o mesmo número.
+    Nenhum ramo casa número solto — todos exigem um token de objeção junto."""
+    for fala in (
+        "fechado 300",
+        "Fechado 300 amor",
+        "Tabom, 300 então",
+        "300 às 20h tá fechado",
+        "Só pra confirmar então: 300$ na 1 hr com as 2 finalizações, certo?",
+        "É 400 fechado mesmo pra 1h?",
+        "400 1h no meu local",
+    ):
+        assert classificar_recuo([fala], ["Podemos confirmar 18h ?"]) is None, fala
+
+
+def test_duracao_e_pergunta_de_preco_nao_viram_objecao():
+    """O piso de 3-4 dígitos nos ramos com número é o que separa preço de duração/quantidade."""
+    for fala in ("faz 2 horas?", "faz anal?", "quanto é 1h?", "Consigo chegar ai em uns 40 min"):
+        assert classificar_recuo([fala], ["Podemos confirmar 18h ?"]) is None, fala
+
+
 def test_ainda_nao_isolado_e_negativa_correferenciada():
     # O prompt cita "Ainda não" como resposta À proposta — logo, correferenciada, não autônoma.
     assert classificar_recuo(["ainda não"], ["Podemos confirmar 18h ?"]) == "correferenciado"

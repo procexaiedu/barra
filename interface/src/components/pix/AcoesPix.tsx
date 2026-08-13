@@ -17,6 +17,8 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { formatBRL, formatTelefone } from "@/lib/formatters"
 import { cn } from "@/lib/utils"
@@ -179,13 +181,13 @@ export function AcoesPix({
               <CheckCircle2 size={22} strokeWidth={1.8} />
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="text-lg font-semibold text-text-primary">
+              <AlertDialogTitle className="text-lg font-semibold text-text-primary">
                 Validar Pix manualmente?
-              </h2>
-              <p className="mt-1 text-sm text-text-secondary">
+              </AlertDialogTitle>
+              <AlertDialogDescription className="mt-1 text-sm text-text-secondary">
                 A modelo recebe a saída confirmada no grupo de Coordenação e o atendimento avança para Confirmado.
                 Esta decisão é definitiva.
-              </p>
+              </AlertDialogDescription>
             </div>
           </div>
 
@@ -241,13 +243,13 @@ export function AcoesPix({
               <XCircle size={22} strokeWidth={1.8} />
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="text-lg font-semibold text-text-primary">
+              <AlertDialogTitle className="text-lg font-semibold text-text-primary">
                 Rejeitar Pix?
-              </h2>
-              <p className="mt-1 text-sm text-text-secondary">
+              </AlertDialogTitle>
+              <AlertDialogDescription className="mt-1 text-sm text-text-secondary">
                 A IA envia a mensagem correspondente ao motivo escolhido pedindo um novo
                 comprovante. O atendimento continua aguardando o Pix.
-              </p>
+              </AlertDialogDescription>
             </div>
             <Badge variant={statusBadge.variant}>{statusBadge.label}</Badge>
           </div>
@@ -372,12 +374,12 @@ export function AcoesPix({
               <RotateCcw size={20} strokeWidth={1.8} />
             </span>
             <div className="min-w-0 flex-1">
-              <h2 className="text-lg font-semibold text-text-primary">
+              <AlertDialogTitle className="text-lg font-semibold text-text-primary">
                 Reabrir Pix?
-              </h2>
-              <p className="mt-1 text-sm text-text-secondary">
+              </AlertDialogTitle>
+              <AlertDialogDescription className="mt-1 text-sm text-text-secondary">
                 O Pix volta para revisão. O atendimento não é alterado e nenhuma mensagem é enviada ao cliente.
-              </p>
+              </AlertDialogDescription>
             </div>
           </div>
 

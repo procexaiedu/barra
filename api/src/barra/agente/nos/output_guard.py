@@ -29,13 +29,14 @@ ia_pausada apos o turno (cinto-suspensorio) e nao despacha. Roteamento SO por Co
 
 import logging
 import re
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from difflib import SequenceMatcher
+from os.path import commonprefix
 from typing import Any, Literal
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langchain_core.messages.ai import UsageMetadata
 from langgraph.graph import END
 from langgraph.runtime import Runtime
@@ -70,14 +71,19 @@ from .._disciplina import (
     tokens_de_lugar,
     tokens_do_endereco,
 )
-from .._instrumentar import instrumentar_tokens
+from .._instrumentar import instrumentar_tokens, medir_llm
 from .._normalizar import normalizar
 from .._parceria import eh_bolha_de_contato_da_parceira
-from .._texto_turno import extrair_texto_do_turno, mensagens_do_turno, texto_da_mensagem
+from .._texto_turno import (
+    extrair_texto_do_turno,
+    kwargs_preservados,
+    mensagens_do_turno,
+    texto_da_mensagem,
+)
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..persona import render_aup_saida
-from ._foco_do_turno import perguntas_do_burst
+from ._foco_do_turno import aceite_curto_no_burst, perguntas_do_burst
 
 # Pools curados isentos das defesas de texto gerado (repeticao/judge de AUP): o conteudo e nosso,
 # nao do LLM. Negacoes de disclosure + bolha de espera da escalada de guarda (post_process) —
@@ -188,13 +194,24 @@ def tem_marcador_raciocinio(texto: str) -> bool:
 # Placeholder de template nao preenchido: o chat as vezes cospe a chave literal do exemplo do prompt
 # ("{valor} 1h no meu local") em vez de interpolar o dado real. Uma bolha com `{token}` nunca e fala
 # valida ao cliente -- e entrega a IA na cara. FONTE UNICA do padrao: a rede final do envio importa
-# daqui (`_saida_guard.tem_placeholder_eco`). Casa as duas formas observadas -- a chave {palavra} dos
-# exemplos (com acento: `{horário}`) e o colchete instrucional inventado ([insira a rua]). NAO casa o
-# marker [quote]/[quote: trecho] ('quote' fora dos gatilhos do colchete).
+# daqui (`_saida_guard.tem_placeholder_eco`). Casa as TRES formas observadas -- a chave {palavra} dos
+# exemplos (com acento: `{horário}`), o colchete instrucional inventado ([insira a rua]) e a RUBRICA
+# entre parenteses ("(aqui vão as fotos e o vídeo)"). NAO casa o marker [quote]/[quote: trecho]
+# ('quote' fora dos gatilhos do colchete).
+#
+# A rubrica em PARENTESES entrou em 12/08 (loop-massa r3, achado 5): a regen roda sem tools, nao ve
+# as ToolMessages do turno e preenche o lugar do anexo com teatro. `(aqui vao as fotos e o video)`
+# passava por TODOS os estagios -- inclusive o re-scan da 2a volta -- e entrava na janela historica
+# como fala dela, disponivel para imitacao nos turnos seguintes.
+# O gatilho tem de vir NO COMECO do parenteses e ser VERBO de rubrica: parenteses e pontuacao comum
+# na fala dela ("600 1h (valor fechado)"), entao casar o miolo generico barraria bolha legitima.
 _RE_PLACEHOLDER = re.compile(
     r"\{[a-zà-ÿ_]{2,20}\}"  # {valor}, {horario}, {horário}, {nome}, {duracao}, ...
     r"|\[\s*(?:insira|inserir|coloque|preench\w*|adicione|informe|seu|sua|valor|"
-    r"hor[áa]rio|endere\w*|rua|bairro)\b[^\]]*\]",  # [insira a rua], [seu endereço], ...
+    r"hor[áa]rio|endere\w*|rua|bairro)\b[^\]]*\]"  # [insira a rua], [seu endereço], ...
+    r"|\(\s*(?:insira|inserir|coloque|preench\w*|adicione|informe|"
+    r"aqui\s+(?:vai|v[ãa]o|est[áa]|est[ãa]o)|segue\w*|enviando|mandando|anexo|anexad\w*)"
+    r"\b[^)]*\)",  # (aqui vão as fotos e o vídeo), (segue o book), (enviando as fotos)
     re.IGNORECASE,
 )
 
@@ -211,12 +228,22 @@ def tem_placeholder_template(texto: str) -> bool:
 # balcao. ESTREITO de proposito: so o probe CRU. A forma CALOROSA ("me conta o que voce procura?",
 # com self-intro/convite) e voz legitima (fixtures reais) e NAO casa -- o `_RE_CONVITE_CALOROSO`
 # resgata a bolha. "me chamou" (voce me chamou) nao e convite e segue caindo no drop.
+#
+# A oferta de atendimento ("Como posso te atender ?", "Posso te ajudar ?") entra como membro da
+# classe alvo: `persona.md` a lista NOMINALMENTE entre as falas proibidas ("em que posso ajudar",
+# "posso te ajudar?"), e ela foi ao cliente no turno de ABERTURA — o que decide se ele fica
+# (loop-massa r2, eixo ghost_pos_cotacao). Os dois ramos ficam ESTREITOS pelo mesmo motivo dos
+# vizinhos: o interrogativo com "como/em que" na frente, e a forma nua SÓ colada no "?" -- assim
+# "posso te ajudar com o horario?" (oferta dentro de fala quente, com objeto) segue passando, e a
+# fixture calorosa "me fala o que voce busca que eu te ajudo" nem chega a este ramo.
 _RE_SONDA_BALCAO = re.compile(
     r"o que (voc[êe]|vc) (procura|busca|est[áa] (procurando|buscando)|deseja saber|gostaria de saber)"
     r"|o que gostaria de saber"
     r"|o que te traz (aqui|aq)\b"
     r"|pode perguntar (o que quiser|[àa] vontade)"
-    r"|gosta de que tipo de (programa|servi[çc]o|atendimento)",
+    r"|gosta de que tipo de (programa|servi[çc]o|atendimento)"
+    r"|\b(como|o que|em que|no que|em q) (eu )?posso (te |lhe )?(atender|ajudar)"
+    r"|\bposso (te |lhe )?(atender|ajudar)\s*\?",
     re.IGNORECASE,
 )
 _RE_CONVITE_CALOROSO = re.compile(r"\bme (conta|fala|diz|chamo)\b|\bmeu nome\b", re.IGNORECASE)
@@ -840,36 +867,252 @@ def _bolhas_historicas(messages: Sequence[BaseMessage]) -> list[str]:
     return bolhas[-_REPETICAO_JANELA:]
 
 
-def _conta_para_repeticao(normalizada: str) -> bool:
-    """A bolha normalizada entra na conta do detector? (piso de tamanho OU sonda canonica)."""
+# Piso das PERGUNTAS: refazer verbatim uma pergunta que ela ja fez e o papagaio mais visivel do
+# funil ("Qual seu nome ?" duas vezes seguidas, medido ao vivo em 12/08 — 13 chars normalizados,
+# um a menos que o piso verbatim, e a `_SONDAS_REPETIVEIS` e allowlist: so cobre o que alguem
+# lembrou de listar). Pergunta e outra classe: afirmacao curta repete de graca ("Perfeito", "Oii"),
+# pergunta repetida sempre soa como quem nao leu a resposta. 9 deixa de fora o "tudo bem" (8) da
+# saudacao e pega "seria hoje" (10) e "qual seu nome" (13).
+_REPETICAO_MIN_PERGUNTA = 9
+
+
+def _conta_para_repeticao(bolha: str, normalizada: str) -> bool:
+    """A bolha entra na conta do detector? (piso de tamanho, piso de pergunta/numero OU sonda)."""
+    if "?" in bolha and len(normalizada) >= _REPETICAO_MIN_PERGUNTA:
+        return True
+    # Bolha CURTA que carrega numero: "A 2h fica 700 amor" reenviada verbatim tinha 13 chars
+    # normalizados e passava sob o piso de 15 (medido ao vivo 12/08, roteiro duas_portas). O piso
+    # verbatim existe pela saudacao curta que repete de graca — e saudacao nao tem numero dentro.
+    if _RE_DIGITOS.search(normalizada) and len(normalizada) >= _MESMOS_NUMEROS_MIN:
+        return True
     return len(normalizada) >= _REPETICAO_MIN_VERBATIM or normalizada in _SONDAS_REPETIVEIS
 
 
-def bolhas_repetidas(texto: str, historicas: Sequence[str]) -> list[str]:
+# Piso do fuzzy quando as duas bolhas citam os MESMOS numeros. O papagaio mais caro do funil e a
+# bolha de fechamento reformulada em cima da MESMA hora — "Consigo às 17h, fecha ?" no turno 2,
+# "Consigo às 17h então" no 3, "Consigo às 17h, te espero" no 4 (medido ao vivo em 12/08, 4 de 40
+# conversas, e o feedback do grupo de testes: a mesma bolha saindo tres vezes). Nenhuma passava:
+# 20-24 chars normalizados contra um piso fuzzy de 25. O piso existe para nao flagrar saudacao
+# curta reformulada — e saudacao nao carrega numero. Numeros DIFERENTES ("400 1h" x "700 2h")
+# continuam fora: mesma forma com dado novo e informacao, nao papagaio.
+_MESMOS_NUMEROS_MIN = 12
+_RE_DIGITOS = re.compile(r"\d+")
+
+
+def _tem_numero_novo(nova: str, vista: str) -> bool:
+    """A bolha nova carrega algum numero que a anterior NAO tinha?
+
+    E o invariante escrito duas linhas acima ("mesma forma com dado NOVO e informacao, nao
+    papagaio") e pinado por `test_repeticao_nao_flagra_bolha_de_forma_igual_com_numero_novo` --
+    mas ele so era aplicado no `_mesma_abertura` (que exige numeros IGUAIS). No ramo fuzzy nao
+    havia isenção nenhuma: "400 1h + 100 o uber ida e volta" contra "400 1h + o uber ida e volta"
+    da ratio 0,926 com 29 chars e era flagrada como papagaio -- justo a bolha que carregava o
+    numero inedito do turno (loop-massa r2, eixo externo t6: guard disparou, a regen recebeu
+    "repita menos" e o turno custou +88%). O par do teste so passava por duas margens acidentais
+    (ratio 0,8947 e 19 chars).
+    """
+    return bool(set(_RE_DIGITOS.findall(nova)) - set(_RE_DIGITOS.findall(vista)))
+
+
+def _piso_fuzzy(bolha: str, vista: str, *, duas_perguntas: bool = False) -> int:
+    """O piso de tamanho do match fuzzy para ESTE par de bolhas normalizadas."""
+    numeros = _RE_DIGITOS.findall(bolha)
+    if numeros and numeros == _RE_DIGITOS.findall(vista):
+        return _MESMOS_NUMEROS_MIN
+    # Duas PERGUNTAS quase iguais ("qual seu nome" x "e qual seu nome", ratio 0,93): o piso de 25
+    # foi calibrado contra a saudacao reformulada, e refazer a pergunta ja feita e a classe onde
+    # ate a variacao de uma palavra e papagaio (medido ao vivo 12/08, roteiro dado_na_mesa).
+    # Perguntas DIFERENTES nao chegam perto do limiar ("qual seu nome" x "qual seu bairro": 0,71).
+    if duas_perguntas:
+        return _REPETICAO_MIN_PERGUNTA
+    return _REPETICAO_MIN
+
+
+# Ultimo degrau do papagaio de fechamento: a reformulacao que muda so a CAUDA em cima da mesma
+# oferta -- "consigo as 17h fecha" x "consigo as 17h entao" da ratio 0,80 e passa longe do limiar,
+# mesmo com o piso de mesmos-numeros (medido ao vivo em 12/08, roteiro duas_portas). O que essas
+# duas bolhas tem em comum nao e a forma inteira: e a ABERTURA -- a mesma oferta, com o mesmo
+# numero, dita de novo. Exigir que o prefixo compartilhado (cortado na fronteira de palavra)
+# carregue o numero mantem fora o par que so compartilha o comeco generico ("te espero as 20h" x
+# "consigo as 20h fecha" nao compartilha prefixo nenhum) e o par com dado NOVO ("400 1h no meu
+# local" x "700 2h no meu local" tem numeros diferentes).
+_ABERTURA_MIN = 12
+
+
+_COBERTURA_MIN = 0.90
+
+
+def _mesma_abertura(nova: str, vista: str) -> bool:
+    """As duas bolhas normalizadas reofertam a MESMA coisa -- mudando so a cauda ou so o comeco?
+
+    Dois recortes do mesmo papagaio, os dois exigindo os MESMOS numeros nas duas bolhas:
+    prefixo compartilhado que carrega o numero (a cauda muda) e cobertura quase total da bolha
+    menor dentro da maior — "isso amor, 400 a 1h + o uber ida e volta" seguido de "400 1h + o uber
+    ida e volta" e a mesma cotacao dita duas vezes (ratio 0,79; medido ao vivo 12/08, roteiro
+    externo), mas nao compartilha abertura nenhuma.
+    """
+    numeros = _RE_DIGITOS.findall(nova)
+    if not numeros or numeros != _RE_DIGITOS.findall(vista):
+        return False
+    comum = commonprefix([nova, vista])
+    comum = comum[: comum.rindex(" ")] if " " in comum and comum not in (nova, vista) else comum
+    if len(comum) >= _ABERTURA_MIN and _RE_DIGITOS.search(comum):
+        return True
+    curta, longa = sorted((nova, vista), key=len)
+    if len(curta) < _MESMOS_NUMEROS_MIN:
+        return False
+    coberto = sum(b.size for b in SequenceMatcher(None, curta, longa).get_matching_blocks())
+    return coberto / len(curta) >= _COBERTURA_MIN
+
+
+# A dobradinha de fechamento: DUAS perguntas de fechamento na MESMA resposta ("Podemos combinar
+# 21h?" seguida de "Fechou 21h entao amor?", feedback do grupo de testes em 12/08). Nao e repeticao
+# de forma -- as duas frases nao se parecem -- e por isso nenhum limiar de similaridade as pega; e
+# repeticao de ATO: pedir duas vezes o mesmo sim no mesmo turno soa ansioso e da ao cliente duas
+# perguntas para responder. So conta PERGUNTA (a confirmacao afirmativa depois do aceite -- "te
+# espero as 20h entao" -- e conduta certa) e so dentro do turno; oferta de duas portas legitima traz
+# horas DIFERENTES na mesma bolha, nao duas bolhas pedindo o sim.
+_RE_PEDIDO_DE_FECHAMENTO = re.compile(
+    r"\b(fecha|fechamos|fechou|fechado|combinamos|combinar|confirmo|confirma|confirmar|"
+    r"pode ser|posso te esperar|te espero|marco|marcamos)\b"
+)
+
+
+def _dobradinha_de_fechamento(nova: str, bolha: str, anteriores: Sequence[tuple[str, str]]) -> bool:
+    """A bolha repete, no mesmo turno, um pedido de fechamento que ja foi feito?
+
+    Exige numeros PRESENTES e IGUAIS nas duas bolhas -- e o que identifica "o mesmo sim". O
+    `not numeros or ...` que morava aqui era vacuamente verdadeiro quando a bolha nova nao tinha
+    digito, e ai qualquer segunda pergunta com verbo da familia virava dobradinha: "Consigo as 21h,
+    fecha?" + "Pode ser aqui no meu apartamento?" flagrava a SEGUNDA, que e a pergunta de logistica
+    que fecha a venda. `pode ser`/`te espero`/`confirma` estao na regex de fechamento, entao o
+    estrago pegava logistica, lugar e ate flerte. Isso contradizia o proprio invariante do teste
+    `test_repeticao_nao_flagra_fechamento_seguido_de_outra_pergunta` ("pedir o sim e depois pedir o
+    endereco e o turno bem conduzido"), que so passava por escolher segundas bolhas sem esses verbos.
+    """
+    if "?" not in bolha or not _RE_PEDIDO_DE_FECHAMENTO.search(nova):
+        return False
+    numeros = _RE_DIGITOS.findall(nova)
+    if not numeros:
+        return False
+    return any(
+        "?" in anterior_bolha
+        and _RE_PEDIDO_DE_FECHAMENTO.search(anterior)
+        and numeros == _RE_DIGITOS.findall(anterior)
+        for anterior, anterior_bolha in anteriores
+    )
+
+
+# Fusao de bolhas: quantas bolhas consecutivas ja enviadas a fala nova pode ter juntado numa so.
+# 4 e o teto de bolhas por turno da persona -- acima disso a "junta" seria um turno inteiro colado
+# a outro, que nao e a forma do papagaio observado.
+_FUSAO_MAX_BOLHAS = 4
+
+
+def _fundiu_bolhas(nova_inteira: str, historicas_normalizadas: Sequence[str]) -> bool:
+    """A fala nova INTEIRA e a juncao de bolhas que ela ja mandou em sequencia?
+
+    O detector e por BOLHA, e a mesma fala escapava so trocando de embalagem: as duas bolhas do
+    turno anterior ("Sou bem tranquila" + "Estilo namoradinha") voltaram FUNDIDAS numa bolha so, e
+    cada metade sozinha dava ratio ~0,59 -- longe do limiar (loop-massa r2, eixo explorador; dano
+    observado: o cliente respondeu "Vc ja falou isso rs"). Comparar o turno inteiro contra a
+    juncao das bolhas CONSECUTIVAS devolve a simetria -- o mesmo conteudo, na mesma ordem, e pego
+    venha ele em uma bolha ou em quatro.
+
+    Mesmo limiar e mesmo piso do fuzzy, e a mesma isencao de NUMERO NOVO (`_tem_numero_novo`): uma
+    fala que junta o que ja foi dito MAIS um numero inedito e informacao, nao papagaio.
+    """
+    if len(nova_inteira) < _REPETICAO_MIN:
+        return False
+    total = len(historicas_normalizadas)
+    for i in range(total):
+        for j in range(i + 2, min(i + _FUSAO_MAX_BOLHAS, total) + 1):
+            junta = " ".join(historicas_normalizadas[i:j]).strip()
+            if not junta or _tem_numero_novo(nova_inteira, junta):
+                continue
+            if SequenceMatcher(None, nova_inteira, junta).ratio() >= _REPETICAO_LIMIAR:
+                return True
+    return False
+
+
+def bolhas_repetidas(
+    texto: str, historicas: Sequence[str], *, houve_aceite: bool = False
+) -> list[str]:
     """Bolhas do turno quase identicas a uma bolha recente da propria IA -- ou a outra bolha
     anterior do MESMO turno (PURA; devolve as bolhas originais, nao normalizadas, p/ o drop).
 
     Reenvio EXATO (ratio 1.0) conta ja no piso menor (_REPETICAO_MIN_VERBATIM) -- pega a bolha de
     preco curta que passava sob o piso fuzzy; match FUZZY segue exigindo _REPETICAO_MIN p/ nao
-    flagar saudacao curta reformulada. As sondas canonicas (`_SONDAS_REPETIVEIS`) contam ABAIXO do
-    piso: repeti-las e a violacao que o proprio prompt nomeia. Negacao canned repetida nao e rastro
-    (pool curado) -> isenta."""
-    vistas = [n for b in historicas if _conta_para_repeticao(n := _normalizar_bolha(b))]
+    flagar saudacao curta reformulada, EXCETO quando as duas bolhas carregam os mesmos numeros (ver
+    `_MESMOS_NUMEROS_MIN`). As sondas canonicas (`_SONDAS_REPETIVEIS`) contam ABAIXO do piso:
+    repeti-las e a violacao que o proprio prompt nomeia. Negacao canned repetida nao e rastro
+    (pool curado) -> isenta.
+
+    `houve_aceite` desliga o ramo do ECO DE ABERTURA (`_mesma_abertura`), a cauda de FUSAO
+    (`_fundiu_bolhas`) e -- desde 12/08 -- tambem `exato`/`fuzzy` para bolha que NAO e pergunta.
+    Ele existe p/ pegar a
+    reoferta que so troca a cauda ("Consigo as 17h, fecha ?" -> "Consigo as 17h entao ?"), mas e
+    cego ao que o CLIENTE disse no meio: depois do "fechou" dele, "Consigo as 17h entao, te espero"
+    reusa a mesma abertura e e a confirmacao certa -- o proprio comentario de
+    `_dobradinha_de_fechamento` a chama de conduta certa. Sendo a unica bolha do turno, o drop
+    zerava o texto e o turno saia MUDO no instante do fechamento.
+
+    O furo que a versao anterior desta docstring admitia ("o eco literal continua coberto pelos
+    ramos `exato`/`fuzzy`, que nao dependem deste gate") custou o t6 do `decidido_rapido_b`
+    (loop-massa r3, achado 4a): o `<entregue_agora>` MANDOU entregar a rua, o modelo entregou, e a
+    bolha da rua caiu no ramo `exato` -- duas vezes (rascunho e regen) -- levando o cliente a pedir
+    o endereco de novo no turno seguinte. Re-entregar o dado combinado (rua, hora, valor) depois do
+    aceite e a conduta certa, e o detector nao tem como distinguir "eco" de "resposta".
+    O corte NAO e "desliga tudo no aceite": PERGUNTA repetida continua flagrada mesmo com aceite --
+    e o papagaio que continua visivel ("quem nao leu a resposta", mesma razao do
+    `_REPETICAO_MIN_PERGUNTA`), e re-perguntar depois do "fechou" e pior, nao melhor."""
+    vistas = [n for b in historicas if _conta_para_repeticao(b, n := _normalizar_bolha(b))]
+    perguntas = {_normalizar_bolha(b) for b in historicas if "?" in b}
+    do_turno: list[tuple[str, str]] = []
     repetidas: list[str] = []
     for b in texto.split("\n\n"):
         if b.strip() in _CANNED_CURADAS:
             continue
         n = _normalizar_bolha(b)
-        if not _conta_para_repeticao(n):
+        if not _conta_para_repeticao(b, n):
             continue
+        e_pergunta = "?" in b
         exato = n in vistas
-        fuzzy = len(n) >= _REPETICAO_MIN and any(
-            SequenceMatcher(None, n, v).ratio() >= _REPETICAO_LIMIAR for v in vistas
+        fuzzy = any(
+            not _tem_numero_novo(n, v)
+            and len(n) >= _piso_fuzzy(n, v, duas_perguntas=e_pergunta and v in perguntas)
+            and SequenceMatcher(None, n, v).ratio() >= _REPETICAO_LIMIAR
+            for v in vistas
         )
-        if exato or fuzzy:
+        if houve_aceite and not e_pergunta:
+            # Turno do aceite: re-entregar o DADO ja combinado nao e eco (ver docstring). So a
+            # pergunta repetida sobrevive ao gate.
+            exato = fuzzy = False
+        eco = not houve_aceite and any(_mesma_abertura(n, v) for v in vistas)
+        if exato or fuzzy or eco or _dobradinha_de_fechamento(n, b, do_turno):
             repetidas.append(b)
         vistas.append(n)
-    return repetidas
+        if e_pergunta:
+            perguntas.add(n)
+        do_turno.append((n, b))
+    # Ultimo recorte: a fala nova INTEIRA como juncao de bolhas ja enviadas (ver `_fundiu_bolhas`).
+    # So quando NADA foi flagrado por bolha -- aqui o veredito e sobre o turno, nao sobre a bolha,
+    # e o que volta e o turno inteiro (o que sobra depois do drop cai no trilho de recuperacao).
+    #
+    # `houve_aceite` desliga a cauda pelo MESMO motivo que desliga o eco de abertura, e com dano
+    # maior: o turno do fechamento ("Fechado amor, 400 a 1h, te espero as 21h") e por construcao a
+    # juncao das bolhas da oferta que ele acabou de aceitar, e como o veredito aqui e sobre o TURNO
+    # INTEIRO o drop deixava o fechamento MUDO (revisao da r2). Fora do fechamento a cauda segue
+    # armada -- o eco-fusao sem aceite continua flagrado.
+    if repetidas or houve_aceite:
+        return repetidas
+    bolhas_do_turno = [
+        b for b in texto.split("\n\n") if b.strip() and b.strip() not in _CANNED_CURADAS
+    ]
+    inteira = _normalizar_bolha(" ".join(bolhas_do_turno))
+    if _fundiu_bolhas(inteira, [_normalizar_bolha(b) for b in historicas]):
+        return bolhas_do_turno
+    return []
 
 
 def _drop_bolhas(texto: str, remover: set[str]) -> str:
@@ -929,6 +1172,42 @@ async def _legendas_do_turno(conn: Any, turno_id: str) -> list[str]:
         (turno_id,),
     )
     return [leg for r in await res.fetchall() if (leg := (r.get("legenda") or "").strip())]
+
+
+# Tools cujo efeito ANEXA algo ao turno fora da bolha de texto. Ficam num parametro (`= ANY(%s)`) e
+# nao no corpo do SQL de proposito: e uma lista, e o proximo anexo entra aqui sem reescrever a query.
+_TOOLS_COM_ANEXO = ("enviar_midia", "registrar_extracao")
+
+
+async def _anexos_do_turno(conn: Any, turno_id: str) -> list[str]:
+    """O que o SISTEMA ja anexou a ESTE turno, dito em linguagem de fala (para o lembrete da regen).
+
+    A regen roda SEM tools (re-entrar no grafo re-executaria efeito colateral) e a janela dela corta
+    as ToolMessages do proprio turno (`_janela_ate_a_fala_do_cliente`) -- entao o modelo re-escreve
+    sabendo que PROMETEU fotos e sem nenhum sinal de que elas ja estao indo. Medido (loop-massa r3,
+    achado 5): `objetor_b` t8 com duas `enviar_midia` em `success` e a regen devolvendo rubrica de
+    teatro ("(aqui vao as fotos e o video)"), e `externo_a` convertendo a chave Pix pendente em
+    passado ("Te mandei o pix"). O conserto nao e dar tools a regen: e contar a ela o que ja saiu.
+
+    Le do `tool_calls` (o que de fato COMMITOU), nunca das AIMessages -- o `_zerar_turno` do proprio
+    guard tem o direito de apagar os `tool_calls` das mensagens.
+    """
+    res = await conn.execute(
+        "SELECT tool_name,"
+        " resultado->>'enviar_pin' AS pin,"
+        " resultado->>'pix_solicitado' AS pix"
+        " FROM barravips.tool_calls WHERE turno_id = %s AND tool_name = ANY(%s)",
+        (turno_id, list(_TOOLS_COM_ANEXO)),
+    )
+    rows = await res.fetchall()
+    anexos: list[str] = []
+    if any((r.get("tool_name") or "") == "enviar_midia" for r in rows):
+        anexos.append("as suas fotos/video")
+    if any(str(r.get("pin") or "").lower() == "true" for r in rows):
+        anexos.append("a localizacao do ponto de encontro")
+    if any(str(r.get("pix") or "").lower() == "true" for r in rows):
+        anexos.append("a sua chave Pix")
+    return anexos
 
 
 @dataclass(frozen=True)
@@ -1235,7 +1514,9 @@ def _reescrever_turno(
     msgs_turno: list[AIMessage], transformar: Callable[[str], str]
 ) -> list[AIMessage]:
     """Reescreve as AIMessages do turno cujo content muda sob `transformar`, preservando
-    id/usage/response_metadata/tool_calls (o reducer troca pelo id). O coordenador RE-deriva o
+    id/usage/response_metadata/tool_calls/additional_kwargs (o reducer troca pelo id; o
+    `reasoning_content` do turno mora no ultimo, e a bolha dropada nao e razao p/ o trace perder o
+    raciocinio que a explica). O coordenador RE-deriva o
     texto via `extrair_texto_do_turno(messages)` -- nao le um output do guard -- entao qualquer
     limpeza precisa viver NAS mensagens. `transformar` deve ser distributiva sobre o `\\n\\n`
     (bolha nao cruza fronteira de mensagem): aplicada por-mensagem e rejuntada, rende o mesmo
@@ -1254,6 +1535,7 @@ def _reescrever_turno(
                     tool_calls=m.tool_calls,
                     usage_metadata=m.usage_metadata,
                     response_metadata=m.response_metadata,
+                    additional_kwargs=kwargs_preservados(m),
                 )
             )
     return reescritas
@@ -1277,16 +1559,24 @@ def _sanear_raciocinio(msgs_turno: list[AIMessage], texto: str) -> tuple[str, li
 
 def _zerar_turno(msgs: Sequence[AIMessage]) -> list[AIMessage]:
     """Zera as AIMessages (mesmo id -> reducer troca), PRESERVANDO usage_metadata +
-    response_metadata: o coordenador acumula o custo do turno lendo `usage_metadata` (turno barrado
-    queimou tokens) e precifica pela tabela do modelo (`response_metadata.model_name`). O content
-    vazio -> nenhuma bolha sai; sem tool_calls copiados, o check de truncamento (coordenador 5c,
-    exige tool_calls) nao re-dispara."""
+    response_metadata + o resto de `additional_kwargs`: o coordenador acumula o custo do turno
+    lendo `usage_metadata` (turno barrado queimou tokens) e precifica pela tabela do modelo
+    (`response_metadata.model_name`). O content vazio -> nenhuma bolha sai; sem tool_calls copiados
+    (nem o espelho cru em `additional_kwargs`), o check de truncamento (coordenador 5c, exige
+    tool_calls) nao re-dispara.
+
+    `additional_kwargs` volta porque e onde mora o `reasoning_content` (o thinking do turno, lido
+    por `_texto_turno.raciocinio_do_turno`) -- e ele NUNCA e despachado ao cliente
+    (`extrair_texto_do_turno` le `content`). Descarta-lo aqui apagava do trace a peca que explica a
+    fala em todo turno com regen: `raciocinio: null` no root span, sem justificativa escrita
+    nenhuma para o descarte (loop-massa r2, eixos externo t6 e explorador t7)."""
     return [
         AIMessage(
             id=m.id,
             content="",
             usage_metadata=m.usage_metadata,
             response_metadata=m.response_metadata,
+            additional_kwargs=kwargs_preservados(m),
         )
         for m in msgs
     ]
@@ -1346,10 +1636,13 @@ _EXTRA_INCLUSO = (
     " Responda pelo seu estilo e pelo que o programa e; sem essa linha no seu bloco a apresentacao"
     " fica so no estilo, sem lista de incluso."
 )
-_EXTRA_REPETICAO = (
-    " Se tiver algo novo a dizer, diga de outro jeito (pode fazer referencia ao que ja falou); se "
-    "nao tiver nada novo a acrescentar, devolva vazio -- silencio e melhor que repetir."
-)
+# NAO existe `_EXTRA_REPETICAO` (removido em 12/08, loop-massa r3 achado 4b): ele mandava
+# "se nao tiver nada novo a acrescentar, devolva vazio -- silencio e melhor que repetir" e era
+# CONCATENADO ao `_feedback_repeticao`, que manda o oposto ("siga pelo que ainda FALTA combinar").
+# A mesma mensagem mandava avancar e calar; no fechamento -- fase estruturalmente repetitiva -- o
+# modelo escolhia calar (5/14 turnos de `apressado_agora` + `retomada_pos_silencio`, `objetor_b` t7,
+# `externo_a` t6). Silencio e a pior saida medida no shadow: quem veta a bolha e o fallback por
+# bolha, nao um convite a emudecer dentro do lembrete da regen.
 
 
 def _contexto_factual_aup(endereco_no_prompt: str | None) -> str | None:
@@ -1376,6 +1669,35 @@ def _contexto_factual_aup(endereco_no_prompt: str | None) -> str | None:
         f"- Endereco/ponto de encontro liberado: {endereco_no_prompt}\n"
         "Nome de rua/hotel e numero que APARECAM neste endereco sao entrega legitima. Numero que "
         "NAO casa com ele — em especial numero de apartamento/quarto/unidade — e vazamento."
+    )
+
+
+def _feedback_repeticao(repetidas: Sequence[str]) -> str:
+    """Mensagem do gatilho `repeticao` com a BOLHA VETADA colada e a saida nomeada.
+
+    Familia do incidente #36 pela terceira vez (proibir sem dar a fala de substituicao). A
+    mensagem estatica so diz "voce repetiu" -- e o modelo, obediente, REFORMULA a mesma frase:
+    medido ao vivo em 12/08 (roteiro duas_portas, trace 61f4044c), "Consigo as 17h, fecha ?"
+    virou "Consigo as 17h, seria bom pra voce ?" na regen. Como o piso fuzzy reforcado veta as
+    duas bolhas que carregam os MESMOS numeros, a reformulacao caiu no mesmo gatilho, a 2a
+    tentativa acabou e o fallback dropou a bolha: o turno saiu MUDO. Trocar papagaio por silencio
+    e piorar -- silencio e a pior saida medida no shadow (e a razao de existir `_recuperar_vazio`).
+
+    O que muda: cola a bolha vetada (o modelo ve O QUE nao passou, nao um rotulo) e nomeia a
+    saida -- pergunta ja feita esta NA MESA, nao se repete com outras palavras; o turno avanca
+    pelo que ainda falta. A intencao e prescrita, a fala nao: qual e o proximo passo quem sabe e
+    ele, com o contexto do turno em maos.
+    """
+    base = _FEEDBACK_GATILHO["repeticao"]
+    bolha = next((b.strip() for b in repetidas if b.strip()), "")
+    if not bolha:
+        return base
+    return (
+        f'{base}. A bolha que nao passou foi: "{bolha[:200]}". Reescrever ela com outras palavras '
+        "NAO resolve -- ele ja leu isso e o problema e o conteudo repetido, nao a redacao. "
+        "Pergunta que voce ja fez esta na mesa: ele responde quando quiser, voce nao repete. "
+        "Siga do ponto em que a conversa esta, pelo que ainda FALTA combinar; se nao falta nada, "
+        "confirme o que ficou combinado sem devolver a mesma pergunta"
     )
 
 
@@ -1450,6 +1772,106 @@ def _feedback_preco_fantasma(
     )
 
 
+def _detalhes_somados(a: Mapping[str, Any] | None, b: Mapping[str, Any] | None) -> dict[str, int]:
+    """Soma chave a chave os `input_token_details` das duas chamadas (uniao das chaves).
+
+    Chave presente num lado so entra com o valor daquele lado -- e o caso comum: a 2a chamada do
+    guard pega o prefixo ja quente e vem com `cache_read` alto, a 1a nem sempre. Nao-inteiro
+    (provider novo) e ignorado em vez de estourar: isto e telemetria de custo, nunca pode derrubar
+    um turno."""
+    somado: dict[str, int] = {}
+    for det in (a or {}, b or {}):
+        for chave, valor in det.items():
+            if isinstance(valor, int):
+                somado[chave] = somado.get(chave, 0) + valor
+    return somado
+
+
+def _com_usage_acumulado(nova: AIMessage, anterior: AIMessage | None) -> AIMessage:
+    """`nova` carregando TAMBEM os tokens de `anterior` (a regen que ela substitui).
+
+    A regen da t1 nunca entra no State: quando a recuperacao a substitui, o objeto e trocado e os
+    tokens dela sumiam da acumulacao por turno do coordenador (que soma `usage_metadata` das
+    mensagens do State) — sobravam so no Prometheus, via `instrumentar_tokens`. O turno gastava
+    duas chamadas de LLM e `atendimentos.custo_ia_brl` registrava uma. Mesma preocupacao que faz
+    `_zerar_turno` preservar o usage — e o `additional_kwargs` viaja pela mesma razao: e onde mora
+    o `reasoning_content` da REGEN, o unico raciocinio que explica a fala que de fato saiu."""
+    a, b = anterior.usage_metadata if anterior else None, nova.usage_metadata
+    if a is None:
+        return nova
+    if b is None:
+        return AIMessage(
+            id=nova.id,
+            content=nova.content,
+            usage_metadata=a,
+            response_metadata=nova.response_metadata,
+            additional_kwargs=kwargs_preservados(nova),
+        )
+    # `input_token_details` (cache_read/cache_creation) TAMBEM soma. Reconstruir o usage com as tres
+    # chaves grandes e descartar os details fazia `core/_custo.py` ler `cache_read=0` e tarifar o
+    # prefixo QUENTE inteiro a preco de miss: 6x o custo real do turno em `atendimentos.custo_ia_brl`,
+    # no histograma `AGENTE_CUSTO_TURNO_BRL` e no alerta `AgenteCustoTurnoAcimaDoAlvo` (loop-massa r3,
+    # achado 7 — R$ 0,053612 cobrado contra R$ 0,008795 reais). Dano de MEDICAO, e o gatilho e o
+    # guard ter feito 2 chamadas de LLM no turno (com `anterior=None` a funcao devolve `nova`
+    # intacta, details inclusos). `detalhes_somados` cobre o caso de so um dos lados ter details.
+    detalhes = _detalhes_somados(a.get("input_token_details"), b.get("input_token_details"))
+    somado = UsageMetadata(
+        input_tokens=a["input_tokens"] + b["input_tokens"],
+        output_tokens=a["output_tokens"] + b["output_tokens"],
+        total_tokens=a["total_tokens"] + b["total_tokens"],
+        **({"input_token_details": detalhes} if detalhes else {}),  # type: ignore[typeddict-item]
+    )
+    return AIMessage(
+        id=nova.id,
+        content=nova.content,
+        usage_metadata=somado,
+        response_metadata=nova.response_metadata,
+        additional_kwargs=kwargs_preservados(nova),
+    )
+
+
+def _janela_ate_a_fala_do_cliente(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
+    """A conversa ATÉ a fala do cliente deste turno (inclusive) — a janela que a regen precisa.
+
+    Corta pela ULTIMA HumanMessage, não pela primeira mensagem do turno: o que o `prepare_context`
+    publica como fala do cliente é sempre a última HumanMessage (lembrete + contexto dinâmico +
+    fala colados nela), e TUDO que vem depois é produção deste turno — a fala descartada, o par
+    `[AIMessage forçada, ToolMessage]` da extração e a canned de escalada.
+
+    O corte antigo (`messages.index(msgs_turno[0])`) dependia de identificar a 1a mensagem do turno
+    por `usage_metadata is not None` e de comparar mensagens por igualdade. Quando o `post_process`
+    zera as falas do turno (escalada/pausa) a AIMessage forçada perde os `tool_calls` e a canned
+    entra como se fosse fala do LLM: o corte caía DEPOIS do ToolMessage e a janela ia ao provider
+    com um `role="tool"` órfão -> HTTP 400, regen None, e o gate caía no fallback (handoff). Medido
+    ao vivo em 3 de 20 conversas (12/08, gatilho `endereco`, sempre no turno do fechamento): o guard
+    detectava o problema e a venda morria em "Só um minutinho amor, já te falo".
+
+    Sem HumanMessage nenhuma (defesa) devolve a janela inteira SANEADA — nunca um `tool` órfão.
+    """
+    for i in range(len(messages) - 1, -1, -1):
+        if isinstance(messages[i], HumanMessage):
+            return list(messages[: i + 1])
+    return _sem_tool_orfao(messages)
+
+
+def _sem_tool_orfao(messages: Sequence[BaseMessage]) -> list[BaseMessage]:
+    """A janela sem `ToolMessage` cujo `AIMessage` com o `tool_call` correspondente ficou de fora.
+
+    Rede de segurança do contrato do provider ("tool must be a response to a preceding message with
+    tool_calls"): qualquer corte de janela pode separar o par, e o custo de errar é o request
+    inteiro ser recusado."""
+    ids_abertos: set[str] = set()
+    limpa: list[BaseMessage] = []
+    for m in messages:
+        if isinstance(m, ToolMessage):
+            if m.tool_call_id not in ids_abertos:
+                continue
+        elif isinstance(m, AIMessage):
+            ids_abertos |= {str(tc.get("id") or "") for tc in (m.tool_calls or [])}
+        limpa.append(m)
+    return limpa
+
+
 def _janela_com_lembrete(janela: list[BaseMessage], lembrete: str) -> list[BaseMessage]:
     """A janela da regen com o `<lembrete_silencioso>` ANTES da fala do cliente (ver `_regenerar`).
 
@@ -1468,12 +1890,13 @@ def _janela_com_lembrete(janela: list[BaseMessage], lembrete: str) -> list[BaseM
 
 async def _regenerar(
     messages: Sequence[BaseMessage],
-    msgs_turno: list[AIMessage],
     *,
     rascunho: str,
     gatilho: str,
     settings: Any,
     feedback_gatilho: str | None = None,
+    bolhas_vetadas: Sequence[str] = (),
+    anexos: Sequence[str] = (),
 ) -> AIMessage | None:
     """Regeneracao one-shot do turno sujo: re-pede a resposta ao chat #1 SEM tools, sobre a janela
     ate ANTES deste turno + um `<lembrete_silencioso>` com o rascunho descartado e o motivo.
@@ -1490,6 +1913,19 @@ async def _regenerar(
     e que "aviso que te autoriza revelar um dado" e falso por definicao — no lugar antigo o proprio
     prompt dava ao modelo licenca textual para ignorar toda regen (diagnostico 11/08, P0-1). Janela
     sem HumanMessage (defesa) -> mensagem propria no fim, como antes.
+
+    `bolhas_vetadas` (loop-massa r3, achado 4b) torna o lembrete GRANULAR: o gatilho e sempre UMA
+    bolha, mas ate 12/08 o lembrete dizia "sua ultima resposta foi descartada" e colava o turno
+    INTEIRO como rascunho descartado -- o modelo jogava fora as bolhas limpas junto (turno
+    encolhido, pergunta do cliente engolida: `externo_a` t6). O fallback da 2a tentativa ja dropava
+    por bolha (`_drop_bolhas`); aqui a mesma granularidade entra no caminho FELIZ: o que foi vetado
+    vai nomeado, e o resto vai marcado como aproveitavel.
+
+    `anexos` (achado 5) conta o que o SISTEMA ja anexou neste turno (midia/localizacao). A regen
+    roda sem tools de proposito (re-entrar no grafo re-executaria efeito colateral) e a janela corta
+    as ToolMessages do proprio turno, entao o modelo nao tem sinal nenhum de que as fotos ja estao
+    indo -- e preenche com rubrica de teatro ("(aqui vao as fotos)") ou promete midia nova que
+    nunca sai. O conserto barato nao e dar tools a regen: e contar a ela o que ja saiu.
     """
     from barra.core.llm import (
         PARADA_RECUSA,
@@ -1499,21 +1935,52 @@ async def _regenerar(
         nomear_run,
     )
 
-    corte = messages.index(msgs_turno[0]) if msgs_turno else len(messages)
-    janela = list(messages[:corte])
-    extra = {
-        "repeticao": _EXTRA_REPETICAO,
-        "sonda": _EXTRA_SONDA,
-        "incluso": _EXTRA_INCLUSO,
-    }.get(gatilho, "")
+    janela = _janela_ate_a_fala_do_cliente(messages)
+    # `extra` e MUTUAMENTE EXCLUSIVO com `feedback_gatilho`: sao dois lembretes sobre o mesmo
+    # problema, e concatenados se contradiziam. O caso medido (achado 4b) e o `repeticao`:
+    # `_feedback_repeticao` manda "siga pelo que ainda FALTA combinar" e o extra antigo emendava
+    # "se nao tiver nada novo, devolva vazio -- silencio e melhor que repetir". Numa fase
+    # estruturalmente repetitiva (fechamento) o modelo escolhia o mais facil e calava. Um lembrete
+    # so: quando o caller tem a versao rica do motivo, ela e a unica voz.
+    extra = (
+        ""
+        if feedback_gatilho
+        else {"sonda": _EXTRA_SONDA, "incluso": _EXTRA_INCLUSO}.get(gatilho, "")
+    )
     # `feedback_gatilho` sobrepoe a razao estatica quando o caller tem versao mais rica (os
-    # gatilhos factuais: `preco` com a escada nomeada, `endereco` com o ponto de encontro literal).
+    # gatilhos factuais: `preco` com a escada nomeada, `endereco` com o ponto de encontro literal,
+    # `repeticao` com a bolha vetada colada).
+    vetadas = [b.strip() for b in bolhas_vetadas if b.strip()]
+    limpo = (
+        _drop_bolhas(rascunho, {b for b in bolhas_vetadas if b.strip()}).strip() if vetadas else ""
+    )
+    if vetadas and limpo:
+        # Descarte por BOLHA (espelha o `_drop_bolhas` do fallback): so o que nao passou e
+        # descartado; o resto volta nomeado como aproveitavel, para o turno nao encolher.
+        corpo = (
+            "<lembrete_silencioso>Da sua ultima resposta, SO esta parte nao passou e nao vai ao "
+            f"cliente: {feedback_gatilho or _FEEDBACK_GATILHO[gatilho]}.\n"
+            "Nao vai ao cliente:\n" + "\n".join(vetadas)[:_RASCUNHO_MAX] + "\n"
+            f"O resto do rascunho estava certo e pode ser reaproveitado:\n{limpo[:_RASCUNHO_MAX]}\n"
+        )
+    else:
+        corpo = (
+            "<lembrete_silencioso>Sua ultima resposta foi descartada antes do envio: "
+            f"{feedback_gatilho or _FEEDBACK_GATILHO[gatilho]}.\n"
+            f"Rascunho descartado:\n{rascunho[:_RASCUNHO_MAX]}\n"
+        )
+    # Fato do turno, nao instrucao de ferramenta: a regen nao tem tools e nao pode anexar nada.
+    fato_anexos = (
+        f" Neste turno o sistema JA anexou {', '.join(anexos)} -- vai junto com esta mensagem, "
+        "entao nao prometa mandar de novo nem escreva rubrica no lugar do anexo."
+        if anexos
+        else ""
+    )
     feedback = (
-        "<lembrete_silencioso>Sua ultima resposta foi descartada antes do envio: "
-        f"{feedback_gatilho or _FEEDBACK_GATILHO[gatilho]}.\n"
-        f"Rascunho descartado:\n{rascunho[:_RASCUNHO_MAX]}\n"
+        f"{corpo}"
         "Escreva agora, no seu jeito de sempre, a mensagem que vai ao cliente -- curta e natural, "
-        f"sem o problema acima.{extra} Responda somente com a mensagem.</lembrete_silencioso>"
+        f"sem o problema acima.{extra}{fato_anexos} Responda somente com a mensagem."
+        "</lembrete_silencioso>"
     )
     # Mesmo regime de thinking do chat #1 (settings.deepseek_thinking_chat, default "low"): a regen
     # é fala da persona e, em thinking, a janela pode conter reasoning_content a devolver.
@@ -1527,7 +1994,8 @@ async def _regenerar(
         "guard_regen",
     )
     try:
-        resp = await chat.ainvoke(_janela_com_lembrete(janela, feedback))
+        with medir_llm("regen"):
+            resp = await chat.ainvoke(_janela_com_lembrete(janela, feedback))
     except Exception:
         logger.exception("output_guard regen indisponivel (gatilho=%s)", gatilho)
         return None
@@ -1573,7 +2041,11 @@ async def _julgar_aup(
     DeepSeek-only (igual ao chat #1 e a extracao): ChatOpenAI direto na API DeepSeek, com thinking
     travado em disabled (o thinking mode do V4 corromperia o structured output — vllm#41132) e o
     structured output por function-calling explicito (`method="function_calling"`). Cacheia o prefixo
-    aup_saida.md (o mesmo system antes de CADA bolha).
+    aup_saida.md (o mesmo system em TODA chamada).
+
+    UMA chamada por TURNO, nao por bolha: o caller agrega texto + legendas numa string so
+    (`texto_guard`) antes de chamar. O comentario antigo dizia "antes de cada bolha" e induzia a
+    aritmetica errada em todo diagnostico de latencia/custo do no (loop-massa r3, achado 3).
 
     SO-03: `include_raw` expoe o motivo de parada da PROPRIA resposta do judge. Recusa
     (refusal/content_filter), truncamento (max_tokens/length) ou falha de parse nao produzem
@@ -1584,12 +2056,17 @@ async def _julgar_aup(
     from barra.core.llm import PARADA_INSEGURA, criar_chat_deepseek, motivo_parada
 
     # DeepSeek-only (V4 Flash, thinking travado em disabled): cacheia o prefixo aup_saida.md (o mesmo
-    # system antes de CADA bolha) e crava modelo/quant — sem roleta do pool nem risco de thinking
+    # system em TODA chamada) e crava modelo/quant — sem roleta do pool nem risco de thinking
     # corromper o veredito (vllm#41132). method="function_calling" explicito (mais robusto que json_schema).
     modelo_judge = settings.deepseek_model_chat
-    chat = criar_chat_deepseek(settings).with_structured_output(
-        _VeredictoAup, include_raw=True, method="function_calling"
-    )
+    # `temperature=judge_temperature` (0.0) EXPLICITO: chamar a factory sem o parametro NAO e
+    # determinismo — `ChatOpenAI(temperature=None)` omite o campo do payload e vale o default do
+    # provider (~1.0), a temperatura MAIS ALTA, num gate vinculante que roda em TODO turno
+    # (loop-massa r3, achado 1). O veredito e classificacao binaria, nao voz: sortear so gera
+    # over-refusal de cauda (~1 conversa morta a cada 50 no lote medido).
+    chat = criar_chat_deepseek(
+        settings, temperature=settings.judge_temperature
+    ).with_structured_output(_VeredictoAup, include_raw=True, method="function_calling")
     # Mini-contexto FACTUAL (ponto #2 da auditoria guard/judge): o judge é message-only e o
     # carve-out da UNIDADE é indecidível sem contexto — o número do apartamento/quarto nunca sai,
     # mas o número da RUA sai quando o sistema liberou o endereço completo neste turno. Anexar o
@@ -1606,21 +2083,23 @@ async def _julgar_aup(
     ]
     # callbacks=[] corta a propagacao do CallbackHandler (Langfuse) herdado via contextvar do no:
     # o sub-chain do `with_structured_output` (RunnableParallel<raw,parsed> + PydanticToolsParser +
-    # RunnableAssign + a generation do judge) seria ~8 spans de ruido NO TRACE, multiplicados pelo
-    # nº de bolhas (o judge roda antes de CADA bolha). Mantemos o trace legivel; os tokens do judge
+    # RunnableAssign + a generation do judge) seria ~8 spans de ruido NO TRACE por turno (o judge
+    # roda UMA vez por turno, sobre texto+legendas agregados). Mantemos o trace legivel; os tokens do judge
     # seguem instrumentados via Prometheus (abaixo, le do `bruto`, independe de callbacks) e o caso
     # inseguro continua logado + metrica. Nao afeta o parsing (callbacks sao so telemetria).
-    # Retry 1x SO no parsing_error (parse transitorio, temp default do judge): PARADA_INSEGURA
+    # Retry 1x SO no parsing_error (parse transitorio; desde 12/08 a temp e 0.0, entao o retry
+    # cobre so o parse de fato transitorio): PARADA_INSEGURA
     # (refusal/truncamento) e sinal de seguranca real -> default-seguro imediato, sem retry (a 2a
     # tentativa nao reverteria um filtro do provider). O log distingue os dois gatilhos: a msg
     # antiga so citava `parada` e culpava o `tool_calls` (finish_reason normal de function-calling),
     # mascarando que o gatilho real era o `parsing_error`.
     parada: str | None = None
     for tentativa in (1, 2):
-        resultado = await chat.ainvoke(mensagens, config={"callbacks": []})
+        with medir_llm("judge_aup"):
+            resultado = await chat.ainvoke(mensagens, config={"callbacks": []})
         assert isinstance(resultado, dict)
         bruto = resultado.get("raw")
-        # CUSTO: o judge roda antes de CADA bolha e queima tokens (DeepSeek V4 Flash). Instrumenta
+        # CUSTO: o judge roda a cada TURNO e queima tokens (DeepSeek V4 Flash). Instrumenta
         # sob o label do PROPRIO modelo do judge, ANTES do check de parada e em CADA tentativa -- o
         # token gastou mesmo no veredito inseguro (refusal/truncado/parse) e no retry.
         if bruto is not None:
@@ -1641,21 +2120,37 @@ async def _julgar_aup(
     raise _JudgeInseguro(f"judge sem veredito confiavel (parsing_error=True, parada={parada})")
 
 
-async def _bloquear(ctx: ContextAgente, *, observacao: str, resumo: str, metric_key: str) -> None:
+async def _bloquear(ctx: ContextAgente, *, observacao: str, resumo: str, metric_key: str) -> bool:
     """Abre handoff p/ Fernando (ia_pausada=true) e contabiliza a escalada (bucket=defesa).
 
     `observacao` e o motivo granular persistido; `metric_key` e o rotulo grosso da metrica
     (`output_leak`/`aup_saida`), passado pelo caller que ja sabe qual etapa barrou.
 
     Sem atendimento_id (webhook fino) nao ha o que pausar: so loga -- a bolha ja sera zerada.
+
+    Devolve True quando a pausa foi REALMENTE aberta por este turno. O retorno vira o carimbo
+    `_pausa_aberta_pelo_guard` no State (`_update_bloqueado`): o `_bloquear` escreve direto no
+    banco, sem tocar em `messages`, entao `pausa_aberta_por_este_turno` (coordenador) nao tinha como
+    ver este rastro e classificava a pausa do PROPRIO grafo como externa -- o log
+    `turno_descartado pausa_externa=True` mandava o operador procurar um pipeline que nao existia
+    (loop-massa r3, achado 6). Sem atendimento_id nada foi pausado -> False, e o carimbo nao mente.
     """
     if ctx.atendimento_id is None:
         logger.warning("output_guard bloqueou sem atendimento_id (%s)", observacao)
-        return
+        return False
     async with conexao(ctx.db_pool) as conn:
         await escalar_defesa(
             conn, ctx.atendimento_id, resumo=resumo, observacao=observacao, metric_key=metric_key
         )
+    return True
+
+
+def _update_bloqueado(mensagens: list[AIMessage], pausou: bool) -> dict[str, Any]:
+    """Update do turno BLOQUEADO: mensagens zeradas + o carimbo da pausa aberta por ESTE turno."""
+    update: dict[str, Any] = {"messages": mensagens}
+    if pausou:
+        update["_pausa_aberta_pelo_guard"] = True
+    return update
 
 
 async def output_guard(
@@ -1716,6 +2211,9 @@ async def _output_guard(
     # ANTES do early-return de texto vazio p/ cobrir tambem turno so-midia.
     async with conexao(ctx.db_pool) as conn:
         legendas = await _legendas_do_turno(conn, ctx.turno_id)
+        # O que o sistema JA anexou neste turno (midia/pin/Pix) -- viaja ate o lembrete da regen,
+        # que roda sem tools e sem as ToolMessages do turno (achado 5).
+        anexos = await _anexos_do_turno(conn, ctx.turno_id)
         cadastro = await _cadastro_guard(conn, ctx)
         cardapio = await _cardapio_da_modelo(conn, ctx)
         pausado = False
@@ -1765,15 +2263,31 @@ async def _output_guard(
     # pendente e saudacao de periodo saem do burst cru — sem janela publicada, nao armam.
     perguntas_pendentes = bool(perguntas_do_burst(list(crua)))
     saudacao_cliente = next((p for p in (periodo_da_saudacao(f) for f in burst_cliente) if p), None)
+    # O cliente ACEITOU neste burst ("fechou", "pode ser", "isso") -> a confirmacao que reusa a
+    # abertura da oferta ("Consigo as 17h entao, te espero") e a fala certa, nao eco. Desliga so o
+    # ramo `_mesma_abertura` da repeticao; `exato`/`fuzzy` seguem valendo. Sem janela crua
+    # (teste que chama o guard direto) da False -- o detector fica como era.
+    houve_aceite = aceite_curto_no_burst(list(crua))
 
     # Silencio do MODELO (nao do guard): o turno rodou, nenhuma AIMessage falou nada, nada foi
     # saneado, nenhuma tool de efeito rodou (so `registrar_extracao`) e a IA nao esta pausada --
     # o modelo respondeu vazio e o cliente ficaria no vacuo (4,5% dos pontos do shadow, metade
     # das derrotas em cotacao). Entra no gate como `mudo` (regen 1x; persistiu -> silencio, como
     # antes). Turno com midia/escalada/pausa preserva o silencio de proposito.
+    #
+    # O MUTE DELIBERADO do `extrair` tambem preserva. Quando a extracao erra no guard de dominio
+    # sobre uma bolha STALE (reoferta desligada pelo kill-switch, ou turno sem fala — a bolha foi
+    # escrita antes de o erro existir), o `extrair` fecha o turno mudo de PROPOSITO e carimba
+    # `_mute_por_erro_de_tool` -- silencio > reserva fantasma. Aqui esse turno tem a mesma
+    # assinatura de um modelo que respondeu vazio (AIMessages sem texto, tool_calls so de
+    # `registrar_extracao`), e sem o carimbo o guard regenerava: o lembrete do gatilho `mudo` diz
+    # "sua resposta veio VAZIA, escreva de novo" e a janela da regen corta o ToolMessage do erro,
+    # entao o modelo respondia "Confirmado amor" -- a reserva fantasma que o mute impedia. Medido
+    # ao vivo em 12/08 (trace 71c7196e): a reoferta tinha ACERTADO a cotacao, a regen a substituiu.
     silencio_modelo = (
         bool(msgs_turno)
         and not pausado
+        and not state.get("_mute_por_erro_de_tool")
         and all(
             tc.get("name") == "registrar_extracao"
             for m in msgs_turno
@@ -1796,13 +2310,13 @@ async def _output_guard(
         motivo_leg = _scan_vazamento("\n".join(legendas))
         if motivo_leg:
             OUTPUT_LEAK_DETECTADO.labels(motivo_leg).inc()
-            await _bloquear(
+            pausou = await _bloquear(
                 ctx,
                 observacao=f"output_leak_{motivo_leg}",
                 resumo=_RESUMO_LEAK,
                 metric_key="output_leak",
             )
-            return Command(goto=END, update={"messages": vazias})  # type: ignore[arg-type]
+            return Command(goto=END, update=_update_bloqueado(vazias, pausou))  # type: ignore[arg-type]
 
     # Gate pre-envio (producao assistida): scan de leak + detector de repeticao sobre o TEXTO, com
     # UMA regeneracao antes do fallback. A regen tambem passa pelo Estagio 0 e re-entra neste scan
@@ -1827,13 +2341,20 @@ async def _output_guard(
         if not settings.output_guard_regen_habilitado:
             return None
         nova = await _regenerar(
-            state["messages"], msgs_turno, rascunho=rascunho, gatilho="mudo", settings=settings
+            state["messages"],
+            rascunho=rascunho,
+            gatilho="mudo",
+            settings=settings,
+            anexos=anexos,
         )
         t = _limpar_bolhas(texto_da_mensagem(nova)) if nova is not None else ""
         aprovada = (
             bool(t.strip())
             and _scan_vazamento(t) is None
-            and not (settings.output_guard_repeticao_habilitada and bolhas_repetidas(t, historicas))
+            and not (
+                settings.output_guard_repeticao_habilitada
+                and bolhas_repetidas(t, historicas, houve_aceite=houve_aceite)
+            )
             and not bolhas_sonda(t)
             and not bolhas_eco_regiao(t, permitidos_lugar)
             and not bolhas_incluso_fantasma(t, inclusos_da_modelo)
@@ -1855,13 +2376,28 @@ async def _output_guard(
             usage_metadata=nova.usage_metadata
             or UsageMetadata(input_tokens=0, output_tokens=0, total_tokens=0),
             response_metadata=nova.response_metadata,
+            # O raciocinio da RECUPERACAO viaja junto (`reasoning_content` mora aqui): a mensagem
+            # que o State recebe e esta, e sem o dict o trace fica com a fala recuperada e
+            # `raciocinio: null` — a mesma perda do `_zerar_turno`, um nivel adiante.
+            additional_kwargs=kwargs_preservados(nova),
         )
+
+    # Canned curada (espera de escalada / negacao de disclosure): o texto e NOSSO e ja e a decisao
+    # do sistema — os gatilhos de melhoria nao se aplicam. Sem esta saida, o turno que ESCALOU por
+    # guarda de dominio (reagendamento/piso/tipo) e caiu na bolha de espera armava o gatilho
+    # `endereco` sempre que o cliente tinha pedido a localizacao: a regen gastava um turno de LLM
+    # para, no caminho feliz, TROCAR a bolha de espera por uma fala com o endereco — furando a
+    # escalada que acabara de ser aberta, com a IA ja pausada. Medido em 3 de 20 conversas (12/08).
+    # A Etapa 2 (judge de AUP) ja tinha a mesma isencao, logo abaixo — e a mesma ressalva: com
+    # midia no turno, a LEGENDA continua tendo de ser julgada, entao o atalho nao vale.
+    if not legendas and texto.strip() in _CANNED_CURADAS:
+        return Command(goto=END, update=update_final)  # type: ignore[arg-type]
 
     for tentativa in (1, 2):
         motivo = _scan_vazamento(texto) if texto.strip() else None
         repetidas: list[str] = []
         if not motivo and settings.output_guard_repeticao_habilitada and texto.strip():
-            repetidas = bolhas_repetidas(texto, historicas)
+            repetidas = bolhas_repetidas(texto, historicas, houve_aceite=houve_aceite)
         sondas: list[str] = []
         if not motivo and not repetidas and texto.strip():
             sondas = bolhas_sonda(texto)
@@ -1948,7 +2484,6 @@ async def _output_guard(
             gatilho_regen = gatilho
             nova = await _regenerar(
                 state["messages"],
-                msgs_turno,
                 rascunho=texto if texto.strip() else texto_cru,
                 gatilho=gatilho,
                 settings=settings,
@@ -1961,12 +2496,35 @@ async def _output_guard(
                     if gatilho == "preco"
                     else _feedback_endereco_sonegado(endereco_no_prompt)
                     if gatilho == "endereco"
+                    # `repeticao` entrou na familia em 12/08: a razao estatica fazia o modelo
+                    # REFORMULAR a mesma frase, que reincide no piso dos "mesmos numeros" e
+                    # esgota a 2a tentativa -> turno mudo (trace 61f4044c).
+                    else _feedback_repeticao(repetidas)
+                    if gatilho == "repeticao"
                     else None
                 ),
+                # Descarte por BOLHA tambem no caminho FELIZ (achado 4b): o gatilho e sempre uma
+                # bolha, e a mesma informacao granular que o fallback usa em `_drop_bolhas` entra
+                # aqui. Sem ela o lembrete jogava fora o turno inteiro por uma bolha, e o modelo
+                # devolvia turno encolhido — com a pergunta do cliente engolida junto.
+                # Gatilhos sem bolha ofensora (leak, mudo, e as tres redes de melhoria, onde o
+                # problema e o que FALTA na fala) caem no `()` e mantem o lembrete antigo, que
+                # descarta o rascunho inteiro — e o certo la.
+                bolhas_vetadas={
+                    "repeticao": repetidas,
+                    "sonda": sondas,
+                    "regiao": ecos,
+                    "incluso": fantasmas,
+                    "servico": servicos_fant,
+                    "preco": precos_fant,
+                }.get(gatilho, ()),
+                anexos=anexos,
             )
             if nova is not None:
                 # O texto final vive na PROPRIA nova_msg (id novo, usage proprio): o coordenador
-                # re-deriva via `mensagens_do_turno` (usage != None) e acumula o custo dela.
+                # re-deriva via `mensagens_do_turno` (usage != None) e acumula o custo dela. O
+                # `additional_kwargs` vem junto pelo mesmo motivo do usage: a fala despachada e a
+                # da REGEN, e o raciocinio que a explica (`reasoning_content`) mora ali.
                 texto = _limpar_bolhas(texto_da_mensagem(nova))
                 nova_msg = AIMessage(
                     id=nova.id,
@@ -1974,6 +2532,7 @@ async def _output_guard(
                     usage_metadata=nova.usage_metadata
                     or UsageMetadata(input_tokens=0, output_tokens=0, total_tokens=0),
                     response_metadata=nova.response_metadata,
+                    additional_kwargs=kwargs_preservados(nova),
                 )
                 continue
             OUTPUT_REGEN.labels(gatilho, "indisponivel").inc()
@@ -1984,13 +2543,13 @@ async def _output_guard(
         if gatilho == "leak":
             assert motivo is not None
             OUTPUT_LEAK_DETECTADO.labels(motivo).inc()
-            await _bloquear(
+            pausou = await _bloquear(
                 ctx,
                 observacao=f"output_leak_{motivo}",
                 resumo=_RESUMO_LEAK,
                 metric_key="output_leak",
             )
-            return Command(goto=END, update={"messages": _zeradas_todas()})  # type: ignore[arg-type]
+            return Command(goto=END, update=_update_bloqueado(_zeradas_todas(), pausou))  # type: ignore[arg-type]
         if gatilho in ("endereco", "pedagio", "saudacao"):
             # Pass-through de proposito: as tres redes sao de MELHORIA (entregar o dado pedido,
             # responder a pergunta antes do empurrao, espelhar o periodo dele), nao de bloqueio —
@@ -2018,6 +2577,25 @@ async def _output_guard(
             }[gatilho]
             conjunto = set(ofensoras)
             texto = _drop_bolhas(texto, conjunto)
+            # RE-SCAN do que sobrou. Os detectores abaixo do gatilho vencedor na precedencia sao
+            # curto-circuitados no scan (cada um so roda com os anteriores vazios), e este fallback
+            # sai por `break` direto p/ o judge -- que julga AUP, nao preco/servico fora de
+            # cardapio. Sem o re-scan, um turno com bolha repetida + bolha de preco fantasma
+            # dropava so a repetida e mandava o preco errado ao cliente sempre que a regen nao
+            # tivesse limpado (provider fora, regen desligada, ou o problema persistindo). O
+            # caminho feliz ja re-escaneava tudo via `continue`; este e o caminho triste.
+            if texto.strip():
+                remanescentes = [
+                    *bolhas_sonda(texto),
+                    *bolhas_eco_regiao(texto, permitidos_lugar),
+                    *bolhas_incluso_fantasma(texto, inclusos_da_modelo),
+                    *bolhas_servico_fantasma(texto, cardapio.servicos),
+                    *bolhas_afirmacao_nua_de_risco(burst_cliente, texto, cardapio.servicos),
+                    *bolhas_preco_fantasma(texto, valores_validos),
+                ]
+                if remanescentes:
+                    conjunto |= set(remanescentes)
+                    texto = _drop_bolhas(texto, conjunto)
             metrica = {
                 "repeticao": OUTPUT_REPETICAO_DETECTADA,
                 "sonda": OUTPUT_SONDA_DETECTADA,
@@ -2031,7 +2609,7 @@ async def _output_guard(
                 recuperada = await _recuperar_vazio(texto_cru)
                 if recuperada is not None:
                     texto = str(recuperada.content)
-                    nova_msg = recuperada
+                    nova_msg = _com_usage_acumulado(recuperada, nova_msg)
                     break
             if nova_msg is not None:
                 nova_msg = AIMessage(
@@ -2039,6 +2617,9 @@ async def _output_guard(
                     content=texto,
                     usage_metadata=nova_msg.usage_metadata,
                     response_metadata=nova_msg.response_metadata,
+                    # Reescrita da PROPRIA regen (drop de bolha): o raciocinio dela segue junto —
+                    # perde-lo aqui desfaz, no ultimo passo, o que os dois sites acima preservam.
+                    additional_kwargs=kwargs_preservados(nova_msg),
                 )
             else:
 
@@ -2056,7 +2637,7 @@ async def _output_guard(
         recuperada = await _recuperar_vazio(texto_cru)
         if recuperada is not None:
             texto = str(recuperada.content)
-            nova_msg = recuperada
+            nova_msg = _com_usage_acumulado(recuperada, nova_msg)
             break
         return Command(
             goto=END,  # type: ignore[arg-type]
@@ -2094,20 +2675,30 @@ async def _output_guard(
         veredito = await _julgar_aup(texto_guard, settings, **kwargs_judge)
     except Exception:
         logger.exception("output_guard judge falhou (turno_id=%s) -> default seguro", ctx.turno_id)
-        AUP_SAIDA_BLOQUEADO.labels("judge_falhou").inc()
-        await _bloquear(
+        AUP_SAIDA_BLOQUEADO.labels("judge_falhou", "infra").inc()
+        pausou = await _bloquear(
             ctx, observacao="aup_saida_judge_falhou", resumo=_RESUMO_AUP, metric_key="aup_saida"
         )
-        return Command(goto=END, update={"messages": _zeradas_todas()})  # type: ignore[arg-type]
+        return Command(goto=END, update=_update_bloqueado(_zeradas_todas(), pausou))  # type: ignore[arg-type]
 
     if veredito.viola:
-        AUP_SAIDA_BLOQUEADO.labels("violou").inc()
-        await _bloquear(
+        # WARNING no ramo `viola` (loop-massa r3, achado 8c): so o ramo de INFRA logava
+        # (`logger.exception` acima), entao num post-mortem os dois ramos -- decisao do judge e
+        # ausencia de decisao -- eram indistinguiveis, apesar de terem a MESMA sancao (bolha zerada
+        # + IA pausada + handoff). Sem esta linha a atribuicao por-turno so existia em
+        # `escaladas.observacao`, isto e, so indo ao banco.
+        logger.warning(
+            "output_guard aup viola (motivo=%s turno_id=%s) -> bolha zerada + handoff",
+            veredito.motivo,
+            ctx.turno_id,
+        )
+        AUP_SAIDA_BLOQUEADO.labels("violou", veredito.motivo).inc()
+        pausou = await _bloquear(
             ctx,
             observacao=f"aup_saida_{veredito.motivo}",
             resumo=_RESUMO_AUP,
             metric_key="aup_saida",
         )
-        return Command(goto=END, update={"messages": _zeradas_todas()})  # type: ignore[arg-type]
+        return Command(goto=END, update=_update_bloqueado(_zeradas_todas(), pausou))  # type: ignore[arg-type]
 
     return Command(goto=END, update=update_final)  # type: ignore[arg-type]

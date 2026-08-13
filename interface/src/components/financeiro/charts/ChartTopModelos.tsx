@@ -70,7 +70,7 @@ export function ChartTopModelos({ itens, onSelecionarModelo }: Props) {
       hint={`${linhas.length} ${linhas.length === 1 ? "modelo" : "modelos"} · ordenado por bruto`}
       legenda={
         <div className="flex items-center gap-3 text-[11px] text-text-secondary">
-          <LegendaItem cor="var(--gold-500)" rotulo="Líquido" />
+          <LegendaItem cor="var(--chart-1)" rotulo="Líquido" />
           <LegendaItem cor="var(--chart-2)" rotulo="Repasse" />
         </div>
       }
@@ -98,7 +98,7 @@ export function ChartTopModelos({ itens, onSelecionarModelo }: Props) {
               interval={0}
             />
             <RechartsTooltip
-              cursor={{ fill: "var(--ink-200)", fillOpacity: 0.4 }}
+              cursor={{ fill: "var(--surface-hover)", fillOpacity: 0.4 }}
               wrapperStyle={{ outline: "none" }}
               content={<TooltipTopModelo />}
             />
@@ -106,7 +106,7 @@ export function ChartTopModelos({ itens, onSelecionarModelo }: Props) {
               dataKey="liquido"
               stackId="bruto"
               name="Líquido"
-              fill="var(--gold-500)"
+              fill="var(--chart-1)"
               isAnimationActive={false}
               onClick={(d: { payload?: Linha }) => {
                 if (onSelecionarModelo && d?.payload?.modelo_id) {
@@ -151,7 +151,7 @@ export function ChartTopModelos({ itens, onSelecionarModelo }: Props) {
   )
 }
 
-// A modelo #1 fica em gold-500 cheio; demais decrescem em opacidade até 0.55.
+// A modelo #1 fica em --chart-1 cheio; demais decrescem em opacidade até 0.55.
 // Mantém a hierarquia visual sem trocar a categoria cromática.
 function escala(idx: number, total: number): number {
   if (total <= 1) return 1
@@ -171,7 +171,7 @@ function TooltipTopModelo({
   if (!active || !payload?.length) return null
   const p = payload[0].payload
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-lg shadow-black/40">
+    <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-elev-2">
       <div className="mb-1 font-medium text-text-primary">{p.modelo_nome}</div>
       <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5">
         <dt className="text-text-muted">Bruto</dt>
@@ -179,8 +179,8 @@ function TooltipTopModelo({
           {formatBRL(p.bruto)}{" "}
           <span className="text-[10px] text-text-muted">({p.pctDoTotal.toFixed(1)}%)</span>
         </dd>
-        <dt className="text-gold-700">Líquido</dt>
-        <dd className="text-right font-mono tabular-nums text-gold-700">{formatBRL(p.liquido)}</dd>
+        <dt className="text-text-brand">Líquido</dt>
+        <dd className="text-right font-mono tabular-nums text-text-brand">{formatBRL(p.liquido)}</dd>
         <dt style={{ color: "var(--chart-2)" }}>Repasse</dt>
         <dd className="text-right font-mono tabular-nums" style={{ color: "var(--chart-2)" }}>
           {formatBRL(p.repasse)}

@@ -82,10 +82,55 @@ FLUXO_DRIFT = Counter(
 )
 
 # Metricas do agente LangGraph (ver docs/agente/08-evals.md)
+
+# Buckets de latencia dos caminhos LENTOS do agente (turno, no do grafo, chamada de LLM). Sao
+# EXPLICITOS porque o default do prometheus_client termina em 10s: com todo turno acima disso
+# caindo no +Inf, `histogram_quantile` devolve o ultimo bucket FINITO e o p95/p99 saturava em 10s.
+# Na pratica isso tornava os dois alertas de latencia (`AgenteLatenciaTurnoP95Alta` > 20s e
+# `AgenteLatenciaTurnoP99Alta` > 40s, infra/monitoring/alert.rules.yml) impossiveis de disparar --
+# um turno de 41,7s (pior caso medido no roteiro de 12/08) era reportado como 10s. O topo vai a
+# 120s de proposito: o teto de 60s do `asyncio.wait_for` cobre so o `graph.ainvoke`, e o turno
+# medido aqui inclui transcricao de audio e drain, que passam disso.
+_BUCKETS_LATENCIA_TURNO = (0.5, 1, 2, 5, 10, 15, 20, 30, 45, 60, 90, 120, float("inf"))
+
 AGENTE_TURNO_DURACAO = Histogram(
     "agente_turno_duracao_seconds",
     "Duracao por turno (p50/p95/p99); split por tipo_turno p/ nao misturar texto e audio-Whisper (E5)",
     ["modelo", "tipo_turno"],
+    buckets=_BUCKETS_LATENCIA_TURNO,
+)
+# Latencia POR NO do grafo. O turno inteiro ja era medido; o que faltava era saber ONDE o tempo
+# vai -- se os 41,7s do pior caso foram prepare_context, um round-trip llm<->tools, a extracao
+# forcada ou o judge de AUP. Sem este corte, a unica alavanca contra o teto de 60s e adivinhacao.
+AGENTE_NO_DURACAO = Histogram(
+    "agente_no_duracao_seconds",
+    "Duracao de cada no do grafo LangGraph (prepare_context|intercept_disclosure|llm|tools|"
+    "extrair|post_process|output_guard)",
+    ["no"],
+    buckets=_BUCKETS_LATENCIA_TURNO,
+)
+# Latencia por CAMINHO de LLM. Os tres caminhos (chat #1, extracao forcada barata, judge de AUP)
+# rodam o MESMO modelo -- entao a label `modelo` de AGENTE_TURNO_TOKENS nao os separa e o custo de
+# cada um era indistinguivel em Prometheus (so no Langfuse, via `nomear_run`). Isto e o que permite
+# responder "o thinking=low se paga?" sem abrir trace a trace: o p95 do chat e o que o cliente
+# espera; o do judge e imposto fixo sobre TODA bolha.
+AGENTE_LLM_DURACAO = Histogram(
+    "agente_llm_duracao_seconds",
+    "Duracao de UMA chamada de LLM, por caminho "
+    "(chat|extracao|extracao_retry|judge_aup|judge_pos_envio|regen)",
+    ["caminho"],
+    buckets=_BUCKETS_LATENCIA_TURNO,
+)
+# Fingerprint do build que de fato respondeu. O DeepSeek NAO oferece snapshot pinavel -- a API
+# aceita so os aliases moveis `deepseek-v4-flash`/`-pro` (sondado em 12/08: `-0731` e `-latest`
+# sao rejeitados), e o provider ja trocou os pesos atras do mesmo id em 31/07. Como prevenir e
+# impossivel, resta DETECTAR: o `system_fingerprint` da resposta carrega build, quantizacao e data
+# (`fp_a18b46594c_prod0820_fp8_kvcache_20260402`). Gauge sempre em 1, com o valor na label: uma
+# troca de pesos faz nascer uma serie nova, e `count by (fingerprint)` > 1 e o alerta.
+AGENTE_MODELO_FINGERPRINT = Gauge(
+    "agente_modelo_fingerprint",
+    "Sempre 1; a informacao esta nas labels. Serie nova = o provider trocou o build sob o alias",
+    ["modelo", "fingerprint"],
 )
 AGENTE_TURNO_RESULTADO = Counter(
     "agente_turno_resultado_total",
@@ -114,6 +159,39 @@ AGENTE_EXTRACAO_VALOR_FANTASMA = Counter(
     "agente_extracao_valor_fantasma_total",
     "valor_acordado descartado: o numero nao esta na tabela da modelo nem saiu da boca da IA",
 )
+# Chamada FORCADA que voltou sem tool_call parseavel (medido ao vivo 12/08: ~3% dos turnos, com
+# `finish_reason=tool_calls` e o JSON dos args quebrado). O par de contadores separa o susto do
+# dano: `retentada` sobe sempre que a recuperacao entra em acao; `perdida` so quando nem a
+# retentativa trouxe payload — e ai o turno passou SEM registrar o que o cliente disse.
+AGENTE_EXTRACAO_RETENTADA = Counter(
+    "agente_extracao_retentada_total",
+    "extracao forcada sem tool_call util: chamada refeita uma vez sobre a mesma janela",
+)
+AGENTE_EXTRACAO_PERDIDA = Counter(
+    "agente_extracao_perdida_total",
+    "extracao do turno descartada (truncada ou sem tool_call mesmo apos a retentativa)",
+)
+# Chave do payload escrita com APELIDO e reconduzida ao campo do schema. Visto ao vivo em 12/08
+# (roteiro duas_portas): o modelo mandou `hora` no lugar de `horario_desejado`. A poda ao schema
+# salvava o turno de morrer no ValidationError, mas descartava a chave -- e com ela o horario do
+# encontro, em silencio. `campo` e o destino canonico, nao o apelido: o que interessa e QUAL dado
+# quase se perdeu, e o vocabulario errado do modelo e cauda longa.
+AGENTE_EXTRACAO_APELIDO = Counter(
+    "agente_extracao_apelido_total",
+    "chave do payload reconduzida ao campo do schema por apelido (ex.: hora -> horario_desejado)",
+    ["campo"],
+)
+# Campo do payload que o saneamento do `extrair` DESCARTOU por nao casar o schema (chave que nao
+# existe, enum que nao bate, tipo/limite que nao converte). Descartar e o certo -- a alternativa e o
+# `ValidationError` que mata o turno --, mas e uma perda MUDA de dado, e sem contador ninguem a ve:
+# um `horario_desejado` descartado por formato e a diferenca entre o encontro reservado e o
+# atendimento travado (foi assim que o eco de `17:00:00` passou dias invisivel). `campo` e a chave
+# canonica e `motivo` a familia da recusa -- os dois de cardinalidade fechada pelo schema da tool.
+AGENTE_EXTRACAO_CAMPO_DESCARTADO = Counter(
+    "agente_extracao_campo_descartado_total",
+    "campo do payload da extracao descartado no saneamento por nao casar o schema",
+    ["campo", "motivo"],
+)
 # Guarda do piso de desconto, agora amarrada ao PACOTE (programa x duracao). O furo que ela fecha
 # era mudo por construcao: com dois programas na mesma duracao (Normal 400 / Completo 800) o piso
 # de QUALQUER pacote de 1h era o da linha mais barata, entao fechar o Completo a 300 passava sem
@@ -123,7 +201,13 @@ AGENTE_EXTRACAO_VALOR_FANTASMA = Counter(
 # preco_cotado = o pacote foi DEDUZIDO do preco que a IA ja cotou na conversa, que casa com uma
 # linha so da duracao; duracao_ambigua = pisos divergentes, nenhum programa identificado e a
 # deducao tambem nao resolveu, o fail-closed; sem_linha = sem tabela para o par) e `resultado` diz
-# se o valor passou (aceito) ou escalou.
+# o que a guarda decidiu, em TRES valores desde a r3 (loop-massa r3, achado 2c): `aceito` = o valor
+# passou do piso e foi gravado; `escalado` = furou o piso COM insistencia (`n_contrapropostas >= 1`,
+# rodada da escada de fato JOGADA) e a modelo foi acordada por `fora_de_oferta`, com a IA pausada;
+# `descartado` = furou o piso na rodada 0, com a escada intacta -- o valor nao e gravado, mas nao
+# escala: escalar ali pre-emptava a propria contraproposta que o modelo tinha acabado de escrever
+# (`post_process` zera as AIMessages no turno da escalada). O split entre `escalado` e `descartado`
+# e o que mede se o lowball esta chegando antes ou depois de a escada ser jogada.
 # `duracao_ambigua` subindo e o sinal de cadastro que precisa do painel escrevendo o servico
 # vendido -- e de escalada que a modelo vai ver. `preco_cotado` e a serie que mede se a deducao
 # esta pegando: ela caindo com `duracao_ambigua` subindo = a IA esta fechando sem cotar antes, ou
@@ -136,11 +220,13 @@ AGENTE_PISO_PACOTE = Counter(
 # ADR-0040: o numero que o CLIENTE nomeia, quando fica acima do piso, fecha a venda no valor DELE
 # (e consome uma rodada da escada). `encontro` = hoje|outro_dia|dia_desconhecido; `decisao` = o
 # veredito da `aceite_do_valor_dele` (aceito | abaixo_do_piso | acima_da_mesa | ambiguo |
-# sem_valor | esgotada). Sem esta serie nao da para saber se a regra dispara em producao: o
-# caminho novo e SILENCIOSO por construcao (fail-closed cai na escada de sempre e nada no log
-# distingue "ele nao propos numero" de "o detector nao viu o numero dele"). `sem_valor` alto com
-# `aceito` no chao = o detector de fala perdendo a proposta; `ambiguo` alto = cadastro com dois
-# pacotes presenciais na mesma duracao.
+# sem_valor | esgotada | condicionado). Sem esta serie nao da para saber se a regra dispara em
+# producao: o caminho novo e SILENCIOSO por construcao (fail-closed cai na escada de sempre e nada
+# no log distingue "ele nao propos numero" de "o detector nao viu o numero dele"). `sem_valor` alto
+# com `aceito` no chao = o detector de fala perdendo a proposta; `ambiguo` alto = cadastro com dois
+# pacotes presenciais na mesma duracao. `condicionado` (r3) = ele pendurou um SERVICO no numero
+# ("por 300? Com 2 finalizacoes") e o aceite automatico se recusa a fechar a ressalva junto com o
+# preco; subindo muito, o que a conversa pede e resolver o servico contra o cardapio antes do valor.
 AGENTE_ACEITE_DO_CLIENTE = Counter(
     "agente_aceite_do_cliente_total",
     "Contraproposta do cliente acima do piso: o encontro e o veredito da decisao",
@@ -239,8 +325,14 @@ OUTPUT_LEAK_DETECTADO = Counter(
 )
 AUP_SAIDA_BLOQUEADO = Counter(
     "agente_aup_saida_bloqueado_total",
-    "Bolhas barradas pela Etapa 2 (LLM-judge de AUP) do output-guard, por resultado",
-    ["resultado"],  # violou | judge_falhou (default seguro: bloqueia+escala)
+    "Bolhas barradas pela Etapa 2 (LLM-judge de AUP) do output-guard, por resultado e motivo",
+    # resultado: violou | judge_falhou (default seguro: bloqueia+escala).
+    # motivo: o rotulo do judge (`_VeredictoAup.motivo`, Literal FECHADO de 6 valores:
+    # ia_self | system_leak | cross_modelo | aup_dura | reasoning_leak | nenhum) e, no ramo de
+    # infra, o literal `infra` — cardinalidade fechada em 7, nunca texto livre. Sem esta label a
+    # leitura granular de over-refusal so existia em `escaladas.observacao`, isto e, so no banco
+    # (e no rig e2e nem la, que da rollback).
+    ["resultado", "motivo"],
 )
 # Estagio 0 do output-guard: vazamento de RACIOCINIO (meta-fala) saneado antes do envio. Acao =
 # SANEAR (stripar a bolha de raciocinio, manter a fala real), nao barrar -> metrica propria, fora do

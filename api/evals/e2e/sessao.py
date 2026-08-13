@@ -1,21 +1,25 @@
 """Sessao e2e turn-by-turn: o CLIENTE e o Claude Code, nao um 2o LLM.
 
-Processo de longa duracao (servidor HTTP local). No startup: conecta o DB, extrai UM PerfilCaso
-por `--ref`, seeda numa transacao ABERTA e constroi o graph. Cada POST /turno roda UM turno do
-agente real (1 ainvoke) e devolve a resposta+estado, SINCRONO. Assim so o AGENTE usa a API; o
-cliente e o Claude Code, que le a resposta e decide a proxima fala (ancorado nas falas reais do
-corpus, em GET /perfil). No /fim: ROLLBACK + shutdown — nada commita em prod (§0).
+Processo de longa duracao (servidor HTTP local). No startup: extrai UM PerfilCaso por `--ref` do
+CORPUS (DATABASE_URL de prod, conexao read-only, fechada apos a extracao), seeda numa transacao
+ABERTA no banco de execucao (TEST_DATABASE_URL, barra_test) e constroi o graph. Cada POST /turno
+roda UM turno do agente pelo CAMINHO FIEL (`harness_fiel.rodar_turno_auditado`: lock, drain,
+gates, output-guard final e a gravacao da bolha pelo `enviar_turno` — o mesmo encanamento do
+WhatsApp) e devolve resposta+auditoria, SINCRONO. Assim so o AGENTE usa a API; o cliente e o
+Claude Code, que le a resposta e decide a proxima fala (ancorado nas falas reais do corpus, em
+GET /perfil). No /fim: ROLLBACK + shutdown — nada commita em barravips (§0).
 
 Endpoints:
   GET  /perfil  -> {ref, desfecho_real, label_bin, tipo_esperado, abertura, falas_reais, persona}
-  POST /turno   {"texto": "..."} -> {i, texto, estado, ia_pausada, conduziu, tool_calls, custo_brl}
-  POST /fim     -> {n_turnos, custo_total_brl} e encerra o processo (rollback)
+  POST /turno   {"texto": "..."} -> {i, texto, estado, ia_pausada, conduziu, trace_id,
+                 tool_calls, extracao, erros_tool, nodes, custo_brl, latencia_s}
+  POST /fim     -> {n_turnos, custo_total_brl, veredito...} e encerra o processo (rollback)
 
 Uso:
   # validacao SEM credito (chat mockado):
-  TEST_DATABASE_URL=... uv run python -m evals.e2e.sessao --ref eb04:..@lid --fake --port 8765
+  TEST_DATABASE_URL=... DATABASE_URL=... uv run python -m evals.e2e.sessao --ref eb04:..@lid --fake --port 8765
   # corrida REAL (gasta credito do agente, §0 — exige autorizacao):
-  E2E_AUTORIZADO=1 TEST_DATABASE_URL=... uv run python -m evals.e2e.sessao --ref eb04:..@lid --port 8765
+  E2E_AUTORIZADO=1 TEST_DATABASE_URL=... DATABASE_URL=... uv run python -m evals.e2e.sessao --ref eb04:..@lid --port 8765
 """
 
 from __future__ import annotations
@@ -44,9 +48,10 @@ from evals.e2e.avaliacao import (
 )
 from evals.e2e.extracao import extrair_perfil_por_ref
 from evals.e2e.perfil import ESTADOS_CONDUZIDOS, PerfilCaso, perfil_para_fixture
-from evals.e2e.persistencia import gravar_resposta_ia, seed_caso_persistente
+from evals.e2e.persistencia import seed_caso_persistente
 from evals.e2e.runner import ResultadoE2E
-from evals.harness import Cenario, ResultadoTurno, habilitar_tracing, rodar_turno, seedar
+from evals.harness import Cenario, ResultadoTurno, habilitar_tracing, seedar
+from evals.harness_fiel import rodar_turno_auditado
 
 _USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 
@@ -150,7 +155,7 @@ class Sessao:
         self.graph = graph
         self.cen = cen
         self.perfil = perfil
-        self.persistir = persistir  # True: commita em barravips (painel); False: ROLLBACK no /fim
+        self.persistir = persistir  # True: commita no banco de execucao; False: ROLLBACK no /fim
         self.i = 0
         self.custo = 0.0
         # Acumulados p/ o veredito no /fim (mesma estrutura que runner.ResultadoE2E consome).
@@ -158,19 +163,31 @@ class Sessao:
         self.trajetoria: list[dict[str, Any]] = []
 
 
-async def abrir_sessao(ref: str, *, fake: bool, persistir: bool) -> Sessao:
+async def abrir_sessao(ref: str, *, fake: bool, persistir: bool, eixo: str = "") -> Sessao:
+    # O corpus vive so no Postgres de PROD (schema `corpus`, ausente em barra_test): o perfil vem
+    # de DATABASE_URL numa conexao read-only, fechada assim que o perfil e extraido.
+    conn_corpus = await AsyncConnection.connect(
+        os.environ["DATABASE_URL"], autocommit=True, row_factory=dict_row
+    )
+    try:
+        await conn_corpus.execute("SET default_transaction_read_only = on")
+        perfil = await extrair_perfil_por_ref(conn_corpus, ref)
+    finally:
+        await conn_corpus.close()
+    if perfil is None:
+        raise SystemExit(f"perfil nao encontrado (ou sem falas) para ref {ref!r}")
+    if eixo:
+        # `extrair_perfil_por_ref` nao conhece o eixo (so o `extrair_nucleo` do lote conhece);
+        # sem este repasse a coluna `eixo` de corpus.eval_e2e ficava vazia na corrida por sessao.
+        perfil.eixo_comportamento = eixo
+
+    # Seed e corrida no banco de EXECUCAO (barra_test), transacao aberta com ROLLBACK no /fim.
     conn = await AsyncConnection.connect(
         os.environ["TEST_DATABASE_URL"],
         autocommit=False,
         row_factory=dict_row,
         prepare_threshold=None,
     )
-    perfil = await extrair_perfil_por_ref(conn, ref)
-    if perfil is None:
-        await conn.close()
-        raise SystemExit(f"perfil nao encontrado (ou sem falas) para ref {ref!r}")
-    # persistir: caso sob a modelo sandbox, conversa origem='e2e', COMMIT (Fernando avalia no
-    # painel). Senao: seed efemero com ROLLBACK no /fim (nada toca prod).
     if persistir:
         cen = await seed_caso_persistente(conn, perfil)
     else:
@@ -203,6 +220,31 @@ async def _h_perfil(request: Request) -> JSONResponse:
     )
 
 
+def _extracao_do_turno(r: ResultadoTurno) -> dict[str, Any] | None:
+    """O payload que a `registrar_extracao` GRAVOU no turno (o que valeu para a transicao).
+
+    Le `ResultadoTurno.extracao` — carimbo do State primeiro, `tool_calls` so na ausencia dele.
+    A varredura de `tool_calls` que morava aqui MENTIA sempre que o output_guard regenerou:
+    `_zerar_turno` reescreve as AIMessages do turno sem os tool_calls, e o transcrito saia
+    "turno sem extracao" em turno que registrou intencao, valor e duracao — 26 turnos assim na
+    r3, concentrados nos turnos de FECHAMENTO (achado 12a). Quem audita a corrida pelo
+    transcrito concluia o contrario do que o banco tinha.
+    """
+    return r.extracao
+
+
+def _erros_tool_do_turno(r: ResultadoTurno) -> list[dict[str, str]]:
+    """ToolMessages com status de erro — a fronteira LLM->tool que ja perdeu turno em silencio."""
+    from langchain_core.messages import ToolMessage
+
+    erros: list[dict[str, str]] = []
+    for m in r.mensagens:
+        if isinstance(m, ToolMessage) and getattr(m, "status", "success") == "error":
+            conteudo = m.content if isinstance(m.content, str) else repr(m.content)
+            erros.append({"tool": str(m.name or ""), "erro": conteudo[:2000]})
+    return erros
+
+
 async def _h_turno(request: Request) -> JSONResponse:
     s: Sessao = request.app.state.sessao
     body = await request.json()
@@ -210,23 +252,16 @@ async def _h_turno(request: Request) -> JSONResponse:
     if not texto:
         return JSONResponse({"erro": "campo 'texto' vazio"}, status_code=400)
 
-    r = await rodar_turno(
-        s.conn, s.cen, turno_cliente=texto, graph=s.graph, trace_tag="e2e", escopar_trace=True
-    )
+    # Caminho FIEL: processar_turno + enviar_turno. A bolha da IA e gravada pelo proprio
+    # enviar_turno na transacao — gravar de novo aqui seria duplicata (ver runner.rodar_e2e).
+    r = await rodar_turno_auditado(s.conn, s.cen, texto, graph=s.graph)
     s.i += 1
     s.custo += r.metricas.custo_brl
     s.turnos.append(r)
     s.trajetoria.append(r.estado_final)
     estado = (r.estado_final or {}).get("estado")
     if s.persistir:
-        # grava a bolha da IA (o worker de envio nao roda no harness) e COMMITA o turno inteiro
-        # (UPDATEs do grafo + msg do cliente + bolha da IA) -> aparece no painel /observabilidade.
-        await gravar_resposta_ia(s.conn, s.cen, r.texto)
         await s.conn.commit()
-    else:
-        # Janela FIEL mesmo sem persistir: grava a bolha da IA na transacao efemera (sem commit, o
-        # /fim da ROLLBACK) -> o proximo /turno a ve e o agente nao re-cumprimenta/re-cota amnesico.
-        await gravar_resposta_ia(s.conn, s.cen, r.texto)
     return JSONResponse(
         {
             "i": s.i,
@@ -234,8 +269,13 @@ async def _h_turno(request: Request) -> JSONResponse:
             "estado": estado,
             "ia_pausada": bool((r.estado_final or {}).get("ia_pausada")),
             "conduziu": estado in ESTADOS_CONDUZIDOS,
+            "trace_id": r.trace_id,
             "tool_calls": r.tool_calls,
+            "extracao": _extracao_do_turno(r),
+            "erros_tool": _erros_tool_do_turno(r),
+            "nodes": r.nodes,
             "custo_brl": round(r.metricas.custo_brl, 6),
+            "latencia_s": round(r.metricas.latencia_s, 2),
         }
     )
 
@@ -275,12 +315,12 @@ async def _h_fim(request: Request) -> JSONResponse:
     await pontuar_no_langfuse(s.turnos[-1].trace_id if s.turnos else None, veredito)
     await flush_langfuse()
 
-    # Veredito em corpus.eval_e2e: conn AUTOCOMMIT separada (sobrevive ao rollback do seed). So com
-    # E2E_RUN_TAG (intencao explicita) e a ddl.sql aplicada — ambos §0 (escrita em prod).
+    # Veredito em corpus.eval_e2e — schema `corpus` vive no Postgres de PROD (DATABASE_URL), fora
+    # de barravips. Conn AUTOCOMMIT separada (sobrevive ao rollback do seed). So com E2E_RUN_TAG.
     run_tag = os.environ.get("E2E_RUN_TAG")
     if run_tag:
         conn_eval = await AsyncConnection.connect(
-            os.environ["TEST_DATABASE_URL"], autocommit=True, row_factory=dict_row
+            os.environ["DATABASE_URL"], autocommit=True, row_factory=dict_row
         )
         try:
             await gravar_veredito(
@@ -311,7 +351,9 @@ async def _h_fim(request: Request) -> JSONResponse:
             "estado_final": veredito.estado_final,
             "bate_desfecho_real": veredito.bate_desfecho_real,
             "violacoes": veredito.violacoes,
+            "anotacoes": veredito.anotacoes,
             "veredito_ok": veredito.ok,
+            "trace_ids": [t.trace_id for t in s.turnos],
             "gravado_run_tag": run_tag,
             "encerrado": True,
         }
@@ -342,7 +384,9 @@ def _gravar_perfil(io_dir: str, perfil: PerfilCaso) -> None:
 async def _serve(args: argparse.Namespace) -> None:
     ligou = habilitar_tracing()  # liga o trace Langfuse de prod (ADR 0019); no-op sem as envs
     print(f"langfuse: {'ligado' if ligou else 'desligado (sem LANGFUSE_*)'}")
-    sessao = await abrir_sessao(args.ref, fake=args.fake, persistir=args.persistir)
+    sessao = await abrir_sessao(
+        args.ref, fake=args.fake, persistir=args.persistir, eixo=args.eixo or ""
+    )
     app = Starlette(
         routes=[
             Route("/perfil", _h_perfil, methods=["GET"]),
@@ -372,24 +416,27 @@ def main() -> None:
     ap = argparse.ArgumentParser(description="Sessao e2e turn-by-turn (cliente = Claude Code).")
     ap.add_argument("--ref", required=True, help='thread do corpus: "instancia:remote_jid"')
     ap.add_argument("--io", help="dir para gravar perfil.json (ancoragem do cliente)")
+    ap.add_argument("--eixo", help="eixo de comportamento do lote (gravado em corpus.eval_e2e)")
     ap.add_argument("--fake", action="store_true", help="chat mockado: valida sem credito")
     ap.add_argument(
         "--persistir",
         action="store_true",
-        help="COMMITA em barravips (modelo sandbox, origem=e2e) p/ o Fernando avaliar no painel",
+        help="COMMITA no banco de execucao (modelo sandbox, origem=e2e) p/ avaliar no painel",
     )
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
 
     if not os.environ.get("TEST_DATABASE_URL"):
-        raise SystemExit("Defina TEST_DATABASE_URL (prod self-hosted).")
+        raise SystemExit("Defina TEST_DATABASE_URL (barra_test, banco de execucao).")
+    if not os.environ.get("DATABASE_URL"):
+        raise SystemExit("Defina DATABASE_URL (prod; leitura do corpus).")
     autorizado = os.environ.get("E2E_AUTORIZADO") == "1"
-    # --persistir ESCREVE em prod (commit), mesmo com --fake -> exige autorizacao (§0).
+    # --persistir COMMITA no banco de execucao -> exige autorizacao (§0).
     if args.persistir and not autorizado:
         raise SystemExit(
-            "--persistir COMMITA conversas e2e em barravips (§0). Defina E2E_AUTORIZADO=1 apos a "
-            "autorizacao do dev (e aplique a migration *_conversas_origem_e2e.sql)."
+            "--persistir COMMITA conversas e2e no banco de execucao (§0). Defina E2E_AUTORIZADO=1 "
+            "apos a autorizacao do dev."
         )
     # corrida REAL (sem --fake) gasta credito do agente -> exige autorizacao (§0).
     if not args.fake and not autorizado:

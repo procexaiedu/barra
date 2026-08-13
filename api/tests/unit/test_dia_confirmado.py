@@ -294,3 +294,52 @@ def test_render_injeta_guard_quando_ja_sondou():
 def test_render_sem_guard_no_turno_de_abertura():
     sem = render_contexto_dinamico(dia_ja_sondado=False, **_render_vars(data_desejada=None))
     assert "ja_sondou_o_dia" not in sem
+
+
+# --- loop-massa r1 (eixo explorador_ambiguo): sonda disjuntiva e cauda que desfaz ---
+
+
+def test_sonda_disjuntiva_com_ok_nao_fixa_hoje():
+    # "Seria hoje ou sábado ?" + "ok" respondia à ESCOLHA, não ao "hoje" — fixar hoje armava a
+    # escada de desconto no regime errado. O veto de outro-dia vale também para a bolha da sonda.
+    msgs = [_cli("oi"), _ia("Seria hoje ou sábado ?"), _cli("ok")]
+    assert _confirmou_dia_hoje(msgs) is False
+
+
+def test_afirmacao_de_cabeca_com_cauda_que_desfaz_nao_conta():
+    for resposta in ("ok\nqual a sua altura?", "claro que não", "beleza vou pensar"):
+        msgs = [_cli("oi"), _ia("seria hoje amor ?"), _cli(resposta)]
+        assert _confirmou_dia_hoje(msgs) is False, resposta
+
+
+def test_afirmacao_com_vocativo_segue_contando():
+    for resposta in ("sim amor", "fechado então", "beleza amor"):
+        msgs = [_cli("oi"), _ia("seria hoje amor ?"), _cli(resposta)]
+        assert _confirmou_dia_hoje(msgs) is True, resposta
+
+
+def test_ta_bem_e_familia_de_dois_tokens_conta_como_aceite():
+    """loop-massa r3 (eixo remarcacao): "tá bem" era o aceite mais comum que faltava no léxico.
+    Precisa de cabeça de DOIS tokens (pôr "tá" nas FORTES seria desastroso) e das DUAS grafias —
+    `_normalizar_afirmacao` filtra por `isalpha()` e NÃO tira acento."""
+    for resposta in ("Tá bem então", "ta bem", "tá bem", "tá bom", "tá bom amor", "ta ok"):
+        msgs = [_cli("oi"), _ia("seria hoje amor ?"), _cli(resposta)]
+        assert _confirmou_dia_hoje(msgs) is True, resposta
+
+
+def test_bem_intensificador_nao_vira_aceite():
+    """A armadilha que a cauda LIVRE abriria: "tá bem caro" é objeção, não "tá bem". Por isso a
+    cabeça de dois tokens tolera SÓ vocativo/partícula, ao contrário das cabeças de um token."""
+    for resposta in ("tá bem caro", "ta bem caro pra mim", "tá bem longe", "tá bem apertado hoje"):
+        msgs = [_cli("oi"), _ia("seria hoje amor ?"), _cli(resposta)]
+        assert _confirmou_dia_hoje(msgs) is False, resposta
+
+
+def test_afirmacao_curta_com_numero_nao_conta():
+    """loop-massa r3: `_normalizar_afirmacao` descarta dígitos, então "Fechado então\\n200 as 20h"
+    (contraproposta) colapsava em "fechado então" e "fechado 200" colapsava no próprio "fechado"
+    do conjunto EXATO — o veto é por FORMA, não por léxico. Perda nomeada: "fechado 20h" sai
+    daqui, mas `contem_hora_explicita` já cobre aquele turno pelo gatilho 1."""
+    for resposta in ("Fechado então\n200 as 20h", "fechado 200", "fechado 20h", "pode ser 300"):
+        msgs = [_cli("oi"), _ia("seria hoje amor ?"), _cli(resposta)]
+        assert _confirmou_dia_hoje(msgs) is False, resposta

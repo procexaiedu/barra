@@ -1,10 +1,13 @@
 "use client"
 
 import type { ReactNode } from "react"
+import { X } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { Button } from "@/components/ui/button"
 import {
   Sheet,
   SheetBody,
+  SheetClose,
   SheetContent,
   SheetHeader,
   SheetTitle,
@@ -50,9 +53,18 @@ export function PainelDetalheResponsivo({
             if (!aberto) onFecharDetalhe()
           }}
         >
-          <SheetContent side="right" className="w-full max-w-[96vw] sm:w-[440px]">
-            <SheetHeader>
+          {/* max-w-full: a 375px o 96vw deixava ~15px de backdrop — sobra fina
+              demais para acertar o toque e o único jeito de fechar. */}
+          <SheetContent side="right" className="w-full max-w-full sm:w-[440px]">
+            <SheetHeader className="flex-row items-center justify-between gap-3">
               <SheetTitle>{tituloDetalhe}</SheetTitle>
+              <SheetClose
+                render={
+                  <Button variant="ghost" size="icon-sm" aria-label="Fechar">
+                    <X size={18} strokeWidth={1.5} />
+                  </Button>
+                }
+              />
             </SheetHeader>
             <SheetBody className="p-0">{detalhe}</SheetBody>
           </SheetContent>

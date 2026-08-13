@@ -145,20 +145,10 @@ export function MapaClientes({
   // alternar entre as camadas descarte o overlay anterior sem ambiguidade.
   const calorRef = useRef<CalorHandle | null>(null)
   const calorSeqRef = useRef(0)
-  // Marcadores guardam o bairro (destaque MAPA-4), o estado (cor MAPA-3), os perfis
-  // declarados (cor MAPA-10) e o peso normalizado (tamanho/cor de bolha MAPA-2) para
-  // que os efeitos re-renderizem sem refazer a varredura.
-  const markersRef = useRef<
-    Array<{
-      marker: google.maps.marker.AdvancedMarkerElement
-      chave: string
-      estado: EstadoAtendimento
-      perfis: PerfilFisico[]
-      peso: number
-      /** Handler de clique reusado quando aplicarDestaque troca o content. */
-      abrirInfo: () => void
-    }>
-  >([])
+  // Marcadores vivos no mapa. O `content` (cor MAPA-3/MAPA-10, tamanho MAPA-2, destaque
+  // MAPA-4 e halo MAPA-9) é sempre montado em `desenharPontos` — um único lugar decide
+  // a aparência, então não há estado por-marker a guardar aqui.
+  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([])
   const [mapPronto, setMapPronto] = useState(false)
   const isMobile = useIsMobile()
   // Mobile: ranking de bairros vai para um Sheet (o mapa fica em tela cheia).
@@ -193,11 +183,15 @@ export function MapaClientes({
   const camadaEfetiva: MapaCamada = compararAtivo ? "hexbin" : camada
 
   // Redesenha os marcadores a partir dos pontos atuais (puro side-effect imperativo no mapa).
+  // O destaque do bairro (MAPA-4) entra aqui e não num efeito à parte: como qualquer
+  // troca de métrica/camada refaz os markers, um efeito separado perderia o destaque
+  // sempre que não fosse reexecutado junto — e, quando fosse, remontaria o content de
+  // todos os markers uma segunda vez.
   const desenharPontos = useCallback(() => {
     const map = mapRef.current
     if (!map) return
     clustererRef.current?.clearMarkers()
-    markersRef.current.forEach(({ marker }) => {
+    markersRef.current.forEach((marker) => {
       marker.map = null
     })
     markersRef.current = []
@@ -212,7 +206,9 @@ export function MapaClientes({
     for (const ponto of pontos) {
       const posicao = { lat: ponto.latitude, lng: ponto.longitude }
       const peso = normalizarPeso(pesoPonto(ponto, metrica), limites)
-      const content = conteudoPorModo(modoCor, ponto, peso, lenteDemanda)
+      const destacado =
+        bairroSelecionado !== null && chaveBairro(ponto) === bairroSelecionado
+      const content = conteudoPorModo(modoCor, ponto, peso, lenteDemanda, destacado)
       const marker = new google.maps.marker.AdvancedMarkerElement({
         position: posicao,
         title: ponto.nome ?? "Cliente",
@@ -229,14 +225,7 @@ export function MapaClientes({
         info.open({ map, anchor: marker })
       }
       bindClickAoContent(content, abrirInfo)
-      markersRef.current.push({
-        marker,
-        chave: chaveBairro(ponto),
-        estado: ponto.estado,
-        perfis: ponto.perfis,
-        peso,
-        abrirInfo,
-      })
+      markersRef.current.push(marker)
       markers.push(marker)
     }
 
@@ -245,7 +234,15 @@ export function MapaClientes({
     } else {
       clustererRef.current.addMarkers(markers)
     }
-  }, [pontos, onFiltrarBairro, modoCor, metrica, camadaEfetiva, lenteDemanda])
+  }, [
+    pontos,
+    onFiltrarBairro,
+    modoCor,
+    metrica,
+    camadaEfetiva,
+    lenteDemanda,
+    bairroSelecionado,
+  ])
 
   // Fit nos pontos só quando o conjunto muda — trocar métrica/modo/cor redesenha
   // sem reposicionar o mapa (preserva pan/zoom do usuário). MAPA-2 depende disso
@@ -328,15 +325,6 @@ export function MapaClientes({
   useEffect(() => {
     if (mapPronto) desenharPontos()
   }, [mapPronto, desenharPontos])
-
-  // MAPA-4: destaque leve das bolhas do bairro selecionado. Roda depois de
-  // `desenharPontos` (declarado abaixo) para reaplicar quando os pontos mudam.
-  // Inclui `modoCor` nas deps para restaurar a aparência correta (cor por
-  // desfecho/perfil ou bolha sqrt-escalada) ao deselecionar. `lenteDemanda` entra
-  // nas deps para reaplicar o halo de oportunidade (MAPA-9) ao alternar a lente.
-  useEffect(() => {
-    aplicarDestaque(markersRef.current, bairroSelecionado, modoCor, lenteDemanda)
-  }, [bairroSelecionado, mapPronto, pontos, modoCor, lenteDemanda])
 
   // MAPA-6: ciclo de vida do overlay deck.gl. Cria ao entrar em "hexbin"
   // (import dinâmico), atualiza quando pontos/métrica mudam, descarta ao sair.
@@ -689,10 +677,17 @@ function conteudoPorModo(
   ponto: MapaClientePonto,
   peso: number,
   lenteDemanda: boolean,
+  /** MAPA-4: ponto do bairro escolhido no ranking. Vence o modo de cor (o disco
+   *  dourado é a sinalização da seleção); o halo da lente MAPA-9 continua por cima. */
+  destacado: boolean,
 ): HTMLElement {
   let base: HTMLElement
   let kind: "bolha" | "pin"
-  if (modoCor === "desfecho") {
+  if (destacado) {
+    // Disco dourado do MAPA-4 também é circular — mesmo trato da bolha.
+    base = criarConteudoDestaque()
+    kind = "bolha"
+  } else if (modoCor === "desfecho") {
     base = criarConteudoDesfecho(ponto.estado)
     kind = "pin"
   } else if (modoCor === "perfil") {
@@ -750,53 +745,10 @@ function envolverComHaloOportunidade(
   return wrap
 }
 
-// Mutação imperativa de instâncias do Google Maps — isolada aqui (fora do hook)
-// porque o React Compiler trata refs como imutáveis no escopo de useEffect.
-function aplicarDestaque(
-  items: ReadonlyArray<{
-    marker: google.maps.marker.AdvancedMarkerElement
-    chave: string
-    estado: EstadoAtendimento
-    perfis: PerfilFisico[]
-    peso: number
-    abrirInfo: () => void
-  }>,
-  selecionado: string | null,
-  modoCor: ModoCor,
-  lenteDemanda: boolean,
-) {
-  for (const { marker, chave, estado, perfis, peso, abrirInfo } of items) {
-    let novo: HTMLElement
-    let kind: "bolha" | "pin"
-    if (selecionado && chave === selecionado) {
-      // Disco dourado do MAPA-4 também é circular — mesmo trato da bolha.
-      novo = criarConteudoDestaque()
-      kind = "bolha"
-    } else if (modoCor === "desfecho") {
-      novo = criarConteudoDesfecho(estado)
-      kind = "pin"
-    } else if (modoCor === "perfil") {
-      novo = criarConteudoPerfil(perfis)
-      kind = "pin"
-    } else {
-      // modoCor === "metrica" (Task 12): pin/seta colorido por intensidade.
-      novo = criarConteudoPin(peso)
-      kind = "pin"
-    }
-    // MAPA-9: halo de oportunidade convive com o destaque MAPA-4 (bairro selecionado
-    // continua sinalizado pela cor dourada; o halo magenta indica a lente).
-    const conteudo = lenteDemanda ? envolverComHaloOportunidade(novo, kind) : novo
-    marker.content = conteudo
-    // Re-bind do click no content original (não no wrapper) — handler segue no
-    // elemento alvo do clique; o wrapper tem pointer-events:none.
-    bindClickAoContent(novo, abrirInfo)
-  }
-}
-
-// Anexa um listener de click no `content` do AdvancedMarkerElement. Mantemos
-// referência do handler em uma prop não-enumerável para conseguir limpar antes
-// de reanexar quando `aplicarDestaque` troca o content. `cursor: pointer` é
-// reforçado aqui mesmo em PinElement (que já tem cursor próprio) para uniformizar.
+// Anexa um listener de click no `content` do AdvancedMarkerElement. Limpa o handler
+// anterior (guardado numa prop do próprio nó) antes de reanexar, porque o mesmo
+// elemento pode ser reaproveitado. `cursor: pointer` é reforçado aqui mesmo em
+// PinElement (que já tem cursor próprio) para uniformizar.
 function bindClickAoContent(content: HTMLElement | null, handler: () => void): void {
   if (!content) return
   const prev = (content as HTMLElement & { __mapaClick?: (e: Event) => void })

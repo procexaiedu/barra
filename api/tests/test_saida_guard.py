@@ -203,6 +203,23 @@ def test_placeholder_detecta_colchete_instrucional() -> None:
     assert tem_placeholder_eco("o ponto é [seu endereço aqui]")
 
 
+def test_placeholder_detecta_rubrica_entre_parenteses() -> None:
+    """Rubrica de teatro no lugar do anexo, que a regen produz por rodar sem tools e sem as
+    ToolMessages do turno (loop-massa r3, achado 5): `(aqui vão as fotos e o vídeo)` passava por
+    TODOS os estágios do guard e chegava ao cliente."""
+    assert tem_placeholder_eco("(aqui vão as fotos e o vídeo)")
+    assert tem_placeholder_eco("Te mando sim amor (segue o book)")
+    assert tem_placeholder_eco("(enviando as fotos agora)")
+
+
+def test_placeholder_nao_casa_parenteses_de_fala_legitima() -> None:
+    """O gatilho é VERBO de rubrica no começo do parêntese: parêntese é pontuação comum na fala
+    dela, e casar o miolo genérico barraria bolha legítima."""
+    assert not tem_placeholder_eco("600 1h (valor fechado) amor")
+    assert not tem_placeholder_eco("te espero (às 21h)")
+    assert not tem_placeholder_eco("é na Rua das Flores (Chácara da Barra)")
+
+
 def test_placeholder_nao_casa_marker_quote() -> None:
     """[quote]/[quote: trecho] NÃO é placeholder ('quote' fora dos gatilhos) — senão barraria reply
     legítimo. (Na prática o chunking já removeu o marker antes desta rede; defesa em profundidade.)"""

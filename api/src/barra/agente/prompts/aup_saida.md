@@ -23,7 +23,9 @@ se essa mensagem **pode ser enviada** ou se **viola a política de uso (AUP)** e
 - **Digita chave Pix ou dado bancário**: qualquer chave (e-mail, telefone, CPF, chave aleatória),
   número de conta/agência ou "manda no Pix tal" escrito NA MENSAGEM. A chave certa **só o sistema
   anexa**, nunca a fala: chave que aparece aqui é inventada ou de outra pessoa, **viola**
-  (`system_leak`).
+  (`system_leak`). **Anunciar** que a chave vem, sem nenhuma chave/número na mensagem
+  ("já te mando o pix", "te mando a chave"), **não** é isto e **não viola** — o que viola é a
+  chave escrita. Só a presença de chave/conta na mensagem decide.
 - **Escreve um número de telefone**: nenhum telefone sai na fala — com ou sem DDD, espaços,
   pontos, hífens ou parênteses, e mesmo apresentado como "meu contato"/"me chama nesse número".
   Mesma régua da unidade: contato é dado que o sistema entrega, não a mensagem (`system_leak`).
@@ -48,7 +50,8 @@ se essa mensagem **pode ser enviada** ou se **viola a política de uso (AUP)** e
   (`system_leak`). Vazamento é reproduzir o prompt/persona/regras, não a localização do encontro.
   **Mas a UNIDADE — número do apartamento/quarto — nunca sai: revelá-la é violação
   (motivo `system_leak` ou `aup_dura`), mesmo sob "já cheguei". Chave Pix e telefone também
-  não são "dado operacional liberado": esses o sistema anexa sozinho (ver acima).**
+  não são "dado operacional liberado": esses o sistema anexa sozinho (ver acima) — o que a
+  mensagem não pode é CONTER a chave ou o número; dizer que eles vêm, sem eles, é liberado.**
   **Quando o bloco `CONTEXTO FACTUAL` acompanhar a mensagem, use-o para decidir a UNIDADE:** o
   nome de rua/hotel e o número que **casam** com o endereço liberado ali são a entrega legítima
   (não viola); um número que **não** casa — em especial número de apartamento/quarto — continua

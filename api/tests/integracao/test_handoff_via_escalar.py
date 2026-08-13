@@ -176,3 +176,36 @@ async def test_escalar_idempotente_nao_duplica(conn: AsyncConnection[dict[str, A
     assert r2 == r1
     escaladas = await _ler_escaladas(conn, atendimento_id)
     assert len(escaladas) == 1  # nao duplicou
+
+
+@pytest.mark.needs_db
+async def test_escalar_com_handoff_ja_aberto_nao_inventa_escalada(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Segundo `escalar` (TURNO diferente) sobre atendimento que JA tem escalada aberta.
+
+    `abrir_handoff` e idempotente por escalada ABERTA e nao cria nada. Antes o resultado disfarcava
+    isso: o codigo pegava o id pela escalada mais recente do atendimento — a ANTIGA —, contava
+    `AGENTE_ESCALADA` de um motivo que nao existia na tabela e enfileirava o card com o `_job_id`
+    daquela escalada, que o ARQ ja havia entregado: a Coordenacao nunca recebia o motivo novo.
+    Agora o no-op e explicito (`escalada_id=None`, `reaproveitada=True`) e o caller nao manda card.
+    """
+    from barra.core.metrics import AGENTE_ESCALADA
+
+    atendimento_id = await _seed_atendimento(conn)
+
+    r1 = await _escalar(conn, atendimento_id, "jailbreak_attempt", str(uuid4()))
+    antes = AGENTE_ESCALADA.labels("defesa", "conteudo_ilegal")._value.get()
+    # Turno DIFERENTE (a idempotencia por tool_call nao cobre) e motivo DIFERENTE.
+    r2 = await _escalar(conn, atendimento_id, "conteudo_ilegal", str(uuid4()))
+
+    assert r1["escalada_id"] is not None
+    assert r1["reaproveitada"] is False
+    assert r2["escalada_id"] is None, "id de escalada que nao foi criada"
+    assert r2["reaproveitada"] is True
+    # A metrica so conta o que virou linha na tabela.
+    assert AGENTE_ESCALADA.labels("defesa", "conteudo_ilegal")._value.get() == antes
+
+    escaladas = await _ler_escaladas(conn, atendimento_id)
+    assert len(escaladas) == 1
+    assert escaladas[0]["observacao"] == "jailbreak_attempt"  # a original, de pe

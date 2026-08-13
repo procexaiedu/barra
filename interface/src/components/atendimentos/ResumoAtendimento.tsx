@@ -29,7 +29,7 @@ function asNumber(valor: number | string | null) {
 }
 
 function NaoInformado() {
-  return <span className="text-text-disabled">Não informado</span>
+  return <span className="text-text-muted">Não informado</span>
 }
 
 export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResponse }) {
@@ -87,12 +87,12 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
         <MetaInline label="Tipo" icone={<Target size={13} strokeWidth={1.75} className="text-info-500" />}>
           {atendimento.tipo_atendimento
             ? tipoLabel[atendimento.tipo_atendimento]
-            : <span className="text-text-disabled">—</span>}
+            : <span className="text-text-muted">—</span>}
         </MetaInline>
         <MetaInline label="Quando" icone={<CalendarClock size={13} strokeWidth={1.75} className="text-text-muted" />}>
           {atendimento.urgencia
             ? urgenciaLabel[atendimento.urgencia]
-            : <span className="text-text-disabled">—</span>}
+            : <span className="text-text-muted">—</span>}
         </MetaInline>
         {mostrarAcordadoDelta && (
           <MetaInline label="Acordado">
@@ -101,7 +101,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
         )}
         {valorAcordado === null && valorFinal === null && (
           <MetaInline label="Valor">
-            <span className="text-text-disabled">A combinar</span>
+            <span className="text-text-muted">A combinar</span>
           </MetaInline>
         )}
       </div>
@@ -139,7 +139,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
             {atendimento.resumo_operacional}
           </p>
         ) : (
-          <p className="text-[14px] leading-relaxed text-text-disabled">
+          <p className="text-[14px] leading-relaxed text-text-muted">
             {detalhe.mensagens.length > 0
               ? "A IA ainda não gerou um resumo deste atendimento."
               : "Aguardando primeira interação da IA"}
@@ -179,7 +179,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
               )}
             </div>
           ) : (
-            <p className="text-[14px] text-text-disabled">Não informado</p>
+            <p className="text-[14px] text-text-muted">Não informado</p>
           )}
         </div>
         <SecaoProgramas programas={detalhe.servicos} />
@@ -202,7 +202,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
             ) : atendimento.tipo_atendimento === "remoto" ? (
               <p className="text-[14px] text-text-secondary">Vídeo chamada · sem local físico</p>
             ) : (
-              <p className="text-[14px] text-text-disabled">Endereço não informado</p>
+              <p className="text-[14px] text-text-muted">Endereço não informado</p>
             )}
             <p className="mt-1 text-[13px] text-text-secondary">
               {linhasLocal.length > 0 ? linhasLocal.join(" · ") : <NaoInformado />}
@@ -257,7 +257,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
                       "flex items-center gap-1.5 text-[13px]",
                       estado === "sim" ? "text-success-500"
                         : estado === "nao" ? "text-text-secondary"
-                        : "text-text-disabled"
+                        : "text-text-muted"
                     )}
                   >
                     {estado === "sim" ? <CheckCircle2 size={14} />
@@ -289,7 +289,7 @@ export function ResumoAtendimento({ detalhe }: { detalhe: AtendimentoDetalheResp
                 </button>
               </>
             ) : (
-              <p className="text-[14px] text-text-disabled">Sem bloqueio vinculado</p>
+              <p className="text-[14px] text-text-muted">Sem bloqueio vinculado</p>
             )}
           </div>
         </div>
@@ -353,13 +353,13 @@ function SecaoProgramas({ programas }: { programas: ServicoFechado[] }) {
         Programas
       </p>
       {programas.length === 0 ? (
-        <p className="text-[13px] text-text-disabled">Nenhum programa selecionado ainda.</p>
+        <p className="text-[13px] text-text-muted">Nenhum programa selecionado ainda.</p>
       ) : (
         <div className="space-y-1">
           {programas.map((s) => (
             <div key={s.id} className="flex items-center justify-between">
               <span className="text-[13px] text-text-secondary">
-                {s.nome}<span className="text-text-disabled"> · {s.duracao_nome}</span>
+                {s.nome}<span className="text-text-muted"> · {s.duracao_nome}</span>
               </span>
               <span className="tabular-nums text-[13px] font-medium text-text-primary">
                 {formatBRL(s.preco_snapshot)}

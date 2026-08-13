@@ -36,7 +36,7 @@ from barra.core.llm import (
 )
 from barra.core.metrics import TURNO_TRUNCADO
 
-from .._instrumentar import instrumentar_tokens
+from .._instrumentar import instrumentar_tokens, medir_llm
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from .extrair import DisparoExtracao, cancelar
@@ -143,7 +143,8 @@ def no_llm(
             # Fecha DIRETO no post_process: ninguem vai consumir a extracao. A Task aqui so pode ter
             # vindo de uma passagem ANTERIOR do ReAct (este ramo exige >=2 enviar_midia falhadas).
             cancelar(state.get("_extracao_task"))
-            resp = await chat_sem_tool_call.ainvoke(state["messages"])
+            with medir_llm("chat"):
+                resp = await chat_sem_tool_call.ainvoke(state["messages"])
             instrumentar_tokens(resp, modelo_chat)
             return Command(
                 goto="post_process",
@@ -185,7 +186,8 @@ def no_llm(
         entregue = False
         try:
             try:
-                resp = await chat_bound.ainvoke(state["messages"])
+                with medir_llm("chat"):
+                    resp = await chat_bound.ainvoke(state["messages"])
                 instrumentar_tokens(resp, modelo_chat)
                 # motivo de parada chega num 200 OK, nao como excecao. Lido provider-agnostico
                 # (finish_reason OpenAI/DeepSeek | stop_reason legado) via motivo_parada:

@@ -84,11 +84,25 @@ async def listar_pix(
             )
             params.extend([f"%{termo}%", f"%{termo}%", f"%{termo}%"])
 
-    ordem = "p.created_at ASC" if status == "pendentes" else "p.created_at DESC"
+    # Desempate por id: comprovantes do mesmo lote/reenvio caem no mesmo created_at, e
+    # sem tiebreak a comparação estrita descartava todos os empatados com a última linha
+    # exibida (sumiam da paginação) além de deixar a ordem entre eles instável.
+    direcao = "ASC" if status == "pendentes" else "DESC"
+    ordem = f"p.created_at {direcao}, p.id {direcao}"
     operador = ">" if status == "pendentes" else "<"
     if cursor:
-        filtros.append(f"p.created_at {operador} %s::timestamptz")
-        params.append(cursor)
+        # Cursor composto "created_at|id"; sem o "|" é cursor legado (só timestamp), que
+        # continua valendo para quem estiver paginando com um link antigo em mãos.
+        cursor_ts, _, cursor_id = cursor.partition("|")
+        if cursor_id:
+            filtros.append(
+                f"(p.created_at {operador} %s::timestamptz"
+                f" OR (p.created_at = %s::timestamptz AND p.id {operador} %s::uuid))"
+            )
+            params.extend([cursor_ts, cursor_ts, cursor_id])
+        else:
+            filtros.append(f"p.created_at {operador} %s::timestamptz")
+            params.append(cursor_ts)
 
     params.append(limit + 1)
     result = await conn.execute(
@@ -111,8 +125,14 @@ async def listar_pix(
         params,
     )
     rows = list(await result.fetchall())
-    next_cursor = rows[-1]["created_at"].isoformat() if len(rows) > limit else None
+    # next_cursor sai da última linha EXIBIDA (rows[-1] pré-truncate era a linha extra do
+    # limit+1 — como o filtro do cursor é estrito, ela some das duas páginas: um comprovante
+    # por página ficava invisível, preso em em_revisao com a IA pausada)
+    tem_mais = len(rows) > limit
     rows = rows[:limit]
+    next_cursor = (
+        f"{rows[-1]['created_at'].isoformat()}|{rows[-1]['id']}" if tem_mais and rows else None
+    )
     return {
         "items": [
             {

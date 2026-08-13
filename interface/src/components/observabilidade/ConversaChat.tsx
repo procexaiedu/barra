@@ -38,10 +38,10 @@ export function ConversaChat({
       </div>
 
       <div className="flex flex-col gap-2.5 p-4">
-        {itens.map((m, i) => {
+        {itens.map((m) => {
           if (m.tipo === "cliente") {
             return (
-              <div key={i} className="flex justify-start">
+              <div key={m.key} className="flex justify-start">
                 <div className="max-w-[78%] whitespace-pre-wrap rounded-2xl rounded-bl-sm bg-muted px-3 py-2 text-sm text-text-primary">
                   {m.texto}
                 </div>
@@ -50,7 +50,7 @@ export function ConversaChat({
           }
           if (m.tipo === "atendimento") {
             return (
-              <div key={i} className="flex justify-center py-0.5">
+              <div key={m.key} className="flex justify-center py-0.5">
                 <span className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-muted/60 px-3 py-1 text-[11px] text-text-muted">
                   <span className="h-1.5 w-1.5 rounded-full bg-gold-500/60" aria-hidden />
                   Atendimento #{m.numeroCurto}
@@ -58,7 +58,7 @@ export function ConversaChat({
               </div>
             )
           }
-          return <BolhaResposta key={i} turno={m.turno} onAvaliar={onAvaliar} />
+          return <BolhaResposta key={m.key} turno={m.turno} onAvaliar={onAvaliar} />
         })}
       </div>
     </Card>

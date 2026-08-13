@@ -23,6 +23,7 @@ from langchain_core.messages import BaseMessage
 
 from barra.agente._disciplina import periodo_da_saudacao
 
+from .._texto_turno import e_marca_pausa
 from ._janela_do_turno import _burst_do_cliente, _e_afirmacao_curta, _texto_msg
 
 # Conteúdo de mídia spotlighted (SEC-11/SEC-PI-03): transcrição de áudio e legenda de imagem
@@ -42,6 +43,19 @@ _RE_SPOTLIGHT = re.compile(
 
 # Segmento interrogativo: o trecho que termina em "?" (sem atravessar linha nem outro "?").
 _RE_PERGUNTA = re.compile(r"[^?\n]{2,120}\?")
+# Cauda DEPOIS do último "?" da linha: a CONDIÇÃO que o cliente pendura no fim da pergunta
+# ("Vc não consegue fazer 1 hr por 300$? Com 2 finalizações"). O recorte terminado em "?" a
+# decapitava, e a condição de preço acoplada a serviço nunca chegava ao <perguntas_dele_neste_turno>
+# — o caminho determinístico ficava cego para ela enquanto o belief a promovia a acordo fechado
+# (loop-massa r3, negociacao_dura_b). Teto curto de propósito: cauda longa é outro assunto, não
+# ressalva da pergunta, e o realce só vale enquanto é curto.
+_MAX_CAUDA_DA_PERGUNTA = 60
+
+# Slot de PRONOME dos pedidos ("quanto VC cobra", "onde VC atende"): fechado de propósito. Um
+# `\w+` aqui casaria "quanto TEMPO você fica" (que é pergunta de agenda, não de preço) e o negativo
+# pinado em `test_pedido_de_preco_com_e_sem_interrogacao` cairia junto; com a lista fechada, só
+# pronome de 2ª pessoa entra entre a palavra-chave e o verbo.
+_PRONOMES = r"(?:vc|voc[êe]|tu|c[êe])"
 
 # Pedido de localização/endereço — vocabulário do corpus real (jogadas de logistica_local).
 # Rodada 4: formas coloquiais medidas na triagem ("próximo onde?", "não conheço esse hotel",
@@ -50,14 +64,26 @@ _RE_PERGUNTA = re.compile(r"[^?\n]{2,120}\?")
 # fora do detector-irmão de `_disciplina.py`, que arma o regen do guard (lá a resposta boa pode
 # legitimamente não ter token de endereço, ex.: "posso ir até você").
 _RE_PEDIDO_ENDERECO = re.compile(
-    r"\b(?:endere[çc]o|localiza[çc][ãa]o|loc\b|onde\s+(?:fica|[ée]\b|voc[êe]\s+(?:est[áa]|atende)|"
+    # O PRONOME é opcional e o slot é FECHADO (`_PRONOMES`): "Onde atende ?" e "onde vc atende ?"
+    # são a mesma família de "onde você atende ?" e ficavam de fora (loop-massa r2, eixo objetor —
+    # sem elas o gate do <local_de_encontro> fechava no turno em que o cliente pede o ponto).
+    r"\b(?:endere[çc]o|localiza[çc][ãa]o|loc\b|onde\s+(?:fica|[ée]\b|"
+    rf"(?:{_PRONOMES}\s+)?(?:est[áa]|atende)|"
     r"te\s+encontro)|como\s+(?:chego|fa[çc]o\s+pra\s+chegar)|"
     r"(?:manda|passa|envia)r?\s+(?:a\s+loc|o\s+local|a\s+localiza[çc][ãa]o|o\s+endere[çc]o)|"
     r"qual\s+(?:rua|hotel|bairro|regi[ãa]o)|que\s+rua|fica\s+(?:aonde|onde)|"
+    # "qual seu local ?" é pedido do ponto dela por inteiro (loop-massa r1, eixo objetor: sem este
+    # ramo o gate do <local_de_encontro> ficou fechado no turno em que o cliente pediu o local).
+    r"qual\s+(?:[ée]\s+)?(?:o\s+)?(?:seu|teu)\s+local|"
     r"pr[óo]ximo\s+(?:de\s+|a\s+)?onde|"
     r"n[ãa]o\s+conhe[çc]o\s+(?:esse|este|o|essa|a)\s+(?:hotel|lugar|local|rua)|"
-    r"(?:[ée]\s+)?casa\s+ou\s+apartamento|apartamento\s+ou\s+casa|"
-    r"(?:seu|teu)\s+[ée]\s+(?:apartamento|casa)|"
+    # "prédio" entra nos TRÊS ramos de acesso (loop-massa r3, eixo negociacao_dura_b t4: "Gata seu
+    # local é casa ou prédio?" ficava fora por uma palavra). Ironia registrada: a `persona.md`
+    # proíbe "prédio" na boca DELA — o que faz dela a palavra mais provável na boca DELE. Falso
+    # positivo ≈ 0: o detector só lê bolha de cliente e o efeito é injetar o endereço no foco.
+    r"(?:[ée]\s+)?casa\s+ou\s+(?:apartamento|apto|pr[ée]dio)|"
+    r"(?:apartamento|apto|pr[ée]dio)\s+ou\s+casa|"
+    r"(?:seu|teu)\s+[ée]\s+(?:apartamento|apto|pr[ée]dio|casa)|"
     r"(?:fica|t[áa]|muito)\s+longe)\b",
     re.IGNORECASE,
 )
@@ -65,11 +91,23 @@ _RE_PEDIDO_ENDERECO = re.compile(
 # Pergunta de preço — "quanto é/fica/custa/cobra/sai", "qual o valor", "me passa o valor", cachê.
 # Rodada 6: "seu presente?"/"presentinho" é a gíria de cachê do corpus (derrota medida: recebia
 # autoelogio sem número).
+# loop-massa r2 (eixo decidido_rapido): o verbo não vem sempre colado em "quanto" — "Quanto vc
+# cobra ?"/"Quanto você custa ?" perdiam o <pergunta_de_preco> no turno em que ele pergunta o preço
+# com todas as letras (e, de quebra, o menu da primeira cotação, computado sob o mesmo sinal).
 _RE_PEDIDO_PRECO = re.compile(
-    r"\b(?:quanto\s+(?:[ée]|fica|custa|cobra|sai|que\s+[ée])|qua[il]s?\s+(?:o\s+)?valor|"
+    rf"\b(?:quanto\s+(?:{_PRONOMES}\s+)?(?:[ée]|fica|custa|cobra|sai|que\s+[ée])|"
+    r"qua[il]s?\s+(?:o\s+)?valor|"
     r"(?:manda|passa|me\s+diz)e?r?\s+o\s+valor|(?:teu|seu)\s+valor|valores\b|"
     r"qual\s+o\s+pre[çc]o|cach[êe]\b|tabela\s+de\s+pre[çc]o|"
-    r"(?:seu|teu|qual\s+o)\s+presente\b|presentinho\b)",
+    r"(?:seu|teu|qual\s+o)\s+presente\b|presentinho\b|"
+    # CONFERÊNCIA do preço (loop-massa r3, externo_b t7): o vocabulário acima é 100%
+    # interrogativo-ABERTO e "E se eu for até vc é 400 direto né?" / "fica 400 certo?" /
+    # "então é 400?" ficavam de fora — o cliente conferindo o número é pergunta de preço igual.
+    # O piso de 3-4 dígitos é o que separa preço de HORA ("chego 21h né" não acende), e a cotação
+    # ("400 1h no meu local") e o aceite ("fechado 400 então") seguem apagados: nenhum dos dois
+    # tem token de conferência, e o aceite é matéria do `_RE_CONTRAPROPOSTA`.
+    r"\d{3,4}\b[^\n?]{0,18}\b(?:n[ée]|certo|correto|isso|mesmo)\b|"
+    r"(?:ent[ãa]o|fica|[ée])\s+(?:r\$\s*)?\d{3,4}\b[^\n?]{0,10}\?)",
     re.IGNORECASE,
 )
 
@@ -104,27 +142,37 @@ def perguntas_do_burst(mensagens: list[BaseMessage]) -> tuple[str, ...]:
 
     É o realce anti-perda em burst: a dúvida da bolha 1 de 4 some da atenção do modelo em conversa
     longa; citada como DADO no <foco_do_turno>, ela volta à posição de recência. Só segmentos
-    terminados em "?" (interrogativa sem "?" fica para os detectores de pedido, que não citam).
+    terminados em "?" (interrogativa sem "?" fica para os detectores de pedido, que não citam) —
+    MAIS a cauda curta que vem depois do último "?" da linha, que é onde a ressalva mora
+    (`_MAX_CAUDA_DA_PERGUNTA`).
     """
     vistas: set[str] = set()
     perguntas: list[str] = []
     for texto in _textos_do_burst(mensagens):
-        for seg in _RE_PERGUNTA.findall(texto):
-            # O match já termina em "?"; corta a cabeça não-interrogativa da mesma linha
-            # ("Show. Onde fica?" → "Onde fica?").
-            bruto = re.split(r"(?<=[.!…;])\s+", seg.strip())[-1]
-            # SEC (F13): a fala dele vira <pergunta> numa moldura CONFIÁVEL do prompt — tira
-            # colchete/angular forjado (não fecha a moldura nem vira tag), colapsa whitespace e
-            # trunca, o MESMO saneamento do pin de localização (webhook/parser.py).
-            pergunta = " ".join(re.sub(r"[\[\]<>]", "", bruto).split())[:120]
-            norm = _normalizar_social(pergunta)
-            # Sufixo, não igualdade: "oi, tudo bem?" normaliza "oi tudo bem" e segue social.
-            if any(norm == s or norm.endswith(" " + s) for s in _PERGUNTAS_SOCIAIS):
-                continue
-            chave = pergunta.lower()
-            if pergunta.strip("?").strip() and chave not in vistas:
-                vistas.add(chave)
-                perguntas.append(pergunta)
+        for linha in texto.split("\n"):
+            achados = list(_RE_PERGUNTA.finditer(linha))
+            for i, m in enumerate(achados):
+                # O match já termina em "?"; corta a cabeça não-interrogativa da mesma linha
+                # ("Show. Onde fica?" → "Onde fica?").
+                bruto = re.split(r"(?<=[.!…;])\s+", m.group().strip())[-1]
+                # A ressalva pendurada no fim da linha volta COLADA na última pergunta — é dela
+                # que ela é condição ("...por 300$? Com 2 finalizações").
+                if i == len(achados) - 1:
+                    cauda = linha[m.end() :].strip()
+                    if 2 <= len(cauda) <= _MAX_CAUDA_DA_PERGUNTA:
+                        bruto = f"{bruto} {cauda}"
+                # SEC (F13): a fala dele vira <pergunta> numa moldura CONFIÁVEL do prompt — tira
+                # colchete/angular forjado (não fecha a moldura nem vira tag), colapsa whitespace e
+                # trunca, o MESMO saneamento do pin de localização (webhook/parser.py).
+                pergunta = " ".join(re.sub(r"[\[\]<>]", "", bruto).split())[:120]
+                norm = _normalizar_social(pergunta)
+                # Sufixo, não igualdade: "oi, tudo bem?" normaliza "oi tudo bem" e segue social.
+                if any(norm == s or norm.endswith(" " + s) for s in _PERGUNTAS_SOCIAIS):
+                    continue
+                chave = pergunta.lower()
+                if pergunta.strip("?").strip() and chave not in vistas:
+                    vistas.add(chave)
+                    perguntas.append(pergunta)
     return tuple(perguntas[:_MAX_PERGUNTAS])
 
 
@@ -145,6 +193,28 @@ _RE_DURACAO_HORAS = re.compile(r"\b(\d{1,2})\s*(?:h\b|hs\b|hrs?\b|horas?\b)", re
 _RE_DURACAO_MIN = re.compile(r"\b(\d{2,3})\s*(?:min\b|mins\b|minutos?\b)", re.IGNORECASE)
 _RE_MEIA_HORA = re.compile(r"\bmeia\s+hora\b", re.IGNORECASE)
 
+# Tempo de CHEGADA imediatamente antes do número ("daqui uns 40 minutos", "chego em 30 min") NÃO é
+# duração de pacote — é o cliente dizendo QUANDO chega. Sem o veto, "daki uns 40 minutos" virava
+# `duracao_pedida=0.67h` e o foco mandava "subir o tempo" sobre um pacote que ninguém pediu
+# (loop-massa r1, eixo decidido_rapido). Prefixo checado por trás do match (lookbehind manual,
+# o offset é variável demais para o `re` nativo).
+#
+# O DÊITICO é obrigatório na família (loop-massa r3, eixo apressado): acrescentar só o infinitivo
+# NÃO conserta a fala real — "Consigo chegar ai em uns 40 min" põe "ai/lá/aqui" ENTRE o verbo e o
+# "em", e sem o slot o prefixo não fecha em `\s*$`. O negativo que importa continua apagado:
+# "quero chegar e ficar 2 horas" é duração de verdade, e o prefixo só casa colado ao número.
+_RE_PREFIXO_CHEGADA = re.compile(
+    r"(?:daqui|daki|dki|cheg(?:o|ar|ando)|to\s+indo|saindo)"
+    r"(?:\s+(?:a[ií]|l[aá]|ae|aqui))?(?:\s+a)?(?:\s+em)?"
+    r"(?:\s+u(?:ns|mas?))?\s*$",
+    re.IGNORECASE,
+)
+
+
+def _e_tempo_de_chegada(texto: str, inicio_do_match: int) -> bool:
+    """O trecho logo antes do número casa um marcador de chegada/offset?"""
+    return _RE_PREFIXO_CHEGADA.search(texto[:inicio_do_match]) is not None
+
 
 def duracao_pedida_no_burst(mensagens: list[BaseMessage]) -> float | None:
     """A duração (em horas) que o burst atual menciona, ou None.
@@ -157,13 +227,14 @@ def duracao_pedida_no_burst(mensagens: list[BaseMessage]) -> float | None:
     for texto in _textos_do_burst(mensagens):
         for m in _RE_DURACAO_HORAS.finditer(texto):
             horas = float(m.group(1))
-            if 0 < horas <= 24:
+            if 0 < horas <= 24 and not _e_tempo_de_chegada(texto, m.start()):
                 duracao = horas
         for m in _RE_DURACAO_MIN.finditer(texto):
             minutos = float(m.group(1))
-            if 10 <= minutos <= 120:
+            if 10 <= minutos <= 120 and not _e_tempo_de_chegada(texto, m.start()):
                 duracao = minutos / 60
-        if _RE_MEIA_HORA.search(texto):
+        m_meia = _RE_MEIA_HORA.search(texto)
+        if m_meia is not None and not _e_tempo_de_chegada(texto, m_meia.start()):
             duracao = 0.5
     return duracao
 
@@ -179,19 +250,23 @@ def duracao_dita_na_janela(mensagens: list[BaseMessage]) -> bool:
     Reusa os MESMOS regexes numéricos do `duracao_pedida_no_burst` — a divisória de propósito é a
     janela, não o vocabulário. Falso-positivo aqui só cala uma sondagem (falha benigna); um
     falso-negativo faria a IA perguntar o tempo que ele já disse, que é o tique a evitar.
+
+    A MARCA DE PAUSA é pulada: ela entra na janela como HumanMessage sintética
+    ("[pausa de 8h na conversa]", prepare_context._texto_marca_pausa) e o `_RE_DURACAO_HORAS`
+    casava o "8h" dela como se o cliente tivesse nomeado a duração. Toda marca de 6h a 47h
+    disparava — ou seja, quase toda conversa retomada, que é justamente onde a sondagem de tempo
+    mais importa. Falha benigna na teoria, sistemática na prática.
     """
     for m in mensagens:
-        if m.type != "human":
+        if m.type != "human" or e_marca_pausa(m):
             continue
         texto = _texto_msg(m)
         if not texto or _RE_SPOTLIGHT.search(texto):
             continue
-        if (
-            _RE_DURACAO_HORAS.search(texto)
-            or _RE_DURACAO_MIN.search(texto)
-            or _RE_MEIA_HORA.search(texto)
-        ):
-            return True
+        for regex in (_RE_DURACAO_HORAS, _RE_DURACAO_MIN, _RE_MEIA_HORA):
+            match = regex.search(texto)
+            if match is not None and not _e_tempo_de_chegada(texto, match.start()):
+                return True
     return False
 
 

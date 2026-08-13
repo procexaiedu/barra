@@ -3,6 +3,7 @@
 import { useState } from "react"
 import Link from "next/link"
 import { ArrowUpRight, X, AlertTriangle } from "lucide-react"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   formatBRL,
@@ -36,7 +37,7 @@ export function InspectorReceita({
   return (
     <aside
       aria-label="Detalhes da receita"
-      className="flex h-full w-[380px] shrink-0 flex-col border-l border-l-border-subtle bg-card shadow-elev-2 rise-in"
+      className="flex h-full w-full shrink-0 flex-col border-l border-l-border-subtle bg-card shadow-elev-2 rise-in lg:w-[380px]"
     >
       <header className="flex items-start justify-between gap-2 border-b border-border px-4 py-3">
         <div className="min-w-0">
@@ -77,13 +78,15 @@ export function InspectorReceita({
       </div>
 
       <footer className="border-t border-border p-3">
-        <Link
-          href={`/atendimentos?id=${linha.atendimento_id}`}
-          className="flex w-full items-center justify-center gap-1.5 rounded-lg [background-image:var(--gradient-gold)] bg-gold-500 px-3 py-2 text-sm font-medium text-primary-foreground shadow-elev-1 transition-all hover:brightness-[1.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        <Button
+          variant="primary"
+          size="lg"
+          className="w-full"
+          render={<Link href={`/atendimentos?id=${linha.atendimento_id}`} />}
         >
           Abrir atendimento
-          <ArrowUpRight className="size-4" />
-        </Link>
+          <ArrowUpRight />
+        </Button>
       </footer>
     </aside>
   )
@@ -271,7 +274,7 @@ function Sparkline({ serie }: { serie: ContextoModeloDia[] }) {
       {ativo && ancora && (
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute bottom-full z-10 mb-1.5 whitespace-nowrap rounded-md border border-border bg-card px-2 py-1 text-[11px] shadow-[0_8px_24px_rgba(0,0,0,0.6)]"
+          className="pointer-events-none absolute bottom-full z-10 mb-1.5 whitespace-nowrap rounded-md border border-border bg-card px-2 py-1 text-[11px] shadow-elev-2"
           style={ancora}
         >
           <div className="text-text-muted">{formatData(ativo.dia)}</div>

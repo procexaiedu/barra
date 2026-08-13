@@ -596,7 +596,7 @@ async def test_carimba_cotacao_quando_chunk_tem_preco() -> None:
     )
 
     assert len(updates) == 1  # só o chunk com preço
-    assert "estado IN ('Triagem', 'Qualificado')" in updates[0][0]
+    assert "estado IN ('Novo', 'Triagem', 'Qualificado')" in updates[0][0]
 
 
 async def test_nao_carimba_cotacao_sem_preco() -> None:
@@ -918,3 +918,73 @@ async def test_caminho_feliz_entrega_todas_as_bolhas_e_a_midia() -> None:
     assert _so(evolution, "texto") == ["oi amor", "consigo sim", "que horas você prefere ?"]
     assert _so(evolution, "midia") == ["sou eu 🥰"]
     assert conn.leituras_de_pausa == 4  # 3 bolhas + 1 mídia
+
+
+# --- contador da escada: rodada JOGADA x rodada DESCARTADA (loop-massa r3, achado 2c) ----------
+
+
+def _destino_com_endereco() -> dict[str, Any]:
+    """`_destino()` + as colunas de cadastro que o bloco de flags de disciplina lê quando a bolha
+    de fato ENTRA em `mensagens` (write-time completo)."""
+    return {
+        **_destino(),
+        "endereco_formatado": "Rua das Flores 100",
+        "nome_local": None,
+        "localizacao_operacional": "Cambui",
+    }
+
+
+class _ConnInsere(_FakeConn):
+    """Igual ao `_FakeConn`, mas o INSERT da bolha RETORNA linha — a bolha entrou em `mensagens`."""
+
+    async def execute(self, query: str, params: Any = None) -> _Result:
+        if "INSERT INTO barravips.mensagens" in query:
+            return _Result([{"?column?": 1}])
+        return await super().execute(query, params)
+
+
+async def _rodar_com_contador(
+    conn: _FakeConn, monkeypatch: pytest.MonkeyPatch, chunk: str
+) -> list[Any]:
+    chamadas: list[Any] = []
+
+    async def _contar(_conn: Any, atendimento_id: Any) -> None:
+        chamadas.append(atendimento_id)
+
+    monkeypatch.setattr("barra.workers.envio.incrementar_contrapropostas", _contar)
+    turno_id, conversa_id = f"turno-{uuid4().hex[:6]}", str(uuid4())
+    redis = FakeRedis()
+    await redis.set(f"turno_atual:{conversa_id}", turno_id)
+    await enviar_turno(
+        _ctx(conn, redis, _FakeEvolution()),
+        conversa_id=conversa_id,
+        turno_id=turno_id,
+        chunks=[chunk],
+        midias=[],
+        msg_ids_cliente=[],
+        chars_inbound=0,
+        critico=False,
+    )
+    return chamadas
+
+
+async def test_contraproposta_que_saiu_consome_rodada(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A rodada da escada (ADR-0031) conta quando a bolha de fato ENTROU em `mensagens` — é o
+    write-time do envio, o único ponto que sabe que o cliente vai ler o número."""
+    chamadas = await _rodar_com_contador(
+        _ConnInsere(_destino_com_endereco(), {}), monkeypatch, "consigo 300 se você vier hoje 😊"
+    )
+    assert len(chamadas) == 1
+
+
+async def test_rodada_descartada_nao_conta_como_insistencia(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Contrapartida: `ON CONFLICT DO NOTHING RETURNING 1` sem linha = a bolha NÃO entrou (replay
+    do turno, ou rodada que morreu antes de virar mensagem). O contador não anda — é isso que
+    mantém honesto o "insistência depois da última rodada" de quem for lê-lo
+    (`CONTEXT.md`, ADR-0031; a guarda do piso ainda não o lê — achado 2c)."""
+    chamadas = await _rodar_com_contador(
+        _FakeConn(_destino(), {}), monkeypatch, "consigo 300 se você vier hoje 😊"
+    )
+    assert chamadas == []

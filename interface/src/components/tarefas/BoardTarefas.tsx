@@ -160,7 +160,7 @@ export function BoardTarefas({ tarefas, onEditar, onExcluir, onMoverStatus }: Pr
             })}
 
             {itens.length === 0 && (
-              <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border-subtle px-2 py-6 text-center text-xs text-text-disabled">
+              <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-border-subtle px-2 py-6 text-center text-xs text-text-muted">
                 Arraste tarefas para cá
               </div>
             )}

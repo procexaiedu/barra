@@ -14,6 +14,7 @@ from prometheus_client import REGISTRY
 
 from barra.dominio.atendimentos.service import (
     _abaixo_do_piso,
+    _insistiu_apos_a_escada,
     _piso_do_pacote,
     contraproposta_da_escada,
     degrau_de_desconto,
@@ -686,3 +687,75 @@ def test_fallback2_menor_linha_acima_empatada_em_duas_duracoes_e_ambigua() -> No
 
     tabela = {1.0: [Decimal("400")], 1.5: [Decimal("400")]}
     assert _horas_da_linha_contraproposta(["faz 300?"], tabela) is None
+
+
+# --- insistência: o gate do piso conta rodada JOGADA (loop-massa r3, achado 2c) ---------------
+#
+# Até a r3 a escalada `fora_de_oferta` disparava já na RODADA 0 da escada — e escalada pausa a IA,
+# o `post_process` zera as AIMessages do turno e a contraproposta que o modelo tinha acabado de
+# escrever morre sem ser jogada. Em `negociacao_dura_a` t6 foi exatamente isso: a contraproposta
+# CERTA de 300 (amarrada a hoje) perdida sobre um pedido de 200, com `n_contrapropostas == 0`.
+# O comentário que justificava a ordem piso-antes-de-fantasma já invocava "o cliente INSISTINDO num
+# numero baixo merece a modelo decidir" — a premissa existia, o gate é que não a checava.
+
+
+class _ConnDoContador:
+    def __init__(self, n: Any) -> None:
+        self._n = n
+
+    async def execute(self, sql: str, params: tuple[Any, ...] = ()) -> Any:
+        n = self._n
+
+        class _R:
+            async def fetchone(self) -> dict[str, Any] | None:
+                return None if n is None else {"n_contrapropostas": n}
+
+        return _R()
+
+
+async def test_escada_intacta_nao_e_insistencia() -> None:
+    """A escalada é o DEPOIS da escada, não o antes: ADR-0031 ("uma terceira insistência não gera
+    nova oferta — escala"), degrau 6 do `regras.md.j2` e o `<escada_disponivel>` do próprio turno
+    ("na insistência, escalada com fora_de_oferta")."""
+    assert await _insistiu_apos_a_escada(_ConnDoContador(0), _ATENDIMENTO) is False  # type: ignore[arg-type]
+
+
+async def test_rodada_jogada_libera_a_escalada() -> None:
+    """`n_contrapropostas` é o contador certo porque conta rodada JOGADA — só `workers/envio.py` o
+    incrementa, e só quando a bolha entrou em `mensagens`. Rodada zerada pelo `post_process`,
+    dropada pelo `output_guard` ou perdida num replay não é insistência de ninguém."""
+    assert await _insistiu_apos_a_escada(_ConnDoContador(1), _ATENDIMENTO) is True  # type: ignore[arg-type]
+    assert await _insistiu_apos_a_escada(_ConnDoContador(3), _ATENDIMENTO) is True  # type: ignore[arg-type]
+
+
+async def test_contador_nulo_ou_atendimento_sumido_nao_inventa_insistencia() -> None:
+    assert await _insistiu_apos_a_escada(_ConnDoContador(None), _ATENDIMENTO) is False  # type: ignore[arg-type]
+
+
+async def test_rotulo_da_metrica_separa_descarte_de_escalada() -> None:
+    """Sem o rótulo próprio, a série `agente_piso_pacote_total` contaria como `escalado` um caso em
+    que ninguém foi acordado — e o painel perderia justamente a jogada nova."""
+    linhas = [_linha("400", "400")]
+    antes_escalado = _contador("duracao_unica", "escalado")
+    antes_descartado = _contador("duracao_unica", "descartado")
+
+    conn = _FakeConnDoPacote(linhas)
+    veredito = await _abaixo_do_piso(
+        conn,  # type: ignore[arg-type]
+        _ATENDIMENTO,
+        {"valor_acordado": "50"},
+        insistiu=False,
+    )
+    assert veredito is True
+    assert _contador("duracao_unica", "descartado") == antes_descartado + 1
+    assert _contador("duracao_unica", "escalado") == antes_escalado
+
+    conn = _FakeConnDoPacote(linhas)
+    veredito = await _abaixo_do_piso(
+        conn,  # type: ignore[arg-type]
+        _ATENDIMENTO,
+        {"valor_acordado": "50"},
+        insistiu=True,
+    )
+    assert veredito is True
+    assert _contador("duracao_unica", "escalado") == antes_escalado + 1

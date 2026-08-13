@@ -252,3 +252,37 @@ async def test_sem_pausa_nao_zera() -> None:
     state = {"messages": [HumanMessage(content="oi", id="h1"), _ai_turno("resposta", "a1")]}
     out = await mod.post_process(state, _runtime(ia_pausada=False))  # type: ignore[arg-type]
     assert out == {}
+
+
+async def test_zeramento_preserva_usage_metadata_p_o_custo_do_turno() -> None:
+    """Turno pausado TAMBEM queimou tokens — o custo tem de sobreviver ao zeramento.
+
+    `add_messages` SUBSTITUI a mensagem de mesmo id (nao faz merge), entao recriar a AIMessage sem
+    `usage_metadata` apagava os tokens do State. `custo_chat_turno_brl` soma justamente por
+    `usage_metadata` -> dava 0 -> `acumular_custo_atendimento` virava no-op (exige custo > 0) e o
+    DeepSeek do turno pausado nunca entrava em `atendimentos.custo_ia_brl`. Sem o usage a mensagem
+    ainda sumia de `mensagens_do_turno`, cegando desfecho/raciocinio do trace.
+
+    E a mesma invariante que `output_guard._zerar_turno` ja documenta e cumpre — post_process era a
+    unica das duas rotas de zeramento que a quebrava.
+    """
+    state = {"messages": [HumanMessage(content="oi", id="h1"), _ai_turno("fala do turno", "a1")]}
+
+    out = await mod.post_process(state, _runtime(ia_pausada=True))  # type: ignore[arg-type]
+
+    (zerada,) = [m for m in out["messages"] if m.id == "a1"]
+    assert zerada.content == ""  # a fala nao vai ao cliente
+    assert zerada.usage_metadata == {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+
+
+async def test_zerada_continua_visivel_como_mensagem_do_turno() -> None:
+    """Consequencia direta do usage preservado: quem filtra por `usage_metadata is not None`
+    (mensagens_do_turno, e portanto desfecho/tags/raciocinio do trace e o custo do coordenador)
+    continua enxergando a mensagem zerada como produzida NESTE turno."""
+    from barra.agente._texto_turno import mensagens_do_turno
+
+    state = {"messages": [HumanMessage(content="oi", id="h1"), _ai_turno("fala do turno", "a1")]}
+
+    out = await mod.post_process(state, _runtime(ia_pausada=True))  # type: ignore[arg-type]
+
+    assert [m.id for m in mensagens_do_turno(out["messages"])] == ["a1"]

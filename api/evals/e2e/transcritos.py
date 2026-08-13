@@ -67,6 +67,7 @@ def _registro(perfil: Any, res: Any, ver: Any) -> dict[str, Any]:
         "estado_final": res.estado_final,
         "conduziu": ver.conduziu,
         "violacoes": list(ver.violacoes),
+        "anotacoes": list(ver.anotacoes),
         "conduta": ver.conduta.to_dict() if ver.conduta else None,
         "n_turnos": res.n_turnos,
         "custo_brl": round(res.custo_brl, 6),
@@ -125,6 +126,8 @@ def _conversa_html(reg: dict[str, Any]) -> str:
     linhas.append(f'<div class="meta">{meta}</div>')
     if reg["violacoes"]:
         linhas.append('<div class="viol">⚠ ' + html.escape("; ".join(reg["violacoes"])) + "</div>")
+    if reg["anotacoes"]:
+        linhas.append('<div class="meta">· ' + html.escape("; ".join(reg["anotacoes"])) + "</div>")
     linhas.append("</div>")
     return "\n".join(linhas)
 

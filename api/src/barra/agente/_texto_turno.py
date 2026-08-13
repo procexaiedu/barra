@@ -33,6 +33,24 @@ def texto_da_mensagem(msg: AIMessage) -> str:
     return "".join(partes)
 
 
+# Chaves de `additional_kwargs` que um ZERAMENTO de turno (output_guard `_zerar_turno`,
+# post_process na pausa) NAO copia para a mensagem vazia: o espelho CRU dos tool_calls. E o unico
+# descarte justificado -- o check de truncamento do coordenador (5c) exige tool_calls, e copia-los
+# o re-dispararia. O RESTO do dict volta, e o que importa la e o `reasoning_content` (o thinking do
+# turno, publicado no trace por `raciocinio_do_turno`), que nunca vai ao cliente.
+_KWARGS_DE_TOOL_CALL = ("tool_calls", "function_call")
+
+
+def kwargs_preservados(msg: AIMessage) -> dict[str, Any]:
+    """`additional_kwargs` que sobrevivem ao zeramento do turno (ver `_KWARGS_DE_TOOL_CALL`).
+
+    Fonte unica dos dois zeramentos: sem ela, o turno com regen do output_guard e o turno pausado
+    no post_process saiam com `raciocinio: null` no trace -- a peca que explica a fala apagada por
+    uma tabela rasa, sem justificativa escrita (loop-massa r2, achado 4 da frente de extracao).
+    """
+    return {k: v for k, v in (msg.additional_kwargs or {}).items() if k not in _KWARGS_DE_TOOL_CALL}
+
+
 def _tool_use_ids(msg: AIMessage) -> set[str]:
     """IDs dos tool_calls de uma AIMessage -- de `.tool_calls` (LLM real) e dos blocos `tool_use`
     do content (cobre mensagens cruas/testes onde `.tool_calls` nao foi populado)."""
@@ -110,10 +128,18 @@ def e_marca_pausa(msg: BaseMessage) -> bool:
 # Campos de `registrar_extracao` que resumem a leitura do turno (a "mecanica" que importa num
 # trace, sem PII). `proxima_acao_esperada`/`sinais_qualificacao` ficam de fora -- verbosos e nao
 # acionaveis de relance.
+#
+# POLITICA (r3, achado 11 x 12d): `endereco` e `bairro` NAO entram -- sao PII do cliente, e o
+# resumo do trace e a superficie mais exposta que temos (root span, filtro, export). Quem precisa
+# do payload integro tem a observation `TOOL registrar_extracao` e o banco (`_CAMPOS_UPSERT`).
+# `tipo_local` entra: e enum fechado (hotel/motel/casa/apartamento/outro), nao localiza ninguem, e
+# e o unico bit do fluxo EXTERNO que o resumo carregava zerado -- auditar um externo pelo
+# `output.desfecho` concluia que nada de local tinha sido registrado (r3, decidido_rapido_a A3).
 _CAMPOS_EXTRACAO = (
     "intencao",
     "urgencia",
     "tipo_atendimento",
+    "tipo_local",
     "data_desejada",
     "horario_desejado",
     "valor_acordado",
@@ -173,6 +199,32 @@ def raciocinio_do_turno(resultado: dict[str, Any]) -> list[str]:
     return fora
 
 
+def extracao_do_turno(resultado: dict[str, Any]) -> dict[str, Any] | None:
+    """O payload que a `registrar_extracao` GRAVOU neste turno, ou `None` se nao gravou nada.
+
+    Le o CARIMBO do State (`_extracao_registrada`, posto pelo no `extrair`: os args gravados no
+    sucesso, `None` explicito no ramo de erro/mute). O veredito e por PRESENCA da chave, nao pelo
+    valor: o ramo de erro REVERTEU a transacao mas anexa ao State as mensagens com o tool_call cru,
+    e a varredura ressuscitaria como extracao do turno um payload que nao existe no banco (revisao
+    da r2). Quem carimbou decidiu — inclusive quando decidiu "nada".
+
+    A varredura de `tool_calls` das AIMessages ficou como FALLBACK para quem chega aqui SEM passar
+    pelo `extrair` (testes de no, State montado a mao): ela e fragil por construcao -- depende de
+    uma mensagem que o `output_guard` tem o direito de reescrever, e no despacho da regen
+    (`_zerar_turno`) a extracao sumia do trace inteira, levando junto a tag do turno (loop-massa
+    r2). Dict VAZIO e resposta legitima: registrou, sem campo acionavel dentro.
+    """
+    if "_extracao_registrada" in resultado:
+        carimbo = resultado["_extracao_registrada"]
+        return dict(carimbo) if carimbo is not None else None
+    registrado: dict[str, Any] | None = None
+    for m in mensagens_do_turno(resultado.get("messages", [])):
+        for tc in m.tool_calls or []:
+            if tc.get("name") == "registrar_extracao":
+                registrado = dict(tc.get("args") or {})
+    return registrado
+
+
 def desfecho_do_turno(resultado: dict[str, Any]) -> dict[str, Any]:
     """Resumo nao-PII da mecanica do turno p/ o metadata/output do trace (observabilidade).
 
@@ -184,12 +236,8 @@ def desfecho_do_turno(resultado: dict[str, Any]) -> dict[str, Any]:
     messages = resultado.get("messages", [])
     desfecho: dict[str, Any] = {}
 
-    extracao: dict[str, Any] = {}
-    for m in mensagens_do_turno(messages):
-        for tc in m.tool_calls or []:
-            if tc.get("name") == "registrar_extracao":
-                args = tc.get("args") or {}
-                extracao = {c: args[c] for c in _CAMPOS_EXTRACAO if args.get(c) is not None}
+    args = extracao_do_turno(resultado) or {}
+    extracao = {c: args[c] for c in _CAMPOS_EXTRACAO if args.get(c) is not None}
     if extracao:
         desfecho["extracao"] = extracao
 
@@ -232,7 +280,15 @@ def tags_do_turno(resultado: dict[str, Any]) -> list[str]:
     desfecho = desfecho_do_turno(resultado)
     tags: list[str] = []
     intencao = (desfecho.get("extracao") or {}).get("intencao")
-    tags.append(f"intencao:{intencao}" if intencao else "sem_extracao")
+    if intencao:
+        tags.append(f"intencao:{intencao}")
+    elif extracao_do_turno(resultado) is None:
+        # So quando o turno NAO registrou extracao nenhuma — a pergunta e sobre o REGISTRO, nao
+        # sobre o subset acionavel. A extracao e incremental: um payload sem `intencao` (ja
+        # registrada antes) e extracao normal (loop-massa r1, achado F2), e um payload 100% fora da
+        # whitelist (`proxima_acao_esperada` + `motivo_perda_candidato`) tambem — a versao anterior
+        # deste ramo lia o dict FILTRADO e voltava a mentir nesse caso (r2, eixo objetor t1/t4).
+        tags.append("sem_extracao")
     if not extrair_texto_do_turno(resultado.get("messages", [])).strip():
         tags.append("sem_resposta")
     if desfecho.get("erros_tool"):

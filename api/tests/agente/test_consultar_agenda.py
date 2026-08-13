@@ -72,6 +72,19 @@ async def test_janela_maior_que_14_dias_levanta_erro_recuperavel() -> None:
         )
 
 
+async def test_janela_invertida_nao_responde_livre() -> None:
+    """`data_fim < data_inicio` passava pela guarda dos 14 dias (`.days` fica NEGATIVO), o SQL nao
+    casava nada e a tool afirmava "Nenhum horário ocupado nesse período" — um falso "livre"
+    FABRICADO, que a IA usa para oferecer um slot possivelmente ocupado. `db_pool=None` prova que
+    nem chegou a consultar."""
+    with pytest.raises(ToolException, match=r"^ERRO: data_fim é ANTES"):
+        await _chamar(
+            data_inicio=date(2026, 5, 20),
+            data_fim=date(2026, 5, 1),
+            runtime=_Runtime(_Ctx(None, "00000000-0000-0000-0000-000000000000")),
+        )
+
+
 def test_data_malformada_rejeitada_na_validacao_de_args() -> None:
     """Data invalida e barrada na camada de args (pydantic), antes do corpo da tool — o ToolNode
     a devolve ao LLM como erro de invocacao com o detalhe da validacao."""

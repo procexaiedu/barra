@@ -25,7 +25,7 @@ export function BottomNav() {
       "relative flex min-h-[44px] flex-1 flex-col items-center justify-center gap-0.5 text-[10px] transition-colors",
       "focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none",
       ativo
-        ? "text-text-brand before:absolute before:top-0 before:h-[2px] before:w-9 before:rounded-b-full before:bg-gold-500 before:content-['']"
+        ? "text-text-brand before:absolute before:top-0 before:h-[2px] before:w-9 before:rounded-b-full before:bg-border-brand before:content-['']"
         : "text-text-secondary"
     )
 

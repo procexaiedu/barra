@@ -142,6 +142,9 @@ def _corrida() -> tuple[SimpleNamespace, SimpleNamespace, SimpleNamespace]:
     ver = SimpleNamespace(
         conduziu=True,
         violacoes=[],
+        # `anotacoes` (turno que o coordenador nem processou) entra no registro do transcrito junto
+        # das violacoes; o fake acompanha o campo em vez de o codigo cair num `getattr` silencioso.
+        anotacoes=[],
         conduta=CondutaScore(cotou=True, empurrao=False, estilo_dist=0.01),
     )
     return perfil, res, ver

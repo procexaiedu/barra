@@ -116,7 +116,7 @@ export function ChartRitmoPagamento({ pagamentos, janelaDe, janelaAte }: Props) 
       <ChartShell titulo="Ritmo de pagamento">
         <div className="flex h-[220px] flex-col items-center justify-center gap-1 text-sm text-text-muted">
           <span>Nenhum pagamento registrado neste período.</span>
-          <span className="text-[11px] text-text-disabled">
+          <span className="text-[11px] text-text-muted">
             Os pagamentos aparecem aqui assim que forem lançados.
           </span>
         </div>
@@ -141,7 +141,7 @@ export function ChartRitmoPagamento({ pagamentos, janelaDe, janelaAte }: Props) 
             barCategoryGap={pontos.length > 31 ? "10%" : "20%"}
           >
             <CartesianGrid
-              stroke="var(--ink-300)"
+              stroke="var(--border-subtle)"
               strokeOpacity={0.5}
               strokeDasharray="2 4"
               vertical={false}
@@ -151,7 +151,7 @@ export function ChartRitmoPagamento({ pagamentos, janelaDe, janelaAte }: Props) 
               interval={intervaloX}
               tick={{ fill: "var(--text-muted)", fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: "var(--ink-400)" }}
+              axisLine={{ stroke: "var(--border-strong)" }}
               minTickGap={8}
             />
             <YAxis
@@ -162,7 +162,7 @@ export function ChartRitmoPagamento({ pagamentos, janelaDe, janelaAte }: Props) 
               width={64}
             />
             <RechartsTooltip
-              cursor={{ fill: "var(--ink-200)", fillOpacity: 0.4 }}
+              cursor={{ fill: "var(--surface-hover)", fillOpacity: 0.4 }}
               wrapperStyle={{ outline: "none" }}
               content={<TooltipRitmo />}
             />
@@ -192,14 +192,14 @@ function TooltipRitmo({
   const p = payload[0].payload
   if (p.valor === 0) {
     return (
-      <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-lg shadow-black/40">
+      <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-elev-2">
         <div className="font-medium text-text-primary">{p.dia}</div>
         <div className="text-text-muted">Sem pagamentos</div>
       </div>
     )
   }
   return (
-    <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-lg shadow-black/40">
+    <div className="rounded-md border border-border bg-card px-3 py-2 text-[12px] shadow-elev-2">
       <div className="mb-1 font-medium text-text-primary">{p.dia}</div>
       <dl className="grid grid-cols-[auto_auto] gap-x-3 gap-y-0.5">
         <dt style={{ color: "var(--success-500)" }}>Pago</dt>

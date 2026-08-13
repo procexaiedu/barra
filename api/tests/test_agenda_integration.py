@@ -1,7 +1,7 @@
 """Integração da rota /v1/agenda/bloqueios — sobreposição retorna 409."""
 
 from contextlib import asynccontextmanager
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -357,5 +357,64 @@ def test_bloqueio_dentro_do_buffer_com_confirmar_retorna_201() -> None:
             response = client.post("/v1/agenda/bloqueios", json=body, headers=_token())
         assert response.status_code == 201
         assert any("INSERT INTO barravips.bloqueios" in q for q, _ in fake.execucoes)
+    finally:
+        app.dependency_overrides.pop(get_conn, None)
+
+
+class FakeConnPatchSobreposto:
+    """PATCH que move o bloqueio para cima de outro ATIVO: a EXCLUDE do banco estoura no UPDATE."""
+
+    def __init__(self) -> None:
+        self.atual = {
+            "id": uuid4(),
+            "modelo_id": uuid4(),
+            "atendimento_id": None,
+            "inicio": datetime.fromisoformat("2026-04-30T22:00:00-03:00"),
+            "fim": datetime.fromisoformat("2026-04-30T23:00:00-03:00"),
+            "estado": "bloqueado",
+        }
+        self.execucoes: list[tuple[str, object]] = []
+
+    @asynccontextmanager
+    async def transaction(self):
+        yield
+
+    async def execute(self, query: str, params: object = None) -> _Result:
+        self.execucoes.append((query, params))
+        if "FROM barravips.bloqueios WHERE id = %s" in query:
+            return _Result([dict(self.atual)])
+        if "UPDATE barravips.bloqueios SET inicio" in query:
+            raise ExclusionViolation("conflito de horário")
+        return _Result([])
+
+
+def test_patch_bloqueio_sobreposto_retorna_409() -> None:
+    # A rede de verdade do double-booking é a EXCLUDE `bloqueios_sem_sobreposicao`, não o gate de
+    # buffer: com `confirmar_buffer` o operador anula o gate, mas a violação do banco tem de chegar
+    # ao painel como o MESMO 409 do POST — nunca como 500.
+    fake = FakeConnPatchSobreposto()
+
+    async def _override():
+        yield fake
+
+    app.dependency_overrides[get_conn] = _override
+    try:
+        with TestClient(app) as client:
+            response = client.patch(
+                f"/v1/agenda/bloqueios/{fake.atual['id']}",
+                json={
+                    "inicio": "2026-05-01T14:00:00-03:00",
+                    "fim": "2026-05-01T15:00:00-03:00",
+                    "confirmar_buffer": True,
+                    "confirmar_fora_disponibilidade": True,
+                },
+                headers=_token(),
+            )
+        assert response.status_code == 409
+        body = response.json()
+        assert body["error"]["code"] == "CONFLITO_ESTADO"
+        assert "sobreposto" in body["error"]["message"].lower()
+        # O UPDATE foi de fato tentado: quem barrou foi o banco, não um gate anulável.
+        assert any("UPDATE barravips.bloqueios SET inicio" in q for q, _ in fake.execucoes)
     finally:
         app.dependency_overrides.pop(get_conn, None)

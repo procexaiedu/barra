@@ -177,6 +177,24 @@ class Metricas:
         }
 
 
+# Carimbos do State (pos-`ainvoke`) que o resultado do turno carrega para os graders. Sao a FONTE
+# DA VERDADE do que o turno DECIDIU: mensagem nao serve, porque o output_guard tem o direito de
+# reescrever as AIMessages do turno (`_zerar_turno`) e leva junto os `tool_calls` — o rig lia
+# "turno sem extracao" em 26 turnos que registraram (loop-massa r3, achado 12a). Mesma licao que o
+# lado do agente ja aprendeu em `agente/_texto_turno.extracao_do_turno`: carimbo, nao inferencia.
+_CARIMBOS_DO_STATE = ("_extracao_registrada", "_mute_por_erro_de_tool")
+
+
+def carimbos_do_estado(estado: dict[str, Any]) -> dict[str, Any]:
+    """Subset de `_CARIMBOS_DO_STATE` presente no State devolvido pelo `ainvoke`.
+
+    So as chaves PRESENTES: o veredito de `extracao_do_turno` e por presenca (carimbo `None`
+    explicito = "o `extrair` decidiu que nada foi gravado"), entao inventar a chave aqui trocaria
+    "nao passou pelo `extrair`" por "passou e nao gravou".
+    """
+    return {c: estado[c] for c in _CARIMBOS_DO_STATE if c in estado}
+
+
 @dataclass
 class ResultadoTurno:
     """O que um turno do grafo produziu — insumo puro dos graders de `checks.py`."""
@@ -190,6 +208,29 @@ class ResultadoTurno:
     estado_final: dict[str, Any]  # {estado, pix_status, ia_pausada} pos-turno (state_check)
     metricas: Metricas = field(default_factory=Metricas)  # observabilidade do turno
     trace_id: str | None = None  # trace Langfuse do turno (so com escopar_trace); ancora o score
+    estado_grafo: dict[str, Any] = field(
+        default_factory=dict
+    )  # carimbos (ver `carimbos_do_estado`)
+
+    @property
+    def extracao(self) -> dict[str, Any] | None:
+        """O payload que a `registrar_extracao` GRAVOU no turno, ou None se nao gravou nada.
+
+        Delega ao MESMO `extracao_do_turno` que o trace de prod usa: carimbo do State primeiro,
+        varredura de `tool_calls` so na ausencia dele (State montado a mao, turno que nao passou
+        pelo `extrair`). Todo consumidor do rig que quer "o que o turno leu" le AQUI, e nao
+        `tool_calls`/`tool_args` — esses sao o rastro da CHAMADA, e o guard os apaga.
+        """
+        from barra.agente._texto_turno import extracao_do_turno
+
+        return extracao_do_turno({**self.estado_grafo, "messages": self.mensagens})
+
+    @property
+    def mute_deliberado(self) -> bool:
+        """O turno saiu MUDO de proposito (`_mute_por_erro_de_tool`): a extracao errou no guard de
+        dominio e a reoferta ja tinha sido gasta — silencio > reserva fantasma. Distingue o
+        silencio DECIDIDO do turno mudo por acidente, que e violacao dura no veredito e2e."""
+        return bool(self.estado_grafo.get("_mute_por_erro_de_tool"))
 
 
 def _metricas_tokens(mensagens: list[BaseMessage], cotacao_usd_brl: float) -> Metricas:
@@ -264,8 +305,8 @@ async def _seed_modelo(conn: AsyncConnection[dict[str, Any]], spec: dict[str, An
         """
         INSERT INTO barravips.modelos
             (id, nome, idade, numero_whatsapp, valor_padrao, tipo_atendimento_aceito,
-             localizacao_operacional, endereco_formatado, nome_local)
-        VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[], %s, %s, %s)
+             localizacao_operacional, endereco_formatado, nome_local, chave_pix)
+        VALUES (%s, %s, %s, %s, %s, %s::barravips.tipo_atendimento_enum[], %s, %s, %s, %s)
         """,
         (
             modelo_id,
@@ -277,6 +318,12 @@ async def _seed_modelo(conn: AsyncConnection[dict[str, Any]], spec: dict[str, An
             spec.get("localizacao_operacional"),
             spec.get("endereco_formatado"),
             spec.get("nome_local"),
+            # Sem chave_pix o fluxo externo fica cego: o coordenador nunca anexa a bolha da chave
+            # (pix_status vira 'aguardando' mas o cliente nao recebe pra onde pagar). Em prod a
+            # coluna E anulavel (conferido em 12/08), entao o cego existe la tambem — o default
+            # aqui so tira o rig desse caminho por padrao; um caso que QUEIRA exercita-lo passa
+            # `chave_pix: null` explicito no spec (chave presente vence o default).
+            spec.get("chave_pix", "pix-teste@example.invalid"),
         ),
     )
     for prog in spec.get("programas") or []:
@@ -705,6 +752,7 @@ async def rodar_turno(
         estado_final=await estado_pos_turno(conn, cen.atendimento_id),
         metricas=metricas,
         trace_id=trace_id,
+        estado_grafo=carimbos_do_estado(estado),
     )
 
 

@@ -7,6 +7,7 @@ porque o advisory lock + a EXCLUDE de `bloqueios` nao toleram janela entre commi
 
 from datetime import datetime, timedelta, timezone
 from typing import Any
+from uuid import UUID
 
 from psycopg import AsyncConnection
 from psycopg.errors import ExclusionViolation
@@ -48,6 +49,29 @@ class AntecedenciaInsuficiente(Exception):
     ADR 0025). Erro RECUPERAVEL e DISTINTO de ConflitoAgenda: nao ha outro cliente a esconder — e
     tempo de preparo. A tool instrui a IA a ancorar no <horario_minimo> do contexto (sem inventar
     minutos). So a IA passa por aqui; o painel/Fernando nao tem antecedencia minima."""
+
+
+def antecedencia_min_por_tipo(tipo_atendimento: str | None) -> int:
+    """Piso de antecedencia (ADR 0025 + emenda 2026-06-26) para um tipo de atendimento, em minutos.
+
+    FONTE UNICA da regua, por decisao da prova r3 (`diagnostico_externo_a.md`, Q2). A mesma conta
+    vivia em DOIS sitios — o gate de `criar_bloqueio_previo` (abaixo) e o `<horario_minimo>` que o
+    `prepare_context` publica no prompt — cada um lendo o `tipo_atendimento` de uma EPOCA diferente
+    do turno. Com `interno` no snapshot do inicio do turno o prompt anunciava 21:00 como piso; com
+    `externo` extraido no MESMO turno a reserva exigia 21:11 e recusava a hora que a propria IA
+    tinha acabado de ofertar (`AntecedenciaInsuficiente`), matando o turno.
+
+    A regua de NEGOCIO nao muda: sem deslocamento da modelo (interno/remoto) ela recebe agora como
+    o humano (`agenda_antecedencia_sem_deslocamento_min`, ~0); externo-Uber e tipo AINDA NAO
+    definido (None) pagam o `agenda_buffer_min` — o conservador, porque so ele sobrevive a um flip
+    de tipo. Muda so quem consulta: os dois lados chamam esta funcao.
+    """
+    s = get_settings()
+    return (
+        s.agenda_antecedencia_sem_deslocamento_min
+        if tipo_atendimento in ("interno", "remoto")
+        else s.agenda_buffer_min
+    )
 
 
 async def existe_vizinho_no_buffer(
@@ -167,8 +191,9 @@ async def criar_bloqueio_previo(
     # O gap entre atendimentos (existe_vizinho_no_buffer, abaixo) segue agenda_buffer_min p/ todos.
     s = get_settings()
     buffer = s.agenda_buffer_min
-    sem_deslocamento = atendimento.get("tipo_atendimento") in ("interno", "remoto")
-    antecedencia = s.agenda_antecedencia_sem_deslocamento_min if sem_deslocamento else buffer
+    # FONTE UNICA com o `<horario_minimo>` do prompt (`antecedencia_min_por_tipo`, acima): sao a
+    # MESMA regua, e as duas copias divergiam pelo tipo de epocas diferentes do turno (prova r3).
+    antecedencia = antecedencia_min_por_tipo(atendimento.get("tipo_atendimento"))
     if inicio < agora + timedelta(minutes=antecedencia):
         raise AntecedenciaInsuficiente(
             "Inicio dentro da antecedencia minima a partir de agora (now + antecedencia)."
@@ -212,3 +237,55 @@ async def criar_bloqueio_previo(
             )
     except ExclusionViolation as exc:
         raise ConflitoAgenda("Slot ja reservado por outra conversa.") from exc
+
+
+async def realocar_bloqueio_previo(
+    conn: AsyncConnection[Any],
+    *,
+    atendimento: dict[str, Any],
+    agora: datetime | None = None,
+) -> None:
+    """Move a reserva previa para o horario JA gravado no snapshot: cancela a antiga e recria.
+
+    Existe para um caso so, e estreito (ver `_reagendamento_pos_bloqueio`): o slot reservado veio de
+    um PALPITE (o fallback de tempo imediato, ou a hora que a IA ofereceu e ele nao respondeu) e o
+    cliente acabou de cravar a hora dele. Nao e reagendamento — e o primeiro agendamento de fato.
+
+    `cancelado` (e nao DELETE) porque a EXCLUDE `bloqueios_sem_sobreposicao` so conta os estados
+    ATIVOS: o slot velho e liberado e o historico do painel preserva o rastro. A recriacao passa por
+    `criar_bloqueio_previo` inteiro de proposito — disponibilidade, antecedencia, gap e EXCLUDE
+    valem para a hora nova como valeriam para qualquer outra. Se alguma barrar, a excecao propaga
+    (recuperavel): a transacao do turno reverte, o bloqueio antigo continua de pe e a IA reoferta.
+    """
+    await liberar_bloqueio_previo(conn, atendimento_id=atendimento["id"])
+    await criar_bloqueio_previo(conn, atendimento=atendimento, agora=agora)
+
+
+async def liberar_bloqueio_previo(
+    conn: AsyncConnection[Any],
+    *,
+    atendimento_id: UUID | str,
+) -> None:
+    """Solta a reserva previa e devolve o slot para a agenda — sem recriar nada.
+
+    Metade "cancela" da `realocar_bloqueio_previo` (que e liberar + criar), exposta sozinha para a
+    REMARCACAO ABERTA: o cliente desmarca sem dizer quando remarca ("hoje nao consigo mais, marco
+    outro dia") e o horario sai do snapshot pelo `limpar`. Zerar o snapshot deixando o bloqueio de
+    pe seria o bloqueio ORFAO travando a agenda da modelo com um encontro que ninguem tem — o medo
+    que ate 12/08 fazia essa fala escalar e pausar a IA no turno do fechamento
+    (`_reagendamento_pos_bloqueio`, prova r3 do loop de massa).
+
+    `cancelado` (e nao DELETE) pelo mesmo motivo da realocacao: a EXCLUDE
+    `bloqueios_sem_sobreposicao` so conta os estados ATIVOS, entao o slot fica livre na hora e o
+    historico do painel preserva o rastro. Idempotente: sem bloqueio ativo, os dois UPDATEs nao
+    acham linha e a chamada e no-op."""
+    await conn.execute(
+        "UPDATE barravips.bloqueios SET estado = 'cancelado', updated_at = now() "
+        "WHERE id = (SELECT bloqueio_id FROM barravips.atendimentos WHERE id = %s) "
+        "AND estado = 'bloqueado'",
+        (atendimento_id,),
+    )
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET bloqueio_id = NULL WHERE id = %s",
+        (atendimento_id,),
+    )

@@ -29,25 +29,32 @@ export function nomeCliente(nome: string | null | undefined, telefone: string): 
   return 'Contato sem telefone'
 }
 
-export const formatBRL = (n: number) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(n)
+// Intl icado em constante de módulo (mesmo padrão dos charts do financeiro):
+// construir o formatter a cada chamada é caro e estes rodam por linha de lista.
+const BRL_FMT = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
 
-export const formatDataHora = (iso: string) =>
-  new Intl.DateTimeFormat('pt-BR', {
-    dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Sao_Paulo',
-  }).format(new Date(iso))
+const DATA_HORA_FMT = new Intl.DateTimeFormat('pt-BR', {
+  dateStyle: 'medium', timeStyle: 'short', timeZone: 'America/Sao_Paulo',
+})
 
+const DATA_FMT = new Intl.DateTimeFormat('pt-BR', {
+  day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Sao_Paulo',
+})
+
+const HORARIO_FMT = new Intl.DateTimeFormat('pt-BR', {
+  hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo',
+})
+
+export const formatBRL = (n: number) => BRL_FMT.format(n)
+
+export const formatDataHora = (iso: string) => DATA_HORA_FMT.format(new Date(iso))
+
+// Date-only ("2026-06-10", ex. data_desejada) parseia como meia-noite UTC e o formatter
+// em America/Sao_Paulo recua para o dia anterior; ancorar ao meio-dia UTC mantém o dia.
 export const formatData = (iso: string) =>
-  new Intl.DateTimeFormat('pt-BR', {
-    day: '2-digit', month: 'short', year: 'numeric', timeZone: 'America/Sao_Paulo',
-  // Date-only ("2026-06-10", ex. data_desejada) parseia como meia-noite UTC e o formatter
-  // em America/Sao_Paulo recua para o dia anterior; ancorar ao meio-dia UTC mantém o dia.
-  }).format(new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00Z` : iso))
+  DATA_FMT.format(new Date(/^\d{4}-\d{2}-\d{2}$/.test(iso) ? `${iso}T12:00:00Z` : iso))
 
-export const formatHorario = (iso: string) =>
-  new Intl.DateTimeFormat('pt-BR', {
-    hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo',
-  }).format(new Date(iso))
+export const formatHorario = (iso: string) => HORARIO_FMT.format(new Date(iso))
 
 export function formatTempoRelativo(iso: string, agora = new Date()): string {
   const diffMs = agora.getTime() - new Date(iso).getTime()
@@ -60,10 +67,12 @@ export function formatTempoRelativo(iso: string, agora = new Date()): string {
   return `há ${d} d`
 }
 
+const DIA_SEMANA_FMT = new Intl.DateTimeFormat('pt-BR', {
+  weekday: 'long', timeZone: 'America/Sao_Paulo',
+})
+
 export function formatDiaSemana(date: Date): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    weekday: 'long', timeZone: 'America/Sao_Paulo',
-  }).format(date)
+  return DIA_SEMANA_FMT.format(date)
 }
 
 export function formatDuracaoHoras(valor: number | string | null | undefined): string | null {

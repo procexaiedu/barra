@@ -122,6 +122,35 @@ _WHERE_INBOUND_NAO_RESPONDIDO = """
 """
 
 
+# O turno e CRITICO? (07 §3 passo 8 / 05 §3): write tool COM EFEITO ja commitada -- a msg ao
+# cliente (chave Pix, confirmacao) nao pode ser cancelada nem perdida. `registrar_extracao` so conta
+# quando CAUSOU transicao (marcar toda registrar_extracao mataria o cancel) OU solicitou o Pix de
+# deslocamento (`pix_solicitado` ocorre sem nova transicao, `novo_estado` NULL).
+# SQL em constante porque DOIS caminhos o rodam: o despacho normal e o resgate do turno DESCARTADO
+# (`_despachar_criticas_do_descarte`) -- e eles tem de decidir "critico" pelo mesmo criterio.
+_SQL_TURNO_CRITICO = """
+SELECT 1 FROM barravips.tool_calls
+ WHERE turno_id = %s
+   AND tool_name = 'registrar_extracao'
+   AND ( resultado->>'novo_estado' IS NOT NULL
+      OR resultado->>'pix_solicitado' = 'true' )
+ LIMIT 1
+"""
+# Pix de deslocamento: a solicitacao deterministica (registrar_extracao, dominio/atendimentos)
+# NAO grava a chave (string critica fora do LLM) -- so o valor em `pix_valor`, e promete que o
+# sistema anexa a chave. Chave/titular lidos FRESH do cadastro.
+_SQL_PIX_DO_TURNO = """
+SELECT mo.chave_pix, mo.titular_chave,
+       tc.resultado->>'pix_valor' AS valor
+  FROM barravips.tool_calls tc
+  JOIN barravips.modelos mo ON mo.id = %s
+ WHERE tc.turno_id = %s
+   AND tc.tool_name = 'registrar_extracao'
+   AND tc.resultado->>'pix_solicitado' = 'true'
+ LIMIT 1
+"""
+
+
 def _formatar_bolha_pix(chave: str, titular: str | None, valor: Any) -> str:
     """Bolha determinística com os dados do Pix de deslocamento, anexada após o texto da IA.
 
@@ -225,6 +254,70 @@ def _resolver_quotes(
         msg_ids.append(escolhido["evolution_message_id"])
         textos.append(escolhido["conteudo"])
     return msg_ids, textos
+
+
+async def _despachar_criticas_do_descarte(
+    ctx: dict[str, Any],
+    pool: Any,
+    *,
+    conversa_id: str,
+    turno_id: str,
+    modelo_id: Any,
+    atendimento_id: Any,
+) -> bool:
+    """O turno foi DESCARTADO — resgata as bolhas DETERMINISTICAS que o sistema ja prometeu.
+
+    Duas invariantes colidiam e uma engolia a outra (loop-massa r3, achado 6): "bolha zerada pelo
+    guard nunca sai" e "bolha critica nunca se perde". O bloco que monta a chave Pix vivia INTEIRO
+    dentro do `else:` do descarte, entao um turno que fechou a venda -- `pix_solicitado`, bloqueio
+    reservado, estado em `Aguardando_confirmacao` -- e cujo TEXTO o guard reprovou saia com ZERO
+    mensagens ao cliente que acabara de fechar: o banco andou, a conversa parou
+    (`decidido_rapido_a` t5).
+
+    O corte que dispensa decisao de produto: aqui NUNCA sai texto do modelo -- so a bolha que o
+    SISTEMA gera (chave Pix lida fresh do cadastro, nunca do LLM), e so quando o turno e `critico`
+    pelo mesmo criterio do caminho normal (`_SQL_TURNO_CRITICO`). A bolha critica ja e imune ao
+    gate de pausa do envio por desenho (`workers/envio.py`: `checar_pausa = not critico and ...`),
+    entao isto nao afrouxa nada -- so para de perder o que o proprio sistema garantiu.
+
+    Devolve True quando despachou algo.
+    """
+    async with pool.connection() as conn:
+        res = await conn.execute(_SQL_TURNO_CRITICO, (turno_id,))
+        if await res.fetchone() is None:
+            return False
+        res = await conn.execute(_SQL_PIX_DO_TURNO, (modelo_id, turno_id))
+        pix_row = await res.fetchone()
+    if not (pix_row and pix_row.get("chave_pix")):
+        # Critico por transicao de estado, sem bolha deterministica a anexar: nada a resgatar
+        # (a confirmacao em si era texto do modelo, e texto do modelo continua barrado).
+        return False
+    chunks = [
+        _formatar_bolha_pix(
+            pix_row["chave_pix"],
+            pix_row.get("titular_chave"),
+            pix_row.get("valor") or get_settings().pix_deslocamento_valor,
+        )
+    ]
+    logger.warning(
+        "turno_descartado_com_critico atendimento_id=%s turno_id=%s -> despacha so a bolha"
+        " deterministica (Pix)",
+        atendimento_id,
+        turno_id,
+    )
+    await despachar_humanizacao(
+        ctx,
+        conversa_id,
+        turno_id,
+        chunks,
+        [],
+        [],
+        0,
+        True,  # critico: nunca adia e pula o cancel-on-new-message
+        defer_humano=False,
+        ignorar_pausa=True,
+    )
+    return True
 
 
 def pausa_aberta_por_este_turno(messages: Sequence[BaseMessage]) -> bool:
@@ -467,7 +560,11 @@ async def processar_turno(
                                 config={**config, "callbacks": callbacks},
                                 context=context,
                             ),
-                            timeout=60.0,
+                            # Teto do TURNO. Vem do settings junto com `llm_timeout_s` (teto por
+                            # CHAMADA de LLM, estritamente menor): com os dois em 60.0 literais a
+                            # chamada pendurada morria aqui, fora do grafo, onde so existe handoff
+                            # — nunca no guard, que tem fallback deterministico pronto.
+                            timeout=settings.turno_timeout_s,
                         )
                         # Observabilidade (ADR 0019): ainda com o span vivo, torna o ROOT span
                         # autossuficiente — msg do cliente no input, resposta + desfecho (mecanica:
@@ -614,7 +711,15 @@ async def processar_turno(
                 #    passa a valer para TODA pausa que este turno nao abriu, com texto ou sem. Sem
                 #    isto o turno seguia despachando por cima da modelo que ja esta atendendo.
                 texto = extrair_texto_do_turno(resultado["messages"])
-                escalou_neste_turno = pausa_aberta_por_este_turno(resultado["messages"])
+                # 3o rastro de pausa-deste-turno: o CARIMBO do output_guard. `_bloquear`
+                # (leak/AUP) escala direto no banco, sem tocar em `messages` — os dois rastros que
+                # `pausa_aberta_por_este_turno` le (tool `escalar`, canned da escalada silenciosa)
+                # nao existem nesse caminho, e a pausa aberta pelo PROPRIO grafo era logada como
+                # `pausa_externa=True`, mandando o operador procurar um pipeline que nao pausou
+                # nada (loop-massa r3, achado 6).
+                escalou_neste_turno = bool(
+                    resultado.get("_pausa_aberta_pelo_guard")
+                ) or pausa_aberta_por_este_turno(resultado["messages"])
                 pausa_externa = bool(pos["ia_pausada"]) and not escalou_neste_turno
                 if (
                     pos["estado"] in ESTADOS_TERMINAIS
@@ -627,6 +732,18 @@ async def processar_turno(
                         pausa_externa,
                     )
                     AGENTE_TURNO_RESULTADO.labels("escalado").inc()
+                    # O descarte NAO engole o turno critico: a bolha deterministica que o sistema
+                    # ja prometeu (chave Pix) sai mesmo aqui — texto do modelo, nunca. Fora dos
+                    # estados TERMINAIS: com o atendimento Fechado/Perdido nao ha o que anexar.
+                    if pos["estado"] not in ESTADOS_TERMINAIS:
+                        await _despachar_criticas_do_descarte(
+                            ctx,
+                            pool,
+                            conversa_id=conversa_id,
+                            turno_id=turno_id,
+                            modelo_id=atendimento["modelo_id"],
+                            atendimento_id=atendimento["id"],
+                        )
                 else:
                     async with pool.connection() as conn:
                         res = await conn.execute(
@@ -660,32 +777,14 @@ async def processar_turno(
                         )
                         midias: list[dict[str, Any]] = [dict(r) for r in await res.fetchall()]
 
-                        # critico (07 §3 passo 8 / 05 §3): write tool COM EFEITO ja commitada --
-                        # a msg ao cliente (chave Pix, confirmacao) nao pode ser cancelada nem
-                        # perdida. registrar_extracao so conta quando CAUSOU transicao (marcar toda
-                        # registrar_extracao mataria o cancel) OU solicitou o Pix de deslocamento
-                        # (pix_solicitado pode ocorrer sem nova transicao, novo_estado NULL). O
-                        # flag vai no PAYLOAD do job (05 §7), nao no Redis -- TTL pode expirar
-                        # antes da ultima retry com backoff.
-                        res = await conn.execute(
-                            """
-                            SELECT 1 FROM barravips.tool_calls
-                             WHERE turno_id = %s
-                               AND tool_name = 'registrar_extracao'
-                               AND ( resultado->>'novo_estado' IS NOT NULL
-                                  OR resultado->>'pix_solicitado' = 'true' )
-                             LIMIT 1
-                            """,
-                            (turno_id,),
-                        )
+                        # critico: ver `_SQL_TURNO_CRITICO` (mesmo criterio usado pelo resgate do
+                        # turno descartado). O flag vai no PAYLOAD do job (05 §7), nao no Redis --
+                        # TTL pode expirar antes da ultima retry com backoff.
+                        res = await conn.execute(_SQL_TURNO_CRITICO, (turno_id,))
                         critico = await res.fetchone() is not None
 
-                        # Pix de deslocamento: a solicitacao deterministica (registrar_extracao,
-                        # dominio/atendimentos/service.py) NAO grava a chave (string crítico fora do
-                        # LLM) — só o valor em `pix_valor`, e promete que o sistema anexa a chave.
-                        # Só consultamos quando o turno é `critico`. Lemos chave/titular fresh do
-                        # cadastro + o valor que a extração registrou, p/ anexar a bolha do Pix após
-                        # o texto da IA.
+                        # Pix de deslocamento: ver `_SQL_PIX_DO_TURNO`. So consultamos quando o
+                        # turno é `critico`; a bolha e anexada após o texto da IA.
                         # Parceira (ADR-0042): o MESMO trilho da chave Pix, e pelo mesmo motivo —
                         # o telefone dela é string crítica que não pode passar pelo LLM. A tool
                         # `envolver_parceira` só registrou a intenção; o número é lido fresh aqui.
@@ -712,17 +811,7 @@ async def processar_turno(
                         pix_row: dict[str, Any] | None = None
                         if critico:
                             res = await conn.execute(
-                                """
-                                SELECT mo.chave_pix, mo.titular_chave,
-                                       tc.resultado->>'pix_valor' AS valor
-                                  FROM barravips.tool_calls tc
-                                  JOIN barravips.modelos mo ON mo.id = %s
-                                 WHERE tc.turno_id = %s
-                                   AND tc.tool_name = 'registrar_extracao'
-                                   AND tc.resultado->>'pix_solicitado' = 'true'
-                                 LIMIT 1
-                                """,
-                                (atendimento["modelo_id"], turno_id),
+                                _SQL_PIX_DO_TURNO, (atendimento["modelo_id"], turno_id)
                             )
                             pix_row = await res.fetchone()
 

@@ -280,10 +280,13 @@ async def test_loop_executa_tool_e_retorna_aimessage(
     assert isinstance(final, AIMessage)
     assert final.content
 
-    # o llm foi chamado 2x (2a chamada VIU o ToolMessage real de consultar_agenda) + 1 chamada
-    # FORCADA de extracao no no `extrair` pos-fala (02 §4): a 3ª visão é a janela da extracao. O
-    # forcado repete a fala (sem tool_call) -> `extrair` descarta e fecha, sem escrever no banco.
-    assert len(fake.vistas) == 3
+    # o llm foi chamado 2x (2a chamada VIU o ToolMessage real de consultar_agenda) + 2 chamadas
+    # FORCADAS de extracao no no `extrair` pos-fala (02 §4): a 3ª visão é a janela da extracao e a
+    # 4ª é a RETENTATIVA. O fake repete a fala sem tool_call, que e exatamente o gatilho do retry em
+    # serie (`AGENTE_EXTRACAO_RETENTADA`): o custo de perder o payload e alto e assimetrico, entao o
+    # no tenta a mesma janela uma segunda vez antes de descartar. Como o fake responde igual, a 2a
+    # tambem vem sem tool_call -> `extrair` descarta e fecha, sem escrever no banco.
+    assert len(fake.vistas) == 4
     tool_msgs = [m for m in fake.vistas[1] if isinstance(m, ToolMessage)]
     assert len(tool_msgs) == 1
     assert tool_msgs[0].name == "consultar_agenda"

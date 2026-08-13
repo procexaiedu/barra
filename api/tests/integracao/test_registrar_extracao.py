@@ -12,7 +12,7 @@ em slot sobreposto; reagendamento pos-bloqueio escala sem sobrescrever (branch 1
 
 import os
 from collections.abc import AsyncIterator
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 from uuid import UUID, uuid4
@@ -30,7 +30,9 @@ from barra.dominio.atendimentos.service import (
     CotacaoAusente,
     ParPrecoDuracaoInvalido,
     _abaixo_do_piso,
+    carimbar_cotacao_por_texto_enviado,
     registrar_extracao_ia,
+    retirar_horario_palpite,
 )
 from barra.settings import get_settings
 
@@ -113,6 +115,8 @@ async def _seed_atendimento(
     data_desejada: date | None = None,
     duracao_horas: Decimal | None = None,
     cotou: bool = True,
+    horario_evidenciado: bool = False,
+    n_contrapropostas: int = 0,
 ) -> UUID:
     # cotou=True por padrao: quem combina horario (reach Aguardando_confirmacao) ja ouviu o preco —
     # e a precondicao real do guard CotacaoAusente (finding onda 1 A). Testes que exercitam o guard
@@ -122,10 +126,11 @@ async def _seed_atendimento(
         """
         INSERT INTO barravips.atendimentos
             (id, cliente_id, modelo_id, conversa_id, estado, tipo_atendimento, intencao,
-             horario_desejado, data_desejada, duracao_horas, cotacao_enviada_em)
+             horario_desejado, data_desejada, duracao_horas, cotacao_enviada_em,
+             horario_evidenciado, n_contrapropostas)
         VALUES (%s, %s, %s, %s, %s::barravips.estado_atendimento_enum,
                 %s::barravips.tipo_atendimento_enum, %s::barravips.intencao_enum, %s, %s, %s,
-                CASE WHEN %s THEN now() ELSE NULL END)
+                CASE WHEN %s THEN now() ELSE NULL END, %s, %s)
         """,
         (
             atendimento_id,
@@ -139,6 +144,8 @@ async def _seed_atendimento(
             data_desejada,
             duracao_horas,
             cotou,
+            horario_evidenciado,
+            n_contrapropostas,
         ),
     )
     return atendimento_id
@@ -151,14 +158,19 @@ async def _seed_programa(
     horas: Decimal,
     preco: Decimal,
     preco_minimo: Decimal | None = None,
+    nome: str | None = None,
 ) -> tuple[UUID, UUID]:
     """Programa de tabela da modelo numa duracao (`duracoes.horas`) — base do piso (ADR-0004).
     `preco_minimo` e o piso ABSOLUTO da linha, que clampa a escada percentual (11/08/2026).
-    Devolve `(programa_id, duracao_id)` p/ quem precisa amarrar o servico VENDIDO ao pacote."""
+    Devolve `(programa_id, duracao_id)` p/ quem precisa amarrar o servico VENDIDO ao pacote.
+
+    `nome` importa para UMA leitura: `core.catalogo.e_video_chamada` separa a linha REMOTA das
+    presenciais pelo nome (ADR-0021). O default aleatorio nunca casa — quem precisa da chamada
+    pede `nome="Vídeo chamada"`."""
     programa_id = uuid4()
     await c.execute(
         "INSERT INTO barravips.programas (id, nome, categoria) VALUES (%s, %s, NULL)",
-        (programa_id, f"Prog {uuid4().hex[:8]}"),
+        (programa_id, nome or f"Prog {uuid4().hex[:8]}"),
     )
     duracao_id = uuid4()
     await c.execute(
@@ -226,6 +238,7 @@ async def test_interno_horario_cria_bloqueio_e_pin(conn: AsyncConnection[dict[st
         horario_desejado=time(14, 0),
         data_desejada=date(2026, 12, 1),
         duracao_horas=Decimal("2"),
+        horario_evidenciado=True,  # a hora e DELE: e ela que autoriza a reserva do slot
     )
 
     resultado = await registrar_extracao_ia(
@@ -273,6 +286,7 @@ async def test_combinar_horario_sem_cotacao_barra_e_reverte(
         data_desejada=date(2026, 12, 1),
         duracao_horas=Decimal("2"),
         cotou=False,
+        horario_evidenciado=True,  # a hora e DELE; o que falta e o preco
     )
     with pytest.raises(CotacaoAusente):
         async with conn.transaction():
@@ -304,6 +318,7 @@ async def test_cotar_e_combinar_no_mesmo_turno_avanca(
         data_desejada=date(2026, 12, 1),
         duracao_horas=Decimal("2"),
         cotou=False,
+        horario_evidenciado=True,  # a hora e DELE; o preco chega no mesmo turno
     )
     resultado = await registrar_extracao_ia(
         conn,
@@ -343,6 +358,7 @@ async def test_multihop_triagem_ate_aguardando_no_mesmo_turno(
             "duracao_horas": "1",
             "proxima_acao_esperada": "confirmar saida do cliente",
         },
+        horario_evidenciado=True,  # a hora saiu da boca DELE neste turno
     )
 
     # Promoveu ate Aguardando_confirmacao + bloqueio + pin, tudo no mesmo turno.
@@ -385,6 +401,7 @@ async def test_remoto_horario_cria_bloqueio_sem_pin(
         horario_desejado=time(20, 0),
         data_desejada=date(2026, 12, 1),
         duracao_horas=Decimal("1"),
+        horario_evidenciado=True,  # a hora da chamada e DELE
     )
 
     resultado = await registrar_extracao_ia(
@@ -431,6 +448,7 @@ async def test_remoto_com_valor_solicita_pix_antecipado(
         horario_desejado=time(20, 0),
         data_desejada=date(2026, 12, 1),
         duracao_horas=Decimal("1"),
+        horario_evidenciado=True,  # a hora da chamada e DELE
     )
     # Programa de tabela para o guard do piso achar o preco: o payload do commit remoto so traz o
     # `valor_acordado`, sem reenviar a duracao (ja persistida na cotacao). O COALESCE de duracao em
@@ -477,7 +495,11 @@ async def test_imediato_sem_horario_assume_horario_minimo(
 ) -> None:
     """#4: urgencia=imediato SEM horario_desejado, em remoto (sem-deslocamento), assume o
     `horario_minimo` (cedo agenda-coerente) e promove a Aguardando_confirmacao + bloqueio — em vez
-    de ficar preso em Qualificado -> Perdido. `agora`/`horario_minimo` fixos -> determinístico."""
+    de ficar preso em Qualificado -> Perdido. `agora`/`horario_minimo` fixos -> determinístico.
+
+    O NUMERO vem do fallback, a EVIDENCIA vem dele (#35 da spec de proveniencia: a IA sondou
+    "Seria agora ?" e ele respondeu "sim"). Sem o carimbo do detector do turno o fallback e
+    palpite e nao reserva nada — caso #25, coberto em test_promocao_intencao.py."""
     _, atendimento_id = await _seed_par(
         conn,
         aceita=["remoto"],
@@ -495,6 +517,7 @@ async def test_imediato_sem_horario_assume_horario_minimo(
         {"urgencia": "imediato", "proxima_acao_esperada": "reservar a chamada"},
         agora=agora,
         horario_minimo=horario_minimo,
+        horario_evidenciado=True,  # ele aceitou a sondagem de imediatismo
     )
 
     assert resultado["novo_estado"] == "Aguardando_confirmacao"
@@ -551,8 +574,15 @@ async def test_imediato_externo_uber_nao_auto_reserva(
 
 @pytest.mark.needs_db
 async def test_valor_abaixo_do_piso_escala(conn: AsyncConnection[dict[str, Any]]) -> None:
+    # `n_contrapropostas=1` = a IA JA jogou uma rodada da escada e ele voltou pedindo menos: isto e
+    # INSISTENCIA, que e a pre-condicao da escalada desde a r3 (loop-massa, achado 2c). Com a escada
+    # intacta o mesmo valor vira descarte silencioso — ver o teste irmao logo abaixo.
     modelo_id, atendimento_id = await _seed_par(
-        conn, estado="Qualificado", tipo_atendimento="externo", intencao="agendamento"
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        n_contrapropostas=1,
     )
     # Preco de tabela 1000 na duracao de 2h; piso = 1000*(1-desconto_teto_pct). valor_acordado=50
     # fica abaixo de qualquer piso para desconto_teto_pct realista (<0.95).
@@ -596,6 +626,54 @@ async def test_valor_abaixo_do_piso_escala(conn: AsyncConnection[dict[str, Any]]
     assert esc["responsavel"] == "modelo"
     assert esc["tipo"] == "fora_de_oferta"
     assert esc["observacao"] == "fora_de_oferta"
+
+
+@pytest.mark.needs_db
+async def test_valor_abaixo_do_piso_na_rodada_zero_descarta_sem_escalar(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """loop-massa r3, achado 2c: com a escada INTACTA (`n_contrapropostas == 0`) o pedido baixo e o
+    PRIMEIRO lance dele, nao insistencia — e escalar ali pre-empta a jogada que o proprio contexto
+    acabou de mandar fazer (em `negociacao_dura_a` t6 a contraproposta CERTA de 300 morreu zerada
+    pelo `post_process` sobre um pedido de 200).
+
+    O valor continua NAO sendo gravado; o que muda e que ninguem e acordado, a IA nao e pausada e a
+    escada segue viva. A escalada e o DEPOIS da escada (ADR-0031, degrau 6 do `regras.md.j2`)."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Qualificado", tipo_atendimento="externo", intencao="agendamento"
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "valor_acordado": "200",
+            "duracao_horas": "1",
+            "proxima_acao_esperada": "contrapor pela escada",
+        },
+    )
+
+    assert resultado["mensagem"] not in MENSAGENS_GUARD_ESCALADA
+
+    res = await conn.execute(
+        "SELECT valor_acordado, ia_pausada, n_contrapropostas "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] is None  # o numero abaixo do piso nunca e gravado
+    assert a["ia_pausada"] is False  # e a IA segue conduzindo, com a contraproposta na mao
+    assert a["n_contrapropostas"] == 0  # a rodada continua disponivel
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None
+    assert esc["n"] == 0
 
 
 # --- guarda do VALOR FANTASMA (validacao ao vivo 11/08, escada_val2) --------------------------
@@ -905,11 +983,16 @@ async def test_payload_sem_valor_passa_intocado(conn: AsyncConnection[dict[str, 
 async def test_valor_abaixo_do_piso_ainda_escala_em_vez_de_descartar(
     conn: AsyncConnection[dict[str, Any]],
 ) -> None:
-    """Ordem das guardas: abaixo do piso continua ESCALANDO (ADR-0004 — o cliente insistindo num
-    numero baixo merece a modelo decidir). So o que PASSA do piso e nunca saiu da boca dela cai no
-    descarte silencioso."""
+    """Ordem das guardas: abaixo do piso continua ESCALANDO **com a escada ja jogada** (ADR-0004 —
+    o cliente INSISTINDO num numero baixo merece a modelo decidir; a premissa sempre esteve no
+    comentario, o gate e que passou a checa-la na r3). So o que PASSA do piso e nunca saiu da boca
+    dela cai no descarte silencioso do valor fantasma."""
     modelo_id, atendimento_id = await _seed_par(
-        conn, estado="Qualificado", tipo_atendimento="externo", intencao="agendamento"
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        n_contrapropostas=1,
     )
     await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
     antes = _valor_fantasma_total()
@@ -970,13 +1053,15 @@ async def test_lowball_sem_duracao_no_payload_ainda_escala(
 ) -> None:
     """O COALESCE de duracao NAO enfraquece a deteccao de lowball: mesmo sem a duracao no payload,
     o guard usa a persistida (2h, preco 1000, piso 850) e um valor_acordado=50 segue abaixo do piso
-    -> escala fora_de_oferta e nao grava o valor."""
+    -> escala fora_de_oferta e nao grava o valor. (`n_contrapropostas=1`: a escalada exige
+    insistencia desde a r3 — o que este teste isola e o COALESCE da duracao, nao o gate novo.)"""
     modelo_id, atendimento_id = await _seed_par(
         conn,
         estado="Qualificado",
         tipo_atendimento="externo",
         intencao="agendamento",
         duracao_horas=Decimal("2"),
+        n_contrapropostas=1,
     )
     await _seed_programa(conn, modelo_id, horas=Decimal("2"), preco=Decimal("1000"))
 
@@ -1369,6 +1454,7 @@ async def test_conflito_de_agenda(conn: AsyncConnection[dict[str, Any]]) -> None
                 horario_desejado=horario,
                 data_desejada=data,
                 duracao_horas=duracao,
+                horario_evidenciado=True,  # os dois clientes cravaram a MESMA hora
             )
         )
 
@@ -1389,8 +1475,42 @@ async def test_conflito_de_agenda(conn: AsyncConnection[dict[str, Any]]) -> None
 
 
 @pytest.mark.needs_db
+async def test_numero_pequeno_demais_para_ser_preco_nao_escala(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """ "seria amanha a noite, umas 21h" virando `valor_acordado=21` (medido ao vivo em 12/08): nao
+    e o cliente pedindo barato, e a extracao lendo a HORA como valor. Cair na guarda do piso pausava
+    a IA no turno em que ele marcava o encontro — a conversa morria em "Deixa eu ver certinho"."""
+    modelo_id, atendimento_id = await _seed_par(conn, estado="Triagem", intencao="agendamento")
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"valor_acordado": 21, "duracao_horas": 1, "proxima_acao_esperada": "confirmar"},
+    )
+
+    assert resultado["mensagem"].startswith("Extracao registrada")
+    res = await conn.execute(
+        "SELECT valor_acordado, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] is None  # descartado, nao gravado
+    assert a["ia_pausada"] is False  # e nao escalou
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s", (atendimento_id,)
+    )
+    esc = await res.fetchone()
+    assert esc is not None and esc["n"] == 0
+
+
+@pytest.mark.needs_db
 async def test_reagendamento_pos_bloqueio_escala(conn: AsyncConnection[dict[str, Any]]) -> None:
-    # Atendimento ja em Aguardando_confirmacao COM bloqueio: mudar o horario escala (branch 12).
+    # Atendimento ja em Aguardando_confirmacao COM bloqueio: mudar o horario que ELE cravou
+    # (horario_evidenciado) escala (branch 12).
     _, atendimento_id = await _seed_par(
         conn,
         estado="Qualificado",
@@ -1399,6 +1519,7 @@ async def test_reagendamento_pos_bloqueio_escala(conn: AsyncConnection[dict[str,
         horario_desejado=time(15, 0),
         data_desejada=date(2026, 12, 3),
         duracao_horas=Decimal("1"),
+        horario_evidenciado=True,
     )
     # Leva a Aguardando_confirmacao + cria o bloqueio previo.
     await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
@@ -1433,9 +1554,17 @@ async def test_reagendamento_pos_bloqueio_escala(conn: AsyncConnection[dict[str,
 
 
 @pytest.mark.needs_db
-async def test_limpar_horario_pos_bloqueio_escala(conn: AsyncConnection[dict[str, Any]]) -> None:
-    """Recuo do cliente ("nao sei o dia ainda") com bloqueio previo ativo: zerar o snapshot em
-    silencio deixaria o bloqueio orfao travando a agenda — cai na mesma branch 12."""
+async def test_limpar_horario_pos_bloqueio_libera_a_reserva_sem_escalar(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Remarcacao ABERTA ("hoje nao consigo mais, marco outro dia") com bloqueio previo ativo.
+
+    Prova r3, eixo `remarcacao` t6: o `limpar` curto-circuitava em "mudanca" e a escalada pausava a
+    IA — no t7 o cliente voltou com "amanha 21h" e falou no vazio. O medo que justificava o
+    curto-circuito (zerar o snapshot deixa o bloqueio ORFAO travando a agenda) e real, mas a
+    resposta certa nao e escalar: e SOLTAR a reserva junto com o snapshot enquanto a modelo nao foi
+    acionada (mesma remarcacao segura de 12/08 que ja governa o ramo "realoca"), e devolver a
+    conversa para combinar o novo dia."""
     _, atendimento_id = await _seed_par(
         conn,
         estado="Qualificado",
@@ -1444,6 +1573,7 @@ async def test_limpar_horario_pos_bloqueio_escala(conn: AsyncConnection[dict[str
         horario_desejado=time(15, 0),
         data_desejada=date(2026, 12, 3),
         duracao_horas=Decimal("1"),
+        horario_evidenciado=True,  # a hora que ele cravou e que virou reserva
     )
     await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
 
@@ -1453,7 +1583,119 @@ async def test_limpar_horario_pos_bloqueio_escala(conn: AsyncConnection[dict[str
         {"limpar": ["data_desejada", "horario_desejado"]},
     )
 
-    assert resultado["novo_estado"] is None
+    assert resultado["mensagem"] not in MENSAGENS_GUARD_ESCALADA
+    # A soltura da reserva e efeito real do turno: o turno tem de ser critico (nao cancelavel).
+    assert resultado["novo_estado"] == "Qualificado"
+    res = await conn.execute(
+        "SELECT estado::text AS estado, horario_desejado, data_desejada, bloqueio_id, "
+        "horario_evidenciado, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["horario_desejado"] is None  # o recuo dele vale
+    assert a["data_desejada"] is None
+    assert a["horario_evidenciado"] is False
+    assert a["bloqueio_id"] is None  # reserva solta, nao orfa
+    assert a["ia_pausada"] is False  # e a IA segue conduzindo
+    # Volta pra Qualificado: sem hora combinada o encontro nao esta marcado — e so dali a FSM
+    # reserva de novo quando ele cravar o dia novo.
+    assert a["estado"] == "Qualificado"
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    bloqueios = await res.fetchall()
+    assert [b["estado"] for b in bloqueios] == ["cancelado"]  # o slot voltou pra agenda
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None and esc["n"] == 0
+
+
+@pytest.mark.needs_db
+async def test_dia_novo_apos_a_reserva_solta_reserva_de_novo(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O t7 que morria no vazio: depois do recuo, o cliente crava o dia/hora novos e o encontro
+    volta a ficar marcado — com reserva NOVA, sem passar por ninguem."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(15, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+        horario_evidenciado=True,
+    )
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
+    await registrar_extracao_ia(
+        conn, str(atendimento_id), {"limpar": ["data_desejada", "horario_desejado"]}
+    )
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"data_desejada": "2026-12-04", "horario_desejado": "21:00:00"},
+        horario_evidenciado=True,  # o detector do turno viu a hora na fala DELE
+    )
+
+    assert resultado["novo_estado"] == "Aguardando_confirmacao"
+    res = await conn.execute(
+        "SELECT estado::text AS estado, bloqueio_id, ia_pausada "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["estado"] == "Aguardando_confirmacao"
+    assert a["bloqueio_id"] is not None
+    assert a["ia_pausada"] is False
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, inicio FROM barravips.bloqueios "
+        "WHERE atendimento_id = %s ORDER BY created_at",
+        (atendimento_id,),
+    )
+    bloqueios = await res.fetchall()
+    assert [b["estado"] for b in bloqueios] == ["cancelado", "bloqueado"]
+    assert bloqueios[-1]["inicio"].astimezone(timezone(timedelta(hours=-3))).day == 4
+
+
+@pytest.mark.needs_db
+async def test_limpar_horario_com_modelo_acionada_ainda_escala(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """A porta da escalada continua de pe: com aviso de saida dado, a modelo ja se organizou pela
+    hora do card — soltar a reserva em silencio dessincronizaria os dois."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(15, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+        horario_evidenciado=True,
+    )
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET aviso_saida_em = now() WHERE id = %s",
+        (atendimento_id,),
+    )
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"limpar": ["data_desejada", "horario_desejado"]},
+    )
+
+    assert resultado["mensagem"] in MENSAGENS_GUARD_ESCALADA
     res = await conn.execute(
         "SELECT horario_desejado, bloqueio_id, ia_pausada FROM barravips.atendimentos WHERE id = %s",
         (atendimento_id,),
@@ -1463,6 +1705,324 @@ async def test_limpar_horario_pos_bloqueio_escala(conn: AsyncConnection[dict[str
     assert a["horario_desejado"] == time(15, 0)  # nao zerou sem tratar o bloqueio
     assert a["bloqueio_id"] is not None
     assert a["ia_pausada"] is True
+
+
+@pytest.mark.needs_db
+async def test_dia_novo_sobre_reserva_palpite_realoca_sem_escalar(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Prova r3, eixo `explorador_ambiguo_a` t7: a hora reservada era PALPITE da IA (21:30 proposto
+    2x, nunca aceito) e o cliente pede outro DIA ("amanha da?"). O ramo da troca de data devolvia
+    "mudanca" — "Horario ja reservado: mudanca escalada para a modelo" e IA pausada no ponto de
+    fechar. Com a modelo nao acionada, a reserva-palpite so acompanha o dia dele."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(15, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+        horario_evidenciado=True,
+    )
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
+    # A reserva vira PALPITE (mesma montagem dos testes irmaos do palpite).
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET horario_evidenciado = false WHERE id = %s",
+        (atendimento_id,),
+    )
+    res = await conn.execute(
+        "SELECT bloqueio_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    row = await res.fetchone()
+    assert row is not None
+    bloqueio_do_palpite = row["bloqueio_id"]
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"data_desejada": "2026-12-04", "proxima_acao_esperada": "combinar a hora de amanha"},
+    )
+
+    assert resultado["mensagem"] not in MENSAGENS_GUARD_ESCALADA
+    res = await conn.execute(
+        "SELECT data_desejada, horario_desejado, bloqueio_id, ia_pausada "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["data_desejada"] == date(2026, 12, 4)  # o dia DELE vale
+    assert a["horario_desejado"] == time(15, 0)  # a hora segue sendo o palpite, no dia novo
+    assert a["ia_pausada"] is False
+    assert a["bloqueio_id"] != bloqueio_do_palpite
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado, inicio FROM barravips.bloqueios "
+        "WHERE atendimento_id = %s ORDER BY created_at",
+        (atendimento_id,),
+    )
+    bloqueios = await res.fetchall()
+    assert [b["estado"] for b in bloqueios] == ["cancelado", "bloqueado"]
+    assert bloqueios[-1]["inicio"].astimezone(timezone(timedelta(hours=-3))).day == 4
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None and esc["n"] == 0
+
+
+@pytest.mark.needs_db
+async def test_dia_novo_sobre_reserva_palpite_com_pix_andando_escala(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Acionada a modelo (Pix andando), o dia novo volta a ser evento dela: escala, como antes."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(15, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+        horario_evidenciado=True,
+    )
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET horario_evidenciado = false, "
+        "pix_status = 'aguardando' WHERE id = %s",
+        (atendimento_id,),
+    )
+
+    resultado = await registrar_extracao_ia(
+        conn, str(atendimento_id), {"data_desejada": "2026-12-04"}
+    )
+
+    assert resultado["mensagem"] in MENSAGENS_GUARD_ESCALADA
+    res = await conn.execute(
+        "SELECT data_desejada, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["data_desejada"] == date(2026, 12, 3)  # nao mexeu na reserva
+    assert a["ia_pausada"] is True
+
+
+@pytest.mark.needs_db
+async def test_aceite_sem_valor_preenche_com_o_preco_que_a_ia_cotou(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Medido ao vivo (12/08, 6 de 35 conversas): a extracao marca o aceite e grava a duracao, mas
+    deixa `valor_acordado` NULL — o encontro chega ao painel marcado e sem preco. O preco nao e
+    inventado: e o da tabela para a duracao fechada, e so entra porque a IA o COTOU na conversa."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Triagem", intencao="agendamento", duracao_horas=Decimal("1")
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await _seed_fala_da_ia(conn, atendimento_id, "400 1h no meu local")
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "proxima_acao_esperada": "confirmar",
+            "sinais_qualificacao": {"aceita_valor": True},
+        },
+    )
+
+    res = await conn.execute(
+        "SELECT valor_acordado FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] == Decimal("400")
+
+
+@pytest.mark.needs_db
+async def test_encontro_marcado_sem_valor_preenche_mesmo_sem_o_sinal_de_aceite(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O extrator as vezes nao marca `aceita_valor` no turno do "isso, fechado". Em
+    `Aguardando_confirmacao` o aceite e implicito: ninguem crava hora sobre um preco que nao topou.
+    """
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Aguardando_confirmacao",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(21, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await _seed_fala_da_ia(conn, atendimento_id, "400 1h no meu local")
+
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "aguardar"})
+
+    res = await conn.execute(
+        "SELECT valor_acordado FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None and a["valor_acordado"] == Decimal("400")
+
+
+@pytest.mark.needs_db
+async def test_aceite_sem_valor_nao_preenche_com_negociacao_na_mesa(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Com contraproposta na conversa, qual numero ficou de pe e decisao da conversa — nao de um
+    default. O campo continua NULL (e o painel mostra que falta), nunca o preco cheio por cima de
+    um desconto que ela ofereceu."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Triagem", intencao="agendamento", duracao_horas=Decimal("1")
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET n_contrapropostas = 1 WHERE id = %s", (atendimento_id,)
+    )
+    await _seed_fala_da_ia(conn, atendimento_id, "400 1h no meu local")
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"proxima_acao_esperada": "confirmar", "sinais_qualificacao": {"aceita_valor": True}},
+    )
+
+    res = await conn.execute(
+        "SELECT valor_acordado FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None and a["valor_acordado"] is None
+
+
+@pytest.mark.needs_db
+async def test_hora_dele_sobre_palpite_realoca_o_bloqueio_sem_escalar(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O slot reservado veio de PALPITE (fallback de tempo imediato / hora que a IA ofereceu e ele
+    nao respondeu: `horario_evidenciado` false) e agora ELE crava a hora. Isso e o primeiro
+    agendamento de fato, nao um reagendamento: a reserva muda de hora, a IA segue conduzindo.
+
+    Sem isto (medido ao vivo em 12/08) a fala do cliente "pode ser 21h hoje" caia na branch 12 —
+    escalada, IA pausada e a venda morrendo no turno do fechamento.
+
+    SETUP: com o freio da proveniencia, a FSM nao reserva mais sobre palpite — a reserva sem marca
+    e a que o banco JA tem (a coluna nasceu `false`, migration sem backfill) e a que sobra quando a
+    marca cai (`true -> false`, valor novo sem evidencia). O teste chega la reservando com a marca
+    e derrubando-a: o que a branch precisa e a combinacao "existe reserva + ninguem sustenta a hora
+    reservada", nao o caminho que produziu esse par."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(15, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+        horario_evidenciado=True,
+    )
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET horario_evidenciado = false WHERE id = %s",
+        (atendimento_id,),
+    )
+    res = await conn.execute(
+        "SELECT bloqueio_id FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    row = await res.fetchone()
+    assert row is not None
+    bloqueio_do_palpite = row["bloqueio_id"]
+    assert bloqueio_do_palpite is not None
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"horario_desejado": "21:00:00", "proxima_acao_esperada": "confirmar 21h"},
+        horario_evidenciado=True,  # o detector do turno viu a hora na fala DELE
+    )
+
+    assert resultado["mensagem"].startswith("Extracao registrada")
+    res = await conn.execute(
+        "SELECT horario_desejado, ia_pausada, bloqueio_id, horario_evidenciado "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["horario_desejado"] == time(21, 0)  # a hora DELE vale
+    assert a["ia_pausada"] is False  # nao escalou
+    assert a["horario_evidenciado"] is True
+    assert a["bloqueio_id"] != bloqueio_do_palpite  # reserva realocada
+
+    res = await conn.execute(
+        "SELECT inicio, estado::text AS estado FROM barravips.bloqueios "
+        "WHERE atendimento_id = %s ORDER BY created_at",
+        (atendimento_id,),
+    )
+    bloqueios = await res.fetchall()
+    assert [b["estado"] for b in bloqueios] == ["cancelado", "bloqueado"]  # o velho soltou o slot
+    # `inicio` volta em UTC; 21:00 BRT = 00:00 UTC do dia seguinte.
+    assert bloqueios[-1]["inicio"].astimezone(timezone(timedelta(hours=-3))).hour == 21
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None and esc["n"] == 0
+
+
+@pytest.mark.needs_db
+async def test_ia_trocando_o_proprio_palpite_nao_move_a_agenda_nem_escala(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """A IA oferece "Consigo as 3h" num turno e "Consigo as 2h" no seguinte, sem ele responder:
+    ruido dela, nao pedido dele. Nao move a reserva e nao acorda a modelo.
+
+    SETUP: mesma montagem do teste irmao acima (reserva com a marca, marca derrubada em seguida) —
+    o freio da proveniencia nao deixa mais a FSM reservar sobre palpite."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(15, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+        horario_evidenciado=True,
+    )
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET horario_evidenciado = false WHERE id = %s",
+        (atendimento_id,),
+    )
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"horario_desejado": "18:00:00", "proxima_acao_esperada": "reoferta da IA"},
+    )
+
+    res = await conn.execute(
+        "SELECT horario_desejado, ia_pausada, proxima_acao_esperada "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["horario_desejado"] == time(15, 0)  # reserva intacta
+    assert a["ia_pausada"] is False
+    assert a["proxima_acao_esperada"] == "reoferta da IA"  # o resto do payload gravou
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None and esc["n"] == 0
 
 
 @pytest.mark.needs_db
@@ -1480,6 +2040,7 @@ async def test_reagendamento_drift_dentro_da_tolerancia_nao_escala(
         horario_desejado=time(15, 0),
         data_desejada=date(2026, 12, 3),
         duracao_horas=Decimal("1"),
+        horario_evidenciado=True,  # a hora reservada e a que ele cravou
     )
     # Leva a Aguardando_confirmacao + cria o bloqueio previo.
     await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
@@ -1533,6 +2094,7 @@ async def test_externo_uber_promove_e_solicita_pix(
         horario_desejado=time(16, 0),
         data_desejada=date(2026, 12, 4),
         duracao_horas=Decimal("12"),
+        horario_evidenciado=True,  # a hora e DELE
     )
     resultado = await registrar_extracao_ia(
         conn, str(atendimento_id), {"proxima_acao_esperada": "pedir o pix"}
@@ -1600,6 +2162,7 @@ async def test_externo_uber_slot_tomado_reverte(conn: AsyncConnection[dict[str, 
         horario_desejado=horario,
         data_desejada=data,
         duracao_horas=duracao,
+        horario_evidenciado=True,  # a hora e DELE; quem barra e a agenda, nao o freio
     )
     # Bloqueio avulso de outra origem ja ocupa o slot da modelo.
     inicio = datetime.combine(data, horario, tzinfo=BRT)
@@ -1759,6 +2322,7 @@ async def test_flip_de_tipo_pos_bloqueio_nao_grava_nem_cobra_pix(
         horario_desejado=time(20, 0),
         data_desejada=date(2026, 12, 1),
         duracao_horas=Decimal("1"),
+        horario_evidenciado=True,  # a hora e DELE: e ela que autoriza a reserva
     )
     # 1º turno: crava o horario -> Aguardando_confirmacao + bloqueio previo (o tipo fica combinado).
     await registrar_extracao_ia(
@@ -1852,3 +2416,538 @@ async def test_tipo_sem_bloqueio_ainda_e_gravado(conn: AsyncConnection[dict[str,
         (atendimento_id,),
     )
     assert (await res.fetchone() or {})["tipo"] == "externo"
+
+
+@pytest.mark.needs_db
+async def test_cotacao_dita_em_novo_ancora_o_fechamento_dois_turnos_depois(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """A IA cota na PRIMEIRA bolha ("400 1h no meu local"), quando o atendimento ainda esta em
+    `Novo` — o backstop de carimbo do ADR 0022 exigia `Triagem`/`Qualificado` e o preco dito nao
+    ancorava nada. Dois turnos depois, o cliente cravava a hora, a transicao para
+    `Aguardando_confirmacao` batia em `CotacaoAusente`, a transacao revertia INTEIRA e a hora se
+    perdia — com a IA dizendo "Confirmado amor" sobre um banco sem reserva (medido ao vivo 12/08).
+    """
+    _, atendimento_id = await _seed_par(conn, cotou=False)  # estado Novo, sem carimbo
+
+    carimbou = await carimbar_cotacao_por_texto_enviado(conn, atendimento_id, "400 1h no meu local")
+    assert carimbou is True
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "intencao": "agendamento",
+            "tipo_atendimento": "interno",
+            "data_desejada": "2026-08-20",
+            "horario_desejado": "22:00",
+            "duracao_horas": "1",
+            "proxima_acao_esperada": "confirmar o encontro de amanha 22h",
+        },
+        horario_evidenciado=True,  # "amanha 22h" saiu da boca DELE neste turno
+    )
+
+    assert resultado["novo_estado"] == "Aguardando_confirmacao"
+    res = await conn.execute(
+        "SELECT horario_desejado FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["horario_desejado"] == time(22, 0)
+
+
+@pytest.mark.needs_db
+async def test_upgrade_de_pacote_recota_pela_tabela_em_vez_de_reverter(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Cliente com 1h/400 fechado pede 2h: a extracao registra a duracao nova e esquece o valor, e
+    a guarda do par revertia o turno INTEIRO — a auto-reoferta batia no mesmo erro e o cliente que
+    estava dobrando o ticket recebia silencio (medido ao vivo 12/08, 4 de 5 conversas). O preco nao
+    e improvisado: e a unica linha da tabela para 2h e a IA acabou de cota-lo na fala do turno."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Aguardando_confirmacao",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await _seed_programa(conn, modelo_id, horas=Decimal("2"), preco=Decimal("700"))
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET valor_acordado = 400 WHERE id = %s", (atendimento_id,)
+    )
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"duracao_horas": "2", "proxima_acao_esperada": "confirmar o upgrade para 2h"},
+        fala_da_ia_no_turno="Da certo sim amor / 2h fica 700 / Seguimos as 21h ?",
+    )
+
+    res = await conn.execute(
+        "SELECT duracao_horas, valor_acordado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert (a["duracao_horas"], a["valor_acordado"]) == (Decimal("2"), Decimal("700"))
+
+
+@pytest.mark.needs_db
+async def test_upgrade_sem_a_ia_ter_cotado_o_periodo_novo_segue_revertendo(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O contrapeso: sem o preco novo na boca da IA, o re-cote nao acontece e a guarda continua
+    valendo — vender periodo por preco improvisado e exatamente o prejuizo que ela impede."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Aguardando_confirmacao",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await _seed_programa(conn, modelo_id, horas=Decimal("2"), preco=Decimal("700"))
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET valor_acordado = 400 WHERE id = %s", (atendimento_id,)
+    )
+
+    with pytest.raises(ParPrecoDuracaoInvalido):
+        await registrar_extracao_ia(
+            conn,
+            str(atendimento_id),
+            {"duracao_horas": "2", "proxima_acao_esperada": "confirmar o upgrade para 2h"},
+            fala_da_ia_no_turno="Da certo sim amor / seguimos as 21h ?",
+        )
+
+
+@pytest.mark.needs_db
+async def test_remarcacao_segura_realoca_em_vez_de_escalar(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Hora COMBINADA por ele (evidenciada) e ele mesmo muda, com a modelo ainda nao acionada:
+    ajuste de agenda, nao evento que mereca acordar ninguem (decisao do operador, 12/08). Escalar
+    ali matava 5 de 5 conversas do roteiro `remarcou` e a hora nova nem era gravada."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(20, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+        horario_evidenciado=True,
+    )
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"horario_desejado": "22:00:00", "proxima_acao_esperada": "confirmar 22h"},
+        horario_evidenciado=True,  # a hora nova saiu da boca DELE neste turno
+    )
+
+    assert resultado["mensagem"].startswith("Extracao registrada")
+    res = await conn.execute(
+        "SELECT horario_desejado, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["horario_desejado"] == time(22, 0)
+    assert a["ia_pausada"] is False
+
+    res = await conn.execute(
+        "SELECT estado::text AS estado FROM barravips.bloqueios WHERE atendimento_id = %s "
+        "ORDER BY created_at",
+        (atendimento_id,),
+    )
+    assert [b["estado"] for b in await res.fetchall()] == ["cancelado", "bloqueado"]
+
+
+@pytest.mark.needs_db
+@pytest.mark.parametrize(
+    ("coluna", "valor"),
+    [("aviso_saida_em", "now()"), ("pix_status", "'enviado'::barravips.pix_status_enum")],
+)
+async def test_remarcacao_com_a_modelo_ja_acionada_continua_escalando(
+    conn: AsyncConnection[dict[str, Any]], coluna: str, valor: str
+) -> None:
+    """O contrapeso da remarcacao segura: cliente a caminho (aviso de saida) ou Pix em andamento
+    significam que o encontro saiu do papel — mudar a hora ali e' decisao da modelo, nao da IA."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(20, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+        horario_evidenciado=True,
+    )
+    await registrar_extracao_ia(conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"})
+    await conn.execute(
+        f"UPDATE barravips.atendimentos SET {coluna} = {valor} WHERE id = %s", (atendimento_id,)
+    )
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"horario_desejado": "22:00:00", "proxima_acao_esperada": "remarcar"},
+        horario_evidenciado=True,
+    )
+
+    res = await conn.execute(
+        "SELECT horario_desejado, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["horario_desejado"] == time(20, 0)  # preservado
+    assert a["ia_pausada"] is True
+
+
+@pytest.mark.needs_db
+async def test_pivo_para_remoto_nao_deixa_o_backstop_gravar_o_preco_presencial(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Backstop de preco CEGO ao tipo (revisao de isolamento de dominio, loop-massa r3).
+
+    Cadastro real da Catarina: Normal 1h 400 e vídeo chamada 1h 150, MESMA duracao. O cliente pivota
+    para a chamada e fecha; `valor_acordado` chega NULL e o backstop do pacote fechado resolve a
+    linha pela `_linhas_de_tabela`, que e `apenas_presenciais=True` FIXO — a chamada some da leitura,
+    sobra UMA linha (400) e o backstop gravaria o preco PRESENCIAL numa venda remota de 150. Dai o
+    `_solicitar_pix_deslocamento_se_aplicavel` cobra o Pix ANTECIPADO da chamada por 400.
+
+    Fail-closed: no remoto o backstop nao preenche, e o valor certo entra pela extracao do turno
+    seguinte. O irmao abaixo prova que o freio e so do remoto."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        aceita=["interno", "remoto"],
+        estado="Qualificado",
+        tipo_atendimento="remoto",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await _seed_programa(
+        conn,
+        modelo_id,
+        horas=Decimal("1"),
+        preco=Decimal("150"),
+        preco_minimo=Decimal("150"),
+        nome="Vídeo chamada",
+    )
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "duracao_horas": "1",
+            "sinais_qualificacao": {"aceita_valor": True},
+            "proxima_acao_esperada": "confirmar a chamada",
+        },
+        fala_da_ia_no_turno="A hora presencial fica 400 amor, e a video chamada 150",
+    )
+
+    res = await conn.execute(
+        "SELECT valor_acordado, pix_status::text AS pix_status "
+        "FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] is None  # o 400 presencial NAO entra numa chamada
+    assert a["pix_status"] != "aguardando"  # e ninguem cobra Pix de um valor que nao existe
+
+
+@pytest.mark.needs_db
+async def test_no_presencial_o_backstop_do_pacote_fechado_continua_preenchendo(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O negativo do freio acima: mesmo cadastro, mesmo turno, tipo INTERNO — o backstop segue
+    gravando o preco da tabela que a IA cotou (era o caso que ele existe para cobrir: fechamento
+    sem preco, 6 de 35 conversas medidas em 12/08)."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        aceita=["interno", "remoto"],
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+    await _seed_programa(
+        conn,
+        modelo_id,
+        horas=Decimal("1"),
+        preco=Decimal("150"),
+        preco_minimo=Decimal("150"),
+        nome="Vídeo chamada",
+    )
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "duracao_horas": "1",
+            "sinais_qualificacao": {"aceita_valor": True},
+            "proxima_acao_esperada": "confirmar o encontro",
+        },
+        fala_da_ia_no_turno="A hora fica 400 amor",
+    )
+
+    res = await conn.execute(
+        "SELECT valor_acordado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None and a["valor_acordado"] == Decimal("400")
+
+
+@pytest.mark.needs_db
+async def test_descarte_por_piso_derruba_o_aceite_do_mesmo_turno(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Simetria com `_sem_valor_fantasma` (revisao de isolamento de dominio, loop-massa r3).
+
+    "fecho por 250 as 21h": o numero e o aceite saem do MESMO evento. A guarda do piso recusa o 250
+    e, ate a r3, deixava `aceita_valor` vivo — um aceite sem valor nenhum. Quem lia isso em seguida
+    era o backstop do pacote fechado (`_preco_cotado_do_pacote_fechado` le o `aceita_valor` DO
+    TURNO): o piso recusava o numero dele e o sistema gravava o preco CHEIO da tabela como venda
+    combinada, na mesma transacao. O aceite cai junto; os outros sinais ficam."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Qualificado", tipo_atendimento="interno", intencao="agendamento"
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+
+    await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "valor_acordado": "250",
+            "duracao_horas": "1",
+            "sinais_qualificacao": {"aceita_valor": True, "informa_local": True},
+            "proxima_acao_esperada": "contrapor pela escada",
+        },
+        fala_da_ia_no_turno="A hora fica 400 amor",
+    )
+
+    res = await conn.execute(
+        "SELECT valor_acordado, sinais_qualificacao FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] is None  # nem o 250 recusado nem o 400 cheio pelo backstop
+    sinais = a["sinais_qualificacao"] or {}
+    assert not sinais.get("aceita_valor")  # o aceite saiu do mesmo evento falso
+    assert sinais.get("informa_local") is True  # e so ele
+
+
+@pytest.mark.needs_db
+async def test_duracao_off_menu_nao_faz_o_piso_escalar_um_valor_que_e_o_proprio_piso(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """`objetor_a` #6, o outro lado do descarte de cardapio (finalizacao da r3).
+
+    O cliente PERGUNTOU 30 min, a IA RECUSOU e a extracao gravou `duracao_horas=0.5` mesmo assim,
+    junto de um valor que e EXATAMENTE o piso da 1h em curso (300 = 25% sobre 400). Sem o descarte
+    ANTES do gate do piso, `_abaixo_do_piso` resolve o piso sobre a 0.5 — que nao tem linha —,
+    `_piso_do_pacote` devolve `(None, "sem_linha")` e o `abaixo = piso is None or ...` sai True por
+    ausencia de tabela: escalada `fora_de_oferta` e IA PAUSADA sobre uma venda legitima.
+
+    Este e o teste que segura a DISJUNCAO: o descarte roda cedo no ramo COM valor (onde a guarda do
+    par preco x duracao e impossivel por construcao) e tarde no ramo sem valor (onde ela e o ponto
+    inteiro). O irmao `test_duracao_muda_sem_valor_par_abaixo_do_piso_erro_recuperavel` pina o
+    outro lado da mesma moeda — e os dois so passam juntos com os dois pontos de aplicacao.
+
+    `n_contrapropostas=1` de proposito: com a escada intacta o descarte silencioso do H3 mascararia
+    o defeito (nao escalaria de qualquer forma). A rodada JOGADA e o caso em que ele morde."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        duracao_horas=Decimal("1"),
+        n_contrapropostas=1,
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {
+            "valor_acordado": "300",
+            "duracao_horas": "0.5",
+            "proxima_acao_esperada": "cravar o horario",
+        },
+        fala_da_ia_no_turno="Consigo 300 amor",
+    )
+
+    assert resultado["mensagem"] not in MENSAGENS_GUARD_ESCALADA
+
+    res = await conn.execute(
+        "SELECT valor_acordado, duracao_horas, ia_pausada FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["valor_acordado"] == Decimal("300")  # a venda legitima e gravada
+    assert a["duracao_horas"] == Decimal("1")  # a 0.5 off-menu nao entra; vale a persistida
+    assert a["ia_pausada"] is False
+
+    res = await conn.execute(
+        "SELECT count(*) AS n FROM barravips.escaladas WHERE atendimento_id = %s",
+        (atendimento_id,),
+    )
+    esc = await res.fetchone()
+    assert esc is not None and esc["n"] == 0
+
+
+@pytest.mark.needs_db
+async def test_duracao_off_menu_sem_valor_no_payload_nao_e_gravada(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """O outro ponto de aplicacao do MESMO veredito — o ramo SEM valor, depois da guarda do par.
+
+    Sem valor no payload e sem valor persistido, a guarda do par nao tem par a conferir e passa
+    reto; o descarte tardio e quem impede a `duracao_horas=0.5` de virar snapshot. Este pin existia
+    so como unidade sobre o predicado (`test_duracao_fora_do_cardapio.py`): o caminho fim-a-fim, que
+    e onde a ORDEM importa, nao estava coberto — desligar o sitio tardio deixava a suite inteira
+    verde."""
+    modelo_id, atendimento_id = await _seed_par(
+        conn, estado="Qualificado", tipo_atendimento="interno", intencao="agendamento"
+    )
+    await _seed_programa(conn, modelo_id, horas=Decimal("1"), preco=Decimal("400"))
+
+    resultado = await registrar_extracao_ia(
+        conn,
+        str(atendimento_id),
+        {"duracao_horas": "0.5", "proxima_acao_esperada": "recusar o pacote de 30 min"},
+    )
+
+    assert resultado["mensagem"] not in MENSAGENS_GUARD_ESCALADA
+
+    res = await conn.execute(
+        "SELECT duracao_horas FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["duracao_horas"] is None  # o pacote que ela nao vende nao entra no snapshot
+
+
+# --- palpite recusado sai do snapshot (P0 externo_a, prova r3) --------------------------------
+
+
+@pytest.mark.needs_db
+async def test_horario_palpite_recusado_e_retirado_do_snapshot(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """A raiz do latch da prova r3: `21:00` gravado pelo fallback de tempo imediato (palpite,
+    `horario_evidenciado=false`), o tipo flipou para externo, o piso subiu e a reserva passou a
+    recusar. O texto do erro manda a IA NAO registrar a hora que vai ofertar — e o `COALESCE`
+    preserva o valor recusado. `retirar_horario_palpite` e o que desarma isso."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        horario_desejado=time(21, 0),
+        data_desejada=date(2026, 12, 3),
+        horario_evidenciado=False,
+    )
+
+    assert await retirar_horario_palpite(conn, atendimento_id, motivo="antecedencia_insuficiente")
+
+    res = await conn.execute(
+        "SELECT horario_desejado, horario_evidenciado FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["horario_desejado"] is None
+    assert a["horario_evidenciado"] is False
+    # E o registro seguinte NAO ressuscita o valor: sem hora no snapshot, o `COALESCE` nao tem o
+    # que preservar e a FSM nao re-tenta a reserva invalida.
+    resultado = await registrar_extracao_ia(
+        conn, str(atendimento_id), {"proxima_acao_esperada": "reofertar 22h"}
+    )
+    assert resultado["novo_estado"] is None
+    res = await conn.execute(
+        "SELECT horario_desejado FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None and a["horario_desejado"] is None
+    # Audit log: a retirada e uma decisao do sistema sobre o dado, tem de deixar rastro.
+    res = await conn.execute(
+        "SELECT payload FROM barravips.eventos WHERE atendimento_id = %s AND "
+        "tipo = 'correcao_registro'",
+        (atendimento_id,),
+    )
+    evento = await res.fetchone()
+    assert evento is not None
+    assert evento["payload"]["campo"] == "horario_desejado"
+
+
+@pytest.mark.needs_db
+async def test_hora_evidenciada_pelo_cliente_nao_e_retirada(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """So PALPITE morre. A hora que saiu da boca dele fica gravada mesmo quando a agenda a recusa —
+    o snapshot tem de continuar dizendo o que ele pediu; quem recusa e a conduta da fala."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="externo",
+        intencao="agendamento",
+        horario_desejado=time(21, 0),
+        horario_evidenciado=True,
+    )
+
+    assert not await retirar_horario_palpite(conn, atendimento_id, motivo="antecedencia")
+
+    res = await conn.execute(
+        "SELECT horario_desejado FROM barravips.atendimentos WHERE id = %s", (atendimento_id,)
+    )
+    a = await res.fetchone()
+    assert a is not None and a["horario_desejado"] == time(21, 0)
+
+
+@pytest.mark.needs_db
+async def test_palpite_com_reserva_de_pe_nao_e_retirado(
+    conn: AsyncConnection[dict[str, Any]],
+) -> None:
+    """Apagar a hora com bloqueio de pe deixaria o bloqueio ORFAO travando a agenda — o mesmo medo
+    que `liberar_bloqueio_previo` resolve na remarcacao aberta. Quem solta reserva e aquele
+    caminho, nunca este."""
+    _, atendimento_id = await _seed_par(
+        conn,
+        estado="Qualificado",
+        tipo_atendimento="interno",
+        intencao="agendamento",
+        horario_desejado=time(20, 0),
+        data_desejada=date(2026, 12, 3),
+        duracao_horas=Decimal("1"),
+        horario_evidenciado=False,
+    )
+    # Cria a reserva pelo caminho normal (FSM -> Aguardando_confirmacao + bloqueio).
+    await registrar_extracao_ia(
+        conn, str(atendimento_id), {"proxima_acao_esperada": "confirmar"}, horario_evidenciado=True
+    )
+    await conn.execute(
+        "UPDATE barravips.atendimentos SET horario_evidenciado = false WHERE id = %s",
+        (atendimento_id,),
+    )
+
+    assert not await retirar_horario_palpite(conn, atendimento_id, motivo="antecedencia")
+
+    res = await conn.execute(
+        "SELECT horario_desejado, bloqueio_id FROM barravips.atendimentos WHERE id = %s",
+        (atendimento_id,),
+    )
+    a = await res.fetchone()
+    assert a is not None
+    assert a["horario_desejado"] == time(20, 0)
+    assert a["bloqueio_id"] is not None

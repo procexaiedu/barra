@@ -35,6 +35,17 @@ _env = Environment(
     keep_trailing_newline=True,
 )
 
+# Janela da agenda que chega PRONTA no contexto do turno (o resto ela consulta com
+# `consultar_agenda`). Um número, oito lugares: a query e o cálculo em `prepare_context`, a
+# descrição da tool em `ferramentas/leitura.py`, e QUATRO trechos de prompt que o LLM lê
+# (`regras.md.j2` 2x, `bloco_da_modelo.md.j2`, `contexto_dinamico.md.j2` 2x). Enquanto era literal
+# em cada um, mudar a query sem mudar os textos fazia o prompt MENTIR em silêncio -- o aviso já
+# estava escrito em prepare_context, sem nada que o garantisse. Exposto como global do Jinja para
+# valer em todo template sem passar por cada `render_*`; o texto renderizado continua "48h", então
+# o prefixo cacheado segue byte-idêntico.
+JANELA_AGENDA_HORAS = 48
+_env.globals["janela_agenda_horas"] = JANELA_AGENDA_HORAS
+
 
 def brl(valor: Any) -> str:
     """Formata valor inteiro em BRL no padrão da persona: `R$1.500` (sem espaço, ponto como

@@ -10,6 +10,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+import pytest
 from jinja2 import meta
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -108,6 +109,43 @@ def test_pedido_de_preco_com_e_sem_interrogacao() -> None:
     assert not pediu_preco_no_burst(
         [HumanMessage(content="quanto tempo você fica na cidade", id="h")]
     )
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "Quanto vc cobra no programa?",
+        "Quanto você cobra?",
+        "Quanto voce custa?",
+        "Quanto tu cobra?",
+        "quanto cê cobra amor",
+    ],
+)
+def test_pedido_de_preco_com_pronome_entre_quanto_e_o_verbo(fala: str) -> None:
+    """loop-massa r2 (decidido_rapido): o verbo nem sempre vem colado em "quanto". Sem o slot de
+    pronome, o turno em que o cliente pergunta o preço com todas as letras saía SEM
+    <pergunta_de_preco> — e sem o menu da primeira cotação, que roda sob o mesmo sinal."""
+    assert pediu_preco_no_burst([HumanMessage(content=fala, id="h")])
+
+
+@pytest.mark.parametrize(
+    "fala",
+    ["quanto tempo você fica na cidade", "quanto tempo vc fica", "quanto tempo demora"],
+)
+def test_pronome_nao_abre_a_porta_para_pergunta_de_tempo(fala: str) -> None:
+    """O slot é FECHADO (lista de pronomes, não `\\w+`): entre "quanto" e o verbo só cabe pronome,
+    então "quanto TEMPO você fica" continua fora — é pergunta de agenda, não de preço."""
+    assert not pediu_preco_no_burst([HumanMessage(content=fala, id="h")])
+
+
+@pytest.mark.parametrize(
+    "fala", ["Onde atende ?", "onde vc atende", "onde você atende ?", "onde tu atende amor"]
+)
+def test_pedido_de_endereco_com_pronome_opcional(fala: str) -> None:
+    """Mesma família do fix de "qual seu local ?" (r1): o pronome é opcional. Sem isto,
+    `_interesse_demonstrado` não acendia e o <local_de_encontro> ficava fechado no turno em que o
+    cliente pede o ponto (loop-massa r2, eixo objetor)."""
+    assert pediu_endereco_no_burst([HumanMessage(content=fala, id="h")])
 
 
 # --- template ----------------------------------------------------------------------------
@@ -428,6 +466,96 @@ def test_duracao_pedida_no_burst_formas_e_ultima_mencao() -> None:
     assert duracao_pedida_no_burst([HumanMessage(content="oi linda")]) is None
 
 
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "Consigo chegar ai em uns 40 min",
+        "chego ai em 40 min",
+        "da pra chegar la em 40 min",
+        "consigo chegar em 40 min",
+        "chego em 40 min",
+    ],
+)
+def test_tempo_de_chegada_com_deitico_nao_vira_duracao(fala: str) -> None:
+    """loop-massa r3 (eixo apressado): "Consigo chegar ai em uns 40 min" virava
+    `duracao_pedida=0.67` e o foco mandava "subir o tempo" sobre um pacote que ninguém pediu.
+    Acrescentar só o infinitivo NÃO conserta — o dêitico ("ai"/"lá") entra ENTRE o verbo e o "em",
+    e sem o slot o prefixo não fecha."""
+    from barra.agente.nos._foco_do_turno import duracao_pedida_no_burst
+
+    assert duracao_pedida_no_burst([HumanMessage(content=fala, id="h")]) is None
+
+
+def test_chegar_seguido_de_duracao_real_continua_sendo_duracao() -> None:
+    """O negativo que segura a família: o prefixo é ancorado imediatamente antes do número, então
+    "quero chegar e ficar 2 horas" é duração de verdade e continua contando."""
+    from barra.agente.nos._foco_do_turno import duracao_pedida_no_burst
+
+    assert duracao_pedida_no_burst([HumanMessage(content="quero chegar e ficar 2 horas")]) == 2.0
+
+
+@pytest.mark.parametrize(
+    "fala",
+    ["Gata seu local é casa ou prédio?", "predio ou casa?", "seu é prédio?", "é casa ou apto?"],
+)
+def test_pedido_de_endereco_cobre_predio(fala: str) -> None:
+    """loop-massa r3 (negociacao_dura_b t4): a família de "pergunta de acesso" só dizia
+    "apartamento", e a `persona.md` proíbe "prédio" na boca DELA — o que a torna a palavra mais
+    provável na boca DELE."""
+    assert pediu_endereco_no_burst([HumanMessage(content=fala, id="h")])
+
+
+@pytest.mark.parametrize(
+    "fala",
+    [
+        "E se eu for até vc é 400 direto né?",
+        "é 400 direto né?",
+        "fica 400 certo?",
+        "então é 400?",
+        "É 400 fechado mesmo pra 1h?",
+    ],
+)
+def test_pedido_de_preco_na_forma_de_conferencia(fala: str) -> None:
+    """loop-massa r3 (externo_b t7): o vocabulário do detector é 100% interrogativo-ABERTO e a
+    forma de CONFERÊNCIA ("é 400 direto né?") ficava de fora — o cliente conferindo o número é
+    pergunta de preço igual."""
+    assert pediu_preco_no_burst([HumanMessage(content=fala, id="h")])
+
+
+@pytest.mark.parametrize(
+    "fala", ["400 1h no meu local", "fechado 400 então", "chego 21h né", "Consigo às 20h, fecha ?"]
+)
+def test_conferencia_nao_confunde_cotacao_aceite_nem_hora(fala: str) -> None:
+    """O piso de 3-4 dígitos é o que separa preço de HORA ("chego 21h né" não acende), e nem a
+    cotação nem o aceite têm token de conferência — o aceite é matéria do `_RE_CONTRAPROPOSTA`."""
+    assert not pediu_preco_no_burst([HumanMessage(content=fala, id="h")])
+
+
+def test_condicao_pendurada_depois_da_interrogacao_nao_e_decapitada() -> None:
+    """loop-massa r3 (negociacao_dura_b): o recorte terminado em "?" descartava "Com 2
+    finalizações", e a condição de preço acoplada a serviço nunca chegava ao foco — enquanto o
+    belief a promovia a combinado fechado no turno seguinte."""
+    msgs = [
+        AIMessage(content="400 a 1h amor", id="a1"),
+        HumanMessage(
+            content="Gata seu local é casa ou prédio?\n"
+            "Vc não consegue fazer 1 hr por 300$? Com 2 finalizações",
+            id="h1",
+        ),
+    ]
+    assert perguntas_do_burst(msgs) == (
+        "Gata seu local é casa ou prédio?",
+        "Vc não consegue fazer 1 hr por 300$? Com 2 finalizações",
+    )
+
+
+def test_cauda_longa_demais_nao_entra_na_pergunta() -> None:
+    """A cauda é RESSALVA, não assunto novo: acima do teto ela deixa de ser realce e vira ruído."""
+    cauda = "e eu queria saber tambem se voce atende de madrugada porque so consigo tarde"
+    msgs = [HumanMessage(content=f"Quanto é 1h? {cauda}", id="h1")]
+    assert perguntas_do_burst(msgs) == ("Quanto é 1h?",)
+
+
 def test_aceite_curto_no_burst() -> None:
     from barra.agente.nos._foco_do_turno import aceite_curto_no_burst
 
@@ -466,7 +594,9 @@ async def test_duracao_do_burst_reancora_o_pacote_em_pauta() -> None:
         atendimento={"estado": "Qualificado", "duracao_horas": Decimal("1")},
         precos_por_horas={1.0: [Decimal("500")], 3.0: [Decimal("1200")]},
     )
-    assert contexto.pacote_em_pauta == {"horas": "3", "preco": "1200"}
+    # `origem="ele"` porque a TROCA veio do burst dele: ela ainda não disse 1200 (loop-massa r3,
+    # prompt #3 — o <valor_cotado> rotulava esse número como "preço que VOCÊ já cotou").
+    assert contexto.pacote_em_pauta == {"horas": "3", "preco": "1200", "origem": "ele"}
 
 
 async def test_duracao_do_burst_com_valor_fechado_de_outra_duracao_reancora() -> None:
@@ -482,7 +612,7 @@ async def test_duracao_do_burst_com_valor_fechado_de_outra_duracao_reancora() ->
         },
         precos_por_horas={1.0: [Decimal("500")], 6.0: [Decimal("3000")]},
     )
-    assert contexto.pacote_em_pauta == {"horas": "6", "preco": "3000"}
+    assert contexto.pacote_em_pauta == {"horas": "6", "preco": "3000", "origem": "ele"}
 
 
 async def test_duracao_do_burst_fail_closed_sem_preco_unico() -> None:
@@ -494,3 +624,22 @@ async def test_duracao_do_burst_fail_closed_sem_preco_unico() -> None:
         precos_por_horas={2.0: [Decimal("700"), Decimal("1400")]},
     )
     assert contexto.pacote_em_pauta is None
+
+
+def test_tempo_de_chegada_nao_e_duracao_de_pacote() -> None:
+    # loop-massa r1 (eixo decidido_rapido): "daki uns 40 minutos" é QUANDO ele chega, não o pacote
+    # que ele quer — lido como duração, o foco mandava "subir o tempo" sobre pacote que ninguém pediu.
+    from barra.agente.nos._foco_do_turno import duracao_pedida_no_burst
+
+    for fala in ("daki uns 40 minutos", "daqui 30 min", "chego em 40 minutos", "daqui meia hora"):
+        assert duracao_pedida_no_burst([HumanMessage(content=fala)]) is None, fala
+    # controle: duração de verdade segue contando
+    assert duracao_pedida_no_burst([HumanMessage(content="e 40 minutos sai quanto?")]) == 40 / 60
+
+
+def test_qual_seu_local_e_pedido_de_endereco() -> None:
+    # loop-massa r1 (eixo objetor): "Qual seu local?" não casava e o gate do <local_de_encontro>
+    # ficava fechado no turno em que o cliente pediu o local.
+    for fala in ("Qual seu local?", "qual é o seu local", "qual o teu local amor"):
+        msgs = [AIMessage(content="Oi", id="a1"), HumanMessage(content=fala, id="h1")]
+        assert pediu_endereco_no_burst(msgs), fala

@@ -23,6 +23,7 @@ from .runner import ResultadoE2E
 
 if TYPE_CHECKING:
     from evals.conduta import CondutaScore
+    from evals.harness import ResultadoTurno
 
 
 @dataclass
@@ -35,6 +36,10 @@ class VeredictoE2E:
     n_turnos: int
     custo_brl: float
     violacoes: list[str] = field(default_factory=list)
+    # Observacoes que NAO sao defeito de conduta e por isso nao zeram o `ok` — hoje so o turno que
+    # o coordenador nem processou (ver `_silencio_do_turno`). Ficam visiveis no transcrito para
+    # quem le a corrida saber que houve fala do cliente sem turno do outro lado.
+    anotacoes: list[str] = field(default_factory=list)
     # Conduta de venda por-conversa (voz + disciplina). Informativo: o pass/fail de conduta e' por
     # TAXA, decidido no agregado do gate (evals.e2e.conduta_gate), nao por corrida — `ok` segue so
     # a linha de chegada + invariantes DURAS.
@@ -46,18 +51,115 @@ class VeredictoE2E:
         return self.conduziu and not self.violacoes
 
 
+def _tool_ok_no_turno(r: ResultadoTurno, nome: str) -> bool:
+    """A tool `nome` rodou com SUCESSO neste turno, lida pelas ToolMessages.
+
+    ToolMessage e o rastro que SOBREVIVE ao `_zerar_turno`: o output_guard reescreve as AIMessages
+    do turno e leva os `tool_calls` junto (achado 12a da r3), entao ler `r.tool_calls` aqui daria
+    "nao escalou" num turno que escalou. Erro recuperavel nao conta — tool que falhou nao escalou
+    nem enviou midia nenhuma (mesmo par de sinais do `extrair_texto_do_turno`: status do ToolNode
+    e o prefixo "ERRO:").
+    """
+    from langchain_core.messages import ToolMessage
+
+    for m in r.mensagens:
+        if not isinstance(m, ToolMessage) or m.name != nome:
+            continue
+        if m.status != "error" and not str(m.content).startswith("ERRO:"):
+            return True
+    return False
+
+
+def _escalou_neste_turno(r: ResultadoTurno) -> bool:
+    """A `ia_pausada` deste turno foi aberta PELO PROPRIO turno (escalada justificada)?
+
+    Reusa o discriminador de PROD (`pausa_aberta_por_este_turno`, o mesmo que decide se o envio
+    ignora a pausa): `escalar` bem-sucedida ou escalada silenciosa da guarda do `registrar_extracao`
+    (texto exato de `MENSAGENS_GUARD_ESCALADA` numa ToolMessage). O `or` acrescenta o rastro que
+    resiste ao `_zerar_turno` — o predicado de prod casa o tool_call por id, e o id mora na
+    AIMessage que o guard tem o direito de apagar.
+
+    Sem rastro => pausa EXTERNA (bloqueio do output_guard, pipeline de Pix/foto, pausa manual do
+    operador). Nesse caso a modelo humana assumiu no meio do turno: a corrida NAO conduziu sozinha.
+    """
+    from barra.workers.coordenador import pausa_aberta_por_este_turno
+
+    return pausa_aberta_por_este_turno(r.mensagens) or _tool_ok_no_turno(r, "escalar")
+
+
+def _turno_nao_processado(r: ResultadoTurno) -> bool:
+    """O coordenador NEM RODOU o grafo neste turno (gate do passo 2: `ia_pausada` herdada de um
+    turno anterior ou estado terminal).
+
+    Sinal: nenhum no visitado E nenhuma mensagem do grafo. Os dois juntos porque cada um sozinho
+    mente num sentido: `nodes` vazio tambem acontece com um grafo FAKE injetado (que nao dispara os
+    callbacks do handler), e `mensagens` e o que o proprio coordenador exige do resultado — quando
+    o grafo roda, ela nunca volta vazia, nem sob `_zerar_turno` (que troca as AIMessages por
+    vazias, sem remover nenhuma da lista).
+
+    NAO confundir com o turno que RODOU e saiu calado: turno mudo de verdade, descarte na pausa
+    externa (onde so a bolha critica e resgatada) e regen que esvaziou a fala tem `nodes`/
+    `mensagens` — e seguem sendo violacao.
+    """
+    return not r.nodes and not r.mensagens
+
+
+def _silencio_do_turno(i: int, r: ResultadoTurno) -> tuple[list[str], list[str]]:
+    """Invariantes duras que o `ok` da corrida ignorava: turno MUDO e pausa da IA (achado 12b).
+
+    Devolve `(violacoes, anotacoes)`.
+
+    `VeredictoE2E.ok` so olhava `conduziu` (= `estado_final in ESTADOS_CONDUZIDOS`) e as violacoes
+    de vazamento/ordem. Com isso `decidido_rapido_a` entrou no corpus com `veredito_ok: true`
+    tendo terminado em `Aguardando_confirmacao` + `ia_pausada` + bolha VAZIA no turno em que o
+    cliente fechou — a linha de chegada estava no banco, mas quem cruzou foi o silencio e um
+    handoff para o Fernando. `remarcacao` idem, com dois turnos no vacuo depois da pausa.
+
+    Os dois silencios DELIBERADOS ficam de fora, por carimbo e nao por inferencia:
+      - `_mute_por_erro_de_tool` — o `extrair` fechou o turno mudo de proposito (guard de dominio
+        + reoferta ja gasta): silencio > reserva fantasma;
+      - escalada DESTE turno — a IA (ou a guarda da extracao) decidiu chamar a modelo; em
+        `motivo=conteudo_ilegal` o desenho e a recusa seca, sem canned de espera.
+
+    E o turno que o coordenador NEM PROCESSOU vira ANOTACAO, nao violacao (re-prova `externo_a2`,
+    t6): sem grafo nao ha bolha a cobrar nem pausa a julgar — a pausa e HERDADA, e a escalada que
+    a abriu ja foi julgada no turno em que aconteceu. Cobrar de novo aqui reprovava duas vezes a
+    MESMA decisao (e reprovava a corrida por uma escalada legitima).
+    """
+    fora: list[str] = []
+    pausada = bool((r.estado_final or {}).get("ia_pausada"))
+    if _turno_nao_processado(r):
+        motivo = "pausa herdada" if pausada else "gate do coordenador"
+        return fora, [f"turno {i}: turno nao processado ({motivo}); o grafo nao rodou"]
+    escalou = _escalou_neste_turno(r)
+    mudo = not r.texto.strip() and not _tool_ok_no_turno(r, "enviar_midia")
+    if mudo and not (r.mute_deliberado or escalou):
+        fora.append(f"turno {i}: turno mudo (nenhuma bolha chegou ao cliente)")
+    if pausada and not escalou:
+        fora.append(f"turno {i}: IA pausada sem escalada deste turno (handoff externo)")
+    return fora, []
+
+
 def avaliar_e2e(res: ResultadoE2E, perfil: PerfilCaso) -> VeredictoE2E:
-    from evals.checks import _texto_e_args
+    from evals.checks import _texto_ao_cliente
     from evals.conduta import avaliar_conduta
     from evals.sequencia import avaliar_sequencia
 
     violacoes: list[str] = []
-    for i, t in enumerate(res.turnos):
-        saida = _texto_e_args(t)
+    anotacoes: list[str] = []
+    # `_texto_ao_cliente`, NAO `_texto_e_args`: a invariante dura e sobre o que CHEGA ao cliente
+    # (mesma superficie do output_guard de prod). Args internos citam "atendimento"/"cliente"
+    # legitimamente (proxima_acao_esperada, resumo de escalada) — rodar o detector neles gerou
+    # falso positivo que zerou o `ok` da corrida (loop-massa r3, decidido_rapido_b).
+    for i, t in enumerate(res.turnos, start=1):
+        saida = _texto_ao_cliente(t)
         if tem_marcador_outro_cliente(saida):
             violacoes.append(f"turno {i}: marcador de outro cliente na saida (vazamento por-par)")
         if tem_marcador_system(saida):
             violacoes.append(f"turno {i}: marcador de system vazou para a bolha")
+        duras, notas = _silencio_do_turno(i, t)
+        violacoes.extend(duras)
+        anotacoes.extend(notas)
 
     # Camada 2: ordem de acoes cross-turn (cotacao antes de confirmar; pix so em externo).
     violacoes.extend(avaliar_sequencia(res))
@@ -78,6 +180,7 @@ def avaliar_e2e(res: ResultadoE2E, perfil: PerfilCaso) -> VeredictoE2E:
         n_turnos=res.n_turnos,
         custo_brl=round(res.custo_brl, 6),
         violacoes=violacoes,
+        anotacoes=anotacoes,
         conduta=avaliar_conduta(res),
     )
 

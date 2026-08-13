@@ -453,7 +453,7 @@ export function ModalDecisaoCard({
                           titulo="Análise da IA"
                           icone={<Sparkles size={14} strokeWidth={1.75} className="text-gold-500" />}
                         >
-                          <p className="text-[13px] text-text-disabled">
+                          <p className="text-[13px] text-text-muted">
                             Sem análise registrada para esta etapa.
                           </p>
                         </SecaoBloco>
@@ -480,7 +480,7 @@ export function ModalDecisaoCard({
                             </span>
                           </div>
                         ) : (
-                          <p className="text-[13px] text-text-disabled">
+                          <p className="text-[13px] text-text-muted">
                             Sem comprovante de Pix vinculado.
                           </p>
                         )}
@@ -579,7 +579,7 @@ export function ModalDecisaoCard({
                 rows={2}
                 maxLength={500}
                 placeholder={motivoRejeicao === "outro" ? "Descreva o motivo…" : ""}
-                className="w-full resize-none rounded-md border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full resize-none rounded-md border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </FormField>
           </div>
@@ -614,7 +614,7 @@ export function ModalDecisaoCard({
                 value={valorFinal}
                 onChange={(e) => setValorFinal(e.target.value)}
                 placeholder="Ex: 800,00"
-                className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full rounded-md border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </FormField>
           </div>
@@ -660,7 +660,7 @@ export function ModalDecisaoCard({
                 rows={2}
                 maxLength={500}
                 placeholder={motivoPerda === "outro" ? "Descreva o motivo…" : ""}
-                className="w-full resize-none rounded-md border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-disabled focus:outline-none focus:ring-1 focus:ring-ring"
+                className="w-full resize-none rounded-md border border-border bg-card px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-ring"
               />
             </FormField>
           </div>

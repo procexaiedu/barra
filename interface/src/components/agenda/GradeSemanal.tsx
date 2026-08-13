@@ -34,13 +34,21 @@ const ALTURA_MINIMA_PX = (SNAP_MIN / 60) * HORA_HEIGHT
 
 const diasSemana = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"]
 
+// Lista estável para dias sem bloqueio: evita criar um array novo por render, o
+// que invalidaria o useMemo do layout de cada coluna.
+const SEM_BLOQUEIOS: BloqueioTipo[] = []
+
+// Formatter içado para o módulo: `horaMinBrt` roda por bloqueio a cada render e
+// por frame durante o drag; instanciar Intl a cada chamada é o custo dominante.
+const HORA_MIN_BRT_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: "America/Sao_Paulo",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+})
+
 function horaMinBrt(iso: string): { h: number; m: number } {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "America/Sao_Paulo",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  }).formatToParts(new Date(iso))
+  const parts = HORA_MIN_BRT_FMT.formatToParts(new Date(iso))
   return {
     h: parseInt(parts.find((p) => p.type === "hour")?.value ?? "0", 10),
     m: parseInt(parts.find((p) => p.type === "minute")?.value ?? "0", 10),
@@ -430,6 +438,19 @@ export function GradeSemanal({
     return map
   }, [bloqueios])
 
+  // Índice por data BRT: o cabeçalho e as colunas pediam uma varredura da lista
+  // por dia (14 por render, cada uma convertendo fuso), repetida a cada frame do drag.
+  const bloqueiosPorData = useMemo(() => {
+    const map = new Map<string, BloqueioTipo[]>()
+    for (const b of bloqueios) {
+      const dia = dataBrt(b.inicio)
+      const doDia = map.get(dia)
+      if (doDia) doDia.push(b)
+      else map.set(dia, [b])
+    }
+    return map
+  }, [bloqueios])
+
   useEffect(() => {
     if (!scrollRef.current) return
     const now = new Date()
@@ -613,7 +634,7 @@ export function GradeSemanal({
             const data = dataInput(dia)
             const isHoje = data === dataHoje
             const diaSemIdx = (dia.getDay() + 6) % 7
-            const bloqueiosDia = bloqueios.filter((b) => dataBrt(b.inicio) === data)
+            const bloqueiosDia = bloqueiosPorData.get(data) ?? SEM_BLOQUEIOS
             return (
               <div
                 key={data}
@@ -690,7 +711,7 @@ export function GradeSemanal({
                       data={data}
                       isHoje={data === dataHoje}
                       isFirst={j === 0}
-                      bloqueios={bloqueios.filter((b) => dataBrt(b.inicio) === data)}
+                      bloqueios={bloqueiosPorData.get(data) ?? SEM_BLOQUEIOS}
                       onCriar={onCriar}
                       onEditar={onEditar}
                       onResize={handleResize}

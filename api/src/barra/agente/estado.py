@@ -12,6 +12,7 @@ Ver docs/agente/04-tools.md §1.1, 01-arquitetura.md §2.3/§4.3 e 02-estado-flu
 
 import asyncio
 from datetime import datetime
+from typing import Any
 
 from langchain_core.messages import BaseMessage
 from langgraph.graph import MessagesState
@@ -41,6 +42,22 @@ class EstadoAgente(MessagesState):
         mudo, e seta este flag. Se a reoferta tambem errar (o llm reoferta, o llm roteia de novo ao
         `extrair` e a 2a extracao erra), o `extrair` cai no MUTE (sem reofertar de novo) -- silencio >
         reserva fantasma. Nasce ausente a cada `ainvoke` (sem checkpointer).
+    _mute_por_erro_de_tool: CARIMBO de que o `extrair` fechou o turno MUDO de proposito, porque a
+        extracao errou (guard de dominio: piso, tipo, reagendamento, cotacao ausente) sobre uma
+        bolha STALE — escrita antes de o erro existir, podendo afirmar uma reserva que a transacao
+        reverteu. Hoje isso e so o ramo da reoferta DESLIGADA (kill-switch) ou do turno sem fala:
+        quando a auto-reoferta rodou, a bolha ja LEU o erro e passa (prova r3, `externo_a` — o mute
+        do turno inteiro apagou seis reofertas corretas e virou latch). E um carimbo, nao um
+        predicado re-avaliavel: o `output_guard` roda
+        DEPOIS e nao tem como redescobrir o motivo -- a janela que ele monta p/ a regen
+        (`_janela_ate_a_fala_do_cliente`) corta na ultima HumanMessage e descarta, POR DESENHO, o
+        par [AIMessage forcada, ToolMessage] que carrega o erro.
+
+        Sem o carimbo, o gatilho `mudo` do guard via um turno sem texto, regenerava com o lembrete
+        generico ("sua resposta veio VAZIA, escreva de novo") e o modelo -- cego ao erro --
+        respondia "Confirmado amor", exatamente a reserva fantasma que o mute existe p/ impedir
+        (trace 71c7196e, 12/08: a reoferta tinha ACERTADO a cotacao e a regen a substituiu pela
+        confirmacao proibida). Nasce ausente a cada `ainvoke` (sem checkpointer).
     _midia_esgotada: one-shot do cap de loop de `enviar_midia` (nos/llm.py). Quando a modelo nao tem
         midia e o modelo insiste em `enviar_midia` (tag apos tag), o loop tools<->llm estouraria o
         recursion_limit -> GraphRecursionError -> escalar_por_exaustao -> SILENCIO ao cliente (trace
@@ -115,12 +132,36 @@ class EstadoAgente(MessagesState):
         `messages`). O guard que torna isso barulhento em vez de silencioso vive em
         `build_graph` (graph.py): ligar checkpointer COM a flag paralela levanta na construcao do
         grafo, nao num turno de producao.
+    _extracao_registrada: CARIMBO do payload que a `registrar_extracao` de fato GRAVOU neste turno
+        (args ja saneados), posto pelo no `extrair`: os args no caminho de SUCESSO e `None`
+        EXPLICITO no ramo de erro/mute (transacao revertida — o ramo anexa a AIMessage com o
+        tool_call cru, e sem o carimbo negativo o fallback de varredura do `extracao_do_turno`
+        publicaria no trace o payload que nao foi gravado). Ausente = o turno nem passou pelo
+        `extrair`, unico caso em que a varredura decide. E a fonte de verdade da
+        extracao para a observabilidade (`_texto_turno.extracao_do_turno`), e e carimbo justamente
+        porque a alternativa nao e re-avaliavel: varrer `tool_calls` das AIMessages do turno
+        depende de uma mensagem que o `output_guard` tem o DIREITO de reescrever — no despacho da
+        regen o `_zerar_turno` troca as AIMessages por vazias, e o trace saia `extracao: null` com
+        a tag `sem_extracao` num turno que gravou intencao, valor e duracao (loop-massa r2, eixos
+        externo t6 / explorador t7). Mesma licao do `_mute_por_erro_de_tool` e do
+        `local_endereco_no_prompt`: carimbo no State, nao inferencia sobre mensagem alheia. Nasce
+        ausente a cada `ainvoke` (sem checkpointer).
+    _pausa_aberta_pelo_guard: CARIMBO de que a `ia_pausada=true` que o coordenador rele DEPOIS do
+        grafo foi aberta pelo PROPRIO output_guard (leak/AUP -> `_bloquear` -> `escalar_defesa`).
+        Sem ele o coordenador so reconhecia dois rastros de pausa-deste-turno (`escalar` executada
+        com sucesso e a canned de escalada silenciosa), e o `_bloquear` nao e nenhum dos dois --
+        escreve direto no banco, sem tocar em `messages`. Resultado: `pausa_aberta_por_este_turno`
+        devolvia False e o turno era logado como `turno_descartado pausa_externa=True`, apontando o
+        operador para "um pipeline externo pausou" quando quem pausou foi o grafo (loop-massa r3,
+        achado 6). Mesmo motivo dos carimbos acima: o rastro nao e re-avaliavel a partir das
+        mensagens, ja que o proprio guard as zera. Nasce ausente a cada `ainvoke`.
     """
 
     midia_idx: int
     _categoria: str | None
     _confianca: str | None
     _reoferta_tentada: bool
+    _mute_por_erro_de_tool: bool
     _midia_esgotada: bool
     horario_minimo: datetime | None
     horario_evidenciado: bool
@@ -132,3 +173,5 @@ class EstadoAgente(MessagesState):
     valor_dele_no_prompt: int | None
     _extracao_task: "asyncio.Task[BaseMessage] | None"
     _extracao_janela: list[BaseMessage]
+    _extracao_registrada: dict[str, Any] | None
+    _pausa_aberta_pelo_guard: bool

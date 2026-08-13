@@ -389,7 +389,7 @@ async def test_julgar_aup_refusal_levanta_inseguro(monkeypatch: Any) -> None:
     with pytest.raises(mod._JudgeInseguro):
         await mod._julgar_aup(
             "texto qualquer",
-            SimpleNamespace(deepseek_model_chat="deepseek-v4-flash"),
+            SimpleNamespace(deepseek_model_chat="deepseek-v4-flash", judge_temperature=0.0),
         )
 
 
@@ -400,7 +400,7 @@ async def test_julgar_aup_parse_error_levanta_inseguro(monkeypatch: Any) -> None
     with pytest.raises(mod._JudgeInseguro):
         await mod._julgar_aup(
             "texto qualquer",
-            SimpleNamespace(deepseek_model_chat="deepseek-v4-flash"),
+            SimpleNamespace(deepseek_model_chat="deepseek-v4-flash", judge_temperature=0.0),
         )
 
 
@@ -411,7 +411,7 @@ async def test_julgar_aup_ok_retorna_veredito(monkeypatch: Any) -> None:
     monkeypatch.setattr("barra.core.llm.criar_chat_deepseek", lambda s, **kw: _FakeJudgeChat(res))
     out = await mod._julgar_aup(
         "texto qualquer",
-        SimpleNamespace(deepseek_model_chat="deepseek-v4-flash"),
+        SimpleNamespace(deepseek_model_chat="deepseek-v4-flash", judge_temperature=0.0),
     )
     assert out.viola is False
 
@@ -456,6 +456,8 @@ async def test_julgar_aup_instrumenta_tokens_do_judge(monkeypatch: Any) -> None:
     settings = SimpleNamespace(
         deepseek_api_key="sk-test",
         deepseek_model_chat="deepseek-v4-flash",
+        # O judge le a temperatura do settings (0.0): omitir o parametro deixava o provider em ~1.0.
+        judge_temperature=0.0,
     )
     antes = _tokens("deepseek-v4-flash", "input")
     out = await mod._julgar_aup("texto qualquer", settings)
@@ -481,7 +483,7 @@ async def test_julgar_aup_instrumenta_mesmo_inseguro(monkeypatch: Any) -> None:
     )
     res = {"raw": raw, "parsed": None, "parsing_error": None}
     monkeypatch.setattr("barra.core.llm.criar_chat_deepseek", lambda s, **kw: _FakeJudgeChat(res))
-    settings = SimpleNamespace(deepseek_model_chat="deepseek-v4-flash")
+    settings = SimpleNamespace(deepseek_model_chat="deepseek-v4-flash", judge_temperature=0.0)
     antes = _tokens("deepseek-v4-flash", "input")
     with pytest.raises(mod._JudgeInseguro):
         await mod._julgar_aup("texto", settings)
@@ -499,6 +501,8 @@ async def test_julgar_aup_deepseek_direct_ok_retorna_veredito(monkeypatch: Any) 
     settings = SimpleNamespace(
         deepseek_api_key="sk-test",
         deepseek_model_chat="deepseek-v4-flash",
+        # O judge le a temperatura do settings (0.0): omitir o parametro deixava o provider em ~1.0.
+        judge_temperature=0.0,
     )
     out = await mod._julgar_aup("texto qualquer", settings)
     assert out.viola is True

@@ -39,7 +39,9 @@ export function Sidebar() {
   const isActive = (href: string) => itemAtivo(href, pathname)
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
+    // Escopo local: "Sair" encerra a sessão DESTE aparelho. O default do
+    // Supabase é global e derrubaria também o celular de quem está em campo.
+    await supabase.auth.signOut({ scope: "local" })
     window.location.assign("/login")
   }
 
@@ -93,14 +95,20 @@ export function Sidebar() {
                   "focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none",
                   collapsed ? "w-full justify-center px-0" : "gap-3 px-3",
                   active
-                    ? "text-text-brand font-medium [background-image:var(--gradient-gold-soft)] before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-gold-500 before:content-['']"
+                    ? "text-text-brand font-medium [background-image:var(--gradient-gold-soft)] before:absolute before:left-0 before:top-1/2 before:h-5 before:w-[3px] before:-translate-y-1/2 before:rounded-r-full before:bg-border-brand before:content-['']"
                     : "text-text-secondary hover:bg-accent hover:text-text-primary"
                 )
 
                 if (collapsed) {
                   return (
                     <Tooltip key={item.href}>
-                      <TooltipTrigger render={<Link href={item.href} className={linkClass} />}>
+                      {/* Recolhido, o rótulo só existe no tooltip — que não vira
+                          nome acessível. Sem o aria-label o link fica mudo. */}
+                      <TooltipTrigger
+                        render={
+                          <Link href={item.href} className={linkClass} aria-label={item.label} />
+                        }
+                      >
                         <Icon size={20} strokeWidth={1.5} />
                       </TooltipTrigger>
                       <TooltipContent side="right">{item.label}</TooltipContent>
@@ -132,6 +140,7 @@ export function Sidebar() {
                 render={
                   <button
                     onClick={handleLogout}
+                    aria-label="Sair"
                     className={cn(
                       "flex h-10 w-full items-center justify-center rounded-md py-2 text-sm text-text-secondary transition-colors",
                       "hover:bg-accent hover:text-text-primary",

@@ -217,6 +217,13 @@ BOLHAS_SONDA_CRUA = [
     "o que te traz aqui?",
     "pode perguntar o que quiser 😊",
     "gosta de que tipo de programa?",
+    # A oferta de atendimento: `persona.md` a lista NOMINALMENTE entre as falas proibidas
+    # ("em que posso ajudar", "posso te ajudar?"). Foi ao cliente no turno de ABERTURA — o que
+    # decide se ele fica (loop-massa r2, eixo ghost_pos_cotacao; guard fechou sem regen).
+    "Como posso te atender?",
+    "Posso te ajudar?",
+    "em que posso ajudar amor",
+    "No que posso te ajudar ?",
 ]
 
 
@@ -233,6 +240,20 @@ BOLHAS_SONDA_CALOROSA = [
     "me fala o que você busca que eu te ajudo",
     "Me conta o que você quer saber?",  # "quer saber" nem esta no regex do probe
 ]
+
+
+@pytest.mark.parametrize(
+    "bolha",
+    [
+        "posso te ajudar com o horário amor?",  # oferta COM objeto: fala quente, nao probe
+        "me fala o que você busca que eu te ajudo",  # a fixture calorosa nao pode cair no ramo novo
+        "posso ir até você amor",
+    ],
+)
+def test_oferta_de_ajuda_dentro_de_frase_nao_e_sonda(bolha: str) -> None:
+    """O ramo novo mira o PROBE cru ("posso te ajudar ?" nu, "como posso te atender ?"), nao a
+    oferta que vem dentro de uma frase com objeto — um ramo largo em "ajud" derrubaria a voz."""
+    assert mod.tem_sonda_balcao(bolha) is False
 
 
 @pytest.mark.parametrize("bolha", BOLHAS_SONDA_CALOROSA)

@@ -267,7 +267,10 @@ async def test_injecao_inline_persiste_e_promove(conn: AsyncConnection[dict[str,
     graph = _build_graph({"proxima_acao_esperada": "confirmar saida do cliente"})
 
     resultado = await graph.ainvoke(
-        {"messages": [HumanMessage(content="14h então"), _fala()]},
+        # `horario_evidenciado`: a marca por-turno que o `prepare_context` (fora deste grafo minimo)
+        # poria no State a partir da hora explicita na fala dele — sem ela o freio da proveniencia
+        # trata 14h como palpite do sistema e nao reserva slot nenhum.
+        {"messages": [HumanMessage(content="14h então"), _fala()], "horario_evidenciado": True},
         context=_contexto(
             _PoolDeUmaConexao(conn),
             modelo_id=modelo_id,
@@ -324,6 +327,7 @@ async def test_horario_minimo_propaga_pelo_state(conn: AsyncConnection[dict[str,
         {
             "messages": [HumanMessage(content="da pra ser já?"), _fala()],
             "horario_minimo": horario_minimo,
+            "horario_evidenciado": True,  # ele pediu o "ja" — o numero e do fallback, a intencao e dele
         },
         context=_contexto(
             _PoolDeUmaConexao(conn),
@@ -362,7 +366,7 @@ async def test_pix_solicitado_legivel_no_resultado(conn: AsyncConnection[dict[st
     graph = _build_graph({"proxima_acao_esperada": "pedir o pix"})
 
     await graph.ainvoke(
-        {"messages": [HumanMessage(content="pode vir aqui"), _fala()]},
+        {"messages": [HumanMessage(content="pode vir aqui"), _fala()], "horario_evidenciado": True},
         context=_contexto(
             _PoolDeUmaConexao(conn),
             modelo_id=modelo_id,
@@ -449,7 +453,7 @@ async def test_erro_recuperavel_inline_vira_toolmessage_e_reverte(
     )
     graph = _build_graph({"proxima_acao_esperada": "confirmar"})
     await graph.ainvoke(
-        {"messages": [HumanMessage(content="20h"), _fala()]},
+        {"messages": [HumanMessage(content="20h"), _fala()], "horario_evidenciado": True},
         context=_contexto(
             _PoolDeUmaConexao(conn),
             modelo_id=modelo_id,
@@ -474,7 +478,7 @@ async def test_erro_recuperavel_inline_vira_toolmessage_e_reverte(
         duracao_horas=duracao,
     )
     resultado = await graph.ainvoke(
-        {"messages": [HumanMessage(content="20h"), _fala()]},
+        {"messages": [HumanMessage(content="20h"), _fala()], "horario_evidenciado": True},
         context=_contexto(
             _PoolDeUmaConexao(conn),
             modelo_id=modelo_id,

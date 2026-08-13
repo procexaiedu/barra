@@ -117,7 +117,7 @@ export function ChartMixForma({ itens }: Props) {
                 >
                   {f.rotulo}
                   {f.fechamentos > 0 && (
-                    <span className="ml-1.5 font-mono text-[10.5px] tabular-nums text-text-disabled">
+                    <span className="ml-1.5 font-mono text-[10.5px] tabular-nums text-text-muted">
                       · {f.fechamentos} fech.
                     </span>
                   )}

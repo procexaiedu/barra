@@ -5,7 +5,10 @@ import type {
   MotivoPerda,
 } from "@/tipos/clientes"
 
-type BadgeVariant = "active" | "paused" | "handoff" | "revisao" | "closed" | "lost"
+// Cor de estado é a mesma em todo o painel: a fonte única vive em
+// `components/atendimentos/utils`. Reexportado aqui só para não mexer nos
+// imports das telas de cliente.
+export { badgeForEstado } from "@/components/atendimentos/utils"
 
 export const motivoPerdaLabel: Record<MotivoPerda, string> = {
   preco: "Preço",
@@ -38,12 +41,6 @@ export const formaPagamentoLabel: Record<FormaPagamento, string> = {
   dinheiro: "Dinheiro",
   outro: "Outro",
   cartao: "Cartão",
-}
-
-export function badgeForEstado(estado: EstadoAtendimento): BadgeVariant {
-  if (estado === "Fechado") return "closed"
-  if (estado === "Perdido") return "lost"
-  return "active"
 }
 
 export function truncar(texto: string, max: number): string {

@@ -4,7 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Any, Literal, cast
 from uuid import UUID
 
 from psycopg import AsyncConnection
@@ -292,6 +292,16 @@ async def _corrigir_registro(
                 {"campo": "confirmar_alteracao_bloqueio_finalizado"},
             )
 
+    # Taxa de cartão (ADR 0013): a correção do painel não tem campo de taxa — o front não manda
+    # `taxa_cartao_snapshot`, e o `model_dump()` da borda ainda assim carimba a chave como None.
+    # Gravar esse None apagaria o snapshot do fechamento no cartão e a taxa da maquininha voltaria
+    # a contar como receita em bruto/líquido/repasse. Sem valor novo, preserva o que já está no
+    # atendimento; isentar continua expressável mandando 0 (todo o financeiro lê
+    # COALESCE(taxa_cartao_snapshot, 0), então 0 e NULL valem o mesmo).
+    taxa = payload.get("taxa_cartao_snapshot")
+    if taxa is None:
+        taxa = atendimento.get("taxa_cartao_snapshot")
+
     await conn.execute(
         """
         UPDATE barravips.atendimentos
@@ -306,7 +316,7 @@ async def _corrigir_registro(
         (
             novo,
             payload.get("valor_final"),
-            payload.get("taxa_cartao_snapshot"),
+            taxa,
             payload.get("motivo"),
             payload.get("observacao"),
             _fonte(origem),
@@ -569,7 +579,18 @@ async def abrir_handoff(
     observacao: str | None = None,
     card_message_id: str | None = None,
     ia_pausada_motivo: str = "handoff_ia",
-) -> None:
+) -> UUID | None:
+    """Abre o handoff e devolve o `id` da escalada CRIADA, ou `None` quando nada foi criado.
+
+    O `None` e a informacao que faltava: o guard de idempotencia abaixo transforma a 2a chamada num
+    no-op silencioso, e quem chamava nao tinha como saber. `ferramentas/escalada.py` compensava com
+    um `SELECT ... ORDER BY aberta_em DESC LIMIT 1` que, no no-op, devolvia a escalada ANTIGA — e
+    entao contava a metrica de um motivo que nao foi gravado e enfileirava o card com o `_job_id`
+    daquela escalada, que o ARQ deduplica: o motivo novo nunca chegava a Coordenacao. Devolver o id
+    (ou o None) mata a heuristica na raiz.
+
+    Retrocompativel: os demais chamadores ignoram o retorno, e ignorar `None` da no mesmo que hoje.
+    """
     motivo_texto = observacao or rotulo_tipo_escalada(tipo)
     async with conn.transaction():
         # Idempotencia (REL-02): nao abre escalada duplicada quando o turno e reprocessado
@@ -588,6 +609,7 @@ async def abrir_handoff(
                SELECT 1 FROM barravips.escaladas
                 WHERE atendimento_id = %s AND fechada_em IS NULL
              )
+            RETURNING id
             """,
             (
                 atendimento_id,
@@ -601,8 +623,9 @@ async def abrir_handoff(
                 atendimento_id,
             ),
         )
-        if cur.rowcount == 0:
-            return  # escalada ja aberta — handoff idempotente, nada a refazer
+        criada = await cur.fetchone()
+        if criada is None:
+            return None  # escalada ja aberta — handoff idempotente, nada a refazer
         await conn.execute(
             """
             UPDATE barravips.atendimentos
@@ -629,6 +652,7 @@ async def abrir_handoff(
                 "acao_esperada": acao_esperada,
             },
         )
+    return cast(UUID, criada["id"])
 
 
 async def _rastro_de_fetiche(conn: AsyncConnection[Any], atendimento_id: UUID) -> None:

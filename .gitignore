@@ -144,3 +144,6 @@ prompt_agente_renderizado.md
 # Cenários do rig de simulação de cliente (conversas reais do vendedor — PII). Fonte da skill
 # simular-cliente-rig, que o lê por caminho absoluto no disco; só local, nunca no repo.
 /conversas_chave_vendedor.html
+
+# Artefatos de medicao/rodadas (JSONs de eval); specs versionadas ficam via `git add -f`
+/.scratch/

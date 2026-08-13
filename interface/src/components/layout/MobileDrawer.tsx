@@ -33,7 +33,8 @@ export function MobileDrawer() {
   }, [])
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
+    // Escopo local, igual ao da Sidebar: "Sair" encerra a sessão DESTE aparelho.
+    await supabase.auth.signOut({ scope: "local" })
     window.location.assign("/login")
   }
 

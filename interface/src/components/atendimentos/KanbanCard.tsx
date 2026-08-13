@@ -94,7 +94,7 @@ export const KanbanCard = forwardRef<
         ) : (
           <span />
         )}
-        <span className="text-[10px] tabular-nums text-text-disabled">{formatTempoRelativo(item.updated_at)}</span>
+        <span className="text-[10px] tabular-nums text-text-muted">{formatTempoRelativo(item.updated_at)}</span>
       </div>
     </div>
   )

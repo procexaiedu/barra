@@ -82,7 +82,7 @@ function FinanceiroInner() {
                 className={cn(
                   "relative px-3 pb-2.5 pt-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
                   ativo
-                    ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-gold-500"
+                    ? "text-text-primary after:absolute after:inset-x-0 after:-bottom-px after:h-px after:bg-border-brand"
                     : "text-text-muted hover:text-text-secondary",
                 )}
               >
@@ -185,8 +185,11 @@ function ViewReceitas({ fin }: { fin: ReturnType<typeof useFinanceiro> }) {
     return () => window.removeEventListener("keydown", handleKey)
   }, [handleKey])
 
+  // Abaixo de lg o inspector empilha sob a lista: lado a lado, a largura fixa
+  // de 380px estourava a viewport de 375px e o `overflow-x-clip` do shell
+  // cortava o botão Fechar.
   return (
-    <div className="flex min-h-0 flex-1 gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4 lg:flex-row">
       <div className="flex min-w-0 flex-1 flex-col gap-2">
         <ListaReceitas
           lista={fin.receitas}

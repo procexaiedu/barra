@@ -12,10 +12,12 @@ from typing import Any
 
 from barra.dominio.atendimentos.service import (
     _sem_valor_fantasma,
+    _total_anunciado_pela_ia,
     _valor_fora_do_conjunto,
     _valores_ja_ofertados,
     extrair_precos_citados,
     precos_ofertados_na_fala,
+    totais_ditos_na_fala,
 )
 
 # --- o que conta como OFERTA na fala da modelo (puro) ---------------------------------------
@@ -69,6 +71,31 @@ def test_o_ramo_de_fechamento_continua_barrado_pela_clausula_negada() -> None:
     # vendo o número, que é a diferença entre citar e ofertar.
     assert precos_ofertados_na_fala("fechado 700 não amor") == set()
     assert extrair_precos_citados("fechado 700 não amor") == {700}
+
+
+def test_soma_no_total_nao_e_preco_ofertado() -> None:
+    """INVARIANTE DE DOMÍNIO: o TOTAL (programa + Pix do deslocamento) não é preço de programa.
+
+    A rodada 2 alargou o `_RE_PRECO_CITADO` com um ramo "N no total" e a revisão o reverteu: com a
+    1h a 400 e o uber a 100, "500 no total" entrava no conjunto legítimo e o aceite seguinte
+    gravava `valor_acordado=500` — o Pix compondo o valor do programa (CONTEXT.md §Pix de
+    deslocamento) e inflando a base de repasse (ADR-0011/0012/0013). O sintoma medido (a venda
+    perder o aceite junto com o valor) é tratado onde ele nasce: `_sem_valor_fantasma`."""
+    assert extrair_precos_citados("500 no total amor") == set()
+    assert precos_ofertados_na_fala("fica 400 a 1h e o uber fica 100\n\n500 no total amor") == {
+        400,
+        100,
+    }
+
+
+def test_total_dito_e_reconhecido_como_total() -> None:
+    """O detector do TOTAL existe só para preservar o ACEITE quando o valor cai — não para
+    legitimar o número. Mesmo piso de 100 e mesma leitura de cláusula negada."""
+    assert totais_ditos_na_fala("500 no total amor") == {500}
+    assert totais_ditos_na_fala("fica 1.200 no total com o uber") == {1200}
+    assert totais_ditos_na_fala("80 no total") == set()
+    assert totais_ditos_na_fala("não fecho 500 no total não amor") == set()
+    assert totais_ditos_na_fala("fica 400 a 1h amor") == set()
 
 
 def test_numero_solto_e_hora_seguem_fora_do_ramo_de_fechamento() -> None:
@@ -177,6 +204,74 @@ async def test_modelo_sem_tabela_desliga_o_detector() -> None:
     """Mesma convenção do `bolhas_preco_fantasma`: sem tabela não há "fora da tabela", e descartar
     tudo travaria a venda de um cadastro incompleto."""
     assert await _legitimos([], ["consigo 350 amor"]) == set()
+
+
+# --- o TOTAL anunciado (programa + Pix): o número cai, o aceite fica --------------------------
+
+_FALAS_DO_TOTAL = [
+    "Fica 400 a 1h amor",
+    "o uber ida e volta fica 100",
+    "500 no total então amor",
+]
+
+
+async def test_total_anunciado_nao_entra_no_conjunto_legitimo() -> None:
+    """INVARIANTE: "500 no total" com a 1h a 400 e o Pix a 100 NUNCA é `valor_acordado`.
+
+    É o conserto do ramo revertido: legitimando a soma, o aceite seguinte gravava 500 como preço
+    do programa — Pix dentro do valor do programa e base de repasse inflada."""
+    legitimos = await _legitimos([_linha(400)], _FALAS_DO_TOTAL)
+    assert legitimos == {400, 100}
+    assert _valor_fora_do_conjunto("500", legitimos) == 500
+
+
+async def test_total_anunciado_e_reconhecido_na_janela_de_falas() -> None:
+    """E o mesmo 500 é reconhecido como TOTAL que ELA anunciou — é o que preserva o aceite."""
+    conn = _FakeConn([_linha(400)], _FALAS_DO_TOTAL)
+    assert await _total_anunciado_pela_ia(conn, "a1", 500, None)  # type: ignore[arg-type]
+    # a bolha DESTE turno conta junto (ainda não está em `mensagens`)
+    conn_sem_historico = _FakeConn([_linha(400)], [])
+    assert await _total_anunciado_pela_ia(
+        conn_sem_historico,  # type: ignore[arg-type]
+        "a1",
+        500,
+        "fica 500 no total amor",
+    )
+
+
+async def test_valor_inventado_nao_vira_total_anunciado() -> None:
+    """A exceção é estreita: número que ela nunca anunciou como total segue sendo fantasma puro —
+    valor E aceite caem, como no bug de 11/08."""
+    conn = _FakeConn([_linha(400)], _FALAS_DO_TOTAL)
+    assert not await _total_anunciado_pela_ia(conn, "a1", 300, None)  # type: ignore[arg-type]
+
+
+def test_aceite_sobrevive_quando_o_descartado_e_o_total_anunciado() -> None:
+    """O sintoma medido na r2 (venda dita com todas as letras saindo sem valor e sem aceite) morre
+    aqui, e não no scanner de preço: o aceite é REAL (ele topou a soma que ela disse), só o número
+    é que não pode ser gravado como preço de programa. O preço entra depois, pelo backstop do
+    pacote fechado (`_preco_cotado_do_pacote_fechado`), que só grava preço de TABELA cotado."""
+    limpo = _sem_valor_fantasma(
+        {
+            "valor_acordado": "500",
+            "duracao_horas": "1",
+            "sinais_qualificacao": {"aceita_valor": True, "responde_objetivamente": True},
+        },
+        500,
+        {400, 100},
+        preservar_aceite=True,
+    )
+    assert "valor_acordado" not in limpo
+    assert limpo["sinais_qualificacao"] == {"aceita_valor": True, "responde_objetivamente": True}
+    assert limpo["duracao_horas"] == "1"
+    assert limpo["valor_descartado"] == {"proposto": 500, "legitimos": [100, 400]}
+
+
+async def test_venda_dita_no_total_com_o_preco_de_tabela_nao_perde_nada() -> None:
+    """O outro invariante: "350 no total" com 350 NA TABELA não é fantasma coisa nenhuma — o valor
+    é gravado normal e o aceite nem chega a ser questionado (a guarda só roda no descarte)."""
+    legitimos = await _legitimos([_linha(350)], ["fica 350 a 1h amor", "350 no total amor"])
+    assert _valor_fora_do_conjunto("350", legitimos) is None
 
 
 # --- o descarte no payload (puro) ------------------------------------------------------------

@@ -1,7 +1,10 @@
 import { type NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 
-export async function middleware(req: NextRequest) {
+// Convenção `proxy` do Next 16 — `middleware` está deprecado e some num major.
+// O runtime aqui é sempre nodejs (não é configurável), o que basta para o
+// @supabase/ssr. O matcher segue idêntico: nenhuma rota autenticada escapa.
+export async function proxy(req: NextRequest) {
   const res = NextResponse.next()
   const url = req.nextUrl
   const isLogin = url.pathname.startsWith('/login')

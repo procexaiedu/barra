@@ -6,10 +6,13 @@ estado + bloqueio previo interno + guarda do piso de desconto). O pin de enderec
 side-effect: enfileirado APOS o commit, simetrico ao card do escalar (Notas, 04 §3.1).
 """
 
+import logging
+import re
 from datetime import date, time
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
+from langchain_core.messages import BaseMessage
 from langchain_core.tools import ToolException, tool
 from langgraph.prebuilt import ToolRuntime
 from pydantic import BaseModel, ConfigDict, Field
@@ -25,11 +28,102 @@ from barra.dominio.atendimentos.service import (
     CotacaoAusente,
     ParPrecoDuracaoInvalido,
     registrar_extracao_ia,
+    retirar_horario_palpite,
+    texto_tem_cotacao,
 )
 
+from .._disciplina import contem_hora_explicita
 from .._texto_turno import extrair_texto_do_turno
 from ..contexto import ContextAgente
+from ..nos._janela_do_turno import _burst_do_cliente, _e_afirmacao_curta, _texto_msg
 from ._idempotencia import _executar_idempotente
+
+_logger = logging.getLogger(__name__)
+
+# Par do flip de `cotacao_apresentada` na entrada (ver o call site): o `R$<n>` que pertence ao
+# DESLOCAMENTO nao pode contar como cotacao do programa. Janela assimetrica de proposito: a
+# palavra-chave vem tipicamente ANTES ("pix de R$100", "taxa do uber: R$100") ou logo depois
+# ("R$100 do pix"); a janela curta pos-valor evita apagar uma cotacao legitima que apenas
+# MENCIONA o pix na sequencia ("R$800 a hora, e o pix do uber por fora").
+_RE_VALOR_RS = re.compile(r"R\$\s?\d+(?:[.,]\d+)?")
+_RE_DESLOCAMENTO = re.compile(r"(?i)\b(?:pix|uber|desloc\w*|corrida|taxa)\b")
+
+
+async def _retirar_palpite_recusado(conn: Any, atendimento_id: str, motivo: str) -> None:
+    """Tira do snapshot o horario que a agenda ACABOU de recusar, quando ele era palpite do sistema.
+
+    P0 da prova r3 (`diagnostico_externo_a.md` Q3): os tres erros abaixo dizem "essa hora nao da" e
+    o texto de cada um instrui a IA a NAO registrar a hora que vai ofertar. Obedecer e correto na
+    FALA e desastroso no ESTADO — o UPSERT e incremental (`COALESCE`), entao o campo omitido
+    preserva o valor recusado e o turno seguinte re-tenta a MESMA reserva invalida. O erro descreve
+    um problema de fala e o problema e de estado; quem o conserta e o dominio, aqui.
+
+    TRANSACAO PROPRIA, e nao um `conn.execute` solto: a excecao ja desfez a transacao da tentativa,
+    e a `ToolException` levantada logo abaixo sai do `async with pool.connection()` pelo caminho de
+    ERRO — o pool daria `rollback` e a retirada morreria junto. Sair do bloco `conn.transaction()`
+    commita antes disso.
+
+    `try/except` largo pela mesma razao do enqueue dos cards: uma falha AQUI nao pode trocar um erro
+    RECUPERAVEL (que a IA reoferta) por uma excecao crua que mata o turno.
+    """
+    try:
+        async with conn.transaction():
+            retirado = await retirar_horario_palpite(conn, atendimento_id, motivo=motivo)
+    except Exception:
+        _logger.warning(
+            "retirada do horario-palpite recusado falhou atendimento_id=%s motivo=%s",
+            atendimento_id,
+            motivo,
+            exc_info=True,
+        )
+        return
+    if retirado:
+        _logger.info(
+            "horario-palpite recusado retirado do snapshot atendimento_id=%s motivo=%s",
+            atendimento_id,
+            motivo,
+        )
+
+
+def _sem_valores_de_deslocamento(texto: str) -> str:
+    """Apaga cada `R$<n>` colado (ate 12 chars antes / 10 depois) numa palavra de deslocamento."""
+
+    def _apagar(m: "re.Match[str]") -> str:
+        antes = texto[max(0, m.start() - 12) : m.start()]
+        depois = texto[m.end() : m.end() + 10]
+        return (
+            "" if _RE_DESLOCAMENTO.search(antes) or _RE_DESLOCAMENTO.search(depois) else m.group(0)
+        )
+
+    return _RE_VALOR_RS.sub(_apagar, texto)
+
+
+def _aceite_tem_cossinal(conversa: list[BaseMessage]) -> bool:
+    """A fala do CLIENTE neste turno sustenta um aceite de VALOR? (proveniência determinística)
+
+    Irmão do `horario_evidenciado`: existe detector de proveniência para o horário e não existia
+    para o valor — e é por aí que entra o `aceita_valor` fantasma. O produtor marca o aceite sobre
+    repergunta de preço ("É 400 fechado mesmo pra 1h?"), sobre lowball ("faz 250 que eu chamo o
+    uber") e sobre pergunta de logística ("E onde é seu local, vida?"), e o sinal é de MÃO ÚNICA:
+    `exclude_defaults` apaga o `False`, então o aceite errado nunca desce sozinho — ele apaga a
+    escada de desconto inteira (`preco_na_mesa = cotacao_na_mesa and not valor_aceito`).
+
+    O co-sinal é o discriminante medido no corpus da rodada 3 (6/6 dos falsos positivos mortos,
+    3/4 dos aceites legítimos preservados): o burst atual dele traz uma AFIRMAÇÃO CURTA ("fechado
+    então", "pode ser", "perfeito") ou uma HORA EXPLÍCITA ("300 às 20h tá fechado"). Um aceite de
+    verdade é curto ou crava a hora; repergunta e regateio não são nem uma coisa nem outra.
+
+    Perda conhecida e aceita: a confirmação verbosa que repete o número da mesa ("Show / Só pra
+    confirmar então: 300$ na 1 hr, certo?") não tem co-sinal e cai — o refinamento seria um
+    terceiro co-sinal ("ele repetiu um número que já está na mesa"), não implementado aqui.
+
+    Sobre a janela CRUA (`conversa_crua` do State), nunca sobre `messages`: depois da anexação do
+    contexto dinâmico a cauda do último HumanMessage carrega o belief, e aí toda hora renderizada
+    viraria "hora dita por ele" e nenhuma confirmação curta seria curta.
+    """
+    i = _burst_do_cliente(conversa)
+    burst = [_texto_msg(m) for m in conversa[i:]]
+    return any(_e_afirmacao_curta(t) or contem_hora_explicita(t) for t in burst)
 
 
 class SinaisQualificacao(BaseModel):
@@ -57,9 +151,14 @@ class SinaisQualificacao(BaseModel):
             "conversa, pergunta é pergunta, não aceite. "
             "NÃO marque por ter cotado, nem por cortesia ou reconhecimento ('obrigado', 'ok', "
             "'entendi', 'blz'), nem por ele só perguntar o preço: agradecer não é aceitar. "
-            "Adiamento ('hoje não consigo', 'espero começo do mês') NÃO é aceite. Este "
+            "Adiamento ('hoje não consigo', 'espero começo do mês') NÃO é aceite. Objeção de "
+            "preço — achar caro, pedir abaixo, cravar um teto ('tá caro', 'faz 300', '250 é o "
+            "máximo') — é o CONTRÁRIO de aceite: nesse turno o campo fica de fora. Este "
             "é o ÚNICO sinal de aceite — gravar `valor_acordado` não o infere — e ele fecha a "
-            "negociação de preço, então marcá-lo cedo trava a sua escada de desconto."
+            "negociação de preço, então marcá-lo cedo trava a sua escada de desconto. "
+            "Se um turno anterior marcou o aceite e a conversa mostra que ele NÃO aceitou, o "
+            'caminho de desfazer é `limpar: ["valor_acordado"]`: o sistema derruba o aceite '
+            "junto — marcar este campo como falso, sozinho, não desfaz nada."
         ),
     )
     envia_pix: bool = Field(
@@ -92,7 +191,14 @@ _DESC_HORARIO = (
     "horário vago/aberto ('depois das 21h', 'à noite'): aí siga qualificando até cravar. "
     "CRÍTICO: se a hora foi VOCÊ que propôs ('consigo às 22h, fecha ?') e o cliente confirmou "
     "('pode', 'fechou', 'isso', 'pode ser'), esse sim É o horário — grave-o, não espere ele "
-    "repetir o número. "
+    "repetir o número. Mas se ele respondeu com OUTRA hora ('consigo às 2h, fecha ?' → 'fechou, "
+    "pode ser 20h'), quem vale é a hora DELE: a sua oferta foi trocada, não confirmada — grave a "
+    "dele, e o 'fechou' era do preço, não da sua hora. A hora que ELE crava vence a que está "
+    "gravada e vence a que você ofereceu, sempre. "
+    "E registre a hora dele COMO ELA FOI DITA, mesmo que pareça longe do relógio de agora, "
+    "improvável ou conflitante com o que já está no snapshot: aqui você anota o que foi dito, não "
+    "julga se faz sentido nem escolhe entre duas horas — deixar o campo de fora por dúvida é o "
+    "pior desfecho (sem hora o encontro não é reservado e o atendimento trava). "
     "Depois de registrado, NÃO recalcule horário relativo nos turnos seguintes — omita o campo "
     "(o snapshot preserva o anterior); só reenvie se o CLIENTE pedir outro horário."
 )
@@ -102,7 +208,15 @@ _DESC_DATA = (
     "no contexto: 'hoje' = a data de hoje; 'amanhã' = hoje + 1; nome de dia da semana = a próxima "
     "ocorrência. CRÍTICO: se VOCÊ perguntou o dia ('seria hoje?', 'é pra hoje?') e o cliente "
     "confirmou ('sim', 'isso', 'pode ser', 'aham'), esse 'sim' É a data — grave o dia confirmado, "
-    "NÃO trate como se ele 'ainda não tivesse informado'. Sem dia explícito a reserva assume hoje, "
+    "NÃO trate como se ele 'ainda não tivesse informado'. "
+    "A data sai SEMPRE de uma FALA DELE nesta janela — o dia que ELE nomeou, ou o dia que VOCÊ "
+    'perguntou e ele confirmou. A âncora <agenda hoje="..."> é só base de cálculo do relativo que '
+    "o CLIENTE disse; sozinha ela nunca é a resposta — não grave a data de hoje por ela ser a "
+    "data do relógio, nem porque a conversa parece ser pra hoje, nem por ele ter respondido "
+    "qualquer coisa: sem dia dito por ele, o campo fica de fora (e o dia que você só perguntou, "
+    "sem resposta dele, também não é data). Gravar um dia que ele não nomeou é o que faz o "
+    "sistema tratar a negociação como encontro de hoje e encolher a sua escada de desconto. "
+    "Sem dia explícito a reserva assume hoje, "
     "então registrar o dia certo é o que evita o slot cair no dia errado. Recuo do cliente ('não "
     "sei o dia ainda') usa o campo `limpar`, não este."
 )
@@ -110,6 +224,10 @@ _DESC_VALOR = (
     "Valor do SERVIÇO/programa fechado com o cliente — a base que o sistema confere contra o "
     "teto de desconto. SEMPRE grave JUNTO com duracao_horas (a duração do programa cotado) — "
     "sem a duração o sistema não consegue conferir o teto e escala à toa uma oferta válida. "
+    "Ele aceitando o que VOCÊ cotou ('fechado', 'isso', 'pode ser' — o mesmo momento em que você "
+    "marca `aceita_valor`), o valor é o PREÇO QUE VOCÊ COTOU para o pacote em pauta: grave-o no "
+    "turno do aceite, sem esperar ele repetir o número. Marcar o aceite e deixar este campo vazio "
+    "entrega ao painel um encontro marcado que ninguém sabe quanto custa. "
     "NUNCA grave aqui o Pix de deslocamento/uber (custo fixo à parte, NÃO é o valor do "
     "programa — gravá-lo faz o sistema achar que você fechou além do teto de desconto e "
     "escalar à toa), "
@@ -144,18 +262,40 @@ _DESC_DURACAO = (
     "ele escolhe o pacote — é o que dimensiona o bloqueio na agenda; sem ela o sistema reserva "
     "só 1h por padrão e pode subdimensionar o horário. Se você cotou mais de uma duração "
     "(ex.: 1h e 2h) e o cliente ainda NÃO escolheu, a duração não está fechada — omita o campo "
-    "até ele cravar, não chute. Grave junto com valor_acordado quando ambos estiverem fechados."
+    "até ele cravar, não chute. Mas ele FECHAR ('fechou', 'pode ser') sem repetir o número NÃO é "
+    "'não escolheu': no turno EM QUE ELE FECHA — e só nele — vale a duração que ELE trouxe na "
+    "conversa (a que ele perguntou, ou a única que ele nomeou). Sem esse fechamento dele, "
+    "duração que ele só PERGUNTOU continua sendo pergunta, não pacote escolhido: fica de fora. "
+    "E a duração que VOCÊ RECUSOU nesta conversa ('não faço 30 min', 'meu mínimo é 1h') nunca se "
+    "grava, nem depois que ele fecha em outra: o pacote fechado é o que ficou de pé, não o que "
+    "ele pediu e não existe. Duração fora do seu cardápio faz o sistema procurar um pacote "
+    "inexistente e escalar/travar uma cotação válida. "
+    "Grave junto com valor_acordado quando ambos estiverem fechados: fechamento gravado sem "
+    "duração e sem valor chega ao painel como um encontro marcado que ninguém sabe quanto custa."
 )
 _DESC_TIPO_ATENDIMENTO = (
     "Quem se desloca. REGRA CRÍTICA de leitura: 'você/vc/te' na boca do CLIENTE se refere a "
-    "VOCÊ (a modelo) — não inverta o sentido. Classifique pelo que o cliente diz:\n"
+    "VOCÊ (a modelo) — não inverta o sentido. "
+    "ANTES dos três valores, uma regra do CAMPO: pergunta sobre MODALIDADE não escreve este campo. "
+    "Ele perguntando se você atende em domicílio, se atende só no seu local, ou se faz chamada de "
+    "vídeo é pergunta de SERVIÇO — o campo fica de fora, qualquer que seja a resposta que você vai "
+    "dar. Classifique pelo que o cliente diz:\n"
     "- 'interno' = o CLIENTE vem até você (ele se desloca): 'vou', 'vou aí', 'vou até você', "
     "'vou no seu local', 'posso ir'. É também o PADRÃO: quando o encontro está sendo combinado "
     "no SEU local e ele NÃO sinalizou uber (você indo) nem chamada de vídeo, grave 'interno' "
     "mesmo sem um verbo de deslocamento explícito — senão a reserva do horário não dispara e o "
-    "atendimento fica travado. O endereço é o SEU ponto de encontro; SEM Pix.\n"
+    "atendimento fica travado. Mas o padrão exige encontro EM COMBINAÇÃO (dia/hora/local em "
+    "pauta): ele só perguntando como funciona, ou você só se apresentando, ainda não combina "
+    "nada — deixe o campo de fora. E a pauta tem de estar na CONVERSA, dita por ele: dia ou hora "
+    "que você está gravando AGORA, neste mesmo registro, não conta como encontro em combinação — "
+    "senão o padrão se autoriza sozinho. Ele só PERGUNTANDO se você atende no seu local ('só aí?', "
+    "'atende onde?') é pergunta de serviço, não muda o tipo. O endereço é o SEU ponto de "
+    "encontro; SEM Pix.\n"
     "- 'externo' = VOCÊ vai até o cliente de uber (você se desloca): 'vem até mim', 'vem aqui', "
-    "'você vem?', 'pode vir no meu endereço'. Pega o endereço DELE; tem Pix de deslocamento.\n"
+    "'você vem?', 'pode vir no meu endereço'. Pega o endereço DELE; tem Pix de deslocamento. "
+    "Ele só PERGUNTANDO se você atende fora ('atende domicílio?', 'vc atende só aí?') é "
+    "pergunta de serviço, não muda o tipo — o mesmo vale para VOCÊ oferecendo ir até ele sem "
+    "ele ter topado: campo de fora até ele chamar de fato.\n"
     "- 'remoto' = vídeo chamada, ninguém se desloca. Só grave quando a chamada está sendo "
     "COMBINADA (ele pediu para marcar ou topou uma chamada oferecida); ele só PERGUNTANDO se "
     "você faz ('e vídeo chamada, vc faz?') é pergunta de serviço, não muda o tipo — deixe o "
@@ -198,7 +338,10 @@ _DESC_LIMPAR = (
     "anterior é preservado); campo GRAVADO que CONTRADIZ o que ele disse nesta conversa "
     "entra sim — o gravado pode estar errado (foi você quem escreveu num turno anterior), "
     "e o que vale é a fala dele. Se o valor certo é OUTRO, prefira reescrever o campo com "
-    "o valor certo; use `limpar` quando o certo é 'nada'."
+    "o valor certo; use `limpar` quando o certo é 'nada'. "
+    "É por aqui também que se desfaz um ACEITE de preço registrado por engano: "
+    '`limpar: ["valor_acordado"]` derruba o aceite junto (o sinal `aceita_valor` sozinho não '
+    "volta atrás) e devolve a sua escada de desconto."
 )
 _DESC_BAIRRO = (
     "Bairro/região do endereço do CLIENTE (par com `endereco`, atendimento externo), quando "
@@ -378,6 +521,40 @@ async def registrar_extracao(
     # extra de fetiche, que nao esta na tabela) seria descartada como fantasma.
     fala_da_ia_no_turno = extrair_texto_do_turno(runtime.state.get("messages") or [])
 
+    # Backstop do ADR 0022 aplicado NA ENTRADA (nao so no envio): a extracao e cega a fala deste
+    # turno por contrato, entao "cotar e cravar no MESMO turno" chegava ao dominio com
+    # `cotacao_apresentada=False` e o guard CotacaoAusente revertia a transacao inteira — a hora
+    # combinada se perdia (loop-massa r1; mesma classe do incidente "guard reverte o turno do
+    # fechamento"). O carimbo do envio continua existindo; aqui so a MESMA regra publica
+    # (`texto_tem_cotacao`, fonte unica) decide antes do guard. Diferenca deliberada: os valores
+    # de DESLOCAMENTO ("pix de R$100", "R$100 do uber") sao apagados antes do teste — no carimbo
+    # o falso positivo custa um reengajamento espurio, mas AQUI satisfaria o proprio guard
+    # CotacaoAusente e liberaria a reserva com o preco do programa nunca dito (revisao de dominio
+    # r1, achado 5).
+    if not cotacao_apresentada and texto_tem_cotacao(
+        _sem_valores_de_deslocamento(fala_da_ia_no_turno)
+    ):
+        cotacao_apresentada = True
+
+    # Proveniencia do ACEITE (loop-massa r3, extracao #1): o `aceita_valor` do modelo so produz
+    # efeito com CO-SINAL deterministico na fala do cliente deste turno (`_aceite_tem_cossinal`, o
+    # porque mora la). Aqui e nao no dominio pela mesma razao dos outros dois detectores: a janela
+    # CRUA (pre-anexacao) so existe no State, e o dominio ve o payload ja achatado. Fail-OPEN sem
+    # `conversa_crua` (no alcancado fora do fluxo do prepare_context): sem a janela limpa nao ha
+    # veredito, e derrubar o aceite as cegas custaria a venda oposta.
+    conversa_crua = runtime.state.get("conversa_crua")
+    if (
+        sinais_qualificacao is not None
+        and sinais_qualificacao.aceita_valor
+        and conversa_crua
+        and not _aceite_tem_cossinal(conversa_crua)
+    ):
+        _logger.info(
+            "registrar_extracao aceita_valor sem co-sinal na fala dele -> rebaixado turno_id=%s",
+            turno_id,
+        )
+        sinais_qualificacao = sinais_qualificacao.model_copy(update={"aceita_valor": False})
+
     # Clamp antes da revalidacao: o model interno mantem max_length=240 como invariante; aqui o
     # excesso vira truncamento silencioso (ver comentario na assinatura).
     proxima_acao_esperada = proxima_acao_esperada[:240]
@@ -432,6 +609,7 @@ async def registrar_extracao(
             # horario. ToolException -> ToolMessage(status="error") -> `is_error: true` na
             # Anthropic; o texto orienta a recuperacao (o loop funcionando, nao falha do turno).
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "agenda_conflito").inc()
+            await _retirar_palpite_recusado(conn, atendimento_id, "agenda_conflito")
             raise ToolException(
                 "ERRO: o horário escolhido já está reservado para a modelo. "
                 "Ofereça outro horário ao cliente com uma desculpa pessoal (ver sua conduta de "
@@ -442,6 +620,7 @@ async def registrar_extracao(
             # DIFERENTE do conflito de agenda: aqui não há outro cliente a esconder — a IA
             # assume a folga, revela quando volta e ancora a primeira data disponível.
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "fora_disponibilidade").inc()
+            await _retirar_palpite_recusado(conn, atendimento_id, "fora_disponibilidade")
             raise ToolException(
                 "ERRO: o horário pedido cai FORA do seu período de trabalho — o sistema não "
                 "reserva, então NUNCA diga ao cliente que fechou ou confirmou esse horário. "
@@ -460,6 +639,7 @@ async def registrar_extracao(
             AGENTE_TOOL_ERRO_RECUPERAVEL.labels(
                 "registrar_extracao", "antecedencia_insuficiente"
             ).inc()
+            await _retirar_palpite_recusado(conn, atendimento_id, "antecedencia_insuficiente")
             # Desambiguação (ADR 0025/0005): quando `horario_minimo` é None (now+buffer cai fora da
             # Disponibilidade), NÃO há horário válido mais tarde hoje — mandar "ofereça o
             # <horario_minimo>" apontaria pra uma tag ausente e a IA inventaria um horário fora da
@@ -478,7 +658,9 @@ async def registrar_extracao(
                 "ERRO: esse horário é cedo demais — você precisa de um tempinho pra se arrumar. "
                 "Na próxima bolha ofereça ao cliente o primeiro horário que o seu contexto libera; "
                 "se ele vier com minutos quebrados, arredonde PARA CIMA até a hora redonda "
-                "seguinte e ofereça essa — nunca antes dele, nunca um número inventado."
+                "seguinte e ofereça essa — nunca antes dele, nunca um número inventado. "
+                "E NÃO registre a hora que você vai ofertar: oferta sua não é horário combinado — "
+                "registre só depois que ELE topar."
             ) from None
         except HorarioNaoDefinido:
             # Reserva pedida sem horario combinado (ex.: atendimento promovido no painel p/
@@ -516,18 +698,37 @@ async def registrar_extracao(
                 "então reserve o horário. NUNCA diga que confirmou ou reservou um horário agora."
             ) from None
 
-    # Pin de endereco (interno): NAO enfileirado enquanto o renderer `_card_loc_pin`
-    # (workers/envio.py) ainda levanta NotImplementedError — o job so falharia 5x (M3d, 09 §4.3).
-    # O dominio segue setando `enviar_pin`; o enqueue volta junto com o renderer.
-    # Aviso de saida (06 §5): card 'cliente saiu de casa' sem owner — SETNX no renderer
-    # garante idempotencia inter-turnos; o _job_id aqui evita re-enfileirar no mesmo ARQ.
-    if resultado.get("enviar_aviso_saida"):
-        await runtime.context.redis.enqueue_job(
-            "enviar_card",
-            tipo="aviso_saida",
-            atendimento_id=atendimento_id,
-            _job_id=f"card:aviso_saida:{atendimento_id}",
-        )
+    # Side-effects APOS o commit, os dois com `_job_id` estatico (o ARQ deduplica o replay do turno)
+    # e idempotencia por owner no renderer (SETNX):
+    #   - pin de endereco (interno): a transicao interno -> Aguardando_confirmacao sinaliza
+    #     `enviar_pin` e o cliente recebe o ponto de encontro como localizacao, nao como texto
+    #     (04 §3.1). Ficou anos sem enfileirar porque o renderer era NotImplementedError; voltou
+    #     junto com ele (`workers/envio.py:_card_loc_pin`).
+    #   - aviso de saida (06 §5): card 'cliente saiu de casa' no grupo de Coordenacao.
+    #
+    # `try/except` pela MESMA razao de `escalada.py`: o efeito de dominio JA COMMITOU. Uma falha de
+    # Redis aqui derrubaria o turno inteiro (excecao nao-ToolException sobe pelo `graph.ainvoke`) e o
+    # cliente ficaria sem resposta por causa de um card — com o snapshot e o bloqueio ja gravados.
+    # NAO ha reconciliador para estes cards (`reconciliar_cards_escalada` cobre so escalada): a
+    # rede e o proprio dominio re-sinalizar `enviar_pin`/`enviar_aviso_saida` numa re-transicao —
+    # por isso o renderer desfaz o SETNX quando o envio falha, senao o replay voltaria mudo.
+    for chave, tipo in (("enviar_pin", "loc_pin"), ("enviar_aviso_saida", "aviso_saida")):
+        if not resultado.get(chave):
+            continue
+        try:
+            await runtime.context.redis.enqueue_job(
+                "enviar_card",
+                tipo=tipo,
+                atendimento_id=atendimento_id,
+                _job_id=f"card:{tipo}:{atendimento_id}",
+            )
+        except Exception:
+            _logger.warning(
+                "registrar_extracao_enqueue_card_falhou tipo=%s atendimento_id=%s",
+                tipo,
+                atendimento_id,
+                exc_info=True,
+            )
     mensagem: str = resultado["mensagem"]
     return mensagem
 
@@ -537,3 +738,34 @@ async def registrar_extracao(
 # explicitamente p/ ConflitoAgenda/ForaDisponibilidade/etc. virarem ToolMessage(status="error")
 # (erro RECUPERAVEL que instrui a reoferta) em vez de estourar o turno.
 registrar_extracao.handle_tool_error = True
+
+
+def _erro_de_args(exc: Exception) -> str:
+    """A rede de baixo contra `ValidationError` nos args — o outro erro que MATA o turno.
+
+    As tools de `TOOLS` nao precisam disto: o `ToolNode` embrulha o `ValidationError` do parse de
+    args num `ToolInvocationError` (subclasse de `ToolException`) e o handler default o devolve como
+    ToolMessage. Esta tool NAO passa pelo ToolNode — `nos/extrair.py:_executar_inline` chama
+    `.ainvoke()` direto —, entao sem `handle_validation_error` o erro cru sobe pelo `graph.ainvoke`
+    e o cliente fica sem resposta por causa de um campo mal formatado numa nota interna.
+
+    A defesa de CIMA e `_podar_ao_schema`, que corrige/descarta campo por campo antes de invocar; o
+    que chega aqui e o que ela nao previu. Nao usamos `handle_validation_error = True` porque ele
+    devolveria o dump do pydantic ao modelo — texto longo, em ingles, com o payload inteiro dentro,
+    exatamente o tipo de conteudo que o chat ja ecoou em voz alta uma vez (trace 06db4298).
+
+    O texto e uma NOTA em 1a pessoa de sistema, nao uma ordem em 2a pessoa, pelo mesmo motivo. Ele
+    cai em `_extracao_errou` -> auto-reoferta one-shot: o modelo ve o erro e registra de novo.
+    """
+    _logger.warning("registrar_extracao com args invalidos: %s", exc, exc_info=True)
+    AGENTE_TOOL_ERRO_RECUPERAVEL.labels("registrar_extracao", "args_invalidos").inc()
+    return (
+        "ERRO: o registro não foi gravado — um dos campos veio num formato que o sistema não "
+        "aceita. Chame registrar_extracao de novo neste turno com os MESMOS dados, cada campo no "
+        "formato do schema: horário como HH:MM, dia como YYYY-MM-DD, valor e duração como número "
+        "puro (sem 'R$', sem 'h', sem texto), lista como lista. Na dúvida sobre um campo, deixe-o "
+        "de fora — o anterior é preservado."
+    )
+
+
+registrar_extracao.handle_validation_error = _erro_de_args

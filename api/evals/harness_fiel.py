@@ -61,6 +61,7 @@ from evals.harness import (
     _coletar_tools,
     _inserir_mensagem,
     _metricas_tokens,
+    carimbos_do_estado,
     estado_pos_turno,
 )
 
@@ -196,8 +197,15 @@ class ResultadoFiel:
         return "\n".join(self.textos)
 
 
+# Referencia REAL guardada antes de qualquer patch: o substituto precisa ceder o event loop.
+_sleep_real = __import__("asyncio").sleep
+
+
 async def _noop(*_a: Any, **_k: Any) -> None:
-    return None
+    # `asyncio.sleep(0)` real: zera o delay MAS devolve o controle ao event loop. Um `return None`
+    # puro nao cede — e sob um servidor (sessao.py/uvicorn), qualquer `while ...: await sleep(...)`
+    # de terceiros que rode durante o patch vira um laco sincrono infinito e trava o processo.
+    await _sleep_real(0)
 
 
 async def rodar_turno_fiel(
@@ -292,6 +300,10 @@ class GraphAuditado:
         self.handler = NodesVisitedHandler()
         self.mensagens: list[BaseMessage] = []
         self.turno_ids: list[str] = []
+        # Carimbos do State (extracao registrada, mute deliberado): a ULTIMA invocacao que trouxe
+        # cada chave vence — o drain pode rodar o grafo mais de uma vez sob o mesmo lock, e quem
+        # decidiu o turno foi a ultima passagem. Ver `harness.carimbos_do_estado`.
+        self.carimbos: dict[str, Any] = {}
 
     def __getattr__(self, nome: str) -> Any:
         # Qualquer outro atributo do grafo (o coordenador so chama `ainvoke`, mas o proxy nao
@@ -308,6 +320,7 @@ class GraphAuditado:
             self.turno_ids.append(str(turno_id))
         estado: dict[str, Any] = await self.graph.ainvoke(entrada, config=cfg, context=context)
         self.mensagens.extend(estado.get("messages") or [])
+        self.carimbos.update(carimbos_do_estado(estado))
         return estado
 
 
@@ -377,4 +390,5 @@ async def rodar_turno_auditado(
         },
         metricas=metricas,
         trace_id=_trace_id_do_turno(auditado.turno_ids),
+        estado_grafo=dict(auditado.carimbos),
     )

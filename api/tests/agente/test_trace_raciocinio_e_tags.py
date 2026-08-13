@@ -11,8 +11,14 @@ from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from barra.agente._texto_turno import raciocinio_do_turno, tags_do_turno
+from barra.agente._texto_turno import (
+    desfecho_do_turno,
+    extracao_do_turno,
+    raciocinio_do_turno,
+    tags_do_turno,
+)
 from barra.agente._versao import regime_do_turno, versao_prompts
+from barra.agente.nos.output_guard import _zerar_turno
 
 _USAGE = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
 
@@ -64,6 +70,27 @@ def test_raciocinio_vazio_em_non_thinking() -> None:
     assert raciocinio_do_turno({"messages": [_ia("400 1h amor")]}) == []
 
 
+def test_raciocinio_sobrevive_ao_zeramento_do_turno() -> None:
+    """O zeramento (output_guard no despacho da regen, post_process na pausa) preserva
+    `additional_kwargs` MENOS o espelho cru dos tool_calls.
+
+    Antes ele recriava a AIMessage sem o dict inteiro e o trace saia `raciocinio: null` em TODO
+    turno com regen — a peca que explica a fala, apagada por tabela rasa e sem justificativa
+    escrita (loop-massa r2). O descarte dos tool_calls continua (check 5c do coordenador)."""
+    msg = AIMessage(
+        content="400 1h amor",
+        usage_metadata=_USAGE,  # type: ignore[arg-type]
+        additional_kwargs={
+            "reasoning_content": "a tabela diz 400",
+            "tool_calls": [{"id": "c1", "function": {"name": "registrar_extracao"}}],
+        },
+    )
+    zeradas = _zerar_turno([msg])
+    assert zeradas[0].content == ""
+    assert "tool_calls" not in zeradas[0].additional_kwargs
+    assert raciocinio_do_turno({"messages": zeradas}) == ["a tabela diz 400"]
+
+
 # --- tags ---------------------------------------------------------------------------------------
 
 
@@ -102,6 +129,67 @@ def test_tags_marcam_turno_mudo_e_sem_extracao() -> None:
     tags = tags_do_turno({"messages": [_ia("")], "conversa_crua": [HumanMessage(content="oi")]})
     assert "sem_resposta" in tags
     assert "sem_extracao" in tags
+
+
+def _extraiu(args: dict[str, Any]) -> AIMessage:
+    return _ia(
+        "",
+        tool_calls=[{"name": "registrar_extracao", "id": "c1", "args": args, "type": "tool_call"}],
+    )
+
+
+def test_tags_leem_o_carimbo_do_state_e_nao_a_mensagem_que_o_guard_reescreveu() -> None:
+    """A extracao roda ANTES do guard; no despacho da regen o `_zerar_turno` troca as AIMessages do
+    turno por vazias e a varredura de `tool_calls` nao acha mais nada — o trace saia
+    `extracao: null` + `sem_extracao` num turno que gravou intencao, valor e duracao (loop-massa
+    r2, eixos externo t6 / explorador t7). Com o carimbo no State, o zeramento nao mente mais."""
+    args = {"intencao": "cotacao", "valor_acordado": 400, "duracao_horas": 1}
+    estado = {
+        "messages": _zerar_turno([_extraiu(args)]) + [_ia("400 1h no meu local amor")],
+        "_extracao_registrada": args,
+    }
+    tags = tags_do_turno(estado)
+    assert "intencao:cotacao" in tags
+    assert "sem_extracao" not in tags
+
+
+def test_extracao_revertida_nao_ressuscita_pela_varredura() -> None:
+    """O ramo de ERRO do `extrair` (ConflitoAgenda etc.) reverte a transacao mas ANEXA ao State a
+    AIMessage forcada com o tool_call cru — a varredura-fallback devolvia esse payload como
+    "extracao do turno" e o trace publicava intencao/valor que nunca foram gravados (revisao da r2).
+
+    O carimbo negativo (`_extracao_registrada: None`) resolve por PRESENCA da chave: quem passou
+    pelo `extrair` decidiu, inclusive quando decidiu "nada"."""
+    args = {"intencao": "agendamento", "horario_desejado": "22:00"}
+    estado = {
+        "messages": [
+            _extraiu(args),
+            ToolMessage(content="ERRO: horario indisponivel", tool_call_id="c1"),
+        ],
+        "_extracao_registrada": None,
+        "_mute_por_erro_de_tool": True,
+    }
+    assert extracao_do_turno(estado) is None
+    assert desfecho_do_turno(estado).get("extracao") is None
+    tags = tags_do_turno(estado)
+    assert "sem_extracao" in tags
+    assert "intencao:agendamento" not in tags
+    # e a varredura segue valendo p/ quem NAO passou pelo `extrair` (State montado a mao)
+    assert extracao_do_turno({"messages": [_extraiu(args)]}) == args
+
+
+def test_sem_extracao_so_quando_nao_houve_registro_nenhum() -> None:
+    """A pergunta e sobre o REGISTRO, nao sobre o subset acionavel do desfecho: um payload 100%
+    fora da whitelist (`proxima_acao_esperada` + `motivo_perda_candidato`) e extracao normal e
+    fazia a tag mentir (loop-massa r2, eixo objetor t1/t4 — extensao do fix F2 da r1)."""
+    fora_da_whitelist = {
+        "proxima_acao_esperada": "aguardar o dia",
+        "motivo_perda_candidato": "preco",
+    }
+    estado = {"messages": [_ia("poxa amor")], "_extracao_registrada": fora_da_whitelist}
+    assert "sem_extracao" not in tags_do_turno(estado)
+    # e o turno que de fato nao registrou nada segue tagueado
+    assert "sem_extracao" in tags_do_turno({"messages": [_ia("poxa amor")]})
 
 
 # --- regime -------------------------------------------------------------------------------------

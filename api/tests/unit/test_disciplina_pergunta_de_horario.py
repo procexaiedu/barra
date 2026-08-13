@@ -184,9 +184,35 @@ def test_render_primeira_pergunta_manda_propor() -> None:
 def test_render_segunda_pergunta_proibe_reperguntar() -> None:
     out = _render(n_perguntas_de_horario=2)
     assert '<ja_perguntou_o_horario n="2">' in out
-    assert "NÃO pergunte o horário de novo" in out
+    assert "NÃO volte a PERGUNTAR o horário em aberto" in out
 
 
 def test_render_sem_pergunta_nao_injeta_tag() -> None:
     assert "<ja_perguntou_o_horario" not in _render(n_perguntas_de_horario=0)
     assert "<ja_perguntou_o_horario" not in _render()
+
+
+def test_render_nao_diz_que_ele_desconversou_com_a_hora_ja_cravada() -> None:
+    """Gate de `horario_evidenciado` nas DUAS ramificações (loop-massa r3, detectores #12).
+
+    O contador é cumulativo e nunca era confrontado com o estado do horário: com a hora já cravada
+    pelo cliente, a tag `n="2"` afirmava "ele desconversou, NÃO pergunte de novo" no turno do
+    fechamento — o modo de falha "tag que afirma o contrário do estado", em posição de recência.
+    """
+    for n in (1, 2):
+        assert "<ja_perguntou_o_horario" not in _render(
+            n_perguntas_de_horario=n, horario_evidenciado=True
+        )
+        assert "<ja_perguntou_o_horario" in _render(
+            n_perguntas_de_horario=n, horario_evidenciado=False
+        )
+
+
+def test_render_da_tag_nao_traz_hora_de_exemplo() -> None:
+    """A tag prescrevia a fala com um número ("Podemos combinar 21h amor ?") e o modelo generalizou
+    para "não repita a HORA", trocando a hora da mesa por outra (r3, prompt #11). Sem número no
+    exemplo, e com a hora em pauta nomeada como a que volta."""
+    for n in (1, 2):
+        out = _render(n_perguntas_de_horario=n)
+        assert "21h" not in out
+        assert "em pauta" in out

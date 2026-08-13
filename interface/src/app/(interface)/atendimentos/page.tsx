@@ -21,6 +21,7 @@ import { ModalEdicao } from "@/components/atendimentos/ModalEdicao"
 import { ModalFecharAtendimento } from "@/components/atendimentos/ModalFecharAtendimento"
 import { ModalPerderAtendimento } from "@/components/atendimentos/ModalPerderAtendimento"
 import { ModalCorrigirRegistro } from "@/components/atendimentos/ModalCorrigirRegistro"
+import { Segmented, SegmentedItem } from "@/components/ui/segmented"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useAtendimentos } from "@/hooks/useAtendimentos"
 import { api } from "@/lib/api"
@@ -37,7 +38,6 @@ import type {
   UrgenciaFiltro,
 } from "@/tipos/atendimentos"
 import type { Cliente, CriarClienteRequest } from "@/tipos/clientes"
-import type { ReactNode } from "react"
 
 const DATA_ISO_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -168,7 +168,14 @@ function CentralAtendimentosInner() {
     [searchParams]
   )
 
-  const atendimentos = useAtendimentos(initialId, filtrosOverride, filtrosUrl)
+  // As colunas terminais do kanban (Fechado/Perdido) não vêm da query principal e
+  // precisam de GET próprio — mas passam pelo mesmo canal coalescido do hook, em vez
+  // de disparar por fora a cada fechamento. O ref existe porque o gate
+  // `completarEncerrados` só pode ser calculado depois do hook.
+  const recarregarEncerradosRef = useRef<() => void>(() => {})
+  const aoRevalidar = useCallback(() => recarregarEncerradosRef.current(), [])
+
+  const atendimentos = useAtendimentos(initialId, filtrosOverride, filtrosUrl, aoRevalidar)
 
   const aplicarPeriodo = useCallback((proximo: PeriodoFiltro) => {
     atendimentos.setFiltros((current) => ({ ...current, periodo: proximo }))
@@ -234,9 +241,18 @@ function CentralAtendimentosInner() {
   // encerrados aqui duplicaria (Fechado: 50+50) e vazaria terminais nas demais.
   const completarEncerrados = mostrarEncerrados && view === "kanban" && atendimentos.filtros.estado === "abertos"
 
-  const recarregarEncerrados = useCallback(async () => {
-    setItemsEncerrados(await buscarEncerrados())
-  }, [buscarEncerrados])
+  useEffect(() => {
+    // Assina o canal do hook só enquanto as colunas terminais estão em tela; fora
+    // disso o fechamento não gasta os 2 GETs. Como fechar/perder/excluir e o eco do
+    // realtime já passam por `revalidar`, a recarga vem junto — e coalescida.
+    if (!completarEncerrados) {
+      recarregarEncerradosRef.current = () => {}
+      return
+    }
+    recarregarEncerradosRef.current = () => {
+      buscarEncerrados().then(setItemsEncerrados)
+    }
+  }, [completarEncerrados, buscarEncerrados])
 
   useEffect(() => {
     // Sem completar: a prop do Kanban já recebe [] (gate abaixo), então o
@@ -263,14 +279,14 @@ function CentralAtendimentosInner() {
             icon: <Plus size={16} strokeWidth={1.5} />,
           }}
         >
-          <div className="flex rounded-lg border border-border bg-muted p-0.5">
-            <ViewButton active={view === "lista"} onClick={() => handleViewChange("lista")} title="Lista">
+          <Segmented>
+            <SegmentedItem size="icon" active={view === "lista"} onClick={() => handleViewChange("lista")} title="Lista">
               <LayoutList size={15} strokeWidth={1.5} />
-            </ViewButton>
-            <ViewButton active={view === "kanban"} onClick={() => handleViewChange("kanban")} title="Kanban">
+            </SegmentedItem>
+            <SegmentedItem size="icon" active={view === "kanban"} onClick={() => handleViewChange("kanban")} title="Kanban">
               <Columns size={15} strokeWidth={1.5} />
-            </ViewButton>
-          </div>
+            </SegmentedItem>
+          </Segmented>
         </PageHeader>
       </div>
 
@@ -362,7 +378,6 @@ function CentralAtendimentosInner() {
               if (!acaoTerminalPendente) return
               await atendimentos.fechar(acaoTerminalPendente.item.id, dados)
               setAcaoTerminalPendente(null)
-              if (mostrarEncerrados) await recarregarEncerrados()
             }}
             onCancelar={() => setAcaoTerminalPendente(null)}
           />
@@ -374,7 +389,6 @@ function CentralAtendimentosInner() {
               if (!acaoTerminalPendente) return
               await atendimentos.perder(acaoTerminalPendente.item.id, motivo, observacao)
               setAcaoTerminalPendente(null)
-              if (mostrarEncerrados) await recarregarEncerrados()
             }}
             onCancelar={() => setAcaoTerminalPendente(null)}
           />
@@ -388,7 +402,6 @@ function CentralAtendimentosInner() {
             onCorrigir={(id) => { setModalId(null); atendimentos.abrirCorrigir(id) }}
             onExcluir={async (id) => {
               await atendimentos.excluir(id)
-              if (mostrarEncerrados) await recarregarEncerrados()
             }}
           />
         </div>
@@ -439,29 +452,6 @@ function CentralAtendimentosInner() {
         />
       )}
     </div>
-  )
-}
-
-function ViewButton({
-  active,
-  onClick,
-  title,
-  children,
-}: {
-  active: boolean
-  onClick: () => void
-  title: string
-  children: ReactNode
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      className={`flex items-center justify-center rounded-md p-1.5 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${active ? "bg-card text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`}
-    >
-      {children}
-    </button>
   )
 }
 

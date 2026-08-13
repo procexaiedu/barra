@@ -21,7 +21,7 @@ from barra.core.db import conexao
 from barra.dominio.atendimentos.service import MENSAGENS_GUARD_ESCALADA
 
 from .._canned import escolher_espera_escalada
-from .._texto_turno import extrair_texto_do_turno, mensagens_do_turno
+from .._texto_turno import extrair_texto_do_turno, kwargs_preservados, mensagens_do_turno
 from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 
@@ -60,7 +60,25 @@ async def post_process(state: EstadoAgente, runtime: Runtime[ContextAgente]) -> 
         None,
     )
     alvo = mensagens if corte is None else mensagens[corte + 1 :]
-    vazias: list[AIMessage] = [AIMessage(id=m.id, content="") for m in alvo]
+    # PRESERVA usage_metadata + response_metadata, mesma invariante do `_zerar_turno` do
+    # output_guard: `add_messages` SUBSTITUI a mensagem de mesmo id (nao faz merge), entao recriar
+    # sem o usage apagava os tokens do turno do State. `custo_chat_turno_brl` soma justamente por
+    # `usage_metadata` -> dava 0 -> `acumular_custo_atendimento` virava no-op (exige custo > 0) e o
+    # turno pausado queimava DeepSeek sem entrar em `atendimentos.custo_ia_brl`. De quebra, sem o
+    # usage essas mensagens sumiam de `mensagens_do_turno` e o trace perdia desfecho/raciocinio.
+    # Pelo mesmo motivo o `additional_kwargs` vem junto (menos o espelho cru dos tool_calls): e
+    # onde mora o `reasoning_content`, que o trace publica e que nunca vai ao cliente
+    # (loop-massa r2 — a mesma perda foi medida do lado do output_guard).
+    vazias: list[AIMessage] = [
+        AIMessage(
+            id=m.id,
+            content="",
+            usage_metadata=m.usage_metadata,
+            response_metadata=m.response_metadata,
+            additional_kwargs=kwargs_preservados(m),
+        )
+        for m in alvo
+    ]
 
     if corte is None:
         # Escalada silenciosa (analise prod 22/07): quando a pausa nasce de uma GUARDA dentro do

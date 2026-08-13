@@ -29,17 +29,58 @@ BRT = ZoneInfo("America/Sao_Paulo")
 _chamar = registrar_extracao.coroutine  # type: ignore[attr-defined]
 
 
-class _FakeConn:
-    async def __aenter__(self) -> "_FakeConn":
+class _Result:
+    def __init__(self, row: dict[str, Any] | None) -> None:
+        self._row = row
+
+    async def fetchone(self) -> dict[str, Any] | None:
+        return self._row
+
+
+class _FakeTx:
+    """`conn.transaction()` — o escopo em que a RETIRADA do horario-palpite commita, depois de a
+    transacao da tentativa ja ter revertido."""
+
+    def __init__(self, conn: "_FakeConn") -> None:
+        self._conn = conn
+
+    async def __aenter__(self) -> "_FakeTx":
+        self._conn.transacoes += 1
         return self
 
     async def __aexit__(self, *_: Any) -> None:
         return None
 
 
+class _FakeConn:
+    def __init__(self) -> None:
+        self.sqls: list[str] = []
+        self.transacoes = 0
+        # Linha "tem palpite a retirar": o UPDATE condicional casa e devolve o id.
+        self.retirada_casa = True
+
+    async def __aenter__(self) -> "_FakeConn":
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        return None
+
+    def transaction(self) -> _FakeTx:
+        return _FakeTx(self)
+
+    async def execute(self, sql: str, params: Any = ()) -> _Result:
+        self.sqls.append(" ".join(sql.split()))
+        if "UPDATE barravips.atendimentos" in sql:
+            return _Result({"id": _Ctx.atendimento_id} if self.retirada_casa else None)
+        return _Result(None)
+
+
 class _FakePool:
+    def __init__(self) -> None:
+        self.conn = _FakeConn()
+
     def connection(self) -> _FakeConn:
-        return _FakeConn()
+        return self.conn
 
 
 class _Ctx:
@@ -124,3 +165,57 @@ async def test_state_sem_a_chave_degrada_para_periodo_de_trabalho(
             runtime=_Runtime({}),
         )
     assert "período de trabalho" in str(exc.value)
+
+
+# --- o palpite recusado SAI do snapshot (P0 externo_a, prova r3) -------------------------------
+
+
+async def test_antecedencia_retira_o_horario_palpite_do_snapshot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """O erro instrui a IA a NÃO registrar a hora que vai ofertar — e o UPSERT é incremental
+    (`COALESCE`), então obedecer PRESERVA o horário que acabou de ser recusado. Na prova r3 isso
+    fechou o latch: seis turnos re-tentando a mesma reserva inválida com `21:00` gravado.
+
+    O handler agora retira o palpite ANTES de levantar, numa transação PRÓPRIA — a da tentativa já
+    reverteu e a `ToolException` sai pelo caminho de erro do pool (que daria rollback)."""
+    monkeypatch.setattr(extracao_mod, "_executar_idempotente", _forcar_antecedencia)
+    conn = _Ctx.db_pool.conn
+    conn.sqls.clear()
+    conn.transacoes = 0
+
+    with pytest.raises(ToolException):
+        await _chamar(
+            proxima_acao_esperada="agendar o horário",
+            runtime=_Runtime({"horario_minimo": datetime(2026, 8, 12, 21, 30, tzinfo=BRT)}),
+        )
+
+    (update,) = [s for s in conn.sqls if "UPDATE barravips.atendimentos" in s]
+    assert "horario_desejado = NULL" in update
+    assert "horario_evidenciado = false" in update
+    # As três condições que separam "palpite do sistema" de "hora que ELE disse" / reserva de pé.
+    assert "horario_desejado IS NOT NULL" in update
+    assert "horario_evidenciado IS NOT TRUE" in update
+    assert "bloqueio_id IS NULL" in update
+    assert conn.transacoes == 1  # commit próprio, fora do rollback da tentativa
+    assert any("INSERT INTO barravips.eventos" in s for s in conn.sqls)  # audit log
+
+
+async def test_retirada_que_falha_nao_troca_erro_recuperavel_por_turno_morto(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A compensação é best-effort: se o banco recusar o UPDATE, o turno segue com o erro
+    RECUPERÁVEL (que a IA reoferta) em vez de uma exceção crua que mata o turno."""
+    monkeypatch.setattr(extracao_mod, "_executar_idempotente", _forcar_antecedencia)
+    conn = _Ctx.db_pool.conn
+
+    async def _explode(sql: str, params: Any = ()) -> _Result:
+        raise RuntimeError("banco fora do ar")
+
+    monkeypatch.setattr(conn, "execute", _explode)
+    with pytest.raises(ToolException) as exc:
+        await _chamar(
+            proxima_acao_esperada="agendar o horário",
+            runtime=_Runtime({"horario_minimo": datetime(2026, 8, 12, 21, 30, tzinfo=BRT)}),
+        )
+    assert "cedo demais" in str(exc.value)

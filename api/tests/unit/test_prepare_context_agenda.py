@@ -404,3 +404,80 @@ async def test_sem_janela_livre_a_tag_some() -> None:
 
     assert variaveis.janelas_livres == []
     assert "<janela_livre" not in render_contexto_dinamico(**variaveis.como_variaveis())
+
+
+# --- piso de antecedência publicado x piso que a reserva cobra (prova r3, P0 externo_a) --------
+
+
+def _ctx_r3(agora_utc: datetime) -> ContextAgente:
+    return ContextAgente(
+        db_pool=None,  # type: ignore[arg-type]
+        redis=None,  # type: ignore[arg-type]
+        modelo_id="11111111-1111-1111-1111-111111111111",
+        atendimento_id="22222222-2222-2222-2222-222222222222",
+        cliente_id="33333333-3333-3333-3333-333333333333",
+        turno_id="t",
+        agora_utc=agora_utc,
+    )
+
+
+async def test_piso_publicado_e_conservador_enquanto_o_tipo_pode_flipar() -> None:
+    """P0 da prova r3 (`diagnostico_externo_a.md` Q2). `agora=20:41`, snapshot `interno` (palpite
+    da extração barata sobre uma PERGUNTA de domicílio), atendimento ainda em `Triagem` e sem
+    reserva. Antes: `<horario_minimo>` = 21:00 (lead 0 do interno) — a IA ofertou 21h, o cliente
+    aceitou E flipou para externo no mesmo turno, o gate recalculou com lead 30 (piso 21:11) e
+    devolveu `AntecedenciaInsuficiente`. O prompt liberava a hora que a reserva recusa.
+
+    Enquanto o tipo pode flipar, o piso PUBLICADO é o conservador: 21:30 (a granularidade de meia
+    hora do `proximo_livre` sobre 20:41 + 30)."""
+    conn = _FakeConnComAtendimento(
+        {
+            "numero_curto": 1,
+            "estado": "Triagem",
+            "tipo_atendimento": "interno",
+            "bloqueio_id": None,
+        }
+    )
+    agora_utc = datetime(2026, 8, 12, 23, 41, tzinfo=UTC)  # 20:41 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, _ctx_r3(agora_utc), atendimento=conn.atendimento
+    )
+
+    assert variaveis.horario_minimo is not None
+    assert variaveis.horario_minimo.astimezone(BRT).strftime("%H:%M") == "21:30"
+
+
+async def test_piso_publicado_volta_ao_lead_do_interno_quando_a_modelo_nao_faz_externo() -> None:
+    """Sem para onde flipar (`sem_externo`), a emenda do ADR 0025 vale inteira: interno recebe
+    agora como o humano. Este é o gate que impede a correção de virar 'sempre +30'."""
+    conn = _FakeConnComAtendimento(
+        {
+            "numero_curto": 1,
+            "estado": "Triagem",
+            "tipo_atendimento": "interno",
+            "bloqueio_id": None,
+        }
+    )
+    agora_utc = datetime(2026, 8, 12, 23, 41, tzinfo=UTC)  # 20:41 BRT
+
+    variaveis = await _resolver_variaveis(  # type: ignore[arg-type]
+        conn, _ctx_r3(agora_utc), atendimento=conn.atendimento, sem_externo=True
+    )
+
+    assert variaveis.horario_minimo is not None
+    assert variaveis.horario_minimo.astimezone(BRT).strftime("%H:%M") == "21:00"
+
+
+def test_piso_de_antecedencia_tem_uma_fonte_so() -> None:
+    """A régua do ADR 0025 vive numa função só (`antecedencia_min_por_tipo`), consumida pelo gate
+    de `criar_bloqueio_previo` E pelo `<horario_minimo>` do prompt. Tipo indefinido (None) paga o
+    conservador: é o único lead que sobrevive a um flip."""
+    from barra.dominio.agenda.service import antecedencia_min_por_tipo
+    from barra.settings import get_settings
+
+    s = get_settings()
+    assert antecedencia_min_por_tipo("interno") == s.agenda_antecedencia_sem_deslocamento_min
+    assert antecedencia_min_por_tipo("remoto") == s.agenda_antecedencia_sem_deslocamento_min
+    assert antecedencia_min_por_tipo("externo") == s.agenda_buffer_min
+    assert antecedencia_min_por_tipo(None) == s.agenda_buffer_min

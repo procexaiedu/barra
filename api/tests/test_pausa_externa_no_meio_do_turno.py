@@ -55,10 +55,25 @@ class _FakeConn:
     passo 6 encontra — o resolve do passo 1 devolve sempre `ia_pausada=False` (senão o gate do
     passo 2 abortaria o turno antes do grafo, que é o comportamento já existente e testado)."""
 
-    def __init__(self, *, pausada_no_passo_6: bool) -> None:
+    def __init__(
+        self, *, pausada_no_passo_6: bool, critico: bool = False, chave_pix: str | None = None
+    ) -> None:
         self._pausada = pausada_no_passo_6
+        self._critico = critico
+        self._chave_pix = chave_pix
 
     async def execute(self, query: str, params: Any = None) -> _Result:
+        # Turno CRITICO (registrar_extracao que transicionou ou pediu Pix) + a chave lida fresh do
+        # cadastro: as duas queries que o resgate do descarte roda (`_SQL_TURNO_CRITICO`,
+        # `_SQL_PIX_DO_TURNO`) e que o caminho normal ja rodava.
+        if "resultado->>'novo_estado' IS NOT NULL" in query:
+            return _Result([{"?column?": 1}] if self._critico else [])
+        if "chave_pix" in query:
+            return _Result(
+                [{"chave_pix": self._chave_pix, "titular_chave": "Manu", "valor": "60"}]
+                if self._chave_pix
+                else []
+            )
         if "FROM barravips.atendimentos" in query and "conversa_id" in query:
             return _Result(
                 [
@@ -121,17 +136,23 @@ class _FakeRedis:
 
 
 class _FakeGraph:
-    def __init__(self, messages: list[BaseMessage]) -> None:
+    def __init__(
+        self, messages: list[BaseMessage], estado_extra: dict[str, Any] | None = None
+    ) -> None:
         self._messages = messages
+        self._extra = estado_extra or {}
 
     async def ainvoke(self, *_a: Any, **_k: Any) -> dict[str, Any]:
-        return {"messages": list(self._messages)}
+        return {"messages": list(self._messages), **self._extra}
 
 
 class _FakeSettings:
     deepseek_model_chat = "deepseek-test"
     usd_brl_cotacao = 5.5
     pix_deslocamento_valor = 60
+    # Teto do turno (asyncio.wait_for em volta do graph.ainvoke): virou setting em 12/08 p/
+    # ficar acima do teto por chamada de LLM (`llm_timeout_s`).
+    turno_timeout_s = 60.0
 
 
 @asynccontextmanager
@@ -139,13 +160,22 @@ async def _lock_noop(*_a: Any, **_k: Any) -> Any:
     yield None
 
 
-async def _rodar(messages: list[BaseMessage], *, pausada_no_passo_6: bool) -> list[Any]:
+async def _rodar(
+    messages: list[BaseMessage],
+    *,
+    pausada_no_passo_6: bool,
+    critico: bool = False,
+    chave_pix: str | None = None,
+    estado_extra: dict[str, Any] | None = None,
+) -> list[Any]:
     """Roda um turno e devolve as chamadas de `enviar_turno` enfileiradas."""
     redis = _FakeRedis()
     ctx = {
         "redis": redis,
-        "db_pool": _FakePool(_FakeConn(pausada_no_passo_6=pausada_no_passo_6)),
-        "graph": _FakeGraph(messages),
+        "db_pool": _FakePool(
+            _FakeConn(pausada_no_passo_6=pausada_no_passo_6, critico=critico, chave_pix=chave_pix)
+        ),
+        "graph": _FakeGraph(messages, estado_extra),
         "settings": _FakeSettings(),
         "job_id": "job-pausa",
         "score": 4242,
@@ -261,6 +291,62 @@ async def test_caminho_feliz_de_turno_que_escalou_mas_devolveram() -> None:
     envios = await _rodar(_escalou_com_sucesso(), pausada_no_passo_6=False)
     assert len(envios) == 1
     assert envios[0].kwargs["ignorar_pausa"] is False
+
+
+# --- (4) o descarte não pode ENGOLIR o turno crítico (loop-massa r3, achado 6) ----------------
+
+
+async def test_turno_descartado_ainda_despacha_a_bolha_critica_do_pix() -> None:
+    """`decidido_rapido_a` t5: a extração pediu o Pix (turno CRÍTICO), o output_guard reprovou o
+    texto e pausou a IA — e o descarte levava junto a bolha determinística da chave, que o sistema
+    já tinha prometido no banco. O cliente que ACABOU de fechar recebia zero mensagens.
+
+    O que sai aqui é só a bolha do SISTEMA (chave lida fresh do cadastro), nunca o texto do
+    modelo — que continua zerado."""
+    envios = await _rodar(
+        [_bolha("")],  # guard zerou o texto
+        pausada_no_passo_6=True,
+        critico=True,
+        chave_pix="manu@pix.com",
+        estado_extra={"_pausa_aberta_pelo_guard": True},
+    )
+    assert len(envios) == 1
+    assert envios[0].kwargs["chunks"] == [
+        "chave pix: manu@pix.com\nem nome de Manu\nvalor: R$60"
+    ]
+    assert envios[0].kwargs["critico"] is True
+    assert envios[0].kwargs["ignorar_pausa"] is True
+
+
+async def test_turno_descartado_critico_sem_chave_nao_inventa_bolha() -> None:
+    """Crítico por transição de estado, sem Pix pedido: não há bolha determinística a resgatar — e
+    o texto do modelo continua barrado (nada sai)."""
+    envios = await _rodar([_bolha("")], pausada_no_passo_6=True, critico=True, chave_pix=None)
+    assert envios == []
+
+
+async def test_pausa_do_guard_nao_e_logada_como_externa(caplog: Any) -> None:
+    """`_bloquear` escala direto no banco, sem tocar em `messages`: sem o carimbo do State o
+    coordenador classificava a pausa do PRÓPRIO grafo como externa e o log mandava o operador
+    procurar um pipeline que não pausou nada."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="barra.workers.coordenador"):
+        await _rodar(
+            [_bolha("")], pausada_no_passo_6=True, estado_extra={"_pausa_aberta_pelo_guard": True}
+        )
+    descartes = [r.getMessage() for r in caplog.records if "turno_descartado" in r.getMessage()]
+    assert descartes and all("pausa_externa=False" in m for m in descartes)
+
+
+async def test_sem_carimbo_a_pausa_segue_classificada_como_externa(caplog: Any) -> None:
+    """Contraprova do teste acima: sem carimbo (pausa que veio mesmo de fora) o log não muda."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="barra.workers.coordenador"):
+        await _rodar([_bolha("me manda a foto amor")], pausada_no_passo_6=True)
+    descartes = [r.getMessage() for r in caplog.records if "turno_descartado" in r.getMessage()]
+    assert descartes and all("pausa_externa=True" in m for m in descartes)
 
 
 # --- predicado isolado ------------------------------------------------------------------------

@@ -116,6 +116,12 @@ export function useModelos() {
   )
   const itemsRef = useRef<ModeloListaItem[]>([])
   const selectedIdRef = useRef<string | null>(selectedId)
+  // `aba` e o ?modelo= da URL não podem ser dependência viva do fetch: a própria
+  // seleção reescreve a URL (router.replace), o que recriaria `loadLista` e refaria
+  // lista + resumo a cada clique (skeleton, paginação perdida, seleção pulando).
+  const abaRef = useRef<AbaModelo>(aba)
+  // Deep-link ?modelo=<id>: consumido só na primeira carga da lista.
+  const initialIdRef = useRef<string | null>(searchParams.get("modelo"))
   const detalheRef = useRef<ModeloDetalheResponse | null>(null)
   const nextCursorRef = useRef<string | null>(null)
   const firstListaDone = useRef(false)
@@ -132,13 +138,13 @@ export function useModelos() {
     filtrosEfetivos.nivel !== "todos"
 
   const replaceUrl = useCallback(
-    (modeloId: string | null, proximaAba: AbaModelo = aba) => {
+    (modeloId: string | null, proximaAba: AbaModelo = abaRef.current) => {
       const params = new URLSearchParams()
       if (modeloId) params.set("modelo", modeloId)
       params.set("aba", proximaAba)
       router.replace(`/modelos?${params.toString()}`, { scroll: false })
     },
-    [aba, router]
+    [router]
   )
 
   const loadDetalhe = useCallback(async (id: string, showLoading = true) => {
@@ -163,9 +169,10 @@ export function useModelos() {
   }, [])
 
   const selecionarModelo = useCallback(
-    (id: string, proximaAba: AbaModelo = aba) => {
+    (id: string, proximaAba: AbaModelo = abaRef.current) => {
       selectedIdRef.current = id
       setSelectedId(id)
+      abaRef.current = proximaAba
       setAbaState(proximaAba)
       firstDetalheDone.current = false
       detalheRef.current = null
@@ -174,7 +181,7 @@ export function useModelos() {
       replaceUrl(id, proximaAba)
       loadDetalhe(id)
     },
-    [aba, loadDetalhe, replaceUrl]
+    [loadDetalhe, replaceUrl]
   )
 
   const loadLista = useCallback(
@@ -193,7 +200,8 @@ export function useModelos() {
         firstListaDone.current = true
 
         const atual = selectedIdRef.current
-        const idQuery = searchParams.get("modelo")
+        const idQuery = initialIdRef.current
+        initialIdRef.current = null
         const candidatoQuery = idQuery && novosItems.some((item) => item.id === idQuery) ? idQuery : null
         const aindaPresente = atual && novosItems.some((item) => item.id === atual)
         const proximoId =
@@ -202,21 +210,21 @@ export function useModelos() {
             : candidatoQuery ?? novosItems.find((item) => item.status === "ativa")?.id ?? novosItems[0]?.id ?? null
 
         if (proximoId) {
-          if (proximoId !== atual || !detalheRef.current) selecionarModelo(proximoId, aba)
+          if (proximoId !== atual || !detalheRef.current) selecionarModelo(proximoId)
           else loadDetalhe(proximoId, false)
         } else {
           selectedIdRef.current = null
           setSelectedId(null)
           setDetalhe(null)
           setDetalheStatus("success")
-          replaceUrl(null, aba)
+          replaceUrl(null)
         }
       } catch (e) {
         if (!firstListaDone.current) setListaStatus("error")
         setListaError(e instanceof Error ? e.message : "Erro desconhecido")
       }
     },
-    [aba, filtrosEfetivos, loadDetalhe, replaceUrl, searchParams, selecionarModelo]
+    [filtrosEfetivos, loadDetalhe, replaceUrl, selecionarModelo]
   )
 
   const loadResumo = useCallback(async () => {
@@ -241,6 +249,7 @@ export function useModelos() {
 
   const setAba = useCallback(
     (proximaAba: AbaModelo) => {
+      abaRef.current = proximaAba
       setAbaState(proximaAba)
       replaceUrl(selectedIdRef.current, proximaAba)
     },

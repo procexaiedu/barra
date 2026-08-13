@@ -24,6 +24,13 @@ import type {
   ResumoAtendimentos,
 } from "@/tipos/atendimentos"
 
+/** Teto de mensagens que o detalhe carrega (o backend aceita no máximo 100). É só a
+ *  primeira página: o resto do histórico vem por GET /atendimentos/{id}/mensagens. */
+export const LIMITE_MENSAGENS_DETALHE = 100
+
+/** Tamanho da página do histórico para trás (GET /atendimentos/{id}/mensagens). */
+export const PAGINA_MENSAGENS = 50
+
 type Status = "loading" | "success" | "error"
 
 function montarFiltrosIniciais(): FiltrosAtendimentos {
@@ -107,7 +114,11 @@ function buildResumoPath(
 export function useAtendimentos(
   initialId?: string | null,
   filtrosIniciaisOverride?: Partial<FiltrosAtendimentos>,
-  filtrosUrl: FiltrosUrlAtendimentos = {}
+  filtrosUrl: FiltrosUrlAtendimentos = {},
+  /** Recorte que o consumidor mantém por fora da lista principal (ex.: as colunas
+   *  terminais do kanban). Roda dentro do mesmo debounce de `revalidar` para não
+   *  virar uma quarta fonte de refetch disparando em paralelo. */
+  aoRevalidar?: () => void
 ) {
   const [filtros, setFiltros] = useState<FiltrosAtendimentos>(() => ({
     ...montarFiltrosIniciais(),
@@ -131,12 +142,15 @@ export function useAtendimentos(
   const detalheRef = useRef<AtendimentoDetalheResponse | null>(null)
   const selectedIdRef = useRef<string | null>(null)
   const pendingInitialId = useRef<string | null>(initialId ?? null)
+  const listaGenRef = useRef(0)
+  const appendingRef = useRef(false)
   const firstListaDone = useRef(false)
   const firstDetalheDone = useRef(false)
   const refetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const buscaTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const realtimeEvents = useRef(0)
   const filtrosUrlRef = useRef<FiltrosUrlAtendimentos>(filtrosUrl)
+  const aoRevalidarRef = useRef<(() => void) | undefined>(aoRevalidar)
 
   const filtrosEfetivos = useMemo<FiltrosAtendimentos>(
     () => ({
@@ -175,13 +189,21 @@ export function useAtendimentos(
   const loadDetalhe = useCallback(async (id: string) => {
     if (!firstDetalheDone.current) setDetalheStatus("loading")
     try {
-      const res = normalizarDetalheResponse(await api<AtendimentoDetalheResponse>(`/v1/atendimentos/${id}`))
+      // mensagens_limit=100 é o teto do backend: é a primeira página do histórico.
+      // O HistoricoMensagens pagina para trás a partir daqui.
+      const res = normalizarDetalheResponse(
+        await api<AtendimentoDetalheResponse>(
+          `/v1/atendimentos/${id}?mensagens_limit=${LIMITE_MENSAGENS_DETALHE}`
+        )
+      )
+      if (selectedIdRef.current !== id) return // seleção mudou antes da resposta chegar
       detalheRef.current = res
       setDetalhe(res)
       setDetalheStatus("success")
       setDetalheError(null)
       firstDetalheDone.current = true
     } catch (e) {
+      if (selectedIdRef.current !== id) return
       if (!firstDetalheDone.current) setDetalheStatus("error")
       setDetalheError(e instanceof Error ? e.message : "Erro desconhecido")
     }
@@ -201,6 +223,13 @@ export function useAtendimentos(
     manterSelecao = false,
     atualizarDetalhe = false
   ) => {
+    if (mode === "append") {
+      // Ignora cliques repetidos em "Carregar mais": um append já em voo (ou sem
+      // próxima página) duplicaria itens com o mesmo cursor.
+      if (appendingRef.current || !nextCursorRef.current) return
+      appendingRef.current = true
+    }
+    const gen = ++listaGenRef.current
     if (mode === "replace" && !manterSelecao) {
       selectedIdRef.current = null
       detalheRef.current = null
@@ -212,6 +241,7 @@ export function useAtendimentos(
     try {
       const cursor = mode === "append" ? nextCursorRef.current : null
       const res = normalizarListaResponse(await api<AtendimentosListaResponse>(buildListaPath(filtrosEfetivos, filtrosUrlRef.current, cursor)))
+      if (gen !== listaGenRef.current) return // resposta de uma carga mais antiga; descarta
       const novosItems = mode === "append" ? [...itemsRef.current, ...res.items] : res.items
       itemsRef.current = novosItems
       nextCursorRef.current = res.next_cursor
@@ -237,8 +267,11 @@ export function useAtendimentos(
         setDetalheStatus("success")
       }
     } catch (e) {
+      if (gen !== listaGenRef.current) return
       if (!firstListaDone.current) setListaStatus("error")
       setListaError(e instanceof Error ? e.message : "Erro desconhecido")
+    } finally {
+      if (mode === "append") appendingRef.current = false
     }
   }, [filtrosEfetivos, selectAtendimento])
 
@@ -254,21 +287,38 @@ export function useAtendimentos(
     }
   }, [filtrosEfetivos])
 
+  // Fonte ÚNICA de revalidação de lista+resumo. Mutador e realtime empurram para
+  // cá; o timer coalesce a rajada (o POST e o eco do realtime que ele mesmo gera)
+  // numa recarga só, em vez de remontar a lista duas vezes e saltar a seleção.
+  const revalidar = useCallback(() => {
+    realtimeEvents.current += 1
+    if (refetchTimer.current) clearTimeout(refetchTimer.current)
+    refetchTimer.current = setTimeout(() => {
+      if (process.env.NODE_ENV !== "production" && realtimeEvents.current > 1) {
+        console.debug(`[atendimentos] refetch coalescido por ${realtimeEvents.current} eventos`)
+      }
+      realtimeEvents.current = 0
+      loadLista("replace", true, true)
+      loadResumo()
+      aoRevalidarRef.current?.()
+    }, 250)
+  }, [loadLista, loadResumo])
+
   const refetch = useCallback(() => {
     loadLista("replace", true, true)
   }, [loadLista])
 
   const carregarMais = useCallback(() => {
-    if (nextCursor) loadLista("append", true)
-  }, [loadLista, nextCursor])
+    loadLista("append", true)
+  }, [loadLista])
 
   const devolver = useCallback(async (id: string) => {
     await api(`/v1/atendimentos/${id}/devolver`, {
       method: "POST",
       body: JSON.stringify({ observacao: null }),
     })
-    await loadLista("replace", true)
-  }, [loadLista])
+    revalidar()
+  }, [revalidar])
 
   const abrirCorrigir = useCallback((id: string) => setCorrigirAlvoId(id), [])
   const fecharCorrigir = useCallback(() => setCorrigirAlvoId(null), [])
@@ -290,11 +340,11 @@ export function useAtendimentos(
         ...(dados.isentarTaxa ? { isentar_taxa: true } : {}),
       }),
     })
-    await loadLista("replace", false)
+    revalidar()
     toast.success(`Atendimento #${numero ?? "?"} fechado`, {
       action: { label: "Corrigir", onClick: () => abrirCorrigir(id) },
     })
-  }, [loadLista, numeroDe, abrirCorrigir])
+  }, [revalidar, numeroDe, abrirCorrigir])
 
   const perder = useCallback(async (id: string, motivo: MotivoPerda, observacao: string | null) => {
     const numero = numeroDe(id)
@@ -302,11 +352,11 @@ export function useAtendimentos(
       method: "POST",
       body: JSON.stringify({ motivo, observacao }),
     })
-    await loadLista("replace", false)
+    revalidar()
     toast.success(`Atendimento #${numero ?? "?"} marcado como perdido`, {
       action: { label: "Corrigir", onClick: () => abrirCorrigir(id) },
     })
-  }, [loadLista, numeroDe, abrirCorrigir])
+  }, [revalidar, numeroDe, abrirCorrigir])
 
   // Correção de Registro de resultado (Fechado↔Perdido + valor/motivo). Reaproveita
   // o comando corrigir_registro do backend, que reconcilia bloqueio e Financeiro.
@@ -316,26 +366,28 @@ export function useAtendimentos(
       body: JSON.stringify(payload),
     })
     if (selectedIdRef.current === id) await loadDetalhe(id)
-    await loadLista("replace", true, true)
+    revalidar()
     toast.success(
       payload.novo_resultado === "Fechado"
         ? "Resultado corrigido para fechado"
         : "Resultado corrigido para perdido"
     )
-  }, [loadDetalhe, loadLista])
+  }, [loadDetalhe, revalidar])
 
   const excluir = useCallback(async (id: string) => {
     const numero = numeroDe(id)
     await api(`/v1/atendimentos/${id}`, { method: "DELETE" })
-    await loadLista("replace", false)
-    await loadResumo()
+    revalidar()
     toast.success(`Atendimento #${numero ?? "?"} excluído`)
-  }, [loadLista, loadResumo, numeroDe])
+  }, [revalidar, numeroDe])
 
   const moverEstado = useCallback(async (id: string, estado: EstadoKanbanDestino) => {
-    setItems((current) =>
-      current.map((item) => item.id === id ? { ...item, estado: estado as EstadoAtendimento } : item)
-    )
+    // O otimista precisa valer também no itemsRef: ele é a base do append do
+    // "Carregar mais" e do numeroDe — sem isso o card ressuscita no estado antigo.
+    const aplicarOtimista = (lista: AtendimentoListaItem[]) =>
+      lista.map((item) => item.id === id ? { ...item, estado: estado as EstadoAtendimento } : item)
+    itemsRef.current = aplicarOtimista(itemsRef.current)
+    setItems(aplicarOtimista)
     try {
       await api(`/v1/atendimentos/${id}/estado`, {
         method: "PATCH",
@@ -353,8 +405,8 @@ export function useAtendimentos(
       body: JSON.stringify(dados),
     })
     if (selectedIdRef.current === id) await loadDetalhe(id)
-    await loadLista("replace", true)
-  }, [loadDetalhe, loadLista])
+    revalidar()
+  }, [loadDetalhe, revalidar])
 
   const criarAtendimento = useCallback(
     async (payload: CriarAtendimentoRequest): Promise<CriarAtendimentoResultado> => {
@@ -400,22 +452,13 @@ export function useAtendimentos(
     }
   }, [])
 
-  const debouncedRealtimeRefetch = useCallback(() => {
-    realtimeEvents.current += 1
-    if (refetchTimer.current) clearTimeout(refetchTimer.current)
-    refetchTimer.current = setTimeout(() => {
-      if (process.env.NODE_ENV !== "production" && realtimeEvents.current > 1) {
-        console.debug(`[atendimentos] refetch coalescido por ${realtimeEvents.current} eventos`)
-      }
-      realtimeEvents.current = 0
-      loadLista("replace", true, true)
-      loadResumo()
-    }, 250)
-  }, [loadLista, loadResumo])
-
   useEffect(() => {
     filtrosUrlRef.current = filtrosUrl
   }, [filtrosUrl])
+
+  useEffect(() => {
+    aoRevalidarRef.current = aoRevalidar
+  }, [aoRevalidar])
 
   useEffect(() => {
     if (buscaTimer.current) clearTimeout(buscaTimer.current)
@@ -439,7 +482,7 @@ export function useAtendimentos(
     const cleanupRealtime = subscribeTabelas(
       "atendimentos",
       ["atendimentos", "mensagens", "eventos", "comprovantes_pix"],
-      debouncedRealtimeRefetch
+      revalidar
     )
 
     const { data: authSub } = supabase.auth.onAuthStateChange((evt, session) => {
@@ -454,7 +497,7 @@ export function useAtendimentos(
       authSub.subscription.unsubscribe()
       if (refetchTimer.current) clearTimeout(refetchTimer.current)
     }
-  }, [debouncedRealtimeRefetch, router])
+  }, [revalidar, router])
 
   return {
     filtros,

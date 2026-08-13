@@ -62,11 +62,15 @@ function ColunaDroppable({
   items,
   onCardClick,
   dragAtivo,
+  onAvancar,
+  onSolicitarTerminal,
 }: {
   coluna: Coluna
   items: AtendimentoListaItem[]
   onCardClick: (id: string) => void
   dragAtivo: boolean
+  onAvancar: (item: AtendimentoListaItem) => void
+  onSolicitarTerminal: (item: AtendimentoListaItem, destino: "Fechado" | "Perdido") => void
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: coluna.id })
 
@@ -99,10 +103,23 @@ function ColunaDroppable({
         className={`flex min-h-[120px] flex-col gap-2 rounded-lg border p-2 ring-1 ring-border-subtle transition-colors ${classeRealce}`}
       >
         {items.map((item) => (
-          <DraggableCard key={item.id} item={item} onCardClick={onCardClick} isTerminal={coluna.terminal} />
+          <div key={item.id} className="flex flex-col gap-1">
+            <DraggableCard item={item} onCardClick={onCardClick} isTerminal={coluna.terminal} />
+            {/* O arraste só existe para ponteiro (PointerSensor); estes botões são o
+                caminho da mesma transição para quem navega por teclado. */}
+            {!coluna.terminal && (
+              <AcoesCard
+                coluna={coluna}
+                item={item}
+                compacto
+                onAvancar={onAvancar}
+                onSolicitarTerminal={onSolicitarTerminal}
+              />
+            )}
+          </div>
         ))}
         {items.length === 0 && (
-          <p className="px-2 py-4 text-center text-[11px] text-text-disabled">Nenhum atendimento</p>
+          <p className="px-2 py-4 text-center text-[11px] text-text-muted">Nenhum atendimento</p>
         )}
       </div>
     </div>
@@ -140,22 +157,27 @@ function DraggableCard({
   )
 }
 
-// Ações de transição por toque no mobile (substitui o drag). Avanço de uma
+// Ações de transição por botão: no mobile substituem o drag; no desktop são o
+// caminho alcançável por teclado (o card só arrasta por ponteiro). Avanço de uma
 // etapa ativa quando existe; em Em_execucao oferece os dois terminais.
-function AcoesMobile({
+function AcoesCard({
   coluna,
   item,
+  compacto = false,
   onAvancar,
   onSolicitarTerminal,
 }: {
   coluna: Coluna
   item: AtendimentoListaItem
+  compacto?: boolean
   onAvancar: (item: AtendimentoListaItem) => void
   onSolicitarTerminal: (item: AtendimentoListaItem, destino: "Fechado" | "Perdido") => void
 }) {
   const proxAtiva = COLUNAS_ATIVAS.find((c) => c.indice === coluna.indice + 1)
-  const botaoBase =
-    "inline-flex h-9 flex-1 items-center justify-center gap-1 rounded-md border px-3 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+  const botaoBase = cn(
+    "inline-flex flex-1 items-center justify-center gap-1 rounded-md border font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+    compacto ? "h-6 px-2 text-[10px]" : "h-9 px-3 text-xs"
+  )
 
   if (proxAtiva) {
     return (
@@ -214,13 +236,13 @@ function ColunaMobile({
       </div>
       <div className="flex flex-col gap-2 rounded-lg border border-border bg-muted p-2 ring-1 ring-border-subtle">
         {items.length === 0 && (
-          <p className="px-2 py-4 text-center text-[11px] text-text-disabled">Nenhum atendimento</p>
+          <p className="px-2 py-4 text-center text-[11px] text-text-muted">Nenhum atendimento</p>
         )}
         {items.map((item) => (
           <div key={item.id} className="flex flex-col gap-1.5">
             <KanbanCard item={item} onClick={() => onCardClick(item.id)} arrastavel={false} isDragging={false} />
             {!coluna.terminal && (
-              <AcoesMobile
+              <AcoesCard
                 coluna={coluna}
                 item={item}
                 onAvancar={onAvancar}
@@ -397,6 +419,8 @@ export function KanbanBoard({
               items={itensPorColuna.get(coluna.id) ?? []}
               onCardClick={onCardClick}
               dragAtivo={draggingItem !== null}
+              onAvancar={avancar}
+              onSolicitarTerminal={onSolicitarTerminal}
             />
           ))}
         </div>

@@ -18,6 +18,14 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { dataDeInput, dataInput, isoAgenda } from "@/hooks/useAgenda"
@@ -608,27 +616,17 @@ export function DialogBloqueio({
     : [{ min: duracaoMin, label: duracaoLabel(duracaoMin) }, ...DURACOES]
 
   return (
-    <>
-      <div
-        className="fixed inset-0 z-40 bg-ink-0/80 duration-100 motion-safe:animate-in motion-safe:fade-in-0"
-        onClick={onClose}
-      />
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="dialog-bloqueio-title"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") onClose()
-        }}
-        className="fixed top-1/2 left-1/2 z-50 flex w-[min(96vw,64rem)] -translate-x-1/2 -translate-y-1/2 flex-col max-h-[92vh] rounded-lg border border-border-strong bg-popover text-popover-foreground shadow-[0_16px_48px_rgba(0,0,0,0.7)]"
-      >
+    // O componente só é montado quando o dialog deve aparecer: `open` fixo e o
+    // fechamento (backdrop, Escape, botão X) sobe pelo mesmo onClose de antes.
+    <Dialog open onOpenChange={(aberto) => { if (!aberto) onClose() }}>
+      <DialogContent size="lg">
         {/* Header */}
-        <div className="flex flex-shrink-0 items-start justify-between gap-4 border-b border-border px-8 py-4">
+        <DialogHeader className="flex-none items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2.5">
-              <h2 id="dialog-bloqueio-title" className="text-lg font-semibold leading-tight text-text-primary">
+              <DialogTitle className="text-lg leading-tight">
                 {titulo}
-              </h2>
+              </DialogTitle>
               {editando && bloqueio && (
                 <Badge variant={estadoBadgeVariant[bloqueio.estado]}>
                   {estadoLabel[bloqueio.estado]}
@@ -654,10 +652,10 @@ export function DialogBloqueio({
           >
             <X size={18} strokeWidth={1.5} />
           </button>
-        </div>
+        </DialogHeader>
 
         {/* Scrollable body */}
-        <div className="scroll-thin flex-1 overflow-y-auto px-8 py-6">
+        <DialogBody className="scroll-thin">
           <div className={cn(
             "grid gap-x-8 gap-y-5",
             // Modo "criar bloqueio puro" (sem atendimento) colapsa para 1 coluna estreita centralizada
@@ -1162,10 +1160,10 @@ export function DialogBloqueio({
 
             </div>{/* ═══════════════ FIM COLUNA DIREITA ═══════════════ */}
           </div>
-        </div>
+        </DialogBody>
 
         {/* Footer */}
-        <div className="flex flex-shrink-0 items-center justify-between gap-3 border-t border-border px-8 py-4">
+        <DialogFooter className="flex-none justify-between gap-3 py-4">
           <div className="flex items-center gap-2">
             {bloqueio?.atendimento_id && (
               <Button variant="ghost" onClick={() => onVerAtendimento(bloqueio.atendimento_id!)}>
@@ -1196,8 +1194,8 @@ export function DialogBloqueio({
               </Button>
             )}
           </div>
-        </div>
-      </div>
+        </DialogFooter>
+      </DialogContent>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>
         <AlertDialogContent>
@@ -1305,7 +1303,7 @@ export function DialogBloqueio({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </>
+    </Dialog>
   )
 }
 

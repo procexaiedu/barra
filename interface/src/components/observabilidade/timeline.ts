@@ -7,10 +7,13 @@
 
 import type { TurnoObservabilidade } from "@/tipos/observabilidade"
 
+// `key` e estavel por item (derivada do turno que o originou): "Carregar mais"
+// muda os indices da lista, e key por indice faria o React reaproveitar a
+// instancia da posicao — a bolha exibiria a avaliacao de OUTRO turno.
 export type ItemChat =
-  | { tipo: "cliente"; texto: string; ts: string }
-  | { tipo: "atendimento"; numeroCurto: number }
-  | { tipo: "ia"; turno: TurnoObservabilidade }
+  | { tipo: "cliente"; key: string; texto: string; ts: string }
+  | { tipo: "atendimento"; key: string; numeroCurto: number }
+  | { tipo: "ia"; key: string; turno: TurnoObservabilidade }
 
 export interface ConversaAvaliacao {
   conversaId: string
@@ -47,18 +50,19 @@ export function agruparConversas(turnos: TurnoObservabilidade[]): ConversaAvalia
     let ultimoAtendimento: string | null = null
     for (const t of grupo) {
       if (t.atendimento_id !== ultimoAtendimento && t.numero_curto != null) {
-        itens.push({ tipo: "atendimento", numeroCurto: t.numero_curto })
+        itens.push({ tipo: "atendimento", key: `at:${t.resposta_ia_id}`, numeroCurto: t.numero_curto })
       }
       ultimoAtendimento = t.atendimento_id
       if (t.mensagem_cliente && t.mensagem_cliente.created_at !== ultimoClienteTs) {
         itens.push({
           tipo: "cliente",
+          key: `cli:${t.resposta_ia_id}`,
           texto: t.mensagem_cliente.conteudo,
           ts: t.mensagem_cliente.created_at,
         })
         ultimoClienteTs = t.mensagem_cliente.created_at
       }
-      itens.push({ tipo: "ia", turno: t })
+      itens.push({ tipo: "ia", key: `ia:${t.resposta_ia_id}`, turno: t })
     }
     const primeiro = grupo[0]
     return {

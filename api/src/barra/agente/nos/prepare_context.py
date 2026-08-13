@@ -55,6 +55,7 @@ from psycopg import AsyncConnection
 
 from barra.core.db import conexao
 from barra.core.metrics import AGENTE_ACEITE_DO_CLIENTE, PERSONA_DRIFT_REMINDER
+from barra.dominio.agenda.service import antecedencia_min_por_tipo
 from barra.dominio.atendimentos.service import (
     PRECO_MINIMO_SCAN,
     Encontro,
@@ -72,6 +73,7 @@ from barra.dominio.atendimentos.service import (
     patamar_da_mesa_na_tabela,
     patamar_vigente,
     precos_ofertados_na_fala,
+    tipo_atendimento_congelado,
     valor_no_patamar,
 )
 from barra.dominio.conversas.modelos import DirecaoMensagem
@@ -87,6 +89,7 @@ from ..contexto import ContextAgente
 from ..estado import EstadoAgente
 from ..llm import build_system_messages
 from ..persona import (
+    JANELA_AGENDA_HORAS,
     IdentidadeModelo,
     brl,
     e_video_chamada,
@@ -100,6 +103,7 @@ from ..persona import (
 )
 from ._contexto_do_turno import ContextoDoTurno
 from ._foco_do_turno import (
+    _familias_em,
     _textos_do_burst,
     aceite_curto_no_burst,
     composicao_na_janela,
@@ -545,6 +549,8 @@ def _spotlight_legenda(texto: str, msg_id: str) -> str:
 
 
 # Sinais tipográficos parecidos com < >, mas que NENHUM bloco do turno usa (U+2039/U+203A).
+# A semelhanca visual com < > e o REQUISITO da defesa (ver `_neutralizar_tags`), nao um typo — dai
+# o per-file-ignore de RUF001/RUF002 deste modulo no pyproject.
 _ASPAS_ANGULARES = str.maketrans({"<": "‹", ">": "›"})
 
 
@@ -615,11 +621,17 @@ def _interesse_demonstrado(
     horario_em_pauta: bool,
 ) -> bool:
     """Segurança da modelo, degrau por SINAIS e não por estágio fixo (rodada 6, autorizado):
-    o endereço completo (com número) só sai para quem demonstrou interesse real — preço já na
-    mesa E pelo menos um sinal de avanço (aceite curto, horário em discussão, o próprio pedido
-    de endereço DEPOIS da cotação, ou estado que já liberava). Quem pergunta o endereço cedo
-    demais (sem cotação) segue no comportamento de sempre: região e condução, nunca o número.
-    Todos os sinais são computados (belief write-time + detectores de burst) — na dúvida, False."""
+    o BLOCO do ponto de encontro (a rua, SEM o número) só aparece para quem demonstrou interesse
+    real — preço já na mesa E pelo menos um sinal de avanço (aceite curto, horário em discussão,
+    o próprio pedido de endereço DEPOIS da cotação, ou estado que já liberava). Quem pergunta o
+    endereço cedo demais (sem cotação) segue no comportamento de sempre: região e condução.
+    Todos os sinais são computados (belief write-time + detectores de burst) — na dúvida, False.
+
+    ⚠️ Este predicado NÃO libera o NÚMERO. Quem decide o número é `_libera_numero_do_endereco`, e
+    ele IGNORA `interesse` de propósito (emenda de 25/07 ao ADR-0026): o número só sai com o
+    encontro de pé (horário combinado). A docstring antiga dizia "o endereço completo (com número)
+    só sai para quem demonstrou interesse real" e descrevia o degrau errado — quem editasse este
+    predicado acreditando nela afrouxaria a trava estrutural do número sem perceber."""
     if not preco_na_mesa:
         return False
     return (
@@ -1090,7 +1102,18 @@ async def _anexar_contexto_dinamico(
             _num_humano(precos_da_pedida[0] if precos_da_pedida else None),
         )
         if len(precos_da_pedida) == 1 and horas_str and preco_str:
-            contexto = replace(contexto, pacote_em_pauta={"horas": horas_str, "preco": preco_str})
+            # `origem="ele"` marca a PROVENIÊNCIA da linha (loop-massa r3, prompt #3): o pacote
+            # TROCOU porque o CLIENTE puxou outra duração no burst, e o preço que entra é o da
+            # tabela dela — ela ainda NÃO o disse a ele. Sem a marca, o `<valor_cotado>` do belief
+            # rotula esse número como "preço que VOCÊ já cotou" e a resposta certa (cotar o pacote
+            # que ele pediu) chega ao modelo como repetição proibida. Quem lê a marca é o template.
+            # Só na TROCA: ele repetir a duração que já estava em pauta não muda a proveniência do
+            # número (ali ela pode de fato já tê-lo cotado), e marcar assim mesmo apagaria a trava
+            # do valor cotado no caso mais comum.
+            novo = {"horas": horas_str, "preco": preco_str}
+            if contexto.pacote_em_pauta != novo:
+                novo["origem"] = "ele"
+            contexto = replace(contexto, pacote_em_pauta=novo)
     # --- As duas condutas do VALOR que precisam do cardápio + da janela juntos (11/08/2026) -------
     # Resolvidas aqui, e não em `_resolver_variaveis`, porque dependem do que só existe depois dele:
     # `fetiches_em_pauta`/`composicao_em_pauta` (cardápio resolvido contra o burst) e a duração pedida.
@@ -1262,7 +1285,13 @@ async def _carregar_bp3(
         """,
         (modelo_id,),
     )
-    m = await res.fetchone() or {}
+    m = await res.fetchone()
+    if m is None:
+        # O `or {}` que morava aqui prometia tolerar a modelo ausente e as duas linhas seguintes
+        # indexavam com [] — modelo removida/id sintético virava `KeyError: 'nome'` no meio da
+        # montagem do prompt, sem dizer o que faltou. O nó não tem try/except: de um jeito ou de
+        # outro o turno morre; que morra nomeando a causa.
+        raise ValueError(f"modelo {modelo_id} nao encontrado em barravips.modelos")
     identidade = IdentidadeModelo(
         nome=m["nome"],
         idade=m["idade"],
@@ -1802,8 +1831,10 @@ async def _carregar_atendimento(conn: AsyncConnection[Any], atendimento_id: str)
     res = await conn.execute(
         """
         SELECT ia_pausada, numero_curto, estado, intencao, tipo_atendimento, urgencia,
+               bloqueio_id,
                pix_status, data_desejada, horario_desejado, endereco, bairro,
-               cotacao_enviada_em, valor_acordado, duracao_horas, sinais_qualificacao,
+               cotacao_enviada_em, valor_acordado, duracao_horas, forma_pagamento,
+               sinais_qualificacao, proxima_acao_esperada,
                n_contrapropostas, n_perguntas_de_horario,
                dia_sondado_em, book_enviado_em, endereco_enviado_em,
                amiga_ofertada_em, foto_portaria_pedida_em,
@@ -1880,6 +1911,40 @@ def _valor_proposto_no_burst(textos_burst: list[str], ja_conhecidos: set[int]) -
     número e o aceite fecharia por outro."""
     citados = _valores_propostos_no_burst(textos_burst) - ja_conhecidos
     return citados.pop() if len(citados) == 1 else None
+
+
+# O que o cardápio de famílias (`_FAMILIAS_FETICHE`) NÃO nomeia e o corpus pendura no preço: a
+# QUANTIDADE de finalizações. A família `finalizar_oral` é sobre ONDE ("finalizar na boca/oral"),
+# não sobre quantas — e "por 300? Com 2 finalizações" não casa nenhuma delas. Só substantivo, e só
+# forma inequívoca: o verbo ("quero finalizar") fica de fora porque "finalizar" também é fechar.
+_RE_RESSALVA_DE_SERVICO = re.compile(
+    r"\bfinaliza[çc](?:[ãa]o|[õo]es)\b|\bgozad(?:a|as|inha|inhas)\b",
+    re.IGNORECASE,
+)
+
+
+def _ressalva_de_servico_no_burst(textos_burst: list[str]) -> bool:
+    """True quando o burst pendura uma condição de SERVIÇO no número que o cliente propôs.
+
+    Loop-massa r3, achado 10: o cliente do `negociacao_dura_b` t4 não propôs "300", propôs "300 COM
+    2 finalizações". O ADR-0040 lê só o `int` do `_valor_proposto_no_burst`, então o
+    `<valor_dele_serve>` mandava aceitar "na hora, no valor DELE" e a ressalva — que ninguém
+    conferiu contra `<programas>`/`<fetiches>` — ia junto para o belief com autoridade de registro
+    do sistema. A outra metade do fix (`perguntas_do_burst`, que parou de decapitar a cauda depois
+    do "?") devolveu a condição ao CONTEXTO; esta devolve ao caminho DETERMINÍSTICO.
+
+    Reusa `_familias_em` — a MESMA tabela que resolve o `<servico_em_pauta>` contra o cadastro —
+    em vez de um léxico paralelo: duas listas de serviço divergiriam, e o aceite passaria a fechar
+    sobre um item que o foco classifica como fora do cardápio. `_RE_RESSALVA_DE_SERVICO` só cobre o
+    que a tabela não nomeia (quantidade de finalizações).
+
+    Não decide NADA sobre o serviço: só diz que o número dele veio acompanhado. Quem resolve a
+    condição contra o cadastro é o foco, e quem responde é a escada de sempre — o custo do falso
+    positivo é exatamente o comportamento pré-ADR-0040 nesse turno, e o do falso negativo é uma
+    promessa não conferida gravada como venda fechada."""
+    return bool(_familias_em(textos_burst)) or any(
+        _RE_RESSALVA_DE_SERVICO.search(t) for t in textos_burst
+    )
 
 
 def _horas_da_linha_contraproposta(
@@ -2070,13 +2135,22 @@ async def _resolver_variaveis(
     # criar_bloqueio_previo segue barrando double-booking real na criação. `IS DISTINCT FROM`
     # preserva os bloqueios avulsos (atendimento_id NULL); o gate `%s IS NULL` mantém todos os
     # bloqueios quando não há atendimento no contexto (fluxo do gate).
-    # ⚠️ Janela de 48h espelhada em texto LLM-visível: `consultar_agenda` (DESC, ferramentas/
-    # leitura.py) e o prompt `<ferramentas>` (regras.md.j2) dizem "próximas 48h" pra ensinar
-    # quando chamar a tool. Mudou aqui → atualize os dois, senão a DESC/prompt mentem em silêncio.
+    # A janela vem de `JANELA_AGENDA_HORAS` (persona.py), que é também o global do Jinja lido pelos
+    # prompts LLM-visíveis (`regras.md.j2`, `bloco_da_modelo.md.j2`, `contexto_dinamico.md.j2`) e
+    # pela DESC de `consultar_agenda`. Antes o 48 era literal nos oito lugares e mudar a query sem
+    # mudar os textos fazia a DESC/prompt mentirem em silêncio.
     # Âncora de tempo do turno (clock injection, ContextAgente.agora_utc): fonte ÚNICA de "agora"
     # p/ a janela de bloqueios E a âncora renderizada (data/hora/horario_minimo). Prod (agora_utc
     # None) -> current_timestamp do banco; harness fiel/replay -> instante fixo.
     agora, agora_tz = await _resolver_agora(conn, ctx)
+
+    # O recorte é por SOBREPOSIÇÃO com a janela (`fim > agora`), não pelo início do bloqueio.
+    # Com `inicio >= agora` o encontro EM CURSO (começou 20h, termina 22h, cliente escreve 21h)
+    # sumia da lista — e `bloqueios_raw` é a única fonte de ocupação dos QUATRO consumidores
+    # abaixo (<bloqueio> do <agenda>, horario_minimo, proximo_horario e janelas_livres). A IA
+    # lia "<livre>sem bloqueios</livre>" e oferecia a outro cliente a hora em que a modelo estava
+    # ocupada. O próprio filtro de estado prova a intenção: 'em_atendimento' designa um bloqueio
+    # que JÁ começou, e com o predicado antigo esse estado nunca casava.
 
     res = await conn.execute(
         """
@@ -2084,12 +2158,19 @@ async def _resolver_variaveis(
           FROM barravips.bloqueios
          WHERE modelo_id = %s
            AND estado IN ('bloqueado', 'em_atendimento')
-           AND inicio >= %s
-           AND inicio < %s + interval '48 hours'
+           AND fim > %s
+           AND inicio < %s + make_interval(hours => %s)
            AND (%s::uuid IS NULL OR atendimento_id IS DISTINCT FROM %s::uuid)
          ORDER BY inicio
         """,
-        (ctx.modelo_id, agora_tz, agora_tz, ctx.atendimento_id, ctx.atendimento_id),
+        (
+            ctx.modelo_id,
+            agora_tz,
+            agora_tz,
+            JANELA_AGENDA_HORAS,
+            ctx.atendimento_id,
+            ctx.atendimento_id,
+        ),
     )
     bloqueios_raw = await res.fetchall()
 
@@ -2177,6 +2258,7 @@ async def _resolver_variaveis(
             valor_da_mesa=atendimento.get("valor_acordado"),
             encontro=encontro,
             n_contrapropostas=n_contrapropostas,
+            condicionado=_ressalva_de_servico_no_burst(textos_burst),
         )
         AGENTE_ACEITE_DO_CLIENTE.labels(encontro, motivo).inc()
         if aceite is not None:
@@ -2220,10 +2302,30 @@ async def _resolver_variaveis(
     # `lead_min` separa o offset-de-agora do gap entre vizinhos (que segue buffer_min). Reusa
     # proximo_livre com `agora_tz` (aware, mesmo fuso dos bloqueios -> renderiza igual). None =
     # now+antecedencia cai fora da Disponibilidade (a IA cai na conduta de período de trabalho).
-    sem_deslocamento = atendimento.get("tipo_atendimento") in ("interno", "remoto")
-    antecedencia_min = (
-        s.agenda_antecedencia_sem_deslocamento_min if sem_deslocamento else buffer_min
+    #
+    # O piso sai de `antecedencia_min_por_tipo` (dominio/agenda/service.py), a MESMA funcao que o
+    # gate de `criar_bloqueio_previo` consulta — prova r3, `diagnostico_externo_a.md` Q2: as duas
+    # copias da regua liam o `tipo_atendimento` de EPOCAS diferentes do turno (aqui, o snapshot do
+    # inicio; la, o tipo ja extraido) e o prompt anunciava um piso que a reserva recusava.
+    #
+    # E o tipo do snapshot ainda pode FLIPAR dentro deste mesmo turno (a extracao roda DEPOIS da
+    # fala). Enquanto ele pode flipar, o piso publicado e o CONSERVADOR — nunca liberar uma hora
+    # que a reserva vai recusar. So dois casos congelam o tipo:
+    #   - a modelo nao faz externo (`sem_externo`): nao ha para onde flipar;
+    #   - `tipo_atendimento_congelado` (dominio/atendimentos): reserva criada ou
+    #     `Aguardando_confirmacao` — o MESMO predicado com que `_flip_de_tipo_pos_crava` descarta o
+    #     tipo novo do payload. Duas definicoes de "tipo congelado" repetiriam o defeito que este
+    #     bloco corrige.
+    # Custo aceito e nomeado: no pedido imediato de um encontro NO LOCAL DELA ainda sem reserva, a
+    # primeira hora ofertada anda ate meia hora para frente. A regua de negocio NAO muda — a
+    # reserva de um `interno` as 21:00 com `agora=20:41` segue sendo aceita se o CLIENTE a pedir;
+    # o que fica conservador e so a oferta espontanea da IA, cujo erro na outra direcao mata o turno.
+    tipo_congelado = sem_externo or tipo_atendimento_congelado(
+        bloqueio_id=atendimento.get("bloqueio_id"), estado=atendimento.get("estado")
     )
+    antecedencia_min = antecedencia_min_por_tipo(atendimento.get("tipo_atendimento"))
+    if not tipo_congelado:
+        antecedencia_min = max(antecedencia_min, antecedencia_min_por_tipo("externo"))
     horario_minimo = (
         proximo_livre(agora_tz, bloqueios_raw, regras_disp, buffer_min, lead_min=antecedencia_min)
         if agora_tz is not None
@@ -2262,7 +2364,7 @@ async def _resolver_variaveis(
     janelas = (
         janelas_livres(
             agora_tz + timedelta(minutes=antecedencia_min),
-            agora_tz + timedelta(hours=48),
+            agora_tz + timedelta(hours=JANELA_AGENDA_HORAS),
             bloqueios_raw,
             regras_disp,
             buffer_min,
@@ -2340,6 +2442,9 @@ async def _resolver_variaveis(
         intencao=atendimento.get("intencao"),
         tipo_atendimento=atendimento.get("tipo_atendimento"),
         horario_desejado=atendimento.get("horario_desejado"),
+        # A marca persistida do atendimento (spec proveniencia): com horario gravado mas nao
+        # evidenciado, o belief cobra a CONFIRMACAO em vez de tratar o palpite como combinado.
+        horario_evidenciado=bool(atendimento.get("horario_evidenciado")),
         cotacao_enviada=atendimento.get("cotacao_enviada_em") is not None,
     )
 
@@ -2396,6 +2501,7 @@ async def _resolver_variaveis(
         # NULL, vem do `preco_cotado_valor` (lido da fala dela na janela).
         valor_fechado=_num_humano(atendimento.get("valor_acordado")),
         valor_aceito=valor_aceito,
+        forma_pagamento=atendimento.get("forma_pagamento"),
         duracao_fechada=_num_humano(atendimento.get("duracao_horas")),
         # A linha da tabela em discussão (ver resolução acima); None fora do caso estreito.
         pacote_em_pauta=pacote_em_pauta,

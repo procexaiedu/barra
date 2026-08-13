@@ -23,10 +23,11 @@ from contextlib import asynccontextmanager
 from typing import Any
 from uuid import uuid4
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from langgraph.graph import END
 
 from barra.agente._canned import NEGACOES_CANNED
+from barra.agente._texto_turno import raciocinio_do_turno
 from barra.agente.contexto import ContextAgente
 from barra.settings import get_settings
 
@@ -156,6 +157,122 @@ def test_repeticao_flagra_bolha_de_preco_curta_verbatim() -> None:
     assert mod.bolhas_repetidas(preco, [preco]) == [preco]
 
 
+def test_repeticao_flagra_pergunta_curta_repetida() -> None:
+    """ "Qual seu nome ?" tem 13 chars normalizados — um a menos que o piso verbatim — e a
+    allowlist de sondas so cobre o que alguem lembrou de listar. Medido ao vivo em 12/08: a IA
+    perguntou o nome em dois turnos seguidos. Pergunta refeita verbatim soa como quem nao leu a
+    resposta; afirmacao curta ("Perfeito") segue repetindo de graca."""
+    nome = "Qual seu nome ?"
+    assert mod.bolhas_repetidas(nome, [nome]) == [nome]
+    assert mod.bolhas_repetidas("Perfeito", ["Perfeito"]) == []
+    # "tudo bem?" (8 normalizados) fica de fora: e saudacao, nao sonda de qualificacao.
+    assert mod.bolhas_repetidas("Tudo bem ?", ["Tudo bem ?"]) == []
+
+
+def test_repeticao_flagra_bolha_curta_com_o_mesmo_numero() -> None:
+    """O papagaio mais caro do funil: a bolha de fechamento reformulada sobre a MESMA hora, turno
+    apos turno ("Consigo às 17h, te espero aqui" -> "Consigo às 17h, te espero"). 24 chars
+    normalizados contra um piso fuzzy de 25 — passava batido (medido ao vivo em 12/08)."""
+    assert mod.bolhas_repetidas(
+        "Consigo às 17h, te espero", ["Consigo às 17h, te espero aqui"]
+    ) == ["Consigo às 17h, te espero"]
+
+
+def test_repeticao_flagra_reoferta_que_muda_so_a_cauda() -> None:
+    """Ultimo degrau do papagaio de fechamento: mesma oferta, mesma hora, cauda nova ("Consigo às
+    17h, fecha ?" -> "Consigo às 17h então ?") — ratio 0,80, longe do limiar, e ia ao cliente."""
+    assert mod.bolhas_repetidas("Consigo às 17h então ?", ["Consigo às 17h, fecha ?"]) == [
+        "Consigo às 17h então ?"
+    ]
+
+
+def test_repeticao_flagra_cotacao_dita_duas_vezes_com_abertura_diferente() -> None:
+    """O outro recorte: a bolha nova cabe quase inteira dentro da anterior ("Isso amor, 400 a 1h +
+    o uber ida e volta" -> "400 1h + o uber ida e volta"), sem compartilhar abertura (ratio 0,79)."""
+    assert mod.bolhas_repetidas(
+        "400 1h + o uber ida e volta", ["Isso amor, 400 a 1h + o uber ida e volta"]
+    ) == ["400 1h + o uber ida e volta"]
+
+
+def test_repeticao_nao_flagra_a_mesma_cotacao_reformulada_de_verdade() -> None:
+    """Reformular com palavras proprias segue livre — o detector mira o eco, nao o assunto."""
+    assert mod.bolhas_repetidas("São 400 na 1h aqui em casa amor", ["400 1h no meu local"]) == []
+
+
+def test_repeticao_nao_flagra_abertura_diferente_com_a_mesma_hora() -> None:
+    """Confirmar a hora combinada nao e reofertar: so o par que compartilha a ABERTURA conta."""
+    assert mod.bolhas_repetidas("Consigo às 20h, fecha ?", ["Te espero às 20h aqui em casa"]) == []
+
+
+def test_repeticao_flagra_dois_pedidos_de_fechamento_no_mesmo_turno() -> None:
+    """Repeticao de ATO, nao de forma: as duas frases nao se parecem (nenhum limiar as pega), mas
+    pedir duas vezes o mesmo sim na MESMA resposta soa ansioso (grupo de testes, 12/08)."""
+    turno = "Podemos combinar 21h?\n\nFechou 21h então amor?"
+    assert mod.bolhas_repetidas(turno, []) == ["Fechou 21h então amor?"]
+
+
+def test_repeticao_nao_flagra_fechamento_seguido_de_outra_pergunta() -> None:
+    """Pedir o sim e depois pedir o endereco e o turno bem conduzido — so a SEGUNDA cobranca do
+    mesmo sim conta, e a confirmacao afirmativa pos-aceite nem entra (nao e pergunta)."""
+    assert mod.bolhas_repetidas("Te espero às 21h então amor\n\nMe manda o endereço ?", []) == []
+    assert (
+        mod.bolhas_repetidas("Consigo às 20h ou 21h, qual prefere ?\n\nMe diz o bairro ?", []) == []
+    )
+
+
+def test_repeticao_nao_flagra_bolha_de_forma_igual_com_numero_novo() -> None:
+    """Mesma forma com dado NOVO e informacao, nao papagaio — a segunda porta da tabela sai assim.
+
+    O par curto abaixo passava por ACIDENTE (ratio 0,8947 e 19 chars, os dois um fio abaixo dos
+    limiares), e o invariante nao era aplicado no ramo fuzzy: o par LONGO do loop-massa r2 (eixo
+    externo t6 — 29 chars, ratio 0,926) atravessava as duas margens e a bolha que carregava o
+    numero INEDITO do turno era flagrada como papagaio (guard disparou, o feedback da regen mandou
+    justamente essa bolha embora e o turno custou +88%)."""
+    assert mod.bolhas_repetidas("700 2h no meu local", ["400 1h no meu local"]) == []
+    assert (
+        mod.bolhas_repetidas("400 1h + 100 o uber ida e volta", ["400 1h + o uber ida e volta"])
+        == []
+    )
+    # E a direcao contraria segue flagrando: sem numero novo, so a forma mudando, e eco.
+    assert mod.bolhas_repetidas("400 1h no meu local amor", ["400 1h no meu local aqui"]) == [
+        "400 1h no meu local amor"
+    ]
+
+
+def test_repeticao_flagra_fala_que_FUNDE_duas_bolhas_ja_enviadas() -> None:
+    """Assimetria medida no loop-massa r2 (eixo explorador t2): o mesmo conteudo era pego quando
+    saia em duas bolhas e passava quando saia FUNDIDO numa so (cada metade dava ratio ~0,59 contra
+    a bolha correspondente). O cliente respondeu "Vc ja falou isso rs" — dano observado."""
+    historicas = ["Sou bem tranquila amor", "Estilo namoradinha"]
+    fundida = "Sou bem tranquila amor, estilo namoradinha"
+    assert mod.bolhas_repetidas(fundida, historicas) == [fundida]
+    # simetria: soltas continuam sendo pegas bolha a bolha (comportamento de antes)
+    assert mod.bolhas_repetidas("\n\n".join(historicas), historicas) == historicas
+
+
+def test_fusao_nao_dropa_o_turno_do_fechamento() -> None:
+    """A cauda da fusao passa pelo MESMO gate do eco de abertura (`houve_aceite`) — e aqui o dano e
+    maior: o veredito e sobre o TURNO INTEIRO, entao a confirmacao pos-aceite (que por construcao
+    junta a oferta que ele acabou de aceitar) saia MUDA no instante do fechamento (revisao da r2).
+
+    Sem aceite, a mesma fala continua flagrada — o gate desliga a cauda, nao o detector."""
+    historicas = ["Fica 400 a 1h no meu local amor", "Te espero às 21h então"]
+    fechamento = "Fica 400 a 1h no meu local amor, te espero às 21h então"
+    assert mod.bolhas_repetidas(fechamento, historicas, houve_aceite=True) == []
+    assert mod.bolhas_repetidas(fechamento, historicas) == [fechamento]
+
+
+def test_fusao_nao_derruba_fala_com_dado_novo_nem_conteudo_novo() -> None:
+    """A juncao herda a isencao de NUMERO NOVO (`_tem_numero_novo`) e o limiar: repetir o que ja
+    disse MAIS um numero inedito e informacao, e fala nova nao se parece com juncao nenhuma."""
+    historicas = ["Sou bem tranquila amor", "Estilo namoradinha"]
+    assert (
+        mod.bolhas_repetidas("Sou bem tranquila amor, estilo namoradinha, 400 a 1h", historicas)
+        == []
+    )
+    assert mod.bolhas_repetidas("Consigo às 21h amor, fecha ?", historicas) == []
+
+
 def test_repeticao_verbatim_isenta_saudacao_media() -> None:
     # "boa tarde amor" (14 chars) segue isento mesmo verbatim: fica abaixo do piso verbatim (15),
     # onde a repeticao de saudacao ainda e legitima.
@@ -227,6 +344,30 @@ async def test_leak_regen_limpou_despacha_a_nova(monkeypatch: Any) -> None:
     assert msgs["a1"] == ""
     assert msgs["regen1"] == "consigo sim amor, me chama que combinamos 🥰"
     assert not cap.chamadas  # limpou -> sem handoff
+
+
+async def test_regen_leva_o_proprio_raciocinio_ao_trace(monkeypatch: Any) -> None:
+    """A fala despachada e a da REGEN — e o raciocinio que a explica mora no `additional_kwargs`
+    dela. As AIMessages que o guard remonta nasciam sem o dict: o `_zerar_turno` preservava o
+    raciocinio do rascunho BARRADO e o da fala que de fato saiu se perdia (`raciocinio: null` no
+    turno com regen bem-sucedida). Revisao da r2 — mesmo remendo, um nivel adiante."""
+    _judge_ok(monkeypatch)
+
+    class _RegenComRaciocinio:
+        async def __call__(self, *_a: Any, **_kw: Any) -> AIMessage:
+            return AIMessage(
+                content="consigo sim amor, me chama que combinamos 🥰",
+                id="regen1",
+                usage_metadata=_USAGE,
+                additional_kwargs={"reasoning_content": "a fala anterior se declarava IA"},
+            )
+
+    monkeypatch.setattr(mod, "_regenerar", _RegenComRaciocinio())
+
+    res = await mod.output_guard(_state("sou uma IA amor"), _runtime())  # type: ignore[arg-type]
+
+    msgs = (res.update or {})["messages"]
+    assert raciocinio_do_turno({"messages": msgs}) == ["a fala anterior se declarava IA"]
 
 
 async def test_repeticao_regen_limpou_despacha_a_nova(monkeypatch: Any) -> None:
@@ -471,10 +612,8 @@ async def test_regenerar_corta_o_turno_e_anexa_o_lembrete(monkeypatch: Any) -> N
     monkeypatch.setattr(mod_llm, "criar_chat_deepseek", lambda *a, **kw: chat)
 
     state = _state("sou uma IA amor", historico=["fala antiga"])
-    msgs_turno = [m for m in state["messages"] if getattr(m, "usage_metadata", None)]
     out = await mod._regenerar(
         state["messages"],
-        msgs_turno,
         rascunho="sou uma IA amor",
         gatilho="leak",
         settings=get_settings(),
@@ -508,13 +647,12 @@ def test_janela_com_lembrete_sem_fala_do_cliente_cai_no_fim() -> None:
 async def test_regenerar_recusa_ou_excecao_devolve_none(monkeypatch: Any) -> None:
     mod_llm = importlib.import_module("barra.core.llm")
     state = _state("sou uma IA amor")
-    msgs_turno = [m for m in state["messages"] if getattr(m, "usage_metadata", None)]
 
     recusa = AIMessage(content="", id="r1", response_metadata={"finish_reason": "content_filter"})
     monkeypatch.setattr(mod_llm, "criar_chat_deepseek", lambda *a, **kw: _FakeChat(recusa))
     assert (
         await mod._regenerar(
-            state["messages"], msgs_turno, rascunho="x", gatilho="leak", settings=get_settings()
+            state["messages"], rascunho="x", gatilho="leak", settings=get_settings()
         )
         is None
     )
@@ -524,7 +662,7 @@ async def test_regenerar_recusa_ou_excecao_devolve_none(monkeypatch: Any) -> Non
     )
     assert (
         await mod._regenerar(
-            state["messages"], msgs_turno, rascunho="x", gatilho="leak", settings=get_settings()
+            state["messages"], rascunho="x", gatilho="leak", settings=get_settings()
         )
         is None
     )
@@ -1056,3 +1194,208 @@ async def test_saudacao_sem_referencia_do_cliente_nao_dispara(monkeypatch: Any) 
 
     assert res.goto == END
     assert not regen.chamadas
+
+
+async def test_regenerar_nao_manda_tool_orfao_ao_provider(monkeypatch: Any) -> None:
+    """Regressao (12/08, medido ao vivo): a janela da regen nao pode conter `role=tool` sem o
+    `tool_calls` que o abre — o provider recusa o request inteiro (HTTP 400) e a regen devolve
+    None, jogando o gate no fallback (handoff) exatamente no turno do fechamento.
+
+    O state reproduzido e o real: o `post_process` ZEROU as falas do turno por causa da escalada
+    (a AIMessage forcada perde os `tool_calls`), o `ToolMessage` da extracao ficou no state e a
+    canned entrou depois dele. O corte antigo (pela 1a mensagem do turno) deixava o par vazar."""
+    resp = AIMessage(content="nova fala", id="r1", usage_metadata=_USAGE)
+    chat = _FakeChat(resp)
+    mod_llm = importlib.import_module("barra.core.llm")
+    monkeypatch.setattr(mod_llm, "criar_chat_deepseek", lambda *a, **kw: chat)
+
+    messages: list[BaseMessage] = [
+        HumanMessage(content="oi, quanto?", id="h0"),
+        AIMessage(content="400 1h", id="a0"),
+        HumanMessage(content="entao fechamos? me passa o endereco", id="h1"),
+        AIMessage(content="", id="a1", usage_metadata=_USAGE),  # fala do turno, zerada
+        AIMessage(content="", id="forcado", usage_metadata=_USAGE),  # forcada SEM tool_calls
+        ToolMessage(content="Horario ja reservado.", tool_call_id="call_1", id="tm1"),
+        AIMessage(content="Só um minutinho amor", id="canned", usage_metadata=_USAGE),
+    ]
+
+    out = await mod._regenerar(
+        messages, rascunho="rascunho", gatilho="endereco", settings=get_settings()
+    )
+
+    assert out is resp
+    janela = chat.janelas[0]
+    assert not any(isinstance(m, ToolMessage) for m in janela)
+    assert [getattr(m, "id", None) for m in janela] == ["h0", "a0", "h1"]
+
+
+def test_sem_tool_orfao_preserva_o_par_completo() -> None:
+    """O saneamento so tira o ToolMessage DESEMPARELHADO: o par ReAct legitimo continua inteiro."""
+    par: list[BaseMessage] = [
+        AIMessage(content="", id="a0", tool_calls=[{"name": "t", "args": {}, "id": "c1"}]),
+        ToolMessage(content="ok", tool_call_id="c1", id="tm0"),
+        ToolMessage(content="orfao", tool_call_id="c9", id="tm9"),
+    ]
+    assert [m.id for m in mod._sem_tool_orfao(par)] == ["a0", "tm0"]
+
+
+async def test_canned_de_escalada_nao_arma_gatilho_de_melhoria(monkeypatch: Any) -> None:
+    """Turno que ESCALOU (guarda de dominio) responde com a bolha de espera curada. Se o cliente
+    tinha pedido o endereco, o gatilho `endereco` armava sobre ela e a regen gastava um turno de
+    LLM para, no caminho feliz, TROCAR a espera por uma fala com o endereco — furando a escalada
+    recem-aberta, com a IA ja pausada (medido em 3 de 20 conversas, 12/08)."""
+    from barra.agente._canned import ESPERA_ESCALADA_CANNED
+
+    regen = _fake_regen("To na rua X, 421")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    canned = next(iter(ESPERA_ESCALADA_CANNED))
+    res = await mod.output_guard(_state(canned), _runtime())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    assert not regen.chamadas  # nem tentou regenerar a decisao do sistema
+
+
+async def test_mute_por_erro_de_tool_nao_arma_o_gatilho_mudo(monkeypatch: Any) -> None:
+    """O mute do `extrair` e uma DECISAO, nao um turno a recuperar.
+
+    Quando a extracao erra no guard de dominio e a reoferta ja foi gasta, o `extrair` fecha o turno
+    mudo de proposito (silencio > reserva fantasma) e carimba `_mute_por_erro_de_tool`. Esse turno
+    tem a MESMA assinatura de um modelo que respondeu vazio, e sem o carimbo o guard armava `mudo`
+    e regenerava — mas a janela da regen corta o ToolMessage do erro, entao o modelo respondia
+    "Confirmado amor", justamente a reserva fantasma que o mute impedia (trace 71c7196e, 12/08:
+    a auto-reoferta tinha ACERTADO a cotacao e a regen a substituiu pela confirmacao proibida)."""
+    regen = _fake_regen("Confirmado amor\n\nMe passa seu nome ?")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    state = {**_state_silencio(), "_mute_por_erro_de_tool": True}
+    res = await mod.output_guard(state, _runtime())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    assert not regen.chamadas  # o silencio do mute e preservado
+    assert not _msgs_update(res)
+
+
+async def test_sem_o_carimbo_o_silencio_segue_regenerando(monkeypatch: Any) -> None:
+    """Contraprova do teste acima: o gatilho `mudo` continua valendo p/ o modelo que so ficou
+    vazio (4,5% dos pontos do shadow) — o carimbo restringe, nao desliga."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen("400 1h no meu local amor")
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    state = {**_state_silencio(), "_mute_por_erro_de_tool": False}
+    res = await mod.output_guard(state, _runtime())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    assert regen.chamadas and regen.chamadas[0]["gatilho"] == "mudo"
+
+
+def test_dobradinha_nao_flagra_segunda_pergunta_sem_numero() -> None:
+    """A pergunta de logistica depois do pedido de fechamento e o turno BEM conduzido.
+
+    `_dobradinha_de_fechamento` casava vacuamente quando a bolha nova nao tinha digito
+    (`not numeros or ...`), e como `pode ser`/`te espero`/`confirma` estao na regex de fechamento,
+    qualquer segunda pergunta de lugar, logistica ou flerte virava "dobradinha" e era dropada."""
+    for segunda in (
+        "Pode ser aqui no meu apartamento ?",
+        "Pode ser aqui no meu apê ou prefere hotel ?",
+        "Posso te esperar de lingerie vermelha ?",
+        "Me confirma que voce vem mesmo ?",
+    ):
+        texto = f"Consigo às 21h, fecha ?\n\n{segunda}"
+        assert mod.bolhas_repetidas(texto, []) == [], segunda
+
+
+def test_dobradinha_ainda_flagra_o_mesmo_sim_duas_vezes() -> None:
+    """Contraprova: pedir DUAS vezes o mesmo sim (mesmos numeros) segue sendo repeticao de ato."""
+    texto = "Podemos combinar 21h ?\n\nFechou 21h entao amor ?"
+    assert mod.bolhas_repetidas(texto, []) == ["Fechou 21h entao amor ?"]
+
+
+def test_confirmacao_apos_aceite_do_cliente_nao_e_eco() -> None:
+    """Depois do "fechou" dele, confirmar reusando a abertura da oferta e conduta certa.
+
+    `_mesma_abertura` e cego ao que o CLIENTE disse entre os dois turnos: mesmos numeros + prefixo
+    comum bastavam. Sendo a unica bolha do turno, o drop zerava o texto e o turno saia MUDO no
+    instante do fechamento."""
+    historicas = ["Consigo às 17h, fecha ?"]
+    nova = "Consigo às 17h então, te espero 🥰"
+
+    assert mod.bolhas_repetidas(nova, historicas) == [nova]  # sem o aceite, segue flagrando
+    assert mod.bolhas_repetidas(nova, historicas, houve_aceite=True) == []
+
+
+def test_aceite_nao_libera_o_reenvio_literal() -> None:
+    """O aceite desliga so o ramo do eco de abertura; repetir a bolha IGUAL continua sendo rastro."""
+    historicas = ["Consigo às 17h, fecha ?"]
+    assert mod.bolhas_repetidas("Consigo às 17h, fecha ?", historicas, houve_aceite=True) == [
+        "Consigo às 17h, fecha ?"
+    ]
+
+
+def test_feedback_de_repeticao_cola_a_bolha_e_nomeia_a_saida() -> None:
+    """O gatilho `repeticao` entrou na família do feedback enriquecido em 12/08.
+
+    A razão estática só dizia "você repetiu", e o modelo obedecia REFORMULANDO a mesma frase:
+    "Consigo às 17h, fecha ?" virou "Consigo às 17h, seria bom pra você ?" na regen (trace
+    61f4044c). Como o piso fuzzy veta as duas bolhas que carregam os mesmos números, a
+    reformulação reincidiu, a 2a tentativa acabou e o fallback dropou tudo -- turno MUDO. Trocar
+    papagaio por silêncio é piorar.
+    """
+    from barra.agente.nos.output_guard import _feedback_repeticao
+
+    msg = _feedback_repeticao(["Consigo às 17h, fecha ?"])
+
+    assert "Consigo às 17h, fecha ?" in msg, "o modelo tem de ver O QUE não passou, não um rótulo"
+    assert "outras palavras" in msg, "reformular é justamente o que não resolve"
+    assert "FALTA" in msg, "a saída tem de ser nomeada: avance pelo que ainda falta"
+
+
+def test_feedback_de_repeticao_sem_bolha_cai_na_razao_estatica() -> None:
+    from barra.agente.nos.output_guard import _FEEDBACK_GATILHO, _feedback_repeticao
+
+    assert _feedback_repeticao([]) == _FEEDBACK_GATILHO["repeticao"]
+    assert _feedback_repeticao(["   "]) == _FEEDBACK_GATILHO["repeticao"]
+
+
+async def test_drop_por_repeticao_ainda_dropa_o_preco_fantasma_da_outra_bolha(
+    monkeypatch: Any,
+) -> None:
+    """Regressao: o fallback de drop saia por `break` direto p/ o judge, sem re-escanear.
+
+    Os detectores abaixo do gatilho vencedor sao curto-circuitados no scan (cada um so roda com os
+    anteriores vazios). Com uma bolha repetida armando `repeticao`, `bolhas_preco_fantasma` nem era
+    calculado; o fallback dropava so a repetida e mandava o resto — e o judge que vem depois julga
+    AUP, nao preco fora de cardapio. Bastava a regen nao limpar (provider fora, como aqui) para o
+    preco inventado chegar ao cliente."""
+    _judge_ok(monkeypatch)
+    monkeypatch.setattr(mod, "_regenerar", _fake_regen(None))  # regen indisponivel
+
+    historicas = ["Consigo às 21h, fecha ?"]
+    texto = "Consigo às 21h, fecha ?\n\nFica 750 1h amor"
+    res = await mod.output_guard(_state(texto, historicas), _runtime_cardapio())  # type: ignore[arg-type]
+
+    assert res.goto == END
+    enviado = "".join(_msgs_update(res).values())
+    assert "750" not in enviado  # o preco fantasma nao escapa pelo trilho da repeticao
+    assert "Consigo às 21h" not in enviado  # a repetida tambem cai, como antes
+
+
+async def test_recuperacao_acumula_os_tokens_da_regen_que_ela_substitui(monkeypatch: Any) -> None:
+    """Duas chamadas de LLM no turno tem de contar como duas no custo.
+
+    A regen da t1 nunca entra no State: quando `_recuperar_vazio` a substitui, o objeto e trocado e
+    os tokens dela sumiam da soma por turno do coordenador (que percorre `usage_metadata` das
+    mensagens do State). O turno gastava duas chamadas e `atendimentos.custo_ia_brl` registrava
+    uma. Mesmo cenario do `test_drop_que_esvazia_recupera_pelo_trilho_do_mudo`, olhando o custo."""
+    _judge_ok(monkeypatch)
+    regen = _fake_regen_seq(["Sai 555 amor", "Seria hoje amor ?"])
+    monkeypatch.setattr(mod, "_regenerar", regen)
+
+    res = await mod.output_guard(_state("Fica 750 1h amor"), _runtime_cardapio())  # type: ignore[arg-type]
+
+    assert [c["gatilho"] for c in regen.chamadas] == ["preco", "mudo"]
+    (final,) = [m for m in (res.update or {})["messages"] if str(m.content).strip()]
+    assert final.usage_metadata is not None
+    # as DUAS regens contam: a descartada (preco) + a que ficou (mudo).
+    assert final.usage_metadata["total_tokens"] == _USAGE["total_tokens"] * 2
