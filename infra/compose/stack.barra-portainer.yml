@@ -24,12 +24,19 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-barra:6379
-      - MINIO_ENDPOINT=https://minioback.procexai.tech/
+      # Backblaze B2 (us-east-005) desde 18/08/2026 — a midia da EvoGo saiu do MinIO.
+      # O cliente S3 e UM so, e a chave do B2 e presa a UM bucket, entao o bucket
+      # proprio e o da EvoGo passam a ser o MESMO, separados por prefixo:
+      #   atendimentos/...          -> midia deste projeto
+      #   evolution-go-medias/...   -> midia inbound da EvoGo (expurgo de 30d mira so este)
+      - MINIO_ENDPOINT=s3.us-east-005.backblazeb2.com
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       # MINIO_SECRET_KEY vem do Swarm secret (settings.py lê MINIO_SECRET_KEY_FILE).
-      - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
-      - MINIO_BUCKET_MEDIA=barra-media
+      - MINIO_SECRET_KEY_FILE=/run/secrets/b2_barra_secret_key
+      - MINIO_BUCKET_MEDIA=procex-whatsapp-midia
       - MINIO_USE_SSL=true
+      # Sem esta linha o default e "evolution-go", bucket que foi esvaziado na migracao.
+      - EVOGO_MEDIA_BUCKET=procex-whatsapp-midia
       # Os 3 caminhos de TEXTO (chat #1, extracao #2, judge #3) sao DeepSeek V4 Flash DIRETO
       # (api.deepseek.com): cache automatico de prefixo garantido + modelo cravado. DEEPSEEK_API_KEY
       # e ${VAR} do Env do stack (segredo, fora do git). DEEPSEEK_MODEL_CHAT=deepseek-v4-flash = id
@@ -133,7 +140,7 @@ services:
       - traefik_public
       - supabase_default
     secrets:
-      - minio_secret_key
+      - b2_barra_secret_key
 
   barra-worker:
     image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
@@ -147,11 +154,13 @@ services:
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis-barra:6379
-      - MINIO_ENDPOINT=minioback.procexai.tech
+      # Backblaze B2 desde 18/08/2026 — ver comentario no barra-api.
+      - MINIO_ENDPOINT=s3.us-east-005.backblazeb2.com
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
-      - MINIO_SECRET_KEY_FILE=/run/secrets/minio_secret_key
-      - MINIO_BUCKET_MEDIA=barra-media
+      - MINIO_SECRET_KEY_FILE=/run/secrets/b2_barra_secret_key
+      - MINIO_BUCKET_MEDIA=procex-whatsapp-midia
       - MINIO_USE_SSL=true
+      - EVOGO_MEDIA_BUCKET=procex-whatsapp-midia
       # Os 3 caminhos de TEXTO (chat #1, extracao #2, judge #3) sao DeepSeek V4 Flash DIRETO
       # (api.deepseek.com): cache automatico de prefixo garantido + modelo cravado. DEEPSEEK_API_KEY
       # e ${VAR} do Env do stack (segredo, fora do git). DEEPSEEK_MODEL_CHAT=deepseek-v4-flash = id
@@ -225,7 +234,7 @@ services:
       - traefik_public
       - supabase_default
     secrets:
-      - minio_secret_key
+      - b2_barra_secret_key
 
   redis-barra:
     image: redis:7.0-alpine
@@ -372,6 +381,7 @@ networks:
 
 secrets:
   # Criado pelo operador, fora do git (ver infra/runbooks/stack-git-backed.md):
-  #   printf '%s' '<chave-minio>' | docker secret create minio_secret_key -
-  minio_secret_key:
+  #   printf '%s' '<segredo-b2>' | docker secret create b2_barra_secret_key -
+  # (secret do Swarm e imutavel: por isso nome novo em vez de editar o antigo)
+  b2_barra_secret_key:
     external: true
